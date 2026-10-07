@@ -1,6 +1,9 @@
 #include "stpch.h"
 #include "Strada/Scene/ComponentTraits.h"
 
+#include <charconv>
+#include <string>
+
 namespace Strada
 {
 	Json ScriptFieldValueToJson(ScriptFieldValue const& value)

@@ -47,10 +47,13 @@ function(strada_configure_target target)
             -Wcast-align
             -Wformat=2
             -Wimplicit-fallthrough
-            -Wnull-dereference
             -Wmisleading-indentation)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             target_compile_options(${target} PRIVATE -Wduplicated-cond -Wlogical-op)
+        else()
+            # GCC's -Wnull-dereference is a flow-sensitive optimizer warning that reports false positives inside
+            # inlined third-party code (EnTT sparse sets at -O2), so it is only enabled for Clang's syntactic check.
+            target_compile_options(${target} PRIVATE -Wnull-dereference)
         endif()
         if(STRADA_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE -Werror)
