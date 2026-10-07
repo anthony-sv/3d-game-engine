@@ -16,9 +16,16 @@ add_executable(StradaTests
     Source/Core/ResultTests.cpp
     Source/Core/UUIDTests.cpp
     Source/GpuTestUtilities.h
+    Source/Math/MathTests.cpp
     Source/RHI/GraphicsDeviceTests.cpp
     Source/RHI/SwapchainTests.cpp
     Source/RHI/TextureReadbackTests.cpp
+    Source/Scene/ComponentRegistryTests.cpp
+    Source/Scene/SceneCameraTests.cpp
+    Source/Scene/SceneSerializerTests.cpp
+    Source/Scene/SceneTests.cpp
+    Source/Script/ScriptFieldTests.cpp
+    Source/Serialization/JsonSerializationTests.cpp
     Source/TestUtilities.h
 )
 

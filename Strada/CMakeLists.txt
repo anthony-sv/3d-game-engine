@@ -42,6 +42,41 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Window.h
 )
 
+set(STRADA_ASSET_SOURCES
+    Source/Strada/Asset/AssetHandle.h
+)
+
+set(STRADA_MATH_SOURCES
+    Source/Strada/Math/Math.cpp
+    Source/Strada/Math/Math.h
+)
+
+set(STRADA_SCENE_SOURCES
+    Source/Strada/Scene/ComponentRegistry.cpp
+    Source/Strada/Scene/ComponentRegistry.h
+    Source/Strada/Scene/ComponentSerialization.h
+    Source/Strada/Scene/ComponentTraits.cpp
+    Source/Strada/Scene/ComponentTraits.h
+    Source/Strada/Scene/Components.h
+    Source/Strada/Scene/Entity.h
+    Source/Strada/Scene/Scene.cpp
+    Source/Strada/Scene/Scene.h
+    Source/Strada/Scene/SceneCamera.cpp
+    Source/Strada/Scene/SceneCamera.h
+    Source/Strada/Scene/SceneSerializer.cpp
+    Source/Strada/Scene/SceneSerializer.h
+)
+
+set(STRADA_SCRIPT_SOURCES
+    Source/Strada/Script/ScriptField.cpp
+    Source/Strada/Script/ScriptField.h
+)
+
+set(STRADA_SERIALIZATION_SOURCES
+    Source/Strada/Serialization/JsonSerialization.cpp
+    Source/Strada/Serialization/JsonSerialization.h
+)
+
 set(STRADA_IMGUI_SOURCES
     Source/Strada/ImGui/ImGuiLayer.cpp
     Source/Strada/ImGui/ImGuiLayer.h
@@ -70,9 +105,14 @@ strada_configure_third_party_target(StradaStb)
 add_library(Strada STATIC
     Source/Strada.h
     Source/stpch.h
+    ${STRADA_ASSET_SOURCES}
     ${STRADA_CORE_SOURCES}
     ${STRADA_IMGUI_SOURCES}
+    ${STRADA_MATH_SOURCES}
     ${STRADA_RHI_SOURCES}
+    ${STRADA_SCENE_SOURCES}
+    ${STRADA_SCRIPT_SOURCES}
+    ${STRADA_SERIALIZATION_SOURCES}
 )
 
 target_include_directories(Strada PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
@@ -84,6 +124,7 @@ target_link_libraries(Strada
         glm::glm
         spdlog::spdlog
         nlohmann_json::nlohmann_json
+        EnTT::EnTT
         nvrhi_vk
         nvrhi
         StradaImGui
@@ -120,5 +161,7 @@ strada_add_shaders(Strada
 strada_configure_target(Strada)
 strada_add_configuration_definitions(Strada)
 
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_RHI_SOURCES})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES
+    ${STRADA_ASSET_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_RHI_SOURCES}
+    ${STRADA_SCENE_SOURCES} ${STRADA_SCRIPT_SOURCES} ${STRADA_SERIALIZATION_SOURCES})
 set_target_properties(Strada PROPERTIES FOLDER "Engine")

@@ -69,7 +69,7 @@ copied editor `Resources/`.
 
 ## 4. Engine library modules (`Strada/Source/Strada/`)
 
-Layering (a module may include only modules listed to its right):
+Layering (a module may include only modules listed to its left):
 
 ```
 Core ← Math ← Serialization ← Platform ← RHI ← Asset ← Renderer ← Physics, Audio ← Script ← Scene ← Project
@@ -216,9 +216,11 @@ end of the frame; creation is immediate.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 
-Plain data structs, copyable, with PascalCase public fields. Every component is registered in the
-`ComponentRegistry` with: a stable serialized name, JSON serialize/deserialize, copy between registries, and
-type-erased add/has/remove/get-JSON/set-JSON functions. The registry is the single source of truth for scene
+Plain data structs, copyable, with PascalCase public fields. Light intensities are artist-friendly multipliers
+(the renderer's exposure defaults suit them), not photometric units. Each component's serialized name and field list
+are declared once in `ComponentTraits.h`; generic code derives JSON serialization (strict, typed, transactional
+partial updates with readable errors), schemas, copies and the `ComponentRegistry` entry from that table. The
+registry provides type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for scene
 serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu, and script
 interop component lookups.
 
@@ -228,11 +230,11 @@ interop component lookups.
 | `Tag` | `TagComponent` | `Tag` |
 | `Transform` | `TransformComponent` | `Translation` vec3, `Rotation` quat (x, y, z, w), `Scale` vec3 — local to parent |
 | `Relationship` | `RelationshipComponent` | `Parent` UUID, `Children` UUID[] |
-| `Camera` | `CameraComponent` | `ProjectionType` (Perspective/Orthographic), `PerspectiveFOV` (deg), `PerspectiveNear`, `PerspectiveFar`, `OrthographicSize`, `OrthographicNear`, `OrthographicFar`, `Primary`, `FixedAspectRatio` |
+| `Camera` | `CameraComponent` | `Projection` (Perspective/Orthographic), `PerspectiveFOV` (deg), `PerspectiveNear`, `PerspectiveFar`, `OrthographicSize`, `OrthographicNear`, `OrthographicFar`, `Primary`, `FixedAspectRatio`, `AspectRatio` |
 | `Mesh` | `MeshComponent` | `Mesh` asset, `Materials` asset[] (per-submesh overrides, 0 = mesh default), `CastShadows`, `Visible` |
-| `DirectionalLight` | `DirectionalLightComponent` | `Color`, `Intensity` (lux), `CastShadows`, `LightSize` (angular diameter, deg; controls penumbra) |
-| `PointLight` | `PointLightComponent` | `Color`, `Intensity` (lumens), `Range`, `CastShadows` |
-| `SpotLight` | `SpotLightComponent` | `Color`, `Intensity` (lumens), `Range`, `InnerConeAngle`, `OuterConeAngle` (deg), `CastShadows` |
+| `DirectionalLight` | `DirectionalLightComponent` | `Color`, `Intensity`, `CastShadows`, `LightSize` (angular diameter, deg; controls penumbra) |
+| `PointLight` | `PointLightComponent` | `Color`, `Intensity`, `Range`, `CastShadows` |
+| `SpotLight` | `SpotLightComponent` | `Color`, `Intensity`, `Range`, `InnerConeAngle`, `OuterConeAngle` (half-angles, deg), `CastShadows` |
 | `SkyLight` | `SkyLightComponent` | `Environment` asset (HDRI), `Intensity`, `Rotation` (deg around Y), `SkyboxBlur` (0..1), `DrawSkybox`, `AmbientColor` (used when no environment) |
 | `RigidBody` | `RigidBodyComponent` | `Type` (Static/Dynamic/Kinematic), `Mass`, `LinearDamping`, `AngularDamping`, `GravityFactor`, `Layer`, `LockTranslation` bvec3, `LockRotation` bvec3, `ContinuousCollision`, `AllowSleep`, `InitialLinearVelocity`, `InitialAngularVelocity` |
 | `BoxCollider` | `BoxColliderComponent` | `HalfExtents`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |

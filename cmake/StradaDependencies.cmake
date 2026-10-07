@@ -62,6 +62,14 @@ set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
 set(JSON_Install OFF CACHE BOOL "" FORCE)
 set(JSON_MultipleHeaders OFF CACHE BOOL "" FORCE)
 
+# --- EnTT 4.0.0 (header-only ECS; requires C++20) ------------------------------------------------------------------
+strada_declare_dependency(EnTT
+    https://github.com/skypjack/entt/archive/refs/tags/v4.0.0.tar.gz
+    32a2ff2c72cb047dfd57306006ef238820b70da7c6ce4e7e8a507ac63365212e)
+set(ENTT_INSTALL OFF CACHE BOOL "" FORCE)
+set(ENTT_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ENTT_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+
 # --- Vulkan-Headers 1.4.363 (matches the Vulkan SDK; must exist before NVRHI so it finds Vulkan::Headers) ----------
 strada_declare_dependency(VulkanHeaders
     https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-1.4.363.0.tar.gz
@@ -87,7 +95,7 @@ set(NVRHI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(NVRHI_INSTALL OFF CACHE BOOL "" FORCE)
 set(NVRHI_FETCH_VULKAN_HEADERS OFF CACHE BOOL "" FORCE)
 
-FetchContent_MakeAvailable(glm spdlog glfw nlohmann_json VulkanHeaders nvrhi)
+FetchContent_MakeAvailable(glm spdlog glfw nlohmann_json EnTT VulkanHeaders nvrhi)
 
 # --- stb (single-file libraries; pinned commit, implementation compiled in Strada/ThirdParty) -------------------------
 strada_declare_dependency(stb

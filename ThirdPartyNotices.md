@@ -9,6 +9,7 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | glm | 1.0.3 | MIT (or Happy Bunny) | https://github.com/g-truc/glm | Engine (math) |
 | spdlog (bundles {fmt}) | 1.17.0 | MIT | https://github.com/gabime/spdlog | Engine (logging) |
 | nlohmann/json | 3.12.0 | MIT | https://github.com/nlohmann/json | Engine (serialization) |
+| EnTT | 4.0.0 | MIT | https://github.com/skypjack/entt | Engine (entity component system) |
 | NVRHI | main @ 6b96fb0 (2026-10-05) | MIT | https://github.com/NVIDIA-RTX/NVRHI | Engine (rendering hardware interface) |
 | Vulkan-Headers | vulkan-sdk-1.4.363.0 | Apache-2.0 / MIT | https://github.com/KhronosGroup/Vulkan-Headers | Engine (Vulkan API headers) |
 | Dear ImGui | 1.92.9b (docking) | MIT | https://github.com/ocornut/imgui | Engine and editor (UI) |

@@ -259,3 +259,4 @@ workflows change.
 |-------|-----------|
 | `strada-build` | Configuring, building and testing; adding sources and dependencies |
 | `strada-code-review` | The mandatory pre-commit review and the commit/push procedure |
+| `strada-add-component` | Adding or changing an ECS component end to end |
