@@ -8,14 +8,50 @@ if(POLICY CMP0168)
     cmake_policy(SET CMP0168 NEW)
 endif()
 
+# Downloads <url> into the dependency cache (once) and returns the local archive path in <outputVariable>.
+# FetchContent's direct population (CMP0168) ignores DOWNLOAD_DIR, so the cache is managed here. Downloads go to a
+# uniquely named temporary file that is renamed into place, so concurrent configures never see partial archives.
+function(strada_cache_dependency_archive name url hash outputVariable)
+    file(TO_CMAKE_PATH "${STRADA_DEPENDENCY_CACHE_DIR}" cacheDirectory)
+    get_filename_component(archiveName "${url}" NAME)
+    set(archive "${cacheDirectory}/${name}/${archiveName}")
+
+    if(EXISTS "${archive}")
+        file(SHA256 "${archive}" existingHash)
+        if(NOT existingHash STREQUAL hash)
+            message(STATUS "Dependency cache: discarding ${archive} (hash mismatch)")
+            file(REMOVE "${archive}")
+        endif()
+    endif()
+
+    if(NOT EXISTS "${archive}")
+        string(RANDOM LENGTH 12 suffix)
+        set(partial "${archive}.${suffix}.part")
+        message(STATUS "Dependency cache: downloading ${name}")
+        file(DOWNLOAD "${url}" "${partial}" EXPECTED_HASH "SHA256=${hash}" TLS_VERIFY ON STATUS status)
+        list(GET status 0 statusCode)
+        if(NOT statusCode EQUAL 0)
+            list(GET status 1 statusMessage)
+            file(REMOVE "${partial}")
+            message(FATAL_ERROR "Failed to download ${name} from ${url}: ${statusMessage}")
+        endif()
+        # Another configure may have finished the same download first; its archive is identical, so keep it.
+        file(RENAME "${partial}" "${archive}" RESULT renameResult NO_REPLACE)
+        if(NOT renameResult EQUAL 0)
+            file(REMOVE "${partial}")
+        endif()
+    endif()
+
+    set(${outputVariable} "${archive}" PARENT_SCOPE)
+endfunction()
+
 # strada_declare_dependency(<name> <url> <sha256> [extra FetchContent_Declare arguments...])
 function(strada_declare_dependency name url hash)
-    set(arguments URL "${url}" URL_HASH "SHA256=${hash}" SYSTEM EXCLUDE_FROM_ALL ${ARGN})
+    set(source "${url}")
     if(STRADA_DEPENDENCY_CACHE_DIR)
-        file(TO_CMAKE_PATH "${STRADA_DEPENDENCY_CACHE_DIR}" cacheDirectory)
-        list(APPEND arguments DOWNLOAD_DIR "${cacheDirectory}/${name}")
+        strada_cache_dependency_archive(${name} "${url}" "${hash}" source)
     endif()
-    FetchContent_Declare(${name} ${arguments})
+    FetchContent_Declare(${name} URL "${source}" URL_HASH "SHA256=${hash}" SYSTEM EXCLUDE_FROM_ALL ${ARGN})
 endfunction()
 
 # Third-party CMake projects must not inherit our flags or install rules.
