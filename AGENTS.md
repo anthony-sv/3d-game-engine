@@ -22,7 +22,7 @@ Entries marked *(planned)* are introduced by upcoming subsystems; their location
 | Path | What |
 |------|------|
 | `Strada/` | Engine static library (`Source/Strada/<Module>`, `Shaders/`, `Resources/`) |
-| `StradaEditor/` *(planned)* | `StradaEditorCore` static library + `StradaEditor` executable |
+| `StradaEditor/` | `StradaEditorCore` static library + `StradaEditor` executable |
 | `StradaRuntime/` *(planned)* | Player executable used by exported games |
 | `Strada-ScriptCore/` *(planned)* | C# scripting API (`Strada.ScriptCore.dll`) |
 | `StradaTool/` *(planned)* | `strada` CLI + MCP stdio bridge |
@@ -139,7 +139,8 @@ namespace Strada
 - No `using namespace` in headers. No global mutable state outside the subsystem `s_Data` pattern.
 - Engine code does not throw. Wrap throwing third-party calls at the boundary. Fallible operations return
   `Result<T>` or `bool` + log. `ST_CORE_ASSERT` is for programmer errors only; user data must never crash the engine.
-- Logging only through `ST_CORE_*` (engine) and `ST_*` (editor/runtime) macros — never `std::cout`/`printf`.
+- Logging only through `ST_CORE_*` (engine) and `ST_*` (editor/runtime) macros — never `std::cout`/`printf`. The only
+  exception is command-line usage output (`--help`, argument errors), which goes to stdout/stderr directly.
 - Keep third-party headers out of public engine headers when practical (Jolt, Vulkan, miniaudio, hostfxr, cgltf,
   ufbx live in `.cpp` files). NVRHI handle types are allowed in Renderer/RHI headers.
 - Document thread affinity of public functions when not main-thread-only.
@@ -147,7 +148,11 @@ namespace Strada
 
 ### HLSL
 
-- Files: `Strada/Shaders/<Technique>.hlsl`, shared code in `Strada/Shaders/Include/*.hlsli`.
+- Files: `Strada/Shaders/<Technique>.hlsl`, shared code in `Strada/Shaders/Include/*.hlsli`. Register every entry
+  point in the `strada_add_shaders` list in `Strada/CMakeLists.txt`; `ShaderLibrary::Get("<Name>")` loads it.
+- Formatted by hand with the C++ rules (Allman, tabs): clang-format cannot format HLSL semantics.
+- Clip space follows D3D conventions because NVRHI flips the Vulkan viewport: NDC +Y up, depth 0..1, UV (0, 0) top-left.
+- Constant buffers and push constants use `-fvk-use-dx-layout` packing; matrices are column-major (`mul(matrix, vector)`).
 - Entry points `VSMain`, `PSMain`, `CSMain`; functions PascalCase, locals camelCase, constant buffers
   `cbuffer <Name>Constants`.
 - Structures shared with C++ live in `Strada/Shaders/Include/*.h` (compiled as both HLSL and C++ through
@@ -226,7 +231,23 @@ Rules for suites that arrive with later subsystems (binding as soon as the subsy
   `near`, `far`, `min`, `max`, `ERROR`, `OPAQUE`, `TRANSPARENT`.
 - macOS: MoltenVK through the Vulkan SDK; enable `VK_KHR_portability_enumeration` and `VK_KHR_portability_subset`.
   Exported games bundle MoltenVK and the loader in the `.app`.
-- Linux: GLFW is built with X11 and Wayland. ImGui multi-viewports are disabled on Wayland (unsupported).
+- Linux: GLFW is built with X11 and Wayland. ImGui multi-viewports are disabled on Wayland (unsupported); set
+  `STRADA_GLFW_PLATFORM=x11` to force X11/XWayland.
+
+## RHI notes (NVRHI on Vulkan)
+
+- Vulkan objects and vulkan.hpp stay inside `Strada/Source/Strada/RHI/*.cpp` (`VulkanContext.h` is internal). The rest of
+  the engine uses NVRHI interfaces from `GraphicsDevice::GetDevice()`.
+- `GraphicsDevice::GetDevice()` may return NVRHI's validation wrapper. Vulkan-specific calls (queue semaphores,
+  submissions that must not be filtered) go to `Vulkan::GetNvrhiVulkanDevice()`; the wrapper silently drops
+  `executeCommandLists` calls without command lists.
+- NVRHI keeps resources alive while command lists that bind or copy them are in flight, but `clearTexture*` does not
+  record the texture. Never release a texture whose only GPU use was a clear before the GPU finished with it.
+- Swapchains use 8-bit UNORM formats: everything written to them must already be sRGB-encoded (ImGui colors are).
+- Every acquired swapchain image is written (the application clears it) before it is presented.
+- GPU tests run with validation enabled and fail on any validation message; `STRADA_TESTS_ALLOW_NO_GPU=1` skips them on
+  machines without a Vulkan device (CI macOS runners). CI runs them on Mesa lavapipe on Windows and Linux. Windowed
+  tests additionally need a display; `STRADA_TESTS_ALLOW_NO_DISPLAY=1` lets them skip on headless machines.
 - Paths: use `std::filesystem::path`; store project-relative paths with forward slashes in files.
 
 ## Skills

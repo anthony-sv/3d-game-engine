@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Formats (or checks) all C++ and HLSL sources with the repository's .clang-format.
+"""Formats (or checks) all C++ sources with the repository's .clang-format.
 
 Examples:
     python Tools/format.py            # format in place
@@ -23,8 +23,8 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 REQUIRED_MAJOR_VERSION = 22
 SOURCE_DIRECTORIES = ["Strada", "StradaEditor", "StradaRuntime", "Tests"]
+# HLSL is not formatted: clang-format has no HLSL mode and mangles semantics such as "float4 PSMain(...) : SV_Target0".
 CPP_EXTENSIONS = {".h", ".hpp", ".inl", ".c", ".cpp"}
-HLSL_EXTENSIONS = {".hlsl", ".hlsli"}
 EXCLUDED_DIRECTORY_NAMES = {"build", "bin", "obj", "ThirdParty", "Output"}
 
 
@@ -65,13 +65,13 @@ def collect_files() -> list[Path]:
                 continue
             if any(part in EXCLUDED_DIRECTORY_NAMES for part in path.relative_to(REPOSITORY_ROOT).parts):
                 continue
-            if path.suffix in CPP_EXTENSIONS or path.suffix in HLSL_EXTENSIONS:
+            if path.suffix in CPP_EXTENSIONS:
                 files.append(path)
     return sorted(files)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Format Strada C++/HLSL sources with clang-format.")
+    parser = argparse.ArgumentParser(description="Format Strada C++ sources with clang-format.")
     parser.add_argument("--check", action="store_true", help="report unformatted files instead of rewriting them")
     arguments = parser.parse_args()
 
@@ -81,11 +81,10 @@ def main() -> None:
 
     errors = 0
     for path in files:
-        # Sources go through stdin in binary mode: no newline translation, and --assume-filename lets HLSL (which
-        # clang-format has no mode for) be formatted as C++ while still picking up the repository .clang-format.
-        assumed = path.with_suffix(".cpp") if path.suffix in HLSL_EXTENSIONS else path
+        # Sources go through stdin in binary mode so no newline translation happens; --assume-filename makes
+        # clang-format pick the language and the repository .clang-format.
         original = path.read_bytes()
-        result = subprocess.run([clang_format, "--style=file", f"--assume-filename={assumed}"], input=original,
+        result = subprocess.run([clang_format, "--style=file", f"--assume-filename={path}"], input=original,
                                 cwd=REPOSITORY_ROOT, capture_output=True, check=False)
         relative = path.relative_to(REPOSITORY_ROOT).as_posix()
         if result.returncode != 0:

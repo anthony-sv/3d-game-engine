@@ -13,6 +13,7 @@ include(StradaCompilerSettings)
 include(StradaDependencies)
 
 add_subdirectory(Strada)
+add_subdirectory(StradaEditor)
 
 if(STRADA_BUILD_TESTS)
     enable_testing()

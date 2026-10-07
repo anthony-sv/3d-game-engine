@@ -406,6 +406,11 @@ namespace Strada
 		m_Data.Fullscreen = fullscreen;
 	}
 
+	void Window::SetSize(uint32_t width, uint32_t height)
+	{
+		glfwSetWindowSize(m_Window, static_cast<int>(std::max(1u, width)), static_cast<int>(std::max(1u, height)));
+	}
+
 	void Window::Maximize()
 	{
 		glfwMaximizeWindow(m_Window);

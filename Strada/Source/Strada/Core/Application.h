@@ -6,6 +6,8 @@
 #include "Strada/Core/Timestep.h"
 #include "Strada/Core/Window.h"
 
+#include <nvrhi/nvrhi.h>
+
 #include <filesystem>
 #include <functional>
 #include <mutex>
@@ -16,6 +18,8 @@
 namespace Strada
 {
 	class Event;
+	class ImGuiLayer;
+	class Swapchain;
 	class WindowCloseEvent;
 	class WindowLostFocusEvent;
 	class WindowMinimizeEvent;
@@ -46,6 +50,23 @@ namespace Strada
 		uint64_t MaxFrames = 0;
 		// Frame-rate cap applied by sleeping, for loops not paced by vsync such as headless runs (0 = uncapped).
 		uint32_t FrameRateLimit = 0;
+
+		// Create the GPU device (and, with a window, its swapchain). Disable for simulation-only runs without a GPU.
+		bool EnableGraphics = true;
+		// Vulkan validation layers plus NVRHI validation.
+#if defined(ST_DEBUG)
+		bool EnableValidation = true;
+#else
+		bool EnableValidation = false;
+#endif
+		// GPU adapter index (-1 picks the best supported device).
+		int32_t GpuIndex = -1;
+
+		// ImGui overlay with docking and multi-viewports (requires a window and graphics).
+		bool EnableImGui = false;
+		bool EnableImGuiViewports = true;
+		// Where the ImGui layout is saved; empty disables persistence.
+		std::filesystem::path ImGuiIniFilePath;
 	};
 
 	// Owns the window, the layer stack and the main loop. Exactly one instance exists at a time.
@@ -92,6 +113,17 @@ namespace Strada
 
 		// Null when headless.
 		Window* GetWindow() const { return m_Window.get(); }
+		// Null when headless or graphics are disabled.
+		Swapchain* GetSwapchain() const { return m_Swapchain.get(); }
+		// The main window's framebuffer for the current frame; null when nothing is presented this frame.
+		nvrhi::IFramebuffer* GetBackBuffer() const;
+		// Null unless ApplicationSpecification::EnableImGui is set.
+		ImGuiLayer* GetImGuiLayer() const { return m_ImGuiLayer; }
+
+		void SetVSync(bool enabled);
+
+		// Saves the main window's contents as a PNG right before the next present. Logs the outcome.
+		void RequestScreenshot(std::filesystem::path path);
 		ApplicationSpecification const& GetSpecification() const { return m_Specification; }
 		bool IsHeadless() const { return m_Specification.Headless; }
 
@@ -124,6 +156,9 @@ namespace Strada
 		void ExecuteMainThreadQueue();
 		void DetachAllLayers();
 		void LimitFrameRate(double frameStartTime) const;
+		Result<void> InitializeGraphics();
+		void ClearBackBuffer();
+		void CaptureScreenshot();
 
 		bool OnWindowClose(WindowCloseEvent& event);
 		bool OnWindowResize(WindowResizeEvent& event);
@@ -132,6 +167,11 @@ namespace Strada
 
 		ApplicationSpecification m_Specification;
 		Scope<Window> m_Window;
+		Scope<Swapchain> m_Swapchain;
+		nvrhi::CommandListHandle m_FrameCommandList;
+		ImGuiLayer* m_ImGuiLayer = nullptr;
+		bool m_BackBufferAvailable = false;
+		std::filesystem::path m_PendingScreenshotPath;
 		LayerStack m_LayerStack;
 		uint32_t m_LayerIterationDepth = 0;
 
@@ -151,8 +191,9 @@ namespace Strada
 		static Application* s_Instance;
 	};
 
-	// Implemented by the client application (editor, runtime, tests) and called by the entry point.
-	Scope<Application> CreateApplication(ApplicationCommandLineArgs args);
+	// Implemented by the client application (editor, runtime) and called by the entry point. Returning null exits
+	// immediately with exitCode (e.g. after printing --help or reporting invalid arguments).
+	Scope<Application> CreateApplication(ApplicationCommandLineArgs args, int& exitCode);
 
 	// Process entry used by EntryPoint.h: initializes logging, creates and runs the application, returns its exit code.
 	int ApplicationMain(int argc, char** argv);

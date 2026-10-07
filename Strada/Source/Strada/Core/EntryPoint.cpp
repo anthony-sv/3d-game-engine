@@ -27,16 +27,12 @@ namespace Strada
 #endif
 		Log::Init(logSpecification);
 
-		int exitCode = 1;
+		int exitCode = 0;
 		{
-			Scope<Application> application = CreateApplication({argc, argv});
+			Scope<Application> application = CreateApplication({argc, argv}, exitCode);
 			if (application)
 			{
 				exitCode = application->Run();
-			}
-			else
-			{
-				ST_CORE_CRITICAL("CreateApplication returned no application");
 			}
 		}
 

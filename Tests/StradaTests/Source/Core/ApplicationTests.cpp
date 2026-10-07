@@ -1,6 +1,9 @@
+#include "GpuTestUtilities.h"
+
 #include "Strada/Core/Application.h"
 #include "Strada/Core/Events/KeyEvent.h"
 #include "Strada/Core/Input.h"
+#include "Strada/RHI/GraphicsDevice.h"
 
 #include <doctest/doctest.h>
 
@@ -78,11 +81,13 @@ namespace
 		bool m_FailInit;
 	};
 
+	// Core-loop tests run without a GPU; graphics are covered by dedicated GPU tests.
 	ApplicationSpecification HeadlessSpecification(uint64_t frames)
 	{
 		ApplicationSpecification specification;
 		specification.Name = "Test Application";
 		specification.Headless = true;
+		specification.EnableGraphics = false;
 		specification.MaxFrames = frames;
 		return specification;
 	}
@@ -361,4 +366,75 @@ TEST_CASE("Application: an exception escaping a layer shuts down in order with e
 	CHECK(application.ShutdownCalled);
 	REQUIRE(log.Calls.size() == 1);
 	CHECK(log.Calls[0] == "Throwing:Detach");
+}
+
+namespace
+{
+	struct GraphicsProbe
+	{
+		uint64_t FramesWithDevice = 0;
+		uint64_t FramesWithBackBuffer = 0;
+	};
+
+	class GraphicsProbeLayer : public Layer
+	{
+	public:
+		explicit GraphicsProbeLayer(GraphicsProbe& probe)
+			: Layer("GraphicsProbe"),
+			  m_Probe(probe)
+		{
+		}
+
+		void OnUpdate(Timestep) override
+		{
+			m_Probe.FramesWithDevice += GraphicsDevice::IsInitialized() ? 1 : 0;
+			m_Probe.FramesWithBackBuffer += Application::Get().GetBackBuffer() != nullptr ? 1 : 0;
+		}
+
+	private:
+		GraphicsProbe& m_Probe;
+	};
+
+	class GraphicsApplication : public Application
+	{
+	public:
+		GraphicsApplication(ApplicationSpecification const& specification, GraphicsProbe& probe)
+			: Application(specification),
+			  m_Probe(probe)
+		{
+		}
+
+	protected:
+		Result<void> OnInit() override
+		{
+			PushLayer<GraphicsProbeLayer>(m_Probe);
+			return {};
+		}
+
+	private:
+		GraphicsProbe& m_Probe;
+	};
+}
+
+TEST_CASE("Application: headless run with graphics creates the device for the loop and releases it")
+{
+	{
+		// Skips (or fails) the test when no Vulkan device exists; the probe device is released at the end of the block.
+		ST_REQUIRE_GPU();
+	}
+
+	ApplicationSpecification specification = HeadlessSpecification(5);
+	specification.EnableGraphics = true;
+	specification.EnableValidation = true;
+
+	GraphicsProbe probe;
+	GraphicsApplication application(specification, probe);
+	CHECK(application.Run() == 0);
+	CHECK(application.GetFrameCount() == 5);
+	CHECK(probe.FramesWithDevice == 5);
+	// Headless: there is no swapchain, so nothing is presented.
+	CHECK(probe.FramesWithBackBuffer == 0);
+	CHECK(application.GetSwapchain() == nullptr);
+	CHECK_FALSE(GraphicsDevice::IsInitialized());
+	CHECK(GraphicsDevice::GetValidationErrorCount() == 0);
 }

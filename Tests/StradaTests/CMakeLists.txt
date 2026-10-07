@@ -8,12 +8,17 @@ add_executable(StradaTests
     Source/Core/EventTests.cpp
     Source/Core/FileSystemTests.cpp
     Source/Core/HashTests.cpp
+    Source/Core/ImageTests.cpp
     Source/Core/InputTests.cpp
     Source/Core/KeyCodeTests.cpp
     Source/Core/LayerStackTests.cpp
     Source/Core/LogTests.cpp
     Source/Core/ResultTests.cpp
     Source/Core/UUIDTests.cpp
+    Source/GpuTestUtilities.h
+    Source/RHI/GraphicsDeviceTests.cpp
+    Source/RHI/SwapchainTests.cpp
+    Source/RHI/TextureReadbackTests.cpp
     Source/TestUtilities.h
 )
 

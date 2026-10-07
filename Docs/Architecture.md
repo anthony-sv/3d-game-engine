@@ -18,7 +18,7 @@ the contract must be made here first. Coding rules live in [AGENTS.md](../AGENTS
 |------|--------|
 | Language / build | C++20, CMake ≥ 3.28 (tested with 4.x), Ninja (all platforms) and Visual Studio generators |
 | Window / input | GLFW 3.4 (X11 + Wayland on Linux) |
-| Graphics | NVRHI over **Vulkan 1.3** (MoltenVK on macOS); HLSL shaders compiled to SPIR-V with DXC at build time and embedded in the binary |
+| Graphics | NVRHI over **Vulkan 1.3** (dynamic rendering, synchronization2, timeline semaphores; MoltenVK on macOS); HLSL shaders compiled to SPIR-V with DXC at build time and embedded in the binary |
 | Math | glm (right-handed, Y-up, column-major, depth 0..1) |
 | ECS | EnTT |
 | Physics | Jolt Physics |
@@ -122,11 +122,14 @@ every `Shutdown` must leave no state behind so tests can init/shutdown repeatedl
 
 - **Coordinate system**: right-handed, +Y up, −Z forward, +X right. Units: meters, kilograms, seconds.
   Rotations are stored as quaternions; the editor and the automation API also accept Euler angles in degrees.
-- **Depth**: reversed-Z (near = 1, far = 0) with an infinite far plane for perspective cameras; projection Y flip for
-  Vulkan is applied in the projection matrix (`SceneCamera`), and front faces are counter-clockwise in world space.
-  Gizmo/ImGuizmo code receives a conventional (non-reversed, non-flipped) projection.
+- **Clip space and depth**: NVRHI flips the Vulkan viewport (negative height), so clip space follows D3D conventions:
+  NDC +Y is up, depth is 0..1 and texture coordinate (0, 0) is the top-left corner. Projection matrices are built with
+  glm (`GLM_FORCE_DEPTH_ZERO_TO_ONE`) and are **not** Y-flipped. Perspective cameras use reversed-Z (near = 1, far = 0)
+  with an infinite far plane. Front faces are counter-clockwise in world space. Gizmo/ImGuizmo code receives a
+  conventional (non-reversed) projection.
 - **Color**: lighting in linear space; textures tagged sRGB (albedo, emissive) vs linear (normal, metallic-roughness,
-  occlusion) at import; HDR scene color is `RGBA16_FLOAT`; output is tonemapped then sRGB-encoded.
+  occlusion) at import; HDR scene color is `RGBA16_FLOAT`. Swapchains and the final image use 8-bit **UNORM** formats:
+  the tonemap pass sRGB-encodes in the shader, and ImGui (whose colors are authored in sRGB) draws on top unchanged.
 - **IDs**: `UUID` is a random 64-bit value; `0` is invalid. In JSON, UUIDs are written as **decimal strings**
   (lossless for every JSON consumer).
 - **Memory**: `Ref<T>` = `std::shared_ptr<T>`, `Scope<T>` = `std::unique_ptr<T>`, created with `CreateRef`/
@@ -139,8 +142,13 @@ every `Shutdown` must leave no state behind so tests can init/shutdown repeatedl
 `GraphicsDevice` creates the Vulkan instance (validation layers + debug utils when available and enabled), picks
 a physical device (discrete preferred, overridable with `--gpu <index>`), creates the logical device and queues, and
 wraps it in an NVRHI device (plus `nvrhi::validation` in Debug). Headless mode creates no surface/swapchain.
-`Swapchain` wraps a `VkSurfaceKHR` + `VkSwapchainKHR` for one GLFW window: acquire, framebuffers, present, resize.
-The main window and every ImGui platform window each own a `Swapchain`. At most 2 frames are in flight.
+`Swapchain` wraps a `VkSurfaceKHR` + `VkSwapchainKHR` for one GLFW window: acquire, framebuffers, present, resize
+(acquire semaphores rotate, present semaphores are per image). The main window and every ImGui platform window each own
+a `Swapchain`. `GraphicsDevice::EndFrame` limits the CPU to 2 frames ahead of the GPU with event queries.
+`ReadbackTexture` copies textures to CPU `Image`s (screenshots for the editor and the automation API).
+
+The ImGui renderer (`ImGuiRenderer`) implements ImGui 1.92's texture protocol (create/update/destroy requests with
+partial atlas uploads) and the multi-viewport renderer callbacks.
 
 Shaders (`Strada/Shaders/*.hlsl`) are compiled by DXC to SPIR-V at build time with flags matching NVRHI's default
 Vulkan binding offsets, embedded into the library, and fetched by name through `ShaderLibrary`.
@@ -168,7 +176,7 @@ Frame passes, in order:
 6. **Transparent forward** — alpha-blended materials sorted back to front.
 7. **Bloom** — 13-tap downsample with Karis average on the first mip + tent upsample chain.
 8. **Tonemap** — exposure (EV100), operators: ACES (Hill fit), AgX, Khronos PBR Neutral, Reinhard; dithering;
-   output `RGBA8_UNORM_SRGB`.
+   sRGB encoding in the shader; output `RGBA8_UNORM`.
 9. **FXAA** (optional).
 10. **Overlays** — world-space text and sprites are lit/unlit in the HDR passes; screen-space text and sprites,
     debug lines (collider visualization, script `Debug.DrawLine`), editor grid, selection outline (from the ID

@@ -15,11 +15,15 @@ concurrency:
 
 env:
   STRADA_DEPENDENCY_CACHE_DIR: ${{ github.workspace }}/.dependency-cache
+  VULKAN_SDK_VERSION: 1.4.363.0
+  # Hosted runners may have no display; windowed tests skip there instead of failing.
+  STRADA_TESTS_ALLOW_NO_DISPLAY: "1"
 
 jobs:
   format:
     name: Format check
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -33,17 +37,22 @@ jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: "Windows MSVC Debug", os: windows-2025, config: debug }
-          - { name: "Windows MSVC Release", os: windows-2025, config: release }
-          - { name: "Linux GCC Debug", os: ubuntu-24.04, config: debug, compiler: gcc }
-          - { name: "Linux GCC Release", os: ubuntu-24.04, config: release, compiler: gcc }
-          - { name: "Linux Clang Debug", os: ubuntu-24.04, config: debug, compiler: clang }
-          - { name: "macOS Apple Clang Debug", os: macos-26, config: debug }
-          - { name: "macOS Apple Clang Release", os: macos-26, config: release }
+          # GPU tests run on Mesa's lavapipe (software Vulkan) on Windows and Linux. macOS runners have no usable
+          # Vulkan device, so GPU tests are skipped there.
+          - { name: "Windows MSVC Debug", os: windows-2025, config: debug, allowNoGpu: "0" }
+          - { name: "Windows MSVC Release", os: windows-2025, config: release, allowNoGpu: "0" }
+          - { name: "Linux GCC Debug", os: ubuntu-24.04, config: debug, compiler: gcc, allowNoGpu: "0" }
+          - { name: "Linux GCC Release", os: ubuntu-24.04, config: release, compiler: gcc, allowNoGpu: "0" }
+          - { name: "Linux Clang Debug", os: ubuntu-24.04, config: debug, compiler: clang, allowNoGpu: "0" }
+          - { name: "macOS Apple Clang Debug", os: macos-26, config: debug, allowNoGpu: "1" }
+          - { name: "macOS Apple Clang Release", os: macos-26, config: release, allowNoGpu: "1" }
+    env:
+      STRADA_TESTS_ALLOW_NO_GPU: ${{ matrix.allowNoGpu }}
     steps:
       - uses: actions/checkout@v7
 
@@ -54,9 +63,18 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build pkg-config \
-            libwayland-dev libxkbcommon-dev xorg-dev
+          sudo apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 update
+          sudo apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=300 install -y --no-install-recommends \
+            ninja-build pkg-config libwayland-dev libxkbcommon-dev xorg-dev
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1.6.0
+        with:
+          vulkan_version: ${{ env.VULKAN_SDK_VERSION }}
+          cache: true
+          install_runtime: ${{ runner.os == 'Windows' }}
+          install_lavapipe: ${{ runner.os != 'macOS' }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache dependency archives
         uses: actions/cache@v6
@@ -69,6 +87,7 @@ jobs:
         run: |
           cmake --version
           ninja --version
+          echo "VULKAN_SDK=${VULKAN_SDK}"
           if [ "$RUNNER_OS" = "macOS" ]; then xcodebuild -version; fi
           if [ "$RUNNER_OS" = "Linux" ]; then g++ --version; clang++ --version; fi
 

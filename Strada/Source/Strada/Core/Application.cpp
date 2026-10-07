@@ -7,6 +7,11 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Platform.h"
+#include "Strada/ImGui/ImGuiLayer.h"
+#include "Strada/RHI/GraphicsDevice.h"
+#include "Strada/RHI/ShaderLibrary.h"
+#include "Strada/RHI/Swapchain.h"
+#include "Strada/RHI/TextureReadback.h"
 
 #include <algorithm>
 #include <chrono>
@@ -124,11 +129,83 @@ namespace Strada
 				});
 		}
 
+		if (m_Specification.EnableGraphics)
+		{
+			if (Result<void> result = InitializeGraphics(); !result)
+			{
+				return result;
+			}
+		}
+
+		if (m_Specification.EnableImGui)
+		{
+			if (!m_Window || !m_Specification.EnableGraphics)
+			{
+				return Error{"ImGui requires a window and graphics"};
+			}
+
+			ImGuiLayerSpecification imguiSpecification;
+			imguiSpecification.EnableViewports = m_Specification.EnableImGuiViewports;
+			imguiSpecification.IniFilePath = m_Specification.ImGuiIniFilePath;
+			m_ImGuiLayer = &PushOverlay<ImGuiLayer>(imguiSpecification);
+			if (!m_ImGuiLayer->IsAttached())
+			{
+				return Error{"Failed to initialize ImGui"};
+			}
+		}
+
+		return {};
+	}
+
+	Result<void> Application::InitializeGraphics()
+	{
+		GraphicsDeviceSpecification specification;
+		specification.ApplicationName = m_Specification.Name;
+		specification.EnableValidation = m_Specification.EnableValidation;
+		specification.Headless = m_Window == nullptr;
+		specification.AdapterIndex = m_Specification.GpuIndex;
+		if (Result<void> result = GraphicsDevice::Init(specification); !result)
+		{
+			return result;
+		}
+
+		ShaderLibrary::Init();
+		m_FrameCommandList = GraphicsDevice::GetDevice()->createCommandList();
+
+		if (m_Window)
+		{
+			SwapchainSpecification swapchainSpecification;
+			swapchainSpecification.Window = m_Window->GetNativeWindow();
+			swapchainSpecification.Width = m_Window->GetWidth();
+			swapchainSpecification.Height = m_Window->GetHeight();
+			swapchainSpecification.VSync = m_Window->IsVSync();
+			Result<Scope<Swapchain>> swapchain = Swapchain::Create(swapchainSpecification);
+			if (!swapchain)
+			{
+				return Error{swapchain.GetError()};
+			}
+			m_Swapchain = swapchain.TakeValue();
+		}
 		return {};
 	}
 
 	void Application::ShutdownEngine()
 	{
+		// Layers may still be attached when initialization failed part-way (e.g. the ImGui overlay).
+		DetachAllLayers();
+		m_ImGuiLayer = nullptr;
+
+		m_FrameCommandList = nullptr;
+		m_Swapchain.reset();
+		if (ShaderLibrary::IsInitialized())
+		{
+			ShaderLibrary::Shutdown();
+		}
+		if (GraphicsDevice::IsInitialized())
+		{
+			GraphicsDevice::Shutdown();
+		}
+
 		Input::SetCursorModeHandler(nullptr);
 		Input::Reset();
 		m_Window.reset();
@@ -165,12 +242,43 @@ namespace Strada
 
 			if (!m_Minimized)
 			{
+				m_BackBufferAvailable = m_Swapchain && m_Swapchain->BeginFrame();
+				if (m_BackBufferAvailable)
+				{
+					ClearBackBuffer();
+				}
+
 				m_LayerIterationDepth++;
 				for (Scope<Layer>& layer : m_LayerStack)
 				{
 					layer->OnUpdate(m_FrameTime);
 				}
+
+				if (m_ImGuiLayer != nullptr)
+				{
+					m_ImGuiLayer->Begin();
+					for (Scope<Layer>& layer : m_LayerStack)
+					{
+						layer->OnImGuiRender();
+					}
+					m_ImGuiLayer->End(GetBackBuffer());
+				}
 				m_LayerIterationDepth--;
+
+				if (m_BackBufferAvailable)
+				{
+					if (!m_PendingScreenshotPath.empty())
+					{
+						CaptureScreenshot();
+					}
+					m_Swapchain->Present();
+					m_BackBufferAvailable = false;
+				}
+			}
+
+			if (GraphicsDevice::IsInitialized())
+			{
+				GraphicsDevice::EndFrame();
 			}
 
 			Input::EndFrame();
@@ -289,7 +397,67 @@ namespace Strada
 	bool Application::OnWindowResize(WindowResizeEvent& event)
 	{
 		m_Minimized = event.GetWidth() == 0 || event.GetHeight() == 0;
+		if (m_Swapchain)
+		{
+			m_Swapchain->Resize(event.GetWidth(), event.GetHeight());
+		}
 		return false;
+	}
+
+	nvrhi::IFramebuffer* Application::GetBackBuffer() const
+	{
+		return m_BackBufferAvailable ? m_Swapchain->GetCurrentFramebuffer() : nullptr;
+	}
+
+	void Application::SetVSync(bool enabled)
+	{
+		if (m_Window)
+		{
+			m_Window->SetVSync(enabled);
+		}
+		if (m_Swapchain)
+		{
+			m_Swapchain->SetVSync(enabled);
+		}
+	}
+
+	void Application::RequestScreenshot(std::filesystem::path path)
+	{
+		if (!m_Swapchain)
+		{
+			ST_CORE_ERROR("Cannot capture a screenshot of '{}': the application has no window", FileSystem::PathToUtf8(path));
+			return;
+		}
+		m_PendingScreenshotPath = std::move(path);
+	}
+
+	void Application::CaptureScreenshot()
+	{
+		std::filesystem::path const path = std::move(m_PendingScreenshotPath);
+		m_PendingScreenshotPath.clear();
+
+		Result<Image> image = ReadbackTexture(m_Swapchain->GetCurrentTexture());
+		if (!image)
+		{
+			ST_CORE_ERROR("Screenshot failed: {}", image.GetError());
+			return;
+		}
+		if (Result<void> written = image.GetValue().WritePNG(path); !written)
+		{
+			ST_CORE_ERROR("Screenshot failed: {}", written.GetError());
+			return;
+		}
+		ST_CORE_INFO("Saved screenshot to '{}'", FileSystem::PathToUtf8(path));
+	}
+
+	void Application::ClearBackBuffer()
+	{
+		// Every acquired image must be written before it is presented; layers draw on top of this clear.
+		m_FrameCommandList->open();
+		m_FrameCommandList->clearTextureFloat(m_Swapchain->GetCurrentTexture(), nvrhi::AllSubresources,
+		                                      nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+		m_FrameCommandList->close();
+		GraphicsDevice::GetDevice()->executeCommandList(m_FrameCommandList);
 	}
 
 	bool Application::OnWindowMinimize(WindowMinimizeEvent& event)

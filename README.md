@@ -4,10 +4,11 @@ Strada is a production-grade, straightforward 3D game engine for **Windows, macO
 with C# (.NET 10) scripting, a Vulkan renderer built on NVRHI, an ImGui editor that AI agents can fully control, and
 an exporter for distributable games.
 
-> **Status: early development.** The engine core (application loop, windowing, input, events, logging, file system,
-> command line, test infrastructure, CI) is in place. The renderer, scene system, physics, audio, scripting, editor and
-> exporter are being built next, in that order of dependency. [Docs/Architecture.md](Docs/Architecture.md) describes
-> the complete design.
+> **Status: early development.** In place: the engine core (application loop, windowing, input, events, logging, file
+> system, command line), the Vulkan/NVRHI device and swapchains, build-time shader compilation, the ImGui renderer with
+> docking and multi-viewports, the editor shell, screenshots, and CI on all three platforms. The scene renderer, scene
+> system, physics, audio, scripting, full editor and exporter are being built next.
+> [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Planned feature set
 
@@ -32,7 +33,8 @@ Prerequisites:
 | CMake / Ninja | bundled with Visual Studio | `brew install cmake ninja` | `apt install cmake ninja-build` |
 | Other | Python 3.10+ | Python 3.10+ | Python 3.10+, `apt install pkg-config libwayland-dev libxkbcommon-dev xorg-dev` |
 
-The renderer and scripting layers will additionally require the [Vulkan SDK](https://vulkan.lunarg.com/) 1.4.x and the
+The [Vulkan SDK](https://vulkan.lunarg.com/) 1.4.x is required (DXC shader compiler; validation layers for Debug
+builds), and a GPU driver with Vulkan 1.3 support to run the editor. The scripting layer will additionally require the
 [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
 
 ```sh
@@ -48,6 +50,7 @@ Third-party libraries are downloaded automatically by CMake (pinned versions, ve
 | Path | Contents |
 |------|----------|
 | `Strada/` | Engine static library |
+| `StradaEditor/` | Editor (`StradaEditor --help` lists its options) |
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |

@@ -69,6 +69,8 @@ namespace Strada
 		// Borderless fullscreen on the window's current monitor, using the monitor's current video mode.
 		void SetFullscreen(bool fullscreen);
 
+		// Sets the window size in screen coordinates.
+		void SetSize(uint32_t width, uint32_t height);
 		void Maximize();
 		void Restore();
 		void Show();

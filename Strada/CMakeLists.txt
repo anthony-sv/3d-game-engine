@@ -18,6 +18,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/FileSystem.cpp
     Source/Strada/Core/FileSystem.h
     Source/Strada/Core/Hash.h
+    Source/Strada/Core/Image.cpp
+    Source/Strada/Core/Image.h
     Source/Strada/Core/Input.cpp
     Source/Strada/Core/Input.h
     Source/Strada/Core/KeyCodes.cpp
@@ -40,22 +42,55 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Window.h
 )
 
+set(STRADA_IMGUI_SOURCES
+    Source/Strada/ImGui/ImGuiLayer.cpp
+    Source/Strada/ImGui/ImGuiLayer.h
+    Source/Strada/ImGui/ImGuiRenderer.cpp
+    Source/Strada/ImGui/ImGuiRenderer.h
+)
+
+set(STRADA_RHI_SOURCES
+    Source/Strada/RHI/EmbeddedShaders.h
+    Source/Strada/RHI/GraphicsDevice.cpp
+    Source/Strada/RHI/GraphicsDevice.h
+    Source/Strada/RHI/ShaderLibrary.cpp
+    Source/Strada/RHI/ShaderLibrary.h
+    Source/Strada/RHI/Swapchain.cpp
+    Source/Strada/RHI/Swapchain.h
+    Source/Strada/RHI/TextureReadback.cpp
+    Source/Strada/RHI/TextureReadback.h
+    Source/Strada/RHI/VulkanContext.h
+)
+
+# Implementations of the stb single-file libraries (third-party code, warnings disabled).
+add_library(StradaStb STATIC ThirdParty/StbImplementation.c)
+target_include_directories(StradaStb SYSTEM PUBLIC "${stb_SOURCE_DIR}")
+strada_configure_third_party_target(StradaStb)
+
 add_library(Strada STATIC
     Source/Strada.h
     Source/stpch.h
     ${STRADA_CORE_SOURCES}
+    ${STRADA_IMGUI_SOURCES}
+    ${STRADA_RHI_SOURCES}
 )
 
 target_include_directories(Strada PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
 target_precompile_headers(Strada PRIVATE Source/stpch.h)
 
+# nvrhi_vk must precede nvrhi for single-pass linkers; Vulkan headers are needed wherever nvrhi/vulkan.h is included.
 target_link_libraries(Strada
     PUBLIC
         glm::glm
         spdlog::spdlog
         nlohmann_json::nlohmann_json
+        nvrhi_vk
+        nvrhi
+        StradaImGui
     PRIVATE
         glfw
+        StradaStb
+        Vulkan::Headers
 )
 
 target_compile_definitions(Strada PUBLIC
@@ -68,10 +103,22 @@ target_compile_definitions(Strada PUBLIC
     ST_VERSION_MINOR=${PROJECT_VERSION_MINOR}
     ST_VERSION_PATCH=${PROJECT_VERSION_PATCH}
     ST_VERSION_STRING="${PROJECT_VERSION}"
+    # Every translation unit that includes vulkan.hpp must use the dynamic dispatcher shared with NVRHI.
+    VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
+)
+
+include(StradaShaders)
+strada_add_shaders(Strada
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Shaders"
+    SHADERS
+        Fullscreen_VS:Fullscreen.hlsl:VSMain:vertex
+        SolidColor_PS:Fullscreen.hlsl:PSSolidColor:pixel
+        ImGui_VS:ImGui.hlsl:VSMain:vertex
+        ImGui_PS:ImGui.hlsl:PSMain:pixel
 )
 
 strada_configure_target(Strada)
 strada_add_configuration_definitions(Strada)
 
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES ${STRADA_CORE_SOURCES})
+source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_RHI_SOURCES})
 set_target_properties(Strada PROPERTIES FOLDER "Engine")
