@@ -1,0 +1,35 @@
+# Build output
+/build/
+/out/
+/install/
+/Binaries/
+CMakeUserPresets.json
+
+# IDEs
+.vs/
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.user
+*.suo
+*.sln.docstates
+.DS_Store
+Thumbs.db
+
+# .NET
+bin/
+obj/
+*.nupkg
+TestResults/
+
+# Strada editor/runtime local state
+imgui.ini
+*.log
+.strada/
+
+# Python
+__pycache__/
+*.pyc
+
+# Golden-image test output (diffs are written next to the build, never the source tree)
+Tests/**/Output/

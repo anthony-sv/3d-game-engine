@@ -1,0 +1,26 @@
+#pragma once
+
+// Public umbrella header for applications built on the Strada engine (editor, runtime, tests).
+
+#include "Strada/Core/Application.h"
+#include "Strada/Core/Assert.h"
+#include "Strada/Core/Base.h"
+#include "Strada/Core/Buffer.h"
+#include "Strada/Core/CommandLine.h"
+#include "Strada/Core/Events/ApplicationEvent.h"
+#include "Strada/Core/Events/Event.h"
+#include "Strada/Core/Events/KeyEvent.h"
+#include "Strada/Core/Events/MouseEvent.h"
+#include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Hash.h"
+#include "Strada/Core/Input.h"
+#include "Strada/Core/KeyCodes.h"
+#include "Strada/Core/Layer.h"
+#include "Strada/Core/Log.h"
+#include "Strada/Core/Platform.h"
+#include "Strada/Core/Result.h"
+#include "Strada/Core/Timer.h"
+#include "Strada/Core/Timestep.h"
+#include "Strada/Core/UUID.h"
+#include "Strada/Core/Version.h"
+#include "Strada/Core/Window.h"

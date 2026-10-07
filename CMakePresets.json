@@ -1,0 +1,104 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "STRADA_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+      "architecture": { "value": "x64", "strategy": "external" },
+      "toolset": { "value": "host=x64", "strategy": "external" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl"
+      }
+    },
+    { "name": "windows-debug", "displayName": "Windows Debug (MSVC)", "inherits": "windows-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "windows-release", "displayName": "Windows Release (MSVC)", "inherits": "windows-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
+    { "name": "windows-dist", "displayName": "Windows Dist (MSVC)", "inherits": "windows-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Dist" } },
+    {
+      "name": "windows-vs",
+      "displayName": "Windows Visual Studio 2026 solution",
+      "inherits": "base",
+      "generator": "Visual Studio 18 2026",
+      "architecture": { "value": "x64", "strategy": "set" },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "linux-gcc-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++"
+      }
+    },
+    { "name": "linux-gcc-debug", "displayName": "Linux Debug (GCC)", "inherits": "linux-gcc-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "linux-gcc-release", "displayName": "Linux Release (GCC)", "inherits": "linux-gcc-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
+    { "name": "linux-gcc-dist", "displayName": "Linux Dist (GCC)", "inherits": "linux-gcc-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Dist" } },
+    {
+      "name": "linux-clang-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    { "name": "linux-clang-debug", "displayName": "Linux Debug (Clang)", "inherits": "linux-clang-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "linux-clang-release", "displayName": "Linux Release (Clang)", "inherits": "linux-clang-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
+    {
+      "name": "macos-base",
+      "hidden": true,
+      "inherits": "base",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.3"
+      }
+    },
+    { "name": "macos-debug", "displayName": "macOS Debug (Apple Clang)", "inherits": "macos-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" } },
+    { "name": "macos-release", "displayName": "macOS Release (Apple Clang)", "inherits": "macos-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
+    { "name": "macos-dist", "displayName": "macOS Dist (Apple Clang)", "inherits": "macos-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Dist" } }
+  ],
+  "buildPresets": [
+    { "name": "windows-debug", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "configurePreset": "windows-release" },
+    { "name": "windows-dist", "configurePreset": "windows-dist" },
+    { "name": "windows-vs-debug", "configurePreset": "windows-vs", "configuration": "Debug" },
+    { "name": "windows-vs-release", "configurePreset": "windows-vs", "configuration": "Release" },
+    { "name": "linux-gcc-debug", "configurePreset": "linux-gcc-debug" },
+    { "name": "linux-gcc-release", "configurePreset": "linux-gcc-release" },
+    { "name": "linux-gcc-dist", "configurePreset": "linux-gcc-dist" },
+    { "name": "linux-clang-debug", "configurePreset": "linux-clang-debug" },
+    { "name": "linux-clang-release", "configurePreset": "linux-clang-release" },
+    { "name": "macos-debug", "configurePreset": "macos-debug" },
+    { "name": "macos-release", "configurePreset": "macos-release" },
+    { "name": "macos-dist", "configurePreset": "macos-dist" }
+  ],
+  "testPresets": [
+    { "name": "test-base", "hidden": true, "output": { "outputOnFailure": true }, "execution": { "noTestsAction": "error" } },
+    { "name": "windows-debug", "inherits": "test-base", "configurePreset": "windows-debug" },
+    { "name": "windows-release", "inherits": "test-base", "configurePreset": "windows-release" },
+    { "name": "windows-dist", "inherits": "test-base", "configurePreset": "windows-dist" },
+    { "name": "linux-gcc-debug", "inherits": "test-base", "configurePreset": "linux-gcc-debug" },
+    { "name": "linux-gcc-release", "inherits": "test-base", "configurePreset": "linux-gcc-release" },
+    { "name": "linux-gcc-dist", "inherits": "test-base", "configurePreset": "linux-gcc-dist" },
+    { "name": "linux-clang-debug", "inherits": "test-base", "configurePreset": "linux-clang-debug" },
+    { "name": "linux-clang-release", "inherits": "test-base", "configurePreset": "linux-clang-release" },
+    { "name": "macos-debug", "inherits": "test-base", "configurePreset": "macos-debug" },
+    { "name": "macos-release", "inherits": "test-base", "configurePreset": "macos-release" },
+    { "name": "macos-dist", "inherits": "test-base", "configurePreset": "macos-dist" }
+  ]
+}
