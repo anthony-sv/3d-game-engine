@@ -17,13 +17,13 @@ namespace Strada
 		::SetConsoleOutputCP(CP_UTF8);
 #endif
 
-		Log::Specification logSpecification;
+		LogSpecification logSpecification;
 		std::filesystem::path const executablePath = FileSystem::GetExecutablePath();
 		std::string const logName = executablePath.empty() ? std::string("Strada") : FileSystem::PathToUtf8(executablePath.stem());
 		logSpecification.FilePath = FileSystem::GetUserDataDirectory() / "Logs" / (logName + ".log");
 #if defined(ST_DIST)
 		logSpecification.ConsoleOutput = false;
-		logSpecification.FileLevel = Log::Level::Warn;
+		logSpecification.FileLevel = LogLevel::Warn;
 #endif
 		Log::Init(logSpecification);
 

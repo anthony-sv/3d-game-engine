@@ -6,8 +6,8 @@
 int main(int argc, char** argv)
 {
 	// Keep the console readable: only warnings and errors from the engine are printed while tests run.
-	Strada::Log::Specification logSpecification;
-	logSpecification.ConsoleLevel = Strada::Log::Level::Warn;
+	Strada::LogSpecification logSpecification;
+	logSpecification.ConsoleLevel = Strada::LogLevel::Warn;
 	Strada::Log::Init(logSpecification);
 
 	doctest::Context context;

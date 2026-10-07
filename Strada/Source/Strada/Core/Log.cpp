@@ -22,43 +22,43 @@ namespace Strada
 		constexpr size_t MaxLogFileSize = 5 * 1024 * 1024;
 		constexpr size_t MaxLogFiles = 3;
 
-		spdlog::level::level_enum ToSpdlogLevel(Log::Level level)
+		spdlog::level::level_enum ToSpdlogLevel(LogLevel level)
 		{
 			switch (level)
 			{
-				case Log::Level::Trace:
+				case LogLevel::Trace:
 					return spdlog::level::trace;
-				case Log::Level::Info:
+				case LogLevel::Info:
 					return spdlog::level::info;
-				case Log::Level::Warn:
+				case LogLevel::Warn:
 					return spdlog::level::warn;
-				case Log::Level::Error:
+				case LogLevel::Error:
 					return spdlog::level::err;
-				case Log::Level::Critical:
+				case LogLevel::Critical:
 					return spdlog::level::critical;
 			}
 			return spdlog::level::trace;
 		}
 
-		Log::Level FromSpdlogLevel(spdlog::level::level_enum level)
+		LogLevel FromSpdlogLevel(spdlog::level::level_enum level)
 		{
 			switch (level)
 			{
 				case spdlog::level::trace:
 				case spdlog::level::debug:
-					return Log::Level::Trace;
+					return LogLevel::Trace;
 				case spdlog::level::info:
-					return Log::Level::Info;
+					return LogLevel::Info;
 				case spdlog::level::warn:
-					return Log::Level::Warn;
+					return LogLevel::Warn;
 				case spdlog::level::err:
-					return Log::Level::Error;
+					return LogLevel::Error;
 				case spdlog::level::critical:
 				case spdlog::level::off:
 				case spdlog::level::n_levels:
-					return Log::Level::Critical;
+					return LogLevel::Critical;
 			}
-			return Log::Level::Critical;
+			return LogLevel::Critical;
 		}
 
 		// Process-wide entry counter so indices are never reused, even across Init/Shutdown cycles.
@@ -74,11 +74,11 @@ namespace Strada
 			{
 			}
 
-			std::vector<Log::Entry> GetEntries(uint64_t firstIndex, size_t maxCount)
+			std::vector<LogEntry> GetEntries(uint64_t firstIndex, size_t maxCount)
 			{
 				std::lock_guard<std::mutex> lock(mutex_);
 
-				std::vector<Log::Entry> result;
+				std::vector<LogEntry> result;
 				if (m_Entries.empty() || maxCount == 0)
 				{
 					return result;
@@ -115,7 +115,7 @@ namespace Strada
 		protected:
 			void sink_it_(spdlog::details::log_msg const& message) override
 			{
-				Log::Entry entry;
+				LogEntry entry;
 				entry.Index = s_NextEntryIndex++;
 				entry.Severity = FromSpdlogLevel(message.level);
 				entry.Logger.assign(message.logger_name.data(), message.logger_name.size());
@@ -132,14 +132,14 @@ namespace Strada
 			void flush_() override {}
 
 		private:
-			std::deque<Log::Entry> m_Entries;
+			std::deque<LogEntry> m_Entries;
 			size_t m_Capacity;
 		};
 
 		Ref<LogBufferSink> s_BufferSink;
 	}
 
-	void Log::Init(Specification const& specification)
+	void Log::Init(LogSpecification const& specification)
 	{
 		if (IsInitialized())
 		{
@@ -217,7 +217,7 @@ namespace Strada
 		s_BufferSink.reset();
 	}
 
-	std::vector<Log::Entry> Log::GetEntries(uint64_t firstIndex, size_t maxCount)
+	std::vector<LogEntry> Log::GetEntries(uint64_t firstIndex, size_t maxCount)
 	{
 		if (!s_BufferSink)
 		{
@@ -252,19 +252,19 @@ namespace Strada
 		}
 	}
 
-	char const* Log::LevelToString(Level level)
+	char const* Log::LevelToString(LogLevel level)
 	{
 		switch (level)
 		{
-			case Level::Trace:
+			case LogLevel::Trace:
 				return "Trace";
-			case Level::Info:
+			case LogLevel::Info:
 				return "Info";
-			case Level::Warn:
+			case LogLevel::Warn:
 				return "Warn";
-			case Level::Error:
+			case LogLevel::Error:
 				return "Error";
-			case Level::Critical:
+			case LogLevel::Critical:
 				return "Critical";
 		}
 		return "Unknown";

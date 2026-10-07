@@ -17,42 +17,42 @@
 
 namespace Strada
 {
+	enum class LogLevel : uint8_t
+	{
+		Trace = 0,
+		Info,
+		Warn,
+		Error,
+		Critical
+	};
+
+	struct LogSpecification
+	{
+		// Rotating log file; empty disables file output.
+		std::filesystem::path FilePath;
+		bool ConsoleOutput = true;
+		LogLevel ConsoleLevel = LogLevel::Trace;
+		LogLevel FileLevel = LogLevel::Trace;
+		// Number of entries kept in memory for the editor console and the automation API.
+		size_t BufferCapacity = 10000;
+	};
+
+	struct LogEntry
+	{
+		// Monotonically increasing across the process lifetime; never reused, even after ClearEntries().
+		uint64_t Index = 0;
+		LogLevel Severity = LogLevel::Info;
+		std::string Logger;
+		std::string Message;
+		// Milliseconds since the Unix epoch.
+		int64_t TimestampMs = 0;
+	};
+
 	class Log
 	{
 	public:
-		enum class Level : uint8_t
-		{
-			Trace = 0,
-			Info,
-			Warn,
-			Error,
-			Critical
-		};
-
-		struct Specification
-		{
-			// Rotating log file; empty disables file output.
-			std::filesystem::path FilePath;
-			bool ConsoleOutput = true;
-			Level ConsoleLevel = Level::Trace;
-			Level FileLevel = Level::Trace;
-			// Number of entries kept in memory for the editor console and the automation API.
-			size_t BufferCapacity = 10000;
-		};
-
-		struct Entry
-		{
-			// Monotonically increasing across the process lifetime; never reused, even after ClearEntries().
-			uint64_t Index = 0;
-			Level Severity = Level::Info;
-			std::string Logger;
-			std::string Message;
-			// Milliseconds since the Unix epoch.
-			int64_t TimestampMs = 0;
-		};
-
 		// Init and Shutdown must be called from the main thread while no other thread is logging.
-		static void Init(Specification const& specification = {});
+		static void Init(LogSpecification const& specification = {});
 		static void Shutdown();
 		static bool IsInitialized() { return s_CoreLogger != nullptr; }
 
@@ -62,14 +62,14 @@ namespace Strada
 		static spdlog::logger& GetScriptLogger() { return s_ScriptLogger ? *s_ScriptLogger : *spdlog::default_logger_raw(); }
 
 		// Thread-safe access to the in-memory buffer. Returns at most maxCount entries with Index >= firstIndex, oldest first.
-		static std::vector<Entry> GetEntries(uint64_t firstIndex = 0, size_t maxCount = std::numeric_limits<size_t>::max());
+		static std::vector<LogEntry> GetEntries(uint64_t firstIndex = 0, size_t maxCount = std::numeric_limits<size_t>::max());
 		// Index that the next logged entry will receive.
 		static uint64_t GetNextEntryIndex();
 		static void ClearEntries();
 
 		static void Flush();
 
-		static char const* LevelToString(Level level);
+		static char const* LevelToString(LogLevel level);
 
 	private:
 		static Ref<spdlog::logger> s_CoreLogger;

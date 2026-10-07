@@ -27,6 +27,16 @@
     { "name": "windows-release", "displayName": "Windows Release (MSVC)", "inherits": "windows-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" } },
     { "name": "windows-dist", "displayName": "Windows Dist (MSVC)", "inherits": "windows-base", "cacheVariables": { "CMAKE_BUILD_TYPE": "Dist" } },
     {
+      "name": "windows-clang-debug",
+      "displayName": "Windows Debug (clang-cl)",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl"
+      }
+    },
+    {
       "name": "windows-vs",
       "displayName": "Windows Visual Studio 2026 solution",
       "inherits": "base",
@@ -76,6 +86,7 @@
     { "name": "windows-debug", "configurePreset": "windows-debug" },
     { "name": "windows-release", "configurePreset": "windows-release" },
     { "name": "windows-dist", "configurePreset": "windows-dist" },
+    { "name": "windows-clang-debug", "configurePreset": "windows-clang-debug" },
     { "name": "windows-vs-debug", "configurePreset": "windows-vs", "configuration": "Debug" },
     { "name": "windows-vs-release", "configurePreset": "windows-vs", "configuration": "Release" },
     { "name": "linux-gcc-debug", "configurePreset": "linux-gcc-debug" },
@@ -92,6 +103,7 @@
     { "name": "windows-debug", "inherits": "test-base", "configurePreset": "windows-debug" },
     { "name": "windows-release", "inherits": "test-base", "configurePreset": "windows-release" },
     { "name": "windows-dist", "inherits": "test-base", "configurePreset": "windows-dist" },
+    { "name": "windows-clang-debug", "inherits": "test-base", "configurePreset": "windows-clang-debug" },
     { "name": "linux-gcc-debug", "inherits": "test-base", "configurePreset": "linux-gcc-debug" },
     { "name": "linux-gcc-release", "inherits": "test-base", "configurePreset": "linux-gcc-release" },
     { "name": "linux-gcc-dist", "inherits": "test-base", "configurePreset": "linux-gcc-dist" },

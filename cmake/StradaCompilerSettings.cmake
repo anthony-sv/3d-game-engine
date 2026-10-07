@@ -9,7 +9,20 @@ function(strada_configure_target target)
         CXX_STANDARD_REQUIRED ON
         CXX_EXTENSIONS OFF)
 
-    if(MSVC)
+    if(MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        # clang-cl: MSVC-compatible driver, Clang diagnostics. MSVC-only conformance switches are not accepted.
+        target_compile_options(${target} PRIVATE
+            /W4
+            /utf-8
+            /bigobj
+            -Wshadow
+            -Wnon-virtual-dtor
+            -Woverloaded-virtual
+            -Wimplicit-fallthrough)
+        if(STRADA_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
+    elseif(MSVC)
         target_compile_options(${target} PRIVATE
             /W4
             /permissive-
