@@ -33,3 +33,6 @@ __pycache__/
 
 # Golden-image test output (diffs are written next to the build, never the source tree)
 Tests/**/Output/
+
+# Git worktrees created for parallel agent work.
+/.claude/worktrees/
