@@ -26,6 +26,9 @@ namespace Strada
 	static_assert(sizeof(ShaderInterop::DrawConstants) == 128, "Push constants must fit the 128 bytes Vulkan guarantees");
 	static_assert(sizeof(ShaderInterop::ShadowDrawConstants) == 128, "Push constants must fit the 128 bytes Vulkan guarantees");
 	static_assert(sizeof(ShaderInterop::TonemapConstants) == 16);
+	static_assert(sizeof(ShaderInterop::AmbientOcclusionConstants) == 176);
+	static_assert(sizeof(ShaderInterop::BloomConstants) == 32);
+	static_assert(sizeof(ShaderInterop::FxaaConstants) == 16);
 	static_assert(ShaderInterop::MaxShadowCascades == Shadows::MaxCascades);
 
 	namespace
@@ -34,6 +37,35 @@ namespace Strada
 		constexpr nvrhi::Format DepthFormat = nvrhi::Format::D32;
 		constexpr nvrhi::Format FinalFormat = nvrhi::Format::RGBA8_UNORM;
 		constexpr nvrhi::Format ShadowFormat = nvrhi::Format::D32;
+		constexpr nvrhi::Format NormalFormat = nvrhi::Format::RG16_FLOAT;
+		// R32 is the single-channel format every Vulkan device must support for storage images.
+		constexpr nvrhi::Format OcclusionFormat = nvrhi::Format::R32_FLOAT;
+		constexpr nvrhi::Format BloomFormat = nvrhi::Format::RGBA16_FLOAT;
+		constexpr uint32_t ComputeGroupSize = 8;
+		constexpr uint32_t MaxBloomMips = 6;
+		constexpr uint32_t OcclusionSlices = 3;
+		constexpr uint32_t OcclusionSteps = 6;
+
+		uint32_t ComputeGroups(uint32_t size)
+		{
+			return (size + ComputeGroupSize - 1) / ComputeGroupSize;
+		}
+
+		nvrhi::BindingLayoutHandle CreateComputeLayout(nvrhi::IDevice* device, std::vector<nvrhi::BindingLayoutItem> const& items)
+		{
+			nvrhi::BindingLayoutDesc desc;
+			desc.visibility = nvrhi::ShaderType::Compute;
+			desc.bindings = items;
+			return device->createBindingLayout(desc);
+		}
+
+		nvrhi::ComputePipelineHandle CreateComputePipeline(nvrhi::IDevice* device, char const* shader, nvrhi::IBindingLayout* layout)
+		{
+			nvrhi::ComputePipelineDesc desc;
+			desc.CS = ShaderLibrary::Get(shader);
+			desc.bindingLayouts = {layout};
+			return desc.CS ? device->createComputePipeline(desc) : nullptr;
+		}
 		// Texels kept free around each point light face for the shadow filter (see ComputePointLightViewProjections).
 		constexpr uint32_t PointShadowGuardTexels = 3;
 
@@ -95,6 +127,11 @@ namespace Strada
 		shadowDesc.byteSize = sizeof(ShaderInterop::ShadowConstants);
 		shadowDesc.debugName = "Shadow constants";
 		m_ShadowConstants = device->createBuffer(shadowDesc);
+
+		nvrhi::BufferDesc occlusionDesc = frameDesc;
+		occlusionDesc.byteSize = sizeof(ShaderInterop::AmbientOcclusionConstants);
+		occlusionDesc.debugName = "Ambient occlusion constants";
+		m_OcclusionConstants = device->createBuffer(occlusionDesc);
 
 		nvrhi::BufferDesc lightDesc;
 		lightDesc.byteSize = sizeof(ShaderInterop::LightData) * ShaderInterop::MaxLights;
@@ -202,13 +239,55 @@ namespace Strada
 		tonemapLayout.visibility = nvrhi::ShaderType::All;
 		tonemapLayout.bindings = {
 			nvrhi::BindingLayoutItem::Texture_SRV(0),
+			nvrhi::BindingLayoutItem::Texture_SRV(1),
+			nvrhi::BindingLayoutItem::Sampler(0),
 			nvrhi::BindingLayoutItem::PushConstants(0, sizeof(ShaderInterop::TonemapConstants)),
 		};
 		m_TonemapLayout = device->createBindingLayout(tonemapLayout);
 
-		ST_CORE_ASSERT(m_CommandList && m_FrameConstants && m_ShadowConstants && m_LightBuffer && m_ShadowCompareSampler &&
-		                   m_ShadowPointSampler && m_FallbackShadowMap && m_FrameLayout && m_FrameBindings && m_ShadowLayout &&
-		                   m_ShadowBindings && m_InputLayout && m_TonemapLayout,
+		nvrhi::BindingLayoutDesc fxaaLayout;
+		fxaaLayout.visibility = nvrhi::ShaderType::All;
+		fxaaLayout.bindings = {
+			nvrhi::BindingLayoutItem::Texture_SRV(0),
+			nvrhi::BindingLayoutItem::Sampler(0),
+			nvrhi::BindingLayoutItem::PushConstants(0, sizeof(ShaderInterop::FxaaConstants)),
+		};
+		m_FxaaLayout = device->createBindingLayout(fxaaLayout);
+
+		m_OcclusionLayout = CreateComputeLayout(device, {
+															nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+															nvrhi::BindingLayoutItem::Texture_SRV(0),
+															nvrhi::BindingLayoutItem::Texture_SRV(1),
+															nvrhi::BindingLayoutItem::Texture_UAV(0),
+														});
+		m_DenoiseLayout = CreateComputeLayout(device, {
+														  nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+														  nvrhi::BindingLayoutItem::Texture_SRV(0),
+														  nvrhi::BindingLayoutItem::Texture_SRV(2),
+														  nvrhi::BindingLayoutItem::Texture_UAV(0),
+													  });
+		m_CompositeLayout = CreateComputeLayout(device, {
+															nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+															nvrhi::BindingLayoutItem::Texture_SRV(3),
+															nvrhi::BindingLayoutItem::Texture_SRV(4),
+															nvrhi::BindingLayoutItem::Texture_UAV(1),
+														});
+		m_BloomLayout = CreateComputeLayout(device, {
+														nvrhi::BindingLayoutItem::PushConstants(0, sizeof(ShaderInterop::BloomConstants)),
+														nvrhi::BindingLayoutItem::Texture_SRV(0),
+														nvrhi::BindingLayoutItem::Sampler(0),
+														nvrhi::BindingLayoutItem::Texture_UAV(0),
+													});
+		m_OcclusionPipeline = CreateComputePipeline(device, "AmbientOcclusion_CS", m_OcclusionLayout);
+		m_DenoisePipeline = CreateComputePipeline(device, "AmbientOcclusionDenoise_CS", m_DenoiseLayout);
+		m_CompositePipeline = CreateComputePipeline(device, "AmbientOcclusionComposite_CS", m_CompositeLayout);
+		m_BloomDownsamplePipeline = CreateComputePipeline(device, "BloomDownsample_CS", m_BloomLayout);
+		m_BloomUpsamplePipeline = CreateComputePipeline(device, "BloomUpsample_CS", m_BloomLayout);
+
+		ST_CORE_ASSERT(m_CommandList && m_FrameConstants && m_ShadowConstants && m_OcclusionConstants && m_LightBuffer &&
+		                   m_ShadowCompareSampler && m_ShadowPointSampler && m_FallbackShadowMap && m_FrameLayout && m_FrameBindings &&
+		                   m_ShadowLayout && m_ShadowBindings && m_InputLayout && m_TonemapLayout && m_FxaaLayout && m_OcclusionPipeline &&
+		                   m_DenoisePipeline && m_CompositePipeline && m_BloomDownsamplePipeline && m_BloomUpsamplePipeline,
 		               "Failed to create scene renderer resources");
 	}
 
@@ -264,6 +343,8 @@ namespace Strada
 		colorDesc.height = m_Height;
 		colorDesc.format = ColorFormat;
 		colorDesc.isRenderTarget = true;
+		// The ambient occlusion composite updates it in place.
+		colorDesc.isUAV = true;
 		colorDesc.initialState = nvrhi::ResourceStates::ShaderResource;
 		colorDesc.keepInitialState = true;
 		colorDesc.setClearValue(nvrhi::Color(0.0f));
@@ -278,21 +359,131 @@ namespace Strada
 		depthDesc.debugName = "Scene depth";
 		m_DepthTarget = device->createTexture(depthDesc);
 
+		nvrhi::TextureDesc normalDesc = colorDesc;
+		normalDesc.format = NormalFormat;
+		normalDesc.isUAV = false;
+		normalDesc.debugName = "Scene normals";
+		m_NormalTarget = device->createTexture(normalDesc);
+
+		nvrhi::TextureDesc indirectDesc = normalDesc;
+		indirectDesc.format = ColorFormat;
+		indirectDesc.debugName = "Scene indirect light";
+		m_IndirectTarget = device->createTexture(indirectDesc);
+
+		nvrhi::TextureDesc occlusionDesc;
+		occlusionDesc.width = m_Width;
+		occlusionDesc.height = m_Height;
+		occlusionDesc.format = OcclusionFormat;
+		occlusionDesc.isUAV = true;
+		occlusionDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+		occlusionDesc.keepInitialState = true;
+		occlusionDesc.debugName = "Raw ambient occlusion";
+		m_RawOcclusion = device->createTexture(occlusionDesc);
+		occlusionDesc.debugName = "Ambient occlusion";
+		m_Occlusion = device->createTexture(occlusionDesc);
+
+		// Half resolution, halving down to at least 2 texels per side.
+		uint32_t const bloomWidth = std::max(m_Width / 2, 1u);
+		uint32_t const bloomHeight = std::max(m_Height / 2, 1u);
+		m_BloomMipCount = 1;
+		while (m_BloomMipCount < MaxBloomMips && std::min(bloomWidth, bloomHeight) >> m_BloomMipCount >= 2)
+		{
+			m_BloomMipCount++;
+		}
+		nvrhi::TextureDesc bloomDesc;
+		bloomDesc.width = bloomWidth;
+		bloomDesc.height = bloomHeight;
+		bloomDesc.mipLevels = m_BloomMipCount;
+		bloomDesc.format = BloomFormat;
+		bloomDesc.isUAV = true;
+		bloomDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+		bloomDesc.keepInitialState = true;
+		bloomDesc.debugName = "Bloom";
+		m_BloomTexture = device->createTexture(bloomDesc);
+
 		nvrhi::TextureDesc finalDesc = colorDesc;
 		finalDesc.format = FinalFormat;
+		finalDesc.isUAV = false;
 		finalDesc.debugName = "Final image";
 		m_FinalImage = device->createTexture(finalDesc);
+		finalDesc.debugName = "Tonemapped image";
+		m_LdrTarget = device->createTexture(finalDesc);
 
+		m_OpaqueFramebuffer = device->createFramebuffer(nvrhi::FramebufferDesc()
+		                                                    .addColorAttachment(m_ColorTarget)
+		                                                    .addColorAttachment(m_NormalTarget)
+		                                                    .addColorAttachment(m_IndirectTarget)
+		                                                    .setDepthAttachment(m_DepthTarget));
 		m_SceneFramebuffer =
 			device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_ColorTarget).setDepthAttachment(m_DepthTarget));
+		m_LdrFramebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_LdrTarget));
 		m_FinalFramebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_FinalImage));
 
+		nvrhi::ISampler* linearClamp = Renderer::GetLinearClampSampler();
 		nvrhi::BindingSetDesc tonemapBindings;
 		tonemapBindings.bindings = {
 			nvrhi::BindingSetItem::Texture_SRV(0, m_ColorTarget),
+			nvrhi::BindingSetItem::Texture_SRV(1, m_BloomTexture, nvrhi::Format::UNKNOWN, nvrhi::TextureSubresourceSet(0, 1, 0, 1)),
+			nvrhi::BindingSetItem::Sampler(0, linearClamp),
 			nvrhi::BindingSetItem::PushConstants(0, sizeof(ShaderInterop::TonemapConstants)),
 		};
 		m_TonemapBindings = device->createBindingSet(tonemapBindings, m_TonemapLayout);
+
+		nvrhi::BindingSetDesc fxaaBindings;
+		fxaaBindings.bindings = {
+			nvrhi::BindingSetItem::Texture_SRV(0, m_LdrTarget),
+			nvrhi::BindingSetItem::Sampler(0, linearClamp),
+			nvrhi::BindingSetItem::PushConstants(0, sizeof(ShaderInterop::FxaaConstants)),
+		};
+		m_FxaaBindings = device->createBindingSet(fxaaBindings, m_FxaaLayout);
+
+		m_OcclusionBindings = device->createBindingSet(nvrhi::BindingSetDesc()
+		                                                   .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OcclusionConstants))
+		                                                   .addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_DepthTarget))
+		                                                   .addItem(nvrhi::BindingSetItem::Texture_SRV(1, m_NormalTarget))
+		                                                   .addItem(nvrhi::BindingSetItem::Texture_UAV(0, m_RawOcclusion)),
+		                                               m_OcclusionLayout);
+		m_DenoiseBindings = device->createBindingSet(nvrhi::BindingSetDesc()
+		                                                 .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OcclusionConstants))
+		                                                 .addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_DepthTarget))
+		                                                 .addItem(nvrhi::BindingSetItem::Texture_SRV(2, m_RawOcclusion))
+		                                                 .addItem(nvrhi::BindingSetItem::Texture_UAV(0, m_Occlusion)),
+		                                             m_DenoiseLayout);
+		m_CompositeBindings = device->createBindingSet(nvrhi::BindingSetDesc()
+		                                                   .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OcclusionConstants))
+		                                                   .addItem(nvrhi::BindingSetItem::Texture_SRV(3, m_IndirectTarget))
+		                                                   .addItem(nvrhi::BindingSetItem::Texture_SRV(4, m_Occlusion))
+		                                                   .addItem(nvrhi::BindingSetItem::Texture_UAV(1, m_ColorTarget)),
+		                                               m_CompositeLayout);
+
+		m_BloomDownsampleBindings.clear();
+		m_BloomUpsampleBindings.clear();
+		for (uint32_t mip = 0; mip < m_BloomMipCount; mip++)
+		{
+			nvrhi::TextureSubresourceSet const target(mip, 1, 0, 1);
+			nvrhi::BindingSetItem const source = mip == 0
+			                                         ? nvrhi::BindingSetItem::Texture_SRV(0, m_ColorTarget)
+			                                         : nvrhi::BindingSetItem::Texture_SRV(0, m_BloomTexture, nvrhi::Format::UNKNOWN,
+			                                                                              nvrhi::TextureSubresourceSet(mip - 1, 1, 0, 1));
+			m_BloomDownsampleBindings.push_back(device->createBindingSet(
+				nvrhi::BindingSetDesc()
+					.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(ShaderInterop::BloomConstants)))
+					.addItem(source)
+					.addItem(nvrhi::BindingSetItem::Sampler(0, linearClamp))
+					.addItem(nvrhi::BindingSetItem::Texture_UAV(0, m_BloomTexture, nvrhi::Format::UNKNOWN, target)),
+				m_BloomLayout));
+			if (mip + 1 < m_BloomMipCount)
+			{
+				m_BloomUpsampleBindings.push_back(device->createBindingSet(
+					nvrhi::BindingSetDesc()
+						.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(ShaderInterop::BloomConstants)))
+						.addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_BloomTexture, nvrhi::Format::UNKNOWN,
+				                                                    nvrhi::TextureSubresourceSet(mip + 1, 1, 0, 1)))
+						.addItem(nvrhi::BindingSetItem::Sampler(0, linearClamp))
+						.addItem(nvrhi::BindingSetItem::Texture_UAV(0, m_BloomTexture, nvrhi::Format::UNKNOWN, target)),
+					m_BloomLayout));
+			}
+		}
 
 		if (!m_SkyPipeline)
 		{
@@ -318,6 +509,17 @@ namespace Strada
 			desc.renderState.depthStencilState.depthWriteEnable = false;
 			m_TonemapPipeline = device->createGraphicsPipeline(desc, m_FinalFramebuffer->getFramebufferInfo());
 		}
+		if (!m_FxaaPipeline)
+		{
+			nvrhi::GraphicsPipelineDesc desc;
+			desc.VS = ShaderLibrary::Get("Fullscreen_VS");
+			desc.PS = ShaderLibrary::Get("Fxaa_PS");
+			desc.bindingLayouts = {m_FxaaLayout};
+			desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+			desc.renderState.depthStencilState.depthTestEnable = false;
+			desc.renderState.depthStencilState.depthWriteEnable = false;
+			m_FxaaPipeline = device->createGraphicsPipeline(desc, m_FinalFramebuffer->getFramebufferInfo());
+		}
 		m_TargetsDirty = false;
 	}
 
@@ -332,7 +534,8 @@ namespace Strada
 		nvrhi::GraphicsPipelineDesc desc;
 		desc.inputLayout = m_InputLayout;
 		desc.VS = ShaderLibrary::Get("ForwardPBR_VS");
-		desc.PS = ShaderLibrary::Get("ForwardPBR_PS");
+		// Blended surfaces are drawn after ambient occlusion into the color target only.
+		desc.PS = ShaderLibrary::Get(blend ? "ForwardPBR_BlendPS" : "ForwardPBR_PS");
 		desc.bindingLayouts = {m_FrameLayout, Renderer::GetMaterialBindingLayout()};
 		desc.renderState.rasterState.cullMode = doubleSided ? nvrhi::RasterCullMode::None : nvrhi::RasterCullMode::Back;
 		desc.renderState.rasterState.frontCounterClockwise = true;
@@ -348,7 +551,8 @@ namespace Strada
 			target.srcBlendAlpha = nvrhi::BlendFactor::One;
 			target.destBlendAlpha = nvrhi::BlendFactor::InvSrcAlpha;
 		}
-		pipeline = GraphicsDevice::GetDevice()->createGraphicsPipeline(desc, m_SceneFramebuffer->getFramebufferInfo());
+		nvrhi::IFramebuffer* framebuffer = blend ? m_SceneFramebuffer : m_OpaqueFramebuffer;
+		pipeline = GraphicsDevice::GetDevice()->createGraphicsPipeline(desc, framebuffer->getFramebufferInfo());
 		if (!pipeline)
 		{
 			ST_CORE_ERROR("Failed to create a mesh pipeline");
@@ -782,14 +986,83 @@ namespace Strada
 		}
 	}
 
-	void SceneRenderer::DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items)
+	void SceneRenderer::RenderAmbientOcclusion(nvrhi::ICommandList* commandList)
+	{
+		float const height = static_cast<float>(m_Height);
+		ShaderInterop::AmbientOcclusionConstants constants{};
+		constants.InverseProjection = glm::inverse(m_Camera.Projection);
+		constants.View = m_Camera.View;
+		constants.ViewportSize = glm::vec2(static_cast<float>(m_Width), height);
+		constants.InverseViewportSize = 1.0f / constants.ViewportSize;
+		constants.Radius = std::clamp(m_Settings.AmbientOcclusionRadius, 0.01f, 10.0f);
+		constants.Intensity = std::clamp(m_Settings.AmbientOcclusionIntensity, 0.1f, 8.0f);
+		// Projection[1][1] maps view-space height to clip space (1 / tan(fov / 2), or 2 / size for orthographic views).
+		constants.ProjectionScale = 0.5f * height * m_Camera.Projection[1][1];
+		constants.Orthographic = m_Camera.Projection[3][3] > 0.5f ? 1u : 0u;
+		constants.SliceCount = OcclusionSlices;
+		constants.StepCount = OcclusionSteps;
+		commandList->writeBuffer(m_OcclusionConstants, &constants, sizeof(constants));
+
+		std::pair<nvrhi::IComputePipeline*, nvrhi::IBindingSet*> const passes[] = {
+			{m_OcclusionPipeline, m_OcclusionBindings},
+			{m_DenoisePipeline, m_DenoiseBindings},
+			{m_CompositePipeline, m_CompositeBindings},
+		};
+		for (auto const& [pipeline, bindings] : passes)
+		{
+			nvrhi::ComputeState state;
+			state.pipeline = pipeline;
+			state.bindings = {bindings};
+			commandList->setComputeState(state);
+			commandList->dispatch(ComputeGroups(m_Width), ComputeGroups(m_Height), 1);
+		}
+	}
+
+	void SceneRenderer::RenderBloom(nvrhi::ICommandList* commandList)
+	{
+		uint32_t const width = m_BloomTexture->getDesc().width;
+		uint32_t const height = m_BloomTexture->getDesc().height;
+		auto const mipSize = [&](uint32_t mip)
+		{
+			return glm::uvec2(std::max(width >> mip, 1u), std::max(height >> mip, 1u));
+		};
+
+		for (uint32_t mip = 0; mip < m_BloomMipCount; mip++)
+		{
+			glm::uvec2 const source = mip == 0 ? glm::uvec2(m_Width, m_Height) : mipSize(mip - 1);
+			ShaderInterop::BloomConstants constants{};
+			constants.SourceTexelSize = 1.0f / glm::vec2(source);
+			constants.OutputSize = mipSize(mip);
+			constants.FirstPass = mip == 0 ? 1u : 0u;
+			nvrhi::ComputeState state;
+			state.pipeline = m_BloomDownsamplePipeline;
+			state.bindings = {m_BloomDownsampleBindings[mip]};
+			commandList->setComputeState(state);
+			commandList->setPushConstants(&constants, sizeof(constants));
+			commandList->dispatch(ComputeGroups(constants.OutputSize.x), ComputeGroups(constants.OutputSize.y), 1);
+		}
+		for (uint32_t mip = m_BloomMipCount - 1; mip-- > 0;)
+		{
+			ShaderInterop::BloomConstants constants{};
+			constants.SourceTexelSize = 1.0f / glm::vec2(mipSize(mip + 1));
+			constants.OutputSize = mipSize(mip);
+			nvrhi::ComputeState state;
+			state.pipeline = m_BloomUpsamplePipeline;
+			state.bindings = {m_BloomUpsampleBindings[mip]};
+			commandList->setComputeState(state);
+			commandList->setPushConstants(&constants, sizeof(constants));
+			commandList->dispatch(ComputeGroups(constants.OutputSize.x), ComputeGroups(constants.OutputSize.y), 1);
+		}
+	}
+
+	void SceneRenderer::DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items, nvrhi::IFramebuffer* framebuffer)
 	{
 		for (DrawItem const& item : items)
 		{
 			GpuMesh const* mesh = item.GpuData;
 			nvrhi::GraphicsState state;
 			state.pipeline = item.Pipeline;
-			state.framebuffer = m_SceneFramebuffer;
+			state.framebuffer = framebuffer;
 			state.viewport.addViewportAndScissorRect(nvrhi::Viewport(static_cast<float>(m_Width), static_cast<float>(m_Height)));
 			state.bindings = {m_FrameBindings, item.MaterialBindings};
 			state.vertexBuffers = {nvrhi::VertexBufferBinding().setBuffer(mesh->VertexBuffer).setSlot(0).setOffset(0)};
@@ -887,8 +1160,14 @@ namespace Strada
 		glm::vec3 const background = m_AmbientRadiance * exposure;
 		commandList->clearTextureFloat(m_ColorTarget, nvrhi::AllSubresources, nvrhi::Color(background.r, background.g, background.b, 1.0f));
 		commandList->clearDepthStencilTexture(m_DepthTarget, nvrhi::AllSubresources, true, 0.0f, false, 0);
+		commandList->clearTextureFloat(m_NormalTarget, nvrhi::AllSubresources, nvrhi::Color(0.0f));
+		commandList->clearTextureFloat(m_IndirectTarget, nvrhi::AllSubresources, nvrhi::Color(0.0f));
 
-		DrawItems(commandList, m_OpaqueItems);
+		DrawItems(commandList, m_OpaqueItems, m_OpaqueFramebuffer);
+		if (m_Settings.AmbientOcclusion)
+		{
+			RenderAmbientOcclusion(commandList);
+		}
 		if (environment != nullptr && m_Environment.DrawSkybox)
 		{
 			nvrhi::GraphicsState skyState;
@@ -902,19 +1181,41 @@ namespace Strada
 			commandList->setPushConstants(&unused, sizeof(unused));
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 		}
-		DrawItems(commandList, m_BlendItems);
+		DrawItems(commandList, m_BlendItems, m_SceneFramebuffer);
+
+		float const bloomIntensity = m_Settings.Bloom ? std::clamp(m_Settings.BloomIntensity, 0.0f, 1.0f) : 0.0f;
+		if (bloomIntensity > 0.0f)
+		{
+			RenderBloom(commandList);
+		}
 
 		nvrhi::GraphicsState tonemapState;
 		tonemapState.pipeline = m_TonemapPipeline;
-		tonemapState.framebuffer = m_FinalFramebuffer;
+		tonemapState.framebuffer = m_Settings.FXAA ? m_LdrFramebuffer : m_FinalFramebuffer;
 		tonemapState.viewport.addViewportAndScissorRect(nvrhi::Viewport(static_cast<float>(m_Width), static_cast<float>(m_Height)));
 		tonemapState.bindings = {m_TonemapBindings};
 		commandList->setGraphicsState(tonemapState);
 		ShaderInterop::TonemapConstants tonemap{};
 		tonemap.Operator = static_cast<uint32_t>(m_Settings.Tonemapper);
 		tonemap.Dither = m_Settings.Dithering ? 1u : 0u;
+		tonemap.BloomIntensity = bloomIntensity;
+		tonemap.BloomNormalization = 1.0f / static_cast<float>(std::max(m_BloomMipCount, 1u));
 		commandList->setPushConstants(&tonemap, sizeof(tonemap));
 		commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+
+		if (m_Settings.FXAA)
+		{
+			nvrhi::GraphicsState fxaaState;
+			fxaaState.pipeline = m_FxaaPipeline;
+			fxaaState.framebuffer = m_FinalFramebuffer;
+			fxaaState.viewport.addViewportAndScissorRect(nvrhi::Viewport(static_cast<float>(m_Width), static_cast<float>(m_Height)));
+			fxaaState.bindings = {m_FxaaBindings};
+			commandList->setGraphicsState(fxaaState);
+			ShaderInterop::FxaaConstants fxaa{};
+			fxaa.InverseSize = 1.0f / glm::vec2(static_cast<float>(m_Width), static_cast<float>(m_Height));
+			commandList->setPushConstants(&fxaa, sizeof(fxaa));
+			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+		}
 
 		commandList->close();
 		GraphicsDevice::GetDevice()->executeCommandList(commandList);

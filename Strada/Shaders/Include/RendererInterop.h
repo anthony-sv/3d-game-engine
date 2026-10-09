@@ -128,12 +128,51 @@ struct ShadowDrawConstants
 	float4x4 ViewProjection;
 };
 
+// Ground-truth ambient occlusion (compute, b0).
+struct AmbientOcclusionConstants
+{
+	float4x4 InverseProjection;
+	float4x4 View;
+	float2 ViewportSize;
+	float2 InverseViewportSize;
+	// World-space radius of the occlusion search.
+	float Radius;
+	// Exponent applied to the visibility (contrast).
+	float Intensity;
+	// Pixels per world unit at view distance 1 (perspective) or everywhere (orthographic).
+	float ProjectionScale;
+	uint Orthographic;
+	uint SliceCount;
+	uint StepCount;
+	float2 Padding;
+};
+
+// Bloom downsample and upsample passes (push constants).
+struct BloomConstants
+{
+	float2 SourceTexelSize;
+	uint2 OutputSize;
+	// Karis average on the first downsample (suppresses fireflies).
+	uint FirstPass;
+	float3 Padding;
+};
+
+// FXAA (push constants).
+struct FxaaConstants
+{
+	float2 InverseSize;
+	float2 Padding;
+};
+
 // Tonemap pass (push constants).
 struct TonemapConstants
 {
 	uint Operator;
 	uint Dither;
-	float2 Padding;
+	// Fraction of the bloom texture mixed into the scene color (0 disables bloom).
+	float BloomIntensity;
+	// 1 / number of bloom levels: the upsample chain sums every level into the first.
+	float BloomNormalization;
 };
 
 ST_SHADER_NAMESPACE_END

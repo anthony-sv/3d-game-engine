@@ -227,6 +227,13 @@ strada_add_shaders(Strada
         ImGui_PS:ImGui.hlsl:PSMain:pixel
         ForwardPBR_VS:ForwardPBR.hlsl:VSMain:vertex
         ForwardPBR_PS:ForwardPBR.hlsl:PSMain:pixel
+        ForwardPBR_BlendPS:ForwardPBR.hlsl:PSMainBlend:pixel
+        AmbientOcclusion_CS:AmbientOcclusion.hlsl:CSMain:compute
+        AmbientOcclusionDenoise_CS:AmbientOcclusion.hlsl:CSDenoise:compute
+        AmbientOcclusionComposite_CS:AmbientOcclusion.hlsl:CSComposite:compute
+        BloomDownsample_CS:Bloom.hlsl:CSDownsample:compute
+        BloomUpsample_CS:Bloom.hlsl:CSUpsample:compute
+        Fxaa_PS:Fxaa.hlsl:PSMain:pixel
         Tonemap_PS:Tonemap.hlsl:PSMain:pixel
         Shadow_VS:Shadow.hlsl:VSMain:vertex
         Shadow_PS:Shadow.hlsl:PSMain:pixel

@@ -16,7 +16,8 @@
 		using float3 = glm::vec3;   \
 		using float4 = glm::vec4;   \
 		using float4x4 = glm::mat4; \
-		using uint = uint32_t;
+		using uint = uint32_t;      \
+		using uint2 = glm::uvec2;
 #define ST_SHADER_NAMESPACE_END }
 #else
 #define ST_SHADER_NAMESPACE_BEGIN

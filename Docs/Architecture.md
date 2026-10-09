@@ -179,28 +179,31 @@ shadows sized by its `LightSize`, with cascade cross-fades and a fade at the sha
 rotated 16-tap PCF. Shadow projection math lives in `Renderer/ShadowMath` (unit tested). The remaining passes below
 are added in order without changing that structure.
 
-Frame passes, in order (target design):
+Frame passes, in order (passes 1-8 are implemented):
 
 1. **Shadow pass** — directional light cascaded shadow maps (up to 4 cascades, `D32_FLOAT` texture array, stable
    cascades: bounding spheres with texel snapping, depth range extended to every caster), plus a local shadow-map
    array (`D32_FLOAT`, up to 24 slices) with one slice per shadow-casting spot light and six per point light (cube
    faces with guard bands, face chosen in the shader). Shadow maps use reversed Z; blended materials do not cast.
-2. **Depth/normal prepass** — depth (`D32_FLOAT`, reversed-Z), view-space normals (`RGBA16_FLOAT` or octahedral
-   `RG16_FLOAT`), and in the editor the entity-ID target (`R32_UINT`) for picking.
-3. **SSAO** — GTAO (horizon-based, cosine-weighted) at full or half resolution + edge-aware spatial denoise;
-   applied to indirect (IBL/ambient) lighting only, with multi-bounce approximation.
-4. **Opaque forward PBR** — metallic-roughness GGX (height-correlated Smith visibility, Schlick Fresnel,
+2. **Opaque forward PBR** — metallic-roughness GGX (height-correlated Smith visibility, Schlick Fresnel,
    multi-scatter energy compensation), directional/point/spot lights (physical units with smooth range window),
-   IBL (irradiance SH or cube + GGX-prefiltered specular + split-sum BRDF LUT), soft shadows (PCF with rotated
+   IBL (cube irradiance + GGX-prefiltered specular + split-sum BRDF LUT), soft shadows (PCF with rotated
    Vogel disk and PCSS blocker search), alpha-mask support. Lights live in a structured buffer (no culling
-   initially; capped at 256 visible lights).
-5. **Sky** — environment cubemap with rotation, intensity and blur (prefiltered mip).
-6. **Transparent forward** — alpha-blended materials sorted back to front.
-7. **Bloom** — 13-tap downsample with Karis average on the first mip + tent upsample chain.
-8. **Tonemap** — exposure (EV100), operators: ACES (Hill fit), AgX, Khronos PBR Neutral, Reinhard; dithering;
+   initially; capped at 256 visible lights). Besides the HDR color it writes, as extra render targets, the
+   octahedral world normal (`RG16_FLOAT`) and the exposed indirect light (`RGBA16_FLOAT`), and in the editor the
+   entity-ID target (`R32_UINT`) for picking. There is no depth prepass: an equal-depth main pass would need
+   position invariance across pipelines, which DXC's SPIR-V output does not guarantee.
+3. **Ambient occlusion** — GTAO (horizon-based, cosine-weighted; 3 slices x 6 steps per side, per-pixel noise) at
+   full resolution from depth and normals, a 5x5 depth-aware denoise, then a composite that subtracts the occluded
+   part of the indirect light from the color (direct light is never occluded).
+4. **Sky** — environment cubemap with rotation, intensity and blur (radiance mip).
+5. **Transparent forward** — alpha-blended materials sorted back to front (color only).
+6. **Bloom** — half-resolution chain of up to 6 levels: 13-tap downsample with Karis average on the first level,
+   3x3 tent upsample accumulating into the first level; mixed into the color (energy conserving) by intensity.
+7. **Tonemap** — exposure (EV100), operators: ACES (Hill fit), AgX, Khronos PBR Neutral, Reinhard; dithering;
    sRGB encoding in the shader; output `RGBA8_UNORM`.
-9. **FXAA** (optional).
-10. **Overlays** — world-space text and sprites are lit/unlit in the HDR passes; screen-space text and sprites,
+8. **FXAA** (optional) — luma edge search on the tonemapped image.
+9. **Overlays** — world-space text and sprites are lit/unlit in the HDR passes; screen-space text and sprites,
     debug lines (collider visualization, script `Debug.DrawLine`), editor grid, selection outline (from the ID
     buffer) and light/camera icons are drawn after tonemapping.
 

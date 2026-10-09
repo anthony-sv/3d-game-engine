@@ -1,4 +1,4 @@
-// Maps exposed HDR radiance to display values: tone curve, dithering, sRGB encoding into an 8-bit UNORM target.
+// Maps exposed HDR radiance to display values: bloom mix, tone curve, dithering, sRGB encoding into an 8-bit UNORM target.
 
 #include "Include/Common.hlsli"
 #include "Include/RendererInterop.h"
@@ -10,6 +10,8 @@ static const uint TonemapReinhard = 3;
 static const uint TonemapNone = 4;
 
 Texture2D g_SceneColor : register(t0);
+Texture2D g_Bloom : register(t1);
+SamplerState g_LinearClamp : register(s0);
 [[vk::push_constant]] ConstantBuffer<TonemapConstants> g_Tonemap : register(b0);
 
 struct FullscreenVertexOutput
@@ -88,6 +90,12 @@ float3 TonemapPBRNeutralCurve(float3 color)
 float4 PSMain(FullscreenVertexOutput input) : SV_Target0
 {
 	float3 color = max(g_SceneColor.Load(int3(input.Position.xy, 0)).rgb, 0.0);
+	if (g_Tonemap.BloomIntensity > 0.0)
+	{
+		// Energy-conserving mix: bloom redistributes light instead of adding it.
+		color = lerp(color, g_Bloom.SampleLevel(g_LinearClamp, input.TexCoord, 0).rgb * g_Tonemap.BloomNormalization,
+		             g_Tonemap.BloomIntensity);
+	}
 	switch (g_Tonemap.Operator)
 	{
 		case TonemapACES:

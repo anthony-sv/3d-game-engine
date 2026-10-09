@@ -236,7 +236,16 @@ float SampleLocalShadow(LightData light, float3 worldPosition, float3 geometricN
 	return FilterShadow(g_LocalShadowMap, uv, float(slice), ndc.z, LocalFilterTexels / g_Shadow.LocalMapSize, phi);
 }
 
-float4 PSMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
+struct ShadingResult
+{
+	// Exposed radiance and coverage.
+	float4 Color;
+	// Exposed indirect (ambient and image-based) radiance, the part ambient occlusion attenuates.
+	float3 Indirect;
+	float3 Normal;
+};
+
+ShadingResult Shade(VertexOutput input, bool isFrontFace)
 {
 	float4 baseColor = g_Material.BaseColor * g_BaseColorTexture.Sample(g_MaterialSampler, input.TexCoord);
 	if ((g_Material.Flags & MaterialFlagAlphaMask) != 0 && baseColor.a < g_Material.AlphaCutoff)
@@ -350,6 +359,35 @@ float4 PSMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 	float3 diffuseWeight = diffuseColor * (1.0 - singleScatter - multiScatter * multiScatterEnergy);
 	float3 ambient = (singleScatter * prefiltered + multiScatter * multiScatterEnergy * irradiance + diffuseWeight * irradiance) * occlusion;
 	float3 emissive = g_Material.Emissive * g_EmissiveTexture.Sample(g_MaterialSampler, input.TexCoord).rgb;
-	float3 color = (radiance + ambient + emissive) * g_Frame.Exposure;
-	return float4(color, baseColor.a);
+
+	ShadingResult result;
+	result.Color = float4((radiance + ambient + emissive) * g_Frame.Exposure, baseColor.a);
+	result.Indirect = ambient * g_Frame.Exposure;
+	result.Normal = geometricNormal;
+	return result;
+}
+
+struct OpaqueOutput
+{
+	float4 Color : SV_Target0;
+	// Octahedral-encoded world-space normal, for ambient occlusion.
+	float2 Normal : SV_Target1;
+	float4 Indirect : SV_Target2;
+};
+
+// Opaque and alpha-masked surfaces: also write the inputs of ambient occlusion.
+OpaqueOutput PSMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+{
+	ShadingResult result = Shade(input, isFrontFace);
+	OpaqueOutput output;
+	output.Color = result.Color;
+	output.Normal = OctahedralEncode(result.Normal);
+	output.Indirect = float4(result.Indirect, 1.0);
+	return output;
+}
+
+// Alpha-blended surfaces, drawn after ambient occlusion into the color target only.
+float4 PSMainBlend(VertexOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
+{
+	return Shade(input, isFrontFace).Color;
 }

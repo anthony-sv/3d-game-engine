@@ -56,6 +56,19 @@ namespace Strada
 		uint32_t ShadowMapSize = 2048;
 		uint32_t LocalShadowMapSize = 1024;
 
+		// Ground-truth ambient occlusion of indirect light.
+		bool AmbientOcclusion = true;
+		// World-space search radius (0.01-10) and contrast exponent (0.1-8).
+		float AmbientOcclusionRadius = 0.75f;
+		float AmbientOcclusionIntensity = 1.5f;
+
+		bool Bloom = true;
+		// Fraction of the blurred image mixed into the scene (0-1).
+		float BloomIntensity = 0.04f;
+
+		// Fast approximate anti-aliasing after tonemapping.
+		bool FXAA = true;
+
 		// Linear multiplier applied to scene radiance: 1 / (1.2 * 2^EV100).
 		float GetExposure() const { return 1.0f / (1.2f * std::exp2(EV100)); }
 
@@ -73,6 +86,11 @@ namespace Strada
 			Field("CascadeCount", &SceneRendererSettings::CascadeCount),
 			Field("CascadeSplitLambda", &SceneRendererSettings::CascadeSplitLambda),
 			Field("ShadowMapSize", &SceneRendererSettings::ShadowMapSize),
-			Field("LocalShadowMapSize", &SceneRendererSettings::LocalShadowMapSize));
+			Field("LocalShadowMapSize", &SceneRendererSettings::LocalShadowMapSize),
+			Field("AmbientOcclusion", &SceneRendererSettings::AmbientOcclusion),
+			Field("AmbientOcclusionRadius", &SceneRendererSettings::AmbientOcclusionRadius),
+			Field("AmbientOcclusionIntensity", &SceneRendererSettings::AmbientOcclusionIntensity),
+			Field("Bloom", &SceneRendererSettings::Bloom), Field("BloomIntensity", &SceneRendererSettings::BloomIntensity),
+			Field("FXAA", &SceneRendererSettings::FXAA));
 	};
 }

@@ -182,8 +182,10 @@ namespace Strada
 		// Assigns shadow maps to the lights and fills the shadow constants and views.
 		void PrepareShadows(ShaderInterop::ShadowConstants& constants);
 		void RenderShadows(nvrhi::ICommandList* commandList);
+		void RenderAmbientOcclusion(nvrhi::ICommandList* commandList);
+		void RenderBloom(nvrhi::ICommandList* commandList);
 		void PrepareItems(std::vector<DrawItem>& items, bool blend);
-		void DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items);
+		void DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items, nvrhi::IFramebuffer* framebuffer);
 
 		uint32_t m_Width = 1;
 		uint32_t m_Height = 1;
@@ -206,8 +208,21 @@ namespace Strada
 		nvrhi::CommandListHandle m_CommandList;
 		nvrhi::TextureHandle m_ColorTarget;
 		nvrhi::TextureHandle m_DepthTarget;
+		// Written by the opaque pass for ambient occlusion: world normals (octahedral) and exposed indirect light.
+		nvrhi::TextureHandle m_NormalTarget;
+		nvrhi::TextureHandle m_IndirectTarget;
+		nvrhi::TextureHandle m_RawOcclusion;
+		nvrhi::TextureHandle m_Occlusion;
+		// Half resolution with a mip chain; mip 0 holds the accumulated bloom.
+		nvrhi::TextureHandle m_BloomTexture;
+		uint32_t m_BloomMipCount = 0;
+		// Tonemapped image before FXAA.
+		nvrhi::TextureHandle m_LdrTarget;
 		nvrhi::TextureHandle m_FinalImage;
+		// Color, normals, indirect light and depth (opaque pass); color and depth (sky and blended surfaces).
+		nvrhi::FramebufferHandle m_OpaqueFramebuffer;
 		nvrhi::FramebufferHandle m_SceneFramebuffer;
+		nvrhi::FramebufferHandle m_LdrFramebuffer;
 		nvrhi::FramebufferHandle m_FinalFramebuffer;
 
 		nvrhi::BufferHandle m_FrameConstants;
@@ -232,6 +247,28 @@ namespace Strada
 		nvrhi::BindingLayoutHandle m_ShadowLayout;
 		nvrhi::BindingSetHandle m_ShadowBindings;
 		nvrhi::GraphicsPipelineHandle m_ShadowPipelines[4];
+
+		nvrhi::BufferHandle m_OcclusionConstants;
+		nvrhi::BindingLayoutHandle m_OcclusionLayout;
+		nvrhi::BindingLayoutHandle m_DenoiseLayout;
+		nvrhi::BindingLayoutHandle m_CompositeLayout;
+		nvrhi::BindingSetHandle m_OcclusionBindings;
+		nvrhi::BindingSetHandle m_DenoiseBindings;
+		nvrhi::BindingSetHandle m_CompositeBindings;
+		nvrhi::ComputePipelineHandle m_OcclusionPipeline;
+		nvrhi::ComputePipelineHandle m_DenoisePipeline;
+		nvrhi::ComputePipelineHandle m_CompositePipeline;
+
+		nvrhi::BindingLayoutHandle m_BloomLayout;
+		// Per mip: downsample into it, and (except the last) upsample the next mip into it.
+		std::vector<nvrhi::BindingSetHandle> m_BloomDownsampleBindings;
+		std::vector<nvrhi::BindingSetHandle> m_BloomUpsampleBindings;
+		nvrhi::ComputePipelineHandle m_BloomDownsamplePipeline;
+		nvrhi::ComputePipelineHandle m_BloomUpsamplePipeline;
+
+		nvrhi::BindingLayoutHandle m_FxaaLayout;
+		nvrhi::BindingSetHandle m_FxaaBindings;
+		nvrhi::GraphicsPipelineHandle m_FxaaPipeline;
 
 		nvrhi::BindingLayoutHandle m_TonemapLayout;
 		nvrhi::BindingSetHandle m_TonemapBindings;
