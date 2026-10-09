@@ -166,6 +166,10 @@ namespace Strada
 		// Arrays: the kind of their elements.
 		FieldKind ElementKind = FieldKind::Custom;
 		FieldHints Hints;
+		// Numbers, float vectors and arrays of them: the range the C++ type can represent (editors clamp to it as well as to
+		// the hinted range).
+		double TypeMin = -std::numeric_limits<double>::infinity();
+		double TypeMax = std::numeric_limits<double>::infinity();
 		// Schema type name ("float", "vec3", "Perspective|Orthographic", "asset[]", ...).
 		std::string TypeName;
 		// Enums (and arrays of enums): the value names in declaration order.
@@ -545,6 +549,12 @@ namespace Strada
 			if constexpr (VectorTraits<T>::value)
 			{
 				descriptor.ElementKind = GetFieldKind<ValueType>();
+			}
+			using ScalarType = std::conditional_t<IsFloatVector<ValueType>, float, ValueType>;
+			if constexpr (std::is_arithmetic_v<ScalarType> && !std::is_same_v<ScalarType, bool>)
+			{
+				descriptor.TypeMin = static_cast<double>(std::numeric_limits<ScalarType>::lowest());
+				descriptor.TypeMax = static_cast<double>(std::numeric_limits<ScalarType>::max());
 			}
 			if constexpr (SerializableEnum<ValueType>)
 			{

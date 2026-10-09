@@ -1,6 +1,8 @@
 #include "stpch.h"
 #include "Strada/Renderer/TextureMips.h"
 
+#include "Strada/Math/Math.h"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -10,22 +12,12 @@ namespace Strada
 {
 	namespace
 	{
-		float SrgbToLinear(float value)
-		{
-			return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
-		}
-
-		float LinearToSrgb(float value)
-		{
-			return value <= 0.0031308f ? value * 12.92f : 1.055f * std::pow(value, 1.0f / 2.4f) - 0.055f;
-		}
-
 		std::array<float, 256> MakeDecodeTable()
 		{
 			std::array<float, 256> table{};
 			for (size_t i = 0; i < table.size(); i++)
 			{
-				table[i] = SrgbToLinear(static_cast<float>(i) / 255.0f);
+				table[i] = Math::SrgbToLinear(static_cast<float>(i) / 255.0f);
 			}
 			return table;
 		}
@@ -77,7 +69,7 @@ namespace Strada
 							sum += decode ? s_SrgbDecode[sample[channel]] : static_cast<float>(sample[channel]) / 255.0f;
 						}
 						float const average = sum * 0.25f;
-						output[channel] = ToByte(decode ? LinearToSrgb(average) : average);
+						output[channel] = ToByte(decode ? Math::LinearToSrgb(average) : average);
 					}
 				}
 			}

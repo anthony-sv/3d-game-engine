@@ -201,14 +201,14 @@ TEST_CASE("Scene: duplication copies the subtree with new IDs and remaps interna
 TEST_CASE("Scene: copies are deep and independent")
 {
 	Scene source("Level");
-	source.GetSettings().Gravity = {0.0f, -3.0f, 0.0f};
+	source.GetSettings().Physics.Gravity = {0.0f, -3.0f, 0.0f};
 	Entity parent = source.CreateEntity("Parent");
 	Entity child = source.CreateEntity("Child", parent);
 	child.AddComponent<MeshComponent>().CastShadows = false;
 
 	Ref<Scene> copy = Scene::Copy(source);
 	CHECK(copy->GetName() == "Level");
-	CHECK(copy->GetSettings().Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
+	CHECK(copy->GetSettings().Physics.Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
 	CHECK(copy->GetEntityCount() == 2);
 
 	Entity copiedChild = copy->GetEntityByUUID(child.GetUUID());

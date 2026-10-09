@@ -6,9 +6,12 @@ add_executable(StradaEditorTests
     Source/EditorCameraTests.cpp
     Source/EditorCommandsTests.cpp
     Source/EditorOperationsTests.cpp
+    Source/EditorUITests.cpp
+    Source/HierarchyOperationsTests.cpp
     Source/JsonRpcTests.cpp
     Source/JsonSchemaTests.cpp
     Source/Main.cpp
+    Source/PanelTests.cpp
     Source/TcpTestClient.cpp
     Source/TcpTestClient.h
     Source/ViewportTests.cpp
@@ -18,7 +21,7 @@ target_include_directories(StradaEditorTests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Source"
     # Shared helpers (Testing::TemporaryDirectory).
     "${PROJECT_SOURCE_DIR}/Tests/StradaTests/Source")
-target_link_libraries(StradaEditorTests PRIVATE StradaEditorCore doctest::doctest)
+target_link_libraries(StradaEditorTests PRIVATE StradaEditorCore StradaImGuiNullBackend doctest::doctest)
 if(WIN32)
     target_link_libraries(StradaEditorTests PRIVATE ws2_32)
 endif()

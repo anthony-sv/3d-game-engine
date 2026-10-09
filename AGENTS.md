@@ -264,3 +264,4 @@ workflows change.
 | `strada-add-component` | Adding or changing an ECS component end to end |
 | `strada-automation-command` | Adding or changing an editor automation command |
 | `strada-render-pass` | Adding a shader or render pass, golden-image tests |
+| `strada-editor-ui` | Editor panels, the generated inspector, undo merge keys, shortcuts, headless UI tests |

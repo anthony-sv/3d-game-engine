@@ -19,6 +19,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Commands/CommandHistory.h
     Source/Editor/Commands/ComponentCommands.cpp
     Source/Editor/Commands/ComponentCommands.h
+    Source/Editor/Commands/CompositeCommand.cpp
+    Source/Editor/Commands/CompositeCommand.h
     Source/Editor/Commands/EditorCommand.h
     Source/Editor/Commands/EntityCommands.cpp
     Source/Editor/Commands/EntityCommands.h
@@ -26,6 +28,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Commands/EntitySnapshot.h
     Source/Editor/Commands/SceneCommands.cpp
     Source/Editor/Commands/SceneCommands.h
+    Source/Editor/ComponentInspection.cpp
+    Source/Editor/ComponentInspection.h
     Source/Editor/DefaultScene.cpp
     Source/Editor/DefaultScene.h
     Source/Editor/EditorCamera.cpp
@@ -36,14 +40,30 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EditorLayer.h
     Source/Editor/EditorOperations.cpp
     Source/Editor/EditorOperations.h
+    Source/Editor/EntityPresets.cpp
+    Source/Editor/EntityPresets.h
     Source/Editor/EntitySelection.cpp
     Source/Editor/EntitySelection.h
+    Source/Editor/FileDialogs.cpp
+    Source/Editor/FileDialogs.h
+    Source/Editor/HierarchyEditing.cpp
+    Source/Editor/HierarchyEditing.h
     Source/Editor/Panels/ConsolePanel.cpp
     Source/Editor/Panels/ConsolePanel.h
+    Source/Editor/Panels/InspectorPanel.cpp
+    Source/Editor/Panels/InspectorPanel.h
+    Source/Editor/Panels/SceneHierarchyPanel.cpp
+    Source/Editor/Panels/SceneHierarchyPanel.h
+    Source/Editor/Panels/SceneSettingsPanel.cpp
+    Source/Editor/Panels/SceneSettingsPanel.h
     Source/Editor/Panels/StatisticsPanel.cpp
     Source/Editor/Panels/StatisticsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
+    Source/Editor/UI/EditorUI.cpp
+    Source/Editor/UI/EditorUI.h
+    Source/Editor/UI/FieldEditor.cpp
+    Source/Editor/UI/FieldEditor.h
     Source/Editor/Viewport/PickingIdMap.cpp
     Source/Editor/Viewport/PickingIdMap.h
     Source/Editor/Viewport/TransformEditing.cpp
@@ -54,7 +74,7 @@ set(STRADA_EDITOR_CORE_SOURCES
 
 add_library(StradaEditorCore STATIC ${STRADA_EDITOR_CORE_SOURCES})
 target_include_directories(StradaEditorCore PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
-target_link_libraries(StradaEditorCore PUBLIC Strada PRIVATE StradaImGuizmo)
+target_link_libraries(StradaEditorCore PUBLIC Strada PRIVATE StradaImGuizmo nfd glfw)
 if(WIN32)
     # Winsock for the automation server.
     target_link_libraries(StradaEditorCore PRIVATE ws2_32)

@@ -30,7 +30,7 @@ the contract must be made here first. Coding rules live in [AGENTS.md](../AGENTS
 | Serialization | nlohmann/json (`ordered_json` for files) |
 | Logging | spdlog |
 | Processes | reproc++ (script builds, editor launching) |
-| File dialogs | nativefiledialog-extended |
+| File dialogs | nativefiledialog-extended (editor only, so exported games do not depend on GTK) |
 | Tests | doctest (C++), xUnit (C#) |
 
 Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNotices.md`.
@@ -85,7 +85,7 @@ through includes of `Scene.h` in headers.
 | Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop, layers, file system, threading helpers | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Result<T>` |
 | Math | Transform compose/decompose, AABB, frustum, ray, intersection | `Math::DecomposeTransform`, `AABB`, `Frustum`, `Ray` |
 | Serialization | JSON helpers for glm/UUID/enums, versioned file headers | `JsonUtils` |
-| Platform | Process spawning (reproc++), file dialogs, OS paths (user data dir), file watcher | `Process`, `FileDialogs`, `FileWatcher`, `Platform` |
+| Platform | Process spawning (reproc++), OS paths (user data dir), file watcher | `Process`, `FileWatcher`, `Platform` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, common samplers/default textures | `GraphicsDevice`, `Swapchain`, `ShaderLibrary` |
 | Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, model importers, built-in primitives | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `MeshImporter` |
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), scene renderer passes, debug lines, text, sprites, picking | `SceneRenderer`, `Texture2D`, `TextureCube` |
@@ -269,8 +269,9 @@ Asset types:
 
 ### 7.1 Scene
 
-`Scene` owns an `entt::registry`, a `UUID → entt::entity` map, scene settings (`SceneRendererSettings`, physics
-gravity) and the runtime subsystems while playing (`PhysicsScene`, `AudioScene`, script instances).
+`Scene` owns an `entt::registry`, a `UUID → entt::entity` map, scene settings (`SceneSettings`: `Physics` with the
+gravity and `Renderer`, field tables like components) and the runtime subsystems while playing (`PhysicsScene`,
+`AudioScene`, script instances).
 
 Lifecycle: `OnRuntimeStart/Stop` (physics + scripts + audio), `OnSimulationStart/Stop` (physics only),
 `OnUpdateRuntime(ts)`, `OnUpdateSimulation(ts, camera)`, `OnUpdateEditor(ts, camera)`, `OnViewportResize(w, h)`.
@@ -437,7 +438,26 @@ serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `doubl
 ## 11. Editor (`StradaEditor`)
 
 - ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Viewport,
-  Console, Renderer Settings, Statistics, Project Settings; menu bar and play toolbar.
+  Console, Scene Settings, Statistics, Project Settings; menu bar and play toolbar. View > Reset Layout restores the
+  default docking layout.
+- Scene Hierarchy: the entity tree; click selects, Ctrl toggles, Shift selects the displayed range; dragging rows
+  reparents (onto a row) or reorders (onto its upper or lower edge) the selection as one undo step
+  (`MoveEntitiesCommand`); F2 or the context menu renames; double-click frames the entity in the viewport; context
+  menus create preset entities (empty, primitives, lights, camera, audio, text, sprite), duplicate and delete; a search
+  field filters by name. Selections made elsewhere reveal and scroll to the primary entity.
+- Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
+  the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
+  while dragging), enums are combos, asset fields have a searchable picker and accept assets dropped from the content
+  browser, entity references accept dropped entities. With several entities selected it shows the components they
+  share, flags fields whose values differ, and an edit sets only the edited value or vector component on every
+  entity. One widget interaction (a drag, typing into a field) is one undo step. Components can be added (searchable
+  list), reset, copied, pasted as JSON and removed.
+- Scene Settings: the scene name and the physics and renderer settings, generated the same way.
+- Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
+  file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
+  (create presets at the viewport's focal point), View. Shortcuts are global unless a text field is being edited.
+  Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
+  scene name and a `*` while it has unsaved changes.
 - Viewport: editor camera (fly/orbit/pan/zoom/focus), ImGuizmo translate/rotate/scale (local/world, snapping;
   W/E/R, X, Ctrl toggles snapping while dragging) applied to every selected root around the primary selection as
   one undo step per drag (`SetComponentsCommand` with a merge key), click picking through the entity-ID pass (Ctrl

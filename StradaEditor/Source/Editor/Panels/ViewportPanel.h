@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 
 namespace Strada
 {
@@ -47,6 +48,8 @@ namespace Strada
 		void SetGizmoSpace(GizmoSpace space) { m_GizmoSpace = space; }
 		bool IsGridVisible() const { return m_ShowGrid; }
 		void SetGridVisible(bool visible) { m_ShowGrid = visible; }
+		// Moves the camera so the entities (their meshes, or their positions) fill the view.
+		void FocusEntities(Scene& scene, std::span<UUID const> entities);
 
 	private:
 		void HandleCameraInput(bool hovered);
@@ -59,7 +62,6 @@ namespace Strada
 		void HandleSelectionClicks(EditorOperations& operations, glm::vec2 const& imagePosition, bool hovered, UUID hoveredIcon);
 		void ApplyPickResult(EditorOperations& operations);
 		void DrawToolbar(glm::vec2 const& imagePosition);
-		void FocusSelection(EditorContext& context);
 
 		EditorCamera m_Camera;
 		// Null when no GPU renderer is available.

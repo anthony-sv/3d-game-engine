@@ -52,6 +52,16 @@ namespace Strada::Math
 		return glm::normalize(glm::quat(glm::radians(degrees)));
 	}
 
+	float SrgbToLinear(float value)
+	{
+		return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
+	}
+
+	float LinearToSrgb(float value)
+	{
+		return value <= 0.0031308f ? value * 12.92f : 1.055f * std::pow(value, 1.0f / 2.4f) - 0.055f;
+	}
+
 	glm::mat4 PerspectiveReversedZ(float verticalFovRadians, float aspectRatio, float nearPlane)
 	{
 		float const focalLength = 1.0f / std::tan(verticalFovRadians * 0.5f);

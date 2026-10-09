@@ -53,14 +53,25 @@ namespace Strada
 		// Returns the UUIDs of the copies, one per duplicated subtree, in request order.
 		[[nodiscard]] Result<std::vector<UUID>> DuplicateEntities(std::span<UUID const> entities);
 		[[nodiscard]] Result<void> RenameEntity(UUID entity, std::string name, uint64_t mergeKey = 0);
+		// Gives several entities the same name as one undo step.
+		[[nodiscard]] Result<void> RenameEntities(std::span<UUID const> entities, std::string name, uint64_t mergeKey = 0);
 		// newParent invalid = root entity; siblingIndex empty (or past the end) = last among the new siblings.
 		[[nodiscard]] Result<void> ReparentEntity(UUID entity, UUID newParent, std::optional<size_t> siblingIndex = std::nullopt,
 		                                          bool keepWorldTransform = true);
+		// Moves entities, in the given order, under newParent (invalid = root) right before its child insertBefore (invalid =
+		// after the last child), as one undo step; entities whose ancestor is also moved go along with it.
+		[[nodiscard]] Result<void> MoveEntities(std::span<UUID const> entities, UUID newParent, UUID insertBefore = UUID::Invalid(),
+		                                        bool keepWorldTransform = true);
 
 		// --- Components ---
 
 		[[nodiscard]] Result<void> AddComponent(UUID entity, std::string_view component, Json const& fields = Json::object());
+		// Adds the component to every given entity as one undo step (all or nothing).
+		[[nodiscard]] Result<void> AddComponent(std::span<UUID const> entities, std::string_view component,
+		                                        Json const& fields = Json::object());
 		[[nodiscard]] Result<void> RemoveComponent(UUID entity, std::string_view component);
+		// Removes the component from every given entity as one undo step (all or nothing).
+		[[nodiscard]] Result<void> RemoveComponent(std::span<UUID const> entities, std::string_view component);
 		// Applies a partial JSON patch in the scene-file format. Edits with the same non-zero merge key (for example one
 		// inspector drag) merge into one undo step until CommandHistory::BreakMerge is called.
 		[[nodiscard]] Result<void> SetComponentFields(UUID entity, std::string_view component, Json const& patch, uint64_t mergeKey = 0);

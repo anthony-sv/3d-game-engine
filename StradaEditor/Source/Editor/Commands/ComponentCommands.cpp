@@ -154,81 +154,6 @@ namespace Strada
 		return fmt::format("Remove {} Component", m_Component);
 	}
 
-	SetComponentCommand::SetComponentCommand(UUID entity, std::string component, Json patch, uint64_t mergeKey, std::string description)
-		: m_Entity(entity),
-		  m_Component(std::move(component)),
-		  m_Patch(std::move(patch)),
-		  m_MergeKey(mergeKey),
-		  m_Description(std::move(description))
-	{
-	}
-
-	Result<void> SetComponentCommand::Execute(EditorContext& context)
-	{
-		Result<ComponentTarget> target = FindTarget(context, m_Entity, m_Component, ComponentAccess::Modify);
-		if (!target)
-		{
-			return Error{target.GetError()};
-		}
-		ComponentTarget const& component = target.GetValue();
-		if (!component.HasComponent())
-		{
-			return MakeError("entity {} has no {} component", m_Entity, m_Component);
-		}
-
-		DeserializationContext const deserialization = context.CreateDeserializationContext();
-		if (!m_After.is_null())
-		{
-			return component.Component->Deserialize(*component.Registry, component.Handle, m_After, deserialization);
-		}
-
-		Json before = component.Component->Serialize(*component.Registry, component.Handle);
-		if (Result<void> result = component.Component->Deserialize(*component.Registry, component.Handle, m_Patch, deserialization);
-		    !result)
-		{
-			return result;
-		}
-		m_Before = std::move(before);
-		m_After = component.Component->Serialize(*component.Registry, component.Handle);
-		return {};
-	}
-
-	Result<void> SetComponentCommand::Undo(EditorContext& context)
-	{
-		Result<ComponentTarget> target = FindTarget(context, m_Entity, m_Component, ComponentAccess::Modify);
-		if (!target)
-		{
-			return Error{target.GetError()};
-		}
-		ComponentTarget const& component = target.GetValue();
-		if (!component.HasComponent())
-		{
-			return MakeError("entity {} has no {} component", m_Entity, m_Component);
-		}
-		return component.Component->Deserialize(*component.Registry, component.Handle, m_Before, context.CreateDeserializationContext());
-	}
-
-	std::string SetComponentCommand::GetDescription() const
-	{
-		return m_Description.empty() ? fmt::format("Edit {}", m_Component) : m_Description;
-	}
-
-	bool SetComponentCommand::CanMergeWith(EditorCommand const& next) const
-	{
-		if (m_MergeKey == 0)
-		{
-			return false;
-		}
-		auto const* other = dynamic_cast<SetComponentCommand const*>(&next);
-		return other != nullptr && other->m_MergeKey == m_MergeKey && other->m_Entity == m_Entity && other->m_Component == m_Component;
-	}
-
-	void SetComponentCommand::MergeWith(EditorCommand& next)
-	{
-		auto& other = static_cast<SetComponentCommand&>(next);
-		m_After = std::move(other.m_After);
-	}
-
 	SetComponentsCommand::SetComponentsCommand(std::vector<ComponentEdit> edits, uint64_t mergeKey, std::string description)
 		: m_Edits(std::move(edits)),
 		  m_MergeKey(mergeKey),
@@ -277,6 +202,10 @@ namespace Strada
 				for (size_t j = i; j-- > 0;)
 				{
 					(void)targets[j].Component->Deserialize(*targets[j].Registry, targets[j].Handle, before[j], deserialization);
+				}
+				if (m_Edits.size() == 1)
+				{
+					return result;
 				}
 				return MakeError("{} of entity {}: {}", m_Edits[i].Component, m_Edits[i].Entity, result.GetError());
 			}

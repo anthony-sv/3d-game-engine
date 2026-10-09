@@ -19,10 +19,36 @@ namespace Strada
 {
 	class Entity;
 
-	struct SceneSettings
+	struct ScenePhysicsSettings
 	{
 		glm::vec3 Gravity = {0.0f, -9.81f, 0.0f};
+
+		bool operator==(ScenePhysicsSettings const& other) const = default;
+	};
+
+	template<>
+	struct StructTraits<ScenePhysicsSettings>
+	{
+		static constexpr std::string_view Name = "Physics";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Gravity", &ScenePhysicsSettings::Gravity).Doc("Acceleration of dynamic bodies in meters per second squared."));
+	};
+
+	// Per-scene settings, stored in scene files under "Scene": { "Settings": { ... } }.
+	struct SceneSettings
+	{
+		ScenePhysicsSettings Physics;
 		SceneRendererSettings Renderer;
+
+		bool operator==(SceneSettings const& other) const = default;
+	};
+
+	template<>
+	struct StructTraits<SceneSettings>
+	{
+		static constexpr std::string_view Name = "Settings";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Physics", &SceneSettings::Physics), Field("Renderer", &SceneSettings::Renderer));
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.

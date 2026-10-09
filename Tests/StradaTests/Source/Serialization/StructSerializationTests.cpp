@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -204,6 +205,12 @@ TEST_CASE("StructSerialization: descriptors describe kinds, hints, defaults and 
 	CHECK(tuning[1].Hints.Display == FieldDisplay::Color);
 	CHECK(tuning[3].Kind == FieldKind::UInt);
 	CHECK(tuning[3].Hints.Min == 1.0);
+	// The range the C++ type represents, for editors.
+	CHECK(tuning[3].TypeMin == 0.0);
+	CHECK(tuning[3].TypeMax == static_cast<double>(std::numeric_limits<uint32_t>::max()));
+	CHECK(tuning[0].TypeMax == static_cast<double>(std::numeric_limits<float>::max()));
+	CHECK(tuning[1].TypeMin == static_cast<double>(std::numeric_limits<float>::lowest()));
+	CHECK(tuning[4].TypeMin == -std::numeric_limits<double>::infinity());
 	CHECK(tuning[4].Hints.Display == FieldDisplay::MultilineText);
 	CHECK(tuning[5].Kind == FieldKind::Asset);
 	CHECK(tuning[5].Hints.AssetTypeName == "Texture");

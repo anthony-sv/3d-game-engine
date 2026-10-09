@@ -131,3 +131,19 @@ TEST_CASE("Math: conventional projections use depth 0..1")
 	CHECK(Project(orthographic, {0.0f, 0.0f, 0.0f}).z == doctest::Approx(0.0f));
 	CHECK(Project(orthographic, {0.0f, 0.0f, -10.0f}).z == doctest::Approx(1.0f));
 }
+
+TEST_CASE("Math: the sRGB transfer function matches reference values and round trips")
+{
+	CHECK(Math::SrgbToLinear(0.0f) == 0.0f);
+	CHECK(Math::SrgbToLinear(1.0f) == doctest::Approx(1.0f));
+	CHECK(Math::SrgbToLinear(0.5f) == doctest::Approx(0.214041f).epsilon(1e-5));
+	CHECK(Math::LinearToSrgb(0.214041f) == doctest::Approx(0.5f).epsilon(1e-5));
+	// The linear segment near black.
+	CHECK(Math::SrgbToLinear(0.02f) == doctest::Approx(0.02f / 12.92f));
+	CHECK(Math::LinearToSrgb(0.001f) == doctest::Approx(0.01292f));
+	for (int i = 0; i <= 100; i++)
+	{
+		float const value = static_cast<float>(i) / 100.0f;
+		CHECK(Math::LinearToSrgb(Math::SrgbToLinear(value)) == doctest::Approx(value).epsilon(1e-5));
+	}
+}

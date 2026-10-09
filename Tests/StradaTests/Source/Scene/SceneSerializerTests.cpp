@@ -16,7 +16,7 @@ namespace
 	Ref<Scene> MakeRichScene()
 	{
 		Ref<Scene> scene = CreateRef<Scene>("Showcase");
-		scene->GetSettings().Gravity = {0.0f, -5.0f, 0.0f};
+		scene->GetSettings().Physics.Gravity = {0.0f, -5.0f, 0.0f};
 
 		Entity camera = scene->CreateEntity("Camera");
 		camera.AddComponent<CameraComponent>().PerspectiveFOV = 70.0f;
@@ -73,7 +73,7 @@ TEST_CASE("SceneSerializer: round trip preserves names, settings, hierarchy and 
 	REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
 	Scene& copy = *loaded.GetValue();
 	CHECK(copy.GetName() == "Showcase");
-	CHECK(copy.GetSettings().Gravity == glm::vec3(0.0f, -5.0f, 0.0f));
+	CHECK(copy.GetSettings().Physics.Gravity == glm::vec3(0.0f, -5.0f, 0.0f));
 	CHECK(copy.GetEntityCount() == 4);
 
 	Entity player = copy.FindEntityByName("Player");
@@ -309,23 +309,23 @@ TEST_CASE("SceneSerializer: scene settings update partially and follow the unkno
 {
 	SceneSettings settings;
 	REQUIRE(SceneSerializer::DeserializeSettings(Json::object(), settings, DeserializationContext{}).IsOk());
-	CHECK(settings.Gravity == SceneSettings().Gravity);
+	CHECK(settings == SceneSettings());
 
 	Json const gravity = Json::parse(R"({ "Physics": { "Gravity": [0, -3, 0] } })");
 	REQUIRE(SceneSerializer::DeserializeSettings(gravity, settings, DeserializationContext{}).IsOk());
-	CHECK(settings.Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
+	CHECK(settings.Physics.Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
 	CHECK(SceneSerializer::SerializeSettings(settings)["Physics"] == gravity["Physics"]);
 	CHECK(SceneSerializer::SerializeSettings(settings).contains("Renderer"));
 
 	Json const typo = Json::parse(R"({ "Physics": { "Gravity": [0, -1, 0], "Gravty": [0, 1, 0] } })");
 	Result<void> const rejected = SceneSerializer::DeserializeSettings(typo, settings, DeserializationContext{});
 	REQUIRE(rejected.IsError());
-	CHECK(rejected.GetError() == "unknown scene setting 'Physics.Gravty'");
-	CHECK(settings.Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
+	CHECK(rejected.GetError() == "Settings.Physics: object 'Physics' has no field 'Gravty' (fields: Gravity)");
+	CHECK(settings.Physics.Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
 
 	Json const invalid = Json::parse(R"({ "Physics": { "Gravity": [0, "down", 0] } })");
 	CHECK(SceneSerializer::DeserializeSettings(invalid, settings, DeserializationContext{}).GetError() ==
-	      "Scene.Settings.Physics.Gravity: expected an array of 3 finite numbers");
+	      "Settings.Physics: Physics.Gravity: expected an array of 3 finite numbers");
 	CHECK(SceneSerializer::DeserializeSettings(Json::array(), settings, DeserializationContext{}).IsError());
 
 	std::vector<std::string> warnings;
@@ -334,9 +334,9 @@ TEST_CASE("SceneSerializer: scene settings update partially and follow the unkno
 	lenient.Warnings = &warnings;
 	Json const newer = Json::parse(R"({ "Weather": { "Rain": 1 }, "Physics": { "Gravity": [0, -9, 0] } })");
 	REQUIRE(SceneSerializer::DeserializeSettings(newer, settings, lenient).IsOk());
-	CHECK(settings.Gravity == glm::vec3(0.0f, -9.0f, 0.0f));
+	CHECK(settings.Physics.Gravity == glm::vec3(0.0f, -9.0f, 0.0f));
 	REQUIRE(warnings.size() == 1);
-	CHECK(warnings[0] == "ignored unknown scene setting 'Weather'");
+	CHECK(warnings[0] == "ignored unknown field 'Weather' in scene 'Settings'");
 }
 
 TEST_CASE("Prefab: instances get fresh IDs, remapped references and prefab links")

@@ -153,12 +153,30 @@ add_library(StradaImGui STATIC
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp)
-target_include_directories(StradaImGui SYSTEM PUBLIC "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends")
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp)
+target_include_directories(StradaImGui SYSTEM PUBLIC "${imgui_SOURCE_DIR}" "${imgui_SOURCE_DIR}/backends" "${imgui_SOURCE_DIR}/misc/cpp")
 target_compile_definitions(StradaImGui PUBLIC IMGUI_DEFINE_MATH_OPERATORS IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 target_compile_features(StradaImGui PUBLIC cxx_std_20)
 target_link_libraries(StradaImGui PUBLIC glfw)
 strada_configure_third_party_target(StradaImGui)
+
+# ImGui's null platform and renderer backends: headless UI tests draw editor panels without a window or GPU.
+add_library(StradaImGuiNullBackend STATIC ${imgui_SOURCE_DIR}/backends/imgui_impl_null.cpp)
+target_link_libraries(StradaImGuiNullBackend PUBLIC StradaImGui)
+strada_configure_third_party_target(StradaImGuiNullBackend)
+
+# --- nativefiledialog-extended 1.3.0 (editor file dialogs: Win32, Cocoa, GTK 3 on Linux) ---------------------------
+# Only the editor links it, so exported games do not depend on GTK.
+strada_declare_dependency(nfd
+    https://github.com/btzy/nativefiledialog-extended/archive/refs/tags/v1.3.0.tar.gz
+    2fea19102cf4d5283a80fb87a784792166988e85bb92baa962d34f72b22dcc1a)
+set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(NFD_BUILD_SDL2_TESTS OFF CACHE BOOL "" FORCE)
+set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
+set(NFD_PORTAL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(nfd)
+strada_configure_third_party_target(nfd)
 
 # --- ImGuizmo (editor transform gizmos; pinned commit, only ImGuizmo.cpp is compiled) -----------------------------
 strada_declare_dependency(imguizmo

@@ -226,7 +226,7 @@ namespace Strada
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F, false))
 		{
-			FocusSelection(context);
+			FocusEntities(context.GetScene(), context.GetSelection().GetEntities());
 		}
 	}
 
@@ -507,11 +507,10 @@ namespace Strada
 		m_ToolbarMax = ToVec2(ImGui::GetItemRectMax());
 	}
 
-	void ViewportPanel::FocusSelection(EditorContext& context)
+	void ViewportPanel::FocusEntities(Scene& scene, std::span<UUID const> entities)
 	{
-		Scene& scene = context.GetScene();
 		AABB bounds;
-		for (UUID const id : context.GetSelection().GetEntities())
+		for (UUID const id : entities)
 		{
 			Entity entity = scene.GetEntityByUUID(id);
 			if (!entity)

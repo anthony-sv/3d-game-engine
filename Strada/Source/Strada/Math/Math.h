@@ -16,6 +16,10 @@ namespace Strada::Math
 	glm::vec3 QuaternionToEulerDegrees(glm::quat const& rotation);
 	glm::quat EulerDegreesToQuaternion(glm::vec3 const& degrees);
 
+	// The sRGB transfer function (IEC 61966-2-1) for one color channel in [0, 1].
+	float SrgbToLinear(float value);
+	float LinearToSrgb(float value);
+
 	// Right-handed perspective projection with reversed Z (near maps to 1, infinity to 0) and D3D clip conventions
 	// (depth 0..1, +Y up). The far plane is at infinity.
 	glm::mat4 PerspectiveReversedZ(float verticalFovRadians, float aspectRatio, float nearPlane);

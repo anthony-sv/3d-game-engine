@@ -17,22 +17,6 @@ namespace Strada
 	{
 		constexpr std::string_view IDComponentName = ComponentTraits<IDComponent>::Name;
 
-		// Applies the unknown-field policy to a key that no setting matches.
-		Result<void> HandleUnknownSetting(std::string_view key, DeserializationContext const& context)
-		{
-			switch (context.UnknownFields)
-			{
-				case UnknownFieldPolicy::Error:
-					return MakeError("unknown scene setting '{}'", key);
-				case UnknownFieldPolicy::Warn:
-					context.Warn(fmt::format("ignored unknown scene setting '{}'", key));
-					break;
-				case UnknownFieldPolicy::Ignore:
-					break;
-			}
-			return {};
-		}
-
 		// Reads the "ID" of every entity object, validating presence and uniqueness.
 		Result<std::vector<UUID>> ReadEntityIDs(Json const& entities, DeserializationContext const& context)
 		{
@@ -155,66 +139,12 @@ namespace Strada
 
 	Json SceneSerializer::SerializeSettings(SceneSettings const& settings)
 	{
-		Json physics = Json::object();
-		physics["Gravity"] = JsonTraits<glm::vec3>::ToJson(settings.Gravity);
-		Json json = Json::object();
-		json["Physics"] = std::move(physics);
-		json["Renderer"] = SerializeFields<StructTraits<SceneRendererSettings>>(settings.Renderer);
-		return json;
+		return SerializeFields<StructTraits<SceneSettings>>(settings);
 	}
 
 	Result<void> SceneSerializer::DeserializeSettings(Json const& json, SceneSettings& settings, DeserializationContext const& context)
 	{
-		if (!json.is_object())
-		{
-			return Error{"Scene.Settings must be an object"};
-		}
-
-		SceneSettings updated = settings;
-		for (auto const& item : json.items())
-		{
-			if (item.key() == "Renderer")
-			{
-				if (Result<void> result =
-				        DeserializeFields<StructTraits<SceneRendererSettings>>(item.value(), updated.Renderer, context, "settings");
-				    !result)
-				{
-					return MakeError("Scene.Settings.{}", result.GetError());
-				}
-				continue;
-			}
-			if (item.key() != "Physics")
-			{
-				if (Result<void> result = HandleUnknownSetting(item.key(), context); !result)
-				{
-					return result;
-				}
-				continue;
-			}
-
-			Json const& physics = item.value();
-			if (!physics.is_object())
-			{
-				return Error{"Scene.Settings.Physics must be an object"};
-			}
-			for (auto const& physicsItem : physics.items())
-			{
-				if (physicsItem.key() == "Gravity")
-				{
-					if (Result<void> result = JsonTraits<glm::vec3>::FromJson(physicsItem.value(), updated.Gravity, context); !result)
-					{
-						return MakeError("Scene.Settings.Physics.Gravity: {}", result.GetError());
-					}
-				}
-				else if (Result<void> result = HandleUnknownSetting("Physics." + physicsItem.key(), context); !result)
-				{
-					return result;
-				}
-			}
-		}
-
-		settings = updated;
-		return {};
+		return DeserializeFields<StructTraits<SceneSettings>>(json, settings, context, "scene");
 	}
 
 	Json SceneSerializer::SerializeEntity(Scene const& scene, entt::entity handle)

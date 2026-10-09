@@ -3,18 +3,53 @@
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/DefaultScene.h"
+#include "Editor/EntityPresets.h"
+#include "Editor/FileDialogs.h"
+#include "Editor/UI/EditorUI.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Application.h"
+#include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/Version.h"
+#include "Strada/Core/Window.h"
+#include "Strada/Scene/Entity.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <array>
+#include <cctype>
+
 namespace Strada
 {
+	namespace
+	{
+		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set.
+		constexpr char const* DockspaceName = "Strada.Dockspace.v2";
+		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
+		constexpr char const* SceneExtension = ".sscene";
+
+		std::array<FileDialogFilter, 1> const& GetSceneFilters()
+		{
+			static std::array<FileDialogFilter, 1> const s_Filters = {{{"Strada Scene", "sscene"}}};
+			return s_Filters;
+		}
+
+		// A file name for a scene name: characters that are not portable in file names become underscores.
+		std::string MakeFileName(std::string const& name)
+		{
+			std::string fileName;
+			for (char const c : name)
+			{
+				bool const portable = std::isalnum(static_cast<unsigned char>(c)) != 0 || c == ' ' || c == '-' || c == '_';
+				fileName += portable ? c : '_';
+			}
+			return (fileName.empty() ? std::string("Untitled") : fileName) + SceneExtension;
+		}
+	}
+
 	EditorLayer::EditorLayer(EditorLayerSpecification specification)
 		: Layer("EditorLayer"),
 		  m_Specification(std::move(specification)),
@@ -54,6 +89,17 @@ namespace Strada
 		if (application.GetImGuiLayer() != nullptr)
 		{
 			m_ViewportPanel = CreateScope<ViewportPanel>();
+			m_HierarchyPanel.SetFocusCallback(
+				[this](UUID entity)
+				{
+					std::array<UUID, 1> const entities = {entity};
+					m_ViewportPanel->FocusEntities(m_Context.GetScene(), entities);
+				});
+			m_HierarchyPanel.SetSpawnPositionProvider(
+				[this]
+				{
+					return GetSpawnPosition();
+				});
 		}
 
 		bool sceneOpened = false;
@@ -121,6 +167,22 @@ namespace Strada
 		}
 	}
 
+	void EditorLayer::OnEvent(Event& event)
+	{
+		EventDispatcher dispatcher(event);
+		dispatcher.Dispatch<WindowCloseEvent>(
+			[this](WindowCloseEvent&)
+			{
+				// Handling the event vetoes closing until the user decided about the unsaved changes.
+				if (!m_Context.IsDirty() || Application::Get().GetImGuiLayer() == nullptr)
+				{
+					return false;
+				}
+				RequestSceneAction(SceneAction::Quit);
+				return true;
+			});
+	}
+
 	void EditorLayer::RequestScreenshotAtFrame(std::filesystem::path path, uint64_t frame)
 	{
 		m_ScreenshotPath = std::move(path);
@@ -129,27 +191,25 @@ namespace Strada
 
 	void EditorLayer::OnImGuiRender()
 	{
-		ImGuiID const dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
-		// First run (no saved layout): viewport in the center, statistics on the right, console at the bottom.
-		ImGuiDockNode const* root = ImGui::DockBuilderGetNode(dockspace);
-		if (root == nullptr || (root->IsLeafNode() && root->Windows.empty()))
-		{
-			ImGui::DockBuilderRemoveNode(dockspace);
-			ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
-			ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
-			ImGuiID center = dockspace;
-			ImGuiID const bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
-			ImGuiID const right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
-			ImGui::DockBuilderDockWindow("Viewport", center);
-			ImGui::DockBuilderDockWindow("Statistics", right);
-			ImGui::DockBuilderDockWindow("Console", bottom);
-			ImGui::DockBuilderFinish(dockspace);
-		}
+		DrawDockspace();
 		DrawMenuBar();
+		HandleShortcuts();
 
 		if (m_ViewportPanel && m_ShowViewport)
 		{
 			m_ViewportPanel->OnImGuiRender(m_Operations, m_ShowViewport);
+		}
+		if (m_ShowHierarchy)
+		{
+			m_HierarchyPanel.OnImGuiRender(m_Operations, m_ShowHierarchy);
+		}
+		if (m_ShowInspector)
+		{
+			m_InspectorPanel.OnImGuiRender(m_Operations, m_ShowInspector);
+		}
+		if (m_ShowSceneSettings)
+		{
+			m_SceneSettingsPanel.OnImGuiRender(m_Operations, m_ShowSceneSettings);
 		}
 		if (m_ShowConsole)
 		{
@@ -163,6 +223,42 @@ namespace Strada
 		{
 			ImGui::ShowDemoWindow(&m_ShowImGuiDemo);
 		}
+
+		DrawUnsavedChangesPopup();
+		UpdateWindowTitle();
+	}
+
+	void EditorLayer::DrawDockspace()
+	{
+		ImGuiID const dockspace = ImGui::DockSpaceOverViewport(ImHashStr(DockspaceName), ImGui::GetMainViewport());
+		// First run (no saved layout) or View > Reset Layout.
+		ImGuiDockNode const* root = ImGui::DockBuilderGetNode(dockspace);
+		if (m_ResetLayout || root == nullptr || (root->IsLeafNode() && root->Windows.empty()))
+		{
+			BuildDefaultLayout(dockspace);
+			m_ResetLayout = false;
+		}
+	}
+
+	void EditorLayer::BuildDefaultLayout(uint32_t dockspace)
+	{
+		// Viewport in the center, hierarchy on the left, inspector and scene settings on the right with statistics below,
+		// console at the bottom.
+		ImGui::DockBuilderRemoveNode(dockspace);
+		ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
+		ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
+		ImGuiID center = dockspace;
+		ImGuiID const left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+		ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f, nullptr, &center);
+		ImGuiID const bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
+		ImGuiID const rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.25f, nullptr, &right);
+		ImGui::DockBuilderDockWindow("Viewport", center);
+		ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
+		ImGui::DockBuilderDockWindow("Inspector", right);
+		ImGui::DockBuilderDockWindow("Scene Settings", right);
+		ImGui::DockBuilderDockWindow("Statistics", rightBottom);
+		ImGui::DockBuilderDockWindow("Console", bottom);
+		ImGui::DockBuilderFinish(dockspace);
 	}
 
 	void EditorLayer::DrawMenuBar()
@@ -174,19 +270,95 @@ namespace Strada
 
 		if (ImGui::BeginMenu("File"))
 		{
+			if (ImGui::MenuItem("New Scene", "Ctrl+N"))
+			{
+				RequestSceneAction(SceneAction::NewScene);
+			}
+			if (ImGui::MenuItem("Open Scene...", "Ctrl+O"))
+			{
+				ShowOpenSceneDialog();
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+			{
+				SaveScene();
+			}
+			if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+			{
+				SaveSceneAs();
+			}
+			ImGui::Separator();
 			if (ImGui::MenuItem("Exit", "Alt+F4"))
 			{
-				Application::Get().Close();
+				RequestSceneAction(SceneAction::Quit);
+			}
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Edit"))
+		{
+			CommandHistory const& history = m_Context.GetHistory();
+			std::string const undo = history.CanUndo() ? "Undo " + history.GetUndoDescription() : std::string("Undo");
+			std::string const redo = history.CanRedo() ? "Redo " + history.GetRedoDescription() : std::string("Redo");
+			if (ImGui::MenuItem(undo.c_str(), "Ctrl+Z", false, history.CanUndo()))
+			{
+				UI::ReportFailure(m_Operations.Undo(), "Undo");
+			}
+			if (ImGui::MenuItem(redo.c_str(), "Ctrl+Y", false, history.CanRedo()))
+			{
+				UI::ReportFailure(m_Operations.Redo(), "Redo");
+			}
+			ImGui::Separator();
+			bool const hasSelection = !m_Context.GetSelection().IsEmpty();
+			if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSelection))
+			{
+				DuplicateSelection();
+			}
+			if (ImGui::MenuItem("Delete", "Delete", false, hasSelection))
+			{
+				DeleteSelection();
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Select All", "Ctrl+A"))
+			{
+				SelectAll();
+			}
+			if (ImGui::MenuItem("Deselect All", nullptr, false, hasSelection))
+			{
+				m_Context.ClearSelection();
+			}
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Entity"))
+		{
+			if (EntityPreset const* preset = UI::DrawEntityPresetMenuItems())
+			{
+				Result<UUID> created = EntityPresets::Create(m_Operations, *preset, UUID::Invalid(), GetSpawnPosition());
+				UI::ReportFailure(created, "Creating the entity");
+				if (created)
+				{
+					std::array<UUID, 1> const selection = {created.GetValue()};
+					UI::ReportFailure(m_Operations.Select(selection), "Selecting the new entity");
+				}
 			}
 			ImGui::EndMenu();
 		}
 
 		if (ImGui::BeginMenu("View"))
 		{
-			ImGui::MenuItem("Viewport", nullptr, &m_ShowViewport);
+			ImGui::MenuItem("Viewport", nullptr, &m_ShowViewport, m_ViewportPanel != nullptr);
+			ImGui::MenuItem("Scene Hierarchy", nullptr, &m_ShowHierarchy);
+			ImGui::MenuItem("Inspector", nullptr, &m_ShowInspector);
+			ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Statistics", nullptr, &m_ShowStatistics);
 			ImGui::Separator();
+			if (ImGui::MenuItem("Reset Layout"))
+			{
+				m_ShowViewport = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowConsole = m_ShowStatistics = true;
+				m_ResetLayout = true;
+			}
 			ImGui::MenuItem("ImGui Demo", nullptr, &m_ShowImGuiDemo);
 			ImGui::EndMenu();
 		}
@@ -197,7 +369,237 @@ namespace Strada
 		                               : std::string("Automation: off");
 		ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(status.c_str()).x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
 		ImGui::TextDisabled("%s", status.c_str());
-
 		ImGui::EndMainMenuBar();
+	}
+
+	void EditorLayer::HandleShortcuts()
+	{
+		// Global routes: a focused text field keeps its own keys (Ctrl+Z inside a text field undoes typing).
+		ImGuiInputFlags const route = ImGuiInputFlags_RouteGlobal;
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_N, route))
+		{
+			RequestSceneAction(SceneAction::NewScene);
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, route))
+		{
+			ShowOpenSceneDialog();
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, route))
+		{
+			SaveSceneAs();
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, route))
+		{
+			SaveScene();
+		}
+
+		if (ImGui::GetIO().WantTextInput)
+		{
+			return;
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z, route | ImGuiInputFlags_Repeat) && m_Context.GetHistory().CanUndo())
+		{
+			UI::ReportFailure(m_Operations.Undo(), "Undo");
+		}
+		if ((ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, route | ImGuiInputFlags_Repeat) ||
+		     ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, route | ImGuiInputFlags_Repeat)) &&
+		    m_Context.GetHistory().CanRedo())
+		{
+			UI::ReportFailure(m_Operations.Redo(), "Redo");
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, route) && !m_Context.GetSelection().IsEmpty())
+		{
+			DuplicateSelection();
+		}
+		// Cmd+Backspace on macOS keyboards, which have no forward-delete key.
+		bool const deletePressed = ImGui::Shortcut(ImGuiKey_Delete, route) || ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Backspace, route);
+		if (deletePressed && !m_Context.GetSelection().IsEmpty())
+		{
+			DeleteSelection();
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_A, route))
+		{
+			SelectAll();
+		}
+	}
+
+	void EditorLayer::DrawUnsavedChangesPopup()
+	{
+		if (m_OpenUnsavedChangesPopup)
+		{
+			ImGui::OpenPopup(UnsavedChangesPopup);
+			m_OpenUnsavedChangesPopup = false;
+		}
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		if (!ImGui::BeginPopupModal(UnsavedChangesPopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+		{
+			return;
+		}
+
+		ImGui::Text("Save the changes to '%s'?", m_Context.GetScene().GetName().c_str());
+		ImGui::TextDisabled("Your changes are lost if you do not save them.");
+		ImGui::Spacing();
+		float const buttonWidth = ImGui::CalcTextSize("Don't Save").x + ImGui::GetStyle().FramePadding.x * 4.0f;
+		SceneAction const action = m_PendingAction;
+		std::filesystem::path const path = m_PendingPath;
+		if (ImGui::Button("Save", ImVec2(buttonWidth, 0.0f)))
+		{
+			ImGui::CloseCurrentPopup();
+			m_PendingAction = SceneAction::None;
+			if (SaveScene())
+			{
+				PerformSceneAction(action, path);
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Don't Save", ImVec2(buttonWidth, 0.0f)))
+		{
+			ImGui::CloseCurrentPopup();
+			m_PendingAction = SceneAction::None;
+			PerformSceneAction(action, path);
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ImGui::CloseCurrentPopup();
+			m_PendingAction = SceneAction::None;
+		}
+		ImGui::EndPopup();
+	}
+
+	void EditorLayer::UpdateWindowTitle()
+	{
+		Window* window = Application::Get().GetWindow();
+		if (window == nullptr)
+		{
+			return;
+		}
+		std::string const title = fmt::format("{}{} - Strada Editor", m_Context.GetScene().GetName(), m_Context.IsDirty() ? "*" : "");
+		if (title != m_WindowTitle)
+		{
+			window->SetTitle(title);
+			m_WindowTitle = title;
+		}
+	}
+
+	void EditorLayer::RequestSceneAction(SceneAction action, std::filesystem::path path)
+	{
+		if (!m_Context.IsDirty())
+		{
+			PerformSceneAction(action, path);
+			return;
+		}
+		m_PendingAction = action;
+		m_PendingPath = std::move(path);
+		m_OpenUnsavedChangesPopup = true;
+	}
+
+	void EditorLayer::PerformSceneAction(SceneAction action, std::filesystem::path const& path)
+	{
+		switch (action)
+		{
+			case SceneAction::None:
+				break;
+			case SceneAction::NewScene:
+				m_Operations.NewScene();
+				break;
+			case SceneAction::OpenScene:
+			{
+				Result<std::vector<std::string>> opened = m_Operations.OpenScene(path);
+				if (!opened)
+				{
+					ST_ERROR("Could not open '{}': {}", FileSystem::PathToUtf8(path), opened.GetError());
+				}
+				break;
+			}
+			case SceneAction::Quit:
+				Application::Get().Close();
+				break;
+		}
+	}
+
+	void EditorLayer::ShowOpenSceneDialog()
+	{
+		std::filesystem::path const& current = m_Context.GetScenePath();
+		Result<std::optional<std::filesystem::path>> chosen =
+			FileDialogs::OpenFile(GetSceneFilters(), current.empty() ? std::filesystem::path() : current.parent_path());
+		if (!chosen)
+		{
+			ST_ERROR("{}", chosen.GetError());
+			return;
+		}
+		if (chosen.GetValue())
+		{
+			RequestSceneAction(SceneAction::OpenScene, *chosen.GetValue());
+		}
+	}
+
+	bool EditorLayer::SaveScene()
+	{
+		if (m_Context.GetScenePath().empty())
+		{
+			return SaveSceneAs();
+		}
+		Result<void> saved = m_Operations.SaveScene();
+		UI::ReportFailure(saved, "Saving the scene");
+		return saved.IsOk();
+	}
+
+	bool EditorLayer::SaveSceneAs()
+	{
+		std::filesystem::path const& current = m_Context.GetScenePath();
+		Result<std::optional<std::filesystem::path>> chosen =
+			FileDialogs::SaveFile(GetSceneFilters(), current.empty() ? std::filesystem::path() : current.parent_path(),
+		                          MakeFileName(m_Context.GetScene().GetName()));
+		if (!chosen)
+		{
+			ST_ERROR("{}", chosen.GetError());
+			return false;
+		}
+		if (!chosen.GetValue())
+		{
+			return false;
+		}
+		std::filesystem::path path = *chosen.GetValue();
+		if (path.extension() != SceneExtension)
+		{
+			path += SceneExtension;
+		}
+		Result<void> saved = m_Operations.SaveScene(path);
+		UI::ReportFailure(saved, "Saving the scene");
+		return saved.IsOk();
+	}
+
+	void EditorLayer::DuplicateSelection()
+	{
+		std::vector<UUID> const selection = m_Context.GetSelection().GetEntities();
+		Result<std::vector<UUID>> copies = m_Operations.DuplicateEntities(selection);
+		UI::ReportFailure(copies, "Duplicating entities");
+		if (copies)
+		{
+			UI::ReportFailure(m_Operations.Select(copies.GetValue()), "Selecting the copies");
+		}
+	}
+
+	void EditorLayer::DeleteSelection()
+	{
+		std::vector<UUID> const selection = m_Context.GetSelection().GetEntities();
+		UI::ReportFailure(m_Operations.DeleteEntities(selection), "Deleting entities");
+	}
+
+	void EditorLayer::SelectAll()
+	{
+		std::vector<UUID> entities;
+		m_Context.GetScene().ForEachEntityInHierarchyOrder(
+			[&entities](Entity entity)
+			{
+				entities.push_back(entity.GetUUID());
+			});
+		UI::ReportFailure(m_Operations.Select(entities), "Selecting all entities");
+	}
+
+	glm::vec3 EditorLayer::GetSpawnPosition() const
+	{
+		return m_ViewportPanel ? m_ViewportPanel->GetCamera().GetFocalPoint() : glm::vec3(0.0f);
 	}
 }

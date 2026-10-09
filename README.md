@@ -33,7 +33,7 @@ Prerequisites:
 |---|---|---|---|
 | Compiler | Visual Studio 2022 17.10+ or 2026 (C++ workload) | Xcode 15+ | GCC 13+ or Clang 17+ |
 | CMake / Ninja | bundled with Visual Studio | `brew install cmake ninja` | `apt install cmake ninja-build` |
-| Other | Python 3.10+ | Python 3.10+ | Python 3.10+, `apt install pkg-config libwayland-dev libxkbcommon-dev xorg-dev` |
+| Other | Python 3.10+ | Python 3.10+ | Python 3.10+, `apt install pkg-config libwayland-dev libxkbcommon-dev xorg-dev libgtk-3-dev` |
 
 The [Vulkan SDK](https://vulkan.lunarg.com/) 1.4.x is required (DXC shader compiler; validation layers for Debug
 builds), and a GPU driver with Vulkan 1.3 support to run the editor. The scripting layer will additionally require the

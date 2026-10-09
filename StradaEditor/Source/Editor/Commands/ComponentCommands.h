@@ -67,9 +67,9 @@ namespace Strada
 		Json Patch;
 	};
 
-	// Applies several component patches as one undo step, all or nothing (edits already applied are reverted when a later
-	// one fails). Commands with the same non-zero merge key and the same entity/component targets merge into one step
-	// (for example a gizmo dragging several selected entities).
+	// Applies component patches (each transactional: every field is validated before anything changes) as one undo step,
+	// all or nothing (edits already applied are reverted when a later one fails). Commands with the same non-zero merge key
+	// and the same entity/component targets merge into one step (one inspector drag, a gizmo dragging several entities).
 	class SetComponentsCommand final : public EditorCommand
 	{
 	public:
@@ -89,30 +89,5 @@ namespace Strada
 		// Complete component states before and after (one per edit), recorded by the first execution.
 		std::vector<Json> m_Before;
 		std::vector<Json> m_After;
-	};
-
-	// Applies a partial JSON patch to a component (transactional: every field is validated before anything changes).
-	// Commands with the same entity, component and non-zero merge key merge into one undo step.
-	class SetComponentCommand final : public EditorCommand
-	{
-	public:
-		SetComponentCommand(UUID entity, std::string component, Json patch, uint64_t mergeKey = 0, std::string description = {});
-
-		Result<void> Execute(EditorContext& context) override;
-		Result<void> Undo(EditorContext& context) override;
-		std::string GetDescription() const override;
-		bool HasEffect() const override { return m_Before != m_After; }
-		bool CanMergeWith(EditorCommand const& next) const override;
-		void MergeWith(EditorCommand& next) override;
-
-	private:
-		UUID m_Entity;
-		std::string m_Component;
-		Json m_Patch;
-		uint64_t m_MergeKey;
-		std::string m_Description;
-		// Complete component state before and after, recorded by the first execution.
-		Json m_Before;
-		Json m_After;
 	};
 }

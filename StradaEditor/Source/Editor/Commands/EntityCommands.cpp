@@ -29,6 +29,16 @@ namespace Strada
 			return {};
 		}
 
+		// Where an entity is in the hierarchy, and its local transform.
+		struct Placement
+		{
+			Entity Parent;
+			size_t SiblingIndex = 0;
+			Json Transform;
+
+			bool operator==(Placement const& other) const = default;
+		};
+
 		// Resolves the IDs (all must exist) and keeps, in request order and without duplicates, the entities none of whose
 		// ancestors is part of the request: their subtrees contain everything requested.
 		Result<std::vector<Entity>> ResolveSubtreeRoots(Scene& scene, std::vector<UUID> const& ids)
@@ -371,5 +381,178 @@ namespace Strada
 	bool ReparentEntityCommand::HasEffect() const
 	{
 		return m_Executed && (m_OldParent != m_NewParent || m_OldSiblingIndex != m_NewSiblingIndex || m_OldTransform != m_NewTransform);
+	}
+
+	MoveEntitiesCommand::MoveEntitiesCommand(std::vector<UUID> entities, UUID newParent, UUID insertBefore, bool keepWorldTransform)
+		: m_Entities(std::move(entities)),
+		  m_NewParent(newParent),
+		  m_InsertBefore(insertBefore),
+		  m_KeepWorldTransform(keepWorldTransform)
+	{
+	}
+
+	Result<void> MoveEntitiesCommand::Execute(EditorContext& context)
+	{
+		if (!m_Executed)
+		{
+			return ExecuteFirst(context);
+		}
+
+		// Replaying the recorded results in order reproduces every intermediate state, so the indices stay valid.
+		Scene& scene = context.GetScene();
+		Entity const parent = m_NewParent.IsValid() ? scene.GetEntityByUUID(m_NewParent) : Entity();
+		if (m_NewParent.IsValid() && !parent)
+		{
+			return MakeError("parent entity {} no longer exists", m_NewParent);
+		}
+		for (Move const& move : m_Moves)
+		{
+			if (!scene.HasEntity(move.Entity))
+			{
+				return MakeError("entity {} no longer exists", move.Entity);
+			}
+		}
+		ComponentInfo const& transform = ComponentRegistry::Get<TransformComponent>();
+		DeserializationContext const deserialization = context.CreateDeserializationContext();
+		for (Move const& move : m_Moves)
+		{
+			Entity const entity = scene.GetEntityByUUID(move.Entity);
+			// Moves were validated by the first execution and the scene is in the same state again.
+			(void)MoveEntity(scene, entity, parent, move.NewSiblingIndex);
+			(void)transform.Deserialize(scene.GetRegistry(), entity.GetHandle(), move.NewTransform, deserialization);
+		}
+		return {};
+	}
+
+	Result<void> MoveEntitiesCommand::ExecuteFirst(EditorContext& context)
+	{
+		Scene& scene = context.GetScene();
+		Result<std::vector<Entity>> roots = ResolveSubtreeRoots(scene, m_Entities);
+		if (!roots)
+		{
+			return Error{roots.GetError()};
+		}
+		Entity parent;
+		if (m_NewParent.IsValid())
+		{
+			parent = scene.GetEntityByUUID(m_NewParent);
+			if (!parent)
+			{
+				return MakeError("parent entity {} does not exist", m_NewParent);
+			}
+		}
+		for (Entity const entity : roots.GetValue())
+		{
+			if (parent && (parent == entity || scene.IsDescendantOf(parent, entity)))
+			{
+				return MakeError("entity {} cannot become a child of itself or of its descendant {}", entity.GetUUID(), m_NewParent);
+			}
+		}
+		Entity anchor;
+		if (m_InsertBefore.IsValid())
+		{
+			anchor = scene.GetEntityByUUID(m_InsertBefore);
+			if (!anchor || scene.GetParent(anchor) != parent)
+			{
+				return MakeError("entity {} is not a child of the new parent", m_InsertBefore);
+			}
+			for (Entity const entity : roots.GetValue())
+			{
+				if (entity == anchor)
+				{
+					return MakeError("entity {} cannot be moved before itself", m_InsertBefore);
+				}
+			}
+		}
+
+		ComponentInfo const& transform = ComponentRegistry::Get<TransformComponent>();
+		// Where every moved entity starts. Siblings that are not moved keep their relative order, so the scene is unchanged
+		// exactly when every moved entity ends where it started.
+		auto const getPlacement = [&scene, &transform](Entity entity)
+		{
+			return Placement{scene.GetParent(entity), scene.GetSiblingIndex(entity),
+			                 transform.Serialize(scene.GetRegistry(), entity.GetHandle())};
+		};
+		std::vector<Placement> initial;
+		for (Entity const entity : roots.GetValue())
+		{
+			initial.push_back(getPlacement(entity));
+		}
+
+		bool reparents = false;
+		m_Moves.clear();
+		for (Entity entity : roots.GetValue())
+		{
+			Move move;
+			move.Entity = entity.GetUUID();
+			Entity const oldParent = scene.GetParent(entity);
+			move.OldParent = oldParent ? oldParent.GetUUID() : UUID::Invalid();
+			move.OldSiblingIndex = scene.GetSiblingIndex(entity);
+			move.OldTransform = transform.Serialize(scene.GetRegistry(), entity.GetHandle());
+			if (oldParent != parent)
+			{
+				reparents = true;
+				// Validated above: neither cycles nor foreign entities can make this fail.
+				(void)scene.SetParent(entity, parent, m_KeepWorldTransform);
+			}
+			size_t index = std::numeric_limits<size_t>::max();
+			if (anchor)
+			{
+				// SetSiblingIndex removes the entity before inserting it, which shifts the anchor when the entity precedes it.
+				index = scene.GetSiblingIndex(anchor);
+				if (scene.GetSiblingIndex(entity) < index)
+				{
+					index--;
+				}
+			}
+			scene.SetSiblingIndex(entity, index);
+			move.NewSiblingIndex = scene.GetSiblingIndex(entity);
+			move.NewTransform = transform.Serialize(scene.GetRegistry(), entity.GetHandle());
+			m_Moves.push_back(std::move(move));
+		}
+
+		m_HasEffect = false;
+		for (size_t i = 0; i < roots.GetValue().size(); i++)
+		{
+			m_HasEffect = m_HasEffect || getPlacement(roots.GetValue()[i]) != initial[i];
+		}
+		size_t const count = m_Moves.size();
+		m_Description = fmt::format("{} {}", reparents ? "Reparent" : "Reorder", count == 1 ? "Entity" : "Entities");
+		m_Executed = true;
+		return {};
+	}
+
+	Result<void> MoveEntitiesCommand::Undo(EditorContext& context)
+	{
+		Scene& scene = context.GetScene();
+		for (Move const& move : m_Moves)
+		{
+			if (!scene.HasEntity(move.Entity))
+			{
+				return MakeError("entity {} no longer exists", move.Entity);
+			}
+			if (move.OldParent.IsValid() && !scene.HasEntity(move.OldParent))
+			{
+				return MakeError("the original parent entity {} no longer exists", move.OldParent);
+			}
+		}
+
+		// Reverse order: each move restores the state right before it.
+		ComponentInfo const& transform = ComponentRegistry::Get<TransformComponent>();
+		DeserializationContext const deserialization = context.CreateDeserializationContext();
+		for (size_t i = m_Moves.size(); i-- > 0;)
+		{
+			Move const& move = m_Moves[i];
+			Entity const entity = scene.GetEntityByUUID(move.Entity);
+			Entity const oldParent = move.OldParent.IsValid() ? scene.GetEntityByUUID(move.OldParent) : Entity();
+			(void)MoveEntity(scene, entity, oldParent, move.OldSiblingIndex);
+			(void)transform.Deserialize(scene.GetRegistry(), entity.GetHandle(), move.OldTransform, deserialization);
+		}
+		return {};
+	}
+
+	bool MoveEntitiesCommand::HasEffect() const
+	{
+		return m_HasEffect;
 	}
 }

@@ -1,6 +1,7 @@
 #include "Editor/EditorOperations.h"
 
 #include "Editor/Commands/ComponentCommands.h"
+#include "Editor/Commands/CompositeCommand.h"
 #include "Editor/Commands/SceneCommands.h"
 
 #include "Strada/Core/FileSystem.h"
@@ -119,10 +120,24 @@ namespace Strada
 		{
 			return Error{"the entity name cannot be empty"};
 		}
-		Json patch = Json::object();
-		patch["Tag"] = std::move(name);
-		return m_Context.ExecuteCommand(CreateScope<SetComponentCommand>(entity, std::string(ComponentTraits<TagComponent>::Name),
-		                                                                 std::move(patch), mergeKey, "Rename Entity"));
+		std::vector<UUID> const entities = {entity};
+		return RenameEntities(entities, std::move(name), mergeKey);
+	}
+
+	Result<void> EditorOperations::RenameEntities(std::span<UUID const> entities, std::string name, uint64_t mergeKey)
+	{
+		if (name.empty())
+		{
+			return Error{"the entity name cannot be empty"};
+		}
+		std::vector<ComponentEdit> edits;
+		edits.reserve(entities.size());
+		for (UUID const entity : entities)
+		{
+			edits.push_back({entity, std::string(ComponentTraits<TagComponent>::Name), Json::object({{"Tag", name}})});
+		}
+		std::string description = edits.size() == 1 ? "Rename Entity" : "Rename Entities";
+		return m_Context.ExecuteCommand(CreateScope<SetComponentsCommand>(std::move(edits), mergeKey, std::move(description)));
 	}
 
 	Result<void> EditorOperations::ReparentEntity(UUID entity, UUID newParent, std::optional<size_t> siblingIndex, bool keepWorldTransform)
@@ -130,9 +145,26 @@ namespace Strada
 		return m_Context.ExecuteCommand(CreateScope<ReparentEntityCommand>(entity, newParent, siblingIndex, keepWorldTransform));
 	}
 
+	Result<void> EditorOperations::MoveEntities(std::span<UUID const> entities, UUID newParent, UUID insertBefore, bool keepWorldTransform)
+	{
+		return m_Context.ExecuteCommand(CreateScope<MoveEntitiesCommand>(std::vector<UUID>(entities.begin(), entities.end()), newParent,
+		                                                                 insertBefore, keepWorldTransform));
+	}
+
 	Result<void> EditorOperations::AddComponent(UUID entity, std::string_view component, Json const& fields)
 	{
 		return m_Context.ExecuteCommand(CreateScope<AddComponentCommand>(entity, std::string(component), fields));
+	}
+
+	Result<void> EditorOperations::AddComponent(std::span<UUID const> entities, std::string_view component, Json const& fields)
+	{
+		std::vector<Scope<EditorCommand>> commands;
+		commands.reserve(entities.size());
+		for (UUID const entity : entities)
+		{
+			commands.push_back(CreateScope<AddComponentCommand>(entity, std::string(component), fields));
+		}
+		return m_Context.ExecuteCommand(CreateScope<CompositeCommand>(fmt::format("Add {} Component", component), std::move(commands)));
 	}
 
 	Result<void> EditorOperations::RemoveComponent(UUID entity, std::string_view component)
@@ -140,9 +172,22 @@ namespace Strada
 		return m_Context.ExecuteCommand(CreateScope<RemoveComponentCommand>(entity, std::string(component)));
 	}
 
+	Result<void> EditorOperations::RemoveComponent(std::span<UUID const> entities, std::string_view component)
+	{
+		std::vector<Scope<EditorCommand>> commands;
+		commands.reserve(entities.size());
+		for (UUID const entity : entities)
+		{
+			commands.push_back(CreateScope<RemoveComponentCommand>(entity, std::string(component)));
+		}
+		return m_Context.ExecuteCommand(CreateScope<CompositeCommand>(fmt::format("Remove {} Component", component), std::move(commands)));
+	}
+
 	Result<void> EditorOperations::SetComponentFields(UUID entity, std::string_view component, Json const& patch, uint64_t mergeKey)
 	{
-		return m_Context.ExecuteCommand(CreateScope<SetComponentCommand>(entity, std::string(component), patch, mergeKey));
+		std::vector<ComponentEdit> edits;
+		edits.push_back({entity, std::string(component), patch});
+		return m_Context.ExecuteCommand(CreateScope<SetComponentsCommand>(std::move(edits), mergeKey));
 	}
 
 	Result<void> EditorOperations::SetComponentFields(std::vector<ComponentEdit> edits, uint64_t mergeKey)

@@ -107,4 +107,42 @@ namespace Strada
 		size_t m_NewSiblingIndex = 0;
 		Json m_NewTransform;
 	};
+
+	// Moves entities, in order, under a new parent (invalid = root entities) right before one of its children (invalid =
+	// after the last one), as one undo step. Entities whose ancestor is also moved go along with it. Fails without changing
+	// anything when an entity would become its own descendant or insertBefore is not a child of the new parent.
+	class MoveEntitiesCommand final : public EditorCommand
+	{
+	public:
+		MoveEntitiesCommand(std::vector<UUID> entities, UUID newParent, UUID insertBefore, bool keepWorldTransform);
+
+		Result<void> Execute(EditorContext& context) override;
+		Result<void> Undo(EditorContext& context) override;
+		std::string GetDescription() const override { return m_Description; }
+		bool HasEffect() const override;
+
+	private:
+		// One executed move, recorded so undo and redo restore exact states.
+		struct Move
+		{
+			UUID Entity;
+			UUID OldParent;
+			size_t OldSiblingIndex = 0;
+			Json OldTransform;
+			size_t NewSiblingIndex = 0;
+			Json NewTransform;
+		};
+
+		Result<void> ExecuteFirst(EditorContext& context);
+
+		std::vector<UUID> m_Entities;
+		UUID m_NewParent;
+		UUID m_InsertBefore;
+		bool m_KeepWorldTransform;
+		std::string m_Description = "Move Entities";
+		std::vector<Move> m_Moves;
+		bool m_Executed = false;
+		// Whether any entity ends up elsewhere than it started (a sequence of moves can restore the original order).
+		bool m_HasEffect = false;
+	};
 }
