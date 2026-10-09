@@ -12,6 +12,7 @@ add_executable(StradaEditorTests
     Source/JsonSchemaTests.cpp
     Source/Main.cpp
     Source/PanelTests.cpp
+    Source/ProjectEditingTests.cpp
     Source/TcpTestClient.cpp
     Source/TcpTestClient.h
     Source/ViewportTests.cpp

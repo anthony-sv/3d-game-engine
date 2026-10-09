@@ -18,17 +18,18 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <imgui_stdlib.h>
 
 #include <array>
-#include <cctype>
 
 namespace Strada
 {
 	namespace
 	{
 		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set.
-		constexpr char const* DockspaceName = "Strada.Dockspace.v2";
+		constexpr char const* DockspaceName = "Strada.Dockspace.v3";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
+		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* SceneExtension = ".sscene";
 
 		std::array<FileDialogFilter, 1> const& GetSceneFilters()
@@ -37,15 +38,16 @@ namespace Strada
 			return s_Filters;
 		}
 
-		// A file name for a scene name: characters that are not portable in file names become underscores.
-		std::string MakeFileName(std::string const& name)
+		std::array<FileDialogFilter, 1> const& GetProjectFilters()
 		{
-			std::string fileName;
-			for (char const c : name)
-			{
-				bool const portable = std::isalnum(static_cast<unsigned char>(c)) != 0 || c == ' ' || c == '-' || c == '_';
-				fileName += portable ? c : '_';
-			}
+			static std::array<FileDialogFilter, 1> const s_Filters = {{{"Strada Project", "sproj"}}};
+			return s_Filters;
+		}
+
+		// The default file name for saving a scene.
+		std::string MakeSceneFileName(std::string const& sceneName)
+		{
+			std::string const fileName = FileSystem::MakePortableFileName(sceneName);
 			return (fileName.empty() ? std::string("Untitled") : fileName) + SceneExtension;
 		}
 	}
@@ -54,7 +56,8 @@ namespace Strada
 		: Layer("EditorLayer"),
 		  m_Specification(std::move(specification)),
 		  m_Operations(m_Context),
-		  m_AutomationServer(m_Commands)
+		  m_AutomationServer(m_Commands),
+		  m_RecentProjects(FileSystem::GetUserDataDirectory() / "Editor" / "RecentProjects.json")
 	{
 	}
 
@@ -82,6 +85,10 @@ namespace Strada
 		{
 			Application::Get().Close();
 		};
+		environment.ProjectOpened = [this]
+		{
+			RememberProject();
+		};
 		Result<void> registered = RegisterEditorCommands(m_Commands, m_Operations, std::move(environment));
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
@@ -102,16 +109,36 @@ namespace Strada
 				});
 		}
 
+		if (Result<void> loaded = m_RecentProjects.Load(); !loaded)
+		{
+			ST_WARN("The recent projects list cannot be read: {}", loaded.GetError());
+		}
+
 		bool sceneOpened = false;
+		if (!m_Specification.ProjectPath.empty())
+		{
+			Result<std::vector<std::string>> opened = m_Operations.OpenProject(m_Specification.ProjectPath);
+			sceneOpened = opened.IsOk();
+			if (opened)
+			{
+				RememberProject();
+			}
+			else
+			{
+				ST_ERROR("Could not open the project '{}': {}", FileSystem::PathToUtf8(m_Specification.ProjectPath), opened.GetError());
+			}
+		}
 		if (!m_Specification.ScenePath.empty())
 		{
+			// A scene that cannot be opened keeps the project's start scene.
 			Result<std::vector<std::string>> opened = m_Operations.OpenScene(m_Specification.ScenePath);
-			sceneOpened = opened.IsOk();
+			sceneOpened = sceneOpened || opened.IsOk();
 			if (!opened)
 			{
 				ST_ERROR("Could not open '{}': {}", FileSystem::PathToUtf8(m_Specification.ScenePath), opened.GetError());
 			}
 		}
+		// Without a project the editor starts with a sample scene made of built-in assets.
 		if (!sceneOpened)
 		{
 			m_Context.SetScene(CreateDefaultScene(), {});
@@ -148,6 +175,7 @@ namespace Strada
 
 	void EditorLayer::OnDetach()
 	{
+		m_ProjectSettingsPanel.Flush(m_Operations);
 		m_AutomationServer.Stop();
 		if (m_InstanceFileWritten)
 		{
@@ -211,6 +239,10 @@ namespace Strada
 		{
 			m_SceneSettingsPanel.OnImGuiRender(m_Operations, m_ShowSceneSettings);
 		}
+		if (m_ShowProjectSettings)
+		{
+			m_ProjectSettingsPanel.OnImGuiRender(m_Operations, m_ShowProjectSettings);
+		}
 		if (m_ShowConsole)
 		{
 			m_ConsolePanel.OnImGuiRender(m_ShowConsole);
@@ -225,6 +257,7 @@ namespace Strada
 		}
 
 		DrawUnsavedChangesPopup();
+		DrawNewProjectPopup();
 		UpdateWindowTitle();
 	}
 
@@ -256,6 +289,7 @@ namespace Strada
 		ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
 		ImGui::DockBuilderDockWindow("Inspector", right);
 		ImGui::DockBuilderDockWindow("Scene Settings", right);
+		ImGui::DockBuilderDockWindow("Project Settings", right);
 		ImGui::DockBuilderDockWindow("Statistics", rightBottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
 		ImGui::DockBuilderFinish(dockspace);
@@ -270,6 +304,23 @@ namespace Strada
 
 		if (ImGui::BeginMenu("File"))
 		{
+			if (ImGui::MenuItem("New Project..."))
+			{
+				m_NewProjectName = "New Game";
+				std::vector<std::filesystem::path> const& recent = m_RecentProjects.GetProjects();
+				m_NewProjectLocation = recent.empty() ? std::string() : FileSystem::PathToUtf8(recent.front().parent_path().parent_path());
+				m_OpenNewProjectPopup = true;
+			}
+			if (ImGui::MenuItem("Open Project..."))
+			{
+				ShowOpenProjectDialog();
+			}
+			DrawRecentProjectsMenu();
+			if (ImGui::MenuItem("Close Project", nullptr, false, m_Context.GetProject() != nullptr))
+			{
+				RequestSceneAction(SceneAction::CloseProject);
+			}
+			ImGui::Separator();
 			if (ImGui::MenuItem("New Scene", "Ctrl+N"))
 			{
 				RequestSceneAction(SceneAction::NewScene);
@@ -351,12 +402,14 @@ namespace Strada
 			ImGui::MenuItem("Scene Hierarchy", nullptr, &m_ShowHierarchy);
 			ImGui::MenuItem("Inspector", nullptr, &m_ShowInspector);
 			ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
+			ImGui::MenuItem("Project Settings", nullptr, &m_ShowProjectSettings);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Statistics", nullptr, &m_ShowStatistics);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout"))
 			{
-				m_ShowViewport = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowConsole = m_ShowStatistics = true;
+				m_ShowViewport = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings = m_ShowConsole =
+					m_ShowStatistics = true;
 				m_ResetLayout = true;
 			}
 			ImGui::MenuItem("ImGui Demo", nullptr, &m_ShowImGuiDemo);
@@ -474,7 +527,9 @@ namespace Strada
 		{
 			return;
 		}
-		std::string const title = fmt::format("{}{} - Strada Editor", m_Context.GetScene().GetName(), m_Context.IsDirty() ? "*" : "");
+		Project const* project = m_Context.GetProject();
+		std::string const title = fmt::format("{}{} - {}Strada Editor", m_Context.GetScene().GetName(), m_Context.IsDirty() ? "*" : "",
+		                                      project != nullptr ? project->GetSettings().Name + " - " : std::string());
 		if (title != m_WindowTitle)
 		{
 			window->SetTitle(title);
@@ -492,6 +547,94 @@ namespace Strada
 		m_PendingAction = action;
 		m_PendingPath = std::move(path);
 		m_OpenUnsavedChangesPopup = true;
+	}
+
+	void EditorLayer::DrawNewProjectPopup()
+	{
+		if (m_OpenNewProjectPopup)
+		{
+			ImGui::OpenPopup(NewProjectPopup);
+			m_OpenNewProjectPopup = false;
+		}
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(520.0f, 0.0f), ImGuiCond_Appearing);
+		if (!ImGui::BeginPopupModal(NewProjectPopup, nullptr, ImGuiWindowFlags_NoSavedSettings))
+		{
+			return;
+		}
+
+		ImGui::TextUnformatted("Name");
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		ImGui::InputText("##name", &m_NewProjectName);
+		ImGui::TextUnformatted("Location");
+		float const browseWidth = ImGui::CalcTextSize("Browse...").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+		ImGui::SetNextItemWidth(-(browseWidth + ImGui::GetStyle().ItemSpacing.x));
+		ImGui::InputText("##location", &m_NewProjectLocation);
+		ImGui::SameLine();
+		if (ImGui::Button("Browse..."))
+		{
+			Result<std::optional<std::filesystem::path>> chosen = FileDialogs::PickFolder(FileSystem::PathFromUtf8(m_NewProjectLocation));
+			if (!chosen)
+			{
+				ST_ERROR("{}", chosen.GetError());
+			}
+			else if (chosen.GetValue())
+			{
+				m_NewProjectLocation = FileSystem::PathToUtf8(*chosen.GetValue());
+			}
+		}
+
+		// The directory is named after the project, restricted to characters valid in file names everywhere.
+		std::string const directoryName = FileSystem::MakePortableFileName(m_NewProjectName);
+		std::filesystem::path const directory = FileSystem::PathFromUtf8(m_NewProjectLocation) / FileSystem::PathFromUtf8(directoryName);
+		bool const valid = !directoryName.empty() && !m_NewProjectLocation.empty();
+		if (valid)
+		{
+			ImGui::TextDisabled("Creates %s", FileSystem::PathToUtf8(directory).c_str());
+		}
+		ImGui::Spacing();
+		ImGui::BeginDisabled(!valid);
+		if (ImGui::Button("Create"))
+		{
+			ImGui::CloseCurrentPopup();
+			m_PendingProjectName = m_NewProjectName;
+			RequestSceneAction(SceneAction::NewProject, directory);
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+
+	void EditorLayer::DrawRecentProjectsMenu()
+	{
+		std::vector<std::filesystem::path> const recent = m_RecentProjects.GetProjects();
+		if (!ImGui::BeginMenu("Recent Projects", !recent.empty()))
+		{
+			return;
+		}
+		for (std::filesystem::path const& project : recent)
+		{
+			std::string const path = FileSystem::PathToUtf8(project);
+			if (ImGui::MenuItem(FileSystem::PathToUtf8(project.stem()).c_str()))
+			{
+				RequestSceneAction(SceneAction::OpenProject, project);
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::SetTooltip("%s", path.c_str());
+			}
+		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Clear Recent Projects"))
+		{
+			m_RecentProjects.Clear();
+			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+		}
+		ImGui::EndMenu();
 	}
 
 	void EditorLayer::PerformSceneAction(SceneAction action, std::filesystem::path const& path)
@@ -512,17 +655,81 @@ namespace Strada
 				}
 				break;
 			}
+			case SceneAction::NewProject:
+			{
+				Result<void> created = m_Operations.CreateProject(path, m_PendingProjectName, *CreateDefaultScene());
+				if (created)
+				{
+					RememberProject();
+				}
+				UI::ReportFailure(created, "Creating the project");
+				break;
+			}
+			case SceneAction::OpenProject:
+				OpenProject(path);
+				break;
+			case SceneAction::CloseProject:
+				m_Operations.CloseProject();
+				break;
 			case SceneAction::Quit:
 				Application::Get().Close();
 				break;
 		}
 	}
 
-	void EditorLayer::ShowOpenSceneDialog()
+	void EditorLayer::ShowOpenProjectDialog()
+	{
+		Result<std::optional<std::filesystem::path>> chosen = FileDialogs::OpenFile(GetProjectFilters());
+		if (!chosen)
+		{
+			ST_ERROR("{}", chosen.GetError());
+			return;
+		}
+		if (chosen.GetValue())
+		{
+			RequestSceneAction(SceneAction::OpenProject, *chosen.GetValue());
+		}
+	}
+
+	void EditorLayer::OpenProject(std::filesystem::path const& file)
+	{
+		Result<std::vector<std::string>> opened = m_Operations.OpenProject(file);
+		if (opened)
+		{
+			RememberProject();
+			return;
+		}
+		ST_ERROR("Could not open the project '{}': {}", FileSystem::PathToUtf8(file), opened.GetError());
+		if (!FileSystem::Exists(file))
+		{
+			m_RecentProjects.Remove(file);
+			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+		}
+	}
+
+	void EditorLayer::RememberProject()
+	{
+		if (Project const* project = m_Context.GetProject())
+		{
+			m_RecentProjects.Add(project->GetFilePath());
+			UI::ReportFailure(m_RecentProjects.Save(), "Saving the recent projects");
+		}
+	}
+
+	std::filesystem::path EditorLayer::GetSceneDialogDirectory() const
 	{
 		std::filesystem::path const& current = m_Context.GetScenePath();
-		Result<std::optional<std::filesystem::path>> chosen =
-			FileDialogs::OpenFile(GetSceneFilters(), current.empty() ? std::filesystem::path() : current.parent_path());
+		if (!current.empty())
+		{
+			return current.parent_path();
+		}
+		Project const* project = m_Context.GetProject();
+		return project != nullptr ? project->GetAssetDirectory() : std::filesystem::path();
+	}
+
+	void EditorLayer::ShowOpenSceneDialog()
+	{
+		Result<std::optional<std::filesystem::path>> chosen = FileDialogs::OpenFile(GetSceneFilters(), GetSceneDialogDirectory());
 		if (!chosen)
 		{
 			ST_ERROR("{}", chosen.GetError());
@@ -547,10 +754,8 @@ namespace Strada
 
 	bool EditorLayer::SaveSceneAs()
 	{
-		std::filesystem::path const& current = m_Context.GetScenePath();
 		Result<std::optional<std::filesystem::path>> chosen =
-			FileDialogs::SaveFile(GetSceneFilters(), current.empty() ? std::filesystem::path() : current.parent_path(),
-		                          MakeFileName(m_Context.GetScene().GetName()));
+			FileDialogs::SaveFile(GetSceneFilters(), GetSceneDialogDirectory(), MakeSceneFileName(m_Context.GetScene().GetName()));
 		if (!chosen)
 		{
 			ST_ERROR("{}", chosen.GetError());

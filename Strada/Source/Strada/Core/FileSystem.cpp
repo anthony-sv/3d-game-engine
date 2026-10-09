@@ -4,7 +4,11 @@
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/UUID.h"
 
+#include <algorithm>
+#include <array>
+#include <cctype>
 #include <fstream>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -283,6 +287,36 @@ namespace Strada
 		}
 		auto const first = relative.begin();
 		return first == relative.end() || *first != "..";
+	}
+
+	std::string FileSystem::MakePortableFileName(std::string_view name)
+	{
+		std::string fileName;
+		fileName.reserve(name.size());
+		for (char const c : name)
+		{
+			unsigned char const byte = static_cast<unsigned char>(c);
+			bool const portable = (byte < 0x80 && std::isalnum(byte) != 0) || c == ' ' || c == '-' || c == '_';
+			fileName += portable ? c : '_';
+		}
+		size_t const first = fileName.find_first_not_of(' ');
+		if (first == std::string::npos)
+		{
+			return {};
+		}
+		fileName = fileName.substr(first, fileName.find_last_not_of(' ') - first + 1);
+
+		std::string upper = fileName;
+		std::transform(upper.begin(), upper.end(), upper.begin(),
+		               [](unsigned char c)
+		               {
+						   return static_cast<char>(std::toupper(c));
+					   });
+		static constexpr std::array<std::string_view, 4> s_ReservedNames = {"CON", "PRN", "AUX", "NUL"};
+		bool const reserved =
+			std::find(s_ReservedNames.begin(), s_ReservedNames.end(), upper) != s_ReservedNames.end() ||
+			(upper.size() == 4 && (upper.starts_with("COM") || upper.starts_with("LPT")) && upper[3] >= '0' && upper[3] <= '9');
+		return reserved ? fileName + "_" : fileName;
 	}
 
 	std::filesystem::path FileSystem::PathFromUtf8(std::string_view utf8)

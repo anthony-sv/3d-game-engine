@@ -83,6 +83,13 @@ set(STRADA_MATH_SOURCES
     Source/Strada/Math/Math.h
 )
 
+set(STRADA_PROJECT_SOURCES
+    Source/Strada/Project/Project.cpp
+    Source/Strada/Project/Project.h
+    Source/Strada/Project/ProjectSettings.cpp
+    Source/Strada/Project/ProjectSettings.h
+)
+
 set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/EnvironmentMap.cpp
     Source/Strada/Renderer/EnvironmentMap.h
@@ -169,6 +176,7 @@ add_library(Strada STATIC
     ${STRADA_CORE_SOURCES}
     ${STRADA_IMGUI_SOURCES}
     ${STRADA_MATH_SOURCES}
+    ${STRADA_PROJECT_SOURCES}
     ${STRADA_RENDERER_SOURCES}
     ${STRADA_RHI_SOURCES}
     ${STRADA_SCENE_SOURCES}
@@ -257,6 +265,6 @@ strada_configure_target(Strada)
 strada_add_configuration_definitions(Strada)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES
-    ${STRADA_ASSET_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_RENDERER_SOURCES} ${STRADA_RHI_SOURCES}
-    ${STRADA_SCENE_SOURCES} ${STRADA_SCRIPT_SOURCES} ${STRADA_SERIALIZATION_SOURCES})
+    ${STRADA_ASSET_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_PROJECT_SOURCES}
+    ${STRADA_RENDERER_SOURCES} ${STRADA_RHI_SOURCES} ${STRADA_SCENE_SOURCES} ${STRADA_SCRIPT_SOURCES} ${STRADA_SERIALIZATION_SOURCES})
 set_target_properties(Strada PROPERTIES FOLDER "Engine")

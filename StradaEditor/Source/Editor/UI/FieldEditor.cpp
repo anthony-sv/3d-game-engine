@@ -570,10 +570,14 @@ namespace Strada
 			case FieldKind::Double:
 			{
 				auto const [min, max] = GetBounds(field);
-				char const* format = field.Hints.Display == FieldDisplay::Angle ? AngleFormat : "%.3f";
+				double const current = value.is_number() ? value.get<double>() : 0.0;
+				// Small values (time steps, thresholds) keep their significant digits.
+				char const* format = field.Hints.Display == FieldDisplay::Angle  ? AngleFormat
+				                     : current != 0.0 && std::abs(current) < 0.1 ? "%.5f"
+				                                                                 : "%.3f";
 				if (field.Kind == FieldKind::Double)
 				{
-					double number = value.is_number() ? value.get<double>() : 0.0;
+					double number = current;
 					if (!ImGui::DragScalar("##value", ImGuiDataType_Double, &number, GetDragSpeed(field), &min, &max, format,
 					                       ImGuiSliderFlags_AlwaysClamp))
 					{

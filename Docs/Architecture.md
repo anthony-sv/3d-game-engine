@@ -347,9 +347,13 @@ Asset references are handle strings. When reading (files, automation), an asset 
 Prefab (`.sprefab`): same entity array as a scene (root first). Instantiation assigns fresh UUIDs and remaps all
 intra-prefab references (hierarchy and entity-typed script fields).
 
-Project (`.sproj`): name, asset directory, script module path, start scene (path relative to Assets), window
-settings (title, width, height, fullscreen, vsync, resizable), physics settings (fixed timestep, named layers
-(max 16) and collision matrix).
+Project (`<Name>.sproj`, `ProjectSettings` with field tables, validated on every read): `Name`, `AssetDirectory`
+(relative, inside the project), `ScriptModule` (the game assembly, relative), `StartScene` (scene asset reference),
+`Window` (`Title`, `Width`, `Height`, `Fullscreen`, `VSync`, `Resizable`; for exported games) and `Physics`
+(`FixedTimestep`, `Layers`: 1 to 16 unique names indexed by `RigidBody.Layer`, `IgnoredCollisions`: layer index pairs
+that do not collide). Opening a project opens its asset directory first so asset references resolve; settings from
+newer versions are skipped with warnings. New projects (`Project::Create`) get the project file, `Assets/` and the
+start scene `Assets/Scenes/Main.sscene` in an empty or new directory.
 
 Asset registry (`Assets/AssetRegistry.sreg`): `"Assets": [ { "Handle", "Type", "Path" } ]` sorted by path, paths
 relative to `Assets/` with forward slashes (case-sensitive, portable characters only). The asset directory is scanned
@@ -467,8 +471,12 @@ serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `doubl
 - Undo/redo for every scene modification through a command history (JSON before/after snapshots). Automation
   commands use the same history.
 - Play (scripts + physics + audio), Simulate (physics only), Pause, Step, Stop.
-- Project management (new from template, open, recent), C# script project generation and build (`dotnet build`)
-  with diagnostics, hot reload of the game assembly.
+- Project management: File > New Project (name and location; the start scene is the editor's sample scene),
+  Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
+  command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
+  matrix); they are saved to the project file when an edit ends and are not part of the scene's undo history. Scenes
+  saved inside the asset directory are registered as assets. Without a project the editor works on loose scene files.
+- C# script project generation and build (`dotnet build`) with diagnostics, hot reload of the game assembly.
 - Export (Build Game) for the host platform.
 - Headless mode (`--headless`): no window/ImGui; offscreen rendering if a GPU is available; used by automation and CI.
 
@@ -487,7 +495,7 @@ serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `doubl
 - `strada` tool (C#): `strada mcp` (MCP stdio server; tools are the editor commands, names `domain_action`;
   launches or attaches to an editor on demand; screenshots returned as image content), `strada call <command>
   [json]`, `strada launch`, `strada commands`.
-- Command domains: `editor.*` (status, undo, redo, commands), `project.*` (create, open, save, settings, export),
+- Command domains: `editor.*` (status, undo, redo, commands), `project.*` (info, create, open, close, settings, export),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
   `asset.*` (list, import, refresh, get, delete, move), `material.*`, `prefab.*`, `script.*` (create from template,

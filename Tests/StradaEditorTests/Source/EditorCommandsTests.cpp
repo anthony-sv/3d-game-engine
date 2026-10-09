@@ -2,6 +2,7 @@
 
 #include "Editor/Automation/EditorCommands.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
@@ -21,6 +22,7 @@ namespace
 		EditorOperations Operations{Context};
 		CommandRegistry Registry;
 		bool QuitRequested = false;
+		int ProjectsOpened = 0;
 		std::optional<EditorCommandEnvironment::ScreenshotCallback> PendingScreenshot;
 
 		explicit CommandFixture(bool withWindow = false)
@@ -29,6 +31,10 @@ namespace
 			environment.RequestQuit = [this]
 			{
 				QuitRequested = true;
+			};
+			environment.ProjectOpened = [this]
+			{
+				ProjectsOpened++;
 			};
 			if (withWindow)
 			{
@@ -284,4 +290,63 @@ TEST_CASE("EditorCommands: screenshots complete asynchronously with PNG data")
 	(*fixture.PendingScreenshot)(Error{"minimized"});
 	REQUIRE(result);
 	CHECK(result->GetError().Code == AutomationErrorCode::Unavailable);
+}
+
+TEST_CASE("EditorCommands: projects are created, configured, closed and opened")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	Testing::TemporaryDirectory directory;
+	CommandFixture fixture;
+	std::string const projectDirectory = FileSystem::PathToUtf8(directory.GetPath() / "Game");
+
+	Json const none = fixture.Ok("project.info");
+	CHECK(none["project"].is_null());
+	CHECK(none["settings"].is_null());
+	CHECK(fixture.Fails("project.settings") == AutomationErrorCode::InvalidOperation);
+	CHECK(fixture.Fails("project.close") == AutomationErrorCode::InvalidOperation);
+	CHECK(fixture.Fails("project.create", Json::object({{"directory", projectDirectory}})) == AutomationErrorCode::InvalidParams);
+
+	// The default editor scene is unsaved but unchanged; a modified one needs discardChanges.
+	fixture.Create("Unsaved");
+	CHECK(fixture.Fails("project.create", Json::object({{"directory", projectDirectory}, {"name", "Game"}})) ==
+	      AutomationErrorCode::UnsavedChanges);
+	Json const created =
+		fixture.Ok("project.create", Json::object({{"directory", projectDirectory}, {"name", "Game"}, {"discardChanges", true}}));
+	CHECK(created["project"]["name"] == "Game");
+	CHECK(created["scene"]["path"].get<std::string>().ends_with("Main.sscene"));
+	CHECK(fixture.ProjectsOpened == 1);
+	CHECK(fixture.Ok("editor.status")["project"]["name"] == "Game");
+	// The directory is no longer empty.
+	CHECK(fixture.Fails("project.create", Json::object({{"directory", projectDirectory}, {"name", "Other"}})) ==
+	      AutomationErrorCode::FileError);
+
+	Json const settings = fixture.Ok("project.settings", Json::object({{"settings", {{"Window", {{"Width", 1600}}}}}}));
+	CHECK(settings["settings"]["Window"]["Width"] == 1600);
+	CHECK(settings["settings"]["Window"]["Height"] == 720);
+	CHECK(fixture.Fails("project.settings", Json::object({{"settings", {{"Physics", {{"Layers", Json::array()}}}}}})) ==
+	      AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("project.settings", Json::object({{"settings", {{"Typo", 1}}}})) == AutomationErrorCode::InvalidParams);
+	std::string const projectFile = created["project"]["file"].get<std::string>();
+	Result<std::string> const written = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(projectFile));
+	REQUIRE(written.IsOk());
+	CHECK(ParseJson(written.GetValue()).GetValue()["Project"]["Window"]["Width"] == 1600);
+
+	fixture.Create("Unsaved");
+	CHECK(fixture.Fails("project.close") == AutomationErrorCode::UnsavedChanges);
+	Json const closed = fixture.Ok("project.close", Json::object({{"discardChanges", true}}));
+	CHECK(closed["closed"] == true);
+	CHECK(fixture.Ok("project.info")["project"].is_null());
+
+	Json const opened = fixture.Ok("project.open", Json::object({{"path", projectFile}}));
+	CHECK(opened["project"]["name"] == "Game");
+	CHECK(opened["warnings"].empty());
+	CHECK(opened["scene"]["entityCount"].get<size_t>() > 0);
+	CHECK(fixture.ProjectsOpened == 2);
+	CHECK(fixture.Ok("project.info")["settings"]["Window"]["Width"] == 1600);
+	CHECK(fixture.Fails("project.open", Json::object({{"path", projectFile + ".missing"}})) == AutomationErrorCode::FileError);
+	CHECK(fixture.Ok("project.info")["project"]["name"] == "Game");
 }

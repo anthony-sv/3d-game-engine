@@ -37,8 +37,10 @@ namespace Strada
 				{
 					char const previous = name[i - 1];
 					bool const startsWord = isLower(previous) || isDigit(previous);
-					// The last capital of an acronym starts the next word: "UVTiling" -> "UV Tiling".
-					bool const endsAcronym = isUpper(previous) && i + 1 < name.size() && isLower(name[i + 1]);
+					// The last capital of an acronym of two or more letters starts the next word: "UVTiling" -> "UV Tiling",
+					// but "VSync" stays one word.
+					bool const endsAcronym =
+						isUpper(previous) && i >= 2 && isUpper(name[i - 2]) && i + 1 < name.size() && isLower(name[i + 1]);
 					if (startsWord || endsAcronym)
 					{
 						result += ' ';

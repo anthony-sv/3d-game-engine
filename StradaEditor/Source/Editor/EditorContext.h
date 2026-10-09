@@ -7,6 +7,7 @@
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
+#include "Strada/Project/Project.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
@@ -19,8 +20,8 @@
 
 namespace Strada
 {
-	// The editor's document state, shared by the UI panels and the automation commands: the edited scene and its file,
-	// the undo history (which also tracks unsaved changes) and the entity selection. Main thread only.
+	// The editor's document state, shared by the UI panels and the automation commands: the open project, the edited
+	// scene and its file, the undo history (which also tracks unsaved changes) and the entity selection. Main thread only.
 	//
 	// Every modification of the scene goes through ExecuteCommand so it can be undone; EditorOperations builds the
 	// commands. Play mode (a later stage) will keep a runtime copy of the scene next to this one; the history and the
@@ -48,6 +49,11 @@ namespace Strada
 		bool IsDirty() const { return m_History.IsDirty(); }
 		// Changes whenever SetScene replaces the scene (state tied to one scene, such as viewport picking IDs, resets).
 		uint64_t GetSceneVersion() const { return m_SceneVersion; }
+
+		// The open project; null when none is open. Its asset directory is the AssetManager's.
+		Project* GetProject() { return m_Project.get(); }
+		Project const* GetProject() const { return m_Project.get(); }
+		void SetProject(Ref<Project> project) { m_Project = std::move(project); }
 
 		// --- Undoable modifications ---
 
@@ -77,6 +83,7 @@ namespace Strada
 	private:
 		void PruneSelection();
 
+		Ref<Project> m_Project;
 		Ref<Scene> m_Scene;
 		std::filesystem::path m_ScenePath;
 		CommandHistory m_History;

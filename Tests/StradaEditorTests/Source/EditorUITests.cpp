@@ -50,6 +50,8 @@ TEST_CASE("UI: display names split PascalCase words and keep acronyms together")
 	CHECK(UI::FormatDisplayName("FXAA") == "FXAA");
 	CHECK(UI::FormatDisplayName("AmbientOcclusionRadius") == "Ambient Occlusion Radius");
 	CHECK(UI::FormatDisplayName("PBRNeutral") == "PBR Neutral");
+	CHECK(UI::FormatDisplayName("VSync") == "VSync");
+	CHECK(UI::FormatDisplayName("FixedVSyncRate") == "Fixed VSync Rate");
 	CHECK(UI::FormatDisplayName("Layer2Mask") == "Layer2 Mask");
 	CHECK(UI::FormatDisplayName("Tag") == "Tag");
 	CHECK(UI::FormatDisplayName("").empty());

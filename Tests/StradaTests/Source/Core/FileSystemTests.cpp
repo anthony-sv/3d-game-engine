@@ -170,3 +170,17 @@ TEST_CASE("FileSystem: last write time is available for existing files only")
 	REQUIRE(FileSystem::WriteTextFile(path, "x").IsOk());
 	CHECK(FileSystem::GetLastWriteTime(path).has_value());
 }
+
+TEST_CASE("FileSystem: portable file names keep safe characters and avoid reserved names")
+{
+	CHECK(FileSystem::MakePortableFileName("Space Game") == "Space Game");
+	CHECK(FileSystem::MakePortableFileName("Game: The Sequel / v2") == "Game_ The Sequel _ v2");
+	CHECK(FileSystem::MakePortableFileName("../escape") == "___escape");
+	CHECK(FileSystem::MakePortableFileName("  padded  ") == "padded");
+	CHECK(FileSystem::MakePortableFileName("caf\xc3\xa9") == "caf__");
+	CHECK(FileSystem::MakePortableFileName("con") == "con_");
+	CHECK(FileSystem::MakePortableFileName("COM1") == "COM1_");
+	CHECK(FileSystem::MakePortableFileName("Console") == "Console");
+	CHECK(FileSystem::MakePortableFileName("   ").empty());
+	CHECK(FileSystem::MakePortableFileName("").empty());
+}

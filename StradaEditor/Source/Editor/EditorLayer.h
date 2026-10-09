@@ -6,10 +6,12 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/InspectorPanel.h"
+#include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/SceneSettingsPanel.h"
 #include "Editor/Panels/StatisticsPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
+#include "Editor/RecentProjects.h"
 
 #include "Strada/Core/Layer.h"
 
@@ -25,13 +27,15 @@ namespace Strada
 		bool EnableAutomation = true;
 		// 0 picks a free port.
 		uint16_t AutomationPort = 0;
-		// Scene file opened at startup; empty starts with an empty scene.
+		// Project file opened at startup (with its start scene); empty starts without a project.
+		std::filesystem::path ProjectPath;
+		// Scene file opened at startup, after the project; empty keeps the project's start scene or the default scene.
 		std::filesystem::path ScenePath;
 	};
 
-	// Root of the editor: owns the document state (scene, undo history, selection), the automation command registry and
-	// server, and the UI (dockspace, menu bar, shortcuts and panels) when ImGui is available. Replacing the scene or closing
-	// the editor with unsaved changes asks to save them first.
+	// Root of the editor: owns the document state (project, scene, undo history, selection), the automation command
+	// registry and server, and the UI (dockspace, menu bar, shortcuts and panels) when ImGui is available. Replacing the
+	// scene (new or opened scenes and projects) or closing the editor with unsaved changes asks to save them first.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -57,6 +61,9 @@ namespace Strada
 			None = 0,
 			NewScene,
 			OpenScene,
+			NewProject,
+			OpenProject,
+			CloseProject,
 			Quit
 		};
 
@@ -65,12 +72,19 @@ namespace Strada
 		void DrawMenuBar();
 		void HandleShortcuts();
 		void DrawUnsavedChangesPopup();
+		void DrawNewProjectPopup();
+		void DrawRecentProjectsMenu();
 		void UpdateWindowTitle();
 
 		// Runs the action now, or after the unsaved-changes prompt when the scene has unsaved changes.
 		void RequestSceneAction(SceneAction action, std::filesystem::path path = {});
 		void PerformSceneAction(SceneAction action, std::filesystem::path const& path);
 		void ShowOpenSceneDialog();
+		void ShowOpenProjectDialog();
+		// Where file dialogs for scenes start: the scene's folder, else the project's asset directory.
+		std::filesystem::path GetSceneDialogDirectory() const;
+		void OpenProject(std::filesystem::path const& file);
+		void RememberProject();
 		// Saves to the scene's file, or asks for one when the scene has never been saved. False when cancelled or failed.
 		bool SaveScene();
 		bool SaveSceneAs();
@@ -93,12 +107,14 @@ namespace Strada
 		SceneHierarchyPanel m_HierarchyPanel;
 		InspectorPanel m_InspectorPanel;
 		SceneSettingsPanel m_SceneSettingsPanel;
+		ProjectSettingsPanel m_ProjectSettingsPanel;
 		// Created when ImGui is available.
 		Scope<ViewportPanel> m_ViewportPanel;
 		bool m_ShowViewport = true;
 		bool m_ShowHierarchy = true;
 		bool m_ShowInspector = true;
 		bool m_ShowSceneSettings = true;
+		bool m_ShowProjectSettings = true;
 		bool m_ShowConsole = true;
 		bool m_ShowStatistics = true;
 		bool m_ShowImGuiDemo = false;
@@ -106,7 +122,13 @@ namespace Strada
 
 		SceneAction m_PendingAction = SceneAction::None;
 		std::filesystem::path m_PendingPath;
+		std::string m_PendingProjectName;
 		bool m_OpenUnsavedChangesPopup = false;
+
+		RecentProjects m_RecentProjects;
+		bool m_OpenNewProjectPopup = false;
+		std::string m_NewProjectName;
+		std::string m_NewProjectLocation;
 		std::string m_WindowTitle;
 
 		std::filesystem::path m_ScreenshotPath;

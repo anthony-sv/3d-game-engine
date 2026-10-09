@@ -4,6 +4,7 @@
 #include "Editor/Commands/CompositeCommand.h"
 #include "Editor/Commands/SceneCommands.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -32,6 +33,109 @@ namespace Strada
 	Entity EditorOperations::FindEntity(UUID id)
 	{
 		return m_Context.GetScene().GetEntityByUUID(id);
+	}
+
+	Result<void> EditorOperations::CreateProject(std::filesystem::path const& directory, std::string const& name, Scene const& startScene)
+	{
+		Result<Ref<Project>> created = Project::Create(directory, name, startScene);
+		if (!created)
+		{
+			KeepProjectIfOpen();
+			return Error{created.GetError()};
+		}
+		Result<std::vector<std::string>> opened = UseProject(created.TakeValue());
+		return opened ? Result<void>() : Result<void>(Error{opened.GetError()});
+	}
+
+	Result<std::vector<std::string>> EditorOperations::OpenProject(std::filesystem::path const& file)
+	{
+		std::vector<std::string> warnings;
+		Result<Ref<Project>> opened = Project::Open(file, &warnings);
+		if (!opened)
+		{
+			KeepProjectIfOpen();
+			return Error{opened.GetError()};
+		}
+		for (std::string const& warning : warnings)
+		{
+			ST_WARN("'{}': {}", FileSystem::PathToUtf8(opened.GetValue()->GetFilePath()), warning);
+		}
+		Result<std::vector<std::string>> used = UseProject(opened.TakeValue());
+		if (used)
+		{
+			warnings.insert(warnings.end(), used.GetValue().begin(), used.GetValue().end());
+		}
+		return used ? Result<std::vector<std::string>>(std::move(warnings)) : used;
+	}
+
+	void EditorOperations::CloseProject()
+	{
+		if (m_Context.GetProject() != nullptr && AssetManager::IsInitialized())
+		{
+			AssetManager::CloseAssetDirectory();
+		}
+		m_Context.SetProject(nullptr);
+		NewScene();
+	}
+
+	Result<void> EditorOperations::ApplyProjectSettings(Json const& patch)
+	{
+		Project* project = m_Context.GetProject();
+		if (project == nullptr)
+		{
+			return Error{"no project is open"};
+		}
+		return project->ApplySettings(patch);
+	}
+
+	Result<void> EditorOperations::SaveProject()
+	{
+		Project const* project = m_Context.GetProject();
+		if (project == nullptr)
+		{
+			return Error{"no project is open"};
+		}
+		return project->Save();
+	}
+
+	Result<std::vector<std::string>> EditorOperations::UseProject(Ref<Project> project)
+	{
+		ST_INFO("Opened project '{}'", FileSystem::PathToUtf8(project->GetFilePath()));
+		AssetHandle const startScene = project->GetSettings().StartScene;
+		m_Context.SetProject(std::move(project));
+
+		std::vector<std::string> warnings;
+		if (!startScene.IsValid())
+		{
+			NewScene();
+			return warnings;
+		}
+		std::filesystem::path const scenePath = AssetManager::GetAbsolutePath(startScene);
+		Result<std::vector<std::string>> opened =
+			scenePath.empty() ? Result<std::vector<std::string>>(Error{"it is not a scene file of the project"}) : OpenScene(scenePath);
+		if (!opened)
+		{
+			// The project stays usable: its settings can point at another scene.
+			std::string warning = fmt::format("the start scene could not be opened: {}", opened.GetError());
+			ST_WARN("{}", warning);
+			warnings.push_back(std::move(warning));
+			NewScene();
+			return warnings;
+		}
+		return opened.TakeValue();
+	}
+
+	void EditorOperations::KeepProjectIfOpen()
+	{
+		// A failed open may have closed the previous project's asset directory; the project cannot stay open without it.
+		Project const* project = m_Context.GetProject();
+		bool const assetsOpen = project != nullptr && AssetManager::IsInitialized() && AssetManager::HasAssetDirectory() &&
+		                        AssetManager::GetAssetDirectory() == project->GetAssetDirectory();
+		if (project != nullptr && !assetsOpen)
+		{
+			m_Context.SetProject(nullptr);
+			NewScene();
+		}
 	}
 
 	void EditorOperations::NewScene(std::string name)
@@ -72,6 +176,15 @@ namespace Strada
 			return result;
 		}
 		ST_INFO("Saved scene '{}'", FileSystem::PathToUtf8(target));
+		if (AssetManager::IsInitialized() && AssetManager::HasAssetDirectory() &&
+		    FileSystem::IsInside(target, AssetManager::GetAssetDirectory()))
+		{
+			// Registered scenes can be referenced (the project's start scene) and listed by the content browser.
+			if (Result<AssetHandle> imported = AssetManager::ImportFile(target); !imported)
+			{
+				ST_WARN("'{}' was saved but not registered as an asset: {}", FileSystem::PathToUtf8(target), imported.GetError());
+			}
+		}
 		m_Context.MarkSaved(std::move(target));
 		return {};
 	}

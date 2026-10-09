@@ -52,6 +52,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/ConsolePanel.h
     Source/Editor/Panels/InspectorPanel.cpp
     Source/Editor/Panels/InspectorPanel.h
+    Source/Editor/Panels/ProjectSettingsPanel.cpp
+    Source/Editor/Panels/ProjectSettingsPanel.h
     Source/Editor/Panels/SceneHierarchyPanel.cpp
     Source/Editor/Panels/SceneHierarchyPanel.h
     Source/Editor/Panels/SceneSettingsPanel.cpp
@@ -60,6 +62,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/StatisticsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
+    Source/Editor/RecentProjects.cpp
+    Source/Editor/RecentProjects.h
     Source/Editor/UI/EditorUI.cpp
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp

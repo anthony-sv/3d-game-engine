@@ -1,6 +1,7 @@
 #include "Editor/Automation/EditorCommands.h"
 
 #include "Editor/Automation/JsonSchema.h"
+#include "Editor/DefaultScene.h"
 
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
@@ -151,6 +152,18 @@ namespace Strada
 			                     {"entityCount", context.GetScene().GetEntityCount()}});
 		}
 
+		Json DescribeProject(EditorContext const& context)
+		{
+			Project const* project = context.GetProject();
+			if (project == nullptr)
+			{
+				return Json();
+			}
+			return Json::object({{"name", project->GetSettings().Name},
+			                     {"file", FileSystem::PathToUtf8(project->GetFilePath())},
+			                     {"assetDirectory", FileSystem::PathToUtf8(project->GetAssetDirectory())}});
+		}
+
 		CommandError UnsavedChangesError(EditorContext const& context)
 		{
 			return MakeCommandError(AutomationErrorCode::UnsavedChanges,
@@ -194,8 +207,9 @@ namespace Strada
 
 			Result<void> RegisterAll()
 			{
-				for (auto const registerDomain : {&CommandSet::RegisterEditor, &CommandSet::RegisterScene, &CommandSet::RegisterEntities,
-				                                  &CommandSet::RegisterComponents, &CommandSet::RegisterLogAndViewport})
+				for (auto const registerDomain :
+				     {&CommandSet::RegisterEditor, &CommandSet::RegisterProject, &CommandSet::RegisterScene, &CommandSet::RegisterEntities,
+				      &CommandSet::RegisterComponents, &CommandSet::RegisterLogAndViewport})
 				{
 					if (Result<void> result = (this->*registerDomain)(); !result)
 					{
@@ -226,12 +240,14 @@ namespace Strada
 			{
 				Result<void> result =
 					Add("editor.status",
-				        "Editor version, the edited scene (name, file, unsaved changes, entity count), undo/redo state and the selection.",
+				        "Editor version, the open project (null when none), the edited scene (name, file, unsaved changes, entity "
+				        "count), undo/redo state and the selection.",
 				        Json(), true,
 				        [this](Json const&) -> CommandResult
 				        {
 							CommandHistory const& history = Context().GetHistory();
 							return Json::object({{"version", EngineVersion::String},
+					                             {"project", DescribeProject(Context())},
 					                             {"scene", DescribeScene(Context())},
 					                             {"undo", history.CanUndo() ? Json(history.GetUndoDescription()) : Json()},
 					                             {"redo", history.CanRedo() ? Json(history.GetRedoDescription()) : Json()},
@@ -298,6 +314,149 @@ namespace Strada
 									  })
 				                : result;
 				return result;
+			}
+
+			Result<void> RegisterProject()
+			{
+				Result<void> result =
+					Add("project.info", "The open project (name, project file, asset directory; null when none is open) and its settings.",
+				        Json(), true,
+				        [this](Json const&) -> CommandResult
+				        {
+							Project const* project = Context().GetProject();
+							return Json::object(
+								{{"project", DescribeProject(Context())},
+					             {"settings",
+					              project != nullptr ? SerializeFields<StructTraits<ProjectSettings>>(project->GetSettings()) : Json()}});
+						});
+				result =
+					result
+						? Add("project.create",
+				              "Creates a project in an empty or new directory (the project file <name>.sproj, an Assets directory and the "
+				              "start scene Assets/Scenes/Main.sscene) and opens it with its start scene. Fails on unsaved scene changes "
+				              "unless discardChanges is true.",
+				              SchemaBuilder::Object()
+				                  .Property("directory",
+				                            SchemaBuilder::String(
+												"Directory of the new project; created when missing, otherwise it must be empty")
+				                                .MinLength(1),
+				                            true)
+				                  .Property("name", SchemaBuilder::String("Project name").MinLength(1), true)
+				                  .Property("discardChanges", SchemaBuilder::Boolean("Discard unsaved scene changes").Default(false))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
+								  {
+									  return UnsavedChangesError(Context());
+								  }
+								  Result<void> created =
+									  m_Operations.CreateProject(FileSystem::PathFromUtf8(GetString(params, "directory")),
+					                                             GetString(params, "name"), *CreateDefaultScene());
+								  if (!created)
+								  {
+									  return Failure(AutomationErrorCode::FileError, created);
+								  }
+								  NotifyProjectOpened();
+								  return Json::object({{"project", DescribeProject(Context())}, {"scene", DescribeScene(Context())}});
+							  })
+						: result;
+				result = result
+				             ? Add("project.open",
+				                   "Opens a project file (.sproj) with its start scene. Settings unknown to this version are skipped and "
+				                   "reported as warnings. Fails on unsaved scene changes unless discardChanges is true.",
+				                   SchemaBuilder::Object()
+				                       .Property("path", SchemaBuilder::String("Project file path").MinLength(1), true)
+				                       .Property("discardChanges", SchemaBuilder::Boolean("Discard unsaved scene changes").Default(false))
+				                       .Build(),
+				                   false,
+				                   [this](Json const& params) -> CommandResult
+				                   {
+									   if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
+									   {
+										   return UnsavedChangesError(Context());
+									   }
+									   Result<std::vector<std::string>> opened =
+										   m_Operations.OpenProject(FileSystem::PathFromUtf8(GetString(params, "path")));
+									   if (!opened)
+									   {
+										   return CommandError{AutomationErrorCode::FileError, opened.GetError(), Json()};
+									   }
+									   NotifyProjectOpened();
+									   return Json::object({{"project", DescribeProject(Context())},
+					                                        {"scene", DescribeScene(Context())},
+					                                        {"warnings", opened.GetValue()}});
+								   })
+				             : result;
+				result =
+					result
+						? Add("project.close",
+				              "Closes the project and its assets; the scene is replaced with an empty one. Fails on unsaved scene changes "
+				              "unless discardChanges is true.",
+				              SchemaBuilder::Object()
+				                  .Property("discardChanges", SchemaBuilder::Boolean("Discard unsaved scene changes").Default(false))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (Context().GetProject() == nullptr)
+								  {
+									  return MakeCommandError(AutomationErrorCode::InvalidOperation, "no project is open");
+								  }
+								  if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
+								  {
+									  return UnsavedChangesError(Context());
+								  }
+								  m_Operations.CloseProject();
+								  return Json::object({{"closed", true}, {"scene", DescribeScene(Context())}});
+							  })
+						: result;
+				result =
+					result
+						? Add("project.settings",
+				              "Returns the open project's settings; optionally applies a partial patch in the project-file format (e.g. "
+				              "{ \"Window\": { \"Width\": 1920 }, \"Physics\": { \"Layers\": [\"Default\", \"Player\"] } }) and saves the "
+				              "project file. Project settings are not part of the undo history.",
+				              SchemaBuilder::Object()
+				                  .Property("settings", SchemaBuilder::Object("Partial settings patch").AllowAdditionalProperties())
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  Project* project = Context().GetProject();
+								  if (project == nullptr)
+								  {
+									  return MakeCommandError(AutomationErrorCode::InvalidOperation, "no project is open");
+								  }
+								  Json const patch = params.contains("settings") ? params["settings"] : Json::object();
+								  if (!patch.empty())
+								  {
+									  Json const before = SerializeFields<StructTraits<ProjectSettings>>(project->GetSettings());
+									  if (Result<void> applied = m_Operations.ApplyProjectSettings(patch); !applied)
+									  {
+										  return Failure(AutomationErrorCode::InvalidParams, applied);
+									  }
+									  if (Result<void> saved = m_Operations.SaveProject(); !saved)
+									  {
+										  // Keep memory and file consistent: the change is undone when it cannot be saved.
+										  (void)m_Operations.ApplyProjectSettings(before);
+										  return Failure(AutomationErrorCode::FileError, saved);
+									  }
+								  }
+								  return Json::object(
+									  {{"settings", SerializeFields<StructTraits<ProjectSettings>>(project->GetSettings())}});
+							  })
+						: result;
+				return result;
+			}
+
+			void NotifyProjectOpened()
+			{
+				if (m_Environment.ProjectOpened)
+				{
+					m_Environment.ProjectOpened();
+				}
 			}
 
 			Result<void> RegisterScene()

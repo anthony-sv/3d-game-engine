@@ -44,6 +44,10 @@ namespace Strada
 		static std::filesystem::path GetRelativePath(std::filesystem::path const& path, std::filesystem::path const& base);
 		// True if path is base itself or located inside base (lexical check on normalized absolute paths).
 		static bool IsInside(std::filesystem::path const& path, std::filesystem::path const& base);
+		// A file or directory name (without extension) for a user-chosen name that is valid on every platform: characters
+		// other than ASCII letters, digits, spaces, '-' and '_' become '_', surrounding spaces are removed and reserved
+		// Windows device names (CON, NUL, COM1, ...) get a trailing '_'. Empty when nothing usable remains.
+		static std::string MakePortableFileName(std::string_view name);
 
 		static std::filesystem::path PathFromUtf8(std::string_view utf8);
 		// UTF-8 string with forward slashes (the form stored in all Strada files).

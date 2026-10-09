@@ -20,9 +20,11 @@ namespace Strada
 		std::function<void(ScreenshotCallback callback)> CaptureScreenshot;
 		// Asks the editor to exit after the current frame. Unset when the host cannot quit (tests).
 		std::function<void()> RequestQuit;
+		// Called after a project was created or opened (the editor lists it under its recent projects). May be unset.
+		std::function<void()> ProjectOpened;
 	};
 
-	// Registers the editor, scene, entity, component, log and viewport commands. Entity parameters are UUIDs written as
+	// Registers the editor, project, scene, entity, component, log and viewport commands. Entity parameters are UUIDs written as
 	// decimal strings. The registry, the operations (and their context) and the environment callbacks must outlive every
 	// registered command. Documented in Docs/Automation.md.
 	[[nodiscard]] Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations,

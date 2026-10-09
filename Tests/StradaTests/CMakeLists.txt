@@ -26,6 +26,7 @@ add_executable(StradaTests
     Source/GpuTestUtilities.h
     Source/Math/AABBTests.cpp
     Source/Math/MathTests.cpp
+    Source/Project/ProjectTests.cpp
     Source/RHI/GraphicsDeviceTests.cpp
     Source/RHI/SwapchainTests.cpp
     Source/RHI/TextureReadbackTests.cpp

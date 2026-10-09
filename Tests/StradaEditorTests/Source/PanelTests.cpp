@@ -1,9 +1,14 @@
+#include "TestUtilities.h"
+
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/InspectorPanel.h"
+#include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/SceneSettingsPanel.h"
 #include "Editor/UI/FieldEditor.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -239,4 +244,42 @@ TEST_CASE("Panels: the hierarchy, inspector and scene settings draw every compon
 	CHECK(settingsOpen);
 	CHECK(context.GetHistory().GetUndoCount() == steps);
 	CHECK(SceneSerializer::Serialize(context.GetScene()) == before);
+}
+
+TEST_CASE("Panels: project settings draw with and without a project and do not change it by drawing")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	ProjectSettingsPanel panel;
+	bool open = true;
+	auto const draw = [&]
+	{
+		panel.OnImGuiRender(operations, open);
+	};
+
+	imgui.Frame(draw);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	Json const layers = Json::object(
+		{{"Physics", {{"Layers", {"Default", "Player", "Enemy"}}, {"IgnoredCollisions", Json::array({{{"First", 1}, {"Second", 2}}})}}}});
+	REQUIRE(operations.ApplyProjectSettings(layers).IsOk());
+	REQUIRE(operations.SaveProject().IsOk());
+	ProjectSettings const before = context.GetProject()->GetSettings();
+	Result<std::string> const fileBefore = FileSystem::ReadTextFile(context.GetProject()->GetFilePath());
+	REQUIRE(fileBefore.IsOk());
+
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	panel.Flush(operations);
+	CHECK(open);
+	CHECK(context.GetProject()->GetSettings() == before);
+	CHECK(FileSystem::ReadTextFile(context.GetProject()->GetFilePath()).GetValue() == fileBefore.GetValue());
 }

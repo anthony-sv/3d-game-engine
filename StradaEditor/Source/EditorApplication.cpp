@@ -50,7 +50,8 @@ namespace Strada
 			.AddFlag("headless", "Run without a window or UI (automation and offscreen use; GPU optional)")
 			.AddOption("automation-port", "port", "Port of the automation server on 127.0.0.1 (default: any free port)")
 			.AddFlag("no-automation", "Do not start the automation server")
-			.AddOption("scene", "path", "Open this scene file at startup");
+			.AddOption("project", "path", "Open this project file (.sproj) at startup")
+			.AddOption("scene", "path", "Open this scene file at startup (after the project)");
 
 		Result<CommandLineArguments> parsed = parser.Parse(args.Count, args.Args);
 		if (!parsed)
@@ -96,6 +97,10 @@ namespace Strada
 				return nullptr;
 			}
 			editorSpecification.AutomationPort = static_cast<uint16_t>(*port);
+		}
+		if (std::optional<std::string> const project = arguments.GetValue("project"))
+		{
+			editorSpecification.ProjectPath = FileSystem::PathFromUtf8(*project);
 		}
 		if (std::optional<std::string> const scene = arguments.GetValue("scene"))
 		{

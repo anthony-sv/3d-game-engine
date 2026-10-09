@@ -73,11 +73,23 @@ Parameters marked * are required.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `editor.status` | — | `version`, `scene` { name, path, dirty, entityCount }, `undo`/`redo` (step descriptions or null), `selection` |
+| `editor.status` | — | `version`, `project` { name, file, assetDirectory } (null without a project), `scene` { name, path, dirty, entityCount }, `undo`/`redo` (step descriptions or null), `selection` |
 | `editor.commands` | — | `[{ name, description, params (JSON schema), readOnly, async }]` |
 | `editor.undo` | — | `undone` (description), `scene` |
 | `editor.redo` | — | `redone`, `scene` |
 | `editor.quit` | `discardChanges` | `quitting`; fails with UnsavedChanges when the scene is dirty |
+
+### project
+
+Project settings are saved to the project file immediately and are not part of the undo history.
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `project.info` | — | `project` { name, file, assetDirectory } (null when none is open), `settings` (the `.sproj` "Project" object) |
+| `project.create` | `directory`* (new or empty), `name`*, `discardChanges` | `project`, `scene` (the start scene `Assets/Scenes/Main.sscene`) |
+| `project.open` | `path`* (`.sproj` file), `discardChanges` | `project`, `scene` (its start scene), `warnings` (skipped unknown settings, start scene problems) |
+| `project.close` | `discardChanges` | `closed`, `scene` (empty); InvalidOperation without a project |
+| `project.settings` | `settings` (partial patch, e.g. `{"Window": {"Width": 1920}, "Physics": {"Layers": ["Default", "Player"]}}`) | `settings`; InvalidOperation without a project |
 
 ### scene
 
