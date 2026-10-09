@@ -3,6 +3,8 @@
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/DefaultScene.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
@@ -164,6 +166,47 @@ namespace Strada
 			                     {"assetDirectory", FileSystem::PathToUtf8(project->GetAssetDirectory())}});
 		}
 
+		Json DescribeAsset(AssetMetadata const& asset)
+		{
+			return Json::object({{"id", asset.Handle.ToString()},
+			                     {"name", asset.GetDisplayName()},
+			                     {"type", AssetTypeToString(asset.Type)},
+			                     {"path", asset.IsFileAsset() ? Json(asset.Path) : Json()},
+			                     {"reference", AssetManager::GetReference(asset.Handle)},
+			                     {"missing", AssetManager::IsMissing(asset.Handle)}});
+		}
+
+		Json DescribeAsset(AssetHandle handle)
+		{
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
+			return metadata ? DescribeAsset(*metadata) : Json();
+		}
+
+		Json DescribeAssets(std::vector<AssetHandle> const& handles)
+		{
+			Json assets = Json::array();
+			for (AssetHandle const handle : handles)
+			{
+				assets.push_back(DescribeAsset(handle));
+			}
+			return assets;
+		}
+
+		// An asset parameter: a handle (decimal string), "asset://<path>" or "builtin://<name>".
+		CommandValue<AssetHandle> ParseAsset(Json const& value, std::string_view parameter)
+		{
+			std::string const& text = value.get_ref<std::string const&>();
+			Result<AssetHandle> handle = AssetManager::ResolveReference(text);
+			if (!handle || !AssetManager::IsValid(handle.GetValue()))
+			{
+				CommandError error =
+					MakeCommandError(AutomationErrorCode::AssetNotFound, "{}: no asset '{}' is registered", parameter, text);
+				error.Data = Json::object({{"path", std::string(parameter)}});
+				return error;
+			}
+			return handle.GetValue();
+		}
+
 		CommandError UnsavedChangesError(EditorContext const& context)
 		{
 			return MakeCommandError(AutomationErrorCode::UnsavedChanges,
@@ -209,7 +252,8 @@ namespace Strada
 			{
 				for (auto const registerDomain :
 				     {&CommandSet::RegisterEditor, &CommandSet::RegisterProject, &CommandSet::RegisterScene, &CommandSet::RegisterEntities,
-				      &CommandSet::RegisterComponents, &CommandSet::RegisterLogAndViewport})
+				      &CommandSet::RegisterComponents, &CommandSet::RegisterAssets, &CommandSet::RegisterMaterials,
+				      &CommandSet::RegisterLogAndViewport})
 				{
 					if (Result<void> result = (this->*registerDomain)(); !result)
 					{
@@ -446,6 +490,375 @@ namespace Strada
 								  }
 								  return Json::object(
 									  {{"settings", SerializeFields<StructTraits<ProjectSettings>>(project->GetSettings())}});
+							  })
+						: result;
+				return result;
+			}
+
+			// Asset commands need the AssetManager, and file operations an open project.
+			std::optional<CommandError> CheckAssets(bool needsProject) const
+			{
+				if (!AssetManager::IsInitialized())
+				{
+					return MakeCommandError(AutomationErrorCode::Unavailable, "assets are not available in this editor host");
+				}
+				if (needsProject && !AssetManager::HasAssetDirectory())
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation, "no project is open");
+				}
+				return std::nullopt;
+			}
+
+			Result<void> RegisterAssets()
+			{
+				SchemaBuilder const assetParameter =
+					SchemaBuilder::String("Asset: a handle (decimal string), \"asset://<path in Assets>\" or \"builtin://<name>\"")
+						.MinLength(1);
+
+				Result<void> result = Add(
+					"asset.list",
+					"Lists registered assets ({ id, name, type, path, reference, missing }) and the folders of the asset directory. Paths are "
+					"relative to Assets with forward slashes; folder limits the listing to a folder (with its subfolders unless "
+					"recursive is false). Built-in assets are included with builtIn.",
+					SchemaBuilder::Object()
+						.Property("folder", SchemaBuilder::String("Folder relative to Assets (empty for all)").Default(""))
+						.Property("type", SchemaBuilder::String("Only assets of this type")
+				                              .Enum({"Scene", "Prefab", "Mesh", "Material", "Texture", "Environment", "AudioClip", "Font"}))
+						.Property("recursive", SchemaBuilder::Boolean("Include subfolders").Default(true))
+						.Property("builtIn", SchemaBuilder::Boolean("Include built-in assets").Default(false))
+						.Build(),
+					true,
+					[this](Json const& params) -> CommandResult
+					{
+						if (std::optional<CommandError> error = CheckAssets(false))
+						{
+							return *error;
+						}
+						std::string const folder = GetString(params, "folder");
+						bool const recursive = GetBool(params, "recursive", true);
+						std::string const prefix = folder.empty() ? std::string() : folder + "/";
+						AssetType const type = params.contains("type")
+					                               ? AssetTypeFromString(params["type"].get<std::string>()).value_or(AssetType::None)
+					                               : AssetType::None;
+						Json assets = Json::array();
+						for (AssetMetadata const& asset : AssetManager::GetAssets(type))
+						{
+							bool listed = false;
+							if (asset.IsBuiltIn())
+							{
+								listed = GetBool(params, "builtIn", false) && folder.empty();
+							}
+							else if (asset.IsFileAsset())
+							{
+								std::string_view const path = asset.Path;
+								listed = path.starts_with(prefix) && (recursive || path.find('/', prefix.size()) == std::string_view::npos);
+							}
+							if (listed)
+							{
+								assets.push_back(DescribeAsset(asset));
+							}
+						}
+
+						Json folders = Json::array();
+						if (AssetManager::HasAssetDirectory())
+						{
+							std::filesystem::path const root = AssetManager::GetAssetDirectory();
+							std::filesystem::path const start = root / FileSystem::PathFromUtf8(folder);
+							std::error_code errorCode;
+							auto const addFolder = [&](std::filesystem::directory_entry const& entry)
+							{
+								if (entry.is_directory(errorCode) && !FileSystem::PathToUtf8(entry.path().filename()).starts_with("."))
+								{
+									folders.push_back(FileSystem::PathToUtf8(FileSystem::GetRelativePath(entry.path(), root)));
+								}
+							};
+							if (recursive)
+							{
+								for (auto it = std::filesystem::recursive_directory_iterator(start, errorCode);
+							         !errorCode && it != std::filesystem::recursive_directory_iterator(); it.increment(errorCode))
+								{
+									if (FileSystem::PathToUtf8(it->path().filename()).starts_with("."))
+									{
+										it.disable_recursion_pending();
+										continue;
+									}
+									addFolder(*it);
+								}
+							}
+							else
+							{
+								for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(start, errorCode))
+								{
+									addFolder(entry);
+								}
+							}
+						}
+						return Json::object({{"assets", std::move(assets)}, {"folders", std::move(folders)}});
+					});
+				result = result ? Add("asset.get", "Describes one asset ({ id, name, type, path, reference, missing }).",
+				                      SchemaBuilder::Object().Property("asset", assetParameter, true).Build(), true,
+				                      [this](Json const& params) -> CommandResult
+				                      {
+										  if (std::optional<CommandError> error = CheckAssets(false))
+										  {
+											  return *error;
+										  }
+										  CommandValue<AssetHandle> asset = ParseAsset(params["asset"], "asset");
+										  if (!asset)
+										  {
+											  return asset.TakeError();
+										  }
+										  return DescribeAsset(asset.GetValue());
+									  })
+				                : result;
+				result =
+					result
+						? Add("asset.import",
+				              "Copies files (absolute paths) into a folder of the asset directory and registers them, all or nothing. "
+				              "Names that are taken get a number; files already inside the asset directory are registered in place.",
+				              SchemaBuilder::Object()
+				                  .Property(
+									  "files",
+									  SchemaBuilder::Array(SchemaBuilder::String("File path").MinLength(1), "Files to import").MinItems(1),
+									  true)
+				                  .Property("folder", SchemaBuilder::String("Destination folder relative to Assets").Default(""))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (std::optional<CommandError> error = CheckAssets(true))
+								  {
+									  return *error;
+								  }
+								  std::vector<std::filesystem::path> files;
+								  for (Json const& file : params["files"])
+								  {
+									  files.push_back(FileSystem::PathFromUtf8(file.get<std::string>()));
+								  }
+								  Result<std::vector<AssetHandle>> imported = m_Operations.ImportAssets(files, GetString(params, "folder"));
+								  if (!imported)
+								  {
+									  return CommandError{AutomationErrorCode::FileError, imported.GetError(), Json()};
+								  }
+								  return Json::object({{"assets", DescribeAssets(imported.GetValue())}});
+							  })
+						: result;
+				result = result
+				             ? Add("asset.refresh",
+				                   "Rescans the asset directory: registers new files, reports missing ones (they keep their handles) and "
+				                   "reloads modified ones.",
+				                   Json(), false,
+				                   [this](Json const&) -> CommandResult
+				                   {
+									   if (std::optional<CommandError> error = CheckAssets(true))
+									   {
+										   return *error;
+									   }
+									   Result<AssetRefreshResult> refreshed = m_Operations.RefreshAssets();
+									   if (!refreshed)
+									   {
+										   return CommandError{AutomationErrorCode::FileError, refreshed.GetError(), Json()};
+									   }
+									   AssetRefreshResult const& changes = refreshed.GetValue();
+									   return Json::object({{"added", DescribeAssets(changes.Added)},
+					                                        {"missing", DescribeAssets(changes.Missing)},
+					                                        {"modified", DescribeAssets(changes.Modified)},
+					                                        {"warnings", changes.Warnings}});
+								   })
+				             : result;
+				result =
+					result
+						? Add("asset.move",
+				              "Moves or renames a file asset (path relative to Assets). Its handle, and every reference to it, stays valid.",
+				              SchemaBuilder::Object()
+				                  .Property("asset", assetParameter, true)
+				                  .Property("path", SchemaBuilder::String("New path relative to Assets").MinLength(1), true)
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (std::optional<CommandError> error = CheckAssets(true))
+								  {
+									  return *error;
+								  }
+								  CommandValue<AssetHandle> asset = ParseAsset(params["asset"], "asset");
+								  if (!asset)
+								  {
+									  return asset.TakeError();
+								  }
+								  if (Result<void> moved = m_Operations.MoveAsset(asset.GetValue(), GetString(params, "path")); !moved)
+								  {
+									  return Failure(AutomationErrorCode::FileError, moved);
+								  }
+								  return DescribeAsset(asset.GetValue());
+							  })
+						: result;
+				result = result ? Add("asset.delete",
+				                      "Deletes a file asset from disk and from the registry. References to it in scenes become missing.",
+				                      SchemaBuilder::Object().Property("asset", assetParameter, true).Build(), false,
+				                      [this](Json const& params) -> CommandResult
+				                      {
+										  if (std::optional<CommandError> error = CheckAssets(true))
+										  {
+											  return *error;
+										  }
+										  CommandValue<AssetHandle> asset = ParseAsset(params["asset"], "asset");
+										  if (!asset)
+										  {
+											  return asset.TakeError();
+										  }
+										  if (Result<void> deleted = m_Operations.DeleteAsset(asset.GetValue()); !deleted)
+										  {
+											  return Failure(AutomationErrorCode::FileError, deleted);
+										  }
+										  return Json::object({{"deleted", asset.GetValue().ToString()}});
+									  })
+				                : result;
+				result = result ? Add("asset.create-folder", "Creates a folder in the asset directory.",
+				                      SchemaBuilder::Object()
+				                          .Property("folder", SchemaBuilder::String("Folder relative to Assets").MinLength(1), true)
+				                          .Build(),
+				                      false,
+				                      [this](Json const& params) -> CommandResult
+				                      {
+										  if (std::optional<CommandError> error = CheckAssets(true))
+										  {
+											  return *error;
+										  }
+										  if (Result<void> created = m_Operations.CreateAssetFolder(GetString(params, "folder")); !created)
+										  {
+											  return Failure(AutomationErrorCode::FileError, created);
+										  }
+										  return Json::object({{"folder", GetString(params, "folder")}});
+									  })
+				                : result;
+				result =
+					result ? Add("asset.move-folder",
+				                 "Moves or renames a folder of the asset directory with everything inside; asset handles stay valid.",
+				                 SchemaBuilder::Object()
+				                     .Property("folder", SchemaBuilder::String("Folder relative to Assets").MinLength(1), true)
+				                     .Property("newFolder", SchemaBuilder::String("New folder path relative to Assets").MinLength(1), true)
+				                     .Build(),
+				                 false,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 if (std::optional<CommandError> error = CheckAssets(true))
+									 {
+										 return *error;
+									 }
+									 if (Result<void> moved =
+					                         m_Operations.MoveAssetFolder(GetString(params, "folder"), GetString(params, "newFolder"));
+					                     !moved)
+									 {
+										 return Failure(AutomationErrorCode::FileError, moved);
+									 }
+									 return Json::object({{"folder", GetString(params, "newFolder")}});
+								 })
+						   : result;
+				result = result ? Add("asset.delete-folder",
+				                      "Deletes a folder of the asset directory with every file inside; its assets are unregistered.",
+				                      SchemaBuilder::Object()
+				                          .Property("folder", SchemaBuilder::String("Folder relative to Assets").MinLength(1), true)
+				                          .Build(),
+				                      false,
+				                      [this](Json const& params) -> CommandResult
+				                      {
+										  if (std::optional<CommandError> error = CheckAssets(true))
+										  {
+											  return *error;
+										  }
+										  if (Result<void> deleted = m_Operations.DeleteAssetFolder(GetString(params, "folder")); !deleted)
+										  {
+											  return Failure(AutomationErrorCode::FileError, deleted);
+										  }
+										  return Json::object({{"deleted", GetString(params, "folder")}});
+									  })
+				                : result;
+				return result;
+			}
+
+			Result<void> RegisterMaterials()
+			{
+				auto const describeMaterial = [](AssetHandle handle) -> CommandResult
+				{
+					Result<Ref<MaterialAsset>> material = AssetManager::TryGetAsset<MaterialAsset>(handle);
+					if (!material)
+					{
+						return CommandError{AutomationErrorCode::FileError, material.GetError(), Json()};
+					}
+					return Json::object({{"material", DescribeAsset(handle)},
+					                     {"fields", SerializeFields<StructTraits<MaterialData>>(material.GetValue()->GetData())}});
+				};
+				SchemaBuilder const materialParameter =
+					SchemaBuilder::String("Material asset: a handle, \"asset://<path>.smat\" or \"builtin://DefaultMaterial\"")
+						.MinLength(1);
+
+				Result<void> result = Add(
+					"material.create",
+					"Creates a material file (.smat, path relative to Assets) with default parameters plus the given fields (component.types "
+					"style names: BaseColor, Metallic, Roughness, BaseColorTexture, ...; textures as asset references).",
+					SchemaBuilder::Object()
+						.Property("path", SchemaBuilder::String("File path relative to Assets, ending in .smat").MinLength(1), true)
+						.Property("fields", SchemaBuilder::Object("Initial material fields").AllowAdditionalProperties())
+						.Build(),
+					false,
+					[this, describeMaterial](Json const& params) -> CommandResult
+					{
+						if (std::optional<CommandError> error = CheckAssets(true))
+						{
+							return *error;
+						}
+						Result<AssetHandle> created = m_Operations.CreateMaterial(
+							GetString(params, "path"), params.contains("fields") ? params["fields"] : Json::object());
+						if (!created)
+						{
+							return CommandError{AutomationErrorCode::InvalidParams, created.GetError(), Json()};
+						}
+						return describeMaterial(created.GetValue());
+					});
+				result = result ? Add("material.get", "A material's parameters (MaterialData fields; textures as handles).",
+				                      SchemaBuilder::Object().Property("material", materialParameter, true).Build(), true,
+				                      [this, describeMaterial](Json const& params) -> CommandResult
+				                      {
+										  if (std::optional<CommandError> error = CheckAssets(false))
+										  {
+											  return *error;
+										  }
+										  CommandValue<AssetHandle> material = ParseAsset(params["material"], "material");
+										  if (!material)
+										  {
+											  return material.TakeError();
+										  }
+										  return describeMaterial(material.GetValue());
+									  })
+				                : result;
+				result =
+					result
+						? Add("material.set",
+				              "Applies a partial patch to a material file's parameters and saves it. Undoable (editor.undo), but the scene "
+				              "does not count as modified. Built-in and mesh-embedded materials cannot be edited.",
+				              SchemaBuilder::Object()
+				                  .Property("material", materialParameter, true)
+				                  .Property("fields", SchemaBuilder::Object("Partial material patch").AllowAdditionalProperties(), true)
+				                  .Build(),
+				              false,
+				              [this, describeMaterial](Json const& params) -> CommandResult
+				              {
+								  if (std::optional<CommandError> error = CheckAssets(true))
+								  {
+									  return *error;
+								  }
+								  CommandValue<AssetHandle> material = ParseAsset(params["material"], "material");
+								  if (!material)
+								  {
+									  return material.TakeError();
+								  }
+								  if (Result<void> changed = m_Operations.SetMaterialFields(material.GetValue(), params["fields"]);
+					                  !changed)
+								  {
+									  return Failure(AutomationErrorCode::InvalidParams, changed);
+								  }
+								  return describeMaterial(material.GetValue());
 							  })
 						: result;
 				return result;

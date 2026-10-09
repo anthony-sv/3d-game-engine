@@ -64,6 +64,7 @@ the offending parameter for validation errors.
 | 1005 | Unavailable | Not available in this configuration (screenshots when headless) |
 | 1006 | Cancelled | An asynchronous command was abandoned |
 | 1007 | UnsavedChanges | The command would discard unsaved changes (pass `"discardChanges": true`) |
+| 1008 | AssetNotFound | An asset parameter names no registered asset |
 
 ## Commands
 
@@ -129,6 +130,35 @@ Field descriptions may also contain `Values` (the names of enum values), `Min`/`
 of every vector component; values outside them are rejected), `Display` (`Color`, `Angle` in degrees or
 `MultilineText`), `AssetType` (the type of asset an asset field references) and `Description`.
 
+### asset
+
+Asset parameters accept a handle (decimal string), `"asset://<path in Assets>"` or `"builtin://<name>"`. Paths are
+relative to the project's `Assets` directory with forward slashes. Asset file operations need an open project
+(InvalidOperation otherwise) and are not part of the undo history; handles stay valid when assets move.
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `asset.list` | `folder`, `type` (`Scene`/`Prefab`/`Mesh`/`Material`/`Texture`/`Environment`/`AudioClip`/`Font`), `recursive` (default true), `builtIn` | `assets`: `[{ id, name, type, path, reference, missing }]`, `folders` |
+| `asset.get` | `asset`* | `{ id, name, type, path, reference, missing }` |
+| `asset.import` | `files`* (absolute paths), `folder` | `assets` (all or nothing; taken names get a number) |
+| `asset.refresh` | — | `added`, `missing`, `modified` (assets), `warnings` |
+| `asset.move` | `asset`*, `path`* | the moved asset |
+| `asset.delete` | `asset`* | `deleted` (id) |
+| `asset.create-folder` | `folder`* | `folder` |
+| `asset.move-folder` | `folder`*, `newFolder`* | `folder` |
+| `asset.delete-folder` | `folder`* (deletes every file inside) | `deleted` |
+
+### material
+
+Material fields are those of `.smat` files (`BaseColor`, `Metallic`, `Roughness`, `EmissiveColor`, ...,
+`BaseColorTexture` and the other textures as asset references, `AlphaMode`, `UVTiling`, ...).
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `material.create` | `path`* (`.smat`, relative to Assets), `fields` | `material` (asset), `fields` |
+| `material.get` | `material`* | `material`, `fields` |
+| `material.set` | `material`*, `fields`* (partial patch; undoable without marking the scene modified; built-in and mesh-embedded materials are read-only) | `material`, `fields` |
+
 ### log and viewport
 
 | Command | Parameters | Result |
@@ -136,7 +166,7 @@ of every vector component; values outside them are rejected), `Display` (`Color`
 | `log.read` | `since` (entry index), `maxCount` (default 500), `minLevel` (`trace`..`critical`) | `entries`: `[{ index, level, logger, message, timestampMs }]`, `next` (pass as `since`) |
 | `viewport.screenshot` | — | `mimeType` (`image/png`), `width`, `height`, `data` (base64); asynchronous; Unavailable when headless |
 
-Later subsystems add `project.*`, `asset.*`, `material.*`, `prefab.*`, `script.*`, `play.*`, `input.*`,
+Later subsystems add `prefab.*`, `script.*`, `play.*`, `input.*`,
 `renderer.*` and `test.*` commands (Docs/Architecture.md section 12); each is added to this reference.
 
 ## Example session

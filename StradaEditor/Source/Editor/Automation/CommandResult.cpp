@@ -36,6 +36,8 @@ namespace Strada
 				return "Cancelled";
 			case AutomationErrorCode::UnsavedChanges:
 				return "UnsavedChanges";
+			case AutomationErrorCode::AssetNotFound:
+				return "AssetNotFound";
 		}
 		return "Unknown";
 	}

@@ -61,6 +61,11 @@ namespace Strada
 		[[nodiscard]] static Result<void> MoveAsset(AssetHandle handle, std::string_view newPath);
 		// Deletes a file asset from disk (when present) and from the registry.
 		[[nodiscard]] static Result<void> DeleteAsset(AssetHandle handle);
+		// Moves or renames a folder of the asset directory (paths relative to it) with everything inside; registered assets
+		// keep their handles. Fails without changes when the destination exists or lies inside the folder.
+		[[nodiscard]] static Result<void> MoveFolder(std::string_view folder, std::string_view newFolder);
+		// Deletes a folder of the asset directory with everything inside and unregisters its assets.
+		[[nodiscard]] static Result<void> DeleteFolder(std::string_view folder);
 		// Adds an asset that only exists in memory (runtime-created materials, ...). Returns its new handle.
 		static AssetHandle AddMemoryAsset(Ref<Asset> asset, std::string name);
 		// Removes a memory asset; other kinds of assets are not affected.

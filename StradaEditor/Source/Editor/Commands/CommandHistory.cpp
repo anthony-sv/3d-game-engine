@@ -30,7 +30,9 @@ namespace Strada
 			return {};
 		}
 
-		m_UndoStack.push_back({std::move(command), m_NextStateID++});
+		// Asset edits leave the scene in its current state.
+		uint64_t const stateID = command->ModifiesScene() ? m_NextStateID++ : GetCurrentStateID();
+		m_UndoStack.push_back({std::move(command), stateID});
 		m_MergeAllowed = true;
 		TrimToMaxSize();
 		return {};
@@ -43,9 +45,11 @@ namespace Strada
 			return false;
 		}
 
-		// Merging into the save point would make the saved state unreachable while still reporting it as current.
+		// Merging into the save point would make the saved state unreachable while still reporting it as current (steps
+		// that leave the scene alone do not move the scene's state).
 		Entry& previous = m_UndoStack.back();
-		if (previous.StateID == m_SavedStateID || !previous.Command->CanMergeWith(command))
+		bool const modifiesScene = previous.Command->ModifiesScene();
+		if ((modifiesScene && previous.StateID == m_SavedStateID) || !previous.Command->CanMergeWith(command))
 		{
 			return false;
 		}
@@ -59,7 +63,10 @@ namespace Strada
 			m_MergeAllowed = false;
 			return true;
 		}
-		previous.StateID = m_NextStateID++;
+		if (modifiesScene)
+		{
+			previous.StateID = m_NextStateID++;
+		}
 		return true;
 	}
 

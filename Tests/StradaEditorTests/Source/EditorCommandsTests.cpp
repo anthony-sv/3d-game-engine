@@ -5,6 +5,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Image.h"
 #include "Strada/Core/Log.h"
 
 #include <doctest/doctest.h>
@@ -349,4 +350,74 @@ TEST_CASE("EditorCommands: projects are created, configured, closed and opened")
 	CHECK(fixture.Ok("project.info")["settings"]["Window"]["Width"] == 1600);
 	CHECK(fixture.Fails("project.open", Json::object({{"path", projectFile + ".missing"}})) == AutomationErrorCode::FileError);
 	CHECK(fixture.Ok("project.info")["project"]["name"] == "Game");
+}
+
+TEST_CASE("EditorCommands: assets and materials are listed, imported, edited, moved and deleted")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	Testing::TemporaryDirectory directory;
+	CommandFixture fixture;
+
+	// Built-in assets are available without a project; file operations are not.
+	Json const builtIn = fixture.Ok("asset.list", Json::object({{"builtIn", true}, {"type", "Mesh"}}));
+	CHECK(builtIn["assets"].size() == 7);
+	CHECK(fixture.Ok("asset.get", Json::object({{"asset", "builtin://Cube"}}))["type"] == "Mesh");
+	CHECK(fixture.Fails("asset.get", Json::object({{"asset", "builtin://Teapot"}})) == AutomationErrorCode::AssetNotFound);
+	CHECK(fixture.Fails("asset.create-folder", Json::object({{"folder", "Textures"}})) == AutomationErrorCode::InvalidOperation);
+	CHECK(fixture.Fails("material.set", Json::object({{"material", "builtin://DefaultMaterial"}, {"fields", {{"Roughness", 0.1}}}})) ==
+	      AutomationErrorCode::InvalidOperation);
+
+	fixture.Ok("project.create", Json::object({{"directory", FileSystem::PathToUtf8(directory.GetPath() / "Game")}, {"name", "Game"}}));
+	fixture.Ok("asset.create-folder", Json::object({{"folder", "Textures/Wood"}}));
+	CHECK(fixture.Fails("asset.create-folder", Json::object({{"folder", "Textures/Wood"}})) == AutomationErrorCode::FileError);
+
+	Image image(2, 2, 4);
+	std::filesystem::path const download = directory.GetPath() / "Download" / "Oak.png";
+	REQUIRE(image.WritePNG(download).IsOk());
+	Json const imported =
+		fixture.Ok("asset.import", Json::object({{"files", {FileSystem::PathToUtf8(download)}}, {"folder", "Textures/Wood"}}));
+	REQUIRE(imported["assets"].size() == 1);
+	CHECK(imported["assets"][0]["path"] == "Textures/Wood/Oak.png");
+	CHECK(imported["assets"][0]["reference"] == "asset://Textures/Wood/Oak.png");
+	std::string const texture = imported["assets"][0]["id"].get<std::string>();
+
+	Json const listed = fixture.Ok("asset.list", Json::object({{"folder", "Textures"}}));
+	CHECK(listed["assets"].size() == 1);
+	CHECK(listed["folders"] == Json::array({"Textures/Wood"}));
+	CHECK(fixture.Ok("asset.list", Json::object({{"folder", "Textures"}, {"recursive", false}}))["assets"].empty());
+	CHECK(fixture.Ok("asset.list", Json::object({{"type", "Scene"}}))["assets"].size() == 1);
+
+	Json const material =
+		fixture.Ok("material.create",
+	               Json::object({{"path", "Materials/Oak.smat"}, {"fields", {{"BaseColorTexture", "asset://Textures/Wood/Oak.png"}}}}));
+	CHECK(material["fields"]["BaseColorTexture"] == texture);
+	std::string const materialID = material["material"]["id"].get<std::string>();
+	CHECK(fixture.Fails("material.create", Json::object({{"path", "Materials/Bad.smat"}, {"fields", {{"Metallic", 5}}}})) ==
+	      AutomationErrorCode::InvalidParams);
+
+	Json const edited = fixture.Ok("material.set", Json::object({{"material", materialID}, {"fields", {{"Roughness", 0.25}}}}));
+	CHECK(edited["fields"]["Roughness"] == 0.25f);
+	CHECK(fixture.Ok("editor.status")["scene"]["dirty"] == false);
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Material");
+	CHECK(fixture.Ok("material.get", Json::object({{"material", "asset://Materials/Oak.smat"}}))["fields"]["Roughness"] == 0.5f);
+	CHECK(fixture.Fails("material.set", Json::object({{"material", materialID}, {"fields", {{"Roughness", "smooth"}}}})) ==
+	      AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("material.get", Json::object({{"material", "asset://Materials/Missing.smat"}})) ==
+	      AutomationErrorCode::AssetNotFound);
+
+	// Moving keeps references: the material still points at the texture.
+	CHECK(fixture.Ok("asset.move", Json::object({{"asset", texture}, {"path", "Textures/Oak.png"}}))["path"] == "Textures/Oak.png");
+	fixture.Ok("asset.move-folder", Json::object({{"folder", "Materials"}, {"newFolder", "Art/Materials"}}));
+	CHECK(fixture.Ok("material.get", Json::object({{"material", materialID}}))["fields"]["BaseColorTexture"] == texture);
+
+	CHECK(fixture.Ok("asset.refresh")["added"].empty());
+	CHECK(fixture.Ok("asset.delete", Json::object({{"asset", texture}}))["deleted"] == texture);
+	CHECK(fixture.Fails("asset.delete", Json::object({{"asset", texture}})) == AutomationErrorCode::AssetNotFound);
+	fixture.Ok("asset.delete-folder", Json::object({{"folder", "Art"}}));
+	CHECK(fixture.Fails("material.get", Json::object({{"material", materialID}})) == AutomationErrorCode::AssetNotFound);
+	CHECK(fixture.Fails("asset.delete-folder", Json::object({{"folder", "Art"}})) == AutomationErrorCode::FileError);
 }

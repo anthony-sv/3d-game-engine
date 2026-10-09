@@ -44,15 +44,18 @@ namespace Strada
 		// An asynchronous command was abandoned before completing (for example because the editor closed).
 		Cancelled = 1006,
 		// The edited scene has unsaved changes that the command would discard.
-		UnsavedChanges = 1007
+		UnsavedChanges = 1007,
+		// A parameter names an asset that is not registered.
+		AssetNotFound = 1008
 	};
 
-	inline constexpr std::array<AutomationErrorCode, 15> AllAutomationErrorCodes = {
+	inline constexpr std::array<AutomationErrorCode, 16> AllAutomationErrorCodes = {
 		AutomationErrorCode::ParseError,        AutomationErrorCode::InvalidRequest,   AutomationErrorCode::MethodNotFound,
 		AutomationErrorCode::InvalidParams,     AutomationErrorCode::InternalError,    AutomationErrorCode::Unauthenticated,
 		AutomationErrorCode::ServerBusy,        AutomationErrorCode::MessageTooLarge,  AutomationErrorCode::EntityNotFound,
 		AutomationErrorCode::ComponentNotFound, AutomationErrorCode::InvalidOperation, AutomationErrorCode::FileError,
-		AutomationErrorCode::Unavailable,       AutomationErrorCode::Cancelled,        AutomationErrorCode::UnsavedChanges};
+		AutomationErrorCode::Unavailable,       AutomationErrorCode::Cancelled,        AutomationErrorCode::UnsavedChanges,
+		AutomationErrorCode::AssetNotFound};
 
 	// The enumerator name, as used in the documentation.
 	std::string_view GetAutomationErrorCodeName(AutomationErrorCode code);

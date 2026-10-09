@@ -704,6 +704,125 @@ namespace Strada
 		return SaveRegistry();
 	}
 
+	Result<void> AssetManager::MoveFolder(std::string_view folder, std::string_view newFolder)
+	{
+		AssetManagerData& data = GetData();
+		if (data.AssetDirectory.empty())
+		{
+			return Error{"no asset directory is open"};
+		}
+		Result<std::string> from = NormalizeAssetPath(folder);
+		if (!from)
+		{
+			return Error{from.GetError()};
+		}
+		Result<std::string> to = NormalizeAssetPath(newFolder);
+		if (!to)
+		{
+			return Error{to.GetError()};
+		}
+		std::string const& source = from.GetValue();
+		std::string const& destination = to.GetValue();
+		if (source == destination)
+		{
+			return {};
+		}
+		if (destination.starts_with(source + "/"))
+		{
+			return MakeError("'{}' cannot be moved into itself", source);
+		}
+		std::filesystem::path const sourcePath = data.AssetDirectory / FileSystem::PathFromUtf8(source);
+		std::filesystem::path const destinationPath = data.AssetDirectory / FileSystem::PathFromUtf8(destination);
+		if (!FileSystem::IsDirectory(sourcePath))
+		{
+			return MakeError("'{}' is not a folder", source);
+		}
+		if (FileSystem::Exists(destinationPath))
+		{
+			return MakeError("'{}' already exists", destination);
+		}
+
+		// Every registered path under the folder moves with it; none may collide with a registered (missing) file.
+		std::vector<std::pair<AssetHandle, std::string>> moved;
+		for (AssetMetadata const& asset : data.Registry.GetAll())
+		{
+			if (asset.Path.starts_with(source + "/"))
+			{
+				std::string path = destination + asset.Path.substr(source.size());
+				if (data.Registry.FindByPath(path).IsValid())
+				{
+					return MakeError("'{}' is already registered", path);
+				}
+				moved.emplace_back(asset.Handle, std::move(path));
+			}
+		}
+
+		if (Result<void> created = FileSystem::CreateDirectories(destinationPath.parent_path()); !created)
+		{
+			return created;
+		}
+		if (Result<void> renamed = FileSystem::Move(sourcePath, destinationPath); !renamed)
+		{
+			return renamed;
+		}
+		std::vector<std::pair<AssetHandle, std::string>> previous;
+		for (auto const& [handle, path] : moved)
+		{
+			std::string oldPath = data.Registry.Find(handle)->Path;
+			if (Result<void> updated = data.Registry.SetPath(handle, path); !updated)
+			{
+				// Keep disk and registry consistent.
+				for (auto const& [restored, restoredPath] : previous)
+				{
+					(void)data.Registry.SetPath(restored, restoredPath);
+				}
+				(void)FileSystem::Move(destinationPath, sourcePath);
+				return updated;
+			}
+			previous.emplace_back(handle, std::move(oldPath));
+		}
+		if (Result<void> saved = SaveRegistry(); !saved)
+		{
+			return MakeError("moved '{}' but the registry could not be saved: {}", source, saved.GetError());
+		}
+		return {};
+	}
+
+	Result<void> AssetManager::DeleteFolder(std::string_view folder)
+	{
+		AssetManagerData& data = GetData();
+		if (data.AssetDirectory.empty())
+		{
+			return Error{"no asset directory is open"};
+		}
+		Result<std::string> normalized = NormalizeAssetPath(folder);
+		if (!normalized)
+		{
+			return Error{normalized.GetError()};
+		}
+		std::string const& path = normalized.GetValue();
+		std::filesystem::path const directory = data.AssetDirectory / FileSystem::PathFromUtf8(path);
+		if (!FileSystem::IsDirectory(directory))
+		{
+			return MakeError("'{}' is not a folder", path);
+		}
+		if (Result<void> removed = FileSystem::RemoveAll(directory); !removed)
+		{
+			// Files that were removed before the failure are reported as missing by the next refresh.
+			return removed;
+		}
+		for (AssetMetadata const& asset : data.Registry.GetAll())
+		{
+			if (asset.Path.starts_with(path + "/"))
+			{
+				UnloadAsset(asset.Handle);
+				data.Registry.Remove(asset.Handle);
+				data.MissingFiles.erase(asset.Handle);
+			}
+		}
+		return SaveRegistry();
+	}
+
 	AssetHandle AssetManager::AddMemoryAsset(Ref<Asset> asset, std::string name)
 	{
 		ST_CORE_ASSERT(asset, "Memory assets cannot be null");

@@ -4,6 +4,7 @@
 #include "Editor/Commands/EntityCommands.h"
 #include "Editor/EditorContext.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Scene/ComponentSerialization.h"
@@ -101,6 +102,28 @@ namespace Strada
 		{
 			return SetComponentFields(entity, ComponentTraits<T>::Name, SerializeComponent(component), mergeKey);
 		}
+
+		// --- Assets (files of the open project's asset directory; paths are relative to it with forward slashes) ---
+		// File operations are not part of the undo history; material edits are (without marking the scene modified).
+
+		// Fails when the folder exists.
+		[[nodiscard]] Result<void> CreateAssetFolder(std::string_view folder);
+		// Writes a material file (.smat) with default parameters plus the given fields and registers it.
+		[[nodiscard]] Result<AssetHandle> CreateMaterial(std::string_view path, Json const& fields = Json::object());
+		// Copies files into a folder of the asset directory (numbering names that are taken) and registers them, all or
+		// nothing; files already inside the asset directory are registered in place. Returns their handles in order.
+		[[nodiscard]] Result<std::vector<AssetHandle>> ImportAssets(std::span<std::filesystem::path const> files, std::string_view folder);
+		// Moves or renames a file asset; its handle (and every reference to it) stays valid.
+		[[nodiscard]] Result<void> MoveAsset(AssetHandle asset, std::string_view newPath);
+		[[nodiscard]] Result<void> MoveAssetFolder(std::string_view folder, std::string_view newFolder);
+		[[nodiscard]] Result<void> DeleteAsset(AssetHandle asset);
+		// Deletes a folder with every file inside.
+		[[nodiscard]] Result<void> DeleteAssetFolder(std::string_view folder);
+		// Rescans the asset directory for new, missing and modified files.
+		[[nodiscard]] Result<AssetRefreshResult> RefreshAssets();
+		// Applies a partial patch to a material file's parameters as an undoable step; edits with the same non-zero merge key
+		// (one inspector drag) merge.
+		[[nodiscard]] Result<void> SetMaterialFields(AssetHandle material, Json const& patch, uint64_t mergeKey = 0);
 
 		// --- Selection and history ---
 

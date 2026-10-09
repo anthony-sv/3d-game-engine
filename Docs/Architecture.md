@@ -498,8 +498,9 @@ serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `doubl
 - Command domains: `editor.*` (status, undo, redo, commands), `project.*` (info, create, open, close, settings, export),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
-  `asset.*` (list, import, refresh, get, delete, move), `material.*`, `prefab.*`, `script.*` (create from template,
-  build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
+  `asset.*` (list, get, import, refresh, move, delete, create-folder, move-folder, delete-folder),
+  `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
+  `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entity), `renderer.*`
   (settings), `log.*` (read since index), `test.*` (run a test scene and return results).
 - Claude Code integration: `.mcp.json` registers `strada mcp`; skills in `.claude/skills/` document building games.

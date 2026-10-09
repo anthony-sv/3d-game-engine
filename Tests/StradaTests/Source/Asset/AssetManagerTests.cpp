@@ -380,6 +380,42 @@ TEST_CASE("AssetManager: moving, deleting and importing keep the registry consis
 	CHECK(AssetManager::ImportFile("Textures/DoesNotExist.png").IsError());
 }
 
+TEST_CASE("AssetManager: folders move and delete with their assets")
+{
+	AssetManagerScope scope;
+	TestProject project;
+	REQUIRE(AssetManager::OpenAssetDirectory(project.Assets).IsOk());
+	AssetHandle const wood = Find("Textures/Wood.png");
+	AssetHandle const material = Find("Materials/Wood.smat");
+	REQUIRE(FileSystem::WriteTextFile(project.Assets / "Textures" / "Notes.txt", "kept").IsOk());
+
+	// Moving keeps handles and carries files that are not assets.
+	REQUIRE(AssetManager::MoveFolder("Textures", "Art/Textures").IsOk());
+	CHECK(AssetManager::FindByPath("Art/Textures/Wood.png") == wood);
+	CHECK_FALSE(AssetManager::FindByPath("Textures/Wood.png").IsValid());
+	CHECK(FileSystem::IsRegularFile(project.Assets / "Art" / "Textures" / "Notes.txt"));
+	CHECK_FALSE(FileSystem::Exists(project.Assets / "Textures"));
+	CHECK(AssetManager::GetAsset<TextureAsset>(wood));
+
+	CHECK(AssetManager::MoveFolder("Art", "Art/Inside").IsError());
+	CHECK(AssetManager::MoveFolder("Missing", "Elsewhere").IsError());
+	CHECK(AssetManager::MoveFolder("Art", "Materials").IsError());
+	CHECK(AssetManager::MoveFolder("Art", "../Outside").IsError());
+	CHECK(AssetManager::MoveFolder("Art", "Art").IsOk());
+
+	// The registry on disk follows.
+	AssetManager::CloseAssetDirectory();
+	REQUIRE(AssetManager::OpenAssetDirectory(project.Assets).IsOk());
+	CHECK(AssetManager::FindByPath("Art/Textures/Wood.png") == wood);
+
+	REQUIRE(AssetManager::DeleteFolder("Art").IsOk());
+	CHECK_FALSE(AssetManager::IsValid(wood));
+	CHECK_FALSE(FileSystem::Exists(project.Assets / "Art"));
+	CHECK(AssetManager::IsValid(material));
+	CHECK(AssetManager::DeleteFolder("Art").IsError());
+	CHECK(AssetManager::DeleteFolder("../").IsError());
+}
+
 TEST_CASE("AssetManager: memory assets live until removed or the directory closes")
 {
 	AssetManagerScope scope;

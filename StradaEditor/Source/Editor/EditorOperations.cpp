@@ -1,10 +1,13 @@
 #include "Editor/EditorOperations.h"
 
+#include "Editor/Commands/AssetCommands.h"
 #include "Editor/Commands/ComponentCommands.h"
 #include "Editor/Commands/CompositeCommand.h"
 #include "Editor/Commands/SceneCommands.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/AssetRegistry.h"
+#include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -16,6 +19,47 @@ namespace Strada
 {
 	namespace
 	{
+		Result<void> RequireAssetDirectory()
+		{
+			if (!AssetManager::IsInitialized() || !AssetManager::HasAssetDirectory())
+			{
+				return Error{"no project is open"};
+			}
+			return {};
+		}
+
+		// A folder of the asset directory: "" is the directory itself.
+		Result<std::filesystem::path> ResolveAssetFolder(std::string_view folder)
+		{
+			if (folder.empty())
+			{
+				return AssetManager::GetAssetDirectory();
+			}
+			Result<std::string> normalized = NormalizeAssetPath(folder);
+			if (!normalized)
+			{
+				return Error{normalized.GetError()};
+			}
+			return AssetManager::GetAssetDirectory() / FileSystem::PathFromUtf8(normalized.GetValue());
+		}
+
+		// The first of "Name.ext", "Name 1.ext", "Name 2.ext", ... that is neither on disk nor registered.
+		std::filesystem::path MakeUniqueAssetPath(std::filesystem::path const& folder, std::filesystem::path const& fileName)
+		{
+			std::filesystem::path const stem = fileName.stem();
+			std::filesystem::path const extension = fileName.extension();
+			std::filesystem::path candidate = folder / fileName;
+			for (int index = 1;
+			     FileSystem::Exists(candidate) ||
+			     AssetManager::FindByPath(FileSystem::PathToUtf8(FileSystem::GetRelativePath(candidate, AssetManager::GetAssetDirectory())))
+			         .IsValid();
+			     index++)
+			{
+				candidate = folder / (stem.native() + FileSystem::PathFromUtf8(fmt::format(" {}", index)).native() + extension.native());
+			}
+			return candidate;
+		}
+
 		// Scene paths are kept absolute so saving later does not depend on the working directory at that time.
 		std::filesystem::path MakeAbsolute(std::filesystem::path const& path)
 		{
@@ -306,6 +350,189 @@ namespace Strada
 	Result<void> EditorOperations::SetComponentFields(std::vector<ComponentEdit> edits, uint64_t mergeKey)
 	{
 		return m_Context.ExecuteCommand(CreateScope<SetComponentsCommand>(std::move(edits), mergeKey));
+	}
+
+	Result<void> EditorOperations::CreateAssetFolder(std::string_view folder)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return available;
+		}
+		if (folder.empty())
+		{
+			return Error{"a folder name is required"};
+		}
+		Result<std::filesystem::path> path = ResolveAssetFolder(folder);
+		if (!path)
+		{
+			return Error{path.GetError()};
+		}
+		if (FileSystem::Exists(path.GetValue()))
+		{
+			return MakeError("'{}' already exists", folder);
+		}
+		return FileSystem::CreateDirectories(path.GetValue());
+	}
+
+	Result<AssetHandle> EditorOperations::CreateMaterial(std::string_view path, Json const& fields)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return Error{available.GetError()};
+		}
+		Result<std::string> normalized = NormalizeAssetPath(path);
+		if (!normalized)
+		{
+			return Error{normalized.GetError()};
+		}
+		std::filesystem::path const file = AssetManager::GetAssetDirectory() / FileSystem::PathFromUtf8(normalized.GetValue());
+		if (GetAssetTypeForExtension(FileSystem::PathToUtf8(file.extension())) != AssetType::Material)
+		{
+			return MakeError("material files end with .smat, got '{}'", normalized.GetValue());
+		}
+		if (FileSystem::Exists(file))
+		{
+			return MakeError("'{}' already exists", normalized.GetValue());
+		}
+		MaterialData data;
+		if (Result<void> read =
+		        DeserializeFields<StructTraits<MaterialData>>(fields, data, AssetManager::CreateDeserializationContext(), "material");
+		    !read)
+		{
+			return Error{read.GetError()};
+		}
+		if (Result<void> created = FileSystem::CreateDirectories(file.parent_path()); !created)
+		{
+			return Error{created.GetError()};
+		}
+		if (Result<void> saved = MaterialSerializer::SaveToFile(data, file); !saved)
+		{
+			return Error{saved.GetError()};
+		}
+		Result<AssetHandle> imported = AssetManager::ImportFile(file);
+		if (!imported)
+		{
+			(void)FileSystem::Remove(file);
+		}
+		return imported;
+	}
+
+	Result<std::vector<AssetHandle>> EditorOperations::ImportAssets(std::span<std::filesystem::path const> files, std::string_view folder)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return Error{available.GetError()};
+		}
+		Result<std::filesystem::path> destination = ResolveAssetFolder(folder);
+		if (!destination)
+		{
+			return Error{destination.GetError()};
+		}
+		for (std::filesystem::path const& file : files)
+		{
+			if (!FileSystem::IsRegularFile(file))
+			{
+				return MakeError("'{}' is not a file", FileSystem::PathToUtf8(file));
+			}
+			if (GetAssetTypeForExtension(FileSystem::PathToUtf8(file.extension())) == AssetType::None)
+			{
+				return MakeError("'{}' is not a supported asset type", FileSystem::PathToUtf8(file.filename()));
+			}
+		}
+		if (Result<void> created = FileSystem::CreateDirectories(destination.GetValue()); !created)
+		{
+			return Error{created.GetError()};
+		}
+
+		// All or nothing: copies made before a failure are removed again.
+		std::vector<AssetHandle> handles;
+		std::vector<AssetHandle> copies;
+		auto const rollBack = [&copies]
+		{
+			for (AssetHandle const copy : copies)
+			{
+				(void)AssetManager::DeleteAsset(copy);
+			}
+		};
+		for (std::filesystem::path const& file : files)
+		{
+			bool const inside = FileSystem::IsInside(file, AssetManager::GetAssetDirectory());
+			std::filesystem::path const target = inside ? file : MakeUniqueAssetPath(destination.GetValue(), file.filename());
+			if (!inside)
+			{
+				if (Result<void> copied = FileSystem::Copy(file, target, false); !copied)
+				{
+					rollBack();
+					return Error{copied.GetError()};
+				}
+			}
+			Result<AssetHandle> imported = AssetManager::ImportFile(target);
+			if (!imported)
+			{
+				if (!inside)
+				{
+					(void)FileSystem::Remove(target);
+				}
+				rollBack();
+				return Error{imported.GetError()};
+			}
+			if (!inside)
+			{
+				copies.push_back(imported.GetValue());
+			}
+			handles.push_back(imported.GetValue());
+		}
+		return handles;
+	}
+
+	Result<void> EditorOperations::MoveAsset(AssetHandle asset, std::string_view newPath)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return available;
+		}
+		return AssetManager::MoveAsset(asset, newPath);
+	}
+
+	Result<void> EditorOperations::MoveAssetFolder(std::string_view folder, std::string_view newFolder)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return available;
+		}
+		return AssetManager::MoveFolder(folder, newFolder);
+	}
+
+	Result<void> EditorOperations::DeleteAsset(AssetHandle asset)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return available;
+		}
+		return AssetManager::DeleteAsset(asset);
+	}
+
+	Result<void> EditorOperations::DeleteAssetFolder(std::string_view folder)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return available;
+		}
+		return AssetManager::DeleteFolder(folder);
+	}
+
+	Result<AssetRefreshResult> EditorOperations::RefreshAssets()
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return Error{available.GetError()};
+		}
+		return AssetManager::Refresh();
+	}
+
+	Result<void> EditorOperations::SetMaterialFields(AssetHandle material, Json const& patch, uint64_t mergeKey)
+	{
+		return m_Context.ExecuteCommand(CreateScope<SetMaterialCommand>(material, patch, mergeKey));
 	}
 
 	Result<void> EditorOperations::Select(std::span<UUID const> entities, SelectionMode mode, UUID primary)

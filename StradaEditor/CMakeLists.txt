@@ -15,6 +15,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Automation/JsonRpc.h
     Source/Editor/Automation/JsonSchema.cpp
     Source/Editor/Automation/JsonSchema.h
+    Source/Editor/Commands/AssetCommands.cpp
+    Source/Editor/Commands/AssetCommands.h
     Source/Editor/Commands/CommandHistory.cpp
     Source/Editor/Commands/CommandHistory.h
     Source/Editor/Commands/ComponentCommands.cpp

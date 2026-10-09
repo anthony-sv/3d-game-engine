@@ -26,6 +26,10 @@ namespace Strada
 		// history drops such commands instead of recording an empty undo step that would mark the scene as modified.
 		virtual bool HasEffect() const { return true; }
 
+		// False for edits of other documents (asset files, which save themselves): they are undoable like scene edits but
+		// do not count as unsaved scene changes.
+		virtual bool ModifiesScene() const { return true; }
+
 		// Continuous edits (dragging a value) form one undo step: returns true when `next`, which has just been executed
 		// after this command, can be folded into it.
 		virtual bool CanMergeWith(EditorCommand const& next) const

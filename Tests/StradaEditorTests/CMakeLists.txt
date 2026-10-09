@@ -1,6 +1,7 @@
 # Tests for the editor model and AI automation (doctest), run headless.
 
 add_executable(StradaEditorTests
+    Source/AssetEditingTests.cpp
     Source/AutomationServerTests.cpp
     Source/CommandRegistryTests.cpp
     Source/EditorCameraTests.cpp
