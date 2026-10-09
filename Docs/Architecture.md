@@ -157,9 +157,21 @@ Vulkan binding offsets, embedded into the library, and fetched by name through `
 
 `SceneRenderer` renders a submitted frame (camera + draw lists + lights + environment + settings) into its own
 offscreen targets. The editor shows the final image in the viewport panel; the runtime blits it to the swapchain;
-headless mode reads it back for screenshots. It never depends on the ECS: `Scene` gathers and submits.
+headless mode reads it back for screenshots. It never depends on the ECS: `Scene` gathers and submits
+(`Scene/SceneRendering.h`: `RenderScene` with an explicit camera, `RenderSceneFromPrimaryCamera`).
 
-Frame passes, in order:
+`Renderer` (static facade, initialized with the GraphicsDevice) owns samplers, the material binding layout and GPU
+caches keyed by asset object identity (meshes, textures per color space with CPU-generated linear-space mips, material
+constants + binding sets refreshed by `MaterialAsset::GetVersion`); scene renderers resolve every resource before
+recording because uploads submit their own command lists. Bindings: set 0 = frame constants (volatile CB), light
+structured buffer, material sampler, per-draw push constants (model + normal matrix, 128 bytes); set 1 = material.
+Structures shared with HLSL live in `Strada/Shaders/Include/RendererInterop.h`.
+
+Implemented so far: forward PBR (opaque front to back, then blended back to front), uniform ambient from the sky
+light, and the tonemap pass (with dithering and sRGB encoding into `RGBA8_UNORM`); the HDR target is `RGBA16_FLOAT`
+with a `D32` reversed-Z depth buffer. The remaining passes below are added in order without changing that structure.
+
+Frame passes, in order (target design):
 
 1. **Shadow pass** — directional light cascaded shadow maps (up to 4 cascades, `D32_FLOAT` texture array, stable
    cascades with texel snapping), plus spot-light shadow maps (atlas) for shadow-casting spot lights.

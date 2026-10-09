@@ -3,6 +3,7 @@
 add_executable(StradaEditorTests
     Source/AutomationServerTests.cpp
     Source/CommandRegistryTests.cpp
+    Source/EditorCameraTests.cpp
     Source/EditorCommandsTests.cpp
     Source/EditorOperationsTests.cpp
     Source/JsonRpcTests.cpp

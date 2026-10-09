@@ -29,6 +29,8 @@ add_executable(StradaTests
     Source/RHI/GraphicsDeviceTests.cpp
     Source/RHI/SwapchainTests.cpp
     Source/RHI/TextureReadbackTests.cpp
+    Source/Renderer/RenderTestUtilities.h
+    Source/Renderer/SceneRendererTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneSerializerTests.cpp
@@ -44,7 +46,9 @@ target_link_libraries(StradaTests PRIVATE Strada doctest::doctest)
 # A permissively licensed TrueType font from the pinned Dear ImGui sources (OFL), used by font loading tests.
 target_compile_definitions(StradaTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
-    STRADA_TEST_FONT_PATH="${imgui_SOURCE_DIR}/misc/fonts/Karla-Regular.ttf")
+    STRADA_TEST_FONT_PATH="${imgui_SOURCE_DIR}/misc/fonts/Karla-Regular.ttf"
+    # Golden images and other test data.
+    STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data")
 
 strada_configure_target(StradaTests)
 set_target_properties(StradaTests PROPERTIES FOLDER "Tests")

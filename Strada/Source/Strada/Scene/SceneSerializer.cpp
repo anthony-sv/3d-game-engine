@@ -4,6 +4,7 @@
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/ComponentRegistry.h"
+#include "Strada/Serialization/StructSerialization.h"
 
 #include <algorithm>
 #include <unordered_set>
@@ -158,6 +159,7 @@ namespace Strada
 		physics["Gravity"] = JsonTraits<glm::vec3>::ToJson(settings.Gravity);
 		Json json = Json::object();
 		json["Physics"] = std::move(physics);
+		json["Renderer"] = SerializeFields<StructTraits<SceneRendererSettings>>(settings.Renderer);
 		return json;
 	}
 
@@ -171,6 +173,16 @@ namespace Strada
 		SceneSettings updated = settings;
 		for (auto const& item : json.items())
 		{
+			if (item.key() == "Renderer")
+			{
+				if (Result<void> result =
+				        DeserializeFields<StructTraits<SceneRendererSettings>>(item.value(), updated.Renderer, context, "settings");
+				    !result)
+				{
+					return MakeError("Scene.Settings.{}", result.GetError());
+				}
+				continue;
+			}
 			if (item.key() != "Physics")
 			{
 				if (Result<void> result = HandleUnknownSetting(item.key(), context); !result)

@@ -6,6 +6,7 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/StatisticsPanel.h"
+#include "Editor/Panels/ViewportPanel.h"
 
 #include "Strada/Core/Layer.h"
 
@@ -55,6 +56,9 @@ namespace Strada
 
 		ConsolePanel m_ConsolePanel;
 		StatisticsPanel m_StatisticsPanel;
+		// Created when ImGui is available.
+		Scope<ViewportPanel> m_ViewportPanel;
+		bool m_ShowViewport = true;
 		bool m_ShowConsole = true;
 		bool m_ShowStatistics = true;
 		bool m_ShowImGuiDemo = false;

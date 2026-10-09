@@ -8,8 +8,8 @@ an exporter for distributable games.
 > system, command line), the Vulkan/NVRHI device and swapchains, build-time shader compilation, the ImGui renderer with
 > docking and multi-viewports, the ECS scene system (components, hierarchy, reflection-driven JSON scenes, prefabs),
 > the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in primitives), the
-> editor shell, screenshots, and CI on all three platforms. The scene renderer, physics, audio, scripting, full editor
-> and exporter are being built next.
+> forward PBR scene renderer with tonemapping, the editor with its viewport, undo/redo and the AI automation server,
+> and CI on all three platforms. Image-based lighting, shadows, physics, audio, scripting and the exporter are next.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Planned feature set

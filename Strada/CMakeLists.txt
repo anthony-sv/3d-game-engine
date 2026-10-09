@@ -83,6 +83,16 @@ set(STRADA_MATH_SOURCES
     Source/Strada/Math/Math.h
 )
 
+set(STRADA_RENDERER_SOURCES
+    Source/Strada/Renderer/Renderer.cpp
+    Source/Strada/Renderer/Renderer.h
+    Source/Strada/Renderer/SceneRenderer.cpp
+    Source/Strada/Renderer/SceneRenderer.h
+    Source/Strada/Renderer/SceneRendererSettings.h
+    Source/Strada/Renderer/TextureMips.cpp
+    Source/Strada/Renderer/TextureMips.h
+)
+
 set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/ComponentRegistry.cpp
     Source/Strada/Scene/ComponentRegistry.h
@@ -95,6 +105,8 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/Scene.h
     Source/Strada/Scene/SceneCamera.cpp
     Source/Strada/Scene/SceneCamera.h
+    Source/Strada/Scene/SceneRendering.cpp
+    Source/Strada/Scene/SceneRendering.h
     Source/Strada/Scene/SceneSerializer.cpp
     Source/Strada/Scene/SceneSerializer.h
 )
@@ -152,13 +164,17 @@ add_library(Strada STATIC
     ${STRADA_CORE_SOURCES}
     ${STRADA_IMGUI_SOURCES}
     ${STRADA_MATH_SOURCES}
+    ${STRADA_RENDERER_SOURCES}
     ${STRADA_RHI_SOURCES}
     ${STRADA_SCENE_SOURCES}
     ${STRADA_SCRIPT_SOURCES}
     ${STRADA_SERIALIZATION_SOURCES}
 )
 
-target_include_directories(Strada PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+target_include_directories(Strada PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source"
+    # Structures shared between C++ and HLSL (RendererInterop.h).
+    "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Include")
 target_precompile_headers(Strada PRIVATE Source/stpch.h)
 
 # nvrhi_vk must precede nvrhi for single-pass linkers; Vulkan headers are needed wherever nvrhi/vulkan.h is included.
@@ -195,17 +211,24 @@ target_compile_definitions(Strada PUBLIC
 include(StradaShaders)
 strada_add_shaders(Strada
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Shaders"
+    INCLUDES
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Include/Common.hlsli"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Include/RendererInterop.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Include/ShaderInterop.h"
     SHADERS
         Fullscreen_VS:Fullscreen.hlsl:VSMain:vertex
         SolidColor_PS:Fullscreen.hlsl:PSSolidColor:pixel
         ImGui_VS:ImGui.hlsl:VSMain:vertex
         ImGui_PS:ImGui.hlsl:PSMain:pixel
+        ForwardPBR_VS:ForwardPBR.hlsl:VSMain:vertex
+        ForwardPBR_PS:ForwardPBR.hlsl:PSMain:pixel
+        Tonemap_PS:Tonemap.hlsl:PSMain:pixel
 )
 
 strada_configure_target(Strada)
 strada_add_configuration_definitions(Strada)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES
-    ${STRADA_ASSET_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_RHI_SOURCES}
+    ${STRADA_ASSET_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_RENDERER_SOURCES} ${STRADA_RHI_SOURCES}
     ${STRADA_SCENE_SOURCES} ${STRADA_SCRIPT_SOURCES} ${STRADA_SERIALIZATION_SOURCES})
 set_target_properties(Strada PROPERTIES FOLDER "Engine")

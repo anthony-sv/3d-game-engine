@@ -2,6 +2,7 @@
 
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/DefaultScene.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Application.h"
@@ -10,6 +11,7 @@
 #include "Strada/Core/Version.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 namespace Strada
 {
@@ -49,12 +51,24 @@ namespace Strada
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 
+		if (application.GetImGuiLayer() != nullptr)
+		{
+			m_ViewportPanel = CreateScope<ViewportPanel>();
+		}
+
+		bool sceneOpened = false;
 		if (!m_Specification.ScenePath.empty())
 		{
-			if (Result<std::vector<std::string>> opened = m_Operations.OpenScene(m_Specification.ScenePath); !opened)
+			Result<std::vector<std::string>> opened = m_Operations.OpenScene(m_Specification.ScenePath);
+			sceneOpened = opened.IsOk();
+			if (!opened)
 			{
 				ST_ERROR("Could not open '{}': {}", FileSystem::PathToUtf8(m_Specification.ScenePath), opened.GetError());
 			}
+		}
+		if (!sceneOpened)
+		{
+			m_Context.SetScene(CreateDefaultScene(), {});
 		}
 
 		if (!m_Specification.EnableAutomation)
@@ -115,9 +129,28 @@ namespace Strada
 
 	void EditorLayer::OnImGuiRender()
 	{
-		ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+		ImGuiID const dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+		// First run (no saved layout): viewport in the center, statistics on the right, console at the bottom.
+		ImGuiDockNode const* root = ImGui::DockBuilderGetNode(dockspace);
+		if (root == nullptr || (root->IsLeafNode() && root->Windows.empty()))
+		{
+			ImGui::DockBuilderRemoveNode(dockspace);
+			ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
+			ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
+			ImGuiID center = dockspace;
+			ImGuiID const bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
+			ImGuiID const right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
+			ImGui::DockBuilderDockWindow("Viewport", center);
+			ImGui::DockBuilderDockWindow("Statistics", right);
+			ImGui::DockBuilderDockWindow("Console", bottom);
+			ImGui::DockBuilderFinish(dockspace);
+		}
 		DrawMenuBar();
 
+		if (m_ViewportPanel && m_ShowViewport)
+		{
+			m_ViewportPanel->OnImGuiRender(m_Context, m_ShowViewport);
+		}
 		if (m_ShowConsole)
 		{
 			m_ConsolePanel.OnImGuiRender(m_ShowConsole);
@@ -150,6 +183,7 @@ namespace Strada
 
 		if (ImGui::BeginMenu("View"))
 		{
+			ImGui::MenuItem("Viewport", nullptr, &m_ShowViewport);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Statistics", nullptr, &m_ShowStatistics);
 			ImGui::Separator();

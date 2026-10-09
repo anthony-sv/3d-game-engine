@@ -26,6 +26,10 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Commands/EntitySnapshot.h
     Source/Editor/Commands/SceneCommands.cpp
     Source/Editor/Commands/SceneCommands.h
+    Source/Editor/DefaultScene.cpp
+    Source/Editor/DefaultScene.h
+    Source/Editor/EditorCamera.cpp
+    Source/Editor/EditorCamera.h
     Source/Editor/EditorContext.cpp
     Source/Editor/EditorContext.h
     Source/Editor/EditorLayer.cpp
@@ -38,6 +42,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/ConsolePanel.h
     Source/Editor/Panels/StatisticsPanel.cpp
     Source/Editor/Panels/StatisticsPanel.h
+    Source/Editor/Panels/ViewportPanel.cpp
+    Source/Editor/Panels/ViewportPanel.h
 )
 
 add_library(StradaEditorCore STATIC ${STRADA_EDITOR_CORE_SOURCES})

@@ -4,6 +4,7 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Core/UUID.h"
+#include "Strada/Renderer/SceneRendererSettings.h"
 
 #include <entt/entity/registry.hpp>
 #include <glm/glm.hpp>
@@ -21,6 +22,7 @@ namespace Strada
 	struct SceneSettings
 	{
 		glm::vec3 Gravity = {0.0f, -9.81f, 0.0f};
+		SceneRendererSettings Renderer;
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.

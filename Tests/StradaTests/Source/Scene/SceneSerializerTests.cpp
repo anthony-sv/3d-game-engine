@@ -314,7 +314,8 @@ TEST_CASE("SceneSerializer: scene settings update partially and follow the unkno
 	Json const gravity = Json::parse(R"({ "Physics": { "Gravity": [0, -3, 0] } })");
 	REQUIRE(SceneSerializer::DeserializeSettings(gravity, settings, DeserializationContext{}).IsOk());
 	CHECK(settings.Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
-	CHECK(SceneSerializer::SerializeSettings(settings) == gravity);
+	CHECK(SceneSerializer::SerializeSettings(settings)["Physics"] == gravity["Physics"]);
+	CHECK(SceneSerializer::SerializeSettings(settings).contains("Renderer"));
 
 	Json const typo = Json::parse(R"({ "Physics": { "Gravity": [0, -1, 0], "Gravty": [0, 1, 0] } })");
 	Result<void> const rejected = SceneSerializer::DeserializeSettings(typo, settings, DeserializationContext{});
@@ -331,11 +332,11 @@ TEST_CASE("SceneSerializer: scene settings update partially and follow the unkno
 	DeserializationContext lenient;
 	lenient.UnknownFields = UnknownFieldPolicy::Warn;
 	lenient.Warnings = &warnings;
-	Json const newer = Json::parse(R"({ "Renderer": { "Exposure": 1 }, "Physics": { "Gravity": [0, -9, 0] } })");
+	Json const newer = Json::parse(R"({ "Weather": { "Rain": 1 }, "Physics": { "Gravity": [0, -9, 0] } })");
 	REQUIRE(SceneSerializer::DeserializeSettings(newer, settings, lenient).IsOk());
 	CHECK(settings.Gravity == glm::vec3(0.0f, -9.0f, 0.0f));
 	REQUIRE(warnings.size() == 1);
-	CHECK(warnings[0] == "ignored unknown scene setting 'Renderer'");
+	CHECK(warnings[0] == "ignored unknown scene setting 'Weather'");
 }
 
 TEST_CASE("Prefab: instances get fresh IDs, remapped references and prefab links")

@@ -2,6 +2,7 @@
 #include "Strada/Core/Application.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Renderer/Renderer.h"
 
 #include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/Events/KeyEvent.h"
@@ -181,6 +182,10 @@ namespace Strada
 		}
 
 		ShaderLibrary::Init();
+		if (Result<void> renderer = Renderer::Init(); !renderer)
+		{
+			return renderer;
+		}
 		m_FrameCommandList = GraphicsDevice::GetDevice()->createCommandList();
 
 		if (m_Window)
@@ -204,6 +209,10 @@ namespace Strada
 	{
 		m_FrameCommandList = nullptr;
 		m_Swapchain.reset();
+		if (Renderer::IsInitialized())
+		{
+			Renderer::Shutdown();
+		}
 		if (ShaderLibrary::IsInitialized())
 		{
 			ShaderLibrary::Shutdown();
