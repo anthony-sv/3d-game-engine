@@ -413,8 +413,12 @@ serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `doubl
   JSON result or a structured error. Long operations complete asynchronously. All commands execute on the main
   thread; the active project/scene state is identical whether a human or an agent drives the editor.
 - `AutomationServer`: JSON-RPC 2.0 over TCP bound to `127.0.0.1`, newline-delimited messages, authenticated by a
-  random token. The editor writes `{pid, port, token, project, version}` to an instance file in the user data
-  directory (user-only permissions).
+  random 256-bit token (first request `authenticate`, constant-time comparison). A network thread owns the sockets
+  (framing, size limits, parsing, authentication) and never touches editor state; the editor layer runs queued requests
+  on the main thread once per frame (`ProcessRequests`). The editor writes `{pid, port, token, project, version}` to
+  `<user data>/Editor/Instances/<pid>.json` (user-only permissions) and removes it on exit.
+- The editor model (`EditorContext`: scene, file, undo `CommandHistory`, selection; `EditorOperations`) is shared by UI
+  panels and automation. The protocol and the command reference are in [Automation.md](Automation.md).
 - `strada` tool (C#): `strada mcp` (MCP stdio server; tools are the editor commands, names `domain_action`;
   launches or attaches to an editor on demand; screenshots returned as image content), `strada call <command>
   [json]`, `strada launch`, `strada commands`.

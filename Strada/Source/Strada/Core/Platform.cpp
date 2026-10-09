@@ -1,15 +1,18 @@
 #include "stpch.h"
 #include "Strada/Core/Platform.h"
 
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 
 #if defined(ST_PLATFORM_WINDOWS)
 #include <Windows.h>
 #elif defined(ST_PLATFORM_LINUX)
+#include <signal.h>
 #include <unistd.h>
 #include <fstream>
 #elif defined(ST_PLATFORM_MACOS)
+#include <signal.h>
 #include <sys/sysctl.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -52,6 +55,29 @@ namespace Strada
 		return static_cast<uint32_t>(::GetCurrentProcessId());
 #else
 		return static_cast<uint32_t>(::getpid());
+#endif
+	}
+
+	bool Platform::IsProcessRunning(uint32_t processID)
+	{
+		if (processID == 0)
+		{
+			return false;
+		}
+#if defined(ST_PLATFORM_WINDOWS)
+		HANDLE const process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processID);
+		if (process == nullptr)
+		{
+			// Access denied means the process exists but belongs to another user.
+			return ::GetLastError() == ERROR_ACCESS_DENIED;
+		}
+		DWORD exitCode = 0;
+		bool const running = ::GetExitCodeProcess(process, &exitCode) != 0 && exitCode == STILL_ACTIVE;
+		::CloseHandle(process);
+		return running;
+#else
+		// Signal 0 only checks existence; EPERM means it exists but belongs to another user.
+		return ::kill(static_cast<pid_t>(processID), 0) == 0 || errno == EPERM;
 #endif
 	}
 

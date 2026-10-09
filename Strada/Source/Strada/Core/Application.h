@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Strada/Core/Base.h"
+#include "Strada/Core/Image.h"
 #include "Strada/Core/LayerStack.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
@@ -53,6 +54,9 @@ namespace Strada
 
 		// Create the GPU device (and, with a window, its swapchain). Disable for simulation-only runs without a GPU.
 		bool EnableGraphics = true;
+		// When false, a failure to initialize graphics is logged and the application runs without them (headless tools
+		// that render offscreen only when a GPU is available).
+		bool RequireGraphics = true;
 		// Vulkan validation layers plus NVRHI validation.
 #if defined(ST_DEBUG)
 		bool EnableValidation = true;
@@ -73,6 +77,8 @@ namespace Strada
 	class Application
 	{
 	public:
+		using ScreenshotCallback = std::function<void(Result<Image>)>;
+
 		explicit Application(ApplicationSpecification specification);
 		virtual ~Application();
 
@@ -124,6 +130,10 @@ namespace Strada
 
 		// Saves the main window's contents as a PNG right before the next present. Logs the outcome.
 		void RequestScreenshot(std::filesystem::path path);
+		// Captures the main window's contents (RGBA8) right before the next present and passes them to the callback on
+		// the main thread. While the window is minimized the capture waits for the next presented frame. The callback
+		// receives an error immediately when there is no window, and when the application closes before capturing.
+		void RequestScreenshotImage(ScreenshotCallback callback);
 		ApplicationSpecification const& GetSpecification() const { return m_Specification; }
 		bool IsHeadless() const { return m_Specification.Headless; }
 
@@ -157,8 +167,10 @@ namespace Strada
 		void DetachAllLayers();
 		void LimitFrameRate(double frameStartTime) const;
 		Result<void> InitializeGraphics();
+		void ShutdownGraphics();
 		void ClearBackBuffer();
 		void CaptureScreenshot();
+		void CancelPendingScreenshots();
 
 		bool OnWindowClose(WindowCloseEvent& event);
 		bool OnWindowResize(WindowResizeEvent& event);
@@ -171,7 +183,7 @@ namespace Strada
 		nvrhi::CommandListHandle m_FrameCommandList;
 		ImGuiLayer* m_ImGuiLayer = nullptr;
 		bool m_BackBufferAvailable = false;
-		std::filesystem::path m_PendingScreenshotPath;
+		std::vector<ScreenshotCallback> m_PendingScreenshots;
 		LayerStack m_LayerStack;
 		uint32_t m_LayerIterationDepth = 0;
 

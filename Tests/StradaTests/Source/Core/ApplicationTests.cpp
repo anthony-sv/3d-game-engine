@@ -416,6 +416,70 @@ namespace
 	};
 }
 
+TEST_CASE("Application: optional graphics fall back to running without a device")
+{
+	// An adapter index that cannot exist makes device creation fail on every machine (with or without Vulkan).
+	ApplicationSpecification specification = HeadlessSpecification(3);
+	specification.EnableGraphics = true;
+	specification.GpuIndex = 4096;
+
+	SUBCASE("required graphics fail initialization")
+	{
+		GraphicsProbe probe;
+		GraphicsApplication application(specification, probe);
+		CHECK(application.Run() == 1);
+		CHECK(application.GetFrameCount() == 0);
+	}
+
+	SUBCASE("optional graphics keep running")
+	{
+		specification.RequireGraphics = false;
+		GraphicsProbe probe;
+		GraphicsApplication application(specification, probe);
+		CHECK(application.Run() == 0);
+		CHECK(application.GetFrameCount() == 3);
+		CHECK(probe.FramesWithDevice == 0);
+	}
+	CHECK_FALSE(GraphicsDevice::IsInitialized());
+}
+
+namespace
+{
+	class ScreenshotRequestApplication : public Application
+	{
+	public:
+		explicit ScreenshotRequestApplication(ApplicationSpecification const& specification)
+			: Application(specification)
+		{
+		}
+
+		std::vector<std::string> Errors;
+		bool ErrorWasImmediate = false;
+
+	protected:
+		Result<void> OnInit() override
+		{
+			RequestScreenshotImage(
+				[this](Result<Image> image)
+				{
+					CHECK(image.IsError());
+					Errors.push_back(image.GetError());
+				});
+			ErrorWasImmediate = Errors.size() == 1;
+			return {};
+		}
+	};
+}
+
+TEST_CASE("Application: screenshot requests without a window fail immediately")
+{
+	ScreenshotRequestApplication application(HeadlessSpecification(1));
+	CHECK(application.Run() == 0);
+	CHECK(application.ErrorWasImmediate);
+	REQUIRE(application.Errors.size() == 1);
+	CHECK(application.Errors[0] == "the application has no window");
+}
+
 TEST_CASE("Application: headless run with graphics creates the device for the loop and releases it")
 {
 	{

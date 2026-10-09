@@ -16,34 +16,18 @@ namespace Strada
 	{
 		constexpr std::string_view IDComponentName = ComponentTraits<IDComponent>::Name;
 
-		Json SerializeSettings(SceneSettings const& settings)
+		// Applies the unknown-field policy to a key that no setting matches.
+		Result<void> HandleUnknownSetting(std::string_view key, DeserializationContext const& context)
 		{
-			Json physics = Json::object();
-			physics["Gravity"] = JsonTraits<glm::vec3>::ToJson(settings.Gravity);
-			Json json = Json::object();
-			json["Physics"] = std::move(physics);
-			return json;
-		}
-
-		Result<void> DeserializeSettings(Json const& json, SceneSettings& settings, DeserializationContext const& context)
-		{
-			if (!json.is_object())
+			switch (context.UnknownFields)
 			{
-				return Error{"Scene.Settings must be an object"};
-			}
-			if (auto const physics = json.find("Physics"); physics != json.end())
-			{
-				if (!physics->is_object())
-				{
-					return Error{"Scene.Settings.Physics must be an object"};
-				}
-				if (auto const gravity = physics->find("Gravity"); gravity != physics->end())
-				{
-					if (Result<void> result = JsonTraits<glm::vec3>::FromJson(*gravity, settings.Gravity, context); !result)
-					{
-						return MakeError("Scene.Settings.Physics.Gravity: {}", result.GetError());
-					}
-				}
+				case UnknownFieldPolicy::Error:
+					return MakeError("unknown scene setting '{}'", key);
+				case UnknownFieldPolicy::Warn:
+					context.Warn(fmt::format("ignored unknown scene setting '{}'", key));
+					break;
+				case UnknownFieldPolicy::Ignore:
+					break;
 			}
 			return {};
 		}
@@ -168,6 +152,59 @@ namespace Strada
 		}
 	}
 
+	Json SceneSerializer::SerializeSettings(SceneSettings const& settings)
+	{
+		Json physics = Json::object();
+		physics["Gravity"] = JsonTraits<glm::vec3>::ToJson(settings.Gravity);
+		Json json = Json::object();
+		json["Physics"] = std::move(physics);
+		return json;
+	}
+
+	Result<void> SceneSerializer::DeserializeSettings(Json const& json, SceneSettings& settings, DeserializationContext const& context)
+	{
+		if (!json.is_object())
+		{
+			return Error{"Scene.Settings must be an object"};
+		}
+
+		SceneSettings updated = settings;
+		for (auto const& item : json.items())
+		{
+			if (item.key() != "Physics")
+			{
+				if (Result<void> result = HandleUnknownSetting(item.key(), context); !result)
+				{
+					return result;
+				}
+				continue;
+			}
+
+			Json const& physics = item.value();
+			if (!physics.is_object())
+			{
+				return Error{"Scene.Settings.Physics must be an object"};
+			}
+			for (auto const& physicsItem : physics.items())
+			{
+				if (physicsItem.key() == "Gravity")
+				{
+					if (Result<void> result = JsonTraits<glm::vec3>::FromJson(physicsItem.value(), updated.Gravity, context); !result)
+					{
+						return MakeError("Scene.Settings.Physics.Gravity: {}", result.GetError());
+					}
+				}
+				else if (Result<void> result = HandleUnknownSetting("Physics." + physicsItem.key(), context); !result)
+				{
+					return result;
+				}
+			}
+		}
+
+		settings = updated;
+		return {};
+	}
+
 	Json SceneSerializer::SerializeEntity(Scene const& scene, entt::entity handle)
 	{
 		entt::registry const& registry = scene.GetRegistry();
@@ -246,6 +283,86 @@ namespace Strada
 			}
 		}
 		return {};
+	}
+
+	Result<Entity> SceneSerializer::DeserializeEntityHierarchy(Scene& scene, Json const& entities, Entity parent, size_t siblingIndex,
+	                                                           DeserializationContext const& context)
+	{
+		if (parent && parent.GetScene() != &scene)
+		{
+			return Error{"the parent belongs to another scene"};
+		}
+		if (!entities.is_array() || entities.empty())
+		{
+			return Error{"expected a non-empty array of entities"};
+		}
+
+		Result<std::vector<UUID>> ids = ReadEntityIDs(entities, context);
+		if (!ids)
+		{
+			return Error{ids.GetError()};
+		}
+		for (UUID const id : ids.GetValue())
+		{
+			if (scene.HasEntity(id))
+			{
+				return MakeError("an entity with ID {} already exists", id);
+			}
+		}
+
+		entt::registry& registry = scene.GetRegistry();
+		std::vector<entt::entity> created;
+		created.reserve(ids.GetValue().size());
+		for (size_t i = 0; i < entities.size(); i++)
+		{
+			entt::entity const handle = scene.CreateHandle(ids.GetValue()[i]);
+			registry.emplace<TagComponent>(handle);
+			registry.emplace<TransformComponent>(handle);
+			registry.emplace<RelationshipComponent>(handle);
+			created.push_back(handle);
+
+			Json const& entity = entities[i];
+			if (auto const components = entity.find("Components"); components != entity.end())
+			{
+				if (Result<void> result = DeserializeComponents(scene, handle, *components, context); !result)
+				{
+					for (entt::entity const createdHandle : created)
+					{
+						scene.m_EntityMap.erase(registry.get<IDComponent>(createdHandle).ID);
+						registry.destroy(createdHandle);
+					}
+					return MakeError("entity {}: {}", ids.GetValue()[i], result.GetError());
+				}
+			}
+		}
+
+		// Links inside the subtree are kept; the root is attached below and links leaving the subtree are dropped.
+		std::unordered_set<UUID> const members(ids.GetValue().begin(), ids.GetValue().end());
+		for (size_t i = 0; i < created.size(); i++)
+		{
+			RelationshipComponent& relationship = registry.get<RelationshipComponent>(created[i]);
+			if (i == 0 || !members.contains(relationship.Parent))
+			{
+				relationship.Parent = UUID::Invalid();
+			}
+		}
+
+		std::vector<UUID> subtreeRoots;
+		RepairHierarchy(scene, ids.GetValue(), subtreeRoots, context);
+		Entity root(created.front(), &scene);
+		for (UUID const orphan : subtreeRoots)
+		{
+			if (orphan != root.GetUUID())
+			{
+				registry.get<RelationshipComponent>(scene.FindHandle(orphan)).Parent = root.GetUUID();
+				root.GetComponent<RelationshipComponent>().Children.push_back(orphan);
+			}
+		}
+
+		std::vector<UUID>& siblings = parent ? parent.GetComponent<RelationshipComponent>().Children : scene.m_RootEntities;
+		root.GetComponent<RelationshipComponent>().Parent = parent ? parent.GetUUID() : UUID::Invalid();
+		siblings.insert(siblings.begin() + static_cast<std::ptrdiff_t>(std::min(siblingIndex, siblings.size())), root.GetUUID());
+		return root;
 	}
 
 	Json SceneSerializer::Serialize(Scene const& scene)

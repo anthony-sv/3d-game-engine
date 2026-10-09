@@ -34,6 +34,8 @@ namespace Strada
 		[[nodiscard]] static Result<ImageInfo> ReadInfo(std::span<uint8_t const> data);
 
 		[[nodiscard]] Result<void> WritePNG(std::filesystem::path const& path) const;
+		// The PNG file contents, for sending images without touching the file system.
+		[[nodiscard]] Result<std::vector<uint8_t>> EncodePNG() const;
 
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }

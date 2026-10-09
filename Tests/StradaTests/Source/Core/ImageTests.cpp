@@ -61,6 +61,24 @@ TEST_CASE("Image: PNG round trip preserves every pixel")
 	CHECK(loaded.GetValue().GetPixels() == original.GetPixels());
 }
 
+TEST_CASE("Image: PNG encoding in memory decodes to the same pixels")
+{
+	Image const original = MakeGradient(19, 7);
+	Result<std::vector<uint8_t>> encoded = original.EncodePNG();
+	REQUIRE(encoded.IsOk());
+	REQUIRE(encoded.GetValue().size() > 8);
+	// PNG signature.
+	CHECK(encoded.GetValue()[0] == 0x89);
+	CHECK(encoded.GetValue()[1] == 'P');
+
+	Result<Image> decoded = Image::LoadFromMemory(encoded.GetValue());
+	REQUIRE(decoded.IsOk());
+	CHECK(decoded.GetValue().GetWidth() == 19);
+	CHECK(decoded.GetValue().GetPixels() == original.GetPixels());
+
+	CHECK(Image().EncodePNG().IsError());
+}
+
 TEST_CASE("Image: channel conversion on load")
 {
 	Testing::TemporaryDirectory directory;

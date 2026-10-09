@@ -384,10 +384,14 @@ namespace Strada
 			{
 				return Error{"expected a non-zero quaternion [x, y, z, w]"};
 			}
-			out = quaternion / length;
+			// Unit quaternions are kept bit-exact: renormalizing them would drift by an ulp on every save/load or
+			// undo/redo round trip.
+			out = std::abs(length - 1.0f) <= UnitLengthTolerance ? quaternion : quaternion / length;
 			return {};
 		}
 		static std::string TypeName() { return "quat"; }
+
+		static constexpr float UnitLengthTolerance = 1e-5f;
 	};
 
 	template<>

@@ -27,7 +27,14 @@ namespace Strada
 		[[nodiscard]] static Result<void> SaveToFile(Scene const& scene, std::filesystem::path const& path);
 		[[nodiscard]] static Result<Ref<Scene>> LoadFromFile(std::filesystem::path const& path, DeserializationContext const& context);
 
-		// --- Shared with prefabs and the automation API ---
+		// --- Shared with prefabs, the editor and the automation API ---
+
+		// The "Settings" object of a scene file.
+		static Json SerializeSettings(SceneSettings const& settings);
+		// Applies the settings present in the object (missing ones keep their values, so this is also a partial update);
+		// unknown keys follow context.UnknownFields. Nothing changes when the object is invalid.
+		[[nodiscard]] static Result<void> DeserializeSettings(Json const& json, SceneSettings& settings,
+		                                                      DeserializationContext const& context);
 
 		static Json SerializeEntity(Scene const& scene, entt::entity handle);
 		// Handles of the given roots and all their descendants, in hierarchy order.
@@ -35,6 +42,12 @@ namespace Strada
 		// Applies a "Components" object ("ID" entries are ignored).
 		[[nodiscard]] static Result<void> DeserializeComponents(Scene& scene, entt::entity handle, Json const& components,
 		                                                        DeserializationContext const& context);
+		// Recreates an entity subtree written with SerializeEntity (root first, descendants in CollectHierarchy order) with
+		// its original UUIDs, none of which may exist in the scene. The root is attached to parent (or becomes a root
+		// entity when parent is invalid) at siblingIndex (clamped to the end); descendants keep their stored links, and
+		// descendants whose parent is not part of the subtree are attached to the root. Nothing is created on failure.
+		[[nodiscard]] static Result<Entity> DeserializeEntityHierarchy(Scene& scene, Json const& entities, Entity parent,
+		                                                               size_t siblingIndex, DeserializationContext const& context);
 	};
 
 	// Prefab files (.sprefab): { "Strada": header, "Entities": [ root, descendants... ] }.

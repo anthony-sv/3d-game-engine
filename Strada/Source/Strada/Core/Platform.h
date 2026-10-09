@@ -13,6 +13,8 @@ namespace Strada
 	public:
 		static bool IsDebuggerAttached();
 		static uint32_t GetProcessID();
+		// Whether a process with this ID currently exists (false for 0). Used to detect stale instance files.
+		static bool IsProcessRunning(uint32_t processID);
 		// Named to avoid the Win32 GetEnvironmentVariable macro.
 		static std::optional<std::string> ReadEnvironmentVariable(std::string const& name);
 		// Monotonic time in seconds since an unspecified, process-constant epoch.

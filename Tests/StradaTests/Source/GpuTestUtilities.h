@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Strada/Core/Platform.h"
+#include "Strada/Core/Window.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/ShaderLibrary.h"
 
@@ -57,7 +58,33 @@ namespace Strada::Testing
 		bool m_Available = false;
 		std::string m_Reason;
 	};
+
+	// Windowed tests also need a display (headless CI machines have none); STRADA_TESTS_ALLOW_NO_DISPLAY=1 (or the no-GPU
+	// switch) turns a missing display into a skip.
+	inline bool IsMissingDisplayAllowed()
+	{
+		return Platform::ReadEnvironmentVariable("STRADA_TESTS_ALLOW_NO_DISPLAY").value_or("") == "1" ||
+		       GpuTestScope::IsMissingGpuAllowed();
+	}
 }
+
+// Skips (or fails) the current test when no window can be created.
+#define ST_REQUIRE_DISPLAY()                                                                                                \
+	do                                                                                                                      \
+	{                                                                                                                       \
+		::Strada::WindowSpecification stProbeSpecification;                                                                 \
+		stProbeSpecification.Visible = false;                                                                               \
+		::Strada::Result<::Strada::Scope<::Strada::Window>> stProbeWindow = ::Strada::Window::Create(stProbeSpecification); \
+		if (!stProbeWindow)                                                                                                 \
+		{                                                                                                                   \
+			if (::Strada::Testing::IsMissingDisplayAllowed())                                                               \
+			{                                                                                                               \
+				MESSAGE("Skipping windowed test: " << stProbeWindow.GetError());                                            \
+				return;                                                                                                     \
+			}                                                                                                               \
+			FAIL("No display available (set STRADA_TESTS_ALLOW_NO_DISPLAY=1 to skip): " << stProbeWindow.GetError());       \
+		}                                                                                                                   \
+	} while (false)
 
 // Starts a GPU test: initializes the device for the rest of the test case or skips/fails when none is available.
 #define ST_REQUIRE_GPU()                                                                                                     \

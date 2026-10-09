@@ -26,10 +26,12 @@ Entries marked *(planned)* are introduced by upcoming subsystems; their location
 | `StradaRuntime/` *(planned)* | Player executable used by exported games |
 | `Strada-ScriptCore/` *(planned)* | C# scripting API (`Strada.ScriptCore.dll`) |
 | `StradaTool/` *(planned)* | `strada` CLI + MCP stdio bridge |
-| `Tests/StradaTests/` | C++ engine tests (doctest); `StradaEditorTests`, `ScriptCoreTests`, `TestScripts` and `Data` are *(planned)* |
+| `Tests/StradaTests/` | C++ engine tests (doctest) |
+| `Tests/StradaEditorTests/` | Editor model and automation tests (doctest, headless); `ScriptCoreTests`, `TestScripts` and `Data` are *(planned)* |
 | `Projects/FeatureTest/` *(planned)* | Project exercising every component and the entire scripting API |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format) |
+| `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference) |
 | `.claude/skills/` | Task-specific playbooks (see [Skills](#skills)) |
 
 ## Building
@@ -260,3 +262,4 @@ workflows change.
 | `strada-build` | Configuring, building and testing; adding sources and dependencies |
 | `strada-code-review` | The mandatory pre-commit review and the commit/push procedure |
 | `strada-add-component` | Adding or changing an ECS component end to end |
+| `strada-automation-command` | Adding or changing an editor automation command |

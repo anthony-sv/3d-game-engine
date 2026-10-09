@@ -1,3 +1,4 @@
+#include "Strada/Math/Math.h"
 #include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
@@ -112,6 +113,24 @@ TEST_CASE("Serialization: vectors, quaternions and boolean vectors")
 	Json const written = JsonTraits<glm::quat>::ToJson(glm::quat::wxyz(0.5f, 0.5f, 0.5f, 0.5f));
 	CHECK(written == Json::array({0.5f, 0.5f, 0.5f, 0.5f}));
 	CHECK(Read<glm::quat>(Json::array({0, 0, 0, 0})).IsError());
+}
+
+TEST_CASE("Serialization: unit quaternions round trip bit-exactly")
+{
+	// Undo snapshots and repeated save/load cycles must not drift, so already-normalized rotations are not renormalized.
+	for (glm::vec3 const degrees : {glm::vec3(30.0f, 45.0f, 60.0f), glm::vec3(-170.0f, 12.5f, 89.0f), glm::vec3(0.1f, 0.2f, 0.3f)})
+	{
+		glm::quat const rotation = Math::EulerDegreesToQuaternion(degrees);
+		glm::quat value = rotation;
+		for (int i = 0; i < 5; i++)
+		{
+			value = RoundTrip(value);
+		}
+		CHECK(value.x == rotation.x);
+		CHECK(value.y == rotation.y);
+		CHECK(value.z == rotation.z);
+		CHECK(value.w == rotation.w);
+	}
 }
 
 TEST_CASE("Serialization: enums use their names")

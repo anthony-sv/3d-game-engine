@@ -199,6 +199,145 @@ TEST_CASE("SceneSerializer: inconsistent hierarchies are repaired with warnings"
 	CHECK(visited == scene.GetEntityCount());
 }
 
+namespace
+{
+	Json SerializeSubtree(Scene const& scene, Entity root)
+	{
+		Json entities = Json::array();
+		for (entt::entity const handle : SceneSerializer::CollectHierarchy(scene, {root.GetUUID()}))
+		{
+			entities.push_back(SceneSerializer::SerializeEntity(scene, handle));
+		}
+		return entities;
+	}
+}
+
+TEST_CASE("SceneSerializer: entity subtrees are restored with their original IDs, links and sibling order")
+{
+	Ref<Scene> const scene = MakeRichScene();
+	Entity player = scene->FindEntityByName("Player");
+	Entity shield = scene->CreateEntity("Shield", player);
+	shield.GetComponent<TransformComponent>().SetRotationEuler({10.0f, 20.0f, 30.0f});
+	Json const before = SceneSerializer::Serialize(*scene);
+
+	SUBCASE("root entity")
+	{
+		Json const subtree = SerializeSubtree(*scene, player);
+		REQUIRE(subtree.size() == 3);
+		size_t const index = scene->GetSiblingIndex(player);
+		scene->DestroyEntity(player);
+		REQUIRE(scene->GetEntityCount() == 2);
+
+		Result<Entity> restored = SceneSerializer::DeserializeEntityHierarchy(*scene, subtree, Entity(), index, DeserializationContext{});
+		REQUIRE_MESSAGE(restored.IsOk(), restored.GetError());
+		CHECK(restored.GetValue().GetName() == "Player");
+		CHECK(SceneSerializer::Serialize(*scene) == before);
+	}
+
+	SUBCASE("child entity")
+	{
+		Entity weapon = scene->FindEntityByName("Weapon");
+		Json const subtree = SerializeSubtree(*scene, weapon);
+		scene->DestroyEntity(weapon);
+		REQUIRE(scene->GetChildren(player).size() == 1);
+
+		Result<Entity> restored = SceneSerializer::DeserializeEntityHierarchy(*scene, subtree, player, 0, DeserializationContext{});
+		REQUIRE(restored.IsOk());
+		CHECK(scene->GetParent(restored.GetValue()) == player);
+		CHECK(SceneSerializer::Serialize(*scene) == before);
+	}
+
+	SUBCASE("sibling index past the end appends")
+	{
+		Json const subtree = SerializeSubtree(*scene, shield);
+		scene->DestroyEntity(shield);
+		Result<Entity> restored = SceneSerializer::DeserializeEntityHierarchy(*scene, subtree, player, 1000, DeserializationContext{});
+		REQUIRE(restored.IsOk());
+		CHECK(scene->GetSiblingIndex(restored.GetValue()) == 1);
+		CHECK(SceneSerializer::Serialize(*scene) == before);
+	}
+}
+
+TEST_CASE("SceneSerializer: restoring an entity subtree fails without side effects")
+{
+	Ref<Scene> const scene = MakeRichScene();
+	Entity const player = scene->FindEntityByName("Player");
+	Json const subtree = SerializeSubtree(*scene, player);
+	Json const before = SceneSerializer::Serialize(*scene);
+
+	// The IDs are still in use.
+	Result<Entity> duplicate = SceneSerializer::DeserializeEntityHierarchy(*scene, subtree, Entity(), 0, DeserializationContext{});
+	REQUIRE(duplicate.IsError());
+	CHECK(duplicate.GetError() == fmt::format("an entity with ID {} already exists", player.GetUUID()));
+
+	Json broken = Json::array({EntityJson("71"), EntityJson("72", Json::object({{"PointLight", Json::object({{"Range", true}})}}))});
+	Result<Entity> invalid = SceneSerializer::DeserializeEntityHierarchy(*scene, broken, Entity(), 0, DeserializationContext{});
+	REQUIRE(invalid.IsError());
+	CHECK(invalid.GetError() == "entity 72: PointLight.Range: expected a number");
+
+	CHECK(SceneSerializer::DeserializeEntityHierarchy(*scene, Json::array(), Entity(), 0, DeserializationContext{}).IsError());
+	CHECK(SceneSerializer::DeserializeEntityHierarchy(*scene, Json::object(), Entity(), 0, DeserializationContext{}).IsError());
+
+	Scene other;
+	Entity const foreignParent = other.CreateEntity("Foreign");
+	Json const single = Json::array({EntityJson("73")});
+	CHECK(SceneSerializer::DeserializeEntityHierarchy(*scene, single, foreignParent, 0, DeserializationContext{}).IsError());
+
+	CHECK(SceneSerializer::Serialize(*scene) == before);
+}
+
+TEST_CASE("SceneSerializer: restored descendants with parents outside the subtree attach to its root")
+{
+	Scene scene;
+	// 82 claims a parent that is not part of the subtree; 81 is the root even though it names a parent.
+	Json const subtree =
+		Json::array({EntityJson("81", WithParent("999")), EntityJson("82", WithParent("555")), EntityJson("83", WithParent("81"))});
+	Result<Entity> restored = SceneSerializer::DeserializeEntityHierarchy(scene, subtree, Entity(), 0, DeserializationContext{});
+	REQUIRE_MESSAGE(restored.IsOk(), restored.GetError());
+
+	Entity const root = restored.GetValue();
+	CHECK(root.GetUUID() == UUID(81));
+	CHECK_FALSE(scene.GetParent(root));
+	std::vector<Entity> const children = scene.GetChildren(root);
+	REQUIRE(children.size() == 2);
+	CHECK(children[0].GetUUID() == UUID(83));
+	CHECK(children[1].GetUUID() == UUID(82));
+	CHECK(scene.GetRootEntities().size() == 1);
+}
+
+TEST_CASE("SceneSerializer: scene settings update partially and follow the unknown-key policy")
+{
+	SceneSettings settings;
+	REQUIRE(SceneSerializer::DeserializeSettings(Json::object(), settings, DeserializationContext{}).IsOk());
+	CHECK(settings.Gravity == SceneSettings().Gravity);
+
+	Json const gravity = Json::parse(R"({ "Physics": { "Gravity": [0, -3, 0] } })");
+	REQUIRE(SceneSerializer::DeserializeSettings(gravity, settings, DeserializationContext{}).IsOk());
+	CHECK(settings.Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
+	CHECK(SceneSerializer::SerializeSettings(settings) == gravity);
+
+	Json const typo = Json::parse(R"({ "Physics": { "Gravity": [0, -1, 0], "Gravty": [0, 1, 0] } })");
+	Result<void> const rejected = SceneSerializer::DeserializeSettings(typo, settings, DeserializationContext{});
+	REQUIRE(rejected.IsError());
+	CHECK(rejected.GetError() == "unknown scene setting 'Physics.Gravty'");
+	CHECK(settings.Gravity == glm::vec3(0.0f, -3.0f, 0.0f));
+
+	Json const invalid = Json::parse(R"({ "Physics": { "Gravity": [0, "down", 0] } })");
+	CHECK(SceneSerializer::DeserializeSettings(invalid, settings, DeserializationContext{}).GetError() ==
+	      "Scene.Settings.Physics.Gravity: expected an array of 3 finite numbers");
+	CHECK(SceneSerializer::DeserializeSettings(Json::array(), settings, DeserializationContext{}).IsError());
+
+	std::vector<std::string> warnings;
+	DeserializationContext lenient;
+	lenient.UnknownFields = UnknownFieldPolicy::Warn;
+	lenient.Warnings = &warnings;
+	Json const newer = Json::parse(R"({ "Renderer": { "Exposure": 1 }, "Physics": { "Gravity": [0, -9, 0] } })");
+	REQUIRE(SceneSerializer::DeserializeSettings(newer, settings, lenient).IsOk());
+	CHECK(settings.Gravity == glm::vec3(0.0f, -9.0f, 0.0f));
+	REQUIRE(warnings.size() == 1);
+	CHECK(warnings[0] == "ignored unknown scene setting 'Renderer'");
+}
+
 TEST_CASE("Prefab: instances get fresh IDs, remapped references and prefab links")
 {
 	Ref<Scene> const source = MakeRichScene();

@@ -100,9 +100,19 @@ namespace Strada
 
 	Result<void> Image::WritePNG(std::filesystem::path const& path) const
 	{
+		Result<std::vector<uint8_t>> encoded = EncodePNG();
+		if (!encoded)
+		{
+			return MakeError("Failed to write PNG '{}': {}", FileSystem::PathToUtf8(path), encoded.GetError());
+		}
+		return FileSystem::WriteBinaryFile(path, encoded.GetValue());
+	}
+
+	Result<std::vector<uint8_t>> Image::EncodePNG() const
+	{
 		if (IsEmpty() || m_Channels == 0 || m_Channels > 4)
 		{
-			return Error{"Cannot write an empty image"};
+			return Error{"Cannot encode an empty image"};
 		}
 
 		std::vector<uint8_t> encoded;
@@ -110,9 +120,9 @@ namespace Strada
 		                                          static_cast<int>(m_Channels), m_Pixels.data(), static_cast<int>(m_Width * m_Channels));
 		if (result == 0)
 		{
-			return MakeError("Failed to encode PNG '{}'", FileSystem::PathToUtf8(path));
+			return Error{"PNG encoding failed"};
 		}
-		return FileSystem::WriteBinaryFile(path, encoded);
+		return encoded;
 	}
 
 	HdrImage::HdrImage(uint32_t width, uint32_t height, uint32_t channels)

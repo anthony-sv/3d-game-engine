@@ -1,6 +1,8 @@
 #include "stpch.h"
 #include "Strada/Core/Application.h"
 
+#include "Strada/Asset/AssetManager.h"
+
 #include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/Events/KeyEvent.h"
 #include "Strada/Core/Events/MouseEvent.h"
@@ -80,6 +82,8 @@ namespace Strada
 			m_ExitCode = 1;
 		}
 
+		// Requesters (layers) are still attached, so they learn that their captures will never happen.
+		CancelPendingScreenshots();
 		DetachAllLayers();
 		if (initialized)
 		{
@@ -110,6 +114,8 @@ namespace Strada
 		}
 
 		Input::Reset();
+		// CPU-only: available headless and without a GPU.
+		AssetManager::Init();
 
 		if (!m_Specification.Headless)
 		{
@@ -133,13 +139,18 @@ namespace Strada
 		{
 			if (Result<void> result = InitializeGraphics(); !result)
 			{
-				return result;
+				if (m_Specification.RequireGraphics)
+				{
+					return result;
+				}
+				ST_CORE_WARN("Continuing without graphics: {}", result.GetError());
+				ShutdownGraphics();
 			}
 		}
 
 		if (m_Specification.EnableImGui)
 		{
-			if (!m_Window || !m_Specification.EnableGraphics)
+			if (!m_Window || !GraphicsDevice::IsInitialized())
 			{
 				return Error{"ImGui requires a window and graphics"};
 			}
@@ -189,12 +200,8 @@ namespace Strada
 		return {};
 	}
 
-	void Application::ShutdownEngine()
+	void Application::ShutdownGraphics()
 	{
-		// Layers may still be attached when initialization failed part-way (e.g. the ImGui overlay).
-		DetachAllLayers();
-		m_ImGuiLayer = nullptr;
-
 		m_FrameCommandList = nullptr;
 		m_Swapchain.reset();
 		if (ShaderLibrary::IsInitialized())
@@ -205,6 +212,20 @@ namespace Strada
 		{
 			GraphicsDevice::Shutdown();
 		}
+	}
+
+	void Application::ShutdownEngine()
+	{
+		// Layers may still be attached when initialization failed part-way (e.g. the ImGui overlay).
+		DetachAllLayers();
+		m_ImGuiLayer = nullptr;
+
+		// Assets go before the GPU objects created from them.
+		if (AssetManager::IsInitialized())
+		{
+			AssetManager::Shutdown();
+		}
+		ShutdownGraphics();
 
 		Input::SetCursorModeHandler(nullptr);
 		Input::Reset();
@@ -267,7 +288,7 @@ namespace Strada
 
 				if (m_BackBufferAvailable)
 				{
-					if (!m_PendingScreenshotPath.empty())
+					if (!m_PendingScreenshots.empty())
 					{
 						CaptureScreenshot();
 					}
@@ -423,31 +444,54 @@ namespace Strada
 
 	void Application::RequestScreenshot(std::filesystem::path path)
 	{
+		RequestScreenshotImage(
+			[path = std::move(path)](Result<Image> image)
+			{
+				if (!image)
+				{
+					ST_CORE_ERROR("Cannot capture a screenshot of '{}': {}", FileSystem::PathToUtf8(path), image.GetError());
+					return;
+				}
+				if (Result<void> written = image.GetValue().WritePNG(path); !written)
+				{
+					ST_CORE_ERROR("Screenshot failed: {}", written.GetError());
+					return;
+				}
+				ST_CORE_INFO("Saved screenshot to '{}'", FileSystem::PathToUtf8(path));
+			});
+	}
+
+	void Application::RequestScreenshotImage(ScreenshotCallback callback)
+	{
 		if (!m_Swapchain)
 		{
-			ST_CORE_ERROR("Cannot capture a screenshot of '{}': the application has no window", FileSystem::PathToUtf8(path));
+			callback(Error{"the application has no window"});
 			return;
 		}
-		m_PendingScreenshotPath = std::move(path);
+		m_PendingScreenshots.push_back(std::move(callback));
 	}
 
 	void Application::CaptureScreenshot()
 	{
-		std::filesystem::path const path = std::move(m_PendingScreenshotPath);
-		m_PendingScreenshotPath.clear();
+		// Callbacks may request another capture; those are served by a later frame.
+		std::vector<ScreenshotCallback> callbacks = std::move(m_PendingScreenshots);
+		m_PendingScreenshots.clear();
 
-		Result<Image> image = ReadbackTexture(m_Swapchain->GetCurrentTexture());
-		if (!image)
+		Result<Image> const image = ReadbackTexture(m_Swapchain->GetCurrentTexture());
+		for (ScreenshotCallback& callback : callbacks)
 		{
-			ST_CORE_ERROR("Screenshot failed: {}", image.GetError());
-			return;
+			callback(image);
 		}
-		if (Result<void> written = image.GetValue().WritePNG(path); !written)
+	}
+
+	void Application::CancelPendingScreenshots()
+	{
+		std::vector<ScreenshotCallback> callbacks = std::move(m_PendingScreenshots);
+		m_PendingScreenshots.clear();
+		for (ScreenshotCallback& callback : callbacks)
 		{
-			ST_CORE_ERROR("Screenshot failed: {}", written.GetError());
-			return;
+			callback(Error{"the application closed before the screenshot was captured"});
 		}
-		ST_CORE_INFO("Saved screenshot to '{}'", FileSystem::PathToUtf8(path));
 	}
 
 	void Application::ClearBackBuffer()
