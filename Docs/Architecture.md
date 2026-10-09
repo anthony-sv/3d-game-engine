@@ -174,12 +174,17 @@ when the sky light has no environment), the sky pass, and the tonemap pass (with
 first use by compute shaders (`EnvironmentProcessor`): equirect to an RGBA16F cubemap (a quarter of the equirect width,
 power of two, 16-1024) with box-filtered mips, a 32x32 irradiance cube and a 256x256 GGX-prefiltered cube with 6 mips
 (filtered importance sampling, perceptual roughness linear in mip); the 128x128 BRDF table is computed at
-`Renderer::Init`. The remaining passes below are added in order without changing that structure.
+`Renderer::Init`. Shadows (pass 1 below) are implemented: the first shadow-casting directional light gets PCSS soft
+shadows sized by its `LightSize`, with cascade cross-fades and a fade at the shadow distance; local lights use a
+rotated 16-tap PCF. Shadow projection math lives in `Renderer/ShadowMath` (unit tested). The remaining passes below
+are added in order without changing that structure.
 
 Frame passes, in order (target design):
 
 1. **Shadow pass** — directional light cascaded shadow maps (up to 4 cascades, `D32_FLOAT` texture array, stable
-   cascades with texel snapping), plus spot-light shadow maps (atlas) for shadow-casting spot lights.
+   cascades: bounding spheres with texel snapping, depth range extended to every caster), plus a local shadow-map
+   array (`D32_FLOAT`, up to 24 slices) with one slice per shadow-casting spot light and six per point light (cube
+   faces with guard bands, face chosen in the shader). Shadow maps use reversed Z; blended materials do not cast.
 2. **Depth/normal prepass** — depth (`D32_FLOAT`, reversed-Z), view-space normals (`RGBA16_FLOAT` or octahedral
    `RG16_FLOAT`), and in the editor the entity-ID target (`R32_UINT`) for picking.
 3. **SSAO** — GTAO (horizon-based, cosine-weighted) at full or half resolution + edge-aware spatial denoise;

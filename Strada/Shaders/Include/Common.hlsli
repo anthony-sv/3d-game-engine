@@ -17,4 +17,10 @@ float3 SrgbToLinear(float3 color)
 	return select(color <= 0.04045, low, high);
 }
 
+// Interleaved gradient noise (Jimenez 2014) in [0, 1).
+float InterleavedGradientNoise(float2 pixel)
+{
+	return frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))));
+}
+
 #endif

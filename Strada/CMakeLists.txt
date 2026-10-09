@@ -91,6 +91,8 @@ set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/SceneRenderer.cpp
     Source/Strada/Renderer/SceneRenderer.h
     Source/Strada/Renderer/SceneRendererSettings.h
+    Source/Strada/Renderer/ShadowMath.cpp
+    Source/Strada/Renderer/ShadowMath.h
     Source/Strada/Renderer/TextureMips.cpp
     Source/Strada/Renderer/TextureMips.h
 )
@@ -226,6 +228,8 @@ strada_add_shaders(Strada
         ForwardPBR_VS:ForwardPBR.hlsl:VSMain:vertex
         ForwardPBR_PS:ForwardPBR.hlsl:PSMain:pixel
         Tonemap_PS:Tonemap.hlsl:PSMain:pixel
+        Shadow_VS:Shadow.hlsl:VSMain:vertex
+        Shadow_PS:Shadow.hlsl:PSMain:pixel
         Sky_VS:Sky.hlsl:VSMain:vertex
         Sky_PS:Sky.hlsl:PSMain:pixel
         EnvironmentEquirectToCube_CS:Environment.hlsl:CSEquirectToCube:compute

@@ -85,12 +85,6 @@ float3 TonemapPBRNeutralCurve(float3 color)
 	return lerp(color, newPeak.xxx, g);
 }
 
-// Interleaved gradient noise (Jimenez 2014) in [0, 1).
-float InterleavedGradientNoise(float2 pixel)
-{
-	return frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))));
-}
-
 float4 PSMain(FullscreenVertexOutput input) : SV_Target0
 {
 	float3 color = max(g_SceneColor.Load(int3(input.Position.xy, 0)).rgb, 0.0);

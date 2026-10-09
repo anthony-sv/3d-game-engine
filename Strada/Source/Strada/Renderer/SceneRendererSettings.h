@@ -43,6 +43,19 @@ namespace Strada
 		// Adds sub-quantization noise against banding in gradients.
 		bool Dithering = true;
 
+		bool Shadows = true;
+		// Percentage-closer soft shadows sized by the directional light's angular diameter; off uses a fixed filter.
+		bool SoftShadows = true;
+		// View distance covered by the directional light's cascades.
+		float ShadowDistance = 100.0f;
+		// 1-4.
+		uint32_t CascadeCount = 4;
+		// Blends uniform (0) and logarithmic (1) cascade splits.
+		float CascadeSplitLambda = 0.75f;
+		// Texels per side of each cascade and of each local light shadow map (rounded down to a power of two).
+		uint32_t ShadowMapSize = 2048;
+		uint32_t LocalShadowMapSize = 1024;
+
 		// Linear multiplier applied to scene radiance: 1 / (1.2 * 2^EV100).
 		float GetExposure() const { return 1.0f / (1.2f * std::exp2(EV100)); }
 
@@ -53,8 +66,13 @@ namespace Strada
 	struct StructTraits<SceneRendererSettings>
 	{
 		static constexpr std::string_view Name = "Renderer";
-		static constexpr auto Fields =
-			std::make_tuple(Field("EV100", &SceneRendererSettings::EV100), Field("Tonemapper", &SceneRendererSettings::Tonemapper),
-		                    Field("Dithering", &SceneRendererSettings::Dithering));
+		static constexpr auto Fields = std::make_tuple(
+			Field("EV100", &SceneRendererSettings::EV100), Field("Tonemapper", &SceneRendererSettings::Tonemapper),
+			Field("Dithering", &SceneRendererSettings::Dithering), Field("Shadows", &SceneRendererSettings::Shadows),
+			Field("SoftShadows", &SceneRendererSettings::SoftShadows), Field("ShadowDistance", &SceneRendererSettings::ShadowDistance),
+			Field("CascadeCount", &SceneRendererSettings::CascadeCount),
+			Field("CascadeSplitLambda", &SceneRendererSettings::CascadeSplitLambda),
+			Field("ShadowMapSize", &SceneRendererSettings::ShadowMapSize),
+			Field("LocalShadowMapSize", &SceneRendererSettings::LocalShadowMapSize));
 	};
 }

@@ -1,5 +1,5 @@
 // Forward metallic-roughness PBR (glTF 2.0 material model). Writes linear HDR radiance pre-multiplied by exposure.
-// Set 0: frame constants, lights, samplers. Set 1: material. Push constants: per-draw transforms.
+// Set 0: frame constants, lights, environment, shadows, samplers. Set 1: material. Push constants: per-draw transforms.
 
 #include "Include/IBL.hlsli"
 #include "Include/RendererInterop.h"
@@ -9,8 +9,15 @@ StructuredBuffer<LightData> g_Lights : register(t0, space0);
 TextureCube g_IrradianceCube : register(t1, space0);
 TextureCube g_PrefilteredCube : register(t2, space0);
 Texture2D g_BrdfLut : register(t3, space0);
+ConstantBuffer<ShadowConstants> g_Shadow : register(b2, space0);
+Texture2DArray g_CascadeShadowMap : register(t5, space0);
+Texture2DArray g_LocalShadowMap : register(t6, space0);
 SamplerState g_MaterialSampler : register(s0, space0);
 SamplerState g_ClampSampler : register(s1, space0);
+// NVRHI's Vulkan comparison samplers use LESS: the result is 1 where the receiver lies behind the stored occluder
+// (reversed Z), i.e. the occluded fraction.
+SamplerComparisonState g_ShadowCompareSampler : register(s2, space0);
+SamplerState g_ShadowPointSampler : register(s3, space0);
 
 ConstantBuffer<MaterialConstants> g_Material : register(b0, space1);
 Texture2D g_BaseColorTexture : register(t0, space1);
@@ -81,6 +88,154 @@ float RangeWindow(float distanceSquared, float range)
 	return window * window;
 }
 
+static uint const ShadowFilterSamples = 16;
+static uint const BlockerSearchSamples = 16;
+// Upper bound of the soft-shadow filter radius, in texels (bounds the cost and the light leaking of huge penumbrae).
+static float const MaxPenumbraTexels = 20.0;
+// Normal offset applied to receivers, in texels.
+static float const NormalOffsetTexels = 1.5;
+static float const LocalFilterTexels = 1.75;
+
+// Points of a Vogel (golden angle) disk in the unit circle, rotated by phi.
+float2 VogelDisk(uint index, uint count, float phi)
+{
+	float radius = sqrt((float(index) + 0.5) / float(count));
+	float theta = float(index) * 2.39996323 + phi;
+	return radius * float2(cos(theta), sin(theta));
+}
+
+float2 ClipToShadowUV(float2 clip)
+{
+	return clip * float2(0.5, -0.5) + 0.5;
+}
+
+// Fraction of light reaching a receiver at depth through a disk filter of radiusUV.
+float FilterShadow(Texture2DArray shadowMap, float2 uv, float slice, float depth, float radiusUV, float phi)
+{
+	float occluded = 0.0;
+	for (uint i = 0; i < ShadowFilterSamples; i++)
+	{
+		float2 offset = VogelDisk(i, ShadowFilterSamples, phi) * radiusUV;
+		occluded += shadowMap.SampleCmpLevelZero(g_ShadowCompareSampler, float3(uv + offset, slice), depth);
+	}
+	return 1.0 - occluded / float(ShadowFilterSamples);
+}
+
+float SampleCascade(uint cascade, float3 worldPosition, float3 geometricNormal, float phi)
+{
+	float texelSize = g_Shadow.CascadeTexelSizes[cascade];
+	float texelUV = 1.0 / g_Shadow.CascadeMapSize;
+	float width = g_Shadow.CascadeWidths[cascade];
+	float depthRange = g_Shadow.CascadeDepthRanges[cascade];
+	float4x4 viewProjection = g_Shadow.CascadeViewProjection[cascade];
+
+	float3 position = worldPosition + geometricNormal * (texelSize * NormalOffsetTexels);
+	float3 clip = mul(viewProjection, float4(position, 1.0)).xyz;
+	float2 uv = ClipToShadowUV(clip.xy);
+	if (any(uv < 0.0) || any(uv > 1.0) || clip.z <= 0.0)
+	{
+		return 1.0;
+	}
+
+	float radiusUV = NormalOffsetTexels * texelUV;
+	if (g_Shadow.SoftShadows != 0 && g_Shadow.LightTanHalfAngle > 0.0)
+	{
+		// Blocker search over the region from which an occluder anywhere between the receiver and the light could
+		// cast a penumbra onto it.
+		float searchUV = clamp(g_Shadow.LightTanHalfAngle * (1.0 - clip.z) * depthRange / width, texelUV, MaxPenumbraTexels * texelUV);
+		float blockerDepth = 0.0;
+		float blockerCount = 0.0;
+		for (uint i = 0; i < BlockerSearchSamples; i++)
+		{
+			float2 offset = VogelDisk(i, BlockerSearchSamples, phi) * searchUV;
+			float storedDepth = g_CascadeShadowMap.SampleLevel(g_ShadowPointSampler, float3(uv + offset, cascade), 0).r;
+			if (storedDepth > clip.z)
+			{
+				blockerDepth += storedDepth;
+				blockerCount += 1.0;
+			}
+		}
+		if (blockerCount == 0.0)
+		{
+			return 1.0;
+		}
+		float blockerDistance = (blockerDepth / blockerCount - clip.z) * depthRange;
+		radiusUV = clamp(blockerDistance * g_Shadow.LightTanHalfAngle / width, texelUV, MaxPenumbraTexels * texelUV);
+
+		// Push the receiver off the surface by the filter radius so wide kernels do not self-shadow sloped surfaces.
+		float radiusWorld = radiusUV * width;
+		position = worldPosition + geometricNormal * max(texelSize * NormalOffsetTexels, radiusWorld);
+		clip = mul(viewProjection, float4(position, 1.0)).xyz;
+		uv = ClipToShadowUV(clip.xy);
+	}
+	return FilterShadow(g_CascadeShadowMap, uv, float(cascade), clip.z, radiusUV, phi);
+}
+
+float SampleDirectionalShadow(float3 worldPosition, float3 geometricNormal, float phi)
+{
+	float viewDepth = dot(worldPosition - g_Frame.CameraPosition, g_Shadow.CameraForward);
+	uint cascadeCount = g_Shadow.CascadeCount;
+	if (cascadeCount == 0 || viewDepth >= g_Shadow.ShadowDistance)
+	{
+		return 1.0;
+	}
+	uint cascade = 0;
+	while (cascade + 1 < cascadeCount && viewDepth >= g_Shadow.CascadeSplits[cascade])
+	{
+		cascade++;
+	}
+	float shadow = SampleCascade(cascade, worldPosition, geometricNormal, phi);
+
+	// Blend into the next cascade (or out of the shadowed range) over the last tenth of this one.
+	float start = cascade == 0 ? 0.0 : g_Shadow.CascadeSplits[cascade - 1];
+	float end = g_Shadow.CascadeSplits[cascade];
+	float blendStart = end - (end - start) * 0.1;
+	if (viewDepth > blendStart)
+	{
+		float next = cascade + 1 < cascadeCount ? SampleCascade(cascade + 1, worldPosition, geometricNormal, phi) : 1.0;
+		shadow = lerp(shadow, next, saturate((viewDepth - blendStart) / max(end - blendStart, 1e-4)));
+	}
+	return shadow;
+}
+
+uint GetCubeFace(float3 direction)
+{
+	float3 magnitude = abs(direction);
+	if (magnitude.x >= magnitude.y && magnitude.x >= magnitude.z)
+	{
+		return direction.x >= 0.0 ? 0 : 1;
+	}
+	if (magnitude.y >= magnitude.z)
+	{
+		return direction.y >= 0.0 ? 2 : 3;
+	}
+	return direction.z >= 0.0 ? 4 : 5;
+}
+
+float SampleLocalShadow(LightData light, float3 worldPosition, float3 geometricNormal, float phi)
+{
+	float3 fromLight = worldPosition - light.Position;
+	uint slice = uint(light.ShadowIndex);
+	if (light.Type == LightTypePoint)
+	{
+		slice += GetCubeFace(fromLight);
+	}
+	float texelSize = light.ShadowTexelScale * length(fromLight);
+	float3 position = worldPosition + geometricNormal * (texelSize * NormalOffsetTexels);
+	float4 clip = mul(g_Shadow.LocalViewProjection[slice], float4(position, 1.0));
+	if (clip.w <= 0.0)
+	{
+		return 1.0;
+	}
+	float3 ndc = clip.xyz / clip.w;
+	float2 uv = ClipToShadowUV(ndc.xy);
+	if (any(uv < 0.0) || any(uv > 1.0))
+	{
+		return 1.0;
+	}
+	return FilterShadow(g_LocalShadowMap, uv, float(slice), ndc.z, LocalFilterTexels / g_Shadow.LocalMapSize, phi);
+}
+
 float4 PSMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
 	float4 baseColor = g_Material.BaseColor * g_BaseColorTexture.Sample(g_MaterialSampler, input.TexCoord);
@@ -96,6 +251,9 @@ float4 PSMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 	{
 		normal = -normal;
 	}
+	float3 geometricNormal = normal;
+	// Rotates the shadow filter kernels per pixel; the noise turns banding into fine grain.
+	float shadowPhi = InterleavedGradientNoise(input.Position.xy) * 2.0 * PI;
 	if ((g_Material.Flags & MaterialFlagHasNormalMap) != 0 && dot(tangent, tangent) > 1e-12)
 	{
 		tangent = normalize(tangent);
@@ -145,6 +303,15 @@ float4 PSMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 		if (NoL <= 0.0 || attenuation <= 0.0)
 		{
 			continue;
+		}
+		if (light.ShadowIndex >= 0)
+		{
+			attenuation *= light.Type == LightTypeDirectional ? SampleDirectionalShadow(input.WorldPosition, geometricNormal, shadowPhi)
+			                                                  : SampleLocalShadow(light, input.WorldPosition, geometricNormal, shadowPhi);
+			if (attenuation <= 0.0)
+			{
+				continue;
+			}
 		}
 		float3 halfVector = normalize(view + toLight);
 		float NoH = saturate(dot(normal, halfVector));

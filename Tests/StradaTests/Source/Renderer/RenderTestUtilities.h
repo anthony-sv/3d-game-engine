@@ -3,20 +3,65 @@
 #include "GpuTestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
+#include "Strada/Math/Math.h"
+#include "Strada/RHI/TextureReadback.h"
 #include "Strada/Renderer/Renderer.h"
+#include "Strada/Renderer/SceneRenderer.h"
+#include "Strada/Scene/Entity.h"
+#include "Strada/Scene/Scene.h"
+#include "Strada/Scene/SceneRendering.h"
 
 #include <doctest/doctest.h>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <utility>
 
 namespace Strada::Testing
 {
+	// Perspective camera (50 degree vertical field of view, reversed Z) for a width x height image.
+	inline SceneRendererCamera MakeTestCamera(glm::vec3 const& position, glm::vec3 const& target, uint32_t width, uint32_t height)
+	{
+		SceneRendererCamera camera;
+		camera.View = glm::lookAt(position, target, glm::vec3(0.0f, 1.0f, 0.0f));
+		camera.Projection = Math::PerspectiveReversedZ(glm::radians(50.0f), static_cast<float>(width) / static_cast<float>(height), 0.1f);
+		camera.Position = position;
+		return camera;
+	}
+
+	// An entity with a built-in mesh (material is the override of its first slot when valid).
+	inline Entity AddTestMesh(Scene& scene, char const* name, BuiltInAsset mesh, AssetHandle material, glm::vec3 const& position,
+	                          glm::vec3 const& scale = glm::vec3(1.0f))
+	{
+		Entity entity = scene.CreateEntity(name);
+		MeshComponent& component = entity.AddComponent<MeshComponent>();
+		component.Mesh = GetBuiltInHandle(mesh);
+		if (material.IsValid())
+		{
+			component.Materials = {material};
+		}
+		TransformComponent& transform = entity.GetComponent<TransformComponent>();
+		transform.Translation = position;
+		transform.Scale = scale;
+		return entity;
+	}
+
+	// Renders the scene and reads back the final image.
+	inline Image RenderToImage(Scene& scene, SceneRendererCamera const& camera, SceneRenderer& renderer)
+	{
+		RenderScene(scene, renderer, camera);
+		Result<Image> image = ReadbackTexture(renderer.GetFinalImage());
+		REQUIRE(image.IsOk());
+		return std::move(image.GetValue());
+	}
+
 	// Renderer and AssetManager on top of a GpuTestScope, for the duration of a test.
 	class RenderTestScope
 	{

@@ -24,11 +24,7 @@ namespace
 
 	SceneRendererCamera MakeCamera(glm::vec3 const& position, glm::vec3 const& target)
 	{
-		SceneRendererCamera camera;
-		camera.View = glm::lookAt(position, target, glm::vec3(0.0f, 1.0f, 0.0f));
-		camera.Projection = Math::PerspectiveReversedZ(glm::radians(50.0f), static_cast<float>(ImageWidth) / ImageHeight, 0.1f);
-		camera.Position = position;
-		return camera;
+		return Testing::MakeTestCamera(position, target, ImageWidth, ImageHeight);
 	}
 
 	AssetHandle AddMaterial(glm::vec4 const& baseColor, float metallic, float roughness,
@@ -42,35 +38,22 @@ namespace
 		return AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(data), "Test material");
 	}
 
-	Entity AddMesh(Scene& scene, char const* name, BuiltInAsset mesh, AssetHandle material, glm::vec3 const& position,
-	               glm::vec3 const& scale = glm::vec3(1.0f))
-	{
-		Entity entity = scene.CreateEntity(name);
-		MeshComponent& component = entity.AddComponent<MeshComponent>();
-		component.Mesh = GetBuiltInHandle(mesh);
-		if (material.IsValid())
-		{
-			component.Materials = {material};
-		}
-		TransformComponent& transform = entity.GetComponent<TransformComponent>();
-		transform.Translation = position;
-		transform.Scale = scale;
-		return entity;
-	}
-
 	// A small lit scene: floor, metal and plastic spheres, a cube, a blended quad, three light types and ambient light.
 	Scope<Scene> MakeShowcaseScene()
 	{
 		auto scene = CreateScope<Scene>("Showcase");
-		AddMesh(*scene, "Floor", BuiltInAsset::PlaneMesh, AddMaterial({0.5f, 0.5f, 0.5f, 1.0f}, 0.0f, 0.8f), {0.0f, 0.0f, 0.0f},
-		        glm::vec3(8.0f));
-		AddMesh(*scene, "Plastic", BuiltInAsset::SphereMesh, AddMaterial({0.8f, 0.1f, 0.1f, 1.0f}, 0.0f, 0.35f), {-1.2f, 0.5f, 0.0f});
-		AddMesh(*scene, "Gold", BuiltInAsset::SphereMesh, AddMaterial({1.0f, 0.77f, 0.34f, 1.0f}, 1.0f, 0.3f), {0.0f, 0.5f, -0.6f});
-		Entity cube =
-			AddMesh(*scene, "Cube", BuiltInAsset::CubeMesh, AddMaterial({0.2f, 0.4f, 0.9f, 1.0f}, 0.0f, 0.6f), {1.3f, 0.5f, 0.2f});
+		Testing::AddTestMesh(*scene, "Floor", BuiltInAsset::PlaneMesh, AddMaterial({0.5f, 0.5f, 0.5f, 1.0f}, 0.0f, 0.8f),
+		                     {0.0f, 0.0f, 0.0f}, glm::vec3(8.0f));
+		Testing::AddTestMesh(*scene, "Plastic", BuiltInAsset::SphereMesh, AddMaterial({0.8f, 0.1f, 0.1f, 1.0f}, 0.0f, 0.35f),
+		                     {-1.2f, 0.5f, 0.0f});
+		Testing::AddTestMesh(*scene, "Gold", BuiltInAsset::SphereMesh, AddMaterial({1.0f, 0.77f, 0.34f, 1.0f}, 1.0f, 0.3f),
+		                     {0.0f, 0.5f, -0.6f});
+		Entity cube = Testing::AddTestMesh(*scene, "Cube", BuiltInAsset::CubeMesh, AddMaterial({0.2f, 0.4f, 0.9f, 1.0f}, 0.0f, 0.6f),
+		                                   {1.3f, 0.5f, 0.2f});
 		cube.GetComponent<TransformComponent>().SetRotationEuler({0.0f, 30.0f, 0.0f});
-		AddMesh(*scene, "Glass", BuiltInAsset::QuadMesh, AddMaterial({0.2f, 0.9f, 0.3f, 0.4f}, 0.0f, 0.2f, MaterialAlphaMode::Blend),
-		        {0.0f, 0.6f, 1.0f}, glm::vec3(0.8f));
+		Testing::AddTestMesh(*scene, "Glass", BuiltInAsset::QuadMesh,
+		                     AddMaterial({0.2f, 0.9f, 0.3f, 0.4f}, 0.0f, 0.2f, MaterialAlphaMode::Blend), {0.0f, 0.6f, 1.0f},
+		                     glm::vec3(0.8f));
 
 		Entity sun = scene->CreateEntity("Sun");
 		sun.GetComponent<TransformComponent>().SetRotationEuler({-50.0f, 35.0f, 0.0f});
@@ -93,14 +76,6 @@ namespace
 		skyLight.AmbientColor = {0.35f, 0.45f, 0.6f};
 		skyLight.Intensity = 0.6f;
 		return scene;
-	}
-
-	Image Render(Scene& scene, SceneRendererCamera const& camera, SceneRenderer& renderer)
-	{
-		RenderScene(scene, renderer, camera);
-		Result<Image> image = ReadbackTexture(renderer.GetFinalImage());
-		REQUIRE(image.IsOk());
-		return std::move(image.GetValue());
 	}
 
 	glm::vec3 PixelColor(Image const& image, uint32_t x, uint32_t y)
@@ -168,9 +143,11 @@ TEST_CASE("SceneRenderer: lit scene matches the golden image")
 	Scope<Scene> scene = MakeShowcaseScene();
 	SceneRenderer renderer;
 	renderer.SetViewportSize(ImageWidth, ImageHeight);
-	Image const image = Render(*scene, MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f}), renderer);
+	Image const image = Testing::RenderToImage(*scene, MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f}), renderer);
 	CHECK(renderer.GetStatistics().Lights == 3);
-	CHECK(renderer.GetStatistics().DrawCalls == 5);
+	CHECK(renderer.GetStatistics().DrawCalls - renderer.GetStatistics().ShadowDrawCalls == 5);
+	CHECK(renderer.GetStatistics().ShadowMapViews == 4);
+	CHECK(renderer.GetStatistics().ShadowDrawCalls > 0);
 	Testing::CheckGoldenImage("SceneRenderer_Showcase", image);
 }
 
@@ -183,19 +160,19 @@ TEST_CASE("SceneRenderer: tonemappers and exposure change the image")
 	renderer.SetViewportSize(ImageWidth, ImageHeight);
 	SceneRendererCamera const camera = MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f});
 
-	Image const aces = Render(*scene, camera, renderer);
+	Image const aces = Testing::RenderToImage(*scene, camera, renderer);
 	for (TonemapOperator const tonemapper :
 	     {TonemapOperator::AgX, TonemapOperator::PBRNeutral, TonemapOperator::Reinhard, TonemapOperator::None})
 	{
 		CAPTURE(EnumToString(tonemapper));
 		scene->GetSettings().Renderer.Tonemapper = tonemapper;
-		CHECK(Testing::CompareImages(aces, Render(*scene, camera, renderer), 16).MeanDifference > 0.5);
+		CHECK(Testing::CompareImages(aces, Testing::RenderToImage(*scene, camera, renderer), 16).MeanDifference > 0.5);
 	}
 
 	// Two stops more EV darkens the red sphere.
 	scene->GetSettings().Renderer.Tonemapper = TonemapOperator::ACES;
 	scene->GetSettings().Renderer.EV100 = 2.0f;
-	Image const darker = Render(*scene, camera, renderer);
+	Image const darker = Testing::RenderToImage(*scene, camera, renderer);
 	glm::vec3 const before = PixelColor(aces, ImageWidth / 2 - 50, ImageHeight / 2);
 	glm::vec3 const after = PixelColor(darker, ImageWidth / 2 - 50, ImageHeight / 2);
 	CHECK(after.r + after.g + after.b < before.r + before.g + before.b);
@@ -207,7 +184,7 @@ TEST_CASE("SceneRenderer: material edits and resizes take effect")
 	Testing::RenderTestScope scope(stGpuTestScope);
 	Scene scene("Material");
 	AssetHandle const material = AddMaterial({1.0f, 1.0f, 1.0f, 1.0f}, 0.0f, 1.0f);
-	AddMesh(scene, "Wall", BuiltInAsset::QuadMesh, material, {0.0f, 0.0f, 0.0f}, glm::vec3(4.0f));
+	Testing::AddTestMesh(scene, "Wall", BuiltInAsset::QuadMesh, material, {0.0f, 0.0f, 0.0f}, glm::vec3(4.0f));
 	Entity light = scene.CreateEntity("Light");
 	light.AddComponent<DirectionalLightComponent>().Intensity = 2.0f;
 
@@ -216,7 +193,7 @@ TEST_CASE("SceneRenderer: material edits and resizes take effect")
 	SceneRendererCamera camera = MakeCamera({0.0f, 0.0f, 2.0f}, {0.0f, 0.0f, 0.0f});
 	camera.Projection = Math::PerspectiveReversedZ(glm::radians(50.0f), 1.0f, 0.1f);
 
-	Image const white = Render(scene, camera, renderer);
+	Image const white = Testing::RenderToImage(scene, camera, renderer);
 	glm::vec3 const center = PixelColor(white, 32, 32);
 	CHECK(center.r > 100.0f);
 	CHECK(std::abs(center.r - center.b) < 2.0f);
@@ -225,7 +202,7 @@ TEST_CASE("SceneRenderer: material edits and resizes take effect")
 	MaterialData data = asset->GetData();
 	data.BaseColor = {1.0f, 0.0f, 0.0f, 1.0f};
 	asset->SetData(data);
-	Image const red = Render(scene, camera, renderer);
+	Image const red = Testing::RenderToImage(scene, camera, renderer);
 	glm::vec3 const redCenter = PixelColor(red, 32, 32);
 	CHECK(redCenter.r > 100.0f);
 	CHECK(redCenter.b < 10.0f);
@@ -234,12 +211,12 @@ TEST_CASE("SceneRenderer: material edits and resizes take effect")
 	SceneRendererCamera behind = camera;
 	behind.View = glm::lookAt(glm::vec3(0.0f, 0.0f, -2.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 	behind.Position = {0.0f, 0.0f, -2.0f};
-	glm::vec3 const back = PixelColor(Render(scene, behind, renderer), 32, 32);
+	glm::vec3 const back = PixelColor(Testing::RenderToImage(scene, behind, renderer), 32, 32);
 	CHECK(back.r + back.g + back.b < 3.0f);
 
 	renderer.SetViewportSize(100, 40);
 	camera.Projection = Math::PerspectiveReversedZ(glm::radians(50.0f), 2.5f, 0.1f);
-	Image const resized = Render(scene, camera, renderer);
+	Image const resized = Testing::RenderToImage(scene, camera, renderer);
 	CHECK(resized.GetWidth() == 100);
 	CHECK(resized.GetHeight() == 40);
 }
@@ -256,8 +233,8 @@ TEST_CASE("SceneRenderer: image-based lighting matches the golden image")
 		{
 			AssetHandle const material = AddMaterial(row == 0 ? glm::vec4(0.95f, 0.64f, 0.54f, 1.0f) : glm::vec4(0.1f, 0.3f, 0.8f, 1.0f),
 			                                         row == 0 ? 1.0f : 0.0f, roughness[column]);
-			AddMesh(scene, "Sphere", BuiltInAsset::SphereMesh, material,
-			        {static_cast<float>(column - 1) * 1.2f, row == 0 ? 1.3f : 0.0f, 0.0f});
+			Testing::AddTestMesh(scene, "Sphere", BuiltInAsset::SphereMesh, material,
+			                     {static_cast<float>(column - 1) * 1.2f, row == 0 ? 1.3f : 0.0f, 0.0f});
 		}
 	}
 	Entity sky = scene.CreateEntity("Sky");
@@ -267,14 +244,14 @@ TEST_CASE("SceneRenderer: image-based lighting matches the golden image")
 	SceneRenderer renderer;
 	renderer.SetViewportSize(ImageWidth, ImageHeight);
 	SceneRendererCamera const camera = MakeCamera({0.0f, 0.65f, 4.2f}, {0.0f, 0.65f, 0.0f});
-	Image const image = Render(scene, camera, renderer);
+	Image const image = Testing::RenderToImage(scene, camera, renderer);
 	Testing::CheckGoldenImage("SceneRenderer_IBL", image);
 
 	// The environment intensity scales both the lighting and the sky; hiding the sky shows the ambient color.
 	skyLight.Intensity = 2.0f;
-	CHECK(Testing::CompareImages(image, Render(scene, camera, renderer), 16).MeanDifference > 5.0);
+	CHECK(Testing::CompareImages(image, Testing::RenderToImage(scene, camera, renderer), 16).MeanDifference > 5.0);
 	skyLight.DrawSkybox = false;
 	skyLight.AmbientColor = glm::vec3(0.0f);
-	glm::vec3 const corner = PixelColor(Render(scene, camera, renderer), 2, 2);
+	glm::vec3 const corner = PixelColor(Testing::RenderToImage(scene, camera, renderer), 2, 2);
 	CHECK(corner.r + corner.g + corner.b < 3.0f);
 }

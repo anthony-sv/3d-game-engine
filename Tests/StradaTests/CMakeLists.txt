@@ -31,6 +31,8 @@ add_executable(StradaTests
     Source/RHI/TextureReadbackTests.cpp
     Source/Renderer/RenderTestUtilities.h
     Source/Renderer/SceneRendererTests.cpp
+    Source/Renderer/ShadowMathTests.cpp
+    Source/Renderer/ShadowRenderingTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneSerializerTests.cpp

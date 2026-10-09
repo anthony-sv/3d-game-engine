@@ -10,24 +10,32 @@
 #include "Strada/RHI/ShaderLibrary.h"
 #include "Strada/Renderer/EnvironmentMap.h"
 #include "Strada/Renderer/Renderer.h"
-
-#include "RendererInterop.h"
+#include "Strada/Renderer/ShadowMath.h"
 
 #include <algorithm>
+#include <bit>
+#include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace Strada
 {
 	static_assert(sizeof(ShaderInterop::FrameConstants) == 192);
 	static_assert(sizeof(ShaderInterop::LightData) == 64);
+	static_assert(sizeof(ShaderInterop::ShadowConstants) == 1904);
 	static_assert(sizeof(ShaderInterop::DrawConstants) == 128, "Push constants must fit the 128 bytes Vulkan guarantees");
+	static_assert(sizeof(ShaderInterop::ShadowDrawConstants) == 128, "Push constants must fit the 128 bytes Vulkan guarantees");
 	static_assert(sizeof(ShaderInterop::TonemapConstants) == 16);
+	static_assert(ShaderInterop::MaxShadowCascades == Shadows::MaxCascades);
 
 	namespace
 	{
 		constexpr nvrhi::Format ColorFormat = nvrhi::Format::RGBA16_FLOAT;
 		constexpr nvrhi::Format DepthFormat = nvrhi::Format::D32;
 		constexpr nvrhi::Format FinalFormat = nvrhi::Format::RGBA8_UNORM;
+		constexpr nvrhi::Format ShadowFormat = nvrhi::Format::D32;
+		// Texels kept free around each point light face for the shadow filter (see ComputePointLightViewProjections).
+		constexpr uint32_t PointShadowGuardTexels = 3;
 
 		uint32_t PipelineIndex(bool blend, bool doubleSided)
 		{
@@ -37,6 +45,35 @@ namespace Strada
 		Ref<MaterialAsset> GetDefaultMaterial()
 		{
 			return AssetManager::GetAsset<MaterialAsset>(GetBuiltInHandle(BuiltInAsset::DefaultMaterial));
+		}
+
+		uint32_t ShadowMapSize(uint32_t requested)
+		{
+			return std::bit_floor(std::clamp(requested, 256u, 8192u));
+		}
+
+		// Whether a world-space box can cast into an orthographic shadow view: its projected footprint overlaps the map and
+		// it is not entirely behind the farthest receiver. Casters towards the light are always inside (FitCascade).
+		bool IntersectsOrthographicView(AABB const& bounds, glm::mat4 const& viewProjection)
+		{
+			glm::vec3 minimum(std::numeric_limits<float>::max());
+			glm::vec3 maximum(std::numeric_limits<float>::lowest());
+			for (uint32_t i = 0; i < 8; i++)
+			{
+				glm::vec3 const corner((i & 1) ? bounds.Max.x : bounds.Min.x, (i & 2) ? bounds.Max.y : bounds.Min.y,
+				                       (i & 4) ? bounds.Max.z : bounds.Min.z);
+				glm::vec3 const clip = glm::vec3(viewProjection * glm::vec4(corner, 1.0f));
+				minimum = glm::min(minimum, clip);
+				maximum = glm::max(maximum, clip);
+			}
+			return maximum.x >= -1.0f && minimum.x <= 1.0f && maximum.y >= -1.0f && minimum.y <= 1.0f && maximum.z >= 0.0f;
+		}
+
+		bool IntersectsSphere(AABB const& bounds, glm::vec3 const& center, float radius)
+		{
+			glm::vec3 const closest = glm::clamp(center, bounds.Min, bounds.Max);
+			glm::vec3 const offset = closest - center;
+			return glm::dot(offset, offset) <= radius * radius;
 		}
 	}
 
@@ -54,6 +91,11 @@ namespace Strada
 		frameDesc.debugName = "Frame constants";
 		m_FrameConstants = device->createBuffer(frameDesc);
 
+		nvrhi::BufferDesc shadowDesc = frameDesc;
+		shadowDesc.byteSize = sizeof(ShaderInterop::ShadowConstants);
+		shadowDesc.debugName = "Shadow constants";
+		m_ShadowConstants = device->createBuffer(shadowDesc);
+
 		nvrhi::BufferDesc lightDesc;
 		lightDesc.byteSize = sizeof(ShaderInterop::LightData) * ShaderInterop::MaxLights;
 		lightDesc.structStride = sizeof(ShaderInterop::LightData);
@@ -62,24 +104,74 @@ namespace Strada
 		lightDesc.debugName = "Lights";
 		m_LightBuffer = device->createBuffer(lightDesc);
 
+		nvrhi::SamplerDesc compareDesc;
+		compareDesc.setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
+		compareDesc.setReductionType(nvrhi::SamplerReductionType::Comparison);
+		m_ShadowCompareSampler = device->createSampler(compareDesc);
+		nvrhi::SamplerDesc pointDesc;
+		pointDesc.setAllFilters(false).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp);
+		m_ShadowPointSampler = device->createSampler(pointDesc);
+
+		// Bound when a view has no shadow map; depth 0 is the far plane, so nothing is occluded.
+		nvrhi::TextureDesc fallbackDesc;
+		fallbackDesc.dimension = nvrhi::TextureDimension::Texture2DArray;
+		fallbackDesc.width = 1;
+		fallbackDesc.height = 1;
+		fallbackDesc.arraySize = 1;
+		fallbackDesc.format = ShadowFormat;
+		fallbackDesc.isRenderTarget = true;
+		fallbackDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+		fallbackDesc.keepInitialState = true;
+		fallbackDesc.setClearValue(nvrhi::Color(0.0f));
+		fallbackDesc.debugName = "Fallback shadow map";
+		m_FallbackShadowMap = device->createTexture(fallbackDesc);
+		if (m_FallbackShadowMap)
+		{
+			m_CommandList->open();
+			m_CommandList->clearDepthStencilTexture(m_FallbackShadowMap, nvrhi::AllSubresources, true, 0.0f, false, 0);
+			m_CommandList->close();
+			device->executeCommandList(m_CommandList);
+		}
+
 		nvrhi::BindingLayoutDesc frameLayout;
 		frameLayout.visibility = nvrhi::ShaderType::All;
 		frameLayout.registerSpace = 0;
 		frameLayout.registerSpaceIsDescriptorSet = true;
 		frameLayout.bindings = {
 			nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+			nvrhi::BindingLayoutItem::VolatileConstantBuffer(2),
 			nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
 			nvrhi::BindingLayoutItem::Texture_SRV(1),
 			nvrhi::BindingLayoutItem::Texture_SRV(2),
 			nvrhi::BindingLayoutItem::Texture_SRV(3),
 			nvrhi::BindingLayoutItem::Texture_SRV(4),
+			nvrhi::BindingLayoutItem::Texture_SRV(5),
+			nvrhi::BindingLayoutItem::Texture_SRV(6),
 			nvrhi::BindingLayoutItem::Sampler(0),
 			nvrhi::BindingLayoutItem::Sampler(1),
+			nvrhi::BindingLayoutItem::Sampler(2),
+			nvrhi::BindingLayoutItem::Sampler(3),
 			nvrhi::BindingLayoutItem::PushConstants(1, sizeof(ShaderInterop::DrawConstants)),
 		};
 		m_FrameLayout = device->createBindingLayout(frameLayout);
-		nvrhi::ITexture* fallback = Renderer::GetFallbackCube();
-		UpdateFrameBindings(fallback, fallback, fallback);
+		nvrhi::ITexture* fallbackCube = Renderer::GetFallbackCube();
+		UpdateFrameBindings({fallbackCube, fallbackCube, fallbackCube, m_FallbackShadowMap, m_FallbackShadowMap});
+
+		nvrhi::BindingLayoutDesc shadowLayout;
+		shadowLayout.visibility = nvrhi::ShaderType::All;
+		shadowLayout.registerSpace = 0;
+		shadowLayout.registerSpaceIsDescriptorSet = true;
+		shadowLayout.bindings = {
+			nvrhi::BindingLayoutItem::PushConstants(0, sizeof(ShaderInterop::ShadowDrawConstants)),
+			nvrhi::BindingLayoutItem::Sampler(0),
+		};
+		m_ShadowLayout = device->createBindingLayout(shadowLayout);
+		nvrhi::BindingSetDesc shadowBindings;
+		shadowBindings.bindings = {
+			nvrhi::BindingSetItem::PushConstants(0, sizeof(ShaderInterop::ShadowDrawConstants)),
+			nvrhi::BindingSetItem::Sampler(0, Renderer::GetMaterialSampler()),
+		};
+		m_ShadowBindings = device->createBindingSet(shadowBindings, m_ShadowLayout);
 
 		nvrhi::VertexAttributeDesc const attributes[] = {
 			nvrhi::VertexAttributeDesc()
@@ -114,36 +206,41 @@ namespace Strada
 		};
 		m_TonemapLayout = device->createBindingLayout(tonemapLayout);
 
-		ST_CORE_ASSERT(m_CommandList && m_FrameConstants && m_LightBuffer && m_FrameLayout && m_FrameBindings && m_InputLayout &&
-		                   m_TonemapLayout,
+		ST_CORE_ASSERT(m_CommandList && m_FrameConstants && m_ShadowConstants && m_LightBuffer && m_ShadowCompareSampler &&
+		                   m_ShadowPointSampler && m_FallbackShadowMap && m_FrameLayout && m_FrameBindings && m_ShadowLayout &&
+		                   m_ShadowBindings && m_InputLayout && m_TonemapLayout,
 		               "Failed to create scene renderer resources");
 	}
 
 	SceneRenderer::~SceneRenderer() = default;
 
-	void SceneRenderer::UpdateFrameBindings(nvrhi::ITexture* irradiance, nvrhi::ITexture* prefiltered, nvrhi::ITexture* radiance)
+	void SceneRenderer::UpdateFrameBindings(FrameTextures const& textures)
 	{
-		if (m_FrameBindings && m_BoundTextures[0] == irradiance && m_BoundTextures[1] == prefiltered && m_BoundTextures[2] == radiance)
+		if (m_FrameBindings && m_BoundTextures == textures)
 		{
 			return;
 		}
 		nvrhi::TextureDimension const cube = nvrhi::TextureDimension::TextureCube;
+		nvrhi::TextureDimension const array = nvrhi::TextureDimension::Texture2DArray;
 		nvrhi::BindingSetDesc frameBindings;
 		frameBindings.bindings = {
 			nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameConstants),
+			nvrhi::BindingSetItem::ConstantBuffer(2, m_ShadowConstants),
 			nvrhi::BindingSetItem::StructuredBuffer_SRV(0, m_LightBuffer),
-			nvrhi::BindingSetItem::Texture_SRV(1, irradiance, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
-			nvrhi::BindingSetItem::Texture_SRV(2, prefiltered, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
+			nvrhi::BindingSetItem::Texture_SRV(1, textures.Irradiance, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
+			nvrhi::BindingSetItem::Texture_SRV(2, textures.Prefiltered, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
 			nvrhi::BindingSetItem::Texture_SRV(3, Renderer::GetBrdfLut()),
-			nvrhi::BindingSetItem::Texture_SRV(4, radiance, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
+			nvrhi::BindingSetItem::Texture_SRV(4, textures.Radiance, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
+			nvrhi::BindingSetItem::Texture_SRV(5, textures.CascadeShadowMap, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, array),
+			nvrhi::BindingSetItem::Texture_SRV(6, textures.LocalShadowMap, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, array),
 			nvrhi::BindingSetItem::Sampler(0, Renderer::GetMaterialSampler()),
 			nvrhi::BindingSetItem::Sampler(1, Renderer::GetLinearClampSampler()),
+			nvrhi::BindingSetItem::Sampler(2, m_ShadowCompareSampler),
+			nvrhi::BindingSetItem::Sampler(3, m_ShadowPointSampler),
 			nvrhi::BindingSetItem::PushConstants(1, sizeof(ShaderInterop::DrawConstants)),
 		};
 		m_FrameBindings = GraphicsDevice::GetDevice()->createBindingSet(frameBindings, m_FrameLayout);
-		m_BoundTextures[0] = irradiance;
-		m_BoundTextures[1] = prefiltered;
-		m_BoundTextures[2] = radiance;
+		m_BoundTextures = textures;
 	}
 
 	void SceneRenderer::SetViewportSize(uint32_t width, uint32_t height)
@@ -259,6 +356,39 @@ namespace Strada
 		return pipeline;
 	}
 
+	nvrhi::IGraphicsPipeline* SceneRenderer::GetShadowPipeline(bool masked, bool doubleSided)
+	{
+		nvrhi::GraphicsPipelineHandle& pipeline = m_ShadowPipelines[(masked ? 2u : 0u) + (doubleSided ? 1u : 0u)];
+		if (pipeline)
+		{
+			return pipeline;
+		}
+
+		nvrhi::GraphicsPipelineDesc desc;
+		desc.inputLayout = m_InputLayout;
+		desc.VS = ShaderLibrary::Get("Shadow_VS");
+		// Opaque casters only write depth.
+		desc.PS = masked ? ShaderLibrary::Get("Shadow_PS") : nullptr;
+		desc.bindingLayouts = {m_ShadowLayout, Renderer::GetMaterialBindingLayout()};
+		desc.renderState.rasterState.cullMode = doubleSided ? nvrhi::RasterCullMode::None : nvrhi::RasterCullMode::Back;
+		desc.renderState.rasterState.frontCounterClockwise = true;
+		// Reversed Z: a negative slope-scaled bias moves stored depths away from the light, against self-shadowing on
+		// surfaces at grazing angles (receivers also apply a normal offset).
+		desc.renderState.rasterState.slopeScaledDepthBias = -1.5f;
+		desc.renderState.depthStencilState.depthTestEnable = true;
+		desc.renderState.depthStencilState.depthWriteEnable = true;
+		desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::GreaterOrEqual;
+
+		nvrhi::FramebufferInfo info;
+		info.depthFormat = ShadowFormat;
+		pipeline = GraphicsDevice::GetDevice()->createGraphicsPipeline(desc, info);
+		if (!pipeline)
+		{
+			ST_CORE_ERROR("Failed to create a shadow pipeline");
+		}
+		return pipeline;
+	}
+
 	void SceneRenderer::BeginScene(SceneRendererCamera const& camera, SceneRendererSettings const& settings)
 	{
 		ST_CORE_ASSERT(!m_InScene, "BeginScene called twice without EndScene");
@@ -269,12 +399,16 @@ namespace Strada
 		m_Environment = {};
 		m_OpaqueItems.clear();
 		m_BlendItems.clear();
-		m_LightData.clear();
-		m_LightCount = 0;
+		m_Lights.clear();
+		m_ShadowedDirectionalLight = -1;
+		m_DirectionalLightSize = 0.0f;
+		m_LocalShadowLights.clear();
+		m_ShadowViews.clear();
 		m_Statistics = {};
 	}
 
-	void SceneRenderer::SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, glm::mat4 const& transform)
+	void SceneRenderer::SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, glm::mat4 const& transform,
+	                               bool castShadows)
 	{
 		ST_CORE_ASSERT(m_InScene, "SubmitMesh outside BeginScene/EndScene");
 		if (!mesh)
@@ -303,41 +437,61 @@ namespace Strada
 			item.SubmeshIndex = i;
 			// Distance along the view direction (camera looks down -Z) for sorting.
 			item.ViewDepth = -(viewModel * glm::vec4(submesh.Bounds.GetCenter(), 1.0f)).z;
+			item.WorldBounds = submesh.Bounds.Transform(transform);
+			item.CastShadows = castShadows;
 			(material->GetData().AlphaMode == MaterialAlphaMode::Blend ? m_BlendItems : m_OpaqueItems).push_back(std::move(item));
 		}
 	}
 
 	void SceneRenderer::SubmitDirectionalLight(DirectionalLightSubmission const& light)
 	{
+		if (m_Lights.size() >= ShaderInterop::MaxLights)
+		{
+			return;
+		}
 		ShaderInterop::LightData data{};
 		data.Type = ShaderInterop::LightTypeDirectional;
 		data.Direction = glm::normalize(light.Direction);
 		data.Radiance = light.Color * light.Intensity;
-		if (m_LightCount < ShaderInterop::MaxLights)
+		data.ShadowIndex = -1;
+		if (light.CastShadows && m_ShadowedDirectionalLight < 0)
 		{
-			m_LightData.insert(m_LightData.end(), reinterpret_cast<uint8_t const*>(&data),
-			                   reinterpret_cast<uint8_t const*>(&data) + sizeof(data));
-			m_LightCount++;
+			m_ShadowedDirectionalLight = static_cast<int32_t>(m_Lights.size());
+			m_DirectionalLightSize = std::clamp(light.LightSize, 0.0f, 20.0f);
 		}
+		m_Lights.push_back(data);
 	}
 
 	void SceneRenderer::SubmitPointLight(PointLightSubmission const& light)
 	{
+		if (m_Lights.size() >= ShaderInterop::MaxLights)
+		{
+			return;
+		}
 		ShaderInterop::LightData data{};
 		data.Type = ShaderInterop::LightTypePoint;
 		data.Position = light.Position;
 		data.Range = std::max(light.Range, 1e-3f);
 		data.Radiance = light.Color * light.Intensity;
-		if (m_LightCount < ShaderInterop::MaxLights)
+		data.ShadowIndex = -1;
+		if (light.CastShadows)
 		{
-			m_LightData.insert(m_LightData.end(), reinterpret_cast<uint8_t const*>(&data),
-			                   reinterpret_cast<uint8_t const*>(&data) + sizeof(data));
-			m_LightCount++;
+			LocalShadowLight shadow;
+			shadow.LightIndex = static_cast<uint32_t>(m_Lights.size());
+			shadow.Point = true;
+			shadow.Position = data.Position;
+			shadow.Range = data.Range;
+			m_LocalShadowLights.push_back(shadow);
 		}
+		m_Lights.push_back(data);
 	}
 
 	void SceneRenderer::SubmitSpotLight(SpotLightSubmission const& light)
 	{
+		if (m_Lights.size() >= ShaderInterop::MaxLights)
+		{
+			return;
+		}
 		ShaderInterop::LightData data{};
 		data.Type = ShaderInterop::LightTypeSpot;
 		data.Position = light.Position;
@@ -348,12 +502,18 @@ namespace Strada
 		float const inner = glm::radians(std::clamp(light.InnerConeAngle, 0.0f, glm::degrees(outer)));
 		data.SpotCosInner = std::cos(inner);
 		data.SpotCosOuter = std::cos(outer);
-		if (m_LightCount < ShaderInterop::MaxLights)
+		data.ShadowIndex = -1;
+		if (light.CastShadows)
 		{
-			m_LightData.insert(m_LightData.end(), reinterpret_cast<uint8_t const*>(&data),
-			                   reinterpret_cast<uint8_t const*>(&data) + sizeof(data));
-			m_LightCount++;
+			LocalShadowLight shadow;
+			shadow.LightIndex = static_cast<uint32_t>(m_Lights.size());
+			shadow.Position = data.Position;
+			shadow.Direction = data.Direction;
+			shadow.Range = data.Range;
+			shadow.OuterConeAngle = outer;
+			m_LocalShadowLights.push_back(shadow);
 		}
+		m_Lights.push_back(data);
 	}
 
 	void SceneRenderer::SetAmbientLight(glm::vec3 const& radiance)
@@ -370,15 +530,256 @@ namespace Strada
 	{
 		for (DrawItem& item : items)
 		{
+			MaterialData const& material = item.Material->GetData();
 			item.GpuData = Renderer::GetMesh(item.Mesh);
 			item.MaterialBindings = Renderer::GetMaterialBindingSet(item.Material);
-			item.Pipeline = GetMeshPipeline(blend, item.Material->GetData().DoubleSided);
+			item.Pipeline = GetMeshPipeline(blend, material.DoubleSided);
+			// Blended surfaces do not cast shadows.
+			item.CastShadows = item.CastShadows && !blend;
+			if (item.CastShadows)
+			{
+				item.ShadowPipeline = GetShadowPipeline(material.AlphaMode == MaterialAlphaMode::Mask, material.DoubleSided);
+				item.CastShadows = item.ShadowPipeline != nullptr;
+			}
 		}
 		std::erase_if(items,
 		              [](DrawItem const& item)
 		              {
 						  return item.GpuData == nullptr || item.MaterialBindings == nullptr || item.Pipeline == nullptr;
 					  });
+	}
+
+	void SceneRenderer::EnsureShadowMap(nvrhi::TextureHandle& texture, std::vector<nvrhi::FramebufferHandle>& framebuffers, uint32_t size,
+	                                    uint32_t slices, char const* name)
+	{
+		if (texture && texture->getDesc().width == size && texture->getDesc().arraySize == slices)
+		{
+			return;
+		}
+		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		nvrhi::TextureDesc desc;
+		desc.dimension = nvrhi::TextureDimension::Texture2DArray;
+		desc.width = size;
+		desc.height = size;
+		desc.arraySize = slices;
+		desc.format = ShadowFormat;
+		desc.isRenderTarget = true;
+		desc.initialState = nvrhi::ResourceStates::ShaderResource;
+		desc.keepInitialState = true;
+		desc.setClearValue(nvrhi::Color(0.0f));
+		desc.debugName = name;
+		texture = device->createTexture(desc);
+		framebuffers.clear();
+		if (!texture)
+		{
+			ST_CORE_ERROR("Failed to create the {} ({}x{}, {} slices)", name, size, size, slices);
+			return;
+		}
+		for (uint32_t slice = 0; slice < slices; slice++)
+		{
+			framebuffers.push_back(device->createFramebuffer(
+				nvrhi::FramebufferDesc().setDepthAttachment(nvrhi::FramebufferAttachment().setTexture(texture).setArraySlice(slice))));
+		}
+	}
+
+	void SceneRenderer::ReleaseShadowMap(nvrhi::TextureHandle& texture, std::vector<nvrhi::FramebufferHandle>& framebuffers)
+	{
+		// In-flight command lists keep the texture alive through the framebuffers and binding sets they used.
+		framebuffers.clear();
+		texture = nullptr;
+	}
+
+	void SceneRenderer::PrepareShadows(ShaderInterop::ShadowConstants& constants)
+	{
+		constants.CameraForward = -glm::normalize(glm::vec3(glm::inverse(m_Camera.View)[2]));
+		if (!m_Settings.Shadows)
+		{
+			m_ShadowedDirectionalLight = -1;
+			m_LocalShadowLights.clear();
+		}
+
+		// Directional light: cascades over the view up to the shadow distance.
+		uint32_t const cascadeCount = std::clamp(m_Settings.CascadeCount, 1u, Shadows::MaxCascades);
+		float const shadowDistance = std::min(std::max(m_Settings.ShadowDistance, 0.1f), std::max(m_Camera.MaxDistance, 0.1f));
+		AABB casterBounds;
+		for (DrawItem const& item : m_OpaqueItems)
+		{
+			if (item.CastShadows)
+			{
+				casterBounds.Expand(item.WorldBounds);
+			}
+		}
+		if (m_ShadowedDirectionalLight >= 0)
+		{
+			uint32_t const mapSize = ShadowMapSize(m_Settings.ShadowMapSize);
+			EnsureShadowMap(m_CascadeShadowMap, m_CascadeFramebuffers, mapSize, cascadeCount, "Cascade shadow map");
+		}
+		if (m_ShadowedDirectionalLight >= 0 && m_CascadeShadowMap)
+		{
+			ShaderInterop::LightData& light = m_Lights[static_cast<size_t>(m_ShadowedDirectionalLight)];
+			light.ShadowIndex = 0;
+
+			// The near plane of the view, from the projection: the depth-1 point on the view axis.
+			glm::vec4 const nearPoint = glm::inverse(m_Camera.Projection) * glm::vec4(0.0f, 0.0f, 1.0f, 1.0f);
+			float const nearDistance = std::max(-nearPoint.z / nearPoint.w, 0.0f);
+			std::array<float, Shadows::MaxCascades> const splits =
+				Shadows::ComputeCascadeSplits(nearDistance, shadowDistance, cascadeCount, m_Settings.CascadeSplitLambda);
+
+			float const mapSize = static_cast<float>(m_CascadeShadowMap->getDesc().width);
+			float sliceStart = nearDistance;
+			for (uint32_t cascade = 0; cascade < cascadeCount; cascade++)
+			{
+				std::array<glm::vec3, 8> const corners =
+					Shadows::ComputeFrustumSliceCorners(m_Camera.View, m_Camera.Projection, sliceStart, splits[cascade]);
+				Shadows::CascadeProjection const projection =
+					Shadows::FitCascade(corners, light.Direction, casterBounds, static_cast<uint32_t>(mapSize));
+				sliceStart = splits[cascade];
+
+				constants.CascadeViewProjection[cascade] = projection.ViewProjection;
+				constants.CascadeSplits[static_cast<int>(cascade)] = splits[cascade];
+				constants.CascadeTexelSizes[static_cast<int>(cascade)] = projection.TexelSize;
+				constants.CascadeWidths[static_cast<int>(cascade)] = projection.Width;
+				constants.CascadeDepthRanges[static_cast<int>(cascade)] = projection.DepthRange;
+
+				ShadowView view;
+				view.ViewProjection = projection.ViewProjection;
+				view.Framebuffer = m_CascadeFramebuffers[cascade];
+				view.Directional = true;
+				m_ShadowViews.push_back(view);
+			}
+			constants.CascadeCount = cascadeCount;
+			constants.CascadeMapSize = mapSize;
+			constants.LightTanHalfAngle = std::tan(glm::radians(m_DirectionalLightSize) * 0.5f);
+			constants.SoftShadows = m_Settings.SoftShadows ? 1u : 0u;
+			constants.ShadowDistance = shadowDistance;
+		}
+		else
+		{
+			ReleaseShadowMap(m_CascadeShadowMap, m_CascadeFramebuffers);
+		}
+
+		// Local lights: one slice per spot light, six per point light, in submission order while slices remain.
+		uint32_t slicesNeeded = 0;
+		for (LocalShadowLight const& shadow : m_LocalShadowLights)
+		{
+			uint32_t const slices = shadow.Point ? 6u : 1u;
+			if (slicesNeeded + slices <= ShaderInterop::MaxLocalShadowSlices)
+			{
+				slicesNeeded += slices;
+			}
+		}
+		if (slicesNeeded == 0)
+		{
+			ReleaseShadowMap(m_LocalShadowMap, m_LocalFramebuffers);
+			return;
+		}
+		// Grow in steps of six slices so scenes that toggle a light do not reallocate every frame.
+		uint32_t const capacity = std::min((slicesNeeded + 5u) / 6u * 6u, ShaderInterop::MaxLocalShadowSlices);
+		uint32_t const localSize = ShadowMapSize(m_Settings.LocalShadowMapSize);
+		uint32_t const currentSlices = m_LocalShadowMap ? m_LocalShadowMap->getDesc().arraySize : 0u;
+		bool const sameSize = m_LocalShadowMap && m_LocalShadowMap->getDesc().width == localSize;
+		EnsureShadowMap(m_LocalShadowMap, m_LocalFramebuffers, localSize, sameSize ? std::max(capacity, currentSlices) : capacity,
+		                "Local shadow map");
+		if (!m_LocalShadowMap)
+		{
+			return;
+		}
+
+		uint32_t slice = 0;
+		float const mapSize = static_cast<float>(localSize);
+		for (LocalShadowLight const& shadow : m_LocalShadowLights)
+		{
+			uint32_t const slices = shadow.Point ? 6u : 1u;
+			if (slice + slices > ShaderInterop::MaxLocalShadowSlices)
+			{
+				m_Statistics.ShadowsDropped++;
+				continue;
+			}
+			ShaderInterop::LightData& light = m_Lights[shadow.LightIndex];
+			light.ShadowIndex = static_cast<int32_t>(slice);
+			if (shadow.Point)
+			{
+				std::array<glm::mat4, 6> const faces =
+					Shadows::ComputePointLightViewProjections(shadow.Position, shadow.Range, localSize, PointShadowGuardTexels);
+				// A face spans 2 * tan(fov / 2) = 2 * size / (size - 2 * guard) at unit distance.
+				light.ShadowTexelScale = 2.0f / (mapSize - 2.0f * static_cast<float>(PointShadowGuardTexels));
+				for (uint32_t face = 0; face < 6; face++)
+				{
+					constants.LocalViewProjection[slice + face] = faces[face];
+				}
+			}
+			else
+			{
+				constants.LocalViewProjection[slice] =
+					Shadows::ComputeSpotLightViewProjection(shadow.Position, shadow.Direction, shadow.OuterConeAngle, shadow.Range);
+				float const halfFieldOfView = std::min(shadow.OuterConeAngle + glm::radians(2.0f), glm::radians(89.0f));
+				light.ShadowTexelScale = 2.0f * std::tan(halfFieldOfView) / mapSize;
+			}
+			for (uint32_t i = 0; i < slices; i++)
+			{
+				ShadowView view;
+				view.ViewProjection = constants.LocalViewProjection[slice + i];
+				view.Framebuffer = m_LocalFramebuffers[slice + i];
+				view.Center = shadow.Position;
+				view.Radius = shadow.Range;
+				m_ShadowViews.push_back(view);
+			}
+			slice += slices;
+		}
+		constants.LocalMapSize = mapSize;
+	}
+
+	void SceneRenderer::RenderShadows(nvrhi::ICommandList* commandList)
+	{
+		for (ShadowView const& view : m_ShadowViews)
+		{
+			nvrhi::IFramebuffer* framebuffer = view.Framebuffer;
+			nvrhi::FramebufferAttachment const& attachment = framebuffer->getDesc().depthAttachment;
+			commandList->clearDepthStencilTexture(attachment.texture, attachment.subresources, true, 0.0f, false, 0);
+			nvrhi::FramebufferInfoEx const& info = framebuffer->getFramebufferInfo();
+			m_Statistics.ShadowMapViews++;
+
+			for (DrawItem const& item : m_OpaqueItems)
+			{
+				if (!item.CastShadows)
+				{
+					continue;
+				}
+				bool const visible = view.Directional ? IntersectsOrthographicView(item.WorldBounds, view.ViewProjection)
+				                                      : IntersectsSphere(item.WorldBounds, view.Center, view.Radius);
+				if (!visible)
+				{
+					continue;
+				}
+
+				GpuMesh const* mesh = item.GpuData;
+				nvrhi::GraphicsState state;
+				state.pipeline = item.ShadowPipeline;
+				state.framebuffer = framebuffer;
+				state.viewport.addViewportAndScissorRect(info.getViewport());
+				state.bindings = {m_ShadowBindings, item.MaterialBindings};
+				state.vertexBuffers = {nvrhi::VertexBufferBinding().setBuffer(mesh->VertexBuffer).setSlot(0).setOffset(0)};
+				state.indexBuffer =
+					nvrhi::IndexBufferBinding().setBuffer(mesh->IndexBuffer).setFormat(nvrhi::Format::R32_UINT).setOffset(0);
+				commandList->setGraphicsState(state);
+
+				ShaderInterop::ShadowDrawConstants constants;
+				constants.Model = item.Transform;
+				constants.ViewProjection = view.ViewProjection;
+				commandList->setPushConstants(&constants, sizeof(constants));
+
+				Submesh const& submesh = item.Mesh->GetSubmeshes()[item.SubmeshIndex];
+				nvrhi::DrawArguments arguments;
+				arguments.vertexCount = submesh.IndexCount;
+				arguments.startIndexLocation = submesh.BaseIndex;
+				arguments.startVertexLocation = submesh.BaseVertex;
+				commandList->drawIndexed(arguments);
+
+				m_Statistics.DrawCalls++;
+				m_Statistics.ShadowDrawCalls++;
+				m_Statistics.Triangles += submesh.IndexCount / 3;
+			}
+		}
 	}
 
 	void SceneRenderer::DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items)
@@ -420,7 +821,7 @@ namespace Strada
 		{
 			CreateTargets();
 		}
-		m_Statistics.Lights = m_LightCount;
+		m_Statistics.Lights = static_cast<uint32_t>(m_Lights.size());
 
 		// Front to back for opaque geometry (early depth rejection), back to front for blending.
 		std::sort(m_OpaqueItems.begin(), m_OpaqueItems.end(),
@@ -438,16 +839,18 @@ namespace Strada
 		PrepareItems(m_OpaqueItems, false);
 		PrepareItems(m_BlendItems, true);
 
+		ShaderInterop::ShadowConstants shadows{};
+		PrepareShadows(shadows);
+
 		GpuEnvironment const* environment = m_Environment.Environment ? Renderer::GetEnvironment(m_Environment.Environment) : nullptr;
-		if (environment != nullptr)
-		{
-			UpdateFrameBindings(environment->Irradiance, environment->Prefiltered, environment->Radiance);
-		}
-		else
-		{
-			nvrhi::ITexture* fallback = Renderer::GetFallbackCube();
-			UpdateFrameBindings(fallback, fallback, fallback);
-		}
+		FrameTextures textures;
+		nvrhi::ITexture* fallbackCube = Renderer::GetFallbackCube();
+		textures.Irradiance = environment != nullptr ? environment->Irradiance.Get() : fallbackCube;
+		textures.Prefiltered = environment != nullptr ? environment->Prefiltered.Get() : fallbackCube;
+		textures.Radiance = environment != nullptr ? environment->Radiance.Get() : fallbackCube;
+		textures.CascadeShadowMap = m_CascadeShadowMap ? m_CascadeShadowMap.Get() : m_FallbackShadowMap.Get();
+		textures.LocalShadowMap = m_LocalShadowMap ? m_LocalShadowMap.Get() : m_FallbackShadowMap.Get();
+		UpdateFrameBindings(textures);
 
 		float const exposure = m_Settings.GetExposure();
 		ShaderInterop::FrameConstants frame{};
@@ -456,7 +859,7 @@ namespace Strada
 		frame.CameraPosition = m_Camera.Position;
 		frame.Exposure = exposure;
 		frame.AmbientColor = m_AmbientRadiance;
-		frame.LightCount = m_LightCount;
+		frame.LightCount = static_cast<uint32_t>(m_Lights.size());
 		frame.ViewportSize = glm::vec2(static_cast<float>(m_Width), static_cast<float>(m_Height));
 		frame.EnvironmentRotationCos = 1.0f;
 		if (environment != nullptr)
@@ -472,12 +875,15 @@ namespace Strada
 		nvrhi::ICommandList* commandList = m_CommandList;
 		commandList->open();
 		commandList->writeBuffer(m_FrameConstants, &frame, sizeof(frame));
-		if (!m_LightData.empty())
+		commandList->writeBuffer(m_ShadowConstants, &shadows, sizeof(shadows));
+		if (!m_Lights.empty())
 		{
-			commandList->writeBuffer(m_LightBuffer, m_LightData.data(), m_LightData.size());
+			commandList->writeBuffer(m_LightBuffer, m_Lights.data(), m_Lights.size() * sizeof(ShaderInterop::LightData));
 		}
 
-		// The background is the ambient light until the sky pass exists.
+		RenderShadows(commandList);
+
+		// Without a sky, the background is the ambient light.
 		glm::vec3 const background = m_AmbientRadiance * exposure;
 		commandList->clearTextureFloat(m_ColorTarget, nvrhi::AllSubresources, nvrhi::Color(background.r, background.g, background.b, 1.0f));
 		commandList->clearDepthStencilTexture(m_DepthTarget, nvrhi::AllSubresources, true, 0.0f, false, 0);
@@ -516,6 +922,7 @@ namespace Strada
 		// Draw items keep assets alive only for this frame.
 		m_OpaqueItems.clear();
 		m_BlendItems.clear();
+		m_ShadowViews.clear();
 		Renderer::CollectGarbage();
 	}
 }

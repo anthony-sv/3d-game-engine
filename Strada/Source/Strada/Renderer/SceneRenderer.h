@@ -1,7 +1,10 @@
 #pragma once
 
 #include "Strada/Core/Base.h"
+#include "Strada/Math/AABB.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
+
+#include "RendererInterop.h"
 
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
@@ -23,6 +26,8 @@ namespace Strada
 		// Reversed-Z projection (see Math::PerspectiveReversedZ / SceneCamera).
 		glm::mat4 Projection = glm::mat4(1.0f);
 		glm::vec3 Position = glm::vec3(0.0f);
+		// View distance limit (the camera's far plane); shadows do not extend beyond it.
+		float MaxDistance = 1000.0f;
 	};
 
 	struct DirectionalLightSubmission
@@ -31,6 +36,10 @@ namespace Strada
 		glm::vec3 Direction = glm::vec3(0.0f, -1.0f, 0.0f);
 		glm::vec3 Color = glm::vec3(1.0f);
 		float Intensity = 1.0f;
+		// Only the first shadow-casting directional light gets shadows.
+		bool CastShadows = false;
+		// Apparent angular diameter in degrees; sizes the soft shadow penumbrae.
+		float LightSize = 0.5f;
 	};
 
 	struct PointLightSubmission
@@ -39,6 +48,8 @@ namespace Strada
 		glm::vec3 Color = glm::vec3(1.0f);
 		float Intensity = 1.0f;
 		float Range = 10.0f;
+		// Uses six shadow-map slices.
+		bool CastShadows = false;
 	};
 
 	struct SpotLightSubmission
@@ -51,6 +62,7 @@ namespace Strada
 		// Half-angles in degrees.
 		float InnerConeAngle = 20.0f;
 		float OuterConeAngle = 30.0f;
+		bool CastShadows = false;
 	};
 
 	struct EnvironmentSubmission
@@ -67,9 +79,15 @@ namespace Strada
 
 	struct SceneRendererStatistics
 	{
+		// Including shadow-map draws.
 		uint32_t DrawCalls = 0;
 		uint32_t Triangles = 0;
 		uint32_t Lights = 0;
+		uint32_t ShadowDrawCalls = 0;
+		// Cascades plus local light slices rendered this frame.
+		uint32_t ShadowMapViews = 0;
+		// Shadow-casting local lights that did not fit the shadow map budget (MaxLocalShadowSlices).
+		uint32_t ShadowsDropped = 0;
 	};
 
 	// Renders one view of a submitted frame into its own HDR target and tonemaps it into an 8-bit, sRGB-encoded image
@@ -91,7 +109,8 @@ namespace Strada
 
 		void BeginScene(SceneRendererCamera const& camera, SceneRendererSettings const& settings);
 		// materials: one per material slot of the mesh (null entries use the default material).
-		void SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, glm::mat4 const& transform);
+		void SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, glm::mat4 const& transform,
+		                bool castShadows = true);
 		void SubmitDirectionalLight(DirectionalLightSubmission const& light);
 		void SubmitPointLight(PointLightSubmission const& light);
 		void SubmitSpotLight(SpotLightSubmission const& light);
@@ -113,15 +132,56 @@ namespace Strada
 			glm::mat4 Transform;
 			uint32_t SubmeshIndex = 0;
 			float ViewDepth = 0.0f;
+			AABB WorldBounds;
+			bool CastShadows = true;
 			// Resolved before recording (resource creation uploads through its own command list).
 			GpuMesh const* GpuData = nullptr;
 			nvrhi::IBindingSet* MaterialBindings = nullptr;
 			nvrhi::IGraphicsPipeline* Pipeline = nullptr;
+			nvrhi::IGraphicsPipeline* ShadowPipeline = nullptr;
+		};
+
+		struct LocalShadowLight
+		{
+			uint32_t LightIndex = 0;
+			bool Point = false;
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::vec3 Direction = glm::vec3(0.0f);
+			float Range = 0.0f;
+			float OuterConeAngle = 0.0f;
+		};
+
+		struct ShadowView
+		{
+			glm::mat4 ViewProjection = glm::mat4(1.0f);
+			nvrhi::IFramebuffer* Framebuffer = nullptr;
+			// Directional views cull casters against their projection, local views against the light's range sphere.
+			bool Directional = false;
+			glm::vec3 Center = glm::vec3(0.0f);
+			float Radius = 0.0f;
+		};
+
+		struct FrameTextures
+		{
+			nvrhi::ITexture* Irradiance = nullptr;
+			nvrhi::ITexture* Prefiltered = nullptr;
+			nvrhi::ITexture* Radiance = nullptr;
+			nvrhi::ITexture* CascadeShadowMap = nullptr;
+			nvrhi::ITexture* LocalShadowMap = nullptr;
+
+			bool operator==(FrameTextures const& other) const = default;
 		};
 
 		void CreateTargets();
-		void UpdateFrameBindings(nvrhi::ITexture* irradiance, nvrhi::ITexture* prefiltered, nvrhi::ITexture* radiance);
+		void UpdateFrameBindings(FrameTextures const& textures);
 		nvrhi::IGraphicsPipeline* GetMeshPipeline(bool blend, bool doubleSided);
+		nvrhi::IGraphicsPipeline* GetShadowPipeline(bool masked, bool doubleSided);
+		void EnsureShadowMap(nvrhi::TextureHandle& texture, std::vector<nvrhi::FramebufferHandle>& framebuffers, uint32_t size,
+		                     uint32_t slices, char const* name);
+		void ReleaseShadowMap(nvrhi::TextureHandle& texture, std::vector<nvrhi::FramebufferHandle>& framebuffers);
+		// Assigns shadow maps to the lights and fills the shadow constants and views.
+		void PrepareShadows(ShaderInterop::ShadowConstants& constants);
+		void RenderShadows(nvrhi::ICommandList* commandList);
 		void PrepareItems(std::vector<DrawItem>& items, bool blend);
 		void DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items);
 
@@ -136,8 +196,11 @@ namespace Strada
 		EnvironmentSubmission m_Environment;
 		std::vector<DrawItem> m_OpaqueItems;
 		std::vector<DrawItem> m_BlendItems;
-		std::vector<uint8_t> m_LightData;
-		uint32_t m_LightCount = 0;
+		std::vector<ShaderInterop::LightData> m_Lights;
+		int32_t m_ShadowedDirectionalLight = -1;
+		float m_DirectionalLightSize = 0.0f;
+		std::vector<LocalShadowLight> m_LocalShadowLights;
+		std::vector<ShadowView> m_ShadowViews;
 		SceneRendererStatistics m_Statistics;
 
 		nvrhi::CommandListHandle m_CommandList;
@@ -151,11 +214,24 @@ namespace Strada
 		nvrhi::BufferHandle m_LightBuffer;
 		nvrhi::BindingLayoutHandle m_FrameLayout;
 		nvrhi::BindingSetHandle m_FrameBindings;
-		// Environment textures the frame binding set was created with.
-		nvrhi::ITexture* m_BoundTextures[3] = {};
+		// Textures the frame binding set was created with.
+		FrameTextures m_BoundTextures;
 		nvrhi::GraphicsPipelineHandle m_SkyPipeline;
 		nvrhi::InputLayoutHandle m_InputLayout;
 		nvrhi::GraphicsPipelineHandle m_MeshPipelines[4];
+
+		nvrhi::BufferHandle m_ShadowConstants;
+		nvrhi::SamplerHandle m_ShadowCompareSampler;
+		nvrhi::SamplerHandle m_ShadowPointSampler;
+		// One slice per cascade / per local light view; 1x1 fallback bound when there is no shadow map.
+		nvrhi::TextureHandle m_CascadeShadowMap;
+		std::vector<nvrhi::FramebufferHandle> m_CascadeFramebuffers;
+		nvrhi::TextureHandle m_LocalShadowMap;
+		std::vector<nvrhi::FramebufferHandle> m_LocalFramebuffers;
+		nvrhi::TextureHandle m_FallbackShadowMap;
+		nvrhi::BindingLayoutHandle m_ShadowLayout;
+		nvrhi::BindingSetHandle m_ShadowBindings;
+		nvrhi::GraphicsPipelineHandle m_ShadowPipelines[4];
 
 		nvrhi::BindingLayoutHandle m_TonemapLayout;
 		nvrhi::BindingSetHandle m_TonemapBindings;

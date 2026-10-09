@@ -49,7 +49,7 @@ namespace Strada
 					                                      : defaults[slot];
 					materials[slot] = AssetManager::GetAsset<MaterialAsset>(handleForSlot);
 				}
-				renderer.SubmitMesh(mesh, materials, scene.GetWorldTransform(entity));
+				renderer.SubmitMesh(mesh, materials, scene.GetWorldTransform(entity), component.CastShadows);
 			}
 
 			for (entt::entity const handle : scene.GetAllEntitiesWith<DirectionalLightComponent>())
@@ -60,6 +60,8 @@ namespace Strada
 				submission.Direction = GetForward(scene.GetWorldTransform(entity));
 				submission.Color = light.Color;
 				submission.Intensity = light.Intensity;
+				submission.CastShadows = light.CastShadows;
+				submission.LightSize = light.LightSize;
 				renderer.SubmitDirectionalLight(submission);
 			}
 
@@ -72,6 +74,7 @@ namespace Strada
 				submission.Color = light.Color;
 				submission.Intensity = light.Intensity;
 				submission.Range = light.Range;
+				submission.CastShadows = light.CastShadows;
 				renderer.SubmitPointLight(submission);
 			}
 
@@ -88,6 +91,7 @@ namespace Strada
 				submission.Range = light.Range;
 				submission.InnerConeAngle = light.InnerConeAngle;
 				submission.OuterConeAngle = light.OuterConeAngle;
+				submission.CastShadows = light.CastShadows;
 				renderer.SubmitSpotLight(submission);
 			}
 
@@ -136,6 +140,8 @@ namespace Strada
 		camera.View = glm::inverse(world);
 		camera.Projection = ComputeCameraProjection(cameraEntity.GetComponent<CameraComponent>(), aspectRatio);
 		camera.Position = glm::vec3(world[3]);
+		CameraComponent const& component = cameraEntity.GetComponent<CameraComponent>();
+		camera.MaxDistance = component.Projection == ProjectionType::Perspective ? component.PerspectiveFar : component.OrthographicFar;
 		RenderScene(scene, renderer, camera);
 		return true;
 	}
