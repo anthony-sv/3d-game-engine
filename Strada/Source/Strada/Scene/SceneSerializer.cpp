@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Scene/SceneSerializer.h"
 
+#include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/ComponentRegistry.h"
 
@@ -9,6 +10,8 @@
 
 namespace Strada
 {
+	static_assert(PrefabSerializer::FormatVersion == PrefabAsset::FormatVersion, "Prefab files are read by PrefabAsset");
+
 	namespace
 	{
 		constexpr std::string_view IDComponentName = ComponentTraits<IDComponent>::Name;

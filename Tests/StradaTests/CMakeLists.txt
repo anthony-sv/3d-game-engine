@@ -2,7 +2,15 @@
 
 add_executable(StradaTests
     Source/Main.cpp
+    Source/Asset/AssetManagerTests.cpp
+    Source/Asset/AssetRegistryTests.cpp
+    Source/Asset/AssetTypeTests.cpp
+    Source/Asset/GltfTestBuilder.h
+    Source/Asset/MeshFactoryTests.cpp
+    Source/Asset/MeshImporterTests.cpp
+    Source/Asset/MeshSourceTests.cpp
     Source/Core/ApplicationTests.cpp
+    Source/Core/Base64Tests.cpp
     Source/Core/BufferTests.cpp
     Source/Core/CommandLineTests.cpp
     Source/Core/EventTests.cpp
@@ -16,6 +24,7 @@ add_executable(StradaTests
     Source/Core/ResultTests.cpp
     Source/Core/UUIDTests.cpp
     Source/GpuTestUtilities.h
+    Source/Math/AABBTests.cpp
     Source/Math/MathTests.cpp
     Source/RHI/GraphicsDeviceTests.cpp
     Source/RHI/SwapchainTests.cpp
@@ -26,12 +35,16 @@ add_executable(StradaTests
     Source/Scene/SceneTests.cpp
     Source/Script/ScriptFieldTests.cpp
     Source/Serialization/JsonSerializationTests.cpp
+    Source/Serialization/StructSerializationTests.cpp
     Source/TestUtilities.h
 )
 
 target_include_directories(StradaTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
 target_link_libraries(StradaTests PRIVATE Strada doctest::doctest)
-target_compile_definitions(StradaTests PRIVATE DOCTEST_CONFIG_SUPER_FAST_ASSERTS)
+# A permissively licensed TrueType font from the pinned Dear ImGui sources (OFL), used by font loading tests.
+target_compile_definitions(StradaTests PRIVATE
+    DOCTEST_CONFIG_SUPER_FAST_ASSERTS
+    STRADA_TEST_FONT_PATH="${imgui_SOURCE_DIR}/misc/fonts/Karla-Regular.ttf")
 
 strada_configure_target(StradaTests)
 set_target_properties(StradaTests PROPERTIES FOLDER "Tests")

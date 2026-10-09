@@ -100,3 +100,65 @@ TEST_CASE("Image: invalid input reports errors instead of crashing")
 	CHECK(Image::LoadFromFile(directory.GetPath() / "missing.png").IsError());
 	CHECK(Image().WritePNG(directory.GetPath() / "empty.png").IsError());
 }
+
+TEST_CASE("Image: header information is read without decoding")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const path = directory.GetPath() / "Info.png";
+	REQUIRE(MakeGradient(7, 3).WritePNG(path).IsOk());
+	Result<Buffer> data = FileSystem::ReadBinaryFile(path);
+	REQUIRE(data.IsOk());
+
+	Result<ImageInfo> const info = Image::ReadInfo(data.GetValue().GetSpan());
+	REQUIRE(info.IsOk());
+	CHECK(info.GetValue().Width == 7);
+	CHECK(info.GetValue().Height == 3);
+	CHECK(info.GetValue().Channels == 4);
+	CHECK_FALSE(info.GetValue().IsHdr);
+
+	std::array<uint8_t, 8> const garbage = {1, 2, 3, 4, 5, 6, 7, 8};
+	CHECK(Image::ReadInfo(garbage).IsError());
+	CHECK(Image::ReadInfo({}).IsError());
+}
+
+TEST_CASE("Image: HDR images round trip through Radiance files")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const path = directory.GetPath() / "Sky.hdr";
+
+	HdrImage image(4, 2, 3);
+	for (uint32_t y = 0; y < 2; y++)
+	{
+		for (uint32_t x = 0; x < 4; x++)
+		{
+			float* pixel = image.GetPixel(x, y);
+			pixel[0] = 0.5f * static_cast<float>(x + 1);
+			pixel[1] = 16.0f;
+			pixel[2] = 0.25f * static_cast<float>(y + 1);
+		}
+	}
+	REQUIRE(image.WriteHDR(path).IsOk());
+
+	Result<Buffer> data = FileSystem::ReadBinaryFile(path);
+	REQUIRE(data.IsOk());
+	Result<ImageInfo> const info = Image::ReadInfo(data.GetValue().GetSpan());
+	REQUIRE(info.IsOk());
+	CHECK(info.GetValue().IsHdr);
+
+	Result<HdrImage> const loaded = HdrImage::LoadFromFile(path);
+	REQUIRE(loaded.IsOk());
+	HdrImage const& decoded = loaded.GetValue();
+	REQUIRE(decoded.GetWidth() == 4);
+	REQUIRE(decoded.GetHeight() == 2);
+	REQUIRE(decoded.GetChannels() == 4);
+	// RGBE keeps 8 bits of mantissa per channel relative to the largest component.
+	CHECK(decoded.GetPixel(3, 1)[0] == doctest::Approx(2.0f).epsilon(0.01));
+	CHECK(decoded.GetPixel(3, 1)[1] == doctest::Approx(16.0f).epsilon(0.01));
+	CHECK(decoded.GetPixel(0, 0)[3] == doctest::Approx(1.0f));
+
+	// 8-bit images are not HDR data.
+	std::filesystem::path const pngPath = directory.GetPath() / "Ldr.png";
+	REQUIRE(MakeGradient(2, 2).WritePNG(pngPath).IsOk());
+	CHECK(HdrImage::LoadFromFile(pngPath).IsError());
+	CHECK(HdrImage().WriteHDR(directory.GetPath() / "Empty.hdr").IsError());
+}

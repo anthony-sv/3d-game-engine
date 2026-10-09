@@ -160,6 +160,22 @@ target_compile_features(StradaImGui PUBLIC cxx_std_20)
 target_link_libraries(StradaImGui PUBLIC glfw)
 strada_configure_third_party_target(StradaImGui)
 
+# --- Model import: cgltf 1.15 (glTF 2.0), ufbx 0.23.1 (FBX and OBJ), MikkTSpace (tangent generation) ----------------
+# No CMake projects; the sources are compiled by the StradaModelImport target in Strada/CMakeLists.txt.
+strada_declare_dependency(cgltf
+    https://github.com/jkuhlmann/cgltf/archive/refs/tags/v1.15.tar.gz
+    84e352092e5cd6aab7f66de62ddb66beb5e6f18d412ca9d12950d7a55bfef25a
+    SOURCE_SUBDIR _strada_no_cmake)
+strada_declare_dependency(ufbx
+    https://github.com/ufbx/ufbx/archive/refs/tags/v0.23.1.tar.gz
+    21edd1021dfb430e37aa6214c9b3bbaa5634b1859cbbef7231e738af4f19c956
+    SOURCE_SUBDIR _strada_no_cmake)
+strada_declare_dependency(mikktspace
+    https://github.com/mmikk/MikkTSpace/archive/3e895b49d05ea07e4c2133156cfa94369e19e409.tar.gz
+    aeba65ddee85a679133d510d71d00b108f603752f90b15b9ecf7777033f6e351
+    SOURCE_SUBDIR _strada_no_cmake)
+FetchContent_MakeAvailable(cgltf ufbx mikktspace)
+
 # --- doctest 2.5.3 (tests only) ------------------------------------------------------------------------------------
 if(STRADA_BUILD_TESTS)
     strada_declare_dependency(doctest

@@ -2,6 +2,7 @@
 
 #include "Strada/Scene/Components.h"
 #include "Strada/Serialization/JsonSerialization.h"
+#include "Strada/Serialization/StructSerialization.h"
 
 #include <array>
 #include <string_view>
@@ -61,23 +62,10 @@ namespace Strada
 		ComponentFlagsInternal = ST_BIT(1)
 	};
 
-	template<typename TComponent, typename TValue>
-	struct ComponentField
-	{
-		std::string_view Name;
-		TValue TComponent::* Member;
-	};
-
-	template<typename TComponent, typename TValue>
-	constexpr ComponentField<TComponent, TValue> Field(std::string_view name, TValue TComponent::* member)
-	{
-		return {name, member};
-	}
-
 	// Specialized for every component:
 	//   static constexpr std::string_view Name;      serialized name
 	//   static constexpr uint32_t Flags;             ComponentFlags
-	//   static constexpr auto Fields;                tuple of ComponentField
+	//   static constexpr auto Fields;                tuple of StructField (see Serialization/StructSerialization.h)
 	// Optionally:
 	//   static Result<bool> ReadExtraField(std::string_view key, Json const& value, TComponent& component,
 	//                                      DeserializationContext const& context);   alternative input keys
@@ -320,10 +308,7 @@ namespace Strada
 	};
 
 	template<typename T>
-	concept RegisteredComponent = requires {
-		{ ComponentTraits<T>::Name } -> std::convertible_to<std::string_view>;
-		ComponentTraits<T>::Fields;
-	};
+	concept RegisteredComponent = FieldTable<ComponentTraits<T>>;
 
 	// Every component type, in registration (and serialization) order.
 	template<typename... T>

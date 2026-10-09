@@ -25,7 +25,7 @@ the contract must be made here first. Coding rules live in [AGENTS.md](../AGENTS
 | Audio | miniaudio |
 | Scripting | C# on .NET 10, hosted through hostfxr/nethost |
 | Editor UI | Dear ImGui (docking branch, docking + multi-viewports) + ImGuizmo |
-| Mesh import | cgltf (glTF 2.0/GLB), ufbx (FBX), tinyobjloader (OBJ/MTL) |
+| Mesh import | cgltf (glTF 2.0/GLB), ufbx (FBX, OBJ/MTL), MikkTSpace (tangents) |
 | Images / fonts | stb_image, stb_image_write, stb_truetype |
 | Serialization | nlohmann/json (`ordered_json` for files) |
 | Logging | spdlog |
@@ -87,8 +87,8 @@ through includes of `Scene.h` in headers.
 | Serialization | JSON helpers for glm/UUID/enums, versioned file headers | `JsonUtils` |
 | Platform | Process spawning (reproc++), file dialogs, OS paths (user data dir), file watcher | `Process`, `FileDialogs`, `FileWatcher`, `Platform` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, common samplers/default textures | `GraphicsDevice`, `Swapchain`, `ShaderLibrary` |
-| Asset | Asset handles, registry, metadata, manager (editor file-based / runtime), importers | `AssetHandle`, `AssetManager`, `AssetRegistry`, `*Importer` |
-| Renderer | GPU resources (mesh, texture, material, environment), scene renderer passes, debug lines, text, sprites, picking | `SceneRenderer`, `Mesh`, `MeshSource`, `Texture2D`, `TextureCube`, `Material`, `Environment`, `Font` |
+| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, model importers, built-in primitives | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `MeshImporter` |
+| Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), scene renderer passes, debug lines, text, sprites, picking | `SceneRenderer`, `Texture2D`, `TextureCube` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
 | Audio | miniaudio engine, clips, per-scene sound sources, listener | `AudioEngine`, `AudioClip`, `AudioScene` |
@@ -185,18 +185,47 @@ Frame passes, in order:
 `SceneRendererSettings` (shadows, SSAO, bloom, exposure, tonemapper, FXAA, sky) are stored per scene, editable in the
 editor and through automation.
 
-### 6.3 Assets used by the renderer
+### 6.3 Assets
 
-- `MeshSource`: imported model (vertices: position, normal, tangent (xyz + handedness), uv0; 32-bit indices;
-  submeshes with material index and AABB; embedded material descriptions and textures).
-- `Mesh` component data references a mesh asset and optional per-submesh material overrides.
-- `Material` (`.smat`): base color, metallic, roughness, emissive color + intensity, normal strength,
-  textures (base color, normal, metallic-roughness (glTF packing G = roughness, B = metallic), occlusion, emissive),
-  alpha mode (opaque/mask/blend) + cutoff, double-sided, UV tiling/offset.
-- `Texture2D`: decoded with stb_image, mip chain generated on the CPU in linear space at load.
-- `Environment`: equirectangular `.hdr` → cubemap → irradiance + prefiltered specular (compute shaders).
-- Built-in assets with reserved handles: meshes (Cube, Sphere, Plane, Cylinder, Capsule, Cone, Quad), default
-  material, white/black/flat-normal textures, default font. JSON may reference them as `"builtin://Cube"`.
+Assets are CPU-side data owned by the `AssetManager` (Asset module); the renderer creates and caches GPU resources from
+them, so assets load (and are testable) without a GPU, and physics reads mesh geometry directly.
+
+- **Handles**: `AssetHandle` (UUID). Values below 1024 are reserved for built-in assets and never generated.
+- **Kinds**: *file assets* (files in the project's `Assets/` directory, persistent handles in the registry), *built-in
+  assets* (`builtin://<Name>`), *memory assets* (created at runtime, e.g. cloned materials), and *sub-assets* (the
+  materials and embedded textures of a mesh; deterministic handles derived from the mesh handle, alive while the mesh
+  is loaded).
+- **Loading**: on first use (`AssetManager::GetAsset<T>(handle)`); failures are logged once and remembered until the
+  asset is reloaded or the directory refreshed. `Refresh` registers new files, flags missing ones (they keep their
+  handles) and unloads modified ones. Moves and deletes go through the manager so handles stay valid.
+- **References in JSON**: handles as decimal strings; `"asset://<path>"` and `"builtin://<Name>"` are accepted on input
+  and resolved to handles (`AssetManager::CreateDeserializationContext`). Engine-written files store handles, so
+  moving files never breaks them; hand-written path references follow the path.
+
+Asset types:
+
+- `MeshSource` (`.gltf`, `.glb`, `.fbx`, `.obj`): one vertex layout for every mesh (position, normal, tangent (xyz +
+  bitangent sign), UV0 with the origin at the top-left; 48 bytes), 32-bit indices, submeshes (index range, material
+  slot, bounds) and one default material per slot. Import bakes node transforms (Y-up, meters, counter-clockwise front
+  faces; mirrored nodes flip winding and tangent sign), generates flat normals and MikkTSpace tangents when missing
+  (V is flipped for MikkTSpace so the bitangent points to the top of the image, matching glTF), converts FBX/OBJ UVs to
+  the top-left origin, and validates every index. Embedded images become texture sub-assets; external images inside
+  `Assets/` resolve to their registered texture assets. Skinning, morph targets and point/line primitives are skipped
+  with warnings.
+- `MaterialAsset` (`.smat`): metallic-roughness parameters — `BaseColor`, `Metallic`, `Roughness`, `EmissiveColor` +
+  `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, textures (base color, normal, metallic-roughness with glTF
+  packing G = roughness and B = metallic, occlusion, emissive), `AlphaMode` (Opaque/Mask/Blend) + `AlphaCutoff`,
+  `DoubleSided`, `UVTiling`, `UVOffset`. A version counter tells renderers when parameters changed.
+- `TextureAsset` (`.png`, `.jpg`, `.tga`, `.bmp`): keeps the encoded file and decodes on demand. The color space is
+  chosen by the sampling material slot (base color and emissive sRGB, the others linear); the renderer generates mips
+  at upload in linear space.
+- `EnvironmentAsset` (`.hdr`): equirectangular Radiance HDR (e.g. Poly Haven HDRIs) → cubemap + irradiance +
+  prefiltered specular (compute shaders).
+- `FontAsset` (`.ttf`, `.otf`), `AudioClipAsset` (`.wav`, `.flac`, `.mp3`, `.ogg`; format detected from the data),
+  `PrefabAsset` (`.sprefab`). Scenes (`.sscene`) are registered for references but opened with `SceneSerializer`.
+- Built-in assets: meshes `Cube`, `Sphere`, `Plane`, `Cylinder`, `Capsule`, `Cone`, `Quad` (unit sizes matching the
+  default colliders), `DefaultMaterial`, textures `White`, `Black`, `FlatNormal`. Later subsystems may register more
+  (e.g. the default font) with reserved handles.
 
 ## 7. Scene and ECS
 
@@ -231,7 +260,7 @@ interop component lookups.
 | `Transform` | `TransformComponent` | `Translation` vec3, `Rotation` quat (x, y, z, w), `Scale` vec3 — local to parent |
 | `Relationship` | `RelationshipComponent` | `Parent` UUID, `Children` UUID[] |
 | `Camera` | `CameraComponent` | `Projection` (Perspective/Orthographic), `PerspectiveFOV` (deg), `PerspectiveNear`, `PerspectiveFar`, `OrthographicSize`, `OrthographicNear`, `OrthographicFar`, `Primary`, `FixedAspectRatio`, `AspectRatio` |
-| `Mesh` | `MeshComponent` | `Mesh` asset, `Materials` asset[] (per-submesh overrides, 0 = mesh default), `CastShadows`, `Visible` |
+| `Mesh` | `MeshComponent` | `Mesh` asset, `Materials` asset[] (overrides per material slot, 0 = the mesh's default), `CastShadows`, `Visible` |
 | `DirectionalLight` | `DirectionalLightComponent` | `Color`, `Intensity`, `CastShadows`, `LightSize` (angular diameter, deg; controls penumbra) |
 | `PointLight` | `PointLightComponent` | `Color`, `Intensity`, `Range`, `CastShadows` |
 | `SpotLight` | `SpotLightComponent` | `Color`, `Intensity`, `Range`, `InnerConeAngle`, `OuterConeAngle` (half-angles, deg), `CastShadows` |
@@ -280,8 +309,13 @@ Project (`.sproj`): name, asset directory, script module path, start scene (path
 settings (title, width, height, fullscreen, vsync, resizable), physics settings (fixed timestep, named layers
 (max 16) and collision matrix).
 
-Asset registry (`Assets/AssetRegistry.sreg`): handle → { type, path }. The editor scans `Assets/` on project open,
-registers new files with fresh handles, and flags missing files.
+Asset registry (`Assets/AssetRegistry.sreg`): `"Assets": [ { "Handle", "Type", "Path" } ]` sorted by path, paths
+relative to `Assets/` with forward slashes (case-sensitive, portable characters only). The asset directory is scanned
+when a project opens: new files get fresh handles, missing files keep theirs. Hidden files and folders (names starting
+with `.`) are ignored. Invalid entries are skipped with warnings; an unreadable registry refuses to open (continuing
+would break references).
+
+Material (`.smat`): `"Material": { <MaterialAsset fields> }`; missing fields keep their defaults.
 
 ## 8. Physics (Jolt)
 

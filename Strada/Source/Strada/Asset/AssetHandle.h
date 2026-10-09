@@ -18,9 +18,22 @@ namespace Strada
 		{
 		}
 
-		[[nodiscard]] static AssetHandle Generate() { return AssetHandle(UUID()); }
+		// Values below this are reserved for built-in assets and never generated.
+		static constexpr uint64_t ReservedCount = 1024;
+
+		// A new random handle outside the reserved range.
+		[[nodiscard]] static AssetHandle Generate()
+		{
+			UUID id;
+			while (id.GetValue() < ReservedCount)
+			{
+				id = UUID();
+			}
+			return AssetHandle(id);
+		}
 
 		constexpr bool IsValid() const { return m_ID.IsValid(); }
+		constexpr bool IsReserved() const { return m_ID.IsValid() && m_ID.GetValue() < ReservedCount; }
 		constexpr UUID GetUUID() const { return m_ID; }
 		std::string ToString() const { return m_ID.ToString(); }
 

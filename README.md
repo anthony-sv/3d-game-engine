@@ -6,8 +6,10 @@ an exporter for distributable games.
 
 > **Status: early development.** In place: the engine core (application loop, windowing, input, events, logging, file
 > system, command line), the Vulkan/NVRHI device and swapchains, build-time shader compilation, the ImGui renderer with
-> docking and multi-viewports, the editor shell, screenshots, and CI on all three platforms. The scene renderer, scene
-> system, physics, audio, scripting, full editor and exporter are being built next.
+> docking and multi-viewports, the ECS scene system (components, hierarchy, reflection-driven JSON scenes, prefabs),
+> the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in primitives), the
+> editor shell, screenshots, and CI on all three platforms. The scene renderer, physics, audio, scripting, full editor
+> and exporter are being built next.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Planned feature set

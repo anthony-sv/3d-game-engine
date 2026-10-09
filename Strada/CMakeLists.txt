@@ -6,6 +6,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Assert.cpp
     Source/Strada/Core/Assert.h
     Source/Strada/Core/Base.h
+    Source/Strada/Core/Base64.cpp
+    Source/Strada/Core/Base64.h
     Source/Strada/Core/Buffer.h
     Source/Strada/Core/CommandLine.cpp
     Source/Strada/Core/CommandLine.h
@@ -43,10 +45,40 @@ set(STRADA_CORE_SOURCES
 )
 
 set(STRADA_ASSET_SOURCES
+    Source/Strada/Asset/Asset.cpp
+    Source/Strada/Asset/Asset.h
     Source/Strada/Asset/AssetHandle.h
+    Source/Strada/Asset/AssetManager.cpp
+    Source/Strada/Asset/AssetManager.h
+    Source/Strada/Asset/AssetRegistry.cpp
+    Source/Strada/Asset/AssetRegistry.h
+    Source/Strada/Asset/AudioClipAsset.cpp
+    Source/Strada/Asset/AudioClipAsset.h
+    Source/Strada/Asset/BuiltInAssets.cpp
+    Source/Strada/Asset/BuiltInAssets.h
+    Source/Strada/Asset/EnvironmentAsset.cpp
+    Source/Strada/Asset/EnvironmentAsset.h
+    Source/Strada/Asset/FontAsset.cpp
+    Source/Strada/Asset/FontAsset.h
+    Source/Strada/Asset/MaterialAsset.cpp
+    Source/Strada/Asset/MaterialAsset.h
+    Source/Strada/Asset/MeshFactory.cpp
+    Source/Strada/Asset/MeshFactory.h
+    Source/Strada/Asset/MeshImporter.cpp
+    Source/Strada/Asset/MeshImporter.h
+    Source/Strada/Asset/MeshProcessing.cpp
+    Source/Strada/Asset/MeshProcessing.h
+    Source/Strada/Asset/MeshSource.cpp
+    Source/Strada/Asset/MeshSource.h
+    Source/Strada/Asset/PrefabAsset.cpp
+    Source/Strada/Asset/PrefabAsset.h
+    Source/Strada/Asset/TextureAsset.cpp
+    Source/Strada/Asset/TextureAsset.h
 )
 
 set(STRADA_MATH_SOURCES
+    Source/Strada/Math/AABB.cpp
+    Source/Strada/Math/AABB.h
     Source/Strada/Math/Math.cpp
     Source/Strada/Math/Math.h
 )
@@ -75,6 +107,7 @@ set(STRADA_SCRIPT_SOURCES
 set(STRADA_SERIALIZATION_SOURCES
     Source/Strada/Serialization/JsonSerialization.cpp
     Source/Strada/Serialization/JsonSerialization.h
+    Source/Strada/Serialization/StructSerialization.h
 )
 
 set(STRADA_IMGUI_SOURCES
@@ -101,6 +134,16 @@ set(STRADA_RHI_SOURCES
 add_library(StradaStb STATIC ThirdParty/StbImplementation.c)
 target_include_directories(StradaStb SYSTEM PUBLIC "${stb_SOURCE_DIR}")
 strada_configure_third_party_target(StradaStb)
+
+add_library(StradaModelImport STATIC
+    ThirdParty/CgltfImplementation.c
+    "${ufbx_SOURCE_DIR}/ufbx.c"
+    "${mikktspace_SOURCE_DIR}/mikktspace.c")
+target_include_directories(StradaModelImport SYSTEM PUBLIC "${cgltf_SOURCE_DIR}" "${ufbx_SOURCE_DIR}" "${mikktspace_SOURCE_DIR}")
+if(UNIX)
+    target_link_libraries(StradaModelImport PRIVATE m)
+endif()
+strada_configure_third_party_target(StradaModelImport)
 
 add_library(Strada STATIC
     Source/Strada.h
@@ -131,6 +174,7 @@ target_link_libraries(Strada
     PRIVATE
         glfw
         StradaStb
+        StradaModelImport
         Vulkan::Headers
 )
 

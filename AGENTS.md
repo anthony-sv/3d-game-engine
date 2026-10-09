@@ -228,7 +228,7 @@ Rules for suites that arrive with later subsystems (binding as soon as the subsy
   `FormatMessage`, `GetEnvironmentVariable`, `CreateDirectory`, `CopyFile`, `MoveFile`, `DeleteFile`,
   `GetCurrentDirectory`, `CreateProcess`, `LoadLibrary`, `LoadImage`, `CreateWindow`, `CreateFont`, `DrawText`,
   `GetObject`, `GetMessage`, `SendMessage`, `PlaySound`, `GetClassName`, `CreateEvent`, `CreateMutex`, `Yield`,
-  `near`, `far`, `min`, `max`, `ERROR`, `OPAQUE`, `TRANSPARENT`.
+  `near`, `far`, `min`, `max`, `interface`, `ERROR`, `OPAQUE`, `TRANSPARENT`.
 - macOS: MoltenVK through the Vulkan SDK; enable `VK_KHR_portability_enumeration` and `VK_KHR_portability_subset`.
   Exported games bundle MoltenVK and the loader in the `.app`.
 - Linux: GLFW is built with X11 and Wayland. ImGui multi-viewports are disabled on Wayland (unsupported); set
