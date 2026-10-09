@@ -20,6 +20,14 @@
 
 #define ST_BIT(x) (1u << (x))
 
+// Marks a variadic function taking a printf-style format (1-based indices of the format and of its first argument), so
+// GCC and Clang check its callers and accept it forwarding the format to vsnprintf. Expands to nothing elsewhere.
+#if defined(__GNUC__) || defined(__clang__)
+#define ST_PRINTF_FORMAT(formatIndex, firstArgumentIndex) __attribute__((format(printf, formatIndex, firstArgumentIndex)))
+#else
+#define ST_PRINTF_FORMAT(formatIndex, firstArgumentIndex)
+#endif
+
 // Binds a member function as a callback, forwarding all arguments: ST_BIND_EVENT_FN(Application::OnEvent).
 #define ST_BIND_EVENT_FN(fn)                                    \
 	[this](auto&&... args) -> decltype(auto)                    \

@@ -25,7 +25,7 @@ namespace Strada
 
 		Scope<PhysicsSystemData> s_Data;
 
-		void TraceToLog(char const* format, ...)
+		ST_PRINTF_FORMAT(1, 2) void TraceToLog(char const* format, ...)
 		{
 			va_list arguments;
 			va_start(arguments, format);
