@@ -353,6 +353,8 @@ namespace Strada
 
 		nvrhi::TextureDesc depthDesc = colorDesc;
 		depthDesc.format = DepthFormat;
+		// Depth formats need not support storage images (Mesa lavapipe does not): depth is only rendered and sampled.
+		depthDesc.isUAV = false;
 		depthDesc.initialState = nvrhi::ResourceStates::DepthWrite;
 		// Reversed Z: the far plane is 0.
 		depthDesc.setClearValue(nvrhi::Color(0.0f));
