@@ -99,6 +99,30 @@ namespace Strada
 		m_AspectRatio = static_cast<float>(std::max(width, 1u)) / static_cast<float>(std::max(height, 1u));
 	}
 
+	glm::vec3 EditorCamera::GetRayDirection(glm::vec2 const& pixel, glm::vec2 const& viewportSize) const
+	{
+		// NDC +Y is up while pixel rows go down.
+		glm::vec2 const ndc(pixel.x / std::max(viewportSize.x, 1.0f) * 2.0f - 1.0f, 1.0f - pixel.y / std::max(viewportSize.y, 1.0f) * 2.0f);
+		float const tanHalfFov = std::tan(glm::radians(m_FieldOfView) * 0.5f);
+		return glm::normalize(GetForward() + GetRight() * (ndc.x * tanHalfFov * m_AspectRatio) + GetUp() * (ndc.y * tanHalfFov));
+	}
+
+	glm::vec3 EditorCamera::GetPlacementPoint(glm::vec2 const& pixel, glm::vec2 const& viewportSize) const
+	{
+		glm::vec3 const origin = GetPosition();
+		glm::vec3 const direction = GetRayDirection(pixel, viewportSize);
+		// Rays nearly parallel to the ground meet it too far away to be useful.
+		if (std::abs(direction.y) > 1e-4f)
+		{
+			float const distance = -origin.y / direction.y;
+			if (distance > 0.0f && distance <= MaxPlacementDistance)
+			{
+				return origin + direction * distance;
+			}
+		}
+		return origin + direction * m_Distance;
+	}
+
 	glm::mat4 EditorCamera::GetViewMatrix() const
 	{
 		return glm::lookAt(GetPosition(), m_FocalPoint, glm::vec3(0.0f, 1.0f, 0.0f));

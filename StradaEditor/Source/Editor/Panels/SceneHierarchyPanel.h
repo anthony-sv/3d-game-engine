@@ -2,6 +2,7 @@
 
 #include "Editor/EditorOperations.h"
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/UUID.h"
 
 #include <glm/glm.hpp>
@@ -51,6 +52,8 @@ namespace Strada
 		// Runs scene modifications requested while drawing, once the tree is no longer being iterated.
 		void Defer(std::function<void()> action) { m_Deferred.push_back(std::move(action)); }
 		void CreatePreset(EditorOperations& operations, EntityPreset const& preset, UUID parent);
+		// Creates an entity drawing a dropped mesh asset under parent (invalid = root).
+		void CreateMeshEntity(EditorOperations& operations, AssetHandle mesh, UUID parent);
 		// The selected entities when `entity` is selected, otherwise just `entity` (what row actions apply to).
 		std::vector<UUID> GetActionTargets(EditorContext& context, UUID entity) const;
 

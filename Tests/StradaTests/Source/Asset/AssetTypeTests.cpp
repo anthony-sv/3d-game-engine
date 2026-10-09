@@ -10,8 +10,13 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstring>
+#include <string>
+#include <string_view>
+#include <vector>
 
 using namespace Strada;
 
@@ -218,4 +223,30 @@ TEST_CASE("MaterialAsset: files round trip and accept asset references")
 	asset.SetData(changed);
 	CHECK(asset.GetVersion() == 1);
 	CHECK(asset.GetData().Roughness == doctest::Approx(0.9f));
+}
+
+TEST_CASE("Asset: every supported extension maps to an asset type, ignoring case")
+{
+	std::vector<std::string_view> const extensions = GetSupportedAssetExtensions();
+	REQUIRE_FALSE(extensions.empty());
+	for (size_t i = 0; i < extensions.size(); i++)
+	{
+		std::string_view const extension = extensions[i];
+		CAPTURE(extension);
+		CHECK(extension.starts_with("."));
+		CHECK(GetAssetTypeForExtension(extension) != AssetType::None);
+		std::string upper(extension);
+		for (char& character : upper)
+		{
+			character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+		}
+		CHECK(upper != extension);
+		CHECK(GetAssetTypeForExtension(upper) == GetAssetTypeForExtension(extension));
+		CHECK(std::find(extensions.begin() + static_cast<std::ptrdiff_t>(i) + 1, extensions.end(), extension) == extensions.end());
+	}
+	CHECK(GetAssetTypeForExtension(".sscene") == AssetType::Scene);
+	CHECK(GetAssetTypeForExtension(".glb") == AssetType::Mesh);
+	CHECK(GetAssetTypeForExtension(".ttf") == AssetType::Font);
+	CHECK(GetAssetTypeForExtension(".txt") == AssetType::None);
+	CHECK(GetAssetTypeForExtension("") == AssetType::None);
 }

@@ -65,6 +65,26 @@ namespace Strada
 		{
 			m_Selection.SetPrimary(primary);
 		}
+		// Replacing the selection (even with nothing) or ending up with selected entities stops showing the asset.
+		if (mode == SelectionMode::Replace || !m_Selection.IsEmpty())
+		{
+			m_SelectedAsset = AssetHandle();
+		}
+	}
+
+	void EditorContext::ClearSelection()
+	{
+		m_Selection.Clear();
+		m_SelectedAsset = AssetHandle();
+	}
+
+	void EditorContext::SelectAsset(AssetHandle asset)
+	{
+		m_SelectedAsset = asset;
+		if (asset.IsValid())
+		{
+			m_Selection.Clear();
+		}
 	}
 
 	DeserializationContext EditorContext::CreateDeserializationContext(UnknownFieldPolicy unknownFields) const

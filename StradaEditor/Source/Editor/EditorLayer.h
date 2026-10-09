@@ -5,6 +5,7 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/ConsolePanel.h"
+#include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
@@ -108,6 +109,7 @@ namespace Strada
 		InspectorPanel m_InspectorPanel;
 		SceneSettingsPanel m_SceneSettingsPanel;
 		ProjectSettingsPanel m_ProjectSettingsPanel;
+		ContentBrowserPanel m_ContentBrowserPanel;
 		// Created when ImGui is available.
 		Scope<ViewportPanel> m_ViewportPanel;
 		bool m_ShowViewport = true;
@@ -115,6 +117,7 @@ namespace Strada
 		bool m_ShowInspector = true;
 		bool m_ShowSceneSettings = true;
 		bool m_ShowProjectSettings = true;
+		bool m_ShowContentBrowser = true;
 		bool m_ShowConsole = true;
 		bool m_ShowStatistics = true;
 		bool m_ShowImGuiDemo = false;

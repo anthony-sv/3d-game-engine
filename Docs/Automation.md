@@ -114,7 +114,7 @@ Project settings are saved to the project file immediately and are not part of t
 | `entity.reparent` | `entity`*, `parent` (null = root), `siblingIndex`, `keepWorldTransform` (default true) | `id`, `parent` |
 | `entity.find` | `name` (exact), `component` | `entities`: `[{ id, name, components }]` in hierarchy order |
 | `entity.get` | `entity`* | `id`, `name`, `parent`, `children`, `components` (all fields) |
-| `entity.select` | `entities`*, `mode` (`replace`/`add`/`remove`/`toggle`), `primary` | the selection (not undoable) |
+| `entity.select` | `entities`*, `mode` (`replace`/`add`/`remove`/`toggle`), `primary` | the selection `{ entities, primary, asset }` (not undoable; replacing it or selecting entities stops showing an asset) |
 
 ### component
 
@@ -140,6 +140,7 @@ relative to the project's `Assets` directory with forward slashes. Asset file op
 |---------|-----------|--------|
 | `asset.list` | `folder`, `type` (`Scene`/`Prefab`/`Mesh`/`Material`/`Texture`/`Environment`/`AudioClip`/`Font`), `recursive` (default true), `builtIn` | `assets`: `[{ id, name, type, path, reference, missing }]`, `folders` |
 | `asset.get` | `asset`* | `{ id, name, type, path, reference, missing }` |
+| `asset.select` | `asset`* | the selection: the inspector shows the asset instead of entities (not undoable) |
 | `asset.import` | `files`* (absolute paths), `folder` | `assets` (all or nothing; taken names get a number) |
 | `asset.refresh` | — | `added`, `missing`, `modified` (assets), `warnings` |
 | `asset.move` | `asset`*, `path`* | the moved asset |

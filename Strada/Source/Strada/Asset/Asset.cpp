@@ -105,6 +105,17 @@ namespace Strada
 		return AssetHandle(UUID(value));
 	}
 
+	std::vector<std::string_view> GetSupportedAssetExtensions()
+	{
+		std::vector<std::string_view> extensions;
+		for (ExtensionMapping const& mapping : s_Extensions)
+		{
+			extensions.push_back(mapping.Extension);
+		}
+		extensions.insert(extensions.end(), s_FontExtensions.begin(), s_FontExtensions.end());
+		return extensions;
+	}
+
 	AssetType GetAssetTypeForExtension(std::string_view extension)
 	{
 		std::string lower(extension);

@@ -481,3 +481,48 @@ TEST_CASE("AssetManager: invalid directories and corrupt registries fail to open
 	CHECK(result.GetError().find("asset registry") != std::string::npos);
 	CHECK_FALSE(AssetManager::HasAssetDirectory());
 }
+
+TEST_CASE("AssetManager: the version changes with every change to the registered assets")
+{
+	uint64_t const beforeInit = AssetManager::GetVersion();
+	AssetManagerScope scope;
+	TestProject project;
+	uint64_t version = AssetManager::GetVersion();
+	CHECK(version != beforeInit);
+	auto const changed = [&version]
+	{
+		uint64_t const current = AssetManager::GetVersion();
+		bool const different = current != version;
+		version = current;
+		return different;
+	};
+
+	REQUIRE(AssetManager::OpenAssetDirectory(project.Assets).IsOk());
+	CHECK(changed());
+	// Queries, and loads that create no sub-assets, change nothing.
+	CHECK_FALSE(AssetManager::GetAssets().empty());
+	AssetHandle const wood = Find("Textures/Wood.png");
+	REQUIRE(AssetManager::LoadAsset(wood).IsOk());
+	CHECK_FALSE(changed());
+
+	REQUIRE(AssetManager::MoveAsset(wood, "Textures/Oak.png").IsOk());
+	CHECK(changed());
+	REQUIRE(AssetManager::MoveFolder("Textures", "Art/Textures").IsOk());
+	CHECK(changed());
+	REQUIRE(FileSystem::Remove(project.Assets / "Audio" / "Click.wav").IsOk());
+	REQUIRE(AssetManager::Refresh().IsOk());
+	CHECK(changed());
+	AssetHandle const memory = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(), "Runtime");
+	CHECK(changed());
+	AssetManager::RemoveMemoryAsset(memory);
+	CHECK(changed());
+	REQUIRE(AssetManager::DeleteFolder("Art").IsOk());
+	CHECK(changed());
+	AssetManager::CloseAssetDirectory();
+	CHECK(changed());
+
+	// A re-initialized manager never reports an earlier version again.
+	AssetManager::Shutdown();
+	AssetManager::Init();
+	CHECK(AssetManager::GetVersion() > version);
+}

@@ -2,7 +2,9 @@
 
 #include "Editor/EditorOperations.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Core/FileSystem.h"
 
 #include <array>
 #include <string>
@@ -112,22 +114,44 @@ namespace Strada
 			return s_Presets;
 		}
 
+		namespace
+		{
+			Result<UUID> CreatePlaced(EditorOperations& operations, EntityCreateInfo info, glm::vec3 const& position)
+			{
+				if (!info.Parent.IsValid())
+				{
+					Json& transform = info.Components["Transform"];
+					if (!transform.is_object())
+					{
+						transform = Json::object();
+					}
+					transform["Translation"] = Json::array({position.x, position.y, position.z});
+				}
+				return operations.CreateEntity(std::move(info));
+			}
+		}
+
+		Result<UUID> CreateFromMesh(EditorOperations& operations, AssetHandle mesh, UUID parent, glm::vec3 const& position)
+		{
+			std::optional<AssetMetadata> const metadata = AssetManager::IsInitialized() ? AssetManager::GetMetadata(mesh) : std::nullopt;
+			if (!metadata || metadata->Type != AssetType::Mesh)
+			{
+				return MakeError("asset {} is not a mesh", mesh);
+			}
+			EntityCreateInfo info;
+			info.Name = FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->GetDisplayName()).stem());
+			info.Parent = parent;
+			info.Components = Json::object({{"Mesh", Json::object({{"Mesh", mesh.ToString()}})}});
+			return CreatePlaced(operations, std::move(info), position);
+		}
+
 		Result<UUID> Create(EditorOperations& operations, EntityPreset const& preset, UUID parent, glm::vec3 const& position)
 		{
 			EntityCreateInfo info;
 			info.Name = std::string(preset.EntityName);
 			info.Parent = parent;
 			info.Components = preset.BuildComponents();
-			if (!parent.IsValid())
-			{
-				Json& transform = info.Components["Transform"];
-				if (!transform.is_object())
-				{
-					transform = Json::object();
-				}
-				transform["Translation"] = Json::array({position.x, position.y, position.z});
-			}
-			return operations.CreateEntity(std::move(info));
+			return CreatePlaced(operations, std::move(info), position);
 		}
 	}
 }

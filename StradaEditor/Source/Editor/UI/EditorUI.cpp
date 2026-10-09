@@ -3,9 +3,14 @@
 #include "Editor/Commands/CommandHistory.h"
 #include "Editor/EntityPresets.h"
 
+#include "Strada/Asset/AssetManager.h"
+
 #include <imgui.h>
 
+#include <algorithm>
 #include <cctype>
+#include <cstring>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -49,6 +54,45 @@ namespace Strada
 				result += c;
 			}
 			return result;
+		}
+
+		void AssetDragSource(AssetHandle asset, std::string_view label)
+		{
+			if (!ImGui::BeginDragDropSource())
+			{
+				return;
+			}
+			uint64_t const value = asset.GetUUID().GetValue();
+			ImGui::SetDragDropPayload(DragDropPayload::Asset, &value, sizeof(value));
+			ImGui::TextUnformatted(label.data(), label.data() + label.size());
+			ImGui::EndDragDropSource();
+		}
+
+		AssetHandle AcceptAssetDrop(std::function<bool(AssetMetadata const&)> const& accepts)
+		{
+			// Peeking first keeps the target from highlighting for assets it would refuse.
+			ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::Asset, ImGuiDragDropFlags_AcceptPeekOnly);
+			if (payload == nullptr || payload->DataSize != static_cast<int>(sizeof(uint64_t)) || !AssetManager::IsInitialized())
+			{
+				return AssetHandle();
+			}
+			uint64_t value = 0;
+			std::memcpy(&value, payload->Data, sizeof(value));
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(AssetHandle(UUID(value)));
+			if (!metadata || !accepts(*metadata))
+			{
+				return AssetHandle();
+			}
+			return ImGui::AcceptDragDropPayload(DragDropPayload::Asset) != nullptr ? metadata->Handle : AssetHandle();
+		}
+
+		AssetHandle AcceptAssetDrop(std::span<AssetType const> types)
+		{
+			return AcceptAssetDrop(
+				[types](AssetMetadata const& metadata)
+				{
+					return types.empty() || std::find(types.begin(), types.end(), metadata.Type) != types.end();
+				});
 		}
 
 		EntityPreset const* DrawEntityPresetMenuItems()

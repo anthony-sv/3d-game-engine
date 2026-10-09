@@ -27,7 +27,7 @@ namespace Strada
 	namespace
 	{
 		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set.
-		constexpr char const* DockspaceName = "Strada.Dockspace.v3";
+		constexpr char const* DockspaceName = "Strada.Dockspace.v4";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* SceneExtension = ".sscene";
@@ -107,6 +107,12 @@ namespace Strada
 				{
 					return GetSpawnPosition();
 				});
+			auto const openScene = [this](std::filesystem::path const& path)
+			{
+				RequestSceneAction(SceneAction::OpenScene, path);
+			};
+			m_ViewportPanel->SetOpenSceneCallback(openScene);
+			m_ContentBrowserPanel.SetOpenSceneCallback(openScene);
 		}
 
 		if (Result<void> loaded = m_RecentProjects.Load(); !loaded)
@@ -243,6 +249,10 @@ namespace Strada
 		{
 			m_ProjectSettingsPanel.OnImGuiRender(m_Operations, m_ShowProjectSettings);
 		}
+		if (m_ShowContentBrowser)
+		{
+			m_ContentBrowserPanel.OnImGuiRender(m_Operations, m_ShowContentBrowser);
+		}
 		if (m_ShowConsole)
 		{
 			m_ConsolePanel.OnImGuiRender(m_ShowConsole);
@@ -275,8 +285,8 @@ namespace Strada
 
 	void EditorLayer::BuildDefaultLayout(uint32_t dockspace)
 	{
-		// Viewport in the center, hierarchy on the left, inspector and scene settings on the right with statistics below,
-		// console at the bottom.
+		// Viewport in the center, hierarchy on the left, inspector and settings on the right with statistics below, content
+		// browser and console at the bottom.
 		ImGui::DockBuilderRemoveNode(dockspace);
 		ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
@@ -291,6 +301,7 @@ namespace Strada
 		ImGui::DockBuilderDockWindow("Scene Settings", right);
 		ImGui::DockBuilderDockWindow("Project Settings", right);
 		ImGui::DockBuilderDockWindow("Statistics", rightBottom);
+		ImGui::DockBuilderDockWindow("Content Browser", bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
 		ImGui::DockBuilderFinish(dockspace);
 	}
@@ -403,13 +414,14 @@ namespace Strada
 			ImGui::MenuItem("Inspector", nullptr, &m_ShowInspector);
 			ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
 			ImGui::MenuItem("Project Settings", nullptr, &m_ShowProjectSettings);
+			ImGui::MenuItem("Content Browser", nullptr, &m_ShowContentBrowser);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Statistics", nullptr, &m_ShowStatistics);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout"))
 			{
-				m_ShowViewport = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings = m_ShowConsole =
-					m_ShowStatistics = true;
+				m_ShowViewport = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings = m_ShowContentBrowser =
+					m_ShowConsole = m_ShowStatistics = true;
 				m_ResetLayout = true;
 			}
 			ImGui::MenuItem("ImGui Demo", nullptr, &m_ShowImGuiDemo);

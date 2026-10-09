@@ -1,6 +1,7 @@
 #include "TestUtilities.h"
 
 #include "Editor/EditorOperations.h"
+#include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
@@ -8,7 +9,9 @@
 #include "Editor/UI/FieldEditor.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Image.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -16,7 +19,10 @@
 #include <doctest/doctest.h>
 #include <imgui.h>
 #include <imgui_impl_null.h>
+#include <imgui_internal.h>
 
+#include <cmath>
+#include <cstring>
 #include <functional>
 #include <optional>
 #include <string>
@@ -58,11 +64,54 @@ namespace
 
 		void Type(char const* text) { ImGui::GetIO().AddInputCharactersUTF8(text); }
 
+		// Drags with the left mouse button from one point to another (screen coordinates), a frame per step, and releases.
+		void Drag(ImVec2 from, ImVec2 to, std::function<void()> const& draw)
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			io.AddMousePosEvent(from.x, from.y);
+			Frame(draw);
+			io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+			Frame(draw);
+			// Past the drag threshold, then onto the target long enough for it to accept the payload.
+			io.AddMousePosEvent(from.x + 20.0f, from.y + 20.0f);
+			Frame(draw);
+			io.AddMousePosEvent(to.x, to.y);
+			Frame(draw);
+			Frame(draw);
+			io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+			Frame(draw);
+			Frame(draw);
+		}
+
 		void Press(ImGuiKey key)
 		{
 			ImGui::GetIO().AddKeyEvent(key, true);
 			Frame([] {});
 			ImGui::GetIO().AddKeyEvent(key, false);
+		}
+
+		// Presses and releases a key while the panels are drawn.
+		void Press(ImGuiKey key, std::function<void()> const& draw)
+		{
+			ImGui::GetIO().AddKeyEvent(key, true);
+			Frame(draw);
+			ImGui::GetIO().AddKeyEvent(key, false);
+			Frame(draw);
+		}
+
+		// Left clicks (one or two times) at a screen position.
+		void Click(ImVec2 position, std::function<void()> const& draw, int count = 1)
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			io.AddMousePosEvent(position.x, position.y);
+			Frame(draw);
+			for (int i = 0; i < count; i++)
+			{
+				io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+				Frame(draw);
+				io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+				Frame(draw);
+			}
 		}
 
 	private:
@@ -282,4 +331,304 @@ TEST_CASE("Panels: project settings draw with and without a project and do not c
 	CHECK(open);
 	CHECK(context.GetProject()->GetSettings() == before);
 	CHECK(FileSystem::ReadTextFile(context.GetProject()->GetFilePath()).GetValue() == fileBefore.GetValue());
+}
+
+TEST_CASE("Panels: the content browser and the asset inspector show a project's assets without changing them")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	ContentBrowserPanel browser;
+	InspectorPanel inspector;
+	bool browserOpen = true;
+	bool inspectorOpen = true;
+	auto const draw = [&]
+	{
+		browser.OnImGuiRender(operations, browserOpen);
+		inspector.OnImGuiRender(operations, inspectorOpen);
+	};
+	auto const drawFrames = [&]
+	{
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(draw);
+		}
+	};
+
+	// Without a project there is nothing to browse.
+	drawFrames();
+
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const assets = context.GetProject()->GetAssetDirectory();
+	REQUIRE(operations.CreateAssetFolder("Textures/Wood").IsOk());
+	Image image(4, 2, 4);
+	REQUIRE(image.WritePNG(assets / "Textures" / "Wood" / "Oak.png").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const texture = AssetManager::FindByPath("Textures/Wood/Oak.png");
+	REQUIRE(texture.IsValid());
+	Result<AssetHandle> const material = operations.CreateMaterial("Rock.smat", Json::object({{"BaseColorTexture", texture.ToString()}}));
+	REQUIRE(material.IsOk());
+	// Tile labels wrap long names and cut multi-byte UTF-8 names between code points ("Ölfarbe" and "Größe").
+	REQUIRE(operations.CreateMaterial("A Very Long Material Name That Needs Two Lines.smat").IsOk());
+	REQUIRE(operations
+	            .CreateMaterial("\xC3\x96lfarbe\xC3\x96lfarbe\xC3\x96lfarbe Gr\xC3\xB6\xC3\x9F"
+	                            "e.smat")
+	            .IsOk());
+	REQUIRE(operations.CreateMaterial("NoSpacesInThisRatherLongMaterialFileName.smat").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(assets / "Ghost.smat", "{}").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const ghost = AssetManager::FindByPath("Ghost.smat");
+	REQUIRE(ghost.IsValid());
+	REQUIRE(FileSystem::Remove(assets / "Ghost.smat").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	REQUIRE(AssetManager::IsMissing(ghost));
+
+	Result<std::string> const materialFile = FileSystem::ReadTextFile(assets / "Rock.smat");
+	REQUIRE(materialFile.IsOk());
+	size_t const steps = context.GetHistory().GetUndoCount();
+	Json const scene = SceneSerializer::Serialize(context.GetScene());
+
+	for (std::string const folder : {"", "Textures", "Textures/Wood", "Scenes", "Missing"})
+	{
+		browser.SetFolder(folder);
+		drawFrames();
+	}
+	// A folder that does not exist falls back to the asset directory.
+	CHECK(browser.GetFolder().empty());
+
+	// Every kind of asset the inspector shows: material files, built-in and missing assets, textures, meshes, environments
+	// and scenes.
+	std::vector<AssetHandle> const inspected = {material.GetValue(),
+	                                            texture,
+	                                            ghost,
+	                                            GetBuiltInHandle(BuiltInAsset::DefaultMaterial),
+	                                            GetBuiltInHandle(BuiltInAsset::CubeMesh),
+	                                            GetBuiltInHandle(BuiltInAsset::DefaultSky),
+	                                            context.GetProject()->GetSettings().StartScene,
+	                                            AssetHandle(UUID(987654321))};
+	for (AssetHandle const asset : inspected)
+	{
+		context.SelectAsset(asset);
+		drawFrames();
+	}
+	// An unknown asset is deselected by the inspector.
+	CHECK_FALSE(context.GetSelectedAsset().IsValid());
+
+	CHECK(browserOpen);
+	CHECK(inspectorOpen);
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(SceneSerializer::Serialize(context.GetScene()) == scene);
+	CHECK(FileSystem::ReadTextFile(assets / "Rock.smat").GetValue() == materialFile.GetValue());
+
+	// Closing the project returns the browser to the (next) asset directory.
+	browser.SetFolder("Textures");
+	drawFrames();
+	CHECK(browser.GetFolder() == "Textures");
+	operations.CloseProject();
+	drawFrames();
+	CHECK(browser.GetFolder().empty());
+}
+
+TEST_CASE("Panels: assets dragged from the content browser move into folders and become entities in the hierarchy")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const assets = context.GetProject()->GetAssetDirectory();
+	REQUIRE(operations.CreateAssetFolder("Models/Sub").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(assets / "Models" / "Triangle.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const mesh = AssetManager::FindByPath("Models/Triangle.obj");
+	REQUIRE(mesh.IsValid());
+
+	// The browser shows Models/: the folder Sub, then Triangle.obj. The panels sit side by side.
+	ContentBrowserPanel browser;
+	browser.SetFolder("Models");
+	SceneHierarchyPanel hierarchy;
+	bool browserOpen = true;
+	bool hierarchyOpen = true;
+	float fontSize = 0.0f;
+	auto const draw = [&]
+	{
+		fontSize = ImGui::GetFontSize();
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(800.0f, 500.0f));
+		browser.OnImGuiRender(operations, browserOpen);
+		ImGui::SetNextWindowPos(ImVec2(900.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 500.0f));
+		hierarchy.OnImGuiRender(operations, hierarchyOpen);
+	};
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	// A folder chosen before the panel first showed the project is kept.
+	REQUIRE(browser.GetFolder() == "Models");
+
+	// The tile grid starts where the browser's item area places its first item; tiles are 5.5 font sizes wide.
+	ImGuiWindow const* browserWindow = ImGui::FindWindowByName("Content Browser");
+	REQUIRE(browserWindow != nullptr);
+	ImGuiWindow const* items = nullptr;
+	for (ImGuiWindow const* window : GImGui->Windows)
+	{
+		if (window->ParentWindow == browserWindow && std::strstr(window->Name, "##items") != nullptr)
+		{
+			items = window;
+		}
+	}
+	REQUIRE(items != nullptr);
+	float const tileSize = std::round(fontSize * 5.5f);
+	ImVec2 const folderTile(items->DC.CursorStartPos.x + tileSize * 0.5f, items->DC.CursorStartPos.y + tileSize * 0.5f);
+	ImVec2 const meshTile(folderTile.x + tileSize + ImGui::GetStyle().ItemSpacing.x, folderTile.y);
+	ImGuiWindow const* hierarchyWindow = ImGui::FindWindowByName("Scene Hierarchy");
+	REQUIRE(hierarchyWindow != nullptr);
+	ImVec2 const hierarchyBackground(hierarchyWindow->Pos.x + hierarchyWindow->Size.x * 0.5f,
+	                                 hierarchyWindow->Pos.y + hierarchyWindow->Size.y - 40.0f);
+
+	// Dropped onto the hierarchy's empty space, a mesh becomes a root entity named after it and is selected.
+	size_t const entities = context.GetScene().GetEntityCount();
+	imgui.Drag(meshTile, hierarchyBackground, draw);
+	REQUIRE(context.GetScene().GetEntityCount() == entities + 1);
+	REQUIRE(context.GetSelection().GetEntities().size() == 1);
+	Entity const created = context.GetScene().GetEntityByUUID(context.GetSelection().GetEntities().front());
+	CHECK(created.GetName() == "Triangle");
+	CHECK(created.GetComponent<MeshComponent>().Mesh == mesh);
+	CHECK_FALSE(context.GetSelectedAsset().IsValid());
+
+	// Dropped onto a folder tile, an asset moves into the folder and keeps its handle.
+	imgui.Drag(meshTile, folderTile, draw);
+	CHECK(AssetManager::GetMetadata(mesh)->Path == "Models/Sub/Triangle.obj");
+	CHECK(FileSystem::Exists(assets / "Models" / "Sub" / "Triangle.obj"));
+	CHECK(context.GetScene().GetEntityCount() == entities + 1);
+	CHECK(browserOpen);
+	CHECK(hierarchyOpen);
+}
+
+namespace
+{
+	// The item area (child window) of the content browser.
+	ImGuiWindow const* FindContentBrowserItems()
+	{
+		ImGuiWindow const* browser = ImGui::FindWindowByName("Content Browser");
+		REQUIRE(browser != nullptr);
+		for (ImGuiWindow const* window : GImGui->Windows)
+		{
+			if (window->ParentWindow == browser && std::strstr(window->Name, "##items") != nullptr)
+			{
+				return window;
+			}
+		}
+		FAIL("the content browser has no item area");
+		return nullptr;
+	}
+}
+
+TEST_CASE("Panels: the content browser renames with F2, confirms deletions and keeps its keys while focused")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const assets = context.GetProject()->GetAssetDirectory();
+	Result<AssetHandle> const rock = operations.CreateMaterial("Art/Rock.smat");
+	REQUIRE(rock.IsOk());
+	UUID const hero = Create(operations, "Hero", Json::object());
+
+	ContentBrowserPanel browser;
+	browser.SetFolder("Art");
+	bool open = true;
+	// The editor's global Delete shortcut, which must not fire while the browser is focused.
+	bool globalDelete = false;
+	auto const draw = [&]
+	{
+		globalDelete = globalDelete || ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteGlobal);
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(800.0f, 500.0f));
+		browser.OnImGuiRender(operations, open);
+	};
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow const* items = FindContentBrowserItems();
+	float const tileSize = std::round(ImGui::GetFontSize() * 5.5f);
+	ImVec2 const firstTile(items->DC.CursorStartPos.x + tileSize * 0.5f, items->DC.CursorStartPos.y + tileSize * 0.5f);
+	ImVec2 const background(items->Pos.x + items->Size.x - 20.0f, items->Pos.y + items->Size.y - 20.0f);
+
+	// Clicking a tile shows the asset in the inspector instead of the selected entities.
+	std::vector<UUID> const heroSelection = {hero};
+	REQUIRE(operations.Select(heroSelection).IsOk());
+	imgui.Click(firstTile, draw);
+	CHECK(context.GetSelectedAsset() == rock.GetValue());
+	CHECK(context.GetSelection().IsEmpty());
+
+	// F2 renames in place; the extension is kept.
+	imgui.Press(ImGuiKey_F2, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Granite");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	CHECK(AssetManager::GetMetadata(rock.GetValue())->Path == "Art/Granite.smat");
+	CHECK(FileSystem::Exists(assets / "Art" / "Granite.smat"));
+
+	// Names with path separators are refused.
+	imgui.Press(ImGuiKey_F2, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Sub/Stone");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	CHECK(AssetManager::GetMetadata(rock.GetValue())->Path == "Art/Granite.smat");
+
+	// Delete asks first; Escape keeps the file.
+	imgui.Press(ImGuiKey_Delete, draw);
+	ImGuiWindow const* confirmation = ImGui::FindWindowByName("Delete Asset");
+	REQUIRE(confirmation != nullptr);
+	CHECK(confirmation->Active);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Frame(draw);
+	CHECK_FALSE(confirmation->Active);
+	CHECK(AssetManager::IsValid(rock.GetValue()));
+	CHECK(FileSystem::Exists(assets / "Art" / "Granite.smat"));
+
+	// With entities selected and nothing selected in the focused browser, Delete reaches neither the browser nor the
+	// editor's entity deletion.
+	REQUIRE(operations.Select(heroSelection).IsOk());
+	imgui.Click(background, draw);
+	globalDelete = false;
+	imgui.Press(ImGuiKey_Delete, draw);
+	imgui.Frame(draw);
+	CHECK_FALSE(globalDelete);
+	CHECK_FALSE(confirmation->Active);
+	CHECK(context.GetSelection().Contains(hero));
+	CHECK(open);
+
+	// Folders created outside the editor appear within a second; double-clicking a folder opens it.
+	browser.SetFolder("");
+	imgui.Frame(draw);
+	REQUIRE(FileSystem::CreateDirectories(assets / "Aaa").IsOk());
+	for (int frame = 0; frame < 75; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	imgui.Click(firstTile, draw, 2);
+	CHECK(browser.GetFolder() == "Aaa");
 }

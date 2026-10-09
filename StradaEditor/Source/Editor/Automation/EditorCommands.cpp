@@ -134,17 +134,6 @@ namespace Strada
 			return node;
 		}
 
-		Json DescribeSelection(EditorContext const& context)
-		{
-			Json entities = Json::array();
-			for (UUID const id : context.GetSelection().GetEntities())
-			{
-				entities.push_back(id.ToString());
-			}
-			UUID const primary = context.GetSelection().GetPrimary();
-			return Json::object({{"entities", std::move(entities)}, {"primary", primary.IsValid() ? Json(primary.ToString()) : Json()}});
-		}
-
 		Json DescribeScene(EditorContext const& context)
 		{
 			std::filesystem::path const& path = context.GetScenePath();
@@ -190,6 +179,21 @@ namespace Strada
 				assets.push_back(DescribeAsset(handle));
 			}
 			return assets;
+		}
+
+		// The selected entities, or the asset the inspector shows (null when none or no longer registered).
+		Json DescribeSelection(EditorContext const& context)
+		{
+			Json entities = Json::array();
+			for (UUID const id : context.GetSelection().GetEntities())
+			{
+				entities.push_back(id.ToString());
+			}
+			UUID const primary = context.GetSelection().GetPrimary();
+			AssetHandle const asset = context.GetSelectedAsset();
+			return Json::object({{"entities", std::move(entities)},
+			                     {"primary", primary.IsValid() ? Json(primary.ToString()) : Json()},
+			                     {"asset", asset.IsValid() && AssetManager::IsInitialized() ? DescribeAsset(asset) : Json()}});
 		}
 
 		// An asset parameter: a handle (decimal string), "asset://<path>" or "builtin://<name>".
@@ -609,6 +613,25 @@ namespace Strada
 											  return asset.TakeError();
 										  }
 										  return DescribeAsset(asset.GetValue());
+									  })
+				                : result;
+				result = result ? Add("asset.select",
+				                      "Shows an asset in the inspector instead of the selected entities (not undoable). Returns the "
+				                      "selection.",
+				                      SchemaBuilder::Object().Property("asset", assetParameter, true).Build(), false,
+				                      [this](Json const& params) -> CommandResult
+				                      {
+										  if (std::optional<CommandError> error = CheckAssets(false))
+										  {
+											  return *error;
+										  }
+										  CommandValue<AssetHandle> asset = ParseAsset(params["asset"], "asset");
+										  if (!asset)
+										  {
+											  return asset.TakeError();
+										  }
+										  Context().SelectAsset(asset.GetValue());
+										  return DescribeSelection(Context());
 									  })
 				                : result;
 				result =

@@ -71,7 +71,14 @@ namespace Strada
 		// Entities that do not exist in the scene are ignored. A valid primary that ends up selected becomes the primary
 		// selection.
 		void Select(std::span<UUID const> entities, SelectionMode mode = SelectionMode::Replace, UUID primary = UUID::Invalid());
-		void ClearSelection() { m_Selection.Clear(); }
+		// Clears the entity and the asset selection.
+		void ClearSelection();
+
+		// The asset the inspector shows (selected in the content browser); invalid when none. The inspector shows what was
+		// selected last: selecting an asset clears the entity selection, and selecting entities (or replacing the selection
+		// with nothing) clears the asset.
+		AssetHandle GetSelectedAsset() const { return m_SelectedAsset; }
+		void SelectAsset(AssetHandle asset);
 
 		// --- Reading user input and files ---
 
@@ -88,6 +95,7 @@ namespace Strada
 		std::filesystem::path m_ScenePath;
 		CommandHistory m_History;
 		EntitySelection m_Selection;
+		AssetHandle m_SelectedAsset;
 		AssetReferenceResolver m_AssetReferenceResolver;
 		uint64_t m_SceneVersion = 0;
 	};

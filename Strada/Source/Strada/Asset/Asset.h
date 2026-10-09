@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Strada
 {
@@ -27,6 +28,8 @@ namespace Strada
 	std::optional<AssetType> AssetTypeFromString(std::string_view name);
 	// Maps a file extension (".glb", ".PNG", ...) to the asset type it imports as; None for unsupported files.
 	AssetType GetAssetTypeForExtension(std::string_view extension);
+	// Every extension that imports as an asset (lowercase, with the dot), in a stable order.
+	std::vector<std::string_view> GetSupportedAssetExtensions();
 
 	// Base class of every loaded asset. Assets are CPU-side data; GPU resources are created from them by the renderer.
 	class Asset

@@ -138,6 +138,8 @@ namespace Strada
 		Result<std::vector<std::string>> UseProject(Ref<Project> project);
 		// After a failed create or open: keeps the current project when its asset directory is still open, otherwise closes it.
 		void KeepProjectIfOpen();
+		// Deselects the inspected asset when it is no longer registered.
+		void ForgetDeletedSelection();
 
 		EditorContext& m_Context;
 	};

@@ -6,6 +6,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace Strada
 {
@@ -25,6 +26,9 @@ namespace Strada
 	{
 		[[nodiscard]] Result<std::optional<std::filesystem::path>> OpenFile(std::span<FileDialogFilter const> filters,
 		                                                                    std::filesystem::path const& defaultDirectory = {});
+		// Several files at once; empty when the user cancelled.
+		[[nodiscard]] Result<std::vector<std::filesystem::path>> OpenFiles(std::span<FileDialogFilter const> filters,
+		                                                                   std::filesystem::path const& defaultDirectory = {});
 		// Platforms differ in whether they append the filter's extension; callers add it when it is missing.
 		[[nodiscard]] Result<std::optional<std::filesystem::path>> SaveFile(std::span<FileDialogFilter const> filters,
 		                                                                    std::filesystem::path const& defaultDirectory = {},

@@ -1,5 +1,8 @@
 #include "Editor/Panels/ViewportPanel.h"
 
+#include "Editor/AssetDrops.h"
+#include "Editor/EntityPresets.h"
+#include "Editor/UI/EditorUI.h"
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
@@ -16,6 +19,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <utility>
 #include <vector>
@@ -110,7 +114,7 @@ namespace Strada
 			m_PickingIds.Clear();
 			m_PickingSceneVersion = context.GetSceneVersion();
 			m_DiscardPick = m_Renderer && m_Renderer->IsPickPending();
-			m_PendingPickMode.reset();
+			m_PendingPick.reset();
 			m_GizmoActive = false;
 		}
 
@@ -148,10 +152,24 @@ namespace Strada
 		Render(context);
 
 		ImGui::Image(ImGuiRenderer::GetTextureID(m_Renderer->GetFinalImage()), ToImVec2(imageSize));
+		AssetHandle droppedAsset;
+		if (ImGui::BeginDragDropTarget())
+		{
+			constexpr std::array<AssetType, 4> DroppableTypes = {AssetType::Mesh, AssetType::Material, AssetType::Environment,
+			                                                     AssetType::Scene};
+			droppedAsset = UI::AcceptAssetDrop(DroppableTypes);
+			ImGui::EndDragDropTarget();
+		}
+		glm::vec2 const dropPixel = ToVec2(ImGui::GetMousePos()) - imagePosition;
 		UUID const hoveredIcon = DrawEntityIcons(context, imagePosition, imageSize, hovered);
 		UpdateGizmo(operations, imagePosition, imageSize);
 		HandleSelectionClicks(operations, imagePosition, hovered, hoveredIcon);
 		DrawToolbar(imagePosition);
+		// Last: a drop may replace the scene (opening a scene asset) under the overlays drawn above.
+		if (droppedAsset.IsValid())
+		{
+			ApplyAssetDrop(operations, droppedAsset, dropPixel, imageSize);
+		}
 		ImGui::End();
 	}
 
@@ -422,7 +440,7 @@ namespace Strada
 		if (pixel.x >= 0.0f && pixel.y >= 0.0f && !m_Renderer->IsPickPending())
 		{
 			m_Renderer->RequestPick(static_cast<uint32_t>(pixel.x), static_cast<uint32_t>(pixel.y));
-			m_PendingPickMode = mode;
+			m_PendingPick = PendingPick{mode, AssetHandle()};
 		}
 	}
 
@@ -433,25 +451,84 @@ namespace Strada
 		{
 			return;
 		}
-		std::optional<SelectionMode> const mode = std::exchange(m_PendingPickMode, std::nullopt);
-		if (std::exchange(m_DiscardPick, false) || !mode)
+		std::optional<PendingPick> const request = std::exchange(m_PendingPick, std::nullopt);
+		if (std::exchange(m_DiscardPick, false) || !request)
 		{
 			return;
 		}
 
 		UUID const entity = m_PickingIds.GetEntity(*result);
 		EditorContext& context = operations.GetContext();
-		if (!entity.IsValid() || !context.GetScene().HasEntity(entity))
+		bool const hit = entity.IsValid() && context.GetScene().HasEntity(entity);
+		if (request->Material.IsValid())
+		{
+			// A material dropped onto empty space does nothing.
+			if (hit)
+			{
+				UI::ReportFailure(AssetDrops::AssignMaterial(operations, entity, request->Material), "Assigning the material");
+			}
+			return;
+		}
+		SelectionMode const mode = request->Mode;
+		if (!hit)
 		{
 			// Clicking empty space clears the selection (unless adding to it).
-			if (*mode == SelectionMode::Replace)
+			if (mode == SelectionMode::Replace)
 			{
 				context.ClearSelection();
 			}
 			return;
 		}
 		UUID const entities[] = {entity};
-		(void)operations.Select(entities, *mode, *mode == SelectionMode::Toggle ? UUID::Invalid() : entity);
+		(void)operations.Select(entities, mode, mode == SelectionMode::Toggle ? UUID::Invalid() : entity);
+	}
+
+	void ViewportPanel::ApplyAssetDrop(EditorOperations& operations, AssetHandle asset, glm::vec2 const& pixel, glm::vec2 const& imageSize)
+	{
+		switch (AssetManager::GetAssetType(asset))
+		{
+			case AssetType::Mesh:
+			{
+				Result<UUID> created =
+					EntityPresets::CreateFromMesh(operations, asset, UUID::Invalid(), m_Camera.GetPlacementPoint(pixel, imageSize));
+				UI::ReportFailure(created, "Adding the mesh");
+				if (created)
+				{
+					std::array<UUID, 1> const selection = {created.GetValue()};
+					UI::ReportFailure(operations.Select(selection), "Selecting the new entity");
+				}
+				break;
+			}
+			case AssetType::Material:
+				// The entity under the cursor is known when the pick result arrives, a frame or two later. Picks run one at a
+				// time, and a click's pick can only be pending if the drop happened right after a click.
+				if (m_Renderer->IsPickPending())
+				{
+					ST_WARN("The material was not assigned because the viewport was busy; drop it again.");
+				}
+				else if (pixel.x >= 0.0f && pixel.y >= 0.0f)
+				{
+					m_Renderer->RequestPick(static_cast<uint32_t>(pixel.x), static_cast<uint32_t>(pixel.y));
+					m_PendingPick = PendingPick{SelectionMode::Replace, asset};
+				}
+				break;
+			case AssetType::Environment:
+				UI::ReportFailure(AssetDrops::SetSkyEnvironment(operations, asset), "Setting the environment");
+				break;
+			case AssetType::Scene:
+				if (m_OpenScene)
+				{
+					m_OpenScene(AssetManager::GetAbsolutePath(asset));
+				}
+				break;
+			// Not accepted by the drop target.
+			case AssetType::None:
+			case AssetType::Prefab:
+			case AssetType::Texture:
+			case AssetType::AudioClip:
+			case AssetType::Font:
+				break;
+		}
 	}
 
 	void ViewportPanel::DrawToolbar(glm::vec2 const& imagePosition)

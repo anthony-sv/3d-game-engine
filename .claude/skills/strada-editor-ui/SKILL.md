@@ -35,16 +35,24 @@ directly: every modification goes through `EditorOperations` (undoable commands,
 ## Drag and drop, menus, shortcuts, dialogs
 
 - Payload types live in `DragDropPayload` (`Editor/UI/EditorUI.h`): `Entities` carries `uint64_t` UUIDs, `Asset` one
-  `uint64_t` handle. Validate dropped data (entities may not exist, assets may have the wrong type).
+  `uint64_t` handle, `AssetFolder` a folder path (UTF-8, no terminator). Validate dropped data (entities may not exist,
+  assets may have the wrong type).
+- Assets: make an item a drag source with `UI::AssetDragSource(handle, label)`; inside a drop target accept with
+  `UI::AcceptAssetDrop(types)`, which highlights only for registered assets of those types. What dropping an asset onto
+  the scene does lives in `AssetDrops` and `EntityPresets::CreateFromMesh` (unit tested without UI).
 - Global shortcuts use `ImGui::Shortcut(chord, ImGuiInputFlags_RouteGlobal)` in `EditorLayer::HandleShortcuts` and skip
-  editing keys while `io.WantTextInput`; show the chord in the matching menu item.
-- Native dialogs: `FileDialogs::OpenFile/SaveFile/PickFolder` (editor only; add the extension when it is missing).
+  editing keys while `io.WantTextInput`; show the chord in the matching menu item. A panel with its own meaning for a
+  key (Delete or F2 in the content browser) registers `ImGuiInputFlags_RouteFocused` every frame while it is focused,
+  even when it has nothing to act on, so the key never falls through to the global shortcut.
+- Native dialogs: `FileDialogs::OpenFile/OpenFiles/SaveFile/PickFolder` (editor only; add the extension when it is
+  missing).
 - Actions that discard the scene go through `EditorLayer::RequestSceneAction` (unsaved-changes prompt).
 
 ## Tests
 
 - Logic: plain doctest cases in `Tests/StradaEditorTests`.
-- Widgets and panels: the headless ImGui fixture in `PanelTests.cpp` (null backends) draws panels for a few frames;
-  assert that drawing alone changes nothing (undo count, serialized scene) and drive inputs with
-  `SetKeyboardFocusHere`, typed characters and key events.
+- Widgets and panels: the headless ImGui fixture in `PanelTests.cpp` (null backends, 1920x1080 display) draws panels
+  for a few frames; assert that drawing alone changes nothing (undo count, serialized scene, files) and drive inputs
+  with `SetKeyboardFocusHere`, typed characters, key events and `HeadlessImGui::Drag` (a real mouse drag between two
+  screen points; place panels with `SetNextWindowPos/Size` and find positions from `ImGuiWindow` data).
 - Check the result visually with an automation screenshot (`viewport.screenshot`) of the running editor.

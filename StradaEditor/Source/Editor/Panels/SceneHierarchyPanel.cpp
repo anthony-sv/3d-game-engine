@@ -12,6 +12,7 @@
 #include <imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <string_view>
 
@@ -281,6 +282,12 @@ namespace Strada
 			DropPosition const position = mouseY < rowMin.y + edge   ? DropPosition::Before
 			                              : mouseY > rowMax.y - edge ? DropPosition::After
 			                                                         : DropPosition::Inside;
+			// A mesh dropped onto a row becomes a child of that entity.
+			constexpr std::array<AssetType, 1> MeshType = {AssetType::Mesh};
+			if (AssetHandle const mesh = UI::AcceptAssetDrop(MeshType); mesh.IsValid())
+			{
+				CreateMeshEntity(operations, mesh, id);
+			}
 			if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(
 					DragDropPayload::Entities, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
 			{
@@ -422,6 +429,11 @@ namespace Strada
 						UI::ReportFailure(operations.MoveEntities(dragged, UUID::Invalid()), "Moving entities");
 					});
 			}
+			constexpr std::array<AssetType, 1> MeshType = {AssetType::Mesh};
+			if (AssetHandle const mesh = UI::AcceptAssetDrop(MeshType); mesh.IsValid())
+			{
+				CreateMeshEntity(operations, mesh, UUID::Invalid());
+			}
 			ImGui::EndDragDropTarget();
 		}
 		if (ImGui::BeginPopupContextItem("##backgroundMenu"))
@@ -480,6 +492,22 @@ namespace Strada
 			{
 				Result<UUID> created = EntityPresets::Create(operations, preset, parent, position);
 				UI::ReportFailure(created, "Creating the entity");
+				if (created)
+				{
+					std::vector<UUID> const selection = {created.GetValue()};
+					UI::ReportFailure(operations.Select(selection), "Selecting the new entity");
+				}
+			});
+	}
+
+	void SceneHierarchyPanel::CreateMeshEntity(EditorOperations& operations, AssetHandle mesh, UUID parent)
+	{
+		glm::vec3 const position = m_SpawnPositionProvider ? m_SpawnPositionProvider() : glm::vec3(0.0f);
+		Defer(
+			[&operations, mesh, parent, position]
+			{
+				Result<UUID> created = EntityPresets::CreateFromMesh(operations, mesh, parent, position);
+				UI::ReportFailure(created, "Adding the mesh");
 				if (created)
 				{
 					std::vector<UUID> const selection = {created.GetValue()};

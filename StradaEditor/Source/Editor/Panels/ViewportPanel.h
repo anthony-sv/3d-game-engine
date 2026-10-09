@@ -11,6 +11,8 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <filesystem>
+#include <functional>
 #include <optional>
 #include <span>
 
@@ -33,11 +35,18 @@ namespace Strada
 	// selected cameras, lights and colliders, icons for cameras and lights, and a transform gizmo for the selection (edits
 	// are undoable; one drag is one undo step). Input while hovered: right mouse look + WASD/QE fly, Alt + left mouse orbit,
 	// middle mouse pan, wheel zoom, F focus, left click select (Ctrl toggles, Shift adds), W/E/R gizmo operation, X
-	// local/world space, G grid; holding Ctrl while dragging the gizmo toggles snapping.
+	// local/world space, G grid; holding Ctrl while dragging the gizmo toggles snapping. Dropped assets: meshes become
+	// entities on the ground under the cursor, materials go to the mesh under the cursor, environments to the sky light,
+	// and scenes open.
 	class ViewportPanel
 	{
 	public:
+		// Opens a scene file (the editor asks about unsaved changes first).
+		using OpenSceneCallback = std::function<void(std::filesystem::path const&)>;
+
 		ViewportPanel();
+
+		void SetOpenSceneCallback(OpenSceneCallback callback) { m_OpenScene = std::move(callback); }
 
 		void OnImGuiRender(EditorOperations& operations, bool& open);
 
@@ -61,6 +70,8 @@ namespace Strada
 		void EndGizmoDrag(EditorContext& context);
 		void HandleSelectionClicks(EditorOperations& operations, glm::vec2 const& imagePosition, bool hovered, UUID hoveredIcon);
 		void ApplyPickResult(EditorOperations& operations);
+		// Applies an asset dropped onto the viewport image at a pixel.
+		void ApplyAssetDrop(EditorOperations& operations, AssetHandle asset, glm::vec2 const& pixel, glm::vec2 const& imageSize);
 		void DrawToolbar(glm::vec2 const& imagePosition);
 
 		EditorCamera m_Camera;
@@ -73,8 +84,13 @@ namespace Strada
 		// Picking IDs belong to one scene (EditorContext::GetSceneVersion).
 		PickingIdMap m_PickingIds;
 		uint64_t m_PickingSceneVersion = 0;
-		// Selection mode of the click whose pick result is awaited.
-		std::optional<SelectionMode> m_PendingPickMode;
+		// What the awaited pick result is for: a selection click, or a dropped material (assigned to the picked entity).
+		struct PendingPick
+		{
+			SelectionMode Mode = SelectionMode::Replace;
+			AssetHandle Material;
+		};
+		std::optional<PendingPick> m_PendingPick;
 		// A pick requested for a previous scene is still in flight: its result is dropped.
 		bool m_DiscardPick = false;
 		bool m_ClickCandidate = false;
@@ -94,5 +110,7 @@ namespace Strada
 		// Toolbar rectangle of the previous frame (clicks there do not reach the scene).
 		glm::vec2 m_ToolbarMin = glm::vec2(0.0f);
 		glm::vec2 m_ToolbarMax = glm::vec2(0.0f);
+
+		OpenSceneCallback m_OpenScene;
 	};
 }

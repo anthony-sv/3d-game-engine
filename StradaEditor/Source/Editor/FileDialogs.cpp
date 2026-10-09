@@ -16,6 +16,7 @@
 #include <nfd.h>
 #include <nfd_glfw3.h>
 
+#include <memory>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -129,6 +130,53 @@ namespace Strada
 			// The dialog runs before path is read: function arguments are evaluated in an unspecified order.
 			nfdresult_t const result = NFD_OpenDialogU8_With(&path, &arguments);
 			return Finish(result, path);
+		}
+
+		Result<std::vector<std::filesystem::path>> OpenFiles(std::span<FileDialogFilter const> filters,
+		                                                     std::filesystem::path const& defaultDirectory)
+		{
+			DialogSession const session;
+			if (!session.IsReady())
+			{
+				return MakeError("file dialogs are unavailable: {}", GetLastError());
+			}
+			std::vector<nfdu8filteritem_t> const items = MakeFilterItems(filters);
+			std::string const defaultPath = ToDefaultPath(defaultDirectory);
+			nfdopendialogu8args_t arguments{};
+			arguments.filterList = items.empty() ? nullptr : items.data();
+			arguments.filterCount = static_cast<nfdfiltersize_t>(items.size());
+			arguments.defaultPath = defaultPath.empty() ? nullptr : defaultPath.c_str();
+			arguments.parentWindow = GetParentWindow();
+			nfdpathset_t const* pathSet = nullptr;
+			nfdresult_t const result = NFD_OpenDialogMultipleU8_With(&pathSet, &arguments);
+			if (result == NFD_CANCEL)
+			{
+				return std::vector<std::filesystem::path>();
+			}
+			if (result != NFD_OKAY)
+			{
+				return MakeError("the file dialog failed: {}", GetLastError());
+			}
+
+			std::unique_ptr<nfdpathset_t const, void (*)(nfdpathset_t const*)> const owner(pathSet, &NFD_PathSet_Free);
+			nfdpathsetsize_t count = 0;
+			if (NFD_PathSet_GetCount(pathSet, &count) != NFD_OKAY)
+			{
+				return MakeError("the file dialog failed: {}", GetLastError());
+			}
+			std::vector<std::filesystem::path> paths;
+			paths.reserve(count);
+			for (nfdpathsetsize_t i = 0; i < count; i++)
+			{
+				nfdu8char_t* path = nullptr;
+				if (NFD_PathSet_GetPathU8(pathSet, i, &path) != NFD_OKAY)
+				{
+					return MakeError("the file dialog failed: {}", GetLastError());
+				}
+				std::unique_ptr<nfdu8char_t, void (*)(nfdu8char_t const*)> const pathOwner(path, &NFD_PathSet_FreePathU8);
+				paths.push_back(FileSystem::PathFromUtf8(path));
+			}
+			return paths;
 		}
 
 		Result<std::optional<std::filesystem::path>> SaveFile(std::span<FileDialogFilter const> filters,

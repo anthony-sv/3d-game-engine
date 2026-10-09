@@ -57,6 +57,15 @@ namespace Strada
 
 		void SetView(glm::vec3 const& focalPoint, float distance, float yawDegrees, float pitchDegrees);
 
+		// Normalized direction of the ray from the camera position through a pixel of a viewport of the given size ((0, 0)
+		// is its top-left corner; its aspect ratio is the one given to SetViewportSize).
+		glm::vec3 GetRayDirection(glm::vec2 const& pixel, glm::vec2 const& viewportSize) const;
+		// Where something dropped at a viewport pixel is placed: the point of the ground plane (y = 0) under the pixel when it
+		// lies in front of the camera within MaxPlacementDistance, else the point at the focal distance along the ray.
+		glm::vec3 GetPlacementPoint(glm::vec2 const& pixel, glm::vec2 const& viewportSize) const;
+
+		static constexpr float MaxPlacementDistance = 500.0f;
+
 	private:
 		glm::vec3 m_FocalPoint = glm::vec3(0.0f);
 		float m_Distance = 8.0f;

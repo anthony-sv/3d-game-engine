@@ -62,17 +62,6 @@ namespace Strada
 			return json;
 		}
 
-		// Asset payloads carry the handle's 64-bit value.
-		AssetHandle ReadAssetPayload(ImGuiPayload const& payload)
-		{
-			uint64_t value = 0;
-			if (payload.DataSize == static_cast<int>(sizeof(value)))
-			{
-				std::memcpy(&value, payload.Data, sizeof(value));
-			}
-			return AssetHandle(UUID(value));
-		}
-
 		UUID ReadID(Json const& json)
 		{
 			if (json.is_string())
@@ -235,13 +224,6 @@ namespace Strada
 			return AssetManager::IsMissing(handle) ? name + " (missing)" : name;
 		}
 
-		// AssetType::None accepts every type.
-		bool IsAcceptableAsset(AssetHandle handle, AssetType expected)
-		{
-			return AssetManager::IsInitialized() && AssetManager::IsValid(handle) &&
-			       (expected == AssetType::None || AssetManager::GetAssetType(handle) == expected);
-		}
-
 		// Asset button with a searchable picker popup, a clear button and an asset drag-and-drop target.
 		bool DrawAsset(FieldDescriptor const& field, Json const& value, std::string& filter, FieldChange& change)
 		{
@@ -263,14 +245,12 @@ namespace Strada
 			}
 			if (ImGui::BeginDragDropTarget())
 			{
-				if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::Asset, ImGuiDragDropFlags_AcceptPeekOnly))
+				std::span<AssetType const> const types =
+					expected == AssetType::None ? std::span<AssetType const>() : std::span<AssetType const>(&expected, 1);
+				if (AssetHandle const dropped = UI::AcceptAssetDrop(types); dropped.IsValid())
 				{
-					AssetHandle const dropped = ReadAssetPayload(*payload);
-					if (IsAcceptableAsset(dropped, expected) && ImGui::AcceptDragDropPayload(DragDropPayload::Asset))
-					{
-						change.Value = dropped.ToString();
-						changed = true;
-					}
+					change.Value = dropped.ToString();
+					changed = true;
 				}
 				ImGui::EndDragDropTarget();
 			}

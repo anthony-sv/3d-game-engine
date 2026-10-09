@@ -45,6 +45,13 @@ namespace Strada
 		};
 
 		Scope<AssetManagerData> s_Data;
+		// Outside s_Data: it survives Shutdown so a version cached before a re-initialization never matches again.
+		uint64_t s_Version = 0;
+
+		void MarkChanged()
+		{
+			s_Version++;
+		}
 
 		AssetManagerData& GetData()
 		{
@@ -56,6 +63,7 @@ namespace Strada
 
 		void RegisterRuntimeAsset(AssetMetadata metadata, Ref<Asset> asset)
 		{
+			MarkChanged();
 			AssetManagerData& data = GetData();
 			asset->Handle = metadata.Handle;
 			data.LoadedAssets[metadata.Handle] = std::move(asset);
@@ -64,6 +72,7 @@ namespace Strada
 
 		void RemoveSubAssets(AssetHandle parent)
 		{
+			MarkChanged();
 			AssetManagerData& data = GetData();
 			auto const it = data.SubAssets.find(parent);
 			if (it == data.SubAssets.end())
@@ -335,6 +344,7 @@ namespace Strada
 
 	void AssetManager::Init()
 	{
+		MarkChanged();
 		ST_CORE_ASSERT(!s_Data, "AssetManager is already initialized");
 		s_Data = CreateScope<AssetManagerData>();
 
@@ -348,6 +358,7 @@ namespace Strada
 
 	void AssetManager::Shutdown()
 	{
+		MarkChanged();
 		ST_CORE_ASSERT(s_Data, "AssetManager is not initialized");
 		s_Data.reset();
 	}
@@ -359,6 +370,7 @@ namespace Strada
 
 	Result<AssetRefreshResult> AssetManager::OpenAssetDirectory(std::filesystem::path const& directory)
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		if (!FileSystem::IsDirectory(directory))
 		{
@@ -409,6 +421,7 @@ namespace Strada
 
 	void AssetManager::CloseAssetDirectory()
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		// Keep built-ins; drop file assets, their sub-assets and memory assets.
 		for (auto it = data.RuntimeAssets.begin(); it != data.RuntimeAssets.end();)
@@ -445,6 +458,7 @@ namespace Strada
 
 	Result<AssetRefreshResult> AssetManager::Refresh()
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		if (data.AssetDirectory.empty())
 		{
@@ -576,6 +590,7 @@ namespace Strada
 
 	Result<AssetHandle> AssetManager::ImportFile(std::filesystem::path const& path)
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		if (data.AssetDirectory.empty())
 		{
@@ -627,6 +642,7 @@ namespace Strada
 
 	Result<void> AssetManager::MoveAsset(AssetHandle handle, std::string_view newPath)
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		AssetMetadata const* metadata = data.Registry.Find(handle);
 		if (metadata == nullptr)
@@ -684,6 +700,7 @@ namespace Strada
 
 	Result<void> AssetManager::DeleteAsset(AssetHandle handle)
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		AssetMetadata const* metadata = data.Registry.Find(handle);
 		if (metadata == nullptr)
@@ -706,6 +723,7 @@ namespace Strada
 
 	Result<void> AssetManager::MoveFolder(std::string_view folder, std::string_view newFolder)
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		if (data.AssetDirectory.empty())
 		{
@@ -790,6 +808,7 @@ namespace Strada
 
 	Result<void> AssetManager::DeleteFolder(std::string_view folder)
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		if (data.AssetDirectory.empty())
 		{
@@ -825,6 +844,7 @@ namespace Strada
 
 	AssetHandle AssetManager::AddMemoryAsset(Ref<Asset> asset, std::string name)
 	{
+		MarkChanged();
 		ST_CORE_ASSERT(asset, "Memory assets cannot be null");
 		AssetMetadata metadata;
 		metadata.Handle = AssetHandle::Generate();
@@ -837,6 +857,7 @@ namespace Strada
 
 	void AssetManager::RemoveMemoryAsset(AssetHandle handle)
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		auto const it = data.RuntimeAssets.find(handle);
 		if (it != data.RuntimeAssets.end() && it->second.IsMemoryAsset())
@@ -848,6 +869,7 @@ namespace Strada
 
 	Result<void> AssetManager::RegisterBuiltInAsset(std::string_view name, AssetHandle handle, Ref<Asset> asset)
 	{
+		MarkChanged();
 		AssetManagerData& data = GetData();
 		if (!asset)
 		{
@@ -869,6 +891,11 @@ namespace Strada
 		data.BuiltInNames.emplace(std::string(name), handle);
 		RegisterRuntimeAsset(std::move(metadata), std::move(asset));
 		return {};
+	}
+
+	uint64_t AssetManager::GetVersion()
+	{
+		return s_Version;
 	}
 
 	bool AssetManager::IsValid(AssetHandle handle)

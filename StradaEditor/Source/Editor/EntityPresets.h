@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Serialization/JsonSerialization.h"
@@ -33,5 +34,7 @@ namespace Strada
 		// Creates a preset entity under parent (invalid = root) as one undo step. Root entities are placed at `position`
 		// (for example the viewport's focal point); children start at their parent's origin.
 		[[nodiscard]] Result<UUID> Create(EditorOperations& operations, EntityPreset const& preset, UUID parent, glm::vec3 const& position);
+		// Creates an entity that draws a mesh asset, named after it, placed like preset entities.
+		[[nodiscard]] Result<UUID> CreateFromMesh(EditorOperations& operations, AssetHandle mesh, UUID parent, glm::vec3 const& position);
 	}
 }

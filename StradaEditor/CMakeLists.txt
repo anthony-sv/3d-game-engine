@@ -1,6 +1,10 @@
 # Strada editor: StradaEditorCore (testable library) + StradaEditor (executable).
 
 set(STRADA_EDITOR_CORE_SOURCES
+    Source/Editor/AssetBrowsing.cpp
+    Source/Editor/AssetBrowsing.h
+    Source/Editor/AssetDrops.cpp
+    Source/Editor/AssetDrops.h
     Source/Editor/Automation/AutomationInstance.cpp
     Source/Editor/Automation/AutomationInstance.h
     Source/Editor/Automation/AutomationServer.cpp
@@ -52,6 +56,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/HierarchyEditing.h
     Source/Editor/Panels/ConsolePanel.cpp
     Source/Editor/Panels/ConsolePanel.h
+    Source/Editor/Panels/ContentBrowserPanel.cpp
+    Source/Editor/Panels/ContentBrowserPanel.h
     Source/Editor/Panels/InspectorPanel.cpp
     Source/Editor/Panels/InspectorPanel.h
     Source/Editor/Panels/ProjectSettingsPanel.cpp

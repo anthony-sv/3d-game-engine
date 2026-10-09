@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Strada/Asset/Asset.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Result.h"
 
 #include <cstdint>
+#include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -19,6 +22,8 @@ namespace Strada
 		inline constexpr char const* Entities = "STRADA_ENTITIES";
 		// One AssetHandle (uint64_t).
 		inline constexpr char const* Asset = "STRADA_ASSET";
+		// A folder of the asset directory: its relative path as UTF-8 characters (no terminator).
+		inline constexpr char const* AssetFolder = "STRADA_ASSET_FOLDER";
 	}
 
 	namespace UI
@@ -30,6 +35,14 @@ namespace Strada
 		// Menu items for every entity preset, categories as submenus; returns the preset chosen this frame. Call inside an
 		// open menu or popup.
 		EntityPreset const* DrawEntityPresetMenuItems();
+
+		// Makes the last item a source of an asset drag (DragDropPayload::Asset) showing the label while dragging.
+		void AssetDragSource(AssetHandle asset, std::string_view label);
+		// Call between ImGui::BeginDragDropTarget and EndDragDropTarget. The target highlights only for dragged assets that
+		// are registered and accepted by the test; returns the asset dropped this frame, else invalid.
+		AssetHandle AcceptAssetDrop(std::function<bool(AssetMetadata const&)> const& accepts);
+		// Accepts registered assets of one of the types (any type when empty).
+		AssetHandle AcceptAssetDrop(std::span<AssetType const> types = {});
 
 		// Logs a failed user action; the console panel shows it.
 		template<typename T>

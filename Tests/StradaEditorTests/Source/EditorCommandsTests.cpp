@@ -415,7 +415,21 @@ TEST_CASE("EditorCommands: assets and materials are listed, imported, edited, mo
 	CHECK(fixture.Ok("material.get", Json::object({{"material", materialID}}))["fields"]["BaseColorTexture"] == texture);
 
 	CHECK(fixture.Ok("asset.refresh")["added"].empty());
+
+	// The inspector shows either selected entities or one asset; deleting the asset deselects it.
+	std::string const entity = fixture.Create("Entity");
+	fixture.Ok("entity.select", Json::object({{"entities", {entity}}}));
+	Json const assetSelection = fixture.Ok("asset.select", Json::object({{"asset", texture}}));
+	CHECK(assetSelection["entities"].empty());
+	CHECK(assetSelection["asset"]["id"] == texture);
+	CHECK(fixture.Ok("editor.status")["selection"]["asset"]["path"] == "Textures/Oak.png");
+	CHECK(fixture.Ok("entity.select", Json::object({{"entities", Json::array()}}))["asset"].is_null());
+	CHECK(fixture.Fails("asset.select", Json::object({{"asset", "asset://Textures/None.png"}})) == AutomationErrorCode::AssetNotFound);
+	fixture.Ok("asset.select", Json::object({{"asset", texture}}));
+
 	CHECK(fixture.Ok("asset.delete", Json::object({{"asset", texture}}))["deleted"] == texture);
+	CHECK(fixture.Ok("editor.status")["selection"]["asset"].is_null());
+	CHECK_FALSE(fixture.Context.GetSelectedAsset().IsValid());
 	CHECK(fixture.Fails("asset.delete", Json::object({{"asset", texture}})) == AutomationErrorCode::AssetNotFound);
 	fixture.Ok("asset.delete-folder", Json::object({{"folder", "Art"}}));
 	CHECK(fixture.Fails("material.get", Json::object({{"material", materialID}})) == AutomationErrorCode::AssetNotFound);

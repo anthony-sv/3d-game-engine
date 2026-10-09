@@ -99,3 +99,41 @@ TEST_CASE("EditorCamera: focus frames the bounds")
 	camera.Focus(AABB());
 	CHECK(NearlyEqual(camera.GetFocalPoint(), glm::vec3(10.0f)));
 }
+
+TEST_CASE("EditorCamera: pixel rays match the projection and place drops on the ground")
+{
+	EditorCamera camera;
+	camera.SetViewportSize(800, 600);
+	camera.SetView(glm::vec3(0.0f, 0.5f, 0.0f), 7.0f, 30.0f, -20.0f);
+	glm::vec2 const viewport(800.0f, 600.0f);
+
+	CHECK(NearlyEqual(camera.GetRayDirection(viewport * 0.5f, viewport), camera.GetForward()));
+
+	// A point along any pixel's ray projects back onto that pixel.
+	glm::mat4 const viewProjection = camera.GetGizmoProjection() * camera.GetViewMatrix();
+	for (glm::vec2 const pixel : {glm::vec2(0.0f, 0.0f), glm::vec2(800.0f, 600.0f), glm::vec2(123.0f, 456.0f), glm::vec2(700.0f, 50.0f)})
+	{
+		glm::vec3 const point = camera.GetPosition() + camera.GetRayDirection(pixel, viewport) * 10.0f;
+		glm::vec4 const clip = viewProjection * glm::vec4(point, 1.0f);
+		glm::vec2 const ndc = glm::vec2(clip) / clip.w;
+		glm::vec2 const projected((ndc.x + 1.0f) * 0.5f * viewport.x, (1.0f - ndc.y) * 0.5f * viewport.y);
+		CHECK(projected.x == doctest::Approx(pixel.x).epsilon(1e-3));
+		CHECK(projected.y == doctest::Approx(pixel.y).epsilon(1e-3));
+	}
+
+	// Looking down at the ground: the drop lands on y = 0 under the cursor.
+	glm::vec3 const ground = camera.GetPlacementPoint(viewport * 0.5f, viewport);
+	CHECK(ground.y == doctest::Approx(0.0f).epsilon(1e-4));
+	CHECK(glm::length(glm::cross(glm::normalize(ground - camera.GetPosition()), camera.GetForward())) < 1e-4f);
+
+	// Above the horizon there is no ground: the drop lands at the focal distance along the ray.
+	camera.SetView(glm::vec3(0.0f, 5.0f, 0.0f), 7.0f, 30.0f, 10.0f);
+	REQUIRE(camera.GetPosition().y > 0.0f);
+	glm::vec3 const air = camera.GetPlacementPoint(viewport * 0.5f, viewport);
+	CHECK(glm::length(air - camera.GetPosition()) == doctest::Approx(7.0f));
+	CHECK(NearlyEqual(air, camera.GetFocalPoint()));
+
+	// Ground hits farther than the limit are not useful either.
+	camera.SetView(glm::vec3(0.0f, 0.5f, 0.0f), 7.0f, 0.0f, -0.01f);
+	CHECK(glm::length(camera.GetPlacementPoint(viewport * 0.5f, viewport) - camera.GetPosition()) == doctest::Approx(7.0f));
+}

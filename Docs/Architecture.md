@@ -455,7 +455,18 @@ serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `doubl
   browser, entity references accept dropped entities. With several entities selected it shows the components they
   share, flags fields whose values differ, and an edit sets only the edited value or vector component on every
   entity. One widget interaction (a drag, typing into a field) is one undo step. Components can be added (searchable
-  list), reset, copied, pasted as JSON and removed.
+  list), reset, copied, pasted as JSON and removed. Without selected entities the inspector shows the asset selected
+  in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
+  editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
+  read-only), a texture preview, mesh statistics with the mesh's materials, and the details of other asset types.
+- Content Browser: the open project's asset directory as tiles (folders, then assets with a colored type badge;
+  missing files in red), breadcrumbs, and a search over every asset path. Click selects (the inspector shows the
+  asset), double-click opens folders and scenes; F2 renames, Delete deletes after a confirmation. Assets and folders
+  drag onto folder tiles and breadcrumbs to move (handles stay valid); assets drag into asset fields, the hierarchy
+  (meshes become entities, as children when dropped onto a row) and the viewport (meshes become entities on the
+  ground under the cursor, materials go to every submesh of the mesh under the cursor, environments to the first sky
+  light or a new one, scenes open). Context menus create folders and materials, import files (native multi-select
+  dialog), refresh, rename, delete and copy references or paths. File operations are not undoable.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity

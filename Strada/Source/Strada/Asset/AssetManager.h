@@ -5,6 +5,7 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -75,6 +76,9 @@ namespace Strada
 
 		// --- Queries ---
 
+		// Changes whenever assets are registered or unregistered or their metadata changes (paths, missing files), including
+		// initialization and shutdown, so callers can cache lists of assets. A value never repeats within the process.
+		static uint64_t GetVersion();
 		// Registered (built-in, file, memory or loaded sub-asset).
 		static bool IsValid(AssetHandle handle);
 		static bool IsLoaded(AssetHandle handle);
