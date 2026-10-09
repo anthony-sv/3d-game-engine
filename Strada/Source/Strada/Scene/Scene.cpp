@@ -2,6 +2,7 @@
 #include "Strada/Scene/Scene.h"
 
 #include "Strada/Math/Math.h"
+#include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/Entity.h"
 
@@ -14,7 +15,11 @@ namespace Strada
 	{
 	}
 
-	Scene::~Scene() = default;
+	Scene::~Scene()
+	{
+		// Disconnects the registry signals before the registry goes away.
+		StopPhysics();
+	}
 
 	Ref<Scene> Scene::Copy(Scene const& source)
 	{
@@ -508,7 +513,7 @@ namespace Strada
 		return result;
 	}
 
-	void Scene::OnRuntimeStart()
+	void Scene::OnRuntimeStart(SceneRuntimeSettings const& settings)
 	{
 		ST_CORE_ASSERT(!m_IsRunning, "The scene is already running");
 		m_IsRunning = true;
@@ -516,6 +521,8 @@ namespace Strada
 		m_StepFrames = 0;
 		m_RuntimeFrame = 0;
 		m_RuntimeTime = 0.0;
+		m_RuntimeSettings = settings;
+		StartPhysics();
 	}
 
 	void Scene::OnRuntimeStop()
@@ -525,6 +532,7 @@ namespace Strada
 			return;
 		}
 		m_IsRunning = false;
+		StopPhysics();
 		FlushPendingDestruction();
 	}
 
@@ -545,6 +553,7 @@ namespace Strada
 
 		m_RuntimeFrame++;
 		m_RuntimeTime += timestep.GetSeconds();
+		UpdatePhysics(timestep.GetSeconds());
 		FlushPendingDestruction();
 	}
 

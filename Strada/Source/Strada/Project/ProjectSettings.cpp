@@ -2,7 +2,9 @@
 #include "Strada/Project/ProjectSettings.h"
 
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Scene/Scene.h"
 
+#include <algorithm>
 #include <set>
 
 namespace Strada
@@ -73,5 +75,17 @@ namespace Strada
 			}
 		}
 		return {};
+	}
+
+	SceneRuntimeSettings MakeSceneRuntimeSettings(ProjectSettings const& settings)
+	{
+		SceneRuntimeSettings runtime;
+		runtime.FixedTimestep = settings.Physics.FixedTimestep;
+		runtime.PhysicsLayerCount = static_cast<uint32_t>(std::clamp<size_t>(settings.Physics.Layers.size(), 1, MaxPhysicsLayers));
+		for (PhysicsLayerPair const& pair : settings.Physics.IgnoredCollisions)
+		{
+			runtime.IgnoredCollisions.emplace_back(pair.First, pair.Second);
+		}
+		return runtime;
 	}
 }

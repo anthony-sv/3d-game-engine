@@ -206,6 +206,47 @@ strada_declare_dependency(mikktspace
     SOURCE_SUBDIR _strada_no_cmake)
 FetchContent_MakeAvailable(cgltf ufbx mikktspace)
 
+# --- Jolt Physics 5.6.0 ----------------------------------------------------------------------------------------------
+strada_declare_dependency(JoltPhysics
+    https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.6.0.tar.gz
+    6e069ee0172478cc78182047aac87e5310ba14a67a53348ae14cc37801fd3f8e
+    SOURCE_SUBDIR Build)
+# Jolt's flags stay in its own directory; keep our runtime library, debug information and optimization settings.
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)
+set(GENERATE_DEBUG_SYMBOLS OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+# Engine code uses RTTI; matching it keeps type information of Jolt's interfaces consistent.
+set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
+set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF CACHE BOOL "" FORCE)
+set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(ENABLE_OBJECT_STREAM OFF CACHE BOOL "" FORCE)
+# Jolt passes its instruction-set flags to the engine sources that include it: stay at the SSE4.2 baseline so the
+# engine runs on every x86-64 CPU of the last 15 years and floating-point results do not change through FMA
+# contraction.
+set(USE_AVX OFF CACHE BOOL "" FORCE)
+set(USE_AVX2 OFF CACHE BOOL "" FORCE)
+set(USE_LZCNT OFF CACHE BOOL "" FORCE)
+set(USE_TZCNT OFF CACHE BOOL "" FORCE)
+set(USE_F16C OFF CACHE BOOL "" FORCE)
+set(USE_FMADD OFF CACHE BOOL "" FORCE)
+# GPU compute (soft bodies, hair) is unused: no DirectX, Vulkan or Metal dependencies.
+set(JPH_USE_DX12 OFF CACHE BOOL "" FORCE)
+set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
+set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
+set(JPH_USE_CPU_COMPUTE OFF CACHE BOOL "" FORCE)
+# Jolt's asserts (reported through the engine log) in Debug builds only.
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(USE_ASSERTS ON CACHE BOOL "" FORCE)
+else()
+    set(USE_ASSERTS OFF CACHE BOOL "" FORCE)
+endif()
+FetchContent_MakeAvailable(JoltPhysics)
+set_target_properties(Jolt PROPERTIES FOLDER "ThirdParty")
+
 # --- doctest 2.5.3 (tests only) ------------------------------------------------------------------------------------
 if(STRADA_BUILD_TESTS)
     strada_declare_dependency(doctest

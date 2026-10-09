@@ -27,6 +27,8 @@ add_executable(StradaTests
     Source/GpuTestUtilities.h
     Source/Math/AABBTests.cpp
     Source/Math/MathTests.cpp
+    Source/Physics/PhysicsSceneTests.cpp
+    Source/Physics/PhysicsTestUtilities.h
     Source/Project/ProjectTests.cpp
     Source/RHI/GraphicsDeviceTests.cpp
     Source/RHI/SwapchainTests.cpp
@@ -43,6 +45,7 @@ add_executable(StradaTests
     Source/Renderer/TextLayoutTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
     Source/Scene/SceneCameraTests.cpp
+    Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneSerializerTests.cpp
     Source/Scene/SceneTests.cpp
     Source/Script/ScriptFieldTests.cpp

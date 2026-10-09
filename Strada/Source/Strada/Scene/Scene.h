@@ -4,6 +4,7 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Core/UUID.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
 
 #include <entt/entity/registry.hpp>
@@ -13,11 +14,13 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace Strada
 {
 	class Entity;
+	class PhysicsScene;
 
 	struct ScenePhysicsSettings
 	{
@@ -49,6 +52,18 @@ namespace Strada
 		static constexpr std::string_view Name = "Settings";
 		static constexpr auto Fields =
 			std::make_tuple(Field("Physics", &SceneSettings::Physics), Field("Renderer", &SceneSettings::Renderer));
+	};
+
+	// Project settings the scene runtime uses (ProjectSettings provides them when a project is open).
+	struct SceneRuntimeSettings
+	{
+		// Seconds per physics step.
+		float FixedTimestep = 1.0f / 60.0f;
+		// Physics layers in use (1 to MaxPhysicsLayers) and the layer pairs that do not collide.
+		uint32_t PhysicsLayerCount = 1;
+		std::vector<glm::uvec2> IgnoredCollisions;
+		// Physics steps per frame at most: slower frames slow the simulation down instead of falling further behind.
+		uint32_t MaxStepsPerFrame = 8;
 	};
 
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.
@@ -119,8 +134,13 @@ namespace Strada
 
 		// --- Runtime ---
 
-		void OnRuntimeStart();
+		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody). Bodies follow
+		// component changes while running. Requires PhysicsSystem (without it the scene runs without physics, logged); stop
+		// the runtime or destroy the scene before PhysicsSystem::Shutdown.
+		void OnRuntimeStart(SceneRuntimeSettings const& settings = {});
 		void OnRuntimeStop();
+		// Advances the runtime: physics in fixed steps (kinematic bodies follow their transforms, moved static and dynamic
+		// bodies teleport, dynamic bodies write their transforms back), then deferred entity destruction.
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -129,6 +149,10 @@ namespace Strada
 		void Step(uint32_t frames = 1) { m_StepFrames += frames; }
 		uint64_t GetRuntimeFrame() const { return m_RuntimeFrame; }
 		double GetRuntimeTime() const { return m_RuntimeTime; }
+		// The physics world while running; null otherwise or when physics is unavailable.
+		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
+		// Collisions and trigger overlaps that began or ended during the last runtime update.
+		std::vector<ContactEvent> const& GetContactEvents() const { return m_ContactEvents; }
 
 		void OnViewportResize(uint32_t width, uint32_t height);
 		uint32_t GetViewportWidth() const { return m_ViewportWidth; }
@@ -159,6 +183,18 @@ namespace Strada
 		void RemapEntityReferences(entt::entity handle, std::unordered_map<UUID, UUID> const& remap);
 		entt::entity FindHandle(UUID id) const;
 
+		// Physics runtime (ScenePhysics.cpp).
+		void StartPhysics();
+		void StopPhysics();
+		void UpdatePhysics(float deltaTime);
+		void RebuildChangedBodies();
+		void UpdateBody(entt::entity handle);
+		void SyncBodiesFromTransforms(float stepDelta);
+		void WriteBodyTransforms();
+		void OnPhysicsComponentChanged(entt::registry& registry, entt::entity handle);
+		void OnMeshComponentChanged(entt::registry& registry, entt::entity handle);
+		void ConnectPhysicsSignals(bool connect);
+
 		std::string m_Name;
 		SceneSettings m_Settings;
 		entt::registry m_Registry;
@@ -171,6 +207,22 @@ namespace Strada
 		uint32_t m_StepFrames = 0;
 		uint64_t m_RuntimeFrame = 0;
 		double m_RuntimeTime = 0.0;
+
+		// The world pose last exchanged with an entity's body (to tell transform edits from simulation).
+		struct BodyState
+		{
+			UUID Entity = UUID::Invalid();
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::quat Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		};
+
+		SceneRuntimeSettings m_RuntimeSettings;
+		Scope<PhysicsScene> m_Physics;
+		float m_PhysicsAccumulator = 0.0f;
+		std::unordered_map<entt::entity, BodyState> m_Bodies;
+		// Entities whose physics components changed while running; their bodies are rebuilt before the next step.
+		std::unordered_set<entt::entity> m_ChangedBodies;
+		std::vector<ContactEvent> m_ContactEvents;
 
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;

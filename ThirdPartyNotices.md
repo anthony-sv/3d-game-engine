@@ -19,5 +19,6 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | cgltf | 1.15 | MIT | https://github.com/jkuhlmann/cgltf | Engine (glTF 2.0 import) |
 | ufbx | 0.23.1 | MIT or Unlicense | https://github.com/ufbx/ufbx | Engine (FBX and OBJ import) |
 | MikkTSpace | @ 3e895b4 | zlib | https://github.com/mmikk/MikkTSpace | Engine (tangent generation) |
+| Jolt Physics | 5.6.0 | MIT | https://github.com/jrouwe/JoltPhysics | Engine (physics) |
 | Roboto Medium (font, from Dear ImGui's `misc/fonts`) | Dear ImGui 1.92.9b | Apache-2.0 | https://fonts.google.com/specimen/Roboto | Engine (default text font, compiled into the engine) |
 | doctest | 2.5.3 | MIT | https://github.com/doctest/doctest | Tests only (not distributed) |

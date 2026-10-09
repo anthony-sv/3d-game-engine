@@ -2,6 +2,7 @@
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Result.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Serialization/StructSerialization.h"
 
 #include <cstdint>
@@ -12,6 +13,8 @@
 
 namespace Strada
 {
+	struct SceneRuntimeSettings;
+
 	// The window of the exported game (the editor keeps its own window).
 	struct ProjectWindowSettings
 	{
@@ -109,9 +112,10 @@ namespace Strada
 			Field("Window", &ProjectSettings::Window), Field("Physics", &ProjectSettings::Physics));
 	};
 
-	inline constexpr size_t MaxPhysicsLayers = 16;
-
 	// Checks what field ranges cannot express: a non-empty name, relative paths inside the project, 1 to 16 unique,
 	// non-empty layer names and ignored pairs naming existing layers.
 	[[nodiscard]] Result<void> ValidateProjectSettings(ProjectSettings const& settings);
+
+	// What a scene's runtime takes from the project: the physics step rate, layers and ignored layer pairs.
+	SceneRuntimeSettings MakeSceneRuntimeSettings(ProjectSettings const& settings);
 }

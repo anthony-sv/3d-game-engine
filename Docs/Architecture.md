@@ -379,14 +379,27 @@ Material (`.smat`): `"Material": { <MaterialAsset fields> }`; missing fields kee
 
 ## 8. Physics (Jolt)
 
-`PhysicsSystem` (global) initializes Jolt (allocator, factory, types, job system). `PhysicsScene` (per playing scene)
-owns the `JPH::PhysicsSystem`, layer interfaces built from project layer settings (object layers = project layers;
-broad-phase layers: static and moving), and a contact listener that queues events. Bodies are created from
-components at runtime start and when components/entities are added at runtime; destroyed on removal. Kinematic
-bodies follow their transform via `MoveKinematic`; scripts setting the transform of a dynamic/static body teleport it.
-Physics transforms are written back to `TransformComponent` (converted to parent-local space) after each step.
-Events delivered to scripts: `OnCollisionEnter/Exit(Entity other)`, `OnTriggerEnter/Exit(Entity other)`.
-Queries: raycast (closest hit), with layer mask.
+`PhysicsSystem` (global) initializes Jolt: the default allocator, the type factory and a job system with a worker
+thread per core but one. `PhysicsScene` is one physics world, independent of the ECS (bodies are described by
+`BodyDesc` and keyed by entity UUID), so it is tested on its own. Object layers encode the project layer and whether
+the body moves (static bodies never meet each other); broad-phase layers separate static from moving bodies; the
+project's ignored layer pairs never collide. An entity's colliders form one compound shape scaled by the entity's
+world scale (mirroring is ignored); triangle-mesh colliders on dynamic bodies use the mesh's convex hull. Friction
+(geometric mean), restitution (maximum) and triggers are applied per contact by the contact listener, so one entity
+can mix solid and trigger colliders. The listener, called on Jolt's worker threads, turns sub-shape contacts into one
+enter and one exit event per entity pair and contact kind; removing a body ends its contacts with exit events. Jolt is
+built at the SSE4.2 baseline (its instruction-set flags reach the engine sources that include it) with its asserts,
+routed to the engine log, in Debug builds only.
+
+The scene drives it while running. `OnRuntimeStart(SceneRuntimeSettings)` (from `MakeSceneRuntimeSettings(project
+settings)`) creates bodies for entities with colliders (static without a `RigidBody`; a `RigidBody` without colliders
+is not simulated). EnTT signals rebuild a body when its physics components, or the mesh of its mesh collider, change;
+the rebuilt body keeps its velocities. Physics runs in fixed steps (`Physics.FixedTimestep` of the project, at most 8
+per frame): before each step kinematic bodies move towards their transforms (`MoveKinematic`) and static or dynamic
+bodies whose transforms changed (scripts, the editor, a moving parent) are teleported; after it, awake dynamic bodies
+write their world transforms back (parents first, converted to parent-local space, keeping their scale). Events
+delivered to scripts: `OnCollisionEnter/Exit(Entity other)`, `OnTriggerEnter/Exit(Entity other)`. Queries: raycast
+(closest solid hit; triggers and colliders containing the origin are ignored), with a layer mask.
 
 ## 9. Audio (miniaudio)
 

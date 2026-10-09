@@ -2,6 +2,7 @@
 #include "Strada/Core/Application.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Physics/PhysicsSystem.h"
 #include "Strada/Renderer/Renderer.h"
 
 #include "Strada/Core/Events/ApplicationEvent.h"
@@ -117,6 +118,7 @@ namespace Strada
 		Input::Reset();
 		// CPU-only: available headless and without a GPU.
 		AssetManager::Init();
+		PhysicsSystem::Init();
 
 		if (!m_Specification.Headless)
 		{
@@ -229,6 +231,10 @@ namespace Strada
 		DetachAllLayers();
 		m_ImGuiLayer = nullptr;
 
+		if (PhysicsSystem::IsInitialized())
+		{
+			PhysicsSystem::Shutdown();
+		}
 		// Assets go before the GPU objects created from them.
 		if (AssetManager::IsInitialized())
 		{

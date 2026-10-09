@@ -4,12 +4,14 @@ Strada is a production-grade, straightforward 3D game engine for **Windows, macO
 with C# (.NET 10) scripting, a Vulkan renderer built on NVRHI, an ImGui editor that AI agents can fully control, and
 an exporter for distributable games.
 
-> **Status: early development.** In place: the engine core (application loop, windowing, input, events, logging, file
+> **Status: in development.** In place: the engine core (application loop, windowing, input, events, logging, file
 > system, command line), the Vulkan/NVRHI device and swapchains, build-time shader compilation, the ImGui renderer with
 > docking and multi-viewports, the ECS scene system (components, hierarchy, reflection-driven JSON scenes, prefabs),
-> the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in primitives), the
-> forward PBR scene renderer with tonemapping, the editor with its viewport, undo/redo and the AI automation server,
-> and CI on all three platforms. Image-based lighting, shadows, physics, audio, scripting and the exporter are next.
+> projects, the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in
+> primitives and font), the forward PBR scene renderer (image-based lighting, soft shadows, GTAO, bloom, FXAA,
+> tonemapping, signed-distance text and sprites), Jolt physics with the scene runtime, the editor (viewport with gizmos
+> and picking, hierarchy, generated inspector, content browser, project settings, undo/redo, AI automation server) and
+> CI on all three platforms. Audio, scripting, play mode and the exporter are next.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Planned feature set

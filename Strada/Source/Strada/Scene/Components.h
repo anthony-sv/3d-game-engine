@@ -3,6 +3,7 @@
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Math/Math.h"
+#include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Renderer/TextLayout.h"
 #include "Strada/Script/ScriptField.h"
 
@@ -124,13 +125,6 @@ namespace Strada
 		bool DrawSkybox = true;
 		// Ambient light used when no environment map is set.
 		glm::vec3 AmbientColor = {0.03f, 0.03f, 0.03f};
-	};
-
-	enum class RigidBodyType : uint8_t
-	{
-		Static = 0,
-		Dynamic,
-		Kinematic
 	};
 
 	struct RigidBodyComponent

@@ -86,6 +86,15 @@ set(STRADA_MATH_SOURCES
     Source/Strada/Math/Math.h
 )
 
+set(STRADA_PHYSICS_SOURCES
+    Source/Strada/Physics/JoltContext.h
+    Source/Strada/Physics/PhysicsScene.cpp
+    Source/Strada/Physics/PhysicsScene.h
+    Source/Strada/Physics/PhysicsSystem.cpp
+    Source/Strada/Physics/PhysicsSystem.h
+    Source/Strada/Physics/PhysicsTypes.h
+)
+
 set(STRADA_PROJECT_SOURCES
     Source/Strada/Project/Project.cpp
     Source/Strada/Project/Project.h
@@ -125,6 +134,7 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/Scene.h
     Source/Strada/Scene/SceneCamera.cpp
     Source/Strada/Scene/SceneCamera.h
+    Source/Strada/Scene/ScenePhysics.cpp
     Source/Strada/Scene/SceneRendering.cpp
     Source/Strada/Scene/SceneRendering.h
     Source/Strada/Scene/SceneSerializer.cpp
@@ -185,6 +195,7 @@ add_library(Strada STATIC
     ${STRADA_CORE_SOURCES}
     ${STRADA_IMGUI_SOURCES}
     ${STRADA_MATH_SOURCES}
+    ${STRADA_PHYSICS_SOURCES}
     ${STRADA_PROJECT_SOURCES}
     ${STRADA_RENDERER_SOURCES}
     ${STRADA_RHI_SOURCES}
@@ -214,6 +225,7 @@ target_link_libraries(Strada
         StradaStb
         StradaModelImport
         Vulkan::Headers
+        Jolt
 )
 
 target_compile_definitions(Strada PUBLIC
@@ -283,6 +295,6 @@ strada_configure_target(Strada)
 strada_add_configuration_definitions(Strada)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES
-    ${STRADA_ASSET_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_PROJECT_SOURCES}
+    ${STRADA_ASSET_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_PHYSICS_SOURCES} ${STRADA_PROJECT_SOURCES}
     ${STRADA_RENDERER_SOURCES} ${STRADA_RHI_SOURCES} ${STRADA_SCENE_SOURCES} ${STRADA_SCRIPT_SOURCES} ${STRADA_SERIALIZATION_SOURCES})
 set_target_properties(Strada PROPERTIES FOLDER "Engine")
