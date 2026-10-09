@@ -175,6 +175,53 @@ struct TonemapConstants
 	float BloomNormalization;
 };
 
+// Entity IDs (editor picking): the top bit marks selected entities, the remaining bits hold the picking ID (0 = none).
+static uint const EntityIdSelectedBit = 0x80000000u;
+static uint const EntityIdMask = 0x7FFFFFFFu;
+
+// Camera of the editor overlay passes: entity IDs, grid, lines, selection outline (b0).
+struct OverlayConstants
+{
+	float4x4 ViewProjection;
+	float4x4 InverseViewProjection;
+	float3 CameraPosition;
+	float Padding0;
+	float2 ViewportSize;
+	float2 Padding1;
+};
+
+// Entity ID pass (push constants).
+struct EntityIdDrawConstants
+{
+	float4x4 Model;
+	uint EntityId;
+	float3 Padding;
+};
+
+// Ground grid on the y = 0 plane (push constants). Colors are sRGB-encoded with straight alpha.
+struct GridConstants
+{
+	float4 MinorColor;
+	float4 MajorColor;
+	float4 AxisXColor;
+	float4 AxisZColor;
+	float CellSize;
+	// Every n-th line is a major line.
+	float MajorLineEvery;
+	// Distance from the camera at which the grid has faded out.
+	float FadeDistance;
+	float Padding;
+};
+
+// Selection outline (push constants). The color is sRGB-encoded with straight alpha.
+struct OutlineConstants
+{
+	float4 Color;
+	// Outline width in pixels.
+	int Radius;
+	float3 Padding;
+};
+
 ST_SHADER_NAMESPACE_END
 
 #endif

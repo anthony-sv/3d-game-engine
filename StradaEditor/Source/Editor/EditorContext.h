@@ -10,6 +10,7 @@
 #include "Strada/Scene/Scene.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <span>
@@ -45,6 +46,8 @@ namespace Strada
 		// Records that the scene was written to path: it becomes the scene path and the current state the saved one.
 		void MarkSaved(std::filesystem::path path);
 		bool IsDirty() const { return m_History.IsDirty(); }
+		// Changes whenever SetScene replaces the scene (state tied to one scene, such as viewport picking IDs, resets).
+		uint64_t GetSceneVersion() const { return m_SceneVersion; }
 
 		// --- Undoable modifications ---
 
@@ -79,5 +82,6 @@ namespace Strada
 		CommandHistory m_History;
 		EntitySelection m_Selection;
 		AssetReferenceResolver m_AssetReferenceResolver;
+		uint64_t m_SceneVersion = 0;
 	};
 }

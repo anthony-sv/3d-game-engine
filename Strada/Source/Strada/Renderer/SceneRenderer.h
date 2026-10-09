@@ -10,6 +10,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -77,6 +78,33 @@ namespace Strada
 		bool DrawSkybox = true;
 	};
 
+	// Editor ground grid on the y = 0 plane, drawn after tonemapping and hidden behind surfaces. Colors are sRGB-encoded with
+	// straight alpha.
+	struct GridOverlay
+	{
+		bool Enabled = false;
+		float CellSize = 1.0f;
+		// Every n-th line is a major line.
+		uint32_t MajorLineEvery = 10;
+		// Distance from the camera at which the grid has faded out.
+		float FadeDistance = 150.0f;
+		glm::vec4 MinorColor = glm::vec4(0.55f, 0.55f, 0.55f, 0.35f);
+		glm::vec4 MajorColor = glm::vec4(0.65f, 0.65f, 0.65f, 0.6f);
+		// The X axis is the line z = 0, the Z axis the line x = 0.
+		glm::vec4 AxisXColor = glm::vec4(0.9f, 0.3f, 0.3f, 0.9f);
+		glm::vec4 AxisZColor = glm::vec4(0.3f, 0.5f, 0.95f, 0.9f);
+	};
+
+	// Editor overlays of one frame (set between BeginScene and EndScene; everything is off by default).
+	struct SceneRendererOverlays
+	{
+		GridOverlay Grid;
+		// Outline around selected meshes (requires entity IDs). sRGB-encoded with straight alpha.
+		glm::vec4 SelectionColor = glm::vec4(1.0f, 0.55f, 0.1f, 1.0f);
+		// Pixels, clamped to 1-8.
+		uint32_t SelectionOutlineWidth = 2;
+	};
+
 	struct SceneRendererStatistics
 	{
 		// Including shadow-map draws.
@@ -107,22 +135,44 @@ namespace Strada
 		uint32_t GetViewportWidth() const { return m_Width; }
 		uint32_t GetViewportHeight() const { return m_Height; }
 
+		// Editor picking: renders the picking ID of the nearest surface per pixel (an extra depth pass over pickable meshes)
+		// and enables the selection outline. Off by default.
+		void SetEntityIdsEnabled(bool enabled);
+		bool AreEntityIdsEnabled() const { return m_EntityIdsEnabled; }
+
 		void BeginScene(SceneRendererCamera const& camera, SceneRendererSettings const& settings);
-		// materials: one per material slot of the mesh (null entries use the default material).
+		// materials: one per material slot of the mesh (null entries use the default material). pickingId: non-zero ID
+		// reported by picking (below MaxPickingId; 0 = not pickable); selected meshes get the selection outline.
 		void SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, glm::mat4 const& transform,
-		                bool castShadows = true);
+		                bool castShadows = true, uint32_t pickingId = 0, bool selected = false);
 		void SubmitDirectionalLight(DirectionalLightSubmission const& light);
 		void SubmitPointLight(PointLightSubmission const& light);
 		void SubmitSpotLight(SpotLightSubmission const& light);
 		// Uniform ambient light (linear color times intensity), used when there is no environment; also the background.
 		void SetAmbientLight(glm::vec3 const& radiance);
 		void SetEnvironment(EnvironmentSubmission const& environment);
+		// Debug line in world space, drawn after tonemapping (color sRGB-encoded, straight alpha). Depth-tested lines are
+		// hidden behind surfaces.
+		void SubmitLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, bool depthTest = true);
+		void SetOverlays(SceneRendererOverlays const& overlays);
 		// Records and submits the frame.
 		void EndScene();
 
 		// RGBA8_UNORM, sRGB-encoded, in the ShaderResource state between frames. Valid after the first EndScene.
 		nvrhi::ITexture* GetFinalImage() const { return m_FinalImage; }
 		SceneRendererStatistics const& GetStatistics() const { return m_Statistics; }
+
+		// --- Picking ---
+
+		static constexpr uint32_t MaxPickingId = ShaderInterop::EntityIdMask;
+
+		// Reads the picking ID under a pixel of the next rendered frame (the latest request wins). The result arrives through
+		// TakePickResult once the GPU has finished that frame: the picking ID, or 0 where no pickable mesh was drawn (also
+		// outside the viewport, or when entity IDs are disabled).
+		void RequestPick(uint32_t x, uint32_t y);
+		// The result of a finished pick request, consumed by this call; empty while none is ready.
+		std::optional<uint32_t> TakePickResult();
+		bool IsPickPending() const { return m_PickRequest.has_value() || m_PickInFlight; }
 
 	private:
 		struct DrawItem
@@ -134,11 +184,20 @@ namespace Strada
 			float ViewDepth = 0.0f;
 			AABB WorldBounds;
 			bool CastShadows = true;
+			// Picking ID with ShaderInterop::EntityIdSelectedBit for selected meshes; 0 when not pickable.
+			uint32_t EntityId = 0;
 			// Resolved before recording (resource creation uploads through its own command list).
 			GpuMesh const* GpuData = nullptr;
 			nvrhi::IBindingSet* MaterialBindings = nullptr;
 			nvrhi::IGraphicsPipeline* Pipeline = nullptr;
 			nvrhi::IGraphicsPipeline* ShadowPipeline = nullptr;
+			nvrhi::IGraphicsPipeline* EntityIdPipeline = nullptr;
+		};
+
+		struct LineVertex
+		{
+			glm::vec3 Position;
+			glm::vec4 Color;
 		};
 
 		struct LocalShadowLight
@@ -186,6 +245,13 @@ namespace Strada
 		void RenderBloom(nvrhi::ICommandList* commandList);
 		void PrepareItems(std::vector<DrawItem>& items, bool blend);
 		void DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items, nvrhi::IFramebuffer* framebuffer);
+		nvrhi::IGraphicsPipeline* GetEntityIdPipeline(bool blend, bool doubleSided);
+		// Entity IDs of the opaque and then the blended items, plus the copy for a pending pick request.
+		void RenderEntityIds(nvrhi::ICommandList* commandList);
+		// Grid and lines onto the tonemapped image (before FXAA when it is enabled).
+		void RenderOverlays(nvrhi::ICommandList* commandList, bool ldrTarget);
+		void RenderSelectionOutline(nvrhi::ICommandList* commandList);
+		void CreateOverlayPipelines();
 
 		uint32_t m_Width = 1;
 		uint32_t m_Height = 1;
@@ -233,6 +299,8 @@ namespace Strada
 		FrameTextures m_BoundTextures;
 		nvrhi::GraphicsPipelineHandle m_SkyPipeline;
 		nvrhi::InputLayoutHandle m_InputLayout;
+		// Positions and texture coordinates only (shadow and entity ID passes).
+		nvrhi::InputLayoutHandle m_DepthInputLayout;
 		nvrhi::GraphicsPipelineHandle m_MeshPipelines[4];
 
 		nvrhi::BufferHandle m_ShadowConstants;
@@ -273,5 +341,41 @@ namespace Strada
 		nvrhi::BindingLayoutHandle m_TonemapLayout;
 		nvrhi::BindingSetHandle m_TonemapBindings;
 		nvrhi::GraphicsPipelineHandle m_TonemapPipeline;
+
+		// Editor overlays.
+		SceneRendererOverlays m_Overlays;
+		std::vector<LineVertex> m_DepthTestedLines;
+		std::vector<LineVertex> m_OnTopLines;
+		bool m_HasSelection = false;
+		nvrhi::BufferHandle m_OverlayConstants;
+		nvrhi::BufferHandle m_LineVertexBuffer;
+		nvrhi::InputLayoutHandle m_LineInputLayout;
+		nvrhi::BindingLayoutHandle m_LineLayout;
+		nvrhi::BindingSetHandle m_LineBindings;
+		// [depth tested]
+		nvrhi::GraphicsPipelineHandle m_LinePipelines[2];
+		nvrhi::BindingLayoutHandle m_GridLayout;
+		nvrhi::BindingSetHandle m_GridBindings;
+		nvrhi::GraphicsPipelineHandle m_GridPipeline;
+		// Tonemapped / final image with the scene depth attached read-only (depth-tested lines).
+		nvrhi::FramebufferHandle m_LdrOverlayFramebuffer;
+		nvrhi::FramebufferHandle m_FinalOverlayFramebuffer;
+
+		// Entity IDs and picking.
+		bool m_EntityIdsEnabled = false;
+		nvrhi::TextureHandle m_EntityIdTarget;
+		nvrhi::TextureHandle m_EntityIdDepth;
+		nvrhi::FramebufferHandle m_EntityIdFramebuffer;
+		nvrhi::BindingLayoutHandle m_EntityIdLayout;
+		nvrhi::BindingSetHandle m_EntityIdBindings;
+		nvrhi::GraphicsPipelineHandle m_EntityIdPipelines[4];
+		nvrhi::BindingLayoutHandle m_OutlineLayout;
+		nvrhi::BindingSetHandle m_OutlineBindings;
+		nvrhi::GraphicsPipelineHandle m_OutlinePipeline;
+		std::optional<glm::uvec2> m_PickRequest;
+		bool m_PickInFlight = false;
+		std::optional<uint32_t> m_PickResult;
+		nvrhi::StagingTextureHandle m_PickStaging;
+		nvrhi::EventQueryHandle m_PickQuery;
 	};
 }

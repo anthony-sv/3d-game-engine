@@ -149,7 +149,7 @@ namespace Strada
 
 		if (m_ViewportPanel && m_ShowViewport)
 		{
-			m_ViewportPanel->OnImGuiRender(m_Context, m_ShowViewport);
+			m_ViewportPanel->OnImGuiRender(m_Operations, m_ShowViewport);
 		}
 		if (m_ShowConsole)
 		{

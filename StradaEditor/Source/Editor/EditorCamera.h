@@ -50,6 +50,9 @@ namespace Strada
 		glm::mat4 GetViewMatrix() const;
 		// Reversed-Z, infinite far plane (rendering).
 		glm::mat4 GetProjection() const;
+		// Conventional projection (depth 0..1, finite far plane) for transform gizmos.
+		glm::mat4 GetGizmoProjection() const;
+		float GetAspectRatio() const { return m_AspectRatio; }
 		SceneRendererCamera GetRendererCamera() const;
 
 		void SetView(glm::vec3 const& focalPoint, float distance, float yawDegrees, float pitchDegrees);

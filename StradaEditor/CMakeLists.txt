@@ -44,11 +44,17 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/StatisticsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
+    Source/Editor/Viewport/PickingIdMap.cpp
+    Source/Editor/Viewport/PickingIdMap.h
+    Source/Editor/Viewport/TransformEditing.cpp
+    Source/Editor/Viewport/TransformEditing.h
+    Source/Editor/Viewport/ViewportOverlays.cpp
+    Source/Editor/Viewport/ViewportOverlays.h
 )
 
 add_library(StradaEditorCore STATIC ${STRADA_EDITOR_CORE_SOURCES})
 target_include_directories(StradaEditorCore PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
-target_link_libraries(StradaEditorCore PUBLIC Strada)
+target_link_libraries(StradaEditorCore PUBLIC Strada PRIVATE StradaImGuizmo)
 if(WIN32)
     # Winsock for the automation server.
     target_link_libraries(StradaEditorCore PRIVATE ws2_32)

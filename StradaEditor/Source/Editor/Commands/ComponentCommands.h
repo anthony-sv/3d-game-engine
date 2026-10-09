@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Strada
 {
@@ -56,6 +57,38 @@ namespace Strada
 		UUID m_Entity;
 		std::string m_Component;
 		Json m_Snapshot;
+	};
+
+	// One partial patch of a component, in the scene-file JSON format.
+	struct ComponentEdit
+	{
+		UUID Entity;
+		std::string Component;
+		Json Patch;
+	};
+
+	// Applies several component patches as one undo step, all or nothing (edits already applied are reverted when a later
+	// one fails). Commands with the same non-zero merge key and the same entity/component targets merge into one step
+	// (for example a gizmo dragging several selected entities).
+	class SetComponentsCommand final : public EditorCommand
+	{
+	public:
+		SetComponentsCommand(std::vector<ComponentEdit> edits, uint64_t mergeKey = 0, std::string description = {});
+
+		Result<void> Execute(EditorContext& context) override;
+		Result<void> Undo(EditorContext& context) override;
+		std::string GetDescription() const override;
+		bool HasEffect() const override { return m_Before != m_After; }
+		bool CanMergeWith(EditorCommand const& next) const override;
+		void MergeWith(EditorCommand& next) override;
+
+	private:
+		std::vector<ComponentEdit> m_Edits;
+		uint64_t m_MergeKey;
+		std::string m_Description;
+		// Complete component states before and after (one per edit), recorded by the first execution.
+		std::vector<Json> m_Before;
+		std::vector<Json> m_After;
 	};
 
 	// Applies a partial JSON patch to a component (transactional: every field is validated before anything changes).

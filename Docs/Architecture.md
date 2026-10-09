@@ -190,22 +190,34 @@ Frame passes, in order (passes 1-8 are implemented):
    IBL (cube irradiance + GGX-prefiltered specular + split-sum BRDF LUT), soft shadows (PCF with rotated
    Vogel disk and PCSS blocker search), alpha-mask support. Lights live in a structured buffer (no culling
    initially; capped at 256 visible lights). Besides the HDR color it writes, as extra render targets, the
-   octahedral world normal (`RG16_FLOAT`) and the exposed indirect light (`RGBA16_FLOAT`), and in the editor the
-   entity-ID target (`R32_UINT`) for picking. There is no depth prepass: an equal-depth main pass would need
-   position invariance across pipelines, which DXC's SPIR-V output does not guarantee.
+   octahedral world normal (`RG16_FLOAT`) and the exposed indirect light (`RGBA16_FLOAT`). There is no depth
+   prepass: an equal-depth main pass would need position invariance across pipelines, which DXC's SPIR-V output
+   does not guarantee.
 3. **Ambient occlusion** — GTAO (horizon-based, cosine-weighted; 3 slices x 6 steps per side, per-pixel noise) at
    full resolution from depth and normals, a 5x5 depth-aware denoise, then a composite that subtracts the occluded
    part of the indirect light from the color (direct light is never occluded).
 4. **Sky** — environment cubemap with rotation, intensity and blur (radiance mip).
 5. **Transparent forward** — alpha-blended materials sorted back to front (color only).
+   **Entity IDs** (editor only, `SetEntityIdsEnabled`) — every mesh again into an `R32_UINT` target with its own
+   depth buffer (for the same invariance reason): opaque items first writing depth, then blended ones back to front
+   testing only, alpha-masked cut-outs discarded. Values are picking IDs with the top bit marking selected meshes
+   (0 = not pickable, but still occluding). `RequestPick` copies one texel to a staging texture; the result is read
+   a frame or two later behind an event query, so picking never stalls the GPU.
 6. **Bloom** — half-resolution chain of up to 6 levels: 13-tap downsample with Karis average on the first level,
    3x3 tent upsample accumulating into the first level; mixed into the color (energy conserving) by intensity.
 7. **Tonemap** — exposure (EV100), operators: ACES (Hill fit), AgX, Khronos PBR Neutral, Reinhard; dithering;
    sRGB encoding in the shader; output `RGBA8_UNORM`.
 8. **FXAA** (optional) — luma edge search on the tonemapped image.
-9. **Overlays** — world-space text and sprites are lit/unlit in the HDR passes; screen-space text and sprites,
-    debug lines (collider visualization, script `Debug.DrawLine`), editor grid, selection outline (from the ID
-    buffer) and light/camera icons are drawn after tonemapping.
+9. **Overlays** — world-space text and sprites are lit/unlit in the HDR passes. On the tonemapped image (before FXAA
+    when it is enabled): the editor ground grid (analytic ray/plane intersection on y = 0, anti-aliased minor and
+    major lines and colored axes, faded with distance, hidden behind surfaces with a small depth tolerance so ground
+    planes do not z-fight) and debug lines (depth-tested through the scene depth attached read-only, or drawn on
+    top; collider visualization, script `Debug.DrawLine`). After FXAA: the selection outline, an anti-aliased band
+    around the visible silhouette of selected meshes read from the ID target. Screen-space text and sprites follow
+    the overlays. All overlay colors are sRGB-encoded with straight alpha.
+
+Render targets are recreated on resize and reconfiguration only after the GPU has drained: NVRHI does not track
+clears, which can be a target's only use in a frame.
 
 `SceneRendererSettings` (shadows, SSAO, bloom, exposure, tonemapper, FXAA, sky) are stored per scene, editable in the
 editor and through automation.
@@ -423,8 +435,12 @@ serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `doubl
 
 - ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Viewport,
   Console, Renderer Settings, Statistics, Project Settings; menu bar and play toolbar.
-- Viewport: editor camera (fly/orbit/pan/zoom/focus), ImGuizmo translate/rotate/scale (local/world, snapping),
-  picking, selection outline, grid, icons, collider visualization, asset drag-and-drop.
+- Viewport: editor camera (fly/orbit/pan/zoom/focus), ImGuizmo translate/rotate/scale (local/world, snapping;
+  W/E/R, X, Ctrl toggles snapping while dragging) applied to every selected root around the primary selection as
+  one undo step per drag (`SetComponentsCommand` with a merge key), click picking through the entity-ID pass (Ctrl
+  toggles, Shift adds, empty space clears; picking IDs are never reused within a scene), selection outline, ground
+  grid (G), icons for cameras and lights (clickable), shapes of selected cameras (frustums), lights (directions,
+  ranges, cones) and colliders, asset drag-and-drop.
 - Undo/redo for every scene modification through a command history (JSON before/after snapshots). Automation
   commands use the same history.
 - Play (scripts + physics + audio), Simulate (physics only), Pause, Step, Stop.

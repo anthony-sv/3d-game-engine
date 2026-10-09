@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <utility>
 
 namespace Strada
 {
@@ -29,6 +30,10 @@ namespace Strada
 	static_assert(sizeof(ShaderInterop::AmbientOcclusionConstants) == 176);
 	static_assert(sizeof(ShaderInterop::BloomConstants) == 32);
 	static_assert(sizeof(ShaderInterop::FxaaConstants) == 16);
+	static_assert(sizeof(ShaderInterop::OverlayConstants) == 160);
+	static_assert(sizeof(ShaderInterop::EntityIdDrawConstants) == 80);
+	static_assert(sizeof(ShaderInterop::GridConstants) == 80);
+	static_assert(sizeof(ShaderInterop::OutlineConstants) == 32);
 	static_assert(ShaderInterop::MaxShadowCascades == Shadows::MaxCascades);
 
 	namespace
@@ -41,6 +46,10 @@ namespace Strada
 		// R32 is the single-channel format every Vulkan device must support for storage images.
 		constexpr nvrhi::Format OcclusionFormat = nvrhi::Format::R32_FLOAT;
 		constexpr nvrhi::Format BloomFormat = nvrhi::Format::RGBA16_FLOAT;
+		constexpr nvrhi::Format EntityIdFormat = nvrhi::Format::R32_UINT;
+		// Debug line vertices: float3 position + float4 color.
+		constexpr uint32_t LineVertexSize = 28;
+		constexpr uint32_t MaxOutlineWidth = 8;
 		constexpr uint32_t ComputeGroupSize = 8;
 		constexpr uint32_t MaxBloomMips = 6;
 		constexpr uint32_t OcclusionSlices = 3;
@@ -234,6 +243,10 @@ namespace Strada
 		};
 		m_InputLayout =
 			device->createInputLayout(attributes, static_cast<uint32_t>(std::size(attributes)), ShaderLibrary::Get("ForwardPBR_VS"));
+		// Depth-only passes (shadows, entity IDs) read positions and texture coordinates (alpha masks) only.
+		nvrhi::VertexAttributeDesc const depthAttributes[] = {attributes[0], attributes[3]};
+		m_DepthInputLayout =
+			device->createInputLayout(depthAttributes, static_cast<uint32_t>(std::size(depthAttributes)), ShaderLibrary::Get("Shadow_VS"));
 
 		nvrhi::BindingLayoutDesc tonemapLayout;
 		tonemapLayout.visibility = nvrhi::ShaderType::All;
@@ -278,6 +291,73 @@ namespace Strada
 														nvrhi::BindingLayoutItem::Sampler(0),
 														nvrhi::BindingLayoutItem::Texture_UAV(0),
 													});
+		nvrhi::BufferDesc overlayDesc = frameDesc;
+		overlayDesc.byteSize = sizeof(ShaderInterop::OverlayConstants);
+		overlayDesc.debugName = "Overlay constants";
+		m_OverlayConstants = device->createBuffer(overlayDesc);
+
+		// Grid and outline: the overlay camera, one input texture and their push constants.
+		auto const createOverlayLayout = [device](uint32_t pushConstantSize)
+		{
+			nvrhi::BindingLayoutDesc desc;
+			desc.visibility = nvrhi::ShaderType::All;
+			desc.bindings = {
+				nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+				nvrhi::BindingLayoutItem::Texture_SRV(0),
+				nvrhi::BindingLayoutItem::PushConstants(1, pushConstantSize),
+			};
+			return device->createBindingLayout(desc);
+		};
+		m_GridLayout = createOverlayLayout(sizeof(ShaderInterop::GridConstants));
+		m_OutlineLayout = createOverlayLayout(sizeof(ShaderInterop::OutlineConstants));
+
+		nvrhi::BindingLayoutDesc lineLayout;
+		lineLayout.visibility = nvrhi::ShaderType::All;
+		lineLayout.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)};
+		m_LineLayout = device->createBindingLayout(lineLayout);
+		m_LineBindings = device->createBindingSet(
+			nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OverlayConstants)), m_LineLayout);
+		static_assert(sizeof(LineVertex) == LineVertexSize);
+		nvrhi::VertexAttributeDesc const lineAttributes[] = {
+			nvrhi::VertexAttributeDesc()
+				.setName("POSITION")
+				.setFormat(nvrhi::Format::RGB32_FLOAT)
+				.setOffset(offsetof(LineVertex, Position))
+				.setElementStride(sizeof(LineVertex)),
+			nvrhi::VertexAttributeDesc()
+				.setName("COLOR")
+				.setFormat(nvrhi::Format::RGBA32_FLOAT)
+				.setOffset(offsetof(LineVertex, Color))
+				.setElementStride(sizeof(LineVertex)),
+		};
+		m_LineInputLayout = device->createInputLayout(lineAttributes, static_cast<uint32_t>(std::size(lineAttributes)),
+		                                              ShaderLibrary::Get("OverlayLine_VS"));
+
+		nvrhi::BindingLayoutDesc entityIdLayout;
+		entityIdLayout.visibility = nvrhi::ShaderType::All;
+		entityIdLayout.registerSpace = 0;
+		entityIdLayout.registerSpaceIsDescriptorSet = true;
+		entityIdLayout.bindings = {
+			nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
+			nvrhi::BindingLayoutItem::PushConstants(1, sizeof(ShaderInterop::EntityIdDrawConstants)),
+			nvrhi::BindingLayoutItem::Sampler(0),
+		};
+		m_EntityIdLayout = device->createBindingLayout(entityIdLayout);
+		m_EntityIdBindings =
+			device->createBindingSet(nvrhi::BindingSetDesc()
+		                                 .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OverlayConstants))
+		                                 .addItem(nvrhi::BindingSetItem::PushConstants(1, sizeof(ShaderInterop::EntityIdDrawConstants)))
+		                                 .addItem(nvrhi::BindingSetItem::Sampler(0, Renderer::GetMaterialSampler())),
+		                             m_EntityIdLayout);
+
+		nvrhi::TextureDesc pickDesc;
+		pickDesc.width = 1;
+		pickDesc.height = 1;
+		pickDesc.format = EntityIdFormat;
+		pickDesc.debugName = "Pick readback";
+		m_PickStaging = device->createStagingTexture(pickDesc, nvrhi::CpuAccessMode::Read);
+		m_PickQuery = device->createEventQuery();
+
 		m_OcclusionPipeline = CreateComputePipeline(device, "AmbientOcclusion_CS", m_OcclusionLayout);
 		m_DenoisePipeline = CreateComputePipeline(device, "AmbientOcclusionDenoise_CS", m_DenoiseLayout);
 		m_CompositePipeline = CreateComputePipeline(device, "AmbientOcclusionComposite_CS", m_CompositeLayout);
@@ -286,12 +366,32 @@ namespace Strada
 
 		ST_CORE_ASSERT(m_CommandList && m_FrameConstants && m_ShadowConstants && m_OcclusionConstants && m_LightBuffer &&
 		                   m_ShadowCompareSampler && m_ShadowPointSampler && m_FallbackShadowMap && m_FrameLayout && m_FrameBindings &&
-		                   m_ShadowLayout && m_ShadowBindings && m_InputLayout && m_TonemapLayout && m_FxaaLayout && m_OcclusionPipeline &&
-		                   m_DenoisePipeline && m_CompositePipeline && m_BloomDownsamplePipeline && m_BloomUpsamplePipeline,
+		                   m_ShadowLayout && m_ShadowBindings && m_InputLayout && m_DepthInputLayout && m_TonemapLayout && m_FxaaLayout &&
+		                   m_OcclusionPipeline && m_DenoisePipeline && m_CompositePipeline && m_BloomDownsamplePipeline &&
+		                   m_BloomUpsamplePipeline,
 		               "Failed to create scene renderer resources");
+		ST_CORE_ASSERT(m_OverlayConstants && m_GridLayout && m_OutlineLayout && m_LineLayout && m_LineBindings && m_LineInputLayout &&
+		                   m_EntityIdLayout && m_EntityIdBindings && m_PickStaging && m_PickQuery,
+		               "Failed to create scene renderer overlay resources");
 	}
 
-	SceneRenderer::~SceneRenderer() = default;
+	SceneRenderer::~SceneRenderer()
+	{
+		// The last frames may still use the targets, and clears (which NVRHI does not track) can be their only use.
+		if (m_ColorTarget)
+		{
+			GraphicsDevice::GetDevice()->waitForIdle();
+		}
+	}
+
+	void SceneRenderer::SetEntityIdsEnabled(bool enabled)
+	{
+		if (enabled != m_EntityIdsEnabled)
+		{
+			m_EntityIdsEnabled = enabled;
+			m_TargetsDirty = true;
+		}
+	}
 
 	void SceneRenderer::UpdateFrameBindings(FrameTextures const& textures)
 	{
@@ -337,6 +437,12 @@ namespace Strada
 	void SceneRenderer::CreateTargets()
 	{
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		// Previous frames may still use the old targets, and clears (which NVRHI does not track) can be their only use, so
+		// the GPU is drained before they are released. This only happens on resizes and reconfiguration.
+		if (m_ColorTarget)
+		{
+			device->waitForIdle();
+		}
 
 		nvrhi::TextureDesc colorDesc;
 		colorDesc.width = m_Width;
@@ -420,6 +526,55 @@ namespace Strada
 			device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_ColorTarget).setDepthAttachment(m_DepthTarget));
 		m_LdrFramebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_LdrTarget));
 		m_FinalFramebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_FinalImage));
+
+		// Overlays: depth-tested lines read the scene depth through a read-only depth attachment; the grid samples it.
+		nvrhi::FramebufferAttachment const readOnlyDepth = nvrhi::FramebufferAttachment().setTexture(m_DepthTarget).setReadOnly(true);
+		nvrhi::FramebufferDesc ldrOverlayDesc = nvrhi::FramebufferDesc().addColorAttachment(m_LdrTarget);
+		ldrOverlayDesc.depthAttachment = readOnlyDepth;
+		m_LdrOverlayFramebuffer = device->createFramebuffer(ldrOverlayDesc);
+		nvrhi::FramebufferDesc finalOverlayDesc = nvrhi::FramebufferDesc().addColorAttachment(m_FinalImage);
+		finalOverlayDesc.depthAttachment = readOnlyDepth;
+		m_FinalOverlayFramebuffer = device->createFramebuffer(finalOverlayDesc);
+		m_GridBindings =
+			device->createBindingSet(nvrhi::BindingSetDesc()
+		                                 .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OverlayConstants))
+		                                 .addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_DepthTarget))
+		                                 .addItem(nvrhi::BindingSetItem::PushConstants(1, sizeof(ShaderInterop::GridConstants))),
+		                             m_GridLayout);
+
+		m_EntityIdTarget = nullptr;
+		m_EntityIdDepth = nullptr;
+		m_EntityIdFramebuffer = nullptr;
+		m_OutlineBindings = nullptr;
+		if (m_EntityIdsEnabled)
+		{
+			nvrhi::TextureDesc idDesc;
+			idDesc.width = m_Width;
+			idDesc.height = m_Height;
+			idDesc.format = EntityIdFormat;
+			idDesc.isRenderTarget = true;
+			idDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+			idDesc.keepInitialState = true;
+			idDesc.setClearValue(nvrhi::Color(0.0f));
+			idDesc.debugName = "Entity IDs";
+			m_EntityIdTarget = device->createTexture(idDesc);
+
+			// Its own depth buffer: the ID pass need not reproduce the forward pass's depth exactly.
+			nvrhi::TextureDesc idDepthDesc = idDesc;
+			idDepthDesc.format = DepthFormat;
+			idDepthDesc.initialState = nvrhi::ResourceStates::DepthWrite;
+			idDepthDesc.debugName = "Entity ID depth";
+			m_EntityIdDepth = device->createTexture(idDepthDesc);
+
+			m_EntityIdFramebuffer = device->createFramebuffer(
+				nvrhi::FramebufferDesc().addColorAttachment(m_EntityIdTarget).setDepthAttachment(m_EntityIdDepth));
+			m_OutlineBindings =
+				device->createBindingSet(nvrhi::BindingSetDesc()
+			                                 .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OverlayConstants))
+			                                 .addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_EntityIdTarget))
+			                                 .addItem(nvrhi::BindingSetItem::PushConstants(1, sizeof(ShaderInterop::OutlineConstants))),
+			                             m_OutlineLayout);
+		}
 
 		nvrhi::ISampler* linearClamp = Renderer::GetLinearClampSampler();
 		nvrhi::BindingSetDesc tonemapBindings;
@@ -522,7 +677,101 @@ namespace Strada
 			desc.renderState.depthStencilState.depthWriteEnable = false;
 			m_FxaaPipeline = device->createGraphicsPipeline(desc, m_FinalFramebuffer->getFramebufferInfo());
 		}
+		CreateOverlayPipelines();
 		m_TargetsDirty = false;
+	}
+
+	void SceneRenderer::CreateOverlayPipelines()
+	{
+		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		auto const enableAlphaBlending = [](nvrhi::GraphicsPipelineDesc& desc)
+		{
+			nvrhi::BlendState::RenderTarget& target = desc.renderState.blendState.targets[0];
+			target.blendEnable = true;
+			target.srcBlend = nvrhi::BlendFactor::SrcAlpha;
+			target.destBlend = nvrhi::BlendFactor::InvSrcAlpha;
+			target.srcBlendAlpha = nvrhi::BlendFactor::Zero;
+			target.destBlendAlpha = nvrhi::BlendFactor::One;
+		};
+
+		if (!m_GridPipeline)
+		{
+			nvrhi::GraphicsPipelineDesc desc;
+			desc.VS = ShaderLibrary::Get("Fullscreen_VS");
+			desc.PS = ShaderLibrary::Get("Grid_PS");
+			desc.bindingLayouts = {m_GridLayout};
+			desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+			desc.renderState.depthStencilState.depthTestEnable = false;
+			desc.renderState.depthStencilState.depthWriteEnable = false;
+			enableAlphaBlending(desc);
+			// The tonemapped and final images share their format.
+			m_GridPipeline = device->createGraphicsPipeline(desc, m_FinalFramebuffer->getFramebufferInfo());
+		}
+		for (uint32_t depthTested = 0; depthTested < 2; depthTested++)
+		{
+			nvrhi::GraphicsPipelineHandle& pipeline = m_LinePipelines[depthTested];
+			if (pipeline)
+			{
+				continue;
+			}
+			nvrhi::GraphicsPipelineDesc desc;
+			desc.primType = nvrhi::PrimitiveType::LineList;
+			desc.inputLayout = m_LineInputLayout;
+			desc.VS = ShaderLibrary::Get("OverlayLine_VS");
+			desc.PS = ShaderLibrary::Get("OverlayLine_PS");
+			desc.bindingLayouts = {m_LineLayout};
+			desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+			// Reversed Z; lines never write depth.
+			desc.renderState.depthStencilState.depthTestEnable = depthTested != 0;
+			desc.renderState.depthStencilState.depthWriteEnable = false;
+			desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::GreaterOrEqual;
+			enableAlphaBlending(desc);
+			pipeline = device->createGraphicsPipeline(desc, m_FinalOverlayFramebuffer->getFramebufferInfo());
+		}
+		if (!m_OutlinePipeline)
+		{
+			nvrhi::GraphicsPipelineDesc desc;
+			desc.VS = ShaderLibrary::Get("Fullscreen_VS");
+			desc.PS = ShaderLibrary::Get("Outline_PS");
+			desc.bindingLayouts = {m_OutlineLayout};
+			desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+			desc.renderState.depthStencilState.depthTestEnable = false;
+			desc.renderState.depthStencilState.depthWriteEnable = false;
+			enableAlphaBlending(desc);
+			m_OutlinePipeline = device->createGraphicsPipeline(desc, m_FinalFramebuffer->getFramebufferInfo());
+		}
+		if (!m_GridPipeline || !m_LinePipelines[0] || !m_LinePipelines[1] || !m_OutlinePipeline)
+		{
+			ST_CORE_ERROR("Failed to create the overlay pipelines");
+		}
+	}
+
+	nvrhi::IGraphicsPipeline* SceneRenderer::GetEntityIdPipeline(bool blend, bool doubleSided)
+	{
+		nvrhi::GraphicsPipelineHandle& pipeline = m_EntityIdPipelines[PipelineIndex(blend, doubleSided)];
+		if (pipeline || !m_EntityIdFramebuffer)
+		{
+			return pipeline;
+		}
+
+		nvrhi::GraphicsPipelineDesc desc;
+		desc.inputLayout = m_DepthInputLayout;
+		desc.VS = ShaderLibrary::Get("EntityId_VS");
+		desc.PS = ShaderLibrary::Get("EntityId_PS");
+		desc.bindingLayouts = {m_EntityIdLayout, Renderer::GetMaterialBindingLayout()};
+		desc.renderState.rasterState.cullMode = doubleSided ? nvrhi::RasterCullMode::None : nvrhi::RasterCullMode::Back;
+		desc.renderState.rasterState.frontCounterClockwise = true;
+		// Opaque items are drawn first and write depth; blended items follow back to front and only test it, so the nearest
+		// blended surface in front of the opaque scene wins.
+		desc.renderState.depthStencilState.depthTestEnable = true;
+		desc.renderState.depthStencilState.depthWriteEnable = !blend;
+		desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::GreaterOrEqual;
+		pipeline = GraphicsDevice::GetDevice()->createGraphicsPipeline(desc, m_EntityIdFramebuffer->getFramebufferInfo());
+		if (!pipeline)
+		{
+			ST_CORE_ERROR("Failed to create an entity ID pipeline");
+		}
+		return pipeline;
 	}
 
 	nvrhi::IGraphicsPipeline* SceneRenderer::GetMeshPipeline(bool blend, bool doubleSided)
@@ -571,7 +820,7 @@ namespace Strada
 		}
 
 		nvrhi::GraphicsPipelineDesc desc;
-		desc.inputLayout = m_InputLayout;
+		desc.inputLayout = m_DepthInputLayout;
 		desc.VS = ShaderLibrary::Get("Shadow_VS");
 		// Opaque casters only write depth.
 		desc.PS = masked ? ShaderLibrary::Get("Shadow_PS") : nullptr;
@@ -611,16 +860,23 @@ namespace Strada
 		m_LocalShadowLights.clear();
 		m_ShadowViews.clear();
 		m_Statistics = {};
+		m_Overlays = {};
+		m_DepthTestedLines.clear();
+		m_OnTopLines.clear();
+		m_HasSelection = false;
 	}
 
 	void SceneRenderer::SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, glm::mat4 const& transform,
-	                               bool castShadows)
+	                               bool castShadows, uint32_t pickingId, bool selected)
 	{
 		ST_CORE_ASSERT(m_InScene, "SubmitMesh outside BeginScene/EndScene");
+		ST_CORE_ASSERT(pickingId <= MaxPickingId, "Picking IDs must stay below the selection bit");
 		if (!mesh)
 		{
 			return;
 		}
+		uint32_t const entityId = pickingId == 0 ? 0u : ((pickingId & MaxPickingId) | (selected ? ShaderInterop::EntityIdSelectedBit : 0u));
+		m_HasSelection = m_HasSelection || (entityId & ShaderInterop::EntityIdSelectedBit) != 0;
 		glm::mat4 const viewModel = m_Camera.View * transform;
 		std::vector<Submesh> const& submeshes = mesh->GetSubmeshes();
 		for (uint32_t i = 0; i < submeshes.size(); i++)
@@ -645,8 +901,47 @@ namespace Strada
 			item.ViewDepth = -(viewModel * glm::vec4(submesh.Bounds.GetCenter(), 1.0f)).z;
 			item.WorldBounds = submesh.Bounds.Transform(transform);
 			item.CastShadows = castShadows;
+			item.EntityId = entityId;
 			(material->GetData().AlphaMode == MaterialAlphaMode::Blend ? m_BlendItems : m_OpaqueItems).push_back(std::move(item));
 		}
+	}
+
+	void SceneRenderer::SubmitLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, bool depthTest)
+	{
+		ST_CORE_ASSERT(m_InScene, "SubmitLine outside BeginScene/EndScene");
+		std::vector<LineVertex>& lines = depthTest ? m_DepthTestedLines : m_OnTopLines;
+		lines.push_back({from, color});
+		lines.push_back({to, color});
+	}
+
+	void SceneRenderer::SetOverlays(SceneRendererOverlays const& overlays)
+	{
+		ST_CORE_ASSERT(m_InScene, "SetOverlays outside BeginScene/EndScene");
+		m_Overlays = overlays;
+	}
+
+	void SceneRenderer::RequestPick(uint32_t x, uint32_t y)
+	{
+		m_PickRequest = glm::uvec2(x, y);
+	}
+
+	std::optional<uint32_t> SceneRenderer::TakePickResult()
+	{
+		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		if (m_PickInFlight && device->pollEventQuery(m_PickQuery))
+		{
+			size_t rowPitch = 0;
+			void const* data = device->mapStagingTexture(m_PickStaging, nvrhi::TextureSlice(), nvrhi::CpuAccessMode::Read, &rowPitch);
+			uint32_t id = 0;
+			if (data != nullptr)
+			{
+				std::memcpy(&id, data, sizeof(id));
+				device->unmapStagingTexture(m_PickStaging);
+			}
+			m_PickResult = id & ShaderInterop::EntityIdMask;
+			m_PickInFlight = false;
+		}
+		return std::exchange(m_PickResult, std::nullopt);
 	}
 
 	void SceneRenderer::SubmitDirectionalLight(DirectionalLightSubmission const& light)
@@ -740,6 +1035,8 @@ namespace Strada
 			item.GpuData = Renderer::GetMesh(item.Mesh);
 			item.MaterialBindings = Renderer::GetMaterialBindingSet(item.Material);
 			item.Pipeline = GetMeshPipeline(blend, material.DoubleSided);
+			// Every mesh is drawn into the ID target (non-pickable ones write 0) so it hides what lies behind it.
+			item.EntityIdPipeline = m_EntityIdsEnabled ? GetEntityIdPipeline(blend, material.DoubleSided) : nullptr;
 			// Blended surfaces do not cast shadows.
 			item.CastShadows = item.CastShadows && !blend;
 			if (item.CastShadows)
@@ -1147,9 +1444,16 @@ namespace Strada
 			frame.SkyboxLod = std::clamp(m_Environment.SkyboxBlur, 0.0f, 1.0f) * static_cast<float>(environment->RadianceMipCount - 1);
 		}
 
+		ShaderInterop::OverlayConstants overlay{};
+		overlay.ViewProjection = frame.ViewProjection;
+		overlay.InverseViewProjection = frame.InverseViewProjection;
+		overlay.CameraPosition = m_Camera.Position;
+		overlay.ViewportSize = frame.ViewportSize;
+
 		nvrhi::ICommandList* commandList = m_CommandList;
 		commandList->open();
 		commandList->writeBuffer(m_FrameConstants, &frame, sizeof(frame));
+		commandList->writeBuffer(m_OverlayConstants, &overlay, sizeof(overlay));
 		commandList->writeBuffer(m_ShadowConstants, &shadows, sizeof(shadows));
 		if (!m_Lights.empty())
 		{
@@ -1184,6 +1488,31 @@ namespace Strada
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 		}
 		DrawItems(commandList, m_BlendItems, m_SceneFramebuffer);
+		bool pickCopied = false;
+		if (m_EntityIdsEnabled)
+		{
+			RenderEntityIds(commandList);
+			if (m_PickRequest && !m_PickInFlight)
+			{
+				glm::uvec2 const pixel = *m_PickRequest;
+				m_PickRequest.reset();
+				if (pixel.x < m_Width && pixel.y < m_Height)
+				{
+					commandList->copyTexture(m_PickStaging, nvrhi::TextureSlice().setWidth(1).setHeight(1), m_EntityIdTarget,
+					                         nvrhi::TextureSlice().setOrigin(pixel.x, pixel.y).setWidth(1).setHeight(1));
+					pickCopied = true;
+				}
+				else
+				{
+					m_PickResult = 0u;
+				}
+			}
+		}
+		else if (m_PickRequest)
+		{
+			m_PickRequest.reset();
+			m_PickResult = 0u;
+		}
 
 		float const bloomIntensity = m_Settings.Bloom ? std::clamp(m_Settings.BloomIntensity, 0.0f, 1.0f) : 0.0f;
 		if (bloomIntensity > 0.0f)
@@ -1205,6 +1534,8 @@ namespace Strada
 		commandList->setPushConstants(&tonemap, sizeof(tonemap));
 		commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 
+		RenderOverlays(commandList, m_Settings.FXAA);
+
 		if (m_Settings.FXAA)
 		{
 			nvrhi::GraphicsState fxaaState;
@@ -1218,14 +1549,160 @@ namespace Strada
 			commandList->setPushConstants(&fxaa, sizeof(fxaa));
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 		}
+		if (m_EntityIdsEnabled && m_HasSelection)
+		{
+			RenderSelectionOutline(commandList);
+		}
 
 		commandList->close();
-		GraphicsDevice::GetDevice()->executeCommandList(commandList);
+		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		device->executeCommandList(commandList);
+		if (pickCopied)
+		{
+			device->resetEventQuery(m_PickQuery);
+			device->setEventQuery(m_PickQuery, nvrhi::CommandQueue::Graphics);
+			m_PickInFlight = true;
+		}
 
 		// Draw items keep assets alive only for this frame.
 		m_OpaqueItems.clear();
 		m_BlendItems.clear();
 		m_ShadowViews.clear();
+		m_DepthTestedLines.clear();
+		m_OnTopLines.clear();
 		Renderer::CollectGarbage();
+	}
+
+	void SceneRenderer::RenderEntityIds(nvrhi::ICommandList* commandList)
+	{
+		commandList->clearTextureUInt(m_EntityIdTarget, nvrhi::AllSubresources, 0u);
+		commandList->clearDepthStencilTexture(m_EntityIdDepth, nvrhi::AllSubresources, true, 0.0f, false, 0);
+
+		nvrhi::Viewport const viewport(static_cast<float>(m_Width), static_cast<float>(m_Height));
+		auto const draw = [&](std::vector<DrawItem> const& items)
+		{
+			for (DrawItem const& item : items)
+			{
+				if (item.EntityIdPipeline == nullptr)
+				{
+					continue;
+				}
+				GpuMesh const* mesh = item.GpuData;
+				nvrhi::GraphicsState state;
+				state.pipeline = item.EntityIdPipeline;
+				state.framebuffer = m_EntityIdFramebuffer;
+				state.viewport.addViewportAndScissorRect(viewport);
+				state.bindings = {m_EntityIdBindings, item.MaterialBindings};
+				state.vertexBuffers = {nvrhi::VertexBufferBinding().setBuffer(mesh->VertexBuffer).setSlot(0).setOffset(0)};
+				state.indexBuffer =
+					nvrhi::IndexBufferBinding().setBuffer(mesh->IndexBuffer).setFormat(nvrhi::Format::R32_UINT).setOffset(0);
+				commandList->setGraphicsState(state);
+
+				ShaderInterop::EntityIdDrawConstants constants{};
+				constants.Model = item.Transform;
+				constants.EntityId = item.EntityId;
+				commandList->setPushConstants(&constants, sizeof(constants));
+
+				Submesh const& submesh = item.Mesh->GetSubmeshes()[item.SubmeshIndex];
+				nvrhi::DrawArguments arguments;
+				arguments.vertexCount = submesh.IndexCount;
+				arguments.startIndexLocation = submesh.BaseIndex;
+				arguments.startVertexLocation = submesh.BaseVertex;
+				commandList->drawIndexed(arguments);
+			}
+		};
+		draw(m_OpaqueItems);
+		draw(m_BlendItems);
+	}
+
+	void SceneRenderer::RenderOverlays(nvrhi::ICommandList* commandList, bool ldrTarget)
+	{
+		nvrhi::Viewport const viewport(static_cast<float>(m_Width), static_cast<float>(m_Height));
+
+		GridOverlay const& grid = m_Overlays.Grid;
+		if (grid.Enabled && m_GridPipeline && grid.CellSize > 0.0f && grid.FadeDistance > 0.0f)
+		{
+			nvrhi::GraphicsState state;
+			state.pipeline = m_GridPipeline;
+			state.framebuffer = ldrTarget ? m_LdrFramebuffer : m_FinalFramebuffer;
+			state.viewport.addViewportAndScissorRect(viewport);
+			state.bindings = {m_GridBindings};
+			commandList->setGraphicsState(state);
+			ShaderInterop::GridConstants constants{};
+			constants.MinorColor = grid.MinorColor;
+			constants.MajorColor = grid.MajorColor;
+			constants.AxisXColor = grid.AxisXColor;
+			constants.AxisZColor = grid.AxisZColor;
+			constants.CellSize = grid.CellSize;
+			constants.MajorLineEvery = static_cast<float>(std::max(grid.MajorLineEvery, 1u));
+			constants.FadeDistance = grid.FadeDistance;
+			commandList->setPushConstants(&constants, sizeof(constants));
+			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+		}
+
+		size_t const vertexCount = m_DepthTestedLines.size() + m_OnTopLines.size();
+		if (vertexCount == 0 || !m_LinePipelines[0] || !m_LinePipelines[1])
+		{
+			return;
+		}
+		uint64_t const requiredSize = vertexCount * sizeof(LineVertex);
+		if (!m_LineVertexBuffer || m_LineVertexBuffer->getDesc().byteSize < requiredSize)
+		{
+			nvrhi::BufferDesc desc;
+			desc.byteSize = std::bit_ceil(std::max<uint64_t>(requiredSize, 4096));
+			desc.isVertexBuffer = true;
+			desc.initialState = nvrhi::ResourceStates::VertexBuffer;
+			desc.keepInitialState = true;
+			desc.debugName = "Debug lines";
+			m_LineVertexBuffer = GraphicsDevice::GetDevice()->createBuffer(desc);
+			if (!m_LineVertexBuffer)
+			{
+				ST_CORE_ERROR("Failed to create the debug line buffer");
+				return;
+			}
+		}
+		std::vector<LineVertex> vertices;
+		vertices.reserve(vertexCount);
+		vertices.insert(vertices.end(), m_DepthTestedLines.begin(), m_DepthTestedLines.end());
+		vertices.insert(vertices.end(), m_OnTopLines.begin(), m_OnTopLines.end());
+		commandList->writeBuffer(m_LineVertexBuffer, vertices.data(), requiredSize);
+
+		auto const drawLines = [&](nvrhi::IGraphicsPipeline* pipeline, uint32_t firstVertex, uint32_t count)
+		{
+			if (count == 0)
+			{
+				return;
+			}
+			nvrhi::GraphicsState state;
+			state.pipeline = pipeline;
+			state.framebuffer = ldrTarget ? m_LdrOverlayFramebuffer : m_FinalOverlayFramebuffer;
+			state.viewport.addViewportAndScissorRect(viewport);
+			state.bindings = {m_LineBindings};
+			state.vertexBuffers = {nvrhi::VertexBufferBinding().setBuffer(m_LineVertexBuffer).setSlot(0).setOffset(0)};
+			commandList->setGraphicsState(state);
+			commandList->draw(nvrhi::DrawArguments().setVertexCount(count).setStartVertexLocation(firstVertex));
+		};
+		uint32_t const depthTestedCount = static_cast<uint32_t>(m_DepthTestedLines.size());
+		drawLines(m_LinePipelines[1], 0, depthTestedCount);
+		drawLines(m_LinePipelines[0], depthTestedCount, static_cast<uint32_t>(m_OnTopLines.size()));
+	}
+
+	void SceneRenderer::RenderSelectionOutline(nvrhi::ICommandList* commandList)
+	{
+		if (!m_OutlinePipeline || !m_OutlineBindings)
+		{
+			return;
+		}
+		nvrhi::GraphicsState state;
+		state.pipeline = m_OutlinePipeline;
+		state.framebuffer = m_FinalFramebuffer;
+		state.viewport.addViewportAndScissorRect(nvrhi::Viewport(static_cast<float>(m_Width), static_cast<float>(m_Height)));
+		state.bindings = {m_OutlineBindings};
+		commandList->setGraphicsState(state);
+		ShaderInterop::OutlineConstants constants{};
+		constants.Color = m_Overlays.SelectionColor;
+		constants.Radius = static_cast<int32_t>(std::clamp(m_Overlays.SelectionOutlineWidth, 1u, MaxOutlineWidth));
+		commandList->setPushConstants(&constants, sizeof(constants));
+		commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 	}
 }

@@ -12,7 +12,8 @@ Texture2D g_BaseColorTexture : register(t0, space1);
 struct VertexInput
 {
 	[[vk::location(0)]] float3 Position : POSITION;
-	[[vk::location(3)]] float2 TexCoord : TEXCOORD0;
+	// The depth-only input layout provides positions and texture coordinates only.
+	[[vk::location(1)]] float2 TexCoord : TEXCOORD0;
 };
 
 struct VertexOutput

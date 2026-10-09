@@ -19,6 +19,7 @@ namespace Strada
 		m_ScenePath = std::move(path);
 		m_History.Clear();
 		m_Selection.Clear();
+		m_SceneVersion++;
 	}
 
 	void EditorContext::MarkSaved(std::filesystem::path path)

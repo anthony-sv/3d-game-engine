@@ -160,6 +160,18 @@ target_compile_features(StradaImGui PUBLIC cxx_std_20)
 target_link_libraries(StradaImGui PUBLIC glfw)
 strada_configure_third_party_target(StradaImGui)
 
+# --- ImGuizmo (editor transform gizmos; pinned commit, only ImGuizmo.cpp is compiled) -----------------------------
+strada_declare_dependency(imguizmo
+    https://github.com/CedricGuillemet/ImGuizmo/archive/18cef5e031d8c6973d80284c67f60549fafd78c1.tar.gz
+    6ad626f0687be12c2f3ba6542c0f1bdda9e71e395d0645e4cda37695354406d8
+    SOURCE_SUBDIR _strada_no_cmake)
+FetchContent_MakeAvailable(imguizmo)
+
+add_library(StradaImGuizmo STATIC "${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp")
+target_include_directories(StradaImGuizmo SYSTEM PUBLIC "${imguizmo_SOURCE_DIR}/src")
+target_link_libraries(StradaImGuizmo PUBLIC StradaImGui)
+strada_configure_third_party_target(StradaImGuizmo)
+
 # --- Model import: cgltf 1.15 (glTF 2.0), ufbx 0.23.1 (FBX and OBJ), MikkTSpace (tangent generation) ----------------
 # No CMake projects; the sources are compiled by the StradaModelImport target in Strada/CMakeLists.txt.
 strada_declare_dependency(cgltf

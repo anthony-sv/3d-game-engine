@@ -11,6 +11,7 @@ add_executable(StradaEditorTests
     Source/Main.cpp
     Source/TcpTestClient.cpp
     Source/TcpTestClient.h
+    Source/ViewportTests.cpp
 )
 
 target_include_directories(StradaEditorTests PRIVATE

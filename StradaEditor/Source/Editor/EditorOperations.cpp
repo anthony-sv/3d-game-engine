@@ -145,6 +145,11 @@ namespace Strada
 		return m_Context.ExecuteCommand(CreateScope<SetComponentCommand>(entity, std::string(component), patch, mergeKey));
 	}
 
+	Result<void> EditorOperations::SetComponentFields(std::vector<ComponentEdit> edits, uint64_t mergeKey)
+	{
+		return m_Context.ExecuteCommand(CreateScope<SetComponentsCommand>(std::move(edits), mergeKey));
+	}
+
 	Result<void> EditorOperations::Select(std::span<UUID const> entities, SelectionMode mode, UUID primary)
 	{
 		Scene const& scene = m_Context.GetScene();

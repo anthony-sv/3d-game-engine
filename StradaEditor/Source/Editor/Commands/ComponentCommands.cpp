@@ -228,4 +228,140 @@ namespace Strada
 		auto& other = static_cast<SetComponentCommand&>(next);
 		m_After = std::move(other.m_After);
 	}
+
+	SetComponentsCommand::SetComponentsCommand(std::vector<ComponentEdit> edits, uint64_t mergeKey, std::string description)
+		: m_Edits(std::move(edits)),
+		  m_MergeKey(mergeKey),
+		  m_Description(std::move(description))
+	{
+	}
+
+	Result<void> SetComponentsCommand::Execute(EditorContext& context)
+	{
+		if (m_Edits.empty())
+		{
+			return Error{"no component edits"};
+		}
+		std::vector<ComponentTarget> targets;
+		targets.reserve(m_Edits.size());
+		for (ComponentEdit const& edit : m_Edits)
+		{
+			Result<ComponentTarget> target = FindTarget(context, edit.Entity, edit.Component, ComponentAccess::Modify);
+			if (!target)
+			{
+				return Error{target.GetError()};
+			}
+			if (!target.GetValue().HasComponent())
+			{
+				return MakeError("entity {} has no {} component", edit.Entity, edit.Component);
+			}
+			targets.push_back(target.GetValue());
+		}
+
+		DeserializationContext const deserialization = context.CreateDeserializationContext();
+		bool const redo = !m_After.empty();
+		std::vector<Json> before;
+		before.reserve(targets.size());
+		for (ComponentTarget const& target : targets)
+		{
+			before.push_back(target.Component->Serialize(*target.Registry, target.Handle));
+		}
+
+		for (size_t i = 0; i < targets.size(); i++)
+		{
+			ComponentTarget const& target = targets[i];
+			Json const& state = redo ? m_After[i] : m_Edits[i].Patch;
+			if (Result<void> result = target.Component->Deserialize(*target.Registry, target.Handle, state, deserialization); !result)
+			{
+				// Snapshots taken from the components themselves always deserialize: restore what was applied.
+				for (size_t j = i; j-- > 0;)
+				{
+					(void)targets[j].Component->Deserialize(*targets[j].Registry, targets[j].Handle, before[j], deserialization);
+				}
+				return MakeError("{} of entity {}: {}", m_Edits[i].Component, m_Edits[i].Entity, result.GetError());
+			}
+		}
+
+		if (!redo)
+		{
+			m_Before = std::move(before);
+			m_After.reserve(targets.size());
+			for (ComponentTarget const& target : targets)
+			{
+				m_After.push_back(target.Component->Serialize(*target.Registry, target.Handle));
+			}
+		}
+		return {};
+	}
+
+	Result<void> SetComponentsCommand::Undo(EditorContext& context)
+	{
+		std::vector<ComponentTarget> targets;
+		targets.reserve(m_Edits.size());
+		for (ComponentEdit const& edit : m_Edits)
+		{
+			Result<ComponentTarget> target = FindTarget(context, edit.Entity, edit.Component, ComponentAccess::Modify);
+			if (!target)
+			{
+				return Error{target.GetError()};
+			}
+			if (!target.GetValue().HasComponent())
+			{
+				return MakeError("entity {} has no {} component", edit.Entity, edit.Component);
+			}
+			targets.push_back(target.GetValue());
+		}
+
+		// Reverse order, so a component edited twice ends in its original state.
+		DeserializationContext const deserialization = context.CreateDeserializationContext();
+		for (size_t i = targets.size(); i-- > 0;)
+		{
+			ComponentTarget const& target = targets[i];
+			if (Result<void> result = target.Component->Deserialize(*target.Registry, target.Handle, m_Before[i], deserialization); !result)
+			{
+				for (size_t j = i + 1; j < targets.size(); j++)
+				{
+					(void)targets[j].Component->Deserialize(*targets[j].Registry, targets[j].Handle, m_After[j], deserialization);
+				}
+				return result;
+			}
+		}
+		return {};
+	}
+
+	std::string SetComponentsCommand::GetDescription() const
+	{
+		if (!m_Description.empty())
+		{
+			return m_Description;
+		}
+		return m_Edits.size() == 1 ? fmt::format("Edit {}", m_Edits.front().Component) : fmt::format("Edit {} Components", m_Edits.size());
+	}
+
+	bool SetComponentsCommand::CanMergeWith(EditorCommand const& next) const
+	{
+		if (m_MergeKey == 0)
+		{
+			return false;
+		}
+		auto const* other = dynamic_cast<SetComponentsCommand const*>(&next);
+		if (other == nullptr || other->m_MergeKey != m_MergeKey || other->m_Edits.size() != m_Edits.size())
+		{
+			return false;
+		}
+		for (size_t i = 0; i < m_Edits.size(); i++)
+		{
+			if (other->m_Edits[i].Entity != m_Edits[i].Entity || other->m_Edits[i].Component != m_Edits[i].Component)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	void SetComponentsCommand::MergeWith(EditorCommand& next)
+	{
+		auto& other = static_cast<SetComponentsCommand&>(next);
+		m_After = std::move(other.m_After);
+	}
 }

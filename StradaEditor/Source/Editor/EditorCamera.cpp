@@ -109,6 +109,12 @@ namespace Strada
 		return Math::PerspectiveReversedZ(glm::radians(m_FieldOfView), m_AspectRatio, m_NearPlane);
 	}
 
+	glm::mat4 EditorCamera::GetGizmoProjection() const
+	{
+		constexpr float GizmoFarPlane = 10000.0f;
+		return Math::Perspective(glm::radians(m_FieldOfView), m_AspectRatio, m_NearPlane, GizmoFarPlane);
+	}
+
 	SceneRendererCamera EditorCamera::GetRendererCamera() const
 	{
 		SceneRendererCamera camera;

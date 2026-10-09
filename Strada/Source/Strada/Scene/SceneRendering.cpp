@@ -23,7 +23,7 @@ namespace Strada
 			return length > 1e-6f ? forward / length : glm::vec3(0.0f, 0.0f, -1.0f);
 		}
 
-		void SubmitScene(Scene& scene, SceneRenderer& renderer)
+		void SubmitScene(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options)
 		{
 			std::vector<Ref<MaterialAsset>> materials;
 			for (entt::entity const handle : scene.GetAllEntitiesWith<MeshComponent>())
@@ -49,7 +49,10 @@ namespace Strada
 					                                      : defaults[slot];
 					materials[slot] = AssetManager::GetAsset<MaterialAsset>(handleForSlot);
 				}
-				renderer.SubmitMesh(mesh, materials, scene.GetWorldTransform(entity), component.CastShadows);
+				UUID const id = entity.GetUUID();
+				uint32_t const pickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
+				bool const selected = options.IsSelected && options.IsSelected(id);
+				renderer.SubmitMesh(mesh, materials, scene.GetWorldTransform(entity), component.CastShadows, pickingId, selected);
 			}
 
 			for (entt::entity const handle : scene.GetAllEntitiesWith<DirectionalLightComponent>())
@@ -119,10 +122,14 @@ namespace Strada
 		}
 	}
 
-	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera)
+	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
 	{
 		renderer.BeginScene(camera, scene.GetSettings().Renderer);
-		SubmitScene(scene, renderer);
+		SubmitScene(scene, renderer, options);
+		if (options.SubmitOverlays)
+		{
+			options.SubmitOverlays(renderer);
+		}
 		renderer.EndScene();
 	}
 

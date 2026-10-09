@@ -30,6 +30,7 @@ add_executable(StradaTests
     Source/RHI/SwapchainTests.cpp
     Source/RHI/TextureReadbackTests.cpp
     Source/Renderer/RenderTestUtilities.h
+    Source/Renderer/EditorOverlayTests.cpp
     Source/Renderer/PostProcessingTests.cpp
     Source/Renderer/SceneRendererTests.cpp
     Source/Renderer/ShadowMathTests.cpp

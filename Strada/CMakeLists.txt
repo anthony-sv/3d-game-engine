@@ -244,6 +244,12 @@ strada_add_shaders(Strada
         EnvironmentIrradiance_CS:Environment.hlsl:CSIrradiance:compute
         EnvironmentPrefilter_CS:Environment.hlsl:CSPrefilter:compute
         EnvironmentBrdfLut_CS:Environment.hlsl:CSBrdfLut:compute
+        EntityId_VS:EntityId.hlsl:VSMain:vertex
+        EntityId_PS:EntityId.hlsl:PSMain:pixel
+        OverlayLine_VS:Overlay.hlsl:VSLine:vertex
+        OverlayLine_PS:Overlay.hlsl:PSLine:pixel
+        Grid_PS:Overlay.hlsl:PSGrid:pixel
+        Outline_PS:Outline.hlsl:PSMain:pixel
 )
 
 strada_configure_target(Strada)

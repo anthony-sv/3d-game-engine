@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/Commands/ComponentCommands.h"
 #include "Editor/Commands/EntityCommands.h"
 #include "Editor/EditorContext.h"
 
@@ -63,6 +64,10 @@ namespace Strada
 		// Applies a partial JSON patch in the scene-file format. Edits with the same non-zero merge key (for example one
 		// inspector drag) merge into one undo step until CommandHistory::BreakMerge is called.
 		[[nodiscard]] Result<void> SetComponentFields(UUID entity, std::string_view component, Json const& patch, uint64_t mergeKey = 0);
+
+		// Applies several partial patches as one undo step, all or nothing. Edits with the same non-zero merge key and the
+		// same entity/component targets merge (for example a gizmo dragging several entities).
+		[[nodiscard]] Result<void> SetComponentFields(std::vector<ComponentEdit> edits, uint64_t mergeKey = 0);
 
 		// Replaces every field of a component with the given value (convenient for inspector widgets editing a copy).
 		template<RegisteredComponent T>

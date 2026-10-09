@@ -13,6 +13,7 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | NVRHI | main @ 6b96fb0 (2026-10-05) | MIT | https://github.com/NVIDIA-RTX/NVRHI | Engine (rendering hardware interface) |
 | Vulkan-Headers | vulkan-sdk-1.4.363.0 | Apache-2.0 / MIT | https://github.com/KhronosGroup/Vulkan-Headers | Engine (Vulkan API headers) |
 | Dear ImGui | 1.92.9b (docking) | MIT | https://github.com/ocornut/imgui | Engine and editor (UI) |
+| ImGuizmo | @ 18cef5e (2026-08-08) | MIT | https://github.com/CedricGuillemet/ImGuizmo | Editor (transform gizmos) |
 | stb (stb_image, stb_image_write, stb_truetype) | @ 2c980bb | MIT or Public Domain | https://github.com/nothings/stb | Engine (image I/O, font validation) |
 | cgltf | 1.15 | MIT | https://github.com/jkuhlmann/cgltf | Engine (glTF 2.0 import) |
 | ufbx | 0.23.1 | MIT or Unlicense | https://github.com/ufbx/ufbx | Engine (FBX and OBJ import) |
