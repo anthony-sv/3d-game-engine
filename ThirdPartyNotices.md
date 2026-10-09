@@ -15,8 +15,9 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | Dear ImGui | 1.92.9b (docking) | MIT | https://github.com/ocornut/imgui | Engine and editor (UI) |
 | ImGuizmo | @ 18cef5e (2026-08-08) | MIT | https://github.com/CedricGuillemet/ImGuizmo | Editor (transform gizmos) |
 | nativefiledialog-extended | 1.3.0 | zlib | https://github.com/btzy/nativefiledialog-extended | Editor (native file dialogs) |
-| stb (stb_image, stb_image_write, stb_truetype) | @ 2c980bb | MIT or Public Domain | https://github.com/nothings/stb | Engine (image I/O, font validation) |
+| stb (stb_image, stb_image_write, stb_truetype) | @ 2c980bb | MIT or Public Domain | https://github.com/nothings/stb | Engine (image I/O, font validation and glyph rendering) |
 | cgltf | 1.15 | MIT | https://github.com/jkuhlmann/cgltf | Engine (glTF 2.0 import) |
 | ufbx | 0.23.1 | MIT or Unlicense | https://github.com/ufbx/ufbx | Engine (FBX and OBJ import) |
 | MikkTSpace | @ 3e895b4 | zlib | https://github.com/mmikk/MikkTSpace | Engine (tangent generation) |
+| Roboto Medium (font, from Dear ImGui's `misc/fonts`) | Dear ImGui 1.92.9b | Apache-2.0 | https://fonts.google.com/specimen/Roboto | Engine (default text font, compiled into the engine) |
 | doctest | 2.5.3 | MIT | https://github.com/doctest/doctest | Tests only (not distributed) |

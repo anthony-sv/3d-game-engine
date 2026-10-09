@@ -97,7 +97,7 @@ namespace Strada
 			{"2D", "Text", "Text",
 		     []
 		     {
-				 return Json::object({{"Text", Json::object({{"Text", "Text"}})}});
+				 return Json::object({{"Text", Json::object({{"Text", "Text"}, {"FontSize", 0.5}, {"Alignment", "Center"}})}});
 			 }},
 			{"2D", "Sprite", "Sprite",
 		     []

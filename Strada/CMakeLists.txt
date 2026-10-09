@@ -11,6 +11,7 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Buffer.h
     Source/Strada/Core/CommandLine.cpp
     Source/Strada/Core/CommandLine.h
+    Source/Strada/Core/EmbeddedResources.h
     Source/Strada/Core/EntryPoint.cpp
     Source/Strada/Core/EntryPoint.h
     Source/Strada/Core/Events/ApplicationEvent.h
@@ -39,6 +40,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Timestep.h
     Source/Strada/Core/UUID.cpp
     Source/Strada/Core/UUID.h
+    Source/Strada/Core/Utf8.cpp
+    Source/Strada/Core/Utf8.h
     Source/Strada/Core/Version.h
     Source/Strada/Core/Window.cpp
     Source/Strada/Core/Window.h
@@ -93,6 +96,10 @@ set(STRADA_PROJECT_SOURCES
 set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/EnvironmentMap.cpp
     Source/Strada/Renderer/EnvironmentMap.h
+    Source/Strada/Renderer/FontAtlas.cpp
+    Source/Strada/Renderer/FontAtlas.h
+    Source/Strada/Renderer/QuadRenderer.cpp
+    Source/Strada/Renderer/QuadRenderer.h
     Source/Strada/Renderer/Renderer.cpp
     Source/Strada/Renderer/Renderer.h
     Source/Strada/Renderer/SceneRenderer.cpp
@@ -100,6 +107,8 @@ set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/SceneRendererSettings.h
     Source/Strada/Renderer/ShadowMath.cpp
     Source/Strada/Renderer/ShadowMath.h
+    Source/Strada/Renderer/TextLayout.cpp
+    Source/Strada/Renderer/TextLayout.h
     Source/Strada/Renderer/TextureMips.cpp
     Source/Strada/Renderer/TextureMips.h
 )
@@ -259,6 +268,15 @@ strada_add_shaders(Strada
         OverlayLine_PS:Overlay.hlsl:PSLine:pixel
         Grid_PS:Overlay.hlsl:PSGrid:pixel
         Outline_PS:Outline.hlsl:PSMain:pixel
+        Quad_VS:Quad.hlsl:VSMain:vertex
+        Quad_PS:Quad.hlsl:PSMain:pixel
+        QuadEntityId_PS:Quad.hlsl:PSEntityId:pixel
+)
+
+include(StradaResources)
+strada_embed_resources(Strada
+    RESOURCES
+        "Fonts/Roboto-Medium.ttf=${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf"
 )
 
 strada_configure_target(Strada)

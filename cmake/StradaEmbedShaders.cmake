@@ -27,9 +27,10 @@ foreach(entry IN LISTS entries)
         message(FATAL_ERROR "Shader blob '${path}' is empty")
     endif()
 
-    # Emit 0xNN bytes, 24 per line.
+    # Emit 0xNN bytes, 24 per line (CMake regular expressions have no {n} quantifier, so the row pattern is spelled out).
     string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," bytes "${hex}")
-    string(REGEX REPLACE "((0x[0-9a-f][0-9a-f],){24})" "\\1\n\t\t\t" bytes "${bytes}")
+    string(REPEAT "0x[0-9a-f][0-9a-f]," 24 rowPattern)
+    string(REGEX REPLACE "(${rowPattern})" "\\1\n\t\t\t" bytes "${bytes}")
 
     if(stage STREQUAL "vertex")
         set(stageEnum "ShaderStage::Vertex")

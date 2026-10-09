@@ -222,6 +222,26 @@ struct OutlineConstants
 	float3 Padding;
 };
 
+static uint const QuadModeSprite = 0;
+static uint const QuadModeText = 1;
+
+// Sprites and text (push constants).
+struct QuadConstants
+{
+	// World quads: the view-projection; screen quads: identity (their positions are in clip space already).
+	float4x4 Transform;
+	// QuadModeSprite or QuadModeText.
+	uint Mode;
+	// Non-zero when drawing onto the 8-bit sRGB-encoded final image.
+	uint EncodeSrgb;
+	// Text: atlas pixels per unit of a distance-field sample, and the sample on outlines.
+	float DistanceScale;
+	float EdgeSample;
+	// Text: the atlas size in pixels.
+	float2 AtlasSize;
+	float2 Padding;
+};
+
 ST_SHADER_NAMESPACE_END
 
 #endif

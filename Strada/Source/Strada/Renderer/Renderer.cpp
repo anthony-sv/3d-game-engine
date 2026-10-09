@@ -4,6 +4,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/EnvironmentAsset.h"
+#include "Strada/Asset/FontAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/TextureAsset.h"
@@ -33,6 +34,12 @@ namespace Strada
 		{
 			std::weak_ptr<TextureAsset> Source;
 			nvrhi::TextureHandle Texture;
+		};
+
+		struct FontEntry
+		{
+			std::weak_ptr<FontAsset> Source;
+			GpuFont Font;
 		};
 
 		struct EnvironmentEntry
@@ -65,6 +72,8 @@ namespace Strada
 			std::map<std::pair<TextureAsset const*, bool>, TextureEntry> Textures;
 			std::unordered_map<MaterialAsset const*, MaterialEntry> Materials;
 			std::unordered_map<EnvironmentAsset const*, EnvironmentEntry> EnvironmentMaps;
+			// Node-based: GpuFont pointers stay valid until their entry is collected.
+			std::unordered_map<FontAsset const*, FontEntry> Fonts;
 			// Assets that failed to upload (reported once; retried when the asset object is replaced).
 			std::unordered_map<Asset const*, std::weak_ptr<Asset const>> Failures;
 		};
@@ -429,6 +438,67 @@ namespace Strada
 		return GetData().FallbackCube;
 	}
 
+	GpuFont* Renderer::GetFont(Ref<FontAsset> const& font)
+	{
+		RendererData& data = GetData();
+		if (!font)
+		{
+			return nullptr;
+		}
+		if (auto const it = data.Fonts.find(font.get()); it != data.Fonts.end() && it->second.Source.lock() == font)
+		{
+			return &it->second.Font;
+		}
+		if (HasFailed(font))
+		{
+			return nullptr;
+		}
+		Result<Scope<FontAtlas>> atlas = FontAtlas::Create(font);
+		if (!atlas)
+		{
+			ReportFailure(font, fmt::format("Font {} cannot be used: {}", font->Handle, atlas.GetError()));
+			return nullptr;
+		}
+		FontEntry& entry = data.Fonts[font.get()];
+		entry.Source = font;
+		entry.Font = GpuFont{atlas.TakeValue(), nullptr, 0};
+		return &entry.Font;
+	}
+
+	nvrhi::ITexture* Renderer::UpdateFontTexture(GpuFont& font)
+	{
+		FontAtlas const& atlas = *font.Atlas;
+		if (font.Texture && font.UploadedVersion == atlas.GetVersion())
+		{
+			return font.Texture;
+		}
+		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		if (!font.Texture || font.Texture->getDesc().width != atlas.GetWidth() || font.Texture->getDesc().height != atlas.GetHeight())
+		{
+			// A grown atlas gets a new texture; frames in flight keep the old one alive.
+			nvrhi::TextureDesc desc;
+			desc.width = atlas.GetWidth();
+			desc.height = atlas.GetHeight();
+			desc.format = nvrhi::Format::R8_UNORM;
+			desc.initialState = nvrhi::ResourceStates::ShaderResource;
+			desc.keepInitialState = true;
+			desc.debugName = "Font atlas";
+			font.Texture = device->createTexture(desc);
+			if (!font.Texture)
+			{
+				ST_CORE_ERROR("Failed to create a font atlas texture ({}x{})", atlas.GetWidth(), atlas.GetHeight());
+				return nullptr;
+			}
+		}
+		nvrhi::ICommandList* commandList = GetData().UploadCommandList;
+		commandList->open();
+		commandList->writeTexture(font.Texture, 0, 0, atlas.GetPixels().data(), atlas.GetWidth());
+		commandList->close();
+		device->executeCommandList(commandList);
+		font.UploadedVersion = atlas.GetVersion();
+		return font.Texture;
+	}
+
 	void Renderer::CollectGarbage()
 	{
 		RendererData& data = GetData();
@@ -448,6 +518,11 @@ namespace Strada
 						  return entry.second.Source.expired();
 					  });
 		std::erase_if(data.EnvironmentMaps,
+		              [](auto const& entry)
+		              {
+						  return entry.second.Source.expired();
+					  });
+		std::erase_if(data.Fonts,
 		              [](auto const& entry)
 		              {
 						  return entry.second.Source.expired();

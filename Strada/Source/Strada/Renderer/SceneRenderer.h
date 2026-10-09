@@ -2,6 +2,7 @@
 
 #include "Strada/Core/Base.h"
 #include "Strada/Math/AABB.h"
+#include "Strada/Renderer/QuadRenderer.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
 
 #include "RendererInterop.h"
@@ -116,6 +117,8 @@ namespace Strada
 		uint32_t ShadowMapViews = 0;
 		// Shadow-casting local lights that did not fit the shadow map budget (MaxLocalShadowSlices).
 		uint32_t ShadowsDropped = 0;
+		// Sprites and text glyphs.
+		uint32_t Quads = 0;
 	};
 
 	// Renders one view of a submitted frame into its own HDR target and tonemaps it into an 8-bit, sRGB-encoded image
@@ -145,6 +148,10 @@ namespace Strada
 		// reported by picking (below MaxPickingId; 0 = not pickable); selected meshes get the selection outline.
 		void SubmitMesh(Ref<MeshSource> const& mesh, std::span<Ref<MaterialAsset> const> materials, glm::mat4 const& transform,
 		                bool castShadows = true, uint32_t pickingId = 0, bool selected = false);
+		// Sprites and text, in world space (unlit, alpha blended, sorted back to front) or over the final image (see
+		// SpriteSubmission and TextSubmission). Picking IDs and selection work as for meshes.
+		void SubmitSprite(SpriteSubmission const& sprite);
+		void SubmitText(TextSubmission text);
 		void SubmitDirectionalLight(DirectionalLightSubmission const& light);
 		void SubmitPointLight(PointLightSubmission const& light);
 		void SubmitSpotLight(SpotLightSubmission const& light);
@@ -341,6 +348,8 @@ namespace Strada
 		nvrhi::BindingLayoutHandle m_TonemapLayout;
 		nvrhi::BindingSetHandle m_TonemapBindings;
 		nvrhi::GraphicsPipelineHandle m_TonemapPipeline;
+
+		Scope<QuadRenderer> m_Quads;
 
 		// Editor overlays.
 		SceneRendererOverlays m_Overlays;

@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/EnvironmentAsset.h"
+#include "Strada/Asset/FontAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Scene/Entity.h"
@@ -53,6 +54,46 @@ namespace Strada
 				uint32_t const pickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
 				bool const selected = options.IsSelected && options.IsSelected(id);
 				renderer.SubmitMesh(mesh, materials, scene.GetWorldTransform(entity), component.CastShadows, pickingId, selected);
+			}
+
+			for (entt::entity const handle : scene.GetAllEntitiesWith<SpriteRendererComponent>())
+			{
+				Entity const entity(handle, &scene);
+				SpriteRendererComponent const& component = entity.GetComponent<SpriteRendererComponent>();
+				UUID const id = entity.GetUUID();
+				SpriteSubmission submission;
+				submission.Transform = scene.GetWorldTransform(entity);
+				submission.Color = component.Color;
+				submission.Texture = component.Texture;
+				submission.Tiling = component.Tiling;
+				submission.ScreenSpace = component.ScreenSpace;
+				submission.PickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
+				submission.Selected = options.IsSelected && options.IsSelected(id);
+				renderer.SubmitSprite(submission);
+			}
+
+			for (entt::entity const handle : scene.GetAllEntitiesWith<TextComponent>())
+			{
+				Entity const entity(handle, &scene);
+				TextComponent const& component = entity.GetComponent<TextComponent>();
+				if (component.Text.empty())
+				{
+					continue;
+				}
+				UUID const id = entity.GetUUID();
+				TextSubmission submission;
+				submission.Text = component.Text;
+				// Fonts that cannot be loaded fall back to the default font.
+				submission.Font = component.Font.IsValid() ? AssetManager::GetAsset<FontAsset>(component.Font) : nullptr;
+				submission.Transform = scene.GetWorldTransform(entity);
+				submission.Color = component.Color;
+				submission.FontSize = component.FontSize;
+				submission.Layout.Alignment = component.Alignment;
+				submission.Layout.LineSpacing = component.LineSpacing;
+				submission.ScreenSpace = component.ScreenSpace;
+				submission.PickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
+				submission.Selected = options.IsSelected && options.IsSelected(id);
+				renderer.SubmitText(std::move(submission));
 			}
 
 			for (entt::entity const handle : scene.GetAllEntitiesWith<DirectionalLightComponent>())

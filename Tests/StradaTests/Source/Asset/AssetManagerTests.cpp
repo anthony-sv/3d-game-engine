@@ -9,6 +9,7 @@
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -127,6 +128,13 @@ TEST_CASE("AssetManager: built-in assets are always available")
 	      255);
 	CHECK(AssetManager::GetAssets(AssetType::Mesh).size() == 7);
 	CHECK(AssetManager::GetAssets().size() == GetDefaultBuiltInAssets().size());
+	// The default font is compiled into the engine.
+	Ref<FontAsset> const font = AssetManager::GetAsset<FontAsset>(GetBuiltInHandle(BuiltInAsset::DefaultFont));
+	REQUIRE(font);
+	std::span<uint8_t const> const embedded = EmbeddedResources::Get(EmbeddedResources::DefaultFont);
+	CHECK(font->GetData().size() == embedded.size());
+	CHECK(std::equal(embedded.begin(), embedded.end(), font->GetData().begin()));
+	CHECK(EmbeddedResources::Get("Fonts/Missing.ttf").empty());
 
 	CHECK(AssetManager::RegisterBuiltInAsset("Cube", AssetHandle(UUID(900)), CreateRef<MaterialAsset>()).IsError());
 	CHECK(AssetManager::RegisterBuiltInAsset("Extra", GetBuiltInHandle(BuiltInAsset::CubeMesh), CreateRef<MaterialAsset>()).IsError());

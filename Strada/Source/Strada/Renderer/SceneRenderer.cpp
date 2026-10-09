@@ -123,6 +123,7 @@ namespace Strada
 		ST_CORE_ASSERT(Renderer::IsInitialized(), "SceneRenderer requires Renderer::Init");
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
 		m_CommandList = device->createCommandList();
+		m_Quads = CreateScope<QuadRenderer>();
 
 		nvrhi::BufferDesc frameDesc;
 		frameDesc.byteSize = sizeof(ShaderInterop::FrameConstants);
@@ -863,6 +864,7 @@ namespace Strada
 		m_Overlays = {};
 		m_DepthTestedLines.clear();
 		m_OnTopLines.clear();
+		m_Quads->Clear();
 		m_HasSelection = false;
 	}
 
@@ -904,6 +906,26 @@ namespace Strada
 			item.EntityId = entityId;
 			(material->GetData().AlphaMode == MaterialAlphaMode::Blend ? m_BlendItems : m_OpaqueItems).push_back(std::move(item));
 		}
+	}
+
+	void SceneRenderer::SubmitSprite(SpriteSubmission const& sprite)
+	{
+		ST_CORE_ASSERT(m_InScene, "SubmitSprite outside BeginScene/EndScene");
+		ST_CORE_ASSERT(sprite.PickingId <= MaxPickingId, "Picking IDs must stay below the selection bit");
+		uint32_t const entityId =
+			sprite.PickingId == 0 ? 0u : ((sprite.PickingId & MaxPickingId) | (sprite.Selected ? ShaderInterop::EntityIdSelectedBit : 0u));
+		m_HasSelection = m_HasSelection || (entityId & ShaderInterop::EntityIdSelectedBit) != 0;
+		m_Quads->SubmitSprite(sprite, entityId);
+	}
+
+	void SceneRenderer::SubmitText(TextSubmission text)
+	{
+		ST_CORE_ASSERT(m_InScene, "SubmitText outside BeginScene/EndScene");
+		ST_CORE_ASSERT(text.PickingId <= MaxPickingId, "Picking IDs must stay below the selection bit");
+		uint32_t const entityId =
+			text.PickingId == 0 ? 0u : ((text.PickingId & MaxPickingId) | (text.Selected ? ShaderInterop::EntityIdSelectedBit : 0u));
+		m_HasSelection = m_HasSelection || (entityId & ShaderInterop::EntityIdSelectedBit) != 0;
+		m_Quads->SubmitText(std::move(text), entityId);
 	}
 
 	void SceneRenderer::SubmitLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, bool depthTest)
@@ -1407,9 +1429,14 @@ namespace Strada
 							 return a.ViewDepth > b.ViewDepth;
 						 });
 
-		// Uploads of meshes, textures and materials submit their own command lists, so they happen before recording.
+		// Uploads of meshes, textures, materials and font atlases submit their own command lists, so they happen before
+		// recording.
 		PrepareItems(m_OpaqueItems, false);
 		PrepareItems(m_BlendItems, true);
+		m_Quads->Prepare(m_Camera.Position, glm::uvec2(m_Width, m_Height));
+		m_Statistics.Quads = m_Quads->GetQuadCount();
+		m_Statistics.DrawCalls += m_Quads->GetBatchCount();
+		m_Statistics.Triangles += 2 * m_Quads->GetQuadCount();
 
 		ShaderInterop::ShadowConstants shadows{};
 		PrepareShadows(shadows);
@@ -1459,6 +1486,7 @@ namespace Strada
 		{
 			commandList->writeBuffer(m_LightBuffer, m_Lights.data(), m_Lights.size() * sizeof(ShaderInterop::LightData));
 		}
+		m_Quads->Upload(commandList);
 
 		RenderShadows(commandList);
 
@@ -1488,6 +1516,7 @@ namespace Strada
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 		}
 		DrawItems(commandList, m_BlendItems, m_SceneFramebuffer);
+		m_Quads->RenderWorld(commandList, m_SceneFramebuffer, frame.ViewProjection);
 		bool pickCopied = false;
 		if (m_EntityIdsEnabled)
 		{
@@ -1553,6 +1582,8 @@ namespace Strada
 		{
 			RenderSelectionOutline(commandList);
 		}
+		// Screen-space sprites and text cover everything else.
+		m_Quads->RenderScreen(commandList, m_FinalFramebuffer);
 
 		commandList->close();
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
@@ -1570,6 +1601,7 @@ namespace Strada
 		m_ShadowViews.clear();
 		m_DepthTestedLines.clear();
 		m_OnTopLines.clear();
+		m_Quads->Clear();
 		Renderer::CollectGarbage();
 	}
 
@@ -1613,6 +1645,7 @@ namespace Strada
 		};
 		draw(m_OpaqueItems);
 		draw(m_BlendItems);
+		m_Quads->RenderEntityIds(commandList, m_EntityIdFramebuffer, m_Camera.Projection * m_Camera.View);
 	}
 
 	void SceneRenderer::RenderOverlays(nvrhi::ICommandList* commandList, bool ldrTarget)

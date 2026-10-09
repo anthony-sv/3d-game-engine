@@ -3,6 +3,7 @@
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Math/Math.h"
+#include "Strada/Renderer/TextLayout.h"
 #include "Strada/Script/ScriptField.h"
 
 #include <glm/glm.hpp>
@@ -214,28 +215,24 @@ namespace Strada
 		ScriptFieldMap Fields;
 	};
 
-	enum class TextAlignment : uint8_t
-	{
-		Left = 0,
-		Center,
-		Right
-	};
-
 	// Screen-space text is positioned with the entity's translation in normalized viewport coordinates (x and y in
-	// [0, 1], origin top-left) and sized by FontSize in pixels; world-space text uses the full transform and FontSize in
-	// world units per line.
+	// [0, 1], origin top-left; z orders screen-space items, higher on top) and sized by FontSize in pixels; world-space
+	// text lies in the entity's XY plane with FontSize world units per line. The origin is the top of the first line,
+	// where lines start, are centered or end. Text is unlit; an invalid or unloadable font uses the default font.
 	struct TextComponent
 	{
 		std::string Text;
 		AssetHandle Font;
 		glm::vec4 Color = {1.0f, 1.0f, 1.0f, 1.0f};
-		float FontSize = 32.0f;
+		// One world unit per line; screen-space text needs a size in pixels (around 16-64).
+		float FontSize = 1.0f;
 		bool ScreenSpace = false;
 		TextAlignment Alignment = TextAlignment::Left;
 		float LineSpacing = 1.0f;
 	};
 
-	// Textured or colored quad. Screen-space sprites follow the TextComponent placement rules (scale in pixels).
+	// Unlit textured or colored quad: the unit quad in the entity's XY plane, or on the screen following the TextComponent
+	// placement rules (scale in pixels).
 	struct SpriteRendererComponent
 	{
 		glm::vec4 Color = {1.0f, 1.0f, 1.0f, 1.0f};

@@ -11,6 +11,7 @@
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Core/FileSystem.h"
 
 #include <glm/gtc/constants.hpp>
@@ -152,6 +153,11 @@ namespace Strada
 					return TextureAsset::CreateFromImage(MakeSolidImage(0, 0, 0, 255)).GetValue();
 				case BuiltInAsset::FlatNormalTexture:
 					return TextureAsset::CreateFromImage(MakeSolidImage(128, 128, 255, 255)).GetValue();
+				case BuiltInAsset::DefaultFont:
+				{
+					std::span<uint8_t const> const font = EmbeddedResources::Get(EmbeddedResources::DefaultFont);
+					return FontAsset::Create(Buffer::Copy(font.data(), font.size())).GetValue();
+				}
 				case BuiltInAsset::DefaultSky:
 					return EnvironmentAsset::CreateFromImage(MakeSkyImage()).GetValue();
 			}

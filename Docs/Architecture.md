@@ -44,8 +44,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Strada/                                           Engine static library
 │   ├── Source/stpch.h, Source/Strada.h               Precompiled header, public umbrella header
 │   ├── Source/Strada/<Module>/...                    Engine modules (see §4)
-│   ├── Shaders/                                      HLSL (*.hlsl, *.hlsli) → embedded SPIR-V
-│   └── Resources/                                    Files embedded into the engine binary (default font, ...)
+│   └── Shaders/                                      HLSL (*.hlsl, *.hlsli) → embedded SPIR-V
 ├── StradaEditor/                                     Editor: StradaEditorCore static lib + StradaEditor executable
 │   ├── Source/Editor/...                             Panels, automation, commands (undo/redo), export, project management
 │   └── Resources/                                    Editor fonts, icons, project templates (copied next to the binary)
@@ -208,13 +207,23 @@ Frame passes, in order (passes 1-8 are implemented):
 7. **Tonemap** — exposure (EV100), operators: ACES (Hill fit), AgX, Khronos PBR Neutral, Reinhard; dithering;
    sRGB encoding in the shader; output `RGBA8_UNORM`.
 8. **FXAA** (optional) — luma edge search on the tonemapped image.
-9. **Overlays** — world-space text and sprites are lit/unlit in the HDR passes. On the tonemapped image (before FXAA
-    when it is enabled): the editor ground grid (analytic ray/plane intersection on y = 0, anti-aliased minor and
+9. **Overlays** — world-space sprites and text are drawn into the HDR image after the transparent pass: unlit (their
+    color is used as is), alpha blended, tested against the scene depth without writing it, back to front. On the
+    tonemapped image (before FXAA when it is enabled): the editor ground grid (analytic ray/plane intersection on y = 0, anti-aliased minor and
     major lines and colored axes, faded with distance, hidden behind surfaces with a small depth tolerance so ground
     planes do not z-fight) and debug lines (depth-tested through the scene depth attached read-only, or drawn on
     top; collider visualization, script `Debug.DrawLine`). After FXAA: the selection outline, an anti-aliased band
-    around the visible silhouette of selected meshes read from the ID target. Screen-space text and sprites follow
-    the overlays. All overlay colors are sRGB-encoded with straight alpha.
+    around the visible silhouette of selected meshes, sprites and text read from the ID target. Screen-space sprites
+    and text follow the overlays (their linear colors are sRGB-encoded in the shader). All other overlay colors are
+    sRGB-encoded with straight alpha. Sprites and text also write their picking IDs where they are opaque (screen-space
+    ones on top).
+
+Text uses signed-distance glyphs (`FontAtlas`): stb_truetype renders each character the first time it is used at
+64 pixels per line with a 6-pixel distance range into a single-channel atlas (shelf packing; the atlas doubles up to
+4096x4096 when full, keeping glyph positions), and the shader anti-aliases the outline over one screen pixel at any
+size. `LayoutText` lays out UTF-8 (kerning, `\n`, tab stops of four spaces, left/center/right alignment, line
+spacing) in units of lines. The renderer keeps one atlas per font asset and uploads it when glyphs were added.
+`QuadRenderer` batches the quads of a frame by texture into one vertex buffer.
 
 Render targets are recreated on resize and reconfiguration only after the GPU has drained: NVRHI does not track
 clears, which can be a target's only use in a frame.
@@ -261,9 +270,10 @@ Asset types:
 - `FontAsset` (`.ttf`, `.otf`), `AudioClipAsset` (`.wav`, `.flac`, `.mp3`, `.ogg`; format detected from the data),
   `PrefabAsset` (`.sprefab`). Scenes (`.sscene`) are registered for references but opened with `SceneSerializer`.
 - Built-in assets: meshes `Cube`, `Sphere`, `Plane`, `Cylinder`, `Capsule`, `Cone`, `Quad` (unit sizes matching the
-  default colliders), `DefaultMaterial`, textures `White`, `Black`, `FlatNormal`, and the procedural `DefaultSky`
-  environment (zenith/horizon/ground gradient). Later subsystems may register more
-  (e.g. the default font) with reserved handles.
+  default colliders), `DefaultMaterial`, textures `White`, `Black`, `FlatNormal`, the `DefaultFont` (Roboto Medium,
+  compiled into the engine with `strada_embed_resources` from `cmake/StradaResources.cmake` and found with
+  `EmbeddedResources::Get`), and the procedural `DefaultSky` environment (zenith/horizon/ground gradient). Later
+  subsystems may register more with reserved handles.
 
 ## 7. Scene and ECS
 
@@ -320,7 +330,11 @@ interop component lookups.
 | `Prefab` | `PrefabComponent` | `Prefab` asset, `SourceEntity` UUID |
 
 Screen-space `Text`/`SpriteRenderer` use the entity translation in normalized viewport coordinates
-(x, y ∈ [0, 1], origin top-left) and scale in pixels-per-unit, so games can build HUDs without a UI framework.
+(x, y ∈ [0, 1], origin top-left) and scale in pixels-per-unit, so games can build HUDs without a UI framework; the
+translation's z orders them (higher values on top) and the transform's X and Y axes give their rotation around Z.
+Text hangs from its origin (the top of the first line), where lines start, are centered or end depending on the
+alignment. World-space sprites are the unit quad in the entity's XY plane (facing +Z), world-space text lies in the
+same plane with `FontSize` world units per line; both are unlit.
 
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
 entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes.
