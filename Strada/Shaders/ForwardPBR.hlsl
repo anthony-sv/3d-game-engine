@@ -1,12 +1,16 @@
 // Forward metallic-roughness PBR (glTF 2.0 material model). Writes linear HDR radiance pre-multiplied by exposure.
 // Set 0: frame constants, lights, samplers. Set 1: material. Push constants: per-draw transforms.
 
-#include "Include/Common.hlsli"
+#include "Include/IBL.hlsli"
 #include "Include/RendererInterop.h"
 
 ConstantBuffer<FrameConstants> g_Frame : register(b0, space0);
 StructuredBuffer<LightData> g_Lights : register(t0, space0);
+TextureCube g_IrradianceCube : register(t1, space0);
+TextureCube g_PrefilteredCube : register(t2, space0);
+Texture2D g_BrdfLut : register(t3, space0);
 SamplerState g_MaterialSampler : register(s0, space0);
+SamplerState g_ClampSampler : register(s1, space0);
 
 ConstantBuffer<MaterialConstants> g_Material : register(b0, space1);
 Texture2D g_BaseColorTexture : register(t0, space1);
@@ -152,7 +156,32 @@ float4 PSMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace) : SV_Target
 		radiance += (diffuse + specular) * light.Radiance * (attenuation * NoL);
 	}
 
-	float3 ambient = g_Frame.AmbientColor * diffuseColor * occlusion;
+	// Image-based (or uniform ambient) lighting: split-sum specular with multiple-scattering energy compensation
+	// (Fdez-Aguera 2019) and the matching diffuse term.
+	float3 reflected = reflect(-view, normal);
+	float2 dfg = g_BrdfLut.SampleLevel(g_ClampSampler, float2(NoV, perceptualRoughness), 0).rg;
+	float3 singleScatter = f0 * dfg.x + dfg.y;
+	float singleScatterEnergy = dfg.x + dfg.y;
+	float multiScatterEnergy = 1.0 - singleScatterEnergy;
+	float3 averageFresnel = f0 + (1.0 - f0) / 21.0;
+	float3 multiScatter = singleScatter * averageFresnel / (1.0 - multiScatterEnergy * averageFresnel);
+	float3 irradiance;
+	float3 prefiltered;
+	if (g_Frame.EnvironmentIntensity > 0.0)
+	{
+		float3 normalLookup = RotateY(normal, g_Frame.EnvironmentRotationSin, g_Frame.EnvironmentRotationCos);
+		float3 reflectedLookup = RotateY(reflected, g_Frame.EnvironmentRotationSin, g_Frame.EnvironmentRotationCos);
+		irradiance = g_IrradianceCube.SampleLevel(g_ClampSampler, normalLookup, 0).rgb * g_Frame.EnvironmentIntensity;
+		prefiltered = g_PrefilteredCube.SampleLevel(g_ClampSampler, reflectedLookup, perceptualRoughness * g_Frame.PrefilteredMaxMip).rgb *
+		              g_Frame.EnvironmentIntensity;
+	}
+	else
+	{
+		irradiance = g_Frame.AmbientColor;
+		prefiltered = g_Frame.AmbientColor;
+	}
+	float3 diffuseWeight = diffuseColor * (1.0 - singleScatter - multiScatter * multiScatterEnergy);
+	float3 ambient = (singleScatter * prefiltered + multiScatter * multiScatterEnergy * irradiance + diffuseWeight * irradiance) * occlusion;
 	float3 emissive = g_Material.Emissive * g_EmissiveTexture.Sample(g_MaterialSampler, input.TexCoord).rgb;
 	float3 color = (radiance + ambient + emissive) * g_Frame.Exposure;
 	return float4(color, baseColor.a);

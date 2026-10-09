@@ -8,8 +8,10 @@
 
 namespace Strada
 {
+	class EnvironmentAsset;
 	class MaterialAsset;
 	class MeshSource;
+	struct GpuEnvironment;
 
 	struct GpuMesh
 	{
@@ -42,6 +44,13 @@ namespace Strada
 		static nvrhi::ITexture* GetTexture(AssetHandle handle, bool srgb, AssetHandle fallback);
 		// Binding set for a material (constants and textures); rebuilt when the material or its textures change.
 		static nvrhi::IBindingSet* GetMaterialBindingSet(Ref<MaterialAsset> const& material);
+
+		// Image-based lighting data of an environment (computed on first use); null when it cannot be processed.
+		static GpuEnvironment const* GetEnvironment(Ref<EnvironmentAsset> const& environment);
+		// Split-sum DFG lookup table (RG = scale, bias).
+		static nvrhi::ITexture* GetBrdfLut();
+		// 1x1 black cubemap bound when there is no environment.
+		static nvrhi::ITexture* GetFallbackCube();
 
 		// Drops cache entries whose assets were destroyed. Called once per frame by scene renderers.
 		static void CollectGarbage();

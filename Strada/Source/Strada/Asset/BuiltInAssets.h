@@ -23,7 +23,9 @@ namespace Strada
 		WhiteTexture = 200,
 		BlackTexture = 201,
 		// (0.5, 0.5, 1.0): a tangent-space normal map without perturbation.
-		FlatNormalTexture = 202
+		FlatNormalTexture = 202,
+		// Procedural sky gradient (zenith, horizon, ground) for image-based lighting.
+		DefaultSky = 400
 	};
 
 	constexpr AssetHandle GetBuiltInHandle(BuiltInAsset asset)

@@ -167,9 +167,14 @@ recording because uploads submit their own command lists. Bindings: set 0 = fram
 structured buffer, material sampler, per-draw push constants (model + normal matrix, 128 bytes); set 1 = material.
 Structures shared with HLSL live in `Strada/Shaders/Include/RendererInterop.h`.
 
-Implemented so far: forward PBR (opaque front to back, then blended back to front), uniform ambient from the sky
-light, and the tonemap pass (with dithering and sRGB encoding into `RGBA8_UNORM`); the HDR target is `RGBA16_FLOAT`
-with a `D32` reversed-Z depth buffer. The remaining passes below are added in order without changing that structure.
+Implemented so far: forward PBR (opaque front to back, then blended back to front) with image-based lighting
+(split-sum specular with Fdez-Aguera multiple-scattering compensation; a uniform ambient color through the same terms
+when the sky light has no environment), the sky pass, and the tonemap pass (with dithering and sRGB encoding into
+`RGBA8_UNORM`); the HDR target is `RGBA16_FLOAT` with a `D32` reversed-Z depth buffer. Environments are processed on
+first use by compute shaders (`EnvironmentProcessor`): equirect to an RGBA16F cubemap (a quarter of the equirect width,
+power of two, 16-1024) with box-filtered mips, a 32x32 irradiance cube and a 256x256 GGX-prefiltered cube with 6 mips
+(filtered importance sampling, perceptual roughness linear in mip); the 128x128 BRDF table is computed at
+`Renderer::Init`. The remaining passes below are added in order without changing that structure.
 
 Frame passes, in order (target design):
 
@@ -236,7 +241,8 @@ Asset types:
 - `FontAsset` (`.ttf`, `.otf`), `AudioClipAsset` (`.wav`, `.flac`, `.mp3`, `.ogg`; format detected from the data),
   `PrefabAsset` (`.sprefab`). Scenes (`.sscene`) are registered for references but opened with `SceneSerializer`.
 - Built-in assets: meshes `Cube`, `Sphere`, `Plane`, `Cylinder`, `Capsule`, `Cone`, `Quad` (unit sizes matching the
-  default colliders), `DefaultMaterial`, textures `White`, `Black`, `FlatNormal`. Later subsystems may register more
+  default colliders), `DefaultMaterial`, textures `White`, `Black`, `FlatNormal`, and the procedural `DefaultSky`
+  environment (zenith/horizon/ground gradient). Later subsystems may register more
   (e.g. the default font) with reserved handles.
 
 ## 7. Scene and ECS

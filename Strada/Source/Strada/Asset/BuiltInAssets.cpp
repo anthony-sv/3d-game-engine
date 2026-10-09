@@ -7,10 +7,10 @@ namespace Strada
 {
 	namespace
 	{
-		constexpr std::array<BuiltInAsset, 11> s_DefaultBuiltInAssets = {
+		constexpr std::array<BuiltInAsset, 12> s_DefaultBuiltInAssets = {
 			BuiltInAsset::CubeMesh,     BuiltInAsset::SphereMesh,   BuiltInAsset::PlaneMesh,         BuiltInAsset::CylinderMesh,
 			BuiltInAsset::CapsuleMesh,  BuiltInAsset::ConeMesh,     BuiltInAsset::QuadMesh,          BuiltInAsset::DefaultMaterial,
-			BuiltInAsset::WhiteTexture, BuiltInAsset::BlackTexture, BuiltInAsset::FlatNormalTexture,
+			BuiltInAsset::WhiteTexture, BuiltInAsset::BlackTexture, BuiltInAsset::FlatNormalTexture, BuiltInAsset::DefaultSky,
 		};
 	}
 
@@ -40,6 +40,8 @@ namespace Strada
 				return "Black";
 			case BuiltInAsset::FlatNormalTexture:
 				return "FlatNormal";
+			case BuiltInAsset::DefaultSky:
+				return "DefaultSky";
 		}
 		return "Unknown";
 	}

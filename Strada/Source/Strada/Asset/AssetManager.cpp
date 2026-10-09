@@ -13,7 +13,10 @@
 #include "Strada/Asset/TextureAsset.h"
 #include "Strada/Core/FileSystem.h"
 
+#include <glm/gtc/constants.hpp>
+
 #include <algorithm>
+#include <cmath>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -86,6 +89,33 @@ namespace Strada
 			return image;
 		}
 
+		// Equirectangular sky: a gradient from the horizon to the zenith above, a darker ground below.
+		HdrImage MakeSkyImage()
+		{
+			constexpr uint32_t Width = 256;
+			constexpr uint32_t Height = 128;
+			glm::vec3 const zenith(0.22f, 0.42f, 0.85f);
+			glm::vec3 const horizon(0.75f, 0.82f, 0.92f);
+			glm::vec3 const ground(0.18f, 0.17f, 0.15f);
+			HdrImage image(Width, Height, 4);
+			for (uint32_t y = 0; y < Height; y++)
+			{
+				// Elevation from +1 (up) to -1 (down).
+				float const elevation = std::cos((static_cast<float>(y) + 0.5f) / static_cast<float>(Height) * glm::pi<float>());
+				glm::vec3 color = elevation >= 0.0f ? glm::mix(horizon, zenith, std::pow(elevation, 0.6f))
+				                                    : glm::mix(horizon * 0.6f, ground, std::min(-elevation * 4.0f, 1.0f));
+				for (uint32_t x = 0; x < Width; x++)
+				{
+					float* pixel = image.GetPixel(x, y);
+					pixel[0] = color.r;
+					pixel[1] = color.g;
+					pixel[2] = color.b;
+					pixel[3] = 1.0f;
+				}
+			}
+			return image;
+		}
+
 		Ref<Asset> CreateDefaultBuiltInAsset(BuiltInAsset asset)
 		{
 			AssetHandle const material = GetBuiltInHandle(BuiltInAsset::DefaultMaterial);
@@ -113,6 +143,8 @@ namespace Strada
 					return TextureAsset::CreateFromImage(MakeSolidImage(0, 0, 0, 255)).GetValue();
 				case BuiltInAsset::FlatNormalTexture:
 					return TextureAsset::CreateFromImage(MakeSolidImage(128, 128, 255, 255)).GetValue();
+				case BuiltInAsset::DefaultSky:
+					return EnvironmentAsset::CreateFromImage(MakeSkyImage()).GetValue();
 			}
 			return nullptr;
 		}

@@ -3,10 +3,12 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/ShaderLibrary.h"
+#include "Strada/Renderer/EnvironmentMap.h"
 #include "Strada/Renderer/Renderer.h"
 
 #include "RendererInterop.h"
@@ -16,7 +18,7 @@
 
 namespace Strada
 {
-	static_assert(sizeof(ShaderInterop::FrameConstants) % 16 == 0);
+	static_assert(sizeof(ShaderInterop::FrameConstants) == 192);
 	static_assert(sizeof(ShaderInterop::LightData) == 64);
 	static_assert(sizeof(ShaderInterop::DrawConstants) == 128, "Push constants must fit the 128 bytes Vulkan guarantees");
 	static_assert(sizeof(ShaderInterop::TonemapConstants) == 16);
@@ -67,19 +69,17 @@ namespace Strada
 		frameLayout.bindings = {
 			nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
 			nvrhi::BindingLayoutItem::StructuredBuffer_SRV(0),
+			nvrhi::BindingLayoutItem::Texture_SRV(1),
+			nvrhi::BindingLayoutItem::Texture_SRV(2),
+			nvrhi::BindingLayoutItem::Texture_SRV(3),
+			nvrhi::BindingLayoutItem::Texture_SRV(4),
 			nvrhi::BindingLayoutItem::Sampler(0),
+			nvrhi::BindingLayoutItem::Sampler(1),
 			nvrhi::BindingLayoutItem::PushConstants(1, sizeof(ShaderInterop::DrawConstants)),
 		};
 		m_FrameLayout = device->createBindingLayout(frameLayout);
-
-		nvrhi::BindingSetDesc frameBindings;
-		frameBindings.bindings = {
-			nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameConstants),
-			nvrhi::BindingSetItem::StructuredBuffer_SRV(0, m_LightBuffer),
-			nvrhi::BindingSetItem::Sampler(0, Renderer::GetMaterialSampler()),
-			nvrhi::BindingSetItem::PushConstants(1, sizeof(ShaderInterop::DrawConstants)),
-		};
-		m_FrameBindings = device->createBindingSet(frameBindings, m_FrameLayout);
+		nvrhi::ITexture* fallback = Renderer::GetFallbackCube();
+		UpdateFrameBindings(fallback, fallback, fallback);
 
 		nvrhi::VertexAttributeDesc const attributes[] = {
 			nvrhi::VertexAttributeDesc()
@@ -120,6 +120,31 @@ namespace Strada
 	}
 
 	SceneRenderer::~SceneRenderer() = default;
+
+	void SceneRenderer::UpdateFrameBindings(nvrhi::ITexture* irradiance, nvrhi::ITexture* prefiltered, nvrhi::ITexture* radiance)
+	{
+		if (m_FrameBindings && m_BoundTextures[0] == irradiance && m_BoundTextures[1] == prefiltered && m_BoundTextures[2] == radiance)
+		{
+			return;
+		}
+		nvrhi::TextureDimension const cube = nvrhi::TextureDimension::TextureCube;
+		nvrhi::BindingSetDesc frameBindings;
+		frameBindings.bindings = {
+			nvrhi::BindingSetItem::ConstantBuffer(0, m_FrameConstants),
+			nvrhi::BindingSetItem::StructuredBuffer_SRV(0, m_LightBuffer),
+			nvrhi::BindingSetItem::Texture_SRV(1, irradiance, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
+			nvrhi::BindingSetItem::Texture_SRV(2, prefiltered, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
+			nvrhi::BindingSetItem::Texture_SRV(3, Renderer::GetBrdfLut()),
+			nvrhi::BindingSetItem::Texture_SRV(4, radiance, nvrhi::Format::UNKNOWN, nvrhi::AllSubresources, cube),
+			nvrhi::BindingSetItem::Sampler(0, Renderer::GetMaterialSampler()),
+			nvrhi::BindingSetItem::Sampler(1, Renderer::GetLinearClampSampler()),
+			nvrhi::BindingSetItem::PushConstants(1, sizeof(ShaderInterop::DrawConstants)),
+		};
+		m_FrameBindings = GraphicsDevice::GetDevice()->createBindingSet(frameBindings, m_FrameLayout);
+		m_BoundTextures[0] = irradiance;
+		m_BoundTextures[1] = prefiltered;
+		m_BoundTextures[2] = radiance;
+	}
 
 	void SceneRenderer::SetViewportSize(uint32_t width, uint32_t height)
 	{
@@ -172,6 +197,19 @@ namespace Strada
 		};
 		m_TonemapBindings = device->createBindingSet(tonemapBindings, m_TonemapLayout);
 
+		if (!m_SkyPipeline)
+		{
+			nvrhi::GraphicsPipelineDesc desc;
+			desc.VS = ShaderLibrary::Get("Sky_VS");
+			desc.PS = ShaderLibrary::Get("Sky_PS");
+			desc.bindingLayouts = {m_FrameLayout};
+			desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+			// The triangle sits at the far plane (depth 0), so only pixels without geometry pass.
+			desc.renderState.depthStencilState.depthTestEnable = true;
+			desc.renderState.depthStencilState.depthWriteEnable = false;
+			desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::GreaterOrEqual;
+			m_SkyPipeline = device->createGraphicsPipeline(desc, m_SceneFramebuffer->getFramebufferInfo());
+		}
 		if (!m_TonemapPipeline)
 		{
 			nvrhi::GraphicsPipelineDesc desc;
@@ -228,6 +266,7 @@ namespace Strada
 		m_Camera = camera;
 		m_Settings = settings;
 		m_AmbientRadiance = glm::vec3(0.0f);
+		m_Environment = {};
 		m_OpaqueItems.clear();
 		m_BlendItems.clear();
 		m_LightData.clear();
@@ -322,6 +361,11 @@ namespace Strada
 		m_AmbientRadiance = radiance;
 	}
 
+	void SceneRenderer::SetEnvironment(EnvironmentSubmission const& environment)
+	{
+		m_Environment = environment;
+	}
+
 	void SceneRenderer::PrepareItems(std::vector<DrawItem>& items, bool blend)
 	{
 		for (DrawItem& item : items)
@@ -394,6 +438,17 @@ namespace Strada
 		PrepareItems(m_OpaqueItems, false);
 		PrepareItems(m_BlendItems, true);
 
+		GpuEnvironment const* environment = m_Environment.Environment ? Renderer::GetEnvironment(m_Environment.Environment) : nullptr;
+		if (environment != nullptr)
+		{
+			UpdateFrameBindings(environment->Irradiance, environment->Prefiltered, environment->Radiance);
+		}
+		else
+		{
+			nvrhi::ITexture* fallback = Renderer::GetFallbackCube();
+			UpdateFrameBindings(fallback, fallback, fallback);
+		}
+
 		float const exposure = m_Settings.GetExposure();
 		ShaderInterop::FrameConstants frame{};
 		frame.ViewProjection = m_Camera.Projection * m_Camera.View;
@@ -403,6 +458,16 @@ namespace Strada
 		frame.AmbientColor = m_AmbientRadiance;
 		frame.LightCount = m_LightCount;
 		frame.ViewportSize = glm::vec2(static_cast<float>(m_Width), static_cast<float>(m_Height));
+		frame.EnvironmentRotationCos = 1.0f;
+		if (environment != nullptr)
+		{
+			float const rotation = glm::radians(m_Environment.Rotation);
+			frame.EnvironmentIntensity = std::max(m_Environment.Intensity, 1e-6f);
+			frame.EnvironmentRotationSin = std::sin(rotation);
+			frame.EnvironmentRotationCos = std::cos(rotation);
+			frame.PrefilteredMaxMip = static_cast<float>(environment->PrefilteredMipCount - 1);
+			frame.SkyboxLod = std::clamp(m_Environment.SkyboxBlur, 0.0f, 1.0f) * static_cast<float>(environment->RadianceMipCount - 1);
+		}
 
 		nvrhi::ICommandList* commandList = m_CommandList;
 		commandList->open();
@@ -418,6 +483,19 @@ namespace Strada
 		commandList->clearDepthStencilTexture(m_DepthTarget, nvrhi::AllSubresources, true, 0.0f, false, 0);
 
 		DrawItems(commandList, m_OpaqueItems);
+		if (environment != nullptr && m_Environment.DrawSkybox)
+		{
+			nvrhi::GraphicsState skyState;
+			skyState.pipeline = m_SkyPipeline;
+			skyState.framebuffer = m_SceneFramebuffer;
+			skyState.viewport.addViewportAndScissorRect(nvrhi::Viewport(static_cast<float>(m_Width), static_cast<float>(m_Height)));
+			skyState.bindings = {m_FrameBindings};
+			commandList->setGraphicsState(skyState);
+			// The frame layout declares the per-draw push constants; the sky does not read them.
+			ShaderInterop::DrawConstants const unused{};
+			commandList->setPushConstants(&unused, sizeof(unused));
+			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
+		}
 		DrawItems(commandList, m_BlendItems);
 
 		nvrhi::GraphicsState tonemapState;

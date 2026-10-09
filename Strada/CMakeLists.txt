@@ -84,6 +84,8 @@ set(STRADA_MATH_SOURCES
 )
 
 set(STRADA_RENDERER_SOURCES
+    Source/Strada/Renderer/EnvironmentMap.cpp
+    Source/Strada/Renderer/EnvironmentMap.h
     Source/Strada/Renderer/Renderer.cpp
     Source/Strada/Renderer/Renderer.h
     Source/Strada/Renderer/SceneRenderer.cpp
@@ -213,6 +215,7 @@ strada_add_shaders(Strada
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Shaders"
     INCLUDES
         "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Include/Common.hlsli"
+        "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Include/IBL.hlsli"
         "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Include/RendererInterop.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/Include/ShaderInterop.h"
     SHADERS
@@ -223,6 +226,13 @@ strada_add_shaders(Strada
         ForwardPBR_VS:ForwardPBR.hlsl:VSMain:vertex
         ForwardPBR_PS:ForwardPBR.hlsl:PSMain:pixel
         Tonemap_PS:Tonemap.hlsl:PSMain:pixel
+        Sky_VS:Sky.hlsl:VSMain:vertex
+        Sky_PS:Sky.hlsl:PSMain:pixel
+        EnvironmentEquirectToCube_CS:Environment.hlsl:CSEquirectToCube:compute
+        EnvironmentDownsample_CS:Environment.hlsl:CSDownsample:compute
+        EnvironmentIrradiance_CS:Environment.hlsl:CSIrradiance:compute
+        EnvironmentPrefilter_CS:Environment.hlsl:CSPrefilter:compute
+        EnvironmentBrdfLut_CS:Environment.hlsl:CSBrdfLut:compute
 )
 
 strada_configure_target(Strada)

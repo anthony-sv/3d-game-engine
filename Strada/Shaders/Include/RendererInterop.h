@@ -24,10 +24,30 @@ struct FrameConstants
 	float3 CameraPosition;
 	// Linear exposure multiplier derived from EV100.
 	float Exposure;
+	// Used when no environment map is bound (uniform ambient).
 	float3 AmbientColor;
 	uint LightCount;
 	float2 ViewportSize;
-	float2 Padding;
+	// Environment intensity (0 when there is no environment map) and rotation around +Y.
+	float EnvironmentIntensity;
+	float EnvironmentRotationSin;
+	float EnvironmentRotationCos;
+	// Highest mip of the prefiltered specular cube (roughness 1).
+	float PrefilteredMaxMip;
+	// Mip of the radiance cube shown by the sky (blur).
+	float SkyboxLod;
+	float Padding;
+};
+
+// IBL precomputation passes (push constants).
+struct EnvironmentConstants
+{
+	uint OutputSize;
+	float SourceSize;
+	float SourceMaxMip;
+	float Roughness;
+	uint SampleCount;
+	float3 Padding;
 };
 
 // One light (set 0, t0 structured buffer).

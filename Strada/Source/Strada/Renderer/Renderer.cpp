@@ -3,10 +3,12 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/TextureAsset.h"
 #include "Strada/RHI/GraphicsDevice.h"
+#include "Strada/Renderer/EnvironmentMap.h"
 #include "Strada/Renderer/TextureMips.h"
 
 #include "RendererInterop.h"
@@ -33,6 +35,12 @@ namespace Strada
 			nvrhi::TextureHandle Texture;
 		};
 
+		struct EnvironmentEntry
+		{
+			std::weak_ptr<EnvironmentAsset> Source;
+			GpuEnvironment Environment;
+		};
+
 		struct MaterialEntry
 		{
 			std::weak_ptr<MaterialAsset> Source;
@@ -48,11 +56,15 @@ namespace Strada
 			nvrhi::SamplerHandle LinearClampSampler;
 			nvrhi::BindingLayoutHandle MaterialLayout;
 			nvrhi::CommandListHandle UploadCommandList;
+			EnvironmentProcessor Environments;
+			nvrhi::TextureHandle BrdfLut;
+			nvrhi::TextureHandle FallbackCube;
 
 			std::unordered_map<MeshSource const*, MeshEntry> Meshes;
 			// Keyed by (texture, sRGB).
 			std::map<std::pair<TextureAsset const*, bool>, TextureEntry> Textures;
 			std::unordered_map<MaterialAsset const*, MaterialEntry> Materials;
+			std::unordered_map<EnvironmentAsset const*, EnvironmentEntry> EnvironmentMaps;
 			// Assets that failed to upload (reported once; retried when the asset object is replaced).
 			std::unordered_map<Asset const*, std::weak_ptr<Asset const>> Failures;
 		};
@@ -154,6 +166,43 @@ namespace Strada
 			s_Data.reset();
 			return Error{"Failed to create the renderer's shared GPU resources"};
 		}
+
+		if (Result<void> environments = data.Environments.Init(); !environments)
+		{
+			s_Data.reset();
+			return environments;
+		}
+		Result<nvrhi::TextureHandle> lut = data.Environments.CreateBrdfLut(data.UploadCommandList);
+		if (!lut)
+		{
+			s_Data.reset();
+			return Error{lut.GetError()};
+		}
+		data.BrdfLut = lut.GetValue();
+
+		nvrhi::TextureDesc cubeDesc;
+		cubeDesc.dimension = nvrhi::TextureDimension::TextureCube;
+		cubeDesc.width = 1;
+		cubeDesc.height = 1;
+		cubeDesc.arraySize = 6;
+		cubeDesc.format = nvrhi::Format::RGBA16_FLOAT;
+		cubeDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+		cubeDesc.keepInitialState = true;
+		cubeDesc.debugName = "Fallback cube";
+		data.FallbackCube = device->createTexture(cubeDesc);
+		if (!data.FallbackCube)
+		{
+			s_Data.reset();
+			return Error{"Failed to create the fallback cubemap"};
+		}
+		uint16_t const black[4] = {0, 0, 0, 0};
+		data.UploadCommandList->open();
+		for (uint32_t face = 0; face < 6; face++)
+		{
+			data.UploadCommandList->writeTexture(data.FallbackCube, face, 0, black, sizeof(black));
+		}
+		data.UploadCommandList->close();
+		device->executeCommandList(data.UploadCommandList);
 		return {};
 	}
 
@@ -339,6 +388,47 @@ namespace Strada
 		return entry.BindingSet;
 	}
 
+	GpuEnvironment const* Renderer::GetEnvironment(Ref<EnvironmentAsset> const& environment)
+	{
+		RendererData& data = GetData();
+		if (auto const it = data.EnvironmentMaps.find(environment.get());
+		    it != data.EnvironmentMaps.end() && it->second.Source.lock() == environment)
+		{
+			return &it->second.Environment;
+		}
+		if (HasFailed(environment))
+		{
+			return nullptr;
+		}
+
+		Result<HdrImage> image = environment->Decode();
+		if (!image)
+		{
+			ReportFailure(environment, fmt::format("Environment {} could not be decoded: {}", environment->Handle, image.GetError()));
+			return nullptr;
+		}
+		Result<GpuEnvironment> processed = data.Environments.Process(image.GetValue(), data.UploadCommandList);
+		if (!processed)
+		{
+			ReportFailure(environment, fmt::format("Environment {} could not be processed: {}", environment->Handle, processed.GetError()));
+			return nullptr;
+		}
+		EnvironmentEntry& entry = data.EnvironmentMaps[environment.get()];
+		entry.Source = environment;
+		entry.Environment = std::move(processed.GetValue());
+		return &entry.Environment;
+	}
+
+	nvrhi::ITexture* Renderer::GetBrdfLut()
+	{
+		return GetData().BrdfLut;
+	}
+
+	nvrhi::ITexture* Renderer::GetFallbackCube()
+	{
+		return GetData().FallbackCube;
+	}
+
 	void Renderer::CollectGarbage()
 	{
 		RendererData& data = GetData();
@@ -353,6 +443,11 @@ namespace Strada
 						  return entry.second.Source.expired();
 					  });
 		std::erase_if(data.Materials,
+		              [](auto const& entry)
+		              {
+						  return entry.second.Source.expired();
+					  });
+		std::erase_if(data.EnvironmentMaps,
 		              [](auto const& entry)
 		              {
 						  return entry.second.Source.expired();

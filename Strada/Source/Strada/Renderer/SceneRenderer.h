@@ -12,6 +12,7 @@
 
 namespace Strada
 {
+	class EnvironmentAsset;
 	class MaterialAsset;
 	class MeshSource;
 	struct GpuMesh;
@@ -52,6 +53,18 @@ namespace Strada
 		float OuterConeAngle = 30.0f;
 	};
 
+	struct EnvironmentSubmission
+	{
+		// Equirectangular HDR environment for image-based lighting and the sky.
+		Ref<EnvironmentAsset> Environment;
+		float Intensity = 1.0f;
+		// Degrees around +Y.
+		float Rotation = 0.0f;
+		// 0 = sharp sky, 1 = fully blurred.
+		float SkyboxBlur = 0.0f;
+		bool DrawSkybox = true;
+	};
+
 	struct SceneRendererStatistics
 	{
 		uint32_t DrawCalls = 0;
@@ -82,8 +95,9 @@ namespace Strada
 		void SubmitDirectionalLight(DirectionalLightSubmission const& light);
 		void SubmitPointLight(PointLightSubmission const& light);
 		void SubmitSpotLight(SpotLightSubmission const& light);
-		// Uniform ambient light (linear color times intensity); also the background.
+		// Uniform ambient light (linear color times intensity), used when there is no environment; also the background.
 		void SetAmbientLight(glm::vec3 const& radiance);
+		void SetEnvironment(EnvironmentSubmission const& environment);
 		// Records and submits the frame.
 		void EndScene();
 
@@ -106,6 +120,7 @@ namespace Strada
 		};
 
 		void CreateTargets();
+		void UpdateFrameBindings(nvrhi::ITexture* irradiance, nvrhi::ITexture* prefiltered, nvrhi::ITexture* radiance);
 		nvrhi::IGraphicsPipeline* GetMeshPipeline(bool blend, bool doubleSided);
 		void PrepareItems(std::vector<DrawItem>& items, bool blend);
 		void DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items);
@@ -118,6 +133,7 @@ namespace Strada
 		SceneRendererCamera m_Camera;
 		SceneRendererSettings m_Settings;
 		glm::vec3 m_AmbientRadiance = glm::vec3(0.0f);
+		EnvironmentSubmission m_Environment;
 		std::vector<DrawItem> m_OpaqueItems;
 		std::vector<DrawItem> m_BlendItems;
 		std::vector<uint8_t> m_LightData;
@@ -135,6 +151,9 @@ namespace Strada
 		nvrhi::BufferHandle m_LightBuffer;
 		nvrhi::BindingLayoutHandle m_FrameLayout;
 		nvrhi::BindingSetHandle m_FrameBindings;
+		// Environment textures the frame binding set was created with.
+		nvrhi::ITexture* m_BoundTextures[3] = {};
+		nvrhi::GraphicsPipelineHandle m_SkyPipeline;
 		nvrhi::InputLayoutHandle m_InputLayout;
 		nvrhi::GraphicsPipelineHandle m_MeshPipelines[4];
 

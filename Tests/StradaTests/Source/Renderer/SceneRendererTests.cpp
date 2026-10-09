@@ -243,3 +243,38 @@ TEST_CASE("SceneRenderer: material edits and resizes take effect")
 	CHECK(resized.GetWidth() == 100);
 	CHECK(resized.GetHeight() == 40);
 }
+
+TEST_CASE("SceneRenderer: image-based lighting matches the golden image")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	Scene scene("IBL");
+	float const roughness[] = {0.05f, 0.35f, 0.75f};
+	for (int row = 0; row < 2; row++)
+	{
+		for (int column = 0; column < 3; column++)
+		{
+			AssetHandle const material = AddMaterial(row == 0 ? glm::vec4(0.95f, 0.64f, 0.54f, 1.0f) : glm::vec4(0.1f, 0.3f, 0.8f, 1.0f),
+			                                         row == 0 ? 1.0f : 0.0f, roughness[column]);
+			AddMesh(scene, "Sphere", BuiltInAsset::SphereMesh, material,
+			        {static_cast<float>(column - 1) * 1.2f, row == 0 ? 1.3f : 0.0f, 0.0f});
+		}
+	}
+	Entity sky = scene.CreateEntity("Sky");
+	SkyLightComponent& skyLight = sky.AddComponent<SkyLightComponent>();
+	skyLight.Environment = GetBuiltInHandle(BuiltInAsset::DefaultSky);
+
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 0.65f, 4.2f}, {0.0f, 0.65f, 0.0f});
+	Image const image = Render(scene, camera, renderer);
+	Testing::CheckGoldenImage("SceneRenderer_IBL", image);
+
+	// The environment intensity scales both the lighting and the sky; hiding the sky shows the ambient color.
+	skyLight.Intensity = 2.0f;
+	CHECK(Testing::CompareImages(image, Render(scene, camera, renderer), 16).MeanDifference > 5.0);
+	skyLight.DrawSkybox = false;
+	skyLight.AmbientColor = glm::vec3(0.0f);
+	glm::vec3 const corner = PixelColor(Render(scene, camera, renderer), 2, 2);
+	CHECK(corner.r + corner.g + corner.b < 3.0f);
+}

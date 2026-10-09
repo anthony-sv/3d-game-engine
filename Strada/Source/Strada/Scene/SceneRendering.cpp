@@ -2,6 +2,7 @@
 #include "Strada/Scene/SceneRendering.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Scene/Entity.h"
@@ -98,6 +99,16 @@ namespace Strada
 					{
 						SkyLightComponent const& sky = entity.GetComponent<SkyLightComponent>();
 						renderer.SetAmbientLight(sky.AmbientColor * sky.Intensity);
+						if (Ref<EnvironmentAsset> environment = AssetManager::GetAsset<EnvironmentAsset>(sky.Environment))
+						{
+							EnvironmentSubmission submission;
+							submission.Environment = std::move(environment);
+							submission.Intensity = sky.Intensity;
+							submission.Rotation = sky.Rotation;
+							submission.SkyboxBlur = sky.SkyboxBlur;
+							submission.DrawSkybox = sky.DrawSkybox;
+							renderer.SetEnvironment(submission);
+						}
 						found = true;
 					}
 				});

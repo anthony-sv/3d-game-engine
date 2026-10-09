@@ -34,8 +34,9 @@ namespace Strada
 
 		Entity sky = scene->CreateEntity("Sky");
 		SkyLightComponent& skyLight = sky.AddComponent<SkyLightComponent>();
+		skyLight.Environment = GetBuiltInHandle(BuiltInAsset::DefaultSky);
 		skyLight.AmbientColor = {0.4f, 0.5f, 0.65f};
-		skyLight.Intensity = 0.5f;
+		skyLight.Intensity = 1.0f;
 
 		AddMesh(*scene, "Floor", BuiltInAsset::PlaneMesh, {0.0f, 0.0f, 0.0f}, glm::vec3(20.0f));
 		AddMesh(*scene, "Cube", BuiltInAsset::CubeMesh, {-1.5f, 0.5f, 0.0f}, glm::vec3(1.0f));
