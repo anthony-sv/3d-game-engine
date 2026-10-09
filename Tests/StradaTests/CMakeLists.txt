@@ -9,6 +9,9 @@ add_executable(StradaTests
     Source/Asset/MeshFactoryTests.cpp
     Source/Asset/MeshImporterTests.cpp
     Source/Asset/MeshSourceTests.cpp
+    Source/Audio/AudioEngineTests.cpp
+    Source/Audio/AudioSceneTests.cpp
+    Source/Audio/AudioTestUtilities.h
     Source/Core/ApplicationTests.cpp
     Source/Core/Base64Tests.cpp
     Source/Core/BufferTests.cpp
@@ -44,6 +47,7 @@ add_executable(StradaTests
     Source/Renderer/SpriteTextRenderingTests.cpp
     Source/Renderer/TextLayoutTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
+    Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneSerializerTests.cpp

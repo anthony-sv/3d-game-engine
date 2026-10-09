@@ -200,6 +200,8 @@ namespace Strada
 Rules for suites that arrive with later subsystems (binding as soon as the subsystem exists):
 
 - Editor automation tests live in `Tests/StradaEditorTests` and run the editor headless against a temporary project.
+- Audio tests run the `AudioEngine` with manual output (`Testing::AudioEngineScope`) and measure the mix they read,
+  so they need no audio device and never depend on timing.
 - GPU tests start with `ST_REQUIRE_GPU()` (skips when no Vulkan device is available). Renderer golden images live in
   `Tests/Data/Golden/`; update them only deliberately and review the diff images.
 - C# tests use xUnit in `Tests/ScriptCoreTests`.

@@ -9,9 +9,10 @@ an exporter for distributable games.
 > docking and multi-viewports, the ECS scene system (components, hierarchy, reflection-driven JSON scenes, prefabs),
 > projects, the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in
 > primitives and font), the forward PBR scene renderer (image-based lighting, soft shadows, GTAO, bloom, FXAA,
-> tonemapping, signed-distance text and sprites), Jolt physics with the scene runtime, the editor (viewport with gizmos
-> and picking, hierarchy, generated inspector, content browser, project settings, undo/redo, AI automation server) and
-> CI on all three platforms. Audio, scripting, play mode and the exporter are next.
+> tonemapping, signed-distance text and sprites), Jolt physics and miniaudio sound (spatial audio sources and
+> listeners) driven by the scene runtime, the editor (viewport with gizmos and picking, hierarchy, generated inspector,
+> content browser, project settings, undo/redo, AI automation server) and CI on all three platforms. Scripting, play
+> mode and the exporter are next.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Planned feature set

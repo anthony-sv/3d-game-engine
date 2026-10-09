@@ -6,6 +6,7 @@
 #include "Strada/Core/UUID.h"
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
+#include "Strada/Scene/Components.h"
 
 #include <entt/entity/registry.hpp>
 #include <glm/glm.hpp>
@@ -19,6 +20,7 @@
 
 namespace Strada
 {
+	class AudioScene;
 	class Entity;
 	class PhysicsScene;
 
@@ -134,23 +136,28 @@ namespace Strada
 
 		// --- Runtime ---
 
-		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody). Bodies follow
-		// component changes while running. Requires PhysicsSystem (without it the scene runs without physics, logged); stop
-		// the runtime or destroy the scene before PhysicsSystem::Shutdown.
+		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody) and a sound for
+		// every audio source with a clip (playing when PlayOnStart is set). Bodies and sounds follow component changes
+		// while running. Requires PhysicsSystem and AudioEngine (without them the scene runs without physics or audio,
+		// logged); stop the runtime or destroy the scene before shutting them down.
 		void OnRuntimeStart(SceneRuntimeSettings const& settings = {});
 		void OnRuntimeStop();
 		// Advances the runtime: physics in fixed steps (kinematic bodies follow their transforms, moved static and dynamic
-		// bodies teleport, dynamic bodies write their transforms back), then deferred entity destruction.
+		// bodies teleport, dynamic bodies write their transforms back), audio (sources and the listener follow their
+		// entities), then deferred entity destruction.
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
-		void SetPaused(bool paused) { m_IsPaused = paused; }
+		// Pausing holds the simulation and every sound.
+		void SetPaused(bool paused);
 		// While paused, advances the given number of frames.
 		void Step(uint32_t frames = 1) { m_StepFrames += frames; }
 		uint64_t GetRuntimeFrame() const { return m_RuntimeFrame; }
 		double GetRuntimeTime() const { return m_RuntimeTime; }
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
+		// The sounds while running; null otherwise or when audio is unavailable.
+		AudioScene* GetAudioScene() { return m_Audio.get(); }
 		// Collisions and trigger overlaps that began or ended during the last runtime update.
 		std::vector<ContactEvent> const& GetContactEvents() const { return m_ContactEvents; }
 
@@ -195,6 +202,15 @@ namespace Strada
 		void OnMeshComponentChanged(entt::registry& registry, entt::entity handle);
 		void ConnectPhysicsSignals(bool connect);
 
+		// Audio runtime (SceneAudio.cpp).
+		struct AudioSourceState;
+		void StartAudio();
+		void StopAudio();
+		void UpdateAudio();
+		void CreateAudioSource(entt::entity handle, AudioSourceState& state, AudioSourceComponent const& component, bool playOnStart);
+		void UpdateAudioSource(AudioSourceState& state, AudioSourceComponent const& component);
+		Entity FindAudioListener();
+
 		std::string m_Name;
 		SceneSettings m_Settings;
 		entt::registry m_Registry;
@@ -223,6 +239,18 @@ namespace Strada
 		// Entities whose physics components changed while running; their bodies are rebuilt before the next step.
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		std::vector<ContactEvent> m_ContactEvents;
+
+		// The component settings an entity's sound was last updated with (to apply changes made while running).
+		struct AudioSourceState
+		{
+			UUID Entity = UUID::Invalid();
+			AudioSourceComponent Applied;
+			// False when there is no clip or it cannot be played; retried when the clip changes.
+			bool HasSound = false;
+		};
+
+		Scope<AudioScene> m_Audio;
+		std::unordered_map<entt::entity, AudioSourceState> m_AudioSources;
 
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;

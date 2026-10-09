@@ -2,6 +2,7 @@
 #include "Strada/Core/Application.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Audio/AudioEngine.h"
 #include "Strada/Physics/PhysicsSystem.h"
 #include "Strada/Renderer/Renderer.h"
 
@@ -119,6 +120,10 @@ namespace Strada
 		// CPU-only: available headless and without a GPU.
 		AssetManager::Init();
 		PhysicsSystem::Init();
+		AudioEngineSettings audio;
+		// Headless runs (tests, CI, servers) make no sound and need no audio device.
+		audio.Output = m_Specification.Headless ? AudioOutput::Null : AudioOutput::Device;
+		AudioEngine::Init(audio);
 
 		if (!m_Specification.Headless)
 		{
@@ -231,6 +236,10 @@ namespace Strada
 		DetachAllLayers();
 		m_ImGuiLayer = nullptr;
 
+		if (AudioEngine::IsInitialized())
+		{
+			AudioEngine::Shutdown();
+		}
 		if (PhysicsSystem::IsInitialized())
 		{
 			PhysicsSystem::Shutdown();

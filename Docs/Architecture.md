@@ -403,10 +403,27 @@ delivered to scripts: `OnCollisionEnter/Exit(Entity other)`, `OnTriggerEnter/Exi
 
 ## 9. Audio (miniaudio)
 
-`AudioEngine` wraps `ma_engine` (falls back to the null backend when no device is available or in tests).
-`AudioClip` assets reference WAV/FLAC/MP3/OGG files. `AudioScene` creates an `ma_sound` per `AudioSourceComponent`
-at runtime start, updates spatial positions from transforms each frame, and positions the listener from the active
-`AudioListenerComponent` (or the primary camera).
+`AudioEngine` wraps `ma_engine` (miniaudio with Ogg Vorbis through the stb_vorbis copy it ships; its resource
+manager, encoders and generators are compiled out). Its output is the default playback device (miniaudio falls back to
+its null backend, which consumes audio in real time, when no device works), the null device (headless applications),
+or manual: the mix advances only when `AudioEngine::ReadFrames` pulls it, which makes audio tests deterministic. macOS
+links Core Audio at build time (`MA_NO_RUNTIME_LINKING`), as notarization requires; the Linux backends (PulseAudio,
+ALSA, JACK) are loaded at runtime and are not build requirements.
+
+`AudioClipAsset`s hold the encoded file (WAV, FLAC, MP3, Ogg Vorbis; the format is detected from the data).
+`AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID): each sound decodes
+its clip from memory through its own decoder while it plays, and a scene's sounds play through one sound group that
+pauses them together. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
+so scenes never move each other's listener. Spatial sounds are attenuated by inverse distance (full volume within
+`MinDistance`, `MinDistance / distance` up to `MaxDistance`, constant beyond) and panned by miniaudio's model (its
+stereo speakers face left and right, so a sound in front reaches each at half gain); there is no doppler effect.
+
+The scene drives it while running. `OnRuntimeStart` creates a sound for every `AudioSourceComponent` with a clip,
+playing when `PlayOnStart` is set. Each update compares the components with the settings last applied, so changes
+from anywhere (inspector, scripts, automation) reach the sounds: a new clip makes a new, stopped sound; sources added
+while running start like the others; removed components and destroyed entities lose their sound. Spatial sources
+follow their entities' world positions, and the listener follows the first active `AudioListenerComponent` in hierarchy
+order, else the primary camera, else the origin facing -Z. `Scene::SetPaused` holds the scene's sounds.
 
 ## 10. Scripting (C# / .NET 10)
 

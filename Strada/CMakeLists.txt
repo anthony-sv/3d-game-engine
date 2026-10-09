@@ -86,6 +86,14 @@ set(STRADA_MATH_SOURCES
     Source/Strada/Math/Math.h
 )
 
+set(STRADA_AUDIO_SOURCES
+    Source/Strada/Audio/AudioEngine.cpp
+    Source/Strada/Audio/AudioEngine.h
+    Source/Strada/Audio/AudioScene.cpp
+    Source/Strada/Audio/AudioScene.h
+    Source/Strada/Audio/MiniaudioContext.h
+)
+
 set(STRADA_PHYSICS_SOURCES
     Source/Strada/Physics/JoltContext.h
     Source/Strada/Physics/PhysicsScene.cpp
@@ -132,6 +140,7 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/Entity.h
     Source/Strada/Scene/Scene.cpp
     Source/Strada/Scene/Scene.h
+    Source/Strada/Scene/SceneAudio.cpp
     Source/Strada/Scene/SceneCamera.cpp
     Source/Strada/Scene/SceneCamera.h
     Source/Strada/Scene/ScenePhysics.cpp
@@ -188,10 +197,28 @@ if(UNIX)
 endif()
 strada_configure_third_party_target(StradaModelImport)
 
+# miniaudio, with Ogg Vorbis through the stb_vorbis copy it ships (third-party code, warnings disabled). The feature
+# switches change struct layouts, so they are public: every translation unit including miniaudio.h agrees on them.
+add_library(StradaMiniaudio STATIC ThirdParty/MiniaudioImplementation.c)
+target_include_directories(StradaMiniaudio SYSTEM PUBLIC "${miniaudio_SOURCE_DIR}")
+target_compile_definitions(StradaMiniaudio PUBLIC MA_NO_ENCODING MA_NO_GENERATION MA_NO_RESOURCE_MANAGER)
+if(APPLE)
+    # Core Audio linked at build time instead of loaded at runtime, which Apple's notarization requires.
+    target_compile_definitions(StradaMiniaudio PUBLIC MA_NO_RUNTIME_LINKING)
+    target_link_libraries(StradaMiniaudio PRIVATE "-framework CoreFoundation" "-framework CoreAudio"
+        "-framework AudioToolbox")
+elseif(UNIX)
+    # PulseAudio, ALSA and JACK are loaded at runtime, so they are not build requirements.
+    find_package(Threads REQUIRED)
+    target_link_libraries(StradaMiniaudio PRIVATE Threads::Threads ${CMAKE_DL_LIBS} m)
+endif()
+strada_configure_third_party_target(StradaMiniaudio)
+
 add_library(Strada STATIC
     Source/Strada.h
     Source/stpch.h
     ${STRADA_ASSET_SOURCES}
+    ${STRADA_AUDIO_SOURCES}
     ${STRADA_CORE_SOURCES}
     ${STRADA_IMGUI_SOURCES}
     ${STRADA_MATH_SOURCES}
@@ -224,6 +251,7 @@ target_link_libraries(Strada
         glfw
         StradaStb
         StradaModelImport
+        StradaMiniaudio
         Vulkan::Headers
         Jolt
 )
@@ -295,6 +323,6 @@ strada_configure_target(Strada)
 strada_add_configuration_definitions(Strada)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES
-    ${STRADA_ASSET_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_PHYSICS_SOURCES} ${STRADA_PROJECT_SOURCES}
+    ${STRADA_ASSET_SOURCES} ${STRADA_AUDIO_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_PHYSICS_SOURCES} ${STRADA_PROJECT_SOURCES}
     ${STRADA_RENDERER_SOURCES} ${STRADA_RHI_SOURCES} ${STRADA_SCENE_SOURCES} ${STRADA_SCRIPT_SOURCES} ${STRADA_SERIALIZATION_SOURCES})
 set_target_properties(Strada PROPERTIES FOLDER "Engine")

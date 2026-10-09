@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/UUID.h"
 
@@ -9,6 +10,23 @@
 
 namespace Strada::Testing
 {
+	// Initializes the AssetManager for as long as it lives (a test may shut it down earlier).
+	class AssetManagerScope
+	{
+	public:
+		AssetManagerScope() { AssetManager::Init(); }
+		~AssetManagerScope()
+		{
+			if (AssetManager::IsInitialized())
+			{
+				AssetManager::Shutdown();
+			}
+		}
+
+		AssetManagerScope(AssetManagerScope const&) = delete;
+		AssetManagerScope& operator=(AssetManagerScope const&) = delete;
+	};
+
 	// Unique temporary directory that is removed (with its contents) when the object goes out of scope.
 	class TemporaryDirectory
 	{

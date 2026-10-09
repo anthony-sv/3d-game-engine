@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Scene/Scene.h"
 
+#include "Strada/Audio/AudioScene.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/ComponentRegistry.h"
@@ -17,7 +18,8 @@ namespace Strada
 
 	Scene::~Scene()
 	{
-		// Disconnects the registry signals before the registry goes away.
+		// Releases the sounds and disconnects the physics registry signals before the registry goes away.
+		StopAudio();
 		StopPhysics();
 	}
 
@@ -498,6 +500,22 @@ namespace Strada
 
 	Entity Scene::GetPrimaryCameraEntity()
 	{
+		// Scenes usually have one primary camera; only several need the hierarchy walk to pick the first.
+		entt::entity primary = entt::null;
+		size_t primaryCount = 0;
+		for (auto const [handle, camera] : m_Registry.view<CameraComponent>().each())
+		{
+			if (camera.Primary)
+			{
+				primary = handle;
+				primaryCount++;
+			}
+		}
+		if (primaryCount <= 1)
+		{
+			return primaryCount == 1 ? Entity(primary, this) : Entity();
+		}
+
 		Entity result;
 		ForEachEntityInHierarchyOrder(
 			[&result](Entity entity)
@@ -523,6 +541,7 @@ namespace Strada
 		m_RuntimeTime = 0.0;
 		m_RuntimeSettings = settings;
 		StartPhysics();
+		StartAudio();
 	}
 
 	void Scene::OnRuntimeStop()
@@ -532,6 +551,7 @@ namespace Strada
 			return;
 		}
 		m_IsRunning = false;
+		StopAudio();
 		StopPhysics();
 		FlushPendingDestruction();
 	}
@@ -554,7 +574,17 @@ namespace Strada
 		m_RuntimeFrame++;
 		m_RuntimeTime += timestep.GetSeconds();
 		UpdatePhysics(timestep.GetSeconds());
+		UpdateAudio();
 		FlushPendingDestruction();
+	}
+
+	void Scene::SetPaused(bool paused)
+	{
+		m_IsPaused = paused;
+		if (m_Audio)
+		{
+			m_Audio->SetPaused(paused);
+		}
 	}
 
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)

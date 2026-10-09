@@ -1,4 +1,5 @@
 #include "Physics/PhysicsTestUtilities.h"
+#include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Project/ProjectSettings.h"
@@ -14,17 +15,6 @@ using namespace Strada;
 namespace
 {
 	constexpr float Step = 1.0f / 60.0f;
-
-	// Initializes the AssetManager (mesh colliders) for as long as it lives.
-	class AssetManagerScope
-	{
-	public:
-		AssetManagerScope() { AssetManager::Init(); }
-		~AssetManagerScope() { AssetManager::Shutdown(); }
-
-		AssetManagerScope(AssetManagerScope const&) = delete;
-		AssetManagerScope& operator=(AssetManagerScope const&) = delete;
-	};
 
 	Entity AddGround(Scene& scene)
 	{
@@ -92,7 +82,7 @@ TEST_CASE("Scene: the runtime simulates physics and writes transforms back in pa
 TEST_CASE("Scene: bodies follow component changes, transform edits and destruction while running")
 {
 	Testing::PhysicsSystemScope physics;
-	AssetManagerScope assets;
+	Testing::AssetManagerScope assets;
 	Scene scene("Physics");
 	Entity ball = AddBall(scene, {0.0f, 3.0f, 0.0f});
 	Entity mover = scene.CreateEntity("Mover");

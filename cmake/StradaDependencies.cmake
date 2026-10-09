@@ -247,6 +247,14 @@ endif()
 FetchContent_MakeAvailable(JoltPhysics)
 set_target_properties(Jolt PROPERTIES FOLDER "ThirdParty")
 
+# --- miniaudio 0.11.25 -----------------------------------------------------------------------------------------------
+# Compiled by the StradaMiniaudio target in Strada/CMakeLists.txt (with its bundled stb_vorbis for Ogg Vorbis).
+strada_declare_dependency(miniaudio
+    https://github.com/mackron/miniaudio/archive/refs/tags/0.11.25.tar.gz
+    b900edcffe979816e2560a0580b9b1216d674b4f17fbadeca8f777a7f8ab0274
+    SOURCE_SUBDIR _strada_no_cmake)
+FetchContent_MakeAvailable(miniaudio)
+
 # --- doctest 2.5.3 (tests only) ------------------------------------------------------------------------------------
 if(STRADA_BUILD_TESTS)
     strada_declare_dependency(doctest
