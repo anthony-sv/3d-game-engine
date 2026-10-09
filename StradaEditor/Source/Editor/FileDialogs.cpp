@@ -126,7 +126,9 @@ namespace Strada
 			arguments.defaultPath = defaultPath.empty() ? nullptr : defaultPath.c_str();
 			arguments.parentWindow = GetParentWindow();
 			nfdu8char_t* path = nullptr;
-			return Finish(NFD_OpenDialogU8_With(&path, &arguments), path);
+			// The dialog runs before path is read: function arguments are evaluated in an unspecified order.
+			nfdresult_t const result = NFD_OpenDialogU8_With(&path, &arguments);
+			return Finish(result, path);
 		}
 
 		Result<std::optional<std::filesystem::path>> SaveFile(std::span<FileDialogFilter const> filters,
@@ -146,7 +148,9 @@ namespace Strada
 			arguments.defaultName = defaultName.empty() ? nullptr : defaultName.c_str();
 			arguments.parentWindow = GetParentWindow();
 			nfdu8char_t* path = nullptr;
-			return Finish(NFD_SaveDialogU8_With(&path, &arguments), path);
+			// The dialog runs before path is read: function arguments are evaluated in an unspecified order.
+			nfdresult_t const result = NFD_SaveDialogU8_With(&path, &arguments);
+			return Finish(result, path);
 		}
 
 		Result<std::optional<std::filesystem::path>> PickFolder(std::filesystem::path const& defaultDirectory)
@@ -161,7 +165,9 @@ namespace Strada
 			arguments.defaultPath = defaultPath.empty() ? nullptr : defaultPath.c_str();
 			arguments.parentWindow = GetParentWindow();
 			nfdu8char_t* path = nullptr;
-			return Finish(NFD_PickFolderU8_With(&path, &arguments), path);
+			// The dialog runs before path is read: function arguments are evaluated in an unspecified order.
+			nfdresult_t const result = NFD_PickFolderU8_With(&path, &arguments);
+			return Finish(result, path);
 		}
 	}
 }
