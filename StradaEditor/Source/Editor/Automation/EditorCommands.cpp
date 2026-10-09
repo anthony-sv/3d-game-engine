@@ -690,7 +690,10 @@ namespace Strada
 			Result<void> RegisterComponents()
 			{
 				Result<void> result =
-					Add("component.types", "Every component type users can add, with its fields (name, type, default value).", Json(), true,
+					Add("component.types",
+				        "Every component type users can add, with its fields (name, type, default value, valid range, value names, "
+				        "referenced asset type and description).",
+				        Json(), true,
 				        [](Json const&) -> CommandResult
 				        {
 							Json types = Json::array();

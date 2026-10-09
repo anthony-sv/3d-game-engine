@@ -123,6 +123,7 @@ set(STRADA_SCRIPT_SOURCES
 set(STRADA_SERIALIZATION_SOURCES
     Source/Strada/Serialization/JsonSerialization.cpp
     Source/Strada/Serialization/JsonSerialization.h
+    Source/Strada/Serialization/StructSerialization.cpp
     Source/Strada/Serialization/StructSerialization.h
 )
 

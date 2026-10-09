@@ -7,6 +7,8 @@
 
 #include <set>
 #include <string>
+#include <string_view>
+#include <vector>
 
 using namespace Strada;
 
@@ -27,7 +29,9 @@ TEST_CASE("Components: every component is registered once with a unique name")
 		CHECK(info.Serialize != nullptr);
 		CHECK(info.Deserialize != nullptr);
 		CHECK(info.Copy != nullptr);
-		CHECK(info.Describe != nullptr);
+		CHECK_FALSE(info.Description.empty());
+		CHECK_FALSE(info.Fields.empty());
+		CHECK(info.Describe()["Fields"].size() == info.Fields.size());
 	}
 
 	CHECK(ComponentRegistry::Find("DoesNotExist") == nullptr);
@@ -205,4 +209,113 @@ TEST_CASE("Components: copying between registries replaces existing components")
 	// Copying a component the source does not have changes nothing.
 	ComponentRegistry::Get<SpotLightComponent>().Copy(source.GetRegistry(), from.GetHandle(), destination.GetRegistry(), to.GetHandle());
 	CHECK_FALSE(to.HasComponent<SpotLightComponent>());
+}
+
+TEST_CASE("Components: field ranges are enforced and explained")
+{
+	PointLightComponent light;
+	CHECK(DeserializeComponent(Json::object({{"Range", -1.0}}), light, DeserializationContext{}).GetError() ==
+	      "PointLight.Range: must be at least 0");
+	CHECK(light.Range == doctest::Approx(10.0f));
+	CHECK(DeserializeComponent(Json::object({{"Color", {1.5, 0, 0}}}), light, DeserializationContext{}).GetError() ==
+	      "PointLight.Color: every component must be between 0 and 1");
+	CHECK(light.Color == glm::vec3(1.0f));
+
+	// Bounds are inclusive, also for bounds that floats cannot represent exactly.
+	SpotLightComponent spot;
+	REQUIRE(DeserializeComponent(Json::object({{"OuterConeAngle", 89.9}, {"InnerConeAngle", 0.0}}), spot, DeserializationContext{}).IsOk());
+	CHECK(spot.OuterConeAngle == doctest::Approx(89.9f));
+	CHECK(DeserializeComponent(Json::object({{"OuterConeAngle", 90.0}}), spot, DeserializationContext{}).GetError() ==
+	      "SpotLight.OuterConeAngle: must be between 0.1 and 89.9");
+
+	RigidBodyComponent body;
+	CHECK(DeserializeComponent(Json::object({{"Layer", 16}}), body, DeserializationContext{}).GetError() ==
+	      "RigidBody.Layer: must be between 0 and 15");
+	REQUIRE(DeserializeComponent(Json::object({{"Layer", 15}}), body, DeserializationContext{}).IsOk());
+	CHECK(body.Layer == 15u);
+
+	// Every default value lies inside its field's range.
+	for (ComponentInfo const& info : ComponentRegistry::GetComponents())
+	{
+		CAPTURE(info.Name);
+		for (FieldDescriptor const& field : info.Fields)
+		{
+			if (!field.Hints.HasRange())
+			{
+				continue;
+			}
+			CAPTURE(field.Name);
+			Scene scene;
+			Entity const entity = scene.CreateEntity();
+			Json patch = Json::object();
+			patch[std::string(field.Name)] = field.Default;
+			CHECK(info.Deserialize(scene.GetRegistry(), entity.GetHandle(), patch, DeserializationContext{}).IsOk());
+		}
+	}
+}
+
+TEST_CASE("Components: field descriptors carry kinds, hints and enum values")
+{
+	ComponentInfo const& camera = ComponentRegistry::Get<CameraComponent>();
+	FieldDescriptor const* projection = camera.FindField("Projection");
+	REQUIRE(projection != nullptr);
+	CHECK(projection->Kind == FieldKind::Enum);
+	CHECK(projection->EnumValues == std::vector<std::string_view>{"Perspective", "Orthographic"});
+	FieldDescriptor const* fov = camera.FindField("PerspectiveFOV");
+	REQUIRE(fov != nullptr);
+	CHECK(fov->Kind == FieldKind::Float);
+	CHECK(fov->Hints.Display == FieldDisplay::Angle);
+	CHECK(fov->Hints.Min == 1.0);
+	CHECK(fov->Hints.Max == 179.0);
+	CHECK(fov->Default == 60.0f);
+	CHECK(camera.FindField("Missing") == nullptr);
+
+	ComponentInfo const& mesh = ComponentRegistry::Get<MeshComponent>();
+	CHECK(mesh.FindField("Mesh")->Kind == FieldKind::Asset);
+	CHECK(mesh.FindField("Mesh")->Hints.AssetTypeName == "Mesh");
+	CHECK(mesh.FindField("Materials")->Kind == FieldKind::Array);
+	CHECK(mesh.FindField("Materials")->ElementKind == FieldKind::Asset);
+	CHECK(mesh.FindField("Materials")->Hints.AssetTypeName == "Material");
+
+	ComponentInfo const& transform = ComponentRegistry::Get<TransformComponent>();
+	CHECK(transform.FindField("Translation")->Kind == FieldKind::Vec3);
+	CHECK(transform.FindField("Rotation")->Kind == FieldKind::Quat);
+	CHECK(ComponentRegistry::Get<DirectionalLightComponent>().FindField("Color")->Hints.Display == FieldDisplay::Color);
+	CHECK(ComponentRegistry::Get<SpriteRendererComponent>().FindField("Color")->Kind == FieldKind::Vec4);
+	CHECK(ComponentRegistry::Get<RigidBodyComponent>().FindField("Layer")->Kind == FieldKind::UInt);
+	CHECK(ComponentRegistry::Get<RigidBodyComponent>().FindField("LockRotation")->Kind == FieldKind::BVec3);
+	CHECK(ComponentRegistry::Get<TextComponent>().FindField("Text")->Hints.Display == FieldDisplay::MultilineText);
+	CHECK(ComponentRegistry::Get<ScriptComponent>().FindField("Fields")->Kind == FieldKind::Custom);
+	CHECK(ComponentRegistry::Get<RelationshipComponent>().FindField("Parent")->Kind == FieldKind::UUID);
+	CHECK(ComponentRegistry::Get<RelationshipComponent>().FindField("Children")->ElementKind == FieldKind::UUID);
+	CHECK(ComponentRegistry::Get<TagComponent>().FindField("Tag")->Kind == FieldKind::String);
+	CHECK(ComponentRegistry::Get<AudioListenerComponent>().FindField("Active")->Kind == FieldKind::Bool);
+}
+
+TEST_CASE("Components: schemas include ranges, value lists, presentation hints and descriptions")
+{
+	Json const spot = ComponentRegistry::Get<SpotLightComponent>().Describe();
+	CHECK(spot["Description"] == "Cone of light shining along the entity's forward direction (-Z).");
+	Json const& color = spot["Fields"][0];
+	CHECK(color["Display"] == "Color");
+	CHECK(color["Min"] == 0.0);
+	CHECK(color["Max"] == 1.0);
+	Json const& range = spot["Fields"][2];
+	CHECK(range["Min"] == 0.0);
+	CHECK_FALSE(range.contains("Max"));
+	CHECK(range["Description"] == "Distance in meters at which the light fades out completely.");
+	CHECK_FALSE(spot["Fields"][5].contains("Description"));
+
+	Json const body = ComponentRegistry::Get<RigidBodyComponent>().Describe();
+	CHECK(body["Fields"][0]["Values"] == Json::array({"Static", "Dynamic", "Kinematic"}));
+	// Integer fields report integer bounds.
+	Json const& layer = body["Fields"][5];
+	CHECK(layer["Name"] == "Layer");
+	CHECK(layer["Min"].is_number_integer());
+	CHECK(layer["Max"] == 15);
+
+	Json const mesh = ComponentRegistry::Get<MeshComponent>().Describe();
+	CHECK(mesh["Fields"][0]["AssetType"] == "Mesh");
+	CHECK(mesh["Fields"][1]["Type"] == "asset[]");
+	CHECK(mesh["Fields"][1]["AssetType"] == "Material");
 }

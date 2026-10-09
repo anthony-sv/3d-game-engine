@@ -15,6 +15,7 @@ namespace Strada
 			ComponentInfo info;
 			info.Name = ComponentTraits<T>::Name;
 			info.Flags = ComponentTraits<T>::Flags;
+			info.Description = ComponentTraits<T>::Description;
 			info.Has = [](entt::registry const& registry, entt::entity entity)
 			{
 				return registry.all_of<T>(entity);
@@ -56,10 +57,7 @@ namespace Strada
 					destination.emplace_or_replace<T>(destinationEntity, *component);
 				}
 			};
-			info.Describe = []() -> Json
-			{
-				return DescribeComponent<T>();
-			};
+			info.Fields = GetFieldDescriptors<ComponentTraits<T>, T>();
 			return info;
 		}
 
@@ -75,6 +73,18 @@ namespace Strada
 			static std::vector<ComponentInfo> const s_Components = MakeRegistry(AllComponents{});
 			return s_Components;
 		}
+	}
+
+	FieldDescriptor const* ComponentInfo::FindField(std::string_view name) const
+	{
+		for (FieldDescriptor const& field : Fields)
+		{
+			if (field.Name == name)
+			{
+				return &field;
+			}
+		}
+		return nullptr;
 	}
 
 	std::span<ComponentInfo const> ComponentRegistry::GetComponents()

@@ -26,9 +26,18 @@ struct ComponentTraits<FooComponent>
 {
 	static constexpr std::string_view Name = "Foo";             // serialized name, never change once shipped
 	static constexpr uint32_t Flags = ComponentFlagsNone;       // Core / Internal flags if applicable
-	static constexpr auto Fields = std::make_tuple(Field("Speed", &FooComponent::Speed), ...);  // EVERY field
+	static constexpr std::string_view Description = "One sentence for users and agents.";
+	static constexpr auto Fields = std::make_tuple(              // EVERY field, with hints
+		Field("Speed", &FooComponent::Speed).AtLeast(0.0).Doc("Meters per second."),
+		Field("Tint", &FooComponent::Tint).Range(0.0, 1.0).AsColor(),
+		Field("Mesh", &FooComponent::Mesh).References("Mesh"));
 };
 ```
+
+Hints: `Range(min, max)` / `AtLeast(min)` (inclusive, enforced when JSON is read, so files and automation reject
+out-of-range values; the inspector clamps to them), `AsColor()` (vec3/vec4), `AsAngle()` (degrees),
+`AsMultilineText()`, `References("<AssetType>")` for asset fields and `Doc("...")` for anything not obvious from the
+name. Hints that do not fit the field's type fail to compile. Defaults must lie inside their ranges (tested).
 
 Append the type to `AllComponents` (order = serialization order). Optional: `ReadExtraField` for alternative input
 keys (see Transform's `RotationEuler`).
@@ -45,8 +54,8 @@ handle the component being added/removed while the scene is running.
 
 ## 5. Editor and automation
 
-- Inspector UI in the editor (custom widgets; units and ranges matching the comments).
-- Automation `component.*` commands work automatically through the registry; verify `component.list_types` output.
+- The inspector, `component.*` automation commands and `component.types` schemas are generated from the field table;
+  good hints are what make them usable. Verify the component in the editor's inspector and `component.types` output.
 
 ## 6. Scripting
 
@@ -62,7 +71,8 @@ Expose the component to C# following `strada-add-script-api` (managed class, bin
 ## 8. Changing an existing component
 
 Renaming or removing a serialized name/field breaks saved scenes: bump `SceneSerializer::FormatVersion` and add a
-migration in the serializer. Adding fields is backward compatible (missing fields keep defaults).
+migration in the serializer. Adding fields is backward compatible (missing fields keep defaults). Narrowing a field's
+range rejects files that use values outside it, so it is a format change too (migrate by clamping).
 
 ## 9. Docs
 

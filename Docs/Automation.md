@@ -107,11 +107,15 @@ Parameters marked * are required.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `component.types` | — | `components`: `[{ Name, Fields: [{ Name, Type, Default }], Core }]` |
+| `component.types` | — | `components`: `[{ Name, Description, Fields: [{ Name, Type, Default, ... }], Core }]` (see below) |
 | `component.add` | `entity`*, `component`*, `fields` | `component`, `fields` |
 | `component.remove` | `entity`*, `component`* (core components cannot be removed) | `removed` |
 | `component.get` | `entity`*, `component`* | `component`, `fields` |
 | `component.set` | `entity`*, `component`*, `fields`* (partial patch; invalid values change nothing) | `component`, `fields` |
+
+Field descriptions may also contain `Values` (the names of enum values), `Min`/`Max` (inclusive bounds of numbers and
+of every vector component; values outside them are rejected), `Display` (`Color`, `Angle` in degrees or
+`MultilineText`), `AssetType` (the type of asset an asset field references) and `Description`.
 
 ### log and viewport
 

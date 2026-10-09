@@ -19,11 +19,4 @@ namespace Strada
 	{
 		return DeserializeFields<ComponentTraits<T>>(json, component, context, "component");
 	}
-
-	// Schema used by the automation API: { "Name": ..., "Fields": [ { "Name", "Type", "Default" }, ... ] }.
-	template<RegisteredComponent T>
-	Json DescribeComponent()
-	{
-		return DescribeFields<ComponentTraits<T>, T>();
-	}
 }

@@ -284,9 +284,12 @@ end of the frame; creation is immediate.
 ### 7.2 Components (`Strada/Scene/Components.h`)
 
 Plain data structs, copyable, with PascalCase public fields. Light intensities are artist-friendly multipliers
-(the renderer's exposure defaults suit them), not photometric units. Each component's serialized name and field list
-are declared once in `ComponentTraits.h`; generic code derives JSON serialization (strict, typed, transactional
-partial updates with readable errors), schemas, copies and the `ComponentRegistry` entry from that table. The
+(the renderer's exposure defaults suit them), not photometric units. Each component's serialized name, description and
+field list are declared once in `ComponentTraits.h`; generic code derives JSON serialization (strict, typed,
+transactional partial updates with readable errors), schemas, copies, the inspector and the `ComponentRegistry` entry
+from that table. Fields carry optional hints: an inclusive range (enforced whenever JSON is read, so files, automation
+and the editor all reject out-of-range values), a presentation (color, angle, multi-line text), the referenced asset
+type and a one-sentence description. Field tables of other structs (renderer settings, materials) use the same hints. The
 registry provides type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for scene
 serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu, and script
 interop component lookups.

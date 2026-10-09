@@ -8,6 +8,7 @@
 
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace Strada
 {
@@ -16,6 +17,8 @@ namespace Strada
 	{
 		std::string_view Name;
 		uint32_t Flags = ComponentFlagsNone;
+		// One sentence for users and agents.
+		std::string_view Description;
 
 		bool (*Has)(entt::registry const& registry, entt::entity entity) = nullptr;
 		// Adds a default-constructed component (no-op if present).
@@ -29,11 +32,14 @@ namespace Strada
 		// Copies the component (if present) from one registry/entity to another, replacing any existing one.
 		void (*Copy)(entt::registry const& source, entt::entity sourceEntity, entt::registry& destination,
 		             entt::entity destinationEntity) = nullptr;
-		// Field schema (names, types, defaults).
-		Json (*Describe)() = nullptr;
+		// The component's fields in serialization order (types, hints, defaults).
+		std::vector<FieldDescriptor> Fields;
 
 		bool IsCore() const { return (Flags & ComponentFlagsCore) != 0; }
 		bool IsInternal() const { return (Flags & ComponentFlagsInternal) != 0; }
+		// Field schema of the automation API (see DescribeFields).
+		Json Describe() const { return DescribeFields(Name, Fields, Description); }
+		FieldDescriptor const* FindField(std::string_view name) const;
 	};
 
 	// The single source of truth about component types: scene serialization, scene copies, automation, the editor and
