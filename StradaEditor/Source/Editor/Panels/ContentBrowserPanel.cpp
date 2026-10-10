@@ -759,6 +759,19 @@ namespace Strada
 					UI::ReportFailure(operations.MoveAsset(asset, newPath), "Moving the asset");
 				});
 		}
+		// Entities dragged from the hierarchy become prefabs in the folder, named after them.
+		if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::Entities))
+		{
+			std::vector<UUID> const entities = UI::ReadEntityPayload(*payload);
+			Defer(
+				[&operations, entities, folder]
+				{
+					for (UUID const entity : entities)
+					{
+						UI::ReportFailure(operations.CreatePrefabInFolder(entity, folder), "Creating the prefab");
+					}
+				});
+		}
 		// Folders move unless dropped onto themselves, into their own subfolders or onto the folder they are in.
 		if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::AssetFolder, ImGuiDragDropFlags_AcceptPeekOnly))
 		{

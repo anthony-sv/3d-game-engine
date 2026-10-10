@@ -101,6 +101,20 @@ namespace Strada
 				});
 		}
 
+		std::vector<UUID> ReadEntityPayload(ImGuiPayload const& payload)
+		{
+			size_t const count = static_cast<size_t>(payload.DataSize) / sizeof(uint64_t);
+			std::vector<UUID> entities;
+			entities.reserve(count);
+			for (size_t i = 0; i < count; i++)
+			{
+				uint64_t value = 0;
+				std::memcpy(&value, static_cast<char const*>(payload.Data) + i * sizeof(uint64_t), sizeof(value));
+				entities.emplace_back(value);
+			}
+			return entities;
+		}
+
 		EntityPreset const* DrawEntityPresetMenuItems()
 		{
 			EntityPreset const* chosen = nullptr;

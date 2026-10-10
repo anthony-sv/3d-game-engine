@@ -4,6 +4,7 @@
 #include "Editor/Commands/AssetCommands.h"
 #include "Editor/Commands/ComponentCommands.h"
 #include "Editor/Commands/CompositeCommand.h"
+#include "Editor/Commands/PrefabCommands.h"
 #include "Editor/Commands/SceneCommands.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -432,6 +433,78 @@ namespace Strada
 			(void)FileSystem::Remove(file);
 		}
 		return imported;
+	}
+
+	Result<AssetHandle> EditorOperations::CreatePrefab(UUID entity, std::string_view path)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return Error{available.GetError()};
+		}
+		Entity const root = m_Context.GetScene().GetEntityByUUID(entity);
+		if (!root)
+		{
+			return MakeError("entity {} does not exist", entity);
+		}
+		Result<std::string> normalized = NormalizeAssetPath(path);
+		if (!normalized)
+		{
+			return Error{normalized.GetError()};
+		}
+		std::filesystem::path const file = AssetManager::GetAssetDirectory() / FileSystem::PathFromUtf8(normalized.GetValue());
+		if (GetAssetTypeForExtension(FileSystem::PathToUtf8(file.extension())) != AssetType::Prefab)
+		{
+			return MakeError("prefab files end with .sprefab, got '{}'", normalized.GetValue());
+		}
+		if (FileSystem::Exists(file))
+		{
+			return MakeError("'{}' already exists", normalized.GetValue());
+		}
+		if (Result<void> saved = PrefabSerializer::SaveToFile(m_Context.GetScene(), root, file); !saved)
+		{
+			return Error{saved.GetError()};
+		}
+		Result<AssetHandle> imported = AssetManager::ImportFile(file);
+		if (!imported)
+		{
+			(void)FileSystem::Remove(file);
+		}
+		return imported;
+	}
+
+	Result<AssetHandle> EditorOperations::CreatePrefabInFolder(UUID entity, std::string_view folder)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return Error{available.GetError()};
+		}
+		Entity const root = m_Context.GetScene().GetEntityByUUID(entity);
+		if (!root)
+		{
+			return MakeError("entity {} does not exist", entity);
+		}
+		std::string name = FileSystem::MakePortableFileName(root.GetName());
+		if (name.empty())
+		{
+			name = "Prefab";
+		}
+		return CreatePrefab(entity, AssetBrowsing::JoinPath(folder, AssetBrowsing::MakeUniqueName(folder, name, ".sprefab")));
+	}
+
+	Result<UUID> EditorOperations::InstantiatePrefab(AssetHandle prefab, UUID parent, std::optional<glm::vec3> position)
+	{
+		if (AssetManager::GetAssetType(prefab) != AssetType::Prefab)
+		{
+			return MakeError("asset {} is not a prefab", prefab);
+		}
+		Scope<InstantiatePrefabCommand> command = CreateScope<InstantiatePrefabCommand>(prefab, parent, position);
+		// After a successful execution the history owns the command as its newest step (instantiation never merges).
+		InstantiatePrefabCommand const& executed = *command;
+		if (Result<void> result = m_Context.ExecuteCommand(std::move(command)); !result)
+		{
+			return Error{result.GetError()};
+		}
+		return executed.GetRoot();
 	}
 
 	Result<std::vector<AssetHandle>> EditorOperations::ImportAssets(std::span<std::filesystem::path const> files, std::string_view folder)

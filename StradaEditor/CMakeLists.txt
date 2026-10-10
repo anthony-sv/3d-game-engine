@@ -38,6 +38,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Commands/EntityCommands.h
     Source/Editor/Commands/EntitySnapshot.cpp
     Source/Editor/Commands/EntitySnapshot.h
+    Source/Editor/Commands/PrefabCommands.cpp
+    Source/Editor/Commands/PrefabCommands.h
     Source/Editor/Commands/SceneCommands.cpp
     Source/Editor/Commands/SceneCommands.h
     Source/Editor/ComponentInspection.cpp

@@ -161,6 +161,13 @@ Material fields are those of `.smat` files (`BaseColor`, `Metallic`, `Roughness`
 | `material.get` | `material`* | `material`, `fields` |
 | `material.set` | `material`*, `fields`* (partial patch; undoable without marking the scene modified; built-in and mesh-embedded materials are read-only) | `material`, `fields` |
 
+### prefab
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `prefab.create` | `entity`*, `path`* (relative to Assets, ending in `.sprefab`) | The prefab asset (`id`, `name`, `type`, `path`, `reference`, `missing`); writes the entity with its descendants; the scene does not change |
+| `prefab.instantiate` | `prefab`* (handle or `asset://<path>`), `parent`, `position` ([x, y, z] in world space; default: the prefab's own transform) | `id` of the instance's root; one undo step; the instance's entities get new IDs and a `Prefab` component linking them to the prefab |
+
 ### script
 
 The project's C# scripts (`Scripts/<Name>.csproj`, see Docs/Architecture.md section 10.5). The editor builds them by
@@ -198,8 +205,7 @@ undo history of its own) and `play.stop` discards it. Scene and project file com
 | `log.read` | `since` (entry index), `maxCount` (default 500), `minLevel` (`trace`..`critical`) | `entries`: `[{ index, level, logger, message, timestampMs }]`, `next` (pass as `since`) |
 | `viewport.screenshot` | — | `mimeType` (`image/png`), `width`, `height`, `data` (base64); asynchronous; Unavailable when headless |
 
-Later subsystems add `prefab.*` and `renderer.*` commands (Docs/Architecture.md section 12); each is added to this
-reference.
+Later subsystems add `renderer.*` commands (Docs/Architecture.md section 12); they are added to this reference.
 
 ## Example session
 

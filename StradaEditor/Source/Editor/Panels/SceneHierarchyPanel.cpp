@@ -4,6 +4,7 @@
 #include "Editor/HierarchyEditing.h"
 #include "Editor/UI/EditorUI.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 
@@ -13,7 +14,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstring>
 #include <string_view>
 
 namespace Strada
@@ -24,25 +24,16 @@ namespace Strada
 		constexpr ImVec4 PrefabColor = ImVec4(0.45f, 0.70f, 1.0f, 1.0f);
 		// The upper and lower quarter of a row place dropped entities before or after it.
 		constexpr float DropEdgeFraction = 0.25f;
+		// Where "Create Prefab" writes prefabs, relative to the asset directory.
+		constexpr char const* PrefabFolder = "Prefabs";
 
 		void const* ToImGuiID(UUID id)
 		{
 			return reinterpret_cast<void const*>(static_cast<uintptr_t>(id.GetValue()));
 		}
 
-		std::vector<UUID> ReadEntityPayload(ImGuiPayload const& payload)
-		{
-			size_t const count = static_cast<size_t>(payload.DataSize) / sizeof(uint64_t);
-			std::vector<UUID> entities;
-			entities.reserve(count);
-			for (size_t i = 0; i < count; i++)
-			{
-				uint64_t value = 0;
-				std::memcpy(&value, static_cast<char const*>(payload.Data) + i * sizeof(uint64_t), sizeof(value));
-				entities.emplace_back(value);
-			}
-			return entities;
-		}
+		// Meshes and prefabs dropped onto the hierarchy become entities.
+		constexpr std::array<AssetType, 2> EntityAssetTypes = {AssetType::Mesh, AssetType::Prefab};
 
 		void DrawDropIndicator(ImVec2 const& rowMin, ImVec2 const& rowMax, DropPosition position)
 		{
@@ -282,16 +273,15 @@ namespace Strada
 			DropPosition const position = mouseY < rowMin.y + edge   ? DropPosition::Before
 			                              : mouseY > rowMax.y - edge ? DropPosition::After
 			                                                         : DropPosition::Inside;
-			// A mesh dropped onto a row becomes a child of that entity.
-			constexpr std::array<AssetType, 1> MeshType = {AssetType::Mesh};
-			if (AssetHandle const mesh = UI::AcceptAssetDrop(MeshType); mesh.IsValid())
+			// A mesh or prefab dropped onto a row becomes a child of that entity.
+			if (AssetHandle const asset = UI::AcceptAssetDrop(EntityAssetTypes); asset.IsValid())
 			{
-				CreateMeshEntity(operations, mesh, id);
+				CreateFromAsset(operations, asset, id);
 			}
 			if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(
 					DragDropPayload::Entities, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect))
 			{
-				std::vector<UUID> const dragged = ReadEntityPayload(*payload);
+				std::vector<UUID> const dragged = UI::ReadEntityPayload(*payload);
 				std::optional<MoveTarget> const target = HierarchyEditing::ResolveDrop(context.GetScene(), dragged, id, position);
 				if (target)
 				{
@@ -358,6 +348,24 @@ namespace Strada
 					UI::ReportFailure(operations.DeleteEntities(targets), "Deleting entities");
 				});
 		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Create Prefab"))
+		{
+			Defer(
+				[&operations, targets]
+				{
+					for (UUID const target : targets)
+					{
+						Result<AssetHandle> created = operations.CreatePrefabInFolder(target, PrefabFolder);
+						UI::ReportFailure(created, "Creating the prefab");
+						if (created)
+						{
+							ST_INFO("Created the prefab {}", AssetManager::GetReference(created.GetValue()));
+						}
+					}
+				});
+		}
+		ImGui::SetItemTooltip("Save as prefabs in %s/ (or drag onto the content browser)", PrefabFolder);
 		if (m_FocusCallback)
 		{
 			ImGui::Separator();
@@ -422,17 +430,16 @@ namespace Strada
 		{
 			if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::Entities))
 			{
-				std::vector<UUID> const dragged = ReadEntityPayload(*payload);
+				std::vector<UUID> const dragged = UI::ReadEntityPayload(*payload);
 				Defer(
 					[&operations, dragged]
 					{
 						UI::ReportFailure(operations.MoveEntities(dragged, UUID::Invalid()), "Moving entities");
 					});
 			}
-			constexpr std::array<AssetType, 1> MeshType = {AssetType::Mesh};
-			if (AssetHandle const mesh = UI::AcceptAssetDrop(MeshType); mesh.IsValid())
+			if (AssetHandle const asset = UI::AcceptAssetDrop(EntityAssetTypes); asset.IsValid())
 			{
-				CreateMeshEntity(operations, mesh, UUID::Invalid());
+				CreateFromAsset(operations, asset, UUID::Invalid());
 			}
 			ImGui::EndDragDropTarget();
 		}
@@ -500,14 +507,16 @@ namespace Strada
 			});
 	}
 
-	void SceneHierarchyPanel::CreateMeshEntity(EditorOperations& operations, AssetHandle mesh, UUID parent)
+	void SceneHierarchyPanel::CreateFromAsset(EditorOperations& operations, AssetHandle asset, UUID parent)
 	{
 		glm::vec3 const position = m_SpawnPositionProvider ? m_SpawnPositionProvider() : glm::vec3(0.0f);
 		Defer(
-			[&operations, mesh, parent, position]
+			[&operations, asset, parent, position]
 			{
-				Result<UUID> created = EntityPresets::CreateFromMesh(operations, mesh, parent, position);
-				UI::ReportFailure(created, "Adding the mesh");
+				Result<UUID> created = AssetManager::GetAssetType(asset) == AssetType::Prefab
+			                               ? operations.InstantiatePrefab(asset, parent, position)
+			                               : EntityPresets::CreateFromMesh(operations, asset, parent, position);
+				UI::ReportFailure(created, "Adding the asset");
 				if (created)
 				{
 					std::vector<UUID> const selection = {created.GetValue()};

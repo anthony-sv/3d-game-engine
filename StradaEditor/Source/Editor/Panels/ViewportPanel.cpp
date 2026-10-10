@@ -188,8 +188,8 @@ namespace Strada
 		AssetHandle droppedAsset;
 		if (ImGui::BeginDragDropTarget())
 		{
-			constexpr std::array<AssetType, 4> DroppableTypes = {AssetType::Mesh, AssetType::Material, AssetType::Environment,
-			                                                     AssetType::Scene};
+			constexpr std::array<AssetType, 5> DroppableTypes = {AssetType::Mesh, AssetType::Material, AssetType::Environment,
+			                                                     AssetType::Scene, AssetType::Prefab};
 			droppedAsset = UI::AcceptAssetDrop(DroppableTypes);
 			ImGui::EndDragDropTarget();
 		}
@@ -538,10 +538,13 @@ namespace Strada
 		switch (AssetManager::GetAssetType(asset))
 		{
 			case AssetType::Mesh:
+			case AssetType::Prefab:
 			{
-				Result<UUID> created =
-					EntityPresets::CreateFromMesh(operations, asset, UUID::Invalid(), m_Camera.GetPlacementPoint(pixel, imageSize));
-				UI::ReportFailure(created, "Adding the mesh");
+				glm::vec3 const position = m_Camera.GetPlacementPoint(pixel, imageSize);
+				Result<UUID> created = AssetManager::GetAssetType(asset) == AssetType::Prefab
+				                           ? operations.InstantiatePrefab(asset, UUID::Invalid(), position)
+				                           : EntityPresets::CreateFromMesh(operations, asset, UUID::Invalid(), position);
+				UI::ReportFailure(created, "Adding the asset");
 				if (created)
 				{
 					std::array<UUID, 1> const selection = {created.GetValue()};
@@ -573,7 +576,6 @@ namespace Strada
 				break;
 			// Not accepted by the drop target.
 			case AssetType::None:
-			case AssetType::Prefab:
 			case AssetType::Texture:
 			case AssetType::AudioClip:
 			case AssetType::Font:

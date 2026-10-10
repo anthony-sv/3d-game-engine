@@ -612,6 +612,9 @@ than the assembly.
   shows a failed build, and each successful build is loaded at once (hot reload; while scripts run, when they stop).
   The inspector edits Script components with a class picker and the fields of the class: typed asset pickers, enum
   combos, flag check boxes, colors and Euler angles like component fields, one undo step per interaction.
+- Prefabs: an entity's "Create Prefab" (hierarchy context menu) writes it with its descendants to `Prefabs/`, and
+  entities dragged onto the content browser become prefabs in the folder they are dropped on; neither changes the
+  scene. Prefabs dragged onto the viewport, the hierarchy or an entity row are instantiated there (one undo step).
 - File > Build Game exports the game for the host platform (§13): the output directory (the project's `Build` at
   first), the export's progress with a cancel button, then the executable or the reason it failed (with the scripts'
   compile errors); the menu bar shows a running export.

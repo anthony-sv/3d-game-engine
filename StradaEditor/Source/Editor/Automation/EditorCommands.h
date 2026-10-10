@@ -24,8 +24,8 @@ namespace Strada
 		std::function<void()> ProjectOpened;
 	};
 
-	// Registers the editor, project, scene, entity, component, log and viewport commands. Entity parameters are UUIDs written as
-	// decimal strings. The registry, the operations (and their context) and the environment callbacks must outlive every
+	// Registers the editor, project, scene, entity, component, asset, material, prefab, log and viewport commands. Entity parameters are
+	// UUIDs written as decimal strings. The registry, the operations (and their context) and the environment callbacks must outlive every
 	// registered command. Documented in Docs/Automation.md.
 	[[nodiscard]] Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations,
 	                                                  EditorCommandEnvironment environment);

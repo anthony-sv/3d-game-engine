@@ -15,6 +15,7 @@ add_executable(StradaEditorTests
     Source/Main.cpp
     Source/PanelTests.cpp
     Source/PlayModeTests.cpp
+    Source/PrefabEditingTests.cpp
     Source/ProjectEditingTests.cpp
     Source/ScriptCommandsTests.cpp
     Source/ScriptFieldInspectionTests.cpp

@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -257,7 +258,7 @@ namespace Strada
 				for (auto const registerDomain :
 				     {&CommandSet::RegisterEditor, &CommandSet::RegisterProject, &CommandSet::RegisterScene, &CommandSet::RegisterEntities,
 				      &CommandSet::RegisterComponents, &CommandSet::RegisterAssets, &CommandSet::RegisterMaterials,
-				      &CommandSet::RegisterLogAndViewport})
+				      &CommandSet::RegisterPrefabs, &CommandSet::RegisterLogAndViewport})
 				{
 					if (Result<void> result = (this->*registerDomain)(); !result)
 					{
@@ -1454,6 +1455,94 @@ namespace Strada
 							  })
 						: result;
 				return result;
+			}
+
+			Result<void> RegisterPrefabs()
+			{
+				Result<void> result = Add(
+					"prefab.create",
+					"Writes an entity with its descendants as a prefab file (.sprefab, path relative to Assets) and registers it. The scene "
+					"does not change. Returns the prefab asset ({ id, name, type, path, reference, missing }).",
+					SchemaBuilder::Object()
+						.Property("entity", EntityIdSchema("Root entity of the prefab"), true)
+						.Property("path", SchemaBuilder::String("File path relative to Assets, ending in .sprefab").MinLength(1), true)
+						.Build(),
+					false,
+					[this](Json const& params) -> CommandResult
+					{
+						if (std::optional<CommandError> error = CheckAssets(true))
+						{
+							return *error;
+						}
+						CommandValue<UUID> entity = ParseExistingEntity(m_Operations, params["entity"], "entity");
+						if (!entity)
+						{
+							return entity.TakeError();
+						}
+						Result<AssetHandle> created = m_Operations.CreatePrefab(entity.GetValue(), GetString(params, "path"));
+						if (!created)
+						{
+							return CommandError{AutomationErrorCode::InvalidParams, created.GetError(), Json()};
+						}
+						return DescribeAsset(created.GetValue());
+					});
+				return result
+				           ? Add("prefab.instantiate",
+				                 "Creates an instance of a prefab with new entity IDs, under a parent or as a root entity; with a position "
+				                 "its root moves there (world space), keeping its rotation and scale. One undo step. Returns the root's ID.",
+				                 SchemaBuilder::Object()
+				                     .Property(
+										 "prefab",
+										 SchemaBuilder::String("Prefab asset: a handle (decimal string) or \"asset://<path in Assets>\"")
+											 .MinLength(1),
+										 true)
+				                     .Property("parent", EntityIdSchema("Parent entity ID (omit for a root entity)"))
+				                     .Property("position",
+				                               SchemaBuilder::Array(SchemaBuilder::Number(), "World position [x, y, z] of the root")
+				                                   .MinItems(3)
+				                                   .MaxItems(3))
+				                     .Build(),
+				                 false,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 if (std::optional<CommandError> error = CheckAssets(true))
+									 {
+										 return *error;
+									 }
+									 CommandValue<AssetHandle> prefab = ParseAsset(params["prefab"], "prefab");
+									 if (!prefab)
+									 {
+										 return prefab.TakeError();
+									 }
+									 UUID parent = UUID::Invalid();
+									 if (params.contains("parent"))
+									 {
+										 CommandValue<UUID> found = ParseExistingEntity(m_Operations, params["parent"], "parent");
+										 if (!found)
+										 {
+											 return found.TakeError();
+										 }
+										 parent = found.GetValue();
+									 }
+									 std::optional<glm::vec3> position;
+									 if (params.contains("position"))
+									 {
+										 Json const& value = params["position"];
+										 position = glm::vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>());
+										 if (!std::isfinite(position->x) || !std::isfinite(position->y) || !std::isfinite(position->z))
+										 {
+											 return MakeCommandError(AutomationErrorCode::InvalidParams,
+							                                         "position: the coordinates must be finite");
+										 }
+									 }
+									 Result<UUID> root = m_Operations.InstantiatePrefab(prefab.GetValue(), parent, position);
+									 if (!root)
+									 {
+										 return CommandError{AutomationErrorCode::InvalidOperation, root.GetError(), Json()};
+									 }
+									 return Json::object({{"id", root.GetValue().ToString()}});
+								 })
+				           : result;
 			}
 
 			Result<void> RegisterLogAndViewport()

@@ -3,12 +3,16 @@
 #include "Strada/Asset/Asset.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Result.h"
+#include "Strada/Core/UUID.h"
 
 #include <cstdint>
 #include <functional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
+
+struct ImGuiPayload;
 
 namespace Strada
 {
@@ -43,6 +47,8 @@ namespace Strada
 		AssetHandle AcceptAssetDrop(std::function<bool(AssetMetadata const&)> const& accepts);
 		// Accepts registered assets of one of the types (any type when empty).
 		AssetHandle AcceptAssetDrop(std::span<AssetType const> types = {});
+		// The entities of a DragDropPayload::Entities payload.
+		std::vector<UUID> ReadEntityPayload(ImGuiPayload const& payload);
 
 		// Logs a failed user action; the console panel shows it.
 		template<typename T>

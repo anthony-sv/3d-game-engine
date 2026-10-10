@@ -110,6 +110,14 @@ namespace Strada
 		[[nodiscard]] Result<void> CreateAssetFolder(std::string_view folder);
 		// Writes a material file (.smat) with default parameters plus the given fields and registers it.
 		[[nodiscard]] Result<AssetHandle> CreateMaterial(std::string_view path, Json const& fields = Json::object());
+		// Writes an entity with its descendants as a prefab file (.sprefab) and registers it; the scene does not change.
+		[[nodiscard]] Result<AssetHandle> CreatePrefab(UUID entity, std::string_view path);
+		// CreatePrefab into a folder, named after the entity (numbered when the name is taken).
+		[[nodiscard]] Result<AssetHandle> CreatePrefabInFolder(UUID entity, std::string_view folder);
+		// Creates an instance of a prefab under parent (invalid: a root entity), its root moved to position (world space)
+		// when given; one undo step. Returns the instance's root.
+		[[nodiscard]] Result<UUID> InstantiatePrefab(AssetHandle prefab, UUID parent = UUID::Invalid(),
+		                                             std::optional<glm::vec3> position = std::nullopt);
 		// Copies files into a folder of the asset directory (numbering names that are taken) and registers them, all or
 		// nothing; files already inside the asset directory are registered in place. Returns their handles in order.
 		[[nodiscard]] Result<std::vector<AssetHandle>> ImportAssets(std::span<std::filesystem::path const> files, std::string_view folder);
