@@ -19,6 +19,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Automation/JsonRpc.h
     Source/Editor/Automation/JsonSchema.cpp
     Source/Editor/Automation/JsonSchema.h
+    Source/Editor/Automation/PlayCommands.cpp
+    Source/Editor/Automation/PlayCommands.h
     Source/Editor/Automation/ScriptCommands.cpp
     Source/Editor/Automation/ScriptCommands.h
     Source/Editor/Commands/AssetCommands.cpp
@@ -74,6 +76,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/StatisticsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
+    Source/Editor/PlayMode.cpp
+    Source/Editor/PlayMode.h
     Source/Editor/RecentProjects.cpp
     Source/Editor/RecentProjects.h
     Source/Editor/ScriptFieldInspection.cpp

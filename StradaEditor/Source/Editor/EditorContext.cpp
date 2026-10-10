@@ -15,11 +15,45 @@ namespace Strada
 	void EditorContext::SetScene(Ref<Scene> scene, std::filesystem::path path)
 	{
 		ST_CORE_ASSERT(scene != nullptr, "The editor needs a scene");
+		ST_CORE_ASSERT(!IsPlaying(), "The edited scene cannot be replaced while playing");
 		m_Scene = std::move(scene);
 		m_ScenePath = std::move(path);
 		m_History.Clear();
 		m_Selection.Clear();
 		m_SceneVersion++;
+	}
+
+	void EditorContext::BeginPlay(Ref<Scene> runningScene, EditorPlayState state)
+	{
+		ST_CORE_ASSERT(runningScene != nullptr && state != EditorPlayState::Edit && !IsPlaying(), "BeginPlay needs a running scene");
+		m_EditedScene = std::exchange(m_Scene, std::move(runningScene));
+		m_EditedHistory = std::exchange(m_History, CommandHistory());
+		m_PlayState = state;
+		m_SceneVersion++;
+		PruneSelection();
+	}
+
+	void EditorContext::SetRunningScene(Ref<Scene> runningScene)
+	{
+		ST_CORE_ASSERT(runningScene != nullptr && IsPlaying(), "SetRunningScene is for play mode");
+		m_Scene = std::move(runningScene);
+		m_History.Clear();
+		m_SceneVersion++;
+		PruneSelection();
+	}
+
+	void EditorContext::EndPlay()
+	{
+		if (!IsPlaying())
+		{
+			return;
+		}
+		m_Scene = std::move(m_EditedScene);
+		m_History = std::move(m_EditedHistory);
+		m_EditedHistory = CommandHistory();
+		m_PlayState = EditorPlayState::Edit;
+		m_SceneVersion++;
+		PruneSelection();
 	}
 
 	void EditorContext::MarkSaved(std::filesystem::path path)

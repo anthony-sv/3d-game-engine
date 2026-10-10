@@ -13,6 +13,7 @@ add_executable(StradaEditorTests
     Source/JsonSchemaTests.cpp
     Source/Main.cpp
     Source/PanelTests.cpp
+    Source/PlayModeTests.cpp
     Source/ProjectEditingTests.cpp
     Source/ScriptCommandsTests.cpp
     Source/ScriptFieldInspectionTests.cpp

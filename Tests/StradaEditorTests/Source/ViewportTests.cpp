@@ -281,6 +281,6 @@ TEST_CASE("EditorContext: replacing the scene changes the scene version")
 	EditorContext context;
 	uint64_t const version = context.GetSceneVersion();
 	EditorOperations operations(context);
-	operations.NewScene("Other");
+	REQUIRE(operations.NewScene("Other").IsOk());
 	CHECK(context.GetSceneVersion() != version);
 }

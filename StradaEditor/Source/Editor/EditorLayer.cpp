@@ -2,6 +2,7 @@
 
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/Automation/PlayCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/EntityPresets.h"
@@ -12,9 +13,11 @@
 #include "Strada/Core/Application.h"
 #include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Input.h"
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/Version.h"
 #include "Strada/Core/Window.h"
+#include "Strada/ImGui/ImGuiLayer.h"
 #include "Strada/Scene/Entity.h"
 
 #include <imgui.h>
@@ -59,6 +62,7 @@ namespace Strada
 		  m_Specification(std::move(specification)),
 		  m_Operations(m_Context),
 		  m_Scripts(m_Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"),
+		  m_PlayMode(m_Context, m_Scripts),
 		  m_AutomationServer(m_Commands),
 		  m_RecentProjects(FileSystem::GetUserDataDirectory() / "Editor" / "RecentProjects.json")
 	{
@@ -94,6 +98,12 @@ namespace Strada
 		};
 		Result<void> registered = RegisterEditorCommands(m_Commands, m_Operations, std::move(environment));
 		registered = registered ? RegisterScriptCommands(m_Commands, m_Scripts, m_Context) : registered;
+		registered = registered ? RegisterPlayCommands(m_Commands, m_PlayMode, m_Context,
+		                                               [this]
+		                                               {
+														   return GetGameViewSize();
+													   })
+		                        : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 
@@ -185,6 +195,8 @@ namespace Strada
 
 	void EditorLayer::OnDetach()
 	{
+		// Scripts get OnDestroy while every system is still up.
+		m_PlayMode.Stop();
 		m_ProjectSettingsPanel.Flush(m_Operations);
 		m_AutomationServer.Stop();
 		if (m_InstanceFileWritten)
@@ -196,9 +208,10 @@ namespace Strada
 
 	void EditorLayer::OnUpdate(Timestep timestep)
 	{
-		(void)timestep;
 		m_AutomationServer.ProcessRequests();
 		m_Scripts.Update();
+		UpdateGameInput();
+		m_PlayMode.Update(timestep);
 		if (!m_ScreenshotPath.empty() && Application::Get().GetFrameCount() == m_ScreenshotFrame)
 		{
 			Application::Get().RequestScreenshot(m_ScreenshotPath);
@@ -452,6 +465,7 @@ namespace Strada
 		                                   ? fmt::format("Automation: 127.0.0.1:{} ({} connected)", m_AutomationServer.GetPort(),
 		                                                 m_AutomationServer.GetConnectionCount())
 		                                   : std::string("Automation: off");
+		DrawPlayControls();
 		std::string const scripts = GetScriptStatus();
 		std::string const status = scripts.empty() ? automation : scripts + "    " + automation;
 		ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(status.c_str()).x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
@@ -482,6 +496,25 @@ namespace Strada
 		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_B, route) && m_Scripts.HasScriptProject())
 		{
 			m_Scripts.Build();
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_P, route))
+		{
+			if (m_PlayMode.IsPlaying())
+			{
+				m_PlayMode.Stop();
+			}
+			else
+			{
+				StartPlay(EditorPlayState::Play);
+			}
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_P, route) && m_PlayMode.IsPlaying())
+		{
+			m_PlayMode.SetPaused(!m_PlayMode.IsPaused());
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_P, route) && m_PlayMode.IsPaused())
+		{
+			m_PlayMode.Step();
 		}
 
 		if (ImGui::GetIO().WantTextInput)
@@ -566,8 +599,11 @@ namespace Strada
 			return;
 		}
 		Project const* project = m_Context.GetProject();
-		std::string const title = fmt::format("{}{} - {}Strada Editor", m_Context.GetScene().GetName(), m_Context.IsDirty() ? "*" : "",
-		                                      project != nullptr ? project->GetSettings().Name + " - " : std::string());
+		EditorPlayState const playState = m_Context.GetPlayState();
+		char const* const playing =
+			playState == EditorPlayState::Play ? " (Playing)" : (playState == EditorPlayState::Simulate ? " (Simulating)" : "");
+		std::string const title = fmt::format("{}{}{} - {}Strada Editor", m_Context.GetScene().GetName(), m_Context.IsDirty() ? "*" : "",
+		                                      playing, project != nullptr ? project->GetSettings().Name + " - " : std::string());
 		if (title != m_WindowTitle)
 		{
 			window->SetTitle(title);
@@ -700,6 +736,100 @@ namespace Strada
 		ImGui::EndPopup();
 	}
 
+	void EditorLayer::DrawPlayControls()
+	{
+		// Centered in the menu bar.
+		ImGuiStyle const& style = ImGui::GetStyle();
+		auto const buttonWidth = [&style](char const* label)
+		{
+			return ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f;
+		};
+		bool const playing = m_PlayMode.IsPlaying();
+		bool const paused = m_PlayMode.IsPaused();
+		char const* const first = playing ? "Stop" : "Play";
+		char const* const second = playing ? (paused ? "Resume" : "Pause") : "Simulate";
+		float const width = buttonWidth(first) + buttonWidth(second) + buttonWidth("Step") + style.ItemSpacing.x * 2.0f;
+		ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowWidth() - width) * 0.5f));
+
+		ImGui::BeginDisabled(m_PlayMode.IsStartPending());
+		if (ImGui::Button(first))
+		{
+			if (playing)
+			{
+				m_PlayMode.Stop();
+			}
+			else
+			{
+				StartPlay(EditorPlayState::Play);
+			}
+		}
+		ImGui::SetItemTooltip(playing ? "Stop playing (Ctrl+P): changes made while playing are discarded" : "Play the scene (Ctrl+P)");
+		if (ImGui::Button(second))
+		{
+			if (playing)
+			{
+				m_PlayMode.SetPaused(!paused);
+			}
+			else
+			{
+				StartPlay(EditorPlayState::Simulate);
+			}
+		}
+		ImGui::SetItemTooltip(playing ? "Pause or resume (Ctrl+Shift+P)"
+		                              : "Simulate physics without scripts, seen through the editor camera");
+		ImGui::BeginDisabled(!paused);
+		if (ImGui::Button("Step"))
+		{
+			m_PlayMode.Step();
+		}
+		ImGui::SetItemTooltip("Advance the paused scene by one frame (Ctrl+Alt+P)");
+		ImGui::EndDisabled();
+		ImGui::EndDisabled();
+	}
+
+	void EditorLayer::StartPlay(EditorPlayState state)
+	{
+		glm::uvec2 const size = GetGameViewSize();
+		m_PlayMode.RequestStart(state, size.x, size.y, nullptr,
+		                        [](Result<void> const& started)
+		                        {
+									UI::ReportFailure(started, "Playing");
+								});
+	}
+
+	glm::uvec2 EditorLayer::GetGameViewSize() const
+	{
+		if (m_ViewportPanel != nullptr)
+		{
+			return m_ViewportPanel->GetViewportSize();
+		}
+		if (Project const* const project = m_Context.GetProject())
+		{
+			return glm::uvec2(project->GetSettings().Window.Width, project->GetSettings().Window.Height);
+		}
+		return glm::uvec2(1280, 720);
+	}
+
+	void EditorLayer::UpdateGameInput()
+	{
+		bool const active = m_PlayMode.IsPlaying() && m_ViewportPanel != nullptr && m_ViewportPanel->IsGameInputActive();
+		if (ImGuiLayer* const imgui = Application::Get().GetImGuiLayer())
+		{
+			imgui->SetBlockEvents(!active);
+		}
+		if (active)
+		{
+			// Window events placed the cursor in window coordinates; the game reads game-view pixels.
+			Input::SetMousePosition(m_ViewportPanel->GetGameMousePosition());
+		}
+		else if (m_GameInputWasActive)
+		{
+			// Keys held as the game view lost focus would otherwise stay down.
+			Input::ReleaseAll();
+		}
+		m_GameInputWasActive = active;
+	}
+
 	std::string EditorLayer::GetScriptStatus() const
 	{
 		if (m_Scripts.IsBuilding())
@@ -745,12 +875,14 @@ namespace Strada
 
 	void EditorLayer::PerformSceneAction(SceneAction action, std::filesystem::path const& path)
 	{
+		// Scenes and projects change only while editing; the running copy goes.
+		m_PlayMode.Stop();
 		switch (action)
 		{
 			case SceneAction::None:
 				break;
 			case SceneAction::NewScene:
-				m_Operations.NewScene();
+				UI::ReportFailure(m_Operations.NewScene(), "Creating a scene");
 				break;
 			case SceneAction::OpenScene:
 			{
@@ -775,7 +907,7 @@ namespace Strada
 				OpenProject(path);
 				break;
 			case SceneAction::CloseProject:
-				m_Operations.CloseProject();
+				UI::ReportFailure(m_Operations.CloseProject(), "Closing the project");
 				break;
 			case SceneAction::Quit:
 				Application::Get().Close();

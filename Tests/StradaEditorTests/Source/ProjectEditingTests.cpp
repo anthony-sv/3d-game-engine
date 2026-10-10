@@ -109,7 +109,7 @@ TEST_CASE("EditorOperations: projects are created, opened with their start scene
 	CHECK(AssetManager::GetAssetType(AssetManager::FindByPath("Scenes/Second.sscene")) == AssetType::Scene);
 
 	std::filesystem::path const file = project->GetFilePath();
-	operations.CloseProject();
+	REQUIRE(operations.CloseProject().IsOk());
 	CHECK(context.GetProject() == nullptr);
 	CHECK_FALSE(AssetManager::HasAssetDirectory());
 	CHECK(context.GetScenePath().empty());
@@ -139,7 +139,7 @@ TEST_CASE("EditorOperations: a project whose start scene cannot be read opens wi
 	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", *MakeStartScene()).IsOk());
 	std::filesystem::path const file = context.GetProject()->GetFilePath();
 	REQUIRE(FileSystem::WriteTextFile(context.GetProject()->GetAssetDirectory() / "Scenes" / "Main.sscene", "{ broken").IsOk());
-	operations.CloseProject();
+	REQUIRE(operations.CloseProject().IsOk());
 
 	Result<std::vector<std::string>> opened = operations.OpenProject(file);
 	REQUIRE(opened.IsOk());

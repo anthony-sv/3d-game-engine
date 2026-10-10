@@ -13,6 +13,7 @@
 #include "Editor/Panels/SceneSettingsPanel.h"
 #include "Editor/Panels/StatisticsPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
+#include "Editor/PlayMode.h"
 #include "Editor/RecentProjects.h"
 
 #include "Strada/Core/Layer.h"
@@ -36,9 +37,9 @@ namespace Strada
 	};
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
-	// and hot reload), the automation command registry and server, and the UI (dockspace, menu bar, shortcuts and panels)
-	// when ImGui is available. Replacing the scene (new or opened scenes and projects) or closing the editor with unsaved
-	// changes asks to save them first.
+	// and hot reload), play mode, the automation command registry and server, and the UI (dockspace, menu bar with the
+	// play controls, shortcuts and panels) when ImGui is available. Replacing the scene (new or opened scenes and projects)
+	// or closing the editor with unsaved changes asks to save them first; playing stops first.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -55,6 +56,7 @@ namespace Strada
 
 		EditorContext& GetContext() { return m_Context; }
 		EditorScripts& GetScripts() { return m_Scripts; }
+		PlayMode& GetPlayMode() { return m_PlayMode; }
 		CommandRegistry const& GetCommands() const { return m_Commands; }
 		AutomationServer const& GetAutomationServer() const { return m_AutomationServer; }
 
@@ -78,6 +80,13 @@ namespace Strada
 		void DrawUnsavedChangesPopup();
 		void DrawNewProjectPopup();
 		void DrawNewScriptPopup();
+		void DrawPlayControls();
+		// Plays (building changed scripts first) or simulates the edited scene.
+		void StartPlay(EditorPlayState state);
+		// The size of the view the game renders to: the viewport, or the project's window when there is none.
+		glm::uvec2 GetGameViewSize() const;
+		// While the game view is focused the game gets the window's input, with the cursor in game-view pixels.
+		void UpdateGameInput();
 		// The scripts' state for the menu bar; empty while nothing needs attention.
 		std::string GetScriptStatus() const;
 		void DrawRecentProjectsMenu();
@@ -106,6 +115,7 @@ namespace Strada
 		EditorContext m_Context;
 		EditorOperations m_Operations;
 		EditorScripts m_Scripts;
+		PlayMode m_PlayMode;
 		CommandRegistry m_Commands;
 		AutomationServer m_AutomationServer;
 		bool m_InstanceFileWritten = false;
@@ -139,6 +149,7 @@ namespace Strada
 		bool m_OpenNewProjectPopup = false;
 		std::string m_NewProjectName;
 		std::string m_NewProjectLocation;
+		bool m_GameInputWasActive = false;
 		bool m_OpenNewScriptPopup = false;
 		std::string m_NewScriptName;
 		std::string m_WindowTitle;

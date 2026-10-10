@@ -284,6 +284,16 @@ namespace Strada
 
 			EditorContext& Context() { return m_Operations.GetContext(); }
 
+			// Scene and project files cannot change while the editor plays a copy of the scene.
+			std::optional<CommandError> CheckNotPlaying()
+			{
+				if (Context().IsPlaying())
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation, "the editor is playing: stop playing first (play.stop)");
+				}
+				return std::nullopt;
+			}
+
 			Result<void> RegisterEditor()
 			{
 				Result<void> result =
@@ -395,6 +405,10 @@ namespace Strada
 				              false,
 				              [this](Json const& params) -> CommandResult
 				              {
+								  if (std::optional<CommandError> playing = CheckNotPlaying())
+								  {
+									  return *playing;
+								  }
 								  if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
 								  {
 									  return UnsavedChangesError(Context());
@@ -421,6 +435,10 @@ namespace Strada
 				                   false,
 				                   [this](Json const& params) -> CommandResult
 				                   {
+									   if (std::optional<CommandError> playing = CheckNotPlaying())
+									   {
+										   return *playing;
+									   }
 									   if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
 									   {
 										   return UnsavedChangesError(Context());
@@ -452,11 +470,18 @@ namespace Strada
 								  {
 									  return MakeCommandError(AutomationErrorCode::InvalidOperation, "no project is open");
 								  }
+								  if (std::optional<CommandError> playing = CheckNotPlaying())
+								  {
+									  return *playing;
+								  }
 								  if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
 								  {
 									  return UnsavedChangesError(Context());
 								  }
-								  m_Operations.CloseProject();
+								  if (Result<void> closed = m_Operations.CloseProject(); !closed)
+								  {
+									  return Failure(AutomationErrorCode::InvalidOperation, closed);
+								  }
 								  return Json::object({{"closed", true}, {"scene", DescribeScene(Context())}});
 							  })
 						: result;
@@ -906,11 +931,18 @@ namespace Strada
 				        false,
 				        [this](Json const& params) -> CommandResult
 				        {
+							if (std::optional<CommandError> playing = CheckNotPlaying())
+							{
+								return *playing;
+							}
 							if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
 							{
 								return UnsavedChangesError(Context());
 							}
-							m_Operations.NewScene(GetString(params, "name", "Untitled"));
+							if (Result<void> created = m_Operations.NewScene(GetString(params, "name", "Untitled")); !created)
+							{
+								return Failure(AutomationErrorCode::InvalidOperation, created);
+							}
 							return Json::object({{"scene", DescribeScene(Context())}});
 						});
 				result =
@@ -925,6 +957,10 @@ namespace Strada
 				              false,
 				              [this](Json const& params) -> CommandResult
 				              {
+								  if (std::optional<CommandError> playing = CheckNotPlaying())
+								  {
+									  return *playing;
+								  }
 								  if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
 								  {
 									  return UnsavedChangesError(Context());
@@ -944,6 +980,10 @@ namespace Strada
 				                   false,
 				                   [this](Json const& params) -> CommandResult
 				                   {
+									   if (std::optional<CommandError> playing = CheckNotPlaying())
+									   {
+										   return *playing;
+									   }
 									   std::filesystem::path const path = FileSystem::PathFromUtf8(GetString(params, "path"));
 									   if (path.empty() && Context().GetScenePath().empty())
 									   {

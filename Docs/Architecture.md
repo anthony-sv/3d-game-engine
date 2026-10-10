@@ -591,7 +591,15 @@ than the assembly.
   ranges, cones) and colliders, asset drag-and-drop.
 - Undo/redo for every scene modification through a command history (JSON before/after snapshots). Automation
   commands use the same history.
-- Play (scripts + physics + audio), Simulate (physics only), Pause, Step, Stop.
+- Play mode (`PlayMode`, controls in the menu bar): Play (Ctrl+P; scripts, physics and audio, seen through the scene's
+  primary camera) and Simulate (physics only, seen through the editor camera, with gizmos) run a copy of the edited scene
+  through a `SceneRunner`; Pause (Ctrl+Shift+P), Step (Ctrl+Alt+P) and Stop. While playing, the panels and automation
+  show and edit the copy (`EditorContext::BeginPlay`) with an undo history of its own; stopping discards the copy, its
+  history and every change, and the selection keeps what still exists. Play builds changed scripts first. Scene and
+  project files cannot change while playing (the UI stops playing first). The focused game view gives the game the
+  window's input, with the cursor in game-view pixels; losing focus or stopping releases it. A blue (Play) or green
+  (Simulate) frame marks the view; scripts' `Application.Quit` stops playing and `SceneManager.LoadScene` replaces the
+  copy.
 - Project management: File > New Project (name and location; the start scene is the editor's sample scene),
   Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision

@@ -56,6 +56,10 @@ namespace Strada
 
 	Result<void> EditorOperations::CreateProject(std::filesystem::path const& directory, std::string const& name, Scene const& startScene)
 	{
+		if (Result<void> notPlaying = CheckNotPlaying(); !notPlaying)
+		{
+			return notPlaying;
+		}
 		Result<Ref<Project>> created = Project::Create(directory, name, startScene);
 		if (!created)
 		{
@@ -68,6 +72,10 @@ namespace Strada
 
 	Result<std::vector<std::string>> EditorOperations::OpenProject(std::filesystem::path const& file)
 	{
+		if (Result<void> notPlaying = CheckNotPlaying(); !notPlaying)
+		{
+			return Error{notPlaying.GetError()};
+		}
 		std::vector<std::string> warnings;
 		Result<Ref<Project>> opened = Project::Open(file, &warnings);
 		if (!opened)
@@ -87,15 +95,20 @@ namespace Strada
 		return used ? Result<std::vector<std::string>>(std::move(warnings)) : used;
 	}
 
-	void EditorOperations::CloseProject()
+	Result<void> EditorOperations::CloseProject()
 	{
+		if (Result<void> notPlaying = CheckNotPlaying(); !notPlaying)
+		{
+			return notPlaying;
+		}
 		if (m_Context.GetProject() != nullptr && AssetManager::IsInitialized())
 		{
 			AssetManager::CloseAssetDirectory();
 		}
 		m_Context.SetProject(nullptr);
 		m_Context.SelectAsset(AssetHandle());
-		NewScene();
+		ResetScene("Untitled");
+		return {};
 	}
 
 	Result<void> EditorOperations::ApplyProjectSettings(Json const& patch)
@@ -127,7 +140,7 @@ namespace Strada
 		std::vector<std::string> warnings;
 		if (!startScene.IsValid())
 		{
-			NewScene();
+			ResetScene("Untitled");
 			return warnings;
 		}
 		std::filesystem::path const scenePath = AssetManager::GetAbsolutePath(startScene);
@@ -139,7 +152,7 @@ namespace Strada
 			std::string warning = fmt::format("the start scene could not be opened: {}", opened.GetError());
 			ST_WARN("{}", warning);
 			warnings.push_back(std::move(warning));
-			NewScene();
+			ResetScene("Untitled");
 			return warnings;
 		}
 		return opened.TakeValue();
@@ -154,17 +167,40 @@ namespace Strada
 		if (project != nullptr && !assetsOpen)
 		{
 			m_Context.SetProject(nullptr);
-			NewScene();
+			ResetScene("Untitled");
 		}
 	}
 
-	void EditorOperations::NewScene(std::string name)
+	Result<void> EditorOperations::CheckNotPlaying() const
+	{
+		if (m_Context.IsPlaying())
+		{
+			return Error{"the editor is playing: stop playing first"};
+		}
+		return {};
+	}
+
+	void EditorOperations::ResetScene(std::string name)
 	{
 		m_Context.SetScene(CreateRef<Scene>(std::move(name)), {});
 	}
 
+	Result<void> EditorOperations::NewScene(std::string name)
+	{
+		if (Result<void> notPlaying = CheckNotPlaying(); !notPlaying)
+		{
+			return notPlaying;
+		}
+		ResetScene(std::move(name));
+		return {};
+	}
+
 	Result<std::vector<std::string>> EditorOperations::OpenScene(std::filesystem::path const& path)
 	{
+		if (Result<void> notPlaying = CheckNotPlaying(); !notPlaying)
+		{
+			return Error{notPlaying.GetError()};
+		}
 		std::vector<std::string> warnings;
 		DeserializationContext context = m_Context.CreateDeserializationContext(UnknownFieldPolicy::Warn);
 		context.Warnings = &warnings;
@@ -186,6 +222,10 @@ namespace Strada
 
 	Result<void> EditorOperations::SaveScene(std::filesystem::path const& path)
 	{
+		if (Result<void> notPlaying = CheckNotPlaying(); !notPlaying)
+		{
+			return notPlaying;
+		}
 		std::filesystem::path target = path.empty() ? m_Context.GetScenePath() : MakeAbsolute(path);
 		if (target.empty())
 		{

@@ -20,12 +20,23 @@
 
 namespace Strada
 {
+	// What the editor does with the scene.
+	enum class EditorPlayState : uint8_t
+	{
+		Edit = 0,
+		// A copy of the scene runs with scripts, physics and audio, seen through the game's camera.
+		Play,
+		// A copy of the scene runs physics only, seen through the editor camera.
+		Simulate
+	};
+
 	// The editor's document state, shared by the UI panels and the automation commands: the open project, the edited
 	// scene and its file, the undo history (which also tracks unsaved changes) and the entity selection. Main thread only.
 	//
 	// Every modification of the scene goes through ExecuteCommand so it can be undone; EditorOperations builds the
-	// commands. Play mode (a later stage) will keep a runtime copy of the scene next to this one; the history and the
-	// selection always belong to the edited scene returned by GetScene.
+	// commands. During play mode GetScene returns the running copy of the scene, which panels and automation show and
+	// edit like the scene itself, with a history of its own; stopping discards the copy, its history and every change made
+	// to it, and the edited scene comes back with its history.
 	class EditorContext
 	{
 	public:
@@ -42,13 +53,28 @@ namespace Strada
 		// Empty for scenes that were never saved.
 		std::filesystem::path const& GetScenePath() const { return m_ScenePath; }
 		// Replaces the edited scene (new scene or opened file). Clears the history and the selection; the scene counts as
-		// saved.
+		// saved. Not while playing.
 		void SetScene(Ref<Scene> scene, std::filesystem::path path);
 		// Records that the scene was written to path: it becomes the scene path and the current state the saved one.
 		void MarkSaved(std::filesystem::path path);
-		bool IsDirty() const { return m_History.IsDirty(); }
-		// Changes whenever SetScene replaces the scene (state tied to one scene, such as viewport picking IDs, resets).
+		// The edited scene has unsaved changes (changes to the running copy during play mode do not count).
+		bool IsDirty() const { return IsPlaying() ? m_EditedHistory.IsDirty() : m_History.IsDirty(); }
+		// Changes whenever the scene GetScene returns is replaced (SetScene, play mode starting and stopping, the running
+		// scene loading another), so state tied to one scene, such as viewport picking IDs, resets.
 		uint64_t GetSceneVersion() const { return m_SceneVersion; }
+
+		// --- Play mode (driven by PlayMode) ---
+
+		EditorPlayState GetPlayState() const { return m_PlayState; }
+		bool IsPlaying() const { return m_PlayState != EditorPlayState::Edit; }
+		// Makes the running copy the scene GetScene returns, with an empty history; the selection carries over (the copy
+		// has the same entity IDs).
+		void BeginPlay(Ref<Scene> runningScene, EditorPlayState state);
+		// The running scene was replaced (a script loaded another scene): its history starts over and the selection keeps
+		// the entities it has.
+		void SetRunningScene(Ref<Scene> runningScene);
+		// Returns to the edited scene and its history; the selection keeps the entities the edited scene has.
+		void EndPlay();
 
 		// The open project; null when none is open. Its asset directory is the AssetManager's.
 		Project* GetProject() { return m_Project.get(); }
@@ -94,6 +120,10 @@ namespace Strada
 		Ref<Scene> m_Scene;
 		std::filesystem::path m_ScenePath;
 		CommandHistory m_History;
+		EditorPlayState m_PlayState = EditorPlayState::Edit;
+		// While playing: the edited scene and its history, put aside.
+		Ref<Scene> m_EditedScene;
+		CommandHistory m_EditedHistory;
 		EntitySelection m_Selection;
 		AssetHandle m_SelectedAsset;
 		AssetReferenceResolver m_AssetReferenceResolver;

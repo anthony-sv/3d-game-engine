@@ -38,6 +38,9 @@ namespace Strada
 		constexpr ImU32 IconColor = IM_COL32(235, 235, 235, 255);
 		constexpr ImU32 IconHoveredColor = IM_COL32(255, 255, 255, 255);
 		constexpr ImU32 IconSelectedColor = IM_COL32(255, 140, 26, 255);
+		constexpr ImU32 PlayFrameColor = IM_COL32(64, 160, 255, 255);
+		constexpr ImU32 SimulateFrameColor = IM_COL32(120, 200, 120, 255);
+		constexpr float PlayFrameThickness = 2.0f;
 
 		ImVec2 ToImVec2(glm::vec2 const& value)
 		{
@@ -124,6 +127,7 @@ namespace Strada
 		if (!visible)
 		{
 			EndGizmoDrag(context);
+			m_GameInputActive = false;
 			ImGui::End();
 			return;
 		}
@@ -144,14 +148,43 @@ namespace Strada
 		                     ImGui::IsMouseHoveringRect(ToImVec2(imagePosition), ToImVec2(imagePosition + imageSize)) &&
 		                     !ImGui::IsMouseHoveringRect(ToImVec2(m_ToolbarMin), ToImVec2(m_ToolbarMax));
 
-		HandleCameraInput(hovered);
-		HandleShortcuts(context, hovered);
+		// Play shows the game; its input goes to the game while the view is focused.
+		bool const gameView = context.GetPlayState() == EditorPlayState::Play;
+		m_GameInputActive = gameView && ImGui::IsWindowFocused();
+		if (gameView)
+		{
+			m_GameMousePosition = ToVec2(ImGui::GetMousePos()) - imagePosition;
+			EndGizmoDrag(context);
+		}
+		else
+		{
+			HandleCameraInput(hovered);
+			HandleShortcuts(context, hovered);
+		}
 		m_Camera.SetViewportSize(width, height);
 		m_Renderer->SetViewportSize(width, height);
+		// Scripts read the scene's view size (Application.WindowWidth/Height, Camera.ScreenToWorldRay).
+		context.GetScene().OnViewportResize(width, height);
+		m_ViewportSize = glm::uvec2(width, height);
 		ApplyPickResult(operations);
-		Render(context);
+		bool const showsGame = gameView && RenderGame(context);
+		if (!showsGame)
+		{
+			Render(context);
+		}
 
 		ImGui::Image(ImGuiRenderer::GetTextureID(m_Renderer->GetFinalImage()), ToImVec2(imageSize));
+		if (gameView)
+		{
+			if (!showsGame)
+			{
+				ImGui::SetCursorScreenPos(ToImVec2(imagePosition + glm::vec2(ToolbarPadding)));
+				ImGui::TextUnformatted("No primary camera: the editor camera shows the scene.");
+			}
+			DrawPlayFrame(imagePosition, imageSize, context.GetPlayState());
+			ImGui::End();
+			return;
+		}
 		AssetHandle droppedAsset;
 		if (ImGui::BeginDragDropTarget())
 		{
@@ -165,12 +198,29 @@ namespace Strada
 		UpdateGizmo(operations, imagePosition, imageSize);
 		HandleSelectionClicks(operations, imagePosition, hovered, hoveredIcon);
 		DrawToolbar(imagePosition);
+		if (context.IsPlaying())
+		{
+			DrawPlayFrame(imagePosition, imageSize, context.GetPlayState());
+		}
 		// Last: a drop may replace the scene (opening a scene asset) under the overlays drawn above.
 		if (droppedAsset.IsValid())
 		{
 			ApplyAssetDrop(operations, droppedAsset, dropPixel, imageSize);
 		}
 		ImGui::End();
+	}
+
+	bool ViewportPanel::RenderGame(EditorContext& context)
+	{
+		return RenderSceneFromPrimaryCamera(context.GetScene(), *m_Renderer);
+	}
+
+	void ViewportPanel::DrawPlayFrame(glm::vec2 const& imagePosition, glm::vec2 const& imageSize, EditorPlayState state)
+	{
+		ImU32 const color = state == EditorPlayState::Play ? PlayFrameColor : SimulateFrameColor;
+		glm::vec2 const inset(PlayFrameThickness * 0.5f);
+		ImGui::GetWindowDrawList()->AddRect(ToImVec2(imagePosition + inset), ToImVec2(imagePosition + imageSize - inset), color, 0.0f,
+		                                    PlayFrameThickness);
 	}
 
 	void ViewportPanel::HandleCameraInput(bool hovered)

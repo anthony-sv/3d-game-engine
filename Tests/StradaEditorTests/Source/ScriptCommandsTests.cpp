@@ -187,7 +187,7 @@ TEST_CASE("ScriptCommands: scripts are created, built, hot reloaded and reported
 	CHECK(reloaded->FindField("Speed") != nullptr);
 
 	// The project's scripts go with it.
-	fixture.Operations.CloseProject();
+	REQUIRE(fixture.Operations.CloseProject().IsOk());
 	fixture.Scripts.Update();
 	CHECK_FALSE(ScriptEngine::HasGameAssembly());
 	CHECK(fixture.Scripts.GetLastBuild() == nullptr);

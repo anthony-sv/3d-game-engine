@@ -467,7 +467,7 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	browser.SetFolder("Textures");
 	drawFrames();
 	CHECK(browser.GetFolder() == "Textures");
-	operations.CloseProject();
+	REQUIRE(operations.CloseProject().IsOk());
 	drawFrames();
 	CHECK(browser.GetFolder().empty());
 }

@@ -33,7 +33,7 @@ namespace Strada
 		// Invalid Entity when the ID does not exist in the edited scene.
 		Entity FindEntity(UUID id);
 
-		// --- Projects (not undoable) ---
+		// --- Projects (not undoable; not while playing) ---
 
 		// Creates a project in an empty or new directory (see Project::Create) and opens it with its start scene.
 		[[nodiscard]] Result<void> CreateProject(std::filesystem::path const& directory, std::string const& name, Scene const& startScene);
@@ -41,15 +41,15 @@ namespace Strada
 		// (skipped settings, scene problems). When opening fails, the previous project stays open if its assets still are.
 		[[nodiscard]] Result<std::vector<std::string>> OpenProject(std::filesystem::path const& file);
 		// Closes the project and its asset directory; the scene is replaced with an empty one.
-		void CloseProject();
+		[[nodiscard]] Result<void> CloseProject();
 		// Applies a partial patch in the project-file format to the open project's settings, without saving.
 		[[nodiscard]] Result<void> ApplyProjectSettings(Json const& patch);
 		// Writes the open project's file.
 		[[nodiscard]] Result<void> SaveProject();
 
-		// --- Scene files (not undoable: they replace the scene and clear the history) ---
+		// --- Scene files (not undoable: they replace the scene and clear the history; not while playing) ---
 
-		void NewScene(std::string name = "Untitled");
+		[[nodiscard]] Result<void> NewScene(std::string name = "Untitled");
 		// Loads a scene file; unknown components and fields (files from newer versions) are skipped with warnings, which
 		// are logged and returned.
 		[[nodiscard]] Result<std::vector<std::string>> OpenScene(std::filesystem::path const& path);
@@ -134,6 +134,9 @@ namespace Strada
 		[[nodiscard]] Result<void> Redo() { return m_Context.Redo(); }
 
 	private:
+		// Scene and project files cannot change while the editor plays a copy of the scene.
+		Result<void> CheckNotPlaying() const;
+		void ResetScene(std::string name);
 		// Makes the project the open one and opens its start scene; returns warnings about the start scene.
 		Result<std::vector<std::string>> UseProject(Ref<Project> project);
 		// After a failed create or open: keeps the current project when its asset directory is still open, otherwise closes it.

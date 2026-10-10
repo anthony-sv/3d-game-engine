@@ -91,7 +91,7 @@ TEST_CASE("EditorOperations: asset folders and materials are created, moved and 
 	CHECK(refreshed.GetValue().Added.empty());
 
 	// Without a project every asset operation fails.
-	operations.CloseProject();
+	REQUIRE(operations.CloseProject().IsOk());
 	CHECK(operations.CreateAssetFolder("Textures").IsError());
 	CHECK(operations.CreateMaterial("New.smat").IsError());
 	CHECK(operations.RefreshAssets().IsError());
@@ -272,7 +272,7 @@ TEST_CASE("EditorContext: selecting an asset and selecting entities replace each
 	CHECK(context.GetSelection().Contains(entity.GetValue()));
 
 	context.SelectAsset(material.GetValue());
-	operations.CloseProject();
+	REQUIRE(operations.CloseProject().IsOk());
 	CHECK_FALSE(context.GetSelectedAsset().IsValid());
 }
 
