@@ -18,7 +18,7 @@ before changing anything structural; it is the architectural contract.
 
 | Path | What |
 |------|------|
-| `Strada/` | Engine static library (`Source/Strada/<Module>`, `Shaders/`, `Resources/`) |
+| `Strada/` | Engine static library (`Source/Strada/<Module>`, `Shaders/`, `ThirdParty/`) |
 | `StradaEditor/` | `StradaEditorCore` static library + `StradaEditor` executable |
 | `StradaRuntime/` | Game player (`StradaRuntime`): runs exported games and projects, windowed, headless or as test runs |
 | `Strada-ScriptCore/` | C# scripting API (`Strada.ScriptCore.dll`) |

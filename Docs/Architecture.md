@@ -44,10 +44,10 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Strada/                                           Engine static library
 │   ├── Source/stpch.h, Source/Strada.h               Precompiled header, public umbrella header
 │   ├── Source/Strada/<Module>/...                    Engine modules (see §4)
-│   └── Shaders/                                      HLSL (*.hlsl, *.hlsli) → embedded SPIR-V
+│   ├── Shaders/                                      HLSL (*.hlsl, *.hlsli) → embedded SPIR-V
+│   └── ThirdParty/                                   Implementations of single-header libraries (stb, cgltf, miniaudio)
 ├── StradaEditor/                                     Editor: StradaEditorCore static lib + StradaEditor executable
-│   ├── Source/Editor/...                             Panels, automation, commands (undo/redo), export, project management
-│   └── Resources/                                    Editor fonts, icons, project templates (copied next to the binary)
+│   └── Source/Editor/...                             Panels, automation, commands (undo/redo), export, project management
 ├── StradaRuntime/                                    Runtime/player executable used for exported games
 ├── Strada-ScriptCore/                                C# scripting API (assembly Strada.ScriptCore.dll)
 ├── StradaTool/                                       C# CLI + MCP stdio bridge (executable `strada`)
@@ -62,12 +62,12 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
 ├── Tools/                                            Developer scripts (configure/build/test, formatting)
-├── Docs/                                             Architecture, scripting guide, automation reference, rendering notes
+├── Docs/                                             Architecture (this contract), Automation (commands and MCP)
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
 ```
 
-Build output: `build/<preset>/bin/` contains every executable, `Strada.ScriptCore.dll`, `strada` tool, and the
-copied editor `Resources/`.
+Build output: `build/<preset>/bin/` contains every executable, `Strada.ScriptCore.dll` and the `strada` tool. Fonts
+and other binary resources are compiled into the binaries (`cmake/StradaResources.cmake`, `EmbeddedResources`).
 
 ## 4. Engine library modules (`Strada/Source/Strada/`)
 
@@ -84,34 +84,39 @@ through includes of `Scene.h` in headers.
 
 | Module | Responsibility | Key types |
 |--------|----------------|-----------|
-| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop, layers, file system, threading helpers | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Result<T>` |
-| Math | Transform compose/decompose, AABB, frustum, ray, intersection | `Math::DecomposeTransform`, `AABB`, `Frustum`, `Ray` |
-| Serialization | JSON helpers for glm/UUID/enums, versioned file headers | `JsonUtils` |
-| Platform | Process spawning (reproc++), OS paths (user data dir), file watcher | `Process`, `FileWatcher`, `Platform` |
-| RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, common samplers/default textures | `GraphicsDevice`, `Swapchain`, `ShaderLibrary` |
-| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, model importers, built-in primitives | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `MeshImporter` |
-| Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), scene renderer passes, debug lines, text, sprites, picking | `SceneRenderer`, `Texture2D`, `TextureCube` |
+| Core | Base macros, logging, asserts, UUID, time, buffers, events, input, window, application loop (and its main-thread queue), layers, file system, OS queries, images, embedded resources, command line | `Application`, `Layer`, `Window`, `Input`, `Log`, `UUID`, `Timestep`, `Buffer`, `FileSystem`, `Platform`, `Image`, `Result<T>` |
+| Math | Transform compose/decompose, projections, sRGB transfer functions, bounding boxes, view frustums | `Math::ComposeTransform`, `Math::DecomposeTransform`, `Math::PerspectiveReversedZ`, `AABB`, `Frustum` |
+| Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext` |
+| Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
+| RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
+| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, model importers, built-in primitives | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `MeshImporter` |
+| Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
-| Audio | miniaudio engine, clips, per-scene sound sources, listener | `AudioEngine`, `AudioClip`, `AudioScene` |
-| Script | .NET runtime hosting, managed bridge, native bindings, script instances and fields, hot reload | `ScriptEngine`, `DotNetHost`, `ScriptBindings` |
-| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefabs, runtime lifecycle | `Scene`, `Entity`, `ComponentRegistry`, `SceneSerializer`, `Prefab` |
-| Project | Project file, paths, settings | `Project`, `ProjectSerializer` |
+| Audio | miniaudio engine, per-scene sound sources and listener | `AudioEngine`, `AudioScene` |
+| Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding` |
+| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `RenderScene` |
+| Project | Project files and settings, the C# script project, the scene runner (play mode and the player), game export | `Project`, `ProjectSettings`, `ScriptProject`, `SceneRunner`, `GameExporter` |
 
 ### 4.1 Subsystem lifetime
 
-Subsystems are static facades with explicit `Init()`/`Shutdown()` (Hazel style), initialized by `Application` in this
-order and shut down in reverse: Log → FileSystem/Platform → GraphicsDevice (unless `--no-gpu`) → Renderer →
-AssetManager → PhysicsSystem → AudioEngine → ScriptEngine. Every `Init` asserts it is not already initialized and
-every `Shutdown` must leave no state behind so tests can init/shutdown repeatedly.
+Subsystems are static facades with explicit `Init()`/`Shutdown()` (Hazel style). The entry point initializes the log;
+`Application` then initializes, in this order: AssetManager → PhysicsSystem → AudioEngine (a null device when
+headless) → ScriptEngine (optional: without .NET, scenes run without scripts) → the window (unless headless) →
+GraphicsDevice → ShaderLibrary → Renderer → the ImGui layer. The graphics subsystems are skipped when `EnableGraphics`
+is off (the headless player), and applications that do not require them (the headless editor) continue without a
+GPU when none is available. Shutdown detaches the layers, then shuts down scripting, audio, physics and the assets
+(before the renderer, which owns the GPU objects created from them), the graphics and the window. Every `Init` asserts
+it is not already initialized and every `Shutdown` must leave no state behind so tests can init/shutdown repeatedly.
 
 ### 4.2 Threading model
 
 - The **main thread** owns the ECS, assets, rendering submission, scripting and editor state.
 - Jolt runs its own job threads; contact callbacks only enqueue events (thread-safe queue) drained on the main thread.
 - miniaudio runs its own audio thread; only the miniaudio API is touched from the main thread.
-- Background work (script builds, exports, file watching, the automation socket) never touches engine state;
-  results are marshalled with `Application::SubmitToMainThread(std::function<void()>)`.
+- Background work (script builds, exports, the automation socket) never touches engine state; results are
+  marshalled with `Application::SubmitToMainThread(std::function<void()>)`. The editor notices edited scripts by
+  checking their modification times on the main thread once a second.
 
 ### 4.3 Error handling
 
@@ -176,19 +181,17 @@ entity-ID passes and are not even prepared, unless they cast shadows that the fr
 shadow what it shows, so the shadow pass culls them separately, against each cascade's projection or each local light's
 range. `SceneRendererStatistics::Culled` counts them.
 
-Implemented so far: forward PBR (opaque front to back, then blended back to front) with image-based lighting
-(split-sum specular with Fdez-Aguera multiple-scattering compensation; a uniform ambient color through the same terms
-when the sky light has no environment), the sky pass, and the tonemap pass (with dithering and sRGB encoding into
-`RGBA8_UNORM`); the HDR target is `RGBA16_FLOAT` with a `D32` reversed-Z depth buffer. Environments are processed on
-first use by compute shaders (`EnvironmentProcessor`): equirect to an RGBA16F cubemap (a quarter of the equirect width,
-power of two, 16-1024) with box-filtered mips, a 32x32 irradiance cube and a 256x256 GGX-prefiltered cube with 6 mips
-(filtered importance sampling, perceptual roughness linear in mip); the 128x128 BRDF table is computed at
-`Renderer::Init`. Shadows (pass 1 below) are implemented: the first shadow-casting directional light gets PCSS soft
-shadows sized by its `LightSize`, with cascade cross-fades and a fade at the shadow distance; local lights use a
-rotated 16-tap PCF. Shadow projection math lives in `Renderer/ShadowMath` (unit tested). The remaining passes below
-are added in order without changing that structure.
+Lighting is forward PBR (opaque front to back, then blended back to front) with image-based lighting (split-sum
+specular with Fdez-Aguera multiple-scattering compensation; a uniform ambient color through the same terms when the
+sky light has no environment); the HDR target is `RGBA16_FLOAT` with a `D32` reversed-Z depth buffer. Environments
+are processed on first use by compute shaders (`EnvironmentProcessor`): equirect to an RGBA16F cubemap (a quarter of
+the equirect width, power of two, 16-1024) with box-filtered mips, a 32x32 irradiance cube and a 256x256
+GGX-prefiltered cube with 6 mips (filtered importance sampling, perceptual roughness linear in mip); the 128x128 BRDF
+table is computed at `Renderer::Init`. The first shadow-casting directional light gets PCSS soft shadows sized by its
+`LightSize` (a fixed filter with `SoftShadows` off), with cascade cross-fades and a fade at the shadow distance; local
+lights use a rotated 16-tap PCF. Shadow projection math lives in `Renderer/ShadowMath` (unit tested).
 
-Frame passes, in order (passes 1-8 are implemented):
+Frame passes, in order:
 
 1. **Shadow pass** — directional light cascaded shadow maps (up to 4 cascades, `D32_FLOAT` texture array, stable
    cascades: bounding spheres with texel snapping, depth range extended to every caster), plus a local shadow-map
@@ -197,8 +200,8 @@ Frame passes, in order (passes 1-8 are implemented):
 2. **Opaque forward PBR** — metallic-roughness GGX (height-correlated Smith visibility, Schlick Fresnel,
    multi-scatter energy compensation), directional/point/spot lights (physical units with smooth range window),
    IBL (cube irradiance + GGX-prefiltered specular + split-sum BRDF LUT), soft shadows (PCF with rotated
-   Vogel disk and PCSS blocker search), alpha-mask support. Lights live in a structured buffer (no culling
-   initially; capped at 256 visible lights). Besides the HDR color it writes, as extra render targets, the
+   Vogel disk and PCSS blocker search), alpha-mask support. Lights live in a structured buffer (every light
+   of the frame up to 256; further lights are ignored). Besides the HDR color it writes, as extra render targets, the
    octahedral world normal (`RG16_FLOAT`) and the exposed indirect light (`RGBA16_FLOAT`). There is no depth
    prepass: an equal-depth main pass would need position invariance across pipelines, which DXC's SPIR-V output
    does not guarantee.
@@ -709,8 +712,8 @@ asset directory and the script assembly relative to the game's directory (`Proje
 - Games with scripts need the .NET 10 runtime: installed, or shipped by the developer in `dotnet/` next to the
   executable, where the player looks first.
 
-Dist builds of the runtime have no console window on Windows, log to a file in the user data directory, and
-compile out asserts and dev tools.
+Dist builds of the runtime have no console window on Windows, log only warnings and errors, to a file in the user
+data directory, and compile out asserts and script debug lines.
 
 ## 14. Build configurations
 
