@@ -6,11 +6,13 @@
 #include "Editor/EntityBounds.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Version.h"
+#include "Strada/Project/Project.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -110,6 +112,29 @@ namespace Strada
 		{
 			auto const it = params.find(key);
 			return it != params.end() ? it->get<bool>() : fallback;
+		}
+
+		// A scene file parameter: an absolute path ("/..." or "C:/..."), or one relative to the open project's asset
+		// directory like every other asset path of the commands. Relative to the editor's working directory, scenes would
+		// land wherever the editor happened to start.
+		CommandValue<std::filesystem::path> ResolveSceneFile(Project const* project, std::string const& path)
+		{
+			std::filesystem::path const file = FileSystem::PathFromUtf8(path);
+			if (file.has_root_directory())
+			{
+				return file;
+			}
+			Result<std::string> normalized = NormalizeAssetPath(path);
+			if (normalized && project != nullptr)
+			{
+				return project->GetAssetDirectory() / FileSystem::PathFromUtf8(normalized.GetValue());
+			}
+			CommandError error =
+				normalized ? MakeCommandError(AutomationErrorCode::InvalidParams,
+			                                  "'{}' is relative to the asset directory, but no project is open: use an absolute path", path)
+						   : MakeCommandError(AutomationErrorCode::InvalidParams, "{}", normalized.GetError());
+			error.Data = Json::object({{"path", "path"}});
+			return error;
 		}
 
 		Json DescribeEntity(Scene const& scene, Entity entity)
@@ -952,10 +977,11 @@ namespace Strada
 				result =
 					result
 						? Add("scene.open",
-				              "Opens a scene file (.sscene). Unknown components or fields are skipped and reported as warnings. Fails on "
-				              "unsaved changes unless discardChanges is true.",
+				              "Opens a scene file (.sscene): an absolute path, or one relative to the project's Assets directory. Unknown "
+				              "components or fields are skipped and reported as warnings. Fails on unsaved changes unless discardChanges "
+				              "is true.",
 				              SchemaBuilder::Object()
-				                  .Property("path", SchemaBuilder::String("Scene file path").MinLength(1), true)
+				                  .Property("path", SchemaBuilder::String("Scene file: absolute, or relative to Assets").MinLength(1), true)
 				                  .Property("discardChanges", SchemaBuilder::Boolean("Discard unsaved changes").Default(false))
 				                  .Build(),
 				              false,
@@ -965,12 +991,17 @@ namespace Strada
 								  {
 									  return *playing;
 								  }
+								  CommandValue<std::filesystem::path> file =
+									  ResolveSceneFile(Context().GetProject(), params["path"].get<std::string>());
+								  if (!file)
+								  {
+									  return file.TakeError();
+								  }
 								  if (Context().IsDirty() && !GetBool(params, "discardChanges", false))
 								  {
 									  return UnsavedChangesError(Context());
 								  }
-								  Result<std::vector<std::string>> warnings =
-									  m_Operations.OpenScene(FileSystem::PathFromUtf8(params["path"].get<std::string>()));
+								  Result<std::vector<std::string>> warnings = m_Operations.OpenScene(file.GetValue());
 								  if (!warnings)
 								  {
 									  return CommandError{AutomationErrorCode::FileError, warnings.GetError(), Json()};
@@ -979,8 +1010,12 @@ namespace Strada
 							  })
 						: result;
 				result = result
-				             ? Add("scene.save", "Saves the scene to path, or to its current file when path is omitted.",
-				                   SchemaBuilder::Object().Property("path", SchemaBuilder::String("Scene file path").MinLength(1)).Build(),
+				             ? Add("scene.save",
+				                   "Saves the scene to path (absolute, or relative to the project's Assets directory; scenes saved inside "
+				                   "Assets become assets), or to its current file when path is omitted.",
+				                   SchemaBuilder::Object()
+				                       .Property("path", SchemaBuilder::String("Scene file: absolute, or relative to Assets").MinLength(1))
+				                       .Build(),
 				                   false,
 				                   [this](Json const& params) -> CommandResult
 				                   {
@@ -988,7 +1023,17 @@ namespace Strada
 									   {
 										   return *playing;
 									   }
-									   std::filesystem::path const path = FileSystem::PathFromUtf8(GetString(params, "path"));
+									   std::filesystem::path path;
+									   if (params.contains("path"))
+									   {
+										   CommandValue<std::filesystem::path> file =
+											   ResolveSceneFile(Context().GetProject(), params["path"].get<std::string>());
+										   if (!file)
+										   {
+											   return file.TakeError();
+										   }
+										   path = file.TakeValue();
+									   }
 									   if (path.empty() && Context().GetScenePath().empty())
 									   {
 										   return MakeCommandError(AutomationErrorCode::InvalidOperation,

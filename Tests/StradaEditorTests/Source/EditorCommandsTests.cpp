@@ -242,6 +242,37 @@ TEST_CASE("EditorCommands: scene files and unsaved changes")
 	CHECK(fixture.QuitRequested);
 }
 
+TEST_CASE("EditorCommands: scene paths are absolute or relative to the asset directory")
+{
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory directory;
+	CommandFixture fixture;
+	// Without a project, relative paths have nothing to be relative to.
+	fixture.Create("Hero");
+	CHECK(fixture.Fails("scene.save", Json::object({{"path", "Scenes/Level.sscene"}})) == AutomationErrorCode::InvalidParams);
+
+	REQUIRE(fixture.Operations.CreateProject(directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const assetDirectory = fixture.Context.GetProject()->GetAssetDirectory();
+	fixture.Create("Hero");
+	fixture.Ok("scene.save", Json::object({{"path", "Scenes/Level.sscene"}}));
+	CHECK(FileSystem::Exists(assetDirectory / "Scenes" / "Level.sscene"));
+	CHECK(AssetManager::FindByPath("Scenes/Level.sscene").IsValid());
+
+	// Relative paths stay in the asset directory; absolute ones may point anywhere.
+	for (char const* const path : {"../Level.sscene", "Scenes/../../Level.sscene", "C:Level.sscene"})
+	{
+		CAPTURE(path);
+		CHECK(fixture.Fails("scene.save", Json::object({{"path", path}})) == AutomationErrorCode::InvalidParams);
+		CHECK(fixture.Fails("scene.open", Json::object({{"path", path}})) == AutomationErrorCode::InvalidParams);
+	}
+	CHECK_FALSE(FileSystem::Exists(directory.GetPath() / "Game" / "Level.sscene"));
+	fixture.Ok("scene.save", Json::object({{"path", FileSystem::PathToUtf8(directory.GetPath() / "Elsewhere.sscene")}}));
+	CHECK(FileSystem::Exists(directory.GetPath() / "Elsewhere.sscene"));
+
+	fixture.Ok("scene.new", Json::object({{"discardChanges", true}}));
+	CHECK(fixture.Ok("scene.open", Json::object({{"path", "Scenes/Level.sscene"}}))["scene"]["entityCount"] == 1);
+}
+
 TEST_CASE("EditorCommands: selection, component types and log")
 {
 	CommandFixture fixture;

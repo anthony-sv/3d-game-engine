@@ -34,8 +34,8 @@ undo history as the UI: work in small, checked steps.
   `entity_duplicate` and `entity_delete` change the hierarchy.
 - A scene needs a primary `Camera`, light (`DirectionalLight`, a `SkyLight` with an environment) and, for physics, a
   `RigidBody` with a collider on each body (`BoxCollider`, `SphereCollider`, `CapsuleCollider`, `MeshCollider`).
-- `scene_hierarchy`, `entity_find` and `entity_get` show what was built. `scene_save` writes the scene (a `path` the
-  first time; scenes inside Assets become assets).
+- `scene_hierarchy`, `entity_find` and `entity_get` show what was built. `scene_save` writes the scene (a `path` such as
+  `Scenes/Level.sscene`, relative to Assets, the first time; scenes inside Assets become assets).
 
 ## 4. Looks and assets
 

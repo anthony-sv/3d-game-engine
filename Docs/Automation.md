@@ -152,8 +152,8 @@ Project settings are saved to the project file immediately and are not part of t
 | Command | Parameters | Result |
 |---------|-----------|--------|
 | `scene.new` | `name`, `discardChanges` | `scene` |
-| `scene.open` | `path`*, `discardChanges` | `scene`, `warnings` (skipped unknown components/fields) |
-| `scene.save` | `path` (required for never-saved scenes) | `scene` |
+| `scene.open` | `path`* (absolute, or relative to Assets), `discardChanges` | `scene`, `warnings` (skipped unknown components/fields) |
+| `scene.save` | `path` (absolute, or relative to Assets; required for never-saved scenes) | `scene` |
 | `scene.hierarchy` | — | `scene`, `entities`: tree of `{ id, name, components, children }` |
 | `scene.dump` | — | the scene in the `.sscene` format |
 | `scene.settings` | `name`, `settings` (partial patch, e.g. `{"Physics": {"Gravity": [0, -9.81, 0]}}`) | `name`, `settings` |
