@@ -151,6 +151,33 @@ TEST_CASE("SceneRenderer: lit scene matches the golden image")
 	Testing::CheckGoldenImage("SceneRenderer_Showcase", image);
 }
 
+TEST_CASE("SceneRenderer: meshes outside the view or beyond its distance are not drawn")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	Scene scene("Culling");
+	AssetHandle const material = AddMaterial({0.5f, 0.5f, 0.5f, 1.0f}, 0.0f, 0.8f);
+	Testing::AddTestMesh(scene, "Visible", BuiltInAsset::CubeMesh, material, {0.0f, 0.5f, 0.0f});
+	Testing::AddTestMesh(scene, "Distant", BuiltInAsset::CubeMesh, material, {0.0f, 0.5f, -40.0f});
+	Testing::AddTestMesh(scene, "Behind", BuiltInAsset::CubeMesh, material, {0.0f, 0.5f, 10.0f});
+	Testing::AddTestMesh(scene, "Aside", BuiltInAsset::SphereMesh, material, {30.0f, 0.5f, 0.0f});
+	Testing::AddTestMesh(scene, "Glass", BuiltInAsset::QuadMesh,
+	                     AddMaterial({0.2f, 0.9f, 0.3f, 0.4f}, 0.0f, 0.2f, MaterialAlphaMode::Blend), {0.0f, 0.5f, 12.0f});
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	SceneRendererCamera camera = MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f});
+
+	// Without lights, every draw call is a mesh in the main pass.
+	(void)Testing::RenderToImage(scene, camera, renderer);
+	CHECK(renderer.GetStatistics().Culled == 3);
+	CHECK(renderer.GetStatistics().DrawCalls == 2);
+
+	camera.MaxDistance = 20.0f;
+	(void)Testing::RenderToImage(scene, camera, renderer);
+	CHECK(renderer.GetStatistics().Culled == 4);
+	CHECK(renderer.GetStatistics().DrawCalls == 1);
+}
+
 TEST_CASE("SceneRenderer: tonemappers and exposure change the image")
 {
 	ST_REQUIRE_GPU();

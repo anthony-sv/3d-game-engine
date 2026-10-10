@@ -11,6 +11,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <vector>
@@ -28,8 +29,9 @@ namespace Strada
 		// Reversed-Z projection (see Math::PerspectiveReversedZ / SceneCamera).
 		glm::mat4 Projection = glm::mat4(1.0f);
 		glm::vec3 Position = glm::vec3(0.0f);
-		// View distance limit (the camera's far plane); shadows do not extend beyond it.
-		float MaxDistance = 1000.0f;
+		// View distance limit (the camera's far plane): meshes beyond it are culled and shadows do not extend beyond it.
+		// Infinite by default: everything in the projection's view is drawn.
+		float MaxDistance = std::numeric_limits<float>::infinity();
 	};
 
 	struct DirectionalLightSubmission
@@ -119,6 +121,9 @@ namespace Strada
 		uint32_t ShadowsDropped = 0;
 		// Sprites and text glyphs.
 		uint32_t Quads = 0;
+		// Submeshes outside the camera's frustum or beyond its MaxDistance, which the camera's passes skip (shadow casters
+		// among them still reach the shadow maps).
+		uint32_t Culled = 0;
 	};
 
 	// Renders one view of a submitted frame into its own HDR target and tonemaps it into an 8-bit, sRGB-encoded image
@@ -191,6 +196,8 @@ namespace Strada
 			float ViewDepth = 0.0f;
 			AABB WorldBounds;
 			bool CastShadows = true;
+			// Inside the camera's view: drawn by its passes (items outside it are kept only as shadow casters).
+			bool InView = true;
 			// Picking ID with ShaderInterop::EntityIdSelectedBit for selected meshes; 0 when not pickable.
 			uint32_t EntityId = 0;
 			// Resolved before recording (resource creation uploads through its own command list).
@@ -239,6 +246,8 @@ namespace Strada
 		};
 
 		void CreateTargets();
+		// Marks the items inside the camera's view and drops the others, except shadow casters while shadows are drawn.
+		void CullToView();
 		void UpdateFrameBindings(FrameTextures const& textures);
 		nvrhi::IGraphicsPipeline* GetMeshPipeline(bool blend, bool doubleSided);
 		nvrhi::IGraphicsPipeline* GetShadowPipeline(bool masked, bool doubleSided);

@@ -31,6 +31,7 @@ add_executable(StradaTests
     Source/Core/WindowTests.cpp
     Source/GpuTestUtilities.h
     Source/Math/AABBTests.cpp
+    Source/Math/FrustumTests.cpp
     Source/Math/MathTests.cpp
     Source/Physics/PhysicsSceneTests.cpp
     Source/Physics/PhysicsTestUtilities.h

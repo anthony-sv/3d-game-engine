@@ -6,6 +6,7 @@
 #include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Math/Frustum.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/ShaderLibrary.h"
 #include "Strada/Renderer/EnvironmentMap.h"
@@ -1376,10 +1377,40 @@ namespace Strada
 		}
 	}
 
+	void SceneRenderer::CullToView()
+	{
+		Frustum const frustum(m_Camera.View, m_Camera.Projection, m_Camera.MaxDistance);
+		for (std::vector<DrawItem>* items : {&m_OpaqueItems, &m_BlendItems})
+		{
+			for (DrawItem& item : *items)
+			{
+				item.InView = frustum.Intersects(item.WorldBounds);
+				m_Statistics.Culled += item.InView ? 0u : 1u;
+			}
+		}
+		// Casters outside the view can still shadow what it shows; the shadow passes cull them against each light's volume.
+		// Blended materials cast no shadows, and nothing else outside the view needs its resources prepared.
+		bool const shadows = m_Settings.Shadows && (m_ShadowedDirectionalLight >= 0 || !m_LocalShadowLights.empty());
+		std::erase_if(m_OpaqueItems,
+		              [shadows](DrawItem const& item)
+		              {
+						  return !item.InView && !(shadows && item.CastShadows);
+					  });
+		std::erase_if(m_BlendItems,
+		              [](DrawItem const& item)
+		              {
+						  return !item.InView;
+					  });
+	}
+
 	void SceneRenderer::DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items, nvrhi::IFramebuffer* framebuffer)
 	{
 		for (DrawItem const& item : items)
 		{
+			if (!item.InView)
+			{
+				continue;
+			}
 			GpuMesh const* mesh = item.GpuData;
 			nvrhi::GraphicsState state;
 			state.pipeline = item.Pipeline;
@@ -1416,6 +1447,7 @@ namespace Strada
 			CreateTargets();
 		}
 		m_Statistics.Lights = static_cast<uint32_t>(m_Lights.size());
+		CullToView();
 
 		// Front to back for opaque geometry (early depth rejection), back to front for blending.
 		std::sort(m_OpaqueItems.begin(), m_OpaqueItems.end(),
@@ -1615,7 +1647,7 @@ namespace Strada
 		{
 			for (DrawItem const& item : items)
 			{
-				if (item.EntityIdPipeline == nullptr)
+				if (!item.InView || item.EntityIdPipeline == nullptr)
 				{
 					continue;
 				}

@@ -23,6 +23,8 @@ Read `Docs/Architecture.md` §5–6 and `Strada/Source/Strada/Renderer/SceneRend
 
 - Never create or upload GPU resources while a command list is open: NVRHI allows one open immediate command list, and
   `Renderer` caches upload through their own. Resolve resources first (see `SceneRenderer::PrepareItems`).
+- Draw lists keep shadow casters outside the camera's view (`CullToView`): passes that render from the camera skip items
+  whose `InView` is false; passes that render from somewhere else (shadow views) cull against their own volume.
 - Per-frame data goes in volatile constant buffers or buffers written at the start of the frame's command list.
 - Keep render targets as members so clears (which NVRHI does not track) never release a texture in use.
 

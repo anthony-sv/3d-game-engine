@@ -142,6 +142,29 @@ TEST_CASE("SceneRenderer: every light type casts shadows")
 	}
 }
 
+TEST_CASE("SceneRenderer: casters outside the view still cast shadows")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+
+	for (ShadowLight const light : {ShadowLight::Directional, ShadowLight::Spot, ShadowLight::Point})
+	{
+		CAPTURE(static_cast<int>(light));
+		ShadowScene scene(light);
+		// Above the top of the view, still below the local lights.
+		scene.Caster.GetComponent<TransformComponent>().Translation = {0.0f, 3.1f, 0.0f};
+		float const shadowed = scene.SampleUnderCaster(renderer);
+		CHECK(renderer.GetStatistics().Culled == 1);
+		scene.Caster.GetComponent<MeshComponent>().CastShadows = false;
+		float const lit = scene.SampleUnderCaster(renderer);
+		CHECK(renderer.GetStatistics().Culled == 1);
+		CHECK(lit > 60.0f);
+		CHECK(shadowed < lit * 0.25f);
+	}
+}
+
 TEST_CASE("SceneRenderer: shadows follow mesh, material and scene settings")
 {
 	ST_REQUIRE_GPU();

@@ -82,6 +82,8 @@ set(STRADA_ASSET_SOURCES
 set(STRADA_MATH_SOURCES
     Source/Strada/Math/AABB.cpp
     Source/Strada/Math/AABB.h
+    Source/Strada/Math/Frustum.cpp
+    Source/Strada/Math/Frustum.h
     Source/Strada/Math/Math.cpp
     Source/Strada/Math/Math.h
 )

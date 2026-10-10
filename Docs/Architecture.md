@@ -169,6 +169,13 @@ recording because uploads submit their own command lists. Bindings: set 0 = fram
 structured buffer, material sampler, per-draw push constants (model + normal matrix, 128 bytes); set 1 = material.
 Structures shared with HLSL live in `Strada/Shaders/Include/RendererInterop.h`.
 
+Visibility: `EndScene` tests the world bounds of every submitted submesh against the camera's `Frustum`
+(`Math/Frustum.h`), built from its view-projection and limited to `SceneRendererCamera::MaxDistance` (the camera
+component's far distance; unlimited for the editor camera). Submeshes outside it skip the main, transparent and
+entity-ID passes and are not even prepared, unless they cast shadows that the frame draws: casters outside the view can
+shadow what it shows, so the shadow pass culls them separately, against each cascade's projection or each local light's
+range. `SceneRendererStatistics::Culled` counts them.
+
 Implemented so far: forward PBR (opaque front to back, then blended back to front) with image-based lighting
 (split-sum specular with Fdez-Aguera multiple-scattering compensation; a uniform ambient color through the same terms
 when the sky light has no environment), the sky pass, and the tonemap pass (with dithering and sRGB encoding into

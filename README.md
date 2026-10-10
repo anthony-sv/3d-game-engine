@@ -20,7 +20,7 @@ an exporter for distributable games.
 
 - **Renderer**: Vulkan (MoltenVK on macOS) through NVRHI; PBR metallic-roughness materials, image-based lighting from
   HDRIs (`strada hdri <id>` imports one from [Poly Haven](https://polyhaven.com/hdris)), soft cascaded shadow maps,
-  GTAO ambient occlusion, HDR pipeline with bloom and tonemapping.
+  GTAO ambient occlusion, HDR pipeline with bloom and tonemapping, frustum culling.
 - **Scene**: EnTT-based entities and components, hierarchies, prefabs, JSON scene files.
 - **Assets**: glTF/GLB, FBX and OBJ import with materials and textures.
 - **Physics**: Jolt Physics, authored through components and controlled from scripts.
