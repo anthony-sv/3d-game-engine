@@ -387,7 +387,9 @@ project's ignored layer pairs never collide. An entity's colliders form one comp
 world scale (mirroring is ignored); triangle-mesh colliders on dynamic bodies use the mesh's convex hull. Friction
 (geometric mean), restitution (maximum) and triggers are applied per contact by the contact listener, so one entity
 can mix solid and trigger colliders. The listener, called on Jolt's worker threads, turns sub-shape contacts into one
-enter and one exit event per entity pair and contact kind; removing a body ends its contacts with exit events. Jolt is
+enter and one exit event per entity pair and contact kind; removing a body ends its contacts with exit events. Jolt
+drops the contacts of bodies that fall asleep and finds them again when they wake up; such contacts persist (no exit
+while asleep, no second enter on waking) and end only when the awake bodies no longer touch. Jolt is
 built at the SSE4.2 baseline (its instruction-set flags reach the engine sources that include it) with its asserts,
 routed to the engine log, in Debug builds only.
 

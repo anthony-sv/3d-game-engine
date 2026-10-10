@@ -105,10 +105,17 @@ TEST_CASE("PhysicsScene: dynamic bodies fall, land on static ground and fall asl
 	                    {
 							return event.Type == ContactEventType::CollisionEnter;
 						}) == 1);
+	// Falling asleep on the ground does not end the contact.
+	CHECK_FALSE(Testing::HasEvent(events, ContactEventType::CollisionExit, GroundId, BallId));
 
-	// A sleeping body wakes up when pushed.
-	world->AddForce(BallId, {0.0f, 5.0f, 0.0f}, ForceMode::Impulse);
+	// A sleeping body wakes up when pushed; leaving the ground ends the contact and landing again starts a new one.
+	world->AddForce(BallId, {0.0f, 4.0f, 0.0f}, ForceMode::VelocityChange);
 	CHECK_FALSE(world->IsSleeping(BallId));
+	std::vector<ContactEvent> const hop = Simulate(*world, 2.5f);
+	REQUIRE(hop.size() == 2);
+	CHECK(hop[0].Type == ContactEventType::CollisionExit);
+	CHECK(hop[1].Type == ContactEventType::CollisionEnter);
+	CHECK(world->IsSleeping(BallId));
 }
 
 TEST_CASE("PhysicsScene: ignored layer pairs pass through each other and triggers only report overlaps")
@@ -137,6 +144,16 @@ TEST_CASE("PhysicsScene: ignored layer pairs pass through each other and trigger
 	CHECK_FALSE(Testing::HasEvent(events, ContactEventType::CollisionEnter, OtherId, BallId));
 	CHECK(Testing::HasEvent(events, ContactEventType::CollisionEnter, GroundId, BallId));
 	CHECK(HeightOf(*triggers, BallId) == doctest::Approx(0.5f).epsilon(0.05));
+
+	// A body that comes to rest inside a trigger stays inside it while it sleeps.
+	Scope<PhysicsScene> resting = CreateWorld();
+	REQUIRE(resting->AddBody(Ground()).IsOk());
+	REQUIRE(resting->AddBody(MakeBody(OtherId, RigidBodyType::Static, {0.0f, 1.0f, 0.0f}, Box({2.0f, 1.5f, 2.0f}, true))).IsOk());
+	REQUIRE(resting->AddBody(MakeBody(BallId, RigidBodyType::Dynamic, {0.0f, 5.0f, 0.0f}, Sphere(0.5f))).IsOk());
+	std::vector<ContactEvent> const restingEvents = Simulate(*resting, 3.0f);
+	CHECK(resting->IsSleeping(BallId));
+	CHECK(Testing::HasEvent(restingEvents, ContactEventType::TriggerEnter, OtherId, BallId));
+	CHECK_FALSE(Testing::HasEvent(restingEvents, ContactEventType::TriggerExit, OtherId, BallId));
 }
 
 TEST_CASE("PhysicsScene: kinematic bodies follow their targets and push dynamic bodies")

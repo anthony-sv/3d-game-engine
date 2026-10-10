@@ -27,8 +27,11 @@
 #include <array>
 #include <cmath>
 #include <mutex>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -179,6 +182,10 @@ namespace Strada
 
 		// Turns Jolt's per sub-shape contacts into enter/exit events per entity pair, applies per-collider friction and
 		// restitution, and makes contacts with trigger colliders sensor contacts. Jolt calls it from its worker threads.
+		//
+		// Jolt removes the contacts of bodies that fall asleep (and finds them again when they wake up). Those contacts
+		// persist here: a removed contact whose bodies are all inactive after the step goes dormant instead of ending,
+		// resumes without a new enter event when Jolt finds it again, and ends once its bodies are active without it.
 		class ContactCollector final : public JPH::ContactListener
 		{
 		public:
@@ -194,6 +201,10 @@ namespace Strada
 				JPH::SubShapeIDPair const pair(first.GetID(), manifold.mSubShapeID1, second.GetID(), manifold.mSubShapeID2);
 				std::scoped_lock const lock(m_Mutex);
 				m_ActivePairs[pair] = settings.mIsSensor;
+				if (m_DormantPairs.erase(pair) > 0)
+				{
+					return;
+				}
 				PairState& state = m_PairStates[BodyPairKey(first.GetID(), second.GetID(), settings.mIsSensor)];
 				if (state.Count++ == 0)
 				{
@@ -213,34 +224,74 @@ namespace Strada
 				ApplyMaterials(first, second, manifold, settings);
 			}
 
+			// The bodies cannot be read here (to tell sleep from separation): FinishStep decides.
 			void OnContactRemoved(JPH::SubShapeIDPair const& pair) override
 			{
 				std::scoped_lock const lock(m_Mutex);
-				auto const active = m_ActivePairs.find(pair);
-				if (active == m_ActivePairs.end())
+				m_RemovedPairs.push_back(pair);
+			}
+
+			// After each step, on the main thread.
+			void FinishStep(JPH::BodyInterface const& bodies)
+			{
+				std::scoped_lock const lock(m_Mutex);
+				for (JPH::SubShapeIDPair const& pair : m_RemovedPairs)
 				{
-					return;
+					auto const active = m_ActivePairs.find(pair);
+					if (active == m_ActivePairs.end())
+					{
+						continue;
+					}
+					bool const trigger = active->second;
+					m_ActivePairs.erase(active);
+					if (IsAsleep(bodies, pair))
+					{
+						m_DormantPairs.emplace(pair, trigger);
+					}
+					else
+					{
+						Release(pair, trigger);
+					}
 				}
-				bool const trigger = active->second;
-				m_ActivePairs.erase(active);
-				auto const state = m_PairStates.find(BodyPairKey(pair.GetBody1ID(), pair.GetBody2ID(), trigger));
-				if (state != m_PairStates.end() && --state->second.Count == 0)
+				m_RemovedPairs.clear();
+
+				// Awake again without Jolt finding the contact: the bodies have moved apart.
+				for (auto dormant = m_DormantPairs.begin(); dormant != m_DormantPairs.end();)
 				{
-					m_Events.push_back({trigger ? ContactEventType::TriggerExit : ContactEventType::CollisionExit, state->second.First,
-					                    state->second.Second});
-					m_PairStates.erase(state);
+					if (IsAsleep(bodies, dormant->first))
+					{
+						++dormant;
+						continue;
+					}
+					Release(dormant->first, dormant->second);
+					dormant = m_DormantPairs.erase(dormant);
 				}
+
+				// The events of a step arrive in thread scheduling order; they are simultaneous, so they are sorted for an
+				// order that is the same on every run.
+				SortEvents(m_StepEventsBegin);
+				m_StepEventsBegin = m_Events.size();
 			}
 
 			// Ends the contacts of a removed body with exit events (Jolt does not report them).
 			void ForgetBody(JPH::BodyID body)
 			{
 				std::scoped_lock const lock(m_Mutex);
+				auto const involvesBody = [body](JPH::SubShapeIDPair const& pair)
+				{
+					return pair.GetBody1ID() == body || pair.GetBody2ID() == body;
+				};
 				std::erase_if(m_ActivePairs,
-				              [body](auto const& entry)
+				              [&involvesBody](auto const& entry)
 				              {
-								  return entry.first.GetBody1ID() == body || entry.first.GetBody2ID() == body;
+								  return involvesBody(entry.first);
 							  });
+				std::erase_if(m_DormantPairs,
+				              [&involvesBody](auto const& entry)
+				              {
+								  return involvesBody(entry.first);
+							  });
+				std::erase_if(m_RemovedPairs, involvesBody);
 				for (auto it = m_PairStates.begin(); it != m_PairStates.end();)
 				{
 					PairState const& state = it->second;
@@ -255,11 +306,15 @@ namespace Strada
 						++it;
 					}
 				}
+				// Before the next step's events, in a fixed order (the map's order is not).
+				SortEvents(m_StepEventsBegin);
+				m_StepEventsBegin = m_Events.size();
 			}
 
 			std::vector<ContactEvent> TakeEvents()
 			{
 				std::scoped_lock const lock(m_Mutex);
+				m_StepEventsBegin = 0;
 				return std::exchange(m_Events, {});
 			}
 
@@ -273,6 +328,34 @@ namespace Strada
 				JPH::BodyID SecondBody;
 				bool Trigger = false;
 			};
+
+			void SortEvents(size_t begin)
+			{
+				std::sort(m_Events.begin() + static_cast<ptrdiff_t>(begin), m_Events.end(),
+				          [](ContactEvent const& a, ContactEvent const& b)
+				          {
+							  return std::tuple(a.First.GetValue(), a.Second.GetValue(), a.Type) <
+					                 std::tuple(b.First.GetValue(), b.Second.GetValue(), b.Type);
+						  });
+			}
+
+			// Static bodies are never active: a pair is asleep when none of its bodies is.
+			static bool IsAsleep(JPH::BodyInterface const& bodies, JPH::SubShapeIDPair const& pair)
+			{
+				return !bodies.IsActive(pair.GetBody1ID()) && !bodies.IsActive(pair.GetBody2ID());
+			}
+
+			// Ends one sub-shape contact; the entity pair's contact ends with its last one.
+			void Release(JPH::SubShapeIDPair const& pair, bool trigger)
+			{
+				auto const state = m_PairStates.find(BodyPairKey(pair.GetBody1ID(), pair.GetBody2ID(), trigger));
+				if (state != m_PairStates.end() && --state->second.Count == 0)
+				{
+					m_Events.push_back({trigger ? ContactEventType::TriggerExit : ContactEventType::CollisionExit, state->second.First,
+					                    state->second.Second});
+					m_PairStates.erase(state);
+				}
+			}
 
 			ColliderMaterial const* FindMaterial(JPH::Body const& body, JPH::SubShapeID const& subShape) const
 			{
@@ -298,8 +381,15 @@ namespace Strada
 			std::mutex m_Mutex;
 			// Sub-shape pairs in contact, and whether the contact is a trigger contact.
 			std::unordered_map<JPH::SubShapeIDPair, bool, SubShapePairHash> m_ActivePairs;
+			// Contacts of sleeping bodies, which Jolt no longer reports.
+			std::unordered_map<JPH::SubShapeIDPair, bool, SubShapePairHash> m_DormantPairs;
+			// Removed during the current step, classified by FinishStep.
+			std::vector<JPH::SubShapeIDPair> m_RemovedPairs;
+			// Every sub-shape contact (active and dormant) counts towards its entity pair.
 			std::unordered_map<BodyPairKey, PairState, BodyPairKeyHash> m_PairStates;
 			std::vector<ContactEvent> m_Events;
+			// Where the events of the current step start (earlier ones are sorted).
+			size_t m_StepEventsBegin = 0;
 		};
 
 		struct BodyRecord
@@ -658,6 +748,7 @@ namespace Strada
 		{
 			ST_CORE_WARN("The physics step ran out of space (error flags {:#x}); some contacts were dropped", static_cast<uint32_t>(error));
 		}
+		data.Contacts.FinishStep(data.System.GetBodyInterface());
 	}
 
 	std::vector<BodyTransform> PhysicsScene::GetActiveBodyTransforms() const
