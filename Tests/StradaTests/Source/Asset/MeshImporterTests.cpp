@@ -8,6 +8,9 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cmath>
+#include <string>
+#include <string_view>
+#include <vector>
 
 using namespace Strada;
 using Strada::Testing::GltfTestBuilder;
@@ -492,4 +495,130 @@ Connections:  {
 	REQUIRE(model.Materials.size() == 1);
 	CHECK(model.Materials[0].Name == "Green");
 	CHECK(glm::vec3(model.Materials[0].Data.BaseColor) == glm::vec3(0.0f, 1.0f, 0.0f));
+}
+
+TEST_CASE("MeshImporter: glTF data outside its buffers is refused before it is read")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const path = directory.GetPath() / "Ranges.gltf";
+	GltfTestBuilder builder;
+	builder.SetScene({builder.AddNode("Quad", builder.AddMesh("Quad", {MakeQuad()}))});
+	Json& document = builder.GetDocument();
+	Json& positions = document["accessors"][document["meshes"][0]["primitives"][0]["attributes"]["POSITION"].get<size_t>()];
+	Json& positionView = document["bufferViews"][positions["bufferView"].get<size_t>()];
+
+	auto const importError = [&]()
+	{
+		REQUIRE(builder.WriteGltf(path, true).IsOk());
+		Result<ImportedModel> const result = MeshImporter::Import(path);
+		REQUIRE(result.IsError());
+		return result.GetError();
+	};
+
+	SUBCASE("accessor beyond its view")
+	{
+		positions["count"] = 5;
+		CHECK(importError().find("accessor 0 reaches beyond its buffer view") != std::string::npos);
+	}
+	SUBCASE("accessor offset that overflows")
+	{
+		positions["byteOffset"] = 9223372036854775000ll;
+		CHECK(importError().find("accessor 0 reaches beyond its buffer view") != std::string::npos);
+	}
+	SUBCASE("view beyond its buffer")
+	{
+		positionView["byteLength"] = 1000000;
+		CHECK(importError().find("lies outside its buffer") != std::string::npos);
+	}
+	SUBCASE("view offset that overflows")
+	{
+		positionView["byteOffset"] = 9223372036854775000ll;
+		CHECK(importError().find("lies outside its buffer") != std::string::npos);
+	}
+	SUBCASE("sparse data beyond its views")
+	{
+		positions["sparse"] = Json::object({{"count", 4},
+		                                    {"indices", Json::object({{"bufferView", 0}, {"byteOffset", 40}, {"componentType", 5125}})},
+		                                    {"values", Json::object({{"bufferView", 0}})}});
+		CHECK(importError().find("the sparse data of accessor 0") != std::string::npos);
+	}
+	SUBCASE("sparse values in an interleaved view")
+	{
+		// Two positions 24 bytes apart in the 48-byte view.
+		positionView["byteStride"] = 24;
+		positions["count"] = 2;
+		positions.erase("min");
+		positions.erase("max");
+		positions["sparse"] = Json::object({{"count", 1},
+		                                    {"indices", Json::object({{"bufferView", 0}, {"componentType", 5125}})},
+		                                    {"values", Json::object({{"bufferView", 0}})}});
+		CHECK(importError().find("sparse with interleaved data") != std::string::npos);
+	}
+}
+
+TEST_CASE("MeshImporter: models above the size limits fail before their geometry is built")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const path = directory.GetPath() / "Large.gltf";
+	// Accessors without buffer views read as zeros, so a small file can declare any amount of geometry.
+	GltfTestBuilder builder;
+	GltfTestBuilder::Primitive triangle = MakeQuad(false, false);
+	triangle.Indices = {0, 1, 2};
+	int const mesh = builder.AddMesh("Triangle", {triangle});
+	// Looked up on use: adding nodes moves the document's members.
+	auto const accessor = [&builder, mesh](char const* name) -> Json&
+	{
+		Json& document = builder.GetDocument();
+		Json const& primitive = document["meshes"][mesh]["primitives"][0];
+		size_t const index =
+			std::string_view(name) == "indices" ? primitive["indices"].get<size_t>() : primitive["attributes"][name].get<size_t>();
+		return document["accessors"][index];
+	};
+
+	auto const importError = [&]()
+	{
+		REQUIRE(builder.WriteGltf(path, true).IsOk());
+		Result<ImportedModel> const result = MeshImporter::Import(path);
+		REQUIRE(result.IsError());
+		return result.GetError();
+	};
+
+	SUBCASE("vertices")
+	{
+		builder.SetScene({builder.AddNode("Triangle", mesh)});
+		accessor("POSITION").erase("bufferView");
+		accessor("POSITION")["count"] = MeshImporter::MaxVertices + 2;
+		CHECK(importError().find("the model is too large") != std::string::npos);
+	}
+	SUBCASE("triangles")
+	{
+		builder.SetScene({builder.AddNode("Triangle", mesh)});
+		accessor("indices").erase("bufferView");
+		accessor("indices")["count"] = (MeshImporter::MaxTriangles + 1) * 3;
+		CHECK(importError().find("the model is too large") != std::string::npos);
+	}
+	SUBCASE("every node instance counts")
+	{
+		// One instance stays far below the limit; seventeen exceed it.
+		accessor("POSITION").erase("bufferView");
+		accessor("POSITION")["count"] = MeshImporter::MaxVertices / 16 + 2;
+		std::vector<int> nodes;
+		for (int instance = 0; instance < 17; instance++)
+		{
+			nodes.push_back(builder.AddNode("Instance", mesh, glm::vec3(static_cast<float>(instance), 0.0f, 0.0f)));
+		}
+		builder.SetScene(nodes);
+		CHECK(importError().find("the model is too large") != std::string::npos);
+	}
+}
+
+TEST_CASE("MeshImporter: empty OBJ material libraries are accepted")
+{
+	Testing::TemporaryDirectory directory;
+	WriteText(directory.GetPath() / "Empty.mtl", "");
+	WriteText(directory.GetPath() / "Triangle.obj", "mtllib Empty.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n");
+	Result<ImportedModel> imported = MeshImporter::Import(directory.GetPath() / "Triangle.obj");
+	REQUIRE_MESSAGE(imported.IsOk(), imported.GetError());
+	REQUIRE(imported.GetValue().Submeshes.size() == 1);
+	CHECK(imported.GetValue().Submeshes[0].IndexCount == 3);
 }

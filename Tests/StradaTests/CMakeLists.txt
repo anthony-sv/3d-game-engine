@@ -8,6 +8,7 @@ add_executable(StradaTests
     Source/Asset/AssetTypeTests.cpp
     Source/Asset/GltfTestBuilder.h
     Source/Asset/MeshFactoryTests.cpp
+    Source/Asset/MeshImporterFuzzTests.cpp
     Source/Asset/MeshImporterTests.cpp
     Source/Asset/MeshSourceTests.cpp
     Source/Asset/TrueTypeSanitizerTests.cpp
@@ -88,6 +89,9 @@ target_compile_definitions(StradaTests PRIVATE
     STRADA_TEST_FONTS_DIR="${imgui_SOURCE_DIR}/misc/fonts"
     # An Ogg Vorbis file from the pinned miniaudio sources (no encoder is at hand to make one).
     STRADA_TEST_OGG_PATH="${miniaudio_SOURCE_DIR}/data/48000-stereo.ogg"
+    # Models from the pinned ufbx and cgltf sources, seeds of the model import fuzz test.
+    STRADA_TEST_UFBX_DATA_DIR="${ufbx_SOURCE_DIR}/data"
+    STRADA_TEST_CGLTF_DATA_DIR="${cgltf_SOURCE_DIR}/fuzz/data"
     # Golden images and other test data.
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data"
     # The feature-test project, whose scenes must use every component.

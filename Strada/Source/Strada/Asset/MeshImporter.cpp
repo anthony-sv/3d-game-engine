@@ -35,6 +35,23 @@ namespace Strada
 			return lower;
 		}
 
+		Error MakeTooLargeError()
+		{
+			return MakeError("the model is too large: it has more than {} vertices or {} triangles with every node instance baked in",
+			                 MeshImporter::MaxVertices, MeshImporter::MaxTriangles);
+		}
+
+		// Adds `count` to `total` (at most `limit`) unless the sum would exceed `limit`.
+		[[nodiscard]] bool AddWithinLimit(uint64_t& total, uint64_t count, uint64_t limit)
+		{
+			if (count > limit - total)
+			{
+				return false;
+			}
+			total += count;
+			return true;
+		}
+
 		// Applies a node's world transform to imported geometry.
 		class GeometryTransform
 		{
@@ -120,11 +137,11 @@ namespace Strada
 					return {};
 				}
 
-				constexpr size_t MaxElements = std::numeric_limits<uint32_t>::max();
-				if (m_Model.Vertices.size() + geometry.Vertices.size() > MaxElements ||
-				    m_Model.Indices.size() + geometry.Indices.size() > MaxElements)
+				// The importers check the limits before building anything; welding can still split vertices (flat normals).
+				if (m_Model.Vertices.size() + geometry.Vertices.size() > MeshImporter::MaxVertices ||
+				    m_Model.Indices.size() + geometry.Indices.size() > MeshImporter::MaxTriangles * 3)
 				{
-					return Error{"the model is too large (more than 2^32 vertices or indices)"};
+					return MakeTooLargeError();
 				}
 
 				Submesh submesh;
@@ -265,6 +282,91 @@ namespace Strada
 			void operator()(cgltf_data* data) const { cgltf_free(data); }
 		};
 
+		// Whether `count` elements of `size` bytes, `stride` bytes apart and starting at `offset`, fit in `limit` bytes;
+		// computed without overflow, since every value comes from the file.
+		bool FitsElements(cgltf_size offset, cgltf_size stride, cgltf_size count, cgltf_size size, cgltf_size limit)
+		{
+			if (offset > limit)
+			{
+				return false;
+			}
+			if (count == 0)
+			{
+				return true;
+			}
+			if (size > limit - offset)
+			{
+				return false;
+			}
+			return stride == 0 || count - 1 <= (limit - offset - size) / stride;
+		}
+
+		// Runs before cgltf_validate: its range arithmetic is not overflow-safe, and it reads sparse indices before it checks
+		// the buffer views they lie in.
+		Result<void> CheckGltfRanges(cgltf_data const& data)
+		{
+			for (size_t i = 0; i < data.buffer_views_count; i++)
+			{
+				cgltf_buffer_view const& view = data.buffer_views[i];
+				if (view.buffer == nullptr || !FitsElements(view.offset, 1, view.size, 1, view.buffer->size))
+				{
+					return MakeError("buffer view {} lies outside its buffer", i);
+				}
+			}
+			for (size_t i = 0; i < data.accessors_count; i++)
+			{
+				cgltf_accessor const& accessor = data.accessors[i];
+				cgltf_size const elementSize = cgltf_calc_size(accessor.type, accessor.component_type);
+				if (elementSize == 0)
+				{
+					// An invalid type, which cgltf_validate refuses.
+					continue;
+				}
+				if (accessor.buffer_view != nullptr &&
+				    !FitsElements(accessor.offset, accessor.stride, accessor.count, elementSize, accessor.buffer_view->size))
+				{
+					return MakeError("accessor {} reaches beyond its buffer view", i);
+				}
+				if (accessor.is_sparse)
+				{
+					// glTF packs sparse values tightly, but cgltf steps through them with the accessor's stride.
+					if (accessor.stride != elementSize)
+					{
+						return MakeError("accessor {} is sparse with interleaved data, which is not supported", i);
+					}
+					cgltf_accessor_sparse const& sparse = accessor.sparse;
+					cgltf_size const indexSize = cgltf_component_size(sparse.indices_component_type);
+					bool const fits =
+						sparse.count <= accessor.count && sparse.indices_buffer_view != nullptr && sparse.values_buffer_view != nullptr &&
+						FitsElements(sparse.indices_byte_offset, indexSize, sparse.count, indexSize, sparse.indices_buffer_view->size) &&
+						FitsElements(sparse.values_byte_offset, elementSize, sparse.count, elementSize, sparse.values_buffer_view->size);
+					if (!fits)
+					{
+						return MakeError("the sparse data of accessor {} reaches beyond its buffer views", i);
+					}
+				}
+			}
+			return {};
+		}
+
+		bool IsTriangleMode(cgltf_primitive_type type)
+		{
+			return type == cgltf_primitive_type_triangles || type == cgltf_primitive_type_triangle_strip ||
+			       type == cgltf_primitive_type_triangle_fan;
+		}
+
+		cgltf_accessor const* FindPositions(cgltf_primitive const& primitive)
+		{
+			for (size_t i = 0; i < primitive.attributes_count; i++)
+			{
+				if (primitive.attributes[i].type == cgltf_attribute_type_position)
+				{
+					return primitive.attributes[i].data;
+				}
+			}
+			return nullptr;
+		}
+
 		std::vector<float> ReadGltfFloats(cgltf_accessor const* accessor, size_t components)
 		{
 			if (accessor == nullptr || cgltf_num_components(accessor->type) != components)
@@ -291,6 +393,25 @@ namespace Strada
 
 			Result<void> Import()
 			{
+				std::vector<cgltf_node const*> const nodes = CollectMeshNodes();
+				if (Result<void> size = CheckSize(nodes); !size)
+				{
+					return size;
+				}
+				for (cgltf_node const* node : nodes)
+				{
+					if (Result<void> result = ImportNode(*node); !result)
+					{
+						return result;
+					}
+				}
+				return {};
+			}
+
+		private:
+			// The nodes with meshes, in import order.
+			std::vector<cgltf_node const*> CollectMeshNodes() const
+			{
 				std::vector<cgltf_node const*> roots;
 				cgltf_scene const* scene = m_Data.scene != nullptr ? m_Data.scene : (m_Data.scenes_count > 0 ? &m_Data.scenes[0] : nullptr);
 				if (scene != nullptr)
@@ -312,6 +433,7 @@ namespace Strada
 				}
 
 				// Iterative traversal: hierarchies can be deep, and a visited set guards against malformed graphs.
+				std::vector<cgltf_node const*> nodes;
 				std::vector<cgltf_node const*> stack(roots.rbegin(), roots.rend());
 				std::unordered_set<cgltf_node const*> visited;
 				while (!stack.empty())
@@ -322,19 +444,48 @@ namespace Strada
 					{
 						continue;
 					}
-					if (Result<void> result = ImportNode(*node); !result)
+					if (node->mesh != nullptr)
 					{
-						return result;
+						nodes.push_back(node);
 					}
 					for (size_t i = node->children_count; i > 0; i--)
 					{
 						stack.push_back(node->children[i - 1]);
 					}
 				}
+				return nodes;
+			}
+
+			// Counts the geometry of every mesh instance before any of it is read: the counts come from the file, and a node
+			// can instance a large mesh many times.
+			static Result<void> CheckSize(std::vector<cgltf_node const*> const& nodes)
+			{
+				uint64_t vertices = 0;
+				uint64_t triangles = 0;
+				for (cgltf_node const* node : nodes)
+				{
+					for (size_t i = 0; i < node->mesh->primitives_count; i++)
+					{
+						cgltf_primitive const& primitive = node->mesh->primitives[i];
+						cgltf_accessor const* positions = FindPositions(primitive);
+						if (!IsTriangleMode(primitive.type) || positions == nullptr)
+						{
+							continue;
+						}
+						uint64_t const elements = primitive.indices != nullptr ? primitive.indices->count : positions->count;
+						uint64_t const primitiveTriangles = primitive.type == cgltf_primitive_type_triangles ? elements / 3
+						                                    : elements >= 3                                  ? elements - 2
+						                                                                                     : 0;
+						if (!AddWithinLimit(vertices, positions->count, MeshImporter::MaxVertices) ||
+						    !AddWithinLimit(triangles, primitiveTriangles, MeshImporter::MaxTriangles))
+						{
+							return MakeTooLargeError();
+						}
+					}
+				}
 				return {};
 			}
 
-		private:
 			Result<void> ImportNode(cgltf_node const& node)
 			{
 				if (node.mesh == nullptr)
@@ -382,8 +533,7 @@ namespace Strada
 				std::string const name =
 					fmt::format("{}#{}", mesh.name != nullptr ? mesh.name : (node.name != nullptr ? node.name : "Mesh"), primitiveIndex);
 
-				if (primitive.type != cgltf_primitive_type_triangles && primitive.type != cgltf_primitive_type_triangle_strip &&
-				    primitive.type != cgltf_primitive_type_triangle_fan)
+				if (!IsTriangleMode(primitive.type))
 				{
 					m_Builder.Warn("point and line primitives are not supported and were skipped");
 					return {};
@@ -393,7 +543,8 @@ namespace Strada
 					m_Builder.Warn("morph targets are not supported; the base geometry was imported");
 				}
 
-				cgltf_accessor const* positions = nullptr;
+				// The same accessor CheckSize counted.
+				cgltf_accessor const* const positions = FindPositions(primitive);
 				cgltf_accessor const* normals = nullptr;
 				cgltf_accessor const* tangents = nullptr;
 				cgltf_accessor const* texCoords = nullptr;
@@ -402,9 +553,6 @@ namespace Strada
 					cgltf_attribute const& attribute = primitive.attributes[i];
 					switch (attribute.type)
 					{
-						case cgltf_attribute_type_position:
-							positions = attribute.data;
-							break;
 						case cgltf_attribute_type_normal:
 							normals = attribute.data;
 							break;
@@ -771,6 +919,10 @@ namespace Strada
 			{
 				return MakeError("failed to load buffers: {}", GltfResultToString(result));
 			}
+			if (Result<void> ranges = CheckGltfRanges(*data); !ranges)
+			{
+				return MakeError("validation failed: {}", ranges.GetError());
+			}
 			result = cgltf_validate(data.get());
 			if (result != cgltf_result_success)
 			{
@@ -828,6 +980,17 @@ namespace Strada
 
 			Result<void> Import()
 			{
+				// Every face corner becomes a vertex before welding, so the triangles bound what the instances build.
+				uint64_t triangles = 0;
+				for (size_t i = 0; i < m_Scene.nodes.count; i++)
+				{
+					ufbx_node const* node = m_Scene.nodes.data[i];
+					if (node->mesh != nullptr && !AddWithinLimit(triangles, node->mesh->num_triangles, MeshImporter::MaxTriangles))
+					{
+						return MakeTooLargeError();
+					}
+				}
+
 				for (size_t i = 0; i < m_Scene.nodes.count; i++)
 				{
 					ufbx_node const* node = m_Scene.nodes.data[i];
@@ -1065,11 +1228,11 @@ namespace Strada
 			std::unordered_map<ufbx_texture const*, int32_t> m_Textures;
 		};
 
-		// Opens the model itself and OBJ material libraries through FileSystem (UTF-8 paths); nothing else (FBX geometry
-		// caches and other external references are never followed).
+		// Opens OBJ material libraries through FileSystem (UTF-8 paths); nothing else (the model is loaded from memory, and
+		// FBX geometry caches and other external references are never followed).
 		bool OpenUfbxFile(void*, ufbx_stream* stream, char const* path, size_t pathLength, ufbx_open_file_info const* info)
 		{
-			if (info->type != UFBX_OPEN_FILE_MAIN_MODEL && info->type != UFBX_OPEN_FILE_OBJ_MTL)
+			if (info->type != UFBX_OPEN_FILE_OBJ_MTL)
 			{
 				return false;
 			}
@@ -1078,15 +1241,32 @@ namespace Strada
 			{
 				return false;
 			}
-			// The memory stream copies the data, so the buffer may be released afterwards.
+			// The memory stream copies the data, so the buffer may be released afterwards. An empty file has no data pointer,
+			// which ufbx does not accept even for zero bytes.
+			static constexpr uint8_t EmptyFile = 0;
+			Buffer const& data = file.GetValue();
+			void const* bytes = data.GetSize() > 0 ? data.GetData() : &EmptyFile;
 			ufbx_open_memory_opts memoryOptions = {};
 			ufbx_error error = {};
-			return ufbx_open_memory(stream, file.GetValue().GetData(), file.GetValue().GetSize(), &memoryOptions, &error);
+			return ufbx_open_memory(stream, bytes, data.GetSize(), &memoryOptions, &error);
 		}
 
 		Result<void> ImportUfbx(std::filesystem::path const& path, bool isObj, ModelBuilder& builder)
 		{
+			Result<Buffer> file = FileSystem::ReadBinaryFile(path);
+			if (!file)
+			{
+				return Error{file.GetError()};
+			}
+
 			ufbx_load_opts options = {};
+			// ufbx needs a few times a model's size (up to 23 times for the stress models of its own test suite); the limit
+			// bounds what a damaged file can make it allocate.
+			constexpr uint64_t BaseMemoryLimit = 256ull << 20;
+			constexpr uint64_t MemoryLimitPerFileByte = 64;
+			size_t const memoryLimit = static_cast<size_t>(BaseMemoryLimit + file.GetValue().GetSize() * MemoryLimitPerFileByte);
+			options.temp_allocator.memory_limit = memoryLimit;
+			options.result_allocator.memory_limit = memoryLimit;
 			options.target_axes = ufbx_axes_right_handed_y_up;
 			options.target_unit_meters = 1.0f;
 			options.generate_missing_normals = true;
@@ -1097,9 +1277,12 @@ namespace Strada
 			options.load_external_files = isObj;
 			options.ignore_missing_external_files = true;
 
+			// Material libraries resolve relative to the model.
 			std::string const pathUtf8 = FileSystem::PathToUtf8(path);
+			options.filename = ufbx_string{pathUtf8.data(), pathUtf8.size()};
 			ufbx_error error = {};
-			std::unique_ptr<ufbx_scene, UfbxSceneDeleter> scene(ufbx_load_file_len(pathUtf8.data(), pathUtf8.size(), &options, &error));
+			std::unique_ptr<ufbx_scene, UfbxSceneDeleter> scene(
+				ufbx_load_memory(file.GetValue().GetData(), file.GetValue().GetSize(), &options, &error));
 			if (scene == nullptr)
 			{
 				return Error{error.description.length > 0 ? ToString(error.description) : "failed to load the file"};

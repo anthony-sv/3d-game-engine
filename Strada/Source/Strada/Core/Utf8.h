@@ -18,5 +18,11 @@ namespace Strada
 
 		// Every code point of the text.
 		std::u32string Decode(std::string_view text);
+
+		// Whether the text is well-formed UTF-8 (no sequence decodes to a ReplacementCharacter it does not encode).
+		bool IsValid(std::string_view text);
+
+		// The text with every invalid byte replaced by the encoded ReplacementCharacter; valid text is returned unchanged.
+		std::string Sanitize(std::string_view text);
 	}
 }

@@ -3,6 +3,7 @@
 
 #include "Strada/Core/Platform.h"
 #include "Strada/Core/UUID.h"
+#include "Strada/Core/Utf8.h"
 
 #include <algorithm>
 #include <array>
@@ -27,6 +28,26 @@ namespace Strada
 {
 	namespace
 	{
+#if defined(ST_PLATFORM_WINDOWS)
+		// Unlike std::filesystem's conversion, which throws, unpaired surrogates (valid in Windows file names) become
+		// U+FFFD.
+		std::string WideToUtf8(std::wstring_view text)
+		{
+			if (text.empty())
+			{
+				return {};
+			}
+			int const wideLength = static_cast<int>(text.size());
+			int const length = ::WideCharToMultiByte(CP_UTF8, 0, text.data(), wideLength, nullptr, 0, nullptr, nullptr);
+			std::string utf8(static_cast<size_t>(std::max(length, 0)), '\0');
+			if (length > 0)
+			{
+				::WideCharToMultiByte(CP_UTF8, 0, text.data(), wideLength, utf8.data(), length, nullptr, nullptr);
+			}
+			return utf8;
+		}
+#endif
+
 		Result<void> WriteFileAtomically(std::filesystem::path const& path, void const* data, size_t size)
 		{
 			std::error_code errorCode;
@@ -321,19 +342,37 @@ namespace Strada
 
 	std::filesystem::path FileSystem::PathFromUtf8(std::string_view utf8)
 	{
+		// The conversion to the native encoding throws for invalid UTF-8 on Windows, and paths come from user data.
+		if (!Utf8::IsValid(utf8))
+		{
+			std::string const sanitized = Utf8::Sanitize(utf8);
+			return std::filesystem::path(std::u8string(reinterpret_cast<char8_t const*>(sanitized.data()), sanitized.size()));
+		}
 		return std::filesystem::path(std::u8string(reinterpret_cast<char8_t const*>(utf8.data()), utf8.size()));
 	}
 
 	std::string FileSystem::PathToUtf8(std::filesystem::path const& path)
 	{
+#if defined(ST_PLATFORM_WINDOWS)
+		std::wstring text = path.native();
+		std::replace(text.begin(), text.end(), L'\\', L'/');
+		return WideToUtf8(text);
+#else
 		std::u8string const text = path.generic_u8string();
 		return std::string(reinterpret_cast<char const*>(text.data()), text.size());
+#endif
 	}
 
 	std::string FileSystem::PathToNativeUtf8(std::filesystem::path const& path)
 	{
-		std::u8string const text = std::filesystem::path(path).make_preferred().u8string();
+#if defined(ST_PLATFORM_WINDOWS)
+		std::wstring text = path.native();
+		std::replace(text.begin(), text.end(), L'/', L'\\');
+		return WideToUtf8(text);
+#else
+		std::u8string const text = path.u8string();
 		return std::string(reinterpret_cast<char const*>(text.data()), text.size());
+#endif
 	}
 
 	std::filesystem::path FileSystem::GetExecutablePath()

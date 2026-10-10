@@ -130,6 +130,21 @@ TEST_CASE("FileSystem: UTF-8 path conversion handles non-ASCII names")
 	CHECK(roundTrip == utf8Name);
 }
 
+TEST_CASE("FileSystem: invalid UTF-8 and unpaired surrogates convert with replacement characters")
+{
+	// Path strings come from user files, which may hold any bytes.
+	std::filesystem::path const path = FileSystem::PathFromUtf8("Bad\xFF/Name\xC3.png");
+	CHECK(FileSystem::PathToUtf8(path) == "Bad\xEF\xBF\xBD/Name\xEF\xBF\xBD.png");
+#if defined(ST_PLATFORM_WINDOWS)
+	// Windows file names may hold unpaired UTF-16 surrogates.
+	std::filesystem::path const surrogate(std::wstring{L'A', wchar_t(0xD800), L'B'});
+	CHECK(FileSystem::PathToUtf8(surrogate) == "A\xEF\xBF\xBD"
+	                                           "B");
+	CHECK(FileSystem::PathToNativeUtf8(std::filesystem::path(L"Dir/") / surrogate) == "Dir\\A\xEF\xBF\xBD"
+	                                                                                  "B");
+#endif
+}
+
 TEST_CASE("FileSystem: paths are written with forward slashes and given to programs natively")
 {
 	std::filesystem::path const path = std::filesystem::path("Assets") / "Textures" / "Brick.png";

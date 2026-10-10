@@ -38,3 +38,21 @@ TEST_CASE("Utf8: invalid input decodes to replacement characters and always adva
 	CHECK(Utf8::DecodeNext(truncated, offset) == replacement);
 	CHECK(offset == 1);
 }
+
+TEST_CASE("Utf8: validation and sanitizing replace only invalid bytes")
+{
+	CHECK(Utf8::IsValid(""));
+	CHECK(Utf8::IsValid("Caf\xC3\xA9 \xF0\x9F\x98\x80"));
+	// An encoded replacement character is valid text.
+	CHECK(Utf8::IsValid("\xEF\xBF\xBD"));
+	CHECK(Utf8::Sanitize("Caf\xC3\xA9") == "Caf\xC3\xA9");
+
+	CHECK_FALSE(Utf8::IsValid("\xFF"));
+	CHECK_FALSE(Utf8::IsValid("a\xC3"));
+	CHECK_FALSE(Utf8::IsValid("\xED\xA0\x80"));
+	CHECK(Utf8::Sanitize("a\xFF"
+	                     "b") == "a\xEF\xBF\xBD"
+	                             "b");
+	CHECK(Utf8::Sanitize("\xC0\xAF") == "\xEF\xBF\xBD\xEF\xBF\xBD");
+	CHECK(Utf8::IsValid(Utf8::Sanitize("\xF4\x90\x80\x80 \xE2\x82")));
+}

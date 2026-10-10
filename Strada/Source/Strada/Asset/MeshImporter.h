@@ -51,11 +51,17 @@ namespace Strada
 	class MeshImporter
 	{
 	public:
+		// The largest model an import builds, with every node instance baked in. Larger models fail before their geometry
+		// is built, so the memory an import takes stays bounded, also for files that declare more data than they hold.
+		static constexpr uint64_t MaxVertices = 1ull << 24;
+		static constexpr uint64_t MaxTriangles = 1ull << 24;
+
 		// .gltf, .glb (glTF 2.0), .fbx, .obj (case-insensitive).
 		static bool IsSupportedExtension(std::string_view extension);
 
 		// Imports the default scene of a model file. Output is Y-up, in meters, with counter-clockwise front faces, UV origin
-		// at the top-left, and MikkTSpace tangents. Fails for unreadable or invalid files and files without triangles.
+		// at the top-left, and MikkTSpace tangents. Fails for unreadable or invalid files, files without triangles and
+		// models above MaxVertices or MaxTriangles.
 		[[nodiscard]] static Result<ImportedModel> Import(std::filesystem::path const& path);
 	};
 }

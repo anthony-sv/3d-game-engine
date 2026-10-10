@@ -284,7 +284,10 @@ Asset types:
   (V is flipped for MikkTSpace so the bitangent points to the top of the image, matching glTF), converts FBX/OBJ UVs to
   the top-left origin, and validates every index. Embedded images become texture sub-assets; external images inside
   `Assets/` resolve to their registered texture assets. Skinning, morph targets and point/line primitives are skipped
-  with warnings.
+  with warnings. Damaged files are refused before their data is read: glTF buffer views, accessors and sparse data
+  must lie inside their buffers (checked overflow-safely before `cgltf_validate`), ufbx loads from memory with a
+  memory limit of 256 MB plus 64 times the file size, and models with more than 2^24 vertices or triangles (every
+  node instance counted) fail before any geometry is built.
 - `MaterialAsset` (`.smat`): metallic-roughness parameters — `BaseColor`, `Metallic`, `Roughness`, `EmissiveColor` +
   `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, textures (base color, normal, metallic-roughness with glTF
   packing G = roughness and B = metallic, occlusion, emissive), `AlphaMode` (Opaque/Mask/Blend) + `AlphaCutoff`,

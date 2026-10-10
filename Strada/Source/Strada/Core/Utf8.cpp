@@ -81,5 +81,51 @@ namespace Strada
 			}
 			return codepoints;
 		}
+
+		namespace
+		{
+			// DecodeNext consumes three bytes for an encoded ReplacementCharacter and one byte for invalid input.
+			bool IsInvalidSequence(char32_t codepoint, size_t length)
+			{
+				return codepoint == ReplacementCharacter && length != 3;
+			}
+		}
+
+		bool IsValid(std::string_view text)
+		{
+			size_t offset = 0;
+			while (offset < text.size())
+			{
+				size_t const start = offset;
+				char32_t const codepoint = DecodeNext(text, offset);
+				if (IsInvalidSequence(codepoint, offset - start))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		std::string Sanitize(std::string_view text)
+		{
+			std::string sanitized;
+			sanitized.reserve(text.size());
+			size_t offset = 0;
+			while (offset < text.size())
+			{
+				size_t const start = offset;
+				char32_t const codepoint = DecodeNext(text, offset);
+				if (IsInvalidSequence(codepoint, offset - start))
+				{
+					// ReplacementCharacter (U+FFFD) in UTF-8.
+					sanitized += "\xEF\xBF\xBD";
+				}
+				else
+				{
+					sanitized.append(text.substr(start, offset - start));
+				}
+			}
+			return sanitized;
+		}
 	}
 }
