@@ -203,6 +203,33 @@ internal sealed class McpTestClient : IAsyncDisposable
 	}
 }
 
+/// <summary>The editor that tests start: STRADA_EDITOR names it (ctest sets it).</summary>
+internal static class TestEditor
+{
+	/// <summary>The editor's path; skips the test when STRADA_EDITOR is not set (tests run outside ctest).</summary>
+	public static string Require()
+	{
+		string? editor = System.Environment.GetEnvironmentVariable(EditorLocator.EnvironmentVariable);
+		Xunit.Assert.SkipWhen(string.IsNullOrEmpty(editor), $"{EditorLocator.EnvironmentVariable} does not name an editor (ctest sets it)");
+		return editor!;
+	}
+
+	/// <summary>Options of a session that starts its own headless editor, with a user data directory of the test's.</summary>
+	public static EditorSessionOptions IsolatedSession(string editor, string userData, string? project = null)
+	{
+		Dictionary<string, string> environment = IsolatedUserData.Environment(userData);
+		return new EditorSessionOptions
+		{
+			EditorPath = editor,
+			Project = project,
+			Headless = true,
+			StartNew = true,
+			InstanceDirectory = IsolatedUserData.InstanceDirectory(environment),
+			EditorEnvironment = environment,
+		};
+	}
+}
+
 /// <summary>The user data directory of an editor started for a test, apart from the user's own editors.</summary>
 internal static class IsolatedUserData
 {

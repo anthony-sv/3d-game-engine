@@ -719,7 +719,9 @@ compile out asserts and dev tools.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, command-line errors, a windowed run's presented image).
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
-  stand-in editor, and MCP sessions with the real editor started headless (`STRADA_EDITOR`; ctest sets it).
+  stand-in editor, Poly Haven downloads against a stand-in server, and MCP sessions with the real editor started
+  headless (`STRADA_EDITOR`; ctest sets it), among them an agent's whole workflow: a project, a script it writes and
+  builds, a scene that uses it, a test run in play mode, and an export whose player passes the same checks.
 - `ScriptCoreTests` (xUnit): math types and an API-coverage test asserting every public `Strada.ScriptCore` member
   is used by the FeatureTest scripts. It reads their compiled metadata: references to every type, method (accessors
   and operators included, overloads matched by signature) and field; Script's callbacks and protected constructors

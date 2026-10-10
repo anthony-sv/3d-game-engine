@@ -15,13 +15,6 @@ namespace Strada.Tool.Tests;
 /// user's editors and recent projects are left alone). STRADA_EDITOR names the editor; ctest sets it.</summary>
 public sealed class EditorIntegrationTests
 {
-	private static string RequireEditor()
-	{
-		string? editor = Environment.GetEnvironmentVariable(EditorLocator.EnvironmentVariable);
-		Assert.SkipWhen(string.IsNullOrEmpty(editor), $"{EditorLocator.EnvironmentVariable} does not name an editor (ctest sets it)");
-		return editor!;
-	}
-
 	private static string[] InstanceFiles(string directory) => Directory.Exists(directory) ? Directory.GetFiles(directory) : [];
 
 	private static async Task<bool> WaitUntilAsync(Func<bool> condition, double seconds = 30.0)
@@ -41,18 +34,11 @@ public sealed class EditorIntegrationTests
 	[Fact]
 	public async Task McpSessionsDriveAHeadlessEditor()
 	{
-		string editor = RequireEditor();
+		string editor = TestEditor.Require();
 		using TemporaryDirectory directory = new();
-		Dictionary<string, string> environment = IsolatedUserData.Environment(Path.Combine(directory.Path, "UserData"));
-		string instances = IsolatedUserData.InstanceDirectory(environment);
-		McpTestClient client = new(new EditorSessionOptions
-		{
-			EditorPath = editor,
-			Headless = true,
-			StartNew = true,
-			InstanceDirectory = instances,
-			EditorEnvironment = environment,
-		});
+		EditorSessionOptions options = TestEditor.IsolatedSession(editor, Path.Combine(directory.Path, "UserData"));
+		string instances = options.InstanceDirectory!;
+		McpTestClient client = new(options);
 		int processId;
 		try
 		{
@@ -102,7 +88,7 @@ public sealed class EditorIntegrationTests
 	[Fact]
 	public async Task EditorsCloseOnceTheProcessThatStartedThemExits()
 	{
-		string editor = RequireEditor();
+		string editor = TestEditor.Require();
 		using TemporaryDirectory directory = new();
 		Dictionary<string, string> environment = IsolatedUserData.Environment(Path.Combine(directory.Path, "UserData"));
 		string instances = IsolatedUserData.InstanceDirectory(environment);
@@ -145,20 +131,12 @@ public sealed class EditorIntegrationTests
 	[Fact]
 	public async Task AProjectTheStartedEditorCannotOpenIsReported()
 	{
-		string editor = RequireEditor();
+		string editor = TestEditor.Require();
 		using TemporaryDirectory directory = new();
-		Dictionary<string, string> environment = IsolatedUserData.Environment(Path.Combine(directory.Path, "UserData"));
-		string instances = IsolatedUserData.InstanceDirectory(environment);
 		string project = Path.Combine(directory.Path, "Missing", "Missing.sproj");
-		await using McpTestClient client = new(new EditorSessionOptions
-		{
-			EditorPath = editor,
-			Project = project,
-			Headless = true,
-			StartNew = true,
-			InstanceDirectory = instances,
-			EditorEnvironment = environment,
-		});
+		EditorSessionOptions options = TestEditor.IsolatedSession(editor, Path.Combine(directory.Path, "UserData"), project);
+		string instances = options.InstanceDirectory!;
+		await using McpTestClient client = new(options);
 
 		JsonObject response = await client.RequestAsync("tools/list");
 		string message = response["error"]!["message"]!.GetValue<string>();
