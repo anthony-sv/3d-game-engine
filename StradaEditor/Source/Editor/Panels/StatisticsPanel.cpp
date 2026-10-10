@@ -34,6 +34,10 @@ namespace Strada
 		ImGui::SeparatorText("Viewport");
 		if (viewport != nullptr)
 		{
+			if (viewport->GpuMilliseconds)
+			{
+				ImGui::Text("GPU time: %.2f ms", static_cast<double>(*viewport->GpuMilliseconds));
+			}
 			ImGui::Text("Draw calls: %u (%u into %u shadow maps)", viewport->DrawCalls, viewport->ShadowDrawCalls,
 			            viewport->ShadowMapViews);
 			ImGui::Text("Triangles: %u", viewport->Triangles);

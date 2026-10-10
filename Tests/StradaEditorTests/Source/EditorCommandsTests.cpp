@@ -518,7 +518,12 @@ TEST_CASE("EditorCommands: the viewport's renderer statistics are reported")
 	statistics.Culled = 4;
 	statistics.CulledLights = 2;
 	fixture.Statistics = statistics;
-	CHECK(fixture.Ok("viewport.statistics") == Json::object({{"drawCalls", 12},
+	Json const reported = fixture.Ok("viewport.statistics");
+	// No frame has finished (or the GPU cannot measure time).
+	CHECK(reported["gpuMilliseconds"].is_null());
+	fixture.Statistics->GpuMilliseconds = 1.5f;
+	CHECK(fixture.Ok("viewport.statistics") == Json::object({{"gpuMilliseconds", 1.5f},
+	                                                         {"drawCalls", 12},
 	                                                         {"triangles", 3400},
 	                                                         {"shadowDrawCalls", 7},
 	                                                         {"shadowMapViews", 5},

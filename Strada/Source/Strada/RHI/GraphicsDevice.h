@@ -28,6 +28,8 @@ namespace Strada
 		uint32_t DeviceID = 0;
 		std::string ApiVersion;
 		std::string Driver;
+		// The graphics queue writes timestamps that NVRHI's timer queries can measure GPU time with (at least 32 valid bits).
+		bool SupportsTimerQueries = false;
 		bool IsSupported = false;
 		// Why the adapter cannot be used (empty when supported).
 		std::string UnsupportedReason;

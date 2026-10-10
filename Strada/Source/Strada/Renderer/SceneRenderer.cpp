@@ -144,6 +144,13 @@ namespace Strada
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
 		m_CommandList = device->createCommandList();
 		m_Quads = CreateScope<QuadRenderer>();
+		if (GraphicsDevice::GetAdapterInfo().SupportsTimerQueries)
+		{
+			for (FrameTimer& timer : m_FrameTimers)
+			{
+				timer.Query = device->createTimerQuery();
+			}
+		}
 
 		nvrhi::BufferDesc frameDesc;
 		frameDesc.byteSize = sizeof(ShaderInterop::FrameConstants);
@@ -1439,6 +1446,30 @@ namespace Strada
 					  });
 	}
 
+	nvrhi::ITimerQuery* SceneRenderer::AcquireFrameTimer()
+	{
+		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		// Oldest first, so the newest finished frame's time is the one kept.
+		for (size_t i = 0; i < FrameTimerCount; i++)
+		{
+			FrameTimer& timer = m_FrameTimers[(m_NextFrameTimer + i) % FrameTimerCount];
+			if (timer.Pending && device->pollTimerQuery(timer.Query))
+			{
+				m_GpuMilliseconds = device->getTimerQueryTime(timer.Query) * 1000.0f;
+				device->resetTimerQuery(timer.Query);
+				timer.Pending = false;
+			}
+		}
+		FrameTimer& timer = m_FrameTimers[m_NextFrameTimer];
+		if (!timer.Query || timer.Pending)
+		{
+			return nullptr;
+		}
+		m_NextFrameTimer = (m_NextFrameTimer + 1) % FrameTimerCount;
+		timer.Pending = true;
+		return timer.Query;
+	}
+
 	void SceneRenderer::DrawItems(nvrhi::ICommandList* commandList, std::vector<DrawItem> const& items, nvrhi::IFramebuffer* framebuffer)
 	{
 		for (DrawItem const& item : items)
@@ -1545,8 +1576,15 @@ namespace Strada
 		overlay.CameraPosition = m_Camera.Position;
 		overlay.ViewportSize = frame.ViewportSize;
 
+		nvrhi::ITimerQuery* frameTimer = AcquireFrameTimer();
+		m_Statistics.GpuMilliseconds = m_GpuMilliseconds;
+
 		nvrhi::ICommandList* commandList = m_CommandList;
 		commandList->open();
+		if (frameTimer != nullptr)
+		{
+			commandList->beginTimerQuery(frameTimer);
+		}
 		commandList->writeBuffer(m_FrameConstants, &frame, sizeof(frame));
 		commandList->writeBuffer(m_OverlayConstants, &overlay, sizeof(overlay));
 		commandList->writeBuffer(m_ShadowConstants, &shadows, sizeof(shadows));
@@ -1653,6 +1691,10 @@ namespace Strada
 		// Screen-space sprites and text cover everything else.
 		m_Quads->RenderScreen(commandList, m_FinalFramebuffer);
 
+		if (frameTimer != nullptr)
+		{
+			commandList->endTimerQuery(frameTimer);
+		}
 		commandList->close();
 		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
 		device->executeCommandList(commandList);

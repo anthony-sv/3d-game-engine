@@ -185,6 +185,11 @@ sphere (spot lights by the smaller sphere around their cone when its outer angle
 reach the view light nothing visible, so they take no place in the light buffer and get no shadow maps
 (`CulledLights`).
 
+GPU time: when the adapter's graphics queue writes timestamps NVRHI can use (`AdapterInfo::SupportsTimerQueries`, at
+least 32 valid bits), each scene renderer brackets its frames with timer queries from a ring of four and reads the
+finished ones at the next `EndScene` without waiting: `SceneRendererStatistics::GpuMilliseconds` holds the latest. A
+frame whose timer is still in use goes unmeasured.
+
 Lighting is forward PBR (opaque front to back, then blended back to front) with image-based lighting (split-sum
 specular with Fdez-Aguera multiple-scattering compensation; a uniform ambient color through the same terms when the
 sky light has no environment); the HDR target is `RGBA16_FLOAT` with a `D32` reversed-Z depth buffer. Environments
@@ -598,8 +603,8 @@ than the assembly.
   its windows, floating panels included; after a running game export, which copies the assets) or with Refresh.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
 - Statistics: the frame time (average and graph over 120 frames), what the viewport's renderer drew in its last frame
-  (draw calls and the shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite
-  and text quads) and the GPU (adapter, driver, validation, swapchain).
+  (GPU time, draw calls and the shadow-map share, triangles, culled submeshes, lights and culled lights, dropped
+  shadows, sprite and text quads) and the GPU (adapter, driver, validation, swapchain).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
   (create presets at the viewport's focal point), View. Shortcuts are global unless a text field is being edited.

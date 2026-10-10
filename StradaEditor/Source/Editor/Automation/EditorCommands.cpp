@@ -1686,7 +1686,8 @@ namespace Strada
 					result
 						? Add("viewport.statistics",
 				              "What the viewport's renderer drew in the last frame it rendered (the editor view, or the game while "
-				              "playing): drawCalls (shadow-map draws included), triangles, shadowDrawCalls, shadowMapViews, "
+				              "playing): gpuMilliseconds (the GPU time of its latest finished frame; null before one finished or when the "
+				              "GPU cannot measure time), drawCalls (shadow-map draws included), triangles, shadowDrawCalls, shadowMapViews, "
 				              "shadowsDropped (shadow-casting lights beyond the shadow-map budget), lights, culledLights (point and spot "
 				              "lights out of the view's reach), culled (submeshes outside the view), quads (sprites and text glyphs). "
 				              "Unavailable without a viewport (headless) or a GPU.",
@@ -1702,15 +1703,17 @@ namespace Strada
 								  {
 									  return MakeCommandError(AutomationErrorCode::Unavailable, "the viewport has no renderer (no GPU)");
 								  }
-								  return Json::object({{"drawCalls", statistics->DrawCalls},
-					                                   {"triangles", statistics->Triangles},
-					                                   {"shadowDrawCalls", statistics->ShadowDrawCalls},
-					                                   {"shadowMapViews", statistics->ShadowMapViews},
-					                                   {"shadowsDropped", statistics->ShadowsDropped},
-					                                   {"lights", statistics->Lights},
-					                                   {"culledLights", statistics->CulledLights},
-					                                   {"culled", statistics->Culled},
-					                                   {"quads", statistics->Quads}});
+								  return Json::object(
+									  {{"gpuMilliseconds", statistics->GpuMilliseconds ? Json(*statistics->GpuMilliseconds) : Json()},
+					                   {"drawCalls", statistics->DrawCalls},
+					                   {"triangles", statistics->Triangles},
+					                   {"shadowDrawCalls", statistics->ShadowDrawCalls},
+					                   {"shadowMapViews", statistics->ShadowMapViews},
+					                   {"shadowsDropped", statistics->ShadowsDropped},
+					                   {"lights", statistics->Lights},
+					                   {"culledLights", statistics->CulledLights},
+					                   {"culled", statistics->Culled},
+					                   {"quads", statistics->Quads}});
 							  })
 						: result;
 				return result

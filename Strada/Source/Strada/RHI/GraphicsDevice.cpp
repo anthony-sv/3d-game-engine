@@ -440,6 +440,9 @@ namespace Strada
 					continue;
 				}
 				candidate.GraphicsQueueFamily = family;
+				// NVRHI reads 32-bit timestamps: fewer valid bits would wrap within a frame.
+				candidate.Info.SupportsTimerQueries =
+					families[family].timestampValidBits >= 32 && properties.properties.limits.timestampPeriod > 0.0f;
 				foundFamily = true;
 				break;
 			}

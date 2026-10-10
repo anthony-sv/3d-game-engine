@@ -4,6 +4,7 @@
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Math/Math.h"
+#include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/TextureReadback.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Renderer/TextureMips.h"
@@ -176,6 +177,35 @@ TEST_CASE("SceneRenderer: meshes outside the view or beyond its distance are not
 	(void)Testing::RenderToImage(scene, camera, renderer);
 	CHECK(renderer.GetStatistics().Culled == 4);
 	CHECK(renderer.GetStatistics().DrawCalls == 1);
+}
+
+TEST_CASE("SceneRenderer: frames report their GPU time when the GPU can measure it")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	Scope<Scene> scene = MakeShowcaseScene();
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f});
+
+	// No frame has finished before the first one.
+	RenderScene(*scene, renderer, camera);
+	CHECK_FALSE(renderer.GetStatistics().GpuMilliseconds.has_value());
+	GraphicsDevice::WaitForIdle();
+	// More frames than timers: a frame whose timer still waits for an earlier frame goes unmeasured.
+	for (int frame = 0; frame < 8; frame++)
+	{
+		RenderScene(*scene, renderer, camera);
+	}
+	if (GraphicsDevice::GetAdapterInfo().SupportsTimerQueries)
+	{
+		REQUIRE(renderer.GetStatistics().GpuMilliseconds.has_value());
+		CHECK(*renderer.GetStatistics().GpuMilliseconds > 0.0f);
+	}
+	else
+	{
+		CHECK_FALSE(renderer.GetStatistics().GpuMilliseconds.has_value());
+	}
 }
 
 TEST_CASE("SceneRenderer: the primary camera's far distance culls what lies beyond it")

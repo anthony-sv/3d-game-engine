@@ -11,6 +11,7 @@
 #include <glm/glm.hpp>
 #include <nvrhi/nvrhi.h>
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -127,6 +128,10 @@ namespace Strada
 		uint32_t Culled = 0;
 		// Point and spot lights whose range does not reach the camera's view: not in Lights, and without shadow maps.
 		uint32_t CulledLights = 0;
+		// GPU time in milliseconds of this renderer's latest frame that finished: frames finish after EndScene returns, so
+		// the time is a frame or two old. Empty until one has finished, and when the GPU cannot measure time
+		// (AdapterInfo::SupportsTimerQueries).
+		std::optional<float> GpuMilliseconds;
 	};
 
 	// Renders one view of a submitted frame into its own HDR target and tonemaps it into an 8-bit, sRGB-encoded image
@@ -253,6 +258,9 @@ namespace Strada
 		void CreateTargets();
 		// Marks the items inside the camera's view and drops the others, except shadow casters while shadows are drawn.
 		void CullToView();
+		// Reads the GPU times of finished frames and returns the timer for this frame: null when the GPU cannot measure
+		// time, or when every timer still waits for its frame (that frame goes unmeasured rather than waiting).
+		nvrhi::ITimerQuery* AcquireFrameTimer();
 		void UpdateFrameBindings(FrameTextures const& textures);
 		nvrhi::IGraphicsPipeline* GetMeshPipeline(bool blend, bool doubleSided);
 		nvrhi::IGraphicsPipeline* GetShadowPipeline(bool masked, bool doubleSided);
@@ -293,6 +301,19 @@ namespace Strada
 		std::vector<LocalShadowLight> m_LocalShadowLights;
 		std::vector<ShadowView> m_ShadowViews;
 		SceneRendererStatistics m_Statistics;
+
+		struct FrameTimer
+		{
+			nvrhi::TimerQueryHandle Query;
+			// Recorded in a frame whose time has not been read yet.
+			bool Pending = false;
+		};
+		// More than the frames the CPU may run ahead of the GPU, so measuring never waits.
+		static constexpr size_t FrameTimerCount = 4;
+		std::array<FrameTimer, FrameTimerCount> m_FrameTimers;
+		// The oldest timer, reused next.
+		size_t m_NextFrameTimer = 0;
+		std::optional<float> m_GpuMilliseconds;
 
 		nvrhi::CommandListHandle m_CommandList;
 		nvrhi::TextureHandle m_ColorTarget;
