@@ -594,6 +594,9 @@ than the assembly.
   light or a new one, scenes open). Context menus create folders and materials, import files (native multi-select
   dialog), refresh, rename, delete and copy references or paths. File operations are not undoable.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
+- Statistics: the frame time (average and graph over 120 frames), what the viewport's renderer drew in its last frame
+  (draw calls and the shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite
+  and text quads) and the GPU (adapter, driver, validation, swapchain).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
   (create presets at the viewport's focal point), View. Shortcuts are global unless a text field is being edited.
@@ -661,7 +664,7 @@ than the assembly.
   `asset.*` (list, get, import, refresh, move, delete, create-folder, move-folder, delete-folder),
   `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
-  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities), `log.*` (read since
+  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities, renderer statistics), `log.*` (read since
   index), `test.*` (run a test scene and return results). Renderer settings are scene settings (`scene.settings`).
 - Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);
   the `strada-make-game` skill in `.claude/skills/` documents building games with the tools.

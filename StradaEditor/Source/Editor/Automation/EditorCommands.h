@@ -11,6 +11,7 @@
 namespace Strada
 {
 	class EditorCamera;
+	struct SceneRendererStatistics;
 
 	// What the automation commands need from the running editor besides the document state.
 	struct EditorCommandEnvironment
@@ -27,6 +28,9 @@ namespace Strada
 		// The camera of the editor's viewport. Unset when the editor has no viewport (headless); viewport.camera and
 		// viewport.frame then fail with AutomationErrorCode::Unavailable.
 		std::function<EditorCamera&()> ViewportCamera;
+		// The statistics of the last frame the viewport rendered, null when it has no renderer (no GPU). Unset when the
+		// editor has no viewport (headless). viewport.statistics fails with AutomationErrorCode::Unavailable in both cases.
+		std::function<SceneRendererStatistics const*()> ViewportStatistics;
 	};
 
 	// Registers the editor, project, scene, entity, component, asset, material, prefab, log and viewport commands. Entity parameters are

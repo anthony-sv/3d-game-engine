@@ -11,6 +11,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Version.h"
+#include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/SceneSerializer.h"
 
@@ -1681,6 +1682,37 @@ namespace Strada
 									 return DescribeCamera(camera);
 								 })
 						   : result;
+				result =
+					result
+						? Add("viewport.statistics",
+				              "What the viewport's renderer drew in the last frame it rendered (the editor view, or the game while "
+				              "playing): drawCalls (shadow-map draws included), triangles, shadowDrawCalls, shadowMapViews, "
+				              "shadowsDropped (shadow-casting lights beyond the shadow-map budget), lights, culledLights (point and spot "
+				              "lights out of the view's reach), culled (submeshes outside the view), quads (sprites and text glyphs). "
+				              "Unavailable without a viewport (headless) or a GPU.",
+				              Json(), true,
+				              [this](Json const&) -> CommandResult
+				              {
+								  if (!m_Environment.ViewportStatistics)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no viewport (headless)");
+								  }
+								  SceneRendererStatistics const* statistics = m_Environment.ViewportStatistics();
+								  if (statistics == nullptr)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable, "the viewport has no renderer (no GPU)");
+								  }
+								  return Json::object({{"drawCalls", statistics->DrawCalls},
+					                                   {"triangles", statistics->Triangles},
+					                                   {"shadowDrawCalls", statistics->ShadowDrawCalls},
+					                                   {"shadowMapViews", statistics->ShadowMapViews},
+					                                   {"shadowsDropped", statistics->ShadowsDropped},
+					                                   {"lights", statistics->Lights},
+					                                   {"culledLights", statistics->CulledLights},
+					                                   {"culled", statistics->Culled},
+					                                   {"quads", statistics->Quads}});
+							  })
+						: result;
 				return result
 				           ? Add("viewport.frame",
 				                 "Points the editor viewport's camera at entities, framing their meshes (their origins without one) from the "

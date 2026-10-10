@@ -67,6 +67,8 @@ namespace Strada
 		glm::vec2 GetGameMousePosition() const { return m_GameMousePosition; }
 		// The view's size in pixels when it was last drawn.
 		glm::uvec2 GetViewportSize() const { return m_ViewportSize; }
+		// What the view's renderer drew in the last frame it rendered (the editor view or the game); null without a GPU.
+		SceneRendererStatistics const* GetRendererStatistics() const { return m_Renderer ? &m_Renderer->GetStatistics() : nullptr; }
 
 	private:
 		void HandleCameraInput(bool hovered);

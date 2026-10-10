@@ -3,6 +3,7 @@
 #include "Strada/Core/Application.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/RHI/Swapchain.h"
+#include "Strada/Renderer/SceneRenderer.h"
 
 #include <imgui.h>
 
@@ -11,7 +12,7 @@
 
 namespace Strada
 {
-	void StatisticsPanel::OnImGuiRender(bool& isOpen)
+	void StatisticsPanel::OnImGuiRender(bool& isOpen, SceneRendererStatistics const* viewport)
 	{
 		Application const& application = Application::Get();
 		float const frameMilliseconds = application.GetFrameTime().GetMilliseconds();
@@ -29,6 +30,25 @@ namespace Strada
 		ImGui::PlotLines("##FrameTimes", m_FrameTimes.data(), static_cast<int>(m_FrameTimes.size()), static_cast<int>(m_FrameTimeOffset),
 		                 nullptr, 0.0f, std::max(33.3f, *std::max_element(m_FrameTimes.begin(), m_FrameTimes.end())), ImVec2(-1.0f, 60.0f));
 		ImGui::Text("Frames: %llu", static_cast<unsigned long long>(application.GetFrameCount()));
+
+		ImGui::SeparatorText("Viewport");
+		if (viewport != nullptr)
+		{
+			ImGui::Text("Draw calls: %u (%u into %u shadow maps)", viewport->DrawCalls, viewport->ShadowDrawCalls,
+			            viewport->ShadowMapViews);
+			ImGui::Text("Triangles: %u", viewport->Triangles);
+			ImGui::Text("Culled submeshes: %u", viewport->Culled);
+			ImGui::Text("Lights: %u (%u culled)", viewport->Lights, viewport->CulledLights);
+			if (viewport->ShadowsDropped > 0)
+			{
+				ImGui::Text("Shadows dropped: %u (shadow map budget)", viewport->ShadowsDropped);
+			}
+			ImGui::Text("Sprite and text quads: %u", viewport->Quads);
+		}
+		else
+		{
+			ImGui::TextUnformatted("No renderer");
+		}
 
 		ImGui::SeparatorText("GPU");
 		if (GraphicsDevice::IsInitialized())

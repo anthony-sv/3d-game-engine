@@ -100,6 +100,10 @@ namespace Strada
 			{
 				return m_ViewportPanel->GetCamera();
 			};
+			environment.ViewportStatistics = [this]() -> SceneRendererStatistics const*
+			{
+				return m_ViewportPanel->GetRendererStatistics();
+			};
 		}
 		environment.RequestQuit = []
 		{
@@ -295,7 +299,7 @@ namespace Strada
 		}
 		if (m_ShowStatistics)
 		{
-			m_StatisticsPanel.OnImGuiRender(m_ShowStatistics);
+			m_StatisticsPanel.OnImGuiRender(m_ShowStatistics, m_ViewportPanel ? m_ViewportPanel->GetRendererStatistics() : nullptr);
 		}
 		if (m_ShowImGuiDemo)
 		{

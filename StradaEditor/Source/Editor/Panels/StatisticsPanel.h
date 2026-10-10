@@ -5,11 +5,14 @@
 
 namespace Strada
 {
-	// Frame timing and GPU information.
+	struct SceneRendererStatistics;
+
+	// Frame timing, what the viewport's renderer drew and GPU information.
 	class StatisticsPanel
 	{
 	public:
-		void OnImGuiRender(bool& isOpen);
+		// viewport: the statistics of the viewport's last rendered frame; null when it has no renderer.
+		void OnImGuiRender(bool& isOpen, SceneRendererStatistics const* viewport);
 
 	private:
 		std::array<float, 120> m_FrameTimes = {};

@@ -8,6 +8,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Renderer/SceneRenderer.h"
 
 #include <doctest/doctest.h>
 
@@ -26,8 +27,9 @@ namespace
 		bool QuitRequested = false;
 		int ProjectsOpened = 0;
 		std::optional<EditorCommandEnvironment::ScreenshotCallback> PendingScreenshot;
-		// The viewport's camera when there is a window.
+		// The viewport's camera and renderer statistics when there is a window (no statistics: no GPU renderer).
 		EditorCamera Camera;
+		std::optional<SceneRendererStatistics> Statistics;
 
 		explicit CommandFixture(bool withWindow = false)
 		{
@@ -49,6 +51,10 @@ namespace
 				environment.ViewportCamera = [this]() -> EditorCamera&
 				{
 					return Camera;
+				};
+				environment.ViewportStatistics = [this]() -> SceneRendererStatistics const*
+				{
+					return Statistics ? &*Statistics : nullptr;
 				};
 			}
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
@@ -92,11 +98,11 @@ TEST_CASE("EditorCommands: every command is registered with a schema and descrip
 {
 	CommandFixture fixture;
 	for (char const* name :
-	     {"editor.status", "editor.commands",     "editor.undo",     "editor.redo",      "editor.quit",    "scene.new",
-	      "scene.open",    "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings", "entity.create",
-	      "entity.delete", "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",    "entity.get",
-	      "entity.select", "component.types",     "component.add",   "component.remove", "component.get",  "component.set",
-	      "log.read",      "viewport.screenshot", "viewport.camera", "viewport.frame"})
+	     {"editor.status", "editor.commands",     "editor.undo",     "editor.redo",      "editor.quit",        "scene.new",
+	      "scene.open",    "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings",     "entity.create",
+	      "entity.delete", "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",        "entity.get",
+	      "entity.select", "component.types",     "component.add",   "component.remove", "component.get",      "component.set",
+	      "log.read",      "viewport.screenshot", "viewport.camera", "viewport.frame",   "viewport.statistics"})
 	{
 		CAPTURE(name);
 		CHECK(fixture.Registry.Contains(name));
@@ -202,6 +208,7 @@ TEST_CASE("EditorCommands: errors carry precise codes")
 	CHECK(fixture.Fails("viewport.screenshot") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.camera") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", {entity}}})) == AutomationErrorCode::Unavailable);
+	CHECK(fixture.Fails("viewport.statistics") == AutomationErrorCode::Unavailable);
 }
 
 TEST_CASE("EditorCommands: scene files and unsaved changes")
@@ -492,4 +499,32 @@ TEST_CASE("EditorCommands: the viewport camera is read, set and pointed at entit
 	CHECK(both["yaw"].get<float>() == 90.0f);
 	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", {"123"}}})) == AutomationErrorCode::EntityNotFound);
 	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", Json::array()}})) == AutomationErrorCode::InvalidParams);
+}
+
+TEST_CASE("EditorCommands: the viewport's renderer statistics are reported")
+{
+	CommandFixture fixture(true);
+	// A viewport without a GPU renderer.
+	CHECK(fixture.Fails("viewport.statistics") == AutomationErrorCode::Unavailable);
+
+	SceneRendererStatistics statistics;
+	statistics.DrawCalls = 12;
+	statistics.Triangles = 3400;
+	statistics.Lights = 3;
+	statistics.ShadowDrawCalls = 7;
+	statistics.ShadowMapViews = 5;
+	statistics.ShadowsDropped = 1;
+	statistics.Quads = 9;
+	statistics.Culled = 4;
+	statistics.CulledLights = 2;
+	fixture.Statistics = statistics;
+	CHECK(fixture.Ok("viewport.statistics") == Json::object({{"drawCalls", 12},
+	                                                         {"triangles", 3400},
+	                                                         {"shadowDrawCalls", 7},
+	                                                         {"shadowMapViews", 5},
+	                                                         {"shadowsDropped", 1},
+	                                                         {"lights", 3},
+	                                                         {"culledLights", 2},
+	                                                         {"culled", 4},
+	                                                         {"quads", 9}}));
 }

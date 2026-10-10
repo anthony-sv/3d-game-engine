@@ -48,7 +48,8 @@ undo history as the UI: work in small, checked steps.
   returned `reference`.
 - `prefab_create` writes an entity with its children to a `.sprefab`; `prefab_instantiate` places copies.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
-  view, and `viewport_screenshot` returns an image of the editor.
+  view, and `viewport_screenshot` returns an image of the editor. `viewport_statistics` tells what the last frame drew
+  (draw calls, triangles, lights, what was culled): check it when a scene grows large.
 
 ## 5. Behavior in C#
 
