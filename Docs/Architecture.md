@@ -287,7 +287,9 @@ Asset types:
   with warnings. Damaged files are refused before their data is read: glTF buffer views, accessors and sparse data
   must lie inside their buffers (checked overflow-safely before `cgltf_validate`), ufbx loads from memory with a
   memory limit of 256 MB plus 64 times the file size, and models with more than 2^24 vertices or triangles (every
-  node instance counted) fail before any geometry is built.
+  node instance counted) fail before any geometry is built. Files a model references (glTF buffers and images, FBX/OBJ
+  textures, OBJ material libraries) are only read inside the asset directory: buffers outside it fail the import,
+  textures and material libraries outside it are skipped with a warning.
 - `MaterialAsset` (`.smat`): metallic-roughness parameters — `BaseColor`, `Metallic`, `Roughness`, `EmissiveColor` +
   `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, textures (base color, normal, metallic-roughness with glTF
   packing G = roughness and B = metallic, occlusion, emissive), `AlphaMode` (Opaque/Mask/Blend) + `AlphaCutoff`,
@@ -295,8 +297,9 @@ Asset types:
 - `TextureAsset` (`.png`, `.jpg`, `.tga`, `.bmp`): keeps the encoded file and decodes on demand. The color space is
   chosen by the sampling material slot (base color and emissive sRGB, the others linear); the renderer generates mips
   at upload in linear space. stb_image is built with only these decoders and Radiance HDR's (so model textures in
-  other formats are not decoded), refuses images over 16384 pixels on a side, and `Image` refuses images without
-  pixels.
+  other formats are not decoded), refuses images over 16384 pixels on a side, `Image` and `HdrImage` refuse images
+  over 2^27 pixels in total (`Image::MaxPixels`, read from the header before decoding), and `Image` refuses images
+  without pixels.
 - `EnvironmentAsset` (`.hdr`): equirectangular Radiance HDR (e.g. Poly Haven HDRIs, which `strada hdri` and the MCP tool
   `polyhaven_import_hdri` download and import) → cubemap + irradiance + prefiltered specular (compute shaders).
 - `FontAsset` (`.ttf`, `.otf` with TrueType outlines; the first font of a collection), `AudioClipAsset` (`.wav`,

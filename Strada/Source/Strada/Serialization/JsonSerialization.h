@@ -479,7 +479,12 @@ namespace Strada
 	// Validates the header of a loaded document; returns the file's version.
 	[[nodiscard]] Result<int> ReadFileHeader(Json const& document, std::string_view expectedType, int maximumVersion);
 
-	// Parses JSON text (comments are not allowed). Errors include the position of the problem.
+	// Limits of ParseJson, far above what any Strada file uses.
+	inline constexpr size_t MaxJsonDepth = 256;
+	inline constexpr size_t MaxJsonObjectMembers = 4096;
+
+	// Parses JSON text (comments are not allowed). Errors include the position of the problem. Documents nested deeper than
+	// MaxJsonDepth or with objects of more than MaxJsonObjectMembers members are refused.
 	[[nodiscard]] Result<Json> ParseJson(std::string_view text);
 	// Formats with tab indentation and a trailing newline (the format of every Strada file).
 	std::string DumpJson(Json const& json);

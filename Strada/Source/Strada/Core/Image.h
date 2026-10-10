@@ -24,10 +24,14 @@ namespace Strada
 	class Image
 	{
 	public:
+		// The most pixels a decoded image (also an HdrImage) may have: 16384 x 8192, the largest environment maps in common
+		// use. Decoding checks the header first, so larger images fail before their pixels are allocated.
+		static constexpr uint64_t MaxPixels = 1ull << 27;
+
 		Image() = default;
 		Image(uint32_t width, uint32_t height, uint32_t channels);
 
-		// Decodes PNG, JPEG, TGA, BMP, PSD, GIF (first frame) or PNM. channels = 0 keeps the file's channel count.
+		// Decodes PNG, JPEG, TGA or BMP of at most MaxPixels pixels. channels = 0 keeps the file's channel count.
 		[[nodiscard]] static Result<Image> LoadFromFile(std::filesystem::path const& path, uint32_t channels = 4);
 		[[nodiscard]] static Result<Image> LoadFromMemory(std::span<uint8_t const> data, uint32_t channels = 4);
 		// Reads the dimensions and format from the file header without decoding the pixels.
@@ -65,7 +69,7 @@ namespace Strada
 		HdrImage() = default;
 		HdrImage(uint32_t width, uint32_t height, uint32_t channels);
 
-		// Decodes Radiance .hdr data. channels = 0 keeps the file's channel count (3).
+		// Decodes Radiance .hdr data of at most Image::MaxPixels pixels. channels = 0 keeps the file's channel count (3).
 		[[nodiscard]] static Result<HdrImage> LoadFromMemory(std::span<uint8_t const> data, uint32_t channels = 4);
 		[[nodiscard]] static Result<HdrImage> LoadFromFile(std::filesystem::path const& path, uint32_t channels = 4);
 

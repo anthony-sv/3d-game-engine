@@ -19,6 +19,21 @@ namespace Strada
 			auto const* bytes = static_cast<uint8_t const*>(data);
 			output->insert(output->end(), bytes, bytes + size);
 		}
+
+		// Reads the dimensions from the header, so damaged or hostile files cannot make the decoder allocate gigabytes.
+		// Data whose header cannot be read is left to the decoder, which reports why.
+		Result<void> CheckPixelBudget(std::span<uint8_t const> data)
+		{
+			int width = 0;
+			int height = 0;
+			int channels = 0;
+			if (stbi_info_from_memory(data.data(), static_cast<int>(data.size()), &width, &height, &channels) != 0 && width > 0 &&
+			    height > 0 && static_cast<uint64_t>(width) * static_cast<uint64_t>(height) > Image::MaxPixels)
+			{
+				return MakeError("the image has {}x{} pixels, more than the {} an image may have", width, height, Image::MaxPixels);
+			}
+			return {};
+		}
 	}
 
 	Image::Image(uint32_t width, uint32_t height, uint32_t channels)
@@ -55,6 +70,11 @@ namespace Strada
 		if (data.empty() || data.size() > static_cast<size_t>(std::numeric_limits<int>::max()))
 		{
 			return Error{"Image data is empty or too large"};
+		}
+
+		if (Result<void> budget = CheckPixelBudget(data); !budget)
+		{
+			return Error{budget.GetError()};
 		}
 
 		int width = 0;
@@ -159,6 +179,10 @@ namespace Strada
 		if (stbi_is_hdr_from_memory(data.data(), size) == 0)
 		{
 			return Error{"not a Radiance HDR image"};
+		}
+		if (Result<void> budget = CheckPixelBudget(data); !budget)
+		{
+			return Error{budget.GetError()};
 		}
 
 		int width = 0;

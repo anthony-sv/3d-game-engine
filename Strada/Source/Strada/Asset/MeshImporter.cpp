@@ -99,7 +99,18 @@ namespace Strada
 		class ModelBuilder
 		{
 		public:
+			explicit ModelBuilder(std::filesystem::path referenceDirectory)
+				: m_ReferenceDirectory(std::move(referenceDirectory))
+			{
+			}
+
 			ImportedModel& GetModel() { return m_Model; }
+
+			// Whether a file the model references may be read: it must lie inside the reference directory, so a model cannot
+			// pull other files of the machine into a project (and from there into exported games).
+			bool IsReferenceAllowed(std::filesystem::path const& file) const { return FileSystem::IsInside(file, m_ReferenceDirectory); }
+
+			std::string DescribeReferenceDirectory() const { return FileSystem::PathToUtf8(m_ReferenceDirectory); }
 
 			void Warn(std::string message)
 			{
@@ -182,6 +193,7 @@ namespace Strada
 			}
 
 		private:
+			std::filesystem::path m_ReferenceDirectory;
 			ImportedModel m_Model;
 			std::unordered_set<std::string> m_ReportedWarnings;
 			std::optional<uint32_t> m_DefaultMaterialSlot;
@@ -199,12 +211,27 @@ namespace Strada
 			std::free(pointer);
 		}
 
+		struct GltfFileContext
+		{
+			ModelBuilder const& Builder;
+			// Why a read was refused; cgltf only reports "file not found".
+			std::string Error;
+		};
+
 		// Reads referenced files (.bin buffers) through FileSystem so UTF-8 paths work everywhere. Like cgltf's default reader,
 		// a non-zero *size requests exactly that many bytes.
-		cgltf_result GltfReadFile(cgltf_memory_options const* memory, cgltf_file_options const*, char const* path, cgltf_size* size,
+		cgltf_result GltfReadFile(cgltf_memory_options const* memory, cgltf_file_options const* options, char const* path, cgltf_size* size,
 		                          void** data)
 		{
-			Result<Buffer> file = FileSystem::ReadBinaryFile(FileSystem::PathFromUtf8(path));
+			auto* context = static_cast<GltfFileContext*>(options->user_data);
+			std::filesystem::path const filePath = FileSystem::PathFromUtf8(path).lexically_normal();
+			if (!context->Builder.IsReferenceAllowed(filePath))
+			{
+				context->Error = fmt::format("the buffer file '{}' lies outside '{}'", FileSystem::PathToUtf8(filePath),
+				                             context->Builder.DescribeReferenceDirectory());
+				return cgltf_result_file_not_found;
+			}
+			Result<Buffer> file = FileSystem::ReadBinaryFile(filePath);
 			if (!file)
 			{
 				return cgltf_result_file_not_found;
@@ -858,6 +885,11 @@ namespace Strada
 				std::string decodedUri(uri);
 				decodedUri.resize(cgltf_decode_uri(decodedUri.data()));
 				texture.FilePath = (m_Directory / FileSystem::PathFromUtf8(decodedUri)).lexically_normal();
+				if (!m_Builder.IsReferenceAllowed(texture.FilePath))
+				{
+					return MakeError("image '{}' lies outside '{}' and was skipped", FileSystem::PathToUtf8(texture.FilePath),
+					                 m_Builder.DescribeReferenceDirectory());
+				}
 				if (image.name == nullptr)
 				{
 					texture.Name = FileSystem::PathToUtf8(texture.FilePath.filename());
@@ -886,6 +918,8 @@ namespace Strada
 			options.memory.free_func = GltfFree;
 			options.file.read = GltfReadFile;
 			options.file.release = GltfReleaseFile;
+			GltfFileContext fileContext{builder, {}};
+			options.file.user_data = &fileContext;
 
 			cgltf_data* parsed = nullptr;
 			cgltf_result result = cgltf_parse(&options, file.GetValue().GetData(), file.GetValue().GetSize(), &parsed);
@@ -917,7 +951,7 @@ namespace Strada
 			result = cgltf_load_buffers(&options, data.get(), pathUtf8.c_str());
 			if (result != cgltf_result_success)
 			{
-				return MakeError("failed to load buffers: {}", GltfResultToString(result));
+				return MakeError("failed to load buffers: {}", fileContext.Error.empty() ? GltfResultToString(result) : fileContext.Error);
 			}
 			if (Result<void> ranges = CheckGltfRanges(*data); !ranges)
 			{
@@ -1196,7 +1230,8 @@ namespace Strada
 				return index;
 			}
 
-			// Exporters store absolute paths of the authoring machine; fall back to the model's directory.
+			// Exporters store absolute paths of the authoring machine; fall back to the model's directory. Files outside the
+			// reference directory are never used.
 			std::optional<std::filesystem::path> FindTextureFile(ufbx_texture const& texture) const
 			{
 				std::vector<std::filesystem::path> candidates;
@@ -1213,7 +1248,7 @@ namespace Strada
 				for (std::filesystem::path const& candidate : candidates)
 				{
 					std::filesystem::path const normalized = candidate.lexically_normal();
-					if (FileSystem::IsRegularFile(normalized))
+					if (m_Builder.IsReferenceAllowed(normalized) && FileSystem::IsRegularFile(normalized))
 					{
 						return normalized;
 					}
@@ -1230,13 +1265,19 @@ namespace Strada
 
 		// Opens OBJ material libraries through FileSystem (UTF-8 paths); nothing else (the model is loaded from memory, and
 		// FBX geometry caches and other external references are never followed).
-		bool OpenUfbxFile(void*, ufbx_stream* stream, char const* path, size_t pathLength, ufbx_open_file_info const* info)
+		bool OpenUfbxFile(void* user, ufbx_stream* stream, char const* path, size_t pathLength, ufbx_open_file_info const* info)
 		{
 			if (info->type != UFBX_OPEN_FILE_OBJ_MTL)
 			{
 				return false;
 			}
-			Result<Buffer> file = FileSystem::ReadBinaryFile(FileSystem::PathFromUtf8(std::string_view(path, pathLength)));
+			std::filesystem::path const filePath = FileSystem::PathFromUtf8(std::string_view(path, pathLength)).lexically_normal();
+			if (!static_cast<ModelBuilder const*>(user)->IsReferenceAllowed(filePath))
+			{
+				// Reported by ufbx as a missing material library.
+				return false;
+			}
+			Result<Buffer> file = FileSystem::ReadBinaryFile(filePath);
 			if (!file)
 			{
 				return false;
@@ -1273,6 +1314,7 @@ namespace Strada
 			options.obj_search_mtl_by_filename = true;
 			options.ignore_animation = true;
 			options.open_file_cb.fn = OpenUfbxFile;
+			options.open_file_cb.user = &builder;
 			// OBJ materials live in external .mtl files; a missing library only produces a warning.
 			options.load_external_files = isObj;
 			options.ignore_missing_external_files = true;
@@ -1303,10 +1345,10 @@ namespace Strada
 		return lower == ".gltf" || lower == ".glb" || lower == ".fbx" || lower == ".obj";
 	}
 
-	Result<ImportedModel> MeshImporter::Import(std::filesystem::path const& path)
+	Result<ImportedModel> MeshImporter::Import(std::filesystem::path const& path, std::filesystem::path const& referenceDirectory)
 	{
 		std::string const extension = ToLower(FileSystem::PathToUtf8(path.extension()));
-		ModelBuilder builder;
+		ModelBuilder builder(referenceDirectory.empty() ? path.parent_path() : referenceDirectory);
 		Result<void> result;
 		if (extension == ".gltf" || extension == ".glb")
 		{

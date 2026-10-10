@@ -61,7 +61,10 @@ namespace Strada
 
 		// Imports the default scene of a model file. Output is Y-up, in meters, with counter-clockwise front faces, UV origin
 		// at the top-left, and MikkTSpace tangents. Fails for unreadable or invalid files, files without triangles and
-		// models above MaxVertices or MaxTriangles.
-		[[nodiscard]] static Result<ImportedModel> Import(std::filesystem::path const& path);
+		// models above MaxVertices or MaxTriangles. Files the model references (glTF buffers and images, FBX and OBJ textures,
+		// OBJ material libraries) are only read inside referenceDirectory, the model's own directory when empty: buffers
+		// outside it fail the import, textures and material libraries outside it are skipped with a warning.
+		[[nodiscard]] static Result<ImportedModel> Import(std::filesystem::path const& path,
+		                                                  std::filesystem::path const& referenceDirectory = {});
 	};
 }

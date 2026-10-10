@@ -5,6 +5,7 @@
 #include <doctest/doctest.h>
 
 #include <limits>
+#include <string>
 
 using namespace Strada;
 
@@ -191,4 +192,47 @@ TEST_CASE("Serialization: parsing reports errors and dumping uses tabs")
 	ordered["z"] = 1;
 	ordered["a"] = 2;
 	CHECK(DumpJson(ordered) == "{\n\t\"z\": 1,\n\t\"a\": 2\n}\n");
+}
+
+TEST_CASE("Serialization: parsing refuses numbers out of range, deep nesting and huge objects")
+{
+	Result<Json> const overflow = ParseJson(R"({"a": 1e999})");
+	REQUIRE(overflow.IsError());
+	CHECK(overflow.GetError().find("invalid JSON") != std::string::npos);
+
+	auto const nested = [](size_t depth)
+	{
+		return std::string(depth, '[') + std::string(depth, ']');
+	};
+	CHECK(ParseJson(nested(MaxJsonDepth)).IsOk());
+	Result<Json> const deep = ParseJson(nested(MaxJsonDepth + 1));
+	REQUIRE(deep.IsError());
+	CHECK(deep.GetError().find("nested deeper") != std::string::npos);
+	// Brackets inside strings, also after escaped quotes, do not count.
+	CHECK(ParseJson("[\"\\\"" + std::string(MaxJsonDepth + 1, '[') + "\"]").IsOk());
+
+	auto const object = [](size_t members)
+	{
+		std::string text = "{";
+		for (size_t member = 0; member < members; member++)
+		{
+			text += fmt::format("{}\"k{}\": [1, 2]", member > 0 ? "," : "", member);
+		}
+		return text + "}";
+	};
+	Result<Json> const largest = ParseJson(object(MaxJsonObjectMembers));
+	REQUIRE(largest.IsOk());
+	CHECK(largest.GetValue().size() == MaxJsonObjectMembers);
+	Result<Json> const huge = ParseJson(object(MaxJsonObjectMembers + 1));
+	REQUIRE(huge.IsError());
+	CHECK(huge.GetError().find("more than") != std::string::npos);
+	// Arrays have no member limit.
+	std::string array = "[0";
+	for (size_t element = 1; element < MaxJsonObjectMembers * 2; element++)
+	{
+		array += ",0";
+	}
+	Result<Json> const largeArray = ParseJson(array + "]");
+	REQUIRE(largeArray.IsOk());
+	CHECK(largeArray.GetValue().size() == MaxJsonObjectMembers * 2);
 }

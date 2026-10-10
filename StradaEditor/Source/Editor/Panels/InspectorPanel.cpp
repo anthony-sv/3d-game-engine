@@ -407,11 +407,21 @@ namespace Strada
 		{
 			ImGui::SetClipboardText(DumpJson(primaryValues).c_str());
 		}
+		// The menu is drawn every frame and the clipboard may hold anything (megabytes of other text): it is only parsed when
+		// the values are pasted.
 		char const* clipboard = ImGui::GetClipboardText();
-		Result<Json> pasted = clipboard != nullptr ? ParseJson(clipboard) : Result<Json>(Error{"the clipboard is empty"});
-		if (ImGui::MenuItem("Paste Values", nullptr, false, pasted && pasted.GetValue().is_object()))
+		std::string_view const clipboardText = clipboard != nullptr ? std::string_view(clipboard) : std::string_view();
+		size_t const start = clipboardText.find_first_not_of(" \t\r\n");
+		bool const holdsObject = start != std::string_view::npos && clipboardText[start] == '{';
+		if (ImGui::MenuItem("Paste Values", nullptr, false, holdsObject))
 		{
-			ApplyPatch(operations, component, entities, pasted.GetValue(), 0);
+			// Text that starts with '{' and parses is an object.
+			Result<Json> const pasted = ParseJson(clipboardText);
+			if (pasted)
+			{
+				ApplyPatch(operations, component, entities, pasted.GetValue(), 0);
+			}
+			UI::ReportFailure(pasted, "Pasting the values");
 		}
 		ImGui::Separator();
 		if (ImGui::MenuItem("Remove Component", nullptr, false, !component.IsCore()))

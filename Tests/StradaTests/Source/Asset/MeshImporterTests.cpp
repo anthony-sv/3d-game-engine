@@ -622,3 +622,68 @@ TEST_CASE("MeshImporter: empty OBJ material libraries are accepted")
 	REQUIRE(imported.GetValue().Submeshes.size() == 1);
 	CHECK(imported.GetValue().Submeshes[0].IndexCount == 3);
 }
+
+TEST_CASE("MeshImporter: referenced files are only read inside the reference directory")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const modelDirectory = directory.GetPath() / "Assets" / "Model";
+	REQUIRE(FileSystem::CreateDirectories(modelDirectory).IsOk());
+
+	SUBCASE("glTF buffers")
+	{
+		GltfTestBuilder builder;
+		builder.SetScene({builder.AddNode("Quad", builder.AddMesh("Quad", {MakeQuad()}))});
+		std::filesystem::path const path = modelDirectory / "Quad.gltf";
+		REQUIRE(builder.WriteGltf(path, false).IsOk());
+		REQUIRE(MeshImporter::Import(path).IsOk());
+
+		// The same buffer one directory up: outside the model's directory, inside an explicit reference directory.
+		REQUIRE(FileSystem::Move(modelDirectory / "Quad.bin", directory.GetPath() / "Assets" / "Quad.bin").IsOk());
+		Result<std::string> text = FileSystem::ReadTextFile(path);
+		REQUIRE(text.IsOk());
+		Result<Json> document = ParseJson(text.GetValue());
+		REQUIRE(document.IsOk());
+		document.GetValue()["buffers"][0]["uri"] = "../Quad.bin";
+		WriteText(path, document.GetValue().dump());
+		Result<ImportedModel> const outside = MeshImporter::Import(path);
+		REQUIRE(outside.IsError());
+		CHECK(outside.GetError().find("lies outside") != std::string::npos);
+		CHECK(MeshImporter::Import(path, directory.GetPath() / "Assets").IsOk());
+	}
+	SUBCASE("glTF images")
+	{
+		GltfTestBuilder builder;
+		std::filesystem::path const absolute = (directory.GetPath() / "Secret.png").lexically_normal();
+		REQUIRE(FileSystem::WriteBinaryFile(absolute, MakePng(directory, 10)).IsOk());
+		int const relative = builder.AddTexture(builder.AddImageUri("../../Secret.png"));
+		int const fullPath = builder.AddTexture(builder.AddImageUri(FileSystem::PathToUtf8(absolute)));
+		Json material = Json::object();
+		material["pbrMetallicRoughness"] = Json::object(
+			{{"baseColorTexture", Json::object({{"index", relative}})}, {"metallicRoughnessTexture", Json::object({{"index", fullPath}})}});
+		GltfTestBuilder::Primitive quad = MakeQuad();
+		quad.Material = builder.AddMaterial(material);
+		builder.SetScene({builder.AddNode("Quad", builder.AddMesh("Quad", {quad}))});
+		std::filesystem::path const path = modelDirectory / "Quad.gltf";
+		REQUIRE(builder.WriteGltf(path, true).IsOk());
+
+		Result<ImportedModel> imported = MeshImporter::Import(path, directory.GetPath() / "Assets");
+		REQUIRE_MESSAGE(imported.IsOk(), imported.GetError());
+		ImportedModel const& model = imported.GetValue();
+		CHECK(model.Textures.empty());
+		REQUIRE(model.Materials.size() == 1);
+		CHECK(model.Materials[0].BaseColorTexture == -1);
+		CHECK(model.Materials[0].MetallicRoughnessTexture == -1);
+		REQUIRE(!model.Warnings.empty());
+		CHECK(model.Warnings[0].find("lies outside") != std::string::npos);
+	}
+	SUBCASE("OBJ material libraries")
+	{
+		WriteText(directory.GetPath() / "Outside.mtl", "newmtl Red\nKd 1 0 0\n");
+		WriteText(modelDirectory / "Triangle.obj", "mtllib ../../Outside.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Red\nf 1 2 3\n");
+		Result<ImportedModel> imported = MeshImporter::Import(modelDirectory / "Triangle.obj", directory.GetPath() / "Assets");
+		REQUIRE_MESSAGE(imported.IsOk(), imported.GetError());
+		// The material keeps its name from the model, but none of the library's parameters.
+		REQUIRE(imported.GetValue().Materials.size() == 1);
+		CHECK(glm::vec3(imported.GetValue().Materials[0].Data.BaseColor) != glm::vec3(1.0f, 0.0f, 0.0f));
+	}
+}

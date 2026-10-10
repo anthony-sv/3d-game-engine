@@ -183,6 +183,19 @@ TEST_CASE("Image: only the engine's formats decode, with pixels and within GPU l
 	CHECK(HdrImage::LoadFromMemory(ToBytes("#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 0 +X 4\n")).IsError());
 }
 
+TEST_CASE("Image: images above the pixel budget are refused before they are decoded")
+{
+	// Within the per-side limit, but 2^28 pixels in total; the files hold almost no pixel data.
+	Result<Image> const image = Image::LoadFromMemory(MakeBmp(16384, 16384));
+	REQUIRE(image.IsError());
+	CHECK(image.GetError().find("more than the 134217728") != std::string::npos);
+	Result<HdrImage> const hdr = HdrImage::LoadFromMemory(ToBytes("#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 16384 +X 16384\n"));
+	REQUIRE(hdr.IsError());
+	CHECK(hdr.GetError().find("more than the 134217728") != std::string::npos);
+	// Reading the header stays possible for any size.
+	CHECK(Image::ReadInfo(MakeBmp(16384, 16384)).IsOk());
+}
+
 TEST_CASE("Image: damaged images are refused or decode to pixels")
 {
 	// Seeds of the formats the engine reads that it can write or build.

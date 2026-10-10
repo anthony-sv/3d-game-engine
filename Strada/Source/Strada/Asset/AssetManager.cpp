@@ -188,7 +188,7 @@ namespace Strada
 
 		Result<Ref<Asset>> LoadMesh(AssetMetadata const& metadata, std::filesystem::path const& path)
 		{
-			Result<ImportedModel> imported = MeshImporter::Import(path);
+			Result<ImportedModel> imported = MeshImporter::Import(path, GetData().AssetDirectory);
 			if (!imported)
 			{
 				return Error{imported.GetError()};
