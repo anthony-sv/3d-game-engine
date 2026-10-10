@@ -202,6 +202,10 @@ namespace Strada
 - Every file format users write gets a fuzz test (`Testing::DocumentMutator` in `Tests/StradaTests/Source/Fuzzing.h`):
   damaged documents must be refused or repaired, what loads must save and load again, and what runs must run. Set
   `STRADA_FUZZ_SCALE=<n>` for n times more rounds after changing a loader (Debug builds keep Jolt's asserts).
+- `Tests/StradaEditorTests/Source/AutomationFuzzTests.cpp` sends every registered automation command parameters built
+  from its schema and the editor's state: each must answer once and never with InternalError, the scene must stay
+  loadable, undoing and redoing everything must restore it, and nothing outside the project may change. New commands
+  are fuzzed as soon as they are registered; run it with `STRADA_FUZZ_SCALE` after changing one.
 
 Rules for the other suites:
 

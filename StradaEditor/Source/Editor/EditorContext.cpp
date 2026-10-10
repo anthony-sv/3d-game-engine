@@ -65,22 +65,28 @@ namespace Strada
 	Result<void> EditorContext::ExecuteCommand(Scope<EditorCommand> command)
 	{
 		Result<void> result = m_History.Execute(std::move(command), *this);
-		PruneSelection();
+		FinishEdit();
 		return result;
 	}
 
 	Result<void> EditorContext::Undo()
 	{
 		Result<void> result = m_History.Undo(*this);
-		PruneSelection();
+		FinishEdit();
 		return result;
 	}
 
 	Result<void> EditorContext::Redo()
 	{
 		Result<void> result = m_History.Redo(*this);
-		PruneSelection();
+		FinishEdit();
 		return result;
+	}
+
+	void EditorContext::FinishEdit()
+	{
+		m_Scene->FlushPendingDestruction();
+		PruneSelection();
 	}
 
 	void EditorContext::Select(std::span<UUID const> entities, SelectionMode mode, UUID primary)

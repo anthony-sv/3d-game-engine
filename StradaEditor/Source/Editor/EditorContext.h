@@ -84,7 +84,9 @@ namespace Strada
 		// --- Undoable modifications ---
 
 		// Executes the command through the history (see CommandHistory::Execute), then drops deleted entities from the
-		// selection.
+		// selection. Edits run between frames: entities they destroy in a running scene go at once, as when editing (the
+		// scene would wait for the end of the next frame, which never comes while it is paused), so later edits, undo
+		// included, find them gone. The same holds for Undo and Redo.
 		[[nodiscard]] Result<void> ExecuteCommand(Scope<EditorCommand> command);
 		[[nodiscard]] Result<void> Undo();
 		[[nodiscard]] Result<void> Redo();
@@ -114,6 +116,7 @@ namespace Strada
 		DeserializationContext CreateDeserializationContext(UnknownFieldPolicy unknownFields = UnknownFieldPolicy::Error) const;
 
 	private:
+		void FinishEdit();
 		void PruneSelection();
 
 		Ref<Project> m_Project;

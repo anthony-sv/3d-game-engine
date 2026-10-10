@@ -34,14 +34,38 @@ namespace Strada::Testing
 		return rounds * std::clamp(multiplier, 1, 1000);
 	}
 
+	// Pseudo-random numbers (SplitMix64) that are the same on every platform, unlike the standard library's
+	// distributions, so a fuzz failure reproduces from its seed and round.
+	class FuzzRandom
+	{
+	public:
+		explicit FuzzRandom(uint64_t seed)
+			: m_State(seed)
+		{
+		}
+
+		uint64_t Next()
+		{
+			uint64_t value = (m_State += 0x9E3779B97F4A7C15ull);
+			value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
+			value = (value ^ (value >> 27)) * 0x94D049BB133111EBull;
+			return value ^ (value >> 31);
+		}
+
+		// A number below count, which must not be zero.
+		size_t Pick(size_t count) { return static_cast<size_t>(Next() % count); }
+
+	private:
+		uint64_t m_State;
+	};
+
 	// Damages JSON documents the way bad files and hand edits do: members and elements go missing or repeat, and values
-	// turn into ones of another kind or extreme ones. Deterministic on every platform (its own generator), so a failure
-	// reproduces from its seed and round.
+	// turn into ones of another kind or extreme ones. Deterministic, so a failure reproduces from its seed and round.
 	class DocumentMutator
 	{
 	public:
 		explicit DocumentMutator(uint64_t seed)
-			: m_State(seed)
+			: m_Random(seed)
 		{
 		}
 
@@ -92,16 +116,7 @@ namespace Strada::Testing
 		}
 
 	private:
-		// SplitMix64.
-		uint64_t Next()
-		{
-			uint64_t value = (m_State += 0x9E3779B97F4A7C15ull);
-			value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
-			value = (value ^ (value >> 27)) * 0x94D049BB133111EBull;
-			return value ^ (value >> 31);
-		}
-
-		size_t Pick(size_t count) { return static_cast<size_t>(Next() % count); }
+		size_t Pick(size_t count) { return m_Random.Pick(count); }
 
 		Json MakeValue()
 		{
@@ -154,7 +169,7 @@ namespace Strada::Testing
 			}
 		}
 
-		uint64_t m_State;
+		FuzzRandom m_Random;
 	};
 
 	// Accepts every reference (as a stable handle), so damaged documents get past asset lookups into the rest of a loader.

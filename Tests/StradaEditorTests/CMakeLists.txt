@@ -2,6 +2,7 @@
 
 add_executable(StradaEditorTests
     Source/AssetEditingTests.cpp
+    Source/AutomationFuzzTests.cpp
     Source/AutomationServerTests.cpp
     Source/CommandRegistryTests.cpp
     Source/EditorCameraTests.cpp
@@ -26,7 +27,7 @@ add_executable(StradaEditorTests
 
 target_include_directories(StradaEditorTests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Source"
-    # Shared helpers (Testing::TemporaryDirectory).
+    # Shared helpers (Testing::TemporaryDirectory, Fuzzing.h).
     "${PROJECT_SOURCE_DIR}/Tests/StradaTests/Source")
 target_link_libraries(StradaEditorTests PRIVATE StradaEditorCore StradaImGuiNullBackend doctest::doctest)
 if(WIN32)
@@ -35,7 +36,9 @@ endif()
 target_compile_definitions(StradaEditorTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
     # The command reference; a test checks that every registered command is documented.
-    STRADA_AUTOMATION_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Automation.md")
+    STRADA_AUTOMATION_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Automation.md"
+    # The shared fuzzing helpers (Fuzzing.h) take their seed documents from the FeatureTest project.
+    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest")
 
 # The inspector tests show the fields of the test scripts.
 add_dependencies(StradaEditorTests StradaTestScripts)

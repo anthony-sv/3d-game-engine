@@ -157,6 +157,37 @@ TEST_CASE("PlayMode: playing shows and edits a copy that stopping discards")
 	CHECK(fixture.Context.GetSelection().GetEntities() == std::vector<UUID>{crate});
 }
 
+TEST_CASE("PlayMode: entities deleted while playing go at once, also while paused")
+{
+	PlayFixture fixture;
+	UUID const crate = fixture.Create("Crate");
+	UUID const child = fixture.Create("Child");
+	REQUIRE(fixture.Operations.ReparentEntity(child, crate).IsOk());
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+
+	// A running scene defers destruction to the end of the frame, which never comes while it is paused; edits do not
+	// wait, so undo restores the entities rather than a second copy next to the doomed ones.
+	for (bool const paused : {false, true})
+	{
+		CAPTURE(paused);
+		fixture.Play.SetPaused(paused);
+		std::array<UUID, 1> const doomed = {crate};
+		REQUIRE(fixture.Operations.DeleteEntities(doomed).IsOk());
+		CHECK_FALSE(fixture.Context.GetScene().HasEntity(crate));
+		CHECK_FALSE(fixture.Context.GetScene().HasEntity(child));
+		REQUIRE(fixture.Context.Undo().IsOk());
+		CHECK(fixture.Context.GetScene().GetEntityByUUID(child).GetComponent<RelationshipComponent>().Parent == crate);
+		REQUIRE(fixture.Context.Redo().IsOk());
+		CHECK_FALSE(fixture.Context.GetScene().HasEntity(crate));
+		REQUIRE(fixture.Context.Undo().IsOk());
+		fixture.Play.Update(Timestep(1.0f / 60.0f));
+		CHECK(fixture.Context.GetScene().HasEntity(crate));
+		CHECK(fixture.Context.GetScene().HasEntity(child));
+	}
+	fixture.Play.Stop();
+	CHECK(fixture.Context.GetScene().HasEntity(child));
+}
+
 TEST_CASE("PlayMode: scenes the scripts load replace the copy, and quitting stops playing")
 {
 	Testing::AssetManagerScope assets;

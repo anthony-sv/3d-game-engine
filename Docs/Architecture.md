@@ -317,7 +317,9 @@ Play mode runs on a deep copy (`Scene::Copy`); stopping restores the editor scen
 Runtime update order per frame: scripts `OnUpdate` → physics fixed steps (accumulator, default 60 Hz; scripts'
 `OnFixedUpdate` before each step) → contact/trigger events dispatched to scripts → transform sync → audio update →
 deferred entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the
-end of the frame; creation is immediate.
+end of the frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext`
+completes their destruction at once (`Scene::FlushPendingDestruction`): later edits and undo, also while paused, find
+the entities gone.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 
@@ -761,7 +763,10 @@ data directory, and compile out asserts and script debug lines.
   loads must save and load again, scenes and prefab instances that load must run with physics and sound, and project
   settings that load must simulate a scene (`STRADA_FUZZ_SCALE` multiplies the rounds). Crash handling runs in a child
   process (`StradaCrashTester`).
-- `StradaEditorTests`: automation commands executed headlessly on a temporary project.
+- `StradaEditorTests`: automation commands executed headlessly on a temporary project. A fuzz test sends every command
+  parameters built from its schema and the editor's state (mostly names of what exists, plus values to refuse), while
+  editing and playing: every request answers once without InternalError, the scene stays loadable, undoing and redoing
+  everything restores it, and nothing outside the project changes.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, command-line errors, a windowed run's presented image).
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a

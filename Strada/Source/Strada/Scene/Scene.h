@@ -114,6 +114,9 @@ namespace Strada
 		// Destroys the entity and its descendants. While the scene is running, destruction is deferred to the end of
 		// the frame (the entity stays valid until then); otherwise it is immediate.
 		void DestroyEntity(Entity entity);
+		// Destroys the entities whose destruction was deferred. The scene does it at the end of each frame; editors call it
+		// after each edit, between frames, so an edit of a running (or paused) scene is complete when it returns.
+		void FlushPendingDestruction();
 		// Copies the entity and its descendants with new UUIDs; the copy is placed right after the original.
 		Entity DuplicateEntity(Entity entity);
 		// Instantiates a prefab asset (see PrefabSerializer::Instantiate) under parent (a root entity when invalid) and places
@@ -240,7 +243,6 @@ namespace Strada
 		void DestroyEntityImmediate(entt::entity handle);
 		void DetachFromParent(entt::entity handle);
 		std::vector<UUID>& GetSiblingList(entt::entity handle);
-		void FlushPendingDestruction();
 		void AgeDebugLines(float deltaTime);
 		void ReleaseRuntimeAssets();
 		void RemapEntityReferences(entt::entity handle, std::unordered_map<UUID, UUID> const& remap);
