@@ -8,6 +8,7 @@
 #include "Strada/Scene/Entity.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace Strada
 {
@@ -578,13 +579,22 @@ namespace Strada
 			m_StepFrames--;
 		}
 
+		float const deltaTime = timestep.GetSeconds() * m_TimeScale;
 		m_RuntimeFrame++;
-		m_RuntimeTime += timestep.GetSeconds();
-		UpdateScripts(timestep.GetSeconds());
-		UpdatePhysics(timestep.GetSeconds());
+		m_RuntimeTime += deltaTime;
+		UpdateScripts(deltaTime);
+		UpdatePhysics(deltaTime);
 		DispatchContactEventsToScripts();
 		UpdateAudio();
 		FlushPendingDestruction();
+	}
+
+	void Scene::SetTimeScale(float scale)
+	{
+		if (std::isfinite(scale) && scale >= 0.0f)
+		{
+			m_TimeScale = scale;
+		}
 	}
 
 	void Scene::SetPaused(bool paused)

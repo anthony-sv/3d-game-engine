@@ -232,6 +232,14 @@ namespace Strada
 		}
 	}
 
+	void Scene::ApplyPhysicsChanges()
+	{
+		if (m_Physics)
+		{
+			RebuildChangedBodies();
+		}
+	}
+
 	void Scene::RebuildChangedBodies()
 	{
 		if (m_ChangedBodies.empty())

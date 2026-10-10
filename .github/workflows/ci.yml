@@ -18,6 +18,8 @@ env:
   VULKAN_SDK_VERSION: 1.4.363.0
   # Hosted runners may have no display; windowed tests skip there instead of failing.
   STRADA_TESTS_ALLOW_NO_DISPLAY: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
 
 jobs:
   format:

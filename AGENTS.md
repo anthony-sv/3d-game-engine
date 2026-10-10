@@ -29,7 +29,8 @@ Entries marked *(planned)* are introduced by upcoming subsystems; their location
 | `Tests/StradaTests/` | C++ engine tests (doctest) |
 | `Tests/StradaEditorTests/` | Editor model and automation tests (doctest, headless) |
 | `Tests/TestScripts/` | C# game scripts the scripting tests run |
-| `Tests/Data/` | Test data (renderer golden images); `Tests/ScriptCoreTests` is *(planned)* |
+| `Tests/ScriptCoreTests/` | C# unit tests of the scripting API (xUnit v3) |
+| `Tests/Data/` | Test data (renderer golden images) |
 | `Projects/FeatureTest/` *(planned)* | Project exercising every component and the entire scripting API |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
@@ -208,7 +209,8 @@ Rules for suites that arrive with later subsystems (binding as soon as the subsy
   so they need no audio device and never depend on timing.
 - GPU tests start with `ST_REQUIRE_GPU()` (skips when no Vulkan device is available). Renderer golden images live in
   `Tests/Data/Golden/`; update them only deliberately and review the diff images.
-- C# tests use xUnit in `Tests/ScriptCoreTests`.
+- C# tests use xUnit v3 in `Tests/ScriptCoreTests` (an executable ctest runs; packages are pinned by
+  `packages.lock.json`).
 - **Feature-test project**: any new component or scripting API must be exercised in `Projects/FeatureTest`
   (scene + scripts using `Strada.Testing`). `ScriptCoreTests` fails if a public scripting API member is not
   referenced by the feature-test scripts, and `StradaTests` fails if a registered component is missing from the

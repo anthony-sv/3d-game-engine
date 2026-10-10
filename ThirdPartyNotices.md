@@ -25,3 +25,5 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | .NET hosting headers (hostfxr.h, coreclr_delegates.h) | the installed .NET 10 SDK | MIT | https://github.com/dotnet/runtime | Engine (hosting the C# scripting runtime; the .NET runtime itself is installed separately) |
 | Roboto Medium (font, from Dear ImGui's `misc/fonts`) | Dear ImGui 1.92.9b | Apache-2.0 | https://fonts.google.com/specimen/Roboto | Engine (default text font, compiled into the engine) |
 | doctest | 2.5.3 | MIT | https://github.com/doctest/doctest | Tests only (not distributed) |
+| xUnit.net v3 (NuGet, locked in `Tests/ScriptCoreTests/packages.lock.json`) | 4.0.2 | Apache-2.0 | https://github.com/xunit/xunit | Tests only (not distributed) |
+| Microsoft.Testing.Platform and its dependencies (through xUnit.net) | 2.5.1 | MIT | https://github.com/microsoft/testfx | Tests only (not distributed) |

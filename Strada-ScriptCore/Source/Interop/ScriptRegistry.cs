@@ -269,6 +269,8 @@ internal static class ScriptRegistry
 
 	internal static bool HasInstance(ulong entity) => s_Instances.ContainsKey(entity);
 
+	internal static Script? GetInstance(ulong entity) => s_Instances.GetValueOrDefault(entity);
+
 	internal static bool DestroyInstance(ulong entity) => s_Instances.Remove(entity);
 
 	internal static void DestroyAllInstances() => s_Instances.Clear();

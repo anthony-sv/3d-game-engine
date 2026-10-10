@@ -62,21 +62,9 @@ namespace Strada
 
 		// Components are compared with the settings last applied, so every way of changing them (inspector, scripts,
 		// automation) reaches the sound.
-		for (auto const [handle, id, source] : m_Registry.view<IDComponent, AudioSourceComponent>().each())
+		for (auto const [handle, source] : m_Registry.view<AudioSourceComponent>().each())
 		{
-			auto const [entry, created] = m_AudioSources.try_emplace(handle);
-			AudioSourceState& state = entry->second;
-			if (created || source.Clip != state.Applied.Clip)
-			{
-				// New sources start when PlayOnStart is set; a new clip on an existing source waits for Play.
-				state.Entity = id.ID;
-				CreateAudioSource(handle, state, source, created);
-			}
-			else if (state.HasSound)
-			{
-				UpdateAudioSource(state, source);
-			}
-			state.Applied = source;
+			SyncAudioSource(handle, source);
 		}
 
 		Entity const listener = FindAudioListener();
@@ -89,6 +77,68 @@ namespace Strada
 				m_Audio->SetPosition(state.Entity, GetTranslation(GetWorldTransform(Entity(handle, this))));
 			}
 		}
+	}
+
+	bool Scene::SyncAudioSource(entt::entity handle, AudioSourceComponent const& component)
+	{
+		auto const [entry, created] = m_AudioSources.try_emplace(handle);
+		AudioSourceState& state = entry->second;
+		if (created || component.Clip != state.Applied.Clip)
+		{
+			// New sources start when PlayOnStart is set; a new clip on an existing source waits for Play.
+			state.Entity = m_Registry.get<IDComponent>(handle).ID;
+			CreateAudioSource(handle, state, component, created);
+		}
+		else if (state.HasSound)
+		{
+			UpdateAudioSource(state, component);
+		}
+		state.Applied = component;
+		return state.HasSound;
+	}
+
+	std::optional<UUID> Scene::PrepareAudioSource(Entity entity)
+	{
+		if (!m_Audio || !entity || entity.GetScene() != this)
+		{
+			return std::nullopt;
+		}
+		AudioSourceComponent const* const source = m_Registry.try_get<AudioSourceComponent>(entity.GetHandle());
+		if (source == nullptr || !SyncAudioSource(entity.GetHandle(), *source))
+		{
+			return std::nullopt;
+		}
+		return entity.GetUUID();
+	}
+
+	void Scene::PlayAudioSource(Entity entity)
+	{
+		if (std::optional<UUID> const sound = PrepareAudioSource(entity))
+		{
+			m_Audio->Play(*sound);
+		}
+	}
+
+	void Scene::PauseAudioSource(Entity entity)
+	{
+		if (std::optional<UUID> const sound = PrepareAudioSource(entity))
+		{
+			m_Audio->Pause(*sound);
+		}
+	}
+
+	void Scene::StopAudioSource(Entity entity)
+	{
+		if (std::optional<UUID> const sound = PrepareAudioSource(entity))
+		{
+			m_Audio->Stop(*sound);
+		}
+	}
+
+	bool Scene::IsAudioSourcePlaying(Entity entity)
+	{
+		std::optional<UUID> const sound = PrepareAudioSource(entity);
+		return sound && m_Audio->IsPlaying(*sound);
 	}
 
 	void Scene::CreateAudioSource(entt::entity handle, AudioSourceState& state, AudioSourceComponent const& component, bool playOnStart)

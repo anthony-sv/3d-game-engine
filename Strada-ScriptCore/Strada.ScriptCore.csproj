@@ -11,4 +11,8 @@
 		<EnableDynamicLoading>true</EnableDynamicLoading>
 		<GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
 	</PropertyGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="Strada.ScriptCore.Tests" />
+	</ItemGroup>
 </Project>

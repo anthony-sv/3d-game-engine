@@ -505,6 +505,17 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
 - Attributes: `[SerializeField]`, `[HideInInspector]`, `[Range(min, max)]`, `[Tooltip(text)]`.
 - `Strada.Testing`: `Assert`, `TestReporter` (used by the feature-test project and CI).
 
+Semantics: components are views (`GetComponent<T>()` makes no copy) whose properties read and write the entity's
+component through typed bindings (`<Component>_Get<Field>`/`_Set<Field>`, generated from member pointers); writes go
+through the registry, so systems watching a component (physics) see them. While the scene runs, `RigidBodyComponent`
+velocities, forces, sleep, `MoveKinematic` and `Teleport` act on the simulated body (bodies of components added that
+frame are created first; `Type`, `Mass` and `Layer` rebuild it), and `AudioSourceComponent` playback acts on the
+entity's sound, brought up to date with the component first. Entity lookups (`FindByName`, `FindByID`, `Parent`,
+`Children`, contacts, raycast hits) return the script instance of scripted entities. `Time.TimeScale` scales script
+and physics time, not sounds. Asset references are typed (`Mesh`, `Material`, `Texture`, `AudioClip`, `Font`,
+`EnvironmentMap` (not `Environment`, which clashes with `System.Environment`), `Prefab`). Calls without a running scene
+or on missing entities and components log a script error and do nothing.
+
 ## 11. Editor (`StradaEditor`)
 
 - ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Viewport,

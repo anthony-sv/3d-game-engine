@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- Unit tests of the scripting API's managed parts (math types, field encoding). The engine's own tests run scripts
+	     against the native side (Tests/StradaTests). xUnit v3 makes this an executable that runs its tests. -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>Strada.ScriptCore.Tests</AssemblyName>
+		<RootNamespace>Strada.ScriptCore.Tests</RootNamespace>
+		<OutputType>Exe</OutputType>
+		<IsPackable>false</IsPackable>
+		<!-- packages.lock.json pins every package, with its content hash. -->
+		<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="xunit.v3" Version="4.0.2" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="../../Strada-ScriptCore/Strada.ScriptCore.csproj" />
+	</ItemGroup>
+</Project>

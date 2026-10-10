@@ -84,6 +84,67 @@ public unsafe class Entity : IEquatable<Entity>
 		return HasComponent<T>() ? ComponentInfo<T>.Create(this) : null;
 	}
 
+	/// <summary>Adds a component of type <typeparamref name="T"/> with default values (keeping the one the entity has)
+	/// and returns it.</summary>
+	public T AddComponent<T>()
+		where T : Component
+	{
+		fixed (byte* name = ComponentInfo<T>.NativeName)
+		{
+			InternalCalls.Entity_AddComponent(ID, name, ComponentInfo<T>.NativeName.Length);
+		}
+		return ComponentInfo<T>.Create(this);
+	}
+
+	/// <summary>Removes the entity's component of type <typeparamref name="T"/> (every entity keeps its transform).</summary>
+	public void RemoveComponent<T>()
+		where T : Component
+	{
+		fixed (byte* name = ComponentInfo<T>.NativeName)
+		{
+			InternalCalls.Entity_RemoveComponent(ID, name, ComponentInfo<T>.NativeName.Length);
+		}
+	}
+
+	/// <summary>The entity's script instance as <typeparamref name="T"/>, or null when it runs no such script.</summary>
+	public T? As<T>()
+		where T : Script
+	{
+		return ScriptRegistry.GetInstance(ID) as T;
+	}
+
+	/// <summary>The parent entity, or null at the root. Setting it keeps the world transform; null moves the entity to
+	/// the root.</summary>
+	public Entity? Parent
+	{
+		get
+		{
+			ulong parent = InternalCalls.Entity_GetParent(ID);
+			return parent != 0 ? ScriptRegistry.GetEntity(parent) : null;
+		}
+		set => InternalCalls.Entity_SetParent(ID, value?.ID ?? 0);
+	}
+
+	/// <summary>The child entities in order.</summary>
+	public Entity[] Children
+	{
+		get
+		{
+			int count = InternalCalls.Entity_GetChildren(ID, null, 0);
+			ulong[] ids = new ulong[count];
+			fixed (ulong* buffer = ids)
+			{
+				count = System.Math.Min(count, InternalCalls.Entity_GetChildren(ID, buffer, ids.Length));
+			}
+			Entity[] children = new Entity[count];
+			for (int index = 0; index < count; index++)
+			{
+				children[index] = ScriptRegistry.GetEntity(ids[index]);
+			}
+			return children;
+		}
+	}
+
 	/// <summary>Destroys the entity and its children at the end of the frame.</summary>
 	public void Destroy()
 	{
@@ -100,21 +161,23 @@ public unsafe class Entity : IEquatable<Entity>
 		}
 	}
 
-	/// <summary>The first entity (in hierarchy order) with the given name, or null.</summary>
+	/// <summary>The first entity (in hierarchy order) with the given name, or null. Entities running a script are
+	/// returned as their script instance.</summary>
 	public static Entity? FindByName(string name)
 	{
 		byte[] text = NativeString.ToUtf8(name);
 		fixed (byte* bytes = text)
 		{
 			ulong id = InternalCalls.Entity_FindByName(bytes, text.Length);
-			return id != 0 ? new Entity(id) : null;
+			return id != 0 ? ScriptRegistry.GetEntity(id) : null;
 		}
 	}
 
-	/// <summary>The entity with the given ID, or null when there is none.</summary>
+	/// <summary>The entity with the given ID, or null when there is none. Entities running a script are returned as their
+	/// script instance.</summary>
 	public static Entity? FindByID(ulong id)
 	{
-		return id != 0 && InternalCalls.Entity_IsValid(id) != 0 ? new Entity(id) : null;
+		return id != 0 && InternalCalls.Entity_IsValid(id) != 0 ? ScriptRegistry.GetEntity(id) : null;
 	}
 
 	/// <summary>Whether both refer to the same entity (or both are null).</summary>

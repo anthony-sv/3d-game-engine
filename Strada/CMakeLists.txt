@@ -155,12 +155,16 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/DotNetHost.h
     Source/Strada/Script/ScriptBindings.cpp
     Source/Strada/Script/ScriptBindings.h
+    Source/Strada/Script/ScriptBindingsComponents.cpp
+    Source/Strada/Script/ScriptBindingsEntity.cpp
+    Source/Strada/Script/ScriptBindingsRuntime.cpp
     Source/Strada/Script/ScriptEngine.cpp
     Source/Strada/Script/ScriptEngine.h
     Source/Strada/Script/ScriptField.cpp
     Source/Strada/Script/ScriptField.h
     Source/Strada/Script/ScriptFieldSerialization.cpp
     Source/Strada/Script/ScriptFieldSerialization.h
+    Source/Strada/Script/ScriptGlue.h
 )
 
 set(STRADA_SERIALIZATION_SOURCES

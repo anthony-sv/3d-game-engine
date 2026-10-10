@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -165,6 +166,20 @@ namespace Strada
 		// Collisions and trigger overlaps that began or ended during the last runtime update.
 		std::vector<ContactEvent> const& GetContactEvents() const { return m_ContactEvents; }
 
+		// How fast the runtime's time passes for scripts and physics (sounds are not affected); 0 freezes the simulation.
+		float GetTimeScale() const { return m_TimeScale; }
+		// Negative and non-finite scales are ignored.
+		void SetTimeScale(float scale);
+		// Creates and rebuilds the bodies of physics components changed since the last step. The runtime does it before
+		// each update; script calls on bodies do it first, so a body added this frame takes forces at once.
+		void ApplyPhysicsChanges();
+		// Control the sound of an entity's AudioSource while running, bringing it up to date with the component first (a
+		// clip set this frame plays). Without a running audio scene or a playable clip they do nothing.
+		void PlayAudioSource(Entity entity);
+		void PauseAudioSource(Entity entity);
+		void StopAudioSource(Entity entity);
+		bool IsAudioSourcePlaying(Entity entity);
+
 		void OnViewportResize(uint32_t width, uint32_t height);
 		uint32_t GetViewportWidth() const { return m_ViewportWidth; }
 		uint32_t GetViewportHeight() const { return m_ViewportHeight; }
@@ -211,8 +226,12 @@ namespace Strada
 		void StartAudio();
 		void StopAudio();
 		void UpdateAudio();
+		// Brings an entity's sound up to date with its component; false when it has no sound.
+		bool SyncAudioSource(entt::entity handle, AudioSourceComponent const& component);
 		void CreateAudioSource(entt::entity handle, AudioSourceState& state, AudioSourceComponent const& component, bool playOnStart);
 		void UpdateAudioSource(AudioSourceState& state, AudioSourceComponent const& component);
+		// The ID of the entity's sound after syncing it, if it has one.
+		std::optional<UUID> PrepareAudioSource(Entity entity);
 		Entity FindAudioListener();
 
 		// Script runtime (SceneScripting.cpp).
@@ -238,6 +257,7 @@ namespace Strada
 
 		bool m_IsRunning = false;
 		bool m_IsPaused = false;
+		float m_TimeScale = 1.0f;
 		uint32_t m_StepFrames = 0;
 		uint64_t m_RuntimeFrame = 0;
 		double m_RuntimeTime = 0.0;

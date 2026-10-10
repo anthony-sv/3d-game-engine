@@ -27,7 +27,8 @@ SOURCE_DIRECTORIES = ["Strada", "StradaEditor", "StradaRuntime", "Tests"]
 # HLSL is not formatted: clang-format has no HLSL mode and mangles semantics such as "float4 PSMain(...) : SV_Target0".
 CPP_EXTENSIONS = {".h", ".hpp", ".inl", ".c", ".cpp"}
 EXCLUDED_DIRECTORY_NAMES = {"build", "bin", "obj", "ThirdParty", "Output"}
-DOTNET_PROJECTS = ["Strada-ScriptCore/Strada.ScriptCore.csproj", "Tests/TestScripts/Strada.TestScripts.csproj"]
+DOTNET_PROJECTS = ["Strada-ScriptCore/Strada.ScriptCore.csproj", "Tests/TestScripts/Strada.TestScripts.csproj",
+                   "Tests/ScriptCoreTests/Strada.ScriptCore.Tests.csproj"]
 
 
 def find_clang_format() -> str:
