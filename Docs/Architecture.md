@@ -413,7 +413,8 @@ start scene `Assets/Scenes/Main.sscene` in an empty or new directory.
 Asset registry (`Assets/AssetRegistry.sreg`): `"Assets": [ { "Handle", "Type", "Path" } ]` sorted by path, paths
 relative to `Assets/` with forward slashes (case-sensitive, portable characters only). The asset directory is scanned
 when a project opens: new files get fresh handles, missing files keep theirs. Hidden files and folders (names starting
-with `.`) are ignored. Invalid entries are skipped with warnings; an unreadable registry refuses to open (continuing
+with `.`) are ignored, and symbolic links are skipped with a warning (they could make any file of the machine part
+of the project and its exported games). Invalid entries are skipped with warnings; an unreadable registry refuses to open (continuing
 would break references).
 
 Material (`.smat`): `"Material": { <MaterialAsset fields> }`; missing fields keep their defaults.

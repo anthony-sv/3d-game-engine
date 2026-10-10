@@ -24,6 +24,10 @@ namespace Strada
 		{
 			return MakeError("asset {} is not a scene file of the project", scene);
 		}
+		if (AssetManager::IsMissing(scene))
+		{
+			return MakeError("the scene file of asset {} is missing", scene);
+		}
 		return SceneSerializer::LoadFromFile(AssetManager::GetAbsolutePath(scene),
 		                                     AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn));
 	}

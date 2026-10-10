@@ -502,6 +502,14 @@ namespace Strada
 				}
 				continue;
 			}
+			// Links could make any file of the machine part of the project, and of the games exported from it. Directory links
+			// are not descended into either (the iterator does not follow them).
+			if (entry.is_symlink(errorCode))
+			{
+				result.Warnings.push_back(
+					fmt::format("'{}' is a symbolic link, which is not followed", FileSystem::PathToUtf8(entry.path())));
+				continue;
+			}
 			if (!entry.is_regular_file(errorCode))
 			{
 				continue;

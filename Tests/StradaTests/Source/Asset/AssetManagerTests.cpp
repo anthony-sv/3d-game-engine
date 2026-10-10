@@ -320,6 +320,39 @@ TEST_CASE("AssetManager: refresh detects new, missing and modified files")
 	CHECK(AssetManager::GetAsset<AudioClipAsset>(clip));
 }
 
+TEST_CASE("AssetManager: symbolic links in the asset directory are not followed")
+{
+	AssetManagerScope scope;
+	TestProject project;
+	Testing::TemporaryDirectory outside;
+	WritePng(outside.GetPath() / "Secret.png", 7);
+	REQUIRE(FileSystem::CreateDirectories(outside.GetPath() / "Folder").IsOk());
+	WritePng(outside.GetPath() / "Folder" / "Inner.png", 7);
+
+	std::error_code errorCode;
+	std::filesystem::create_symlink(outside.GetPath() / "Secret.png", project.Assets / "Textures" / "Linked.png", errorCode);
+	if (errorCode)
+	{
+		// Windows allows links only with developer mode or elevation.
+		MESSAGE("symbolic links cannot be created here: " << errorCode.message());
+		return;
+	}
+	std::filesystem::create_directory_symlink(outside.GetPath() / "Folder", project.Assets / "LinkedFolder", errorCode);
+	REQUIRE_FALSE(errorCode);
+
+	Result<AssetRefreshResult> opened = AssetManager::OpenAssetDirectory(project.Assets);
+	REQUIRE(opened.IsOk());
+	CHECK_FALSE(AssetManager::FindByPath("Textures/Linked.png").IsValid());
+	CHECK_FALSE(AssetManager::FindByPath("LinkedFolder/Inner.png").IsValid());
+	std::vector<std::string> const& warnings = opened.GetValue().Warnings;
+	CHECK(std::count_if(warnings.begin(), warnings.end(),
+	                    [](std::string const& warning)
+	                    {
+							return warning.find("is a symbolic link") != std::string::npos;
+						}) == 2);
+	CHECK(AssetManager::FindByPath("Textures/Wood.png").IsValid());
+}
+
 TEST_CASE("AssetManager: failed loads are remembered until a refresh")
 {
 	AssetManagerScope scope;
