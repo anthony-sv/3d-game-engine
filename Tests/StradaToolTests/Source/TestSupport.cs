@@ -113,10 +113,11 @@ internal sealed class McpTestClient : IAsyncDisposable
 	private readonly Task m_Server;
 	private int m_NextId;
 
-	public McpTestClient(EditorSessionOptions options)
+	/// <param name="ownTools">strada's own tools for the session, such as <see cref="PolyHavenTools"/>.</param>
+	public McpTestClient(EditorSessionOptions options, Func<EditorSession, IReadOnlyList<McpTool>>? ownTools = null)
 	{
 		Session = new EditorSession(options);
-		McpServer server = new(Session, TextWriter.Null);
+		McpServer server = new(Session, TextWriter.Null, ownTools?.Invoke(Session));
 		ChannelLineReader input = new(m_Input.Reader);
 		ChannelLineWriter output = new(m_Output.Writer);
 		m_Server = Task.Run(() => server.RunAsync(input, output, CancellationToken.None));

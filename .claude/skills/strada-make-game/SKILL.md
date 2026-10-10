@@ -43,6 +43,9 @@ undo history as the UI: work in small, checked steps.
   `EmissiveColor`, textures...); meshes use it through `Mesh.Materials`.
 - `asset_import` copies models (glTF, FBX, OBJ), textures, HDR environments and sounds into the project from absolute
   paths.
+- Skies and image-based lighting: `polyhaven_search_hdris` finds CC0 HDRIs ("sunset", "overcast", "studio"),
+  `polyhaven_import_hdri` imports one (1k lights well, 4k makes a sharp skybox); set the SkyLight's `Environment` to the
+  returned `reference`.
 - `prefab_create` writes an entity with its children to a `.sprefab`; `prefab_instantiate` places copies.
 - `viewport_screenshot` returns an image of the editor (windowed editors only): look at the result.
 

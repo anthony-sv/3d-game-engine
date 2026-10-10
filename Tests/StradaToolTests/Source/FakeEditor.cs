@@ -49,6 +49,11 @@ internal sealed class FakeEditor : IAsyncDisposable
 	public string InstanceFile { get; }
 	/// <summary>How many connections authenticated.</summary>
 	public int Connections => Volatile.Read(ref m_Connected);
+	/// <summary>Whether project.info names an open project.</summary>
+	public bool HasProject { get; set; } = true;
+	/// <summary>What asset.import received: the folder, and for each file its path and its contents then (null when it
+	/// did not exist).</summary>
+	public ConcurrentQueue<(string Folder, string File, byte[]? Contents)> Imports { get; } = new();
 
 	/// <summary>The commands editor.commands lists.</summary>
 	public static JsonArray Commands => new(
@@ -180,6 +185,12 @@ internal sealed class FakeEditor : IAsyncDisposable
 				await m_SlowCommands.Task;
 				response = Result(id, new JsonObject { ["done"] = true });
 				break;
+			case "project.info":
+				response = Result(id, new JsonObject { ["project"] = HasProject ? new JsonObject { ["name"] = "Game" } : null });
+				break;
+			case "asset.import":
+				response = Result(id, Import(parameters));
+				break;
 			default:
 				response = Error(id, -32601, $"unknown command '{method}'");
 				break;
@@ -192,6 +203,28 @@ internal sealed class FakeEditor : IAsyncDisposable
 		{
 			// The client is gone.
 		}
+	}
+
+	private JsonObject Import(JsonObject? parameters)
+	{
+		string folder = parameters?["folder"]?.GetValue<string>() ?? "";
+		JsonArray assets = [];
+		foreach (JsonNode? file in parameters?["files"]?.AsArray() ?? [])
+		{
+			string path = file!.GetValue<string>();
+			Imports.Enqueue((folder, path, File.Exists(path) ? File.ReadAllBytes(path) : null));
+			string name = Path.GetFileName(path);
+			assets.Add(new JsonObject
+			{
+				["id"] = "77",
+				["name"] = name,
+				["type"] = "Environment",
+				["path"] = $"{folder}/{name}",
+				["reference"] = $"asset://{folder}/{name}",
+				["missing"] = false,
+			});
+		}
+		return new JsonObject { ["assets"] = assets };
 	}
 
 	private static async Task WriteAsync(NetworkStream stream, SemaphoreSlim writeLock, JsonObject message)

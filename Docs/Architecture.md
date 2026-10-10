@@ -266,8 +266,8 @@ Asset types:
 - `TextureAsset` (`.png`, `.jpg`, `.tga`, `.bmp`): keeps the encoded file and decodes on demand. The color space is
   chosen by the sampling material slot (base color and emissive sRGB, the others linear); the renderer generates mips
   at upload in linear space.
-- `EnvironmentAsset` (`.hdr`): equirectangular Radiance HDR (e.g. Poly Haven HDRIs) → cubemap + irradiance +
-  prefiltered specular (compute shaders).
+- `EnvironmentAsset` (`.hdr`): equirectangular Radiance HDR (e.g. Poly Haven HDRIs, which `strada hdri` and the MCP tool
+  `polyhaven_import_hdri` download and import) → cubemap + irradiance + prefiltered specular (compute shaders).
 - `FontAsset` (`.ttf`, `.otf`), `AudioClipAsset` (`.wav`, `.flac`, `.mp3`, `.ogg`; format detected from the data),
   `PrefabAsset` (`.sprefab`). Scenes (`.sscene`) are registered for references but opened with `SceneSerializer`.
 - Built-in assets: meshes `Cube`, `Sphere`, `Plane`, `Cylinder`, `Capsule`, `Cone`, `Quad` (unit sizes matching the
@@ -637,8 +637,8 @@ than the assembly.
   protocol; tools are the editor commands, names `domain_action`, schemas from `editor.commands`; attaches to a running
   editor or starts one on demand, and lists the tools from a headless editor started for that when none runs; headless
   editors it starts close with it through the editor's `--parent-process`; screenshots returned as image content;
-  failed commands are tool results with `isError`), `strada call <command> [json]`, `strada launch`, `strada commands`,
-  `strada instances`. Editors ignore SIGPIPE (`Platform::IgnoreBrokenPipeSignal`), so the ones strada starts with a
+  failed commands are tool results with `isError`; strada's own tools search and import Poly Haven HDRIs),
+  `strada call <command> [json]`, `strada launch`, `strada commands`, `strada instances`, `strada hdris`, `strada hdri`. Editors ignore SIGPIPE (`Platform::IgnoreBrokenPipeSignal`), so the ones strada starts with a
   window outlive its output pipes.
 - Command domains: `editor.*` (status, undo, redo, commands), `project.*` (info, create, open, close, settings, export),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,

@@ -41,6 +41,10 @@ public sealed class ProgramTests
 	[InlineData("call", "entity.create", "[1, 2]")]
 	[InlineData("call", "entity.create", "{not json")]
 	[InlineData("instances", "--pid", "nope")]
+	[InlineData("hdri")]
+	[InlineData("hdri", "first", "second")]
+	[InlineData("hdri", "sunny_meadow", "--output", "out", "--folder", "Skies")]
+	[InlineData("hdris", "--resolution", "1k")]
 	public async Task MistakesExitWithTwo(params string[] args)
 	{
 		(int exitCode, string output, string error) = await RunAsync(args);

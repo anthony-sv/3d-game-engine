@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using Strada.Tool.Assets;
 using Strada.Tool.Editor;
 
 namespace Strada.Tool.Mcp;
@@ -32,9 +33,11 @@ internal sealed class McpServer
 		"They act on the editor the user works in, through its undo history, or on an editor started for them. Entities are " +
 		"UUIDs written as strings; component fields use the scene-file format (asset references \"asset://<path in Assets>\" or " +
 		"\"builtin://<name>\", rotations as quaternions [x, y, z, w] or \"RotationEuler\" in degrees). editor_status shows the " +
-		"open project and scene, component_types lists the components and their fields, and log_read reads the editor's log.";
+		"open project and scene, component_types lists the components and their fields, and log_read reads the editor's log. " +
+		"polyhaven_search_hdris and polyhaven_import_hdri bring CC0 skies from Poly Haven into the project for a SkyLight.";
 
 	private readonly EditorSession m_Session;
+	private readonly IReadOnlyList<McpTool> m_OwnTools;
 	private readonly TextWriter m_Log;
 	private readonly SemaphoreSlim m_WriteLock = new(1, 1);
 	private readonly SemaphoreSlim m_CatalogLock = new(1, 1);
@@ -43,12 +46,14 @@ internal sealed class McpServer
 	private string m_ProtocolVersion = ProtocolVersions[0];
 	private TextWriter m_Output = TextWriter.Null;
 
-	/// <param name="session">The editor the tools run on.</param>
+	/// <param name="session">The editor the command tools run on.</param>
 	/// <param name="log">Diagnostics for people (standard error): never the protocol stream.</param>
-	public McpServer(EditorSession session, TextWriter log)
+	/// <param name="ownTools">strada's own tools, listed after the editor's commands.</param>
+	public McpServer(EditorSession session, TextWriter log, IReadOnlyList<McpTool>? ownTools = null)
 	{
 		m_Session = session;
 		m_Log = log;
+		m_OwnTools = ownTools ?? [];
 	}
 
 	/// <summary>Serves the messages of <paramref name="input"/> until it ends or <paramref name="cancellationToken"/> is
@@ -265,10 +270,15 @@ internal sealed class McpServer
 
 		try
 		{
+			if (tool.Command is null)
+			{
+				return await tool.Run!(arguments as JsonObject, cancellationToken);
+			}
 			EditorConnection connection = await m_Session.ConnectAsync(cancellationToken);
 			return ToolCatalog.ToCallResult(await connection.CallAsync(tool.Command, arguments as JsonObject, cancellationToken));
 		}
-		catch (Exception exception) when (exception is EditorCommandException or EditorUnavailableException)
+		catch (Exception exception) when (exception is EditorCommandException or EditorUnavailableException or PolyHavenException or
+										  McpToolException)
 		{
 			return ToolCatalog.ToErrorResult(exception);
 		}
@@ -283,7 +293,7 @@ internal sealed class McpServer
 			{
 				try
 				{
-					m_Catalog = ToolCatalog.FromCommands(await m_Session.GetCommandsAsync(cancellationToken));
+					m_Catalog = ToolCatalog.FromCommands(await m_Session.GetCommandsAsync(cancellationToken), m_OwnTools);
 				}
 				catch (Exception exception) when (exception is EditorCommandException or EditorUnavailableException)
 				{

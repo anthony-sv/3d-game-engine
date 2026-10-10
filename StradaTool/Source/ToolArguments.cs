@@ -24,6 +24,9 @@ internal sealed class ToolArguments
 	public string? Editor { get; private set; }
 	public string? Project { get; private set; }
 	public int? ProcessId { get; private set; }
+	public string? Resolution { get; private set; }
+	public string? Folder { get; private set; }
+	public string? Output { get; private set; }
 	public bool Headless { get; private set; }
 	public bool StartNew { get; private set; }
 	public bool Json { get; private set; }
@@ -74,6 +77,15 @@ internal sealed class ToolArguments
 					break;
 				case "--pid":
 					parsed.ProcessId = ParseProcessId(TakeValue(arguments, ref i, name, inlineValue));
+					break;
+				case "--resolution":
+					parsed.Resolution = TakeValue(arguments, ref i, name, inlineValue);
+					break;
+				case "--folder":
+					parsed.Folder = TakeValue(arguments, ref i, name, inlineValue);
+					break;
+				case "--output":
+					parsed.Output = TakeValue(arguments, ref i, name, inlineValue);
 					break;
 				case "--headless":
 					parsed.Headless = TakeFlag(name, inlineValue);

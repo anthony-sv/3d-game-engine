@@ -41,6 +41,8 @@ this document is the reference (a test fails when a registered command is missin
 | `strada commands` | Lists the editor's commands (`--json`: as `editor.commands` describes them) |
 | `strada launch` | Starts an editor, waits for its automation server and prints `{ processId, port, project, version }` |
 | `strada instances` | Lists the running editors (`--json` for JSON) |
+| `strada hdris [words]` | Searches Poly Haven's HDRIs (CC0) by words in their names, categories and tags (`--json` for JSON) |
+| `strada hdri <id>` | Downloads a Poly Haven HDRI (`--resolution` 1k, 2k (default), 4k or 8k) and imports it into the running editor's project (`--folder` in Assets, default `Environments`), or only downloads it into `--output <directory>` |
 
 Options: `--editor <path>` (the editor to start), `--project <file>` (use the editor that has this project open; editors
 strada starts open it), `--pid <id>` (only the running editor with this process ID), `--headless` (start editors without
@@ -62,6 +64,10 @@ usage.
   closes again.
 - Requests run concurrently. A connection that broke (the editor closed) is replaced on the next call. Cancelled
   requests (`notifications/cancelled`) get no response; the editor still finishes the command.
+- strada adds tools of its own after the editor's: `polyhaven_search_hdris` (`query`, `limit`) finds Poly Haven HDRIs,
+  and `polyhaven_import_hdri` (`id`, `resolution`, `folder`) downloads one and imports it into the open project; a
+  SkyLight's `Environment` takes the returned asset. Downloads are checked against the size and MD5 that Poly Haven
+  lists; nothing is downloaded when no project is open.
 - Editors strada starts with a window stay open for the user. Editors it starts headless close with `strada mcp`: they
   get `--parent-process <strada's process ID>`, the editor option that closes the editor, discarding unsaved changes,
   once that process has exited (a safeguard for when strada itself is ended without closing them).

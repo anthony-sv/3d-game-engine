@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using Strada.Tool.Assets;
 using Strada.Tool.Editor;
 using Strada.Tool.Mcp;
 
@@ -28,6 +31,8 @@ internal static class Program
 		  commands                 List the editor's commands
 		  launch                   Start an editor and print its process ID and port
 		  instances                List the running editors
+		  hdris [words]            Search Poly Haven's HDRIs (CC0 sky and environment panoramas)
+		  hdri <id>                Import a Poly Haven HDRI into the running editor's project
 
 		Options:
 		  --editor <path>   The StradaEditor to start (default: $STRADA_EDITOR, the editor next to strada,
@@ -36,7 +41,10 @@ internal static class Program
 		  --pid <id>        Use the running editor with this process ID (call, commands)
 		  --headless        Start editors without a window (mcp, launch); strada mcp closes them when it ends
 		  --new             Do not use editors strada did not start (mcp)
-		  --json            Print JSON (commands, instances)
+		  --json            Print JSON (commands, instances, hdris)
+		  --resolution <r>  The HDRI's resolution: 1k, 2k (default), 4k or 8k (hdri)
+		  --folder <path>   The folder in Assets the HDRI goes to (hdri; default Environments)
+		  --output <dir>    Only download the HDRI into this directory (hdri)
 		  --help            Show this help
 		  --version         Show strada's version
 
@@ -99,12 +107,24 @@ internal static class Program
 				"commands" => await ListCommandsAsync(arguments, output, cancellationToken),
 				"launch" => await LaunchAsync(arguments, output, error, cancellationToken),
 				"instances" => await ListInstancesAsync(arguments, output),
+				"hdris" => await SearchHdrisAsync(arguments, output, cancellationToken),
+				"hdri" => await ImportHdriAsync(arguments, output, cancellationToken),
 				_ => throw new UsageException($"unknown command '{arguments.Command}'"),
 			};
 		}
 		catch (UsageException exception)
 		{
 			return ReportUsageError(exception, error);
+		}
+		catch (PolyHavenException exception)
+		{
+			await error.WriteLineAsync($"strada: Poly Haven: {exception.Message}");
+			return Failure;
+		}
+		catch (McpToolException exception)
+		{
+			await error.WriteLineAsync($"strada: {exception.Message}");
+			return Failure;
 		}
 		catch (EditorUnavailableException exception)
 		{
@@ -140,7 +160,8 @@ internal static class Program
 			Headless = arguments.Headless,
 			StartNew = arguments.StartNew,
 		});
-		McpServer server = new(session, error);
+		using HttpClient http = PolyHaven.CreateHttpClient();
+		McpServer server = new(session, error, PolyHavenTools.Create(new PolyHaven(http), session));
 		// The protocol owns standard output: nothing else may be written to it.
 		using StreamReader input = new(Console.OpenStandardInput(), s_Utf8, detectEncodingFromByteOrderMarks: false);
 		await using StreamWriter protocol = new(Console.OpenStandardOutput(), s_Utf8);
@@ -247,6 +268,56 @@ internal static class Program
 			string project = instance.Project.Length > 0 ? instance.Project : "(no project)";
 			await output.WriteLineAsync($"{instance.ProcessId,-8} port {instance.Port,-6} {instance.Version,-8} {project}");
 		}
+		return Success;
+	}
+
+	private static async Task<int> SearchHdrisAsync(ToolArguments arguments, TextWriter output, CancellationToken cancellationToken)
+	{
+		arguments.Require(new HashSet<string> { "--json" }, 0, int.MaxValue);
+		using HttpClient http = PolyHaven.CreateHttpClient();
+		List<PolyHavenHdri> found = await new PolyHaven(http).SearchAsync(string.Join(' ', arguments.Operands), int.MaxValue, cancellationToken);
+		if (arguments.Json)
+		{
+			JsonArray list = [.. found.Select(hdri => hdri.ToJson())];
+			await output.WriteLineAsync(list.ToJsonString(JsonText.Indented));
+			return Success;
+		}
+		if (found.Count == 0)
+		{
+			await output.WriteLineAsync("No HDRI matches.");
+			return Success;
+		}
+		foreach (PolyHavenHdri hdri in found)
+		{
+			await output.WriteLineAsync($"{hdri.Id,-48} {hdri.Name}");
+		}
+		await output.WriteLineAsync($"{found.Count} HDRIs; {PolyHaven.License}");
+		return Success;
+	}
+
+	private static async Task<int> ImportHdriAsync(ToolArguments arguments, TextWriter output, CancellationToken cancellationToken)
+	{
+		arguments.Require(new HashSet<string> { "--resolution", "--folder", "--output", "--project", "--pid" }, 1, 1);
+		string id = arguments.Operands[0];
+		string resolution = arguments.Resolution ?? PolyHaven.DefaultResolution;
+		using HttpClient http = PolyHaven.CreateHttpClient();
+		PolyHaven polyHaven = new(http);
+		if (arguments.Output is { } directory)
+		{
+			if (arguments.Folder is not null || arguments.Project is not null || arguments.ProcessId is not null)
+			{
+				throw new UsageException("--output only downloads the HDRI: --folder, --project and --pid choose where it is imported");
+			}
+			await output.WriteLineAsync(await polyHaven.DownloadHdrAsync(id, resolution, Path.GetFullPath(directory), cancellationToken));
+			return Success;
+		}
+
+		await using EditorSession session = new(new EditorSessionOptions { Project = arguments.Project, ProcessId = arguments.ProcessId });
+		EditorConnection connection = await session.TryAttachAsync(cancellationToken) ??
+			throw new EditorUnavailableException("no editor is running to import into: start one with strada launch, or pass --output");
+		JsonObject imported = await PolyHavenTools.ImportIntoProjectAsync(polyHaven, connection, id, resolution,
+			arguments.Folder ?? PolyHavenTools.DefaultFolder, cancellationToken);
+		await output.WriteLineAsync(imported.ToJsonString(JsonText.Indented));
 		return Success;
 	}
 
