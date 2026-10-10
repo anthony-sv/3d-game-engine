@@ -35,5 +35,7 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | Assets | License | Source | Used by |
 |--------|---------|--------|---------|
 | Poly Haven HDRI `autumn_forest_04`, texture set `dry_decay_leaves`, and the models listed in `Projects/Showcase/Tools/Author.py` (`MODELS`) | CC0 | https://polyhaven.com | `Projects/Showcase` (downloaded by `Tools/FetchAssets.py`, not in the repository) |
+| Poly Haven HDRI `studio_small_09` (1k) | CC0 | https://polyhaven.com | `Projects/Blocks` (reflections; in the repository) |
 
-The Showcase's sounds are synthesized by `Projects/Showcase/Tools/GenerateAudio.py` and have no third-party source.
+The sounds of both samples are synthesized by `Projects/Showcase/Tools/GenerateAudio.py` and
+`Projects/Blocks/Tools/GenerateAssets.py` (with the Blocks block mesh and grid texture) and have no third-party source.

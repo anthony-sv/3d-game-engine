@@ -801,8 +801,13 @@ data directory, and compile out asserts and script debug lines.
   loads the second scene, which finishes the run. CMake builds the scripts (`StradaFeatureTestScripts`) and
   `StradaRuntimeTests` runs a copy of the project through the player (`StradaRuntime --project ... --test`; exit code =
   failures).
-- `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp` (the project, its materials and
-  sound, both scenes, the C# scripts built by the editor): falling blocks with pure C# rules (`Board`, `Piece`,
-  `PieceBag`), the `BlocksGame` script and a test scene whose `BlocksTests` check the rules and play the game.
-  `StradaRuntimeTests` plays that scene and runs the game's scene headless.
+- `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp`: `Tools/Author.py` builds the
+  project, its materials, both scenes and the debris prefab, with the sounds, the beveled block mesh and the grid texture
+  that `Tools/GenerateAssets.py` synthesizes and a Poly Haven studio HDRI for reflections. Falling blocks with pure C#
+  rules (`Board`, `Piece`, `PieceBag`), the `BlocksGame` script (sounds, rows that burst into physics debris, a camera
+  shake) and a test scene whose `BlocksTests` check the rules and play the game. `StradaRuntimeTests` plays that scene
+  and runs the game's scene headless.
+- `Projects/Showcase`: an autumn forest clearing built by `Tools/Author.py` through `strada mcp` from Poly Haven assets
+  (fetched by `Tools/FetchAssets.py`, not in the repository) with a physics playground, sound and a test scene that
+  `StradaRuntimeTests` plays (its checks do not need the downloads).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.

@@ -15,11 +15,18 @@
 		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
 	</PropertyGroup>
 
-	<ItemGroup>
+	<ItemGroup Condition="'$(StradaScriptCoreAssembly)' != ''">
 		<Reference Include="Strada.ScriptCore">
 			<HintPath>$(StradaScriptCoreAssembly)</HintPath>
 			<!-- The engine provides it at run time. -->
 			<Private>false</Private>
 		</Reference>
+	</ItemGroup>
+	<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
+	     CMake builds pass StradaScriptCoreAssembly. -->
+	<ItemGroup Condition="'$(StradaScriptCoreAssembly)' == ''">
+		<ProjectReference Include="../../../Strada-ScriptCore/Strada.ScriptCore.csproj">
+			<Private>false</Private>
+		</ProjectReference>
 	</ItemGroup>
 </Project>

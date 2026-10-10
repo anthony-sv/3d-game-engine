@@ -50,7 +50,11 @@ public sealed class ShowcaseTests : Script
 				// models, so this works without them.
 				Entity target = playground.Props.Children.Where(prop => prop.HasComponent<BoxColliderComponent>())
 					.OrderByDescending(prop => prop.Transform.WorldTranslation.Y).First();
-				m_Ball = camera.Throw(target.Transform.WorldTranslation + new Vector3(0.0f, 0.15f, 0.0f) - Camera!.Transform.WorldTranslation);
+				// Aimed above the crate by the distance the ball falls on its way, so it hits the crate itself on every platform
+				// (a hit low on the tower moves the heavy crates there too little, by amounts that differ between machines).
+				Vector3 toTarget = target.Transform.WorldTranslation + new Vector3(0.0f, 0.15f, 0.0f) - Camera!.Transform.WorldTranslation;
+				float flight = toTarget.Length / camera.ThrowSpeed;
+				m_Ball = camera.Throw(toTarget + new Vector3(0.0f, 0.5f * 9.81f * flight * flight, 0.0f));
 				Assert.IsNotNull(m_Ball);
 				Assert.IsTrue(m_Ball.GetComponent<RigidBodyComponent>()!.LinearVelocity.Length > 10.0f);
 				Assert.AreEqual(1, camera.Thrown);

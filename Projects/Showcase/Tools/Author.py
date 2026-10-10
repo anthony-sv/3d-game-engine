@@ -129,6 +129,27 @@ def gltf_bounds(path):
 
 # --- Scene helpers ----------------------------------------------------------------------------------------------------
 
+def use_engine_sources(csproj):
+    """In the engine's repository, builds without the machine's Strada.props (dotnet format in CI, IDEs) take the scripting
+    API from its sources; CMake builds pass StradaScriptCoreAssembly."""
+    with open(csproj, encoding="utf-8") as file:
+        text = file.read()
+    reference = '\t<ItemGroup>\n\t\t<Reference Include="Strada.ScriptCore">'
+    if reference not in text:
+        raise SystemExit(f"{csproj} does not reference Strada.ScriptCore as expected")
+    text = text.replace(reference, '\t<ItemGroup Condition="\'$(StradaScriptCoreAssembly)\' != \'\'">\n\t\t<Reference Include="Strada.ScriptCore">')
+    text = text.replace("</Project>", """\t<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
+\t     CMake builds pass StradaScriptCoreAssembly. -->
+\t<ItemGroup Condition="'$(StradaScriptCoreAssembly)' == ''">
+\t\t<ProjectReference Include="../../../Strada-ScriptCore/Strada.ScriptCore.csproj">
+\t\t\t<Private>false</Private>
+\t\t</ProjectReference>
+\t</ItemGroup>
+</Project>""")
+    with open(csproj, "w", encoding="utf-8", newline="\n") as file:
+        file.write(text)
+
+
 def transform(translation, euler=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0)):
     return {"Translation": list(translation), "RotationEuler": list(euler), "Scale": list(scale)}
 
@@ -184,6 +205,7 @@ def build(client, sources):
         client.call("script_create", {"className": name})
     for name in SCRIPTS:
         shutil.copyfile(os.path.join(sources, f"{name}.cs"), os.path.join(PROJECT, "Scripts", "Source", f"{name}.cs"))
+    use_engine_sources(os.path.join(PROJECT, "Scripts", "Showcase.csproj"))
     built = client.call("script_build")
     if not built["succeeded"]:
         raise SystemExit(f"the scripts did not build: {built}")

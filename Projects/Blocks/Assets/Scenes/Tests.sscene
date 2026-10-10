@@ -19,7 +19,7 @@
 				"Dithering": true,
 				"Shadows": true,
 				"SoftShadows": true,
-				"ShadowDistance": 100.0,
+				"ShadowDistance": 60.0,
 				"CascadeCount": 4,
 				"CascadeSplitLambda": 0.75,
 				"ShadowMapSize": 2048,
@@ -28,14 +28,779 @@
 				"AmbientOcclusionRadius": 0.75,
 				"AmbientOcclusionIntensity": 1.5,
 				"Bloom": true,
-				"BloomIntensity": 0.03999999910593033,
+				"BloomIntensity": 0.09000000357627869,
 				"FXAA": true
 			}
 		}
 	},
 	"Entities": [
 		{
-			"ID": "8809100637902671077",
+			"ID": "243392908984309346",
+			"Components": {
+				"Tag": {
+					"Tag": "Main Camera"
+				},
+				"Transform": {
+					"Translation": [
+						7.400000095367432,
+						9.199999809265137,
+						31.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Camera": {
+					"Projection": "Perspective",
+					"PerspectiveFOV": 45.0,
+					"PerspectiveNear": 0.10000000149011612,
+					"PerspectiveFar": 1000.0,
+					"OrthographicSize": 10.0,
+					"OrthographicNear": -100.0,
+					"OrthographicFar": 100.0,
+					"Primary": true,
+					"FixedAspectRatio": false,
+					"AspectRatio": 1.7777777910232544
+				},
+				"Script": {
+					"ClassName": "Blocks.CameraShake",
+					"Fields": {}
+				}
+			}
+		},
+		{
+			"ID": "3117604096723672767",
+			"Components": {
+				"Tag": {
+					"Tag": "Sun"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						-0.2890569865703583,
+						-0.2628800570964813,
+						-0.0828857570886612,
+						0.916771650314331
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"DirectionalLight": {
+					"Color": [
+						0.8999999761581421,
+						0.9300000071525574,
+						1.0
+					],
+					"Intensity": 1.600000023841858,
+					"CastShadows": true,
+					"LightSize": 0.800000011920929
+				}
+			}
+		},
+		{
+			"ID": "5682465535664142501",
+			"Components": {
+				"Tag": {
+					"Tag": "Sky"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"SkyLight": {
+					"Environment": "8739594170170995848",
+					"Intensity": 0.800000011920929,
+					"Rotation": 0.0,
+					"SkyboxBlur": 0.0,
+					"DrawSkybox": false,
+					"AmbientColor": [
+						0.019999999552965164,
+						0.02500000037252903,
+						0.05000000074505806
+					]
+				}
+			}
+		},
+		{
+			"ID": "12390448037928386545",
+			"Components": {
+				"Tag": {
+					"Tag": "Frame"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"2331173669949172375",
+						"219676670532449234",
+						"6707266481504036213",
+						"570546239623841717",
+						"14554780557539289614",
+						"10180944721650705144"
+					]
+				}
+			}
+		},
+		{
+			"ID": "2331173669949172375",
+			"Components": {
+				"Tag": {
+					"Tag": "Left Wall"
+				},
+				"Transform": {
+					"Translation": [
+						-1.0,
+						9.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						21.0,
+						1.399999976158142
+					]
+				},
+				"Relationship": {
+					"Parent": "12390448037928386545",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"17060328067503908679"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "219676670532449234",
+			"Components": {
+				"Tag": {
+					"Tag": "Right Wall"
+				},
+				"Transform": {
+					"Translation": [
+						10.0,
+						9.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						21.0,
+						1.399999976158142
+					]
+				},
+				"Relationship": {
+					"Parent": "12390448037928386545",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"17060328067503908679"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "6707266481504036213",
+			"Components": {
+				"Tag": {
+					"Tag": "Floor"
+				},
+				"Transform": {
+					"Translation": [
+						4.5,
+						-1.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						12.0,
+						1.0,
+						1.399999976158142
+					]
+				},
+				"Relationship": {
+					"Parent": "12390448037928386545",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"17060328067503908679"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "570546239623841717",
+			"Components": {
+				"Tag": {
+					"Tag": "Left Neon"
+				},
+				"Transform": {
+					"Translation": [
+						-0.4699999988079071,
+						9.0,
+						0.699999988079071
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.05999999865889549,
+						21.0,
+						0.05999999865889549
+					]
+				},
+				"Relationship": {
+					"Parent": "12390448037928386545",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5832442808666684032"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "14554780557539289614",
+			"Components": {
+				"Tag": {
+					"Tag": "Right Neon"
+				},
+				"Transform": {
+					"Translation": [
+						9.470000267028809,
+						9.0,
+						0.699999988079071
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.05999999865889549,
+						21.0,
+						0.05999999865889549
+					]
+				},
+				"Relationship": {
+					"Parent": "12390448037928386545",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5832442808666684032"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "10180944721650705144",
+			"Components": {
+				"Tag": {
+					"Tag": "Floor Neon"
+				},
+				"Transform": {
+					"Translation": [
+						4.5,
+						-0.4699999988079071,
+						0.699999988079071
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						10.0,
+						0.05999999865889549,
+						0.05999999865889549
+					]
+				},
+				"Relationship": {
+					"Parent": "12390448037928386545",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5832442808666684032"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "13789584992286915934",
+			"Components": {
+				"Tag": {
+					"Tag": "Backdrop"
+				},
+				"Transform": {
+					"Translation": [
+						4.5,
+						9.5,
+						-0.6200000047683716
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						10.0,
+						20.0,
+						0.20000000298023224
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"15707930241922781148"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "16743998647429790851",
+			"Components": {
+				"Tag": {
+					"Tag": "Next Panel"
+				},
+				"Transform": {
+					"Translation": [
+						13.5,
+						16.0,
+						-0.8999999761581421
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						4.599999904632568,
+						4.599999904632568,
+						0.20000000298023224
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"14718691945907317170"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "3656728666538528403",
+			"Components": {
+				"Tag": {
+					"Tag": "Next Neon"
+				},
+				"Transform": {
+					"Translation": [
+						13.5,
+						18.329999923706055,
+						-0.800000011920929
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						4.599999904632568,
+						0.05999999865889549,
+						0.05999999865889549
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5832442808666684032"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "4568202788964339757",
+			"Components": {
+				"Tag": {
+					"Tag": "Next Neon 2"
+				},
+				"Transform": {
+					"Translation": [
+						13.5,
+						13.670000076293945,
+						-0.800000011920929
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						4.599999904632568,
+						0.05999999865889549,
+						0.05999999865889549
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"5832442808666684032"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "8003224620621312499",
+			"Components": {
+				"Tag": {
+					"Tag": "Next Label"
+				},
+				"Transform": {
+					"Translation": [
+						11.300000190734863,
+						19.450000762939453,
+						-0.800000011920929
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "NEXT",
+					"Font": "300",
+					"Color": [
+						0.550000011920929,
+						0.8500000238418579,
+						1.0,
+						1.0
+					],
+					"FontSize": 0.699999988079071,
+					"ScreenSpace": false,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "249858421043228912",
+			"Components": {
+				"Tag": {
+					"Tag": "Title"
+				},
+				"Transform": {
+					"Translation": [
+						0.6800000071525574,
+						0.4300000071525574,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "BLOCKS",
+					"Font": "300",
+					"Color": [
+						1.0,
+						0.7799999713897705,
+						0.20000000298023224,
+						1.0
+					],
+					"FontSize": 84.0,
+					"ScreenSpace": true,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "109984508118728415",
+			"Components": {
+				"Tag": {
+					"Tag": "Score"
+				},
+				"Transform": {
+					"Translation": [
+						0.6800000071525574,
+						0.5600000023841858,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "",
+					"Font": "300",
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"FontSize": 34.0,
+					"ScreenSpace": true,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "12489973335879881873",
+			"Components": {
+				"Tag": {
+					"Tag": "Message"
+				},
+				"Transform": {
+					"Translation": [
+						0.6800000071525574,
+						0.7300000190734863,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "",
+					"Font": "300",
+					"Color": [
+						1.0,
+						0.8500000238418579,
+						0.30000001192092896,
+						1.0
+					],
+					"FontSize": 34.0,
+					"ScreenSpace": true,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "6712868903871348339",
+			"Components": {
+				"Tag": {
+					"Tag": "Controls"
+				},
+				"Transform": {
+					"Translation": [
+						0.6800000071525574,
+						0.8600000143051147,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "Left / Right   move\nUp   turn      Z   turn back\nDown   faster      Space   drop\nP   pause      R   restart",
+					"Font": "300",
+					"Color": [
+						0.699999988079071,
+						0.75,
+						0.8500000238418579,
+						1.0
+					],
+					"FontSize": 18.0,
+					"ScreenSpace": true,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "8068001479072613135",
 			"Components": {
 				"Tag": {
 					"Tag": "Game"
@@ -65,16 +830,116 @@
 				"Script": {
 					"ClassName": "Blocks.BlocksGame",
 					"Fields": {
+						"BigClearSound": {
+							"Type": "Asset",
+							"Value": "17985301419841662437"
+						},
+						"BlockMesh": {
+							"Type": "Asset",
+							"Value": "12781279787731438216"
+						},
+						"Camera": {
+							"Type": "Entity",
+							"Value": "243392908984309346"
+						},
+						"ClearSound": {
+							"Type": "Asset",
+							"Value": "16679954956634130355"
+						},
+						"Debris": {
+							"Type": "Prefab",
+							"Value": "9198719902619830483"
+						},
+						"DropSound": {
+							"Type": "Asset",
+							"Value": "5076813894606631745"
+						},
 						"FallInterval": {
 							"Type": "Float",
 							"Value": 0.10000000149011612
+						},
+						"GameOverSound": {
+							"Type": "Asset",
+							"Value": "3587715389404674470"
+						},
+						"LevelUpSound": {
+							"Type": "Asset",
+							"Value": "2250081786173458952"
+						},
+						"LockSound": {
+							"Type": "Asset",
+							"Value": "2757339838750880417"
+						},
+						"MessageText": {
+							"Type": "Entity",
+							"Value": "12489973335879881873"
+						},
+						"MoveSound": {
+							"Type": "Asset",
+							"Value": "13741836684321062002"
+						},
+						"PreviewPosition": {
+							"Type": "Vector3",
+							"Value": [
+								12.0,
+								17.0,
+								0.0
+							]
+						},
+						"RotateSound": {
+							"Type": "Asset",
+							"Value": "16333803828193085532"
+						},
+						"ScoreText": {
+							"Type": "Entity",
+							"Value": "109984508118728415"
 						}
 					}
 				}
 			}
 		},
 		{
-			"ID": "17679179850319377746",
+			"ID": "8311257402552410904",
+			"Components": {
+				"Tag": {
+					"Tag": "Music"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "3384162347419868057",
+					"Volume": 0.30000001192092896,
+					"Pitch": 1.0,
+					"Loop": true,
+					"PlayOnStart": true,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				}
+			}
+		},
+		{
+			"ID": "14814299059596977766",
 			"Components": {
 				"Tag": {
 					"Tag": "Tests"
@@ -106,7 +971,7 @@
 					"Fields": {
 						"Game": {
 							"Type": "Entity",
-							"Value": "8809100637902671077"
+							"Value": "8068001479072613135"
 						}
 					}
 				}

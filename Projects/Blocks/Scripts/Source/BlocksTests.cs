@@ -188,6 +188,40 @@ public sealed class BlocksTests : Script
 			Assert.AreEqual(0, game.Score);
 			Assert.IsNull(game.Board[0, 0]);
 		});
+		TestReporter.Run("full rows burst into debris, score and sound", () =>
+		{
+			game.Restart();
+			for (int x = 0; x < Board.Width; x++)
+			{
+				game.Board.Set(x, 0, PieceKind.T);
+			}
+			game.Board.Set(4, 1, PieceKind.S);
+			int debris = game.DebrisSpawned;
+			int sounds = game.SoundsPlayed;
+			Assert.AreEqual(1, game.ClearFullRows());
+			Assert.AreEqual(debris + Board.Width, game.DebrisSpawned);
+			Assert.IsTrue(game.SoundsPlayed > sounds, "a clear sound played");
+			Assert.AreEqual(1, game.Rows);
+			Assert.AreEqual(Board.Score(1, 1), game.Score);
+			Assert.AreEqual(PieceKind.S, game.Board[4, 0], "the row above moved down");
+			Assert.AreEqual(0, game.ClearFullRows(), "nothing more to clear");
+		});
+		TestReporter.Run("four rows at once score the most and shake the camera", () =>
+		{
+			game.Restart();
+			for (int y = 0; y < 4; y++)
+			{
+				for (int x = 0; x < Board.Width; x++)
+				{
+					game.Board.Set(x, y, PieceKind.I);
+				}
+			}
+			Assert.AreEqual(4, game.ClearFullRows());
+			Assert.AreEqual(Board.Score(4, 1), game.Score);
+			CameraShake? shake = game.Camera?.As<CameraShake>();
+			Assert.IsNotNull(shake);
+			Assert.IsTrue(shake.Trauma > 0.5f, $"trauma {shake.Trauma}");
+		});
 		TestReporter.Finish();
 		Application.Quit();
 	}

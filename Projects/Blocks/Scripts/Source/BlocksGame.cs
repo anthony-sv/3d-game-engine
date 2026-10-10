@@ -3,9 +3,9 @@ using Strada;
 namespace Blocks;
 
 /// <summary>The game. Pieces fall into the board; the player moves them (Left/Right or A/D, held keys repeat), turns them
-/// (Up/W/X clockwise, Z counter-clockwise), drops them faster (Down/S) or at once (Space); full rows clear and score. P
-/// pauses, R starts again. The board's cells are drawn by cubes this script creates; settled cells take the color of
-/// their piece.</summary>
+/// (Up/W/X clockwise, Z counter-clockwise), drops them faster (Down/S) or at once (Space); full rows clear, burst into
+/// debris and score. P pauses, R starts again. The board's cells are drawn by blocks this script creates; settled cells
+/// take the color of their piece.</summary>
 public sealed class BlocksGame : Script
 {
 	[Tooltip("The text that shows the score, the cleared rows and the level")]
@@ -14,12 +14,33 @@ public sealed class BlocksGame : Script
 	[Tooltip("The text that shows that the game is paused or over")]
 	public Entity? MessageText;
 
+	[Tooltip("The camera, shaken by drops and clears (needs a CameraShake script)")]
+	public Entity? Camera;
+
 	[Tooltip("Seconds a piece takes to fall one row at level 1")]
 	[Range(0.05f, 2.0f)]
 	public float FallInterval = 0.8f;
 
 	[Tooltip("Where the next piece is shown (its shape's top-left cell)")]
 	public Vector3 PreviewPosition = new(12.0f, 17.0f, 0.0f);
+
+	[Tooltip("The mesh of a block (a cube one unit wide)")]
+	public Mesh? BlockMesh;
+
+	[Tooltip("What a cleared block bursts into")]
+	public Prefab? Debris;
+
+	public AudioClip? MoveSound;
+	public AudioClip? RotateSound;
+	public AudioClip? LockSound;
+	public AudioClip? DropSound;
+	public AudioClip? ClearSound;
+
+	[Tooltip("Plays instead of ClearSound when four rows clear at once")]
+	public AudioClip? BigClearSound;
+
+	public AudioClip? LevelUpSound;
+	public AudioClip? GameOverSound;
 
 	// How fast a held key moves the piece: the first repeat after the delay, then one per interval.
 	private const float RepeatDelay = 0.17f;
@@ -28,11 +49,13 @@ public sealed class BlocksGame : Script
 	private const float LockDelay = 0.5f;
 	private const float SoftDropInterval = 0.04f;
 	private const int RowsPerLevel = 10;
+	// Sounds play on a few sources in turn, so quick ones do not cut each other off.
+	private const int SoundSources = 6;
 
 	private static readonly Color[] s_Colors =
 	[
-		new(0.1f, 0.85f, 0.9f), new(0.95f, 0.85f, 0.1f), new(0.65f, 0.25f, 0.9f), new(0.2f, 0.85f, 0.25f),
-		new(0.9f, 0.2f, 0.2f), new(0.2f, 0.35f, 0.95f), new(0.95f, 0.55f, 0.1f),
+		new(0.1f, 0.85f, 0.95f), new(1.0f, 0.82f, 0.1f), new(0.7f, 0.25f, 1.0f), new(0.2f, 0.9f, 0.3f),
+		new(1.0f, 0.2f, 0.25f), new(0.2f, 0.4f, 1.0f), new(1.0f, 0.5f, 0.1f),
 	];
 
 	private readonly Board m_Board = new();
@@ -42,12 +65,14 @@ public sealed class BlocksGame : Script
 	private readonly Entity[] m_GhostCubes = new Entity[4];
 	private readonly Entity[] m_PreviewCubes = new Entity[4];
 	private readonly Material[] m_Materials = new Material[s_Colors.Length];
+	private readonly AudioSourceComponent[] m_Sources = new AudioSourceComponent[SoundSources];
 	private PieceBag m_Bag = new(Random.Range);
 	private Material? m_GhostMaterial;
 	private float m_FallTimer;
 	private float m_LockTimer;
 	private float m_RepeatTimer;
 	private int m_RepeatDirection;
+	private int m_NextSource;
 	private string m_ShownScore = "";
 
 	/// <summary>The piece the player controls.</summary>
@@ -65,6 +90,12 @@ public sealed class BlocksGame : Script
 
 	public bool IsPaused { get; private set; }
 
+	/// <summary>Blocks that burst from cleared rows so far.</summary>
+	public int DebrisSpawned { get; private set; }
+
+	/// <summary>Sounds started so far.</summary>
+	public int SoundsPlayed { get; private set; }
+
 	/// <summary>Seconds per row at the current level: falls get faster as the level rises.</summary>
 	public float CurrentFallInterval => Mathf.Max(0.05f, FallInterval * Mathf.Pow(0.85f, Level - 1));
 
@@ -77,28 +108,37 @@ public sealed class BlocksGame : Script
 		{
 			Material material = Material.Create()!;
 			material.BaseColor = s_Colors[kind];
-			material.Roughness = 0.35f;
+			material.Metallic = 0.1f;
+			material.Roughness = 0.22f;
 			material.Emissive = s_Colors[kind];
-			material.EmissiveIntensity = 0.15f;
+			material.EmissiveIntensity = 0.28f;
 			m_Materials[kind] = material;
 		}
 		m_GhostMaterial = Material.Create()!;
-		m_GhostMaterial.BaseColor = new Color(1.0f, 1.0f, 1.0f, 0.18f);
+		m_GhostMaterial.BaseColor = new Color(1.0f, 1.0f, 1.0f, 0.12f);
+		m_GhostMaterial.Emissive = new Color(0.6f, 0.8f, 1.0f);
+		m_GhostMaterial.EmissiveIntensity = 0.15f;
 		m_GhostMaterial.AlphaMode = MaterialAlphaMode.Blend;
 
-		Mesh cube = Assets.Load<Mesh>("builtin://Cube")!;
+		Mesh mesh = BlockMesh ?? Assets.Load<Mesh>("builtin://Cube")!;
 		for (int x = 0; x < Board.Width; x++)
 		{
 			for (int y = 0; y < Board.Height; y++)
 			{
-				m_CellCubes[x, y] = CreateCube($"Cell {x},{y}", new Vector3(x, y, 0.0f), cube);
+				m_CellCubes[x, y] = CreateBlock($"Cell {x},{y}", new Vector3(x, y, 0.0f), mesh);
 			}
 		}
 		for (int i = 0; i < 4; i++)
 		{
-			m_PieceCubes[i] = CreateCube("Piece", Vector3.Zero, cube);
-			m_GhostCubes[i] = CreateCube("Ghost", Vector3.Zero, cube);
-			m_PreviewCubes[i] = CreateCube("Next", Vector3.Zero, cube);
+			m_PieceCubes[i] = CreateBlock("Piece", Vector3.Zero, mesh);
+			m_GhostCubes[i] = CreateBlock("Ghost", Vector3.Zero, mesh);
+			m_PreviewCubes[i] = CreateBlock("Next", Vector3.Zero, mesh);
+		}
+		for (int i = 0; i < SoundSources; i++)
+		{
+			Entity source = Entity.Create($"Sound {i + 1}");
+			source.Parent = this;
+			m_Sources[i] = source.AddComponent<AudioSourceComponent>();
 		}
 		Restart();
 	}
@@ -143,6 +183,7 @@ public sealed class BlocksGame : Script
 		}
 		Active = moved;
 		m_LockTimer = 0.0f;
+		PlaySound(MoveSound, 0.35f, Random.Range(0.95f, 1.05f));
 		return true;
 	}
 
@@ -155,6 +196,7 @@ public sealed class BlocksGame : Script
 		}
 		Active = turned;
 		m_LockTimer = 0.0f;
+		PlaySound(RotateSound, 0.45f, quarterTurns > 0 ? 1.0f : 0.9f);
 		return true;
 	}
 
@@ -166,22 +208,64 @@ public sealed class BlocksGame : Script
 			return;
 		}
 		Piece landed = m_Board.Drop(Active);
-		Score += 2 * (Active.Y - landed.Y);
+		int fallen = Active.Y - landed.Y;
+		Score += 2 * fallen;
 		Active = landed;
+		PlaySound(DropSound, 0.8f, 1.0f);
+		Shake(0.12f + (fallen * 0.012f));
 		Settle();
 	}
 
-	private Entity CreateCube(string name, Vector3 position, Mesh mesh)
+	/// <summary>Clears the full rows: their blocks burst into debris, the score and level rise, and a sound plays. Returns the
+	/// rows cleared.</summary>
+	public int ClearFullRows()
 	{
-		Entity cube = Entity.Create(name);
+		int levelBefore = Level;
+		int cleared = 0;
+		for (int y = 0; y < Board.Height; y++)
+		{
+			bool full = true;
+			for (int x = 0; x < Board.Width && full; x++)
+			{
+				full = m_Board[x, y] is not null;
+			}
+			if (!full)
+			{
+				continue;
+			}
+			cleared++;
+			for (int x = 0; x < Board.Width; x++)
+			{
+				Burst(new Vector3(x, y, 0.0f), m_Materials[(int)m_Board[x, y]!.Value]);
+			}
+		}
+		if (cleared == 0)
+		{
+			return 0;
+		}
+		m_Board.ClearRows();
+		Score += Board.Score(cleared, Level);
+		Rows += cleared;
+		PlaySound(cleared >= 4 ? BigClearSound : ClearSound, 0.9f, 1.0f);
+		if (Level > levelBefore)
+		{
+			PlaySound(LevelUpSound, 0.8f, 1.0f);
+		}
+		Shake(0.2f * cleared);
+		return cleared;
+	}
+
+	private Entity CreateBlock(string name, Vector3 position, Mesh mesh)
+	{
+		Entity block = Entity.Create(name);
 		// Children of the game: the board follows the game entity's transform.
-		cube.Parent = this;
-		cube.Translation = position;
-		cube.Scale = new Vector3(0.94f);
-		MeshComponent component = cube.AddComponent<MeshComponent>();
+		block.Parent = this;
+		block.Translation = position;
+		block.Scale = new Vector3(0.96f);
+		MeshComponent component = block.AddComponent<MeshComponent>();
 		component.Mesh = mesh;
 		component.Visible = false;
-		return cube;
+		return block;
 	}
 
 	private void HandleInput(float deltaTime)
@@ -254,16 +338,11 @@ public sealed class BlocksGame : Script
 	{
 		if (!m_Board.Lock(Active))
 		{
-			IsOver = true;
+			EndGame();
 			return;
 		}
-		int cleared = m_Board.ClearRows();
-		if (cleared > 0)
-		{
-			Score += Board.Score(cleared, Level);
-			Rows += cleared;
-			GetComponent<AudioSourceComponent>()?.Play();
-		}
+		PlaySound(LockSound, 0.5f, Random.Range(0.95f, 1.05f));
+		ClearFullRows();
 		SpawnNext();
 	}
 
@@ -273,7 +352,69 @@ public sealed class BlocksGame : Script
 		m_FallTimer = 0.0f;
 		m_LockTimer = 0.0f;
 		// The stack reached the top: the new piece has no room.
-		IsOver = !m_Board.Fits(Active);
+		if (!m_Board.Fits(Active))
+		{
+			EndGame();
+		}
+		else
+		{
+			IsOver = false;
+		}
+	}
+
+	private void EndGame()
+	{
+		if (!IsOver)
+		{
+			PlaySound(GameOverSound, 0.9f, 1.0f);
+			Shake(0.5f);
+		}
+		IsOver = true;
+	}
+
+	// A cleared block flies off: it spins away from the board's center and falls.
+	private void Burst(Vector3 cell, Material material)
+	{
+		if (Debris is null)
+		{
+			return;
+		}
+		Vector3 position = Transform.WorldTranslation + cell;
+		Entity? piece = Entity.Instantiate(Debris, position, Quaternion.Identity);
+		if (piece is null)
+		{
+			return;
+		}
+		piece.GetComponent<MeshComponent>()?.SetMaterial(0, material);
+		RigidBodyComponent? body = piece.GetComponent<RigidBodyComponent>();
+		if (body is not null)
+		{
+			float outward = (cell.X - ((Board.Width - 1) / 2.0f)) * 1.6f;
+			body.LinearVelocity = new Vector3(outward + Random.Range(-2.5f, 2.5f), Random.Range(4.0f, 11.0f), Random.Range(0.5f, 4.0f));
+			body.AngularVelocity = new Vector3(Random.Range(-12.0f, 12.0f), Random.Range(-12.0f, 12.0f), Random.Range(-12.0f, 12.0f));
+		}
+		DebrisSpawned++;
+	}
+
+	private void PlaySound(AudioClip? clip, float volume, float pitch)
+	{
+		if (clip is null || m_Sources[0] is null)
+		{
+			return;
+		}
+		AudioSourceComponent source = m_Sources[m_NextSource];
+		m_NextSource = (m_NextSource + 1) % SoundSources;
+		source.Stop();
+		source.Clip = clip;
+		source.Volume = volume;
+		source.Pitch = pitch;
+		source.Play();
+		SoundsPlayed++;
+	}
+
+	private void Shake(float strength)
+	{
+		Camera?.As<CameraShake>()?.Shake(strength);
 	}
 
 	private void Show()
@@ -300,10 +441,9 @@ public sealed class BlocksGame : Script
 		bool playing = !IsOver;
 		ShowPiece(m_PieceCubes, Active, Vector3.Zero, m_Materials[(int)Active.Kind], playing);
 		ShowPiece(m_GhostCubes, m_Board.Drop(Active), Vector3.Zero, m_GhostMaterial!, playing && !IsPaused);
-		Piece preview = new(Next, 0, 0, 0);
-		ShowPiece(m_PreviewCubes, preview, PreviewPosition, m_Materials[(int)Next], true);
+		ShowPreview();
 
-		string score = $"Score {Score}\nRows {Rows}\nLevel {Level}";
+		string score = $"SCORE  {Score}\nROWS   {Rows}\nLEVEL  {Level}";
 		if (score != m_ShownScore && ScoreText?.GetComponent<TextComponent>() is { } scoreText)
 		{
 			scoreText.Text = score;
@@ -311,7 +451,29 @@ public sealed class BlocksGame : Script
 		}
 		if (MessageText?.GetComponent<TextComponent>() is { } message)
 		{
-			message.Text = IsOver ? "Game over\nR to play again" : IsPaused ? "Paused\nP to go on" : "";
+			message.Text = IsOver ? "GAME OVER\nR to play again" : IsPaused ? "PAUSED\nP to go on" : "";
+		}
+	}
+
+	// The next piece turns slowly around its own center.
+	private void ShowPreview()
+	{
+		Piece preview = new(Next, 0, 0, 0);
+		Vector3 center = Vector3.Zero;
+		foreach ((int x, int y) in preview.Cells)
+		{
+			center += new Vector3(x, y, 0.0f) * 0.25f;
+		}
+		Quaternion spin = Quaternion.AngleAxis((float)Time.Elapsed * 50.0f, Vector3.Up);
+		int i = 0;
+		foreach ((int x, int y) in preview.Cells)
+		{
+			Entity cube = m_PreviewCubes[i++];
+			cube.Translation = PreviewPosition + center + (spin * (new Vector3(x, y, 0.0f) - center));
+			cube.Rotation = spin;
+			MeshComponent mesh = cube.GetComponent<MeshComponent>()!;
+			mesh.Visible = true;
+			mesh.SetMaterial(0, m_Materials[(int)Next]);
 		}
 	}
 

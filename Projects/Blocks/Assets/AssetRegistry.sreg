@@ -5,29 +5,99 @@
 	},
 	"Assets": [
 		{
-			"Handle": "15052310210351176369",
+			"Handle": "17985301419841662437",
+			"Type": "AudioClip",
+			"Path": "Audio/BigClear.wav"
+		},
+		{
+			"Handle": "16679954956634130355",
 			"Type": "AudioClip",
 			"Path": "Audio/Clear.wav"
 		},
 		{
-			"Handle": "61968895636629607",
+			"Handle": "5076813894606631745",
+			"Type": "AudioClip",
+			"Path": "Audio/Drop.wav"
+		},
+		{
+			"Handle": "3587715389404674470",
+			"Type": "AudioClip",
+			"Path": "Audio/GameOver.wav"
+		},
+		{
+			"Handle": "2250081786173458952",
+			"Type": "AudioClip",
+			"Path": "Audio/LevelUp.wav"
+		},
+		{
+			"Handle": "2757339838750880417",
+			"Type": "AudioClip",
+			"Path": "Audio/Lock.wav"
+		},
+		{
+			"Handle": "13741836684321062002",
+			"Type": "AudioClip",
+			"Path": "Audio/Move.wav"
+		},
+		{
+			"Handle": "3384162347419868057",
+			"Type": "AudioClip",
+			"Path": "Audio/Music.wav"
+		},
+		{
+			"Handle": "16333803828193085532",
+			"Type": "AudioClip",
+			"Path": "Audio/Rotate.wav"
+		},
+		{
+			"Handle": "8739594170170995848",
+			"Type": "Environment",
+			"Path": "Environments/studio_small_09_1k.hdr"
+		},
+		{
+			"Handle": "15707930241922781148",
 			"Type": "Material",
 			"Path": "Materials/Backdrop.smat"
 		},
 		{
-			"Handle": "708859717634477476",
+			"Handle": "17060328067503908679",
 			"Type": "Material",
 			"Path": "Materials/Frame.smat"
 		},
 		{
-			"Handle": "11237807079152485157",
+			"Handle": "5832442808666684032",
+			"Type": "Material",
+			"Path": "Materials/Neon.smat"
+		},
+		{
+			"Handle": "14718691945907317170",
+			"Type": "Material",
+			"Path": "Materials/Panel.smat"
+		},
+		{
+			"Handle": "12781279787731438216",
+			"Type": "Mesh",
+			"Path": "Meshes/Block.gltf"
+		},
+		{
+			"Handle": "9198719902619830483",
+			"Type": "Prefab",
+			"Path": "Prefabs/Debris.sprefab"
+		},
+		{
+			"Handle": "10887120029863391160",
 			"Type": "Scene",
 			"Path": "Scenes/Main.sscene"
 		},
 		{
-			"Handle": "6495428699604737503",
+			"Handle": "12696596331185141609",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "17934947894147121856",
+			"Type": "Texture",
+			"Path": "Textures/Grid.png"
 		}
 	]
 }
