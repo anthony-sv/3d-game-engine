@@ -79,6 +79,8 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/PrefabAsset.h
     Source/Strada/Asset/TextureAsset.cpp
     Source/Strada/Asset/TextureAsset.h
+    Source/Strada/Asset/TrueTypeSanitizer.cpp
+    Source/Strada/Asset/TrueTypeSanitizer.h
 )
 
 set(STRADA_MATH_SOURCES

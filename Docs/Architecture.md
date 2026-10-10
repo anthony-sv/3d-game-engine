@@ -294,8 +294,12 @@ Asset types:
   at upload in linear space.
 - `EnvironmentAsset` (`.hdr`): equirectangular Radiance HDR (e.g. Poly Haven HDRIs, which `strada hdri` and the MCP tool
   `polyhaven_import_hdri` download and import) → cubemap + irradiance + prefiltered specular (compute shaders).
-- `FontAsset` (`.ttf`, `.otf`), `AudioClipAsset` (`.wav`, `.flac`, `.mp3`, `.ogg`; format detected from the data),
-  `PrefabAsset` (`.sprefab`). Scenes (`.sscene`) are registered for references but opened with `SceneSerializer`.
+- `FontAsset` (`.ttf`, `.otf` with TrueType outlines; the first font of a collection), `AudioClipAsset` (`.wav`,
+  `.flac`, `.mp3`, `.ogg`; format detected from the data), `PrefabAsset` (`.sprefab`). Scenes (`.sscene`) are
+  registered for references but opened with `SceneSerializer`. stb_truetype, which renders fonts, trusts every offset
+  in a font, so `SanitizeTrueTypeFont` (`Asset/TrueTypeSanitizer`) first checks everything it reads: damaged glyphs
+  become empty, damaged kerning is ignored, other damage refuses the font, and so do CFF outlines, which stb_truetype
+  cannot keep within their table. `FontAtlas` skips glyphs whose distance field would take too long.
 - Built-in assets: meshes `Cube`, `Sphere`, `Plane`, `Cylinder`, `Capsule`, `Cone`, `Quad` (unit sizes matching the
   default colliders), `DefaultMaterial`, textures `White`, `Black`, `FlatNormal`, the `DefaultFont` (Roboto Medium,
   compiled into the engine with `strada_embed_resources` from `cmake/StradaResources.cmake` and found with

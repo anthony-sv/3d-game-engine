@@ -8,7 +8,7 @@
 
 namespace Strada
 {
-	// A TrueType/OpenType font file used by text rendering.
+	// A TrueType font file (TrueType outlines, in .ttf or .otf files) used by text rendering.
 	class FontAsset final : public Asset
 	{
 		struct PrivateTag
@@ -16,7 +16,8 @@ namespace Strada
 		};
 
 	public:
-		// Validates that the data contains a usable font (the first font of a collection is used).
+		// Validates that the data contains a usable font (the first font of a collection is used), repairing damage that
+		// leaves the rest usable (see SanitizeTrueTypeFont).
 		[[nodiscard]] static Result<Ref<FontAsset>> Create(Buffer data);
 
 		FontAsset(PrivateTag, Buffer data);

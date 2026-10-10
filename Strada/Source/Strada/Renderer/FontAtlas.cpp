@@ -19,6 +19,9 @@ namespace Strada
 	{
 		// Empty pixels between glyphs, so filtering never mixes neighbors.
 		constexpr uint32_t GlyphGap = 1;
+		// A distance field costs time for each of its pixels and outline vertices: about a second at this many, of which
+		// real characters need under a tenth. Glyphs beyond it are left out rather than stall the program.
+		constexpr uint64_t MaxDistanceFieldWork = uint64_t(1) << 26;
 	}
 
 	struct FontAtlas::Data
@@ -43,10 +46,35 @@ namespace Strada
 		uint32_t CursorX = 0;
 		uint64_t Version = 1;
 		bool FullReported = false;
+		bool CostlyReported = false;
 
 		int FindGlyphIndex(char32_t codepoint) const
 		{
-			return codepoint > 0x10FFFF ? 0 : stbtt_FindGlyphIndex(&Info, static_cast<int>(codepoint));
+			if (codepoint > 0x10FFFF)
+			{
+				return 0;
+			}
+			// Character maps may name glyphs the font does not have; stb_truetype reads their metrics unchecked.
+			int const glyph = stbtt_FindGlyphIndex(&Info, static_cast<int>(codepoint));
+			return glyph > 0 && glyph < Info.numGlyphs ? glyph : 0;
+		}
+
+		bool IsAffordable(int glyphIndex) const
+		{
+			int x0 = 0;
+			int y0 = 0;
+			int x1 = 0;
+			int y1 = 0;
+			stbtt_GetGlyphBitmapBox(&Info, glyphIndex, Scale, Scale, &x0, &y0, &x1, &y1);
+			if (x1 < x0 || y1 < y0 || x1 - x0 > static_cast<int>(MaxSize) || y1 - y0 > static_cast<int>(MaxSize))
+			{
+				return false;
+			}
+			stbtt_vertex* vertices = nullptr;
+			int const vertexCount = stbtt_GetGlyphShape(&Info, glyphIndex, &vertices);
+			stbtt_FreeShape(&Info, vertices);
+			uint64_t const pixels = static_cast<uint64_t>(x1 - x0 + 2 * DistanceRange) * static_cast<uint64_t>(y1 - y0 + 2 * DistanceRange);
+			return pixels * static_cast<uint64_t>(std::max(vertexCount, 1)) <= MaxDistanceFieldWork;
 		}
 
 		// Doubles the image (keeping its content at the same place); false when it is at the maximum size.
@@ -101,6 +129,15 @@ namespace Strada
 			int bearing = 0;
 			stbtt_GetGlyphHMetrics(&Info, glyphIndex, &advance, &bearing);
 			glyph.Advance = static_cast<float>(advance) / UnitsPerLine;
+			if (!IsAffordable(glyphIndex))
+			{
+				if (!CostlyReported)
+				{
+					ST_CORE_WARN("A font has characters too large or complex to draw; they are left out");
+					CostlyReported = true;
+				}
+				return glyph;
+			}
 
 			int width = 0;
 			int height = 0;

@@ -10,6 +10,7 @@ add_executable(StradaTests
     Source/Asset/MeshFactoryTests.cpp
     Source/Asset/MeshImporterTests.cpp
     Source/Asset/MeshSourceTests.cpp
+    Source/Asset/TrueTypeSanitizerTests.cpp
     Source/Audio/AudioEngineTests.cpp
     Source/Audio/AudioSceneTests.cpp
     Source/Audio/AudioTestUtilities.h
@@ -83,6 +84,8 @@ target_link_libraries(StradaTests PRIVATE Strada doctest::doctest)
 target_compile_definitions(StradaTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
     STRADA_TEST_FONT_PATH="${imgui_SOURCE_DIR}/misc/fonts/Karla-Regular.ttf"
+    # Its other TrueType fonts, which the font sanitizer and fuzz tests damage.
+    STRADA_TEST_FONTS_DIR="${imgui_SOURCE_DIR}/misc/fonts"
     # Golden images and other test data.
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data"
     # The feature-test project, whose scenes must use every component.
