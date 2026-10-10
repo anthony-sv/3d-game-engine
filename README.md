@@ -12,8 +12,8 @@ an exporter for distributable games.
 > tonemapping, signed-distance text and sprites), Jolt physics and miniaudio sound (spatial audio sources and
 > listeners) driven by the scene runtime, C# scripting with hot reload, the editor (viewport with gizmos and picking,
 > hierarchy, generated inspector, content browser, project settings, undo/redo, play mode, AI automation server), the
-> game player, game export, a feature-test project exercising every component and the whole scripting API, and CI on
-> all three platforms. The MCP bridge is next.
+> game player, game export, the `strada` tool with its MCP server for AI agents, a feature-test project exercising
+> every component and the whole scripting API, and CI on all three platforms.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Planned feature set
@@ -40,8 +40,8 @@ Prerequisites:
 | Other | Python 3.10+ | Python 3.10+ | Python 3.10+, `apt install pkg-config libwayland-dev libxkbcommon-dev xorg-dev libgtk-3-dev` |
 
 The [Vulkan SDK](https://vulkan.lunarg.com/) 1.4.x is required (DXC shader compiler; validation layers for Debug
-builds), and a GPU driver with Vulkan 1.3 support to run the editor. The scripting layer will additionally require the
-[.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+builds), and a GPU driver with Vulkan 1.3 support to run the editor. The [.NET 10
+SDK](https://dotnet.microsoft.com/download/dotnet/10.0) builds the scripting layer, the `strada` tool and the C# tests.
 
 ```sh
 python Tools/build.py --test                    # Debug build + all tests
@@ -59,11 +59,20 @@ Third-party libraries are downloaded automatically by CMake (pinned versions, ve
 | `StradaEditor/` | Editor (`StradaEditor --help` lists its options) |
 | `StradaRuntime/` | Game player (`StradaRuntime --help` lists its options) |
 | `Strada-ScriptCore/` | C# scripting API |
+| `StradaTool/` | `strada`: command-line tool and MCP server for the editor (`strada --help`) |
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |
 | `Docs/` | Architecture and design documentation |
 | `.claude/skills/` | Development playbooks for AI agents |
+
+## AI agents
+
+Agents control the editor through `strada mcp`, a Model Context Protocol server whose tools are the editor's
+automation commands: they create projects, scenes, entities, materials and scripts, play and test the game, and export
+it. In this repository `.mcp.json` registers it for Claude Code; build the engine first, and strada attaches to a
+running editor or starts one. [Docs/Automation.md](Docs/Automation.md) describes the tools and how to register them for
+a game project of your own.
 
 ## Contributing
 

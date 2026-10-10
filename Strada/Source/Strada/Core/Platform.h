@@ -19,5 +19,9 @@ namespace Strada
 		static std::optional<std::string> ReadEnvironmentVariable(std::string const& name);
 		// Monotonic time in seconds since an unspecified, process-constant epoch.
 		static double GetTime();
+		// POSIX systems end a process that writes to a pipe or socket whose reading end is closed (SIGPIPE); afterwards such
+		// writes fail with EPIPE instead. Applications do this at startup: an editor that a tool started keeps running when
+		// the tool exits and the editor's output pipe closes. Process-wide; nothing to do on Windows, where the writes fail.
+		static void IgnoreBrokenPipeSignal();
 	};
 }

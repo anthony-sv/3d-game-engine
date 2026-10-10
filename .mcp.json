@@ -1,0 +1,11 @@
+{
+	"mcpServers": {
+		"strada": {
+			"command": "dotnet",
+			"args": ["run", "--project", "StradaTool/StradaTool.csproj", "--no-launch-profile", "--", "mcp"],
+			"env": {
+				"DOTNET_NOLOGO": "1"
+			}
+		}
+	}
+}

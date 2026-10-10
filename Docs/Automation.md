@@ -10,16 +10,17 @@ this document is the reference (a test fails when a registered command is missin
 1. Start the editor (`StradaEditor`, or `StradaEditor --headless` without a window). It listens on `127.0.0.1` only,
    on a free port (`--automation-port <port>` fixes it; `--no-automation` disables the server).
 2. Read the instance file `<user data>/Editor/Instances/<pid>.json` (`%APPDATA%/Strada` on Windows,
-   `~/Library/Application Support/Strada` on macOS, `$XDG_DATA_HOME/Strada` or `~/.local/share/Strada` on Linux):
+   `~/Library/Application Support/Strada` on macOS, `$XDG_DATA_HOME/strada` or `~/.local/share/strada` on Linux):
 
    ```json
    { "Strada": { "Version": 1, "Type": "AutomationInstance" }, "ProcessID": 1234, "Port": 51234,
      "Token": "<64 hex characters>", "Project": "", "Version": "0.1.0" }
    ```
 
-   The file holds a secret: its directory is user-only (POSIX 0700, files 0600; on Windows the per-user application
-   data folder is private by its default ACL). The editor deletes it on exit; files of processes that no longer run are
-   stale and removed by scanners.
+   `Project` is the project file the editor has open (empty without one); the editor rewrites the file when that
+   changes. The file holds a secret: its directory is user-only (POSIX 0700, files 0600; on Windows the per-user
+   application data folder is private by its default ACL). The editor deletes it on exit; files of processes that no
+   longer run are stale and removed by scanners.
 3. Open a TCP connection and authenticate first:
 
    ```json
@@ -28,6 +29,53 @@ this document is the reference (a test fails when a registered command is missin
 
    Anything else before a successful `authenticate`, or a wrong token, is answered with `Unauthenticated` and the
    connection is closed.
+
+## The strada tool and MCP
+
+`strada` (`StradaTool`, C#; CMake builds it next to `StradaEditor`) speaks this protocol for agents and scripts:
+
+| Command | What it does |
+|---------|--------------|
+| `strada mcp` | A Model Context Protocol server on standard input and output (below) |
+| `strada call <command> [params]` | Runs a command in a running editor and prints its result as JSON; `params` is a JSON object. Exit code 1 with the error when the command fails |
+| `strada commands` | Lists the editor's commands (`--json`: as `editor.commands` describes them) |
+| `strada launch` | Starts an editor, waits for its automation server and prints `{ processId, port, project, version }` |
+| `strada instances` | Lists the running editors (`--json` for JSON) |
+
+Options: `--editor <path>` (the editor to start), `--project <file>` (use the editor that has this project open; editors
+strada starts open it), `--pid <id>` (only the running editor with this process ID), `--headless` (start editors without
+a window), `--new` (`strada mcp`: never use an editor strada did not start). strada starts the editor that `--editor`
+names, else `STRADA_EDITOR`, else the `StradaEditor` next to strada, else the most recently built
+`build/*/bin/StradaEditor` below the working directory (an engine checkout). Exit codes: 0 success, 1 failure, 2 wrong
+usage.
+
+`strada mcp` serves the editor's commands as MCP tools (protocol versions 2024-11-05 to 2025-11-25):
+
+- Tool names are the command names with `.` and `-` replaced by `_` (`entity_create`, `asset_create_folder`). The
+  descriptions and JSON-schema parameters are the editor's (`editor.commands`); read-only commands have `readOnlyHint`.
+- A tool call runs its command on the editor strada works with: a running editor (the one that has `--project` open,
+  else the newest instance file), or one it starts when none fits. Results are JSON text; results with an image
+  (`mimeType` `image/...` and base64 `data`, such as `viewport.screenshot`'s) are image content. Commands that fail are
+  tool results with `isError` and the error as text (`EntityNotFound (1001): entity 123 does not exist`, `data` on a
+  second line), which the model reads; unknown tools are protocol errors.
+- `tools/list` needs no running editor: strada then reads the commands from a headless editor it starts for that and
+  closes again.
+- Requests run concurrently. A connection that broke (the editor closed) is replaced on the next call. Cancelled
+  requests (`notifications/cancelled`) get no response; the editor still finishes the command.
+- Editors strada starts with a window stay open for the user. Editors it starts headless close with `strada mcp`: they
+  get `--parent-process <strada's process ID>`, the editor option that closes the editor, discarding unsaved changes,
+  once that process has exited (a safeguard for when strada itself is ended without closing them).
+
+The repository's `.mcp.json` registers `strada mcp` for agents working in the checkout (through `dotnet run`, which
+builds strada when needed). A game project elsewhere registers the built tool (`strada.exe` on Windows):
+
+```json
+{
+  "mcpServers": {
+    "strada": { "command": "<engine>/build/<preset>/bin/strada", "args": ["mcp", "--project", "Game.sproj"] }
+  }
+}
+```
 
 ## Messages
 

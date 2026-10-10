@@ -25,12 +25,13 @@ Entries marked *(planned)* are introduced by upcoming subsystems; their location
 | `StradaEditor/` | `StradaEditorCore` static library + `StradaEditor` executable |
 | `StradaRuntime/` | Game player (`StradaRuntime`): runs exported games and projects, windowed, headless or as test runs |
 | `Strada-ScriptCore/` | C# scripting API (`Strada.ScriptCore.dll`) |
-| `StradaTool/` *(planned)* | `strada` CLI + MCP stdio bridge |
+| `StradaTool/` | `strada`: the editor's command-line tool and MCP stdio bridge (C#) |
 | `Tests/StradaTests/` | C++ engine tests (doctest) |
 | `Tests/StradaEditorTests/` | Editor model and automation tests (doctest, headless) |
 | `Tests/StradaRuntimeTests/` | Game player tests: run `StradaRuntime` on generated games (doctest) |
 | `Tests/TestScripts/` | C# game scripts the scripting tests run |
 | `Tests/ScriptCoreTests/` | C# unit tests of the scripting API (xUnit v3) |
+| `Tests/StradaToolTests/` | Tests of `strada`: command line, MCP server, sessions with the headless editor (xUnit v3) |
 | `Tests/Data/` | Test data (renderer golden images) |
 | `Projects/FeatureTest/` | Project exercising every component and the entire scripting API |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
@@ -212,8 +213,8 @@ Rules for suites that arrive with later subsystems (binding as soon as the subsy
   so they need no audio device and never depend on timing.
 - GPU tests start with `ST_REQUIRE_GPU()` (skips when no Vulkan device is available). Renderer golden images live in
   `Tests/Data/Golden/`; update them only deliberately and review the diff images.
-- C# tests use xUnit v3 in `Tests/ScriptCoreTests` (an executable ctest runs; packages are pinned by
-  `packages.lock.json`).
+- C# tests use xUnit v3 in `Tests/ScriptCoreTests` and `Tests/StradaToolTests` (executables ctest runs; packages are
+  pinned by `packages.lock.json`).
 - **Feature-test project**: any new component or scripting API must be exercised in `Projects/FeatureTest`
   (scene + scripts using `Strada.Testing`). `ScriptCoreTests` fails if a public scripting API member is not used by
   the feature-test scripts (read from their compiled metadata), `StradaTests` fails if a registered component is
@@ -279,3 +280,4 @@ workflows change.
 | `strada-automation-command` | Adding or changing an editor automation command |
 | `strada-render-pass` | Adding a shader or render pass, golden-image tests |
 | `strada-editor-ui` | Editor panels, the generated inspector, undo merge keys, shortcuts, headless UI tests |
+| `strada-make-game` | Building a game through the editor's MCP tools (`strada mcp`, registered in `.mcp.json`) |

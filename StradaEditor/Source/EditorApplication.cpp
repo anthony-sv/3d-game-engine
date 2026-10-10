@@ -4,6 +4,7 @@
 #include "Strada/Core/EntryPoint.h"
 #include "Strada/Core/FileSystem.h"
 
+#include <cstdint>
 #include <cstdio>
 
 namespace Strada
@@ -51,7 +52,8 @@ namespace Strada
 			.AddOption("automation-port", "port", "Port of the automation server on 127.0.0.1 (default: any free port)")
 			.AddFlag("no-automation", "Do not start the automation server")
 			.AddOption("project", "path", "Open this project file (.sproj) at startup")
-			.AddOption("scene", "path", "Open this scene file at startup (after the project)");
+			.AddOption("scene", "path", "Open this scene file at startup (after the project)")
+			.AddOption("parent-process", "id", "Close, discarding unsaved changes, once the process with this ID has exited");
 
 		Result<CommandLineArguments> parsed = parser.Parse(args.Count, args.Args);
 		if (!parsed)
@@ -97,6 +99,17 @@ namespace Strada
 				return nullptr;
 			}
 			editorSpecification.AutomationPort = static_cast<uint16_t>(*port);
+		}
+		if (arguments.GetValue("parent-process"))
+		{
+			std::optional<int64_t> const parent = arguments.GetInt("parent-process");
+			if (!parent || *parent <= 0 || *parent > static_cast<int64_t>(UINT32_MAX))
+			{
+				std::fprintf(stderr, "--parent-process must be a process ID\n");
+				exitCode = 2;
+				return nullptr;
+			}
+			editorSpecification.ParentProcessID = static_cast<uint32_t>(*parent);
 		}
 		if (std::optional<std::string> const project = arguments.GetValue("project"))
 		{

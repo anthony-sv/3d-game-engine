@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/AutomationServer.h"
 #include "Editor/Automation/CommandRegistry.h"
 #include "Editor/EditorContext.h"
@@ -19,6 +20,7 @@
 
 #include "Strada/Core/Layer.h"
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -36,6 +38,9 @@ namespace Strada
 		std::filesystem::path ProjectPath;
 		// Scene file opened at startup, after the project; empty keeps the project's start scene or the default scene.
 		std::filesystem::path ScenePath;
+		// The editor closes, discarding unsaved changes, once this process has exited (checked about once a second):
+		// tools that start editors for themselves (strada mcp) do not leave them running when they end.
+		std::optional<uint32_t> ParentProcessID;
 	};
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
@@ -99,6 +104,10 @@ namespace Strada
 		std::string GetExportStatus() const;
 		void DrawRecentProjectsMenu();
 		void UpdateWindowTitle();
+		// Rewrites the automation instance file when the open project changed, so that clients find the editor by project.
+		void UpdateInstanceFile();
+		// Closes the editor once the parent process (EditorLayerSpecification::ParentProcessID) has exited.
+		void WatchParentProcess();
 
 		// Runs the action now, or after the unsaved-changes prompt when the scene has unsaved changes.
 		void RequestSceneAction(SceneAction action, std::filesystem::path path = {});
@@ -127,7 +136,10 @@ namespace Strada
 		EditorExport m_Export;
 		CommandRegistry m_Commands;
 		AutomationServer m_AutomationServer;
+		// What the instance file holds; valid while m_InstanceFileWritten.
+		AutomationInstanceInfo m_InstanceInfo;
 		bool m_InstanceFileWritten = false;
+		std::chrono::steady_clock::time_point m_NextParentProcessCheck;
 
 		ConsolePanel m_ConsolePanel;
 		StatisticsPanel m_StatisticsPanel;

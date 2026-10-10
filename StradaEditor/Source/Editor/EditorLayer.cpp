@@ -182,12 +182,13 @@ namespace Strada
 			return;
 		}
 
-		AutomationInstanceInfo info;
-		info.ProcessID = Platform::GetProcessID();
-		info.Port = m_AutomationServer.GetPort();
-		info.Token = m_AutomationServer.GetToken();
-		info.Version = EngineVersion::String;
-		Result<std::filesystem::path> written = AutomationInstance::Write(info);
+		m_InstanceInfo.ProcessID = Platform::GetProcessID();
+		m_InstanceInfo.Port = m_AutomationServer.GetPort();
+		m_InstanceInfo.Token = m_AutomationServer.GetToken();
+		m_InstanceInfo.Version = EngineVersion::String;
+		Project const* project = m_Context.GetProject();
+		m_InstanceInfo.Project = project != nullptr ? FileSystem::PathToUtf8(project->GetFilePath()) : std::string();
+		Result<std::filesystem::path> written = AutomationInstance::Write(m_InstanceInfo);
 		if (written)
 		{
 			m_InstanceFileWritten = true;
@@ -214,7 +215,9 @@ namespace Strada
 
 	void EditorLayer::OnUpdate(Timestep timestep)
 	{
+		WatchParentProcess();
 		m_AutomationServer.ProcessRequests();
+		UpdateInstanceFile();
 		m_Scripts.Update();
 		m_Export.Update();
 		UpdateGameInput();
@@ -624,6 +627,47 @@ namespace Strada
 		{
 			window->SetTitle(title);
 			m_WindowTitle = title;
+		}
+	}
+
+	void EditorLayer::UpdateInstanceFile()
+	{
+		if (!m_InstanceFileWritten)
+		{
+			return;
+		}
+		Project const* project = m_Context.GetProject();
+		std::string projectFile = project != nullptr ? FileSystem::PathToUtf8(project->GetFilePath()) : std::string();
+		if (projectFile == m_InstanceInfo.Project)
+		{
+			return;
+		}
+		// Not retried when it fails: the old file still leads clients here, and they can ask editor.status.
+		m_InstanceInfo.Project = std::move(projectFile);
+		if (Result<std::filesystem::path> written = AutomationInstance::Write(m_InstanceInfo); !written)
+		{
+			ST_ERROR("Could not update the automation instance file: {}", written.GetError());
+		}
+	}
+
+	void EditorLayer::WatchParentProcess()
+	{
+		if (!m_Specification.ParentProcessID)
+		{
+			return;
+		}
+		std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
+		if (now < m_NextParentProcessCheck)
+		{
+			return;
+		}
+		m_NextParentProcessCheck = now + std::chrono::seconds(1);
+		uint32_t const parent = *m_Specification.ParentProcessID;
+		if (!Platform::IsProcessRunning(parent))
+		{
+			ST_INFO("The process that started the editor ({}) has exited: closing the editor", parent);
+			m_Specification.ParentProcessID.reset();
+			Application::Get().Close();
 		}
 	}
 

@@ -24,6 +24,7 @@ add_executable(StradaTests
     Source/Core/KeyCodeTests.cpp
     Source/Core/LayerStackTests.cpp
     Source/Core/LogTests.cpp
+    Source/Core/PlatformTests.cpp
     Source/Core/ResultTests.cpp
     Source/Core/UUIDTests.cpp
     Source/Core/Utf8Tests.cpp

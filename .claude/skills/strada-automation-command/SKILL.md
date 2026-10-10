@@ -18,7 +18,8 @@ future UI panel calls the same code. Never mutate the scene directly from a hand
 
 In `EditorCommands.cpp` (or a new `<Domain>Commands.cpp` registered from `RegisterEditorCommands`):
 
-- Name `domain.action` (lowercase, digits, hyphens). The MCP bridge exposes it as `domain_action`.
+- Name `domain.action` (lowercase, digits, hyphens). `strada mcp` exposes it as the tool `domain_action` (dots and
+  hyphens become underscores), with the command's description and schema.
 - Description: what it does and what it returns, written for an agent that has never seen the code.
 - Parameters with `SchemaBuilder` (descriptions on every property, `MinLength`, `Minimum`, `Enum`, defaults). Schema
   validation runs before the handler; the handler may assume types.

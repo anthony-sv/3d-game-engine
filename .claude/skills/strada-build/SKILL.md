@@ -36,6 +36,9 @@ build/<preset>/bin/StradaTests -sc="*round trip*"      # filter subcases
 build/<preset>/bin/StradaTests --list-test-cases
 build/<preset>/bin/StradaEditorTests                   # editor model and automation tests (headless)
 build/<preset>/bin/StradaRuntimeTests                  # game player tests (they run StradaRuntime)
+dotnet build/<preset>/bin/ScriptCoreTests/Strada.ScriptCore.Tests.dll   # C# scripting API tests
+STRADA_EDITOR=build/<preset>/bin/StradaEditor dotnet build/<preset>/bin/StradaToolTests/Strada.Tool.Tests.dll
+                                                       # strada tests (they start the editor headless)
 ```
 
 Test cases are named `"<Module>: <behavior>"`, so module filters such as `-tc="Input*"` work.

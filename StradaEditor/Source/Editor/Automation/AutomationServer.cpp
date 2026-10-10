@@ -67,6 +67,12 @@ namespace Strada
 			::WSACleanup();
 		}
 
+		// Windows has no SIGPIPE: sends to a closed connection just fail.
+		bool DisableBrokenPipeSignal(SocketHandle)
+		{
+			return true;
+		}
+
 		constexpr int SendFlags = 0;
 #else
 		using SocketHandle = int;
@@ -107,12 +113,23 @@ namespace Strada
 		{
 		}
 
+		// A client that disconnects mid-write must not kill the editor with SIGPIPE: sends pass MSG_NOSIGNAL where it
+		// exists (Linux), and sockets are marked SO_NOSIGPIPE where it does not (macOS).
 #if defined(MSG_NOSIGNAL)
-		// A client that disconnects mid-write must not kill the editor with SIGPIPE.
 		constexpr int SendFlags = MSG_NOSIGNAL;
 #else
 		constexpr int SendFlags = 0;
 #endif
+
+		bool DisableBrokenPipeSignal([[maybe_unused]] SocketHandle socket)
+		{
+#if defined(SO_NOSIGPIPE)
+			int const enabled = 1;
+			return ::setsockopt(socket, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled)) == 0;
+#else
+			return true;
+#endif
+		}
 #endif
 
 		SocketHandle ToSocket(uintptr_t value)
@@ -421,7 +438,7 @@ namespace Strada
 				SocketHandle const accepted = ::accept(listener, nullptr, nullptr);
 				if (accepted != InvalidSocket)
 				{
-					if (!SetNonBlocking(accepted))
+					if (!SetNonBlocking(accepted) || !DisableBrokenPipeSignal(accepted))
 					{
 						CloseSocket(accepted);
 					}

@@ -629,12 +629,17 @@ than the assembly.
   random 256-bit token (first request `authenticate`, constant-time comparison). A network thread owns the sockets
   (framing, size limits, parsing, authentication) and never touches editor state; the editor layer runs queued requests
   on the main thread once per frame (`ProcessRequests`). The editor writes `{pid, port, token, project, version}` to
-  `<user data>/Editor/Instances/<pid>.json` (user-only permissions) and removes it on exit.
+  `<user data>/Editor/Instances/<pid>.json` (user-only permissions), rewrites it when the open project changes and
+  removes it on exit.
 - The editor model (`EditorContext`: scene, file, undo `CommandHistory`, selection; `EditorOperations`) is shared by UI
   panels and automation. The protocol and the command reference are in [Automation.md](Automation.md).
-- `strada` tool (C#): `strada mcp` (MCP stdio server; tools are the editor commands, names `domain_action`;
-  launches or attaches to an editor on demand; screenshots returned as image content), `strada call <command>
-  [json]`, `strada launch`, `strada commands`.
+- `strada` tool (C#, `StradaTool`, no dependencies beyond .NET): `strada mcp` (MCP stdio server written against the
+  protocol; tools are the editor commands, names `domain_action`, schemas from `editor.commands`; attaches to a running
+  editor or starts one on demand, and lists the tools from a headless editor started for that when none runs; headless
+  editors it starts close with it through the editor's `--parent-process`; screenshots returned as image content;
+  failed commands are tool results with `isError`), `strada call <command> [json]`, `strada launch`, `strada commands`,
+  `strada instances`. Editors ignore SIGPIPE (`Platform::IgnoreBrokenPipeSignal`), so the ones strada starts with a
+  window outlive its output pipes.
 - Command domains: `editor.*` (status, undo, redo, commands), `project.*` (info, create, open, close, settings, export),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
@@ -643,7 +648,8 @@ than the assembly.
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entity), `renderer.*`
   (settings), `log.*` (read since index), `test.*` (run a test scene and return results).
-- Claude Code integration: `.mcp.json` registers `strada mcp`; skills in `.claude/skills/` document building games.
+- Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);
+  the `strada-make-game` skill in `.claude/skills/` documents building games with the tools.
 
 ## 13. Runtime and export
 
@@ -712,6 +718,8 @@ compile out asserts and dev tools.
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, command-line errors, a windowed run's presented image).
+- `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
+  stand-in editor, and MCP sessions with the real editor started headless (`STRADA_EDITOR`; ctest sets it).
 - `ScriptCoreTests` (xUnit): math types and an API-coverage test asserting every public `Strada.ScriptCore` member
   is used by the FeatureTest scripts. It reads their compiled metadata: references to every type, method (accessors
   and operators included, overloads matched by signature) and field; Script's callbacks and protected constructors

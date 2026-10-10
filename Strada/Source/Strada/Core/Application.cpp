@@ -104,6 +104,7 @@ namespace Strada
 
 	Result<void> Application::InitializeEngine()
 	{
+		Platform::IgnoreBrokenPipeSignal();
 		ST_CORE_INFO("Initializing {}", m_Specification.Name);
 
 		if (!m_Specification.WorkingDirectory.empty())

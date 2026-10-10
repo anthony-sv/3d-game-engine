@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- Tests of strada (StradaTool): the command line, instance files, the MCP server against a stand-in editor, and
+	     sessions with the real editor, which STRADA_EDITOR names (ctest sets it; without it those tests are skipped).
+	     xUnit v3 makes this an executable that runs its tests. -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>Strada.Tool.Tests</AssemblyName>
+		<RootNamespace>Strada.Tool.Tests</RootNamespace>
+		<OutputType>Exe</OutputType>
+		<IsPackable>false</IsPackable>
+		<!-- packages.lock.json pins every package, with its content hash. -->
+		<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="xunit.v3" Version="4.0.2" />
+	</ItemGroup>
+
+	<!-- CMake tests the strada it builds next to the editor: building the project again into this output would share its
+	     intermediate files, and MSBuild would remove one of the two copies. -->
+	<ItemGroup Condition="'$(StradaToolDirectory)' != ''">
+		<Reference Include="strada">
+			<HintPath>$(StradaToolDirectory)/strada.dll</HintPath>
+		</Reference>
+	</ItemGroup>
+	<!-- IDEs and dotnet format build strada from source. -->
+	<ItemGroup Condition="'$(StradaToolDirectory)' == ''">
+		<ProjectReference Include="../../StradaTool/StradaTool.csproj" />
+	</ItemGroup>
+</Project>

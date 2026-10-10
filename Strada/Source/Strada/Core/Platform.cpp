@@ -124,4 +124,11 @@ namespace Strada
 		std::chrono::duration<double> const elapsed = std::chrono::steady_clock::now() - s_Epoch;
 		return elapsed.count();
 	}
+
+	void Platform::IgnoreBrokenPipeSignal()
+	{
+#if !defined(ST_PLATFORM_WINDOWS)
+		::signal(SIGPIPE, SIG_IGN);
+#endif
+	}
 }
