@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/AssetAutoRefresh.h"
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/AutomationServer.h"
 #include "Editor/Automation/CommandRegistry.h"
@@ -45,8 +46,9 @@ namespace Strada
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
 	// and hot reload), play mode, game export, the automation command registry and server, and the UI (dockspace, menu bar with the
-	// play controls, shortcuts and panels) when ImGui is available. Replacing the scene (new or opened scenes and projects)
-	// or closing the editor with unsaved changes asks to save them first; playing stops first.
+	// play controls, shortcuts and panels) when ImGui is available; with the UI, the assets are rescanned whenever the editor
+	// gets the focus back. Replacing the scene (new or opened scenes and projects) or closing the editor with unsaved changes
+	// asks to save them first; playing stops first.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -134,6 +136,7 @@ namespace Strada
 		EditorScripts m_Scripts;
 		PlayMode m_PlayMode;
 		EditorExport m_Export;
+		AssetAutoRefresh m_AssetAutoRefresh;
 		CommandRegistry m_Commands;
 		AutomationServer m_AutomationServer;
 		// What the instance file holds; valid while m_InstanceFileWritten.

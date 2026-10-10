@@ -116,7 +116,8 @@ it is not already initialized and every `Shutdown` must leave no state behind so
 - miniaudio runs its own audio thread; only the miniaudio API is touched from the main thread.
 - Background work (script builds, exports, the automation socket) never touches engine state; results are
   marshalled with `Application::SubmitToMainThread(std::function<void()>)`. The editor notices edited scripts by
-  checking their modification times on the main thread once a second.
+  checking their modification times on the main thread once a second, and rescans the assets on the main thread when
+  it gets the focus back.
 
 ### 4.3 Error handling
 
@@ -592,7 +593,9 @@ than the assembly.
   (meshes become entities, as children when dropped onto a row) and the viewport (meshes become entities on the
   ground under the cursor, materials go to every submesh of the mesh under the cursor, environments to the first sky
   light or a new one, scenes open). Context menus create folders and materials, import files (native multi-select
-  dialog), refresh, rename, delete and copy references or paths. File operations are not undoable.
+  dialog), refresh, rename, delete and copy references or paths. File operations are not undoable. Files that other
+  applications add, change or delete are picked up when the editor gets the focus back (`AssetAutoRefresh`; one of
+  its windows, floating panels included; after a running game export, which copies the assets) or with Refresh.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
 - Statistics: the frame time (average and graph over 120 frames), what the viewport's renderer drew in its last frame
   (draw calls and the shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite

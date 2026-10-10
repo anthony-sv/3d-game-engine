@@ -1,5 +1,6 @@
 #include "TestUtilities.h"
 
+#include "Editor/AssetAutoRefresh.h"
 #include "Editor/AssetBrowsing.h"
 #include "Editor/AssetDrops.h"
 #include "Editor/EditorOperations.h"
@@ -14,7 +15,10 @@
 
 #include <doctest/doctest.h>
 
+#include <chrono>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using namespace Strada;
@@ -55,6 +59,57 @@ namespace
 	{
 		return AssetManager::GetAsset<MaterialAsset>(material)->GetData().Roughness;
 	}
+}
+
+TEST_CASE("AssetAutoRefresh: assets are rescanned when the editor gets the focus back")
+{
+	ProjectFixture fixture;
+	AssetAutoRefresh refresh;
+	std::filesystem::path const file = fixture.GetAssetDirectory() / "Outside.png";
+	WritePng(file);
+
+	// While the editor keeps the focus nothing is scanned, nor while another application has it.
+	CHECK_FALSE(refresh.Update(true, true, fixture.Operations));
+	CHECK_FALSE(refresh.Update(false, true, fixture.Operations));
+	CHECK_FALSE(refresh.Update(false, true, fixture.Operations));
+	CHECK_FALSE(AssetManager::FindByPath("Outside.png").IsValid());
+	// Back in the editor: the new file is registered.
+	CHECK(refresh.Update(true, true, fixture.Operations));
+	AssetHandle const texture = AssetManager::FindByPath("Outside.png");
+	REQUIRE(texture.IsValid());
+	CHECK_FALSE(refresh.Update(true, true, fixture.Operations));
+
+	// A loaded asset whose file changed meanwhile is unloaded, to load again on next use.
+	REQUIRE(AssetManager::LoadAsset(texture).IsOk());
+	std::error_code error;
+	std::filesystem::file_time_type const written = std::filesystem::last_write_time(file, error);
+	REQUIRE_FALSE(error);
+	std::filesystem::last_write_time(file, written + std::chrono::seconds(10), error);
+	REQUIRE_FALSE(error);
+	CHECK_FALSE(refresh.Update(false, true, fixture.Operations));
+	CHECK(AssetManager::IsLoaded(texture));
+	CHECK(refresh.Update(true, true, fixture.Operations));
+	CHECK_FALSE(AssetManager::IsLoaded(texture));
+
+	// While scanning has to wait (a game export copies the assets), the scan happens once it may.
+	WritePng(fixture.GetAssetDirectory() / "Later.png");
+	CHECK_FALSE(refresh.Update(false, true, fixture.Operations));
+	CHECK_FALSE(refresh.Update(true, false, fixture.Operations));
+	CHECK_FALSE(refresh.Update(true, false, fixture.Operations));
+	CHECK_FALSE(AssetManager::FindByPath("Later.png").IsValid());
+	CHECK(refresh.Update(true, true, fixture.Operations));
+	CHECK(AssetManager::FindByPath("Later.png").IsValid());
+	CHECK_FALSE(refresh.Update(true, true, fixture.Operations));
+}
+
+TEST_CASE("AssetAutoRefresh: nothing is scanned without a project")
+{
+	AssetManagerScope assets;
+	EditorContext context;
+	EditorOperations operations{context};
+	AssetAutoRefresh refresh;
+	CHECK_FALSE(refresh.Update(false, true, operations));
+	CHECK_FALSE(refresh.Update(true, true, operations));
 }
 
 TEST_CASE("EditorOperations: asset folders and materials are created, moved and deleted")

@@ -1,6 +1,8 @@
 # Strada editor: StradaEditorCore (testable library) + StradaEditor (executable).
 
 set(STRADA_EDITOR_CORE_SOURCES
+    Source/Editor/AssetAutoRefresh.cpp
+    Source/Editor/AssetAutoRefresh.h
     Source/Editor/AssetBrowsing.cpp
     Source/Editor/AssetBrowsing.h
     Source/Editor/AssetDrops.cpp

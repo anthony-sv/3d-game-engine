@@ -59,6 +59,26 @@ namespace Strada
 			std::string const fileName = FileSystem::MakePortableFileName(sceneName);
 			return (fileName.empty() ? std::string("Untitled") : fileName) + SceneExtension;
 		}
+
+		// Whether one of the editor's windows has the focus: the main window or a panel dragged out of it.
+		bool IsEditorFocused()
+		{
+			ImGuiPlatformIO& platform = ImGui::GetPlatformIO();
+			if (platform.Platform_GetWindowFocus == nullptr)
+			{
+				// Without multi-viewport support (Wayland) the main window is the only one.
+				Window const* window = Application::Get().GetWindow();
+				return window != nullptr && window->IsFocused();
+			}
+			for (ImGuiViewport* viewport : platform.Viewports)
+			{
+				if (viewport->PlatformWindowCreated && platform.Platform_GetWindowFocus(viewport))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
 	}
 
 	EditorLayer::EditorLayer(EditorLayerSpecification specification)
@@ -232,6 +252,10 @@ namespace Strada
 		UpdateInstanceFile();
 		m_Scripts.Update();
 		m_Export.Update();
+		if (Application::Get().GetImGuiLayer() != nullptr)
+		{
+			m_AssetAutoRefresh.Update(IsEditorFocused(), !m_Export.IsRunning(), m_Operations);
+		}
 		UpdateGameInput();
 		m_PlayMode.Update(timestep);
 		if (!m_ScreenshotPath.empty() && Application::Get().GetFrameCount() == m_ScreenshotFrame)
