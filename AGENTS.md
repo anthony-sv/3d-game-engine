@@ -24,13 +24,15 @@ Entries marked *(planned)* are introduced by upcoming subsystems; their location
 | `Strada/` | Engine static library (`Source/Strada/<Module>`, `Shaders/`, `Resources/`) |
 | `StradaEditor/` | `StradaEditorCore` static library + `StradaEditor` executable |
 | `StradaRuntime/` *(planned)* | Player executable used by exported games |
-| `Strada-ScriptCore/` *(planned)* | C# scripting API (`Strada.ScriptCore.dll`) |
+| `Strada-ScriptCore/` | C# scripting API (`Strada.ScriptCore.dll`) |
 | `StradaTool/` *(planned)* | `strada` CLI + MCP stdio bridge |
 | `Tests/StradaTests/` | C++ engine tests (doctest) |
-| `Tests/StradaEditorTests/` | Editor model and automation tests (doctest, headless); `ScriptCoreTests`, `TestScripts` and `Data` are *(planned)* |
+| `Tests/StradaEditorTests/` | Editor model and automation tests (doctest, headless) |
+| `Tests/TestScripts/` | C# game scripts the scripting tests run |
+| `Tests/Data/` | Test data (renderer golden images); `Tests/ScriptCoreTests` is *(planned)* |
 | `Projects/FeatureTest/` *(planned)* | Project exercising every component and the entire scripting API |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
-| `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format) |
+| `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
 | `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference) |
 | `.claude/skills/` | Task-specific playbooks (see [Skills](#skills)) |
 
@@ -200,6 +202,8 @@ namespace Strada
 Rules for suites that arrive with later subsystems (binding as soon as the subsystem exists):
 
 - Editor automation tests live in `Tests/StradaEditorTests` and run the editor headless against a temporary project.
+- Scripting tests (`Testing::ScriptEngineScope`) run the game scripts of `Tests/TestScripts`; scripts report what they
+  saw through entity names and the log.
 - Audio tests run the `AudioEngine` with manual output (`Testing::AudioEngineScope`) and measure the mix they read,
   so they need no audio device and never depend on timing.
 - GPU tests start with `ST_REQUIRE_GPU()` (skips when no Vulkan device is available). Renderer golden images live in
@@ -214,7 +218,8 @@ Rules for suites that arrive with later subsystems (binding as soon as the subsy
 
 1. Build Debug **and** Release with zero warnings.
 2. Run all tests (`python Tools/build.py --test` for both configurations). All must pass.
-3. Format: `python Tools/format.py` (C++/HLSL) and `dotnet format` (C#); `python Tools/format.py --check` must pass.
+3. Format: `python Tools/format.py` (clang-format for C++, dotnet format for the C# projects);
+   `python Tools/format.py --check` must pass.
 4. **Code review before committing**: review the full diff (use the `strada-code-review` skill) for correctness,
    style compliance, test coverage, cross-platform portability, thread safety, resource lifetime and error handling.
    Fix every finding, then re-run steps 1–3.

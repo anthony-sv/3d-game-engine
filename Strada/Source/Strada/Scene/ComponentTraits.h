@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Strada/Scene/Components.h"
+#include "Strada/Script/ScriptFieldSerialization.h"
 #include "Strada/Serialization/JsonSerialization.h"
 #include "Strada/Serialization/StructSerialization.h"
 
@@ -39,19 +40,6 @@ namespace Strada
 			{TextAlignment::Right, "Right"},
 		}};
 	};
-
-	// Script fields serialize as { "<Name>": { "Type": "<ScriptFieldType>", "Value": <value> } }.
-	template<>
-	struct JsonTraits<ScriptFieldMap>
-	{
-		static Json ToJson(ScriptFieldMap const& fields);
-		static Result<void> FromJson(Json const& json, ScriptFieldMap& out, DeserializationContext const& context);
-		static std::string TypeName() { return "scriptFields"; }
-	};
-
-	Json ScriptFieldValueToJson(ScriptFieldValue const& value);
-	[[nodiscard]] Result<ScriptFieldValue> ScriptFieldValueFromJson(ScriptFieldType type, Json const& json,
-	                                                                DeserializationContext const& context);
 
 	enum ComponentFlags : uint32_t
 	{

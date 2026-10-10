@@ -136,15 +136,19 @@ namespace Strada
 
 		// --- Runtime ---
 
-		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody) and a sound for
-		// every audio source with a clip (playing when PlayOnStart is set). Bodies and sounds follow component changes
-		// while running. Requires PhysicsSystem and AudioEngine (without them the scene runs without physics or audio,
-		// logged); stop the runtime or destroy the scene before shutting them down.
+		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody), a sound for every
+		// audio source with a clip (playing when PlayOnStart is set) and a script instance for every Script component whose
+		// class the loaded game assembly has (all are created, then OnCreate runs for each). Bodies, sounds and scripts
+		// follow component changes while running. Requires PhysicsSystem, AudioEngine and ScriptEngine (without them the
+		// scene runs without physics, audio or scripts, logged); stop the runtime or destroy the scene before shutting them
+		// down. One scene runs scripts at a time.
 		void OnRuntimeStart(SceneRuntimeSettings const& settings = {});
+		// Calls OnDestroy on every script, then stops the audio and physics.
 		void OnRuntimeStop();
-		// Advances the runtime: physics in fixed steps (kinematic bodies follow their transforms, moved static and dynamic
-		// bodies teleport, dynamic bodies write their transforms back), audio (sources and the listener follow their
-		// entities), then deferred entity destruction.
+		// Advances the runtime: scripts' OnUpdate, fixed steps (scripts' OnFixedUpdate, then physics: kinematic bodies follow
+		// their transforms, moved static and dynamic bodies teleport, dynamic bodies write their transforms back), contact
+		// events to scripts, audio (sources and the listener follow their entities), then deferred entity destruction
+		// (destroyed scripts get OnDestroy).
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -211,6 +215,20 @@ namespace Strada
 		void UpdateAudioSource(AudioSourceState& state, AudioSourceComponent const& component);
 		Entity FindAudioListener();
 
+		// Script runtime (SceneScripting.cpp).
+		void StartScripts();
+		void StopScripts();
+		// Creates instances for new Script components and replaces those whose class changed; OnCreate runs for each new
+		// instance once all exist.
+		void SyncScriptInstances();
+		void UpdateScripts(float deltaTime);
+		void FixedUpdateScripts(float fixedDeltaTime);
+		void DispatchContactEventsToScripts();
+		void DestroyScriptInstance(entt::entity handle);
+		// Instances whose entity or Script component is gone.
+		void DestroyRemovedScriptInstances();
+		std::vector<UUID> GetScriptInstanceIDs() const;
+
 		std::string m_Name;
 		SceneSettings m_Settings;
 		entt::registry m_Registry;
@@ -251,6 +269,19 @@ namespace Strada
 
 		Scope<AudioScene> m_Audio;
 		std::unordered_map<entt::entity, AudioSourceState> m_AudioSources;
+
+		// The class an entity's script instance was made from; HasInstance is false when it could not be made (unknown
+		// class, throwing constructor) until the class name changes.
+		struct ScriptInstanceState
+		{
+			UUID Entity = UUID::Invalid();
+			std::string ClassName;
+			bool HasInstance = false;
+		};
+
+		// Whether this scene runs scripts (it is the ScriptEngine's scene context).
+		bool m_RunsScripts = false;
+		std::unordered_map<entt::entity, ScriptInstanceState> m_ScriptInstances;
 
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;

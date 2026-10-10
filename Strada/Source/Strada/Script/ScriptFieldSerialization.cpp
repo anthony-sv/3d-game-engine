@@ -1,5 +1,5 @@
 #include "stpch.h"
-#include "Strada/Scene/ComponentTraits.h"
+#include "Strada/Script/ScriptFieldSerialization.h"
 
 #include <charconv>
 #include <string>

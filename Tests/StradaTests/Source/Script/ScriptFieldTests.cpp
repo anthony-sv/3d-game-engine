@@ -1,5 +1,5 @@
-#include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Script/ScriptField.h"
+#include "Strada/Script/ScriptFieldSerialization.h"
 
 #include <doctest/doctest.h>
 

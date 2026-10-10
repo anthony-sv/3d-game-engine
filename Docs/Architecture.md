@@ -431,18 +431,30 @@ order, else the primary camera, else the origin facing -Z. `Scene::SetPaused` ho
 
 ### 10.1 Hosting
 
-`DotNetHost` locates `hostfxr` via nethost (respecting an app-local `dotnet/` directory for exported games),
-initializes the runtime from `Strada.ScriptCore.runtimeconfig.json`, loads `Strada.ScriptCore.dll` into the default
-load context, and calls `[UnmanagedCallersOnly]` entry points. Game assemblies load into a collectible
-`AssemblyLoadContext` that resolves `Strada.ScriptCore` to the default-context instance, loaded from bytes so the
-DLL is never locked (hot reload). Managed exceptions never cross into native code: every entry point catches,
-logs (with stack trace) and returns an error code.
+`DotNetHost` locates `hostfxr` in the .NET host's search order (an app-local `dotnet/` directory for exported games,
+`DOTNET_ROOT_<ARCH>` and `DOTNET_ROOT`, the registered install location, the default one) and loads it directly: the
+SDK's static nethost library links against the static C runtime, which the engine (`/MD`) cannot mix in, so only the
+SDK's hosting headers are used. It initializes the runtime from `Strada.ScriptCore.runtimeconfig.json` (CoreCLR starts
+once per process and is never unloaded: `ScriptEngine::Shutdown` unloads the game and later `Init`s reuse the
+runtime), loads `Strada.ScriptCore.dll` into the default load context and resolves the `[UnmanagedCallersOnly]`
+entry points of `Strada.Interop.Host`. Game assemblies load into a collectible `AssemblyLoadContext` from bytes (with
+their symbols, for line numbers), so the files are never locked (hot reload); `Strada.ScriptCore` and the framework
+resolve to the default context's assemblies, other dependencies from the game assembly's directory. Managed
+exceptions never cross into native code: every entry point catches, logs (with stack trace) and returns a status.
+
+Class metadata and field values cross the boundary as JSON in the scene files' script field format: the runtime
+describes every concrete, non-generic `Script` class with a public parameterless constructor (field names, types,
+defaults read from a default instance, `[Range]`, `[Tooltip]`, `[HideInInspector]`), and instances receive their
+`ScriptComponent.Fields`; stored values of fields that changed type are logged and skipped.
+
+CMake builds the C# projects with the .NET SDK (`strada_add_dotnet_project`; MSBuild decides what is out of date, and
+`Directory.Build.props` keeps outputs in the build tree): `Strada.ScriptCore.dll` lands next to the executables.
 
 ### 10.2 Bindings
 
 Native functions are exposed **by name**: the native side provides a `{name, function pointer}` table; the managed
 `InternalCalls` class declares `delegate* unmanaged<...>` static fields whose names match, assigned by reflection at
-startup — a missing or extra binding is a fatal startup error listing the names. Blittable types only across the
+startup — a missing, extra or duplicated binding is a fatal startup error listing the names. Blittable types only across the
 boundary (`byte` for bool, UTF-8 `byte*` + length for strings). glm/C# layouts match: `Vector2/3/4` = floats,
 `Quaternion` = (X, Y, Z, W), `Matrix4` = 16 floats column-major.
 
@@ -454,6 +466,14 @@ Scripts derive from `Strada.Script` (which derives from `Entity`) and override a
 Public fields (and private fields marked `[SerializeField]`) of supported types are editable in the inspector and
 serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `string`, `Vector2`, `Vector3`,
 `Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab`, `AssetHandle`, and enums.
+
+One scene runs scripts at a time (the `ScriptEngine`'s scene context, which the bindings act on). At runtime start
+every instance is created before the first `OnCreate`, so scripts can find each other there. Each update first
+follows `ScriptComponent` changes (new components get instances and `OnCreate`; a changed class or a removed
+component gets `OnDestroy`; unknown classes are logged once per class name), then calls `OnUpdate`; `OnFixedUpdate`
+runs before every fixed step, with or without physics; contacts reach the scripts of both entities, the other entity
+arriving as its script instance when it has one. Destroyed entities get `OnDestroy` while still intact (children
+after their parent), and stopping or destroying the running scene calls `OnDestroy` on every script.
 
 ### 10.4 Scripting API (namespace `Strada`)
 

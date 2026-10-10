@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- The scripting API games are written against. The engine starts the .NET runtime from this assembly's
+	     runtimeconfig.json and calls its Strada.Interop.Host entry points. -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>Strada.ScriptCore</AssemblyName>
+		<RootNamespace>Strada</RootNamespace>
+		<Version>0.1.0</Version>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<EnableDynamicLoading>true</EnableDynamicLoading>
+		<GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+	</PropertyGroup>
+</Project>

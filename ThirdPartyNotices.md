@@ -22,5 +22,6 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | Jolt Physics | 5.6.0 | MIT | https://github.com/jrouwe/JoltPhysics | Engine (physics) |
 | miniaudio | 0.11.25 | Public Domain (Unlicense) or MIT No Attribution | https://github.com/mackron/miniaudio | Engine (audio playback and decoding) |
 | stb_vorbis (shipped with miniaudio) | 1.22 | MIT or Public Domain | https://github.com/nothings/stb | Engine (Ogg Vorbis decoding) |
+| .NET hosting headers (hostfxr.h, coreclr_delegates.h) | the installed .NET 10 SDK | MIT | https://github.com/dotnet/runtime | Engine (hosting the C# scripting runtime; the .NET runtime itself is installed separately) |
 | Roboto Medium (font, from Dear ImGui's `misc/fonts`) | Dear ImGui 1.92.9b | Apache-2.0 | https://fonts.google.com/specimen/Roboto | Engine (default text font, compiled into the engine) |
 | doctest | 2.5.3 | MIT | https://github.com/doctest/doctest | Tests only (not distributed) |

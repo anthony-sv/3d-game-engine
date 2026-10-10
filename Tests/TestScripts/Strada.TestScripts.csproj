@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- Game scripts the engine's scripting tests (Tests/StradaTests) run. -->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AssemblyName>Strada.TestScripts</AssemblyName>
+		<RootNamespace>Strada.Tests</RootNamespace>
+	</PropertyGroup>
+
+	<!-- CMake builds the scripts against the engine's Strada.ScriptCore.dll, like a game's. -->
+	<ItemGroup Condition="'$(StradaScriptCoreDirectory)' != ''">
+		<Reference Include="Strada.ScriptCore">
+			<HintPath>$(StradaScriptCoreDirectory)/Strada.ScriptCore.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
+	<!-- IDEs and dotnet format build the scripting API from source. -->
+	<ItemGroup Condition="'$(StradaScriptCoreDirectory)' == ''">
+		<ProjectReference Include="../../Strada-ScriptCore/Strada.ScriptCore.csproj">
+			<Private>false</Private>
+		</ProjectReference>
+	</ItemGroup>
+</Project>

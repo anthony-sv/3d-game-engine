@@ -134,7 +134,6 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/ComponentRegistry.cpp
     Source/Strada/Scene/ComponentRegistry.h
     Source/Strada/Scene/ComponentSerialization.h
-    Source/Strada/Scene/ComponentTraits.cpp
     Source/Strada/Scene/ComponentTraits.h
     Source/Strada/Scene/Components.h
     Source/Strada/Scene/Entity.h
@@ -146,13 +145,22 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/ScenePhysics.cpp
     Source/Strada/Scene/SceneRendering.cpp
     Source/Strada/Scene/SceneRendering.h
+    Source/Strada/Scene/SceneScripting.cpp
     Source/Strada/Scene/SceneSerializer.cpp
     Source/Strada/Scene/SceneSerializer.h
 )
 
 set(STRADA_SCRIPT_SOURCES
+    Source/Strada/Script/DotNetHost.cpp
+    Source/Strada/Script/DotNetHost.h
+    Source/Strada/Script/ScriptBindings.cpp
+    Source/Strada/Script/ScriptBindings.h
+    Source/Strada/Script/ScriptEngine.cpp
+    Source/Strada/Script/ScriptEngine.h
     Source/Strada/Script/ScriptField.cpp
     Source/Strada/Script/ScriptField.h
+    Source/Strada/Script/ScriptFieldSerialization.cpp
+    Source/Strada/Script/ScriptFieldSerialization.h
 )
 
 set(STRADA_SERIALIZATION_SOURCES
@@ -252,6 +260,8 @@ target_link_libraries(Strada
         StradaStb
         StradaModelImport
         StradaMiniaudio
+        StradaDotNetHosting
+        ${CMAKE_DL_LIBS}
         Vulkan::Headers
         Jolt
 )
@@ -269,6 +279,12 @@ target_compile_definitions(Strada PUBLIC
     # Every translation unit that includes vulkan.hpp must use the dynamic dispatcher shared with NVRHI.
     VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1
 )
+
+# The scripting API, next to the executables: ScriptEngine starts .NET from its runtimeconfig.json.
+strada_add_dotnet_project(StradaScriptCore
+    PROJECT "${PROJECT_SOURCE_DIR}/Strada-ScriptCore/Strada.ScriptCore.csproj"
+    OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+add_dependencies(Strada StradaScriptCore)
 
 include(StradaShaders)
 strada_add_shaders(Strada

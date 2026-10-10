@@ -43,6 +43,17 @@ Test cases are named `"<Module>: <behavior>"`, so module filters such as `-tc="I
 Sources are listed explicitly in each target's `CMakeLists.txt` (no globbing). Add both the `.cpp` and the `.h` to the
 module's list in `Strada/CMakeLists.txt` (or the test/editor/runtime target), keeping the list sorted.
 
+## C# projects
+
+- CMake builds each C# project with `strada_add_dotnet_project(<target> PROJECT <csproj> OUTPUT_DIRECTORY <dir>
+  [DEPENDS <targets>] [PROPERTIES Name=Value...])` (`cmake/StradaDotNet.cmake`). The target runs `dotnet build` on every
+  build and MSBuild skips what is up to date, so C# files need no CMake listing.
+- `Directory.Build.props` holds the shared settings (nullable, warnings as errors, code style in the build) and keeps
+  outputs out of the sources: in `build/<preset>/csharp` from CMake, in `artifacts/` from IDEs.
+- `Strada.ScriptCore.dll` is built next to the executables; game script projects reference it by path
+  (`Tests/TestScripts` receives `StradaScriptCoreDirectory` from CMake and references the project from IDEs).
+- New C# projects go into `DOTNET_PROJECTS` in `Tools/format.py`.
+
 ## Adding or updating a third-party dependency
 
 1. Pick a release archive (prefer a GitHub release asset or tag tarball) and compute its SHA256:

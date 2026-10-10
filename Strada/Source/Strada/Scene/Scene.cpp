@@ -18,7 +18,8 @@ namespace Strada
 
 	Scene::~Scene()
 	{
-		// Releases the sounds and disconnects the physics registry signals before the registry goes away.
+		// Scripts get OnDestroy, sounds stop and the physics registry signals disconnect before the registry goes away.
+		StopScripts();
 		StopAudio();
 		StopPhysics();
 	}
@@ -112,6 +113,9 @@ namespace Strada
 
 	void Scene::DestroyEntityImmediate(entt::entity handle)
 	{
+		// The script sees its entity and the children intact in OnDestroy.
+		DestroyScriptInstance(handle);
+
 		// Copy: destroying a child modifies this entity's child list.
 		std::vector<UUID> const children = m_Registry.get<RelationshipComponent>(handle).Children;
 		for (UUID const child : children)
@@ -542,6 +546,7 @@ namespace Strada
 		m_RuntimeSettings = settings;
 		StartPhysics();
 		StartAudio();
+		StartScripts();
 	}
 
 	void Scene::OnRuntimeStop()
@@ -550,6 +555,8 @@ namespace Strada
 		{
 			return;
 		}
+		// While still running, so destruction scripts request in OnDestroy is deferred like any other.
+		StopScripts();
 		m_IsRunning = false;
 		StopAudio();
 		StopPhysics();
@@ -573,7 +580,9 @@ namespace Strada
 
 		m_RuntimeFrame++;
 		m_RuntimeTime += timestep.GetSeconds();
+		UpdateScripts(timestep.GetSeconds());
 		UpdatePhysics(timestep.GetSeconds());
+		DispatchContactEventsToScripts();
 		UpdateAudio();
 		FlushPendingDestruction();
 	}

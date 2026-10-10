@@ -50,9 +50,12 @@ add_executable(StradaTests
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
+    Source/Scene/SceneScriptingTests.cpp
     Source/Scene/SceneSerializerTests.cpp
     Source/Scene/SceneTests.cpp
+    Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp
+    Source/Script/ScriptTestUtilities.h
     Source/Serialization/JsonSerializationTests.cpp
     Source/Serialization/StructSerializationTests.cpp
     Source/TestUtilities.h
@@ -68,6 +71,14 @@ target_compile_definitions(StradaTests PRIVATE
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data")
 
 strada_configure_target(StradaTests)
+
+# Game scripts the scripting tests run, built against the engine's Strada.ScriptCore.dll like a game's.
+strada_add_dotnet_project(StradaTestScripts
+    PROJECT "${PROJECT_SOURCE_DIR}/Tests/TestScripts/Strada.TestScripts.csproj"
+    OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/TestScripts"
+    DEPENDS StradaScriptCore
+    PROPERTIES "StradaScriptCoreDirectory=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+add_dependencies(StradaTests StradaTestScripts)
 set_target_properties(StradaTests PROPERTIES FOLDER "Tests")
 
 add_test(NAME StradaTests COMMAND StradaTests --reporters=console --no-intro=true)

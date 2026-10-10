@@ -1,0 +1,16 @@
+<Project>
+	<!-- Settings shared by every C# project in the repository (scripting API, test scripts, C# tests, feature test). -->
+	<PropertyGroup>
+		<LangVersion>latest</LangVersion>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+		<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+		<Deterministic>true</Deterministic>
+
+		<!-- Build products live outside the sources: in the CMake build tree when CMake builds (it passes
+		     StradaArtifactsPath), otherwise in artifacts/ at the repository root. -->
+		<UseArtifactsOutput>true</UseArtifactsOutput>
+		<ArtifactsPath Condition="'$(StradaArtifactsPath)' != ''">$(StradaArtifactsPath)</ArtifactsPath>
+	</PropertyGroup>
+</Project>

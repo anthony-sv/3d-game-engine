@@ -5,6 +5,7 @@
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Physics/PhysicsSystem.h"
 #include "Strada/Renderer/Renderer.h"
+#include "Strada/Script/ScriptEngine.h"
 
 #include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/Events/KeyEvent.h"
@@ -124,6 +125,11 @@ namespace Strada
 		// Headless runs (tests, CI, servers) make no sound and need no audio device.
 		audio.Output = m_Specification.Headless ? AudioOutput::Null : AudioOutput::Device;
 		AudioEngine::Init(audio);
+		// Without .NET (or Strada.ScriptCore) the application still runs; scenes run without scripts.
+		if (Result<void> scripting = ScriptEngine::Init(); !scripting)
+		{
+			ST_CORE_ERROR("Scripting is unavailable: {}", scripting.GetError());
+		}
 
 		if (!m_Specification.Headless)
 		{
@@ -236,6 +242,10 @@ namespace Strada
 		DetachAllLayers();
 		m_ImGuiLayer = nullptr;
 
+		if (ScriptEngine::IsInitialized())
+		{
+			ScriptEngine::Shutdown();
+		}
 		if (AudioEngine::IsInitialized())
 		{
 			AudioEngine::Shutdown();

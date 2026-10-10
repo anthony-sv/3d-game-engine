@@ -292,12 +292,12 @@ namespace Strada
 	void Scene::UpdatePhysics(float deltaTime)
 	{
 		m_ContactEvents.clear();
-		if (!m_Physics)
+		if (m_Physics)
 		{
-			return;
+			RebuildChangedBodies();
 		}
-		RebuildChangedBodies();
 
+		// The fixed steps run without physics too: scripts' OnFixedUpdate keeps its rate.
 		float const step = std::max(m_RuntimeSettings.FixedTimestep, 1e-4f);
 		uint32_t const maxSteps = std::max(m_RuntimeSettings.MaxStepsPerFrame, 1u);
 		m_PhysicsAccumulator += std::max(deltaTime, 0.0f);
@@ -305,9 +305,14 @@ namespace Strada
 		// The tolerance keeps frames of exactly one step from alternating between zero and two steps.
 		while (m_PhysicsAccumulator >= step * (1.0f - 1e-4f) && steps < maxSteps)
 		{
-			SyncBodiesFromTransforms(step);
-			m_Physics->Step(step);
-			WriteBodyTransforms();
+			// Scripts act before each step (forces, kinematic targets, teleports).
+			FixedUpdateScripts(step);
+			if (m_Physics)
+			{
+				SyncBodiesFromTransforms(step);
+				m_Physics->Step(step);
+				WriteBodyTransforms();
+			}
 			m_PhysicsAccumulator = std::max(m_PhysicsAccumulator - step, 0.0f);
 			steps++;
 		}
@@ -316,7 +321,10 @@ namespace Strada
 			// Drop the backlog rather than spiraling.
 			m_PhysicsAccumulator = std::min(m_PhysicsAccumulator, step);
 		}
-		m_ContactEvents = m_Physics->TakeContactEvents();
+		if (m_Physics)
+		{
+			m_ContactEvents = m_Physics->TakeContactEvents();
+		}
 	}
 
 	void Scene::SyncBodiesFromTransforms(float stepDelta)

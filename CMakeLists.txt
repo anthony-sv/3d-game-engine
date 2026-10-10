@@ -17,6 +17,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(StradaOptions)
 include(StradaCompilerSettings)
 include(StradaDependencies)
+include(StradaDotNet)
 
 add_subdirectory(Strada)
 add_subdirectory(StradaEditor)
