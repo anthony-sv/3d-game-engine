@@ -46,13 +46,14 @@ namespace Strada
 		}
 		// OnDestroy runs while the scene, its physics and its audio are intact: first for scripts whose component went
 		// since the last update, then for the others.
+		m_StoppingScripts = true;
 		DestroyRemovedScriptInstances();
 		for (UUID const id : GetScriptInstanceIDs())
 		{
 			ScriptEngine::InvokeOnDestroy(id);
 		}
-		// Instances a script created during OnDestroy go without it.
 		ScriptEngine::DestroyAllInstances();
+		m_StoppingScripts = false;
 		m_ScriptInstances.clear();
 		ScriptEngine::SetSceneContext(nullptr);
 		m_RunsScripts = false;
@@ -66,15 +67,8 @@ namespace Strada
 		}
 
 		// No script code runs while the registry is iterated: constructors and OnDestroy may change it.
-		struct PendingInstance
-		{
-			entt::entity Handle = entt::null;
-			UUID Entity = UUID::Invalid();
-			std::string ClassName;
-			ScriptFieldMap Fields;
-		};
 		std::vector<entt::entity> replaced;
-		std::vector<PendingInstance> pending;
+		std::vector<PendingScriptInstance> pending;
 		for (auto const [handle, id, script] : m_Registry.view<IDComponent, ScriptComponent>().each())
 		{
 			auto const current = m_ScriptInstances.find(handle);
@@ -94,11 +88,15 @@ namespace Strada
 		{
 			DestroyScriptInstance(handle);
 		}
+		CreateScriptInstances(pending);
+	}
+
+	void Scene::CreateScriptInstances(std::vector<PendingScriptInstance> const& pending)
+	{
 		std::vector<UUID> created;
-		for (PendingInstance const& instance : pending)
+		for (PendingScriptInstance const& instance : pending)
 		{
-			ScriptInstanceState& state = m_ScriptInstances[instance.Handle];
-			state = {instance.Entity, instance.ClassName, false};
+			m_ScriptInstances[instance.Handle] = {instance.Entity, instance.ClassName, false};
 			if (instance.ClassName.empty())
 			{
 				continue;
@@ -108,14 +106,35 @@ namespace Strada
 				ST_CORE_WARN("Entity '{}' runs no script: {}", Entity(instance.Handle, this).GetName(), result.GetError());
 				continue;
 			}
-			state.HasInstance = true;
-			created.push_back(instance.Entity);
+			// Looked up again: the constructor may have started other scripts (prefab instances), changing the map.
+			if (auto const state = m_ScriptInstances.find(instance.Handle); state != m_ScriptInstances.end())
+			{
+				state->second.HasInstance = true;
+				created.push_back(instance.Entity);
+			}
 		}
 		// Every new instance exists before the first OnCreate, so scripts can find each other.
 		for (UUID const id : created)
 		{
 			ScriptEngine::InvokeOnCreate(id);
 		}
+	}
+
+	void Scene::StartScriptsOf(std::vector<entt::entity> const& handles)
+	{
+		if (!m_RunsScripts || m_StoppingScripts)
+		{
+			return;
+		}
+		std::vector<PendingScriptInstance> pending;
+		for (entt::entity const handle : handles)
+		{
+			if (ScriptComponent const* script = m_Registry.try_get<ScriptComponent>(handle))
+			{
+				pending.push_back({handle, m_Registry.get<IDComponent>(handle).ID, script->ClassName, script->Fields});
+			}
+		}
+		CreateScriptInstances(pending);
 	}
 
 	void Scene::UpdateScripts(float deltaTime)

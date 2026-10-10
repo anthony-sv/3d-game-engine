@@ -44,6 +44,35 @@ namespace Strada
 		ScriptFieldInfo const* FindField(std::string_view name) const;
 	};
 
+	// A check reported by Strada.Testing.TestReporter.
+	struct ScriptTestResult
+	{
+		std::string Name;
+		bool Passed = false;
+		// Why it failed; empty when it passed.
+		std::string Message;
+	};
+
+	// The application that runs scenes with scripts (the editor's play mode, the runtime player): what Strada.Application,
+	// Strada.SceneManager and Strada.Testing ask of it. Calls arrive on the main thread while scripts run, so a host acts on
+	// scene loads and quitting once the scene's update has returned.
+	class ScriptHost
+	{
+	public:
+		virtual ~ScriptHost() = default;
+
+		virtual bool IsEditor() const = 0;
+		// SceneManager.LoadScene with a registered scene asset: the running scene is to be replaced after this frame.
+		virtual void RequestSceneLoad(AssetHandle scene) = 0;
+		// Application.Quit: running is to stop after this frame (the editor leaves play mode).
+		virtual void RequestQuit() = 0;
+		virtual void ReportTestResult(ScriptTestResult const& result) = 0;
+		// TestReporter.Finish: the scripts' test run is complete.
+		virtual void FinishTests() = 0;
+		// A script's callback or constructor threw (the exception was logged).
+		virtual void OnScriptException() = 0;
+	};
+
 	struct ScriptEngineSettings
 	{
 		// The directory of Strada.ScriptCore.dll and its runtimeconfig.json; empty for the executable's directory.
@@ -75,6 +104,10 @@ namespace Strada
 		// The scene the scripts act on while it runs.
 		static void SetSceneContext(Scene* scene);
 		static Scene* GetSceneContext();
+		// The application scripts talk to (not owned; it outlives its registration). Without one, their requests are logged
+		// and ignored.
+		static void SetHost(ScriptHost* host);
+		static ScriptHost* GetHost();
 
 		// Creates the entity's instance of a class and sets its fields. Stored values of fields the class no longer has
 		// are skipped and values of another type are logged and skipped, keeping the field's default.

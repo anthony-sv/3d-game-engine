@@ -18,6 +18,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, byte*, int, void> Entity_AddComponent;
 	internal static delegate* unmanaged<ulong, byte*, int, void> Entity_RemoveComponent;
 	internal static delegate* unmanaged<byte*, int, ulong> Entity_Create;
+	internal static delegate* unmanaged<ulong, Vector3*, Quaternion*, ulong, ulong> Entity_Instantiate;
 	internal static delegate* unmanaged<ulong, void> Entity_Destroy;
 	internal static delegate* unmanaged<byte*, int, ulong> Entity_FindByName;
 	internal static delegate* unmanaged<ulong, ulong> Entity_GetParent;
@@ -260,6 +261,22 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<Vector3*, void> Physics_GetGravity;
 	internal static delegate* unmanaged<Vector3*, void> Physics_SetGravity;
 	internal static delegate* unmanaged<Vector3*, Vector3*, float, uint, NativeRaycastHit*, byte> Physics_Raycast;
+
+	internal static delegate* unmanaged<byte*, int, int, ulong> Assets_Load;
+	internal static delegate* unmanaged<ulong> Material_Create;
+	internal static delegate* unmanaged<ulong, ulong> Material_Clone;
+	internal static delegate* unmanaged<ulong, NativeMaterialValues*, void> Material_GetValues;
+	internal static delegate* unmanaged<ulong, NativeMaterialValues*, byte*, int, void> Material_SetValues;
+	internal static delegate* unmanaged<ulong, byte> Material_IsRuntime;
+
+	internal static delegate* unmanaged<byte> Application_IsEditor;
+	internal static delegate* unmanaged<void> Application_Quit;
+	internal static delegate* unmanaged<uint*, uint*, void> Application_GetWindowSize;
+	internal static delegate* unmanaged<int*, byte*> SceneManager_GetCurrentSceneName;
+	internal static delegate* unmanaged<byte*, int, byte> SceneManager_LoadScene;
+	internal static delegate* unmanaged<Vector3*, Vector3*, Color*, float, void> Debug_DrawLine;
+	internal static delegate* unmanaged<byte*, int, byte, byte*, int, void> TestReporter_Report;
+	internal static delegate* unmanaged<void> TestReporter_Finish;
 #pragma warning restore CS0649
 
 	// Assigns every function pointer field from the native table. Returns null when each field found exactly one

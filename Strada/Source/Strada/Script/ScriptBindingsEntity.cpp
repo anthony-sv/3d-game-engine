@@ -118,6 +118,36 @@ namespace Strada::ScriptGlue
 			return scene != nullptr ? scene->CreateEntity(std::string(ToStringView(name, length))).GetUUID().GetValue() : 0;
 		}
 
+		uint64_t Entity_Instantiate(uint64_t prefab, Vector3 const* position, Quaternion const* rotation, uint64_t parentId)
+		{
+			if (!CheckFinite("Entity.Instantiate", *position, *rotation))
+			{
+				return 0;
+			}
+			Scene* const scene = GetScene("Entity.Instantiate");
+			if (scene == nullptr)
+			{
+				return 0;
+			}
+			Entity parent;
+			if (parentId != 0)
+			{
+				parent = FindEntity(parentId, "Entity.Instantiate");
+				if (!parent)
+				{
+					return 0;
+				}
+			}
+			Result<Entity> instance =
+				scene->InstantiatePrefab(AssetHandle(UUID(prefab)), FromScript(*position), ToRotation(*rotation), parent);
+			if (!instance)
+			{
+				Log::GetScriptLogger().error("Entity.Instantiate: {}", instance.GetError());
+				return 0;
+			}
+			return instance.GetValue().GetUUID().GetValue();
+		}
+
 		void Entity_Destroy(uint64_t id)
 		{
 			if (Entity const entity = FindEntity(id, "Entity.Destroy"))
@@ -194,6 +224,7 @@ namespace Strada::ScriptGlue
 		table.Add("Entity_AddComponent", &Entity_AddComponent);
 		table.Add("Entity_RemoveComponent", &Entity_RemoveComponent);
 		table.Add("Entity_Create", &Entity_Create);
+		table.Add("Entity_Instantiate", &Entity_Instantiate);
 		table.Add("Entity_Destroy", &Entity_Destroy);
 		table.Add("Entity_FindByName", &Entity_FindByName);
 		table.Add("Entity_GetParent", &Entity_GetParent);

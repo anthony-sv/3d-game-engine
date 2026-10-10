@@ -1,12 +1,21 @@
 #include "Physics/PhysicsTestUtilities.h"
+#include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/PrefabAsset.h"
+#include "Strada/Math/Math.h"
 #include "Strada/Project/ProjectSettings.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Scene/SceneSerializer.h"
 
 #include <doctest/doctest.h>
+
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <vector>
 
@@ -188,4 +197,100 @@ TEST_CASE("Scene: without the physics system the runtime runs without physics")
 	scene.OnUpdateRuntime(Timestep(Step));
 	CHECK(WorldPosition(scene, ball).y == doctest::Approx(3.0f));
 	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: prefabs instantiate at a world pose under their parent")
+{
+	Testing::AssetManagerScope assets;
+	Scene source("Source");
+	Entity crate = source.CreateEntity("Crate");
+	crate.GetComponent<TransformComponent>().Scale = {1.0f, 2.0f, 1.0f};
+	source.CreateEntity("Lid", crate);
+	Result<Ref<PrefabAsset>> prefabAsset = PrefabAsset::Create(PrefabSerializer::Serialize(source, crate));
+	REQUIRE(prefabAsset.IsOk());
+	AssetHandle const prefab = AssetManager::AddMemoryAsset(prefabAsset.GetValue(), "Crate");
+
+	Scene scene("Scene");
+	Entity parent = scene.CreateEntity("Parent");
+	TransformComponent& parentTransform = parent.GetComponent<TransformComponent>();
+	parentTransform.Translation = {5.0f, 0.0f, 0.0f};
+	parentTransform.Rotation = glm::angleAxis(glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+	parentTransform.Scale = glm::vec3(3.0f);
+	glm::quat const turn = glm::angleAxis(glm::pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+
+	Result<Entity> const instance = scene.InstantiatePrefab(prefab, {1.0f, 2.0f, 3.0f}, turn, parent);
+	REQUIRE(instance.IsOk());
+	Entity const root = instance.GetValue();
+	CHECK(scene.GetParent(root) == parent);
+	CHECK(scene.GetChildren(root).size() == 1);
+	glm::vec3 position;
+	glm::quat rotation;
+	glm::vec3 scale;
+	REQUIRE(Math::DecomposeTransform(scene.GetWorldTransform(root), position, rotation, scale));
+	CHECK(glm::length(position - glm::vec3(1.0f, 2.0f, 3.0f)) < 1e-4f);
+	CHECK(glm::abs(glm::dot(rotation, turn)) > 1.0f - 1e-5f);
+	// The prefab's own scale stays (under the parent's).
+	CHECK(glm::length(root.GetComponent<TransformComponent>().Scale - glm::vec3(1.0f, 2.0f, 1.0f)) < 1e-4f);
+
+	CHECK(scene.InstantiatePrefab(GetBuiltInHandle(BuiltInAsset::CubeMesh), glm::vec3(0.0f), turn, Entity()).IsError());
+	CHECK(scene.InstantiatePrefab(AssetHandle(UUID(12345)), glm::vec3(0.0f), turn, Entity()).IsError());
+	CHECK(scene.GetEntityCount() == 3);
+}
+
+TEST_CASE("Scene: debug lines last their duration and clear when the runtime stops")
+{
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Lines");
+	scene.OnRuntimeStart();
+	scene.DrawDebugLine(glm::vec3(0.0f), {1.0f, 0.0f, 0.0f}, glm::vec4(1.0f));
+	scene.DrawDebugLine(glm::vec3(0.0f), {0.0f, 1.0f, 0.0f}, glm::vec4(1.0f), 0.25f);
+	scene.DrawDebugLine(glm::vec3(0.0f), {0.0f, 0.0f, 1.0f}, glm::vec4(1.0f), -3.0f);
+	CHECK(scene.GetDebugLines().size() == 3);
+	// Lines without a duration were rendered once.
+	scene.OnUpdateRuntime(Timestep(0.1f));
+	REQUIRE(scene.GetDebugLines().size() == 1);
+	CHECK(scene.GetDebugLines().front().To == glm::vec3(0.0f, 1.0f, 0.0f));
+
+	// Frozen time keeps lines with a duration; one-frame lines still last one frame.
+	scene.SetTimeScale(0.0f);
+	scene.DrawDebugLine(glm::vec3(0.0f), {1.0f, 1.0f, 0.0f}, glm::vec4(1.0f));
+	scene.OnUpdateRuntime(Timestep(0.1f));
+	CHECK(scene.GetDebugLines().size() == 1);
+	scene.SetTimeScale(1.0f);
+	scene.OnUpdateRuntime(Timestep(0.2f));
+	CHECK(scene.GetDebugLines().empty());
+
+	for (size_t line = 0; line < Scene::MaxDebugLines + 10; line++)
+	{
+		scene.DrawDebugLine(glm::vec3(0.0f), glm::vec3(1.0f), glm::vec4(1.0f), 5.0f);
+	}
+	CHECK(scene.GetDebugLines().size() == Scene::MaxDebugLines);
+	CHECK(Testing::WasLogged(logStart, "more are dropped until some expire"));
+	scene.OnRuntimeStop();
+	CHECK(scene.GetDebugLines().empty());
+	// Only running scenes draw them.
+	scene.DrawDebugLine(glm::vec3(0.0f), glm::vec3(1.0f), glm::vec4(1.0f), 5.0f);
+	CHECK(scene.GetDebugLines().empty());
+}
+
+TEST_CASE("Scene: runtime assets are released when the runtime stops or the scene goes")
+{
+	Testing::AssetManagerScope assets;
+	AssetHandle const first = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(), "First");
+	AssetHandle const second = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(), "Second");
+	AssetHandle const kept = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(), "Kept");
+	{
+		Scene scene("Owner");
+		scene.OnRuntimeStart();
+		scene.AddRuntimeAsset(first);
+		CHECK(scene.IsRuntimeAsset(first));
+		CHECK_FALSE(scene.IsRuntimeAsset(kept));
+		scene.OnRuntimeStop();
+		CHECK_FALSE(AssetManager::IsValid(first));
+
+		scene.OnRuntimeStart();
+		scene.AddRuntimeAsset(second);
+	}
+	CHECK_FALSE(AssetManager::IsValid(second));
+	CHECK(AssetManager::IsValid(kept));
 }

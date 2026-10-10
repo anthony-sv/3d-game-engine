@@ -161,6 +161,18 @@ public unsafe class Entity : IEquatable<Entity>
 		}
 	}
 
+	/// <summary>Creates an instance of a prefab with its root at a world position and rotation (keeping the prefab's scale),
+	/// under <paramref name="parent"/> or at the root of the running scene. The instance's scripts have run OnCreate when
+	/// this returns. Returns the root (its script instance when it runs a script), or null (logged) when the prefab cannot
+	/// be instantiated.</summary>
+	/// <exception cref="ArgumentNullException"><paramref name="prefab"/> is null.</exception>
+	public static Entity? Instantiate(Prefab prefab, Vector3 position, Quaternion rotation, Entity? parent = null)
+	{
+		ArgumentNullException.ThrowIfNull(prefab);
+		ulong id = InternalCalls.Entity_Instantiate(prefab.Handle.ID, &position, &rotation, parent?.ID ?? 0);
+		return id != 0 ? ScriptRegistry.GetEntity(id) : null;
+	}
+
 	/// <summary>The first entity (in hierarchy order) with the given name, or null. Entities running a script are
 	/// returned as their script instance.</summary>
 	public static Entity? FindByName(string name)

@@ -2,6 +2,7 @@
 
 // Internal to the Script module: what the native functions scripts call (ScriptBindings*.cpp) have in common.
 
+#include "Strada/Asset/Asset.h"
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/UUID.h"
@@ -10,11 +11,16 @@
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptBindings.h"
 #include "Strada/Script/ScriptEngine.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
 #include <deque>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -101,7 +107,65 @@ namespace Strada::ScriptGlue
 		return glm::quat::wxyz(value.W, value.X, value.Y, value.Z);
 	}
 
-	// How a component field crosses the boundary: Type is the C# side's representation.
+	// Rotations from scripts are normalized (a zero quaternion is the identity).
+	inline glm::quat ToRotation(Quaternion const& value)
+	{
+		return glm::normalize(FromScript(value));
+	}
+
+	// Numbers from scripts are checked before they reach the engine: NaN and infinity would spread through transforms,
+	// physics and rendering.
+	inline bool IsFinite(float value)
+	{
+		return std::isfinite(value);
+	}
+
+	inline bool IsFinite(Vector2 const& value)
+	{
+		return std::isfinite(value.X) && std::isfinite(value.Y);
+	}
+
+	inline bool IsFinite(Vector3 const& value)
+	{
+		return std::isfinite(value.X) && std::isfinite(value.Y) && std::isfinite(value.Z);
+	}
+
+	inline bool IsFinite(Vector4 const& value)
+	{
+		return std::isfinite(value.X) && std::isfinite(value.Y) && std::isfinite(value.Z) && std::isfinite(value.W);
+	}
+
+	inline bool IsFinite(Quaternion const& value)
+	{
+		return std::isfinite(value.X) && std::isfinite(value.Y) && std::isfinite(value.Z) && std::isfinite(value.W);
+	}
+
+	// Logs a script error naming the function unless every value is finite.
+	template<typename... TValues>
+	bool CheckFinite(std::string_view function, TValues const&... values)
+	{
+		if ((IsFinite(values) && ...))
+		{
+			return true;
+		}
+		Log::GetScriptLogger().error("{}: the value is not a finite number", function);
+		return false;
+	}
+
+	// A string usable as a template argument, so bindings know their names at compile time.
+	template<size_t N>
+	struct FixedString
+	{
+		char Text[N] = {};
+
+		// Implicit, so string literals are template arguments.
+		constexpr FixedString(char const (&text)[N]) { std::copy_n(text, N, Text); }
+
+		constexpr std::string_view GetView() const { return std::string_view(Text, N - 1); }
+	};
+
+	// How a component field crosses the boundary: Type is the C# side's representation; IsValid tells whether a value from
+	// a script may be stored (finite numbers, named enumerators).
 	template<typename T>
 	struct FieldValue;
 
@@ -109,6 +173,7 @@ namespace Strada::ScriptGlue
 	struct FieldValue<float>
 	{
 		using Type = float;
+		static bool IsValid(Type value) { return IsFinite(value); }
 		static Type ToScript(float value) { return value; }
 		static float FromScript(Type value) { return value; }
 	};
@@ -117,6 +182,7 @@ namespace Strada::ScriptGlue
 	struct FieldValue<uint32_t>
 	{
 		using Type = uint32_t;
+		static bool IsValid(Type) { return true; }
 		static Type ToScript(uint32_t value) { return value; }
 		static uint32_t FromScript(Type value) { return value; }
 	};
@@ -125,6 +191,7 @@ namespace Strada::ScriptGlue
 	struct FieldValue<bool>
 	{
 		using Type = uint8_t;
+		static bool IsValid(Type) { return true; }
 		static Type ToScript(bool value) { return value ? 1 : 0; }
 		static bool FromScript(Type value) { return value != 0; }
 	};
@@ -133,6 +200,7 @@ namespace Strada::ScriptGlue
 	struct FieldValue<glm::vec2>
 	{
 		using Type = Vector2;
+		static bool IsValid(Type const& value) { return IsFinite(value); }
 		static Type ToScript(glm::vec2 const& value) { return ScriptGlue::ToScript(value); }
 		static glm::vec2 FromScript(Type const& value) { return ScriptGlue::FromScript(value); }
 	};
@@ -141,6 +209,7 @@ namespace Strada::ScriptGlue
 	struct FieldValue<glm::vec3>
 	{
 		using Type = Vector3;
+		static bool IsValid(Type const& value) { return IsFinite(value); }
 		static Type ToScript(glm::vec3 const& value) { return ScriptGlue::ToScript(value); }
 		static glm::vec3 FromScript(Type const& value) { return ScriptGlue::FromScript(value); }
 	};
@@ -149,6 +218,7 @@ namespace Strada::ScriptGlue
 	struct FieldValue<glm::vec4>
 	{
 		using Type = Vector4;
+		static bool IsValid(Type const& value) { return IsFinite(value); }
 		static Type ToScript(glm::vec4 const& value) { return ScriptGlue::ToScript(value); }
 		static glm::vec4 FromScript(Type const& value) { return ScriptGlue::FromScript(value); }
 	};
@@ -157,24 +227,31 @@ namespace Strada::ScriptGlue
 	struct FieldValue<glm::quat>
 	{
 		using Type = Quaternion;
+		static bool IsValid(Type const& value) { return IsFinite(value); }
 		static Type ToScript(glm::quat const& value) { return ScriptGlue::ToScript(value); }
-		static glm::quat FromScript(Type const& value) { return ScriptGlue::FromScript(value); }
+		static glm::quat FromScript(Type const& value) { return ToRotation(value); }
 	};
 
 	template<>
 	struct FieldValue<AssetHandle>
 	{
 		using Type = uint64_t;
+		static bool IsValid(Type) { return true; }
 		static Type ToScript(AssetHandle value) { return value.GetUUID().GetValue(); }
 		static AssetHandle FromScript(Type value) { return AssetHandle(UUID(value)); }
 	};
 
 	// Enums cross as their underlying values widened to int.
-	template<typename T>
-		requires std::is_enum_v<T>
+	template<SerializableEnum T>
 	struct FieldValue<T>
 	{
 		using Type = int32_t;
+		static bool IsValid(Type value)
+		{
+			using Underlying = std::underlying_type_t<T>;
+			return value >= static_cast<Type>(std::numeric_limits<Underlying>::min()) &&
+			       value <= static_cast<Type>(std::numeric_limits<Underlying>::max()) && !EnumToString(static_cast<T>(value)).empty();
+		}
 		static Type ToScript(T value) { return static_cast<Type>(value); }
 		static T FromScript(Type value) { return static_cast<T>(value); }
 	};
@@ -217,6 +294,12 @@ namespace Strada::ScriptGlue
 	void RegisterEntityBindings(BindingTable& table);
 	void RegisterComponentBindings(BindingTable& table);
 	void RegisterRuntimeBindings(BindingTable& table);
+	void RegisterAssetBindings(BindingTable& table);
+	void RegisterApplicationBindings(BindingTable& table);
+
+	// The registered asset of a type at a path of the asset directory ("Prefabs/Enemy.sprefab") or a reference
+	// ("builtin://Cube"); invalid (logged as a script error naming the function) otherwise.
+	AssetHandle FindAsset(std::string_view path, AssetType type, std::string_view function);
 
 	inline std::string_view ToStringView(char const* text, int32_t length)
 	{
@@ -298,11 +381,18 @@ namespace Strada::ScriptGlue
 		}
 	}
 
-	template<auto Member>
+	template<auto Member, FixedString ComponentClass, FixedString Field>
 	void SetField(uint64_t id, typename FieldValue<typename MemberPointer<decltype(Member)>::Field>::Type const* value)
 	{
 		using Traits = MemberPointer<decltype(Member)>;
-		auto const fieldValue = FieldValue<typename Traits::Field>::FromScript(*value);
+		using Value = FieldValue<typename Traits::Field>;
+		if (!Value::IsValid(*value))
+		{
+			Log::GetScriptLogger().error("{}.{}: the value is not valid (non-finite numbers and unknown enumerators are rejected)",
+			                             ComponentClass.GetView(), Field.GetView());
+			return;
+		}
+		auto const fieldValue = Value::FromScript(*value);
 		PatchComponent<typename Traits::Component>(id,
 		                                           [&fieldValue](typename Traits::Component& component)
 		                                           {
@@ -311,10 +401,11 @@ namespace Strada::ScriptGlue
 	}
 
 	// <ComponentClass>_Get<Field> and <ComponentClass>_Set<Field>.
-	template<auto Member>
-	void AddFieldBindings(BindingTable& table, std::string_view componentClass, std::string_view field)
+	template<auto Member, FixedString ComponentClass, FixedString Field>
+	void AddFieldBindings(BindingTable& table)
 	{
-		table.Add(std::string(componentClass) + "_Get" + std::string(field), &GetField<Member>);
-		table.Add(std::string(componentClass) + "_Set" + std::string(field), &SetField<Member>);
+		std::string const prefix(ComponentClass.GetView());
+		table.Add(prefix + "_Get" + std::string(Field.GetView()), &GetField<Member>);
+		table.Add(prefix + "_Set" + std::string(Field.GetView()), &SetField<Member, ComponentClass, Field>);
 	}
 }

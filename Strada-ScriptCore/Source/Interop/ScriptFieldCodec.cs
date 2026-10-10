@@ -26,8 +26,8 @@ internal enum ScriptFieldType
 	Asset,
 }
 
-// Field values in the JSON encoding of scene files: 64-bit integers, entity IDs and asset handles as decimal strings,
-// vectors, colors and quaternions (X, Y, Z, W) as number arrays.
+// Field values in the JSON encoding of scene files: 64-bit integers, entity IDs and asset handles as decimal strings (0 for
+// no entity or prefab, which are null in C#), vectors, colors and quaternions (X, Y, Z, W) as number arrays.
 internal static class ScriptFieldCodec
 {
 	internal static ScriptFieldType GetFieldType(Type type)
@@ -48,6 +48,7 @@ internal static class ScriptFieldCodec
 			_ when type == typeof(Quaternion) => ScriptFieldType.Quaternion,
 			_ when type == typeof(Color) => ScriptFieldType.Color,
 			_ when type == typeof(Entity) => ScriptFieldType.Entity,
+			_ when type == typeof(Prefab) => ScriptFieldType.Prefab,
 			_ when type == typeof(AssetHandle) => ScriptFieldType.Asset,
 			_ => ScriptFieldType.None,
 		};
@@ -106,6 +107,8 @@ internal static class ScriptFieldCodec
 				writer.WriteStringValue((((Entity?)value)?.ID ?? 0).ToString(CultureInfo.InvariantCulture));
 				break;
 			case ScriptFieldType.Prefab:
+				writer.WriteStringValue((((Prefab?)value)?.Handle.ID ?? 0).ToString(CultureInfo.InvariantCulture));
+				break;
 			case ScriptFieldType.Asset:
 				writer.WriteStringValue(((AssetHandle)value!).ID.ToString(CultureInfo.InvariantCulture));
 				break;
@@ -151,7 +154,7 @@ internal static class ScriptFieldCodec
 			case ScriptFieldType.Entity when TryParseString(json, out ulong entity):
 				return entity != 0 ? new Entity(entity) : null;
 			case ScriptFieldType.Prefab when TryParseString(json, out ulong prefab):
-				return new AssetHandle(prefab);
+				return prefab != 0 ? new Prefab(new AssetHandle(prefab)) : null;
 			case ScriptFieldType.Asset when TryParseString(json, out ulong asset):
 				return new AssetHandle(asset);
 			default:

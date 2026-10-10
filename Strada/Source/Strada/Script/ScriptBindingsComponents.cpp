@@ -30,6 +30,10 @@ namespace Strada::ScriptGlue
 
 		void TransformComponent_SetEulerAngles(uint64_t id, Vector3 const* value)
 		{
+			if (!CheckFinite("TransformComponent.EulerAngles", *value))
+			{
+				return;
+			}
 			if (TransformComponent* transform = FindComponent<TransformComponent>(id))
 			{
 				transform->SetRotationEuler(FromScript(*value));
@@ -59,6 +63,10 @@ namespace Strada::ScriptGlue
 		// Moves the entity in world space, keeping its rotation and scale.
 		void TransformComponent_SetWorldTranslation(uint64_t id, Vector3 const* value)
 		{
+			if (!CheckFinite("TransformComponent.WorldTranslation", *value))
+			{
+				return;
+			}
 			if (Entity const entity = FindEntity(id, "TransformComponent.WorldTranslation"))
 			{
 				glm::mat4 world = entity.GetScene()->GetWorldTransform(entity);
@@ -101,6 +109,10 @@ namespace Strada::ScriptGlue
 		void CameraComponent_ScreenToWorldRay(uint64_t id, Vector2 const* screenPosition, Ray* ray)
 		{
 			*ray = {{0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}};
+			if (!CheckFinite("CameraComponent.ScreenToWorldRay", *screenPosition))
+			{
+				return;
+			}
 			Entity const entity = FindEntity(id, "CameraComponent.ScreenToWorldRay");
 			CameraComponent const* camera = entity ? FindComponent<CameraComponent>(id) : nullptr;
 			if (camera == nullptr)
@@ -215,6 +227,10 @@ namespace Strada::ScriptGlue
 
 		void RigidBodyComponent_SetLinearVelocity(uint64_t id, Vector3 const* value)
 		{
+			if (!CheckFinite("RigidBodyComponent.LinearVelocity", *value))
+			{
+				return;
+			}
 			RigidBodyComponent* body = FindComponent<RigidBodyComponent>(id);
 			if (body == nullptr)
 			{
@@ -241,6 +257,10 @@ namespace Strada::ScriptGlue
 
 		void RigidBodyComponent_SetAngularVelocity(uint64_t id, Vector3 const* value)
 		{
+			if (!CheckFinite("RigidBodyComponent.AngularVelocity", *value))
+			{
+				return;
+			}
 			RigidBodyComponent* body = FindComponent<RigidBodyComponent>(id);
 			if (body == nullptr)
 			{
@@ -259,6 +279,10 @@ namespace Strada::ScriptGlue
 		// Gravity factor and damping change the live body directly: no rebuild.
 		void RigidBodyComponent_SetGravityFactor(uint64_t id, float const* value)
 		{
+			if (!CheckFinite("RigidBodyComponent.GravityFactor", *value))
+			{
+				return;
+			}
 			if (RigidBodyComponent* body = FindComponent<RigidBodyComponent>(id))
 			{
 				body->GravityFactor = *value;
@@ -269,8 +293,12 @@ namespace Strada::ScriptGlue
 			}
 		}
 
-		void SetDamping(uint64_t id, float RigidBodyComponent::* member, float value)
+		void SetDamping(uint64_t id, float RigidBodyComponent::* member, float value, char const* function)
 		{
+			if (!CheckFinite(function, value))
+			{
+				return;
+			}
 			if (RigidBodyComponent* body = FindComponent<RigidBodyComponent>(id))
 			{
 				body->*member = value;
@@ -283,12 +311,12 @@ namespace Strada::ScriptGlue
 
 		void RigidBodyComponent_SetLinearDamping(uint64_t id, float const* value)
 		{
-			SetDamping(id, &RigidBodyComponent::LinearDamping, *value);
+			SetDamping(id, &RigidBodyComponent::LinearDamping, *value, "RigidBodyComponent.LinearDamping");
 		}
 
 		void RigidBodyComponent_SetAngularDamping(uint64_t id, float const* value)
 		{
-			SetDamping(id, &RigidBodyComponent::AngularDamping, *value);
+			SetDamping(id, &RigidBodyComponent::AngularDamping, *value, "RigidBodyComponent.AngularDamping");
 		}
 
 		bool IsForceMode(int32_t mode)
@@ -301,8 +329,13 @@ namespace Strada::ScriptGlue
 			if (!IsForceMode(mode))
 			{
 				Log::GetScriptLogger().error("RigidBodyComponent.AddForce: {} is not a ForceMode", mode);
+				return;
 			}
-			else if (PhysicsScene* physics = FindBody(id, "RigidBodyComponent.AddForce"))
+			if (!CheckFinite("RigidBodyComponent.AddForce", *force))
+			{
+				return;
+			}
+			if (PhysicsScene* physics = FindBody(id, "RigidBodyComponent.AddForce"))
 			{
 				physics->AddForce(UUID(id), FromScript(*force), static_cast<ForceMode>(mode));
 			}
@@ -313,8 +346,13 @@ namespace Strada::ScriptGlue
 			if (!IsForceMode(mode))
 			{
 				Log::GetScriptLogger().error("RigidBodyComponent.AddTorque: {} is not a ForceMode", mode);
+				return;
 			}
-			else if (PhysicsScene* physics = FindBody(id, "RigidBodyComponent.AddTorque"))
+			if (!CheckFinite("RigidBodyComponent.AddTorque", *torque))
+			{
+				return;
+			}
+			if (PhysicsScene* physics = FindBody(id, "RigidBodyComponent.AddTorque"))
 			{
 				physics->AddTorque(UUID(id), FromScript(*torque), static_cast<ForceMode>(mode));
 			}
@@ -324,6 +362,10 @@ namespace Strada::ScriptGlue
 		// there for kinematic bodies and teleporting otherwise.
 		void PlaceBody(uint64_t id, Vector3 const* position, Quaternion const* rotation, char const* function)
 		{
+			if (!CheckFinite(function, *position, *rotation))
+			{
+				return;
+			}
 			Entity const entity = FindEntity(id, function);
 			if (!entity || FindComponent<RigidBodyComponent>(id) == nullptr)
 			{
@@ -333,8 +375,7 @@ namespace Strada::ScriptGlue
 			glm::quat currentRotation;
 			glm::vec3 scale(1.0f);
 			Math::DecomposeTransform(entity.GetScene()->GetWorldTransform(entity), currentPosition, currentRotation, scale);
-			entity.GetScene()->SetWorldTransform(
-				entity, Math::ComposeTransform(FromScript(*position), glm::normalize(FromScript(*rotation)), scale));
+			entity.GetScene()->SetWorldTransform(entity, Math::ComposeTransform(FromScript(*position), ToRotation(*rotation), scale));
 		}
 
 		void RigidBodyComponent_MoveKinematic(uint64_t id, Vector3 const* position, Quaternion const* rotation)
@@ -435,9 +476,9 @@ namespace Strada::ScriptGlue
 
 	void RegisterComponentBindings(BindingTable& table)
 	{
-		AddFieldBindings<&TransformComponent::Translation>(table, "TransformComponent", "Translation");
-		AddFieldBindings<&TransformComponent::Rotation>(table, "TransformComponent", "Rotation");
-		AddFieldBindings<&TransformComponent::Scale>(table, "TransformComponent", "Scale");
+		AddFieldBindings<&TransformComponent::Translation, "TransformComponent", "Translation">(table);
+		AddFieldBindings<&TransformComponent::Rotation, "TransformComponent", "Rotation">(table);
+		AddFieldBindings<&TransformComponent::Scale, "TransformComponent", "Scale">(table);
 		table.Add("TransformComponent_GetEulerAngles", &TransformComponent_GetEulerAngles);
 		table.Add("TransformComponent_SetEulerAngles", &TransformComponent_SetEulerAngles);
 		table.Add("TransformComponent_GetWorldTransform", &TransformComponent_GetWorldTransform);
@@ -447,53 +488,53 @@ namespace Strada::ScriptGlue
 		table.Add("TransformComponent_GetRight", &TransformComponent_GetRight);
 		table.Add("TransformComponent_GetUp", &TransformComponent_GetUp);
 
-		AddFieldBindings<&CameraComponent::Projection>(table, "CameraComponent", "Projection");
-		AddFieldBindings<&CameraComponent::PerspectiveFOV>(table, "CameraComponent", "PerspectiveFOV");
-		AddFieldBindings<&CameraComponent::PerspectiveNear>(table, "CameraComponent", "PerspectiveNear");
-		AddFieldBindings<&CameraComponent::PerspectiveFar>(table, "CameraComponent", "PerspectiveFar");
-		AddFieldBindings<&CameraComponent::OrthographicSize>(table, "CameraComponent", "OrthographicSize");
-		AddFieldBindings<&CameraComponent::OrthographicNear>(table, "CameraComponent", "OrthographicNear");
-		AddFieldBindings<&CameraComponent::OrthographicFar>(table, "CameraComponent", "OrthographicFar");
-		AddFieldBindings<&CameraComponent::Primary>(table, "CameraComponent", "Primary");
-		AddFieldBindings<&CameraComponent::FixedAspectRatio>(table, "CameraComponent", "FixedAspectRatio");
-		AddFieldBindings<&CameraComponent::AspectRatio>(table, "CameraComponent", "AspectRatio");
+		AddFieldBindings<&CameraComponent::Projection, "CameraComponent", "Projection">(table);
+		AddFieldBindings<&CameraComponent::PerspectiveFOV, "CameraComponent", "PerspectiveFOV">(table);
+		AddFieldBindings<&CameraComponent::PerspectiveNear, "CameraComponent", "PerspectiveNear">(table);
+		AddFieldBindings<&CameraComponent::PerspectiveFar, "CameraComponent", "PerspectiveFar">(table);
+		AddFieldBindings<&CameraComponent::OrthographicSize, "CameraComponent", "OrthographicSize">(table);
+		AddFieldBindings<&CameraComponent::OrthographicNear, "CameraComponent", "OrthographicNear">(table);
+		AddFieldBindings<&CameraComponent::OrthographicFar, "CameraComponent", "OrthographicFar">(table);
+		AddFieldBindings<&CameraComponent::Primary, "CameraComponent", "Primary">(table);
+		AddFieldBindings<&CameraComponent::FixedAspectRatio, "CameraComponent", "FixedAspectRatio">(table);
+		AddFieldBindings<&CameraComponent::AspectRatio, "CameraComponent", "AspectRatio">(table);
 		table.Add("CameraComponent_ScreenToWorldRay", &CameraComponent_ScreenToWorldRay);
 
-		AddFieldBindings<&MeshComponent::Mesh>(table, "MeshComponent", "Mesh");
-		AddFieldBindings<&MeshComponent::CastShadows>(table, "MeshComponent", "CastShadows");
-		AddFieldBindings<&MeshComponent::Visible>(table, "MeshComponent", "Visible");
+		AddFieldBindings<&MeshComponent::Mesh, "MeshComponent", "Mesh">(table);
+		AddFieldBindings<&MeshComponent::CastShadows, "MeshComponent", "CastShadows">(table);
+		AddFieldBindings<&MeshComponent::Visible, "MeshComponent", "Visible">(table);
 		table.Add("MeshComponent_GetMaterialCount", &MeshComponent_GetMaterialCount);
 		table.Add("MeshComponent_GetMaterial", &MeshComponent_GetMaterial);
 		table.Add("MeshComponent_SetMaterial", &MeshComponent_SetMaterial);
 
-		AddFieldBindings<&DirectionalLightComponent::Color>(table, "DirectionalLightComponent", "Color");
-		AddFieldBindings<&DirectionalLightComponent::Intensity>(table, "DirectionalLightComponent", "Intensity");
-		AddFieldBindings<&DirectionalLightComponent::CastShadows>(table, "DirectionalLightComponent", "CastShadows");
-		AddFieldBindings<&DirectionalLightComponent::LightSize>(table, "DirectionalLightComponent", "LightSize");
+		AddFieldBindings<&DirectionalLightComponent::Color, "DirectionalLightComponent", "Color">(table);
+		AddFieldBindings<&DirectionalLightComponent::Intensity, "DirectionalLightComponent", "Intensity">(table);
+		AddFieldBindings<&DirectionalLightComponent::CastShadows, "DirectionalLightComponent", "CastShadows">(table);
+		AddFieldBindings<&DirectionalLightComponent::LightSize, "DirectionalLightComponent", "LightSize">(table);
 
-		AddFieldBindings<&PointLightComponent::Color>(table, "PointLightComponent", "Color");
-		AddFieldBindings<&PointLightComponent::Intensity>(table, "PointLightComponent", "Intensity");
-		AddFieldBindings<&PointLightComponent::Range>(table, "PointLightComponent", "Range");
-		AddFieldBindings<&PointLightComponent::CastShadows>(table, "PointLightComponent", "CastShadows");
+		AddFieldBindings<&PointLightComponent::Color, "PointLightComponent", "Color">(table);
+		AddFieldBindings<&PointLightComponent::Intensity, "PointLightComponent", "Intensity">(table);
+		AddFieldBindings<&PointLightComponent::Range, "PointLightComponent", "Range">(table);
+		AddFieldBindings<&PointLightComponent::CastShadows, "PointLightComponent", "CastShadows">(table);
 
-		AddFieldBindings<&SpotLightComponent::Color>(table, "SpotLightComponent", "Color");
-		AddFieldBindings<&SpotLightComponent::Intensity>(table, "SpotLightComponent", "Intensity");
-		AddFieldBindings<&SpotLightComponent::Range>(table, "SpotLightComponent", "Range");
-		AddFieldBindings<&SpotLightComponent::InnerConeAngle>(table, "SpotLightComponent", "InnerConeAngle");
-		AddFieldBindings<&SpotLightComponent::OuterConeAngle>(table, "SpotLightComponent", "OuterConeAngle");
-		AddFieldBindings<&SpotLightComponent::CastShadows>(table, "SpotLightComponent", "CastShadows");
+		AddFieldBindings<&SpotLightComponent::Color, "SpotLightComponent", "Color">(table);
+		AddFieldBindings<&SpotLightComponent::Intensity, "SpotLightComponent", "Intensity">(table);
+		AddFieldBindings<&SpotLightComponent::Range, "SpotLightComponent", "Range">(table);
+		AddFieldBindings<&SpotLightComponent::InnerConeAngle, "SpotLightComponent", "InnerConeAngle">(table);
+		AddFieldBindings<&SpotLightComponent::OuterConeAngle, "SpotLightComponent", "OuterConeAngle">(table);
+		AddFieldBindings<&SpotLightComponent::CastShadows, "SpotLightComponent", "CastShadows">(table);
 
-		AddFieldBindings<&SkyLightComponent::Environment>(table, "SkyLightComponent", "Environment");
-		AddFieldBindings<&SkyLightComponent::Intensity>(table, "SkyLightComponent", "Intensity");
-		AddFieldBindings<&SkyLightComponent::Rotation>(table, "SkyLightComponent", "Rotation");
-		AddFieldBindings<&SkyLightComponent::SkyboxBlur>(table, "SkyLightComponent", "SkyboxBlur");
-		AddFieldBindings<&SkyLightComponent::DrawSkybox>(table, "SkyLightComponent", "DrawSkybox");
-		AddFieldBindings<&SkyLightComponent::AmbientColor>(table, "SkyLightComponent", "AmbientColor");
+		AddFieldBindings<&SkyLightComponent::Environment, "SkyLightComponent", "Environment">(table);
+		AddFieldBindings<&SkyLightComponent::Intensity, "SkyLightComponent", "Intensity">(table);
+		AddFieldBindings<&SkyLightComponent::Rotation, "SkyLightComponent", "Rotation">(table);
+		AddFieldBindings<&SkyLightComponent::SkyboxBlur, "SkyLightComponent", "SkyboxBlur">(table);
+		AddFieldBindings<&SkyLightComponent::DrawSkybox, "SkyLightComponent", "DrawSkybox">(table);
+		AddFieldBindings<&SkyLightComponent::AmbientColor, "SkyLightComponent", "AmbientColor">(table);
 
 		// Type, mass and layer rebuild the body; the others act on it directly.
-		AddFieldBindings<&RigidBodyComponent::Type>(table, "RigidBodyComponent", "Type");
-		AddFieldBindings<&RigidBodyComponent::Mass>(table, "RigidBodyComponent", "Mass");
-		AddFieldBindings<&RigidBodyComponent::Layer>(table, "RigidBodyComponent", "Layer");
+		AddFieldBindings<&RigidBodyComponent::Type, "RigidBodyComponent", "Type">(table);
+		AddFieldBindings<&RigidBodyComponent::Mass, "RigidBodyComponent", "Mass">(table);
+		AddFieldBindings<&RigidBodyComponent::Layer, "RigidBodyComponent", "Layer">(table);
 		table.Add("RigidBodyComponent_GetGravityFactor", &GetField<&RigidBodyComponent::GravityFactor>);
 		table.Add("RigidBodyComponent_SetGravityFactor", &RigidBodyComponent_SetGravityFactor);
 		table.Add("RigidBodyComponent_GetLinearDamping", &GetField<&RigidBodyComponent::LinearDamping>);
@@ -511,59 +552,59 @@ namespace Strada::ScriptGlue
 		table.Add("RigidBodyComponent_IsSleeping", &RigidBodyComponent_IsSleeping);
 		table.Add("RigidBodyComponent_WakeUp", &RigidBodyComponent_WakeUp);
 
-		AddFieldBindings<&BoxColliderComponent::HalfExtents>(table, "BoxColliderComponent", "HalfExtents");
-		AddFieldBindings<&BoxColliderComponent::Offset>(table, "BoxColliderComponent", "Offset");
-		AddFieldBindings<&BoxColliderComponent::IsTrigger>(table, "BoxColliderComponent", "IsTrigger");
-		AddFieldBindings<&BoxColliderComponent::Friction>(table, "BoxColliderComponent", "Friction");
-		AddFieldBindings<&BoxColliderComponent::Restitution>(table, "BoxColliderComponent", "Restitution");
+		AddFieldBindings<&BoxColliderComponent::HalfExtents, "BoxColliderComponent", "HalfExtents">(table);
+		AddFieldBindings<&BoxColliderComponent::Offset, "BoxColliderComponent", "Offset">(table);
+		AddFieldBindings<&BoxColliderComponent::IsTrigger, "BoxColliderComponent", "IsTrigger">(table);
+		AddFieldBindings<&BoxColliderComponent::Friction, "BoxColliderComponent", "Friction">(table);
+		AddFieldBindings<&BoxColliderComponent::Restitution, "BoxColliderComponent", "Restitution">(table);
 
-		AddFieldBindings<&SphereColliderComponent::Radius>(table, "SphereColliderComponent", "Radius");
-		AddFieldBindings<&SphereColliderComponent::Offset>(table, "SphereColliderComponent", "Offset");
-		AddFieldBindings<&SphereColliderComponent::IsTrigger>(table, "SphereColliderComponent", "IsTrigger");
-		AddFieldBindings<&SphereColliderComponent::Friction>(table, "SphereColliderComponent", "Friction");
-		AddFieldBindings<&SphereColliderComponent::Restitution>(table, "SphereColliderComponent", "Restitution");
+		AddFieldBindings<&SphereColliderComponent::Radius, "SphereColliderComponent", "Radius">(table);
+		AddFieldBindings<&SphereColliderComponent::Offset, "SphereColliderComponent", "Offset">(table);
+		AddFieldBindings<&SphereColliderComponent::IsTrigger, "SphereColliderComponent", "IsTrigger">(table);
+		AddFieldBindings<&SphereColliderComponent::Friction, "SphereColliderComponent", "Friction">(table);
+		AddFieldBindings<&SphereColliderComponent::Restitution, "SphereColliderComponent", "Restitution">(table);
 
-		AddFieldBindings<&CapsuleColliderComponent::Radius>(table, "CapsuleColliderComponent", "Radius");
-		AddFieldBindings<&CapsuleColliderComponent::HalfHeight>(table, "CapsuleColliderComponent", "HalfHeight");
-		AddFieldBindings<&CapsuleColliderComponent::Offset>(table, "CapsuleColliderComponent", "Offset");
-		AddFieldBindings<&CapsuleColliderComponent::IsTrigger>(table, "CapsuleColliderComponent", "IsTrigger");
-		AddFieldBindings<&CapsuleColliderComponent::Friction>(table, "CapsuleColliderComponent", "Friction");
-		AddFieldBindings<&CapsuleColliderComponent::Restitution>(table, "CapsuleColliderComponent", "Restitution");
+		AddFieldBindings<&CapsuleColliderComponent::Radius, "CapsuleColliderComponent", "Radius">(table);
+		AddFieldBindings<&CapsuleColliderComponent::HalfHeight, "CapsuleColliderComponent", "HalfHeight">(table);
+		AddFieldBindings<&CapsuleColliderComponent::Offset, "CapsuleColliderComponent", "Offset">(table);
+		AddFieldBindings<&CapsuleColliderComponent::IsTrigger, "CapsuleColliderComponent", "IsTrigger">(table);
+		AddFieldBindings<&CapsuleColliderComponent::Friction, "CapsuleColliderComponent", "Friction">(table);
+		AddFieldBindings<&CapsuleColliderComponent::Restitution, "CapsuleColliderComponent", "Restitution">(table);
 
-		AddFieldBindings<&MeshColliderComponent::Mesh>(table, "MeshColliderComponent", "Mesh");
-		AddFieldBindings<&MeshColliderComponent::Convex>(table, "MeshColliderComponent", "Convex");
-		AddFieldBindings<&MeshColliderComponent::IsTrigger>(table, "MeshColliderComponent", "IsTrigger");
-		AddFieldBindings<&MeshColliderComponent::Friction>(table, "MeshColliderComponent", "Friction");
-		AddFieldBindings<&MeshColliderComponent::Restitution>(table, "MeshColliderComponent", "Restitution");
+		AddFieldBindings<&MeshColliderComponent::Mesh, "MeshColliderComponent", "Mesh">(table);
+		AddFieldBindings<&MeshColliderComponent::Convex, "MeshColliderComponent", "Convex">(table);
+		AddFieldBindings<&MeshColliderComponent::IsTrigger, "MeshColliderComponent", "IsTrigger">(table);
+		AddFieldBindings<&MeshColliderComponent::Friction, "MeshColliderComponent", "Friction">(table);
+		AddFieldBindings<&MeshColliderComponent::Restitution, "MeshColliderComponent", "Restitution">(table);
 
-		AddFieldBindings<&AudioSourceComponent::Clip>(table, "AudioSourceComponent", "Clip");
-		AddFieldBindings<&AudioSourceComponent::Volume>(table, "AudioSourceComponent", "Volume");
-		AddFieldBindings<&AudioSourceComponent::Pitch>(table, "AudioSourceComponent", "Pitch");
-		AddFieldBindings<&AudioSourceComponent::Loop>(table, "AudioSourceComponent", "Loop");
-		AddFieldBindings<&AudioSourceComponent::PlayOnStart>(table, "AudioSourceComponent", "PlayOnStart");
-		AddFieldBindings<&AudioSourceComponent::Spatial>(table, "AudioSourceComponent", "Spatial");
-		AddFieldBindings<&AudioSourceComponent::MinDistance>(table, "AudioSourceComponent", "MinDistance");
-		AddFieldBindings<&AudioSourceComponent::MaxDistance>(table, "AudioSourceComponent", "MaxDistance");
+		AddFieldBindings<&AudioSourceComponent::Clip, "AudioSourceComponent", "Clip">(table);
+		AddFieldBindings<&AudioSourceComponent::Volume, "AudioSourceComponent", "Volume">(table);
+		AddFieldBindings<&AudioSourceComponent::Pitch, "AudioSourceComponent", "Pitch">(table);
+		AddFieldBindings<&AudioSourceComponent::Loop, "AudioSourceComponent", "Loop">(table);
+		AddFieldBindings<&AudioSourceComponent::PlayOnStart, "AudioSourceComponent", "PlayOnStart">(table);
+		AddFieldBindings<&AudioSourceComponent::Spatial, "AudioSourceComponent", "Spatial">(table);
+		AddFieldBindings<&AudioSourceComponent::MinDistance, "AudioSourceComponent", "MinDistance">(table);
+		AddFieldBindings<&AudioSourceComponent::MaxDistance, "AudioSourceComponent", "MaxDistance">(table);
 		table.Add("AudioSourceComponent_Play", &AudioSourceComponent_Play);
 		table.Add("AudioSourceComponent_Pause", &AudioSourceComponent_Pause);
 		table.Add("AudioSourceComponent_Stop", &AudioSourceComponent_Stop);
 		table.Add("AudioSourceComponent_IsPlaying", &AudioSourceComponent_IsPlaying);
 
-		AddFieldBindings<&AudioListenerComponent::Active>(table, "AudioListenerComponent", "Active");
+		AddFieldBindings<&AudioListenerComponent::Active, "AudioListenerComponent", "Active">(table);
 
 		table.Add("TextComponent_GetText", &GetText<TextComponent, &TextComponent::Text>);
 		table.Add("TextComponent_SetText", &SetText<TextComponent, &TextComponent::Text>);
-		AddFieldBindings<&TextComponent::Font>(table, "TextComponent", "Font");
-		AddFieldBindings<&TextComponent::Color>(table, "TextComponent", "Color");
-		AddFieldBindings<&TextComponent::FontSize>(table, "TextComponent", "FontSize");
-		AddFieldBindings<&TextComponent::ScreenSpace>(table, "TextComponent", "ScreenSpace");
-		AddFieldBindings<&TextComponent::Alignment>(table, "TextComponent", "Alignment");
-		AddFieldBindings<&TextComponent::LineSpacing>(table, "TextComponent", "LineSpacing");
+		AddFieldBindings<&TextComponent::Font, "TextComponent", "Font">(table);
+		AddFieldBindings<&TextComponent::Color, "TextComponent", "Color">(table);
+		AddFieldBindings<&TextComponent::FontSize, "TextComponent", "FontSize">(table);
+		AddFieldBindings<&TextComponent::ScreenSpace, "TextComponent", "ScreenSpace">(table);
+		AddFieldBindings<&TextComponent::Alignment, "TextComponent", "Alignment">(table);
+		AddFieldBindings<&TextComponent::LineSpacing, "TextComponent", "LineSpacing">(table);
 
-		AddFieldBindings<&SpriteRendererComponent::Color>(table, "SpriteRendererComponent", "Color");
-		AddFieldBindings<&SpriteRendererComponent::Texture>(table, "SpriteRendererComponent", "Texture");
-		AddFieldBindings<&SpriteRendererComponent::Tiling>(table, "SpriteRendererComponent", "Tiling");
-		AddFieldBindings<&SpriteRendererComponent::ScreenSpace>(table, "SpriteRendererComponent", "ScreenSpace");
+		AddFieldBindings<&SpriteRendererComponent::Color, "SpriteRendererComponent", "Color">(table);
+		AddFieldBindings<&SpriteRendererComponent::Texture, "SpriteRendererComponent", "Texture">(table);
+		AddFieldBindings<&SpriteRendererComponent::Tiling, "SpriteRendererComponent", "Tiling">(table);
+		AddFieldBindings<&SpriteRendererComponent::ScreenSpace, "SpriteRendererComponent", "ScreenSpace">(table);
 
 		table.Add("ScriptComponent_GetClassName", &GetText<ScriptComponent, &ScriptComponent::ClassName>);
 		table.Add("ScriptComponent_SetClassName", &SetText<ScriptComponent, &ScriptComponent::ClassName>);

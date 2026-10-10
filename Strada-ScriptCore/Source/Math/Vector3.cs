@@ -45,6 +45,12 @@ public struct Vector3 : IEquatable<Vector3>
 	public static Vector3 Up => new(0.0f, 1.0f, 0.0f);
 	/// <summary>(0, 0, -1), the engine's forward direction (cameras look down -Z).</summary>
 	public static Vector3 Forward => new(0.0f, 0.0f, -1.0f);
+	/// <summary>(-1, 0, 0).</summary>
+	public static Vector3 Left => new(-1.0f, 0.0f, 0.0f);
+	/// <summary>(0, -1, 0).</summary>
+	public static Vector3 Down => new(0.0f, -1.0f, 0.0f);
+	/// <summary>(0, 0, 1).</summary>
+	public static Vector3 Back => new(0.0f, 0.0f, 1.0f);
 
 	/// <summary>The X and Y components.</summary>
 	public readonly Vector2 XY => new(X, Y);

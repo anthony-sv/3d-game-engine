@@ -1,5 +1,7 @@
 using System.Buffers;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Strada.Interop;
@@ -64,6 +66,16 @@ public sealed class InteropTests
 	}
 
 	[Fact]
+	public void PrefabFieldsHoldHandlesAndNoPrefabIsZero()
+	{
+		Assert.Equal("\"9\"", Write(ScriptFieldType.Prefab, new Prefab(new AssetHandle(9))));
+		Assert.Equal("\"0\"", Write(ScriptFieldType.Prefab, null));
+		Assert.Equal(new Prefab(new AssetHandle(9)), Read(ScriptFieldType.Prefab, "\"9\"", out _));
+		Assert.Null(Read(ScriptFieldType.Prefab, "\"0\"", out string? error));
+		Assert.Null(error);
+	}
+
+	[Fact]
 	public void MismatchedValuesAreReported()
 	{
 		Assert.Null(Read(ScriptFieldType.Float, "\"fast\"", out string? error));
@@ -94,7 +106,9 @@ public sealed class InteropTests
 			[typeof(string)] = ScriptFieldType.String,
 			[typeof(Color)] = ScriptFieldType.Color,
 			[typeof(Entity)] = ScriptFieldType.Entity,
+			[typeof(Prefab)] = ScriptFieldType.Prefab,
 			[typeof(AssetHandle)] = ScriptFieldType.Asset,
+			[typeof(Mesh)] = ScriptFieldType.None,
 			[typeof(byte)] = ScriptFieldType.None,
 			[typeof(Script)] = ScriptFieldType.None,
 		};
@@ -102,6 +116,34 @@ public sealed class InteropTests
 		{
 			Assert.Equal(fieldType, ScriptFieldCodec.GetFieldType(type));
 		}
+	}
+
+	[Fact]
+	public void NativeStructuresMatchTheEngineLayouts()
+	{
+		// ScriptBindingsAssets.cpp and ScriptBindingsRuntime.cpp declare the same layouts.
+		Assert.Equal(120, Unsafe.SizeOf<NativeMaterialValues>());
+		Assert.Equal(64, (int)Marshal.OffsetOf<NativeMaterialValues>(nameof(NativeMaterialValues.BaseColorTexture)));
+		Assert.Equal(104, (int)Marshal.OffsetOf<NativeMaterialValues>(nameof(NativeMaterialValues.AlphaMode)));
+		Assert.Equal(40, Unsafe.SizeOf<NativeRaycastHit>());
+	}
+
+	[Fact]
+	public void AssetClassesMapToTheEngineTypes()
+	{
+		System.Type[] classes = [typeof(Prefab), typeof(Mesh), typeof(Material), typeof(Texture), typeof(EnvironmentMap),
+			typeof(AudioClip), typeof(Font)];
+		foreach (System.Type assetClass in classes)
+		{
+			NativeAssetType type = AssetTypes.GetNativeType(assetClass);
+			Assert.NotEqual(NativeAssetType.None, type);
+			Asset asset = AssetTypes.Create(type, new AssetHandle(3));
+			Assert.IsType(assetClass, asset);
+			Assert.Equal(new AssetHandle(3), asset.Handle);
+		}
+		Assert.Equal(NativeAssetType.None, AssetTypes.GetNativeType(typeof(Asset)));
+		Assert.Equal(new Mesh(new AssetHandle(3)), new Mesh(new AssetHandle(3)));
+		Assert.False(new Mesh(new AssetHandle(3)).Equals(new Material(new AssetHandle(3))));
 	}
 
 	[Fact]

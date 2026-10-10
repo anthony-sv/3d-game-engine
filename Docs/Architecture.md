@@ -491,8 +491,9 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ScriptComponent` (`ClassName`, `Instance`).
-- `Material` (runtime-creatable): `Create()`, `Clone()`, `BaseColor`, `Metallic`, `Roughness`, `Emissive`,
-  `EmissiveIntensity`, textures.
+- `Material` (runtime-creatable): `Create()`, `Clone()`, `IsEditable`, `BaseColor`, `Metallic`, `Roughness`,
+  `Emissive`, `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, the five texture maps, `AlphaMode`,
+  `AlphaCutoff`, `DoubleSided`, `UVTiling`, `UVOffset`.
 - `Input`: `IsKeyDown/Pressed/Released(KeyCode)`, `IsMouseButtonDown/Pressed/Released(MouseButton)`,
   `MousePosition`, `MouseDelta`, `MouseScrollDelta`, `CursorMode`, gamepad (`IsGamepadConnected`,
   `GetGamepadAxis`, `IsGamepadButtonDown/Pressed`).
@@ -503,7 +504,8 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
 - `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`.
 - Math: `Vector2/3/4`, `Quaternion`, `Matrix4`, `Color`, `Mathf`, `Random`.
 - Attributes: `[SerializeField]`, `[HideInInspector]`, `[Range(min, max)]`, `[Tooltip(text)]`.
-- `Strada.Testing`: `Assert`, `TestReporter` (used by the feature-test project and CI).
+- `Strada.Testing`: `Assert` (throws `AssertionException`), `TestReporter` (`Pass`, `Fail`, `Run`, `Finish`; used by
+  the feature-test project and CI).
 
 Semantics: components are views (`GetComponent<T>()` makes no copy) whose properties read and write the entity's
 component through typed bindings (`<Component>_Get<Field>`/`_Set<Field>`, generated from member pointers); writes go
@@ -514,7 +516,17 @@ entity's sound, brought up to date with the component first. Entity lookups (`Fi
 `Children`, contacts, raycast hits) return the script instance of scripted entities. `Time.TimeScale` scales script
 and physics time, not sounds. Asset references are typed (`Mesh`, `Material`, `Texture`, `AudioClip`, `Font`,
 `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`), `Prefab`). Calls without a running scene
-or on missing entities and components log a script error and do nothing.
+or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
+numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
+`Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
+instance's scripts before it returns. The project's materials are shared by every scene and the editor, so scripts
+change only runtime materials (`Material.Create`, `Clone`), which the running scene owns and releases when it stops.
+`Debug.DrawLine` lines last a duration of scaled runtime (0: one rendered frame); Dist builds ignore them.
+
+The application running scenes implements `ScriptHost` and registers it with `ScriptEngine::SetHost`:
+`Application.IsEditor`, `Application.Quit` and `SceneManager.LoadScene` (both acted on once the frame's update has
+returned), `Strada.Testing.TestReporter` results and unhandled script exceptions go to it. Without a host, requests are
+logged and ignored. `Application.WindowWidth/Height` are the running scene's viewport size.
 
 ## 11. Editor (`StradaEditor`)
 

@@ -155,6 +155,8 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/DotNetHost.h
     Source/Strada/Script/ScriptBindings.cpp
     Source/Strada/Script/ScriptBindings.h
+    Source/Strada/Script/ScriptBindingsApplication.cpp
+    Source/Strada/Script/ScriptBindingsAssets.cpp
     Source/Strada/Script/ScriptBindingsComponents.cpp
     Source/Strada/Script/ScriptBindingsEntity.cpp
     Source/Strada/Script/ScriptBindingsRuntime.cpp

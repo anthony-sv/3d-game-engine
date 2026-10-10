@@ -173,6 +173,10 @@ namespace Strada::ScriptGlue
 
 		void Physics_SetGravity(Vector3 const* value)
 		{
+			if (!CheckFinite("Physics.Gravity", *value))
+			{
+				return;
+			}
 			if (Scene* scene = GetScene("Physics.Gravity"))
 			{
 				scene->GetSettings().Physics.Gravity = FromScript(*value);
@@ -186,6 +190,10 @@ namespace Strada::ScriptGlue
 		uint8_t Physics_Raycast(Vector3 const* origin, Vector3 const* direction, float maxDistance, uint32_t layerMask, RaycastHit* hit)
 		{
 			*hit = {};
+			if (!CheckFinite("Physics.Raycast", *origin, *direction, maxDistance))
+			{
+				return 0;
+			}
 			Scene* const scene = GetScene("Physics.Raycast");
 			if (scene == nullptr || scene->GetPhysicsScene() == nullptr)
 			{

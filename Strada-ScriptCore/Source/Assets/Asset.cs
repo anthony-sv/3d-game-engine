@@ -42,15 +42,6 @@ public sealed class Mesh : Asset
 	}
 }
 
-/// <summary>A material asset: the surface of meshes.</summary>
-public sealed class Material : Asset
-{
-	internal Material(AssetHandle handle)
-		: base(handle)
-	{
-	}
-}
-
 /// <summary>A texture asset.</summary>
 public sealed class Texture : Asset
 {
@@ -87,7 +78,7 @@ public sealed class EnvironmentMap : Asset
 	}
 }
 
-/// <summary>A prefab asset: entities saved for instantiation.</summary>
+/// <summary>A prefab asset: entities saved for instantiation (see <see cref="Entity.Instantiate"/>).</summary>
 public sealed class Prefab : Asset
 {
 	internal Prefab(AssetHandle handle)

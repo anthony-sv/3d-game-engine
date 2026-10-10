@@ -1,11 +1,14 @@
 #include "stpch.h"
 #include "Strada/Scene/Scene.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Audio/AudioScene.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsScene.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Scene/SceneSerializer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -23,6 +26,7 @@ namespace Strada
 		StopScripts();
 		StopAudio();
 		StopPhysics();
+		ReleaseRuntimeAssets();
 	}
 
 	Ref<Scene> Scene::Copy(Scene const& source)
@@ -156,6 +160,31 @@ namespace Strada
 		}
 		UUID const id = entity.GetUUID();
 		return std::find(m_PendingDestruction.begin(), m_PendingDestruction.end(), id) != m_PendingDestruction.end();
+	}
+
+	Result<Entity> Scene::InstantiatePrefab(AssetHandle prefab, glm::vec3 const& position, glm::quat const& rotation, Entity parent)
+	{
+		Result<Ref<PrefabAsset>> asset = AssetManager::TryGetAsset<PrefabAsset>(prefab);
+		if (!asset)
+		{
+			return Error{asset.GetError()};
+		}
+		Result<Entity> instance = PrefabSerializer::Instantiate(*this, asset.GetValue()->GetDocument(), prefab, parent,
+		                                                        AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn));
+		if (!instance)
+		{
+			return instance;
+		}
+
+		Entity const root = instance.GetValue();
+		glm::vec3 currentPosition(0.0f);
+		glm::quat currentRotation(1.0f, 0.0f, 0.0f, 0.0f);
+		glm::vec3 scale = root.GetComponent<TransformComponent>().Scale;
+		Math::DecomposeTransform(GetWorldTransform(root), currentPosition, currentRotation, scale);
+		SetWorldTransform(root, Math::ComposeTransform(position, glm::normalize(rotation), scale));
+
+		StartScriptsOf(SceneSerializer::CollectHierarchy(*this, {root.GetUUID()}));
+		return root;
 	}
 
 	Entity Scene::DuplicateEntity(Entity entity)
@@ -562,6 +591,9 @@ namespace Strada
 		StopAudio();
 		StopPhysics();
 		FlushPendingDestruction();
+		m_DebugLines.clear();
+		m_DebugLinesDropped = false;
+		ReleaseRuntimeAssets();
 	}
 
 	void Scene::OnUpdateRuntime(Timestep timestep)
@@ -582,6 +614,8 @@ namespace Strada
 		float const deltaTime = timestep.GetSeconds() * m_TimeScale;
 		m_RuntimeFrame++;
 		m_RuntimeTime += deltaTime;
+		// Lines drawn last frame were rendered; this frame's scripts draw new ones.
+		AgeDebugLines(deltaTime);
 		UpdateScripts(deltaTime);
 		UpdatePhysics(deltaTime);
 		DispatchContactEventsToScripts();
@@ -604,6 +638,56 @@ namespace Strada
 		{
 			m_Audio->SetPaused(paused);
 		}
+	}
+
+	void Scene::DrawDebugLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, float duration)
+	{
+		if (!m_IsRunning)
+		{
+			return;
+		}
+		if (m_DebugLines.size() >= MaxDebugLines)
+		{
+			if (!m_DebugLinesDropped)
+			{
+				ST_CORE_WARN("Scene '{}' has {} debug lines; more are dropped until some expire", m_Name, MaxDebugLines);
+				m_DebugLinesDropped = true;
+			}
+			return;
+		}
+		m_DebugLines.push_back({from, to, color, std::max(duration, 0.0f)});
+	}
+
+	void Scene::AgeDebugLines(float deltaTime)
+	{
+		// Every line is rendered at least once (it was drawn during the last update); it stays until its duration has passed.
+		std::erase_if(m_DebugLines,
+		              [deltaTime](SceneDebugLine& line)
+		              {
+						  line.RemainingTime -= deltaTime;
+						  return line.RemainingTime <= 0.0f;
+					  });
+		if (m_DebugLines.size() < MaxDebugLines)
+		{
+			m_DebugLinesDropped = false;
+		}
+	}
+
+	void Scene::AddRuntimeAsset(AssetHandle handle)
+	{
+		m_RuntimeAssets.insert(handle);
+	}
+
+	void Scene::ReleaseRuntimeAssets()
+	{
+		if (AssetManager::IsInitialized())
+		{
+			for (AssetHandle const handle : m_RuntimeAssets)
+			{
+				AssetManager::RemoveMemoryAsset(handle);
+			}
+		}
+		m_RuntimeAssets.clear();
 	}
 
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)

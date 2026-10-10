@@ -27,6 +27,8 @@ public sealed class MathTests
 		Assert.Equal(32.0f, Vector3.Dot(a, b));
 		Assert.Equal(new Vector3(-3.0f, 6.0f, -3.0f), Vector3.Cross(a, b));
 		Assert.Equal(new Vector3(0.0f, 0.0f, 1.0f), Vector3.Cross(Vector3.Right, Vector3.Up));
+		Assert.Equal(Vector3.Back, Vector3.Cross(Vector3.Right, Vector3.Up));
+		Assert.Equal(Vector3.Zero, Vector3.Left + Vector3.Right + Vector3.Down + Vector3.Up + Vector3.Back + Vector3.Forward);
 		Assert.Equal(new Vector3(2.5f, 3.5f, 4.5f), Vector3.Lerp(a, b, 0.5f));
 		Assert.Equal(new Vector3(1.0f, 2.0f, 3.0f), Vector3.Min(a, b));
 		Assert.Equal(5.0f, new Vector3(3.0f, 4.0f, 0.0f).Length);

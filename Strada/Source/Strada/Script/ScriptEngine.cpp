@@ -60,6 +60,7 @@ namespace Strada
 			std::filesystem::path GameAssemblyPath;
 			std::vector<ScriptClassInfo> Classes;
 			Scene* SceneContext = nullptr;
+			ScriptHost* Application = nullptr;
 			std::unordered_set<UUID> Instances;
 		};
 
@@ -199,9 +200,14 @@ namespace Strada
 			{
 				return;
 			}
-			// Script exceptions were logged by the runtime; nothing else is left to do with them.
-			int32_t const status = s_Data->Host.Invoke(entity.GetValue(), static_cast<int32_t>(scriptEvent), timeStep, other.GetValue());
-			if (scriptEvent == ScriptEvent::Destroy || static_cast<ScriptStatus>(status) == ScriptStatus::NotFound)
+			// Script exceptions were logged by the runtime; the application learns of them (test runs fail on them).
+			auto const status = static_cast<ScriptStatus>(
+				s_Data->Host.Invoke(entity.GetValue(), static_cast<int32_t>(scriptEvent), timeStep, other.GetValue()));
+			if (status == ScriptStatus::Failure && s_Data->Application != nullptr)
+			{
+				s_Data->Application->OnScriptException();
+			}
+			if (scriptEvent == ScriptEvent::Destroy || status == ScriptStatus::NotFound)
 			{
 				s_Data->Instances.erase(entity);
 			}
@@ -365,6 +371,20 @@ namespace Strada
 		return s_Data != nullptr ? s_Data->SceneContext : nullptr;
 	}
 
+	void ScriptEngine::SetHost(ScriptHost* host)
+	{
+		// Like the scene context, a host may unregister after the engine shut down.
+		if (s_Data != nullptr)
+		{
+			s_Data->Application = host;
+		}
+	}
+
+	ScriptHost* ScriptEngine::GetHost()
+	{
+		return s_Data != nullptr ? s_Data->Application : nullptr;
+	}
+
 	Result<void> ScriptEngine::CreateInstance(UUID entity, std::string_view className, ScriptFieldMap const& fields)
 	{
 		ST_CORE_ASSERT(s_Data, "ScriptEngine is not initialized");
@@ -379,6 +399,12 @@ namespace Strada
 			case ScriptStatus::NotFound:
 				return MakeError("there is no script class {}", className);
 			case ScriptStatus::Failure:
+				// An exception (the constructor threw); the runtime logged it.
+				if (s_Data->Application != nullptr)
+				{
+					s_Data->Application->OnScriptException();
+				}
+				break;
 			case ScriptStatus::BindingMismatch:
 				break;
 		}

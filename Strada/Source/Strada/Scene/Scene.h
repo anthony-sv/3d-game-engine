@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/Timestep.h"
@@ -69,6 +70,17 @@ namespace Strada
 		uint32_t MaxStepsPerFrame = 8;
 	};
 
+	// A line drawn over the running scene for debugging (Debug.DrawLine), in world space.
+	struct SceneDebugLine
+	{
+		glm::vec3 From = glm::vec3(0.0f);
+		glm::vec3 To = glm::vec3(0.0f);
+		// Linear RGBA.
+		glm::vec4 Color = glm::vec4(1.0f);
+		// Seconds of runtime left to draw it.
+		float RemainingTime = 0.0f;
+	};
+
 	// An ECS world: entities with components, an ordered hierarchy, settings and runtime state. Main thread only.
 	class Scene
 	{
@@ -100,6 +112,11 @@ namespace Strada
 		void DestroyEntity(Entity entity);
 		// Copies the entity and its descendants with new UUIDs; the copy is placed right after the original.
 		Entity DuplicateEntity(Entity entity);
+		// Instantiates a prefab asset (see PrefabSerializer::Instantiate) under parent (a root entity when invalid) and places
+		// its root at a world position and rotation, keeping its scale. While the scene runs scripts, the instance's scripts
+		// exist and have run OnCreate when this returns.
+		[[nodiscard]] Result<Entity> InstantiatePrefab(AssetHandle prefab, glm::vec3 const& position, glm::quat const& rotation,
+		                                               Entity parent);
 
 		bool HasEntity(UUID id) const { return m_EntityMap.contains(id); }
 		// A random UUID not used by any entity of this scene.
@@ -180,6 +197,17 @@ namespace Strada
 		void StopAudioSource(Entity entity);
 		bool IsAudioSourcePlaying(Entity entity);
 
+		// Lines drawn while running (Debug.DrawLine; ignored otherwise), each for a duration in seconds of runtime (0 draws it
+		// in the next rendered frame only). Lines beyond MaxDebugLines are dropped; stopping the runtime clears them.
+		static constexpr size_t MaxDebugLines = 100000;
+		void DrawDebugLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, float duration = 0.0f);
+		std::vector<SceneDebugLine> const& GetDebugLines() const { return m_DebugLines; }
+
+		// Memory assets that belong to the run (materials scripts create): they are removed from the AssetManager when the
+		// runtime stops.
+		void AddRuntimeAsset(AssetHandle handle);
+		bool IsRuntimeAsset(AssetHandle handle) const { return m_RuntimeAssets.contains(handle); }
+
 		void OnViewportResize(uint32_t width, uint32_t height);
 		uint32_t GetViewportWidth() const { return m_ViewportWidth; }
 		uint32_t GetViewportHeight() const { return m_ViewportHeight; }
@@ -206,6 +234,8 @@ namespace Strada
 		void DetachFromParent(entt::entity handle);
 		std::vector<UUID>& GetSiblingList(entt::entity handle);
 		void FlushPendingDestruction();
+		void AgeDebugLines(float deltaTime);
+		void ReleaseRuntimeAssets();
 		void RemapEntityReferences(entt::entity handle, std::unordered_map<UUID, UUID> const& remap);
 		entt::entity FindHandle(UUID id) const;
 
@@ -235,11 +265,22 @@ namespace Strada
 		Entity FindAudioListener();
 
 		// Script runtime (SceneScripting.cpp).
+		struct PendingScriptInstance
+		{
+			entt::entity Handle = entt::null;
+			UUID Entity = UUID::Invalid();
+			std::string ClassName;
+			ScriptFieldMap Fields;
+		};
 		void StartScripts();
 		void StopScripts();
 		// Creates instances for new Script components and replaces those whose class changed; OnCreate runs for each new
 		// instance once all exist.
 		void SyncScriptInstances();
+		// Creates the instances, then runs OnCreate for each, so scripts can find each other there.
+		void CreateScriptInstances(std::vector<PendingScriptInstance> const& pending);
+		// Starts the scripts of new entities (prefab instances) at once instead of at the next update.
+		void StartScriptsOf(std::vector<entt::entity> const& handles);
 		void UpdateScripts(float deltaTime);
 		void FixedUpdateScripts(float fixedDeltaTime);
 		void DispatchContactEventsToScripts();
@@ -301,7 +342,13 @@ namespace Strada
 
 		// Whether this scene runs scripts (it is the ScriptEngine's scene context).
 		bool m_RunsScripts = false;
+		// Set while OnDestroy runs on every script: entities created then start no scripts.
+		bool m_StoppingScripts = false;
 		std::unordered_map<entt::entity, ScriptInstanceState> m_ScriptInstances;
+
+		std::vector<SceneDebugLine> m_DebugLines;
+		bool m_DebugLinesDropped = false;
+		std::unordered_set<AssetHandle> m_RuntimeAssets;
 
 		uint32_t m_ViewportWidth = 0;
 		uint32_t m_ViewportHeight = 0;
