@@ -1,3 +1,4 @@
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json.Nodes;
@@ -54,6 +55,11 @@ public sealed class AgentWorkflowTests
 
 	private static async Task<(int ExitCode, string Output)> RunAsync(string executable, string argument)
 	{
+		// macOS games are application bundles: the program is inside.
+		if (executable.EndsWith(".app", StringComparison.Ordinal) && Directory.Exists(executable))
+		{
+			executable = Path.Combine(executable, "Contents", "MacOS", Path.GetFileNameWithoutExtension(executable));
+		}
 		ProcessStartInfo startInfo = new(executable)
 		{
 			UseShellExecute = false,
