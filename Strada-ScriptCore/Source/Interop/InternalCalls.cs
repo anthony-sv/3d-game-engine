@@ -237,6 +237,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, byte*, int, void> ScriptComponent_SetClassName;
 
 	internal static delegate* unmanaged<double> Time_GetElapsed;
+	internal static delegate* unmanaged<float> Time_GetFixedDeltaTime;
 	internal static delegate* unmanaged<ulong> Time_GetFrameCount;
 	internal static delegate* unmanaged<float> Time_GetTimeScale;
 	internal static delegate* unmanaged<float, void> Time_SetTimeScale;

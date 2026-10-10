@@ -53,8 +53,10 @@ scripting startup, so every scripting test fails with the list of names.
   `Testing::ScriptEngineScope` and checks the engine state and the logged errors. New test script classes change the
   class list checked in `ScriptEngineTests.cpp`.
 - Pure managed logic (math, encodings, layouts): xUnit tests in `Tests/ScriptCoreTests`.
-- Feature-test project: call every new public member from the `Projects/FeatureTest` scripts (enforced by the API
-  coverage test).
+- Feature-test project: call every new public member from the `Projects/FeatureTest` scripts, in the script of its area
+  (`Scripts/Source/*Tests.cs`, checks through `Check(...)`), with assertions about what it does. The API coverage test in
+  `ScriptCoreTests` lists unused members; `StradaRuntimeTests` runs the project and fails on any failed check. Values the
+  scripts read from the scene (entity, asset and other fields) are set by opening the project in the editor.
 
 ## 4. Docs
 

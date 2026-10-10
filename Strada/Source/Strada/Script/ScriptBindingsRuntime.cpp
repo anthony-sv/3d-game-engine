@@ -27,6 +27,12 @@ namespace Strada::ScriptGlue
 			return scene != nullptr ? scene->GetRuntimeTime() : 0.0;
 		}
 
+		float Time_GetFixedDeltaTime()
+		{
+			Scene const* scene = ScriptEngine::GetSceneContext();
+			return scene != nullptr ? scene->GetFixedTimestep() : 0.0f;
+		}
+
 		uint64_t Time_GetFrameCount()
 		{
 			Scene const* scene = ScriptEngine::GetSceneContext();
@@ -214,6 +220,7 @@ namespace Strada::ScriptGlue
 	void RegisterRuntimeBindings(BindingTable& table)
 	{
 		table.Add("Time_GetElapsed", &Time_GetElapsed);
+		table.Add("Time_GetFixedDeltaTime", &Time_GetFixedDeltaTime);
 		table.Add("Time_GetFrameCount", &Time_GetFrameCount);
 		table.Add("Time_GetTimeScale", &Time_GetTimeScale);
 		table.Add("Time_SetTimeScale", &Time_SetTimeScale);

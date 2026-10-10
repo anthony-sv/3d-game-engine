@@ -1,0 +1,34 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Project"
+	},
+	"Project": {
+		"Name": "FeatureTest",
+		"AssetDirectory": "Assets",
+		"ScriptModule": "Scripts/Binaries/FeatureTest.dll",
+		"StartScene": "12523826035290920312",
+		"Window": {
+			"Title": "Strada Feature Test",
+			"Width": 1280,
+			"Height": 720,
+			"Fullscreen": false,
+			"VSync": true,
+			"Resizable": true
+		},
+		"Physics": {
+			"FixedTimestep": 0.01666666753590107,
+			"Layers": [
+				"Default",
+				"Movers",
+				"Sensors"
+			],
+			"IgnoredCollisions": [
+				{
+					"First": 1,
+					"Second": 2
+				}
+			]
+		}
+	}
+}

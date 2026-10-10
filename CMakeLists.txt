@@ -25,6 +25,13 @@ add_subdirectory(StradaRuntime)
 
 if(STRADA_BUILD_TESTS)
     enable_testing()
+    # The scripts of Projects/FeatureTest, built like a game's against this build's scripting API: ScriptCoreTests checks
+    # that they use all of it and StradaRuntimeTests runs the project with them.
+    strada_add_dotnet_project(StradaFeatureTestScripts
+        PROJECT "${PROJECT_SOURCE_DIR}/Projects/FeatureTest/Scripts/FeatureTest.csproj"
+        OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/FeatureTest"
+        DEPENDS StradaScriptCore
+        PROPERTIES "StradaScriptCoreAssembly=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Strada.ScriptCore.dll")
     add_subdirectory(Tests/StradaTests)
     add_subdirectory(Tests/StradaEditorTests)
     add_subdirectory(Tests/StradaRuntimeTests)

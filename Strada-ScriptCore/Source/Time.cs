@@ -9,7 +9,7 @@ public static unsafe class Time
 	public static float DeltaTime { get; internal set; }
 
 	/// <summary>Seconds per physics step; the value passed to <see cref="Script.OnFixedUpdate"/>.</summary>
-	public static float FixedDeltaTime { get; internal set; }
+	public static float FixedDeltaTime => InternalCalls.Time_GetFixedDeltaTime();
 
 	/// <summary>Seconds since the scene started running.</summary>
 	public static double Elapsed => InternalCalls.Time_GetElapsed();

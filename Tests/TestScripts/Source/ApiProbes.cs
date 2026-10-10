@@ -243,7 +243,7 @@ public sealed class InputProbe : Script
 		Name = string.Create(CultureInfo.InvariantCulture,
 			$"Down={Input.IsKeyDown(KeyCode.A)};Pressed={Input.IsKeyPressed(KeyCode.A)};Released={Input.IsKeyReleased(KeyCode.A)};"
 			+ $"Mouse={Input.MousePosition};Button={Input.IsMouseButtonDown(MouseButton.Left)};Gamepad={Input.IsGamepadConnected()};"
-			+ $"Delta={deltaTime};Frames={Time.FrameCount};Elapsed={Time.Elapsed}");
+			+ $"Delta={deltaTime};Fixed={Time.FixedDeltaTime};Frames={Time.FrameCount};Elapsed={Time.Elapsed}");
 		Time.TimeScale = NextTimeScale;
 	}
 }

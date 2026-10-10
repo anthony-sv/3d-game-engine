@@ -32,7 +32,7 @@ Entries marked *(planned)* are introduced by upcoming subsystems; their location
 | `Tests/TestScripts/` | C# game scripts the scripting tests run |
 | `Tests/ScriptCoreTests/` | C# unit tests of the scripting API (xUnit v3) |
 | `Tests/Data/` | Test data (renderer golden images) |
-| `Projects/FeatureTest/` *(planned)* | Project exercising every component and the entire scripting API |
+| `Projects/FeatureTest/` | Project exercising every component and the entire scripting API |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
 | `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference) |
@@ -215,9 +215,10 @@ Rules for suites that arrive with later subsystems (binding as soon as the subsy
 - C# tests use xUnit v3 in `Tests/ScriptCoreTests` (an executable ctest runs; packages are pinned by
   `packages.lock.json`).
 - **Feature-test project**: any new component or scripting API must be exercised in `Projects/FeatureTest`
-  (scene + scripts using `Strada.Testing`). `ScriptCoreTests` fails if a public scripting API member is not
-  referenced by the feature-test scripts, and `StradaTests` fails if a registered component is missing from the
-  feature-test scene.
+  (scene + scripts using `Strada.Testing`). `ScriptCoreTests` fails if a public scripting API member is not used by
+  the feature-test scripts (read from their compiled metadata), `StradaTests` fails if a registered component is
+  missing from its scenes, and `StradaRuntimeTests` runs it through the player (`--test`) and fails on any failed
+  check. Edit its scenes with the editor (open `Projects/FeatureTest/FeatureTest.sproj`); CMake builds its scripts.
 
 ## Commit process
 

@@ -12,6 +12,7 @@
 #include <entt/entity/registry.hpp>
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -180,6 +181,8 @@ namespace Strada
 		void Step(uint32_t frames = 1) { m_StepFrames += frames; }
 		uint64_t GetRuntimeFrame() const { return m_RuntimeFrame; }
 		double GetRuntimeTime() const { return m_RuntimeTime; }
+		// Seconds per physics step (and OnFixedUpdate) of the running scene: the runtime settings' step.
+		float GetFixedTimestep() const { return std::max(m_RuntimeSettings.FixedTimestep, 1e-4f); }
 		// The physics world while running; null otherwise or when physics is unavailable.
 		PhysicsScene* GetPhysicsScene() { return m_Physics.get(); }
 		// The sounds while running; null otherwise or when audio is unavailable.

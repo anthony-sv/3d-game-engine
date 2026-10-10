@@ -34,6 +34,7 @@ add_executable(StradaTests
     Source/Physics/PhysicsSceneTests.cpp
     Source/Physics/PhysicsTestUtilities.h
     Source/Platform/ProcessTests.cpp
+    Source/Project/FeatureTestProjectTests.cpp
     Source/Project/GameExporterTests.cpp
     Source/Project/ProjectTests.cpp
     Source/Project/SceneRunnerTests.cpp
@@ -76,7 +77,9 @@ target_compile_definitions(StradaTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
     STRADA_TEST_FONT_PATH="${imgui_SOURCE_DIR}/misc/fonts/Karla-Regular.ttf"
     # Golden images and other test data.
-    STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data")
+    STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data"
+    # The feature-test project, whose scenes must use every component.
+    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest")
 
 strada_configure_target(StradaTests)
 

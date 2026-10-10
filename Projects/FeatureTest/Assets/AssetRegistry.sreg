@@ -1,0 +1,33 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "AssetRegistry"
+	},
+	"Assets": [
+		{
+			"Handle": "9906031496213900225",
+			"Type": "AudioClip",
+			"Path": "Audio/Beep.wav"
+		},
+		{
+			"Handle": "8637659314558365517",
+			"Type": "Material",
+			"Path": "Materials/Painted.smat"
+		},
+		{
+			"Handle": "17000004240335447843",
+			"Type": "Prefab",
+			"Path": "Prefabs/Crate.sprefab"
+		},
+		{
+			"Handle": "12523826035290920312",
+			"Type": "Scene",
+			"Path": "Scenes/Main.sscene"
+		},
+		{
+			"Handle": "2156050258587788051",
+			"Type": "Scene",
+			"Path": "Scenes/Second.sscene"
+		}
+	]
+}

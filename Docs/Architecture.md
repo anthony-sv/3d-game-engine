@@ -712,8 +712,15 @@ compile out asserts and dev tools.
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, command-line errors, a windowed run's presented image).
-- `ScriptCoreTests` (xUnit): math types and an API-coverage test asserting every public `Strada.ScriptCore`
-  member is referenced by the FeatureTest scripts.
-- `Projects/FeatureTest`: a scene that uses every component and scripts that call the entire scripting API through
-  `Strada.Testing`; run headlessly in CI (`StradaRuntime --project ... --test`), exit code = failures.
+- `ScriptCoreTests` (xUnit): math types and an API-coverage test asserting every public `Strada.ScriptCore` member
+  is used by the FeatureTest scripts. It reads their compiled metadata: references to every type, method (accessors
+  and operators included, overloads matched by signature) and field; Script's callbacks and protected constructors
+  count when derived types override or call them; constants and enumerators, which compile to literals, count
+  through their types.
+- `Projects/FeatureTest`: scenes that use every component (checked by `StradaTests`) and scripts that call the entire
+  scripting API through `Strada.Testing`, one script per area (entities, transforms, components, physics, audio,
+  assets, math, input, application and time, the testing API, attributes, script lifecycles) with a coordinator that
+  loads the second scene, which finishes the run. CMake builds the scripts (`StradaFeatureTestScripts`) and
+  `StradaRuntimeTests` runs a copy of the project through the player (`StradaRuntime --project ... --test`; exit code =
+  failures).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.

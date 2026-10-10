@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-	<!-- Unit tests of the scripting API's managed parts (math types, field encoding). The engine's own tests run scripts
-	     against the native side (Tests/StradaTests). xUnit v3 makes this an executable that runs its tests. -->
+	<!-- Unit tests of the scripting API's managed parts (math types, field encoding) and the check that the feature-test
+	     project uses all of it. The engine's own tests run scripts against the native side (Tests/StradaTests). xUnit v3
+	     makes this an executable that runs its tests. -->
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<AssemblyName>Strada.ScriptCore.Tests</AssemblyName>
@@ -15,7 +16,15 @@
 		<PackageReference Include="xunit.v3" Version="4.0.2" />
 	</ItemGroup>
 
-	<ItemGroup>
+	<!-- CMake tests the engine's Strada.ScriptCore.dll, which it builds once: building the project again into this output
+	     would share its intermediate files, and MSBuild would remove one of the two copies. -->
+	<ItemGroup Condition="'$(StradaScriptCoreDirectory)' != ''">
+		<Reference Include="Strada.ScriptCore">
+			<HintPath>$(StradaScriptCoreDirectory)/Strada.ScriptCore.dll</HintPath>
+		</Reference>
+	</ItemGroup>
+	<!-- IDEs and dotnet format build the scripting API from source. -->
+	<ItemGroup Condition="'$(StradaScriptCoreDirectory)' == ''">
 		<ProjectReference Include="../../Strada-ScriptCore/Strada.ScriptCore.csproj" />
 	</ItemGroup>
 </Project>

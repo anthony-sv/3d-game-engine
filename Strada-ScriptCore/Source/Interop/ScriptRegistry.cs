@@ -325,7 +325,6 @@ internal static class ScriptRegistry
 					instance.InvokeOnUpdate(timeStep);
 					break;
 				case ScriptEvent.FixedUpdate:
-					Time.FixedDeltaTime = timeStep;
 					instance.InvokeOnFixedUpdate(timeStep);
 					break;
 				case ScriptEvent.Destroy:

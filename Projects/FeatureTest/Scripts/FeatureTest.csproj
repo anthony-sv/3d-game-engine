@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- The game's scripts. The Strada editor builds them into the project's script module; any .NET 10 SDK and C# editor
+	     can work with this project. Strada.props, which the editor writes, locates the engine's Strada.ScriptCore.dll. -->
+	<Import Project="Strada.props" Condition="Exists('Strada.props')" />
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<RootNamespace>FeatureTest</RootNamespace>
+		<LangVersion>latest</LangVersion>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<!-- The engine loads the assembly like a plugin: dependencies are copied next to it. -->
+		<EnableDynamicLoading>true</EnableDynamicLoading>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+	</PropertyGroup>
+
+	<ItemGroup Condition="'$(StradaScriptCoreAssembly)' != ''">
+		<Reference Include="Strada.ScriptCore">
+			<HintPath>$(StradaScriptCoreAssembly)</HintPath>
+			<!-- The engine provides it at run time. -->
+			<Private>false</Private>
+		</Reference>
+	</ItemGroup>
+	<!-- In the engine's repository, builds without Strada.props (dotnet format, IDEs) use the scripting API from source;
+	     CMake builds pass StradaScriptCoreAssembly. -->
+	<ItemGroup Condition="'$(StradaScriptCoreAssembly)' == ''">
+		<ProjectReference Include="../../../Strada-ScriptCore/Strada.ScriptCore.csproj">
+			<Private>false</Private>
+		</ProjectReference>
+	</ItemGroup>
+</Project>

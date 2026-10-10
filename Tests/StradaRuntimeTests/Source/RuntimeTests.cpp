@@ -349,3 +349,19 @@ TEST_CASE("Runtime: exported games run from their own directory")
 	CHECK(failed.ExitCode == 1);
 	CHECK(Contains(failed.Output, "Tests failed: 1 of 2 checks failed"));
 }
+
+TEST_CASE("Runtime: the feature-test project passes its test run")
+{
+	// A copy of Projects/FeatureTest with the scripts CMake built, as the editor's build leaves them.
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const source = FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR);
+	std::filesystem::path const project = directory.GetPath() / "FeatureTest";
+	REQUIRE(FileSystem::CopyDirectory(source / "Assets", project / "Assets").IsOk());
+	REQUIRE(FileSystem::Copy(source / "FeatureTest.sproj", project / "FeatureTest.sproj", false).IsOk());
+	REQUIRE(FileSystem::CopyDirectory(FileSystem::GetExecutableDirectory() / "FeatureTest", project / "Scripts" / "Binaries").IsOk());
+
+	ProcessResult const run = RunPlayer({"--project", Native(project / "FeatureTest.sproj"), "--test"});
+	CAPTURE(run.Output);
+	CHECK(run.ExitCode == 0);
+	CHECK(Contains(run.Output, "Tests passed"));
+}

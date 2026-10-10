@@ -66,7 +66,9 @@ Expose the component to C# following `strada-add-script-api` (managed class, bin
 - `Tests/StradaTests/Source/Scene/ComponentRegistryTests.cpp` round-trips every registered component automatically;
   update the expected component count and add focused tests for non-trivial fields or behavior.
 - System tests for the runtime behavior.
-- Feature-test project: add an entity using the component to `Projects/FeatureTest` (enforced by a coverage test).
+- Feature-test project: add an entity using the component to `Projects/FeatureTest/Assets/Scenes/Main.sscene` (open
+  the project in the editor; enforced by `StradaTests`), and test its scripting API in `ComponentTests.cs` or the
+  script of its area.
 
 ## 8. Changing an existing component
 

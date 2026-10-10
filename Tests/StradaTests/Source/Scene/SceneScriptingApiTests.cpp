@@ -262,7 +262,9 @@ TEST_CASE("Scene: scripts read input and time and scale time")
 	Entity const probe =
 		AddScript(scene, "Probe", "Strada.Tests.InputProbe",
 	              {{"Recorder", ScriptFieldValue::FromEntity(recorder.GetUUID())}, {"NextTimeScale", ScriptFieldValue::FromFloat(0.5f)}});
-	scene.OnRuntimeStart();
+	SceneRuntimeSettings settings;
+	settings.FixedTimestep = 0.125f;
+	scene.OnRuntimeStart(settings);
 
 	// The key codes scripts know are the engine's.
 	std::string const& keys = recorder.GetName();
@@ -283,16 +285,17 @@ TEST_CASE("Scene: scripts read input and time and scale time")
 
 	Input::SetKeyState(KeyCode::A, true);
 	Input::SetMousePosition({12.0f, 34.0f});
+	// Scripts update before the frame's physics steps: the fixed step is the scene's before the first step ran.
 	scene.OnUpdateRuntime(Timestep(0.25f));
-	CHECK(probe.GetName() ==
-	      "Down=True;Pressed=True;Released=False;Mouse=(12, 34);Button=False;Gamepad=False;Delta=0.25;Frames=1;Elapsed=0.25");
+	CHECK(probe.GetName() == "Down=True;Pressed=True;Released=False;Mouse=(12, 34);Button=False;Gamepad=False;Delta=0.25;Fixed=0.125;"
+	                         "Frames=1;Elapsed=0.25");
 	CHECK(scene.GetTimeScale() == 0.5f);
 
 	// Half speed from now on; pressed lasts one frame.
 	Input::EndFrame();
 	scene.OnUpdateRuntime(Timestep(0.25f));
-	CHECK(probe.GetName() ==
-	      "Down=True;Pressed=False;Released=False;Mouse=(12, 34);Button=False;Gamepad=False;Delta=0.125;Frames=2;Elapsed=0.375");
+	CHECK(probe.GetName() == "Down=True;Pressed=False;Released=False;Mouse=(12, 34);Button=False;Gamepad=False;Delta=0.125;Fixed=0.125;"
+	                         "Frames=2;Elapsed=0.375");
 	scene.OnRuntimeStop();
 }
 

@@ -306,7 +306,7 @@ namespace Strada
 		}
 
 		// The fixed steps run without physics too: scripts' OnFixedUpdate keeps its rate.
-		float const step = std::max(m_RuntimeSettings.FixedTimestep, 1e-4f);
+		float const step = GetFixedTimestep();
 		uint32_t const maxSteps = std::max(m_RuntimeSettings.MaxStepsPerFrame, 1u);
 		m_PhysicsAccumulator += std::max(deltaTime, 0.0f);
 		uint32_t steps = 0;
