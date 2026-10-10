@@ -135,6 +135,30 @@ public sealed class McpServerTests
 	}
 
 	[Fact]
+	public async Task MalformedParamsAreErrorsAndKeepTheServerRunning()
+	{
+		using TemporaryDirectory directory = new();
+		await using McpTestClient client = Connect(directory.Path);
+
+		// Params that are not objects: errors for requests, ignored for notifications.
+		client.Send("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":[1]}");
+		client.Send("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":\"x\"}");
+		client.Send("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":[\"2025-06-18\"]}");
+		JsonNode initialize = await client.ReceiveAsync();
+		Assert.Equal(McpServer.InvalidParams, initialize["error"]!["code"]!.GetValue<int>());
+		client.Send("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":[\"entity_create\"]}");
+		Assert.Equal(McpServer.InvalidParams, (await client.ReceiveAsync())["error"]!["code"]!.GetValue<int>());
+
+		// Duplicate members are ambiguous: a parse error.
+		client.Send("{\"jsonrpc\":\"2.0\",\"id\":3,\"id\":4,\"method\":\"ping\"}");
+		Assert.Equal(McpServer.ParseError, (await client.ReceiveAsync())["error"]!["code"]!.GetValue<int>());
+		client.Send("[{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"ping\",\"params\":{\"a\":1,\"a\":2}}]");
+		Assert.Equal(McpServer.ParseError, (await client.ReceiveAsync())["error"]!["code"]!.GetValue<int>());
+
+		Assert.NotNull((await client.RequestAsync("ping"))["result"]);
+	}
+
+	[Fact]
 	public async Task CancelledRequestsGetNoResponse()
 	{
 		using TemporaryDirectory directory = new();

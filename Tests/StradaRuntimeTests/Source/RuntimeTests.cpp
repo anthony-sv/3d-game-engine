@@ -252,6 +252,24 @@ TEST_CASE("Runtime: projects run with their last script build, and games without
 	CHECK_FALSE(Contains(headless.Output, ".NET runtime started"));
 }
 
+TEST_CASE("Runtime: games in directories with non-ASCII names start from the command line")
+{
+	// Characters outside every ANSI code page: Windows passes them to main as '?', so the player reads the wide command line.
+	TestGame game(ProjectFileKind::Game);
+	game.AddScene("Main", MakeScene("Main", std::nullopt));
+	static_cast<void>(game.Write("Scenes/Main.sscene"));
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const copy =
+		directory.GetPath() / FileSystem::PathFromUtf8("\xE3\x82\xB2\xE3\x83\xBC\xE3\x83\xA0 \xC3\x9C\xCE\xB1");
+	REQUIRE(FileSystem::CopyDirectory(game.GetDirectory(), copy).IsOk());
+
+	ProcessResult const run =
+		RunPlayer({"--game", Native(copy / FileSystem::PathFromUtf8(Project::GameFileName)), "--headless", "--frames", "2"});
+	CAPTURE(run.Output);
+	CHECK(run.ExitCode == 0);
+	CHECK(Contains(run.Output, "The game has no scripts"));
+}
+
 TEST_CASE("Runtime: games that cannot start and wrong command lines fail before running")
 {
 	TestGame game(ProjectFileKind::Game);

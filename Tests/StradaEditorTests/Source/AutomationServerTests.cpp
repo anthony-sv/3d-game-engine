@@ -9,7 +9,9 @@
 
 #include <doctest/doctest.h>
 
+#include <chrono>
 #include <set>
+#include <thread>
 
 using namespace Strada;
 using Strada::Testing::TcpTestClient;
@@ -160,6 +162,29 @@ TEST_CASE("AutomationServer: oversized messages and excess connections are refus
 	std::optional<std::string> busy = extra.ReadLine();
 	REQUIRE(busy);
 	CHECK(ParseJson(*busy).GetValue()["error"]["code"] == Code(AutomationErrorCode::ServerBusy));
+}
+
+TEST_CASE("AutomationServer: connections that do not authenticate in time are closed")
+{
+	AutomationServerSpecification specification;
+	specification.MaxConnections = 1;
+	specification.AuthenticationTimeout = std::chrono::milliseconds(200);
+	ServerFixture fixture(specification);
+
+	// An idle connection, even one that sent half a message, holds its slot only until the deadline.
+	Scope<TcpTestClient> idle = fixture.Connect(false);
+	REQUIRE(idle->Send("{\"jsonrpc\": \"2.0\""));
+	std::optional<std::string> const timedOut = idle->ReadLine();
+	REQUIRE(timedOut);
+	CHECK(ParseJson(*timedOut).GetValue()["error"]["code"] == Code(AutomationErrorCode::Unauthenticated));
+	CHECK(idle->WaitForClose());
+
+	// The slot is free again, and authenticated connections stay open past the deadline.
+	Scope<TcpTestClient> client = fixture.Connect();
+	std::this_thread::sleep_for(std::chrono::milliseconds(400));
+	std::optional<Json> const response = client->Call("editor.status");
+	REQUIRE(response);
+	CHECK(response->contains("result"));
 }
 
 TEST_CASE("AutomationServer: stopping disconnects clients and can restart")

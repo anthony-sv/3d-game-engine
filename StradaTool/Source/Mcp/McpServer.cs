@@ -101,7 +101,9 @@ internal sealed class McpServer
 		JsonNode? message;
 		try
 		{
-			message = JsonNode.Parse(line);
+			// Duplicate members would make a message mean different things to different readers (and JsonObject throws on
+			// them later, outside this handler).
+			message = JsonNode.Parse(line, documentOptions: new JsonDocumentOptions { AllowDuplicateProperties = false });
 		}
 		catch (JsonException exception)
 		{
@@ -160,8 +162,16 @@ internal sealed class McpServer
 		JsonNode? parameters = request["params"];
 		if (!hasId)
 		{
-			HandleNotification(method, parameters);
+			// Notifications are never answered, so ones with params that are not an object are ignored.
+			if (parameters is null or JsonObject)
+			{
+				HandleNotification(method, parameters as JsonObject);
+			}
 			return null;
+		}
+		if (parameters is not null and not JsonObject)
+		{
+			return ErrorResponse(id, InvalidParams, "Invalid params: params are an object");
 		}
 
 		string key = id!.ToJsonString();
@@ -172,7 +182,7 @@ internal sealed class McpServer
 		}
 		try
 		{
-			return Response(id, await DispatchAsync(method, parameters, cancellation.Token));
+			return Response(id, await DispatchAsync(method, parameters as JsonObject, cancellation.Token));
 		}
 		catch (McpException exception)
 		{
@@ -194,7 +204,7 @@ internal sealed class McpServer
 		}
 	}
 
-	private void HandleNotification(string method, JsonNode? parameters)
+	private void HandleNotification(string method, JsonObject? parameters)
 	{
 		if (method != "notifications/cancelled")
 		{
@@ -215,7 +225,7 @@ internal sealed class McpServer
 		}
 	}
 
-	private async Task<JsonNode> DispatchAsync(string method, JsonNode? parameters, CancellationToken cancellationToken)
+	private async Task<JsonNode> DispatchAsync(string method, JsonObject? parameters, CancellationToken cancellationToken)
 	{
 		switch (method)
 		{
@@ -232,7 +242,7 @@ internal sealed class McpServer
 		}
 	}
 
-	private JsonObject Initialize(JsonNode? parameters)
+	private JsonObject Initialize(JsonObject? parameters)
 	{
 		string? requested = parameters?["protocolVersion"] is JsonValue value && value.TryGetValue(out string? version) ? version : null;
 		// A version this server does not speak is answered with its newest one; the client decides whether it can use it.
@@ -251,9 +261,9 @@ internal sealed class McpServer
 		};
 	}
 
-	private async Task<JsonObject> CallToolAsync(JsonNode? parameters, CancellationToken cancellationToken)
+	private async Task<JsonObject> CallToolAsync(JsonObject? call, CancellationToken cancellationToken)
 	{
-		if (parameters is not JsonObject call || call["name"] is not JsonValue nameValue || !nameValue.TryGetValue(out string? name))
+		if (call is null || call["name"] is not JsonValue nameValue || !nameValue.TryGetValue(out string? name))
 		{
 			throw new McpException(InvalidParams, "Invalid params: tools/call needs the tool's name");
 		}

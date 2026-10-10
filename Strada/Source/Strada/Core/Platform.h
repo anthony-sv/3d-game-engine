@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace Strada
 {
@@ -17,6 +18,9 @@ namespace Strada
 		static bool IsProcessRunning(uint32_t processID);
 		// Named to avoid the Win32 GetEnvironmentVariable macro.
 		static std::optional<std::string> ReadEnvironmentVariable(std::string const& name);
+		// The process arguments as UTF-8, program name first. On Windows they are read from the wide command line, since
+		// main's argv holds them in the ANSI code page (characters outside it become '?'); elsewhere argv is copied.
+		static std::vector<std::string> ReadCommandLineArguments(int argc, char const* const* argv);
 		// Monotonic time in seconds since an unspecified, process-constant epoch.
 		static double GetTime();
 		// POSIX systems end a process that writes to a pipe or socket whose reading end is closed (SIGPIPE); afterwards such

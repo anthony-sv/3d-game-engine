@@ -7,6 +7,7 @@
 #include "Strada/Core/Result.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -24,6 +25,9 @@ namespace Strada
 		size_t MaxMessageSize = 16 * 1024 * 1024;
 		// Further clients are told the server is busy and disconnected.
 		uint32_t MaxConnections = 8;
+		// Connections that have not authenticated by then are told so and closed, so idle connections cannot take every
+		// slot.
+		std::chrono::milliseconds AuthenticationTimeout{10000};
 		// Empty generates a random 256-bit token (64 hex characters).
 		std::string Token;
 	};

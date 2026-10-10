@@ -3,6 +3,7 @@
 
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Platform.h"
+#include "Strada/Core/Utf8.h"
 #include "Strada/Platform/Process.h"
 #include "Strada/Project/Project.h"
 
@@ -413,7 +414,9 @@ public class {} : Script
 		}
 
 		ScriptBuildResult result;
-		result.Output = std::move(run.GetValue().Output);
+		// DOTNET_CLI_FORCE_UTF8_ENCODING covers the CLI, not every tool MSBuild runs (or a cut-off last character): the
+		// output reaches the log, the editor and automation clients, which need UTF-8.
+		result.Output = Utf8::Sanitize(run.GetValue().Output);
 		result.Diagnostics = ParseDiagnostics(result.Output);
 		bool const hasErrors = std::any_of(result.Diagnostics.begin(), result.Diagnostics.end(),
 		                                   [](ScriptDiagnostic const& diagnostic)
@@ -500,8 +503,10 @@ public class {} : Script
 		return std::nullopt;
 	}
 
-	std::vector<ScriptDiagnostic> ScriptProject::ParseDiagnostics(std::string_view output)
+	std::vector<ScriptDiagnostic> ScriptProject::ParseDiagnostics(std::string_view rawOutput)
 	{
+		std::string const sanitized = Utf8::IsValid(rawOutput) ? std::string() : Utf8::Sanitize(rawOutput);
+		std::string_view const output = sanitized.empty() ? rawOutput : std::string_view(sanitized);
 		std::vector<ScriptDiagnostic> diagnostics;
 		size_t start = 0;
 		while (start < output.size())

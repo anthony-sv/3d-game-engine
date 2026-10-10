@@ -90,6 +90,8 @@ builds strada when needed). A game project elsewhere registers the built tool (`
   answered with one array; notifications (no `"id"`) get no response.
 - Lines longer than 16 MiB close the connection (`MessageTooLarge`); nesting deeper than 64 levels is rejected.
 - Up to 8 connections; further ones receive `ServerBusy` and are closed.
+- A connection that has not authenticated within 10 seconds receives `Unauthenticated` ("authentication timed out")
+  and is closed.
 - Entity references are UUIDs written as decimal strings. Component data uses the scene-file format: asset fields take
   handles or `"builtin://<Name>"` / `"asset://<path>"`, rotations are quaternions `[x, y, z, w]` (Transform also
   accepts `"RotationEuler": [x, y, z]` in degrees).

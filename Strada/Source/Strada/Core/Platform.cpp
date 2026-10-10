@@ -1,12 +1,14 @@
 #include "stpch.h"
 #include "Strada/Core/Platform.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdlib>
 
 #if defined(ST_PLATFORM_WINDOWS)
 #include <Windows.h>
+#include <shellapi.h>
 #elif defined(ST_PLATFORM_LINUX)
 #include <signal.h>
 #include <unistd.h>
@@ -20,6 +22,27 @@
 
 namespace Strada
 {
+#if defined(ST_PLATFORM_WINDOWS)
+	namespace
+	{
+		std::string WideToUtf8(std::wstring_view text)
+		{
+			if (text.empty())
+			{
+				return {};
+			}
+			int const wideLength = static_cast<int>(text.size());
+			int const length = ::WideCharToMultiByte(CP_UTF8, 0, text.data(), wideLength, nullptr, 0, nullptr, nullptr);
+			std::string utf8(static_cast<size_t>(std::max(length, 0)), '\0');
+			if (length > 0)
+			{
+				::WideCharToMultiByte(CP_UTF8, 0, text.data(), wideLength, utf8.data(), length, nullptr, nullptr);
+			}
+			return utf8;
+		}
+	}
+#endif
+
 	bool Platform::IsDebuggerAttached()
 	{
 #if defined(ST_PLATFORM_WINDOWS)
@@ -101,13 +124,7 @@ namespace Strada
 		std::wstring wideValue(valueLength, L'\0');
 		DWORD const written = ::GetEnvironmentVariableW(wideName.c_str(), wideValue.data(), valueLength);
 		wideValue.resize(written);
-
-		int const utf8Length =
-			::WideCharToMultiByte(CP_UTF8, 0, wideValue.c_str(), static_cast<int>(wideValue.size()), nullptr, 0, nullptr, nullptr);
-		std::string value(static_cast<size_t>(utf8Length), '\0');
-		::WideCharToMultiByte(CP_UTF8, 0, wideValue.c_str(), static_cast<int>(wideValue.size()), value.data(), utf8Length, nullptr,
-		                      nullptr);
-		return value;
+		return WideToUtf8(wideValue);
 #else
 		char const* value = std::getenv(name.c_str());
 		if (value == nullptr)
@@ -116,6 +133,33 @@ namespace Strada
 		}
 		return std::string(value);
 #endif
+	}
+
+	std::vector<std::string> Platform::ReadCommandLineArguments(int argc, char const* const* argv)
+	{
+#if defined(ST_PLATFORM_WINDOWS)
+		int count = 0;
+		LPWSTR* wideArguments = ::CommandLineToArgvW(::GetCommandLineW(), &count);
+		if (wideArguments != nullptr)
+		{
+			std::vector<std::string> arguments;
+			arguments.reserve(static_cast<size_t>(count));
+			for (int i = 0; i < count; i++)
+			{
+				arguments.push_back(WideToUtf8(wideArguments[i]));
+			}
+			::LocalFree(wideArguments);
+			return arguments;
+		}
+		// Out of memory: the ANSI arguments are the best that is left.
+#endif
+		std::vector<std::string> arguments;
+		arguments.reserve(static_cast<size_t>(std::max(argc, 0)));
+		for (int i = 0; i < argc; i++)
+		{
+			arguments.emplace_back(argv[i] != nullptr ? argv[i] : "");
+		}
+		return arguments;
 	}
 
 	double Platform::GetTime()

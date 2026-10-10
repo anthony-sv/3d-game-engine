@@ -103,7 +103,8 @@ namespace Strada
 
 		// The .NET SDK driver: DOTNET_ROOT, PATH, then the default install locations.
 		static std::optional<std::filesystem::path> FindDotNet();
-		// The errors and warnings in MSBuild's output format ("file(line,col): error CODE: message [project]").
+		// The errors and warnings in MSBuild's output format ("file(line,col): error CODE: message [project]"). Invalid UTF-8
+		// in the output becomes U+FFFD.
 		static std::vector<ScriptDiagnostic> ParseDiagnostics(std::string_view output);
 		// A name usable for a script class and file: an ASCII C# identifier that is not a keyword.
 		static bool IsValidClassName(std::string_view name);

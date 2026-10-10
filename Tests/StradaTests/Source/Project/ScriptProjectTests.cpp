@@ -141,6 +141,16 @@ TEST_CASE("ScriptProject: diagnostics are read from MSBuild output")
 	CHECK(Contains(diagnostics[4].Message, "(are you missing a using directive"));
 }
 
+TEST_CASE("ScriptProject: diagnostics with invalid UTF-8 get replacement characters")
+{
+	// A message in a legacy code page (Latin-1 "Caf\xE9").
+	std::vector<ScriptDiagnostic> const diagnostics =
+		ScriptProject::ParseDiagnostics("C:\\Game\\Scripts\\Source\\Caf\xE9.cs(1,1): error CS1001: Caf\xE9 [C:\\Game\\Game.csproj]\n");
+	REQUIRE(diagnostics.size() == 1);
+	CHECK(diagnostics[0].Message == "Caf\xEF\xBF\xBD");
+	CHECK(diagnostics[0].File == FileSystem::PathFromUtf8("C:\\Game\\Scripts\\Source\\Caf\xEF\xBF\xBD.cs"));
+}
+
 TEST_CASE("ScriptProject: builds the game's scripts with the .NET SDK and reports compile errors")
 {
 	REQUIRE(ScriptProject::FindDotNet().has_value());

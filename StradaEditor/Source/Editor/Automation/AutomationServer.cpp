@@ -144,6 +144,7 @@ namespace Strada
 		{
 			uint64_t ID = 0;
 			SocketHandle Socket = InvalidSocket;
+			std::chrono::steady_clock::time_point AuthenticationDeadline;
 			std::string ReadBuffer;
 			std::string WriteBuffer;
 			bool Authenticated = false;
@@ -447,6 +448,7 @@ namespace Strada
 						Connection connection;
 						connection.ID = nextConnectionID++;
 						connection.Socket = accepted;
+						connection.AuthenticationDeadline = std::chrono::steady_clock::now() + m_Specification.AuthenticationTimeout;
 						if (connections.size() >= m_Specification.MaxConnections)
 						{
 							connection.WriteBuffer = ErrorLine(Json(), AutomationErrorCode::ServerBusy, "too many automation connections");
@@ -523,6 +525,12 @@ namespace Strada
 					{
 						connection.Closed = true;
 					}
+				}
+				if (!connection.Authenticated && !connection.CloseAfterFlush &&
+				    std::chrono::steady_clock::now() >= connection.AuthenticationDeadline)
+				{
+					connection.WriteBuffer += ErrorLine(Json(), AutomationErrorCode::Unauthenticated, "authentication timed out");
+					connection.CloseAfterFlush = true;
 				}
 				if (connection.CloseAfterFlush && connection.WriteBuffer.empty())
 				{

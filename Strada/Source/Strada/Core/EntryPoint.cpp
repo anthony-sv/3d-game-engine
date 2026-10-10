@@ -3,6 +3,10 @@
 
 #include "Strada/Core/CrashHandler.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Platform.h"
+
+#include <string>
+#include <vector>
 
 #if defined(ST_PLATFORM_WINDOWS)
 #include <Windows.h>
@@ -29,9 +33,19 @@ namespace Strada
 		Log::Init(logSpecification);
 		CrashHandler::Install(FileSystem::GetUserDataDirectory() / "Crashes", logName);
 
+		// UTF-8 arguments (non-ASCII project paths on Windows), alive until the application is destroyed.
+		std::vector<std::string> arguments = Platform::ReadCommandLineArguments(argc, argv);
+		std::vector<char*> argumentPointers;
+		argumentPointers.reserve(arguments.size() + 1);
+		for (std::string& argument : arguments)
+		{
+			argumentPointers.push_back(argument.data());
+		}
+		argumentPointers.push_back(nullptr);
+
 		int exitCode = 0;
 		{
-			Scope<Application> application = CreateApplication({argc, argv}, exitCode);
+			Scope<Application> application = CreateApplication({static_cast<int>(arguments.size()), argumentPointers.data()}, exitCode);
 			if (application)
 			{
 				exitCode = application->Run();

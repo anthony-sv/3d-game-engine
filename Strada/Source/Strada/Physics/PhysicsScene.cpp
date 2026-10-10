@@ -495,12 +495,18 @@ namespace Strada
 				glm::vec3 const position = vertex.Position * scale;
 				points.push_back(JPH::Float3(position.x, position.y, position.z));
 			}
+			// Submesh indices are relative to the submesh's first vertex (MeshSource validated the ranges).
 			std::vector<uint32_t> const& indices = collider.Mesh->GetIndices();
 			JPH::IndexedTriangleList triangles;
 			triangles.reserve(indices.size() / 3);
-			for (size_t i = 0; i + 2 < indices.size(); i += 3)
+			for (Submesh const& submesh : collider.Mesh->GetSubmeshes())
 			{
-				triangles.push_back(JPH::IndexedTriangle(indices[i], indices[i + 1], indices[i + 2]));
+				for (uint32_t i = 0; i + 2 < submesh.IndexCount; i += 3)
+				{
+					uint32_t const* triangle = indices.data() + submesh.BaseIndex + i;
+					triangles.push_back(JPH::IndexedTriangle(submesh.BaseVertex + triangle[0], submesh.BaseVertex + triangle[1],
+					                                         submesh.BaseVertex + triangle[2]));
+				}
 			}
 			JPH::MeshShapeSettings settings(std::move(points), std::move(triangles));
 			settings.mUserData = userData;

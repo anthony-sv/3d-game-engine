@@ -112,6 +112,27 @@ public sealed class PolyHavenTests
 		Assert.Contains("no usable 1k file", (await Assert.ThrowsAsync<PolyHavenException>(() =>
 			polyHaven.DownloadHdrAsync("plain_sky", "1k", directory.Path, CancellationToken.None))).Message);
 
+		// Answers of an unexpected shape are reported, not thrown as other exceptions.
+		foreach (string files in new[] { "[1]", "{\"hdri\":[1]}", "{\"hdri\":{\"1k\":[1]}}", "{\"hdri\":{\"1k\":\"x\",\"2k\":{\"hdr\":1}}}",
+					 "{\"hdri\":{\"1k\":{\"hdr\":{\"url\":1}}}}", "{\"hdri\":1,\"hdri\":2}" })
+		{
+			fake.Set(FilesAddress("odd_sky"), HttpStatusCode.OK, Encoding.UTF8.GetBytes(files));
+			await Assert.ThrowsAsync<PolyHavenException>(() => polyHaven.DownloadHdrAsync("odd_sky", "1k", directory.Path, CancellationToken.None));
+		}
+		foreach (string catalog in new[] { "[1]", "{\"a\":[1],\"b\":{\"name\":[1],\"categories\":{},\"tags\":[{}],\"authors\":[1]}}",
+					 "{\"a\":{},\"a\":{}}" })
+		{
+			fake.Set($"{PolyHaven.ApiAddress}/assets?t=hdris", HttpStatusCode.OK, Encoding.UTF8.GetBytes(catalog));
+			try
+			{
+				await polyHaven.SearchAsync("", 10, CancellationToken.None);
+			}
+			catch (PolyHavenException)
+			{
+				// Refusing the catalog is fine; any other exception fails the test.
+			}
+		}
+
 		fake.Offline = true;
 		Assert.StartsWith("cannot reach api.polyhaven.com", (await Assert.ThrowsAsync<PolyHavenException>(() =>
 			polyHaven.SearchAsync("sky", 10, CancellationToken.None))).Message);

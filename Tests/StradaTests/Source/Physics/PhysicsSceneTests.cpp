@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <limits>
+#include <string>
 #include <vector>
 
 using namespace Strada;
@@ -332,6 +333,50 @@ TEST_CASE("PhysicsScene: shapes take the body scale, offsets and meshes")
 	noMesh.Shape = ColliderShape::ConvexMesh;
 	CHECK(world->AddBody(MakeBody(UUID(301), RigidBodyType::Static, glm::vec3(0.0f), noMesh)).IsError());
 	CHECK(world->GetBodyCount() == 4);
+}
+
+TEST_CASE("PhysicsScene: triangle mesh colliders use every submesh's own vertices")
+{
+	Testing::PhysicsSystemScope physics;
+	Scope<PhysicsScene> world = CreateWorld();
+
+	// Submesh 0: a small triangle far to the side. Submesh 1: a floor quad whose indices are relative to its first vertex,
+	// so it only exists in the collider if the base vertex is applied.
+	auto const vertexAt = [](float x, float y, float z)
+	{
+		Vertex vertex;
+		vertex.Position = {x, y, z};
+		return vertex;
+	};
+	std::vector<Vertex> vertices = {vertexAt(100.0f, 0.0f, 0.0f), vertexAt(101.0f, 0.0f, 0.0f), vertexAt(100.0f, 0.0f, 1.0f),
+	                                vertexAt(-5.0f, 0.0f, -5.0f), vertexAt(-5.0f, 0.0f, 5.0f),  vertexAt(5.0f, 0.0f, 5.0f),
+	                                vertexAt(5.0f, 0.0f, -5.0f)};
+	std::vector<uint32_t> indices = {0, 2, 1, 0, 1, 2, 0, 2, 3};
+	Submesh side;
+	side.BaseVertex = 0;
+	side.VertexCount = 3;
+	side.BaseIndex = 0;
+	side.IndexCount = 3;
+	Submesh floorPart;
+	floorPart.BaseVertex = 3;
+	floorPart.VertexCount = 4;
+	floorPart.BaseIndex = 3;
+	floorPart.IndexCount = 6;
+	Result<Ref<MeshSource>> mesh = MeshSource::Create(std::move(vertices), std::move(indices), {side, floorPart}, {AssetHandle(UUID(1))});
+	REQUIRE_MESSAGE(mesh.IsOk(), (mesh ? std::string() : mesh.GetError()));
+
+	ColliderDesc floor;
+	floor.Shape = ColliderShape::TriangleMesh;
+	floor.Mesh = mesh.GetValue();
+	REQUIRE(world->AddBody(MakeBody(GroundId, RigidBodyType::Static, glm::vec3(0.0f), floor)).IsOk());
+	for (glm::vec2 const point : {glm::vec2(-4.0f, -4.0f), glm::vec2(4.0f, 4.0f), glm::vec2(4.0f, -4.0f), glm::vec2(-4.0f, 4.0f)})
+	{
+		CAPTURE(point);
+		std::optional<RaycastHit> const hit = world->Raycast({point.x, 10.0f, point.y}, {0.0f, -1.0f, 0.0f}, 100.0f);
+		REQUIRE(hit);
+		CHECK(hit->Distance == doctest::Approx(10.0f).epsilon(0.001));
+	}
+	CHECK(world->Raycast({100.2f, 10.0f, 0.2f}, {0.0f, -1.0f, 0.0f}, 100.0f).has_value());
 }
 
 TEST_CASE("PhysicsScene: bodies are replaced and removed, ending their contacts")

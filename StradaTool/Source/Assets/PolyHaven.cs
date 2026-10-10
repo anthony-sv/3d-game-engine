@@ -124,13 +124,13 @@ internal sealed partial class PolyHaven
 			throw new PolyHavenException($"the resolution '{resolution}' is not one of {string.Join(", ", Resolutions)}");
 		}
 		JsonNode? files = await GetJsonAsync($"{ApiAddress}/files/{id}", $"there is no HDRI '{id}'", cancellationToken);
-		if (files?["hdri"] is not JsonObject resolutions)
+		if (Member(files, "hdri") is not JsonObject resolutions)
 		{
 			throw new PolyHavenException($"'{id}' is not an HDRI (see {GetPage(id)})");
 		}
-		if (resolutions[resolution]?["hdr"] is not JsonObject file)
+		if (Member(resolutions[resolution], "hdr") is not JsonObject file)
 		{
-			string available = string.Join(", ", resolutions.Where(entry => entry.Value?["hdr"] is JsonObject).Select(entry => entry.Key));
+			string available = string.Join(", ", resolutions.Where(entry => Member(entry.Value, "hdr") is JsonObject).Select(entry => entry.Key));
 			throw new PolyHavenException($"'{id}' has no {resolution} .hdr file (it has {available})");
 		}
 		if (file["url"] is not JsonValue urlValue || !urlValue.TryGetValue(out string? url) ||
@@ -180,6 +180,10 @@ internal sealed partial class PolyHaven
 
 	[GeneratedRegex("^[a-z0-9_]+$")]
 	private static partial Regex IdPattern();
+
+	// The member of an object; null for anything else. The answers come from a server whose format may change, and JsonNode's
+	// indexer throws for arrays and values.
+	private static JsonNode? Member(JsonNode? node, string name) => node is JsonObject json ? json[name] : null;
 
 	private static List<string> Strings(JsonNode? node) =>
 		node is JsonArray array ? array.OfType<JsonValue>().Select(value => value.TryGetValue(out string? text) ? text : null).OfType<string>().ToList() : [];
@@ -259,7 +263,9 @@ internal sealed partial class PolyHaven
 		using HttpResponseMessage response = await SendAsync(new Uri(address), cancellationToken, notFound);
 		try
 		{
-			return JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+			// JsonObject throws on duplicate members when they are first read; refused here, they are a parse error.
+			return JsonNode.Parse(await response.Content.ReadAsStringAsync(cancellationToken),
+				documentOptions: new JsonDocumentOptions { AllowDuplicateProperties = false });
 		}
 		catch (JsonException exception)
 		{

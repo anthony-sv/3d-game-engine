@@ -149,7 +149,8 @@ namespace Strada::ScriptFieldInspection
 										 });
 						if (enumerator == field.Enumerators.end())
 						{
-							return MakeError("{}: {} is not one of its flags", field.Name, name.dump());
+							return MakeError("{}: {} is not one of its flags", field.Name,
+							                 name.dump(-1, ' ', false, Json::error_handler_t::replace));
 						}
 						bits |= ToBits(enumerator->Value);
 					}
@@ -170,7 +171,7 @@ namespace Strada::ScriptFieldInspection
 						return *number;
 					}
 				}
-				return MakeError("{}: {} is not one of its values", field.Name, value.dump());
+				return MakeError("{}: {} is not one of its values", field.Name, value.dump(-1, ' ', false, Json::error_handler_t::replace));
 			}
 			switch (field.Type)
 			{
@@ -180,13 +181,15 @@ namespace Strada::ScriptFieldInspection
 					{
 						return ScriptFieldValue::FromInt64(value.get<int64_t>());
 					}
-					return MakeError("{}: expected a 64-bit integer, not {}", field.Name, value.dump());
+					return MakeError("{}: expected a 64-bit integer, not {}", field.Name,
+					                 value.dump(-1, ' ', false, Json::error_handler_t::replace));
 				case ScriptFieldType::UInt64:
 					if (value.is_number_unsigned() || (value.is_number_integer() && value.get<int64_t>() >= 0))
 					{
 						return ScriptFieldValue::FromUInt64(value.get<uint64_t>());
 					}
-					return MakeError("{}: expected an unsigned 64-bit integer, not {}", field.Name, value.dump());
+					return MakeError("{}: expected an unsigned 64-bit integer, not {}", field.Name,
+					                 value.dump(-1, ' ', false, Json::error_handler_t::replace));
 				default:
 				{
 					Result<ScriptFieldValue> parsed = ScriptFieldValueFromJson(field.Type, value, DeserializationContext{});

@@ -437,7 +437,9 @@ namespace Strada
 	Result<void> ScriptEngine::CreateInstance(UUID entity, std::string_view className, ScriptFieldMap const& fields)
 	{
 		ST_CORE_ASSERT(s_Data, "ScriptEngine is not initialized");
-		std::string const fieldsJson = fields.empty() ? std::string() : JsonTraits<ScriptFieldMap>::ToJson(fields).dump();
+		std::string const fieldsJson =
+			fields.empty() ? std::string()
+						   : JsonTraits<ScriptFieldMap>::ToJson(fields).dump(-1, ' ', false, Json::error_handler_t::replace);
 		auto const status = static_cast<ScriptStatus>(s_Data->Host.CreateInstance(
 			className.data(), ToLength(className.size()), entity.GetValue(), fieldsJson.data(), ToLength(fieldsJson.size())));
 		switch (status)
