@@ -235,7 +235,7 @@ Rules for suites that arrive with later subsystems (binding as soon as the subsy
 ## Platform notes
 
 - Windows: MSVC with the dynamic CRT (`/MD`). The Vulkan loader ships with the GPU driver; never redistribute
-  `vulkan-1.dll`.
+  `vulkan-1.dll`. Exported games carry the MSVC runtime DLLs, which Release and Dist builds stage in `Redist/`.
 - `<Windows.h>` is only included in `.cpp` files (CMake defines `WIN32_LEAN_AND_MEAN`, `NOMINMAX`, `UNICODE`), and
   only the explicit wide (`...W`) Win32 functions are called. Never name functions, methods or variables after Win32
   macros — they are silently renamed in any translation unit that includes `<Windows.h>`. Known offenders:
@@ -244,7 +244,7 @@ Rules for suites that arrive with later subsystems (binding as soon as the subsy
   `GetObject`, `GetMessage`, `SendMessage`, `PlaySound`, `GetClassName`, `CreateEvent`, `CreateMutex`, `Yield`,
   `near`, `far`, `min`, `max`, `interface`, `ERROR`, `OPAQUE`, `TRANSPARENT`.
 - macOS: MoltenVK through the Vulkan SDK; enable `VK_KHR_portability_enumeration` and `VK_KHR_portability_subset`.
-  Exported games bundle MoltenVK and the loader in the `.app`.
+  Exported games bundle MoltenVK and the loader in the `.app` (staged from the Vulkan SDK in the build's `Vulkan/`).
 - Linux: GLFW is built with X11 and Wayland. ImGui multi-viewports are disabled on Wayland (unsupported); set
   `STRADA_GLFW_PLATFORM=x11` to force X11/XWayland.
 

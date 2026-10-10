@@ -8,6 +8,7 @@ add_executable(StradaEditorTests
     Source/EditorCommandsTests.cpp
     Source/EditorOperationsTests.cpp
     Source/EditorUITests.cpp
+    Source/ExportCommandsTests.cpp
     Source/HierarchyOperationsTests.cpp
     Source/JsonRpcTests.cpp
     Source/JsonSchemaTests.cpp
@@ -37,6 +38,8 @@ target_compile_definitions(StradaEditorTests PRIVATE
 
 # The inspector tests show the fields of the test scripts.
 add_dependencies(StradaEditorTests StradaTestScripts)
+# The export tests ship the game player.
+add_dependencies(StradaEditorTests StradaRuntime)
 
 strada_configure_target(StradaEditorTests)
 set_target_properties(StradaEditorTests PROPERTIES FOLDER "Tests")

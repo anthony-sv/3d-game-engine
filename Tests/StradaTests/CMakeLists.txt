@@ -34,6 +34,7 @@ add_executable(StradaTests
     Source/Physics/PhysicsSceneTests.cpp
     Source/Physics/PhysicsTestUtilities.h
     Source/Platform/ProcessTests.cpp
+    Source/Project/GameExporterTests.cpp
     Source/Project/ProjectTests.cpp
     Source/Project/SceneRunnerTests.cpp
     Source/Project/ScriptProjectTests.cpp

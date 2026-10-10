@@ -34,6 +34,22 @@ namespace Strada
 		}
 	}
 
+	void LogScriptDiagnostics(std::vector<ScriptDiagnostic> const& diagnostics, std::filesystem::path const& projectDirectory)
+	{
+		for (ScriptDiagnostic const& diagnostic : diagnostics)
+		{
+			std::string const location = DescribeLocation(diagnostic, projectDirectory);
+			if (diagnostic.Severity == ScriptDiagnosticSeverity::Error)
+			{
+				ST_ERROR("{}: error {}: {}", location, diagnostic.Code, diagnostic.Message);
+			}
+			else
+			{
+				ST_WARN("{}: warning {}: {}", location, diagnostic.Code, diagnostic.Message);
+			}
+		}
+	}
+
 	uint32_t ScriptBuildReport::CountDiagnostics(ScriptDiagnosticSeverity severity) const
 	{
 		return static_cast<uint32_t>(std::count_if(Diagnostics.begin(), Diagnostics.end(),
@@ -78,6 +94,14 @@ namespace Strada
 		}
 		if (m_Build.valid())
 		{
+			return;
+		}
+		if (!m_BuildBlocker.empty())
+		{
+			// Refused without replacing the last build's outcome.
+			ScriptBuildReport blocked;
+			blocked.Error = m_BuildBlocker;
+			NotifyCallbacks(blocked);
 			return;
 		}
 
@@ -211,19 +235,7 @@ namespace Strada
 
 		report.Succeeded = result.GetValue().Succeeded;
 		report.Diagnostics = std::move(result.GetValue().Diagnostics);
-		std::filesystem::path const projectDirectory = m_ProjectFile.parent_path();
-		for (ScriptDiagnostic const& diagnostic : report.Diagnostics)
-		{
-			std::string const location = DescribeLocation(diagnostic, projectDirectory);
-			if (diagnostic.Severity == ScriptDiagnosticSeverity::Error)
-			{
-				ST_ERROR("{}: error {}: {}", location, diagnostic.Code, diagnostic.Message);
-			}
-			else
-			{
-				ST_WARN("{}: warning {}: {}", location, diagnostic.Code, diagnostic.Message);
-			}
-		}
+		LogScriptDiagnostics(report.Diagnostics, m_ProjectFile.parent_path());
 		if (report.Succeeded)
 		{
 			ST_INFO("The game's scripts were built in {:.1f} s ({} warnings)", report.Seconds,
@@ -240,7 +252,7 @@ namespace Strada
 	void EditorScripts::BuildChangedSources()
 	{
 		std::chrono::steady_clock::time_point const now = std::chrono::steady_clock::now();
-		if (m_Build.valid() || now - m_LastSourceCheck < SourceCheckInterval)
+		if (m_Build.valid() || !m_BuildBlocker.empty() || now - m_LastSourceCheck < SourceCheckInterval)
 		{
 			return;
 		}
@@ -260,13 +272,17 @@ namespace Strada
 	void EditorScripts::Complete(ScriptBuildReport report)
 	{
 		m_LastBuild = std::move(report);
+		NotifyCallbacks(ScriptBuildReport(*m_LastBuild));
+	}
+
+	void EditorScripts::NotifyCallbacks(ScriptBuildReport const& report)
+	{
 		// Callbacks may start another build.
 		std::vector<BuildCallback> callbacks;
 		callbacks.swap(m_Callbacks);
-		ScriptBuildReport const finished = *m_LastBuild;
 		for (BuildCallback const& callback : callbacks)
 		{
-			callback(finished);
+			callback(report);
 		}
 	}
 

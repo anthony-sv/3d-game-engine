@@ -6,6 +6,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Platform/Process.h"
+#include "Strada/Project/GameExporter.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
@@ -28,17 +29,23 @@ namespace
 	constexpr uint32_t WindowWidth = 320;
 	constexpr uint32_t WindowHeight = 200;
 
-	// Runs the player to completion.
-	ProcessResult RunPlayer(std::vector<std::string> arguments)
+	// Runs a program to completion.
+	ProcessResult RunProgram(std::filesystem::path const& program, std::vector<std::string> arguments)
 	{
 		ProcessSpecification specification;
-		specification.Executable = FileSystem::PathFromUtf8(STRADA_RUNTIME_PATH);
+		specification.Executable = program;
 		specification.Arguments = std::move(arguments);
 		specification.Timeout = std::chrono::minutes(2);
 		Result<ProcessResult> result = Process::Run(specification);
 		REQUIRE_MESSAGE(result.IsOk(), (result ? std::string() : result.GetError()));
 		REQUIRE_FALSE(result.GetValue().TimedOut);
 		return result.TakeValue();
+	}
+
+	// Runs the player of this build to completion.
+	ProcessResult RunPlayer(std::vector<std::string> arguments)
+	{
+		return RunProgram(FileSystem::PathFromUtf8(STRADA_RUNTIME_PATH), std::move(arguments));
 	}
 
 	bool Contains(std::string_view text, std::string_view part)
@@ -293,4 +300,52 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 	CHECK(center[0] > 150);
 	CHECK(center[1] < 40);
 	CHECK(center[2] < 40);
+}
+
+TEST_CASE("Runtime: exported games run from their own directory")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path player;
+	{
+		Testing::AssetManagerScope assets;
+		Ref<Scene> const pass = MakeScene("Pass", ScriptFieldMap{{"ExpectedWindowWidth", ScriptFieldValue::FromInt32(1280)},
+		                                                         {"ExpectedWindowHeight", ScriptFieldValue::FromInt32(720)}});
+		Result<Ref<Project>> created = Project::Create(directory.GetPath() / "Project", "Exported Test", *pass);
+		REQUIRE(created.IsOk());
+		Ref<Project> const project = created.GetValue();
+		std::filesystem::path const scenes = project->GetAssetDirectory() / "Scenes";
+		REQUIRE(SceneSerializer::SaveToFile(*MakeScene("Fail", ScriptFieldMap{{"Fail", ScriptFieldValue::FromBool(true)}}),
+		                                    scenes / "Fail.sscene")
+		            .IsOk());
+		// Scripts built elsewhere: the test scripts.
+		std::filesystem::path const binaries = project->GetDirectory() / "Scripts" / "Binaries";
+		for (char const* file : {"Strada.TestScripts.dll", "Strada.TestScripts.deps.json"})
+		{
+			REQUIRE(FileSystem::Copy(Testing::GetTestScriptsPath().parent_path() / file, binaries / file, true).IsOk());
+		}
+		REQUIRE(project->ApplySettings(Json::object({{"ScriptModule", "Scripts/Binaries/Strada.TestScripts.dll"}})).IsOk());
+
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*project, directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		if (player.extension() == ".app")
+		{
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+	// Nothing is left of the project: the game carries everything it needs.
+	REQUIRE(FileSystem::RemoveAll(directory.GetPath() / "Project").IsOk());
+
+	ProcessResult const passed = RunProgram(player, {"--test"});
+	CAPTURE(passed.Output);
+	CHECK(passed.ExitCode == 0);
+	CHECK(Contains(passed.Output, "Tests passed: 3 checks in 1 frame"));
+
+	ProcessResult const failed = RunProgram(player, {"--test", "--scene", "Scenes/Fail.sscene"});
+	CAPTURE(failed.Output);
+	CHECK(failed.ExitCode == 1);
+	CHECK(Contains(failed.Output, "Tests failed: 1 of 2 checks failed"));
 }

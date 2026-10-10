@@ -3,6 +3,7 @@
 #include "Editor/Automation/AutomationServer.h"
 #include "Editor/Automation/CommandRegistry.h"
 #include "Editor/EditorContext.h"
+#include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/Panels/ConsolePanel.h"
@@ -20,6 +21,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 
 namespace Strada
@@ -37,7 +39,7 @@ namespace Strada
 	};
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
-	// and hot reload), play mode, the automation command registry and server, and the UI (dockspace, menu bar with the
+	// and hot reload), play mode, game export, the automation command registry and server, and the UI (dockspace, menu bar with the
 	// play controls, shortcuts and panels) when ImGui is available. Replacing the scene (new or opened scenes and projects)
 	// or closing the editor with unsaved changes asks to save them first; playing stops first.
 	class EditorLayer : public Layer
@@ -57,6 +59,7 @@ namespace Strada
 		EditorContext& GetContext() { return m_Context; }
 		EditorScripts& GetScripts() { return m_Scripts; }
 		PlayMode& GetPlayMode() { return m_PlayMode; }
+		EditorExport& GetExport() { return m_Export; }
 		CommandRegistry const& GetCommands() const { return m_Commands; }
 		AutomationServer const& GetAutomationServer() const { return m_AutomationServer; }
 
@@ -80,6 +83,10 @@ namespace Strada
 		void DrawUnsavedChangesPopup();
 		void DrawNewProjectPopup();
 		void DrawNewScriptPopup();
+		// File > Build Game: the output directory (the project's Build directory at first), the export's progress and outcome.
+		void OpenBuildGamePopup();
+		void DrawBuildGamePopup();
+		void DrawExportReport(GameExportReport const& report);
 		void DrawPlayControls();
 		// Plays (building changed scripts first) or simulates the edited scene.
 		void StartPlay(EditorPlayState state);
@@ -87,8 +94,9 @@ namespace Strada
 		glm::uvec2 GetGameViewSize() const;
 		// While the game view is focused the game gets the window's input, with the cursor in game-view pixels.
 		void UpdateGameInput();
-		// The scripts' state for the menu bar; empty while nothing needs attention.
+		// The scripts' and the export's state for the menu bar; empty while nothing needs attention.
 		std::string GetScriptStatus() const;
+		std::string GetExportStatus() const;
 		void DrawRecentProjectsMenu();
 		void UpdateWindowTitle();
 
@@ -116,6 +124,7 @@ namespace Strada
 		EditorOperations m_Operations;
 		EditorScripts m_Scripts;
 		PlayMode m_PlayMode;
+		EditorExport m_Export;
 		CommandRegistry m_Commands;
 		AutomationServer m_AutomationServer;
 		bool m_InstanceFileWritten = false;
@@ -152,6 +161,11 @@ namespace Strada
 		bool m_GameInputWasActive = false;
 		bool m_OpenNewScriptPopup = false;
 		std::string m_NewScriptName;
+		bool m_OpenBuildGamePopup = false;
+		std::string m_BuildGameDirectory;
+		// The project the directory was chosen for.
+		std::filesystem::path m_BuildGameProject;
+		std::optional<GameExportReport> m_LastExport;
 		std::string m_WindowTitle;
 
 		std::filesystem::path m_ScreenshotPath;

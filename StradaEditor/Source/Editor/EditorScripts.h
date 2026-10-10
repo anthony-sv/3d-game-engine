@@ -33,6 +33,9 @@ namespace Strada
 		uint32_t CountDiagnostics(ScriptDiagnosticSeverity severity) const;
 	};
 
+	// Logs a script build's errors and warnings with their files relative to the project directory when inside it.
+	void LogScriptDiagnostics(std::vector<ScriptDiagnostic> const& diagnostics, std::filesystem::path const& projectDirectory);
+
 	// The open project's C# scripts in the editor. It keeps the C# project pointing at this engine, builds it with the .NET
 	// SDK on a worker thread (when asked, and by itself when the sources changed) and loads the built game assembly into
 	// the script engine (again after every build: hot reload). It follows the project the context opens or closes. Main
@@ -61,6 +64,9 @@ namespace Strada
 		// thread (from Update, or at once when the build cannot start).
 		void Build(BuildCallback callback = {});
 		bool IsBuilding() const { return m_Build.valid(); }
+		// While set, builds are refused with this reason and changed sources wait (another build of the C# project runs: the
+		// game export's). Clearing it lets changed sources build again.
+		void SetBuildBlocker(std::string reason) { m_BuildBlocker = std::move(reason); }
 		// The last finished build; null before the first one of the open project.
 		ScriptBuildReport const* GetLastBuild() const { return m_LastBuild ? &*m_LastBuild : nullptr; }
 
@@ -76,6 +82,8 @@ namespace Strada
 		void FinishBuild();
 		void BuildChangedSources();
 		void Complete(ScriptBuildReport report);
+		// Hands a build's outcome to the waiting callbacks.
+		void NotifyCallbacks(ScriptBuildReport const& report);
 		// Loads the project's built assembly unless scripts are running (then it waits); whether it was loaded.
 		bool LoadAssembly();
 		// Waits for a running build to stop; true when one was running.
@@ -83,6 +91,7 @@ namespace Strada
 
 		EditorContext& m_Context;
 		std::filesystem::path m_ScriptCoreAssembly;
+		std::string m_BuildBlocker;
 		// The project file of the project the scripts belong to; empty without one.
 		std::filesystem::path m_ProjectFile;
 

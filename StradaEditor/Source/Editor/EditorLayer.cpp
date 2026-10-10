@@ -2,6 +2,7 @@
 
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/Automation/ExportCommands.h"
 #include "Editor/Automation/PlayCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/DefaultScene.h"
@@ -35,6 +36,9 @@ namespace Strada
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* NewScriptPopup = "New Script";
+		constexpr char const* BuildGamePopup = "Build Game";
+		// Diagnostics listed after a failed export; the console has them all.
+		constexpr size_t MaxExportDiagnostics = 8;
 		constexpr char const* SceneExtension = ".sscene";
 
 		std::array<FileDialogFilter, 1> const& GetSceneFilters()
@@ -63,6 +67,7 @@ namespace Strada
 		  m_Operations(m_Context),
 		  m_Scripts(m_Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"),
 		  m_PlayMode(m_Context, m_Scripts),
+		  m_Export(m_Context, m_Scripts),
 		  m_AutomationServer(m_Commands),
 		  m_RecentProjects(FileSystem::GetUserDataDirectory() / "Editor" / "RecentProjects.json")
 	{
@@ -104,6 +109,7 @@ namespace Strada
 														   return GetGameViewSize();
 													   })
 		                        : registered;
+		registered = registered ? RegisterExportCommands(m_Commands, m_Export, m_Context) : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 
@@ -210,6 +216,7 @@ namespace Strada
 	{
 		m_AutomationServer.ProcessRequests();
 		m_Scripts.Update();
+		m_Export.Update();
 		UpdateGameInput();
 		m_PlayMode.Update(timestep);
 		if (!m_ScreenshotPath.empty() && Application::Get().GetFrameCount() == m_ScreenshotFrame)
@@ -287,6 +294,7 @@ namespace Strada
 		DrawUnsavedChangesPopup();
 		DrawNewProjectPopup();
 		DrawNewScriptPopup();
+		DrawBuildGamePopup();
 		UpdateWindowTitle();
 	}
 
@@ -367,6 +375,11 @@ namespace Strada
 			if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
 			{
 				SaveSceneAs();
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Build Game...", nullptr, false, m_Context.GetProject() != nullptr))
+			{
+				OpenBuildGamePopup();
 			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Exit", "Alt+F4"))
@@ -466,8 +479,11 @@ namespace Strada
 		                                                 m_AutomationServer.GetConnectionCount())
 		                                   : std::string("Automation: off");
 		DrawPlayControls();
-		std::string const scripts = GetScriptStatus();
-		std::string const status = scripts.empty() ? automation : scripts + "    " + automation;
+		std::string status = automation;
+		for (std::string const& part : {GetScriptStatus(), GetExportStatus()})
+		{
+			status = part.empty() ? status : part + "    " + status;
+		}
 		ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(status.c_str()).x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
 		ImGui::TextDisabled("%s", status.c_str());
 		ImGui::EndMainMenuBar();
@@ -828,6 +844,142 @@ namespace Strada
 			Input::ReleaseAll();
 		}
 		m_GameInputWasActive = active;
+	}
+
+	void EditorLayer::OpenBuildGamePopup()
+	{
+		Project const* const project = m_Context.GetProject();
+		if (project == nullptr)
+		{
+			return;
+		}
+		if (m_BuildGameProject != project->GetFilePath())
+		{
+			m_BuildGameProject = project->GetFilePath();
+			m_BuildGameDirectory = FileSystem::PathToUtf8(project->GetDirectory() / "Build");
+			m_LastExport.reset();
+		}
+		m_OpenBuildGamePopup = true;
+	}
+
+	void EditorLayer::DrawBuildGamePopup()
+	{
+		if (m_OpenBuildGamePopup)
+		{
+			ImGui::OpenPopup(BuildGamePopup);
+			m_OpenBuildGamePopup = false;
+		}
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(560.0f, 0.0f), ImGuiCond_Appearing);
+		if (!ImGui::BeginPopupModal(BuildGamePopup, nullptr, ImGuiWindowFlags_NoSavedSettings))
+		{
+			return;
+		}
+
+		Project const* const project = m_Context.GetProject();
+		bool const running = m_Export.IsRunning();
+		ImGui::TextUnformatted("Output directory");
+		ImGui::BeginDisabled(running);
+		float const browseWidth = ImGui::CalcTextSize("Browse...").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+		ImGui::SetNextItemWidth(-(browseWidth + ImGui::GetStyle().ItemSpacing.x));
+		ImGui::InputText("##directory", &m_BuildGameDirectory);
+		ImGui::SameLine();
+		if (ImGui::Button("Browse..."))
+		{
+			Result<std::optional<std::filesystem::path>> chosen = FileDialogs::PickFolder(FileSystem::PathFromUtf8(m_BuildGameDirectory));
+			if (!chosen)
+			{
+				ST_ERROR("{}", chosen.GetError());
+			}
+			else if (chosen.GetValue())
+			{
+				m_BuildGameDirectory = FileSystem::PathToUtf8(*chosen.GetValue());
+			}
+		}
+		ImGui::EndDisabled();
+		ImGui::TextDisabled("A new or empty directory, or an earlier export, which the game replaces.");
+		if (m_Context.IsDirty() && !running)
+		{
+			ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "The scene has unsaved changes: the game is built from the saved files.");
+		}
+		ImGui::Spacing();
+
+		if (running)
+		{
+			ImGui::Text("Exporting: %s...", m_Export.GetProgress().c_str());
+			if (ImGui::Button("Cancel Export"))
+			{
+				m_Export.Cancel();
+			}
+			ImGui::EndPopup();
+			return;
+		}
+		if (m_LastExport)
+		{
+			DrawExportReport(*m_LastExport);
+			ImGui::Spacing();
+		}
+		ImGui::BeginDisabled(project == nullptr || m_BuildGameDirectory.empty() || m_PlayMode.IsPlaying());
+		if (ImGui::Button("Build"))
+		{
+			// Relative directories are relative to the project, as for project.export.
+			std::filesystem::path const directory =
+				(project->GetDirectory() / FileSystem::PathFromUtf8(m_BuildGameDirectory)).lexically_normal();
+			m_LastExport.reset();
+			Result<void> started = m_Export.Start(directory,
+			                                      [this](GameExportReport const& report)
+			                                      {
+													  m_LastExport = report;
+												  });
+			if (!started)
+			{
+				GameExportReport refused;
+				refused.Directory = directory;
+				refused.Error = started.GetError();
+				m_LastExport = std::move(refused);
+			}
+		}
+		ImGui::EndDisabled();
+		ImGui::SetItemTooltip(m_PlayMode.IsPlaying() ? "Stop playing first" : "Export the game for this platform");
+		ImGui::SameLine();
+		if (ImGui::Button("Close") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+
+	void EditorLayer::DrawExportReport(GameExportReport const& report)
+	{
+		if (report.Succeeded)
+		{
+			ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "Exported in %.1f s:", report.Seconds);
+			ImGui::TextWrapped("%s", FileSystem::PathToUtf8(report.Executable).c_str());
+			return;
+		}
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.45f, 0.4f, 1.0f));
+		ImGui::TextWrapped("The game was not exported: %s", report.Error.c_str());
+		ImGui::PopStyleColor();
+		size_t shown = 0;
+		for (ScriptDiagnostic const& diagnostic : report.Diagnostics)
+		{
+			if (diagnostic.Severity != ScriptDiagnosticSeverity::Error)
+			{
+				continue;
+			}
+			if (shown++ == MaxExportDiagnostics)
+			{
+				ImGui::TextDisabled("More errors are in the console.");
+				break;
+			}
+			ImGui::TextWrapped("%s(%u,%u): %s %s", FileSystem::PathToUtf8(diagnostic.File.filename()).c_str(), diagnostic.Line,
+			                   diagnostic.Column, diagnostic.Code.c_str(), diagnostic.Message.c_str());
+		}
+	}
+
+	std::string EditorLayer::GetExportStatus() const
+	{
+		return m_Export.IsRunning() ? "Exporting: " + m_Export.GetProgress() : std::string();
 	}
 
 	std::string EditorLayer::GetScriptStatus() const

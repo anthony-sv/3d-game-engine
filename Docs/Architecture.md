@@ -612,7 +612,9 @@ than the assembly.
   shows a failed build, and each successful build is loaded at once (hot reload; while scripts run, when they stop).
   The inspector edits Script components with a class picker and the fields of the class: typed asset pickers, enum
   combos, flag check boxes, colors and Euler angles like component fields, one undo step per interaction.
-- Export (Build Game) for the host platform.
+- File > Build Game exports the game for the host platform (§13): the output directory (the project's `Build` at
+  first), the export's progress with a cancel button, then the executable or the reason it failed (with the scripts'
+  compile errors); the menu bar shows a running export.
 - Headless mode (`--headless`): no window/ImGui; offscreen rendering if a GPU is available; used by automation and CI.
 
 ## 12. AI automation
@@ -662,16 +664,32 @@ asset directory and the script assembly relative to the game's directory (`Proje
   number of failures: failed checks plus script exceptions, plus one when the scripts did not finish testing, at most
   100. A game that cannot start exits with 1, a wrong command line with 2.
 
-Export produces, for the host platform:
+`GameExporter` (Project module) exports a project for the host platform; the editor's File > Build Game and
+`project.export` run it on a worker thread:
 
 ```
-<Out>/<GameName>[.exe | .app]      Renamed StradaRuntime (macOS: app bundle with MoltenVK + Vulkan loader)
+<Out>/<GameName>[.exe]             The player (StradaRuntime), renamed after the game
 <Out>/Game.sgame                   Game configuration
-<Out>/Assets/                      Project assets + AssetRegistry.sreg
-<Out>/Scripts/                     Strada.ScriptCore.dll (+ runtimeconfig), game assembly (Release build)
-<Out>/dotnet/                      Optional app-local .NET runtime
+<Out>/Assets/                      The asset directory with AssetRegistry.sreg (hidden files stay behind)
+<Out>/Scripts/                     The scripts built in Release; Strada.ScriptCore.dll, .runtimeconfig.json, .deps.json
 <Out>/ThirdPartyNotices.md
 ```
+
+- Windows: the MSVC runtime DLLs go next to the executable. Release and Dist builds stage them in `Redist/` next to the
+  player; Debug builds have none (the debug runtime is not redistributable), so their exports run where Visual Studio
+  is installed.
+- macOS: `<Out>/<GameName>.app` holds the player in `Contents/MacOS`, the files above in `Contents/Resources`, and the
+  Vulkan loader and MoltenVK in `Contents/Frameworks` (the build stages them from the Vulkan SDK in `Vulkan/` next to
+  the player) with MoltenVK's driver manifest in `Contents/Resources/vulkan/icd.d`. The player loads the bundled
+  loader, which finds the driver there. Signing the bundle for distribution is left to the developer.
+- Linux: the system's Vulkan loader and drivers serve the player.
+- Before an export the asset directory is refreshed and its registry saved, so the game's registry lists every asset
+  and the player never rewrites it. Games are built from the saved files; the editor points out unsaved changes.
+- The game is assembled next to the output directory and moved into place at the end: a failed or cancelled export,
+  or scripts that do not compile, leave an earlier export untouched. Only new, empty or previously exported directories
+  are written to. The editor's own script builds wait while an export builds the same C# project.
+- Games with scripts need the .NET 10 runtime: installed, or shipped by the developer in `dotnet/` next to the
+  executable, where the player looks first.
 
 Dist builds of the runtime have no console window on Windows, log to a file in the user data directory, and
 compile out asserts and dev tools.

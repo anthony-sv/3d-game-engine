@@ -12,22 +12,12 @@ namespace Strada
 {
 	namespace
 	{
-		Json DescribeDiagnostic(ScriptDiagnostic const& diagnostic)
-		{
-			return Json::object({{"severity", diagnostic.Severity == ScriptDiagnosticSeverity::Error ? "error" : "warning"},
-			                     {"file", diagnostic.File.empty() ? Json() : Json(FileSystem::PathToUtf8(diagnostic.File))},
-			                     {"line", diagnostic.Line},
-			                     {"column", diagnostic.Column},
-			                     {"code", diagnostic.Code},
-			                     {"message", diagnostic.Message}});
-		}
-
 		Json DescribeReport(ScriptBuildReport const& report)
 		{
 			Json diagnostics = Json::array();
 			for (ScriptDiagnostic const& diagnostic : report.Diagnostics)
 			{
-				diagnostics.push_back(DescribeDiagnostic(diagnostic));
+				diagnostics.push_back(DescribeScriptDiagnostic(diagnostic));
 			}
 			return Json::object({{"succeeded", report.Succeeded},
 			                     {"error", report.Error.empty() ? Json() : Json(report.Error)},
@@ -86,6 +76,16 @@ namespace Strada
 			definition.Handler = std::move(handler);
 			return registry.Register(std::move(definition));
 		}
+	}
+
+	Json DescribeScriptDiagnostic(ScriptDiagnostic const& diagnostic)
+	{
+		return Json::object({{"severity", diagnostic.Severity == ScriptDiagnosticSeverity::Error ? "error" : "warning"},
+		                     {"file", diagnostic.File.empty() ? Json() : Json(FileSystem::PathToUtf8(diagnostic.File))},
+		                     {"line", diagnostic.Line},
+		                     {"column", diagnostic.Column},
+		                     {"code", diagnostic.Code},
+		                     {"message", diagnostic.Message}});
 	}
 
 	Result<void> RegisterScriptCommands(CommandRegistry& registry, EditorScripts& scripts, EditorContext& context)

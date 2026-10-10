@@ -109,6 +109,8 @@ set(STRADA_PLATFORM_SOURCES
 )
 
 set(STRADA_PROJECT_SOURCES
+    Source/Strada/Project/GameExporter.cpp
+    Source/Strada/Project/GameExporter.h
     Source/Strada/Project/Project.cpp
     Source/Strada/Project/Project.h
     Source/Strada/Project/ProjectSettings.cpp

@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/RHI/GraphicsDevice.h"
 
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Version.h"
 #include "Strada/RHI/VulkanContext.h"
 
@@ -210,7 +211,16 @@ namespace Strada
 		{
 			try
 			{
+#if defined(ST_PLATFORM_MACOS)
+				// Exported games carry the Vulkan loader in their app bundle's Frameworks directory (GameExporter), where dlopen
+				// does not look by itself; the loader then finds MoltenVK through the bundle's Resources/vulkan/icd.d.
+				std::filesystem::path const bundled =
+					FileSystem::GetExecutableDirectory().parent_path() / "Frameworks" / "libvulkan.1.dylib";
+				data.Loader = FileSystem::IsRegularFile(bundled) ? CreateScope<vk::detail::DynamicLoader>(FileSystem::PathToUtf8(bundled))
+				                                                 : CreateScope<vk::detail::DynamicLoader>();
+#else
 				data.Loader = CreateScope<vk::detail::DynamicLoader>();
+#endif
 			}
 			catch (std::exception const& exception)
 			{

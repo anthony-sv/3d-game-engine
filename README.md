@@ -12,7 +12,7 @@ an exporter for distributable games.
 > tonemapping, signed-distance text and sprites), Jolt physics and miniaudio sound (spatial audio sources and
 > listeners) driven by the scene runtime, C# scripting with hot reload, the editor (viewport with gizmos and picking,
 > hierarchy, generated inspector, content browser, project settings, undo/redo, play mode, AI automation server), the
-> game player and CI on all three platforms. The exporter, the feature-test project and the MCP bridge are next.
+> game player, game export and CI on all three platforms. The feature-test project and the MCP bridge are next.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Planned feature set
