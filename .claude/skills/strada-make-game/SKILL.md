@@ -56,6 +56,7 @@ undo history as the UI: work in small, checked steps.
 - `script_create` with `className` adds a class to the project's C# project and returns its file; write the class
   (a `Strada.Script` with `OnCreate`, `OnUpdate(float)`, `OnFixedUpdate(float)`, `OnCollisionEnter(Entity)`...,
   using `Entity`, the component classes, `Input`, `Physics`, `Time`, `Assets`, `SceneManager`, `Application`, `Log`).
+  [Docs/Scripting.md](../../../Docs/Scripting.md) shows the API in use, with examples.
 - `script_build` compiles and loads the scripts; fix every diagnostic it returns. `script_classes` lists the classes
   and their fields.
 - Attach scripts with a `Script` component: `{"ClassName": "Game.Player", "Fields": {"Speed": {"Type": "Float",

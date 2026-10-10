@@ -25,7 +25,8 @@ an exporter for distributable games.
 - **Assets**: glTF/GLB, FBX and OBJ import with materials and textures.
 - **Physics**: Jolt Physics, authored through components and controlled from scripts.
 - **Audio**: miniaudio with 3D spatialization.
-- **Scripting**: C# on .NET 10, hosted in-process, with hot reload in the editor.
+- **Scripting**: C# on .NET 10, hosted in-process, with hot reload in the editor
+  ([scripting guide](Docs/Scripting.md)).
 - **Editor**: docking + multi-viewport ImGui, gizmos, undo/redo, play mode, content browser.
 - **AI automation**: every editor operation is available to agents through an automation server and an MCP bridge.
 - **Export**: one command produces a self-contained game folder for the host platform.
@@ -65,7 +66,7 @@ Third-party libraries are downloaded automatically by CMake (pinned versions, ve
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |
-| `Docs/` | Architecture and design documentation |
+| `Docs/` | Architecture and design documentation, the automation reference and the scripting guide |
 | `.claude/skills/` | Development playbooks for AI agents |
 
 ## AI agents

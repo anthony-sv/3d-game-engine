@@ -62,7 +62,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
 ├── Tools/                                            Developer scripts (configure/build/test, formatting)
-├── Docs/                                             Architecture (this contract), Automation (commands and MCP)
+├── Docs/                                             Architecture contract, automation reference, scripting guide
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
 ```
 
@@ -450,6 +450,9 @@ follow their entities' world positions, and the listener follows the first activ
 order, else the primary camera, else the origin facing -Z. `Scene::SetPaused` holds the scene's sounds.
 
 ## 10. Scripting (C# / .NET 10)
+
+This section is the contract of the scripting runtime; [Scripting.md](Scripting.md) shows game developers how to write
+scripts.
 
 ### 10.1 Hosting
 

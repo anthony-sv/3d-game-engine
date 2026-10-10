@@ -34,7 +34,7 @@ before changing anything structural; it is the architectural contract.
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
-| `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference) |
+| `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference), `Scripting.md` (guide to writing game scripts) |
 | `.claude/skills/` | Task-specific playbooks (see [Skills](#skills)) |
 
 ## Building
