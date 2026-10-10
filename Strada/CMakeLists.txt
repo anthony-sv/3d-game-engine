@@ -103,6 +103,11 @@ set(STRADA_PHYSICS_SOURCES
     Source/Strada/Physics/PhysicsTypes.h
 )
 
+set(STRADA_PLATFORM_SOURCES
+    Source/Strada/Platform/Process.cpp
+    Source/Strada/Platform/Process.h
+)
+
 set(STRADA_PROJECT_SOURCES
     Source/Strada/Project/Project.cpp
     Source/Strada/Project/Project.h
@@ -227,6 +232,8 @@ elseif(UNIX)
     target_link_libraries(StradaMiniaudio PRIVATE Threads::Threads ${CMAKE_DL_LIBS} m)
 endif()
 strada_configure_third_party_target(StradaMiniaudio)
+strada_configure_third_party_target(reproc)
+strada_configure_third_party_target(reproc++)
 
 add_library(Strada STATIC
     Source/Strada.h
@@ -237,6 +244,7 @@ add_library(Strada STATIC
     ${STRADA_IMGUI_SOURCES}
     ${STRADA_MATH_SOURCES}
     ${STRADA_PHYSICS_SOURCES}
+    ${STRADA_PLATFORM_SOURCES}
     ${STRADA_PROJECT_SOURCES}
     ${STRADA_RENDERER_SOURCES}
     ${STRADA_RHI_SOURCES}
@@ -267,6 +275,7 @@ target_link_libraries(Strada
         StradaModelImport
         StradaMiniaudio
         StradaDotNetHosting
+        reproc++
         ${CMAKE_DL_LIBS}
         Vulkan::Headers
         Jolt
@@ -345,6 +354,6 @@ strada_configure_target(Strada)
 strada_add_configuration_definitions(Strada)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" FILES
-    ${STRADA_ASSET_SOURCES} ${STRADA_AUDIO_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_PHYSICS_SOURCES} ${STRADA_PROJECT_SOURCES}
-    ${STRADA_RENDERER_SOURCES} ${STRADA_RHI_SOURCES} ${STRADA_SCENE_SOURCES} ${STRADA_SCRIPT_SOURCES} ${STRADA_SERIALIZATION_SOURCES})
+    ${STRADA_ASSET_SOURCES} ${STRADA_AUDIO_SOURCES} ${STRADA_CORE_SOURCES} ${STRADA_IMGUI_SOURCES} ${STRADA_MATH_SOURCES} ${STRADA_PHYSICS_SOURCES} ${STRADA_PLATFORM_SOURCES}
+    ${STRADA_PROJECT_SOURCES} ${STRADA_RENDERER_SOURCES} ${STRADA_RHI_SOURCES} ${STRADA_SCENE_SOURCES} ${STRADA_SCRIPT_SOURCES} ${STRADA_SERIALIZATION_SOURCES})
 set_target_properties(Strada PROPERTIES FOLDER "Engine")

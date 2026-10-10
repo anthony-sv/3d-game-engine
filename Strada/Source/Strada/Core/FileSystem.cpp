@@ -330,6 +330,12 @@ namespace Strada
 		return std::string(reinterpret_cast<char const*>(text.data()), text.size());
 	}
 
+	std::string FileSystem::PathToNativeUtf8(std::filesystem::path const& path)
+	{
+		std::u8string const text = std::filesystem::path(path).make_preferred().u8string();
+		return std::string(reinterpret_cast<char const*>(text.data()), text.size());
+	}
+
 	std::filesystem::path FileSystem::GetExecutablePath()
 	{
 #if defined(ST_PLATFORM_WINDOWS)

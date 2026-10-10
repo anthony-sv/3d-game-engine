@@ -255,6 +255,22 @@ strada_declare_dependency(miniaudio
     SOURCE_SUBDIR _strada_no_cmake)
 FetchContent_MakeAvailable(miniaudio)
 
+# --- reproc 14.2.8 (child processes: script builds, exports; used through its C++ binding reproc++) ------------------
+strada_declare_dependency(reproc
+    https://github.com/DaanDeMeyer/reproc/archive/refs/tags/14.2.8.tar.gz
+    27c3b452bfc419a2deda23969aa10c77909c4ff9e71c549eb65d09ae6aa7aa32)
+set(REPROC++ ON CACHE BOOL "" FORCE)
+set(REPROC_MULTITHREADED ON CACHE BOOL "" FORCE)
+set(REPROC_TEST OFF CACHE BOOL "" FORCE)
+set(REPROC_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(REPROC_WARNINGS OFF CACHE BOOL "" FORCE)
+set(REPROC_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+set(REPROC_TIDY OFF CACHE BOOL "" FORCE)
+set(REPROC_SANITIZERS OFF CACHE BOOL "" FORCE)
+set(REPROC_OBJECT_LIBRARIES OFF CACHE BOOL "" FORCE)
+set(REPROC_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(reproc)
+
 # --- doctest 2.5.3 (tests only) ------------------------------------------------------------------------------------
 if(STRADA_BUILD_TESTS)
     strada_declare_dependency(doctest

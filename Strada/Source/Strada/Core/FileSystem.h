@@ -52,6 +52,9 @@ namespace Strada
 		static std::filesystem::path PathFromUtf8(std::string_view utf8);
 		// UTF-8 string with forward slashes (the form stored in all Strada files).
 		static std::string PathToUtf8(std::filesystem::path const& path);
+		// UTF-8 string with the platform's separators (backslashes on Windows): the form for other programs' arguments, which
+		// may misread forward slashes as options.
+		static std::string PathToNativeUtf8(std::filesystem::path const& path);
 
 		static std::filesystem::path GetExecutablePath();
 		static std::filesystem::path GetExecutableDirectory();

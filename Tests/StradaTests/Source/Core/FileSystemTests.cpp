@@ -130,10 +130,16 @@ TEST_CASE("FileSystem: UTF-8 path conversion handles non-ASCII names")
 	CHECK(roundTrip == utf8Name);
 }
 
-TEST_CASE("FileSystem: paths are written with forward slashes")
+TEST_CASE("FileSystem: paths are written with forward slashes and given to programs natively")
 {
 	std::filesystem::path const path = std::filesystem::path("Assets") / "Textures" / "Brick.png";
 	CHECK(FileSystem::PathToUtf8(path) == "Assets/Textures/Brick.png");
+	std::filesystem::path const mixed = FileSystem::PathFromUtf8("Assets/Caf\xC3\xA9/Brick.png");
+#if defined(ST_PLATFORM_WINDOWS)
+	CHECK(FileSystem::PathToNativeUtf8(mixed) == "Assets\\Caf\xC3\xA9\\Brick.png");
+#else
+	CHECK(FileSystem::PathToNativeUtf8(mixed) == "Assets/Caf\xC3\xA9/Brick.png");
+#endif
 }
 
 TEST_CASE("FileSystem: relative paths and containment")
