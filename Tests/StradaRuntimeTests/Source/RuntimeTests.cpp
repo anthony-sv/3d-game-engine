@@ -147,6 +147,21 @@ namespace
 	{
 		return FileSystem::PathToNativeUtf8(path);
 	}
+
+	// A copy of Projects/<name> (its project file named after it) in the directory, with the scripts CMake built for it
+	// (bin/<name>) where the editor's build puts them. Returns the copy's project file.
+	std::filesystem::path CopyRepositoryProject(std::string const& name, std::filesystem::path const& directory)
+	{
+		std::filesystem::path const source = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR) / FileSystem::PathFromUtf8(name);
+		std::filesystem::path const project = directory / FileSystem::PathFromUtf8(name);
+		std::filesystem::path const file = FileSystem::PathFromUtf8(name + ".sproj");
+		REQUIRE(FileSystem::CopyDirectory(source / "Assets", project / "Assets").IsOk());
+		REQUIRE(FileSystem::Copy(source / file, project / file, false).IsOk());
+		REQUIRE(FileSystem::CopyDirectory(FileSystem::GetExecutableDirectory() / FileSystem::PathFromUtf8(name),
+		                                  project / "Scripts" / "Binaries")
+		            .IsOk());
+		return project / file;
+	}
 }
 
 TEST_CASE("Runtime: test runs of an exported game exit with the number of failures")
@@ -352,16 +367,27 @@ TEST_CASE("Runtime: exported games run from their own directory")
 
 TEST_CASE("Runtime: the feature-test project passes its test run")
 {
-	// A copy of Projects/FeatureTest with the scripts CMake built, as the editor's build leaves them.
 	Testing::TemporaryDirectory directory;
-	std::filesystem::path const source = FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR);
-	std::filesystem::path const project = directory.GetPath() / "FeatureTest";
-	REQUIRE(FileSystem::CopyDirectory(source / "Assets", project / "Assets").IsOk());
-	REQUIRE(FileSystem::Copy(source / "FeatureTest.sproj", project / "FeatureTest.sproj", false).IsOk());
-	REQUIRE(FileSystem::CopyDirectory(FileSystem::GetExecutableDirectory() / "FeatureTest", project / "Scripts" / "Binaries").IsOk());
+	std::filesystem::path const project = CopyRepositoryProject("FeatureTest", directory.GetPath());
 
-	ProcessResult const run = RunPlayer({"--project", Native(project / "FeatureTest.sproj"), "--test"});
+	ProcessResult const run = RunPlayer({"--project", Native(project), "--test"});
 	CAPTURE(run.Output);
 	CHECK(run.ExitCode == 0);
 	CHECK(Contains(run.Output, "Tests passed"));
+}
+
+TEST_CASE("Runtime: the Blocks sample plays and passes its tests")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("Blocks", directory.GetPath());
+
+	ProcessResult const tests = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
+	CAPTURE(tests.Output);
+	CHECK(tests.ExitCode == 0);
+	CHECK(Contains(tests.Output, "Tests passed: 12 checks"));
+
+	// The game's own scene runs as well (two seconds, without a window).
+	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});
+	CAPTURE(game.Output);
+	CHECK(game.ExitCode == 0);
 }

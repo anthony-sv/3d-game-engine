@@ -61,6 +61,7 @@ Third-party libraries are downloaded automatically by CMake (pinned versions, ve
 | `StradaRuntime/` | Game player (`StradaRuntime --help` lists its options) |
 | `Strada-ScriptCore/` | C# scripting API |
 | `StradaTool/` | `strada`: command-line tool and MCP server for the editor (`strada --help`) |
+| `Projects/` | `Blocks`, a sample game, and `FeatureTest`, which exercises every feature |
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |
@@ -73,7 +74,8 @@ Agents control the editor through `strada mcp`, a Model Context Protocol server 
 automation commands: they create projects, scenes, entities, materials and scripts, play and test the game, and export
 it. In this repository `.mcp.json` registers it for Claude Code; build the engine first, and strada attaches to a
 running editor or starts one. [Docs/Automation.md](Docs/Automation.md) describes the tools and how to register them for
-a game project of your own.
+a game project of your own. `Projects/Blocks`, a falling-blocks game, was made this way: open
+`Projects/Blocks/Blocks.sproj` in the editor and press Play.
 
 ## Contributing
 

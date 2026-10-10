@@ -1,0 +1,633 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Scene"
+	},
+	"Scene": {
+		"Name": "Blocks",
+		"Settings": {
+			"Physics": {
+				"Gravity": [
+					0.0,
+					-9.8100004196167,
+					0.0
+				]
+			},
+			"Renderer": {
+				"EV100": 0.0,
+				"Tonemapper": "ACES",
+				"Dithering": true,
+				"Shadows": true,
+				"SoftShadows": true,
+				"ShadowDistance": 100.0,
+				"CascadeCount": 4,
+				"CascadeSplitLambda": 0.75,
+				"ShadowMapSize": 2048,
+				"LocalShadowMapSize": 1024,
+				"AmbientOcclusion": true,
+				"AmbientOcclusionRadius": 0.75,
+				"AmbientOcclusionIntensity": 1.5,
+				"Bloom": true,
+				"BloomIntensity": 0.03999999910593033,
+				"FXAA": true
+			}
+		}
+	},
+	"Entities": [
+		{
+			"ID": "16843265374834761862",
+			"Components": {
+				"Tag": {
+					"Tag": "Main Camera"
+				},
+				"Transform": {
+					"Translation": [
+						8.0,
+						9.0,
+						30.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Camera": {
+					"Projection": "Perspective",
+					"PerspectiveFOV": 45.0,
+					"PerspectiveNear": 0.10000000149011612,
+					"PerspectiveFar": 1000.0,
+					"OrthographicSize": 10.0,
+					"OrthographicNear": -100.0,
+					"OrthographicFar": 100.0,
+					"Primary": true,
+					"FixedAspectRatio": false,
+					"AspectRatio": 1.7777777910232544
+				}
+			}
+		},
+		{
+			"ID": "15839154692005300998",
+			"Components": {
+				"Tag": {
+					"Tag": "Sun"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						-0.403058260679245,
+						0.27253201603889465,
+						0.12708377838134766,
+						0.8643611669540405
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"DirectionalLight": {
+					"Color": [
+						1.0,
+						1.0,
+						1.0
+					],
+					"Intensity": 3.0,
+					"CastShadows": true,
+					"LightSize": 0.5
+				}
+			}
+		},
+		{
+			"ID": "7741722988511972846",
+			"Components": {
+				"Tag": {
+					"Tag": "Sky"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"SkyLight": {
+					"Environment": "400",
+					"Intensity": 1.0,
+					"Rotation": 0.0,
+					"SkyboxBlur": 0.0,
+					"DrawSkybox": true,
+					"AmbientColor": [
+						0.4000000059604645,
+						0.5,
+						0.6499999761581421
+					]
+				}
+			}
+		},
+		{
+			"ID": "16666155913920234506",
+			"Components": {
+				"Tag": {
+					"Tag": "Frame"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"14991781364855025332",
+						"3884206985357966810",
+						"710978817111263393"
+					]
+				}
+			}
+		},
+		{
+			"ID": "14991781364855025332",
+			"Components": {
+				"Tag": {
+					"Tag": "Left Wall"
+				},
+				"Transform": {
+					"Translation": [
+						-1.0,
+						9.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						21.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "16666155913920234506",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"708859717634477476"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "3884206985357966810",
+			"Components": {
+				"Tag": {
+					"Tag": "Right Wall"
+				},
+				"Transform": {
+					"Translation": [
+						10.0,
+						9.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						21.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "16666155913920234506",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"708859717634477476"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "710978817111263393",
+			"Components": {
+				"Tag": {
+					"Tag": "Floor"
+				},
+				"Transform": {
+					"Translation": [
+						4.5,
+						-1.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						10.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "16666155913920234506",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"708859717634477476"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "275534239589417803",
+			"Components": {
+				"Tag": {
+					"Tag": "Backdrop"
+				},
+				"Transform": {
+					"Translation": [
+						4.5,
+						9.5,
+						-0.699999988079071
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						10.0,
+						20.0,
+						0.20000000298023224
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"61968895636629607"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "9130912091184160819",
+			"Components": {
+				"Tag": {
+					"Tag": "Next Label"
+				},
+				"Transform": {
+					"Translation": [
+						12.0,
+						18.899999618530273,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "NEXT",
+					"Font": "300",
+					"Color": [
+						0.800000011920929,
+						0.8500000238418579,
+						0.949999988079071,
+						1.0
+					],
+					"FontSize": 0.800000011920929,
+					"ScreenSpace": false,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "18325381461953636558",
+			"Components": {
+				"Tag": {
+					"Tag": "Title"
+				},
+				"Transform": {
+					"Translation": [
+						0.7200000286102295,
+						0.10000000149011612,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "BLOCKS",
+					"Font": "300",
+					"Color": [
+						0.949999988079071,
+						0.75,
+						0.20000000298023224,
+						1.0
+					],
+					"FontSize": 72.0,
+					"ScreenSpace": true,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "17114953865073364809",
+			"Components": {
+				"Tag": {
+					"Tag": "Score"
+				},
+				"Transform": {
+					"Translation": [
+						0.7200000286102295,
+						0.30000001192092896,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "Score 0",
+					"Font": "300",
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"FontSize": 40.0,
+					"ScreenSpace": true,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "3963437567298267598",
+			"Components": {
+				"Tag": {
+					"Tag": "Message"
+				},
+				"Transform": {
+					"Translation": [
+						0.7200000286102295,
+						0.5199999809265137,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "",
+					"Font": "300",
+					"Color": [
+						1.0,
+						0.8500000238418579,
+						0.30000001192092896,
+						1.0
+					],
+					"FontSize": 36.0,
+					"ScreenSpace": true,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "16232102433844137862",
+			"Components": {
+				"Tag": {
+					"Tag": "Controls"
+				},
+				"Transform": {
+					"Translation": [
+						0.7200000286102295,
+						0.7200000286102295,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Text": {
+					"Text": "Left/Right  move\nUp  turn    Z  turn back\nDown  faster    Space  drop\nP  pause    R  restart",
+					"Font": "300",
+					"Color": [
+						0.75,
+						0.7799999713897705,
+						0.8500000238418579,
+						1.0
+					],
+					"FontSize": 20.0,
+					"ScreenSpace": true,
+					"Alignment": "Left",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "880901438792666818",
+			"Components": {
+				"Tag": {
+					"Tag": "Game"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"AudioSource": {
+					"Clip": "15052310210351176369",
+					"Volume": 0.6000000238418579,
+					"Pitch": 1.0,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": false,
+					"MinDistance": 1.0,
+					"MaxDistance": 100.0
+				},
+				"Script": {
+					"ClassName": "Blocks.BlocksGame",
+					"Fields": {
+						"FallInterval": {
+							"Type": "Float",
+							"Value": 0.800000011920929
+						},
+						"MessageText": {
+							"Type": "Entity",
+							"Value": "3963437567298267598"
+						},
+						"PreviewPosition": {
+							"Type": "Vector3",
+							"Value": [
+								12.0,
+								17.0,
+								0.0
+							]
+						},
+						"ScoreText": {
+							"Type": "Entity",
+							"Value": "17114953865073364809"
+						}
+					}
+				}
+			}
+		}
+	]
+}

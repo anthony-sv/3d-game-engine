@@ -1,0 +1,116 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Scene"
+	},
+	"Scene": {
+		"Name": "Tests",
+		"Settings": {
+			"Physics": {
+				"Gravity": [
+					0.0,
+					-9.8100004196167,
+					0.0
+				]
+			},
+			"Renderer": {
+				"EV100": 0.0,
+				"Tonemapper": "ACES",
+				"Dithering": true,
+				"Shadows": true,
+				"SoftShadows": true,
+				"ShadowDistance": 100.0,
+				"CascadeCount": 4,
+				"CascadeSplitLambda": 0.75,
+				"ShadowMapSize": 2048,
+				"LocalShadowMapSize": 1024,
+				"AmbientOcclusion": true,
+				"AmbientOcclusionRadius": 0.75,
+				"AmbientOcclusionIntensity": 1.5,
+				"Bloom": true,
+				"BloomIntensity": 0.03999999910593033,
+				"FXAA": true
+			}
+		}
+	},
+	"Entities": [
+		{
+			"ID": "8809100637902671077",
+			"Components": {
+				"Tag": {
+					"Tag": "Game"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Script": {
+					"ClassName": "Blocks.BlocksGame",
+					"Fields": {
+						"FallInterval": {
+							"Type": "Float",
+							"Value": 0.10000000149011612
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "17679179850319377746",
+			"Components": {
+				"Tag": {
+					"Tag": "Tests"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Script": {
+					"ClassName": "Blocks.BlocksTests",
+					"Fields": {
+						"Game": {
+							"Type": "Entity",
+							"Value": "8809100637902671077"
+						}
+					}
+				}
+			}
+		}
+	]
+}

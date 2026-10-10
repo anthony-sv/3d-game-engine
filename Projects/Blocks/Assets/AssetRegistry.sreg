@@ -1,0 +1,33 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "AssetRegistry"
+	},
+	"Assets": [
+		{
+			"Handle": "15052310210351176369",
+			"Type": "AudioClip",
+			"Path": "Audio/Clear.wav"
+		},
+		{
+			"Handle": "61968895636629607",
+			"Type": "Material",
+			"Path": "Materials/Backdrop.smat"
+		},
+		{
+			"Handle": "708859717634477476",
+			"Type": "Material",
+			"Path": "Materials/Frame.smat"
+		},
+		{
+			"Handle": "11237807079152485157",
+			"Type": "Scene",
+			"Path": "Scenes/Main.sscene"
+		},
+		{
+			"Handle": "6495428699604737503",
+			"Type": "Scene",
+			"Path": "Scenes/Tests.sscene"
+		}
+	]
+}

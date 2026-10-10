@@ -72,6 +72,12 @@ undo history as the UI: work in small, checked steps.
 - Save everything (`scene_save`), then `project_export` with `directory`: it builds the scripts and writes a game
   that runs on its own; the result names the executable.
 
+## Example
+
+`Projects/Blocks` is a complete game made with these tools: rules in plain C# classes that tests can check, a game
+script that creates its entities and materials at run time, screen-space text for the score, a sound, and a test scene
+(`Scenes/Tests.sscene`) whose script checks the rules and plays the game through its public methods.
+
 ## Rules
 
 - Use the tools rather than editing scene, prefab or project files by hand: they keep references, the asset registry

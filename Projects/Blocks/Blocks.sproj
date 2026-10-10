@@ -1,0 +1,27 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Project"
+	},
+	"Project": {
+		"Name": "Blocks",
+		"AssetDirectory": "Assets",
+		"ScriptModule": "Scripts/Binaries/Blocks.dll",
+		"StartScene": "11237807079152485157",
+		"Window": {
+			"Title": "Blocks",
+			"Width": 1280,
+			"Height": 800,
+			"Fullscreen": false,
+			"VSync": true,
+			"Resizable": true
+		},
+		"Physics": {
+			"FixedTimestep": 0.01666666753590107,
+			"Layers": [
+				"Default"
+			],
+			"IgnoredCollisions": []
+		}
+	}
+}

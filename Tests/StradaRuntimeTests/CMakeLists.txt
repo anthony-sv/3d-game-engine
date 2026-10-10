@@ -14,11 +14,11 @@ target_link_libraries(StradaRuntimeTests PRIVATE Strada doctest::doctest)
 target_compile_definitions(StradaRuntimeTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
     STRADA_RUNTIME_PATH="$<TARGET_FILE:StradaRuntime>"
-    # The feature-test project, run with the scripts CMake builds.
-    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest")
+    # The repository's projects (the feature test and the Blocks sample), run with the scripts CMake builds.
+    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects")
 
 # The games run the test scripts.
-add_dependencies(StradaRuntimeTests StradaRuntime StradaTestScripts StradaFeatureTestScripts)
+add_dependencies(StradaRuntimeTests StradaRuntime StradaTestScripts StradaFeatureTestScripts StradaBlocksScripts)
 
 strada_configure_target(StradaRuntimeTests)
 set_target_properties(StradaRuntimeTests PROPERTIES FOLDER "Tests")

@@ -56,9 +56,11 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 │   ├── StradaEditorTests/                            C++ tests for editor automation commands (headless)
 │   ├── StradaRuntimeTests/                           C++ tests running the game player on generated games
 │   ├── ScriptCoreTests/                              C# unit tests (math, API coverage checks)
+│   ├── StradaToolTests/                              C# tests of strada (MCP server, sessions with the headless editor)
 │   ├── TestScripts/                                  C# script assembly used by C++ scripting tests
 │   └── Data/                                         Test assets and golden images
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
+├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
 ├── Tools/                                            Developer scripts (formatting, asset download, code generation)
 ├── Docs/                                             Architecture, scripting guide, automation reference, rendering notes
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
@@ -733,4 +735,8 @@ compile out asserts and dev tools.
   loads the second scene, which finishes the run. CMake builds the scripts (`StradaFeatureTestScripts`) and
   `StradaRuntimeTests` runs a copy of the project through the player (`StradaRuntime --project ... --test`; exit code =
   failures).
+- `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp` (the project, its materials and
+  sound, both scenes, the C# scripts built by the editor): falling blocks with pure C# rules (`Board`, `Piece`,
+  `PieceBag`), the `BlocksGame` script and a test scene whose `BlocksTests` check the rules and play the game.
+  `StradaRuntimeTests` plays that scene and runs the game's scene headless.
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.
