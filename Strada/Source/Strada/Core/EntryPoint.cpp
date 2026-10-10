@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Core/Application.h"
 
+#include "Strada/Core/CrashHandler.h"
 #include "Strada/Core/FileSystem.h"
 
 #if defined(ST_PLATFORM_WINDOWS)
@@ -26,6 +27,7 @@ namespace Strada
 		logSpecification.FileLevel = LogLevel::Warn;
 #endif
 		Log::Init(logSpecification);
+		CrashHandler::Install(FileSystem::GetUserDataDirectory() / "Crashes", logName);
 
 		int exitCode = 0;
 		{

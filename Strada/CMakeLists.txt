@@ -11,6 +11,8 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/Buffer.h
     Source/Strada/Core/CommandLine.cpp
     Source/Strada/Core/CommandLine.h
+    Source/Strada/Core/CrashHandler.cpp
+    Source/Strada/Core/CrashHandler.h
     Source/Strada/Core/EmbeddedResources.h
     Source/Strada/Core/EntryPoint.cpp
     Source/Strada/Core/EntryPoint.h
@@ -290,6 +292,10 @@ target_link_libraries(Strada
         Vulkan::Headers
         Jolt
 )
+if(WIN32)
+    # Crash minidumps (CrashHandler); DbgHelp ships with Windows.
+    target_link_libraries(Strada PRIVATE Dbghelp)
+endif()
 
 target_compile_definitions(Strada PUBLIC
     # glm configuration must be identical in every translation unit.

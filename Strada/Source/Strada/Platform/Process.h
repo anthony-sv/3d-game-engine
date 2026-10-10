@@ -31,7 +31,9 @@ namespace Strada
 
 	struct ProcessResult
 	{
-		// Meaningless when it timed out or was cancelled.
+		// Meaningless when it timed out or was cancelled. A program ended by a signal (Linux, macOS) reports 128 plus the
+		// signal; one ended by an exception (Windows) reports its code, such as 0xC0000005 for an access violation (negative
+		// as an int32_t).
 		int32_t ExitCode = 0;
 		// Standard output and standard error, interleaved as written, in the bytes the program wrote.
 		std::string Output;

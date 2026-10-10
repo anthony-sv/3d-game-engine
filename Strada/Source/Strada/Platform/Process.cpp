@@ -8,7 +8,12 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <system_error>
+
+#if defined(ST_PLATFORM_WINDOWS)
+#include <Windows.h>
+#endif
 
 namespace Strada
 {
@@ -53,6 +58,28 @@ namespace Strada
 			std::atomic<bool> const* m_Cancel;
 			Clock::time_point m_Start;
 		};
+
+#if defined(ST_PLATFORM_WINDOWS)
+		// reproc returns exit codes as int and takes negative ones for errors, but a program ended by an exception exits with
+		// its NTSTATUS code (0xC0000005 for an access violation), negative as an int. Reads the code from the system while
+		// reproc still holds the process open, so the ID cannot have been reused; empty while the program runs.
+		std::optional<int32_t> ReadExitCode(int processID)
+		{
+			HANDLE const process = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, static_cast<DWORD>(processID));
+			if (process == nullptr)
+			{
+				return std::nullopt;
+			}
+			DWORD code = 0;
+			BOOL const read = ::GetExitCodeProcess(process, &code);
+			::CloseHandle(process);
+			if (read == FALSE || code == STILL_ACTIVE)
+			{
+				return std::nullopt;
+			}
+			return static_cast<int32_t>(code);
+		}
+#endif
 
 		// Collects the program's output until its pipe closes, it exits (plus TrailingOutputTime) or it must stop.
 		Result<void> CollectOutput(reproc::process& process, ProcessRun const& run, ProcessResult& result)
@@ -192,6 +219,13 @@ namespace Strada
 			}
 			if (waitError != std::errc::timed_out)
 			{
+#if defined(ST_PLATFORM_WINDOWS)
+				if (std::optional<int32_t> const exitCode = ReadExitCode(process.pid().first))
+				{
+					result.ExitCode = *exitCode;
+					return result;
+				}
+#endif
 				return MakeError("'{}': waiting for it failed: {}", arguments.front(), waitError.message());
 			}
 		}

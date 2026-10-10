@@ -16,6 +16,7 @@ add_executable(StradaTests
     Source/Core/Base64Tests.cpp
     Source/Core/BufferTests.cpp
     Source/Core/CommandLineTests.cpp
+    Source/Core/CrashHandlerTests.cpp
     Source/Core/EventTests.cpp
     Source/Core/FileSystemTests.cpp
     Source/Core/HashTests.cpp
@@ -84,6 +85,14 @@ target_compile_definitions(StradaTests PRIVATE
     STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest")
 
 strada_configure_target(StradaTests)
+
+# Crashes on purpose for the crash handler tests (a crash cannot be tested inside the test process).
+add_executable(StradaCrashTester CrashTester/CrashTester.cpp)
+target_link_libraries(StradaCrashTester PRIVATE Strada)
+strada_configure_target(StradaCrashTester)
+set_target_properties(StradaCrashTester PROPERTIES FOLDER "Tests")
+add_dependencies(StradaTests StradaCrashTester)
+target_compile_definitions(StradaTests PRIVATE STRADA_CRASH_TESTER_PATH="$<TARGET_FILE:StradaCrashTester>")
 
 # Game scripts the scripting tests run, built against the engine's Strada.ScriptCore.dll like a game's.
 strada_add_dotnet_project(StradaTestScripts

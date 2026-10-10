@@ -125,6 +125,11 @@ it is not already initialized and every `Shutdown` must leave no state behind so
 - Fallible operations return `Result<T>` (value or error message) or `bool` plus a logged error.
 - `ST_CORE_ASSERT`/`ST_ASSERT` are for programmer errors only. User data (scene files, assets, scripts, automation
   requests) must never crash the engine: validate, log, and report the error.
+- Crashes leave a report: the entry point installs `CrashHandler`, which writes
+  `<user data>/Crashes/<executable>-<process ID>.txt` on a fatal exception or signal, `abort()` (failed asserts) or an
+  uncaught C++ exception: the cause, the stack on Linux and macOS, and on Windows a minidump next to it. It writes
+  without allocating or logging (the crash may be inside either); uncaught exceptions are logged with their message
+  first. .NET's own handlers come first for managed code and pass native crashes on.
 
 ## 5. Core conventions
 
