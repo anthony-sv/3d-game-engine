@@ -292,6 +292,11 @@ namespace Strada
 		return project.GetDirectory() / DirectoryName / FileSystem::PathFromUtf8(GetAssemblyName(project) + ".csproj");
 	}
 
+	std::string ScriptProject::GetNamespace(Project const& project)
+	{
+		return GetAssemblyName(project);
+	}
+
 	bool ScriptProject::Exists(Project const& project)
 	{
 		std::error_code error;
@@ -446,8 +451,13 @@ public class {} : Script
 		{
 			return true;
 		}
-		std::optional<std::filesystem::file_time_type> const newest = FindNewestSource(project.GetDirectory() / DirectoryName);
+		std::optional<std::filesystem::file_time_type> const newest = GetNewestSourceTime(project);
 		return newest && *newest > built;
+	}
+
+	std::optional<std::filesystem::file_time_type> ScriptProject::GetNewestSourceTime(Project const& project)
+	{
+		return FindNewestSource(project.GetDirectory() / DirectoryName);
 	}
 
 	std::optional<std::filesystem::path> ScriptProject::FindDotNet()

@@ -14,6 +14,8 @@ add_executable(StradaEditorTests
     Source/Main.cpp
     Source/PanelTests.cpp
     Source/ProjectEditingTests.cpp
+    Source/ScriptCommandsTests.cpp
+    Source/ScriptFieldInspectionTests.cpp
     Source/TcpTestClient.cpp
     Source/TcpTestClient.h
     Source/ViewportTests.cpp
@@ -31,6 +33,9 @@ target_compile_definitions(StradaEditorTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
     # The command reference; a test checks that every registered command is documented.
     STRADA_AUTOMATION_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Automation.md")
+
+# The inspector tests show the fields of the test scripts.
+add_dependencies(StradaEditorTests StradaTestScripts)
 
 strada_configure_target(StradaEditorTests)
 set_target_properties(StradaEditorTests PROPERTIES FOLDER "Tests")

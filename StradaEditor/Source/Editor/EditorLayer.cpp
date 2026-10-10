@@ -2,6 +2,7 @@
 
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/Automation/ScriptCommands.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/FileDialogs.h"
@@ -30,6 +31,7 @@ namespace Strada
 		constexpr char const* DockspaceName = "Strada.Dockspace.v4";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewProjectPopup = "New Project";
+		constexpr char const* NewScriptPopup = "New Script";
 		constexpr char const* SceneExtension = ".sscene";
 
 		std::array<FileDialogFilter, 1> const& GetSceneFilters()
@@ -56,6 +58,7 @@ namespace Strada
 		: Layer("EditorLayer"),
 		  m_Specification(std::move(specification)),
 		  m_Operations(m_Context),
+		  m_Scripts(m_Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"),
 		  m_AutomationServer(m_Commands),
 		  m_RecentProjects(FileSystem::GetUserDataDirectory() / "Editor" / "RecentProjects.json")
 	{
@@ -90,6 +93,7 @@ namespace Strada
 			RememberProject();
 		};
 		Result<void> registered = RegisterEditorCommands(m_Commands, m_Operations, std::move(environment));
+		registered = registered ? RegisterScriptCommands(m_Commands, m_Scripts, m_Context) : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 
@@ -194,6 +198,7 @@ namespace Strada
 	{
 		(void)timestep;
 		m_AutomationServer.ProcessRequests();
+		m_Scripts.Update();
 		if (!m_ScreenshotPath.empty() && Application::Get().GetFrameCount() == m_ScreenshotFrame)
 		{
 			Application::Get().RequestScreenshot(m_ScreenshotPath);
@@ -268,6 +273,7 @@ namespace Strada
 
 		DrawUnsavedChangesPopup();
 		DrawNewProjectPopup();
+		DrawNewScriptPopup();
 		UpdateWindowTitle();
 	}
 
@@ -407,6 +413,20 @@ namespace Strada
 			ImGui::EndMenu();
 		}
 
+		if (ImGui::BeginMenu("Scripts"))
+		{
+			if (ImGui::MenuItem("New Script...", nullptr, false, m_Context.GetProject() != nullptr))
+			{
+				m_NewScriptName = "NewScript";
+				m_OpenNewScriptPopup = true;
+			}
+			if (ImGui::MenuItem("Build Scripts", "Ctrl+B", false, m_Scripts.HasScriptProject() && !m_Scripts.IsBuilding()))
+			{
+				m_Scripts.Build();
+			}
+			ImGui::EndMenu();
+		}
+
 		if (ImGui::BeginMenu("View"))
 		{
 			ImGui::MenuItem("Viewport", nullptr, &m_ShowViewport, m_ViewportPanel != nullptr);
@@ -428,10 +448,12 @@ namespace Strada
 			ImGui::EndMenu();
 		}
 
-		std::string const status = m_AutomationServer.IsRunning()
-		                               ? fmt::format("Automation: 127.0.0.1:{} ({} connected)", m_AutomationServer.GetPort(),
-		                                             m_AutomationServer.GetConnectionCount())
-		                               : std::string("Automation: off");
+		std::string const automation = m_AutomationServer.IsRunning()
+		                                   ? fmt::format("Automation: 127.0.0.1:{} ({} connected)", m_AutomationServer.GetPort(),
+		                                                 m_AutomationServer.GetConnectionCount())
+		                                   : std::string("Automation: off");
+		std::string const scripts = GetScriptStatus();
+		std::string const status = scripts.empty() ? automation : scripts + "    " + automation;
 		ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(status.c_str()).x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
 		ImGui::TextDisabled("%s", status.c_str());
 		ImGui::EndMainMenuBar();
@@ -456,6 +478,10 @@ namespace Strada
 		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, route))
 		{
 			SaveScene();
+		}
+		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_B, route) && m_Scripts.HasScriptProject())
+		{
+			m_Scripts.Build();
 		}
 
 		if (ImGui::GetIO().WantTextInput)
@@ -619,6 +645,74 @@ namespace Strada
 			ImGui::CloseCurrentPopup();
 		}
 		ImGui::EndPopup();
+	}
+
+	void EditorLayer::DrawNewScriptPopup()
+	{
+		if (m_OpenNewScriptPopup)
+		{
+			ImGui::OpenPopup(NewScriptPopup);
+			m_OpenNewScriptPopup = false;
+		}
+		ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Appearing);
+		if (!ImGui::BeginPopupModal(NewScriptPopup, nullptr, ImGuiWindowFlags_NoSavedSettings))
+		{
+			return;
+		}
+
+		ImGui::TextUnformatted("Class name");
+		if (ImGui::IsWindowAppearing())
+		{
+			ImGui::SetKeyboardFocusHere();
+		}
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		bool const submitted = ImGui::InputText("##className", &m_NewScriptName, ImGuiInputTextFlags_EnterReturnsTrue);
+		bool const valid = ScriptProject::IsValidClassName(m_NewScriptName);
+		Project const* const project = m_Context.GetProject();
+		if (valid && project != nullptr)
+		{
+			ImGui::TextDisabled("Creates Scripts/Source/%s.cs (class %s.%s)", m_NewScriptName.c_str(),
+			                    ScriptProject::GetNamespace(*project).c_str(), m_NewScriptName.c_str());
+		}
+		else
+		{
+			ImGui::TextDisabled("Letters, digits and underscores, starting with a letter.");
+		}
+		ImGui::Spacing();
+		ImGui::BeginDisabled(!valid);
+		if (ImGui::Button("Create") || (submitted && valid))
+		{
+			ImGui::CloseCurrentPopup();
+			Result<std::filesystem::path> created = m_Scripts.CreateScript(m_NewScriptName);
+			UI::ReportFailure(created, "Creating the script");
+			if (created)
+			{
+				ST_INFO("Created {}", FileSystem::PathToUtf8(created.GetValue()));
+			}
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+
+	std::string EditorLayer::GetScriptStatus() const
+	{
+		if (m_Scripts.IsBuilding())
+		{
+			return "Scripts: building...";
+		}
+		ScriptBuildReport const* const build = m_Scripts.GetLastBuild();
+		if (build == nullptr || build->Succeeded)
+		{
+			return {};
+		}
+		uint32_t const errors = build->CountDiagnostics(ScriptDiagnosticSeverity::Error);
+		return errors > 0 ? fmt::format("Scripts: {} error{}", errors, errors == 1 ? "" : "s") : std::string("Scripts: build failed");
 	}
 
 	void EditorLayer::DrawRecentProjectsMenu()

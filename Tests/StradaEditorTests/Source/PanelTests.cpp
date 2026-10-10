@@ -1,3 +1,4 @@
+#include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
 #include "Editor/EditorOperations.h"
@@ -291,6 +292,42 @@ TEST_CASE("Panels: the hierarchy, inspector and scene settings draw every compon
 	CHECK(hierarchyOpen);
 	CHECK(inspectorOpen);
 	CHECK(settingsOpen);
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(SceneSerializer::Serialize(context.GetScene()) == before);
+}
+
+TEST_CASE("Panels: the inspector shows the fields of loaded script classes without changing them")
+{
+	Testing::ScriptEngineScope scripting;
+	HeadlessImGui imgui;
+	EditorContext context;
+	EditorOperations operations(context);
+	// Fields of every kind (FieldTypes), shared and differing classes, and a class the assembly does not have.
+	Json const stored = Json::object({{"Count", Json::object({{"Type", "Int32"}, {"Value", 12}})}});
+	UUID const first = Create(operations, "First",
+	                          Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.FieldTypes"}, {"Fields", stored}})}}));
+	UUID const second = Create(operations, "Second", Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.FieldTypes"}})}}));
+	UUID const mover = Create(operations, "Mover", Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.Mover"}})}}));
+	UUID const missing = Create(operations, "Missing", Json::object({{"Script", Json::object({{"ClassName", "Game.Gone"}})}}));
+	size_t const steps = context.GetHistory().GetUndoCount();
+	Json const before = SceneSerializer::Serialize(context.GetScene());
+
+	InspectorPanel inspector;
+	bool open = true;
+	std::vector<std::vector<UUID>> const selections = {{first}, {first, second}, {first, mover}, {missing}};
+	for (std::vector<UUID> const& selection : selections)
+	{
+		REQUIRE(operations.Select(selection).IsOk());
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(
+				[&]
+				{
+					inspector.OnImGuiRender(operations, open);
+				});
+		}
+	}
+	CHECK(open);
 	CHECK(context.GetHistory().GetUndoCount() == steps);
 	CHECK(SceneSerializer::Serialize(context.GetScene()) == before);
 }

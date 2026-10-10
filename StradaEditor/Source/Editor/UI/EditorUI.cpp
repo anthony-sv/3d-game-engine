@@ -33,6 +33,12 @@ namespace Strada
 				return std::isdigit(static_cast<unsigned char>(c)) != 0;
 			};
 
+			// Private C# fields of scripts follow the m_/s_ prefix convention; the prefix is not part of the name shown.
+			if (name.size() > 2 && (name.starts_with("m_") || name.starts_with("s_")) && isUpper(name[2]))
+			{
+				name.remove_prefix(2);
+			}
+
 			std::string result;
 			result.reserve(name.size() + 4);
 			for (size_t i = 0; i < name.size(); i++)

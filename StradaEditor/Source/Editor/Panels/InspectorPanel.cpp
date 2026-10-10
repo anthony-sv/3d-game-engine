@@ -1,6 +1,7 @@
 #include "Editor/Panels/InspectorPanel.h"
 
 #include "Editor/ComponentInspection.h"
+#include "Editor/ScriptFieldInspection.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AudioClipAsset.h"
@@ -13,6 +14,7 @@
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/ScriptEngine.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -248,7 +250,12 @@ namespace Strada
 		}
 		DrawComponentMenu(operations, component, entities, values.front());
 
-		if (open)
+		if (open && component.Name == ComponentTraits<ScriptComponent>::Name)
+		{
+			DrawScriptComponent(operations, component, entities, values);
+			ImGui::Spacing();
+		}
+		else if (open)
 		{
 			std::vector<std::string> const mixed = ComponentInspection::FindMixedFields(values);
 			if (std::optional<FieldChange> const change = m_FieldEditor.Draw(component.Fields, values.front(), mixed, &scene))
@@ -264,6 +271,125 @@ namespace Strada
 			ImGui::Spacing();
 		}
 		ImGui::PopID();
+	}
+
+	void InspectorPanel::DrawScriptComponent(EditorOperations& operations, ComponentInfo const& component,
+	                                         std::vector<UUID> const& entities, std::vector<Json> const& values)
+	{
+		auto const getClassName = [](Json const& value)
+		{
+			auto const name = value.find("ClassName");
+			return name != value.end() && name->is_string() ? name->get<std::string>() : std::string();
+		};
+		std::string const className = getClassName(values.front());
+		bool const mixedClasses = std::any_of(values.begin() + 1, values.end(),
+		                                      [&](Json const& value)
+		                                      {
+												  return getClassName(value) != className;
+											  });
+
+		// The class picker, laid out like the field rows below.
+		std::optional<std::string> pickedClass;
+		if (ImGui::BeginTable("##scriptClass", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings))
+		{
+			ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.4f);
+			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Class");
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+			{
+				ImGui::SetTooltip("The C# script class the entity runs.");
+			}
+			ImGui::TableNextColumn();
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			std::string const preview = mixedClasses ? std::string("--") : className.empty() ? std::string("None") : className;
+			if (ImGui::BeginCombo("##class", preview.c_str()))
+			{
+				if (ImGui::Selectable("None", !mixedClasses && className.empty()))
+				{
+					pickedClass = std::string();
+				}
+				if (ScriptEngine::IsInitialized())
+				{
+					for (ScriptClassInfo const& scriptClass : ScriptEngine::GetClasses())
+					{
+						if (ImGui::Selectable(scriptClass.Name.c_str(), !mixedClasses && scriptClass.Name == className))
+						{
+							pickedClass = scriptClass.Name;
+						}
+					}
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::EndTable();
+		}
+		if (pickedClass)
+		{
+			ApplyPatch(operations, component, entities, Json::object({{"ClassName", *pickedClass}}), 0);
+			return;
+		}
+
+		if (mixedClasses)
+		{
+			ImGui::TextDisabled("The selected entities run different scripts.");
+			return;
+		}
+		if (className.empty())
+		{
+			return;
+		}
+		ScriptClassInfo const* const scriptClass = ScriptEngine::FindClass(className);
+		if (scriptClass == nullptr)
+		{
+			if (!ScriptEngine::IsInitialized())
+			{
+				TextError("Scripting is unavailable: the .NET 10 runtime was not found.");
+			}
+			else if (!ScriptEngine::HasGameAssembly())
+			{
+				ImGui::TextDisabled("The game's scripts are not built yet.");
+			}
+			else
+			{
+				TextError(fmt::format("There is no script class {}: its stored field values are kept.", className));
+			}
+			return;
+		}
+
+		std::vector<FieldDescriptor> const fields = ScriptFieldInspection::DescribeFields(*scriptClass);
+		if (fields.empty())
+		{
+			ImGui::TextDisabled("The script has no fields to edit.");
+			return;
+		}
+		auto const getStoredFields = [](Json const& value)
+		{
+			auto const stored = value.find("Fields");
+			return stored != value.end() ? *stored : Json::object();
+		};
+		std::vector<Json> editorValues;
+		editorValues.reserve(values.size());
+		for (Json const& value : values)
+		{
+			editorValues.push_back(ScriptFieldInspection::ToEditorValues(*scriptClass, getStoredFields(value)));
+		}
+		std::vector<std::string> const mixed = ComponentInspection::FindMixedFields(editorValues);
+		std::optional<FieldChange> const change =
+			m_FieldEditor.Draw(fields, editorValues.front(), mixed, &operations.GetContext().GetScene());
+		if (!change || change->Path.empty())
+		{
+			return;
+		}
+
+		Result<std::vector<ComponentEdit>> edits = ScriptFieldInspection::MakeEdits(*scriptClass, entities, values, editorValues, *change);
+		if (!edits)
+		{
+			UI::ReportFailure(edits, "Editing the script's fields");
+			return;
+		}
+		UI::ReportFailure(operations.SetComponentFields(edits.TakeValue(), m_EditSession.GetMergeKey()), "Editing the script's fields");
 	}
 
 	void InspectorPanel::DrawComponentMenu(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities,

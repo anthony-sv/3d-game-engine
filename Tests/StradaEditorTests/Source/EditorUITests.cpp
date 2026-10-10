@@ -54,6 +54,11 @@ TEST_CASE("UI: display names split PascalCase words and keep acronyms together")
 	CHECK(UI::FormatDisplayName("FixedVSyncRate") == "Fixed VSync Rate");
 	CHECK(UI::FormatDisplayName("Layer2Mask") == "Layer2 Mask");
 	CHECK(UI::FormatDisplayName("Tag") == "Tag");
+	// Script fields: private members drop their prefix.
+	CHECK(UI::FormatDisplayName("m_JumpHeight") == "Jump Height");
+	CHECK(UI::FormatDisplayName("s_Count") == "Count");
+	CHECK(UI::FormatDisplayName("m_") == "m_");
+	CHECK(UI::FormatDisplayName("m_lower") == "m_lower");
 	CHECK(UI::FormatDisplayName("").empty());
 }
 

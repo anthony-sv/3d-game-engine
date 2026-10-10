@@ -4,6 +4,7 @@
 #include "Editor/Automation/CommandRegistry.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/EditorScripts.h"
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
@@ -34,9 +35,10 @@ namespace Strada
 		std::filesystem::path ScenePath;
 	};
 
-	// Root of the editor: owns the document state (project, scene, undo history, selection), the automation command
-	// registry and server, and the UI (dockspace, menu bar, shortcuts and panels) when ImGui is available. Replacing the
-	// scene (new or opened scenes and projects) or closing the editor with unsaved changes asks to save them first.
+	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
+	// and hot reload), the automation command registry and server, and the UI (dockspace, menu bar, shortcuts and panels)
+	// when ImGui is available. Replacing the scene (new or opened scenes and projects) or closing the editor with unsaved
+	// changes asks to save them first.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -52,6 +54,7 @@ namespace Strada
 		void RequestScreenshotAtFrame(std::filesystem::path path, uint64_t frame);
 
 		EditorContext& GetContext() { return m_Context; }
+		EditorScripts& GetScripts() { return m_Scripts; }
 		CommandRegistry const& GetCommands() const { return m_Commands; }
 		AutomationServer const& GetAutomationServer() const { return m_AutomationServer; }
 
@@ -74,6 +77,9 @@ namespace Strada
 		void HandleShortcuts();
 		void DrawUnsavedChangesPopup();
 		void DrawNewProjectPopup();
+		void DrawNewScriptPopup();
+		// The scripts' state for the menu bar; empty while nothing needs attention.
+		std::string GetScriptStatus() const;
 		void DrawRecentProjectsMenu();
 		void UpdateWindowTitle();
 
@@ -99,6 +105,7 @@ namespace Strada
 		EditorLayerSpecification m_Specification;
 		EditorContext m_Context;
 		EditorOperations m_Operations;
+		EditorScripts m_Scripts;
 		CommandRegistry m_Commands;
 		AutomationServer m_AutomationServer;
 		bool m_InstanceFileWritten = false;
@@ -132,6 +139,8 @@ namespace Strada
 		bool m_OpenNewProjectPopup = false;
 		std::string m_NewProjectName;
 		std::string m_NewProjectLocation;
+		bool m_OpenNewScriptPopup = false;
+		std::string m_NewScriptName;
 		std::string m_WindowTitle;
 
 		std::filesystem::path m_ScreenshotPath;

@@ -314,6 +314,59 @@ namespace Strada
 			return changed;
 		}
 
+		// Flags enums: a combo of check boxes; the value is the array of the set names, in declaration order.
+		bool DrawFlags(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change)
+		{
+			auto const isSet = [&value](std::string_view name)
+			{
+				return value.is_array() && std::any_of(value.begin(), value.end(),
+				                                       [name](Json const& element)
+				                                       {
+														   return element.is_string() && element.get_ref<std::string const&>() == name;
+													   });
+			};
+			std::string preview;
+			for (std::string_view const name : field.EnumValues)
+			{
+				if (isSet(name))
+				{
+					preview += (preview.empty() ? "" : ", ") + UI::FormatDisplayName(name);
+				}
+			}
+			if (mixed)
+			{
+				preview = "--";
+			}
+			else if (preview.empty())
+			{
+				preview = "None";
+			}
+
+			bool changed = false;
+			if (ImGui::BeginCombo("##value", preview.c_str()))
+			{
+				Json names = Json::array();
+				for (std::string_view const name : field.EnumValues)
+				{
+					bool set = isSet(name);
+					if (ImGui::Checkbox(UI::FormatDisplayName(name).c_str(), &set))
+					{
+						changed = true;
+					}
+					if (set)
+					{
+						names.push_back(std::string(name));
+					}
+				}
+				ImGui::EndCombo();
+				if (changed)
+				{
+					change.Value = std::move(names);
+				}
+			}
+			return changed;
+		}
+
 		// Entity reference: the entity's name, an entity drag-and-drop target and a context menu to clear it.
 		bool DrawEntityReference(Json const& value, Scene* scene, FieldChange& change)
 		{
@@ -669,6 +722,10 @@ namespace Strada
 			}
 			case FieldKind::Enum:
 			{
+				if (field.IsFlags)
+				{
+					return DrawFlags(field, value, mixed, change);
+				}
 				std::string const current = value.is_string() ? value.get<std::string>() : std::string();
 				std::string const preview = mixed ? std::string("--") : UI::FormatDisplayName(current);
 				bool changed = false;

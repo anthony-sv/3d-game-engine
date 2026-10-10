@@ -174,6 +174,8 @@ namespace Strada
 		std::string TypeName;
 		// Enums (and arrays of enums): the value names in declaration order.
 		std::vector<std::string_view> EnumValues;
+		// Enums whose values combine (C# [Flags] enums of script fields): the value is the array of the set names.
+		bool IsFlags = false;
 		// Structs (and arrays of structs): the nested fields.
 		std::vector<FieldDescriptor> Fields;
 		// The value of a default-constructed owner.

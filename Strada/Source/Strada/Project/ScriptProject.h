@@ -79,6 +79,8 @@ namespace Strada
 		// The game assembly (the project's ScriptModule, absolute).
 		static std::filesystem::path GetAssemblyPath(Project const& project);
 		static bool Exists(Project const& project);
+		// The namespace of new scripts (and the C# project's root namespace): the assembly's name.
+		static std::string GetNamespace(Project const& project);
 
 		// Writes the C# project and Scripts/.gitignore unless they exist, and Strada.props (the engine's
 		// Strada.ScriptCore.dll for this machine) when its content changes.
@@ -96,6 +98,8 @@ namespace Strada
 		                                                     std::atomic<bool> const* cancel = nullptr);
 		// Whether a C# project file or source changed after the game assembly was built (true without the assembly).
 		static bool IsOutOfDate(Project const& project);
+		// When a C# project file or source last changed; empty without any.
+		static std::optional<std::filesystem::file_time_type> GetNewestSourceTime(Project const& project);
 
 		// The .NET SDK driver: DOTNET_ROOT, PATH, then the default install locations.
 		static std::optional<std::filesystem::path> FindDotNet();

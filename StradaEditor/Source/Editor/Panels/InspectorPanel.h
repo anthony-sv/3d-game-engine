@@ -15,7 +15,8 @@
 namespace Strada
 {
 	// Edits the selected entities: name, the components they all have (fields generated from the component registry, one
-	// undo step per widget interaction), and adding, resetting, copying, pasting and removing components. With several
+	// undo step per widget interaction; Script components get a class picker and the fields of their script class), and
+	// adding, resetting, copying, pasting and removing components. With several
 	// entities selected, the primary entity's values are shown, fields whose values differ are flagged, and an edit
 	// changes only the edited value (or vector component) on every selected entity. Without selected entities it shows the
 	// asset selected in the content browser: its details, the parameters of material files (editable, one undo step per
@@ -32,6 +33,9 @@ namespace Strada
 		void DrawComponent(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities);
 		void DrawComponentMenu(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities,
 		                       Json const& primaryValues);
+		// The class picker and the fields of the script class (from the loaded game assembly).
+		void DrawScriptComponent(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities,
+		                         std::vector<Json> const& values);
 		void DrawAddComponent(EditorOperations& operations, std::vector<UUID> const& entities);
 		// Applies the same partial patch to the component of every entity as one undo step.
 		void ApplyPatch(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities, Json const& patch,

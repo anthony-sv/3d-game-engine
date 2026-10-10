@@ -592,7 +592,12 @@ than the assembly.
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
   matrix); they are saved to the project file when an edit ends and are not part of the scene's undo history. Scenes
   saved inside the asset directory are registered as assets. Without a project the editor works on loose scene files.
-- C# script project generation and build (`dotnet build`) with diagnostics, hot reload of the game assembly.
+- Scripts (`EditorScripts`): the project's C# project is kept pointing at this engine; Scripts > New Script creates a
+  class from the template, Scripts > Build Scripts (Ctrl+B) builds on a worker thread, and changed sources (checked
+  every second) build by themselves. Errors and warnings go to the console with their files and lines, the menu bar
+  shows a failed build, and each successful build is loaded at once (hot reload; while scripts run, when they stop).
+  The inspector edits Script components with a class picker and the fields of the class: typed asset pickers, enum
+  combos, flag check boxes, colors and Euler angles like component fields, one undo step per interaction.
 - Export (Build Game) for the host platform.
 - Headless mode (`--headless`): no window/ImGui; offscreen rendering if a GPU is available; used by automation and CI.
 

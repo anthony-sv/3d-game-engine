@@ -160,6 +160,18 @@ Material fields are those of `.smat` files (`BaseColor`, `Metallic`, `Roughness`
 | `material.get` | `material`* | `material`, `fields` |
 | `material.set` | `material`*, `fields`* (partial patch; undoable without marking the scene modified; built-in and mesh-embedded materials are read-only) | `material`, `fields` |
 
+### script
+
+The project's C# scripts (`Scripts/<Name>.csproj`, see Docs/Architecture.md section 10.5). The editor builds them by
+itself when their sources change and loads the built assembly (hot reload); `script.build` waits for a build.
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `script.status` | — | `available` (.NET found), `scriptProject`, `building`, `outOfDate`, `loaded`, `classCount`, `lastBuild` (build report or null) |
+| `script.classes` | — | `classes`: `[{ name, fields: [{ name, type, default, hidden?, tooltip?, range?, assetType?, enumerators?, flags? }] }]`; Unavailable without .NET |
+| `script.create` | `className`* (C# identifier) | `path` (relative to the project directory), `class` (full name); creates the C# project when needed |
+| `script.build` | — | Build report `{ succeeded, error, loaded, seconds, errors, warnings, diagnostics: [{ severity, file, line, column, code, message }] }`; asynchronous; compile errors give `succeeded: false`; InvalidOperation without a project, scripts or .NET SDK |
+
 ### log and viewport
 
 | Command | Parameters | Result |
@@ -167,8 +179,8 @@ Material fields are those of `.smat` files (`BaseColor`, `Metallic`, `Roughness`
 | `log.read` | `since` (entry index), `maxCount` (default 500), `minLevel` (`trace`..`critical`) | `entries`: `[{ index, level, logger, message, timestampMs }]`, `next` (pass as `since`) |
 | `viewport.screenshot` | — | `mimeType` (`image/png`), `width`, `height`, `data` (base64); asynchronous; Unavailable when headless |
 
-Later subsystems add `prefab.*`, `script.*`, `play.*`, `input.*`,
-`renderer.*` and `test.*` commands (Docs/Architecture.md section 12); each is added to this reference.
+Later subsystems add `prefab.*`, `play.*`, `input.*`, `renderer.*` and `test.*` commands (Docs/Architecture.md
+section 12); each is added to this reference.
 
 ## Example session
 
