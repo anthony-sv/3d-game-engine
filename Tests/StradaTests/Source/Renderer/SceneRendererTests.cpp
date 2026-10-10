@@ -178,6 +178,36 @@ TEST_CASE("SceneRenderer: meshes outside the view or beyond its distance are not
 	CHECK(renderer.GetStatistics().DrawCalls == 1);
 }
 
+TEST_CASE("SceneRenderer: the primary camera's far distance culls what lies beyond it")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	Scene scene("Far");
+	AssetHandle const material = AddMaterial({0.5f, 0.5f, 0.5f, 1.0f}, 0.0f, 0.8f);
+	// The camera stays at the origin, looking down -Z.
+	Testing::AddTestMesh(scene, "Near", BuiltInAsset::CubeMesh, material, {0.0f, 0.0f, -5.0f});
+	Testing::AddTestMesh(scene, "Far", BuiltInAsset::CubeMesh, material, {0.0f, 0.0f, -50.0f});
+	CameraComponent& camera = scene.CreateEntity("Camera").AddComponent<CameraComponent>();
+	camera.Primary = true;
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+
+	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
+	CHECK(renderer.GetStatistics().Culled == 0);
+	CHECK(renderer.GetStatistics().DrawCalls == 2);
+
+	camera.PerspectiveFar = 20.0f;
+	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
+	CHECK(renderer.GetStatistics().Culled == 1);
+	CHECK(renderer.GetStatistics().DrawCalls == 1);
+
+	camera.Projection = ProjectionType::Orthographic;
+	camera.OrthographicFar = 20.0f;
+	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
+	CHECK(renderer.GetStatistics().Culled == 1);
+	CHECK(renderer.GetStatistics().DrawCalls == 1);
+}
+
 TEST_CASE("SceneRenderer: lights that cannot reach the view are culled")
 {
 	ST_REQUIRE_GPU();
