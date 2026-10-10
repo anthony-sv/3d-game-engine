@@ -1,5 +1,6 @@
 #include "Fuzzing.h"
 #include "Physics/PhysicsTestUtilities.h"
+#include "TestUtilities.h"
 
 #include "Strada/Project/Project.h"
 #include "Strada/Project/ProjectSettings.h"
@@ -57,5 +58,41 @@ TEST_CASE("Project: damaged project files are refused, or load, save again and r
 		scene.OnRuntimeStop();
 	}
 	CHECK(loaded > 0);
+	CHECK(refused > 0);
+}
+
+TEST_CASE("Project: damaged game files are refused or open, and their window settings are always usable")
+{
+	std::vector<std::string> warnings;
+	DeserializationContext const context = Testing::MakeTolerantContext(warnings);
+	Result<ProjectSettings> const project = Project::Deserialize(Testing::LoadFeatureTestDocument("FeatureTest.sproj"), context);
+	REQUIRE(project.IsOk());
+	Json const original = Project::Serialize(project.GetValue(), ProjectFileKind::Game);
+
+	Testing::TemporaryDirectory directory;
+	REQUIRE(FileSystem::CreateDirectories(directory.GetPath() / "Assets").IsOk());
+	std::filesystem::path const file = directory.GetPath() / FileSystem::PathFromUtf8(Project::GameFileName);
+	Testing::DocumentMutator mutator(5100);
+	int opened = 0;
+	int refused = 0;
+	for (int round = 0, rounds = Testing::GetFuzzRounds(100); round < rounds; round++)
+	{
+		CAPTURE(round);
+		REQUIRE(FileSystem::WriteTextFile(file, DumpJson(mutator.Damage(original, round))).IsOk());
+
+		// The player reads these before anything else exists: they must make a window that can be created.
+		if (Result<ProjectWindowSettings> window = Project::ReadWindowSettings(file, ProjectFileKind::Game))
+		{
+			CHECK(window.GetValue().Width >= 64);
+			CHECK(window.GetValue().Width <= 16384);
+			CHECK(window.GetValue().Height >= 64);
+			CHECK(window.GetValue().Height <= 16384);
+		}
+
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> game = Project::OpenGame(file);
+		(game ? opened : refused)++;
+	}
+	CHECK(opened > 0);
 	CHECK(refused > 0);
 }

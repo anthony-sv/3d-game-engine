@@ -247,3 +247,16 @@ internal static class IsolatedUserData
 	public static string InstanceDirectory(IReadOnlyDictionary<string, string> environment) =>
 		UserDataDirectory.GetInstanceDirectory(name => environment.TryGetValue(name, out string? value) ? value : System.Environment.GetEnvironmentVariable(name))!;
 }
+
+/// <summary>How long fuzz tests run, as the engine's C++ fuzz tests do.</summary>
+internal static class Fuzzing
+{
+	/// <summary>The rounds a fuzz test runs: its default, times STRADA_FUZZ_SCALE (1 to 1000) when that is set, for deeper
+	/// local runs; the default keeps the suite fast.</summary>
+	public static int GetRounds(int rounds)
+	{
+		string? scale = System.Environment.GetEnvironmentVariable("STRADA_FUZZ_SCALE");
+		int multiplier = int.TryParse(scale, out int value) ? Math.Clamp(value, 1, 1000) : 1;
+		return rounds * multiplier;
+	}
+}

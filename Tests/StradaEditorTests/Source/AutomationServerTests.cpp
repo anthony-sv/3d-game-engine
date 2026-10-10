@@ -1,3 +1,4 @@
+#include "Fuzzing.h"
 #include "TcpTestClient.h"
 
 #include "Editor/Automation/AutomationInstance.h"
@@ -11,7 +12,9 @@
 
 #include <chrono>
 #include <set>
+#include <string>
 #include <thread>
+#include <vector>
 
 using namespace Strada;
 using Strada::Testing::TcpTestClient;
@@ -185,6 +188,80 @@ TEST_CASE("AutomationServer: connections that do not authenticate in time are cl
 	std::optional<Json> const response = client->Call("editor.status");
 	REQUIRE(response);
 	CHECK(response->contains("result"));
+}
+
+TEST_CASE("AutomationServer: damaged messages get well-formed answers and keep the connection usable")
+{
+	ServerFixture fixture;
+	Scope<TcpTestClient> client = fixture.Connect();
+	std::vector<std::string> const seeds = {
+		R"({"jsonrpc":"2.0","id":1,"method":"editor.status"})",
+		R"({"jsonrpc":"2.0","id":"a","method":"entity.create","params":{"name":"Fuzz"}})",
+		R"({"jsonrpc":"2.0","method":"editor.status"})",
+		R"([{"jsonrpc":"2.0","id":2,"method":"editor.status"},{"jsonrpc":"2.0","id":3,"method":"editor.commands"}])",
+		R"({"jsonrpc":"2.0","id":4,"method":"authenticate","params":{"token":"x"}})",
+	};
+	std::vector<std::string> const values = {"null", "[]", "{}", "\"\"", "1e999", "-1", "18446744073709551616", "[[[[]]]]", "\"\\ud800\""};
+	Testing::FuzzRandom random(9100);
+
+	for (int round = 0, rounds = Testing::GetFuzzRounds(200); round < rounds; round++)
+	{
+		CAPTURE(round);
+		std::string line = seeds[random.Pick(seeds.size())];
+		for (size_t mutation = 1 + random.Pick(3); mutation > 0 && line.size() > 1; mutation--)
+		{
+			size_t const position = random.Pick(line.size());
+			switch (random.Pick(4))
+			{
+				case 0:
+					line.erase(position, 1);
+					break;
+				case 1:
+					line.insert(position, 1, "{}[]:,\"0a-\\"[random.Pick(11)]);
+					break;
+				case 2:
+					line.insert(position, values[random.Pick(values.size())]);
+					break;
+				default:
+					line.resize(position);
+					break;
+			}
+		}
+		// A bad "authenticate" would close the connection; the test is about everything else.
+		if (line.find("authenticate") != std::string::npos)
+		{
+			continue;
+		}
+		CAPTURE(line);
+		REQUIRE(client->Send(line + "\n"));
+
+		// Everything before the probe's answer is a well-formed answer.
+		std::string const probe = fmt::format("probe-{}", round);
+		REQUIRE(client->Send(fmt::format(R"({{"jsonrpc":"2.0","id":"{}","method":"editor.status"}})", probe) + "\n"));
+		while (true)
+		{
+			std::optional<std::string> const answer = client->ReadLine();
+			REQUIRE(answer);
+			Result<Json> parsed = ParseJson(*answer);
+			REQUIRE(parsed.IsOk());
+			Json const& message = parsed.GetValue();
+			std::vector<Json> const responses = message.is_array() ? message.get<std::vector<Json>>() : std::vector<Json>{message};
+			for (Json const& response : responses)
+			{
+				REQUIRE(response.is_object());
+				CHECK(response.value("jsonrpc", "") == "2.0");
+				CHECK(response.contains("result") != response.contains("error"));
+				if (response.contains("error"))
+				{
+					CHECK(response["error"]["code"] != Code(AutomationErrorCode::InternalError));
+				}
+			}
+			if (message.is_object() && message.contains("id") && message["id"] == probe)
+			{
+				break;
+			}
+		}
+	}
 }
 
 TEST_CASE("AutomationServer: stopping disconnects clients and can restart")

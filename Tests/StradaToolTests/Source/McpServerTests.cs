@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Nodes;
@@ -156,6 +157,64 @@ public sealed class McpServerTests
 		Assert.Equal(McpServer.ParseError, (await client.ReceiveAsync())["error"]!["code"]!.GetValue<int>());
 
 		Assert.NotNull((await client.RequestAsync("ping"))["result"]);
+	}
+
+	[Fact]
+	public async Task DamagedMessagesGetWellFormedAnswersAndKeepTheServerRunning()
+	{
+		using TemporaryDirectory directory = new();
+		await using FakeEditor editor = new(directory.Path);
+		await using McpTestClient client = Connect(directory.Path);
+		string[] seeds =
+		[
+			"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{}}}",
+			"{\"jsonrpc\":\"2.0\",\"id\":\"a\",\"method\":\"ping\"}",
+			"{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\",\"params\":{}}",
+			"{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"entity_create\",\"arguments\":{\"name\":\"Fuzz\"}}}",
+			"{\"jsonrpc\":\"2.0\",\"method\":\"notifications/cancelled\",\"params\":{\"requestId\":3,\"reason\":\"x\"}}",
+			"[{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"ping\"},{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}]",
+		];
+		string[] values = ["null", "[]", "{}", "\"\"", "1e999", "-1", "0.5", "true", "[[[[]]]]", "\"\\ud800\"", "{\"a\":1,\"a\":2}"];
+		Random random = new(9000);
+
+		for (int round = 0, rounds = Fuzzing.GetRounds(300); round < rounds; round++)
+		{
+			string line = seeds[random.Next(seeds.Length)];
+			for (int mutation = random.Next(1, 4); mutation > 0 && line.Length > 1; mutation--)
+			{
+				int position = random.Next(line.Length);
+				line = random.Next(4) switch
+				{
+					0 => line.Remove(position, 1),
+					1 => line.Insert(position, "{}[]:,\"0a-\\"[random.Next(11)].ToString()),
+					2 => line.Insert(position, values[random.Next(values.Length)]),
+					_ => line[..position],
+				};
+			}
+			client.Send(line);
+
+			// A ping after every damaged message: everything before its answer must be a well-formed answer.
+			string probe = $"probe-{round}";
+			client.Send(McpTestClient.Request(probe, "ping"));
+			while (true)
+			{
+				JsonNode answer = await client.ReceiveAsync();
+				foreach (JsonNode? item in answer is JsonArray batch ? batch : new JsonArray(answer.DeepClone()))
+				{
+					JsonObject response = Assert.IsType<JsonObject>(item, exactMatch: false);
+					Assert.Equal("2.0", response["jsonrpc"]?.GetValue<string>());
+					Assert.True(response.ContainsKey("result") ^ response.ContainsKey("error"), $"round {round}: {line}");
+					if (response["error"] is JsonObject error)
+					{
+						Assert.DoesNotContain("Internal error", error["message"]!.GetValue<string>());
+					}
+				}
+				if (answer is JsonObject single && single["id"] is JsonValue id && id.TryGetValue(out string? text) && text == probe)
+				{
+					break;
+				}
+			}
+		}
 	}
 
 	[Fact]
