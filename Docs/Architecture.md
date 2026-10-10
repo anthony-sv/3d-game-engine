@@ -179,7 +179,10 @@ Visibility: `EndScene` tests the world bounds of every submitted submesh against
 component's far distance; unlimited for the editor camera). Submeshes outside it skip the main, transparent and
 entity-ID passes and are not even prepared, unless they cast shadows that the frame draws: casters outside the view can
 shadow what it shows, so the shadow pass culls them separately, against each cascade's projection or each local light's
-range. `SceneRendererStatistics::Culled` counts them.
+range. `SceneRendererStatistics::Culled` counts them. Point and spot lights are tested when submitted, by their range
+sphere (spot lights by the smaller sphere around their cone when its outer angle is below 60 degrees): lights that cannot
+reach the view light nothing visible, so they take no place in the light buffer and get no shadow maps
+(`CulledLights`).
 
 Lighting is forward PBR (opaque front to back, then blended back to front) with image-based lighting (split-sum
 specular with Fdez-Aguera multiple-scattering compensation; a uniform ambient color through the same terms when the
@@ -200,8 +203,8 @@ Frame passes, in order:
 2. **Opaque forward PBR** — metallic-roughness GGX (height-correlated Smith visibility, Schlick Fresnel,
    multi-scatter energy compensation), directional/point/spot lights (physical units with smooth range window),
    IBL (cube irradiance + GGX-prefiltered specular + split-sum BRDF LUT), soft shadows (PCF with rotated
-   Vogel disk and PCSS blocker search), alpha-mask support. Lights live in a structured buffer (every light
-   of the frame up to 256; further lights are ignored). Besides the HDR color it writes, as extra render targets, the
+   Vogel disk and PCSS blocker search), alpha-mask support. Lights live in a structured buffer (directional
+   lights and the local lights that reach the view, up to 256; further lights are ignored). Besides the HDR color it writes, as extra render targets, the
    octahedral world normal (`RG16_FLOAT`) and the exposed indirect light (`RGBA16_FLOAT`). There is no depth
    prepass: an equal-depth main pass would need position invariance across pipelines, which DXC's SPIR-V output
    does not guarantee.

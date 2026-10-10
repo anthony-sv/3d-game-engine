@@ -106,6 +106,27 @@ TEST_CASE("Frustum: boxes are rejected only when entirely outside one plane")
 	CHECK_FALSE(frustum.Intersects(AABB()));
 }
 
+TEST_CASE("Frustum: spheres are rejected only when entirely outside one plane")
+{
+	glm::mat4 const projection = Math::PerspectiveReversedZ(glm::radians(90.0f), 1.0f, 0.1f);
+	Frustum const frustum(projection);
+	CHECK(frustum.IntersectsSphere({0.0f, 0.0f, -5.0f}, 1.0f));
+	// (7, 0, -5) lies 2 / sqrt(2) outside the right plane x = -z.
+	CHECK(frustum.IntersectsSphere({7.0f, 0.0f, -5.0f}, 1.5f));
+	CHECK_FALSE(frustum.IntersectsSphere({7.0f, 0.0f, -5.0f}, 1.3f));
+	// Behind the camera, reaching past the near plane or not.
+	CHECK(frustum.IntersectsSphere({0.0f, 0.0f, 3.0f}, 5.0f));
+	CHECK_FALSE(frustum.IntersectsSphere({0.0f, 0.0f, 3.0f}, 2.0f));
+	// The far plane is at infinity.
+	CHECK(frustum.IntersectsSphere({0.0f, 0.0f, -1.0e6f}, 0.0f));
+	CHECK_FALSE(frustum.IntersectsSphere({0.0f, 0.0f, -5.0f}, -1.0f));
+	CHECK_FALSE(frustum.IntersectsSphere({0.0f, 0.0f, -5.0f}, std::numeric_limits<float>::quiet_NaN()));
+
+	Frustum const limited(glm::mat4(1.0f), projection, 10.0f);
+	CHECK(limited.IntersectsSphere({0.0f, 0.0f, -11.0f}, 1.5f));
+	CHECK_FALSE(limited.IntersectsSphere({0.0f, 0.0f, -12.0f}, 1.5f));
+}
+
 TEST_CASE("Frustum: a distance limit closes infinite projections")
 {
 	glm::mat4 const projection = Math::PerspectiveReversedZ(glm::radians(60.0f), 1.0f, 0.1f);

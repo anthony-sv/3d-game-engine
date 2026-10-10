@@ -53,6 +53,24 @@ namespace Strada
 		return true;
 	}
 
+	bool Frustum::IntersectsSphere(glm::vec3 const& center, float radius) const
+	{
+		if (!(radius >= 0.0f))
+		{
+			return false;
+		}
+		for (glm::vec4 const& plane : m_Planes)
+		{
+			// The planes are not normalized: compare the signed distance scaled by the normal's length.
+			glm::vec3 const normal(plane);
+			if (glm::dot(normal, center) + plane.w < -radius * glm::length(normal))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
 	bool Frustum::Contains(glm::vec3 const& point) const
 	{
 		for (glm::vec4 const& plane : m_Planes)

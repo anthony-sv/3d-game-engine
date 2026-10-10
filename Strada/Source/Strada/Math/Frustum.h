@@ -22,6 +22,8 @@ namespace Strada
 		// Conservative: false only when the box lies entirely outside one of the planes, so a few boxes near the frustum's
 		// edges pass without touching it. Empty boxes never intersect.
 		bool Intersects(AABB const& box) const;
+		// Conservative in the same way. A negative radius never intersects.
+		bool IntersectsSphere(glm::vec3 const& center, float radius) const;
 		bool Contains(glm::vec3 const& point) const;
 
 	private:

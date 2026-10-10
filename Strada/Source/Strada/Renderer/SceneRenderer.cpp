@@ -117,6 +117,25 @@ namespace Strada
 			glm::vec3 const offset = closest - center;
 			return glm::dot(offset, offset) <= radius * radius;
 		}
+
+		struct BoundingSphere
+		{
+			glm::vec3 Center = glm::vec3(0.0f);
+			float Radius = 0.0f;
+		};
+
+		// Around the region a spot light reaches: its range sphere cut by the cone. Below 60 degrees, the sphere through the
+		// apex and the rim of the cone's cap (centered on the axis) is the smaller one.
+		BoundingSphere ComputeSpotLightBounds(glm::vec3 const& position, glm::vec3 const& direction, float range, float outerAngle)
+		{
+			float const cosine = std::cos(outerAngle);
+			if (cosine > 0.5f)
+			{
+				float const radius = range / (2.0f * cosine);
+				return {position + direction * radius, radius};
+			}
+			return {position, range};
+		}
 	}
 
 	SceneRenderer::SceneRenderer()
@@ -851,6 +870,7 @@ namespace Strada
 		ST_CORE_ASSERT(!m_InScene, "BeginScene called twice without EndScene");
 		m_InScene = true;
 		m_Camera = camera;
+		m_ViewFrustum = Frustum(camera.View, camera.Projection, camera.MaxDistance);
 		m_Settings = settings;
 		m_AmbientRadiance = glm::vec3(0.0f);
 		m_Environment = {};
@@ -969,6 +989,7 @@ namespace Strada
 
 	void SceneRenderer::SubmitDirectionalLight(DirectionalLightSubmission const& light)
 	{
+		ST_CORE_ASSERT(m_InScene, "SubmitDirectionalLight outside BeginScene/EndScene");
 		if (m_Lights.size() >= ShaderInterop::MaxLights)
 		{
 			return;
@@ -988,6 +1009,13 @@ namespace Strada
 
 	void SceneRenderer::SubmitPointLight(PointLightSubmission const& light)
 	{
+		ST_CORE_ASSERT(m_InScene, "SubmitPointLight outside BeginScene/EndScene");
+		float const range = std::max(light.Range, 1e-3f);
+		if (!m_ViewFrustum.IntersectsSphere(light.Position, range))
+		{
+			m_Statistics.CulledLights++;
+			return;
+		}
 		if (m_Lights.size() >= ShaderInterop::MaxLights)
 		{
 			return;
@@ -995,7 +1023,7 @@ namespace Strada
 		ShaderInterop::LightData data{};
 		data.Type = ShaderInterop::LightTypePoint;
 		data.Position = light.Position;
-		data.Range = std::max(light.Range, 1e-3f);
+		data.Range = range;
 		data.Radiance = light.Color * light.Intensity;
 		data.ShadowIndex = -1;
 		if (light.CastShadows)
@@ -1012,6 +1040,16 @@ namespace Strada
 
 	void SceneRenderer::SubmitSpotLight(SpotLightSubmission const& light)
 	{
+		ST_CORE_ASSERT(m_InScene, "SubmitSpotLight outside BeginScene/EndScene");
+		glm::vec3 const direction = glm::normalize(light.Direction);
+		float const range = std::max(light.Range, 1e-3f);
+		float const outer = glm::radians(std::clamp(light.OuterConeAngle, 0.1f, 89.9f));
+		BoundingSphere const bounds = ComputeSpotLightBounds(light.Position, direction, range, outer);
+		if (!m_ViewFrustum.IntersectsSphere(bounds.Center, bounds.Radius))
+		{
+			m_Statistics.CulledLights++;
+			return;
+		}
 		if (m_Lights.size() >= ShaderInterop::MaxLights)
 		{
 			return;
@@ -1019,10 +1057,9 @@ namespace Strada
 		ShaderInterop::LightData data{};
 		data.Type = ShaderInterop::LightTypeSpot;
 		data.Position = light.Position;
-		data.Direction = glm::normalize(light.Direction);
-		data.Range = std::max(light.Range, 1e-3f);
+		data.Direction = direction;
+		data.Range = range;
 		data.Radiance = light.Color * light.Intensity;
-		float const outer = glm::radians(std::clamp(light.OuterConeAngle, 0.1f, 89.9f));
 		float const inner = glm::radians(std::clamp(light.InnerConeAngle, 0.0f, glm::degrees(outer)));
 		data.SpotCosInner = std::cos(inner);
 		data.SpotCosOuter = std::cos(outer);
@@ -1379,12 +1416,11 @@ namespace Strada
 
 	void SceneRenderer::CullToView()
 	{
-		Frustum const frustum(m_Camera.View, m_Camera.Projection, m_Camera.MaxDistance);
 		for (std::vector<DrawItem>* items : {&m_OpaqueItems, &m_BlendItems})
 		{
 			for (DrawItem& item : *items)
 			{
-				item.InView = frustum.Intersects(item.WorldBounds);
+				item.InView = m_ViewFrustum.Intersects(item.WorldBounds);
 				m_Statistics.Culled += item.InView ? 0u : 1u;
 			}
 		}

@@ -178,6 +178,47 @@ TEST_CASE("SceneRenderer: meshes outside the view or beyond its distance are not
 	CHECK(renderer.GetStatistics().DrawCalls == 1);
 }
 
+TEST_CASE("SceneRenderer: lights that cannot reach the view are culled")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	Scene scene("Lights");
+	Testing::AddTestMesh(scene, "Floor", BuiltInAsset::PlaneMesh, AddMaterial({0.5f, 0.5f, 0.5f, 1.0f}, 0.0f, 0.8f), {0.0f, 0.0f, 0.0f},
+	                     glm::vec3(8.0f));
+	scene.CreateEntity("Sun").AddComponent<DirectionalLightComponent>().CastShadows = true;
+	auto const addPointLight = [&scene](char const* name, glm::vec3 const& position)
+	{
+		Entity light = scene.CreateEntity(name);
+		light.GetComponent<TransformComponent>().Translation = position;
+		PointLightComponent& point = light.AddComponent<PointLightComponent>();
+		point.Range = 5.0f;
+		point.CastShadows = true;
+	};
+	auto const addSpotLight = [&scene](char const* name, float pitch)
+	{
+		Entity light = scene.CreateEntity(name);
+		light.GetComponent<TransformComponent>().Translation = {0.0f, 5.0f, 0.0f};
+		light.GetComponent<TransformComponent>().SetRotationEuler({pitch, 0.0f, 0.0f});
+		SpotLightComponent& spot = light.AddComponent<SpotLightComponent>();
+		spot.Range = 6.0f;
+		spot.OuterConeAngle = 30.0f;
+		spot.CastShadows = true;
+	};
+	addPointLight("Near", {0.0f, 1.0f, 0.0f});
+	addPointLight("Aside", {40.0f, 1.0f, 0.0f});
+	addSpotLight("Down", -90.0f);
+	// Above the view and shining up: its range sphere reaches into the view, its cone does not.
+	addSpotLight("Up", 90.0f);
+
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	(void)Testing::RenderToImage(scene, MakeCamera({0.0f, 2.2f, 4.5f}, {0.0f, 0.4f, 0.0f}), renderer);
+	CHECK(renderer.GetStatistics().Lights == 3);
+	CHECK(renderer.GetStatistics().CulledLights == 2);
+	// Shadow maps only for the lights kept: the sun's cascades, the six faces of "Near" and the slice of "Down".
+	CHECK(renderer.GetStatistics().ShadowMapViews == 4 + 6 + 1);
+}
+
 TEST_CASE("SceneRenderer: tonemappers and exposure change the image")
 {
 	ST_REQUIRE_GPU();

@@ -2,6 +2,7 @@
 
 #include "Strada/Core/Base.h"
 #include "Strada/Math/AABB.h"
+#include "Strada/Math/Frustum.h"
 #include "Strada/Renderer/QuadRenderer.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
 
@@ -124,6 +125,8 @@ namespace Strada
 		// Submeshes outside the camera's frustum or beyond its MaxDistance, which the camera's passes skip (shadow casters
 		// among them still reach the shadow maps).
 		uint32_t Culled = 0;
+		// Point and spot lights whose range does not reach the camera's view: not in Lights, and without shadow maps.
+		uint32_t CulledLights = 0;
 	};
 
 	// Renders one view of a submitted frame into its own HDR target and tonemaps it into an 8-bit, sRGB-encoded image
@@ -157,6 +160,8 @@ namespace Strada
 		// SpriteSubmission and TextSubmission). Picking IDs and selection work as for meshes.
 		void SubmitSprite(SpriteSubmission const& sprite);
 		void SubmitText(TextSubmission text);
+		// Up to ShaderInterop::MaxLights lights per frame; point and spot lights that cannot reach the camera's view are
+		// skipped (SceneRendererStatistics::CulledLights).
 		void SubmitDirectionalLight(DirectionalLightSubmission const& light);
 		void SubmitPointLight(PointLightSubmission const& light);
 		void SubmitSpotLight(SpotLightSubmission const& light);
@@ -275,6 +280,8 @@ namespace Strada
 		bool m_InScene = false;
 
 		SceneRendererCamera m_Camera;
+		// The camera's view volume, limited to its MaxDistance.
+		Frustum m_ViewFrustum = Frustum(glm::mat4(1.0f));
 		SceneRendererSettings m_Settings;
 		glm::vec3 m_AmbientRadiance = glm::vec3(0.0f);
 		EnvironmentSubmission m_Environment;
