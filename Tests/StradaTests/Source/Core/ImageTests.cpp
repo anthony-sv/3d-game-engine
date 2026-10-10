@@ -1,3 +1,4 @@
+#include "Fuzzing.h"
 #include "TestUtilities.h"
 
 #include "Strada/Core/FileSystem.h"
@@ -5,8 +6,13 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 using namespace Strada;
 
@@ -27,6 +33,38 @@ namespace
 			}
 		}
 		return image;
+	}
+
+	// An uncompressed 24-bit BMP of black pixels whose header may claim any size (pixel data is capped at 4 KB).
+	std::vector<uint8_t> MakeBmp(int32_t width, int32_t height)
+	{
+		std::vector<uint8_t> bmp(54, 0);
+		auto const put = [&bmp](size_t offset, uint32_t value, size_t bytes)
+		{
+			for (size_t index = 0; index < bytes; index++)
+			{
+				bmp[offset + index] = static_cast<uint8_t>(value >> (8 * index));
+			}
+		};
+		uint32_t const rowSize = (static_cast<uint32_t>(std::max(width, 0)) * 3 + 3) & ~3u;
+		uint32_t const pixelBytes = std::min<uint32_t>(rowSize * static_cast<uint32_t>(std::max(height, 0)), 4096);
+		bmp[0] = 'B';
+		bmp[1] = 'M';
+		put(2, 54 + pixelBytes, 4);
+		put(10, 54, 4);
+		put(14, 40, 4);
+		put(18, static_cast<uint32_t>(width), 4);
+		put(22, static_cast<uint32_t>(height), 4);
+		put(26, 1, 2);
+		put(28, 24, 2);
+		put(34, pixelBytes, 4);
+		bmp.resize(54 + pixelBytes, 0);
+		return bmp;
+	}
+
+	std::vector<uint8_t> ToBytes(std::string_view text)
+	{
+		return std::vector<uint8_t>(text.begin(), text.end());
 	}
 }
 
@@ -117,6 +155,96 @@ TEST_CASE("Image: invalid input reports errors instead of crashing")
 	Testing::TemporaryDirectory directory;
 	CHECK(Image::LoadFromFile(directory.GetPath() / "missing.png").IsError());
 	CHECK(Image().WritePNG(directory.GetPath() / "empty.png").IsError());
+}
+
+TEST_CASE("Image: only the engine's formats decode, with pixels and within GPU limits")
+{
+	Result<Image> const bmp = Image::LoadFromMemory(MakeBmp(3, 2));
+	REQUIRE(bmp.IsOk());
+	CHECK(bmp.GetValue().GetWidth() == 3);
+	CHECK(bmp.GetValue().GetHeight() == 2);
+
+	// stb_image accepts BMP files without a column or row of pixels, which no texture can use.
+	for (auto const& [width, height] : {std::pair{0, 2}, std::pair{3, 0}})
+	{
+		CAPTURE(width);
+		CAPTURE(height);
+		CHECK(Image::LoadFromMemory(MakeBmp(width, height)).GetError() == "the image has no pixels");
+		CHECK(Image::ReadInfo(MakeBmp(width, height)).IsError());
+	}
+	// Larger than GPUs sample: refused before any pixel is allocated.
+	CHECK(Image::LoadFromMemory(MakeBmp(16385, 1)).IsError());
+	CHECK(Image::LoadFromMemory(MakeBmp(1, 16385)).IsError());
+
+	// Formats the engine does not read: stb_image's decoders for them are left out.
+	CHECK(Image::LoadFromMemory(ToBytes(std::string_view("P6\n1 1\n255\n\x01\x02\x03", 14))).IsError());
+
+	// A Radiance HDR file without rows.
+	CHECK(HdrImage::LoadFromMemory(ToBytes("#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 0 +X 4\n")).IsError());
+}
+
+TEST_CASE("Image: damaged images are refused or decode to pixels")
+{
+	// Seeds of the formats the engine reads that it can write or build.
+	Testing::TemporaryDirectory directory;
+	HdrImage sky(16, 8, 3);
+	for (size_t index = 0; index < sky.GetPixels().size(); index++)
+	{
+		sky.GetPixels()[index] = static_cast<float>(index % 37) * 0.75f;
+	}
+	REQUIRE(sky.WriteHDR(directory.GetPath() / "Sky.hdr").IsOk());
+	Result<Buffer> hdr = FileSystem::ReadBinaryFile(directory.GetPath() / "Sky.hdr");
+	Result<std::vector<uint8_t>> png = MakeGradient(23, 17).EncodePNG();
+	REQUIRE(hdr.IsOk());
+	REQUIRE(png.IsOk());
+	std::span<uint8_t const> const hdrBytes = hdr.GetValue().GetSpan();
+	std::vector<std::vector<uint8_t>> const seeds = {png.GetValue(), MakeBmp(23, 17), {hdrBytes.begin(), hdrBytes.end()}};
+
+	Testing::FuzzRandom random(7000);
+	int decoded = 0;
+	int refused = 0;
+	for (int round = 0, rounds = Testing::GetFuzzRounds(300); round < rounds; round++)
+	{
+		CAPTURE(round);
+		std::vector<uint8_t> data = seeds[random.Pick(seeds.size())];
+		for (size_t count = 1 + random.Pick(4); count > 0 && data.size() > 1; count--)
+		{
+			switch (random.Pick(4))
+			{
+				case 0:
+					data.resize(1 + random.Pick(data.size()));
+					break;
+				case 1:
+					data[random.Pick(data.size())] = static_cast<uint8_t>(random.Next());
+					break;
+				case 2:
+					// Header fields: sizes, counts, formats.
+					data[random.Pick(std::min<size_t>(data.size(), 64))] = std::array<uint8_t, 4>{0x00, 0x7F, 0x80, 0xFF}[random.Pick(4)];
+					break;
+				default:
+					data[random.Pick(data.size())] ^= static_cast<uint8_t>(1u << random.Pick(8));
+					break;
+			}
+		}
+		Result<Image> image = Image::LoadFromMemory(data, 4);
+		Result<HdrImage> hdrImage = HdrImage::LoadFromMemory(data, 4);
+		static_cast<void>(Image::ReadInfo(data));
+		if (image)
+		{
+			Image const& pixels = image.GetValue();
+			CHECK(pixels.GetWidth() > 0);
+			CHECK(pixels.GetHeight() > 0);
+			CHECK(pixels.GetPixels().size() == size_t(pixels.GetWidth()) * pixels.GetHeight() * 4);
+		}
+		if (hdrImage)
+		{
+			CHECK(hdrImage.GetValue().GetWidth() > 0);
+			CHECK(hdrImage.GetValue().GetHeight() > 0);
+		}
+		(image || hdrImage ? decoded : refused)++;
+	}
+	CHECK(decoded > 0);
+	CHECK(refused > 0);
 }
 
 TEST_CASE("Image: header information is read without decoding")

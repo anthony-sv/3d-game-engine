@@ -66,6 +66,12 @@ namespace Strada
 		{
 			return Error{stbi_failure_reason() != nullptr ? stbi_failure_reason() : "unknown image format"};
 		}
+		// stb_image accepts BMP files without a column or row of pixels.
+		if (width <= 0 || height <= 0)
+		{
+			stbi_image_free(pixels);
+			return Error{"the image has no pixels"};
+		}
 
 		uint32_t const resultChannels = channels != 0 ? channels : static_cast<uint32_t>(fileChannels);
 		Image image(static_cast<uint32_t>(width), static_cast<uint32_t>(height), resultChannels);
@@ -88,6 +94,10 @@ namespace Strada
 		if (stbi_info_from_memory(data.data(), size, &width, &height, &channels) == 0)
 		{
 			return Error{stbi_failure_reason() != nullptr ? stbi_failure_reason() : "unknown image format"};
+		}
+		if (width <= 0 || height <= 0)
+		{
+			return Error{"the image has no pixels"};
 		}
 
 		ImageInfo info;
@@ -158,6 +168,11 @@ namespace Strada
 		if (pixels == nullptr)
 		{
 			return Error{stbi_failure_reason() != nullptr ? stbi_failure_reason() : "unknown image format"};
+		}
+		if (width <= 0 || height <= 0)
+		{
+			stbi_image_free(pixels);
+			return Error{"the image has no pixels"};
 		}
 
 		uint32_t const resultChannels = channels != 0 ? channels : static_cast<uint32_t>(fileChannels);

@@ -291,7 +291,9 @@ Asset types:
   `DoubleSided`, `UVTiling`, `UVOffset`. A version counter tells renderers when parameters changed.
 - `TextureAsset` (`.png`, `.jpg`, `.tga`, `.bmp`): keeps the encoded file and decodes on demand. The color space is
   chosen by the sampling material slot (base color and emissive sRGB, the others linear); the renderer generates mips
-  at upload in linear space.
+  at upload in linear space. stb_image is built with only these decoders and Radiance HDR's (so model textures in
+  other formats are not decoded), refuses images over 16384 pixels on a side, and `Image` refuses images without
+  pixels.
 - `EnvironmentAsset` (`.hdr`): equirectangular Radiance HDR (e.g. Poly Haven HDRIs, which `strada hdri` and the MCP tool
   `polyhaven_import_hdri` download and import) → cubemap + irradiance + prefiltered specular (compute shaders).
 - `FontAsset` (`.ttf`, `.otf` with TrueType outlines; the first font of a collection), `AudioClipAsset` (`.wav`,
