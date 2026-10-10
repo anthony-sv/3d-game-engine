@@ -31,6 +31,8 @@ namespace Strada
 	{
 		// Frame deltas are clamped so a stall (breakpoint, window drag, loading) does not produce a huge timestep.
 		constexpr double MaxFrameTime = 0.25;
+		// Seconds between log flushes in the main loop.
+		constexpr double LogFlushInterval = 1.0;
 	}
 
 	Application::Application(ApplicationSpecification specification)
@@ -281,6 +283,7 @@ namespace Strada
 		m_Running = true;
 		m_StartTime = Platform::GetTime();
 		double lastFrameTime = m_StartTime;
+		double lastLogFlushTime = m_StartTime;
 
 		// Close() may already have been requested from OnInit; the loop then exits without running a frame.
 		while (!m_CloseRequested)
@@ -288,6 +291,14 @@ namespace Strada
 			double const frameStartTime = Platform::GetTime();
 			m_FrameTime = Timestep(static_cast<float>(std::min(frameStartTime - lastFrameTime, MaxFrameTime)));
 			lastFrameTime = frameStartTime;
+
+			// Messages below warnings are written to the log file lazily; flushing them regularly keeps the log of a session
+			// that hangs or is ended from outside.
+			if (frameStartTime - lastLogFlushTime >= LogFlushInterval)
+			{
+				Log::Flush();
+				lastLogFlushTime = frameStartTime;
+			}
 
 			if (m_Window)
 			{

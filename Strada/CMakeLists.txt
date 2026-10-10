@@ -349,8 +349,9 @@ target_link_libraries(Strada
         Jolt
 )
 if(WIN32)
-    # Crash minidumps (CrashHandler); DbgHelp ships with Windows. Shell32: CommandLineToArgvW (Platform).
-    target_link_libraries(Strada PRIVATE Dbghelp Shell32)
+    # Crash minidumps (CrashHandler); DbgHelp ships with Windows. Shell32: CommandLineToArgvW (Platform). Ole32: the
+    # main thread's COM apartment (Platform).
+    target_link_libraries(Strada PRIVATE Dbghelp Shell32 Ole32)
 endif()
 
 target_compile_definitions(Strada PUBLIC

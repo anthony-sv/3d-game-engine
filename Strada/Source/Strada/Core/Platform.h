@@ -27,5 +27,25 @@ namespace Strada
 		// writes fail with EPIPE instead. Applications do this at startup: an editor that a tool started keeps running when
 		// the tool exits and the editor's output pipe closes. Process-wide; nothing to do on Windows, where the writes fail.
 		static void IgnoreBrokenPipeSignal();
+
+		// Windows: makes the calling thread a single-threaded COM apartment while it exists (nothing elsewhere). Applications
+		// hold one on the main thread for their lifetime: shell dialogs (the editor's file dialogs) require such an
+		// apartment and can hang in a multithreaded one, which miniaudio would otherwise make the main thread when the audio
+		// engine starts (it keeps an apartment that already exists).
+		class MainThreadApartment
+		{
+		public:
+			MainThreadApartment();
+			~MainThreadApartment();
+
+			MainThreadApartment(MainThreadApartment const&) = delete;
+			MainThreadApartment& operator=(MainThreadApartment const&) = delete;
+
+			// Whether this object entered the apartment (false when the thread already had another one).
+			bool IsEntered() const { return m_Entered; }
+
+		private:
+			bool m_Entered = false;
+		};
 	};
 }

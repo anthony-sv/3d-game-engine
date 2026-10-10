@@ -8,6 +8,7 @@
 
 #if defined(ST_PLATFORM_WINDOWS)
 #include <Windows.h>
+#include <objbase.h>
 #include <shellapi.h>
 #elif defined(ST_PLATFORM_LINUX)
 #include <signal.h>
@@ -160,6 +161,23 @@ namespace Strada
 			arguments.emplace_back(argv[i] != nullptr ? argv[i] : "");
 		}
 		return arguments;
+	}
+
+	Platform::MainThreadApartment::MainThreadApartment()
+	{
+#if defined(ST_PLATFORM_WINDOWS)
+		m_Entered = SUCCEEDED(::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
+#endif
+	}
+
+	Platform::MainThreadApartment::~MainThreadApartment()
+	{
+#if defined(ST_PLATFORM_WINDOWS)
+		if (m_Entered)
+		{
+			::CoUninitialize();
+		}
+#endif
 	}
 
 	double Platform::GetTime()

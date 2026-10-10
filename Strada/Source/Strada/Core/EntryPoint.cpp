@@ -18,6 +18,7 @@ namespace Strada
 {
 	int ApplicationMain(int argc, char** argv)
 	{
+		Platform::MainThreadApartment const apartment;
 #if defined(ST_PLATFORM_WINDOWS) && !defined(ST_DIST)
 		::SetConsoleOutputCP(CP_UTF8);
 #endif
