@@ -34,6 +34,7 @@ add_executable(StradaTests
     Source/Physics/PhysicsTestUtilities.h
     Source/Platform/ProcessTests.cpp
     Source/Project/ProjectTests.cpp
+    Source/Project/ScriptProjectTests.cpp
     Source/RHI/GraphicsDeviceTests.cpp
     Source/RHI/SwapchainTests.cpp
     Source/RHI/TextureReadbackTests.cpp

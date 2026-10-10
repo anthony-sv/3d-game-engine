@@ -531,6 +531,19 @@ The application running scenes implements `ScriptHost` and registers it with `Sc
 returned), `Strada.Testing.TestReporter` results and unhandled script exceptions go to it. Without a host, requests are
 logged and ignored. `Application.WindowWidth/Height` are the running scene's viewport size.
 
+### 10.5 Script projects
+
+A project's scripts form a C# project, `<project>/Scripts/<Name>.csproj`, where `<Name>` is the file name of the
+project's `ScriptModule` (default `Scripts/Binaries/Game.dll`, namespace `Game`). `ScriptProject` (Project module)
+writes it once; afterwards it belongs to the user (packages, extra files), and any .NET 10 SDK or C# editor works with
+it. `Scripts/Strada.props`, rewritten whenever its content changes, points the project at this machine's
+`Strada.ScriptCore.dll` (referenced, not copied: the engine provides it). New scripts come from a template in
+`Scripts/Source/<Class>.cs`. Builds run `dotnet build` (found through `DOTNET_ROOT`, PATH, then the default install
+locations) as a child process (`Process`, Platform module, reproc++) into the `ScriptModule`'s directory, without
+build servers (they would outlive the build and keep its output open) and with English output, from which errors and
+warnings are parsed with their files and positions. A build is out of date when a C# source or project file is newer
+than the assembly.
+
 ## 11. Editor (`StradaEditor`)
 
 - ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Viewport,
