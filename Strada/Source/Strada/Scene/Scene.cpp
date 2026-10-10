@@ -181,7 +181,7 @@ namespace Strada
 		glm::quat currentRotation(1.0f, 0.0f, 0.0f, 0.0f);
 		glm::vec3 scale = root.GetComponent<TransformComponent>().Scale;
 		Math::DecomposeTransform(GetWorldTransform(root), currentPosition, currentRotation, scale);
-		SetWorldTransform(root, Math::ComposeTransform(position, glm::normalize(rotation), scale));
+		SetWorldTransform(root, Math::ComposeTransform(position, rotation, scale));
 
 		StartScriptsOf(SceneSerializer::CollectHierarchy(*this, {root.GetUUID()}));
 		return root;

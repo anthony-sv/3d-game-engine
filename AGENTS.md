@@ -199,6 +199,9 @@ namespace Strada
   `"<Module>: <behavior>"`. Tests that touch global state (Input, Log) restore it; temporary files go through
   `Testing::TemporaryDirectory`.
 - Run everything with `python Tools/build.py --test`; CI runs the same command on Windows, Linux and macOS.
+- Every file format users write gets a fuzz test (`Testing::DocumentMutator` in `Tests/StradaTests/Source/Fuzzing.h`):
+  damaged documents must be refused or repaired, what loads must save and load again, and what runs must run. Set
+  `STRADA_FUZZ_SCALE=<n>` for n times more rounds after changing a loader (Debug builds keep Jolt's asserts).
 
 Rules for the other suites:
 

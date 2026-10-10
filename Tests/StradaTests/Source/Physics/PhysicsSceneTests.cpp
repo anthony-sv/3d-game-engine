@@ -3,6 +3,7 @@
 #include "Strada/Asset/MeshFactory.h"
 
 #include <doctest/doctest.h>
+#include <glm/gtc/constants.hpp>
 
 #include <cmath>
 #include <limits>
@@ -407,6 +408,22 @@ TEST_CASE("PhysicsScene: values beyond the physics world's limits are clamped or
 	world->SetBodyTransform(BallId, glm::vec3(std::numeric_limits<float>::quiet_NaN()), identity);
 	CHECK(world->GetBodyTransform(BallId)->Position.y == doctest::Approx(-MaxPhysicsCoordinate));
 
+	// Rotations with components near the float range keep their direction (normalizing them naively gives zero).
+	glm::quat const quarterTurn = glm::angleAxis(glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+	auto const isQuarterTurn = [&](UUID entity)
+	{
+		return std::abs(glm::dot(world->GetBodyTransform(entity)->Rotation, quarterTurn)) > 0.9999f;
+	};
+	world->SetBodyTransform(BallId, glm::vec3(0.0f), quarterTurn * 1.0e30f);
+	CHECK(isQuarterTurn(BallId));
+	BodyDesc turned = MakeBody(GroundId, RigidBodyType::Kinematic, {0.0f, 50.0f, 0.0f}, Box(glm::vec3(1.0f)));
+	turned.Rotation = quarterTurn * 1.0e30f;
+	REQUIRE(world->AddBody(turned).IsOk());
+	CHECK(isQuarterTurn(GroundId));
+	world->MoveKinematic(GroundId, {0.0f, 50.0f, 0.0f}, quarterTurn * -1.0e30f, Step);
+	world->Step(Step);
+	CHECK(isQuarterTurn(GroundId));
+
 	// Extreme gravity, forces and torques, even on the lightest and smallest body, leave the simulation finite.
 	world->SetGravity({0.0f, -1.0e30f, 0.0f});
 	CHECK(world->GetGravity().y == doctest::Approx(-MaxPhysicsGravity));
@@ -428,5 +445,47 @@ TEST_CASE("PhysicsScene: values beyond the physics world's limits are clamped or
 		CHECK(isFinite(world->GetLinearVelocity(entity)));
 		CHECK(isFinite(world->GetAngularVelocity(entity)));
 		CHECK(isFinite(world->GetBodyTransform(entity)->Position));
+	}
+}
+
+TEST_CASE("PhysicsScene: velocities beyond Jolt's limits are clamped in every direction")
+{
+	Testing::PhysicsSystemScope physics;
+	Scope<PhysicsScene> world = CreateWorld();
+	// Jolt's default limits, which bodies keep.
+	float const maxLinearVelocity = 500.0f;
+	float const maxAngularVelocity = 0.25f * glm::pi<float>() * 60.0f;
+	auto const checkClamped = [](glm::vec3 const& velocity, glm::vec3 const& direction, float limit)
+	{
+		CHECK(glm::length(velocity) <= limit * 1.0001f);
+		CHECK(glm::length(velocity) >= limit * 0.9999f);
+		CHECK(glm::dot(glm::normalize(velocity), direction) > 0.9999f);
+	};
+
+	// Directions spread over the sphere (a Fibonacci lattice), and speeds from above the limits up to the largest float:
+	// clamped velocities must be within the limits to the last bit, and squaring huge ones must not overflow.
+	constexpr int DirectionCount = 64;
+	for (int index = 0; index < DirectionCount; index++)
+	{
+		float const y = 1.0f - 2.0f * (static_cast<float>(index) + 0.5f) / static_cast<float>(DirectionCount);
+		float const radius = std::sqrt(1.0f - y * y);
+		float const angle = 2.39996323f * static_cast<float>(index);
+		glm::vec3 const direction(radius * std::cos(angle), y, radius * std::sin(angle));
+		for (float const speed : {1.0e3f, 1.0e30f, std::numeric_limits<float>::max()})
+		{
+			CAPTURE(index);
+			CAPTURE(speed);
+			BodyDesc ball = MakeBody(BallId, RigidBodyType::Dynamic, glm::vec3(0.0f), Sphere(0.5f));
+			ball.LinearVelocity = direction * speed;
+			ball.AngularVelocity = direction * speed;
+			REQUIRE(world->AddBody(ball).IsOk());
+			checkClamped(world->GetLinearVelocity(BallId), direction, maxLinearVelocity);
+			checkClamped(world->GetAngularVelocity(BallId), direction, maxAngularVelocity);
+
+			world->SetLinearVelocity(BallId, -direction * speed);
+			world->SetAngularVelocity(BallId, -direction * speed);
+			checkClamped(world->GetLinearVelocity(BallId), -direction, maxLinearVelocity);
+			checkClamped(world->GetAngularVelocity(BallId), -direction, maxAngularVelocity);
+		}
 	}
 }

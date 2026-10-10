@@ -19,6 +19,7 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -286,6 +287,9 @@ TEST_CASE("Scene: script values that are not finite or not enumerators are rejec
 	Entity probe = AddScript(scene, "Probe", "Strada.Tests.ValueGuard");
 	scene.OnRuntimeStart();
 	CHECK(probe.GetName() == "Translation=(1, 2, 3);Rotation=(0, 0, 0, 1);Hit=False");
+	// The rotation set last, with components near the float range, kept its direction.
+	glm::quat const quarterTurn = glm::angleAxis(glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+	CHECK(std::abs(glm::dot(probe.GetComponent<TransformComponent>().Rotation, quarterTurn)) == doctest::Approx(1.0f));
 
 	CameraComponent const& camera = probe.GetComponent<CameraComponent>();
 	CHECK(camera.OrthographicSize == 5.0f);

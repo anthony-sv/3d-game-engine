@@ -210,8 +210,9 @@ public class Jumper : Script
 }
 ```
 
-Forces and torques take a `ForceMode` (`Force`, `Impulse`, `Acceleration`, `VelocityChange`). `LinearVelocity` and
-`AngularVelocity` can be read and set, `MoveKinematic` moves kinematic bodies smoothly and `Teleport` places any body.
+Forces and torques take a `ForceMode` (`Force`, `Impulse`, `Acceleration`, `VelocityChange`). `LinearVelocity` (meters
+per second, up to 500) and `AngularVelocity` (radians per second, up to about 47) can be read and set, `MoveKinematic`
+moves kinematic bodies smoothly and `Teleport` places any body.
 Apply continuous forces in `OnFixedUpdate`, which runs before each physics step. `Physics.Raycast` finds the closest
 solid collider along a ray (`Physics.Gravity` is the scene's gravity):
 

@@ -140,6 +140,7 @@ namespace Strada
 		glm::bvec3 LockRotation = {false, false, false};
 		bool ContinuousCollision = false;
 		bool AllowSleep = true;
+		// When play starts, in meters and radians per second.
 		glm::vec3 InitialLinearVelocity = {0.0f, 0.0f, 0.0f};
 		glm::vec3 InitialAngularVelocity = {0.0f, 0.0f, 0.0f};
 	};

@@ -248,9 +248,9 @@ namespace Strada
 				.Doc("Keeps fast bodies from passing through thin geometry, at a performance cost."),
 			Field("AllowSleep", &RigidBodyComponent::AllowSleep).Doc("Lets the body stop simulating while it is at rest."),
 			Field("InitialLinearVelocity", &RigidBodyComponent::InitialLinearVelocity)
-				.Doc("Velocity in meters per second when play starts."),
+				.Doc("Velocity in meters per second when play starts (the simulation allows up to 500)."),
 			Field("InitialAngularVelocity", &RigidBodyComponent::InitialAngularVelocity)
-				.Doc("Angular velocity in degrees per second when play starts."));
+				.Doc("Angular velocity in radians per second when play starts (the simulation allows up to about 47)."));
 	};
 
 	template<>

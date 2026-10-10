@@ -122,7 +122,7 @@ public sealed class HostProbe : Script
 }
 
 // Sets values the engine rejects: non-finite numbers and unknown enumerators keep the previous values; a zero rotation
-// is the identity.
+// is the identity, and one with components near the float range keeps its direction.
 public sealed class ValueGuard : Script
 {
 	protected override void OnCreate()
@@ -131,6 +131,9 @@ public sealed class ValueGuard : Script
 		Translation = new Vector3(float.NaN, 0.0f, 0.0f);
 		Transform.EulerAngles = new Vector3(float.PositiveInfinity, 0.0f, 0.0f);
 		Rotation = new Quaternion(0.0f, 0.0f, 0.0f, 0.0f);
+		Quaternion fromZero = Rotation;
+		// A quarter turn about Y.
+		Rotation = new Quaternion(0.0f, 1.0e30f, 0.0f, 1.0e30f);
 		CameraComponent camera = AddComponent<CameraComponent>();
 		camera.OrthographicSize = 5.0f;
 		camera.OrthographicSize = float.NegativeInfinity;
@@ -143,6 +146,6 @@ public sealed class ValueGuard : Script
 		body.Teleport(new Vector3(float.NaN, 0.0f, 0.0f), Quaternion.Identity);
 		Physics.Gravity = new Vector3(0.0f, float.NaN, 0.0f);
 		bool hit = Physics.Raycast(Vector3.Zero, Vector3.Down, float.PositiveInfinity, out _);
-		Name = string.Create(CultureInfo.InvariantCulture, $"Translation={Translation};Rotation={Rotation};Hit={hit}");
+		Name = string.Create(CultureInfo.InvariantCulture, $"Translation={Translation};Rotation={fromZero};Hit={hit}");
 	}
 }

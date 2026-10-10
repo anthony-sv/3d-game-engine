@@ -1,9 +1,11 @@
 #include "Strada/Math/Math.h"
 
 #include <doctest/doctest.h>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
+#include <limits>
 
 using namespace Strada;
 
@@ -82,6 +84,51 @@ TEST_CASE("Math: degenerate transforms are rejected")
 	glm::mat4 const degenerate = Math::ComposeTransform({1.0f, 2.0f, 3.0f}, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), {0.0f, 1.0f, 1.0f});
 	CHECK_FALSE(Math::DecomposeTransform(degenerate, translation, rotation, scale));
 	CHECK(translation == glm::vec3(7.0f));
+
+	// Basis vectors whose length overflows, or is not a number, have no direction that can be computed either.
+	glm::mat4 overflowing(1.0f);
+	overflowing[0] = glm::vec4(3.0e38f, 3.0e38f, 0.0f, 0.0f);
+	CHECK_FALSE(Math::DecomposeTransform(overflowing, translation, rotation, scale));
+	glm::mat4 notANumber(1.0f);
+	notANumber[2] = glm::vec4(std::numeric_limits<float>::quiet_NaN(), 0.0f, 1.0f, 0.0f);
+	CHECK_FALSE(Math::DecomposeTransform(notANumber, translation, rotation, scale));
+	CHECK(translation == glm::vec3(7.0f));
+}
+
+TEST_CASE("Math: quaternions of any finite size normalize to their direction")
+{
+	glm::quat const quarterTurn = glm::angleAxis(glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+	glm::quat const identity(1.0f, 0.0f, 0.0f, 0.0f);
+
+	// Squaring components near the float range overflows (glm::normalize returns zero for them), and squaring tiny ones
+	// underflows (glm::normalize returns the identity).
+	for (float const size : {1.0f, 2.0f, 1.0e30f, 1.0e-30f, -1.0e30f})
+	{
+		CAPTURE(size);
+		glm::quat const scaled = quarterTurn * size;
+		CHECK(SameRotation(Math::NormalizeRotation(scaled), quarterTurn));
+		CHECK(glm::length(Math::NormalizeRotation(scaled)) == doctest::Approx(1.0f));
+		CHECK(Math::QuaternionLength(scaled) / std::abs(size) == doctest::Approx(1.0f));
+	}
+	float const largest = std::numeric_limits<float>::max();
+	glm::quat const huge = Math::NormalizeRotation(glm::quat::wxyz(largest, largest, largest, -largest));
+	CHECK(huge.w == doctest::Approx(0.5f));
+	CHECK(huge.z == doctest::Approx(-0.5f));
+	CHECK(Math::QuaternionLength(glm::quat::wxyz(largest, largest, 0.0f, 0.0f)) == std::numeric_limits<float>::infinity());
+
+	// Zero has no direction: it is the identity.
+	CHECK(Math::NormalizeRotation(glm::quat::wxyz(0.0f, 0.0f, 0.0f, 0.0f)) == identity);
+	CHECK(Math::QuaternionLength(glm::quat::wxyz(0.0f, 0.0f, 0.0f, 0.0f)) == 0.0f);
+
+	// Ordinary rotations normalize exactly as glm does: Euler angles near 90 degrees of yaw (computed with asin) move by
+	// 0.02 degrees when a component changes by an ulp.
+	glm::vec3 const yawed = Math::QuaternionToEulerDegrees(Math::EulerDegreesToQuaternion({0.0f, 90.0f, 0.0f}));
+	CHECK(yawed.y == doctest::Approx(90.0f).epsilon(1e-5));
+
+	// Transforms and Euler angles of such rotations are the ones of their direction.
+	glm::quat const rotation = Math::EulerDegreesToQuaternion({30.0f, -45.0f, 10.0f});
+	CHECK(NearlyEqual(Math::ComposeTransform(glm::vec3(0.0f), rotation * 1.0e30f, glm::vec3(1.0f)), glm::mat4_cast(rotation)));
+	CHECK(NearlyEqual(Math::QuaternionToEulerDegrees(rotation * 1.0e30f), {30.0f, -45.0f, 10.0f}));
 }
 
 TEST_CASE("Math: Euler degree conversion round trips away from gimbal lock")

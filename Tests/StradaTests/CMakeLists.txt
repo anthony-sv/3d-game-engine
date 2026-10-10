@@ -2,6 +2,7 @@
 
 add_executable(StradaTests
     Source/Main.cpp
+    Source/Asset/AssetFileFuzzTests.cpp
     Source/Asset/AssetManagerTests.cpp
     Source/Asset/AssetRegistryTests.cpp
     Source/Asset/AssetTypeTests.cpp
@@ -30,6 +31,7 @@ add_executable(StradaTests
     Source/Core/UUIDTests.cpp
     Source/Core/Utf8Tests.cpp
     Source/Core/WindowTests.cpp
+    Source/Fuzzing.h
     Source/GpuTestUtilities.h
     Source/Math/AABBTests.cpp
     Source/Math/FrustumTests.cpp
@@ -39,6 +41,7 @@ add_executable(StradaTests
     Source/Platform/ProcessTests.cpp
     Source/Project/FeatureTestProjectTests.cpp
     Source/Project/GameExporterTests.cpp
+    Source/Project/ProjectFileFuzzTests.cpp
     Source/Project/ProjectTests.cpp
     Source/Project/SceneRunnerTests.cpp
     Source/Project/ScriptProjectTests.cpp

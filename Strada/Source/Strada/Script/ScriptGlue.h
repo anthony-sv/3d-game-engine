@@ -6,6 +6,7 @@
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/UUID.h"
+#include "Strada/Math/Math.h"
 #include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -110,7 +111,7 @@ namespace Strada::ScriptGlue
 	// Rotations from scripts are normalized (a zero quaternion is the identity).
 	inline glm::quat ToRotation(Quaternion const& value)
 	{
-		return glm::normalize(FromScript(value));
+		return Math::NormalizeRotation(FromScript(value));
 	}
 
 	// Numbers from scripts are checked before they reach the engine: NaN and infinity would spread through transforms,

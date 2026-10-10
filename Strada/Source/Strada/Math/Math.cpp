@@ -3,13 +3,31 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace Strada::Math
 {
+	namespace
+	{
+		// Whether glm computes the quaternion's length accurately: its squared length neither overflows (components near
+		// the float range) nor underflows into subnormal numbers or zero (tiny components).
+		bool HasRepresentableSquaredLength(glm::quat const& quaternion)
+		{
+			float const lengthSquared = glm::dot(quaternion, quaternion);
+			return lengthSquared >= std::numeric_limits<float>::min() && lengthSquared <= std::numeric_limits<float>::max();
+		}
+
+		float GetLargestComponent(glm::quat const& quaternion)
+		{
+			return std::max({std::abs(quaternion.x), std::abs(quaternion.y), std::abs(quaternion.z), std::abs(quaternion.w)});
+		}
+	}
+
 	glm::mat4 ComposeTransform(glm::vec3 const& translation, glm::quat const& rotation, glm::vec3 const& scale)
 	{
-		glm::mat4 const rotationMatrix = glm::mat4_cast(glm::normalize(rotation));
+		glm::mat4 const rotationMatrix = glm::mat4_cast(NormalizeRotation(rotation));
 		glm::mat4 result = rotationMatrix;
 		result[0] *= scale.x;
 		result[1] *= scale.y;
@@ -23,8 +41,14 @@ namespace Strada::Math
 		glm::vec3 columns[3] = {glm::vec3(transform[0]), glm::vec3(transform[1]), glm::vec3(transform[2])};
 		glm::vec3 lengths(glm::length(columns[0]), glm::length(columns[1]), glm::length(columns[2]));
 
+		// Zero-length basis vectors have no direction, and ones whose length is not finite (huge components overflow
+		// when squared) none that can be computed.
 		constexpr float Epsilon = 1e-8f;
-		if (lengths.x < Epsilon || lengths.y < Epsilon || lengths.z < Epsilon)
+		auto const usable = [](float length)
+		{
+			return length >= Epsilon && std::isfinite(length);
+		};
+		if (!usable(lengths.x) || !usable(lengths.y) || !usable(lengths.z))
 		{
 			return false;
 		}
@@ -44,12 +68,40 @@ namespace Strada::Math
 
 	glm::vec3 QuaternionToEulerDegrees(glm::quat const& rotation)
 	{
-		return glm::degrees(glm::eulerAngles(glm::normalize(rotation)));
+		return glm::degrees(glm::eulerAngles(NormalizeRotation(rotation)));
 	}
 
 	glm::quat EulerDegreesToQuaternion(glm::vec3 const& degrees)
 	{
 		return glm::normalize(glm::quat(glm::radians(degrees)));
+	}
+
+	float QuaternionLength(glm::quat const& quaternion)
+	{
+		if (HasRepresentableSquaredLength(quaternion))
+		{
+			return glm::length(quaternion);
+		}
+		// Divided by its largest component, the quaternion's squared length is between 1 and 4.
+		float const largest = GetLargestComponent(quaternion);
+		return largest > 0.0f ? largest * glm::length(quaternion / largest) : 0.0f;
+	}
+
+	glm::quat NormalizeRotation(glm::quat const& rotation)
+	{
+		// Rotations glm normalizes correctly keep its exact result: Euler angles near +-90 degrees of yaw (computed with
+		// asin) change visibly when a component changes by an ulp.
+		if (HasRepresentableSquaredLength(rotation))
+		{
+			return glm::normalize(rotation);
+		}
+		float const largest = GetLargestComponent(rotation);
+		if (!(largest > 0.0f))
+		{
+			return glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		}
+		glm::quat const scaled = rotation / largest;
+		return scaled / glm::length(scaled);
 	}
 
 	float SrgbToLinear(float value)

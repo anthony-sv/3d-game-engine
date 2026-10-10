@@ -773,8 +773,7 @@ namespace Strada
 	bool FieldEditor::DrawQuaternion(Json const& value, FieldChange& change)
 	{
 		std::array<float, 4> const components = ReadFloats(value);
-		glm::quat rotation = glm::quat::wxyz(components[3], components[0], components[1], components[2]);
-		rotation = glm::length(rotation) > 1e-6f ? glm::normalize(rotation) : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+		glm::quat const rotation = Math::NormalizeRotation(glm::quat::wxyz(components[3], components[0], components[1], components[2]));
 
 		uint32_t const id = ImGui::GetID("##euler");
 		auto [iterator, inserted] = m_EulerStates.try_emplace(id);

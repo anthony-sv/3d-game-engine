@@ -3,6 +3,7 @@
 
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Core/Hash.h"
+#include "Strada/Math/Math.h"
 #include "Strada/Physics/JoltContext.h"
 #include "Strada/Physics/PhysicsSystem.h"
 
@@ -747,7 +748,7 @@ namespace Strada
 			ST_CORE_WARN("Physics: entity {} is farther from the origin than the physics world allows ({} m); its body stays at the edge",
 			             desc.Entity, MaxPhysicsCoordinate);
 		}
-		JPH::BodyCreationSettings settings(shape, Jolt::ToJolt(position), Jolt::ToJolt(glm::normalize(desc.Rotation)), motionType,
+		JPH::BodyCreationSettings settings(shape, Jolt::ToJolt(position), Jolt::ToJolt(Math::NormalizeRotation(desc.Rotation)), motionType,
 		                                   Layers::Make(layer, type != RigidBodyType::Static));
 		settings.mUserData = desc.Entity.GetValue();
 		settings.mFriction = std::max(desc.Colliders.front().Friction, 0.0f);
@@ -765,19 +766,20 @@ namespace Strada
 			settings.mAllowedDOFs = allowedDofs;
 			settings.mMotionQuality = desc.ContinuousCollision ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
 		}
-		if (type != RigidBodyType::Static)
-		{
-			// Jolt asserts on initial velocities beyond its limits rather than clamping them.
-			settings.mLinearVelocity = Jolt::ToJolt(ClampLength(desc.LinearVelocity, settings.mMaxLinearVelocity));
-			settings.mAngularVelocity = Jolt::ToJolt(ClampLength(desc.AngularVelocity, settings.mMaxAngularVelocity));
-		}
-
 		JPH::BodyInterface& bodies = data.System.GetBodyInterface();
 		JPH::Body* body = bodies.CreateBody(settings);
 		if (body == nullptr)
 		{
 			releaseMaterials();
 			return MakeError("entity {}: the physics world is full ({} bodies)", desc.Entity, MaxBodies);
+		}
+		if (type != RigidBodyType::Static)
+		{
+			// Not through the creation settings: Jolt asserts that those are within the body's limits, which clamping
+			// cannot guarantee to the last bit, while these setters clamp. Jolt clamps by the squared length, which
+			// overflows for huge values, so those are shortened first.
+			body->SetLinearVelocityClamped(Jolt::ToJolt(ClampLength(desc.LinearVelocity, settings.mMaxLinearVelocity)));
+			body->SetAngularVelocityClamped(Jolt::ToJolt(ClampLength(desc.AngularVelocity, settings.mMaxAngularVelocity)));
 		}
 		bodies.AddBody(body->GetID(), type == RigidBodyType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
 		data.Bodies[desc.Entity] = BodyRecord{body->GetID(), type, std::move(materials)};
@@ -896,7 +898,7 @@ namespace Strada
 			JPH::EActivation const activation =
 				record->Type == RigidBodyType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
 			m_Data->System.GetBodyInterface().SetPositionAndRotation(record->Id, Jolt::ToJolt(ClampPosition(position)),
-			                                                         Jolt::ToJolt(glm::normalize(rotation)), activation);
+			                                                         Jolt::ToJolt(Math::NormalizeRotation(rotation)), activation);
 		}
 	}
 
@@ -906,7 +908,7 @@ namespace Strada
 		if (record != nullptr && record->Type == RigidBodyType::Kinematic && deltaTime > 0.0f && IsFinite(position) && IsFinite(rotation))
 		{
 			m_Data->System.GetBodyInterface().MoveKinematic(record->Id, Jolt::ToJolt(ClampPosition(position)),
-			                                                Jolt::ToJolt(glm::normalize(rotation)), deltaTime);
+			                                                Jolt::ToJolt(Math::NormalizeRotation(rotation)), deltaTime);
 		}
 	}
 
@@ -919,11 +921,12 @@ namespace Strada
 	void PhysicsScene::SetLinearVelocity(UUID entity, glm::vec3 const& velocity)
 	{
 		BodyRecord const* record = m_Data->Find(entity);
-		// Jolt clamps the velocity to its limit.
 		if (record != nullptr && record->Type != RigidBodyType::Static && IsFinite(velocity))
 		{
-			m_Data->System.GetBodyInterface().SetLinearVelocity(record->Id, Jolt::ToJolt(velocity));
-			m_Data->System.GetBodyInterface().ActivateBody(record->Id);
+			// Jolt clamps the velocity to the body's limit by its squared length, which overflows for huge values.
+			JPH::BodyInterface& bodies = m_Data->System.GetBodyInterface();
+			bodies.SetLinearVelocity(record->Id, Jolt::ToJolt(ClampLength(velocity, bodies.GetMaxLinearVelocity(record->Id))));
+			bodies.ActivateBody(record->Id);
 		}
 	}
 
@@ -938,8 +941,9 @@ namespace Strada
 		BodyRecord const* record = m_Data->Find(entity);
 		if (record != nullptr && record->Type != RigidBodyType::Static && IsFinite(velocity))
 		{
-			m_Data->System.GetBodyInterface().SetAngularVelocity(record->Id, Jolt::ToJolt(velocity));
-			m_Data->System.GetBodyInterface().ActivateBody(record->Id);
+			JPH::BodyInterface& bodies = m_Data->System.GetBodyInterface();
+			bodies.SetAngularVelocity(record->Id, Jolt::ToJolt(ClampLength(velocity, bodies.GetMaxAngularVelocity(record->Id))));
+			bodies.ActivateBody(record->Id);
 		}
 	}
 

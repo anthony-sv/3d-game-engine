@@ -52,14 +52,16 @@ public sealed unsafe class RigidBodyComponent : Component
 		set => NativeField.Set<float>(InternalCalls.RigidBodyComponent_SetAngularDamping, Entity.ID, value);
 	}
 
-	/// <summary>Velocity in meters per second (the initial velocity while the scene is not simulated).</summary>
+	/// <summary>Velocity in meters per second (the initial velocity while the scene is not simulated); the simulation allows
+	/// up to 500.</summary>
 	public Vector3 LinearVelocity
 	{
 		get => NativeField.Get<Vector3>(InternalCalls.RigidBodyComponent_GetLinearVelocity, Entity.ID);
 		set => NativeField.Set<Vector3>(InternalCalls.RigidBodyComponent_SetLinearVelocity, Entity.ID, value);
 	}
 
-	/// <summary>Angular velocity in radians per second (the initial one while the scene is not simulated).</summary>
+	/// <summary>Angular velocity in radians per second (the initial one while the scene is not simulated); the simulation
+	/// allows up to about 47 (7.5 turns per second).</summary>
 	public Vector3 AngularVelocity
 	{
 		get => NativeField.Get<Vector3>(InternalCalls.RigidBodyComponent_GetAngularVelocity, Entity.ID);
