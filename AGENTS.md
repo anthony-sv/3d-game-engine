@@ -16,9 +16,6 @@ before changing anything structural; it is the architectural contract.
 
 ## Repository map
 
-Entries marked *(planned)* are introduced by upcoming subsystems; their location and purpose are fixed by
-`Docs/Architecture.md`.
-
 | Path | What |
 |------|------|
 | `Strada/` | Engine static library (`Source/Strada/<Module>`, `Shaders/`, `Resources/`) |
@@ -203,7 +200,7 @@ namespace Strada
   `Testing::TemporaryDirectory`.
 - Run everything with `python Tools/build.py --test`; CI runs the same command on Windows, Linux and macOS.
 
-Rules for suites that arrive with later subsystems (binding as soon as the subsystem exists):
+Rules for the other suites:
 
 - Editor automation tests live in `Tests/StradaEditorTests` and run the editor headless against a temporary project.
 - Game player tests live in `Tests/StradaRuntimeTests`: they write games to temporary directories and run the

@@ -1,6 +1,7 @@
 #include "TestUtilities.h"
 
 #include "Editor/Automation/EditorCommands.h"
+#include "Editor/EditorCamera.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Base64.h"
@@ -25,6 +26,8 @@ namespace
 		bool QuitRequested = false;
 		int ProjectsOpened = 0;
 		std::optional<EditorCommandEnvironment::ScreenshotCallback> PendingScreenshot;
+		// The viewport's camera when there is a window.
+		EditorCamera Camera;
 
 		explicit CommandFixture(bool withWindow = false)
 		{
@@ -42,6 +45,10 @@ namespace
 				environment.CaptureScreenshot = [this](EditorCommandEnvironment::ScreenshotCallback callback)
 				{
 					PendingScreenshot = std::move(callback);
+				};
+				environment.ViewportCamera = [this]() -> EditorCamera&
+				{
+					return Camera;
 				};
 			}
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
@@ -85,11 +92,11 @@ TEST_CASE("EditorCommands: every command is registered with a schema and descrip
 {
 	CommandFixture fixture;
 	for (char const* name :
-	     {"editor.status", "editor.commands",    "editor.undo",     "editor.redo",      "editor.quit",    "scene.new",
-	      "scene.open",    "scene.save",         "scene.hierarchy", "scene.dump",       "scene.settings", "entity.create",
-	      "entity.delete", "entity.duplicate",   "entity.rename",   "entity.reparent",  "entity.find",    "entity.get",
-	      "entity.select", "component.types",    "component.add",   "component.remove", "component.get",  "component.set",
-	      "log.read",      "viewport.screenshot"})
+	     {"editor.status", "editor.commands",     "editor.undo",     "editor.redo",      "editor.quit",    "scene.new",
+	      "scene.open",    "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings", "entity.create",
+	      "entity.delete", "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",    "entity.get",
+	      "entity.select", "component.types",     "component.add",   "component.remove", "component.get",  "component.set",
+	      "log.read",      "viewport.screenshot", "viewport.camera", "viewport.frame"})
 	{
 		CAPTURE(name);
 		CHECK(fixture.Registry.Contains(name));
@@ -193,6 +200,8 @@ TEST_CASE("EditorCommands: errors carry precise codes")
 	      AutomationErrorCode::ComponentNotFound);
 	CHECK(fixture.Fails("scene.save") == AutomationErrorCode::InvalidOperation);
 	CHECK(fixture.Fails("viewport.screenshot") == AutomationErrorCode::Unavailable);
+	CHECK(fixture.Fails("viewport.camera") == AutomationErrorCode::Unavailable);
+	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", {entity}}})) == AutomationErrorCode::Unavailable);
 }
 
 TEST_CASE("EditorCommands: scene files and unsaved changes")
@@ -434,4 +443,53 @@ TEST_CASE("EditorCommands: assets and materials are listed, imported, edited, mo
 	fixture.Ok("asset.delete-folder", Json::object({{"folder", "Art"}}));
 	CHECK(fixture.Fails("material.get", Json::object({{"material", materialID}})) == AutomationErrorCode::AssetNotFound);
 	CHECK(fixture.Fails("asset.delete-folder", Json::object({{"folder", "Art"}})) == AutomationErrorCode::FileError);
+}
+
+TEST_CASE("EditorCommands: the viewport camera is read, set and pointed at entities")
+{
+	CommandFixture fixture(true);
+	auto const vector = [](Json const& value)
+	{
+		return glm::vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>());
+	};
+	auto const nearlyEqual = [](glm::vec3 const& a, glm::vec3 const& b)
+	{
+		return glm::length(a - b) < 1e-4f;
+	};
+
+	Json const view = fixture.Ok("viewport.camera");
+	CHECK(nearlyEqual(vector(view["focalPoint"]), fixture.Camera.GetFocalPoint()));
+	CHECK(view["distance"].get<float>() == fixture.Camera.GetDistance());
+
+	// Looking down from the side: forward follows yaw and pitch, and the camera sits behind the focal point.
+	Json const set =
+		fixture.Ok("viewport.camera", Json::object({{"focalPoint", {1, 2, 3}}, {"distance", 10}, {"yaw", 90}, {"pitch", -30}}));
+	CHECK(nearlyEqual(vector(set["focalPoint"]), {1.0f, 2.0f, 3.0f}));
+	CHECK(set["distance"].get<float>() == 10.0f);
+	CHECK(set["yaw"].get<float>() == 90.0f);
+	CHECK(set["pitch"].get<float>() == -30.0f);
+	glm::vec3 const forward = vector(set["forward"]);
+	CHECK(nearlyEqual(forward, {-0.8660254f, -0.5f, 0.0f}));
+	CHECK(nearlyEqual(vector(set["position"]), glm::vec3(1.0f, 2.0f, 3.0f) - forward * 10.0f));
+	// Values left out stay.
+	Json const closer = fixture.Ok("viewport.camera", Json::object({{"distance", 4}}));
+	CHECK(closer["distance"].get<float>() == 4.0f);
+	CHECK(closer["yaw"].get<float>() == 90.0f);
+	CHECK(nearlyEqual(vector(closer["focalPoint"]), {1.0f, 2.0f, 3.0f}));
+	CHECK(fixture.Fails("viewport.camera", Json::object({{"pitch", 95}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("viewport.camera", Json::object({{"distance", 0}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("viewport.camera", Json::object({{"focalPoint", {1, 2}}})) == AutomationErrorCode::InvalidParams);
+
+	// Framing centers the entities and backs off to see them all.
+	std::string const left = fixture.Create("Left", Json::object({{"components", {{"Transform", {{"Translation", {-2, 0, 0}}}}}}}));
+	std::string const right = fixture.Create("Right", Json::object({{"components", {{"Transform", {{"Translation", {6, 0, 0}}}}}}}));
+	Json const one = fixture.Ok("viewport.frame", Json::object({{"entities", {left}}}));
+	CHECK(nearlyEqual(vector(one["focalPoint"]), {-2.0f, 0.0f, 0.0f}));
+	Json const both = fixture.Ok("viewport.frame", Json::object({{"entities", {left, right}}}));
+	CHECK(nearlyEqual(vector(both["focalPoint"]), {2.0f, 0.0f, 0.0f}));
+	CHECK(both["distance"].get<float>() > one["distance"].get<float>());
+	// Framing keeps the direction.
+	CHECK(both["yaw"].get<float>() == 90.0f);
+	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", {"123"}}})) == AutomationErrorCode::EntityNotFound);
+	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", Json::array()}})) == AutomationErrorCode::InvalidParams);
 }

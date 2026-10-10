@@ -258,8 +258,11 @@ undo history of its own) and `play.stop` discards it. Scene and project file com
 |---------|-----------|--------|
 | `log.read` | `since` (entry index), `maxCount` (default 500), `minLevel` (`trace`..`critical`) | `entries`: `[{ index, level, logger, message, timestampMs }]`, `next` (pass as `since`) |
 | `viewport.screenshot` | — | `mimeType` (`image/png`), `width`, `height`, `data` (base64); asynchronous; Unavailable when headless |
+| `viewport.camera` | `focalPoint` ([x, y, z]), `distance` (0.05 to 10000), `yaw`, `pitch` (degrees, -89 to 89); all optional | The view of the viewport's camera, which orbits its focal point, after setting the given values: `focalPoint`, `distance`, `yaw`, `pitch`, `position`, `forward` (yaw 0 and pitch 0 look down -Z); not undoable; Unavailable when headless |
+| `viewport.frame` | `entities`* | The view after pointing the camera at the entities from its current direction, framing their meshes (their origins without one), as the hierarchy's Focus does; not undoable; Unavailable when headless |
 
-Later subsystems add `renderer.*` commands (Docs/Architecture.md section 12); they are added to this reference.
+Renderer settings (shadows, ambient occlusion, bloom, exposure, tonemapping, FXAA) are scene settings: `scene.settings`
+reads and changes them under `Renderer`.
 
 ## Example session
 

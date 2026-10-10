@@ -10,6 +10,8 @@
 
 namespace Strada
 {
+	class EditorCamera;
+
 	// What the automation commands need from the running editor besides the document state.
 	struct EditorCommandEnvironment
 	{
@@ -22,6 +24,9 @@ namespace Strada
 		std::function<void()> RequestQuit;
 		// Called after a project was created or opened (the editor lists it under its recent projects). May be unset.
 		std::function<void()> ProjectOpened;
+		// The camera of the editor's viewport. Unset when the editor has no viewport (headless); viewport.camera and
+		// viewport.frame then fail with AutomationErrorCode::Unavailable.
+		std::function<EditorCamera&()> ViewportCamera;
 	};
 
 	// Registers the editor, project, scene, entity, component, asset, material, prefab, log and viewport commands. Entity parameters are

@@ -6,8 +6,8 @@
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
+#include "Editor/EntityBounds.h"
 #include "Strada/Asset/AssetManager.h"
-#include "Strada/Asset/MeshSource.h"
 #include "Strada/Core/Log.h"
 #include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Renderer/Renderer.h"
@@ -638,26 +638,6 @@ namespace Strada
 
 	void ViewportPanel::FocusEntities(Scene& scene, std::span<UUID const> entities)
 	{
-		AABB bounds;
-		for (UUID const id : entities)
-		{
-			Entity entity = scene.GetEntityByUUID(id);
-			if (!entity)
-			{
-				continue;
-			}
-			glm::mat4 const world = scene.GetWorldTransform(entity);
-			MeshComponent const* mesh = entity.TryGetComponent<MeshComponent>();
-			Ref<MeshSource> const source = mesh != nullptr ? AssetManager::GetAsset<MeshSource>(mesh->Mesh) : nullptr;
-			if (source)
-			{
-				bounds.Expand(source->GetBounds().Transform(world));
-			}
-			else
-			{
-				bounds.Expand(glm::vec3(world[3]));
-			}
-		}
-		m_Camera.Focus(bounds);
+		m_Camera.Focus(ComputeEntityBounds(scene, entities));
 	}
 }

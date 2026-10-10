@@ -58,6 +58,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EditorOperations.h
     Source/Editor/EditorScripts.cpp
     Source/Editor/EditorScripts.h
+    Source/Editor/EntityBounds.cpp
+    Source/Editor/EntityBounds.h
     Source/Editor/EntityPresets.cpp
     Source/Editor/EntityPresets.h
     Source/Editor/EntitySelection.cpp

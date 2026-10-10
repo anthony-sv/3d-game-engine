@@ -29,10 +29,15 @@ namespace Strada
 	class EditorCamera
 	{
 	public:
+		// The distances from the focal point the camera keeps to, and the most it looks up or down (degrees).
+		static constexpr float MinimumDistance = 0.05f;
+		static constexpr float MaximumDistance = 10000.0f;
+		static constexpr float PitchLimit = 89.0f;
+
 		EditorCamera();
 
 		void Update(EditorCameraInput const& input, float deltaTime);
-		// Frames the bounds (a point when invalid) from the current viewing direction.
+		// Frames the bounds from the current viewing direction; invalid bounds leave the view as it is.
 		void Focus(AABB const& bounds);
 
 		void SetViewportSize(uint32_t width, uint32_t height);

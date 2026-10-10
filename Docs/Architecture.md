@@ -61,7 +61,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 │   └── Data/                                         Test assets and golden images
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
-├── Tools/                                            Developer scripts (formatting, asset download, code generation)
+├── Tools/                                            Developer scripts (configure/build/test, formatting)
 ├── Docs/                                             Architecture, scripting guide, automation reference, rendering notes
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
 ```
@@ -648,8 +648,8 @@ than the assembly.
   `asset.*` (list, get, import, refresh, move, delete, create-folder, move-folder, delete-folder),
   `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
-  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entity), `renderer.*`
-  (settings), `log.*` (read since index), `test.*` (run a test scene and return results).
+  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities), `log.*` (read since
+  index), `test.*` (run a test scene and return results). Renderer settings are scene settings (`scene.settings`).
 - Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);
   the `strada-make-game` skill in `.claude/skills/` documents building games with the tools.
 

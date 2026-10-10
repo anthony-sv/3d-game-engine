@@ -12,9 +12,6 @@ namespace Strada
 	namespace
 	{
 		constexpr float LookDegreesPerPixel = 0.2f;
-		constexpr float MinimumDistance = 0.05f;
-		constexpr float MaximumDistance = 10000.0f;
-		constexpr float PitchLimit = 89.0f;
 	}
 
 	EditorCamera::EditorCamera() = default;

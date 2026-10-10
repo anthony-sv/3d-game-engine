@@ -93,6 +93,14 @@ namespace Strada
 				Application::Get().RequestScreenshotImage(std::move(callback));
 			};
 		}
+		if (application.GetImGuiLayer() != nullptr)
+		{
+			// The viewport panel is created below, before any command can run.
+			environment.ViewportCamera = [this]() -> EditorCamera&
+			{
+				return m_ViewportPanel->GetCamera();
+			};
+		}
 		environment.RequestQuit = []
 		{
 			Application::Get().Close();

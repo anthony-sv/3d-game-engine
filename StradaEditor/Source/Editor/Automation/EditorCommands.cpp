@@ -2,6 +2,8 @@
 
 #include "Editor/Automation/JsonSchema.h"
 #include "Editor/DefaultScene.h"
+#include "Editor/EditorCamera.h"
+#include "Editor/EntityBounds.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MaterialAsset.h"
@@ -1632,7 +1634,94 @@ namespace Strada
 						                                      {"data", Base64Encode(png.GetValue())}}));
 						});
 				};
-				return m_Registry.Register(std::move(screenshot));
+				result = m_Registry.Register(std::move(screenshot));
+
+				result =
+					result ? Add("viewport.camera",
+				                 "The editor viewport's camera, which orbits a focal point: sets the given values (the others stay) and "
+				                 "returns the view: { focalPoint, distance, yaw, pitch (degrees), position, forward }. Not undoable; "
+				                 "Unavailable without a viewport (headless).",
+				                 SchemaBuilder::Object()
+				                     .Property("focalPoint",
+				                               SchemaBuilder::Array(SchemaBuilder::Number(), "The point the camera orbits [x, y, z]")
+				                                   .MinItems(3)
+				                                   .MaxItems(3))
+				                     .Property("distance", SchemaBuilder::Number("Distance from the focal point")
+				                                               .Minimum(EditorCamera::MinimumDistance)
+				                                               .Maximum(EditorCamera::MaximumDistance))
+				                     .Property("yaw", SchemaBuilder::Number("Turn about the vertical axis in degrees (0 looks down -Z)"))
+				                     .Property("pitch", SchemaBuilder::Number("Look up (positive) or down in degrees")
+				                                            .Minimum(-EditorCamera::PitchLimit)
+				                                            .Maximum(EditorCamera::PitchLimit))
+				                     .Build(),
+				                 false,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 if (!m_Environment.ViewportCamera)
+									 {
+										 return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no viewport (headless)");
+									 }
+									 EditorCamera& camera = m_Environment.ViewportCamera();
+									 glm::vec3 focalPoint = camera.GetFocalPoint();
+									 if (params.contains("focalPoint"))
+									 {
+										 Json const& value = params["focalPoint"];
+										 focalPoint = glm::vec3(value[0].get<float>(), value[1].get<float>(), value[2].get<float>());
+									 }
+									 float const distance =
+										 params.contains("distance") ? params["distance"].get<float>() : camera.GetDistance();
+									 float const yaw = params.contains("yaw") ? params["yaw"].get<float>() : camera.GetYaw();
+									 float const pitch = params.contains("pitch") ? params["pitch"].get<float>() : camera.GetPitch();
+									 if (!std::isfinite(focalPoint.x) || !std::isfinite(focalPoint.y) || !std::isfinite(focalPoint.z) ||
+					                     !std::isfinite(yaw))
+									 {
+										 return MakeCommandError(AutomationErrorCode::InvalidParams, "the view must be finite");
+									 }
+									 camera.SetView(focalPoint, distance, yaw, pitch);
+									 return DescribeCamera(camera);
+								 })
+						   : result;
+				return result
+				           ? Add("viewport.frame",
+				                 "Points the editor viewport's camera at entities, framing their meshes (their origins without one) from the "
+				                 "current direction, as Focus in the hierarchy does. Returns the view like viewport.camera. Not undoable; "
+				                 "Unavailable without a viewport (headless).",
+				                 SchemaBuilder::Object()
+				                     .Property("entities",
+				                               SchemaBuilder::Array(EntityIdSchema("Entity ID"), "Entities to frame").MinItems(1), true)
+				                     .Build(),
+				                 false,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 if (!m_Environment.ViewportCamera)
+									 {
+										 return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no viewport (headless)");
+									 }
+									 CommandValue<std::vector<UUID>> ids =
+										 ParseExistingEntities(m_Operations, params["entities"], "entities");
+									 if (!ids)
+									 {
+										 return ids.TakeError();
+									 }
+									 EditorCamera& camera = m_Environment.ViewportCamera();
+									 camera.Focus(ComputeEntityBounds(Context().GetScene(), ids.GetValue()));
+									 return DescribeCamera(camera);
+								 })
+				           : result;
+			}
+
+			static Json DescribeCamera(EditorCamera const& camera)
+			{
+				auto const toArray = [](glm::vec3 const& value)
+				{
+					return Json::array({value.x, value.y, value.z});
+				};
+				return Json::object({{"focalPoint", toArray(camera.GetFocalPoint())},
+				                     {"distance", camera.GetDistance()},
+				                     {"yaw", camera.GetYaw()},
+				                     {"pitch", camera.GetPitch()},
+				                     {"position", toArray(camera.GetPosition())},
+				                     {"forward", toArray(camera.GetForward())}});
 			}
 
 			CommandValue<std::pair<UUID, ComponentInfo const*>> ParseTarget(Json const& params)

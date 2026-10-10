@@ -16,7 +16,7 @@ an exporter for distributable games.
 > every component and the whole scripting API, and CI on all three platforms.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
-## Planned feature set
+## Features
 
 - **Renderer**: Vulkan (MoltenVK on macOS) through NVRHI; PBR metallic-roughness materials, image-based lighting from
   HDRIs (`strada hdri <id>` imports one from [Poly Haven](https://polyhaven.com/hdris)), soft cascaded shadow maps,
