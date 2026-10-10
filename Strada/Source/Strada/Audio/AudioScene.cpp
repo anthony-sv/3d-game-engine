@@ -5,7 +5,10 @@
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/MiniaudioContext.h"
 
+#include <extras/decoders/libvorbis/miniaudio_libvorbis.h>
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <unordered_map>
 
@@ -24,7 +27,7 @@ namespace Strada
 				case AudioFormat::Mp3:
 					return ma_encoding_format_mp3;
 				case AudioFormat::Ogg:
-					return ma_encoding_format_vorbis;
+					// libvorbis decodes it: miniaudio offers custom backends the data whose encoding it is not told.
 				case AudioFormat::Unknown:
 					break;
 			}
@@ -143,6 +146,10 @@ namespace Strada
 		std::span<uint8_t const> const data = sound->Clip->GetData();
 		ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
 		decoderConfig.encodingFormat = ToEncodingFormat(sound->Clip->GetFormat());
+		// Read only while the decoder initializes.
+		std::array<ma_decoding_backend_vtable*, 1> customBackends = {ma_decoding_backend_libvorbis};
+		decoderConfig.ppCustomBackendVTables = customBackends.data();
+		decoderConfig.customBackendCount = static_cast<ma_uint32>(customBackends.size());
 		if (ma_result const result = ma_decoder_init_memory(data.data(), data.size(), &decoderConfig, &sound->Decoder);
 		    result != MA_SUCCESS)
 		{

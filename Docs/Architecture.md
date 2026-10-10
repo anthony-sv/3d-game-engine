@@ -22,7 +22,7 @@ the contract must be made here first. Coding rules live in [AGENTS.md](../AGENTS
 | Math | glm (right-handed, Y-up, column-major, depth 0..1) |
 | ECS | EnTT |
 | Physics | Jolt Physics |
-| Audio | miniaudio |
+| Audio | miniaudio (playback; WAV, FLAC, MP3), libvorbis + libogg (Ogg Vorbis) |
 | Scripting | C# on .NET 10, hosted through hostfxr/nethost |
 | Editor UI | Dear ImGui (docking branch, docking + multi-viewports) + ImGuizmo |
 | Mesh import | cgltf (glTF 2.0/GLB), ufbx (FBX, OBJ/MTL), MikkTSpace (tangents) |
@@ -447,8 +447,10 @@ finite are ignored. Scene files and scripts cannot break the simulation that way
 
 ## 9. Audio (miniaudio)
 
-`AudioEngine` wraps `ma_engine` (miniaudio with Ogg Vorbis through the stb_vorbis copy it ships; its resource
-manager, encoders and generators are compiled out). Its output is the default playback device (miniaudio falls back to
+`AudioEngine` wraps `ma_engine` (miniaudio; its resource manager, encoders and generators are compiled out). Ogg Vorbis
+is decoded by libvorbis through miniaudio's libvorbis decoding backend, not by the stb_vorbis copy miniaudio ships,
+which frees uninitialized pointers when the headers of a damaged file fail to parse. libogg and libvorbis are compiled
+from their pinned sources (`StradaVorbis`). Its output is the default playback device (miniaudio falls back to
 its null backend, which consumes audio in real time, when no device works), the null device (headless applications),
 or manual: the mix advances only when `AudioEngine::ReadFrames` pulls it, which makes audio tests deterministic. macOS
 links Core Audio at build time (`MA_NO_RUNTIME_LINKING`), as notarization requires; the Linux backends (PulseAudio,

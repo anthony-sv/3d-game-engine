@@ -1,11 +1,16 @@
 #include "Audio/AudioTestUtilities.h"
+#include "Fuzzing.h"
 
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Core/FileSystem.h"
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
+#include <span>
 #include <vector>
 
 using namespace Strada;
@@ -334,4 +339,86 @@ TEST_CASE("AudioScene: FLAC, MP3 and WAV clips play and broken Ogg streams fail 
 	Ref<AudioClipAsset> const ogg = MakeClip({'O', 'g', 'g', 'S', 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0});
 	REQUIRE(ogg->GetFormat() == AudioFormat::Ogg);
 	CHECK(audio->AddSource(MakeSource(UUID(203), ogg)).IsError());
+}
+
+TEST_CASE("AudioScene: Ogg Vorbis clips play")
+{
+	Testing::AudioEngineScope engine;
+	Scope<AudioScene> audio = CreateAudioScene();
+	Result<Buffer> data = FileSystem::ReadBinaryFile(FileSystem::PathFromUtf8(STRADA_TEST_OGG_PATH));
+	REQUIRE(data.IsOk());
+	Ref<AudioClipAsset> const ogg = Testing::MakeClip(data.TakeValue());
+	REQUIRE(ogg->GetFormat() == AudioFormat::Ogg);
+	REQUIRE(audio->AddSource(MakeSource(SourceId, ogg)).IsOk());
+	audio->Play(SourceId);
+	AudioLevels const levels = ReadLevels(0.5f);
+	CHECK(levels.Left > 0.001f);
+	CHECK(levels.Right > 0.001f);
+	CHECK(audio->IsPlaying(SourceId));
+}
+
+TEST_CASE("AudioScene: damaged clips are refused or play")
+{
+	Testing::AudioEngineScope engine;
+	Scope<AudioScene> audio = CreateAudioScene();
+	std::vector<float> const samples = Testing::MakeSamples({{0.5f, 0.1f}, {-0.25f, 0.1f}});
+	Result<Buffer> ogg = FileSystem::ReadBinaryFile(FileSystem::PathFromUtf8(STRADA_TEST_OGG_PATH));
+	REQUIRE(ogg.IsOk());
+	auto const bytes = [](std::span<uint8_t const> data)
+	{
+		return std::vector<uint8_t>(data.begin(), data.end());
+	};
+	// The Ogg file's first 64 KB: its headers and first pages.
+	std::span<uint8_t const> const oggBytes = ogg.GetValue().GetSpan();
+	std::vector<std::vector<uint8_t>> const seeds = {
+		bytes(Testing::MakeWav(samples).GetSpan()), bytes(Testing::MakeFlac(samples).GetSpan()),
+		bytes(Testing::MakeSilentMp3(10).GetSpan()), bytes(oggBytes.first(std::min<size_t>(oggBytes.size(), 65536)))};
+
+	Testing::FuzzRandom random(8000);
+	int played = 0;
+	int refused = 0;
+	for (int round = 0, rounds = Testing::GetFuzzRounds(300); round < rounds; round++)
+	{
+		CAPTURE(round);
+		std::vector<uint8_t> data = seeds[random.Pick(seeds.size())];
+		for (size_t count = 1 + random.Pick(4); count > 0 && data.size() > 1; count--)
+		{
+			switch (random.Pick(4))
+			{
+				case 0:
+					data.resize(1 + random.Pick(data.size()));
+					break;
+				case 1:
+					data[random.Pick(data.size())] = static_cast<uint8_t>(random.Next());
+					break;
+				case 2:
+					// Headers and metadata.
+					data[random.Pick(std::min<size_t>(data.size(), 256))] = std::array<uint8_t, 4>{0x00, 0x7F, 0x80, 0xFF}[random.Pick(4)];
+					break;
+				default:
+					data[random.Pick(data.size())] ^= static_cast<uint8_t>(1u << random.Pick(8));
+					break;
+			}
+		}
+		Result<Ref<AudioClipAsset>> clip = AudioClipAsset::Create(Buffer::Copy(data.data(), data.size()));
+		if (!clip)
+		{
+			refused++;
+			continue;
+		}
+		// Looping sources seek back to the start when they end.
+		AudioSourceDesc desc = MakeSource(SourceId, clip.TakeValue());
+		desc.Loop = round % 2 == 0;
+		if (!audio->AddSource(desc))
+		{
+			refused++;
+			continue;
+		}
+		audio->Play(SourceId);
+		Skip(0.2f);
+		audio->RemoveSource(SourceId);
+		played++;
+	}
+	CHECK(played > 0);
+	CHECK(refused > 0);
 }

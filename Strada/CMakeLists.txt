@@ -230,10 +230,64 @@ if(UNIX)
 endif()
 strada_configure_third_party_target(StradaModelImport)
 
-# miniaudio, with Ogg Vorbis through the stb_vorbis copy it ships (third-party code, warnings disabled). The feature
+# libogg and libvorbis: the Ogg container and the Vorbis decoder with vorbisfile (third-party code, warnings disabled).
+# libogg's configure step only writes the integer types of config_types.h, which <stdint.h> provides everywhere.
+function(strada_write_ogg_config_types directory)
+    set(INCLUDE_INTTYPES_H 0)
+    set(INCLUDE_STDINT_H 1)
+    set(INCLUDE_SYS_TYPES_H 0)
+    set(SIZE16 int16_t)
+    set(USIZE16 uint16_t)
+    set(SIZE32 int32_t)
+    set(USIZE32 uint32_t)
+    set(SIZE64 int64_t)
+    set(USIZE64 uint64_t)
+    configure_file("${ogg_SOURCE_DIR}/include/ogg/config_types.h.in" "${directory}/ogg/config_types.h" @ONLY)
+endfunction()
+set(STRADA_OGG_GENERATED_INCLUDE "${CMAKE_CURRENT_BINARY_DIR}/OggInclude")
+strada_write_ogg_config_types("${STRADA_OGG_GENERATED_INCLUDE}")
+add_library(StradaVorbis STATIC
+    "${ogg_SOURCE_DIR}/src/bitwise.c"
+    "${ogg_SOURCE_DIR}/src/framing.c"
+    "${vorbis_SOURCE_DIR}/lib/analysis.c"
+    "${vorbis_SOURCE_DIR}/lib/bitrate.c"
+    "${vorbis_SOURCE_DIR}/lib/block.c"
+    "${vorbis_SOURCE_DIR}/lib/codebook.c"
+    "${vorbis_SOURCE_DIR}/lib/envelope.c"
+    "${vorbis_SOURCE_DIR}/lib/floor0.c"
+    "${vorbis_SOURCE_DIR}/lib/floor1.c"
+    "${vorbis_SOURCE_DIR}/lib/info.c"
+    "${vorbis_SOURCE_DIR}/lib/lookup.c"
+    "${vorbis_SOURCE_DIR}/lib/lpc.c"
+    "${vorbis_SOURCE_DIR}/lib/lsp.c"
+    "${vorbis_SOURCE_DIR}/lib/mapping0.c"
+    "${vorbis_SOURCE_DIR}/lib/mdct.c"
+    "${vorbis_SOURCE_DIR}/lib/psy.c"
+    "${vorbis_SOURCE_DIR}/lib/registry.c"
+    "${vorbis_SOURCE_DIR}/lib/res0.c"
+    "${vorbis_SOURCE_DIR}/lib/sharedbook.c"
+    "${vorbis_SOURCE_DIR}/lib/smallft.c"
+    "${vorbis_SOURCE_DIR}/lib/synthesis.c"
+    "${vorbis_SOURCE_DIR}/lib/vorbisfile.c"
+    "${vorbis_SOURCE_DIR}/lib/window.c")
+target_include_directories(StradaVorbis SYSTEM
+    PUBLIC "${ogg_SOURCE_DIR}/include" "${STRADA_OGG_GENERATED_INCLUDE}" "${vorbis_SOURCE_DIR}/include"
+    PRIVATE "${vorbis_SOURCE_DIR}/lib")
+if(MSVC)
+    target_compile_definitions(StradaVorbis PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
+elseif(UNIX)
+    # libvorbis allocates on the stack with alloca; its configure step would detect <alloca.h>.
+    target_compile_definitions(StradaVorbis PRIVATE HAVE_ALLOCA_H)
+    target_link_libraries(StradaVorbis PRIVATE m)
+endif()
+strada_configure_third_party_target(StradaVorbis)
+
+# miniaudio, with Ogg Vorbis through its libvorbis decoding backend (third-party code, warnings disabled). The feature
 # switches change struct layouts, so they are public: every translation unit including miniaudio.h agrees on them.
-add_library(StradaMiniaudio STATIC ThirdParty/MiniaudioImplementation.c)
+add_library(StradaMiniaudio STATIC ThirdParty/MiniaudioImplementation.c
+    "${miniaudio_SOURCE_DIR}/extras/decoders/libvorbis/miniaudio_libvorbis.c")
 target_include_directories(StradaMiniaudio SYSTEM PUBLIC "${miniaudio_SOURCE_DIR}")
+target_link_libraries(StradaMiniaudio PRIVATE StradaVorbis)
 target_compile_definitions(StradaMiniaudio PUBLIC MA_NO_ENCODING MA_NO_GENERATION MA_NO_RESOURCE_MANAGER)
 if(APPLE)
     # Core Audio linked at build time instead of loaded at runtime, which Apple's notarization requires.

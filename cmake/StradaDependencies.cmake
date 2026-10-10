@@ -255,6 +255,20 @@ strada_declare_dependency(miniaudio
     SOURCE_SUBDIR _strada_no_cmake)
 FetchContent_MakeAvailable(miniaudio)
 
+# --- libogg 1.3.5 and libvorbis 1.3.7 (Ogg Vorbis decoding, through miniaudio's libvorbis backend) --------------------
+# The reference decoder rather than the stb_vorbis copy miniaudio ships, which frees uninitialized pointers when the
+# headers of a damaged file fail to parse. Their CMake projects target CMake 2.8 and register their own tests, so
+# Strada/CMakeLists.txt compiles their sources (StradaVorbis).
+strada_declare_dependency(ogg
+    https://github.com/xiph/ogg/archive/refs/tags/v1.3.5.tar.gz
+    f6f1b04cfa4e98b70ffe775d5e302d9c6b98541f05159af6de2d6617817ed7d6
+    SOURCE_SUBDIR _strada_no_cmake)
+strada_declare_dependency(vorbis
+    https://github.com/xiph/vorbis/archive/refs/tags/v1.3.7.tar.gz
+    270c76933d0934e42c5ee0a54a36280e2d87af1de3cc3e584806357e237afd13
+    SOURCE_SUBDIR _strada_no_cmake)
+FetchContent_MakeAvailable(ogg vorbis)
+
 # --- reproc 14.2.8 (child processes: script builds, exports; used through its C++ binding reproc++) ------------------
 strada_declare_dependency(reproc
     https://github.com/DaanDeMeyer/reproc/archive/refs/tags/14.2.8.tar.gz

@@ -86,6 +86,8 @@ target_compile_definitions(StradaTests PRIVATE
     STRADA_TEST_FONT_PATH="${imgui_SOURCE_DIR}/misc/fonts/Karla-Regular.ttf"
     # Its other TrueType fonts, which the font sanitizer and fuzz tests damage.
     STRADA_TEST_FONTS_DIR="${imgui_SOURCE_DIR}/misc/fonts"
+    # An Ogg Vorbis file from the pinned miniaudio sources (no encoder is at hand to make one).
+    STRADA_TEST_OGG_PATH="${miniaudio_SOURCE_DIR}/data/48000-stereo.ogg"
     # Golden images and other test data.
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data"
     # The feature-test project, whose scenes must use every component.
