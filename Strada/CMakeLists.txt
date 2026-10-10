@@ -113,6 +113,8 @@ set(STRADA_PROJECT_SOURCES
     Source/Strada/Project/Project.h
     Source/Strada/Project/ProjectSettings.cpp
     Source/Strada/Project/ProjectSettings.h
+    Source/Strada/Project/SceneRunner.cpp
+    Source/Strada/Project/SceneRunner.h
     Source/Strada/Project/ScriptProject.cpp
     Source/Strada/Project/ScriptProject.h
 )

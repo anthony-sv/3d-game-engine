@@ -529,7 +529,12 @@ change only runtime materials (`Material.Create`, `Clone`), which the running sc
 The application running scenes implements `ScriptHost` and registers it with `ScriptEngine::SetHost`:
 `Application.IsEditor`, `Application.Quit` and `SceneManager.LoadScene` (both acted on once the frame's update has
 returned), `Strada.Testing.TestReporter` results and unhandled script exceptions go to it. Without a host, requests are
-logged and ignored. `Application.WindowWidth/Height` are the running scene's viewport size.
+logged and ignored. `Application.WindowWidth/Height` are the running scene's viewport size. `SceneRunner` (Project
+module) is that host for the editor's play mode and the game player: it starts a scene's runtime, replaces the scene
+after the frame on `SceneManager.LoadScene` (the old scene stops first; loads requested while it stops are dropped; a
+scene that cannot be read is logged and the current one keeps running), records `Application.Quit` for its owner and
+collects a `TestRunReport` across scene loads (failures = failed checks + script exceptions). With
+`SceneRuntimeSettings::RunScripts` and `PlayAudio` off it simulates physics only (the editor's Simulate mode).
 
 ### 10.5 Script projects
 

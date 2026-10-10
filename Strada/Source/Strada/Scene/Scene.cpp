@@ -575,8 +575,14 @@ namespace Strada
 		m_RuntimeTime = 0.0;
 		m_RuntimeSettings = settings;
 		StartPhysics();
-		StartAudio();
-		StartScripts();
+		if (settings.PlayAudio)
+		{
+			StartAudio();
+		}
+		if (settings.RunScripts)
+		{
+			StartScripts();
+		}
 	}
 
 	void Scene::OnRuntimeStop()

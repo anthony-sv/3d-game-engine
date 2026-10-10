@@ -68,6 +68,9 @@ namespace Strada
 		std::vector<glm::uvec2> IgnoredCollisions;
 		// Physics steps per frame at most: slower frames slow the simulation down instead of falling further behind.
 		uint32_t MaxStepsPerFrame = 8;
+		// The scene's scripts and sounds run with it; the editor's Simulate mode runs physics only.
+		bool RunScripts = true;
+		bool PlayAudio = true;
 	};
 
 	// A line drawn over the running scene for debugging (Debug.DrawLine), in world space.
@@ -156,7 +159,8 @@ namespace Strada
 
 		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody), a sound for every
 		// audio source with a clip (playing when PlayOnStart is set) and a script instance for every Script component whose
-		// class the loaded game assembly has (all are created, then OnCreate runs for each). Bodies, sounds and scripts
+		// class the loaded game assembly has (all are created, then OnCreate runs for each); sounds and scripts only when
+		// the settings ask for them. Bodies, sounds and scripts
 		// follow component changes while running. Requires PhysicsSystem, AudioEngine and ScriptEngine (without them the
 		// scene runs without physics, audio or scripts, logged); stop the runtime or destroy the scene before shutting them
 		// down. One scene runs scripts at a time.
