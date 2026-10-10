@@ -33,7 +33,8 @@ namespace Strada
 		static bool IsMouseButtonPressed(MouseButton button);
 		static bool IsMouseButtonReleased(MouseButton button);
 
-		// Cursor position in the active game view (window coordinates in the runtime; viewport-relative in the editor).
+		// Cursor position in the active game view, in the units of the scene's viewport size: the window's framebuffer pixels in
+		// the player, viewport-relative in the editor.
 		static glm::vec2 GetMousePosition();
 		// Cursor movement since the previous frame.
 		static glm::vec2 GetMouseDelta();

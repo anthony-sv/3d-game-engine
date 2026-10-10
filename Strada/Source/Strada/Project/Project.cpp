@@ -13,8 +13,18 @@ namespace Strada
 {
 	namespace
 	{
-		constexpr std::string_view ProjectFileType = "Project";
 		constexpr std::string_view StartScenePath = "Scenes/Main.sscene";
+
+		// The file header's type, which also names the settings object.
+		std::string GetFileType(ProjectFileKind kind)
+		{
+			return kind == ProjectFileKind::Game ? "Game" : "Project";
+		}
+
+		char const* GetNoun(ProjectFileKind kind)
+		{
+			return kind == ProjectFileKind::Game ? "game" : "project";
+		}
 
 		std::filesystem::path MakeAbsolute(std::filesystem::path const& path)
 		{
@@ -36,6 +46,50 @@ namespace Strada
 				return MakeError("'{}' is not valid JSON: {}", FileSystem::PathToUtf8(file), document.GetError());
 			}
 			return document;
+		}
+
+		Result<Ref<Project>> OpenFile(std::filesystem::path const& file, ProjectFileKind kind, std::vector<std::string>* warnings)
+		{
+			std::filesystem::path const absolute = MakeAbsolute(file);
+			Result<Json> document = ReadDocument(absolute);
+			if (!document)
+			{
+				return Error{document.GetError()};
+			}
+			std::string const type = GetFileType(kind);
+			if (Result<int> header = ReadFileHeader(document.GetValue(), type, Project::FormatVersion); !header)
+			{
+				return MakeError("'{}': {}", FileSystem::PathToUtf8(absolute), header.GetError());
+			}
+
+			// Asset references (the start scene) resolve through the asset directory, so it opens before the settings are read.
+			ProjectSettings location;
+			Json const& settings = document.GetValue().contains(type) ? document.GetValue()[type] : Json();
+			if (settings.is_object() && settings.contains("AssetDirectory"))
+			{
+				if (Result<void> read = JsonTraits<std::string>::FromJson(settings["AssetDirectory"], location.AssetDirectory, {}); !read)
+				{
+					return MakeError("{}.AssetDirectory: {}", type, read.GetError());
+				}
+			}
+			if (Result<void> valid = ValidateProjectSettings(location); !valid)
+			{
+				return Error{valid.GetError()};
+			}
+			Project probe(absolute, location, kind);
+			if (Result<AssetRefreshResult> opened = AssetManager::OpenAssetDirectory(probe.GetAssetDirectory()); !opened)
+			{
+				return MakeError("the {}'s asset directory cannot be opened: {}", GetNoun(kind), opened.GetError());
+			}
+
+			Result<ProjectSettings> loaded = Project::Deserialize(
+				document.GetValue(), AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn, warnings), kind);
+			if (!loaded)
+			{
+				AssetManager::CloseAssetDirectory();
+				return MakeError("'{}': {}", FileSystem::PathToUtf8(absolute), loaded.GetError());
+			}
+			return CreateRef<Project>(absolute, loaded.TakeValue(), kind);
 		}
 
 		// Removes what a failed Create wrote: the directory was empty or missing before.
@@ -78,9 +132,10 @@ namespace Strada
 		};
 	}
 
-	Project::Project(std::filesystem::path filePath, ProjectSettings settings)
+	Project::Project(std::filesystem::path filePath, ProjectSettings settings, ProjectFileKind fileKind)
 		: m_FilePath(MakeAbsolute(filePath)),
-		  m_Settings(std::move(settings))
+		  m_Settings(std::move(settings)),
+		  m_FileKind(fileKind)
 	{
 	}
 
@@ -141,50 +196,60 @@ namespace Strada
 
 	Result<Ref<Project>> Project::Open(std::filesystem::path const& file, std::vector<std::string>* warnings)
 	{
-		std::filesystem::path const absolute = MakeAbsolute(file);
-		Result<Json> document = ReadDocument(absolute);
+		return OpenFile(file, ProjectFileKind::Project, warnings);
+	}
+
+	Result<Ref<Project>> Project::OpenGame(std::filesystem::path const& file, std::vector<std::string>* warnings)
+	{
+		return OpenFile(file, ProjectFileKind::Game, warnings);
+	}
+
+	Result<ProjectWindowSettings> Project::ReadWindowSettings(std::filesystem::path const& file, ProjectFileKind kind)
+	{
+		Result<Json> document = ReadDocument(file);
 		if (!document)
 		{
 			return Error{document.GetError()};
 		}
-		if (Result<int> header = ReadFileHeader(document.GetValue(), ProjectFileType, FormatVersion); !header)
+		std::string const type = GetFileType(kind);
+		if (Result<int> header = ReadFileHeader(document.GetValue(), type, FormatVersion); !header)
 		{
-			return MakeError("'{}': {}", FileSystem::PathToUtf8(absolute), header.GetError());
+			return MakeError("'{}': {}", FileSystem::PathToUtf8(file), header.GetError());
+		}
+		Json const& json = document.GetValue().contains(type) ? document.GetValue()[type] : Json();
+		if (!json.is_object())
+		{
+			return MakeError("'{}': missing \"{}\" settings", FileSystem::PathToUtf8(file), type);
 		}
 
-		// Asset references (the start scene) resolve through the asset directory, so it opens before the settings are read.
-		ProjectSettings location;
-		Json const& settings = document.GetValue().contains("Project") ? document.GetValue()["Project"] : Json();
-		if (settings.is_object() && settings.contains("AssetDirectory"))
+		// Settings from newer versions are reported when the file is opened.
+		DeserializationContext context;
+		context.UnknownFields = UnknownFieldPolicy::Ignore;
+		ProjectSettings settings;
+		if (json.contains("Name"))
 		{
-			if (Result<void> read = JsonTraits<std::string>::FromJson(settings["AssetDirectory"], location.AssetDirectory, {}); !read)
+			if (Result<void> read = JsonTraits<std::string>::FromJson(json["Name"], settings.Name, context); !read)
 			{
-				return MakeError("Project.AssetDirectory: {}", read.GetError());
+				return MakeError("'{}': {}.Name: {}", FileSystem::PathToUtf8(file), type, read.GetError());
 			}
 		}
-		if (Result<void> valid = ValidateProjectSettings(location); !valid)
+		if (json.contains("Window"))
 		{
-			return Error{valid.GetError()};
+			if (Result<void> read = JsonTraits<ProjectWindowSettings>::FromJson(json["Window"], settings.Window, context); !read)
+			{
+				return MakeError("'{}': {}.Window: {}", FileSystem::PathToUtf8(file), type, read.GetError());
+			}
 		}
-		Project probe(absolute, location);
-		if (Result<AssetRefreshResult> opened = AssetManager::OpenAssetDirectory(probe.GetAssetDirectory()); !opened)
+		if (settings.Window.Title.empty())
 		{
-			return MakeError("the project's asset directory cannot be opened: {}", opened.GetError());
+			settings.Window.Title = settings.Name;
 		}
-
-		Result<ProjectSettings> loaded =
-			Deserialize(document.GetValue(), AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn, warnings));
-		if (!loaded)
-		{
-			AssetManager::CloseAssetDirectory();
-			return MakeError("'{}': {}", FileSystem::PathToUtf8(absolute), loaded.GetError());
-		}
-		return CreateRef<Project>(absolute, loaded.TakeValue());
+		return settings.Window;
 	}
 
 	Result<void> Project::Save() const
 	{
-		return FileSystem::WriteTextFile(m_FilePath, DumpJson(Serialize(m_Settings)));
+		return FileSystem::WriteTextFile(m_FilePath, DumpJson(Serialize(m_Settings, m_FileKind)));
 	}
 
 	Result<void> Project::ApplySettings(Json const& patch)
@@ -213,27 +278,28 @@ namespace Strada
 		return (GetDirectory() / FileSystem::PathFromUtf8(m_Settings.AssetDirectory)).lexically_normal();
 	}
 
-	Json Project::Serialize(ProjectSettings const& settings)
+	Json Project::Serialize(ProjectSettings const& settings, ProjectFileKind kind)
 	{
+		std::string const type = GetFileType(kind);
 		Json document = Json::object();
-		document["Strada"] = MakeFileHeader(ProjectFileType, FormatVersion);
-		document["Project"] = SerializeFields<StructTraits<ProjectSettings>>(settings);
+		document["Strada"] = MakeFileHeader(type, FormatVersion);
+		document[type] = SerializeFields<StructTraits<ProjectSettings>>(settings);
 		return document;
 	}
 
-	Result<ProjectSettings> Project::Deserialize(Json const& document, DeserializationContext const& context)
+	Result<ProjectSettings> Project::Deserialize(Json const& document, DeserializationContext const& context, ProjectFileKind kind)
 	{
-		if (Result<int> header = ReadFileHeader(document, ProjectFileType, FormatVersion); !header)
+		std::string const type = GetFileType(kind);
+		if (Result<int> header = ReadFileHeader(document, type, FormatVersion); !header)
 		{
 			return Error{header.GetError()};
 		}
-		if (!document.contains("Project"))
+		if (!document.contains(type))
 		{
-			return Error{"missing \"Project\" settings"};
+			return MakeError("missing \"{}\" settings", type);
 		}
 		ProjectSettings settings;
-		if (Result<void> result = DeserializeFields<StructTraits<ProjectSettings>>(document["Project"], settings, context, "project");
-		    !result)
+		if (Result<void> result = DeserializeFields<StructTraits<ProjectSettings>>(document[type], settings, context, "project"); !result)
 		{
 			return Error{result.GetError()};
 		}

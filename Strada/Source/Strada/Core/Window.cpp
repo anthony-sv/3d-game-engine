@@ -328,6 +328,14 @@ namespace Strada
 		return {static_cast<uint32_t>(std::max(0, width)), static_cast<uint32_t>(std::max(0, height))};
 	}
 
+	glm::vec2 Window::GetCursorPosition() const
+	{
+		double x = 0.0;
+		double y = 0.0;
+		glfwGetCursorPos(m_Window, &x, &y);
+		return {static_cast<float>(x), static_cast<float>(y)};
+	}
+
 	glm::vec2 Window::GetContentScale() const
 	{
 		float x = 1.0f;

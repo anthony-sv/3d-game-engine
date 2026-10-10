@@ -25,6 +25,9 @@ namespace Strada
 		uint32_t GetFailureCount() const { return GetFailedCount() + ScriptExceptions; }
 	};
 
+	// Reads a scene file of the asset directory (settings from newer versions are skipped with a warning).
+	[[nodiscard]] Result<Ref<Scene>> LoadSceneAsset(AssetHandle scene);
+
 	struct SceneRunnerSettings
 	{
 		// From the project (MakeSceneRuntimeSettings); RunScripts and PlayAudio false simulate physics only.

@@ -18,6 +18,16 @@ namespace Strada
 												   }));
 	}
 
+	Result<Ref<Scene>> LoadSceneAsset(AssetHandle scene)
+	{
+		if (!AssetManager::IsInitialized() || AssetManager::GetAssetType(scene) != AssetType::Scene)
+		{
+			return MakeError("asset {} is not a scene file of the project", scene);
+		}
+		return SceneSerializer::LoadFromFile(AssetManager::GetAbsolutePath(scene),
+		                                     AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn));
+	}
+
 	SceneRunner::SceneRunner(SceneRunnerSettings settings)
 		: m_Settings(std::move(settings))
 	{
@@ -96,14 +106,7 @@ namespace Strada
 	{
 		AssetHandle const handle = m_RequestedScene;
 		m_RequestedScene = AssetHandle();
-		std::filesystem::path const path = AssetManager::IsInitialized() ? AssetManager::GetAbsolutePath(handle) : std::filesystem::path();
-		if (path.empty())
-		{
-			ST_CORE_ERROR("SceneManager.LoadScene: scene {} is not a scene file of the project", handle);
-			return;
-		}
-		Result<Ref<Scene>> loaded =
-			SceneSerializer::LoadFromFile(path, AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn));
+		Result<Ref<Scene>> loaded = LoadSceneAsset(handle);
 		if (!loaded)
 		{
 			ST_CORE_ERROR("SceneManager.LoadScene: {}", loaded.GetError());
@@ -122,6 +125,7 @@ namespace Strada
 		m_Scene->OnViewportResize(width, height);
 		ScriptEngine::SetHost(this);
 		m_Scene->OnRuntimeStart(m_Settings.Runtime);
-		ST_CORE_INFO("Loaded scene '{}' ({})", m_Scene->GetName(), FileSystem::PathToUtf8(path.filename()));
+		ST_CORE_INFO("Loaded scene '{}' ({})", m_Scene->GetName(),
+		             FileSystem::PathToUtf8(AssetManager::GetAbsolutePath(handle).filename()));
 	}
 }

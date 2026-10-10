@@ -23,11 +23,12 @@ Entries marked *(planned)* are introduced by upcoming subsystems; their location
 |------|------|
 | `Strada/` | Engine static library (`Source/Strada/<Module>`, `Shaders/`, `Resources/`) |
 | `StradaEditor/` | `StradaEditorCore` static library + `StradaEditor` executable |
-| `StradaRuntime/` *(planned)* | Player executable used by exported games |
+| `StradaRuntime/` | Game player (`StradaRuntime`): runs exported games and projects, windowed, headless or as test runs |
 | `Strada-ScriptCore/` | C# scripting API (`Strada.ScriptCore.dll`) |
 | `StradaTool/` *(planned)* | `strada` CLI + MCP stdio bridge |
 | `Tests/StradaTests/` | C++ engine tests (doctest) |
 | `Tests/StradaEditorTests/` | Editor model and automation tests (doctest, headless) |
+| `Tests/StradaRuntimeTests/` | Game player tests: run `StradaRuntime` on generated games (doctest) |
 | `Tests/TestScripts/` | C# game scripts the scripting tests run |
 | `Tests/ScriptCoreTests/` | C# unit tests of the scripting API (xUnit v3) |
 | `Tests/Data/` | Test data (renderer golden images) |
@@ -203,6 +204,8 @@ namespace Strada
 Rules for suites that arrive with later subsystems (binding as soon as the subsystem exists):
 
 - Editor automation tests live in `Tests/StradaEditorTests` and run the editor headless against a temporary project.
+- Game player tests live in `Tests/StradaRuntimeTests`: they write games to temporary directories and run the
+  `StradaRuntime` executable on them, checking exit codes and output (windowed runs skip like windowed tests).
 - Scripting tests (`Testing::ScriptEngineScope`) run the game scripts of `Tests/TestScripts`; scripts report what they
   saw through entity names and the log.
 - Audio tests run the `AudioEngine` with manual output (`Testing::AudioEngineScope`) and measure the mix they read,

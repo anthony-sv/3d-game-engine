@@ -206,3 +206,91 @@ TEST_CASE("Project: opening resolves asset references, reports newer settings an
 	// A failed open does not leave the asset directory open.
 	CHECK_FALSE(AssetManager::HasAssetDirectory());
 }
+
+TEST_CASE("Project: an exported game's configuration opens like a project and keeps its format")
+{
+	AssetManagerScope assets;
+	Testing::TemporaryDirectory temporary;
+	std::filesystem::path const directory = temporary.GetPath() / "Export";
+	REQUIRE(FileSystem::CreateDirectories(directory / "Assets" / "Scenes").IsOk());
+	REQUIRE(SceneSerializer::SaveToFile(*MakeStartScene(), directory / "Assets" / "Scenes" / "Main.sscene").IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory / "Assets").IsOk());
+	ProjectSettings settings;
+	settings.Name = "Exported";
+	settings.ScriptModule = "Scripts/Game.dll";
+	settings.StartScene = AssetManager::FindByPath("Scenes/Main.sscene");
+	settings.Window.Width = 800;
+	AssetManager::CloseAssetDirectory();
+
+	std::filesystem::path const file = directory / FileSystem::PathFromUtf8(Project::GameFileName);
+	REQUIRE(FileSystem::WriteTextFile(file, DumpJson(Project::Serialize(settings, ProjectFileKind::Game))).IsOk());
+	Json const written = Json::parse(FileSystem::ReadTextFile(file).GetValue());
+	CHECK(written["Strada"]["Type"] == "Game");
+	CHECK(written.contains("Game"));
+	CHECK_FALSE(written.contains("Project"));
+
+	Result<Ref<Project>> opened = Project::OpenGame(file);
+	REQUIRE_MESSAGE(opened.IsOk(), (opened ? std::string() : opened.GetError()));
+	Ref<Project> const game = opened.GetValue();
+	CHECK(game->IsGame());
+	CHECK(game->GetFileKind() == ProjectFileKind::Game);
+	CHECK(game->GetSettings() == settings);
+	CHECK(AssetManager::GetAssetDirectory() == game->GetAssetDirectory());
+	CHECK(AssetManager::GetAssetType(game->GetSettings().StartScene) == AssetType::Scene);
+	REQUIRE(game->Save().IsOk());
+	CHECK(Json::parse(FileSystem::ReadTextFile(file).GetValue())["Strada"]["Type"] == "Game");
+
+	// Projects and games do not open as each other.
+	AssetManager::CloseAssetDirectory();
+	CHECK(Project::Open(file).IsError());
+	CHECK_FALSE(AssetManager::HasAssetDirectory());
+	Result<Ref<Project>> created = Project::Create(temporary.GetPath() / "Project", "Project", *MakeStartScene());
+	REQUIRE(created.IsOk());
+	CHECK_FALSE(created.GetValue()->IsGame());
+	AssetManager::CloseAssetDirectory();
+	CHECK(Project::OpenGame(created.GetValue()->GetFilePath()).IsError());
+	CHECK_FALSE(AssetManager::HasAssetDirectory());
+}
+
+TEST_CASE("Project: the window settings are read without opening the file")
+{
+	Testing::TemporaryDirectory temporary;
+	std::filesystem::path const file = temporary.GetPath() / "Game.sgame";
+	REQUIRE(FileSystem::WriteTextFile(file, R"({
+		"Strada": { "Version": 1, "Type": "Game" },
+		"Game": { "Name": "Windowed", "StartScene": "asset://Scenes/Main.sscene", "Future": 1,
+		          "Window": { "Width": 1024, "Fullscreen": true, "Future": 2 } }
+	})")
+	            .IsOk());
+	// Neither the asset reference nor fields of newer versions matter here.
+	Result<ProjectWindowSettings> window = Project::ReadWindowSettings(file, ProjectFileKind::Game);
+	REQUIRE_MESSAGE(window.IsOk(), (window ? std::string() : window.GetError()));
+	CHECK(window.GetValue().Title == "Windowed");
+	CHECK(window.GetValue().Width == 1024u);
+	CHECK(window.GetValue().Height == 720u);
+	CHECK(window.GetValue().Fullscreen);
+	CHECK(window.GetValue().VSync);
+
+	REQUIRE(FileSystem::WriteTextFile(file, R"({
+		"Strada": { "Version": 1, "Type": "Game" },
+		"Game": { "Name": "Windowed", "Window": { "Title": "Shown Title", "Resizable": false } }
+	})")
+	            .IsOk());
+	window = Project::ReadWindowSettings(file, ProjectFileKind::Game);
+	REQUIRE(window.IsOk());
+	CHECK(window.GetValue().Title == "Shown Title");
+	CHECK_FALSE(window.GetValue().Resizable);
+
+	CHECK(Project::ReadWindowSettings(file, ProjectFileKind::Project).IsError());
+	CHECK(Project::ReadWindowSettings(temporary.GetPath() / "Missing.sgame", ProjectFileKind::Game).IsError());
+	REQUIRE(FileSystem::WriteTextFile(file, R"({
+		"Strada": { "Version": 1, "Type": "Game" },
+		"Game": { "Window": { "Width": 10 } }
+	})")
+	            .IsOk());
+	Result<ProjectWindowSettings> const tooSmall = Project::ReadWindowSettings(file, ProjectFileKind::Game);
+	REQUIRE(tooSmall.IsError());
+	CHECK(tooSmall.GetError().find("Game.Window") != std::string::npos);
+	REQUIRE(FileSystem::WriteTextFile(file, R"({ "Strada": { "Version": 1, "Type": "Game" } })").IsOk());
+	CHECK(Project::ReadWindowSettings(file, ProjectFileKind::Game).IsError());
+}

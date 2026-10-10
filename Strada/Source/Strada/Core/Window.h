@@ -54,6 +54,8 @@ namespace Strada
 		uint32_t GetHeight() const { return m_Data.FramebufferHeight; }
 		// Window size in screen coordinates (differs from the framebuffer size on high-DPI displays).
 		glm::uvec2 GetWindowSize() const;
+		// The cursor's position from the window's top-left corner in screen coordinates (also outside the window).
+		glm::vec2 GetCursorPosition() const;
 		glm::vec2 GetContentScale() const;
 
 		bool IsMinimized() const { return m_Data.Minimized; }

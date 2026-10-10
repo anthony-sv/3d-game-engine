@@ -34,6 +34,8 @@ build/<preset>/bin/StradaTests                         # all C++ engine tests
 build/<preset>/bin/StradaTests -tc="FileSystem*"       # filter test cases by name
 build/<preset>/bin/StradaTests -sc="*round trip*"      # filter subcases
 build/<preset>/bin/StradaTests --list-test-cases
+build/<preset>/bin/StradaEditorTests                   # editor model and automation tests (headless)
+build/<preset>/bin/StradaRuntimeTests                  # game player tests (they run StradaRuntime)
 ```
 
 Test cases are named `"<Module>: <behavior>"`, so module filters such as `-tc="Input*"` work.

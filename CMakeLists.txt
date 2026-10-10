@@ -21,10 +21,12 @@ include(StradaDotNet)
 
 add_subdirectory(Strada)
 add_subdirectory(StradaEditor)
+add_subdirectory(StradaRuntime)
 
 if(STRADA_BUILD_TESTS)
     enable_testing()
     add_subdirectory(Tests/StradaTests)
     add_subdirectory(Tests/StradaEditorTests)
+    add_subdirectory(Tests/StradaRuntimeTests)
     add_subdirectory(Tests/ScriptCoreTests)
 endif()

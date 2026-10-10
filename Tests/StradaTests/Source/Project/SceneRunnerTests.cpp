@@ -41,13 +41,6 @@ namespace
 		REQUIRE(SceneSerializer::SaveToFile(scene, path).IsOk());
 	}
 
-	Ref<Scene> LoadScene(std::filesystem::path const& path)
-	{
-		Result<Ref<Scene>> scene = SceneSerializer::LoadFromFile(path, AssetManager::CreateDeserializationContext());
-		REQUIRE(scene.IsOk());
-		return scene.GetValue();
-	}
-
 	// One frame with the key pressed.
 	void UpdateWithKey(SceneRunner& runner, KeyCode key)
 	{
@@ -82,8 +75,15 @@ TEST_CASE("SceneRunner: scenes run, load the scenes their scripts ask for and re
 	REQUIRE(FileSystem::WriteTextFile(scenes / "Broken.sscene", "{ not a scene").IsOk());
 	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
 
+	// Scenes are read as assets of the asset directory.
+	CHECK(LoadSceneAsset(AssetHandle()).IsError());
+	CHECK(LoadSceneAsset(AssetManager::FindByPath("Scenes/Broken.sscene")).IsError());
+	Result<Ref<Scene>> loaded = LoadSceneAsset(AssetManager::FindByPath("Scenes/First.sscene"));
+	REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
+	CHECK(loaded.GetValue()->GetName() == "First");
+
 	SceneRunner runner({});
-	Ref<Scene> const first = LoadScene(scenes / "First.sscene");
+	Ref<Scene> const first = loaded.GetValue();
 	first->OnViewportResize(640, 480);
 	runner.Start(first);
 	REQUIRE(runner.IsRunning());

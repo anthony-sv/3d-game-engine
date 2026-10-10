@@ -10,9 +10,9 @@ an exporter for distributable games.
 > projects, the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in
 > primitives and font), the forward PBR scene renderer (image-based lighting, soft shadows, GTAO, bloom, FXAA,
 > tonemapping, signed-distance text and sprites), Jolt physics and miniaudio sound (spatial audio sources and
-> listeners) driven by the scene runtime, the editor (viewport with gizmos and picking, hierarchy, generated inspector,
-> content browser, project settings, undo/redo, AI automation server) and CI on all three platforms. Scripting, play
-> mode and the exporter are next.
+> listeners) driven by the scene runtime, C# scripting with hot reload, the editor (viewport with gizmos and picking,
+> hierarchy, generated inspector, content browser, project settings, undo/redo, play mode, AI automation server), the
+> game player and CI on all three platforms. The exporter, the feature-test project and the MCP bridge are next.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Planned feature set
@@ -56,6 +56,8 @@ Third-party libraries are downloaded automatically by CMake (pinned versions, ve
 |------|----------|
 | `Strada/` | Engine static library |
 | `StradaEditor/` | Editor (`StradaEditor --help` lists its options) |
+| `StradaRuntime/` | Game player (`StradaRuntime --help` lists its options) |
+| `Strada-ScriptCore/` | C# scripting API |
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |

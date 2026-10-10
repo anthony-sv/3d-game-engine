@@ -126,9 +126,12 @@ namespace Strada
 		audio.Output = m_Specification.Headless ? AudioOutput::Null : AudioOutput::Device;
 		AudioEngine::Init(audio);
 		// Without .NET (or Strada.ScriptCore) the application still runs; scenes run without scripts.
-		if (Result<void> scripting = ScriptEngine::Init(); !scripting)
+		if (m_Specification.EnableScripting)
 		{
-			ST_CORE_ERROR("Scripting is unavailable: {}", scripting.GetError());
+			if (Result<void> scripting = ScriptEngine::Init(); !scripting)
+			{
+				ST_CORE_ERROR("Scripting is unavailable: {}", scripting.GetError());
+			}
 		}
 
 		if (!m_Specification.Headless)
@@ -232,6 +235,11 @@ namespace Strada
 		}
 		if (GraphicsDevice::IsInitialized())
 		{
+			// One line at the end, for validation errors lost among the rest of the log.
+			if (uint64_t const errors = GraphicsDevice::GetValidationErrorCount(); errors > 0)
+			{
+				ST_CORE_ERROR("Graphics validation errors during the run: {}", errors);
+			}
 			GraphicsDevice::Shutdown();
 		}
 	}

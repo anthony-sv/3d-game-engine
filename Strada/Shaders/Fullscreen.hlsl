@@ -26,3 +26,12 @@ float4 PSSolidColor(FullscreenVertexOutput input) : SV_Target0
 {
 	return g_SolidColor.Color;
 }
+
+Texture2D g_Source : register(t0);
+SamplerState g_LinearClamp : register(s0);
+
+// Copies a texture as sampled, scaled with linear filtering: the values are written without color conversion.
+float4 PSCopy(FullscreenVertexOutput input) : SV_Target0
+{
+	return g_Source.SampleLevel(g_LinearClamp, input.TexCoord, 0.0);
+}

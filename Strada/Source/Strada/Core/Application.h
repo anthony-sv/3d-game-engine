@@ -52,6 +52,10 @@ namespace Strada
 		// Frame-rate cap applied by sleeping, for loops not paced by vsync such as headless runs (0 = uncapped).
 		uint32_t FrameRateLimit = 0;
 
+		// Start the C# scripting runtime (ScriptEngine, with Strada.ScriptCore.dll next to the executable) with the engine.
+		// Applications that start it themselves, or not at all, turn this off; the engine shuts it down either way.
+		bool EnableScripting = true;
+
 		// Create the GPU device (and, with a window, its swapchain). Disable for simulation-only runs without a GPU.
 		bool EnableGraphics = true;
 		// When false, a failure to initialize graphics is logged and the application runs without them (headless tools

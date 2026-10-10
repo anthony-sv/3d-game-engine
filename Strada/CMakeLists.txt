@@ -135,6 +135,8 @@ set(STRADA_RENDERER_SOURCES
     Source/Strada/Renderer/ShadowMath.h
     Source/Strada/Renderer/TextLayout.cpp
     Source/Strada/Renderer/TextLayout.h
+    Source/Strada/Renderer/TextureBlitter.cpp
+    Source/Strada/Renderer/TextureBlitter.h
     Source/Strada/Renderer/TextureMips.cpp
     Source/Strada/Renderer/TextureMips.h
 )
@@ -316,6 +318,7 @@ strada_add_shaders(Strada
     SHADERS
         Fullscreen_VS:Fullscreen.hlsl:VSMain:vertex
         SolidColor_PS:Fullscreen.hlsl:PSSolidColor:pixel
+        Copy_PS:Fullscreen.hlsl:PSCopy:pixel
         ImGui_VS:ImGui.hlsl:VSMain:vertex
         ImGui_PS:ImGui.hlsl:PSMain:pixel
         ForwardPBR_VS:ForwardPBR.hlsl:VSMain:vertex

@@ -54,6 +54,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Tests/
 │   ├── StradaTests/                                  C++ unit tests (doctest) for the engine library
 │   ├── StradaEditorTests/                            C++ tests for editor automation commands (headless)
+│   ├── StradaRuntimeTests/                           C++ tests running the game player on generated games
 │   ├── ScriptCoreTests/                              C# unit tests (math, API coverage checks)
 │   ├── TestScripts/                                  C# script assembly used by C++ scripting tests
 │   └── Data/                                         Test assets and golden images
@@ -641,8 +642,25 @@ than the assembly.
 
 ## 13. Runtime and export
 
-`StradaRuntime` loads `Game.sgame` (JSON: name, start scene, window settings, version) found next to the executable
-(or in `Contents/Resources` on macOS), then runs the start scene with scripts, physics and audio. No editor code.
+`StradaRuntime` is the game player, with no editor code. It runs the exported game whose configuration, `Game.sgame`, is
+next to the executable (in `Contents/Resources` of a macOS app bundle), another exported game (`--game <Game.sgame or
+its directory>`), or a project from its directory with its last script build (`--project <file.sproj>`). `Game.sgame`
+holds the project's settings, `{ "Strada": { "Version": 1, "Type": "Game" }, "Game": { <ProjectSettings> } }`, with the
+asset directory and the script assembly relative to the game's directory (`Project::OpenGame`, `ProjectFileKind::Game`).
+
+- The window (title, size, fullscreen, vsync, resizability) follows the game's window settings, read before the engine
+  starts (`Project::ReadWindowSettings`). The player opens the asset directory, starts .NET only when the game has
+  scripts (exported games carry `Strada.ScriptCore.dll` next to their assembly, projects use the engine's; a project
+  whose C# project was never built does not start), loads the start scene (or `--scene <path in Assets>`) and runs it
+  through a `SceneRunner` with scripts, physics and audio. Every frame the primary camera's view is rendered at the
+  window's framebuffer size and drawn into the swapchain image (`TextureBlitter`); without a primary camera the window
+  stays black (logged once). `Application.Quit` closes the player.
+- `--headless` runs without a window, rendering or sound (no GPU needed); the scenes see the game's window size.
+  `--frames N` and `--screenshot <png>` serve smoke tests.
+- `--test` runs headless with a fixed time step (`--timestep`, default 1/60 s) until the scripts call
+  `TestReporter.Finish`, quit, or `--timeout` game seconds (default 60) pass. It logs a summary and exits with the
+  number of failures: failed checks plus script exceptions, plus one when the scripts did not finish testing, at most
+  100. A game that cannot start exits with 1, a wrong command line with 2.
 
 Export produces, for the host platform:
 
@@ -671,6 +689,8 @@ compile out asserts and dev tools.
 - `StradaTests` (doctest): every module; GPU tests create a headless device and skip cleanly when no Vulkan
   device exists; renderer golden-image tests compare against `Tests/Data/Golden` with a tolerance.
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project.
+- `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
+  layouts, test runs and their exit codes, command-line errors, a windowed run's presented image).
 - `ScriptCoreTests` (xUnit): math types and an API-coverage test asserting every public `Strada.ScriptCore`
   member is referenced by the FeatureTest scripts.
 - `Projects/FeatureTest`: a scene that uses every component and scripts that call the entire scripting API through

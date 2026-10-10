@@ -5,7 +5,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
-#include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Project/SceneRunner.h"
 
 #include <cmath>
 #include <string>
@@ -354,8 +354,7 @@ namespace Strada
 							MakeCommandError(AutomationErrorCode::AssetNotFound, "there is no scene '{}'", path->get<std::string>()));
 						return;
 					}
-					Result<Ref<Scene>> loaded = SceneSerializer::LoadFromFile(
-						AssetManager::GetAbsolutePath(asset), AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn));
+					Result<Ref<Scene>> loaded = LoadSceneAsset(asset);
 					if (!loaded)
 					{
 						completion.Complete(MakeCommandError(AutomationErrorCode::FileError, "{}", loaded.GetError()));
