@@ -33,6 +33,10 @@ internal static class Program
 		  instances                List the running editors
 		  hdris [words]            Search Poly Haven's HDRIs (CC0 sky and environment panoramas)
 		  hdri <id>                Import a Poly Haven HDRI into the running editor's project
+		  models [words]           Search Poly Haven's models (CC0 props, furniture, plants, rocks)
+		  model <id>               Import a Poly Haven model (glTF with its textures) into the running editor's project
+		  textures [words]         Search Poly Haven's PBR texture sets (CC0)
+		  texture <id>             Import a Poly Haven texture set as a material into the running editor's project
 
 		Options:
 		  --editor <path>   The StradaEditor to start (default: $STRADA_EDITOR, the editor next to strada,
@@ -41,10 +45,11 @@ internal static class Program
 		  --pid <id>        Use the running editor with this process ID (call, commands)
 		  --headless        Start editors without a window (mcp, launch); strada mcp closes them when it ends
 		  --new             Do not use editors strada did not start (mcp)
-		  --json            Print JSON (commands, instances, hdris)
-		  --resolution <r>  The HDRI's resolution: 1k, 2k (default), 4k or 8k (hdri)
-		  --folder <path>   The folder in Assets the HDRI goes to (hdri; default Environments)
-		  --output <dir>    Only download the HDRI into this directory (hdri)
+		  --json            Print JSON (commands, instances, hdris, models, textures)
+		  --resolution <r>  1k, 2k, 4k or 8k: the HDRI's width (hdri; default 2k), the textures' size (model, texture;
+		                    default 1k)
+		  --folder <path>   The folder in Assets the asset goes to (hdri: Environments, model: Models, texture: Textures)
+		  --output <dir>    Only download the asset into this directory (hdri, model, texture)
 		  --help            Show this help
 		  --version         Show strada's version
 
@@ -107,8 +112,12 @@ internal static class Program
 				"commands" => await ListCommandsAsync(arguments, output, cancellationToken),
 				"launch" => await LaunchAsync(arguments, output, error, cancellationToken),
 				"instances" => await ListInstancesAsync(arguments, output),
-				"hdris" => await SearchHdrisAsync(arguments, output, cancellationToken),
+				"hdris" => await SearchPolyHavenAsync(PolyHavenAssetType.Hdri, "HDRIs", arguments, output, cancellationToken),
 				"hdri" => await ImportHdriAsync(arguments, output, cancellationToken),
+				"models" => await SearchPolyHavenAsync(PolyHavenAssetType.Model, "models", arguments, output, cancellationToken),
+				"model" => await ImportPolyHavenAsync(PolyHavenAssetType.Model, arguments, output, cancellationToken),
+				"textures" => await SearchPolyHavenAsync(PolyHavenAssetType.Texture, "texture sets", arguments, output, cancellationToken),
+				"texture" => await ImportPolyHavenAsync(PolyHavenAssetType.Texture, arguments, output, cancellationToken),
 				_ => throw new UsageException($"unknown command '{arguments.Command}'"),
 			};
 		}
@@ -271,27 +280,62 @@ internal static class Program
 		return Success;
 	}
 
-	private static async Task<int> SearchHdrisAsync(ToolArguments arguments, TextWriter output, CancellationToken cancellationToken)
+	private static async Task<int> SearchPolyHavenAsync(PolyHavenAssetType type, string plural, ToolArguments arguments, TextWriter output,
+		CancellationToken cancellationToken)
 	{
 		arguments.Require(new HashSet<string> { "--json" }, 0, int.MaxValue);
 		using HttpClient http = PolyHaven.CreateHttpClient();
-		List<PolyHavenHdri> found = await new PolyHaven(http).SearchAsync(string.Join(' ', arguments.Operands), int.MaxValue, cancellationToken);
+		List<PolyHavenAsset> found =
+			await new PolyHaven(http).SearchAsync(type, string.Join(' ', arguments.Operands), int.MaxValue, cancellationToken);
 		if (arguments.Json)
 		{
-			JsonArray list = [.. found.Select(hdri => hdri.ToJson())];
+			JsonArray list = [.. found.Select(asset => asset.ToJson())];
 			await output.WriteLineAsync(list.ToJsonString(JsonText.Indented));
 			return Success;
 		}
 		if (found.Count == 0)
 		{
-			await output.WriteLineAsync("No HDRI matches.");
+			await output.WriteLineAsync("Nothing matches.");
 			return Success;
 		}
-		foreach (PolyHavenHdri hdri in found)
+		foreach (PolyHavenAsset asset in found)
 		{
-			await output.WriteLineAsync($"{hdri.Id,-48} {hdri.Name}");
+			await output.WriteLineAsync($"{asset.Id,-48} {asset.Name}");
 		}
-		await output.WriteLineAsync($"{found.Count} HDRIs; {PolyHaven.License}");
+		await output.WriteLineAsync($"{found.Count} {plural}; {PolyHaven.License}");
+		return Success;
+	}
+
+	private static async Task<int> ImportPolyHavenAsync(PolyHavenAssetType type, ToolArguments arguments, TextWriter output,
+		CancellationToken cancellationToken)
+	{
+		arguments.Require(new HashSet<string> { "--resolution", "--folder", "--output", "--project", "--pid" }, 1, 1);
+		string id = arguments.Operands[0];
+		string resolution = arguments.Resolution ?? PolyHavenTools.DefaultModelResolution;
+		using HttpClient http = PolyHaven.CreateHttpClient();
+		PolyHaven polyHaven = new(http);
+		if (arguments.Output is { } directory)
+		{
+			if (arguments.Folder is not null || arguments.Project is not null || arguments.ProcessId is not null)
+			{
+				throw new UsageException("--output only downloads the asset: --folder, --project and --pid choose where it is imported");
+			}
+			string target = Path.GetFullPath(directory);
+			await output.WriteLineAsync(type == PolyHavenAssetType.Model
+				? await polyHaven.DownloadModelAsync(id, resolution, target, cancellationToken)
+				: Path.GetDirectoryName((await polyHaven.DownloadTextureAsync(id, resolution, target, cancellationToken)).BaseColor));
+			return Success;
+		}
+
+		await using EditorSession session = new(new EditorSessionOptions { Project = arguments.Project, ProcessId = arguments.ProcessId });
+		EditorConnection connection = await session.TryAttachAsync(cancellationToken) ??
+			throw new EditorUnavailableException("no editor is running to import into: start one with strada launch, or pass --output");
+		JsonObject imported = type == PolyHavenAssetType.Model
+			? await PolyHavenTools.ImportModelAsync(polyHaven, connection, id, resolution,
+				arguments.Folder ?? PolyHavenTools.DefaultModelFolder, cancellationToken)
+			: await PolyHavenTools.ImportTextureAsync(polyHaven, connection, id, resolution,
+				arguments.Folder ?? PolyHavenTools.DefaultTextureFolder, cancellationToken);
+		await output.WriteLineAsync(imported.ToJsonString(JsonText.Indented));
 		return Success;
 	}
 

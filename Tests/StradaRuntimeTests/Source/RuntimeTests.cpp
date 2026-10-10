@@ -394,6 +394,22 @@ TEST_CASE("Runtime: the feature-test project passes its test run")
 	CHECK(Contains(run.Output, "Tests passed"));
 }
 
+TEST_CASE("Runtime: the Showcase sample plays and passes its tests")
+{
+	// Its Poly Haven models, sky and maps are only there after Tools/FetchAssets.py; the checks do not depend on them.
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const project = CopyRepositoryProject("Showcase", directory.GetPath());
+
+	ProcessResult const tests = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
+	CAPTURE(tests.Output);
+	CHECK(tests.ExitCode == 0);
+	CHECK(Contains(tests.Output, "Tests passed: 5 checks"));
+
+	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});
+	CAPTURE(game.Output);
+	CHECK(game.ExitCode == 0);
+}
+
 TEST_CASE("Runtime: the Blocks sample plays and passes its tests")
 {
 	Testing::TemporaryDirectory directory;

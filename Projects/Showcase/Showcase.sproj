@@ -1,0 +1,27 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Project"
+	},
+	"Project": {
+		"Name": "Showcase",
+		"AssetDirectory": "Assets",
+		"ScriptModule": "Scripts/Binaries/Showcase.dll",
+		"StartScene": "1386313322681886381",
+		"Window": {
+			"Title": "Strada Showcase",
+			"Width": 1600,
+			"Height": 900,
+			"Fullscreen": false,
+			"VSync": true,
+			"Resizable": true
+		},
+		"Physics": {
+			"FixedTimestep": 0.01666666753590107,
+			"Layers": [
+				"Default"
+			],
+			"IgnoredCollisions": []
+		}
+	}
+}

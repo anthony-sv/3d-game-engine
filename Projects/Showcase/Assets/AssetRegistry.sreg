@@ -1,0 +1,353 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "AssetRegistry"
+	},
+	"Assets": [
+		{
+			"Handle": "4164489485790571486",
+			"Type": "AudioClip",
+			"Path": "Audio/Ambience.wav"
+		},
+		{
+			"Handle": "4106541933146927599",
+			"Type": "AudioClip",
+			"Path": "Audio/MetalHit.wav"
+		},
+		{
+			"Handle": "3086104643217517819",
+			"Type": "AudioClip",
+			"Path": "Audio/Music.wav"
+		},
+		{
+			"Handle": "7322737149629532234",
+			"Type": "AudioClip",
+			"Path": "Audio/Throw.wav"
+		},
+		{
+			"Handle": "16331007926033320433",
+			"Type": "AudioClip",
+			"Path": "Audio/WoodHit.wav"
+		},
+		{
+			"Handle": "654220695562908947",
+			"Type": "Environment",
+			"Path": "Environments/autumn_forest_04_4k.hdr"
+		},
+		{
+			"Handle": "7201115249302596375",
+			"Type": "Material",
+			"Path": "Materials/BallMetal.smat"
+		},
+		{
+			"Handle": "14224340942919214177",
+			"Type": "Mesh",
+			"Path": "Models/Lantern_01/Lantern_01_1k.gltf"
+		},
+		{
+			"Handle": "18235589389356287166",
+			"Type": "Texture",
+			"Path": "Models/Lantern_01/textures/Lantern_01_brass_arm_1k.jpg"
+		},
+		{
+			"Handle": "11866981534774873470",
+			"Type": "Texture",
+			"Path": "Models/Lantern_01/textures/Lantern_01_brass_diff_1k.jpg"
+		},
+		{
+			"Handle": "1763738242667497965",
+			"Type": "Texture",
+			"Path": "Models/Lantern_01/textures/Lantern_01_brass_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "14279289398464470672",
+			"Type": "Mesh",
+			"Path": "Models/boulder_01/boulder_01_1k.gltf"
+		},
+		{
+			"Handle": "11032412618239126937",
+			"Type": "Texture",
+			"Path": "Models/boulder_01/textures/boulder_01_arm_1k.jpg"
+		},
+		{
+			"Handle": "16544178473968781057",
+			"Type": "Texture",
+			"Path": "Models/boulder_01/textures/boulder_01_diff_1k.jpg"
+		},
+		{
+			"Handle": "14983728795666384350",
+			"Type": "Texture",
+			"Path": "Models/boulder_01/textures/boulder_01_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "12546680939977965242",
+			"Type": "Mesh",
+			"Path": "Models/dead_tree_trunk/dead_tree_trunk_1k.gltf"
+		},
+		{
+			"Handle": "4265183043058960472",
+			"Type": "Texture",
+			"Path": "Models/dead_tree_trunk/textures/dead_tree_trunk_arm_1k.jpg"
+		},
+		{
+			"Handle": "15830357090614961593",
+			"Type": "Texture",
+			"Path": "Models/dead_tree_trunk/textures/dead_tree_trunk_diff_1k.jpg"
+		},
+		{
+			"Handle": "1445647349551932138",
+			"Type": "Texture",
+			"Path": "Models/dead_tree_trunk/textures/dead_tree_trunk_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "991521464986892845",
+			"Type": "Mesh",
+			"Path": "Models/dead_tree_trunk_02/dead_tree_trunk_02_1k.gltf"
+		},
+		{
+			"Handle": "6738948531335117561",
+			"Type": "Texture",
+			"Path": "Models/dead_tree_trunk_02/textures/dead_tree_trunk_02_arm_1k.jpg"
+		},
+		{
+			"Handle": "8793923755259494273",
+			"Type": "Texture",
+			"Path": "Models/dead_tree_trunk_02/textures/dead_tree_trunk_02_diff_1k.jpg"
+		},
+		{
+			"Handle": "13909777519797701584",
+			"Type": "Texture",
+			"Path": "Models/dead_tree_trunk_02/textures/dead_tree_trunk_02_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "18066733568559708661",
+			"Type": "Mesh",
+			"Path": "Models/dry_branches_medium_01/dry_branches_medium_01_1k.gltf"
+		},
+		{
+			"Handle": "8009820746669742481",
+			"Type": "Texture",
+			"Path": "Models/dry_branches_medium_01/textures/dry_branches_medium_01_arm_1k.jpg"
+		},
+		{
+			"Handle": "17853722166890370317",
+			"Type": "Texture",
+			"Path": "Models/dry_branches_medium_01/textures/dry_branches_medium_01_diff_1k.jpg"
+		},
+		{
+			"Handle": "1407243522004296515",
+			"Type": "Texture",
+			"Path": "Models/dry_branches_medium_01/textures/dry_branches_medium_01_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "11135844650034768179",
+			"Type": "Mesh",
+			"Path": "Models/fern_02/fern_02_1k.gltf"
+		},
+		{
+			"Handle": "6406651458900593515",
+			"Type": "Texture",
+			"Path": "Models/fern_02/textures/fern_02_arm_1k.jpg"
+		},
+		{
+			"Handle": "12890021496581414577",
+			"Type": "Texture",
+			"Path": "Models/fern_02/textures/fern_02_diff_1k.jpg"
+		},
+		{
+			"Handle": "2476361161281694888",
+			"Type": "Texture",
+			"Path": "Models/fern_02/textures/fern_02_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "6889641374304966246",
+			"Type": "Mesh",
+			"Path": "Models/rock_moss_set_01/rock_moss_set_01_1k.gltf"
+		},
+		{
+			"Handle": "1325884075280389384",
+			"Type": "Texture",
+			"Path": "Models/rock_moss_set_01/textures/rock_moss_set_01_diff_1k.jpg"
+		},
+		{
+			"Handle": "8424008898249383256",
+			"Type": "Texture",
+			"Path": "Models/rock_moss_set_01/textures/rock_moss_set_01_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "8899250351294007688",
+			"Type": "Texture",
+			"Path": "Models/rock_moss_set_01/textures/rock_moss_set_01_rough_1k.jpg"
+		},
+		{
+			"Handle": "2822941888541200926",
+			"Type": "Mesh",
+			"Path": "Models/rock_moss_set_02/rock_moss_set_02_1k.gltf"
+		},
+		{
+			"Handle": "4831335367242476050",
+			"Type": "Texture",
+			"Path": "Models/rock_moss_set_02/textures/rock_moss_set_02_diff_1k.jpg"
+		},
+		{
+			"Handle": "8162641240412846754",
+			"Type": "Texture",
+			"Path": "Models/rock_moss_set_02/textures/rock_moss_set_02_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "14341701837095367389",
+			"Type": "Texture",
+			"Path": "Models/rock_moss_set_02/textures/rock_moss_set_02_rough_1k.jpg"
+		},
+		{
+			"Handle": "5705044583253093320",
+			"Type": "Texture",
+			"Path": "Models/tree_stump_01/textures/tree_stump_01_arm_1k.jpg"
+		},
+		{
+			"Handle": "622421809052055955",
+			"Type": "Texture",
+			"Path": "Models/tree_stump_01/textures/tree_stump_01_diff_1k.jpg"
+		},
+		{
+			"Handle": "3029859042446499437",
+			"Type": "Texture",
+			"Path": "Models/tree_stump_01/textures/tree_stump_01_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "12656738026654817316",
+			"Type": "Mesh",
+			"Path": "Models/tree_stump_01/tree_stump_01_1k.gltf"
+		},
+		{
+			"Handle": "12541910339185010701",
+			"Type": "Texture",
+			"Path": "Models/tree_stump_02/textures/tree_stump_02_arm_1k.jpg"
+		},
+		{
+			"Handle": "17556062803508359635",
+			"Type": "Texture",
+			"Path": "Models/tree_stump_02/textures/tree_stump_02_diff_1k.jpg"
+		},
+		{
+			"Handle": "6769529916339242722",
+			"Type": "Texture",
+			"Path": "Models/tree_stump_02/textures/tree_stump_02_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "17302426641487182359",
+			"Type": "Mesh",
+			"Path": "Models/tree_stump_02/tree_stump_02_1k.gltf"
+		},
+		{
+			"Handle": "10676834757407880157",
+			"Type": "Texture",
+			"Path": "Models/wine_barrel_01/textures/wine_barrel_01_arm_1k.jpg"
+		},
+		{
+			"Handle": "12481076224716964378",
+			"Type": "Texture",
+			"Path": "Models/wine_barrel_01/textures/wine_barrel_01_diff_1k.jpg"
+		},
+		{
+			"Handle": "13731237684044663602",
+			"Type": "Texture",
+			"Path": "Models/wine_barrel_01/textures/wine_barrel_01_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "5632217381304376980",
+			"Type": "Mesh",
+			"Path": "Models/wine_barrel_01/wine_barrel_01_1k.gltf"
+		},
+		{
+			"Handle": "11620596321814290884",
+			"Type": "Texture",
+			"Path": "Models/wooden_crate_01/textures/wooden_crate_01_arm_1k.jpg"
+		},
+		{
+			"Handle": "11931107503555276201",
+			"Type": "Texture",
+			"Path": "Models/wooden_crate_01/textures/wooden_crate_01_diff_1k.jpg"
+		},
+		{
+			"Handle": "15885718386223182816",
+			"Type": "Texture",
+			"Path": "Models/wooden_crate_01/textures/wooden_crate_01_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "8861912283618635684",
+			"Type": "Mesh",
+			"Path": "Models/wooden_crate_01/wooden_crate_01_1k.gltf"
+		},
+		{
+			"Handle": "11029254649117029338",
+			"Type": "Texture",
+			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_bottom_arm_1k.jpg"
+		},
+		{
+			"Handle": "7610854919863044890",
+			"Type": "Texture",
+			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_bottom_diff_1k.jpg"
+		},
+		{
+			"Handle": "8634552911248320",
+			"Type": "Texture",
+			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_bottom_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "385420870676565592",
+			"Type": "Texture",
+			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_top_arm_1k.jpg"
+		},
+		{
+			"Handle": "10292661313199836289",
+			"Type": "Texture",
+			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_top_diff_1k.jpg"
+		},
+		{
+			"Handle": "3241063804406710364",
+			"Type": "Texture",
+			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_top_nor_gl_1k.jpg"
+		},
+		{
+			"Handle": "5780710473366632894",
+			"Type": "Mesh",
+			"Path": "Models/wooden_picnic_table/wooden_picnic_table_1k.gltf"
+		},
+		{
+			"Handle": "7844583903201084322",
+			"Type": "Prefab",
+			"Path": "Prefabs/Ball.sprefab"
+		},
+		{
+			"Handle": "1386313322681886381",
+			"Type": "Scene",
+			"Path": "Scenes/Main.sscene"
+		},
+		{
+			"Handle": "7860086933071064799",
+			"Type": "Scene",
+			"Path": "Scenes/Tests.sscene"
+		},
+		{
+			"Handle": "15937701555720719876",
+			"Type": "Material",
+			"Path": "Textures/dry_decay_leaves/dry_decay_leaves.smat"
+		},
+		{
+			"Handle": "12797685837411076855",
+			"Type": "Texture",
+			"Path": "Textures/dry_decay_leaves/dry_decay_leaves_arm_2k.jpg"
+		},
+		{
+			"Handle": "10567952990999484360",
+			"Type": "Texture",
+			"Path": "Textures/dry_decay_leaves/dry_decay_leaves_diff_2k.jpg"
+		},
+		{
+			"Handle": "6165382268461082295",
+			"Type": "Texture",
+			"Path": "Textures/dry_decay_leaves/dry_decay_leaves_nor_gl_2k.jpg"
+		}
+	]
+}

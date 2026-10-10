@@ -32,6 +32,7 @@ before changing anything structural; it is the architectural contract.
 | `Tests/Data/` | Test data (renderer golden images) |
 | `Projects/FeatureTest/` | Project exercising every component and the entire scripting API |
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
+| `Projects/Showcase/` | Rendering, physics and audio showcase (Poly Haven assets, physics playground) built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its assets |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
 | `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference), `Scripting.md` (guide to writing game scripts) |

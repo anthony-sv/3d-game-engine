@@ -41,6 +41,61 @@ internal sealed class FakePolyHaven : HttpMessageHandler
 			},
 		});
 		Set(MeadowFile, HttpStatusCode.OK, MeadowContents);
+
+		SetJson($"{PolyHaven.ApiAddress}/assets?t=models", new JsonObject
+		{
+			[CrateId] = Asset("Wooden Crate", ["props"], ["box"], "Ann Author"),
+			["ArmChair_01"] = Asset("Arm Chair 01", ["furniture"], ["chair"], "Bo Builder"),
+		});
+		SetJson($"{PolyHaven.ApiAddress}/files/{CrateId}", new JsonObject
+		{
+			["gltf"] = new JsonObject
+			{
+				["1k"] = new JsonObject
+				{
+					["gltf"] = Include(File(CrateFile("crate_1k.gltf"), CrateContents["crate_1k.gltf"]), new JsonObject
+					{
+						["crate.bin"] = File(CrateFile("crate.bin"), CrateContents["crate.bin"]),
+						["textures/crate_diff_1k.jpg"] = File(CrateFile("crate_diff_1k.jpg"), CrateContents["textures/crate_diff_1k.jpg"]),
+					}),
+				},
+			},
+		});
+		Set(CrateFile("crate_1k.gltf"), HttpStatusCode.OK, CrateContents["crate_1k.gltf"]);
+		Set(CrateFile("crate.bin"), HttpStatusCode.OK, CrateContents["crate.bin"]);
+		Set(CrateFile("crate_diff_1k.jpg"), HttpStatusCode.OK, CrateContents["textures/crate_diff_1k.jpg"]);
+
+		SetJson($"{PolyHaven.ApiAddress}/files/{MudId}", new JsonObject
+		{
+			["Diffuse"] = new JsonObject { ["1k"] = new JsonObject { ["jpg"] = File(MudFile("mud_diff_1k.jpg"), [1]) } },
+			["nor_gl"] = new JsonObject { ["1k"] = new JsonObject { ["jpg"] = File(MudFile("mud_nor_gl_1k.jpg"), [2]) } },
+			["arm"] = new JsonObject { ["1k"] = new JsonObject { ["jpg"] = File(MudFile("mud_arm_1k.jpg"), [3]) } },
+		});
+		Set(MudFile("mud_diff_1k.jpg"), HttpStatusCode.OK, [1]);
+		Set(MudFile("mud_nor_gl_1k.jpg"), HttpStatusCode.OK, [2]);
+		Set(MudFile("mud_arm_1k.jpg"), HttpStatusCode.OK, [3]);
+	}
+
+	public const string CrateId = "wooden_crate";
+	public const string MudId = "brown_mud";
+
+	/// <summary>The crate model's files by their path in its download.</summary>
+	public static IReadOnlyDictionary<string, byte[]> CrateContents { get; } = new Dictionary<string, byte[]>
+	{
+		["crate_1k.gltf"] = Encoding.ASCII.GetBytes("{\"asset\":{\"version\":\"2.0\"}}"),
+		["crate.bin"] = [0, 1, 2, 3],
+		["textures/crate_diff_1k.jpg"] = [9, 8, 7],
+	};
+
+	public static string CrateFile(string name) => $"https://dl.example.org/models/{CrateId}/{name}";
+
+	public static string MudFile(string name) => $"https://dl.example.org/textures/{MudId}/{name}";
+
+	/// <summary>A catalog entry of a glTF with the files it references.</summary>
+	public static JsonObject Include(JsonObject file, JsonObject include)
+	{
+		file["include"] = include;
+		return file;
 	}
 
 	/// <summary>The contents of the meadow's 1k .hdr file.</summary>

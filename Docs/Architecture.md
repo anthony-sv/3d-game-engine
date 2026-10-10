@@ -61,6 +61,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 │   └── Data/                                         Test assets and golden images
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
+├── Projects/Showcase/                                Showcase scene (Poly Haven assets, physics playground, sound)
 ├── Tools/                                            Developer scripts (configure/build/test, formatting)
 ├── Docs/                                             Architecture contract, automation reference, scripting guide
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
@@ -696,7 +697,8 @@ than the assembly.
   editor or starts one on demand, and lists the tools from a headless editor started for that when none runs; headless
   editors it starts close with it through the editor's `--parent-process`; screenshots returned as image content;
   failed commands are tool results with `isError`; strada's own tools search and import Poly Haven HDRIs),
-  `strada call <command> [json]`, `strada launch`, `strada commands`, `strada instances`, `strada hdris`, `strada hdri`. Editors ignore SIGPIPE (`Platform::IgnoreBrokenPipeSignal`), so the ones strada starts with a
+  `strada call <command> [json]`, `strada launch`, `strada commands`, `strada instances`, `strada hdris`, `strada hdri`,
+  `strada models`, `strada model`, `strada textures`, `strada texture`. Editors ignore SIGPIPE (`Platform::IgnoreBrokenPipeSignal`), so the ones strada starts with a
   window outlive its output pipes.
 - Command domains: `editor.*` (status, undo, redo, commands), `project.*` (info, create, open, close, settings, export),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,

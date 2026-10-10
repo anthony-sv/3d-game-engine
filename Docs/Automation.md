@@ -43,6 +43,9 @@ this document is the reference (a test fails when a registered command is missin
 | `strada instances` | Lists the running editors (`--json` for JSON) |
 | `strada hdris [words]` | Searches Poly Haven's HDRIs (CC0) by words in their names, categories and tags (`--json` for JSON) |
 | `strada hdri <id>` | Downloads a Poly Haven HDRI (`--resolution` 1k, 2k (default), 4k or 8k) and imports it into the running editor's project (`--folder` in Assets, default `Environments`), or only downloads it into `--output <directory>` |
+| `strada models [words]`, `strada textures [words]` | Search Poly Haven's models and PBR texture sets the same way |
+| `strada model <id>` | Downloads a Poly Haven model (glTF with its buffer and textures; `--resolution` of the textures, default 1k) into `<folder>/<id>` of the running editor's project (`--folder`, default `Models`) and registers it, or only downloads it into `--output <directory>` |
+| `strada texture <id>` | Downloads a Poly Haven texture set (color, normal, ambient occlusion/roughness/metallic maps) into `<folder>/<id>` (default `Textures`) and creates the material `<id>.smat` from it, or only downloads it into `--output <directory>` |
 
 Options: `--editor <path>` (the editor to start), `--project <file>` (use the editor that has this project open; editors
 strada starts open it), `--pid <id>` (only the running editor with this process ID), `--headless` (start editors without
@@ -65,7 +68,9 @@ usage.
 - Requests run concurrently. A connection that broke (the editor closed) is replaced on the next call. Cancelled
   requests (`notifications/cancelled`) get no response; the editor still finishes the command.
 - strada adds tools of its own after the editor's: `polyhaven_search_hdris` (`query`, `limit`) finds Poly Haven HDRIs,
-  and `polyhaven_import_hdri` (`id`, `resolution`, `folder`) downloads one and imports it into the open project; a
+  and `polyhaven_import_hdri` (`id`, `resolution`, `folder`) downloads one and imports it into the open project;
+  `polyhaven_search_models`/`polyhaven_import_model` and `polyhaven_search_textures`/`polyhaven_import_texture` do the
+  same for models (the result's `mesh` goes into a MeshComponent) and texture sets (the result's `material`); a
   SkyLight's `Environment` takes the returned asset. Downloads are checked against the size and MD5 that Poly Haven
   lists; nothing is downloaded when no project is open.
 - Editors strada starts with a window stay open for the user. Editors it starts headless close with `strada mcp`: they

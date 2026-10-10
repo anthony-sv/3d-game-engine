@@ -78,6 +78,12 @@ running editor or starts one. [Docs/Automation.md](Docs/Automation.md) describes
 a game project of your own. `Projects/Blocks`, a falling-blocks game, was made this way: open
 `Projects/Blocks/Blocks.sproj` in the editor and press Play.
 
+`Projects/Showcase` shows the renderer, physics and audio together: an autumn forest clearing (Poly Haven sky, ground,
+props and plants), crates and barrels to knock over with thrown steel balls, a flickering lantern, music and impact
+sounds. Its Poly Haven assets are not in the repository; download them once with
+`python Projects/Showcase/Tools/FetchAssets.py`, then open `Projects/Showcase/Showcase.sproj` and press Play (right
+mouse to look, WASD to move, left click to throw).
+
 ## Contributing
 
 Read [AGENTS.md](AGENTS.md) first. In short: Hazel naming conventions, Allman braces, east const, tabs; every change

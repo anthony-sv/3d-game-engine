@@ -29,3 +29,11 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | doctest | 2.5.3 | MIT | https://github.com/doctest/doctest | Tests only (not distributed) |
 | xUnit.net v3 (NuGet, locked in the `packages.lock.json` of `Tests/ScriptCoreTests` and `Tests/StradaToolTests`) | 4.0.2 | Apache-2.0 | https://github.com/xunit/xunit | Tests only (not distributed) |
 | Microsoft.Testing.Platform and its dependencies (through xUnit.net) | 2.5.1 | MIT | https://github.com/microsoft/testfx | Tests only (not distributed) |
+
+## Assets
+
+| Assets | License | Source | Used by |
+|--------|---------|--------|---------|
+| Poly Haven HDRI `autumn_forest_04`, texture set `dry_decay_leaves`, and the models listed in `Projects/Showcase/Tools/Author.py` (`MODELS`) | CC0 | https://polyhaven.com | `Projects/Showcase` (downloaded by `Tools/FetchAssets.py`, not in the repository) |
+
+The Showcase's sounds are synthesized by `Projects/Showcase/Tools/GenerateAudio.py` and have no third-party source.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -51,6 +52,10 @@ internal sealed class FakeEditor : IAsyncDisposable
 	public int Connections => Volatile.Read(ref m_Connected);
 	/// <summary>Whether project.info names an open project.</summary>
 	public bool HasProject { get; set; } = true;
+	/// <summary>The asset directory project.info reports; asset.refresh registers the files that appeared in it.</summary>
+	public string? AssetDirectory { get; set; }
+	/// <summary>What material.create received.</summary>
+	public ConcurrentQueue<JsonObject> CreatedMaterials { get; } = new();
 	/// <summary>What asset.import received: the folder, and for each file its path and its contents then (null when it
 	/// did not exist).</summary>
 	public ConcurrentQueue<(string Folder, string File, byte[]? Contents)> Imports { get; } = new();
@@ -186,10 +191,25 @@ internal sealed class FakeEditor : IAsyncDisposable
 				response = Result(id, new JsonObject { ["done"] = true });
 				break;
 			case "project.info":
-				response = Result(id, new JsonObject { ["project"] = HasProject ? new JsonObject { ["name"] = "Game" } : null });
+				response = Result(id, new JsonObject
+				{
+					["project"] = HasProject ? new JsonObject { ["name"] = "Game", ["assetDirectory"] = AssetDirectory } : null,
+				});
 				break;
 			case "asset.import":
 				response = Result(id, Import(parameters));
+				break;
+			case "asset.refresh":
+				response = Result(id, Refresh());
+				break;
+			case "material.create":
+				CreatedMaterials.Enqueue(parameters!.DeepClone().AsObject());
+				string materialPath = parameters["path"]!.GetValue<string>();
+				response = Result(id, new JsonObject
+				{
+					["material"] = new JsonObject { ["path"] = materialPath, ["reference"] = $"asset://{materialPath}" },
+					["fields"] = parameters["fields"]?.DeepClone(),
+				});
 				break;
 			default:
 				response = Error(id, -32601, $"unknown command '{method}'");
@@ -204,6 +224,32 @@ internal sealed class FakeEditor : IAsyncDisposable
 			// The client is gone.
 		}
 	}
+
+	// Registers the files of the asset directory that are not registered yet, as the editor's refresh does.
+	private JsonObject Refresh()
+	{
+		JsonArray added = [];
+		if (AssetDirectory is not null)
+		{
+			foreach (string file in Directory.GetFiles(AssetDirectory, "*", SearchOption.AllDirectories))
+			{
+				string path = Path.GetRelativePath(AssetDirectory, file).Replace('\\', '/');
+				string? type = Path.GetExtension(file) switch
+				{
+					".gltf" => "Mesh",
+					".jpg" => "Texture",
+					_ => null,
+				};
+				if (type is not null && m_Registered.Add(path))
+				{
+					added.Add(new JsonObject { ["name"] = Path.GetFileName(file), ["type"] = type, ["path"] = path, ["reference"] = $"asset://{path}" });
+				}
+			}
+		}
+		return new JsonObject { ["added"] = added, ["missing"] = new JsonArray(), ["modified"] = new JsonArray() };
+	}
+
+	private readonly HashSet<string> m_Registered = new(StringComparer.Ordinal);
 
 	private JsonObject Import(JsonObject? parameters)
 	{

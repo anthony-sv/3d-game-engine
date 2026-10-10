@@ -1,0 +1,5 @@
+# Poly Haven downloads (CC0, about 80 MB): Tools/FetchAssets.py restores them. Materials made from them stay in the
+# repository.
+/Assets/Environments/*.hdr
+/Assets/Models/
+/Assets/Textures/**/*.jpg
