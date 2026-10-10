@@ -1,7 +1,30 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 
 namespace Strada.Tests;
+
+public enum Difficulty
+{
+	Easy,
+	Normal,
+	Hard = 5,
+}
+
+[Flags]
+public enum Permissions : uint
+{
+	None = 0,
+	Read = 1,
+	Write = 2,
+	Execute = 4,
+}
+
+public enum Tiny : byte
+{
+	A = 1,
+	B = 200,
+}
 
 // A field of every supported type, plus fields the engine must not serialize. OnCreate writes the values the instance
 // received into its name.
@@ -24,6 +47,10 @@ public sealed class FieldTypes : Script
 	public Color Tint = new(0.5f, 0.25f, 1.0f, 1.0f);
 	public Entity? Target;
 	public AssetHandle Model;
+	public Mesh? Shape;
+	public Difficulty Level = Difficulty.Hard;
+	public Permissions Access = Permissions.Read | Permissions.Write;
+	public Tiny Small = Tiny.B;
 	[HideInInspector]
 	public int Hidden = 5;
 	[SerializeField]
@@ -38,6 +65,6 @@ public sealed class FieldTypes : Script
 	protected override void OnCreate()
 	{
 		Name = string.Create(CultureInfo.InvariantCulture,
-			$"{Flag}|{Count}|{Mask}|{Big}|{Huge}|{Speed}|{Precise}|{Title}|{Size}|{Offset}|{Weights}|{Turn}|{Tint}|{Target?.ID ?? 0}|{Model}|{Hidden}|{m_Secret}|{m_Private}|{Shared}|{Fixed}|{Unsupported.Count}");
+			$"{Flag}|{Count}|{Mask}|{Big}|{Huge}|{Speed}|{Precise}|{Title}|{Size}|{Offset}|{Weights}|{Turn}|{Tint}|{Target?.ID ?? 0}|{Model}|{Hidden}|{m_Secret}|{m_Private}|{Shared}|{Fixed}|{Unsupported.Count}|{Shape?.ToString() ?? "none"}|{Level}|{Access}|{Small}");
 	}
 }

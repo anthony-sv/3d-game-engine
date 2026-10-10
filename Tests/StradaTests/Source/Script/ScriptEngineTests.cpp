@@ -79,8 +79,9 @@ TEST_CASE("ScriptEngine: serialized fields have the types, defaults and attribut
 	Testing::ScriptEngineScope scripting;
 	ScriptClassInfo const& fields = RequireClass("Strada.Tests.FieldTypes");
 	// Public and [SerializeField] fields only: not private, static, readonly or of unsupported types.
-	CHECK(GetFieldNames(fields) == std::vector<std::string>{"Flag", "Count", "Mask", "Big", "Huge", "Speed", "Precise", "Title", "Size",
-	                                                        "Offset", "Weights", "Turn", "Tint", "Target", "Model", "Hidden", "m_Secret"});
+	CHECK(GetFieldNames(fields) == std::vector<std::string>{"Flag",  "Count", "Mask",   "Big",     "Huge",  "Speed",  "Precise",
+	                                                        "Title", "Size",  "Offset", "Weights", "Turn",  "Tint",   "Target",
+	                                                        "Model", "Shape", "Level",  "Access",  "Small", "Hidden", "m_Secret"});
 
 	CHECK(RequireField(fields, "Flag").DefaultValue == ScriptFieldValue::FromBool(true));
 	CHECK(RequireField(fields, "Count").DefaultValue == ScriptFieldValue::FromInt32(-3));
@@ -105,6 +106,33 @@ TEST_CASE("ScriptEngine: serialized fields have the types, defaults and attribut
 	CHECK_FALSE(speed.Hidden);
 	CHECK(RequireField(fields, "Hidden").Hidden);
 	CHECK_FALSE(RequireField(fields, "Count").Range.has_value());
+
+	// Typed asset references accept one asset type; AssetHandle fields accept any.
+	ScriptFieldInfo const& shape = RequireField(fields, "Shape");
+	CHECK(shape.Type == ScriptFieldType::Asset);
+	CHECK(shape.AcceptedAssetType == AssetType::Mesh);
+	CHECK(shape.DefaultValue == ScriptFieldValue::FromAsset(AssetHandle()));
+	CHECK(RequireField(fields, "Model").AcceptedAssetType == AssetType::None);
+
+	// Enums are stored as integers of their size and list their enumerators in declaration order.
+	ScriptFieldInfo const& level = RequireField(fields, "Level");
+	CHECK(level.Type == ScriptFieldType::Int32);
+	CHECK(level.DefaultValue == ScriptFieldValue::FromInt32(5));
+	REQUIRE(level.Enumerators.size() == 3);
+	CHECK(level.Enumerators[0].Name == "Easy");
+	CHECK(level.Enumerators[0].Value == ScriptFieldValue::FromInt32(0));
+	CHECK(level.Enumerators[2].Name == "Hard");
+	CHECK(level.Enumerators[2].Value == ScriptFieldValue::FromInt32(5));
+	CHECK_FALSE(level.IsFlags);
+	ScriptFieldInfo const& access = RequireField(fields, "Access");
+	CHECK(access.Type == ScriptFieldType::UInt32);
+	CHECK(access.IsFlags);
+	CHECK(access.DefaultValue == ScriptFieldValue::FromUInt32(3));
+	CHECK(access.Enumerators.size() == 4);
+	ScriptFieldInfo const& small = RequireField(fields, "Small");
+	CHECK(small.Type == ScriptFieldType::Int32);
+	CHECK(small.DefaultValue == ScriptFieldValue::FromInt32(200));
+	CHECK(RequireField(fields, "Count").Enumerators.empty());
 }
 
 TEST_CASE("ScriptEngine: shuts down, starts again and replaces game assemblies")

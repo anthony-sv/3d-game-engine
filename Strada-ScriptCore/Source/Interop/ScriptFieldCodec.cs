@@ -27,11 +27,28 @@ internal enum ScriptFieldType
 }
 
 // Field values in the JSON encoding of scene files: 64-bit integers, entity IDs and asset handles as decimal strings (0 for
-// no entity or prefab, which are null in C#), vectors, colors and quaternions (X, Y, Z, W) as number arrays.
+// no entity or prefab, which are null in C#), vectors, colors and quaternions (X, Y, Z, W) as number arrays. Enum fields
+// are stored as their integer values and typed asset references (Mesh, Material, ...) as asset handles: ToStored and
+// FromStored convert between the field's C# value and the stored one.
 internal static class ScriptFieldCodec
 {
 	internal static ScriptFieldType GetFieldType(Type type)
 	{
+		if (type.IsEnum)
+		{
+			return Type.GetTypeCode(Enum.GetUnderlyingType(type)) switch
+			{
+				TypeCode.SByte or TypeCode.Byte or TypeCode.Int16 or TypeCode.UInt16 or TypeCode.Int32 => ScriptFieldType.Int32,
+				TypeCode.UInt32 => ScriptFieldType.UInt32,
+				TypeCode.Int64 => ScriptFieldType.Int64,
+				TypeCode.UInt64 => ScriptFieldType.UInt64,
+				_ => ScriptFieldType.None,
+			};
+		}
+		if (GetAssetType(type) != NativeAssetType.None)
+		{
+			return ScriptFieldType.Asset;
+		}
 		return type switch
 		{
 			_ when type == typeof(bool) => ScriptFieldType.Bool,
@@ -51,6 +68,77 @@ internal static class ScriptFieldCodec
 			_ when type == typeof(Prefab) => ScriptFieldType.Prefab,
 			_ when type == typeof(AssetHandle) => ScriptFieldType.Asset,
 			_ => ScriptFieldType.None,
+		};
+	}
+
+	// The asset type of typed asset reference fields (Prefab fields have their own field type); None otherwise.
+	internal static NativeAssetType GetAssetType(Type type)
+	{
+		NativeAssetType assetType = AssetTypes.GetNativeType(type);
+		return assetType == NativeAssetType.Prefab ? NativeAssetType.None : assetType;
+	}
+
+	// The stored form of a field's value: enums as integers of the field type, typed asset references as handles.
+	internal static object? ToStored(object? value, ScriptFieldType type)
+	{
+		return value switch
+		{
+			Enum enumerator => type switch
+			{
+				ScriptFieldType.Int32 => Convert.ToInt32(enumerator, CultureInfo.InvariantCulture),
+				ScriptFieldType.UInt32 => Convert.ToUInt32(enumerator, CultureInfo.InvariantCulture),
+				ScriptFieldType.Int64 => Convert.ToInt64(enumerator, CultureInfo.InvariantCulture),
+				_ => Convert.ToUInt64(enumerator, CultureInfo.InvariantCulture),
+			},
+			Asset asset when type == ScriptFieldType.Asset => asset.Handle,
+			null when type == ScriptFieldType.Asset => AssetHandle.Invalid,
+			_ => value,
+		};
+	}
+
+	// The value a field of the C# type takes for a stored value; null with an error message when it does not fit (an enum
+	// value out of the enum's range).
+	internal static object? FromStored(object? stored, Type fieldType, out string? error)
+	{
+		error = null;
+		if (fieldType.IsEnum)
+		{
+			Type underlying = Enum.GetUnderlyingType(fieldType);
+			if (!FitsInteger(stored, Type.GetTypeCode(underlying)))
+			{
+				error = $"{stored} is out of the range of {fieldType.Name} ({underlying.Name})";
+				return null;
+			}
+			return Enum.ToObject(fieldType, stored!);
+		}
+		NativeAssetType assetType = GetAssetType(fieldType);
+		if (assetType != NativeAssetType.None && stored is AssetHandle handle)
+		{
+			return handle.IsValid ? AssetTypes.Create(assetType, handle) : null;
+		}
+		return stored;
+	}
+
+	private static bool FitsInteger(object? value, TypeCode target)
+	{
+		(long Min, ulong Max) range = target switch
+		{
+			TypeCode.SByte => (sbyte.MinValue, (ulong)sbyte.MaxValue),
+			TypeCode.Byte => (byte.MinValue, byte.MaxValue),
+			TypeCode.Int16 => (short.MinValue, (ulong)short.MaxValue),
+			TypeCode.UInt16 => (ushort.MinValue, ushort.MaxValue),
+			TypeCode.Int32 => (int.MinValue, int.MaxValue),
+			TypeCode.UInt32 => (uint.MinValue, uint.MaxValue),
+			TypeCode.Int64 => (long.MinValue, long.MaxValue),
+			_ => (0, ulong.MaxValue),
+		};
+		return value switch
+		{
+			int number => number >= range.Min && (number < 0 || (ulong)number <= range.Max),
+			uint number => number <= range.Max,
+			long number => number >= range.Min && (number < 0 || (ulong)number <= range.Max),
+			ulong number => number <= range.Max,
+			_ => false,
 		};
 	}
 

@@ -465,7 +465,10 @@ Scripts derive from `Strada.Script` (which derives from `Entity`) and override a
 `OnCollisionExit(Entity other)`, `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)`.
 Public fields (and private fields marked `[SerializeField]`) of supported types are editable in the inspector and
 serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `string`, `Vector2`, `Vector3`,
-`Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab`, `AssetHandle`, and enums.
+`Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab`, `AssetHandle`, typed asset references (`Mesh`, `Material`,
+`Texture`, `AudioClip`, `Font`, `EnvironmentMap`), and enums. Enums are stored as integers of their size (the class
+metadata lists the enumerators in declaration order and marks `[Flags]` enums; stored values out of the enum's range
+are ignored) and typed references as asset handles (the metadata names the accepted asset type).
 
 One scene runs scripts at a time (the `ScriptEngine`'s scene context, which the bindings act on). At runtime start
 every instance is created before the first `OnCreate`, so scripts can find each other there. Each update first

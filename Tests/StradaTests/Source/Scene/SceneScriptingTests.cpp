@@ -105,6 +105,11 @@ TEST_CASE("Scene: stored field values reach every field type and mismatches keep
 										{"Turn", ScriptFieldValue::FromQuaternion(glm::quat(0.0f, 1.0f, 0.0f, 0.0f))},
 										{"Target", ScriptFieldValue::FromEntity(target.GetUUID())},
 										{"Model", ScriptFieldValue::FromAsset(AssetHandle(UUID(77)))},
+										{"Shape", ScriptFieldValue::FromAsset(AssetHandle(UUID(78)))},
+										{"Level", ScriptFieldValue::FromInt32(0)},
+										{"Access", ScriptFieldValue::FromUInt32(5)},
+										// Out of the range of the byte enum.
+										{"Small", ScriptFieldValue::FromInt32(300)},
 										{"m_Secret", ScriptFieldValue::FromInt32(7)},
 										// A field that changed type, and one that no longer exists.
 										{"Speed", ScriptFieldValue::FromString("fast")},
@@ -113,9 +118,10 @@ TEST_CASE("Scene: stored field values reach every field type and mismatches keep
 
 	scene.OnRuntimeStart();
 	std::string const expected = "True|12|7|-9000000000|5|2.5|0.125|Stored|(1, 2)|(4, 5, 6)|(1, 2, 3, 4)|(1, 0, 0, 0)|(0.5, 0.25, 1, 1)|" +
-	                             target.GetUUID().ToString() + "|77|5|7|1|3|4|0";
+	                             target.GetUUID().ToString() + "|77|5|7|1|3|4|0|Mesh(78)|Easy|Read, Execute|B";
 	CHECK(fields.GetName() == expected);
 	CHECK(Testing::WasLogged(logStart, "Strada.Tests.FieldTypes.Speed: stored \"String\" value ignored: the field is a Float now"));
+	CHECK(Testing::WasLogged(logStart, "Strada.Tests.FieldTypes.Small: stored value ignored: 300 is out of the range of Tiny (Byte)"));
 	scene.OnRuntimeStop();
 }
 

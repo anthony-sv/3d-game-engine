@@ -112,6 +112,36 @@ namespace Strada
 			static_cast<std::string*>(context)->assign(text, static_cast<size_t>(std::max(length, 0)));
 		}
 
+		bool IsIntegerType(ScriptFieldType type)
+		{
+			return type == ScriptFieldType::Int32 || type == ScriptFieldType::UInt32 || type == ScriptFieldType::Int64 ||
+			       type == ScriptFieldType::UInt64;
+		}
+
+		Result<void> ParseEnumerators(ScriptFieldInfo& field, Json const& json)
+		{
+			if (!json.is_array() || !IsIntegerType(field.Type))
+			{
+				return MakeError("field {}: enumerators need an integer field and an array", field.Name);
+			}
+			for (Json const& enumerator : json)
+			{
+				auto const name = enumerator.find("Name");
+				auto const value = enumerator.find("Value");
+				if (!enumerator.is_object() || name == enumerator.end() || !name->is_string() || value == enumerator.end())
+				{
+					return MakeError("field {}: expected enumerators {{ \"Name\", \"Value\" }}", field.Name);
+				}
+				Result<ScriptFieldValue> parsed = ScriptFieldValueFromJson(field.Type, *value, DeserializationContext{});
+				if (!parsed)
+				{
+					return MakeError("field {}: enumerator {}: {}", field.Name, name->get_ref<std::string const&>(), parsed.GetError());
+				}
+				field.Enumerators.push_back({name->get<std::string>(), parsed.TakeValue()});
+			}
+			return {};
+		}
+
 		Result<ScriptFieldInfo> ParseField(Json const& json)
 		{
 			auto const name = json.find("Name");
@@ -148,6 +178,25 @@ namespace Strada
 			if (minimum != json.end() && maximum != json.end() && minimum->is_number() && maximum->is_number())
 			{
 				field.Range = glm::vec2(minimum->get<float>(), maximum->get<float>());
+			}
+			if (auto const assetType = json.find("AssetType"); assetType != json.end())
+			{
+				std::optional<AssetType> const accepted =
+					assetType->is_string() ? AssetTypeFromString(assetType->get_ref<std::string const&>()) : std::nullopt;
+				if (!accepted || field.Type != ScriptFieldType::Asset)
+				{
+					return MakeError("field {}: invalid asset type {}", field.Name, assetType->dump());
+				}
+				field.AcceptedAssetType = *accepted;
+			}
+			if (auto const enumerators = json.find("Enum"); enumerators != json.end())
+			{
+				if (Result<void> parsed = ParseEnumerators(field, *enumerators); !parsed)
+				{
+					return Error{parsed.GetError()};
+				}
+				auto const flags = json.find("Flags");
+				field.IsFlags = flags != json.end() && flags->is_boolean() && flags->get<bool>();
 			}
 			return field;
 		}

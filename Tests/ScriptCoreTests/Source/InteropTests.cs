@@ -108,7 +108,13 @@ public sealed class InteropTests
 			[typeof(Entity)] = ScriptFieldType.Entity,
 			[typeof(Prefab)] = ScriptFieldType.Prefab,
 			[typeof(AssetHandle)] = ScriptFieldType.Asset,
-			[typeof(Mesh)] = ScriptFieldType.None,
+			[typeof(Mesh)] = ScriptFieldType.Asset,
+			[typeof(AudioClip)] = ScriptFieldType.Asset,
+			[typeof(MaterialAlphaMode)] = ScriptFieldType.Int32,
+			[typeof(ByteEnum)] = ScriptFieldType.Int32,
+			[typeof(UnsignedEnum)] = ScriptFieldType.UInt32,
+			[typeof(LongEnum)] = ScriptFieldType.Int64,
+			[typeof(UnsignedLongEnum)] = ScriptFieldType.UInt64,
 			[typeof(byte)] = ScriptFieldType.None,
 			[typeof(Script)] = ScriptFieldType.None,
 		};
@@ -144,6 +150,62 @@ public sealed class InteropTests
 		Assert.Equal(NativeAssetType.None, AssetTypes.GetNativeType(typeof(Asset)));
 		Assert.Equal(new Mesh(new AssetHandle(3)), new Mesh(new AssetHandle(3)));
 		Assert.False(new Mesh(new AssetHandle(3)).Equals(new Material(new AssetHandle(3))));
+	}
+
+	private enum ByteEnum : byte
+	{
+		Low = 1,
+		High = 200,
+	}
+
+	private enum UnsignedEnum : uint
+	{
+		Top = uint.MaxValue,
+	}
+
+	private enum LongEnum : long
+	{
+		Negative = -5000000000,
+	}
+
+	private enum UnsignedLongEnum : ulong
+	{
+		Top = ulong.MaxValue,
+	}
+
+	[Fact]
+	public void EnumsAreStoredAsIntegersOfTheirSize()
+	{
+		Assert.Equal(200, ScriptFieldCodec.ToStored(ByteEnum.High, ScriptFieldType.Int32));
+		Assert.Equal(uint.MaxValue, ScriptFieldCodec.ToStored(UnsignedEnum.Top, ScriptFieldType.UInt32));
+		Assert.Equal(-5000000000L, ScriptFieldCodec.ToStored(LongEnum.Negative, ScriptFieldType.Int64));
+		Assert.Equal(ulong.MaxValue, ScriptFieldCodec.ToStored(UnsignedLongEnum.Top, ScriptFieldType.UInt64));
+		Assert.Equal("\"-5000000000\"", Write(ScriptFieldType.Int64, ScriptFieldCodec.ToStored(LongEnum.Negative, ScriptFieldType.Int64)));
+
+		Assert.Equal(ByteEnum.High, ScriptFieldCodec.FromStored(200, typeof(ByteEnum), out string? error));
+		Assert.Null(error);
+		Assert.Equal(LongEnum.Negative, ScriptFieldCodec.FromStored(-5000000000L, typeof(LongEnum), out error));
+		Assert.Equal(UnsignedLongEnum.Top, ScriptFieldCodec.FromStored(ulong.MaxValue, typeof(UnsignedLongEnum), out error));
+		// Values without an enumerator are kept; values out of the enum's range are not.
+		Assert.Equal((ByteEnum)7, ScriptFieldCodec.FromStored(7, typeof(ByteEnum), out error));
+		Assert.Null(ScriptFieldCodec.FromStored(300, typeof(ByteEnum), out error));
+		Assert.Equal("300 is out of the range of ByteEnum (Byte)", error);
+		Assert.Null(ScriptFieldCodec.FromStored(-1, typeof(ByteEnum), out error));
+		Assert.NotNull(error);
+	}
+
+	[Fact]
+	public void TypedAssetReferencesAreStoredAsHandles()
+	{
+		Assert.Equal(new AssetHandle(5), ScriptFieldCodec.ToStored(new Mesh(new AssetHandle(5)), ScriptFieldType.Asset));
+		Assert.Equal(AssetHandle.Invalid, ScriptFieldCodec.ToStored(null, ScriptFieldType.Asset));
+		Assert.Equal(new Mesh(new AssetHandle(5)), ScriptFieldCodec.FromStored(new AssetHandle(5), typeof(Mesh), out string? error));
+		Assert.Null(error);
+		Assert.Null(ScriptFieldCodec.FromStored(AssetHandle.Invalid, typeof(Material), out error));
+		Assert.Equal(new AssetHandle(5), ScriptFieldCodec.FromStored(new AssetHandle(5), typeof(AssetHandle), out error));
+		Assert.Equal(NativeAssetType.Mesh, ScriptFieldCodec.GetAssetType(typeof(Mesh)));
+		Assert.Equal(NativeAssetType.None, ScriptFieldCodec.GetAssetType(typeof(Prefab)));
+		Assert.Equal(NativeAssetType.None, ScriptFieldCodec.GetAssetType(typeof(AssetHandle)));
 	}
 
 	[Fact]

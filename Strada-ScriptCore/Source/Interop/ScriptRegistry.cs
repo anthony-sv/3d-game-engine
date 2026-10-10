@@ -131,7 +131,8 @@ internal static class ScriptRegistry
 			ScriptFieldType fieldType = ScriptFieldCodec.GetFieldType(field.FieldType);
 			if (fieldType != ScriptFieldType.None)
 			{
-				fields.Add(new ScriptField { Field = field, Type = fieldType, DefaultValue = field.GetValue(defaults) });
+				object? defaultValue = ScriptFieldCodec.ToStored(field.GetValue(defaults), fieldType);
+				fields.Add(new ScriptField { Field = field, Type = fieldType, DefaultValue = defaultValue });
 			}
 		}
 		s_Classes[name] = new ScriptClass { Type = type, Fields = fields };
@@ -160,7 +161,8 @@ internal static class ScriptRegistry
 		return fields;
 	}
 
-	// The classes as JSON: [{ "Name", "Fields": [{ "Name", "Type", "Default", "Hidden"?, "Tooltip"?, "Min"?, "Max"? }] }].
+	// The classes as JSON: [{ "Name", "Fields": [{ "Name", "Type", "Default", "Hidden"?, "Tooltip"?, "Min"?, "Max"?,
+	// "AssetType"?, "Enum"?: [{ "Name", "Value" }], "Flags"? }] }]. Enumerators are listed in declaration order.
 	internal static byte[] DescribeClasses()
 	{
 		ArrayBufferWriter<byte> buffer = new();
@@ -192,6 +194,14 @@ internal static class ScriptRegistry
 						writer.WriteNumber("Min", range.Min);
 						writer.WriteNumber("Max", range.Max);
 					}
+					if (ScriptFieldCodec.GetAssetType(field.Field.FieldType) is var assetType && assetType != NativeAssetType.None)
+					{
+						writer.WriteString("AssetType", assetType.ToString());
+					}
+					if (field.Field.FieldType.IsEnum)
+					{
+						WriteEnumerators(writer, field);
+					}
 					writer.WriteEndObject();
 				}
 				writer.WriteEndArray();
@@ -200,6 +210,25 @@ internal static class ScriptRegistry
 			writer.WriteEndArray();
 		}
 		return buffer.WrittenSpan.ToArray();
+	}
+
+	private static void WriteEnumerators(Utf8JsonWriter writer, ScriptField field)
+	{
+		Type enumType = field.Field.FieldType;
+		writer.WriteStartArray("Enum");
+		foreach (FieldInfo enumerator in enumType.GetFields(BindingFlags.Public | BindingFlags.Static))
+		{
+			writer.WriteStartObject();
+			writer.WriteString("Name", enumerator.Name);
+			writer.WritePropertyName("Value");
+			ScriptFieldCodec.WriteValue(writer, field.Type, ScriptFieldCodec.ToStored(enumerator.GetValue(null), field.Type));
+			writer.WriteEndObject();
+		}
+		writer.WriteEndArray();
+		if (enumType.IsDefined(typeof(FlagsAttribute)))
+		{
+			writer.WriteBoolean("Flags", true);
+		}
 	}
 
 	internal static bool HasClass(string name) => s_Classes.ContainsKey(name);
@@ -257,7 +286,8 @@ internal static class ScriptRegistry
 				Log.Warn($"{className}.{stored.Name}: stored {type.GetRawText()} value ignored: the field is a {field.Type} now");
 				continue;
 			}
-			object? fieldValue = ScriptFieldCodec.ReadValue(value, field.Type, out string? error);
+			object? storedValue = ScriptFieldCodec.ReadValue(value, field.Type, out string? error);
+			object? fieldValue = error == null ? ScriptFieldCodec.FromStored(storedValue, field.Field.FieldType, out error) : null;
 			if (error != null)
 			{
 				Log.Warn($"{className}.{stored.Name}: stored value ignored: {error}");

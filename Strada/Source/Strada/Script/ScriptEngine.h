@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Strada/Asset/Asset.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
@@ -18,6 +19,14 @@ namespace Strada
 {
 	class Scene;
 
+	// A named value of a C# enum field.
+	struct ScriptEnumerator
+	{
+		std::string Name;
+		// Of the field's (integer) type.
+		ScriptFieldValue Value;
+	};
+
 	// A serialized field of a script class: a public field, or one marked [SerializeField], of a supported type.
 	struct ScriptFieldInfo
 	{
@@ -31,6 +40,12 @@ namespace Strada
 		std::string Tooltip;
 		// [Range(min, max)].
 		std::optional<glm::vec2> Range;
+		// Asset fields of a typed reference (Mesh, Material, ...): the type of asset they accept. None accepts any asset.
+		AssetType AcceptedAssetType = AssetType::None;
+		// Enum fields, stored as their integer values: the enumerators in declaration order. Empty for other fields.
+		std::vector<ScriptEnumerator> Enumerators;
+		// A [Flags] enum: values combine enumerators bitwise.
+		bool IsFlags = false;
 	};
 
 	// A class of the game assembly that derives from Strada.Script.
