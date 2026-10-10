@@ -4,6 +4,8 @@
 
 #include <doctest/doctest.h>
 
+#include <cmath>
+#include <limits>
 #include <vector>
 
 using namespace Strada;
@@ -366,4 +368,65 @@ TEST_CASE("PhysicsScene: worlds need the physics system")
 		CHECK(PhysicsScene::Create({}).IsOk());
 	}
 	CHECK_FALSE(PhysicsSystem::IsInitialized());
+}
+
+TEST_CASE("PhysicsScene: values beyond the physics world's limits are clamped or refused")
+{
+	Testing::PhysicsSystemScope physics;
+	Scope<PhysicsScene> world = CreateWorld();
+	auto const isFinite = [](glm::vec3 const& value)
+	{
+		return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+	};
+	glm::quat const identity(1.0f, 0.0f, 0.0f, 0.0f);
+
+	// Colliders too large, offsets too far and transforms that are not finite make no body.
+	CHECK(world->AddBody(MakeBody(BallId, RigidBodyType::Static, glm::vec3(0.0f), Box(glm::vec3(1.0e30f)))).IsError());
+	CHECK(world->AddBody(MakeBody(BallId, RigidBodyType::Dynamic, glm::vec3(0.0f), Sphere(2.0f * MaxPhysicsExtent))).IsError());
+	BodyDesc offset = MakeBody(BallId, RigidBodyType::Static, glm::vec3(0.0f), Box(glm::vec3(1.0f)));
+	offset.Colliders[0].Offset = glm::vec3(0.0f, 2.0f * MaxPhysicsExtent, 0.0f);
+	CHECK(world->AddBody(offset).IsError());
+	float const infinity = std::numeric_limits<float>::infinity();
+	CHECK(world->AddBody(MakeBody(BallId, RigidBodyType::Dynamic, {infinity, 0.0f, 0.0f}, Sphere(0.5f))).IsError());
+	CHECK(world->GetBodyCount() == 0);
+
+	// A body beyond the edge stays at it; its mass and initial velocities are clamped.
+	BodyDesc far = MakeBody(BallId, RigidBodyType::Dynamic, {1.0e30f, 0.0f, 0.0f}, Sphere(0.5f));
+	far.Mass = 1.0e30f;
+	far.GravityFactor = 1.0e30f;
+	far.LinearVelocity = {1.0e20f, 0.0f, 0.0f};
+	far.AngularVelocity = {0.0f, 1.0e20f, 0.0f};
+	REQUIRE(world->AddBody(far).IsOk());
+	CHECK(world->GetBodyTransform(BallId)->Position.x == doctest::Approx(MaxPhysicsCoordinate));
+	CHECK(world->GetMass(BallId) == doctest::Approx(MaxPhysicsMass));
+	CHECK(glm::length(world->GetLinearVelocity(BallId)) <= 500.0f * 1.001f);
+
+	// Teleports are clamped too, and ignored when not finite.
+	world->SetBodyTransform(BallId, {0.0f, -1.0e30f, 0.0f}, identity);
+	CHECK(world->GetBodyTransform(BallId)->Position.y == doctest::Approx(-MaxPhysicsCoordinate));
+	world->SetBodyTransform(BallId, glm::vec3(std::numeric_limits<float>::quiet_NaN()), identity);
+	CHECK(world->GetBodyTransform(BallId)->Position.y == doctest::Approx(-MaxPhysicsCoordinate));
+
+	// Extreme gravity, forces and torques, even on the lightest and smallest body, leave the simulation finite.
+	world->SetGravity({0.0f, -1.0e30f, 0.0f});
+	CHECK(world->GetGravity().y == doctest::Approx(-MaxPhysicsGravity));
+	BodyDesc speck = MakeBody(OtherId, RigidBodyType::Dynamic, {0.0f, 10.0f, 0.0f}, Sphere(1.0e-3f));
+	speck.Mass = 0.0f;
+	REQUIRE(world->AddBody(speck).IsOk());
+	for (int step = 0; step < 10; step++)
+	{
+		for (ForceMode const mode : {ForceMode::Force, ForceMode::Impulse, ForceMode::Acceleration, ForceMode::VelocityChange})
+		{
+			world->AddForce(OtherId, glm::vec3(1.0e30f), mode);
+			world->AddTorque(OtherId, glm::vec3(1.0e30f), mode);
+		}
+		world->Step(Step);
+	}
+	for (UUID const entity : {BallId, OtherId})
+	{
+		CAPTURE(entity);
+		CHECK(isFinite(world->GetLinearVelocity(entity)));
+		CHECK(isFinite(world->GetAngularVelocity(entity)));
+		CHECK(isFinite(world->GetBodyTransform(entity)->Position));
+	}
 }

@@ -16,6 +16,21 @@ namespace Strada
 	// Physics layers a project can define (RigidBodyComponent::Layer indexes them).
 	inline constexpr size_t MaxPhysicsLayers = 16;
 
+	// Jolt computes in single precision, and its math would overflow long before larger worlds became usable, so the
+	// physics world keeps within these limits: positions within MaxPhysicsCoordinate meters of the origin on every axis
+	// (bodies beyond stay at the edge), colliders and their offsets at most MaxPhysicsExtent meters (larger bodies are not
+	// simulated), masses within [MinPhysicsMass, MaxPhysicsMass] kilograms, forces, torques and impulses at most
+	// MaxPhysicsForce, gravity at most MaxPhysicsGravity meters per second squared and gravity factors within
+	// ±MaxPhysicsGravityFactor; larger values are clamped. A single step's change of velocity then stays finite, as Jolt
+	// requires, and velocities keep within Jolt's limits (500 m/s, 47 rad/s).
+	inline constexpr float MaxPhysicsCoordinate = 1.0e7f;
+	inline constexpr float MaxPhysicsExtent = 1.0e6f;
+	inline constexpr float MinPhysicsMass = 1.0e-4f;
+	inline constexpr float MaxPhysicsMass = 1.0e12f;
+	inline constexpr float MaxPhysicsForce = 1.0e9f;
+	inline constexpr float MaxPhysicsGravity = 1.0e6f;
+	inline constexpr float MaxPhysicsGravityFactor = 1.0e3f;
+
 	enum class RigidBodyType : uint8_t
 	{
 		// Never moves (unless teleported); collides with dynamic bodies.

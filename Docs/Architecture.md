@@ -430,6 +430,13 @@ write their world transforms back (parents first, converted to parent-local spac
 delivered to scripts: `OnCollisionEnter/Exit(Entity other)`, `OnTriggerEnter/Exit(Entity other)`. Queries: raycast
 (closest solid hit; triggers and colliders containing the origin are ignored), with a layer mask.
 
+Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
+`PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin
+(bodies beyond stay at the edge), colliders and their offsets up to 1,000 km (larger bodies are not simulated, with a
+warning), masses within 1e-4 to 1e12 kg, gravity up to 1e6 m/s², gravity factors within ±1000, forces, torques and
+impulses up to 1e9, and initial velocities within Jolt's limits; values that are not finite are ignored. Scene files
+and scripts cannot break the simulation that way.
+
 ## 9. Audio (miniaudio)
 
 `AudioEngine` wraps `ma_engine` (miniaudio with Ogg Vorbis through the stb_vorbis copy it ships; its resource
@@ -748,7 +755,10 @@ data directory, and compile out asserts and script debug lines.
 ## 15. Testing
 
 - `StradaTests` (doctest): every module; GPU tests create a headless device and skip cleanly when no Vulkan
-  device exists; renderer golden-image tests compare against `Tests/Data/Golden` with a tolerance.
+  device exists; renderer golden-image tests compare against `Tests/Data/Golden` with a tolerance. Fuzz tests damage
+  the FeatureTest scenes deterministically (members and elements removed or repeated, values of another kind or
+  extreme): every result must be rejected or repaired, repaired scenes must save and load again, and the ones that load
+  must run with physics and sound. Crash handling runs in a child process (`StradaCrashTester`).
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, command-line errors, a windowed run's presented image).

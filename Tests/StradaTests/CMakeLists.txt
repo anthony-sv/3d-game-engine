@@ -59,6 +59,7 @@ add_executable(StradaTests
     Source/Scene/ComponentRegistryTests.cpp
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
+    Source/Scene/SceneFuzzTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp
     Source/Scene/SceneScriptingHostTests.cpp

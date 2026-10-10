@@ -9,6 +9,7 @@
 #include <glm/gtc/quaternion.hpp>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <concepts>
@@ -379,14 +380,19 @@ namespace Strada
 				return Error{"expected a quaternion [x, y, z, w]"};
 			}
 			glm::quat const quaternion = glm::quat::wxyz(values[3], values[0], values[1], values[2]);
-			float const length = glm::length(quaternion);
+			// Divided by its largest component first, the length cannot overflow (squares of components near the float
+			// range would).
+			float const largest = std::max({std::abs(values[0]), std::abs(values[1]), std::abs(values[2]), std::abs(values[3])});
+			glm::quat const scaled = largest > 0.0f ? quaternion / largest : quaternion;
+			float const scaledLength = glm::length(scaled);
+			float const length = largest * scaledLength;
 			if (length < 1e-6f)
 			{
 				return Error{"expected a non-zero quaternion [x, y, z, w]"};
 			}
 			// Unit quaternions are kept bit-exact: renormalizing them would drift by an ulp on every save/load or
 			// undo/redo round trip.
-			out = std::abs(length - 1.0f) <= UnitLengthTolerance ? quaternion : quaternion / length;
+			out = std::abs(length - 1.0f) <= UnitLengthTolerance ? quaternion : scaled / scaledLength;
 			return {};
 		}
 		static std::string TypeName() { return "quat"; }

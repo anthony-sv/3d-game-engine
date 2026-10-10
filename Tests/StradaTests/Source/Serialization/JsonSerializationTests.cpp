@@ -113,6 +113,14 @@ TEST_CASE("Serialization: vectors, quaternions and boolean vectors")
 	Json const written = JsonTraits<glm::quat>::ToJson(glm::quat::wxyz(0.5f, 0.5f, 0.5f, 0.5f));
 	CHECK(written == Json::array({0.5f, 0.5f, 0.5f, 0.5f}));
 	CHECK(Read<glm::quat>(Json::array({0, 0, 0, 0})).IsError());
+	// Components near the float range normalize too: their squares would overflow.
+	Result<glm::quat> const huge = Read<glm::quat>(Json::array({1.0e30, 0.0, 0.0, 1.0e30}));
+	REQUIRE(huge.IsOk());
+	CHECK(huge.GetValue().x == doctest::Approx(0.70710678f));
+	CHECK(huge.GetValue().w == doctest::Approx(0.70710678f));
+	Result<glm::quat> const largest = Read<glm::quat>(Json::array({3.0e38, 3.0e38, 3.0e38, 3.0e38}));
+	REQUIRE(largest.IsOk());
+	CHECK(largest.GetValue().w == doctest::Approx(0.5f));
 }
 
 TEST_CASE("Serialization: unit quaternions round trip bit-exactly")

@@ -44,6 +44,41 @@ namespace Strada
 		// Smallest extent of a shape: degenerate sizes (zero scale) would make Jolt reject the shape.
 		constexpr float MinimumExtent = 1e-3f;
 
+		bool IsFinite(glm::vec3 const& value)
+		{
+			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+		}
+
+		bool IsFinite(glm::quat const& value)
+		{
+			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z) && std::isfinite(value.w);
+		}
+
+		// Whether every component's magnitude is within MaxPhysicsExtent (false for NaN).
+		bool FitsExtent(glm::vec3 const& value)
+		{
+			glm::vec3 const magnitude = glm::abs(value);
+			return magnitude.x <= MaxPhysicsExtent && magnitude.y <= MaxPhysicsExtent && magnitude.z <= MaxPhysicsExtent;
+		}
+
+		glm::vec3 ClampPosition(glm::vec3 const& position)
+		{
+			return glm::clamp(position, glm::vec3(-MaxPhysicsCoordinate), glm::vec3(MaxPhysicsCoordinate));
+		}
+
+		// Shortens a finite vector to at most maxLength; its length is computed without overflowing.
+		glm::vec3 ClampLength(glm::vec3 const& vector, float maxLength)
+		{
+			float const largest = std::max({std::abs(vector.x), std::abs(vector.y), std::abs(vector.z)});
+			if (largest == 0.0f)
+			{
+				return vector;
+			}
+			glm::vec3 const scaled = vector / largest;
+			float const scaledLength = glm::length(scaled);
+			return largest * scaledLength <= maxLength ? vector : scaled * (maxLength / scaledLength);
+		}
+
 		// Object layers encode the project layer and whether the body moves: 2 * layer + moving. The broad phase keeps
 		// static and moving bodies in separate trees.
 		namespace Layers
@@ -427,6 +462,13 @@ namespace Strada
 				return Error{"the mesh collider has no mesh"};
 			}
 			std::vector<Vertex> const& vertices = collider.Mesh->GetVertices();
+			for (Vertex const& vertex : vertices)
+			{
+				if (!FitsExtent(vertex.Position * scale))
+				{
+					return MakeError("the mesh collider is larger than the physics world allows ({} m)", MaxPhysicsExtent);
+				}
+			}
 			if (convex)
 			{
 				JPH::Array<JPH::Vec3> points;
@@ -474,12 +516,20 @@ namespace Strada
 		                                                      uint64_t userData)
 		{
 			glm::vec3 const size = glm::abs(scale);
+			auto const tooLarge = []
+			{
+				return MakeError("the collider is larger than the physics world allows ({} m)", MaxPhysicsExtent);
+			};
 			JPH::ShapeSettings::ShapeResult result;
 			switch (collider.Shape)
 			{
 				case ColliderShape::Box:
 				{
 					glm::vec3 const halfExtents = glm::max(collider.HalfExtents * size, glm::vec3(MinimumExtent));
+					if (!FitsExtent(halfExtents))
+					{
+						return tooLarge();
+					}
 					float const smallest = std::min({halfExtents.x, halfExtents.y, halfExtents.z});
 					JPH::BoxShapeSettings settings(Jolt::ToJolt(halfExtents), std::min(JPH::cDefaultConvexRadius, 0.5f * smallest));
 					settings.mUserData = userData;
@@ -488,7 +538,12 @@ namespace Strada
 				}
 				case ColliderShape::Sphere:
 				{
-					JPH::SphereShapeSettings settings(std::max(collider.Radius * std::max({size.x, size.y, size.z}), MinimumExtent));
+					float const radius = std::max(collider.Radius * std::max({size.x, size.y, size.z}), MinimumExtent);
+					if (!(radius <= MaxPhysicsExtent))
+					{
+						return tooLarge();
+					}
+					JPH::SphereShapeSettings settings(radius);
 					settings.mUserData = userData;
 					result = settings.Create();
 					break;
@@ -497,6 +552,10 @@ namespace Strada
 				{
 					float const radius = std::max(collider.Radius * std::max(size.x, size.z), MinimumExtent);
 					float const halfHeight = collider.HalfHeight * size.y;
+					if (!(radius <= MaxPhysicsExtent) || !(halfHeight <= MaxPhysicsExtent))
+					{
+						return tooLarge();
+					}
 					if (halfHeight < MinimumExtent)
 					{
 						JPH::SphereShapeSettings settings(radius);
@@ -576,7 +635,8 @@ namespace Strada
 		Scope<Data> data = CreateScope<Data>(settings);
 		data->System.Init(MaxBodies, 0, MaxBodyPairs, MaxContactConstraints, data->BroadPhase, data->ObjectVsBroadPhase, data->LayerPairs);
 		data->System.SetContactListener(&data->Contacts);
-		data->System.SetGravity(Jolt::ToJolt(settings.Gravity));
+		data->System.SetGravity(
+			Jolt::ToJolt(IsFinite(settings.Gravity) ? ClampLength(settings.Gravity, MaxPhysicsGravity) : glm::vec3(0.0f)));
 		return CreateScope<PhysicsScene>(PrivateTag{}, std::move(data));
 	}
 
@@ -601,7 +661,13 @@ namespace Strada
 		{
 			return MakeError("entity {} has no colliders", desc.Entity);
 		}
+		// Like every failure below, a refused description leaves the entity without a body.
 		RemoveBody(desc.Entity);
+		if (!IsFinite(desc.Position) || !IsFinite(desc.Rotation) || !IsFinite(desc.Scale) || !IsFinite(desc.LinearVelocity) ||
+		    !IsFinite(desc.AngularVelocity))
+		{
+			return MakeError("entity {} has a transform or velocity that is not finite", desc.Entity);
+		}
 		Data& data = *m_Data;
 
 		RigidBodyType type = desc.Type;
@@ -621,6 +687,13 @@ namespace Strada
 		};
 		for (ColliderDesc const& collider : desc.Colliders)
 		{
+			glm::vec3 const offset = collider.Offset * desc.Scale;
+			if (!FitsExtent(offset))
+			{
+				releaseMaterials();
+				return MakeError("entity {}: a collider's offset is larger than the physics world allows ({} m)", desc.Entity,
+				                 MaxPhysicsExtent);
+			}
 			materials.push_back(data.AllocateMaterial(collider));
 			Result<JPH::RefConst<JPH::Shape>> shape = CreateColliderShape(collider, desc.Scale, dynamic, materials.back() + 1);
 			if (!shape)
@@ -628,7 +701,7 @@ namespace Strada
 				releaseMaterials();
 				return MakeError("entity {}: {}", desc.Entity, shape.GetError());
 			}
-			shapes.emplace_back(shape.TakeValue(), collider.Offset * desc.Scale);
+			shapes.emplace_back(shape.TakeValue(), offset);
 		}
 
 		JPH::RefConst<JPH::Shape> shape;
@@ -668,7 +741,13 @@ namespace Strada
 		JPH::EMotionType const motionType = type == RigidBodyType::Dynamic     ? JPH::EMotionType::Dynamic
 		                                    : type == RigidBodyType::Kinematic ? JPH::EMotionType::Kinematic
 		                                                                       : JPH::EMotionType::Static;
-		JPH::BodyCreationSettings settings(shape, Jolt::ToJolt(desc.Position), Jolt::ToJolt(glm::normalize(desc.Rotation)), motionType,
+		glm::vec3 const position = ClampPosition(desc.Position);
+		if (position != desc.Position)
+		{
+			ST_CORE_WARN("Physics: entity {} is farther from the origin than the physics world allows ({} m); its body stays at the edge",
+			             desc.Entity, MaxPhysicsCoordinate);
+		}
+		JPH::BodyCreationSettings settings(shape, Jolt::ToJolt(position), Jolt::ToJolt(glm::normalize(desc.Rotation)), motionType,
 		                                   Layers::Make(layer, type != RigidBodyType::Static));
 		settings.mUserData = desc.Entity.GetValue();
 		settings.mFriction = std::max(desc.Colliders.front().Friction, 0.0f);
@@ -679,17 +758,18 @@ namespace Strada
 		if (dynamic)
 		{
 			settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-			settings.mMassPropertiesOverride.mMass = std::max(desc.Mass, 1e-4f);
+			settings.mMassPropertiesOverride.mMass = std::clamp(desc.Mass, MinPhysicsMass, MaxPhysicsMass);
 			settings.mLinearDamping = std::max(desc.LinearDamping, 0.0f);
 			settings.mAngularDamping = std::max(desc.AngularDamping, 0.0f);
-			settings.mGravityFactor = desc.GravityFactor;
+			settings.mGravityFactor = std::clamp(desc.GravityFactor, -MaxPhysicsGravityFactor, MaxPhysicsGravityFactor);
 			settings.mAllowedDOFs = allowedDofs;
 			settings.mMotionQuality = desc.ContinuousCollision ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
 		}
 		if (type != RigidBodyType::Static)
 		{
-			settings.mLinearVelocity = Jolt::ToJolt(desc.LinearVelocity);
-			settings.mAngularVelocity = Jolt::ToJolt(desc.AngularVelocity);
+			// Jolt asserts on initial velocities beyond its limits rather than clamping them.
+			settings.mLinearVelocity = Jolt::ToJolt(ClampLength(desc.LinearVelocity, settings.mMaxLinearVelocity));
+			settings.mAngularVelocity = Jolt::ToJolt(ClampLength(desc.AngularVelocity, settings.mMaxAngularVelocity));
 		}
 
 		JPH::BodyInterface& bodies = data.System.GetBodyInterface();
@@ -789,7 +869,10 @@ namespace Strada
 
 	void PhysicsScene::SetGravity(glm::vec3 const& gravity)
 	{
-		m_Data->System.SetGravity(Jolt::ToJolt(gravity));
+		if (IsFinite(gravity))
+		{
+			m_Data->System.SetGravity(Jolt::ToJolt(ClampLength(gravity, MaxPhysicsGravity)));
+		}
 	}
 
 	std::optional<BodyTransform> PhysicsScene::GetBodyTransform(UUID entity) const
@@ -807,11 +890,12 @@ namespace Strada
 
 	void PhysicsScene::SetBodyTransform(UUID entity, glm::vec3 const& position, glm::quat const& rotation)
 	{
-		if (BodyRecord const* record = m_Data->Find(entity))
+		BodyRecord const* record = m_Data->Find(entity);
+		if (record != nullptr && IsFinite(position) && IsFinite(rotation))
 		{
 			JPH::EActivation const activation =
 				record->Type == RigidBodyType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate;
-			m_Data->System.GetBodyInterface().SetPositionAndRotation(record->Id, Jolt::ToJolt(position),
+			m_Data->System.GetBodyInterface().SetPositionAndRotation(record->Id, Jolt::ToJolt(ClampPosition(position)),
 			                                                         Jolt::ToJolt(glm::normalize(rotation)), activation);
 		}
 	}
@@ -819,10 +903,10 @@ namespace Strada
 	void PhysicsScene::MoveKinematic(UUID entity, glm::vec3 const& position, glm::quat const& rotation, float deltaTime)
 	{
 		BodyRecord const* record = m_Data->Find(entity);
-		if (record != nullptr && record->Type == RigidBodyType::Kinematic && deltaTime > 0.0f)
+		if (record != nullptr && record->Type == RigidBodyType::Kinematic && deltaTime > 0.0f && IsFinite(position) && IsFinite(rotation))
 		{
-			m_Data->System.GetBodyInterface().MoveKinematic(record->Id, Jolt::ToJolt(position), Jolt::ToJolt(glm::normalize(rotation)),
-			                                                deltaTime);
+			m_Data->System.GetBodyInterface().MoveKinematic(record->Id, Jolt::ToJolt(ClampPosition(position)),
+			                                                Jolt::ToJolt(glm::normalize(rotation)), deltaTime);
 		}
 	}
 
@@ -835,7 +919,8 @@ namespace Strada
 	void PhysicsScene::SetLinearVelocity(UUID entity, glm::vec3 const& velocity)
 	{
 		BodyRecord const* record = m_Data->Find(entity);
-		if (record != nullptr && record->Type != RigidBodyType::Static)
+		// Jolt clamps the velocity to its limit.
+		if (record != nullptr && record->Type != RigidBodyType::Static && IsFinite(velocity))
 		{
 			m_Data->System.GetBodyInterface().SetLinearVelocity(record->Id, Jolt::ToJolt(velocity));
 			m_Data->System.GetBodyInterface().ActivateBody(record->Id);
@@ -851,20 +936,21 @@ namespace Strada
 	void PhysicsScene::SetAngularVelocity(UUID entity, glm::vec3 const& velocity)
 	{
 		BodyRecord const* record = m_Data->Find(entity);
-		if (record != nullptr && record->Type != RigidBodyType::Static)
+		if (record != nullptr && record->Type != RigidBodyType::Static && IsFinite(velocity))
 		{
 			m_Data->System.GetBodyInterface().SetAngularVelocity(record->Id, Jolt::ToJolt(velocity));
 			m_Data->System.GetBodyInterface().ActivateBody(record->Id);
 		}
 	}
 
-	void PhysicsScene::AddForce(UUID entity, glm::vec3 const& force, ForceMode mode)
+	void PhysicsScene::AddForce(UUID entity, glm::vec3 const& requestedForce, ForceMode mode)
 	{
 		BodyRecord const* record = m_Data->Find(entity);
-		if (record == nullptr || record->Type != RigidBodyType::Dynamic)
+		if (record == nullptr || record->Type != RigidBodyType::Dynamic || !IsFinite(requestedForce))
 		{
 			return;
 		}
+		glm::vec3 const force = ClampLength(requestedForce, MaxPhysicsForce);
 		JPH::BodyInterface& bodies = m_Data->System.GetBodyInterface();
 		float const mass = GetMass(entity);
 		switch (mode)
@@ -885,13 +971,14 @@ namespace Strada
 		bodies.ActivateBody(record->Id);
 	}
 
-	void PhysicsScene::AddTorque(UUID entity, glm::vec3 const& torque, ForceMode mode)
+	void PhysicsScene::AddTorque(UUID entity, glm::vec3 const& requestedTorque, ForceMode mode)
 	{
 		BodyRecord const* record = m_Data->Find(entity);
-		if (record == nullptr || record->Type != RigidBodyType::Dynamic)
+		if (record == nullptr || record->Type != RigidBodyType::Dynamic || !IsFinite(requestedTorque))
 		{
 			return;
 		}
+		glm::vec3 const torque = ClampLength(requestedTorque, MaxPhysicsForce);
 		// Acceleration and velocity-change modes scale by the world-space inertia (locked axes have none).
 		glm::vec3 scaled = torque;
 		if (mode == ForceMode::Acceleration || mode == ForceMode::VelocityChange)
@@ -944,9 +1031,10 @@ namespace Strada
 	void PhysicsScene::SetGravityFactor(UUID entity, float factor)
 	{
 		BodyRecord const* record = m_Data->Find(entity);
-		if (record != nullptr && record->Type == RigidBodyType::Dynamic)
+		if (record != nullptr && record->Type == RigidBodyType::Dynamic && std::isfinite(factor))
 		{
-			m_Data->System.GetBodyInterface().SetGravityFactor(record->Id, factor);
+			m_Data->System.GetBodyInterface().SetGravityFactor(record->Id,
+			                                                   std::clamp(factor, -MaxPhysicsGravityFactor, MaxPhysicsGravityFactor));
 		}
 	}
 
