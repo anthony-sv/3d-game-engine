@@ -173,6 +173,8 @@ def main():
     command = [sys.argv[1]] if len(sys.argv) > 1 else \
         ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]
 
+    # The editor starts before anything is touched: a tool that cannot run leaves the project as it is.
+    client = McpClient(command + ["mcp", "--headless", "--new"])
     # The editor creates projects in empty directories only: what is kept waits outside meanwhile.
     aside = tempfile.mkdtemp(prefix="showcase-author-")
     sources = os.path.join(aside, "Source")
@@ -181,12 +183,16 @@ def main():
     for entry in kept:
         if os.path.exists(os.path.join(PROJECT, entry)):
             shutil.move(os.path.join(PROJECT, entry), os.path.join(aside, entry))
-    shutil.rmtree(PROJECT)
-
-    client = McpClient(command + ["mcp", "--headless", "--new"])
     try:
+        shutil.rmtree(PROJECT)
         client.call("project_create", {"directory": PROJECT, "name": "Showcase"})
+    except BaseException:
+        # The sources come back when the project could not be made (on success the scripts are created from them).
+        if not os.path.isdir(os.path.join(PROJECT, "Scripts", "Source")):
+            shutil.copytree(sources, os.path.join(PROJECT, "Scripts", "Source"))
+        raise
     finally:
+        os.makedirs(PROJECT, exist_ok=True)
         for entry in kept:
             if os.path.exists(os.path.join(aside, entry)):
                 shutil.move(os.path.join(aside, entry), os.path.join(PROJECT, entry))

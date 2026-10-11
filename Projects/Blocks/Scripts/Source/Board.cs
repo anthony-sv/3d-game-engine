@@ -222,33 +222,34 @@ public sealed class PieceBag
 		m_Range = range;
 	}
 
-	/// <summary>The kind that <see cref="Next"/> returns next.</summary>
-	public PieceKind Peek()
+	/// <summary>The kind that <see cref="Next"/> returns next, or after <paramref name="ahead"/> more (the next queue).</summary>
+	public PieceKind Peek(int ahead = 0)
 	{
-		Fill();
-		return m_Bag[0];
+		Fill(ahead + 1);
+		return m_Bag[ahead];
 	}
 
 	public PieceKind Next()
 	{
-		Fill();
+		Fill(1);
 		PieceKind kind = m_Bag[0];
 		m_Bag.RemoveAt(0);
 		return kind;
 	}
 
-	private void Fill()
+	// Adds shuffled bags of the seven kinds until the queue holds at least count pieces.
+	private void Fill(int count)
 	{
-		if (m_Bag.Count > 0)
+		while (m_Bag.Count < count)
 		{
-			return;
-		}
-		m_Bag.AddRange(Enum.GetValues<PieceKind>());
-		// Fisher-Yates shuffle.
-		for (int i = m_Bag.Count - 1; i > 0; i--)
-		{
-			int j = m_Range(0, i + 1);
-			(m_Bag[i], m_Bag[j]) = (m_Bag[j], m_Bag[i]);
+			int start = m_Bag.Count;
+			m_Bag.AddRange(Enum.GetValues<PieceKind>());
+			// Fisher-Yates shuffle of the new bag.
+			for (int i = m_Bag.Count - 1; i > start; i--)
+			{
+				int j = start + m_Range(0, i - start + 1);
+				(m_Bag[i], m_Bag[j]) = (m_Bag[j], m_Bag[i]);
+			}
 		}
 	}
 }

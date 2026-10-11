@@ -846,10 +846,12 @@ data directory, and compile out asserts and script debug lines.
   `StradaRuntimeTests` runs a copy of the project through the player (`StradaRuntime --project ... --test`; exit code =
   failures).
 - `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp`: `Tools/Author.py` builds the
-  project, its materials, both scenes and the debris prefab, with the sounds, the beveled block mesh and the grid texture
-  that `Tools/GenerateAssets.py` synthesizes and a Poly Haven studio HDRI for reflections. Falling blocks with pure C#
-  rules (`Board`, `Piece`, `PieceBag`), the `BlocksGame` script (sounds, rows that burst into physics debris, a camera
-  shake) and a test scene whose `BlocksTests` check the rules and play the game. `StradaRuntimeTests` plays that scene
+  project, its materials, both scenes and the debris and particle burst prefabs, with the sounds, the beveled block mesh
+  and the grid texture that `Tools/GenerateAssets.py` synthesizes and a Poly Haven sunset sky over a neon grid floor.
+  Falling blocks with pure C# rules (`Board`, `Piece`, `PieceBag` with a look-ahead queue), the `BlocksGame` script
+  (title, pause and game-over states, hold, a three-piece next queue, a best score kept in the user's data folder,
+  sounds, rows that burst into physics debris and sparks, dust under hard drops, a camera shake), its `Hud` (screen
+  texts that follow the window's size) and a test scene whose `BlocksTests` check the rules and play the game. `StradaRuntimeTests` plays that scene
   and runs the game's scene headless.
 - `Projects/Showcase`: an autumn forest clearing built by `Tools/Author.py` through `strada mcp` from Poly Haven assets
   (fetched by `Tools/FetchAssets.py`, not in the repository) with a physics playground, sound and a test scene that

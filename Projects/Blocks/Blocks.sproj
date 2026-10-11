@@ -7,14 +7,15 @@
 		"Name": "Blocks",
 		"AssetDirectory": "Assets",
 		"ScriptModule": "Scripts/Binaries/Blocks.dll",
-		"StartScene": "10887120029863391160",
+		"StartScene": "5941983877694729285",
 		"Window": {
 			"Title": "Blocks",
 			"Width": 1280,
 			"Height": 800,
 			"Fullscreen": false,
 			"VSync": true,
-			"Resizable": true
+			"Resizable": true,
+			"Icon": "0"
 		},
 		"Physics": {
 			"FixedTimestep": 0.01666666753590107,

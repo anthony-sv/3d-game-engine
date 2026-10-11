@@ -6,7 +6,7 @@ using Strada.Testing;
 namespace Blocks;
 
 /// <summary>The checks of Scenes/Tests.sscene: the board's rules when the scene starts, then the scene's game (Game) as it
-/// plays. The test run ends once they are done (play the scene, or `StradaRuntime --project Blocks.sproj --scene
+/// plays (the test scene starts it without the title screen and keeps no best score). The test run ends once they are done (play the scene, or `StradaRuntime --project Blocks.sproj --scene
 /// Scenes/Tests.sscene --test`).</summary>
 public sealed class BlocksTests : Script
 {
@@ -109,6 +109,15 @@ public sealed class BlocksTests : Script
 				}
 				Assert.AreEqual(7, kinds.Distinct().Count());
 			}
+			// The queue looks ahead across bags.
+			PieceKind[] ahead = [bag.Peek(0), bag.Peek(1), bag.Peek(9)];
+			Assert.AreEqual(ahead[0], bag.Next());
+			Assert.AreEqual(ahead[1], bag.Next());
+			for (int i = 0; i < 7; i++)
+			{
+				bag.Next();
+			}
+			Assert.AreEqual(ahead[2], bag.Next());
 		});
 	}
 
@@ -159,6 +168,7 @@ public sealed class BlocksTests : Script
 			game.HardDrop();
 			Assert.AreEqual(next, game.Active.Kind);
 			Assert.IsTrue(game.Score > score, "two points per row");
+			Assert.IsTrue(game.BurstsSpawned > 0, "dust where it landed");
 			int settled = 0;
 			for (int x = 0; x < Board.Width; x++)
 			{
@@ -168,6 +178,33 @@ public sealed class BlocksTests : Script
 				}
 			}
 			Assert.AreEqual(4, settled);
+		});
+		TestReporter.Run("a piece can be held once until the next one settles", () =>
+		{
+			PieceKind current = game.Active.Kind;
+			PieceKind next = game.Next;
+			Assert.IsNull(game.Held);
+			Assert.IsTrue(game.Hold());
+			Assert.AreEqual(current, game.Held);
+			Assert.AreEqual(next, game.Active.Kind, "the next piece comes when nothing is held");
+			Assert.IsFalse(game.Hold(), "once per piece");
+			game.HardDrop();
+			PieceKind dropped = game.Active.Kind;
+			Assert.IsTrue(game.Hold(), "the next piece may hold again");
+			Assert.AreEqual(current, game.Active.Kind, "the held piece comes back");
+			Assert.AreEqual(dropped, game.Held);
+			Assert.IsTrue(game.Active.Y >= Board.Height - 1, "at the top");
+		});
+		TestReporter.Run("a paused game holds its piece", () =>
+		{
+			game.SetPaused(true);
+			Assert.IsTrue(game.IsPaused);
+			Assert.AreEqual(GameState.Paused, game.State);
+			Assert.IsFalse(game.Shift(1));
+			Assert.IsFalse(game.Turn(1));
+			Assert.IsFalse(game.Hold());
+			game.SetPaused(false);
+			Assert.AreEqual(GameState.Playing, game.State);
 		});
 		TestReporter.Run("the game ends when the stack reaches the top, and starts again", () =>
 		{
@@ -180,12 +217,16 @@ public sealed class BlocksTests : Script
 					game.Board.Set(x, y, x % 2 == 0 ? PieceKind.O : null);
 				}
 			}
+			int score = game.Score;
 			game.HardDrop();
 			Assert.IsTrue(game.IsOver);
+			Assert.AreEqual(GameState.Over, game.State);
 			Assert.IsFalse(game.Shift(1), "nothing moves after the end");
+			Assert.IsTrue(game.BestScore >= score, "the best score keeps the game's");
 			game.Restart();
 			Assert.IsFalse(game.IsOver);
 			Assert.AreEqual(0, game.Score);
+			Assert.IsNull(game.Held);
 			Assert.IsNull(game.Board[0, 0]);
 		});
 		TestReporter.Run("full rows burst into debris, score and sound", () =>
@@ -197,9 +238,11 @@ public sealed class BlocksTests : Script
 			}
 			game.Board.Set(4, 1, PieceKind.S);
 			int debris = game.DebrisSpawned;
+			int bursts = game.BurstsSpawned;
 			int sounds = game.SoundsPlayed;
 			Assert.AreEqual(1, game.ClearFullRows());
 			Assert.AreEqual(debris + Board.Width, game.DebrisSpawned);
+			Assert.AreEqual(bursts + 1, game.BurstsSpawned, "sparks along the row");
 			Assert.IsTrue(game.SoundsPlayed > sounds, "a clear sound played");
 			Assert.AreEqual(1, game.Rows);
 			Assert.AreEqual(Board.Score(1, 1), game.Score);

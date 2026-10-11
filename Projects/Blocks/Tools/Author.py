@@ -1,6 +1,6 @@
 """Builds the Blocks project through `strada mcp`, the way an agent does: the project and its settings, the C# scripts,
-the generated sounds, block mesh and grid, a studio HDRI for reflections, materials, the debris prefab, the game scene and
-the test scene; then runs the tests.
+the generated sounds, block mesh and grid, a dusk sky from Poly Haven, materials, the debris and particle burst prefabs,
+the game scene and the test scene; then runs the tests.
 
     python Projects/Blocks/Tools/Author.py [strada executable]
 
@@ -18,7 +18,7 @@ TOOLS = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
 SCRIPTS = ["BlocksGame", "BlocksTests", "Debris", "CameraShake"]
-STUDIO = "studio_small_09"
+SKY = "industrial_sunset_02_puresky"
 
 
 class McpClient:
@@ -83,25 +83,25 @@ def transform(translation, euler=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0)):
     return {"Translation": list(translation), "RotationEuler": list(euler), "Scale": list(scale)}
 
 
-def screen_text(text, position, size, color=(1.0, 1.0, 1.0, 1.0)):
-    return {"Transform": transform(position),
-            "Text": {"Text": text, "Font": "builtin://DefaultFont", "Color": list(color), "FontSize": size, "ScreenSpace": True}}
-
-
 def main():
     command = [sys.argv[1]] if len(sys.argv) > 1 else \
         ["dotnet", "run", "--project", os.path.join(ROOT, "StradaTool"), "-c", "Release", "--no-launch-profile", "--"]
 
+    # The editor starts before anything is touched: a tool that cannot run leaves the project as it is.
+    client = McpClient(command + ["mcp", "--headless", "--new"])
     # The editor creates projects in empty directories only: what is kept waits outside meanwhile.
     aside = tempfile.mkdtemp(prefix="blocks-author-")
     sources = os.path.join(aside, "Source")
     shutil.copytree(os.path.join(PROJECT, "Scripts", "Source"), sources)
     shutil.move(TOOLS, os.path.join(aside, "Tools"))
-    shutil.rmtree(PROJECT)
-
-    client = McpClient(command + ["mcp", "--headless", "--new"])
     try:
+        shutil.rmtree(PROJECT)
         client.call("project_create", {"directory": PROJECT, "name": "Blocks"})
+    except BaseException:
+        # The sources come back when the project could not be made (on success the scripts are created from them).
+        if not os.path.isdir(os.path.join(PROJECT, "Scripts", "Source")):
+            shutil.copytree(sources, os.path.join(PROJECT, "Scripts", "Source"))
+        raise
     finally:
         shutil.move(os.path.join(aside, "Tools"), TOOLS)
     try:
@@ -126,7 +126,7 @@ def build(client, sources):
 
     subprocess.run([sys.executable, os.path.join(TOOLS, "GenerateAssets.py")], check=True)
     client.call("asset_refresh")
-    studio = client.call("polyhaven_import_hdri", {"id": STUDIO, "resolution": "1k"})["asset"]["reference"]
+    sky = client.call("polyhaven_import_hdri", {"id": SKY, "resolution": "1k"})["asset"]["reference"]
 
     client.call("material_create", {"path": "Materials/Frame.smat", "fields": {
         "BaseColor": [0.07, 0.08, 0.11, 1.0], "Metallic": 1.0, "Roughness": 0.22}})
@@ -138,23 +138,32 @@ def build(client, sources):
         "EmissiveColor": [0.25, 0.5, 1.0], "EmissiveIntensity": 0.35, "UVTiling": [5.0, 5.0]}})
     client.call("material_create", {"path": "Materials/Neon.smat", "fields": {
         "BaseColor": [0.0, 0.0, 0.0, 1.0], "EmissiveColor": [0.2, 0.75, 1.0], "EmissiveIntensity": 6.0}})
+    # The floor under the board runs to the horizon: a glossy dark plane with glowing grid lines.
+    client.call("material_create", {"path": "Materials/Floor.smat", "fields": {
+        "BaseColor": [0.02, 0.02, 0.05, 1.0], "Metallic": 0.6, "Roughness": 0.3, "EmissiveTexture": "asset://Textures/Grid.png",
+        "EmissiveColor": [0.55, 0.3, 1.0], "EmissiveIntensity": 1.6, "UVTiling": [160.0, 160.0]}})
 
     # The game scene: the project's start scene, which is open.
     client.call("scene_settings", {"name": "Blocks", "settings": {"Renderer": {
-        "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 60.0,
-        "AmbientOcclusion": True, "Bloom": True, "BloomIntensity": 0.09, "FXAA": True}}})
+        "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 80.0,
+        "AmbientOcclusion": True, "Bloom": True, "BloomIntensity": 0.09, "FXAA": True, "Saturation": 1.1, "Vignette": 0.3,
+        "VignetteSmoothness": 0.6}}})
     found = {entity["name"]: entity["id"] for entity in client.call("entity_find", {})["entities"]}
     client.call("entity_delete", {"entities": [found[name] for name in ("Floor", "Cube", "Sphere", "Capsule")]})
     camera = found["Main Camera"]
     client.call("component_set", {"entity": camera, "component": "Transform",
-                                  "fields": {"Translation": [7.4, 9.2, 31.0], "RotationEuler": [0.0, 0.0, 0.0]}})
-    client.call("component_set", {"entity": camera, "component": "Camera", "fields": {"PerspectiveFOV": 45.0}})
+                                  "fields": {"Translation": [4.5, 9.4, 30.0], "RotationEuler": [0.0, 0.0, 0.0]}})
+    client.call("component_set", {"entity": camera, "component": "Camera", "fields": {"PerspectiveFOV": 42.0, "PerspectiveFar": 400.0}})
     client.call("component_add", {"entity": camera, "component": "Script", "fields": {"ClassName": "Blocks.CameraShake"}})
     client.call("component_set", {"entity": found["Sun"], "component": "Transform", "fields": {"RotationEuler": [-35.0, -32.0, 0.0]}})
     client.call("component_set", {"entity": found["Sun"], "component": "DirectionalLight",
                                   "fields": {"Color": [0.9, 0.93, 1.0], "Intensity": 1.6, "CastShadows": True, "LightSize": 0.8}})
+    # The sky's sunset glows on the horizon behind the board.
     client.call("component_set", {"entity": found["Sky"], "component": "SkyLight", "fields": {
-        "Environment": studio, "Intensity": 0.8, "DrawSkybox": False, "AmbientColor": [0.02, 0.025, 0.05]}})
+        "Environment": sky, "Intensity": 0.5, "Rotation": 10.0, "DrawSkybox": True, "SkyboxBlur": 0.05}})
+    client.call("entity_create", {"name": "Ground", "components": {
+        "Transform": transform((4.5, -1.5, -100.0), scale=(320.0, 1.0, 320.0)),
+        "Mesh": {"Mesh": "builtin://Plane", "Materials": ["asset://Materials/Floor.smat"]}}})
 
     def box(name, position, scale, material, parent=None):
         entity = client.call("entity_create", {"name": name, "components": {
@@ -171,20 +180,23 @@ def build(client, sources):
     box("Right Neon", (9.47, 9.0, 0.7), (0.06, 21.0, 0.06), "Neon", frame)
     box("Floor Neon", (4.5, -0.47, 0.7), (10.0, 0.06, 0.06), "Neon", frame)
     box("Backdrop", (4.5, 9.5, -0.62), (10.0, 20.0, 0.2), "Backdrop")
-    box("Next Panel", (13.5, 16.0, -0.9), (4.6, 4.6, 0.2), "Panel")
-    box("Next Neon", (13.5, 18.33, -0.8), (4.6, 0.06, 0.06), "Neon")
-    box("Next Neon 2", (13.5, 13.67, -0.8), (4.6, 0.06, 0.06), "Neon")
-    client.call("entity_create", {"name": "Next Label", "components": {
-        "Transform": transform((11.3, 19.45, -0.8)),
-        "Text": {"Text": "NEXT", "Font": "builtin://DefaultFont", "FontSize": 0.7, "Color": [0.55, 0.85, 1.0, 1.0]}}})
+    # The held piece's panel left of the board, the next queue's right of it; the game draws their pieces. Each panel has a
+    # header strip with its label above the area its pieces use, so the label reads against the dark panel, not the sky.
+    def panel(name, center, size):
+        x, y = center
+        width, height = size
+        header = 1.3
+        top = y + (height / 2.0) + header
+        box(f"{name} Panel", (x, y + (header / 2.0), -0.9), (width, height + header, 0.2), "Panel")
+        box(f"{name} Neon", (x, top, -0.8), (width, 0.06, 0.06), "Neon")
+        box(f"{name} Neon 2", (x, y - (height / 2.0), -0.8), (width, 0.06, 0.06), "Neon")
+        client.call("entity_create", {"name": f"{name} Label", "components": {
+            "Transform": transform((x, top - 0.25, -0.75)),
+            "Text": {"Text": name.upper(), "Font": "builtin://DefaultFont", "FontSize": 0.8, "Color": [0.65, 0.9, 1.0, 1.0],
+                     "Alignment": "Center"}}})
 
-    client.call("entity_create", {"name": "Title", "components": screen_text("BLOCKS", (0.68, 0.43, 0.0), 84.0, (1.0, 0.78, 0.2, 1.0))})
-    score = client.call("entity_create", {"name": "Score", "components": screen_text("", (0.68, 0.56, 0.0), 34.0)})["id"]
-    message = client.call("entity_create", {"name": "Message", "components": screen_text("", (0.68, 0.73, 0.0), 34.0,
-                                                                                        (1.0, 0.85, 0.3, 1.0))})["id"]
-    client.call("entity_create", {"name": "Controls", "components": screen_text(
-        "Left / Right   move\nUp   turn      Z   turn back\nDown   faster      Space   drop\nP   pause      R   restart",
-        (0.68, 0.86, 0.0), 18.0, (0.7, 0.75, 0.85, 1.0))})
+    panel("Hold", (-4.8, 16.6), (4.6, 4.6))
+    panel("Next", (13.8, 13.2), (4.6, 11.4))
 
     # Debris: a block that flies off when its row clears.
     debris = client.call("entity_create", {"name": "Debris", "components": {
@@ -196,17 +208,37 @@ def build(client, sources):
     debris_prefab = client.call("prefab_create", {"entity": debris, "path": "Prefabs/Debris.sprefab"})["reference"]
     client.call("entity_delete", {"entities": [debris]})
 
+    # Particle bursts: sparks along a cleared row, and dust where a hard drop lands. Both burst once and go away.
+    def burst(name, settings):
+        settings.update({"Emitting": False, "DestroyWhenFinished": True, "Shape": "Box", "ConeAngle": 180.0})
+        entity = client.call("entity_create", {"name": name, "components": {
+            "Transform": transform((0.0, -100.0, 0.0)), "ParticleSystem": settings}})["id"]
+        reference = client.call("prefab_create", {"entity": entity, "path": f"Prefabs/{name}.sprefab"})["reference"]
+        client.call("entity_delete", {"entities": [entity]})
+        return reference
+
+    row_burst = burst("RowBurst", {
+        "Burst": 120, "MaxParticles": 200, "BoxHalfExtents": [5.0, 0.35, 0.3], "LifetimeMin": 0.45, "LifetimeMax": 1.0,
+        "SpeedMin": 2.0, "SpeedMax": 7.0, "GravityFactor": 0.9, "Drag": 1.2, "StartSize": 0.2, "EndSize": 0.02,
+        "StartColor": [1.0, 1.0, 1.0, 1.0], "EndColor": [0.3, 0.8, 1.0, 0.0], "Intensity": 5.0})
+    drop_burst = burst("DropBurst", {
+        "Burst": 30, "MaxParticles": 40, "BoxHalfExtents": [1.0, 0.05, 0.3], "LifetimeMin": 0.25, "LifetimeMax": 0.55,
+        "SpeedMin": 1.0, "SpeedMax": 3.5, "GravityFactor": 0.4, "Drag": 2.5, "StartSize": 0.28, "EndSize": 0.02,
+        "StartColor": [0.75, 0.85, 1.0, 0.8], "EndColor": [0.5, 0.6, 1.0, 0.0], "Intensity": 2.0})
+
     def clip(name):
         return {"Type": "Asset", "Value": f"asset://Audio/{name}.wav"}
 
     game_fields = {
-        "ScoreText": {"Type": "Entity", "Value": score},
-        "MessageText": {"Type": "Entity", "Value": message},
         "Camera": {"Type": "Entity", "Value": camera},
         "FallInterval": {"Type": "Float", "Value": 0.8},
-        "PreviewPosition": {"Type": "Vector3", "Value": [12.0, 17.0, 0.0]},
+        "NextPosition": {"Type": "Vector3", "Value": [13.8, 16.6, 0.0]},
+        "NextSpacing": {"Type": "Float", "Value": 3.4},
+        "HoldPosition": {"Type": "Vector3", "Value": [-4.8, 16.6, 0.0]},
         "BlockMesh": {"Type": "Asset", "Value": "asset://Meshes/Block.gltf"},
         "Debris": {"Type": "Prefab", "Value": debris_prefab},
+        "RowBurst": {"Type": "Prefab", "Value": row_burst},
+        "DropBurst": {"Type": "Prefab", "Value": drop_burst},
         "MoveSound": clip("Move"), "RotateSound": clip("Rotate"), "LockSound": clip("Lock"), "DropSound": clip("Drop"),
         "ClearSound": clip("Clear"), "BigClearSound": clip("BigClear"), "LevelUpSound": clip("LevelUp"),
         "GameOverSound": clip("GameOver"),
@@ -217,10 +249,12 @@ def build(client, sources):
         "AudioSource": {"Clip": "asset://Audio/Music.wav", "Volume": 0.3, "Loop": True, "PlayOnStart": True, "Spatial": False}}})
     client.call("scene_save")
 
-    # The test scene: the game scene, falling fast, with the checks.
+    # The test scene: the game scene, starting at once and falling fast, with the checks; it keeps no best score.
     client.call("scene_save", {"path": "Scenes/Tests.sscene"})
     client.call("scene_settings", {"name": "Tests"})
     game_fields["FallInterval"] = {"Type": "Float", "Value": 0.1}
+    game_fields["StartOnTitle"] = {"Type": "Bool", "Value": False}
+    game_fields["SaveBestScore"] = {"Type": "Bool", "Value": False}
     client.call("component_set", {"entity": game, "component": "Script", "fields": {"ClassName": "Blocks.BlocksGame", "Fields": game_fields}})
     client.call("entity_create", {"name": "Tests", "components": {
         "Script": {"ClassName": "Blocks.BlocksTests", "Fields": {"Game": {"Type": "Entity", "Value": game}}}}})
