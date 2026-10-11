@@ -1,6 +1,7 @@
 #include "Editor/Automation/EditorCommands.h"
 
 #include "Editor/Automation/JsonSchema.h"
+#include "Editor/ComponentInspection.h"
 #include "Editor/DefaultScene.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EntityBounds.h"
@@ -1376,8 +1377,8 @@ namespace Strada
 			{
 				Result<void> result =
 					Add("component.types",
-				        "Every component type users can add, with its fields (name, type, default value, valid range, value names, "
-				        "referenced asset type and description).",
+				        "Every component type users can add, with its category (Core, Rendering, Physics, Audio, Scripting or UI) and its "
+				        "fields (name, type, default value, valid range, value names, referenced asset type and description).",
 				        Json(), true,
 				        [](Json const&) -> CommandResult
 				        {
@@ -1388,6 +1389,7 @@ namespace Strada
 								{
 									Json description = info.Describe();
 									description["Core"] = info.IsCore();
+									description["Category"] = std::string(info.Category);
 									types.push_back(std::move(description));
 								}
 							}
@@ -1735,6 +1737,66 @@ namespace Strada
 									 return Json::object({{"folder", browser.GetFolder()}, {"tileScale", browser.GetTileScale()}});
 								 })
 						   : result;
+
+				result =
+					result
+						? Add("inspector.add-component-menu",
+				              "Opens the inspector's Add Component menu for the selected entities, as if the user clicked Add Component "
+				              "and typed the search text (without one the menu shows the component categories), or closes it (open "
+				              "false). Returns { open, search, components }: the components the menu offers, in its order. Changes "
+				              "nothing in the scene (component.add adds components). InvalidOperation without selected entities; "
+				              "Unavailable without the editor's UI (headless).",
+				              SchemaBuilder::Object()
+				                  .Property("search", SchemaBuilder::String("Text typed into the menu's search field"))
+				                  .Property("open", SchemaBuilder::Boolean("False closes the menu").Default(true))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (!m_Environment.ShowAddComponentMenu)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no inspector (headless)");
+								  }
+								  bool const open = GetBool(params, "open", true);
+								  std::string const search = GetString(params, "search");
+								  EditorContext& context = m_Operations.GetContext();
+								  std::vector<UUID> const& entities = context.GetSelection().GetEntities();
+								  if (open && entities.empty())
+								  {
+									  return MakeCommandError(
+										  AutomationErrorCode::InvalidOperation,
+										  "no entities are selected: the menu adds components to the selected entities");
+								  }
+								  m_Environment.ShowAddComponentMenu(open, search);
+
+								  // What the menu lists: the categories' components in order, or the matches of the search.
+								  Json components = Json::array();
+								  if (open)
+								  {
+									  std::vector<ComponentInfo const*> const addable =
+										  ComponentInspection::GetAddableComponents(context.GetScene(), entities);
+									  if (search.find_first_not_of(' ') == std::string::npos)
+									  {
+										  for (ComponentInspection::ComponentGroup const& group :
+							                   ComponentInspection::GroupByCategory(addable))
+										  {
+											  for (ComponentInfo const* component : group.Components)
+											  {
+												  components.push_back(std::string(component->Name));
+											  }
+										  }
+									  }
+									  else
+									  {
+										  for (ComponentInfo const* component : ComponentInspection::SearchComponents(addable, search))
+										  {
+											  components.push_back(std::string(component->Name));
+										  }
+									  }
+								  }
+								  return Json::object({{"open", open}, {"search", search}, {"components", std::move(components)}});
+							  })
+						: result;
 
 				result =
 					result ? Add("viewport.camera",

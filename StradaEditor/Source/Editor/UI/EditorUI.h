@@ -36,6 +36,14 @@ namespace Strada
 		// "PerspectiveFOV" -> "Perspective FOV", "UVTiling" -> "UV Tiling", "EV100" -> "EV100": serialized PascalCase names as
 		// labels.
 		std::string FormatDisplayName(std::string_view name);
+		// How asset fields show an asset: its path in the asset directory with the extension ("Sounds/Hum.flac", followed by
+		// " (missing)" when the file is gone), "builtin://<Name>" for built-in assets, the name of assets without a file of
+		// their own ("Helmet.glb/Materials/Visor"), "None" without an asset and "Unknown asset <ID>" for unregistered handles.
+		std::string DescribeAssetReference(AssetHandle asset);
+		// Shortens a path that is wider than maxWidth at the current font from its start: leading folders give way first
+		// (".../Wood/Oak.png"), then the start of the name ("...ak.png"); never cuts a UTF-8 character. Paths that fit come back
+		// unchanged. Inside an ImGui frame.
+		std::string FitPath(std::string_view path, float maxWidth);
 
 		// Menu items for every entity preset, categories as submenus; returns the preset chosen this frame. Call inside an
 		// open menu or popup.

@@ -1,6 +1,7 @@
 #include "Editor/Panels/InspectorPanel.h"
 
 #include "Editor/ComponentInspection.h"
+#include "Editor/MaterialSlots.h"
 #include "Editor/ScriptFieldInspection.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -21,7 +22,12 @@
 #include <imgui_stdlib.h>
 
 #include <algorithm>
+#include <optional>
+#include <span>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -29,16 +35,61 @@ namespace Strada
 	{
 		// Merge keys of this panel ("INSP" in the high bytes, a running count below).
 		constexpr uint64_t MergeKeyPrefix = 0x494E535000000000ull;
+		constexpr char const* AddComponentPopup = "##addComponent";
 
 		// Texture previews fill the panel's width up to this height (in font sizes, so it follows the display scale).
 		constexpr float MaxPreviewHeightInFontSizes = 16.0f;
+		// Material files shown in the inspector get a square preview of this size, at most the panel's width.
+		constexpr float MaterialPreviewSizeInFontSizes = 8.0f;
 		constexpr ImVec4 ErrorColor = ImVec4(0.95f, 0.40f, 0.35f, 1.0f);
+		// Headers of the material sections inside Mesh components: darker than component headers.
+		constexpr ImVec4 MaterialHeaderColor = ImVec4(0.180f, 0.196f, 0.227f, 1.0f);
 
 		void TextError(std::string const& message)
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text, ErrorColor);
 			ImGui::TextWrapped("%s", message.c_str());
 			ImGui::PopStyleColor();
+		}
+
+		// The component's description as the tooltip of the last item.
+		void ShowDescription(ComponentInfo const& component)
+		{
+			if (!component.Description.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::SetTooltip("%.*s", static_cast<int>(component.Description.size()), component.Description.data());
+			}
+		}
+
+		// Why a material cannot be edited where it is.
+		std::string DescribeReadOnlyMaterial(AssetMetadata const& material)
+		{
+			if (material.IsBuiltIn())
+			{
+				return "Built into the engine and read-only: create a material to change it.";
+			}
+			if (material.IsSubAsset())
+			{
+				std::optional<AssetMetadata> const parent = AssetManager::GetMetadata(material.Parent);
+				return fmt::format("Imported with {} and read-only: create a material to change it.",
+				                   parent ? parent->GetDisplayName() : material.Parent.ToString());
+			}
+			return "This material has no file of its own and is read-only.";
+		}
+
+		// A full-width "Create Material" button, disabled without a project to write the material to; true when clicked.
+		bool DrawCreateMaterialButton(char const* tooltip)
+		{
+			bool const available = AssetManager::HasAssetDirectory();
+			ImGui::BeginDisabled(!available);
+			bool const clicked = ImGui::Button("Create Material", ImVec2(-FLT_MIN, 0.0f));
+			ImGui::EndDisabled();
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+			{
+				ImGui::SetTooltip("%s", available ? tooltip : "Open a project to create materials.");
+			}
+			ImGui::Spacing();
+			return clicked;
 		}
 
 		// Loads an asset to show its details (assets load on first use; failures are remembered, not retried every frame).
@@ -128,14 +179,42 @@ namespace Strada
 	{
 	}
 
+	void InspectorPanel::ShowAddComponentMenu(bool open, std::string search)
+	{
+		m_AddComponentMenuRequest = open;
+		if (open)
+		{
+			m_AddComponentFilter = std::move(search);
+		}
+	}
+
 	void InspectorPanel::OnImGuiRender(EditorOperations& operations, bool& open)
 	{
-		if (!ImGui::Begin("Inspector", &open))
+		// A request to show the Add Component menu applies to this frame only (nothing opens without selected entities).
+		std::optional<bool> const menuRequest = std::exchange(m_AddComponentMenuRequest, std::nullopt);
+		if (menuRequest.value_or(false))
 		{
-			ImGui::End();
-			return;
+			ImGui::SetNextWindowFocus();
 		}
+		// Previews belong to the project's assets.
+		Project const* project = operations.GetContext().GetProject();
+		std::filesystem::path const projectFile = project != nullptr ? project->GetFilePath() : std::filesystem::path();
+		if (projectFile != m_PreviewProject)
+		{
+			m_Previews.Clear();
+			m_PreviewProject = projectFile;
+		}
+		if (ImGui::Begin("Inspector", &open))
+		{
+			DrawContents(operations, menuRequest);
+		}
+		ImGui::End();
+		// Previews requested while drawing render now, one per frame.
+		m_Previews.Update();
+	}
 
+	void InspectorPanel::DrawContents(EditorOperations& operations, std::optional<bool> menuRequest)
+	{
 		EditorContext& context = operations.GetContext();
 		m_EditSession.Update(ImGui::IsAnyItemActive(), context.GetHistory());
 		EntitySelection const& selection = context.GetSelection();
@@ -149,7 +228,6 @@ namespace Strada
 			{
 				ImGui::TextDisabled("Select an entity or an asset to inspect it.");
 			}
-			ImGui::End();
 			return;
 		}
 
@@ -170,7 +248,7 @@ namespace Strada
 			DrawComponent(operations, *component, entities);
 		}
 		ImGui::Spacing();
-		DrawAddComponent(operations, entities);
+		DrawAddComponent(operations, entities, menuRequest);
 
 		std::vector<std::function<void()>> deferred;
 		deferred.swap(m_Deferred);
@@ -178,7 +256,6 @@ namespace Strada
 		{
 			action();
 		}
-		ImGui::End();
 	}
 
 	void InspectorPanel::DrawHeader(EditorOperations& operations, std::vector<UUID> const& entities)
@@ -267,6 +344,11 @@ namespace Strada
 					edits.push_back({entities[i], std::string(component.Name), change->MakePatch(values[i])});
 				}
 				UI::ReportFailure(operations.SetComponentFields(std::move(edits), m_EditSession.GetMergeKey()), "Editing the component");
+			}
+			// The materials the mesh renders with, right below the mesh.
+			if (component.Name == ComponentTraits<MeshComponent>::Name)
+			{
+				DrawMeshMaterials(operations, entities);
 			}
 			ImGui::Spacing();
 		}
@@ -436,48 +518,121 @@ namespace Strada
 		ImGui::EndPopup();
 	}
 
-	void InspectorPanel::DrawAddComponent(EditorOperations& operations, std::vector<UUID> const& entities)
+	void InspectorPanel::DrawAddComponent(EditorOperations& operations, std::vector<UUID> const& entities, std::optional<bool> request)
 	{
-		if (ImGui::Button("Add Component", ImVec2(-FLT_MIN, 0.0f)))
+		float const width = ImGui::GetContentRegionAvail().x;
+		if (ImGui::Button("Add Component", ImVec2(width, 0.0f)))
 		{
 			m_AddComponentFilter.clear();
-			ImGui::OpenPopup("##addComponent");
+			ImGui::OpenPopup(AddComponentPopup);
 		}
-		if (!ImGui::BeginPopup("##addComponent"))
+		else if (request.value_or(false))
+		{
+			// The search text came with the request; the inspector scrolls down to the button, which the menu drops from.
+			ImGui::SetScrollHereY(1.0f);
+			ImGui::OpenPopup(AddComponentPopup);
+		}
+
+		// The menu drops down from the button, or up when there is more room above, as wide as the button.
+		ImVec2 const buttonMin = ImGui::GetItemRectMin();
+		ImVec2 const buttonMax = ImGui::GetItemRectMax();
+		ImGuiViewport const* viewport = ImGui::GetWindowViewport();
+		float const spaceBelow = viewport->WorkPos.y + viewport->WorkSize.y - buttonMax.y;
+		float const spaceAbove = buttonMin.y - viewport->WorkPos.y;
+		bool const below = spaceBelow >= spaceAbove;
+		ImGui::SetNextWindowPos(below ? ImVec2(buttonMin.x, buttonMax.y) : buttonMin, ImGuiCond_Always,
+		                        below ? ImVec2(0.0f, 0.0f) : ImVec2(0.0f, 1.0f));
+		ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.0f),
+		                                    ImVec2(width, std::max(below ? spaceBelow : spaceAbove, ImGui::GetFrameHeight() * 6.0f)));
+		if (!ImGui::BeginPopup(AddComponentPopup))
 		{
 			return;
 		}
-		if (ImGui::IsWindowAppearing())
+		if (request == false)
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			return;
+		}
+		if (ImGui::IsWindowAppearing() || m_FocusComponentSearch)
 		{
 			ImGui::SetKeyboardFocusHere();
+			m_FocusComponentSearch = false;
 		}
-		ImGui::SetNextItemWidth(240.0f);
-		ImGui::InputTextWithHint("##filter", "Search", &m_AddComponentFilter);
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		bool const confirmed =
+			ImGui::InputTextWithHint("##search", "Search components", &m_AddComponentFilter, ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::Separator();
 
 		Scene& scene = operations.GetContext().GetScene();
-		bool listed = false;
-		for (ComponentInfo const* component : ComponentInspection::GetAddableComponents(scene, entities))
-		{
-			std::string const label = UI::FormatDisplayName(component->Name);
-			if (!m_AddComponentFilter.empty() && ImStristr(label.c_str(), nullptr, m_AddComponentFilter.c_str(), nullptr) == nullptr)
-			{
-				continue;
-			}
-			listed = true;
-			if (ImGui::Selectable(label.c_str()))
-			{
-				std::vector<UUID> const targets = ComponentInspection::GetEntitiesWithout(scene, entities, *component);
-				UI::ReportFailure(operations.AddComponent(std::span<UUID const>(targets), component->Name), "Adding the component");
-				ImGui::CloseCurrentPopup();
-			}
-			if (!component->Description.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-			{
-				ImGui::SetTooltip("%.*s", static_cast<int>(component->Description.size()), component->Description.data());
-			}
-		}
-		if (!listed)
+		std::vector<ComponentInfo const*> const addable = ComponentInspection::GetAddableComponents(scene, entities);
+		ComponentInfo const* chosen = nullptr;
+		if (addable.empty())
 		{
 			ImGui::TextDisabled("No components to add");
+		}
+		else if (m_AddComponentFilter.find_first_not_of(' ') == std::string::npos)
+		{
+			for (ComponentInspection::ComponentGroup const& group : ComponentInspection::GroupByCategory(addable))
+			{
+				if (!ImGui::BeginMenu(std::string(group.Category).c_str()))
+				{
+					continue;
+				}
+				for (ComponentInfo const* component : group.Components)
+				{
+					if (ImGui::MenuItem(UI::FormatDisplayName(component->Name).c_str()))
+					{
+						chosen = component;
+					}
+					ShowDescription(*component);
+				}
+				ImGui::EndMenu();
+			}
+		}
+		else
+		{
+			std::vector<ComponentInfo const*> const matches = ComponentInspection::SearchComponents(addable, m_AddComponentFilter);
+			if (matches.empty())
+			{
+				ImGui::TextDisabled("No components match");
+			}
+			for (size_t i = 0; i < matches.size(); i++)
+			{
+				ComponentInfo const& component = *matches[i];
+				ImGui::PushID(component.Name.data(), component.Name.data() + component.Name.size());
+				// Selectables grow by half the item spacing around their label: the category goes on the label's line.
+				float const labelY = ImGui::GetCursorScreenPos().y;
+				// The first match is highlighted: Enter adds it.
+				if (ImGui::Selectable(UI::FormatDisplayName(component.Name).c_str(), i == 0))
+				{
+					chosen = &component;
+				}
+				ShowDescription(component);
+				// The category, right-aligned and dimmed.
+				std::string_view const category = component.Category;
+				float const categoryWidth = ImGui::CalcTextSize(category.data(), category.data() + category.size()).x;
+				ImGui::GetWindowDrawList()->AddText(
+					ImVec2(ImGui::GetItemRectMax().x - categoryWidth - ImGui::GetStyle().ItemInnerSpacing.x, labelY),
+					ImGui::GetColorU32(ImGuiCol_TextDisabled), category.data(), category.data() + category.size());
+				ImGui::PopID();
+			}
+			if (confirmed && !matches.empty())
+			{
+				chosen = matches.front();
+			}
+		}
+
+		if (chosen != nullptr)
+		{
+			std::vector<UUID> const targets = ComponentInspection::GetEntitiesWithout(scene, entities, *chosen);
+			UI::ReportFailure(operations.AddComponent(std::span<UUID const>(targets), chosen->Name), "Adding the component");
+			ImGui::CloseCurrentPopup();
+		}
+		else if (confirmed)
+		{
+			// Enter without a match ends the text input: keep typing in the search field.
+			m_FocusComponentSearch = true;
 		}
 		ImGui::EndPopup();
 	}
@@ -603,29 +758,195 @@ namespace Strada
 
 	void InspectorPanel::DrawMaterial(EditorOperations& operations, AssetMetadata const& metadata)
 	{
-		Ref<MaterialAsset> const material = LoadForInspection<MaterialAsset>(metadata.Handle);
-		if (!material)
+		// The material on a sphere, as the content browser shows it; edits show as soon as they render.
+		if (nvrhi::ITexture* preview = m_Previews.Get(metadata.Handle))
+		{
+			float const size = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetFontSize() * MaterialPreviewSizeInFontSizes);
+			ImGui::Image(ImGuiRenderer::GetTextureID(preview), ImVec2(size, size));
+			ImGui::Spacing();
+		}
+		// Only material files keep changes: built-in and imported materials are recreated from their source.
+		if (!MaterialSlots::IsEditable(metadata.Handle) &&
+		    DrawCreateMaterialButton("Writes a copy of this material to Assets/Materials as a material file you can edit."))
+		{
+			Result<AssetHandle> const copy =
+				MaterialSlots::CreateCopy(operations, metadata.Handle, MaterialSlots::GetMaterialName(metadata.Handle));
+			if (copy)
+			{
+				operations.GetContext().SelectAsset(copy.GetValue());
+			}
+			UI::ReportFailure(copy, "Creating the material");
+		}
+		DrawMaterialFields(operations, metadata.Handle);
+	}
+
+	void InspectorPanel::DrawMaterialFields(EditorOperations& operations, AssetHandle material)
+	{
+		Ref<MaterialAsset> const loaded = LoadForInspection<MaterialAsset>(material);
+		if (!loaded)
 		{
 			return;
 		}
-		// Only material files keep changes: built-in and imported materials are recreated from their source.
-		bool const editable = metadata.IsFileAsset();
-		if (!editable)
-		{
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-			ImGui::TextWrapped("This material is read-only. Create a material asset to customize it.");
-			ImGui::PopStyleColor();
-			ImGui::Spacing();
-		}
-		Json const values = SerializeFields<StructTraits<MaterialData>>(material->GetData());
+		bool const editable = MaterialSlots::IsEditable(material);
+		Json const values = SerializeFields<StructTraits<MaterialData>>(loaded->GetData());
 		ImGui::BeginDisabled(!editable);
 		std::optional<FieldChange> const change = m_FieldEditor.Draw(m_MaterialFields, values);
 		ImGui::EndDisabled();
 		if (change && editable)
 		{
-			UI::ReportFailure(operations.SetMaterialFields(metadata.Handle, change->MakePatch(values), m_EditSession.GetMergeKey()),
+			UI::ReportFailure(operations.SetMaterialFields(material, change->MakePatch(values), m_EditSession.GetMergeKey()),
 			                  "Editing the material");
 		}
+	}
+
+	void InspectorPanel::DrawMeshMaterials(EditorOperations& operations, std::vector<UUID> const& entities)
+	{
+		std::vector<AssetHandle> const materials = MaterialSlots::GetMaterials(operations.GetContext().GetScene(), entities);
+		ImGui::PushID("##materials");
+		for (size_t slot = 0; slot < materials.size(); slot++)
+		{
+			ImGui::PushID(static_cast<int>(slot));
+			bool const open = DrawMaterialHeader(materials[slot], slot, materials.size());
+			// Materials dropped onto the header go to the slot of every entity, as one undo step.
+			if (ImGui::BeginDragDropTarget())
+			{
+				constexpr AssetType MaterialType = AssetType::Material;
+				if (AssetHandle const dropped = UI::AcceptAssetDrop(std::span<AssetType const>(&MaterialType, 1)); dropped.IsValid())
+				{
+					UI::ReportFailure(MaterialSlots::Assign(operations, entities, slot, dropped), "Assigning the material");
+				}
+				ImGui::EndDragDropTarget();
+			}
+			if (open)
+			{
+				DrawSlotMaterial(operations, entities, slot, materials[slot]);
+			}
+			ImGui::Spacing();
+			ImGui::PopID();
+		}
+		ImGui::PopID();
+	}
+
+	bool InspectorPanel::DrawMaterialHeader(AssetHandle material, size_t slot, size_t slotCount)
+	{
+		// A preview of the material on a sphere beside two lines: the material's name, then its slot (meshes with several) and
+		// its path.
+		ImGuiStyle const& style = ImGui::GetStyle();
+		ImVec2 const padding = style.FramePadding;
+		float const spacing = style.ItemInnerSpacing.x;
+		float const fontSize = ImGui::GetFontSize();
+		float const textHeight = fontSize * 2.0f + style.ItemInnerSpacing.y;
+		float const height = textHeight + padding.y * 2.0f;
+		ImGui::PushStyleColor(ImGuiCol_Header, MaterialHeaderColor);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(padding.x, (height - fontSize) * 0.5f));
+		bool const open = ImGui::TreeNodeEx("##header",
+		                                    ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth |
+		                                        ImGuiTreeNodeFlags_NoTreePushOnOpen,
+		                                    "%s", "");
+		ImGui::PopStyleVar();
+		ImGui::PopStyleColor();
+		std::optional<AssetMetadata> const metadata = material.IsValid() ? AssetManager::GetMetadata(material) : std::nullopt;
+		bool const registered = metadata.has_value();
+		// The whole path, which the header may shorten, and what dropping a material does.
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+		{
+			std::string const reference = registered ? UI::DescribeAssetReference(material) + "\n" : std::string();
+			ImGui::SetTooltip("%sDrop a material here to use it in this slot.", reference.c_str());
+		}
+
+		ImVec2 const min = ImGui::GetItemRectMin();
+		ImVec2 const max = ImGui::GetItemRectMax();
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		// After the tree node's arrow.
+		ImVec2 const previewMin(min.x + padding.x * 2.0f + fontSize, min.y + padding.y);
+		ImVec2 const previewMax(previewMin.x + textHeight, max.y - padding.y);
+		float const rounding = style.FrameRounding;
+		if (nvrhi::ITexture* preview = registered ? m_Previews.Get(material) : nullptr)
+		{
+			drawList->AddImageRounded(ImGuiRenderer::GetTextureID(preview), previewMin, previewMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
+			                          IM_COL32_WHITE, rounding);
+		}
+		else
+		{
+			drawList->AddRectFilled(previewMin, previewMax, ImGui::GetColorU32(ImGuiCol_FrameBg), rounding);
+		}
+
+		float const textX = previewMax.x + spacing * 2.0f;
+		float const textY = min.y + padding.y;
+		float const textMaxX = max.x - padding.x;
+		drawList->PushClipRect(ImVec2(textX, min.y), ImVec2(textMaxX, max.y), true);
+		// The name, then a badge for materials that cannot be edited here, right-aligned while the name keeps some room.
+		float titleMaxX = textMaxX;
+		if (registered && metadata->Type == AssetType::Material && !AssetManager::IsMissing(material) &&
+		    !MaterialSlots::IsEditable(material))
+		{
+			constexpr std::string_view Badge = "Read-only";
+			float const badgeWidth = ImGui::CalcTextSize(Badge.data(), Badge.data() + Badge.size()).x;
+			if (textMaxX - textX >= badgeWidth + spacing * 2.0f + fontSize * 3.0f)
+			{
+				drawList->AddText(ImVec2(textMaxX - badgeWidth, textY), ImGui::GetColorU32(ImGuiCol_TextDisabled), Badge.data(),
+				                  Badge.data() + Badge.size());
+				titleMaxX -= badgeWidth + spacing * 2.0f;
+			}
+		}
+		std::string title = material.IsValid() ? MaterialSlots::GetMaterialName(material) : std::string("Different materials");
+		if (title.empty())
+		{
+			title = UI::DescribeAssetReference(material);
+		}
+		ImGui::RenderTextEllipsis(drawList, ImVec2(textX, textY), ImVec2(titleMaxX, textY + fontSize), titleMaxX, title.c_str(), nullptr,
+		                          nullptr);
+		// The slot (meshes with several), a middle dot and where the material comes from: its path, or the model's for materials
+		// imported with one. Paths keep their end when they are too long.
+		std::string subtitle = slotCount > 1 || !material.IsValid() ? fmt::format("Slot {}", slot) : std::string();
+		if (material.IsValid())
+		{
+			AssetHandle const source = registered && metadata->IsSubAsset() ? metadata->Parent : material;
+			subtitle += subtitle.empty() ? "" : " \xC2\xB7 ";
+			subtitle += UI::FitPath(UI::DescribeAssetReference(source), textMaxX - textX - ImGui::CalcTextSize(subtitle.c_str()).x);
+		}
+		drawList->AddText(ImVec2(textX, textY + fontSize + style.ItemInnerSpacing.y), ImGui::GetColorU32(ImGuiCol_TextDisabled),
+		                  subtitle.c_str());
+		drawList->PopClipRect();
+		return open;
+	}
+
+	void InspectorPanel::DrawSlotMaterial(EditorOperations& operations, std::vector<UUID> const& entities, size_t slot,
+	                                      AssetHandle material)
+	{
+		if (!material.IsValid())
+		{
+			ImGui::TextDisabled("The selected entities use different materials here.");
+			return;
+		}
+		std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(material);
+		if (!metadata)
+		{
+			TextError(fmt::format("Material {} is not registered.", material));
+			return;
+		}
+		if (metadata->Type != AssetType::Material)
+		{
+			TextError(fmt::format("{} is not a material.", UI::DescribeAssetReference(material)));
+			return;
+		}
+		if (AssetManager::IsMissing(material))
+		{
+			TextError("The material file is missing. Restore it and refresh the assets, or choose another material.");
+			return;
+		}
+		if (!MaterialSlots::IsEditable(material))
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+			ImGui::TextWrapped("%s", DescribeReadOnlyMaterial(*metadata).c_str());
+			ImGui::PopStyleColor();
+			if (DrawCreateMaterialButton("Writes a copy of this material to Assets/Materials as a material file you can edit, and uses "
+			                             "it here."))
+			{
+				UI::ReportFailure(MaterialSlots::CreateEditableCopy(operations, entities, slot), "Creating the material");
+			}
+		}
+		DrawMaterialFields(operations, material);
 	}
 
 	void InspectorPanel::DrawMesh(EditorOperations& operations, AssetHandle asset)

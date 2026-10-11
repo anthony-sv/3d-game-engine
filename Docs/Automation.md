@@ -182,15 +182,26 @@ Project settings are saved to the project file immediately and are not part of t
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `component.types` | — | `components`: `[{ Name, Description, Fields: [{ Name, Type, Default, ... }], Core }]` (see below) |
+| `component.types` | — | `components`: `[{ Name, Description, Fields: [{ Name, Type, Default, ... }], Core, Category }]` (see below) |
 | `component.add` | `entity`*, `component`*, `fields` | `component`, `fields` |
 | `component.remove` | `entity`*, `component`* (core components cannot be removed) | `removed` |
 | `component.get` | `entity`*, `component`* | `component`, `fields` |
 | `component.set` | `entity`*, `component`*, `fields`* (partial patch; invalid values change nothing) | `component`, `fields` |
 
+`Core` components are on every entity and cannot be added or removed. `Category` says what a component is for: `Core`,
+`Rendering`, `Physics`, `Audio`, `Scripting` or `UI` (the inspector's Add Component menu groups components by it).
 Field descriptions may also contain `Values` (the names of enum values), `Min`/`Max` (inclusive bounds of numbers and
 of every vector component; values outside them are rejected), `Display` (`Color`, `Angle` in degrees or
-`MultilineText`), `AssetType` (the type of asset an asset field references) and `Description`.
+`MultilineText`), `AssetType` (the type of asset an asset field references), `Description` and `VisibleWhen`
+(`{ Field, Values }`: the field only matters, and editors only show it, while that field of the same object has one of
+those values, such as a material's `AlphaCutoff` in the `Mask` alpha mode or a joint's `Axis` for the `Hinge` and
+`Slider` types; values are enumerator names, or `true`/`false` for bool fields).
+
+### inspector
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `inspector.add-component-menu` | `search` (text typed into the menu's search field), `open` (default true; false closes the menu) | Brings the inspector to the front with its Add Component menu open for the selected entities, as if the user clicked Add Component and typed `search` (without one the menu shows the categories); returns `open`, `search`, `components` (the components the menu offers, in its order). Changes nothing in the scene; InvalidOperation without selected entities; Unavailable when headless |
 
 ### asset
 

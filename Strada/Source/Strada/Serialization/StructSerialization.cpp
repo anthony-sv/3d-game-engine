@@ -56,6 +56,16 @@ namespace Strada
 			{
 				description["Description"] = std::string(field.Hints.Description);
 			}
+			if (!field.Hints.VisibleWhenField.empty())
+			{
+				Json values = Json::array();
+				for (std::string_view const value : field.Hints.GetVisibleWhenValues())
+				{
+					values.push_back(std::string(value));
+				}
+				description["VisibleWhen"] =
+					Json::object({{"Field", std::string(field.Hints.VisibleWhenField)}, {"Values", std::move(values)}});
+			}
 			if (!field.Fields.empty())
 			{
 				Json nested = Json::array();

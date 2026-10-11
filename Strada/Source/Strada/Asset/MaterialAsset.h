@@ -63,31 +63,36 @@ namespace Strada
 		}};
 	};
 
+	// Fields in the order editors show them: each texture next to the parameters it goes with.
 	template<>
 	struct StructTraits<MaterialData>
 	{
 		static constexpr std::string_view Name = "Material";
 		static constexpr auto Fields = std::make_tuple(
 			Field("BaseColor", &MaterialData::BaseColor).Range(0.0, 1.0).AsColor().Doc("Albedo (linear) and opacity."),
-			Field("Metallic", &MaterialData::Metallic).Range(0.0, 1.0), Field("Roughness", &MaterialData::Roughness).Range(0.0, 1.0),
-			Field("EmissiveColor", &MaterialData::EmissiveColor).Range(0.0, 1.0).AsColor().Doc("Emitted light color (linear)."),
-			Field("EmissiveIntensity", &MaterialData::EmissiveIntensity).AtLeast(0.0).Doc("Multiplier of the emitted light."),
-			Field("NormalStrength", &MaterialData::NormalStrength).AtLeast(0.0).Doc("Scales the bumps of the normal map."),
-			Field("OcclusionStrength", &MaterialData::OcclusionStrength)
-				.Range(0.0, 1.0)
-				.Doc("How much the occlusion map darkens indirect light."),
 			Field("BaseColorTexture", &MaterialData::BaseColorTexture).References("Texture").Doc("sRGB colors, opacity in alpha."),
-			Field("NormalTexture", &MaterialData::NormalTexture).References("Texture").Doc("Tangent-space normal map (+Y up)."),
+			Field("Metallic", &MaterialData::Metallic).Range(0.0, 1.0).Doc("0 for nonmetals (plastic, wood, stone), 1 for bare metal."),
+			Field("Roughness", &MaterialData::Roughness).Range(0.0, 1.0).Doc("0 is mirror-smooth, 1 is fully rough."),
 			Field("MetallicRoughnessTexture", &MaterialData::MetallicRoughnessTexture)
 				.References("Texture")
 				.Doc("glTF packing: roughness in green, metallic in blue; multiplied with the factors."),
-			Field("OcclusionTexture", &MaterialData::OcclusionTexture).References("Texture").Doc("Ambient occlusion in red."),
+			Field("NormalTexture", &MaterialData::NormalTexture).References("Texture").Doc("Tangent-space normal map (+Y up)."),
+			Field("NormalStrength", &MaterialData::NormalStrength).AtLeast(0.0).Doc("Scales the bumps of the normal map."),
+			Field("EmissiveColor", &MaterialData::EmissiveColor).Range(0.0, 1.0).AsColor().Doc("Emitted light color (linear)."),
+			Field("EmissiveIntensity", &MaterialData::EmissiveIntensity).AtLeast(0.0).Doc("Multiplier of the emitted light."),
 			Field("EmissiveTexture", &MaterialData::EmissiveTexture)
 				.References("Texture")
 				.Doc("sRGB emitted color, multiplied with EmissiveColor and EmissiveIntensity."),
+			Field("OcclusionTexture", &MaterialData::OcclusionTexture).References("Texture").Doc("Ambient occlusion in red."),
+			Field("OcclusionStrength", &MaterialData::OcclusionStrength)
+				.Range(0.0, 1.0)
+				.Doc("How much the occlusion map darkens indirect light."),
 			Field("AlphaMode", &MaterialData::AlphaMode)
 				.Doc("Opaque ignores alpha, Mask discards pixels below AlphaCutoff, Blend is transparent."),
-			Field("AlphaCutoff", &MaterialData::AlphaCutoff).Range(0.0, 1.0),
+			Field("AlphaCutoff", &MaterialData::AlphaCutoff)
+				.Range(0.0, 1.0)
+				.VisibleWhen("AlphaMode", "Mask")
+				.Doc("Mask mode: pixels with less opacity are discarded."),
 			Field("DoubleSided", &MaterialData::DoubleSided).Doc("Renders back faces too."),
 			Field("UVTiling", &MaterialData::UVTiling).Doc("Texture coordinate scale."),
 			Field("UVOffset", &MaterialData::UVOffset).Doc("Texture coordinate offset."));

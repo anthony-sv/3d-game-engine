@@ -42,6 +42,9 @@ namespace Strada
 	// other hints drive editors and the automation schema.
 	struct FieldHints
 	{
+		// The most values a visibility condition names.
+		static constexpr size_t MaxVisibleWhenValues = 4;
+
 		// Inclusive bounds of numeric values (of every component of vectors and every element of arrays).
 		double Min = -std::numeric_limits<double>::infinity();
 		double Max = std::numeric_limits<double>::infinity();
@@ -50,10 +53,21 @@ namespace Strada
 		std::string_view AssetTypeName;
 		// One sentence for users and agents (tooltips, the automation schema).
 		std::string_view Description;
+		// Fields that only matter while another field of the same struct has certain values (an alpha cutoff in the Mask alpha
+		// mode, the cone angle of particles emitted from cones or boxes): the name of that enum or bool field and the names of
+		// the values (enumerators, or "true"/"false"). Editors show the field only then. Empty for fields that always matter.
+		std::string_view VisibleWhenField;
+		std::array<std::string_view, MaxVisibleWhenValues> VisibleWhenValues = {};
+		size_t VisibleWhenValueCount = 0;
 
 		constexpr bool HasMin() const { return Min != -std::numeric_limits<double>::infinity(); }
 		constexpr bool HasMax() const { return Max != std::numeric_limits<double>::infinity(); }
 		constexpr bool HasRange() const { return HasMin() || HasMax(); }
+		// The values of the visibility condition; empty without one.
+		constexpr std::span<std::string_view const> GetVisibleWhenValues() const
+		{
+			return std::span<std::string_view const>(VisibleWhenValues.data(), VisibleWhenValueCount);
+		}
 	};
 
 	// A named data member of a struct described by a field table, with optional hints added fluently:
@@ -96,6 +110,20 @@ namespace Strada
 		{
 			StructField field = *this;
 			field.Hints.Description = description;
+			return field;
+		}
+
+		// Shown in editors only while the enum or bool field `fieldName` of the same struct has one of the values (enumerator
+		// names, or "true"/"false"; at most FieldHints::MaxVisibleWhenValues). Checked at compile time.
+		template<typename... TValues>
+			requires(sizeof...(TValues) >= 1 && sizeof...(TValues) <= FieldHints::MaxVisibleWhenValues &&
+		             (std::convertible_to<TValues const&, std::string_view> && ...))
+		constexpr StructField VisibleWhen(std::string_view fieldName, TValues const&... valueNames) const
+		{
+			StructField field = *this;
+			field.Hints.VisibleWhenField = fieldName;
+			field.Hints.VisibleWhenValues = {std::string_view(valueNames)...};
+			field.Hints.VisibleWhenValueCount = sizeof...(TValues);
 			return field;
 		}
 
@@ -183,8 +211,8 @@ namespace Strada
 	};
 
 	// Schema used by the automation API: { "Name", ["Description"], "Fields": [ { "Name", "Type", "Default", ... }, ... ] }.
-	// Optional keys per field: "Values" (enums), "Min"/"Max", "Display", "AssetType", "Description" and "Fields" (nested
-	// structs).
+	// Optional keys per field: "Values" (enums), "Min"/"Max", "Display", "AssetType", "Description", "VisibleWhen"
+	// ({ "Field", "Values" }) and "Fields" (nested structs).
 	Json DescribeFields(std::string_view name, std::span<FieldDescriptor const> fields, std::string_view description = {});
 
 	namespace Detail
@@ -338,6 +366,69 @@ namespace Strada
 			return hints.AssetTypeName.empty() || IsAssetField<T>();
 		}
 
+		// Whether the field is the enum field `name` with the enumerator `value`, or the bool field `name` and `value` is "true"
+		// or "false".
+		template<typename T, typename TField>
+		constexpr bool IsConditionValue(TField const& field, std::string_view name, std::string_view value)
+		{
+			using FieldType = StructFieldType<T, TField>;
+			if (field.Name != name)
+			{
+				return false;
+			}
+			if constexpr (SerializableEnum<FieldType>)
+			{
+				for (auto const& entry : EnumTraits<FieldType>::Values)
+				{
+					if (entry.second == value)
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+			else
+			{
+				return std::is_same_v<FieldType, bool> && (value == "true" || value == "false");
+			}
+		}
+
+		// Whether the table has an enum field `name` with the enumerator `value`, or a bool field `name` and `value` is "true"
+		// or "false" (the values a visibility condition can name).
+		template<FieldTable TTraits, typename T>
+		constexpr bool HasConditionValue(std::string_view name, std::string_view value)
+		{
+			return std::apply(
+				[name, value](auto const&... fields)
+				{
+					return (IsConditionValue<T>(fields, name, value) || ...);
+				},
+				TTraits::Fields);
+		}
+
+		// Whether the visibility condition of the field `fieldName` names another field of the table, an enum or a bool, and
+		// values of it; fields without a condition are valid.
+		template<FieldTable TTraits, typename T>
+		constexpr bool IsConditionValid(std::string_view fieldName, FieldHints const& hints)
+		{
+			if (hints.VisibleWhenField.empty())
+			{
+				return hints.VisibleWhenValueCount == 0;
+			}
+			if (hints.VisibleWhenField == fieldName || hints.VisibleWhenValueCount == 0)
+			{
+				return false;
+			}
+			for (std::string_view const value : hints.GetVisibleWhenValues())
+			{
+				if (!HasConditionValue<TTraits, T>(hints.VisibleWhenField, value))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
 		template<FieldTable TTraits, typename T>
 		constexpr bool IsFieldTableValid()
 		{
@@ -346,6 +437,14 @@ namespace Strada
 				[&valid](auto const&... fields)
 				{
 					((valid = valid && AreHintsValid<StructFieldType<T, decltype(fields)>>(fields.Hints)), ...);
+				},
+				TTraits::Fields);
+
+			// Visibility conditions name another field of the struct, an enum or a bool, and values of it.
+			std::apply(
+				[&valid](auto const&... fields)
+				{
+					((valid = valid && IsConditionValid<TTraits, T>(fields.Name, fields.Hints)), ...);
 				},
 				TTraits::Fields);
 
@@ -462,7 +561,8 @@ namespace Strada
 	template<FieldTable TTraits, typename T>
 	[[nodiscard]] Result<void> DeserializeFields(Json const& json, T& object, DeserializationContext const& context, std::string_view kind)
 	{
-		static_assert(Detail::IsFieldTableValid<TTraits, T>(), "A field hint does not fit its field's type, or names repeat");
+		static_assert(Detail::IsFieldTableValid<TTraits, T>(),
+		              "A field hint does not fit its field's type, names repeat, or a VisibleWhen names no value of an enum or bool field");
 		constexpr std::string_view Name = TTraits::Name;
 		if (!json.is_object())
 		{
@@ -576,7 +676,8 @@ namespace Strada
 	template<FieldTable TTraits, typename T>
 	std::vector<FieldDescriptor> GetFieldDescriptors()
 	{
-		static_assert(Detail::IsFieldTableValid<TTraits, T>(), "A field hint does not fit its field's type, or names repeat");
+		static_assert(Detail::IsFieldTableValid<TTraits, T>(),
+		              "A field hint does not fit its field's type, names repeat, or a VisibleWhen names no value of an enum or bool field");
 		T const defaults{};
 		std::vector<FieldDescriptor> descriptors;
 		std::apply(

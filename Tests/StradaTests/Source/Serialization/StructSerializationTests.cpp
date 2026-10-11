@@ -5,10 +5,14 @@
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -158,6 +162,124 @@ TEST_CASE("StructSerialization: field hints are checked against their types at c
 	static_assert(Detail::AreHintsValid<std::vector<AssetHandle>>(Field("Meshes", &Probe::Meshes).References("Mesh").Hints));
 	static_assert(Detail::IsFieldTableValid<StructTraits<Tuning>, Tuning>());
 	static_assert(Detail::IsFieldTableValid<StructTraits<RenderSettings>, RenderSettings>());
+}
+
+namespace
+{
+	enum class FogMode : uint8_t
+	{
+		Off = 0,
+		Linear,
+		Exponential
+	};
+
+	struct Fog
+	{
+		FogMode Mode = FogMode::Off;
+		bool Animated = false;
+		float Density = 0.1f;
+		float Speed = 1.0f;
+		float Distance = 100.0f;
+	};
+}
+
+template<>
+struct Strada::EnumTraits<FogMode>
+{
+	static constexpr std::array<std::pair<FogMode, std::string_view>, 3> Values = {{
+		{FogMode::Off, "Off"},
+		{FogMode::Linear, "Linear"},
+		{FogMode::Exponential, "Exponential"},
+	}};
+};
+
+template<>
+struct Strada::StructTraits<Fog>
+{
+	static constexpr std::string_view Name = "Fog";
+	static constexpr auto Fields = std::make_tuple(Field("Mode", &Fog::Mode), Field("Animated", &Fog::Animated),
+	                                               Field("Density", &Fog::Density).VisibleWhen("Mode", "Exponential"),
+	                                               Field("Speed", &Fog::Speed).VisibleWhen("Animated", "true"),
+	                                               Field("Distance", &Fog::Distance).VisibleWhen("Mode", "Linear", "Exponential"));
+};
+
+namespace
+{
+	// Field tables whose visibility conditions name no value of an enum or bool field of the struct.
+	struct UnknownConditionField
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields = std::make_tuple(Field("Density", &Fog::Density).VisibleWhen("Weather", "Rain"));
+	};
+
+	struct UnknownConditionValue
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Mode", &Fog::Mode), Field("Density", &Fog::Density).VisibleWhen("Mode", "Cubic"));
+	};
+
+	struct NumberCondition
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Density", &Fog::Density), Field("Speed", &Fog::Speed).VisibleWhen("Density", "0.5"));
+	};
+
+	struct OwnCondition
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields = std::make_tuple(Field("Mode", &Fog::Mode).VisibleWhen("Mode", "Linear"));
+	};
+
+	struct BoolConditionValue
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Animated", &Fog::Animated), Field("Speed", &Fog::Speed).VisibleWhen("Animated", "yes"));
+	};
+
+	struct OneUnknownValue
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Mode", &Fog::Mode), Field("Distance", &Fog::Distance).VisibleWhen("Mode", "Linear", "Cubic"));
+	};
+}
+
+TEST_CASE("StructSerialization: visibility conditions name values of an enum or bool field of the same struct")
+{
+	static_assert(Detail::IsFieldTableValid<StructTraits<Fog>, Fog>());
+	static_assert(!Detail::IsFieldTableValid<UnknownConditionField, Fog>());
+	static_assert(!Detail::IsFieldTableValid<UnknownConditionValue, Fog>());
+	static_assert(!Detail::IsFieldTableValid<NumberCondition, Fog>());
+	static_assert(!Detail::IsFieldTableValid<OwnCondition, Fog>());
+	static_assert(!Detail::IsFieldTableValid<BoolConditionValue, Fog>());
+	static_assert(!Detail::IsFieldTableValid<OneUnknownValue, Fog>());
+	static_assert(Detail::IsFieldTableValid<StructTraits<MaterialData>, MaterialData>());
+
+	// The schema names the condition; conditions change nothing about reading values.
+	Json const schema = DescribeFields<StructTraits<Fog>, Fog>();
+	CHECK_FALSE(schema["Fields"][0].contains("VisibleWhen"));
+	CHECK(schema["Fields"][2]["VisibleWhen"] == Json::object({{"Field", "Mode"}, {"Values", Json::array({"Exponential"})}}));
+	CHECK(schema["Fields"][3]["VisibleWhen"] == Json::object({{"Field", "Animated"}, {"Values", Json::array({"true"})}}));
+	CHECK(schema["Fields"][4]["VisibleWhen"] == Json::object({{"Field", "Mode"}, {"Values", Json::array({"Linear", "Exponential"})}}));
+	Fog fog;
+	REQUIRE(DeserializeFields<StructTraits<Fog>>(Json::object({{"Density", 0.4}}), fog, DeserializationContext{}, "settings").IsOk());
+	CHECK(fog.Density == doctest::Approx(0.4f));
+
+	// A material's alpha cutoff only matters in the Mask alpha mode.
+	std::vector<FieldDescriptor> const material = GetFieldDescriptors<StructTraits<MaterialData>, MaterialData>();
+	auto const cutoff = std::find_if(material.begin(), material.end(),
+	                                 [](FieldDescriptor const& field)
+	                                 {
+										 return field.Name == "AlphaCutoff";
+									 });
+	REQUIRE(cutoff != material.end());
+	CHECK(cutoff->Hints.VisibleWhenField == "AlphaMode");
+	CHECK(std::vector<std::string_view>(cutoff->Hints.GetVisibleWhenValues().begin(), cutoff->Hints.GetVisibleWhenValues().end()) ==
+	      std::vector<std::string_view>{"Mask"});
+	CHECK(material.front().Hints.GetVisibleWhenValues().empty());
 }
 
 TEST_CASE("StructSerialization: values outside a field's range are rejected with readable messages")

@@ -5,6 +5,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <set>
 #include <string>
 #include <string_view>
@@ -40,6 +41,33 @@ TEST_CASE("Components: every component is registered once with a unique name")
 	CHECK_FALSE(ComponentRegistry::Get<MeshComponent>().IsCore());
 	CHECK(ComponentRegistry::Get<RelationshipComponent>().IsInternal());
 	CHECK(ComponentRegistry::Get<PrefabComponent>().IsInternal());
+}
+
+TEST_CASE("Components: every component belongs to one of the known categories")
+{
+	std::set<std::string_view> used;
+	for (ComponentInfo const& info : ComponentRegistry::GetComponents())
+	{
+		CAPTURE(info.Name);
+		CHECK(std::find(ComponentCategory::All.begin(), ComponentCategory::All.end(), info.Category) != ComponentCategory::All.end());
+		used.insert(info.Category);
+		// Core components are on every entity; the other categories group what users add.
+		if (info.IsCore())
+		{
+			CHECK(info.Category == ComponentCategory::Core);
+		}
+	}
+	// Every category the Add Component menu shows has components.
+	CHECK(used.size() == ComponentCategory::All.size());
+
+	CHECK(ComponentRegistry::Get<TransformComponent>().Category == ComponentCategory::Core);
+	CHECK(ComponentRegistry::Get<PrefabComponent>().Category == ComponentCategory::Core);
+	CHECK(ComponentRegistry::Get<MeshComponent>().Category == ComponentCategory::Rendering);
+	CHECK(ComponentRegistry::Get<ParticleSystemComponent>().Category == ComponentCategory::Rendering);
+	CHECK(ComponentRegistry::Get<JointComponent>().Category == ComponentCategory::Physics);
+	CHECK(ComponentRegistry::Get<AudioListenerComponent>().Category == ComponentCategory::Audio);
+	CHECK(ComponentRegistry::Get<ScriptComponent>().Category == ComponentCategory::Scripting);
+	CHECK(ComponentRegistry::Get<SpriteRendererComponent>().Category == ComponentCategory::UI);
 }
 
 TEST_CASE("Components: every component round trips through JSON with its default values")

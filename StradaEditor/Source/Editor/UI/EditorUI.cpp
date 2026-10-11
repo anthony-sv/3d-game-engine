@@ -118,6 +118,57 @@ namespace Strada
 			return result;
 		}
 
+		std::string DescribeAssetReference(AssetHandle asset)
+		{
+			if (!asset.IsValid())
+			{
+				return "None";
+			}
+			if (!AssetManager::IsInitialized())
+			{
+				return asset.ToString();
+			}
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(asset);
+			if (!metadata)
+			{
+				return fmt::format("Unknown asset {}", asset);
+			}
+			// File and built-in assets are found by their paths; the others are named after what holds them.
+			std::string text = metadata->IsFileAsset() || metadata->IsBuiltIn() ? metadata->Path : metadata->GetDisplayName();
+			return AssetManager::IsMissing(asset) ? text + " (missing)" : text;
+		}
+
+		std::string FitPath(std::string_view path, float maxWidth)
+		{
+			auto const measure = [](std::string_view part)
+			{
+				return ImGui::CalcTextSize(part.data(), part.data() + part.size()).x;
+			};
+			if (measure(path) <= maxWidth)
+			{
+				return std::string(path);
+			}
+			constexpr std::string_view Ellipsis = "...";
+			float const available = maxWidth - measure(Ellipsis);
+			// Whole folders first: the longest end that starts at a separator ("//" of "builtin://" counts as one).
+			for (size_t slash = path.find('/'); slash != std::string_view::npos; slash = path.find('/', slash + 1))
+			{
+				if ((slash + 1 >= path.size() || path[slash + 1] != '/') && measure(path.substr(slash)) <= available)
+				{
+					return std::string(Ellipsis) + std::string(path.substr(slash));
+				}
+			}
+			for (size_t start = 1; start < path.size(); start++)
+			{
+				// UTF-8 continuation bytes (10xxxxxx) never start a character.
+				if ((static_cast<unsigned char>(path[start]) & 0xC0) != 0x80 && measure(path.substr(start)) <= available)
+				{
+					return std::string(Ellipsis) + std::string(path.substr(start));
+				}
+			}
+			return std::string(Ellipsis);
+		}
+
 		void AssetDragSource(AssetHandle asset, std::string_view label)
 		{
 			if (!ImGui::BeginDragDropSource())

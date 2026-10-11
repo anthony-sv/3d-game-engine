@@ -275,3 +275,55 @@ TEST_CASE("ComponentInspection: shared and addable components, mixed fields and 
 	CHECK(defaults["Range"] == 10.0f);
 	CHECK(defaults.size() == light.Fields.size());
 }
+
+TEST_CASE("ComponentInspection: the Add Component menu groups components by category and finds them by name")
+{
+	EditorContext context;
+	EditorOperations operations(context);
+	UUID const entity = Create(operations, "Lamp", UUID::Invalid(), Json::object({{"PointLight", Json::object()}}));
+	std::vector<UUID> const selection = {entity};
+	std::vector<ComponentInfo const*> const addable = ComponentInspection::GetAddableComponents(context.GetScene(), selection);
+
+	// Categories in menu order without the empty Core one (nothing core can be added), components by display name; every
+	// addable component is listed exactly once.
+	std::vector<ComponentInspection::ComponentGroup> const groups = ComponentInspection::GroupByCategory(addable);
+	std::vector<std::string_view> categories;
+	size_t listed = 0;
+	for (ComponentInspection::ComponentGroup const& group : groups)
+	{
+		categories.push_back(group.Category);
+		listed += group.Components.size();
+		for (ComponentInfo const* component : group.Components)
+		{
+			CHECK(component->Category == group.Category);
+		}
+	}
+	CHECK(categories == std::vector<std::string_view>{"Rendering", "Physics", "Audio", "Scripting", "UI"});
+	CHECK(listed == addable.size());
+	CHECK(Names(groups[0].Components) ==
+	      std::vector<std::string_view>{"Camera", "DirectionalLight", "Mesh", "ParticleSystem", "SkyLight", "SpotLight"});
+	CHECK(Names(groups[1].Components) ==
+	      std::vector<std::string_view>{"BoxCollider", "CapsuleCollider", "Joint", "MeshCollider", "RigidBody", "SphereCollider"});
+	CHECK(Names(groups[4].Components) == std::vector<std::string_view>{"SpriteRenderer", "Text"});
+	CHECK(ComponentInspection::GroupByCategory({}).empty());
+
+	// Names starting with the text come first, then names with a word starting with it, then the others; case, spaces
+	// around the text and the spelling of the name do not matter.
+	CHECK(Names(ComponentInspection::SearchComponents(addable, "light")) ==
+	      std::vector<std::string_view>{"DirectionalLight", "SkyLight", "SpotLight"});
+	CHECK(Names(ComponentInspection::SearchComponents(addable, "  COLL ")) ==
+	      std::vector<std::string_view>{"BoxCollider", "CapsuleCollider", "MeshCollider", "SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(addable, "sphere col")) == std::vector<std::string_view>{"SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(addable, "spherecol")) == std::vector<std::string_view>{"SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(addable, "li")) ==
+	      std::vector<std::string_view>{"AudioListener", "DirectionalLight", "SkyLight", "SpotLight", "BoxCollider", "CapsuleCollider",
+	                                    "MeshCollider", "SphereCollider"});
+	std::vector<std::string_view> const startingWithS = Names(ComponentInspection::SearchComponents(addable, "s"));
+	REQUIRE(startingWithS.size() > 7);
+	CHECK(std::vector<std::string_view>(startingWithS.begin(), startingWithS.begin() + 7) ==
+	      std::vector<std::string_view>{"Script", "SkyLight", "SphereCollider", "SpotLight", "SpriteRenderer", "AudioSource",
+	                                    "ParticleSystem"});
+	CHECK(Names(ComponentInspection::SearchComponents(addable, "urce")) == std::vector<std::string_view>{"AudioSource"});
+	CHECK(ComponentInspection::SearchComponents(addable, "teleporter").empty());
+	CHECK(ComponentInspection::SearchComponents(addable, "").size() == addable.size());
+}

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Strada/Asset/Asset.h"
 #include "Strada/Serialization/StructSerialization.h"
 
 #include <glm/glm.hpp>
@@ -11,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Strada
@@ -64,11 +66,24 @@ namespace Strada
 		bool DrawValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change);
 		bool DrawQuaternion(Json const& value, FieldChange& change);
 		bool DrawArray(FieldDescriptor const& field, Json const& value, FieldChange& change);
+		// An asset reference: a box showing the asset's path (opens the picker; accepts assets dropped from the content
+		// browser), a "..." button opening the picker and an "x" button clearing the reference.
+		bool DrawAsset(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change);
+		// The open picker's search field and list (None, then every asset of the type matching the search); returns the asset
+		// chosen this frame (invalid for None). Enter takes the first match.
+		std::optional<AssetHandle> DrawAssetPicker(AssetType type, AssetHandle current);
 		void PruneEulerStates();
 
 		Scene* m_Scene = nullptr;
 		// Search text of the open asset picker.
 		std::string m_AssetFilter;
+		// Gives the picker's search field the keyboard again next frame (Enter without a match ended the input).
+		bool m_FocusAssetSearch = false;
+		// What the open picker lists: the assets of m_PickerType with their labels, as of asset version m_PickerVersion (none
+		// before the first picker opens).
+		std::vector<std::pair<AssetHandle, std::string>> m_PickerAssets;
+		AssetType m_PickerType = AssetType::None;
+		std::optional<uint64_t> m_PickerVersion;
 		std::unordered_map<uint32_t, EulerState> m_EulerStates;
 		int m_LastPruneFrame = -1;
 	};

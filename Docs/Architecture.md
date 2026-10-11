@@ -355,10 +355,12 @@ field list are declared once in `ComponentTraits.h`; generic code derives JSON s
 transactional partial updates with readable errors), schemas, copies, the inspector and the `ComponentRegistry` entry
 from that table. Fields carry optional hints: an inclusive range (enforced whenever JSON is read, so files, automation
 and the editor all reject out-of-range values), a presentation (color, angle, multi-line text), the referenced asset
-type and a one-sentence description. Field tables of other structs (renderer settings, materials) use the same hints. The
-registry provides type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for scene
-serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu, and script
-interop component lookups.
+type, a one-sentence description and a visibility condition (the field only matters while an enum or bool field of
+the same struct has one of some values, like a camera's orthographic size; checked at compile time). Field tables of other structs (renderer settings, materials) use
+the same hints. Each component also names its category (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`).
+The registry provides type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the
+single source of truth for scene serialization, scene copy, automation (`component.*` commands), the inspector "Add
+Component" menu (grouped by category), and script interop component lookups.
 
 | Serialized name | Struct | Fields |
 |---|---|---|
@@ -656,14 +658,29 @@ than the assembly.
   field filters by name. Selections made elsewhere reveal and scroll to the primary entity.
 - Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
   the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
-  while dragging), enums are combos, asset fields have a searchable picker and accept assets dropped from the content
-  browser, entity references accept dropped entities. With several entities selected it shows the components they
-  share, flags fields whose values differ, and an edit sets only the edited value or vector component on every
-  entity. One widget interaction (a drag, typing into a field) is one undo step. Components can be added (searchable
-  list), reset, copied, pasted as JSON and removed. Without selected entities the inspector shows the asset selected
-  in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
-  editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
-  read-only), a texture preview, mesh statistics with the mesh's materials, and the details of other asset types.
+  while dragging), enums are combos, fields with a visibility condition (`VisibleWhen`: a material's alpha cutoff in
+  the Mask mode, the perspective or orthographic settings of a camera, what a joint type or particle shape uses) show
+  only while it holds, and entity references accept dropped entities. Asset fields (in components,
+  materials, settings and script fields) show the asset's path in the asset directory with its extension
+  (`builtin://<Name>` for built-ins, the name of materials and textures imported with a model, `None` when empty; long
+  paths keep their end, the tooltip has all of it) in a box that opens a searchable picker of the assets of the field's
+  type when clicked and takes assets dropped from the content browser, followed by `...` (the picker) and `x` (clears
+  it). With several entities selected it shows the components they share, flags fields whose values differ, and an
+  edit sets only the edited value or vector component on every entity. One widget interaction (a drag, typing into a
+  field) is one undo step. Add Component opens a menu with a search field above a submenu per component category
+  (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the Core ones are on every entity); typing
+  lists the matching components instead (names starting with the text first) with their categories, and Enter adds the
+  first. Components can also be reset, copied, pasted as JSON and removed. Below the fields of a Mesh component, each
+  material slot of its mesh gets a section (`MaterialSlots`): a header with the material on a sphere, its name, the
+  slot and where the material comes from, then every parameter of the material the slot renders with (the component's
+  override, else the mesh's own material, else the default one). Edits change the material file as in the material
+  inspector (one undo step per interaction) and show at once in the views and thumbnails; built-in and model-imported
+  materials show their values disabled with a Create Material button that writes an editable copy to
+  `Assets/Materials` and gives it to the slot (one undo step). Without selected entities the inspector shows the asset
+  selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
+  reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
+  and mesh-imported ones), a texture preview, mesh statistics with the mesh's materials, and the details of other asset
+  types.
 - Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
   files in red), breadcrumbs, a tile size slider, and a search over every asset path. Textures show themselves, and
   materials (on a sphere), meshes, prefabs and environments show thumbnails that `AssetThumbnails` renders offscreen,
@@ -773,8 +790,9 @@ than the assembly.
   `asset.*` (list, get, import, refresh, move, delete, create-folder, move-folder, delete-folder),
   `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
-  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities, renderer statistics), `log.*` (read since
-  index), `test.*` (run a test scene and return results). Renderer settings are scene settings (`scene.settings`).
+  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities, renderer statistics),
+  `inspector.*` (the Add Component menu, as users see it), `log.*` (read since index), `test.*` (run a test scene and
+  return results). Renderer settings are scene settings (`scene.settings`).
 - Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);
   the `strada-make-game` skill in `.claude/skills/` documents building games with the tools.
 

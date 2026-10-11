@@ -30,6 +30,11 @@ namespace Strada
 		};
 		constexpr std::array<char const*, 4> AxisLabels = {"X", "Y", "Z", "W"};
 		constexpr ImVec4 MixedLabelColor = ImVec4(0.95f, 0.72f, 0.30f, 1.0f);
+		constexpr ImVec4 MissingAssetColor = ImVec4(0.95f, 0.40f, 0.35f, 1.0f);
+		// The asset picker is at least this wide (in font sizes, so it follows the display scale) and lists this many rows
+		// before it scrolls.
+		constexpr float MinPickerWidthInFontSizes = 20.0f;
+		constexpr size_t MaxPickerRows = 14;
 		constexpr char const* AngleFormat = "%.1f\xc2\xb0";
 		// Integer widgets stay within the integers JSON consumers represent exactly.
 		constexpr int64_t IntegerWidgetLimit = int64_t(1) << 53;
@@ -205,113 +210,84 @@ namespace Strada
 			return changed;
 		}
 
-		std::string DescribeAsset(AssetHandle handle)
+		// Whether a row is shown: always, unless the field's visibility condition names a sibling (one of `fields`, valued in
+		// `values`) whose value is none of the condition's. A sibling whose values differ between the edited objects (mixed)
+		// shows it.
+		bool IsVisible(FieldDescriptor const& field, std::span<FieldDescriptor const> fields, Json const& values,
+		               std::span<std::string const> mixedFields)
 		{
-			if (!handle.IsValid())
+			std::string_view const siblingName = field.Hints.VisibleWhenField;
+			if (siblingName.empty() || std::find(mixedFields.begin(), mixedFields.end(), siblingName) != mixedFields.end())
 			{
-				return "None";
+				return true;
 			}
-			if (!AssetManager::IsInitialized())
+			auto const sibling = std::find_if(fields.begin(), fields.end(),
+			                                  [siblingName](FieldDescriptor const& candidate)
+			                                  {
+												  return candidate.Name == siblingName;
+											  });
+			if (sibling == fields.end())
 			{
-				return handle.ToString();
+				return true;
 			}
-			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
-			if (!metadata)
+			std::string const key(siblingName);
+			Json const& value = values.is_object() && values.contains(key) ? values[key] : sibling->Default;
+			std::span<std::string_view const> const accepted = field.Hints.GetVisibleWhenValues();
+			auto const accepts = [accepted](std::string_view name)
 			{
-				return fmt::format("Unknown asset {}", handle);
+				return std::find(accepted.begin(), accepted.end(), name) != accepted.end();
+			};
+			if (value.is_boolean())
+			{
+				return accepts(value.get<bool>() ? "true" : "false");
 			}
-			std::string name = metadata->GetDisplayName();
-			return AssetManager::IsMissing(handle) ? name + " (missing)" : name;
+			return !value.is_string() || accepts(value.get_ref<std::string const&>());
 		}
 
-		// Asset button with a searchable picker popup, a clear button and an asset drag-and-drop target.
-		bool DrawAsset(FieldDescriptor const& field, Json const& value, std::string& filter, FieldChange& change)
+		// Text color of an asset reference: dimmed without an asset, the error color when its file is missing or the handle is
+		// unknown.
+		ImU32 GetAssetReferenceColor(AssetHandle handle, bool mixed)
 		{
-			AssetHandle const handle(ReadID(value));
-			AssetType const expected = AssetTypeFromString(field.Hints.AssetTypeName).value_or(AssetType::None);
-			bool changed = false;
+			if (mixed || !handle.IsValid())
+			{
+				return ImGui::GetColorU32(ImGuiCol_TextDisabled);
+			}
+			if (AssetManager::IsInitialized() && (!AssetManager::IsValid(handle) || AssetManager::IsMissing(handle)))
+			{
+				return ImGui::GetColorU32(MissingAssetColor);
+			}
+			return ImGui::GetColorU32(ImGuiCol_Text);
+		}
 
-			float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-			float const clearWidth = handle.IsValid() ? ImGui::GetFrameHeight() + spacing : 0.0f;
-			std::string const label = DescribeAsset(handle);
-			if (ImGui::Button(fmt::format("{}###asset", label).c_str(), ImVec2(std::max(1.0f, ImGui::CalcItemWidth() - clearWidth), 0.0f)))
+		// A box framed like a text field showing the referenced asset (the end of long paths); returns true when clicked.
+		bool DrawAssetReferenceBox(AssetHandle handle, bool mixed, float width)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			bool const clicked = ImGui::InvisibleButton("##reference", ImVec2(std::max(1.0f, width), ImGui::GetFrameHeight()));
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			ImGuiCol const background =
+				ImGui::IsItemActive() ? ImGuiCol_FrameBgActive : (ImGui::IsItemHovered() ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+			ImGui::RenderFrame(min, max, ImGui::GetColorU32(background), true, style.FrameRounding);
+			std::string const text =
+				UI::FitPath(mixed ? std::string("--") : UI::DescribeAssetReference(handle), max.x - min.x - style.FramePadding.x * 2.0f);
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			drawList->PushClipRect(min, max, true);
+			drawList->AddText(ImVec2(min.x + style.FramePadding.x, min.y + style.FramePadding.y), GetAssetReferenceColor(handle, mixed),
+			                  text.c_str());
+			drawList->PopClipRect();
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
 			{
-				filter.clear();
-				ImGui::OpenPopup("##assetPicker");
+				// The whole path, which the box may shorten; how to change it unless the field is read-only.
+				std::string tooltip =
+					mixed ? std::string("The selected entities reference different assets.") : UI::DescribeAssetReference(handle);
+				if ((ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) == 0)
+				{
+					tooltip += "\nClick to choose an asset, or drop one here.";
+				}
+				ImGui::SetTooltip("%s", tooltip.c_str());
 			}
-			if (handle.IsValid() && AssetManager::IsInitialized() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-			{
-				ImGui::SetTooltip("%s", AssetManager::GetReference(handle).c_str());
-			}
-			if (ImGui::BeginDragDropTarget())
-			{
-				std::span<AssetType const> const types =
-					expected == AssetType::None ? std::span<AssetType const>() : std::span<AssetType const>(&expected, 1);
-				if (AssetHandle const dropped = UI::AcceptAssetDrop(types); dropped.IsValid())
-				{
-					change.Value = dropped.ToString();
-					changed = true;
-				}
-				ImGui::EndDragDropTarget();
-			}
-			if (handle.IsValid())
-			{
-				ImGui::SameLine(0.0f, spacing);
-				if (ImGui::Button("x##clear", ImVec2(ImGui::GetFrameHeight(), 0.0f)))
-				{
-					change.Value = UUID::Invalid().ToString();
-					changed = true;
-				}
-				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-				{
-					ImGui::SetTooltip("Clear");
-				}
-			}
-
-			if (ImGui::BeginPopup("##assetPicker"))
-			{
-				if (ImGui::IsWindowAppearing())
-				{
-					ImGui::SetKeyboardFocusHere();
-				}
-				ImGui::SetNextItemWidth(260.0f);
-				ImGui::InputTextWithHint("##filter", "Search", &filter);
-				ImGui::Separator();
-				ImGui::BeginChild("##assets", ImVec2(260.0f, 240.0f));
-				if (ImGui::Selectable("None", !handle.IsValid()))
-				{
-					change.Value = UUID::Invalid().ToString();
-					changed = true;
-					ImGui::CloseCurrentPopup();
-				}
-				if (AssetManager::IsInitialized())
-				{
-					for (AssetMetadata const& asset : AssetManager::GetAssets(expected))
-					{
-						std::string const name = asset.GetDisplayName();
-						std::string const& searchable = asset.Path.empty() ? name : asset.Path;
-						if (!filter.empty() && !ImStristr(searchable.c_str(), nullptr, filter.c_str(), nullptr))
-						{
-							continue;
-						}
-						ImGui::PushID(reinterpret_cast<void const*>(static_cast<uintptr_t>(asset.Handle.GetUUID().GetValue())));
-						if (ImGui::Selectable(name.c_str(), asset.Handle == handle))
-						{
-							change.Value = asset.Handle.ToString();
-							changed = true;
-							ImGui::CloseCurrentPopup();
-						}
-						if (!asset.Path.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-						{
-							ImGui::SetTooltip("%s", asset.Path.c_str());
-						}
-						ImGui::PopID();
-					}
-				}
-				ImGui::EndChild();
-				ImGui::EndPopup();
-			}
-			return changed;
+			return clicked;
 		}
 
 		// Flags enums: a combo of check boxes; the value is the array of the set names, in declaration order.
@@ -521,6 +497,10 @@ namespace Strada
 		int const depth = static_cast<int>(path.size());
 		for (FieldDescriptor const& field : fields)
 		{
+			if (!parentMixed && !IsVisible(field, fields, values, depth == 0 ? mixedFields : std::span<std::string const>()))
+			{
+				continue;
+			}
 			std::string const key(field.Name);
 			bool const mixed = parentMixed || (depth == 0 && std::find(mixedFields.begin(), mixedFields.end(), key) != mixedFields.end());
 			Json const& value = values.is_object() && values.contains(key) ? values[key] : field.Default;
@@ -645,7 +625,7 @@ namespace Strada
 			case FieldKind::UUID:
 				return DrawEntityReference(value, m_Scene, change);
 			case FieldKind::Asset:
-				return DrawAsset(field, value, m_AssetFilter, change);
+				return DrawAsset(field, value, mixed, change);
 			case FieldKind::Vec2:
 			case FieldKind::Vec3:
 			case FieldKind::Vec4:
@@ -849,6 +829,153 @@ namespace Strada
 			change.Value = std::move(elements);
 		}
 		return changed;
+	}
+
+	bool FieldEditor::DrawAsset(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change)
+	{
+		AssetHandle const handle(ReadID(value));
+		AssetType const expected = AssetTypeFromString(field.Hints.AssetTypeName).value_or(AssetType::None);
+		bool changed = false;
+
+		// [path of the asset] [...] [x]: the box and "..." open the picker, "x" clears the reference.
+		float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+		float const buttonWidth = ImGui::GetFrameHeight();
+		ImVec2 const start = ImGui::GetCursorScreenPos();
+		bool openPicker = DrawAssetReferenceBox(handle, mixed, ImGui::CalcItemWidth() - 2.0f * (buttonWidth + spacing));
+		if (ImGui::BeginDragDropTarget())
+		{
+			std::span<AssetType const> const types =
+				expected == AssetType::None ? std::span<AssetType const>() : std::span<AssetType const>(&expected, 1);
+			if (AssetHandle const dropped = UI::AcceptAssetDrop(types); dropped.IsValid())
+			{
+				change.Value = dropped.ToString();
+				changed = true;
+			}
+			ImGui::EndDragDropTarget();
+		}
+		ImGui::SameLine(0.0f, spacing);
+		openPicker = ImGui::Button("...", ImVec2(buttonWidth, 0.0f)) || openPicker;
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+		{
+			ImGui::SetTooltip("Choose an asset");
+		}
+		ImGui::SameLine(0.0f, spacing);
+		ImGui::BeginDisabled(!handle.IsValid() && !mixed);
+		if (ImGui::Button("x", ImVec2(buttonWidth, 0.0f)))
+		{
+			change.Value = UUID::Invalid().ToString();
+			changed = true;
+		}
+		ImGui::EndDisabled();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+		{
+			ImGui::SetTooltip("Clear");
+		}
+
+		ImGuiID const picker = ImGui::GetID("##assetPicker");
+		if (openPicker)
+		{
+			m_AssetFilter.clear();
+			ImGui::OpenPopupEx(picker);
+		}
+		// Drops down from the field like a combo box, wide enough for paths.
+		ImRect const bounds(start, ImVec2(ImGui::GetItemRectMax().x, start.y + ImGui::GetFrameHeight()));
+		ImGui::SetNextWindowSizeConstraints(ImVec2(std::max(bounds.GetWidth(), ImGui::GetFontSize() * MinPickerWidthInFontSizes), 0.0f),
+		                                    ImVec2(FLT_MAX, FLT_MAX));
+		if (ImGui::BeginComboPopup(picker, bounds, ImGuiComboFlags_None))
+		{
+			std::optional<AssetHandle> picked = DrawAssetPicker(expected, handle);
+			if (picked)
+			{
+				change.Value = picked->ToString();
+				changed = true;
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndCombo();
+		}
+		return changed;
+	}
+
+	std::optional<AssetHandle> FieldEditor::DrawAssetPicker(AssetType type, AssetHandle current)
+	{
+		if (ImGui::IsWindowAppearing() || m_FocusAssetSearch)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_FocusAssetSearch = false;
+		}
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		bool const confirmed = ImGui::InputTextWithHint("##search", "Search", &m_AssetFilter, ImGuiInputTextFlags_EnterReturnsTrue);
+		ImGui::Separator();
+
+		// Every registered asset of the type, as asset fields show them (listed again when assets change).
+		uint64_t const version = AssetManager::IsInitialized() ? AssetManager::GetVersion() : 0;
+		if (!m_PickerVersion || version != *m_PickerVersion || type != m_PickerType)
+		{
+			m_PickerAssets.clear();
+			if (AssetManager::IsInitialized())
+			{
+				for (AssetMetadata const& asset : AssetManager::GetAssets(type))
+				{
+					m_PickerAssets.emplace_back(asset.Handle, UI::DescribeAssetReference(asset.Handle));
+				}
+			}
+			m_PickerVersion = version;
+			m_PickerType = type;
+		}
+
+		// None, then the assets whose paths contain the search text (ignoring case and surrounding spaces); the list shrinks to
+		// its rows.
+		size_t const first = m_AssetFilter.find_first_not_of(' ');
+		std::string const search =
+			first == std::string::npos ? std::string() : m_AssetFilter.substr(first, m_AssetFilter.find_last_not_of(' ') - first + 1);
+		bool const searching = !search.empty();
+		std::vector<size_t> matches;
+		matches.reserve(m_PickerAssets.size());
+		for (size_t i = 0; i < m_PickerAssets.size(); i++)
+		{
+			if (!searching || ImStristr(m_PickerAssets[i].second.c_str(), nullptr, search.c_str(), nullptr) != nullptr)
+			{
+				matches.push_back(i);
+			}
+		}
+		size_t const rows = std::clamp<size_t>(matches.size() + (searching ? 0 : 1), 1, MaxPickerRows);
+		std::optional<AssetHandle> picked;
+		// Enter takes the first match; without one it ends the text input, so the search field gets the keyboard back.
+		if (confirmed && searching && !matches.empty())
+		{
+			picked = m_PickerAssets[matches.front()].first;
+		}
+		else if (confirmed)
+		{
+			m_FocusAssetSearch = true;
+		}
+		ImGui::BeginChild("##assets", ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * static_cast<float>(rows)), ImGuiChildFlags_None,
+		                  ImGuiWindowFlags_NoNavInputs);
+		if (!searching && ImGui::Selectable("None", !current.IsValid()))
+		{
+			picked = AssetHandle();
+		}
+		for (size_t const index : matches)
+		{
+			auto const& [asset, label] = m_PickerAssets[index];
+			ImGui::PushID(reinterpret_cast<void const*>(static_cast<uintptr_t>(asset.GetUUID().GetValue())));
+			bool const selected = asset == current;
+			if (ImGui::Selectable(label.c_str(), selected))
+			{
+				picked = asset;
+			}
+			if (selected && ImGui::IsWindowAppearing())
+			{
+				ImGui::SetScrollHereY();
+			}
+			ImGui::PopID();
+		}
+		if (searching && matches.empty())
+		{
+			ImGui::TextDisabled("No assets match");
+		}
+		ImGui::EndChild();
+		return picked;
 	}
 
 	void FieldEditor::PruneEulerStates()

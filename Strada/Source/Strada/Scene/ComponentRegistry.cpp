@@ -15,6 +15,7 @@ namespace Strada
 			ComponentInfo info;
 			info.Name = ComponentTraits<T>::Name;
 			info.Flags = ComponentTraits<T>::Flags;
+			info.Category = ComponentTraits<T>::Category;
 			info.Description = ComponentTraits<T>::Description;
 			info.Has = [](entt::registry const& registry, entt::entity entity)
 			{

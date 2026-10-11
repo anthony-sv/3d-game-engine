@@ -74,6 +74,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/GameInputRouter.h
     Source/Editor/HierarchyEditing.cpp
     Source/Editor/HierarchyEditing.h
+    Source/Editor/MaterialSlots.cpp
+    Source/Editor/MaterialSlots.h
     Source/Editor/Panels/BuildGameDialog.cpp
     Source/Editor/Panels/BuildGameDialog.h
     Source/Editor/Panels/ConsolePanel.cpp

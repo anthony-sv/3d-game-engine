@@ -138,6 +138,11 @@ namespace Strada
 			{
 				return m_ContentBrowserPanel;
 			};
+			environment.ShowAddComponentMenu = [this](bool open, std::string const& search)
+			{
+				m_ShowInspector = m_ShowInspector || open;
+				m_InspectorPanel.ShowAddComponentMenu(open, search);
+			};
 		}
 		environment.RequestQuit = []
 		{
