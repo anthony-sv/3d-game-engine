@@ -1,4 +1,5 @@
-"""Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, a forest ambience loop and the impact sounds.
+"""Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, forest, campfire and fountain loops, the impact
+sounds and the sounds of the exhibits (goal chime, cannon, gate).
 
 Everything is synthesized here, so the sounds have no license of their own and regenerate identically (fixed seeds):
 
@@ -233,8 +234,125 @@ def throw():
     return out
 
 
+def crackle():
+    """A campfire in an 8 second loop: the low roar of the flames, crackles (short bright bursts) and a few deeper pops."""
+    random.seed(5)
+    loop_length = int(8.0 * RATE)
+    total = loop_length + int(0.5 * RATE)
+    out = [0.0] * total
+    roar = Biquad("low", 260.0, 0.7)
+    brown = 0.0
+    for i in range(total):
+        brown = 0.99 * brown + random.uniform(-1.0, 1.0) * 0.1
+        flicker = 0.75 + 0.25 * math.sin(2.0 * math.pi * i / RATE * 0.7) * math.sin(2.0 * math.pi * i / RATE * 1.9)
+        out[i] += 0.5 * flicker * roar(brown)
+    time = 0.0
+    while time < 8.0:
+        pop = random.random() < 0.12
+        band = Biquad("band", random.uniform(500.0, 900.0) if pop else random.uniform(1500.0, 5000.0), 1.2)
+        gain = random.uniform(0.5, 1.0) if pop else random.uniform(0.08, 0.45)
+        decay = random.uniform(0.012, 0.03) if pop else random.uniform(0.002, 0.008)
+        begin = int(time * RATE)
+        for i in range(int(decay * RATE * 6.0)):
+            if begin + i < total:
+                out[begin + i] += gain * band(random.uniform(-1.0, 1.0)) * math.exp(-i / (decay * RATE))
+        # Crackles come in little clusters.
+        time += random.expovariate(14.0) if random.random() < 0.7 else random.uniform(0.15, 0.5)
+    return make_loop(out, loop_length)
+
+
+def fountain_water():
+    """Falling water in a 6 second loop: a wash of droplets (fast-flickering band-passed noise) and bubbling chirps."""
+    random.seed(6)
+    loop_length = int(6.0 * RATE)
+    total = loop_length + int(0.5 * RATE)
+    out = [0.0] * total
+    wash = Biquad("band", 1800.0, 0.5)
+    low = Biquad("low", 5200.0, 0.7)
+    level = 0.0
+    for i in range(total):
+        if i % 40 == 0:
+            level = random.uniform(0.55, 1.0)
+        out[i] += 0.35 * level * low(wash(random.uniform(-1.0, 1.0)))
+    for _ in range(int(6.0 * 22)):
+        begin = random.randint(0, total - 1)
+        length = random.uniform(0.008, 0.03)
+        start = random.uniform(500.0, 1100.0)
+        rise = random.uniform(1.4, 2.4)
+        phase = 0.0
+        count = int(length * RATE)
+        gain = random.uniform(0.05, 0.16)
+        for i in range(count):
+            progress = i / count
+            phase += 2.0 * math.pi * start * (1.0 + (rise - 1.0) * progress) / RATE
+            if begin + i < total:
+                out[begin + i] += gain * math.sin(phase) * math.sin(math.pi * progress)
+    return make_loop(reverb(out, mix=0.2, seconds=0.8), loop_length)
+
+
+def goal_chime():
+    """A bright rising arpeggio of bell tones for a goal."""
+    count = int(2.2 * RATE)
+    out = [0.0] * count
+    for index, midi in enumerate((72, 76, 79, 84)):
+        begin = int(index * 0.09 * RATE)
+        frequency = note(midi)
+        for i in range(count - begin):
+            t = i / RATE
+            # Bell partials: the fundamental, a minor-third-ish partial and the octaves, the high ones fading first.
+            sample = (math.sin(2.0 * math.pi * frequency * t) * math.exp(-t / 0.9) +
+                      0.4 * math.sin(2.0 * math.pi * frequency * 2.4 * t) * math.exp(-t / 0.35) +
+                      0.25 * math.sin(2.0 * math.pi * frequency * 4.0 * t) * math.exp(-t / 0.2))
+            out[begin + i] += 0.25 * sample * min(1.0, i / 40.0)
+    return reverb(out, mix=0.3, seconds=1.6)
+
+
+def cannon_boom():
+    """A cannon shot: a crack, a low thump sweeping down and a rumbling tail."""
+    random.seed(7)
+    count = int(1.8 * RATE)
+    rumble = Biquad("low", 180.0, 0.7)
+    crack = Biquad("band", 2400.0, 0.8)
+    out = []
+    phase = 0.0
+    for i in range(count):
+        t = i / RATE
+        frequency = 40.0 + 70.0 * math.exp(-t / 0.08)
+        phase += 2.0 * math.pi * frequency / RATE
+        thump = math.sin(phase) * math.exp(-t / 0.35)
+        noise = random.uniform(-1.0, 1.0)
+        tail = rumble(noise) * 2.5 * math.exp(-t / 0.6)
+        snap = crack(noise) * math.exp(-t / 0.012)
+        out.append((0.9 * thump + 0.7 * tail + 0.8 * snap) * min(1.0, i / 20.0))
+    return reverb(out, mix=0.25, seconds=1.5)
+
+
+def gate_rumble():
+    """A portcullis on the move: a motor's hum, the rattle of its chain and a clank at the end."""
+    random.seed(8)
+    count = int(1.6 * RATE)
+    rattle = Biquad("band", 1100.0, 2.0)
+    out = [0.0] * count
+    for i in range(count):
+        t = i / RATE
+        envelope = min(1.0, t / 0.1) * min(1.0, (1.25 - t) / 0.1) if t < 1.25 else 0.0
+        hum = math.sin(2.0 * math.pi * 72.0 * t) + 0.5 * math.sin(2.0 * math.pi * 144.0 * t) + 0.25 * math.sin(2.0 * math.pi * 216.0 * t)
+        # Chain links click past at about 26 per second.
+        click = math.exp(-((t * 26.0) % 1.0) * 18.0)
+        out[i] += envelope * (0.18 * hum + 0.6 * click * rattle(random.uniform(-1.0, 1.0)))
+    clank_start = int(1.22 * RATE)
+    for i in range(count - clank_start):
+        t = i / RATE
+        sample = sum(gain * math.exp(-t / decay) * math.sin(2.0 * math.pi * 180.0 * ratio * t)
+                     for ratio, gain, decay in ((1.0, 1.0, 0.25), (2.7, 0.5, 0.12), (5.1, 0.3, 0.06)))
+        out[clank_start + i] += 0.6 * sample * min(1.0, i / 25.0)
+    return out
+
+
 if __name__ == "__main__":
     for name, generate, peak in (("Music.wav", music, 0.8), ("Ambience.wav", ambience, 0.7), ("WoodHit.wav", wood_hit, 0.9),
-                                 ("MetalHit.wav", metal_hit, 0.85), ("Throw.wav", throw, 0.7)):
+                                 ("MetalHit.wav", metal_hit, 0.85), ("Throw.wav", throw, 0.7), ("Crackle.wav", crackle, 0.75),
+                                 ("Fountain.wav", fountain_water, 0.7), ("Goal.wav", goal_chime, 0.85), ("Cannon.wav", cannon_boom, 0.9),
+                                 ("Gate.wav", gate_rumble, 0.8)):
         write_wav(name, generate(), peak)
         print("wrote", os.path.join(OUTPUT, name))

@@ -1,0 +1,77 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "9249627261509322151",
+			"Components": {
+				"Tag": {
+					"Tag": "Goal Burst"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 140,
+					"MaxParticles": 1000,
+					"LifetimeMin": 0.800000011920929,
+					"LifetimeMax": 1.600000023841858,
+					"SpeedMin": 2.0,
+					"SpeedMax": 5.5,
+					"Shape": "Sphere",
+					"ConeAngle": 25.0,
+					"Radius": 0.25,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.5,
+					"Drag": 0.8999999761581421,
+					"StartSize": 0.10000000149011612,
+					"EndSize": 0.019999999552965164,
+					"StartColor": [
+						1.0,
+						0.8500000238418579,
+						0.30000001192092896,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.20000000298023224,
+						0.6499999761581421,
+						0.0
+					],
+					"Intensity": 5.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": true
+				}
+			}
+		}
+	]
+}

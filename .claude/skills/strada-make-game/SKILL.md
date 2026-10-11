@@ -48,7 +48,7 @@ undo history as the UI: work in small, checked steps.
 - Models and materials: `polyhaven_search_models` / `polyhaven_import_model` bring CC0 props, furniture, plants and rocks
   (meters, with their materials; give dynamic ones a box or convex mesh collider fitted to the model's bounds), and
   `polyhaven_search_textures` / `polyhaven_import_texture` make a material from a PBR texture set (set its `UVTiling`
-  for large surfaces). `Projects/Showcase/Tools/Author.py` builds a whole scene this way.
+  for large surfaces). `Projects/Showcase/Tools/Author.py` builds a whole scene this way, exhibit by exhibit.
 - Skies and image-based lighting: `polyhaven_search_hdris` finds CC0 HDRIs ("sunset", "overcast", "studio"),
   `polyhaven_import_hdri` imports one (1k lights well, 4k makes a sharp skybox); set the SkyLight's `Environment` to the
   returned `reference`.

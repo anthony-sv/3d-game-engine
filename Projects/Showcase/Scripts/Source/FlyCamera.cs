@@ -1,14 +1,22 @@
+using System.Collections.Generic;
 using Strada;
 
 namespace Showcase;
 
-/// <summary>A free camera: hold the right mouse button to look around, WASD to move (Q and E down and up, Shift faster), and
-/// click to throw a ball where the cursor points (along the view while looking around).</summary>
+/// <summary>A free camera rig: hold the right mouse button to look around, WASD to move (Q and E down and up, Shift faster),
+/// and click to throw a ball where the cursor points (along the view while looking around). The camera itself is a child
+/// (View), so a CameraShake on it adds to the rig's movement. The tour (Flythrough) takes the rig over while it plays.</summary>
 public sealed class FlyCamera : Script
 {
+	[Tooltip("The camera under the rig: it turns screen positions into rays")]
+	public Entity? View;
+
+	[Tooltip("A screen-space sprite shown at the center of the screen while looking around")]
+	public Entity? Crosshair;
+
 	[Tooltip("Meters per second")]
 	[Range(0.5f, 50.0f)]
-	public float MoveSpeed = 4.0f;
+	public float MoveSpeed = 5.0f;
 
 	[Tooltip("How much faster Shift moves")]
 	[Range(1.0f, 10.0f)]
@@ -28,29 +36,69 @@ public sealed class FlyCamera : Script
 	[Tooltip("The camera stays this high above the ground")]
 	public float MinimumHeight = 0.4f;
 
+	[Tooltip("Balls kept at once: throwing more removes the oldest")]
+	[Range(1, 200)]
+	public int MaximumBalls = 40;
+
+	private readonly List<Entity> m_Balls = [];
+	private Color m_CrosshairColor = Color.White;
 	private float m_Yaw;
 	private float m_Pitch;
+	private bool m_Controllable = true;
 
 	/// <summary>Balls thrown so far.</summary>
 	public int Thrown { get; private set; }
+
+	/// <summary>Degrees the view is turned around the vertical axis (0 looks along -Z).</summary>
+	public float Yaw => m_Yaw;
+
+	/// <summary>Degrees the view looks up (negative: down).</summary>
+	public float Pitch => m_Pitch;
+
+	/// <summary>Whether mouse and keys move the rig (the tour turns this off while it plays).</summary>
+	public bool Controllable
+	{
+		get => m_Controllable;
+		set
+		{
+			m_Controllable = value;
+			if (!value)
+			{
+				Input.CursorMode = CursorMode.Normal;
+			}
+		}
+	}
+
+	/// <summary>Whether the right mouse button turns the view this frame.</summary>
+	public bool IsLooking => m_Controllable && Input.IsMouseButtonDown(MouseButton.Right);
 
 	protected override void OnCreate()
 	{
 		Vector3 angles = Transform.EulerAngles;
 		m_Pitch = angles.X;
 		m_Yaw = angles.Y;
+		if (Crosshair?.GetComponent<SpriteRendererComponent>() is { } crosshair)
+		{
+			m_CrosshairColor = crosshair.Color;
+		}
 	}
 
 	protected override void OnUpdate(float deltaTime)
 	{
-		bool looking = Input.IsMouseButtonDown(MouseButton.Right);
+		bool looking = IsLooking;
+		if (Crosshair?.GetComponent<SpriteRendererComponent>() is { } crosshair)
+		{
+			crosshair.Color = new Color(m_CrosshairColor.R, m_CrosshairColor.G, m_CrosshairColor.B, looking ? m_CrosshairColor.A : 0.0f);
+		}
+		if (!m_Controllable)
+		{
+			return;
+		}
 		Input.CursorMode = looking ? CursorMode.Locked : CursorMode.Normal;
 		if (looking)
 		{
 			Vector2 delta = Input.MouseDelta;
-			m_Yaw -= delta.X * LookSensitivity;
-			m_Pitch = Mathf.Clamp(m_Pitch - (delta.Y * LookSensitivity), -85.0f, 85.0f);
-			Transform.EulerAngles = new Vector3(m_Pitch, m_Yaw, 0.0f);
+			SetPose(Translation, Mathf.Clamp(m_Pitch - (delta.Y * LookSensitivity), -85.0f, 85.0f), m_Yaw - (delta.X * LookSensitivity));
 		}
 
 		Vector3 move = Vector3.Zero;
@@ -61,15 +109,41 @@ public sealed class FlyCamera : Script
 		{
 			float speed = MoveSpeed * (Input.IsKeyDown(KeyCode.LeftShift) ? SprintFactor : 1.0f);
 			Vector3 position = Translation + (move.Normalized * speed * deltaTime);
-			position.Y = System.MathF.Max(position.Y, MinimumHeight);
+			position.Y = Mathf.Max(position.Y, MinimumHeight);
 			Translation = position;
 		}
 
 		if (Input.IsMouseButtonPressed(MouseButton.Left))
 		{
-			Throw(looking ? Transform.Forward : AimAtCursor());
+			Throw(AimDirection);
 		}
 	}
+
+	/// <summary>Places the rig and turns it to the angles (degrees; pitch is clamped to look at most 85 degrees up or down).</summary>
+	public void SetPose(Vector3 position, float pitch, float yaw)
+	{
+		m_Pitch = Mathf.Clamp(pitch, -85.0f, 85.0f);
+		m_Yaw = yaw;
+		Translation = position;
+		Transform.EulerAngles = new Vector3(m_Pitch, m_Yaw, 0.0f);
+	}
+
+	/// <summary>Where a throw goes: along the view while looking around, otherwise towards the cursor.</summary>
+	public Vector3 AimDirection
+	{
+		get
+		{
+			if (IsLooking)
+			{
+				return Transform.Forward;
+			}
+			CameraComponent? camera = View?.GetComponent<CameraComponent>();
+			return camera is null ? Transform.Forward : camera.ScreenToWorldRay(Input.MousePosition).Direction;
+		}
+	}
+
+	/// <summary>Where thrown balls start, for a throw along the direction.</summary>
+	public Vector3 ThrowOrigin(Vector3 direction) => Transform.WorldTranslation + (direction.Normalized * 0.6f);
 
 	/// <summary>Throws a ball from the camera along the direction.</summary>
 	public Entity? Throw(Vector3 direction)
@@ -79,27 +153,43 @@ public sealed class FlyCamera : Script
 			return null;
 		}
 		Vector3 forward = direction.Normalized;
-		Entity? ball = Entity.Instantiate(Ball, Transform.WorldTranslation + (forward * 0.6f), Quaternion.Identity);
-		RigidBodyComponent? body = ball?.GetComponent<RigidBodyComponent>();
-		if (body is not null)
+		Entity? ball = Entity.Instantiate(Ball, ThrowOrigin(forward), Quaternion.Identity);
+		if (ball is null)
+		{
+			return null;
+		}
+		if (ball.GetComponent<RigidBodyComponent>() is { } body)
 		{
 			body.LinearVelocity = forward * ThrowSpeed;
 			body.AngularVelocity = new Vector3(Random.Range(-6.0f, 6.0f), Random.Range(-6.0f, 6.0f), Random.Range(-6.0f, 6.0f));
 		}
-		AudioSourceComponent? whoosh = GetComponent<AudioSourceComponent>();
-		if (whoosh is not null)
+		if (GetComponent<AudioSourceComponent>() is { } whoosh)
 		{
 			whoosh.Pitch = Random.Range(0.9f, 1.15f);
 			whoosh.Play();
+		}
+		m_Balls.RemoveAll(thrown => !thrown.IsValid);
+		m_Balls.Add(ball);
+		if (m_Balls.Count > MaximumBalls)
+		{
+			m_Balls[0].Destroy();
+			m_Balls.RemoveAt(0);
 		}
 		Thrown++;
 		return ball;
 	}
 
-	private Vector3 AimAtCursor()
+	/// <summary>Removes every ball thrown so far.</summary>
+	public void ClearBalls()
 	{
-		CameraComponent? camera = GetComponent<CameraComponent>();
-		return camera is null ? Transform.Forward : camera.ScreenToWorldRay(Input.MousePosition).Direction;
+		foreach (Entity ball in m_Balls)
+		{
+			if (ball.IsValid)
+			{
+				ball.Destroy();
+			}
+		}
+		m_Balls.Clear();
 	}
 
 	private static float Axis(KeyCode positive, KeyCode negative) =>

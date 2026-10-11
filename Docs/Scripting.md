@@ -391,7 +391,10 @@ installed or shipped by you in a `dotnet` folder next to the executable.
   screens, hold and a next queue, a best score saved with `System.IO`, blocks created by script, rows that burst into
   physics debris and particle sparks from prefabs, a camera shake, a pool of sound sources, a HUD of screen texts built
   in code, tests).
-- `Projects/Showcase`: a free camera that throws physics balls, impact sounds scaled by speed, flickering lights, a
-  wrecking ball on a joint that a key pushes, and a playground that counts what was knocked over (run
+- `Projects/Showcase`: a camera tour on a smooth path (`Flythrough`, its stops are `CameraShot` scripts with inspector
+  fields) that cues exhibits through an interface, a free camera rig that throws balls with a camera shake under it,
+  trigger scripts (a goal that counts, a pressure plate that raises a kinematic gate), ballistics for a ball launcher,
+  dominoes and a wrecking ball set off by keys, a light show that recolors cloned materials, `Debug.DrawLine` previews
+  of throws and trigger bounds, screen texts that scale with the window, and tests that play every exhibit (run
   `Tools/FetchAssets.py` first for its models and sky).
 - `Projects/FeatureTest`: scenes whose scripts use every component and the whole API, checked as a test run.

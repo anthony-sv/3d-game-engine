@@ -2,8 +2,9 @@ using Strada;
 
 namespace Showcase;
 
-/// <summary>The physics playground: counts the props knocked over (children of Props that moved or tipped), shows it with the
-/// controls, and restarts the scene with R.</summary>
+/// <summary>The physics playground: counts the props knocked over (children of Props that moved or tipped) and shows the count;
+/// R puts everything back: the props where they stood, the dominoes up, the wrecking ball at rest, and the thrown and launched
+/// balls away.</summary>
 public sealed class Playground : Script
 {
 	[Tooltip("The parent of the crates and barrels that count")]
@@ -12,8 +13,20 @@ public sealed class Playground : Script
 	[Tooltip("Screen-space text that shows the count")]
 	public Entity? Status;
 
-	[Tooltip("The scene R restarts")]
-	public string Scene = "Scenes/Main.sscene";
+	[Tooltip("The domino run R stands up again")]
+	public Entity? Dominoes;
+
+	[Tooltip("The camera rig whose balls R clears")]
+	public Entity? Rig;
+
+	[Tooltip("The ball launcher whose balls R clears")]
+	public Entity? Launcher;
+
+	[Tooltip("The wrecking ball R stops")]
+	public Entity? WreckingBall;
+
+	[Tooltip("The key that puts everything back")]
+	public KeyCode Key = KeyCode.R;
 
 	[Tooltip("Meters a prop moves to count as knocked over")]
 	[Range(0.05f, 5.0f)]
@@ -25,6 +38,7 @@ public sealed class Playground : Script
 
 	private Entity[] m_Props = [];
 	private Vector3[] m_Starts = [];
+	private Quaternion[] m_Rotations = [];
 	private Vector3[] m_Ups = [];
 
 	/// <summary>Props knocked over so far.</summary>
@@ -33,27 +47,33 @@ public sealed class Playground : Script
 	/// <summary>Props that count.</summary>
 	public int Total => m_Props.Length;
 
+	/// <summary>Times everything was put back.</summary>
+	public int Resets { get; private set; }
+
 	protected override void OnCreate()
 	{
 		m_Props = Props?.Children ?? [];
 		m_Starts = new Vector3[m_Props.Length];
+		m_Rotations = new Quaternion[m_Props.Length];
 		m_Ups = new Vector3[m_Props.Length];
 		for (int i = 0; i < m_Props.Length; i++)
 		{
 			m_Starts[i] = m_Props[i].Transform.WorldTranslation;
+			// Props is not turned: the props' rotations are their world rotations.
+			m_Rotations[i] = m_Props[i].Rotation;
 			m_Ups[i] = m_Props[i].Transform.Up;
 		}
 	}
 
 	protected override void OnUpdate(float deltaTime)
 	{
-		if (Input.IsKeyPressed(KeyCode.R))
+		if (Input.IsKeyPressed(Key))
 		{
-			SceneManager.LoadScene(Scene);
+			PutBack();
 		}
 
 		int knocked = 0;
-		float tipped = System.MathF.Cos(KnockedAngle * System.MathF.PI / 180.0f);
+		float tipped = Mathf.Cos(KnockedAngle * Mathf.Deg2Rad);
 		for (int i = 0; i < m_Props.Length; i++)
 		{
 			Entity prop = m_Props[i];
@@ -70,12 +90,30 @@ public sealed class Playground : Script
 		}
 		Knocked = knocked;
 
-		TextComponent? status = Status?.GetComponent<TextComponent>();
-		if (status is not null)
+		if (Status?.GetComponent<TextComponent>() is { } status)
 		{
 			status.Text = knocked == Total && Total > 0
 				? $"All {Total} knocked down!  Press R to build them again"
 				: $"Knocked down: {knocked} / {Total}";
 		}
+	}
+
+	/// <summary>Puts every prop back where it stood, stands the dominoes up, stops the wrecking ball and clears the balls.</summary>
+	public void PutBack()
+	{
+		for (int i = 0; i < m_Props.Length; i++)
+		{
+			if (m_Props[i].IsValid && m_Props[i].GetComponent<RigidBodyComponent>() is { } body)
+			{
+				body.Teleport(m_Starts[i], m_Rotations[i]);
+				body.LinearVelocity = Vector3.Zero;
+				body.AngularVelocity = Vector3.Zero;
+			}
+		}
+		Dominoes?.As<DominoRun>()?.StandUp();
+		WreckingBall?.As<WreckingBall>()?.Stop();
+		Rig?.As<FlyCamera>()?.ClearBalls();
+		Launcher?.As<BallLauncher>()?.ClearBalls();
+		Resets++;
 	}
 }

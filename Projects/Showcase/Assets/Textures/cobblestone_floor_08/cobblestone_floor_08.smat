@@ -1,0 +1,40 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Material"
+	},
+	"Material": {
+		"BaseColor": [
+			1.0,
+			1.0,
+			1.0,
+			1.0
+		],
+		"Metallic": 1.0,
+		"Roughness": 1.0,
+		"EmissiveColor": [
+			0.0,
+			0.0,
+			0.0
+		],
+		"EmissiveIntensity": 1.0,
+		"NormalStrength": 1.0,
+		"OcclusionStrength": 1.0,
+		"BaseColorTexture": "4124168375475401005",
+		"NormalTexture": "66858197757536357",
+		"MetallicRoughnessTexture": "11422630291772666250",
+		"OcclusionTexture": "11422630291772666250",
+		"EmissiveTexture": "0",
+		"AlphaMode": "Opaque",
+		"AlphaCutoff": 0.5,
+		"DoubleSided": false,
+		"UVTiling": [
+			5.0,
+			5.0
+		],
+		"UVOffset": [
+			0.0,
+			0.0
+		]
+	}
+}
