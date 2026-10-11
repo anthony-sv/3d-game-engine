@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+struct ImFont;
+
 namespace Strada
 {
 	// Shows engine, editor and script log entries with level and text filtering.
@@ -13,6 +15,8 @@ namespace Strada
 	{
 	public:
 		void OnImGuiRender(bool& isOpen);
+		// The font of the entries (fixed-width); null uses the default font.
+		void SetFont(ImFont* font) { m_MonospaceFont = font; }
 
 	private:
 		void FetchNewEntries();
@@ -23,6 +27,7 @@ namespace Strada
 		std::array<char, 256> m_Filter = {};
 		bool m_AutoScroll = true;
 		bool m_ScrollToBottom = false;
+		ImFont* m_MonospaceFont = nullptr;
 
 		static constexpr size_t MaxEntries = 5000;
 	};

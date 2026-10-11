@@ -169,11 +169,14 @@ namespace Strada
 		renderer.BeginScene(camera, scene.GetSettings().Renderer);
 		SubmitScene(scene, renderer, options);
 		// Lines scripts drew for debugging have linear colors; lines are drawn after tonemapping, in sRGB.
-		for (SceneDebugLine const& line : scene.GetDebugLines())
+		if (options.DrawDebugLines)
 		{
-			glm::vec4 const color(Math::LinearToSrgb(line.Color.r), Math::LinearToSrgb(line.Color.g), Math::LinearToSrgb(line.Color.b),
-			                      line.Color.a);
-			renderer.SubmitLine(line.From, line.To, color);
+			for (SceneDebugLine const& line : scene.GetDebugLines())
+			{
+				glm::vec4 const color(Math::LinearToSrgb(line.Color.r), Math::LinearToSrgb(line.Color.g), Math::LinearToSrgb(line.Color.b),
+				                      line.Color.a);
+				renderer.SubmitLine(line.From, line.To, color);
+			}
 		}
 		if (options.SubmitOverlays)
 		{

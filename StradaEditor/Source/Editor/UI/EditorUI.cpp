@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <optional>
 #include <span>
@@ -18,6 +19,61 @@ namespace Strada
 {
 	namespace UI
 	{
+		ImVec2 GetToolbarButtonSize()
+		{
+			float const height = ImGui::GetFrameHeight();
+			return ImVec2(std::floor(height * 1.35f), height);
+		}
+
+		bool ToolbarButton(char const* id, ToolbarIcon icon, bool active)
+		{
+			ImVec2 const size = GetToolbarButtonSize();
+			bool const pressed = ImGui::InvisibleButton(id, size);
+			bool const hovered = ImGui::IsItemHovered();
+			bool const held = ImGui::IsItemActive();
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			ImGuiCol const background = active || held ? ImGuiCol_ButtonActive : (hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button);
+			drawList->AddRectFilled(min, max, ImGui::GetColorU32(background), ImGui::GetStyle().FrameRounding);
+
+			// The icon fills the middle of the button; Alpha follows BeginDisabled through GetColorU32.
+			ImU32 const color = ImGui::GetColorU32(ImGuiCol_Text);
+			float const extent = size.y * 0.42f;
+			ImVec2 const center(std::floor((min.x + max.x) * 0.5f), std::floor((min.y + max.y) * 0.5f));
+			float const half = extent * 0.5f;
+			switch (icon)
+			{
+				case ToolbarIcon::Play:
+					drawList->AddTriangleFilled(ImVec2(center.x - half * 0.8f, center.y - half),
+					                            ImVec2(center.x - half * 0.8f, center.y + half), ImVec2(center.x + half, center.y), color);
+					break;
+				case ToolbarIcon::Stop:
+					drawList->AddRectFilled(ImVec2(center.x - half * 0.85f, center.y - half * 0.85f),
+					                        ImVec2(center.x + half * 0.85f, center.y + half * 0.85f), color, 1.5f);
+					break;
+				case ToolbarIcon::Pause:
+				{
+					float const bar = half * 0.6f;
+					drawList->AddRectFilled(ImVec2(center.x - half * 0.85f, center.y - half),
+					                        ImVec2(center.x - half * 0.85f + bar, center.y + half), color, 1.0f);
+					drawList->AddRectFilled(ImVec2(center.x + half * 0.85f - bar, center.y - half),
+					                        ImVec2(center.x + half * 0.85f, center.y + half), color, 1.0f);
+					break;
+				}
+				case ToolbarIcon::Step:
+				{
+					float const bar = half * 0.45f;
+					drawList->AddTriangleFilled(ImVec2(center.x - half, center.y - half), ImVec2(center.x - half, center.y + half),
+					                            ImVec2(center.x + half * 0.55f, center.y), color);
+					drawList->AddRectFilled(ImVec2(center.x + half * 0.55f, center.y - half),
+					                        ImVec2(center.x + half * 0.55f + bar, center.y + half), color, 1.0f);
+					break;
+				}
+			}
+			return pressed;
+		}
+
 		std::string FormatDisplayName(std::string_view name)
 		{
 			auto const isUpper = [](char c)

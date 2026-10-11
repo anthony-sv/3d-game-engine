@@ -28,7 +28,6 @@ namespace Strada
 {
 	namespace
 	{
-		constexpr float ToolbarPadding = 6.0f;
 		constexpr float IconRadius = 10.0f;
 		// A press and release closer than this (in pixels) is a click; farther is a drag.
 		constexpr float ClickDragThreshold = 4.0f;
@@ -122,15 +121,15 @@ namespace Strada
 		}
 
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		bool const visible = ImGui::Begin("Viewport", &open);
+		bool const visible = ImGui::Begin("Scene View", &open);
 		ImGui::PopStyleVar();
 		if (!visible)
 		{
 			EndGizmoDrag(context);
-			m_GameInputActive = false;
 			ImGui::End();
 			return;
 		}
+		DrawToolbar();
 		if (!m_Renderer)
 		{
 			ImGui::TextDisabled("Rendering is unavailable (no GPU).");
@@ -144,47 +143,18 @@ namespace Strada
 		uint32_t const height = static_cast<uint32_t>(std::max(available.y, 1.0f));
 		glm::vec2 const imageSize(static_cast<float>(width), static_cast<float>(height));
 
-		bool const hovered = ImGui::IsWindowHovered() &&
-		                     ImGui::IsMouseHoveringRect(ToImVec2(imagePosition), ToImVec2(imagePosition + imageSize)) &&
-		                     !ImGui::IsMouseHoveringRect(ToImVec2(m_ToolbarMin), ToImVec2(m_ToolbarMax));
-
-		// Play shows the game; its input goes to the game while the view is focused.
-		bool const gameView = context.GetPlayState() == EditorPlayState::Play;
-		m_GameInputActive = gameView && ImGui::IsWindowFocused();
-		if (gameView)
-		{
-			m_GameMousePosition = ToVec2(ImGui::GetMousePos()) - imagePosition;
-			EndGizmoDrag(context);
-		}
-		else
-		{
-			HandleCameraInput(hovered);
-			HandleShortcuts(context, hovered);
-		}
+		// Popups of the toolbar (opened over the image) keep the clicks.
+		bool const hovered =
+			ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(ToImVec2(imagePosition), ToImVec2(imagePosition + imageSize));
+		HandleCameraInput(hovered);
+		HandleShortcuts(context, hovered);
 		m_Camera.SetViewportSize(width, height);
 		m_Renderer->SetViewportSize(width, height);
-		// Scripts read the scene's view size (Application.WindowWidth/Height, Camera.ScreenToWorldRay).
-		context.GetScene().OnViewportResize(width, height);
 		m_ViewportSize = glm::uvec2(width, height);
 		ApplyPickResult(operations);
-		bool const showsGame = gameView && RenderGame(context);
-		if (!showsGame)
-		{
-			Render(context);
-		}
+		Render(context);
 
 		ImGui::Image(ImGuiRenderer::GetTextureID(m_Renderer->GetFinalImage()), ToImVec2(imageSize));
-		if (gameView)
-		{
-			if (!showsGame)
-			{
-				ImGui::SetCursorScreenPos(ToImVec2(imagePosition + glm::vec2(ToolbarPadding)));
-				ImGui::TextUnformatted("No primary camera: the editor camera shows the scene.");
-			}
-			DrawPlayFrame(imagePosition, imageSize, context.GetPlayState());
-			ImGui::End();
-			return;
-		}
 		AssetHandle droppedAsset;
 		if (ImGui::BeginDragDropTarget())
 		{
@@ -194,10 +164,9 @@ namespace Strada
 			ImGui::EndDragDropTarget();
 		}
 		glm::vec2 const dropPixel = ToVec2(ImGui::GetMousePos()) - imagePosition;
-		UUID const hoveredIcon = DrawEntityIcons(context, imagePosition, imageSize, hovered);
+		UUID const hoveredIcon = m_Overlays.Icons ? DrawEntityIcons(context, imagePosition, imageSize, hovered) : UUID::Invalid();
 		UpdateGizmo(operations, imagePosition, imageSize);
 		HandleSelectionClicks(operations, imagePosition, hovered, hoveredIcon);
-		DrawToolbar(imagePosition);
 		if (context.IsPlaying())
 		{
 			DrawPlayFrame(imagePosition, imageSize, context.GetPlayState());
@@ -208,11 +177,6 @@ namespace Strada
 			ApplyAssetDrop(operations, droppedAsset, dropPixel, imageSize);
 		}
 		ImGui::End();
-	}
-
-	bool ViewportPanel::RenderGame(EditorContext& context)
-	{
-		return RenderSceneFromPrimaryCamera(context.GetScene(), *m_Renderer);
 	}
 
 	void ViewportPanel::DrawPlayFrame(glm::vec2 const& imagePosition, glm::vec2 const& imageSize, EditorPlayState state)
@@ -272,6 +236,10 @@ namespace Strada
 		{
 			return;
 		}
+		if (ImGui::IsKeyPressed(ImGuiKey_Q, false))
+		{
+			m_GizmoOperation = GizmoOperation::Select;
+		}
 		if (ImGui::IsKeyPressed(ImGuiKey_W, false))
 		{
 			m_GizmoOperation = GizmoOperation::Translate;
@@ -290,7 +258,7 @@ namespace Strada
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_G, false))
 		{
-			m_ShowGrid = !m_ShowGrid;
+			m_Overlays.Grid = !m_Overlays.Grid;
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F, false))
 		{
@@ -309,20 +277,38 @@ namespace Strada
 		{
 			return m_PickingIds.GetId(entity);
 		};
-		options.IsSelected = [&selection](UUID entity)
+		if (m_Overlays.SelectionOutline)
 		{
-			return selection.Contains(entity);
-		};
+			options.IsSelected = [&selection](UUID entity)
+			{
+				return selection.Contains(entity);
+			};
+		}
+		options.DrawDebugLines = m_Overlays.DebugLines;
 		options.SubmitOverlays = [&](SceneRenderer& renderer)
 		{
 			SceneRendererOverlays overlays;
-			overlays.Grid.Enabled = m_ShowGrid;
+			overlays.Grid.Enabled = m_Overlays.Grid;
 			renderer.SetOverlays(overlays);
 
 			std::vector<OverlayLine> lines;
-			for (UUID const id : selection.GetEntities())
+			if (m_Overlays.SelectionShapes)
 			{
-				ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines);
+				for (UUID const id : selection.GetEntities())
+				{
+					// Colliders of every entity follow below.
+					uint32_t const shapes = m_Overlays.AllColliders ? ViewportOverlays::Shapes::All & ~ViewportOverlays::Shapes::Colliders
+					                                                : ViewportOverlays::Shapes::All;
+					ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, shapes);
+				}
+			}
+			if (m_Overlays.AllColliders)
+			{
+				scene.ForEachEntityInHierarchyOrder(
+					[&](Entity entity)
+					{
+						ViewportOverlays::AppendEntityShapes(scene, entity, aspectRatio, lines, ViewportOverlays::Shapes::Colliders);
+					});
 			}
 			for (OverlayLine const& line : lines)
 			{
@@ -398,6 +384,9 @@ namespace Strada
 		float snap = m_TranslationSnap;
 		switch (m_GizmoOperation)
 		{
+			case GizmoOperation::Select:
+				EndGizmoDrag(context);
+				return;
 			case GizmoOperation::Translate:
 				break;
 			case GizmoOperation::Rotate:
@@ -583,10 +572,11 @@ namespace Strada
 		}
 	}
 
-	void ViewportPanel::DrawToolbar(glm::vec2 const& imagePosition)
+	void ViewportPanel::DrawToolbar()
 	{
-		ImGui::SetCursorScreenPos(ToImVec2(imagePosition + glm::vec2(ToolbarPadding)));
-		ImGui::BeginGroup();
+		// A strip above the image, like the game view's.
+		ImGuiStyle const& style = ImGui::GetStyle();
+		ImGui::SetCursorPos(ImVec2(style.WindowPadding.x + 6.0f, ImGui::GetCursorPosY() + 4.0f));
 		auto const toggleButton = [](char const* label, bool active, char const* tooltip)
 		{
 			if (active)
@@ -602,22 +592,28 @@ namespace Strada
 			return pressed;
 		};
 
-		if (toggleButton("Move", m_GizmoOperation == GizmoOperation::Translate, "Translate the selection (W)"))
+		struct OperationButton
 		{
-			m_GizmoOperation = GizmoOperation::Translate;
-		}
-		ImGui::SameLine();
-		if (toggleButton("Rotate", m_GizmoOperation == GizmoOperation::Rotate, "Rotate the selection (E)"))
+			GizmoOperation Operation;
+			char const* Label;
+			char const* Tooltip;
+		};
+		constexpr std::array<OperationButton, 4> Operations = {{
+			{GizmoOperation::Select, "Select", "Select without a gizmo (Q)"},
+			{GizmoOperation::Translate, "Move", "Move the selection (W)"},
+			{GizmoOperation::Rotate, "Rotate", "Rotate the selection (E)"},
+			{GizmoOperation::Scale, "Scale", "Scale the selection (R)"},
+		}};
+		for (OperationButton const& button : Operations)
 		{
-			m_GizmoOperation = GizmoOperation::Rotate;
+			if (toggleButton(button.Label, m_GizmoOperation == button.Operation, button.Tooltip))
+			{
+				m_GizmoOperation = button.Operation;
+			}
+			ImGui::SameLine();
 		}
-		ImGui::SameLine();
-		if (toggleButton("Scale", m_GizmoOperation == GizmoOperation::Scale, "Scale the selection (R)"))
-		{
-			m_GizmoOperation = GizmoOperation::Scale;
-		}
-		ImGui::SameLine();
-		if (toggleButton(m_GizmoSpace == GizmoSpace::Local ? "Local" : "World", false, "Gizmo orientation (X)"))
+		ImGui::SameLine(0.0f, style.ItemSpacing.x * 3.0f);
+		if (toggleButton(m_GizmoSpace == GizmoSpace::Local ? "Local" : "World", false, "Gizmo orientation: local or world axes (X)"))
 		{
 			m_GizmoSpace = m_GizmoSpace == GizmoSpace::Local ? GizmoSpace::World : GizmoSpace::Local;
 		}
@@ -627,13 +623,38 @@ namespace Strada
 			m_SnapEnabled = !m_SnapEnabled;
 		}
 		ImGui::SameLine();
-		if (toggleButton("Grid", m_ShowGrid, "Ground grid (G)"))
+		if (ImGui::Button("Steps"))
 		{
-			m_ShowGrid = !m_ShowGrid;
+			ImGui::OpenPopup("SnapSteps");
 		}
-		ImGui::EndGroup();
-		m_ToolbarMin = ToVec2(ImGui::GetItemRectMin());
-		m_ToolbarMax = ToVec2(ImGui::GetItemRectMax());
+		ImGui::SetItemTooltip("Snapping steps");
+		if (ImGui::BeginPopup("SnapSteps"))
+		{
+			ImGui::SetNextItemWidth(120.0f);
+			ImGui::DragFloat("Move (m)", &m_TranslationSnap, 0.01f, 0.001f, 1000.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+			ImGui::SetNextItemWidth(120.0f);
+			ImGui::DragFloat("Rotate (degrees)", &m_RotationSnap, 0.5f, 0.1f, 180.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+			ImGui::SetNextItemWidth(120.0f);
+			ImGui::DragFloat("Scale", &m_ScaleSnap, 0.01f, 0.001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+			ImGui::EndPopup();
+		}
+		ImGui::SameLine(0.0f, style.ItemSpacing.x * 3.0f);
+		if (ImGui::Button("Overlays"))
+		{
+			ImGui::OpenPopup("Overlays");
+		}
+		ImGui::SetItemTooltip("What the scene view draws over the scene");
+		if (ImGui::BeginPopup("Overlays"))
+		{
+			ImGui::Checkbox("Grid (G)", &m_Overlays.Grid);
+			ImGui::Checkbox("Selection outline", &m_Overlays.SelectionOutline);
+			ImGui::Checkbox("Light and camera icons", &m_Overlays.Icons);
+			ImGui::Checkbox("Selected cameras, lights and colliders", &m_Overlays.SelectionShapes);
+			ImGui::Checkbox("All colliders", &m_Overlays.AllColliders);
+			ImGui::Checkbox("Debug drawing (scripts)", &m_Overlays.DebugLines);
+			ImGui::EndPopup();
+		}
+		ImGui::Dummy(ImVec2(0.0f, 2.0f));
 	}
 
 	void ViewportPanel::FocusEntities(Scene& scene, std::span<UUID const> entities)

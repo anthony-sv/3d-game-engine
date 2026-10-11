@@ -422,6 +422,8 @@ include(StradaResources)
 strada_embed_resources(Strada
     RESOURCES
         "Fonts/Roboto-Medium.ttf=${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf"
+        "Fonts/Cousine-Regular.ttf=${imgui_SOURCE_DIR}/misc/fonts/Cousine-Regular.ttf"
+        "Icons/Strada.png=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Icons/Strada.png"
 )
 
 strada_configure_target(Strada)

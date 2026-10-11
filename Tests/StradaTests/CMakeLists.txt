@@ -20,6 +20,7 @@ add_executable(StradaTests
     Source/Core/BufferTests.cpp
     Source/Core/CommandLineTests.cpp
     Source/Core/CrashHandlerTests.cpp
+    Source/Core/EmbeddedResourcesTests.cpp
     Source/Core/EventTests.cpp
     Source/Core/FileSystemTests.cpp
     Source/Core/HashTests.cpp

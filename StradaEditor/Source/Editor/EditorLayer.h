@@ -10,11 +10,12 @@
 #include "Editor/EditorScripts.h"
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
+#include "Editor/Panels/RendererInfoPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/SceneSettingsPanel.h"
-#include "Editor/Panels/StatisticsPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/RecentProjects.h"
@@ -45,10 +46,10 @@ namespace Strada
 	};
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
-	// and hot reload), play mode, game export, the automation command registry and server, and the UI (dockspace, menu bar with the
-	// play controls, shortcuts and panels) when ImGui is available; with the UI, the assets are rescanned whenever the editor
-	// gets the focus back. Replacing the scene (new or opened scenes and projects) or closing the editor with unsaved changes
-	// asks to save them first; playing stops first.
+	// and hot reload), play mode, game export, the automation command registry and server, and the UI (dockspace, menu bar,
+	// toolbar with the play controls, shortcuts and panels) when ImGui is available; with the UI, the assets are rescanned
+	// whenever the editor gets the focus back. Playing brings the game view to the front; stopping, the scene view. Replacing the scene
+	// (new or opened scenes and projects) or closing the editor with unsaved changes asks to save them first; playing stops first.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -86,6 +87,11 @@ namespace Strada
 		void DrawDockspace();
 		void BuildDefaultLayout(uint32_t dockspace);
 		void DrawMenuBar();
+		void DrawPlayMenu();
+		// The strip under the menu bar with the play, pause and step buttons.
+		void DrawToolbar();
+		// Brings the game view forward when playing starts and the scene view when it stops.
+		void FollowPlayState();
 		void HandleShortcuts();
 		void DrawUnsavedChangesPopup();
 		void DrawNewProjectPopup();
@@ -97,7 +103,7 @@ namespace Strada
 		void DrawPlayControls();
 		// Plays (building changed scripts first) or simulates the edited scene.
 		void StartPlay(EditorPlayState state);
-		// The size of the view the game renders to: the viewport, or the project's window when there is none.
+		// The size the game renders at: the game view's, or the project's window when there is no UI.
 		glm::uvec2 GetGameViewSize() const;
 		// While the game view is focused the game gets the window's input, with the cursor in game-view pixels.
 		void UpdateGameInput();
@@ -145,7 +151,7 @@ namespace Strada
 		std::chrono::steady_clock::time_point m_NextParentProcessCheck;
 
 		ConsolePanel m_ConsolePanel;
-		StatisticsPanel m_StatisticsPanel;
+		RendererInfoPanel m_RendererInfoPanel;
 		SceneHierarchyPanel m_HierarchyPanel;
 		InspectorPanel m_InspectorPanel;
 		SceneSettingsPanel m_SceneSettingsPanel;
@@ -153,16 +159,20 @@ namespace Strada
 		ContentBrowserPanel m_ContentBrowserPanel;
 		// Created when ImGui is available.
 		Scope<ViewportPanel> m_ViewportPanel;
+		Scope<GameViewPanel> m_GameViewPanel;
 		bool m_ShowViewport = true;
+		bool m_ShowGameView = true;
 		bool m_ShowHierarchy = true;
 		bool m_ShowInspector = true;
 		bool m_ShowSceneSettings = true;
 		bool m_ShowProjectSettings = true;
 		bool m_ShowContentBrowser = true;
 		bool m_ShowConsole = true;
-		bool m_ShowStatistics = true;
+		bool m_ShowRendererInfo = true;
 		bool m_ShowImGuiDemo = false;
 		bool m_ResetLayout = false;
+		// The default layout was built this frame: its scene view and inspector tabs come to the front.
+		bool m_FocusDefaultTabs = false;
 
 		SceneAction m_PendingAction = SceneAction::None;
 		std::filesystem::path m_PendingPath;
@@ -174,6 +184,7 @@ namespace Strada
 		std::string m_NewProjectName;
 		std::string m_NewProjectLocation;
 		bool m_GameInputWasActive = false;
+		EditorPlayState m_FollowedPlayState = EditorPlayState::Edit;
 		bool m_OpenNewScriptPopup = false;
 		std::string m_NewScriptName;
 		bool m_OpenBuildGamePopup = false;

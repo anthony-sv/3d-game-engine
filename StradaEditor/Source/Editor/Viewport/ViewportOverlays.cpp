@@ -211,40 +211,49 @@ namespace Strada::ViewportOverlays
 		}
 	}
 
-	void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines)
+	void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines, uint32_t shapes)
 	{
 		if (!entity)
 		{
 			return;
 		}
 		glm::mat4 const world = scene.GetWorldTransform(entity);
-		if (CameraComponent const* camera = entity.TryGetComponent<CameraComponent>())
+		if ((shapes & Shapes::Cameras) != 0)
 		{
-			AddCameraFrustum(lines, world, *camera, aspectRatio);
+			if (CameraComponent const* camera = entity.TryGetComponent<CameraComponent>())
+			{
+				AddCameraFrustum(lines, world, *camera, aspectRatio);
+			}
 		}
-		if (entity.HasComponent<DirectionalLightComponent>())
+		if ((shapes & Shapes::Lights) != 0)
 		{
-			AddDirectionalLight(lines, world);
+			if (entity.HasComponent<DirectionalLightComponent>())
+			{
+				AddDirectionalLight(lines, world);
+			}
+			if (PointLightComponent const* light = entity.TryGetComponent<PointLightComponent>())
+			{
+				AddPointLight(lines, world, *light);
+			}
+			if (SpotLightComponent const* light = entity.TryGetComponent<SpotLightComponent>())
+			{
+				AddSpotLight(lines, world, *light);
+			}
 		}
-		if (PointLightComponent const* light = entity.TryGetComponent<PointLightComponent>())
+		if ((shapes & Shapes::Colliders) != 0)
 		{
-			AddPointLight(lines, world, *light);
-		}
-		if (SpotLightComponent const* light = entity.TryGetComponent<SpotLightComponent>())
-		{
-			AddSpotLight(lines, world, *light);
-		}
-		if (BoxColliderComponent const* collider = entity.TryGetComponent<BoxColliderComponent>())
-		{
-			AddBoxCollider(lines, world, *collider);
-		}
-		if (SphereColliderComponent const* collider = entity.TryGetComponent<SphereColliderComponent>())
-		{
-			AddSphereCollider(lines, world, *collider);
-		}
-		if (CapsuleColliderComponent const* collider = entity.TryGetComponent<CapsuleColliderComponent>())
-		{
-			AddCapsuleCollider(lines, world, *collider);
+			if (BoxColliderComponent const* collider = entity.TryGetComponent<BoxColliderComponent>())
+			{
+				AddBoxCollider(lines, world, *collider);
+			}
+			if (SphereColliderComponent const* collider = entity.TryGetComponent<SphereColliderComponent>())
+			{
+				AddSphereCollider(lines, world, *collider);
+			}
+			if (CapsuleColliderComponent const* collider = entity.TryGetComponent<CapsuleColliderComponent>())
+			{
+				AddCapsuleCollider(lines, world, *collider);
+			}
 		}
 	}
 }

@@ -12,6 +12,10 @@ namespace Strada
 	{
 		// The default font of text rendering (Roboto Medium, Apache License 2.0).
 		inline constexpr std::string_view DefaultFont = "Fonts/Roboto-Medium.ttf";
+		// The fixed-width font of the editor's console and code (Cousine Regular, Apache License 2.0).
+		inline constexpr std::string_view MonospaceFont = "Fonts/Cousine-Regular.ttf";
+		// The window icon of the editor and of games (a PNG drawn by Tools/GenerateIcon.py).
+		inline constexpr std::string_view DefaultIcon = "Icons/Strada.png";
 
 		// The contents of an embedded file; empty when there is none with that name.
 		std::span<uint8_t const> Get(std::string_view name);

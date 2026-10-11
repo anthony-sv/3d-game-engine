@@ -1,4 +1,5 @@
 #include "Editor/EditorOperations.h"
+#include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Viewport/PickingIdMap.h"
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
@@ -274,6 +275,61 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 							return line.Color == ViewportOverlays::TriggerColor;
 						}) == 3 * ViewportOverlays::CircleSegments);
 	CHECK(combined.size() > 3 * ViewportOverlays::CircleSegments);
+
+	// Only the kinds asked for.
+	auto const kinds = [&](uint32_t which)
+	{
+		std::vector<OverlayLine> lines;
+		ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(sensor), 16.0f / 9.0f, lines, which);
+		return lines;
+	};
+	std::vector<OverlayLine> const colliders = kinds(ViewportOverlays::Shapes::Colliders);
+	CHECK(!colliders.empty());
+	CHECK(std::all_of(colliders.begin(), colliders.end(),
+	                  [](OverlayLine const& line)
+	                  {
+						  return line.Color == ViewportOverlays::TriggerColor || line.Color == ViewportOverlays::ColliderColor;
+					  }));
+	std::vector<OverlayLine> const lights = kinds(ViewportOverlays::Shapes::Lights);
+	CHECK(colliders.size() + lights.size() == combined.size());
+	CHECK(kinds(ViewportOverlays::Shapes::Cameras).empty());
+}
+
+TEST_CASE("GameViewPanel: the game's image keeps the chosen size or aspect ratio and is centered")
+{
+	// Free: the whole area, at its size.
+	GameViewLayout const free = ComputeGameViewLayout(GameViewResolution::Free, {800.0f, 600.0f}, nullptr);
+	CHECK(free.RenderSize == glm::uvec2(800, 600));
+	CHECK(free.ImageOffset == glm::vec2(0.0f));
+
+	// An aspect ratio: the largest rectangle that fits, letterboxed and rendered at its size.
+	GameViewLayout const wide = ComputeGameViewLayout(GameViewResolution::Aspect16x9, {800.0f, 600.0f}, nullptr);
+	CHECK(wide.RenderSize == glm::uvec2(800, 450));
+	CHECK(wide.ImageOffset == glm::vec2(0.0f, 75.0f));
+	GameViewLayout const narrow = ComputeGameViewLayout(GameViewResolution::Aspect4x3, {1600.0f, 600.0f}, nullptr);
+	CHECK(narrow.RenderSize == glm::uvec2(800, 600));
+	CHECK(narrow.ImageOffset == glm::vec2(400.0f, 0.0f));
+
+	// Fixed sizes render at that size: shown pixel for pixel when they fit, scaled down when they do not.
+	GameViewLayout const fits = ComputeGameViewLayout(GameViewResolution::HD, {1600.0f, 1000.0f}, nullptr);
+	CHECK(fits.RenderSize == glm::uvec2(1280, 720));
+	CHECK(fits.ImageSize == glm::vec2(1280.0f, 720.0f));
+	CHECK(fits.ImageOffset == glm::vec2(160.0f, 140.0f));
+	GameViewLayout const scaled = ComputeGameViewLayout(GameViewResolution::FullHD, {960.0f, 1000.0f}, nullptr);
+	CHECK(scaled.RenderSize == glm::uvec2(1920, 1080));
+	CHECK(scaled.ImageSize == glm::vec2(960.0f, 540.0f));
+	// Without a project the project window size is the default window size.
+	CHECK(ComputeGameViewLayout(GameViewResolution::ProjectWindow, {4000.0f, 4000.0f}, nullptr).RenderSize == glm::uvec2(1280, 720));
+
+	// Degenerate areas still give a renderable size.
+	CHECK(ComputeGameViewLayout(GameViewResolution::Free, {0.0f, -5.0f}, nullptr).RenderSize == glm::uvec2(1, 1));
+	for (GameViewResolutionInfo const& info : GetGameViewResolutions())
+	{
+		GameViewLayout const tiny = ComputeGameViewLayout(info.Resolution, {0.0f, 0.0f}, nullptr);
+		CHECK(tiny.RenderSize.x >= 1);
+		CHECK(tiny.RenderSize.y >= 1);
+		CHECK(tiny.ImageSize.x >= 1.0f);
+	}
 }
 
 TEST_CASE("EditorContext: replacing the scene changes the scene version")

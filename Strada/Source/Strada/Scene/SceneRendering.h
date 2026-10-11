@@ -19,6 +19,8 @@ namespace Strada
 		std::function<bool(UUID)> IsSelected;
 		// Called after the scene was submitted, before the frame ends: overlays (SetOverlays, SubmitLine).
 		std::function<void(SceneRenderer&)> SubmitOverlays;
+		// Lines scripts drew with Scene::DrawDebugLine.
+		bool DrawDebugLines = true;
 	};
 
 	// Renders the scene from an explicit camera (the editor camera): submits visible meshes with their materials (per-slot

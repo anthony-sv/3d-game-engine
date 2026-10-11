@@ -1,10 +1,12 @@
 #include "stpch.h"
 #include "Strada/Core/Window.h"
 
+#include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/Events/KeyEvent.h"
 #include "Strada/Core/Events/MouseEvent.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Platform.h"
 
@@ -144,6 +146,15 @@ namespace Strada
 			return MakeError("Failed to create a {}x{} window", width, height);
 		}
 		s_WindowCount++;
+
+		if (Result<Image> const icon = Image::LoadFromMemory(EmbeddedResources::Get(EmbeddedResources::DefaultIcon)))
+		{
+			SetIcon(icon.GetValue().GetWidth(), icon.GetValue().GetHeight(), icon.GetValue().GetPixels().data());
+		}
+		else
+		{
+			ST_CORE_WARN("The window icon cannot be decoded: {}", icon.GetError());
+		}
 
 		int framebufferWidth = 0;
 		int framebufferHeight = 0;

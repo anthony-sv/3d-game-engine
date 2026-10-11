@@ -20,7 +20,9 @@ namespace Strada
 {
 	enum class GizmoOperation : uint8_t
 	{
-		Translate = 0,
+		// No gizmo: clicks only select.
+		Select = 0,
+		Translate,
 		Rotate,
 		Scale
 	};
@@ -31,14 +33,28 @@ namespace Strada
 		World
 	};
 
-	// Shows the edited scene from the editor camera with the editor overlays: ground grid, selection outline, shapes of
-	// selected cameras, lights and colliders, icons for cameras and lights, and a transform gizmo for the selection (edits
-	// are undoable; one drag is one undo step). While playing (Play) it shows the game through its primary camera and,
-	// focused, gives the game its input; Simulate keeps the editor view. A frame marks the view while playing. Input while hovered: right
-	// mouse look + WASD/QE fly, Alt + left mouse orbit, middle mouse pan, wheel zoom, F focus, left click select (Ctrl toggles, Shift
-	// adds), W/E/R gizmo operation, X local/world space, G grid; holding Ctrl while dragging the gizmo toggles snapping. Dropped assets:
-	// meshes become entities on the ground under the cursor, materials go to the mesh under the cursor, environments to the sky light, and
-	// scenes open.
+	// What the scene view draws over the scene (View > Overlays in its toolbar).
+	struct SceneViewOverlays
+	{
+		bool Grid = true;
+		bool SelectionOutline = true;
+		// Icons of cameras and lights (they can be clicked to select).
+		bool Icons = true;
+		// Frustums of selected cameras, ranges and cones of selected lights, outlines of selected colliders.
+		bool SelectionShapes = true;
+		// Outlines of every collider, selected or not.
+		bool AllColliders = false;
+		// Lines scripts draw (Debug.DrawLine).
+		bool DebugLines = true;
+	};
+
+	// The Scene View: the scene (the edited one, or the running one while playing) from the editor camera with the editor
+	// overlays (SceneViewOverlays) and a transform gizmo for the selection (edits are undoable; one drag is one undo step).
+	// The game itself shows in the Game View. A frame marks the view while playing. Input while hovered: right mouse look +
+	// WASD/QE fly, Alt + left mouse orbit, middle mouse pan, wheel zoom, F focus, left click select (Ctrl toggles, Shift adds),
+	// Q/W/E/R select/move/rotate/scale, X local/world space, G grid; holding Ctrl while dragging the gizmo toggles snapping.
+	// Dropped assets: meshes become entities on the ground under the cursor, materials go to the mesh under the cursor,
+	// environments to the sky light, and scenes open.
 	class ViewportPanel
 	{
 	public:
@@ -56,26 +72,21 @@ namespace Strada
 		void SetGizmoOperation(GizmoOperation operation) { m_GizmoOperation = operation; }
 		GizmoSpace GetGizmoSpace() const { return m_GizmoSpace; }
 		void SetGizmoSpace(GizmoSpace space) { m_GizmoSpace = space; }
-		bool IsGridVisible() const { return m_ShowGrid; }
-		void SetGridVisible(bool visible) { m_ShowGrid = visible; }
+		bool IsGridVisible() const { return m_Overlays.Grid; }
+		void SetGridVisible(bool visible) { m_Overlays.Grid = visible; }
+		SceneViewOverlays& GetOverlays() { return m_Overlays; }
 		// Moves the camera so the entities (their meshes, or their positions) fill the view.
 		void FocusEntities(Scene& scene, std::span<UUID const> entities);
 
-		// The game view (Play) is focused: the game gets keyboard and mouse input.
-		bool IsGameInputActive() const { return m_GameInputActive; }
-		// The cursor in pixels of the game view, from its top-left corner (as the game reads it).
-		glm::vec2 GetGameMousePosition() const { return m_GameMousePosition; }
 		// The view's size in pixels when it was last drawn.
 		glm::uvec2 GetViewportSize() const { return m_ViewportSize; }
-		// What the view's renderer drew in the last frame it rendered (the editor view or the game); null without a GPU.
+		// What the view's renderer drew in the last frame it rendered; null without a GPU.
 		SceneRendererStatistics const* GetRendererStatistics() const { return m_Renderer ? &m_Renderer->GetStatistics() : nullptr; }
 
 	private:
 		void HandleCameraInput(bool hovered);
 		void HandleShortcuts(EditorContext& context, bool hovered);
 		void Render(EditorContext& context);
-		// Renders the running scene through its primary camera; false (rendering nothing) when it has none.
-		bool RenderGame(EditorContext& context);
 		void DrawPlayFrame(glm::vec2 const& imagePosition, glm::vec2 const& imageSize, EditorPlayState state);
 		// Returns the camera or light entity whose icon is under the mouse (invalid when none).
 		UUID DrawEntityIcons(EditorContext& context, glm::vec2 const& imagePosition, glm::vec2 const& imageSize, bool hovered);
@@ -85,7 +96,7 @@ namespace Strada
 		void ApplyPickResult(EditorOperations& operations);
 		// Applies an asset dropped onto the viewport image at a pixel.
 		void ApplyAssetDrop(EditorOperations& operations, AssetHandle asset, glm::vec2 const& pixel, glm::vec2 const& imageSize);
-		void DrawToolbar(glm::vec2 const& imagePosition);
+		void DrawToolbar();
 
 		EditorCamera m_Camera;
 		// Null when no GPU renderer is available.
@@ -119,13 +130,8 @@ namespace Strada
 		uint64_t m_GizmoMergeKey = 0;
 		uint64_t m_GizmoDragCount = 0;
 
-		bool m_ShowGrid = true;
-		bool m_GameInputActive = false;
-		glm::vec2 m_GameMousePosition = glm::vec2(0.0f);
+		SceneViewOverlays m_Overlays;
 		glm::uvec2 m_ViewportSize = glm::uvec2(1280, 720);
-		// Toolbar rectangle of the previous frame (clicks there do not reach the scene).
-		glm::vec2 m_ToolbarMin = glm::vec2(0.0f);
-		glm::vec2 m_ToolbarMax = glm::vec2(0.0f);
 
 		OpenSceneCallback m_OpenScene;
 	};

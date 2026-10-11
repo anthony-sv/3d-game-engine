@@ -74,16 +74,18 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/ConsolePanel.h
     Source/Editor/Panels/ContentBrowserPanel.cpp
     Source/Editor/Panels/ContentBrowserPanel.h
+    Source/Editor/Panels/GameViewPanel.cpp
+    Source/Editor/Panels/GameViewPanel.h
     Source/Editor/Panels/InspectorPanel.cpp
     Source/Editor/Panels/InspectorPanel.h
     Source/Editor/Panels/ProjectSettingsPanel.cpp
     Source/Editor/Panels/ProjectSettingsPanel.h
+    Source/Editor/Panels/RendererInfoPanel.cpp
+    Source/Editor/Panels/RendererInfoPanel.h
     Source/Editor/Panels/SceneHierarchyPanel.cpp
     Source/Editor/Panels/SceneHierarchyPanel.h
     Source/Editor/Panels/SceneSettingsPanel.cpp
     Source/Editor/Panels/SceneSettingsPanel.h
-    Source/Editor/Panels/StatisticsPanel.cpp
-    Source/Editor/Panels/StatisticsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
     Source/Editor/PlayMode.cpp
@@ -117,5 +119,6 @@ set_target_properties(StradaEditorCore PROPERTIES FOLDER "Editor")
 
 add_executable(StradaEditor Source/EditorApplication.cpp)
 target_link_libraries(StradaEditor PRIVATE StradaEditorCore)
+strada_add_executable_icon(StradaEditor)
 strada_configure_target(StradaEditor)
 set_target_properties(StradaEditor PROPERTIES FOLDER "Editor")

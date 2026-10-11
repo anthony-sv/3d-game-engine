@@ -25,7 +25,8 @@ pinned version and verified by SHA256 (see `cmake/StradaDependencies.cmake`). Th
 | libvorbis (with vorbisfile) | 1.3.7 | BSD-3-Clause | https://github.com/xiph/vorbis | Engine (Ogg Vorbis decoding) |
 | reproc and reproc++ | 14.2.8 | MIT | https://github.com/DaanDeMeyer/reproc | Engine (child processes: script builds, exports) |
 | .NET hosting headers (hostfxr.h, coreclr_delegates.h) | the installed .NET 10 SDK | MIT | https://github.com/dotnet/runtime | Engine (hosting the C# scripting runtime; the .NET runtime itself is installed separately) |
-| Roboto Medium (font, from Dear ImGui's `misc/fonts`) | Dear ImGui 1.92.9b | Apache-2.0 | https://fonts.google.com/specimen/Roboto | Engine (default text font, compiled into the engine) |
+| Roboto Medium (font, from Dear ImGui's `misc/fonts`) | Dear ImGui 1.92.9b | Apache-2.0 | https://fonts.google.com/specimen/Roboto | Engine (default text font and editor UI font, compiled into the engine) |
+| Cousine Regular (font, from Dear ImGui's `misc/fonts`) | Dear ImGui 1.92.9b | Apache-2.0 | https://fonts.google.com/specimen/Cousine | Engine (fixed-width font of the editor's console, compiled into the engine) |
 | doctest | 2.5.3 | MIT | https://github.com/doctest/doctest | Tests only (not distributed) |
 | xUnit.net v3 (NuGet, locked in the `packages.lock.json` of `Tests/ScriptCoreTests` and `Tests/StradaToolTests`) | 4.0.2 | Apache-2.0 | https://github.com/xunit/xunit | Tests only (not distributed) |
 | Microsoft.Testing.Platform and its dependencies (through xUnit.net) | 2.5.1 | MIT | https://github.com/microsoft/testfx | Tests only (not distributed) |

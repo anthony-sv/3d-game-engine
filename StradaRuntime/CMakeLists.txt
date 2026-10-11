@@ -10,6 +10,7 @@ set(STRADA_RUNTIME_SOURCES
 add_executable(StradaRuntime ${STRADA_RUNTIME_SOURCES})
 target_include_directories(StradaRuntime PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
 target_link_libraries(StradaRuntime PRIVATE Strada)
+strada_add_executable_icon(StradaRuntime)
 if(MSVC)
     # Players of Dist builds open no console window; main stays the entry point.
     target_link_options(StradaRuntime PRIVATE "$<$<CONFIG:Dist>:/SUBSYSTEM:WINDOWS;/ENTRY:mainCRTStartup>")

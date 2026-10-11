@@ -26,13 +26,14 @@
 #include <imgui_stdlib.h>
 
 #include <array>
+#include <utility>
 
 namespace Strada
 {
 	namespace
 	{
 		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set.
-		constexpr char const* DockspaceName = "Strada.Dockspace.v4";
+		constexpr char const* DockspaceName = "Strada.Dockspace.v6";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* NewScriptPopup = "New Script";
@@ -148,6 +149,8 @@ namespace Strada
 		if (application.GetImGuiLayer() != nullptr)
 		{
 			m_ViewportPanel = CreateScope<ViewportPanel>();
+			m_GameViewPanel = CreateScope<GameViewPanel>();
+			m_ConsolePanel.SetFont(application.GetImGuiLayer()->GetMonospaceFont());
 			m_HierarchyPanel.SetFocusCallback(
 				[this](UUID entity)
 				{
@@ -289,13 +292,20 @@ namespace Strada
 
 	void EditorLayer::OnImGuiRender()
 	{
-		DrawDockspace();
+		// The menu bar and the toolbar take their space from the main viewport before the dockspace fills the rest.
 		DrawMenuBar();
+		DrawToolbar();
+		DrawDockspace();
 		HandleShortcuts();
+		FollowPlayState();
 
 		if (m_ViewportPanel && m_ShowViewport)
 		{
 			m_ViewportPanel->OnImGuiRender(m_Operations, m_ShowViewport);
+		}
+		if (m_GameViewPanel && m_ShowGameView)
+		{
+			m_GameViewPanel->OnImGuiRender(m_Context, m_ShowGameView);
 		}
 		if (m_ShowHierarchy)
 		{
@@ -321,13 +331,20 @@ namespace Strada
 		{
 			m_ConsolePanel.OnImGuiRender(m_ShowConsole);
 		}
-		if (m_ShowStatistics)
+		if (m_ShowRendererInfo)
 		{
-			m_StatisticsPanel.OnImGuiRender(m_ShowStatistics, m_ViewportPanel ? m_ViewportPanel->GetRendererStatistics() : nullptr);
+			m_RendererInfoPanel.OnImGuiRender(m_ShowRendererInfo, m_ViewportPanel ? m_ViewportPanel->GetRendererStatistics() : nullptr,
+			                                  m_GameViewPanel ? m_GameViewPanel->GetRendererStatistics() : nullptr);
 		}
 		if (m_ShowImGuiDemo)
 		{
 			ImGui::ShowDemoWindow(&m_ShowImGuiDemo);
+		}
+
+		if (std::exchange(m_FocusDefaultTabs, false))
+		{
+			ImGui::SetWindowFocus("Inspector");
+			ImGui::SetWindowFocus("Scene View");
 		}
 
 		DrawUnsavedChangesPopup();
@@ -351,25 +368,27 @@ namespace Strada
 
 	void EditorLayer::BuildDefaultLayout(uint32_t dockspace)
 	{
-		// Viewport in the center, hierarchy on the left, inspector and settings on the right with statistics below, content
-		// browser and console at the bottom.
+		// Scene view, game view and renderer info in the center, hierarchy on the left, inspector and settings on the right,
+		// content browser and console at the bottom.
 		ImGui::DockBuilderRemoveNode(dockspace);
 		ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
 		ImGuiID center = dockspace;
 		ImGuiID const left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
-		ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.26f, nullptr, &center);
+		ImGuiID const right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
 		ImGuiID const bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
-		ImGuiID const rightBottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.25f, nullptr, &right);
-		ImGui::DockBuilderDockWindow("Viewport", center);
+		ImGui::DockBuilderDockWindow("Scene View", center);
+		ImGui::DockBuilderDockWindow("Game View", center);
+		ImGui::DockBuilderDockWindow("Renderer Info", center);
 		ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
 		ImGui::DockBuilderDockWindow("Inspector", right);
 		ImGui::DockBuilderDockWindow("Scene Settings", right);
 		ImGui::DockBuilderDockWindow("Project Settings", right);
-		ImGui::DockBuilderDockWindow("Statistics", rightBottom);
 		ImGui::DockBuilderDockWindow("Content Browser", bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
 		ImGui::DockBuilderFinish(dockspace);
+		// The windows docked last would be the tabs in front; the panels are drawn after this.
+		m_FocusDefaultTabs = true;
 	}
 
 	void EditorLayer::DrawMenuBar()
@@ -494,30 +513,31 @@ namespace Strada
 
 		if (ImGui::BeginMenu("View"))
 		{
-			ImGui::MenuItem("Viewport", nullptr, &m_ShowViewport, m_ViewportPanel != nullptr);
+			ImGui::MenuItem("Scene View", nullptr, &m_ShowViewport, m_ViewportPanel != nullptr);
+			ImGui::MenuItem("Game View", nullptr, &m_ShowGameView, m_GameViewPanel != nullptr);
 			ImGui::MenuItem("Scene Hierarchy", nullptr, &m_ShowHierarchy);
 			ImGui::MenuItem("Inspector", nullptr, &m_ShowInspector);
 			ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
 			ImGui::MenuItem("Project Settings", nullptr, &m_ShowProjectSettings);
 			ImGui::MenuItem("Content Browser", nullptr, &m_ShowContentBrowser);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
-			ImGui::MenuItem("Statistics", nullptr, &m_ShowStatistics);
+			ImGui::MenuItem("Renderer Info", nullptr, &m_ShowRendererInfo);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout"))
 			{
-				m_ShowViewport = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings = m_ShowContentBrowser =
-					m_ShowConsole = m_ShowStatistics = true;
+				m_ShowViewport = m_ShowGameView = m_ShowHierarchy = m_ShowInspector = m_ShowSceneSettings = m_ShowProjectSettings =
+					m_ShowContentBrowser = m_ShowConsole = m_ShowRendererInfo = true;
 				m_ResetLayout = true;
 			}
 			ImGui::MenuItem("ImGui Demo", nullptr, &m_ShowImGuiDemo);
 			ImGui::EndMenu();
 		}
+		DrawPlayMenu();
 
 		std::string const automation = m_AutomationServer.IsRunning()
 		                                   ? fmt::format("Automation: 127.0.0.1:{} ({} connected)", m_AutomationServer.GetPort(),
 		                                                 m_AutomationServer.GetConnectionCount())
 		                                   : std::string("Automation: off");
-		DrawPlayControls();
 		std::string status = automation;
 		for (std::string const& part : {GetScriptStatus(), GetExportStatus()})
 		{
@@ -526,6 +546,41 @@ namespace Strada
 		ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(status.c_str()).x - ImGui::GetStyle().ItemSpacing.x * 2.0f);
 		ImGui::TextDisabled("%s", status.c_str());
 		ImGui::EndMainMenuBar();
+	}
+
+	void EditorLayer::DrawPlayMenu()
+	{
+		if (!ImGui::BeginMenu("Play"))
+		{
+			return;
+		}
+		bool const playing = m_PlayMode.IsPlaying();
+		bool const canStart = !m_PlayMode.IsStartPending();
+		if (ImGui::MenuItem(playing ? "Stop" : "Play", "Ctrl+P", false, canStart))
+		{
+			if (playing)
+			{
+				m_PlayMode.Stop();
+			}
+			else
+			{
+				StartPlay(EditorPlayState::Play);
+			}
+		}
+		if (ImGui::MenuItem("Simulate", nullptr, false, canStart && !playing))
+		{
+			StartPlay(EditorPlayState::Simulate);
+		}
+		ImGui::Separator();
+		if (ImGui::MenuItem("Pause", "Ctrl+Shift+P", m_PlayMode.IsPaused(), playing))
+		{
+			m_PlayMode.SetPaused(!m_PlayMode.IsPaused());
+		}
+		if (ImGui::MenuItem("Step", "Ctrl+Alt+P", false, m_PlayMode.IsPaused()))
+		{
+			m_PlayMode.Step();
+		}
+		ImGui::EndMenu();
 	}
 
 	void EditorLayer::HandleShortcuts()
@@ -834,21 +889,18 @@ namespace Strada
 
 	void EditorLayer::DrawPlayControls()
 	{
-		// Centered in the menu bar.
 		ImGuiStyle const& style = ImGui::GetStyle();
-		auto const buttonWidth = [&style](char const* label)
-		{
-			return ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f;
-		};
 		bool const playing = m_PlayMode.IsPlaying();
 		bool const paused = m_PlayMode.IsPaused();
-		char const* const first = playing ? "Stop" : "Play";
-		char const* const second = playing ? (paused ? "Resume" : "Pause") : "Simulate";
-		float const width = buttonWidth(first) + buttonWidth(second) + buttonWidth("Step") + style.ItemSpacing.x * 2.0f;
+		bool const simulating = m_Context.GetPlayState() == EditorPlayState::Simulate;
+		float const buttonWidth = UI::GetToolbarButtonSize().x;
+		float const simulateWidth = ImGui::CalcTextSize("Simulate").x + style.FramePadding.x * 2.0f;
+		float const width = buttonWidth * 3.0f + simulateWidth + style.ItemSpacing.x * 4.0f;
 		ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), (ImGui::GetWindowWidth() - width) * 0.5f));
 
 		ImGui::BeginDisabled(m_PlayMode.IsStartPending());
-		if (ImGui::Button(first))
+		bool const playActive = playing && !simulating;
+		if (UI::ToolbarButton("##Play", playActive ? UI::ToolbarIcon::Stop : UI::ToolbarIcon::Play, playActive))
 		{
 			if (playing)
 			{
@@ -859,28 +911,85 @@ namespace Strada
 				StartPlay(EditorPlayState::Play);
 			}
 		}
-		ImGui::SetItemTooltip(playing ? "Stop playing (Ctrl+P): changes made while playing are discarded" : "Play the scene (Ctrl+P)");
-		if (ImGui::Button(second))
+		ImGui::SetItemTooltip(playing ? "Stop (Ctrl+P): changes made while playing are discarded"
+		                              : "Play the scene in the game view (Ctrl+P)");
+		ImGui::SameLine();
+		ImGui::BeginDisabled(!playing);
+		if (UI::ToolbarButton("##Pause", UI::ToolbarIcon::Pause, paused))
 		{
-			if (playing)
+			m_PlayMode.SetPaused(!paused);
+		}
+		ImGui::SetItemTooltip(paused ? "Resume (Ctrl+Shift+P)" : "Pause (Ctrl+Shift+P)");
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(!paused);
+		if (UI::ToolbarButton("##Step", UI::ToolbarIcon::Step, false))
+		{
+			m_PlayMode.Step();
+		}
+		ImGui::SetItemTooltip("Advance the paused scene by one frame (Ctrl+Alt+P)");
+		ImGui::EndDisabled();
+		ImGui::SameLine(0.0f, style.ItemSpacing.x * 2.0f);
+		ImGui::BeginDisabled(playing && !simulating);
+		if (simulating)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+		}
+		if (ImGui::Button("Simulate", ImVec2(0.0f, UI::GetToolbarButtonSize().y)))
+		{
+			if (simulating)
 			{
-				m_PlayMode.SetPaused(!paused);
+				m_PlayMode.Stop();
 			}
 			else
 			{
 				StartPlay(EditorPlayState::Simulate);
 			}
 		}
-		ImGui::SetItemTooltip(playing ? "Pause or resume (Ctrl+Shift+P)"
-		                              : "Simulate physics without scripts, seen through the editor camera");
-		ImGui::BeginDisabled(!paused);
-		if (ImGui::Button("Step"))
+		if (simulating)
 		{
-			m_PlayMode.Step();
+			ImGui::PopStyleColor();
 		}
-		ImGui::SetItemTooltip("Advance the paused scene by one frame (Ctrl+Alt+P)");
+		ImGui::SetItemTooltip(simulating ? "Stop simulating" : "Simulate physics without scripts, seen through the editor camera");
 		ImGui::EndDisabled();
 		ImGui::EndDisabled();
+	}
+
+	void EditorLayer::DrawToolbar()
+	{
+		ImGuiWindowFlags const flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking;
+		ImVec2 const padding(ImGui::GetStyle().WindowPadding.x, ImGui::GetStyle().FramePadding.y + 2.0f);
+		float const height = UI::GetToolbarButtonSize().y + padding.y * 2.0f;
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, padding);
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+		bool const open = ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(), ImGuiDir_Up, height, flags);
+		ImGui::PopStyleColor();
+		ImGui::PopStyleVar();
+		if (open)
+		{
+			DrawPlayControls();
+		}
+		ImGui::End();
+	}
+
+	void EditorLayer::FollowPlayState()
+	{
+		EditorPlayState const state = m_Context.GetPlayState();
+		if (state == m_FollowedPlayState)
+		{
+			return;
+		}
+		if (state == EditorPlayState::Play && m_GameViewPanel != nullptr)
+		{
+			m_ShowGameView = true;
+			m_GameViewPanel->RequestFocus();
+		}
+		else if (state == EditorPlayState::Edit && m_FollowedPlayState == EditorPlayState::Play && m_ViewportPanel != nullptr &&
+		         m_ShowViewport)
+		{
+			ImGui::SetWindowFocus("Scene View");
+		}
+		m_FollowedPlayState = state;
 	}
 
 	void EditorLayer::StartPlay(EditorPlayState state)
@@ -895,9 +1004,9 @@ namespace Strada
 
 	glm::uvec2 EditorLayer::GetGameViewSize() const
 	{
-		if (m_ViewportPanel != nullptr)
+		if (m_GameViewPanel != nullptr)
 		{
-			return m_ViewportPanel->GetViewportSize();
+			return m_GameViewPanel->GetRenderSize();
 		}
 		if (Project const* const project = m_Context.GetProject())
 		{
@@ -908,7 +1017,7 @@ namespace Strada
 
 	void EditorLayer::UpdateGameInput()
 	{
-		bool const active = m_PlayMode.IsPlaying() && m_ViewportPanel != nullptr && m_ViewportPanel->IsGameInputActive();
+		bool const active = m_PlayMode.IsPlaying() && m_GameViewPanel != nullptr && m_GameViewPanel->IsGameInputActive();
 		if (ImGuiLayer* const imgui = Application::Get().GetImGuiLayer())
 		{
 			imgui->SetBlockEvents(!active);
@@ -916,7 +1025,7 @@ namespace Strada
 		if (active)
 		{
 			// Window events placed the cursor in window coordinates; the game reads game-view pixels.
-			Input::SetMousePosition(m_ViewportPanel->GetGameMousePosition());
+			Input::SetMousePosition(m_GameViewPanel->GetGameMousePosition());
 		}
 		else if (m_GameInputWasActive)
 		{

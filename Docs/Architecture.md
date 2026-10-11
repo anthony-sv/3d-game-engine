@@ -170,7 +170,7 @@ Vulkan binding offsets, embedded into the library, and fetched by name through `
 ### 6.2 Scene renderer
 
 `SceneRenderer` renders a submitted frame (camera + draw lists + lights + environment + settings) into its own
-offscreen targets. The editor shows the final image in the viewport panel; the runtime blits it to the swapchain;
+offscreen targets. The editor shows the final images in its scene and game views; the runtime blits it to the swapchain;
 headless mode reads it back for screenshots. It never depends on the ECS: `Scene` gathers and submits
 (`Scene/SceneRendering.h`: `RenderScene` with an explicit camera, `RenderSceneFromPrimaryCamera`).
 
@@ -606,9 +606,12 @@ than the assembly.
 
 ## 11. Editor (`StradaEditor`)
 
-- ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Viewport,
-  Console, Scene Settings, Statistics, Project Settings; menu bar and play toolbar. View > Reset Layout restores the
-  default docking layout.
+- ImGui with docking and multi-viewports; panels: Scene Hierarchy, Inspector, Content Browser, Scene View, Game View,
+  Renderer Info, Console, Scene Settings, Project Settings; a menu bar and a toolbar with the play controls (Play/Stop,
+  Pause, Step and Simulate buttons with drawn icons). View > Reset Layout restores the default docking layout. The look
+  comes from the engine's `ImGuiLayer`: the embedded Roboto as the UI font, Cousine (fixed-width) for the console, and
+  a dark slate theme with a blue accent. Windows get the Strada icon (`Strada/Resources/Icons`, drawn by
+  `Tools/GenerateIcon.py`): embedded as the window icon by the engine and, on Windows, as the executables' icon.
 - Scene Hierarchy: the entity tree; click selects, Ctrl toggles, Shift selects the displayed range; dragging rows
   reparents (onto a row) or reorders (onto its upper or lower edge) the selection as one undo step
   (`MoveEntitiesCommand`); F2 or the context menu renames; double-click frames the entity in the viewport; context
@@ -635,31 +638,40 @@ than the assembly.
   applications add, change or delete are picked up when the editor gets the focus back (`AssetAutoRefresh`; one of
   its windows, floating panels included; after a running game export, which copies the assets) or with Refresh.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
-- Statistics: the frame time (average and graph over 120 frames), what the viewport's renderer drew in its last frame
-  (GPU time, draw calls and the shadow-map share, triangles, culled submeshes, lights and culled lights, dropped
-  shadows, sprite and text quads) and the GPU (adapter, driver, validation, swapchain).
+- Renderer Info: the device (adapter, type, Vulkan version, driver, GPU timing support, validation and its error
+  count), the frame (average and slowest frame time with a graph over 240 frames, frame count, back buffer), and what
+  the scene view's and the game view's renderers drew in their last frames side by side (GPU time, draw calls and the
+  shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite and text quads).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
-  (create presets at the viewport's focal point), View. Shortcuts are global unless a text field is being edited.
+  (create presets at the scene view's focal point), View, Play (Play/Stop, Simulate, Pause, Step). Shortcuts are global
+  unless a text field is being edited.
   Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
   scene name and a `*` while it has unsaved changes.
-- Viewport: editor camera (fly/orbit/pan/zoom/focus), ImGuizmo translate/rotate/scale (local/world, snapping;
-  W/E/R, X, Ctrl toggles snapping while dragging) applied to every selected root around the primary selection as
-  one undo step per drag (`SetComponentsCommand` with a merge key), click picking through the entity-ID pass (Ctrl
-  toggles, Shift adds, empty space clears; picking IDs are never reused within a scene), selection outline, ground
-  grid (G), icons for cameras and lights (clickable), shapes of selected cameras (frustums), lights (directions,
-  ranges, cones) and colliders, asset drag-and-drop.
+- Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
+  (fly/orbit/pan/zoom/focus). Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
+  orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays: ground grid
+  (G), selection outline, clickable icons for cameras and lights, shapes of selected cameras (frustums), lights
+  (directions, ranges, cones) and colliders, every collider, and the lines scripts draw. ImGuizmo edits apply to every
+  selected root around the primary selection as one undo step per drag (`SetComponentsCommand` with a merge key); click
+  picking goes through the entity-ID pass (Ctrl toggles, Shift adds, empty space clears; picking IDs are never reused
+  within a scene); assets can be dropped onto it.
+- Game View (`GameViewPanel`): the scene through its primary camera, as the game sees it, at a chosen resolution (free,
+  16:9, 16:10, 4:3, 21:9, the project's window size, 1920x1080, 1280x720), letterboxed; fixed sizes render at that size
+  and are scaled down to fit. Its size is the scene's view size (`Scene::OnViewportResize`) that scripts read and the
+  size Play starts with. Edit mode shows a preview; playing brings it to the front.
 - Undo/redo for every scene modification through a command history (JSON before/after snapshots). Automation
   commands use the same history.
-- Play mode (`PlayMode`, controls in the menu bar): Play (Ctrl+P; scripts, physics and audio, seen through the scene's
-  primary camera) and Simulate (physics only, seen through the editor camera, with gizmos) run a copy of the edited scene
+- Play mode (`PlayMode`, controls in the toolbar and the Play menu): Play (Ctrl+P; scripts, physics and audio, shown in
+  the game view) and Simulate (physics only, seen in the scene view, with gizmos) run a copy of the edited scene
   through a `SceneRunner`; Pause (Ctrl+Shift+P), Step (Ctrl+Alt+P) and Stop. While playing, the panels and automation
   show and edit the copy (`EditorContext::BeginPlay`) with an undo history of its own; stopping discards the copy, its
   history and every change, and the selection keeps what still exists. Play builds changed scripts first. Scene and
   project files cannot change while playing (the UI stops playing first). The focused game view gives the game the
-  window's input, with the cursor in game-view pixels; losing focus or stopping releases it. A blue (Play) or green
-  (Simulate) frame marks the view; scripts' `Application.Quit` stops playing and `SceneManager.LoadScene` replaces the
-  copy.
+  window's input, with the cursor in the pixels the game renders; Shift+Esc, losing focus or stopping releases it and a
+  click gives it back. A blue frame marks the game view while it has the input, and a blue (Play) or green (Simulate)
+  frame marks the scene view while playing; stopping brings the scene view back to the front. Scripts'
+  `Application.Quit` stops playing and `SceneManager.LoadScene` replaces the copy.
 - Project management: File > New Project (name and location; the start scene is the editor's sample scene),
   Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
@@ -673,7 +685,7 @@ than the assembly.
   combos, flag check boxes, colors and Euler angles like component fields, one undo step per interaction.
 - Prefabs: an entity's "Create Prefab" (hierarchy context menu) writes it with its descendants to `Prefabs/`, and
   entities dragged onto the content browser become prefabs in the folder they are dropped on; neither changes the
-  scene. Prefabs dragged onto the viewport, the hierarchy or an entity row are instantiated there (one undo step).
+  scene. Prefabs dragged onto the scene view, the hierarchy or an entity row are instantiated there (one undo step).
 - File > Build Game exports the game for the host platform (§13): the output directory (the project's `Build` at
   first), the export's progress with a cancel button, then the executable or the reason it failed (with the scripts'
   compile errors); the menu bar shows a running export.

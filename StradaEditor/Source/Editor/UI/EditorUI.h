@@ -13,6 +13,7 @@
 #include <vector>
 
 struct ImGuiPayload;
+struct ImVec2;
 
 namespace Strada
 {
@@ -49,6 +50,20 @@ namespace Strada
 		AssetHandle AcceptAssetDrop(std::span<AssetType const> types = {});
 		// The entities of a DragDropPayload::Entities payload.
 		std::vector<UUID> ReadEntityPayload(ImGuiPayload const& payload);
+
+		// Icons of the toolbar buttons, drawn as shapes (the editor needs no icon font).
+		enum class ToolbarIcon : uint8_t
+		{
+			Play = 0,
+			Stop,
+			Pause,
+			Step
+		};
+
+		// The size of toolbar buttons at the current font size.
+		ImVec2 GetToolbarButtonSize();
+		// A button showing an icon; active buttons are highlighted. Returns true when clicked. Follows ImGui::BeginDisabled.
+		bool ToolbarButton(char const* id, ToolbarIcon icon, bool active);
 
 		// Logs a failed user action; the console panel shows it.
 		template<typename T>

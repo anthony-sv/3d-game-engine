@@ -9,6 +9,8 @@
 #include <filesystem>
 #include <string>
 
+struct ImFont;
+
 namespace Strada
 {
 	struct ImGuiLayerSpecification
@@ -21,7 +23,8 @@ namespace Strada
 	};
 
 	// Owns the ImGui context, the GLFW platform backend and the NVRHI renderer. Application drives Begin/End around the
-	// layers' OnImGuiRender calls. Requires a window and an initialized GraphicsDevice.
+	// layers' OnImGuiRender calls. Requires a window and an initialized GraphicsDevice. Sets up Strada's look: the embedded
+	// Roboto as the UI font (Cousine for fixed-width text) and a dark slate theme with a blue accent.
 	class ImGuiLayer : public Layer
 	{
 	public:
@@ -40,6 +43,11 @@ namespace Strada
 		void SetBlockEvents(bool block) { m_BlockEvents = block; }
 		bool AreViewportsEnabled() const { return m_ViewportsEnabled; }
 		bool IsAttached() const { return m_Attached; }
+		// The fixed-width font (for logs and code); null before OnAttach.
+		ImFont* GetMonospaceFont() const { return m_MonospaceFont; }
+
+		// Strada's theme (colors, rounding, spacing) at a content scale of 1, applied to the current ImGui context.
+		static void ApplyTheme();
 
 	private:
 		ImGuiLayerSpecification m_Specification;
@@ -49,5 +57,6 @@ namespace Strada
 		bool m_ViewportsEnabled = false;
 		bool m_Attached = false;
 		bool m_FrameStarted = false;
+		ImFont* m_MonospaceFont = nullptr;
 	};
 }

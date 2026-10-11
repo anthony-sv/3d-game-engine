@@ -172,7 +172,9 @@ public class Mover : Script
 }
 ```
 
-In the editor the game gets the input while the viewport has the focus during play.
+In the editor the game gets the input while the Game View has the focus during play (Shift+Esc gives it back to the
+editor; a click on the view returns it to the game). `Application.WindowWidth` and `WindowHeight` are the size the game
+view renders at, which its resolution menu chooses.
 
 ## Physics
 

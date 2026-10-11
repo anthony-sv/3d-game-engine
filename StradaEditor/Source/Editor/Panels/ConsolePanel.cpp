@@ -91,8 +91,13 @@ namespace Strada
 		ImGui::Separator();
 
 		std::string_view const filter(m_Filter.data());
+		ImFont* const monospace = m_MonospaceFont;
 		if (ImGui::BeginChild("Entries", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar))
 		{
+			if (monospace != nullptr)
+			{
+				ImGui::PushFont(monospace, 0.0f);
+			}
 			for (LogEntry const& entry : m_Entries)
 			{
 				if (!m_ShowLevel[static_cast<size_t>(entry.Severity)] || !ContainsIgnoreCase(entry.Message, filter))
@@ -106,6 +111,10 @@ namespace Strada
 				ImGui::PopStyleColor();
 			}
 
+			if (monospace != nullptr)
+			{
+				ImGui::PopFont();
+			}
 			if (m_ScrollToBottom)
 			{
 				ImGui::SetScrollHereY(1.0f);

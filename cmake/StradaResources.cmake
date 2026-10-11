@@ -45,3 +45,17 @@ function(strada_embed_resources target)
     target_sources(${target} PRIVATE "${generatedSource}")
     set_source_files_properties("${generatedSource}" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 endfunction()
+
+# strada_add_executable_icon(<target>)
+# Gives a Windows executable the Strada icon (Strada/Resources/Icons/Strada.ico, drawn by Tools/GenerateIcon.py) that
+# Explorer and the taskbar show. Other platforms take the window icon the engine sets at run time.
+function(strada_add_executable_icon target)
+    if(NOT WIN32)
+        return()
+    endif()
+    set(icon "${PROJECT_SOURCE_DIR}/Strada/Resources/Icons/Strada.ico")
+    set(resourceScript "${CMAKE_CURRENT_BINARY_DIR}/${target}Icon.rc")
+    file(CONFIGURE OUTPUT "${resourceScript}" CONTENT "1 ICON \"${icon}\"\n")
+    target_sources(${target} PRIVATE "${resourceScript}")
+    set_source_files_properties("${resourceScript}" PROPERTIES OBJECT_DEPENDS "${icon}")
+endfunction()
