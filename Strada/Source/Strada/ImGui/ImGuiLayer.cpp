@@ -142,6 +142,29 @@ namespace Strada
 			return physical;
 		}
 
+		// Where ImGui wants no OS cursor (ImGuiMouseCursor_None, such as over the editor's game view while the game hides the
+		// cursor, or a cursor ImGui draws itself), the cursor is hidden in every window ImGui draws into, as it can be over any
+		// of them. The GLFW backend means to do that but hides it in the first window only (the main one), and in none in the
+		// frame after cursor changes were off (ImGuiConfigFlags_NoMouseCursorChange): this completes it under the backend's
+		// own conditions. Once ImGui wants a cursor again, the backend shows it in every window.
+		void HideCursorInPlatformWindows(GLFWwindow* mainWindow)
+		{
+			ImGuiIO const& io = ImGui::GetIO();
+			bool const hidden = ImGui::GetMouseCursor() == ImGuiMouseCursor_None || io.MouseDrawCursor;
+			if (!hidden || (io.ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange) != 0 ||
+			    glfwGetInputMode(mainWindow, GLFW_CURSOR) == GLFW_CURSOR_DISABLED)
+			{
+				return;
+			}
+			for (ImGuiViewport const* viewport : ImGui::GetPlatformIO().Viewports)
+			{
+				if (GLFWwindow* const window = static_cast<GLFWwindow*>(viewport->PlatformHandle))
+				{
+					glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+				}
+			}
+		}
+
 		ImVec4 Rgb(uint32_t rgb, float alpha = 1.0f)
 		{
 			return ImVec4(static_cast<float>((rgb >> 16) & 0xFF) / 255.0f, static_cast<float>((rgb >> 8) & 0xFF) / 255.0f,
@@ -581,7 +604,9 @@ namespace Strada
 			return;
 		}
 
+		// The backend applies the cursor the last frame asked for, which ImGui keeps until NewFrame.
 		ImGui_ImplGlfw_NewFrame();
+		HideCursorInPlatformWindows(s_Input.MainWindow);
 		ImGui::NewFrame();
 		m_FrameStarted = true;
 	}

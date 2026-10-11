@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <span>
 
-struct GLFWwindow;
 struct ImGuiWindow;
 
 namespace Strada
@@ -57,8 +56,9 @@ namespace Strada
 
 	// Shows the scene the way the game sees it: through its primary camera, at the chosen resolution, letterboxed. While
 	// playing, the game view shares the window's input with the game through a GameInputRouter: it tells the router where
-	// the game is shown each frame, takes the focus when the game takes the input, and frames itself while the game has it.
-	// The scene view keeps showing the running scene through the editor camera.
+	// the game is shown each frame, takes the focus when the game takes the input, frames itself while the game has it and
+	// shows the cursor the game asks for meanwhile (hidden over the view, or locked). The scene view keeps showing the
+	// running scene through the editor camera.
 	class GameViewPanel
 	{
 	public:
@@ -70,14 +70,18 @@ namespace Strada
 		GameViewPanel& operator=(GameViewPanel const&) = delete;
 
 		void OnImGuiRender(EditorContext& context, bool& open);
+		// While the game has the input and locks the cursor, gives the editor's OS windows their cursor modes for it
+		// (GameInputRouter::GetWindowCursorMode: locked in the window showing the view, hidden in the others) and keeps ImGui
+		// from changing cursors (ImGuiConfigFlags_NoMouseCursorChange); afterwards it gives the cursors back to ImGui. A
+		// hidden game cursor needs none of this: OnImGuiRender asks ImGui for no cursor over the view. Call once per frame
+		// after the panels are drawn, also while the panel is closed.
+		void UpdateWindowCursors();
 
 		GameViewResolution GetResolution() const { return m_Resolution; }
 		void SetResolution(GameViewResolution resolution) { m_Resolution = resolution; }
 
 		// The size the game renders at, as of the last frame the panel was drawn.
 		glm::uvec2 GetRenderSize() const { return m_RenderSize; }
-		// The OS window the panel was last drawn in: the main window, or its own when dragged out of it; null before that.
-		GLFWwindow* GetPlatformWindow() const;
 		// What the game view's renderer drew in its last frame; null without a GPU.
 		SceneRendererStatistics const* GetRendererStatistics() const { return m_Renderer ? &m_Renderer->GetStatistics() : nullptr; }
 
@@ -93,5 +97,7 @@ namespace Strada
 		glm::uvec2 m_RenderSize = glm::uvec2(1280, 720);
 		// The panel's ImGui window once drawn (ImGui keeps windows for the context's lifetime).
 		ImGuiWindow* m_Window = nullptr;
+		// The OS windows have the game's locked cursor rather than ImGui's cursors (UpdateWindowCursors).
+		bool m_WindowCursorsLocked = false;
 	};
 }

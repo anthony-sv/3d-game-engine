@@ -38,7 +38,7 @@ namespace Strada
 			case EventType::MouseMoved:
 			{
 				auto const& move = static_cast<MouseMovedEvent const&>(event);
-				return RouteMove(glm::vec2(move.GetX(), move.GetY()));
+				return RouteMove(glm::vec2(move.GetX(), move.GetY()), context);
 			}
 			case EventType::MouseScrolled:
 			{
@@ -100,6 +100,15 @@ namespace Strada
 	void GameInputRouter::BeginFrame()
 	{
 		FlushRelease();
+	}
+
+	CursorMode GameInputRouter::GetWindowCursorMode(uint32_t viewport) const
+	{
+		if (GetCursorMode() != CursorMode::Locked)
+		{
+			return CursorMode::Normal;
+		}
+		return viewport == m_View.Viewport ? CursorMode::Locked : CursorMode::Hidden;
 	}
 
 	bool GameInputRouter::TakeFocusRequest()
@@ -164,8 +173,15 @@ namespace Strada
 		return true;
 	}
 
-	bool GameInputRouter::RouteMove(glm::vec2 cursor)
+	bool GameInputRouter::RouteMove(glm::vec2 cursor, ImGuiLayer::InputContext const& context)
 	{
+		// A locked cursor moves with the window showing the game view alone. On Windows another window of the editor (a panel
+		// dragged out of it) can lie over that window's middle, where the hidden cursor is kept, and report positions of its
+		// own there: mixed with the locked window's movement, they would make the game's cursor jump.
+		if (m_HasInput && m_GameCursorMode == CursorMode::Locked && context.Viewport != m_View.Viewport)
+		{
+			return false;
+		}
 		m_Cursor = cursor;
 		m_HasCursor = true;
 		if (!m_HasInput)
@@ -203,9 +219,10 @@ namespace Strada
 
 	void GameInputRouter::FlushRelease()
 	{
+		// Only what the router shares: gamepads are not the windows' and keep their state.
 		if (std::exchange(m_ReleasePending, false))
 		{
-			Input::ReleaseAll();
+			Input::ReleaseKeysAndMouseButtons();
 		}
 	}
 }

@@ -314,7 +314,7 @@ namespace Strada
 		                      Json(), false,
 		                      [](Json const&) -> CommandResult
 		                      {
-								  Input::ReleaseAll();
+								  Input::ReleaseKeysAndMouseButtons();
 								  return DescribeInput();
 							  })
 		                : result;

@@ -258,7 +258,7 @@ whether or not the game view has the window's input. Scene and project file comm
 | `play.advance` | `frames`*, `timestep` (seconds, default 1/60) | Play state plus `framesRun`; runs the frames at once (pause first for deterministic runs); stops early when the scripts quit |
 | `play.state` | — | `state` (`edit`, `play`, `simulate`), `paused`, `startPending`, `scene`, `frame` and `time` while playing, `tests` (the run's test report or null) |
 | `input.set` | `keys` (name -> down), `mouseButtons` (name -> down), `mousePosition` ([x, y] in game-view pixels), `scroll` | `keys`, `mouseButtons` down and `mousePosition`; key and button names are KeyCode and MouseButton names; pressed and released last one frame |
-| `input.release` | — | Same as `input.set`; releases every key and button |
+| `input.release` | — | Same as `input.set`; releases every key and mouse button (gamepads keep their polled state) |
 | `test.run` | `scene` (scene file relative to Assets; default a copy of the edited scene), `timeout` (game seconds, default 60), `timestep` (default 1/60) | `finished`, `timedOut`, `frames`, `passed`, `failed`, `exceptions`, `failures`, `results`: `[{ name, passed, message }]`; asynchronous; plays until the scripts call `TestReporter.Finish`, quit or time out |
 
 ### log and viewport

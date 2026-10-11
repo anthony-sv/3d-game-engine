@@ -65,8 +65,10 @@ namespace Strada
 
 		// Ends the frame: clears pressed/released flags and per-frame deltas. Called once per frame by Application.
 		static void EndFrame();
-		// Releases everything (e.g. when the window loses focus or play mode stops). Held keys report Released.
-		static void ReleaseAll();
+		// Releases the keys and mouse buttons held, which report Released: for when their release events will not come (the
+		// window lost the focus, the editor took the game's input back, play mode stopped). Gamepads keep their state: it is
+		// polled every frame, so a button held on one is still held.
+		static void ReleaseKeysAndMouseButtons();
 		// Clears all state including flags; used by tests and on shutdown.
 		static void Reset();
 

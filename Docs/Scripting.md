@@ -175,8 +175,10 @@ public class Mover : Script
 In the editor the game has the keyboard and mouse from the moment Play starts: every key and click on the Game View
 goes to the game alone, Escape and Enter included, except Shift+Esc, which gives the input back to the editor, and the
 play shortcuts (Ctrl+P, Ctrl+Shift+P, Ctrl+Alt+P). A click elsewhere in the editor gives the input back too, and a click
-on the view returns it to the game. `Application.WindowWidth` and `WindowHeight` are the size the game
-view renders at, which its resolution menu chooses.
+on the view returns it to the game. `CursorMode` applies while the game has the input: a hidden cursor is hidden over
+the Game View only, a locked one is locked until the input goes back to the editor. Gamepads reach the game whoever has
+the keyboard and mouse. `Application.WindowWidth` and `WindowHeight` are the size the game view renders at, which its
+resolution menu chooses.
 
 ## Physics
 

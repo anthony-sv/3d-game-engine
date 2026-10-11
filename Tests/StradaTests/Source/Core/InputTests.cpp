@@ -120,16 +120,34 @@ TEST_CASE_FIXTURE(InputFixture, "Input: warping the cursor moves it without repo
 	CHECK(Input::GetMousePosition() == glm::vec2(498.0f, 401.0f));
 }
 
-TEST_CASE_FIXTURE(InputFixture, "Input: release all reports releases for held input")
+TEST_CASE_FIXTURE(InputFixture, "Input: releasing the keys and mouse buttons reports their releases and leaves gamepads alone")
 {
 	Input::SetKeyState(KeyCode::LeftShift, true);
 	Input::SetMouseButtonState(MouseButton::Right, true);
+	Input::GamepadState gamepad;
+	gamepad.Connected = true;
+	gamepad.Buttons[static_cast<size_t>(GamepadButton::A)] = true;
+	gamepad.Axes[static_cast<size_t>(GamepadAxis::LeftY)] = -0.5f;
+	Input::SetGamepadState(0, gamepad);
 	Input::EndFrame();
 
-	Input::ReleaseAll();
+	Input::ReleaseKeysAndMouseButtons();
 	CHECK_FALSE(Input::IsKeyDown(KeyCode::LeftShift));
 	CHECK(Input::IsKeyReleased(KeyCode::LeftShift));
+	CHECK_FALSE(Input::IsMouseButtonDown(MouseButton::Right));
 	CHECK(Input::IsMouseButtonReleased(MouseButton::Right));
+	// A gamepad is polled every frame: a button held on it stays held, without a release and a second press.
+	CHECK(Input::IsGamepadButtonDown(0, GamepadButton::A));
+	CHECK_FALSE(Input::IsGamepadButtonReleased(0, GamepadButton::A));
+	CHECK(Input::GetGamepadAxis(0, GamepadAxis::LeftY) == doctest::Approx(-0.5f));
+	Input::SetGamepadState(0, gamepad);
+	CHECK_FALSE(Input::IsGamepadButtonPressed(0, GamepadButton::A));
+
+	// Nothing held: nothing to report.
+	Input::EndFrame();
+	Input::ReleaseKeysAndMouseButtons();
+	CHECK_FALSE(Input::IsKeyReleased(KeyCode::LeftShift));
+	CHECK_FALSE(Input::IsMouseButtonReleased(MouseButton::Right));
 }
 
 TEST_CASE_FIXTURE(InputFixture, "Input: gamepad state, buttons and disconnection")

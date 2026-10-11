@@ -304,7 +304,7 @@ namespace Strada
 		s_Data.ScrollDelta = {0.0f, 0.0f};
 	}
 
-	void Input::ReleaseAll()
+	void Input::ReleaseKeysAndMouseButtons()
 	{
 		for (ButtonState& state : s_Data.Keys)
 		{
@@ -313,13 +313,6 @@ namespace Strada
 		for (ButtonState& state : s_Data.MouseButtons)
 		{
 			ApplyButtonState(state, false);
-		}
-		for (GamepadData& gamepad : s_Data.Gamepads)
-		{
-			for (ButtonState& state : gamepad.Buttons)
-			{
-				ApplyButtonState(state, false);
-			}
 		}
 	}
 

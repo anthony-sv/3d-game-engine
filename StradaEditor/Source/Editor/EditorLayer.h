@@ -30,8 +30,6 @@
 #include <optional>
 #include <string>
 
-struct GLFWwindow;
-
 namespace Strada
 {
 	struct EditorLayerSpecification
@@ -107,9 +105,6 @@ namespace Strada
 		void StartPlay(EditorPlayState state);
 		// The size the game renders at: the game view's, or the project's window when there is no UI.
 		glm::uvec2 GetGameViewSize() const;
-		// Shows the cursor the game asked for on the window showing the game view while the game has the input, and the
-		// normal cursor (managed by ImGui) otherwise.
-		void UpdateGameCursor();
 		// The scripts' and the export's state for the menu bar; empty while nothing needs attention.
 		std::string GetScriptStatus() const;
 		std::string GetExportStatus() const;
@@ -165,9 +160,6 @@ namespace Strada
 		// Created when ImGui is available.
 		Scope<ViewportPanel> m_ViewportPanel;
 		Scope<GameViewPanel> m_GameViewPanel;
-		// The window showing the game's cursor mode while it is not Normal (null: ImGui manages the cursor).
-		GLFWwindow* m_GameCursorWindow = nullptr;
-		CursorMode m_GameCursorMode = CursorMode::Normal;
 		bool m_ShowViewport = true;
 		bool m_ShowGameView = true;
 		bool m_ShowHierarchy = true;

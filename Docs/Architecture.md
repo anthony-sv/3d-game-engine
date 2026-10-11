@@ -168,11 +168,12 @@ partial atlas uploads) and the multi-viewport renderer callbacks.
 platform windows of panels dragged out of it; the GLFW backend is initialized without its own). Without an input filter
 the application gets the main window's input as it would without ImGui, ImGui gets it as well, and the events ImGui
 wants to capture are marked handled (layers below do not see them, and `Input` only their releases and cursor
-movement). An input filter
-(`ImGuiLayer::SetInputFilter`; the editor's `GameInputRouter`) sees every keyboard and mouse event of those windows
-first, with the cursor in ImGui's coordinates, the ImGui viewport of the window it comes from, the key the keyboard
-layout names and the modifiers held, and returns whether ImGui receives it; the application then gets no input events
-of its own, and the filter gives `Input` what the game should have.
+movement). An input filter (`ImGuiLayer::SetInputFilter`; the editor's `GameInputRouter`) sees every keyboard and mouse
+event of those windows first, with the cursor in ImGui's coordinates, the ImGui viewport of the window it comes from,
+the key the keyboard layout names and the modifiers held, and returns whether ImGui receives it; the application then
+gets no input events of its own, and the filter gives `Input` what the game should have. Where ImGui wants no cursor
+(`ImGuiMouseCursor_None`), the layer hides the OS cursor in every one of those windows: the GLFW backend alone hides it
+in the main window only, and not in the frame after cursor changes were off (`ImGuiConfigFlags_NoMouseCursorChange`).
 
 Shaders (`Strada/Shaders/*.hlsl`) are compiled by DXC to SPIR-V at build time with flags matching NVRHI's default
 Vulkan binding offsets, embedded into the library, and fetched by name through `ShaderLibrary`.
@@ -719,11 +720,14 @@ than the assembly.
   a popup or window over the view, the window of a panel dragged out of the editor) goes to the editor and gives the
   input back, and so do the view hiding behind another tab or losing the focus and playing stopping. The game sees each
   event in the frame it happens, with the cursor in the pixels it renders and no movement when it gets the cursor back
-  somewhere else; releases reach both sides, and what the game held is released when it gives the input back, so no key
-  stays held on either side. The cursor mode the game asks for (hidden, locked) applies to the window showing the game
-  view while the game has the input. A blue frame marks the game view meanwhile and its toolbar says how to release it;
-  without the input the game gets nothing and the editor works as usual. Automation's `input.set` and `input.release`
-  act on the game's input directly.
+  somewhere else; releases reach both sides, and the keys and mouse buttons the game held are released when it gives the
+  input back, so none stays held on either side. Gamepads are not shared: the game reads them whoever has the keyboard and
+  mouse. The cursor mode the game asks for applies while it has the input: a hidden cursor is hidden over the game view
+  alone (the game view asks ImGui for no cursor there), and a locked cursor is locked to the window showing the game view,
+  moves with that window only and is hidden over the editor's other windows, ImGui changing no cursor meanwhile
+  (`GameViewPanel::UpdateWindowCursors`). A blue frame marks the game view meanwhile and its toolbar says how to release
+  it; without the input the game gets nothing and the editor works as usual. Automation's `input.set` and
+  `input.release` act on the game's input directly.
 - Project management: File > New Project (name and location; the start scene is the editor's sample scene),
   Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
