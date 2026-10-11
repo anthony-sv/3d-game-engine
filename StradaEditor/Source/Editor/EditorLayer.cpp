@@ -26,14 +26,13 @@
 #include <imgui_stdlib.h>
 
 #include <array>
-#include <utility>
 
 namespace Strada
 {
 	namespace
 	{
 		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set.
-		constexpr char const* DockspaceName = "Strada.Dockspace.v6";
+		constexpr char const* DockspaceName = "Strada.Dockspace.v7";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* NewScriptPopup = "New Script";
@@ -124,6 +123,10 @@ namespace Strada
 			environment.ViewportStatistics = [this]() -> SceneRendererStatistics const*
 			{
 				return m_ViewportPanel->GetRendererStatistics();
+			};
+			environment.ContentBrowser = [this]() -> ContentBrowserPanel&
+			{
+				return m_ContentBrowserPanel;
 			};
 		}
 		environment.RequestQuit = []
@@ -341,7 +344,7 @@ namespace Strada
 			ImGui::ShowDemoWindow(&m_ShowImGuiDemo);
 		}
 
-		if (std::exchange(m_FocusDefaultTabs, false))
+		if (m_FocusDefaultTabsFrames > 0 && --m_FocusDefaultTabsFrames == 0)
 		{
 			ImGui::SetWindowFocus("Inspector");
 			ImGui::SetWindowFocus("Scene View");
@@ -387,8 +390,9 @@ namespace Strada
 		ImGui::DockBuilderDockWindow("Content Browser", bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
 		ImGui::DockBuilderFinish(dockspace);
-		// The windows docked last would be the tabs in front; the panels are drawn after this.
-		m_FocusDefaultTabs = true;
+		// The windows docked last would be the tabs in front. Windows can be focused once they exist: after the panels are
+		// drawn in this frame, so in the next one.
+		m_FocusDefaultTabsFrames = 2;
 	}
 
 	void EditorLayer::DrawMenuBar()

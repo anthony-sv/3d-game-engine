@@ -2,6 +2,7 @@
 
 add_executable(StradaEditorTests
     Source/AssetEditingTests.cpp
+    Source/AssetThumbnailsTests.cpp
     Source/AutomationFuzzTests.cpp
     Source/AutomationServerTests.cpp
     Source/CommandRegistryTests.cpp

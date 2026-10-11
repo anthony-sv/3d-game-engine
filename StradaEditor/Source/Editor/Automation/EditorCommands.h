@@ -10,6 +10,7 @@
 
 namespace Strada
 {
+	class ContentBrowserPanel;
 	class EditorCamera;
 	struct SceneRendererStatistics;
 
@@ -31,6 +32,9 @@ namespace Strada
 		// The statistics of the last frame the viewport rendered, null when it has no renderer (no GPU). Unset when the
 		// editor has no viewport (headless). viewport.statistics fails with AutomationErrorCode::Unavailable in both cases.
 		std::function<SceneRendererStatistics const*()> ViewportStatistics;
+		// The content browser panel. Unset when the editor has no UI (headless); asset.browse then fails with
+		// AutomationErrorCode::Unavailable.
+		std::function<ContentBrowserPanel&()> ContentBrowser;
 	};
 
 	// Registers the editor, project, scene, entity, component, asset, material, prefab, log and viewport commands. Entity parameters are

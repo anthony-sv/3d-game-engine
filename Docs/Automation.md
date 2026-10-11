@@ -205,6 +205,7 @@ relative to the project's `Assets` directory with forward slashes. Asset file op
 | `asset.select` | `asset`* | the selection: the inspector shows the asset instead of entities (not undoable) |
 | `asset.import` | `files`* (absolute paths), `folder` | `assets` (all or nothing; taken names get a number) |
 | `asset.refresh` | — | `added`, `missing`, `modified` (assets), `warnings` |
+| `asset.browse` | `folder` (relative to Assets, `""` for Assets itself), `tileScale` (0.6 to 2.5); both optional | Shows the folder in the content browser and sizes its tiles; returns `folder`, `tileScale`; changes nothing in the project; InvalidParams for folders outside the asset directory; Unavailable when headless |
 | `asset.move` | `asset`*, `path`* | the moved asset |
 | `asset.delete` | `asset`* | `deleted` (id) |
 | `asset.create-folder` | `folder`* | `folder` |

@@ -6,6 +6,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/ImGui/ImGuiRenderer.h"
 
 #include <imgui.h>
 #include <imgui_stdlib.h>
@@ -52,7 +53,9 @@ namespace Strada
 			return {"?", IM_COL32(90, 90, 90, 255)};
 		}
 
-		constexpr ImU32 FolderColor = IM_COL32(200, 160, 70, 255);
+		constexpr ImU32 FolderColor = IM_COL32(222, 178, 82, 255);
+		constexpr ImU32 PageColor = IM_COL32(222, 226, 233, 255);
+		constexpr ImU32 PageFoldColor = IM_COL32(170, 176, 186, 255);
 		constexpr ImVec4 MissingColor = ImVec4(0.95f, 0.40f, 0.35f, 1.0f);
 		// Tiles scale with the font (and so with the display scale).
 		constexpr float TileSizeInFontSizes = 5.5f;
@@ -209,6 +212,8 @@ namespace Strada
 			m_Renaming.reset();
 			m_PendingDelete.reset();
 			m_Listing.Valid = false;
+			m_Subfolders.clear();
+			m_Thumbnails.Clear();
 		}
 		if (project == nullptr || !AssetManager::IsInitialized() || !AssetManager::HasAssetDirectory())
 		{
@@ -223,13 +228,25 @@ namespace Strada
 			m_SelectedFolder.clear();
 		}
 
-		DrawToolbar(operations);
-		ImGui::Separator();
-		// After the toolbar, which may navigate, search or create.
-		UpdateListing();
-		DrawItems(operations);
+		// The folder tree on the left, the toolbar and the tiles on the right.
+		if (ImGui::BeginTable("##layout", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV))
+		{
+			ImGui::TableSetupColumn("Folders", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() * 12.0f);
+			ImGui::TableSetupColumn("Assets", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			DrawFolderTree(operations);
+			ImGui::TableNextColumn();
+			DrawToolbar(operations);
+			ImGui::Separator();
+			// After the toolbar, which may navigate, search or create.
+			UpdateListing();
+			DrawItems(operations);
+			ImGui::EndTable();
+		}
 		HandleShortcuts(context);
 		DrawDeletePopup(operations);
+		m_Thumbnails.Update();
 
 		std::vector<std::function<void()>> deferred;
 		deferred.swap(m_Deferred);
@@ -329,7 +346,7 @@ namespace Strada
 			size_t const end = std::min(m_Folder.find('/', start), m_Folder.size());
 			std::string const partial = m_Folder.substr(0, end);
 			ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-			ImGui::TextDisabled(">");
+			ImGui::TextDisabled("/");
 			ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
 			ImGui::PushID(partial.c_str());
 			bool const clicked = ImGui::Button(m_Folder.substr(start, end - start).c_str());
@@ -344,11 +361,19 @@ namespace Strada
 		}
 
 		// The search field and the buttons sit at the right edge unless the breadcrumbs reach it.
-		float const searchWidth = ImGui::GetFontSize() * 14.0f;
+		float const searchWidth = ImGui::GetFontSize() * 12.0f;
+		float const sliderWidth = ImGui::GetFontSize() * 6.0f;
 		float const buttonsWidth = ImGui::CalcTextSize("+").x + ImGui::CalcTextSize("Import").x + ImGui::CalcTextSize("Refresh").x +
-		                           ImGui::GetStyle().FramePadding.x * 6.0f + ImGui::GetStyle().ItemSpacing.x * 3.0f;
+		                           ImGui::GetStyle().FramePadding.x * 6.0f + ImGui::GetStyle().ItemSpacing.x * 4.0f;
 		ImGui::SameLine();
-		ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), rightEdge - searchWidth - buttonsWidth));
+		ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), rightEdge - sliderWidth - searchWidth - buttonsWidth));
+		ImGui::SetNextItemWidth(sliderWidth);
+		if (ImGui::SliderFloat("##size", &m_TileScale, MinTileScale, MaxTileScale, "Size", ImGuiSliderFlags_AlwaysClamp))
+		{
+			SetTileScale(m_TileScale);
+		}
+		ImGui::SetItemTooltip("Tile size");
+		ImGui::SameLine();
 		ImGui::SetNextItemWidth(searchWidth);
 		ImGui::InputTextWithHint("##search", "Search", &m_Filter);
 		ImGui::SameLine();
@@ -384,6 +409,88 @@ namespace Strada
 		ImGui::SetItemTooltip("Find new, missing and modified files");
 	}
 
+	void ContentBrowserPanel::SetTileScale(float scale)
+	{
+		m_TileScale = std::clamp(scale, MinTileScale, MaxTileScale);
+		// The labels are laid out again for the new width.
+		for (Item& item : m_Listing.Items)
+		{
+			item.LinesWidth = 0.0f;
+		}
+	}
+
+	std::vector<std::string> const& ContentBrowserPanel::GetSubfolders(std::string const& folder)
+	{
+		double const now = ImGui::GetTime();
+		if (now - m_SubfoldersTime >= RescanInterval || m_SubfoldersAssetVersion != AssetManager::GetVersion())
+		{
+			m_Subfolders.clear();
+			m_SubfoldersTime = now;
+			m_SubfoldersAssetVersion = AssetManager::GetVersion();
+		}
+		auto found = m_Subfolders.find(folder);
+		if (found == m_Subfolders.end())
+		{
+			found = m_Subfolders.emplace(folder, AssetBrowsing::ListFolders(folder)).first;
+		}
+		return found->second;
+	}
+
+	void ContentBrowserPanel::DrawFolderTree(EditorOperations& operations)
+	{
+		if (!ImGui::BeginChild("##folders"))
+		{
+			ImGui::EndChild();
+			return;
+		}
+		DrawFolderTreeNode(operations, "");
+		m_TreeRevealedFolder = m_Folder;
+		ImGui::EndChild();
+	}
+
+	void ContentBrowserPanel::DrawFolderTreeNode(EditorOperations& operations, std::string const& folder)
+	{
+		// Copied: drawing the children may list folders again and replace the cached vector.
+		std::vector<std::string> const children = GetSubfolders(folder);
+		ImGuiTreeNodeFlags flags =
+			ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
+		if (children.empty())
+		{
+			flags |= ImGuiTreeNodeFlags_Leaf;
+		}
+		if (folder == m_Folder && m_Filter.empty())
+		{
+			flags |= ImGuiTreeNodeFlags_Selected;
+		}
+		if (folder.empty())
+		{
+			flags |= ImGuiTreeNodeFlags_DefaultOpen;
+		}
+		// The displayed folder's ancestors open when it changes (navigating in the tiles).
+		if (m_TreeRevealedFolder != m_Folder && !folder.empty() && m_Folder.starts_with(folder + "/"))
+		{
+			ImGui::SetNextItemOpen(true);
+		}
+		ImGui::PushID(folder.c_str());
+		bool const open = ImGui::TreeNodeEx("##node", flags, "%s", folder.empty() ? "Assets" : AssetBrowsing::GetFileName(folder).c_str());
+		ImGui::PopID();
+		if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen())
+		{
+			m_Folder = folder;
+			m_Filter.clear();
+		}
+		AcceptDrop(operations, folder);
+		if (!open)
+		{
+			return;
+		}
+		for (std::string const& child : children)
+		{
+			DrawFolderTreeNode(operations, child);
+		}
+		ImGui::TreePop();
+	}
+
 	void ContentBrowserPanel::DrawItems(EditorOperations& operations)
 	{
 		if (ImGui::BeginChild("##items"))
@@ -394,7 +501,7 @@ namespace Strada
 			}
 			std::vector<Item>& items = m_Listing.Items;
 			ImGuiStyle const& style = ImGui::GetStyle();
-			float const tileSize = std::round(ImGui::GetFontSize() * TileSizeInFontSizes);
+			float const tileSize = std::round(ImGui::GetFontSize() * TileSizeInFontSizes * m_TileScale);
 			size_t const columns = static_cast<size_t>(
 				std::max(1.0f, std::floor((ImGui::GetContentRegionAvail().x + style.ItemSpacing.x) / (tileSize + style.ItemSpacing.x))));
 			size_t const rows = (items.size() + columns - 1) / columns;
@@ -505,13 +612,42 @@ namespace Strada
 			                        ImVec2(iconMin.x + (iconMax.x - iconMin.x) * 0.45f, iconMin.y + tabHeight * 1.4f), FolderColor, 3.0f);
 			drawList->AddRectFilled(ImVec2(iconMin.x, iconMin.y + tabHeight), iconMax, FolderColor, 4.0f);
 		}
+		else if (nvrhi::ITexture* thumbnail = m_Thumbnails.Get(item.Asset))
+		{
+			// Textures keep their aspect ratio; rendered thumbnails are square.
+			nvrhi::TextureDesc const& desc = thumbnail->getDesc();
+			float const aspect = static_cast<float>(desc.width) / static_cast<float>(std::max(desc.height, 1u));
+			ImVec2 const area(iconMax.x - iconMin.x, iconMax.y - iconMin.y);
+			ImVec2 const size = aspect >= 1.0f ? ImVec2(area.x, area.y / aspect) : ImVec2(area.x * aspect, area.y);
+			ImVec2 const imageMin(iconMin.x + (area.x - size.x) * 0.5f, iconMin.y + (area.y - size.y) * 0.5f);
+			ImVec2 const imageMax(imageMin.x + size.x, imageMin.y + size.y);
+			drawList->AddImageRounded(ImGuiRenderer::GetTextureID(thumbnail), imageMin, imageMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
+			                          IM_COL32_WHITE, 4.0f);
+			// The type in a corner.
+			TypeStyle const style = GetTypeStyle(item.Type);
+			float const dot = std::max(4.0f, tileSize * 0.05f);
+			drawList->AddCircleFilled(ImVec2(imageMax.x - dot * 1.4f, imageMax.y - dot * 1.4f), dot, style.Color);
+		}
 		else
 		{
+			// A page with a folded corner and the type on a colored band.
 			TypeStyle const style = GetTypeStyle(item.Type);
-			drawList->AddRectFilled(iconMin, iconMax, style.Color, 6.0f);
+			float const width = (iconMax.x - iconMin.x) * 0.78f;
+			ImVec2 const pageMin(iconMin.x + ((iconMax.x - iconMin.x) - width) * 0.5f, iconMin.y);
+			ImVec2 const pageMax(pageMin.x + width, iconMax.y);
+			float const fold = width * 0.28f;
+			drawList->AddRectFilled(pageMin, ImVec2(pageMax.x - fold, pageMax.y), PageColor, 4.0f, ImDrawFlags_RoundCornersLeft);
+			drawList->AddRectFilled(ImVec2(pageMax.x - fold - 1.0f, pageMin.y + fold), pageMax, PageColor, 4.0f,
+			                        ImDrawFlags_RoundCornersBottomRight);
+			drawList->AddTriangleFilled(ImVec2(pageMax.x - fold - 1.0f, pageMin.y), ImVec2(pageMax.x, pageMin.y + fold),
+			                            ImVec2(pageMax.x - fold - 1.0f, pageMin.y + fold), PageFoldColor);
+			float const bandHeight = ImGui::GetFontSize() * 1.25f;
+			ImVec2 const bandMin(pageMin.x, pageMax.y - bandHeight * 1.6f);
+			ImVec2 const bandMax(pageMax.x, pageMax.y - bandHeight * 0.6f);
+			drawList->AddRectFilled(bandMin, bandMax, style.Color);
 			ImVec2 const labelSize = ImGui::CalcTextSize(style.Label);
-			drawList->AddText(ImVec2((iconMin.x + iconMax.x - labelSize.x) * 0.5f, (iconMin.y + iconMax.y - labelSize.y) * 0.5f),
-			                  IM_COL32(255, 255, 255, 230), style.Label);
+			drawList->AddText(ImVec2((bandMin.x + bandMax.x - labelSize.x) * 0.5f, (bandMin.y + bandMax.y - labelSize.y) * 0.5f),
+			                  IM_COL32(255, 255, 255, 240), style.Label);
 		}
 
 		if (m_Renaming && m_Renaming->Path == item.Path)

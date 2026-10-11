@@ -4,6 +4,7 @@
 #include "Editor/DefaultScene.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EntityBounds.h"
+#include "Editor/Panels/ContentBrowserPanel.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
@@ -1683,6 +1684,59 @@ namespace Strada
 				result = m_Registry.Register(std::move(screenshot));
 
 				result =
+					result ? Add("asset.browse",
+				                 "Shows a folder of the asset directory in the editor's content browser (relative to Assets with forward "
+				                 "slashes, \"\" for Assets itself) and sets the size of its tiles; returns { folder, tileScale }. Changes "
+				                 "nothing in the project. Unavailable without the editor's UI (headless).",
+				                 SchemaBuilder::Object()
+				                     .Property("folder", SchemaBuilder::String("Folder relative to Assets"))
+				                     .Property("tileScale", SchemaBuilder::Number("Tile size as a multiple of the default")
+				                                                .Minimum(ContentBrowserPanel::MinTileScale)
+				                                                .Maximum(ContentBrowserPanel::MaxTileScale))
+				                     .Build(),
+				                 false,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 if (!m_Environment.ContentBrowser)
+									 {
+										 return MakeCommandError(AutomationErrorCode::Unavailable,
+						                                         "the editor has no content browser (headless)");
+									 }
+									 if (std::optional<CommandError> error = CheckAssets(true))
+									 {
+										 return *error;
+									 }
+									 ContentBrowserPanel& browser = m_Environment.ContentBrowser();
+									 if (params.contains("folder"))
+									 {
+										 std::string const folder = params["folder"].get<std::string>();
+										 std::filesystem::path const& assets = AssetManager::GetAssetDirectory();
+										 std::filesystem::path const relative = FileSystem::PathFromUtf8(folder).lexically_normal();
+										 std::filesystem::path const absolute = (assets / relative).lexically_normal();
+										 if (relative.is_absolute() || !FileSystem::IsInside(absolute, assets) ||
+						                     !FileSystem::IsDirectory(absolute))
+										 {
+											 return MakeCommandError(AutomationErrorCode::InvalidParams,
+							                                         "'{}' is not a folder of the asset directory", folder);
+										 }
+										 // "Textures/", "./Textures" and "Textures" are the same folder; "" and "." are Assets.
+										 std::string normalized = FileSystem::PathToUtf8(FileSystem::GetRelativePath(absolute, assets));
+										 std::replace(normalized.begin(), normalized.end(), '\\', '/');
+										 while (normalized.ends_with('/'))
+										 {
+											 normalized.pop_back();
+										 }
+										 browser.SetFolder(normalized == "." ? std::string() : normalized);
+									 }
+									 if (params.contains("tileScale"))
+									 {
+										 browser.SetTileScale(params["tileScale"].get<float>());
+									 }
+									 return Json::object({{"folder", browser.GetFolder()}, {"tileScale", browser.GetTileScale()}});
+								 })
+						   : result;
+
+				result =
 					result ? Add("viewport.camera",
 				                 "The editor viewport's camera, which orbits a focal point: sets the given values (the others stay) and "
 				                 "returns the view: { focalPoint, distance, yaw, pitch (degrees), position, forward }. Not undoable; "
@@ -1730,8 +1784,8 @@ namespace Strada
 				result =
 					result
 						? Add("viewport.statistics",
-				              "What the viewport's renderer drew in the last frame it rendered (the editor view, or the game while "
-				              "playing): gpuMilliseconds (the GPU time of its latest finished frame; null before one finished or when the "
+				              "What the scene view's renderer drew in the last frame it rendered (the scene through the editor "
+				              "camera): gpuMilliseconds (the GPU time of its latest finished frame; null before one finished or when the "
 				              "GPU cannot measure time), drawCalls (shadow-map draws included), triangles, shadowDrawCalls, shadowMapViews, "
 				              "shadowsDropped (shadow-casting lights beyond the shadow-map budget), lights, culledLights (point and spot "
 				              "lights out of the view's reach), culled (submeshes outside the view), quads (sprites and text glyphs). "

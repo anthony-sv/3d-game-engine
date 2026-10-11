@@ -627,8 +627,10 @@ than the assembly.
   in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
   editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
   read-only), a texture preview, mesh statistics with the mesh's materials, and the details of other asset types.
-- Content Browser: the open project's asset directory as tiles (folders, then assets with a colored type badge;
-  missing files in red), breadcrumbs, and a search over every asset path. Click selects (the inspector shows the
+- Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
+  files in red), breadcrumbs, a tile size slider, and a search over every asset path. Textures show themselves, and
+  materials (on a sphere), meshes, prefabs and environments show thumbnails that `AssetThumbnails` renders offscreen,
+  one per frame, again when the asset is reloaded or a material edited; other assets show a page with their type. Click selects (the inspector shows the
   asset), double-click opens folders and scenes; F2 renames, Delete deletes after a confirmation. Assets and folders
   drag onto folder tiles and breadcrumbs to move (handles stay valid); assets drag into asset fields, the hierarchy
   (meshes become entities, as children when dropped onto a row) and the viewport (meshes become entities on the

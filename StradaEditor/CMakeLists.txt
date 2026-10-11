@@ -7,6 +7,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/AssetBrowsing.h
     Source/Editor/AssetDrops.cpp
     Source/Editor/AssetDrops.h
+    Source/Editor/AssetThumbnails.cpp
+    Source/Editor/AssetThumbnails.h
     Source/Editor/Automation/AutomationInstance.cpp
     Source/Editor/Automation/AutomationInstance.h
     Source/Editor/Automation/AutomationServer.cpp

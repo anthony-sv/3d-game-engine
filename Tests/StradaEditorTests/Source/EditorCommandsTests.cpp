@@ -2,6 +2,7 @@
 
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/EditorCamera.h"
+#include "Editor/Panels/ContentBrowserPanel.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Base64.h"
@@ -30,6 +31,7 @@ namespace
 		// The viewport's camera and renderer statistics when there is a window (no statistics: no GPU renderer).
 		EditorCamera Camera;
 		std::optional<SceneRendererStatistics> Statistics;
+		ContentBrowserPanel ContentBrowser;
 
 		explicit CommandFixture(bool withWindow = false)
 		{
@@ -55,6 +57,10 @@ namespace
 				environment.ViewportStatistics = [this]() -> SceneRendererStatistics const*
 				{
 					return Statistics ? &*Statistics : nullptr;
+				};
+				environment.ContentBrowser = [this]() -> ContentBrowserPanel&
+				{
+					return ContentBrowser;
 				};
 			}
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
@@ -98,11 +104,11 @@ TEST_CASE("EditorCommands: every command is registered with a schema and descrip
 {
 	CommandFixture fixture;
 	for (char const* name :
-	     {"editor.status", "editor.commands",     "editor.undo",     "editor.redo",      "editor.quit",        "scene.new",
-	      "scene.open",    "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings",     "entity.create",
-	      "entity.delete", "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",        "entity.get",
-	      "entity.select", "component.types",     "component.add",   "component.remove", "component.get",      "component.set",
-	      "log.read",      "viewport.screenshot", "viewport.camera", "viewport.frame",   "viewport.statistics"})
+	     {"editor.status", "editor.commands",     "editor.undo",     "editor.redo",      "editor.quit",         "scene.new",
+	      "scene.open",    "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings",      "entity.create",
+	      "entity.delete", "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",         "entity.get",
+	      "entity.select", "component.types",     "component.add",   "component.remove", "component.get",       "component.set",
+	      "log.read",      "viewport.screenshot", "viewport.camera", "viewport.frame",   "viewport.statistics", "asset.browse"})
 	{
 		CAPTURE(name);
 		CHECK(fixture.Registry.Contains(name));
@@ -209,6 +215,7 @@ TEST_CASE("EditorCommands: errors carry precise codes")
 	CHECK(fixture.Fails("viewport.camera") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", {entity}}})) == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.statistics") == AutomationErrorCode::Unavailable);
+	CHECK(fixture.Fails("asset.browse", Json::object({{"folder", ""}})) == AutomationErrorCode::Unavailable);
 }
 
 TEST_CASE("EditorCommands: scene files and unsaved changes")
@@ -530,6 +537,42 @@ TEST_CASE("EditorCommands: the viewport camera is read, set and pointed at entit
 	CHECK(both["yaw"].get<float>() == 90.0f);
 	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", {"123"}}})) == AutomationErrorCode::EntityNotFound);
 	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", Json::array()}})) == AutomationErrorCode::InvalidParams);
+}
+
+TEST_CASE("EditorCommands: asset.browse shows folders of the asset directory in the content browser")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	Testing::TemporaryDirectory directory;
+	CommandFixture fixture(true);
+	// Without a project there are no folders to show.
+	CHECK(fixture.Fails("asset.browse", Json::object({{"folder", ""}})) == AutomationErrorCode::InvalidOperation);
+
+	fixture.Ok("project.create", Json::object({{"directory", FileSystem::PathToUtf8(directory.GetPath() / "Game")}, {"name", "Game"}}));
+	fixture.Ok("asset.create-folder", Json::object({{"folder", "Textures/Wood"}}));
+	Json const shown = fixture.Ok("asset.browse", Json::object({{"folder", "Textures/Wood/"}, {"tileScale", 1.5}}));
+	CHECK(shown["folder"] == "Textures/Wood");
+	CHECK(shown["tileScale"].get<float>() == 1.5f);
+	CHECK(fixture.ContentBrowser.GetFolder() == "Textures/Wood");
+	CHECK(fixture.ContentBrowser.GetTileScale() == 1.5f);
+	// Equivalent spellings of Assets itself; the scale stays when not given.
+	CHECK(fixture.Ok("asset.browse", Json::object({{"folder", "./Textures/.."}}))["folder"] == "");
+	CHECK(fixture.Ok("asset.browse", Json::object({{"folder", "."}}))["tileScale"].get<float>() == 1.5f);
+	CHECK(fixture.Ok("asset.browse")["folder"] == "");
+
+	// Only existing folders inside the asset directory.
+	for (char const* folder : {"Missing", "..", "../Game", "Textures/../../Other"})
+	{
+		CAPTURE(folder);
+		CHECK(fixture.Fails("asset.browse", Json::object({{"folder", folder}})) == AutomationErrorCode::InvalidParams);
+	}
+	CHECK(fixture.Fails("asset.browse", Json::object({{"folder", FileSystem::PathToUtf8(directory.GetPath())}})) ==
+	      AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("asset.browse", Json::object({{"tileScale", 10.0}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.ContentBrowser.GetFolder().empty());
 }
 
 TEST_CASE("EditorCommands: the viewport's renderer statistics are reported")

@@ -171,8 +171,8 @@ namespace Strada
 		bool m_ShowRendererInfo = true;
 		bool m_ShowImGuiDemo = false;
 		bool m_ResetLayout = false;
-		// The default layout was built this frame: its scene view and inspector tabs come to the front.
-		bool m_FocusDefaultTabs = false;
+		// Frames until the default layout's scene view and inspector tabs come to the front (0: nothing to do).
+		uint8_t m_FocusDefaultTabsFrames = 0;
 
 		SceneAction m_PendingAction = SceneAction::None;
 		std::filesystem::path m_PendingPath;
