@@ -117,6 +117,7 @@ namespace Strada
 		uint64_t m_GizmoDragCount = 0;
 
 		SceneViewOverlays m_Overlays;
+		ViewportOverlays::MeshColliderOutlineCache m_MeshColliderOutlines;
 		glm::uvec2 m_ViewportSize = glm::uvec2(1280, 720);
 
 		OpenSceneCallback m_OpenScene;

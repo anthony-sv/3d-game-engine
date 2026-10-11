@@ -691,8 +691,8 @@ than the assembly.
   shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite and text quads).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
-  (create presets at the scene view's focal point: Create Empty, then the 3D Object, Rendering, Effects, Audio and UI
-  submenus, which the hierarchy's create button and Create Child share; `EntityPresets::GetMenu`), View, Play
+  (create presets at the scene view's focal point: Create Empty, then the 3D Object, 2D Object, Rendering, Effects and
+  Audio submenus, which the hierarchy's create button and Create Child share; `EntityPresets::GetMenu`), View, Play
   (Play/Stop, Simulate, Pause, Step). Shortcuts are global
   unless a text field is being edited.
   Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
@@ -703,11 +703,14 @@ than the assembly.
   (`SceneViewOverlays`, also `viewport.overlays`): ground grid (G), selection outline, light and camera gizmos
   (clickable billboard icons per kind of light and for cameras), camera frustums, light shapes (directional light rays
   kept at a constant size on screen, point light ranges, spot light cones with their inner cone), colliders and joints,
-  each for the selected entities or every entity, and the lines scripts draw. Its lines are wide, light-colored and
-  outlined in dark so they read on bright and dark surfaces, and dimmed where surfaces hide them. ImGuizmo edits apply to every
-  selected root around the primary selection as one undo step per drag (`SetComponentsCommand` with a merge key); click
-  picking goes through the entity-ID pass (Ctrl toggles, Shift adds, empty space clears; picking IDs are never reused
-  within a scene); assets can be dropped onto it.
+  each for the selected entities or every entity, and the lines scripts draw. Colliders show the shapes physics collides
+  with: mesh colliders as the convex hull Jolt builds (`MeshColliderOutline`; also for the triangle meshes of dynamic
+  bodies) or as their triangles, without the diagonals of flat faces. Its lines are wide, light-colored and outlined in
+  dark so they read on bright and dark surfaces, and dimmed where surfaces hide them, except joints (their anchors lie
+  inside bodies) and directional lights (their position does not matter), which are drawn over everything. ImGuizmo
+  edits apply to every selected root around the primary selection as one undo step per drag (`SetComponentsCommand`
+  with a merge key); click picking goes through the entity-ID pass (Ctrl toggles, Shift adds, empty space clears;
+  picking IDs are never reused within a scene); assets can be dropped onto it.
 - Game View (`GameViewPanel`): the scene through its primary camera, as the game sees it, at a chosen resolution (free,
   16:9, 16:10, 4:3, 21:9, the project's window size, 1920x1080, 1280x720), letterboxed; fixed sizes render at that size
   and are scaled down to fit. Its size is the scene's view size (`Scene::OnViewportResize`) that scripts read and the

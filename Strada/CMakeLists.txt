@@ -108,6 +108,8 @@ set(STRADA_AUDIO_SOURCES
 
 set(STRADA_PHYSICS_SOURCES
     Source/Strada/Physics/JoltContext.h
+    Source/Strada/Physics/MeshColliderOutline.cpp
+    Source/Strada/Physics/MeshColliderOutline.h
     Source/Strada/Physics/PhysicsScene.cpp
     Source/Strada/Physics/PhysicsScene.h
     Source/Strada/Physics/PhysicsSystem.cpp

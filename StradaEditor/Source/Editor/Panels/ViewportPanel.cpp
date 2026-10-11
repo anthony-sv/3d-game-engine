@@ -360,7 +360,8 @@ namespace Strada
 			renderer.SetOverlays(overlays);
 
 			std::vector<OverlayLine> lines;
-			ViewportOverlays::AppendSceneShapes(scene, selection.GetEntities(), m_Overlays, aspectRatio, m_Camera.GetPosition(), lines);
+			ViewportOverlays::AppendSceneShapes(scene, selection.GetEntities(), m_Overlays, aspectRatio, m_Camera.GetPosition(), lines,
+			                                    &m_MeshColliderOutlines);
 			for (OverlayLine const& line : lines)
 			{
 				renderer.SubmitLine(line.From, line.To, line.Color, line.DepthTest);

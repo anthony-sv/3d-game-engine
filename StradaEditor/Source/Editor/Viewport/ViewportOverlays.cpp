@@ -1,5 +1,8 @@
 #include "Editor/Viewport/ViewportOverlays.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/MeshSource.h"
+#include "Strada/Physics/MeshColliderOutline.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
 
@@ -126,20 +129,21 @@ namespace Strada::ViewportOverlays
 			glm::vec3 const up = TransformDirection(world, {0.0f, 1.0f, 0.0f});
 			float const size = viewPosition ? std::max(glm::distance(*viewPosition, origin), 0.01f) * DirectionalLightViewScale : 1.0f;
 			float const radius = DirectionalLightRadius * size;
-			// Parallel rays: the light comes from infinitely far away, so only its direction matters.
-			AddCircle(lines, origin, right, up, radius, LightColor, true);
+			// Parallel rays: the light comes from infinitely far away, so only its direction matters. Its position does not
+			// either, so the shape is drawn over everything: lights are often left on (or under) the ground.
+			AddCircle(lines, origin, right, up, radius, LightColor, false);
 			for (uint32_t i = 0; i < DirectionalLightRays; i++)
 			{
 				float const angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(DirectionalLightRays);
 				glm::vec3 const start = origin + radius * (right * std::cos(angle) + up * std::sin(angle));
-				AddLine(lines, start, start + forward * (DirectionalLightRayLength * size), LightColor, true);
+				AddLine(lines, start, start + forward * (DirectionalLightRayLength * size), LightColor, false);
 			}
 			glm::vec3 const tip = origin + forward * (DirectionalLightArrowLength * size);
 			float const head = DirectionalLightArrowLength * size * 0.15f;
-			AddLine(lines, origin, tip, LightColor, true);
+			AddLine(lines, origin, tip, LightColor, false);
 			for (glm::vec3 const& side : {right, -right, up, -up})
 			{
-				AddLine(lines, tip, tip - forward * head + side * head * 0.5f, LightColor, true);
+				AddLine(lines, tip, tip - forward * head + side * head * 0.5f, LightColor, false);
 			}
 		}
 
@@ -229,6 +233,60 @@ namespace Strada::ViewportOverlays
 
 	namespace
 	{
+		// The mesh a mesh collider collides with, as ScenePhysics finds it: the collider's own, else the entity's.
+		Ref<MeshSource> FindColliderMesh(Entity entity, MeshColliderComponent const& collider)
+		{
+			AssetHandle handle = collider.Mesh;
+			if (!handle.IsValid())
+			{
+				if (MeshComponent const* mesh = entity.TryGetComponent<MeshComponent>())
+				{
+					handle = mesh->Mesh;
+				}
+			}
+			return AssetManager::IsInitialized() ? AssetManager::GetAsset<MeshSource>(handle) : nullptr;
+		}
+
+		// What physics collides with for the mesh; empty when it cannot build the shape either.
+		std::vector<glm::vec3> BuildOutline(MeshSource const& mesh, bool convex)
+		{
+			if (!convex)
+			{
+				return MeshColliderOutline::BuildTriangleMesh(mesh);
+			}
+			Result<std::vector<glm::vec3>> hull = MeshColliderOutline::BuildConvexHull(mesh);
+			return hull ? hull.TakeValue() : std::vector<glm::vec3>();
+		}
+
+		void AddMeshCollider(std::vector<OverlayLine>& lines, Entity entity, glm::mat4 const& world, MeshColliderComponent const& collider,
+		                     MeshColliderOutlineCache* meshOutlines)
+		{
+			Ref<MeshSource> const mesh = FindColliderMesh(entity, collider);
+			if (!mesh)
+			{
+				return;
+			}
+			// Dynamic bodies cannot collide with triangle meshes: physics uses their convex hull.
+			RigidBodyComponent const* body = entity.TryGetComponent<RigidBodyComponent>();
+			bool const convex = collider.Convex || (body != nullptr && body->Type == RigidBodyType::Dynamic);
+			std::vector<glm::vec3> built;
+			std::span<glm::vec3 const> outline;
+			if (meshOutlines != nullptr)
+			{
+				outline = meshOutlines->Get(mesh, convex);
+			}
+			else
+			{
+				built = BuildOutline(*mesh, convex);
+				outline = built;
+			}
+			glm::vec4 const color = collider.IsTrigger ? TriggerColor : ColliderColor;
+			for (size_t point = 0; point + 1 < outline.size(); point += 2)
+			{
+				AddLine(lines, TransformPoint(world, outline[point]), TransformPoint(world, outline[point + 1]), color, true);
+			}
+		}
+
 		// Drawn over everything: anchors usually lie inside the bodies they join.
 		void AddJoint(Scene& scene, std::vector<OverlayLine>& lines, glm::mat4 const& world, JointComponent const& joint)
 		{
@@ -266,8 +324,33 @@ namespace Strada::ViewportOverlays
 		}
 	}
 
+	std::span<glm::vec3 const> MeshColliderOutlineCache::Get(Ref<MeshSource> const& mesh, bool convex)
+	{
+		if (!mesh)
+		{
+			return {};
+		}
+		Outline& outline = m_Outlines[{mesh.get(), convex}];
+		// A new mesh at the address of one that is gone has an outline of its own.
+		if (outline.Mesh.lock() != mesh)
+		{
+			outline.Mesh = mesh;
+			outline.Points = BuildOutline(*mesh, convex);
+		}
+		return outline.Points;
+	}
+
+	void MeshColliderOutlineCache::RemoveReleased()
+	{
+		std::erase_if(m_Outlines,
+		              [](auto const& entry)
+		              {
+						  return entry.second.Mesh.expired();
+					  });
+	}
+
 	void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines, uint32_t shapes,
-	                        std::optional<glm::vec3> const& viewPosition)
+	                        std::optional<glm::vec3> const& viewPosition, MeshColliderOutlineCache* meshOutlines)
 	{
 		if (!entity || shapes == 0)
 		{
@@ -310,6 +393,10 @@ namespace Strada::ViewportOverlays
 			{
 				AddCapsuleCollider(lines, world, *collider);
 			}
+			if (MeshColliderComponent const* collider = entity.TryGetComponent<MeshColliderComponent>())
+			{
+				AddMeshCollider(lines, entity, world, *collider, meshOutlines);
+			}
 		}
 		if ((shapes & Shapes::Joints) != 0)
 		{
@@ -331,15 +418,19 @@ namespace Strada::ViewportOverlays
 	}
 
 	void AppendSceneShapes(Scene& scene, std::span<UUID const> selection, SceneViewOverlays const& overlays, float aspectRatio,
-	                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines)
+	                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines, MeshColliderOutlineCache* meshOutlines)
 	{
+		if (meshOutlines != nullptr)
+		{
+			meshOutlines->RemoveReleased();
+		}
 		uint32_t const selectedKinds = GetShapeKinds(overlays, true);
 		uint32_t const otherKinds = GetShapeKinds(overlays, false);
 		if (otherKinds == 0)
 		{
 			for (UUID const id : selection)
 			{
-				AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, selectedKinds, viewPosition);
+				AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, selectedKinds, viewPosition, meshOutlines);
 			}
 			return;
 		}
@@ -348,7 +439,7 @@ namespace Strada::ViewportOverlays
 			[&](Entity entity)
 			{
 				AppendEntityShapes(scene, entity, aspectRatio, lines, selected.contains(entity.GetUUID()) ? selectedKinds : otherKinds,
-			                       viewPosition);
+			                       viewPosition, meshOutlines);
 			});
 	}
 }

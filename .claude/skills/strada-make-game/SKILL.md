@@ -58,8 +58,10 @@ undo history as the UI: work in small, checked steps.
   and `DestroyWhenFinished` that scripts instantiate; `ParticleSystemComponent.Emit(count)` bursts from scripts.
 - `prefab_create` writes an entity with its children to a `.sprefab`; `prefab_instantiate` places copies.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
-  view, and `viewport_screenshot` returns an image of the editor. `viewport_statistics` tells what the last frame drew
-  (draw calls, triangles, lights, what was culled): check it when a scene grows large.
+  view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
+  over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), and `grid`,
+  `icons` and the shapes `off` give clean screenshots. `viewport_statistics` tells what the last frame drew (draw calls,
+  triangles, lights, what was culled): check it when a scene grows large.
 
 ## 5. Behavior in C#
 

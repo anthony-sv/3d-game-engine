@@ -1,9 +1,14 @@
+#include "Physics/PhysicsTestUtilities.h"
+#include "TestUtilities.h"
+
 #include "Editor/EditorOperations.h"
 #include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Viewport/PickingIdMap.h"
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/MeshFactory.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -13,6 +18,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
+#include <vector>
 
 using namespace Strada;
 
@@ -42,6 +49,51 @@ namespace
 	Json TranslationPatch(glm::vec3 const& translation)
 	{
 		return Json::object({{"Translation", {translation.x, translation.y, translation.z}}});
+	}
+
+	AABB GetBounds(std::vector<OverlayLine> const& lines)
+	{
+		AABB bounds;
+		for (OverlayLine const& line : lines)
+		{
+			bounds.Expand(line.From);
+			bounds.Expand(line.To);
+		}
+		return bounds;
+	}
+
+	// Two unit cubes 3 m apart (centers at x = -1.5 and 1.5): a mesh whose convex hull is one long box.
+	Ref<MeshSource> CreateTwoCubes()
+	{
+		Ref<MeshSource> const cube = MeshFactory::CreateCube(AssetHandle());
+		std::vector<Vertex> vertices;
+		std::vector<uint32_t> indices;
+		for (float const offset : {-1.5f, 1.5f})
+		{
+			uint32_t const first = static_cast<uint32_t>(vertices.size());
+			for (Vertex vertex : cube->GetVertices())
+			{
+				vertex.Position.x += offset;
+				vertices.push_back(vertex);
+			}
+			for (uint32_t const index : cube->GetIndices())
+			{
+				indices.push_back(first + index);
+			}
+		}
+		Submesh submesh;
+		submesh.VertexCount = static_cast<uint32_t>(vertices.size());
+		submesh.IndexCount = static_cast<uint32_t>(indices.size());
+		Result<Ref<MeshSource>> mesh = MeshSource::Create(std::move(vertices), std::move(indices), {submesh}, {AssetHandle()});
+		REQUIRE(mesh.IsOk());
+		return mesh.GetValue();
+	}
+
+	// How many axes a line runs along.
+	int CountAxes(OverlayLine const& line)
+	{
+		glm::vec3 const direction = glm::abs(line.To - line.From);
+		return (direction.x > 1e-3f ? 1 : 0) + (direction.y > 1e-3f ? 1 : 0) + (direction.z > 1e-3f ? 1 : 0);
 	}
 }
 
@@ -296,7 +348,8 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	CHECK(colliders.size() + lights.size() == combined.size());
 	CHECK(kinds(ViewportOverlays::Shapes::Cameras).empty());
 
-	// Directional light pointing down: a disc around its position, rays along the direction and an arrow down the middle.
+	// Directional light pointing down: a disc around its position, rays along the direction and an arrow down the middle,
+	// drawn over everything (its position does not matter, and lights are often left on the ground).
 	UUID const sun =
 		CreateEntity(operations, "Sun", UUID::Invalid(),
 	                 Json::object({{"DirectionalLight", Json::object()},
@@ -308,7 +361,7 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	for (OverlayLine const& line : rays)
 	{
 		CHECK(line.Color == ViewportOverlays::LightColor);
-		CHECK(line.DepthTest);
+		CHECK_FALSE(line.DepthTest);
 		lowest = std::min({lowest, line.From.y, line.To.y});
 		glm::vec3 const direction = line.To - line.From;
 		if (std::abs(direction.x) < 1e-4f && std::abs(direction.z) < 1e-4f && direction.y < 0.0f)
@@ -498,4 +551,95 @@ TEST_CASE("ViewportOverlays: the overlays draw shapes for the selection or every
 	// Unknown and deleted entities in the selection are skipped.
 	overlays = {};
 	CHECK(draw(overlays, {UUID(12345), lamp}) == lampLines);
+}
+
+TEST_CASE("ViewportOverlays: mesh colliders show the convex hull or the triangles physics collides with")
+{
+	Testing::AssetManagerScope assets;
+	Testing::PhysicsSystemScope physics;
+	EditorContext context;
+	context.SetAssetReferenceResolver(
+		[](std::string_view reference)
+		{
+			return AssetManager::ResolveReference(reference);
+		});
+	EditorOperations operations(context);
+	Scene& scene = context.GetScene();
+	auto const shapes = [&](UUID id, ViewportOverlays::MeshColliderOutlineCache* cache = nullptr)
+	{
+		std::vector<OverlayLine> lines;
+		ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), 1.0f, lines, ViewportOverlays::Shapes::Colliders,
+		                                     std::nullopt, cache);
+		return lines;
+	};
+
+	// A cube's mesh collider, of the entity's mesh: twelve edges either way (flat faces show no diagonals), moved and scaled
+	// with the entity and dimmed where surfaces hide them.
+	UUID const crate = CreateEntity(operations, "Crate", UUID::Invalid(),
+	                                Json::object({{"Mesh", Json::object({{"Mesh", "builtin://Cube"}})},
+	                                              {"MeshCollider", Json::object()},
+	                                              {"Transform", Json::object({{"Translation", {5, 0, 0}}, {"Scale", {2, 2, 2}}})}}));
+	std::vector<OverlayLine> const hull = shapes(crate);
+	CHECK(hull.size() == 12);
+	for (OverlayLine const& line : hull)
+	{
+		CHECK(line.DepthTest);
+		CHECK(line.Color == ViewportOverlays::ColliderColor);
+		CHECK(CountAxes(line) == 1);
+	}
+	CHECK(NearlyEqual(GetBounds(hull).Min, {4.0f, -1.0f, -1.0f}, 1e-3f));
+	CHECK(NearlyEqual(GetBounds(hull).Max, {6.0f, 1.0f, 1.0f}, 1e-3f));
+	REQUIRE(operations.SetComponentFields(crate, "MeshCollider", Json::object({{"Convex", false}, {"IsTrigger", true}})).IsOk());
+	std::vector<OverlayLine> const triangles = shapes(crate);
+	CHECK(triangles.size() == 12);
+	for (OverlayLine const& line : triangles)
+	{
+		CHECK(line.Color == ViewportOverlays::TriggerColor);
+		CHECK(CountAxes(line) == 1);
+	}
+
+	// A mesh that is not convex: its triangles as a triangle mesh, one box around both cubes as a convex hull, and the hull
+	// too for dynamic bodies, which cannot collide with triangle meshes.
+	AssetHandle const twoCubes = AssetManager::AddMemoryAsset(CreateTwoCubes(), "TwoCubes");
+	UUID const pair =
+		CreateEntity(operations, "Pair", UUID::Invalid(),
+	                 Json::object({{"MeshCollider", Json::object({{"Mesh", AssetManager::GetReference(twoCubes)}, {"Convex", false}})}}));
+	std::vector<OverlayLine> const pairTriangles = shapes(pair);
+	CHECK(pairTriangles.size() == 24);
+	CHECK(NearlyEqual(GetBounds(pairTriangles).Min, {-2.0f, -0.5f, -0.5f}, 1e-3f));
+	CHECK(NearlyEqual(GetBounds(pairTriangles).Max, {2.0f, 0.5f, 0.5f}, 1e-3f));
+	REQUIRE(operations.SetComponentFields(pair, "MeshCollider", Json::object({{"Convex", true}})).IsOk());
+	std::vector<OverlayLine> const pairHull = shapes(pair);
+	CHECK(pairHull.size() == 12);
+	CHECK(NearlyEqual(GetBounds(pairHull).Min, {-2.0f, -0.5f, -0.5f}, 1e-3f));
+	CHECK(NearlyEqual(GetBounds(pairHull).Max, {2.0f, 0.5f, 0.5f}, 1e-3f));
+	// Its edges run across the gap between the cubes.
+	CHECK(std::count_if(pairHull.begin(), pairHull.end(),
+	                    [](OverlayLine const& line)
+	                    {
+							return std::abs(std::abs(line.To.x - line.From.x) - 4.0f) < 1e-3f;
+						}) == 4);
+	REQUIRE(operations.SetComponentFields(pair, "MeshCollider", Json::object({{"Convex", false}})).IsOk());
+	REQUIRE(operations.AddComponent(pair, "RigidBody", Json::object({{"Type", "Dynamic"}})).IsOk());
+	CHECK(shapes(pair).size() == 12);
+	REQUIRE(operations.SetComponentFields(pair, "RigidBody", Json::object({{"Type", "Kinematic"}})).IsOk());
+	CHECK(shapes(pair).size() == 24);
+
+	// Without a mesh there is nothing to draw, as there is nothing to collide with.
+	UUID const empty = CreateEntity(operations, "Empty", UUID::Invalid(), Json::object({{"MeshCollider", Json::object()}}));
+	CHECK(shapes(empty).empty());
+
+	// The cache builds each outline once and forgets those of meshes that are gone.
+	ViewportOverlays::MeshColliderOutlineCache cache;
+	CHECK(shapes(pair, &cache).size() == 24);
+	CHECK(shapes(crate, &cache).size() == 12);
+	CHECK(shapes(pair, &cache).size() == 24);
+	CHECK(cache.GetSize() == 2);
+	REQUIRE(operations.SetComponentFields(pair, "MeshCollider", Json::object({{"Convex", true}})).IsOk());
+	CHECK(shapes(pair, &cache).size() == 12);
+	CHECK(cache.GetSize() == 3);
+	AssetManager::RemoveMemoryAsset(twoCubes);
+	cache.RemoveReleased();
+	CHECK(cache.GetSize() == 1);
+	CHECK(shapes(pair, &cache).empty());
 }

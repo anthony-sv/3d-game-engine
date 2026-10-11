@@ -43,7 +43,7 @@ namespace Strada
 
 		// In menu order; entries of a category are contiguous.
 		std::span<EntityPreset const> GetAll();
-		// Core, 3D Object, Rendering, Effects, Audio and UI.
+		// Core, 3D Object, 2D Object, Rendering, Effects and Audio.
 		std::span<std::string_view const> GetCategories();
 		// The create menus (the Entity menu, the hierarchy's create button and Create Child): a section per category in
 		// GetCategories() order, each with its presets in GetAll() order.

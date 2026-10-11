@@ -186,12 +186,12 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 	CHECK(forward.y == doctest::Approx(-1.0f).epsilon(1e-4));
 }
 
-TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, Rendering, Effects, Audio and UI")
+TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Rendering, Effects and Audio")
 {
 	using Labels = std::vector<std::string_view>;
 	std::span<std::string_view const> const categories = EntityPresets::GetCategories();
 	CHECK(std::vector<std::string_view>(categories.begin(), categories.end()) ==
-	      Labels{"Core", "3D Object", "Rendering", "Effects", "Audio", "UI"});
+	      Labels{"Core", "3D Object", "2D Object", "Rendering", "Effects", "Audio"});
 
 	std::vector<EntityPresetMenuSection> const menu = EntityPresets::GetMenu();
 	REQUIRE(menu.size() == categories.size());
@@ -208,11 +208,11 @@ TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, Rendering, Eff
 	CHECK(menu[0].Category == EntityPresets::CoreCategory);
 	CHECK_FALSE(menu[0].Submenu);
 	CHECK(labels(menu[0]) == Labels{"Create Empty"});
-	CHECK(labels(menu[1]) == Labels{"Cube", "Sphere", "Plane", "Cylinder", "Capsule", "Cone", "Quad"});
-	CHECK(labels(menu[2]) == Labels{"Camera", "Directional Light", "Point Light", "Spot Light", "Sky Light"});
-	CHECK(labels(menu[3]) == Labels{"Particle System", "Fire", "Smoke", "Sparks"});
-	CHECK(labels(menu[4]) == Labels{"Audio Source", "Audio Listener"});
-	CHECK(labels(menu[5]) == Labels{"Text", "Sprite"});
+	CHECK(labels(menu[1]) == Labels{"Cube", "Sphere", "Plane", "Cylinder", "Capsule", "Cone", "Quad", "3D Text"});
+	CHECK(labels(menu[2]) == Labels{"Sprite"});
+	CHECK(labels(menu[3]) == Labels{"Camera", "Directional Light", "Point Light", "Spot Light", "Sky Light"});
+	CHECK(labels(menu[4]) == Labels{"Particle System", "Fire", "Smoke", "Sparks"});
+	CHECK(labels(menu[5]) == Labels{"Audio Source", "Audio Listener"});
 	// Every preset is in the menus once, in the section of its category.
 	size_t count = 0;
 	for (size_t i = 0; i < menu.size(); i++)
@@ -236,7 +236,7 @@ TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, Rendering, Eff
 	Entity const emptyEntity = context.GetScene().GetEntityByUUID(empty.GetValue());
 	CHECK(emptyEntity.GetName() == "Entity");
 	CHECK_FALSE(emptyEntity.HasComponent<MeshComponent>());
-	Result<UUID> const listener = EntityPresets::Create(operations, *menu[4].Presets[1], UUID::Invalid(), glm::vec3(0.0f));
+	Result<UUID> const listener = EntityPresets::Create(operations, *menu[5].Presets[1], UUID::Invalid(), glm::vec3(0.0f));
 	REQUIRE(listener.IsOk());
 	Entity const listenerEntity = context.GetScene().GetEntityByUUID(listener.GetValue());
 	CHECK(listenerEntity.GetName() == "Audio Listener");

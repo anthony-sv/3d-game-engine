@@ -26,7 +26,7 @@ namespace Strada
 		}
 
 		constexpr auto s_Categories =
-			std::to_array<std::string_view>({EntityPresets::CoreCategory, "3D Object", "Rendering", "Effects", "Audio", "UI"});
+			std::to_array<std::string_view>({EntityPresets::CoreCategory, "3D Object", "2D Object", "Rendering", "Effects", "Audio"});
 
 		// std::to_array deduces the count, so every entry is initialized.
 		constexpr auto s_Presets = std::to_array<EntityPreset>({
@@ -69,6 +69,17 @@ namespace Strada
 		     []
 		     {
 				 return MeshComponents(BuiltInAsset::QuadMesh);
+			 }},
+			// Text in the world, in the entity's XY plane.
+			{"3D Object", "3D Text", "3D Text",
+		     []
+		     {
+				 return Json::object({{"Text", Json::object({{"Text", "Text"}, {"FontSize", 0.5}, {"Alignment", "Center"}})}});
+			 }},
+			{"2D Object", "Sprite", "Sprite",
+		     []
+		     {
+				 return Json::object({{"SpriteRenderer", Json::object()}});
 			 }},
 			{"Rendering", "Camera", "Camera",
 		     []
@@ -167,16 +178,6 @@ namespace Strada
 		     []
 		     {
 				 return Json::object({{"AudioListener", Json::object()}});
-			 }},
-			{"UI", "Text", "Text",
-		     []
-		     {
-				 return Json::object({{"Text", Json::object({{"Text", "Text"}, {"FontSize", 0.5}, {"Alignment", "Center"}})}});
-			 }},
-			{"UI", "Sprite", "Sprite",
-		     []
-		     {
-				 return Json::object({{"SpriteRenderer", Json::object()}});
 			 }},
 		});
 	}

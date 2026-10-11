@@ -1,17 +1,22 @@
 #pragma once
 
+#include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Scene/Entity.h"
 
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace Strada
 {
+	class MeshSource;
 	class Scene;
 
 	struct OverlayLine
@@ -20,8 +25,9 @@ namespace Strada
 		glm::vec3 To = glm::vec3(0.0f);
 		// sRGB-encoded with straight alpha.
 		glm::vec4 Color = glm::vec4(1.0f);
-		// Dimmed where surfaces hide it (ViewportOverlays::OccludedLineOpacity); otherwise drawn over everything (joints,
-		// whose anchors lie inside bodies).
+		// Dimmed where surfaces hide it (ViewportOverlays::OccludedLineOpacity); otherwise drawn over everything: joints,
+		// whose anchors lie inside bodies, and directional lights, whose position does not matter (they are usually placed
+		// on or under the ground).
 		bool DepthTest = true;
 	};
 
@@ -58,6 +64,28 @@ namespace Strada
 
 	namespace ViewportOverlays
 	{
+		// The outlines of mesh colliders (MeshColliderOutline), built once per mesh and kind of shape: a convex hull takes a
+		// while to build for a large mesh. Main thread only.
+		class MeshColliderOutlineCache
+		{
+		public:
+			// What physics collides with for the mesh, in the mesh's space (the ends of each edge in turn): its convex hull,
+			// or its triangles. Empty when physics cannot build the shape either.
+			std::span<glm::vec3 const> Get(Ref<MeshSource> const& mesh, bool convex);
+			// Forgets the outlines of meshes that are gone (unloaded, or replaced when their file changed).
+			void RemoveReleased();
+			size_t GetSize() const { return m_Outlines.size(); }
+
+		private:
+			struct Outline
+			{
+				std::weak_ptr<MeshSource> Mesh;
+				std::vector<glm::vec3> Points;
+			};
+
+			std::map<std::pair<MeshSource const*, bool>, Outline> m_Outlines;
+		};
+
 		// Kinds of shapes AppendEntityShapes draws (bit flags).
 		namespace Shapes
 		{
@@ -103,16 +131,20 @@ namespace Strada
 
 		// Shapes of an entity's camera, lights, colliders and joint (the kinds in shapes): camera frustums up to
 		// CameraFrustumLength, directional light rays, point light ranges, spot light cones (their outer cone up to the
-		// range with its cap, and the inner cone's rim), collider outlines, and the joint's anchor (a cross), its hinge or
-		// slider axis and a line to where it joins the connected body (or the world). aspectRatio is used by cameras
-		// without a fixed aspect ratio; viewPosition, where the shapes are seen from, sizes directional lights.
+		// range with its cap, and the inner cone's rim), collider outlines (mesh colliders as the convex hull or the
+		// triangles physics collides with, of the collider's mesh or else the entity's), and the joint's anchor (a cross),
+		// its hinge or slider axis and a line to where it joins the connected body (or the world). aspectRatio is used by
+		// cameras without a fixed aspect ratio; viewPosition, where the shapes are seen from, sizes directional lights;
+		// meshOutlines keeps the outlines of mesh colliders between calls (without it they are built for each call).
 		void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines,
-		                        uint32_t shapes = Shapes::All, std::optional<glm::vec3> const& viewPosition = std::nullopt);
+		                        uint32_t shapes = Shapes::All, std::optional<glm::vec3> const& viewPosition = std::nullopt,
+		                        MeshColliderOutlineCache* meshOutlines = nullptr);
 		// The kinds of shapes (Shapes flags) the overlays draw for an entity that is selected, or not.
 		uint32_t GetShapeKinds(SceneViewOverlays const& overlays, bool selected);
 		// The shapes the overlays draw: those of the selected entities, and of every entity for the kinds shown for all,
-		// in hierarchy order when any is.
+		// in hierarchy order when any is. meshOutlines also forgets the outlines of meshes that are gone.
 		void AppendSceneShapes(Scene& scene, std::span<UUID const> selection, SceneViewOverlays const& overlays, float aspectRatio,
-		                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines);
+		                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines,
+		                       MeshColliderOutlineCache* meshOutlines = nullptr);
 	}
 }
