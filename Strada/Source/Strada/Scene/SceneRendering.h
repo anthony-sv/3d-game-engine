@@ -25,9 +25,10 @@ namespace Strada
 		bool DrawUI = true;
 	};
 
-	// Renders the scene from an explicit camera (the editor camera): submits visible meshes with their materials (per-slot
-	// overrides first, then the mesh's defaults), lights and ambient light, sprites, text and particles, and the
-	// screen-space UI (buttons in the color of their state), then ends the frame.
+	// Renders the scene from an explicit camera (the editor camera) with the scene's renderer settings as its post-process
+	// volumes change them at the camera's position: submits visible meshes with their materials (per-slot overrides first,
+	// then the mesh's defaults), lights and ambient light, sprites, text and particles, and the screen-space UI (buttons
+	// in the color of their state), then ends the frame.
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options = {});
 
 	// Renders the scene from its primary camera entity. Returns false (rendering nothing) when the scene has none.

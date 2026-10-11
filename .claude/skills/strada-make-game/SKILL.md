@@ -56,6 +56,11 @@ undo history as the UI: work in small, checked steps.
   along -Z, so `RotationEuler` `[90, 0, 0]` points it up). Additive particles with an `Intensity` above 1 glow with the
   scene's bloom; `Alpha` ones suit smoke. One-shot effects (explosions, hits) are prefabs with `Emitting` off, a `Burst`
   and `DestroyWhenFinished` that scripts instantiate; `ParticleSystemComponent.Emit(count)` bursts from scripts.
+- Post-processing: the scene's renderer settings (`scene_settings`, under `Renderer`) set the look everywhere; a
+  `PostProcess` component changes it where the camera is. Set each setting together with its `Override` switch (`{"OverrideSaturation": true,
+  "Saturation": 0.3}`); `Global` volumes apply everywhere, local ones inside the entity's box (its scale, in meters) and
+  fade out over `BlendDistance`; `Priority` orders overlapping volumes and `Weight` (0 to 1) scales one, which scripts
+  animate for flashes and transitions.
 - HUDs and menus: a root entity with `UICanvas` (`ScaleWithScreenHeight` keeps a 1920 x 1080 design in proportion on
   any screen), and children with `UIRect` (`AnchorMin`/`AnchorMax` from (0, 0) at the parent's top-left to (1, 1) at
   its bottom-right, `Pivot`, `Position` and `Size` in canvas units, y down) plus `UIImage` (color or texture,

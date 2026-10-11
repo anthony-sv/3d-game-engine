@@ -253,6 +253,15 @@ namespace Strada
 		s_Data.MousePosition = position;
 	}
 
+	void Input::WarpMousePosition(glm::vec2 position)
+	{
+		// Shifting the frame's starting point with the cursor keeps the delta moved so far and adds nothing for the jump.
+		s_Data.MousePositionAtFrameStart =
+			s_Data.HasMousePosition ? s_Data.MousePositionAtFrameStart + (position - s_Data.MousePosition) : position;
+		s_Data.MousePosition = position;
+		s_Data.HasMousePosition = true;
+	}
+
 	void Input::AddScrollDelta(glm::vec2 delta)
 	{
 		s_Data.ScrollDelta += delta;
@@ -295,7 +304,7 @@ namespace Strada
 		s_Data.ScrollDelta = {0.0f, 0.0f};
 	}
 
-	void Input::ReleaseAll()
+	void Input::ReleaseKeysAndMouseButtons()
 	{
 		for (ButtonState& state : s_Data.Keys)
 		{
@@ -304,13 +313,6 @@ namespace Strada
 		for (ButtonState& state : s_Data.MouseButtons)
 		{
 			ApplyButtonState(state, false);
-		}
-		for (GamepadData& gamepad : s_Data.Gamepads)
-		{
-			for (ButtonState& state : gamepad.Buttons)
-			{
-				ApplyButtonState(state, false);
-			}
 		}
 	}
 

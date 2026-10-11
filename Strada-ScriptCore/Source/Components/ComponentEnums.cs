@@ -73,6 +73,21 @@ public enum ParticleBlendMode
 	Alpha = 1,
 }
 
+/// <summary>How the renderer maps the scene's HDR colors to the display (a <see cref="PostProcessComponent"/> setting).</summary>
+public enum TonemapOperator
+{
+	/// <summary>The filmic ACES curve: rich contrast, bright colors shift towards white.</summary>
+	ACES = 0,
+	/// <summary>AgX: gentle highlights that keep their hue.</summary>
+	AgX = 1,
+	/// <summary>Khronos PBR Neutral: faithful base colors, for product-style images.</summary>
+	PBRNeutral = 2,
+	/// <summary>Reinhard: a simple curve that compresses highlights.</summary>
+	Reinhard = 3,
+	/// <summary>No curve: colors are clamped to the display range.</summary>
+	None = 4,
+}
+
 /// <summary>How text lines align to the entity's position.</summary>
 public enum TextAlignment
 {

@@ -40,7 +40,8 @@ namespace Strada
 		bool SelectionOutline = true;
 		// Icons of cameras and lights (they can be clicked to select).
 		bool Icons = true;
-		// Frustums of selected cameras, ranges and cones of selected lights, outlines of selected colliders.
+		// Frustums of selected cameras, directions, ranges and cones of selected lights, outlines of selected colliders,
+		// selected joints and the boxes of selected local post-process volumes.
 		bool SelectionShapes = true;
 		// Outlines of every collider, selected or not.
 		bool AllColliders = false;

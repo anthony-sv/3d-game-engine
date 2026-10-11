@@ -4,6 +4,7 @@
 #include "TestUtilities.h"
 
 #include "Strada/Scene/Entity.h"
+#include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 
@@ -83,6 +84,17 @@ TEST_CASE("Scene: damaged scenes that load also run")
 		Result<Ref<Scene>> scene = SceneSerializer::Deserialize(mutator.Damage(original, round), context);
 		if (scene)
 		{
+			// Post-process volumes resolve to valid renderer settings: in the feature test's volume, in its blend zone, and
+			// where the camera starts.
+			for (glm::vec3 const position : {glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 4.0f), glm::vec3(0.0f, 2.5f, 7.0f)})
+			{
+				Json const resolved =
+					SerializeFields<StructTraits<SceneRendererSettings>>(PostProcessVolumes::Resolve(*scene.GetValue(), position));
+				SceneRendererSettings settings;
+				Result<void> const valid =
+					DeserializeFields<StructTraits<SceneRendererSettings>>(resolved, settings, DeserializationContext{}, "settings");
+				CHECK_MESSAGE(valid.IsOk(), (valid ? std::string() : valid.GetError()));
+			}
 			Run(*scene.GetValue());
 			ran++;
 		}

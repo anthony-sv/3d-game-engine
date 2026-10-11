@@ -4,6 +4,7 @@
 #include "Strada/Core/UUID.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Renderer/TextLayout.h"
 #include "Strada/Script/ScriptField.h"
 
@@ -323,6 +324,55 @@ namespace Strada
 		bool WorldSpace = true;
 		// The entity is destroyed once it no longer emits and its last particle died (one-shot effects).
 		bool DestroyWhenFinished = false;
+	};
+
+	// A post-process volume: changes the scene's post-processing (its renderer settings) where the camera is. Each setting
+	// applies only while its Override flag is set; the values default to the scene settings' defaults. Global volumes
+	// apply everywhere. Local volumes apply inside their box, the unit cube placed, rotated and scaled by the entity (so
+	// the entity's scale is the box's size in meters), and fade out over BlendDistance meters around it. Volumes apply in
+	// order of Priority, lowest first (equal priorities in hierarchy order), each scaled by its Weight: numbers move towards
+	// the volume's values by the volume's blend, Bloom fades in or out through the bloom's intensity, and AmbientOcclusion
+	// and Tonemapper take the volume's value once the blend reaches one half.
+	struct PostProcessComponent
+	{
+		bool Global = true;
+		// Meters around a local volume's box over which it fades out.
+		float BlendDistance = 1.0f;
+		// Volumes with higher priorities apply later, over those with lower ones.
+		float Priority = 0.0f;
+		// How much of the volume applies, 0 to 1.
+		float Weight = 1.0f;
+
+		bool OverrideEV100 = false;
+		float EV100 = SceneRendererSettings{}.EV100;
+		bool OverrideTonemapper = false;
+		TonemapOperator Tonemapper = SceneRendererSettings{}.Tonemapper;
+		bool OverrideAmbientOcclusion = false;
+		bool AmbientOcclusion = SceneRendererSettings{}.AmbientOcclusion;
+		bool OverrideAmbientOcclusionIntensity = false;
+		float AmbientOcclusionIntensity = SceneRendererSettings{}.AmbientOcclusionIntensity;
+		bool OverrideBloom = false;
+		bool Bloom = SceneRendererSettings{}.Bloom;
+		bool OverrideBloomIntensity = false;
+		float BloomIntensity = SceneRendererSettings{}.BloomIntensity;
+		bool OverrideContrast = false;
+		float Contrast = SceneRendererSettings{}.Contrast;
+		bool OverrideSaturation = false;
+		float Saturation = SceneRendererSettings{}.Saturation;
+		bool OverrideTemperature = false;
+		float Temperature = SceneRendererSettings{}.Temperature;
+		bool OverrideTint = false;
+		float Tint = SceneRendererSettings{}.Tint;
+		bool OverrideColorFilter = false;
+		glm::vec3 ColorFilter = SceneRendererSettings{}.ColorFilter;
+		bool OverrideChromaticAberration = false;
+		float ChromaticAberration = SceneRendererSettings{}.ChromaticAberration;
+		bool OverrideVignette = false;
+		float Vignette = SceneRendererSettings{}.Vignette;
+		bool OverrideVignetteSmoothness = false;
+		float VignetteSmoothness = SceneRendererSettings{}.VignetteSmoothness;
+		bool OverrideFilmGrain = false;
+		float FilmGrain = SceneRendererSettings{}.FilmGrain;
 	};
 
 	// How a UI canvas's units relate to the screen's pixels.

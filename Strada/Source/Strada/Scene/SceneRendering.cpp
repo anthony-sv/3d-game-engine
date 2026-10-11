@@ -9,6 +9,7 @@
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
 #include "Strada/Scene/UILayout.h"
@@ -282,7 +283,8 @@ namespace Strada
 
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
 	{
-		renderer.BeginScene(camera, scene.GetSettings().Renderer);
+		// The scene's post-process volumes change its settings around the camera.
+		renderer.BeginScene(camera, PostProcessVolumes::Resolve(scene, camera.Position));
 		SubmitScene(scene, renderer, camera, options);
 		// Lines scripts drew for debugging have linear colors; lines are drawn after tonemapping, in sRGB.
 		if (options.DrawDebugLines)

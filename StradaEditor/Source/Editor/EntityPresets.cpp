@@ -186,6 +186,13 @@ namespace Strada
 			                                             {"EndColor", Json::array({1.0, 0.3, 0.05, 0.0})},
 			                                             {"Intensity", 6.0}}));
 			 }},
+			// Global, so its overrides show at once; made local, its scale gives it a 10 m box.
+			{"Effects", "Post Process Volume", "Post Process Volume",
+		     []
+		     {
+				 return Json::object(
+					 {{"PostProcess", Json::object()}, {"Transform", Json::object({{"Scale", Json::array({10.0, 10.0, 10.0})}})}});
+			 }},
 			{"UI", "Canvas", "Canvas", &CanvasComponents},
 			// A dark, translucent panel with rounded corners (linear colors).
 			{"UI", "Panel", "Panel",

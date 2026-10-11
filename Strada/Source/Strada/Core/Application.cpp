@@ -567,8 +567,9 @@ namespace Strada
 	bool Application::OnWindowLostFocus(WindowLostFocusEvent& event)
 	{
 		(void)event;
-		// Key-up events are not delivered while unfocused; release everything so nothing stays held.
-		Input::ReleaseAll();
+		// Key and button releases are not delivered while unfocused; release them so nothing stays held. Gamepads are still
+		// polled, so their buttons keep their state (releasing them would report a second press on the next poll).
+		Input::ReleaseKeysAndMouseButtons();
 		return false;
 	}
 }

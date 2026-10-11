@@ -160,6 +160,8 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/Entity.h
     Source/Strada/Scene/ParticleEmitter.cpp
     Source/Strada/Scene/ParticleEmitter.h
+    Source/Strada/Scene/PostProcessVolumes.cpp
+    Source/Strada/Scene/PostProcessVolumes.h
     Source/Strada/Scene/Scene.cpp
     Source/Strada/Scene/Scene.h
     Source/Strada/Scene/SceneAudio.cpp

@@ -173,9 +173,13 @@ public class Mover : Script
 }
 ```
 
-In the editor the game gets the input while the Game View has the focus during play (Shift+Esc gives it back to the
-editor; a click on the view returns it to the game). `Application.WindowWidth` and `WindowHeight` are the size the game
-view renders at, which its resolution menu chooses.
+In the editor the game has the keyboard and mouse from the moment Play starts: every key and click on the Game View
+goes to the game alone, Escape and Enter included, except Shift+Esc, which gives the input back to the editor, and the
+play shortcuts (Ctrl+P, Ctrl+Shift+P, Ctrl+Alt+P). A click elsewhere in the editor gives the input back too, and a click
+on the view returns it to the game. `CursorMode` applies while the game has the input: a hidden cursor is hidden over
+the Game View only, a locked one is locked until the input goes back to the editor. Gamepads reach the game whoever has
+the keyboard and mouse. `Application.WindowWidth` and `WindowHeight` are the size the game view renders at, which its
+resolution menu chooses.
 
 ## Physics
 
@@ -411,6 +415,45 @@ public class Crate : Script
 
 `Additive` particles add light (bright colors with an `Intensity` above 1 glow through the bloom); `Alpha` particles
 cover what is behind them, for smoke and dust.
+
+## Post-processing
+
+The scene's look (exposure, tonemapper, bloom, ambient occlusion, color grading, vignette, chromatic aberration, film
+grain) is set in its Scene Settings; a `PostProcessComponent` (the editor's Entity > Effects > Post Process Volume)
+changes it where the camera is. Only the settings whose `Override` property is set change: `OverrideSaturation` and
+`Saturation`, `OverrideVignette` and `Vignette`, and so on. A `Global` volume applies everywhere; a local one applies
+inside its entity's box (scale the entity to size it) and fades out over `BlendDistance` meters around it, so walking
+into a cave or under water changes the look smoothly. Overlapping volumes apply in order of `Priority`, and `Weight`
+says how much of a volume applies, which makes short effects easy:
+
+```csharp
+public class DamageFlash : Script
+{
+	private PostProcessComponent? flash;
+	private float strength;
+
+	protected override void OnCreate()
+	{
+		// A global volume with OverrideVignette, Vignette 0.8, OverrideColorFilter and a red ColorFilter, Weight 0.
+		flash = GetComponent<PostProcessComponent>();
+	}
+
+	public void Hit()
+	{
+		strength = 1.0f;
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		strength = Mathf.Max(strength - deltaTime * 2.0f, 0.0f);
+		flash!.Weight = strength;
+	}
+}
+```
+
+Numbers blend smoothly with the weight, and so does `Bloom`: a volume that turns bloom off fades the glow out through
+its intensity, one that turns it on fades it in. `AmbientOcclusion` and `Tonemapper` switch once a volume applies at
+least halfway.
 
 ## Time, scenes and the application
 

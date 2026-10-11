@@ -190,7 +190,9 @@ Project settings are saved to the project file immediately and are not part of t
 
 Field descriptions may also contain `Values` (the names of enum values), `Min`/`Max` (inclusive bounds of numbers and
 of every vector component; values outside them are rejected), `Display` (`Color`, `Angle` in degrees or
-`MultilineText`), `AssetType` (the type of asset an asset field references) and `Description`.
+`MultilineText`), `AssetType` (the type of asset an asset field references), `Description` and `EnabledBy` (the bool
+field that switches the field on: a `PostProcess` volume's `Saturation` applies only while its `OverrideSaturation` is
+true, so set both).
 
 ### asset
 
@@ -245,7 +247,8 @@ itself when their sources change and loads the built assembly (hot reload); `scr
 ### play, input and test
 
 Play mode runs a copy of the edited scene; while it plays, every scene and entity command acts on the copy (with an
-undo history of its own) and `play.stop` discards it. Scene and project file commands (`scene.new`, `scene.open`,
+undo history of its own) and `play.stop` discards it. `input.set` and `input.release` act on the game's input directly,
+whether or not the game view has the window's input. Scene and project file commands (`scene.new`, `scene.open`,
 `scene.save`, `project.create`, `project.open`, `project.close`) fail with InvalidOperation while playing.
 
 | Command | Parameters | Result |
@@ -257,7 +260,7 @@ undo history of its own) and `play.stop` discards it. Scene and project file com
 | `play.advance` | `frames`*, `timestep` (seconds, default 1/60) | Play state plus `framesRun`; runs the frames at once (pause first for deterministic runs); stops early when the scripts quit |
 | `play.state` | — | `state` (`edit`, `play`, `simulate`), `paused`, `startPending`, `scene`, `frame` and `time` while playing, `tests` (the run's test report or null) |
 | `input.set` | `keys` (name -> down), `mouseButtons` (name -> down), `mousePosition` ([x, y] in game-view pixels), `scroll` | `keys`, `mouseButtons` down and `mousePosition`; key and button names are KeyCode and MouseButton names; pressed and released last one frame |
-| `input.release` | — | Same as `input.set`; releases every key and button |
+| `input.release` | — | Same as `input.set`; releases every key and mouse button (gamepads keep their polled state) |
 | `test.run` | `scene` (scene file relative to Assets; default a copy of the edited scene), `timeout` (game seconds, default 60), `timestep` (default 1/60) | `finished`, `timedOut`, `frames`, `passed`, `failed`, `exceptions`, `failures`, `results`: `[{ name, passed, message }]`; asynchronous; plays until the scripts call `TestReporter.Finish`, quit or time out |
 
 ### log and viewport
@@ -271,7 +274,9 @@ undo history of its own) and `play.stop` discards it. Scene and project file com
 | `viewport.statistics` | — | What the scene view's renderer drew in the last frame it rendered (the scene through the editor camera): `gpuMilliseconds` (GPU time of its latest finished frame; null before one has finished or when the GPU cannot measure time), `drawCalls` (shadow-map draws included), `triangles`, `shadowDrawCalls`, `shadowMapViews`, `shadowsDropped` (shadow-casting lights beyond the shadow-map budget), `lights`, `culledLights` (point and spot lights out of the view's reach), `culled` (submeshes outside the view), `quads` (sprites and text glyphs); Unavailable when headless or without a GPU |
 
 Renderer settings (shadows, ambient occlusion, bloom, exposure, tonemapping, FXAA) are scene settings: `scene.settings`
-reads and changes them under `Renderer`.
+reads and changes them under `Renderer`. `PostProcess` components (post-process volumes) change the exposure,
+tonemapper, bloom, ambient occlusion, color grading and lens effects where the camera is; the scene settings stay as
+they are.
 
 ## Example session
 

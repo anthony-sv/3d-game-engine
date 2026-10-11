@@ -452,6 +452,11 @@ namespace Strada
 
 	void Window::SetCursorMode(CursorMode mode)
 	{
+		ApplyCursorMode(m_Window, mode);
+	}
+
+	void Window::ApplyCursorMode(GLFWwindow* window, CursorMode mode)
+	{
 		int glfwMode = GLFW_CURSOR_NORMAL;
 		switch (mode)
 		{
@@ -465,11 +470,11 @@ namespace Strada
 				glfwMode = GLFW_CURSOR_DISABLED;
 				break;
 		}
-		glfwSetInputMode(m_Window, GLFW_CURSOR, glfwMode);
+		glfwSetInputMode(window, GLFW_CURSOR, glfwMode);
 
 		if (mode == CursorMode::Locked && glfwRawMouseMotionSupported() == GLFW_TRUE)
 		{
-			glfwSetInputMode(m_Window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+			glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 		}
 	}
 

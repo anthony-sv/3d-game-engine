@@ -87,6 +87,57 @@ TEST_CASE("SceneSerializer: round trip preserves names, settings, hierarchy and 
 	CHECK(SceneSerializer::Serialize(copy) == document);
 }
 
+TEST_CASE("SceneSerializer: post-process volumes round trip with their overrides and ranges")
+{
+	Ref<Scene> const scene = CreateRef<Scene>("Volumes");
+	Entity volume = scene->CreateEntity("Underwater");
+	volume.GetComponent<TransformComponent>().Scale = {20.0f, 6.0f, 20.0f};
+	PostProcessComponent& settings = volume.AddComponent<PostProcessComponent>();
+	settings.Global = false;
+	settings.BlendDistance = 3.0f;
+	settings.Priority = 2.0f;
+	settings.Weight = 0.75f;
+	settings.OverrideTonemapper = true;
+	settings.Tonemapper = TonemapOperator::AgX;
+	settings.OverrideColorFilter = true;
+	settings.ColorFilter = {0.25f, 0.75f, 1.0f};
+	settings.OverrideBloom = true;
+	settings.Bloom = false;
+	// Kept, though not overridden.
+	settings.Saturation = 0.5f;
+
+	Json const document = SceneSerializer::Serialize(*scene);
+	Json const& stored = document["Entities"][0]["Components"]["PostProcess"];
+	CHECK(stored["Global"] == false);
+	CHECK(stored["Tonemapper"] == "AgX");
+	CHECK(stored["OverrideSaturation"] == false);
+	CHECK(stored["Saturation"] == 0.5);
+
+	Result<Ref<Scene>> loaded = SceneSerializer::Deserialize(document, DeserializationContext{});
+	REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
+	Entity const copy = loaded.GetValue()->FindEntityByName("Underwater");
+	REQUIRE(copy);
+	PostProcessComponent const& copied = copy.GetComponent<PostProcessComponent>();
+	CHECK_FALSE(copied.Global);
+	CHECK(copied.BlendDistance == 3.0f);
+	CHECK(copied.Priority == 2.0f);
+	CHECK(copied.Weight == 0.75f);
+	CHECK(copied.OverrideTonemapper);
+	CHECK(copied.Tonemapper == TonemapOperator::AgX);
+	CHECK(copied.ColorFilter == glm::vec3(0.25f, 0.75f, 1.0f));
+	CHECK_FALSE(copied.Bloom);
+	CHECK_FALSE(copied.OverrideSaturation);
+	CHECK(copied.Saturation == 0.5f);
+	CHECK(SceneSerializer::Serialize(*loaded.GetValue()) == document);
+
+	// Values outside a field's range are refused like any component's.
+	Json damaged = document;
+	damaged["Entities"][0]["Components"]["PostProcess"]["Weight"] = 1.5;
+	Result<Ref<Scene>> const refused = SceneSerializer::Deserialize(damaged, DeserializationContext{});
+	REQUIRE(refused.IsError());
+	CHECK(refused.GetError().find("PostProcess.Weight") != std::string::npos);
+}
+
 TEST_CASE("SceneSerializer: documents use the documented structure")
 {
 	Ref<Scene> const scene = MakeRichScene();

@@ -70,6 +70,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EntitySelection.h
     Source/Editor/FileDialogs.cpp
     Source/Editor/FileDialogs.h
+    Source/Editor/GameInputRouter.cpp
+    Source/Editor/GameInputRouter.h
     Source/Editor/HierarchyEditing.cpp
     Source/Editor/HierarchyEditing.h
     Source/Editor/Panels/BuildGameDialog.cpp

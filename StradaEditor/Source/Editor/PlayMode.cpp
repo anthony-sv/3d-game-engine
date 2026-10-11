@@ -102,7 +102,7 @@ namespace Strada
 		m_Runner.reset();
 		m_Context.EndPlay();
 		// Keys held and a cursor the game locked must not carry over into editing.
-		Input::ReleaseAll();
+		Input::ReleaseKeysAndMouseButtons();
 		Input::SetCursorMode(CursorMode::Normal);
 		ST_INFO("Stopped playing");
 	}

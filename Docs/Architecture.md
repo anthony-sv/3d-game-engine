@@ -96,7 +96,7 @@ through includes of `Scene.h` in headers.
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
 | Audio | miniaudio engine, per-scene sound sources and listener | `AudioEngine`, `AudioScene` |
 | Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding` |
-| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, screen-space UI layout and interaction, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `UILayout`, `RenderScene` |
+| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, post-process volume blending, screen-space UI layout and interaction, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `PostProcessVolumes`, `UILayout`, `RenderScene` |
 | Project | Project files and settings, the C# script project, the scene runner (play mode and the player), game export | `Project`, `ProjectSettings`, `ScriptProject`, `SceneRunner`, `GameExporter` |
 
 ### 4.1 Subsystem lifetime
@@ -163,6 +163,17 @@ a `Swapchain`. `GraphicsDevice::EndFrame` limits the CPU to 2 frames ahead of th
 
 The ImGui renderer (`ImGuiRenderer`) implements ImGui 1.92's texture protocol (create/update/destroy requests with
 partial atlas uploads) and the multi-viewport renderer callbacks.
+
+`ImGuiLayer` installs the keyboard and mouse callbacks of the windows ImGui draws into itself (the main window and the
+platform windows of panels dragged out of it; the GLFW backend is initialized without its own). Without an input filter
+the application gets the main window's input as it would without ImGui, ImGui gets it as well, and the events ImGui
+wants to capture are marked handled (layers below do not see them, and `Input` only their releases and cursor
+movement). An input filter (`ImGuiLayer::SetInputFilter`; the editor's `GameInputRouter`) sees every keyboard and mouse
+event of those windows first, with the cursor in ImGui's coordinates, the ImGui viewport of the window it comes from,
+the key the keyboard layout names and the modifiers held, and returns whether ImGui receives it; the application then
+gets no input events of its own, and the filter gives `Input` what the game should have. Where ImGui wants no cursor
+(`ImGuiMouseCursor_None`), the layer hides the OS cursor in every one of those windows: the GLFW backend alone hides it
+in the main window only, and not in the frame after cursor changes were off (`ImGuiConfigFlags_NoMouseCursorChange`).
 
 Shaders (`Strada/Shaders/*.hlsl`) are compiled by DXC to SPIR-V at build time with flags matching NVRHI's default
 Vulkan binding offsets, embedded into the library, and fetched by name through `ShaderLibrary`.
@@ -263,7 +274,10 @@ Render targets are recreated on resize and reconfiguration only after the GPU ha
 clears, which can be a target's only use in a frame.
 
 `SceneRendererSettings` (shadows, SSAO, bloom, exposure, tonemapper, FXAA, sky) are stored per scene, editable in the
-editor and through automation.
+editor and through automation. Post-process volumes (`PostProcess` components, §7.2) change the exposure, tonemapper,
+bloom, ambient occlusion, color grading and lens effects for each frame: `RenderScene` resolves them for the rendering
+camera's position (`PostProcessVolumes::Resolve`) before `BeginScene`, so the editor's scene view (the editor camera),
+its game view and the player all show them; the scene's own settings never change.
 
 ### 6.3 Assets
 
@@ -348,7 +362,10 @@ field list are declared once in `ComponentTraits.h`; generic code derives JSON s
 transactional partial updates with readable errors), schemas, copies, the inspector and the `ComponentRegistry` entry
 from that table. Fields carry optional hints: an inclusive range (enforced whenever JSON is read, so files, automation
 and the editor all reject out-of-range values), a presentation (color, angle, multi-line text), the referenced asset
-type and a one-sentence description. Field tables of other structs (renderer settings, materials) use the same hints. The
+type, a one-sentence description and a switch (`EnabledBy`: another bool field of the table, not switched itself, that
+turns the field on; checked at compile time, drawn by the inspector as a check box in front of the field). Values that
+skip the JSON checks (scripts) can be brought into range with `ClampToFieldRanges`. Field tables of other structs
+(renderer settings, materials) use the same hints. The
 registry provides type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for scene
 serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu, and script
 interop component lookups.
@@ -377,6 +394,7 @@ interop component lookups.
 | `Text` | `TextComponent` | `Text`, `Font` asset (0 = default), `Color`, `FontSize`, `ScreenSpace`, `Alignment` (Left/Center/Right), `LineSpacing` |
 | `SpriteRenderer` | `SpriteRendererComponent` | `Color`, `Texture` asset, `Tiling`, `ScreenSpace` |
 | `ParticleSystem` | `ParticleSystemComponent` | `Emitting`, `Rate` (per second), `Burst`, `MaxParticles`, `LifetimeMin`/`LifetimeMax` (s), `SpeedMin`/`SpeedMax` (m/s), `Shape` (Point/Sphere/Cone/Box), `ConeAngle` (deg), `Radius`, `BoxHalfExtents`, `GravityFactor`, `Drag`, `StartSize`/`EndSize`, `StartColor`/`EndColor`, `Intensity`, `Texture` asset (0 = soft dot), `BlendMode` (Additive/Alpha), `WorldSpace`, `DestroyWhenFinished` |
+| `PostProcess` | `PostProcessComponent` | `Global`, `BlendDistance` (m), `Priority`, `Weight` (0-1), and `Override<Setting>` switching `<Setting>` for `EV100`, `Tonemapper`, `AmbientOcclusion`, `AmbientOcclusionIntensity`, `Bloom`, `BloomIntensity`, `Contrast`, `Saturation`, `Temperature`, `Tint`, `ColorFilter`, `ChromaticAberration`, `Vignette`, `VignetteSmoothness`, `FilmGrain` (the renderer settings of the same names, with their defaults and ranges) |
 | `UICanvas` | `UICanvasComponent` | `ScaleMode` (ConstantPixelSize/ScaleWithScreenHeight), `ReferenceResolution` vec2 |
 | `UIRect` | `UIRectComponent` | `AnchorMin`, `AnchorMax` (0..1 of the parent), `Position`, `Size` (canvas units), `Pivot` (0..1), `Visible`, `Opacity` |
 | `UIImage` | `UIImageComponent` | `Color`, `Texture` asset, `PreserveAspect`, `CornerRadius` |
@@ -424,6 +442,18 @@ gravity times `GravityFactor`, lose `Drag` of their velocity per second and die 
 drawn as camera-facing sprites (the built-in `Particle` texture, a soft dot, by default): additive sprites add their
 light (they bloom when bright) and are never picked; alpha sprites cover what is behind. The quad pipeline blends
 premultiplied colors, so both kinds share it.
+
+Post-process volumes (`PostProcessVolumes`, Scene module, independent of rendering) start from the scene's renderer
+settings and apply each `PostProcess` component that reaches the camera, in order of `Priority` (lowest first; equal
+priorities in hierarchy order), with a blend: `Weight` for global volumes; for local ones `Weight` times 1 inside their
+box (the unit cube placed, rotated and scaled by the entity's world transform) fading linearly to 0 at `BlendDistance`
+meters from it. A volume changes only the settings whose `Override` switch is set: numbers move towards its values by
+the blend. `Bloom` fades instead of switching (`PostProcessVolumes::Blender`): how much of the bloom is on moves towards
+the volume's `Bloom` by the blend like a number and scales `BloomIntensity` (the renderer treats bloom that is off like
+bloom with no intensity), so it fades out into a volume that turns it off, fades in where one turns it back on, and
+switches off only once faded out completely. `AmbientOcclusion` and `Tonemapper`, which the renderer has no strength
+to fade by, take the volume's value once the blend reaches one half. Values scripts set outside the fields' ranges act
+as the nearest bound, and scenes without volumes skip the work.
 
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
 entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes.
@@ -609,9 +639,9 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
-  `Emit(count)`, `Clear()`, `ParticleCount`), `UICanvasComponent`, `UIRectComponent`, `UIImageComponent`,
-  `UITextComponent` (every field), `UIButtonComponent` (every field, `WasClicked`, `State` (`UIButtonState`),
-  `Click()`), `ScriptComponent` (`ClassName`, `Instance`).
+  `Emit(count)`, `Clear()`, `ParticleCount`), `PostProcessComponent` (every field; `Tonemapper` is a `TonemapOperator`),
+  `UICanvasComponent`, `UIRectComponent`, `UIImageComponent`, `UITextComponent` (every field), `UIButtonComponent`
+  (every field, `WasClicked`, `State` (`UIButtonState`), `Click()`), `ScriptComponent` (`ClassName`, `Instance`).
 - `Material` (runtime-creatable): `Create()`, `Clone()`, `IsEditable`, `BaseColor`, `Metallic`, `Roughness`,
   `Emissive`, `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, the five texture maps, `AlphaMode`,
   `AlphaCutoff`, `DoubleSided`, `UVTiling`, `UVOffset`.
@@ -678,20 +708,24 @@ than the assembly.
 - Scene Hierarchy: the entity tree; click selects, Ctrl toggles, Shift selects the displayed range; dragging rows
   reparents (onto a row) or reorders (onto its upper or lower edge) the selection as one undo step
   (`MoveEntitiesCommand`); F2 or the context menu renames; double-click frames the entity in the viewport; context
-  menus create preset entities (empty, primitives, lights, camera, audio, text, sprite, effects, UI), duplicate and
-  delete; UI elements (Panel, Image, Text, Button) go into a canvas: the parent's, else under a parent a new canvas
-  there, else the scene's first canvas or a new one, created with the element as one undo step; a search
-  field filters by name. Selections made elsewhere reveal and scroll to the primary entity.
+  menus create preset entities (empty, primitives, lights, camera, audio, text, sprite, particle effects, a global
+  post-process volume with a 10 m box for when it is made local, UI), duplicate and delete; UI elements (Panel,
+  Image, Text, Button) go into a canvas: the parent's, else under a parent a new canvas there, else the scene's
+  first canvas or a new one, created with the element as one undo step; a search field filters by name.
+  Selections made elsewhere reveal and scroll to the primary entity.
 - Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
   the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
   while dragging), enums are combos, asset fields have a searchable picker and accept assets dropped from the content
-  browser, entity references accept dropped entities. With several entities selected it shows the components they
-  share, flags fields whose values differ, and an edit sets only the edited value or vector component on every
-  entity. One widget interaction (a drag, typing into a field) is one undo step. Components can be added (searchable
+  browser, entity references accept dropped entities, and a field's switch (a post-process volume's override) is a
+  check box in front of its name, the value disabled while it is off. With several entities selected it shows the
+  components they share, flags fields whose values differ, and an edit sets only the edited value or vector component
+  on every entity. One widget interaction (a drag, typing into a field) is one undo step. Components can be added (searchable
   list), reset, copied, pasted as JSON and removed. Without selected entities the inspector shows the asset selected
   in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
   editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
   read-only), a texture preview, mesh statistics with the mesh's materials, and the details of other asset types.
+  Every field table's name column starts as wide as its names need, switches and indentation included (40% to 60% of
+  the panel; users can resize it); names that still do not fit end in an ellipsis and show in full in their tooltips.
 - Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
   files in red), breadcrumbs, a tile size slider, and a search over every asset path. Textures show themselves, and
   materials (on a sphere), meshes, prefabs and environments show thumbnails that `AssetThumbnails` renders offscreen,
@@ -718,14 +752,15 @@ than the assembly.
 - Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
   (fly/orbit/pan/zoom/focus). Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
   orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays: ground grid
-  (G), selection outline, clickable icons for cameras and lights, shapes of selected cameras (frustums), lights
-  (directions, ranges, cones) and colliders, every collider, and the lines scripts draw. The screen-space UI is not
-  drawn over the scene view: a selected canvas or UI element outlines its canvas instead (`CanvasOverlay`), laid out at
-  its reference resolution in the canvas entity's XY plane, 1 cm per canvas unit, with the rectangles of its elements
-  and the selected ones highlighted; UI elements, which their `UIRect` places, get no transform gizmo. ImGuizmo edits
-  apply to every selected root around the primary selection as one undo step per drag (`SetComponentsCommand` with a
-  merge key); click picking goes through the entity-ID pass (Ctrl toggles, Shift adds, empty space clears; picking IDs
-  are never reused within a scene); assets can be dropped onto it.
+  (G), selection outline, clickable icons for cameras and lights, shapes of selected entities (one toggle: camera
+  frustums, light directions, ranges and cones, colliders, joints, and the boxes of local post-process volumes with the
+  rounded outlines where their blend distances end, drawn through geometry), every collider, and the lines scripts draw.
+  The screen-space UI is not drawn over the scene view: a selected canvas or UI element outlines its canvas instead
+  (`CanvasOverlay`), laid out at its reference resolution in the canvas entity's XY plane, 1 cm per canvas unit, with
+  the rectangles of its elements and the selected ones highlighted; UI elements, which their `UIRect` places, get no
+  transform gizmo. ImGuizmo edits apply to every selected root around the primary selection as one undo step per drag
+  (`SetComponentsCommand` with a merge key); click picking goes through the entity-ID pass (Ctrl toggles, Shift adds,
+  empty space clears; picking IDs are never reused within a scene); assets can be dropped onto it.
 - Game View (`GameViewPanel`): the scene through its primary camera, as the game sees it, at a chosen resolution (free,
   16:9, 16:10, 4:3, 21:9, the project's window size, 1920x1080, 1280x720), letterboxed; fixed sizes render at that size
   and are scaled down to fit. Its size is the scene's view size (`Scene::OnViewportResize`) that scripts read and the
@@ -737,12 +772,27 @@ than the assembly.
   through a `SceneRunner`; Pause (Ctrl+Shift+P), Step (Ctrl+Alt+P) and Stop. While playing, the panels and automation
   show and edit the copy (`EditorContext::BeginPlay`) with an undo history of its own; stopping discards the copy, its
   history and every change, and the selection keeps what still exists. Play builds changed scripts first. Scene and
-  project files cannot change while playing (the UI stops playing first). The focused game view gives the game the
-  window's input, with the cursor in the pixels the game renders; Shift+Esc, losing focus or stopping releases it and a
-  click gives it back; the game's UI follows the cursor only while the game has the input. A blue frame marks the game
-  view while it has the input, and a blue (Play) or green (Simulate) frame marks the scene view while playing; stopping
-  brings the scene view back to the front. Scripts' `Application.Quit` stops playing and `SceneManager.LoadScene`
-  replaces the copy.
+  project files cannot change while playing (the UI stops playing first). Scripts' `Application.Quit` stops playing
+  and `SceneManager.LoadScene` replaces the copy. A blue (Play) or green (Simulate) frame marks the scene view while
+  playing; stopping brings the scene view back to the front.
+- Game input (`GameInputRouter`, the ImGui layer's input filter, like Unity's game view): Play gives the game the input
+  and brings the game view to the front, and while playing a click on the view gives it back to the game (the click
+  reaches the game too). While the game has the input, every key and mouse event goes to the game alone (Escape, Enter,
+  Space, Tab, the arrows and Alt included: ImGui's keyboard navigation, the editor's shortcuts and the scene view's tool
+  keys never see them), except Shift+Esc, which gives the input back, and the play shortcuts Ctrl+P, Ctrl+Shift+P and
+  Ctrl+Alt+P (Cmd on macOS; named by the key the keyboard layout types), which stay the editor's. Mouse buttons and the
+  wheel are the game's over the view's area, anywhere while the game locks the cursor; a click elsewhere (another panel,
+  a popup or window over the view, the window of a panel dragged out of the editor) goes to the editor and gives the
+  input back, and so do the view hiding behind another tab or losing the focus and playing stopping. The game sees each
+  event in the frame it happens, with the cursor in the pixels it renders and no movement when it gets the cursor back
+  somewhere else; releases reach both sides, and the keys and mouse buttons the game held are released when it gives the
+  input back, so none stays held on either side. Gamepads are not shared: the game reads them whoever has the keyboard and
+  mouse. The cursor mode the game asks for applies while it has the input: a hidden cursor is hidden over the game view
+  alone (the game view asks ImGui for no cursor there), and a locked cursor is locked to the window showing the game view,
+  moves with that window only and is hidden over the editor's other windows, ImGui changing no cursor meanwhile
+  (`GameViewPanel::UpdateWindowCursors`). A blue frame marks the game view meanwhile and its toolbar says how to release
+  it; without the input the game gets nothing (its UI follows no cursor) and the editor works as usual. Automation's
+  `input.set` and `input.release` act on the game's input directly.
 - Project management: File > New Project (name and location; the start scene is the editor's sample scene),
   Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
