@@ -847,12 +847,18 @@ data directory, and compile out asserts and script debug lines.
   failures).
 - `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp`: `Tools/Author.py` builds the
   project, its materials, both scenes and the debris and particle burst prefabs, with the sounds, the beveled block mesh
-  and the grid texture that `Tools/GenerateAssets.py` synthesizes and a Poly Haven sunset sky over a neon grid floor.
-  Falling blocks with pure C# rules (`Board`, `Piece`, `PieceBag` with a look-ahead queue), the `BlocksGame` script
-  (title, pause and game-over states, hold, a three-piece next queue, a best score kept in the user's data folder,
-  sounds, rows that burst into physics debris and sparks, dust under hard drops, a camera shake), its `Hud` (screen
-  texts that follow the window's size) and a test scene whose `BlocksTests` check the rules and play the game. `StradaRuntimeTests` plays that scene
-  and runs the game's scene headless.
+  and the grid texture that `Tools/GenerateAssets.py` synthesizes (and checks: lengths, levels, clean ends, a low thump
+  for hard drops, clears that grow with the rows), a Poly Haven sunset sky over a neon grid floor and a low sun behind
+  the board whose shadows of the board and its stack stretch across the floor. Falling blocks with pure C# rules
+  (`Board`, `Piece`, `PieceBag` with a look-ahead queue) and an `AutoPlayer` (Dellacherie's features with El-Ashi's
+  weights, a look at the next piece and a well kept open for three- and four-row clears) that plays the title screen's
+  demo at a person's pace; the `BlocksGame` script (title with the demo, pause and game-over states, hold, a three-piece
+  next queue, combos and back-to-back clears, a best score kept in the user's data folder, a sound for every action, rows
+  that burst into physics debris and sparks, dust under hard drops), `CameraShake` (smooth trauma noise with roll, and a
+  spring kick for hard drops), its `Hud` (screen texts and sprites that follow the window's size: the title banner,
+  flashes) with `Callouts` that pop over the board ("TETRIS!", "BACK-TO-BACK", "LEVEL UP!") and a test scene whose
+  `BlocksTests` check the rules and the auto player and play the game and its demo. `StradaRuntimeTests` plays that
+  scene and runs the game's scene headless.
 - `Projects/Showcase`: an autumn forest clearing built by `Tools/Author.py` through `strada mcp` from Poly Haven assets
   (fetched by `Tools/FetchAssets.py`, not in the repository) with a physics playground, a corner of joints (a wrecking
   ball on a ball joint, a hinged seesaw, a paddle on a motorized hinge), a campfire of particles with a flickering light,

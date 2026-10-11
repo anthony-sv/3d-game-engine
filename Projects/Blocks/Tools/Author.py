@@ -138,26 +138,35 @@ def build(client, sources):
         "EmissiveColor": [0.25, 0.5, 1.0], "EmissiveIntensity": 0.35, "UVTiling": [5.0, 5.0]}})
     client.call("material_create", {"path": "Materials/Neon.smat", "fields": {
         "BaseColor": [0.0, 0.0, 0.0, 1.0], "EmissiveColor": [0.2, 0.75, 1.0], "EmissiveIntensity": 6.0}})
-    # The floor under the board runs to the horizon: a glossy dark plane with glowing grid lines.
+    # The floor under the board runs to the horizon: a dusky plane with glowing grid lines, light enough for the low sun
+    # to light it and for the shadows of the board and its blocks to read.
     client.call("material_create", {"path": "Materials/Floor.smat", "fields": {
-        "BaseColor": [0.02, 0.02, 0.05, 1.0], "Metallic": 0.6, "Roughness": 0.3, "EmissiveTexture": "asset://Textures/Grid.png",
-        "EmissiveColor": [0.55, 0.3, 1.0], "EmissiveIntensity": 1.6, "UVTiling": [160.0, 160.0]}})
+        "BaseColor": [0.15, 0.115, 0.21, 1.0], "Metallic": 0.1, "Roughness": 0.58, "EmissiveTexture": "asset://Textures/Grid.png",
+        "EmissiveColor": [0.55, 0.3, 1.0], "EmissiveIntensity": 1.2, "UVTiling": [160.0, 160.0]}})
 
     # The game scene: the project's start scene, which is open.
     client.call("scene_settings", {"name": "Blocks", "settings": {"Renderer": {
-        "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 80.0,
+        "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 60.0,
         "AmbientOcclusion": True, "Bloom": True, "BloomIntensity": 0.09, "FXAA": True, "Saturation": 1.1, "Vignette": 0.3,
         "VignetteSmoothness": 0.6}}})
     found = {entity["name"]: entity["id"] for entity in client.call("entity_find", {})["entities"]}
     client.call("entity_delete", {"entities": [found[name] for name in ("Floor", "Cube", "Sphere", "Capsule")]})
     camera = found["Main Camera"]
+    # A little above the board, looking down at it: the floor in front of it shows, with the shadows.
     client.call("component_set", {"entity": camera, "component": "Transform",
-                                  "fields": {"Translation": [4.5, 9.4, 30.0], "RotationEuler": [0.0, 0.0, 0.0]}})
+                                  "fields": {"Translation": [4.5, 14.0, 34.0], "RotationEuler": [-9.0, 0.0, 0.0]}})
     client.call("component_set", {"entity": camera, "component": "Camera", "fields": {"PerspectiveFOV": 42.0, "PerspectiveFar": 400.0}})
-    client.call("component_add", {"entity": camera, "component": "Script", "fields": {"ClassName": "Blocks.CameraShake"}})
-    client.call("component_set", {"entity": found["Sun"], "component": "Transform", "fields": {"RotationEuler": [-35.0, -32.0, 0.0]}})
+    # The camera shakes and kicks with the game and sways around the board's middle on the title screen.
+    client.call("component_add", {"entity": camera, "component": "Script", "fields": {"ClassName": "Blocks.CameraShake", "Fields": {
+        "SwayPivot": {"Type": "Vector3", "Value": [4.5, 9.5, 0.0]}}}})
+    # The low sun sets behind the board, on the side where the sky glows: the board, its blocks and the panels cast long
+    # shadows toward the viewer across the floor. A cool light from the front, without shadows, keeps the blocks' faces bright.
+    client.call("component_set", {"entity": found["Sun"], "component": "Transform", "fields": {"RotationEuler": [-28.0, 160.0, 0.0]}})
     client.call("component_set", {"entity": found["Sun"], "component": "DirectionalLight",
-                                  "fields": {"Color": [0.9, 0.93, 1.0], "Intensity": 1.6, "CastShadows": True, "LightSize": 0.8}})
+                                  "fields": {"Color": [1.0, 0.72, 0.46], "Intensity": 3.6, "CastShadows": True, "LightSize": 0.5}})
+    client.call("entity_create", {"name": "Fill Light", "components": {
+        "Transform": transform((0.0, 0.0, 0.0), euler=(-20.0, 15.0, 0.0)),
+        "DirectionalLight": {"Color": [0.55, 0.68, 1.0], "Intensity": 0.8, "CastShadows": False}}})
     # The sky's sunset glows on the horizon behind the board.
     client.call("component_set", {"entity": found["Sky"], "component": "SkyLight", "fields": {
         "Environment": sky, "Intensity": 0.5, "Rotation": 10.0, "DrawSkybox": True, "SkyboxBlur": 0.05}})
@@ -165,9 +174,10 @@ def build(client, sources):
         "Transform": transform((4.5, -1.5, -100.0), scale=(320.0, 1.0, 320.0)),
         "Mesh": {"Mesh": "builtin://Plane", "Materials": ["asset://Materials/Floor.smat"]}}})
 
-    def box(name, position, scale, material, parent=None):
+    def box(name, position, scale, material, parent=None, cast_shadows=True):
         entity = client.call("entity_create", {"name": name, "components": {
-            "Transform": transform(position, scale=scale), "Mesh": {"Mesh": "builtin://Cube", "Materials": [f"asset://Materials/{material}.smat"]}}})["id"]
+            "Transform": transform(position, scale=scale),
+            "Mesh": {"Mesh": "builtin://Cube", "Materials": [f"asset://Materials/{material}.smat"], "CastShadows": cast_shadows}}})["id"]
         if parent:
             client.call("entity_reparent", {"entity": entity, "parent": parent})
         return entity
@@ -179,7 +189,8 @@ def build(client, sources):
     box("Left Neon", (-0.47, 9.0, 0.7), (0.06, 21.0, 0.06), "Neon", frame)
     box("Right Neon", (9.47, 9.0, 0.7), (0.06, 21.0, 0.06), "Neon", frame)
     box("Floor Neon", (4.5, -0.47, 0.7), (10.0, 0.06, 0.06), "Neon", frame)
-    box("Backdrop", (4.5, 9.5, -0.62), (10.0, 20.0, 0.2), "Backdrop")
+    # The sun shines through the board's backdrop, so the floor shows the shadow of the stack, cell by cell.
+    box("Backdrop", (4.5, 9.5, -0.62), (10.0, 20.0, 0.2), "Backdrop", cast_shadows=False)
     # The held piece's panel left of the board, the next queue's right of it; the game draws their pieces. Each panel has a
     # header strip with its label above the area its pieces use, so the label reads against the dark panel, not the sky.
     def panel(name, center, size):
@@ -201,7 +212,7 @@ def build(client, sources):
     # Debris: a block that flies off when its row clears.
     debris = client.call("entity_create", {"name": "Debris", "components": {
         "Transform": transform((0.0, -100.0, 0.0), scale=(0.7, 0.7, 0.7)),
-        "Mesh": {"Mesh": "asset://Meshes/Block.gltf", "CastShadows": False},
+        "Mesh": {"Mesh": "asset://Meshes/Block.gltf"},
         "RigidBody": {"Type": "Dynamic", "Mass": 1.0},
         "BoxCollider": {"HalfExtents": [0.5, 0.5, 0.5], "Restitution": 0.3},
         "Script": {"ClassName": "Blocks.Debris"}}})["id"]
@@ -239,9 +250,10 @@ def build(client, sources):
         "Debris": {"Type": "Prefab", "Value": debris_prefab},
         "RowBurst": {"Type": "Prefab", "Value": row_burst},
         "DropBurst": {"Type": "Prefab", "Value": drop_burst},
-        "MoveSound": clip("Move"), "RotateSound": clip("Rotate"), "LockSound": clip("Lock"), "DropSound": clip("Drop"),
-        "ClearSound": clip("Clear"), "BigClearSound": clip("BigClear"), "LevelUpSound": clip("LevelUp"),
-        "GameOverSound": clip("GameOver"),
+        "MoveSound": clip("Move"), "RotateSound": clip("Rotate"), "HoldSound": clip("Hold"), "SoftDropSound": clip("SoftDrop"),
+        "LockSound": clip("Lock"), "DropSound": clip("Drop"), "SingleSound": clip("Single"), "DoubleSound": clip("Double"),
+        "TripleSound": clip("Triple"), "TetrisSound": clip("Tetris"), "LevelUpSound": clip("LevelUp"),
+        "GameOverSound": clip("GameOver"), "StartSound": clip("Start"), "PauseSound": clip("Pause"),
     }
     game = client.call("entity_create", {"name": "Game", "components": {
         "Script": {"ClassName": "Blocks.BlocksGame", "Fields": game_fields}}})["id"]

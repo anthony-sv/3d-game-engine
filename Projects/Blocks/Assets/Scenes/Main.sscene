@@ -19,7 +19,7 @@
 				"Dithering": true,
 				"Shadows": true,
 				"SoftShadows": true,
-				"ShadowDistance": 80.0,
+				"ShadowDistance": 60.0,
 				"CascadeCount": 4,
 				"CascadeSplitLambda": 0.75,
 				"ShadowMapSize": 2048,
@@ -48,7 +48,7 @@
 	},
 	"Entities": [
 		{
-			"ID": "15219845111563858235",
+			"ID": "2627349546077599703",
 			"Components": {
 				"Tag": {
 					"Tag": "Main Camera"
@@ -56,14 +56,14 @@
 				"Transform": {
 					"Translation": [
 						4.5,
-						9.399999618530273,
-						30.0
+						14.0,
+						34.0
 					],
 					"Rotation": [
+						-0.07845910638570786,
 						0.0,
 						0.0,
-						0.0,
-						1.0
+						0.9969174265861511
 					],
 					"Scale": [
 						1.0,
@@ -89,12 +89,21 @@
 				},
 				"Script": {
 					"ClassName": "Blocks.CameraShake",
-					"Fields": {}
+					"Fields": {
+						"SwayPivot": {
+							"Type": "Vector3",
+							"Value": [
+								4.5,
+								9.5,
+								0.0
+							]
+						}
+					}
 				}
 			}
 		},
 		{
-			"ID": "11060121319158867616",
+			"ID": "3239495822030293079",
 			"Components": {
 				"Tag": {
 					"Tag": "Sun"
@@ -106,10 +115,10 @@
 						0.0
 					],
 					"Rotation": [
-						-0.2890569865703583,
-						-0.2628800570964813,
-						-0.0828857570886612,
-						0.916771650314331
+						-0.04200931265950203,
+						0.9555548429489136,
+						0.2382465898990631,
+						0.16849014163017273
 					],
 					"Scale": [
 						1.0,
@@ -123,18 +132,18 @@
 				},
 				"DirectionalLight": {
 					"Color": [
-						0.8999999761581421,
-						0.9300000071525574,
-						1.0
+						1.0,
+						0.7200000286102295,
+						0.46000000834465027
 					],
-					"Intensity": 1.600000023841858,
+					"Intensity": 3.5999999046325684,
 					"CastShadows": true,
-					"LightSize": 0.800000011920929
+					"LightSize": 0.5
 				}
 			}
 		},
 		{
-			"ID": "10980036234886868766",
+			"ID": "4036093674249260371",
 			"Components": {
 				"Tag": {
 					"Tag": "Sky"
@@ -162,7 +171,7 @@
 					"Children": []
 				},
 				"SkyLight": {
-					"Environment": "7622431315569835636",
+					"Environment": "6701336204712673589",
 					"Intensity": 0.5,
 					"Rotation": 10.0,
 					"SkyboxBlur": 0.05000000074505806,
@@ -176,7 +185,47 @@
 			}
 		},
 		{
-			"ID": "10314047343479822885",
+			"ID": "5841375852545721760",
+			"Components": {
+				"Tag": {
+					"Tag": "Fill Light"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						-0.17216259241104126,
+						0.1285432130098343,
+						0.022665636613965034,
+						0.9763826131820679
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"DirectionalLight": {
+					"Color": [
+						0.550000011920929,
+						0.6800000071525574,
+						1.0
+					],
+					"Intensity": 0.800000011920929,
+					"CastShadows": false,
+					"LightSize": 0.5
+				}
+			}
+		},
+		{
+			"ID": "2023416268898335990",
 			"Components": {
 				"Tag": {
 					"Tag": "Ground"
@@ -206,7 +255,7 @@
 				"Mesh": {
 					"Mesh": "3",
 					"Materials": [
-						"5003246548515229013"
+						"9688062962898021939"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -214,7 +263,7 @@
 			}
 		},
 		{
-			"ID": "16965580717300774420",
+			"ID": "15333967353188848643",
 			"Components": {
 				"Tag": {
 					"Tag": "Frame"
@@ -240,18 +289,18 @@
 				"Relationship": {
 					"Parent": "0",
 					"Children": [
-						"11852009439215419487",
-						"12705685600355064264",
-						"16184126739185680280",
-						"17687342730045226557",
-						"9384004688031668670",
-						"13173119751390597314"
+						"9505033303269400142",
+						"1637485972738814212",
+						"12682031445327324752",
+						"6507580961638419335",
+						"1742686925098379627",
+						"16623415336670514361"
 					]
 				}
 			}
 		},
 		{
-			"ID": "11852009439215419487",
+			"ID": "9505033303269400142",
 			"Components": {
 				"Tag": {
 					"Tag": "Left Wall"
@@ -275,13 +324,13 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "16965580717300774420",
+					"Parent": "15333967353188848643",
 					"Children": []
 				},
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"16339697469024862606"
+						"13542814982567191340"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -289,7 +338,7 @@
 			}
 		},
 		{
-			"ID": "12705685600355064264",
+			"ID": "1637485972738814212",
 			"Components": {
 				"Tag": {
 					"Tag": "Right Wall"
@@ -313,13 +362,13 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "16965580717300774420",
+					"Parent": "15333967353188848643",
 					"Children": []
 				},
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"16339697469024862606"
+						"13542814982567191340"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -327,7 +376,7 @@
 			}
 		},
 		{
-			"ID": "16184126739185680280",
+			"ID": "12682031445327324752",
 			"Components": {
 				"Tag": {
 					"Tag": "Floor"
@@ -351,13 +400,13 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "16965580717300774420",
+					"Parent": "15333967353188848643",
 					"Children": []
 				},
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"16339697469024862606"
+						"13542814982567191340"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -365,7 +414,7 @@
 			}
 		},
 		{
-			"ID": "17687342730045226557",
+			"ID": "6507580961638419335",
 			"Components": {
 				"Tag": {
 					"Tag": "Left Neon"
@@ -389,13 +438,13 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "16965580717300774420",
+					"Parent": "15333967353188848643",
 					"Children": []
 				},
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"9744788255381579319"
+						"18256910768228363207"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -403,7 +452,7 @@
 			}
 		},
 		{
-			"ID": "9384004688031668670",
+			"ID": "1742686925098379627",
 			"Components": {
 				"Tag": {
 					"Tag": "Right Neon"
@@ -427,13 +476,13 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "16965580717300774420",
+					"Parent": "15333967353188848643",
 					"Children": []
 				},
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"9744788255381579319"
+						"18256910768228363207"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -441,7 +490,7 @@
 			}
 		},
 		{
-			"ID": "13173119751390597314",
+			"ID": "16623415336670514361",
 			"Components": {
 				"Tag": {
 					"Tag": "Floor Neon"
@@ -465,13 +514,13 @@
 					]
 				},
 				"Relationship": {
-					"Parent": "16965580717300774420",
+					"Parent": "15333967353188848643",
 					"Children": []
 				},
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"9744788255381579319"
+						"18256910768228363207"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -479,7 +528,7 @@
 			}
 		},
 		{
-			"ID": "12565752869650906687",
+			"ID": "18345975351294001494",
 			"Components": {
 				"Tag": {
 					"Tag": "Backdrop"
@@ -509,15 +558,15 @@
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"11409442514687708549"
+						"908560395906390252"
 					],
-					"CastShadows": true,
+					"CastShadows": false,
 					"Visible": true
 				}
 			}
 		},
 		{
-			"ID": "16540481015903966127",
+			"ID": "17367831746182039489",
 			"Components": {
 				"Tag": {
 					"Tag": "Hold Panel"
@@ -547,7 +596,7 @@
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"12501555527210102896"
+						"14538485288568102839"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -555,7 +604,7 @@
 			}
 		},
 		{
-			"ID": "495709042506764002",
+			"ID": "8975539319337042289",
 			"Components": {
 				"Tag": {
 					"Tag": "Hold Neon"
@@ -585,7 +634,7 @@
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"9744788255381579319"
+						"18256910768228363207"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -593,7 +642,7 @@
 			}
 		},
 		{
-			"ID": "11479900134108318723",
+			"ID": "9010832858231820845",
 			"Components": {
 				"Tag": {
 					"Tag": "Hold Neon 2"
@@ -623,7 +672,7 @@
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"9744788255381579319"
+						"18256910768228363207"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -631,7 +680,7 @@
 			}
 		},
 		{
-			"ID": "10342809484439668074",
+			"ID": "10095513937948460716",
 			"Components": {
 				"Tag": {
 					"Tag": "Hold Label"
@@ -675,7 +724,7 @@
 			}
 		},
 		{
-			"ID": "1687222573025839415",
+			"ID": "14085714567060605430",
 			"Components": {
 				"Tag": {
 					"Tag": "Next Panel"
@@ -705,7 +754,7 @@
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"12501555527210102896"
+						"14538485288568102839"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -713,7 +762,7 @@
 			}
 		},
 		{
-			"ID": "13204975552726007093",
+			"ID": "3527410019923060100",
 			"Components": {
 				"Tag": {
 					"Tag": "Next Neon"
@@ -743,7 +792,7 @@
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"9744788255381579319"
+						"18256910768228363207"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -751,7 +800,7 @@
 			}
 		},
 		{
-			"ID": "1272475167882560506",
+			"ID": "1265706649380226998",
 			"Components": {
 				"Tag": {
 					"Tag": "Next Neon 2"
@@ -781,7 +830,7 @@
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"9744788255381579319"
+						"18256910768228363207"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -789,7 +838,7 @@
 			}
 		},
 		{
-			"ID": "2518837482896617151",
+			"ID": "9949801423947008806",
 			"Components": {
 				"Tag": {
 					"Tag": "Next Label"
@@ -833,7 +882,7 @@
 			}
 		},
 		{
-			"ID": "8839480715586383392",
+			"ID": "3726426639040588514",
 			"Components": {
 				"Tag": {
 					"Tag": "Game"
@@ -863,33 +912,29 @@
 				"Script": {
 					"ClassName": "Blocks.BlocksGame",
 					"Fields": {
-						"BigClearSound": {
-							"Type": "Asset",
-							"Value": "6856240996175667297"
-						},
 						"BlockMesh": {
 							"Type": "Asset",
-							"Value": "536708941211474341"
+							"Value": "6694074219065408768"
 						},
 						"Camera": {
 							"Type": "Entity",
-							"Value": "15219845111563858235"
-						},
-						"ClearSound": {
-							"Type": "Asset",
-							"Value": "17827378661516091372"
+							"Value": "2627349546077599703"
 						},
 						"Debris": {
 							"Type": "Prefab",
-							"Value": "2789091973331802296"
+							"Value": "11247745220069948958"
+						},
+						"DoubleSound": {
+							"Type": "Asset",
+							"Value": "3171682910800975856"
 						},
 						"DropBurst": {
 							"Type": "Prefab",
-							"Value": "5361291314007297822"
+							"Value": "12823541383815122382"
 						},
 						"DropSound": {
 							"Type": "Asset",
-							"Value": "8199445573643476526"
+							"Value": "10192006335789465999"
 						},
 						"FallInterval": {
 							"Type": "Float",
@@ -897,7 +942,7 @@
 						},
 						"GameOverSound": {
 							"Type": "Asset",
-							"Value": "1095624469078220782"
+							"Value": "15798044006467763489"
 						},
 						"HoldPosition": {
 							"Type": "Vector3",
@@ -907,17 +952,21 @@
 								0.0
 							]
 						},
+						"HoldSound": {
+							"Type": "Asset",
+							"Value": "754131733092039791"
+						},
 						"LevelUpSound": {
 							"Type": "Asset",
-							"Value": "15672337612468666416"
+							"Value": "5333281305182403110"
 						},
 						"LockSound": {
 							"Type": "Asset",
-							"Value": "8562527495929246774"
+							"Value": "12777937124669318902"
 						},
 						"MoveSound": {
 							"Type": "Asset",
-							"Value": "4435924014550666698"
+							"Value": "6704509753439882747"
 						},
 						"NextPosition": {
 							"Type": "Vector3",
@@ -931,20 +980,44 @@
 							"Type": "Float",
 							"Value": 3.4000000953674316
 						},
+						"PauseSound": {
+							"Type": "Asset",
+							"Value": "629580787329005950"
+						},
 						"RotateSound": {
 							"Type": "Asset",
-							"Value": "6603748155735581524"
+							"Value": "12101872790612620833"
 						},
 						"RowBurst": {
 							"Type": "Prefab",
-							"Value": "1184415252832310207"
+							"Value": "3158452518242089058"
+						},
+						"SingleSound": {
+							"Type": "Asset",
+							"Value": "3601418753615697304"
+						},
+						"SoftDropSound": {
+							"Type": "Asset",
+							"Value": "10003648774748569279"
+						},
+						"StartSound": {
+							"Type": "Asset",
+							"Value": "5801040814921213944"
+						},
+						"TetrisSound": {
+							"Type": "Asset",
+							"Value": "12814649929688397375"
+						},
+						"TripleSound": {
+							"Type": "Asset",
+							"Value": "6988150423459506475"
 						}
 					}
 				}
 			}
 		},
 		{
-			"ID": "12881596554455607528",
+			"ID": "11810400976477087506",
 			"Components": {
 				"Tag": {
 					"Tag": "Music"
@@ -972,7 +1045,7 @@
 					"Children": []
 				},
 				"AudioSource": {
-					"Clip": "3921404342844314857",
+					"Clip": "5774359169822631543",
 					"Volume": 0.30000001192092896,
 					"Pitch": 1.0,
 					"Loop": true,

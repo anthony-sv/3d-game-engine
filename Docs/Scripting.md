@@ -388,9 +388,10 @@ installed or shipped by you in a `dotnet` folder next to the executable.
 ## Examples
 
 - `Projects/Blocks`: a complete falling-blocks game (board logic, input, game states with title, pause and game-over
-  screens, hold and a next queue, a best score saved with `System.IO`, blocks created by script, rows that burst into
-  physics debris and particle sparks from prefabs, a camera shake, a pool of sound sources, a HUD of screen texts built
-  in code, tests).
+  screens, an AI that plays the title screen's demo, hold and a next queue, a best score saved with `System.IO`, blocks
+  created by script, rows that burst into physics debris and particle sparks from prefabs, callouts that pop over the
+  board, a camera shake with a spring kick, pools of sound sources, a HUD of screen texts and sprites built in code,
+  tests).
 - `Projects/Showcase`: a free camera that throws physics balls, impact sounds scaled by speed, flickering lights, a
   wrecking ball on a joint that a key pushes, and a playground that counts what was knocked over (run
   `Tools/FetchAssets.py` first for its models and sky).

@@ -194,10 +194,19 @@ public sealed class Board
 
 	public void Clear() => Array.Clear(m_Cells);
 
+	/// <summary>A copy of the board, to try placements on.</summary>
+	public Board Copy()
+	{
+		Board copy = new();
+		Array.Copy(m_Cells, copy.m_Cells, m_Cells.Length);
+		return copy;
+	}
+
 	/// <summary>Settles a cell directly (to set up situations, as tests do).</summary>
 	public void Set(int x, int y, PieceKind? kind) => m_Cells[x, y] = kind;
 
-	private bool IsFull(int y)
+	/// <summary>Whether every cell of the row is settled.</summary>
+	public bool IsFull(int y)
 	{
 		for (int x = 0; x < Width; x++)
 		{
