@@ -322,16 +322,35 @@ scene has none). Children draw over their parents and later siblings over earlie
   span when they stretch, so (-20, -20) leaves a 10-unit margin all around).
 - `Visible` hides it with its children; `Opacity` fades them.
 
-The canvas's `ScaleMode` is `ScaleWithScreenHeight` by default: the canvas is `ReferenceResolution.Y` units high on any
-screen, so a UI designed for 1920 x 1080 keeps its proportions in a small window and on a 4K screen.
-`ConstantPixelSize` keeps sizes in pixels instead.
+The canvas's `ScaleMode` decides how the UI follows the screen's size. `ScaleWithScreenSize`, the default, fits the
+whole `ReferenceResolution` on any screen: a UI designed for 1920 x 1080 keeps its proportions in a small window and on
+a 4K screen, wider screens add room at the sides and narrower ones (4:3, portrait) above and below, so elements anchored
+to opposite corners never overlap. `ScaleWithScreenHeight` fits the height alone (narrower screens cut off the sides),
+and `ConstantPixelSize` keeps sizes in pixels.
 
 `UIImageComponent` fills the element's rectangle with a color or a texture (`CornerRadius` rounds it),
 `UITextComponent` lays text out in it (wrapped at its width, placed by `Alignment` and `VerticalAlignment`), and
 `UIButtonComponent` makes it clickable: its state colors replace the image's color, and a click sets `WasClicked` for
 one frame and calls `OnClick(Entity button)` on the scripts of the button and of every ancestor, so one script on a
 menu hears all of its buttons. `Click()` clicks a button in code, for keyboard and gamepad menus. Images take the
-clicks over whatever they cover; text does not.
+clicks over whatever they cover; text does not. A press that ends because the window lost the focus (alt-tab, a
+notification) is canceled rather than clicked.
+
+`Input.IsPointerOverUI` says whether the mouse is over an image or a button of the UI. A game that shoots, places or
+selects with the mouse checks it, so a click on a HUD or menu button does not also act in the world:
+
+```csharp
+public class Turret : Script
+{
+	protected override void OnUpdate(float deltaTime)
+	{
+		if (Input.IsMouseButtonPressed(MouseButton.Left) && !Input.IsPointerOverUI)
+		{
+			Log.Info("Fire!");
+		}
+	}
+}
+```
 
 A HUD that shows the score and a health bar (the fill is an image stretched over the bar, whose right anchor follows the
 health):
@@ -387,7 +406,29 @@ public class PauseMenu : Script
 }
 ```
 
-The UI shows in the game view and the exported game; the scene view outlines the selected element's canvas instead.
+Title, menu and loading screens need no camera: a scene with a canvas and no camera shows its UI over black. The title
+scene that the pause menu's Quit loads can be a canvas with Play and Quit buttons and this script on the canvas:
+
+```csharp
+public class TitleMenu : Script
+{
+	protected override void OnClick(Entity button)
+	{
+		switch (button.Name)
+		{
+			case "Play":
+				SceneManager.LoadScene("Scenes/Level1.sscene");
+				break;
+			case "Quit":
+				Application.Quit();
+				break;
+		}
+	}
+}
+```
+
+The UI shows in the game view and the exported game. The scene view draws each canvas standing where its entity is,
+faint until the canvas or one of its elements is selected; double-clicking an element in the hierarchy frames it.
 
 ## Particles
 

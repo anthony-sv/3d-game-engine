@@ -8,6 +8,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -72,6 +73,10 @@ namespace Strada
 		bool PreserveAspect = false;
 		// Pixels; at most half the shorter side. The edges are anti-aliased.
 		float CornerRadius = 0.0f;
+		// When set, the rectangle is drawn in the world rather than over the final image: the transform maps its pixels onto a
+		// plane (the editor's scene view shows canvases this way). World UI is drawn after the scene, in submission order and
+		// hidden behind surfaces, with edges anti-aliased over a pixel of the screen at any distance.
+		std::optional<glm::mat4> WorldTransform;
 		uint32_t PickingId = 0;
 		bool Selected = false;
 	};
@@ -93,14 +98,17 @@ namespace Strada
 		TextLayoutSettings Layout;
 		TextVerticalAlignment VerticalAlignment = TextVerticalAlignment::Top;
 		bool Wrap = true;
+		// Draws the text in the world, as UIRectSubmission::WorldTransform does rectangles.
+		std::optional<glm::mat4> WorldTransform;
 		uint32_t PickingId = 0;
 		bool Selected = false;
 	};
 
 	// Batches the sprites, text and UI of one SceneRenderer frame. World-space quads are drawn into the HDR image (unlit:
 	// their color is used as is, alpha blended, tested against the scene depth without writing it, back to front);
-	// screen-space quads onto the final image, the UI last; all into the entity ID target for picking. Requires
-	// Renderer::Init. Main thread only.
+	// screen-space quads onto the final image, the UI last; UI placed in the world onto the tonemapped image, tested against
+	// the scene depth, in submission order; all into the entity ID target for picking. Requires Renderer::Init. Main thread
+	// only.
 	class QuadRenderer
 	{
 	public:
@@ -122,6 +130,8 @@ namespace Strada
 		// Records the vertex upload; call once per frame before the Render functions.
 		void Upload(nvrhi::ICommandList* commandList);
 		void RenderWorld(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
+		// The UI placed in the world, onto an 8-bit sRGB-encoded image with the scene depth attached read-only.
+		void RenderWorldUI(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
 		void RenderScreen(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer);
 		void RenderEntityIds(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
 		// Forgets the frame's submissions (they keep their assets alive until then).
@@ -129,7 +139,10 @@ namespace Strada
 
 		// Quads and draw calls of the prepared frame (per pass that draws them).
 		uint32_t GetQuadCount() const { return m_QuadCount; }
-		uint32_t GetBatchCount() const { return static_cast<uint32_t>(m_WorldBatches.size() + m_ScreenBatches.size()); }
+		uint32_t GetBatchCount() const
+		{
+			return static_cast<uint32_t>(m_WorldBatches.size() + m_WorldUIBatches.size() + m_ScreenBatches.size());
+		}
 
 	private:
 		struct Vertex
@@ -191,6 +204,7 @@ namespace Strada
 		void AddVertices(std::vector<Batch>& batches, Vertex const (&vertices)[4], nvrhi::ITexture* texture, nvrhi::ISampler* sampler,
 		                 uint32_t mode, glm::vec2 const& atlasSize);
 		void BuildItem(Item const& item, std::vector<Batch>& batches, glm::uvec2 const& viewportSize);
+		// UI items go to the screen batches, or to the world UI batches when placed in the world.
 		void BuildUIRect(uint32_t index, glm::uvec2 const& viewportSize);
 		void BuildUIText(uint32_t index, glm::uvec2 const& viewportSize);
 		nvrhi::IBindingSet* GetBindingSet(nvrhi::ITexture* texture, nvrhi::ISampler* sampler);
@@ -214,6 +228,7 @@ namespace Strada
 
 		std::vector<Vertex> m_Vertices;
 		std::vector<Batch> m_WorldBatches;
+		std::vector<Batch> m_WorldUIBatches;
 		std::vector<Batch> m_ScreenBatches;
 		uint32_t m_QuadCount = 0;
 		uint64_t m_Frame = 0;
@@ -227,6 +242,7 @@ namespace Strada
 		nvrhi::BindingLayoutHandle m_BindingLayout;
 		std::unordered_map<std::pair<nvrhi::ITexture*, nvrhi::ISampler*>, CachedBindingSet, BindingKeyHash> m_BindingSets;
 		nvrhi::GraphicsPipelineHandle m_WorldPipeline;
+		nvrhi::GraphicsPipelineHandle m_WorldUIPipeline;
 		nvrhi::GraphicsPipelineHandle m_ScreenPipeline;
 		nvrhi::GraphicsPipelineHandle m_WorldEntityIdPipeline;
 		nvrhi::GraphicsPipelineHandle m_ScreenEntityIdPipeline;

@@ -54,9 +54,10 @@ namespace Strada
 	template<>
 	struct EnumTraits<UIScaleMode>
 	{
-		static constexpr std::array<std::pair<UIScaleMode, std::string_view>, 2> Values = {{
+		static constexpr std::array<std::pair<UIScaleMode, std::string_view>, 3> Values = {{
 			{UIScaleMode::ConstantPixelSize, "ConstantPixelSize"},
 			{UIScaleMode::ScaleWithScreenHeight, "ScaleWithScreenHeight"},
+			{UIScaleMode::ScaleWithScreenSize, "ScaleWithScreenSize"},
 		}};
 	};
 
@@ -642,10 +643,11 @@ namespace Strada
 			"the scene in hierarchy order.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("ScaleMode", &UICanvasComponent::ScaleMode)
-				.Doc("ConstantPixelSize keeps the UI's size in pixels; ScaleWithScreenHeight scales it with the screen's height."),
+				.Doc("ScaleWithScreenSize fits the whole reference resolution on any screen; ScaleWithScreenHeight fits its height "
+		             "(narrower screens cut off the sides); ConstantPixelSize keeps the UI's size in pixels."),
 			Field("ReferenceResolution", &UICanvasComponent::ReferenceResolution)
 				.Range(1.0, 100000.0)
-				.Doc("The screen size the UI is designed for, in canvas units; ScaleWithScreenHeight fits its height to the screen's."));
+				.Doc("The screen size the UI is designed for, in canvas units, which the scale mode fits to the screen."));
 	};
 
 	template<>

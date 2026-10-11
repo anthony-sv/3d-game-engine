@@ -1,9 +1,15 @@
 #include "Editor/EditorOperations.h"
+#include "Editor/GameInputRouter.h"
 #include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Viewport/PickingIdMap.h"
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
+#include "GpuTestUtilities.h"
+#include "HeadlessImGui.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/RHI/GraphicsDevice.h"
+#include "Strada/Renderer/Renderer.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/PostProcessVolumes.h"
@@ -411,6 +417,57 @@ TEST_CASE("GameViewPanel: the game's image keeps the chosen size or aspect ratio
 		CHECK(tiny.RenderSize.y >= 1);
 		CHECK(tiny.ImageSize.x >= 1.0f);
 	}
+}
+
+TEST_CASE("GameViewPanel: scenes without a camera show their screen-space UI")
+{
+	ST_REQUIRE_GPU();
+	AssetManager::Init();
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		Testing::HeadlessImGui imgui;
+		EditorContext context;
+		GameInputRouter router;
+		GameViewPanel view(router);
+		bool open = true;
+		auto const frame = [&]
+		{
+			imgui.Frame(
+				[&]
+				{
+					ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+					ImGui::SetNextWindowSize(ImVec2(640.0f, 480.0f));
+					view.OnImGuiRender(context, open);
+				});
+		};
+		SceneRendererStatistics const* const statistics = view.GetRendererStatistics();
+		REQUIRE(statistics != nullptr);
+
+		// A scene without a camera or UI has nothing to show: no frame is rendered.
+		Scene& scene = context.GetScene();
+		frame();
+		CHECK(statistics->Quads == 0);
+
+		// A menu without a camera: a panel with a button, both drawn.
+		Entity canvas = scene.CreateEntity("Canvas");
+		canvas.AddComponent<UICanvasComponent>();
+		Entity panel = scene.CreateEntity("Panel", canvas);
+		panel.AddComponent<UIRectComponent>().Size = {800.0f, 600.0f};
+		panel.AddComponent<UIImageComponent>();
+		Entity button = scene.CreateEntity("Button", panel);
+		button.AddComponent<UIRectComponent>();
+		button.AddComponent<UIImageComponent>();
+		button.AddComponent<UIButtonComponent>();
+		frame();
+		CHECK(statistics->Quads == 2);
+		// The two rectangles alone, in one batch: no world passes.
+		CHECK(statistics->DrawCalls == 1);
+		CHECK(statistics->Triangles == 4);
+		CHECK(statistics->Lights == 0);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+	AssetManager::Shutdown();
 }
 
 TEST_CASE("EditorContext: replacing the scene changes the scene version")

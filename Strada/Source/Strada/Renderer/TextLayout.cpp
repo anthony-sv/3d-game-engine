@@ -30,8 +30,13 @@ namespace Strada
 		size_t lineStart = 0;
 		float penX = 0.0f;
 		char32_t previous = 0;
-		// The line's last run of spaces: when a word does not fit, the glyphs from breakGlyph on (the words after the spaces)
-		// move to the next line, and the line ends where the spaces start.
+		// Whether the line holds a character other than spaces and tabs: spaces before the first word indent the line and are
+		// no place to break it.
+		bool lineHasWord = false;
+		// Whether characters of the word being laid out are on the current line.
+		bool wordOnLine = false;
+		// The line's last run of spaces after a word: when a word does not fit, the glyphs from breakGlyph on (the words after
+		// the spaces) move to the next line, and the line ends where the spaces start.
 		bool hasBreak = false;
 		size_t breakGlyph = 0;
 		float breakLineWidth = 0.0f;
@@ -56,6 +61,7 @@ namespace Strada
 			line++;
 			lineStart = start;
 			hasBreak = false;
+			lineHasWord = false;
 		};
 
 		size_t offset = 0;
@@ -68,6 +74,7 @@ namespace Strada
 				startLine(layout.Glyphs.size());
 				penX = 0.0f;
 				previous = 0;
+				wordOnLine = false;
 				continue;
 			}
 			if (codepoint == U'\t')
@@ -86,14 +93,18 @@ namespace Strada
 			if (codepoint == U' ')
 			{
 				// Spaces never wrap: they hang at the end of the line they follow.
-				if (!hasBreak || previous != U' ')
+				if (lineHasWord)
 				{
-					breakLineWidth = penX;
+					if (!hasBreak || previous != U' ')
+					{
+						breakLineWidth = penX;
+					}
+					hasBreak = true;
+					breakGlyph = layout.Glyphs.size();
 				}
-				hasBreak = true;
-				breakGlyph = layout.Glyphs.size();
 				penX += kerning + glyph.Advance;
 				breakWordStart = penX;
+				wordOnLine = false;
 				previous = codepoint;
 				continue;
 			}
@@ -110,9 +121,11 @@ namespace Strada
 						layout.Glyphs[i].Max += shift;
 					}
 					penX -= breakWordStart;
+					lineHasWord = wordOnLine;
 				}
-				// A word longer than a line breaks before the character that does not fit (a line keeps at least one).
-				if (penX > 0.0f && penX + kerning + glyph.Advance > wrapWidth)
+				// A word longer than a line, or that does not fit after the spaces indenting it, breaks before the character that
+				// does not fit (a line keeps at least one character).
+				if (lineHasWord && penX + kerning + glyph.Advance > wrapWidth)
 				{
 					finishLine(layout.Glyphs.size(), penX);
 					startLine(layout.Glyphs.size());
@@ -134,6 +147,8 @@ namespace Strada
 			}
 			penX += glyph.Advance;
 			previous = codepoint;
+			lineHasWord = true;
+			wordOnLine = true;
 		}
 		finishLine(layout.Glyphs.size(), penX);
 

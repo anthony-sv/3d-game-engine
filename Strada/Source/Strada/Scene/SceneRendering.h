@@ -3,12 +3,25 @@
 #include "Strada/Core/UUID.h"
 #include "Strada/Renderer/SceneRenderer.h"
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <functional>
+#include <optional>
 
 namespace Strada
 {
 	class Scene;
+
+	// Where a canvas's UI is drawn in the world (the editor's scene view shows canvases this way): laid out on a screen of
+	// Size pixels, on the plane that Transform maps those pixels onto (x to the right, y downwards), with the alpha of its
+	// colors multiplied by Opacity.
+	struct WorldCanvasPlacement
+	{
+		glm::vec2 Size = glm::vec2(1.0f);
+		glm::mat4 Transform = glm::mat4(1.0f);
+		float Opacity = 1.0f;
+	};
 
 	// Editor additions to a rendered frame (all optional).
 	struct SceneRenderOptions
@@ -21,8 +34,14 @@ namespace Strada
 		std::function<void(SceneRenderer&)> SubmitOverlays;
 		// Lines scripts drew with Scene::DrawDebugLine.
 		bool DrawDebugLines = true;
-		// The screen-space UI of the scene's canvases (laid out on the renderer's viewport). Editor scene views leave it out.
+		// The scene's meshes, lights, sky, particles and world-space sprites and text. Without them the frame shows the
+		// screen-space sprites, text and UI alone over black, with no post effects: what scenes without a camera show.
+		bool DrawWorld = true;
+		// The screen-space UI of the scene's canvases, laid out on the renderer's viewport and drawn over the image.
 		bool DrawUI = true;
+		// Draws each top-level canvas's UI in the world instead (UILayout::GetCanvases), where this places it; canvases it
+		// places nowhere are left out. Requires DrawUI.
+		std::function<std::optional<WorldCanvasPlacement>(UUID canvas)> PlaceCanvas;
 	};
 
 	// Renders the scene from an explicit camera (the editor camera) with the scene's renderer settings as its post-process
@@ -31,6 +50,11 @@ namespace Strada
 	// in the color of their state), then ends the frame.
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options = {});
 
-	// Renders the scene from its primary camera entity. Returns false (rendering nothing) when the scene has none.
+	// Whether the scene shows something without a camera: a UI canvas, or screen-space sprites or text (menus, loading
+	// screens).
+	bool HasScreenSpaceContent(Scene& scene);
+
+	// Renders the scene from its primary camera entity. Without one, a scene with screen-space content (HasScreenSpaceContent)
+	// is drawn over black (SceneRenderOptions::DrawWorld off). Returns false, rendering nothing, when the scene has neither.
 	bool RenderSceneFromPrimaryCamera(Scene& scene, SceneRenderer& renderer);
 }

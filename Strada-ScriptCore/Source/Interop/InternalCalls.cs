@@ -441,6 +441,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, byte> UIButtonComponent_WasClicked;
 	internal static delegate* unmanaged<ulong, int> UIButtonComponent_GetState;
 	internal static delegate* unmanaged<ulong, void> UIButtonComponent_Click;
+	internal static delegate* unmanaged<byte> Input_IsPointerOverUI;
 
 	internal static delegate* unmanaged<double> Time_GetElapsed;
 	internal static delegate* unmanaged<float> Time_GetFixedDeltaTime;

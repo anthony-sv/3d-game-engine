@@ -14,6 +14,8 @@ namespace Strada
 			bool Down = false;
 			bool Pressed = false;
 			bool Released = false;
+			// The latest release came from ReleaseKeysAndMouseButtons (mouse buttons only).
+			bool ReleasedByReset = false;
 		};
 
 		struct GamepadData
@@ -44,10 +46,12 @@ namespace Strada
 			if (down && !state.Down)
 			{
 				state.Pressed = true;
+				state.ReleasedByReset = false;
 			}
 			else if (!down && state.Down)
 			{
 				state.Released = true;
+				state.ReleasedByReset = false;
 			}
 			state.Down = down;
 		}
@@ -115,6 +119,12 @@ namespace Strada
 	{
 		ButtonState const* state = FindMouseButton(button);
 		return state != nullptr && state->Released;
+	}
+
+	bool Input::WasMouseButtonReleasedByReset(MouseButton button)
+	{
+		ButtonState const* state = FindMouseButton(button);
+		return state != nullptr && state->ReleasedByReset;
 	}
 
 	glm::vec2 Input::GetMousePosition()
@@ -312,7 +322,11 @@ namespace Strada
 		}
 		for (ButtonState& state : s_Data.MouseButtons)
 		{
-			ApplyButtonState(state, false);
+			if (state.Down)
+			{
+				ApplyButtonState(state, false);
+				state.ReleasedByReset = true;
+			}
 		}
 	}
 

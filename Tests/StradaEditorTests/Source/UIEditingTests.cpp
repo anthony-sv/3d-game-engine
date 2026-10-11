@@ -1,4 +1,5 @@
 #include "Editor/EditorOperations.h"
+#include "Editor/EntityBounds.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/Viewport/CanvasOverlay.h"
 
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -174,10 +176,10 @@ TEST_CASE("EditorOperations: an entity with children is created as one undo step
 	CHECK(scene.GetEntityCount() == entityCount);
 }
 
-TEST_CASE("CanvasOverlay: selected canvases are outlined in their entity's plane")
+TEST_CASE("CanvasOverlay: canvases show in their entity's plane, outlined, faint until something in them is selected")
 {
 	Scene scene("UI");
-	// The outline shows the canvas at its reference resolution, whatever the game view's size.
+	// The scene view shows a canvas at its reference resolution, whatever the game view's size.
 	scene.OnViewportResize(640, 480);
 	Entity canvas = scene.CreateEntity("Canvas");
 	canvas.AddComponent<UICanvasComponent>().ReferenceResolution = {1600.0f, 1200.0f};
@@ -189,44 +191,124 @@ TEST_CASE("CanvasOverlay: selected canvases are outlined in their entity's plane
 	Entity const group = scene.CreateEntity("Group", panel);
 	Entity const outside = scene.CreateEntity("Outside");
 
-	std::vector<OverlayLine> lines;
+	// The UI is laid out at the reference resolution, 1 cm per canvas unit, standing on the canvas entity (the middle of its
+	// bottom edge there) with y up; faint while nothing in the canvas is selected.
 	std::array<UUID, 1> const notUI = {outside.GetUUID()};
-	CanvasOverlay::AppendSelectedCanvases(scene, notUI, lines);
-	CHECK(lines.empty());
+	std::optional<WorldCanvasPlacement> const faint = CanvasOverlay::PlaceCanvas(scene, canvas.GetUUID(), notUI);
+	REQUIRE(faint);
+	CHECK(faint->Size == glm::vec2(1600.0f, 1200.0f));
+	CHECK(faint->Opacity == doctest::Approx(CanvasOverlay::UnselectedOpacity));
+	CheckVector(glm::vec3(faint->Transform * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)), {-7.0f, 14.0f, 3.0f});
+	CheckVector(glm::vec3(faint->Transform * glm::vec4(1600.0f, 1200.0f, 0.0f, 1.0f)), {9.0f, 2.0f, 3.0f});
+	// Only canvases are placed.
+	CHECK_FALSE(CanvasOverlay::PlaceCanvas(scene, panel.GetUUID(), notUI));
+	CHECK_FALSE(CanvasOverlay::PlaceCanvas(scene, UUID(12345), notUI));
 
-	std::array<UUID, 2> const selection = {panel.GetUUID(), group.GetUUID()};
-	CanvasOverlay::AppendSelectedCanvases(scene, selection, lines);
-	CHECK(lines.size() == 8);
+	// Every canvas is outlined, over the scene; nothing else is for a canvas that holds nothing selected.
+	std::vector<OverlayLine> lines;
+	CanvasOverlay::AppendCanvasOutlines(scene, notUI, lines);
+	CHECK(lines.size() == 4);
 	CHECK(std::none_of(lines.begin(), lines.end(),
 	                   [](OverlayLine const& line)
 	                   {
 						   return line.DepthTest;
 					   }));
-	// 1600 x 1200 canvas units of 1 cm, centered on the canvas entity.
 	size_t count = 0;
 	Bounds const canvasBounds = LineBounds(lines, CanvasOverlay::CanvasColor, count);
 	CHECK(count == 4);
-	CheckVector(canvasBounds.Min, {-7.0f, -4.0f, 3.0f});
-	CheckVector(canvasBounds.Max, {9.0f, 8.0f, 3.0f});
+	CheckVector(canvasBounds.Min, {-7.0f, 2.0f, 3.0f});
+	CheckVector(canvasBounds.Max, {9.0f, 14.0f, 3.0f});
+
+	// A selected element brings its canvas forward and outlines its elements, the selected ones highlighted.
+	std::array<UUID, 2> const selection = {panel.GetUUID(), group.GetUUID()};
+	std::optional<WorldCanvasPlacement> const active = CanvasOverlay::PlaceCanvas(scene, canvas.GetUUID(), selection);
+	REQUIRE(active);
+	CHECK(active->Opacity == doctest::Approx(1.0f));
+	lines.clear();
+	CanvasOverlay::AppendCanvasOutlines(scene, selection, lines);
+	CHECK(lines.size() == 8);
+	LineBounds(lines, CanvasOverlay::CanvasColor, count);
+	CHECK(count == 4);
 	// The selected panel, 400 x 200 units in the middle.
 	Bounds const panelBounds = LineBounds(lines, CanvasOverlay::SelectedColor, count);
 	CHECK(count == 4);
-	CheckVector(panelBounds.Min, {-1.0f, 1.0f, 3.0f});
-	CheckVector(panelBounds.Max, {3.0f, 3.0f, 3.0f});
+	CheckVector(panelBounds.Min, {-1.0f, 7.0f, 3.0f});
+	CheckVector(panelBounds.Max, {3.0f, 9.0f, 3.0f});
 
 	// Selecting the canvas highlights its outline; the panel is drawn as an element. Constant pixel sizes lay out the same
-	// way at the reference resolution; the canvas entity's rotation and scale turn and size the outline.
+	// way at the reference resolution; the canvas entity's rotation and scale turn and size the canvas.
 	lines.clear();
 	canvas.GetComponent<UICanvasComponent>().ScaleMode = UIScaleMode::ConstantPixelSize;
 	canvas.GetComponent<TransformComponent>().Scale = {2.0f, 2.0f, 2.0f};
 	std::array<UUID, 1> const canvasSelection = {canvas.GetUUID()};
-	CanvasOverlay::AppendSelectedCanvases(scene, canvasSelection, lines);
+	CanvasOverlay::AppendCanvasOutlines(scene, canvasSelection, lines);
 	Bounds const selectedCanvas = LineBounds(lines, CanvasOverlay::SelectedColor, count);
 	CHECK(count == 4);
-	CheckVector(selectedCanvas.Min, {-15.0f, -10.0f, 3.0f});
-	CheckVector(selectedCanvas.Max, {17.0f, 14.0f, 3.0f});
+	CheckVector(selectedCanvas.Min, {-15.0f, 2.0f, 3.0f});
+	CheckVector(selectedCanvas.Max, {17.0f, 26.0f, 3.0f});
 	LineBounds(lines, CanvasOverlay::ElementColor, count);
 	CHECK(count == 4);
+	std::optional<WorldCanvasPlacement> const scaled = CanvasOverlay::PlaceCanvas(scene, canvas.GetUUID(), canvasSelection);
+	REQUIRE(scaled);
+	CHECK(scaled->Opacity == doctest::Approx(1.0f));
+	CheckVector(glm::vec3(scaled->Transform * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)), {-15.0f, 26.0f, 3.0f});
+
+	// A canvas inside another is drawn with it, and references scripts set beyond the inspector's range are kept to it.
+	Entity nested = scene.CreateEntity("Nested", panel);
+	nested.AddComponent<UICanvasComponent>();
+	std::array<UUID, 1> const nestedSelection = {nested.GetUUID()};
+	CHECK_FALSE(CanvasOverlay::PlaceCanvas(scene, canvas.GetUUID(), notUI)->Opacity == doctest::Approx(1.0f));
+	CHECK(CanvasOverlay::PlaceCanvas(scene, canvas.GetUUID(), nestedSelection)->Opacity == doctest::Approx(1.0f));
+	lines.clear();
+	CanvasOverlay::AppendCanvasOutlines(scene, notUI, lines);
+	CHECK(lines.size() == 4);
+	canvas.GetComponent<UICanvasComponent>().ReferenceResolution = {std::numeric_limits<float>::infinity(), 0.0f};
+	std::optional<WorldCanvasPlacement> const clamped = CanvasOverlay::PlaceCanvas(scene, canvas.GetUUID(), notUI);
+	REQUIRE(clamped);
+	CHECK(clamped->Size == glm::vec2(1.0f, 1.0f));
+}
+
+TEST_CASE("CanvasOverlay: focusing a canvas or its UI frames where the scene view draws it")
+{
+	Scene scene("UI");
+	// A 16 x 12 meter canvas standing on (1, 2, 3), with a 4 x 2 meter panel in its middle.
+	Entity canvas = scene.CreateEntity("Canvas");
+	canvas.AddComponent<UICanvasComponent>().ReferenceResolution = {1600.0f, 1200.0f};
+	canvas.GetComponent<TransformComponent>().Translation = {1.0f, 2.0f, 3.0f};
+	Entity panel = scene.CreateEntity("Panel", canvas);
+	panel.AddComponent<UIRectComponent>().Size = {400.0f, 200.0f};
+	Entity const group = scene.CreateEntity("Group", panel);
+	Entity hidden = scene.CreateEntity("Hidden", panel);
+	hidden.AddComponent<UIRectComponent>().Visible = false;
+	Entity nested = scene.CreateEntity("Nested", panel);
+	nested.AddComponent<UICanvasComponent>();
+	Entity outside = scene.CreateEntity("Outside");
+	outside.GetComponent<TransformComponent>().Translation = {20.0f, 0.0f, -5.0f};
+
+	auto const checkBounds = [&scene](std::vector<UUID> const& entities, glm::vec3 const& min, glm::vec3 const& max)
+	{
+		AABB const bounds = ComputeEntityBounds(scene, entities);
+		REQUIRE(bounds.IsValid());
+		CheckVector(bounds.Min, min);
+		CheckVector(bounds.Max, max);
+	};
+	// The canvas, and the canvases nested in it (laid out over the same screen), cover the whole plane.
+	checkBounds({canvas.GetUUID()}, {-7.0f, 2.0f, 3.0f}, {9.0f, 14.0f, 3.0f});
+	checkBounds({nested.GetUUID()}, {-7.0f, 2.0f, 3.0f}, {9.0f, 14.0f, 3.0f});
+	// Elements, and entities without a UIRect below them, cover their rectangles; hidden ones, which are not laid out, the
+	// canvas.
+	checkBounds({panel.GetUUID()}, {-1.0f, 7.0f, 3.0f}, {3.0f, 9.0f, 3.0f});
+	checkBounds({group.GetUUID()}, {-1.0f, 7.0f, 3.0f}, {3.0f, 9.0f, 3.0f});
+	checkBounds({hidden.GetUUID()}, {-7.0f, 2.0f, 3.0f}, {9.0f, 14.0f, 3.0f});
+	// Entities outside canvases count as their origins, and several entities as the box around them all.
+	CHECK_FALSE(CanvasOverlay::GetUIBounds(scene, outside.GetUUID()));
+	CHECK_FALSE(CanvasOverlay::GetUIBounds(scene, UUID(12345)));
+	checkBounds({panel.GetUUID(), outside.GetUUID(), UUID(12345)}, {-1.0f, 0.0f, -5.0f}, {20.0f, 9.0f, 3.0f});
+	CHECK_FALSE(ComputeEntityBounds(scene, std::vector<UUID>{UUID(12345)}).IsValid());
+
+	// The canvas entity's rotation turns the plane: a quarter turn around Y faces it along +X.
+	canvas.GetComponent<TransformComponent>().Rotation = glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+	checkBounds({panel.GetUUID()}, {1.0f, 7.0f, 1.0f}, {1.0f, 9.0f, 5.0f});
 }
 
 TEST_CASE("CanvasOverlay: UI elements are the rectangles below a canvas")

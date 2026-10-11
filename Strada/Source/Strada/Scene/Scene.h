@@ -243,6 +243,10 @@ namespace Strada
 		// Editors turn it off while the game does not have the input, whose cursor is then elsewhere.
 		void SetUIPointerEnabled(bool enabled) { m_UIPointerEnabled = enabled; }
 		bool IsUIPointerEnabled() const { return m_UIPointerEnabled; }
+		// Whether the mouse is over the UI as of the latest runtime update: an element that takes clicks (an image or a button)
+		// is under the cursor, so a click there goes to the UI. Games that act on clicks in the world check it. False while the
+		// pointer is disabled or the cursor locked, and while the scene does not run.
+		bool IsPointerOverUI() const { return m_UIPointerOver; }
 
 		// Memory assets that belong to the run (materials scripts create): they are removed from the AssetManager when the
 		// runtime stops.
@@ -339,7 +343,7 @@ namespace Strada
 
 		// UI runtime (SceneUI.cpp).
 		void ResetUI();
-		// Follows the mouse over the UI buttons, then clicks the buttons it clicked and the ones scripts clicked, calling
+		// Follows the mouse over the UI and its buttons, then clicks the buttons it clicked and the ones scripts clicked, calling
 		// OnClick on the scripts of each button and its ancestors.
 		void UpdateUI();
 
@@ -420,6 +424,7 @@ namespace Strada
 		// Whether the left mouse button was down at the latest update.
 		bool m_UIMouseWasDown = false;
 		bool m_UIPointerEnabled = true;
+		bool m_UIPointerOver = false;
 
 		std::vector<SceneDebugLine> m_DebugLines;
 		bool m_DebugLinesDropped = false;

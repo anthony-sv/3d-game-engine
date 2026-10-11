@@ -165,8 +165,9 @@ namespace Strada
 		// SpriteSubmission and TextSubmission). Picking IDs and selection work as for meshes.
 		void SubmitSprite(SpriteSubmission const& sprite);
 		void SubmitText(TextSubmission text);
-		// The screen-space UI, drawn over everything else in submission order (see UIRectSubmission and UITextSubmission).
-		// Picking IDs and selection work as for meshes.
+		// The screen-space UI, drawn over everything else in submission order (see UIRectSubmission and UITextSubmission);
+		// UI placed in the world is drawn after tonemapping over the grid and under the lines, hidden behind surfaces. Picking
+		// IDs and selection work as for meshes.
 		void SubmitUIRect(UIRectSubmission const& rect);
 		void SubmitUIText(UITextSubmission text);
 		// Up to ShaderInterop::MaxLights lights per frame; point and spot lights that cannot reach the camera's view are
@@ -281,7 +282,7 @@ namespace Strada
 		nvrhi::IGraphicsPipeline* GetEntityIdPipeline(bool blend, bool doubleSided);
 		// Entity IDs of the opaque and then the blended items, plus the copy for a pending pick request.
 		void RenderEntityIds(nvrhi::ICommandList* commandList);
-		// Grid and lines onto the tonemapped image (before FXAA when it is enabled).
+		// Grid, UI placed in the world and lines onto the tonemapped image (before FXAA when it is enabled).
 		void RenderOverlays(nvrhi::ICommandList* commandList, bool ldrTarget);
 		void RenderSelectionOutline(nvrhi::ICommandList* commandList);
 		void CreateOverlayPipelines();

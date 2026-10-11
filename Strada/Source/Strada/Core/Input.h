@@ -32,6 +32,10 @@ namespace Strada
 		static bool IsMouseButtonDown(MouseButton button);
 		static bool IsMouseButtonPressed(MouseButton button);
 		static bool IsMouseButtonReleased(MouseButton button);
+		// Whether the mouse button's latest release came from ReleaseKeysAndMouseButtons rather than from the device (the window
+		// lost the focus, the editor took the game's input back): interfaces cancel a press that ends this way instead of
+		// clicking. Holds until the button is pressed again.
+		static bool WasMouseButtonReleasedByReset(MouseButton button);
 
 		// Cursor position in the active game view, in the units of the scene's viewport size: the window's framebuffer pixels in
 		// the player, viewport-relative in the editor.
@@ -65,9 +69,9 @@ namespace Strada
 
 		// Ends the frame: clears pressed/released flags and per-frame deltas. Called once per frame by Application.
 		static void EndFrame();
-		// Releases the keys and mouse buttons held, which report Released: for when their release events will not come (the
-		// window lost the focus, the editor took the game's input back, play mode stopped). Gamepads keep their state: it is
-		// polled every frame, so a button held on one is still held.
+		// Releases the keys and mouse buttons held, which report Released (mouse buttons also WasMouseButtonReleasedByReset):
+		// for when their release events will not come (the window lost the focus, the editor took the game's input back, play
+		// mode stopped). Gamepads keep their state: it is polled every frame, so a button held on one is still held.
 		static void ReleaseKeysAndMouseButtons();
 		// Clears all state including flags; used by tests and on shutdown.
 		static void Reset();

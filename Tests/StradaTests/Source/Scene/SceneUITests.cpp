@@ -236,6 +236,75 @@ TEST_CASE("Scene: the mouse hovers, presses and clicks UI buttons")
 		CHECK_FALSE(scene.WasUIButtonClicked(menu.Play));
 	}
 
+	SUBCASE("a press that a reset of the input ends is canceled, not clicked")
+	{
+		menu.Frame({400.0f, 300.0f}, true);
+		CHECK(scene.GetUIButtonState(menu.Play) == UIButtonState::Pressed);
+		// Releases the device did not make: the window lost the focus, or the editor took the game's input back.
+		Input::ReleaseKeysAndMouseButtons();
+		scene.OnUpdateRuntime(Timestep(Step));
+		Input::EndFrame();
+		CHECK_FALSE(scene.WasUIButtonClicked(menu.Play));
+		CHECK(scene.GetUIButtonState(menu.Play) == UIButtonState::Hovered);
+		// Also when the scene updates after Input's one-frame flags passed (a paused scene stepped later).
+		menu.Frame({400.0f, 300.0f}, true);
+		Input::ReleaseKeysAndMouseButtons();
+		Input::EndFrame();
+		Input::EndFrame();
+		scene.OnUpdateRuntime(Timestep(Step));
+		CHECK_FALSE(scene.WasUIButtonClicked(menu.Play));
+		// The next press and release click.
+		menu.Frame({400.0f, 300.0f}, true);
+		menu.Frame({400.0f, 300.0f}, false);
+		CHECK(scene.WasUIButtonClicked(menu.Play));
+	}
+
+	SUBCASE("the pointer is over the UI where an element takes clicks")
+	{
+		// Text takes no clicks.
+		Entity label = scene.CreateEntity("Label", menu.Canvas);
+		UIRectComponent& labelRect = label.AddComponent<UIRectComponent>();
+		labelRect.Position = {-300.0f, -250.0f};
+		labelRect.Size = {100.0f, 50.0f};
+		label.AddComponent<UITextComponent>().Text = "Menu";
+		CHECK_FALSE(scene.IsPointerOverUI());
+
+		// A button, an image over a button, a disabled button, the text and empty space.
+		menu.Frame({400.0f, 300.0f}, false);
+		CHECK(scene.IsPointerOverUI());
+		menu.Frame({480.0f, 400.0f}, false);
+		CHECK(scene.IsPointerOverUI());
+		menu.Frame({400.0f, 500.0f}, false);
+		CHECK(scene.IsPointerOverUI());
+		menu.Frame({100.0f, 50.0f}, false);
+		CHECK_FALSE(scene.IsPointerOverUI());
+		menu.Frame({700.0f, 50.0f}, false);
+		CHECK_FALSE(scene.IsPointerOverUI());
+
+		// Transparent elements take no clicks.
+		menu.Play.GetComponent<UIRectComponent>().Opacity = 0.0f;
+		menu.Frame({400.0f, 300.0f}, false);
+		CHECK_FALSE(scene.IsPointerOverUI());
+		menu.Play.GetComponent<UIRectComponent>().Opacity = 1.0f;
+
+		// A disabled pointer or a locked cursor points at nothing.
+		scene.SetUIPointerEnabled(false);
+		menu.Frame({400.0f, 300.0f}, false);
+		CHECK_FALSE(scene.IsPointerOverUI());
+		scene.SetUIPointerEnabled(true);
+		Input::SetCursorMode(CursorMode::Locked);
+		menu.Frame({400.0f, 300.0f}, false);
+		CHECK_FALSE(scene.IsPointerOverUI());
+		Input::SetCursorMode(CursorMode::Normal);
+		menu.Frame({400.0f, 300.0f}, false);
+		CHECK(scene.IsPointerOverUI());
+
+		// Stopping forgets it.
+		scene.OnRuntimeStop();
+		CHECK_FALSE(scene.IsPointerOverUI());
+		scene.OnRuntimeStart();
+	}
+
 	SUBCASE("buttons clicked in code click at the next update unless disabled")
 	{
 		scene.ClickUIButton(menu.Quit);
@@ -307,23 +376,23 @@ TEST_CASE("Scene: clicks reach the scripts of the button and its ancestors")
 
 	scene.OnRuntimeStart();
 	menu.Frame({400.0f, 300.0f}, false);
-	CHECK(menu.Play.GetName() == "Clicks=0;Last=0;InClick=False;Polled=False;State=Hovered");
+	CHECK(menu.Play.GetName() == "Clicks=0;Last=0;InClick=False;Polled=False;State=Hovered;Over=True");
 	menu.Frame({400.0f, 300.0f}, true);
-	CHECK(menu.Play.GetName() == "Clicks=0;Last=0;InClick=False;Polled=False;State=Pressed");
+	CHECK(menu.Play.GetName() == "Clicks=0;Last=0;InClick=False;Polled=False;State=Pressed;Over=True");
 	menu.Frame({400.0f, 300.0f}, false);
 	// OnClick runs before the update, which sees WasClicked too.
-	CHECK(menu.Play.GetName() == "Clicks=1;Last=" + play + ";InClick=True;Polled=True;State=Hovered");
-	CHECK(menu.Canvas.GetName() == "Clicks=1;Last=" + play + ";InClick=True;Polled=False;State=Normal");
-	CHECK(menu.Icon.GetName() == "Clicks=0;Last=0;InClick=False;Polled=True;State=Hovered");
+	CHECK(menu.Play.GetName() == "Clicks=1;Last=" + play + ";InClick=True;Polled=True;State=Hovered;Over=True");
+	CHECK(menu.Canvas.GetName() == "Clicks=1;Last=" + play + ";InClick=True;Polled=False;State=Normal;Over=True");
+	CHECK(menu.Icon.GetName() == "Clicks=0;Last=0;InClick=False;Polled=True;State=Hovered;Over=True");
 
 	// The canvas's script clicks the quit button in code when Enter is pressed: the click comes at the next update.
 	Input::SetKeyState(KeyCode::Enter, true);
 	menu.Frame({0.0f, 0.0f}, false);
 	Input::SetKeyState(KeyCode::Enter, false);
-	CHECK(menu.Canvas.GetName() == "Clicks=1;Last=" + play + ";InClick=True;Polled=False;State=Normal");
+	CHECK(menu.Canvas.GetName() == "Clicks=1;Last=" + play + ";InClick=True;Polled=False;State=Normal;Over=False");
 	menu.Frame({0.0f, 0.0f}, false);
-	CHECK(menu.Canvas.GetName() == "Clicks=2;Last=" + quit + ";InClick=True;Polled=True;State=Normal");
-	CHECK(menu.Play.GetName() == "Clicks=1;Last=" + play + ";InClick=True;Polled=False;State=Normal");
+	CHECK(menu.Canvas.GetName() == "Clicks=2;Last=" + quit + ";InClick=True;Polled=True;State=Normal;Over=False");
+	CHECK(menu.Play.GetName() == "Clicks=1;Last=" + play + ";InClick=True;Polled=False;State=Normal;Over=False");
 	scene.OnRuntimeStop();
 	CHECK_FALSE(Testing::WasLogged(logStart, "Exception"));
 }

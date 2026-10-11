@@ -8,7 +8,9 @@
 #include "Strada/Scene/UILayout.h"
 
 #include <doctest/doctest.h>
+#include <glm/gtc/matrix_transform.hpp>
 
+#include <cstdlib>
 #include <optional>
 #include <utility>
 
@@ -46,12 +48,17 @@ namespace
 		return glm::ivec3(Pixel(image, x, y));
 	}
 
-	Image Render(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options = {})
+	Image ReadFinalImage(SceneRenderer const& renderer)
 	{
-		RenderScene(scene, renderer, MakeCamera(renderer.GetViewportWidth(), renderer.GetViewportHeight()), options);
 		Result<Image> image = ReadbackTexture(renderer.GetFinalImage());
 		REQUIRE(image.IsOk());
 		return std::move(image.GetValue());
+	}
+
+	Image Render(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options = {})
+	{
+		RenderScene(scene, renderer, MakeCamera(renderer.GetViewportWidth(), renderer.GetViewportHeight()), options);
+		return ReadFinalImage(renderer);
 	}
 
 	Entity AddCanvas(Scene& scene, UIScaleMode mode = UIScaleMode::ConstantPixelSize)
@@ -398,4 +405,131 @@ TEST_CASE("RenderScene: a screen-space UI matches its golden image")
 
 	Image const image = Render(scene, renderer);
 	Testing::CheckGoldenImage("SceneRenderer_UI", image);
+}
+
+TEST_CASE("RenderScene: scenes without a camera draw their screen-space content alone, over black")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(Width, Height);
+	Scene scene("Menu");
+	// A bright sky: part of the world, which needs a camera.
+	scene.CreateEntity("Sky").AddComponent<SkyLightComponent>().AmbientColor = glm::vec3(1.0f);
+	CHECK_FALSE(HasScreenSpaceContent(scene));
+	CHECK_FALSE(RenderSceneFromPrimaryCamera(scene, renderer));
+
+	// A menu without a camera: a blue panel with a green button.
+	Entity const canvas = AddCanvas(scene);
+	AddImage(scene, "Panel", canvas, {20.0f, 20.0f}, {120.0f, 80.0f}, {0.0f, 0.0f, 1.0f, 1.0f});
+	Entity button = AddImage(scene, "Button", canvas, {40.0f, 60.0f}, {80.0f, 30.0f}, glm::vec4(1.0f));
+	button.AddComponent<UIButtonComponent>().NormalColor = {0.0f, 1.0f, 0.0f, 1.0f};
+	CHECK(HasScreenSpaceContent(scene));
+	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
+	Image const menu = ReadFinalImage(renderer);
+	CHECK(Color(menu, 5, 5) == glm::ivec3(0));
+	CHECK(Color(menu, 30, 30) == glm::ivec3(0, 0, 255));
+	CHECK(Color(menu, 80, 75) == glm::ivec3(0, 255, 0));
+	CHECK(renderer.GetStatistics().Quads == 2);
+
+	// With a primary camera the world shows behind the same UI.
+	scene.CreateEntity("Camera").AddComponent<CameraComponent>();
+	REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer));
+	Image const withCamera = ReadFinalImage(renderer);
+	CHECK(Color(withCamera, 5, 5).r > 100);
+	CHECK(Color(withCamera, 30, 30) == glm::ivec3(0, 0, 255));
+
+	// Screen-space text and sprites show without a camera too; text without characters and world-space items do not count.
+	Scene loading("Loading");
+	TextComponent& text = loading.CreateEntity("Label").AddComponent<TextComponent>();
+	text.ScreenSpace = true;
+	CHECK_FALSE(HasScreenSpaceContent(loading));
+	text.Text = "Loading";
+	CHECK(HasScreenSpaceContent(loading));
+	Scene sprites("Sprites");
+	SpriteRendererComponent& sprite = sprites.CreateEntity("Sprite").AddComponent<SpriteRendererComponent>();
+	CHECK_FALSE(HasScreenSpaceContent(sprites));
+	sprite.ScreenSpace = true;
+	CHECK(HasScreenSpaceContent(sprites));
+}
+
+TEST_CASE("RenderScene: canvases placed in the world show their UI on their plane, behind surfaces")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(Width, Height);
+	renderer.SetEntityIdsEnabled(true);
+	Scene scene("UI");
+	// A 100 x 100 pixel canvas filled with red, with a green square in its middle.
+	Entity const canvas = AddCanvas(scene);
+	AddImage(scene, "Fill", canvas, {0.0f, 0.0f}, {100.0f, 100.0f}, {1.0f, 0.0f, 0.0f, 1.0f});
+	Entity const square = AddImage(scene, "Square", canvas, {40.0f, 40.0f}, {20.0f, 20.0f}, {0.0f, 1.0f, 0.0f, 1.0f});
+
+	// On a 2 x 2 meter plane at the origin, facing the camera six meters away, y up: about 43 pixels across the view.
+	float opacity = 1.0f;
+	SceneRenderOptions options;
+	options.PlaceCanvas = [&](UUID id) -> std::optional<WorldCanvasPlacement>
+	{
+		if (id != canvas.GetUUID())
+		{
+			return std::nullopt;
+		}
+		WorldCanvasPlacement placement;
+		placement.Size = {100.0f, 100.0f};
+		placement.Transform = glm::scale(glm::translate(glm::mat4(1.0f), glm::vec3(-1.0f, 1.0f, 0.0f)), glm::vec3(0.02f, -0.02f, 1.0f));
+		placement.Opacity = opacity;
+		return placement;
+	};
+	UUID const squareId = square.GetUUID();
+	options.GetPickingId = [squareId](UUID id)
+	{
+		return id == squareId ? 7u : 0u;
+	};
+
+	renderer.RequestPick(Width / 2, Height / 2);
+	Image const placed = Render(scene, renderer, options);
+	GraphicsDevice::GetDevice()->waitForIdle();
+	CHECK(renderer.TakePickResult() == std::optional<uint32_t>(7u));
+	// Not over the screen: the corners of the view show the empty scene.
+	CHECK(Color(placed, 2, 2) == glm::ivec3(0));
+	CHECK(Color(placed, Width - 3, Height - 3) == glm::ivec3(0));
+	// The square in the middle, the fill around it (x = 20 on the canvas is 0.6 m left of the middle), and nothing beyond the
+	// plane's edge (1 m left of the middle).
+	CHECK(Color(placed, Width / 2, Height / 2) == glm::ivec3(0, 255, 0));
+	CHECK(Color(placed, 67, Height / 2) == glm::ivec3(255, 0, 0));
+	CHECK(Color(placed, 52, Height / 2) == glm::ivec3(0));
+
+	// Faint canvases (the scene view's canvases holding nothing selected) are too faint to pick.
+	opacity = 0.35f;
+	renderer.RequestPick(Width / 2, Height / 2);
+	Image const faint = Render(scene, renderer, options);
+	GraphicsDevice::GetDevice()->waitForIdle();
+	CHECK(renderer.TakePickResult() == std::optional<uint32_t>(0u));
+	// Each element fades on its own, as UIRect opacities do: the faint fill shows through the faint square.
+	auto const checkColor = [](glm::ivec3 const& actual, glm::ivec3 const& expected)
+	{
+		for (int channel = 0; channel < 3; channel++)
+		{
+			CAPTURE(channel);
+			CAPTURE(actual[channel]);
+			CHECK(std::abs(actual[channel] - expected[channel]) <= 2);
+		}
+	};
+	checkColor(Color(faint, 67, Height / 2), {89, 0, 0});
+	checkColor(Color(faint, Width / 2, Height / 2), {58, 89, 0});
+
+	// Surfaces in front of the plane hide it.
+	opacity = 1.0f;
+	Testing::AddTestMesh(scene, "Wall", BuiltInAsset::CubeMesh, AssetHandle(), {0.0f, 0.0f, 1.0f}, glm::vec3(0.6f));
+	Image const hidden = Render(scene, renderer, options);
+	CHECK(Color(hidden, Width / 2, Height / 2).g < 60);
+	CHECK(Color(hidden, 67, Height / 2) == glm::ivec3(255, 0, 0));
+
+	// Canvases placed nowhere are left out.
+	options.PlaceCanvas = [](UUID) -> std::optional<WorldCanvasPlacement>
+	{
+		return std::nullopt;
+	};
+	CHECK(Color(Render(scene, renderer, options), 67, Height / 2) == glm::ivec3(0));
 }

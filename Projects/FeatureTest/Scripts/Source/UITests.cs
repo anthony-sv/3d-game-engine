@@ -70,11 +70,13 @@ public sealed class UITests : FeatureTestScript
 	private static void CanvasChecks()
 	{
 		UICanvasComponent canvas = Find<UICanvasComponent>("UI Canvas");
-		Assert.AreEqual(UIScaleMode.ScaleWithScreenHeight, canvas.ScaleMode);
+		Assert.AreEqual(UIScaleMode.ScaleWithScreenSize, canvas.ScaleMode);
 		Assert.AreEqual(new Vector2(1920.0f, 1080.0f), canvas.ReferenceResolution);
 		canvas.ScaleMode = UIScaleMode.ConstantPixelSize;
 		Assert.AreEqual(UIScaleMode.ConstantPixelSize, canvas.ScaleMode);
 		canvas.ScaleMode = UIScaleMode.ScaleWithScreenHeight;
+		Assert.AreEqual(UIScaleMode.ScaleWithScreenHeight, canvas.ScaleMode);
+		canvas.ScaleMode = UIScaleMode.ScaleWithScreenSize;
 		canvas.ReferenceResolution = new Vector2(1280.0f, 720.0f);
 		Assert.AreEqual(new Vector2(1280.0f, 720.0f), canvas.ReferenceResolution);
 		canvas.ReferenceResolution = new Vector2(1920.0f, 1080.0f);
@@ -184,8 +186,9 @@ public sealed class UITests : FeatureTestScript
 		UIButtonComponent play = Find<UIButtonComponent>("Play Button");
 		Assert.IsTrue(play.Interactable);
 		Assert.IsFalse(play.WasClicked);
-		// Test runs have no mouse over the button.
+		// Test runs have no mouse over the button, or over any of the UI.
 		Assert.AreEqual(UIButtonState.Normal, play.State);
+		Assert.IsFalse(Input.IsPointerOverUI);
 		Assert.AreEqual("Play", Entity.FindByName("Play Button")!.GetComponent<UITextComponent>()!.Text);
 
 		Color normal = play.NormalColor;

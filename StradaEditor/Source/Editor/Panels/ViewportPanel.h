@@ -47,6 +47,8 @@ namespace Strada
 		bool AllColliders = false;
 		// Lines scripts draw (Debug.DrawLine).
 		bool DebugLines = true;
+		// The UI of each canvas in its entity's plane with the canvas's outline (CanvasOverlay).
+		bool Canvases = true;
 	};
 
 	// The Scene View: the scene (the edited one, or the running one while playing) from the editor camera with the editor

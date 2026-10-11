@@ -1,10 +1,14 @@
 #include "Editor/EntityBounds.h"
 
+#include "Editor/Viewport/CanvasOverlay.h"
+
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+
+#include <optional>
 
 namespace Strada
 {
@@ -24,6 +28,10 @@ namespace Strada
 			if (source)
 			{
 				bounds.Expand(source->GetBounds().Transform(world));
+			}
+			else if (std::optional<AABB> const ui = CanvasOverlay::GetUIBounds(scene, id))
+			{
+				bounds.Expand(*ui);
 			}
 			else
 			{

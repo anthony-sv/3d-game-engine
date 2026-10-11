@@ -4,6 +4,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <limits>
 #include <vector>
 
@@ -58,6 +59,7 @@ namespace
 TEST_CASE("UILayout: canvases scale with the screen's height or keep pixels")
 {
 	UICanvasComponent canvas;
+	canvas.ScaleMode = UIScaleMode::ScaleWithScreenHeight;
 	canvas.ReferenceResolution = {1920.0f, 1080.0f};
 	CHECK(UILayout::GetCanvasScale(canvas, {1920.0f, 1080.0f}) == doctest::Approx(1.0f));
 	CHECK(UILayout::GetCanvasScale(canvas, {960.0f, 540.0f}) == doctest::Approx(0.5f));
@@ -75,6 +77,67 @@ TEST_CASE("UILayout: canvases scale with the screen's height or keep pixels")
 	canvas.ReferenceResolution = {1920.0f, 1080.0f};
 	CHECK(UILayout::GetCanvasScale(canvas, {960.0f, 540.0f}) == doctest::Approx(1.0f));
 	CHECK(UILayout::GetCanvasScale(canvas, {3840.0f, 2160.0f}) == doctest::Approx(1.0f));
+}
+
+TEST_CASE("UILayout: canvases that scale with the screen's size fit their reference resolution on any screen")
+{
+	// The default: a 1920 x 1080 design.
+	UICanvasComponent canvas;
+	CHECK(canvas.ScaleMode == UIScaleMode::ScaleWithScreenSize);
+	canvas.ReferenceResolution = {1920.0f, 1080.0f};
+	// The canvas's size in units on a screen: the screen's size over the scale.
+	auto const canvasSize = [&canvas](glm::vec2 screen)
+	{
+		return screen / UILayout::GetCanvasScale(canvas, screen);
+	};
+	auto const checkSize = [](glm::vec2 actual, glm::vec2 expected)
+	{
+		CHECK(actual.x == doctest::Approx(expected.x));
+		CHECK(actual.y == doctest::Approx(expected.y));
+	};
+
+	// The reference's own shape, at any size.
+	checkSize(canvasSize({1280.0f, 720.0f}), {1920.0f, 1080.0f});
+	checkSize(canvasSize({3840.0f, 2160.0f}), {1920.0f, 1080.0f});
+	// Wider screens (21:9): the height fits and the canvas grows wider, as with ScaleWithScreenHeight.
+	checkSize(canvasSize({2560.0f, 1080.0f}), {2560.0f, 1080.0f});
+	// Narrower screens (4:3, 16:10, portrait): the width fits and the canvas grows taller, where ScaleWithScreenHeight cuts
+	// the sides off.
+	checkSize(canvasSize({1440.0f, 1080.0f}), {1920.0f, 1440.0f});
+	checkSize(canvasSize({1728.0f, 1080.0f}), {1920.0f, 1200.0f});
+	checkSize(canvasSize({1080.0f, 1920.0f}), {1920.0f, 3413.333f});
+	canvas.ScaleMode = UIScaleMode::ScaleWithScreenHeight;
+	checkSize(canvasSize({1440.0f, 1080.0f}), {1440.0f, 1080.0f});
+	checkSize(canvasSize({1080.0f, 1920.0f}), {607.5f, 1080.0f});
+	canvas.ScaleMode = UIScaleMode::ScaleWithScreenSize;
+
+	// So elements anchored to opposite corners never overlap on a narrow screen when they do not at the reference: two
+	// 900-unit-wide bars in the top corners of a 4:3 screen.
+	Scene scene("HUD");
+	Entity hud = scene.CreateEntity("HUD");
+	hud.AddComponent<UICanvasComponent>() = canvas;
+	Entity left = AddElement(scene, "Score", hud, Rect({0.0f, 0.0f}, {0.0f, 0.0f}, {0.0f, 0.0f}, {900.0f, 100.0f}, {0.0f, 0.0f}));
+	Entity right = AddElement(scene, "Health", hud, Rect({1.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 0.0f}, {900.0f, 100.0f}, {1.0f, 0.0f}));
+	std::vector<UIElement> const elements = UILayout::LayoutScene(scene, {1440.0f, 1080.0f});
+	UIElement const* leftElement = FindElement(elements, left);
+	UIElement const* rightElement = FindElement(elements, right);
+	REQUIRE(leftElement != nullptr);
+	REQUIRE(rightElement != nullptr);
+	CheckRectangle(leftElement->Rectangle, {0.0f, 0.0f}, {675.0f, 75.0f});
+	CheckRectangle(rightElement->Rectangle, {765.0f, 0.0f}, {1440.0f, 75.0f});
+	CHECK(leftElement->Rectangle.Max.x <= rightElement->Rectangle.Min.x);
+	hud.GetComponent<UICanvasComponent>().ScaleMode = UIScaleMode::ScaleWithScreenHeight;
+	std::vector<UIElement> const cut = UILayout::LayoutScene(scene, {1440.0f, 1080.0f});
+	REQUIRE(FindElement(cut, left) != nullptr);
+	REQUIRE(FindElement(cut, right) != nullptr);
+	CHECK(FindElement(cut, left)->Rectangle.Max.x > FindElement(cut, right)->Rectangle.Min.x);
+
+	// Screens without a size, and references below a unit or not finite, as for the height.
+	CHECK(UILayout::GetCanvasScale(canvas, {0.0f, 720.0f}) == doctest::Approx(1.0f));
+	CHECK(UILayout::GetCanvasScale(canvas, {1280.0f, 0.0f}) == doctest::Approx(1.0f));
+	CHECK(UILayout::GetCanvasScale(canvas, {std::numeric_limits<float>::infinity(), 720.0f}) == doctest::Approx(1.0f));
+	canvas.ReferenceResolution = {0.0f, std::numeric_limits<float>::quiet_NaN()};
+	CHECK(UILayout::GetCanvasScale(canvas, {800.0f, 600.0f}) == doctest::Approx(600.0f));
 }
 
 TEST_CASE("UILayout: rectangles follow their anchors, position, size and pivot")
@@ -246,6 +309,97 @@ TEST_CASE("UILayout: canvases lay out their descendants in hierarchy order")
 	Scene empty("Empty");
 	empty.CreateEntity("Entity");
 	CHECK(UILayout::LayoutScene(empty, viewport).empty());
+	CHECK(UILayout::GetCanvases(empty).empty());
+}
+
+TEST_CASE("UILayout: canvases are found in hierarchy order among many other entities")
+{
+	Scene scene("Level");
+	glm::vec2 const viewport(640.0f, 480.0f);
+	// A canvas with a panel, made at a point of the level.
+	auto const addCanvas = [&scene](char const* name, Entity parent)
+	{
+		Entity canvas = parent ? scene.CreateEntity(name, parent) : scene.CreateEntity(name);
+		canvas.AddComponent<UICanvasComponent>();
+		Entity panel = AddElement(scene, "Panel", canvas, Rect({0.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 0.0f}, {-20.0f, -20.0f}, {0.5f, 0.5f}));
+		panel.AddComponent<UIImageComponent>();
+		return canvas;
+	};
+
+	// A level of 1500 entities: wide rows of roots with deep chains below some of them, and canvases at the start, inside a
+	// chain, inside another canvas, and at the end. A UIRect outside canvases is not UI.
+	Entity const first = addCanvas("First", Entity());
+	Entity chainEnd;
+	for (int root = 0; root < 50; root++)
+	{
+		Entity parent = scene.CreateEntity("Root");
+		for (int depth = 0; depth < 29; depth++)
+		{
+			parent = scene.CreateEntity("Child", parent);
+		}
+		if (root == 20)
+		{
+			chainEnd = parent;
+			parent.AddComponent<UIRectComponent>();
+		}
+	}
+	Entity const deep = addCanvas("Deep", chainEnd);
+	Entity const nested = addCanvas("Nested", deep);
+	Entity const last = addCanvas("Last", Entity());
+	// A canvas made before the others but moved to the front of the roots comes first.
+	Entity const moved = addCanvas("Moved", Entity());
+	scene.SetSiblingIndex(moved, 0);
+
+	CHECK(UILayout::GetCanvases(scene) ==
+	      std::vector<entt::entity>{moved.GetHandle(), first.GetHandle(), deep.GetHandle(), last.GetHandle()});
+
+	// The same elements, in the same order, as a walk over the whole hierarchy finds below canvases.
+	std::vector<entt::entity> expected;
+	scene.ForEachEntityInHierarchyOrder(
+		[&scene, &expected](Entity entity)
+		{
+			for (Entity ancestor = entity; ancestor; ancestor = scene.GetParent(ancestor))
+			{
+				if (ancestor.HasComponent<UICanvasComponent>())
+				{
+					expected.push_back(entity.GetHandle());
+					return;
+				}
+			}
+		});
+	std::vector<entt::entity> order;
+	for (UIElement const& element : UILayout::LayoutScene(scene, viewport))
+	{
+		order.push_back(element.Handle);
+	}
+	CHECK(order.size() == 10);
+	CHECK(order == expected);
+	// The nested canvas is laid out with its parent's, starting again from the screen.
+	auto const nestedElement = std::find(order.begin(), order.end(), nested.GetHandle());
+	REQUIRE(nestedElement != order.end());
+	CHECK(std::find(order.begin(), order.end(), deep.GetHandle()) < nestedElement);
+}
+
+TEST_CASE("UILayout: the topmost element that takes clicks is under the pointer")
+{
+	auto const element = [](glm::vec2 min, glm::vec2 max, bool hitTarget)
+	{
+		UIElement result;
+		result.Rectangle = {min, max};
+		result.HitTarget = hitTarget;
+		return result;
+	};
+	// A panel, a text over it (no hit target), and an icon over the panel's corner.
+	std::vector<UIElement> const elements = {
+		element({0.0f, 0.0f}, {100.0f, 100.0f}, true),
+		element({0.0f, 0.0f}, {100.0f, 50.0f}, false),
+		element({80.0f, 80.0f}, {120.0f, 120.0f}, true),
+	};
+	CHECK(UILayout::FindHitTargetAt(elements, {10.0f, 10.0f}) == &elements[0]);
+	CHECK(UILayout::FindHitTargetAt(elements, {90.0f, 90.0f}) == &elements[2]);
+	CHECK(UILayout::FindHitTargetAt(elements, {110.0f, 110.0f}) == &elements[2]);
+	CHECK(UILayout::FindHitTargetAt(elements, {110.0f, 10.0f}) == nullptr);
+	CHECK(UILayout::FindHitTargetAt({}, {10.0f, 10.0f}) == nullptr);
 }
 
 TEST_CASE("UILayout: a click goes to the nearest button of the topmost element that takes clicks")

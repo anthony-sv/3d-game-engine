@@ -286,8 +286,12 @@ namespace Strada
 			};
 		}
 		options.DrawDebugLines = m_Overlays.DebugLines;
-		// The screen-space UI would cover the scene; selected canvases are outlined in the scene instead.
-		options.DrawUI = false;
+		// The screen-space UI would cover the scene: each canvas shows in its entity's plane instead.
+		options.DrawUI = m_Overlays.Canvases;
+		options.PlaceCanvas = [&scene, &selection](UUID canvas)
+		{
+			return CanvasOverlay::PlaceCanvas(scene, canvas, selection.GetEntities());
+		};
 		options.SubmitOverlays = [&](SceneRenderer& renderer)
 		{
 			SceneRendererOverlays overlays;
@@ -304,7 +308,10 @@ namespace Strada
 					                                                : ViewportOverlays::Shapes::All;
 					ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, shapes);
 				}
-				CanvasOverlay::AppendSelectedCanvases(scene, selection.GetEntities(), lines);
+			}
+			if (m_Overlays.Canvases)
+			{
+				CanvasOverlay::AppendCanvasOutlines(scene, selection.GetEntities(), lines);
 			}
 			if (m_Overlays.AllColliders)
 			{
@@ -659,6 +666,8 @@ namespace Strada
 			ImGui::SetItemTooltip("Camera frustums, light directions, ranges and cones, colliders, joints and post-process volume boxes");
 			ImGui::Checkbox("All colliders", &m_Overlays.AllColliders);
 			ImGui::Checkbox("Debug drawing (scripts)", &m_Overlays.DebugLines);
+			ImGui::Checkbox("UI canvases", &m_Overlays.Canvases);
+			ImGui::SetItemTooltip("Each canvas's UI in its entity's plane, faint until the canvas or one of its elements is selected");
 			ImGui::EndPopup();
 		}
 		ImGui::Dummy(ImVec2(0.0f, 2.0f));

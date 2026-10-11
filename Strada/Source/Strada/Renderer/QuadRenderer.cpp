@@ -65,6 +65,26 @@ namespace Strada
 			return glm::vec4(pixel.x / viewportSize.x * 2.0f - 1.0f, 1.0f - pixel.y / viewportSize.y * 2.0f, 0.0f, 1.0f);
 		}
 
+		// Where the pixels of a UI item go: clip space over the viewport, or the world through the item's transform.
+		class UIPlacement
+		{
+		public:
+			UIPlacement(std::optional<glm::mat4> const& worldTransform, glm::uvec2 const& viewportSize)
+				: m_World(worldTransform),
+				  m_ViewportSize(glm::max(glm::vec2(viewportSize), glm::vec2(1.0f)))
+			{
+			}
+
+			glm::vec4 Place(glm::vec2 const& pixel) const
+			{
+				return m_World ? *m_World * glm::vec4(pixel, 0.0f, 1.0f) : PixelToClip(pixel, m_ViewportSize);
+			}
+
+		private:
+			std::optional<glm::mat4> m_World;
+			glm::vec2 m_ViewportSize;
+		};
+
 		bool IsFinite(glm::vec2 const& value)
 		{
 			return std::isfinite(value.x) && std::isfinite(value.y);
@@ -180,6 +200,7 @@ namespace Strada
 					  });
 		m_Vertices.clear();
 		m_WorldBatches.clear();
+		m_WorldUIBatches.clear();
 		m_ScreenBatches.clear();
 		m_QuadCount = 0;
 
@@ -312,7 +333,7 @@ namespace Strada
 			max = center + 0.5f * fitted;
 		}
 
-		glm::vec2 const viewport = glm::max(glm::vec2(viewportSize), glm::vec2(1.0f));
+		UIPlacement const placement(rect.WorldTransform, viewportSize);
 		glm::vec2 const center = 0.5f * (min + max);
 		glm::vec2 const halfSize = 0.5f * (max - min);
 		float const radius =
@@ -327,12 +348,18 @@ namespace Strada
 		for (uint32_t i = 0; i < 4; i++)
 		{
 			glm::vec2 const offset = signs[i] * outer;
-			vertices[i].Position = PixelToClip(center + offset, viewport);
+			vertices[i].Position = placement.Place(center + offset);
 			vertices[i].Color = rect.Color;
 			vertices[i].TexCoord = glm::vec2(0.5f) + signs[i] * uvOuter;
 			vertices[i].EntityId = entityId;
 			vertices[i].CornerRadius = radius;
 			vertices[i].Shape = glm::vec4(offset, halfSize);
+		}
+		if (rect.WorldTransform)
+		{
+			AddVertices(m_WorldUIBatches, vertices, texture, Renderer::GetLinearClampSampler(), ShaderInterop::QuadModeWorldUIRect,
+			            glm::vec2(1.0f));
+			return;
 		}
 		AddVertices(m_ScreenBatches, vertices, texture, Renderer::GetLinearClampSampler(), ShaderInterop::QuadModeUIRect, glm::vec2(1.0f));
 	}
@@ -351,7 +378,8 @@ namespace Strada
 		{
 			return;
 		}
-		glm::vec2 const viewport = glm::max(glm::vec2(viewportSize), glm::vec2(1.0f));
+		UIPlacement const placement(text.WorldTransform, viewportSize);
+		std::vector<Batch>& batches = text.WorldTransform ? m_WorldUIBatches : m_ScreenBatches;
 		glm::vec2 const atlasSize(static_cast<float>(font->Atlas->GetWidth()), static_cast<float>(font->Atlas->GetHeight()));
 		float const size = text.FontSize;
 		// Lines align at the rectangle's left edge, center or right edge; the text block at its top, middle or bottom.
@@ -368,13 +396,13 @@ namespace Strada
 			glm::vec2 const min = origin + glyph.Min * size;
 			glm::vec2 const max = origin + glyph.Max * size;
 			glm::vec4 const corners[4] = {
-				PixelToClip({min.x, max.y}, viewport),
-				PixelToClip({max.x, max.y}, viewport),
-				PixelToClip({max.x, min.y}, viewport),
-				PixelToClip({min.x, min.y}, viewport),
+				placement.Place({min.x, max.y}),
+				placement.Place({max.x, max.y}),
+				placement.Place({max.x, min.y}),
+				placement.Place({min.x, min.y}),
 			};
-			AddQuad(m_ScreenBatches, corners, glm::vec2(glyph.AtlasMin) / atlasSize, glm::vec2(glyph.AtlasMax) / atlasSize, text.Color,
-			        entityId, texture, Renderer::GetLinearClampSampler(), ShaderInterop::QuadModeText, atlasSize);
+			AddQuad(batches, corners, glm::vec2(glyph.AtlasMin) / atlasSize, glm::vec2(glyph.AtlasMax) / atlasSize, text.Color, entityId,
+			        texture, Renderer::GetLinearClampSampler(), ShaderInterop::QuadModeText, atlasSize);
 		}
 	}
 
@@ -526,6 +554,15 @@ namespace Strada
 		}
 	}
 
+	void QuadRenderer::RenderWorldUI(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection)
+	{
+		if (!m_WorldUIBatches.empty())
+		{
+			DrawBatches(commandList, m_WorldUIBatches, GetPipeline(m_WorldUIPipeline, framebuffer, false, true), framebuffer,
+			            viewProjection, true);
+		}
+	}
+
 	void QuadRenderer::RenderScreen(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer)
 	{
 		if (!m_ScreenBatches.empty())
@@ -540,6 +577,11 @@ namespace Strada
 		if (!m_WorldBatches.empty())
 		{
 			DrawBatches(commandList, m_WorldBatches, GetPipeline(m_WorldEntityIdPipeline, framebuffer, true, true), framebuffer,
+			            viewProjection, false);
+		}
+		if (!m_WorldUIBatches.empty())
+		{
+			DrawBatches(commandList, m_WorldUIBatches, GetPipeline(m_WorldEntityIdPipeline, framebuffer, true, true), framebuffer,
 			            viewProjection, false);
 		}
 		// Screen-space items are on top of everything.
@@ -563,6 +605,7 @@ namespace Strada
 		m_UITextFonts.clear();
 		m_Vertices.clear();
 		m_WorldBatches.clear();
+		m_WorldUIBatches.clear();
 		m_ScreenBatches.clear();
 	}
 

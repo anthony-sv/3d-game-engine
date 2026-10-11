@@ -395,7 +395,7 @@ interop component lookups.
 | `SpriteRenderer` | `SpriteRendererComponent` | `Color`, `Texture` asset, `Tiling`, `ScreenSpace` |
 | `ParticleSystem` | `ParticleSystemComponent` | `Emitting`, `Rate` (per second), `Burst`, `MaxParticles`, `LifetimeMin`/`LifetimeMax` (s), `SpeedMin`/`SpeedMax` (m/s), `Shape` (Point/Sphere/Cone/Box), `ConeAngle` (deg), `Radius`, `BoxHalfExtents`, `GravityFactor`, `Drag`, `StartSize`/`EndSize`, `StartColor`/`EndColor`, `Intensity`, `Texture` asset (0 = soft dot), `BlendMode` (Additive/Alpha), `WorldSpace`, `DestroyWhenFinished` |
 | `PostProcess` | `PostProcessComponent` | `Global`, `BlendDistance` (m), `Priority`, `Weight` (0-1), and `Override<Setting>` switching `<Setting>` for `EV100`, `Tonemapper`, `AmbientOcclusion`, `AmbientOcclusionIntensity`, `Bloom`, `BloomIntensity`, `Contrast`, `Saturation`, `Temperature`, `Tint`, `ColorFilter`, `ChromaticAberration`, `Vignette`, `VignetteSmoothness`, `FilmGrain` (the renderer settings of the same names, with their defaults and ranges) |
-| `UICanvas` | `UICanvasComponent` | `ScaleMode` (ConstantPixelSize/ScaleWithScreenHeight), `ReferenceResolution` vec2 |
+| `UICanvas` | `UICanvasComponent` | `ScaleMode` (ConstantPixelSize/ScaleWithScreenHeight/ScaleWithScreenSize), `ReferenceResolution` vec2 |
 | `UIRect` | `UIRectComponent` | `AnchorMin`, `AnchorMax` (0..1 of the parent), `Position`, `Size` (canvas units), `Pivot` (0..1), `Visible`, `Opacity` |
 | `UIImage` | `UIImageComponent` | `Color`, `Texture` asset, `PreserveAspect`, `CornerRadius` |
 | `UIText` | `UITextComponent` | `Text`, `Font` asset (0 = default), `Color`, `FontSize` (canvas units per line), `Alignment` (Left/Center/Right), `VerticalAlignment` (Top/Middle/Bottom), `Wrap`, `LineSpacing` |
@@ -412,14 +412,23 @@ same plane with `FontSize` world units per line; both are unlit.
 The screen-space UI (HUDs, menus) is made of entities. A `UICanvas` entity covers the screen, wherever it is in the
 hierarchy, and its descendants are the UI, laid out by `UILayout` (Scene module; pure functions of the components,
 the hierarchy and the viewport size, unit tested) and drawn in hierarchy order: parents before children, siblings in
-order, an element's image before its text. Canvas units are pixels (`ConstantPixelSize`) or `ReferenceResolution.y`
-units per screen height (`ScaleWithScreenHeight`, the default). A `UIRect` places its element in the parent's rectangle
+order, an element's image before its text. The scale mode sets the canvas units: with `ScaleWithScreenSize` (the
+default) the whole `ReferenceResolution` fits on any screen (the screen is `ReferenceResolution.y` units high when it is
+wider than the reference, `ReferenceResolution.x` units wide when it is narrower), `ScaleWithScreenHeight` fits the
+height alone (narrower screens cut off the sides), and with `ConstantPixelSize` a unit is a pixel. A `UIRect` places its
+element in the parent's rectangle
 (the screen for the canvas's children; y downwards): on each axis the anchors mark a span of the parent, the rectangle
 is `Size` larger than the span (a negative size makes an empty rectangle), and its pivot sits at the pivot's point of
 the span moved by `Position`. Entities without a `UIRect` take their parent's rectangle; a hidden `UIRect` hides its
 subtree; opacities multiply down the hierarchy. The Transform of UI entities, and a `UIRect` on the canvas entity, are
-not used. `RenderScene` lays the UI out on the renderer's viewport and submits it (`SceneRenderOptions::DrawUI`; the
-editor's scene view leaves it out), with a button's state color in place of its image's color.
+not used. `RenderScene` lays the UI out on the renderer's viewport and submits it (`SceneRenderOptions::DrawUI`), with
+a button's state color in place of its image's color; with `SceneRenderOptions::PlaceCanvas` each top-level canvas's UI
+is drawn on a plane in the world instead (the editor's scene view), after tonemapping, over the grid and behind
+surfaces, its edges anti-aliased over a pixel of the screen at any distance. Title, menu and loading scenes need no
+camera: without a primary camera, `RenderSceneFromPrimaryCamera` draws a scene's screen-space content (UI canvases,
+screen-space sprites and text: `HasScreenSpaceContent`) over black with `SceneRenderOptions::DrawWorld` off (no meshes,
+lights, sky, particles, world-space sprites or text, debug lines or post effects), and renders nothing for a scene with
+neither.
 
 While the scene runs, `Scene` follows the mouse (Input's cursor, in pixels of the scene's viewport size) at the start of
 each update: the element under the cursor that takes clicks (a `UIImage` or `UIButton` whose opacity is not zero; the
@@ -429,9 +438,13 @@ left button press on it presses it, and a release on the same button clicks it: 
 update, and `OnClick(button)` runs on the scripts of the button and of its ancestors, nearest first, before the frame's
 `OnUpdate`. Presses and releases are Input's one-frame flags or the button's changes since the last update, so they
 also count when updates are further apart (a paused scene stepped, automation setting the button before it advances
-the scene). Buttons clicked in code (`ClickUIButton`) click at the next update unless disabled. A locked cursor or
-`SetUIPointerEnabled(false)` (the editor's, while the game view does not have the input) drives no buttons, and
-stopping forgets the pointer and pending clicks.
+the scene). A release that `Input::ReleaseKeysAndMouseButtons` made (the window lost the focus, the editor took the
+game's input back: `Input::WasMouseButtonReleasedByReset`) cancels the press instead of clicking, as interfaces cancel
+a mouse capture. `IsPointerOverUI` tells whether an element that takes clicks is under the cursor (scripts'
+`Input.IsPointerOverUI`), so games can ignore world clicks that land on the UI. Buttons clicked in code
+(`ClickUIButton`) click at the next update unless disabled. A locked cursor or `SetUIPointerEnabled(false)` (the
+editor's `PlayMode` sets it before each update of the running scene: off while the game view does not have the input)
+points at nothing and drives no buttons, and stopping forgets the pointer and pending clicks.
 
 Particle systems are simulated on the CPU by `ParticleEmitter` (Scene module, independent of the ECS, with a SplitMix64
 generator of its own so a seed gives the same particles everywhere). `Scene::UpdateParticles` runs them each runtime
@@ -646,7 +659,7 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `Emissive`, `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, the five texture maps, `AlphaMode`,
   `AlphaCutoff`, `DoubleSided`, `UVTiling`, `UVOffset`.
 - `Input`: `IsKeyDown/Pressed/Released(KeyCode)`, `IsMouseButtonDown/Pressed/Released(MouseButton)`,
-  `MousePosition`, `MouseDelta`, `MouseScrollDelta`, `CursorMode`, gamepad (`IsGamepadConnected`,
+  `MousePosition`, `MouseDelta`, `MouseScrollDelta`, `CursorMode`, `IsPointerOverUI`, gamepad (`IsGamepadConnected`,
   `GetGamepadAxis`, `IsGamepadButtonDown/Pressed`).
 - `Time`: `DeltaTime`, `FixedDeltaTime`, `Elapsed`, `FrameCount`, `TimeScale`.
 - `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`.
@@ -724,6 +737,7 @@ than the assembly.
   in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
   editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
   read-only), a texture preview, mesh statistics with the mesh's materials, and the details of other asset types.
+  The Transform of UI elements, which their `UIRect` places, starts folded and is shown read-only, with a note.
   Every field table's name column starts as wide as its names need, switches and indentation included (40% to 60% of
   the panel; users can resize it); names that still do not fit end in an ellipsis and show in full in their tooltips.
 - Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
@@ -755,16 +769,20 @@ than the assembly.
   (G), selection outline, clickable icons for cameras and lights, shapes of selected entities (one toggle: camera
   frustums, light directions, ranges and cones, colliders, joints, and the boxes of local post-process volumes with the
   rounded outlines where their blend distances end, drawn through geometry), every collider, and the lines scripts draw.
-  The screen-space UI is not drawn over the scene view: a selected canvas or UI element outlines its canvas instead
-  (`CanvasOverlay`), laid out at its reference resolution in the canvas entity's XY plane, 1 cm per canvas unit, with
-  the rectangles of its elements and the selected ones highlighted; UI elements, which their `UIRect` places, get no
-  transform gizmo. ImGuizmo edits apply to every selected root around the primary selection as one undo step per drag
+  The screen-space UI would cover the scene: the UI canvases overlay draws each top-level canvas's UI in its entity's
+  XY plane instead (`CanvasOverlay`), standing on the entity (the middle of its bottom edge there), laid out at its
+  reference resolution, 1 cm per canvas unit, faint (too faint to pick) until the canvas or one of its elements is
+  selected, with the outline of every canvas and, for the canvas holding the selection, the rectangles of its elements,
+  the selected ones highlighted. Focus and `viewport.frame` frame a canvas or a UI element's rectangle there
+  (`ComputeEntityBounds`). UI elements, which their `UIRect` places, get no transform gizmo. ImGuizmo edits apply to
+  every selected root around the primary selection as one undo step per drag
   (`SetComponentsCommand` with a merge key); click picking goes through the entity-ID pass (Ctrl toggles, Shift adds,
   empty space clears; picking IDs are never reused within a scene); assets can be dropped onto it.
 - Game View (`GameViewPanel`): the scene through its primary camera, as the game sees it, at a chosen resolution (free,
   16:9, 16:10, 4:3, 21:9, the project's window size, 1920x1080, 1280x720), letterboxed; fixed sizes render at that size
   and are scaled down to fit. Its size is the scene's view size (`Scene::OnViewportResize`) that scripts read and the
-  size Play starts with. Edit mode shows a preview; playing brings it to the front.
+  size Play starts with. Edit mode shows a preview; playing brings it to the front. Scenes without a primary camera show
+  their screen-space UI over black, and a note when they have none.
 - Undo/redo for every scene modification through a command history (JSON before/after snapshots). Automation
   commands use the same history.
 - Play mode (`PlayMode`, controls in the toolbar and the Play menu): Play (Ctrl+P; scripts, physics and audio, shown in
@@ -786,13 +804,15 @@ than the assembly.
   input back, and so do the view hiding behind another tab or losing the focus and playing stopping. The game sees each
   event in the frame it happens, with the cursor in the pixels it renders and no movement when it gets the cursor back
   somewhere else; releases reach both sides, and the keys and mouse buttons the game held are released when it gives the
-  input back, so none stays held on either side. Gamepads are not shared: the game reads them whoever has the keyboard and
-  mouse. The cursor mode the game asks for applies while it has the input: a hidden cursor is hidden over the game view
-  alone (the game view asks ImGui for no cursor there), and a locked cursor is locked to the window showing the game view,
-  moves with that window only and is hidden over the editor's other windows, ImGui changing no cursor meanwhile
-  (`GameViewPanel::UpdateWindowCursors`). A blue frame marks the game view meanwhile and its toolbar says how to release
-  it; without the input the game gets nothing (its UI follows no cursor) and the editor works as usual. Automation's
-  `input.set` and `input.release` act on the game's input directly.
+  input back, so none stays held on either side (a UI button held then is not clicked). Gamepads are not shared: the
+  game reads them whoever has the keyboard and mouse. The cursor mode the game asks for applies while it has the input:
+  a hidden cursor is hidden over the game view alone (the game view asks ImGui for no cursor there), and a locked cursor
+  is locked to the window showing the game view, moves with that window only and is hidden over the editor's other
+  windows, ImGui changing no cursor meanwhile (`GameViewPanel::UpdateWindowCursors`). A blue frame marks the game view
+  meanwhile and its toolbar says how to release it; without the input the game gets nothing (its UI follows no cursor:
+  `PlayMode::SetUIPointerEnabled` follows `GameInputRouter::HasInput` from the frame the input changes hands, before the
+  scene updates) and the editor works as usual. Automation's `input.set` and `input.release` act on the game's input
+  directly, and `ui.layout` tells where the UI's elements and buttons are in the game view.
 - Project management: File > New Project (name and location; the start scene is the editor's sample scene),
   Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
@@ -860,8 +880,9 @@ asset directory and the script assembly relative to the game's directory (`Proje
   scripts (exported games carry `Strada.ScriptCore.dll` next to their assembly, projects use the engine's; a project
   whose C# project was never built does not start), loads the start scene (or `--scene <path in Assets>`) and runs it
   through a `SceneRunner` with scripts, physics and audio. Every frame the primary camera's view is rendered at the
-  window's framebuffer size and drawn into the swapchain image (`TextureBlitter`); without a primary camera the window
-  stays black (logged once). `Application.Quit` closes the player.
+  window's framebuffer size and drawn into the swapchain image (`TextureBlitter`); without a primary camera the
+  screen-space UI, sprites and text are drawn over black, and a scene with neither leaves the window black (logged
+  once). `Application.Quit` closes the player.
 - `--headless` runs without a window, rendering or sound (no GPU needed); the scenes see the game's window size.
   `--frames N` and `--screenshot <png>` serve smoke tests.
 - `--test` runs headless with a fixed time step (`--timestep`, default 1/60 s) until the scripts call

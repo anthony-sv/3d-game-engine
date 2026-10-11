@@ -6,8 +6,11 @@
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
 #include "Strada/Project/SceneRunner.h"
+#include "Strada/Scene/Entity.h"
+#include "Strada/Scene/UILayout.h"
 
 #include <cmath>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -88,6 +91,89 @@ namespace Strada
 		CommandError NotPlaying()
 		{
 			return MakeCommandError(AutomationErrorCode::InvalidOperation, "the editor is not playing (play.start)");
+		}
+
+		char const* GetButtonStateName(UIButtonState state)
+		{
+			switch (state)
+			{
+				case UIButtonState::Normal:
+					break;
+				case UIButtonState::Hovered:
+					return "hovered";
+				case UIButtonState::Pressed:
+					return "pressed";
+				case UIButtonState::Disabled:
+					return "disabled";
+			}
+			return "normal";
+		}
+
+		Json ToJson(glm::vec2 const& value)
+		{
+			return Json::array({value.x, value.y});
+		}
+
+		// The scene's UI laid out as the game lays it out to draw it and to find what the mouse is over: at the scene's view
+		// size, or the game view's before the scene has one.
+		CommandResult DescribeUILayout(EditorContext& context, ViewportSizeProvider const& viewportSize, Json const& params)
+		{
+			Scene& scene = context.GetScene();
+			std::optional<entt::entity> only;
+			if (auto const entity = params.find("entity"); entity != params.end())
+			{
+				std::string const& text = entity->get_ref<std::string const&>();
+				std::optional<UUID> const id = UUID::FromString(text);
+				if (!id || !id->IsValid())
+				{
+					CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "'{}' is not a valid entity ID", text);
+					error.Data = Json::object({{"path", "entity"}});
+					return error;
+				}
+				Entity const found = scene.GetEntityByUUID(*id);
+				if (!found)
+				{
+					return MakeCommandError(AutomationErrorCode::EntityNotFound, "entity {} does not exist", *id);
+				}
+				only = found.GetHandle();
+			}
+
+			glm::uvec2 size(scene.GetViewportWidth(), scene.GetViewportHeight());
+			if (size.x == 0 || size.y == 0)
+			{
+				size = viewportSize();
+			}
+			Json elements = Json::array();
+			for (UIElement const& element : UILayout::LayoutScene(scene, glm::vec2(size)))
+			{
+				if (only && element.Handle != *only)
+				{
+					continue;
+				}
+				Entity const entity(element.Handle, &scene);
+				Json description = Json::object({{"id", entity.GetUUID().ToString()},
+				                                 {"name", entity.GetName()},
+				                                 {"canvas", Entity(element.Canvas, &scene).GetUUID().ToString()},
+				                                 {"min", ToJson(element.Rectangle.Min)},
+				                                 {"max", ToJson(element.Rectangle.Max)},
+				                                 {"center", ToJson(element.Rectangle.GetCenter())},
+				                                 {"opacity", element.Opacity},
+				                                 {"hitTarget", element.HitTarget}});
+				description["button"] = element.Button != entt::null ? Json(Entity(element.Button, &scene).GetUUID().ToString()) : Json();
+				if (entity.HasComponent<UIButtonComponent>())
+				{
+					description["state"] = GetButtonStateName(scene.GetUIButtonState(entity));
+				}
+				elements.push_back(std::move(description));
+			}
+			if (only && elements.empty())
+			{
+				return MakeCommandError(AutomationErrorCode::InvalidParams,
+				                        "entity {} is not on the screen: it is outside every canvas, or it or an ancestor is hidden",
+				                        Entity(*only, &scene).GetUUID());
+			}
+			return Json::object(
+				{{"width", size.x}, {"height", size.y}, {"pointerOverUI", scene.IsPointerOverUI()}, {"elements", std::move(elements)}});
 		}
 
 		Result<void> Add(CommandRegistry& registry, std::string name, std::string description, Json parameters, bool readOnly,
@@ -318,6 +404,23 @@ namespace Strada
 								  return DescribeInput();
 							  })
 		                : result;
+
+		result =
+			result
+				? Add(registry, "ui.layout",
+		              "Where the screen-space UI is in the game view: every element of the scene's canvases (the running scene "
+		              "while playing, else the edited one) as the game lays it out to draw it and to find what the mouse is over, "
+		              "at the game view's size. Returns { width, height, pointerOverUI, elements: [{ id, name, canvas, min, max, "
+		              "center (game-view pixels from the top-left corner, y down, as input.set's mousePosition), opacity, "
+		              "hitTarget (takes clicks), button (the button its clicks go to, or null), state (buttons only: normal, "
+		              "hovered, pressed or disabled) }] } in drawing order, topmost last. entity: only that element.",
+		              SchemaBuilder::Object().Property("entity", SchemaBuilder::String("Entity ID of one UI element").MinLength(1)).Build(),
+		              true,
+		              [&context, viewportSize](Json const& params) -> CommandResult
+		              {
+						  return DescribeUILayout(context, viewportSize, params);
+					  })
+				: result;
 		if (!result)
 		{
 			return result;

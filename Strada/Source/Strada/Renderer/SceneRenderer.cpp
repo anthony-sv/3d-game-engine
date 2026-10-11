@@ -1813,6 +1813,11 @@ namespace Strada
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 		}
 
+		// UI placed in the world (the editor's scene view shows canvases this way): over the grid, under the lines, and hidden
+		// behind surfaces.
+		m_Quads->RenderWorldUI(commandList, ldrTarget ? m_LdrOverlayFramebuffer : m_FinalOverlayFramebuffer,
+		                       m_Camera.Projection * m_Camera.View);
+
 		size_t const vertexCount = m_DepthTestedLines.size() + m_OnTopLines.size();
 		if (vertexCount == 0 || !m_LinePipelines[0] || !m_LinePipelines[1])
 		{

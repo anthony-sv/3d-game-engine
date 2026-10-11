@@ -380,8 +380,12 @@ namespace Strada
 	{
 		// A canvas unit is a pixel: the UI keeps its size in pixels on every screen.
 		ConstantPixelSize = 0,
-		// The canvas is ReferenceResolution.y units high on every screen: the UI grows and shrinks with the screen's height.
-		ScaleWithScreenHeight
+		// The canvas is ReferenceResolution.y units high on every screen: the UI grows and shrinks with the screen's height,
+		// and screens narrower than the reference cut off its sides.
+		ScaleWithScreenHeight,
+		// The whole reference resolution fits on every screen: the canvas is ReferenceResolution.y units high on screens wider
+		// than the reference and ReferenceResolution.x units wide on narrower ones, with room to spare along the other side.
+		ScaleWithScreenSize
 	};
 
 	// The root of a screen-space UI (HUDs, menus), drawn over the rendered scene after screen-space sprites and text. The
@@ -390,8 +394,8 @@ namespace Strada
 	// parent's rectangle. The Transform of UI entities, and a UIRect on the canvas entity itself, are not used.
 	struct UICanvasComponent
 	{
-		UIScaleMode ScaleMode = UIScaleMode::ScaleWithScreenHeight;
-		// The screen size the UI is designed for, in canvas units (ScaleWithScreenHeight fits its height to the screen's).
+		UIScaleMode ScaleMode = UIScaleMode::ScaleWithScreenSize;
+		// The screen size the UI is designed for, in canvas units, which the scale modes fit to the screen.
 		glm::vec2 ReferenceResolution = {1920.0f, 1080.0f};
 	};
 

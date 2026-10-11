@@ -150,6 +150,35 @@ TEST_CASE_FIXTURE(InputFixture, "Input: releasing the keys and mouse buttons rep
 	CHECK_FALSE(Input::IsMouseButtonReleased(MouseButton::Right));
 }
 
+TEST_CASE_FIXTURE(InputFixture, "Input: mouse buttons tell whether their latest release came from a reset")
+{
+	CHECK_FALSE(Input::WasMouseButtonReleasedByReset(MouseButton::Left));
+	Input::SetMouseButtonState(MouseButton::Left, true);
+	Input::ReleaseKeysAndMouseButtons();
+	CHECK(Input::IsMouseButtonReleased(MouseButton::Left));
+	CHECK(Input::WasMouseButtonReleasedByReset(MouseButton::Left));
+	// It lasts past the frame, for interfaces that look less often, until the button is pressed again.
+	Input::EndFrame();
+	CHECK(Input::WasMouseButtonReleasedByReset(MouseButton::Left));
+	Input::ReleaseKeysAndMouseButtons();
+	CHECK(Input::WasMouseButtonReleasedByReset(MouseButton::Left));
+	Input::SetMouseButtonState(MouseButton::Left, true);
+	CHECK_FALSE(Input::WasMouseButtonReleasedByReset(MouseButton::Left));
+	// Releases from the device are not resets, and a reset with nothing held changes nothing.
+	Input::SetMouseButtonState(MouseButton::Left, false);
+	CHECK_FALSE(Input::WasMouseButtonReleasedByReset(MouseButton::Left));
+	Input::ReleaseKeysAndMouseButtons();
+	CHECK_FALSE(Input::WasMouseButtonReleasedByReset(MouseButton::Left));
+	// Other buttons keep their own, and a full reset forgets them.
+	Input::SetMouseButtonState(MouseButton::Right, true);
+	Input::ReleaseKeysAndMouseButtons();
+	CHECK(Input::WasMouseButtonReleasedByReset(MouseButton::Right));
+	CHECK_FALSE(Input::WasMouseButtonReleasedByReset(MouseButton::Left));
+	CHECK_FALSE(Input::WasMouseButtonReleasedByReset(static_cast<MouseButton>(MouseButtonCount)));
+	Input::Reset();
+	CHECK_FALSE(Input::WasMouseButtonReleasedByReset(MouseButton::Right));
+}
+
 TEST_CASE_FIXTURE(InputFixture, "Input: gamepad state, buttons and disconnection")
 {
 	CHECK_FALSE(Input::IsGamepadConnected(0));

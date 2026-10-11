@@ -53,7 +53,8 @@ float RoundedRectangleDistance(float2 offset, float2 halfSize, float radius)
 
 // The quad's color with straight alpha: the color times the sprite texture, the color covered by the distance-field
 // outline of text (anti-aliased over one screen pixel at any scale), or a textured UI rectangle covered by its rounded
-// outline (anti-aliased over one pixel).
+// outline (anti-aliased over one pixel of the screen: the rectangle's own pixels on the screen, converted through the
+// derivatives in the world).
 float4 ShadeQuad(VertexOutput input)
 {
 	if (g_Quad.Mode == QuadModeText)
@@ -66,10 +67,11 @@ float4 ShadeQuad(VertexOutput input)
 		return float4(input.Color.rgb, input.Color.a * coverage);
 	}
 	float4 color = input.Color * g_Texture.Sample(g_Sampler, input.TexCoord);
-	if (g_Quad.Mode == QuadModeUIRect)
+	if (g_Quad.Mode == QuadModeUIRect || g_Quad.Mode == QuadModeWorldUIRect)
 	{
-		float coverage = saturate(0.5 - RoundedRectangleDistance(input.Shape.xy, input.Shape.zw, input.CornerRadius));
-		color.a *= coverage;
+		float distance = RoundedRectangleDistance(input.Shape.xy, input.Shape.zw, input.CornerRadius);
+		float pixel = g_Quad.Mode == QuadModeWorldUIRect ? max(length(float2(ddx(distance), ddy(distance))), 1e-4) : 1.0;
+		color.a *= saturate(0.5 - distance / pixel);
 	}
 	return color;
 }

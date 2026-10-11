@@ -19,8 +19,8 @@ public sealed unsafe class UICanvasComponent : Component
 		set => NativeField.Set<int>(InternalCalls.UICanvasComponent_SetScaleMode, Entity.ID, (int)value);
 	}
 
-	/// <summary>The screen size the UI is designed for, in canvas units; <see cref="UIScaleMode.ScaleWithScreenHeight"/> fits
-	/// its height to the screen's.</summary>
+	/// <summary>The screen size the UI is designed for, in canvas units, which the <see cref="ScaleMode"/> fits to the
+	/// screen.</summary>
 	public Vector2 ReferenceResolution
 	{
 		get => NativeField.Get<Vector2>(InternalCalls.UICanvasComponent_GetReferenceResolution, Entity.ID);

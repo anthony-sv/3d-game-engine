@@ -61,10 +61,17 @@ namespace Strada
 		// The rectangle of a UIRect in its parent's rectangle, with scale pixels per canvas unit. A negative size makes an empty
 		// rectangle at the pivot's place; values that overflow make an empty one at the parent's corner.
 		UIRectangle ComputeRectangle(UIRectComponent const& rect, UIRectangle const& parent, float scale);
-		// Lays out every canvas of the scene (canvases nested in other canvases start again from the screen) on a viewport of
-		// the given size. The elements are in hierarchy order, the order they are drawn in: parents before their children,
-		// siblings in order. Hidden elements and their descendants are left out.
+		// The scene's top-level canvases (those without a canvas among their ancestors) in hierarchy order, the order their
+		// UIs are drawn in. Only the canvases' ancestors are visited, so large scenes with a small UI stay cheap.
+		std::vector<entt::entity> GetCanvases(Scene& scene);
+		// Lays out a top-level canvas's UI on a viewport of the given size and appends it to elements: the canvas, then its
+		// descendants in hierarchy order (parents before their children, siblings in order), the order they are drawn in.
+		// Canvases nested in it start again from the screen. Hidden elements and their descendants are left out.
+		void LayoutCanvas(Scene& scene, entt::entity canvas, glm::vec2 viewportSize, std::vector<UIElement>& elements);
+		// Lays out every canvas of the scene (GetCanvases, then LayoutCanvas) on a viewport of the given size.
 		std::vector<UIElement> LayoutScene(Scene& scene, glm::vec2 viewportSize);
+		// The topmost element that takes clicks at a point (the last drawn hit target whose rectangle contains it), or null.
+		UIElement const* FindHitTargetAt(std::span<UIElement const> elements, glm::vec2 point);
 		// The button the mouse is over at a point: the nearest button of the topmost hit target there (images inside a button
 		// pass on its clicks, other images covering it keep them). Null when the topmost hit target has no button, or there is
 		// none at the point. Disabled buttons are returned too (they keep the clicks from what they cover).

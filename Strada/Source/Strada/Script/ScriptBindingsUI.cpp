@@ -30,6 +30,12 @@ namespace Strada::ScriptGlue
 				entity.GetScene()->ClickUIButton(entity);
 			}
 		}
+
+		uint8_t Input_IsPointerOverUI()
+		{
+			Scene const* const scene = ScriptEngine::GetSceneContext();
+			return scene != nullptr && scene->IsPointerOverUI() ? 1 : 0;
+		}
 	}
 
 	void RegisterUIBindings(BindingTable& table)
@@ -68,5 +74,6 @@ namespace Strada::ScriptGlue
 		table.Add("UIButtonComponent_WasClicked", &UIButtonComponent_WasClicked);
 		table.Add("UIButtonComponent_GetState", &UIButtonComponent_GetState);
 		table.Add("UIButtonComponent_Click", &UIButtonComponent_Click);
+		table.Add("Input_IsPointerOverUI", &Input_IsPointerOverUI);
 	}
 }

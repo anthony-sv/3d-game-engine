@@ -6,8 +6,12 @@ public enum UIScaleMode
 	/// <summary>A canvas unit is a pixel: the UI keeps its size in pixels on every screen.</summary>
 	ConstantPixelSize = 0,
 	/// <summary>The canvas is <see cref="UICanvasComponent.ReferenceResolution"/>.Y units high on every screen: the UI grows
-	/// and shrinks with the screen's height.</summary>
+	/// and shrinks with the screen's height, and screens narrower than the reference cut off its sides.</summary>
 	ScaleWithScreenHeight = 1,
+	/// <summary>The whole <see cref="UICanvasComponent.ReferenceResolution"/> fits on every screen: the canvas is its Y units
+	/// high on screens wider than the reference and its X units wide on narrower ones, with room to spare along the other
+	/// side. The default.</summary>
+	ScaleWithScreenSize = 2,
 }
 
 /// <summary>Where a <see cref="UITextComponent"/>'s text block sits in its rectangle.</summary>

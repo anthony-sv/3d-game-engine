@@ -4,8 +4,9 @@ using System.Globalization;
 
 namespace Strada.Tests;
 
-// Counts the clicks it hears (OnClick, as the button or one of its ancestors) and, each update, names its entity after them
-// and after the state of the Watched button; clicks the watched button in code when Enter is pressed and ClickOnEnter is set.
+// Counts the clicks it hears (OnClick, as the button or one of its ancestors) and, each update, names its entity after them,
+// the state of the Watched button and whether the mouse is over the UI; clicks the watched button in code when Enter is
+// pressed and ClickOnEnter is set.
 public sealed class ClickRecorder : Script
 {
 	public Entity? Watched;
@@ -28,8 +29,9 @@ public sealed class ClickRecorder : Script
 		{
 			watched.Click();
 		}
-		Name = string.Create(CultureInfo.InvariantCulture,
-			$"Clicks={m_Clicks};Last={m_LastButton};InClick={m_LastButtonWasClicked};Polled={watched.WasClicked};State={watched.State}");
+		string clicks = string.Create(CultureInfo.InvariantCulture,
+			$"Clicks={m_Clicks};Last={m_LastButton};InClick={m_LastButtonWasClicked};Polled={watched.WasClicked}");
+		Name = string.Create(CultureInfo.InvariantCulture, $"{clicks};State={watched.State};Over={Input.IsPointerOverUI}");
 	}
 }
 

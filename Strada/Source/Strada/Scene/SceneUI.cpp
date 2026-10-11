@@ -63,6 +63,7 @@ namespace Strada
 		m_UIClicked.clear();
 		m_UIPendingClicks.clear();
 		m_UIMouseWasDown = false;
+		m_UIPointerOver = false;
 	}
 
 	void Scene::UpdateUI()
@@ -72,13 +73,17 @@ namespace Strada
 		bool const pointer = m_UIPointerEnabled && Input::GetCursorMode() != CursorMode::Locked && viewport.x > 0.0f && viewport.y > 0.0f;
 
 		UUID hovered = UUID::Invalid();
+		m_UIPointerOver = false;
 		if (pointer)
 		{
 			std::vector<UIElement> const elements = UILayout::LayoutScene(*this, viewport);
-			entt::entity const button = UILayout::FindButtonAt(elements, Input::GetMousePosition());
-			if (button != entt::null && m_Registry.get<UIButtonComponent>(button).Interactable)
+			if (UIElement const* target = UILayout::FindHitTargetAt(elements, Input::GetMousePosition()))
 			{
-				hovered = m_Registry.get<IDComponent>(button).ID;
+				m_UIPointerOver = true;
+				if (target->Button != entt::null && m_Registry.get<UIButtonComponent>(target->Button).Interactable)
+				{
+					hovered = m_Registry.get<IDComponent>(target->Button).ID;
+				}
 			}
 		}
 
@@ -88,6 +93,9 @@ namespace Strada
 		bool const down = Input::IsMouseButtonDown(MouseButton::Left);
 		bool const pressed = Input::IsMouseButtonPressed(MouseButton::Left) || (down && !m_UIMouseWasDown);
 		bool const released = Input::IsMouseButtonReleased(MouseButton::Left) || (!down && m_UIMouseWasDown);
+		// A release the device did not make (the window lost the focus, the editor took the game's input back) cancels the
+		// press, as other interfaces cancel a mouse capture.
+		bool const canceled = released && Input::WasMouseButtonReleasedByReset(MouseButton::Left);
 		m_UIMouseWasDown = down;
 
 		std::vector<UUID> clicked;
@@ -98,7 +106,7 @@ namespace Strada
 		}
 		if (!pointer || released || !down)
 		{
-			if (pointer && released && m_UIPressed.IsValid() && m_UIPressed == hovered)
+			if (pointer && released && !canceled && m_UIPressed.IsValid() && m_UIPressed == hovered)
 			{
 				clicked.push_back(m_UIPressed);
 			}

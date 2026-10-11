@@ -57,6 +57,12 @@ public static unsafe class Input
 		}
 	}
 
+	/// <summary>Whether the mouse is over the screen-space UI: an image or a button of a canvas is under the cursor (as of this
+	/// frame's UI update, before <c>OnUpdate</c>), so a click there goes to the UI. Scripts that act on mouse clicks in the
+	/// world skip those, so clicking a HUD or menu button does not also shoot, place or select in the game. False while the
+	/// cursor is locked.</summary>
+	public static bool IsPointerOverUI => InternalCalls.Input_IsPointerOverUI() != 0;
+
 	/// <summary>Whether the cursor is visible, hidden or locked.</summary>
 	public static CursorMode CursorMode
 	{
