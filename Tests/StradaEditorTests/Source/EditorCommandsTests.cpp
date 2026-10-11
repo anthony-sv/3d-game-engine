@@ -10,12 +10,14 @@
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Renderer/SceneRenderer.h"
+#include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/ComponentTraits.h"
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -250,11 +252,32 @@ TEST_CASE("EditorCommands: inspector.add-component-menu opens the inspector's me
 	REQUIRE(fixture.AddComponentMenuRequests.size() == 1);
 	CHECK(fixture.AddComponentMenuRequests.back() == std::pair<bool, std::string>(true, "light"));
 
-	// Without a search the menu shows the categories: their components in menu order.
+	// Without a search the menu shows the categories: every component the lamp can gain, once, category by category.
 	Json const all = fixture.Ok("inspector.add-component-menu")["components"];
-	REQUIRE(all.size() == 17);
+	size_t addable = 0;
+	for (ComponentInfo const& info : ComponentRegistry::GetComponents())
+	{
+		if (!info.IsCore() && !info.IsInternal() && info.Name != "PointLight")
+		{
+			addable++;
+		}
+	}
+	REQUIRE(all.size() == addable);
 	CHECK(all.front() == "Camera");
-	CHECK(all.back() == "Text");
+	size_t previousCategory = 0;
+	std::set<std::string> listed;
+	for (Json const& name : all)
+	{
+		CAPTURE(name);
+		ComponentInfo const* component = ComponentRegistry::Find(name.get<std::string>());
+		REQUIRE(component != nullptr);
+		CHECK(component->Name != "PointLight");
+		CHECK(listed.insert(name.get<std::string>()).second);
+		size_t const category = static_cast<size_t>(
+			std::find(ComponentCategory::All.begin(), ComponentCategory::All.end(), component->Category) - ComponentCategory::All.begin());
+		CHECK(category >= previousCategory);
+		previousCategory = category;
+	}
 	CHECK(fixture.Ok("inspector.add-component-menu", Json::object({{"search", "nothing like this"}}))["components"].empty());
 
 	// Closing needs no selection.

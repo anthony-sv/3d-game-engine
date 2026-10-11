@@ -1,8 +1,10 @@
 #include "Editor/UI/FieldEditor.h"
 
+#include "Editor/AssetThumbnails.h"
 #include "Editor/UI/EditorUI.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -35,6 +37,8 @@ namespace Strada
 		// before it scrolls.
 		constexpr float MinPickerWidthInFontSizes = 20.0f;
 		constexpr size_t MaxPickerRows = 14;
+		// The image of an asset in the tooltip of its field fits a square this large (in font sizes).
+		constexpr float TooltipPreviewSizeInFontSizes = 9.0f;
 		constexpr char const* AngleFormat = "%.1f\xc2\xb0";
 		// Integer widgets stay within the integers JSON consumers represent exactly.
 		constexpr int64_t IntegerWidgetLimit = int64_t(1) << 53;
@@ -259,8 +263,24 @@ namespace Strada
 			return ImGui::GetColorU32(ImGuiCol_Text);
 		}
 
-		// A box framed like a text field showing the referenced asset (the end of long paths); returns true when clicked.
-		bool DrawAssetReferenceBox(AssetHandle handle, bool mixed, float width)
+		// The part of an image that fills a square: the middle of wide or tall textures.
+		std::pair<ImVec2, ImVec2> GetSquareUVs(nvrhi::ITexture* texture)
+		{
+			nvrhi::TextureDesc const& desc = texture->getDesc();
+			float const aspect = static_cast<float>(desc.width) / static_cast<float>(std::max(desc.height, 1u));
+			if (aspect >= 1.0f)
+			{
+				float const margin = (1.0f - 1.0f / aspect) * 0.5f;
+				return {ImVec2(margin, 0.0f), ImVec2(1.0f - margin, 1.0f)};
+			}
+			float const margin = (1.0f - aspect) * 0.5f;
+			return {ImVec2(0.0f, margin), ImVec2(1.0f, 1.0f - margin)};
+		}
+
+		// A box framed like a text field showing the referenced asset (long paths shortened), after a small image of it when
+		// `previews` makes one (the place stays while the image is made); returns true when clicked. The tooltip has the whole
+		// path and a larger image.
+		bool DrawAssetReferenceBox(AssetHandle handle, bool mixed, float width, AssetThumbnails* previews)
 		{
 			ImGuiStyle const& style = ImGui::GetStyle();
 			bool const clicked = ImGui::InvisibleButton("##reference", ImVec2(std::max(1.0f, width), ImGui::GetFrameHeight()));
@@ -269,23 +289,58 @@ namespace Strada
 			ImGuiCol const background =
 				ImGui::IsItemActive() ? ImGuiCol_FrameBgActive : (ImGui::IsItemHovered() ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
 			ImGui::RenderFrame(min, max, ImGui::GetColorU32(background), true, style.FrameRounding);
-			std::string const text =
-				UI::FitPath(mixed ? std::string("--") : UI::DescribeAssetReference(handle), max.x - min.x - style.FramePadding.x * 2.0f);
 			ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+			bool const pictured = previews != nullptr && !mixed && handle.IsValid() && AssetManager::IsInitialized() &&
+			                      AssetThumbnails::Supports(AssetManager::GetAssetType(handle)) && !AssetManager::IsMissing(handle);
+			nvrhi::ITexture* const preview = pictured ? previews->Get(handle) : nullptr;
+			float textX = min.x + style.FramePadding.x;
+			if (pictured)
+			{
+				float const inset = std::max(1.0f, std::floor(style.FramePadding.y * 0.5f));
+				ImVec2 const imageMin(min.x + inset, min.y + inset);
+				ImVec2 const imageMax(imageMin.x + (max.y - min.y) - inset * 2.0f, max.y - inset);
+				float const rounding = style.FrameRounding * 0.5f;
+				if (preview != nullptr)
+				{
+					// GetColorU32 applies the style's alpha: the images of disabled (read-only) fields fade like their text.
+					auto const [uv0, uv1] = GetSquareUVs(preview);
+					drawList->AddImageRounded(ImGuiRenderer::GetTextureID(preview), imageMin, imageMax, uv0, uv1,
+					                          ImGui::GetColorU32(IM_COL32_WHITE), rounding);
+				}
+				else
+				{
+					drawList->AddRectFilled(imageMin, imageMax, ImGui::GetColorU32(ImGuiCol_FrameBgHovered), rounding);
+				}
+				textX = imageMax.x + style.ItemInnerSpacing.x;
+			}
+			std::string const text =
+				UI::FitPath(mixed ? std::string("--") : UI::DescribeAssetReference(handle), max.x - style.FramePadding.x - textX);
 			drawList->PushClipRect(min, max, true);
-			drawList->AddText(ImVec2(min.x + style.FramePadding.x, min.y + style.FramePadding.y), GetAssetReferenceColor(handle, mixed),
-			                  text.c_str());
+			drawList->AddText(ImVec2(textX, min.y + style.FramePadding.y), GetAssetReferenceColor(handle, mixed), text.c_str());
 			drawList->PopClipRect();
+
 			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
 			{
-				// The whole path, which the box may shorten; how to change it unless the field is read-only.
-				std::string tooltip =
-					mixed ? std::string("The selected entities reference different assets.") : UI::DescribeAssetReference(handle);
-				if ((ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) == 0)
+				// The whole path, which the box may shorten, the image (whole textures) and how to change it unless the field is
+				// read-only.
+				bool const disabled = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) != 0;
+				ImGui::BeginTooltip();
+				ImGui::TextUnformatted(mixed ? "The selected entities reference different assets."
+				                             : UI::DescribeAssetReference(handle).c_str());
+				if (preview != nullptr)
 				{
-					tooltip += "\nClick to choose an asset, or drop one here.";
+					nvrhi::TextureDesc const& desc = preview->getDesc();
+					float const size = ImGui::GetFontSize() * TooltipPreviewSizeInFontSizes;
+					float const scale = size / static_cast<float>(std::max({desc.width, desc.height, 1u}));
+					ImGui::Image(ImGuiRenderer::GetTextureID(preview),
+					             ImVec2(static_cast<float>(desc.width) * scale, static_cast<float>(desc.height) * scale));
 				}
-				ImGui::SetTooltip("%s", tooltip.c_str());
+				if (!disabled)
+				{
+					ImGui::TextDisabled("Click to choose an asset, or drop one here.");
+				}
+				ImGui::EndTooltip();
 			}
 			return clicked;
 		}
@@ -841,7 +896,7 @@ namespace Strada
 		float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
 		float const buttonWidth = ImGui::GetFrameHeight();
 		ImVec2 const start = ImGui::GetCursorScreenPos();
-		bool openPicker = DrawAssetReferenceBox(handle, mixed, ImGui::CalcItemWidth() - 2.0f * (buttonWidth + spacing));
+		bool openPicker = DrawAssetReferenceBox(handle, mixed, ImGui::CalcItemWidth() - 2.0f * (buttonWidth + spacing), m_AssetPreviews);
 		if (ImGui::BeginDragDropTarget())
 		{
 			std::span<AssetType const> const types =

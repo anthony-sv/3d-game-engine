@@ -1,7 +1,9 @@
+#include "GpuTestUtilities.h"
 #include "HeadlessImGui.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Editor/AssetThumbnails.h"
 #include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
@@ -19,6 +21,9 @@
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
+#include "Strada/ImGui/ImGuiRenderer.h"
+#include "Strada/RHI/GraphicsDevice.h"
+#include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/Entity.h"
@@ -697,7 +702,7 @@ struct Strada::StructTraits<Decal>
 		std::make_tuple(Field("Texture", &Decal::Texture).References("Texture"), Field("Size", &Decal::Size).AtLeast(0.0));
 };
 
-TEST_CASE("UI: asset references read as paths in the asset directory, and long ones keep their end")
+TEST_CASE("UI: asset references read as paths in the asset directory, and long ones keep the start and end of their names")
 {
 	AssetManagerScope const assets;
 	Testing::TemporaryDirectory temporary;
@@ -729,25 +734,44 @@ TEST_CASE("UI: asset references read as paths in the asset directory, and long o
 	imgui.Frame(
 		[]
 		{
-			auto const width = [](char const* text)
+			// The test font is monospaced: parts of the same length are as wide.
+			std::string const ellipsis = UI::GetEllipsis();
+			CHECK(ImTextCountCharsFromUtf8(ellipsis.c_str(), nullptr) == 1);
+			auto const width = [](std::string const& text)
 			{
-				return ImGui::CalcTextSize(text).x + 0.5f;
+				return ImGui::CalcTextSize(text.c_str()).x + 0.5f;
 			};
-			std::string_view const path = "Textures/Wood/Oak.png";
+			std::string const path = "Textures/Wood/Oak_Color.png";
 			CHECK(UI::FitPath(path, 10000.0f) == path);
-			// Leading folders give way first, then the start of the name.
-			CHECK(UI::FitPath(path, width(".../Wood/Oak.png")) == ".../Wood/Oak.png");
-			CHECK(UI::FitPath(path, width(".../Oak.png")) == ".../Oak.png");
-			CHECK(UI::FitPath(path, width("...Oak.png")) == "...Oak.png");
-			CHECK(UI::FitPath(path, width("...ak.png")) == "...ak.png");
-			CHECK(UI::FitPath(path, 1.0f) == "...");
+			// Leading folders give way first, then the name stands alone.
+			CHECK(UI::FitPath(path, width(ellipsis + "/Wood/Oak_Color.png")) == ellipsis + "/Wood/Oak_Color.png");
+			CHECK(UI::FitPath(path, width(ellipsis + "/Oak_Color.png")) == ellipsis + "/Oak_Color.png");
+			CHECK(UI::FitPath(path, width("Oak_Color.png")) == "Oak_Color.png");
+			// Then the name loses its middle: its end with the extension gets up to half of the room, its start the rest.
+			CHECK(UI::FitPath(path, width("Oak_C" + ellipsis + "r.png")) == "Oak_C" + ellipsis + "r.png");
+			CHECK(UI::FitPath(path, width("Oak_Co" + ellipsis + "r.png")) == "Oak_Co" + ellipsis + "r.png");
+			CHECK(UI::FitPath(path, width("O" + ellipsis + "g")) == "O" + ellipsis + "g");
+			// Without room for both, the start stays; without room for anything, the ellipsis.
+			CHECK(UI::FitPath(path, width("O" + ellipsis)) == "O" + ellipsis);
+			CHECK(UI::FitPath(path, width(ellipsis)) == ellipsis);
+			CHECK(UI::FitPath(path, 1.0f) == ellipsis);
 			CHECK(UI::FitPath("", 0.0f).empty());
-			CHECK(UI::FitPath("builtin://White", width(".../White")) == ".../White");
+			CHECK(UI::FitPath("builtin://White", width(ellipsis + "/White")) == ellipsis + "/White");
+			CHECK(UI::FitPath("Helmet.glb/Materials/Visor", width("Visor")) == "Visor");
 			// Characters of several bytes are kept whole.
 			CHECK(UI::FitPath("Gr\xC3\xB6\xC3\x9F"
 		                      "e/\xC3\x96l.png",
-		                      width(".../\xC3\x96l.png")) == ".../\xC3\x96l.png");
-			CHECK(UI::FitPath("\xC3\x96\xC3\x96\xC3\x96\xC3\x96\xC3\x96\xC3\x96.png", width("...\xC3\x96.png")) == "...\xC3\x96.png");
+		                      width(ellipsis + "/\xC3\x96l.png")) == ellipsis + "/\xC3\x96l.png");
+			CHECK(UI::FitPath("\xC3\x96\xC3\x96\xC3\x96\xC3\x96\xC3\x96\xC3\x96.png", width("\xC3\x96\xC3\x96" + ellipsis + "ng")) ==
+		          "\xC3\x96\xC3\x96" + ellipsis + "ng");
+			// Whatever the room, the text fits in it (only the ellipsis alone may not).
+			for (float room = 0.0f; room <= width(path); room += 1.0f)
+			{
+				std::string const fitted = UI::FitPath(path, room);
+				CAPTURE(room);
+				CAPTURE(fitted);
+				CHECK((fitted == ellipsis || ImGui::CalcTextSize(fitted.c_str()).x <= room));
+			}
 		});
 }
 
@@ -774,6 +798,7 @@ TEST_CASE("FieldEditor: asset fields show the asset's path, pick from a searchab
 	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Decal>, Decal>();
 	Json const values = SerializeFields<StructTraits<Decal>>(Decal{oak, 1.0f});
+	AssetThumbnails thumbnails;
 	FieldEditor editor;
 	std::optional<FieldChange> last;
 	bool disabled = false;
@@ -894,6 +919,85 @@ TEST_CASE("FieldEditor: asset fields show the asset's path, pick from a searchab
 	imgui.Click(clear, draw);
 	CHECK(GImGui->OpenPopupStack.Size == 0);
 	CHECK_FALSE(last);
+
+	// With previews the box keeps room for the asset's image (none without a renderer) and works the same.
+	disabled = false;
+	editor.SetAssetPreviews(&thumbnails);
+	imgui.Frame(draw);
+	imgui.Click(box, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Frame(draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	imgui.Click(clear, draw);
+	REQUIRE(last);
+	CHECK(last->Value == UUID::Invalid().ToString());
+}
+
+TEST_CASE("FieldEditor: asset fields show images of textures at once and of materials and meshes once rendered")
+{
+	ST_REQUIRE_GPU();
+	AssetManagerScope const assets;
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		AssetHandle const painted = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(MaterialData()), "Painted");
+		AssetHandle const cube = GetBuiltInHandle(BuiltInAsset::CubeMesh);
+		AssetHandle const white = GetBuiltInHandle(BuiltInAsset::WhiteTexture);
+		// A mesh with a material in its list of materials, and a texture.
+		ComponentInfo const& mesh = ComponentRegistry::Get<MeshComponent>();
+		Json const meshValues = Json::object({{"Mesh", cube.ToString()}, {"Materials", Json::array({painted.ToString()})}});
+		std::vector<FieldDescriptor> const decalFields = GetFieldDescriptors<StructTraits<Decal>, Decal>();
+		Json const decalValues = SerializeFields<StructTraits<Decal>>(Decal{white, 1.0f});
+
+		HeadlessImGui imgui;
+		AssetThumbnails thumbnails;
+		FieldEditor editor;
+		editor.SetAssetPreviews(&thumbnails);
+		auto const draw = [&]
+		{
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(600.0f, 400.0f));
+			ImGui::Begin("Fields");
+			CHECK_FALSE(editor.Draw(mesh.Fields, meshValues));
+			CHECK_FALSE(editor.Draw(decalFields, decalValues));
+			ImGui::End();
+		};
+		// Whether the last frame drew the image in the fields' window.
+		auto const drawn = [](nvrhi::ITexture* image)
+		{
+			ImGuiWindow const* window = ImGui::FindWindowByName("Fields");
+			REQUIRE(window != nullptr);
+			ImTextureID const id = ImGuiRenderer::GetTextureID(image);
+			return std::any_of(window->DrawList->CmdBuffer.begin(), window->DrawList->CmdBuffer.end(),
+			                   [id](ImDrawCmd const& command)
+			                   {
+								   return command.TexRef._TexData == nullptr && command.TexRef._TexID == id;
+							   });
+		};
+
+		imgui.Frame(draw);
+		nvrhi::ITexture* const whiteImage = thumbnails.Get(white);
+		REQUIRE(whiteImage != nullptr);
+		CHECK(drawn(whiteImage));
+		// The fields ask for the thumbnails they show, which render one per update.
+		for (int i = 0; i < 3; i++)
+		{
+			thumbnails.Update();
+			imgui.Frame(draw);
+		}
+		nvrhi::ITexture* const materialImage = thumbnails.Get(painted);
+		nvrhi::ITexture* const meshImage = thumbnails.Get(cube);
+		REQUIRE(materialImage != nullptr);
+		REQUIRE(meshImage != nullptr);
+		CHECK(drawn(materialImage));
+		CHECK(drawn(meshImage));
+		CHECK(drawn(whiteImage));
+
+		AssetManager::RemoveMemoryAsset(painted);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
 }
 
 TEST_CASE("FieldEditor: fields with a visibility condition show while their sibling has one of its values")

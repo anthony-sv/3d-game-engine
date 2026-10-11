@@ -17,6 +17,7 @@
 
 namespace Strada
 {
+	class AssetThumbnails;
 	class Scene;
 
 	// A value the user changed through a FieldEditor in the current frame.
@@ -49,6 +50,10 @@ namespace Strada
 		// resolves entity references to names (may be null).
 		std::optional<FieldChange> Draw(std::span<FieldDescriptor const> fields, Json const& values,
 		                                std::span<std::string const> mixedFields = {}, Scene* scene = nullptr);
+		// Asset fields show images of the assets these thumbnails have (textures, materials, meshes, prefabs and environments):
+		// a small one in front of the path and a larger one in its tooltip. The thumbnails must outlive the editor; null (the
+		// default) shows paths only.
+		void SetAssetPreviews(AssetThumbnails* previews) { m_AssetPreviews = previews; }
 
 	private:
 		// Euler angles last shown for a quaternion widget: kept while the quaternion is unchanged, so dragging one angle
@@ -75,6 +80,7 @@ namespace Strada
 		void PruneEulerStates();
 
 		Scene* m_Scene = nullptr;
+		AssetThumbnails* m_AssetPreviews = nullptr;
 		// Search text of the open asset picker.
 		std::string m_AssetFilter;
 		// Gives the picker's search field the keyboard again next frame (Enter without a match ended the input).

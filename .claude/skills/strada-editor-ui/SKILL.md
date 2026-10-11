@@ -22,7 +22,8 @@ directly: every modification goes through `EditorOperations` (undoable commands,
 - Reflected data (components, settings, materials) is edited with `FieldEditor::Draw(descriptors, valuesJson,
   mixedFields)`, which returns a `FieldChange`; turn it into a patch per object with `FieldChange::MakePatch(values)`.
   Never write per-component inspector code: improve the field hints (`strada-add-component`) or the FieldEditor.
-- Asset references are FieldEditor asset fields (path box, `...` picker, `x`); text that names an asset elsewhere uses
+- Asset references are FieldEditor asset fields (path box, `...` picker, `x`; give the editor the panel's
+  `AssetThumbnails` with `SetAssetPreviews` for images of the assets); text that names an asset elsewhere uses
   `UI::DescribeAssetReference` and `UI::FitPath`. The material sections of Mesh components go through `MaterialSlots`
   (the material of each slot, assigning one, editable copies), which is tested without a UI.
 - One widget interaction must be one undo step: keep an `EditSession` per panel (unique key prefix), call

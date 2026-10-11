@@ -6,8 +6,10 @@
 #include "Strada/Asset/AssetManager.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -138,6 +140,14 @@ namespace Strada
 			return AssetManager::IsMissing(asset) ? text + " (missing)" : text;
 		}
 
+		std::string GetEllipsis()
+		{
+			// ImGui shortens labels with the font's ellipsis glyph: U+2026, or a "..." it makes from dots.
+			std::array<char, 5> encoded{};
+			ImTextCharToUtf8(encoded.data(), ImGui::GetFont()->EllipsisChar);
+			return std::string(encoded.data());
+		}
+
 		std::string FitPath(std::string_view path, float maxWidth)
 		{
 			auto const measure = [](std::string_view part)
@@ -148,25 +158,69 @@ namespace Strada
 			{
 				return std::string(path);
 			}
-			constexpr std::string_view Ellipsis = "...";
-			float const available = maxWidth - measure(Ellipsis);
+			std::string const ellipsis = GetEllipsis();
+			float const available = maxWidth - measure(ellipsis);
 			// Whole folders first: the longest end that starts at a separator ("//" of "builtin://" counts as one).
 			for (size_t slash = path.find('/'); slash != std::string_view::npos; slash = path.find('/', slash + 1))
 			{
 				if ((slash + 1 >= path.size() || path[slash + 1] != '/') && measure(path.substr(slash)) <= available)
 				{
-					return std::string(Ellipsis) + std::string(path.substr(slash));
+					return ellipsis + std::string(path.substr(slash));
 				}
 			}
-			for (size_t start = 1; start < path.size(); start++)
+			// Then the name alone.
+			size_t const separator = path.find_last_of('/');
+			std::string_view const name = separator == std::string_view::npos ? path : path.substr(separator + 1);
+			if (measure(name) <= maxWidth)
 			{
-				// UTF-8 continuation bytes (10xxxxxx) never start a character.
-				if ((static_cast<unsigned char>(path[start]) & 0xC0) != 0x80 && measure(path.substr(start)) <= available)
+				return std::string(name);
+			}
+
+			// At last the middle of the name gives way: its start names the asset, its end holds the extension and the
+			// suffixes that tell the maps of a texture set apart ("wooden_cr...diff_1k.jpg"). The end gets up to half of the
+			// room, the start the rest. Names are cut between characters: UTF-8 continuation bytes (10xxxxxx) start none.
+			auto const startsCharacter = [name](size_t index)
+			{
+				return (static_cast<unsigned char>(name[index]) & 0xC0) != 0x80;
+			};
+			size_t endStart = name.size();
+			for (size_t index = name.size(); index-- > 1;)
+			{
+				if (startsCharacter(index))
 				{
-					return std::string(Ellipsis) + std::string(path.substr(start));
+					if (measure(name.substr(index)) > available * 0.5f)
+					{
+						break;
+					}
+					endStart = index;
 				}
 			}
-			return std::string(Ellipsis);
+			float const endWidth = measure(name.substr(endStart));
+			size_t startEnd = 0;
+			for (size_t index = 1; index < endStart; index++)
+			{
+				if (startsCharacter(index))
+				{
+					if (measure(name.substr(0, index)) + endWidth > available)
+					{
+						break;
+					}
+					startEnd = index;
+				}
+			}
+			if (startEnd > 0)
+			{
+				return std::string(name.substr(0, startEnd)) + ellipsis + std::string(name.substr(endStart));
+			}
+			// Too narrow for both: as much of the start as fits.
+			for (size_t index = name.size(); index-- > 1;)
+			{
+				if (startsCharacter(index) && measure(name.substr(0, index)) <= available)
+				{
+					return std::string(name.substr(0, index)) + ellipsis;
+				}
+			}
+			return ellipsis;
 		}
 
 		void AssetDragSource(AssetHandle asset, std::string_view label)

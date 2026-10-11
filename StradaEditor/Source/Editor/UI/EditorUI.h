@@ -40,9 +40,13 @@ namespace Strada
 		// " (missing)" when the file is gone), "builtin://<Name>" for built-in assets, the name of assets without a file of
 		// their own ("Helmet.glb/Materials/Visor"), "None" without an asset and "Unknown asset <ID>" for unregistered handles.
 		std::string DescribeAssetReference(AssetHandle asset);
-		// Shortens a path that is wider than maxWidth at the current font from its start: leading folders give way first
-		// (".../Wood/Oak.png"), then the start of the name ("...ak.png"); never cuts a UTF-8 character. Paths that fit come back
-		// unchanged. Inside an ImGui frame.
+		// The current font's ellipsis as UTF-8 text, the one ImGui shortens labels with: U+2026, or a "..." glyph made of dots
+		// when the font has none. Inside an ImGui frame.
+		std::string GetEllipsis();
+		// Shortens a path that is wider than maxWidth at the current font, with GetEllipsis() where text is left out: leading
+		// folders give way first (".../Wood/Oak_Color.png"), then the name stands alone ("Oak_Color.png") and at last loses its
+		// middle, keeping its start and, in up to half of the room, its end with the extension ("Oak_...or.png"); never cuts a
+		// UTF-8 character. Paths that fit come back unchanged. Inside an ImGui frame.
 		std::string FitPath(std::string_view path, float maxWidth);
 
 		// Menu items for every entity preset, categories as submenus; returns the preset chosen this frame. Call inside an

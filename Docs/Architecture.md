@@ -660,27 +660,29 @@ than the assembly.
   the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
   while dragging), enums are combos, fields with a visibility condition (`VisibleWhen`: a material's alpha cutoff in
   the Mask mode, the perspective or orthographic settings of a camera, what a joint type or particle shape uses) show
-  only while it holds, and entity references accept dropped entities. Asset fields (in components,
-  materials, settings and script fields) show the asset's path in the asset directory with its extension
-  (`builtin://<Name>` for built-ins, the name of materials and textures imported with a model, `None` when empty; long
-  paths keep their end, the tooltip has all of it) in a box that opens a searchable picker of the assets of the field's
-  type when clicked and takes assets dropped from the content browser, followed by `...` (the picker) and `x` (clears
-  it). With several entities selected it shows the components they share, flags fields whose values differ, and an
-  edit sets only the edited value or vector component on every entity. One widget interaction (a drag, typing into a
-  field) is one undo step. Add Component opens a menu with a search field above a submenu per component category
-  (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the Core ones are on every entity); typing
-  lists the matching components instead (names starting with the text first) with their categories, and Enter adds the
-  first. Components can also be reset, copied, pasted as JSON and removed. Below the fields of a Mesh component, each
-  material slot of its mesh gets a section (`MaterialSlots`): a header with the material on a sphere, its name, the
-  slot and where the material comes from, then every parameter of the material the slot renders with (the component's
-  override, else the mesh's own material, else the default one). Edits change the material file as in the material
-  inspector (one undo step per interaction) and show at once in the views and thumbnails; built-in and model-imported
-  materials show their values disabled with a Create Material button that writes an editable copy to
+  only while it holds, and entity references accept dropped entities. Asset fields (in components, materials, settings
+  and script fields) show the asset's path in the asset directory with its extension (`builtin://<Name>` for
+  built-ins, the name of materials and textures imported with a model, `None` when empty; long paths lose their
+  folders first, then the middle of the name, so its start and its end with the extension stay; the tooltip has all of
+  it) in a box that opens a searchable picker of the assets of the field's type when clicked and takes assets dropped
+  from the content browser, followed by `...` (the picker) and `x` (clears it). In the inspector the box starts with a
+  small image of the asset (textures, materials on a sphere, meshes, prefabs, environments; `AssetThumbnails`), shown
+  larger in the tooltip. With several entities selected it shows the components they share, flags fields whose values
+  differ, and an edit sets only the edited value or vector component on every entity. One widget interaction (a drag,
+  typing into a field) is one undo step. Add Component opens a menu with a search field above a submenu per component
+  category (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the Core ones are on every entity);
+  typing lists the matching components instead (names starting with the text first) with their categories, and Enter
+  adds the first. Components can also be reset, copied, pasted as JSON and removed. Below the fields of a Mesh
+  component, each material slot of its mesh gets a section (`MaterialSlots`): a header with the material on a sphere,
+  its name, the slot and where the material comes from, then every parameter of the material the slot renders with
+  (the component's override, else the mesh's own material, else the default one). Edits change the material file as in
+  the material inspector (one undo step per interaction) and show at once in the views and thumbnails; built-in and
+  model-imported materials show their values disabled with a Create Material button that writes an editable copy to
   `Assets/Materials` and gives it to the slot (one undo step). Without selected entities the inspector shows the asset
   selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
-  and mesh-imported ones), a texture preview, mesh statistics with the mesh's materials, and the details of other asset
-  types.
+  and mesh-imported ones), a texture preview, mesh statistics with the mesh's materials, and the details of other
+  asset types.
 - Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
   files in red), breadcrumbs, a tile size slider, and a search over every asset path. Textures show themselves, and
   materials (on a sphere), meshes, prefabs and environments show thumbnails that `AssetThumbnails` renders offscreen,

@@ -177,6 +177,7 @@ namespace Strada
 		: m_MaterialFields(GetFieldDescriptors<StructTraits<MaterialData>, MaterialData>()),
 		  m_EditSession(MergeKeyPrefix)
 	{
+		m_FieldEditor.SetAssetPreviews(&m_Previews);
 	}
 
 	void InspectorPanel::ShowAddComponentMenu(bool open, std::string search)
@@ -665,8 +666,14 @@ namespace Strada
 		std::string const type = UI::FormatDisplayName(AssetTypeToString(metadata->Type));
 		ImGui::TextUnformatted(name.c_str());
 		ImGui::TextDisabled("%s", type.c_str());
+		// The reference, shortened to the panel's width (all of it in the tooltip and the menu's Copy Reference).
 		std::string const reference = AssetManager::GetReference(asset);
-		ImGui::TextDisabled("%s", reference.c_str());
+		std::string const shownReference = UI::FitPath(reference, ImGui::GetContentRegionAvail().x);
+		ImGui::TextDisabled("%s", shownReference.c_str());
+		if (shownReference != reference && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+		{
+			ImGui::SetTooltip("%s", reference.c_str());
+		}
 		if (ImGui::BeginPopupContextItem("##referenceMenu"))
 		{
 			if (ImGui::MenuItem("Copy Reference"))
@@ -897,7 +904,7 @@ namespace Strada
 		ImGui::RenderTextEllipsis(drawList, ImVec2(textX, textY), ImVec2(titleMaxX, textY + fontSize), titleMaxX, title.c_str(), nullptr,
 		                          nullptr);
 		// The slot (meshes with several), a middle dot and where the material comes from: its path, or the model's for materials
-		// imported with one. Paths keep their end when they are too long.
+		// imported with one. Long paths lose their folders, then the middle of the name.
 		std::string subtitle = slotCount > 1 || !material.IsValid() ? fmt::format("Slot {}", slot) : std::string();
 		if (material.IsValid())
 		{
