@@ -520,6 +520,100 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<PostProcessComponent>
+	{
+		static constexpr std::string_view Name = "PostProcess";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description =
+			"Post-process volume: overrides the scene's exposure, tonemapper, bloom, ambient occlusion, color grading and lens "
+			"effects everywhere (global) or while the camera is in the entity's box (local, fading over a blend distance), in "
+			"order of priority and scaled by weight.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Global", &PostProcessComponent::Global)
+				.Doc("Applies everywhere; otherwise only inside the box the entity's transform makes of the unit cube."),
+			Field("BlendDistance", &PostProcessComponent::BlendDistance)
+				.AtLeast(0.0)
+				.Doc("Local volumes: meters around the box over which the volume fades out."),
+			Field("Priority", &PostProcessComponent::Priority).Doc("Volumes with higher priorities apply over those with lower ones."),
+			Field("Weight", &PostProcessComponent::Weight).Range(0.0, 1.0).Doc("How much of the volume applies."),
+			Field("OverrideEV100", &PostProcessComponent::OverrideEV100).Doc("Applies the volume's EV100."),
+			Field("EV100", &PostProcessComponent::EV100)
+				.Range(-20.0, 20.0)
+				.EnabledBy("OverrideEV100")
+				.Doc("Exposure value at ISO 100; higher values darken the image."),
+			Field("OverrideTonemapper", &PostProcessComponent::OverrideTonemapper).Doc("Applies the volume's tonemapper."),
+			Field("Tonemapper", &PostProcessComponent::Tonemapper)
+				.EnabledBy("OverrideTonemapper")
+				.Doc("Maps HDR colors to the display range."),
+			Field("OverrideAmbientOcclusion", &PostProcessComponent::OverrideAmbientOcclusion)
+				.Doc("Switches ambient occlusion on or off as the volume says."),
+			Field("AmbientOcclusion", &PostProcessComponent::AmbientOcclusion)
+				.EnabledBy("OverrideAmbientOcclusion")
+				.Doc("Darkens indirect light in creases and corners."),
+			Field("OverrideAmbientOcclusionIntensity", &PostProcessComponent::OverrideAmbientOcclusionIntensity)
+				.Doc("Applies the volume's ambient occlusion intensity."),
+			Field("AmbientOcclusionIntensity", &PostProcessComponent::AmbientOcclusionIntensity)
+				.Range(0.1, 8.0)
+				.EnabledBy("OverrideAmbientOcclusionIntensity")
+				.Doc("Contrast exponent of ambient occlusion."),
+			Field("OverrideBloom", &PostProcessComponent::OverrideBloom).Doc("Switches bloom on or off as the volume says."),
+			Field("Bloom", &PostProcessComponent::Bloom).EnabledBy("OverrideBloom").Doc("Glow around bright areas."),
+			Field("OverrideBloomIntensity", &PostProcessComponent::OverrideBloomIntensity).Doc("Applies the volume's bloom intensity."),
+			Field("BloomIntensity", &PostProcessComponent::BloomIntensity)
+				.Range(0.0, 1.0)
+				.EnabledBy("OverrideBloomIntensity")
+				.Doc("Fraction of the blurred image mixed into the scene."),
+			Field("OverrideContrast", &PostProcessComponent::OverrideContrast).Doc("Applies the volume's contrast."),
+			Field("Contrast", &PostProcessComponent::Contrast)
+				.Range(0.0, 2.0)
+				.EnabledBy("OverrideContrast")
+				.Doc("Contrast around middle gray; 1 leaves colors unchanged."),
+			Field("OverrideSaturation", &PostProcessComponent::OverrideSaturation).Doc("Applies the volume's saturation."),
+			Field("Saturation", &PostProcessComponent::Saturation)
+				.Range(0.0, 2.0)
+				.EnabledBy("OverrideSaturation")
+				.Doc("Color intensity: 0 is grayscale, 1 unchanged, 2 doubles it."),
+			Field("OverrideTemperature", &PostProcessComponent::OverrideTemperature).Doc("Applies the volume's temperature."),
+			Field("Temperature", &PostProcessComponent::Temperature)
+				.Range(-1.0, 1.0)
+				.EnabledBy("OverrideTemperature")
+				.Doc("White balance from cool (-1, blue) to warm (1, orange)."),
+			Field("OverrideTint", &PostProcessComponent::OverrideTint).Doc("Applies the volume's tint."),
+			Field("Tint", &PostProcessComponent::Tint)
+				.Range(-1.0, 1.0)
+				.EnabledBy("OverrideTint")
+				.Doc("White balance from green (-1) to magenta (1)."),
+			Field("OverrideColorFilter", &PostProcessComponent::OverrideColorFilter).Doc("Applies the volume's color filter."),
+			Field("ColorFilter", &PostProcessComponent::ColorFilter)
+				.Range(0.0, 2.0)
+				.AsColor()
+				.EnabledBy("OverrideColorFilter")
+				.Doc("Multiplies every color."),
+			Field("OverrideChromaticAberration", &PostProcessComponent::OverrideChromaticAberration)
+				.Doc("Applies the volume's chromatic aberration."),
+			Field("ChromaticAberration", &PostProcessComponent::ChromaticAberration)
+				.Range(0.0, 1.0)
+				.EnabledBy("OverrideChromaticAberration")
+				.Doc("Lens color fringes that grow towards the edges of the image."),
+			Field("OverrideVignette", &PostProcessComponent::OverrideVignette).Doc("Applies the volume's vignette."),
+			Field("Vignette", &PostProcessComponent::Vignette)
+				.Range(0.0, 1.0)
+				.EnabledBy("OverrideVignette")
+				.Doc("Darkens the corners of the image."),
+			Field("OverrideVignetteSmoothness", &PostProcessComponent::OverrideVignetteSmoothness)
+				.Doc("Applies the volume's vignette smoothness."),
+			Field("VignetteSmoothness", &PostProcessComponent::VignetteSmoothness)
+				.Range(0.01, 1.0)
+				.EnabledBy("OverrideVignetteSmoothness")
+				.Doc("How gradually the vignette fades in from the center."),
+			Field("OverrideFilmGrain", &PostProcessComponent::OverrideFilmGrain).Doc("Applies the volume's film grain."),
+			Field("FilmGrain", &PostProcessComponent::FilmGrain)
+				.Range(0.0, 1.0)
+				.EnabledBy("OverrideFilmGrain")
+				.Doc("Animated film grain."));
+	};
+
+	template<>
 	struct ComponentTraits<PrefabComponent>
 	{
 		static constexpr std::string_view Name = "Prefab";
@@ -547,5 +641,5 @@ namespace Strada
 	                  DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, RigidBodyComponent,
 	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, JointComponent,
 	                  AudioSourceComponent, AudioListenerComponent, ScriptComponent, TextComponent, SpriteRendererComponent,
-	                  ParticleSystemComponent, PrefabComponent>;
+	                  ParticleSystemComponent, PostProcessComponent, PrefabComponent>;
 }

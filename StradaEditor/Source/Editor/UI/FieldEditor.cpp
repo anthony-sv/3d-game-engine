@@ -138,19 +138,26 @@ namespace Strada
 			return text;
 		}
 
-		void DrawLabel(std::string const& label, std::string const& tooltip, bool mixed, int depth)
+		void Indent(int depth)
 		{
-			ImGui::AlignTextToFramePadding();
 			if (depth > 0)
 			{
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + static_cast<float>(depth) * ImGui::GetStyle().IndentSpacing);
 			}
-			if (mixed)
+		}
+
+		// Labels of fields whose switch is off are dimmed (their tooltips still show).
+		void DrawLabel(std::string const& label, std::string const& tooltip, bool mixed, int depth, bool switchedOn = true)
+		{
+			ImGui::AlignTextToFramePadding();
+			Indent(depth);
+			bool const colored = mixed || !switchedOn;
+			if (colored)
 			{
-				ImGui::PushStyleColor(ImGuiCol_Text, MixedLabelColor);
+				ImGui::PushStyleColor(ImGuiCol_Text, mixed ? MixedLabelColor : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 			}
 			ImGui::TextUnformatted(label.c_str());
-			if (mixed)
+			if (colored)
 			{
 				ImGui::PopStyleColor();
 			}
@@ -158,6 +165,26 @@ namespace Strada
 			{
 				ImGui::SetTooltip("%s", tooltip.c_str());
 			}
+		}
+
+		FieldDescriptor const* FindField(std::span<FieldDescriptor const> fields, std::string_view name)
+		{
+			auto const found = std::find_if(fields.begin(), fields.end(),
+			                                [name](FieldDescriptor const& field)
+			                                {
+												return field.Name == name;
+											});
+			return found != fields.end() ? &*found : nullptr;
+		}
+
+		// Switches (EnabledBy) are drawn in front of the fields they switch instead of in rows of their own.
+		bool IsSwitch(std::span<FieldDescriptor const> fields, FieldDescriptor const& field)
+		{
+			return field.Kind == FieldKind::Bool && std::any_of(fields.begin(), fields.end(),
+			                                                    [&field](FieldDescriptor const& other)
+			                                                    {
+																	return other.Hints.EnabledBy == field.Name;
+																});
 		}
 
 		// Colored X/Y/Z/W buttons (reset the component to its default) followed by drag fields; reports which component changed.
@@ -519,11 +546,23 @@ namespace Strada
 	                           bool parentMixed, std::vector<std::string_view>& path, std::optional<FieldChange>& change)
 	{
 		int const depth = static_cast<int>(path.size());
+		auto const isMixed = [&](std::string const& key)
+		{
+			return parentMixed || (depth == 0 && std::find(mixedFields.begin(), mixedFields.end(), key) != mixedFields.end());
+		};
+		auto const getValue = [&values](FieldDescriptor const& field, std::string const& key) -> Json const&
+		{
+			return values.is_object() && values.contains(key) ? values[key] : field.Default;
+		};
 		for (FieldDescriptor const& field : fields)
 		{
+			if (IsSwitch(fields, field))
+			{
+				continue;
+			}
 			std::string const key(field.Name);
-			bool const mixed = parentMixed || (depth == 0 && std::find(mixedFields.begin(), mixedFields.end(), key) != mixedFields.end());
-			Json const& value = values.is_object() && values.contains(key) ? values[key] : field.Default;
+			bool const mixed = isMixed(key);
+			Json const& value = getValue(field, key);
 
 			ImGui::PushID(key.c_str());
 			ImGui::TableNextRow();
@@ -544,15 +583,53 @@ namespace Strada
 			}
 			else
 			{
-				DrawLabel(label, MakeTooltip(field, mixed), mixed, depth);
+				// A switched field shows its switch in front of its name, and its value disabled while the switch is off
+				// (enabled when the selected objects differ, so all of them can be edited).
+				bool enabled = true;
+				FieldDescriptor const* switchField = field.Hints.EnabledBy.empty() ? nullptr : FindField(fields, field.Hints.EnabledBy);
+				if (switchField != nullptr)
+				{
+					std::string const switchKey(switchField->Name);
+					bool const switchMixed = isMixed(switchKey);
+					Json const& switchValue = getValue(*switchField, switchKey);
+					bool checked = switchValue.is_boolean() && switchValue.get<bool>();
+					enabled = checked || switchMixed;
+
+					ImGui::AlignTextToFramePadding();
+					Indent(depth);
+					ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, switchMixed);
+					bool const switched = ImGui::Checkbox("##switch", &checked);
+					ImGui::PopItemFlag();
+					if (std::string const tooltip = MakeTooltip(*switchField, switchMixed);
+					    !tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+					{
+						ImGui::SetTooltip("%s", tooltip.c_str());
+					}
+					if (switched && !change)
+					{
+						FieldChange switchChange;
+						switchChange.Path = path;
+						switchChange.Path.back() = switchField->Name;
+						switchChange.Value = checked;
+						change = std::move(switchChange);
+					}
+					ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+					DrawLabel(label, MakeTooltip(field, mixed), mixed, 0, enabled);
+				}
+				else
+				{
+					DrawLabel(label, MakeTooltip(field, mixed), mixed, depth);
+				}
 				ImGui::TableSetColumnIndex(1);
 				ImGui::PushItemWidth(-FLT_MIN);
+				ImGui::BeginDisabled(!enabled);
 				FieldChange fieldChange;
 				if (DrawValue(field, value, mixed, fieldChange) && !change)
 				{
 					fieldChange.Path = path;
 					change = std::move(fieldChange);
 				}
+				ImGui::EndDisabled();
 				ImGui::PopItemWidth();
 			}
 			path.pop_back();

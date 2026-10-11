@@ -56,6 +56,10 @@ namespace Strada
 			{
 				description["Description"] = std::string(field.Hints.Description);
 			}
+			if (!field.Hints.EnabledBy.empty())
+			{
+				description["EnabledBy"] = std::string(field.Hints.EnabledBy);
+			}
 			if (!field.Fields.empty())
 			{
 				Json nested = Json::array();

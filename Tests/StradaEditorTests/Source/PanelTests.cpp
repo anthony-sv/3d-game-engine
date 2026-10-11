@@ -140,6 +140,25 @@ struct Strada::StructTraits<Probe>
 
 namespace
 {
+	struct SwitchedProbe
+	{
+		bool UseGain = false;
+		float Gain = 1.0f;
+		bool Visible = true;
+	};
+}
+
+template<>
+struct Strada::StructTraits<SwitchedProbe>
+{
+	static constexpr std::string_view Name = "SwitchedProbe";
+	static constexpr auto Fields = std::make_tuple(Field("UseGain", &SwitchedProbe::UseGain).Doc("Applies Gain."),
+	                                               Field("Gain", &SwitchedProbe::Gain).Range(0.0, 10.0).EnabledBy("UseGain"),
+	                                               Field("Visible", &SwitchedProbe::Visible));
+};
+
+namespace
+{
 	// Draws one field of Probe in a window with keyboard focus on its widget, then types text and presses Enter; returns
 	// the last change the editor reported.
 	std::optional<FieldChange> TypeIntoField(HeadlessImGui& imgui, size_t fieldIndex, char const* text)
@@ -211,6 +230,77 @@ TEST_CASE("FieldEditor: typed values are reported with their path and clamped to
 	REQUIRE(label);
 	CHECK(label->Path == std::vector<std::string_view>{"Label"});
 	CHECK(label->Value.get<std::string>().ends_with("Lamp"));
+}
+
+TEST_CASE("FieldEditor: a switch is a check box in front of the field it switches, which is disabled while it is off")
+{
+	HeadlessImGui imgui;
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<SwitchedProbe>, SwitchedProbe>();
+	Json values = SerializeFields<StructTraits<SwitchedProbe>>(SwitchedProbe{});
+	FieldEditor editor;
+	std::optional<FieldChange> last;
+	bool focusGain = false;
+	int rows = 0;
+	ImVec2 switchCenter;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 400.0f));
+		ImGui::Begin("Switches");
+		if (focusGain)
+		{
+			// The item after the switch, when Gain can be edited.
+			ImGui::SetKeyboardFocusHere(1);
+			focusGain = false;
+		}
+		// The first row's first item: a square check box one frame high.
+		ImVec2 const tableStart = ImGui::GetCursorScreenPos();
+		float const half = ImGui::GetFrameHeight() * 0.5f;
+		switchCenter = ImVec2(tableStart.x + half, tableStart.y + ImGui::GetStyle().CellPadding.y + half);
+		if (std::optional<FieldChange> change = editor.Draw(fields, values))
+		{
+			last = std::move(change);
+		}
+		ImGuiTable const* table = ImGui::TableFindByID(ImGui::GetID("##fields"));
+		rows = table != nullptr ? table->CurrentRow + 1 : 0;
+		ImGui::End();
+	};
+	auto const typeIntoGain = [&](char const* text)
+	{
+		focusGain = true;
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		imgui.Type(text);
+		imgui.Frame(draw);
+		ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, true);
+		imgui.Frame(draw);
+		ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, false);
+		imgui.Frame(draw);
+	};
+
+	// The switch has no row of its own: one for Gain, one for Visible.
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK(rows == 2);
+	CHECK_FALSE(last);
+
+	// The check box at the start of Gain's row is the switch.
+	imgui.Click(switchCenter, draw);
+	REQUIRE(last);
+	CHECK(last->Path == std::vector<std::string_view>{"UseGain"});
+	CHECK(last->Value == true);
+
+	// While the switch is off Gain is disabled: typing changes nothing.
+	last.reset();
+	typeIntoGain("5");
+	CHECK_FALSE(last);
+
+	// Switched on, Gain takes typed values.
+	values["UseGain"] = true;
+	typeIntoGain("5");
+	REQUIRE(last);
+	CHECK(last->Path == std::vector<std::string_view>{"Gain"});
+	CHECK(last->Value.get<float>() == doctest::Approx(5.0f));
 }
 
 TEST_CASE("FieldEditor: drawing the fields of every component and setting changes nothing")

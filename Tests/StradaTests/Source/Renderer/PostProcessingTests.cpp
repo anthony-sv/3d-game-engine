@@ -291,3 +291,58 @@ TEST_CASE("SceneRenderer: color grading, vignette, chromatic aberration and film
 	CHECK(noisy > 20);
 	CHECK(animated > 20);
 }
+
+TEST_CASE("SceneRenderer: post-process volumes change the rendered image around the camera")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	// A red wall lit evenly by emission, seen from 3 m.
+	Scene scene("Volumes");
+	DisablePostProcessing(scene);
+	Testing::AddTestMesh(scene, "Wall", BuiltInAsset::CubeMesh, AddMaterial({0.0f, 0.0f, 0.0f, 1.0f}, {0.6f, 0.05f, 0.05f}),
+	                     {0.0f, 0.0f, 0.0f}, {20.0f, 20.0f, 0.1f});
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	glm::vec3 const target(0.0f, 0.0f, 0.0f);
+	auto const centerPixel = [&](glm::vec3 const& cameraPosition)
+	{
+		Image const image =
+			Testing::RenderToImage(scene, Testing::MakeTestCamera(cameraPosition, target, ImageWidth, ImageHeight), renderer);
+		uint8_t const* data = image.GetPixel(ImageWidth / 2, ImageHeight / 2);
+		return glm::ivec3(data[0], data[1], data[2]);
+	};
+	auto const isGray = [](glm::ivec3 const& color)
+	{
+		return std::abs(color.r - color.g) <= 2 && std::abs(color.g - color.b) <= 2;
+	};
+
+	glm::vec3 const inside(0.0f, 0.0f, 3.0f);
+	glm::ivec3 const red = centerPixel(inside);
+	REQUIRE(red.r > red.g + 50);
+
+	// A global volume takes the color out everywhere.
+	Entity volumeEntity = scene.CreateEntity("Volume");
+	PostProcessComponent& volume = volumeEntity.AddComponent<PostProcessComponent>();
+	volume.OverrideSaturation = true;
+	volume.Saturation = 0.0f;
+	CHECK(isGray(centerPixel(inside)));
+	CHECK(isGray(centerPixel({0.0f, 0.0f, 8.0f})));
+
+	// Made local, a 2 m box around the first camera position with a 2 m blend: gray inside, half the color halfway through
+	// the blend, all of it beyond.
+	volume.Global = false;
+	volume.BlendDistance = 2.0f;
+	volumeEntity.GetComponent<TransformComponent>().Translation = inside;
+	volumeEntity.GetComponent<TransformComponent>().Scale = glm::vec3(2.0f);
+	CHECK(isGray(centerPixel(inside)));
+	glm::ivec3 const halfway = centerPixel({0.0f, 0.0f, 5.0f});
+	glm::ivec3 const outside = centerPixel({0.0f, 0.0f, 7.0f});
+	CHECK(outside == red);
+	CHECK(halfway.r - halfway.g > 10);
+	CHECK(halfway.r - halfway.g < outside.r - outside.g - 10);
+
+	// Without weight the volume does nothing; the scene's settings never changed.
+	volume.Weight = 0.0f;
+	CHECK(centerPixel(inside) == red);
+	CHECK(scene.GetSettings().Renderer.Saturation == 1.0f);
+}

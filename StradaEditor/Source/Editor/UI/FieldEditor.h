@@ -38,7 +38,9 @@ namespace Strada
 	// Draws editing widgets for reflected fields as the rows of a two-column property table (labels with descriptions as
 	// tooltips, widgets chosen by the field kind and hints) and reports the user's change; callers turn it into an
 	// undoable operation. Values are the scene-file JSON of the edited object. Colors are shown and picked in sRGB while
-	// the data stays linear; quaternions are shown as Euler angles in degrees. Main thread only, inside an ImGui frame.
+	// the data stays linear; quaternions are shown as Euler angles in degrees. A field's switch (FieldHints::EnabledBy) is
+	// a check box in front of its name instead of a row of its own, and the field's value is disabled while the switch is
+	// off. Main thread only, inside an ImGui frame.
 	class FieldEditor
 	{
 	public:

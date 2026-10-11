@@ -96,7 +96,7 @@ through includes of `Scene.h` in headers.
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
 | Audio | miniaudio engine, per-scene sound sources and listener | `AudioEngine`, `AudioScene` |
 | Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding` |
-| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `RenderScene` |
+| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, post-process volume blending, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `PostProcessVolumes`, `RenderScene` |
 | Project | Project files and settings, the C# script project, the scene runner (play mode and the player), game export | `Project`, `ProjectSettings`, `ScriptProject`, `SceneRunner`, `GameExporter` |
 
 ### 4.1 Subsystem lifetime
@@ -260,7 +260,10 @@ Render targets are recreated on resize and reconfiguration only after the GPU ha
 clears, which can be a target's only use in a frame.
 
 `SceneRendererSettings` (shadows, SSAO, bloom, exposure, tonemapper, FXAA, sky) are stored per scene, editable in the
-editor and through automation.
+editor and through automation. Post-process volumes (`PostProcess` components, §7.2) change the exposure, tonemapper,
+bloom, ambient occlusion, color grading and lens effects for each frame: `RenderScene` resolves them for the rendering
+camera's position (`PostProcessVolumes::Resolve`) before `BeginScene`, so the editor's scene view (the editor camera),
+its game view and the player all show them; the scene's own settings never change.
 
 ### 6.3 Assets
 
@@ -345,7 +348,10 @@ field list are declared once in `ComponentTraits.h`; generic code derives JSON s
 transactional partial updates with readable errors), schemas, copies, the inspector and the `ComponentRegistry` entry
 from that table. Fields carry optional hints: an inclusive range (enforced whenever JSON is read, so files, automation
 and the editor all reject out-of-range values), a presentation (color, angle, multi-line text), the referenced asset
-type and a one-sentence description. Field tables of other structs (renderer settings, materials) use the same hints. The
+type, a one-sentence description and a switch (`EnabledBy`: another bool field of the table, not switched itself, that
+turns the field on; checked at compile time, drawn by the inspector as a check box in front of the field). Values that
+skip the JSON checks (scripts) can be brought into range with `ClampToFieldRanges`. Field tables of other structs
+(renderer settings, materials) use the same hints. The
 registry provides type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for scene
 serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu, and script
 interop component lookups.
@@ -374,6 +380,7 @@ interop component lookups.
 | `Text` | `TextComponent` | `Text`, `Font` asset (0 = default), `Color`, `FontSize`, `ScreenSpace`, `Alignment` (Left/Center/Right), `LineSpacing` |
 | `SpriteRenderer` | `SpriteRendererComponent` | `Color`, `Texture` asset, `Tiling`, `ScreenSpace` |
 | `ParticleSystem` | `ParticleSystemComponent` | `Emitting`, `Rate` (per second), `Burst`, `MaxParticles`, `LifetimeMin`/`LifetimeMax` (s), `SpeedMin`/`SpeedMax` (m/s), `Shape` (Point/Sphere/Cone/Box), `ConeAngle` (deg), `Radius`, `BoxHalfExtents`, `GravityFactor`, `Drag`, `StartSize`/`EndSize`, `StartColor`/`EndColor`, `Intensity`, `Texture` asset (0 = soft dot), `BlendMode` (Additive/Alpha), `WorldSpace`, `DestroyWhenFinished` |
+| `PostProcess` | `PostProcessComponent` | `Global`, `BlendDistance` (m), `Priority`, `Weight` (0-1), and `Override<Setting>` switching `<Setting>` for `EV100`, `Tonemapper`, `AmbientOcclusion`, `AmbientOcclusionIntensity`, `Bloom`, `BloomIntensity`, `Contrast`, `Saturation`, `Temperature`, `Tint`, `ColorFilter`, `ChromaticAberration`, `Vignette`, `VignetteSmoothness`, `FilmGrain` (the renderer settings of the same names, with their defaults and ranges) |
 | `Prefab` | `PrefabComponent` | `Prefab` asset, `SourceEntity` UUID |
 
 Screen-space `Text`/`SpriteRenderer` use the entity translation in normalized viewport coordinates
@@ -392,6 +399,14 @@ gravity times `GravityFactor`, lose `Drag` of their velocity per second and die 
 drawn as camera-facing sprites (the built-in `Particle` texture, a soft dot, by default): additive sprites add their
 light (they bloom when bright) and are never picked; alpha sprites cover what is behind. The quad pipeline blends
 premultiplied colors, so both kinds share it.
+
+Post-process volumes (`PostProcessVolumes`, Scene module, independent of rendering) start from the scene's renderer
+settings and apply each `PostProcess` component that reaches the camera, in order of `Priority` (lowest first; equal
+priorities in hierarchy order), with a blend: `Weight` for global volumes; for local ones `Weight` times 1 inside their
+box (the unit cube placed, rotated and scaled by the entity's world transform) fading linearly to 0 at `BlendDistance`
+meters from it. A volume changes only the settings whose `Override` switch is set: numbers move towards its values by
+the blend, switches (`Bloom`, `AmbientOcclusion`, `Tonemapper`) take its value once the blend reaches one half. Values
+scripts set outside the fields' ranges act as the nearest bound, and scenes without volumes skip the work.
 
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
 entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes.
@@ -575,7 +590,8 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
-  `Emit(count)`, `Clear()`, `ParticleCount`), `ScriptComponent` (`ClassName`, `Instance`).
+  `Emit(count)`, `Clear()`, `ParticleCount`), `PostProcessComponent` (every field; `Tonemapper` is a `TonemapOperator`),
+  `ScriptComponent` (`ClassName`, `Instance`).
 - `Material` (runtime-creatable): `Create()`, `Clone()`, `IsEditable`, `BaseColor`, `Metallic`, `Roughness`,
   `Emissive`, `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, the five texture maps, `AlphaMode`,
   `AlphaCutoff`, `DoubleSided`, `UVTiling`, `UVOffset`.
@@ -642,14 +658,16 @@ than the assembly.
 - Scene Hierarchy: the entity tree; click selects, Ctrl toggles, Shift selects the displayed range; dragging rows
   reparents (onto a row) or reorders (onto its upper or lower edge) the selection as one undo step
   (`MoveEntitiesCommand`); F2 or the context menu renames; double-click frames the entity in the viewport; context
-  menus create preset entities (empty, primitives, lights, camera, audio, text, sprite), duplicate and delete; a search
-  field filters by name. Selections made elsewhere reveal and scroll to the primary entity.
+  menus create preset entities (empty, primitives, lights, camera, audio, text, sprite, particle effects, a global
+  post-process volume with a 10 m box for when it is made local), duplicate and delete; a search field filters by name.
+  Selections made elsewhere reveal and scroll to the primary entity.
 - Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
   the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
   while dragging), enums are combos, asset fields have a searchable picker and accept assets dropped from the content
-  browser, entity references accept dropped entities. With several entities selected it shows the components they
-  share, flags fields whose values differ, and an edit sets only the edited value or vector component on every
-  entity. One widget interaction (a drag, typing into a field) is one undo step. Components can be added (searchable
+  browser, entity references accept dropped entities, and a field's switch (a post-process volume's override) is a
+  check box in front of its name, the value disabled while it is off. With several entities selected it shows the
+  components they share, flags fields whose values differ, and an edit sets only the edited value or vector component
+  on every entity. One widget interaction (a drag, typing into a field) is one undo step. Components can be added (searchable
   list), reset, copied, pasted as JSON and removed. Without selected entities the inspector shows the asset selected
   in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
   editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
@@ -681,7 +699,8 @@ than the assembly.
   (fly/orbit/pan/zoom/focus). Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
   orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays: ground grid
   (G), selection outline, clickable icons for cameras and lights, shapes of selected cameras (frustums), lights
-  (directions, ranges, cones) and colliders, every collider, and the lines scripts draw. ImGuizmo edits apply to every
+  (directions, ranges, cones), colliders and local post-process volumes (their box and the rounded outline where their
+  blend distance ends, drawn through geometry), every collider, and the lines scripts draw. ImGuizmo edits apply to every
   selected root around the primary selection as one undo step per drag (`SetComponentsCommand` with a merge key); click
   picking goes through the entity-ID pass (Ctrl toggles, Shift adds, empty space clears; picking IDs are never reused
   within a scene); assets can be dropped onto it.

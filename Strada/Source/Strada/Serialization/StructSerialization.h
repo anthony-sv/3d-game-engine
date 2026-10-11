@@ -2,7 +2,9 @@
 
 #include "Strada/Serialization/JsonSerialization.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <concepts>
 #include <limits>
 #include <span>
@@ -50,6 +52,10 @@ namespace Strada
 		std::string_view AssetTypeName;
 		// One sentence for users and agents (tooltips, the automation schema).
 		std::string_view Description;
+		// The bool field of the same struct that switches this field on (a post-process volume's override flags); empty for
+		// fields that always apply. Editors draw that switch as a check box in front of this field, which they show
+		// disabled while the switch is off, instead of giving the switch a row of its own.
+		std::string_view EnabledBy;
 
 		constexpr bool HasMin() const { return Min != -std::numeric_limits<double>::infinity(); }
 		constexpr bool HasMax() const { return Max != std::numeric_limits<double>::infinity(); }
@@ -96,6 +102,16 @@ namespace Strada
 		{
 			StructField field = *this;
 			field.Hints.Description = description;
+			return field;
+		}
+
+		// The bool field of the same struct that switches this field on (see FieldHints::EnabledBy). It must be declared in the
+		// same field table and not be switched by another field itself, and nested structs cannot be switched (checked at
+		// compile time).
+		constexpr StructField EnabledBy(std::string_view switchName) const
+		{
+			StructField field = *this;
+			field.Hints.EnabledBy = switchName;
 			return field;
 		}
 
@@ -183,8 +199,8 @@ namespace Strada
 	};
 
 	// Schema used by the automation API: { "Name", ["Description"], "Fields": [ { "Name", "Type", "Default", ... }, ... ] }.
-	// Optional keys per field: "Values" (enums), "Min"/"Max", "Display", "AssetType", "Description" and "Fields" (nested
-	// structs).
+	// Optional keys per field: "Values" (enums), "Min"/"Max", "Display", "AssetType", "Description", "EnabledBy" (the
+	// switch) and "Fields" (nested structs).
 	Json DescribeFields(std::string_view name, std::span<FieldDescriptor const> fields, std::string_view description = {});
 
 	namespace Detail
@@ -335,7 +351,9 @@ namespace Strada
 					}
 					break;
 			}
-			return hints.AssetTypeName.empty() || IsAssetField<T>();
+			// Nested structs are switched by their own fields (editors show them as groups, without a value to disable).
+			return (hints.AssetTypeName.empty() || IsAssetField<T>()) &&
+			       (hints.EnabledBy.empty() || GetFieldKind<T>() != FieldKind::Struct);
 		}
 
 		template<FieldTable TTraits, typename T>
@@ -360,6 +378,29 @@ namespace Strada
 						{
 							valid = valid && names[i] != names[j];
 						}
+					}
+				},
+				TTraits::Fields);
+
+			// A switch (EnabledBy) is another bool field of the table that is not switched itself.
+			std::apply(
+				[&valid](auto const&... fields)
+				{
+					std::array<std::string_view, sizeof...(fields)> const names = {fields.Name...};
+					std::array<std::string_view, sizeof...(fields)> const switches = {fields.Hints.EnabledBy...};
+					std::array<bool, sizeof...(fields)> const isBool = {std::is_same_v<StructFieldType<T, decltype(fields)>, bool>...};
+					for (size_t i = 0; i < names.size(); i++)
+					{
+						if (switches[i].empty())
+						{
+							continue;
+						}
+						bool found = false;
+						for (size_t j = 0; j < names.size(); j++)
+						{
+							found = found || (j != i && names[j] == switches[i] && isBool[j] && switches[j].empty());
+						}
+						valid = valid && found;
 					}
 				},
 				TTraits::Fields);
@@ -438,6 +479,58 @@ namespace Strada
 			}
 			return {};
 		}
+
+		template<typename T>
+		void ClampToRange(T& value, FieldHints const& hints)
+		{
+			if constexpr (SupportsRange<T>())
+			{
+				if (!hints.HasRange())
+				{
+					return;
+				}
+				if constexpr (VectorTraits<T>::value)
+				{
+					for (auto& element : value)
+					{
+						ClampToRange(element, hints);
+					}
+				}
+				else if constexpr (IsFloatVector<T>)
+				{
+					for (glm::length_t i = 0; i < T::length(); i++)
+					{
+						ClampToRange(value[i], hints);
+					}
+				}
+				else if constexpr (std::is_floating_point_v<T>)
+				{
+					// Bounds are rounded to the value's type, like the range check; those beyond what it represents
+					// (infinity for a missing bound) become its extremes.
+					auto const toBound = [](double bound)
+					{
+						return static_cast<T>(std::clamp(bound, static_cast<double>(std::numeric_limits<T>::lowest()),
+						                                 static_cast<double>(std::numeric_limits<T>::max())));
+					};
+					value = std::clamp(value, toBound(hints.Min), toBound(hints.Max));
+				}
+				else
+				{
+					// The whole numbers within the bounds (which may lie outside what T represents).
+					double const lower = std::max(std::ceil(hints.Min), static_cast<double>(std::numeric_limits<T>::lowest()));
+					double const upper = std::min(std::floor(hints.Max), static_cast<double>(std::numeric_limits<T>::max()));
+					double const number = static_cast<double>(value);
+					if (number < lower)
+					{
+						value = static_cast<T>(lower);
+					}
+					else if (number > upper)
+					{
+						value = static_cast<T>(upper);
+					}
+				}
+			}
+		}
 	}
 
 	// Writes every field.
@@ -462,7 +555,8 @@ namespace Strada
 	template<FieldTable TTraits, typename T>
 	[[nodiscard]] Result<void> DeserializeFields(Json const& json, T& object, DeserializationContext const& context, std::string_view kind)
 	{
-		static_assert(Detail::IsFieldTableValid<TTraits, T>(), "A field hint does not fit its field's type, or names repeat");
+		static_assert(Detail::IsFieldTableValid<TTraits, T>(),
+		              "A field hint does not fit its field's type, names repeat, or a switch is not another bool field of the table");
 		constexpr std::string_view Name = TTraits::Name;
 		if (!json.is_object())
 		{
@@ -536,6 +630,20 @@ namespace Strada
 		return {};
 	}
 
+	// Moves every number of the object's fields (each component of float vectors, each element of arrays) that lies outside
+	// its field's range to the nearest bound: for values that reach an object without passing the JSON checks (scripts).
+	// Nested structs are left as they are. Expects finite values.
+	template<FieldTable TTraits, typename T>
+	void ClampToFieldRanges(T& object)
+	{
+		std::apply(
+			[&object](auto const&... fields)
+			{
+				(Detail::ClampToRange(object.*(fields.Member), fields.Hints), ...);
+			},
+			TTraits::Fields);
+	}
+
 	template<FieldTable TTraits, typename T>
 	std::vector<FieldDescriptor> GetFieldDescriptors();
 
@@ -576,7 +684,8 @@ namespace Strada
 	template<FieldTable TTraits, typename T>
 	std::vector<FieldDescriptor> GetFieldDescriptors()
 	{
-		static_assert(Detail::IsFieldTableValid<TTraits, T>(), "A field hint does not fit its field's type, or names repeat");
+		static_assert(Detail::IsFieldTableValid<TTraits, T>(),
+		              "A field hint does not fit its field's type, names repeat, or a switch is not another bool field of the table");
 		T const defaults{};
 		std::vector<FieldDescriptor> descriptors;
 		std::apply(
