@@ -3,23 +3,30 @@
 #include "TestUtilities.h"
 
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Audio/AudioStreamFile.h"
 #include "Strada/Core/FileSystem.h"
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <filesystem>
 #include <limits>
+#include <mutex>
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 using namespace Strada;
 using Strada::Testing::AudioLevels;
 using Strada::Testing::ReadLevels;
+using Strada::Testing::ReadSamples;
 using Strada::Testing::Skip;
 
 namespace
@@ -65,14 +72,178 @@ namespace
 		return path;
 	}
 
-	// The interleaved stereo samples of the next part of the manual mix.
-	std::vector<float> ReadSamples(float seconds)
+	// The levels of the next part of the mix, read at once as a device reads it: streamed sounds play what they have
+	// decoded so far.
+	AudioLevels ReadLevelsAtOnce(float seconds)
 	{
-		uint32_t const frames = Testing::AudioFrames(seconds);
-		std::vector<float> samples(static_cast<size_t>(frames) * 2);
-		REQUIRE(AudioEngine::ReadFrames(samples) == frames);
-		return samples;
+		std::vector<float> samples(static_cast<size_t>(Testing::AudioFrames(seconds)) * 2);
+		REQUIRE(AudioEngine::ReadFrames(samples) == samples.size() / 2);
+		return Testing::MeasureLevels(samples);
 	}
+
+	// What streamed sounds did with their files: bytes read on the main thread (which opens the files) and on the
+	// streaming thread, and seeks on the streaming thread.
+	struct StreamFileUse
+	{
+		std::thread::id const MainThread = std::this_thread::get_id();
+		std::atomic<uint64_t> MainThreadBytes{0};
+		std::atomic<uint64_t> StreamingBytes{0};
+		std::atomic<uint32_t> StreamingSeeks{0};
+	};
+
+	// Holds the reads of streamed files while it is closed, like a slow drive.
+	class ReadGate
+	{
+	public:
+		void Close()
+		{
+			std::lock_guard const lock(m_Mutex);
+			m_Closed = true;
+		}
+
+		void Open()
+		{
+			{
+				std::lock_guard const lock(m_Mutex);
+				m_Closed = false;
+			}
+			m_Changed.notify_all();
+		}
+
+		// Every read passes here: it waits while the gate is closed.
+		void Pass()
+		{
+			std::unique_lock lock(m_Mutex);
+			if (!m_Closed)
+			{
+				return;
+			}
+			m_Waiting++;
+			m_Changed.notify_all();
+			m_Changed.wait(lock,
+			               [this]
+			               {
+							   return !m_Closed;
+						   });
+			m_Waiting--;
+		}
+
+		// Whether a read waits at the gate, or starts to within the time.
+		bool WaitForReader(std::chrono::milliseconds timeout)
+		{
+			std::unique_lock lock(m_Mutex);
+			return m_Changed.wait_for(lock, timeout,
+			                          [this]
+			                          {
+										  return m_Waiting > 0;
+									  });
+		}
+
+		// Whether the gate is open, or opens within the time.
+		bool WaitUntilOpen(std::chrono::milliseconds timeout)
+		{
+			std::unique_lock lock(m_Mutex);
+			return m_Changed.wait_for(lock, timeout,
+			                          [this]
+			                          {
+										  return !m_Closed;
+									  });
+		}
+
+	private:
+		std::mutex m_Mutex;
+		std::condition_variable m_Changed;
+		bool m_Closed = false;
+		uint32_t m_Waiting = 0;
+	};
+
+	// A file of the file system whose use is counted and whose reads pass the gate.
+	class WatchedFile final : public AudioStreamFile
+	{
+	public:
+		WatchedFile(Scope<AudioStreamFile> file, Ref<StreamFileUse> use, Ref<ReadGate> gate)
+			: m_File(std::move(file)),
+			  m_Use(std::move(use)),
+			  m_Gate(std::move(gate))
+		{
+		}
+
+		size_t Read(std::span<uint8_t> data) override
+		{
+			m_Gate->Pass();
+			size_t const read = m_File->Read(data);
+			(IsMainThread() ? m_Use->MainThreadBytes : m_Use->StreamingBytes) += read;
+			return read;
+		}
+
+		bool Seek(uint64_t position) override
+		{
+			if (!IsMainThread())
+			{
+				m_Use->StreamingSeeks++;
+			}
+			return m_File->Seek(position);
+		}
+
+		uint64_t GetPosition() const override { return m_File->GetPosition(); }
+		uint64_t GetSize() const override { return m_File->GetSize(); }
+
+	private:
+		bool IsMainThread() const { return std::this_thread::get_id() == m_Use->MainThread; }
+
+		Scope<AudioStreamFile> m_File;
+		Ref<StreamFileUse> m_Use;
+		Ref<ReadGate> m_Gate;
+	};
+
+	AudioStreamFileOpener WatchFiles(Ref<StreamFileUse> use, Ref<ReadGate> gate)
+	{
+		return [use = std::move(use), gate = std::move(gate)](std::filesystem::path const& path) -> Result<Scope<AudioStreamFile>>
+		{
+			Result<Scope<AudioStreamFile>> file = AudioStreamFile::Open(path);
+			if (!file)
+			{
+				return Error{file.GetError()};
+			}
+			return Scope<AudioStreamFile>(CreateScope<WatchedFile>(file.TakeValue(), use, gate));
+		};
+	}
+
+	// Opens the gate if the test has not within the time, so a mix that waits for a held read fails the test instead of
+	// hanging it; open when it is destroyed, so the engine can shut down.
+	class GateWatchdog
+	{
+	public:
+		GateWatchdog(Ref<ReadGate> gate, std::chrono::milliseconds timeout)
+			: m_Gate(std::move(gate)),
+			  m_Thread(
+				  [this, timeout]
+				  {
+					  if (!m_Gate->WaitUntilOpen(timeout))
+					  {
+						  m_TimedOut = true;
+						  m_Gate->Open();
+					  }
+				  })
+		{
+		}
+
+		~GateWatchdog()
+		{
+			m_Gate->Open();
+			m_Thread.join();
+		}
+
+		GateWatchdog(GateWatchdog const&) = delete;
+		GateWatchdog& operator=(GateWatchdog const&) = delete;
+
+		bool HasTimedOut() const { return m_TimedOut; }
+
+	private:
+		Ref<ReadGate> m_Gate;
+		std::atomic<bool> m_TimedOut{false};
+		std::thread m_Thread;
+	};
 
 	std::vector<uint8_t> ToBytes(std::span<uint8_t const> data)
 	{
@@ -565,6 +736,160 @@ TEST_CASE("AudioScene: Ogg Vorbis, FLAC and MP3 files stream")
 	CHECK(audio->IsPlaying(OtherId));
 	Skip(0.15f);
 	CHECK_FALSE(audio->IsPlaying(OtherId));
+}
+
+TEST_CASE("AudioScene: creating a streamed source reads only the headers of its file, and playing it reads about a second ahead")
+{
+	Ref<StreamFileUse> const use = CreateRef<StreamFileUse>();
+	Testing::AudioEngineScope engine(WatchFiles(use, CreateRef<ReadGate>()));
+	Testing::TemporaryDirectory directory;
+	Scope<AudioScene> audio = CreateAudioScene();
+
+	// Long files: the Ogg test file 40 times over (about 20 MB, one chained stream), a minute of WAV and MP3, and ten
+	// seconds of FLAC.
+	Result<Buffer> ogg = FileSystem::ReadBinaryFile(FileSystem::PathFromUtf8(STRADA_TEST_OGG_PATH));
+	REQUIRE(ogg.IsOk());
+	std::vector<uint8_t> longOgg;
+	for (int copy = 0; copy < 40; copy++)
+	{
+		longOgg.insert(longOgg.end(), ogg.GetValue().GetSpan().begin(), ogg.GetValue().GetSpan().end());
+	}
+	struct LongFile
+	{
+		std::string_view Name;
+		std::vector<uint8_t> Data;
+		// The level it plays at (negative: any audible level).
+		float Level = 0.0f;
+	};
+	std::array<LongFile, 4> const files = {{
+		{"Long.ogg", std::move(longOgg), -1.0f},
+		{"Long.wav", ToBytes(Testing::MakeWav(Testing::MakeSamples({{0.5f, 60.0f}})).GetSpan()), 0.5f},
+		{"Long.flac", ToBytes(Testing::MakeFlac(Testing::MakeSamples({{0.5f, 10.0f}})).GetSpan()), 0.5f},
+		{"Long.mp3", ToBytes(Testing::MakeSilentMp3(2500).GetSpan()), 0.0f},
+	}};
+	for (LongFile const& file : files)
+	{
+		CAPTURE(file.Name);
+		std::filesystem::path const path = WriteFile(directory, file.Name, file.Data);
+		use->MainThreadBytes = 0;
+		use->StreamingBytes = 0;
+		REQUIRE(audio->AddSource(MakeStream(SourceId, path)).IsOk());
+		uint64_t const headerBytes = use->MainThreadBytes;
+		CHECK(headerBytes < 256 * 1024);
+
+		// With manual output this thread mixes: it never reads the file while the sound plays, and the streaming thread
+		// reads only about a second ahead of the playback.
+		audio->Play(SourceId);
+		AudioLevels const levels = ReadLevels(0.2f);
+		AudioEngine::WaitForStreams();
+		CHECK(audio->IsPlaying(SourceId));
+		uint64_t const mixingBytes = use->MainThreadBytes - headerBytes;
+		CHECK(mixingBytes == 0);
+		uint64_t const totalBytes = use->MainThreadBytes + use->StreamingBytes;
+		CHECK(totalBytes < file.Data.size() / 4);
+		if (file.Level < 0.0f)
+		{
+			CHECK(levels.Left > 0.001f);
+			CHECK(levels.Right > 0.001f);
+		}
+		else
+		{
+			CHECK(levels.Left == doctest::Approx(file.Level).epsilon(0.01));
+		}
+		audio->RemoveSource(SourceId);
+	}
+}
+
+TEST_CASE("AudioScene: streamed files whose audio does not start near their beginning are refused without reading them on")
+{
+	Ref<StreamFileUse> const use = CreateRef<StreamFileUse>();
+	Testing::AudioEngineScope engine(WatchFiles(use, CreateRef<ReadGate>()));
+	Testing::TemporaryDirectory directory;
+	Scope<AudioScene> audio = CreateAudioScene();
+
+	// An MPEG frame header followed by megabytes without another: the MP3 decoder would search the whole file for a frame.
+	std::vector<uint8_t> damaged(MaxAudioStreamHeaderBytes + 2 * 1024 * 1024, 0);
+	damaged[0] = 0xFF;
+	damaged[1] = 0xFB;
+	damaged[2] = 0x94;
+	damaged[3] = 0xC0;
+	Result<void> const added = audio->AddSource(MakeStream(SourceId, WriteFile(directory, "Damaged.mp3", damaged)));
+	REQUIRE(added.IsError());
+	CHECK(added.GetError().find("KB") != std::string::npos);
+	uint64_t const readBytes = use->MainThreadBytes;
+	CHECK(readBytes <= MaxAudioStreamHeaderBytes + 16);
+	CHECK(use->StreamingBytes == 0);
+	CHECK_FALSE(audio->HasSource(SourceId));
+}
+
+TEST_CASE("AudioScene: a held read silences only its streamed sound and never holds up the mix")
+{
+	Ref<ReadGate> const gate = CreateRef<ReadGate>();
+	Testing::AudioEngineScope engine(WatchFiles(CreateRef<StreamFileUse>(), gate));
+	Testing::TemporaryDirectory directory;
+	Scope<AudioScene> audio = CreateAudioScene();
+	std::filesystem::path const music =
+		WriteFile(directory, "Music.wav", Testing::MakeWav(Testing::MakeSamples({{0.5f, 30.0f}})).GetSpan());
+	REQUIRE(audio->AddSource(MakeStream(SourceId, music)).IsOk());
+	AudioSourceDesc hum = MakeSource(OtherId, Testing::MakeWavClip({{0.25f, 0.1f}}));
+	hum.Loop = true;
+	REQUIRE(audio->AddSource(hum).IsOk());
+	audio->Play(SourceId);
+	audio->Play(OtherId);
+	CHECK(ReadLevels(0.1f).Left == doctest::Approx(0.75f).epsilon(0.01));
+
+	// The drive stops answering: the streaming thread waits in its next read. The mix carries on with what the stream
+	// decoded ahead, then without it, while the loaded sound plays on. A mix that waited for the read would never return
+	// (the watchdog then opens the gate and the test fails).
+	gate->Close();
+	GateWatchdog const watchdog(gate, std::chrono::seconds(30));
+	CHECK(ReadLevelsAtOnce(0.5f).Left == doctest::Approx(0.75f).epsilon(0.01));
+	ReadLevelsAtOnce(AudioStreamBufferSeconds - 0.4f);
+	CHECK(gate->WaitForReader(std::chrono::seconds(10)));
+	CHECK(ReadLevelsAtOnce(0.2f).Left == doctest::Approx(0.25f).epsilon(0.01));
+	CHECK(audio->IsPlaying(SourceId));
+	CHECK_FALSE(watchdog.HasTimedOut());
+
+	// Once the read returns, the stream continues where it was. miniaudio mixes ahead by up to one processing chunk (about
+	// 10 ms), which was mixed while the stream was silent.
+	gate->Open();
+	Skip(0.02f);
+	CHECK(ReadLevels(0.1f).Left == doctest::Approx(0.75f).epsilon(0.01));
+}
+
+TEST_CASE("AudioScene: a streamed sound played again at its end starts over from what it read ahead")
+{
+	Ref<StreamFileUse> const use = CreateRef<StreamFileUse>();
+	Testing::AudioEngineScope engine(WatchFiles(use, CreateRef<ReadGate>()));
+	Testing::TemporaryDirectory directory;
+	Scope<AudioScene> audio = CreateAudioScene();
+	std::filesystem::path const chime = WriteFile(directory, "Chime.wav", Testing::MakeWav(Testing::MakeSamples({{0.5f, 0.2f}})).GetSpan());
+	REQUIRE(audio->AddSource(MakeStream(SourceId, chime)).IsOk());
+	audio->Play(SourceId);
+	Skip(0.3f);
+	REQUIRE_FALSE(audio->IsPlaying(SourceId));
+
+	// Past the end the stream decoded the file's start again: playing it again neither seeks nor reads the file.
+	AudioEngine::WaitForStreams();
+	uint32_t const seeks = use->StreamingSeeks;
+	uint64_t const bytes = use->StreamingBytes;
+	audio->Play(SourceId);
+	AudioEngine::WaitForStreams();
+	uint32_t const seeksAfterPlay = use->StreamingSeeks;
+	uint64_t const bytesAfterPlay = use->StreamingBytes;
+	CHECK(seeksAfterPlay == seeks);
+	CHECK(bytesAfterPlay == bytes);
+	CHECK(ReadLevelsAtOnce(0.1f).Left == doctest::Approx(0.5f).epsilon(0.01));
+
+	// Stopped halfway, the stream decodes its start again.
+	audio->Stop(SourceId);
+	AudioEngine::WaitForStreams();
+	uint32_t const seeksAfterStop = use->StreamingSeeks;
+	CHECK(seeksAfterStop > seeks);
+	audio->Play(SourceId);
+	CHECK(ReadLevelsAtOnce(0.1f).Left == doctest::Approx(0.5f).epsilon(0.01));
+	Skip(0.15f);
+	CHECK_FALSE(audio->IsPlaying(SourceId));
 }
 
 TEST_CASE("AudioScene: streamed sources refuse missing, unsupported and broken files and play damaged ones")

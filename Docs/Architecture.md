@@ -114,7 +114,8 @@ it is not already initialized and every `Shutdown` must leave no state behind so
 
 - The **main thread** owns the ECS, assets, rendering submission, scripting and editor state.
 - Jolt runs its own job threads; contact callbacks only enqueue events (thread-safe queue) drained on the main thread.
-- miniaudio runs its own audio thread; only the miniaudio API is touched from the main thread.
+- miniaudio runs its own audio thread; only the miniaudio API is touched from the main thread. The audio streaming
+  thread reads and decodes streamed sounds into their ring buffers, which the audio thread copies from without waiting.
 - Background work (script builds, exports, the automation socket) never touches engine state; results are
   marshalled with `Application::SubmitToMainThread(std::function<void()>)`. The editor notices edited scripts by
   checking their modification times on the main thread once a second, and rescans the assets on the main thread when
@@ -495,13 +496,21 @@ links Core Audio at build time (`MA_NO_RUNTIME_LINKING`), as notarization requir
 ALSA, JACK) are loaded at runtime and are not build requirements.
 
 `AudioClipAsset`s hold the encoded file (WAV, FLAC, MP3, Ogg Vorbis; the format is detected from the data).
-`AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID): each sound decodes
-its clip through its own decoder while it plays, and a scene's sounds play through one sound group that pauses them
-together. Loaded sounds decode the clip's data in memory; streamed sounds (`AudioSourceDesc::StreamFile`) open the
-clip's file when they are created (on the main thread, the format checked like a clip's) and read and decode it as they
-play, on the thread that mixes them, so only a little of a long file is in memory; looping wraps within one read, so
-loops are seamless, and the main thread only seeks a sound's file while the mixer has stopped reading it (at its end).
-Files that are missing or not audio are refused when the source is created; damaged ones play what can be decoded. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
+`AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID); a scene's sounds play
+through one sound group that pauses them together. Each sound has its own decoder (`AudioDecoder`): miniaudio's decoder
+of the detected format for WAV, FLAC and MP3 and libvorbis for Ogg Vorbis, so no other decoder ever reads the data (left
+to itself, miniaudio would search a whole file for an MP3 frame). Loaded sounds decode the clip's data in memory while
+they play. Streamed sounds (`AudioSourceDesc::StreamFile`) open the clip's file when they are created, on the main
+thread, which reads only its format and headers (at most `MaxAudioStreamHeaderBytes`: damaged files whose audio would
+start later are refused), and play from a ring buffer that the audio streaming thread (`AudioStreamer`, owned by
+`AudioEngine`) keeps decoded about a second ahead (`AudioStreamBufferSeconds`). The thread that mixes them only copies
+decoded samples and never waits: a read that stalls silences that one sound for a moment, and it continues where it was.
+The streaming thread decodes on past the end of the file from its start and marks where the file ended, where the mixer
+decides whether the sound loops, so loops are seamless and a sound played again after it ended starts at once; stopping
+a sound empties its buffer and decodes the start again. `AudioEngineSettings::StreamFileOpener` opens the files (the
+file system unless set; tests count and hold up reads through it), and `AudioEngine::WaitForStreams` lets manual output
+hear streams without gaps. Files that are missing or not audio are refused when the source is created; damaged ones
+play what can be decoded. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
 so scenes never move each other's listener. Spatial sounds are attenuated by inverse distance (full volume within
 `MinDistance`, `MinDistance / distance` up to `MaxDistance`, constant beyond) and panned by miniaudio's model (its
 stereo speakers face left and right, so a sound in front reaches each at half gain); there is no doppler effect.

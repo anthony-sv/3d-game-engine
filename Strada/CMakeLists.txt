@@ -93,10 +93,16 @@ set(STRADA_MATH_SOURCES
 )
 
 set(STRADA_AUDIO_SOURCES
+    Source/Strada/Audio/AudioDecoder.cpp
+    Source/Strada/Audio/AudioDecoder.h
     Source/Strada/Audio/AudioEngine.cpp
     Source/Strada/Audio/AudioEngine.h
     Source/Strada/Audio/AudioScene.cpp
     Source/Strada/Audio/AudioScene.h
+    Source/Strada/Audio/AudioStream.cpp
+    Source/Strada/Audio/AudioStream.h
+    Source/Strada/Audio/AudioStreamFile.cpp
+    Source/Strada/Audio/AudioStreamFile.h
     Source/Strada/Audio/MiniaudioContext.h
 )
 
