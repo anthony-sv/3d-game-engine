@@ -2,6 +2,7 @@
 #include "Strada/Scene/SceneRendering.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/EnvironmentAsset.h"
 #include "Strada/Asset/FontAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
@@ -11,6 +12,7 @@
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
 
+#include <span>
 #include <vector>
 
 namespace Strada
@@ -25,7 +27,41 @@ namespace Strada
 			return length > 1e-6f ? forward / length : glm::vec3(0.0f, 0.0f, -1.0f);
 		}
 
-		void SubmitScene(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options)
+		// Every live particle as a sprite facing the camera.
+		void SubmitParticles(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera)
+		{
+			glm::mat3 const cameraBasis(glm::inverse(camera.View));
+			for (entt::entity const handle : scene.GetAllEntitiesWith<ParticleSystemComponent>())
+			{
+				Entity const entity(handle, &scene);
+				std::span<Particle const> const particles = scene.GetParticles(entity);
+				if (particles.empty())
+				{
+					continue;
+				}
+				ParticleSystemComponent const& component = entity.GetComponent<ParticleSystemComponent>();
+				glm::mat4 const frame = component.WorldSpace ? glm::mat4(1.0f) : scene.GetWorldTransform(entity);
+				SpriteSubmission submission;
+				submission.Texture = component.Texture.IsValid() ? component.Texture : GetBuiltInHandle(BuiltInAsset::ParticleTexture);
+				submission.Additive = component.BlendMode == ParticleBlendMode::Additive;
+				for (Particle const& particle : particles)
+				{
+					float const size = ParticleEmitter::GetSize(component, particle);
+					glm::vec4 const color = ParticleEmitter::GetColor(component, particle);
+					if (size <= 0.0f || color.a <= 0.0f)
+					{
+						continue;
+					}
+					glm::vec3 const position(frame * glm::vec4(particle.Position, 1.0f));
+					submission.Transform = glm::mat4(glm::vec4(cameraBasis[0] * size, 0.0f), glm::vec4(cameraBasis[1] * size, 0.0f),
+					                                 glm::vec4(cameraBasis[2], 0.0f), glm::vec4(position, 1.0f));
+					submission.Color = color;
+					renderer.SubmitSprite(submission);
+				}
+			}
+		}
+
+		void SubmitScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
 		{
 			std::vector<Ref<MaterialAsset>> materials;
 			for (entt::entity const handle : scene.GetAllEntitiesWith<MeshComponent>())
@@ -72,6 +108,8 @@ namespace Strada
 				submission.Selected = options.IsSelected && options.IsSelected(id);
 				renderer.SubmitSprite(submission);
 			}
+
+			SubmitParticles(scene, renderer, camera);
 
 			for (entt::entity const handle : scene.GetAllEntitiesWith<TextComponent>())
 			{
@@ -167,7 +205,7 @@ namespace Strada
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
 	{
 		renderer.BeginScene(camera, scene.GetSettings().Renderer);
-		SubmitScene(scene, renderer, options);
+		SubmitScene(scene, renderer, camera, options);
 		// Lines scripts drew for debugging have linear colors; lines are drawn after tonemapping, in sRGB.
 		if (options.DrawDebugLines)
 		{

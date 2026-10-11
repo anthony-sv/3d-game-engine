@@ -32,6 +32,8 @@ namespace Strada
 		// Texture repetitions across the quad.
 		float Tiling = 1.0f;
 		bool ScreenSpace = false;
+		// Adds its light (color times alpha) to what is behind instead of covering it, and is never picked (particles).
+		bool Additive = false;
 		// Picking ID (0 = not pickable); selected items get the selection outline.
 		uint32_t PickingId = 0;
 		bool Selected = false;

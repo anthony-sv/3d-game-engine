@@ -62,7 +62,8 @@ namespace Strada
 		{
 			nvrhi::BlendState::RenderTarget& target = desc.renderState.blendState.targets[0];
 			target.blendEnable = true;
-			target.srcBlend = nvrhi::BlendFactor::SrcAlpha;
+			// Premultiplied: Quad.hlsl multiplies the color by its alpha (additive sprites then write an alpha of zero).
+			target.srcBlend = nvrhi::BlendFactor::One;
 			target.destBlend = nvrhi::BlendFactor::InvSrcAlpha;
 			target.srcBlendAlpha = nvrhi::BlendFactor::Zero;
 			target.destBlendAlpha = nvrhi::BlendFactor::One;
@@ -235,7 +236,8 @@ namespace Strada
 				placement.Place(glm::vec2(-0.5f, 0.5f)),
 			};
 			AddQuad(batches, corners, glm::vec2(0.0f), glm::vec2(sprite.Tiling), sprite.Color, entityId, texture,
-			        Renderer::GetMaterialSampler(), ShaderInterop::QuadModeSprite, glm::vec2(1.0f));
+			        Renderer::GetMaterialSampler(), sprite.Additive ? ShaderInterop::QuadModeAdditive : ShaderInterop::QuadModeSprite,
+			        glm::vec2(1.0f));
 			return;
 		}
 

@@ -41,6 +41,26 @@ namespace Strada
 		}};
 	};
 
+	template<>
+	struct EnumTraits<ParticleEmitterShape>
+	{
+		static constexpr std::array<std::pair<ParticleEmitterShape, std::string_view>, 4> Values = {{
+			{ParticleEmitterShape::Point, "Point"},
+			{ParticleEmitterShape::Sphere, "Sphere"},
+			{ParticleEmitterShape::Cone, "Cone"},
+			{ParticleEmitterShape::Box, "Box"},
+		}};
+	};
+
+	template<>
+	struct EnumTraits<ParticleBlendMode>
+	{
+		static constexpr std::array<std::pair<ParticleBlendMode, std::string_view>, 2> Values = {{
+			{ParticleBlendMode::Additive, "Additive"},
+			{ParticleBlendMode::Alpha, "Alpha"},
+		}};
+	};
+
 	enum ComponentFlags : uint32_t
 	{
 		ComponentFlagsNone = 0,
@@ -399,6 +419,56 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<ParticleSystemComponent>
+	{
+		static constexpr std::string_view Name = "ParticleSystem";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description =
+			"Emits glowing or smoky camera-facing particles (fire, sparks, smoke, dust, magic) while the scene runs.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Emitting", &ParticleSystemComponent::Emitting).Doc("Emits Rate particles per second while set."),
+			Field("Rate", &ParticleSystemComponent::Rate).Range(0.0, 10000.0).Doc("Particles per second while emitting."),
+			Field("Burst", &ParticleSystemComponent::Burst)
+				.Range(0.0, 10000.0)
+				.Doc("Particles emitted at once when the system starts (with the scene, or when the entity is created)."),
+			Field("MaxParticles", &ParticleSystemComponent::MaxParticles)
+				.Range(1.0, 100000.0)
+				.Doc("Particles alive at once; emission waits while the system is full."),
+			Field("LifetimeMin", &ParticleSystemComponent::LifetimeMin).Range(0.01, 600.0).Doc("Shortest life in seconds."),
+			Field("LifetimeMax", &ParticleSystemComponent::LifetimeMax).Range(0.01, 600.0).Doc("Longest life in seconds."),
+			Field("SpeedMin", &ParticleSystemComponent::SpeedMin).Range(0.0, 1000.0).Doc("Slowest start speed in meters per second."),
+			Field("SpeedMax", &ParticleSystemComponent::SpeedMax).Range(0.0, 1000.0).Doc("Fastest start speed in meters per second."),
+			Field("Shape", &ParticleSystemComponent::Shape)
+				.Doc("Point, Sphere (outwards), Cone (along -Z from a disc) or Box (along -Z from inside a box)."),
+			Field("ConeAngle", &ParticleSystemComponent::ConeAngle)
+				.Range(0.0, 180.0)
+				.AsAngle()
+				.Doc("Spread around the forward axis (-Z) in degrees, for cones and boxes."),
+			Field("Radius", &ParticleSystemComponent::Radius)
+				.Range(0.0, 1000.0)
+				.Doc("Radius of the sphere or of the cone's base, in meters."),
+			Field("BoxHalfExtents", &ParticleSystemComponent::BoxHalfExtents).Range(0.0, 1000.0).Doc("Half size of the box in meters."),
+			Field("GravityFactor", &ParticleSystemComponent::GravityFactor)
+				.Range(-100.0, 100.0)
+				.Doc("Multiplies the scene's gravity; negative values make particles rise."),
+			Field("Drag", &ParticleSystemComponent::Drag).Range(0.0, 100.0).Doc("Fraction of the velocity lost per second."),
+			Field("StartSize", &ParticleSystemComponent::StartSize).Range(0.0, 1000.0).Doc("Width in meters when a particle is born."),
+			Field("EndSize", &ParticleSystemComponent::EndSize).Range(0.0, 1000.0).Doc("Width in meters when a particle dies."),
+			Field("StartColor", &ParticleSystemComponent::StartColor).Range(0.0, 1.0).AsColor().Doc("Color and opacity at birth."),
+			Field("EndColor", &ParticleSystemComponent::EndColor).Range(0.0, 1.0).AsColor().Doc("Color and opacity at death."),
+			Field("Intensity", &ParticleSystemComponent::Intensity)
+				.Range(0.0, 1000.0)
+				.Doc("Multiplies the colors; values above 1 glow with bloom."),
+			Field("Texture", &ParticleSystemComponent::Texture).References("Texture").Doc("None draws a soft round dot."),
+			Field("BlendMode", &ParticleSystemComponent::BlendMode)
+				.Doc("Additive adds light (fire, sparks); Alpha covers what is behind (smoke, dust)."),
+			Field("WorldSpace", &ParticleSystemComponent::WorldSpace)
+				.Doc("Particles stay where they were emitted when the entity moves; otherwise they move with it."),
+			Field("DestroyWhenFinished", &ParticleSystemComponent::DestroyWhenFinished)
+				.Doc("Destroys the entity once it no longer emits and its last particle died (one-shot effects)."));
+	};
+
+	template<>
 	struct ComponentTraits<PrefabComponent>
 	{
 		static constexpr std::string_view Name = "Prefab";
@@ -421,9 +491,9 @@ namespace Strada
 	{
 	};
 
-	using AllComponents =
-		ComponentList<IDComponent, TagComponent, TransformComponent, RelationshipComponent, CameraComponent, MeshComponent,
-	                  DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, RigidBodyComponent,
-	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, AudioSourceComponent,
-	                  AudioListenerComponent, ScriptComponent, TextComponent, SpriteRendererComponent, PrefabComponent>;
+	using AllComponents = ComponentList<IDComponent, TagComponent, TransformComponent, RelationshipComponent, CameraComponent,
+	                                    MeshComponent, DirectionalLightComponent, PointLightComponent, SpotLightComponent,
+	                                    SkyLightComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent,
+	                                    CapsuleColliderComponent, MeshColliderComponent, AudioSourceComponent, AudioListenerComponent,
+	                                    ScriptComponent, TextComponent, SpriteRendererComponent, ParticleSystemComponent, PrefabComponent>;
 }

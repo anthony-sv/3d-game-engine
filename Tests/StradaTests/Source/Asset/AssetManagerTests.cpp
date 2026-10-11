@@ -168,7 +168,7 @@ TEST_CASE("AssetManager: opening a directory registers files and keeps handles s
 	CHECK(AssetManager::GetAssetType(Find("Scenes/Level.sscene")) == AssetType::Scene);
 	CHECK(AssetManager::GetReference(wood) == "asset://Textures/Wood.png");
 	CHECK(AssetManager::GetAbsolutePath(wood) == project.Assets / "Textures" / "Wood.png");
-	CHECK(AssetManager::GetAssets(AssetType::Texture).size() == 4);
+	CHECK(AssetManager::GetAssets(AssetType::Texture).size() == 5);
 
 	AssetManager::CloseAssetDirectory();
 	CHECK_FALSE(AssetManager::HasAssetDirectory());

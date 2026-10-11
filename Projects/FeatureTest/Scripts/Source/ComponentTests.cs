@@ -3,8 +3,8 @@ using Strada.Testing;
 
 namespace FeatureTest;
 
-/// <summary>Cameras, lights, meshes, text, sprites, audio listeners and script components: every property is written and
-/// read back, and the scene's values come first.</summary>
+/// <summary>Cameras, lights, meshes, text, sprites, particle systems, audio listeners and script components: every property
+/// is written and read back, and the scene's values come first.</summary>
 public sealed class ComponentTests : FeatureTestScript
 {
 	protected override void Start()
@@ -15,6 +15,7 @@ public sealed class ComponentTests : FeatureTestScript
 		Check("meshes", MeshChecks);
 		Check("text", TextChecks);
 		Check("sprites", SpriteChecks);
+		Check("particle systems", ParticleChecks);
 		Check("audio listeners", () =>
 		{
 			AudioListenerComponent listener = Find<AudioListenerComponent>("Main Camera");
@@ -196,5 +197,71 @@ public sealed class ComponentTests : FeatureTestScript
 		Assert.AreEqual(2.0f, sprite.Tiling);
 		sprite.ScreenSpace = false;
 		Assert.IsFalse(sprite.ScreenSpace);
+	}
+
+	private static void ParticleChecks()
+	{
+		ParticleSystemComponent sparks = Find<ParticleSystemComponent>("Sparks");
+		Assert.AreEqual(12u, sparks.Burst);
+		Assert.AreEqual(ParticleEmitterShape.Cone, sparks.Shape);
+		Assert.AreEqual(ParticleBlendMode.Additive, sparks.BlendMode);
+		Assert.IsNull(sparks.Texture);
+
+		// Emitting starts the system first: its burst comes with the particles asked for.
+		sparks.Emit(5);
+		Assert.AreEqual(17u, sparks.ParticleCount);
+		sparks.MaxParticles = 20;
+		Assert.AreEqual(20u, sparks.MaxParticles);
+		sparks.Emit(10);
+		Assert.AreEqual(20u, sparks.ParticleCount);
+		sparks.Clear();
+		Assert.AreEqual(0u, sparks.ParticleCount);
+
+		sparks.Emitting = false;
+		Assert.IsFalse(sparks.Emitting);
+		sparks.Rate = 50.0f;
+		Assert.AreEqual(50.0f, sparks.Rate);
+		sparks.Burst = 3;
+		Assert.AreEqual(3u, sparks.Burst);
+		sparks.LifetimeMin = 0.5f;
+		Assert.AreEqual(0.5f, sparks.LifetimeMin);
+		sparks.LifetimeMax = 2.5f;
+		Assert.AreEqual(2.5f, sparks.LifetimeMax);
+		sparks.SpeedMin = 0.5f;
+		Assert.AreEqual(0.5f, sparks.SpeedMin);
+		sparks.SpeedMax = 4.0f;
+		Assert.AreEqual(4.0f, sparks.SpeedMax);
+		sparks.Shape = ParticleEmitterShape.Sphere;
+		Assert.AreEqual(ParticleEmitterShape.Sphere, sparks.Shape);
+		sparks.ConeAngle = 45.0f;
+		Assert.AreEqual(45.0f, sparks.ConeAngle);
+		sparks.Radius = 0.25f;
+		Assert.AreEqual(0.25f, sparks.Radius);
+		sparks.BoxHalfExtents = new Vector3(1.0f, 0.5f, 2.0f);
+		Assert.AreEqual(new Vector3(1.0f, 0.5f, 2.0f), sparks.BoxHalfExtents);
+		sparks.GravityFactor = -0.2f;
+		Assert.AreEqual(-0.2f, sparks.GravityFactor);
+		sparks.Drag = 1.5f;
+		Assert.AreEqual(1.5f, sparks.Drag);
+		sparks.StartSize = 0.4f;
+		Assert.AreEqual(0.4f, sparks.StartSize);
+		sparks.EndSize = 0.8f;
+		Assert.AreEqual(0.8f, sparks.EndSize);
+		sparks.StartColor = new Color(0.5f, 0.5f, 0.5f, 0.8f);
+		Assert.AreEqual(new Color(0.5f, 0.5f, 0.5f, 0.8f), sparks.StartColor);
+		sparks.EndColor = new Color(0.2f, 0.2f, 0.2f, 0.0f);
+		Assert.AreEqual(new Color(0.2f, 0.2f, 0.2f, 0.0f), sparks.EndColor);
+		sparks.Intensity = 1.0f;
+		Assert.AreEqual(1.0f, sparks.Intensity);
+		sparks.Texture = Assets.Load<Texture>("builtin://Particle");
+		Assert.AreEqual(Assets.Load<Texture>("builtin://Particle"), sparks.Texture);
+		sparks.BlendMode = ParticleBlendMode.Alpha;
+		Assert.AreEqual(ParticleBlendMode.Alpha, sparks.BlendMode);
+		sparks.WorldSpace = false;
+		Assert.IsFalse(sparks.WorldSpace);
+		sparks.DestroyWhenFinished = false;
+		Assert.IsFalse(sparks.DestroyWhenFinished);
+		// Smoke: emitting again with the new settings.
+		sparks.Emitting = true;
 	}
 }

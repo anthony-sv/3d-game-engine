@@ -264,6 +264,11 @@ namespace Strada
 		}
 		UpdateGameInput();
 		m_PlayMode.Update(timestep);
+		// The edited scene previews its particle systems in the views (playing scenes run their own).
+		if (!m_Context.IsPlaying() && Application::Get().GetImGuiLayer() != nullptr)
+		{
+			m_Context.GetScene().UpdateParticles(timestep.GetSeconds());
+		}
 		if (!m_ScreenshotPath.empty() && Application::Get().GetFrameCount() == m_ScreenshotFrame)
 		{
 			Application::Get().RequestScreenshot(m_ScreenshotPath);

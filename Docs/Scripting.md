@@ -282,6 +282,33 @@ public class Scoreboard : Script
 }
 ```
 
+## Particles
+
+A `ParticleSystemComponent` makes fire, sparks, smoke, dust or magic: the editor's Entity > Effects menu creates
+ready-made Fire, Smoke and Sparks systems to start from. Systems emit `Rate` particles per second while `Emitting`, and
+`Burst` particles when they start; scripts emit more at once with `Emit(count)`. For a one-shot effect (an explosion,
+a hit), make a prefab with `Emitting` off, a `Burst` and `DestroyWhenFinished`, and instantiate it where it happens:
+
+```csharp
+public class Crate : Script
+{
+	public Prefab? Explosion;
+
+	protected override void OnCollisionEnter(Entity other)
+	{
+		// The prefab's system bursts once, and its entity goes away with its last particle.
+		if (Explosion != null)
+		{
+			Entity.Instantiate(Explosion, Transform.WorldTranslation, Quaternion.Identity);
+		}
+		Destroy();
+	}
+}
+```
+
+`Additive` particles add light (bright colors with an `Intensity` above 1 glow through the bloom); `Alpha` particles
+cover what is behind them, for smoke and dust.
+
 ## Time, scenes and the application
 
 `Time.DeltaTime`, `Time.FixedDeltaTime`, `Time.Elapsed` and `Time.FrameCount` tell the time. `Time.TimeScale` scales

@@ -50,6 +50,10 @@ undo history as the UI: work in small, checked steps.
 - Skies and image-based lighting: `polyhaven_search_hdris` finds CC0 HDRIs ("sunset", "overcast", "studio"),
   `polyhaven_import_hdri` imports one (1k lights well, 4k makes a sharp skybox); set the SkyLight's `Environment` to the
   returned `reference`.
+- Effects: a `ParticleSystem` makes fire, smoke, sparks, dust or magic (`component_types` lists its fields; it emits
+  along -Z, so `RotationEuler` `[90, 0, 0]` points it up). Additive particles with an `Intensity` above 1 glow with the
+  scene's bloom; `Alpha` ones suit smoke. One-shot effects (explosions, hits) are prefabs with `Emitting` off, a `Burst`
+  and `DestroyWhenFinished` that scripts instantiate; `ParticleSystemComponent.Emit(count)` bursts from scripts.
 - `prefab_create` writes an entity with its children to a `.sprefab`; `prefab_instantiate` places copies.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
   view, and `viewport_screenshot` returns an image of the editor. `viewport_statistics` tells what the last frame drew

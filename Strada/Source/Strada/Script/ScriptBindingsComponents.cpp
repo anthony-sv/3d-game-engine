@@ -408,6 +408,36 @@ namespace Strada::ScriptGlue
 			}
 		}
 
+		// --- Particle systems ---
+
+		Entity FindParticleSystem(uint64_t id)
+		{
+			return FindComponent<ParticleSystemComponent>(id) != nullptr ? ScriptEngine::GetSceneContext()->GetEntityByUUID(UUID(id))
+			                                                             : Entity();
+		}
+
+		void ParticleSystemComponent_Emit(uint64_t id, uint32_t count)
+		{
+			if (Entity const entity = FindParticleSystem(id))
+			{
+				entity.GetScene()->EmitParticles(entity, count);
+			}
+		}
+
+		void ParticleSystemComponent_Clear(uint64_t id)
+		{
+			if (Entity const entity = FindParticleSystem(id))
+			{
+				entity.GetScene()->ClearParticles(entity);
+			}
+		}
+
+		uint32_t ParticleSystemComponent_GetParticleCount(uint64_t id)
+		{
+			Entity const entity = FindParticleSystem(id);
+			return entity ? static_cast<uint32_t>(entity.GetScene()->GetParticles(entity).size()) : 0;
+		}
+
 		// --- Audio source playback ---
 
 		Entity FindAudioSource(uint64_t id)
@@ -605,6 +635,33 @@ namespace Strada::ScriptGlue
 		AddFieldBindings<&SpriteRendererComponent::Texture, "SpriteRendererComponent", "Texture">(table);
 		AddFieldBindings<&SpriteRendererComponent::Tiling, "SpriteRendererComponent", "Tiling">(table);
 		AddFieldBindings<&SpriteRendererComponent::ScreenSpace, "SpriteRendererComponent", "ScreenSpace">(table);
+
+		AddFieldBindings<&ParticleSystemComponent::Emitting, "ParticleSystemComponent", "Emitting">(table);
+		AddFieldBindings<&ParticleSystemComponent::Rate, "ParticleSystemComponent", "Rate">(table);
+		AddFieldBindings<&ParticleSystemComponent::Burst, "ParticleSystemComponent", "Burst">(table);
+		AddFieldBindings<&ParticleSystemComponent::MaxParticles, "ParticleSystemComponent", "MaxParticles">(table);
+		AddFieldBindings<&ParticleSystemComponent::LifetimeMin, "ParticleSystemComponent", "LifetimeMin">(table);
+		AddFieldBindings<&ParticleSystemComponent::LifetimeMax, "ParticleSystemComponent", "LifetimeMax">(table);
+		AddFieldBindings<&ParticleSystemComponent::SpeedMin, "ParticleSystemComponent", "SpeedMin">(table);
+		AddFieldBindings<&ParticleSystemComponent::SpeedMax, "ParticleSystemComponent", "SpeedMax">(table);
+		AddFieldBindings<&ParticleSystemComponent::Shape, "ParticleSystemComponent", "Shape">(table);
+		AddFieldBindings<&ParticleSystemComponent::ConeAngle, "ParticleSystemComponent", "ConeAngle">(table);
+		AddFieldBindings<&ParticleSystemComponent::Radius, "ParticleSystemComponent", "Radius">(table);
+		AddFieldBindings<&ParticleSystemComponent::BoxHalfExtents, "ParticleSystemComponent", "BoxHalfExtents">(table);
+		AddFieldBindings<&ParticleSystemComponent::GravityFactor, "ParticleSystemComponent", "GravityFactor">(table);
+		AddFieldBindings<&ParticleSystemComponent::Drag, "ParticleSystemComponent", "Drag">(table);
+		AddFieldBindings<&ParticleSystemComponent::StartSize, "ParticleSystemComponent", "StartSize">(table);
+		AddFieldBindings<&ParticleSystemComponent::EndSize, "ParticleSystemComponent", "EndSize">(table);
+		AddFieldBindings<&ParticleSystemComponent::StartColor, "ParticleSystemComponent", "StartColor">(table);
+		AddFieldBindings<&ParticleSystemComponent::EndColor, "ParticleSystemComponent", "EndColor">(table);
+		AddFieldBindings<&ParticleSystemComponent::Intensity, "ParticleSystemComponent", "Intensity">(table);
+		AddFieldBindings<&ParticleSystemComponent::Texture, "ParticleSystemComponent", "Texture">(table);
+		AddFieldBindings<&ParticleSystemComponent::BlendMode, "ParticleSystemComponent", "BlendMode">(table);
+		AddFieldBindings<&ParticleSystemComponent::WorldSpace, "ParticleSystemComponent", "WorldSpace">(table);
+		AddFieldBindings<&ParticleSystemComponent::DestroyWhenFinished, "ParticleSystemComponent", "DestroyWhenFinished">(table);
+		table.Add("ParticleSystemComponent_Emit", &ParticleSystemComponent_Emit);
+		table.Add("ParticleSystemComponent_Clear", &ParticleSystemComponent_Clear);
+		table.Add("ParticleSystemComponent_GetParticleCount", &ParticleSystemComponent_GetParticleCount);
 
 		table.Add("ScriptComponent_GetClassName", &GetText<ScriptComponent, &ScriptComponent::ClassName>);
 		table.Add("ScriptComponent_SetClassName", &SetText<ScriptComponent, &ScriptComponent::ClassName>);

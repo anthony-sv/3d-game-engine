@@ -24,6 +24,8 @@ namespace Strada
 		BlackTexture = 201,
 		// (0.5, 0.5, 1.0): a tangent-space normal map without perturbation.
 		FlatNormalTexture = 202,
+		// A white dot whose alpha fades from the center to the edge: the default particle.
+		ParticleTexture = 203,
 		// The default font of text rendering (EmbeddedResources::DefaultFont).
 		DefaultFont = 300,
 		// Procedural sky gradient (zenith, horizon, ground) for image-based lighting.

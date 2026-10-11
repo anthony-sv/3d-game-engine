@@ -574,6 +574,8 @@ namespace Strada
 		m_RuntimeFrame = 0;
 		m_RuntimeTime = 0.0;
 		m_RuntimeSettings = settings;
+		// Systems start over with the run (their bursts come with its first update).
+		ResetParticles();
 		StartPhysics();
 		if (settings.PlayAudio)
 		{
@@ -599,6 +601,7 @@ namespace Strada
 		FlushPendingDestruction();
 		m_DebugLines.clear();
 		m_DebugLinesDropped = false;
+		ResetParticles();
 		ReleaseRuntimeAssets();
 	}
 
@@ -626,6 +629,7 @@ namespace Strada
 		UpdatePhysics(deltaTime);
 		DispatchContactEventsToScripts();
 		UpdateAudio();
+		UpdateParticles(deltaTime);
 		FlushPendingDestruction();
 	}
 

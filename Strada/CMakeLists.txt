@@ -156,11 +156,14 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/ComponentTraits.h
     Source/Strada/Scene/Components.h
     Source/Strada/Scene/Entity.h
+    Source/Strada/Scene/ParticleEmitter.cpp
+    Source/Strada/Scene/ParticleEmitter.h
     Source/Strada/Scene/Scene.cpp
     Source/Strada/Scene/Scene.h
     Source/Strada/Scene/SceneAudio.cpp
     Source/Strada/Scene/SceneCamera.cpp
     Source/Strada/Scene/SceneCamera.h
+    Source/Strada/Scene/SceneParticles.cpp
     Source/Strada/Scene/ScenePhysics.cpp
     Source/Strada/Scene/SceneRendering.cpp
     Source/Strada/Scene/SceneRendering.h

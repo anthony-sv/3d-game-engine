@@ -236,6 +236,67 @@ namespace Strada
 		bool ScreenSpace = false;
 	};
 
+	// Where a particle system's particles start.
+	enum class ParticleEmitterShape : uint8_t
+	{
+		// At the entity's position.
+		Point = 0,
+		// Inside a sphere of Radius, moving outwards.
+		Sphere,
+		// On a disc of Radius, moving along the entity's forward axis (-Z) spread by ConeAngle.
+		Cone,
+		// Inside a box of BoxHalfExtents, moving along -Z spread by ConeAngle.
+		Box
+	};
+
+	// How particles combine with what is behind them.
+	enum class ParticleBlendMode : uint8_t
+	{
+		// Light adds up (fire, sparks, magic); bright colors bloom.
+		Additive = 0,
+		// Covers what is behind by the particle's alpha (smoke, dust).
+		Alpha
+	};
+
+	// Emits camera-facing particles while the scene runs (and in the editor's preview): each lives between LifetimeMin and
+	// LifetimeMax seconds, starts with a speed between SpeedMin and SpeedMax along the shape's direction, falls with the
+	// scene's gravity times GravityFactor, slows down with Drag, and blends from the start to the end color and size.
+	struct ParticleSystemComponent
+	{
+		bool Emitting = true;
+		// Particles per second while emitting.
+		float Rate = 20.0f;
+		// Particles emitted at once when the system starts (with the scene, or when the entity is created).
+		uint32_t Burst = 0;
+		uint32_t MaxParticles = 1000;
+		float LifetimeMin = 1.0f;
+		float LifetimeMax = 2.0f;
+		float SpeedMin = 1.0f;
+		float SpeedMax = 3.0f;
+		ParticleEmitterShape Shape = ParticleEmitterShape::Cone;
+		// Degrees from the forward axis.
+		float ConeAngle = 25.0f;
+		float Radius = 0.1f;
+		glm::vec3 BoxHalfExtents = {0.5f, 0.5f, 0.5f};
+		float GravityFactor = 0.0f;
+		// Fraction of the velocity lost per second.
+		float Drag = 0.0f;
+		float StartSize = 0.2f;
+		float EndSize = 0.05f;
+		// Linear colors with straight alpha.
+		glm::vec4 StartColor = {1.0f, 0.75f, 0.35f, 1.0f};
+		glm::vec4 EndColor = {1.0f, 0.2f, 0.05f, 0.0f};
+		// Multiplies the colors; above 1 particles glow with bloom.
+		float Intensity = 1.0f;
+		// None uses a soft round dot.
+		AssetHandle Texture;
+		ParticleBlendMode BlendMode = ParticleBlendMode::Additive;
+		// Particles stay where they were emitted when the entity moves; otherwise they move with it.
+		bool WorldSpace = true;
+		// The entity is destroyed once it no longer emits and its last particle died (one-shot effects).
+		bool DestroyWhenFinished = false;
+	};
+
 	// Links an entity to the prefab it was instantiated from.
 	struct PrefabComponent
 	{

@@ -8,6 +8,7 @@
 #include "Strada/Physics/PhysicsTypes.h"
 #include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Scene/Components.h"
+#include "Strada/Scene/ParticleEmitter.h"
 
 #include <entt/entity/registry.hpp>
 #include <glm/glm.hpp>
@@ -16,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -207,6 +209,19 @@ namespace Strada
 		void StopAudioSource(Entity entity);
 		bool IsAudioSourcePlaying(Entity entity);
 
+		// Advances every particle system: emits its Burst when it starts (first update after the system appeared or the runtime
+		// started), then simulates and emits (ParticleEmitter). While running, systems with DestroyWhenFinished destroy their
+		// entity once done. The runtime calls it each update; editors call it to preview particles while editing.
+		void UpdateParticles(float deltaTime);
+		// Emits particles from an entity's system now; the system starts first if it has not (its burst comes too).
+		void EmitParticles(Entity entity, uint32_t count);
+		void ClearParticles(Entity entity);
+		// The particles of an entity's system, in world space or the entity's local space (ParticleSystemComponent::WorldSpace);
+		// empty before its first update.
+		std::span<Particle const> GetParticles(Entity entity) const;
+		// Drops every system's particles; each starts again (with its burst) at the next update.
+		void ResetParticles();
+
 		// Lines drawn while running (Debug.DrawLine; ignored otherwise), each for a duration in seconds of runtime (0 draws it
 		// in the next rendered frame only). Lines beyond MaxDebugLines are dropped; stopping the runtime clears them.
 		static constexpr size_t MaxDebugLines = 100000;
@@ -272,6 +287,11 @@ namespace Strada
 		// The ID of the entity's sound after syncing it, if it has one.
 		std::optional<UUID> PrepareAudioSource(Entity entity);
 		Entity FindAudioListener();
+
+		// Particle runtime (SceneParticles.cpp).
+		struct ParticleSystemState;
+		// The entity's started system: created (with its burst) when missing.
+		ParticleSystemState& StartParticleSystem(entt::entity handle, ParticleSystemComponent const& component);
 
 		// Script runtime (SceneScripting.cpp).
 		struct PendingScriptInstance
@@ -354,6 +374,15 @@ namespace Strada
 		// Set while OnDestroy runs on every script: entities created then start no scripts.
 		bool m_StoppingScripts = false;
 		std::unordered_map<entt::entity, ScriptInstanceState> m_ScriptInstances;
+
+		struct ParticleSystemState
+		{
+			UUID Entity = UUID::Invalid();
+			ParticleEmitter Emitter;
+		};
+		std::unordered_map<entt::entity, ParticleSystemState> m_ParticleSystems;
+		// Seeds new emitters, so systems of one scene differ.
+		uint64_t m_ParticleSeed = 0;
 
 		std::vector<SceneDebugLine> m_DebugLines;
 		bool m_DebugLinesDropped = false;

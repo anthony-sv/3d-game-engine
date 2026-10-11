@@ -369,6 +369,7 @@ interop component lookups.
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
 | `Text` | `TextComponent` | `Text`, `Font` asset (0 = default), `Color`, `FontSize`, `ScreenSpace`, `Alignment` (Left/Center/Right), `LineSpacing` |
 | `SpriteRenderer` | `SpriteRendererComponent` | `Color`, `Texture` asset, `Tiling`, `ScreenSpace` |
+| `ParticleSystem` | `ParticleSystemComponent` | `Emitting`, `Rate` (per second), `Burst`, `MaxParticles`, `LifetimeMin`/`LifetimeMax` (s), `SpeedMin`/`SpeedMax` (m/s), `Shape` (Point/Sphere/Cone/Box), `ConeAngle` (deg), `Radius`, `BoxHalfExtents`, `GravityFactor`, `Drag`, `StartSize`/`EndSize`, `StartColor`/`EndColor`, `Intensity`, `Texture` asset (0 = soft dot), `BlendMode` (Additive/Alpha), `WorldSpace`, `DestroyWhenFinished` |
 | `Prefab` | `PrefabComponent` | `Prefab` asset, `SourceEntity` UUID |
 
 Screen-space `Text`/`SpriteRenderer` use the entity translation in normalized viewport coordinates
@@ -377,6 +378,16 @@ translation's z orders them (higher values on top) and the transform's X and Y a
 Text hangs from its origin (the top of the first line), where lines start, are centered or end depending on the
 alignment. World-space sprites are the unit quad in the entity's XY plane (facing +Z), world-space text lies in the
 same plane with `FontSize` world units per line; both are unlit.
+
+Particle systems are simulated on the CPU by `ParticleEmitter` (Scene module, independent of the ECS, with a SplitMix64
+generator of its own so a seed gives the same particles everywhere). `Scene::UpdateParticles` runs them each runtime
+update (the editor also calls it while editing, as a preview): a system emits its `Burst` when it starts (with the
+run, or when its entity appears), then `Rate` particles per second while `Emitting`, which age, fall with the scene's
+gravity times `GravityFactor`, lose `Drag` of their velocity per second and die after their lifetime; with
+`DestroyWhenFinished` a running system that stopped emitting destroys its entity after its last particle. Particles are
+drawn as camera-facing sprites (the built-in `Particle` texture, a soft dot, by default): additive sprites add their
+light (they bloom when bright) and are never picked; alpha sprites cover what is behind. The quad pipeline blends
+premultiplied colors, so both kinds share it.
 
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
 entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes.
@@ -548,7 +559,8 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
-  `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ScriptComponent` (`ClassName`, `Instance`).
+  `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
+  `Emit(count)`, `Clear()`, `ParticleCount`), `ScriptComponent` (`ClassName`, `Instance`).
 - `Material` (runtime-creatable): `Create()`, `Clone()`, `IsEditable`, `BaseColor`, `Metallic`, `Roughness`,
   `Emissive`, `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, the five texture maps, `AlphaMode`,
   `AlphaCutoff`, `DoubleSided`, `UVTiling`, `UVOffset`.

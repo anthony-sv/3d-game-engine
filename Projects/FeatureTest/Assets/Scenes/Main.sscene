@@ -989,6 +989,75 @@
 			}
 		},
 		{
+			"ID": "7316542907135622913",
+			"Components": {
+				"Tag": {
+					"Tag": "Sparks"
+				},
+				"Transform": {
+					"Translation": [
+						-2.0,
+						0.5,
+						2.0
+					],
+					"Rotation": [
+						-0.7071068,
+						0.0,
+						0.0,
+						0.7071068
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"ParticleSystem": {
+					"Emitting": true,
+					"Rate": 30.0,
+					"Burst": 12,
+					"MaxParticles": 100,
+					"LifetimeMin": 0.6,
+					"LifetimeMax": 1.2,
+					"SpeedMin": 1.5,
+					"SpeedMax": 3.0,
+					"Shape": "Cone",
+					"ConeAngle": 20.0,
+					"Radius": 0.1,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.3,
+					"Drag": 0.5,
+					"StartSize": 0.15,
+					"EndSize": 0.02,
+					"StartColor": [
+						1.0,
+						0.7,
+						0.3,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.15,
+						0.02,
+						0.0
+					],
+					"Intensity": 4.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": false
+				}
+			}
+		},
+		{
 			"ID": "2759806468870901626",
 			"Components": {
 				"Tag": {

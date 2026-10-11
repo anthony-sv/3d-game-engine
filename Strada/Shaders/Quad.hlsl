@@ -1,5 +1,7 @@
 // Batched sprites and signed-distance text (QuadRenderer). Vertex colors are linear with straight alpha; quads drawn onto
-// the 8-bit final image are sRGB-encoded here. The entity ID entry point writes the picking ID where the quad is opaque.
+// the 8-bit final image are sRGB-encoded here. The output is premultiplied (blended with One, InvSrcAlpha): additive
+// sprites premultiply and write no coverage, so their light adds to what is behind. The entity ID entry point writes the
+// picking ID where the quad is opaque (additive sprites are never picked).
 // Set 0: the sprite texture or font atlas (t0), its sampler (s0) and push constants (b0).
 
 #include "Include/Common.hlsli"
@@ -58,12 +60,17 @@ float4 PSMain(VertexOutput input) : SV_Target0
 	{
 		color.rgb = LinearToSrgb(color.rgb);
 	}
+	color.rgb *= color.a;
+	if (g_Quad.Mode == QuadModeAdditive)
+	{
+		color.a = 0.0;
+	}
 	return color;
 }
 
 uint PSEntityId(VertexOutput input) : SV_Target0
 {
-	if (ShadeQuad(input).a < 0.5)
+	if (g_Quad.Mode == QuadModeAdditive || ShadeQuad(input).a < 0.5)
 	{
 		discard;
 	}

@@ -34,6 +34,30 @@ public enum ForceMode
 	VelocityChange = 3,
 }
 
+/// <summary>Where a particle system's particles start.</summary>
+public enum ParticleEmitterShape
+{
+	/// <summary>At the entity's position, moving within <see cref="ParticleSystemComponent.ConeAngle"/> of its forward axis.</summary>
+	Point = 0,
+	/// <summary>Inside a sphere of <see cref="ParticleSystemComponent.Radius"/>, moving outwards.</summary>
+	Sphere = 1,
+	/// <summary>On a disc of <see cref="ParticleSystemComponent.Radius"/>, moving along the forward axis (-Z) spread by
+	/// <see cref="ParticleSystemComponent.ConeAngle"/>.</summary>
+	Cone = 2,
+	/// <summary>Inside a box of <see cref="ParticleSystemComponent.BoxHalfExtents"/>, moving along -Z spread by
+	/// <see cref="ParticleSystemComponent.ConeAngle"/>.</summary>
+	Box = 3,
+}
+
+/// <summary>How particles combine with what is behind them.</summary>
+public enum ParticleBlendMode
+{
+	/// <summary>Their light adds up (fire, sparks, magic); bright colors bloom.</summary>
+	Additive = 0,
+	/// <summary>They cover what is behind by their alpha (smoke, dust).</summary>
+	Alpha = 1,
+}
+
 /// <summary>How text lines align to the entity's position.</summary>
 public enum TextAlignment
 {

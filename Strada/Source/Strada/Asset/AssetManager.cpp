@@ -126,6 +126,27 @@ namespace Strada
 			return image;
 		}
 
+		// White with an alpha that falls smoothly from 1 at the center to 0 at the edge.
+		Image MakeParticleImage()
+		{
+			constexpr uint32_t Size = 64;
+			Image image(Size, Size, 4);
+			for (uint32_t y = 0; y < Size; y++)
+			{
+				for (uint32_t x = 0; x < Size; x++)
+				{
+					glm::vec2 const offset = (glm::vec2(static_cast<float>(x), static_cast<float>(y)) + 0.5f) / (Size * 0.5f) - 1.0f;
+					float const falloff = std::max(0.0f, 1.0f - glm::dot(offset, offset));
+					uint8_t* pixel = image.GetPixel(x, y);
+					pixel[0] = 255;
+					pixel[1] = 255;
+					pixel[2] = 255;
+					pixel[3] = static_cast<uint8_t>(std::lround(falloff * falloff * 255.0f));
+				}
+			}
+			return image;
+		}
+
 		Ref<Asset> CreateDefaultBuiltInAsset(BuiltInAsset asset)
 		{
 			AssetHandle const material = GetBuiltInHandle(BuiltInAsset::DefaultMaterial);
@@ -153,6 +174,8 @@ namespace Strada
 					return TextureAsset::CreateFromImage(MakeSolidImage(0, 0, 0, 255)).GetValue();
 				case BuiltInAsset::FlatNormalTexture:
 					return TextureAsset::CreateFromImage(MakeSolidImage(128, 128, 255, 255)).GetValue();
+				case BuiltInAsset::ParticleTexture:
+					return TextureAsset::CreateFromImage(MakeParticleImage()).GetValue();
 				case BuiltInAsset::DefaultFont:
 				{
 					std::span<uint8_t const> const font = EmbeddedResources::Get(EmbeddedResources::DefaultFont);

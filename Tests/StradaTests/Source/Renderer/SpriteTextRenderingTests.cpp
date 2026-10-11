@@ -370,3 +370,93 @@ TEST_CASE("RenderScene: sprite and text components are drawn, a missing font fal
 	CHECK(bounds->first.x >= 9u);
 	CHECK(bounds->first.y >= 9u);
 }
+
+TEST_CASE("SceneRenderer: additive sprites add their light to what is behind and are never picked")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+	renderer.SetEntityIdsEnabled(true);
+
+	// A blue alpha sprite with a red additive sprite over half of it: magenta where they overlap.
+	SpriteSubmission blue;
+	blue.Transform = Placement({0.0f, 0.0f, 0.0f}, {2.0f, 2.0f, 1.0f});
+	blue.Color = {0.0f, 0.0f, 1.0f, 1.0f};
+	blue.PickingId = 5;
+	SpriteSubmission red;
+	red.Transform = Placement({1.0f, 0.0f, 0.5f}, {2.0f, 2.0f, 1.0f});
+	red.Color = {1.0f, 0.0f, 0.0f, 1.0f};
+	red.Additive = true;
+	red.PickingId = 6;
+	Frame frame;
+	frame.Sprites = {blue, red};
+	Image const image = Render(renderer, frame);
+	SceneRendererCamera const camera = MakeCamera();
+	glm::ivec3 const overlap = Pixel(image, ProjectToPixel(camera, {0.5f, 0.0f, 0.5f}));
+	CHECK(overlap.r > 200);
+	CHECK(overlap.b > 200);
+	glm::ivec3 const redOnly = Pixel(image, ProjectToPixel(camera, {1.8f, 0.0f, 0.5f}));
+	CHECK(redOnly.r > 200);
+	CHECK(redOnly.b < 20);
+	glm::ivec3 const blueOnly = Pixel(image, ProjectToPixel(camera, {-0.5f, 0.0f, 0.0f}));
+	CHECK(blueOnly.r < 20);
+	CHECK(blueOnly.b > 200);
+	// The blue sprite is picked through the additive one.
+	CHECK(Pick(renderer, frame, ProjectToPixel(camera, {0.5f, 0.0f, 0.5f})) == std::optional<uint32_t>(5u));
+
+	// Half-transparent alpha sprites still blend as before (premultiplied blending).
+	SpriteSubmission veil = red;
+	veil.Additive = false;
+	veil.Color = {1.0f, 0.0f, 0.0f, 0.5f};
+	frame.Sprites = {blue, veil};
+	glm::ivec3 const blended = Pixel(Render(renderer, frame), ProjectToPixel(camera, {0.5f, 0.0f, 0.5f}));
+	CHECK(blended.r > 100);
+	CHECK(blended.b > 100);
+	CHECK(blended.r < 250);
+	CHECK(blended.b < 250);
+}
+
+TEST_CASE("RenderScene: particle systems draw their particles facing the camera")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+
+	Scene scene("Particles");
+	Entity sparks = scene.CreateEntity("Sparks");
+	ParticleSystemComponent& component = sparks.AddComponent<ParticleSystemComponent>();
+	component.Emitting = false;
+	component.Burst = 1;
+	component.Shape = ParticleEmitterShape::Point;
+	component.SpeedMin = 0.0f;
+	component.SpeedMax = 0.0f;
+	component.LifetimeMin = 10.0f;
+	component.LifetimeMax = 10.0f;
+	component.StartSize = 1.5f;
+	component.EndSize = 1.5f;
+	component.StartColor = {0.0f, 1.0f, 0.0f, 1.0f};
+	component.EndColor = {0.0f, 1.0f, 0.0f, 1.0f};
+	// Local particles follow the entity, which faces away from the camera: the quads still face it.
+	component.WorldSpace = false;
+	TransformComponent& transform = sparks.GetComponent<TransformComponent>();
+	transform.Translation = {1.0f, 0.0f, 0.0f};
+	transform.SetRotationEuler({0.0f, 180.0f, 0.0f});
+
+	RenderScene(scene, renderer, MakeCamera());
+	CHECK(renderer.GetStatistics().Quads == 0);
+	scene.UpdateParticles(0.1f);
+	RenderScene(scene, renderer, MakeCamera());
+	CHECK(renderer.GetStatistics().Quads == 1);
+	Result<Image> image = ReadbackTexture(renderer.GetFinalImage());
+	REQUIRE(image.IsOk());
+	SceneRendererCamera const camera = MakeCamera();
+	// The soft dot is brightest in its middle and fades out before its corners.
+	glm::ivec3 const center = Pixel(image.GetValue(), ProjectToPixel(camera, {1.0f, 0.0f, 0.0f}));
+	CHECK(center.g > 200);
+	CHECK(center.g > center.r + 100);
+	glm::ivec3 const corner = Pixel(image.GetValue(), ProjectToPixel(camera, {1.7f, 0.7f, 0.0f}));
+	CHECK(corner.g < center.g / 4);
+	CHECK(Pixel(image.GetValue(), ProjectToPixel(camera, {-1.5f, 0.0f, 0.0f})) == glm::ivec3(0, 0, 0));
+}
