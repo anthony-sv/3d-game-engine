@@ -39,10 +39,12 @@ target_compile_definitions(StradaEditorTests PRIVATE
     # The command reference; a test checks that every registered command is documented.
     STRADA_AUTOMATION_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Automation.md"
     # The shared fuzzing helpers (Fuzzing.h) take their seed documents from the FeatureTest project.
-    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest")
+    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
+    # The repository's projects: the play mode tests play the Blocks sample with the scripts CMake builds.
+    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects")
 
-# The inspector tests show the fields of the test scripts.
-add_dependencies(StradaEditorTests StradaTestScripts)
+# The inspector tests show the fields of the test scripts; the play mode tests play the Blocks sample.
+add_dependencies(StradaEditorTests StradaTestScripts StradaBlocksScripts)
 # The export tests ship the game player.
 add_dependencies(StradaEditorTests StradaRuntime)
 

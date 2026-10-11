@@ -4,8 +4,9 @@ namespace Blocks;
 
 /// <summary>Moves the camera around its place. <see cref="Shake"/> adds trauma, which decays: the camera wanders on smooth
 /// noise and rolls a little, by amounts that grow with the trauma squared, so small bumps stay subtle and big ones jolt.
-/// <see cref="Kick"/> jolts the view in a direction, from which a spring brings it back with a small bounce. While
-/// <see cref="Sway"/> is on (the title screen), the camera slowly swings around a point in front of it.</summary>
+/// <see cref="Kick"/> jolts the view in a direction, from which a spring brings it back with a small bounce. In
+/// <see cref="Attract"/> mode (the title screen) the camera glides to <see cref="AttractView"/> and slowly swings around a
+/// point in front of it; it glides back to its place when the mode ends.</summary>
 public sealed class CameraShake : Script
 {
 	[Tooltip("Units the camera moves at full trauma")]
@@ -32,10 +33,17 @@ public sealed class CameraShake : Script
 	[Range(0.05f, 1.0f)]
 	public float KickDamping = 0.55f;
 
-	[Tooltip("The point the camera swings around while it sways")]
+	[Tooltip("Where the camera stands in attract mode: the position and rotation of an entity beside the camera (none keeps its place)")]
+	public Entity? AttractView;
+
+	[Tooltip("Seconds the camera takes to glide between its place and the attract view")]
+	[Range(0.1f, 5.0f)]
+	public float GlideSeconds = 1.4f;
+
+	[Tooltip("The point the camera swings around in attract mode")]
 	public Vector3 SwayPivot = Vector3.Zero;
 
-	[Tooltip("Degrees the camera swings to each side while it sways")]
+	[Tooltip("Degrees the camera swings to each side in attract mode")]
 	[Range(0.0f, 30.0f)]
 	public float SwayDegrees = 4.0f;
 
@@ -43,8 +51,10 @@ public sealed class CameraShake : Script
 	[Range(1.0f, 120.0f)]
 	public float SwayPeriod = 16.0f;
 
-	// Seconds the sway takes to start or to settle back.
-	private const float SwayEaseSeconds = 1.2f;
+	// The spring moves in steps of at most this long. Semi-implicit Euler stays stable only while a step times the spring's
+	// frequency stays small (below 1.2 for a damping ratio of 0.55, below 0.8 for 1): these steps keep it at 0.25 or less for
+	// any spring the fields allow, however long a frame takes.
+	private const float SpringStep = 1.0f / 240.0f;
 
 	private Vector3 m_Rest;
 	private Quaternion m_RestRotation;
@@ -52,15 +62,18 @@ public sealed class CameraShake : Script
 	private Vector3 m_KickVelocity;
 	private float m_Time;
 	private float m_Seed;
-	private float m_SwayWeight;
+	private float m_Glide;
 	private float m_SwayTime;
 
 	/// <summary>How shaken the camera is, from 0 to 1.</summary>
 	public float Trauma { get; private set; }
 
-	/// <summary>Whether the camera slowly swings around <see cref="SwayPivot"/>; it eases in, and back to its place when turned
-	/// off.</summary>
-	public bool Sway { get; set; }
+	/// <summary>Whether the camera is in attract mode (the title screen): it glides to <see cref="AttractView"/> and slowly
+	/// swings around <see cref="SwayPivot"/>; it glides back to its place when this turns off.</summary>
+	public bool Attract { get; set; }
+
+	/// <summary>How far the camera has glided from its place toward the attract view, from 0 to 1 (eased).</summary>
+	public float AttractWeight => Mathf.SmoothStep(0.0f, 1.0f, m_Glide);
 
 	/// <summary>How far a kick moved the view from its place (the scene's apparent motion).</summary>
 	public Vector3 KickOffset => -m_Kick;
@@ -78,6 +91,21 @@ public sealed class CameraShake : Script
 		m_Kick -= offset;
 	}
 
+	/// <summary>Moves a damped spring that pulls an offset back to zero on by a time step, given its frequency (radians per
+	/// second) and damping ratio. Long steps are split into short ones, so the spring behaves the same at any frame
+	/// rate.</summary>
+	public static void StepSpring(ref Vector3 offset, ref Vector3 velocity, float frequency, float damping, float deltaTime)
+	{
+		int steps = System.Math.Max(1, (int)Mathf.Ceil(deltaTime / SpringStep));
+		float step = deltaTime / steps;
+		for (int i = 0; i < steps; i++)
+		{
+			Vector3 acceleration = (offset * -(frequency * frequency)) - (velocity * (2.0f * damping * frequency));
+			velocity += acceleration * step;
+			offset += velocity * step;
+		}
+	}
+
 	protected override void OnCreate()
 	{
 		m_Rest = Translation;
@@ -89,25 +117,30 @@ public sealed class CameraShake : Script
 	{
 		m_Time += deltaTime;
 		Trauma = Mathf.Max(0.0f, Trauma - (Recovery * deltaTime));
+		StepSpring(ref m_Kick, ref m_KickVelocity, KickSpring, KickDamping, deltaTime);
 
-		// A damped spring pulls the kick back (semi-implicit Euler, stable at any usual frame rate).
-		Vector3 acceleration = (m_Kick * -(KickSpring * KickSpring)) - (m_KickVelocity * (2.0f * KickDamping * KickSpring));
-		m_KickVelocity += acceleration * deltaTime;
-		m_Kick += m_KickVelocity * deltaTime;
-
-		// The sway starts its swing from the camera's place, so it eases in without a jump.
-		m_SwayWeight = Mathf.MoveTowards(m_SwayWeight, Sway ? 1.0f : 0.0f, deltaTime / SwayEaseSeconds);
-		m_SwayTime = m_SwayWeight > 0.0f ? m_SwayTime + deltaTime : 0.0f;
-		float swing = SwayDegrees * Mathf.Sin(m_SwayTime * 2.0f * Mathf.PI / SwayPeriod) * Mathf.SmoothStep(0.0f, 1.0f, m_SwayWeight);
+		// The glide between the camera's place and the attract view, eased at both ends.
+		m_Glide = Mathf.MoveTowards(m_Glide, Attract ? 1.0f : 0.0f, deltaTime / GlideSeconds);
+		float glide = AttractWeight;
+		Vector3 place = m_Rest;
+		Quaternion rotation = m_RestRotation;
+		if (AttractView is not null)
+		{
+			place = Vector3.Lerp(m_Rest, AttractView.Translation, glide);
+			rotation = Quaternion.Slerp(m_RestRotation, AttractView.Rotation, glide);
+		}
+		// The swing starts from where the camera is and grows with the glide, so it eases in without a jump.
+		m_SwayTime = glide > 0.0f ? m_SwayTime + deltaTime : 0.0f;
+		float swing = SwayDegrees * Mathf.Sin(m_SwayTime * 2.0f * Mathf.PI / SwayPeriod) * glide;
 		Quaternion orbit = Quaternion.AngleAxis(swing, Vector3.Up);
-		Vector3 place = SwayPivot + (orbit * (m_Rest - SwayPivot));
+		place = SwayPivot + (orbit * (place - SwayPivot));
 
 		float shake = Trauma * Trauma;
 		float time = (m_Time * Frequency) + m_Seed;
 		Vector3 wander = new(Noise(time), Noise(time + 71.3f), 0.0f);
 		Translation = place + m_Kick + (wander * (shake * MaximumOffset));
 		float roll = Noise((time * 0.7f) + 143.9f) * shake * MaximumRoll;
-		Rotation = orbit * m_RestRotation * Quaternion.AngleAxis(roll, Vector3.Back);
+		Rotation = orbit * rotation * Quaternion.AngleAxis(roll, Vector3.Back);
 	}
 
 	// Smooth noise from -1 to 1: Perlin's gradient noise in one dimension.

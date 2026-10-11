@@ -3,30 +3,40 @@ using Strada;
 
 namespace Blocks;
 
-/// <summary>The screen of the game: the score column (score, level, lines, best), the controls, the title, pause and
-/// game-over overlays over a dimmed view, flashes and the callouts over the board. Every text is a screen-space entity it
-/// creates; sizes are given for an 800 pixel high window and follow the window's height.</summary>
+/// <summary>The screen of the game: the score column (score, level, lines, best), the controls, the title (a sign with the
+/// game's name above the board and a prompt below it), pause and game-over overlays over a dimmed view, flashes and the
+/// callouts over the board. Every text is a screen-space entity it creates; sizes are given for an 800 pixel high window
+/// and follow the window's height.</summary>
 public sealed class Hud
 {
 	private const float ReferenceHeight = 800.0f;
-	private const float TitleY = 0.055f;
-	// The title's letters bob by this fraction of the window's height; their shadows fall this many reference pixels away.
-	private const float TitleBob = 0.006f;
+	// The title's letters: their size, the top of their line, and how far apart they stand (reference pixels).
+	private const float TitleSize = 128.0f;
+	private const float TitleY = 0.014f;
+	private const float TitleSpacing = 92.0f;
+	// The letters bob by this fraction of the window's height; their shadows fall this many reference pixels away.
+	private const float TitleBob = 0.005f;
 	private const float TitleShadowOffset = 5.0f;
-	// The title's banner across the window, from top to bottom as fractions of its height, with glowing edges.
-	private const float BannerTop = 0.035f;
-	private const float BannerBottom = 0.295f;
-	private const float BannerEdge = 3.0f;
+	// The sign behind the title, from top to bottom as fractions of the window's height: as wide as the letters with a margin
+	// on each side (reference pixels), with glowing edges. The title camera keeps the board below it.
+	private const float SignTop = 0.022f;
+	private const float SignBottom = 0.228f;
+	private const float SignMargin = 64.0f;
+	private const float SignEdge = 3.0f;
+	private const float SubtitleY = 0.172f;
+	// The prompt: low on the title screen, over the floor in front of the board; under the headline on the overlays.
+	private const float TitlePromptY = 0.918f;
+	private const float OverlayPromptY = 0.62f;
 	private const float FlashSeconds = 0.3f;
 
 	private static readonly Color s_Label = new(0.62f, 0.68f, 0.82f);
 	private static readonly Color s_Value = new(0.97f, 0.97f, 1.0f);
 	private static readonly Color s_Best = new(1.0f, 0.86f, 0.45f);
 	private static readonly Color s_Prompt = new(1.0f, 1.0f, 1.0f);
-	private static readonly Color s_Shadow = new(0.0f, 0.0f, 0.05f, 0.55f);
-	private static readonly Color s_Banner = new(0.02f, 0.0f, 0.07f, 0.55f);
-	private static readonly Color s_BannerTop = new(0.25f, 0.9f, 1.0f, 0.85f);
-	private static readonly Color s_BannerBottom = new(1.0f, 0.3f, 0.8f, 0.85f);
+	private static readonly Color s_Shadow = new(0.0f, 0.0f, 0.05f, 0.6f);
+	private static readonly Color s_Sign = new(0.02f, 0.0f, 0.07f, 0.62f);
+	private static readonly Color s_SignTop = new(0.25f, 0.9f, 1.0f, 0.9f);
+	private static readonly Color s_SignBottom = new(1.0f, 0.3f, 0.8f, 0.9f);
 	private static readonly Color[] s_TitleColors =
 	[
 		new(0.25f, 0.9f, 1.0f), new(1.0f, 0.85f, 0.2f), new(0.8f, 0.4f, 1.0f), new(0.35f, 1.0f, 0.45f), new(1.0f, 0.35f, 0.4f),
@@ -49,13 +59,14 @@ public sealed class Hud
 	private readonly TextComponent m_Headline;
 	private readonly TextComponent m_Detail;
 	private readonly TextComponent m_Prompt;
+	private readonly TextComponent m_PromptShadow;
 	private readonly SpriteRendererComponent m_Dim;
 	private readonly Entity m_DimEntity;
 	private readonly SpriteRendererComponent m_Flash;
 	private readonly Entity m_FlashEntity;
-	private readonly SpriteRendererComponent m_Banner;
-	private readonly SpriteRendererComponent m_BannerTop;
-	private readonly SpriteRendererComponent m_BannerBottom;
+	private readonly SpriteRendererComponent m_Sign;
+	private readonly SpriteRendererComponent m_SignTop;
+	private readonly SpriteRendererComponent m_SignBottom;
 	private readonly Entity m_Band;
 	private Color m_FlashColor;
 	private float m_FlashStrength;
@@ -78,15 +89,15 @@ public sealed class Hud
 		bandSprite.Color = new Color(0.0f, 0.0f, 0.04f, 0.4f);
 		float column = 0.865f;
 		Label("SCORE", column, 0.13f);
-		m_Score = Text("0", column, 0.165f, 44.0f, s_Value, TextAlignment.Left);
+		m_Score = Text("Score", "0", column, 0.165f, 44.0f, s_Value, TextAlignment.Left);
 		Label("LEVEL", column, 0.30f);
-		m_Level = Text("1", column, 0.335f, 44.0f, s_Value, TextAlignment.Left);
+		m_Level = Text("Level", "1", column, 0.335f, 44.0f, s_Value, TextAlignment.Left);
 		Label("LINES", column, 0.47f);
-		m_Lines = Text("0", column, 0.505f, 44.0f, s_Value, TextAlignment.Left);
+		m_Lines = Text("Lines", "0", column, 0.505f, 44.0f, s_Value, TextAlignment.Left);
 		Label("BEST", column, 0.64f);
-		m_Best = Text("0", column, 0.675f, 44.0f, s_Best, TextAlignment.Left);
+		m_Best = Text("Best", "0", column, 0.675f, 44.0f, s_Best, TextAlignment.Left);
 
-		Text("LEFT / RIGHT   move\nDOWN   soft drop\nUP / X   rotate\nZ   rotate back\nSPACE   hard drop\nC / SHIFT   hold\nESC   pause",
+		Text("Controls", "LEFT / RIGHT   move\nDOWN   soft drop\nUP / X   rotate\nZ   rotate back\nSPACE   hard drop\nC / SHIFT   hold\nESC   pause",
 			 0.035f, 0.66f, 18.0f, s_Label, TextAlignment.Left);
 
 		// Flashes light up the whole view for a moment, under the texts.
@@ -105,23 +116,24 @@ public sealed class Hud
 		m_Dim.Color = new Color(0.0f, 0.0f, 0.03f, 0.55f);
 		m_DimEntity.Translation = new Vector3(0.5f, 0.5f, 1.0f);
 
-		// The title sits on a dark banner with glowing edges, over the demo.
-		m_Banner = Sprite("Title Banner", (BannerTop + BannerBottom) * 0.5f, 1.5f, s_Banner);
-		m_BannerTop = Sprite("Title Banner Top", BannerTop, 1.6f, s_BannerTop);
-		m_BannerBottom = Sprite("Title Banner Bottom", BannerBottom, 1.6f, s_BannerBottom);
+		// The title stands on a dark sign with glowing edges, above the board.
+		m_Sign = Sprite("Title Sign", (SignTop + SignBottom) * 0.5f, 1.5f, s_Sign);
+		m_SignTop = Sprite("Title Sign Top", SignTop, 1.6f, s_SignTop);
+		m_SignBottom = Sprite("Title Sign Bottom", SignBottom, 1.6f, s_SignBottom);
 
 		string title = "BLOCKS";
 		for (int i = 0; i < title.Length; i++)
 		{
-			m_TitleShadows.Add(Text(title[i].ToString(), 0.5f, TitleY, 150.0f, s_Shadow, TextAlignment.Center, 1.9f));
-			m_Title.Add(Text(title[i].ToString(), 0.5f, TitleY, 150.0f, s_TitleColors[i % s_TitleColors.Length], TextAlignment.Center));
-			// Letters about two thirds of the size apart, centered.
-			m_TitleOffsets.Add((i - ((title.Length - 1) * 0.5f)) * 108.0f);
+			string letter = title[i].ToString();
+			m_TitleShadows.Add(Text($"Title {letter} Shadow", letter, 0.5f, TitleY, TitleSize, s_Shadow, TextAlignment.Center, 1.9f));
+			m_Title.Add(Text($"Title {letter}", letter, 0.5f, TitleY, TitleSize, s_TitleColors[i % s_TitleColors.Length], TextAlignment.Center));
+			m_TitleOffsets.Add((i - ((title.Length - 1) * 0.5f)) * TitleSpacing);
 		}
-		m_Subtitle = Text("a Strada engine example", 0.5f, 0.235f, 28.0f, s_Value, TextAlignment.Center);
-		m_Headline = Text("", 0.5f, 0.33f, 96.0f, s_Value, TextAlignment.Center);
-		m_Detail = Text("", 0.5f, 0.5f, 30.0f, s_Value, TextAlignment.Center);
-		m_Prompt = Text("", 0.5f, 0.62f, 34.0f, s_Prompt, TextAlignment.Center);
+		m_Subtitle = Text("Subtitle", "a Strada engine example", 0.5f, SubtitleY, 24.0f, s_Value, TextAlignment.Center);
+		m_Headline = Text("Headline", "", 0.5f, 0.33f, 96.0f, s_Value, TextAlignment.Center);
+		m_Detail = Text("Detail", "", 0.5f, 0.5f, 30.0f, s_Value, TextAlignment.Center);
+		m_PromptShadow = Text("Prompt Shadow", "", 0.5f, OverlayPromptY, 34.0f, s_Shadow, TextAlignment.Center, 1.9f);
+		m_Prompt = Text("Prompt", "", 0.5f, OverlayPromptY, 34.0f, s_Prompt, TextAlignment.Center);
 		Callouts = new Callouts(m_Root);
 		Layout();
 	}
@@ -149,31 +161,32 @@ public sealed class Hud
 	}
 
 	/// <summary>Shows the overlay of a state (none while playing) and moves flashes and callouts on by the time step. On the
-	/// title the board plays itself under a lighter dimming; the prompt pulses with the time.</summary>
+	/// title the board plays itself under a light dimming, between the sign and the prompt; the prompt pulses with the time.
+	/// Callouts wait, hidden, while the game is paused.</summary>
 	public void Show(GameState state, int score, bool newBest, float time, float deltaTime)
 	{
 		Layout();
 		bool title = state == GameState.Title;
+		float offset = TitleShadowOffset * m_LaidOutHeight / ReferenceHeight;
 		for (int i = 0; i < m_Title.Count; i++)
 		{
 			float bob = TitleBob * Mathf.Sin((time * 2.2f) - (i * 0.7f));
 			Entity letter = m_Title[i].Entity;
 			letter.Translation = new Vector3(letter.Translation.X, TitleY + bob, letter.Translation.Z);
 			Entity shadow = m_TitleShadows[i].Entity;
-			float offset = TitleShadowOffset * m_LaidOutHeight / ReferenceHeight;
 			shadow.Translation = new Vector3(letter.Translation.X + (offset / m_LaidOutWidth), TitleY + bob + (offset / m_LaidOutHeight),
 											 shadow.Translation.Z);
 			m_Title[i].Color = WithAlpha(m_Title[i].Color, title ? 1.0f : 0.0f);
 			m_TitleShadows[i].Color = WithAlpha(s_Shadow, title ? s_Shadow.A : 0.0f);
 		}
 		m_Subtitle.Color = WithAlpha(m_Subtitle.Color, title ? 1.0f : 0.0f);
-		m_Banner.Color = WithAlpha(s_Banner, title ? s_Banner.A : 0.0f);
-		m_BannerTop.Color = WithAlpha(s_BannerTop, title ? s_BannerTop.A : 0.0f);
-		m_BannerBottom.Color = WithAlpha(s_BannerBottom, title ? s_BannerBottom.A : 0.0f);
+		m_Sign.Color = WithAlpha(s_Sign, title ? s_Sign.A : 0.0f);
+		m_SignTop.Color = WithAlpha(s_SignTop, title ? s_SignTop.A : 0.0f);
+		m_SignBottom.Color = WithAlpha(s_SignBottom, title ? s_SignBottom.A : 0.0f);
 		(string headline, string detail, string prompt) = state switch
 		{
 			GameState.Title => ("", "", "PRESS ENTER OR CLICK TO PLAY"),
-			GameState.Paused => ("PAUSED", "", "ESC or ENTER to resume"),
+			GameState.Paused => ("PAUSED", "", "PRESS ESC OR ENTER TO RESUME"),
 			GameState.Over => ("GAME OVER", newBest ? $"NEW BEST  {score:N0}" : $"SCORE  {score:N0}", "PRESS ENTER OR CLICK TO PLAY AGAIN"),
 			_ => ("", "", ""),
 		};
@@ -181,16 +194,22 @@ public sealed class Hud
 		m_Detail.Text = detail;
 		m_Detail.Color = newBest ? s_Best : s_Value;
 		m_Prompt.Text = prompt;
-		Entity promptEntity = m_Prompt.Entity;
-		promptEntity.Translation = new Vector3(promptEntity.Translation.X, title ? BannerBottom + 0.035f : 0.62f, promptEntity.Translation.Z);
+		m_PromptShadow.Text = prompt;
+		float promptY = title ? TitlePromptY : OverlayPromptY;
+		m_Prompt.Entity.Translation = new Vector3(0.5f, promptY, m_Prompt.Entity.Translation.Z);
+		m_PromptShadow.Entity.Translation = new Vector3(0.5f + (offset * 0.5f / m_LaidOutWidth), promptY + (offset * 0.5f / m_LaidOutHeight),
+														m_PromptShadow.Entity.Translation.Z);
 		// The prompt breathes.
-		m_Prompt.Color = WithAlpha(s_Prompt, 0.75f + (0.25f * Mathf.Sin(time * 3.0f)));
+		float breath = 0.75f + (0.25f * Mathf.Sin(time * 3.0f));
+		m_Prompt.Color = WithAlpha(s_Prompt, breath);
+		m_PromptShadow.Color = WithAlpha(s_Shadow, s_Shadow.A * breath);
 		OverlayVisible = state != GameState.Playing;
-		m_Dim.Color = WithAlpha(m_Dim.Color, OverlayVisible ? (title ? 0.18f : 0.55f) : 0.0f);
+		m_Dim.Color = WithAlpha(m_Dim.Color, OverlayVisible ? (title ? 0.12f : 0.55f) : 0.0f);
 
 		m_FlashAge += deltaTime;
 		float flash = Mathf.Clamp01(1.0f - (m_FlashAge / FlashSeconds));
 		m_Flash.Color = WithAlpha(m_FlashColor, m_FlashStrength * flash * flash);
+		Callouts.Hidden = state == GameState.Paused;
 		Callouts.Update(deltaTime, m_LaidOutWidth, m_LaidOutHeight);
 	}
 
@@ -198,12 +217,12 @@ public sealed class Hud
 
 	private void Label(string text, float x, float y)
 	{
-		Text(text, x, y, 22.0f, s_Label, TextAlignment.Left);
+		Text($"{text} Label", text, x, y, 22.0f, s_Label, TextAlignment.Left);
 	}
 
-	private TextComponent Text(string text, float x, float y, float size, Color color, TextAlignment alignment, float layer = 2.0f)
+	private TextComponent Text(string name, string text, float x, float y, float size, Color color, TextAlignment alignment, float layer = 2.0f)
 	{
-		Entity entity = Entity.Create(text.Length > 0 && text.Length < 24 ? text : "Text");
+		Entity entity = Entity.Create(name);
 		entity.Parent = m_Root;
 		// Above the dimming sprite.
 		entity.Translation = new Vector3(x, y, layer);
@@ -217,7 +236,7 @@ public sealed class Hud
 		return component;
 	}
 
-	// A quad across the window at a height (a fraction of the window's height), sized by Layout.
+	// A quad centered on the window at a height (a fraction of the window's height), sized by Layout.
 	private SpriteRendererComponent Sprite(string name, float y, float layer, Color color)
 	{
 		Entity entity = Entity.Create(name);
@@ -229,7 +248,7 @@ public sealed class Hud
 		return sprite;
 	}
 
-	// Sizes follow the window's height; the title's letters keep their spacing.
+	// Sizes follow the window's height; the title's letters keep their spacing and the sign fits them.
 	private void Layout()
 	{
 		int width = System.Math.Max(Application.WindowWidth, 1);
@@ -252,9 +271,10 @@ public sealed class Hud
 		}
 		m_DimEntity.Scale = new Vector3(width, height, 1.0f);
 		m_FlashEntity.Scale = new Vector3(width, height, 1.0f);
-		m_Banner.Entity.Scale = new Vector3(width, height * (BannerBottom - BannerTop), 1.0f);
-		m_BannerTop.Entity.Scale = new Vector3(width, BannerEdge * scale, 1.0f);
-		m_BannerBottom.Entity.Scale = new Vector3(width, BannerEdge * scale, 1.0f);
+		float signWidth = System.Math.Min(((m_Title.Count * TitleSpacing) + (2.0f * SignMargin)) * scale, width);
+		m_Sign.Entity.Scale = new Vector3(signWidth, height * (SignBottom - SignTop), 1.0f);
+		m_SignTop.Entity.Scale = new Vector3(signWidth, SignEdge * scale, 1.0f);
+		m_SignBottom.Entity.Scale = new Vector3(signWidth, SignEdge * scale, 1.0f);
 		m_Band.Scale = new Vector3(width * 0.15f, height * 0.66f, 1.0f);
 	}
 }

@@ -46,6 +46,9 @@ public sealed class BlocksGame : Script
 	[Tooltip("On the title screen the board plays itself")]
 	public bool AttractMode = true;
 
+	[Tooltip("Seeds the order of the demo's pieces, so the title screen plays the same demo every time (0: a new demo each time)")]
+	public int DemoSeed;
+
 	[Tooltip("Seconds the game-over screen waits before the title comes back (0 waits for a key)")]
 	[Range(0.0f, 120.0f)]
 	public float TitleReturnDelay = 25.0f;
@@ -131,6 +134,8 @@ public sealed class BlocksGame : Script
 	private const float SlideMax = 0.075f;
 	private const float AimMin = 0.08f;
 	private const float AimMax = 0.22f;
+	// After putting a piece aside, the demo looks at the piece it brought for this part of a look at a new piece.
+	private const float HoldLook = 0.6f;
 	// Plans the demo may remake for a piece (when a move is blocked) before it drops it where it is.
 	private const int Replans = 3;
 
@@ -156,6 +161,7 @@ public sealed class BlocksGame : Script
 	private readonly Entity[,] m_QueueCubes = new Entity[QueueLength, 4];
 	private readonly Material[] m_Materials = new Material[s_Colors.Length];
 	private readonly AudioSourceComponent[] m_Sources = new AudioSourceComponent[SoundSources];
+	private readonly AutoPlayer m_AutoPlayer = new();
 	private PieceBag m_Bag = new(Random.Range);
 	private Material? m_GhostMaterial;
 	private Hud? m_Hud;
@@ -169,10 +175,11 @@ public sealed class BlocksGame : Script
 	private bool m_NewBest;
 	private bool m_LastClearWasTetris;
 	private float m_OverTime;
-	// The demo's plan for the active piece, the time to its next move, how often the plan was remade and whether the piece
-	// is in place, waiting for its drop.
+	// The demo's plan for the active piece, the time to its next move, whether it thought about holding the piece, how often
+	// the plan was remade and whether the piece is in place, waiting for its drop.
 	private Placement? m_Plan;
 	private float m_AutoTimer;
+	private bool m_HoldConsidered;
 	private int m_Replanned;
 	private bool m_Aimed;
 
@@ -209,6 +216,15 @@ public sealed class BlocksGame : Script
 
 	/// <summary>Pieces the demo has settled since it started.</summary>
 	public int DemoPieces { get; private set; }
+
+	/// <summary>Plans the demo remade since it started because a move of its plan was blocked.</summary>
+	public int DemoReplans { get; private set; }
+
+	/// <summary>Pieces the demo has put aside since it started.</summary>
+	public int DemoHolds { get; private set; }
+
+	/// <summary>Where the demo is bringing the active piece; null while it looks at the piece.</summary>
+	public Placement? DemoPlan => m_Plan;
 
 	/// <summary>Blocks that burst from cleared rows so far.</summary>
 	public int DebrisSpawned { get; private set; }
@@ -349,7 +365,7 @@ public sealed class BlocksGame : Script
 	/// <summary>Starts a new game: an empty board, a new bag, no held piece and a new score.</summary>
 	public void Restart()
 	{
-		ResetBoard();
+		ResetBoard(new PieceBag(Random.Range));
 		m_NewBest = false;
 		State = GameState.Playing;
 		m_Hud?.Callouts.Clear();
@@ -361,9 +377,11 @@ public sealed class BlocksGame : Script
 	/// <summary>Goes to the title screen, where the board plays a demo game by itself when <see cref="AttractMode"/> is on.</summary>
 	public void ShowTitle()
 	{
-		ResetBoard();
+		ResetBoard(DemoSeed != 0 ? new PieceBag(SeededRange(DemoSeed)) : new PieceBag(Random.Range));
 		State = GameState.Title;
 		DemoPieces = 0;
+		DemoReplans = 0;
+		DemoHolds = 0;
 		m_Hud?.Callouts.Clear();
 		SpawnNext();
 	}
@@ -557,10 +575,17 @@ public sealed class BlocksGame : Script
 		}
 	}
 
-	private void ResetBoard()
+	// A random whole number in [min, max) from a sequence the seed fixes.
+	private static System.Func<int, int, int> SeededRange(int seed)
+	{
+		System.Random random = new(seed);
+		return random.Next;
+	}
+
+	private void ResetBoard(PieceBag bag)
 	{
 		m_Board.Clear();
-		m_Bag = new PieceBag(Random.Range);
+		m_Bag = bag;
 		Score = 0;
 		Rows = 0;
 		Combo = -1;
@@ -628,7 +653,9 @@ public sealed class BlocksGame : Script
 		}
 	}
 
-	// The demo's moves, one at a time at a person's pace: turn to the planned rotation, slide to the planned column, drop.
+	// The demo's moves, one at a time at a person's pace: a look at the new piece (which it may put aside for a better one),
+	// then turns to the planned rotation, slides to the planned column, a short aim and the drop. Each frame searches once at
+	// most.
 	private void PlayDemo(float deltaTime)
 	{
 		m_AutoTimer -= deltaTime;
@@ -638,8 +665,24 @@ public sealed class BlocksGame : Script
 		}
 		if (m_Plan is not { } plan)
 		{
-			// It has looked at the new piece: where does it go?
-			m_Plan = AutoPlayer.Choose(m_Board, Active, Next);
+			if (!m_HoldUsed && !m_HoldConsidered)
+			{
+				// It has looked at the new piece: would the held one (or the next) do clearly better? The plan follows on the
+				// next frame.
+				m_HoldConsidered = true;
+				PieceKind instead = Held ?? Next;
+				PieceKind insteadNext = Held is null ? m_Bag.Peek(1) : Next;
+				if (m_AutoPlayer.ShouldHold(m_Board, Active, Next, instead, insteadNext))
+				{
+					DemoHolds++;
+					Hold();
+					// A look at the piece it brought.
+					m_AutoTimer = Random.Range(ThinkMin, ThinkMax) * HoldLook;
+				}
+				return;
+			}
+			// Where does it go?
+			m_Plan = m_AutoPlayer.Choose(m_Board, Active, Next);
 			if (m_Plan is null)
 			{
 				HardDrop();
@@ -679,7 +722,8 @@ public sealed class BlocksGame : Script
 	private void Replan()
 	{
 		m_Replanned++;
-		m_Plan = m_Replanned <= Replans ? AutoPlayer.Choose(m_Board, Active, Next) : null;
+		DemoReplans++;
+		m_Plan = m_Replanned <= Replans ? m_AutoPlayer.Choose(m_Board, Active, Next) : null;
 		if (m_Plan is null)
 		{
 			HardDrop();
@@ -748,6 +792,7 @@ public sealed class BlocksGame : Script
 		m_HoldUsed = false;
 		// The demo looks at a new piece for a moment before it moves.
 		m_Plan = null;
+		m_HoldConsidered = false;
 		m_Replanned = 0;
 		m_Aimed = false;
 		m_AutoTimer = Random.Range(ThinkMin, ThinkMax);
@@ -771,6 +816,8 @@ public sealed class BlocksGame : Script
 			PlaySound(GameOverSound, 0.9f, 1.0f);
 			Shake(0.6f);
 			m_Hud?.Flash(new Color(1.0f, 0.25f, 0.2f), 0.25f);
+			// The game-over screen shows the score; what the last clear called out is over.
+			m_Hud?.Callouts.Clear();
 			if (Score > BestScore)
 			{
 				BestScore = Score;
@@ -944,10 +991,11 @@ public sealed class BlocksGame : Script
 			ShowShape(cubes, m_Bag.Peek(slot), position, spin, slot == 0 ? 1.0f : 0.8f);
 		}
 
-		// The camera sways slowly over the demo and settles when a game starts.
+		// The title screen's camera stands back to show the title over the board and sways slowly; it glides in when a game
+		// starts.
 		if (Camera?.As<CameraShake>() is { } camera)
 		{
-			camera.Sway = IsDemo;
+			camera.Attract = State == GameState.Title;
 		}
 
 		// The demo's score shows, but only games count for the best.

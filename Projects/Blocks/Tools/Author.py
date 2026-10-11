@@ -138,30 +138,37 @@ def build(client, sources):
         "EmissiveColor": [0.25, 0.5, 1.0], "EmissiveIntensity": 0.35, "UVTiling": [5.0, 5.0]}})
     client.call("material_create", {"path": "Materials/Neon.smat", "fields": {
         "BaseColor": [0.0, 0.0, 0.0, 1.0], "EmissiveColor": [0.2, 0.75, 1.0], "EmissiveIntensity": 6.0}})
-    # The floor under the board runs to the horizon: a dusky plane with glowing grid lines, light enough for the low sun
-    # to light it and for the shadows of the board and its blocks to read.
+    # The floor under the board runs to the horizon: a dusky plane with glowing grid lines, light enough for the sun to
+    # light it and for the shadows of the board and its blocks to read.
     client.call("material_create", {"path": "Materials/Floor.smat", "fields": {
         "BaseColor": [0.15, 0.115, 0.21, 1.0], "Metallic": 0.1, "Roughness": 0.58, "EmissiveTexture": "asset://Textures/Grid.png",
         "EmissiveColor": [0.55, 0.3, 1.0], "EmissiveIntensity": 1.2, "UVTiling": [160.0, 160.0]}})
 
     # The game scene: the project's start scene, which is open.
     client.call("scene_settings", {"name": "Blocks", "settings": {"Renderer": {
-        "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 60.0,
+        "Tonemapper": "ACES", "EV100": 0.0, "Shadows": True, "SoftShadows": True, "ShadowDistance": 80.0,
         "AmbientOcclusion": True, "Bloom": True, "BloomIntensity": 0.09, "FXAA": True, "Saturation": 1.1, "Vignette": 0.3,
         "VignetteSmoothness": 0.6}}})
     found = {entity["name"]: entity["id"] for entity in client.call("entity_find", {})["entities"]}
     client.call("entity_delete", {"entities": [found[name] for name in ("Floor", "Cube", "Sphere", "Capsule")]})
     camera = found["Main Camera"]
-    # A little above the board, looking down at it: the floor in front of it shows, with the shadows.
+    # Above the board and looking down at it: the floor in front of the board shows, with the shadows of the stack and of
+    # the falling piece.
     client.call("component_set", {"entity": camera, "component": "Transform",
-                                  "fields": {"Translation": [4.5, 14.0, 34.0], "RotationEuler": [-9.0, 0.0, 0.0]}})
+                                  "fields": {"Translation": [4.5, 15.0, 38.0], "RotationEuler": [-11.0, 0.0, 0.0]}})
     client.call("component_set", {"entity": camera, "component": "Camera", "fields": {"PerspectiveFOV": 42.0, "PerspectiveFar": 400.0}})
-    # The camera shakes and kicks with the game and sways around the board's middle on the title screen.
+    # On the title screen the camera stands further back and higher: the title's sign fits above the board and the panels,
+    # the prompt below them, over the floor.
+    attract_view = client.call("entity_create", {"name": "Attract View", "components": {
+        "Transform": transform((4.5, 26.0, 44.0), euler=(-18.0, 0.0, 0.0))}})["id"]
+    # The camera shakes and kicks with the game; on the title screen it glides to the attract view and sways around the
+    # board's middle.
     client.call("component_add", {"entity": camera, "component": "Script", "fields": {"ClassName": "Blocks.CameraShake", "Fields": {
-        "SwayPivot": {"Type": "Vector3", "Value": [4.5, 9.5, 0.0]}}}})
-    # The low sun sets behind the board, on the side where the sky glows: the board, its blocks and the panels cast long
-    # shadows toward the viewer across the floor. A cool light from the front, without shadows, keeps the blocks' faces bright.
-    client.call("component_set", {"entity": found["Sun"], "component": "Transform", "fields": {"RotationEuler": [-28.0, 160.0, 0.0]}})
+        "SwayPivot": {"Type": "Vector3", "Value": [4.5, 9.5, 0.0]}, "AttractView": {"Type": "Entity", "Value": attract_view}}}})
+    # A warm sun high behind the board, on the side where the sky glows: the frame, the stack, the falling piece and the
+    # panels' lower edges cast their shadows onto the floor in front of the board, where the camera sees them. A cool light
+    # from the front, without shadows, keeps the blocks' faces bright.
+    client.call("component_set", {"entity": found["Sun"], "component": "Transform", "fields": {"RotationEuler": [-56.0, 165.0, 0.0]}})
     client.call("component_set", {"entity": found["Sun"], "component": "DirectionalLight",
                                   "fields": {"Color": [1.0, 0.72, 0.46], "Intensity": 3.6, "CastShadows": True, "LightSize": 0.5}})
     client.call("entity_create", {"name": "Fill Light", "components": {
@@ -261,12 +268,14 @@ def build(client, sources):
         "AudioSource": {"Clip": "asset://Audio/Music.wav", "Volume": 0.3, "Loop": True, "PlayOnStart": True, "Spatial": False}}})
     client.call("scene_save")
 
-    # The test scene: the game scene, starting at once and falling fast, with the checks; it keeps no best score.
+    # The test scene: the game scene, starting at once and falling fast, with the checks; it keeps no best score, and its
+    # demo plays a fixed order of pieces (one whose first piece the auto player puts aside).
     client.call("scene_save", {"path": "Scenes/Tests.sscene"})
     client.call("scene_settings", {"name": "Tests"})
     game_fields["FallInterval"] = {"Type": "Float", "Value": 0.1}
     game_fields["StartOnTitle"] = {"Type": "Bool", "Value": False}
     game_fields["SaveBestScore"] = {"Type": "Bool", "Value": False}
+    game_fields["DemoSeed"] = {"Type": "Int32", "Value": 1}
     client.call("component_set", {"entity": game, "component": "Script", "fields": {"ClassName": "Blocks.BlocksGame", "Fields": game_fields}})
     client.call("entity_create", {"name": "Tests", "components": {
         "Script": {"ClassName": "Blocks.BlocksTests", "Fields": {"Game": {"Type": "Entity", "Value": game}}}}})

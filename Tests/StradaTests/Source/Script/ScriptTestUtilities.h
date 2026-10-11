@@ -20,15 +20,15 @@ namespace Strada::Testing
 		return FileSystem::GetExecutableDirectory() / "TestScripts" / "Strada.TestScripts.dll";
 	}
 
-	// Initializes the ScriptEngine with the test scripts loaded for as long as it lives.
+	// Initializes the ScriptEngine with game scripts loaded (the test scripts unless told otherwise) for as long as it lives.
 	class ScriptEngineScope
 	{
 	public:
-		ScriptEngineScope()
+		explicit ScriptEngineScope(std::filesystem::path const& assembly = GetTestScriptsPath())
 		{
 			Result<void> const initialized = ScriptEngine::Init();
 			REQUIRE_MESSAGE(initialized.IsOk(), (initialized ? std::string() : initialized.GetError()));
-			Result<void> const loaded = ScriptEngine::LoadGameAssembly(GetTestScriptsPath());
+			Result<void> const loaded = ScriptEngine::LoadGameAssembly(assembly);
 			if (!loaded)
 			{
 				ScriptEngine::Shutdown();
