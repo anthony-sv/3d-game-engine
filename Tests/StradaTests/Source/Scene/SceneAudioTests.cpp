@@ -4,6 +4,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Audio/AudioScene.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 
@@ -95,6 +96,60 @@ TEST_CASE("Scene: the runtime plays audio sources and follows their changes")
 
 	scene.OnRuntimeStop();
 	CHECK(scene.GetAudioScene() == nullptr);
+}
+
+TEST_CASE("Scene: streamed audio sources read their clip's file without loading the clip")
+{
+	Testing::AudioEngineScope engine;
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory directory;
+	Buffer const tone = Testing::MakeWav(Testing::MakeSamples({{0.5f, 1.0f}}));
+	REQUIRE(FileSystem::WriteBinaryFile(directory.GetPath() / "Music.wav", tone.GetSpan()).IsOk());
+	REQUIRE(FileSystem::WriteBinaryFile(directory.GetPath() / "Gone.wav", tone.GetSpan()).IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const music = AssetManager::FindByPath("Music.wav");
+	AssetHandle const gone = AssetManager::FindByPath("Gone.wav");
+	REQUIRE(music.IsValid());
+	REQUIRE(gone.IsValid());
+	REQUIRE(FileSystem::Remove(directory.GetPath() / "Gone.wav").IsOk());
+	AssetHandle const memoryClip = AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 1.0f}}), "Tone");
+
+	Scene scene("Streams");
+	Entity entity = AddSource(scene, "Music", music, true);
+	AudioSourceComponent& source = entity.GetComponent<AudioSourceComponent>();
+	source.Stream = true;
+	scene.OnRuntimeStart();
+	AudioScene* audio = scene.GetAudioScene();
+	REQUIRE(audio != nullptr);
+	CHECK(audio->IsStreaming(entity.GetUUID()));
+	CHECK(audio->IsPlaying(entity.GetUUID()));
+	CHECK(Testing::ReadLevels(0.1f).Left == doctest::Approx(0.5f).epsilon(0.01));
+	CHECK_FALSE(AssetManager::IsLoaded(music));
+
+	// Loading the clip instead (or streaming it again) makes a new sound, stopped until played.
+	source.Stream = false;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK_FALSE(audio->IsStreaming(entity.GetUUID()));
+	CHECK_FALSE(audio->IsPlaying(entity.GetUUID()));
+	CHECK(AssetManager::IsLoaded(music));
+	source.Stream = true;
+	CHECK_FALSE(scene.IsAudioSourcePlaying(entity));
+	CHECK(audio->IsStreaming(entity.GetUUID()));
+	scene.PlayAudioSource(entity);
+	CHECK(scene.IsAudioSourcePlaying(entity));
+
+	// Only file assets stream: missing files and memory assets play nothing.
+	source.Clip = gone;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK_FALSE(audio->HasSource(entity.GetUUID()));
+	source.Clip = memoryClip;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK_FALSE(audio->HasSource(entity.GetUUID()));
+	source.Stream = false;
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(audio->HasSource(entity.GetUUID()));
+	CHECK_FALSE(audio->IsStreaming(entity.GetUUID()));
+	scene.OnRuntimeStop();
 }
 
 TEST_CASE("Scene: audio is heard from the active listener or the primary camera")

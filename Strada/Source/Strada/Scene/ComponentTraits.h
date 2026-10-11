@@ -402,6 +402,8 @@ namespace Strada
 		static constexpr std::string_view Description = "Plays an audio clip, optionally positioned in 3D.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Clip", &AudioSourceComponent::Clip).References("AudioClip"),
+			Field("Stream", &AudioSourceComponent::Stream)
+				.Doc("Reads the clip from its file while it plays instead of loading it whole first: for music and long ambience."),
 			Field("Volume", &AudioSourceComponent::Volume).AtLeast(0.0).Doc("Linear gain; 1 plays the clip unchanged."),
 			Field("Pitch", &AudioSourceComponent::Pitch).AtLeast(0.01).Doc("Playback speed multiplier; 1 plays the clip unchanged."),
 			Field("Loop", &AudioSourceComponent::Loop),

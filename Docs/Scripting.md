@@ -283,7 +283,9 @@ their scripts get `OnDestroy` while they are intact.
 ## Sound, text and materials
 
 `AudioSourceComponent` plays its clip with `Play()`, `Pause()` and `Stop()` (`IsPlaying`, `Volume`, `Pitch`, `Loop`,
-`Clip` can be set); sources are positioned in 3D relative to the entity with the `AudioListenerComponent`.
+`Clip` can be set); sources are positioned in 3D relative to the entity with the `AudioListenerComponent`. Set
+`Stream` on music and long ambience: the clip is then read from its file while it plays instead of being loaded whole
+(changing it, like changing `Clip`, stops the sound until the next `Play()`).
 `TextComponent` draws text in the world or, with `ScreenSpace`, over the image: set `Text` for scores and messages.
 Materials of the project are shared by every scene, so scripts change copies: `Material.Clone()` (or
 `Material.Create()`) makes one the running scene owns, which `MeshComponent.SetMaterial` gives to a mesh.

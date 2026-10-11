@@ -25,17 +25,15 @@ namespace Strada
 			                     {"Transform", Json::object({{"RotationEuler", Json::array({90.0, 0.0, 0.0})}})}});
 		}
 
+		constexpr auto s_Categories =
+			std::to_array<std::string_view>({EntityPresets::CoreCategory, "3D Object", "Rendering", "Effects", "Audio", "UI"});
+
 		// std::to_array deduces the count, so every entry is initialized.
 		constexpr auto s_Presets = std::to_array<EntityPreset>({
-			{"", "Empty Entity", "Entity",
+			{EntityPresets::CoreCategory, "Create Empty", "Entity",
 		     []
 		     {
 				 return Json::object();
-			 }},
-			{"", "Camera", "Camera",
-		     []
-		     {
-				 return Json::object({{"Camera", Json::object()}});
 			 }},
 			{"3D Object", "Cube", "Cube",
 		     []
@@ -72,44 +70,34 @@ namespace Strada
 		     {
 				 return MeshComponents(BuiltInAsset::QuadMesh);
 			 }},
+			{"Rendering", "Camera", "Camera",
+		     []
+		     {
+				 return Json::object({{"Camera", Json::object()}});
+			 }},
 			// Directional and spot lights shine along -Z: tilt them towards the ground.
-			{"Light", "Directional Light", "Directional Light",
+			{"Rendering", "Directional Light", "Directional Light",
 		     []
 		     {
 				 return Json::object({{"DirectionalLight", Json::object()},
 			                          {"Transform", Json::object({{"RotationEuler", Json::array({-50.0, 30.0, 0.0})}})}});
 			 }},
-			{"Light", "Point Light", "Point Light",
+			{"Rendering", "Point Light", "Point Light",
 		     []
 		     {
 				 return Json::object({{"PointLight", Json::object()}});
 			 }},
-			{"Light", "Spot Light", "Spot Light",
+			{"Rendering", "Spot Light", "Spot Light",
 		     []
 		     {
 				 return Json::object(
 					 {{"SpotLight", Json::object()}, {"Transform", Json::object({{"RotationEuler", Json::array({-90.0, 0.0, 0.0})}})}});
 			 }},
-			{"Light", "Sky Light", "Sky Light",
+			{"Rendering", "Sky Light", "Sky Light",
 		     []
 		     {
 				 return Json::object(
 					 {{"SkyLight", Json::object({{"Environment", GetBuiltInHandle(BuiltInAsset::DefaultSky).ToString()}})}});
-			 }},
-			{"Audio", "Audio Source", "Audio Source",
-		     []
-		     {
-				 return Json::object({{"AudioSource", Json::object()}});
-			 }},
-			{"2D", "Text", "Text",
-		     []
-		     {
-				 return Json::object({{"Text", Json::object({{"Text", "Text"}, {"FontSize", 0.5}, {"Alignment", "Center"}})}});
-			 }},
-			{"2D", "Sprite", "Sprite",
-		     []
-		     {
-				 return Json::object({{"SpriteRenderer", Json::object()}});
 			 }},
 			// Particle systems emit along -Z: these point it up.
 			{"Effects", "Particle System", "Particle System",
@@ -170,6 +158,26 @@ namespace Strada
 			                                             {"EndColor", Json::array({1.0, 0.3, 0.05, 0.0})},
 			                                             {"Intensity", 6.0}}));
 			 }},
+			{"Audio", "Audio Source", "Audio Source",
+		     []
+		     {
+				 return Json::object({{"AudioSource", Json::object()}});
+			 }},
+			{"Audio", "Audio Listener", "Audio Listener",
+		     []
+		     {
+				 return Json::object({{"AudioListener", Json::object()}});
+			 }},
+			{"UI", "Text", "Text",
+		     []
+		     {
+				 return Json::object({{"Text", Json::object({{"Text", "Text"}, {"FontSize", 0.5}, {"Alignment", "Center"}})}});
+			 }},
+			{"UI", "Sprite", "Sprite",
+		     []
+		     {
+				 return Json::object({{"SpriteRenderer", Json::object()}});
+			 }},
 		});
 	}
 
@@ -178,6 +186,31 @@ namespace Strada
 		std::span<EntityPreset const> GetAll()
 		{
 			return s_Presets;
+		}
+
+		std::span<std::string_view const> GetCategories()
+		{
+			return s_Categories;
+		}
+
+		std::vector<EntityPresetMenuSection> GetMenu()
+		{
+			std::vector<EntityPresetMenuSection> sections;
+			sections.reserve(s_Categories.size());
+			for (std::string_view const category : s_Categories)
+			{
+				EntityPresetMenuSection& section = sections.emplace_back();
+				section.Category = category;
+				section.Submenu = category != CoreCategory;
+				for (EntityPreset const& preset : s_Presets)
+				{
+					if (preset.Category == category)
+					{
+						section.Presets.push_back(&preset);
+					}
+				}
+			}
+			return sections;
 		}
 
 		namespace

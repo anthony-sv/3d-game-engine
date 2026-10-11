@@ -214,6 +214,8 @@ internal static unsafe class InternalCalls
 
 	internal static delegate* unmanaged<ulong, ulong*, void> AudioSourceComponent_GetClip;
 	internal static delegate* unmanaged<ulong, ulong*, void> AudioSourceComponent_SetClip;
+	internal static delegate* unmanaged<ulong, byte*, void> AudioSourceComponent_GetStream;
+	internal static delegate* unmanaged<ulong, byte*, void> AudioSourceComponent_SetStream;
 	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_GetVolume;
 	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_SetVolume;
 	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_GetPitch;

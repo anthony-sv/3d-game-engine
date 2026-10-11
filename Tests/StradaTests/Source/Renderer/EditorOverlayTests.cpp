@@ -252,7 +252,7 @@ TEST_CASE("SceneRenderer: the grid lies on the ground and hides behind surfaces"
 	CHECK(Pixel(covered, front) == Pixel(coveredPlain, front));
 }
 
-TEST_CASE("SceneRenderer: debug lines respect depth testing")
+TEST_CASE("SceneRenderer: debug lines are hidden or dimmed behind surfaces, or drawn on top")
 {
 	ST_REQUIRE_GPU();
 	Testing::RenderTestScope scope(stGpuTestScope);
@@ -262,26 +262,119 @@ TEST_CASE("SceneRenderer: debug lines respect depth testing")
 
 	Frame frame;
 	frame.Meshes.push_back({BuiltInAsset::CubeMesh, MakeMaterial({0.3f, 0.3f, 0.3f, 1.0f}), {0.0f, 0.0f, 0.0f}, glm::vec3(1.0f), 0});
+	Image const plain = Render(renderer, camera, frame);
 	// Through the middle of the cube, from left to right.
 	frame.Lines.push_back({{-3.0f, 0.0f, 0.0f}, {3.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, true});
 	Image const tested = Render(renderer, camera, frame);
+	frame.Overlays.OccludedLineOpacity = 0.4f;
+	Image const dimmed = Render(renderer, camera, frame);
+	frame.Overlays.OccludedLineOpacity = 0.0f;
 	frame.Lines[0].DepthTest = false;
 	Image const onTop = Render(renderer, camera, frame);
 
+	// The line lies between two pixel rows: the row below its center shows it.
 	glm::uvec2 const center = ProjectToPixel(camera, {0.0f, 0.0f, 0.0f});
 	glm::uvec2 const outside = ProjectToPixel(camera, {2.0f, 0.0f, 0.0f});
 	auto const isGreen = [](glm::ivec3 const& color)
 	{
-		return color.g > 200 && color.r < 80 && color.b < 80;
+		return color.g > 150 && color.r < 60 && color.b < 60;
 	};
-	// Lines are one pixel wide; check the pixel row and its neighbor in case of rasterization rounding.
-	auto const lineVisible = [&](Image const& image, glm::uvec2 const& pixel)
+	CHECK(isGreen(Pixel(tested, outside)));
+	CHECK(Pixel(tested, center) == Pixel(plain, center));
+	CHECK(isGreen(Pixel(onTop, outside)));
+	CHECK(isGreen(Pixel(onTop, center)));
+	// Dimmed: the cube shows through the green line.
+	glm::ivec3 const cube = Pixel(plain, center);
+	glm::ivec3 const through = Pixel(dimmed, center);
+	CHECK(isGreen(Pixel(dimmed, outside)));
+	CHECK(through.g > cube.g + 20);
+	CHECK(through.r < cube.r);
+	CHECK(through.g < Pixel(onTop, center).g - 20);
+}
+
+TEST_CASE("SceneRenderer: debug lines have their width, an outline beneath them, and are cut at the near plane")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+	SceneRendererCamera const camera = MakeCamera({0.0f, 0.0f, 6.0f}, {0.0f, 0.0f, 0.0f});
+	auto const isGreen = [](glm::ivec3 const& color)
 	{
-		return isGreen(Pixel(image, pixel)) || isGreen(Pixel(image, {pixel.x, pixel.y - 1})) ||
-		       isGreen(Pixel(image, {pixel.x, pixel.y + 1}));
+		return color.g > 150 && color.r < 60 && color.b < 60;
 	};
-	CHECK(lineVisible(tested, outside));
-	CHECK_FALSE(lineVisible(tested, center));
-	CHECK(lineVisible(onTop, outside));
-	CHECK(lineVisible(onTop, center));
+	auto const isMagenta = [](glm::ivec3 const& color)
+	{
+		return color.r > 200 && color.b > 200 && color.g < 60;
+	};
+	auto const isBlack = [](glm::ivec3 const& color)
+	{
+		return color == glm::ivec3(0);
+	};
+
+	// A horizontal line at y = 0, on the boundary between rows 47 and 48.
+	Frame frame;
+	frame.Lines.push_back({{-3.0f, 0.0f, 0.0f}, {3.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, false});
+	glm::uvec2 const onLine = ProjectToPixel(camera, {1.0f, 0.0f, 0.0f});
+	REQUIRE(onLine.y == ImageSize / 2);
+	auto const row = [&](uint32_t y)
+	{
+		return glm::uvec2(onLine.x, y);
+	};
+	Image const thin = Render(renderer, camera, frame);
+	CHECK(isGreen(Pixel(thin, row(onLine.y))));
+	CHECK(isGreen(Pixel(thin, row(onLine.y - 1))));
+	CHECK(isBlack(Pixel(thin, row(onLine.y + 2))));
+
+	// Six pixels wide: three on each side of the center.
+	frame.Overlays.LineWidth = 6.0f;
+	Image const wide = Render(renderer, camera, frame);
+	CHECK(isGreen(Pixel(wide, row(onLine.y + 2))));
+	CHECK(isGreen(Pixel(wide, row(onLine.y - 3))));
+	CHECK(isBlack(Pixel(wide, row(onLine.y + 4))));
+	// Clamped to the widest supported width.
+	frame.Overlays.LineWidth = 1000.0f;
+	Image const widest = Render(renderer, camera, frame);
+	CHECK(isGreen(Pixel(widest, row(onLine.y + 7))));
+	CHECK(isBlack(Pixel(widest, row(onLine.y + 10))));
+
+	// Two pixels wide with two pixels of outline on each side, which never covers the line itself.
+	frame.Overlays.LineWidth = 2.0f;
+	frame.Overlays.LineOutlineWidth = 2.0f;
+	frame.Overlays.LineOutlineColor = {1.0f, 0.0f, 1.0f, 1.0f};
+	frame.Lines.push_back({{0.0f, -3.0f, 0.0f}, {0.0f, 3.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, false});
+	Image const outlined = Render(renderer, camera, frame);
+	CHECK(isGreen(Pixel(outlined, row(onLine.y))));
+	CHECK(isMagenta(Pixel(outlined, row(onLine.y + 2))));
+	CHECK(isMagenta(Pixel(outlined, row(onLine.y - 2))));
+	CHECK(isBlack(Pixel(outlined, row(onLine.y + 4))));
+	// Where the lines cross, both stay green.
+	glm::uvec2 const crossing = ProjectToPixel(camera, {0.0f, 0.0f, 0.0f});
+	CHECK(isGreen(Pixel(outlined, crossing)));
+	CHECK(isGreen(Pixel(outlined, {crossing.x, crossing.y + 2})));
+	CHECK(isGreen(Pixel(outlined, {crossing.x - 1, crossing.y - 3})));
+
+	// Lines that meet are blended once: where two half-transparent segments join, the line looks as it does anywhere else.
+	frame = {};
+	frame.Lines.push_back({{-3.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 0.5f}, false});
+	frame.Lines.push_back({{0.0f, 0.0f, 0.0f}, {3.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 0.5f}, false});
+	Image const joined = Render(renderer, camera, frame);
+	glm::ivec3 const joint = Pixel(joined, ProjectToPixel(camera, {0.0f, 0.0f, 0.0f}));
+	CHECK(joint.g > 50);
+	CHECK(joint == Pixel(joined, ProjectToPixel(camera, {1.5f, 0.0f, 0.0f})));
+	CHECK(joint == Pixel(joined, ProjectToPixel(camera, {-1.5f, 0.0f, 0.0f})));
+
+	// A line from behind the camera to in front of it shows its visible part only: from the left edge of the image to
+	// (1.5, 0, 0), and nothing past that end.
+	frame = {};
+	frame.Lines.push_back({{-3.0f, 0.0f, 8.0f}, {1.5f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, false});
+	Image const crossingNearPlane = Render(renderer, camera, frame);
+	CHECK(isGreen(Pixel(crossingNearPlane, {2, onLine.y})));
+	CHECK(isGreen(Pixel(crossingNearPlane, ProjectToPixel(camera, {-0.3f, 0.0f, 3.2f}))));
+	CHECK(isBlack(Pixel(crossingNearPlane, ProjectToPixel(camera, {2.85f, 0.0f, -2.4f}))));
+	// Entirely behind the camera: nothing.
+	frame.Lines[0] = {{-3.0f, 0.0f, 8.0f}, {3.0f, 0.0f, 9.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, false};
+	Image const behind = Render(renderer, camera, frame);
+	frame.Lines.clear();
+	CHECK(Testing::CompareImages(behind, Render(renderer, camera, frame), 0).MaxDifference == 0);
 }

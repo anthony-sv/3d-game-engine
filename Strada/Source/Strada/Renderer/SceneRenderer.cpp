@@ -35,6 +35,7 @@ namespace Strada
 	static_assert(sizeof(ShaderInterop::EntityIdDrawConstants) == 80);
 	static_assert(sizeof(ShaderInterop::GridConstants) == 80);
 	static_assert(sizeof(ShaderInterop::OutlineConstants) == 32);
+	static_assert(sizeof(ShaderInterop::LineConstants) == 32);
 	static_assert(ShaderInterop::MaxShadowCascades == Shadows::MaxCascades);
 
 	namespace
@@ -48,8 +49,10 @@ namespace Strada
 		constexpr nvrhi::Format OcclusionFormat = nvrhi::Format::R32_FLOAT;
 		constexpr nvrhi::Format BloomFormat = nvrhi::Format::RGBA16_FLOAT;
 		constexpr nvrhi::Format EntityIdFormat = nvrhi::Format::R32_UINT;
-		// Debug line vertices: float3 position + float4 color.
-		constexpr uint32_t LineVertexSize = 28;
+		// The line layer's depth holds distances to line centers (0-1).
+		constexpr nvrhi::Format LineLayerDepthFormat = nvrhi::Format::D16;
+		// Debug line instances: float3 from + float3 to + float4 color + uint depth tested.
+		constexpr uint32_t LineInstanceSize = 44;
 		constexpr uint32_t MaxOutlineWidth = 8;
 		constexpr uint32_t ComputeGroupSize = 8;
 		constexpr uint32_t MaxBloomMips = 6;
@@ -338,25 +341,28 @@ namespace Strada
 		};
 		m_GridLayout = createOverlayLayout(sizeof(ShaderInterop::GridConstants));
 		m_OutlineLayout = createOverlayLayout(sizeof(ShaderInterop::OutlineConstants));
+		// Lines test their depth against the scene depth themselves (to dim instead of hide).
+		m_LineLayout = createOverlayLayout(sizeof(ShaderInterop::LineConstants));
+		nvrhi::BindingLayoutDesc lineCompositeLayout;
+		lineCompositeLayout.visibility = nvrhi::ShaderType::All;
+		lineCompositeLayout.bindings = {nvrhi::BindingLayoutItem::Texture_SRV(1)};
+		m_LineCompositeLayout = device->createBindingLayout(lineCompositeLayout);
 
-		nvrhi::BindingLayoutDesc lineLayout;
-		lineLayout.visibility = nvrhi::ShaderType::All;
-		lineLayout.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)};
-		m_LineLayout = device->createBindingLayout(lineLayout);
-		m_LineBindings = device->createBindingSet(
-			nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OverlayConstants)), m_LineLayout);
-		static_assert(sizeof(LineVertex) == LineVertexSize);
+		static_assert(sizeof(LineInstance) == LineInstanceSize);
+		auto const lineAttribute = [](char const* name, nvrhi::Format format, uint32_t offset)
+		{
+			return nvrhi::VertexAttributeDesc()
+			    .setName(name)
+			    .setFormat(format)
+			    .setOffset(offset)
+			    .setElementStride(sizeof(LineInstance))
+			    .setIsInstanced(true);
+		};
 		nvrhi::VertexAttributeDesc const lineAttributes[] = {
-			nvrhi::VertexAttributeDesc()
-				.setName("POSITION")
-				.setFormat(nvrhi::Format::RGB32_FLOAT)
-				.setOffset(offsetof(LineVertex, Position))
-				.setElementStride(sizeof(LineVertex)),
-			nvrhi::VertexAttributeDesc()
-				.setName("COLOR")
-				.setFormat(nvrhi::Format::RGBA32_FLOAT)
-				.setOffset(offsetof(LineVertex, Color))
-				.setElementStride(sizeof(LineVertex)),
+			lineAttribute("FROM", nvrhi::Format::RGB32_FLOAT, offsetof(LineInstance, From)),
+			lineAttribute("TO", nvrhi::Format::RGB32_FLOAT, offsetof(LineInstance, To)),
+			lineAttribute("COLOR", nvrhi::Format::RGBA32_FLOAT, offsetof(LineInstance, Color)),
+			lineAttribute("DEPTHTESTED", nvrhi::Format::R32_UINT, offsetof(LineInstance, DepthTested)),
 		};
 		m_LineInputLayout = device->createInputLayout(lineAttributes, static_cast<uint32_t>(std::size(lineAttributes)),
 		                                              ShaderLibrary::Get("OverlayLine_VS"));
@@ -398,8 +404,8 @@ namespace Strada
 		                   m_OcclusionPipeline && m_DenoisePipeline && m_CompositePipeline && m_BloomDownsamplePipeline &&
 		                   m_BloomUpsamplePipeline,
 		               "Failed to create scene renderer resources");
-		ST_CORE_ASSERT(m_OverlayConstants && m_GridLayout && m_OutlineLayout && m_LineLayout && m_LineBindings && m_LineInputLayout &&
-		                   m_EntityIdLayout && m_EntityIdBindings && m_PickStaging && m_PickQuery,
+		ST_CORE_ASSERT(m_OverlayConstants && m_GridLayout && m_OutlineLayout && m_LineLayout && m_LineCompositeLayout &&
+		                   m_LineInputLayout && m_EntityIdLayout && m_EntityIdBindings && m_PickStaging && m_PickQuery,
 		               "Failed to create scene renderer overlay resources");
 	}
 
@@ -555,20 +561,24 @@ namespace Strada
 		m_LdrFramebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_LdrTarget));
 		m_FinalFramebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_FinalImage));
 
-		// Overlays: depth-tested lines read the scene depth through a read-only depth attachment; the grid samples it.
-		nvrhi::FramebufferAttachment const readOnlyDepth = nvrhi::FramebufferAttachment().setTexture(m_DepthTarget).setReadOnly(true);
-		nvrhi::FramebufferDesc ldrOverlayDesc = nvrhi::FramebufferDesc().addColorAttachment(m_LdrTarget);
-		ldrOverlayDesc.depthAttachment = readOnlyDepth;
-		m_LdrOverlayFramebuffer = device->createFramebuffer(ldrOverlayDesc);
-		nvrhi::FramebufferDesc finalOverlayDesc = nvrhi::FramebufferDesc().addColorAttachment(m_FinalImage);
-		finalOverlayDesc.depthAttachment = readOnlyDepth;
-		m_FinalOverlayFramebuffer = device->createFramebuffer(finalOverlayDesc);
+		// Overlays: the grid and the lines sample the scene depth.
 		m_GridBindings =
 			device->createBindingSet(nvrhi::BindingSetDesc()
 		                                 .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OverlayConstants))
 		                                 .addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_DepthTarget))
 		                                 .addItem(nvrhi::BindingSetItem::PushConstants(1, sizeof(ShaderInterop::GridConstants))),
 		                             m_GridLayout);
+		m_LineBindings =
+			device->createBindingSet(nvrhi::BindingSetDesc()
+		                                 .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_OverlayConstants))
+		                                 .addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_DepthTarget))
+		                                 .addItem(nvrhi::BindingSetItem::PushConstants(1, sizeof(ShaderInterop::LineConstants))),
+		                             m_LineLayout);
+		// Recreated at the new size by the next frame with lines.
+		m_LineLayer = nullptr;
+		m_LineLayerDepth = nullptr;
+		m_LineLayerFramebuffer = nullptr;
+		m_LineCompositeBindings = nullptr;
 
 		m_EntityIdTarget = nullptr;
 		m_EntityIdDepth = nullptr;
@@ -735,26 +745,17 @@ namespace Strada
 			// The tonemapped and final images share their format.
 			m_GridPipeline = device->createGraphicsPipeline(desc, m_FinalFramebuffer->getFramebufferInfo());
 		}
-		for (uint32_t depthTested = 0; depthTested < 2; depthTested++)
+		if (!m_LineCompositePipeline)
 		{
-			nvrhi::GraphicsPipelineHandle& pipeline = m_LinePipelines[depthTested];
-			if (pipeline)
-			{
-				continue;
-			}
 			nvrhi::GraphicsPipelineDesc desc;
-			desc.primType = nvrhi::PrimitiveType::LineList;
-			desc.inputLayout = m_LineInputLayout;
-			desc.VS = ShaderLibrary::Get("OverlayLine_VS");
-			desc.PS = ShaderLibrary::Get("OverlayLine_PS");
-			desc.bindingLayouts = {m_LineLayout};
+			desc.VS = ShaderLibrary::Get("Fullscreen_VS");
+			desc.PS = ShaderLibrary::Get("OverlayLineComposite_PS");
+			desc.bindingLayouts = {m_LineCompositeLayout};
 			desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
-			// Reversed Z; lines never write depth.
-			desc.renderState.depthStencilState.depthTestEnable = depthTested != 0;
+			desc.renderState.depthStencilState.depthTestEnable = false;
 			desc.renderState.depthStencilState.depthWriteEnable = false;
-			desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::GreaterOrEqual;
 			enableAlphaBlending(desc);
-			pipeline = device->createGraphicsPipeline(desc, m_FinalOverlayFramebuffer->getFramebufferInfo());
+			m_LineCompositePipeline = device->createGraphicsPipeline(desc, m_FinalFramebuffer->getFramebufferInfo());
 		}
 		if (!m_OutlinePipeline)
 		{
@@ -768,9 +769,66 @@ namespace Strada
 			enableAlphaBlending(desc);
 			m_OutlinePipeline = device->createGraphicsPipeline(desc, m_FinalFramebuffer->getFramebufferInfo());
 		}
-		if (!m_GridPipeline || !m_LinePipelines[0] || !m_LinePipelines[1] || !m_OutlinePipeline)
+		if (!m_GridPipeline || !m_LineCompositePipeline || !m_OutlinePipeline)
 		{
 			ST_CORE_ERROR("Failed to create the overlay pipelines");
+		}
+	}
+
+	void SceneRenderer::CreateLineLayer()
+	{
+		if (m_LineLayerFramebuffer)
+		{
+			return;
+		}
+		nvrhi::IDevice* device = GraphicsDevice::GetDevice();
+		nvrhi::TextureDesc layerDesc;
+		layerDesc.width = m_Width;
+		layerDesc.height = m_Height;
+		layerDesc.format = FinalFormat;
+		layerDesc.isRenderTarget = true;
+		layerDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+		layerDesc.keepInitialState = true;
+		layerDesc.setClearValue(nvrhi::Color(0.0f));
+		layerDesc.debugName = "Line layer";
+		m_LineLayer = device->createTexture(layerDesc);
+		nvrhi::TextureDesc depthDesc = layerDesc;
+		depthDesc.format = LineLayerDepthFormat;
+		depthDesc.initialState = nvrhi::ResourceStates::DepthWrite;
+		depthDesc.setClearValue(nvrhi::Color(1.0f));
+		depthDesc.debugName = "Line layer depth";
+		m_LineLayerDepth = device->createTexture(depthDesc);
+		if (!m_LineLayer || !m_LineLayerDepth)
+		{
+			ST_CORE_ERROR("Failed to create the debug line layer");
+			m_LineLayer = nullptr;
+			m_LineLayerDepth = nullptr;
+			return;
+		}
+		m_LineLayerFramebuffer =
+			device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(m_LineLayer).setDepthAttachment(m_LineLayerDepth));
+		m_LineCompositeBindings = device->createBindingSet(
+			nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::Texture_SRV(1, m_LineLayer)), m_LineCompositeLayout);
+		if (!m_LinePipeline && m_LineLayerFramebuffer)
+		{
+			nvrhi::GraphicsPipelineDesc desc;
+			desc.primType = nvrhi::PrimitiveType::TriangleList;
+			desc.inputLayout = m_LineInputLayout;
+			desc.VS = ShaderLibrary::Get("OverlayLine_VS");
+			desc.PS = ShaderLibrary::Get("OverlayLine_PS");
+			desc.bindingLayouts = {m_LineLayout};
+			desc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+			// The depth is the distance to the line's center: the nearest line keeps the pixel, without blending. The
+			// pixel shader compares the scene depth itself, so hidden parts can be dimmed instead of discarded.
+			desc.renderState.depthStencilState.depthTestEnable = true;
+			desc.renderState.depthStencilState.depthWriteEnable = true;
+			desc.renderState.depthStencilState.depthFunc = nvrhi::ComparisonFunc::Less;
+			m_LinePipeline = device->createGraphicsPipeline(desc, m_LineLayerFramebuffer->getFramebufferInfo());
+		}
+		if (!m_LineLayerFramebuffer || !m_LineCompositeBindings || !m_LinePipeline)
+		{
+			ST_CORE_ERROR("Failed to create the debug line layer");
+			m_LineLayerFramebuffer = nullptr;
 		}
 	}
 
@@ -890,8 +948,7 @@ namespace Strada
 		m_ShadowViews.clear();
 		m_Statistics = {};
 		m_Overlays = {};
-		m_DepthTestedLines.clear();
-		m_OnTopLines.clear();
+		m_Lines.clear();
 		m_Quads->Clear();
 		m_HasSelection = false;
 	}
@@ -959,9 +1016,7 @@ namespace Strada
 	void SceneRenderer::SubmitLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, bool depthTest)
 	{
 		ST_CORE_ASSERT(m_InScene, "SubmitLine outside BeginScene/EndScene");
-		std::vector<LineVertex>& lines = depthTest ? m_DepthTestedLines : m_OnTopLines;
-		lines.push_back({from, color});
-		lines.push_back({to, color});
+		m_Lines.push_back({from, to, color, depthTest ? 1u : 0u});
 	}
 
 	void SceneRenderer::SetOverlays(SceneRendererOverlays const& overlays)
@@ -1539,6 +1594,10 @@ namespace Strada
 
 		ShaderInterop::ShadowConstants shadows{};
 		PrepareShadows(shadows);
+		if (!m_Lines.empty())
+		{
+			CreateLineLayer();
+		}
 
 		GpuEnvironment const* environment = m_Environment.Environment ? Renderer::GetEnvironment(m_Environment.Environment) : nullptr;
 		FrameTextures textures;
@@ -1719,8 +1778,7 @@ namespace Strada
 		m_OpaqueItems.clear();
 		m_BlendItems.clear();
 		m_ShadowViews.clear();
-		m_DepthTestedLines.clear();
-		m_OnTopLines.clear();
+		m_Lines.clear();
 		m_Quads->Clear();
 		Renderer::CollectGarbage();
 	}
@@ -1793,13 +1851,12 @@ namespace Strada
 			commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 		}
 
-		size_t const vertexCount = m_DepthTestedLines.size() + m_OnTopLines.size();
-		if (vertexCount == 0 || !m_LinePipelines[0] || !m_LinePipelines[1])
+		if (m_Lines.empty() || !m_LineLayerFramebuffer || !m_LineCompositePipeline)
 		{
 			return;
 		}
-		uint64_t const requiredSize = vertexCount * sizeof(LineVertex);
-		if (!m_LineVertexBuffer || m_LineVertexBuffer->getDesc().byteSize < requiredSize)
+		uint64_t const requiredSize = m_Lines.size() * sizeof(LineInstance);
+		if (!m_LineBuffer || m_LineBuffer->getDesc().byteSize < requiredSize)
 		{
 			nvrhi::BufferDesc desc;
 			desc.byteSize = std::bit_ceil(std::max<uint64_t>(requiredSize, 4096));
@@ -1807,37 +1864,40 @@ namespace Strada
 			desc.initialState = nvrhi::ResourceStates::VertexBuffer;
 			desc.keepInitialState = true;
 			desc.debugName = "Debug lines";
-			m_LineVertexBuffer = GraphicsDevice::GetDevice()->createBuffer(desc);
-			if (!m_LineVertexBuffer)
+			m_LineBuffer = GraphicsDevice::GetDevice()->createBuffer(desc);
+			if (!m_LineBuffer)
 			{
 				ST_CORE_ERROR("Failed to create the debug line buffer");
 				return;
 			}
 		}
-		std::vector<LineVertex> vertices;
-		vertices.reserve(vertexCount);
-		vertices.insert(vertices.end(), m_DepthTestedLines.begin(), m_DepthTestedLines.end());
-		vertices.insert(vertices.end(), m_OnTopLines.begin(), m_OnTopLines.end());
-		commandList->writeBuffer(m_LineVertexBuffer, vertices.data(), requiredSize);
+		commandList->writeBuffer(m_LineBuffer, m_Lines.data(), requiredSize);
 
-		auto const drawLines = [&](nvrhi::IGraphicsPipeline* pipeline, uint32_t firstVertex, uint32_t count)
-		{
-			if (count == 0)
-			{
-				return;
-			}
-			nvrhi::GraphicsState state;
-			state.pipeline = pipeline;
-			state.framebuffer = ldrTarget ? m_LdrOverlayFramebuffer : m_FinalOverlayFramebuffer;
-			state.viewport.addViewportAndScissorRect(viewport);
-			state.bindings = {m_LineBindings};
-			state.vertexBuffers = {nvrhi::VertexBufferBinding().setBuffer(m_LineVertexBuffer).setSlot(0).setOffset(0)};
-			commandList->setGraphicsState(state);
-			commandList->draw(nvrhi::DrawArguments().setVertexCount(count).setStartVertexLocation(firstVertex));
-		};
-		uint32_t const depthTestedCount = static_cast<uint32_t>(m_DepthTestedLines.size());
-		drawLines(m_LinePipelines[1], 0, depthTestedCount);
-		drawLines(m_LinePipelines[0], depthTestedCount, static_cast<uint32_t>(m_OnTopLines.size()));
+		ShaderInterop::LineConstants constants{};
+		constants.OutlineColor = m_Overlays.LineOutlineColor;
+		constants.Width = std::clamp(m_Overlays.LineWidth, SceneRendererOverlays::MinLineWidth, SceneRendererOverlays::MaxLineWidth);
+		constants.OutlineWidth = std::clamp(m_Overlays.LineOutlineWidth, 0.0f, SceneRendererOverlays::MaxLineOutlineWidth);
+		constants.OccludedOpacity = std::clamp(m_Overlays.OccludedLineOpacity, 0.0f, 1.0f);
+
+		commandList->clearTextureFloat(m_LineLayer, nvrhi::AllSubresources, nvrhi::Color(0.0f));
+		commandList->clearDepthStencilTexture(m_LineLayerDepth, nvrhi::AllSubresources, true, 1.0f, false, 0);
+		nvrhi::GraphicsState lineState;
+		lineState.pipeline = m_LinePipeline;
+		lineState.framebuffer = m_LineLayerFramebuffer;
+		lineState.viewport.addViewportAndScissorRect(viewport);
+		lineState.bindings = {m_LineBindings};
+		lineState.vertexBuffers = {nvrhi::VertexBufferBinding().setBuffer(m_LineBuffer).setSlot(0).setOffset(0)};
+		commandList->setGraphicsState(lineState);
+		commandList->setPushConstants(&constants, sizeof(constants));
+		commandList->draw(nvrhi::DrawArguments().setVertexCount(6).setInstanceCount(static_cast<uint32_t>(m_Lines.size())));
+
+		nvrhi::GraphicsState compositeState;
+		compositeState.pipeline = m_LineCompositePipeline;
+		compositeState.framebuffer = ldrTarget ? m_LdrFramebuffer : m_FinalFramebuffer;
+		compositeState.viewport.addViewportAndScissorRect(viewport);
+		compositeState.bindings = {m_LineCompositeBindings};
+		commandList->setGraphicsState(compositeState);
+		commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 	}
 
 	void SceneRenderer::RenderSelectionOutline(nvrhi::ICommandList* commandList)

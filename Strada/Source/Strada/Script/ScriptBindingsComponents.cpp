@@ -622,6 +622,7 @@ namespace Strada::ScriptGlue
 		AddFieldBindings<&JointComponent::MotorMaxForce, "JointComponent", "MotorMaxForce">(table);
 
 		AddFieldBindings<&AudioSourceComponent::Clip, "AudioSourceComponent", "Clip">(table);
+		AddFieldBindings<&AudioSourceComponent::Stream, "AudioSourceComponent", "Stream">(table);
 		AddFieldBindings<&AudioSourceComponent::Volume, "AudioSourceComponent", "Volume">(table);
 		AddFieldBindings<&AudioSourceComponent::Pitch, "AudioSourceComponent", "Pitch">(table);
 		AddFieldBindings<&AudioSourceComponent::Loop, "AudioSourceComponent", "Loop">(table);

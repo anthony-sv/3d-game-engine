@@ -66,7 +66,7 @@ TEST_CASE("Scene: scripts read and write every component field")
 
 	scene.OnRuntimeStart();
 	CHECK_FALSE(Testing::WasLogged(logStart, "Mismatch"));
-	CHECK(writer.GetName() == "Checked 87");
+	CHECK(writer.GetName() == "Checked 88");
 
 	CameraComponent const& camera = writer.GetComponent<CameraComponent>();
 	CHECK(camera.Projection == ProjectionType::Orthographic);
@@ -155,6 +155,7 @@ TEST_CASE("Scene: scripts read and write every component field")
 
 	AudioSourceComponent const& audio = writer.GetComponent<AudioSourceComponent>();
 	CHECK_FALSE(audio.Clip.IsValid());
+	CHECK(audio.Stream);
 	CHECK(audio.Volume == 0.5f);
 	CHECK(audio.Pitch == 1.5f);
 	CHECK(audio.Loop);

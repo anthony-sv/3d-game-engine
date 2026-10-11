@@ -242,8 +242,12 @@ Frame passes, in order:
     color is used as is), alpha blended, tested against the scene depth without writing it, back to front. On the
     tonemapped image (before FXAA when it is enabled): the editor ground grid (analytic ray/plane intersection on y = 0, anti-aliased minor and
     major lines and colored axes, faded with distance, hidden behind surfaces with a small depth tolerance so ground
-    planes do not z-fight) and debug lines (depth-tested through the scene depth attached read-only, or drawn on
-    top; collider visualization, script `Debug.DrawLine`). After FXAA: the selection outline, an anti-aliased band
+    planes do not z-fight) and debug lines (editor shapes, script `Debug.DrawLine`): every line is an instanced
+    screen-space quad (cut at the near plane) with round caps, an anti-aliased core of the overlays' width and an
+    optional dark outline, drawn into a line layer where each pixel keeps only the nearest line's color (the distance
+    to the line's center is its depth), so lines that meet or cross never blend twice; the layer is then blended over
+    the image. Depth-tested lines compare their depth with the scene depth in the shader: hidden behind surfaces, or
+    dimmed there (`OccludedLineOpacity`, which the scene view uses). After FXAA: the selection outline, an anti-aliased band
     around the visible silhouette of selected meshes, sprites and text read from the ID target. Screen-space sprites
     and text follow the overlays (their linear colors are sRGB-encoded in the shader). All other overlay colors are
     sRGB-encoded with straight alpha. Sprites and text also write their picking IDs where they are opaque (screen-space
@@ -368,7 +372,7 @@ interop component lookups.
 | `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
-| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
+| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
 | `Text` | `TextComponent` | `Text`, `Font` asset (0 = default), `Color`, `FontSize`, `ScreenSpace`, `Alignment` (Left/Center/Right), `LineSpacing` |
@@ -492,15 +496,20 @@ ALSA, JACK) are loaded at runtime and are not build requirements.
 
 `AudioClipAsset`s hold the encoded file (WAV, FLAC, MP3, Ogg Vorbis; the format is detected from the data).
 `AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID): each sound decodes
-its clip from memory through its own decoder while it plays, and a scene's sounds play through one sound group that
-pauses them together. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
+its clip through its own decoder while it plays, and a scene's sounds play through one sound group that pauses them
+together. Loaded sounds decode the clip's data in memory; streamed sounds (`AudioSourceDesc::StreamFile`) open the
+clip's file when they are created (on the main thread, the format checked like a clip's) and read and decode it as they
+play, on the thread that mixes them, so only a little of a long file is in memory; looping wraps within one read, so
+loops are seamless, and the main thread only seeks a sound's file while the mixer has stopped reading it (at its end).
+Files that are missing or not audio are refused when the source is created; damaged ones play what can be decoded. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
 so scenes never move each other's listener. Spatial sounds are attenuated by inverse distance (full volume within
 `MinDistance`, `MinDistance / distance` up to `MaxDistance`, constant beyond) and panned by miniaudio's model (its
 stereo speakers face left and right, so a sound in front reaches each at half gain); there is no doppler effect.
 
 The scene drives it while running. `OnRuntimeStart` creates a sound for every `AudioSourceComponent` with a clip,
-playing when `PlayOnStart` is set. Each update compares the components with the settings last applied, so changes
-from anywhere (inspector, scripts, automation) reach the sounds: a new clip makes a new, stopped sound; sources added
+playing when `PlayOnStart` is set; sources with `Stream` stream the clip asset's file without loading the asset. Each
+update compares the components with the settings last applied, so changes from anywhere (inspector, scripts,
+automation) reach the sounds: a new clip, or a change of `Stream`, makes a new, stopped sound; sources added
 while running start like the others; removed components and destroyed entities lose their sound. Spatial sources
 follow their entities' world positions, and the listener follows the first active `AudioListenerComponent` in hierarchy
 order, else the primary camera, else the origin facing -Z. `Scene::SetPaused` holds the scene's sounds.
@@ -573,7 +582,7 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `LinearDamping`, `AngularDamping`, `AddForce(Vector3, ForceMode)`, `AddTorque(Vector3, ForceMode)`,
   `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
-  `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
+  `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
   `Emit(count)`, `Clear()`, `ParticleCount`), `ScriptComponent` (`ClassName`, `Instance`).
 - `Material` (runtime-creatable): `Create()`, `Clone()`, `IsEditable`, `BaseColor`, `Metallic`, `Roughness`,
@@ -673,15 +682,20 @@ than the assembly.
   shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite and text quads).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
-  (create presets at the scene view's focal point), View, Play (Play/Stop, Simulate, Pause, Step). Shortcuts are global
+  (create presets at the scene view's focal point: Create Empty, then the 3D Object, Rendering, Effects, Audio and UI
+  submenus, which the hierarchy's create button and Create Child share; `EntityPresets::GetMenu`), View, Play
+  (Play/Stop, Simulate, Pause, Step). Shortcuts are global
   unless a text field is being edited.
   Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
   scene name and a `*` while it has unsaved changes.
 - Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
   (fly/orbit/pan/zoom/focus). Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
-  orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays: ground grid
-  (G), selection outline, clickable icons for cameras and lights, shapes of selected cameras (frustums), lights
-  (directions, ranges, cones) and colliders, every collider, and the lines scripts draw. ImGuizmo edits apply to every
+  orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays
+  (`SceneViewOverlays`, also `viewport.overlays`): ground grid (G), selection outline, light and camera gizmos
+  (clickable billboard icons per kind of light and for cameras), camera frustums, light shapes (directional light rays
+  kept at a constant size on screen, point light ranges, spot light cones with their inner cone), colliders and joints,
+  each for the selected entities or every entity, and the lines scripts draw. Its lines are wide, light-colored and
+  outlined in dark so they read on bright and dark surfaces, and dimmed where surfaces hide them. ImGuizmo edits apply to every
   selected root around the primary selection as one undo step per drag (`SetComponentsCommand` with a merge key); click
   picking goes through the entity-ID pass (Ctrl toggles, Shift adds, empty space clears; picking IDs are never reused
   within a scene); assets can be dropped onto it.

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <unordered_set>
 
 namespace Strada::ViewportOverlays
 {
@@ -98,7 +99,7 @@ namespace Strada::ViewportOverlays
 				glm::vec3 const apex = TransformPoint(world, glm::vec3(0.0f));
 				for (glm::vec3 const& corner : nearCorners)
 				{
-					AddLine(lines, apex, corner, CameraColor, false);
+					AddLine(lines, apex, corner, CameraColor, true);
 				}
 			}
 			else
@@ -111,35 +112,44 @@ namespace Strada::ViewportOverlays
 			}
 			for (uint32_t i = 0; i < 4; i++)
 			{
-				AddLine(lines, nearCorners[i], nearCorners[(i + 1) % 4], CameraColor, false);
-				AddLine(lines, farCorners[i], farCorners[(i + 1) % 4], CameraColor, false);
-				AddLine(lines, nearCorners[i], farCorners[i], CameraColor, false);
+				AddLine(lines, nearCorners[i], nearCorners[(i + 1) % 4], CameraColor, true);
+				AddLine(lines, farCorners[i], farCorners[(i + 1) % 4], CameraColor, true);
+				AddLine(lines, nearCorners[i], farCorners[i], CameraColor, true);
 			}
 		}
 
-		void AddDirectionalLight(std::vector<OverlayLine>& lines, glm::mat4 const& world)
+		void AddDirectionalLight(std::vector<OverlayLine>& lines, glm::mat4 const& world, std::optional<glm::vec3> const& viewPosition)
 		{
 			glm::vec3 const origin = TransformPoint(world, glm::vec3(0.0f));
 			glm::vec3 const forward = TransformDirection(world, {0.0f, 0.0f, -1.0f});
 			glm::vec3 const right = TransformDirection(world, {1.0f, 0.0f, 0.0f});
 			glm::vec3 const up = TransformDirection(world, {0.0f, 1.0f, 0.0f});
-			glm::vec3 const tip = origin + forward * DirectionalLightArrowLength;
-			float const head = DirectionalLightArrowLength * 0.2f;
-			AddLine(lines, origin, tip, LightColor, false);
+			float const size = viewPosition ? std::max(glm::distance(*viewPosition, origin), 0.01f) * DirectionalLightViewScale : 1.0f;
+			float const radius = DirectionalLightRadius * size;
+			// Parallel rays: the light comes from infinitely far away, so only its direction matters.
+			AddCircle(lines, origin, right, up, radius, LightColor, true);
+			for (uint32_t i = 0; i < DirectionalLightRays; i++)
+			{
+				float const angle = glm::two_pi<float>() * static_cast<float>(i) / static_cast<float>(DirectionalLightRays);
+				glm::vec3 const start = origin + radius * (right * std::cos(angle) + up * std::sin(angle));
+				AddLine(lines, start, start + forward * (DirectionalLightRayLength * size), LightColor, true);
+			}
+			glm::vec3 const tip = origin + forward * (DirectionalLightArrowLength * size);
+			float const head = DirectionalLightArrowLength * size * 0.15f;
+			AddLine(lines, origin, tip, LightColor, true);
 			for (glm::vec3 const& side : {right, -right, up, -up})
 			{
-				AddLine(lines, tip, tip - forward * head + side * head * 0.5f, LightColor, false);
+				AddLine(lines, tip, tip - forward * head + side * head * 0.5f, LightColor, true);
 			}
-			AddCircle(lines, origin, right, up, head, LightColor, false);
 		}
 
 		void AddPointLight(std::vector<OverlayLine>& lines, glm::mat4 const& world, PointLightComponent const& light)
 		{
 			glm::vec3 const center = TransformPoint(world, glm::vec3(0.0f));
 			float const range = std::max(light.Range, 0.0f);
-			AddCircle(lines, center, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, range, LightColor, false);
-			AddCircle(lines, center, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, range, LightColor, false);
-			AddCircle(lines, center, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, range, LightColor, false);
+			AddCircle(lines, center, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, range, LightColor, true);
+			AddCircle(lines, center, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, range, LightColor, true);
+			AddCircle(lines, center, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, range, LightColor, true);
 		}
 
 		void AddSpotLight(std::vector<OverlayLine>& lines, glm::mat4 const& world, SpotLightComponent const& light)
@@ -150,14 +160,20 @@ namespace Strada::ViewportOverlays
 			glm::vec3 const up = TransformDirection(world, {0.0f, 1.0f, 0.0f});
 			float const range = std::max(light.Range, 0.0f);
 			float const outer = glm::radians(std::clamp(light.OuterConeAngle, 0.1f, 89.9f));
-			// The cone's base: the sphere cap at the light's range, drawn as its rim.
+			float const inner = std::min(glm::radians(std::clamp(light.InnerConeAngle, 0.0f, 89.9f)), outer);
+			// The cone ends in the sphere cap at the light's range: its rim, the edges from the light to it, and arcs over
+			// the cap through the cone's axis.
 			glm::vec3 const baseCenter = origin + forward * (range * std::cos(outer));
 			float const baseRadius = range * std::sin(outer);
-			AddCircle(lines, baseCenter, right, up, baseRadius, LightColor, false);
+			AddCircle(lines, baseCenter, right, up, baseRadius, LightColor, true);
 			for (glm::vec3 const& side : {right, -right, up, -up})
 			{
-				AddLine(lines, origin, baseCenter + side * baseRadius, LightColor, false);
+				AddLine(lines, origin, baseCenter + side * baseRadius, LightColor, true);
 			}
+			AddArc(lines, origin, forward, right, range, -outer, outer, SpotCapSegments, LightColor, true);
+			AddArc(lines, origin, forward, up, range, -outer, outer, SpotCapSegments, LightColor, true);
+			// Where the light starts to fade towards the outer cone.
+			AddCircle(lines, origin + forward * (range * std::cos(inner)), right, up, range * std::sin(inner), LightInnerColor, true);
 		}
 
 		void AddBoxCollider(std::vector<OverlayLine>& lines, glm::mat4 const& world, BoxColliderComponent const& collider)
@@ -213,6 +229,7 @@ namespace Strada::ViewportOverlays
 
 	namespace
 	{
+		// Drawn over everything: anchors usually lie inside the bodies they join.
 		void AddJoint(Scene& scene, std::vector<OverlayLine>& lines, glm::mat4 const& world, JointComponent const& joint)
 		{
 			glm::vec3 const anchor(world * glm::vec4(joint.Anchor, 1.0f));
@@ -249,9 +266,10 @@ namespace Strada::ViewportOverlays
 		}
 	}
 
-	void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines, uint32_t shapes)
+	void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines, uint32_t shapes,
+	                        std::optional<glm::vec3> const& viewPosition)
 	{
-		if (!entity)
+		if (!entity || shapes == 0)
 		{
 			return;
 		}
@@ -267,7 +285,7 @@ namespace Strada::ViewportOverlays
 		{
 			if (entity.HasComponent<DirectionalLightComponent>())
 			{
-				AddDirectionalLight(lines, world);
+				AddDirectionalLight(lines, world, viewPosition);
 			}
 			if (PointLightComponent const* light = entity.TryGetComponent<PointLightComponent>())
 			{
@@ -300,5 +318,37 @@ namespace Strada::ViewportOverlays
 				AddJoint(scene, lines, world, *joint);
 			}
 		}
+	}
+
+	uint32_t GetShapeKinds(SceneViewOverlays const& overlays, bool selected)
+	{
+		auto const kind = [selected](OverlayShapeSetting const& setting, uint32_t flag)
+		{
+			return setting.Enabled && (selected || setting.AllEntities) ? flag : 0u;
+		};
+		return kind(overlays.Cameras, Shapes::Cameras) | kind(overlays.Lights, Shapes::Lights) |
+		       kind(overlays.Colliders, Shapes::Colliders) | kind(overlays.Joints, Shapes::Joints);
+	}
+
+	void AppendSceneShapes(Scene& scene, std::span<UUID const> selection, SceneViewOverlays const& overlays, float aspectRatio,
+	                       glm::vec3 const& viewPosition, std::vector<OverlayLine>& lines)
+	{
+		uint32_t const selectedKinds = GetShapeKinds(overlays, true);
+		uint32_t const otherKinds = GetShapeKinds(overlays, false);
+		if (otherKinds == 0)
+		{
+			for (UUID const id : selection)
+			{
+				AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, selectedKinds, viewPosition);
+			}
+			return;
+		}
+		std::unordered_set<UUID> const selected(selection.begin(), selection.end());
+		scene.ForEachEntityInHierarchyOrder(
+			[&](Entity entity)
+			{
+				AppendEntityShapes(scene, entity, aspectRatio, lines, selected.contains(entity.GetUUID()) ? selectedKinds : otherKinds,
+			                       viewPosition);
+			});
 	}
 }

@@ -3,6 +3,7 @@
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Base64.h"
@@ -30,6 +31,7 @@ namespace
 		std::optional<EditorCommandEnvironment::ScreenshotCallback> PendingScreenshot;
 		// The viewport's camera and renderer statistics when there is a window (no statistics: no GPU renderer).
 		EditorCamera Camera;
+		SceneViewOverlays Overlays;
 		std::optional<SceneRendererStatistics> Statistics;
 		ContentBrowserPanel ContentBrowser;
 
@@ -57,6 +59,10 @@ namespace
 				environment.ViewportStatistics = [this]() -> SceneRendererStatistics const*
 				{
 					return Statistics ? &*Statistics : nullptr;
+				};
+				environment.ViewportOverlays = [this]() -> SceneViewOverlays&
+				{
+					return Overlays;
 				};
 				environment.ContentBrowser = [this]() -> ContentBrowserPanel&
 				{
@@ -104,11 +110,12 @@ TEST_CASE("EditorCommands: every command is registered with a schema and descrip
 {
 	CommandFixture fixture;
 	for (char const* name :
-	     {"editor.status", "editor.commands",     "editor.undo",     "editor.redo",      "editor.quit",         "scene.new",
-	      "scene.open",    "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings",      "entity.create",
-	      "entity.delete", "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",         "entity.get",
-	      "entity.select", "component.types",     "component.add",   "component.remove", "component.get",       "component.set",
-	      "log.read",      "viewport.screenshot", "viewport.camera", "viewport.frame",   "viewport.statistics", "asset.browse"})
+	     {"editor.status",    "editor.commands",     "editor.undo",     "editor.redo",      "editor.quit",         "scene.new",
+	      "scene.open",       "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings",      "entity.create",
+	      "entity.delete",    "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",         "entity.get",
+	      "entity.select",    "component.types",     "component.add",   "component.remove", "component.get",       "component.set",
+	      "log.read",         "viewport.screenshot", "viewport.camera", "viewport.frame",   "viewport.statistics", "asset.browse",
+	      "viewport.overlays"})
 	{
 		CAPTURE(name);
 		CHECK(fixture.Registry.Contains(name));
@@ -216,6 +223,7 @@ TEST_CASE("EditorCommands: errors carry precise codes")
 	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", {entity}}})) == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.statistics") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("asset.browse", Json::object({{"folder", ""}})) == AutomationErrorCode::Unavailable);
+	CHECK(fixture.Fails("viewport.overlays") == AutomationErrorCode::Unavailable);
 }
 
 TEST_CASE("EditorCommands: scene files and unsaved changes")
@@ -606,4 +614,49 @@ TEST_CASE("EditorCommands: the viewport's renderer statistics are reported")
 	                                                         {"culledLights", 2},
 	                                                         {"culled", 4},
 	                                                         {"quads", 9}}));
+}
+
+TEST_CASE("EditorCommands: the viewport's overlays are read and set")
+{
+	CommandFixture fixture(true);
+	Json const defaults = fixture.Ok("viewport.overlays");
+	CHECK(defaults == Json::object({{"grid", true},
+	                                {"selectionOutline", true},
+	                                {"icons", true},
+	                                {"cameras", "selected"},
+	                                {"lights", "selected"},
+	                                {"colliders", "selected"},
+	                                {"joints", "selected"},
+	                                {"debugDrawing", true}}));
+	CHECK(fixture.Overlays == SceneViewOverlays());
+
+	// Only the given overlays change.
+	Json const changed =
+		fixture.Ok("viewport.overlays",
+	               Json::object({{"grid", false}, {"icons", false}, {"lights", "all"}, {"colliders", "off"}, {"debugDrawing", false}}));
+	CHECK(changed["grid"] == false);
+	CHECK(changed["selectionOutline"] == true);
+	CHECK(changed["lights"] == "all");
+	CHECK(changed["colliders"] == "off");
+	CHECK(changed["cameras"] == "selected");
+	CHECK_FALSE(fixture.Overlays.Grid);
+	CHECK_FALSE(fixture.Overlays.Icons);
+	CHECK_FALSE(fixture.Overlays.DebugLines);
+	CHECK(fixture.Overlays.Lights == OverlayShapeSetting{true, true});
+	CHECK_FALSE(fixture.Overlays.Colliders.Enabled);
+
+	// Turning shapes off keeps the choice of entities for when they are on again.
+	CHECK(fixture.Ok("viewport.overlays", Json::object({{"lights", "off"}}))["lights"] == "off");
+	CHECK(fixture.Overlays.Lights == OverlayShapeSetting{false, true});
+	CHECK(fixture.Ok("viewport.overlays", Json::object({{"lights", "selected"}}))["lights"] == "selected");
+	CHECK(fixture.Overlays.Lights == OverlayShapeSetting{true, false});
+
+	// Invalid values change nothing.
+	SceneViewOverlays const before = fixture.Overlays;
+	CHECK(fixture.Fails("viewport.overlays", Json::object({{"joints", "some"}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("viewport.overlays", Json::object({{"grid", "yes"}, {"icons", true}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Overlays == before);
+	// The scene and its history are untouched.
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == 0);
+	CHECK_FALSE(fixture.Context.IsDirty());
 }

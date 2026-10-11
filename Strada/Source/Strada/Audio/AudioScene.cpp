@@ -4,12 +4,14 @@
 #include "Strada/Asset/AudioClipAsset.h"
 #include "Strada/Audio/AudioEngine.h"
 #include "Strada/Audio/MiniaudioContext.h"
+#include "Strada/Core/FileSystem.h"
 
 #include <extras/decoders/libvorbis/miniaudio_libvorbis.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <fstream>
 #include <unordered_map>
 
 namespace Strada
@@ -39,6 +41,36 @@ namespace Strada
 			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 		}
 
+		// The format of an audio file, from its first bytes as for clips: files in other formats are refused before any
+		// decoder guesses at them.
+		Result<AudioFormat> DetectFileFormat(std::filesystem::path const& path)
+		{
+			std::ifstream file(path, std::ios::binary);
+			if (!file)
+			{
+				return MakeError("{} cannot be opened", FileSystem::PathToUtf8(path));
+			}
+			std::array<uint8_t, 16> header{};
+			file.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size()));
+			AudioFormat const format = DetectAudioFormat(std::span<uint8_t const>(header.data(), static_cast<size_t>(file.gcount())));
+			if (format == AudioFormat::Unknown)
+			{
+				return MakeError("{} is not in a supported audio format (WAV, FLAC, MP3 or Ogg Vorbis)", FileSystem::PathToUtf8(path));
+			}
+			return format;
+		}
+
+		// Opens the file here, on the calling thread; the decoder then reads it through miniaudio's file functions.
+		ma_result InitFileDecoder(std::filesystem::path const& path, ma_decoder_config const& config, ma_decoder& decoder)
+		{
+#if defined(ST_PLATFORM_WINDOWS)
+			// Wide paths: the narrow file functions take paths in the ANSI code page on Windows.
+			return ma_decoder_init_file_w(path.c_str(), &config, &decoder);
+#else
+			return ma_decoder_init_file(path.c_str(), &config, &decoder);
+#endif
+		}
+
 		// A clip played through its own decoder, so every sound has its own read position.
 		struct Sound
 		{
@@ -47,13 +79,16 @@ namespace Strada
 			ma_sound Handle{};
 			bool HasDecoder = false;
 			bool HasHandle = false;
+			// The decoder reads a file (it owns the file) instead of the clip's data.
+			bool Streaming = false;
 			bool Spatial = true;
 			glm::vec3 Position = glm::vec3(0.0f);
 
 			Sound() = default;
 			~Sound()
 			{
-				// The sound reads from the decoder, which reads from the clip's data.
+				// The sound reads from the decoder, which reads from the clip's data or its file: once the sound is
+				// uninitialized the mixer no longer reads either, and the decoder closes its file.
 				if (HasHandle)
 				{
 					ma_sound_uninit(&Handle);
@@ -136,25 +171,43 @@ namespace Strada
 
 	Result<void> AudioScene::AddSource(AudioSourceDesc const& desc)
 	{
-		if (!desc.Clip)
+		if (!desc.Clip && desc.StreamFile.empty())
 		{
 			return Error{"the audio source has no clip"};
 		}
 
 		Scope<Sound> sound = CreateScope<Sound>();
-		sound->Clip = desc.Clip;
-		std::span<uint8_t const> const data = sound->Clip->GetData();
 		ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
-		decoderConfig.encodingFormat = ToEncodingFormat(sound->Clip->GetFormat());
 		// Read only while the decoder initializes.
 		std::array<ma_decoding_backend_vtable*, 1> customBackends = {ma_decoding_backend_libvorbis};
 		decoderConfig.ppCustomBackendVTables = customBackends.data();
 		decoderConfig.customBackendCount = static_cast<ma_uint32>(customBackends.size());
-		if (ma_result const result = ma_decoder_init_memory(data.data(), data.size(), &decoderConfig, &sound->Decoder);
-		    result != MA_SUCCESS)
+		if (!desc.StreamFile.empty())
 		{
-			return MakeError("the {} clip cannot be decoded: {}", AudioFormatToString(sound->Clip->GetFormat()),
-			                 ma_result_description(result));
+			Result<AudioFormat> const format = DetectFileFormat(desc.StreamFile);
+			if (!format)
+			{
+				return Error{format.GetError()};
+			}
+			decoderConfig.encodingFormat = ToEncodingFormat(format.GetValue());
+			if (ma_result const result = InitFileDecoder(desc.StreamFile, decoderConfig, sound->Decoder); result != MA_SUCCESS)
+			{
+				return MakeError("the {} file {} cannot be decoded: {}", AudioFormatToString(format.GetValue()),
+				                 FileSystem::PathToUtf8(desc.StreamFile), ma_result_description(result));
+			}
+			sound->Streaming = true;
+		}
+		else
+		{
+			sound->Clip = desc.Clip;
+			std::span<uint8_t const> const data = sound->Clip->GetData();
+			decoderConfig.encodingFormat = ToEncodingFormat(sound->Clip->GetFormat());
+			if (ma_result const result = ma_decoder_init_memory(data.data(), data.size(), &decoderConfig, &sound->Decoder);
+			    result != MA_SUCCESS)
+			{
+				return MakeError("the {} clip cannot be decoded: {}", AudioFormatToString(sound->Clip->GetFormat()),
+				                 ma_result_description(result));
+			}
 		}
 		sound->HasDecoder = true;
 		if (ma_result const result =
@@ -189,6 +242,12 @@ namespace Strada
 	bool AudioScene::HasSource(UUID entity) const
 	{
 		return m_Data->Sounds.contains(entity);
+	}
+
+	bool AudioScene::IsStreaming(UUID entity) const
+	{
+		Sound const* sound = m_Data->Find(entity);
+		return sound != nullptr && sound->Streaming;
 	}
 
 	size_t AudioScene::GetSourceCount() const

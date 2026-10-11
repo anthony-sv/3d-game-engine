@@ -5,6 +5,7 @@
 #include "Editor/EditorCamera.h"
 #include "Editor/EntityBounds.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
@@ -1815,33 +1816,109 @@ namespace Strada
 					                   {"quads", statistics->Quads}});
 							  })
 						: result;
+				result =
+					result
+						? Add("viewport.frame",
+				              "Points the editor viewport's camera at entities, framing their meshes (their origins without one) from the "
+				              "current direction, as Focus in the hierarchy does. Returns the view like viewport.camera. Not undoable; "
+				              "Unavailable without a viewport (headless).",
+				              SchemaBuilder::Object()
+				                  .Property("entities", SchemaBuilder::Array(EntityIdSchema("Entity ID"), "Entities to frame").MinItems(1),
+				                            true)
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (!m_Environment.ViewportCamera)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no viewport (headless)");
+								  }
+								  CommandValue<std::vector<UUID>> ids = ParseExistingEntities(m_Operations, params["entities"], "entities");
+								  if (!ids)
+								  {
+									  return ids.TakeError();
+								  }
+								  EditorCamera& camera = m_Environment.ViewportCamera();
+								  camera.Focus(ComputeEntityBounds(Context().GetScene(), ids.GetValue()));
+								  return DescribeCamera(camera);
+							  })
+						: result;
+				auto const shapeSchema = [](std::string_view description)
+				{
+					return SchemaBuilder::String(description).Enum({"off", "selected", "all"});
+				};
 				return result
-				           ? Add("viewport.frame",
-				                 "Points the editor viewport's camera at entities, framing their meshes (their origins without one) from the "
-				                 "current direction, as Focus in the hierarchy does. Returns the view like viewport.camera. Not undoable; "
-				                 "Unavailable without a viewport (headless).",
+				           ? Add("viewport.overlays",
+				                 "What the editor viewport draws over the scene: sets the given overlays (the others stay) and returns "
+				                 "all of them: { grid, selectionOutline, icons (light and camera gizmos), cameras (frustums), lights "
+				                 "(directional light rays, point light ranges, spot light cones), colliders, joints, debugDrawing (lines "
+				                 "scripts draw) }; the shape kinds are \"off\", \"selected\" (for the selected entities) or \"all\" (for "
+				                 "every entity). Changes nothing in the scene. Not undoable; Unavailable without a viewport (headless).",
 				                 SchemaBuilder::Object()
-				                     .Property("entities",
-				                               SchemaBuilder::Array(EntityIdSchema("Entity ID"), "Entities to frame").MinItems(1), true)
+				                     .Property("grid", SchemaBuilder::Boolean("The ground grid"))
+				                     .Property("selectionOutline", SchemaBuilder::Boolean("The outline of selected meshes"))
+				                     .Property("icons", SchemaBuilder::Boolean("Billboard icons of cameras and lights"))
+				                     .Property("cameras", shapeSchema("Camera frustums"))
+				                     .Property("lights", shapeSchema("Directional light rays, point light ranges and spot light cones"))
+				                     .Property("colliders", shapeSchema("Collider outlines"))
+				                     .Property("joints", shapeSchema("Joint anchors, axes and connections"))
+				                     .Property("debugDrawing", SchemaBuilder::Boolean("Lines scripts draw (Debug.DrawLine)"))
 				                     .Build(),
 				                 false,
 				                 [this](Json const& params) -> CommandResult
 				                 {
-									 if (!m_Environment.ViewportCamera)
+									 if (!m_Environment.ViewportOverlays)
 									 {
 										 return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no viewport (headless)");
 									 }
-									 CommandValue<std::vector<UUID>> ids =
-										 ParseExistingEntities(m_Operations, params["entities"], "entities");
-									 if (!ids)
+									 SceneViewOverlays& overlays = m_Environment.ViewportOverlays();
+									 auto const setFlag = [&params](char const* name, bool& value)
 									 {
-										 return ids.TakeError();
-									 }
-									 EditorCamera& camera = m_Environment.ViewportCamera();
-									 camera.Focus(ComputeEntityBounds(Context().GetScene(), ids.GetValue()));
-									 return DescribeCamera(camera);
+										 if (params.contains(name))
+										 {
+											 value = params[name].get<bool>();
+										 }
+									 };
+									 auto const setShapes = [&params](char const* name, OverlayShapeSetting& setting)
+									 {
+										 if (params.contains(name))
+										 {
+											 std::string const value = params[name].get<std::string>();
+											 setting.Enabled = value != "off";
+											 // "off" keeps the choice between the selection and every entity for when it is on again.
+											 if (setting.Enabled)
+											 {
+												 setting.AllEntities = value == "all";
+											 }
+										 }
+									 };
+									 setFlag("grid", overlays.Grid);
+									 setFlag("selectionOutline", overlays.SelectionOutline);
+									 setFlag("icons", overlays.Icons);
+									 setShapes("cameras", overlays.Cameras);
+									 setShapes("lights", overlays.Lights);
+									 setShapes("colliders", overlays.Colliders);
+									 setShapes("joints", overlays.Joints);
+									 setFlag("debugDrawing", overlays.DebugLines);
+									 return DescribeOverlays(overlays);
 								 })
 				           : result;
+			}
+
+			static Json DescribeOverlays(SceneViewOverlays const& overlays)
+			{
+				auto const shapes = [](OverlayShapeSetting const& setting)
+				{
+					return !setting.Enabled ? "off" : (setting.AllEntities ? "all" : "selected");
+				};
+				return Json::object({{"grid", overlays.Grid},
+				                     {"selectionOutline", overlays.SelectionOutline},
+				                     {"icons", overlays.Icons},
+				                     {"cameras", shapes(overlays.Cameras)},
+				                     {"lights", shapes(overlays.Lights)},
+				                     {"colliders", shapes(overlays.Colliders)},
+				                     {"joints", shapes(overlays.Joints)},
+				                     {"debugDrawing", overlays.DebugLines}});
 			}
 
 			static Json DescribeCamera(EditorCamera const& camera)

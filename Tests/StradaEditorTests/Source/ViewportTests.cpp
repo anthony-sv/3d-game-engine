@@ -220,7 +220,8 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	// Nothing to draw for plain entities.
 	CHECK(shapes(CreateEntity(operations, "Empty")).empty());
 
-	// Perspective frustum: 4 lines from the apex plus the near and far rectangles and their 4 connections.
+	// Perspective frustum: 4 lines from the apex plus the near and far rectangles and their 4 connections. Like every
+	// shape, they are dimmed where surfaces hide them.
 	UUID const camera = CreateEntity(operations, "Camera", UUID::Invalid(), Json::object({{"Camera", Json::object()}}));
 	std::vector<OverlayLine> const frustum = shapes(camera);
 	CHECK(frustum.size() == 16);
@@ -228,7 +229,8 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	for (OverlayLine const& line : frustum)
 	{
 		farthest = std::max({farthest, -line.From.z, -line.To.z});
-		CHECK_FALSE(line.DepthTest);
+		CHECK(line.DepthTest);
+		CHECK(line.Color == ViewportOverlays::CameraColor);
 	}
 	CHECK(farthest == doctest::Approx(0.1f + ViewportOverlays::CameraFrustumLength));
 	REQUIRE(operations.SetComponentFields(camera, "Camera", Json::object({{"Projection", "Orthographic"}})).IsOk());
@@ -294,6 +296,82 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	CHECK(colliders.size() + lights.size() == combined.size());
 	CHECK(kinds(ViewportOverlays::Shapes::Cameras).empty());
 
+	// Directional light pointing down: a disc around its position, rays along the direction and an arrow down the middle.
+	UUID const sun =
+		CreateEntity(operations, "Sun", UUID::Invalid(),
+	                 Json::object({{"DirectionalLight", Json::object()},
+	                               {"Transform", Json::object({{"Translation", {0, 5, 0}}, {"RotationEuler", {-90, 0, 0}}})}}));
+	std::vector<OverlayLine> const rays = shapes(sun);
+	CHECK(rays.size() == ViewportOverlays::CircleSegments + ViewportOverlays::DirectionalLightRays + 5);
+	size_t downward = 0;
+	float lowest = 5.0f;
+	for (OverlayLine const& line : rays)
+	{
+		CHECK(line.Color == ViewportOverlays::LightColor);
+		CHECK(line.DepthTest);
+		lowest = std::min({lowest, line.From.y, line.To.y});
+		glm::vec3 const direction = line.To - line.From;
+		if (std::abs(direction.x) < 1e-4f && std::abs(direction.z) < 1e-4f && direction.y < 0.0f)
+		{
+			downward++;
+		}
+	}
+	// The rays and the arrow point along the light.
+	CHECK(downward == ViewportOverlays::DirectionalLightRays + 1);
+	CHECK(lowest == doctest::Approx(5.0f - ViewportOverlays::DirectionalLightArrowLength));
+	// Seen from a view, the shape grows with the distance, keeping its size on screen.
+	std::vector<OverlayLine> farRays;
+	ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(sun), 1.0f, farRays, ViewportOverlays::Shapes::Lights,
+	                                     glm::vec3(0.0f, 5.0f, 20.0f));
+	REQUIRE(farRays.size() == rays.size());
+	float farLowest = 5.0f;
+	for (OverlayLine const& line : farRays)
+	{
+		farLowest = std::min({farLowest, line.From.y, line.To.y});
+	}
+	CHECK(5.0f - farLowest ==
+	      doctest::Approx(ViewportOverlays::DirectionalLightArrowLength * 20.0f * ViewportOverlays::DirectionalLightViewScale));
+
+	// Spot light pointing down: the outer cone up to the range (rim, edges and the cap's arcs) and the inner cone's rim.
+	UUID const spot =
+		CreateEntity(operations, "Spot", UUID::Invalid(),
+	                 Json::object({{"SpotLight", Json::object({{"Range", 4.0}, {"InnerConeAngle", 10.0}, {"OuterConeAngle", 30.0}})},
+	                               {"Transform", Json::object({{"Translation", {0, 5, 0}}, {"RotationEuler", {-90, 0, 0}}})}}));
+	std::vector<OverlayLine> const cone = shapes(spot);
+	CHECK(cone.size() == 2 * ViewportOverlays::CircleSegments + 4 + 2 * ViewportOverlays::SpotCapSegments);
+	glm::vec3 const apex(0.0f, 5.0f, 0.0f);
+	float const outerRadius = 4.0f * std::sin(glm::radians(30.0f));
+	float const innerRadius = 4.0f * std::sin(glm::radians(10.0f));
+	size_t outerRim = 0;
+	size_t innerRim = 0;
+	for (OverlayLine const& line : cone)
+	{
+		// Nothing reaches beyond the range.
+		CHECK(glm::length(line.From - apex) <= 4.0f + 1e-3f);
+		CHECK(glm::length(line.To - apex) <= 4.0f + 1e-3f);
+		float const radius = glm::length(glm::vec2(line.From.x, line.From.z));
+		if (line.Color == ViewportOverlays::LightInnerColor)
+		{
+			innerRim++;
+			CHECK(radius == doctest::Approx(innerRadius).epsilon(1e-3));
+			CHECK(line.From.y == doctest::Approx(5.0f - 4.0f * std::cos(glm::radians(10.0f))).epsilon(1e-3));
+		}
+		else if (std::abs(line.From.y - (5.0f - 4.0f * std::cos(glm::radians(30.0f)))) < 1e-3f && std::abs(line.To.y - line.From.y) < 1e-3f)
+		{
+			outerRim++;
+			CHECK(radius == doctest::Approx(outerRadius).epsilon(1e-3));
+		}
+	}
+	CHECK(innerRim == ViewportOverlays::CircleSegments);
+	CHECK(outerRim == ViewportOverlays::CircleSegments);
+	// The cap's arcs reach straight down to the range.
+	CHECK(std::any_of(cone.begin(), cone.end(),
+	                  [](OverlayLine const& line)
+	                  {
+						  return NearlyEqual(line.To, glm::vec3(0.0f, 1.0f, 0.0f), 1e-3f) ||
+		                         NearlyEqual(line.From, glm::vec3(0.0f, 1.0f, 0.0f), 1e-3f);
+					  }));
+
 	// Joints: the anchor's cross, the hinge axis and a line to the connected entity.
 	UUID const door = CreateEntity(operations, "Door", UUID::Invalid(),
 	                               Json::object({{"Joint", Json::object({{"Type", "Hinge"}, {"ConnectedEntity", lamp.ToString()}})}}));
@@ -354,4 +432,70 @@ TEST_CASE("EditorContext: replacing the scene changes the scene version")
 	EditorOperations operations(context);
 	REQUIRE(operations.NewScene("Other").IsOk());
 	CHECK(context.GetSceneVersion() != version);
+}
+
+TEST_CASE("ViewportOverlays: the overlays draw shapes for the selection or every entity, per kind")
+{
+	EditorContext context;
+	EditorOperations operations(context);
+	Scene& scene = context.GetScene();
+	UUID const camera = CreateEntity(operations, "Camera", UUID::Invalid(), Json::object({{"Camera", Json::object()}}));
+	UUID const lamp = CreateEntity(operations, "Lamp", UUID::Invalid(), Json::object({{"PointLight", Json::object()}}));
+	UUID const crate = CreateEntity(operations, "Crate", UUID::Invalid(), Json::object({{"BoxCollider", Json::object()}}));
+	UUID const hinge = CreateEntity(operations, "Hinge", UUID::Invalid(), Json::object({{"Joint", Json::object({{"Type", "Hinge"}})}}));
+	auto const lineCount = [&](UUID id, uint32_t kinds)
+	{
+		std::vector<OverlayLine> lines;
+		ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), 1.0f, lines, kinds);
+		return lines.size();
+	};
+	size_t const cameraLines = lineCount(camera, ViewportOverlays::Shapes::Cameras);
+	size_t const lampLines = lineCount(lamp, ViewportOverlays::Shapes::Lights);
+	size_t const crateLines = lineCount(crate, ViewportOverlays::Shapes::Colliders);
+	size_t const hingeLines = lineCount(hinge, ViewportOverlays::Shapes::Joints);
+	REQUIRE(cameraLines > 0);
+	REQUIRE(lampLines > 0);
+	REQUIRE(crateLines > 0);
+	REQUIRE(hingeLines > 0);
+	CHECK(lineCount(crate, 0) == 0);
+
+	auto const draw = [&](SceneViewOverlays const& overlays, std::vector<UUID> const& selection)
+	{
+		std::vector<OverlayLine> lines;
+		ViewportOverlays::AppendSceneShapes(scene, selection, overlays, 1.0f, glm::vec3(0.0f, 0.0f, 10.0f), lines);
+		return lines.size();
+	};
+
+	// By default every kind is drawn for the selected entities only.
+	SceneViewOverlays overlays;
+	CHECK(ViewportOverlays::GetShapeKinds(overlays, true) == ViewportOverlays::Shapes::All);
+	CHECK(ViewportOverlays::GetShapeKinds(overlays, false) == 0);
+	CHECK(draw(overlays, {}) == 0);
+	CHECK(draw(overlays, {lamp}) == lampLines);
+	CHECK(draw(overlays, {camera, lamp, crate, hinge}) == cameraLines + lampLines + crateLines + hingeLines);
+
+	// Kinds turned off are not drawn even when selected; kinds for all entities are drawn for unselected ones too.
+	overlays.Lights.Enabled = false;
+	overlays.Colliders.AllEntities = true;
+	CHECK(ViewportOverlays::GetShapeKinds(overlays, true) ==
+	      (ViewportOverlays::Shapes::Cameras | ViewportOverlays::Shapes::Colliders | ViewportOverlays::Shapes::Joints));
+	CHECK(ViewportOverlays::GetShapeKinds(overlays, false) == ViewportOverlays::Shapes::Colliders);
+	CHECK(draw(overlays, {lamp}) == crateLines);
+	CHECK(draw(overlays, {camera}) == cameraLines + crateLines);
+	// A selected entity's shapes are drawn once.
+	CHECK(draw(overlays, {crate}) == crateLines);
+
+	// Every kind for every entity, whatever is selected; turned off, the choice of entities does not matter.
+	overlays.Lights = {true, true};
+	overlays.Cameras.AllEntities = true;
+	overlays.Joints.AllEntities = true;
+	CHECK(draw(overlays, {}) == cameraLines + lampLines + crateLines + hingeLines);
+	overlays.Cameras.Enabled = false;
+	overlays.Lights.Enabled = false;
+	overlays.Colliders.Enabled = false;
+	overlays.Joints.Enabled = false;
+	CHECK(draw(overlays, {camera, lamp, crate, hinge}) == 0);
+	// Unknown and deleted entities in the selection are skipped.
+	overlays = {};
+	CHECK(draw(overlays, {UUID(12345), lamp}) == lampLines);
 }

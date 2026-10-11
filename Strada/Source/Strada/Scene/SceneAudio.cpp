@@ -83,9 +83,10 @@ namespace Strada
 	{
 		auto const [entry, created] = m_AudioSources.try_emplace(handle);
 		AudioSourceState& state = entry->second;
-		if (created || component.Clip != state.Applied.Clip)
+		if (created || component.Clip != state.Applied.Clip || component.Stream != state.Applied.Stream)
 		{
-			// New sources start when PlayOnStart is set; a new clip on an existing source waits for Play.
+			// New sources start when PlayOnStart is set; a new clip (or a change between streaming and loading it) on an
+			// existing source waits for Play.
 			state.Entity = m_Registry.get<IDComponent>(handle).ID;
 			CreateAudioSource(handle, state, component, created);
 		}
@@ -156,16 +157,30 @@ namespace Strada
 			ST_CORE_WARN("Entity '{}' plays no sound: the asset manager is not initialized", entity.GetName());
 			return;
 		}
-		Result<Ref<AudioClipAsset>> clip = AssetManager::TryGetAsset<AudioClipAsset>(component.Clip);
-		if (!clip)
-		{
-			ST_CORE_WARN("Entity '{}' plays no sound: {}", entity.GetName(), clip.GetError());
-			return;
-		}
 
 		AudioSourceDesc desc;
 		desc.Entity = state.Entity;
-		desc.Clip = clip.TakeValue();
+		if (component.Stream)
+		{
+			// The sound reads the clip's file itself: the clip is not loaded.
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(component.Clip);
+			if (!metadata || metadata->Type != AssetType::AudioClip || !metadata->IsFileAsset())
+			{
+				ST_CORE_WARN("Entity '{}' plays no sound: asset {} is not an audio clip file to stream", entity.GetName(), component.Clip);
+				return;
+			}
+			desc.StreamFile = AssetManager::GetAbsolutePath(component.Clip);
+		}
+		else
+		{
+			Result<Ref<AudioClipAsset>> clip = AssetManager::TryGetAsset<AudioClipAsset>(component.Clip);
+			if (!clip)
+			{
+				ST_CORE_WARN("Entity '{}' plays no sound: {}", entity.GetName(), clip.GetError());
+				return;
+			}
+			desc.Clip = clip.TakeValue();
+		}
 		desc.Volume = component.Volume;
 		desc.Pitch = component.Pitch;
 		desc.Loop = component.Loop;
