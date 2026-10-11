@@ -6,6 +6,8 @@
 
 #include <glm/glm.hpp>
 
+#include <filesystem>
+
 namespace Strada
 {
 	class AudioClipAsset;
@@ -15,6 +17,11 @@ namespace Strada
 	{
 		UUID Entity = UUID::Invalid();
 		Ref<AudioClipAsset> Clip;
+		// When set, the sound streams from this file instead of playing Clip (which is then not needed): the audio streaming
+		// thread reads and decodes it about a second ahead of the playback (AudioStreamBufferSeconds), so only that much of
+		// it is in memory (music, long ambience). The file is opened, and its format detected as a clip's is, when the source
+		// is created, which reads only its headers (at most MaxAudioStreamHeaderBytes); it stays open while the source exists.
+		std::filesystem::path StreamFile;
 		// Linear gain (at least 0).
 		float Volume = 1.0f;
 		// Playback speed multiplier, which also shifts the pitch (at least MinAudioPitch).
@@ -35,10 +42,12 @@ namespace Strada
 	// Shortest attenuation distance in meters; shorter minimum distances are raised to it.
 	inline constexpr float MinAudioDistance = 0.001f;
 
-	// The sounds of a running scene, mixed by AudioEngine. Each sound decodes its clip while it plays. Knows nothing about
-	// the ECS: the Scene creates sources from components and updates their positions and the listener. Positions are
-	// heard relative to the scene's own listener, so several AudioScenes do not interfere. Calls with an entity that has
-	// no source do nothing. Requires AudioEngine (destroy every AudioScene before AudioEngine::Shutdown). Main thread only.
+	// The sounds of a running scene, mixed by AudioEngine. A sound decodes its clip from memory while it plays, on the thread
+	// that mixes it (miniaudio's audio thread, or the caller of AudioEngine::ReadFrames); a streamed sound plays what the
+	// audio streaming thread decoded ahead from its file, so the mixer never reads a file. Knows nothing about the ECS: the
+	// Scene creates sources from components and updates their positions and the listener. Positions are heard relative to
+	// the scene's own listener, so several AudioScenes do not interfere. Calls with an entity that has no source do
+	// nothing. Requires AudioEngine (destroy every AudioScene before AudioEngine::Shutdown). Main thread only.
 	class AudioScene
 	{
 	public:
@@ -48,14 +57,19 @@ namespace Strada
 		AudioScene(AudioScene const&) = delete;
 		AudioScene& operator=(AudioScene const&) = delete;
 
-		// Creates the stopped sound of an entity, replacing its current one. Fails without a clip or when the clip cannot
-		// be decoded (the current sound is then kept).
+		// Creates the stopped sound of an entity, replacing its current one. Fails without a clip or stream file, when a
+		// stream's file cannot be opened, when the clip or file cannot be decoded (including files whose audio does not start
+		// within MaxAudioStreamHeaderBytes), or for a stream when the streaming thread is not running (the current sound is
+		// then kept).
 		[[nodiscard]] Result<void> AddSource(AudioSourceDesc const& desc);
 		void RemoveSource(UUID entity);
 		bool HasSource(UUID entity) const;
+		// Whether the entity's sound streams from its file.
+		bool IsStreaming(UUID entity) const;
 		size_t GetSourceCount() const;
 
-		// Plays from the start, or from where Pause left it; a sound that played to its end starts over.
+		// Plays from the start, or from where Pause left it; a sound that played to its end starts over. A streamed sound is
+		// silent until the streaming thread has decoded what it plays (moments after it was created or stopped).
 		void Play(UUID entity);
 		// Stops, keeping the position.
 		void Pause(UUID entity);

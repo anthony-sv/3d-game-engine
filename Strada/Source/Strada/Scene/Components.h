@@ -243,6 +243,9 @@ namespace Strada
 	struct AudioSourceComponent
 	{
 		AssetHandle Clip;
+		// Reads the clip's file while it plays instead of loading the whole clip first (music, long ambience). Changing it
+		// (like changing the clip) makes a new sound, stopped until played.
+		bool Stream = false;
 		float Volume = 1.0f;
 		float Pitch = 1.0f;
 		bool Loop = false;

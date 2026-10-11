@@ -3,8 +3,8 @@ using Strada.Testing;
 
 namespace FeatureTest;
 
-/// <summary>Audio sources. The scene's Speaker has Audio/Beep.wav and does not play on start; test runs play into the null
-/// output, which still keeps time.</summary>
+/// <summary>Audio sources, loaded and streamed. The scene's Speaker has Audio/Beep.wav and does not play on start; test runs
+/// play into the null output, which still keeps time.</summary>
 public sealed class AudioTests : FeatureTestScript
 {
 	public Entity? Speaker;
@@ -19,6 +19,7 @@ public sealed class AudioTests : FeatureTestScript
 			source.Clip = null;
 			Assert.IsNull(source.Clip);
 			source.Clip = beep;
+			Assert.IsFalse(source.Stream);
 			Assert.IsFalse(source.PlayOnStart);
 			source.PlayOnStart = false;
 			source.Volume = 0.5f;
@@ -59,6 +60,30 @@ public sealed class AudioTests : FeatureTestScript
 					Assert.IsTrue(source.IsPlaying);
 					source.Stop();
 					Assert.IsFalse(source.IsPlaying);
+				});
+				return false;
+			case 3:
+				Check("sources stream their clip from its file", () =>
+				{
+					source.Stream = true;
+					Assert.IsTrue(source.Stream);
+					Assert.IsFalse(source.IsPlaying, "a new sound waits for Play");
+					source.Play();
+					Assert.IsTrue(source.IsPlaying);
+				});
+				return false;
+			case 4:
+				Check("streamed sources loop, pause and stop", () =>
+				{
+					Assert.IsTrue(source.IsPlaying, "a looping streamed sound plays on");
+					source.Pause();
+					Assert.IsFalse(source.IsPlaying);
+					source.Play();
+					Assert.IsTrue(source.IsPlaying);
+					source.Stop();
+					Assert.IsFalse(source.IsPlaying);
+					source.Stream = false;
+					Assert.IsFalse(source.Stream);
 				});
 				return true;
 			default:

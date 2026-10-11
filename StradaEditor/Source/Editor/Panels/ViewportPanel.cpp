@@ -15,6 +15,7 @@
 #include "Strada/Scene/SceneRendering.h"
 
 #include <ImGuizmo.h>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <imgui.h>
 
@@ -28,12 +29,13 @@ namespace Strada
 {
 	namespace
 	{
-		constexpr float IconRadius = 10.0f;
+		// Icon sizes are in pixels at a UI scale of 1.
+		constexpr float IconRadius = 12.0f;
 		// A press and release closer than this (in pixels) is a click; farther is a drag.
 		constexpr float ClickDragThreshold = 4.0f;
 		// Merge keys of gizmo drags ("GIZMO" in the high bytes); each drag adds its sequence number.
 		constexpr uint64_t GizmoMergeKeyBase = 0x47495A4D4F000000ull;
-		constexpr ImU32 IconBackground = IM_COL32(30, 30, 30, 200);
+		constexpr ImU32 IconBackground = IM_COL32(24, 24, 26, 215);
 		constexpr ImU32 IconColor = IM_COL32(235, 235, 235, 255);
 		constexpr ImU32 IconHoveredColor = IM_COL32(255, 255, 255, 255);
 		constexpr ImU32 IconSelectedColor = IM_COL32(255, 140, 26, 255);
@@ -55,7 +57,10 @@ namespace Strada
 		{
 			None = 0,
 			Camera,
-			Light
+			DirectionalLight,
+			PointLight,
+			SpotLight,
+			SkyLight
 		};
 
 		IconShape GetIconShape(Entity entity)
@@ -64,35 +69,93 @@ namespace Strada
 			{
 				return IconShape::Camera;
 			}
-			if (entity.HasComponent<DirectionalLightComponent>() || entity.HasComponent<PointLightComponent>() ||
-			    entity.HasComponent<SpotLightComponent>() || entity.HasComponent<SkyLightComponent>())
+			if (entity.HasComponent<DirectionalLightComponent>())
 			{
-				return IconShape::Light;
+				return IconShape::DirectionalLight;
+			}
+			if (entity.HasComponent<SpotLightComponent>())
+			{
+				return IconShape::SpotLight;
+			}
+			if (entity.HasComponent<PointLightComponent>())
+			{
+				return IconShape::PointLight;
+			}
+			if (entity.HasComponent<SkyLightComponent>())
+			{
+				return IconShape::SkyLight;
 			}
 			return IconShape::None;
 		}
 
-		void DrawIcon(ImDrawList* drawList, ImVec2 center, IconShape shape, ImU32 color)
+		// A billboard: a dark disc with a ring and a symbol of the kind of entity, in the icon's color.
+		void DrawIcon(ImDrawList* drawList, ImVec2 center, IconShape shape, ImU32 color, float scale)
 		{
-			drawList->AddCircleFilled(center, IconRadius, IconBackground);
-			drawList->AddCircle(center, IconRadius, color, 0, 1.5f);
-			if (shape == IconShape::Camera)
+			auto const at = [center, scale](float x, float y)
 			{
-				drawList->AddRectFilled(ImVec2(center.x - 5.5f, center.y - 3.5f), ImVec2(center.x + 2.0f, center.y + 3.5f), color, 1.0f);
-				drawList->AddTriangleFilled(ImVec2(center.x + 2.0f, center.y), ImVec2(center.x + 6.0f, center.y - 3.5f),
-				                            ImVec2(center.x + 6.0f, center.y + 3.5f), color);
-			}
-			else
+				return ImVec2(center.x + x * scale, center.y + y * scale);
+			};
+			drawList->AddCircleFilled(center, IconRadius * scale, IconBackground);
+			drawList->AddCircle(center, IconRadius * scale, color, 0, 1.5f * scale);
+			// Filled shapes list their points clockwise (screen Y points down), as ImGui's anti-aliasing expects.
+			switch (shape)
 			{
-				drawList->AddCircleFilled(center, 3.0f, color);
-				for (int i = 0; i < 8; i++)
-				{
-					float const angle = static_cast<float>(i) * 0.7853982f;
-					ImVec2 const direction(std::cos(angle), std::sin(angle));
-					drawList->AddLine(ImVec2(center.x + direction.x * 4.5f, center.y + direction.y * 4.5f),
-					                  ImVec2(center.x + direction.x * 7.0f, center.y + direction.y * 7.0f), color, 1.2f);
-				}
+				case IconShape::Camera:
+					// A camera body and its lens.
+					drawList->AddRectFilled(at(-6.5f, -4.0f), at(2.0f, 4.0f), color, 1.5f * scale);
+					drawList->AddTriangleFilled(at(2.0f, 0.0f), at(7.0f, -4.0f), at(7.0f, 4.0f), color);
+					break;
+				case IconShape::DirectionalLight:
+					// The sun.
+					drawList->AddCircleFilled(center, 3.5f * scale, color);
+					for (int i = 0; i < 8; i++)
+					{
+						float const angle = static_cast<float>(i) * 0.7853982f;
+						float const x = std::cos(angle);
+						float const y = std::sin(angle);
+						drawList->AddLine(at(x * 5.5f, y * 5.5f), at(x * 8.0f, y * 8.0f), color, 1.5f * scale);
+					}
+					break;
+				case IconShape::PointLight:
+					// A light bulb.
+					drawList->AddCircleFilled(at(0.0f, -1.5f), 4.75f * scale, color);
+					drawList->AddRectFilled(at(-2.5f, 3.5f), at(2.5f, 7.0f), color, 1.0f * scale);
+					break;
+				case IconShape::SpotLight:
+					// A lamp housing and its beam.
+					drawList->AddRectFilled(at(-3.0f, -7.5f), at(3.0f, -3.5f), color, 1.0f * scale);
+					drawList->AddTriangleFilled(at(0.0f, -4.0f), at(6.5f, 6.5f), at(-6.5f, 6.5f), color);
+					break;
+				case IconShape::SkyLight:
+					// The sky's dome over the horizon.
+					drawList->PathArcTo(at(0.0f, 3.5f), 6.5f * scale, glm::pi<float>(), glm::two_pi<float>());
+					drawList->PathStroke(color, 2.0f * scale);
+					drawList->AddLine(at(-8.0f, 3.5f), at(8.0f, 3.5f), color, 2.0f * scale);
+					break;
+				case IconShape::None:
+					break;
 			}
+		}
+
+		// A kind of overlay shape: whether it is drawn, and for the selection or every entity.
+		void DrawShapeSetting(char const* label, char const* tooltip, OverlayShapeSetting& setting, float choicesColumn)
+		{
+			ImGui::PushID(label);
+			ImGui::Checkbox(label, &setting.Enabled);
+			ImGui::SetItemTooltip("%s", tooltip);
+			ImGui::SameLine(choicesColumn);
+			ImGui::BeginDisabled(!setting.Enabled);
+			if (ImGui::RadioButton("Selected", !setting.AllEntities))
+			{
+				setting.AllEntities = false;
+			}
+			ImGui::SameLine();
+			if (ImGui::RadioButton("All", setting.AllEntities))
+			{
+				setting.AllEntities = true;
+			}
+			ImGui::EndDisabled();
+			ImGui::PopID();
 		}
 	}
 
@@ -271,6 +334,7 @@ namespace Strada
 		Scene& scene = context.GetScene();
 		EntitySelection const& selection = context.GetSelection();
 		float const aspectRatio = m_Camera.GetAspectRatio();
+		float const uiScale = ImGui::GetStyle().FontScaleDpi;
 
 		SceneRenderOptions options;
 		options.GetPickingId = [this](UUID entity)
@@ -289,29 +353,15 @@ namespace Strada
 		{
 			SceneRendererOverlays overlays;
 			overlays.Grid.Enabled = m_Overlays.Grid;
+			overlays.LineWidth = ViewportOverlays::LineWidth * uiScale;
+			overlays.LineOutlineWidth = ViewportOverlays::LineOutlineWidth * uiScale;
+			overlays.LineOutlineColor = ViewportOverlays::LineOutlineColor;
+			overlays.OccludedLineOpacity = ViewportOverlays::OccludedLineOpacity;
 			renderer.SetOverlays(overlays);
 
 			std::vector<OverlayLine> lines;
-			if (m_Overlays.SelectionShapes)
-			{
-				for (UUID const id : selection.GetEntities())
-				{
-					ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines,
-					                                     ViewportOverlays::Shapes::All | ViewportOverlays::Shapes::Selected);
-				}
-			}
-			if (m_Overlays.AllColliders)
-			{
-				scene.ForEachEntityInHierarchyOrder(
-					[&](Entity entity)
-					{
-						// The selection's colliders are drawn above, as selected.
-						if (!m_Overlays.SelectionShapes || !selection.Contains(entity.GetUUID()))
-						{
-							ViewportOverlays::AppendEntityShapes(scene, entity, aspectRatio, lines, ViewportOverlays::Shapes::Colliders);
-						}
-					});
-			}
+			ViewportOverlays::AppendSceneShapes(scene, selection.GetEntities(), m_Overlays, aspectRatio, m_Camera.GetPosition(), lines,
+			                                    &m_MeshColliderOutlines);
 			for (OverlayLine const& line : lines)
 			{
 				renderer.SubmitLine(line.From, line.To, line.Color, line.DepthTest);
@@ -325,11 +375,12 @@ namespace Strada
 		Scene& scene = context.GetScene();
 		glm::mat4 const viewProjection = m_Camera.GetProjection() * m_Camera.GetViewMatrix();
 		glm::vec2 const mouse = ToVec2(ImGui::GetMousePos());
+		float const scale = ImGui::GetStyle().FontScaleDpi;
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
 		drawList->PushClipRect(ToImVec2(imagePosition), ToImVec2(imagePosition + imageSize), true);
 
 		UUID hoveredIcon = UUID::Invalid();
-		float closestDistance = IconRadius;
+		float closestDistance = IconRadius * scale;
 		std::vector<std::pair<UUID, glm::vec2>> icons;
 		scene.ForEachEntityInHierarchyOrder(
 			[&](Entity entity)
@@ -361,7 +412,7 @@ namespace Strada
 			Entity const entity = scene.GetEntityByUUID(id);
 			ImU32 const color =
 				context.GetSelection().Contains(id) ? IconSelectedColor : (id == hoveredIcon ? IconHoveredColor : IconColor);
-			DrawIcon(drawList, ToImVec2(screen), GetIconShape(entity), color);
+			DrawIcon(drawList, ToImVec2(screen), GetIconShape(entity), color, scale);
 		}
 		drawList->PopClipRect();
 		return hoveredIcon;
@@ -650,12 +701,38 @@ namespace Strada
 		{
 			ImGui::Checkbox("Grid (G)", &m_Overlays.Grid);
 			ImGui::Checkbox("Selection outline", &m_Overlays.SelectionOutline);
-			ImGui::Checkbox("Light and camera icons", &m_Overlays.Icons);
-			ImGui::Checkbox("Shapes of selected entities", &m_Overlays.SelectionShapes);
-			ImGui::SetItemTooltip("Camera frustums, light directions, ranges and cones, colliders, character capsules, joints and "
-			                      "post-process volume boxes");
-			ImGui::Checkbox("All colliders", &m_Overlays.AllColliders);
+			ImGui::Checkbox("Light and camera gizmos", &m_Overlays.Icons);
+			ImGui::SetItemTooltip("Icons of cameras and lights; click one to select its entity");
+
+			struct ShapeRow
+			{
+				char const* Label;
+				char const* Tooltip;
+				OverlayShapeSetting& Setting;
+			};
+			ShapeRow const rows[] = {
+				{"Camera frustums", "What cameras see, up to a few meters", m_Overlays.Cameras},
+				{"Light shapes", "Directional light rays, point light ranges and spot light cones", m_Overlays.Lights},
+				{"Colliders", "Collider outlines (triggers in blue) and character capsules", m_Overlays.Colliders},
+				{"Joints", "Joint anchors, hinge and slider axes, and what they connect to", m_Overlays.Joints},
+				{"Post-process volumes", "Boxes of local post-process volumes and where their blending ends", m_Overlays.Volumes},
+			};
+			// The choices line up after the longest label.
+			float labelWidth = 0.0f;
+			for (ShapeRow const& row : rows)
+			{
+				labelWidth = std::max(labelWidth, ImGui::CalcTextSize(row.Label).x);
+			}
+			float const choicesColumn =
+				ImGui::GetCursorPosX() + ImGui::GetFrameHeight() + style.ItemInnerSpacing.x + labelWidth + style.ItemSpacing.x * 3.0f;
+			ImGui::SeparatorText("Shapes");
+			for (ShapeRow const& row : rows)
+			{
+				DrawShapeSetting(row.Label, row.Tooltip, row.Setting, choicesColumn);
+			}
+			ImGui::Separator();
 			ImGui::Checkbox("Debug drawing (scripts)", &m_Overlays.DebugLines);
+			ImGui::SetItemTooltip("Lines scripts draw with Debug.DrawLine and its relatives");
 			ImGui::EndPopup();
 		}
 		ImGui::Dummy(ImVec2(0.0f, 2.0f));

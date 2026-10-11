@@ -1,6 +1,7 @@
 #include "stpch.h"
 #include "Strada/Audio/AudioEngine.h"
 
+#include "Strada/Audio/AudioStream.h"
 #include "Strada/Audio/MiniaudioContext.h"
 
 #include <algorithm>
@@ -16,6 +17,9 @@ namespace Strada
 			bool HasContext = false;
 			ma_engine Engine{};
 			bool HasDevice = false;
+			AudioStreamFileOpener StreamFileOpener;
+			// Null when the streaming thread could not be started.
+			Scope<AudioStreamer> Streamer;
 		};
 
 		Scope<AudioEngineData> s_Data;
@@ -98,6 +102,15 @@ namespace Strada
 		{
 			ST_CORE_WARN("No audio device is available; sounds play silently");
 		}
+		data->StreamFileOpener = settings.StreamFileOpener;
+		if (Result<Scope<AudioStreamer>> streamer = AudioStreamer::Create(); streamer)
+		{
+			data->Streamer = streamer.TakeValue();
+		}
+		else
+		{
+			ST_CORE_ERROR("Sounds cannot stream from their files: {}", streamer.GetError());
+		}
 
 		s_Data = std::move(data);
 		ST_CORE_INFO("Audio initialized (miniaudio {}, {} output, {} backend, {} Hz, {} channels)", MA_VERSION_STRING,
@@ -107,6 +120,8 @@ namespace Strada
 	void AudioEngine::Shutdown()
 	{
 		ST_CORE_ASSERT(s_Data, "AudioEngine is not initialized");
+		// The streams are gone with the AudioScenes; the thread ends before the engine it streams for.
+		s_Data->Streamer.reset();
 		ma_engine_uninit(&s_Data->Engine);
 		if (s_Data->HasContext)
 		{
@@ -172,9 +187,29 @@ namespace Strada
 		return result == MA_SUCCESS || result == MA_AT_END ? frameCount : 0;
 	}
 
+	void AudioEngine::WaitForStreams()
+	{
+		if (s_Data != nullptr && s_Data->Streamer)
+		{
+			s_Data->Streamer->WaitUntilIdle();
+		}
+	}
+
 	ma_engine& Miniaudio::GetEngine()
 	{
 		ST_CORE_ASSERT(s_Data, "AudioEngine is not initialized");
 		return s_Data->Engine;
+	}
+
+	AudioStreamer* Miniaudio::GetStreamer()
+	{
+		ST_CORE_ASSERT(s_Data, "AudioEngine is not initialized");
+		return s_Data->Streamer.get();
+	}
+
+	AudioStreamFileOpener const& Miniaudio::GetStreamFileOpener()
+	{
+		ST_CORE_ASSERT(s_Data, "AudioEngine is not initialized");
+		return s_Data->StreamFileOpener;
 	}
 }

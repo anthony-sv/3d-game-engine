@@ -40,6 +40,7 @@ add_executable(StradaTests
     Source/Math/AABBTests.cpp
     Source/Math/FrustumTests.cpp
     Source/Math/MathTests.cpp
+    Source/Physics/MeshColliderOutlineTests.cpp
     Source/Physics/PhysicsCharacterTests.cpp
     Source/Physics/PhysicsJointTests.cpp
     Source/Physics/PhysicsSceneTests.cpp

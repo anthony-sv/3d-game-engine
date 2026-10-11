@@ -93,15 +93,23 @@ set(STRADA_MATH_SOURCES
 )
 
 set(STRADA_AUDIO_SOURCES
+    Source/Strada/Audio/AudioDecoder.cpp
+    Source/Strada/Audio/AudioDecoder.h
     Source/Strada/Audio/AudioEngine.cpp
     Source/Strada/Audio/AudioEngine.h
     Source/Strada/Audio/AudioScene.cpp
     Source/Strada/Audio/AudioScene.h
+    Source/Strada/Audio/AudioStream.cpp
+    Source/Strada/Audio/AudioStream.h
+    Source/Strada/Audio/AudioStreamFile.cpp
+    Source/Strada/Audio/AudioStreamFile.h
     Source/Strada/Audio/MiniaudioContext.h
 )
 
 set(STRADA_PHYSICS_SOURCES
     Source/Strada/Physics/JoltContext.h
+    Source/Strada/Physics/MeshColliderOutline.cpp
+    Source/Strada/Physics/MeshColliderOutline.h
     Source/Strada/Physics/PhysicsScene.cpp
     Source/Strada/Physics/PhysicsScene.h
     Source/Strada/Physics/PhysicsSystem.cpp
@@ -416,8 +424,9 @@ strada_add_shaders(Strada
         EnvironmentBrdfLut_CS:Environment.hlsl:CSBrdfLut:compute
         EntityId_VS:EntityId.hlsl:VSMain:vertex
         EntityId_PS:EntityId.hlsl:PSMain:pixel
-        OverlayLine_VS:Overlay.hlsl:VSLine:vertex
-        OverlayLine_PS:Overlay.hlsl:PSLine:pixel
+        OverlayLine_VS:OverlayLines.hlsl:VSMain:vertex
+        OverlayLine_PS:OverlayLines.hlsl:PSMain:pixel
+        OverlayLineComposite_PS:OverlayLines.hlsl:PSComposite:pixel
         Grid_PS:Overlay.hlsl:PSGrid:pixel
         Outline_PS:Outline.hlsl:PSMain:pixel
         Quad_VS:Quad.hlsl:VSMain:vertex

@@ -234,6 +234,19 @@ struct OutlineConstants
 	float3 Padding;
 };
 
+// Debug lines (push constants), drawn as screen-space quads. The outline color is sRGB-encoded with straight alpha.
+struct LineConstants
+{
+	float4 OutlineColor;
+	// Pixels.
+	float Width;
+	// Pixels on each side of the line.
+	float OutlineWidth;
+	// Alpha multiplier of the parts of depth-tested lines behind surfaces (0 hides them).
+	float OccludedOpacity;
+	float Padding;
+};
+
 static uint const QuadModeSprite = 0;
 static uint const QuadModeText = 1;
 // A sprite whose light adds to what is behind it (particles).

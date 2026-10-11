@@ -728,6 +728,7 @@ namespace Strada::ScriptGlue
 		table.Add("CharacterControllerComponent_Teleport", &CharacterControllerComponent_Teleport);
 
 		AddFieldBindings<&AudioSourceComponent::Clip, "AudioSourceComponent", "Clip">(table);
+		AddFieldBindings<&AudioSourceComponent::Stream, "AudioSourceComponent", "Stream">(table);
 		AddFieldBindings<&AudioSourceComponent::Volume, "AudioSourceComponent", "Volume">(table);
 		AddFieldBindings<&AudioSourceComponent::Pitch, "AudioSourceComponent", "Pitch">(table);
 		AddFieldBindings<&AudioSourceComponent::Loop, "AudioSourceComponent", "Loop">(table);

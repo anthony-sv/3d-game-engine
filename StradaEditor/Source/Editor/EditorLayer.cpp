@@ -121,6 +121,10 @@ namespace Strada
 			{
 				return m_ViewportPanel->GetRendererStatistics();
 			};
+			environment.ViewportOverlays = [this]() -> SceneViewOverlays&
+			{
+				return m_ViewportPanel->GetOverlays();
+			};
 			environment.ContentBrowser = [this]() -> ContentBrowserPanel&
 			{
 				return m_ContentBrowserPanel;
