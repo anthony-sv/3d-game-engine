@@ -66,7 +66,7 @@ TEST_CASE("Scene: scripts read and write every component field")
 
 	scene.OnRuntimeStart();
 	CHECK_FALSE(Testing::WasLogged(logStart, "Mismatch"));
-	CHECK(writer.GetName() == "Checked 87");
+	CHECK(writer.GetName() == "Checked 121");
 
 	CameraComponent const& camera = writer.GetComponent<CameraComponent>();
 	CHECK(camera.Projection == ProjectionType::Orthographic);
@@ -179,6 +179,42 @@ TEST_CASE("Scene: scripts read and write every component field")
 	CHECK_FALSE(sprite.Texture.IsValid());
 	CHECK(sprite.Tiling == 4.0f);
 	CHECK(sprite.ScreenSpace);
+
+	PostProcessComponent const& volume = writer.GetComponent<PostProcessComponent>();
+	CHECK_FALSE(volume.Global);
+	CHECK(volume.BlendDistance == 4.0f);
+	CHECK(volume.Priority == -2.0f);
+	CHECK(volume.Weight == 0.25f);
+	CHECK(volume.OverrideEV100);
+	CHECK(volume.EV100 == 1.5f);
+	CHECK(volume.OverrideTonemapper);
+	CHECK(volume.Tonemapper == TonemapOperator::PBRNeutral);
+	CHECK(volume.OverrideAmbientOcclusion);
+	CHECK_FALSE(volume.AmbientOcclusion);
+	CHECK(volume.OverrideAmbientOcclusionIntensity);
+	CHECK(volume.AmbientOcclusionIntensity == 3.0f);
+	CHECK(volume.OverrideBloom);
+	CHECK_FALSE(volume.Bloom);
+	CHECK(volume.OverrideBloomIntensity);
+	CHECK(volume.BloomIntensity == 0.5f);
+	CHECK(volume.OverrideContrast);
+	CHECK(volume.Contrast == 1.25f);
+	CHECK(volume.OverrideSaturation);
+	CHECK(volume.Saturation == 0.5f);
+	CHECK(volume.OverrideTemperature);
+	CHECK(volume.Temperature == 0.75f);
+	CHECK(volume.OverrideTint);
+	CHECK(volume.Tint == -0.5f);
+	CHECK(volume.OverrideColorFilter);
+	CHECK(volume.ColorFilter == glm::vec3(0.5f, 1.0f, 1.5f));
+	CHECK(volume.OverrideChromaticAberration);
+	CHECK(volume.ChromaticAberration == 0.25f);
+	CHECK(volume.OverrideVignette);
+	CHECK(volume.Vignette == 0.75f);
+	CHECK(volume.OverrideVignetteSmoothness);
+	CHECK(volume.VignetteSmoothness == 0.125f);
+	CHECK(volume.OverrideFilmGrain);
+	CHECK(volume.FilmGrain == 0.375f);
 	scene.OnRuntimeStop();
 }
 

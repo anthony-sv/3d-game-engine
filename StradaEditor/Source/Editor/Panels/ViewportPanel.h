@@ -40,12 +40,15 @@ namespace Strada
 		bool SelectionOutline = true;
 		// Icons of cameras and lights (they can be clicked to select).
 		bool Icons = true;
-		// Frustums of selected cameras, ranges and cones of selected lights, outlines of selected colliders.
+		// Frustums of selected cameras, directions, ranges and cones of selected lights, outlines of selected colliders,
+		// selected joints and the boxes of selected local post-process volumes.
 		bool SelectionShapes = true;
 		// Outlines of every collider, selected or not.
 		bool AllColliders = false;
 		// Lines scripts draw (Debug.DrawLine).
 		bool DebugLines = true;
+		// The UI of each canvas in its entity's plane with the canvas's outline (CanvasOverlay).
+		bool Canvases = true;
 	};
 
 	// The Scene View: the scene (the edited one, or the running one while playing) from the editor camera with the editor

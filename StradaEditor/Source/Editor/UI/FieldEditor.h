@@ -38,7 +38,10 @@ namespace Strada
 	// Draws editing widgets for reflected fields as the rows of a two-column property table (labels with descriptions as
 	// tooltips, widgets chosen by the field kind and hints) and reports the user's change; callers turn it into an
 	// undoable operation. Values are the scene-file JSON of the edited object. Colors are shown and picked in sRGB while
-	// the data stays linear; quaternions are shown as Euler angles in degrees. Main thread only, inside an ImGui frame.
+	// the data stays linear; quaternions are shown as Euler angles in degrees. A field's switch (FieldHints::EnabledBy) is
+	// a check box in front of its name instead of a row of its own, and the field's value is disabled while the switch is
+	// off. The name column starts as wide as the names need (GetNameColumnShare) and users can resize it; names that do
+	// not fit are shortened with an ellipsis and shown in full in their tooltips. Main thread only, inside an ImGui frame.
 	class FieldEditor
 	{
 	public:
@@ -47,6 +50,11 @@ namespace Strada
 		// resolves entity references to names (may be null).
 		std::optional<FieldChange> Draw(std::span<FieldDescriptor const> fields, Json const& values,
 		                                std::span<std::string const> mixedFields = {}, Scene* scene = nullptr);
+
+		// The share of a table's width (0.4 to 0.6) the name column of these fields' table starts with when the table is
+		// tableWidth wide: enough for the names with their switches and indentation, as far as the bounds allow. Tables
+		// that line up with a field table (rows of their own above it) start with the same share.
+		static float GetNameColumnShare(std::span<FieldDescriptor const> fields, float tableWidth);
 
 	private:
 		// Euler angles last shown for a quaternion widget: kept while the quaternion is unchanged, so dragging one angle

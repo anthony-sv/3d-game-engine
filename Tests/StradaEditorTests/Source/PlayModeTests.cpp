@@ -268,7 +268,7 @@ TEST_CASE("PlayCommands: every play, input and test command is documented in Doc
 	PlayFixture fixture;
 	Result<std::string> reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
 	REQUIRE(reference.IsOk());
-	CHECK(fixture.Registry.GetCommandCount() == 9);
+	CHECK(fixture.Registry.GetCommandCount() == 10);
 	for (CommandDefinition const* command : fixture.Registry.GetCommands())
 	{
 		CAPTURE(command->Name);
@@ -312,6 +312,94 @@ TEST_CASE("PlayCommands: automation plays, steps, injects input and stops")
 	Json const stopped = fixture.Ok("play.stop");
 	CHECK(stopped["state"] == "edit");
 	CHECK(fixture.Ok("play.start", Json::object({{"mode", "simulate"}}))["state"] == "simulate");
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+}
+
+TEST_CASE("PlayCommands: automation finds the UI with ui.layout and clicks its buttons through input.set")
+{
+	Testing::ScriptEngineScope scripting;
+	InputScope input;
+	PlayFixture fixture;
+	// The game view is 640 x 480 pixels: the 200 x 60 button in the middle of the canvas spans (220, 210) to (420, 270).
+	UUID const canvas = fixture.Create("Canvas", Json::object({{"UICanvas", Json::object({{"ScaleMode", "ConstantPixelSize"}})}}));
+	EntityCreateInfo info;
+	info.Name = "Button";
+	info.Parent = canvas;
+	info.Components = Json::object(
+		{{"UIRect", Json::object({{"Size", Json::array({200.0, 60.0})}})}, {"UIImage", Json::object()}, {"UIButton", Json::object()}});
+	Result<UUID> const button = fixture.Operations.CreateEntity(info);
+	REQUIRE(button.IsOk());
+	std::string const buttonId = std::to_string(button.GetValue().GetValue());
+	// The canvas's script hears the clicks of the buttons in it and names its entity after them each update.
+	Json const watched = Json::object({{"Type", "Entity"}, {"Value", buttonId}});
+	REQUIRE(fixture.Operations
+	            .AddComponent(canvas, "Script",
+	                          Json::object({{"ClassName", "Strada.Tests.ClickRecorder"}, {"Fields", Json::object({{"Watched", watched}})}}))
+	            .IsOk());
+
+	// Where the button is in the game view, before playing at the size the game view would have.
+	Json const layout = fixture.Ok("ui.layout");
+	CHECK(layout["width"] == 640);
+	CHECK(layout["height"] == 480);
+	CHECK(layout["pointerOverUI"] == false);
+	REQUIRE(layout["elements"].size() == 2);
+	Json const& canvasElement = layout["elements"][0];
+	CHECK(canvasElement["id"] == std::to_string(canvas.GetValue()));
+	CHECK(canvasElement["name"] == "Canvas");
+	CHECK(canvasElement["hitTarget"] == false);
+	CHECK(canvasElement["button"].is_null());
+	CHECK_FALSE(canvasElement.contains("state"));
+	Json const& buttonElement = layout["elements"][1];
+	CHECK(buttonElement["id"] == buttonId);
+	CHECK(buttonElement["canvas"] == std::to_string(canvas.GetValue()));
+	CHECK(buttonElement["min"] == Json::array({220.0, 210.0}));
+	CHECK(buttonElement["max"] == Json::array({420.0, 270.0}));
+	CHECK(buttonElement["center"] == Json::array({320.0, 240.0}));
+	CHECK(buttonElement["opacity"] == 1.0);
+	CHECK(buttonElement["hitTarget"] == true);
+	CHECK(buttonElement["button"] == buttonId);
+	CHECK(buttonElement["state"] == "normal");
+	CHECK(fixture.Ok("ui.layout", Json::object({{"entity", buttonId}}))["elements"] == Json::array({buttonElement}));
+	CHECK(fixture.Fails("ui.layout", Json::object({{"entity", "not an id"}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("ui.layout", Json::object({{"entity", "12345"}})) == AutomationErrorCode::EntityNotFound);
+	UUID const outside = fixture.Create("Outside");
+	CHECK(fixture.Fails("ui.layout", Json::object({{"entity", std::to_string(outside.GetValue())}})) == AutomationErrorCode::InvalidParams);
+
+	REQUIRE(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	auto const advance = [&fixture, canvas](Json const& devices)
+	{
+		fixture.Ok("input.set", devices);
+		// The editor's frame ends between the two requests, and Input's one-frame pressed and released flags with it.
+		Input::EndFrame();
+		fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+		Entity const recorder = fixture.Context.GetScene().GetEntityByUUID(canvas);
+		REQUIRE(recorder);
+		return recorder.GetName();
+	};
+	// The mouse at the center ui.layout gave.
+	CHECK(advance(Json::object({{"mousePosition", buttonElement["center"]}})) ==
+	      "Clicks=0;Last=0;InClick=False;Polled=False;State=Hovered;Over=True");
+	Json const hovered = fixture.Ok("ui.layout", Json::object({{"entity", buttonId}}));
+	CHECK(hovered["pointerOverUI"] == true);
+	CHECK(hovered["elements"][0]["state"] == "hovered");
+	CHECK(advance(Json::object({{"mouseButtons", Json::object({{"Left", true}})}})) ==
+	      "Clicks=0;Last=0;InClick=False;Polled=False;State=Pressed;Over=True");
+	CHECK(fixture.Ok("ui.layout", Json::object({{"entity", buttonId}}))["elements"][0]["state"] == "pressed");
+	CHECK(advance(Json::object({{"mouseButtons", Json::object({{"Left", false}})}})) ==
+	      "Clicks=1;Last=" + buttonId + ";InClick=True;Polled=True;State=Hovered;Over=True");
+	// Outside the button, a press and a release click nothing.
+	CHECK(advance(Json::object({{"mousePosition", Json::array({100.0, 100.0})}, {"mouseButtons", Json::object({{"Left", true}})}})) ==
+	      "Clicks=1;Last=" + buttonId + ";InClick=True;Polled=False;State=Normal;Over=False");
+	CHECK(advance(Json::object({{"mouseButtons", Json::object({{"Left", false}})}})) ==
+	      "Clicks=1;Last=" + buttonId + ";InClick=True;Polled=False;State=Normal;Over=False");
+	// A press that input.release ends (the window losing the focus) is canceled.
+	advance(Json::object({{"mousePosition", buttonElement["center"]}, {"mouseButtons", Json::object({{"Left", true}})}}));
+	fixture.Ok("input.release");
+	Input::EndFrame();
+	fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+	CHECK(fixture.Context.GetScene().GetEntityByUUID(canvas).GetName() ==
+	      "Clicks=1;Last=" + buttonId + ";InClick=True;Polled=False;State=Hovered;Over=True");
 	CHECK(fixture.Ok("play.stop")["state"] == "edit");
 }
 

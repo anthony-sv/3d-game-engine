@@ -5,9 +5,13 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Scene/Entity.h"
+#include "Strada/Scene/Scene.h"
 
 #include <array>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -23,6 +27,18 @@ namespace Strada
 		{
 			return Json::object({{"ParticleSystem", std::move(particleSystem)},
 			                     {"Transform", Json::object({{"RotationEuler", Json::array({90.0, 0.0, 0.0})}})}});
+		}
+
+		Json CanvasComponents()
+		{
+			return Json::object({{"UICanvas", Json::object()}});
+		}
+
+		// A UI element of the given size (canvas units) in the middle of its parent, with more components.
+		Json UIElementComponents(float width, float height, Json components)
+		{
+			components["UIRect"] = Json::object({{"Size", Json::array({width, height})}});
+			return components;
 		}
 
 		// std::to_array deduces the count, so every entry is initialized.
@@ -170,6 +186,44 @@ namespace Strada
 			                                             {"EndColor", Json::array({1.0, 0.3, 0.05, 0.0})},
 			                                             {"Intensity", 6.0}}));
 			 }},
+			// Global, so its overrides show at once; made local, its scale gives it a 10 m box.
+			{"Effects", "Post Process Volume", "Post Process Volume",
+		     []
+		     {
+				 return Json::object(
+					 {{"PostProcess", Json::object()}, {"Transform", Json::object({{"Scale", Json::array({10.0, 10.0, 10.0})}})}});
+			 }},
+			{"UI", "Canvas", "Canvas", &CanvasComponents},
+			// A dark, translucent panel with rounded corners (linear colors).
+			{"UI", "Panel", "Panel",
+		     []
+		     {
+				 return UIElementComponents(640.0f, 400.0f,
+			                                Json::object({{"UIImage", Json::object({{"Color", Json::array({0.0072, 0.0085, 0.0134, 0.85})},
+			                                                                        {"CornerRadius", 16.0}})}}));
+			 },
+		     true},
+			{"UI", "Image", "Image",
+		     []
+		     {
+				 return UIElementComponents(128.0f, 128.0f, Json::object({{"UIImage", Json::object()}}));
+			 },
+		     true},
+			{"UI", "Text", "Text",
+		     []
+		     {
+				 return UIElementComponents(400.0f, 80.0f, Json::object({{"UIText", Json::object({{"Text", "Text"}})}}));
+			 },
+		     true},
+			{"UI", "Button", "Button",
+		     []
+		     {
+				 return UIElementComponents(280.0f, 72.0f,
+			                                Json::object({{"UIImage", Json::object({{"CornerRadius", 14.0}})},
+			                                              {"UIButton", Json::object()},
+			                                              {"UIText", Json::object({{"Text", "Button"}})}}));
+			 },
+		     true},
 		});
 	}
 
@@ -195,6 +249,64 @@ namespace Strada
 				}
 				return operations.CreateEntity(std::move(info));
 			}
+
+			// Whether the entity or one of its ancestors is a canvas.
+			bool IsInCanvas(Scene& scene, UUID id)
+			{
+				for (Entity entity = scene.GetEntityByUUID(id); entity; entity = scene.GetParent(entity))
+				{
+					if (entity.HasComponent<UICanvasComponent>())
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+
+			// UI elements only show inside a canvas.
+			Result<UUID> CreateInCanvas(EditorOperations& operations, EntityCreateInfo info, glm::vec3 const& position)
+			{
+				Scene& scene = operations.GetContext().GetScene();
+				if (IsInCanvas(scene, info.Parent))
+				{
+					return operations.CreateEntity(std::move(info));
+				}
+				if (!info.Parent.IsValid())
+				{
+					Entity canvas;
+					scene.ForEachEntityInHierarchyOrder(
+						[&canvas](Entity entity)
+						{
+							if (!canvas && entity.HasComponent<UICanvasComponent>())
+							{
+								canvas = entity;
+							}
+						});
+					if (canvas)
+					{
+						info.Parent = canvas.GetUUID();
+						return operations.CreateEntity(std::move(info));
+					}
+				}
+
+				EntityCreateInfo canvas;
+				canvas.Name = "Canvas";
+				canvas.Parent = info.Parent;
+				canvas.Components = CanvasComponents();
+				if (!canvas.Parent.IsValid())
+				{
+					// The scene view draws the canvas's outline around its position.
+					canvas.Components["Transform"] = Json::object({{"Translation", Json::array({position.x, position.y, position.z})}});
+				}
+				std::vector<EntityCreateInfo> children;
+				children.push_back(std::move(info));
+				Result<std::vector<UUID>> created = operations.CreateEntityWithChildren(std::move(canvas), std::move(children));
+				if (!created)
+				{
+					return Error{created.GetError()};
+				}
+				return created.GetValue()[1];
+			}
 		}
 
 		Result<UUID> CreateFromMesh(EditorOperations& operations, AssetHandle mesh, UUID parent, glm::vec3 const& position)
@@ -217,7 +329,8 @@ namespace Strada
 			info.Name = std::string(preset.EntityName);
 			info.Parent = parent;
 			info.Components = preset.BuildComponents();
-			return CreatePlaced(operations, std::move(info), position);
+			return preset.NeedsCanvas ? CreateInCanvas(operations, std::move(info), position)
+			                          : CreatePlaced(operations, std::move(info), position);
 		}
 	}
 }

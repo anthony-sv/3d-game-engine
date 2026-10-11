@@ -102,7 +102,7 @@ namespace Strada
 		m_Runner.reset();
 		m_Context.EndPlay();
 		// Keys held and a cursor the game locked must not carry over into editing.
-		Input::ReleaseAll();
+		Input::ReleaseKeysAndMouseButtons();
 		Input::SetCursorMode(CursorMode::Normal);
 		ST_INFO("Stopped playing");
 	}
@@ -143,6 +143,7 @@ namespace Strada
 		{
 			return;
 		}
+		m_Runner->GetScene()->SetUIPointerEnabled(m_UIPointerEnabled);
 		m_Runner->Update(timestep);
 		FollowRunner();
 	}
@@ -157,6 +158,7 @@ namespace Strada
 			{
 				scene.Step(1);
 			}
+			scene.SetUIPointerEnabled(m_UIPointerEnabled);
 			m_Runner->Update(timestep);
 			run++;
 			FollowRunner();

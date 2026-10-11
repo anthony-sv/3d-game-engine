@@ -36,6 +36,7 @@ add_executable(StradaTests
     Source/Core/WindowTests.cpp
     Source/Fuzzing.h
     Source/GpuTestUtilities.h
+    Source/ImGui/ImGuiLayerTests.cpp
     Source/Math/AABBTests.cpp
     Source/Math/FrustumTests.cpp
     Source/Math/MathTests.cpp
@@ -63,8 +64,10 @@ add_executable(StradaTests
     Source/Renderer/SpriteTextRenderingTests.cpp
     Source/Renderer/TextLayoutTests.cpp
     Source/Renderer/TextureBlitterTests.cpp
+    Source/Renderer/UIRenderingTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
     Source/Scene/ParticleEmitterTests.cpp
+    Source/Scene/PostProcessVolumeTests.cpp
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
@@ -74,6 +77,8 @@ add_executable(StradaTests
     Source/Scene/SceneScriptingTests.cpp
     Source/Scene/SceneSerializerTests.cpp
     Source/Scene/SceneTests.cpp
+    Source/Scene/SceneUITests.cpp
+    Source/Scene/UILayoutTests.cpp
     Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp
     Source/Script/ScriptTestUtilities.h

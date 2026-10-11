@@ -3,6 +3,7 @@
 #include "Editor/AssetDrops.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/UI/EditorUI.h"
+#include "Editor/Viewport/CanvasOverlay.h"
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
@@ -285,6 +286,12 @@ namespace Strada
 			};
 		}
 		options.DrawDebugLines = m_Overlays.DebugLines;
+		// The screen-space UI would cover the scene: each canvas shows in its entity's plane instead.
+		options.DrawUI = m_Overlays.Canvases;
+		options.PlaceCanvas = [&scene, &selection](UUID canvas)
+		{
+			return CanvasOverlay::PlaceCanvas(scene, canvas, selection.GetEntities());
+		};
 		options.SubmitOverlays = [&](SceneRenderer& renderer)
 		{
 			SceneRendererOverlays overlays;
@@ -301,6 +308,10 @@ namespace Strada
 					                                                : ViewportOverlays::Shapes::All;
 					ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, shapes);
 				}
+			}
+			if (m_Overlays.Canvases)
+			{
+				CanvasOverlay::AppendCanvasOutlines(scene, selection.GetEntities(), lines);
 			}
 			if (m_Overlays.AllColliders)
 			{
@@ -370,7 +381,9 @@ namespace Strada
 		EditorContext& context = operations.GetContext();
 		Scene& scene = context.GetScene();
 		Entity const primary = scene.GetEntityByUUID(context.GetSelection().GetPrimary());
-		if (!primary)
+		// A UI element's UIRect places it on the screen, and its canvas's outline shows where: moving its Transform would
+		// change nothing.
+		if (!primary || CanvasOverlay::IsUIElement(scene, primary.GetUUID()))
 		{
 			EndGizmoDrag(context);
 			return;
@@ -649,9 +662,12 @@ namespace Strada
 			ImGui::Checkbox("Grid (G)", &m_Overlays.Grid);
 			ImGui::Checkbox("Selection outline", &m_Overlays.SelectionOutline);
 			ImGui::Checkbox("Light and camera icons", &m_Overlays.Icons);
-			ImGui::Checkbox("Selected cameras, lights and colliders", &m_Overlays.SelectionShapes);
+			ImGui::Checkbox("Shapes of selected entities", &m_Overlays.SelectionShapes);
+			ImGui::SetItemTooltip("Camera frustums, light directions, ranges and cones, colliders, joints and post-process volume boxes");
 			ImGui::Checkbox("All colliders", &m_Overlays.AllColliders);
 			ImGui::Checkbox("Debug drawing (scripts)", &m_Overlays.DebugLines);
+			ImGui::Checkbox("UI canvases", &m_Overlays.Canvases);
+			ImGui::SetItemTooltip("Each canvas's UI in its entity's plane, faint until the canvas or one of its elements is selected");
 			ImGui::EndPopup();
 		}
 		ImGui::Dummy(ImVec2(0.0f, 2.0f));

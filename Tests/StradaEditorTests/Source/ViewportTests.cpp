@@ -1,11 +1,18 @@
 #include "Editor/EditorOperations.h"
+#include "Editor/GameInputRouter.h"
 #include "Editor/Panels/GameViewPanel.h"
 #include "Editor/Viewport/PickingIdMap.h"
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
+#include "GpuTestUtilities.h"
+#include "HeadlessImGui.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/RHI/GraphicsDevice.h"
+#include "Strada/Renderer/Renderer.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/SceneSerializer.h"
 
 #include <doctest/doctest.h>
@@ -13,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 using namespace Strada;
 
@@ -310,6 +318,70 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	CHECK(shapes(door).size() == 3);
 }
 
+TEST_CASE("ViewportOverlays: local post-process volumes show their box and where their blend ends")
+{
+	EditorContext context;
+	EditorOperations operations(context);
+	Scene& scene = context.GetScene();
+	auto const shapes = [&](UUID id, uint32_t which)
+	{
+		std::vector<OverlayLine> lines;
+		ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), 16.0f / 9.0f, lines, which);
+		return lines;
+	};
+	auto const linesOfColor = [](std::vector<OverlayLine> const& lines, glm::vec4 const& color)
+	{
+		std::vector<OverlayLine> matching;
+		std::copy_if(lines.begin(), lines.end(), std::back_inserter(matching),
+		             [&color](OverlayLine const& line)
+		             {
+						 return line.Color == color;
+					 });
+		return matching;
+	};
+
+	// Global volumes apply everywhere: nothing to show.
+	UUID const volume = CreateEntity(operations, "Volume", UUID::Invalid(),
+	                                 Json::object({{"PostProcess", Json::object({{"BlendDistance", 2.0}})},
+	                                               {"Transform", Json::object({{"Translation", {0, 3, 0}}, {"Scale", {8, 4, 6}}})}}));
+	CHECK(shapes(volume, ViewportOverlays::Shapes::All).empty());
+
+	// Local: the 12 edges of the entity's box, drawn through geometry...
+	REQUIRE(operations.SetComponentFields(volume, "PostProcess", Json::object({{"Global", false}})).IsOk());
+	std::vector<OverlayLine> const lines = shapes(volume, ViewportOverlays::Shapes::All);
+	std::vector<OverlayLine> const box = linesOfColor(lines, ViewportOverlays::VolumeColor);
+	REQUIRE(box.size() == 12);
+	AABB inner;
+	for (OverlayLine const& line : box)
+	{
+		inner.Expand(line.From);
+		inner.Expand(line.To);
+		CHECK_FALSE(line.DepthTest);
+	}
+	CHECK(NearlyEqual(inner.Min, {-4.0f, 1.0f, -3.0f}));
+	CHECK(NearlyEqual(inner.Max, {4.0f, 5.0f, 3.0f}));
+
+	// ...and the box grown by the blend distance with rounded edges: six faces and a quarter circle at both ends of each
+	// edge, every point of which is that distance from the box.
+	std::vector<OverlayLine> const blend = linesOfColor(lines, ViewportOverlays::VolumeBlendColor);
+	CHECK(blend.size() == 6 * 4 + 24 * (ViewportOverlays::CircleSegments / 4));
+	PostProcessVolumes::Box const volumeBox = PostProcessVolumes::GetBox(scene.GetWorldTransform(scene.GetEntityByUUID(volume)));
+	AABB outer;
+	for (OverlayLine const& line : blend)
+	{
+		outer.Expand(line.From);
+		outer.Expand(line.To);
+		CHECK(PostProcessVolumes::GetDistance(volumeBox, line.From) == doctest::Approx(2.0f).epsilon(1e-3));
+	}
+	CHECK(NearlyEqual(outer.Min, {-6.0f, -1.0f, -5.0f}));
+	CHECK(NearlyEqual(outer.Max, {6.0f, 7.0f, 5.0f}));
+
+	// Without a blend distance only the box; only when volumes are asked for.
+	REQUIRE(operations.SetComponentFields(volume, "PostProcess", Json::object({{"BlendDistance", 0.0}})).IsOk());
+	CHECK(shapes(volume, ViewportOverlays::Shapes::All).size() == 12);
+	CHECK(shapes(volume, ViewportOverlays::Shapes::All & ~ViewportOverlays::Shapes::Volumes).empty());
+}
+
 TEST_CASE("GameViewPanel: the game's image keeps the chosen size or aspect ratio and is centered")
 {
 	// Free: the whole area, at its size.
@@ -345,6 +417,57 @@ TEST_CASE("GameViewPanel: the game's image keeps the chosen size or aspect ratio
 		CHECK(tiny.RenderSize.y >= 1);
 		CHECK(tiny.ImageSize.x >= 1.0f);
 	}
+}
+
+TEST_CASE("GameViewPanel: scenes without a camera show their screen-space UI")
+{
+	ST_REQUIRE_GPU();
+	AssetManager::Init();
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		Testing::HeadlessImGui imgui;
+		EditorContext context;
+		GameInputRouter router;
+		GameViewPanel view(router);
+		bool open = true;
+		auto const frame = [&]
+		{
+			imgui.Frame(
+				[&]
+				{
+					ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+					ImGui::SetNextWindowSize(ImVec2(640.0f, 480.0f));
+					view.OnImGuiRender(context, open);
+				});
+		};
+		SceneRendererStatistics const* const statistics = view.GetRendererStatistics();
+		REQUIRE(statistics != nullptr);
+
+		// A scene without a camera or UI has nothing to show: no frame is rendered.
+		Scene& scene = context.GetScene();
+		frame();
+		CHECK(statistics->Quads == 0);
+
+		// A menu without a camera: a panel with a button, both drawn.
+		Entity canvas = scene.CreateEntity("Canvas");
+		canvas.AddComponent<UICanvasComponent>();
+		Entity panel = scene.CreateEntity("Panel", canvas);
+		panel.AddComponent<UIRectComponent>().Size = {800.0f, 600.0f};
+		panel.AddComponent<UIImageComponent>();
+		Entity button = scene.CreateEntity("Button", panel);
+		button.AddComponent<UIRectComponent>();
+		button.AddComponent<UIImageComponent>();
+		button.AddComponent<UIButtonComponent>();
+		frame();
+		CHECK(statistics->Quads == 2);
+		// The two rectangles alone, in one batch: no world passes.
+		CHECK(statistics->DrawCalls == 1);
+		CHECK(statistics->Triangles == 4);
+		CHECK(statistics->Lights == 0);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+	AssetManager::Shutdown();
 }
 
 TEST_CASE("EditorContext: replacing the scene changes the scene version")

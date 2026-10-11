@@ -15,7 +15,9 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <initializer_list>
 #include <optional>
 #include <string>
@@ -357,6 +359,87 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 	CAPTURE(wrongIcon.Output);
 	CHECK(wrongIcon.ExitCode == 0);
 	CHECK(Contains(wrongIcon.Output, "icon is not used"));
+}
+
+TEST_CASE("Runtime: a windowed run of a menu without a camera shows its UI over black")
+{
+	TestGame game(ProjectFileKind::Game);
+	// A title screen without a camera (a sky, which needs one to show, included): a red panel over the middle half of the
+	// screen with a green button at its bottom and a title.
+	Ref<Scene> const title = CreateRef<Scene>("Title");
+	title->CreateEntity("Sky").AddComponent<SkyLightComponent>().AmbientColor = glm::vec3(1.0f);
+	Entity canvas = title->CreateEntity("Canvas");
+	canvas.AddComponent<UICanvasComponent>();
+	Entity panel = title->CreateEntity("Panel", canvas);
+	UIRectComponent& panelRect = panel.AddComponent<UIRectComponent>();
+	panelRect.AnchorMin = {0.25f, 0.25f};
+	panelRect.AnchorMax = {0.75f, 0.75f};
+	panelRect.Size = {0.0f, 0.0f};
+	panel.AddComponent<UIImageComponent>().Color = {1.0f, 0.0f, 0.0f, 1.0f};
+	Entity heading = title->CreateEntity("Heading", panel);
+	UIRectComponent& headingRect = heading.AddComponent<UIRectComponent>();
+	headingRect.AnchorMin = {0.0f, 0.0f};
+	headingRect.AnchorMax = {1.0f, 0.0f};
+	headingRect.Pivot = {0.5f, 0.0f};
+	headingRect.Size = {0.0f, 150.0f};
+	heading.AddComponent<UITextComponent>().Text = "TITLE";
+	Entity button = title->CreateEntity("Play", panel);
+	UIRectComponent& buttonRect = button.AddComponent<UIRectComponent>();
+	buttonRect.AnchorMin = {0.5f, 1.0f};
+	buttonRect.AnchorMax = {0.5f, 1.0f};
+	buttonRect.Pivot = {0.5f, 1.0f};
+	buttonRect.Position = {0.0f, -20.0f};
+	buttonRect.Size = {400.0f, 120.0f};
+	button.AddComponent<UIImageComponent>();
+	button.AddComponent<UIButtonComponent>().NormalColor = {0.0f, 1.0f, 0.0f, 1.0f};
+	game.AddScene("Title", title);
+	// A scene with nothing to show without a camera.
+	Ref<Scene> const empty = CreateRef<Scene>("Empty");
+	empty->CreateEntity("Sky").AddComponent<SkyLightComponent>();
+	game.AddScene("Empty", empty);
+
+	std::filesystem::path const screenshot = game.GetDirectory() / "Title.png";
+	ProcessResult const result =
+		RunPlayer({"--game", Native(game.Write("Scenes/Title.sscene")), "--frames", "3", "--screenshot", Native(screenshot)});
+	CAPTURE(result.Output);
+	if (result.ExitCode != 0 && Testing::IsMissingDisplayAllowed())
+	{
+		MESSAGE("Skipping the windowed run: the player could not start (no display or GPU)");
+		return;
+	}
+	REQUIRE(result.ExitCode == 0);
+	CHECK_FALSE(Contains(result.Output, "nothing is drawn"));
+	CHECK_FALSE(Contains(result.Output, "Graphics validation errors"));
+
+	// The 1920 x 1080 canvas fits the 16:10 window's width: the panel spans the middle half of the window, with the button
+	// a tenth of the window high at its bottom (from 63% to 73% of the height) and a fifth of it wide. The rest is black.
+	// The window's framebuffer follows the display's scale, so places are fractions of the image.
+	Result<Image> image = Image::LoadFromFile(screenshot);
+	REQUIRE(image.IsOk());
+	auto const checkPixel = [&image](float x, float y, glm::ivec3 const& expected)
+	{
+		Image const& shot = image.GetValue();
+		uint32_t const column = std::min(static_cast<uint32_t>(x * static_cast<float>(shot.GetWidth())), shot.GetWidth() - 1);
+		uint32_t const row = std::min(static_cast<uint32_t>(y * static_cast<float>(shot.GetHeight())), shot.GetHeight() - 1);
+		uint8_t const* pixel = shot.GetPixel(column, row);
+		CAPTURE(column);
+		CAPTURE(row);
+		for (int channel = 0; channel < 3; channel++)
+		{
+			CAPTURE(channel);
+			CHECK(std::abs(static_cast<int>(pixel[channel]) - expected[channel]) <= 8);
+		}
+	};
+	checkPixel(0.02f, 0.02f, {0, 0, 0});
+	checkPixel(0.98f, 0.98f, {0, 0, 0});
+	checkPixel(0.3f, 0.5f, {255, 0, 0});
+	checkPixel(0.5f, 0.68f, {0, 255, 0});
+
+	// Without a camera or screen-space content nothing is drawn, and the player says so.
+	ProcessResult const nothing = RunPlayer({"--game", Native(game.Write("Scenes/Empty.sscene")), "--frames", "2"});
+	CAPTURE(nothing.Output);
+	CHECK(nothing.ExitCode == 0);
+	CHECK(Contains(nothing.Output, "has no primary camera and no screen-space UI: nothing is drawn"));
 }
 
 TEST_CASE("Runtime: exported games run from their own directory")

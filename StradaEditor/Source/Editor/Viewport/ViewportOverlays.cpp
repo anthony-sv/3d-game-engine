@@ -1,5 +1,6 @@
 #include "Editor/Viewport/ViewportOverlays.h"
 
+#include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
 
@@ -247,6 +248,78 @@ namespace Strada::ViewportOverlays
 			}
 			AddLine(lines, anchor, other, JointColor, false);
 		}
+
+		// A local volume's box and the outline where its blend distance ends: the box's faces pushed out by the distance,
+		// joined by quarter circles around its edges. Drawn through geometry, since the camera is often inside.
+		void AddPostProcessVolume(std::vector<OverlayLine>& lines, glm::mat4 const& world, PostProcessComponent const& volume)
+		{
+			if (volume.Global)
+			{
+				return;
+			}
+			PostProcessVolumes::Box const box = PostProcessVolumes::GetBox(world);
+			// The point at signs (-1 or 1 per axis) times the half extents, pushed out along the axes by offsets.
+			auto const point = [&box](glm::vec3 const& sign, glm::vec3 const& offsets)
+			{
+				glm::vec3 result = box.Center;
+				for (glm::length_t axis = 0; axis < 3; axis++)
+				{
+					result += sign[axis] * (box.HalfExtents[axis] + offsets[axis]) * box.Axes[static_cast<size_t>(axis)];
+				}
+				return result;
+			};
+
+			std::array<glm::vec3, 8> corners;
+			for (uint32_t i = 0; i < 8; i++)
+			{
+				corners[i] = point({(i & 1) ? 1.0f : -1.0f, (i & 2) ? 1.0f : -1.0f, (i & 4) ? 1.0f : -1.0f}, glm::vec3(0.0f));
+			}
+			AddBox(lines, corners, VolumeColor, false);
+
+			float const blendDistance = volume.BlendDistance;
+			if (!(blendDistance > 0.0f))
+			{
+				return;
+			}
+			for (glm::length_t axis = 0; axis < 3; axis++)
+			{
+				glm::length_t const first = (axis + 1) % 3;
+				glm::length_t const second = (axis + 2) % 3;
+				glm::vec3 offsets(0.0f);
+				offsets[axis] = blendDistance;
+				for (float const side : {-1.0f, 1.0f})
+				{
+					// The face, pushed out.
+					std::array<glm::vec3, 4> face;
+					for (uint32_t i = 0; i < 4; i++)
+					{
+						glm::vec3 sign(0.0f);
+						sign[axis] = side;
+						sign[first] = (i == 1 || i == 2) ? 1.0f : -1.0f;
+						sign[second] = i >= 2 ? 1.0f : -1.0f;
+						face[i] = point(sign, offsets);
+					}
+					for (uint32_t i = 0; i < 4; i++)
+					{
+						AddLine(lines, face[i], face[(i + 1) % 4], VolumeBlendColor, false);
+					}
+					// Quarter circles at both ends of the box's edges along the first axis, between the faces they join.
+					for (float const end : {-1.0f, 1.0f})
+					{
+						glm::vec3 sign(0.0f);
+						sign[axis] = side;
+						sign[first] = end;
+						for (float const across : {-1.0f, 1.0f})
+						{
+							sign[second] = across;
+							AddArc(lines, point(sign, glm::vec3(0.0f)), side * box.Axes[static_cast<size_t>(axis)],
+							       across * box.Axes[static_cast<size_t>(second)], blendDistance, 0.0f, glm::half_pi<float>(),
+							       CircleSegments / 4, VolumeBlendColor, false);
+						}
+					}
+				}
+			}
+		}
 	}
 
 	void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines, uint32_t shapes)
@@ -298,6 +371,13 @@ namespace Strada::ViewportOverlays
 			if (JointComponent const* joint = entity.TryGetComponent<JointComponent>())
 			{
 				AddJoint(scene, lines, world, *joint);
+			}
+		}
+		if ((shapes & Shapes::Volumes) != 0)
+		{
+			if (PostProcessComponent const* volume = entity.TryGetComponent<PostProcessComponent>())
+			{
+				AddPostProcessVolume(lines, world, *volume);
 			}
 		}
 	}
