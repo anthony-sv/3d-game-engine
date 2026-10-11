@@ -5,7 +5,6 @@
 #include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/Events/KeyEvent.h"
 #include "Strada/Core/Events/MouseEvent.h"
-#include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Platform.h"
@@ -14,7 +13,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
-#include <vector>
+#include <span>
 
 namespace Strada
 {
@@ -74,6 +73,14 @@ namespace Strada
 			{
 				data.EventCallback(event);
 			}
+		}
+
+		// The drop callback of the window and of the windows that forward their drops to it (ForwardFileDrops).
+		void OnFilesDropped(GLFWwindow* window, int count, char const** paths)
+		{
+			size_t const pathCount = paths != nullptr && count > 0 ? static_cast<size_t>(count) : 0;
+			WindowFileDropEvent event = WindowFileDropEvent::FromUtf8(std::span<char const* const>(paths, pathCount));
+			Dispatch(window, event);
 		}
 
 		void PollGamepads()
@@ -212,18 +219,7 @@ namespace Strada
 										 Dispatch(window, event);
 									 });
 
-		glfwSetDropCallback(m_Window,
-		                    [](GLFWwindow* window, int count, char const** paths)
-		                    {
-								std::vector<std::filesystem::path> droppedPaths;
-								droppedPaths.reserve(static_cast<size_t>(std::max(0, count)));
-								for (int i = 0; i < count; i++)
-								{
-									droppedPaths.push_back(FileSystem::PathFromUtf8(paths[i]));
-								}
-								WindowDropEvent event(std::move(droppedPaths));
-								Dispatch(window, event);
-							});
+		glfwSetDropCallback(m_Window, OnFilesDropped);
 
 		glfwSetKeyCallback(m_Window,
 		                   [](GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -329,6 +325,18 @@ namespace Strada
 	void Window::SetEventCallback(EventCallbackFn callback)
 	{
 		m_Data.EventCallback = std::move(callback);
+	}
+
+	void Window::ForwardFileDrops(GLFWwindow* window)
+	{
+		if (window == nullptr || window == m_Window)
+		{
+			return;
+		}
+		// Only the drop callback reads the user pointer of a forwarding window: its other callbacks belong to ImGui, whose
+		// GLFW backend leaves the user pointer to the application.
+		glfwSetWindowUserPointer(window, &m_Data);
+		glfwSetDropCallback(window, OnFilesDropped);
 	}
 
 	glm::uvec2 Window::GetWindowSize() const

@@ -12,6 +12,7 @@
 #include <functional>
 #include <future>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -70,8 +71,15 @@ namespace Strada
 		// The last finished build; null before the first one of the open project.
 		ScriptBuildReport const* GetLastBuild() const { return m_LastBuild ? &*m_LastBuild : nullptr; }
 
-		// A script class from the template, creating the C# project first when the project has none. The next Update builds it.
-		[[nodiscard]] Result<std::filesystem::path> CreateScript(std::string_view className);
+		// A script class from the template in a folder of the scripts directory (ScriptProject::CreateScript), creating the C#
+		// project first when the project has none. The next Update builds it.
+		[[nodiscard]] Result<std::filesystem::path> CreateScript(std::string_view className, std::string_view folder = {});
+		// Copies C# sources into a folder of the scripts directory (ScriptProject::GetSourceDirectory; relative with forward
+		// slashes, "" for the directory itself, created when missing), numbering names that are taken, and creates the C#
+		// project first when the project has none. Sources already inside the scripts directory stay where they are. All or
+		// nothing: copies made before a failure are removed. The next Update builds them. Returns the files in order.
+		[[nodiscard]] Result<std::vector<std::filesystem::path>> AddScripts(std::span<std::filesystem::path const> files,
+		                                                                    std::string_view folder);
 
 		bool HasScriptProject() const;
 		// A C# source or project file changed after the game assembly was built.

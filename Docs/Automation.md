@@ -205,7 +205,7 @@ relative to the project's `Assets` directory with forward slashes. Asset file op
 | `asset.select` | `asset`* | the selection: the inspector shows the asset instead of entities (not undoable) |
 | `asset.import` | `files`* (absolute paths), `folder` | `assets` (all or nothing; taken names get a number) |
 | `asset.refresh` | — | `added`, `missing`, `modified` (assets), `warnings` |
-| `asset.browse` | `folder` (relative to Assets, `""` for Assets itself), `tileScale` (0.6 to 2.5); both optional | Shows the folder in the content browser and sizes its tiles; returns `folder`, `tileScale`; changes nothing in the project; InvalidParams for folders outside the asset directory; Unavailable when headless |
+| `asset.browse` | `root` (`Assets` or `Scripts`: the project's C# sources in `Scripts/Source`), `folder` (relative to the root, `""` for the root itself), `tileScale` (0.6 to 2.5); all optional | Shows the folder in the content browser, brings the browser to the front and sizes its tiles; without `root` the displayed root stays, without `folder` the root's displayed folder; returns `root`, `folder`, `tileScale`; changes nothing in the project; InvalidParams for folders outside the root's directory; Unavailable when headless |
 | `asset.move` | `asset`*, `path`* | the moved asset |
 | `asset.delete` | `asset`* | `deleted` (id) |
 | `asset.create-folder` | `folder`* | `folder` |
@@ -239,7 +239,7 @@ itself when their sources change and loads the built assembly (hot reload); `scr
 |---------|-----------|--------|
 | `script.status` | — | `available` (.NET found), `scriptProject`, `building`, `outOfDate`, `loaded`, `classCount`, `lastBuild` (build report or null) |
 | `script.classes` | — | `classes`: `[{ name, fields: [{ name, type, default, hidden?, tooltip?, range?, assetType?, enumerators?, flags? }] }]`; Unavailable without .NET |
-| `script.create` | `className`* (C# identifier) | `path` (relative to the project directory), `class` (full name); creates the C# project when needed |
+| `script.create` | `className`* (C# identifier), `folder` (of `Scripts/Source`, relative with forward slashes; created when missing) | `path` (relative to the project directory), `class` (full name); creates the C# project when needed; InvalidParams for folders outside `Scripts/Source`, FileError when another file of the C# project has the name |
 | `script.build` | — | Build report `{ succeeded, error, loaded, seconds, errors, warnings, diagnostics: [{ severity, file, line, column, code, message }] }`; asynchronous; compile errors give `succeeded: false`; InvalidOperation without a project, scripts or .NET SDK |
 
 ### play, input and test

@@ -76,6 +76,11 @@ namespace Strada
 
 		// <project>/Scripts/<ScriptModule's name>.csproj.
 		static std::filesystem::path GetProjectFile(Project const& project);
+		// <project>/Scripts/Source: where the editor adds scripts. The C# project compiles every source under Scripts/.
+		static std::filesystem::path GetSourceDirectory(Project const& project);
+		// The directory of a folder of the source directory, given relative to it with forward slashes ("" for the source
+		// directory itself); it need not exist yet. Fails for absolute paths and folders outside the source directory.
+		[[nodiscard]] static Result<std::filesystem::path> GetSourceFolder(Project const& project, std::string_view folder);
 		// The game assembly (the project's ScriptModule, absolute).
 		static std::filesystem::path GetAssemblyPath(Project const& project);
 		static bool Exists(Project const& project);
@@ -87,9 +92,12 @@ namespace Strada
 		[[nodiscard]] static Result<void> Generate(Project const& project, std::filesystem::path const& scriptCoreAssembly);
 		// Rewrites Strada.props of an existing C# project when it changes (after the editor moved, for one).
 		[[nodiscard]] static Result<void> UpdateProps(Project const& project, std::filesystem::path const& scriptCoreAssembly);
-		// A script class from the template in Scripts/Source/<ClassName>.cs, in the namespace named after the assembly.
-		// Fails when the name is not a C# identifier (ASCII) or the file exists.
-		[[nodiscard]] static Result<std::filesystem::path> CreateScript(Project const& project, std::string_view className);
+		// A script class from the template in Scripts/Source/<folder>/<ClassName>.cs (GetSourceFolder; created when missing),
+		// in the namespace named after the assembly. Fails when the name is not a C# identifier (ASCII), the folder is not
+		// one of the source directory, or the file exists or another file of the C# project has its name (the class would
+		// be declared twice).
+		[[nodiscard]] static Result<std::filesystem::path> CreateScript(Project const& project, std::string_view className,
+		                                                                std::string_view folder = {});
 
 		static ScriptBuildSettings MakeBuildSettings(Project const& project, ScriptBuildConfiguration configuration);
 		// Builds with the .NET SDK (dotnet build), blocking the calling thread; setting *cancel from another thread stops it.

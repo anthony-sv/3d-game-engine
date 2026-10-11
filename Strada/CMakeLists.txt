@@ -16,6 +16,7 @@ set(STRADA_CORE_SOURCES
     Source/Strada/Core/EmbeddedResources.h
     Source/Strada/Core/EntryPoint.cpp
     Source/Strada/Core/EntryPoint.h
+    Source/Strada/Core/Events/ApplicationEvent.cpp
     Source/Strada/Core/Events/ApplicationEvent.h
     Source/Strada/Core/Events/Event.h
     Source/Strada/Core/Events/KeyEvent.h
@@ -97,6 +98,8 @@ set(STRADA_AUDIO_SOURCES
     Source/Strada/Audio/AudioEngine.h
     Source/Strada/Audio/AudioScene.cpp
     Source/Strada/Audio/AudioScene.h
+    Source/Strada/Audio/AudioWaveform.cpp
+    Source/Strada/Audio/AudioWaveform.h
     Source/Strada/Audio/MiniaudioContext.h
 )
 

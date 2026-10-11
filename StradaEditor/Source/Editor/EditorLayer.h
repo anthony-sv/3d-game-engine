@@ -96,6 +96,8 @@ namespace Strada
 		void HandleShortcuts();
 		void DrawUnsavedChangesPopup();
 		void DrawNewProjectPopup();
+		// Asks for the class name of a new script in a folder of the scripts' sources (relative to them, "" for themselves).
+		void OpenNewScriptPopup(std::string folder);
 		void DrawNewScriptPopup();
 		void DrawPlayControls();
 		// Plays (building changed scripts first) or simulates the edited scene.
@@ -168,7 +170,7 @@ namespace Strada
 		bool m_ShowRendererInfo = true;
 		bool m_ShowImGuiDemo = false;
 		bool m_ResetLayout = false;
-		// Frames until the default layout's scene view and inspector tabs come to the front (0: nothing to do).
+		// Frames until the default layout's scene view, inspector and content browser tabs come to the front (0: nothing to do).
 		uint8_t m_FocusDefaultTabsFrames = 0;
 
 		SceneAction m_PendingAction = SceneAction::None;
@@ -184,6 +186,7 @@ namespace Strada
 		EditorPlayState m_FollowedPlayState = EditorPlayState::Edit;
 		bool m_OpenNewScriptPopup = false;
 		std::string m_NewScriptName;
+		std::string m_NewScriptFolder;
 		BuildGameDialog m_BuildGameDialog;
 		std::string m_WindowTitle;
 

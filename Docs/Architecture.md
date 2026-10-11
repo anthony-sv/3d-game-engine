@@ -94,7 +94,7 @@ through includes of `Scene.h` in headers.
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
-| Audio | miniaudio engine, per-scene sound sources and listener | `AudioEngine`, `AudioScene` |
+| Audio | miniaudio engine, per-scene sound sources and listener, waveforms of clips | `AudioEngine`, `AudioScene`, `ComputeAudioWaveform` |
 | Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding` |
 | Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `RenderScene` |
 | Project | Project files and settings, the C# script project, the scene runner (play mode and the player), game export | `Project`, `ProjectSettings`, `ScriptProject`, `SceneRunner`, `GameExporter` |
@@ -491,6 +491,9 @@ links Core Audio at build time (`MA_NO_RUNTIME_LINKING`), as notarization requir
 ALSA, JACK) are loaded at runtime and are not build requirements.
 
 `AudioClipAsset`s hold the encoded file (WAV, FLAC, MP3, Ogg Vorbis; the format is detected from the data).
+`ComputeAudioWaveform` decodes a clip with a decoder of its own, so it runs on any thread and can be cancelled, into
+the peaks of equally long parts (blocks merge as the clip decodes, so memory stays bounded for any length); the
+editor's content browser draws them.
 `AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID): each sound decodes
 its clip from memory through its own decoder while it plays, and a scene's sounds play through one sound group that
 pauses them together. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
@@ -625,11 +628,12 @@ project's `ScriptModule` (default `Scripts/Binaries/Game.dll`, namespace `Game`)
 writes it once; afterwards it belongs to the user (packages, extra files), and any .NET 10 SDK or C# editor works with
 it. `Scripts/Strada.props`, rewritten whenever its content changes, points the project at this machine's
 `Strada.ScriptCore.dll` (referenced, not copied: the engine provides it). New scripts come from a template in
-`Scripts/Source/<Class>.cs`. Builds run `dotnet build` (found through `DOTNET_ROOT`, PATH, then the default install
-locations) as a child process (`Process`, Platform module, reproc++) into the `ScriptModule`'s directory, without
-build servers (they would outlive the build and keep its output open) and with English output, from which errors and
-warnings are parsed with their files and positions. A build is out of date when a C# source or project file is newer
-than the assembly.
+`Scripts/Source/<Class>.cs` or a folder of `Scripts/Source`; a class name that another file of the C# project has
+(`<Class>.cs` anywhere outside the build output) is refused, as the class would be declared twice. Builds run
+`dotnet build` (found through `DOTNET_ROOT`, PATH, then the default install locations) as a child process (`Process`,
+Platform module, reproc++) into the `ScriptModule`'s directory, without build servers (they would outlive the build
+and keep its output open) and with English output, from which errors and warnings are parsed with their files and
+positions. A build is out of date when a C# source or project file is newer than the assembly.
 
 ## 11. Editor (`StradaEditor`)
 
@@ -654,18 +658,40 @@ than the assembly.
   in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
   editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
   read-only), a texture preview, mesh statistics with the mesh's materials, and the details of other asset types.
-- Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
-  files in red), breadcrumbs, a tile size slider, and a search over every asset path. Textures show themselves, and
-  materials (on a sphere), meshes, prefabs and environments show thumbnails that `AssetThumbnails` renders offscreen,
-  one per frame, again when the asset is reloaded or a material edited; other assets show a page with their type. Click selects (the inspector shows the
-  asset), double-click opens folders and scenes; F2 renames, Delete deletes after a confirmation. Assets and folders
-  drag onto folder tiles and breadcrumbs to move (handles stay valid); assets drag into asset fields, the hierarchy
-  (meshes become entities, as children when dropped onto a row) and the viewport (meshes become entities on the
-  ground under the cursor, materials go to every submesh of the mesh under the cursor, environments to the first sky
-  light or a new one, scenes open). Context menus create folders and materials, import files (native multi-select
-  dialog), refresh, rename, delete and copy references or paths. File operations are not undoable. Files that other
+- Content Browser: a folder tree with two roots, the open project's asset directory and its C# scripts
+  (`Scripts/Source`, `ScriptBrowsing`), beside the displayed folder as tiles (folders, then assets or scripts, then
+  files that are not assets, such as a glTF scene's buffers) labeled with their file names on two lines (a long name
+  keeps its extension in view: `LongMat...smat`), breadcrumbs, a tile size slider, and a search over the root's paths.
+  Textures show themselves, and materials (on a sphere), meshes, prefabs and environments show thumbnails that
+  `AssetThumbnails` renders offscreen, one per frame, again when the asset is reloaded, unloaded because its file
+  changed, or a material edited; fonts write "Aa" with their own glyphs (rasterized from the text renderer's
+  distance-field atlas); audio clips show their waveform and length, decoded on a worker thread one clip at a time
+  (`ComputeAudioWaveform`) and kept. Files without a picture get cards of the slate theme with a glyph and a band
+  naming their type, drawn with ImDrawList (a globe for scenes, a cube for prefabs, a wireframe for meshes, a shaded
+  ball for materials, a picture for textures, a sunrise for environments, a speaker until a waveform is ready, "Aa" in
+  the editor's font for unreadable fonts, a C# document for scripts, a page with the extension for other files);
+  missing files get a red badge and a red label, files that do not load or decode an amber badge (the tooltip says
+  why; `AssetThumbnails::GetLoadError`), and audio tooltips the clip's length, rate and channels. Click selects (on
+  release, so dragging keeps the selection the drop target belongs to; the inspector shows assets), double-click opens
+  folders, scenes, scripts and other files (with the desktop's application, `Desktop::Open`); the folder tree opens and
+  scrolls to the displayed folder. F2 renames, Delete deletes after a confirmation. Assets and folders
+  drag onto folder tiles, tree nodes and breadcrumbs to move (handles stay valid), scripts and script folders onto
+  script folders; assets drag into asset fields, the hierarchy (meshes become entities, as children when dropped onto
+  a row) and the viewport (meshes become entities on the ground under the cursor, materials go to every submesh of
+  the mesh under the cursor, environments to the first sky light or a new one, scenes open); scripts drag onto
+  hierarchy rows and the inspector, which give the entities a Script component of the class the file defines among
+  the loaded classes (`AssetDrops::AddScript`; the console says when the scripts are not built yet). Context menus
+  create folders, materials and C# scripts (the New Script dialog, in the displayed script folder; the browser then
+  shows the script), import files (native multi-select dialog), refresh, rename, delete, copy references or paths
+  and show items in the file manager. File operations are not undoable. Files and folders dropped onto any of the
+  editor's windows from the OS (`WindowFileDropEvent`, forwarded from the platform windows of floating panels too)
+  are imported by `ProjectImport` into the folder under the cursor, else the displayed ones: assets into the asset
+  folder, C# sources into the scripts folder (creating the C# project when needed), a folder with all its files
+  except hidden ones (files that are not assets, such as a glTF scene's buffers, are kept beside the assets); taken
+  names get a number, other files are reported in the console, and what came in is selected. Files that other
   applications add, change or delete are picked up when the editor gets the focus back (`AssetAutoRefresh`; one of
-  its windows, floating panels included; after a running game export, which copies the assets) or with Refresh.
+  its windows, floating panels included; after a running game export, which copies the assets) or with Refresh, and
+  their thumbnails are made again.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
 - Renderer Info: the device (adapter, type, Vulkan version, driver, GPU timing support, validation and its error
   count), the frame (average and slowest frame time with a graph over 240 frames, frame count, back buffer), and what
@@ -706,12 +732,15 @@ than the assembly.
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
   matrix); they are saved to the project file when an edit ends and are not part of the scene's undo history. Scenes
   saved inside the asset directory are registered as assets. Without a project the editor works on loose scene files.
-- Scripts (`EditorScripts`): the project's C# project is kept pointing at this engine; Scripts > New Script creates a
-  class from the template, Scripts > Build Scripts (Ctrl+B) builds on a worker thread, and changed sources (checked
-  every second) build by themselves. Errors and warnings go to the console with their files and lines, the menu bar
-  shows a failed build, and each successful build is loaded at once (hot reload; while scripts run, when they stop).
-  The inspector edits Script components with a class picker and the fields of the class: typed asset pickers, enum
-  combos, flag check boxes, colors and Euler angles like component fields, one undo step per interaction.
+- Scripts (`EditorScripts`): the project's C# project is kept pointing at this engine; Scripts > New Script and the
+  content browser's "+" > C# Script create a class from the template in the script folder the browser shows (else in
+  `Scripts/Source`) and show it there, C# sources imported into the browser are copied into a folder of
+  `Scripts/Source` (`AddScripts`, creating the C# project when the project has none), Scripts > Build Scripts (Ctrl+B)
+  builds on a worker thread, and changed sources (checked every second) build by themselves. Errors and warnings go to
+  the console with their files and lines, the menu bar shows a failed build, and each successful build is loaded at
+  once (hot reload; while scripts run, when they stop). The inspector edits Script components with a class picker and
+  the fields of the class: typed asset pickers, enum combos, flag check boxes, colors and Euler angles like component
+  fields, one undo step per interaction.
 - Prefabs: an entity's "Create Prefab" (hierarchy context menu) writes it with its descendants to `Prefabs/`, and
   entities dragged onto the content browser become prefabs in the folder they are dropped on; neither changes the
   scene. Prefabs dragged onto the scene view, the hierarchy or an entity row are instantiated there (one undo step).

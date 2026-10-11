@@ -138,11 +138,13 @@ namespace Strada
 		result =
 			result
 				? Add(registry, "script.create",
-		              "Creates a script class from the template in Scripts/Source/<className>.cs (and the project's C# project when "
-		              "it has none). The scripts build by themselves shortly after; script.build waits for a build. Returns the "
-		              "file (relative to the project directory) and the class's full name.",
+		              "Creates a script class from the template in Scripts/Source/<folder>/<className>.cs (and the project's C# "
+		              "project when it has none). The scripts build by themselves shortly after; script.build waits for a build. "
+		              "Returns the file (relative to the project directory) and the class's full name.",
 		              SchemaBuilder::Object()
 		                  .Property("className", SchemaBuilder::String("C# class name: letters, digits and underscores").MinLength(1), true)
+		                  .Property("folder", SchemaBuilder::String("Folder of Scripts/Source for the file, relative with forward slashes "
+		                                                            "(created when missing; default: Scripts/Source itself)"))
 		                  .Build(),
 		              false,
 		              [&scripts, &context](Json const& params) -> CommandResult
@@ -160,7 +162,12 @@ namespace Strada
 				                                      "starting with a letter",
 				                                      className);
 						  }
-						  Result<std::filesystem::path> created = scripts.CreateScript(className);
+						  std::string const folder = params.contains("folder") ? params["folder"].get<std::string>() : std::string();
+						  if (Result<std::filesystem::path> const directory = ScriptProject::GetSourceFolder(*project, folder); !directory)
+						  {
+							  return MakeCommandError(AutomationErrorCode::InvalidParams, "{}", directory.GetError());
+						  }
+						  Result<std::filesystem::path> created = scripts.CreateScript(className, folder);
 						  if (!created)
 						  {
 							  return MakeCommandError(AutomationErrorCode::FileError, "{}", created.GetError());

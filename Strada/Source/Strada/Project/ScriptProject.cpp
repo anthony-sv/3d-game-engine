@@ -241,6 +241,12 @@ namespace Strada
 			return extension == ".cs" || extension == ".csproj" || extension == ".props" || extension == ".targets";
 		}
 
+		// The directories the .NET SDK writes builds to, which hold no sources.
+		bool IsBuildOutputDirectory(std::string_view name)
+		{
+			return name == "Binaries" || name == "bin" || name == "obj";
+		}
+
 		// The newest change to the C# project and its sources; build output directories are skipped.
 		std::optional<std::filesystem::file_time_type> FindNewestSource(std::filesystem::path const& directory)
 		{
@@ -253,7 +259,7 @@ namespace Strada
 				std::filesystem::directory_entry const& entry = *iterator;
 				std::string const name = FileSystem::PathToUtf8(entry.path().filename());
 				std::error_code entryError;
-				if (entry.is_directory(entryError) && (name == "Binaries" || name == "bin" || name == "obj"))
+				if (entry.is_directory(entryError) && IsBuildOutputDirectory(name))
 				{
 					iterator.disable_recursion_pending();
 					continue;
@@ -271,6 +277,33 @@ namespace Strada
 			return newest;
 		}
 
+		// A file of the given name in the directory or below it; build output directories are skipped.
+		std::optional<std::filesystem::path> FindFileNamed(std::filesystem::path const& directory, std::string_view fileName)
+		{
+			std::error_code error;
+			std::filesystem::recursive_directory_iterator iterator(directory, std::filesystem::directory_options::skip_permission_denied,
+			                                                       error);
+			for (; !error && iterator != std::filesystem::recursive_directory_iterator(); iterator.increment(error))
+			{
+				std::filesystem::directory_entry const& entry = *iterator;
+				std::string const name = FileSystem::PathToUtf8(entry.path().filename());
+				std::error_code entryError;
+				if (entry.is_directory(entryError))
+				{
+					if (IsBuildOutputDirectory(name))
+					{
+						iterator.disable_recursion_pending();
+					}
+					continue;
+				}
+				if (name == fileName && entry.is_regular_file(entryError))
+				{
+					return entry.path();
+				}
+			}
+			return std::nullopt;
+		}
+
 		std::optional<std::filesystem::path> FindDriverIn(std::filesystem::path const& directory)
 		{
 #if defined(ST_PLATFORM_WINDOWS)
@@ -286,6 +319,28 @@ namespace Strada
 	std::filesystem::path ScriptProject::GetAssemblyPath(Project const& project)
 	{
 		return project.GetDirectory() / FileSystem::PathFromUtf8(project.GetSettings().ScriptModule);
+	}
+
+	std::filesystem::path ScriptProject::GetSourceDirectory(Project const& project)
+	{
+		return project.GetDirectory() / DirectoryName / SourceDirectoryName;
+	}
+
+	Result<std::filesystem::path> ScriptProject::GetSourceFolder(Project const& project, std::string_view folder)
+	{
+		std::filesystem::path const sources = GetSourceDirectory(project);
+		std::filesystem::path const relative = FileSystem::PathFromUtf8(folder);
+		std::filesystem::path directory = (sources / relative).lexically_normal();
+		if (relative.is_absolute() || relative.has_root_name() || !FileSystem::IsInside(directory, sources))
+		{
+			return MakeError("'{}' is not a folder of the scripts' sources", folder);
+		}
+		// "AI/" and "AI/." name the folder AI.
+		if (!directory.has_filename())
+		{
+			directory = directory.parent_path();
+		}
+		return directory;
 	}
 
 	std::filesystem::path ScriptProject::GetProjectFile(Project const& project)
@@ -307,7 +362,7 @@ namespace Strada
 	Result<void> ScriptProject::Generate(Project const& project, std::filesystem::path const& scriptCoreAssembly)
 	{
 		std::filesystem::path const directory = project.GetDirectory() / DirectoryName;
-		if (Result<void> created = FileSystem::CreateDirectories(directory / SourceDirectoryName); !created)
+		if (Result<void> created = FileSystem::CreateDirectories(GetSourceDirectory(project)); !created)
 		{
 			return created;
 		}
@@ -331,19 +386,29 @@ namespace Strada
 		return WriteIfChanged(project.GetDirectory() / DirectoryName / PropsFileName, MakePropsFile(scriptCoreAssembly));
 	}
 
-	Result<std::filesystem::path> ScriptProject::CreateScript(Project const& project, std::string_view className)
+	Result<std::filesystem::path> ScriptProject::CreateScript(Project const& project, std::string_view className, std::string_view folder)
 	{
 		if (!IsValidClassName(className))
 		{
 			return MakeError("'{}' is not a valid script class name: use letters, digits and underscores, starting with a letter",
 			                 className);
 		}
-		std::filesystem::path const file =
-			project.GetDirectory() / DirectoryName / SourceDirectoryName / FileSystem::PathFromUtf8(std::string(className) + ".cs");
+		Result<std::filesystem::path> const directory = GetSourceFolder(project, folder);
+		if (!directory)
+		{
+			return Error{directory.GetError()};
+		}
+		std::string const fileName = std::string(className) + ".cs";
+		std::filesystem::path const file = directory.GetValue() / FileSystem::PathFromUtf8(fileName);
 		std::error_code error;
 		if (std::filesystem::exists(file, error))
 		{
 			return MakeError("'{}' already exists", FileSystem::PathToUtf8(file));
+		}
+		// The C# project compiles every source under Scripts/ into one assembly, where the class would be declared twice.
+		if (std::optional<std::filesystem::path> const other = FindFileNamed(project.GetDirectory() / DirectoryName, fileName))
+		{
+			return MakeError("'{}' already exists", FileSystem::PathToUtf8(*other));
 		}
 		if (Result<void> created = FileSystem::CreateDirectories(file.parent_path()); !created)
 		{

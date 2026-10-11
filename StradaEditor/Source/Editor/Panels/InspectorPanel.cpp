@@ -1,5 +1,6 @@
 #include "Editor/Panels/InspectorPanel.h"
 
+#include "Editor/AssetDrops.h"
 #include "Editor/ComponentInspection.h"
 #include "Editor/ScriptFieldInspection.h"
 
@@ -171,6 +172,20 @@ namespace Strada
 		}
 		ImGui::Spacing();
 		DrawAddComponent(operations, entities);
+
+		// C# scripts dragged from the content browser onto the inspector go to the inspected entities.
+		if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->Rect(), ImGui::GetID("##scriptDrop")))
+		{
+			if (std::optional<std::filesystem::path> const script = UI::AcceptScriptDrop())
+			{
+				m_Deferred.push_back(
+					[&operations, entities, file = *script]
+					{
+						UI::ReportFailure(AssetDrops::AddScript(operations, entities, file), "Adding the script");
+					});
+			}
+			ImGui::EndDragDropTarget();
+		}
 
 		std::vector<std::function<void()>> deferred;
 		deferred.swap(m_Deferred);

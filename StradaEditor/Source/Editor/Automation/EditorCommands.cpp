@@ -14,6 +14,7 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Version.h"
 #include "Strada/Project/Project.h"
+#include "Strada/Project/ScriptProject.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -1684,57 +1685,82 @@ namespace Strada
 				result = m_Registry.Register(std::move(screenshot));
 
 				result =
-					result ? Add("asset.browse",
-				                 "Shows a folder of the asset directory in the editor's content browser (relative to Assets with forward "
-				                 "slashes, \"\" for Assets itself) and sets the size of its tiles; returns { folder, tileScale }. Changes "
-				                 "nothing in the project. Unavailable without the editor's UI (headless).",
-				                 SchemaBuilder::Object()
-				                     .Property("folder", SchemaBuilder::String("Folder relative to Assets"))
-				                     .Property("tileScale", SchemaBuilder::Number("Tile size as a multiple of the default")
-				                                                .Minimum(ContentBrowserPanel::MinTileScale)
-				                                                .Maximum(ContentBrowserPanel::MaxTileScale))
-				                     .Build(),
-				                 false,
-				                 [this](Json const& params) -> CommandResult
-				                 {
-									 if (!m_Environment.ContentBrowser)
-									 {
-										 return MakeCommandError(AutomationErrorCode::Unavailable,
-						                                         "the editor has no content browser (headless)");
-									 }
-									 if (std::optional<CommandError> error = CheckAssets(true))
-									 {
-										 return *error;
-									 }
-									 ContentBrowserPanel& browser = m_Environment.ContentBrowser();
-									 if (params.contains("folder"))
-									 {
-										 std::string const folder = params["folder"].get<std::string>();
-										 std::filesystem::path const& assets = AssetManager::GetAssetDirectory();
-										 std::filesystem::path const relative = FileSystem::PathFromUtf8(folder).lexically_normal();
-										 std::filesystem::path const absolute = (assets / relative).lexically_normal();
-										 if (relative.is_absolute() || !FileSystem::IsInside(absolute, assets) ||
-						                     !FileSystem::IsDirectory(absolute))
-										 {
-											 return MakeCommandError(AutomationErrorCode::InvalidParams,
-							                                         "'{}' is not a folder of the asset directory", folder);
-										 }
-										 // "Textures/", "./Textures" and "Textures" are the same folder; "" and "." are Assets.
-										 std::string normalized = FileSystem::PathToUtf8(FileSystem::GetRelativePath(absolute, assets));
-										 std::replace(normalized.begin(), normalized.end(), '\\', '/');
-										 while (normalized.ends_with('/'))
-										 {
-											 normalized.pop_back();
-										 }
-										 browser.SetFolder(normalized == "." ? std::string() : normalized);
-									 }
-									 if (params.contains("tileScale"))
-									 {
-										 browser.SetTileScale(params["tileScale"].get<float>());
-									 }
-									 return Json::object({{"folder", browser.GetFolder()}, {"tileScale", browser.GetTileScale()}});
-								 })
-						   : result;
+					result
+						? Add("asset.browse",
+				              "Shows a folder in the editor's content browser and sets the size of its tiles: a folder of the asset "
+				              "directory (root Assets, the default) or of the project's C# scripts (root Scripts: Scripts/Source), "
+				              "relative to the root with forward slashes (\"\" for the root itself); returns { root, folder, "
+				              "tileScale }. Changes nothing in the project. Unavailable without the editor's UI (headless).",
+				              SchemaBuilder::Object()
+				                  .Property("root", SchemaBuilder::String("Which files to browse").Enum({"Assets", "Scripts"}))
+				                  .Property("folder", SchemaBuilder::String("Folder relative to the root"))
+				                  .Property("tileScale", SchemaBuilder::Number("Tile size as a multiple of the default")
+				                                             .Minimum(ContentBrowserPanel::MinTileScale)
+				                                             .Maximum(ContentBrowserPanel::MaxTileScale))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (!m_Environment.ContentBrowser)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable,
+						                                      "the editor has no content browser (headless)");
+								  }
+								  if (std::optional<CommandError> error = CheckAssets(true))
+								  {
+									  return *error;
+								  }
+								  ContentBrowserPanel& browser = m_Environment.ContentBrowser();
+								  ContentRoot root = browser.GetRoot();
+								  if (params.contains("root"))
+								  {
+									  root = params["root"].get<std::string>() == "Scripts" ? ContentRoot::Scripts : ContentRoot::Assets;
+								  }
+								  Project const* const project = m_Operations.GetContext().GetProject();
+								  std::filesystem::path const directory = root == ContentRoot::Assets || project == nullptr
+					                                                          ? AssetManager::GetAssetDirectory()
+					                                                          : ScriptProject::GetSourceDirectory(*project);
+								  std::string folder = root == ContentRoot::Assets ? browser.GetFolder() : browser.GetScriptFolder();
+								  if (params.contains("folder"))
+								  {
+									  std::string const requested = params["folder"].get<std::string>();
+									  std::filesystem::path const relative = FileSystem::PathFromUtf8(requested).lexically_normal();
+									  std::filesystem::path const absolute = (directory / relative).lexically_normal();
+									  // "Textures/", "./Textures" and "Textures" are the same folder; "" and "." are the root.
+									  std::string normalized = FileSystem::PathToUtf8(FileSystem::GetRelativePath(absolute, directory));
+									  std::replace(normalized.begin(), normalized.end(), '\\', '/');
+									  while (normalized.ends_with('/'))
+									  {
+										  normalized.pop_back();
+									  }
+									  bool const isRoot = normalized.empty() || normalized == ".";
+									  // The scripts' directory itself may not exist before the first script.
+									  if (relative.is_absolute() || !FileSystem::IsInside(absolute, directory) ||
+						                  (!isRoot && !FileSystem::IsDirectory(absolute)))
+									  {
+										  return MakeCommandError(AutomationErrorCode::InvalidParams, "'{}' is not a folder of the {}",
+							                                      requested, root == ContentRoot::Assets ? "asset directory" : "scripts");
+									  }
+									  folder = isRoot ? std::string() : normalized;
+								  }
+								  if (root == ContentRoot::Assets)
+								  {
+									  browser.SetFolder(folder);
+								  }
+								  else
+								  {
+									  browser.SetScriptFolder(folder);
+								  }
+								  if (params.contains("tileScale"))
+								  {
+									  browser.SetTileScale(params["tileScale"].get<float>());
+								  }
+								  browser.RequestFocus();
+								  return Json::object({{"root", root == ContentRoot::Assets ? "Assets" : "Scripts"},
+					                                   {"folder", folder},
+					                                   {"tileScale", browser.GetTileScale()}});
+							  })
+						: result;
 
 				result =
 					result ? Add("viewport.camera",

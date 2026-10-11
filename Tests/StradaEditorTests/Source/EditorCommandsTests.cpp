@@ -573,6 +573,24 @@ TEST_CASE("EditorCommands: asset.browse shows folders of the asset directory in 
 	      AutomationErrorCode::InvalidParams);
 	CHECK(fixture.Fails("asset.browse", Json::object({{"tileScale", 10.0}})) == AutomationErrorCode::InvalidParams);
 	CHECK(fixture.ContentBrowser.GetFolder().empty());
+
+	// The project's C# scripts: their directory, even before it exists, and its folders.
+	Json const scripts = fixture.Ok("asset.browse", Json::object({{"root", "Scripts"}}));
+	CHECK(scripts["root"] == "Scripts");
+	CHECK(scripts["folder"] == "");
+	CHECK(fixture.ContentBrowser.GetRoot() == ContentRoot::Scripts);
+	REQUIRE(FileSystem::CreateDirectories(directory.GetPath() / "Game" / "Scripts" / "Source" / "AI").IsOk());
+	CHECK(fixture.Ok("asset.browse", Json::object({{"root", "Scripts"}, {"folder", "AI/"}}))["folder"] == "AI");
+	CHECK(fixture.ContentBrowser.GetScriptFolder() == "AI");
+	CHECK(fixture.Fails("asset.browse", Json::object({{"root", "Scripts"}, {"folder", "Missing"}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("asset.browse", Json::object({{"root", "Scripts"}, {"folder", ".."}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("asset.browse", Json::object({{"root", "Sources"}})) == AutomationErrorCode::InvalidParams);
+	// Without a root the displayed one stays; each root keeps its folder.
+	CHECK(fixture.Ok("asset.browse")["root"] == "Scripts");
+	Json const assets = fixture.Ok("asset.browse", Json::object({{"root", "Assets"}}));
+	CHECK(assets["folder"] == "");
+	CHECK(fixture.ContentBrowser.GetRoot() == ContentRoot::Assets);
+	CHECK(fixture.ContentBrowser.GetScriptFolder() == "AI");
 }
 
 TEST_CASE("EditorCommands: the viewport's renderer statistics are reported")

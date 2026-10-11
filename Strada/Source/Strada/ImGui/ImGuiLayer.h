@@ -10,6 +10,7 @@
 #include <string>
 
 struct ImFont;
+struct ImGuiViewport;
 
 namespace Strada
 {
@@ -53,6 +54,8 @@ namespace Strada
 		ImGuiLayerSpecification m_Specification;
 		std::string m_IniFilePath;
 		ImGuiRenderer m_Renderer;
+		// The GLFW backend's Platform_CreateWindow, which the layer's own wraps (multi-viewports only).
+		void (*m_CreatePlatformWindow)(ImGuiViewport* viewport) = nullptr;
 		bool m_BlockEvents = true;
 		bool m_ViewportsEnabled = false;
 		bool m_Attached = false;

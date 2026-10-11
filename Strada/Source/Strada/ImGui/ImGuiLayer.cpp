@@ -207,6 +207,25 @@ namespace Strada
 			ImGui::DestroyContext();
 			return;
 		}
+		if (m_ViewportsEnabled)
+		{
+			// Files dropped onto a panel dragged out of the main window reach the application like files dropped onto the
+			// main window: the backend's platform windows forward their drops to it.
+			ImGuiPlatformIO& platformIO = ImGui::GetPlatformIO();
+			m_CreatePlatformWindow = platformIO.Platform_CreateWindow;
+			platformIO.Platform_CreateWindow = [](ImGuiViewport* viewport)
+			{
+				// Platform windows are created while frames end, when the application holds the attached layer.
+				Application const& application = Application::Get();
+				ImGuiLayer const* const layer = application.GetImGuiLayer();
+				ST_CORE_ASSERT(layer != nullptr && layer->m_CreatePlatformWindow != nullptr, "ImGui platform windows need the ImGui layer");
+				layer->m_CreatePlatformWindow(viewport);
+				if (Window* const mainWindow = application.GetWindow())
+				{
+					mainWindow->ForwardFileDrops(static_cast<GLFWwindow*>(viewport->PlatformHandle));
+				}
+			};
+		}
 
 		if (Result<void> result = m_Renderer.Init(); !result)
 		{

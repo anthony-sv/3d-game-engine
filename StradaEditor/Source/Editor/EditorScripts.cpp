@@ -1,5 +1,8 @@
 #include "Editor/EditorScripts.h"
 
+#include "Editor/AssetBrowsing.h"
+#include "Editor/ScriptBrowsing.h"
+
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Script/ScriptEngine.h"
@@ -146,7 +149,7 @@ namespace Strada
 		}
 	}
 
-	Result<std::filesystem::path> EditorScripts::CreateScript(std::string_view className)
+	Result<std::filesystem::path> EditorScripts::CreateScript(std::string_view className, std::string_view folder)
 	{
 		Project const* const project = m_Context.GetProject();
 		if (project == nullptr)
@@ -158,11 +161,72 @@ namespace Strada
 			return MakeError("'{}' is not a valid script class name: use letters, digits and underscores, starting with a letter",
 			                 className);
 		}
+		if (Result<std::filesystem::path> const directory = ScriptProject::GetSourceFolder(*project, folder); !directory)
+		{
+			return Error{directory.GetError()};
+		}
 		if (Result<void> generated = ScriptProject::Generate(*project, m_ScriptCoreAssembly); !generated)
 		{
 			return Error{generated.GetError()};
 		}
-		return ScriptProject::CreateScript(*project, className);
+		return ScriptProject::CreateScript(*project, className, folder);
+	}
+
+	Result<std::vector<std::filesystem::path>> EditorScripts::AddScripts(std::span<std::filesystem::path const> files,
+	                                                                     std::string_view folder)
+	{
+		Project const* const project = m_Context.GetProject();
+		if (project == nullptr)
+		{
+			return Error{"no project is open"};
+		}
+		std::filesystem::path const sources = ScriptProject::GetSourceDirectory(*project);
+		Result<std::filesystem::path> const folderDirectory = ScriptProject::GetSourceFolder(*project, folder);
+		if (!folderDirectory)
+		{
+			return Error{folderDirectory.GetError()};
+		}
+		std::filesystem::path const& destination = folderDirectory.GetValue();
+		for (std::filesystem::path const& file : files)
+		{
+			if (!FileSystem::IsRegularFile(file) || !ScriptBrowsing::IsScriptFile(file))
+			{
+				return MakeError("'{}' is not a C# source file", FileSystem::PathToUtf8(file.filename()));
+			}
+		}
+		if (Result<void> generated = ScriptProject::Generate(*project, m_ScriptCoreAssembly); !generated)
+		{
+			return Error{generated.GetError()};
+		}
+		if (Result<void> created = FileSystem::CreateDirectories(destination); !created)
+		{
+			return Error{created.GetError()};
+		}
+
+		std::vector<std::filesystem::path> added;
+		std::vector<std::filesystem::path> copies;
+		for (std::filesystem::path const& file : files)
+		{
+			if (FileSystem::IsInside(file, sources))
+			{
+				added.push_back(file);
+				continue;
+			}
+			std::string const name = AssetBrowsing::MakeUniqueFileName(destination, FileSystem::PathToUtf8(file.stem()),
+			                                                           FileSystem::PathToUtf8(file.extension()));
+			std::filesystem::path const copy = destination / FileSystem::PathFromUtf8(name);
+			if (Result<void> copied = FileSystem::Copy(file, copy, false); !copied)
+			{
+				for (std::filesystem::path const& previous : copies)
+				{
+					(void)FileSystem::Remove(previous);
+				}
+				return Error{copied.GetError()};
+			}
+			copies.push_back(copy);
+			added.push_back(copy);
+		}
+		return added;
 	}
 
 	bool EditorScripts::HasScriptProject() const

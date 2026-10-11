@@ -1,13 +1,17 @@
 #include "Editor/AssetDrops.h"
 
 #include "Editor/EditorOperations.h"
+#include "Editor/ScriptBrowsing.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/ScriptEngine.h"
 
 #include <algorithm>
+#include <vector>
 
 namespace Strada
 {
@@ -79,6 +83,68 @@ namespace Strada
 			info.Name = "Sky Light";
 			info.Components = Json::object({{"SkyLight", patch}});
 			return operations.CreateEntity(std::move(info));
+		}
+
+		Result<std::string> AddScript(EditorOperations& operations, std::span<UUID const> entities, std::filesystem::path const& file)
+		{
+			if (entities.empty())
+			{
+				return Error{"there is no entity to add the script to"};
+			}
+			Scene& scene = operations.GetContext().GetScene();
+			for (UUID const entity : entities)
+			{
+				if (!scene.HasEntity(entity))
+				{
+					return MakeError("entity {} does not exist", entity);
+				}
+			}
+			if (!ScriptEngine::IsInitialized())
+			{
+				return Error{"scripting is unavailable: the .NET 10 runtime was not found"};
+			}
+			if (!ScriptEngine::HasGameAssembly())
+			{
+				return MakeError("the scripts are not built yet: build them (Scripts > Build Scripts) and add '{}' again",
+				                 FileSystem::PathToUtf8(file.filename()));
+			}
+			Result<std::string> className = ScriptBrowsing::FindScriptClass(file, ScriptEngine::GetClasses());
+			if (!className)
+			{
+				return className;
+			}
+
+			// Entities that run the class already are left as they are.
+			Json const fields = Json::object({{"ClassName", className.GetValue()}});
+			std::vector<UUID> added;
+			std::vector<ComponentEdit> replaced;
+			for (UUID const entity : entities)
+			{
+				Entity const target = scene.GetEntityByUUID(entity);
+				if (!target.HasComponent<ScriptComponent>())
+				{
+					added.push_back(entity);
+				}
+				else if (target.GetComponent<ScriptComponent>().ClassName != className.GetValue())
+				{
+					replaced.push_back({entity, std::string(ComponentTraits<ScriptComponent>::Name), fields});
+				}
+			}
+			if (!added.empty())
+			{
+				if (Result<void> result = operations.AddComponent(added, ComponentTraits<ScriptComponent>::Name, fields); !result)
+				{
+					return Error{result.GetError()};
+				}
+			}
+			if (!replaced.empty())
+			{
+				if (Result<void> result = operations.SetComponentFields(std::move(replaced)); !result)
+				{
+					return Error{result.GetError()};
+				}
+			}
+			return className;
 		}
 	}
 }
