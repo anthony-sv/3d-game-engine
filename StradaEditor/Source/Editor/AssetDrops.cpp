@@ -11,7 +11,6 @@
 #include "Strada/Script/ScriptEngine.h"
 
 #include <algorithm>
-#include <vector>
 
 namespace Strada
 {
@@ -114,35 +113,9 @@ namespace Strada
 				return className;
 			}
 
-			// Entities that run the class already are left as they are.
-			Json const fields = Json::object({{"ClassName", className.GetValue()}});
-			std::vector<UUID> added;
-			std::vector<ComponentEdit> replaced;
-			for (UUID const entity : entities)
+			if (Result<void> result = operations.SetScriptClass(entities, className.GetValue()); !result)
 			{
-				Entity const target = scene.GetEntityByUUID(entity);
-				if (!target.HasComponent<ScriptComponent>())
-				{
-					added.push_back(entity);
-				}
-				else if (target.GetComponent<ScriptComponent>().ClassName != className.GetValue())
-				{
-					replaced.push_back({entity, std::string(ComponentTraits<ScriptComponent>::Name), fields});
-				}
-			}
-			if (!added.empty())
-			{
-				if (Result<void> result = operations.AddComponent(added, ComponentTraits<ScriptComponent>::Name, fields); !result)
-				{
-					return Error{result.GetError()};
-				}
-			}
-			if (!replaced.empty())
-			{
-				if (Result<void> result = operations.SetComponentFields(std::move(replaced)); !result)
-				{
-					return Error{result.GetError()};
-				}
+				return Error{result.GetError()};
 			}
 			return className;
 		}

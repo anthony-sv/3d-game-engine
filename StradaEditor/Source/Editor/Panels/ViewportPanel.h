@@ -96,6 +96,8 @@ namespace Strada
 		void ApplyPickResult(EditorOperations& operations);
 		// Applies an asset dropped onto the viewport image at a pixel.
 		void ApplyAssetDrop(EditorOperations& operations, AssetHandle asset, glm::vec2 const& pixel, glm::vec2 const& imageSize);
+		// Picks the entity under a pixel for a material or a C# source dropped there (the pick result applies it).
+		void PickDropTarget(glm::vec2 const& pixel, AssetHandle material, std::filesystem::path script);
 		void DrawToolbar();
 
 		EditorCamera m_Camera;
@@ -108,11 +110,13 @@ namespace Strada
 		// Picking IDs belong to one scene (EditorContext::GetSceneVersion).
 		PickingIdMap m_PickingIds;
 		uint64_t m_PickingSceneVersion = 0;
-		// What the awaited pick result is for: a selection click, or a dropped material (assigned to the picked entity).
+		// What the awaited pick result is for: a selection click, a dropped material (assigned to the picked entity) or a dropped
+		// C# source (its class added to the picked entity).
 		struct PendingPick
 		{
 			SelectionMode Mode = SelectionMode::Replace;
 			AssetHandle Material;
+			std::filesystem::path Script;
 		};
 		std::optional<PendingPick> m_PendingPick;
 		// A pick requested for a previous scene is still in flight: its result is dropped.

@@ -21,8 +21,8 @@ namespace Strada
 	};
 
 	// Decodes the clip and measures its peaks in partCount equally long parts (fewer for very short clips). Touches no
-	// engine state, so it may run on any thread; setting *cancel from another thread stops it. Fails when the clip cannot
-	// be decoded or holds no audio, and when cancelled.
+	// engine state (the log is thread-safe), so it may run on any thread; setting *cancel from another thread stops it.
+	// Fails when the clip cannot be decoded (the decoder's reason is logged) or holds no audio, and when cancelled.
 	[[nodiscard]] Result<AudioWaveform> ComputeAudioWaveform(AudioClipAsset const& clip, uint32_t partCount,
 	                                                         std::atomic<bool> const* cancel = nullptr);
 }

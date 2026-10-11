@@ -11,7 +11,6 @@
 #include <nvrhi/nvrhi.h>
 
 #include <atomic>
-#include <chrono>
 #include <cstdint>
 #include <future>
 #include <memory>
@@ -40,23 +39,23 @@ namespace Strada
 	// Previews of assets for the content browser. Textures show themselves; materials (on a sphere), meshes, prefabs and
 	// environments (their sky) are rendered into small images, and fonts write "Aa" with their glyphs, at most one per Update
 	// so browsing stays smooth. Audio clips get waveforms, decoded on a worker thread one clip at a time. A preview is made
-	// again when its asset is reloaded, unloaded because its file changed, or (materials) edited; failed ones are retried now
-	// and then, as a refresh may have repaired their files. Main thread only; images need the Renderer.
+	// again when its asset is reloaded, unloaded because its file changed, or (materials) edited; one that failed because its
+	// asset did not load is tried again once the asset manager forgets that (a refresh, which may find the file repaired).
+	// Main thread only; images need the Renderer.
 	class AssetThumbnails
 	{
 	public:
 		// Pixels of rendered thumbnails (square).
 		static constexpr uint32_t Size = 256;
-		// Rendered thumbnails kept; the least recently shown go first.
+		// Thumbnails kept by default; the least recently shown go first.
 		static constexpr size_t MaxThumbnails = 512;
 		// Parts of the clips' waveforms.
 		static constexpr uint32_t WaveformParts = 96;
-		// Waveforms kept; the least recently shown go first.
+		// Waveforms kept by default; the least recently shown go first.
 		static constexpr size_t MaxWaveforms = 1024;
-		// How long a preview that failed waits before it is tried again.
-		static constexpr std::chrono::seconds RetryInterval{5};
 
-		AssetThumbnails();
+		// Keeps at most maxThumbnails thumbnails and maxWaveforms waveforms.
+		explicit AssetThumbnails(size_t maxThumbnails = MaxThumbnails, size_t maxWaveforms = MaxWaveforms);
 		// Stops the waveform being computed.
 		~AssetThumbnails();
 		AssetThumbnails(AssetThumbnails const&) = delete;
@@ -75,8 +74,8 @@ namespace Strada
 		// Why the asset cannot be read, when its thumbnail or waveform failed because the file did not load (or, for audio
 		// clips, decode); null otherwise, also before its preview was tried.
 		std::string const* GetLoadError(AssetHandle asset) const;
-		// Renders the most recently requested thumbnail that is missing or out of date, and collects or starts a waveform.
-		// Call once per frame.
+		// Renders the most recently requested thumbnail that is missing or out of date, collects or starts a waveform, and
+		// forgets the least recently shown previews beyond the limits. Call once per frame.
 		void Update();
 		void Clear();
 
@@ -91,9 +90,10 @@ namespace Strada
 			nvrhi::TextureHandle Texture;
 			// What the thumbnail shows: rendered again when the loaded asset or its version changes.
 			std::weak_ptr<Asset> Source;
+			// The asset loaded (Source is it); false when its load failed.
+			bool Loaded = false;
 			uint64_t SourceVersion = 0;
 			bool Failed = false;
-			std::chrono::steady_clock::time_point FailTime;
 			// Why the asset did not load when that made the thumbnail fail; empty otherwise.
 			std::string LoadError;
 			uint64_t LastUse = 0;
@@ -103,10 +103,10 @@ namespace Strada
 		{
 			std::optional<AudioWaveform> Waveform;
 			std::weak_ptr<Asset> Source;
+			bool Loaded = false;
 			bool Failed = false;
 			// The failure was logged.
 			bool Reported = false;
-			std::chrono::steady_clock::time_point FailTime;
 			// Why the clip did not load or decode when the waveform failed; empty otherwise.
 			std::string LoadError;
 			uint64_t LastUse = 0;
@@ -121,10 +121,10 @@ namespace Strada
 		};
 
 		// Whether the preview shows the asset as it is now: the same loaded asset (and material version). Previews are made
-		// from loaded assets, which stay loaded until their files change: one that is no longer loaded is out of date. Failed
-		// previews count as current until RetryInterval has passed.
-		static bool IsCurrent(std::weak_ptr<Asset> const& source, uint64_t sourceVersion, bool failed,
-		                      std::chrono::steady_clock::time_point failTime, AssetHandle asset);
+		// from loaded assets, which stay loaded until their files change: one that is no longer loaded is out of date. A
+		// preview of an asset that did not load is current while the asset manager remembers the failed load.
+		static bool IsCurrent(std::weak_ptr<Asset> const& source, bool sourceLoaded, uint64_t sourceVersion, bool failed,
+		                      AssetHandle asset);
 		bool Render(AssetHandle asset, Entry& entry);
 		bool RenderFont(AssetHandle asset, Entry& entry);
 		bool Upload(Image const& image, Entry& entry);
@@ -132,6 +132,8 @@ namespace Strada
 		void StopWaveformJob();
 		void Evict();
 
+		size_t m_MaxThumbnails;
+		size_t m_MaxWaveforms;
 		Scope<SceneRenderer> m_Renderer;
 		nvrhi::CommandListHandle m_CommandList;
 		std::unordered_map<AssetHandle, Entry> m_Entries;

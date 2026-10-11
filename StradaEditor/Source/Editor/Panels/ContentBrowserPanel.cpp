@@ -31,7 +31,14 @@ namespace Strada
 	{
 		// Tiles of the slate theme: cards with a type band, glyphs in the type's accent color.
 		constexpr ImU32 CardColor = IM_COL32(45, 50, 59, 255);
+		constexpr ImU32 HoveredCardColor = IM_COL32(53, 59, 70, 255);
 		constexpr ImU32 CardBorderColor = IM_COL32(62, 68, 79, 255);
+		// Selection in the theme's accent, a lighter outline under the mouse.
+		constexpr ImU32 SelectionColor = IM_COL32(90, 157, 255, 255);
+		constexpr ImU32 SelectedLabelColor = IM_COL32(46, 101, 196, 255);
+		constexpr ImU32 SelectedFolderColor = IM_COL32(90, 157, 255, 46);
+		constexpr ImU32 HoverOutlineColor = IM_COL32(107, 115, 133, 255);
+		constexpr ImU32 HoveredFolderColor = IM_COL32(255, 255, 255, 14);
 		constexpr ImU32 PaperColor = IM_COL32(70, 77, 90, 255);
 		constexpr ImU32 PaperFoldColor = IM_COL32(96, 104, 120, 255);
 		constexpr ImU32 InkColor = IM_COL32(228, 231, 236, 255);
@@ -43,6 +50,11 @@ namespace Strada
 		constexpr ImVec4 MissingColor = ImVec4(0.95f, 0.40f, 0.35f, 1.0f);
 		constexpr ImU32 BrokenBadgeColor = IM_COL32(232, 164, 56, 255);
 		constexpr ImVec4 BrokenColor = ImVec4(0.93f, 0.68f, 0.30f, 1.0f);
+		// The notice about an import: red for failures, amber for skipped files, on a dark tint of the color.
+		constexpr ImU32 NoticeErrorColor = IM_COL32(235, 92, 80, 255);
+		constexpr ImU32 NoticeWarningColor = IM_COL32(232, 164, 56, 255);
+		// Failures listed by the notice; the console has them all.
+		constexpr size_t NoticeErrorLines = 3;
 		// Tiles scale with the font (and so with the display scale).
 		constexpr float TileSizeInFontSizes = 5.5f;
 		// Folders changed outside the editor show up after at most this many seconds.
@@ -142,13 +154,13 @@ namespace Strada
 		}
 
 		// A card with the type's label on a band at its bottom; returns the area above the band.
-		Box DrawCard(ImDrawList* drawList, Box const& card, TypeStyle const& style)
+		Box DrawCard(ImDrawList* drawList, Box const& card, TypeStyle const& style, ImU32 color)
 		{
 			float const rounding = GetCardRounding(card);
 			float const labelSize = GetBandLabelSize();
 			float const bandHeight = std::round(labelSize * 1.6f);
 			ImVec2 const bandMin(card.Min.x, card.Max.y - bandHeight);
-			drawList->AddRectFilled(card.Min, card.Max, CardColor, rounding);
+			drawList->AddRectFilled(card.Min, card.Max, color, rounding);
 			drawList->AddRectFilled(bandMin, card.Max, Shade(style.Accent, 0.6f), rounding, ImDrawFlags_RoundCornersBottom);
 			drawList->AddLine(bandMin, ImVec2(card.Max.x - 1.0f, bandMin.y), Shade(style.Accent, 0.9f), 1.0f);
 			drawList->AddRect(card.Min, card.Max, CardBorderColor, rounding);
@@ -563,14 +575,12 @@ namespace Strada
 
 	void ContentBrowserPanel::SetFolder(std::string folder)
 	{
-		m_Root = ContentRoot::Assets;
-		m_Folder = std::move(folder);
+		Navigate(ContentRoot::Assets, std::move(folder));
 	}
 
 	void ContentBrowserPanel::SetScriptFolder(std::string folder)
 	{
-		m_Root = ContentRoot::Scripts;
-		m_ScriptFolder = std::move(folder);
+		Navigate(ContentRoot::Scripts, std::move(folder));
 	}
 
 	void ContentBrowserPanel::DropFiles(std::vector<std::filesystem::path> paths)
@@ -594,6 +604,7 @@ namespace Strada
 		Navigate(ContentRoot::Scripts, AssetBrowsing::GetParentFolder(path));
 		context.ClearSelection();
 		m_Selected = Location{ContentRoot::Scripts, path};
+		m_ScrollToSelection = true;
 		InvalidateListings();
 		RequestFocus();
 	}
@@ -602,7 +613,16 @@ namespace Strada
 	{
 		m_Root = root;
 		(root == ContentRoot::Assets ? m_Folder : m_ScriptFolder) = std::move(folder);
-		m_Filter.clear();
+		SetFilter({});
+	}
+
+	void ContentBrowserPanel::SetFilter(std::string text)
+	{
+		if (text != m_Filter)
+		{
+			m_Filter = std::move(text);
+			m_SearchFieldGeneration++;
+		}
 	}
 
 	std::filesystem::path ContentBrowserPanel::GetRootDirectory(ContentRoot root) const
@@ -642,10 +662,12 @@ namespace Strada
 			}
 			m_ProjectFile = projectFile;
 			m_ScriptsDirectory = project != nullptr ? ScriptProject::GetSourceDirectory(*project) : std::filesystem::path();
-			m_Filter.clear();
+			SetFilter({});
 			m_Selected.reset();
+			m_ScrollToSelection = false;
 			m_Renaming.reset();
 			m_PendingDelete.reset();
+			m_Notice.reset();
 			m_Listing.Valid = false;
 			m_Subfolders.clear();
 			m_Thumbnails.Clear();
@@ -683,6 +705,7 @@ namespace Strada
 			ImGui::TableNextColumn();
 			DrawToolbar(operations);
 			ImGui::Separator();
+			DrawNotice();
 			// After the toolbar, which may navigate, search or create.
 			UpdateListing();
 			DrawItems(operations);
@@ -851,14 +874,17 @@ namespace Strada
 		ImGui::SameLine();
 		ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), rightEdge - sliderWidth - searchWidth - buttonsWidth));
 		ImGui::SetNextItemWidth(sliderWidth);
-		if (ImGui::SliderFloat("##size", &m_TileScale, MinTileScale, MaxTileScale, "Size", ImGuiSliderFlags_AlwaysClamp))
+		if (ImGui::SliderFloat("##size", &m_TileScale, static_cast<float>(MinTileScale), static_cast<float>(MaxTileScale), "Size",
+		                       ImGuiSliderFlags_AlwaysClamp))
 		{
 			SetTileScale(m_TileScale);
 		}
 		ImGui::SetItemTooltip("Tile size");
 		ImGui::SameLine();
 		ImGui::SetNextItemWidth(searchWidth);
+		ImGui::PushID(static_cast<int>(m_SearchFieldGeneration));
 		ImGui::InputTextWithHint("##search", root == ContentRoot::Assets ? "Search assets" : "Search scripts", &m_Filter);
+		ImGui::PopID();
 		ImGui::SameLine();
 		if (ImGui::Button("+"))
 		{
@@ -904,7 +930,7 @@ namespace Strada
 
 	void ContentBrowserPanel::SetTileScale(float scale)
 	{
-		m_TileScale = std::clamp(scale, MinTileScale, MaxTileScale);
+		m_TileScale = std::clamp(scale, static_cast<float>(MinTileScale), static_cast<float>(MaxTileScale));
 		// The labels are laid out again for the new width.
 		for (Item& item : m_Listing.Items)
 		{
@@ -1033,6 +1059,22 @@ namespace Strada
 					clipper.IncludeItemByIndex(static_cast<int>(static_cast<size_t>(renamed - items.begin()) / columns));
 				}
 			}
+			// What the browser selected itself (what an import brought in, a revealed script) is drawn and scrolled into view.
+			std::optional<size_t> reveal;
+			if (std::exchange(m_ScrollToSelection, false))
+			{
+				EditorContext const& context = operations.GetContext();
+				auto const selected = std::find_if(items.begin(), items.end(),
+				                                   [this, &context](Item const& item)
+				                                   {
+													   return IsSelected(context, item);
+												   });
+				if (selected != items.end())
+				{
+					reveal = static_cast<size_t>(selected - items.begin());
+					clipper.IncludeItemByIndex(static_cast<int>(*reveal / columns));
+				}
+			}
 			while (clipper.Step())
 			{
 				for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
@@ -1049,6 +1091,10 @@ namespace Strada
 							ImGui::SameLine();
 						}
 						DrawItem(operations, items[index], tileSize);
+						if (reveal == index)
+						{
+							ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
+						}
 					}
 				}
 			}
@@ -1117,17 +1163,37 @@ namespace Strada
 				UI::ScriptDragSource(GetAbsolutePath(item), item.Name);
 				break;
 			case ItemKind::File:
+				if (ImGui::BeginDragDropSource())
+				{
+					ImGui::SetDragDropPayload(DragDropPayload::AssetFile, item.Path.data(), item.Path.size());
+					ImGui::TextUnformatted(item.Name.c_str());
+					ImGui::EndDragDropSource();
+				}
 				break;
 		}
 		DrawItemTooltip(item);
 		DrawItemContextMenu(operations, item);
 
-		if (selected || hovered)
+		// Selection and hover frame the card; folders, which have none, get a plate behind their icon.
+		ImDrawList* const drawList = ImGui::GetWindowDrawList();
+		Box const card = Square(Box{tileMin, tileMax}, 0.06f);
+		float const rounding = GetCardRounding(card);
+		if (item.IsFolder() && (selected || hovered))
 		{
-			ImGui::GetWindowDrawList()->AddRectFilled(tileMin, tileMax,
-			                                          ImGui::GetColorU32(selected ? ImGuiCol_Header : ImGuiCol_HeaderHovered), 4.0f);
+			drawList->AddRectFilled(card.Min, card.Max, selected ? SelectedFolderColor : HoveredFolderColor, rounding);
 		}
-		DrawTile(item, tileMin, tileSize);
+		DrawTile(item, tileMin, tileSize, hovered);
+		if (selected)
+		{
+			// Around the card's edge, so that thumbnails keep every pixel.
+			constexpr float Outset = 1.5f;
+			drawList->AddRect(ImVec2(card.Min.x - Outset, card.Min.y - Outset), ImVec2(card.Max.x + Outset, card.Max.y + Outset),
+			                  SelectionColor, rounding + Outset, 2.0f);
+		}
+		else if (hovered)
+		{
+			drawList->AddRect(card.Min, card.Max, HoverOutlineColor, rounding, 1.0f);
+		}
 
 		if (m_Renaming && m_Renaming->GetLocation() == item.GetLocation())
 		{
@@ -1135,29 +1201,60 @@ namespace Strada
 		}
 		else
 		{
-			if (item.LinesWidth != tileSize)
-			{
-				item.Lines = UI::SplitTileLabel(item.Name, tileSize, item.IsFolder() ? std::string() : GetExtension(item.Name));
-				item.LinesWidth = tileSize;
-			}
-			// Always two lines (the second may be empty) so the tiles of a row line up.
-			ImGui::PushStyleColor(ImGuiCol_Text, item.Missing ? MissingColor : ImGui::GetStyleColorVec4(ImGuiCol_Text));
-			for (std::string const& line : item.Lines)
-			{
-				float const width = ImGui::CalcTextSize(line.c_str()).x;
-				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max((tileSize - width) * 0.5f, 0.0f));
-				ImGui::TextUnformatted(line.c_str());
-			}
-			ImGui::PopStyleColor();
+			DrawItemLabel(item, tileSize, selected);
 		}
 		ImGui::EndGroup();
 		ImGui::PopID();
 		ImGui::PopID();
 	}
 
-	void ContentBrowserPanel::DrawTile(Item const& item, ImVec2 tileMin, float tileSize)
+	void ContentBrowserPanel::DrawItemLabel(Item& item, float tileSize, bool selected)
+	{
+		if (item.LinesWidth != tileSize)
+		{
+			item.Lines = UI::SplitTileLabel(item.Name, tileSize, item.IsFolder() ? std::string() : GetExtension(item.Name));
+			item.LinesWidth = tileSize;
+		}
+		ImGuiStyle const& style = ImGui::GetStyle();
+		if (selected)
+		{
+			float width = 0.0f;
+			float lines = 0.0f;
+			for (std::string const& line : item.Lines)
+			{
+				if (!line.empty())
+				{
+					width = std::max(width, ImGui::CalcTextSize(line.c_str()).x);
+					lines += 1.0f;
+				}
+			}
+			if (lines > 0.0f)
+			{
+				float const padding = std::round(ImGui::GetFontSize() * 0.3f);
+				float const plateWidth = std::min(width + padding * 2.0f, tileSize);
+				ImVec2 const start = ImGui::GetCursorScreenPos();
+				ImVec2 const plateMin(start.x + std::round((tileSize - plateWidth) * 0.5f), start.y - 1.0f);
+				ImVec2 const plateMax(plateMin.x + plateWidth,
+				                      start.y + ImGui::GetTextLineHeight() * lines + style.ItemSpacing.y * (lines - 1.0f) + 1.0f);
+				ImGui::GetWindowDrawList()->AddRectFilled(plateMin, plateMax, SelectedLabelColor, std::round(ImGui::GetFontSize() * 0.25f));
+			}
+		}
+		// Always two lines (the second may be empty) so the tiles of a row line up.
+		ImVec4 const color = selected ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f) : (item.Missing ? MissingColor : style.Colors[ImGuiCol_Text]);
+		ImGui::PushStyleColor(ImGuiCol_Text, color);
+		for (std::string const& line : item.Lines)
+		{
+			float const width = ImGui::CalcTextSize(line.c_str()).x;
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max((tileSize - width) * 0.5f, 0.0f));
+			ImGui::TextUnformatted(line.c_str());
+		}
+		ImGui::PopStyleColor();
+	}
+
+	void ContentBrowserPanel::DrawTile(Item const& item, ImVec2 tileMin, float tileSize, bool hovered)
 	{
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		ImU32 const cardColor = hovered ? HoveredCardColor : CardColor;
 		Box const tile = {tileMin, ImVec2(tileMin.x + tileSize, tileMin.y + tileSize)};
 		if (item.IsFolder())
 		{
@@ -1167,7 +1264,7 @@ namespace Strada
 		Box const card = Square(tile, 0.06f);
 		if (item.Kind == ItemKind::Script)
 		{
-			Box const area = DrawCard(drawList, card, ScriptStyle);
+			Box const area = DrawCard(drawList, card, ScriptStyle, cardColor);
 			DrawScriptGlyph(drawList, Square(area, 0.1f), ScriptStyle.Accent);
 			return;
 		}
@@ -1182,7 +1279,7 @@ namespace Strada
 							   return static_cast<char>(std::toupper(c));
 						   });
 			TypeStyle const style = {label.c_str(), "FILE", GetTypeStyle(AssetType::None).Accent};
-			Box const area = DrawCard(drawList, card, style);
+			Box const area = DrawCard(drawList, card, style, cardColor);
 			DrawUnknownGlyph(drawList, Square(area, 0.14f));
 			return;
 		}
@@ -1190,7 +1287,7 @@ namespace Strada
 		TypeStyle const style = GetTypeStyle(item.Type);
 		if (item.Type == AssetType::AudioClip)
 		{
-			Box const area = DrawCard(drawList, card, style);
+			Box const area = DrawCard(drawList, card, style, cardColor);
 			if (AudioWaveform const* waveform = m_Thumbnails.GetWaveform(item.Asset))
 			{
 				float const margin = area.Width() * 0.08f;
@@ -1208,7 +1305,7 @@ namespace Strada
 		}
 		else if (item.Type == AssetType::Font)
 		{
-			Box const area = DrawCard(drawList, card, style);
+			Box const area = DrawCard(drawList, card, style, cardColor);
 			Box const glyph = Square(area, 0.06f);
 			if (nvrhi::ITexture* const sample = m_Thumbnails.Get(item.Asset))
 			{
@@ -1231,7 +1328,7 @@ namespace Strada
 			ImVec2 const imageMin(card.Min.x + (card.Width() - size.x) * 0.5f, card.Min.y + (card.Height() - size.y) * 0.5f);
 			ImVec2 const imageMax(imageMin.x + size.x, imageMin.y + size.y);
 			// Textures may be transparent or not fill the card: the card stays visible behind them.
-			drawList->AddRectFilled(card.Min, card.Max, CardColor, rounding);
+			drawList->AddRectFilled(card.Min, card.Max, cardColor, rounding);
 			drawList->AddImageRounded(ImGuiRenderer::GetTextureID(thumbnail), imageMin, imageMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
 			                          IM_COL32_WHITE, rounding);
 			drawList->AddRect(card.Min, card.Max, CardBorderColor, rounding);
@@ -1241,7 +1338,7 @@ namespace Strada
 		}
 		else
 		{
-			Box const area = DrawCard(drawList, card, style);
+			Box const area = DrawCard(drawList, card, style, cardColor);
 			Box const glyph = Square(area, 0.14f);
 			switch (item.Type)
 			{
@@ -1651,6 +1748,29 @@ namespace Strada
 					}
 				});
 		}
+		// Files that are not assets (a model's buffers) move like scripts do.
+		if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::AssetFile, ImGuiDragDropFlags_AcceptPeekOnly))
+		{
+			std::string const source(static_cast<char const*>(payload->Data), static_cast<size_t>(payload->DataSize));
+			if (AssetBrowsing::GetParentFolder(source) != folder.Path &&
+			    ImGui::AcceptDragDropPayload(DragDropPayload::AssetFile) != nullptr)
+			{
+				std::string const newPath = AssetBrowsing::JoinPath(folder.Path, AssetBrowsing::GetFileName(source));
+				Defer(
+					[this, source, newPath]
+					{
+						std::filesystem::path const assets = GetRootDirectory(ContentRoot::Assets);
+						Result<void> const moved =
+							MovePath(assets / FileSystem::PathFromUtf8(source), assets / FileSystem::PathFromUtf8(newPath));
+						UI::ReportFailure(moved, "Moving the file");
+						if (moved && m_Selected == Location{ContentRoot::Assets, source})
+						{
+							m_Selected = Location{ContentRoot::Assets, newPath};
+						}
+						InvalidateListings();
+					});
+			}
+		}
 		if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::AssetFolder, ImGuiDragDropFlags_AcceptPeekOnly))
 		{
 			std::string const source(static_cast<char const*>(payload->Data), static_cast<size_t>(payload->DataSize));
@@ -1769,7 +1889,7 @@ namespace Strada
 			}
 		}
 		// Shown right away (outside any search) so it can be named.
-		m_Filter.clear();
+		SetFilter({});
 		InvalidateListings();
 		Item const item = MakeFolderItem(m_Root, path);
 		Select(operations, item);
@@ -1786,7 +1906,7 @@ namespace Strada
 		{
 			return;
 		}
-		m_Filter.clear();
+		SetFilter({});
 		Item const item = MakeAssetItem(*metadata);
 		Select(operations, item);
 		BeginRename(item);
@@ -1815,22 +1935,64 @@ namespace Strada
 		}
 		std::vector<std::filesystem::path> const files = std::exchange(m_DroppedFiles, {});
 		std::optional<Location> const target = std::exchange(m_FileDropTarget, std::nullopt);
-		ProjectImport::Destination destination{m_Folder, m_ScriptFolder};
-		if (target)
-		{
-			(target->Root == ContentRoot::Assets ? destination.AssetFolder : destination.ScriptFolder) = target->Path;
-		}
-		Import(operations, files, destination);
+		Location const location = target ? *target : Location{m_Root, GetDisplayedFolder()};
+		(void)ImportDropped(operations, files, location.Root, location.Path);
 	}
 
-	void ContentBrowserPanel::Import(EditorOperations& operations, std::vector<std::filesystem::path> const& paths,
-	                                 ProjectImport::Destination const& destination)
+	ProjectImport::Report ContentBrowserPanel::ImportDropped(EditorOperations& operations, std::span<std::filesystem::path const> paths,
+	                                                         ContentRoot root, std::string const& folder)
 	{
-		ProjectImport::Report const report = ProjectImport::Import(operations, m_Scripts, paths, destination);
+		ProjectImport::Destination destination{m_Folder, m_ScriptFolder};
+		(root == ContentRoot::Assets ? destination.AssetFolder : destination.ScriptFolder) = folder;
+		// The browser shows what came in, and what did not.
+		RequestFocus();
+		return Import(operations, paths, destination);
+	}
+
+	ProjectImport::Report ContentBrowserPanel::Import(EditorOperations& operations, std::span<std::filesystem::path const> paths,
+	                                                  ProjectImport::Destination const& destination)
+	{
+		ProjectImport::Report report = ProjectImport::Import(operations, m_Scripts, paths, destination);
 		ProjectImport::Log(report);
 		InvalidateListings();
-		bool const assets = !report.Assets.empty() || !report.Folders.empty();
-		bool const scripts = !report.Scripts.empty();
+
+		// What did not come in is said where the user looks, not only in the console.
+		m_Notice.reset();
+		if (!report.Errors.empty() || !report.Skipped.empty())
+		{
+			Notice notice;
+			notice.Error = !report.Errors.empty();
+			if (report.Errors.size() == 1)
+			{
+				notice.Lines.push_back("Not imported: " + report.Errors.front());
+			}
+			else if (!report.Errors.empty())
+			{
+				notice.Lines.push_back(fmt::format("{} parts of the import failed:", report.Errors.size()));
+				for (size_t index = 0; index < std::min(report.Errors.size(), NoticeErrorLines); index++)
+				{
+					notice.Lines.push_back(report.Errors[index]);
+				}
+				if (report.Errors.size() > NoticeErrorLines)
+				{
+					notice.Lines.push_back(fmt::format("...and {} more (see the console)", report.Errors.size() - NoticeErrorLines));
+				}
+			}
+			if (!report.Skipped.empty())
+			{
+				std::string names;
+				for (std::string const& name : report.Skipped)
+				{
+					names += names.empty() ? name : ", " + name;
+				}
+				notice.Lines.push_back("Not imported, neither assets nor C# scripts: " + names);
+				notice.Detail = ProjectImport::DescribeImportableFiles();
+			}
+			m_Notice = std::move(notice);
+		}
+
+		bool const assets = !report.Assets.empty() || !report.Folders.empty() || !report.KeptFiles.empty();
+		bool const scripts = !report.Scripts.empty() || !report.ScriptFolders.empty();
 		// What came in is shown: in the other root when it all went there.
 		if (assets && !scripts && m_Root != ContentRoot::Assets)
 		{
@@ -1840,22 +2002,174 @@ namespace Strada
 		{
 			Navigate(ContentRoot::Scripts, m_ScriptFolder);
 		}
+
+		// The first thing that came into the folder it was dropped into is selected (the inspector shows an asset).
 		EditorContext& context = operations.GetContext();
-		if (!report.Assets.empty())
+		if (m_Root == ContentRoot::Scripts && scripts)
+		{
+			std::optional<std::string> path;
+			if (!report.ScriptFolders.empty())
+			{
+				path = report.ScriptFolders.front();
+			}
+			else if (FileSystem::IsInside(report.Scripts.front(), m_ScriptsDirectory))
+			{
+				path = FileSystem::PathToUtf8(FileSystem::GetRelativePath(report.Scripts.front(), m_ScriptsDirectory));
+			}
+			if (path)
+			{
+				context.ClearSelection();
+				m_Selected = Location{ContentRoot::Scripts, *path};
+				m_ScrollToSelection = true;
+			}
+			return report;
+		}
+		if (!assets)
+		{
+			return report;
+		}
+		m_ScrollToSelection = true;
+		auto const inDestination = [&destination](AssetHandle asset)
+		{
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(asset);
+			return metadata && AssetBrowsing::GetParentFolder(metadata->Path) == destination.AssetFolder;
+		};
+		auto const shown = std::find_if(report.Assets.begin(), report.Assets.end(), inDestination);
+		if (shown != report.Assets.end())
 		{
 			m_Selected.reset();
-			context.SelectAsset(report.Assets.front());
-		}
-		else if (scripts && FileSystem::IsInside(report.Scripts.front(), m_ScriptsDirectory))
-		{
-			context.ClearSelection();
-			m_Selected = Location{ContentRoot::Scripts,
-			                      FileSystem::PathToUtf8(FileSystem::GetRelativePath(report.Scripts.front(), m_ScriptsDirectory))};
+			context.SelectAsset(*shown);
 		}
 		else if (!report.Folders.empty())
 		{
 			context.ClearSelection();
 			m_Selected = Location{ContentRoot::Assets, report.Folders.front()};
+		}
+		else if (!report.Assets.empty())
+		{
+			m_Selected.reset();
+			context.SelectAsset(report.Assets.front());
+		}
+		return report;
+	}
+
+	std::string ContentBrowserPanel::GetNotice() const
+	{
+		if (!m_Notice)
+		{
+			return {};
+		}
+		std::string text;
+		for (std::string const& line : m_Notice->Lines)
+		{
+			text += text.empty() ? line : "\n" + line;
+		}
+		if (!m_Notice->Detail.empty())
+		{
+			text += "\n" + m_Notice->Detail;
+		}
+		return text;
+	}
+
+	void ContentBrowserPanel::DrawNotice()
+	{
+		if (!m_Notice)
+		{
+			return;
+		}
+		double const now = ImGui::GetTime();
+		if (!m_Notice->Time)
+		{
+			m_Notice->Time = now;
+		}
+		else if (now - *m_Notice->Time > NoticeSeconds)
+		{
+			m_Notice.reset();
+			return;
+		}
+		ImU32 const accent = m_Notice->Error ? NoticeErrorColor : NoticeWarningColor;
+		ImGuiStyle const& style = ImGui::GetStyle();
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, Mix(CardColor, accent, 0.16f));
+		ImGui::PushStyleColor(ImGuiCol_Border, Shade(accent, 0.85f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, std::round(ImGui::GetFontSize() * 0.3f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(style.FramePadding.x * 1.5f, style.FramePadding.y * 1.5f));
+		bool dismissed = false;
+		if (ImGui::BeginChild("##notice", ImVec2(0.0f, 0.0f),
+		                      ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding))
+		{
+			// The buttons sit at the top-right; the text wraps before them.
+			char const* const consoleLabel = "Show Console";
+			float const closeWidth = ImGui::GetFrameHeight();
+			float const consoleWidth =
+				m_ShowConsole ? ImGui::CalcTextSize(consoleLabel).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x : 0.0f;
+			float const buttonsWidth = closeWidth + consoleWidth;
+			float const top = ImGui::GetCursorPosY();
+			float const right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+
+			// A round badge with an exclamation mark, like the ones of broken tiles.
+			float const lineHeight = ImGui::GetTextLineHeight();
+			ImVec2 const cursor = ImGui::GetCursorScreenPos();
+			ImVec2 const badgeCenter(cursor.x + lineHeight * 0.5f, cursor.y + lineHeight * 0.5f);
+			ImDrawList* const drawList = ImGui::GetWindowDrawList();
+			drawList->AddCircleFilled(badgeCenter, lineHeight * 0.45f, accent);
+			DrawCenteredText(drawList, lineHeight * 0.7f, badgeCenter, IM_COL32_WHITE, "!");
+			ImGui::Dummy(ImVec2(lineHeight, lineHeight));
+			ImGui::SameLine();
+			float const textLeft = ImGui::GetCursorPosX();
+			ImGui::PushTextWrapPos(right - buttonsWidth - style.ItemSpacing.x);
+			for (std::string const& line : m_Notice->Lines)
+			{
+				ImGui::SetCursorPosX(textLeft);
+				ImGui::TextWrapped("%s", line.c_str());
+			}
+			if (!m_Notice->Detail.empty())
+			{
+				ImGui::SetCursorPosX(textLeft);
+				ImGui::PushStyleColor(ImGuiCol_Text, style.Colors[ImGuiCol_TextDisabled]);
+				ImGui::TextWrapped("%s", m_Notice->Detail.c_str());
+				ImGui::PopStyleColor();
+			}
+			ImGui::PopTextWrapPos();
+
+			// Centered on the first line of text. The notice is as tall as what is drawn in it: its text, or its buttons
+			// when the text is shorter.
+			ImGui::SetCursorPos(ImVec2(right - buttonsWidth, top - (ImGui::GetFrameHeight() - lineHeight) * 0.5f));
+			if (m_ShowConsole)
+			{
+				if (ImGui::Button(consoleLabel))
+				{
+					m_ShowConsole();
+				}
+				ImGui::SameLine();
+			}
+			if (ImGui::Button("##dismiss", ImVec2(closeWidth, 0.0f)))
+			{
+				dismissed = true;
+			}
+			// A cross in the text's color.
+			ImVec2 const crossCenter((ImGui::GetItemRectMin().x + ImGui::GetItemRectMax().x) * 0.5f,
+			                         (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f);
+			float const arm = std::round(ImGui::GetFontSize() * 0.22f);
+			float const thickness = std::max(1.0f, ImGui::GetFontSize() * 0.08f);
+			ImU32 const ink = ImGui::GetColorU32(ImGuiCol_Text);
+			drawList->AddLine(ImVec2(crossCenter.x - arm, crossCenter.y - arm), ImVec2(crossCenter.x + arm, crossCenter.y + arm), ink,
+			                  thickness);
+			drawList->AddLine(ImVec2(crossCenter.x + arm, crossCenter.y - arm), ImVec2(crossCenter.x - arm, crossCenter.y + arm), ink,
+			                  thickness);
+			ImGui::SetItemTooltip("Dismiss");
+			// It stays while the mouse is over it.
+			if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
+			{
+				m_Notice->Time = now;
+			}
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar(3);
+		ImGui::PopStyleColor(2);
+		if (dismissed)
+		{
+			m_Notice.reset();
 		}
 	}
 }

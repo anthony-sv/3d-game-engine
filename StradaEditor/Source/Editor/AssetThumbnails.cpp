@@ -21,6 +21,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <span>
@@ -80,7 +81,11 @@ namespace Strada
 		return camera;
 	}
 
-	AssetThumbnails::AssetThumbnails() = default;
+	AssetThumbnails::AssetThumbnails(size_t maxThumbnails, size_t maxWaveforms)
+		: m_MaxThumbnails(maxThumbnails),
+		  m_MaxWaveforms(maxWaveforms)
+	{
+	}
 
 	AssetThumbnails::~AssetThumbnails()
 	{
@@ -134,7 +139,7 @@ namespace Strada
 		}
 
 		bool const current =
-			(entry.Texture || entry.Failed) && IsCurrent(entry.Source, entry.SourceVersion, entry.Failed, entry.FailTime, asset);
+			(entry.Texture || entry.Failed) && IsCurrent(entry.Source, entry.Loaded, entry.SourceVersion, entry.Failed, asset);
 		if (!current && !m_Requested.IsValid())
 		{
 			// The first missing thumbnail drawn this frame renders next.
@@ -151,7 +156,7 @@ namespace Strada
 		}
 		WaveformEntry& entry = m_Waveforms[clip];
 		entry.LastUse = ++m_UseCounter;
-		bool const current = (entry.Waveform || entry.Failed) && IsCurrent(entry.Source, 0, entry.Failed, entry.FailTime, clip);
+		bool const current = (entry.Waveform || entry.Failed) && IsCurrent(entry.Source, entry.Loaded, 0, entry.Failed, clip);
 		if (!current && !m_RequestedWaveform.IsValid() && !(m_WaveformJob && m_WaveformJob->Clip == clip))
 		{
 			m_RequestedWaveform = clip;
@@ -173,13 +178,13 @@ namespace Strada
 		return nullptr;
 	}
 
-	bool AssetThumbnails::IsCurrent(std::weak_ptr<Asset> const& source, uint64_t sourceVersion, bool failed,
-	                                std::chrono::steady_clock::time_point failTime, AssetHandle asset)
+	bool AssetThumbnails::IsCurrent(std::weak_ptr<Asset> const& source, bool sourceLoaded, uint64_t sourceVersion, bool failed,
+	                                AssetHandle asset)
 	{
-		if (failed)
+		if (failed && !sourceLoaded)
 		{
-			// Failed loads are remembered by the AssetManager until a refresh, so trying again is cheap until then.
-			return std::chrono::steady_clock::now() - failTime < RetryInterval;
+			// Until a refresh (which may find the file repaired) or a reload makes the asset manager forget the failed load.
+			return AssetManager::HasLoadFailure(asset);
 		}
 		// Previews are made from loaded assets, which stay loaded: an asset that is no longer loaded was unloaded because
 		// its file changed (or it was reloaded).
@@ -200,21 +205,18 @@ namespace Strada
 	void AssetThumbnails::Update()
 	{
 		UpdateWaveforms();
-
 		AssetHandle const asset = std::exchange(m_Requested, AssetHandle());
-		if (!asset.IsValid() || !Renderer::IsInitialized())
+		if (asset.IsValid() && Renderer::IsInitialized())
 		{
-			return;
+			if (auto const found = m_Entries.find(asset); found != m_Entries.end())
+			{
+				Entry& entry = found->second;
+				bool const rendered =
+					AssetManager::GetAssetType(asset) == AssetType::Font ? RenderFont(asset, entry) : Render(asset, entry);
+				entry.Failed = !rendered;
+			}
 		}
-		auto const found = m_Entries.find(asset);
-		if (found == m_Entries.end())
-		{
-			return;
-		}
-		Entry& entry = found->second;
-		bool const rendered = AssetManager::GetAssetType(asset) == AssetType::Font ? RenderFont(asset, entry) : Render(asset, entry);
-		entry.Failed = !rendered;
-		entry.FailTime = std::chrono::steady_clock::now();
+		// Every frame: browsing only textures or audio clips adds entries too.
 		Evict();
 	}
 
@@ -233,11 +235,13 @@ namespace Strada
 		if (!loaded)
 		{
 			entry.Source = {};
+			entry.Loaded = false;
 			entry.LoadError = loaded.GetError();
 			return false;
 		}
 		entry.LoadError.clear();
 		entry.Source = loaded.GetValue();
+		entry.Loaded = true;
 		Ref<MaterialAsset> const material = std::dynamic_pointer_cast<MaterialAsset>(loaded.GetValue());
 		entry.SourceVersion = material != nullptr ? material->GetVersion() : 0;
 
@@ -357,11 +361,13 @@ namespace Strada
 		if (!font)
 		{
 			entry.Source = {};
+			entry.Loaded = false;
 			entry.LoadError = font.GetError();
 			return false;
 		}
 		entry.LoadError.clear();
 		entry.Source = font.GetValue();
+		entry.Loaded = true;
 		entry.SourceVersion = 0;
 		GpuFont* const glyphs = Renderer::GetFont(font.GetValue());
 		if (glyphs == nullptr || !glyphs->Atlas)
@@ -485,8 +491,8 @@ namespace Strada
 			{
 				WaveformEntry& entry = found->second;
 				entry.Source = job.Source;
+				entry.Loaded = true;
 				entry.Failed = !result;
-				entry.FailTime = std::chrono::steady_clock::now();
 				if (result)
 				{
 					entry.Waveform = result.TakeValue();
@@ -496,7 +502,7 @@ namespace Strada
 				{
 					entry.Waveform.reset();
 					entry.LoadError = result.GetError();
-					// Said once: failed clips are tried again now and then.
+					// Said once per clip shown: it is tried again when its file changes (a refresh reloads it).
 					if (!std::exchange(entry.Reported, true))
 					{
 						ST_WARN("The waveform of {} cannot be shown: {}", AssetManager::GetReference(job.Clip), result.GetError());
@@ -520,9 +526,9 @@ namespace Strada
 		if (!loaded)
 		{
 			entry.Source = {};
+			entry.Loaded = false;
 			entry.Waveform.reset();
 			entry.Failed = true;
-			entry.FailTime = std::chrono::steady_clock::now();
 			entry.LoadError = loaded.GetError();
 			return;
 		}
@@ -541,8 +547,10 @@ namespace Strada
 		}
 		catch (std::system_error const& error)
 		{
+			// Tried again when the clip is loaded again.
+			entry.Source = job.Source;
+			entry.Loaded = true;
 			entry.Failed = true;
-			entry.FailTime = std::chrono::steady_clock::now();
 			ST_WARN("Waveforms cannot be computed: {}", error.what());
 			return;
 		}
@@ -585,7 +593,7 @@ namespace Strada
 				entries.erase(uses[i].second);
 			}
 		};
-		evict(m_Entries, MaxThumbnails);
-		evict(m_Waveforms, MaxWaveforms);
+		evict(m_Entries, m_MaxThumbnails);
+		evict(m_Waveforms, m_MaxWaveforms);
 	}
 }

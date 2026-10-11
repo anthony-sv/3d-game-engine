@@ -27,6 +27,7 @@
 #include <imgui_stdlib.h>
 
 #include <array>
+#include <utility>
 
 namespace Strada
 {
@@ -174,6 +175,12 @@ namespace Strada
 				[this](std::string const& folder)
 				{
 					OpenNewScriptPopup(folder);
+				});
+			m_ContentBrowserPanel.SetShowConsoleCallback(
+				[this]
+				{
+					m_ShowConsole = true;
+					m_FocusConsole = true;
 				});
 		}
 
@@ -372,6 +379,11 @@ namespace Strada
 			ImGui::SetWindowFocus("Content Browser");
 			ImGui::SetWindowFocus("Inspector");
 			ImGui::SetWindowFocus("Scene View");
+		}
+		// Asked for by the content browser's notice; the console was drawn above, so it exists.
+		if (std::exchange(m_FocusConsole, false))
+		{
+			ImGui::SetWindowFocus("Console");
 		}
 
 		DrawUnsavedChangesPopup();

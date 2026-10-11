@@ -2,6 +2,7 @@
 #include "Strada/Audio/AudioWaveform.h"
 
 #include "Strada/Asset/AudioClipAsset.h"
+#include "Strada/Core/Log.h"
 
 #include <extras/decoders/libvorbis/miniaudio_libvorbis.h>
 #include <miniaudio.h>
@@ -63,8 +64,10 @@ namespace Strada
 				std::span<uint8_t const> const data = clip.GetData();
 				if (ma_result const result = ma_decoder_init_memory(data.data(), data.size(), &config, &m_Decoder); result != MA_SUCCESS)
 				{
-					return MakeError("the {} clip cannot be decoded: {}", AudioFormatToString(clip.GetFormat()),
-					                 ma_result_description(result));
+					// What miniaudio says ("No backend") goes to the log; users get what it means for the file.
+					ST_CORE_TRACE("miniaudio cannot decode the {} clip: {}", AudioFormatToString(clip.GetFormat()),
+					              ma_result_description(result));
+					return Error{"the audio data is damaged or uses an encoding Strada cannot decode"};
 				}
 				m_Initialized = true;
 				return {};

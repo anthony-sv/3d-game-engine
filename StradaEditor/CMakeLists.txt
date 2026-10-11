@@ -68,6 +68,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EntityPresets.h
     Source/Editor/EntitySelection.cpp
     Source/Editor/EntitySelection.h
+    Source/Editor/FileCopies.cpp
+    Source/Editor/FileCopies.h
     Source/Editor/FileDialogs.cpp
     Source/Editor/FileDialogs.h
     Source/Editor/HierarchyEditing.cpp

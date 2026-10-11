@@ -1,4 +1,5 @@
 #include "Audio/AudioTestUtilities.h"
+#include "GpuTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
@@ -11,6 +12,7 @@
 #include "Editor/Panels/ProjectSettingsPanel.h"
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/SceneSettingsPanel.h"
+#include "Editor/Panels/ViewportPanel.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 
@@ -22,6 +24,8 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Utf8.h"
 #include "Strada/Project/ScriptProject.h"
+#include "Strada/RHI/GraphicsDevice.h"
+#include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -1053,4 +1057,463 @@ TEST_CASE("Panels: scripts dragged from the content browser onto a hierarchy row
 	CHECK(fixture.Context.GetSelection().Contains(other));
 	REQUIRE(scene.GetEntityByUUID(other).HasComponent<ScriptComponent>());
 	CHECK(scene.GetEntityByUUID(other).GetComponent<ScriptComponent>().ClassName == "Strada.Tests.Mover");
+}
+
+namespace
+{
+	// The text the panels write in one frame (labels, buttons, messages), through ImGui's logging.
+	std::string CaptureText(HeadlessImGui& imgui, std::function<void()> const& draw)
+	{
+		std::string text;
+		imgui.Frame(
+			[&]
+			{
+				ImGui::LogToBuffer();
+				draw();
+				text = GImGui->LogBuffer.c_str();
+				ImGui::LogFinish();
+			});
+		return text;
+	}
+
+	// Moves the mouse over the points, a frame each, and returns the first one where the item with the ID is hovered.
+	std::optional<ImVec2> FindHovered(HeadlessImGui& imgui, std::function<void()> const& draw, std::vector<ImVec2> const& points,
+	                                  ImGuiID id)
+	{
+		for (ImVec2 const& point : points)
+		{
+			ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+			imgui.Frame(draw);
+			if (GImGui->HoveredId == id)
+			{
+				return point;
+			}
+		}
+		return std::nullopt;
+	}
+
+	// Points down the middle of a window (menu items span its width), or along a row of it.
+	std::vector<ImVec2> GetColumnPoints(ImGuiWindow const* window)
+	{
+		std::vector<ImVec2> points;
+		for (float y = window->Pos.y + 1.0f; y < window->Pos.y + window->Size.y - 1.0f; y += 2.0f)
+		{
+			points.emplace_back(window->Pos.x + window->Size.x * 0.5f, y);
+		}
+		return points;
+	}
+
+	std::vector<ImVec2> GetRowPoints(ImGuiWindow const* window, float y)
+	{
+		std::vector<ImVec2> points;
+		for (float x = window->Pos.x + 1.0f; x < window->Pos.x + window->Size.x - 1.0f; x += 2.0f)
+		{
+			points.emplace_back(x, y);
+		}
+		return points;
+	}
+
+	// The distinct items of the content browser's toolbar from right to left: Refresh, Import, "+", the search field, the size
+	// slider, then the breadcrumbs. Each with a point inside it.
+	std::vector<ImVec2> FindToolbarItems(HeadlessImGui& imgui, std::function<void()> const& draw)
+	{
+		ImGuiWindow const* browser = ImGui::FindWindowByName("Content Browser");
+		REQUIRE(browser != nullptr);
+		float const y = browser->DC.CursorStartPos.y + ImGui::GetStyle().CellPadding.y + ImGui::GetFrameHeight() * 0.5f;
+		std::vector<ImVec2> found;
+		ImGuiID last = 0;
+		for (float x = browser->Pos.x + browser->Size.x - ImGui::GetStyle().WindowPadding.x - 2.0f; x > browser->Pos.x && found.size() < 5;
+		     x -= 2.0f)
+		{
+			ImGui::GetIO().AddMousePosEvent(x, y);
+			imgui.Frame(draw);
+			ImGuiID const hovered = GImGui->HoveredId;
+			if (hovered != 0 && hovered != last)
+			{
+				found.emplace_back(x, y);
+			}
+			last = hovered;
+		}
+		REQUIRE(found.size() == 5);
+		return found;
+	}
+
+	// The popup opened last.
+	ImGuiWindow* GetOpenPopup()
+	{
+		REQUIRE_FALSE(GImGui->OpenPopupStack.empty());
+		ImGuiWindow* popup = GImGui->OpenPopupStack.back().Window;
+		REQUIRE(popup != nullptr);
+		return popup;
+	}
+
+	ImGuiWindow* FindChildWindow(char const* parent, char const* name)
+	{
+		ImGuiWindow const* window = ImGui::FindWindowByName(parent);
+		REQUIRE(window != nullptr);
+		for (ImGuiWindow* child : GImGui->Windows)
+		{
+			if (child->ParentWindow == window && std::strstr(child->Name, name) != nullptr && child->Active)
+			{
+				return child;
+			}
+		}
+		return nullptr;
+	}
+}
+
+TEST_CASE("Panels: the content browser's + menu makes C# scripts in the shown script folder, and materials among the assets")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	REQUIRE(FileSystem::WriteTextFile(fixture.GetScriptsDirectory() / "AI" / "Brain.cs", "class Brain {}").IsOk());
+	std::vector<std::string> requested;
+	fixture.Browser.SetNewScriptCallback(
+		[&requested](std::string const& folder)
+		{
+			requested.push_back(folder);
+		});
+	std::function<void()> const draw = fixture.GetDraw();
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	struct Root
+	{
+		bool Scripts;
+		std::string ExpectedFolder;
+	};
+	for (Root const& root : {Root{false, ""}, Root{true, "AI"}})
+	{
+		CAPTURE(root.Scripts);
+		if (root.Scripts)
+		{
+			fixture.Browser.SetScriptFolder("AI");
+		}
+		else
+		{
+			fixture.Browser.SetFolder("");
+		}
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		std::vector<ImVec2> const toolbar = FindToolbarItems(imgui, draw);
+		imgui.Click(toolbar[2], draw);
+		// A popup that appears is sized after its first frame.
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		ImGuiWindow* menu = GetOpenPopup();
+		// Materials belong to the assets: the item is disabled among the scripts (ImGui reports disabled items as hovered).
+		std::optional<ImVec2> const material = FindHovered(imgui, draw, GetColumnPoints(menu), menu->GetID("Material"));
+		REQUIRE(material.has_value());
+		CHECK(GImGui->HoveredIdIsDisabled == root.Scripts);
+		menu = GetOpenPopup();
+		std::optional<ImVec2> const script = FindHovered(imgui, draw, GetColumnPoints(menu), menu->GetID("C# Script..."));
+		REQUIRE(script.has_value());
+		imgui.Click(*script, draw);
+		REQUIRE(requested.size() == (root.Scripts ? 2u : 1u));
+		CHECK(requested.back() == root.ExpectedFolder);
+	}
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+}
+
+TEST_CASE("Panels: the content browser searches the shown root for what is typed into its search field")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	REQUIRE(FileSystem::WriteTextFile(fixture.GetScriptsDirectory() / "AI" / "Brain.cs", "class Brain {}").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(fixture.GetScriptsDirectory() / "Player.cs", "class Player {}").IsOk());
+	REQUIRE(Image(2, 2, 4).WritePNG(fixture.GetAssetDirectory() / "Wood" / "Oak.png").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(fixture.GetAssetDirectory() / "Wood" / "Oak.txt", "notes").IsOk());
+	REQUIRE(fixture.Operations.CreateMaterial("Rock.smat").IsOk());
+	REQUIRE(fixture.Operations.RefreshAssets().IsOk());
+	std::function<void()> const draw = fixture.GetDraw();
+
+	auto const search = [&](char const* text)
+	{
+		// Escape ends an edit of the field (restoring what it held when the edit began); then it is emptied.
+		imgui.Press(ImGuiKey_Escape, draw);
+		fixture.Browser.SetSearch("");
+		imgui.Frame(draw);
+		std::vector<ImVec2> const toolbar = FindToolbarItems(imgui, draw);
+		imgui.Click(toolbar[3], draw);
+		imgui.Type(text);
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		CHECK(fixture.Browser.GetSearch() == text);
+		return CaptureText(imgui, draw);
+	};
+
+	// Among the assets: registered assets and the other files whose paths hold the text.
+	fixture.Browser.SetFolder("");
+	imgui.Frame(draw);
+	std::string const oak = search("oak");
+	CHECK(oak.find("Oak.png") != std::string::npos);
+	CHECK(oak.find("Oak.txt") != std::string::npos);
+	CHECK(oak.find("Rock.smat") == std::string::npos);
+	CHECK(search("nothing").find("No assets match the search.") != std::string::npos);
+
+	// Among the scripts: their paths, folders included.
+	fixture.Browser.SetScriptFolder("");
+	imgui.Frame(draw);
+	std::string const ai = search("ai/");
+	CHECK(ai.find("Brain.cs") != std::string::npos);
+	CHECK(ai.find("Player.cs") == std::string::npos);
+	CHECK(search("nothing").find("No scripts match the search.") != std::string::npos);
+
+	// Browsing a folder ends the search.
+	fixture.Browser.SetScriptFolder("");
+	CHECK(fixture.Browser.GetSearch().empty());
+	std::string const all = CaptureText(imgui, draw);
+	CHECK(all.find("Player.cs") != std::string::npos);
+}
+
+TEST_CASE("Panels: a script revealed in the content browser is shown selected in its folder")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	std::filesystem::path const sources = fixture.GetScriptsDirectory();
+	REQUIRE(FileSystem::WriteTextFile(sources / "AI" / "Brain.cs", "class Brain {}").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(sources / "AI" / "Eyes.cs", "class Eyes {}").IsOk());
+	UUID const hero = Create(fixture.Operations, "Hero", Json::object());
+	std::vector<UUID> const selection = {hero};
+	REQUIRE(fixture.Operations.Select(selection).IsOk());
+	std::function<void()> const draw = fixture.GetDraw();
+	fixture.Browser.SetFolder("");
+	imgui.Frame(draw);
+
+	// Files outside the scripts change nothing.
+	fixture.Browser.RevealScript(fixture.Context, fixture.GetAssetDirectory() / "Brain.cs");
+	CHECK(fixture.Browser.GetRoot() == ContentRoot::Assets);
+	CHECK(fixture.Context.GetSelection().Contains(hero));
+
+	fixture.Browser.RevealScript(fixture.Context, sources / "AI" / "Eyes.cs");
+	CHECK(fixture.Browser.GetRoot() == ContentRoot::Scripts);
+	CHECK(fixture.Browser.GetScriptFolder() == "AI");
+	CHECK(fixture.Context.GetSelection().IsEmpty());
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	// The selected script is the one F2 renames.
+	imgui.Press(ImGuiKey_F2, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Sight");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	CHECK(FileSystem::Exists(sources / "AI" / "Sight.cs"));
+	CHECK(FileSystem::Exists(sources / "AI" / "Brain.cs"));
+}
+
+TEST_CASE("Panels: folders of C# sources dropped onto the editor go to the scripts, and failed imports are noticed")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	int consoles = 0;
+	fixture.Browser.SetShowConsoleCallback(
+		[&consoles]
+		{
+			consoles++;
+		});
+	std::filesystem::path const outside = fixture.Temporary.GetPath() / "Downloads";
+	REQUIRE(FileSystem::WriteTextFile(outside / "AI" / "Brain.cs", "namespace Game; class Brain {}").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(outside / "AI" / "Steering" / "Seek.cs", "namespace Game; class Seek {}").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(outside / "Model.blend", "blender").IsOk());
+	REQUIRE(Image(2, 2, 4).WritePNG(outside / "Oak.png").IsOk());
+	std::function<void()> const draw = fixture.GetDraw();
+
+	// Onto the empty space of the Scripts root: the folder goes into the shown script folder with its subfolders.
+	fixture.Browser.SetScriptFolder("");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow const* items = FindContentBrowserItems();
+	ImVec2 const background(items->Pos.x + items->Size.x - 20.0f, items->Pos.y + items->Size.y - 20.0f);
+	ImGui::GetIO().AddMousePosEvent(background.x, background.y);
+	imgui.Frame(draw);
+	fixture.Browser.DropFiles({outside / "AI"});
+	imgui.Frame(draw);
+	CHECK(FileSystem::IsRegularFile(fixture.GetScriptsDirectory() / "AI" / "Brain.cs"));
+	CHECK(FileSystem::IsRegularFile(fixture.GetScriptsDirectory() / "AI" / "Steering" / "Seek.cs"));
+	CHECK_FALSE(FileSystem::Exists(fixture.GetAssetDirectory() / "AI"));
+	CHECK(fixture.Browser.GetRoot() == ContentRoot::Scripts);
+	CHECK(fixture.Browser.GetNotice().empty());
+
+	// A file that is neither an asset nor a script: the browser says so under its toolbar.
+	fixture.Browser.DropFiles({outside / "Model.blend"});
+	imgui.Frame(draw);
+	std::string const notice = fixture.Browser.GetNotice();
+	CHECK(notice.find("Model.blend") != std::string::npos);
+	CHECK(notice.find("PNG") != std::string::npos);
+	CHECK(CaptureText(imgui, draw).find("Model.blend") != std::string::npos);
+	ImGuiWindow* bar = FindChildWindow("Content Browser", "##notice");
+	REQUIRE(bar != nullptr);
+	float const buttonsY = bar->DC.CursorStartPos.y + ImGui::GetTextLineHeight() * 0.5f;
+	std::optional<ImVec2> const console = FindHovered(imgui, draw, GetRowPoints(bar, buttonsY), bar->GetID("Show Console"));
+	REQUIRE(console.has_value());
+	imgui.Click(*console, draw);
+	CHECK(consoles == 1);
+	bar = FindChildWindow("Content Browser", "##notice");
+	REQUIRE(bar != nullptr);
+	std::optional<ImVec2> const dismiss = FindHovered(imgui, draw, GetRowPoints(bar, buttonsY), bar->GetID("##dismiss"));
+	REQUIRE(dismiss.has_value());
+	imgui.Click(*dismiss, draw);
+	CHECK(fixture.Browser.GetNotice().empty());
+	imgui.Frame(draw);
+	CHECK(FindChildWindow("Content Browser", "##notice") == nullptr);
+
+	// The same folder again would declare its classes twice: refused, which the notice says; an import that goes well ends it.
+	fixture.Browser.DropFiles({outside / "AI"});
+	imgui.Frame(draw);
+	CHECK(fixture.Browser.GetNotice().find("Brain.cs") != std::string::npos);
+	CHECK_FALSE(FileSystem::Exists(fixture.GetScriptsDirectory() / "AI 1"));
+	fixture.Browser.DropFiles({outside / "Oak.png"});
+	imgui.Frame(draw);
+	CHECK(fixture.Browser.GetNotice().empty());
+	CHECK(AssetManager::FindByPath("Oak.png").IsValid());
+	CHECK(fixture.Browser.GetRoot() == ContentRoot::Assets);
+
+	// It goes by itself after a while without the mouse over it.
+	fixture.Browser.DropFiles({outside / "Model.blend"});
+	imgui.Frame(draw);
+	REQUIRE_FALSE(fixture.Browser.GetNotice().empty());
+	ImGui::GetIO().AddMousePosEvent(background.x, background.y);
+	imgui.Frame(draw);
+	CHECK_FALSE(fixture.Browser.GetNotice().empty());
+	ImGui_ImplNull_NewFrame();
+	ImGui::GetIO().DeltaTime = static_cast<float>(ContentBrowserPanel::NoticeSeconds) + 1.0f;
+	ImGui::NewFrame();
+	draw();
+	ImGui::Render();
+	ImGui_ImplNullRender_RenderDrawData(ImGui::GetDrawData());
+	CHECK(fixture.Browser.GetNotice().empty());
+}
+
+TEST_CASE("Panels: what an import brings in is selected and scrolled into view")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	// More scripts than the browser shows at once; the dropped one sorts last.
+	for (int index = 0; index < 40; index++)
+	{
+		std::string const name = fmt::format("Script{:02}", index);
+		REQUIRE(FileSystem::WriteTextFile(fixture.GetScriptsDirectory() / (name + ".cs"), "class " + name + " {}").IsOk());
+	}
+	std::filesystem::path const outside = fixture.Temporary.GetPath() / "Downloads";
+	REQUIRE(FileSystem::WriteTextFile(outside / "Zeta.cs", "namespace Game; class Zeta {}").IsOk());
+	fixture.Browser.SetScriptFolder("");
+	std::function<void()> const draw = fixture.GetDraw();
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK(FindContentBrowserItems()->Scroll.y == 0.0f);
+
+	std::vector<std::filesystem::path> const dropped = {outside / "Zeta.cs"};
+	ProjectImport::Report const report = fixture.Browser.ImportDropped(fixture.Operations, dropped, ContentRoot::Scripts, "");
+	REQUIRE(report.Scripts.size() == 1);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow const* items = FindContentBrowserItems();
+	CHECK(items->Scroll.y > 0.0f);
+	// The last row, which holds it, is in view (below it is only the empty space that takes drops); selected, it is the
+	// script F2 renames.
+	float const rowHeight =
+		std::round(ImGui::GetFontSize() * 5.5f) + ImGui::GetTextLineHeight() * 2.0f + ImGui::GetStyle().ItemSpacing.y * 3.0f;
+	CHECK(items->Scroll.y >= items->ScrollMax.y - rowHeight);
+	imgui.Press(ImGuiKey_F2, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Omega");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	CHECK(FileSystem::Exists(fixture.GetScriptsDirectory() / "Omega.cs"));
+}
+
+TEST_CASE("Panels: files of the asset directory that are not assets move when dragged onto folders")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	REQUIRE(fixture.Operations.CreateAssetFolder("Models/Sub").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(fixture.GetAssetDirectory() / "Models" / "Crate.mtl", "newmtl Wood\n").IsOk());
+	fixture.Browser.SetFolder("Models");
+	std::function<void()> const draw = fixture.GetDraw();
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+
+	// The folder Sub comes first, then Crate.mtl.
+	imgui.Drag(fixture.GetTile(1), fixture.GetTile(0), draw);
+	CHECK(FileSystem::IsRegularFile(fixture.GetAssetDirectory() / "Models" / "Sub" / "Crate.mtl"));
+	CHECK_FALSE(FileSystem::Exists(fixture.GetAssetDirectory() / "Models" / "Crate.mtl"));
+	CHECK(fixture.BrowserOpen);
+}
+
+TEST_CASE("Panels: C# scripts dropped onto the scene view run on the entity under the cursor")
+{
+	ST_REQUIRE_GPU();
+	Testing::ScriptEngineScope scripting;
+	Testing::AssetManagerScope assets;
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		HeadlessImGui imgui;
+		Testing::TemporaryDirectory temporary;
+		EditorContext context;
+		EditorOperations operations(context);
+		std::filesystem::path const mover = temporary.GetPath() / "Mover.cs";
+		REQUIRE(FileSystem::WriteTextFile(mover, "namespace Strada.Tests;\npublic class Mover : Strada.Script {}\n").IsOk());
+		// A cube where the scene view looks.
+		UUID const cube = Create(operations, "Cube",
+		                         Json::object({{"Transform", Json::object({{"Translation", {0.0, 0.5, 0.0}}})},
+		                                       {"Mesh", Json::object({{"Mesh", GetBuiltInHandle(BuiltInAsset::CubeMesh).ToString()}})}}));
+		size_t const steps = context.GetHistory().GetUndoCount();
+
+		ViewportPanel viewport;
+		bool open = true;
+		auto const draw = [&]
+		{
+			// The panel first begins ImGuizmo's frame, which takes SetNextWindowPos/Size for a window of its own: the scene view
+			// is placed by name once it exists.
+			ImGui::SetWindowPos("Scene View", ImVec2(0.0f, 0.0f));
+			ImGui::SetWindowSize("Scene View", ImVec2(800.0f, 600.0f));
+			viewport.OnImGuiRender(operations, open);
+			// A script to drag, as the content browser's tiles are.
+			ImGui::SetNextWindowPos(ImVec2(900.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(300.0f, 200.0f));
+			ImGui::Begin("Scripts");
+			ImGui::Button("Mover.cs", ImVec2(200.0f, 60.0f));
+			UI::ScriptDragSource(mover, "Mover.cs");
+			ImGui::End();
+			// The GPU finishes every frame, so a pick requested in one arrives in the next, and the frame's resources are
+			// recycled as the editor's frame loop does.
+			GraphicsDevice::WaitForIdle();
+			GraphicsDevice::EndFrame();
+		};
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(draw);
+		}
+		ImGuiWindow const* view = ImGui::FindWindowByName("Scene View");
+		REQUIRE(view != nullptr);
+		ImVec2 const source(1000.0f, 60.0f);
+		auto const dropAt = [&](ImVec2 target)
+		{
+			imgui.Drag(source, target, draw);
+			for (int frame = 0; frame < 4; frame++)
+			{
+				imgui.Frame(draw);
+			}
+		};
+
+		// Onto empty space: nothing changes, and the console says why.
+		uint64_t const firstLog = Log::GetNextEntryIndex();
+		REQUIRE(view->Size.x == 800.0f);
+		dropAt(ImVec2(view->Pos.x + 40.0f, view->Pos.y + view->Size.y - 40.0f));
+		CHECK(Testing::WasLogged(firstLog, "drop it onto an entity"));
+		CHECK_FALSE(context.GetScene().GetEntityByUUID(cube).HasComponent<ScriptComponent>());
+		CHECK(context.GetHistory().GetUndoCount() == steps);
+
+		// Onto the cube: it runs the class the file defines, as one undo step.
+		dropAt(ImVec2(view->Pos.x + view->Size.x * 0.5f, view->Pos.y + view->Size.y * 0.5f));
+		REQUIRE(context.GetScene().GetEntityByUUID(cube).HasComponent<ScriptComponent>());
+		CHECK(context.GetScene().GetEntityByUUID(cube).GetComponent<ScriptComponent>().ClassName == "Strada.Tests.Mover");
+		CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+		CHECK(open);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
 }

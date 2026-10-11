@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <system_error>
 
@@ -247,38 +248,10 @@ namespace Strada
 			return name == "Binaries" || name == "bin" || name == "obj";
 		}
 
-		// The newest change to the C# project and its sources; build output directories are skipped.
-		std::optional<std::filesystem::file_time_type> FindNewestSource(std::filesystem::path const& directory)
-		{
-			std::optional<std::filesystem::file_time_type> newest;
-			std::error_code error;
-			std::filesystem::recursive_directory_iterator iterator(directory, std::filesystem::directory_options::skip_permission_denied,
-			                                                       error);
-			for (; !error && iterator != std::filesystem::recursive_directory_iterator(); iterator.increment(error))
-			{
-				std::filesystem::directory_entry const& entry = *iterator;
-				std::string const name = FileSystem::PathToUtf8(entry.path().filename());
-				std::error_code entryError;
-				if (entry.is_directory(entryError) && IsBuildOutputDirectory(name))
-				{
-					iterator.disable_recursion_pending();
-					continue;
-				}
-				if (!entry.is_regular_file(entryError) || !IsSourceExtension(entry.path()))
-				{
-					continue;
-				}
-				std::filesystem::file_time_type const time = entry.last_write_time(entryError);
-				if (!entryError && (!newest || time > *newest))
-				{
-					newest = time;
-				}
-			}
-			return newest;
-		}
-
-		// A file of the given name in the directory or below it; build output directories are skipped.
-		std::optional<std::filesystem::path> FindFileNamed(std::filesystem::path const& directory, std::string_view fileName)
+		// Visits the regular files of the C# project's directory that belong to the project: build output directories and
+		// hidden folders (which the .NET SDK leaves out too) are skipped. The visitor returns false to stop.
+		template<typename Visitor>
+		void VisitProjectFiles(std::filesystem::path const& directory, Visitor const& visit)
 		{
 			std::error_code error;
 			std::filesystem::recursive_directory_iterator iterator(directory, std::filesystem::directory_options::skip_permission_denied,
@@ -290,18 +263,39 @@ namespace Strada
 				std::error_code entryError;
 				if (entry.is_directory(entryError))
 				{
-					if (IsBuildOutputDirectory(name))
+					if (IsBuildOutputDirectory(name) || name.starts_with('.'))
 					{
 						iterator.disable_recursion_pending();
 					}
 					continue;
 				}
-				if (name == fileName && entry.is_regular_file(entryError))
+				if (entry.is_regular_file(entryError) && !visit(entry, name))
 				{
-					return entry.path();
+					return;
 				}
 			}
-			return std::nullopt;
+		}
+
+		// The newest change to the C# project and its sources.
+		std::optional<std::filesystem::file_time_type> FindNewestSource(std::filesystem::path const& directory)
+		{
+			std::optional<std::filesystem::file_time_type> newest;
+			VisitProjectFiles(directory,
+			                  [&newest](std::filesystem::directory_entry const& entry, std::string const&)
+			                  {
+								  if (!IsSourceExtension(entry.path()))
+								  {
+									  return true;
+								  }
+								  std::error_code timeError;
+								  std::filesystem::file_time_type const time = entry.last_write_time(timeError);
+								  if (!timeError && (!newest || time > *newest))
+								  {
+									  newest = time;
+								  }
+								  return true;
+							  });
+			return newest;
 		}
 
 		std::optional<std::filesystem::path> FindDriverIn(std::filesystem::path const& directory)
@@ -406,7 +400,7 @@ namespace Strada
 			return MakeError("'{}' already exists", FileSystem::PathToUtf8(file));
 		}
 		// The C# project compiles every source under Scripts/ into one assembly, where the class would be declared twice.
-		if (std::optional<std::filesystem::path> const other = FindFileNamed(project.GetDirectory() / DirectoryName, fileName))
+		if (std::optional<std::filesystem::path> const other = FindSource(project, fileName))
 		{
 			return MakeError("'{}' already exists", FileSystem::PathToUtf8(*other));
 		}
@@ -528,6 +522,44 @@ public class {} : Script
 		return FindNewestSource(project.GetDirectory() / DirectoryName);
 	}
 
+	std::vector<std::filesystem::path> ScriptProject::ListSources(Project const& project)
+	{
+		std::vector<std::filesystem::path> sources;
+		VisitProjectFiles(project.GetDirectory() / DirectoryName,
+		                  [&sources](std::filesystem::directory_entry const& entry, std::string const&)
+		                  {
+							  std::string extension = FileSystem::PathToUtf8(entry.path().extension());
+							  std::transform(extension.begin(), extension.end(), extension.begin(),
+			                                 [](unsigned char character)
+			                                 {
+												 return static_cast<char>(std::tolower(character));
+											 });
+							  if (extension == ".cs")
+							  {
+								  sources.push_back(entry.path().lexically_normal());
+							  }
+							  return true;
+						  });
+		std::sort(sources.begin(), sources.end());
+		return sources;
+	}
+
+	std::optional<std::filesystem::path> ScriptProject::FindSource(Project const& project, std::string_view fileName)
+	{
+		std::optional<std::filesystem::path> found;
+		VisitProjectFiles(project.GetDirectory() / DirectoryName,
+		                  [&found, fileName](std::filesystem::directory_entry const& entry, std::string const& name)
+		                  {
+							  if (name != fileName)
+							  {
+								  return true;
+							  }
+							  found = entry.path().lexically_normal();
+							  return false;
+						  });
+		return found;
+	}
+
 	std::optional<std::filesystem::path> ScriptProject::FindDotNet()
 	{
 		if (std::optional<std::string> const root = Platform::ReadEnvironmentVariable("DOTNET_ROOT"); root && !root->empty())
@@ -608,6 +640,11 @@ public class {} : Script
 		                                    {
 												return isLetter(character) || (character >= '0' && character <= '9');
 											});
-		return identifier && std::find(CSharpKeywords.begin(), CSharpKeywords.end(), name) == CSharpKeywords.end();
+		return identifier && !IsKeyword(name);
+	}
+
+	bool ScriptProject::IsKeyword(std::string_view word)
+	{
+		return std::find(CSharpKeywords.begin(), CSharpKeywords.end(), word) != CSharpKeywords.end();
 	}
 }

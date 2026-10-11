@@ -108,6 +108,11 @@ namespace Strada
 		static bool IsOutOfDate(Project const& project);
 		// When a C# project file or source last changed; empty without any.
 		static std::optional<std::filesystem::file_time_type> GetNewestSourceTime(Project const& project);
+		// The C# sources the C# project compiles: the .cs files under Scripts/ outside build output (Binaries, bin, obj) and
+		// hidden folders, absolute and sorted.
+		static std::vector<std::filesystem::path> ListSources(Project const& project);
+		// A file of the C# project with this name (Scripts/ and below, outside build output and hidden folders), if any.
+		static std::optional<std::filesystem::path> FindSource(Project const& project, std::string_view fileName);
 
 		// The .NET SDK driver: DOTNET_ROOT, PATH, then the default install locations.
 		static std::optional<std::filesystem::path> FindDotNet();
@@ -116,5 +121,7 @@ namespace Strada
 		static std::vector<ScriptDiagnostic> ParseDiagnostics(std::string_view output);
 		// A name usable for a script class and file: an ASCII C# identifier that is not a keyword.
 		static bool IsValidClassName(std::string_view name);
+		// Whether the word is a reserved C# keyword ("class", "in"); contextual keywords ("record", "where") are identifiers.
+		static bool IsKeyword(std::string_view word);
 	};
 }

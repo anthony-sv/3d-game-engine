@@ -95,6 +95,11 @@ namespace Strada
 		// Applies several partial patches as one undo step, all or nothing. Edits with the same non-zero merge key and the
 		// same entity/component targets merge (for example a gizmo dragging several entities).
 		[[nodiscard]] Result<void> SetComponentFields(std::vector<ComponentEdit> edits, uint64_t mergeKey = 0);
+		// Makes the entities run a script class as one undo step, all or nothing: entities without a Script component get one,
+		// the others change class (keeping their stored field values, like the inspector's class picker does), and those that
+		// run the class already are left alone (no step at all when every entity does). Fails without changes when an entity
+		// does not exist or the class name is empty.
+		[[nodiscard]] Result<void> SetScriptClass(std::span<UUID const> entities, std::string_view className);
 
 		// Replaces every field of a component with the given value (convenient for inspector widgets editing a copy).
 		template<RegisteredComponent T>
@@ -121,7 +126,11 @@ namespace Strada
 		// Copies files into a folder of the asset directory (numbering names that are taken) and registers them, all or
 		// nothing; files already inside the asset directory are registered in place. Returns their handles in order.
 		[[nodiscard]] Result<std::vector<AssetHandle>> ImportAssets(std::span<std::filesystem::path const> files, std::string_view folder);
-		// Moves or renames a file asset; its handle (and every reference to it) stays valid.
+		// Moves or renames a file asset; its handle (and every reference to it) stays valid. A model moving to another folder
+		// takes the files of its folder it reads (MeshImporter::FindExternalFiles: buffers, material libraries, textures)
+		// along to the same paths relative to it, all or nothing, and removes the folders they leave empty. Files outside its
+		// folder stay; the move is refused when one of them would not be found from the new folder, or when another model of
+		// the folder reads a file that would move (moving the folder keeps them together).
 		[[nodiscard]] Result<void> MoveAsset(AssetHandle asset, std::string_view newPath);
 		[[nodiscard]] Result<void> MoveAssetFolder(std::string_view folder, std::string_view newFolder);
 		[[nodiscard]] Result<void> DeleteAsset(AssetHandle asset);
@@ -151,6 +160,8 @@ namespace Strada
 		void KeepProjectIfOpen();
 		// Deselects the inspected asset when it is no longer registered.
 		void ForgetDeletedSelection();
+		// MoveAsset for a model that changes folder (newPath normalized).
+		Result<void> MoveModelWithFiles(AssetHandle model, AssetMetadata const& metadata, std::string const& newPath);
 
 		EditorContext& m_Context;
 	};

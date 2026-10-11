@@ -166,7 +166,10 @@ TEST_CASE("Audio: waveforms fail for clips that cannot be decoded, without parts
 	std::vector<uint8_t> const broken = {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'A', 'V', 'E', 1, 2, 3, 4};
 	Result<Ref<AudioClipAsset>> const clip = AudioClipAsset::Create(Buffer::Copy(broken.data(), broken.size()));
 	REQUIRE(clip.IsOk());
-	CHECK(ComputeAudioWaveform(*clip.GetValue(), 16).IsError());
+	Result<AudioWaveform> const damaged = ComputeAudioWaveform(*clip.GetValue(), 16);
+	REQUIRE(damaged.IsError());
+	// Said in words for users: the decoder's own messages ("No backend") are only logged.
+	CHECK(damaged.GetError() == "the audio data is damaged or uses an encoding Strada cannot decode");
 
 	Ref<AudioClipAsset> const tone = Testing::MakeWavClip({{0.5f, 0.5f}});
 	CHECK(ComputeAudioWaveform(*tone, 0).IsError());

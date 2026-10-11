@@ -293,7 +293,9 @@ Asset types:
   memory limit of 256 MB plus 64 times the file size, and models with more than 2^24 vertices or triangles (every
   node instance counted) fail before any geometry is built. Files a model references (glTF buffers and images, FBX/OBJ
   textures, OBJ material libraries) are only read inside the asset directory: buffers outside it fail the import,
-  textures and material libraries outside it are skipped with a warning.
+  textures and material libraries outside it are skipped with a warning. `MeshImporter::FindExternalFiles` lists the
+  files a model reads, found like the import finds them but without building geometry, so the editor copies and moves
+  them with the model.
 - `MaterialAsset` (`.smat`): metallic-roughness parameters — `BaseColor`, `Metallic`, `Roughness`, `EmissiveColor` +
   `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, textures (base color, normal, metallic-roughness with glTF
   packing G = roughness and B = metallic, occlusion, emissive), `AlphaMode` (Opaque/Mask/Blend) + `AlphaCutoff`,
@@ -629,7 +631,8 @@ writes it once; afterwards it belongs to the user (packages, extra files), and a
 it. `Scripts/Strada.props`, rewritten whenever its content changes, points the project at this machine's
 `Strada.ScriptCore.dll` (referenced, not copied: the engine provides it). New scripts come from a template in
 `Scripts/Source/<Class>.cs` or a folder of `Scripts/Source`; a class name that another file of the C# project has
-(`<Class>.cs` anywhere outside the build output) is refused, as the class would be declared twice. Builds run
+(`<Class>.cs` anywhere outside the build output and hidden folders, which the .NET SDK leaves out too) is refused, as
+the class would be declared twice (the editor also refuses a class that a source declares already). Builds run
 `dotnet build` (found through `DOTNET_ROOT`, PATH, then the default install locations) as a child process (`Process`,
 Platform module, reproc++) into the `ScriptModule`'s directory, without build servers (they would outlive the build
 and keep its output open) and with English output, from which errors and warnings are parsed with their files and
@@ -672,26 +675,34 @@ positions. A build is out of date when a C# source or project file is newer than
   the editor's font for unreadable fonts, a C# document for scripts, a page with the extension for other files);
   missing files get a red badge and a red label, files that do not load or decode an amber badge (the tooltip says
   why; `AssetThumbnails::GetLoadError`), and audio tooltips the clip's length, rate and channels. Click selects (on
-  release, so dragging keeps the selection the drop target belongs to; the inspector shows assets), double-click opens
-  folders, scenes, scripts and other files (with the desktop's application, `Desktop::Open`); the folder tree opens and
-  scrolls to the displayed folder. F2 renames, Delete deletes after a confirmation. Assets and folders
-  drag onto folder tiles, tree nodes and breadcrumbs to move (handles stay valid), scripts and script folders onto
-  script folders; assets drag into asset fields, the hierarchy (meshes become entities, as children when dropped onto
-  a row) and the viewport (meshes become entities on the ground under the cursor, materials go to every submesh of
-  the mesh under the cursor, environments to the first sky light or a new one, scenes open); scripts drag onto
-  hierarchy rows and the inspector, which give the entities a Script component of the class the file defines among
-  the loaded classes (`AssetDrops::AddScript`; the console says when the scripts are not built yet). Context menus
-  create folders, materials and C# scripts (the New Script dialog, in the displayed script folder; the browser then
-  shows the script), import files (native multi-select dialog), refresh, rename, delete, copy references or paths
-  and show items in the file manager. File operations are not undoable. Files and folders dropped onto any of the
-  editor's windows from the OS (`WindowFileDropEvent`, forwarded from the platform windows of floating panels too)
-  are imported by `ProjectImport` into the folder under the cursor, else the displayed ones: assets into the asset
-  folder, C# sources into the scripts folder (creating the C# project when needed), a folder with all its files
-  except hidden ones (files that are not assets, such as a glTF scene's buffers, are kept beside the assets); taken
-  names get a number, other files are reported in the console, and what came in is selected. Files that other
-  applications add, change or delete are picked up when the editor gets the focus back (`AssetAutoRefresh`; one of
-  its windows, floating panels included; after a running game export, which copies the assets) or with Refresh, and
-  their thumbnails are made again.
+  release, so dragging keeps the selection the drop target belongs to; the inspector shows assets): the selected tile
+  gets an outline in the theme's accent and its name an accent plate, a hovered one a lighter card and outline.
+  Double-click opens folders, scenes, scripts and other files (with the desktop's application, `Desktop::Open`); the
+  folder tree opens and scrolls to the displayed folder. F2 renames, Delete deletes after a confirmation. Assets,
+  other files and folders drag onto folder tiles, tree nodes and breadcrumbs to move (handles stay valid; a model
+  moving to another folder takes the files it reads along to the same paths relative to it, `EditorOperations::
+  MoveAsset`), scripts and script folders onto script folders; assets drag into asset fields, the hierarchy (meshes
+  become entities, as children when dropped onto a row) and the viewport (meshes become entities on the ground under
+  the cursor, materials go to every submesh of the mesh under the cursor, environments to the first sky light or a new
+  one, scenes open); scripts drag onto hierarchy rows, the inspector and the viewport (the entity under the cursor),
+  which give the entities a Script component of the class the file defines among the loaded classes as one undo step
+  (`AssetDrops::AddScript`, `EditorOperations::SetScriptClass`; the console says when the scripts are not built yet).
+  Context menus create folders, materials and C# scripts (the New Script dialog, in the displayed script folder; the
+  browser then shows the script), import files (native multi-select dialog), refresh, rename, delete, copy references
+  or paths and show items in the file manager. File operations are not undoable. Files and folders dropped onto any of
+  the editor's windows from the OS (`WindowFileDropEvent`, forwarded from the platform windows of floating panels
+  too; `asset.drop` does the same for agents) are imported by `ProjectImport` into the folder under the cursor, else
+  the displayed ones: assets into the asset folder (taken names get a number), models with the files they read at the
+  same paths relative to them (`MeshImporter::FindExternalFiles`; in a new folder named after the model when those
+  names are taken), C# sources into the scripts folder (creating the C# project when needed) unless their file name or
+  a type they declare is taken in the scripts, where the C# project would no longer build, and folders whole but for
+  hidden files, links and C# build output: their C# sources go to the scripts (all of a folder that holds no assets)
+  and the rest to the assets. Other files come only with a model, and what is in a dropped folder only with it. What
+  came in is selected, and a notice under the toolbar says what did not (with a button that shows the console). Files
+  that other applications add, change or delete are picked up when the editor gets the focus back
+  (`AssetAutoRefresh`; one of its windows, floating panels included; after a running game export, which copies the
+  assets) or with Refresh, and their thumbnails are made again; a preview that failed is tried again once a refresh
+  has found its file changed.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
 - Renderer Info: the device (adapter, type, Vulkan version, driver, GPU timing support, validation and its error
   count), the frame (average and slowest frame time with a graph over 240 frames, frame count, back buffer), and what
@@ -735,7 +746,10 @@ positions. A build is out of date when a C# source or project file is newer than
 - Scripts (`EditorScripts`): the project's C# project is kept pointing at this engine; Scripts > New Script and the
   content browser's "+" > C# Script create a class from the template in the script folder the browser shows (else in
   `Scripts/Source`) and show it there, C# sources imported into the browser are copied into a folder of
-  `Scripts/Source` (`AddScripts`, creating the C# project when the project has none), Scripts > Build Scripts (Ctrl+B)
+  `Scripts/Source` (`AddScripts`, creating the C# project when the project has none). Both refuse what would declare a
+  type twice in the C# project (C# error CS0101): a file name a file of the project has, or a type a source declares
+  already (`ScriptBrowsing::FindDeclaredTypes` reads classes, structs, interfaces, enums, delegates and records with
+  their namespaces; partial and file-local types are allowed), saying which source has it. Scripts > Build Scripts (Ctrl+B)
   builds on a worker thread, and changed sources (checked every second) build by themselves. Errors and warnings go to
   the console with their files and lines, the menu bar shows a failed build, and each successful build is loaded at
   once (hot reload; while scripts run, when they stop). The inspector edits Script components with a class picker and
@@ -776,7 +790,8 @@ positions. A build is out of date when a C# source or project file is newer than
 - Command domains: `editor.*` (status, undo, redo, commands), `project.*` (info, create, open, close, settings, export),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
-  `asset.*` (list, get, import, refresh, move, delete, create-folder, move-folder, delete-folder),
+  `asset.*` (list, get, select, import, refresh, browse and drop in the content browser, move, delete, create-folder,
+  move-folder, delete-folder),
   `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities, renderer statistics), `log.*` (read since

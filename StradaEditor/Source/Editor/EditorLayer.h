@@ -172,6 +172,8 @@ namespace Strada
 		bool m_ResetLayout = false;
 		// Frames until the default layout's scene view, inspector and content browser tabs come to the front (0: nothing to do).
 		uint8_t m_FocusDefaultTabsFrames = 0;
+		// Bring the console to the front after the panels are drawn.
+		bool m_FocusConsole = false;
 
 		SceneAction m_PendingAction = SceneAction::None;
 		std::filesystem::path m_PendingPath;

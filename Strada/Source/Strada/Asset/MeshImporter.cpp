@@ -376,6 +376,20 @@ namespace Strada
 			return {};
 		}
 
+		// A file named by a relative glTF URI (percent-escapes decoded), beside the model.
+		std::filesystem::path GetGltfUriPath(std::filesystem::path const& directory, std::string_view uri)
+		{
+			std::string decoded(uri);
+			decoded.resize(cgltf_decode_uri(decoded.data()));
+			return (directory / FileSystem::PathFromUtf8(decoded)).lexically_normal();
+		}
+
+		// Whether a glTF URI names a file: data URIs are embedded, and remote files are never read.
+		bool IsGltfFileUri(std::string_view uri)
+		{
+			return !uri.empty() && !uri.starts_with("data:") && uri.find("://") == std::string_view::npos;
+		}
+
 		bool IsTriangleMode(cgltf_primitive_type type)
 		{
 			return type == cgltf_primitive_type_triangles || type == cgltf_primitive_type_triangle_strip ||
@@ -882,9 +896,7 @@ namespace Strada
 					return MakeError("image '{}' references a remote URI, which is not supported", texture.Name);
 				}
 
-				std::string decodedUri(uri);
-				decodedUri.resize(cgltf_decode_uri(decodedUri.data()));
-				texture.FilePath = (m_Directory / FileSystem::PathFromUtf8(decodedUri)).lexically_normal();
+				texture.FilePath = GetGltfUriPath(m_Directory, uri);
 				if (!m_Builder.IsReferenceAllowed(texture.FilePath))
 				{
 					return MakeError("image '{}' lies outside '{}' and was skipped", FileSystem::PathToUtf8(texture.FilePath),
@@ -970,6 +982,58 @@ namespace Strada
 			return importer.Import();
 		}
 
+		// Adds a file to a list of files unless it is there already.
+		void AddFileOnce(std::vector<std::filesystem::path>& files, std::filesystem::path file)
+		{
+			if (std::find(files.begin(), files.end(), file) == files.end())
+			{
+				files.push_back(std::move(file));
+			}
+		}
+
+		// The buffers and images a glTF file names: only its JSON is parsed.
+		Result<void> FindGltfExternalFiles(std::filesystem::path const& path, ModelBuilder const& builder,
+		                                   std::vector<std::filesystem::path>& files)
+		{
+			Result<Buffer> file = FileSystem::ReadBinaryFile(path);
+			if (!file)
+			{
+				return Error{file.GetError()};
+			}
+			cgltf_options options = {};
+			options.memory.alloc_func = GltfAllocate;
+			options.memory.free_func = GltfFree;
+			cgltf_data* parsed = nullptr;
+			cgltf_result const result = cgltf_parse(&options, file.GetValue().GetData(), file.GetValue().GetSize(), &parsed);
+			std::unique_ptr<cgltf_data, GltfDataDeleter> const data(parsed);
+			if (result != cgltf_result_success)
+			{
+				return Error{GltfResultToString(result)};
+			}
+			std::filesystem::path const directory = path.parent_path();
+			auto const add = [&](char const* uri)
+			{
+				if (uri == nullptr || !IsGltfFileUri(uri))
+				{
+					return;
+				}
+				std::filesystem::path referenced = GetGltfUriPath(directory, uri);
+				if (builder.IsReferenceAllowed(referenced) && FileSystem::IsRegularFile(referenced))
+				{
+					AddFileOnce(files, std::move(referenced));
+				}
+			};
+			for (size_t i = 0; i < data->buffers_count; i++)
+			{
+				add(data->buffers[i].uri);
+			}
+			for (size_t i = 0; i < data->images_count; i++)
+			{
+				add(data->images[i].uri);
+			}
+			return {};
+		}
+
 		// --- FBX and OBJ (ufbx) ----------------------------------------------------------------------------------------
 
 		struct UfbxSceneDeleter
@@ -1000,6 +1064,33 @@ namespace Strada
 		float GetReal(ufbx_material_map const& map, float fallback)
 		{
 			return map.has_value ? static_cast<float>(map.value_real) : fallback;
+		}
+
+		// The file of an external texture of an FBX or OBJ model. Exporters store absolute paths of the authoring machine, so
+		// the model's directory is tried too. Files outside the reference directory are never used.
+		std::optional<std::filesystem::path> FindUfbxTextureFile(ufbx_texture const& texture, std::filesystem::path const& directory,
+		                                                         ModelBuilder const& builder)
+		{
+			std::vector<std::filesystem::path> candidates;
+			for (ufbx_string const* name : {&texture.filename, &texture.relative_filename, &texture.absolute_filename})
+			{
+				if (name->length == 0)
+				{
+					continue;
+				}
+				std::filesystem::path const path = FileSystem::PathFromUtf8(ToString(*name));
+				candidates.push_back(path.is_absolute() ? path : directory / path);
+				candidates.push_back(directory / path.filename());
+			}
+			for (std::filesystem::path const& candidate : candidates)
+			{
+				std::filesystem::path const normalized = candidate.lexically_normal();
+				if (builder.IsReferenceAllowed(normalized) && FileSystem::IsRegularFile(normalized))
+				{
+					return normalized;
+				}
+			}
+			return std::nullopt;
 		}
 
 		class UfbxImporter
@@ -1217,7 +1308,7 @@ namespace Strada
 					imported.EncodedData = Buffer::Copy(texture->content.data, texture->content.size);
 					index = m_Builder.AddTexture(std::move(imported));
 				}
-				else if (std::optional<std::filesystem::path> const file = FindTextureFile(*texture))
+				else if (std::optional<std::filesystem::path> const file = FindUfbxTextureFile(*texture, m_Directory, m_Builder))
 				{
 					imported.FilePath = *file;
 					index = m_Builder.AddTexture(std::move(imported));
@@ -1230,32 +1321,6 @@ namespace Strada
 				return index;
 			}
 
-			// Exporters store absolute paths of the authoring machine; fall back to the model's directory. Files outside the
-			// reference directory are never used.
-			std::optional<std::filesystem::path> FindTextureFile(ufbx_texture const& texture) const
-			{
-				std::vector<std::filesystem::path> candidates;
-				for (ufbx_string const* name : {&texture.filename, &texture.relative_filename, &texture.absolute_filename})
-				{
-					if (name->length == 0)
-					{
-						continue;
-					}
-					std::filesystem::path const path = FileSystem::PathFromUtf8(ToString(*name));
-					candidates.push_back(path.is_absolute() ? path : m_Directory / path);
-					candidates.push_back(m_Directory / path.filename());
-				}
-				for (std::filesystem::path const& candidate : candidates)
-				{
-					std::filesystem::path const normalized = candidate.lexically_normal();
-					if (m_Builder.IsReferenceAllowed(normalized) && FileSystem::IsRegularFile(normalized))
-					{
-						return normalized;
-					}
-				}
-				return std::nullopt;
-			}
-
 			std::filesystem::path m_Directory;
 			ufbx_scene const& m_Scene;
 			ModelBuilder& m_Builder;
@@ -1263,18 +1328,12 @@ namespace Strada
 			std::unordered_map<ufbx_texture const*, int32_t> m_Textures;
 		};
 
-		// Opens OBJ material libraries through FileSystem (UTF-8 paths); nothing else (the model is loaded from memory, and
-		// FBX geometry caches and other external references are never followed).
-		bool OpenUfbxFile(void* user, ufbx_stream* stream, char const* path, size_t pathLength, ufbx_open_file_info const* info)
+		// Opens an OBJ material library through FileSystem (UTF-8 paths) into a ufbx stream; libraries outside the reference
+		// directory are refused (ufbx reports them as missing).
+		bool OpenMaterialLibrary(ModelBuilder const& builder, ufbx_stream* stream, std::filesystem::path const& filePath)
 		{
-			if (info->type != UFBX_OPEN_FILE_OBJ_MTL)
+			if (!builder.IsReferenceAllowed(filePath))
 			{
-				return false;
-			}
-			std::filesystem::path const filePath = FileSystem::PathFromUtf8(std::string_view(path, pathLength)).lexically_normal();
-			if (!static_cast<ModelBuilder const*>(user)->IsReferenceAllowed(filePath))
-			{
-				// Reported by ufbx as a missing material library.
 				return false;
 			}
 			Result<Buffer> file = FileSystem::ReadBinaryFile(filePath);
@@ -1292,7 +1351,44 @@ namespace Strada
 			return ufbx_open_memory(stream, bytes, data.GetSize(), &memoryOptions, &error);
 		}
 
-		Result<void> ImportUfbx(std::filesystem::path const& path, bool isObj, ModelBuilder& builder)
+		// Opens OBJ material libraries; nothing else (the model is loaded from memory, and FBX geometry caches and other external
+		// references are never followed).
+		bool OpenUfbxFile(void* user, ufbx_stream* stream, char const* path, size_t pathLength, ufbx_open_file_info const* info)
+		{
+			if (info->type != UFBX_OPEN_FILE_OBJ_MTL)
+			{
+				return false;
+			}
+			std::filesystem::path const filePath = FileSystem::PathFromUtf8(std::string_view(path, pathLength)).lexically_normal();
+			return OpenMaterialLibrary(*static_cast<ModelBuilder const*>(user), stream, filePath);
+		}
+
+		// The material libraries an OBJ model opened, for FindExternalFiles.
+		struct MaterialLibraryLog
+		{
+			ModelBuilder const& Builder;
+			std::vector<std::filesystem::path>& Files;
+		};
+
+		bool OpenAndRecordUfbxFile(void* user, ufbx_stream* stream, char const* path, size_t pathLength, ufbx_open_file_info const* info)
+		{
+			if (info->type != UFBX_OPEN_FILE_OBJ_MTL)
+			{
+				return false;
+			}
+			auto* log = static_cast<MaterialLibraryLog*>(user);
+			std::filesystem::path filePath = FileSystem::PathFromUtf8(std::string_view(path, pathLength)).lexically_normal();
+			if (!OpenMaterialLibrary(log->Builder, stream, filePath))
+			{
+				return false;
+			}
+			AddFileOnce(log->Files, std::move(filePath));
+			return true;
+		}
+
+		// Loads an FBX or OBJ file with ufbx; the callback opens OBJ material libraries (user is passed to it).
+		Result<std::unique_ptr<ufbx_scene, UfbxSceneDeleter>> LoadUfbxScene(std::filesystem::path const& path, bool isObj, bool geometry,
+		                                                                    ufbx_open_file_fn* openFile, void* user)
 		{
 			Result<Buffer> file = FileSystem::ReadBinaryFile(path);
 			if (!file)
@@ -1313,8 +1409,9 @@ namespace Strada
 			options.generate_missing_normals = true;
 			options.obj_search_mtl_by_filename = true;
 			options.ignore_animation = true;
-			options.open_file_cb.fn = OpenUfbxFile;
-			options.open_file_cb.user = &builder;
+			options.ignore_geometry = !geometry;
+			options.open_file_cb.fn = openFile;
+			options.open_file_cb.user = user;
 			// OBJ materials live in external .mtl files; a missing library only produces a warning.
 			options.load_external_files = isObj;
 			options.ignore_missing_external_files = true;
@@ -1329,13 +1426,51 @@ namespace Strada
 			{
 				return Error{error.description.length > 0 ? ToString(error.description) : "failed to load the file"};
 			}
-			for (size_t i = 0; i < scene->metadata.warnings.count; i++)
+			return scene;
+		}
+
+		Result<void> ImportUfbx(std::filesystem::path const& path, bool isObj, ModelBuilder& builder)
+		{
+			Result<std::unique_ptr<ufbx_scene, UfbxSceneDeleter>> loaded = LoadUfbxScene(path, isObj, true, OpenUfbxFile, &builder);
+			if (!loaded)
 			{
-				builder.Warn(ToString(scene->metadata.warnings.data[i].description));
+				return Error{loaded.GetError()};
+			}
+			ufbx_scene const& scene = *loaded.GetValue();
+			for (size_t i = 0; i < scene.metadata.warnings.count; i++)
+			{
+				builder.Warn(ToString(scene.metadata.warnings.data[i].description));
 			}
 
-			UfbxImporter importer(path, *scene, builder);
+			UfbxImporter importer(path, scene, builder);
 			return importer.Import();
+		}
+
+		// The material libraries and texture files an FBX or OBJ model names, found like ImportUfbx finds them.
+		Result<void> FindUfbxExternalFiles(std::filesystem::path const& path, bool isObj, ModelBuilder const& builder,
+		                                   std::vector<std::filesystem::path>& files)
+		{
+			MaterialLibraryLog log{builder, files};
+			Result<std::unique_ptr<ufbx_scene, UfbxSceneDeleter>> loaded = LoadUfbxScene(path, isObj, false, OpenAndRecordUfbxFile, &log);
+			if (!loaded)
+			{
+				return Error{loaded.GetError()};
+			}
+			ufbx_scene const& scene = *loaded.GetValue();
+			std::filesystem::path const directory = path.parent_path();
+			for (size_t i = 0; i < scene.textures.count; i++)
+			{
+				ufbx_texture const& texture = *scene.textures.data[i];
+				if (texture.type != UFBX_TEXTURE_FILE || texture.content.size > 0)
+				{
+					continue;
+				}
+				if (std::optional<std::filesystem::path> file = FindUfbxTextureFile(texture, directory, builder))
+				{
+					AddFileOnce(files, std::move(*file));
+				}
+			}
+			return {};
 		}
 	}
 
@@ -1373,5 +1508,33 @@ namespace Strada
 			return MakeError("'{}' contains no triangle meshes", FileSystem::PathToUtf8(path));
 		}
 		return std::move(model);
+	}
+
+	Result<std::vector<std::filesystem::path>> MeshImporter::FindExternalFiles(std::filesystem::path const& path,
+	                                                                           std::filesystem::path const& referenceDirectory)
+	{
+		std::string const extension = ToLower(FileSystem::PathToUtf8(path.extension()));
+		ModelBuilder const builder(referenceDirectory.empty() ? path.parent_path() : referenceDirectory);
+		std::vector<std::filesystem::path> files;
+		Result<void> result;
+		if (extension == ".gltf" || extension == ".glb")
+		{
+			result = FindGltfExternalFiles(path, builder, files);
+		}
+		else if (extension == ".fbx" || extension == ".obj")
+		{
+			result = FindUfbxExternalFiles(path, extension == ".obj", builder, files);
+		}
+		else
+		{
+			return MakeError("'{}': unsupported model format", FileSystem::PathToUtf8(path));
+		}
+		if (!result)
+		{
+			return MakeError("'{}': {}", FileSystem::PathToUtf8(path), result.GetError());
+		}
+		// A model that names itself (an OBJ whose material library is the model) needs nothing more.
+		std::erase(files, path.lexically_normal());
+		return files;
 	}
 }

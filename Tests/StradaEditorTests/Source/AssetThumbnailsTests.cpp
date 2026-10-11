@@ -19,9 +19,11 @@
 #include <glm/gtc/constants.hpp>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <thread>
+#include <vector>
 
 using namespace Strada;
 
@@ -260,7 +262,7 @@ TEST_CASE("AssetThumbnails: audio clips get waveforms decoded on a worker thread
 	// The content browser marks such clips: they cannot be read.
 	std::string const* const error = thumbnails.GetLoadError(noise);
 	REQUIRE(error != nullptr);
-	CHECK(error->find("cannot be decoded") != std::string::npos);
+	CHECK(error->find("damaged or uses an encoding") != std::string::npos);
 	CHECK(thumbnails.GetLoadError(clip) == nullptr);
 	CHECK(thumbnails.GetLoadError(AssetHandle()) == nullptr);
 
@@ -268,6 +270,68 @@ TEST_CASE("AssetThumbnails: audio clips get waveforms decoded on a worker thread
 	thumbnails.Clear();
 	CHECK(thumbnails.GetWaveform(clip) == nullptr);
 	CHECK(WaitForWaveform(thumbnails, clip) != nullptr);
+}
+
+TEST_CASE("AssetThumbnails: the least recently shown previews beyond the limits are forgotten every update")
+{
+	Testing::AssetManagerScope assets;
+	std::array<AssetHandle, 3> const clips = {AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.5f, 0.1f}}), "A"),
+	                                          AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.25f, 0.1f}}), "B"),
+	                                          AssetManager::AddMemoryAsset(Testing::MakeWavClip({{0.75f, 0.1f}}), "C")};
+	// Two waveforms are kept (and no thumbnails: none are rendered here, which once kept eviction from running).
+	AssetThumbnails thumbnails(0, 2);
+	REQUIRE(WaitForWaveform(thumbnails, clips[0]) != nullptr);
+	REQUIRE(WaitForWaveform(thumbnails, clips[1]) != nullptr);
+	// A third clip shown: the one shown longest ago goes.
+	CHECK(thumbnails.GetWaveform(clips[2]) == nullptr);
+	thumbnails.Update();
+	CHECK(thumbnails.GetWaveform(clips[1]) != nullptr);
+	CHECK(thumbnails.GetWaveform(clips[0]) == nullptr);
+	CHECK(WaitForWaveform(thumbnails, clips[0]) != nullptr);
+}
+
+TEST_CASE("AssetThumbnails: a clip that did not decode gets its waveform as soon as a refresh finds its file repaired")
+{
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const file = directory.GetPath() / "Hit.wav";
+	std::vector<uint8_t> const broken = {'R', 'I', 'F', 'F', 4, 0, 0, 0, 'W', 'A', 'V', 'E', 1, 2, 3, 4};
+	REQUIRE(FileSystem::WriteBinaryFile(file, broken).IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const clip = AssetManager::FindByPath("Hit.wav");
+	REQUIRE(clip.IsValid());
+
+	AssetThumbnails thumbnails;
+	for (int attempt = 0; attempt < 1000 && thumbnails.GetLoadError(clip) == nullptr; attempt++)
+	{
+		CHECK(thumbnails.GetWaveform(clip) == nullptr);
+		thumbnails.Update();
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+	REQUIRE(thumbnails.GetLoadError(clip) != nullptr);
+	// It stays failed without asking again while nothing changed.
+	for (int frame = 0; frame < 10; frame++)
+	{
+		CHECK(thumbnails.GetWaveform(clip) == nullptr);
+		thumbnails.Update();
+	}
+	CHECK(thumbnails.GetLoadError(clip) != nullptr);
+
+	// Another application repairs the file; the refresh that notices unloads the clip and its waveform is made right away.
+	std::filesystem::file_time_type const written = FileSystem::GetLastWriteTime(file).value();
+	std::vector<float> const samples = Testing::MakeSamples({{0.5f, 0.2f}});
+	REQUIRE(FileSystem::WriteBinaryFile(file, Testing::MakeWav(samples).GetSpan()).IsOk());
+	std::error_code timeError;
+	std::filesystem::last_write_time(file, written + std::chrono::seconds(2), timeError);
+	REQUIRE_FALSE(timeError);
+	REQUIRE(AssetManager::Refresh().IsOk());
+	std::chrono::steady_clock::time_point const refreshed = std::chrono::steady_clock::now();
+	AudioWaveform const* const waveform = WaitForWaveform(thumbnails, clip);
+	REQUIRE(waveform != nullptr);
+	// Well before the five seconds failed previews once waited.
+	CHECK(std::chrono::steady_clock::now() - refreshed < std::chrono::seconds(4));
+	CHECK(waveform->Peaks.front() == doctest::Approx(0.5f).epsilon(0.01));
+	CHECK(thumbnails.GetLoadError(clip) == nullptr);
 }
 
 TEST_CASE("AssetThumbnails: files changed outside the editor get new thumbnails, and fonts write Aa in their glyphs")

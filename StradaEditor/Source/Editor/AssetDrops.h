@@ -22,11 +22,10 @@ namespace Strada
 		// Shows the environment through the scene's sky light: the first one in hierarchy order (the one the renderer uses),
 		// or a new "Sky Light" root entity when the scene has none. One undo step; returns the sky light entity.
 		[[nodiscard]] Result<UUID> SetSkyEnvironment(EditorOperations& operations, AssetHandle environment);
-		// Makes the entities run the script class a C# source defines among the loaded classes (ScriptBrowsing::FindScriptClass):
-		// entities without a Script component get one (one undo step), the class of the others is replaced (one more step;
-		// stored field values are kept, like the inspector's class picker does). Fails without changes when scripting is
-		// unavailable, the source defines no loaded class (its scripts are not built yet, which the error says) or an entity
-		// does not exist. Returns the class.
+		// Makes the entities run the script class a C# source defines among the loaded classes (ScriptBrowsing::FindScriptClass)
+		// as one undo step (EditorOperations::SetScriptClass): entities without a Script component get one, the class of the
+		// others is replaced. Fails without changes when scripting is unavailable, the source defines no loaded class (its
+		// scripts are not built yet, which the error says) or an entity does not exist. Returns the class.
 		[[nodiscard]] Result<std::string> AddScript(EditorOperations& operations, std::span<UUID const> entities,
 		                                            std::filesystem::path const& file);
 	}

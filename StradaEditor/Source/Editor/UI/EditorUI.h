@@ -32,6 +32,9 @@ namespace Strada
 		inline constexpr char const* Asset = "STRADA_ASSET";
 		// A folder of the asset directory: its relative path as UTF-8 characters (no terminator).
 		inline constexpr char const* AssetFolder = "STRADA_ASSET_FOLDER";
+		// A file of the asset directory that is not an asset (a model's buffer): its relative path as UTF-8 characters (no
+		// terminator).
+		inline constexpr char const* AssetFile = "STRADA_ASSET_FILE";
 		// A C# source of the project's scripts: its absolute path as UTF-8 characters (no terminator).
 		inline constexpr char const* ScriptFile = "STRADA_SCRIPT_FILE";
 		// A folder of the project's scripts: its path relative to their directory (ScriptProject::GetSourceDirectory) as UTF-8

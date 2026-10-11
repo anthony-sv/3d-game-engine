@@ -3,6 +3,7 @@
 #include "Editor/AssetBrowsing.h"
 
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Project/ScriptProject.h"
 #include "Strada/Script/ScriptEngine.h"
 
 #include <algorithm>
@@ -97,6 +98,150 @@ namespace Strada
 				size_t const separator = className.find_last_of(".+");
 				return separator == std::string_view::npos ? className : className.substr(separator + 1);
 			}
+
+			enum class TokenKind : uint8_t
+			{
+				Identifier = 0,
+				Punctuation,
+				End
+			};
+
+			struct Token
+			{
+				TokenKind Kind = TokenKind::End;
+				// The identifier without its '@', or the punctuation character.
+				std::string_view Text;
+				// "@class": an identifier named like a keyword.
+				bool Verbatim = false;
+
+				bool Is(char character) const { return Kind == TokenKind::Punctuation && Text.size() == 1 && Text.front() == character; }
+			};
+
+			// Splits C# source into identifiers and punctuation characters, skipping whitespace, comments, literals, numbers and
+			// preprocessor lines.
+			class Tokenizer
+			{
+			public:
+				explicit Tokenizer(std::string_view source)
+					: m_Source(source)
+				{
+				}
+
+				Token Next()
+				{
+					while (m_Index < m_Source.size())
+					{
+						char const c = m_Source[m_Index];
+						if (c == '\n')
+						{
+							m_LineStart = true;
+							m_Index++;
+							continue;
+						}
+						if (std::isspace(static_cast<unsigned char>(c)) != 0)
+						{
+							m_Index++;
+							continue;
+						}
+						bool const firstOnLine = std::exchange(m_LineStart, false);
+						bool const hasNext = m_Index + 1 < m_Source.size();
+						char const next = hasNext ? m_Source[m_Index + 1] : '\0';
+						// Preprocessor directives and line comments end with their line.
+						if ((c == '#' && firstOnLine) || (c == '/' && next == '/'))
+						{
+							m_Index = std::min(m_Source.find('\n', m_Index), m_Source.size());
+							continue;
+						}
+						if (c == '/' && next == '*')
+						{
+							size_t const end = m_Source.find("*/", m_Index + 2);
+							m_Index = end == std::string_view::npos ? m_Source.size() : end + 2;
+							continue;
+						}
+						if (c == '"' || c == '\'' || ((c == '$' || c == '@') && (next == '"' || next == '$' || next == '@')))
+						{
+							m_Index = SkipLiteral(m_Source, m_Index);
+							continue;
+						}
+						bool const verbatim = c == '@' && hasNext && IsIdentifierStart(next);
+						if (verbatim || IsIdentifierStart(c))
+						{
+							size_t const start = verbatim ? m_Index + 1 : m_Index;
+							size_t end = start;
+							while (end < m_Source.size() && IsIdentifierPart(m_Source[end]))
+							{
+								end++;
+							}
+							m_Index = end;
+							return Token{TokenKind::Identifier, m_Source.substr(start, end - start), verbatim};
+						}
+						if (std::isdigit(static_cast<unsigned char>(c)) != 0)
+						{
+							// Numbers with their suffixes and exponents ("1.5e3f", "0xFFul"); a '.' only when a digit follows.
+							while (m_Index < m_Source.size())
+							{
+								char const part = m_Source[m_Index];
+								bool const decimalPoint = part == '.' && m_Index + 1 < m_Source.size() &&
+								                          std::isdigit(static_cast<unsigned char>(m_Source[m_Index + 1])) != 0;
+								if (!decimalPoint && std::isalnum(static_cast<unsigned char>(part)) == 0 && part != '_')
+								{
+									break;
+								}
+								m_Index++;
+							}
+							continue;
+						}
+						return Token{TokenKind::Punctuation, m_Source.substr(m_Index++, 1), false};
+					}
+					return Token{};
+				}
+
+				// After a '<': skips type parameters or arguments up to the matching '>' and returns the commas between them at
+				// their own level (one less than their count). Stops before a brace or ';' of malformed code.
+				uint32_t SkipTypeParameters()
+				{
+					uint32_t commas = 0;
+					int angles = 1;
+					int brackets = 0;
+					while (true)
+					{
+						size_t const index = m_Index;
+						bool const lineStart = m_LineStart;
+						Token const token = Next();
+						if (token.Kind == TokenKind::End || token.Is('{') || token.Is('}') || token.Is(';'))
+						{
+							m_Index = index;
+							m_LineStart = lineStart;
+							return commas;
+						}
+						if (token.Is('<'))
+						{
+							angles++;
+						}
+						else if (token.Is('>') && --angles == 0)
+						{
+							return commas;
+						}
+						else if (token.Is('(') || token.Is('['))
+						{
+							brackets++;
+						}
+						else if (token.Is(')') || token.Is(']'))
+						{
+							brackets = std::max(brackets - 1, 0);
+						}
+						else if (token.Is(',') && angles == 1 && brackets == 0)
+						{
+							commas++;
+						}
+					}
+				}
+
+			private:
+				std::string_view m_Source;
+				size_t m_Index = 0;
+				bool m_LineStart = true;
+			};
 		}
 
 		bool IsScriptFile(std::filesystem::path const& path)
@@ -176,139 +321,294 @@ namespace Strada
 			return scripts;
 		}
 
+		std::vector<DeclaredType> FindDeclaredTypes(std::string_view source)
+		{
+			// What a pair of braces holds: a namespace, the body of a type, or anything else (members' bodies, initializers),
+			// where no types are declared.
+			enum class ScopeKind : uint8_t
+			{
+				Namespace = 0,
+				Type,
+				Other
+			};
+			struct Scope
+			{
+				ScopeKind Kind = ScopeKind::Other;
+				// The namespace's or the type's full name.
+				std::string Name;
+				// The parentheses and brackets open around the scope's opening brace.
+				int OuterParentheses = 0;
+			};
+			std::vector<Scope> scopes;
+			// A file-scoped namespace ("namespace Game;") applies to the rest of the file.
+			std::string fileNamespace;
+			auto const enclosingNamespace = [&]() -> std::string const&
+			{
+				for (auto scope = scopes.rbegin(); scope != scopes.rend(); ++scope)
+				{
+					if (scope->Kind == ScopeKind::Namespace)
+					{
+						return scope->Name;
+					}
+				}
+				return fileNamespace;
+			};
+
+			std::vector<DeclaredType> types;
+			Tokenizer tokens(source);
+			Token token = tokens.Next();
+			auto const advance = [&]
+			{
+				token = tokens.Next();
+			};
+			// Modifiers since the last declaration, statement or attribute.
+			bool partial = false;
+			bool fileLocal = false;
+			auto const resetModifiers = [&]
+			{
+				partial = false;
+				fileLocal = false;
+			};
+			// Parentheses and brackets open in the current scope.
+			int parentheses = 0;
+			// A declared type whose body is the next brace outside parentheses.
+			std::optional<std::string> pendingBody;
+
+			// A declaration of the given kind and name (the type's own name, without type parameters) in the current scope.
+			auto const makeType = [&](DeclaredTypeKind kind, std::string_view name, uint32_t arity)
+			{
+				DeclaredType type;
+				type.Kind = kind;
+				type.Partial = partial;
+				type.FileLocal = fileLocal;
+				type.Nested = !scopes.empty() && scopes.back().Kind == ScopeKind::Type;
+				std::string const& outer = type.Nested ? scopes.back().Name : enclosingNamespace();
+				type.Name = outer.empty() ? std::string(name) : outer + (type.Nested ? "+" : ".") + std::string(name);
+				if (arity > 0)
+				{
+					type.Name += fmt::format("`{}", arity);
+				}
+				resetModifiers();
+				return type;
+			};
+			// A name follows a type keyword: the current token, an identifier that is no keyword, then its type parameters.
+			auto const declare = [&](DeclaredTypeKind kind)
+			{
+				if (token.Kind != TokenKind::Identifier ||
+				    (!token.Verbatim && (ScriptProject::IsKeyword(token.Text) || token.Text == "where")))
+				{
+					return;
+				}
+				std::string_view const name = token.Text;
+				advance();
+				uint32_t arity = 0;
+				if (token.Is('<'))
+				{
+					arity = tokens.SkipTypeParameters() + 1;
+					advance();
+				}
+				DeclaredType type = makeType(kind, name, arity);
+				pendingBody = type.Name;
+				types.push_back(std::move(type));
+			};
+
+			while (token.Kind != TokenKind::End)
+			{
+				bool const canDeclare = scopes.empty() || scopes.back().Kind != ScopeKind::Other;
+				if (token.Kind == TokenKind::Identifier && !token.Verbatim && canDeclare)
+				{
+					std::string_view const word = token.Text;
+					if (word == "namespace" && (scopes.empty() || scopes.back().Kind == ScopeKind::Namespace))
+					{
+						std::string name;
+						for (advance(); token.Kind == TokenKind::Identifier || token.Is('.'); advance())
+						{
+							name += token.Text;
+						}
+						if (token.Is(';'))
+						{
+							fileNamespace = std::move(name);
+							resetModifiers();
+							advance();
+						}
+						else if (token.Is('{'))
+						{
+							std::string const& outer = enclosingNamespace();
+							scopes.push_back({ScopeKind::Namespace, outer.empty() ? std::move(name) : outer + "." + name, parentheses});
+							parentheses = 0;
+							resetModifiers();
+							advance();
+						}
+						continue;
+					}
+					if (word == "class" || word == "struct" || word == "interface" || word == "enum")
+					{
+						DeclaredTypeKind kind = DeclaredTypeKind::Interface;
+						if (word == "class")
+						{
+							kind = DeclaredTypeKind::Class;
+						}
+						else if (word == "struct")
+						{
+							kind = DeclaredTypeKind::Struct;
+						}
+						else if (word == "enum")
+						{
+							kind = DeclaredTypeKind::Enum;
+						}
+						advance();
+						// Anything but a name after the keyword ("where T : class, new()") declares nothing.
+						declare(kind);
+						continue;
+					}
+					if (word == "record")
+					{
+						advance();
+						DeclaredTypeKind kind = DeclaredTypeKind::RecordClass;
+						if (token.Kind == TokenKind::Identifier && !token.Verbatim && (token.Text == "class" || token.Text == "struct"))
+						{
+							kind = token.Text == "struct" ? DeclaredTypeKind::RecordStruct : DeclaredTypeKind::RecordClass;
+							advance();
+						}
+						declare(kind);
+						continue;
+					}
+					if (word == "delegate")
+					{
+						// "delegate <return type> Name<T>(...)": the name is the last identifier outside angle brackets before the
+						// parameters. Anonymous methods ("delegate (int x) { }") and function pointers ("delegate*<int>") have none.
+						advance();
+						std::string_view name;
+						uint32_t arity = 0;
+						while (token.Kind == TokenKind::Identifier || token.Is('<') || token.Is('.') || token.Is('[') || token.Is(']') ||
+						       token.Is('?') || token.Is(','))
+						{
+							if (token.Kind == TokenKind::Identifier)
+							{
+								name = token.Text;
+								arity = 0;
+							}
+							else if (token.Is('<'))
+							{
+								arity = tokens.SkipTypeParameters() + 1;
+							}
+							advance();
+						}
+						if (!name.empty() && token.Is('(') && !ScriptProject::IsKeyword(name))
+						{
+							types.push_back(makeType(DeclaredTypeKind::Delegate, name, arity));
+						}
+						resetModifiers();
+						continue;
+					}
+					if (word == "partial")
+					{
+						partial = true;
+					}
+					else if (word == "file")
+					{
+						fileLocal = true;
+					}
+					advance();
+					continue;
+				}
+
+				if (token.Is('(') || token.Is('['))
+				{
+					parentheses++;
+				}
+				else if (token.Is(')') || token.Is(']'))
+				{
+					parentheses = std::max(parentheses - 1, 0);
+					// Attributes end before the modifiers of what they annotate.
+					if (token.Is(']') && parentheses == 0)
+					{
+						resetModifiers();
+					}
+				}
+				else if (token.Is('{'))
+				{
+					bool const body = pendingBody.has_value() && parentheses == 0;
+					scopes.push_back(
+						{body ? ScopeKind::Type : ScopeKind::Other, body ? std::move(*pendingBody) : std::string(), parentheses});
+					pendingBody.reset();
+					parentheses = 0;
+					resetModifiers();
+				}
+				else if (token.Is('}'))
+				{
+					if (!scopes.empty())
+					{
+						parentheses = scopes.back().OuterParentheses;
+						scopes.pop_back();
+					}
+					pendingBody.reset();
+					resetModifiers();
+				}
+				else if (token.Is(';'))
+				{
+					// A record without a body ("record Point(int X, int Y);") ends here.
+					if (parentheses == 0)
+					{
+						pendingBody.reset();
+					}
+					resetModifiers();
+				}
+				advance();
+			}
+			return types;
+		}
+
 		std::vector<std::string> FindDeclaredClasses(std::string_view source)
 		{
-			// A file-scoped namespace ("namespace Game;") applies to the rest of the file, a block namespace to its braces.
-			struct BlockNamespace
-			{
-				std::string Name;
-				// The brace depth inside the block.
-				int Depth = 0;
-			};
-			std::vector<BlockNamespace> blocks;
-			std::string fileNamespace;
-			auto const currentNamespace = [&]() -> std::string const&
-			{
-				return blocks.empty() ? fileNamespace : blocks.back().Name;
-			};
-
 			std::vector<std::string> classes;
-			std::string pendingNamespace;
-			bool readingNamespace = false;
-			bool expectClassName = false;
-			bool lineStart = true;
-			int depth = 0;
-			size_t index = 0;
-			while (index < source.size())
+			for (DeclaredType& type : FindDeclaredTypes(source))
 			{
-				char const c = source[index];
-				if (c == '\n')
+				if (type.Kind == DeclaredTypeKind::Class)
 				{
-					lineStart = true;
-					index++;
-					continue;
+					classes.push_back(std::move(type.Name));
 				}
-				if (std::isspace(static_cast<unsigned char>(c)) != 0)
-				{
-					index++;
-					continue;
-				}
-				bool const firstOnLine = std::exchange(lineStart, false);
-				bool const hasNext = index + 1 < source.size();
-				char const next = hasNext ? source[index + 1] : '\0';
-				// Preprocessor directives and line comments end with their line.
-				if ((c == '#' && firstOnLine) || (c == '/' && next == '/'))
-				{
-					index = std::min(source.find('\n', index), source.size());
-					continue;
-				}
-				if (c == '/' && next == '*')
-				{
-					size_t const end = source.find("*/", index + 2);
-					index = end == std::string_view::npos ? source.size() : end + 2;
-					continue;
-				}
-				if (c == '"' || c == '\'' || ((c == '$' || c == '@') && (next == '"' || next == '$' || next == '@')))
-				{
-					index = SkipLiteral(source, index);
-					continue;
-				}
-				// "@class" is an identifier named class, never the keyword.
-				bool const verbatimIdentifier = c == '@' && hasNext && IsIdentifierStart(next);
-				if (verbatimIdentifier || IsIdentifierStart(c))
-				{
-					size_t const start = verbatimIdentifier ? index + 1 : index;
-					size_t end = start;
-					while (end < source.size() && IsIdentifierPart(source[end]))
-					{
-						end++;
-					}
-					std::string_view const word = source.substr(start, end - start);
-					index = end;
-					if (readingNamespace)
-					{
-						pendingNamespace += word;
-					}
-					else if (expectClassName)
-					{
-						expectClassName = false;
-						std::string const& outer = currentNamespace();
-						classes.push_back(outer.empty() ? std::string(word) : outer + "." + std::string(word));
-					}
-					else if (!verbatimIdentifier && word == "namespace")
-					{
-						readingNamespace = true;
-						pendingNamespace.clear();
-					}
-					else if (!verbatimIdentifier && word == "class")
-					{
-						expectClassName = true;
-					}
-					continue;
-				}
-
-				if (readingNamespace)
-				{
-					if (c == '.')
-					{
-						pendingNamespace += '.';
-						index++;
-						continue;
-					}
-					readingNamespace = false;
-					if (c == ';')
-					{
-						fileNamespace = pendingNamespace;
-						index++;
-						continue;
-					}
-					if (c == '{')
-					{
-						depth++;
-						std::string const& outer = currentNamespace();
-						std::string name = outer.empty() ? pendingNamespace : outer + "." + pendingNamespace;
-						blocks.push_back({std::move(name), depth});
-						index++;
-						continue;
-					}
-				}
-				// "class" followed by anything but a name is a constraint ("where T : class").
-				expectClassName = false;
-				if (c == '{')
-				{
-					depth++;
-				}
-				else if (c == '}')
-				{
-					if (!blocks.empty() && blocks.back().Depth == depth)
-					{
-						blocks.pop_back();
-					}
-					depth = std::max(depth - 1, 0);
-				}
-				index++;
 			}
 			return classes;
+		}
+
+		bool IsDuplicateDeclaration(DeclaredType const& a, DeclaredType const& b)
+		{
+			if (a.Nested || b.Nested || a.FileLocal || b.FileLocal || a.Name != b.Name)
+			{
+				return false;
+			}
+			return !(a.Partial && b.Partial && a.Kind == b.Kind);
+		}
+
+		std::string GetTypeDisplayName(std::string_view fullName)
+		{
+			std::string name;
+			name.reserve(fullName.size());
+			size_t index = 0;
+			while (index < fullName.size())
+			{
+				char const c = fullName[index];
+				if (c != '`')
+				{
+					name += c == '+' ? '.' : c;
+					index++;
+					continue;
+				}
+				// "`2" -> "<,>".
+				size_t end = index + 1;
+				uint32_t arity = 0;
+				while (end < fullName.size() && fullName[end] >= '0' && fullName[end] <= '9')
+				{
+					arity = std::min<uint32_t>(arity * 10 + static_cast<uint32_t>(fullName[end] - '0'), 64);
+					end++;
+				}
+				name += '<';
+				name.append(arity > 0 ? arity - 1 : 0, ',');
+				name += '>';
+				index = end;
+			}
+			return name;
 		}
 
 		std::optional<std::string> FindScriptClass(std::string_view source, std::string_view fileStem,
