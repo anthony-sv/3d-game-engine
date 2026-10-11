@@ -677,6 +677,20 @@ namespace
 		return std::nullopt;
 	}
 
+	// The list of the open asset picker: the child window of the open popup.
+	ImGuiWindow const* FindPickerList()
+	{
+		for (ImGuiWindow const* window : GImGui->Windows)
+		{
+			if ((window->Flags & ImGuiWindowFlags_ChildWindow) != 0 && window->Active &&
+			    (window->RootWindow->Flags & ImGuiWindowFlags_Popup) != 0)
+			{
+				return window;
+			}
+		}
+		return nullptr;
+	}
+
 	// Assets/Models/Pair.obj: two triangles with the materials Red and Blue, one material slot each.
 	AssetHandle WritePairModel(EditorOperations& operations, std::filesystem::path const& assets)
 	{
@@ -935,7 +949,7 @@ TEST_CASE("FieldEditor: asset fields show the asset's path, pick from a searchab
 	CHECK(last->Value == UUID::Invalid().ToString());
 }
 
-TEST_CASE("FieldEditor: asset fields show images of textures at once and of materials and meshes once rendered")
+TEST_CASE("FieldEditor: asset fields and their picker show images of textures at once and of materials and meshes once rendered")
 {
 	ST_REQUIRE_GPU();
 	AssetManagerScope const assets;
@@ -944,6 +958,7 @@ TEST_CASE("FieldEditor: asset fields show images of textures at once and of mate
 		AssetHandle const painted = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(MaterialData()), "Painted");
 		AssetHandle const cube = GetBuiltInHandle(BuiltInAsset::CubeMesh);
 		AssetHandle const white = GetBuiltInHandle(BuiltInAsset::WhiteTexture);
+		AssetHandle const black = GetBuiltInHandle(BuiltInAsset::BlackTexture);
 		// A mesh with a material in its list of materials, and a texture.
 		ComponentInfo const& mesh = ComponentRegistry::Get<MeshComponent>();
 		Json const meshValues = Json::object({{"Mesh", cube.ToString()}, {"Materials", Json::array({painted.ToString()})}});
@@ -951,22 +966,26 @@ TEST_CASE("FieldEditor: asset fields show images of textures at once and of mate
 		Json const decalValues = SerializeFields<StructTraits<Decal>>(Decal{white, 1.0f});
 
 		HeadlessImGui imgui;
+		ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		AssetThumbnails thumbnails;
 		FieldEditor editor;
 		editor.SetAssetPreviews(&thumbnails);
 		auto const draw = [&]
 		{
 			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-			ImGui::SetNextWindowSize(ImVec2(600.0f, 400.0f));
+			ImGui::SetNextWindowSize(ImVec2(600.0f, 300.0f));
 			ImGui::Begin("Fields");
 			CHECK_FALSE(editor.Draw(mesh.Fields, meshValues));
+			ImGui::End();
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 320.0f));
+			ImGui::SetNextWindowSize(ImVec2(600.0f, 200.0f));
+			ImGui::Begin("Decal");
 			CHECK_FALSE(editor.Draw(decalFields, decalValues));
 			ImGui::End();
 		};
-		// Whether the last frame drew the image in the fields' window.
-		auto const drawn = [](nvrhi::ITexture* image)
+		// Whether the last frame drew the image in the window.
+		auto const drawn = [](ImGuiWindow const* window, nvrhi::ITexture* image)
 		{
-			ImGuiWindow const* window = ImGui::FindWindowByName("Fields");
 			REQUIRE(window != nullptr);
 			ImTextureID const id = ImGuiRenderer::GetTextureID(image);
 			return std::any_of(window->DrawList->CmdBuffer.begin(), window->DrawList->CmdBuffer.end(),
@@ -977,9 +996,11 @@ TEST_CASE("FieldEditor: asset fields show images of textures at once and of mate
 		};
 
 		imgui.Frame(draw);
+		ImGuiWindow const* fields = ImGui::FindWindowByName("Fields");
+		ImGuiWindow const* decal = ImGui::FindWindowByName("Decal");
 		nvrhi::ITexture* const whiteImage = thumbnails.Get(white);
 		REQUIRE(whiteImage != nullptr);
-		CHECK(drawn(whiteImage));
+		CHECK(drawn(decal, whiteImage));
 		// The fields ask for the thumbnails they show, which render one per update.
 		for (int i = 0; i < 3; i++)
 		{
@@ -990,14 +1011,108 @@ TEST_CASE("FieldEditor: asset fields show images of textures at once and of mate
 		nvrhi::ITexture* const meshImage = thumbnails.Get(cube);
 		REQUIRE(materialImage != nullptr);
 		REQUIRE(meshImage != nullptr);
-		CHECK(drawn(materialImage));
-		CHECK(drawn(meshImage));
-		CHECK(drawn(whiteImage));
+		CHECK(drawn(fields, materialImage));
+		CHECK(drawn(fields, meshImage));
+		CHECK(drawn(decal, whiteImage));
+
+		// The texture's picker shows the textures' images in its rows.
+		ImGuiID const table = ImHashStr("##fields", 0, decal->ID);
+		ImGuiTable const* tableData = ImGui::TableFindByID(table);
+		REQUIRE(tableData != nullptr);
+		float const rowY = tableData->OuterRect.Min.y + ImGui::GetFrameHeight() * 0.5f;
+		std::optional<ImVec2> const pick =
+			FindItem(imgui, ImHashStr("...", 0, ImHashStr("Texture", 0, table)), ImVec2(decal->Pos.x + 2.0f, rowY),
+		             ImVec2(decal->Pos.x + decal->Size.x - 2.0f, rowY), draw);
+		REQUIRE(pick);
+		imgui.Click(*pick, draw);
+		REQUIRE(GImGui->OpenPopupStack.Size == 1);
+		imgui.Frame(draw);
+		ImGuiWindow const* list = FindPickerList();
+		REQUIRE(list != nullptr);
+		nvrhi::ITexture* const blackImage = thumbnails.Get(black);
+		REQUIRE(blackImage != nullptr);
+		CHECK(drawn(list, whiteImage));
+		CHECK(drawn(list, blackImage));
+		imgui.Press(ImGuiKey_Escape, draw);
+		imgui.Press(ImGuiKey_Escape, draw);
+		imgui.Frame(draw);
+		CHECK(GImGui->OpenPopupStack.Size == 0);
 
 		AssetManager::RemoveMemoryAsset(painted);
 		GraphicsDevice::WaitForIdle();
 	}
 	Renderer::Shutdown();
+}
+
+TEST_CASE("FieldEditor: the asset picker opens scrolled to the current asset of a long list")
+{
+	AssetManagerScope const assets;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const directory = context.GetProject()->GetAssetDirectory();
+	REQUIRE(FileSystem::CreateDirectories(directory / "Tiles").IsOk());
+	Image const image(2, 2, 4);
+	for (int i = 0; i < 60; i++)
+	{
+		REQUIRE(image.WritePNG(directory / "Tiles" / fmt::format("Tile{:02}.png", i)).IsOk());
+	}
+	REQUIRE(operations.RefreshAssets().IsOk());
+	// File assets come after the built-in textures, by path: the last tile ends the list.
+	AssetHandle const last = AssetManager::FindByPath("Tiles/Tile59.png");
+	AssetHandle const first = AssetManager::FindByPath("Tiles/Tile00.png");
+	REQUIRE(last.IsValid());
+	REQUIRE(first.IsValid());
+
+	HeadlessImGui imgui;
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Decal>, Decal>();
+	Json const values = SerializeFields<StructTraits<Decal>>(Decal{last, 1.0f});
+	FieldEditor editor;
+	std::optional<FieldChange> picked;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 300.0f));
+		ImGui::Begin("Fields");
+		if (std::optional<FieldChange> change = editor.Draw(fields, values))
+		{
+			picked = std::move(change);
+		}
+		ImGui::End();
+	};
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow const* window = ImGui::FindWindowByName("Fields");
+	REQUIRE(window != nullptr);
+	ImGuiID const table = ImHashStr("##fields", 0, window->ID);
+	ImGuiTable const* tableData = ImGui::TableFindByID(table);
+	REQUIRE(tableData != nullptr);
+	float const rowY = tableData->OuterRect.Min.y + ImGui::GetFrameHeight() * 0.5f;
+	std::optional<ImVec2> const pick =
+		FindItem(imgui, ImHashStr("...", 0, ImHashStr("Texture", 0, table)), ImVec2(window->Pos.x + 2.0f, rowY),
+	             ImVec2(window->Pos.x + window->Size.x - 2.0f, rowY), draw);
+	REQUIRE(pick);
+	imgui.Click(*pick, draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+
+	// The list shows some of the rows, scrolled down to the current asset's row at its end.
+	ImGuiWindow const* list = FindPickerList();
+	REQUIRE(list != nullptr);
+	CHECK(list->ScrollMax.y > 0.0f);
+	CHECK(list->Scroll.y == doctest::Approx(list->ScrollMax.y));
+	CHECK_FALSE(picked);
+
+	// The search finds rows that were out of view, and Enter takes the first match.
+	imgui.Type("Tile00");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(picked);
+	CHECK(picked->Value == first.ToString());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
 }
 
 TEST_CASE("FieldEditor: fields with a visibility condition show while their sibling has one of its values")

@@ -665,19 +665,20 @@ than the assembly.
   built-ins, the name of materials and textures imported with a model, `None` when empty; long paths lose their
   folders first, then the middle of the name, so its start and its end with the extension stay; the tooltip has all of
   it) in a box that opens a searchable picker of the assets of the field's type when clicked and takes assets dropped
-  from the content browser, followed by `...` (the picker) and `x` (clears it). In the inspector the box starts with a
-  small image of the asset (textures, materials on a sphere, meshes, prefabs, environments; `AssetThumbnails`), shown
-  larger in the tooltip. With several entities selected it shows the components they share, flags fields whose values
-  differ, and an edit sets only the edited value or vector component on every entity. One widget interaction (a drag,
-  typing into a field) is one undo step. Add Component opens a menu with a search field above a submenu per component
-  category (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the Core ones are on every entity);
-  typing lists the matching components instead (names starting with the text first) with their categories, and Enter
-  adds the first. Components can also be reset, copied, pasted as JSON and removed. Below the fields of a Mesh
-  component, each material slot of its mesh gets a section (`MaterialSlots`): a header with the material on a sphere,
-  its name, the slot and where the material comes from, then every parameter of the material the slot renders with
-  (the component's override, else the mesh's own material, else the default one). Edits change the material file as in
-  the material inspector (one undo step per interaction) and show at once in the views and thumbnails; built-in and
-  model-imported materials show their values disabled with a Create Material button that writes an editable copy to
+  from the content browser, followed by `...` (the picker) and `x` (clears it). In the inspector the box and the
+  picker's rows start with a small image of the asset (textures, materials on a sphere, meshes, prefabs, environments;
+  `AssetThumbnails`), shown larger in the box's tooltip; the picker draws only the rows in view, so long lists stay
+  quick. With several entities selected it shows the components they share, flags fields whose values differ, and an
+  edit sets only the edited value or vector component on every entity. One widget interaction (a drag, typing into a
+  field) is one undo step. Add Component opens a menu with a search field above a submenu per component category
+  (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the Core ones are on every entity); typing
+  lists the matching components instead (names starting with the text first) with their categories, and Enter adds the
+  first. Components can also be reset, copied, pasted as JSON and removed. Below the fields of a Mesh component, each
+  material slot of its mesh gets a section (`MaterialSlots`): a header with the material on a sphere, its name, the
+  slot and where the material comes from, then every parameter of the material the slot renders with (the component's
+  override, else the mesh's own material, else the default one). Edits change the material file as in the material
+  inspector (one undo step per interaction) and show at once in the views and thumbnails; built-in and model-imported
+  materials show their values disabled with a Create Material button that writes an editable copy to
   `Assets/Materials` and gives it to the slot (one undo step). Without selected entities the inspector shows the asset
   selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in

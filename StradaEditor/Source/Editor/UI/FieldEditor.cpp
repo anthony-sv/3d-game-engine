@@ -277,6 +277,45 @@ namespace Strada
 			return {ImVec2(0.0f, margin), ImVec2(1.0f, 1.0f - margin)};
 		}
 
+		// The image of an asset in a square, when `previews` makes images of its type: the asset's image, or a placeholder while
+		// the image is made. Returns false (and draws nothing) for assets without images.
+		bool DrawAssetImage(AssetThumbnails* previews, AssetHandle asset, ImVec2 min, float size)
+		{
+			if (previews == nullptr || !AssetManager::IsInitialized() || !AssetThumbnails::Supports(AssetManager::GetAssetType(asset)) ||
+			    AssetManager::IsMissing(asset))
+			{
+				return false;
+			}
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			ImVec2 const max(min.x + size, min.y + size);
+			float const rounding = ImGui::GetStyle().FrameRounding * 0.5f;
+			if (nvrhi::ITexture* const image = previews->Get(asset))
+			{
+				// GetColorU32 applies the style's alpha: the images of disabled (read-only) fields fade like their text.
+				auto const [uv0, uv1] = GetSquareUVs(image);
+				drawList->AddImageRounded(ImGuiRenderer::GetTextureID(image), min, max, uv0, uv1, ImGui::GetColorU32(IM_COL32_WHITE),
+				                          rounding);
+			}
+			else
+			{
+				drawList->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_FrameBgHovered), rounding);
+			}
+			return true;
+		}
+
+		// A row of the asset picker: the asset's image (when `previews` makes one) and its path; returns true when clicked.
+		bool DrawAssetPickerRow(AssetThumbnails* previews, AssetHandle asset, std::string const& label, bool selected)
+		{
+			ImVec2 const position = ImGui::GetCursorScreenPos();
+			bool const clicked = ImGui::Selectable("##asset", selected);
+			float const imageSize = ImGui::GetTextLineHeight();
+			float const textX = DrawAssetImage(previews, asset, position, imageSize)
+			                        ? position.x + imageSize + ImGui::GetStyle().ItemInnerSpacing.x
+			                        : position.x;
+			ImGui::GetWindowDrawList()->AddText(ImVec2(textX, position.y), GetAssetReferenceColor(asset, false), label.c_str());
+			return clicked;
+		}
+
 		// A box framed like a text field showing the referenced asset (long paths shortened), after a small image of it when
 		// `previews` makes one (the place stays while the image is made); returns true when clicked. The tooltip has the whole
 		// path and a larger image.
@@ -291,29 +330,11 @@ namespace Strada
 			ImGui::RenderFrame(min, max, ImGui::GetColorU32(background), true, style.FrameRounding);
 			ImDrawList* drawList = ImGui::GetWindowDrawList();
 
-			bool const pictured = previews != nullptr && !mixed && handle.IsValid() && AssetManager::IsInitialized() &&
-			                      AssetThumbnails::Supports(AssetManager::GetAssetType(handle)) && !AssetManager::IsMissing(handle);
-			nvrhi::ITexture* const preview = pictured ? previews->Get(handle) : nullptr;
-			float textX = min.x + style.FramePadding.x;
-			if (pictured)
-			{
-				float const inset = std::max(1.0f, std::floor(style.FramePadding.y * 0.5f));
-				ImVec2 const imageMin(min.x + inset, min.y + inset);
-				ImVec2 const imageMax(imageMin.x + (max.y - min.y) - inset * 2.0f, max.y - inset);
-				float const rounding = style.FrameRounding * 0.5f;
-				if (preview != nullptr)
-				{
-					// GetColorU32 applies the style's alpha: the images of disabled (read-only) fields fade like their text.
-					auto const [uv0, uv1] = GetSquareUVs(preview);
-					drawList->AddImageRounded(ImGuiRenderer::GetTextureID(preview), imageMin, imageMax, uv0, uv1,
-					                          ImGui::GetColorU32(IM_COL32_WHITE), rounding);
-				}
-				else
-				{
-					drawList->AddRectFilled(imageMin, imageMax, ImGui::GetColorU32(ImGuiCol_FrameBgHovered), rounding);
-				}
-				textX = imageMax.x + style.ItemInnerSpacing.x;
-			}
+			float const inset = std::max(1.0f, std::floor(style.FramePadding.y * 0.5f));
+			float const imageSize = max.y - min.y - inset * 2.0f;
+			bool const pictured =
+				!mixed && handle.IsValid() && DrawAssetImage(previews, handle, ImVec2(min.x + inset, min.y + inset), imageSize);
+			float const textX = pictured ? min.x + inset + imageSize + style.ItemInnerSpacing.x : min.x + style.FramePadding.x;
 			std::string const text =
 				UI::FitPath(mixed ? std::string("--") : UI::DescribeAssetReference(handle), max.x - style.FramePadding.x - textX);
 			drawList->PushClipRect(min, max, true);
@@ -328,7 +349,7 @@ namespace Strada
 				ImGui::BeginTooltip();
 				ImGui::TextUnformatted(mixed ? "The selected entities reference different assets."
 				                             : UI::DescribeAssetReference(handle).c_str());
-				if (preview != nullptr)
+				if (nvrhi::ITexture* const preview = pictured ? previews->Get(handle) : nullptr)
 				{
 					nvrhi::TextureDesc const& desc = preview->getDesc();
 					float const size = ImGui::GetFontSize() * TooltipPreviewSizeInFontSizes;
@@ -1004,26 +1025,52 @@ namespace Strada
 		{
 			m_FocusAssetSearch = true;
 		}
-		ImGui::BeginChild("##assets", ImVec2(0.0f, ImGui::GetTextLineHeightWithSpacing() * static_cast<float>(rows)), ImGuiChildFlags_None,
+		float const rowHeight = ImGui::GetTextLineHeightWithSpacing();
+		ImGui::BeginChild("##assets", ImVec2(0.0f, rowHeight * static_cast<float>(rows)), ImGuiChildFlags_None,
 		                  ImGuiWindowFlags_NoNavInputs);
-		if (!searching && ImGui::Selectable("None", !current.IsValid()))
+		// None (without search text), then the matches. Only the rows in view are drawn, so long lists stay quick and only the
+		// images that show are made; the current asset's row is drawn when the picker opens, to scroll to it.
+		int const noneRows = searching ? 0 : 1;
+		bool const appearing = ImGui::IsWindowAppearing();
+		ImGuiListClipper clipper;
+		clipper.Begin(noneRows + static_cast<int>(matches.size()), rowHeight);
+		if (appearing)
 		{
-			picked = AssetHandle();
+			auto const currentMatch = std::find_if(matches.begin(), matches.end(),
+			                                       [this, current](size_t index)
+			                                       {
+													   return m_PickerAssets[index].first == current;
+												   });
+			if (currentMatch != matches.end())
+			{
+				clipper.IncludeItemByIndex(noneRows + static_cast<int>(currentMatch - matches.begin()));
+			}
 		}
-		for (size_t const index : matches)
+		while (clipper.Step())
 		{
-			auto const& [asset, label] = m_PickerAssets[index];
-			ImGui::PushID(reinterpret_cast<void const*>(static_cast<uintptr_t>(asset.GetUUID().GetValue())));
-			bool const selected = asset == current;
-			if (ImGui::Selectable(label.c_str(), selected))
+			for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
 			{
-				picked = asset;
+				if (row < noneRows)
+				{
+					if (ImGui::Selectable("None", !current.IsValid()))
+					{
+						picked = AssetHandle();
+					}
+					continue;
+				}
+				auto const& [asset, label] = m_PickerAssets[matches[static_cast<size_t>(row - noneRows)]];
+				ImGui::PushID(reinterpret_cast<void const*>(static_cast<uintptr_t>(asset.GetUUID().GetValue())));
+				bool const selected = asset == current;
+				if (DrawAssetPickerRow(m_AssetPreviews, asset, label, selected))
+				{
+					picked = asset;
+				}
+				if (selected && appearing)
+				{
+					ImGui::SetScrollHereY();
+				}
+				ImGui::PopID();
 			}
-			if (selected && ImGui::IsWindowAppearing())
-			{
-				ImGui::SetScrollHereY();
-			}
-			ImGui::PopID();
 		}
 		if (searching && matches.empty())
 		{

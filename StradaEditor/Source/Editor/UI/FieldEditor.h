@@ -51,8 +51,8 @@ namespace Strada
 		std::optional<FieldChange> Draw(std::span<FieldDescriptor const> fields, Json const& values,
 		                                std::span<std::string const> mixedFields = {}, Scene* scene = nullptr);
 		// Asset fields show images of the assets these thumbnails have (textures, materials, meshes, prefabs and environments):
-		// a small one in front of the path and a larger one in its tooltip. The thumbnails must outlive the editor; null (the
-		// default) shows paths only.
+		// a small one in front of the path, a larger one in its tooltip and one in each row of the picker. The thumbnails must
+		// outlive the editor; null (the default) shows paths only.
 		void SetAssetPreviews(AssetThumbnails* previews) { m_AssetPreviews = previews; }
 
 	private:
@@ -74,8 +74,8 @@ namespace Strada
 		// An asset reference: a box showing the asset's path (opens the picker; accepts assets dropped from the content
 		// browser), a "..." button opening the picker and an "x" button clearing the reference.
 		bool DrawAsset(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change);
-		// The open picker's search field and list (None, then every asset of the type matching the search); returns the asset
-		// chosen this frame (invalid for None). Enter takes the first match.
+		// The open picker's search field and list (None, then every asset of the type matching the search, with their images);
+		// returns the asset chosen this frame (invalid for None). Enter takes the first match.
 		std::optional<AssetHandle> DrawAssetPicker(AssetType type, AssetHandle current);
 		void PruneEulerStates();
 
