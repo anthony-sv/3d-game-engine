@@ -556,7 +556,7 @@ namespace Strada
 				.Range(0.1, 8.0)
 				.EnabledBy("OverrideAmbientOcclusionIntensity")
 				.Doc("Contrast exponent of ambient occlusion."),
-			Field("OverrideBloom", &PostProcessComponent::OverrideBloom).Doc("Switches bloom on or off as the volume says."),
+			Field("OverrideBloom", &PostProcessComponent::OverrideBloom).Doc("Fades bloom in or out as the volume says."),
 			Field("Bloom", &PostProcessComponent::Bloom).EnabledBy("OverrideBloom").Doc("Glow around bright areas."),
 			Field("OverrideBloomIntensity", &PostProcessComponent::OverrideBloomIntensity).Doc("Applies the volume's bloom intensity."),
 			Field("BloomIntensity", &PostProcessComponent::BloomIntensity)

@@ -65,6 +65,27 @@ namespace
 		volume.Priority = priority;
 		return volume;
 	}
+
+	PostProcessComponent MakeBloomVolume(bool bloom)
+	{
+		PostProcessComponent volume;
+		volume.OverrideBloom = true;
+		volume.Bloom = bloom;
+		return volume;
+	}
+
+	SceneRendererSettings ApplyVolume(SceneRendererSettings const& settings, PostProcessComponent const& volume, float blend)
+	{
+		PostProcessVolumes::Blender blender(settings);
+		blender.Apply(volume, blend);
+		return blender.GetSettings();
+	}
+
+	// The bloom intensity the renderer draws with: bloom that is off has none.
+	float GetDrawnBloom(SceneRendererSettings const& settings)
+	{
+		return settings.Bloom ? settings.BloomIntensity : 0.0f;
+	}
 }
 
 TEST_CASE("PostProcess: a volume changes exactly the settings it overrides")
@@ -77,9 +98,8 @@ TEST_CASE("PostProcess: a volume changes exactly the settings it overrides")
 	untouched.Saturation = 0.0f;
 	untouched.Tonemapper = TonemapOperator::None;
 	untouched.Bloom = false;
-	SceneRendererSettings settings;
-	PostProcessVolumes::Apply(settings, untouched, 1.0f);
-	CHECK(settings == SceneRendererSettings());
+	CHECK(ApplyVolume(SceneRendererSettings(), untouched, 1.0f) == SceneRendererSettings());
+	CHECK(ApplyVolume(SceneRendererSettings(), untouched, 0.5f) == SceneRendererSettings());
 
 	// Every switched field overrides the renderer setting of the same name, and only that one.
 	size_t switched = 0;
@@ -98,9 +118,7 @@ TEST_CASE("PostProcess: a volume changes exactly the settings it overrides")
 		                             DeserializationContext{})
 		            .IsOk());
 
-		SceneRendererSettings result;
-		PostProcessVolumes::Apply(result, volume, 1.0f);
-		Json const resolved = SettingsToJson(result);
+		Json const resolved = SettingsToJson(ApplyVolume(SceneRendererSettings(), volume, 1.0f));
 		REQUIRE(resolved.contains(name));
 		CHECK(resolved[name] == value);
 		for (auto const& item : defaults.items())
@@ -115,7 +133,7 @@ TEST_CASE("PostProcess: a volume changes exactly the settings it overrides")
 	CHECK(switched == 15);
 }
 
-TEST_CASE("PostProcess: numbers blend by the volume's blend, switches change from one half")
+TEST_CASE("PostProcess: numbers blend by the volume's blend, ambient occlusion and the tonemapper switch from one half")
 {
 	PostProcessComponent volume = MakeSaturationVolume(0.0f);
 	volume.OverrideEV100 = true;
@@ -124,47 +142,122 @@ TEST_CASE("PostProcess: numbers blend by the volume's blend, switches change fro
 	volume.ColorFilter = {0.0f, 1.0f, 2.0f};
 	volume.OverrideTonemapper = true;
 	volume.Tonemapper = TonemapOperator::AgX;
-	volume.OverrideBloom = true;
-	volume.Bloom = false;
 	volume.OverrideAmbientOcclusion = true;
 	volume.AmbientOcclusion = false;
 
-	SceneRendererSettings quarter;
-	PostProcessVolumes::Apply(quarter, volume, 0.25f);
+	SceneRendererSettings const quarter = ApplyVolume(SceneRendererSettings(), volume, 0.25f);
 	CHECK(quarter.Saturation == doctest::Approx(0.75f));
 	CHECK(quarter.EV100 == doctest::Approx(1.0f));
 	CHECK(quarter.ColorFilter.r == doctest::Approx(0.75f));
 	CHECK(quarter.ColorFilter.g == doctest::Approx(1.0f));
 	CHECK(quarter.ColorFilter.b == doctest::Approx(1.25f));
 	CHECK(quarter.Tonemapper == TonemapOperator::ACES);
-	CHECK(quarter.Bloom);
 	CHECK(quarter.AmbientOcclusion);
 
-	SceneRendererSettings justBelowHalf;
-	PostProcessVolumes::Apply(justBelowHalf, volume, std::nextafter(PostProcessVolumes::SwitchBlend, 0.0f));
+	SceneRendererSettings const justBelowHalf =
+		ApplyVolume(SceneRendererSettings(), volume, std::nextafter(PostProcessVolumes::SwitchBlend, 0.0f));
 	CHECK(justBelowHalf.Tonemapper == TonemapOperator::ACES);
-	SceneRendererSettings half;
-	PostProcessVolumes::Apply(half, volume, PostProcessVolumes::SwitchBlend);
+	CHECK(justBelowHalf.AmbientOcclusion);
+	SceneRendererSettings const half = ApplyVolume(SceneRendererSettings(), volume, PostProcessVolumes::SwitchBlend);
 	CHECK(half.Saturation == doctest::Approx(0.5f));
 	CHECK(half.Tonemapper == TonemapOperator::AgX);
-	CHECK_FALSE(half.Bloom);
 	CHECK_FALSE(half.AmbientOcclusion);
 
 	// The whole volume at 1 (and beyond, which counts as 1), nothing at 0 or less.
 	for (float const full : {1.0f, 3.0f})
 	{
-		SceneRendererSettings result;
-		PostProcessVolumes::Apply(result, volume, full);
+		SceneRendererSettings const result = ApplyVolume(SceneRendererSettings(), volume, full);
 		CHECK(result.Saturation == 0.0f);
 		CHECK(result.EV100 == 4.0f);
 		CHECK(result.ColorFilter == glm::vec3(0.0f, 1.0f, 2.0f));
+		CHECK(result.Tonemapper == TonemapOperator::AgX);
+		CHECK_FALSE(result.AmbientOcclusion);
 	}
 	for (float const none : {0.0f, -1.0f, std::numeric_limits<float>::quiet_NaN()})
 	{
-		SceneRendererSettings result;
-		PostProcessVolumes::Apply(result, volume, none);
-		CHECK(result == SceneRendererSettings());
+		CHECK(ApplyVolume(SceneRendererSettings(), volume, none) == SceneRendererSettings());
 	}
+}
+
+TEST_CASE("PostProcess: bloom fades out and in through its intensity instead of switching")
+{
+	SceneRendererSettings bright;
+	bright.Bloom = true;
+	bright.BloomIntensity = 0.4f;
+	PostProcessComponent const off = MakeBloomVolume(false);
+
+	// A volume that turns bloom off takes the glow away as its blend grows, and switches it off only once it is gone.
+	SceneRendererSettings const quarter = ApplyVolume(bright, off, 0.25f);
+	CHECK(quarter.Bloom);
+	CHECK(quarter.BloomIntensity == doctest::Approx(0.3f));
+	CHECK(GetDrawnBloom(ApplyVolume(bright, off, 0.5f)) == doctest::Approx(0.2f));
+	float const almostFull = std::nextafter(1.0f, 0.0f);
+	CHECK(GetDrawnBloom(ApplyVolume(bright, off, almostFull)) == doctest::Approx(0.0f));
+	SceneRendererSettings const dark = ApplyVolume(bright, off, 1.0f);
+	CHECK_FALSE(dark.Bloom);
+	// Off, it keeps its intensity for volumes above that turn it back on.
+	CHECK(dark.BloomIntensity == 0.4f);
+
+	// A volume that turns bloom on fades it in, towards the intensity it sets when it overrides that too.
+	SceneRendererSettings unlit = bright;
+	unlit.Bloom = false;
+	PostProcessComponent on = MakeBloomVolume(true);
+	on.OverrideBloomIntensity = true;
+	on.BloomIntensity = 0.8f;
+	CHECK(GetDrawnBloom(ApplyVolume(unlit, on, 0.5f)) == doctest::Approx(0.5f * 0.6f));
+	CHECK(GetDrawnBloom(ApplyVolume(unlit, on, 0.01f)) < 0.01f);
+	SceneRendererSettings const lit = ApplyVolume(unlit, on, 1.0f);
+	CHECK(lit.Bloom);
+	CHECK(lit.BloomIntensity == 0.8f);
+	// Without a Bloom override the volume's intensity changes bloom that is off by nothing that shows.
+	PostProcessComponent intensityOnly;
+	intensityOnly.OverrideBloomIntensity = true;
+	intensityOnly.BloomIntensity = 0.8f;
+	CHECK(GetDrawnBloom(ApplyVolume(unlit, intensityOnly, 1.0f)) == 0.0f);
+
+	// A volume above one that faded bloom out turns it back on from where that one left it: the glow never steps when the
+	// volume below finishes its fade, and fully applied it brings the whole bloom back.
+	PostProcessComponent const backOn = MakeBloomVolume(true);
+	auto const stacked = [&](float offBlend, float onBlend)
+	{
+		PostProcessVolumes::Blender blender(bright);
+		blender.Apply(off, offBlend);
+		blender.Apply(backOn, onBlend);
+		return GetDrawnBloom(blender.GetSettings());
+	};
+	CHECK(stacked(almostFull, 0.5f) == doctest::Approx(stacked(1.0f, 0.5f)));
+	CHECK(stacked(1.0f, 0.5f) == doctest::Approx(0.2f));
+	CHECK(stacked(0.5f, 1.0f) == doctest::Approx(0.4f));
+	CHECK(stacked(1.0f, 1.0f) == doctest::Approx(0.4f));
+}
+
+TEST_CASE("PostProcess: walking into a local volume that turns bloom off fades the glow out")
+{
+	Scene scene("Cave");
+	scene.GetSettings().Renderer.Bloom = true;
+	scene.GetSettings().Renderer.BloomIntensity = 0.2f;
+	// A 4 m cave around the origin with a 2 m fade.
+	PostProcessComponent cave = MakeBloomVolume(false);
+	cave.Global = false;
+	cave.BlendDistance = 2.0f;
+	AddVolume(scene, "Cave", cave).GetComponent<TransformComponent>().Scale = glm::vec3(4.0f);
+
+	float previous = GetDrawnBloom(PostProcessVolumes::Resolve(scene, {10.0f, 0.0f, 0.0f}));
+	CHECK(previous == doctest::Approx(0.2f));
+	// Steps of 5 cm from outside the fade to inside the cave: the glow only ever goes down, and by a little each step.
+	for (int step = 1; step <= 160; step++)
+	{
+		float const x = 10.0f - static_cast<float>(step) * 0.05f;
+		CAPTURE(x);
+		float const bloom = GetDrawnBloom(PostProcessVolumes::Resolve(scene, {x, 0.0f, 0.0f}));
+		CHECK(bloom <= previous);
+		CHECK(previous - bloom < 0.01f);
+		previous = bloom;
+	}
+	CHECK(GetDrawnBloom(PostProcessVolumes::Resolve(scene, {3.0f, 0.0f, 0.0f})) == doctest::Approx(0.1f));
+	SceneRendererSettings const inside = PostProcessVolumes::Resolve(scene, glm::vec3(0.0f));
+	CHECK_FALSE(inside.Bloom);
+	CHECK(scene.GetSettings().Renderer.Bloom);
 }
 
 TEST_CASE("PostProcess: a local volume's box follows the entity's transform")
@@ -300,13 +393,15 @@ TEST_CASE("PostProcess: values from scripts outside the field ranges act as the 
 	volume.VignetteSmoothness = 0.0f;
 	volume.OverrideColorFilter = true;
 	volume.ColorFilter = {-1.0f, 0.5f, 9.0f};
-	SceneRendererSettings settings;
-	PostProcessVolumes::Apply(settings, volume, 0.5f);
+	volume.OverrideBloomIntensity = true;
+	volume.BloomIntensity = 5.0f;
+	SceneRendererSettings const settings = ApplyVolume(SceneRendererSettings(), volume, 0.5f);
 	CHECK(settings.Saturation == doctest::Approx(1.5f));
 	CHECK(settings.EV100 == doctest::Approx(-10.0f));
 	CHECK(settings.VignetteSmoothness == doctest::Approx(0.23f));
 	CHECK(settings.ColorFilter.r == doctest::Approx(0.5f));
 	CHECK(settings.ColorFilter.b == doctest::Approx(1.5f));
+	CHECK(settings.BloomIntensity == doctest::Approx(0.52f));
 
 	// Numbers that are not finite cannot come from files, the editor or scripts; native code setting them changes nothing,
 	// and priorities that are not numbers still sort.
@@ -316,10 +411,10 @@ TEST_CASE("PostProcess: values from scripts outside the field ranges act as the 
 	broken.Tint = nan;
 	broken.OverrideColorFilter = true;
 	broken.ColorFilter = {nan, 1.0f, 1.0f};
+	broken.OverrideBloomIntensity = true;
+	broken.BloomIntensity = nan;
 	broken.Priority = nan;
-	SceneRendererSettings unchanged;
-	PostProcessVolumes::Apply(unchanged, broken, 1.0f);
-	CHECK(unchanged == SceneRendererSettings());
+	CHECK(ApplyVolume(SceneRendererSettings(), broken, 1.0f) == SceneRendererSettings());
 
 	Scene scene("Broken");
 	AddVolume(scene, "Broken", broken);

@@ -405,8 +405,12 @@ settings and apply each `PostProcess` component that reaches the camera, in orde
 priorities in hierarchy order), with a blend: `Weight` for global volumes; for local ones `Weight` times 1 inside their
 box (the unit cube placed, rotated and scaled by the entity's world transform) fading linearly to 0 at `BlendDistance`
 meters from it. A volume changes only the settings whose `Override` switch is set: numbers move towards its values by
-the blend, switches (`Bloom`, `AmbientOcclusion`, `Tonemapper`) take its value once the blend reaches one half. Values
-scripts set outside the fields' ranges act as the nearest bound, and scenes without volumes skip the work.
+the blend. `Bloom` fades instead of switching (`PostProcessVolumes::Blender`): how much of the bloom is on moves towards
+the volume's `Bloom` by the blend like a number and scales `BloomIntensity` (the renderer treats bloom that is off like
+bloom with no intensity), so it fades out into a volume that turns it off, fades in where one turns it back on, and
+switches off only once faded out completely. `AmbientOcclusion` and `Tonemapper`, which the renderer has no strength
+to fade by, take the volume's value once the blend reaches one half. Values scripts set outside the fields' ranges act
+as the nearest bound, and scenes without volumes skip the work.
 
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
 entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes.
@@ -672,6 +676,8 @@ than the assembly.
   in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
   editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
   read-only), a texture preview, mesh statistics with the mesh's materials, and the details of other asset types.
+  Every field table's name column starts as wide as its names need, switches and indentation included (40% to 60% of
+  the panel; users can resize it); names that still do not fit end in an ellipsis and show in full in their tooltips.
 - Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
   files in red), breadcrumbs, a tile size slider, and a search over every asset path. Textures show themselves, and
   materials (on a sphere), meshes, prefabs and environments show thumbnails that `AssetThumbnails` renders offscreen,

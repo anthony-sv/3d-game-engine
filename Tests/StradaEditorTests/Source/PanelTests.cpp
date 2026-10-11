@@ -159,6 +159,25 @@ struct Strada::StructTraits<SwitchedProbe>
 
 namespace
 {
+	// A long name behind a switch, without a description: its label only has a tooltip when it is shortened.
+	struct LongNameProbe
+	{
+		bool OverrideAmbientOcclusionIntensity = false;
+		float AmbientOcclusionIntensity = 1.5f;
+	};
+}
+
+template<>
+struct Strada::StructTraits<LongNameProbe>
+{
+	static constexpr std::string_view Name = "LongNameProbe";
+	static constexpr auto Fields = std::make_tuple(
+		Field("OverrideAmbientOcclusionIntensity", &LongNameProbe::OverrideAmbientOcclusionIntensity),
+		Field("AmbientOcclusionIntensity", &LongNameProbe::AmbientOcclusionIntensity).EnabledBy("OverrideAmbientOcclusionIntensity"));
+};
+
+namespace
+{
 	// Draws one field of Probe in a window with keyboard focus on its widget, then types text and presses Enter; returns
 	// the last change the editor reported.
 	std::optional<FieldChange> TypeIntoField(HeadlessImGui& imgui, size_t fieldIndex, char const* text)
@@ -303,6 +322,112 @@ TEST_CASE("FieldEditor: a switch is a check box in front of the field it switche
 	CHECK(last->Value.get<float>() == doctest::Approx(5.0f));
 }
 
+namespace
+{
+	// The widths of the contents of a field table's name column and of both of its columns, as the last frame laid them out,
+	// and where the table starts on the screen.
+	struct NameColumnLayout
+	{
+		float Name = 0.0f;
+		float Table = 0.0f;
+		ImVec2 Start;
+	};
+
+	NameColumnLayout GetNameColumnLayout(ImGuiID tableId, ImVec2 start)
+	{
+		ImGuiTable const* table = ImGui::TableFindByID(tableId);
+		REQUIRE(table != nullptr);
+		float const name = table->Columns[0].WorkMaxX - table->Columns[0].WorkMinX;
+		return {name, name + table->Columns[1].WorkMaxX - table->Columns[1].WorkMinX, start};
+	}
+
+	// Draws one field table in a window of its own at (x, 0), `width` wide.
+	NameColumnLayout DrawFieldsWindow(FieldEditor& editor, char const* window, float x, float width,
+	                                  std::span<FieldDescriptor const> fields, Json const& values)
+	{
+		ImGui::SetNextWindowPos(ImVec2(x, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(width, 600.0f));
+		ImGui::Begin(window);
+		ImVec2 const start = ImGui::GetCursorScreenPos();
+		CHECK_FALSE(editor.Draw(fields, values));
+		NameColumnLayout const layout = GetNameColumnLayout(ImGui::GetID("##fields"), start);
+		ImGui::End();
+		return layout;
+	}
+
+	bool IsTooltipShown()
+	{
+		ImGuiWindow const* tooltip = ImGui::FindWindowByName("##Tooltip_00");
+		return tooltip != nullptr && tooltip->Active;
+	}
+}
+
+TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 40% to 60% of the table")
+{
+	HeadlessImGui imgui;
+	FieldEditor editor;
+	ComponentInfo const& postProcess = ComponentRegistry::Get<PostProcessComponent>();
+	Json postProcessValues = Json::object();
+	for (FieldDescriptor const& field : postProcess.Fields)
+	{
+		postProcessValues[std::string(field.Name)] = field.Default;
+	}
+	std::vector<FieldDescriptor> const probe = GetFieldDescriptors<StructTraits<Probe>, Probe>();
+	Json const probeValues = SerializeFields<StructTraits<Probe>>(Probe{});
+	std::vector<FieldDescriptor> const longName = GetFieldDescriptors<StructTraits<LongNameProbe>, LongNameProbe>();
+	Json const longNameValues = SerializeFields<StructTraits<LongNameProbe>>(LongNameProbe{});
+
+	// Tables keep the share they start with, so each width gets windows of its own.
+	char const* const label = "Ambient Occlusion Intensity";
+	float labelWidth = 0.0f;
+	float switchedLabelWidth = 0.0f;
+	NameColumnLayout postProcessColumn;
+	NameColumnLayout probeColumn;
+	NameColumnLayout wideColumn;
+	NameColumnLayout narrowColumn;
+	auto const draw = [&]
+	{
+		labelWidth = ImGui::CalcTextSize(label).x;
+		switchedLabelWidth = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + labelWidth;
+		postProcessColumn = DrawFieldsWindow(editor, "Post Process", 0.0f, 400.0f, postProcess.Fields, postProcessValues);
+		probeColumn = DrawFieldsWindow(editor, "Probe", 420.0f, 400.0f, probe, probeValues);
+		wideColumn = DrawFieldsWindow(editor, "Wide", 840.0f, 400.0f, longName, longNameValues);
+		narrowColumn = DrawFieldsWindow(editor, "Narrow", 1260.0f, 250.0f, longName, longNameValues);
+	};
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+
+	// At 400 pixels the post-process volume's longest switched name, check box and all, fits in the name column.
+	CHECK(postProcessColumn.Name >= switchedLabelWidth);
+	CHECK(postProcessColumn.Name <= postProcessColumn.Table * 0.6f + 1.0f);
+	// Short names keep the values at 60%, so their tables line up.
+	CHECK(probeColumn.Name == doctest::Approx(probeColumn.Table * 0.4f).epsilon(0.01));
+	CHECK(wideColumn.Name >= switchedLabelWidth);
+	// Too narrow for the name: the column stops at 60% and the name is shortened.
+	CHECK(narrowColumn.Name == doctest::Approx(narrowColumn.Table * 0.6f).epsilon(0.01));
+	CHECK(narrowColumn.Name < switchedLabelWidth);
+
+	// Rests the mouse on the long name, which starts after its switch on the first row, until tooltips show.
+	auto const hoverName = [&](NameColumnLayout const& layout)
+	{
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const frameHeight = ImGui::GetFrameHeight();
+		ImGui::GetIO().AddMousePosEvent(layout.Start.x + frameHeight + style.ItemInnerSpacing.x + 10.0f,
+		                                layout.Start.y + style.CellPadding.y + frameHeight * 0.5f);
+		for (int frame = 0; frame < 30; frame++)
+		{
+			imgui.Frame(draw);
+		}
+	};
+
+	// A shortened name shows in full in its tooltip; a name that fits has no tooltip without a description.
+	hoverName(narrowColumn);
+	REQUIRE(IsTooltipShown());
+	CHECK(ImGui::FindWindowByName("##Tooltip_00")->ContentSize.x >= labelWidth - 1.0f);
+	hoverName(wideColumn);
+	CHECK_FALSE(IsTooltipShown());
+}
+
 TEST_CASE("FieldEditor: drawing the fields of every component and setting changes nothing")
 {
 	HeadlessImGui imgui;
@@ -416,8 +541,18 @@ TEST_CASE("Panels: the inspector shows the fields of loaded script classes witho
 			imgui.Frame(
 				[&]
 				{
+					ImGui::SetNextWindowSize(ImVec2(420.0f, 900.0f));
 					inspector.OnImGuiRender(operations, open);
 				});
+		}
+		if (selection.size() == 1 && selection.front() == first)
+		{
+			// The class picker's row lines up with the rows of the class's fields below it.
+			ImGuiWindow const* window = ImGui::FindWindowByName("Inspector");
+			REQUIRE(window != nullptr);
+			ImGuiID const component = ImHashStr("Script", 0, window->ID);
+			CHECK(GetNameColumnLayout(ImHashStr("##scriptClass", 0, component), ImVec2()).Name ==
+			      GetNameColumnLayout(ImHashStr("##fields", 0, component), ImVec2()).Name);
 		}
 	}
 	CHECK(open);

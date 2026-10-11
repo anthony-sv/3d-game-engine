@@ -22,6 +22,9 @@ directly: every modification goes through `EditorOperations` (undoable commands,
 - Reflected data (components, settings, materials) is edited with `FieldEditor::Draw(descriptors, valuesJson,
   mixedFields)`, which returns a `FieldChange`; turn it into a patch per object with `FieldChange::MakePatch(values)`.
   Never write per-component inspector code: improve the field hints (`strada-add-component`) or the FieldEditor.
+- Field tables size their name column for their names (`FieldEditor::GetNameColumnShare`, 40% to 60%). A table of
+  your own rows that lines up with a field table (the script class picker above the script's fields) sets up its two
+  stretched columns with the same share.
 - One widget interaction must be one undo step: keep an `EditSession` per panel (unique key prefix), call
   `Update(ImGui::IsAnyItemActive(), history)` at the start of the panel, and pass `GetMergeKey()` to operations.
 - Report failed operations with `UI::ReportFailure(result, "Doing X")` (logged, shown in the console).

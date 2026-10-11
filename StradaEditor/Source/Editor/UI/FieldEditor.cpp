@@ -30,6 +30,10 @@ namespace Strada
 		};
 		constexpr std::array<char const*, 4> AxisLabels = {"X", "Y", "Z", "W"};
 		constexpr ImVec4 MixedLabelColor = ImVec4(0.95f, 0.72f, 0.30f, 1.0f);
+		// The share of a table's width the name column starts with: what the names need, but never so much that the values
+		// get less than 40%, and tables of short names line up at the same share.
+		constexpr float MinNameShare = 0.4f;
+		constexpr float MaxNameShare = 0.6f;
 		constexpr char const* AngleFormat = "%.1f\xc2\xb0";
 		// Integer widgets stay within the integers JSON consumers represent exactly.
 		constexpr int64_t IntegerWidgetLimit = int64_t(1) << 53;
@@ -146,7 +150,31 @@ namespace Strada
 			}
 		}
 
-		// Labels of fields whose switch is off are dimmed (their tooltips still show).
+		// One line of text in the space left in the cell, shortened with an ellipsis when it does not fit; returns whether it
+		// was shortened.
+		bool DrawFittedText(std::string const& text)
+		{
+			ImGuiWindow* window = ImGui::GetCurrentWindow();
+			ImVec2 const size = ImGui::CalcTextSize(text.c_str());
+			float const available = ImGui::GetContentRegionAvail().x;
+			if (window->SkipItems || size.x <= available)
+			{
+				ImGui::TextUnformatted(text.c_str());
+				return false;
+			}
+			// Laid out like TextUnformatted: on the line's text baseline, as one item.
+			ImVec2 const position(window->DC.CursorPos.x, window->DC.CursorPos.y + window->DC.CurrLineTextBaseOffset);
+			ImRect const bounds(position, ImVec2(position.x + std::max(available, 0.0f), position.y + size.y));
+			ImGui::ItemSize(bounds.GetSize(), 0.0f);
+			if (ImGui::ItemAdd(bounds, 0))
+			{
+				ImGui::RenderTextEllipsis(window->DrawList, bounds.Min, bounds.Max, bounds.Max.x, text.c_str(), nullptr, &size);
+			}
+			return true;
+		}
+
+		// Labels of fields whose switch is off are dimmed (their tooltips still show). A label shortened to fit its cell
+		// shows in full on the first line of its tooltip.
 		void DrawLabel(std::string const& label, std::string const& tooltip, bool mixed, int depth, bool switchedOn = true)
 		{
 			ImGui::AlignTextToFramePadding();
@@ -156,14 +184,15 @@ namespace Strada
 			{
 				ImGui::PushStyleColor(ImGuiCol_Text, mixed ? MixedLabelColor : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 			}
-			ImGui::TextUnformatted(label.c_str());
+			bool const shortened = DrawFittedText(label);
 			if (colored)
 			{
 				ImGui::PopStyleColor();
 			}
-			if (!tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			std::string const text = !shortened ? tooltip : tooltip.empty() ? label : label + "\n" + tooltip;
+			if (!text.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
 			{
-				ImGui::SetTooltip("%s", tooltip.c_str());
+				ImGui::SetTooltip("%s", text.c_str());
 			}
 		}
 
@@ -185,6 +214,34 @@ namespace Strada
 			                                                    {
 																	return other.Hints.EnabledBy == field.Name;
 																});
+		}
+
+		// The widest name cell of the rows of these fields (and of the nested structs' rows, open or not), laid out like
+		// DrawRows lays them out: the indentation, a switch's check box, the tree node's arrow and the name.
+		float MeasureNames(std::span<FieldDescriptor const> fields, int depth)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			float const indent = static_cast<float>(depth) * style.IndentSpacing;
+			float widest = 0.0f;
+			for (FieldDescriptor const& field : fields)
+			{
+				if (IsSwitch(fields, field))
+				{
+					continue;
+				}
+				float width = indent + ImGui::CalcTextSize(UI::FormatDisplayName(field.Name).c_str()).x;
+				if (field.Kind == FieldKind::Struct)
+				{
+					width += ImGui::GetTreeNodeToLabelSpacing();
+					widest = std::max(widest, MeasureNames(field.Fields, depth + 1));
+				}
+				else if (!field.Hints.EnabledBy.empty() && FindField(fields, field.Hints.EnabledBy) != nullptr)
+				{
+					width += ImGui::GetFrameHeight() + style.ItemInnerSpacing.x;
+				}
+				widest = std::max(widest, width);
+			}
+			return widest;
 		}
 
 		// Colored X/Y/Z/W buttons (reset the component to its default) followed by drag fields; reports which component changed.
@@ -523,18 +580,31 @@ namespace Strada
 		return patch;
 	}
 
+	float FieldEditor::GetNameColumnShare(std::span<FieldDescriptor const> fields, float tableWidth)
+	{
+		// The contents of the two columns are separated by the one-pixel border of a resizable table and the cell padding on
+		// both sides of it; one more pixel covers the rounding of the columns' widths down to whole pixels.
+		float const contentWidth = tableWidth - 2.0f * ImGui::GetStyle().CellPadding.x - 1.0f;
+		if (!(contentWidth > 0.0f))
+		{
+			return MinNameShare;
+		}
+		return std::clamp((MeasureNames(fields, 0) + 1.0f) / contentWidth, MinNameShare, MaxNameShare);
+	}
+
 	std::optional<FieldChange> FieldEditor::Draw(std::span<FieldDescriptor const> fields, Json const& values,
 	                                             std::span<std::string const> mixedFields, Scene* scene)
 	{
 		PruneEulerStates();
 		m_Scene = scene;
 		std::optional<FieldChange> change;
+		float const nameShare = GetNameColumnShare(fields, ImGui::GetContentRegionAvail().x);
 		if (!ImGui::BeginTable("##fields", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings))
 		{
 			return change;
 		}
-		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.4f);
-		ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, nameShare);
+		ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f - nameShare);
 		std::vector<std::string_view> path;
 		DrawRows(fields, values, mixedFields, false, path, change);
 		ImGui::EndTable();

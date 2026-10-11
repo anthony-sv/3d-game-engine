@@ -365,8 +365,9 @@ public class DamageFlash : Script
 }
 ```
 
-Numbers blend smoothly with the weight; switches (`Bloom`, `AmbientOcclusion`, `Tonemapper`) change once a volume
-applies at least halfway.
+Numbers blend smoothly with the weight, and so does `Bloom`: a volume that turns bloom off fades the glow out through
+its intensity, one that turns it on fades it in. `AmbientOcclusion` and `Tonemapper` switch once a volume applies at
+least halfway.
 
 ## Time, scenes and the application
 

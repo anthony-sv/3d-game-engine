@@ -346,3 +346,48 @@ TEST_CASE("SceneRenderer: post-process volumes change the rendered image around 
 	CHECK(centerPixel(inside) == red);
 	CHECK(scene.GetSettings().Renderer.Saturation == 1.0f);
 }
+
+TEST_CASE("SceneRenderer: a post-process volume that turns bloom off fades the glow out")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	// A bright sphere whose glow spreads past its edge, seen from a fixed camera; the volume moves instead.
+	Scene scene("BloomVolume");
+	DisablePostProcessing(scene);
+	Testing::AddTestMesh(scene, "Glow", BuiltInAsset::SphereMesh, AddMaterial({0.0f, 0.0f, 0.0f, 1.0f}, glm::vec3(80.0f, 60.0f, 40.0f)),
+	                     {0.0f, 0.0f, 0.0f}, glm::vec3(0.3f));
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	glm::vec3 const cameraPosition(0.0f, 0.0f, 4.0f);
+	SceneRendererCamera const camera = Testing::MakeTestCamera(cameraPosition, {0.0f, 0.0f, 0.0f}, ImageWidth, ImageHeight);
+	uint32_t const x = ImageWidth / 2 + 30;
+	uint32_t const y = ImageHeight / 2;
+
+	Image const without = Testing::RenderToImage(scene, camera, renderer);
+	scene.GetSettings().Renderer.Bloom = true;
+	scene.GetSettings().Renderer.BloomIntensity = 0.3f;
+	Image const with = Testing::RenderToImage(scene, camera, renderer);
+	float const glow = Brightness(with, x, y) - Brightness(without, x, y);
+	REQUIRE(glow > 6.0f);
+
+	// A 1 m box with a 2 m fade turning bloom off: the camera inside it sees no glow, halfway through the fade about half
+	// of it, and beyond the fade all of it.
+	Entity volumeEntity = scene.CreateEntity("Cave");
+	PostProcessComponent& volume = volumeEntity.AddComponent<PostProcessComponent>();
+	volume.Global = false;
+	volume.BlendDistance = 2.0f;
+	volume.OverrideBloom = true;
+	volume.Bloom = false;
+	auto const renderWithVolumeAt = [&](glm::vec3 const& position)
+	{
+		volumeEntity.GetComponent<TransformComponent>().Translation = position;
+		return Testing::RenderToImage(scene, camera, renderer);
+	};
+	CHECK(Testing::CompareImages(renderWithVolumeAt(cameraPosition), without, 1).MaxDifference == 0);
+	float const halfwayGlow =
+		Brightness(renderWithVolumeAt(cameraPosition + glm::vec3(0.0f, 0.0f, 1.5f)), x, y) - Brightness(without, x, y);
+	CHECK(halfwayGlow > glow * 0.25f);
+	CHECK(halfwayGlow < glow * 0.75f);
+	CHECK(Testing::CompareImages(renderWithVolumeAt(cameraPosition + glm::vec3(0.0f, 0.0f, 3.5f)), with, 1).MaxDifference == 0);
+	CHECK(scene.GetSettings().Renderer.Bloom);
+}

@@ -7,9 +7,9 @@ namespace Strada;
 /// set. <see cref="Global"/> volumes apply everywhere; local volumes apply inside their box (the unit cube placed,
 /// rotated and scaled by the entity, so the entity's scale is the box's size in meters) and fade out over
 /// <see cref="BlendDistance"/> around it. Volumes apply in order of <see cref="Priority"/>, each scaled by its
-/// <see cref="Weight"/>: numbers move towards the volume's values, switches (<see cref="Bloom"/>,
-/// <see cref="AmbientOcclusion"/>, <see cref="Tonemapper"/>) take the volume's value once its blend reaches one half.
-/// Animate <see cref="Weight"/> for effects such as a damage flash or an underwater tint.</summary>
+/// <see cref="Weight"/>: numbers move towards the volume's values, <see cref="Bloom"/> fades in or out through the
+/// bloom's intensity, and <see cref="AmbientOcclusion"/> and <see cref="Tonemapper"/> take the volume's value once its
+/// blend reaches one half. Animate <see cref="Weight"/> for effects such as a damage flash or an underwater tint.</summary>
 [NativeComponent("PostProcess")]
 public sealed unsafe class PostProcessComponent : Component
 {
@@ -101,7 +101,7 @@ public sealed unsafe class PostProcessComponent : Component
 		set => NativeField.Set<float>(InternalCalls.PostProcessComponent_SetAmbientOcclusionIntensity, Entity.ID, value);
 	}
 
-	/// <summary>Whether the volume switches bloom as <see cref="Bloom"/> says.</summary>
+	/// <summary>Whether the volume fades bloom in or out as <see cref="Bloom"/> says.</summary>
 	public bool OverrideBloom
 	{
 		get => NativeField.GetBool(InternalCalls.PostProcessComponent_GetOverrideBloom, Entity.ID);

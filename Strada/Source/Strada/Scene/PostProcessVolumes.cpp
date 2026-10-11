@@ -35,6 +35,7 @@ namespace Strada::PostProcessVolumes
 			}
 		}
 
+		// Ambient occlusion and the tonemapper have no strength the renderer could fade them by.
 		template<typename T>
 		void BlendSwitch(T& value, T target, float blend)
 		{
@@ -140,7 +141,13 @@ namespace Strada::PostProcessVolumes
 		return distance < blendDistance ? weight * (1.0f - distance / blendDistance) : 0.0f;
 	}
 
-	void Apply(SceneRendererSettings& settings, PostProcessComponent const& volume, float blend)
+	Blender::Blender(SceneRendererSettings const& settings)
+		: m_Settings(settings),
+		  m_BloomAmount(settings.Bloom ? 1.0f : 0.0f)
+	{
+	}
+
+	void Blender::Apply(PostProcessComponent const& volume, float blend)
 	{
 		if (!(blend > 0.0f))
 		{
@@ -152,69 +159,82 @@ namespace Strada::PostProcessVolumes
 
 		if (values.OverrideEV100)
 		{
-			BlendNumber(settings.EV100, values.EV100, blend);
+			BlendNumber(m_Settings.EV100, values.EV100, blend);
 		}
 		if (values.OverrideTonemapper)
 		{
-			BlendSwitch(settings.Tonemapper, values.Tonemapper, blend);
+			BlendSwitch(m_Settings.Tonemapper, values.Tonemapper, blend);
 		}
 		if (values.OverrideAmbientOcclusion)
 		{
-			BlendSwitch(settings.AmbientOcclusion, values.AmbientOcclusion, blend);
+			BlendSwitch(m_Settings.AmbientOcclusion, values.AmbientOcclusion, blend);
 		}
 		if (values.OverrideAmbientOcclusionIntensity)
 		{
-			BlendNumber(settings.AmbientOcclusionIntensity, values.AmbientOcclusionIntensity, blend);
+			BlendNumber(m_Settings.AmbientOcclusionIntensity, values.AmbientOcclusionIntensity, blend);
 		}
 		if (values.OverrideBloom)
 		{
-			BlendSwitch(settings.Bloom, values.Bloom, blend);
+			// Clamped so that rounding never takes it past fully on or off.
+			m_BloomAmount = std::clamp(glm::mix(m_BloomAmount, values.Bloom ? 1.0f : 0.0f, blend), 0.0f, 1.0f);
 		}
 		if (values.OverrideBloomIntensity)
 		{
-			BlendNumber(settings.BloomIntensity, values.BloomIntensity, blend);
+			BlendNumber(m_Settings.BloomIntensity, values.BloomIntensity, blend);
 		}
 		if (values.OverrideContrast)
 		{
-			BlendNumber(settings.Contrast, values.Contrast, blend);
+			BlendNumber(m_Settings.Contrast, values.Contrast, blend);
 		}
 		if (values.OverrideSaturation)
 		{
-			BlendNumber(settings.Saturation, values.Saturation, blend);
+			BlendNumber(m_Settings.Saturation, values.Saturation, blend);
 		}
 		if (values.OverrideTemperature)
 		{
-			BlendNumber(settings.Temperature, values.Temperature, blend);
+			BlendNumber(m_Settings.Temperature, values.Temperature, blend);
 		}
 		if (values.OverrideTint)
 		{
-			BlendNumber(settings.Tint, values.Tint, blend);
+			BlendNumber(m_Settings.Tint, values.Tint, blend);
 		}
 		if (values.OverrideColorFilter)
 		{
-			BlendColor(settings.ColorFilter, values.ColorFilter, blend);
+			BlendColor(m_Settings.ColorFilter, values.ColorFilter, blend);
 		}
 		if (values.OverrideChromaticAberration)
 		{
-			BlendNumber(settings.ChromaticAberration, values.ChromaticAberration, blend);
+			BlendNumber(m_Settings.ChromaticAberration, values.ChromaticAberration, blend);
 		}
 		if (values.OverrideVignette)
 		{
-			BlendNumber(settings.Vignette, values.Vignette, blend);
+			BlendNumber(m_Settings.Vignette, values.Vignette, blend);
 		}
 		if (values.OverrideVignetteSmoothness)
 		{
-			BlendNumber(settings.VignetteSmoothness, values.VignetteSmoothness, blend);
+			BlendNumber(m_Settings.VignetteSmoothness, values.VignetteSmoothness, blend);
 		}
 		if (values.OverrideFilmGrain)
 		{
-			BlendNumber(settings.FilmGrain, values.FilmGrain, blend);
+			BlendNumber(m_Settings.FilmGrain, values.FilmGrain, blend);
 		}
+	}
+
+	SceneRendererSettings Blender::GetSettings() const
+	{
+		// The renderer treats bloom that is off like bloom with no intensity, so the fade reaches it without a step.
+		SceneRendererSettings settings = m_Settings;
+		settings.Bloom = m_BloomAmount > 0.0f;
+		if (settings.Bloom)
+		{
+			settings.BloomIntensity *= m_BloomAmount;
+		}
+		return settings;
 	}
 
 	SceneRendererSettings Resolve(Scene& scene, glm::vec3 const& cameraPosition)
 	{
-		SceneRendererSettings settings = scene.GetSettings().Renderer;
+		SceneRendererSettings const& settings = scene.GetSettings().Renderer;
 		// Most scenes have no volumes: they skip the walk through the hierarchy.
 		if (scene.GetAllEntitiesWith<PostProcessComponent>().empty())
 		{
@@ -239,10 +259,11 @@ namespace Strada::PostProcessVolumes
 		                 {
 							 return GetSortKey(a) < GetSortKey(b);
 						 });
+		Blender blender(settings);
 		for (ActiveVolume const& active : volumes)
 		{
-			Apply(settings, *active.Volume, active.Blend);
+			blender.Apply(*active.Volume, active.Blend);
 		}
-		return settings;
+		return blender.GetSettings();
 	}
 }

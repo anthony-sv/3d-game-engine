@@ -331,8 +331,8 @@ namespace Strada
 	// apply everywhere. Local volumes apply inside their box, the unit cube placed, rotated and scaled by the entity (so
 	// the entity's scale is the box's size in meters), and fade out over BlendDistance meters around it. Volumes apply in
 	// order of Priority, lowest first (equal priorities in hierarchy order), each scaled by its Weight: numbers move towards
-	// the volume's values by the volume's blend, switches (Bloom, AmbientOcclusion, Tonemapper) take its value once the
-	// blend reaches one half.
+	// the volume's values by the volume's blend, Bloom fades in or out through the bloom's intensity, and AmbientOcclusion
+	// and Tonemapper take the volume's value once the blend reaches one half.
 	struct PostProcessComponent
 	{
 		bool Global = true;
