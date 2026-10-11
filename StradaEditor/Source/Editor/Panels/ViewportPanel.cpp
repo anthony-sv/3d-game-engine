@@ -649,7 +649,8 @@ namespace Strada
 			ImGui::Checkbox("Grid (G)", &m_Overlays.Grid);
 			ImGui::Checkbox("Selection outline", &m_Overlays.SelectionOutline);
 			ImGui::Checkbox("Light and camera icons", &m_Overlays.Icons);
-			ImGui::Checkbox("Selected cameras, lights and colliders", &m_Overlays.SelectionShapes);
+			ImGui::Checkbox("Shapes of selected entities", &m_Overlays.SelectionShapes);
+			ImGui::SetItemTooltip("Camera frustums, light directions, ranges and cones, colliders, joints and post-process volume boxes");
 			ImGui::Checkbox("All colliders", &m_Overlays.AllColliders);
 			ImGui::Checkbox("Debug drawing (scripts)", &m_Overlays.DebugLines);
 			ImGui::EndPopup();

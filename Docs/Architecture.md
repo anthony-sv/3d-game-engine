@@ -715,12 +715,12 @@ than the assembly.
 - Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
   (fly/orbit/pan/zoom/focus). Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
   orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays: ground grid
-  (G), selection outline, clickable icons for cameras and lights, shapes of selected cameras (frustums), lights
-  (directions, ranges, cones), colliders and local post-process volumes (their box and the rounded outline where their
-  blend distance ends, drawn through geometry), every collider, and the lines scripts draw. ImGuizmo edits apply to every
-  selected root around the primary selection as one undo step per drag (`SetComponentsCommand` with a merge key); click
-  picking goes through the entity-ID pass (Ctrl toggles, Shift adds, empty space clears; picking IDs are never reused
-  within a scene); assets can be dropped onto it.
+  (G), selection outline, clickable icons for cameras and lights, shapes of selected entities (one toggle: camera
+  frustums, light directions, ranges and cones, colliders, joints, and the boxes of local post-process volumes with the
+  rounded outlines where their blend distances end, drawn through geometry), every collider, and the lines scripts draw.
+  ImGuizmo edits apply to every selected root around the primary selection as one undo step per drag
+  (`SetComponentsCommand` with a merge key); click picking goes through the entity-ID pass (Ctrl toggles, Shift adds,
+  empty space clears; picking IDs are never reused within a scene); assets can be dropped onto it.
 - Game View (`GameViewPanel`): the scene through its primary camera, as the game sees it, at a chosen resolution (free,
   16:9, 16:10, 4:3, 21:9, the project's window size, 1920x1080, 1280x720), letterboxed; fixed sizes render at that size
   and are scaled down to fit. Its size is the scene's view size (`Scene::OnViewportResize`) that scripts read and the
