@@ -1,5 +1,6 @@
 #include "Editor/Viewport/ViewportOverlays.h"
 
+#include "Strada/Math/Math.h"
 #include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
@@ -186,29 +187,52 @@ namespace Strada::ViewportOverlays
 			AddCircle(lines, center, y, z, radius, color, true);
 		}
 
+		// A capsule along the unit axis y (x and z complete the frame) whose cylinder reaches halfHeight from center.
+		void AddCapsule(std::vector<OverlayLine>& lines, glm::vec3 const& center, glm::vec3 const& x, glm::vec3 const& y,
+		                glm::vec3 const& z, float radius, float halfHeight, glm::vec4 const& color, bool depthTest)
+		{
+			glm::vec3 const top = center + y * halfHeight;
+			glm::vec3 const bottom = center - y * halfHeight;
+			AddCircle(lines, top, x, z, radius, color, depthTest);
+			AddCircle(lines, bottom, x, z, radius, color, depthTest);
+			for (glm::vec3 const& side : {x, -x, z, -z})
+			{
+				AddLine(lines, bottom + side * radius, top + side * radius, color, depthTest);
+			}
+			uint32_t const halfSegments = CircleSegments / 2;
+			AddArc(lines, top, x, y, radius, 0.0f, glm::pi<float>(), halfSegments, color, depthTest);
+			AddArc(lines, top, z, y, radius, 0.0f, glm::pi<float>(), halfSegments, color, depthTest);
+			AddArc(lines, bottom, x, -y, radius, 0.0f, glm::pi<float>(), halfSegments, color, depthTest);
+			AddArc(lines, bottom, z, -y, radius, 0.0f, glm::pi<float>(), halfSegments, color, depthTest);
+		}
+
 		void AddCapsuleCollider(std::vector<OverlayLine>& lines, glm::mat4 const& world, CapsuleColliderComponent const& collider)
 		{
-			glm::vec4 const color = collider.IsTrigger ? TriggerColor : ColliderColor;
-			glm::vec3 const x = TransformDirection(world, {1.0f, 0.0f, 0.0f});
-			glm::vec3 const y = TransformDirection(world, {0.0f, 1.0f, 0.0f});
-			glm::vec3 const z = TransformDirection(world, {0.0f, 0.0f, 1.0f});
 			// The cylinder part follows the entity's Y scale; the radius uses the largest scale of the other axes.
 			float const scaleY = glm::length(glm::vec3(world[1]));
 			float const radius = collider.Radius * std::max(glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[2])));
-			glm::vec3 const center = TransformPoint(world, collider.Offset);
-			glm::vec3 const top = center + y * (collider.HalfHeight * scaleY);
-			glm::vec3 const bottom = center - y * (collider.HalfHeight * scaleY);
-			AddCircle(lines, top, x, z, radius, color, true);
-			AddCircle(lines, bottom, x, z, radius, color, true);
-			for (glm::vec3 const& side : {x, -x, z, -z})
+			AddCapsule(lines, TransformPoint(world, collider.Offset), TransformDirection(world, {1.0f, 0.0f, 0.0f}),
+			           TransformDirection(world, {0.0f, 1.0f, 0.0f}), TransformDirection(world, {0.0f, 0.0f, 1.0f}), radius,
+			           collider.HalfHeight * scaleY, collider.IsTrigger ? TriggerColor : ColliderColor, true);
+		}
+
+		// The character's capsule as the physics makes it: scaled with the entity but upright, not turned with it. A selected
+		// character's capsule is drawn through its model, which usually encloses it.
+		void AddCharacterController(std::vector<OverlayLine>& lines, glm::mat4 const& world, CharacterControllerComponent const& character,
+		                            bool selected)
+		{
+			glm::vec3 position;
+			glm::quat rotation;
+			glm::vec3 scale;
+			if (!Math::DecomposeTransform(world, position, rotation, scale))
 			{
-				AddLine(lines, bottom + side * radius, top + side * radius, color, true);
+				return;
 			}
-			uint32_t const halfSegments = CircleSegments / 2;
-			AddArc(lines, top, x, y, radius, 0.0f, glm::pi<float>(), halfSegments, color, true);
-			AddArc(lines, top, z, y, radius, 0.0f, glm::pi<float>(), halfSegments, color, true);
-			AddArc(lines, bottom, x, -y, radius, 0.0f, glm::pi<float>(), halfSegments, color, true);
-			AddArc(lines, bottom, z, -y, radius, 0.0f, glm::pi<float>(), halfSegments, color, true);
+			glm::vec3 const size = glm::abs(scale);
+			float const radius = character.Radius * std::max(size.x, size.z);
+			float const halfHeight = std::max(0.5f * character.Height * size.y - radius, 0.0f);
+			AddCapsule(lines, position + character.Offset * scale, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, radius,
+			           halfHeight, CharacterColor, !selected);
 		}
 	}
 
@@ -364,6 +388,10 @@ namespace Strada::ViewportOverlays
 			if (CapsuleColliderComponent const* collider = entity.TryGetComponent<CapsuleColliderComponent>())
 			{
 				AddCapsuleCollider(lines, world, *collider);
+			}
+			if (CharacterControllerComponent const* character = entity.TryGetComponent<CharacterControllerComponent>())
+			{
+				AddCharacterController(lines, world, *character, (shapes & Shapes::Selected) != 0);
 			}
 		}
 		if ((shapes & Shapes::Joints) != 0)

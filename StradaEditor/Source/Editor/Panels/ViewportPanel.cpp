@@ -296,10 +296,8 @@ namespace Strada
 			{
 				for (UUID const id : selection.GetEntities())
 				{
-					// Colliders of every entity follow below.
-					uint32_t const shapes = m_Overlays.AllColliders ? ViewportOverlays::Shapes::All & ~ViewportOverlays::Shapes::Colliders
-					                                                : ViewportOverlays::Shapes::All;
-					ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, shapes);
+					ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines,
+					                                     ViewportOverlays::Shapes::All | ViewportOverlays::Shapes::Selected);
 				}
 			}
 			if (m_Overlays.AllColliders)
@@ -307,7 +305,11 @@ namespace Strada
 				scene.ForEachEntityInHierarchyOrder(
 					[&](Entity entity)
 					{
-						ViewportOverlays::AppendEntityShapes(scene, entity, aspectRatio, lines, ViewportOverlays::Shapes::Colliders);
+						// The selection's colliders are drawn above, as selected.
+						if (!m_Overlays.SelectionShapes || !selection.Contains(entity.GetUUID()))
+						{
+							ViewportOverlays::AppendEntityShapes(scene, entity, aspectRatio, lines, ViewportOverlays::Shapes::Colliders);
+						}
 					});
 			}
 			for (OverlayLine const& line : lines)
@@ -650,7 +652,8 @@ namespace Strada
 			ImGui::Checkbox("Selection outline", &m_Overlays.SelectionOutline);
 			ImGui::Checkbox("Light and camera icons", &m_Overlays.Icons);
 			ImGui::Checkbox("Shapes of selected entities", &m_Overlays.SelectionShapes);
-			ImGui::SetItemTooltip("Camera frustums, light directions, ranges and cones, colliders, joints and post-process volume boxes");
+			ImGui::SetItemTooltip("Camera frustums, light directions, ranges and cones, colliders, character capsules, joints and "
+			                      "post-process volume boxes");
 			ImGui::Checkbox("All colliders", &m_Overlays.AllColliders);
 			ImGui::Checkbox("Debug drawing (scripts)", &m_Overlays.DebugLines);
 			ImGui::EndPopup();

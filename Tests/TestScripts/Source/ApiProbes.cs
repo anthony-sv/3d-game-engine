@@ -104,6 +104,21 @@ public sealed class ComponentWriter : Script
 		Check(() => meshCollider.Friction, value => meshCollider.Friction = value, 0.4f, "MeshCollider.Friction");
 		Check(() => meshCollider.Restitution, value => meshCollider.Restitution = value, 0.6f, "MeshCollider.Restitution");
 
+		CharacterControllerComponent character = AddComponent<CharacterControllerComponent>();
+		Check(() => character.Radius, value => character.Radius = value, 0.4f, "CharacterController.Radius");
+		Check(() => character.Height, value => character.Height = value, 1.8f, "CharacterController.Height");
+		Check(() => character.Offset, value => character.Offset = value, new Vector3(0.0f, 0.9f, 0.0f), "CharacterController.Offset");
+		Check(() => character.StepHeight, value => character.StepHeight = value, 0.5f, "CharacterController.StepHeight");
+		Check(() => character.MaxSlopeAngle, value => character.MaxSlopeAngle = value, 50.0f, "CharacterController.MaxSlopeAngle");
+		Check(() => character.Mass, value => character.Mass = value, 80.0f, "CharacterController.Mass");
+		Check(() => character.PushForce, value => character.PushForce = value, 300.0f, "CharacterController.PushForce");
+		Check(() => character.GravityFactor, value => character.GravityFactor = value, 2.0f, "CharacterController.GravityFactor");
+		Check(() => character.Layer, value => character.Layer = value, 3u, "CharacterController.Layer");
+		// Without a simulated character: at rest, on nothing.
+		Expect(character.Velocity, Vector3.Zero, "CharacterController.Velocity");
+		Expect(character.IsGrounded, false, "CharacterController.IsGrounded");
+		Expect(character.GroundNormal, Vector3.Zero, "CharacterController.GroundNormal");
+
 		AudioSourceComponent audio = AddComponent<AudioSourceComponent>();
 		Expect(audio.Clip?.Handle ?? AssetHandle.Invalid, ExpectedClip, "AudioSource.Clip");
 		audio.Clip = null;
@@ -262,6 +277,55 @@ public sealed class PhysicsProbe : Script
 		Name = string.Create(CultureInfo.InvariantCulture,
 			$"Velocity={velocity};Hit={hit};HitEntity={result.Entity?.Name};Distance={MathF.Round(result.Distance, 3)};Gravity={gravity.Y};"
 			+ $"Sleeping={body.IsSleeping}");
+	}
+}
+
+// Steers its character: walks it along +X while D is held, jumps when Space is pressed on the ground and teleports it
+// Home when T is pressed; reports what it reads in its name after each update.
+public sealed class CharacterProbe : Script
+{
+	public float Speed = 2.0f;
+	public float JumpSpeed = 5.0f;
+	public Vector3 Home;
+
+	protected override void OnCreate()
+	{
+		CharacterControllerComponent character = GetComponent<CharacterControllerComponent>()!;
+		// Logged and ignored.
+		character.Move(new Vector3(float.NaN, 0.0f, 0.0f));
+		// The character exists at once, standing where it was placed.
+		Report(character);
+	}
+
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		CharacterControllerComponent character = GetComponent<CharacterControllerComponent>()!;
+		if (Input.IsKeyDown(KeyCode.D))
+		{
+			character.Move(new Vector3(Speed, 0.0f, 0.0f));
+		}
+		if (Input.IsKeyPressed(KeyCode.Space) && character.IsGrounded)
+		{
+			character.Velocity = new Vector3(0.0f, JumpSpeed, 0.0f);
+		}
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		CharacterControllerComponent character = GetComponent<CharacterControllerComponent>()!;
+		if (Input.IsKeyPressed(KeyCode.T))
+		{
+			character.Teleport(Home);
+		}
+		Report(character);
+	}
+
+	private void Report(CharacterControllerComponent character)
+	{
+		Vector3 normal = character.GroundNormal;
+		Name = string.Create(CultureInfo.InvariantCulture,
+			$"Grounded={character.IsGrounded};Normal=({MathF.Round(normal.X, 2) + 0.0f}, {MathF.Round(normal.Y, 2) + 0.0f}, {MathF.Round(normal.Z, 2) + 0.0f});"
+			+ $"Rising={character.Velocity.Y > 0.0f}");
 	}
 }
 

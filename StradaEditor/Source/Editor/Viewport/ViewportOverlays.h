@@ -32,6 +32,9 @@ namespace Strada
 			// Boxes of local post-process volumes.
 			inline constexpr uint32_t Volumes = 1u << 4;
 			inline constexpr uint32_t All = Cameras | Lights | Colliders | Joints | Volumes;
+			// Not a kind but how they are drawn: the entity is selected, so a character controller's capsule shows through
+			// the model around it. Otherwise what is in front of the capsule hides it, as it hides other colliders.
+			inline constexpr uint32_t Selected = 1u << 5;
 		}
 
 		// Distance up to which camera frustums are drawn (their far planes are usually far away).
@@ -43,6 +46,7 @@ namespace Strada
 		inline constexpr glm::vec4 LightColor = glm::vec4(1.0f, 0.85f, 0.3f, 1.0f);
 		inline constexpr glm::vec4 ColliderColor = glm::vec4(0.35f, 1.0f, 0.45f, 1.0f);
 		inline constexpr glm::vec4 TriggerColor = glm::vec4(0.35f, 0.8f, 1.0f, 1.0f);
+		inline constexpr glm::vec4 CharacterColor = glm::vec4(0.65f, 0.5f, 1.0f, 1.0f);
 		inline constexpr glm::vec4 JointColor = glm::vec4(1.0f, 0.4f, 0.9f, 1.0f);
 		// A saturated violet, darker than light floors and brighter than dark ones.
 		inline constexpr glm::vec4 VolumeColor = glm::vec4(0.58f, 0.32f, 1.0f, 1.0f);
@@ -53,10 +57,10 @@ namespace Strada
 		inline constexpr float JointAnchorSize = 0.1f;
 
 		// Shapes of an entity's camera, lights, colliders, joint and post-process volume (the kinds in shapes): camera
-		// frustums up to CameraFrustumLength, light directions, ranges and cones, collider outlines, the joint's anchor (a
-		// cross), its hinge or slider axis and a line to where it joins the connected body (or the world), and a local
-		// volume's box with the rounded outline where its blend distance ends. aspectRatio is used by cameras without a fixed
-		// aspect ratio.
+		// frustums up to CameraFrustumLength, light directions, ranges and cones, collider outlines (a character controller's
+		// upright capsule among them, through its model with Shapes::Selected), the joint's anchor (a cross), its hinge or
+		// slider axis and a line to where it joins the connected body (or the world), and a local volume's box with the
+		// rounded outline where its blend distance ends. aspectRatio is used by cameras without a fixed aspect ratio.
 		void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines,
 		                        uint32_t shapes = Shapes::All);
 	}

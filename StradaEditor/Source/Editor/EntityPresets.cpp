@@ -177,6 +177,14 @@ namespace Strada
 				 return Json::object(
 					 {{"PostProcess", Json::object()}, {"Transform", Json::object({{"Scale", Json::array({10.0, 10.0, 10.0})}})}});
 			 }},
+			// The controller's default capsule is the built-in capsule mesh's: what is drawn is what collides.
+			{"Physics", "Character", "Character",
+		     []
+		     {
+				 Json components = MeshComponents(BuiltInAsset::CapsuleMesh);
+				 components["CharacterController"] = Json::object();
+				 return components;
+			 }},
 		});
 	}
 
