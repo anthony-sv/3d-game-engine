@@ -164,6 +164,16 @@ a `Swapchain`. `GraphicsDevice::EndFrame` limits the CPU to 2 frames ahead of th
 The ImGui renderer (`ImGuiRenderer`) implements ImGui 1.92's texture protocol (create/update/destroy requests with
 partial atlas uploads) and the multi-viewport renderer callbacks.
 
+`ImGuiLayer` installs the keyboard and mouse callbacks of the windows ImGui draws into itself (the main window and the
+platform windows of panels dragged out of it; the GLFW backend is initialized without its own). Without an input filter
+the application gets the main window's input as it would without ImGui, ImGui gets it as well, and the events ImGui
+wants to capture are marked handled (layers below do not see them, and `Input` only their releases and cursor
+movement). An input filter
+(`ImGuiLayer::SetInputFilter`; the editor's `GameInputRouter`) sees every keyboard and mouse event of those windows
+first, with the cursor in ImGui's coordinates, the ImGui viewport of the window it comes from, the key the keyboard
+layout names and the modifiers held, and returns whether ImGui receives it; the application then gets no input events
+of its own, and the filter gives `Input` what the game should have.
+
 Shaders (`Strada/Shaders/*.hlsl`) are compiled by DXC to SPIR-V at build time with flags matching NVRHI's default
 Vulkan binding offsets, embedded into the library, and fetched by name through `ShaderLibrary`.
 
@@ -696,11 +706,24 @@ than the assembly.
   through a `SceneRunner`; Pause (Ctrl+Shift+P), Step (Ctrl+Alt+P) and Stop. While playing, the panels and automation
   show and edit the copy (`EditorContext::BeginPlay`) with an undo history of its own; stopping discards the copy, its
   history and every change, and the selection keeps what still exists. Play builds changed scripts first. Scene and
-  project files cannot change while playing (the UI stops playing first). The focused game view gives the game the
-  window's input, with the cursor in the pixels the game renders; Shift+Esc, losing focus or stopping releases it and a
-  click gives it back. A blue frame marks the game view while it has the input, and a blue (Play) or green (Simulate)
-  frame marks the scene view while playing; stopping brings the scene view back to the front. Scripts'
-  `Application.Quit` stops playing and `SceneManager.LoadScene` replaces the copy.
+  project files cannot change while playing (the UI stops playing first). Scripts' `Application.Quit` stops playing
+  and `SceneManager.LoadScene` replaces the copy. A blue (Play) or green (Simulate) frame marks the scene view while
+  playing; stopping brings the scene view back to the front.
+- Game input (`GameInputRouter`, the ImGui layer's input filter, like Unity's game view): Play gives the game the input
+  and brings the game view to the front, and while playing a click on the view gives it back to the game (the click
+  reaches the game too). While the game has the input, every key and mouse event goes to the game alone (Escape, Enter,
+  Space, Tab, the arrows and Alt included: ImGui's keyboard navigation, the editor's shortcuts and the scene view's tool
+  keys never see them), except Shift+Esc, which gives the input back, and the play shortcuts Ctrl+P, Ctrl+Shift+P and
+  Ctrl+Alt+P (Cmd on macOS; named by the key the keyboard layout types), which stay the editor's. Mouse buttons and the
+  wheel are the game's over the view's area, anywhere while the game locks the cursor; a click elsewhere (another panel,
+  a popup or window over the view, the window of a panel dragged out of the editor) goes to the editor and gives the
+  input back, and so do the view hiding behind another tab or losing the focus and playing stopping. The game sees each
+  event in the frame it happens, with the cursor in the pixels it renders and no movement when it gets the cursor back
+  somewhere else; releases reach both sides, and what the game held is released when it gives the input back, so no key
+  stays held on either side. The cursor mode the game asks for (hidden, locked) applies to the window showing the game
+  view while the game has the input. A blue frame marks the game view meanwhile and its toolbar says how to release it;
+  without the input the game gets nothing and the editor works as usual. Automation's `input.set` and `input.release`
+  act on the game's input directly.
 - Project management: File > New Project (name and location; the start scene is the editor's sample scene),
   Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision

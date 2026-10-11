@@ -172,8 +172,10 @@ public class Mover : Script
 }
 ```
 
-In the editor the game gets the input while the Game View has the focus during play (Shift+Esc gives it back to the
-editor; a click on the view returns it to the game). `Application.WindowWidth` and `WindowHeight` are the size the game
+In the editor the game has the keyboard and mouse from the moment Play starts: every key and click on the Game View
+goes to the game alone, Escape and Enter included, except Shift+Esc, which gives the input back to the editor, and the
+play shortcuts (Ctrl+P, Ctrl+Shift+P, Ctrl+Alt+P). A click elsewhere in the editor gives the input back too, and a click
+on the view returns it to the game. `Application.WindowWidth` and `WindowHeight` are the size the game
 view renders at, which its resolution menu chooses.
 
 ## Physics

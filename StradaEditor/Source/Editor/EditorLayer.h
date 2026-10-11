@@ -8,6 +8,7 @@
 #include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/GameInputRouter.h"
 #include "Editor/Panels/BuildGameDialog.h"
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
@@ -29,6 +30,8 @@
 #include <optional>
 #include <string>
 
+struct GLFWwindow;
+
 namespace Strada
 {
 	struct EditorLayerSpecification
@@ -49,8 +52,10 @@ namespace Strada
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
 	// and hot reload), play mode, game export, the automation command registry and server, and the UI (dockspace, menu bar,
 	// toolbar with the play controls, shortcuts and panels) when ImGui is available; with the UI, the assets are rescanned
-	// whenever the editor gets the focus back. Playing brings the game view to the front; stopping, the scene view. Replacing the scene
-	// (new or opened scenes and projects) or closing the editor with unsaved changes asks to save them first; playing stops first.
+	// whenever the editor gets the focus back, and the windows' input is shared between the editor and the game in the game
+	// view (GameInputRouter, as ImGuiLayer's input filter). Playing brings the game view to the front with the input;
+	// stopping, the scene view. Replacing the scene (new or opened scenes and projects) or closing the editor with unsaved
+	// changes asks to save them first; playing stops first.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -102,8 +107,9 @@ namespace Strada
 		void StartPlay(EditorPlayState state);
 		// The size the game renders at: the game view's, or the project's window when there is no UI.
 		glm::uvec2 GetGameViewSize() const;
-		// While the game view is focused the game gets the window's input, with the cursor in game-view pixels.
-		void UpdateGameInput();
+		// Shows the cursor the game asked for on the window showing the game view while the game has the input, and the
+		// normal cursor (managed by ImGui) otherwise.
+		void UpdateGameCursor();
 		// The scripts' and the export's state for the menu bar; empty while nothing needs attention.
 		std::string GetScriptStatus() const;
 		std::string GetExportStatus() const;
@@ -154,9 +160,14 @@ namespace Strada
 		SceneSettingsPanel m_SceneSettingsPanel;
 		ProjectSettingsPanel m_ProjectSettingsPanel;
 		ContentBrowserPanel m_ContentBrowserPanel;
+		// Declared before the game view, which uses it.
+		GameInputRouter m_GameInput;
 		// Created when ImGui is available.
 		Scope<ViewportPanel> m_ViewportPanel;
 		Scope<GameViewPanel> m_GameViewPanel;
+		// The window showing the game's cursor mode while it is not Normal (null: ImGui manages the cursor).
+		GLFWwindow* m_GameCursorWindow = nullptr;
+		CursorMode m_GameCursorMode = CursorMode::Normal;
 		bool m_ShowViewport = true;
 		bool m_ShowGameView = true;
 		bool m_ShowHierarchy = true;
@@ -180,7 +191,6 @@ namespace Strada
 		bool m_OpenNewProjectPopup = false;
 		std::string m_NewProjectName;
 		std::string m_NewProjectLocation;
-		bool m_GameInputWasActive = false;
 		EditorPlayState m_FollowedPlayState = EditorPlayState::Edit;
 		bool m_OpenNewScriptPopup = false;
 		std::string m_NewScriptName;

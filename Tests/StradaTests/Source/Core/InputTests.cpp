@@ -99,6 +99,27 @@ TEST_CASE_FIXTURE(InputFixture, "Input: mouse buttons, position, delta and scrol
 	CHECK(Input::IsMouseButtonReleased(MouseButton::Left));
 }
 
+TEST_CASE_FIXTURE(InputFixture, "Input: warping the cursor moves it without reporting the jump as movement")
+{
+	// The first known position.
+	Input::WarpMousePosition({40.0f, 30.0f});
+	CHECK(Input::GetMousePosition() == glm::vec2(40.0f, 30.0f));
+	CHECK(Input::GetMouseDelta() == glm::vec2(0.0f, 0.0f));
+	Input::EndFrame();
+
+	// Movement before the jump stays, the jump adds nothing, and movement after it counts from the new place.
+	Input::SetMousePosition({45.0f, 30.0f});
+	Input::WarpMousePosition({500.0f, 400.0f});
+	CHECK(Input::GetMousePosition() == glm::vec2(500.0f, 400.0f));
+	CHECK(Input::GetMouseDelta() == glm::vec2(5.0f, 0.0f));
+	Input::SetMousePosition({498.0f, 401.0f});
+	CHECK(Input::GetMouseDelta() == glm::vec2(3.0f, 1.0f));
+
+	Input::EndFrame();
+	CHECK(Input::GetMouseDelta() == glm::vec2(0.0f, 0.0f));
+	CHECK(Input::GetMousePosition() == glm::vec2(498.0f, 401.0f));
+}
+
 TEST_CASE_FIXTURE(InputFixture, "Input: release all reports releases for held input")
 {
 	Input::SetKeyState(KeyCode::LeftShift, true);

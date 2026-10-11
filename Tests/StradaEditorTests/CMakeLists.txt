@@ -11,6 +11,8 @@ add_executable(StradaEditorTests
     Source/EditorOperationsTests.cpp
     Source/EditorUITests.cpp
     Source/ExportCommandsTests.cpp
+    Source/GameInputTests.cpp
+    Source/HeadlessImGui.h
     Source/HierarchyOperationsTests.cpp
     Source/JsonRpcTests.cpp
     Source/JsonSchemaTests.cpp

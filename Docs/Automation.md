@@ -245,7 +245,8 @@ itself when their sources change and loads the built assembly (hot reload); `scr
 ### play, input and test
 
 Play mode runs a copy of the edited scene; while it plays, every scene and entity command acts on the copy (with an
-undo history of its own) and `play.stop` discards it. Scene and project file commands (`scene.new`, `scene.open`,
+undo history of its own) and `play.stop` discards it. `input.set` and `input.release` act on the game's input directly,
+whether or not the game view has the window's input. Scene and project file commands (`scene.new`, `scene.open`,
 `scene.save`, `project.create`, `project.open`, `project.close`) fail with InvalidOperation while playing.
 
 | Command | Parameters | Result |

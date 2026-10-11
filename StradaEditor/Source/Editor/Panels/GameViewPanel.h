@@ -8,9 +8,13 @@
 #include <cstdint>
 #include <span>
 
+struct GLFWwindow;
+struct ImGuiWindow;
+
 namespace Strada
 {
 	class EditorContext;
+	class GameInputRouter;
 	class Project;
 
 	// What size the game view renders at.
@@ -52,39 +56,42 @@ namespace Strada
 	GameViewLayout ComputeGameViewLayout(GameViewResolution resolution, glm::vec2 available, Project const* project);
 
 	// Shows the scene the way the game sees it: through its primary camera, at the chosen resolution, letterboxed. While
-	// playing, the focused game view gives the game its keyboard and mouse input (Shift+Esc gives it back to the editor);
-	// the scene view keeps showing the running scene through the editor camera.
+	// playing, the game view shares the window's input with the game through a GameInputRouter: it tells the router where
+	// the game is shown each frame, takes the focus when the game takes the input, and frames itself while the game has it.
+	// The scene view keeps showing the running scene through the editor camera.
 	class GameViewPanel
 	{
 	public:
-		GameViewPanel();
+		// The router must outlive the panel.
+		explicit GameViewPanel(GameInputRouter& input);
+		~GameViewPanel();
+
+		GameViewPanel(GameViewPanel const&) = delete;
+		GameViewPanel& operator=(GameViewPanel const&) = delete;
 
 		void OnImGuiRender(EditorContext& context, bool& open);
-
-		// Brings the panel to the front and focuses it in the next frame (when playing starts).
-		void RequestFocus() { m_FocusRequested = true; }
 
 		GameViewResolution GetResolution() const { return m_Resolution; }
 		void SetResolution(GameViewResolution resolution) { m_Resolution = resolution; }
 
-		// The game has the input: the panel is focused while playing and the input was not released.
-		bool IsGameInputActive() const { return m_GameInputActive; }
-		// The cursor in pixels of the game's image, from its top-left corner (as the game reads it).
-		glm::vec2 GetGameMousePosition() const { return m_GameMousePosition; }
 		// The size the game renders at, as of the last frame the panel was drawn.
 		glm::uvec2 GetRenderSize() const { return m_RenderSize; }
+		// The OS window the panel was last drawn in: the main window, or its own when dragged out of it; null before that.
+		GLFWwindow* GetPlatformWindow() const;
 		// What the game view's renderer drew in its last frame; null without a GPU.
 		SceneRendererStatistics const* GetRendererStatistics() const { return m_Renderer ? &m_Renderer->GetStatistics() : nullptr; }
 
 	private:
 		void DrawToolbar(EditorContext const& context);
+		// Whether something covers the game view at a position (GameInputRouter::CoverageTest), from the windows of ImGui's
+		// last frame.
+		bool IsCoveredAt(glm::vec2 position) const;
 
+		GameInputRouter& m_Input;
 		Scope<SceneRenderer> m_Renderer;
 		GameViewResolution m_Resolution = GameViewResolution::Free;
-		bool m_FocusRequested = false;
-		bool m_InputReleased = false;
-		bool m_GameInputActive = false;
-		glm::vec2 m_GameMousePosition = glm::vec2(0.0f);
 		glm::uvec2 m_RenderSize = glm::uvec2(1280, 720);
+		// The panel's ImGui window once drawn (ImGui keeps windows for the context's lifetime).
+		ImGuiWindow* m_Window = nullptr;
 	};
 }

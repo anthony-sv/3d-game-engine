@@ -57,6 +57,9 @@ namespace Strada
 		static void SetKeyState(KeyCode key, bool down);
 		static void SetMouseButtonState(MouseButton button, bool down);
 		static void SetMousePosition(glm::vec2 position);
+		// Places the cursor without reporting the jump as movement: GetMouseDelta keeps only the movement before it this frame
+		// (the editor's game takes the input back with the cursor somewhere else).
+		static void WarpMousePosition(glm::vec2 position);
 		static void AddScrollDelta(glm::vec2 delta);
 		static void SetGamepadState(uint32_t gamepad, GamepadState const& state);
 

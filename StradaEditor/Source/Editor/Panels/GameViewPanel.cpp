@@ -1,6 +1,7 @@
 #include "Editor/Panels/GameViewPanel.h"
 
 #include "Editor/EditorContext.h"
+#include "Editor/GameInputRouter.h"
 
 #include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Project/Project.h"
@@ -8,6 +9,7 @@
 #include "Strada/Scene/SceneRendering.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <array>
@@ -128,37 +130,45 @@ namespace Strada
 		return layout;
 	}
 
-	GameViewPanel::GameViewPanel()
+	GameViewPanel::GameViewPanel(GameInputRouter& input)
+		: m_Input(input)
 	{
 		if (Renderer::IsInitialized())
 		{
 			m_Renderer = CreateScope<SceneRenderer>();
 		}
+		m_Input.SetCoverageTest(
+			[this](glm::vec2 position)
+			{
+				return IsCoveredAt(position);
+			});
+	}
+
+	GameViewPanel::~GameViewPanel()
+	{
+		m_Input.SetCoverageTest({});
 	}
 
 	void GameViewPanel::OnImGuiRender(EditorContext& context, bool& open)
 	{
-		if (std::exchange(m_FocusRequested, false))
+		// The game took the input (it started playing, or a click on the view gave it): the view comes forward with it.
+		if (m_Input.TakeFocusRequest())
 		{
 			ImGui::SetNextWindowFocus();
-			m_InputReleased = false;
 		}
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-		bool const visible = ImGui::Begin("Game View", &open);
+		// The view never scrolls: the wheel over it is the game's.
+		bool const visible = ImGui::Begin("Game View", &open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 		ImGui::PopStyleVar();
+		m_Window = ImGui::GetCurrentWindow();
 		if (!visible)
 		{
-			m_GameInputActive = false;
+			// A hidden view (another tab in front, collapsed) gives the input back.
+			m_Input.SetView({});
 			ImGui::End();
 			return;
 		}
 		DrawToolbar(context);
-		if (!m_Renderer)
-		{
-			ImGui::TextDisabled("Rendering is unavailable (no GPU).");
-			ImGui::End();
-			return;
-		}
 
 		ImVec2 const origin = ImGui::GetCursorScreenPos();
 		glm::vec2 const available(std::max(ImGui::GetContentRegionAvail().x, 1.0f), std::max(ImGui::GetContentRegionAvail().y, 1.0f));
@@ -168,49 +178,82 @@ namespace Strada
 		drawList->AddRectFilled(origin, ImVec2(origin.x + available.x, origin.y + available.y), LetterboxColor);
 
 		Scene& scene = context.GetScene();
-		m_Renderer->SetViewportSize(layout.RenderSize.x, layout.RenderSize.y);
 		// Scripts read the game's view size (Application.WindowWidth/Height, Camera.ScreenToWorldRay).
 		scene.OnViewportResize(layout.RenderSize.x, layout.RenderSize.y);
-		bool const rendered = RenderSceneFromPrimaryCamera(scene, *m_Renderer);
+		bool rendered = false;
+		if (m_Renderer)
+		{
+			m_Renderer->SetViewportSize(layout.RenderSize.x, layout.RenderSize.y);
+			rendered = RenderSceneFromPrimaryCamera(scene, *m_Renderer);
+		}
 
 		ImVec2 const imageMin(origin.x + layout.ImageOffset.x, origin.y + layout.ImageOffset.y);
 		ImVec2 const imageMax(imageMin.x + layout.ImageSize.x, imageMin.y + layout.ImageSize.y);
-		// The whole area takes clicks (which focus the panel and give the game its input back).
+		// The whole area is an item, so that ImGui focuses the view with the click that gives the game the input.
 		ImGui::InvisibleButton("##GameImage", ImVec2(available.x, available.y));
-		bool const clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 		if (rendered)
 		{
 			drawList->AddImage(ImGuiRenderer::GetTextureID(m_Renderer->GetFinalImage()), imageMin, imageMax);
 		}
 		else
 		{
-			char const* const message = "No camera renders the game: give an entity a Camera component marked Primary.";
+			char const* const message = m_Renderer ? "No camera renders the game: give an entity a Camera component marked Primary."
+			                                       : "Rendering is unavailable (no GPU).";
 			ImVec2 const size = ImGui::CalcTextSize(message);
 			drawList->AddText(ImVec2(origin.x + (available.x - size.x) * 0.5f, origin.y + (available.y - size.y) * 0.5f),
 			                  ImGui::GetColorU32(ImGuiCol_TextDisabled), message);
 		}
 
-		bool const playing = context.GetPlayState() == EditorPlayState::Play;
-		bool const focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-		if (!playing || !focused || clicked)
-		{
-			m_InputReleased = false;
-		}
-		if (playing && focused && ImGui::GetIO().KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
-		{
-			m_InputReleased = true;
-		}
-		m_GameInputActive = playing && focused && !m_InputReleased;
-		ImVec2 const mouse = ImGui::GetMousePos();
-		m_GameMousePosition = glm::vec2((mouse.x - imageMin.x) * static_cast<float>(layout.RenderSize.x) / layout.ImageSize.x,
-		                                (mouse.y - imageMin.y) * static_cast<float>(layout.RenderSize.y) / layout.ImageSize.y);
+		GameInputRouter::View view;
+		view.Playing = context.GetPlayState() == EditorPlayState::Play;
+		view.Focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+		view.Viewport = ImGui::GetWindowViewport()->ID;
+		view.AreaMin = glm::vec2(origin.x, origin.y);
+		view.AreaMax = view.AreaMin + available;
+		view.ImageMin = glm::vec2(imageMin.x, imageMin.y);
+		view.ImageSize = layout.ImageSize;
+		view.RenderSize = layout.RenderSize;
+		m_Input.SetView(view);
 
-		if (m_GameInputActive)
+		if (m_Input.HasInput())
 		{
 			drawList->AddRect(ImVec2(origin.x + 1.0f, origin.y + 1.0f),
 			                  ImVec2(origin.x + available.x - 1.0f, origin.y + available.y - 1.0f), ActiveFrameColor, 0.0f, 2.0f);
 		}
 		ImGui::End();
+	}
+
+	GLFWwindow* GameViewPanel::GetPlatformWindow() const
+	{
+		if (m_Window == nullptr || m_Window->Viewport == nullptr)
+		{
+			return nullptr;
+		}
+		return static_cast<GLFWwindow*>(m_Window->Viewport->PlatformHandle);
+	}
+
+	bool GameViewPanel::IsCoveredAt(glm::vec2 position) const
+	{
+		// Clicks outside a modal dialog do nothing.
+		if (m_Window == nullptr || m_Window->Viewport == nullptr || ImGui::GetTopMostPopupModal() != nullptr)
+		{
+			return true;
+		}
+		// The front-most window there among the windows of the view's viewport, as ImGui finds the hovered window; window
+		// events arrive between frames, so the windows are as the last frame showed them. Anything but the view itself (a
+		// popup, a menu, a floating panel; tooltips take no clicks) covers it.
+		ImGuiContext const& imgui = *ImGui::GetCurrentContext();
+		ImVec2 const point(position.x, position.y);
+		for (int i = imgui.Windows.Size - 1; i >= 0; i--)
+		{
+			ImGuiWindow const* const window = imgui.Windows[i];
+			bool const shown = window->Active && !window->Hidden && (window->Flags & ImGuiWindowFlags_NoMouseInputs) == 0;
+			if (shown && window->Viewport == m_Window->Viewport && window->OuterRectClipped.Contains(point))
+			{
+				return window->RootWindow != m_Window;
+			}
+		}
+		return true;
 	}
 
 	void GameViewPanel::DrawToolbar(EditorContext const& context)
@@ -241,7 +284,7 @@ namespace Strada
 		// The state of the previous frame: the image is laid out after the toolbar.
 		ImGui::TextDisabled("%u x %u", m_RenderSize.x, m_RenderSize.y);
 		ImGui::SameLine();
-		if (m_GameInputActive)
+		if (m_Input.HasInput())
 		{
 			ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), "The game has the input - Shift+Esc releases it");
 		}

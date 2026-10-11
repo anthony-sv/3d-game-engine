@@ -253,6 +253,15 @@ namespace Strada
 		s_Data.MousePosition = position;
 	}
 
+	void Input::WarpMousePosition(glm::vec2 position)
+	{
+		// Shifting the frame's starting point with the cursor keeps the delta moved so far and adds nothing for the jump.
+		s_Data.MousePositionAtFrameStart =
+			s_Data.HasMousePosition ? s_Data.MousePositionAtFrameStart + (position - s_Data.MousePosition) : position;
+		s_Data.MousePosition = position;
+		s_Data.HasMousePosition = true;
+	}
+
 	void Input::AddScrollDelta(glm::vec2 delta)
 	{
 		s_Data.ScrollDelta += delta;

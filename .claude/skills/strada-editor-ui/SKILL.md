@@ -44,6 +44,9 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   editing keys while `io.WantTextInput`; show the chord in the matching menu item. A panel with its own meaning for a
   key (Delete or F2 in the content browser) registers `ImGuiInputFlags_RouteFocused` every frame while it is focused,
   even when it has nothing to act on, so the key never falls through to the global shortcut.
+- While the game has the input (`GameInputRouter`, the ImGui layer's input filter), ImGui receives no key presses but
+  the play shortcuts and no clicks over the game view: global shortcuts need no play-mode checks, and a new shortcut that
+  must work while the game has the input goes into `GameInputRouter::RouteKeyPress` too.
 - Native dialogs: `FileDialogs::OpenFile/OpenFiles/SaveFile/PickFolder` (editor only; add the extension when it is
   missing).
 - Actions that discard the scene go through `EditorLayer::RequestSceneAction` (unsaved-changes prompt).
@@ -51,7 +54,7 @@ directly: every modification goes through `EditorOperations` (undoable commands,
 ## Tests
 
 - Logic: plain doctest cases in `Tests/StradaEditorTests`.
-- Widgets and panels: the headless ImGui fixture in `PanelTests.cpp` (null backends, 1920x1080 display) draws panels
+- Widgets and panels: the headless ImGui fixture (`HeadlessImGui.h`: null backends, 1920x1080 display) draws panels
   for a few frames; assert that drawing alone changes nothing (undo count, serialized scene, files) and drive inputs
   with `SetKeyboardFocusHere`, typed characters, key events and `HeadlessImGui::Drag` (a real mouse drag between two
   screen points; place panels with `SetNextWindowPos/Size` and find positions from `ImGuiWindow` data).

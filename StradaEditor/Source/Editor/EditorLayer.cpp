@@ -76,6 +76,19 @@ namespace Strada
 			}
 			return false;
 		}
+
+		// Whether a GLFW window still shows one of ImGui's viewports (a panel's own window closes when it docks back).
+		bool IsPlatformWindow(GLFWwindow* window)
+		{
+			for (ImGuiViewport const* viewport : ImGui::GetPlatformIO().Viewports)
+			{
+				if (viewport->PlatformHandle == window)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
 	}
 
 	EditorLayer::EditorLayer(EditorLayerSpecification specification)
@@ -146,11 +159,25 @@ namespace Strada
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;
 
-		if (application.GetImGuiLayer() != nullptr)
+		if (ImGuiLayer* const imgui = application.GetImGuiLayer())
 		{
 			m_ViewportPanel = CreateScope<ViewportPanel>();
-			m_GameViewPanel = CreateScope<GameViewPanel>();
-			m_ConsolePanel.SetFont(application.GetImGuiLayer()->GetMonospaceFont());
+			m_GameViewPanel = CreateScope<GameViewPanel>(m_GameInput);
+			// Every keyboard and mouse event of the editor's windows is shared out between the editor and the game here, and
+			// the cursor the game asks for shows while it has the input.
+			imgui->SetInputFilter(
+				[this](Event const& event, ImGuiLayer::InputContext const& context)
+				{
+					return m_GameInput.Route(event, context);
+				});
+			m_GameInput.SetShortcutsUseSuper(ImGui::GetIO().ConfigMacOSXBehaviors);
+			m_GameInput.SetGameCursorMode(Input::GetCursorMode());
+			Input::SetCursorModeHandler(
+				[this](CursorMode mode)
+				{
+					m_GameInput.SetGameCursorMode(mode);
+				});
+			m_ConsolePanel.SetFont(imgui->GetMonospaceFont());
 			m_HierarchyPanel.SetFocusCallback(
 				[this](UUID entity)
 				{
@@ -239,6 +266,24 @@ namespace Strada
 	{
 		// Scripts get OnDestroy while every system is still up.
 		m_PlayMode.Stop();
+		if (m_GameViewPanel != nullptr)
+		{
+			// The ImGui layer detached first (overlays go first); cursor modes go back to the main window directly, as the
+			// application set them up.
+			if (ImGuiLayer* const imgui = Application::Get().GetImGuiLayer())
+			{
+				imgui->SetInputFilter({});
+			}
+			Input::SetCursorModeHandler({});
+			if (Window* const window = Application::Get().GetWindow())
+			{
+				Input::SetCursorModeHandler(
+					[window](CursorMode mode)
+					{
+						window->SetCursorMode(mode);
+					});
+			}
+		}
 		m_ProjectSettingsPanel.Flush(m_Operations);
 		m_BuildGameDialog.Flush(m_Operations);
 		m_AutomationServer.Stop();
@@ -251,6 +296,8 @@ namespace Strada
 
 	void EditorLayer::OnUpdate(Timestep timestep)
 	{
+		// What the game gave back last frame is released before anything reads or injects this frame's input.
+		m_GameInput.BeginFrame();
 		WatchParentProcess();
 		m_AutomationServer.ProcessRequests();
 		UpdateInstanceFile();
@@ -260,7 +307,6 @@ namespace Strada
 		{
 			m_AssetAutoRefresh.Update(IsEditorFocused(), !m_Export.IsRunning(), m_Operations);
 		}
-		UpdateGameInput();
 		m_PlayMode.Update(timestep);
 		// The edited scene previews its particle systems in the views (playing scenes run their own).
 		if (!m_Context.IsPlaying() && Application::Get().GetImGuiLayer() != nullptr)
@@ -313,6 +359,11 @@ namespace Strada
 		{
 			m_GameViewPanel->OnImGuiRender(m_Context, m_ShowGameView);
 		}
+		else
+		{
+			// A closed game view takes no input.
+			m_GameInput.SetView({});
+		}
 		if (m_ShowHierarchy)
 		{
 			m_HierarchyPanel.OnImGuiRender(m_Operations, m_ShowHierarchy);
@@ -357,6 +408,7 @@ namespace Strada
 		DrawNewProjectPopup();
 		DrawNewScriptPopup();
 		m_BuildGameDialog.OnImGuiRender(m_Operations, m_Export);
+		UpdateGameCursor();
 		UpdateWindowTitle();
 	}
 
@@ -988,8 +1040,9 @@ namespace Strada
 		}
 		if (state == EditorPlayState::Play && m_GameViewPanel != nullptr)
 		{
+			// The game view comes forward with the input.
 			m_ShowGameView = true;
-			m_GameViewPanel->RequestFocus();
+			m_GameInput.Grant();
 		}
 		else if (state == EditorPlayState::Edit && m_FollowedPlayState == EditorPlayState::Play && m_ViewportPanel != nullptr &&
 		         m_ShowViewport)
@@ -1022,24 +1075,35 @@ namespace Strada
 		return glm::uvec2(1280, 720);
 	}
 
-	void EditorLayer::UpdateGameInput()
+	void EditorLayer::UpdateGameCursor()
 	{
-		bool const active = m_PlayMode.IsPlaying() && m_GameViewPanel != nullptr && m_GameViewPanel->IsGameInputActive();
-		if (ImGuiLayer* const imgui = Application::Get().GetImGuiLayer())
+		// A hidden or locked cursor shows on the window the game view is in, and ImGui leaves cursors alone meanwhile.
+		CursorMode const mode = m_GameInput.GetCursorMode();
+		GLFWwindow* const window =
+			mode != CursorMode::Normal && m_GameViewPanel != nullptr ? m_GameViewPanel->GetPlatformWindow() : nullptr;
+		if (mode == m_GameCursorMode && window == m_GameCursorWindow)
 		{
-			imgui->SetBlockEvents(!active);
+			return;
 		}
-		if (active)
+		if (m_GameCursorWindow != nullptr && IsPlatformWindow(m_GameCursorWindow))
 		{
-			// Window events placed the cursor in window coordinates; the game reads game-view pixels.
-			Input::SetMousePosition(m_GameViewPanel->GetGameMousePosition());
+			Window::ApplyCursorMode(m_GameCursorWindow, CursorMode::Normal);
 		}
-		else if (m_GameInputWasActive)
+		if (window != nullptr)
 		{
-			// Keys held as the game view lost focus would otherwise stay down.
-			Input::ReleaseAll();
+			Window::ApplyCursorMode(window, mode);
 		}
-		m_GameInputWasActive = active;
+		m_GameCursorWindow = window;
+		m_GameCursorMode = window != nullptr ? mode : CursorMode::Normal;
+		ImGuiIO& io = ImGui::GetIO();
+		if (window != nullptr)
+		{
+			io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+		}
+		else
+		{
+			io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+		}
 	}
 
 	std::string EditorLayer::GetExportStatus() const

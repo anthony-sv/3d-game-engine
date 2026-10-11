@@ -36,6 +36,7 @@ add_executable(StradaTests
     Source/Core/WindowTests.cpp
     Source/Fuzzing.h
     Source/GpuTestUtilities.h
+    Source/ImGui/ImGuiLayerTests.cpp
     Source/Math/AABBTests.cpp
     Source/Math/FrustumTests.cpp
     Source/Math/MathTests.cpp
