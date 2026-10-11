@@ -41,15 +41,16 @@ namespace Strada
 		inline constexpr glm::vec4 LightColor = glm::vec4(1.0f, 0.85f, 0.3f, 1.0f);
 		inline constexpr glm::vec4 ColliderColor = glm::vec4(0.35f, 1.0f, 0.45f, 1.0f);
 		inline constexpr glm::vec4 TriggerColor = glm::vec4(0.35f, 0.8f, 1.0f, 1.0f);
+		inline constexpr glm::vec4 CharacterColor = glm::vec4(0.65f, 0.5f, 1.0f, 1.0f);
 		inline constexpr glm::vec4 JointColor = glm::vec4(1.0f, 0.4f, 0.9f, 1.0f);
 		// Length of the drawn hinge and slider axes, and size of the anchor's cross.
 		inline constexpr float JointAxisLength = 0.6f;
 		inline constexpr float JointAnchorSize = 0.1f;
 
 		// Shapes of an entity's camera, lights, colliders and joint (the kinds in shapes): camera frustums up to
-		// CameraFrustumLength, light directions, ranges and cones, collider outlines, and the joint's anchor (a cross), its
-		// hinge or slider axis and a line to where it joins the connected body (or the world). aspectRatio is used by
-		// cameras without a fixed aspect ratio.
+		// CameraFrustumLength, light directions, ranges and cones, collider outlines (a character controller's upright
+		// capsule among them), and the joint's anchor (a cross), its hinge or slider axis and a line to where it joins the
+		// connected body (or the world). aspectRatio is used by cameras without a fixed aspect ratio.
 		void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines,
 		                        uint32_t shapes = Shapes::All);
 	}

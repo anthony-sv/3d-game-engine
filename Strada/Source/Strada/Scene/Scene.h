@@ -163,20 +163,20 @@ namespace Strada
 
 		// --- Runtime ---
 
-		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody), a sound for every
-		// audio source with a clip (playing when PlayOnStart is set) and a script instance for every Script component whose
-		// class the loaded game assembly has (all are created, then OnCreate runs for each); sounds and scripts only when
-		// the settings ask for them. Bodies, sounds and scripts
-		// follow component changes while running. Requires PhysicsSystem, AudioEngine and ScriptEngine (without them the
-		// scene runs without physics, audio or scripts, logged); stop the runtime or destroy the scene before shutting them
-		// down. One scene runs scripts at a time.
+		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody), a character for
+		// every CharacterController (instead of a body), a sound for every audio source with a clip (playing when PlayOnStart
+		// is set) and a script instance for every Script component whose class the loaded game assembly has (all are
+		// created, then OnCreate runs for each); sounds and scripts only when the settings ask for them. Bodies, characters,
+		// sounds and scripts follow component changes while running. Requires PhysicsSystem, AudioEngine and ScriptEngine
+		// (without them the scene runs without physics, audio or scripts, logged); stop the runtime or destroy the scene
+		// before shutting them down. One scene runs scripts at a time.
 		void OnRuntimeStart(SceneRuntimeSettings const& settings = {});
 		// Calls OnDestroy on every script, then stops the audio and physics.
 		void OnRuntimeStop();
 		// Advances the runtime: scripts' OnUpdate, fixed steps (scripts' OnFixedUpdate, then physics: kinematic bodies follow
-		// their transforms, moved static and dynamic bodies teleport, dynamic bodies write their transforms back), contact
-		// events to scripts, audio (sources and the listener follow their entities), then deferred entity destruction
-		// (destroyed scripts get OnDestroy).
+		// their transforms, moved static and dynamic bodies and characters teleport, characters move, dynamic bodies and
+		// characters write their positions back), contact events to scripts, audio (sources and the listener follow their
+		// entities), then deferred entity destruction (destroyed scripts get OnDestroy).
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -199,9 +199,13 @@ namespace Strada
 		float GetTimeScale() const { return m_TimeScale; }
 		// Negative and non-finite scales are ignored.
 		void SetTimeScale(float scale);
-		// Creates and rebuilds the bodies of physics components changed since the last step. The runtime does it before
-		// each update; script calls on bodies do it first, so a body added this frame takes forces at once.
+		// Creates and rebuilds the bodies and characters of physics components changed since the last step. The runtime does
+		// it before each update; script calls on bodies and characters do it first, so a body added this frame takes forces
+		// at once.
 		void ApplyPhysicsChanges();
+		// Places an entity with a CharacterController at a world position at once, keeping its rotation and scale, and stops
+		// its character, which finds what it stands on there.
+		void TeleportCharacter(Entity entity, glm::vec3 const& position);
 		// Control the sound of an entity's AudioSource while running, bringing it up to date with the component first (a
 		// clip set this frame plays). Without a running audio scene or a playable clip they do nothing.
 		void PlayAudioSource(Entity entity);
@@ -277,6 +281,11 @@ namespace Strada
 		// Makes every joint again from the components and where the bodies are now.
 		void RebuildJoints();
 		void ConnectPhysicsSignals(bool connect);
+		// Creates, changes or removes the character of an entity after its CharacterController (or scale) changed.
+		void UpdateCharacter(entt::entity handle);
+		void SyncCharactersFromTransforms();
+		void WriteCharacterTransforms();
+		void OnCharacterComponentChanged(entt::registry& registry, entt::entity handle);
 
 		// Audio runtime (SceneAudio.cpp).
 		struct AudioSourceState;
@@ -351,6 +360,16 @@ namespace Strada
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		// A joint or a body changed: the joints are made again before the next step.
 		bool m_JointsChanged = false;
+		// The world position and scale last exchanged with an entity's character (to tell transform edits from movement).
+		struct CharacterSyncState
+		{
+			UUID Entity = UUID::Invalid();
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::vec3 Scale = glm::vec3(1.0f);
+		};
+		std::unordered_map<entt::entity, CharacterSyncState> m_Characters;
+		// Entities whose CharacterController changed while running; their characters are updated before the next step.
+		std::unordered_set<entt::entity> m_ChangedCharacters;
 		std::vector<ContactEvent> m_ContactEvents;
 
 		// The component settings an entity's sound was last updated with (to apply changes made while running).

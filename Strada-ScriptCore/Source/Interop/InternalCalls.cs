@@ -212,6 +212,31 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, float*, void> JointComponent_GetMotorMaxForce;
 	internal static delegate* unmanaged<ulong, float*, void> JointComponent_SetMotorMaxForce;
 
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_GetRadius;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_SetRadius;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_GetHeight;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_SetHeight;
+	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_GetOffset;
+	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_SetOffset;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_GetStepHeight;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_SetStepHeight;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_GetMaxSlopeAngle;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_SetMaxSlopeAngle;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_GetMass;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_SetMass;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_GetPushForce;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_SetPushForce;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_GetGravityFactor;
+	internal static delegate* unmanaged<ulong, float*, void> CharacterControllerComponent_SetGravityFactor;
+	internal static delegate* unmanaged<ulong, uint*, void> CharacterControllerComponent_GetLayer;
+	internal static delegate* unmanaged<ulong, uint*, void> CharacterControllerComponent_SetLayer;
+	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_Move;
+	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_GetVelocity;
+	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_SetVelocity;
+	internal static delegate* unmanaged<ulong, byte> CharacterControllerComponent_IsGrounded;
+	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_GetGroundNormal;
+	internal static delegate* unmanaged<ulong, Vector3*, void> CharacterControllerComponent_Teleport;
+
 	internal static delegate* unmanaged<ulong, ulong*, void> AudioSourceComponent_GetClip;
 	internal static delegate* unmanaged<ulong, ulong*, void> AudioSourceComponent_SetClip;
 	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_GetVolume;

@@ -308,6 +308,30 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	// Ball joints to the world have only the cross.
 	REQUIRE(operations.SetComponentFields(door, "Joint", Json::object({{"Type", "Ball"}, {"ConnectedEntity", "0"}})).IsOk());
 	CHECK(shapes(door).size() == 3);
+
+	// Characters: the capsule the physics makes, upright however the entity turns, offset and scaled with it, and drawn
+	// through the model around it.
+	UUID const hero = CreateEntity(
+		operations, "Hero", UUID::Invalid(),
+		Json::object({{"CharacterController", Json::object({{"Offset", {0, 0.5, 0}}})},
+	                  {"Transform", Json::object({{"Translation", {0, 0, 4}}, {"RotationEuler", {0, 0, 90}}, {"Scale", {2, 2, 2}}})}}));
+	std::vector<OverlayLine> const capsule = shapes(hero);
+	CHECK(capsule.size() == 2 * ViewportOverlays::CircleSegments + 4 + 2 * ViewportOverlays::CircleSegments);
+	AABB capsuleBounds;
+	for (OverlayLine const& line : capsule)
+	{
+		capsuleBounds.Expand(line.From);
+		capsuleBounds.Expand(line.To);
+		CHECK(line.Color == ViewportOverlays::CharacterColor);
+		CHECK_FALSE(line.DepthTest);
+	}
+	CHECK(NearlyEqual(capsuleBounds.Min, {-1.0f, -1.0f, 3.0f}, 1e-3f));
+	CHECK(NearlyEqual(capsuleBounds.Max, {1.0f, 3.0f, 5.0f}, 1e-3f));
+	// They are colliders: the scene view's every-collider overlay shows them too.
+	std::vector<OverlayLine> colliderLines;
+	ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(hero), 16.0f / 9.0f, colliderLines,
+	                                     ViewportOverlays::Shapes::Colliders);
+	CHECK(colliderLines.size() == capsule.size());
 }
 
 TEST_CASE("GameViewPanel: the game's image keeps the chosen size or aspect ratio and is centered")

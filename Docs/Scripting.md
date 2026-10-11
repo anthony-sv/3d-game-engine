@@ -249,6 +249,64 @@ public class Windmill : Script
 }
 ```
 
+### Characters
+
+Players and walking creatures use a `CharacterControllerComponent` (Entity > Physics > Character makes one with a
+capsule mesh) instead of a rigid body and colliders: an upright capsule (`Radius`, `Height`, its center at `Offset` from
+the entity) that your script moves. `Move(velocity)` walks it at a velocity during the next physics step, so call it from
+`OnFixedUpdate` every step it should move; it slides along walls, climbs steps up to `StepHeight` and slopes up to
+`MaxSlopeAngle`, slides down steeper ones, rides moving platforms and pushes dynamic bodies with up to `PushForce`
+newtons. Gravity acts on top of it: `IsGrounded` tells whether it stands on walkable ground (`GroundNormal` is the
+ground's normal), and `Velocity` is its own velocity (falling, jumping), which you set to jump. `Teleport(position)`
+places it and stops it. The entity follows the capsule, which does not turn with it, so the script turns the entity
+freely. Triggers notice characters (`OnTriggerEnter` on both sides), and raycasts hit them.
+
+A first-person controller: the character entity has a child, `Head`, with the camera at eye height.
+
+```csharp
+public class FirstPersonController : Script
+{
+	public float Speed = 5.0f;
+	public float JumpSpeed = 5.0f;
+	public float MouseSensitivity = 0.15f;
+	public Entity? Head;
+
+	private float m_Pitch;
+	private bool m_Jump;
+
+	protected override void OnCreate()
+	{
+		Input.CursorMode = CursorMode.Locked;
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		// Look around: the body turns left and right, the head up and down.
+		Vector2 mouse = Input.MouseDelta * MouseSensitivity;
+		Transform.EulerAngles += new Vector3(0.0f, -mouse.X, 0.0f);
+		m_Pitch = Mathf.Clamp(m_Pitch - mouse.Y, -85.0f, 85.0f);
+		Head!.Transform.EulerAngles = new Vector3(m_Pitch, 0.0f, 0.0f);
+		// Key presses last one frame: remember the jump for the next physics step.
+		m_Jump |= Input.IsKeyPressed(KeyCode.Space);
+	}
+
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		CharacterControllerComponent character = GetComponent<CharacterControllerComponent>()!;
+		Vector3 direction = (Transform.Forward * Axis(KeyCode.W, KeyCode.S)) + (Transform.Right * Axis(KeyCode.D, KeyCode.A));
+		character.Move(direction.Normalized * Speed);
+		if (m_Jump && character.IsGrounded)
+		{
+			character.Velocity = new Vector3(0.0f, JumpSpeed, 0.0f);
+		}
+		m_Jump = false;
+	}
+
+	private static float Axis(KeyCode positive, KeyCode negative) =>
+		(Input.IsKeyDown(positive) ? 1.0f : 0.0f) - (Input.IsKeyDown(negative) ? 1.0f : 0.0f);
+}
+```
+
 ## Spawning and destroying
 
 Prefabs are entities saved with their children (Create Prefab in the hierarchy's context menu). Spawn them with

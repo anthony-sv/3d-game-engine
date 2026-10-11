@@ -615,13 +615,33 @@ namespace
 			CHECK_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
 		}
 
+		// While playing, the simulation moves characters and dynamic bodies between commands: where they are is not part of
+		// the history (redoing an entity's creation places it where it was created).
+		Json WithoutSimulatedPoses(Json scene) const
+		{
+			if (!Play.IsPlaying())
+			{
+				return scene;
+			}
+			for (Json& entity : scene["Entities"])
+			{
+				Json& components = entity["Components"];
+				bool const dynamic = components.contains("RigidBody") && components["RigidBody"].value("Type", "") == "Dynamic";
+				if (dynamic || components.contains("CharacterController"))
+				{
+					components.erase("Transform");
+				}
+			}
+			return scene;
+		}
+
 		// Undoing every step, then redoing them all, brings the scene back (once what was undone before is redone).
 		bool CheckHistory()
 		{
 			while (Run("editor.redo").IsOk())
 			{
 			}
-			Json const edited = Ok("scene.dump");
+			Json const edited = WithoutSimulatedPoses(Ok("scene.dump"));
 			int undone = 0;
 			while (Run("editor.undo").IsOk())
 			{
@@ -633,7 +653,7 @@ namespace
 			{
 				redone++;
 			}
-			Json const restored = Ok("scene.dump");
+			Json const restored = WithoutSimulatedPoses(Ok("scene.dump"));
 			CHECK(redone == undone);
 			CHECK(restored == edited);
 			return redone == undone && restored == edited;

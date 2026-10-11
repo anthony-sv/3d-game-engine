@@ -170,6 +170,14 @@ namespace Strada
 			                                             {"EndColor", Json::array({1.0, 0.3, 0.05, 0.0})},
 			                                             {"Intensity", 6.0}}));
 			 }},
+			// The controller's default capsule is the built-in capsule mesh's: what is drawn is what collides.
+			{"Physics", "Character", "Character",
+		     []
+		     {
+				 Json components = MeshComponents(BuiltInAsset::CapsuleMesh);
+				 components["CharacterController"] = Json::object();
+				 return components;
+			 }},
 		});
 	}
 

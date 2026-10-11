@@ -395,6 +395,43 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<CharacterControllerComponent>
+	{
+		static constexpr std::string_view Name = "CharacterController";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description =
+			"Makes the entity a character that scripts move (players, creatures): an upright capsule that walks, climbs steps and slopes, "
+			"falls, rides what it stands on and pushes dynamic bodies.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Radius", &CharacterControllerComponent::Radius).AtLeast(0.01).Doc("Radius of the capsule in meters."),
+			Field("Height", &CharacterControllerComponent::Height)
+				.AtLeast(0.01)
+				.Doc("Height of the whole capsule in meters, rounded ends included; below twice the radius it is a sphere."),
+			Field("Offset", &CharacterControllerComponent::Offset)
+				.Doc(
+					"Center of the capsule relative to the entity, in meters (scaled with the entity; the capsule does not turn with it)."),
+			Field("StepHeight", &CharacterControllerComponent::StepHeight)
+				.AtLeast(0.0)
+				.Doc("The highest step the character climbs, and the deepest drop it walks down without leaving the ground, in meters."),
+			Field("MaxSlopeAngle", &CharacterControllerComponent::MaxSlopeAngle)
+				.Range(1.0, 89.0)
+				.AsAngle()
+				.Doc("The steepest slope the character walks up, in degrees; it slides down steeper ones."),
+			Field("Mass", &CharacterControllerComponent::Mass)
+				.AtLeast(0.0)
+				.Doc("Kilograms with which the character weighs on what it stands on."),
+			Field("PushForce", &CharacterControllerComponent::PushForce)
+				.AtLeast(0.0)
+				.Doc("The largest force, in newtons, with which the character pushes dynamic bodies; 0 leaves them where they are."),
+			Field("GravityFactor", &CharacterControllerComponent::GravityFactor)
+				.Range(0.0, 1000.0)
+				.Doc("Multiplier of the scene's gravity; 0 lets scripts fly the character (ladders, swimming)."),
+			Field("Layer", &CharacterControllerComponent::Layer)
+				.Range(0.0, 15.0)
+				.Doc("Physics layer index as configured in the project settings."));
+	};
+
+	template<>
 	struct ComponentTraits<AudioSourceComponent>
 	{
 		static constexpr std::string_view Name = "AudioSource";
@@ -546,6 +583,6 @@ namespace Strada
 		ComponentList<IDComponent, TagComponent, TransformComponent, RelationshipComponent, CameraComponent, MeshComponent,
 	                  DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, RigidBodyComponent,
 	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, JointComponent,
-	                  AudioSourceComponent, AudioListenerComponent, ScriptComponent, TextComponent, SpriteRendererComponent,
-	                  ParticleSystemComponent, PrefabComponent>;
+	                  CharacterControllerComponent, AudioSourceComponent, AudioListenerComponent, ScriptComponent, TextComponent,
+	                  SpriteRendererComponent, ParticleSystemComponent, PrefabComponent>;
 }

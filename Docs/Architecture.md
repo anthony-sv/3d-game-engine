@@ -368,6 +368,7 @@ interop component lookups.
 | `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
+| `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
 | `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
@@ -394,7 +395,8 @@ light (they bloom when bright) and are never picked; alpha sprites cover what is
 premultiplied colors, so both kinds share it.
 
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
-entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes.
+entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes. A `CharacterController`
+makes the entity a character instead (§8): its colliders and `RigidBody` are left out, with a warning.
 
 ### 7.3 Serialization formats (JSON, written with tabs, keys in stable order)
 
@@ -471,6 +473,32 @@ when it starts and makes them all again whenever a joint component or a body cha
 joints); a joint whose connected entity no longer exists is left out without a warning (a broken chain), while one
 whose connected entity has no body is logged. Duplicates and prefab instances remap `ConnectedEntity`. The scene view
 draws a selected joint's anchor, axis and connection.
+
+Characters (`CharacterDesc`, `PhysicsScene::AddCharacter`) are Jolt `CharacterVirtual`s: upright capsules (a sphere
+when the height is below twice the radius) that games move instead of the simulation. An entity has a body or a
+character; adding one replaces the other. Each step moves the characters first, in the order of their entities' IDs,
+then simulates the bodies. A character has a velocity of its own: on walkable ground (`MaxSlopeAngle`) its feet stop it
+and the ground carries it (moving platforms), gravity (times `GravityFactor`) only presses it against the ground, so it
+does not creep down slopes; elsewhere gravity speeds it up, so it falls and slides down slopes too steep to stand on. An
+upward velocity of its own jumps (it keeps the ground's velocity); after the step, the part of it that moved into what
+the character hit is removed (landing, ceilings, walls). `MoveCharacter` adds a walking velocity for the next step only.
+`ExtendedUpdate` slides it along what it hits, cancels walking up steep slopes, climbs steps up to `StepHeight` and keeps
+it on the ground over drops up to `StepHeight` (walking down stairs and slopes); its rounded bottom rolls over edges,
+which are too steep to stand on for a step or two. It pushes the dynamic bodies it walks into with at most `PushForce`
+newtons and weighs `Mass` on what it stands on. A kinematic inner body, larger by the 2 cm the character keeps from what
+it touches, gives it presence: raycasts hit it, dynamic bodies land on it, other characters are blocked by it, and it
+reports contacts with static and kinematic bodies like kinematic bodies do, so triggers notice it and its scripts get
+collision and trigger callbacks. Trigger colliders never block characters (a shape filter skips them). Reshaping or
+moving a character keeps its velocity and refreshes what it stands on; refused descriptions (values that are not finite,
+capsules larger than the world allows) leave the entity without one; speeds are kept within 500 m/s.
+
+The scene makes a character for each `CharacterController` when it starts, places its capsule at the entity's world
+position plus `Offset` (both scaled with the entity, the radius by the larger horizontal scale; the capsule does not
+turn with the entity, which scripts rotate freely), and changes it in place when the component or the entity's scale
+changes. Before each step, an entity moved by a script, the editor or its parent teleports its character (keeping its
+velocity); after it, moved characters write their positions back (parents first, keeping the entity's rotation and
+scale). Removing the component or destroying the entity removes the character. `Scene::TeleportCharacter` places the
+entity and stops its character at once. The scene view draws a selected character's capsule (with the colliders).
 
 Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
 `PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin
@@ -573,6 +601,8 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `LinearDamping`, `AngularDamping`, `AddForce(Vector3, ForceMode)`, `AddTorque(Vector3, ForceMode)`,
   `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
+  `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
+  `GroundNormal`, `Teleport(Vector3)`),
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
   `Emit(count)`, `Clear()`, `ParticleCount`), `ScriptComponent` (`ClassName`, `Instance`).
@@ -596,11 +626,15 @@ Semantics: components are views (`GetComponent<T>()` makes no copy) whose proper
 component through typed bindings (`<Component>_Get<Field>`/`_Set<Field>`, generated from member pointers); writes go
 through the registry, so systems watching a component (physics) see them. While the scene runs, `RigidBodyComponent`
 velocities, forces, sleep, `MoveKinematic` and `Teleport` act on the simulated body (bodies of components added that
-frame are created first; `Type`, `Mass` and `Layer` rebuild it), and `AudioSourceComponent` playback acts on the
-entity's sound, brought up to date with the component first. Entity lookups (`FindByName`, `FindByID`, `Parent`,
-`Children`, contacts, raycast hits) return the script instance of scripted entities. `Time.TimeScale` scales script
-and physics time, not sounds. Asset references are typed (`Mesh`, `Material`, `Texture`, `AudioClip`, `Font`,
-`EnvironmentMap` (not `Environment`, which clashes with `System.Environment`), `Prefab`). Calls without a running scene
+frame are created first; `Type`, `Mass` and `Layer` rebuild it), `CharacterControllerComponent.Move` (the walking
+velocity of the next physics step; call it from `OnFixedUpdate`), `Velocity` (the character's own: falling, jumping),
+`IsGrounded`, `GroundNormal` and `Teleport` act on the entity's character (fields change it before the next step;
+without a simulated character the reads are a character at rest and `Move` and setting `Velocity` are logged), and
+`AudioSourceComponent` playback acts on the entity's sound, brought up to date with the component first. Entity
+lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
+entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
+`Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
+`Prefab`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
