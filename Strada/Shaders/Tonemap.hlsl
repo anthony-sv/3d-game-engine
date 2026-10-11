@@ -1,4 +1,5 @@
-// Maps exposed HDR radiance to display values: bloom mix, tone curve, dithering, sRGB encoding into an 8-bit UNORM target.
+// Maps exposed HDR radiance to display values: chromatic aberration, bloom mix, color grading, tone curve, vignette, film
+// grain, dithering, sRGB encoding into an 8-bit UNORM target. Every effect is neutral at its default.
 
 #include "Include/Common.hlsli"
 #include "Include/RendererInterop.h"
@@ -87,15 +88,46 @@ float3 TonemapPBRNeutralCurve(float3 color)
 	return lerp(color, newPeak.xxx, g);
 }
 
+// Contrast around middle gray in log space, saturation around the luminance, white balance and the color filter.
+float3 GradeColor(float3 color)
+{
+	static const float MiddleGray = 0.18;
+	if (g_Tonemap.Contrast != 1.0)
+	{
+		color = MiddleGray * pow(max(color, 1e-6) / MiddleGray, g_Tonemap.Contrast);
+	}
+	float luminance = Luminance(color);
+	color = max(lerp(luminance.xxx, color, g_Tonemap.Saturation), 0.0);
+	// Temperature trades blue for red and orange, tint trades green for magenta; the luminance stays about the same.
+	float3 balance = float3(1.0 + 0.2 * g_Tonemap.Temperature + 0.1 * g_Tonemap.Tint, 1.0 - 0.2 * g_Tonemap.Tint,
+	                        1.0 - 0.3 * g_Tonemap.Temperature + 0.1 * g_Tonemap.Tint);
+	return color * balance * g_Tonemap.ColorFilter;
+}
+
 float4 PSMain(FullscreenVertexOutput input) : SV_Target0
 {
-	float3 color = max(g_SceneColor.Load(int3(input.Position.xy, 0)).rgb, 0.0);
+	float3 color;
+	float2 fromCenter = input.TexCoord - 0.5;
+	if (g_Tonemap.ChromaticAberration > 0.0)
+	{
+		// Red bends outwards and blue inwards, more towards the edges.
+		float2 offset = fromCenter * dot(fromCenter, fromCenter) * g_Tonemap.ChromaticAberration * 0.02;
+		color.r = g_SceneColor.SampleLevel(g_LinearClamp, input.TexCoord + offset, 0).r;
+		color.g = g_SceneColor.SampleLevel(g_LinearClamp, input.TexCoord, 0).g;
+		color.b = g_SceneColor.SampleLevel(g_LinearClamp, input.TexCoord - offset, 0).b;
+		color = max(color, 0.0);
+	}
+	else
+	{
+		color = max(g_SceneColor.Load(int3(input.Position.xy, 0)).rgb, 0.0);
+	}
 	if (g_Tonemap.BloomIntensity > 0.0)
 	{
 		// Energy-conserving mix: bloom redistributes light instead of adding it.
 		color = lerp(color, g_Bloom.SampleLevel(g_LinearClamp, input.TexCoord, 0).rgb * g_Tonemap.BloomNormalization,
 		             g_Tonemap.BloomIntensity);
 	}
+	color = GradeColor(color);
 	switch (g_Tonemap.Operator)
 	{
 		case TonemapACES:
@@ -114,7 +146,24 @@ float4 PSMain(FullscreenVertexOutput input) : SV_Target0
 			break;
 	}
 
-	float3 encoded = LinearToSrgb(saturate(color));
+	color = saturate(color);
+	if (g_Tonemap.Vignette > 0.0)
+	{
+		// Corners are about 0.7 from the center; the falloff starts sooner the smoother it is.
+		float distance = length(fromCenter) * 1.414;
+		float falloff = smoothstep(1.0 - g_Tonemap.VignetteSmoothness, 1.0 + 0.2 * g_Tonemap.VignetteSmoothness, distance);
+		color *= 1.0 - g_Tonemap.Vignette * falloff;
+	}
+
+	float3 encoded = LinearToSrgb(color);
+	if (g_Tonemap.FilmGrain > 0.0)
+	{
+		// Grain shows most in the mid-tones.
+		float2 seed = input.Position.xy + float(g_Tonemap.Frame % 64u) * float2(47.0, 113.0);
+		float grain = InterleavedGradientNoise(seed) - 0.5;
+		float midtones = 1.0 - abs(Luminance(encoded) * 2.0 - 1.0);
+		encoded += grain * g_Tonemap.FilmGrain * 0.15 * (0.4 + 0.6 * midtones);
+	}
 	if (g_Tonemap.Dither != 0)
 	{
 		// Triangular-distributed noise of one 8-bit step removes banding in gradients.

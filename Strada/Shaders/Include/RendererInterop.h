@@ -173,6 +173,18 @@ struct TonemapConstants
 	float BloomIntensity;
 	// 1 / number of bloom levels: the upsample chain sums every level into the first.
 	float BloomNormalization;
+	// Color grading (SceneRendererSettings).
+	float Contrast;
+	float Saturation;
+	float Temperature;
+	float Tint;
+	float3 ColorFilter;
+	float Vignette;
+	float VignetteSmoothness;
+	float ChromaticAberration;
+	float FilmGrain;
+	// Changes every frame: animates the film grain.
+	uint Frame;
 };
 
 // Entity IDs (editor picking): the top bit marks selected entities, the remaining bits hold the picking ID (0 = none).

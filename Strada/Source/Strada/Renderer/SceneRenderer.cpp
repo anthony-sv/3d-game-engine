@@ -27,7 +27,7 @@ namespace Strada
 	static_assert(sizeof(ShaderInterop::ShadowConstants) == 1904);
 	static_assert(sizeof(ShaderInterop::DrawConstants) == 128, "Push constants must fit the 128 bytes Vulkan guarantees");
 	static_assert(sizeof(ShaderInterop::ShadowDrawConstants) == 128, "Push constants must fit the 128 bytes Vulkan guarantees");
-	static_assert(sizeof(ShaderInterop::TonemapConstants) == 16);
+	static_assert(sizeof(ShaderInterop::TonemapConstants) == 64);
 	static_assert(sizeof(ShaderInterop::AmbientOcclusionConstants) == 176);
 	static_assert(sizeof(ShaderInterop::BloomConstants) == 32);
 	static_assert(sizeof(ShaderInterop::FxaaConstants) == 16);
@@ -1666,6 +1666,16 @@ namespace Strada
 		tonemap.Dither = m_Settings.Dithering ? 1u : 0u;
 		tonemap.BloomIntensity = bloomIntensity;
 		tonemap.BloomNormalization = 1.0f / static_cast<float>(std::max(m_BloomMipCount, 1u));
+		tonemap.Contrast = std::clamp(m_Settings.Contrast, 0.0f, 2.0f);
+		tonemap.Saturation = std::clamp(m_Settings.Saturation, 0.0f, 2.0f);
+		tonemap.Temperature = std::clamp(m_Settings.Temperature, -1.0f, 1.0f);
+		tonemap.Tint = std::clamp(m_Settings.Tint, -1.0f, 1.0f);
+		tonemap.ColorFilter = glm::clamp(m_Settings.ColorFilter, glm::vec3(0.0f), glm::vec3(2.0f));
+		tonemap.Vignette = std::clamp(m_Settings.Vignette, 0.0f, 1.0f);
+		tonemap.VignetteSmoothness = std::clamp(m_Settings.VignetteSmoothness, 0.01f, 1.0f);
+		tonemap.ChromaticAberration = std::clamp(m_Settings.ChromaticAberration, 0.0f, 1.0f);
+		tonemap.FilmGrain = std::clamp(m_Settings.FilmGrain, 0.0f, 1.0f);
+		tonemap.Frame = m_PostFrame++;
 		commandList->setPushConstants(&tonemap, sizeof(tonemap));
 		commandList->draw(nvrhi::DrawArguments().setVertexCount(3));
 

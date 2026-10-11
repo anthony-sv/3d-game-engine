@@ -326,6 +326,8 @@ namespace Strada
 		// Half resolution with a mip chain; mip 0 holds the accumulated bloom.
 		nvrhi::TextureHandle m_BloomTexture;
 		uint32_t m_BloomMipCount = 0;
+		// Counts tonemapped frames (film grain changes with it).
+		uint32_t m_PostFrame = 0;
 		// Tonemapped image before FXAA.
 		nvrhi::TextureHandle m_LdrTarget;
 		nvrhi::TextureHandle m_FinalImage;

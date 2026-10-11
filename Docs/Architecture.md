@@ -232,8 +232,11 @@ Frame passes, in order:
    a frame or two later behind an event query, so picking never stalls the GPU.
 6. **Bloom** — half-resolution chain of up to 6 levels: 13-tap downsample with Karis average on the first level,
    3x3 tent upsample accumulating into the first level; mixed into the color (energy conserving) by intensity.
-7. **Tonemap** — exposure (EV100), operators: ACES (Hill fit), AgX, Khronos PBR Neutral, Reinhard; dithering;
-   sRGB encoding in the shader; output `RGBA8_UNORM`.
+7. **Tonemap** — chromatic aberration (red and blue sampled outwards and inwards, growing towards the edges), exposure
+   (EV100), color grading before the curve (contrast around middle gray in log space, saturation, white balance by
+   temperature and tint, a color filter), operators: ACES (Hill fit), AgX, Khronos PBR Neutral, Reinhard; then a
+   vignette, animated film grain (strongest in the mid-tones) and dithering; sRGB encoding in the shader; output
+   `RGBA8_UNORM`. Every effect is a scene renderer setting, neutral by default.
 8. **FXAA** (optional) — luma edge search on the tonemapped image.
 9. **Overlays** — world-space sprites and text are drawn into the HDR image after the transparent pass: unlit (their
     color is used as is), alpha blended, tested against the scene depth without writing it, back to front. On the

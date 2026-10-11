@@ -2,6 +2,8 @@
 
 #include "Strada/Serialization/StructSerialization.h"
 
+#include <glm/glm.hpp>
+
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -69,6 +71,21 @@ namespace Strada
 		// Fast approximate anti-aliasing after tonemapping.
 		bool FXAA = true;
 
+		// Color grading before the tone curve (neutral by default): contrast around middle gray (0-2), saturation (0
+		// grays, 2 doubles), white balance (temperature: -1 cool to 1 warm; tint: -1 green to 1 magenta) and a color
+		// filter multiplying everything.
+		float Contrast = 1.0f;
+		float Saturation = 1.0f;
+		float Temperature = 0.0f;
+		float Tint = 0.0f;
+		glm::vec3 ColorFilter = {1.0f, 1.0f, 1.0f};
+		// Lens effects: color fringes towards the edges (0-1), darkened corners (0-1, with the falloff's softness 0.01-1)
+		// and animated film grain (0-1).
+		float ChromaticAberration = 0.0f;
+		float Vignette = 0.0f;
+		float VignetteSmoothness = 0.45f;
+		float FilmGrain = 0.0f;
+
 		// Linear multiplier applied to scene radiance: 1 / (1.2 * 2^EV100).
 		float GetExposure() const { return 1.0f / (1.2f * std::exp2(EV100)); }
 
@@ -112,6 +129,25 @@ namespace Strada
 			Field("BloomIntensity", &SceneRendererSettings::BloomIntensity)
 				.Range(0.0, 1.0)
 				.Doc("Fraction of the blurred image mixed into the scene."),
-			Field("FXAA", &SceneRendererSettings::FXAA).Doc("Fast approximate anti-aliasing."));
+			Field("FXAA", &SceneRendererSettings::FXAA).Doc("Fast approximate anti-aliasing."),
+			Field("Contrast", &SceneRendererSettings::Contrast)
+				.Range(0.0, 2.0)
+				.Doc("Contrast around middle gray; 1 leaves colors unchanged."),
+			Field("Saturation", &SceneRendererSettings::Saturation)
+				.Range(0.0, 2.0)
+				.Doc("Color intensity: 0 is grayscale, 1 unchanged, 2 doubles it."),
+			Field("Temperature", &SceneRendererSettings::Temperature)
+				.Range(-1.0, 1.0)
+				.Doc("White balance from cool (-1, blue) to warm (1, orange)."),
+			Field("Tint", &SceneRendererSettings::Tint).Range(-1.0, 1.0).Doc("White balance from green (-1) to magenta (1)."),
+			Field("ColorFilter", &SceneRendererSettings::ColorFilter).Range(0.0, 2.0).AsColor().Doc("Multiplies every color."),
+			Field("ChromaticAberration", &SceneRendererSettings::ChromaticAberration)
+				.Range(0.0, 1.0)
+				.Doc("Lens color fringes that grow towards the edges of the image."),
+			Field("Vignette", &SceneRendererSettings::Vignette).Range(0.0, 1.0).Doc("Darkens the corners of the image."),
+			Field("VignetteSmoothness", &SceneRendererSettings::VignetteSmoothness)
+				.Range(0.01, 1.0)
+				.Doc("How gradually the vignette fades in from the center."),
+			Field("FilmGrain", &SceneRendererSettings::FilmGrain).Range(0.0, 1.0).Doc("Animated film grain."));
 	};
 }

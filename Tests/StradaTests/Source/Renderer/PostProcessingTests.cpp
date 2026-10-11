@@ -198,3 +198,96 @@ TEST_CASE("SceneRenderer: post-processing handles tiny and resized viewports")
 		CHECK(image.GetHeight() == size.y);
 	}
 }
+
+TEST_CASE("SceneRenderer: color grading, vignette, chromatic aberration and film grain change the image as set")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	// A wall filling the view: gray-green over most of it, red at the right (from x = 2, about 90% across), lit evenly by
+	// emission.
+	Scene scene("Grading");
+	DisablePostProcessing(scene);
+	AssetHandle const left = AddMaterial({0.0f, 0.0f, 0.0f, 1.0f}, {0.25f, 0.35f, 0.25f});
+	AssetHandle const right = AddMaterial({0.0f, 0.0f, 0.0f, 1.0f}, {0.6f, 0.05f, 0.05f});
+	Testing::AddTestMesh(scene, "Left", BuiltInAsset::CubeMesh, left, {-3.0f, 0.0f, 0.0f}, {10.0f, 10.0f, 0.1f});
+	Testing::AddTestMesh(scene, "Right", BuiltInAsset::CubeMesh, right, {7.0f, 0.0f, 0.0f}, {10.0f, 10.0f, 0.1f});
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageWidth, ImageHeight);
+	SceneRendererCamera const camera = Testing::MakeTestCamera({0.0f, 0.0f, 3.0f}, {0.0f, 0.0f, 0.0f}, ImageWidth, ImageHeight);
+	SceneRendererSettings& settings = scene.GetSettings().Renderer;
+	auto const pixel = [](Image const& image, uint32_t x, uint32_t y)
+	{
+		uint8_t const* data = image.GetPixel(x, y);
+		return glm::ivec3(data[0], data[1], data[2]);
+	};
+	glm::uvec2 const leftPixel(ImageWidth / 4, ImageHeight / 2);
+	glm::uvec2 const rightPixel(ImageWidth * 19 / 20, ImageHeight / 2);
+	uint32_t const boundary = ProjectToPixel(camera, {2.0f, 0.0f, 0.0f}).x;
+
+	Image const plain = Testing::RenderToImage(scene, camera, renderer);
+	glm::ivec3 const red = pixel(plain, rightPixel.x, rightPixel.y);
+	REQUIRE(red.r > red.g + 50);
+
+	// Saturation 0 is grayscale.
+	settings.Saturation = 0.0f;
+	glm::ivec3 const gray = pixel(Testing::RenderToImage(scene, camera, renderer), rightPixel.x, rightPixel.y);
+	CHECK(std::abs(gray.r - gray.g) <= 2);
+	CHECK(std::abs(gray.g - gray.b) <= 2);
+	settings.Saturation = 1.0f;
+
+	// Warm temperature: more red than blue in the gray-green half.
+	settings.Temperature = 1.0f;
+	glm::ivec3 const warm = pixel(Testing::RenderToImage(scene, camera, renderer), leftPixel.x, leftPixel.y);
+	glm::ivec3 const neutral = pixel(plain, leftPixel.x, leftPixel.y);
+	CHECK(warm.r > neutral.r);
+	CHECK(warm.b < neutral.b);
+	settings.Temperature = 0.0f;
+
+	// More contrast brightens what is above middle gray (the green half) and darkens what is below.
+	settings.Contrast = 1.6f;
+	CHECK(Brightness(Testing::RenderToImage(scene, camera, renderer), leftPixel.x, leftPixel.y) >
+	      Brightness(plain, leftPixel.x, leftPixel.y) + 5.0f);
+	settings.Contrast = 0.4f;
+	CHECK(Brightness(Testing::RenderToImage(scene, camera, renderer), leftPixel.x, leftPixel.y) <
+	      Brightness(plain, leftPixel.x, leftPixel.y) - 5.0f);
+	settings.Contrast = 1.0f;
+
+	// The color filter multiplies: no red light, no red.
+	settings.ColorFilter = {0.0f, 1.0f, 1.0f};
+	CHECK(pixel(Testing::RenderToImage(scene, camera, renderer), rightPixel.x, rightPixel.y).r < 5);
+	settings.ColorFilter = glm::vec3(1.0f);
+
+	// The vignette darkens the corners, not the middle.
+	settings.Vignette = 1.0f;
+	Image const vignetted = Testing::RenderToImage(scene, camera, renderer);
+	CHECK(Brightness(vignetted, 2, 2) < Brightness(plain, 2, 2) * 0.5f);
+	CHECK(Brightness(vignetted, ImageWidth / 2, ImageHeight / 2) ==
+	      doctest::Approx(Brightness(plain, ImageWidth / 2, ImageHeight / 2)).epsilon(0.05));
+	settings.Vignette = 0.0f;
+
+	// Chromatic aberration separates the channels along the color edge towards the image's border, not in the middle.
+	settings.ChromaticAberration = 1.0f;
+	Image const fringed = Testing::RenderToImage(scene, camera, renderer);
+	CHECK(pixel(fringed, ImageWidth / 2, ImageHeight / 2) == pixel(plain, ImageWidth / 2, ImageHeight / 2));
+	int changed = 0;
+	for (uint32_t x = boundary - 4; x < boundary + 4; x++)
+	{
+		changed += pixel(fringed, x, 2) != pixel(plain, x, 2) ? 1 : 0;
+	}
+	CHECK(changed > 0);
+	settings.ChromaticAberration = 0.0f;
+
+	// Film grain is noise that changes from frame to frame.
+	settings.FilmGrain = 1.0f;
+	Image const first = Testing::RenderToImage(scene, camera, renderer);
+	Image const second = Testing::RenderToImage(scene, camera, renderer);
+	int noisy = 0;
+	int animated = 0;
+	for (uint32_t x = 0; x < 40; x++)
+	{
+		noisy += pixel(first, x + 10, ImageHeight / 2) != pixel(plain, x + 10, ImageHeight / 2) ? 1 : 0;
+		animated += pixel(first, x + 10, ImageHeight / 2) != pixel(second, x + 10, ImageHeight / 2) ? 1 : 0;
+	}
+	CHECK(noisy > 20);
+	CHECK(animated > 20);
+}
