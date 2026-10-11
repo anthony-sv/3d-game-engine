@@ -215,9 +215,10 @@ namespace Strada::ViewportOverlays
 			           collider.HalfHeight * scaleY, collider.IsTrigger ? TriggerColor : ColliderColor, true);
 		}
 
-		// The character's capsule as the physics makes it: scaled with the entity but upright, not turned with it. Drawn
-		// through the character's model, which usually encloses it.
-		void AddCharacterController(std::vector<OverlayLine>& lines, glm::mat4 const& world, CharacterControllerComponent const& character)
+		// The character's capsule as the physics makes it: scaled with the entity but upright, not turned with it. A selected
+		// character's capsule is drawn through its model, which usually encloses it.
+		void AddCharacterController(std::vector<OverlayLine>& lines, glm::mat4 const& world, CharacterControllerComponent const& character,
+		                            bool selected)
 		{
 			glm::vec3 position;
 			glm::quat rotation;
@@ -230,7 +231,7 @@ namespace Strada::ViewportOverlays
 			float const radius = character.Radius * std::max(size.x, size.z);
 			float const halfHeight = std::max(0.5f * character.Height * size.y - radius, 0.0f);
 			AddCapsule(lines, position + character.Offset * scale, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}, radius,
-			           halfHeight, CharacterColor, false);
+			           halfHeight, CharacterColor, !selected);
 		}
 	}
 
@@ -317,7 +318,7 @@ namespace Strada::ViewportOverlays
 			}
 			if (CharacterControllerComponent const* character = entity.TryGetComponent<CharacterControllerComponent>())
 			{
-				AddCharacterController(lines, world, *character);
+				AddCharacterController(lines, world, *character, (shapes & Shapes::Selected) != 0);
 			}
 		}
 		if ((shapes & Shapes::Joints) != 0)

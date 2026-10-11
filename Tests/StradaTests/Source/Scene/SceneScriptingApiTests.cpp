@@ -321,6 +321,30 @@ TEST_CASE("Scene: scripts walk, jump and teleport characters")
 	CHECK(probe.GetName() == "Grounded=False;Normal=(0, 0, 0);Rising=False");
 	run(90);
 	CHECK(transform.Translation.y == doctest::Approx(1.0f).epsilon(0.01));
+
+	// Made taller than the physics world allows, it is not simulated: moving it is logged, and it reads as at rest.
+	auto const setHeight = [&scene, &probe](float height)
+	{
+		scene.GetRegistry().patch<CharacterControllerComponent>(probe.GetHandle(),
+		                                                        [height](CharacterControllerComponent& component)
+		                                                        {
+																	component.Height = height;
+																});
+	};
+	uint64_t const refusedStart = Log::GetNextEntryIndex();
+	setHeight(2.0e6f);
+	Input::SetKeyState(KeyCode::D, true);
+	run(1);
+	Input::SetKeyState(KeyCode::D, false);
+	CHECK(Testing::WasLogged(refusedStart, "the character is larger than the physics world allows"));
+	CHECK(Testing::WasLogged(refusedStart, "CharacterControllerComponent.Move: entity"));
+	CHECK(Testing::WasLogged(refusedStart, "has no character (the scene is not simulating it)"));
+	CHECK(probe.GetName() == "Grounded=False;Normal=(0, 0, 0);Rising=False");
+	// Back to a height it can simulate, it stands where it was left.
+	setHeight(2.0f);
+	run(1);
+	CHECK(scene.GetPhysicsScene()->HasCharacter(probe.GetUUID()));
+	CHECK(probe.GetName() == "Grounded=True;Normal=(0, 1, 0);Rising=False");
 	scene.OnRuntimeStop();
 }
 

@@ -29,7 +29,7 @@ namespace Strada
 		// --- Bodies ---
 
 		// Creates the body of an entity, replacing an existing one (or its character). Fails without colliders or when a
-		// shape is invalid.
+		// shape is invalid. Characters standing on a replaced or removed body find what they stand on at once.
 		[[nodiscard]] Result<void> AddBody(BodyDesc const& desc);
 		void RemoveBody(UUID entity);
 		bool HasBody(UUID entity) const;
@@ -65,11 +65,15 @@ namespace Strada
 		// Places the character's capsule center there at once (without colliding on the way), keeping its velocity, and
 		// finds what it stands on there.
 		void SetCharacterPosition(UUID entity, glm::vec3 const& position);
+		// The bodies of these entities (the character's own parts: a held object, a trigger around it) neither block the
+		// character nor touch its inner body, so they report no contacts with it; replaces the earlier list.
+		void SetCharacterIgnoredEntities(UUID entity, std::vector<UUID> entities);
 		std::optional<CharacterState> GetCharacterState(UUID entity) const;
 
 		// --- Simulation ---
 
-		// Moves the characters (in the order of their entities' IDs), then simulates the bodies.
+		// Moves the characters (in the order of their entities' IDs), carried by what they stand on, then simulates the
+		// bodies; characters standing on bodies that went down (descending platforms) then follow them down.
 		void Step(float deltaTime);
 		// Positions and rotations of the dynamic bodies that are awake.
 		std::vector<BodyTransform> GetActiveBodyTransforms() const;

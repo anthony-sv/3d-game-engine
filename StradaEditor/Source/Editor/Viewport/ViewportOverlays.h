@@ -30,6 +30,9 @@ namespace Strada
 			inline constexpr uint32_t Colliders = 1u << 2;
 			inline constexpr uint32_t Joints = 1u << 3;
 			inline constexpr uint32_t All = Cameras | Lights | Colliders | Joints;
+			// Not a kind but how they are drawn: the entity is selected, so a character controller's capsule shows through
+			// the model around it. Otherwise what is in front of the capsule hides it, as it hides other colliders.
+			inline constexpr uint32_t Selected = 1u << 4;
 		}
 
 		// Distance up to which camera frustums are drawn (their far planes are usually far away).
@@ -49,8 +52,9 @@ namespace Strada
 
 		// Shapes of an entity's camera, lights, colliders and joint (the kinds in shapes): camera frustums up to
 		// CameraFrustumLength, light directions, ranges and cones, collider outlines (a character controller's upright
-		// capsule among them), and the joint's anchor (a cross), its hinge or slider axis and a line to where it joins the
-		// connected body (or the world). aspectRatio is used by cameras without a fixed aspect ratio.
+		// capsule among them, through its model with Shapes::Selected), and the joint's anchor (a cross), its hinge or
+		// slider axis and a line to where it joins the connected body (or the world). aspectRatio is used by cameras without
+		// a fixed aspect ratio.
 		void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines,
 		                        uint32_t shapes = Shapes::All);
 	}

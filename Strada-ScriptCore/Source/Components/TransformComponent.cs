@@ -25,7 +25,9 @@ public sealed unsafe class TransformComponent : Component
 	}
 
 	/// <summary>The rotation relative to the parent as Euler angles in degrees (X, then Y, then Z), as the editor shows
-	/// them.</summary>
+	/// them. Reading gives one of several sets of angles for the rotation, with Y within ±90 degrees, so adding to the angles
+	/// read does not turn an entity all the way around: multiply <see cref="Rotation"/> by a turn instead, or keep angles of
+	/// your own and set them.</summary>
 	public Vector3 EulerAngles
 	{
 		get => NativeField.Get<Vector3>(InternalCalls.TransformComponent_GetEulerAngles, Entity.ID);

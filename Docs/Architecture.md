@@ -396,7 +396,8 @@ premultiplied colors, so both kinds share it.
 
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
 entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes. A `CharacterController`
-makes the entity a character instead (§8): its colliders and `RigidBody` are left out, with a warning.
+makes the entity a character instead (§8): its colliders and `RigidBody` are left out, with a warning. The colliders
+of the entities below a character are its own parts, which neither block it nor touch it.
 
 ### 7.3 Serialization formats (JSON, written with tabs, keys in stable order)
 
@@ -469,36 +470,50 @@ fixed, hinge (with limits within ±180° and a velocity motor with a torque limi
 negative ends keep the starting distance) and slider (limits around the starting position, velocity motor with a force
 limit). Values that are not finite, missing bodies, joints to the entity itself and hinges or sliders without an axis
 are refused; removing a body removes the joints on either side of it. The scene makes every `Joint` component's joint
-when it starts and makes them all again whenever a joint component or a body changes (rebuilt bodies lose their
-joints); a joint whose connected entity no longer exists is left out without a warning (a broken chain), while one
-whose connected entity has no body is logged. Duplicates and prefab instances remap `ConnectedEntity`. The scene view
-draws a selected joint's anchor, axis and connection.
+when it starts and makes them all again whenever a joint component changes or a body is made, rebuilt or removed
+(rebuilt bodies lose their joints; changing a character does not touch them); a joint whose connected entity no longer
+exists is left out without a warning (a broken chain), while one whose connected entity has no body is logged.
+Duplicates and prefab instances remap `ConnectedEntity`. The scene view draws a selected joint's anchor, axis and
+connection.
 
-Characters (`CharacterDesc`, `PhysicsScene::AddCharacter`) are Jolt `CharacterVirtual`s: upright capsules (a sphere
-when the height is below twice the radius) that games move instead of the simulation. An entity has a body or a
-character; adding one replaces the other. Each step moves the characters first, in the order of their entities' IDs,
-then simulates the bodies. A character has a velocity of its own: on walkable ground (`MaxSlopeAngle`) its feet stop it
-and the ground carries it (moving platforms), gravity (times `GravityFactor`) only presses it against the ground, so it
-does not creep down slopes; elsewhere gravity speeds it up, so it falls and slides down slopes too steep to stand on. An
-upward velocity of its own jumps (it keeps the ground's velocity); after the step, the part of it that moved into what
-the character hit is removed (landing, ceilings, walls). `MoveCharacter` adds a walking velocity for the next step only.
-`ExtendedUpdate` slides it along what it hits, cancels walking up steep slopes, climbs steps up to `StepHeight` and keeps
-it on the ground over drops up to `StepHeight` (walking down stairs and slopes); its rounded bottom rolls over edges,
-which are too steep to stand on for a step or two. It pushes the dynamic bodies it walks into with at most `PushForce`
-newtons and weighs `Mass` on what it stands on. A kinematic inner body, larger by the 2 cm the character keeps from what
-it touches, gives it presence: raycasts hit it, dynamic bodies land on it, other characters are blocked by it, and it
-reports contacts with static and kinematic bodies like kinematic bodies do, so triggers notice it and its scripts get
-collision and trigger callbacks. Trigger colliders never block characters (a shape filter skips them). Reshaping or
-moving a character keeps its velocity and refreshes what it stands on; refused descriptions (values that are not finite,
-capsules larger than the world allows) leave the entity without one; speeds are kept within 500 m/s.
+Characters (`CharacterDesc`, `PhysicsScene::AddCharacter`) are Jolt `CharacterVirtual`s: upright capsules (a sphere when
+the height is below twice the radius) that games move instead of the simulation. An entity has a body or a character;
+adding one replaces the other. Each step moves the characters first, in the order of their entities' IDs, then simulates
+the bodies. A character has a velocity of its own: on walkable ground (`MaxSlopeAngle`) its feet stop it and the ground
+carries it at the ground's velocity of this step (`UpdateGroundVelocity` first: scripts set kinematic targets before the
+step, so a platform that starts, stops or turns back carries it without a slip), gravity (times `GravityFactor`) only
+presses it against the ground, so it does not creep down slopes; elsewhere gravity speeds it up, so it falls and slides
+down slopes too steep to stand on. An upward velocity of its own jumps (it keeps the ground's velocity); after the step,
+the part of it that moved into what the character hit is removed (landing, ceilings, walls). After the bodies' step, a
+character on ground that went down (a descending platform or elevator, which was still in its way when it moved) follows
+it down (`StickToFloor` over the ground's drop), so it neither hovers above it nor loses it. `MoveCharacter` adds a
+walking velocity for the next step only. `ExtendedUpdate` slides it along what it hits, cancels walking up steep slopes,
+climbs steps up to `StepHeight` and keeps it on the ground over drops up to `StepHeight` (walking down stairs and
+slopes); its rounded bottom rolls over edges, which are too steep to stand on for a step or two. It pushes the dynamic
+bodies it walks into with at most `PushForce` newtons and weighs `Mass` on what it stands on. A kinematic inner body,
+larger by the 2 cm the character keeps from what it touches, gives it presence: raycasts hit it, dynamic bodies land on
+it, other characters are blocked by it, and it reports contacts with static and kinematic bodies like kinematic bodies
+do, so triggers notice it and its scripts get collision and trigger callbacks. Trigger colliders never block characters
+(a shape filter skips them), and neither do the bodies of the entities a character ignores
+(`SetCharacterIgnoredEntities`, its own parts: a body filter lets its sweeps pass through them, and the contact listener
+rejects their contacts with its inner body in `OnContactValidate`, so they neither push it nor report touching it).
+Reshaping or moving a character keeps its velocity and refreshes what it stands on, and so does removing or rebuilding
+the body it stands on (rather than standing on, and riding, a body that is gone until its next step); refused
+descriptions (values that are not finite, capsules larger than the world allows) leave the entity without one; speeds
+are kept within 500 m/s.
 
 The scene makes a character for each `CharacterController` when it starts, places its capsule at the entity's world
 position plus `Offset` (both scaled with the entity, the radius by the larger horizontal scale; the capsule does not
 turn with the entity, which scripts rotate freely), and changes it in place when the component or the entity's scale
-changes. Before each step, an entity moved by a script, the editor or its parent teleports its character (keeping its
-velocity); after it, moved characters write their positions back (parents first, keeping the entity's rotation and
-scale). Removing the component or destroying the entity removes the character. `Scene::TeleportCharacter` places the
-entity and stops its character at once. The scene view draws a selected character's capsule (with the colliders).
+changes; the warning about the colliders and `RigidBody` it replaces is logged once, when the character is made.
+Changing the component changes only the character, while adding or removing it replaces the entity's body (which makes
+the joints again). The entities below a character are its parts: the scene has the physics ignore their bodies, and
+follows the hierarchy as it changes. Before each step, an entity moved by a script, the editor or its parent teleports
+its character (keeping its velocity); after it, moved characters write their positions back (parents first). The
+simulation moves entities without taking their transforms apart: characters change only the translation, dynamic bodies
+the translation and rotation, so scales (and characters' rotations) stay exactly as they were. Removing the component or
+destroying the entity removes the character. `Scene::TeleportCharacter` places the entity and stops its character at
+once. The scene view draws a selected character's capsule (with the colliders).
 
 Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
 `PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin

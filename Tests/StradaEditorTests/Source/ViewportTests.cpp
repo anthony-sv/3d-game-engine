@@ -210,11 +210,15 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	EditorContext context;
 	EditorOperations operations(context);
 	Scene& scene = context.GetScene();
-	auto const shapes = [&](UUID id)
+	auto const kindsOf = [&](UUID id, uint32_t which)
 	{
 		std::vector<OverlayLine> lines;
-		ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), 16.0f / 9.0f, lines);
+		ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), 16.0f / 9.0f, lines, which);
 		return lines;
+	};
+	auto const shapes = [&](UUID id)
+	{
+		return kindsOf(id, ViewportOverlays::Shapes::All);
 	};
 
 	// Nothing to draw for plain entities.
@@ -279,9 +283,7 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	// Only the kinds asked for.
 	auto const kinds = [&](uint32_t which)
 	{
-		std::vector<OverlayLine> lines;
-		ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(sensor), 16.0f / 9.0f, lines, which);
-		return lines;
+		return kindsOf(sensor, which);
 	};
 	std::vector<OverlayLine> const colliders = kinds(ViewportOverlays::Shapes::Colliders);
 	CHECK(!colliders.empty());
@@ -309,13 +311,13 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	REQUIRE(operations.SetComponentFields(door, "Joint", Json::object({{"Type", "Ball"}, {"ConnectedEntity", "0"}})).IsOk());
 	CHECK(shapes(door).size() == 3);
 
-	// Characters: the capsule the physics makes, upright however the entity turns, offset and scaled with it, and drawn
-	// through the model around it.
+	// Characters: the capsule the physics makes, upright however the entity turns, offset and scaled with it. Selected, it
+	// shows through the model around it.
 	UUID const hero = CreateEntity(
 		operations, "Hero", UUID::Invalid(),
 		Json::object({{"CharacterController", Json::object({{"Offset", {0, 0.5, 0}}})},
 	                  {"Transform", Json::object({{"Translation", {0, 0, 4}}, {"RotationEuler", {0, 0, 90}}, {"Scale", {2, 2, 2}}})}}));
-	std::vector<OverlayLine> const capsule = shapes(hero);
+	std::vector<OverlayLine> const capsule = kindsOf(hero, ViewportOverlays::Shapes::All | ViewportOverlays::Shapes::Selected);
 	CHECK(capsule.size() == 2 * ViewportOverlays::CircleSegments + 4 + 2 * ViewportOverlays::CircleSegments);
 	AABB capsuleBounds;
 	for (OverlayLine const& line : capsule)
@@ -327,11 +329,24 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	}
 	CHECK(NearlyEqual(capsuleBounds.Min, {-1.0f, -1.0f, 3.0f}, 1e-3f));
 	CHECK(NearlyEqual(capsuleBounds.Max, {1.0f, 3.0f, 5.0f}, 1e-3f));
-	// They are colliders: the scene view's every-collider overlay shows them too.
-	std::vector<OverlayLine> colliderLines;
-	ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(hero), 16.0f / 9.0f, colliderLines,
-	                                     ViewportOverlays::Shapes::Colliders);
-	CHECK(colliderLines.size() == capsule.size());
+	// They are colliders: the scene view's every-collider overlay shows them too, hidden behind what is in front of them
+	// like other colliders (characters elsewhere do not show through walls).
+	std::vector<OverlayLine> const colliderLines = kindsOf(hero, ViewportOverlays::Shapes::Colliders);
+	REQUIRE(colliderLines.size() == capsule.size());
+	for (size_t i = 0; i < capsule.size(); i++)
+	{
+		CHECK(colliderLines[i].From == capsule[i].From);
+		CHECK(colliderLines[i].To == capsule[i].To);
+		CHECK(colliderLines[i].DepthTest);
+	}
+	// Selecting an entity changes nothing but character capsules.
+	std::vector<OverlayLine> const selectedCrate = kindsOf(crate, ViewportOverlays::Shapes::All | ViewportOverlays::Shapes::Selected);
+	CHECK(selectedCrate.size() == box.size());
+	CHECK(std::all_of(selectedCrate.begin(), selectedCrate.end(),
+	                  [](OverlayLine const& line)
+	                  {
+						  return line.DepthTest;
+					  }));
 }
 
 TEST_CASE("GameViewPanel: the game's image keeps the chosen size or aspect ratio and is centered")

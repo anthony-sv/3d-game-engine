@@ -71,6 +71,7 @@ add_executable(StradaTests
     Source/Scene/SceneFuzzTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp
+    Source/Scene/SceneScriptingGuideTests.cpp
     Source/Scene/SceneScriptingHostTests.cpp
     Source/Scene/SceneScriptingTests.cpp
     Source/Scene/SceneSerializerTests.cpp
@@ -99,7 +100,10 @@ target_compile_definitions(StradaTests PRIVATE
     # Golden images and other test data.
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data"
     # The feature-test project, whose scenes must use every component.
-    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest")
+    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
+    # The scripting guide and the test scripts that are its examples, which the scripting tests compare and run.
+    STRADA_SCRIPTING_GUIDE_PATH="${PROJECT_SOURCE_DIR}/Docs/Scripting.md"
+    STRADA_GUIDE_EXAMPLES_PATH="${PROJECT_SOURCE_DIR}/Tests/TestScripts/Source/GuideExamples.cs")
 
 strada_configure_target(StradaTests)
 

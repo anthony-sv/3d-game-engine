@@ -24,7 +24,8 @@ public class Spinner : Script
 
 	protected override void OnUpdate(float deltaTime)
 	{
-		Transform.EulerAngles += new Vector3(0.0f, Speed * deltaTime, 0.0f);
+		// A little more of a turn around the up axis each frame.
+		Transform.Rotation = Quaternion.AngleAxis(Speed * deltaTime, Vector3.Up) * Transform.Rotation;
 	}
 }
 ```
@@ -102,7 +103,10 @@ script alone and start with their initial values.
 
 A script is the entity it is attached to: `Name`, `Translation`, `Rotation` and `Scale` (local, relative to the
 parent), `Transform` (with `WorldTranslation`, `Forward`, `Right`, `Up` and `EulerAngles` in degrees), `Parent` and
-`Children` are right there. Components are views of the entity's data: `GetComponent<T>()` returns null when the entity
+`Children` are right there. Turn entities by multiplying rotations (`Quaternion.AngleAxis(degrees, axis) * Rotation`),
+or keep angles of your own and set them whole: the Euler angles read back from a rotation are one of several sets of
+angles for it (the Y angle comes back within ±90°), so adding to them does not turn an entity all the way around.
+Components are views of the entity's data: `GetComponent<T>()` returns null when the entity
 has none, and every property reads or writes the component itself, so there is nothing to copy back.
 
 ```csharp
@@ -253,15 +257,23 @@ public class Windmill : Script
 
 Players and walking creatures use a `CharacterControllerComponent` (Entity > Physics > Character makes one with a
 capsule mesh) instead of a rigid body and colliders: an upright capsule (`Radius`, `Height`, its center at `Offset` from
-the entity) that your script moves. `Move(velocity)` walks it at a velocity during the next physics step, so call it from
-`OnFixedUpdate` every step it should move; it slides along walls, climbs steps up to `StepHeight` and slopes up to
-`MaxSlopeAngle`, slides down steeper ones, rides moving platforms and pushes dynamic bodies with up to `PushForce`
-newtons. Gravity acts on top of it: `IsGrounded` tells whether it stands on walkable ground (`GroundNormal` is the
-ground's normal), and `Velocity` is its own velocity (falling, jumping), which you set to jump. `Teleport(position)`
-places it and stops it. The entity follows the capsule, which does not turn with it, so the script turns the entity
-freely. Triggers notice characters (`OnTriggerEnter` on both sides), and raycasts hit them.
+the entity) that your script moves. `Move(velocity)` walks it at a velocity during the next physics step, so call it
+from `OnFixedUpdate` every step it should move; it slides along walls, climbs steps up to `StepHeight` and slopes up to
+`MaxSlopeAngle`, slides down steeper ones, rides moving platforms and elevators, and pushes dynamic bodies with up to
+`PushForce` newtons. Gravity acts on top of it: `IsGrounded` tells whether it stands on walkable ground (`GroundNormal`
+is the ground's normal), and `Velocity` is its own velocity (falling, jumping), which you set to jump.
+`Teleport(position)` places it and stops it. The entity follows the capsule, which does not turn with it, so the script
+turns the entity freely. Triggers notice characters (`OnTriggerEnter` on both sides), and raycasts hit them. Colliders
+of the entities below a character are its own parts (a held object, a trigger around it for its reach): they neither
+block it nor report touching it.
 
-A first-person controller: the character entity has a child, `Head`, with the camera at eye height.
+The capsule's round bottom rolls over the edges of steps and ledges, which are too steep to stand on, so walking down
+stairs or off a ledge `IsGrounded` is false for a physics step or two at each edge. Give jumps a little grace, as the
+controller below does: a jump pressed just before landing still happens (a jump buffer), and so does one pressed just
+after the character left the ground (coyote time).
+
+A first-person controller: the character entity has a child, `Head`, with the camera at eye height. It keeps the yaw and
+pitch itself and sets the rotations whole.
 
 ```csharp
 public class FirstPersonController : Script
@@ -269,25 +281,36 @@ public class FirstPersonController : Script
 	public float Speed = 5.0f;
 	public float JumpSpeed = 5.0f;
 	public float MouseSensitivity = 0.15f;
+	[Tooltip("Seconds a jump press is kept, and seconds after leaving the ground in which the character can still jump")]
+	public float JumpGrace = 0.1f;
 	public Entity? Head;
 
+	private float m_Yaw;
 	private float m_Pitch;
-	private bool m_Jump;
+	private float m_JumpBuffer;
+	private float m_CoyoteTime;
 
 	protected override void OnCreate()
 	{
 		Input.CursorMode = CursorMode.Locked;
+		// Start looking where the entity faces.
+		Vector3 forward = Transform.Forward;
+		m_Yaw = Mathf.Atan2(-forward.X, -forward.Z) * Mathf.Rad2Deg;
 	}
 
 	protected override void OnUpdate(float deltaTime)
 	{
 		// Look around: the body turns left and right, the head up and down.
 		Vector2 mouse = Input.MouseDelta * MouseSensitivity;
-		Transform.EulerAngles += new Vector3(0.0f, -mouse.X, 0.0f);
+		m_Yaw -= mouse.X;
 		m_Pitch = Mathf.Clamp(m_Pitch - mouse.Y, -85.0f, 85.0f);
-		Head!.Transform.EulerAngles = new Vector3(m_Pitch, 0.0f, 0.0f);
-		// Key presses last one frame: remember the jump for the next physics step.
-		m_Jump |= Input.IsKeyPressed(KeyCode.Space);
+		Transform.Rotation = Quaternion.AngleAxis(m_Yaw, Vector3.Up);
+		Head!.Transform.Rotation = Quaternion.AngleAxis(m_Pitch, Vector3.Right);
+		// Key presses last one frame: keep the jump for the next physics steps.
+		if (Input.IsKeyPressed(KeyCode.Space))
+		{
+			m_JumpBuffer = JumpGrace;
+		}
 	}
 
 	protected override void OnFixedUpdate(float fixedDeltaTime)
@@ -295,17 +318,26 @@ public class FirstPersonController : Script
 		CharacterControllerComponent character = GetComponent<CharacterControllerComponent>()!;
 		Vector3 direction = (Transform.Forward * Axis(KeyCode.W, KeyCode.S)) + (Transform.Right * Axis(KeyCode.D, KeyCode.A));
 		character.Move(direction.Normalized * Speed);
-		if (m_Jump && character.IsGrounded)
+
+		m_CoyoteTime = character.IsGrounded ? JumpGrace : m_CoyoteTime - fixedDeltaTime;
+		if (m_JumpBuffer > 0.0f && m_CoyoteTime > 0.0f)
 		{
 			character.Velocity = new Vector3(0.0f, JumpSpeed, 0.0f);
+			m_JumpBuffer = 0.0f;
+			m_CoyoteTime = 0.0f;
 		}
-		m_Jump = false;
+		m_JumpBuffer -= fixedDeltaTime;
 	}
 
 	private static float Axis(KeyCode positive, KeyCode negative) =>
 		(Input.IsKeyDown(positive) ? 1.0f : 0.0f) - (Input.IsKeyDown(negative) ? 1.0f : 0.0f);
 }
 ```
+
+Characters move in physics steps, 60 a second unless the project says otherwise, and their entities stand where the
+last step left them. On a display that shows more frames than that, a camera on a character moves in steps while the
+mouse turns it every frame: set the project's physics step (`FixedTimestep` under Physics in the Project Settings) to
+the display's frame time, such as 1/144 s, for smooth movement there.
 
 ## Spawning and destroying
 

@@ -9,9 +9,12 @@
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Strada;
@@ -29,6 +32,7 @@ namespace
 	UUID const ObstacleId(303);
 	UUID const BoxId(304);
 	UUID const OtherId(305);
+	UUID const PartId(306);
 
 	Scope<PhysicsScene> CreateWorld(PhysicsWorldSettings const& settings = {})
 	{
@@ -124,6 +128,47 @@ namespace
 	bool IsUp(glm::vec3 const& normal)
 	{
 		return glm::dot(normal, glm::vec3(0.0f, 1.0f, 0.0f)) > 0.999f;
+	}
+
+	// How far a character strays from its spot on a kinematic platform driven back and forth along a direction (a second
+	// each way, scripts' way: a target before each step), and in how many steps it is not grounded.
+	struct Ride
+	{
+		float WorstOffset = 0.0f;
+		int StepsOffGround = 0;
+	};
+
+	Ride RidePlatform(glm::vec3 const& direction, float speed)
+	{
+		Scope<PhysicsScene> world = CreateWorld();
+		glm::vec3 platform(0.0f, 2.25f, 0.0f);
+		REQUIRE(world->AddBody(MakeBox(ObstacleId, RigidBodyType::Kinematic, platform, {2.0f, 0.25f, 2.0f})).IsOk());
+		REQUIRE(world->AddCharacter(MakeCharacter({0.0f, 2.5f, 0.0f})).IsOk());
+		Wait(*world, 10);
+		REQUIRE(StateOf(*world).GroundEntity == ObstacleId);
+		glm::vec3 const spot = FeetOf(*world) - platform;
+		Ride ride;
+		for (int step = 0; step < 240; step++)
+		{
+			float const sign = (step / 60) % 2 == 0 ? 1.0f : -1.0f;
+			platform += direction * (sign * speed * Step);
+			world->MoveKinematic(ObstacleId, platform, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), Step);
+			Wait(*world, 1);
+			ride.WorstOffset = std::max(ride.WorstOffset, glm::length(FeetOf(*world) - platform - spot));
+			ride.StepsOffGround += StateOf(*world).IsGrounded ? 0 : 1;
+		}
+		return ride;
+	}
+
+	// How many log entries since firstIndex contain the text.
+	size_t CountLogged(uint64_t firstIndex, std::string_view text)
+	{
+		std::vector<LogEntry> const entries = Log::GetEntries(firstIndex);
+		return static_cast<size_t>(std::count_if(entries.begin(), entries.end(),
+		                                         [text](LogEntry const& entry)
+		                                         {
+													 return entry.Message.find(text) != std::string::npos;
+												 }));
 	}
 }
 
@@ -409,6 +454,100 @@ TEST_CASE("PhysicsScene: triggers, raycasts and bodies notice characters")
 	CHECK(FeetOf(*world, OtherId).x == doctest::Approx(5.0f).epsilon(0.01));
 }
 
+TEST_CASE("PhysicsScene: characters ride moving platforms and elevators without slipping or hovering")
+{
+	Testing::PhysicsSystemScope physics;
+
+	// Along X at 3 m/s, turning back every second: the rider keeps its spot when the platform starts and turns.
+	Ride const sideways = RidePlatform({1.0f, 0.0f, 0.0f}, 3.0f);
+	CHECK(sideways.WorstOffset < 0.01f);
+	CHECK(sideways.StepsOffGround == 0);
+
+	// An elevator at 2 m/s, up then down: turning down does not throw the rider off, and it stays on the floor on the way
+	// down instead of hovering above it.
+	Ride const lift = RidePlatform({0.0f, 1.0f, 0.0f}, 2.0f);
+	CHECK(lift.WorstOffset < 0.01f);
+	CHECK(lift.StepsOffGround == 0);
+
+	// Down first, then up.
+	Ride const drop = RidePlatform({0.0f, -1.0f, 0.0f}, 2.0f);
+	CHECK(drop.WorstOffset < 0.01f);
+	CHECK(drop.StepsOffGround == 0);
+}
+
+TEST_CASE("PhysicsScene: characters find their ground again when it is removed or replaced")
+{
+	Testing::PhysicsSystemScope physics;
+	Scope<PhysicsScene> world = CreateWorld();
+	REQUIRE(world->AddBody(Ground()).IsOk());
+	BodyDesc const platform = MakeBox(ObstacleId, RigidBodyType::Static, {0.0f, 0.75f, 0.0f}, {1.0f, 0.25f, 1.0f});
+	REQUIRE(world->AddBody(platform).IsOk());
+	REQUIRE(world->AddCharacter(MakeCharacter({0.0f, 1.0f, 0.0f})).IsOk());
+	REQUIRE(StateOf(*world).GroundEntity == ObstacleId);
+
+	// Rebuilt under it (a changed collider), it still stands on it.
+	REQUIRE(world->AddBody(platform).IsOk());
+	CHECK(StateOf(*world).IsGrounded);
+	CHECK(StateOf(*world).GroundEntity == ObstacleId);
+
+	// Removed, it is in the air at once (not standing on what is gone until its next step), and falls to the ground.
+	world->RemoveBody(ObstacleId);
+	CHECK_FALSE(StateOf(*world).IsGrounded);
+	CHECK_FALSE(StateOf(*world).GroundEntity.IsValid());
+	Wait(*world, 60);
+	CHECK(StateOf(*world).GroundEntity == GroundId);
+	CHECK(std::abs(FeetOf(*world).y) < 0.01f);
+
+	// A character standing on another one's head is in the air at once when that one is removed.
+	REQUIRE(world->AddCharacter(MakeCharacter({0.0f, 2.2f, 0.0f}, OtherId)).IsOk());
+	Wait(*world, 30);
+	REQUIRE(StateOf(*world, OtherId).GroundEntity == HeroId);
+	world->RemoveCharacter(HeroId);
+	CHECK_FALSE(StateOf(*world, OtherId).IsGrounded);
+	CHECK_FALSE(StateOf(*world, OtherId).GroundEntity.IsValid());
+}
+
+TEST_CASE("PhysicsScene: characters ignore the bodies of their own parts")
+{
+	Testing::PhysicsSystemScope physics;
+	Scope<PhysicsScene> world = CreateWorld();
+	REQUIRE(world->AddBody(Ground()).IsOk());
+	REQUIRE(world->AddCharacter(MakeCharacter(glm::vec3(0.0f))).IsOk());
+
+	// A solid part inside the capsule (a held object): it neither pushes the character nor touches it.
+	REQUIRE(world->AddBody(MakeBox(PartId, RigidBodyType::Static, {0.15f, 1.0f, 0.0f}, {0.1f, 0.3f, 0.3f})).IsOk());
+	world->SetCharacterIgnoredEntities(HeroId, {PartId});
+	std::vector<ContactEvent> events = Wait(*world, 60);
+	CHECK(glm::length(FeetOf(*world)) < 1e-3f);
+	CHECK(StateOf(*world).IsGrounded);
+	CHECK_FALSE(Testing::HasEvent(events, ContactEventType::CollisionEnter, PartId, HeroId));
+
+	// A dynamic part overlapping it (a carried crate) is not pushed out of it.
+	BodyDesc crate = MakeBox(BoxId, RigidBodyType::Dynamic, {0.0f, 1.9f, 0.0f}, glm::vec3(0.2f));
+	crate.GravityFactor = 0.0f;
+	REQUIRE(world->AddBody(crate).IsOk());
+	world->SetCharacterIgnoredEntities(HeroId, {PartId, BoxId});
+	events = Wait(*world, 30);
+	CHECK(glm::length(PositionOf(*world, BoxId) - glm::vec3(0.0f, 1.9f, 0.0f)) < 1e-4f);
+	CHECK(glm::length(FeetOf(*world)) < 1e-3f);
+	CHECK_FALSE(Testing::HasEvent(events, ContactEventType::CollisionEnter, BoxId, HeroId));
+
+	// A solid part in front of it (a shield) does not block its way.
+	REQUIRE(world->AddBody(MakeBox(ObstacleId, RigidBodyType::Static, {1.0f, 1.0f, 0.0f}, {0.1f, 1.0f, 2.0f})).IsOk());
+	world->SetCharacterIgnoredEntities(HeroId, {PartId, BoxId, ObstacleId});
+	Walk(*world, {2.0f, 0.0f, 0.0f}, 60);
+	CHECK(FeetOf(*world).x == doctest::Approx(2.0f).epsilon(0.02));
+
+	// Once it no longer ignores them, they block it again.
+	world->SetCharacterIgnoredEntities(HeroId, {});
+	Walk(*world, {-2.0f, 0.0f, 0.0f}, 60);
+	CHECK(FeetOf(*world).x == doctest::Approx(1.1f + 0.3f + Padding).epsilon(0.01));
+
+	// Calls for entities without a character do nothing.
+	world->SetCharacterIgnoredEntities(OtherId, {PartId});
+	Wait(*world, 1);
+}
+
 TEST_CASE("PhysicsScene: characters change in place, are removed, and refuse what they cannot simulate")
 {
 	Testing::PhysicsSystemScope physics;
@@ -515,7 +654,8 @@ TEST_CASE("Scene: character controllers move their entities while running and fo
 	Entity hero = scene.CreateEntity("Hero");
 	TransformComponent& transform = hero.GetComponent<TransformComponent>();
 	transform.Translation = {0.0f, 1.0f, 0.0f};
-	transform.Rotation = glm::angleAxis(glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+	glm::quat const rotation = glm::angleAxis(glm::radians(37.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+	transform.Rotation = rotation;
 	hero.AddComponent<CharacterControllerComponent>();
 	// Its colliders are left out: the character replaces them.
 	hero.AddComponent<SphereColliderComponent>();
@@ -539,10 +679,11 @@ TEST_CASE("Scene: character controllers move their entities while running and fo
 	REQUIRE(world != nullptr);
 	CHECK(world->HasCharacter(id));
 	CHECK_FALSE(world->HasBody(id));
-	CHECK(Testing::WasLogged(logStart, "replaces its RigidBody and colliders"));
+	CHECK(CountLogged(logStart, "replaces its RigidBody and colliders") == 1);
 	CHECK(StateOf(*world, id).IsGrounded);
 
-	// Walking writes the position back; the entity keeps its rotation. It walks through the trigger, which notices it.
+	// Walking writes the position back; the entity keeps its rotation and scale exactly (the capsule does not turn). It
+	// walks through the trigger, which notices it.
 	std::vector<ContactEvent> events;
 	for (int frame = 0; frame < 60; frame++)
 	{
@@ -552,11 +693,13 @@ TEST_CASE("Scene: character controllers move their entities while running and fo
 	}
 	CHECK(transform.Translation.x == doctest::Approx(3.0f).epsilon(0.02));
 	CHECK(transform.Translation.y == doctest::Approx(1.0f).epsilon(0.01));
-	CHECK(std::abs(glm::dot(transform.Rotation, glm::angleAxis(glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f)))) > 0.9999f);
+	CHECK(transform.Rotation == rotation);
+	CHECK(transform.Scale == glm::vec3(1.0f));
 	CHECK(Testing::HasEvent(events, ContactEventType::TriggerEnter, gate.GetUUID(), id));
 	CHECK(Testing::HasEvent(events, ContactEventType::TriggerExit, gate.GetUUID(), id));
 
-	// A smaller capsule whose center is half a meter above the entity: the entity ends up at the character's feet.
+	// A smaller capsule whose center is half a meter above the entity: the entity ends up at the character's feet. Changing
+	// the component changes the character, which says nothing more about the colliders it replaces.
 	scene.GetRegistry().patch<CharacterControllerComponent>(hero.GetHandle(),
 	                                                        [](CharacterControllerComponent& component)
 	                                                        {
@@ -566,6 +709,7 @@ TEST_CASE("Scene: character controllers move their entities while running and fo
 	run(60);
 	CHECK(transform.Translation.y == doctest::Approx(0.0f).epsilon(0.01));
 	CHECK(StateOf(*world, id).Position.y == doctest::Approx(0.5f).epsilon(0.01));
+	CHECK(CountLogged(logStart, "replaces its RigidBody and colliders") == 1);
 
 	// Moved by an edit (or a script): the character goes there and falls from there.
 	transform.Translation = {-4.0f, 3.0f, 2.0f};
@@ -606,4 +750,267 @@ TEST_CASE("Scene: character controllers move their entities while running and fo
 	CHECK(world->GetCharacterCount() == 0);
 	scene.OnRuntimeStop();
 	CHECK(scene.GetPhysicsScene() == nullptr);
+}
+
+TEST_CASE("Scene: editing a character changes only the character, not the scene's bodies and joints")
+{
+	Testing::PhysicsSystemScope physics;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Characters and joints");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
+	// A door hinged to the world at its left edge, limited to 30 degrees either way.
+	Entity door = scene.CreateEntity("Door");
+	TransformComponent& doorTransform = door.GetComponent<TransformComponent>();
+	doorTransform.Translation = {10.0f, 1.1f, 0.0f};
+	doorTransform.Scale = {2.0f, 2.0f, 0.1f};
+	RigidBodyComponent& doorBody = door.AddComponent<RigidBodyComponent>();
+	doorBody.Type = RigidBodyType::Dynamic;
+	doorBody.Mass = 10.0f;
+	doorBody.GravityFactor = 0.0f;
+	doorBody.AllowSleep = false;
+	door.AddComponent<BoxColliderComponent>();
+	JointComponent& hinge = door.AddComponent<JointComponent>();
+	hinge.Type = JointType::Hinge;
+	hinge.Anchor = {-0.5f, 0.0f, 0.0f};
+	hinge.Axis = {0.0f, 1.0f, 0.0f};
+	hinge.LimitsEnabled = true;
+	hinge.MinLimit = -30.0f;
+	hinge.MaxLimit = 30.0f;
+	// A character elsewhere, with a collider its controller replaces.
+	Entity hero = scene.CreateEntity("Hero");
+	hero.GetComponent<TransformComponent>().Translation = {0.0f, 1.0f, -10.0f};
+	hero.AddComponent<CharacterControllerComponent>();
+	hero.AddComponent<SphereColliderComponent>();
+	UUID const doorId = door.GetUUID();
+	UUID const heroId = hero.GetUUID();
+
+	scene.OnRuntimeStart();
+	PhysicsScene* world = scene.GetPhysicsScene();
+	REQUIRE(world != nullptr);
+	REQUIRE(world->HasJoint(doorId));
+	auto const push = [&](int frames)
+	{
+		for (int frame = 0; frame < frames; frame++)
+		{
+			world->AddTorque(doorId, {0.0f, 200.0f, 0.0f}, ForceMode::Force);
+			scene.OnUpdateRuntime(Timestep(Step));
+		}
+	};
+	auto const doorAngle = [&]
+	{
+		std::optional<BodyTransform> const transform = world->GetBodyTransform(doorId);
+		REQUIRE(transform);
+		return glm::degrees(2.0f * std::atan2(transform->Rotation.y, transform->Rotation.w));
+	};
+	auto const setCharacter = [&](auto change)
+	{
+		scene.GetRegistry().patch<CharacterControllerComponent>(hero.GetHandle(), change);
+	};
+
+	// Pushed against its limit, the door rests there.
+	push(120);
+	CHECK(doorAngle() == doctest::Approx(30.0f).epsilon(0.03));
+
+	// Scripts write a character's fields often, many times with the same value (a better jump every step, crouching,
+	// ladders): the door stays at its limit. Remaking the joints where the bodies are now would move its limits along.
+	for (int edit = 0; edit < 3; edit++)
+	{
+		setCharacter(
+			[](CharacterControllerComponent& component)
+			{
+				component.GravityFactor = 1.0f;
+			});
+		push(60);
+		CHECK(doorAngle() == doctest::Approx(30.0f).epsilon(0.03));
+	}
+
+	// The edits reach the character: a lower one (a 1 m sphere) rests lower. It said once that it replaces the hero's
+	// collider, when it was made.
+	setCharacter(
+		[](CharacterControllerComponent& component)
+		{
+			component.Height = 1.0f;
+		});
+	push(60);
+	CHECK(StateOf(*world, heroId).Position.y == doctest::Approx(0.5f).epsilon(0.01));
+	CHECK(doorAngle() == doctest::Approx(30.0f).epsilon(0.03));
+	CHECK(CountLogged(logStart, "replaces its RigidBody and colliders") == 1);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: characters ignore the colliders of the entities below them")
+{
+	Testing::PhysicsSystemScope physics;
+	Scene scene("Character parts");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
+	Entity hero = scene.CreateEntity("Hero");
+	TransformComponent& transform = hero.GetComponent<TransformComponent>();
+	transform.Translation = {0.0f, 1.0f, 0.0f};
+	hero.AddComponent<CharacterControllerComponent>();
+	// A solid part inside its capsule (a held object) and a trigger around it (its reach).
+	Entity held = scene.CreateEntity("Held", hero);
+	held.GetComponent<TransformComponent>().Translation = {0.3f, 0.0f, 0.0f};
+	held.AddComponent<BoxColliderComponent>().HalfExtents = {0.1f, 0.3f, 0.3f};
+	Entity reach = scene.CreateEntity("Reach", hero);
+	SphereColliderComponent& reachCollider = reach.AddComponent<SphereColliderComponent>();
+	reachCollider.Radius = 1.5f;
+	reachCollider.IsTrigger = true;
+	UUID const id = hero.GetUUID();
+	auto const walk = [&scene, id](glm::vec3 const& velocity, int frames)
+	{
+		std::vector<ContactEvent> events;
+		for (int frame = 0; frame < frames; frame++)
+		{
+			scene.GetPhysicsScene()->MoveCharacter(id, velocity);
+			scene.OnUpdateRuntime(Timestep(Step));
+			events.insert(events.end(), scene.GetContactEvents().begin(), scene.GetContactEvents().end());
+		}
+		return events;
+	};
+
+	// Standing still, it stays where it was put: its parts neither push it away nor report touching it.
+	scene.OnRuntimeStart();
+	std::vector<ContactEvent> const events = walk(glm::vec3(0.0f), 120);
+	CHECK(glm::length(transform.Translation - glm::vec3(0.0f, 1.0f, 0.0f)) < 1e-3f);
+	CHECK(StateOf(*scene.GetPhysicsScene(), id).IsGrounded);
+	CHECK_FALSE(Testing::HasEvent(events, ContactEventType::CollisionEnter, held.GetUUID(), id));
+	CHECK_FALSE(Testing::HasEvent(events, ContactEventType::TriggerEnter, reach.GetUUID(), id));
+
+	// A solid part in front of it (a shield, added while running) does not block its way; its parts go with it.
+	Entity shield = scene.CreateEntity("Shield", hero);
+	shield.GetComponent<TransformComponent>().Translation = {0.8f, 0.0f, 0.0f};
+	shield.AddComponent<BoxColliderComponent>().HalfExtents = {0.1f, 0.8f, 0.8f};
+	walk({2.0f, 0.0f, 0.0f}, 60);
+	CHECK(transform.Translation.x == doctest::Approx(2.0f).epsilon(0.02));
+	CHECK(scene.GetWorldTransform(shield)[3].x == doctest::Approx(2.8f).epsilon(0.02));
+
+	// Taken away from it, the shield is in its way: it stops in front of it.
+	REQUIRE(scene.SetParent(shield, Entity()).IsOk());
+	walk({2.0f, 0.0f, 0.0f}, 60);
+	float const shieldFace = scene.GetWorldTransform(shield)[3].x - 0.1f;
+	CHECK(transform.Translation.x == doctest::Approx(shieldFace - 0.5f - Padding).epsilon(0.01));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: characters below a moving parent follow it and write their positions in its space")
+{
+	Testing::PhysicsSystemScope physics;
+	Scene scene("Character rig");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
+	// A rig turned a quarter turn to the left carries the character: the rig's +Z is the world's +X.
+	Entity rig = scene.CreateEntity("Rig");
+	TransformComponent& rigTransform = rig.GetComponent<TransformComponent>();
+	rigTransform.Translation = {2.0f, 0.0f, 0.0f};
+	rigTransform.Rotation = glm::angleAxis(glm::half_pi<float>(), glm::vec3(0.0f, 1.0f, 0.0f));
+	Entity hero = scene.CreateEntity("Hero", rig);
+	TransformComponent& transform = hero.GetComponent<TransformComponent>();
+	transform.Translation = {0.0f, 1.0f, 0.0f};
+	hero.AddComponent<CharacterControllerComponent>();
+	UUID const id = hero.GetUUID();
+	auto const worldPosition = [&scene, &hero]
+	{
+		return glm::vec3(scene.GetWorldTransform(hero)[3]);
+	};
+
+	scene.OnRuntimeStart();
+	PhysicsScene* world = scene.GetPhysicsScene();
+	REQUIRE(world != nullptr);
+	CHECK(glm::length(StateOf(*world, id).Position - glm::vec3(2.0f, 1.0f, 0.0f)) < 1e-4f);
+
+	// Walking along the world's +X for a second: its translation in the rig's space follows, its rotation stays.
+	for (int frame = 0; frame < 60; frame++)
+	{
+		world->MoveCharacter(id, {2.0f, 0.0f, 0.0f});
+		scene.OnUpdateRuntime(Timestep(Step));
+	}
+	glm::vec3 const walked = worldPosition();
+	CHECK(walked.x == doctest::Approx(4.0f).epsilon(0.02));
+	CHECK(glm::length(walked - StateOf(*world, id).Position) < 1e-3f);
+	CHECK(transform.Translation.z == doctest::Approx(walked.x - 2.0f).epsilon(1e-3));
+	CHECK(std::abs(transform.Translation.x) < 1e-3f);
+	CHECK(transform.Translation.y == doctest::Approx(1.0f).epsilon(0.01));
+	CHECK(transform.Rotation == glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
+
+	// Jumping when the rig moves 5 m: the character goes with it, keeps rising, and lands where the rig took it.
+	world->SetCharacterVelocity(id, {0.0f, 4.0f, 0.0f});
+	scene.OnUpdateRuntime(Timestep(Step));
+	rigTransform.Translation.z += 5.0f;
+	scene.OnUpdateRuntime(Timestep(Step));
+	CharacterState const carried = StateOf(*world, id);
+	CHECK(carried.Position.z == doctest::Approx(5.0f).epsilon(1e-3));
+	CHECK(carried.Position.x == doctest::Approx(walked.x).epsilon(1e-3));
+	CHECK(carried.Velocity.y > 3.0f);
+	CHECK_FALSE(carried.IsGrounded);
+	for (int frame = 0; frame < 90; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(Step));
+	}
+	CHECK(StateOf(*world, id).IsGrounded);
+	glm::vec3 const landed = worldPosition();
+	CHECK(landed.x == doctest::Approx(walked.x).epsilon(1e-3));
+	CHECK(landed.y == doctest::Approx(1.0f).epsilon(0.01));
+	CHECK(landed.z == doctest::Approx(5.0f).epsilon(1e-3));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: a character the physics refuses is left out until its component is fixed")
+{
+	Testing::PhysicsSystemScope physics;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Refused character");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
+	Entity hero = scene.CreateEntity("Hero");
+	TransformComponent& transform = hero.GetComponent<TransformComponent>();
+	transform.Translation = {0.0f, 3.0f, 0.0f};
+	hero.AddComponent<CharacterControllerComponent>();
+	UUID const id = hero.GetUUID();
+	auto const setHeight = [&scene, &hero](float height)
+	{
+		scene.GetRegistry().patch<CharacterControllerComponent>(hero.GetHandle(),
+		                                                        [height](CharacterControllerComponent& component)
+		                                                        {
+																	component.Height = height;
+																});
+	};
+
+	scene.OnRuntimeStart();
+	PhysicsScene* world = scene.GetPhysicsScene();
+	REQUIRE(world != nullptr);
+	REQUIRE(world->HasCharacter(id));
+
+	// Taller than the physics world allows (the field only asks for a positive height): refused with a warning, and the
+	// entity has no character, so it stays where it is.
+	setHeight(2.0e6f);
+	scene.OnUpdateRuntime(Timestep(Step));
+	CHECK(Testing::WasLogged(logStart, "the character is larger than the physics world allows"));
+	CHECK_FALSE(world->HasCharacter(id));
+	CHECK_FALSE(world->HasBody(id));
+	glm::vec3 const left = transform.Translation;
+	for (int frame = 0; frame < 30; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(Step));
+	}
+	CHECK(transform.Translation == left);
+
+	// Fixed, it is a character again where its entity is, and falls from there.
+	setHeight(2.0f);
+	scene.OnUpdateRuntime(Timestep(Step));
+	REQUIRE(world->HasCharacter(id));
+	CHECK(StateOf(*world, id).Position.x == doctest::Approx(left.x));
+	CHECK_FALSE(StateOf(*world, id).IsGrounded);
+	for (int frame = 0; frame < 90; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(Step));
+	}
+	CHECK(StateOf(*world, id).IsGrounded);
+	CHECK(transform.Translation.y == doctest::Approx(1.0f).epsilon(0.01));
+	scene.OnRuntimeStop();
 }

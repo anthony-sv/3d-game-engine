@@ -162,9 +162,10 @@ namespace Strada
 
 	// A character a game moves (the player, a walking creature): an upright capsule that walks at the velocity it is given,
 	// slides along walls, climbs steps and slopes up to its limits, slides down steeper slopes, falls with gravity, is
-	// carried by what it stands on and pushes dynamic bodies (Jolt's CharacterVirtual). A kinematic body in its place gives
-	// it presence in the world: raycasts hit it, dynamic bodies bump into it, and triggers and bodies report contacts with
-	// it like with a kinematic body. Trigger colliders never block it.
+	// carried by what it stands on (moving platforms and elevators) and pushes dynamic bodies (Jolt's CharacterVirtual). A
+	// kinematic body in its place gives it presence in the world: raycasts hit it, dynamic bodies bump into it, and triggers
+	// and bodies report contacts with it like with a kinematic body. Trigger colliders never block it, and neither do the
+	// bodies of the entities it ignores (PhysicsScene::SetCharacterIgnoredEntities: its own parts).
 	struct CharacterDesc
 	{
 		UUID Entity = UUID::Invalid();

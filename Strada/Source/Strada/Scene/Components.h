@@ -216,8 +216,8 @@ namespace Strada
 	// Makes the entity a character while the scene runs (the player, walking creatures): an upright capsule that scripts
 	// move, which slides along walls, climbs steps and slopes up to its limits, slides down steeper slopes, falls with
 	// gravity, rides what it stands on and pushes dynamic bodies; the entity's transform follows it. The capsule is scaled
-	// with the entity but does not turn with it. It replaces the entity's colliders and RigidBody (put other colliders on
-	// child entities).
+	// with the entity but does not turn with it. It replaces the entity's colliders and RigidBody; colliders of child
+	// entities are the character's own parts (a held object, a trigger around it), which neither block it nor touch it.
 	struct CharacterControllerComponent
 	{
 		float Radius = 0.5f;

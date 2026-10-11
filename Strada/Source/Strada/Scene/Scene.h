@@ -272,7 +272,8 @@ namespace Strada
 		void StopPhysics();
 		void UpdatePhysics(float deltaTime);
 		void RebuildChangedBodies();
-		void UpdateBody(entt::entity handle);
+		// Creates, rebuilds or removes the body of an entity after its components changed; true when its body changed.
+		bool UpdateBody(entt::entity handle);
 		void SyncBodiesFromTransforms(float stepDelta);
 		void WriteBodyTransforms();
 		void OnPhysicsComponentChanged(entt::registry& registry, entt::entity handle);
@@ -286,6 +287,7 @@ namespace Strada
 		void SyncCharactersFromTransforms();
 		void WriteCharacterTransforms();
 		void OnCharacterComponentChanged(entt::registry& registry, entt::entity handle);
+		void OnCharacterComponentAddedOrRemoved(entt::registry& registry, entt::entity handle);
 
 		// Audio runtime (SceneAudio.cpp).
 		struct AudioSourceState;
@@ -360,12 +362,14 @@ namespace Strada
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		// A joint or a body changed: the joints are made again before the next step.
 		bool m_JointsChanged = false;
-		// The world position and scale last exchanged with an entity's character (to tell transform edits from movement).
+		// The world position and scale last exchanged with an entity's character (to tell transform edits from movement),
+		// and the entities below it, whose bodies it ignores.
 		struct CharacterSyncState
 		{
 			UUID Entity = UUID::Invalid();
 			glm::vec3 Position = glm::vec3(0.0f);
 			glm::vec3 Scale = glm::vec3(1.0f);
+			std::vector<UUID> Parts;
 		};
 		std::unordered_map<entt::entity, CharacterSyncState> m_Characters;
 		// Entities whose CharacterController changed while running; their characters are updated before the next step.

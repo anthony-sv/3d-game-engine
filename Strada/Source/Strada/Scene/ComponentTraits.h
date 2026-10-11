@@ -401,7 +401,8 @@ namespace Strada
 		static constexpr uint32_t Flags = ComponentFlagsNone;
 		static constexpr std::string_view Description =
 			"Makes the entity a character that scripts move (players, creatures): an upright capsule that walks, climbs steps and slopes, "
-			"falls, rides what it stands on and pushes dynamic bodies.";
+			"falls, rides what it stands on and pushes dynamic bodies. It replaces the entity's colliders and RigidBody; colliders of its "
+			"children are its own parts, which neither block nor touch it.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Radius", &CharacterControllerComponent::Radius).AtLeast(0.01).Doc("Radius of the capsule in meters."),
 			Field("Height", &CharacterControllerComponent::Height)

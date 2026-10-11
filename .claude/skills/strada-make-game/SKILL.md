@@ -39,7 +39,9 @@ undo history as the UI: work in small, checked steps.
   The player (or a walking creature) gets a `CharacterController` instead of a RigidBody and colliders: an upright
   capsule (default radius 0.5, height 2, centered on the entity like `builtin://Capsule`) that its script walks with
   `Move(velocity)` in `OnFixedUpdate`, jumps by setting `Velocity` and checks with `IsGrounded`; it climbs `StepHeight`
-  steps and `MaxSlopeAngle` slopes and pushes dynamic bodies. Put the camera on a child entity at eye height.
+  steps and `MaxSlopeAngle` slopes and pushes dynamic bodies. Put the camera on a child entity at eye height; colliders
+  of its children (a held item, a reach trigger) are its own parts and never block it. Start from the first-person
+  controller in `Docs/Scripting.md` (yaw kept in a field, jump buffer and coyote time for stair edges).
 - `scene_hierarchy`, `entity_find` and `entity_get` show what was built. `scene_save` writes the scene (a `path` such as
   `Scenes/Level.sscene`, relative to Assets, the first time; scenes inside Assets become assets).
 
