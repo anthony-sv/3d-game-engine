@@ -3,8 +3,8 @@ using Strada.Testing;
 
 namespace FeatureTest;
 
-/// <summary>Cameras, lights, meshes, text, sprites, particle systems, audio listeners and script components: every property
-/// is written and read back, and the scene's values come first.</summary>
+/// <summary>Cameras, lights, meshes, text, sprites, particle systems, joints, audio listeners and script components: every
+/// property is written and read back, and the scene's values come first.</summary>
 public sealed class ComponentTests : FeatureTestScript
 {
 	protected override void Start()
@@ -16,6 +16,7 @@ public sealed class ComponentTests : FeatureTestScript
 		Check("text", TextChecks);
 		Check("sprites", SpriteChecks);
 		Check("particle systems", ParticleChecks);
+		Check("joints", JointChecks);
 		Check("audio listeners", () =>
 		{
 			AudioListenerComponent listener = Find<AudioListenerComponent>("Main Camera");
@@ -197,6 +198,53 @@ public sealed class ComponentTests : FeatureTestScript
 		Assert.AreEqual(2.0f, sprite.Tiling);
 		sprite.ScreenSpace = false;
 		Assert.IsFalse(sprite.ScreenSpace);
+	}
+
+	private static void JointChecks()
+	{
+		JointComponent joint = Find<JointComponent>("Pendulum");
+		Assert.AreEqual(JointType.Hinge, joint.Type);
+		Assert.IsNull(joint.ConnectedEntity);
+		Assert.AreEqual(new Vector3(0.0f, 1.5f, 0.0f), joint.Anchor);
+		Assert.AreEqual(new Vector3(0.0f, 0.0f, 1.0f), joint.Axis);
+		Assert.IsTrue(joint.LimitsEnabled);
+		Assert.AreEqual(-60.0f, joint.MinLimit);
+		Assert.AreEqual(60.0f, joint.MaxLimit);
+
+		Entity crate = Entity.FindByName("Crate")!;
+		joint.ConnectedEntity = crate;
+		Assert.AreEqual(crate, joint.ConnectedEntity);
+		joint.ConnectedEntity = null;
+		Assert.IsNull(joint.ConnectedEntity);
+		joint.Type = JointType.Ball;
+		Assert.AreEqual(JointType.Ball, joint.Type);
+		joint.Anchor = new Vector3(0.0f, 2.0f, 0.0f);
+		Assert.AreEqual(new Vector3(0.0f, 2.0f, 0.0f), joint.Anchor);
+		joint.ConnectedAnchor = new Vector3(-8.0f, 5.0f, -6.0f);
+		Assert.AreEqual(new Vector3(-8.0f, 5.0f, -6.0f), joint.ConnectedAnchor);
+		joint.Axis = new Vector3(1.0f, 0.0f, 0.0f);
+		Assert.AreEqual(new Vector3(1.0f, 0.0f, 0.0f), joint.Axis);
+		joint.LimitsEnabled = false;
+		Assert.IsFalse(joint.LimitsEnabled);
+		joint.MinLimit = -30.0f;
+		Assert.AreEqual(-30.0f, joint.MinLimit);
+		joint.MaxLimit = 30.0f;
+		Assert.AreEqual(30.0f, joint.MaxLimit);
+		joint.MinDistance = 1.0f;
+		Assert.AreEqual(1.0f, joint.MinDistance);
+		joint.MaxDistance = 2.0f;
+		Assert.AreEqual(2.0f, joint.MaxDistance);
+		joint.MotorEnabled = true;
+		Assert.IsTrue(joint.MotorEnabled);
+		joint.MotorSpeed = 45.0f;
+		Assert.AreEqual(45.0f, joint.MotorSpeed);
+		joint.MotorMaxForce = 50.0f;
+		Assert.AreEqual(50.0f, joint.MotorMaxForce);
+		// Back to a free swinging hinge.
+		joint.MotorEnabled = false;
+		joint.Type = JointType.Hinge;
+		joint.Anchor = new Vector3(0.0f, 1.5f, 0.0f);
+		joint.Axis = new Vector3(0.0f, 0.0f, 1.0f);
 	}
 
 	private static void ParticleChecks()

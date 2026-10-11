@@ -242,6 +242,16 @@ namespace Strada::ScriptGlue
 		static AssetHandle FromScript(Type value) { return AssetHandle(UUID(value)); }
 	};
 
+	// Entity references cross as their IDs (0: none).
+	template<>
+	struct FieldValue<UUID>
+	{
+		using Type = uint64_t;
+		static bool IsValid(Type) { return true; }
+		static Type ToScript(UUID value) { return value.GetValue(); }
+		static UUID FromScript(Type value) { return UUID(value); }
+	};
+
 	// Enums cross as their underlying values widened to int.
 	template<SerializableEnum T>
 	struct FieldValue<T>

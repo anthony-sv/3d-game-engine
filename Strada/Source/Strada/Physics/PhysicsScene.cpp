@@ -22,6 +22,11 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/SliderConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
 #include <algorithm>
@@ -609,6 +614,12 @@ namespace Strada
 		// After the listeners and filters it references.
 		JPH::PhysicsSystem System;
 		std::unordered_map<UUID, BodyRecord> Bodies;
+		struct JointRecord
+		{
+			JPH::Ref<JPH::TwoBodyConstraint> Constraint;
+			UUID ConnectedEntity = UUID::Invalid();
+		};
+		std::unordered_map<UUID, JointRecord> Joints;
 		bool OptimizeBroadPhase = false;
 
 		BodyRecord const* Find(UUID entity) const
@@ -654,6 +665,12 @@ namespace Strada
 
 	PhysicsScene::~PhysicsScene()
 	{
+		// Constraints go before the bodies they join.
+		for (auto const& [entity, joint] : m_Data->Joints)
+		{
+			m_Data->System.RemoveConstraint(joint.Constraint);
+		}
+		m_Data->Joints.clear();
 		JPH::BodyInterface& bodies = m_Data->System.GetBodyInterface();
 		for (auto const& [entity, record] : m_Data->Bodies)
 		{
@@ -801,6 +818,19 @@ namespace Strada
 		{
 			return;
 		}
+		// The body's joints go first, whichever side of them it is on.
+		for (auto joint = data.Joints.begin(); joint != data.Joints.end();)
+		{
+			if (joint->first == entity || joint->second.ConnectedEntity == entity)
+			{
+				data.System.RemoveConstraint(joint->second.Constraint);
+				joint = data.Joints.erase(joint);
+			}
+			else
+			{
+				++joint;
+			}
+		}
 		JPH::BodyInterface& bodies = data.System.GetBodyInterface();
 		bodies.RemoveBody(it->second.Id);
 		bodies.DestroyBody(it->second.Id);
@@ -817,6 +847,188 @@ namespace Strada
 	size_t PhysicsScene::GetBodyCount() const
 	{
 		return m_Data->Bodies.size();
+	}
+
+	Result<void> PhysicsScene::AddJoint(JointDesc const& desc)
+	{
+		RemoveJoint(desc.Entity);
+		Data& data = *m_Data;
+		BodyRecord const* const body = data.Find(desc.Entity);
+		if (body == nullptr)
+		{
+			return MakeError("entity {} has no body to join", desc.Entity);
+		}
+		JPH::BodyID connected;
+		if (desc.ConnectedEntity.IsValid())
+		{
+			if (desc.ConnectedEntity == desc.Entity)
+			{
+				return MakeError("entity {} cannot be joined to itself", desc.Entity);
+			}
+			BodyRecord const* const other = data.Find(desc.ConnectedEntity);
+			if (other == nullptr)
+			{
+				return MakeError("entity {} is joined to entity {}, which has no body", desc.Entity, desc.ConnectedEntity);
+			}
+			connected = other->Id;
+		}
+		float const values[] = {desc.MinLimit, desc.MaxLimit, desc.MinDistance, desc.MaxDistance, desc.MotorSpeed, desc.MotorMaxForce};
+		bool const finite = std::all_of(std::begin(values), std::end(values),
+		                                [](float value)
+		                                {
+											return std::isfinite(value);
+										});
+		if (!finite || !IsFinite(desc.Point) || !IsFinite(desc.ConnectedPoint) || !IsFinite(desc.Axis) || !FitsExtent(desc.Point) ||
+		    !FitsExtent(desc.ConnectedPoint))
+		{
+			return MakeError("the joint of entity {} has values that are not finite or too large", desc.Entity);
+		}
+		float const axisLength = glm::length(desc.Axis);
+		bool const needsAxis = desc.Type == JointType::Hinge || desc.Type == JointType::Slider;
+		if (needsAxis && axisLength < 1e-6f)
+		{
+			return MakeError("the joint of entity {} has no axis", desc.Entity);
+		}
+		glm::vec3 const axis = needsAxis ? desc.Axis / axisLength : glm::vec3(0.0f, 1.0f, 0.0f);
+		// Any direction perpendicular to the axis.
+		glm::vec3 const helper = std::abs(axis.y) < 0.9f ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+		glm::vec3 const normal = glm::normalize(glm::cross(axis, helper));
+		float const maxForce = std::clamp(desc.MotorMaxForce, 0.0f, MaxPhysicsForce);
+
+		JPH::Ref<JPH::TwoBodyConstraintSettings> settings;
+		switch (desc.Type)
+		{
+			case JointType::Fixed:
+			{
+				JPH::Ref<JPH::FixedConstraintSettings> fixed = new JPH::FixedConstraintSettings();
+				fixed->mSpace = JPH::EConstraintSpace::WorldSpace;
+				fixed->mAutoDetectPoint = true;
+				settings = fixed;
+				break;
+			}
+			case JointType::Hinge:
+			{
+				JPH::Ref<JPH::HingeConstraintSettings> hinge = new JPH::HingeConstraintSettings();
+				hinge->mSpace = JPH::EConstraintSpace::WorldSpace;
+				hinge->mPoint1 = hinge->mPoint2 = JPH::RVec3(Jolt::ToJolt(desc.Point));
+				hinge->mHingeAxis1 = hinge->mHingeAxis2 = Jolt::ToJolt(axis);
+				hinge->mNormalAxis1 = hinge->mNormalAxis2 = Jolt::ToJolt(normal);
+				if (desc.LimitsEnabled)
+				{
+					hinge->mLimitsMin = std::clamp(desc.MinLimit, -JPH::JPH_PI, 0.0f);
+					hinge->mLimitsMax = std::clamp(desc.MaxLimit, 0.0f, JPH::JPH_PI);
+				}
+				hinge->mMotorSettings.SetTorqueLimit(maxForce);
+				settings = hinge;
+				break;
+			}
+			case JointType::Ball:
+			{
+				JPH::Ref<JPH::PointConstraintSettings> point = new JPH::PointConstraintSettings();
+				point->mSpace = JPH::EConstraintSpace::WorldSpace;
+				point->mPoint1 = point->mPoint2 = JPH::RVec3(Jolt::ToJolt(desc.Point));
+				settings = point;
+				break;
+			}
+			case JointType::Distance:
+			{
+				JPH::Ref<JPH::DistanceConstraintSettings> distance = new JPH::DistanceConstraintSettings();
+				distance->mSpace = JPH::EConstraintSpace::WorldSpace;
+				// The connected body is the first.
+				distance->mPoint1 = JPH::RVec3(Jolt::ToJolt(desc.ConnectedPoint));
+				distance->mPoint2 = JPH::RVec3(Jolt::ToJolt(desc.Point));
+				float const current = glm::length(desc.ConnectedPoint - desc.Point);
+				float minimum = desc.MinDistance < 0.0f ? current : desc.MinDistance;
+				float maximum = desc.MaxDistance < 0.0f ? current : desc.MaxDistance;
+				if (minimum > maximum)
+				{
+					std::swap(minimum, maximum);
+				}
+				distance->mMinDistance = minimum;
+				distance->mMaxDistance = maximum;
+				settings = distance;
+				break;
+			}
+			case JointType::Slider:
+			{
+				JPH::Ref<JPH::SliderConstraintSettings> slider = new JPH::SliderConstraintSettings();
+				slider->mSpace = JPH::EConstraintSpace::WorldSpace;
+				slider->mAutoDetectPoint = true;
+				slider->SetSliderAxis(Jolt::ToJolt(axis));
+				if (desc.LimitsEnabled)
+				{
+					slider->mLimitsMin = std::min(desc.MinLimit, 0.0f);
+					slider->mLimitsMax = std::max(desc.MaxLimit, 0.0f);
+				}
+				slider->mMotorSettings.SetForceLimit(maxForce);
+				settings = slider;
+				break;
+			}
+		}
+		if (settings == nullptr)
+		{
+			return MakeError("entity {} has a joint of an unknown type", desc.Entity);
+		}
+
+		JPH::BodyInterface& bodies = data.System.GetBodyInterface();
+		// Jolt measures angles and drives motors of the second body relative to the first: the entity's body is second, so
+		// it turns and slides along the axis relative to what it is joined to.
+		JPH::Ref<JPH::TwoBodyConstraint> constraint = bodies.CreateConstraint(settings, connected, body->Id);
+		if (constraint == nullptr)
+		{
+			return MakeError("the joint of entity {} could not be made", desc.Entity);
+		}
+		if (desc.MotorEnabled)
+		{
+			// Jolt may be built without RTTI: its own subtype tells the constraint's class.
+			if (constraint->GetSubType() == JPH::EConstraintSubType::Hinge)
+			{
+				auto* hinge = static_cast<JPH::HingeConstraint*>(constraint.GetPtr());
+				hinge->SetMotorState(JPH::EMotorState::Velocity);
+				hinge->SetTargetAngularVelocity(desc.MotorSpeed);
+			}
+			else if (constraint->GetSubType() == JPH::EConstraintSubType::Slider)
+			{
+				auto* slider = static_cast<JPH::SliderConstraint*>(constraint.GetPtr());
+				slider->SetMotorState(JPH::EMotorState::Velocity);
+				slider->SetTargetVelocity(desc.MotorSpeed);
+			}
+		}
+		data.System.AddConstraint(constraint);
+		bodies.ActivateConstraint(constraint);
+		data.Joints[desc.Entity] = Data::JointRecord{constraint, desc.ConnectedEntity};
+		return {};
+	}
+
+	void PhysicsScene::RemoveJoint(UUID entity)
+	{
+		Data& data = *m_Data;
+		auto const it = data.Joints.find(entity);
+		if (it == data.Joints.end())
+		{
+			return;
+		}
+		data.System.RemoveConstraint(it->second.Constraint);
+		// The bodies it held may now fall.
+		JPH::BodyID const ids[] = {it->second.Constraint->GetBody1()->GetID(), it->second.Constraint->GetBody2()->GetID()};
+		for (JPH::BodyID const id : ids)
+		{
+			if (!id.IsInvalid())
+			{
+				data.System.GetBodyInterface().ActivateBody(id);
+			}
+		}
+		data.Joints.erase(it);
+	}
+
+	bool PhysicsScene::HasJoint(UUID entity) const
+	{
+		return m_Data->Joints.contains(entity);
+	}
+
+	size_t PhysicsScene::GetJointCount() const
+	{
+		return m_Data->Joints.size();
 	}
 
 	void PhysicsScene::Step(float deltaTime)

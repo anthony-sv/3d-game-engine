@@ -293,6 +293,21 @@ TEST_CASE("ViewportOverlays: shapes of cameras, lights and colliders")
 	std::vector<OverlayLine> const lights = kinds(ViewportOverlays::Shapes::Lights);
 	CHECK(colliders.size() + lights.size() == combined.size());
 	CHECK(kinds(ViewportOverlays::Shapes::Cameras).empty());
+
+	// Joints: the anchor's cross, the hinge axis and a line to the connected entity.
+	UUID const door = CreateEntity(operations, "Door", UUID::Invalid(),
+	                               Json::object({{"Joint", Json::object({{"Type", "Hinge"}, {"ConnectedEntity", lamp.ToString()}})}}));
+	std::vector<OverlayLine> const hinge = shapes(door);
+	CHECK(hinge.size() == 5);
+	CHECK(std::all_of(hinge.begin(), hinge.end(),
+	                  [](OverlayLine const& line)
+	                  {
+						  return line.Color == ViewportOverlays::JointColor;
+					  }));
+	CHECK(hinge.back().To == glm::vec3(0.0f, 2.0f, 0.0f));
+	// Ball joints to the world have only the cross.
+	REQUIRE(operations.SetComponentFields(door, "Joint", Json::object({{"Type", "Ball"}, {"ConnectedEntity", "0"}})).IsOk());
+	CHECK(shapes(door).size() == 3);
 }
 
 TEST_CASE("GameViewPanel: the game's image keeps the chosen size or aspect ratio and is centered")

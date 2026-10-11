@@ -28,7 +28,8 @@ namespace Strada
 			inline constexpr uint32_t Cameras = 1u << 0;
 			inline constexpr uint32_t Lights = 1u << 1;
 			inline constexpr uint32_t Colliders = 1u << 2;
-			inline constexpr uint32_t All = Cameras | Lights | Colliders;
+			inline constexpr uint32_t Joints = 1u << 3;
+			inline constexpr uint32_t All = Cameras | Lights | Colliders | Joints;
 		}
 
 		// Distance up to which camera frustums are drawn (their far planes are usually far away).
@@ -40,10 +41,15 @@ namespace Strada
 		inline constexpr glm::vec4 LightColor = glm::vec4(1.0f, 0.85f, 0.3f, 1.0f);
 		inline constexpr glm::vec4 ColliderColor = glm::vec4(0.35f, 1.0f, 0.45f, 1.0f);
 		inline constexpr glm::vec4 TriggerColor = glm::vec4(0.35f, 0.8f, 1.0f, 1.0f);
+		inline constexpr glm::vec4 JointColor = glm::vec4(1.0f, 0.4f, 0.9f, 1.0f);
+		// Length of the drawn hinge and slider axes, and size of the anchor's cross.
+		inline constexpr float JointAxisLength = 0.6f;
+		inline constexpr float JointAnchorSize = 0.1f;
 
-		// Shapes of an entity's camera, lights and colliders (the kinds in shapes): camera frustums up to
-		// CameraFrustumLength, light directions, ranges and cones, and collider outlines. aspectRatio is used by cameras
-		// without a fixed aspect ratio.
+		// Shapes of an entity's camera, lights, colliders and joint (the kinds in shapes): camera frustums up to
+		// CameraFrustumLength, light directions, ranges and cones, collider outlines, and the joint's anchor (a cross), its
+		// hinge or slider axis and a line to where it joins the connected body (or the world). aspectRatio is used by
+		// cameras without a fixed aspect ratio.
 		void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines,
 		                        uint32_t shapes = Shapes::All);
 	}

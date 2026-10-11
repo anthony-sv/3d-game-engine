@@ -92,6 +92,49 @@ namespace Strada
 		float Restitution = 0.0f;
 	};
 
+	enum class JointType : uint8_t
+	{
+		// Holds the bodies in their relative position and orientation.
+		Fixed = 0,
+		// Lets them turn around an axis through a point (doors, wheels, pendulums), optionally limited and motorized.
+		Hinge,
+		// Lets them turn freely around a point (ropes, chains, ragdoll shoulders).
+		Ball,
+		// Keeps two points within a range of distances (ropes, springs without stretch).
+		Distance,
+		// Lets them slide along an axis without turning (pistons, drawers), optionally limited and motorized.
+		Slider
+	};
+
+	// A joint between an entity's body and another body (or the world), in world space as the bodies are placed when the
+	// joint is made.
+	struct JointDesc
+	{
+		// The entity owning the joint (one per entity); its body is the first.
+		UUID Entity = UUID::Invalid();
+		// The second body; invalid joins the first body to the world.
+		UUID ConnectedEntity = UUID::Invalid();
+		JointType Type = JointType::Hinge;
+		// Where the bodies are joined. Distance joints keep Point (on the first body) and ConnectedPoint (on the second)
+		// apart.
+		glm::vec3 Point = glm::vec3(0.0f);
+		glm::vec3 ConnectedPoint = glm::vec3(0.0f);
+		// The hinge or slider axis (normalized when the joint is made).
+		glm::vec3 Axis = glm::vec3(0.0f, 1.0f, 0.0f);
+		bool LimitsEnabled = false;
+		// Hinges: radians, Min in [-pi, 0] and Max in [0, pi] (clamped); sliders: meters, Min <= 0 <= Max (clamped).
+		float MinLimit = 0.0f;
+		float MaxLimit = 0.0f;
+		// Distance joints: the range of distances; negative values take the distance when the joint is made.
+		float MinDistance = -1.0f;
+		float MaxDistance = -1.0f;
+		bool MotorEnabled = false;
+		// Hinges: radians per second; sliders: meters per second.
+		float MotorSpeed = 0.0f;
+		// The most torque (hinges, newton meters) or force (sliders, newtons) the motor uses.
+		float MotorMaxForce = 1000.0f;
+	};
+
 	// A body of an entity: its colliders form one compound shape.
 	struct BodyDesc
 	{

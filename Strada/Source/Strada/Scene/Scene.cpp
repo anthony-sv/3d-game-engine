@@ -268,6 +268,13 @@ namespace Strada
 
 	void Scene::RemapEntityReferences(entt::entity handle, std::unordered_map<UUID, UUID> const& remap)
 	{
+		if (JointComponent* joint = m_Registry.try_get<JointComponent>(handle))
+		{
+			if (auto const it = remap.find(joint->ConnectedEntity); it != remap.end())
+			{
+				joint->ConnectedEntity = it->second;
+			}
+		}
 		if (ScriptComponent* script = m_Registry.try_get<ScriptComponent>(handle))
 		{
 			for (auto& [name, value] : script->Fields)

@@ -185,6 +185,34 @@ namespace Strada
 		float Restitution = 0.0f;
 	};
 
+	// Joins this entity's body to another entity's body, or to the world, while the scene runs (both need a RigidBody and
+	// a collider; a connected entity that no longer exists leaves the joint out). The joint is made where the bodies are
+	// when the scene starts, and again whenever the joint or either body changes.
+	struct JointComponent
+	{
+		JointType Type = JointType::Hinge;
+		// None joins the body to the world.
+		UUID ConnectedEntity = UUID::Invalid();
+		// Where the joint is, in this entity's local space.
+		glm::vec3 Anchor = {0.0f, 0.0f, 0.0f};
+		// Distance joints: the point kept at a distance, in the connected entity's local space (world space without one).
+		glm::vec3 ConnectedAnchor = {0.0f, 0.0f, 0.0f};
+		// The hinge or slider axis in this entity's local space.
+		glm::vec3 Axis = {0.0f, 1.0f, 0.0f};
+		bool LimitsEnabled = false;
+		// Hinges: degrees (MinLimit -180 to 0, MaxLimit 0 to 180); sliders: meters.
+		float MinLimit = -45.0f;
+		float MaxLimit = 45.0f;
+		// Distance joints: negative values keep the distance the bodies have when the joint is made.
+		float MinDistance = -1.0f;
+		float MaxDistance = -1.0f;
+		bool MotorEnabled = false;
+		// Hinges: degrees per second; sliders: meters per second.
+		float MotorSpeed = 90.0f;
+		// The most torque (hinges, newton meters) or force (sliders, newtons) the motor uses.
+		float MotorMaxForce = 1000.0f;
+	};
+
 	struct AudioSourceComponent
 	{
 		AssetHandle Clip;

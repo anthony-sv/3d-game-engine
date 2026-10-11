@@ -61,6 +61,18 @@ namespace Strada
 		}};
 	};
 
+	template<>
+	struct EnumTraits<JointType>
+	{
+		static constexpr std::array<std::pair<JointType, std::string_view>, 5> Values = {{
+			{JointType::Fixed, "Fixed"},
+			{JointType::Hinge, "Hinge"},
+			{JointType::Ball, "Ball"},
+			{JointType::Distance, "Distance"},
+			{JointType::Slider, "Slider"},
+		}};
+	};
+
 	enum ComponentFlags : uint32_t
 	{
 		ComponentFlagsNone = 0,
@@ -344,6 +356,45 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<JointComponent>
+	{
+		static constexpr std::string_view Name = "Joint";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description =
+			"Joins the body to another body or the world: fixed, hinge (doors, wheels, pendulums), ball (chains, ropes), distance "
+			"or slider (pistons), with limits and motors.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Type", &JointComponent::Type)
+				.Doc("Fixed (welded), Hinge (turns around Axis), Ball (turns freely), Distance (keeps the anchors apart) or Slider "
+		             "(slides along Axis)."),
+			Field("ConnectedEntity", &JointComponent::ConnectedEntity)
+				.Doc("The entity whose body this one is joined to (it needs a RigidBody and a collider); none joins it to the world."),
+			Field("Anchor", &JointComponent::Anchor).Range(-1.0e6, 1.0e6).Doc("Where the joint is, in this entity's local space."),
+			Field("ConnectedAnchor", &JointComponent::ConnectedAnchor)
+				.Range(-1.0e6, 1.0e6)
+				.Doc("Distance joints: the far point, in the connected entity's local space (world space without one)."),
+			Field("Axis", &JointComponent::Axis).Range(-1.0, 1.0).Doc("Hinge or slider axis in this entity's local space."),
+			Field("LimitsEnabled", &JointComponent::LimitsEnabled).Doc("Limits a hinge's angle or a slider's travel."),
+			Field("MinLimit", &JointComponent::MinLimit)
+				.Range(-1.0e6, 0.0)
+				.Doc("Hinges: degrees (down to -180); sliders: meters (0 is where the bodies start)."),
+			Field("MaxLimit", &JointComponent::MaxLimit).Range(0.0, 1.0e6).Doc("Hinges: degrees (up to 180); sliders: meters."),
+			Field("MinDistance", &JointComponent::MinDistance)
+				.Range(-1.0, 1.0e6)
+				.Doc("Distance joints: the shortest distance; -1 keeps the starting distance."),
+			Field("MaxDistance", &JointComponent::MaxDistance)
+				.Range(-1.0, 1.0e6)
+				.Doc("Distance joints: the longest distance; -1 keeps the starting distance."),
+			Field("MotorEnabled", &JointComponent::MotorEnabled).Doc("Drives a hinge or slider at MotorSpeed."),
+			Field("MotorSpeed", &JointComponent::MotorSpeed)
+				.Range(-1.0e4, 1.0e4)
+				.Doc("Hinges: degrees per second; sliders: meters per second."),
+			Field("MotorMaxForce", &JointComponent::MotorMaxForce)
+				.Range(0.0, 1.0e9)
+				.Doc("The most torque (hinges, newton meters) or force (sliders, newtons) the motor uses."));
+	};
+
+	template<>
 	struct ComponentTraits<AudioSourceComponent>
 	{
 		static constexpr std::string_view Name = "AudioSource";
@@ -491,9 +542,10 @@ namespace Strada
 	{
 	};
 
-	using AllComponents = ComponentList<IDComponent, TagComponent, TransformComponent, RelationshipComponent, CameraComponent,
-	                                    MeshComponent, DirectionalLightComponent, PointLightComponent, SpotLightComponent,
-	                                    SkyLightComponent, RigidBodyComponent, BoxColliderComponent, SphereColliderComponent,
-	                                    CapsuleColliderComponent, MeshColliderComponent, AudioSourceComponent, AudioListenerComponent,
-	                                    ScriptComponent, TextComponent, SpriteRendererComponent, ParticleSystemComponent, PrefabComponent>;
+	using AllComponents =
+		ComponentList<IDComponent, TagComponent, TransformComponent, RelationshipComponent, CameraComponent, MeshComponent,
+	                  DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, RigidBodyComponent,
+	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, JointComponent,
+	                  AudioSourceComponent, AudioListenerComponent, ScriptComponent, TextComponent, SpriteRendererComponent,
+	                  ParticleSystemComponent, PrefabComponent>;
 }

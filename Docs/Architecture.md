@@ -364,6 +364,7 @@ interop component lookups.
 | `SphereCollider` | `SphereColliderComponent` | `Radius`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
 | `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Friction`, `Restitution` |
+| `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
 | `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
@@ -456,6 +457,16 @@ bodies whose transforms changed (scripts, the editor, a moving parent) are telep
 write their world transforms back (parents first, converted to parent-local space, keeping their scale). Events
 delivered to scripts: `OnCollisionEnter/Exit(Entity other)`, `OnTriggerEnter/Exit(Entity other)`. Queries: raycast
 (closest solid hit; triggers and colliders containing the origin are ignored), with a layer mask.
+
+Joints (`JointDesc`, `PhysicsScene::AddJoint`) are Jolt constraints made in world space from where the bodies are:
+fixed, hinge (with limits within ±180° and a velocity motor with a torque limit), point (`Ball`), distance (a range;
+negative ends keep the starting distance) and slider (limits around the starting position, velocity motor with a force
+limit). Values that are not finite, missing bodies, joints to the entity itself and hinges or sliders without an axis
+are refused; removing a body removes the joints on either side of it. The scene makes every `Joint` component's joint
+when it starts and makes them all again whenever a joint component or a body changes (rebuilt bodies lose their
+joints); a joint whose connected entity no longer exists is left out without a warning (a broken chain), while one
+whose connected entity has no body is logged. Duplicates and prefab instances remap `ConnectedEntity`. The scene view
+draws a selected joint's anchor, axis and connection.
 
 Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
 `PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin

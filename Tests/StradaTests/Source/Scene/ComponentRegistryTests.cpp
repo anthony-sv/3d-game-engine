@@ -15,7 +15,7 @@ using namespace Strada;
 TEST_CASE("Components: every component is registered once with a unique name")
 {
 	std::span<ComponentInfo const> const components = ComponentRegistry::GetComponents();
-	REQUIRE(components.size() == 22);
+	REQUIRE(components.size() == 23);
 
 	std::set<std::string_view> names;
 	for (ComponentInfo const& info : components)

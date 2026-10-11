@@ -228,6 +228,27 @@ if (Physics.Raycast(Transform.WorldTranslation, Transform.Forward, 100.0f, out R
 A camera turns screen positions into rays: `camera.ScreenToWorldRay(Input.MousePosition)` picks what is under the
 cursor. Collision layers and which layers collide are set in the project settings; raycasts take a layer mask.
 
+A `JointComponent` joins a body to another (`ConnectedEntity`) or to the world (null): `Hinge` for doors, wheels and
+pendulums (with `LimitsEnabled`, `MinLimit`/`MaxLimit` in degrees, and a motor: `MotorEnabled`, `MotorSpeed` in degrees
+per second, `MotorMaxForce`), `Ball` for chains and ropes, `Distance` to keep two anchors within `MinDistance` and
+`MaxDistance`, `Slider` for pistons and `Fixed` to weld. Anchors and axes are in the entity's local space; the joint is
+made where the bodies are when the scene starts, and again whenever a property changes. Destroying a link of a chain
+breaks it there:
+
+```csharp
+public class Windmill : Script
+{
+	protected override void OnCreate()
+	{
+		JointComponent hub = GetComponent<JointComponent>()!;
+		hub.Type = JointType.Hinge;
+		hub.Axis = Vector3.Forward;
+		hub.MotorEnabled = true;
+		hub.MotorSpeed = 45.0f;
+	}
+}
+```
+
 ## Spawning and destroying
 
 Prefabs are entities saved with their children (Create Prefab in the hierarchy's context menu). Spawn them with

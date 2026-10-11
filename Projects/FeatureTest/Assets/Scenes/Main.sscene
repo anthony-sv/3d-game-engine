@@ -1058,6 +1058,104 @@
 			}
 		},
 		{
+			"ID": "4419283746501928374",
+			"Components": {
+				"Tag": {
+					"Tag": "Pendulum"
+				},
+				"Transform": {
+					"Translation": [
+						-8.0,
+						3.0,
+						-6.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"SphereCollider": {
+					"Radius": 0.5,
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				},
+				"Joint": {
+					"Type": "Hinge",
+					"ConnectedEntity": "0",
+					"Anchor": [
+						0.0,
+						1.5,
+						0.0
+					],
+					"ConnectedAnchor": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Axis": [
+						0.0,
+						0.0,
+						1.0
+					],
+					"LimitsEnabled": true,
+					"MinLimit": -60.0,
+					"MaxLimit": 60.0,
+					"MinDistance": -1.0,
+					"MaxDistance": -1.0,
+					"MotorEnabled": false,
+					"MotorSpeed": 90.0,
+					"MotorMaxForce": 1000.0
+				}
+			}
+		},
+		{
 			"ID": "2759806468870901626",
 			"Components": {
 				"Tag": {

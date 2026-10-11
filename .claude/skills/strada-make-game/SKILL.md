@@ -34,6 +34,8 @@ undo history as the UI: work in small, checked steps.
   `entity_duplicate` and `entity_delete` change the hierarchy.
 - A scene needs a primary `Camera`, light (`DirectionalLight`, a `SkyLight` with an environment) and, for physics, a
   `RigidBody` with a collider on each body (`BoxCollider`, `SphereCollider`, `CapsuleCollider`, `MeshCollider`).
+  A `Joint` joins a body to another (`ConnectedEntity`) or the world: hinges (doors, pendulums, wheels with a motor),
+  ball joints (chains, Newton's cradles), distance, slider and fixed joints; anchors and axes are local to the entity.
 - `scene_hierarchy`, `entity_find` and `entity_get` show what was built. `scene_save` writes the scene (a `path` such as
   `Scenes/Level.sscene`, relative to Assets, the first time; scenes inside Assets become assets).
 

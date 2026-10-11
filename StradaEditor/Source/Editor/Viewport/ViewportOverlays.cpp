@@ -211,6 +211,44 @@ namespace Strada::ViewportOverlays
 		}
 	}
 
+	namespace
+	{
+		void AddJoint(Scene& scene, std::vector<OverlayLine>& lines, glm::mat4 const& world, JointComponent const& joint)
+		{
+			glm::vec3 const anchor(world * glm::vec4(joint.Anchor, 1.0f));
+			for (int axis = 0; axis < 3; axis++)
+			{
+				glm::vec3 offset(0.0f);
+				offset[axis] = JointAnchorSize;
+				AddLine(lines, anchor - offset, anchor + offset, JointColor, false);
+			}
+			if (joint.Type == JointType::Hinge || joint.Type == JointType::Slider)
+			{
+				glm::vec3 direction(world * glm::vec4(joint.Axis, 0.0f));
+				float const length = glm::length(direction);
+				if (length > 1e-6f)
+				{
+					direction *= JointAxisLength * 0.5f / length;
+					AddLine(lines, anchor - direction, anchor + direction, JointColor, false);
+				}
+			}
+			// To the far anchor of distance joints, or the connected body.
+			glm::vec3 other = joint.ConnectedAnchor;
+			Entity const connected = joint.ConnectedEntity.IsValid() ? scene.GetEntityByUUID(joint.ConnectedEntity) : Entity();
+			if (connected)
+			{
+				glm::mat4 const connectedWorld = scene.GetWorldTransform(connected);
+				other = joint.Type == JointType::Distance ? glm::vec3(connectedWorld * glm::vec4(joint.ConnectedAnchor, 1.0f))
+				                                          : glm::vec3(connectedWorld[3]);
+			}
+			else if (joint.Type != JointType::Distance)
+			{
+				return;
+			}
+			AddLine(lines, anchor, other, JointColor, false);
+		}
+	}
+
 	void AppendEntityShapes(Scene& scene, Entity entity, float aspectRatio, std::vector<OverlayLine>& lines, uint32_t shapes)
 	{
 		if (!entity)
@@ -253,6 +291,13 @@ namespace Strada::ViewportOverlays
 			if (CapsuleColliderComponent const* collider = entity.TryGetComponent<CapsuleColliderComponent>())
 			{
 				AddCapsuleCollider(lines, world, *collider);
+			}
+		}
+		if ((shapes & Shapes::Joints) != 0)
+		{
+			if (JointComponent const* joint = entity.TryGetComponent<JointComponent>())
+			{
+				AddJoint(scene, lines, world, *joint);
 			}
 		}
 	}

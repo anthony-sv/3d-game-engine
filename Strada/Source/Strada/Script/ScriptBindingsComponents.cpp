@@ -607,6 +607,20 @@ namespace Strada::ScriptGlue
 		AddFieldBindings<&MeshColliderComponent::Friction, "MeshColliderComponent", "Friction">(table);
 		AddFieldBindings<&MeshColliderComponent::Restitution, "MeshColliderComponent", "Restitution">(table);
 
+		AddFieldBindings<&JointComponent::Type, "JointComponent", "Type">(table);
+		AddFieldBindings<&JointComponent::ConnectedEntity, "JointComponent", "ConnectedEntity">(table);
+		AddFieldBindings<&JointComponent::Anchor, "JointComponent", "Anchor">(table);
+		AddFieldBindings<&JointComponent::ConnectedAnchor, "JointComponent", "ConnectedAnchor">(table);
+		AddFieldBindings<&JointComponent::Axis, "JointComponent", "Axis">(table);
+		AddFieldBindings<&JointComponent::LimitsEnabled, "JointComponent", "LimitsEnabled">(table);
+		AddFieldBindings<&JointComponent::MinLimit, "JointComponent", "MinLimit">(table);
+		AddFieldBindings<&JointComponent::MaxLimit, "JointComponent", "MaxLimit">(table);
+		AddFieldBindings<&JointComponent::MinDistance, "JointComponent", "MinDistance">(table);
+		AddFieldBindings<&JointComponent::MaxDistance, "JointComponent", "MaxDistance">(table);
+		AddFieldBindings<&JointComponent::MotorEnabled, "JointComponent", "MotorEnabled">(table);
+		AddFieldBindings<&JointComponent::MotorSpeed, "JointComponent", "MotorSpeed">(table);
+		AddFieldBindings<&JointComponent::MotorMaxForce, "JointComponent", "MotorMaxForce">(table);
+
 		AddFieldBindings<&AudioSourceComponent::Clip, "AudioSourceComponent", "Clip">(table);
 		AddFieldBindings<&AudioSourceComponent::Volume, "AudioSourceComponent", "Volume">(table);
 		AddFieldBindings<&AudioSourceComponent::Pitch, "AudioSourceComponent", "Pitch">(table);

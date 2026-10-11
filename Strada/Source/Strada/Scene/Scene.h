@@ -273,6 +273,9 @@ namespace Strada
 		void WriteBodyTransforms();
 		void OnPhysicsComponentChanged(entt::registry& registry, entt::entity handle);
 		void OnMeshComponentChanged(entt::registry& registry, entt::entity handle);
+		void OnJointComponentChanged(entt::registry& registry, entt::entity handle);
+		// Makes every joint again from the components and where the bodies are now.
+		void RebuildJoints();
 		void ConnectPhysicsSignals(bool connect);
 
 		// Audio runtime (SceneAudio.cpp).
@@ -346,6 +349,8 @@ namespace Strada
 		std::unordered_map<entt::entity, BodyState> m_Bodies;
 		// Entities whose physics components changed while running; their bodies are rebuilt before the next step.
 		std::unordered_set<entt::entity> m_ChangedBodies;
+		// A joint or a body changed: the joints are made again before the next step.
+		bool m_JointsChanged = false;
 		std::vector<ContactEvent> m_ContactEvents;
 
 		// The component settings an entity's sound was last updated with (to apply changes made while running).

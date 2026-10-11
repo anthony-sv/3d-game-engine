@@ -34,6 +34,21 @@ public enum ForceMode
 	VelocityChange = 3,
 }
 
+/// <summary>How a <see cref="JointComponent"/> joins two bodies.</summary>
+public enum JointType
+{
+	/// <summary>Holds the bodies in their relative position and orientation.</summary>
+	Fixed = 0,
+	/// <summary>Lets them turn around an axis through a point (doors, wheels, pendulums).</summary>
+	Hinge = 1,
+	/// <summary>Lets them turn freely around a point (chains, ropes).</summary>
+	Ball = 2,
+	/// <summary>Keeps two points within a range of distances.</summary>
+	Distance = 3,
+	/// <summary>Lets them slide along an axis without turning (pistons, drawers).</summary>
+	Slider = 4,
+}
+
 /// <summary>Where a particle system's particles start.</summary>
 public enum ParticleEmitterShape
 {

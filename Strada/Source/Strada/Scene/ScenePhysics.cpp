@@ -161,6 +161,7 @@ namespace Strada
 		addBodies(m_Registry.view<CapsuleColliderComponent>());
 		addBodies(m_Registry.view<MeshColliderComponent>());
 		addBodies(m_Registry.view<RigidBodyComponent>());
+		m_JointsChanged = true;
 		RebuildChangedBodies();
 		ConnectPhysicsSignals(true);
 	}
@@ -175,6 +176,7 @@ namespace Strada
 		m_Physics.reset();
 		m_Bodies.clear();
 		m_ChangedBodies.clear();
+		m_JointsChanged = false;
 		m_ContactEvents.clear();
 		m_PhysicsAccumulator = 0.0f;
 	}
@@ -207,6 +209,21 @@ namespace Strada
 		watch(std::type_identity<CapsuleColliderComponent>());
 		watch(std::type_identity<MeshColliderComponent>());
 
+		auto const watchJoints = [this, connect](auto sink)
+		{
+			if (connect)
+			{
+				sink.template connect<&Scene::OnJointComponentChanged>(*this);
+			}
+			else
+			{
+				sink.template disconnect<&Scene::OnJointComponentChanged>(*this);
+			}
+		};
+		watchJoints(m_Registry.on_construct<JointComponent>());
+		watchJoints(m_Registry.on_update<JointComponent>());
+		watchJoints(m_Registry.on_destroy<JointComponent>());
+
 		auto meshUpdated = m_Registry.on_update<MeshComponent>();
 		if (connect)
 		{
@@ -221,6 +238,11 @@ namespace Strada
 	void Scene::OnPhysicsComponentChanged(entt::registry&, entt::entity handle)
 	{
 		m_ChangedBodies.insert(handle);
+	}
+
+	void Scene::OnJointComponentChanged(entt::registry&, entt::entity)
+	{
+		m_JointsChanged = true;
 	}
 
 	void Scene::OnMeshComponentChanged(entt::registry& registry, entt::entity handle)
@@ -242,14 +264,63 @@ namespace Strada
 
 	void Scene::RebuildChangedBodies()
 	{
-		if (m_ChangedBodies.empty())
+		if (!m_ChangedBodies.empty())
 		{
-			return;
+			// Rebuilt bodies lose their joints.
+			m_JointsChanged = true;
+			std::unordered_set<entt::entity> const changed = std::exchange(m_ChangedBodies, {});
+			for (entt::entity const handle : changed)
+			{
+				UpdateBody(handle);
+			}
 		}
-		std::unordered_set<entt::entity> const changed = std::exchange(m_ChangedBodies, {});
-		for (entt::entity const handle : changed)
+		if (std::exchange(m_JointsChanged, false))
 		{
-			UpdateBody(handle);
+			RebuildJoints();
+		}
+	}
+
+	void Scene::RebuildJoints()
+	{
+		for (auto const& [handle, state] : m_Bodies)
+		{
+			m_Physics->RemoveJoint(state.Entity);
+		}
+		for (entt::entity const handle : m_Registry.view<JointComponent>())
+		{
+			Entity const entity(handle, this);
+			JointComponent const& component = entity.GetComponent<JointComponent>();
+			glm::mat4 const world = GetWorldTransform(entity);
+			JointDesc desc;
+			desc.Entity = entity.GetUUID();
+			desc.Type = component.Type;
+			desc.Point = glm::vec3(world * glm::vec4(component.Anchor, 1.0f));
+			desc.ConnectedPoint = component.ConnectedAnchor;
+			if (component.ConnectedEntity.IsValid())
+			{
+				Entity const connected = GetEntityByUUID(component.ConnectedEntity);
+				// A connected entity that was destroyed (a broken chain) leaves the joint out.
+				if (!connected)
+				{
+					continue;
+				}
+				desc.ConnectedEntity = component.ConnectedEntity;
+				desc.ConnectedPoint = glm::vec3(GetWorldTransform(connected) * glm::vec4(component.ConnectedAnchor, 1.0f));
+			}
+			desc.Axis = glm::vec3(world * glm::vec4(component.Axis, 0.0f));
+			desc.LimitsEnabled = component.LimitsEnabled;
+			bool const hinge = component.Type == JointType::Hinge;
+			desc.MinLimit = hinge ? glm::radians(component.MinLimit) : component.MinLimit;
+			desc.MaxLimit = hinge ? glm::radians(component.MaxLimit) : component.MaxLimit;
+			desc.MinDistance = component.MinDistance;
+			desc.MaxDistance = component.MaxDistance;
+			desc.MotorEnabled = component.MotorEnabled;
+			desc.MotorSpeed = hinge ? glm::radians(component.MotorSpeed) : component.MotorSpeed;
+			desc.MotorMaxForce = component.MotorMaxForce;
+			if (Result<void> added = m_Physics->AddJoint(desc); !added)
+			{
+				ST_CORE_WARN("Physics: {}", added.GetError());
+			}
 		}
 	}
 

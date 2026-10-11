@@ -34,6 +34,16 @@ namespace Strada
 		bool HasBody(UUID entity) const;
 		size_t GetBodyCount() const;
 
+		// --- Joints ---
+
+		// Joins the entity's body to another body or the world, replacing the entity's joint. Fails when a body is missing,
+		// the connected entity is the entity itself, or a value is not finite (axes must not be zero). Removing either body
+		// removes the joint.
+		[[nodiscard]] Result<void> AddJoint(JointDesc const& desc);
+		void RemoveJoint(UUID entity);
+		bool HasJoint(UUID entity) const;
+		size_t GetJointCount() const;
+
 		// --- Simulation ---
 
 		void Step(float deltaTime);

@@ -185,6 +185,33 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, float*, void> MeshColliderComponent_GetRestitution;
 	internal static delegate* unmanaged<ulong, float*, void> MeshColliderComponent_SetRestitution;
 
+	internal static delegate* unmanaged<ulong, int*, void> JointComponent_GetType;
+	internal static delegate* unmanaged<ulong, int*, void> JointComponent_SetType;
+	internal static delegate* unmanaged<ulong, ulong*, void> JointComponent_GetConnectedEntity;
+	internal static delegate* unmanaged<ulong, ulong*, void> JointComponent_SetConnectedEntity;
+	internal static delegate* unmanaged<ulong, Vector3*, void> JointComponent_GetAnchor;
+	internal static delegate* unmanaged<ulong, Vector3*, void> JointComponent_SetAnchor;
+	internal static delegate* unmanaged<ulong, Vector3*, void> JointComponent_GetConnectedAnchor;
+	internal static delegate* unmanaged<ulong, Vector3*, void> JointComponent_SetConnectedAnchor;
+	internal static delegate* unmanaged<ulong, Vector3*, void> JointComponent_GetAxis;
+	internal static delegate* unmanaged<ulong, Vector3*, void> JointComponent_SetAxis;
+	internal static delegate* unmanaged<ulong, byte*, void> JointComponent_GetLimitsEnabled;
+	internal static delegate* unmanaged<ulong, byte*, void> JointComponent_SetLimitsEnabled;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_GetMinLimit;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_SetMinLimit;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_GetMaxLimit;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_SetMaxLimit;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_GetMinDistance;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_SetMinDistance;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_GetMaxDistance;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_SetMaxDistance;
+	internal static delegate* unmanaged<ulong, byte*, void> JointComponent_GetMotorEnabled;
+	internal static delegate* unmanaged<ulong, byte*, void> JointComponent_SetMotorEnabled;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_GetMotorSpeed;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_SetMotorSpeed;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_GetMotorMaxForce;
+	internal static delegate* unmanaged<ulong, float*, void> JointComponent_SetMotorMaxForce;
+
 	internal static delegate* unmanaged<ulong, ulong*, void> AudioSourceComponent_GetClip;
 	internal static delegate* unmanaged<ulong, ulong*, void> AudioSourceComponent_SetClip;
 	internal static delegate* unmanaged<ulong, float*, void> AudioSourceComponent_GetVolume;
