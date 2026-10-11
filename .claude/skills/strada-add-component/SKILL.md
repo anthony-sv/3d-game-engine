@@ -36,8 +36,11 @@ struct ComponentTraits<FooComponent>
 
 Hints: `Range(min, max)` / `AtLeast(min)` (inclusive, enforced when JSON is read, so files and automation reject
 out-of-range values; the inspector clamps to them), `AsColor()` (vec3/vec4), `AsAngle()` (degrees),
-`AsMultilineText()`, `References("<AssetType>")` for asset fields and `Doc("...")` for anything not obvious from the
-name. Hints that do not fit the field's type fail to compile. Defaults must lie inside their ranges (tested).
+`AsMultilineText()`, `References("<AssetType>")` for asset fields, `EnabledBy("<bool field>")` for a field another bool
+field of the table switches on (the inspector draws the switch as a check box in front of the field, like a
+post-process volume's overrides) and `Doc("...")` for anything not obvious from the name. Hints that do not fit the
+field's type, and switches that are not unswitched bool fields of the table, fail to compile. Defaults must lie inside
+their ranges (tested). Systems reading values scripts set (which skip the range checks) can use `ClampToFieldRanges`.
 
 Append the type to `AllComponents` (order = serialization order). Optional: `ReadExtraField` for alternative input
 keys (see Transform's `RotationEuler`).

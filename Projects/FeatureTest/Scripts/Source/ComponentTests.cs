@@ -3,8 +3,8 @@ using Strada.Testing;
 
 namespace FeatureTest;
 
-/// <summary>Cameras, lights, meshes, text, sprites, particle systems, joints, audio listeners and script components: every
-/// property is written and read back, and the scene's values come first.</summary>
+/// <summary>Cameras, lights, meshes, text, sprites, particle systems, joints, post-process volumes, audio listeners and script
+/// components: every property is written and read back, and the scene's values come first.</summary>
 public sealed class ComponentTests : FeatureTestScript
 {
 	protected override void Start()
@@ -17,6 +17,7 @@ public sealed class ComponentTests : FeatureTestScript
 		Check("sprites", SpriteChecks);
 		Check("particle systems", ParticleChecks);
 		Check("joints", JointChecks);
+		Check("post-process volumes", PostProcessChecks);
 		Check("audio listeners", () =>
 		{
 			AudioListenerComponent listener = Find<AudioListenerComponent>("Main Camera");
@@ -245,6 +246,113 @@ public sealed class ComponentTests : FeatureTestScript
 		joint.Type = JointType.Hinge;
 		joint.Anchor = new Vector3(0.0f, 1.5f, 0.0f);
 		joint.Axis = new Vector3(0.0f, 0.0f, 1.0f);
+	}
+
+	private static void PostProcessChecks()
+	{
+		// The scene's local volume: a softer vignette and the AgX curve around the middle of the floor.
+		PostProcessComponent volume = Find<PostProcessComponent>("Post Process Volume");
+		Assert.IsFalse(volume.Global);
+		Assert.AreEqual(2.0f, volume.BlendDistance);
+		Assert.AreEqual(1.0f, volume.Priority);
+		Assert.AreEqual(0.8f, volume.Weight);
+		Assert.IsTrue(volume.OverrideVignette);
+		Assert.AreEqual(0.35f, volume.Vignette);
+		Assert.IsTrue(volume.OverrideTonemapper);
+		Assert.AreEqual(TonemapOperator.AgX, volume.Tonemapper);
+		Assert.IsFalse(volume.OverrideSaturation);
+
+		volume.Global = true;
+		Assert.IsTrue(volume.Global);
+		volume.BlendDistance = 5.0f;
+		Assert.AreEqual(5.0f, volume.BlendDistance);
+		volume.Priority = -3.0f;
+		Assert.AreEqual(-3.0f, volume.Priority);
+		volume.Weight = 0.5f;
+		Assert.AreEqual(0.5f, volume.Weight);
+		volume.OverrideEV100 = true;
+		Assert.IsTrue(volume.OverrideEV100);
+		volume.EV100 = 1.0f;
+		Assert.AreEqual(1.0f, volume.EV100);
+		volume.OverrideTonemapper = false;
+		Assert.IsFalse(volume.OverrideTonemapper);
+		volume.Tonemapper = TonemapOperator.PBRNeutral;
+		Assert.AreEqual(TonemapOperator.PBRNeutral, volume.Tonemapper);
+		volume.OverrideAmbientOcclusion = true;
+		Assert.IsTrue(volume.OverrideAmbientOcclusion);
+		volume.AmbientOcclusion = false;
+		Assert.IsFalse(volume.AmbientOcclusion);
+		volume.OverrideAmbientOcclusionIntensity = true;
+		Assert.IsTrue(volume.OverrideAmbientOcclusionIntensity);
+		volume.AmbientOcclusionIntensity = 2.5f;
+		Assert.AreEqual(2.5f, volume.AmbientOcclusionIntensity);
+		volume.OverrideBloom = true;
+		Assert.IsTrue(volume.OverrideBloom);
+		volume.Bloom = false;
+		Assert.IsFalse(volume.Bloom);
+		volume.OverrideBloomIntensity = true;
+		Assert.IsTrue(volume.OverrideBloomIntensity);
+		volume.BloomIntensity = 0.2f;
+		Assert.AreEqual(0.2f, volume.BloomIntensity);
+		volume.OverrideContrast = true;
+		Assert.IsTrue(volume.OverrideContrast);
+		volume.Contrast = 1.2f;
+		Assert.AreEqual(1.2f, volume.Contrast);
+		volume.OverrideSaturation = true;
+		Assert.IsTrue(volume.OverrideSaturation);
+		volume.Saturation = 0.6f;
+		Assert.AreEqual(0.6f, volume.Saturation);
+		volume.OverrideTemperature = true;
+		Assert.IsTrue(volume.OverrideTemperature);
+		volume.Temperature = 0.3f;
+		Assert.AreEqual(0.3f, volume.Temperature);
+		volume.OverrideTint = true;
+		Assert.IsTrue(volume.OverrideTint);
+		volume.Tint = -0.2f;
+		Assert.AreEqual(-0.2f, volume.Tint);
+		volume.OverrideColorFilter = true;
+		Assert.IsTrue(volume.OverrideColorFilter);
+		volume.ColorFilter = new Color(0.9f, 0.95f, 1.1f);
+		Assert.AreEqual(new Color(0.9f, 0.95f, 1.1f), volume.ColorFilter);
+		volume.OverrideChromaticAberration = true;
+		Assert.IsTrue(volume.OverrideChromaticAberration);
+		volume.ChromaticAberration = 0.4f;
+		Assert.AreEqual(0.4f, volume.ChromaticAberration);
+		volume.OverrideVignette = false;
+		Assert.IsFalse(volume.OverrideVignette);
+		volume.Vignette = 0.6f;
+		Assert.AreEqual(0.6f, volume.Vignette);
+		volume.OverrideVignetteSmoothness = true;
+		Assert.IsTrue(volume.OverrideVignetteSmoothness);
+		volume.VignetteSmoothness = 0.7f;
+		Assert.AreEqual(0.7f, volume.VignetteSmoothness);
+		volume.OverrideFilmGrain = true;
+		Assert.IsTrue(volume.OverrideFilmGrain);
+		volume.FilmGrain = 0.15f;
+		Assert.AreEqual(0.15f, volume.FilmGrain);
+
+		// Back to the scene's volume, which only the camera's position brings in.
+		volume.Global = false;
+		volume.BlendDistance = 2.0f;
+		volume.Weight = 0.8f;
+		volume.Priority = 1.0f;
+		volume.OverrideEV100 = false;
+		volume.OverrideTonemapper = true;
+		volume.Tonemapper = TonemapOperator.AgX;
+		volume.OverrideAmbientOcclusion = false;
+		volume.OverrideAmbientOcclusionIntensity = false;
+		volume.OverrideBloom = false;
+		volume.OverrideBloomIntensity = false;
+		volume.OverrideContrast = false;
+		volume.OverrideSaturation = false;
+		volume.OverrideTemperature = false;
+		volume.OverrideTint = false;
+		volume.OverrideColorFilter = false;
+		volume.OverrideChromaticAberration = false;
+		volume.OverrideVignette = true;
+		volume.Vignette = 0.35f;
+		volume.OverrideVignetteSmoothness = false;
+		volume.OverrideFilmGrain = false;
 	}
 
 	private static void ParticleChecks()

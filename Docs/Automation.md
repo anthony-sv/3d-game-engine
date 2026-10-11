@@ -190,7 +190,9 @@ Project settings are saved to the project file immediately and are not part of t
 
 Field descriptions may also contain `Values` (the names of enum values), `Min`/`Max` (inclusive bounds of numbers and
 of every vector component; values outside them are rejected), `Display` (`Color`, `Angle` in degrees or
-`MultilineText`), `AssetType` (the type of asset an asset field references) and `Description`.
+`MultilineText`), `AssetType` (the type of asset an asset field references), `Description` and `EnabledBy` (the bool
+field that switches the field on: a `PostProcess` volume's `Saturation` applies only while its `OverrideSaturation` is
+true, so set both).
 
 ### asset
 
@@ -272,7 +274,9 @@ whether or not the game view has the window's input. Scene and project file comm
 | `viewport.statistics` | — | What the scene view's renderer drew in the last frame it rendered (the scene through the editor camera): `gpuMilliseconds` (GPU time of its latest finished frame; null before one has finished or when the GPU cannot measure time), `drawCalls` (shadow-map draws included), `triangles`, `shadowDrawCalls`, `shadowMapViews`, `shadowsDropped` (shadow-casting lights beyond the shadow-map budget), `lights`, `culledLights` (point and spot lights out of the view's reach), `culled` (submeshes outside the view), `quads` (sprites and text glyphs); Unavailable when headless or without a GPU |
 
 Renderer settings (shadows, ambient occlusion, bloom, exposure, tonemapping, FXAA) are scene settings: `scene.settings`
-reads and changes them under `Renderer`.
+reads and changes them under `Renderer`. `PostProcess` components (post-process volumes) change the exposure,
+tonemapper, bloom, ambient occlusion, color grading and lens effects where the camera is; the scene settings stay as
+they are.
 
 ## Example session
 

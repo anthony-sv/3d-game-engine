@@ -677,6 +677,42 @@ namespace Strada::ScriptGlue
 		table.Add("ParticleSystemComponent_Clear", &ParticleSystemComponent_Clear);
 		table.Add("ParticleSystemComponent_GetParticleCount", &ParticleSystemComponent_GetParticleCount);
 
+		AddFieldBindings<&PostProcessComponent::Global, "PostProcessComponent", "Global">(table);
+		AddFieldBindings<&PostProcessComponent::BlendDistance, "PostProcessComponent", "BlendDistance">(table);
+		AddFieldBindings<&PostProcessComponent::Priority, "PostProcessComponent", "Priority">(table);
+		AddFieldBindings<&PostProcessComponent::Weight, "PostProcessComponent", "Weight">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideEV100, "PostProcessComponent", "OverrideEV100">(table);
+		AddFieldBindings<&PostProcessComponent::EV100, "PostProcessComponent", "EV100">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideTonemapper, "PostProcessComponent", "OverrideTonemapper">(table);
+		AddFieldBindings<&PostProcessComponent::Tonemapper, "PostProcessComponent", "Tonemapper">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideAmbientOcclusion, "PostProcessComponent", "OverrideAmbientOcclusion">(table);
+		AddFieldBindings<&PostProcessComponent::AmbientOcclusion, "PostProcessComponent", "AmbientOcclusion">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideAmbientOcclusionIntensity, "PostProcessComponent",
+		                 "OverrideAmbientOcclusionIntensity">(table);
+		AddFieldBindings<&PostProcessComponent::AmbientOcclusionIntensity, "PostProcessComponent", "AmbientOcclusionIntensity">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideBloom, "PostProcessComponent", "OverrideBloom">(table);
+		AddFieldBindings<&PostProcessComponent::Bloom, "PostProcessComponent", "Bloom">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideBloomIntensity, "PostProcessComponent", "OverrideBloomIntensity">(table);
+		AddFieldBindings<&PostProcessComponent::BloomIntensity, "PostProcessComponent", "BloomIntensity">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideContrast, "PostProcessComponent", "OverrideContrast">(table);
+		AddFieldBindings<&PostProcessComponent::Contrast, "PostProcessComponent", "Contrast">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideSaturation, "PostProcessComponent", "OverrideSaturation">(table);
+		AddFieldBindings<&PostProcessComponent::Saturation, "PostProcessComponent", "Saturation">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideTemperature, "PostProcessComponent", "OverrideTemperature">(table);
+		AddFieldBindings<&PostProcessComponent::Temperature, "PostProcessComponent", "Temperature">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideTint, "PostProcessComponent", "OverrideTint">(table);
+		AddFieldBindings<&PostProcessComponent::Tint, "PostProcessComponent", "Tint">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideColorFilter, "PostProcessComponent", "OverrideColorFilter">(table);
+		AddFieldBindings<&PostProcessComponent::ColorFilter, "PostProcessComponent", "ColorFilter">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideChromaticAberration, "PostProcessComponent", "OverrideChromaticAberration">(table);
+		AddFieldBindings<&PostProcessComponent::ChromaticAberration, "PostProcessComponent", "ChromaticAberration">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideVignette, "PostProcessComponent", "OverrideVignette">(table);
+		AddFieldBindings<&PostProcessComponent::Vignette, "PostProcessComponent", "Vignette">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideVignetteSmoothness, "PostProcessComponent", "OverrideVignetteSmoothness">(table);
+		AddFieldBindings<&PostProcessComponent::VignetteSmoothness, "PostProcessComponent", "VignetteSmoothness">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideFilmGrain, "PostProcessComponent", "OverrideFilmGrain">(table);
+		AddFieldBindings<&PostProcessComponent::FilmGrain, "PostProcessComponent", "FilmGrain">(table);
+
 		table.Add("ScriptComponent_GetClassName", &GetText<ScriptComponent, &ScriptComponent::ClassName>);
 		table.Add("ScriptComponent_SetClassName", &SetText<ScriptComponent, &ScriptComponent::ClassName>);
 	}

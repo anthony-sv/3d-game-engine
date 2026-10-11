@@ -184,6 +184,14 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 	CHECK(spotEntity.GetComponent<TransformComponent>().Translation == glm::vec3(0.0f));
 	glm::vec3 const forward = spotEntity.GetComponent<TransformComponent>().Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
 	CHECK(forward.y == doctest::Approx(-1.0f).epsilon(1e-4));
+
+	// Post-process volumes start global, with a 10 m box for when they are made local.
+	Result<UUID> const volume = EntityPresets::Create(operations, find("Post Process Volume"), UUID::Invalid(), spawn);
+	REQUIRE(volume.IsOk());
+	Entity const volumeEntity = context.GetScene().GetEntityByUUID(volume.GetValue());
+	REQUIRE(volumeEntity.HasComponent<PostProcessComponent>());
+	CHECK(volumeEntity.GetComponent<PostProcessComponent>().Global);
+	CHECK(volumeEntity.GetComponent<TransformComponent>().Scale == glm::vec3(10.0f));
 }
 
 TEST_CASE("HierarchyEditing: drops resolve to a parent and an anchor, never into an own subtree")

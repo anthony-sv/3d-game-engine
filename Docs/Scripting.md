@@ -334,6 +334,45 @@ public class Crate : Script
 `Additive` particles add light (bright colors with an `Intensity` above 1 glow through the bloom); `Alpha` particles
 cover what is behind them, for smoke and dust.
 
+## Post-processing
+
+The scene's look (exposure, tonemapper, bloom, ambient occlusion, color grading, vignette, chromatic aberration, film
+grain) is set in its Scene Settings; a `PostProcessComponent` (the editor's Entity > Effects > Post Process Volume)
+changes it where the camera is. Only the settings whose `Override` property is set change: `OverrideSaturation` and
+`Saturation`, `OverrideVignette` and `Vignette`, and so on. A `Global` volume applies everywhere; a local one applies
+inside its entity's box (scale the entity to size it) and fades out over `BlendDistance` meters around it, so walking
+into a cave or under water changes the look smoothly. Overlapping volumes apply in order of `Priority`, and `Weight`
+says how much of a volume applies, which makes short effects easy:
+
+```csharp
+public class DamageFlash : Script
+{
+	private PostProcessComponent? flash;
+	private float strength;
+
+	protected override void OnCreate()
+	{
+		// A global volume with OverrideVignette, Vignette 0.8, OverrideColorFilter and a red ColorFilter, Weight 0.
+		flash = GetComponent<PostProcessComponent>();
+	}
+
+	public void Hit()
+	{
+		strength = 1.0f;
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		strength = Mathf.Max(strength - deltaTime * 2.0f, 0.0f);
+		flash!.Weight = strength;
+	}
+}
+```
+
+Numbers blend smoothly with the weight, and so does `Bloom`: a volume that turns bloom off fades the glow out through
+its intensity, one that turns it on fades it in. `AmbientOcclusion` and `Tonemapper` switch once a volume applies at
+least halfway.
+
 ## Time, scenes and the application
 
 `Time.DeltaTime`, `Time.FixedDeltaTime`, `Time.Elapsed` and `Time.FrameCount` tell the time. `Time.TimeScale` scales
