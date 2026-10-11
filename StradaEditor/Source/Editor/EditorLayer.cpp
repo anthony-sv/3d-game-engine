@@ -1040,6 +1040,12 @@ namespace Strada
 			Input::ReleaseAll();
 		}
 		m_GameInputWasActive = active;
+		// Without the input, the cursor is over other panels (in window coordinates): the game's UI must not follow it.
+		// Headless editors have no game view; automation drives their input.
+		if (m_PlayMode.IsPlaying() && m_GameViewPanel != nullptr)
+		{
+			m_Context.GetScene().SetUIPointerEnabled(active);
+		}
 	}
 
 	std::string EditorLayer::GetExportStatus() const

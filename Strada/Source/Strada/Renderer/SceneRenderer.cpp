@@ -956,6 +956,26 @@ namespace Strada
 		m_Quads->SubmitText(std::move(text), entityId);
 	}
 
+	void SceneRenderer::SubmitUIRect(UIRectSubmission const& rect)
+	{
+		ST_CORE_ASSERT(m_InScene, "SubmitUIRect outside BeginScene/EndScene");
+		ST_CORE_ASSERT(rect.PickingId <= MaxPickingId, "Picking IDs must stay below the selection bit");
+		uint32_t const entityId =
+			rect.PickingId == 0 ? 0u : ((rect.PickingId & MaxPickingId) | (rect.Selected ? ShaderInterop::EntityIdSelectedBit : 0u));
+		m_HasSelection = m_HasSelection || (entityId & ShaderInterop::EntityIdSelectedBit) != 0;
+		m_Quads->SubmitUIRect(rect, entityId);
+	}
+
+	void SceneRenderer::SubmitUIText(UITextSubmission text)
+	{
+		ST_CORE_ASSERT(m_InScene, "SubmitUIText outside BeginScene/EndScene");
+		ST_CORE_ASSERT(text.PickingId <= MaxPickingId, "Picking IDs must stay below the selection bit");
+		uint32_t const entityId =
+			text.PickingId == 0 ? 0u : ((text.PickingId & MaxPickingId) | (text.Selected ? ShaderInterop::EntityIdSelectedBit : 0u));
+		m_HasSelection = m_HasSelection || (entityId & ShaderInterop::EntityIdSelectedBit) != 0;
+		m_Quads->SubmitUIText(std::move(text), entityId);
+	}
+
 	void SceneRenderer::SubmitLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, bool depthTest)
 	{
 		ST_CORE_ASSERT(m_InScene, "SubmitLine outside BeginScene/EndScene");

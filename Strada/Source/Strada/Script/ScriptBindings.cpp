@@ -12,6 +12,7 @@ namespace Strada
 		RegisterRuntimeBindings(*this);
 		RegisterAssetBindings(*this);
 		RegisterApplicationBindings(*this);
+		RegisterUIBindings(*this);
 	}
 
 	std::span<ScriptBinding const> GetScriptBindings()

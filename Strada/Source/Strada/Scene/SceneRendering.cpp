@@ -11,6 +11,7 @@
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
+#include "Strada/Scene/UILayout.h"
 
 #include <span>
 #include <vector>
@@ -57,6 +58,78 @@ namespace Strada
 					                                 glm::vec4(cameraBasis[2], 0.0f), glm::vec4(position, 1.0f));
 					submission.Color = color;
 					renderer.SubmitSprite(submission);
+				}
+			}
+		}
+
+		glm::vec4 GetButtonColor(UIButtonComponent const& button, UIButtonState state)
+		{
+			switch (state)
+			{
+				case UIButtonState::Normal:
+					break;
+				case UIButtonState::Hovered:
+					return button.HoveredColor;
+				case UIButtonState::Pressed:
+					return button.PressedColor;
+				case UIButtonState::Disabled:
+					return button.DisabledColor;
+			}
+			return button.NormalColor;
+		}
+
+		// The UI draws onto the 8-bit final image: scripts may set colors outside the fields' ranges, whose negative alphas
+		// would brighten what is behind.
+		glm::vec4 GetUIColor(glm::vec4 const& color, float opacity)
+		{
+			glm::vec4 result = glm::clamp(color, glm::vec4(0.0f), glm::vec4(1.0f));
+			result.a *= opacity;
+			return result;
+		}
+
+		// Every canvas's UI over the renderer's viewport, in hierarchy order: an element's image, then its text.
+		void SubmitUI(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options)
+		{
+			glm::vec2 const viewport(static_cast<float>(renderer.GetViewportWidth()), static_cast<float>(renderer.GetViewportHeight()));
+			for (UIElement const& element : UILayout::LayoutScene(scene, viewport))
+			{
+				Entity entity(element.Handle, &scene);
+				UUID const id = entity.GetUUID();
+				uint32_t const pickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
+				bool const selected = options.IsSelected && options.IsSelected(id);
+				if (UIImageComponent const* image = entity.TryGetComponent<UIImageComponent>())
+				{
+					UIRectSubmission submission;
+					submission.Min = element.Rectangle.Min;
+					submission.Max = element.Rectangle.Max;
+					UIButtonComponent const* button = entity.TryGetComponent<UIButtonComponent>();
+					submission.Color = GetUIColor(
+						button != nullptr ? GetButtonColor(*button, scene.GetUIButtonState(entity)) : image->Color, element.Opacity);
+					submission.Texture = image->Texture;
+					submission.PreserveAspect = image->PreserveAspect;
+					submission.CornerRadius = image->CornerRadius * element.Scale;
+					submission.PickingId = pickingId;
+					submission.Selected = selected;
+					renderer.SubmitUIRect(submission);
+				}
+				UITextComponent const* text = entity.TryGetComponent<UITextComponent>();
+				if (text != nullptr && !text->Text.empty())
+				{
+					UITextSubmission submission;
+					submission.Text = text->Text;
+					// Fonts that cannot be loaded fall back to the default font.
+					submission.Font = text->Font.IsValid() ? AssetManager::GetAsset<FontAsset>(text->Font) : nullptr;
+					submission.Min = element.Rectangle.Min;
+					submission.Max = element.Rectangle.Max;
+					submission.Color = GetUIColor(text->Color, element.Opacity);
+					submission.FontSize = text->FontSize * element.Scale;
+					submission.Layout.Alignment = text->Alignment;
+					submission.Layout.LineSpacing = text->LineSpacing;
+					submission.VerticalAlignment = text->VerticalAlignment;
+					submission.Wrap = text->Wrap;
+					submission.PickingId = pickingId;
+					submission.Selected = selected;
+					renderer.SubmitUIText(std::move(submission));
 				}
 			}
 		}
@@ -199,6 +272,11 @@ namespace Strada
 						found = true;
 					}
 				});
+
+			if (options.DrawUI)
+			{
+				SubmitUI(scene, renderer, options);
+			}
 		}
 	}
 

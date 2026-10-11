@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 
 namespace Strada
@@ -58,6 +59,17 @@ namespace Strada
 			glm::vec2 m_ViewportSize;
 		};
 
+		// Clip-space position of a pixel of the viewport (y downwards).
+		glm::vec4 PixelToClip(glm::vec2 const& pixel, glm::vec2 const& viewportSize)
+		{
+			return glm::vec4(pixel.x / viewportSize.x * 2.0f - 1.0f, 1.0f - pixel.y / viewportSize.y * 2.0f, 0.0f, 1.0f);
+		}
+
+		bool IsFinite(glm::vec2 const& value)
+		{
+			return std::isfinite(value.x) && std::isfinite(value.y);
+		}
+
 		void EnableAlphaBlending(nvrhi::GraphicsPipelineDesc& desc)
 		{
 			nvrhi::BlendState::RenderTarget& target = desc.renderState.blendState.targets[0];
@@ -101,6 +113,16 @@ namespace Strada
 				.setFormat(nvrhi::Format::R32_UINT)
 				.setOffset(offsetof(Vertex, EntityId))
 				.setElementStride(sizeof(Vertex)),
+			nvrhi::VertexAttributeDesc()
+				.setName("RADIUS")
+				.setFormat(nvrhi::Format::R32_FLOAT)
+				.setOffset(offsetof(Vertex, CornerRadius))
+				.setElementStride(sizeof(Vertex)),
+			nvrhi::VertexAttributeDesc()
+				.setName("SHAPE")
+				.setFormat(nvrhi::Format::RGBA32_FLOAT)
+				.setOffset(offsetof(Vertex, Shape))
+				.setElementStride(sizeof(Vertex)),
 		};
 		m_InputLayout = device->createInputLayout(attributes, static_cast<uint32_t>(std::size(attributes)), ShaderLibrary::Get("Quad_VS"));
 
@@ -133,6 +155,21 @@ namespace Strada
 		}
 	}
 
+	void QuadRenderer::SubmitUIRect(UIRectSubmission const& rect, uint32_t entityId)
+	{
+		m_UIItems.push_back({static_cast<uint32_t>(m_UIRects.size()), false});
+		m_UIRects.emplace_back(rect, entityId);
+	}
+
+	void QuadRenderer::SubmitUIText(UITextSubmission text, uint32_t entityId)
+	{
+		if (!text.Text.empty())
+		{
+			m_UIItems.push_back({static_cast<uint32_t>(m_UITexts.size()), true});
+			m_UITexts.emplace_back(std::move(text), entityId);
+		}
+	}
+
 	void QuadRenderer::Prepare(glm::vec3 const& cameraPosition, glm::uvec2 const& viewportSize)
 	{
 		m_Frame++;
@@ -150,22 +187,42 @@ namespace Strada
 		m_Layouts.assign(m_Texts.size(), TextLayout());
 		m_TextFonts.assign(m_Texts.size(), nullptr);
 		Ref<FontAsset> defaultFont;
-		for (size_t i = 0; i < m_Texts.size(); i++)
+		auto const resolveFont = [&defaultFont](Ref<FontAsset>& font)
 		{
-			TextSubmission& text = m_Texts[i].first;
-			if (!text.Font)
+			if (!font)
 			{
 				if (!defaultFont && AssetManager::IsInitialized())
 				{
 					defaultFont = AssetManager::GetAsset<FontAsset>(GetBuiltInHandle(BuiltInAsset::DefaultFont));
 				}
-				text.Font = defaultFont;
+				font = defaultFont;
 			}
-			if (GpuFont* font = Renderer::GetFont(text.Font))
+			return Renderer::GetFont(font);
+		};
+		for (size_t i = 0; i < m_Texts.size(); i++)
+		{
+			TextSubmission& text = m_Texts[i].first;
+			if (GpuFont* font = resolveFont(text.Font))
 			{
 				m_Layouts[i] = LayoutText(*font->Atlas, text.Text, text.Layout);
 				m_TextFonts[i] = font;
 			}
+		}
+		m_UILayouts.assign(m_UITexts.size(), TextLayout());
+		m_UITextFonts.assign(m_UITexts.size(), nullptr);
+		for (size_t i = 0; i < m_UITexts.size(); i++)
+		{
+			UITextSubmission& text = m_UITexts[i].first;
+			GpuFont* font = resolveFont(text.Font);
+			if (font == nullptr || !(text.FontSize > 0.0f) || !std::isfinite(text.FontSize))
+			{
+				continue;
+			}
+			TextLayoutSettings settings = text.Layout;
+			// Lines break at the rectangle's width, in lines of the font size.
+			settings.WrapWidth = text.Wrap ? std::max(text.Max.x - text.Min.x, 0.0f) / text.FontSize : 0.0f;
+			m_UILayouts[i] = LayoutText(*font->Atlas, text.Text, settings);
+			m_UITextFonts[i] = font;
 		}
 
 		// World items back to front; screen items by layer (translation z), the higher on top.
@@ -214,7 +271,111 @@ namespace Strada
 		{
 			BuildItem(item, m_ScreenBatches, viewportSize);
 		}
+		// The UI covers the other screen-space items, in submission (hierarchy) order.
+		for (UIItem const& item : m_UIItems)
+		{
+			if (item.Text)
+			{
+				BuildUIText(item.Index, viewportSize);
+			}
+			else
+			{
+				BuildUIRect(item.Index, viewportSize);
+			}
+		}
 		m_QuadCount = static_cast<uint32_t>(m_Vertices.size() / 4);
+	}
+
+	void QuadRenderer::BuildUIRect(uint32_t index, glm::uvec2 const& viewportSize)
+	{
+		auto const& [rect, entityId] = m_UIRects[index];
+		glm::vec2 min = rect.Min;
+		glm::vec2 max = rect.Max;
+		if (!IsFinite(min) || !IsFinite(max) || !(max.x > min.x) || !(max.y > min.y))
+		{
+			return;
+		}
+		AssetHandle const white = GetBuiltInHandle(BuiltInAsset::WhiteTexture);
+		nvrhi::ITexture* texture = Renderer::GetTexture(rect.Texture.IsValid() ? rect.Texture : white, true, white);
+		if (texture == nullptr)
+		{
+			return;
+		}
+		if (rect.PreserveAspect && rect.Texture.IsValid())
+		{
+			nvrhi::TextureDesc const& desc = texture->getDesc();
+			float const aspect = static_cast<float>(std::max(desc.width, 1u)) / static_cast<float>(std::max(desc.height, 1u));
+			glm::vec2 const size = max - min;
+			glm::vec2 const fitted = size.x > size.y * aspect ? glm::vec2(size.y * aspect, size.y) : glm::vec2(size.x, size.x / aspect);
+			glm::vec2 const center = 0.5f * (min + max);
+			min = center - 0.5f * fitted;
+			max = center + 0.5f * fitted;
+		}
+
+		glm::vec2 const viewport = glm::max(glm::vec2(viewportSize), glm::vec2(1.0f));
+		glm::vec2 const center = 0.5f * (min + max);
+		glm::vec2 const halfSize = 0.5f * (max - min);
+		float const radius =
+			std::isfinite(rect.CornerRadius) ? std::clamp(rect.CornerRadius, 0.0f, std::min(halfSize.x, halfSize.y)) : 0.0f;
+		// The quad reaches a pixel beyond the rectangle on every side, so the shader anti-aliases the edges on both sides of
+		// them; the texture coordinates continue past the edges (the clamp sampler repeats the border there).
+		glm::vec2 const outer = halfSize + 1.0f;
+		glm::vec2 const uvOuter = 0.5f * outer / halfSize;
+		// Counterclockwise from the bottom-left corner (y grows downwards in pixels).
+		glm::vec2 const signs[4] = {{-1.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, -1.0f}, {-1.0f, -1.0f}};
+		Vertex vertices[4];
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			glm::vec2 const offset = signs[i] * outer;
+			vertices[i].Position = PixelToClip(center + offset, viewport);
+			vertices[i].Color = rect.Color;
+			vertices[i].TexCoord = glm::vec2(0.5f) + signs[i] * uvOuter;
+			vertices[i].EntityId = entityId;
+			vertices[i].CornerRadius = radius;
+			vertices[i].Shape = glm::vec4(offset, halfSize);
+		}
+		AddVertices(m_ScreenBatches, vertices, texture, Renderer::GetLinearClampSampler(), ShaderInterop::QuadModeUIRect, glm::vec2(1.0f));
+	}
+
+	void QuadRenderer::BuildUIText(uint32_t index, glm::uvec2 const& viewportSize)
+	{
+		auto const& [text, entityId] = m_UITexts[index];
+		GpuFont* font = m_UITextFonts[index];
+		TextLayout const& layout = m_UILayouts[index];
+		if (font == nullptr || layout.Glyphs.empty() || !IsFinite(text.Min) || !IsFinite(text.Max))
+		{
+			return;
+		}
+		nvrhi::ITexture* texture = Renderer::UpdateFontTexture(*font);
+		if (texture == nullptr)
+		{
+			return;
+		}
+		glm::vec2 const viewport = glm::max(glm::vec2(viewportSize), glm::vec2(1.0f));
+		glm::vec2 const atlasSize(static_cast<float>(font->Atlas->GetWidth()), static_cast<float>(font->Atlas->GetHeight()));
+		float const size = text.FontSize;
+		// Lines align at the rectangle's left edge, center or right edge; the text block at its top, middle or bottom.
+		float const anchorX = text.Layout.Alignment == TextAlignment::Center  ? 0.5f * (text.Min.x + text.Max.x)
+		                      : text.Layout.Alignment == TextAlignment::Right ? text.Max.x
+		                                                                      : text.Min.x;
+		float const height = layout.Max.y * size;
+		float const top = text.VerticalAlignment == TextVerticalAlignment::Middle   ? 0.5f * (text.Min.y + text.Max.y - height)
+		                  : text.VerticalAlignment == TextVerticalAlignment::Bottom ? text.Max.y - height
+		                                                                            : text.Min.y;
+		glm::vec2 const origin(anchorX, top);
+		for (TextGlyphQuad const& glyph : layout.Glyphs)
+		{
+			glm::vec2 const min = origin + glyph.Min * size;
+			glm::vec2 const max = origin + glyph.Max * size;
+			glm::vec4 const corners[4] = {
+				PixelToClip({min.x, max.y}, viewport),
+				PixelToClip({max.x, max.y}, viewport),
+				PixelToClip({max.x, min.y}, viewport),
+				PixelToClip({min.x, min.y}, viewport),
+			};
+			AddQuad(m_ScreenBatches, corners, glm::vec2(glyph.AtlasMin) / atlasSize, glm::vec2(glyph.AtlasMax) / atlasSize, text.Color,
+			        entityId, texture, Renderer::GetLinearClampSampler(), ShaderInterop::QuadModeText, atlasSize);
+		}
 	}
 
 	void QuadRenderer::BuildItem(Item const& item, std::vector<Batch>& batches, glm::uvec2 const& viewportSize)
@@ -269,7 +430,6 @@ namespace Strada
 	                           glm::vec4 const& color, uint32_t entityId, nvrhi::ITexture* texture, nvrhi::ISampler* sampler, uint32_t mode,
 	                           glm::vec2 const& atlasSize)
 	{
-		uint32_t const quad = static_cast<uint32_t>(m_Vertices.size() / 4);
 		// Texture rows go down while the corners go counterclockwise from the bottom-left.
 		glm::vec2 const texCoords[4] = {
 			glm::vec2(uvMin.x, uvMax.y),
@@ -277,10 +437,22 @@ namespace Strada
 			glm::vec2(uvMax.x, uvMin.y),
 			glm::vec2(uvMin.x, uvMin.y),
 		};
+		Vertex vertices[4];
 		for (uint32_t i = 0; i < 4; i++)
 		{
-			m_Vertices.push_back({corners[i], color, texCoords[i], entityId, 0});
+			vertices[i].Position = corners[i];
+			vertices[i].Color = color;
+			vertices[i].TexCoord = texCoords[i];
+			vertices[i].EntityId = entityId;
 		}
+		AddVertices(batches, vertices, texture, sampler, mode, atlasSize);
+	}
+
+	void QuadRenderer::AddVertices(std::vector<Batch>& batches, Vertex const (&vertices)[4], nvrhi::ITexture* texture,
+	                               nvrhi::ISampler* sampler, uint32_t mode, glm::vec2 const& atlasSize)
+	{
+		uint32_t const quad = static_cast<uint32_t>(m_Vertices.size() / 4);
+		m_Vertices.insert(m_Vertices.end(), std::begin(vertices), std::end(vertices));
 		if (!batches.empty())
 		{
 			Batch& last = batches.back();
@@ -384,6 +556,11 @@ namespace Strada
 		m_Texts.clear();
 		m_Layouts.clear();
 		m_TextFonts.clear();
+		m_UIRects.clear();
+		m_UITexts.clear();
+		m_UIItems.clear();
+		m_UILayouts.clear();
+		m_UITextFonts.clear();
 		m_Vertices.clear();
 		m_WorldBatches.clear();
 		m_ScreenBatches.clear();

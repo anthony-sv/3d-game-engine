@@ -63,6 +63,7 @@ add_executable(StradaTests
     Source/Renderer/SpriteTextRenderingTests.cpp
     Source/Renderer/TextLayoutTests.cpp
     Source/Renderer/TextureBlitterTests.cpp
+    Source/Renderer/UIRenderingTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
     Source/Scene/ParticleEmitterTests.cpp
     Source/Scene/SceneAudioTests.cpp
@@ -74,6 +75,8 @@ add_executable(StradaTests
     Source/Scene/SceneScriptingTests.cpp
     Source/Scene/SceneSerializerTests.cpp
     Source/Scene/SceneTests.cpp
+    Source/Scene/SceneUITests.cpp
+    Source/Scene/UILayoutTests.cpp
     Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp
     Source/Script/ScriptTestUtilities.h

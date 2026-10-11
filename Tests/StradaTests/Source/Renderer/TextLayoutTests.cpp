@@ -4,6 +4,10 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
+#include <limits>
+#include <string_view>
+
 using namespace Strada;
 
 TEST_CASE("TextLayout: glyphs follow each other on the baseline with kerning")
@@ -83,4 +87,69 @@ TEST_CASE("TextLayout: lines, spacing, tabs and control characters")
 
 	// Invalid UTF-8 draws the replacement glyph.
 	CHECK(LayoutText(*atlas, "\xFF").Glyphs.size() == 1);
+}
+
+TEST_CASE("TextLayout: lines wrap at spaces, and long words between characters")
+{
+	Scope<FontAtlas> const atlas = Testing::CreateDefaultFontAtlas();
+	auto const width = [&atlas](std::string_view text)
+	{
+		return LayoutText(*atlas, text).Max.x;
+	};
+	float const space = atlas->GetGlyph(U' ').Advance;
+	float const hello = width("hello");
+
+	// "hello world" does not fit in one and a half words: "world" moves to the second line, without the space.
+	TextLayoutSettings settings;
+	settings.WrapWidth = 1.5f * hello;
+	TextLayout const wrapped = LayoutText(*atlas, "hello world", settings);
+	CHECK(wrapped.LineCount == 2);
+	REQUIRE(wrapped.Glyphs.size() == 10);
+	CHECK(wrapped.Glyphs[6].Min.y - wrapped.Glyphs[4].Min.y == doctest::Approx(1.0f));
+	CHECK(wrapped.Glyphs[5].Min.x == doctest::Approx(atlas->GetGlyph(U'w').PlaneMin.x));
+	CHECK(wrapped.Max.x == doctest::Approx(std::max(hello, width("world"))));
+	CHECK(wrapped.Max.y == doctest::Approx(2.0f));
+
+	// Wide enough: one line, as without wrapping.
+	settings.WrapWidth = width("hello world") + 0.01f;
+	TextLayout const fits = LayoutText(*atlas, "hello world", settings);
+	CHECK(fits.LineCount == 1);
+	CHECK(fits.Max.x == doctest::Approx(width("hello world")));
+
+	// Several words per line: "aa aa" fits, the third word wraps; spaces at the end of a line do not count.
+	settings.WrapWidth = width("aa aa") + 0.5f * space;
+	TextLayout const words = LayoutText(*atlas, "aa aa aa", settings);
+	CHECK(words.LineCount == 2);
+	CHECK(words.Max.x == doctest::Approx(width("aa aa")));
+	// Nor do runs of spaces before a wrapped word: the line ends at its last word.
+	TextLayout const spaced = LayoutText(*atlas, "aa   aa", settings);
+	CHECK(spaced.LineCount == 2);
+	CHECK(spaced.Max.x == doctest::Approx(width("aa")));
+	REQUIRE(spaced.Glyphs.size() == 4);
+	CHECK(spaced.Glyphs[2].Min.x == doctest::Approx(spaced.Glyphs[0].Min.x));
+
+	// Lines are aligned after wrapping: centered lines are centered on their own width.
+	settings.WrapWidth = 1.5f * hello;
+	settings.Alignment = TextAlignment::Center;
+	TextLayout const centered = LayoutText(*atlas, "hello world", settings);
+	REQUIRE(centered.Glyphs.size() == 10);
+	CHECK(centered.Glyphs[0].Min.x == doctest::Approx(-0.5f * hello + atlas->GetGlyph(U'h').PlaneMin.x));
+	CHECK(centered.Glyphs[5].Min.x == doctest::Approx(-0.5f * width("world") + atlas->GetGlyph(U'w').PlaneMin.x));
+
+	// A word longer than a line breaks before the character that does not fit, keeping at least one per line.
+	settings = TextLayoutSettings();
+	settings.WrapWidth = 2.5f * atlas->GetGlyph(U'W').Advance;
+	TextLayout const broken = LayoutText(*atlas, "WWWWW", settings);
+	CHECK(broken.LineCount == 3);
+	CHECK(broken.Max.x <= settings.WrapWidth);
+	settings.WrapWidth = 0.01f;
+	CHECK(LayoutText(*atlas, "WWW", settings).LineCount == 3);
+
+	// Newlines still break, and widths that are not positive and finite never wrap.
+	settings.WrapWidth = 100.0f;
+	CHECK(LayoutText(*atlas, "a\nb", settings).LineCount == 2);
+	settings.WrapWidth = -1.0f;
+	CHECK(LayoutText(*atlas, "hello world", settings).LineCount == 1);
+	settings.WrapWidth = std::numeric_limits<float>::quiet_NaN();
+	CHECK(LayoutText(*atlas, "hello world", settings).LineCount == 1);
 }

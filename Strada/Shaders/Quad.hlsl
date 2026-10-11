@@ -1,7 +1,7 @@
-// Batched sprites and signed-distance text (QuadRenderer). Vertex colors are linear with straight alpha; quads drawn onto
-// the 8-bit final image are sRGB-encoded here. The output is premultiplied (blended with One, InvSrcAlpha): additive
-// sprites premultiply and write no coverage, so their light adds to what is behind. The entity ID entry point writes the
-// picking ID where the quad is opaque (additive sprites are never picked).
+// Batched sprites, signed-distance text and UI rectangles (QuadRenderer). Vertex colors are linear with straight alpha;
+// quads drawn onto the 8-bit final image are sRGB-encoded here. The output is premultiplied (blended with One,
+// InvSrcAlpha): additive sprites premultiply and write no coverage, so their light adds to what is behind. The entity ID
+// entry point writes the picking ID where the quad is opaque (additive sprites are never picked).
 // Set 0: the sprite texture or font atlas (t0), its sampler (s0) and push constants (b0).
 
 #include "Include/Common.hlsli"
@@ -17,6 +17,9 @@ struct VertexInput
 	[[vk::location(1)]] float4 Color : COLOR;
 	[[vk::location(2)]] float2 TexCoord : TEXCOORD0;
 	[[vk::location(3)]] uint EntityId : ENTITYID;
+	// UI rectangles: the corner radius, and the offset from the rectangle's center (xy) and its half size (zw), in pixels.
+	[[vk::location(4)]] float CornerRadius : RADIUS;
+	[[vk::location(5)]] float4 Shape : SHAPE;
 };
 
 struct VertexOutput
@@ -25,6 +28,8 @@ struct VertexOutput
 	float4 Color : COLOR;
 	float2 TexCoord : TEXCOORD0;
 	nointerpolation uint EntityId : ENTITYID;
+	nointerpolation float CornerRadius : RADIUS;
+	float4 Shape : SHAPE;
 };
 
 VertexOutput VSMain(VertexInput input)
@@ -34,11 +39,21 @@ VertexOutput VSMain(VertexInput input)
 	output.Color = input.Color;
 	output.TexCoord = input.TexCoord;
 	output.EntityId = input.EntityId;
+	output.CornerRadius = input.CornerRadius;
+	output.Shape = input.Shape;
 	return output;
 }
 
-// The quad's color with straight alpha: the color times the sprite texture, or the color covered by the distance-field
-// outline, anti-aliased over one screen pixel at any scale.
+// Signed distance in pixels from a rounded rectangle's outline (negative inside).
+float RoundedRectangleDistance(float2 offset, float2 halfSize, float radius)
+{
+	float2 q = abs(offset) - halfSize + radius;
+	return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+// The quad's color with straight alpha: the color times the sprite texture, the color covered by the distance-field
+// outline of text (anti-aliased over one screen pixel at any scale), or a textured UI rectangle covered by its rounded
+// outline (anti-aliased over one pixel).
 float4 ShadeQuad(VertexOutput input)
 {
 	if (g_Quad.Mode == QuadModeText)
@@ -50,7 +65,13 @@ float4 ShadeQuad(VertexOutput input)
 		float coverage = saturate(distance / scale + 0.5);
 		return float4(input.Color.rgb, input.Color.a * coverage);
 	}
-	return input.Color * g_Texture.Sample(g_Sampler, input.TexCoord);
+	float4 color = input.Color * g_Texture.Sample(g_Sampler, input.TexCoord);
+	if (g_Quad.Mode == QuadModeUIRect)
+	{
+		float coverage = saturate(0.5 - RoundedRectangleDistance(input.Shape.xy, input.Shape.zw, input.CornerRadius));
+		color.a *= coverage;
+	}
+	return color;
 }
 
 float4 PSMain(VertexOutput input) : SV_Target0

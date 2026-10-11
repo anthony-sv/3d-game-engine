@@ -3,6 +3,7 @@
 #include "Editor/AssetDrops.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/UI/EditorUI.h"
+#include "Editor/Viewport/CanvasOverlay.h"
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
@@ -285,6 +286,8 @@ namespace Strada
 			};
 		}
 		options.DrawDebugLines = m_Overlays.DebugLines;
+		// The screen-space UI would cover the scene; selected canvases are outlined in the scene instead.
+		options.DrawUI = false;
 		options.SubmitOverlays = [&](SceneRenderer& renderer)
 		{
 			SceneRendererOverlays overlays;
@@ -301,6 +304,7 @@ namespace Strada
 					                                                : ViewportOverlays::Shapes::All;
 					ViewportOverlays::AppendEntityShapes(scene, scene.GetEntityByUUID(id), aspectRatio, lines, shapes);
 				}
+				CanvasOverlay::AppendSelectedCanvases(scene, selection.GetEntities(), lines);
 			}
 			if (m_Overlays.AllColliders)
 			{
@@ -370,7 +374,9 @@ namespace Strada
 		EditorContext& context = operations.GetContext();
 		Scene& scene = context.GetScene();
 		Entity const primary = scene.GetEntityByUUID(context.GetSelection().GetPrimary());
-		if (!primary)
+		// A UI element's UIRect places it on the screen, and its canvas's outline shows where: moving its Transform would
+		// change nothing.
+		if (!primary || CanvasOverlay::IsUIElement(scene, primary.GetUUID()))
 		{
 			EndGizmoDrag(context);
 			return;

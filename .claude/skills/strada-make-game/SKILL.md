@@ -56,6 +56,11 @@ undo history as the UI: work in small, checked steps.
   along -Z, so `RotationEuler` `[90, 0, 0]` points it up). Additive particles with an `Intensity` above 1 glow with the
   scene's bloom; `Alpha` ones suit smoke. One-shot effects (explosions, hits) are prefabs with `Emitting` off, a `Burst`
   and `DestroyWhenFinished` that scripts instantiate; `ParticleSystemComponent.Emit(count)` bursts from scripts.
+- HUDs and menus: a root entity with `UICanvas` (`ScaleWithScreenHeight` keeps a 1920 x 1080 design in proportion on
+  any screen), and children with `UIRect` (`AnchorMin`/`AnchorMax` from (0, 0) at the parent's top-left to (1, 1) at
+  its bottom-right, `Pivot`, `Position` and `Size` in canvas units, y down) plus `UIImage` (color or texture,
+  `CornerRadius`), `UIText` (wrapped in the rectangle) or `UIButton` (scripts read `WasClicked` or override
+  `OnClick(Entity button)` on the button or an ancestor). The UI shows in the game view, not the scene view.
 - `prefab_create` writes an entity with its children to a `.sprefab`; `prefab_instantiate` places copies.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
   view, and `viewport_screenshot` returns an image of the editor. `viewport_statistics` tells what the last frame drew
@@ -76,6 +81,9 @@ undo history as the UI: work in small, checked steps.
 
 - `play_start`, then `play_pause` and `play_advance` with `frames` for deterministic steps; `input_set` presses keys
   and buttons in the game; `play_state` reports the frame and time; `play_stop` discards everything the run changed.
+  To click a UI button, `input_set` the `mousePosition` (game-view pixels) over it with `mouseButtons` `{"Left": true}`,
+  advance a frame, then release `Left` and advance another; prefer a headless editor for this (a windowed editor's
+  game view also follows the real mouse).
 - Verify behavior with test scripts: `Strada.Testing` (`TestReporter.Run(name, check)`, `Assert`,
   `TestReporter.Finish()`) in a scene, run by `test_run` with `scene` and `timeout`, which returns every check's
   result. Projects/FeatureTest shows the pattern.

@@ -307,6 +307,7 @@ namespace Strada::ScriptGlue
 	void RegisterRuntimeBindings(BindingTable& table);
 	void RegisterAssetBindings(BindingTable& table);
 	void RegisterApplicationBindings(BindingTable& table);
+	void RegisterUIBindings(BindingTable& table);
 
 	// The registered asset of a type at a path of the asset directory ("Prefabs/Enemy.sprefab") or a reference
 	// ("builtin://Cube"); invalid (logged as a script error naming the function) otherwise.
@@ -418,5 +419,31 @@ namespace Strada::ScriptGlue
 		std::string const prefix(ComponentClass.GetView());
 		table.Add(prefix + "_Get" + std::string(Field.GetView()), &GetField<Member>);
 		table.Add(prefix + "_Set" + std::string(Field.GetView()), &SetField<Member, ComponentClass, Field>);
+	}
+
+	// String fields: the getter returns the component's own storage (the caller copies it at once) and its UTF-8 length.
+	template<typename TComponent, std::string TComponent::* Member>
+	char const* GetText(uint64_t id, int32_t* length)
+	{
+		*length = 0;
+		TComponent const* component = FindComponent<TComponent>(id);
+		if (component == nullptr)
+		{
+			return nullptr;
+		}
+		std::string const& text = component->*Member;
+		*length = static_cast<int32_t>(text.size());
+		return text.data();
+	}
+
+	template<typename TComponent, std::string TComponent::* Member>
+	void SetText(uint64_t id, char const* text, int32_t length)
+	{
+		std::string value(ToStringView(text, length));
+		PatchComponent<TComponent>(id,
+		                           [&value](TComponent& component)
+		                           {
+									   component.*Member = std::move(value);
+								   });
 	}
 }

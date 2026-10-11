@@ -165,6 +165,10 @@ namespace Strada
 		// SpriteSubmission and TextSubmission). Picking IDs and selection work as for meshes.
 		void SubmitSprite(SpriteSubmission const& sprite);
 		void SubmitText(TextSubmission text);
+		// The screen-space UI, drawn over everything else in submission order (see UIRectSubmission and UITextSubmission).
+		// Picking IDs and selection work as for meshes.
+		void SubmitUIRect(UIRectSubmission const& rect);
+		void SubmitUIText(UITextSubmission text);
 		// Up to ShaderInterop::MaxLights lights per frame; point and spot lights that cannot reach the camera's view are
 		// skipped (SceneRendererStatistics::CulledLights).
 		void SubmitDirectionalLight(DirectionalLightSubmission const& light);

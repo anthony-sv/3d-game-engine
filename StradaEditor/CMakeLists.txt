@@ -102,6 +102,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp
     Source/Editor/UI/FieldEditor.h
+    Source/Editor/Viewport/CanvasOverlay.cpp
+    Source/Editor/Viewport/CanvasOverlay.h
     Source/Editor/Viewport/PickingIdMap.cpp
     Source/Editor/Viewport/PickingIdMap.h
     Source/Editor/Viewport/TransformEditing.cpp

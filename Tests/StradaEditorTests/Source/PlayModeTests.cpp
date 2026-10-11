@@ -312,6 +312,54 @@ TEST_CASE("PlayCommands: automation plays, steps, injects input and stops")
 	CHECK(fixture.Ok("play.stop")["state"] == "edit");
 }
 
+TEST_CASE("PlayCommands: automation clicks the UI buttons of the playing scene through input.set")
+{
+	Testing::ScriptEngineScope scripting;
+	InputScope input;
+	PlayFixture fixture;
+	// The game view is 640 x 480 pixels: the 200 x 60 button in the middle of the canvas spans (220, 210) to (420, 270).
+	UUID const canvas = fixture.Create("Canvas", Json::object({{"UICanvas", Json::object({{"ScaleMode", "ConstantPixelSize"}})}}));
+	EntityCreateInfo info;
+	info.Name = "Button";
+	info.Parent = canvas;
+	info.Components = Json::object(
+		{{"UIRect", Json::object({{"Size", Json::array({200.0, 60.0})}})}, {"UIImage", Json::object()}, {"UIButton", Json::object()}});
+	Result<UUID> const button = fixture.Operations.CreateEntity(info);
+	REQUIRE(button.IsOk());
+	std::string const buttonId = std::to_string(button.GetValue().GetValue());
+	// The canvas's script hears the clicks of the buttons in it and names its entity after them each update.
+	Json const watched = Json::object({{"Type", "Entity"}, {"Value", buttonId}});
+	REQUIRE(fixture.Operations
+	            .AddComponent(canvas, "Script",
+	                          Json::object({{"ClassName", "Strada.Tests.ClickRecorder"}, {"Fields", Json::object({{"Watched", watched}})}}))
+	            .IsOk());
+
+	REQUIRE(fixture.Ok("play.start")["state"] == "play");
+	fixture.Ok("play.pause");
+	auto const advance = [&fixture, canvas](Json const& devices)
+	{
+		fixture.Ok("input.set", devices);
+		// The editor's frame ends between the two requests, and Input's one-frame pressed and released flags with it.
+		Input::EndFrame();
+		fixture.Ok("play.advance", Json::object({{"frames", 1}}));
+		Entity const recorder = fixture.Context.GetScene().GetEntityByUUID(canvas);
+		REQUIRE(recorder);
+		return recorder.GetName();
+	};
+	CHECK(advance(Json::object({{"mousePosition", Json::array({320.0, 240.0})}})) ==
+	      "Clicks=0;Last=0;InClick=False;Polled=False;State=Hovered");
+	CHECK(advance(Json::object({{"mouseButtons", Json::object({{"Left", true}})}})) ==
+	      "Clicks=0;Last=0;InClick=False;Polled=False;State=Pressed");
+	CHECK(advance(Json::object({{"mouseButtons", Json::object({{"Left", false}})}})) ==
+	      "Clicks=1;Last=" + buttonId + ";InClick=True;Polled=True;State=Hovered");
+	// Outside the button, a press and a release click nothing.
+	CHECK(advance(Json::object({{"mousePosition", Json::array({100.0, 100.0})}, {"mouseButtons", Json::object({{"Left", true}})}})) ==
+	      "Clicks=1;Last=" + buttonId + ";InClick=True;Polled=False;State=Normal");
+	CHECK(advance(Json::object({{"mouseButtons", Json::object({{"Left", false}})}})) ==
+	      "Clicks=1;Last=" + buttonId + ";InClick=True;Polled=False;State=Normal");
+	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+}
+
 TEST_CASE("PlayCommands: test runs report the scripts' checks and time out")
 {
 	Testing::ScriptEngineScope scripting;

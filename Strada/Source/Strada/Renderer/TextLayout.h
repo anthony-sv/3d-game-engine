@@ -21,11 +21,22 @@ namespace Strada
 		Right
 	};
 
+	// Vertical placement of a text block in a rectangle.
+	enum class TextVerticalAlignment : uint8_t
+	{
+		Top = 0,
+		Middle,
+		Bottom
+	};
+
 	struct TextLayoutSettings
 	{
 		TextAlignment Alignment = TextAlignment::Left;
 		// Distance between consecutive baselines, in lines (1 is the font's line height).
 		float LineSpacing = 1.0f;
+		// Lines longer than this width, in lines, break at the last space before the word that does not fit (a word longer
+		// than a line breaks before the character that does not fit); 0 never breaks lines.
+		float WrapWidth = 0.0f;
 	};
 
 	// A glyph of laid-out text.

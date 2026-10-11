@@ -14,6 +14,7 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Scene/SceneSerializer.h"
 
+#include <algorithm>
 #include <system_error>
 #include <utility>
 
@@ -267,6 +268,34 @@ namespace Strada
 			return Error{result.GetError()};
 		}
 		return id;
+	}
+
+	Result<std::vector<UUID>> EditorOperations::CreateEntityWithChildren(EntityCreateInfo root, std::vector<EntityCreateInfo> children)
+	{
+		Scene const& scene = m_Context.GetScene();
+		std::vector<UUID> ids;
+		ids.reserve(children.size() + 1);
+		while (ids.size() < children.size() + 1)
+		{
+			UUID const id = scene.GenerateUniqueID();
+			if (std::find(ids.begin(), ids.end(), id) == ids.end())
+			{
+				ids.push_back(id);
+			}
+		}
+		std::vector<Scope<EditorCommand>> commands;
+		commands.reserve(ids.size());
+		commands.push_back(CreateScope<CreateEntityCommand>(ids[0], std::move(root)));
+		for (size_t i = 0; i < children.size(); i++)
+		{
+			children[i].Parent = ids[0];
+			commands.push_back(CreateScope<CreateEntityCommand>(ids[i + 1], std::move(children[i])));
+		}
+		if (Result<void> result = m_Context.ExecuteCommand(CreateScope<CompositeCommand>("Create Entity", std::move(commands))); !result)
+		{
+			return Error{result.GetError()};
+		}
+		return ids;
 	}
 
 	Result<void> EditorOperations::DeleteEntities(std::span<UUID const> entities)

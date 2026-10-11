@@ -46,6 +46,7 @@ Override the methods you need:
 | `OnFixedUpdate(float fixedDeltaTime)` | Before every physics step, at the scene's fixed rate |
 | `OnCollisionEnter(Entity other)`, `OnCollisionExit(Entity other)` | When a collider of the entity starts or stops touching one of `other` |
 | `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)` | When a trigger collider of either entity starts or stops overlapping the other |
+| `OnClick(Entity button)` | When a UI button that is the entity or one of its descendants was clicked, before the frame's `OnUpdate` |
 | `OnDestroy()` | When the entity is destroyed or the scene stops |
 
 Because every script exists before the first `OnCreate`, scripts can look each other up there. Exceptions thrown by
@@ -302,6 +303,87 @@ public class Scoreboard : Script
 	}
 }
 ```
+
+## HUDs and menus
+
+The screen-space UI draws over the game's image. Build it in the editor with Entity > UI: a **Canvas** is the root,
+and its descendants are the UI: **Panel**, **Image**, **Text** and **Button** go into a canvas (one is made when the
+scene has none). Children draw over their parents and later siblings over earlier ones. Each element's
+`UIRectComponent` places it in its parent's rectangle, in canvas units with y pointing down:
+
+- `AnchorMin` and `AnchorMax` say where it attaches, from (0, 0) at the parent's top-left corner to (1, 1) at its
+  bottom-right corner. Equal anchors pin it to a point (a corner, the middle of an edge, the center); different ones
+  stretch it with the parent.
+- `Pivot` is the point of the element that `Position` moves from there, and `Size` its size (added to the anchors'
+  span when they stretch, so (-20, -20) leaves a 10-unit margin all around).
+- `Visible` hides it with its children; `Opacity` fades them.
+
+The canvas's `ScaleMode` is `ScaleWithScreenHeight` by default: the canvas is `ReferenceResolution.Y` units high on any
+screen, so a UI designed for 1920 x 1080 keeps its proportions in a small window and on a 4K screen.
+`ConstantPixelSize` keeps sizes in pixels instead.
+
+`UIImageComponent` fills the element's rectangle with a color or a texture (`CornerRadius` rounds it),
+`UITextComponent` lays text out in it (wrapped at its width, placed by `Alignment` and `VerticalAlignment`), and
+`UIButtonComponent` makes it clickable: its state colors replace the image's color, and a click sets `WasClicked` for
+one frame and calls `OnClick(Entity button)` on the scripts of the button and of every ancestor, so one script on a
+menu hears all of its buttons. `Click()` clicks a button in code, for keyboard and gamepad menus. Images take the
+clicks over whatever they cover; text does not.
+
+A HUD that shows the score and a health bar (the fill is an image stretched over the bar, whose right anchor follows the
+health):
+
+```csharp
+public class Hud : Script
+{
+	public Entity? Score;
+	public Entity? HealthFill;
+
+	public void Show(int score, float health)
+	{
+		Score!.GetComponent<UITextComponent>()!.Text = $"SCORE  {score:N0}";
+		HealthFill!.GetComponent<UIRectComponent>()!.AnchorMax = new Vector2(Mathf.Clamp01(health), 1.0f);
+	}
+}
+```
+
+A pause menu: a panel with Resume and Quit buttons, and this script on the panel:
+
+```csharp
+public class PauseMenu : Script
+{
+	protected override void OnCreate() => SetOpen(false);
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		if (Input.IsKeyPressed(KeyCode.Escape))
+		{
+			SetOpen(!GetComponent<UIRectComponent>()!.Visible);
+		}
+	}
+
+	// Every button inside the menu reports here.
+	protected override void OnClick(Entity button)
+	{
+		switch (button.Name)
+		{
+			case "Resume":
+				SetOpen(false);
+				break;
+			case "Quit":
+				SceneManager.LoadScene("Scenes/Title.sscene");
+				break;
+		}
+	}
+
+	private void SetOpen(bool open)
+	{
+		GetComponent<UIRectComponent>()!.Visible = open;
+		Time.TimeScale = open ? 0.0f : 1.0f;
+	}
+}
+```
+
+The UI shows in the game view and the exported game; the scene view outlines the selected element's canvas instead.
 
 ## Particles
 
