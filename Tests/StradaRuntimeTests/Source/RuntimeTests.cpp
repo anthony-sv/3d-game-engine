@@ -113,6 +113,9 @@ namespace
 			}
 		}
 
+		// The window's icon: an asset path relative to Assets (empty: none).
+		void SetIcon(std::string icon) { m_Icon = std::move(icon); }
+
 		// Registers the scenes (as the editor did) and writes the configuration; startScene is relative to Assets, or empty.
 		std::filesystem::path Write(std::string const& startScene) const
 		{
@@ -131,6 +134,11 @@ namespace
 					settings.StartScene = AssetManager::FindByPath(startScene);
 					REQUIRE(settings.StartScene.IsValid());
 				}
+				if (!m_Icon.empty())
+				{
+					settings.Window.Icon = AssetManager::FindByPath(m_Icon);
+					REQUIRE(settings.Window.Icon.IsValid());
+				}
 			}
 			std::filesystem::path const file =
 				GetDirectory() / FileSystem::PathFromUtf8(m_Kind == ProjectFileKind::Game ? Project::GameFileName : "Runtime Test.sproj");
@@ -141,6 +149,7 @@ namespace
 	private:
 		ProjectFileKind m_Kind;
 		Testing::TemporaryDirectory m_Directory;
+		std::string m_Icon;
 	};
 
 	std::string Native(std::filesystem::path const& path)
@@ -333,6 +342,21 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 	CHECK(center[0] > 150);
 	CHECK(center[1] < 40);
 	CHECK(center[2] < 40);
+	CHECK_FALSE(Contains(result.Output, "icon is not used"));
+
+	// The project's icon becomes the window's; one that is not a texture is reported and left out.
+	Image icon(32, 32, 3);
+	REQUIRE(icon.WritePNG(game.GetDirectory() / "Assets" / "Icon.png").IsOk());
+	game.SetIcon("Icon.png");
+	ProcessResult const withIcon = RunPlayer({"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "2"});
+	CAPTURE(withIcon.Output);
+	CHECK(withIcon.ExitCode == 0);
+	CHECK_FALSE(Contains(withIcon.Output, "icon is not used"));
+	game.SetIcon("Scenes/Main.sscene");
+	ProcessResult const wrongIcon = RunPlayer({"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "2"});
+	CAPTURE(wrongIcon.Output);
+	CHECK(wrongIcon.ExitCode == 0);
+	CHECK(Contains(wrongIcon.Output, "icon is not used"));
 }
 
 TEST_CASE("Runtime: exported games run from their own directory")

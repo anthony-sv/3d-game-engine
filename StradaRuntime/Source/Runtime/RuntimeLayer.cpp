@@ -1,6 +1,9 @@
 #include "Runtime/RuntimeLayer.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/TextureAsset.h"
 #include "Strada/Core/Application.h"
+#include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Window.h"
@@ -43,6 +46,7 @@ namespace Strada
 
 	void RuntimeLayer::OnAttach()
 	{
+		ApplyWindowIcon();
 		if (Application::Get().GetWindow() != nullptr && Renderer::IsInitialized())
 		{
 			m_Renderer = CreateScope<SceneRenderer>();
@@ -54,6 +58,41 @@ namespace Strada
 		m_StartScene->OnViewportResize(m_ViewportWidth, m_ViewportHeight);
 		m_Runner.Start(std::move(m_StartScene));
 		ST_INFO("Started scene '{}' of {}", m_Runner.GetScene()->GetName(), m_Game->GetSettings().Name);
+	}
+
+	void RuntimeLayer::ApplyWindowIcon()
+	{
+		Window* const window = Application::Get().GetWindow();
+		AssetHandle const icon = m_Game->GetSettings().Window.Icon;
+		if (window == nullptr || !icon.IsValid())
+		{
+			return;
+		}
+		Ref<TextureAsset> const texture = AssetManager::GetAsset<TextureAsset>(icon);
+		Result<Image> image = texture ? texture->Decode() : Result<Image>(Error{"it is not a loadable texture"});
+		if (!image)
+		{
+			ST_WARN("The game's icon is not used: {}", image.GetError());
+			return;
+		}
+		// Windows take RGBA: gray and RGB images are expanded, opaque where they have no alpha.
+		Image const& decoded = image.GetValue();
+		Image rgba(decoded.GetWidth(), decoded.GetHeight(), 4);
+		uint32_t const channels = decoded.GetChannels();
+		for (uint32_t y = 0; y < decoded.GetHeight(); y++)
+		{
+			for (uint32_t x = 0; x < decoded.GetWidth(); x++)
+			{
+				uint8_t const* source = decoded.GetPixel(x, y);
+				uint8_t* target = rgba.GetPixel(x, y);
+				bool const gray = channels < 3;
+				target[0] = source[0];
+				target[1] = gray ? source[0] : source[1];
+				target[2] = gray ? source[0] : source[2];
+				target[3] = channels == 2 ? source[1] : (channels == 4 ? source[3] : 255);
+			}
+		}
+		window->SetIcon(rgba.GetWidth(), rgba.GetHeight(), rgba.GetPixels().data());
 	}
 
 	void RuntimeLayer::OnDetach()

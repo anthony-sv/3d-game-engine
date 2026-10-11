@@ -25,6 +25,8 @@ namespace Strada
 		bool Fullscreen = false;
 		bool VSync = true;
 		bool Resizable = true;
+		// The window's icon (a texture of the project); none keeps the Strada icon.
+		AssetHandle Icon;
 
 		bool operator==(ProjectWindowSettings const& other) const = default;
 	};
@@ -39,7 +41,10 @@ namespace Strada
 			Field("Height", &ProjectWindowSettings::Height).Range(64.0, 16384.0).Doc("Initial window height in pixels."),
 			Field("Fullscreen", &ProjectWindowSettings::Fullscreen).Doc("Starts in fullscreen on the primary monitor."),
 			Field("VSync", &ProjectWindowSettings::VSync).Doc("Waits for vertical sync when presenting."),
-			Field("Resizable", &ProjectWindowSettings::Resizable).Doc("Lets players resize the window."));
+			Field("Resizable", &ProjectWindowSettings::Resizable).Doc("Lets players resize the window."),
+			Field("Icon", &ProjectWindowSettings::Icon)
+				.References("Texture")
+				.Doc("The game window's icon (a square image such as 256x256); none keeps the Strada icon."));
 	};
 
 	// Two physics layers whose bodies do not collide.

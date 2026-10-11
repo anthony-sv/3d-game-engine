@@ -142,8 +142,13 @@ TEST_CASE("ExportCommands: projects export as games with their scripts built in 
 	EntityCreateInfo entity;
 	entity.Name = "Unsaved";
 	REQUIRE(fixture.Operations.CreateEntity(entity).IsOk());
-	Json const again = fixture.Ok("project.export", Json::object({{"directory", "Out/Game"}}));
+	CHECK(exported["smokeTest"].is_null());
+	CHECK(exported["files"].get<uint32_t>() > 5);
+	CHECK(exported["bytes"].get<uint64_t>() > exported["files"].get<uint64_t>());
+	// The smoke test runs the exported game headless.
+	Json const again = fixture.Ok("project.export", Json::object({{"directory", "Out/Game"}, {"smokeTest", true}}));
 	CAPTURE(again.dump());
+	CHECK(again["smokeTest"]["passed"] == true);
 	CHECK(again["unsavedChanges"] == true);
 	CHECK(again["directory"] == FileSystem::PathToUtf8(fixture.Directory.GetPath() / "Game" / "Out" / "Game"));
 

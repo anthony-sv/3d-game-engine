@@ -8,6 +8,7 @@
 #include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/Panels/BuildGameDialog.h"
 #include "Editor/Panels/ConsolePanel.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/GameViewPanel.h"
@@ -96,10 +97,6 @@ namespace Strada
 		void DrawUnsavedChangesPopup();
 		void DrawNewProjectPopup();
 		void DrawNewScriptPopup();
-		// File > Build Game: the output directory (the project's Build directory at first), the export's progress and outcome.
-		void OpenBuildGamePopup();
-		void DrawBuildGamePopup();
-		void DrawExportReport(GameExportReport const& report);
 		void DrawPlayControls();
 		// Plays (building changed scripts first) or simulates the edited scene.
 		void StartPlay(EditorPlayState state);
@@ -187,11 +184,7 @@ namespace Strada
 		EditorPlayState m_FollowedPlayState = EditorPlayState::Edit;
 		bool m_OpenNewScriptPopup = false;
 		std::string m_NewScriptName;
-		bool m_OpenBuildGamePopup = false;
-		std::string m_BuildGameDirectory;
-		// The project the directory was chosen for.
-		std::filesystem::path m_BuildGameProject;
-		std::optional<GameExportReport> m_LastExport;
+		BuildGameDialog m_BuildGameDialog;
 		std::string m_WindowTitle;
 
 		std::filesystem::path m_ScreenshotPath;

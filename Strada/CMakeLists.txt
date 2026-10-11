@@ -110,6 +110,8 @@ set(STRADA_PHYSICS_SOURCES
 )
 
 set(STRADA_PLATFORM_SOURCES
+    Source/Strada/Platform/Desktop.cpp
+    Source/Strada/Platform/Desktop.h
     Source/Strada/Platform/Process.cpp
     Source/Strada/Platform/Process.h
 )

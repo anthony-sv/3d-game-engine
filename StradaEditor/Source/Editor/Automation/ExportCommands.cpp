@@ -33,6 +33,11 @@ namespace Strada
 			                     {"executable", report.Executable.empty() ? Json() : Json(FileSystem::PathToUtf8(report.Executable))},
 			                     {"unsavedChanges", report.UnsavedChanges},
 			                     {"seconds", report.Seconds},
+			                     {"bytes", report.Bytes},
+			                     {"files", report.Files},
+			                     {"smokeTest", report.SmokeTestPassed
+			                                       ? Json::object({{"passed", *report.SmokeTestPassed}, {"output", report.SmokeTestOutput}})
+			                                       : Json()},
 			                     {"scripts", Json::object({{"built", report.ScriptsBuilt},
 			                                               {"errors", count(ScriptDiagnosticSeverity::Error)},
 			                                               {"warnings", count(ScriptDiagnosticSeverity::Warning)},
@@ -48,7 +53,9 @@ namespace Strada
 			"Exports the open project as a game for this platform (the player renamed after the game, Game.sgame, the assets, "
 			"the scripts built in Release and the engine files it needs), replacing an earlier export in the directory; "
 			"asynchronous. The game uses the saved files. Returns { succeeded, error, directory, executable, unsavedChanges, "
-			"seconds, scripts: { built, errors, warnings, diagnostics } }; scripts with compile errors end it as a command with "
+			"seconds, bytes, files, smokeTest: { passed, output } (with smokeTest: the game ran headless for a few frames and "
+			"exited cleanly, or the end of its output), scripts: { built, errors, warnings, diagnostics } }; scripts with "
+			"compile errors end it as a command with "
 			"succeeded false. Fails when no project is open, the editor plays, the project has no start scene, or the game "
 			"cannot be written.";
 		exportGame.Parameters =
@@ -56,6 +63,8 @@ namespace Strada
 				.Property("directory", SchemaBuilder::String("Where the game goes: a new or empty directory, or an earlier export "
 		                                                     "(absolute, or relative to the project directory; default Build)")
 		                                   .MinLength(1))
+				.Property("smokeTest", SchemaBuilder::Boolean("Run the exported game headless for a few frames to check that it "
+		                                                      "starts and exits cleanly (default false)"))
 				.Build();
 		exportGame.AsyncHandler = [&gameExport, &context](Json const& params, CommandCompletion completion)
 		{
@@ -68,6 +77,9 @@ namespace Strada
 			auto const directory = params.find("directory");
 			std::filesystem::path const path =
 				project->GetDirectory() / FileSystem::PathFromUtf8(directory != params.end() ? directory->get<std::string>() : "Build");
+			EditorExportOptions options;
+			auto const smokeTest = params.find("smokeTest");
+			options.SmokeTest = smokeTest != params.end() && smokeTest->get<bool>();
 			Result<void> started = gameExport.Start(
 				path.lexically_normal(),
 				[completion](GameExportReport const& report)
@@ -81,7 +93,8 @@ namespace Strada
 						completion.Complete(MakeCommandError(
 							report.Cancelled ? AutomationErrorCode::Cancelled : AutomationErrorCode::FileError, "{}", report.Error));
 					}
-				});
+				},
+				options);
 			if (!started)
 			{
 				completion.Complete(MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", started.GetError()));

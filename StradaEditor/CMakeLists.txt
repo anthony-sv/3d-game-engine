@@ -72,6 +72,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/FileDialogs.h
     Source/Editor/HierarchyEditing.cpp
     Source/Editor/HierarchyEditing.h
+    Source/Editor/Panels/BuildGameDialog.cpp
+    Source/Editor/Panels/BuildGameDialog.h
     Source/Editor/Panels/ConsolePanel.cpp
     Source/Editor/Panels/ConsolePanel.h
     Source/Editor/Panels/ContentBrowserPanel.cpp

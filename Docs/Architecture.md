@@ -420,7 +420,8 @@ intra-prefab references (hierarchy and entity-typed script fields).
 
 Project (`<Name>.sproj`, `ProjectSettings` with field tables, validated on every read): `Name`, `AssetDirectory`
 (relative, inside the project), `ScriptModule` (the game assembly, relative), `StartScene` (scene asset reference),
-`Window` (`Title`, `Width`, `Height`, `Fullscreen`, `VSync`, `Resizable`; for exported games) and `Physics`
+`Window` (`Title`, `Width`, `Height`, `Fullscreen`, `VSync`, `Resizable`, `Icon` texture; for exported games, whose
+player sets the icon on its window) and `Physics`
 (`FixedTimestep`, `Layers`: 1 to 16 unique names indexed by `RigidBody.Layer`, `IgnoredCollisions`: layer index pairs
 that do not collide). Opening a project opens its asset directory first so asset references resolve; settings from
 newer versions are skipped with warnings. New projects (`Project::Create`) get the project file, `Assets/` and the
@@ -714,9 +715,12 @@ than the assembly.
 - Prefabs: an entity's "Create Prefab" (hierarchy context menu) writes it with its descendants to `Prefabs/`, and
   entities dragged onto the content browser become prefabs in the folder they are dropped on; neither changes the
   scene. Prefabs dragged onto the scene view, the hierarchy or an entity row are instantiated there (one undo step).
-- File > Build Game exports the game for the host platform (§13): the output directory (the project's `Build` at
-  first), the export's progress with a cancel button, then the executable or the reason it failed (with the scripts'
-  compile errors); the menu bar shows a running export.
+- File > Build Game (`BuildGameDialog`) exports the game for the host platform (§13): the game's settings (name, start
+  scene, window title, size, fullscreen, vsync, resizing and icon, edited like Project Settings), the output directory
+  (the project's `Build` at first) and a smoke test that runs the exported game headless for a few frames; then the
+  export's progress with a cancel button, and the executable with the export's size and file count, the smoke test's
+  result, and buttons that open the folder (`Desktop::Open`) and run the game (stopped when the editor closes), or the
+  reason it failed (with the scripts' compile errors); the menu bar shows a running export.
 - Headless mode (`--headless`): no window/ImGui; offscreen rendering if a GPU is available; used by automation and CI.
 
 ## 12. AI automation

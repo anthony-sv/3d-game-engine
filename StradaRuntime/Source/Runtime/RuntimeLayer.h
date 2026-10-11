@@ -42,6 +42,8 @@ namespace Strada
 		void OnUpdate(Timestep timestep) override;
 
 	private:
+		// The game window shows the project's icon when it sets one.
+		void ApplyWindowIcon();
 		// The window's framebuffer size (kept while minimized), or the specification's size without a window.
 		void UpdateViewportSize();
 		// The cursor in the view's pixels: window events place it in screen coordinates, which differ from the framebuffer's

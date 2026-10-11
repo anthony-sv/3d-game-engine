@@ -1,7 +1,10 @@
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/EditorScripts.h"
+#include "Editor/Panels/BuildGameDialog.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
 #include "Editor/Panels/ProjectSettingsPanel.h"
@@ -366,6 +369,43 @@ TEST_CASE("Panels: project settings draw with and without a project and do not c
 	}
 	panel.Flush(operations);
 	CHECK(open);
+	CHECK(context.GetProject()->GetSettings() == before);
+	CHECK(FileSystem::ReadTextFile(context.GetProject()->GetFilePath()).GetValue() == fileBefore.GetValue());
+}
+
+TEST_CASE("Panels: the Build Game dialog draws the game's settings without changing them")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	EditorScripts scripts(context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll");
+	EditorExport exporter(context, scripts);
+	BuildGameDialog dialog;
+	auto const draw = [&]
+	{
+		dialog.OnImGuiRender(operations, exporter);
+	};
+
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	ProjectSettings const before = context.GetProject()->GetSettings();
+	Result<std::string> const fileBefore = FileSystem::ReadTextFile(context.GetProject()->GetFilePath());
+	REQUIRE(fileBefore.IsOk());
+	imgui.Frame(draw);
+	dialog.Open(*context.GetProject());
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	// The dialog is open (a modal popup) and nothing was exported or changed.
+	CHECK(ImGui::GetCurrentContext()->OpenPopupStack.Size == 1);
+	CHECK_FALSE(exporter.IsRunning());
+	dialog.Flush(operations);
 	CHECK(context.GetProject()->GetSettings() == before);
 	CHECK(FileSystem::ReadTextFile(context.GetProject()->GetFilePath()).GetValue() == fileBefore.GetValue());
 }
