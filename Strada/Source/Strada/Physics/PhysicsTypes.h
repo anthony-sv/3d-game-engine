@@ -201,6 +201,9 @@ namespace Strada
 		glm::vec3 GroundNormal = glm::vec3(0.0f);
 		// What it stands on; invalid when nothing is under it.
 		UUID GroundEntity = UUID::Invalid();
+		// How far what it stands on moved during the last step where the character stands (the ground's velocity there
+		// times the step); zero when it is not on the ground. A moving platform carries it that far.
+		glm::vec3 GroundDisplacement = glm::vec3(0.0f);
 	};
 
 	struct RaycastHit

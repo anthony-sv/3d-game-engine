@@ -131,11 +131,13 @@ namespace
 	}
 
 	// How far a character strays from its spot on a kinematic platform driven back and forth along a direction (a second
-	// each way, scripts' way: a target before each step), and in how many steps it is not grounded.
+	// each way, scripts' way: a target before each step), in how many steps it is not grounded, and how far the ground
+	// displacement it reports is from the platform's.
 	struct Ride
 	{
 		float WorstOffset = 0.0f;
 		int StepsOffGround = 0;
+		float WorstDisplacementError = 0.0f;
 	};
 
 	Ride RidePlatform(glm::vec3 const& direction, float speed)
@@ -151,11 +153,13 @@ namespace
 		for (int step = 0; step < 240; step++)
 		{
 			float const sign = (step / 60) % 2 == 0 ? 1.0f : -1.0f;
-			platform += direction * (sign * speed * Step);
+			glm::vec3 const move = direction * (sign * speed * Step);
+			platform += move;
 			world->MoveKinematic(ObstacleId, platform, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), Step);
 			Wait(*world, 1);
 			ride.WorstOffset = std::max(ride.WorstOffset, glm::length(FeetOf(*world) - platform - spot));
 			ride.StepsOffGround += StateOf(*world).IsGrounded ? 0 : 1;
+			ride.WorstDisplacementError = std::max(ride.WorstDisplacementError, glm::length(StateOf(*world).GroundDisplacement - move));
 		}
 		return ride;
 	}
@@ -189,13 +193,14 @@ TEST_CASE("PhysicsScene: characters stand and walk on the ground and stop at wal
 	CHECK(placed.GroundEntity == GroundId);
 	CHECK(placed.Velocity == glm::vec3(0.0f));
 
-	// Walking at 2 m/s for a second, on the ground the whole way.
+	// Walking at 2 m/s for a second, on the ground the whole way; the ground, which does not move, carries it nowhere.
 	Walk(*world, {2.0f, 0.0f, 0.0f}, 60);
 	glm::vec3 const walked = FeetOf(*world);
 	CHECK(walked.x == doctest::Approx(2.0f).epsilon(0.02));
 	CHECK(std::abs(walked.y) < 0.01f);
 	CHECK(std::abs(walked.z) < 0.01f);
 	CHECK(StateOf(*world).IsGrounded);
+	CHECK(StateOf(*world).GroundDisplacement == glm::vec3(0.0f));
 
 	// It stops when it is not moved, and stays where it is.
 	Wait(*world, 30);
@@ -462,12 +467,15 @@ TEST_CASE("PhysicsScene: characters ride moving platforms and elevators without 
 	Ride const sideways = RidePlatform({1.0f, 0.0f, 0.0f}, 3.0f);
 	CHECK(sideways.WorstOffset < 0.01f);
 	CHECK(sideways.StepsOffGround == 0);
+	// It reports how far the platform carried it in each step.
+	CHECK(sideways.WorstDisplacementError < 1e-3f);
 
 	// An elevator at 2 m/s, up then down: turning down does not throw the rider off, and it stays on the floor on the way
 	// down instead of hovering above it.
 	Ride const lift = RidePlatform({0.0f, 1.0f, 0.0f}, 2.0f);
 	CHECK(lift.WorstOffset < 0.01f);
 	CHECK(lift.StepsOffGround == 0);
+	CHECK(lift.WorstDisplacementError < 1e-3f);
 
 	// Down first, then up.
 	Ride const drop = RidePlatform({0.0f, -1.0f, 0.0f}, 2.0f);
@@ -923,12 +931,14 @@ TEST_CASE("Scene: characters below a moving parent follow it and write their pos
 	REQUIRE(world != nullptr);
 	CHECK(glm::length(StateOf(*world, id).Position - glm::vec3(2.0f, 1.0f, 0.0f)) < 1e-4f);
 
-	// Walking along the world's +X for a second: its translation in the rig's space follows, its rotation stays.
+	// Walking along the world's +X for a second: its translation in the rig's space follows, its rotation stays. Then it
+	// stands, drawn where its character is.
 	for (int frame = 0; frame < 60; frame++)
 	{
 		world->MoveCharacter(id, {2.0f, 0.0f, 0.0f});
 		scene.OnUpdateRuntime(Timestep(Step));
 	}
+	scene.OnUpdateRuntime(Timestep(Step));
 	glm::vec3 const walked = worldPosition();
 	CHECK(walked.x == doctest::Approx(4.0f).epsilon(0.02));
 	CHECK(glm::length(walked - StateOf(*world, id).Position) < 1e-3f);
@@ -956,6 +966,174 @@ TEST_CASE("Scene: characters below a moving parent follow it and write their pos
 	CHECK(landed.x == doctest::Approx(walked.x).epsilon(1e-3));
 	CHECK(landed.y == doctest::Approx(1.0f).epsilon(0.01));
 	CHECK(landed.z == doctest::Approx(5.0f).epsilon(1e-3));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: characters are drawn between their last two steps, so they move smoothly at any frame rate")
+{
+	Testing::PhysicsSystemScope physics;
+	Scene scene("Smooth");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
+	Entity hero = scene.CreateEntity("Hero");
+	TransformComponent& transform = hero.GetComponent<TransformComponent>();
+	transform.Translation = {0.0f, 1.0f, 0.0f};
+	hero.AddComponent<CharacterControllerComponent>();
+	// A camera at eye height, as first-person games have.
+	Entity head = scene.CreateEntity("Head", hero);
+	head.GetComponent<TransformComponent>().Translation = {0.0f, 0.7f, 0.0f};
+	UUID const id = hero.GetUUID();
+	scene.OnRuntimeStart();
+	PhysicsScene* world = scene.GetPhysicsScene();
+	REQUIRE(world != nullptr);
+
+	// 180 frames a second, three a step, walking at 3 m/s: once it is under way, the entity and the camera on it move on by
+	// the same distance every frame, not a step's distance every third frame.
+	float const frameTime = Step / 3.0f;
+	float const perFrame = 3.0f * frameTime;
+	std::vector<float> drawn;
+	for (int frame = 0; frame < 90; frame++)
+	{
+		world->MoveCharacter(id, {3.0f, 0.0f, 0.0f});
+		scene.OnUpdateRuntime(Timestep(frameTime));
+		drawn.push_back(transform.Translation.x);
+	}
+	int unevenFrames = 0;
+	for (size_t frame = 4; frame < drawn.size(); frame++)
+	{
+		unevenFrames += std::abs(drawn[frame] - drawn[frame - 1] - perFrame) > 0.02f * perFrame ? 1 : 0;
+	}
+	CHECK(unevenFrames == 0);
+	CHECK(scene.GetWorldTransform(head)[3].x == doctest::Approx(transform.Translation.x));
+	// The last frame finished a step: the entity is drawn a step behind its character.
+	CHECK(transform.Translation.x == doctest::Approx(StateOf(*world, id).Position.x - 3.0f * Step).epsilon(1e-4));
+	CHECK(transform.Translation.y == doctest::Approx(1.0f).epsilon(0.01));
+
+	// Stopped, it comes to rest where its character is, without a jump.
+	for (int frame = 0; frame < 6; frame++)
+	{
+		scene.OnUpdateRuntime(Timestep(frameTime));
+		CHECK(transform.Translation.x - drawn.back() <= perFrame * 1.02f);
+		drawn.push_back(transform.Translation.x);
+	}
+	CHECK(transform.Translation.x == doctest::Approx(StateOf(*world, id).Position.x).epsilon(1e-5));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: characters riding platforms are drawn on them between steps")
+{
+	Testing::PhysicsSystemScope physics;
+	// Platforms that scripts move at each step (in OnFixedUpdate) up and down like elevators, or to and fro, at 2 m/s, a
+	// second each way; at 60 frames a second (a step each) and at 120 (a step every other frame).
+	for (glm::vec3 const direction : {glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f)})
+	{
+		for (int const framesPerStep : {1, 2})
+		{
+			CAPTURE(direction.y);
+			CAPTURE(framesPerStep);
+			Scene scene("Platform");
+			Entity platform = scene.CreateEntity("Platform");
+			TransformComponent& platformTransform = platform.GetComponent<TransformComponent>();
+			platformTransform.Translation = {0.0f, 2.25f, 0.0f};
+			platform.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Kinematic;
+			platform.AddComponent<BoxColliderComponent>().HalfExtents = {2.0f, 0.25f, 2.0f};
+			Entity hero = scene.CreateEntity("Hero");
+			TransformComponent& transform = hero.GetComponent<TransformComponent>();
+			transform.Translation = {0.0f, 3.5f, 0.0f};
+			hero.AddComponent<CharacterControllerComponent>();
+			float const frameTime = Step / static_cast<float>(framesPerStep);
+			scene.OnRuntimeStart();
+			for (int frame = 0; frame < 10 * framesPerStep; frame++)
+			{
+				scene.OnUpdateRuntime(Timestep(frameTime));
+			}
+			REQUIRE(StateOf(*scene.GetPhysicsScene(), hero.GetUUID()).GroundEntity == platform.GetUUID());
+
+			// Drawn, it keeps its spot on the drawn platform: the platform's motion is not drawn a step late.
+			glm::vec3 const spot = transform.Translation - platformTransform.Translation;
+			float worstOffset = 0.0f;
+			for (int frame = 0; frame < 120 * framesPerStep; frame++)
+			{
+				// Moved before the frames that end with a step.
+				if ((frame + 1) % framesPerStep == 0)
+				{
+					int const step = frame / framesPerStep;
+					float const sign = (step / 60) % 2 == 0 ? 1.0f : -1.0f;
+					platformTransform.Translation += direction * (sign * 2.0f * Step);
+				}
+				scene.OnUpdateRuntime(Timestep(frameTime));
+				worstOffset = std::max(worstOffset, glm::length(transform.Translation - platformTransform.Translation - spot));
+			}
+			CHECK(worstOffset < 0.01f);
+			scene.OnRuntimeStop();
+		}
+	}
+}
+
+TEST_CASE("Scene: characters changed or moved between steps")
+{
+	Testing::PhysicsSystemScope physics;
+	Scene scene("Between steps");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
+	Entity hero = scene.CreateEntity("Hero");
+	TransformComponent& transform = hero.GetComponent<TransformComponent>();
+	transform.Translation = {0.0f, 1.0f, 0.0f};
+	hero.AddComponent<CharacterControllerComponent>();
+	// A kinematic part it holds out in front of it: its body follows its entity at each step.
+	Entity held = scene.CreateEntity("Held", hero);
+	held.GetComponent<TransformComponent>().Translation = {0.6f, 0.0f, 0.0f};
+	held.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Kinematic;
+	held.AddComponent<BoxColliderComponent>().HalfExtents = glm::vec3(0.1f);
+	UUID const id = hero.GetUUID();
+	float const frameTime = Step / 3.0f;
+	scene.OnRuntimeStart();
+	PhysicsScene* world = scene.GetPhysicsScene();
+	REQUIRE(world != nullptr);
+	auto const walk = [&](int frames)
+	{
+		for (int frame = 0; frame < frames; frame++)
+		{
+			world->MoveCharacter(id, {3.0f, 0.0f, 0.0f});
+			scene.OnUpdateRuntime(Timestep(frameTime));
+		}
+	};
+
+	// Walking at 180 frames a second. The steps start from where the last step left the character, not from where it was
+	// drawn: the part it holds follows it there (its body reaches, during a step, where the character was before it).
+	walk(30);
+	for (int frame = 0; frame < 9; frame++)
+	{
+		walk(1);
+		if (frame % 3 == 2)
+		{
+			std::optional<BodyTransform> const part = world->GetBodyTransform(held.GetUUID());
+			REQUIRE(part);
+			CHECK(part->Position.x == doctest::Approx(StateOf(*world, id).Position.x - 3.0f * Step + 0.6f).epsilon(1e-4));
+		}
+	}
+
+	// Changed between steps (as scripts change fields in OnUpdate), the character stays where it is, not where it was drawn.
+	scene.OnUpdateRuntime(Timestep(frameTime));
+	glm::vec3 const before = StateOf(*world, id).Position;
+	REQUIRE(transform.Translation.x < before.x - 0.01f);
+	scene.GetRegistry().patch<CharacterControllerComponent>(hero.GetHandle(),
+	                                                        [](CharacterControllerComponent& component)
+	                                                        {
+																component.GravityFactor = 1.0f;
+															});
+	scene.ApplyPhysicsChanges();
+	CHECK(glm::length(StateOf(*world, id).Position - before) < 1e-5f);
+
+	// Moved between steps (by a script or the editor), it stays where it was put, and the next step takes its character there.
+	transform.Translation = {5.0f, 1.0f, 2.0f};
+	scene.OnUpdateRuntime(Timestep(frameTime));
+	CHECK(transform.Translation == glm::vec3(5.0f, 1.0f, 2.0f));
+	scene.OnUpdateRuntime(Timestep(frameTime));
+	CHECK(glm::length(StateOf(*world, id).Position - glm::vec3(5.0f, 1.0f, 2.0f)) < 0.01f);
+	CHECK(glm::length(transform.Translation - glm::vec3(5.0f, 1.0f, 2.0f)) < 0.01f);
 	scene.OnRuntimeStop();
 }
 

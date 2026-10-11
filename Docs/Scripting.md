@@ -334,10 +334,11 @@ public class FirstPersonController : Script
 }
 ```
 
-Characters move in physics steps, 60 a second unless the project says otherwise, and their entities stand where the
-last step left them. On a display that shows more frames than that, a camera on a character moves in steps while the
-mouse turns it every frame: set the project's physics step (`FixedTimestep` under Physics in the Project Settings) to
-the display's frame time, such as 1/144 s, for smooth movement there.
+Characters move in physics steps (60 a second unless the project says otherwise), and the screen shows as many frames as
+the display does. Between steps, a character's entity is drawn on its way from where the step before the last left it to
+where the last one did: a step behind, so it and a camera on it move smoothly at any frame rate. Only the way it walked,
+fell or jumped is drawn like that; on a moving platform it stays where it stands on the platform as drawn.
+`OnFixedUpdate` finds the entity where the last step left it, `OnUpdate` where it is drawn.
 
 ## Spawning and destroying
 

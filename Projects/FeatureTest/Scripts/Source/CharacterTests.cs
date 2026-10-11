@@ -21,6 +21,7 @@ public sealed class CharacterTests : FeatureTestScript
 		Standing,
 		Walking,
 		Jumping,
+		Landed,
 		Teleported,
 	}
 
@@ -120,6 +121,11 @@ public sealed class CharacterTests : FeatureTestScript
 				{
 					return false;
 				}
+				// It landed in the last step. Between steps an entity is drawn on its way to where the last step left it, so
+				// it stands on the ground in the next frame.
+				m_Phase = Phase.Landed;
+				return false;
+			case Phase.Landed:
 				Check("characters jump and land", () =>
 				{
 					Assert.IsTrue(m_Peak > m_Start.Y + 0.5f, $"peak {m_Peak}");

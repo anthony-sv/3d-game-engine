@@ -331,7 +331,8 @@ Lifecycle: `OnRuntimeStart/Stop` (physics + scripts + audio), `OnSimulationStart
 Play mode runs on a deep copy (`Scene::Copy`); stopping restores the editor scene untouched.
 
 Runtime update order per frame: scripts `OnUpdate` → physics fixed steps (accumulator, default 60 Hz; scripts'
-`OnFixedUpdate` before each step) → contact/trigger events dispatched to scripts → transform sync → audio update →
+`OnFixedUpdate` before each step; characters are then drawn between their last two steps, §8) → contact/trigger events
+dispatched to scripts → transform sync → audio update →
 deferred entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the
 end of the frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext`
 completes their destruction at once (`Scene::FlushPendingDestruction`): later edits and undo, also while paused, find
@@ -511,9 +512,17 @@ the joints again). The entities below a character are its parts: the scene has t
 follows the hierarchy as it changes. Before each step, an entity moved by a script, the editor or its parent teleports
 its character (keeping its velocity); after it, moved characters write their positions back (parents first). The
 simulation moves entities without taking their transforms apart: characters change only the translation, dynamic bodies
-the translation and rotation, so scales (and characters' rotations) stay exactly as they were. Removing the component or
-destroying the entity removes the character. `Scene::TeleportCharacter` places the entity and stops its character at
-once. The scene view draws a selected character's capsule (with the colliders).
+the translation and rotation, so scales (and characters' rotations) stay exactly as they were. Between frames,
+characters are drawn between their last two steps, so they (and cameras on them) move smoothly whatever the frame rate:
+before a frame's physics changes and steps, entities not moved since they were drawn go back to where the last step left
+them (`OnFixedUpdate`, their parts' bodies and component changes see the physics positions; a component changed between
+steps keeps the character where it is), and after the steps they are drawn as far into the last step as the time left
+over makes up (accumulator / step, so a step behind). The way their ground carried them in the last step
+(`CharacterState::GroundDisplacement`, as far as they went that way) is not delayed, so riders stay on platforms, which
+are drawn where the last step left them. Entities moved between steps stay where they were put, and the next step
+teleports their characters there. Removing the component or destroying the entity removes the character.
+`Scene::TeleportCharacter` places the entity and stops its character at once. The scene view draws a selected
+character's capsule (with the colliders).
 
 Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
 `PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin

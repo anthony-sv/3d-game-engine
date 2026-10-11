@@ -5,9 +5,11 @@ namespace Strada;
 /// <summary>Makes the entity a character that scripts move, such as the player: an upright capsule that walks at the velocity
 /// given to <see cref="Move"/>, slides along walls, climbs steps up to <see cref="StepHeight"/> and slopes up to
 /// <see cref="MaxSlopeAngle"/>, slides down steeper slopes, falls with gravity, rides what it stands on (moving platforms,
-/// elevators) and pushes dynamic bodies. The entity's transform follows the capsule, which does not turn with the entity.
-/// Raycasts hit the character, and triggers and bodies report it in their contact callbacks like a kinematic body. The
-/// colliders of the entities below it are its own parts: they neither block it nor report touching it.</summary>
+/// elevators) and pushes dynamic bodies. The entity's transform follows the capsule, which does not turn with the entity:
+/// in <see cref="Script.OnFixedUpdate"/> it is where the last physics step left the character, and between steps it is
+/// drawn on its way there (a step behind), so it moves smoothly at any frame rate. Raycasts hit the character, and
+/// triggers and bodies report it in their contact callbacks like a kinematic body. The colliders of the entities below it
+/// are its own parts: they neither block it nor report touching it.</summary>
 [NativeComponent("CharacterController")]
 public sealed unsafe class CharacterControllerComponent : Component
 {

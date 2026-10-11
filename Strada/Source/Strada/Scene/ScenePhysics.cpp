@@ -123,6 +123,44 @@ namespace Strada
 			}
 		}
 
+		// A world position for the entity of a character.
+		struct CharacterPlacement
+		{
+			entt::entity Handle = entt::null;
+			UUID Entity = UUID::Invalid();
+			glm::vec3 Position = glm::vec3(0.0f);
+			size_t Depth = 0;
+		};
+
+		// Moves the entities of characters: parents first (a child's local transform depends on its parent's new world
+		// transform), in a fixed order. The capsule does not turn, so the entities keep their rotations and scales.
+		void PlaceCharacterEntities(Scene& scene, std::vector<CharacterPlacement>& placements)
+		{
+			std::sort(placements.begin(), placements.end(),
+			          [](CharacterPlacement const& a, CharacterPlacement const& b)
+			          {
+						  return std::tuple(a.Depth, a.Entity.GetValue()) < std::tuple(b.Depth, b.Entity.GetValue());
+					  });
+			for (CharacterPlacement const& placement : placements)
+			{
+				SetWorldPosition(scene, Entity(placement.Handle, &scene), placement.Position);
+			}
+		}
+
+		// The part of a character's last step (moved) that what it stands on carried it (ground: how far the ground moved
+		// where it stands), as far as the character really went that way: a wall may have stopped it, or it walked against
+		// the ground's motion.
+		glm::vec3 GetCarriedPart(glm::vec3 const& moved, glm::vec3 const& ground)
+		{
+			float const distance = glm::length(ground);
+			if (distance < 1e-6f)
+			{
+				return glm::vec3(0.0f);
+			}
+			glm::vec3 const direction = ground / distance;
+			return direction * std::clamp(glm::dot(moved, direction), 0.0f, distance);
+		}
+
 		// A character's capsule: scaled with the entity (the radius by the larger horizontal scale), not turned with it.
 		CharacterDesc MakeCharacterDesc(UUID entity, CharacterControllerComponent const& component, glm::vec3 const& position,
 		                                glm::vec3 const& scale)
@@ -574,7 +612,11 @@ namespace Strada
 		}
 		UUID const id = entity.GetUUID();
 		bool const created = !m_Physics->HasCharacter(id);
-		if (Result<void> added = m_Physics->AddCharacter(MakeCharacterDesc(id, *component, position, scale)); !added)
+		// Between frames the entity is drawn on its way to where the last step left it: unless something moved it since (a
+		// script, the editor, its parent), the character stays there.
+		bool const placed = created || existing == m_Characters.end() || HasMoved(position, existing->second.Position);
+		glm::vec3 const origin = placed ? position : existing->second.StepPosition;
+		if (Result<void> added = m_Physics->AddCharacter(MakeCharacterDesc(id, *component, origin, scale)); !added)
 		{
 			ST_CORE_WARN("Physics: {}", added.GetError());
 			if (existing != m_Characters.end())
@@ -595,8 +637,11 @@ namespace Strada
 			state.Parts.clear();
 		}
 		state.Entity = id;
-		state.Position = position;
 		state.Scale = scale;
+		if (placed)
+		{
+			state.Place(position);
+		}
 		SyncCharacterParts(*this, *m_Physics, entity, id, state.Parts);
 	}
 
@@ -621,7 +666,7 @@ namespace Strada
 		CharacterControllerComponent const& component = entity.GetComponent<CharacterControllerComponent>();
 		m_Physics->SetCharacterPosition(state->second.Entity, position + component.Offset * state->second.Scale);
 		m_Physics->SetCharacterVelocity(state->second.Entity, glm::vec3(0.0f));
-		state->second.Position = position;
+		state->second.Place(position);
 	}
 
 	void Scene::SyncCharactersFromTransforms()
@@ -650,7 +695,7 @@ namespace Strada
 			{
 				// Moved by a script, the editor or its parent; turning the entity does not turn the capsule.
 				m_Physics->SetCharacterPosition(state.Entity, position + component->Offset * state.Scale);
-				state.Position = position;
+				state.Place(position);
 			}
 		}
 		for (entt::entity const handle : rescaled)
@@ -661,15 +706,8 @@ namespace Strada
 
 	void Scene::WriteCharacterTransforms()
 	{
-		struct Update
-		{
-			entt::entity Handle = entt::null;
-			UUID Entity = UUID::Invalid();
-			glm::vec3 Position = glm::vec3(0.0f);
-			size_t Depth = 0;
-		};
-		std::vector<Update> updates;
-		for (auto const& [handle, state] : m_Characters)
+		std::vector<CharacterPlacement> placements;
+		for (auto& [handle, state] : m_Characters)
 		{
 			CharacterControllerComponent const* component =
 				m_Registry.valid(handle) ? m_Registry.try_get<CharacterControllerComponent>(handle) : nullptr;
@@ -680,23 +718,69 @@ namespace Strada
 				continue;
 			}
 			glm::vec3 const position = character->Position - component->Offset * state.Scale;
+			state.PreviousStepPosition = state.StepPosition;
+			state.StepPosition = position;
+			state.Carried = GetCarriedPart(position - state.PreviousStepPosition, character->GroundDisplacement);
 			// A character standing still leaves its transform alone.
 			if (HasMoved(position, state.Position))
 			{
-				updates.push_back({handle, state.Entity, position, GetDepth(*this, Entity(handle, this))});
+				placements.push_back({handle, state.Entity, position, GetDepth(*this, Entity(handle, this))});
 			}
 		}
-		// Parents first (a child's local transform depends on its parent's new world transform), in a fixed order.
-		std::sort(updates.begin(), updates.end(),
-		          [](Update const& a, Update const& b)
-		          {
-					  return std::tuple(a.Depth, a.Entity.GetValue()) < std::tuple(b.Depth, b.Entity.GetValue());
-				  });
-		for (Update const& update : updates)
+		PlaceCharacterEntities(*this, placements);
+		for (CharacterPlacement const& placement : placements)
 		{
-			// The capsule does not turn: the entity keeps its rotation and scale.
-			SetWorldPosition(*this, Entity(update.Handle, this), update.Position);
-			m_Characters[update.Handle].Position = update.Position;
+			m_Characters[placement.Handle].Position = placement.Position;
+		}
+	}
+
+	void Scene::ReturnCharactersToSteps()
+	{
+		std::vector<CharacterPlacement> placements;
+		for (auto const& [handle, state] : m_Characters)
+		{
+			if (!HasMoved(state.StepPosition, state.Position) || !m_Registry.valid(handle))
+			{
+				continue;
+			}
+			// Entities moved since they were drawn stay where they were put: the next step takes their characters there.
+			Entity const entity(handle, this);
+			if (!HasMoved(glm::vec3(GetWorldTransform(entity)[3]), state.Position))
+			{
+				placements.push_back({handle, state.Entity, state.StepPosition, GetDepth(*this, entity)});
+			}
+		}
+		PlaceCharacterEntities(*this, placements);
+		for (CharacterPlacement const& placement : placements)
+		{
+			m_Characters[placement.Handle].Position = placement.Position;
+		}
+	}
+
+	void Scene::InterpolateCharacterTransforms(float alpha)
+	{
+		std::vector<CharacterPlacement> placements;
+		for (auto const& [handle, state] : m_Characters)
+		{
+			// The way it went by itself in the last step is drawn as far as the time left over makes up. The way what it stands
+			// on carried it is not: the ground is drawn where the last step left it, and the character stays on it.
+			glm::vec3 const ownWay = state.StepPosition - state.PreviousStepPosition - state.Carried;
+			glm::vec3 const drawn = state.StepPosition - (1.0f - alpha) * ownWay;
+			if (!HasMoved(drawn, state.Position) || !m_Registry.valid(handle))
+			{
+				continue;
+			}
+			// Entities moved since the last step (between steps, by a script or the editor) stay where they were put.
+			Entity const entity(handle, this);
+			if (!HasMoved(glm::vec3(GetWorldTransform(entity)[3]), state.Position))
+			{
+				placements.push_back({handle, state.Entity, drawn, GetDepth(*this, entity)});
+			}
+		}
+		PlaceCharacterEntities(*this, placements);
+		for (CharacterPlacement const& placement : placements)
+		{
+			m_Characters[placement.Handle].Position = placement.Position;
 		}
 	}
 
@@ -705,6 +789,8 @@ namespace Strada
 		m_ContactEvents.clear();
 		if (m_Physics)
 		{
+			// Changes and steps start from where the last step left the characters, and scripts' OnFixedUpdate finds them there.
+			ReturnCharactersToSteps();
 			RebuildChangedBodies();
 		}
 
@@ -736,6 +822,8 @@ namespace Strada
 		}
 		if (m_Physics)
 		{
+			// The time left over, part of the next step, is how far into their last step characters are drawn.
+			InterpolateCharacterTransforms(std::clamp(m_PhysicsAccumulator / step, 0.0f, 1.0f));
 			m_ContactEvents = m_Physics->TakeContactEvents();
 		}
 	}

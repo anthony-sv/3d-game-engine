@@ -734,6 +734,8 @@ namespace Strada
 			// Its own velocity, and the walking velocity of the next step.
 			glm::vec3 Velocity = glm::vec3(0.0f);
 			glm::vec3 Walk = glm::vec3(0.0f);
+			// How far its ground moved where it stands during the last step (CharacterState::GroundDisplacement).
+			glm::vec3 GroundDisplacement = glm::vec3(0.0f);
 		};
 
 		// A character's capsule (a sphere when it has no cylinder part), centered on the character's position.
@@ -905,18 +907,20 @@ namespace Strada
 			record.Walk = glm::vec3(0.0f);
 		}
 
-		// After the bodies' step. A character moved before the bodies, so it could not go down with a descending platform
-		// (the platform was still in its way): it follows what it stands on down now instead of hovering a step's travel
-		// above it.
+		// After the bodies' step: notes how far the ground moved under the character. A character moved before the bodies, so
+		// it could not go down with a descending platform (the platform was still in its way): it follows what it stands on
+		// down now instead of hovering a step's travel above it.
 		void FollowGround(UUID entity, CharacterRecord& record, float deltaTime)
 		{
 			JPH::CharacterVirtual& character = *record.Character;
+			record.GroundDisplacement = glm::vec3(0.0f);
 			if (character.GetGroundState() != JPH::CharacterBase::EGroundState::OnGround)
 			{
 				return;
 			}
 			character.UpdateGroundVelocity();
-			float const drop = -character.GetGroundVelocity().GetY() * deltaTime;
+			record.GroundDisplacement = Jolt::ToGlm(character.GetGroundVelocity()) * deltaTime;
+			float const drop = -record.GroundDisplacement.y;
 			if (drop <= MinimumFollowedDrop)
 			{
 				return;
@@ -1545,6 +1549,7 @@ namespace Strada
 		state.IsGrounded = character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
 		state.GroundNormal = supported ? Jolt::ToGlm(character.GetGroundNormal()) : glm::vec3(0.0f);
 		state.GroundEntity = supported ? UUID(character.GetGroundUserData()) : UUID::Invalid();
+		state.GroundDisplacement = it->second.GroundDisplacement;
 		return state;
 	}
 

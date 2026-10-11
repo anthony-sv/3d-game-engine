@@ -175,8 +175,10 @@ namespace Strada
 		void OnRuntimeStop();
 		// Advances the runtime: scripts' OnUpdate, fixed steps (scripts' OnFixedUpdate, then physics: kinematic bodies follow
 		// their transforms, moved static and dynamic bodies and characters teleport, characters move, dynamic bodies and
-		// characters write their positions back), contact events to scripts, audio (sources and the listener follow their
-		// entities), then deferred entity destruction (destroyed scripts get OnDestroy).
+		// characters write their positions back), characters drawn between their last two steps (so they move smoothly at
+		// any frame rate, a step behind; OnFixedUpdate sees them where the last step left them), contact events to scripts,
+		// audio (sources and the listener follow their entities), then deferred entity destruction (destroyed scripts get
+		// OnDestroy).
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -286,6 +288,11 @@ namespace Strada
 		void UpdateCharacter(entt::entity handle);
 		void SyncCharactersFromTransforms();
 		void WriteCharacterTransforms();
+		// Between frames, characters are drawn between their last two steps. Before the physics changes and steps of a frame,
+		// those not moved since go back to where the last step left them; after the steps, they are drawn the part of the way
+		// from the step before (alpha 0) to the last one (alpha 1) that the time left over makes up.
+		void ReturnCharactersToSteps();
+		void InterpolateCharacterTransforms(float alpha);
 		void OnCharacterComponentChanged(entt::registry& registry, entt::entity handle);
 		void OnCharacterComponentAddedOrRemoved(entt::registry& registry, entt::entity handle);
 
@@ -362,14 +369,28 @@ namespace Strada
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		// A joint or a body changed: the joints are made again before the next step.
 		bool m_JointsChanged = false;
-		// The world position and scale last exchanged with an entity's character (to tell transform edits from movement),
-		// and the entities below it, whose bodies it ignores.
+		// What the scene exchanged with an entity's character: the world position last written to or read from the entity's
+		// transform (to tell edits from movement), where the entity's origin was after the last two steps and how far the
+		// ground carried it in the last one (to draw it between steps), its scale, and the entities below it, whose bodies it
+		// ignores.
 		struct CharacterSyncState
 		{
 			UUID Entity = UUID::Invalid();
 			glm::vec3 Position = glm::vec3(0.0f);
+			glm::vec3 PreviousStepPosition = glm::vec3(0.0f);
+			glm::vec3 StepPosition = glm::vec3(0.0f);
+			glm::vec3 Carried = glm::vec3(0.0f);
 			glm::vec3 Scale = glm::vec3(1.0f);
 			std::vector<UUID> Parts;
+
+			// Placed somewhere (made, moved by an edit or teleported): it is drawn there until it moves.
+			void Place(glm::vec3 const& position)
+			{
+				Position = position;
+				PreviousStepPosition = position;
+				StepPosition = position;
+				Carried = glm::vec3(0.0f);
+			}
 		};
 		std::unordered_map<entt::entity, CharacterSyncState> m_Characters;
 		// Entities whose CharacterController changed while running; their characters are updated before the next step.
