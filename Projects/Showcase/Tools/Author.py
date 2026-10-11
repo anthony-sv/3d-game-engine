@@ -19,7 +19,7 @@ import tempfile
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
-SCRIPTS = ["FlyCamera", "Impact", "Projectile", "LanternFlicker", "Playground", "ShowcaseTests"]
+SCRIPTS = ["FlyCamera", "Impact", "Projectile", "LanternFlicker", "Playground", "WreckingBall", "ShowcaseTests"]
 
 HDRI = "autumn_forest_04"
 GROUND = "dry_decay_leaves"
@@ -233,6 +233,10 @@ def build(client, sources):
 
     client.call("material_create", {"path": "Materials/BallMetal.smat",
                                     "fields": {"BaseColor": [0.95, 0.93, 0.88, 1.0], "Metallic": 1.0, "Roughness": 0.18}})
+    client.call("material_create", {"path": "Materials/Iron.smat",
+                                    "fields": {"BaseColor": [0.16, 0.16, 0.18, 1.0], "Metallic": 1.0, "Roughness": 0.38}})
+    client.call("material_create", {"path": "Materials/RedPaint.smat",
+                                    "fields": {"BaseColor": [0.62, 0.09, 0.05, 1.0], "Roughness": 0.45}})
 
     # The main scene: the project's start scene, which is open.
     client.call("scene_settings", {"name": "Showcase", "settings": {"Renderer": {
@@ -354,6 +358,89 @@ def build(client, sources):
         entity = model_entity(f"Undergrowth {index + 1}", model, position, (0.0, generator.uniform(0.0, 360.0), 0.0), {}, (size, size, size))
         client.call("entity_reparent", {"entity": entity, "parent": undergrowth})
 
+    # The physics corner: joints at work. A wrecking ball hangs from a beam (a ball joint at the beam holds it on a rigid
+    # rod) next to the crate tower; B pushes it into the tower. A seesaw turns on a hinge with limits, and a paddle bar
+    # turns on a motorized hinge.
+    def shape(name, mesh, position, scale, material, components=None, euler=(0.0, 0.0, 0.0)):
+        fields = {"Transform": placed(position, euler, scale), "Mesh": {"Mesh": f"builtin://{mesh}", "Materials": [f"asset://Materials/{material}.smat"]}}
+        fields.update(components or {})
+        return client.call("entity_create", {"name": name, "components": fields})["id"]
+
+    physics_corner = client.call("entity_create", {"name": "Physics Corner"})["id"]
+    pivot = (-5.4, 5.2, -1.0)
+    rest = (-5.4, 1.2, -1.0)
+    ball_size = 0.9
+    for name, position, scale in (("Post", (-5.4, 2.7, -2.4), (0.25, 5.4, 0.25)), ("Post 2", (-5.4, 2.7, 0.4), (0.25, 5.4, 0.25)),
+                                  ("Beam", (-5.4, 5.35, -1.0), (0.3, 0.3, 3.2))):
+        part = shape(f"Wrecking {name}", "Cube", position, scale, "Iron", {"RigidBody": {"Type": "Static"}, "BoxCollider": {}})
+        client.call("entity_reparent", {"entity": part, "parent": physics_corner})
+    length = pivot[1] - rest[1]
+    angle = math.radians(VIEW_YAW)
+    push = 7.0
+    wrecking_ball = shape("Wrecking Ball", "Sphere", rest, (ball_size, ball_size, ball_size), "BallMetal", {
+        "RigidBody": {"Type": "Dynamic", "Mass": 120.0, "LinearDamping": 0.02, "AngularDamping": 0.3},
+        "SphereCollider": {"Radius": 0.5, "Friction": 0.4, "Restitution": 0.2},
+        "Joint": {"Type": "Ball", "Anchor": [0.0, length / ball_size, 0.0]},
+        "AudioSource": {"Clip": "asset://Audio/MetalHit.wav", "Pitch": 0.6, "Spatial": True, "MinDistance": 3.0, "MaxDistance": 50.0},
+        "Script": {"ClassName": "Showcase.WreckingBall", "Fields": {
+            # Towards the tower (+X of the layout, turned with it).
+            "Push": {"Type": "Vector3", "Value": [push * math.cos(angle), 0.0, -push * math.sin(angle)]}}}})
+    client.call("entity_reparent", {"entity": wrecking_ball, "parent": physics_corner})
+    # The rod is a child of the ball, from its center up to the beam: it swings with it.
+    rod = client.call("entity_create", {"name": "Rod", "components": {
+        "Transform": transform((0.0, length / ball_size / 2.0, 0.0), scale=(0.07 / ball_size, length / ball_size, 0.07 / ball_size)),
+        "Mesh": {"Mesh": "builtin://Cylinder", "Materials": ["asset://Materials/Iron.smat"]}}})["id"]
+    client.call("entity_reparent", {"entity": rod, "parent": wrecking_ball, "keepWorldTransform": False})
+
+    fulcrum = shape("Seesaw Fulcrum", "Cube", (4.6, 0.18, -4.6), (0.45, 0.45, 0.8), "Iron",
+                    {"RigidBody": {"Type": "Static"}, "BoxCollider": {}}, (0.0, 0.0, 45.0))
+    seesaw = shape("Seesaw", "Cube", (4.6, 0.56, -4.6), (4.0, 0.12, 0.7), "RedPaint", {
+        "RigidBody": {"Type": "Dynamic", "Mass": 25.0, "AngularDamping": 0.2},
+        "BoxCollider": {"Friction": 0.7},
+        "Joint": {"Type": "Hinge", "Axis": [0.0, 0.0, 1.0], "LimitsEnabled": True, "MinLimit": -16.0, "MaxLimit": 16.0}})
+    paddle_post = shape("Paddle Post", "Cube", (-1.2, 1.3, -5.4), (0.25, 2.6, 0.25), "Iron", {"RigidBody": {"Type": "Static"}, "BoxCollider": {}})
+    paddle = shape("Paddle", "Cube", (-1.2, 2.6, -4.95), (3.4, 0.22, 0.5), "RedPaint", {
+        "RigidBody": {"Type": "Dynamic", "Mass": 30.0},
+        "BoxCollider": {"Friction": 0.5, "Restitution": 0.3},
+        "Joint": {"Type": "Hinge", "Axis": [0.0, 0.0, 1.0], "MotorEnabled": True, "MotorSpeed": 40.0, "MotorMaxForce": 5000.0}})
+    for part in (fulcrum, seesaw, paddle_post, paddle):
+        client.call("entity_reparent", {"entity": part, "parent": physics_corner})
+
+    # A campfire in front of the camera: a ring of stones, logs, fire, smoke and sparks, and a flickering light.
+    campfire = client.call("entity_create", {"name": "Campfire", "components": {"Transform": placed((1.8, 0.0, 4.4))}})["id"]
+    (boulder_low, boulder_high) = models[BOULDER][1]
+    for index in range(9):
+        stone_angle = 2.0 * math.pi * index / 9.0
+        size = 0.11 + 0.02 * (index % 3)
+        stone = model_entity(f"Stone {index + 1}", BOULDER, (math.cos(stone_angle) * 0.6, -boulder_low[1] * size, math.sin(stone_angle) * 0.6),
+                             (0.0, 47.0 * index, 0.0), {}, (size, size, size), local=True)
+        client.call("entity_reparent", {"entity": stone, "parent": campfire, "keepWorldTransform": False})
+    for index, yaw in enumerate((25.0, 115.0)):
+        log = model_entity(f"Log {index + 1}", LOG, (0.0, -models[LOG][1][0][1] * 0.16 + 0.04 * index, 0.0), (0.0, yaw, 0.0), {},
+                           (0.16, 0.16, 0.16), local=True)
+        client.call("entity_reparent", {"entity": log, "parent": campfire, "keepWorldTransform": False})
+    effects = (
+        ("Fire", 0.05, {"Rate": 55.0, "LifetimeMin": 0.6, "LifetimeMax": 1.1, "SpeedMin": 0.8, "SpeedMax": 1.6, "ConeAngle": 12.0,
+                        "Radius": 0.25, "GravityFactor": -0.15, "Drag": 0.8, "StartSize": 0.5, "EndSize": 0.1,
+                        "StartColor": [1.0, 0.45, 0.12, 0.9], "EndColor": [0.8, 0.08, 0.02, 0.0], "Intensity": 2.0}),
+        ("Smoke", 0.7, {"Rate": 10.0, "LifetimeMin": 3.0, "LifetimeMax": 5.0, "SpeedMin": 0.4, "SpeedMax": 0.9, "ConeAngle": 15.0,
+                        "Radius": 0.3, "GravityFactor": -0.05, "Drag": 0.3, "StartSize": 0.5, "EndSize": 1.8,
+                        "StartColor": [0.22, 0.21, 0.2, 0.35], "EndColor": [0.4, 0.4, 0.4, 0.0], "BlendMode": "Alpha"}),
+        ("Sparks", 0.2, {"Rate": 25.0, "LifetimeMin": 0.6, "LifetimeMax": 1.4, "SpeedMin": 2.0, "SpeedMax": 4.0, "ConeAngle": 25.0,
+                         "GravityFactor": 0.25, "Drag": 0.4, "StartSize": 0.05, "EndSize": 0.02,
+                         "StartColor": [1.0, 0.8, 0.4, 1.0], "EndColor": [1.0, 0.3, 0.05, 0.0], "Intensity": 6.0}))
+    for name, height, settings in effects:
+        # Particle systems emit along -Z: turned to emit up.
+        effect = client.call("entity_create", {"name": name, "components": {
+            "Transform": transform((0.0, height, 0.0), (90.0, 0.0, 0.0)), "ParticleSystem": settings}})["id"]
+        client.call("entity_reparent", {"entity": effect, "parent": campfire, "keepWorldTransform": False})
+    fire_light = client.call("entity_create", {"name": "Fire Light", "components": {
+        "Transform": transform((0.0, 0.6, 0.0)),
+        "PointLight": {"Color": [1.0, 0.5, 0.18], "Intensity": 14.0, "Range": 9.0, "CastShadows": True},
+        "Script": {"ClassName": "Showcase.LanternFlicker", "Fields": {"Amount": {"Type": "Float", "Value": 0.35},
+                                                                     "Speed": {"Type": "Float", "Value": 9.0}}}}})["id"]
+    client.call("entity_reparent", {"entity": fire_light, "parent": campfire, "keepWorldTransform": False})
+
     # Sound: music and the forest, everywhere.
     client.call("entity_create", {"name": "Music", "components": {
         "AudioSource": {"Clip": "asset://Audio/Music.wav", "Volume": 0.32, "Loop": True, "PlayOnStart": True, "Spatial": False}}})
@@ -382,7 +469,8 @@ def build(client, sources):
                                                                             (1.0, 0.86, 0.55, 1.0))})
     client.call("entity_create", {"name": "Controls", "components": screen_text(
         "Right mouse  look      WASD  move      Q / E  down / up      Shift  faster\n"
-        "Left click  throw a ball      R  rebuild the stacks", (0.025, 0.91, 0.0), 18.0, (0.92, 0.92, 0.9, 0.9))})
+        "Left click  throw a ball      R  rebuild the stacks      B  swing the wrecking ball", (0.025, 0.91, 0.0), 18.0,
+        (0.92, 0.92, 0.9, 0.9))})
     status = client.call("entity_create", {"name": "Status", "components": screen_text("", (0.025, 0.09, 0.0), 22.0,
                                                                                       (1.0, 1.0, 1.0, 0.95))})["id"]
     playground = client.call("entity_create", {"name": "Playground", "components": {"Script": {
@@ -395,7 +483,8 @@ def build(client, sources):
     client.call("scene_settings", {"name": "Showcase Tests"})
     client.call("entity_create", {"name": "Tests", "components": {"Script": {"ClassName": "Showcase.ShowcaseTests", "Fields": {
         "Playground": {"Type": "Entity", "Value": playground}, "Camera": {"Type": "Entity", "Value": camera},
-        "Lantern": {"Type": "Entity", "Value": light}}}}})
+        "Lantern": {"Type": "Entity", "Value": light}, "WreckingBall": {"Type": "Entity", "Value": wrecking_ball},
+        "Paddle": {"Type": "Entity", "Value": paddle}, "Campfire": {"Type": "Entity", "Value": campfire}}}}})
     client.call("scene_save")
     client.call("scene_open", {"path": "Scenes/Main.sscene"})
 

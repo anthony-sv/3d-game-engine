@@ -7,14 +7,15 @@
 		"Name": "Showcase",
 		"AssetDirectory": "Assets",
 		"ScriptModule": "Scripts/Binaries/Showcase.dll",
-		"StartScene": "1386313322681886381",
+		"StartScene": "3281278489304700710",
 		"Window": {
 			"Title": "Strada Showcase",
 			"Width": 1600,
 			"Height": 900,
 			"Fullscreen": false,
 			"VSync": true,
-			"Resizable": true
+			"Resizable": true,
+			"Icon": "0"
 		},
 		"Physics": {
 			"FixedTimestep": 0.01666666753590107,

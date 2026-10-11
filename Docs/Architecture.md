@@ -854,6 +854,7 @@ data directory, and compile out asserts and script debug lines.
   texts that follow the window's size) and a test scene whose `BlocksTests` check the rules and play the game. `StradaRuntimeTests` plays that scene
   and runs the game's scene headless.
 - `Projects/Showcase`: an autumn forest clearing built by `Tools/Author.py` through `strada mcp` from Poly Haven assets
-  (fetched by `Tools/FetchAssets.py`, not in the repository) with a physics playground, sound and a test scene that
-  `StradaRuntimeTests` plays (its checks do not need the downloads).
+  (fetched by `Tools/FetchAssets.py`, not in the repository) with a physics playground, a corner of joints (a wrecking
+  ball on a ball joint, a hinged seesaw, a paddle on a motorized hinge), a campfire of particles with a flickering light,
+  sound and a test scene that `StradaRuntimeTests` plays (its checks do not need the downloads).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.

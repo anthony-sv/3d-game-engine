@@ -5,7 +5,7 @@ using Strada.Testing;
 namespace Showcase;
 
 /// <summary>The checks of Scenes/Tests.sscene (the main scene with this script): the stacks stand on their own, a thrown ball
-/// knocks props over with sound, and the lantern flickers. The run ends once they are done (play the scene, or
+/// knocks props over with sound, the lantern flickers, the joints hold and drive their bodies, and the campfire burns. The run ends once they are done (play the scene, or
 /// `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
 public sealed class ShowcaseTests : Script
 {
@@ -17,6 +17,15 @@ public sealed class ShowcaseTests : Script
 
 	[Tooltip("The lantern's light")]
 	public Entity? Lantern;
+
+	[Tooltip("The ball hanging from the beam")]
+	public Entity? WreckingBall;
+
+	[Tooltip("The bar a motorized hinge turns")]
+	public Entity? Paddle;
+
+	[Tooltip("The campfire, whose children burn")]
+	public Entity? Campfire;
 
 	private float m_Time;
 	private int m_Step;
@@ -40,6 +49,22 @@ public sealed class ShowcaseTests : Script
 				Assert.IsNotNull(playground);
 				Assert.IsTrue(playground.Total >= 10, $"{playground.Total} props");
 				Assert.AreEqual(0, playground.Knocked);
+			});
+			TestReporter.Run("joints hold the wrecking ball and turn the paddle", () =>
+			{
+				Assert.IsNotNull(WreckingBall);
+				Assert.IsNotNull(Paddle);
+				// Two seconds after the start the ball still hangs where it was, held up by its joint.
+				Assert.IsTrue(WreckingBall.Transform.WorldTranslation.Y > 0.9f, $"the ball is at {WreckingBall.Transform.WorldTranslation}");
+				Assert.IsTrue(WreckingBall.GetComponent<RigidBodyComponent>()!.LinearVelocity.Length < 0.5f, "and hangs still");
+				float spin = Paddle.GetComponent<RigidBodyComponent>()!.AngularVelocity.Length;
+				Assert.IsTrue(spin > 0.5f && spin < 0.9f, $"the paddle turns at {spin} rad/s (40 degrees per second)");
+			});
+			TestReporter.Run("the campfire burns", () =>
+			{
+				Assert.IsNotNull(Campfire);
+				long particles = Campfire.Children.Sum(child => (long)(child.GetComponent<ParticleSystemComponent>()?.ParticleCount ?? 0));
+				Assert.IsTrue(particles > 50, $"{particles} particles");
 			});
 			TestReporter.Run("a ball flies from the camera", () =>
 			{
@@ -74,6 +99,14 @@ public sealed class ShowcaseTests : Script
 				int hits = playground.Props.Children.Sum(prop => prop.As<Impact>()?.Hits ?? 0);
 				hits += m_Ball is not null && m_Ball.IsValid ? m_Ball.As<Impact>()?.Hits ?? 0 : 0;
 				Assert.IsTrue(hits > 0, $"{hits} hits");
+			});
+			TestReporter.Run("a push swings the wrecking ball", () =>
+			{
+				WreckingBall? ball = WreckingBall?.As<WreckingBall>();
+				Assert.IsNotNull(ball);
+				ball.Swing();
+				Assert.AreEqual(1, ball.Swings);
+				Assert.IsTrue(WreckingBall!.GetComponent<RigidBodyComponent>()!.LinearVelocity.Length > 5.0f);
 			});
 			TestReporter.Run("the lantern flickers around its intensity", () =>
 			{
