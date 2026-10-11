@@ -14,10 +14,10 @@
 		"Roughness": 0.30000001192092896,
 		"EmissiveColor": [
 			1.0,
-			0.8199999928474426,
-			0.550000011920929
+			0.6600000262260437,
+			0.36000001430511475
 		],
-		"EmissiveIntensity": 18.0,
+		"EmissiveIntensity": 9.0,
 		"NormalStrength": 1.0,
 		"OcclusionStrength": 1.0,
 		"BaseColorTexture": "0",

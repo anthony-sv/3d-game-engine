@@ -35,7 +35,8 @@ PAINTED_METAL = "blue_metal_plate"
 MARBLE = "marble_01"
 PLANKS = "brown_planks_05"
 COBBLES = "cobblestone_floor_08"
-TEXTURES = (GROUND, RUST, PAINTED_METAL, MARBLE, PLANKS, COBBLES)
+BARK = "bark_brown_02"
+TEXTURES = (GROUND, RUST, PAINTED_METAL, MARBLE, PLANKS, COBBLES, BARK)
 CRATE = "wooden_crate_01"
 BARREL = "wine_barrel_01"
 TABLE = "wooden_picnic_table"
@@ -56,9 +57,14 @@ SHRUBS = "shrub_02"
 MODELS = (CRATE, BARREL, TABLE, LANTERN, BOULDER, LOG, FERN, BRANCHES, STUMP, STUMP_2, ROCKS, ROCKS_2, BIG_LOG, BUST, STREET_LAMP, BENCH, SHRUBS)
 # The sun of the sky (HDRI): the direction towards it in the panorama (u = 0.5 looks down -Z), 8.3 degrees above the
 # horizon, measured from its brightest pixels. The sky turns by SKY_ROTATION degrees, which brings the sun round to the
-# south-east, behind the opening view's right shoulder: the exhibits get warm light from the side and long shadows.
+# east-south-east: it lights the gallery and the neon sign the tour opens on from the front, and the exhibits around the
+# plaza from the side with long shadows.
 HDRI_SUN = (0.582, 0.144, -0.800)
 SKY_ROTATION = 85.0
+# The directional light comes from the sun's bearing but higher than the panorama's 8 degrees: a sun that low lights the
+# ground so little that shadows on it fade into the sky's light. From 16 degrees the trees' and exhibits' shadows stretch
+# four times their height across sunlit leaves, and the disc in the sky stays behind the camera in most views.
+SUN_ELEVATION = 16.0
 
 
 def texture_resolution(texture):
@@ -181,14 +187,14 @@ def transform(translation, euler=(0.0, 0.0, 0.0), scale=(1.0, 1.0, 1.0)):
 
 
 def sun_euler():
-    """The directional light's Euler angles: it shines from the sky's sun. The sky shows the panorama's direction turned by
-    SKY_ROTATION about +Y in each world direction, so the sun is at HDRI_SUN turned back by it."""
-    x, y, z = HDRI_SUN
+    """The directional light's Euler angles: it shines from the sky sun's bearing, SUN_ELEVATION degrees up. The sky shows the
+    panorama's direction turned by SKY_ROTATION about +Y in each world direction, so the sun is at HDRI_SUN turned back by
+    it."""
+    x, _, z = HDRI_SUN
     angle = math.radians(-SKY_ROTATION)
     toward_x, toward_z = x * math.cos(angle) + z * math.sin(angle), -x * math.sin(angle) + z * math.cos(angle)
-    elevation = math.degrees(math.asin(y / math.sqrt(x * x + y * y + z * z)))
     # The light's forward (-Z) points away from the sun.
-    return (-elevation, math.degrees(math.atan2(toward_x, toward_z)), 0.0)
+    return (-SUN_ELEVATION, math.degrees(math.atan2(toward_x, toward_z)), 0.0)
 
 
 class Frame:
@@ -230,21 +236,21 @@ HOME = (LAYOUT, (0.0, 2.9, 16.0), (0.0, 1.1, -2.0))
 
 # The opening tour: the shots the camera glides through, as (name, frame, eye, target, seconds to the next shot, caption,
 # detail line, the exhibit set off on the way: an attribute of Showcase whose script is a tour cue, and how many seconds before
-# the camera arrives it goes off).
+# the camera arrives it goes off). It opens on the neon sign, the engine's name in light, and pulls back to the gallery under
+# it; it ends at the campfire, beside the home view.
 TOUR = (
-    ("Opening", LAYOUT, (0.0, 0.85, 15.0), (0.0, 2.3, 0.0), 6.0, "", "", None, 0.0),
-    ("Clearing", LAYOUT, (-1.5, 6.0, 7.5), (-0.5, 0.4, -3.0), 4.5, "Particles and sound",
-     "fire, smoke, sparks, water and fireflies, heard where they are", None, 0.0),
+    ("Opening", GALLERY, (-0.8, 5.6, 4.6), (0.2, 6.5, -0.6), 6.0, "", "", None, 0.0),
     ("Gallery", GALLERY, (0.8, 3.2, 8.2), (0.0, 2.7, 0.0), 4.5, "Physically based materials",
-     "metallic and roughness, normal and occlusion maps", None, 0.0),
-    ("Neon", GALLERY, (-1.6, 5.95, 3.6), (0.0, 6.65, -0.6), 3.5, "Emission and bloom", "neon tubes light their surroundings", None, 0.0),
-    ("Lights", LAYOUT, (-5.0, 5.2, -2.2), (-9.6, 1.2, -7.4), 4.5, "Lights and shadows", "a lighthouse beam, colored spots and soft sun shadows",
+     "metallic and roughness, normal and occlusion maps, emission and bloom", None, 0.0),
+    ("Lights", LAYOUT, (-6.55, 5.2, -0.35), (-9.6, 1.2, -7.2), 4.5, "Lights and shadows", "a lighthouse beam, colored spots and soft sun shadows",
      None, 0.0),
     ("Physics", LAYOUT, (2.5, 2.4, -5.5), (-1.4, 1.5, -10.2), 4.5, "Rigid bodies and joints", "a wrecking ball on a ball joint meets a tower of crates",
      "wrecking_ball", 0.6),
-    ("Dominoes", LAYOUT, (2.8, 2.4, -11.2), (1.8, 0.4, -16.0), 4.0, "Chain reactions", "every domino is a rigid body", "dominoes", 3.0),
+    ("Dominoes", LAYOUT, (2.8, 3.0, -11.2), (1.8, 0.4, -16.0), 4.0, "Chain reactions", "every domino is a rigid body", "dominoes", 3.0),
     ("Triggers", LAYOUT, (4.4, 2.8, -0.6), (12.4, 3.0, -10.4), 4.5, "Triggers", "a goal counts, a pressure plate opens the gate", "launcher", 1.3),
-    ("Glass", GARDEN, (-1.6, 2.4, 7.4), (0.3, 1.8, 0.3), 4.5, "Transparency", "blended glass, alpha-tested lattice, two-sided cloth", None, 0.0),
+    ("Glass", LAYOUT, (4.6, 2.5, 10.2), (11.0, 1.7, 2.8), 4.5, "Transparency", "blended glass, alpha-tested lattice, two-sided cloth", None, 0.0),
+    ("Campfire", LAYOUT, (-1.0, 1.5, 13.8), (-4.8, 1.0, 6.2), 4.0, "Particles and sound",
+     "fire, smoke, sparks, water and fireflies, heard where they are", None, 0.0),
     ("Home", *HOME, 3.0, "", "", None, 0.0),
 )
 
@@ -340,8 +346,11 @@ class Showcase:
         self.call("material_create", {"path": f"Materials/{path}.smat", "fields": fields})
         return f"asset://Materials/{path}.smat"
 
-    def mesh(self, mesh, material, extra=None):
-        components = {"Mesh": {"Mesh": mesh if "://" in mesh else f"builtin://{mesh}", "Materials": [material] if material else []}}
+    def mesh(self, mesh, material, extra=None, shadows=True):
+        """A Mesh component of a built-in or project mesh with one material. Fittings around a shadow-casting light (lenses,
+        housings, lamp glass) pass shadows=False: in its shadow map they would hide everything the light shines on."""
+        components = {"Mesh": {"Mesh": mesh if "://" in mesh else f"builtin://{mesh}", "Materials": [material] if material else [],
+                               "CastShadows": shadows}}
         components.update(extra or {})
         return components
 
@@ -393,11 +402,13 @@ class Showcase:
         self.chrome = material("Chrome", {"BaseColor": [0.97, 0.97, 0.98, 1.0], "Metallic": 1.0, "Roughness": 0.04})
         self.charcoal = material("Charcoal", {"BaseColor": [0.045, 0.045, 0.05, 1.0], "Roughness": 0.55})
         self.slate = material("Slate", {"BaseColor": [0.012, 0.014, 0.02, 1.0], "Roughness": 0.8})
-        self.stage_floor = material("StageFloor", {"BaseColor": [0.02, 0.02, 0.025, 1.0], "Roughness": 0.12})
+        # Polished gray, so the spots' colored pools show on it.
+        self.stage_floor = material("StageFloor", {"BaseColor": [0.16, 0.16, 0.17, 1.0], "Roughness": 0.28})
         self.plaster = material("Plaster", {"BaseColor": [0.92, 0.91, 0.88, 1.0], "Roughness": 0.65})
         self.orange_ball = material("OrangeBall", {"BaseColor": [1.0, 0.32, 0.04, 1.0], "Roughness": 0.4})
-        self.lamp_glass = material("LampGlass", {"BaseColor": [1.0, 0.9, 0.75, 0.4], "Roughness": 0.3, "AlphaMode": "Blend",
-                                                 "EmissiveColor": [1.0, 0.72, 0.42], "EmissiveIntensity": 1.2})
+        # Warm lamp glass: lit from inside, it keeps its color instead of burning white.
+        self.lamp_glass = material("LampGlass", {"BaseColor": [1.0, 0.85, 0.65, 0.45], "Roughness": 0.3, "AlphaMode": "Blend",
+                                                 "EmissiveColor": [1.0, 0.6, 0.28], "EmissiveIntensity": 1.6})
         # Glass: alpha-blended, smooth; its reflections stay as its tint fades what is behind.
         self.glass = {}
         for name, color in (("Clear", (0.9, 0.95, 1.0, 0.16)), ("Amber", (1.0, 0.55, 0.12, 0.38)), ("Teal", (0.15, 0.85, 0.75, 0.32)),
@@ -410,7 +421,7 @@ class Showcase:
         # Neon tubes and glowing parts: bright emission that the bloom spreads.
         self.neon = {}
         for name, color, intensity in (("Pink", (1.0, 0.12, 0.45), 26.0), ("Cyan", (0.1, 0.85, 1.0), 22.0), ("Amber", (1.0, 0.55, 0.12), 20.0),
-                                       ("Lamp", (1.0, 0.82, 0.55), 18.0), ("Lens", (1.0, 1.0, 1.0), 14.0), ("Plate", (0.2, 1.0, 0.45), 8.0)):
+                                       ("Lamp", (1.0, 0.66, 0.36), 9.0), ("Lens", (1.0, 1.0, 1.0), 14.0), ("Plate", (0.2, 1.0, 0.45), 8.0)):
             self.neon[name] = material(f"Neon{name}", {"BaseColor": [0.02, 0.02, 0.02, 1.0], "Roughness": 0.3,
                                                        "EmissiveColor": list(color), "EmissiveIntensity": intensity})
         # Light shafts: glowing, nearly clear, fading out along their length (the texture's alpha and color).
@@ -454,6 +465,8 @@ class Showcase:
         self.sign_wood = "asset://Materials/SignWood.smat"
         self.call("material_set", {"material": self.textures[COBBLES], "fields": {"UVTiling": [5.0, 5.0]}})
         self.call("material_set", {"material": self.textures[MARBLE], "fields": {"UVTiling": [1.0, 1.0]}})
+        # The trees' texture coordinates go once around a limb and once per its girth along it: two repeats each way.
+        self.call("material_set", {"material": self.textures[BARK], "fields": {"UVTiling": [2.0, 2.0]}})
 
     # --- The scene ------------------------------------------------------------------------------------------------------
 
@@ -577,12 +590,14 @@ class Showcase:
                     fountain)
         self.entity("Bowl Water", {"Transform": transform((0.0, 1.295, 0.0), scale=(1.44, 0.02, 1.44)),
                                    **self.mesh("Cylinder", self.glass["Water"])}, fountain)
-        water = {"Rate": 90.0, "LifetimeMin": 0.9, "LifetimeMax": 1.1, "SpeedMin": 3.9, "SpeedMax": 4.2, "ConeAngle": 2.5, "Radius": 0.03,
-                 "GravityFactor": 1.0, "Drag": 0.05, "StartSize": 0.07, "EndSize": 0.16, "StartColor": [0.85, 0.94, 1.0, 0.65],
-                 "EndColor": [0.8, 0.9, 1.0, 0.0], "BlendMode": "Alpha", "MaxParticles": 400}
+        # Water: drops a couple of centimeters apart along each jet, so they overlap into a stream; each is faint, the stream
+        # is not.
+        water = {"Rate": 130.0, "LifetimeMin": 0.9, "LifetimeMax": 1.1, "SpeedMin": 3.9, "SpeedMax": 4.2, "ConeAngle": 2.5, "Radius": 0.03,
+                 "GravityFactor": 1.0, "Drag": 0.05, "StartSize": 0.065, "EndSize": 0.15, "StartColor": [0.85, 0.94, 1.0, 0.42],
+                 "EndColor": [0.8, 0.9, 1.0, 0.0], "BlendMode": "Alpha", "MaxParticles": 220}
         jets = self.entity("Jets", {"Transform": transform((0.0, 0.0, 0.0))}, fountain)
-        self.entity("Center Jet", {"Transform": transform((0.0, 1.66, 0.0), (90.0, 0.0, 0.0)),
-                                   "ParticleSystem": water | {"SpeedMin": 4.4, "SpeedMax": 4.8, "Rate": 140.0, "LifetimeMax": 1.25}}, jets)
+        self.entity("Center Jet", {"Transform": transform((0.0, 1.66, 0.0), (90.0, 0.0, 0.0)), "ParticleSystem": water | {
+            "SpeedMin": 4.4, "SpeedMax": 4.8, "Rate": 380.0, "LifetimeMax": 1.25, "StartSize": 0.075, "EndSize": 0.2, "MaxParticles": 700}}, jets)
         # Eight jets around the rim arc into the basin, towards the column.
         for index in range(8):
             angle = 360.0 * index / 8.0
@@ -591,7 +606,7 @@ class Showcase:
             # Up (90) leaning inwards: the jet's forward (-Z) turned to point at the column and tipped up.
             yaw = math.degrees(math.atan2(math.cos(radians), math.sin(radians)))
             self.entity(f"Rim Jet {index + 1}", {"Transform": transform(position, (58.0, yaw, 0.0)),
-                                                 "ParticleSystem": water | {"SpeedMin": 2.9, "SpeedMax": 3.1, "Rate": 45.0}}, jets)
+                                                 "ParticleSystem": water | {"SpeedMin": 2.9, "SpeedMax": 3.1}}, jets)
         self.entity("Spray", {"Transform": transform((0.0, 0.55, 0.0), (90.0, 0.0, 0.0)), "ParticleSystem": {
             "Rate": 30.0, "Shape": "Sphere", "Radius": 0.9, "LifetimeMin": 0.4, "LifetimeMax": 0.8, "SpeedMin": 0.2, "SpeedMax": 0.6,
             "GravityFactor": 0.2, "StartSize": 0.12, "EndSize": 0.3, "StartColor": [0.9, 0.95, 1.0, 0.25], "EndColor": [0.9, 0.95, 1.0, 0.0],
@@ -630,13 +645,15 @@ class Showcase:
             self.model_entity(f"Log {index + 1}", LOG, transform((0.0, -self.models[LOG][1][0][1] * 0.16 + 0.04 * index, 0.0), (0.0, yaw, 0.0),
                                                                  (0.16, 0.16, 0.16)), parent=campfire)
         effects = (
-            # Tongues of flame rising from the logs, and a hotter, smaller core at their foot.
-            ("Fire", 0.05, {"Rate": 80.0, "LifetimeMin": 0.45, "LifetimeMax": 0.9, "SpeedMin": 1.0, "SpeedMax": 2.1, "ConeAngle": 10.0,
-                            "Radius": 0.22, "GravityFactor": -0.2, "Drag": 1.1, "StartSize": 0.32, "EndSize": 0.04,
-                            "StartColor": [1.0, 0.36, 0.07, 0.75], "EndColor": [0.65, 0.04, 0.01, 0.0], "Intensity": 1.25}),
-            ("Fire Core", 0.04, {"Rate": 35.0, "LifetimeMin": 0.25, "LifetimeMax": 0.5, "SpeedMin": 0.6, "SpeedMax": 1.2, "ConeAngle": 6.0,
-                                 "Radius": 0.12, "GravityFactor": -0.2, "Drag": 0.6, "StartSize": 0.22, "EndSize": 0.04,
-                                 "StartColor": [1.0, 0.68, 0.3, 0.8], "EndColor": [1.0, 0.28, 0.05, 0.0], "Intensity": 1.5}),
+            # Tongues of flame rising from the logs, and a hotter, smaller core at their foot: bright enough to read as fire
+            # in the low sun.
+            ("Fire", 0.05, {"Rate": 140.0, "LifetimeMin": 0.45, "LifetimeMax": 1.0, "SpeedMin": 1.0, "SpeedMax": 2.1, "ConeAngle": 10.0,
+                            "Radius": 0.25, "GravityFactor": -0.2, "Drag": 1.1, "StartSize": 0.42, "EndSize": 0.06,
+                            "StartColor": [1.0, 0.36, 0.07, 0.75], "EndColor": [0.65, 0.04, 0.01, 0.0], "Intensity": 2.6,
+                            "MaxParticles": 300}),
+            ("Fire Core", 0.04, {"Rate": 60.0, "LifetimeMin": 0.25, "LifetimeMax": 0.5, "SpeedMin": 0.6, "SpeedMax": 1.2, "ConeAngle": 6.0,
+                                 "Radius": 0.12, "GravityFactor": -0.2, "Drag": 0.6, "StartSize": 0.3, "EndSize": 0.04,
+                                 "StartColor": [1.0, 0.68, 0.3, 0.8], "EndColor": [1.0, 0.28, 0.05, 0.0], "Intensity": 3.5}),
             ("Smoke", 0.7, {"Rate": 10.0, "LifetimeMin": 3.0, "LifetimeMax": 5.0, "SpeedMin": 0.4, "SpeedMax": 0.9, "ConeAngle": 15.0,
                             "Radius": 0.3, "GravityFactor": -0.05, "Drag": 0.3, "StartSize": 0.5, "EndSize": 1.8,
                             "StartColor": [0.22, 0.21, 0.2, 0.35], "EndColor": [0.4, 0.4, 0.4, 0.0], "BlendMode": "Alpha"}),
@@ -660,7 +677,9 @@ class Showcase:
         (table_low, table_high) = self.models[TABLE][1]
         self.static_model("Picnic Table", TABLE, LAYOUT.place((-8.4, -table_low[1], 10.0), (0.0, -20.0, 0.0)), plaza)
         (lantern_low, lantern_high) = self.models[LANTERN][1]
-        lantern = self.model_entity("Lantern", LANTERN, LAYOUT.place((-8.2, table_high[1] - table_low[1] - lantern_low[1], 9.9)), parent=plaza)
+        # The lantern's frame and glass surround its light, which casts the table's shadows: the lantern itself casts none.
+        lantern = self.model_entity("Lantern", LANTERN, LAYOUT.place((-8.2, table_high[1] - table_low[1] - lantern_low[1], 9.9)), {
+            "Mesh": {"Mesh": self.models[LANTERN][0], "CastShadows": False}}, parent=plaza)
         self.lantern_light = self.entity("Lantern Light", {
             "Transform": transform((0.0, (lantern_high[1] - lantern_low[1]) * 0.45, 0.0)),
             "PointLight": {"Color": [1.0, 0.6, 0.28], "Intensity": 6.0, "Range": 7.0, "CastShadows": True},
@@ -837,21 +856,23 @@ class Showcase:
         self.entity("Tower Collider", {"Transform": transform((0.0, 4.1, 0.0)), "RigidBody": {"Type": "Static"},
                                        "CapsuleCollider": {"Radius": 1.0, "HalfHeight": 2.6}}, lighthouse)
         self.entity("Gallery Deck", {"Transform": transform((0.0, 7.68, 0.0), scale=(2.4, 0.16, 2.4)), **self.mesh("Cylinder", self.iron)}, lighthouse)
+        # The lamp, the lamp room and the railing around it would block the beams' light in their shadow maps.
         self.entity("Railing", {"Transform": transform((0.0, 8.15, 0.0), scale=(1.15, 1.0, 1.15)),
-                                **self.mesh("asset://Meshes/Hoop.gltf", self.iron)}, lighthouse)
-        self.entity("Lamp Room", {"Transform": transform((0.0, 8.35, 0.0), scale=(1.3, 1.2, 1.3)), **self.mesh("Cylinder", self.glass["Lamp"])},
-                    lighthouse)
+                                **self.mesh("asset://Meshes/Hoop.gltf", self.iron, shadows=False)}, lighthouse)
+        self.entity("Lamp Room", {"Transform": transform((0.0, 8.35, 0.0), scale=(1.3, 1.2, 1.3)),
+                                  **self.mesh("Cylinder", self.glass["Lamp"], shadows=False)}, lighthouse)
         self.entity("Roof", {"Transform": transform((0.0, 9.4, 0.0), scale=(1.8, 0.9, 1.8)), **self.mesh("Cone", self.red_paint)}, lighthouse)
         self.entity("Finial", {"Transform": transform((0.0, 9.95, 0.0), scale=(0.22, 0.22, 0.22)), **self.mesh("Sphere", self.brass)}, lighthouse)
-        self.entity("Lamp", {"Transform": transform((0.0, 8.3, 0.0), scale=(0.42, 0.42, 0.42)), **self.mesh("Sphere", self.neon["Lamp"]),
+        self.entity("Lamp", {"Transform": transform((0.0, 8.3, 0.0), scale=(0.42, 0.42, 0.42)), **self.mesh("Sphere", self.neon["Lamp"], shadows=False),
                              "PointLight": {"Color": [1.0, 0.8, 0.5], "Intensity": 8.0, "Range": 10.0}}, lighthouse)
         beams = self.entity("Beams", {"Transform": transform((0.0, 8.3, 0.0)),
                                       "Script": {"ClassName": "Showcase.Spinner", "Fields": {"Speed": {"Type": "Float", "Value": 36.0}}}},
                             lighthouse)
         for index, yaw in enumerate((0.0, 180.0)):
+            # The beams sweep the whole clearing: shadow maps of that reach would cost more than their shadows show.
             beam = self.entity(f"Beam {index + 1}", {"Transform": transform((0.0, 0.0, 0.0), (-5.0, yaw, 0.0)),
                                                      "SpotLight": {"Color": [1.0, 0.85, 0.6], "Intensity": 90.0, "Range": 55.0,
-                                                                   "InnerConeAngle": 5.0, "OuterConeAngle": 9.0, "CastShadows": True}}, beams)
+                                                                   "InnerConeAngle": 5.0, "OuterConeAngle": 9.0, "CastShadows": False}}, beams)
             self.light_shaft(beam, 26.0, 2.6, self.beam)
         self.lighthouse = beams
 
@@ -887,10 +908,10 @@ class Showcase:
             spot = self.entity(f"Spot {index + 1}", {"Transform": transform((x * 0.92, 4.45, z * 0.92), (pitch, yaw, 0.0)),
                                                      "SpotLight": {"Color": [1.0, 1.0, 1.0], "Intensity": 160.0, "Range": 9.0,
                                                                    "InnerConeAngle": 14.0, "OuterConeAngle": 22.0, "CastShadows": True}}, rig)
-            self.entity("Housing", {"Transform": transform((0.0, 0.0, 0.12), (90.0, 0.0, 0.0), (0.26, 0.36, 0.26)), **self.mesh("Cylinder", self.iron)},
-                        spot)
-            self.entity("Lens", {"Transform": transform((0.0, 0.0, -0.07), (90.0, 0.0, 0.0), (0.2, 0.02, 0.2)), **self.mesh("Cylinder", self.neon["Lens"])},
-                        spot)
+            self.entity("Housing", {"Transform": transform((0.0, 0.0, 0.12), (90.0, 0.0, 0.0), (0.26, 0.36, 0.26)),
+                                    **self.mesh("Cylinder", self.iron, shadows=False)}, spot)
+            self.entity("Lens", {"Transform": transform((0.0, 0.0, -0.07), (90.0, 0.0, 0.0), (0.2, 0.02, 0.2)),
+                                 **self.mesh("Cylinder", self.neon["Lens"], shadows=False)}, spot)
             self.light_shaft(spot, 4.4, 1.7, self.spot_beam, start=-0.08)
         self.light_show = rig
         self.signpost((-12.2, -4.6), "LIGHT & SHADOW", "sun and sky, spot and point lights,\nsoft and colored shadows")
@@ -988,7 +1009,8 @@ class Showcase:
 
         self.make_dominoes(physics, camera)
         self.make_bridge(physics)
-        self.signpost((-5.0, -9.4), "PHYSICS", "rigid bodies, joints and impacts\n1 wrecking ball   2 dominoes")
+        # In front of the wrecking ball's posts as the tour sees them, beside its swing.
+        self.signpost((-4.6, -7.0), "PHYSICS", "rigid bodies, joints and impacts\n1 wrecking ball   2 dominoes")
 
     def make_dominoes(self, physics, camera):
         """A run of rainbow dominoes along an S-curve: prefab instances, each with its own color."""
@@ -1239,6 +1261,8 @@ class Showcase:
             self.model_entity(f"Shrubs {index + 1}", SHRUBS, LAYOUT.place((x, -shrub_low[1] * size, z), (0.0, yaw, 0.0), (size, size, size)), None,
                               scenery)
 
+        self.make_trees()
+
         # Undergrowth in a ring around the clearing (seeded, so every build is the same): it fills the distance and breaks the
         # line where the ground meets the sky's trees.
         undergrowth = self.entity("Undergrowth")
@@ -1253,6 +1277,37 @@ class Showcase:
             position = (math.cos(angle) * distance, -self.models[model][1][0][1] * size, math.sin(angle) * distance)
             placed_count += 1
             self.model_entity(f"Undergrowth {placed_count}", model, LAYOUT.place(position, (0.0, yaw, 0.0), (size, size, size)), None, undergrowth)
+
+    def make_trees(self):
+        """Bare trees ring the clearing (seeded, so every build is the same), clear of the exhibits at its edge: they stand in
+        front of the sky's forest, so it moves behind them as the camera flies, and the low sun lays their shadows across
+        the clearing. A capsule around each trunk's foot stops balls."""
+        trees = self.entity("Trees")
+        # Where the clearing's edge is taken: the lighthouse, the rock sets, the old trunk, the bridge, the goal, the boulder.
+        keep_clear = (((-5.5, -21.0), 4.5), ((0.5, -22.5), 5.0), ((-19.0, -2.0), 5.0), ((17.5, 6.5), 3.5), ((-12.8, -13.4), 5.0),
+                      ((13.2, -11.0), 4.5), ((-12.8, 8.0), 3.0))
+        generator = random.Random(17)
+        # The first three stand towards the sun (south-east), so their trunks lay long shadows across the plaza.
+        sunward = [(17.1, 10.3), (12.5, 16.0), (21.5, 3.0)]
+        placed = []
+        attempts = 0
+        while len(placed) < 26 and attempts < 2000:
+            attempts += 1
+            angle = generator.uniform(0.0, 2.0 * math.pi)
+            distance = generator.uniform(18.0, 31.0)
+            x, z = sunward[len(placed)] if len(placed) < len(sunward) else (math.cos(angle) * distance, math.sin(angle) * distance)
+            if any(math.hypot(x - cx, z - cz) < reach for (cx, cz), reach in keep_clear):
+                continue
+            if any(math.hypot(x - px, z - pz) < 4.5 for px, pz in placed):
+                continue
+            placed.append((x, z))
+            mesh = f"asset://Meshes/Tree{'ABC'[len(placed) % 3]}.gltf"
+            size = generator.uniform(0.85, 1.2)
+            self.entity(f"Tree {len(placed)}", {
+                "Transform": LAYOUT.place((x, 0.0, z), (0.0, generator.uniform(0.0, 360.0), 0.0), (size, size, size)),
+                "Mesh": {"Mesh": mesh, "Materials": [self.textures[BARK]]},
+                "RigidBody": {"Type": "Static"},
+                "CapsuleCollider": {"Radius": 0.45, "HalfHeight": 2.0, "Offset": [0.0, 2.4, 0.0]}}, trees)
 
     # --- Sound, screen and tour -----------------------------------------------------------------------------------------------
 
@@ -1277,15 +1332,16 @@ class Showcase:
         self.status = self.entity("Status", screen_text("", (0.025, 0.09, 0.0), 22.0, (1.0, 1.0, 1.0, 0.95)), hud)
         self.hud = hud
         tour_texts = self.entity("Tour Texts", None, screen)
-        # The title, letter-spaced, over a rule and its subtitle, each over a soft shadow (children are placed relative to it,
-        # lower z is underneath).
-        title, subtitle = " ".join("STRADA"), "   ".join(" ".join(word) for word in ("ENGINE", "SHOWCASE"))
-        self.tour_title = self.entity("Tour Title", screen_text(title, (0.5, 0.12, 0.0), 136.0, (1.0, 0.97, 0.92, 1.0), "Center"), tour_texts)
-        self.entity("Title Shadow", screen_text(title, (0.002, 0.005, -0.5), 136.0, (0.0, 0.0, 0.0, 0.5), "Center"), self.tour_title)
-        self.entity("Rule", {"Transform": transform((0.0, 0.178, 0.0), scale=(520.0, 2.0, 1.0)),
-                             "SpriteRenderer": {"Color": [1.0, 0.84, 0.58, 0.85], "ScreenSpace": True}}, self.tour_title)
-        self.entity("Subtitle", screen_text(subtitle, (0.0, 0.195, 0.0), 25.0, (1.0, 0.86, 0.6, 1.0), "Center"), self.tour_title)
-        self.entity("Subtitle Shadow", screen_text(subtitle, (0.001, 0.1975, -0.5), 25.0, (0.0, 0.0, 0.0, 0.6), "Center"), self.tour_title)
+        # The tour opens on the neon sign, which spells the engine's name: the title under it says what this is, letter-spaced
+        # between two rules on a soft band, over a shadow (children are placed relative to it; lower z is underneath).
+        title = "   ".join(" ".join(word) for word in ("ENGINE", "SHOWCASE"))
+        self.tour_title = self.entity("Tour Title", screen_text(title, (0.5, 0.73, 0.0), 38.0, (1.0, 0.96, 0.9, 1.0), "Center"), tour_texts)
+        self.entity("Title Shadow", screen_text(title, (0.0015, 0.0025, -0.5), 38.0, (0.0, 0.0, 0.0, 0.6), "Center"), self.tour_title)
+        for name, y in (("Rule", -0.018), ("Rule 2", 0.062)):
+            self.entity(name, {"Transform": transform((0.0, y, 0.0), scale=(600.0, 2.0, 1.0)),
+                               "SpriteRenderer": {"Color": [1.0, 0.84, 0.58, 0.85], "ScreenSpace": True}}, self.tour_title)
+        self.entity("Title Band", {"Transform": transform((0.0, 0.022, -1.0), scale=(1100.0, 104.0, 1.0)),
+                                   "SpriteRenderer": {"Color": [0.0, 0.0, 0.0, 0.38], "ScreenSpace": True}}, self.tour_title)
         # The caption with its detail line on a dark band in the lower third (drawn under the texts: higher z is on top).
         self.tour_caption = self.entity("Tour Caption", screen_text("", (0.5, 0.82, 0.0), 40.0, (1.0, 0.97, 0.92, 1.0), "Center"), tour_texts)
         self.tour_detail = self.entity("Detail", screen_text("", (0.0, 0.06, 0.0), 21.0, (1.0, 0.86, 0.6, 1.0), "Center"), self.tour_caption)
@@ -1293,9 +1349,10 @@ class Showcase:
                              "SpriteRenderer": {"Color": [0.0, 0.0, 0.0, 0.42], "ScreenSpace": True}}, self.tour_caption)
         self.tour_hint = self.entity("Tour Hint", screen_text("Press any key to explore", (0.975, 0.95, 0.0), 17.0, (1.0, 1.0, 1.0, 0.8), "Right"),
                                      tour_texts)
-        # Over everything (the highest z): the black the tour fades in from.
+        # Over everything (the highest z): the black the tour fades in from. It is transparent until the tour sets its opacity,
+        # so the editor's views stay clear.
         self.tour_fade = self.entity("Tour Fade", {"Transform": transform((0.5, 0.5, 5.0), scale=(4000.0, 2400.0, 1.0)),
-                                                   "SpriteRenderer": {"Color": [0.0, 0.0, 0.0, 1.0], "ScreenSpace": True}}, tour_texts)
+                                                   "SpriteRenderer": {"Color": [0.0, 0.0, 0.0, 0.0], "ScreenSpace": True}}, tour_texts)
         crosshair = self.entity("Crosshair", {"Transform": transform((0.5, 0.5, 1.0), scale=(40.0, 40.0, 1.0)),
                                               "SpriteRenderer": {"Texture": "asset://Textures/Crosshair.png", "Color": [1.0, 1.0, 1.0, 0.85],
                                                                  "ScreenSpace": True}}, screen)

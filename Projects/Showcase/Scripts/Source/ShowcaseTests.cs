@@ -179,17 +179,21 @@ public sealed class ShowcaseTests : Script
 				Assert.IsNotNull(rig);
 				Assert.IsFalse(tour.IsPlaying, "the test scene starts without the tour");
 				Assert.IsTrue(tour.ShotCount == 0 || tour.ShotCount >= 8);
+				Assert.AreEqual(0.0f, tour.Fade?.GetComponent<SpriteRendererComponent>()?.Color.A, "the screen is clear");
 				m_TourStart = rig.Translation;
 				tour.Play();
 				Assert.IsTrue(tour.IsPlaying);
 				Assert.IsTrue(tour.ShotCount >= 8, $"{tour.ShotCount} shots");
 				Assert.IsFalse(rig.Controllable, "the tour has the camera");
+				// It fades in from black.
+				Assert.AreEqual(1.0f, tour.FadeOpacity);
+				Assert.AreEqual(1.0f, tour.Fade?.GetComponent<SpriteRendererComponent>()?.Color.A);
 			});
 		}
 		else if (m_Step == 5 && m_Time > 8.0f)
 		{
 			m_Step = 6;
-			TestReporter.Run("the tour moves the camera, and a skip hands it back", () =>
+			TestReporter.Run("the tour moves the camera and opens with its title", () =>
 			{
 				Flythrough? tour = Tour?.As<Flythrough>();
 				FlyCamera? rig = Rig?.As<FlyCamera>();
@@ -197,13 +201,30 @@ public sealed class ShowcaseTests : Script
 				Assert.IsNotNull(rig);
 				Assert.IsTrue(tour.IsPlaying);
 				Assert.IsTrue(Vector3.Distance(rig.Translation, m_TourStart) > 1.0f, "the camera left its place");
+				Assert.IsTrue(tour.FadeOpacity < 0.1f, $"the fade is at {tour.FadeOpacity}");
+				Assert.IsTrue(tour.TitleVisibility > 0.5f, $"the title shows at {tour.TitleVisibility}");
+				Assert.AreEqual(0.0f, tour.CaptionVisibility);
+			});
+		}
+		else if (m_Step == 6 && m_Time > 11.1f)
+		{
+			m_Step = 7;
+			// About 4.5 seconds in, the title fades out while the camera nears the first shot with a caption.
+			TestReporter.Run("captions wait until the title is gone, and a skip hands the camera back", () =>
+			{
+				Flythrough? tour = Tour?.As<Flythrough>();
+				Assert.IsNotNull(tour);
+				Assert.IsTrue(tour.IsPlaying);
+				Assert.IsTrue(tour.TitleVisibility > 0.0f && tour.TitleVisibility < 1.0f, $"the title fades at {tour.TitleVisibility}");
+				Assert.IsFalse(string.IsNullOrEmpty(tour.Caption?.GetComponent<TextComponent>()?.Text), "a caption is due");
+				Assert.AreEqual(0.0f, tour.CaptionVisibility);
 				tour.Skip();
 				Assert.IsTrue(tour.IsSkipping);
 			});
 		}
-		else if (m_Step == 6 && m_Time > 10.0f)
+		else if (m_Step == 7 && m_Time > 13.1f)
 		{
-			m_Step = 7;
+			m_Step = 8;
 			TestReporter.Run("after the tour the free camera has control", () =>
 			{
 				Flythrough? tour = Tour?.As<Flythrough>();
@@ -243,9 +264,9 @@ public sealed class ShowcaseTests : Script
 			});
 			Playground?.As<Playground>()?.PutBack();
 		}
-		else if (m_Step == 7 && m_Time > 11.0f)
+		else if (m_Step == 8 && m_Time > 14.1f)
 		{
-			m_Step = 8;
+			m_Step = 9;
 			TestReporter.Run("R puts everything back", () =>
 			{
 				Playground? playground = Playground?.As<Playground>();

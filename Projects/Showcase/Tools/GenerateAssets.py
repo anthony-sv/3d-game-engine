@@ -15,6 +15,8 @@ Meshes (glTF 2.0 with positions, normals and texture coordinates, Y up, meters):
 - NeonStrada and NeonFrame: neon tubes spelling STRADA, and the frame around it (centered, in the XY plane).
 - Beam: a light shaft, an open cone from its tip at the origin along -Z to a radius of 1 at a length of 1, its texture
   coordinate V running from the tip (0) to the end (1), so a texture can fade it out.
+- TreeA, TreeB, TreeC: bare autumn trees standing on the origin, 14 to 19 m tall: a leaning trunk with a root flare that
+  forks into limbs and twigs, all tapered tubes whose texture runs along them (bark grain follows the wood).
 
 Textures (RGBA PNG):
 - Lattice: a diagonal wooden trellis with transparent gaps, for alpha-tested (Mask) materials; tiles seamlessly.
@@ -143,11 +145,10 @@ def write_gltf(name, mesh):
 
 # --- Meshes -------------------------------------------------------------------------------------------------------------
 
-def tube(mesh, curve, radius, sides, closed, u_scale=1.0):
-    """A tube of the radius around the curve (a list of points). Frames are carried along by parallel transport; a closed
-    curve spreads the twist the transport leaves at the seam over its length, so the surface meets itself."""
+def transport(curve, closed):
+    """The curve's tangents and normals, the normals carried along by parallel transport (so tubes around the curve do not
+    twist), and for a closed curve the angle by which the transported frame misses the first one at the seam."""
     count = len(curve)
-    segments = count if closed else count - 1
     tangents = []
     for i in range(count):
         before = curve[(i - 1) % count] if closed or i > 0 else curve[i]
@@ -170,6 +171,15 @@ def tube(mesh, curve, radius, sides, closed, u_scale=1.0):
         # The angle between the transported frame back at the start and the frame the start began with.
         end = normals[-1]
         twist = math.atan2(dot(cross(end, normals[0]), tangents[0]), dot(end, normals[0]))
+    return tangents, normals, twist
+
+
+def tube(mesh, curve, radius, sides, closed, u_scale=1.0):
+    """A tube of the radius around the curve (a list of points). Frames are carried along by parallel transport; a closed
+    curve spreads the twist the transport leaves at the seam over its length, so the surface meets itself."""
+    count = len(curve)
+    segments = count if closed else count - 1
+    tangents, normals, twist = transport(curve, closed)
     distance = [0.0]
     for i in range(1, segments + 1):
         distance.append(distance[-1] + math.sqrt(dot(subtract(curve[i % count], curve[i - 1]), subtract(curve[i % count], curve[i - 1]))))
@@ -188,6 +198,87 @@ def tube(mesh, curve, radius, sides, closed, u_scale=1.0):
     for i in range(segments):
         for j in range(sides):
             mesh.quad(rings[i][j], rings[i][j + 1], rings[i + 1][j + 1], rings[i + 1][j])
+
+
+def limb(mesh, spine, radii, sides, along):
+    """A tapered tube along the spine (open at both ends) with the radius radii[i] at spine[i]. The texture's U goes once
+    around it and V along it, `along` per meter, so the grain of a bark texture follows the limb."""
+    tangents, normals, _ = transport(spine, False)
+    distance = 0.0
+    rings = []
+    for i, center in enumerate(spine):
+        if i > 0:
+            step = subtract(center, spine[i - 1])
+            distance += math.sqrt(dot(step, step))
+        binormal = cross(tangents[i], normals[i])
+        ring = []
+        for j in range(sides + 1):
+            angle = 2.0 * math.pi * j / sides
+            direction = add(scale(normals[i], math.cos(angle)), scale(binormal, math.sin(angle)))
+            ring.append(mesh.vertex(add(center, scale(direction, radii[i])), direction, (j / sides, distance * along)))
+        rings.append(ring)
+    for i in range(len(spine) - 1):
+        for j in range(sides):
+            mesh.quad(rings[i][j], rings[i][j + 1], rings[i + 1][j + 1], rings[i + 1][j])
+
+
+def grow(generator, start, direction, length, step, rise, wander):
+    """The spine of a limb from the start along the direction: every step it bends up by rise (wood grows towards the light)
+    and wanders sideways by up to wander, both per meter."""
+    steps = max(2, int(math.ceil(length / step)))
+    step = length / steps
+    points = [start]
+    heading = normalize(direction)
+    for _ in range(steps):
+        heading = normalize(add(heading, (generator.uniform(-wander, wander) * step, rise * step, generator.uniform(-wander, wander) * step)))
+        points.append(add(points[-1], scale(heading, step)))
+    return points
+
+
+def tree(seed, height, radius):
+    """A bare tree of the height (meters) whose trunk has the radius above its root flare: the trunk leans a little and
+    tapers to the top, limbs leave it in a spiral over its upper part and bend upwards, and each limb carries twigs."""
+    generator = random.Random(seed)
+    mesh = MeshBuilder()
+    # The trunk: its spine wanders gently; its radius tapers to the top and flares at the roots.
+    lean = (generator.uniform(-0.04, 0.04), 1.0, generator.uniform(-0.04, 0.04))
+    trunk = grow(generator, (0.0, -0.3, 0.0), lean, height + 0.3, 0.5, 0.0, 0.025)
+
+    def trunk_radius(t):
+        flare = 1.0 + 0.7 * max(0.0, 1.0 - t / 0.07) ** 2
+        return radius * flare * max(0.06, 1.0 - 0.9 * t) ** 0.9
+
+    count = len(trunk)
+    limb(mesh, trunk, [trunk_radius(i / (count - 1)) for i in range(count)], 12, 1.0 / (2.0 * math.pi * radius))
+    # Limbs in a spiral (the golden angle apart) from 40% of the height up, shorter higher up.
+    limbs = 7
+    for k in range(limbs):
+        t = 0.4 + 0.5 * k / (limbs - 1) + generator.uniform(-0.03, 0.03)
+        base = trunk[min(count - 1, int(round(t * (count - 1))))]
+        azimuth = 2.39996 * k + generator.uniform(-0.3, 0.3)
+        elevation = math.radians(generator.uniform(28.0, 52.0))
+        direction = (math.cos(elevation) * math.cos(azimuth), math.sin(elevation), math.cos(elevation) * math.sin(azimuth))
+        length = height * generator.uniform(0.26, 0.36) * (1.15 - 0.6 * t)
+        start_radius = trunk_radius(t) * 0.6
+        spine = grow(generator, base, direction, length, 0.45, 0.35, 0.18)
+        points = len(spine)
+        radii = [max(0.012, start_radius * (1.0 - 0.92 * i / (points - 1))) for i in range(points)]
+        limb(mesh, spine, radii, 8, 1.0 / (2.0 * math.pi * start_radius))
+        # Twigs leave the limb on alternate sides along its outer two thirds.
+        for twig in range(3):
+            s = 0.35 + 0.22 * twig + generator.uniform(-0.05, 0.05)
+            index = min(points - 2, int(round(s * (points - 1))))
+            heading = normalize(subtract(spine[index + 1], spine[index]))
+            side = normalize(cross(heading, (0.0, 1.0, 0.0)))
+            side = scale(side, 1.0 if twig % 2 == 0 else -1.0)
+            twig_direction = add(add(scale(heading, 0.6), scale(side, 0.65)), (0.0, 0.45, 0.0))
+            twig_length = length * generator.uniform(0.32, 0.45) * (1.0 - 0.3 * s)
+            twig_radius = radii[index] * 0.55
+            twig_spine = grow(generator, spine[index], twig_direction, twig_length, 0.35, 0.5, 0.3)
+            twig_points = len(twig_spine)
+            limb(mesh, twig_spine, [max(0.008, twig_radius * (1.0 - 0.9 * i / (twig_points - 1))) for i in range(twig_points)], 6,
+                 1.0 / (2.0 * math.pi * max(0.02, twig_radius)))
+    return mesh
 
 
 def sphere_cap(mesh, center, radius, rings=6, sides=12):
@@ -600,6 +691,8 @@ if __name__ == "__main__":
     word, word_width = neon_word("STRADA")
     write_gltf("NeonStrada", word)
     write_gltf("NeonFrame", neon_frame(word_width + 0.7, 1.0 + 0.6))
+    for name, seed, height, radius in (("TreeA", 41, 17.0, 0.34), ("TreeB", 52, 14.0, 0.26), ("TreeC", 63, 19.0, 0.4)):
+        write_gltf(name, tree(seed, height, radius))
     lattice("Lattice", 7.5, (0.52, 0.36, 0.21), 0.25, 11)
     lattice("Net", 2.2, (0.96, 0.95, 0.92), 0.08, 13)
     banner()

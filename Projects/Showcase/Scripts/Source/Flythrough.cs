@@ -19,21 +19,22 @@ public sealed class Flythrough : Script
 	[Tooltip("The key that plays the tour again")]
 	public KeyCode Key = KeyCode.C;
 
-	[Tooltip("A screen-space sprite covering the screen, faded out at the start of the tour")]
+	// Authored transparent, so that it does not cover the editor's views: the tour sets its opacity.
+	[Tooltip("A screen-space sprite over the screen in the color the tour fades in from (the tour sets its opacity)")]
 	public Entity? Fade;
 
 	[Tooltip("Seconds the screen takes to fade in from black")]
 	[Range(0.0f, 10.0f)]
 	public float FadeInSeconds = 1.5f;
 
-	[Tooltip("Screen text shown large at the start of the tour, with its children (a subtitle, shadows)")]
+	[Tooltip("Screen text shown at the start of the tour, with its children (rules, a band, a shadow)")]
 	public Entity? Title;
 
 	[Tooltip("Seconds into the tour the title appears")]
 	[Range(0.0f, 60.0f)]
 	public float TitleFrom = 1.0f;
 
-	[Tooltip("Seconds into the tour the title is gone (captions wait for it)")]
+	[Tooltip("Seconds into the tour the title is gone (captions wait until then)")]
 	[Range(0.0f, 60.0f)]
 	public float TitleUntil = 5.0f;
 
@@ -76,6 +77,7 @@ public sealed class Flythrough : Script
 	private Vector3 m_SkipPosition;
 	private Vector3 m_SkipAngles;
 	private float m_HudFade = 1.0f;
+	private Color m_FadeColor = Color.Black;
 
 	/// <summary>Whether the tour is playing.</summary>
 	public bool IsPlaying { get; private set; }
@@ -95,15 +97,24 @@ public sealed class Flythrough : Script
 	/// <summary>Times the tour handed the camera over to the free camera.</summary>
 	public int HandOvers { get; private set; }
 
+	/// <summary>How visible the title is (0 hidden to 1 as authored).</summary>
+	public float TitleVisibility { get; private set; }
+
+	/// <summary>How visible the caption is (0 hidden to 1 as authored).</summary>
+	public float CaptionVisibility { get; private set; }
+
+	/// <summary>How opaque the fade over the screen is (1 at the start of the tour).</summary>
+	public float FadeOpacity { get; private set; }
+
 	protected override void OnCreate()
 	{
-		RememberColors(Fade);
+		m_FadeColor = Fade?.GetComponent<SpriteRendererComponent>()?.Color ?? Color.Black;
 		RememberColors(Title);
 		RememberColors(Caption);
 		RememberColors(Detail);
 		RememberColors(Hint);
 		RememberColors(Hud);
-		SetAlpha(Fade, 0.0f);
+		SetFade(0.0f);
 		FadeTexts(0.0f, 0.0f, 0.0f);
 		if (PlayOnStart)
 		{
@@ -127,7 +138,7 @@ public sealed class Flythrough : Script
 		rig.Controllable = false;
 		SetAlpha(Hud, 0.0f);
 		m_HudFade = 0.0f;
-		SetAlpha(Fade, FadeInSeconds > 0.0f ? 1.0f : 0.0f);
+		SetFade(FadeInSeconds > 0.0f ? 1.0f : 0.0f);
 		Apply(rig, m_Positions[0], m_Angles[0]);
 	}
 
@@ -166,7 +177,7 @@ public sealed class Flythrough : Script
 			return;
 		}
 		m_Elapsed += deltaTime;
-		SetAlpha(Fade, FadeInSeconds > 0.0f ? 1.0f - Mathf.SmoothStep(0.0f, 1.0f, m_Elapsed / FadeInSeconds) : 0.0f);
+		SetFade(FadeInSeconds > 0.0f ? 1.0f - Mathf.SmoothStep(0.0f, 1.0f, m_Elapsed / FadeInSeconds) : 0.0f);
 		// The press that started the tour does not skip it.
 		if (!m_Skipping && m_Elapsed > 0.25f && AnyInput())
 		{
@@ -181,8 +192,7 @@ public sealed class Flythrough : Script
 			angles.Y = m_SkipAngles.Y + Mathf.DeltaAngle(m_SkipAngles.Y, angles.Y);
 			Apply(rig, Vector3.Lerp(m_SkipPosition, m_Positions[^1], progress), Vector3.Lerp(m_SkipAngles, angles, progress));
 			float fade = 1.0f - Mathf.Clamp01(m_SkipElapsed / FadeSeconds);
-			float skippedTitle = TitleAlpha();
-			FadeTexts(Mathf.Min(fade, skippedTitle), Mathf.Min(fade, UpdateCaption(TourTime()) * (1.0f - skippedTitle)), fade);
+			FadeTexts(Mathf.Min(fade, TitleAlpha()), Mathf.Min(fade, UpdateCaption(TourTime()) * CaptionGate()), fade);
 			if (m_SkipElapsed >= SkipSeconds)
 			{
 				Finish(rig);
@@ -205,9 +215,7 @@ public sealed class Flythrough : Script
 				}
 			}
 		}
-		// Captions give way to the title while it shows.
-		float title = TitleAlpha();
-		FadeTexts(title, UpdateCaption(time) * (1.0f - title), Mathf.Clamp01((m_Elapsed - 1.0f) / FadeSeconds) * 0.7f);
+		FadeTexts(TitleAlpha(), UpdateCaption(time) * CaptionGate(), Mathf.Clamp01((m_Elapsed - 1.0f) / FadeSeconds) * 0.7f);
 		if (m_Elapsed >= Duration)
 		{
 			Finish(rig);
@@ -249,7 +257,7 @@ public sealed class Flythrough : Script
 	private void Finish(FlyCamera rig)
 	{
 		IsPlaying = false;
-		SetAlpha(Fade, 0.0f);
+		SetFade(0.0f);
 		m_Skipping = false;
 		rig.SetPose(m_Positions[^1], m_Angles[^1].X, m_Angles[^1].Y);
 		rig.Controllable = true;
@@ -320,6 +328,9 @@ public sealed class Flythrough : Script
 	private float TitleAlpha() =>
 		Mathf.Clamp01((m_Elapsed - TitleFrom) / FadeSeconds) * Mathf.Clamp01((TitleUntil - m_Elapsed) / FadeSeconds);
 
+	// The title and the captions share the lower third: captions wait until the title is gone, then fade in.
+	private float CaptionGate() => Title is null ? 1.0f : Mathf.Clamp01((m_Elapsed - TitleUntil) / FadeSeconds);
+
 	// Shows the caption of the shot nearest in time and returns how visible it is: it fades in and out at the edges of the
 	// shot's share of the tour.
 	private float UpdateCaption(float time)
@@ -362,6 +373,8 @@ public sealed class Flythrough : Script
 
 	private void FadeTexts(float title, float caption, float hint)
 	{
+		TitleVisibility = title;
+		CaptionVisibility = caption;
 		SetAlpha(Title, title);
 		SetAlpha(Caption, caption);
 		SetAlpha(Hint, hint);
@@ -378,6 +391,16 @@ public sealed class Flythrough : Script
 		}
 		return Input.IsMouseButtonPressed(MouseButton.Left) || Input.IsMouseButtonPressed(MouseButton.Right) ||
 			Input.IsMouseButtonPressed(MouseButton.Middle);
+	}
+
+	// The fade's color at the opacity: its authored alpha is not used (it is authored transparent).
+	private void SetFade(float opacity)
+	{
+		FadeOpacity = opacity;
+		if (Fade?.GetComponent<SpriteRendererComponent>() is { } sprite)
+		{
+			sprite.Color = new Color(m_FadeColor.R, m_FadeColor.G, m_FadeColor.B, opacity);
+		}
 	}
 
 	// The colors the entity's and its descendants' texts and sprites have when the scene starts: fading scales their alpha.
