@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Strada;
 
 namespace Showcase;
@@ -5,7 +6,8 @@ namespace Showcase;
 /// <summary>Day and night: its key (or the HUD's lights button) turns the golden afternoon into a moonlit night and back over a
 /// few seconds. The sun dims to moonlight and the sky darkens; a global post-process volume grades the night (cooler, with the
 /// exposure of eyes used to the dark), so the lamps, the fire, the neon and the lighthouse carry the scene. The evening zone
-/// around the light show fades out (the night needs no evening of its own), and the birds give way to crickets.</summary>
+/// around the light show fades out (the night needs no evening of its own), and the birds give way to crickets. Particles are
+/// not lit, so it also dims those of unlit matter (smoke, water, leaves), which would otherwise glow in the dark.</summary>
 public sealed class DayNight : Script
 {
 	[Tooltip("The sun (a directional light)")]
@@ -25,6 +27,15 @@ public sealed class DayNight : Script
 
 	[Tooltip("The night's ambience (an audio source playing from the start), which fades in at night")]
 	public Entity? NightAmbience;
+
+	[Tooltip("Smoke to dim at night: this entity's particle system and those of its children")]
+	public Entity? Smoke;
+
+	[Tooltip("Water to dim at night: this entity's particle system and those of its children")]
+	public Entity? Water;
+
+	[Tooltip("Leaves to dim at night: this entity's particle system and those of its children")]
+	public Entity? Leaves;
 
 	[Tooltip("The key that switches between day and night")]
 	public KeyCode Key = KeyCode.L;
@@ -48,12 +59,17 @@ public sealed class DayNight : Script
 	[Range(0.0f, 1.0f)]
 	public float NightAmbienceVolume = 0.6f;
 
+	[Tooltip("How bright the smoke, water and leaves stay at night, as a share of their brightness by day")]
+	[Range(0.0f, 1.0f)]
+	public float NightMatterBrightness = 0.2f;
+
 	private Color m_SunColor = Color.White;
 	private float m_SunIntensity;
 	private float m_SkyIntensity;
 	private float m_ZoneWeight;
 	private float m_DayAmbienceVolume;
 	private float m_Target;
+	private readonly List<(Entity Entity, float Intensity)> m_Matter = [];
 
 	/// <summary>Whether it is night or turning into night.</summary>
 	public bool IsNight => m_Target > 0.5f;
@@ -83,6 +99,9 @@ public sealed class DayNight : Script
 		m_SkyIntensity = Sky?.GetComponent<SkyLightComponent>()?.Intensity ?? 0.0f;
 		m_ZoneWeight = EveningZone?.GetComponent<PostProcessComponent>()?.Weight ?? 0.0f;
 		m_DayAmbienceVolume = DayAmbience?.GetComponent<AudioSourceComponent>()?.Volume ?? 0.0f;
+		CollectMatter(Smoke);
+		CollectMatter(Water);
+		CollectMatter(Leaves);
 		Apply(0.0f);
 	}
 
@@ -138,6 +157,30 @@ public sealed class DayNight : Script
 		if (NightAmbience?.GetComponent<AudioSourceComponent>() is { } nightAmbience)
 		{
 			nightAmbience.Volume = NightAmbienceVolume * night;
+		}
+		foreach ((Entity entity, float intensity) in m_Matter)
+		{
+			if (entity.GetComponent<ParticleSystemComponent>() is { } particles)
+			{
+				particles.Intensity = Fade(intensity, intensity * NightMatterBrightness, night);
+			}
+		}
+	}
+
+	// The particle systems of an entity and of its descendants, with their brightness by day.
+	private void CollectMatter(Entity? entity)
+	{
+		if (entity is null)
+		{
+			return;
+		}
+		if (entity.GetComponent<ParticleSystemComponent>() is { } particles)
+		{
+			m_Matter.Add((entity, particles.Intensity));
+		}
+		foreach (Entity child in entity.Children)
+		{
+			CollectMatter(child);
 		}
 	}
 

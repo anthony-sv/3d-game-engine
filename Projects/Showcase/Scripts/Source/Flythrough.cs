@@ -7,7 +7,7 @@ namespace Showcase;
 /// (the children, each a CameraShot) on a smooth path that eases in and out, shows the title and the shots' captions, cues
 /// their exhibits, and then hands the rig over to the free camera as the bars open and the HUD fades in. Any key or click
 /// skips it (the camera glides to the last shot in a moment); its key plays it again. Its texts, bars and fade are UI elements
-/// (it sets their opacities and the bars' heights).</summary>
+/// (it sets their opacities and the bars' heights). The music plays up during the tour and settles back after it.</summary>
 public sealed class Flythrough : Script
 {
 	[Tooltip("The camera rig the tour moves (a CameraRig)")]
@@ -65,6 +65,17 @@ public sealed class Flythrough : Script
 	[Tooltip("The UI element shown while exploring (the HUD); hidden during the tour")]
 	public Entity? Hud;
 
+	[Tooltip("The music (an audio source), louder during the tour than as authored")]
+	public Entity? Music;
+
+	[Tooltip("The music's volume during the tour")]
+	[Range(0.0f, 1.0f)]
+	public float TourMusicVolume = 0.45f;
+
+	[Tooltip("Seconds the music takes to play up or settle back")]
+	[Range(0.1f, 10.0f)]
+	public float MusicFadeSeconds = 2.5f;
+
 	[Tooltip("Seconds the camera takes to get up to speed at the start and to come to rest at the end")]
 	[Range(0.0f, 5.0f)]
 	public float RampSeconds = 1.6f;
@@ -90,6 +101,8 @@ public sealed class Flythrough : Script
 	private Vector3 m_SkipPosition;
 	private Vector3 m_SkipAngles;
 	private float m_HudFade = 1.0f;
+	private float m_MusicVolume;
+	private float m_MusicMix;
 
 	/// <summary>Whether the tour is playing.</summary>
 	public bool IsPlaying { get; private set; }
@@ -126,6 +139,7 @@ public sealed class Flythrough : Script
 
 	protected override void OnCreate()
 	{
+		m_MusicVolume = Music?.GetComponent<AudioSourceComponent>()?.Volume ?? 0.0f;
 		SetLetterbox(0.0f);
 		SetFade(0.0f);
 		FadeTexts(0.0f, 0.0f, 0.0f);
@@ -170,11 +184,19 @@ public sealed class Flythrough : Script
 
 	protected override void OnUpdate(float deltaTime)
 	{
-		// The bars close in while the tour plays and open as it ends or is skipped.
+		// The bars close in while the tour plays and open as it ends or is skipped; the music plays up and settles back with them.
 		float bars = IsPlaying && !m_Skipping ? 1.0f : 0.0f;
 		if (LetterboxAmount != bars)
 		{
 			SetLetterbox(Mathf.MoveTowards(LetterboxAmount, bars, deltaTime / LetterboxSeconds));
+		}
+		if (m_MusicMix != bars)
+		{
+			m_MusicMix = Mathf.MoveTowards(m_MusicMix, bars, deltaTime / MusicFadeSeconds);
+			if (Music?.GetComponent<AudioSourceComponent>() is { } music)
+			{
+				music.Volume = Mathf.Lerp(m_MusicVolume, TourMusicVolume, m_MusicMix);
+			}
 		}
 		if (!IsPlaying)
 		{

@@ -8,9 +8,9 @@ namespace Showcase;
 
 /// <summary>The checks of Scenes/Tests.sscene (the main scene with this script, and without the tour playing at the start). They
 /// play the exhibits through their public methods and look at what happened: the stacks stand and fall, joints hold, balls
-/// score and open the gate, the dominoes fall, the lights move, particles burn, the camera shakes, the tour hands over, the
-/// neon sign lights up, night falls, the HUD's buttons work, and the walker climbs, runs, jumps, pushes and rides the lift. None
-/// of them needs the downloaded models. The run ends once they are done (play the scene, or
+/// score and open the gate, the dominoes fall, the lights move, particles burn, the camera shakes, the tour plays the music up
+/// and hands over, the neon sign lights up, night falls and passes again in the tour's interlude, the HUD's buttons work, and
+/// the walker climbs, runs, jumps, pushes and rides the lift. None of them needs the downloaded models. The run ends once they are done (play the scene, or
 /// `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
 public sealed class ShowcaseTests : Script
 {
@@ -110,6 +110,9 @@ public sealed class ShowcaseTests : Script
 	[Tooltip("The ramp down from the deck (its local X runs uphill)")]
 	public Entity? Ramp;
 
+	[Tooltip("The tour's night for a while (a NightInterlude)")]
+	public Entity? NightInterlude;
+
 	private readonly List<(float Time, Action Step)> m_Schedule = [];
 	private int m_Next;
 	private float m_Time;
@@ -120,6 +123,8 @@ public sealed class ShowcaseTests : Script
 	private float m_LighthouseAngle;
 	private Color m_ShowColor;
 	private float m_GateClosed;
+	private float m_SmokeIntensity;
+	private float m_LeavesIntensity;
 	private Vector3 m_TourStart;
 	private (float Frame, float Letters) m_NeonDark;
 	private (float Frame, float Letters) m_NeonFrameOnly;
@@ -132,6 +137,9 @@ public sealed class ShowcaseTests : Script
 	private bool m_TrackJump;
 	private Entity? m_Crate;
 	private Vector3 m_CrateFrom;
+	private bool m_InterludeNight;
+	private bool m_InterludeDay;
+	private float m_MusicVolume;
 
 	protected override void OnCreate()
 	{
@@ -232,6 +240,19 @@ public sealed class ShowcaseTests : Script
 		At(33.5f, () =>
 		{
 			CheckTheModeButton();
+			StartTheInterlude(1.0f);
+		});
+		At(34.0f, () => m_InterludeNight = Lighting?.As<DayNight>()?.IsNight ?? false);
+		At(35.2f, () =>
+		{
+			// The day came back; an interlude cued at night then leaves the night.
+			m_InterludeDay = Lighting?.As<DayNight>()?.IsNight == false && NightInterlude?.As<NightInterlude>()?.IsActive == false;
+			Lighting?.As<DayNight>()?.SetNight(true);
+			StartTheInterlude(0.5f);
+		});
+		At(36.0f, () =>
+		{
+			CheckTheInterlude();
 			TestReporter.Finish();
 			Application.Quit();
 		});
@@ -268,6 +289,8 @@ public sealed class ShowcaseTests : Script
 		m_LighthouseAngle = Lighthouse?.As<Spinner>()?.Angle ?? 0.0f;
 		m_ShowColor = LightShow?.As<LightShow>()?.ColorOf(0) ?? Color.Black;
 		m_GateClosed = Gate?.Transform.WorldTranslation.Y ?? 0.0f;
+		(m_SmokeIntensity, m_LeavesIntensity) = MatterIntensities();
+		m_MusicVolume = Tour?.As<Flythrough>()?.Music?.GetComponent<AudioSourceComponent>()?.Volume ?? 0.0f;
 		NeonSign?.As<NeonSign>()?.Ignite();
 	}
 
@@ -324,7 +347,7 @@ public sealed class ShowcaseTests : Script
 
 	private void CheckTheNight()
 	{
-		TestReporter.Run("night falls: moonlight, a dark sky, the night's grade and crickets", () =>
+		TestReporter.Run("night falls: moonlight, a dark sky, the night's grade, dim smoke and leaves, and crickets", () =>
 		{
 			DayNight? lighting = Lighting?.As<DayNight>();
 			Assert.IsNotNull(lighting);
@@ -336,6 +359,10 @@ public sealed class ShowcaseTests : Script
 			Assert.AreEqual(0.0f, lighting.EveningZone!.GetComponent<PostProcessComponent>()!.Weight);
 			Assert.AreEqual(0.0f, lighting.DayAmbience!.GetComponent<AudioSourceComponent>()!.Volume);
 			Assert.AreApproximatelyEqual(lighting.NightAmbienceVolume, lighting.NightAmbience!.GetComponent<AudioSourceComponent>()!.Volume, 1e-4f);
+			(float smoke, float leaves) = MatterIntensities();
+			Assert.IsTrue(m_SmokeIntensity > 0.0f && m_LeavesIntensity > 0.0f, "the smoke and the leaves glow by day");
+			Assert.AreApproximatelyEqual(m_SmokeIntensity * lighting.NightMatterBrightness, smoke, 1e-4f, "the smoke dims");
+			Assert.AreApproximatelyEqual(m_LeavesIntensity * lighting.NightMatterBrightness, leaves, 1e-4f, "the leaves dim");
 			lighting.SetNight(false);
 			Assert.IsFalse(lighting.IsNight);
 		});
@@ -354,7 +381,19 @@ public sealed class ShowcaseTests : Script
 			Assert.AreEqual(0.0f, lighting.NightGrade!.GetComponent<PostProcessComponent>()!.Weight);
 			Assert.AreApproximatelyEqual(lighting.DayZoneWeight, lighting.EveningZone!.GetComponent<PostProcessComponent>()!.Weight, 1e-4f);
 			Assert.AreEqual(0.0f, lighting.NightAmbience!.GetComponent<AudioSourceComponent>()!.Volume);
+			(float smoke, float leaves) = MatterIntensities();
+			Assert.AreApproximatelyEqual(m_SmokeIntensity, smoke, 1e-4f);
+			Assert.AreApproximatelyEqual(m_LeavesIntensity, leaves, 1e-4f);
 		});
+	}
+
+	// The brightness of the campfire's smoke and of the first of the falling leaves (a child of the leaves DayNight dims).
+	private (float Smoke, float Leaves) MatterIntensities()
+	{
+		DayNight? lighting = Lighting?.As<DayNight>();
+		float smoke = lighting?.Smoke?.GetComponent<ParticleSystemComponent>()?.Intensity ?? -1.0f;
+		Entity[] leaves = lighting?.Leaves?.Children ?? [];
+		return (smoke, leaves.Length > 0 ? leaves[0].GetComponent<ParticleSystemComponent>()?.Intensity ?? -1.0f : -1.0f);
 	}
 
 	private void CheckTheGoalAndTheGate()
@@ -436,7 +475,7 @@ public sealed class ShowcaseTests : Script
 			Assert.IsTrue(tour.TitleVisibility > 0.5f, $"the title shows at {tour.TitleVisibility}");
 			Assert.AreEqual(0.0f, tour.CaptionVisibility);
 		});
-		TestReporter.Run("the tour letterboxes the screen and hides the HUD", () =>
+		TestReporter.Run("the tour letterboxes the screen, hides the HUD and plays the music up", () =>
 		{
 			Flythrough? tour = Tour?.As<Flythrough>();
 			Assert.IsNotNull(tour?.Letterbox);
@@ -447,6 +486,8 @@ public sealed class ShowcaseTests : Script
 				Assert.AreApproximatelyEqual(tour.LetterboxHeight, bar.GetComponent<UIRectComponent>()!.Size.Y, 1e-3f);
 			}
 			Assert.AreEqual(0.0f, tour.Hud?.GetComponent<UIRectComponent>()?.Opacity, "the HUD is hidden");
+			float music = tour.Music?.GetComponent<AudioSourceComponent>()?.Volume ?? 0.0f;
+			Assert.IsTrue(music > m_MusicVolume, $"the music plays up to {music}");
 		});
 	}
 
@@ -509,7 +550,7 @@ public sealed class ShowcaseTests : Script
 
 	private void CheckTheHudAfterTheTour()
 	{
-		TestReporter.Run("after the tour the letterbox opens and the HUD fades in", () =>
+		TestReporter.Run("after the tour the letterbox opens, the HUD fades in and the music settles back", () =>
 		{
 			Flythrough? tour = Tour?.As<Flythrough>();
 			Assert.IsNotNull(tour?.Letterbox);
@@ -520,6 +561,8 @@ public sealed class ShowcaseTests : Script
 			}
 			Assert.AreEqual(1.0f, tour.HudVisibility);
 			Assert.AreEqual(1.0f, tour.Hud?.GetComponent<UIRectComponent>()?.Opacity);
+			Assert.AreApproximatelyEqual(m_MusicVolume, tour.Music?.GetComponent<AudioSourceComponent>()?.Volume ?? -1.0f, 1e-4f,
+				"the music settles back");
 		});
 		// The camera moves to the gallery, whose row of the feature list lights up.
 		Hud? hud = Hud?.As<Hud>();
@@ -807,6 +850,30 @@ public sealed class ShowcaseTests : Script
 			Assert.AreEqual("Fly", hud.ModeLabel?.GetComponent<UITextComponent>()?.Text);
 			Assert.AreEqual(hud.WalkHint, hud.HintText?.GetComponent<UITextComponent>()?.Text);
 			rig.SetWalking(false);
+		});
+	}
+
+	private void StartTheInterlude(float seconds)
+	{
+		if (NightInterlude?.As<NightInterlude>() is { } interlude)
+		{
+			interlude.Seconds = seconds;
+			interlude.Perform();
+		}
+	}
+
+	private void CheckTheInterlude()
+	{
+		TestReporter.Run("the tour's night interlude falls and turns the lighting back to what it was", () =>
+		{
+			NightInterlude? interlude = NightInterlude?.As<NightInterlude>();
+			DayNight? lighting = Lighting?.As<DayNight>();
+			Assert.IsNotNull(interlude);
+			Assert.IsNotNull(lighting);
+			Assert.IsTrue(m_InterludeNight, "night fell");
+			Assert.IsTrue(m_InterludeDay, "the day came back");
+			Assert.IsFalse(interlude.IsActive);
+			Assert.IsTrue(lighting.IsNight, "cued at night, it leaves the night");
 		});
 	}
 

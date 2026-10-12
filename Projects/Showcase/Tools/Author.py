@@ -28,7 +28,7 @@ PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
 SCRIPTS = ["CameraRig", "Walker", "CameraShake", "Flythrough", "CameraShot", "ITourCue", "Impact", "LanternFlicker", "Playground",
            "WreckingBall", "DominoRun", "BallLauncher", "GoalZone", "PressurePlate", "Spinner", "Sway", "LightShow", "DebugView",
-           "NeonSign", "DayNight", "Lift", "Hud", "HudFeature", "ShowcaseTests"]
+           "NeonSign", "DayNight", "NightInterlude", "Lift", "Hud", "HudFeature", "ShowcaseTests"]
 
 HDRI = "autumn_forest_04"
 GROUND = "dry_decay_leaves"
@@ -235,9 +235,10 @@ GALLERY = Frame((-12.0, 0.0, 1.0), 62.0)
 GARDEN = Frame((11.6, 0.0, 2.2), -58.0)
 # The yard (south-east), where the walker climbs: its front (+Z) faces the plaza, +X is on the right seen from there.
 YARD = Frame((11.0, 0.0, 14.5), -142.8)
-# The yard's heights: the deck the stairs climb to, and the lookout the lift rises to.
+# The yard's heights: the deck the stairs climb to, the lookout the lift rises to, and the canopy over the lookout.
 DECK_TOP = 1.5
 LOOKOUT_TOP = 3.4
+CANOPY = LOOKOUT_TOP + 2.5
 
 # Where the free camera starts and the tour ends: south of the plaza, looking north over the fountain.
 HOME = (LAYOUT, (0.0, 2.9, 16.0), (0.0, 1.1, -2.0))
@@ -257,10 +258,12 @@ TOUR = (
     ("Dominoes", LAYOUT, (2.8, 3.0, -11.2), (1.8, 0.4, -16.0), 4.0, "Chain reactions", "every domino is a rigid body", "dominoes", 3.0),
     ("Triggers", LAYOUT, (4.4, 2.8, -0.6), (12.4, 3.0, -10.4), 4.5, "Triggers", "a goal counts, a pressure plate opens the gate", "launcher", 1.3),
     ("Glass", LAYOUT, (4.2, 2.5, 8.6), (11.0, 1.7, 2.8), 4.5, "Transparency", "blended glass, alpha-tested lattice, two-sided cloth", None, 0.0),
-    ("Yard", LAYOUT, (3.6, 5.0, 8.6), (10.6, 1.4, 15.0), 4.5, "Character controller",
+    ("Yard", LAYOUT, (15.4, 5.0, 7.0), (9.4, 2.7, 15.4), 4.5, "Character controller",
      "press F to walk: climb the stairs, jump the posts, ride the lift", None, 0.0),
     ("Campfire", LAYOUT, (-1.0, 1.5, 13.8), (-4.8, 1.0, 6.2), 4.0, "Particles and sound",
-     "fire, smoke, sparks, water and fireflies, heard where they are", None, 0.0),
+     "fire, smoke, sparks, water and fireflies, heard where they are", "night_interlude", 2.5),
+    ("Night", LAYOUT, (-2.0, 7.0, 20.5), (-1.6, -0.2, -4.0), 4.0, "Day and night",
+     "press L for the night: moonlight, lamps, firelight and neon", None, 0.0),
     ("Home", *HOME, 3.0, "", "", None, 0.0),
 )
 
@@ -735,7 +738,9 @@ class Showcase:
                              "StartColor": [1.0, 0.8, 0.4, 1.0], "EndColor": [1.0, 0.3, 0.05, 0.0], "Intensity": 6.0}))
         for name, height, settings in effects:
             # Particle systems emit along -Z: turned to emit up.
-            self.entity(name, {"Transform": transform((0.0, height, 0.0), (90.0, 0.0, 0.0)), "ParticleSystem": settings}, campfire)
+            effect = self.entity(name, {"Transform": transform((0.0, height, 0.0), (90.0, 0.0, 0.0)), "ParticleSystem": settings}, campfire)
+            if name == "Smoke":
+                self.campfire_smoke = effect
         self.entity("Fire Light", {"Transform": transform((0.0, 0.6, 0.0)),
                                    "PointLight": {"Color": [1.0, 0.5, 0.18], "Intensity": 14.0, "Range": 9.0, "CastShadows": True},
                                    "Script": {"ClassName": "Showcase.LanternFlicker", "Fields": {
@@ -1329,10 +1334,10 @@ class Showcase:
             return self.entity(name, {"Transform": frame.place(local, euler, scale), **self.mesh(mesh, material), "RigidBody": {"Type": "Static"},
                                       **collider}, parent)
 
-        # The deck on steel posts, and five steps of 25 cm up to it from the front.
+        # The deck on timber posts, and five steps of 25 cm up to it from the front.
         self.deck = solid("Deck", (0.5, DECK_TOP - 0.1, 0.0), (3.0, 0.2, 3.0), planks)
         for index, (x, z) in enumerate(((-0.85, -1.35), (1.85, -1.35), (-0.85, 1.35), (1.85, 1.35))):
-            solid(f"Deck Post {index + 1}", (x, (DECK_TOP - 0.2) / 2.0, z), (0.16, DECK_TOP - 0.2, 0.16), self.iron, mesh="Cylinder")
+            solid(f"Deck Post {index + 1}", (x, (DECK_TOP - 0.2) / 2.0, z), (0.2, DECK_TOP - 0.2, 0.2), self.sign_wood)
         stairs = self.entity("Stairs", None, yard)
         for step in range(1, 6):
             top = 0.25 * step
@@ -1350,20 +1355,21 @@ class Showcase:
         for index, (x, z, top) in enumerate(((-3.4, 3.4, 0.5), (-2.6, 2.7, 0.95), (-1.8, 2.0, 1.4))):
             solid(f"Jump Post {index + 1}", (x, top / 2.0, z), (0.7, top, 0.7), marble, mesh="Cylinder")
 
-        # The lookout on the right, 3.4 m up, railed at the back and on the right; the lift rises to its front edge.
+        # The lookout tower on the right: a floor 3.4 m up on four timber posts that carry a canopy, railed at the back and on
+        # the right; the lift rises to its front edge.
         lookout = self.entity("Lookout", None, yard)
         solid("Floor", (3.7, LOOKOUT_TOP - 0.1, -0.5), (2.2, 0.2, 2.2), planks, parent=lookout)
-        for index, (x, z) in enumerate(((2.7, -1.5), (4.7, -1.5), (2.7, 0.5), (4.7, 0.5))):
-            solid(f"Post {index + 1}", (x, (LOOKOUT_TOP - 0.2) / 2.0, z), (0.18, LOOKOUT_TOP - 0.2, 0.18), self.iron, mesh="Cylinder", parent=lookout)
-        for name, local, scale in (("Back Rail", (3.7, LOOKOUT_TOP + 0.95, -1.55), (2.2, 0.06, 0.06)),
-                                   ("Right Rail", (4.75, LOOKOUT_TOP + 0.95, -0.5), (0.06, 0.06, 2.2)),
-                                   ("Back Rail Post", (2.65, LOOKOUT_TOP + 0.5, -1.55), (0.06, 1.0, 0.06)),
-                                   ("Corner Rail Post", (4.75, LOOKOUT_TOP + 0.5, -1.55), (0.06, 1.0, 0.06)),
-                                   ("Right Rail Post", (4.75, LOOKOUT_TOP + 0.5, 0.55), (0.06, 1.0, 0.06))):
+        for index, (x, z) in enumerate(((2.72, -1.48), (4.68, -1.48), (2.72, 0.48), (4.68, 0.48))):
+            solid(f"Post {index + 1}", (x, CANOPY / 2.0, z), (0.24, CANOPY, 0.24), self.sign_wood, parent=lookout)
+        solid("Canopy", (3.7, CANOPY + 0.06, -0.5), (2.7, 0.12, 2.7), planks, parent=lookout)
+        for name, local, scale in (("Back Rail", (3.7, LOOKOUT_TOP + 0.95, -1.5), (1.72, 0.07, 0.07)),
+                                   ("Back Lower Rail", (3.7, LOOKOUT_TOP + 0.5, -1.5), (1.72, 0.05, 0.05)),
+                                   ("Right Rail", (4.68, LOOKOUT_TOP + 0.95, -0.5), (0.07, 0.07, 1.72)),
+                                   ("Right Lower Rail", (4.68, LOOKOUT_TOP + 0.5, -0.5), (0.05, 0.05, 1.72))):
             solid(name, local, scale, self.iron, parent=lookout)
-        # A lantern on the corner post lights the yard at night.
-        (lantern_low, _) = self.models[LANTERN][1]
-        lantern = self.model_entity("Lantern", LANTERN, frame.place((4.75, LOOKOUT_TOP + 1.0 - lantern_low[1], -1.55)), {
+        # A lantern hangs under the canopy and lights the yard at night.
+        (lantern_low, lantern_high) = self.models[LANTERN][1]
+        lantern = self.model_entity("Lantern", LANTERN, frame.place((4.3, CANOPY - 0.08 - lantern_high[1], -1.1)), {
             "Mesh": {"Mesh": self.models[LANTERN][0], "CastShadows": False}}, parent=lookout)
         self.entity("Lantern Light", {"Transform": transform((0.0, 0.14, 0.0)),
                                       "PointLight": {"Color": [1.0, 0.62, 0.3], "Intensity": 10.0, "Range": 13.0},
@@ -1373,13 +1379,16 @@ class Showcase:
         rest_top = 0.12
         self.lift = self.entity("Lift", {"Transform": frame.place((3.7, rest_top - 0.1, 1.5), scale=(1.5, 0.2, 1.5)),
                                          **self.mesh("Cube", self.textures[PAINTED_METAL]), "RigidBody": {"Type": "Kinematic"}, "BoxCollider": {},
-                                         "AudioSource": {"Clip": "asset://Audio/Lift.wav", "Volume": 0.35, "Loop": True, "PlayOnStart": True,
+                                         "AudioSource": {"Clip": "asset://Audio/Lift.wav", "Volume": 0.2, "Loop": True, "PlayOnStart": True,
                                                          "Spatial": True, "MinDistance": 2.0, "MaxDistance": 20.0},
                                          "Script": {"ClassName": "Showcase.Lift", "Fields": {
                                              "Rise": {"Type": "Float", "Value": LOOKOUT_TOP - rest_top}}}}, yard)
-        # Guide posts at its corners, outside the platform, up past the lookout's rails.
+        # Its shaft: steel guide posts at the corners, outside the platform, framed at the top as high as the canopy.
         for index, (x, z) in enumerate(((2.86, 0.66), (4.54, 0.66), (2.86, 2.34), (4.54, 2.34))):
-            solid(f"Lift Post {index + 1}", (x, 2.3, z), (0.1, 4.6, 0.1), self.iron)
+            solid(f"Lift Post {index + 1}", (x, CANOPY / 2.0, z), (0.1, CANOPY, 0.1), self.iron)
+        for name, local, scale in (("Lift Beam", (3.7, CANOPY, 0.66), (1.78, 0.1, 0.1)), ("Lift Beam 2", (3.7, CANOPY, 2.34), (1.78, 0.1, 0.1)),
+                                   ("Lift Beam 3", (2.86, CANOPY, 1.5), (0.1, 0.1, 1.78)), ("Lift Beam 4", (4.54, CANOPY, 1.5), (0.1, 0.1, 1.78))):
+            solid(name, local, scale, self.iron)
 
         # Crates to push, a size larger than the playground's: two on the deck, a stack by the ramp's foot.
         crates = self.entity("Yard Crates", None, yard)
@@ -1410,8 +1419,10 @@ class Showcase:
         landing = self.entity("Landing", {"AudioSource": {"Clip": "asset://Audio/Land.wav", "Volume": 0.8, "Spatial": False}}, self.walker)
         self.call("component_add", {"entity": self.walker, "component": "Script", "fields": {"ClassName": "Showcase.Walker", "Fields": {
             "Footsteps": {"Type": "Entity", "Value": footsteps}, "Landing": {"Type": "Entity", "Value": landing}}}})
-        sign = frame.point((2.8, 0.0, 4.6))
-        self.signpost((sign[0], sign[2]), "CHARACTER", "F walks: stairs, a ramp, posts to jump,\na lift and crates to push")
+        # Its signpost stands beside the lookout, out of the tour's way, turned to the plaza and the home view, where visitors
+        # come from.
+        sign = frame.point((6.6, 0.0, 1.2))
+        self.signpost((sign[0], sign[2]), "CHARACTER", "F walks: stairs, a ramp, posts to jump,\na lift and crates to push", facing=(-1.0, 11.0))
 
     # --- Scenery: rocks, stumps, ferns and branches around the exhibits ---------------------------------------------------
 
@@ -1444,7 +1455,7 @@ class Showcase:
         (shrub_low, _) = self.models[SHRUBS][1]
         for index, (x, z, yaw, size) in enumerate(((-15.5, 4.0, 30.0, 0.8), (-14.0, -9.5, 150.0, 0.7), (-9.0, -17.5, 80.0, 0.75),
                                                    (9.0, -18.0, 200.0, 0.8), (17.0, -6.0, 290.0, 0.7), (15.5, 7.5, 10.0, 0.75),
-                                                   (-11.5, 12.5, 120.0, 0.65), (5.5, 17.5, 250.0, 0.65))):
+                                                   (-11.5, 12.5, 120.0, 0.65), (3.8, 20.2, 250.0, 0.65))):
             self.model_entity(f"Shrubs {index + 1}", SHRUBS, LAYOUT.place((x, -shrub_low[1] * size, z), (0.0, yaw, 0.0), (size, size, size)), None,
                               scenery)
 
@@ -1499,7 +1510,9 @@ class Showcase:
     # --- Sound, screen and tour -----------------------------------------------------------------------------------------------
 
     def make_sound(self):
-        self.entity("Music", {"AudioSource": {"Clip": "asset://Audio/Music.wav", "Volume": 0.3, "Loop": True, "PlayOnStart": True, "Spatial": False}})
+        # The music plays up during the tour (Flythrough) and settles to this volume, under the clearing's sounds.
+        self.music = self.entity("Music", {"AudioSource": {"Clip": "asset://Audio/Music.wav", "Volume": 0.26, "Loop": True, "PlayOnStart": True,
+                                                           "Spatial": False}})
         self.ambience = self.entity("Forest Ambience", {"AudioSource": {"Clip": "asset://Audio/Ambience.wav", "Volume": 0.5, "Loop": True,
                                                                         "PlayOnStart": True, "Spatial": False}})
         # Crickets, silent until night falls (DayNight turns them up).
@@ -1528,7 +1541,11 @@ class Showcase:
         self.day_night = self.entity("Day and Night", {"Script": {"ClassName": "Showcase.DayNight", "Fields": {
             "Sun": entity | {"Value": self.found["Sun"]}, "Sky": entity | {"Value": self.found["Sky"]}, "NightGrade": entity | {"Value": night},
             "EveningZone": entity | {"Value": self.evening_zone}, "DayAmbience": entity | {"Value": self.ambience},
-            "NightAmbience": entity | {"Value": self.night_ambience}}}})
+            "NightAmbience": entity | {"Value": self.night_ambience}, "Smoke": entity | {"Value": self.campfire_smoke},
+            "Water": entity | {"Value": self.fountain_jets}, "Leaves": entity | {"Value": self.leaves}}}})
+        # The tour lets night fall on its way to the campfire, for a while.
+        self.night_interlude = self.entity("Night Interlude", {"Script": {"ClassName": "Showcase.NightInterlude", "Fields": {
+            "Lighting": entity | {"Value": self.day_night}}}}, self.day_night)
 
     def make_playground(self):
         """The playground, which counts the props knocked down and puts the exhibits back, the debug view and the thrown ball's
@@ -1669,6 +1686,9 @@ class Showcase:
                         self.tour_title)
         title = "   ".join(" ".join(word) for word in ("ENGINE", "SHOWCASE"))
         self.entity("Text", {"UIRect": ui_fill(), "UIText": ui_text(title, 40.0, TEXT, "Center")}, self.tour_title)
+        self.entity("Tagline", {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.0), (0.0, 58.0), (1100.0, 30.0)),
+                                "UIText": ui_text("Vulkan renderer   ·   Jolt physics   ·   C# scripting   ·   an editor AI agents drive", 19.0, AMBER,
+                                                  "Center")}, self.tour_title)
         # The caption with its detail line in the lower third, over a soft shadow.
         self.tour_caption = self.entity("Tour Caption", {"UIRect": ui_rect((0.5, 1.0), (0.5, 1.0), (0.0, -136.0), (1500.0, 110.0), Opacity=0.0)},
                                         tour)
@@ -1694,7 +1714,7 @@ class Showcase:
             "Rig": entity | {"Value": self.rig}, "Fade": entity | {"Value": self.tour_fade}, "Letterbox": entity | {"Value": self.letterbox},
             "Title": entity | {"Value": self.tour_title}, "Caption": entity | {"Value": self.tour_caption},
             "CaptionText": entity | {"Value": self.tour_caption_text}, "Detail": entity | {"Value": self.tour_detail},
-            "Hint": entity | {"Value": self.tour_hint}, "Hud": entity | {"Value": self.hud}}
+            "Hint": entity | {"Value": self.tour_hint}, "Hud": entity | {"Value": self.hud}, "Music": entity | {"Value": self.music}}
         tour = self.entity("Camera Tour", {"Script": {"ClassName": "Showcase.Flythrough", "Fields": self.tour_fields}})
         for name, frame, eye, target, seconds, caption, detail, cue, lead in TOUR:
             fields = {"Caption": {"Type": "String", "Value": caption}, "Detail": {"Type": "String", "Value": detail},
@@ -1730,7 +1750,7 @@ class Showcase:
             "NeonSign": entity | {"Value": self.neon_sign}, "Look": entity | {"Value": self.look},
             "EveningZone": entity | {"Value": self.evening_zone}, "Walker": entity | {"Value": self.walker},
             "Lift": entity | {"Value": self.lift}, "Deck": entity | {"Value": self.deck}, "FirstStep": entity | {"Value": self.first_step},
-            "Ramp": entity | {"Value": self.ramp}}}}})
+            "Ramp": entity | {"Value": self.ramp}, "NightInterlude": entity | {"Value": self.night_interlude}}}}})
         call("scene_save")
         call("scene_open", {"path": "Scenes/Main.sscene"})
 
