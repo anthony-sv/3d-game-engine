@@ -1324,6 +1324,106 @@
 			}
 		},
 		{
+			"ID": "10350235558161062824",
+			"Components": {
+				"Tag": {
+					"Tag": "Character"
+				},
+				"Transform": {
+					"Translation": [
+						6.5,
+						1.0,
+						-7.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "5",
+					"Materials": [],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"CharacterController": {
+					"Radius": 0.5,
+					"Height": 2.0,
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"StepHeight": 0.30000001192092896,
+					"MaxSlopeAngle": 45.0,
+					"Mass": 70.0,
+					"PushForce": 200.0,
+					"GravityFactor": 1.0,
+					"Layer": 0
+				},
+				"Script": {
+					"ClassName": "FeatureTest.CollisionProbe",
+					"Fields": {}
+				}
+			}
+		},
+		{
+			"ID": "2602818010955743924",
+			"Components": {
+				"Tag": {
+					"Tag": "Character Gate"
+				},
+				"Transform": {
+					"Translation": [
+						8.0,
+						1.0,
+						-7.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.25,
+						1.0,
+						1.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
 			"ID": "6102744817778416873",
 			"Components": {
 				"Tag": {
@@ -1362,7 +1462,8 @@
 						"16748823186013241524",
 						"676901785231258275",
 						"16478385166964310864",
-						"5755062644795776956"
+						"5755062644795776956",
+						"3211222837210765849"
 					]
 				}
 			}
@@ -1889,6 +1990,49 @@
 						"m_Count": {
 							"Type": "Int32",
 							"Value": 3
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "3211222837210765849",
+			"Components": {
+				"Tag": {
+					"Tag": "Character Tests"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "6102744817778416873",
+					"Children": []
+				},
+				"Script": {
+					"ClassName": "FeatureTest.CharacterTests",
+					"Fields": {
+						"Character": {
+							"Type": "Entity",
+							"Value": "10350235558161062824"
+						},
+						"Gate": {
+							"Type": "Entity",
+							"Value": "2602818010955743924"
 						}
 					}
 				}

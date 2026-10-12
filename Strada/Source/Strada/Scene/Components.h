@@ -214,6 +214,32 @@ namespace Strada
 		float MotorMaxForce = 1000.0f;
 	};
 
+	// Makes the entity a character while the scene runs (the player, walking creatures): an upright capsule that scripts
+	// move, which slides along walls, climbs steps and slopes up to its limits, slides down steeper slopes, falls with
+	// gravity, rides what it stands on and pushes dynamic bodies; the entity's transform follows it (drawn between its last
+	// two physics steps, so it moves smoothly at any frame rate). The capsule is scaled with the entity but does not turn
+	// with it. It replaces the entity's colliders and RigidBody; colliders of child entities are the character's own parts
+	// (a held object, a trigger around it), which neither block it nor touch it.
+	struct CharacterControllerComponent
+	{
+		float Radius = 0.5f;
+		// Of the whole capsule, both rounded ends included; heights below twice the radius make a sphere.
+		float Height = 2.0f;
+		// Center of the capsule relative to the entity's origin.
+		glm::vec3 Offset = {0.0f, 0.0f, 0.0f};
+		// The highest step it climbs, and the deepest drop it walks down without leaving the ground.
+		float StepHeight = 0.3f;
+		// The steepest slope it walks up; it slides down steeper ones.
+		float MaxSlopeAngle = 45.0f;
+		// Kilograms with which it weighs on what it stands on.
+		float Mass = 70.0f;
+		// The largest force with which it pushes dynamic bodies, in newtons.
+		float PushForce = 200.0f;
+		float GravityFactor = 1.0f;
+		// Physics layer index (0-15) as configured in the project settings.
+		uint32_t Layer = 0;
+	};
+
 	struct AudioSourceComponent
 	{
 		AssetHandle Clip;

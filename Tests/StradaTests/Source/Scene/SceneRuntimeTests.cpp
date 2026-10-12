@@ -88,6 +88,45 @@ TEST_CASE("Scene: the runtime simulates physics and writes transforms back in pa
 	CHECK(scene.GetContactEvents().empty());
 }
 
+TEST_CASE("Scene: simulated bodies keep their entities' scale exactly")
+{
+	Testing::PhysicsSystemScope physics;
+	Scene scene("Tumbling");
+	AddGround(scene);
+	// A tilted, unevenly scaled box falls, lands on an edge and tumbles: the simulation moves and turns it every step.
+	glm::quat const tilted = glm::angleAxis(glm::radians(37.0f), glm::normalize(glm::vec3(1.0f, 0.0f, 1.0f)));
+	glm::vec3 const scale(0.7f, 1.3f, 0.9f);
+	auto const addBox = [&](glm::vec3 const& position, Entity parent)
+	{
+		Entity box = parent ? scene.CreateEntity("Box", parent) : scene.CreateEntity("Box");
+		TransformComponent& transform = box.GetComponent<TransformComponent>();
+		transform.Translation = position;
+		transform.Rotation = tilted;
+		transform.Scale = scale;
+		box.AddComponent<RigidBodyComponent>().Type = RigidBodyType::Dynamic;
+		box.AddComponent<BoxColliderComponent>();
+		return box;
+	};
+	Entity const box = addBox({0.0f, 3.0f, 0.0f}, {});
+	// The same below a scaled parent.
+	Entity holder = scene.CreateEntity("Holder");
+	holder.GetComponent<TransformComponent>().Translation = {4.0f, 0.0f, 0.0f};
+	holder.GetComponent<TransformComponent>().Scale = glm::vec3(2.0f);
+	Entity const child = addBox({0.0f, 1.5f, 0.0f}, holder);
+
+	scene.OnRuntimeStart();
+	Run(scene, 2.0f);
+	for (Entity const entity : {box, child})
+	{
+		TransformComponent const& transform = entity.GetComponent<TransformComponent>();
+		// It fell and turned, and its scale is as it was, to the last bit.
+		CHECK(WorldPosition(scene, entity).y < 2.0f);
+		CHECK(std::abs(glm::dot(transform.Rotation, tilted)) < 0.9999f);
+		CHECK(transform.Scale == scale);
+	}
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("Scene: bodies follow component changes, transform edits and destruction while running")
 {
 	Testing::PhysicsSystemScope physics;

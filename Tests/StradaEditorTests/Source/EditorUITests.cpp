@@ -176,6 +176,15 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 	Entity const cubeEntity = context.GetScene().GetEntityByUUID(cube.GetValue());
 	CHECK(cubeEntity.GetComponent<MeshComponent>().Mesh == GetBuiltInHandle(BuiltInAsset::CubeMesh));
 
+	// A character draws the capsule mesh its controller's default capsule matches.
+	Result<UUID> const character = EntityPresets::Create(operations, find("Character"), UUID::Invalid(), spawn);
+	REQUIRE(character.IsOk());
+	Entity const characterEntity = context.GetScene().GetEntityByUUID(character.GetValue());
+	CHECK(characterEntity.GetComponent<MeshComponent>().Mesh == GetBuiltInHandle(BuiltInAsset::CapsuleMesh));
+	CharacterControllerComponent const& controller = characterEntity.GetComponent<CharacterControllerComponent>();
+	CHECK(controller.Radius == 0.5f);
+	CHECK(controller.Height == 2.0f);
+
 	// Children start at their parent's origin; lights pointing down keep their rotation.
 	Result<UUID> const spot = EntityPresets::Create(operations, find("Spot Light"), cube.GetValue(), spawn);
 	REQUIRE(spot.IsOk());

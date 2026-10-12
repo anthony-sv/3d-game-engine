@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <optional>
 #include <string>
 
 namespace Strada::ScriptGlue
@@ -408,6 +409,94 @@ namespace Strada::ScriptGlue
 			}
 		}
 
+		// --- Character controller: the live character while the scene simulates it ---
+
+		// The entity's character once pending physics changes are applied; null (logged) without one.
+		PhysicsScene* FindCharacter(uint64_t id, char const* function)
+		{
+			Entity const entity = FindEntity(id, function);
+			if (!entity || FindComponent<CharacterControllerComponent>(id) == nullptr)
+			{
+				return nullptr;
+			}
+			Scene& scene = *entity.GetScene();
+			scene.ApplyPhysicsChanges();
+			PhysicsScene* const physics = scene.GetPhysicsScene();
+			if (physics == nullptr || !physics->HasCharacter(UUID(id)))
+			{
+				Log::GetScriptLogger().error("{}: entity {} has no character (the scene is not simulating it)", function, id);
+				return nullptr;
+			}
+			return physics;
+		}
+
+		// What the live character does; a character at rest when the scene does not simulate it.
+		CharacterState ReadCharacterState(uint64_t id)
+		{
+			Scene* const scene = FindComponent<CharacterControllerComponent>(id) != nullptr ? ScriptEngine::GetSceneContext() : nullptr;
+			if (scene == nullptr)
+			{
+				return {};
+			}
+			scene->ApplyPhysicsChanges();
+			PhysicsScene const* physics = scene->GetPhysicsScene();
+			std::optional<CharacterState> state = physics != nullptr ? physics->GetCharacterState(UUID(id)) : std::nullopt;
+			return state ? *state : CharacterState{};
+		}
+
+		void CharacterControllerComponent_Move(uint64_t id, Vector3 const* velocity)
+		{
+			if (!CheckFinite("CharacterControllerComponent.Move", *velocity))
+			{
+				return;
+			}
+			if (PhysicsScene* physics = FindCharacter(id, "CharacterControllerComponent.Move"))
+			{
+				physics->MoveCharacter(UUID(id), FromScript(*velocity));
+			}
+		}
+
+		void CharacterControllerComponent_GetVelocity(uint64_t id, Vector3* value)
+		{
+			*value = ToScript(ReadCharacterState(id).Velocity);
+		}
+
+		void CharacterControllerComponent_SetVelocity(uint64_t id, Vector3 const* value)
+		{
+			if (!CheckFinite("CharacterControllerComponent.Velocity", *value))
+			{
+				return;
+			}
+			if (PhysicsScene* physics = FindCharacter(id, "CharacterControllerComponent.Velocity"))
+			{
+				physics->SetCharacterVelocity(UUID(id), FromScript(*value));
+			}
+		}
+
+		uint8_t CharacterControllerComponent_IsGrounded(uint64_t id)
+		{
+			return ReadCharacterState(id).IsGrounded ? 1 : 0;
+		}
+
+		void CharacterControllerComponent_GetGroundNormal(uint64_t id, Vector3* value)
+		{
+			*value = ToScript(ReadCharacterState(id).GroundNormal);
+		}
+
+		// Places the entity in world space (keeping its rotation and scale) and stops its character.
+		void CharacterControllerComponent_Teleport(uint64_t id, Vector3 const* position)
+		{
+			if (!CheckFinite("CharacterControllerComponent.Teleport", *position))
+			{
+				return;
+			}
+			Entity const entity = FindEntity(id, "CharacterControllerComponent.Teleport");
+			if (entity && FindComponent<CharacterControllerComponent>(id) != nullptr)
+			{
+				entity.GetScene()->TeleportCharacter(entity, FromScript(*position));
+			}
+		}
+
 		// --- Particle systems ---
 
 		Entity FindParticleSystem(uint64_t id)
@@ -620,6 +709,23 @@ namespace Strada::ScriptGlue
 		AddFieldBindings<&JointComponent::MotorEnabled, "JointComponent", "MotorEnabled">(table);
 		AddFieldBindings<&JointComponent::MotorSpeed, "JointComponent", "MotorSpeed">(table);
 		AddFieldBindings<&JointComponent::MotorMaxForce, "JointComponent", "MotorMaxForce">(table);
+
+		// Fields change the live character before the next step (or the next call on it).
+		AddFieldBindings<&CharacterControllerComponent::Radius, "CharacterControllerComponent", "Radius">(table);
+		AddFieldBindings<&CharacterControllerComponent::Height, "CharacterControllerComponent", "Height">(table);
+		AddFieldBindings<&CharacterControllerComponent::Offset, "CharacterControllerComponent", "Offset">(table);
+		AddFieldBindings<&CharacterControllerComponent::StepHeight, "CharacterControllerComponent", "StepHeight">(table);
+		AddFieldBindings<&CharacterControllerComponent::MaxSlopeAngle, "CharacterControllerComponent", "MaxSlopeAngle">(table);
+		AddFieldBindings<&CharacterControllerComponent::Mass, "CharacterControllerComponent", "Mass">(table);
+		AddFieldBindings<&CharacterControllerComponent::PushForce, "CharacterControllerComponent", "PushForce">(table);
+		AddFieldBindings<&CharacterControllerComponent::GravityFactor, "CharacterControllerComponent", "GravityFactor">(table);
+		AddFieldBindings<&CharacterControllerComponent::Layer, "CharacterControllerComponent", "Layer">(table);
+		table.Add("CharacterControllerComponent_Move", &CharacterControllerComponent_Move);
+		table.Add("CharacterControllerComponent_GetVelocity", &CharacterControllerComponent_GetVelocity);
+		table.Add("CharacterControllerComponent_SetVelocity", &CharacterControllerComponent_SetVelocity);
+		table.Add("CharacterControllerComponent_IsGrounded", &CharacterControllerComponent_IsGrounded);
+		table.Add("CharacterControllerComponent_GetGroundNormal", &CharacterControllerComponent_GetGroundNormal);
+		table.Add("CharacterControllerComponent_Teleport", &CharacterControllerComponent_Teleport);
 
 		AddFieldBindings<&AudioSourceComponent::Clip, "AudioSourceComponent", "Clip">(table);
 		AddFieldBindings<&AudioSourceComponent::Volume, "AudioSourceComponent", "Volume">(table);

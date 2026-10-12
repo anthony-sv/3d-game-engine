@@ -334,7 +334,8 @@ Lifecycle: `OnRuntimeStart/Stop` (physics + scripts + audio), `OnSimulationStart
 Play mode runs on a deep copy (`Scene::Copy`); stopping restores the editor scene untouched.
 
 Runtime update order per frame: scripts `OnUpdate` → physics fixed steps (accumulator, default 60 Hz; scripts'
-`OnFixedUpdate` before each step) → contact/trigger events dispatched to scripts → transform sync → audio update →
+`OnFixedUpdate` before each step; characters are then drawn between their last two steps, §8) → contact/trigger events
+dispatched to scripts → transform sync → audio update →
 deferred entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the
 end of the frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext`
 completes their destruction at once (`Scene::FlushPendingDestruction`): later edits and undo, also while paused, find
@@ -374,6 +375,7 @@ interop component lookups.
 | `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
+| `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
 | `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
@@ -413,7 +415,9 @@ to fade by, take the volume's value once the blend reaches one half. Values scri
 as the nearest bound, and scenes without volumes skip the work.
 
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
-entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes.
+entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes. A `CharacterController`
+makes the entity a character instead (§8): its colliders and `RigidBody` are left out, with a warning. The colliders
+of the entities below a character are its own parts, which neither block it nor touch it.
 
 ### 7.3 Serialization formats (JSON, written with tabs, keys in stable order)
 
@@ -486,10 +490,58 @@ fixed, hinge (with limits within ±180° and a velocity motor with a torque limi
 negative ends keep the starting distance) and slider (limits around the starting position, velocity motor with a force
 limit). Values that are not finite, missing bodies, joints to the entity itself and hinges or sliders without an axis
 are refused; removing a body removes the joints on either side of it. The scene makes every `Joint` component's joint
-when it starts and makes them all again whenever a joint component or a body changes (rebuilt bodies lose their
-joints); a joint whose connected entity no longer exists is left out without a warning (a broken chain), while one
-whose connected entity has no body is logged. Duplicates and prefab instances remap `ConnectedEntity`. The scene view
-draws a selected joint's anchor, axis and connection.
+when it starts and makes them all again whenever a joint component changes or a body is made, rebuilt or removed
+(rebuilt bodies lose their joints; changing a character does not touch them); a joint whose connected entity no longer
+exists is left out without a warning (a broken chain), while one whose connected entity has no body is logged.
+Duplicates and prefab instances remap `ConnectedEntity`. The scene view draws a selected joint's anchor, axis and
+connection.
+
+Characters (`CharacterDesc`, `PhysicsScene::AddCharacter`) are Jolt `CharacterVirtual`s: upright capsules (a sphere when
+the height is below twice the radius) that games move instead of the simulation. An entity has a body or a character;
+adding one replaces the other. Each step moves the characters first, in the order of their entities' IDs, then simulates
+the bodies. A character has a velocity of its own: on walkable ground (`MaxSlopeAngle`) its feet stop it and the ground
+carries it at the ground's velocity of this step (`UpdateGroundVelocity` first: scripts set kinematic targets before the
+step, so a platform that starts, stops or turns back carries it without a slip), gravity (times `GravityFactor`) only
+presses it against the ground, so it does not creep down slopes; elsewhere gravity speeds it up, so it falls and slides
+down slopes too steep to stand on. An upward velocity of its own jumps (it keeps the ground's velocity); after the step,
+the part of it that moved into what the character hit is removed (landing, ceilings, walls). After the bodies' step, a
+character on ground that went down (a descending platform or elevator, which was still in its way when it moved) follows
+it down (`StickToFloor` over the ground's drop), so it neither hovers above it nor loses it. `MoveCharacter` adds a
+walking velocity for the next step only. `ExtendedUpdate` slides it along what it hits, cancels walking up steep slopes,
+climbs steps up to `StepHeight` and keeps it on the ground over drops up to `StepHeight` (walking down stairs and
+slopes); its rounded bottom rolls over edges, which are too steep to stand on for a step or two. It pushes the dynamic
+bodies it walks into with at most `PushForce` newtons and weighs `Mass` on what it stands on. A kinematic inner body,
+larger by the 2 cm the character keeps from what it touches, gives it presence: raycasts hit it, dynamic bodies land on
+it, other characters are blocked by it, and it reports contacts with static and kinematic bodies like kinematic bodies
+do, so triggers notice it and its scripts get collision and trigger callbacks. Trigger colliders never block characters
+(a shape filter skips them), and neither do the bodies of the entities a character ignores
+(`SetCharacterIgnoredEntities`, its own parts: a body filter lets its sweeps pass through them, and the contact listener
+rejects their contacts with its inner body in `OnContactValidate`, so they neither push it nor report touching it).
+Reshaping or moving a character keeps its velocity and refreshes what it stands on, and so does removing or rebuilding
+the body it stands on (rather than standing on, and riding, a body that is gone until its next step); refused
+descriptions (values that are not finite, capsules larger than the world allows) leave the entity without one; speeds
+are kept within 500 m/s.
+
+The scene makes a character for each `CharacterController` when it starts, places its capsule at the entity's world
+position plus `Offset` (both scaled with the entity, the radius by the larger horizontal scale; the capsule does not
+turn with the entity, which scripts rotate freely), and changes it in place when the component or the entity's scale
+changes; the warning about the colliders and `RigidBody` it replaces is logged once, when the character is made.
+Changing the component changes only the character, while adding or removing it replaces the entity's body (which makes
+the joints again). The entities below a character are its parts: the scene has the physics ignore their bodies, and
+follows the hierarchy as it changes. Before each step, an entity moved by a script, the editor or its parent teleports
+its character (keeping its velocity); after it, moved characters write their positions back (parents first). The
+simulation moves entities without taking their transforms apart: characters change only the translation, dynamic bodies
+the translation and rotation, so scales (and characters' rotations) stay exactly as they were. Between frames,
+characters are drawn between their last two steps, so they (and cameras on them) move smoothly whatever the frame rate:
+before a frame's physics changes and steps, entities not moved since they were drawn go back to where the last step left
+them (`OnFixedUpdate`, their parts' bodies and component changes see the physics positions; a component changed between
+steps keeps the character where it is), and after the steps they are drawn as far into the last step as the time left
+over makes up (accumulator / step, so a step behind). The way their ground carried them in the last step
+(`CharacterState::GroundDisplacement`, as far as they went that way) is not delayed, so riders stay on platforms, which
+are drawn where the last step left them. Entities moved between steps stay where they were put, and the next step
+teleports their characters there. Removing the component or destroying the entity removes the character.
+`Scene::TeleportCharacter` places the entity and stops its character at once. The scene view draws a selected
+character's capsule (with the colliders).
 
 Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
 `PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin
@@ -592,6 +644,8 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `LinearDamping`, `AngularDamping`, `AddForce(Vector3, ForceMode)`, `AddTorque(Vector3, ForceMode)`,
   `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
+  `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
+  `GroundNormal`, `Teleport(Vector3)`),
   `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
   `Emit(count)`, `Clear()`, `ParticleCount`), `PostProcessComponent` (every field; `Tonemapper` is a `TonemapOperator`),
@@ -616,11 +670,15 @@ Semantics: components are views (`GetComponent<T>()` makes no copy) whose proper
 component through typed bindings (`<Component>_Get<Field>`/`_Set<Field>`, generated from member pointers); writes go
 through the registry, so systems watching a component (physics) see them. While the scene runs, `RigidBodyComponent`
 velocities, forces, sleep, `MoveKinematic` and `Teleport` act on the simulated body (bodies of components added that
-frame are created first; `Type`, `Mass` and `Layer` rebuild it), and `AudioSourceComponent` playback acts on the
-entity's sound, brought up to date with the component first. Entity lookups (`FindByName`, `FindByID`, `Parent`,
-`Children`, contacts, raycast hits) return the script instance of scripted entities. `Time.TimeScale` scales script
-and physics time, not sounds. Asset references are typed (`Mesh`, `Material`, `Texture`, `AudioClip`, `Font`,
-`EnvironmentMap` (not `Environment`, which clashes with `System.Environment`), `Prefab`). Calls without a running scene
+frame are created first; `Type`, `Mass` and `Layer` rebuild it), `CharacterControllerComponent.Move` (the walking
+velocity of the next physics step; call it from `OnFixedUpdate`), `Velocity` (the character's own: falling, jumping),
+`IsGrounded`, `GroundNormal` and `Teleport` act on the entity's character (fields change it before the next step;
+without a simulated character the reads are a character at rest and `Move` and setting `Velocity` are logged), and
+`AudioSourceComponent` playback acts on the entity's sound, brought up to date with the component first. Entity
+lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
+entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
+`Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
+`Prefab`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the

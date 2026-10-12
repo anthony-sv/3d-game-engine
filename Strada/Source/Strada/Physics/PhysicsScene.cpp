@@ -9,7 +9,9 @@
 
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
@@ -22,6 +24,7 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/ShapeFilter.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
@@ -29,9 +32,13 @@
 #include <Jolt/Physics/Constraints/SliderConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 
+#include <glm/gtc/constants.hpp>
+
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <cmath>
+#include <map>
 #include <mutex>
 #include <tuple>
 #include <unordered_map>
@@ -49,6 +56,10 @@ namespace Strada
 		constexpr size_t TempAllocatorSize = 16 * 1024 * 1024;
 		// Smallest extent of a shape: degenerate sizes (zero scale) would make Jolt reject the shape.
 		constexpr float MinimumExtent = 1e-3f;
+		// How far characters keep from what they touch (Jolt's default), which makes their sweeps cheap and robust.
+		constexpr float CharacterPadding = 0.02f;
+		// Grounds that go down less than this in a step (meters) are not worth following (Data::FollowGround).
+		constexpr float MinimumFollowedDrop = 1e-4f;
 
 		bool IsFinite(glm::vec3 const& value)
 		{
@@ -221,8 +232,51 @@ namespace Strada
 			size_t operator()(JPH::SubShapeIDPair const& pair) const { return static_cast<size_t>(pair.GetHash()); }
 		};
 
+		// The entities whose bodies each character ignores (its own parts), sorted by ID. Changed between steps; Jolt's
+		// worker threads read it during steps.
+		class CharacterExclusions
+		{
+		public:
+			// Replaces the character's list; an empty list removes it.
+			void Set(UUID character, std::vector<UUID> entities)
+			{
+				std::sort(entities.begin(), entities.end());
+				entities.erase(std::unique(entities.begin(), entities.end()), entities.end());
+				if (entities.empty())
+				{
+					m_Entries.erase(character);
+				}
+				else
+				{
+					m_Entries[character] = std::move(entities);
+				}
+			}
+
+			// The character's sorted list; null when it ignores nothing.
+			std::vector<UUID> const* Find(UUID character) const
+			{
+				auto const it = m_Entries.find(character);
+				return it != m_Entries.end() ? &it->second : nullptr;
+			}
+
+			static bool Contains(std::vector<UUID> const* entities, UUID entity)
+			{
+				return entities != nullptr && std::binary_search(entities->begin(), entities->end(), entity);
+			}
+
+			// Whether one of two bodies (their user data are entity IDs) is a character that ignores the other.
+			bool IgnoresPair(uint64_t first, uint64_t second) const
+			{
+				return !m_Entries.empty() && (Contains(Find(UUID(first)), UUID(second)) || Contains(Find(UUID(second)), UUID(first)));
+			}
+
+		private:
+			std::unordered_map<UUID, std::vector<UUID>> m_Entries;
+		};
+
 		// Turns Jolt's per sub-shape contacts into enter/exit events per entity pair, applies per-collider friction and
-		// restitution, and makes contacts with trigger colliders sensor contacts. Jolt calls it from its worker threads.
+		// restitution, makes contacts with trigger colliders sensor contacts and keeps characters from touching their own
+		// parts. Jolt calls it from its worker threads.
 		//
 		// Jolt removes the contacts of bodies that fall asleep (and finds them again when they wake up). Those contacts
 		// persist here: a removed contact whose bodies are all inactive after the step goes dormant instead of ending,
@@ -230,9 +284,19 @@ namespace Strada
 		class ContactCollector final : public JPH::ContactListener
 		{
 		public:
-			explicit ContactCollector(std::vector<ColliderMaterial> const& materials)
-				: m_Materials(materials)
+			ContactCollector(std::vector<ColliderMaterial> const& materials, CharacterExclusions const& exclusions)
+				: m_Materials(materials),
+				  m_Exclusions(exclusions)
 			{
+			}
+
+			JPH::ValidateResult OnContactValidate(JPH::Body const& first, JPH::Body const& second, JPH::RVec3Arg,
+			                                      JPH::CollideShapeResult const&) override
+			{
+				// A character's inner body neither pushes nor reports its own parts.
+				return m_Exclusions.IgnoresPair(first.GetUserData(), second.GetUserData())
+				           ? JPH::ValidateResult::RejectAllContactsForThisBodyPair
+				           : JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
 			}
 
 			void OnContactAdded(JPH::Body const& first, JPH::Body const& second, JPH::ContactManifold const& manifold,
@@ -419,6 +483,7 @@ namespace Strada
 
 			// Read during steps (no changes while Jolt runs).
 			std::vector<ColliderMaterial> const& m_Materials;
+			CharacterExclusions const& m_Exclusions;
 			std::mutex m_Mutex;
 			// Sub-shape pairs in contact, and whether the contact is a trigger contact.
 			std::unordered_map<JPH::SubShapeIDPair, bool, SubShapePairHash> m_ActivePairs;
@@ -592,6 +657,113 @@ namespace Strada
 			}
 			return JPH::RefConst<JPH::Shape>(result.Get());
 		}
+
+		// Lets character queries pass through trigger colliders (the user data of a collider's shapes indexes its material).
+		class SolidShapeFilter final : public JPH::ShapeFilter
+		{
+		public:
+			explicit SolidShapeFilter(std::vector<ColliderMaterial> const& materials)
+				: m_Materials(materials)
+			{
+			}
+
+			bool ShouldCollide(JPH::Shape const* shape, JPH::SubShapeID const&) const override { return !IsTrigger(*shape); }
+
+			bool ShouldCollide(JPH::Shape const*, JPH::SubShapeID const&, JPH::Shape const* shape, JPH::SubShapeID const&) const override
+			{
+				return !IsTrigger(*shape);
+			}
+
+		private:
+			bool IsTrigger(JPH::Shape const& shape) const
+			{
+				uint64_t const index = shape.GetUserData();
+				return index > 0 && index <= m_Materials.size() && m_Materials[index - 1].IsTrigger;
+			}
+
+			std::vector<ColliderMaterial> const& m_Materials;
+		};
+
+		// Lets character queries pass through the bodies of the entities the character ignores (the user data of bodies are
+		// their entities' IDs).
+		class ExcludedBodyFilter final : public JPH::BodyFilter
+		{
+		public:
+			explicit ExcludedBodyFilter(std::vector<UUID> const* excluded)
+				: m_Excluded(excluded)
+			{
+			}
+
+			bool ShouldCollideLocked(JPH::Body const& body) const override
+			{
+				return !CharacterExclusions::Contains(m_Excluded, UUID(body.GetUserData()));
+			}
+
+		private:
+			std::vector<UUID> const* m_Excluded;
+		};
+
+		// What a character collides with: the bodies of the layers its layer collides with, except trigger colliders and its
+		// own parts.
+		struct CharacterFilters
+		{
+			CharacterFilters(JPH::PhysicsSystem const& system, uint32_t layer, std::vector<ColliderMaterial> const& materials,
+			                 std::vector<UUID> const* excluded)
+				: BroadPhaseFilter(system.GetDefaultBroadPhaseLayerFilter(Layers::Make(layer, true))),
+				  LayerFilter(system.GetDefaultLayerFilter(Layers::Make(layer, true))),
+				  BodyFilter(excluded),
+				  ShapeFilter(materials)
+			{
+			}
+
+			JPH::DefaultBroadPhaseLayerFilter BroadPhaseFilter;
+			JPH::DefaultObjectLayerFilter LayerFilter;
+			ExcludedBodyFilter BodyFilter;
+			SolidShapeFilter ShapeFilter;
+		};
+
+		struct CharacterRecord
+		{
+			JPH::Ref<JPH::CharacterVirtual> Character;
+			uint32_t Layer = 0;
+			// The capsule's size, to tell when its shape changes.
+			float Radius = 0.0f;
+			float HalfCylinder = 0.0f;
+			float StepHeight = 0.0f;
+			float GravityFactor = 1.0f;
+			// Its own velocity, and the walking velocity of the next step.
+			glm::vec3 Velocity = glm::vec3(0.0f);
+			glm::vec3 Walk = glm::vec3(0.0f);
+			// How far its ground moved where it stands during the last step (CharacterState::GroundDisplacement).
+			glm::vec3 GroundDisplacement = glm::vec3(0.0f);
+		};
+
+		// A character's capsule (a sphere when it has no cylinder part), centered on the character's position.
+		Result<JPH::RefConst<JPH::Shape>> CreateCharacterShape(float radius, float halfCylinder)
+		{
+			JPH::ShapeSettings::ShapeResult result;
+			if (halfCylinder < MinimumExtent)
+			{
+				JPH::SphereShapeSettings const settings(radius);
+				result = settings.Create();
+			}
+			else
+			{
+				JPH::CapsuleShapeSettings const settings(halfCylinder, radius);
+				result = settings.Create();
+			}
+			if (result.HasError())
+			{
+				return MakeError("the capsule cannot be built: {}", result.GetError().c_str());
+			}
+			return JPH::RefConst<JPH::Shape>(result.Get());
+		}
+
+		// Contacts below the center of the capsule's lower cap carry the character; higher ones only block it.
+		JPH::Plane MakeSupportingVolume(float halfCylinder)
+		{
+			return JPH::Plane(JPH::Vec3::sAxisY(), halfCylinder);
+		}
 	}
 
 	struct PhysicsScene::Data
@@ -599,7 +771,7 @@ namespace Strada
 		explicit Data(PhysicsWorldSettings const& settings)
 			: LayerCount(std::clamp<uint32_t>(settings.LayerCount, 1, static_cast<uint32_t>(MaxPhysicsLayers))),
 			  LayerPairs(settings),
-			  Contacts(Materials)
+			  Contacts(Materials, Exclusions)
 		{
 		}
 
@@ -609,6 +781,7 @@ namespace Strada
 		LayerPairFilter LayerPairs;
 		std::vector<ColliderMaterial> Materials;
 		std::vector<uint32_t> FreeMaterials;
+		CharacterExclusions Exclusions;
 		ContactCollector Contacts;
 		JPH::TempAllocatorImpl TempAllocator{TempAllocatorSize};
 		// After the listeners and filters it references.
@@ -620,12 +793,142 @@ namespace Strada
 			UUID ConnectedEntity = UUID::Invalid();
 		};
 		std::unordered_map<UUID, JointRecord> Joints;
+		// Ordered by entity: characters move one after the other, in the same order on every run. After the system, whose
+		// bodies their destructors remove.
+		std::map<UUID, CharacterRecord> Characters;
 		bool OptimizeBroadPhase = false;
 
 		BodyRecord const* Find(UUID entity) const
 		{
 			auto const it = Bodies.find(entity);
 			return it != Bodies.end() ? &it->second : nullptr;
+		}
+
+		CharacterRecord* FindCharacter(UUID entity)
+		{
+			auto const it = Characters.find(entity);
+			return it != Characters.end() ? &it->second : nullptr;
+		}
+
+		// Finds what the character touches where it is, and what it stands on.
+		void RefreshContacts(UUID entity, CharacterRecord& record)
+		{
+			CharacterFilters const filters(System, record.Layer, Materials, Exclusions.Find(entity));
+			record.Character->RefreshContacts(filters.BroadPhaseFilter, filters.LayerFilter, filters.BodyFilter, filters.ShapeFilter,
+			                                  TempAllocator);
+		}
+
+		// The characters standing on a body (the ground they last found).
+		std::vector<UUID> FindCharactersStandingOn(JPH::BodyID body) const
+		{
+			std::vector<UUID> standing;
+			for (auto const& [entity, record] : Characters)
+			{
+				if (record.Character->GetGroundBodyID() == body)
+				{
+					standing.push_back(entity);
+				}
+			}
+			return standing;
+		}
+
+		// Characters whose ground was removed or replaced find what they stand on now (they would otherwise stand on it, and
+		// be carried at its velocity, until their next step).
+		void RefreshCharacters(std::vector<UUID> const& entities)
+		{
+			for (UUID const entity : entities)
+			{
+				if (CharacterRecord* record = FindCharacter(entity))
+				{
+					RefreshContacts(entity, *record);
+				}
+			}
+		}
+
+		// One step of a character: it walks (carried by the ground it stands on), falls, climbs steps and keeps to the
+		// ground when it walks down slopes and steps.
+		void StepCharacter(UUID entity, CharacterRecord& record, float deltaTime)
+		{
+			JPH::CharacterVirtual& character = *record.Character;
+			// What it stands on may have changed its velocity since the character's last step (scripts set kinematic
+			// targets before each step): a platform that starts, stops or turns back carries it at its new velocity.
+			character.UpdateGroundVelocity();
+			glm::vec3 const up(0.0f, 1.0f, 0.0f);
+			glm::vec3 const gravity = Jolt::ToGlm(System.GetGravity()) * record.GravityFactor;
+			glm::vec3 velocity = record.Velocity;
+			glm::vec3 carried(0.0f);
+			glm::vec3 fall = gravity;
+			if (character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround)
+			{
+				glm::vec3 const ground = Jolt::ToGlm(character.GetGroundVelocity());
+				// Rounding leaves a standing character's velocity within a hair of zero; jumps are far faster.
+				if (glm::dot(velocity, up) > 1e-3f)
+				{
+					// Jumping off: it keeps the ground's velocity.
+					velocity += ground;
+				}
+				else
+				{
+					// Standing: its feet stop it, and the ground carries it. Gravity only presses it against the ground, so
+					// it keeps in touch with it without creeping down walkable slopes.
+					glm::vec3 const normal = Jolt::ToGlm(character.GetGroundNormal());
+					velocity = glm::vec3(0.0f);
+					carried = ground;
+					fall = glm::dot(gravity, normal) * normal;
+				}
+			}
+			velocity = ClampLength(velocity + fall * deltaTime, MaxCharacterSpeed);
+			character.SetLinearVelocity(Jolt::ToJolt(ClampLength(velocity + record.Walk + carried, MaxCharacterSpeed)));
+
+			JPH::CharacterVirtual::ExtendedUpdateSettings settings;
+			settings.mStickToFloorStepDown = JPH::Vec3(0.0f, -record.StepHeight, 0.0f);
+			settings.mWalkStairsStepUp = JPH::Vec3(0.0f, record.StepHeight, 0.0f);
+			CharacterFilters const filters(System, record.Layer, Materials, Exclusions.Find(entity));
+			character.ExtendedUpdate(deltaTime, Jolt::ToJolt(gravity), settings, filters.BroadPhaseFilter, filters.LayerFilter,
+			                         filters.BodyFilter, filters.ShapeFilter, TempAllocator);
+
+			// Its own velocity loses what moves it into the surfaces it hit: it lands, stops under ceilings and slides along
+			// walls and down slopes too steep to stand on. Only its own motion is removed (moving surfaces push it, they do
+			// not launch it).
+			for (JPH::CharacterContact const& contact : character.GetActiveContacts())
+			{
+				if (!contact.mHadCollision || contact.mWasDiscarded)
+				{
+					continue;
+				}
+				glm::vec3 const normal = Jolt::ToGlm(contact.mContactNormal);
+				float const into = glm::dot(velocity, normal);
+				if (into < 0.0f)
+				{
+					velocity -= into * normal;
+				}
+			}
+			record.Velocity = velocity;
+			record.Walk = glm::vec3(0.0f);
+		}
+
+		// After the bodies' step: notes how far the ground moved under the character. A character moved before the bodies, so
+		// it could not go down with a descending platform (the platform was still in its way): it follows what it stands on
+		// down now instead of hovering a step's travel above it.
+		void FollowGround(UUID entity, CharacterRecord& record, float deltaTime)
+		{
+			JPH::CharacterVirtual& character = *record.Character;
+			record.GroundDisplacement = glm::vec3(0.0f);
+			if (character.GetGroundState() != JPH::CharacterBase::EGroundState::OnGround)
+			{
+				return;
+			}
+			character.UpdateGroundVelocity();
+			record.GroundDisplacement = Jolt::ToGlm(character.GetGroundVelocity()) * deltaTime;
+			float const drop = -record.GroundDisplacement.y;
+			if (drop <= MinimumFollowedDrop)
+			{
+				return;
+			}
+			// The sweep reaches past the padding it keeps from the ground, and stops where the ground is now.
+			CharacterFilters const filters(System, record.Layer, Materials, Exclusions.Find(entity));
+			character.StickToFloor(JPH::Vec3(0.0f, -(drop + CharacterPadding), 0.0f), filters.BroadPhaseFilter, filters.LayerFilter,
+			                       filters.BodyFilter, filters.ShapeFilter, TempAllocator);
 		}
 
 		uint32_t AllocateMaterial(ColliderDesc const& collider)
@@ -671,6 +974,8 @@ namespace Strada
 			m_Data->System.RemoveConstraint(joint.Constraint);
 		}
 		m_Data->Joints.clear();
+		// Characters remove their inner bodies.
+		m_Data->Characters.clear();
 		JPH::BodyInterface& bodies = m_Data->System.GetBodyInterface();
 		for (auto const& [entity, record] : m_Data->Bodies)
 		{
@@ -685,14 +990,19 @@ namespace Strada
 		{
 			return MakeError("entity {} has no colliders", desc.Entity);
 		}
-		// Like every failure below, a refused description leaves the entity without a body.
+		Data& data = *m_Data;
+		// Characters standing on the body it replaces stand on the new one.
+		BodyRecord const* const replaced = data.Find(desc.Entity);
+		std::vector<UUID> const standing = replaced != nullptr ? data.FindCharactersStandingOn(replaced->Id) : std::vector<UUID>();
+		// Like every failure below, a refused description leaves the entity without a body. An entity has a body or a
+		// character.
 		RemoveBody(desc.Entity);
+		RemoveCharacter(desc.Entity);
 		if (!IsFinite(desc.Position) || !IsFinite(desc.Rotation) || !IsFinite(desc.Scale) || !IsFinite(desc.LinearVelocity) ||
 		    !IsFinite(desc.AngularVelocity))
 		{
 			return MakeError("entity {} has a transform or velocity that is not finite", desc.Entity);
 		}
-		Data& data = *m_Data;
 
 		RigidBodyType type = desc.Type;
 		JPH::EAllowedDOFs const allowedDofs = MakeAllowedDOFs(desc);
@@ -807,6 +1117,7 @@ namespace Strada
 		bodies.AddBody(body->GetID(), type == RigidBodyType::Static ? JPH::EActivation::DontActivate : JPH::EActivation::Activate);
 		data.Bodies[desc.Entity] = BodyRecord{body->GetID(), type, std::move(materials)};
 		data.OptimizeBroadPhase = true;
+		data.RefreshCharacters(standing);
 		return {};
 	}
 
@@ -831,12 +1142,15 @@ namespace Strada
 				++joint;
 			}
 		}
+		JPH::BodyID const id = it->second.Id;
+		std::vector<UUID> const standing = data.FindCharactersStandingOn(id);
 		JPH::BodyInterface& bodies = data.System.GetBodyInterface();
-		bodies.RemoveBody(it->second.Id);
-		bodies.DestroyBody(it->second.Id);
-		data.Contacts.ForgetBody(it->second.Id);
+		bodies.RemoveBody(id);
+		bodies.DestroyBody(id);
+		data.Contacts.ForgetBody(id);
 		data.FreeMaterials.insert(data.FreeMaterials.end(), it->second.Materials.begin(), it->second.Materials.end());
 		data.Bodies.erase(it);
+		data.RefreshCharacters(standing);
 	}
 
 	bool PhysicsScene::HasBody(UUID entity) const
@@ -1031,6 +1345,214 @@ namespace Strada
 		return m_Data->Joints.size();
 	}
 
+	Result<void> PhysicsScene::AddCharacter(CharacterDesc const& desc)
+	{
+		Data& data = *m_Data;
+		// An entity has a body or a character.
+		RemoveBody(desc.Entity);
+		float const values[] = {desc.Radius, desc.Height,    desc.StepHeight,   desc.MaxSlopeAngle,
+		                        desc.Mass,   desc.PushForce, desc.GravityFactor};
+		bool const finite = std::all_of(std::begin(values), std::end(values),
+		                                [](float value)
+		                                {
+											return std::isfinite(value);
+										});
+		if (!finite || !IsFinite(desc.Position))
+		{
+			RemoveCharacter(desc.Entity);
+			return MakeError("the character of entity {} has values that are not finite", desc.Entity);
+		}
+		if (desc.Radius > MaxPhysicsExtent || desc.Height > MaxPhysicsExtent)
+		{
+			RemoveCharacter(desc.Entity);
+			return MakeError("entity {}: the character is larger than the physics world allows ({} m)", desc.Entity, MaxPhysicsExtent);
+		}
+
+		glm::vec3 const position = ClampPosition(desc.Position);
+		if (position != desc.Position)
+		{
+			ST_CORE_WARN("Physics: entity {} is farther from the origin than the physics world allows ({} m); its character stays at "
+			             "the edge",
+			             desc.Entity, MaxPhysicsCoordinate);
+		}
+		float const radius = std::max(desc.Radius, MinimumExtent);
+		float const halfCylinder = std::max(0.5f * desc.Height - radius, 0.0f);
+		uint32_t const layer = desc.Layer < data.LayerCount ? desc.Layer : 0u;
+		// Jolt takes slopes of (nearly) zero degrees as no limit at all.
+		float const maxSlopeAngle = std::clamp(desc.MaxSlopeAngle, glm::radians(1.0f), glm::half_pi<float>());
+		float const mass = std::clamp(desc.Mass, 0.0f, MaxPhysicsMass);
+		float const pushForce = std::clamp(desc.PushForce, 0.0f, MaxPhysicsForce);
+
+		CharacterRecord* record = data.FindCharacter(desc.Entity);
+		bool const reshape = record == nullptr || record->Radius != radius || record->HalfCylinder != halfCylinder;
+		JPH::RefConst<JPH::Shape> shape;
+		JPH::RefConst<JPH::Shape> innerShape;
+		if (reshape)
+		{
+			// The inner body is larger by the character's padding, so it touches what the character stands on and leans
+			// against, and contacts with it are reported steadily.
+			Result<JPH::RefConst<JPH::Shape>> created = CreateCharacterShape(radius, halfCylinder);
+			Result<JPH::RefConst<JPH::Shape>> createdInner = CreateCharacterShape(radius + CharacterPadding, halfCylinder);
+			if (!created || !createdInner)
+			{
+				RemoveCharacter(desc.Entity);
+				return MakeError("entity {}: {}", desc.Entity, created ? createdInner.GetError() : created.GetError());
+			}
+			shape = created.TakeValue();
+			innerShape = createdInner.TakeValue();
+		}
+
+		if (record == nullptr)
+		{
+			JPH::Ref<JPH::CharacterVirtualSettings> settings = new JPH::CharacterVirtualSettings();
+			settings->mShape = shape;
+			settings->mCharacterPadding = CharacterPadding;
+			settings->mSupportingVolume = MakeSupportingVolume(halfCylinder);
+			settings->mMaxSlopeAngle = maxSlopeAngle;
+			settings->mMass = mass;
+			settings->mMaxStrength = pushForce;
+			// Smoother walking over the inner edges of meshes (terrain), at a small cost.
+			settings->mEnhancedInternalEdgeRemoval = true;
+			settings->mInnerBodyShape = innerShape;
+			settings->mInnerBodyLayer = Layers::Make(layer, true);
+			JPH::Ref<JPH::CharacterVirtual> character =
+				new JPH::CharacterVirtual(settings, Jolt::ToJolt(position), JPH::Quat::sIdentity(), desc.Entity.GetValue(), &data.System);
+			if (character->GetInnerBodyID().IsInvalid())
+			{
+				return MakeError("entity {}: the physics world is full ({} bodies)", desc.Entity, MaxBodies);
+			}
+			{
+				// The inner body reports touching static and kinematic bodies like kinematic bodies do: the character enters
+				// static triggers.
+				JPH::BodyLockWrite const lock(data.System.GetBodyLockInterface(), character->GetInnerBodyID());
+				if (lock.Succeeded())
+				{
+					lock.GetBody().SetCollideKinematicVsNonDynamic(true);
+				}
+			}
+			record = &data.Characters[desc.Entity];
+			record->Character = std::move(character);
+			data.OptimizeBroadPhase = true;
+		}
+		else
+		{
+			JPH::CharacterVirtual& character = *record->Character;
+			if (reshape)
+			{
+				// Without a check for room (FLT_MAX): what the larger shape overlaps pushes it out.
+				CharacterFilters const filters(data.System, record->Layer, data.Materials, data.Exclusions.Find(desc.Entity));
+				character.SetShape(shape, FLT_MAX, filters.BroadPhaseFilter, filters.LayerFilter, filters.BodyFilter, filters.ShapeFilter,
+				                   data.TempAllocator);
+				character.SetInnerBodyShape(innerShape);
+				character.SetSupportingVolume(MakeSupportingVolume(halfCylinder));
+			}
+			character.SetPosition(Jolt::ToJolt(position));
+			character.SetMaxSlopeAngle(maxSlopeAngle);
+			character.SetMass(mass);
+			character.SetMaxStrength(pushForce);
+			if (layer != record->Layer)
+			{
+				data.System.GetBodyInterface().SetObjectLayer(character.GetInnerBodyID(), Layers::Make(layer, true));
+			}
+		}
+		record->Layer = layer;
+		record->Radius = radius;
+		record->HalfCylinder = halfCylinder;
+		record->StepHeight = std::clamp(desc.StepHeight, 0.0f, MaxPhysicsExtent);
+		record->GravityFactor = std::clamp(desc.GravityFactor, -MaxPhysicsGravityFactor, MaxPhysicsGravityFactor);
+		data.RefreshContacts(desc.Entity, *record);
+		return {};
+	}
+
+	void PhysicsScene::RemoveCharacter(UUID entity)
+	{
+		Data& data = *m_Data;
+		auto const it = data.Characters.find(entity);
+		if (it == data.Characters.end())
+		{
+			return;
+		}
+		JPH::BodyID const innerBody = it->second.Character->GetInnerBodyID();
+		// The character removes its inner body, whose contacts end; characters standing on it fall.
+		data.Characters.erase(it);
+		data.Exclusions.Set(entity, {});
+		data.Contacts.ForgetBody(innerBody);
+		data.RefreshCharacters(data.FindCharactersStandingOn(innerBody));
+	}
+
+	void PhysicsScene::SetCharacterIgnoredEntities(UUID entity, std::vector<UUID> entities)
+	{
+		Data& data = *m_Data;
+		CharacterRecord* record = data.FindCharacter(entity);
+		if (record == nullptr)
+		{
+			return;
+		}
+		data.Exclusions.Set(entity, std::move(entities));
+		// Contacts Jolt cached between the inner body and bodies it now ignores are tested (and dropped) again in the next
+		// step; what the character touches and stands on is found again at once.
+		data.System.GetBodyInterface().InvalidateContactCache(record->Character->GetInnerBodyID());
+		data.RefreshContacts(entity, *record);
+	}
+
+	bool PhysicsScene::HasCharacter(UUID entity) const
+	{
+		return m_Data->Characters.contains(entity);
+	}
+
+	size_t PhysicsScene::GetCharacterCount() const
+	{
+		return m_Data->Characters.size();
+	}
+
+	void PhysicsScene::MoveCharacter(UUID entity, glm::vec3 const& velocity)
+	{
+		CharacterRecord* record = m_Data->FindCharacter(entity);
+		if (record != nullptr && IsFinite(velocity))
+		{
+			record->Walk = ClampLength(velocity, MaxCharacterSpeed);
+		}
+	}
+
+	void PhysicsScene::SetCharacterVelocity(UUID entity, glm::vec3 const& velocity)
+	{
+		CharacterRecord* record = m_Data->FindCharacter(entity);
+		if (record != nullptr && IsFinite(velocity))
+		{
+			record->Velocity = ClampLength(velocity, MaxCharacterSpeed);
+		}
+	}
+
+	void PhysicsScene::SetCharacterPosition(UUID entity, glm::vec3 const& position)
+	{
+		CharacterRecord* record = m_Data->FindCharacter(entity);
+		if (record != nullptr && IsFinite(position))
+		{
+			record->Character->SetPosition(Jolt::ToJolt(ClampPosition(position)));
+			m_Data->RefreshContacts(entity, *record);
+		}
+	}
+
+	std::optional<CharacterState> PhysicsScene::GetCharacterState(UUID entity) const
+	{
+		auto const it = m_Data->Characters.find(entity);
+		if (it == m_Data->Characters.end())
+		{
+			return std::nullopt;
+		}
+		JPH::CharacterVirtual const& character = *it->second.Character;
+		bool const supported = character.IsSupported();
+		CharacterState state;
+		state.Entity = entity;
+		state.Position = Jolt::ToGlm(character.GetPosition());
+		state.Velocity = it->second.Velocity;
+		state.IsGrounded = character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+		state.GroundNormal = supported ? Jolt::ToGlm(character.GetGroundNormal()) : glm::vec3(0.0f);
+		state.GroundEntity = supported ? UUID(character.GetGroundUserData()) : UUID::Invalid();
+		state.GroundDisplacement = it->second.GroundDisplacement;
+		return state;
+	}
+
 	void PhysicsScene::Step(float deltaTime)
 	{
 		Data& data = *m_Data;
@@ -1043,10 +1565,19 @@ namespace Strada
 			data.System.OptimizeBroadPhase();
 			data.OptimizeBroadPhase = false;
 		}
+		// Characters first: their pushes, and their inner bodies where they moved, act in this step.
+		for (auto& [entity, record] : data.Characters)
+		{
+			data.StepCharacter(entity, record, deltaTime);
+		}
 		JPH::EPhysicsUpdateError const error = data.System.Update(deltaTime, 1, &data.TempAllocator, &Jolt::GetJobSystem());
 		if (error != JPH::EPhysicsUpdateError::None)
 		{
 			ST_CORE_WARN("The physics step ran out of space (error flags {:#x}); some contacts were dropped", static_cast<uint32_t>(error));
+		}
+		for (auto& [entity, record] : data.Characters)
+		{
+			data.FollowGround(entity, record, deltaTime);
 		}
 		data.Contacts.FinishStep(data.System.GetBodyInterface());
 	}

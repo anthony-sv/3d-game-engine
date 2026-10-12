@@ -11,8 +11,10 @@
 #include <algorithm>
 #include <cmath>
 #include <optional>
+#include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -21,13 +23,161 @@ namespace Strada
 		// Transform edits smaller than this are not worth teleporting a body for (decomposition round trips are noisy).
 		constexpr float PositionTolerance = 1e-4f;
 		constexpr float RotationTolerance = 1e-6f;
+		constexpr float ScaleTolerance = 1e-4f;
+
+		bool HasMoved(glm::vec3 const& positionA, glm::vec3 const& positionB)
+		{
+			glm::vec3 const delta = positionA - positionB;
+			return glm::dot(delta, delta) > PositionTolerance * PositionTolerance;
+		}
 
 		bool HasMoved(glm::vec3 const& positionA, glm::quat const& rotationA, glm::vec3 const& positionB, glm::quat const& rotationB)
 		{
-			glm::vec3 const delta = positionA - positionB;
 			// q and -q are the same rotation.
-			return glm::dot(delta, delta) > PositionTolerance * PositionTolerance ||
-			       1.0f - std::abs(glm::dot(rotationA, rotationB)) > RotationTolerance;
+			return HasMoved(positionA, positionB) || 1.0f - std::abs(glm::dot(rotationA, rotationB)) > RotationTolerance;
+		}
+
+		bool IsFinite(glm::vec3 const& value)
+		{
+			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+		}
+
+		// Moves an entity's origin to a world position and leaves its rotation and scale exactly as they are: taking the
+		// transform apart and putting it together again would change them in the last bits, every step.
+		void SetWorldPosition(Scene& scene, Entity entity, glm::vec3 const& position)
+		{
+			glm::vec3 local = position;
+			if (Entity const parent = scene.GetParent(entity))
+			{
+				local = glm::vec3(glm::inverse(scene.GetWorldTransform(parent)) * glm::vec4(position, 1.0f));
+			}
+			// Parents without a usable transform (zero scale) have no space to place the entity in.
+			if (IsFinite(local))
+			{
+				entity.GetComponent<TransformComponent>().Translation = local;
+			}
+		}
+
+		// Places an entity at a world position and rotation and leaves its scale exactly as it is (the simulation does not
+		// change it).
+		void SetWorldPose(Scene& scene, Entity entity, glm::vec3 const& position, glm::quat const& rotation)
+		{
+			TransformComponent& transform = entity.GetComponent<TransformComponent>();
+			Entity const parent = scene.GetParent(entity);
+			if (!parent)
+			{
+				transform.Translation = position;
+				transform.Rotation = Math::NormalizeRotation(rotation);
+				return;
+			}
+			glm::vec3 worldPosition;
+			glm::quat worldRotation;
+			glm::vec3 worldScale;
+			if (!Math::DecomposeTransform(scene.GetWorldTransform(entity), worldPosition, worldRotation, worldScale))
+			{
+				return;
+			}
+			glm::mat4 const local = glm::inverse(scene.GetWorldTransform(parent)) * Math::ComposeTransform(position, rotation, worldScale);
+			glm::vec3 localPosition;
+			glm::quat localRotation;
+			glm::vec3 localScale;
+			if (Math::DecomposeTransform(local, localPosition, localRotation, localScale))
+			{
+				transform.Translation = localPosition;
+				transform.Rotation = localRotation;
+			}
+		}
+
+		// The IDs of an entity's descendants, sorted.
+		std::vector<UUID> GetDescendantIDs(Scene& scene, Entity entity)
+		{
+			std::vector<UUID> descendants;
+			std::vector<UUID> pending = entity.GetComponent<RelationshipComponent>().Children;
+			// Bounded by the entity count, so a corrupted hierarchy cannot loop forever.
+			while (!pending.empty() && descendants.size() < scene.GetEntityCount())
+			{
+				UUID const id = pending.back();
+				pending.pop_back();
+				Entity const child = scene.GetEntityByUUID(id);
+				if (!child)
+				{
+					continue;
+				}
+				descendants.push_back(id);
+				std::vector<UUID> const& children = child.GetComponent<RelationshipComponent>().Children;
+				pending.insert(pending.end(), children.begin(), children.end());
+			}
+			std::sort(descendants.begin(), descendants.end());
+			return descendants;
+		}
+
+		// A character ignores the bodies of its own parts, the entities below it (a held object, a camera rig with
+		// colliders, a trigger around it): they neither block it nor touch it. parts holds what the physics world was told.
+		void SyncCharacterParts(Scene& scene, PhysicsScene& physics, Entity entity, UUID character, std::vector<UUID>& parts)
+		{
+			std::vector<UUID> current = GetDescendantIDs(scene, entity);
+			if (current != parts)
+			{
+				physics.SetCharacterIgnoredEntities(character, current);
+				parts = std::move(current);
+			}
+		}
+
+		// A world position for the entity of a character.
+		struct CharacterPlacement
+		{
+			entt::entity Handle = entt::null;
+			UUID Entity = UUID::Invalid();
+			glm::vec3 Position = glm::vec3(0.0f);
+			size_t Depth = 0;
+		};
+
+		// Moves the entities of characters: parents first (a child's local transform depends on its parent's new world
+		// transform), in a fixed order. The capsule does not turn, so the entities keep their rotations and scales.
+		void PlaceCharacterEntities(Scene& scene, std::vector<CharacterPlacement>& placements)
+		{
+			std::sort(placements.begin(), placements.end(),
+			          [](CharacterPlacement const& a, CharacterPlacement const& b)
+			          {
+						  return std::tuple(a.Depth, a.Entity.GetValue()) < std::tuple(b.Depth, b.Entity.GetValue());
+					  });
+			for (CharacterPlacement const& placement : placements)
+			{
+				SetWorldPosition(scene, Entity(placement.Handle, &scene), placement.Position);
+			}
+		}
+
+		// The part of a character's last step (moved) that what it stands on carried it (ground: how far the ground moved
+		// where it stands), as far as the character really went that way: a wall may have stopped it, or it walked against
+		// the ground's motion.
+		glm::vec3 GetCarriedPart(glm::vec3 const& moved, glm::vec3 const& ground)
+		{
+			float const distance = glm::length(ground);
+			if (distance < 1e-6f)
+			{
+				return glm::vec3(0.0f);
+			}
+			glm::vec3 const direction = ground / distance;
+			return direction * std::clamp(glm::dot(moved, direction), 0.0f, distance);
+		}
+
+		// A character's capsule: scaled with the entity (the radius by the larger horizontal scale), not turned with it.
+		CharacterDesc MakeCharacterDesc(UUID entity, CharacterControllerComponent const& component, glm::vec3 const& position,
+		                                glm::vec3 const& scale)
+		{
+			glm::vec3 const size = glm::abs(scale);
+			CharacterDesc desc;
+			desc.Entity = entity;
+			desc.Position = position + component.Offset * scale;
+			desc.Radius = component.Radius * std::max(size.x, size.z);
+			desc.Height = component.Height * size.y;
+			desc.StepHeight = component.StepHeight * size.y;
+			desc.MaxSlopeAngle = glm::radians(component.MaxSlopeAngle);
+			desc.Mass = component.Mass;
+			desc.PushForce = component.PushForce;
+			desc.GravityFactor = component.GravityFactor;
+			desc.Layer = component.Layer;
+			return desc;
 		}
 
 		void AddCollider(BodyDesc& desc, ColliderDesc collider, glm::vec3 const& offset, bool trigger, float friction, float restitution)
@@ -39,9 +189,22 @@ namespace Strada
 			desc.Colliders.push_back(std::move(collider));
 		}
 
-		// The body of an entity from its components; empty without colliders.
+		// Whether the entity has components that make a body (a CharacterController replaces them).
+		bool HasBodyComponents(entt::registry const& registry, entt::entity handle)
+		{
+			return registry
+			    .any_of<RigidBodyComponent, BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent>(
+					handle);
+		}
+
+		// The body of an entity from its components; empty without colliders, and for characters (which replace their
+		// bodies; UpdateCharacter says so).
 		std::optional<BodyDesc> BuildBodyDesc(Scene& scene, Entity entity)
 		{
+			if (entity.HasComponent<CharacterControllerComponent>())
+			{
+				return std::nullopt;
+			}
 			BodyDesc desc;
 			desc.Entity = entity.GetUUID();
 			if (BoxColliderComponent const* box = entity.TryGetComponent<BoxColliderComponent>())
@@ -161,6 +324,10 @@ namespace Strada
 		addBodies(m_Registry.view<CapsuleColliderComponent>());
 		addBodies(m_Registry.view<MeshColliderComponent>());
 		addBodies(m_Registry.view<RigidBodyComponent>());
+		for (entt::entity const handle : m_Registry.view<CharacterControllerComponent>())
+		{
+			m_ChangedCharacters.insert(handle);
+		}
 		m_JointsChanged = true;
 		RebuildChangedBodies();
 		ConnectPhysicsSignals(true);
@@ -176,6 +343,8 @@ namespace Strada
 		m_Physics.reset();
 		m_Bodies.clear();
 		m_ChangedBodies.clear();
+		m_Characters.clear();
+		m_ChangedCharacters.clear();
 		m_JointsChanged = false;
 		m_ContactEvents.clear();
 		m_PhysicsAccumulator = 0.0f;
@@ -224,6 +393,24 @@ namespace Strada
 		watchJoints(m_Registry.on_update<JointComponent>());
 		watchJoints(m_Registry.on_destroy<JointComponent>());
 
+		// Adding or removing a CharacterController replaces the entity's body (or gives it back); changing one changes only
+		// the character, so the joints of the scene's bodies stay as they are.
+		auto characterAdded = m_Registry.on_construct<CharacterControllerComponent>();
+		auto characterChanged = m_Registry.on_update<CharacterControllerComponent>();
+		auto characterRemoved = m_Registry.on_destroy<CharacterControllerComponent>();
+		if (connect)
+		{
+			characterAdded.connect<&Scene::OnCharacterComponentAddedOrRemoved>(*this);
+			characterChanged.connect<&Scene::OnCharacterComponentChanged>(*this);
+			characterRemoved.connect<&Scene::OnCharacterComponentAddedOrRemoved>(*this);
+		}
+		else
+		{
+			characterAdded.disconnect<&Scene::OnCharacterComponentAddedOrRemoved>(*this);
+			characterChanged.disconnect<&Scene::OnCharacterComponentChanged>(*this);
+			characterRemoved.disconnect<&Scene::OnCharacterComponentAddedOrRemoved>(*this);
+		}
+
 		auto meshUpdated = m_Registry.on_update<MeshComponent>();
 		if (connect)
 		{
@@ -243,6 +430,18 @@ namespace Strada
 	void Scene::OnJointComponentChanged(entt::registry&, entt::entity)
 	{
 		m_JointsChanged = true;
+	}
+
+	void Scene::OnCharacterComponentChanged(entt::registry&, entt::entity handle)
+	{
+		m_ChangedCharacters.insert(handle);
+	}
+
+	void Scene::OnCharacterComponentAddedOrRemoved(entt::registry&, entt::entity handle)
+	{
+		// A character replaces the entity's body: the body is removed (or made again) too.
+		m_ChangedCharacters.insert(handle);
+		m_ChangedBodies.insert(handle);
 	}
 
 	void Scene::OnMeshComponentChanged(entt::registry& registry, entt::entity handle)
@@ -266,12 +465,22 @@ namespace Strada
 	{
 		if (!m_ChangedBodies.empty())
 		{
-			// Rebuilt bodies lose their joints.
-			m_JointsChanged = true;
 			std::unordered_set<entt::entity> const changed = std::exchange(m_ChangedBodies, {});
 			for (entt::entity const handle : changed)
 			{
-				UpdateBody(handle);
+				// Made, rebuilt or removed bodies lose their joints.
+				if (UpdateBody(handle))
+				{
+					m_JointsChanged = true;
+				}
+			}
+		}
+		if (!m_ChangedCharacters.empty())
+		{
+			std::unordered_set<entt::entity> const changed = std::exchange(m_ChangedCharacters, {});
+			for (entt::entity const handle : changed)
+			{
+				UpdateCharacter(handle);
 			}
 		}
 		if (std::exchange(m_JointsChanged, false))
@@ -324,22 +533,24 @@ namespace Strada
 		}
 	}
 
-	void Scene::UpdateBody(entt::entity handle)
+	bool Scene::UpdateBody(entt::entity handle)
 	{
 		auto const existing = m_Bodies.find(handle);
 		if (!m_Registry.valid(handle) || !m_Registry.all_of<IDComponent>(handle))
 		{
 			// Destroyed entity.
-			if (existing != m_Bodies.end())
+			if (existing == m_Bodies.end())
 			{
-				m_Physics->RemoveBody(existing->second.Entity);
-				m_Bodies.erase(existing);
+				return false;
 			}
-			return;
+			m_Physics->RemoveBody(existing->second.Entity);
+			m_Bodies.erase(existing);
+			return true;
 		}
 
 		Entity const entity(handle, this);
 		UUID const id = entity.GetUUID();
+		bool const hadBody = m_Physics->HasBody(id);
 		std::optional<BodyDesc> desc = BuildBodyDesc(*this, entity);
 		if (!desc)
 		{
@@ -348,10 +559,10 @@ namespace Strada
 			{
 				m_Bodies.erase(existing);
 			}
-			return;
+			return hadBody;
 		}
 		// A rebuilt body keeps moving as before.
-		if (m_Physics->HasBody(id))
+		if (hadBody)
 		{
 			desc->LinearVelocity = m_Physics->GetLinearVelocity(id);
 			desc->AngularVelocity = m_Physics->GetAngularVelocity(id);
@@ -363,9 +574,214 @@ namespace Strada
 			{
 				m_Bodies.erase(existing);
 			}
-			return;
+			return hadBody;
 		}
 		m_Bodies[handle] = BodyState{id, desc->Position, desc->Rotation};
+		return true;
+	}
+
+	void Scene::UpdateCharacter(entt::entity handle)
+	{
+		auto const existing = m_Characters.find(handle);
+		bool const alive = m_Registry.valid(handle) && m_Registry.all_of<IDComponent>(handle);
+		CharacterControllerComponent const* component = alive ? m_Registry.try_get<CharacterControllerComponent>(handle) : nullptr;
+		auto const forget = [this, &existing]
+		{
+			if (existing != m_Characters.end())
+			{
+				m_Physics->RemoveCharacter(existing->second.Entity);
+				m_Characters.erase(existing);
+			}
+		};
+		if (component == nullptr)
+		{
+			// Destroyed entity, or removed component.
+			forget();
+			return;
+		}
+
+		Entity const entity(handle, this);
+		glm::vec3 position;
+		glm::quat rotation;
+		glm::vec3 scale;
+		if (!Math::DecomposeTransform(GetWorldTransform(entity), position, rotation, scale))
+		{
+			ST_CORE_WARN("Physics: the transform of '{}' cannot be decomposed", entity.GetName());
+			forget();
+			return;
+		}
+		UUID const id = entity.GetUUID();
+		bool const created = !m_Physics->HasCharacter(id);
+		// Between frames the entity is drawn on its way to where the last step left it: unless something moved it since (a
+		// script, the editor, its parent), the character stays there.
+		bool const placed = created || existing == m_Characters.end() || HasMoved(position, existing->second.Position);
+		glm::vec3 const origin = placed ? position : existing->second.StepPosition;
+		if (Result<void> added = m_Physics->AddCharacter(MakeCharacterDesc(id, *component, origin, scale)); !added)
+		{
+			ST_CORE_WARN("Physics: {}", added.GetError());
+			if (existing != m_Characters.end())
+			{
+				m_Characters.erase(existing);
+			}
+			return;
+		}
+		// Said once, when the character is made: scripts may change its component every step.
+		if (created && HasBodyComponents(m_Registry, handle))
+		{
+			ST_CORE_WARN("Physics: the CharacterController of '{}' replaces its RigidBody and colliders", entity.GetName());
+		}
+		CharacterSyncState& state = m_Characters[handle];
+		if (created)
+		{
+			// A new character ignores nothing yet.
+			state.Parts.clear();
+		}
+		state.Entity = id;
+		state.Scale = scale;
+		if (placed)
+		{
+			state.Place(position);
+		}
+		SyncCharacterParts(*this, *m_Physics, entity, id, state.Parts);
+	}
+
+	void Scene::TeleportCharacter(Entity entity, glm::vec3 const& position)
+	{
+		if (!entity || entity.GetScene() != this || !entity.HasComponent<CharacterControllerComponent>())
+		{
+			return;
+		}
+		SetWorldPosition(*this, entity, position);
+		if (!m_Physics)
+		{
+			return;
+		}
+		// A character added this frame exists before it is placed.
+		ApplyPhysicsChanges();
+		auto const state = m_Characters.find(entity.GetHandle());
+		if (state == m_Characters.end())
+		{
+			return;
+		}
+		CharacterControllerComponent const& component = entity.GetComponent<CharacterControllerComponent>();
+		m_Physics->SetCharacterPosition(state->second.Entity, position + component.Offset * state->second.Scale);
+		m_Physics->SetCharacterVelocity(state->second.Entity, glm::vec3(0.0f));
+		state->second.Place(position);
+	}
+
+	void Scene::SyncCharactersFromTransforms()
+	{
+		std::vector<entt::entity> rescaled;
+		for (auto& [handle, state] : m_Characters)
+		{
+			CharacterControllerComponent const* component =
+				m_Registry.valid(handle) ? m_Registry.try_get<CharacterControllerComponent>(handle) : nullptr;
+			glm::vec3 position;
+			glm::quat rotation;
+			glm::vec3 scale;
+			Entity const entity(handle, this);
+			if (component == nullptr || !Math::DecomposeTransform(GetWorldTransform(entity), position, rotation, scale))
+			{
+				continue;
+			}
+			// Entities put below it, moved away or destroyed change what it ignores.
+			SyncCharacterParts(*this, *m_Physics, entity, state.Entity, state.Parts);
+			if (glm::any(glm::greaterThan(glm::abs(scale - state.Scale), glm::vec3(ScaleTolerance))))
+			{
+				// A new size: the capsule changes (and the character moves to where the entity is).
+				rescaled.push_back(handle);
+			}
+			else if (HasMoved(position, state.Position))
+			{
+				// Moved by a script, the editor or its parent; turning the entity does not turn the capsule.
+				m_Physics->SetCharacterPosition(state.Entity, position + component->Offset * state.Scale);
+				state.Place(position);
+			}
+		}
+		for (entt::entity const handle : rescaled)
+		{
+			UpdateCharacter(handle);
+		}
+	}
+
+	void Scene::WriteCharacterTransforms()
+	{
+		std::vector<CharacterPlacement> placements;
+		for (auto& [handle, state] : m_Characters)
+		{
+			CharacterControllerComponent const* component =
+				m_Registry.valid(handle) ? m_Registry.try_get<CharacterControllerComponent>(handle) : nullptr;
+			std::optional<CharacterState> const character =
+				component != nullptr ? m_Physics->GetCharacterState(state.Entity) : std::nullopt;
+			if (!character)
+			{
+				continue;
+			}
+			glm::vec3 const position = character->Position - component->Offset * state.Scale;
+			state.PreviousStepPosition = state.StepPosition;
+			state.StepPosition = position;
+			state.Carried = GetCarriedPart(position - state.PreviousStepPosition, character->GroundDisplacement);
+			// A character standing still leaves its transform alone.
+			if (HasMoved(position, state.Position))
+			{
+				placements.push_back({handle, state.Entity, position, GetDepth(*this, Entity(handle, this))});
+			}
+		}
+		PlaceCharacterEntities(*this, placements);
+		for (CharacterPlacement const& placement : placements)
+		{
+			m_Characters[placement.Handle].Position = placement.Position;
+		}
+	}
+
+	void Scene::ReturnCharactersToSteps()
+	{
+		std::vector<CharacterPlacement> placements;
+		for (auto const& [handle, state] : m_Characters)
+		{
+			if (!HasMoved(state.StepPosition, state.Position) || !m_Registry.valid(handle))
+			{
+				continue;
+			}
+			// Entities moved since they were drawn stay where they were put: the next step takes their characters there.
+			Entity const entity(handle, this);
+			if (!HasMoved(glm::vec3(GetWorldTransform(entity)[3]), state.Position))
+			{
+				placements.push_back({handle, state.Entity, state.StepPosition, GetDepth(*this, entity)});
+			}
+		}
+		PlaceCharacterEntities(*this, placements);
+		for (CharacterPlacement const& placement : placements)
+		{
+			m_Characters[placement.Handle].Position = placement.Position;
+		}
+	}
+
+	void Scene::InterpolateCharacterTransforms(float alpha)
+	{
+		std::vector<CharacterPlacement> placements;
+		for (auto const& [handle, state] : m_Characters)
+		{
+			// The way it went by itself in the last step is drawn as far as the time left over makes up. The way what it stands
+			// on carried it is not: the ground is drawn where the last step left it, and the character stays on it.
+			glm::vec3 const ownWay = state.StepPosition - state.PreviousStepPosition - state.Carried;
+			glm::vec3 const drawn = state.StepPosition - (1.0f - alpha) * ownWay;
+			if (!HasMoved(drawn, state.Position) || !m_Registry.valid(handle))
+			{
+				continue;
+			}
+			// Entities moved since the last step (between steps, by a script or the editor) stay where they were put.
+			Entity const entity(handle, this);
+			if (!HasMoved(glm::vec3(GetWorldTransform(entity)[3]), state.Position))
+			{
+				placements.push_back({handle, state.Entity, drawn, GetDepth(*this, entity)});
+			}
+		}
+		PlaceCharacterEntities(*this, placements);
+		for (CharacterPlacement const& placement : placements)
+		{
+			m_Characters[placement.Handle].Position = placement.Position;
+		}
 	}
 
 	void Scene::UpdatePhysics(float deltaTime)
@@ -373,6 +789,8 @@ namespace Strada
 		m_ContactEvents.clear();
 		if (m_Physics)
 		{
+			// Changes and steps start from where the last step left the characters, and scripts' OnFixedUpdate finds them there.
+			ReturnCharactersToSteps();
 			RebuildChangedBodies();
 		}
 
@@ -384,13 +802,15 @@ namespace Strada
 		// The tolerance keeps frames of exactly one step from alternating between zero and two steps.
 		while (m_PhysicsAccumulator >= step * (1.0f - 1e-4f) && steps < maxSteps)
 		{
-			// Scripts act before each step (forces, kinematic targets, teleports).
+			// Scripts act before each step (forces, kinematic targets, teleports, character moves).
 			FixedUpdateScripts(step);
 			if (m_Physics)
 			{
 				SyncBodiesFromTransforms(step);
+				SyncCharactersFromTransforms();
 				m_Physics->Step(step);
 				WriteBodyTransforms();
+				WriteCharacterTransforms();
 			}
 			m_PhysicsAccumulator = std::max(m_PhysicsAccumulator - step, 0.0f);
 			steps++;
@@ -402,6 +822,8 @@ namespace Strada
 		}
 		if (m_Physics)
 		{
+			// The time left over, part of the next step, is how far into their last step characters are drawn.
+			InterpolateCharacterTransforms(std::clamp(m_PhysicsAccumulator / step, 0.0f, 1.0f));
 			m_ContactEvents = m_Physics->TakeContactEvents();
 		}
 	}
@@ -461,15 +883,7 @@ namespace Strada
 						 });
 		for (Update const& update : updates)
 		{
-			Entity const entity(update.Handle, this);
-			glm::vec3 position;
-			glm::quat rotation;
-			glm::vec3 scale;
-			if (!Math::DecomposeTransform(GetWorldTransform(entity), position, rotation, scale))
-			{
-				continue;
-			}
-			SetWorldTransform(entity, Math::ComposeTransform(update.Transform.Position, update.Transform.Rotation, scale));
+			SetWorldPose(*this, Entity(update.Handle, this), update.Transform.Position, update.Transform.Rotation);
 			if (auto const state = m_Bodies.find(update.Handle); state != m_Bodies.end())
 			{
 				state->second.Position = update.Transform.Position;
