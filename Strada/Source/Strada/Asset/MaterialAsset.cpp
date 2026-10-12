@@ -3,8 +3,31 @@
 
 #include "Strada/Core/FileSystem.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace Strada
 {
+	std::vector<std::string_view> FitMaterialToFieldRanges(MaterialData& data)
+	{
+		// The brightest channel becomes 1 and the intensity carries the rest. Non-finite numbers are left to
+		// FitToFieldRanges, which also gives an intensity that overflows its default.
+		float brightest = 0.0f;
+		for (glm::length_t i = 0; i < 3; i++)
+		{
+			if (std::isfinite(data.EmissiveColor[i]))
+			{
+				brightest = std::max(brightest, data.EmissiveColor[i]);
+			}
+		}
+		if (brightest > 1.0f && std::isfinite(data.EmissiveIntensity))
+		{
+			data.EmissiveColor /= brightest;
+			data.EmissiveIntensity *= brightest;
+		}
+		return FitToFieldRanges<StructTraits<MaterialData>>(data);
+	}
+
 	void MaterialAsset::SetData(MaterialData data)
 	{
 		m_Data = std::move(data);

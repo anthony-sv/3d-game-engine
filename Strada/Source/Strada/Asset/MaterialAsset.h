@@ -8,7 +8,9 @@
 
 #include <array>
 #include <filesystem>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -97,6 +99,13 @@ namespace Strada
 			Field("UVTiling", &MaterialData::UVTiling).Doc("Texture coordinate scale."),
 			Field("UVOffset", &MaterialData::UVOffset).Doc("Texture coordinate offset."));
 	};
+
+	// Brings material parameters from outside the engine (imported models, copies of their materials) into the ranges of
+	// the field table, keeping their look where the ranges allow: emitted light brighter than 1 (MTL's Ke and FBX emission
+	// colors go above 1) moves from EmissiveColor into EmissiveIntensity, so their product stays the same, before
+	// FitToFieldRanges replaces NaN and infinities by the defaults and clamps what is still outside. Returns the names of
+	// the fields that had to change beyond moving the emitted light (for warnings).
+	std::vector<std::string_view> FitMaterialToFieldRanges(MaterialData& data);
 
 	// A material asset (.smat file, mesh-embedded material or runtime-created material).
 	class MaterialAsset final : public Asset

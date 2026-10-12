@@ -612,6 +612,48 @@ TEST_CASE("MeshImporter: models above the size limits fail before their geometry
 	}
 }
 
+TEST_CASE("MeshImporter: material parameters outside the material ranges are brought into them")
+{
+	Testing::TemporaryDirectory directory;
+
+	// MTL emission above 1 keeps its light in the intensity; a color above 1 is clamped with a warning.
+	WriteText(directory.GetPath() / "Lamp.mtl", "newmtl Glow\nKd 2 0.5 0.5\nKe 4 3 2\n");
+	WriteText(directory.GetPath() / "Lamp.obj", "mtllib Lamp.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Glow\nf 1 2 3\n");
+	Result<ImportedModel> lamp = MeshImporter::Import(directory.GetPath() / "Lamp.obj");
+	REQUIRE_MESSAGE(lamp.IsOk(), lamp.GetError());
+	REQUIRE(lamp.GetValue().Materials.size() == 1);
+	MaterialData const& glow = lamp.GetValue().Materials[0].Data;
+	CHECK(glow.EmissiveColor == glm::vec3(1.0f, 0.75f, 0.5f));
+	CHECK(glow.EmissiveIntensity == doctest::Approx(4.0f));
+	CHECK(glm::vec3(glow.BaseColor) == glm::vec3(1.0f, 0.5f, 0.5f));
+	CHECK(lamp.GetValue().Warnings == std::vector<std::string>{"material 'Glow': BaseColor out of range, adjusted to fit"});
+
+	// glTF files beyond the specification's ranges, too.
+	GltfTestBuilder builder;
+	Json material = Json::object();
+	material["name"] = "Bright";
+	material["pbrMetallicRoughness"] = Json::object({{"roughnessFactor", 2.0}});
+	material["emissiveFactor"] = {2.0, 1.0, 0.0};
+	material["extensions"] = Json::object({{"KHR_materials_emissive_strength", Json::object({{"emissiveStrength", 3.0}})}});
+	material["alphaMode"] = "MASK";
+	material["alphaCutoff"] = 1.5;
+	GltfTestBuilder::Primitive quad = MakeQuad();
+	quad.Material = builder.AddMaterial(material);
+	builder.SetScene({builder.AddNode("Panel", builder.AddMesh("Panel", {quad}))});
+	std::filesystem::path const path = directory.GetPath() / "Bright.gltf";
+	REQUIRE(builder.WriteGltf(path, true).IsOk());
+	Result<ImportedModel> bright = MeshImporter::Import(path);
+	REQUIRE_MESSAGE(bright.IsOk(), bright.GetError());
+	REQUIRE(bright.GetValue().Materials.size() == 1);
+	MaterialData const& panel = bright.GetValue().Materials[0].Data;
+	CHECK(panel.EmissiveColor == glm::vec3(1.0f, 0.5f, 0.0f));
+	CHECK(panel.EmissiveIntensity == doctest::Approx(6.0f));
+	CHECK(panel.Roughness == 1.0f);
+	CHECK(panel.AlphaCutoff == 1.0f);
+	CHECK(bright.GetValue().Warnings ==
+	      std::vector<std::string>{"material 'Bright': Roughness and AlphaCutoff out of range, adjusted to fit"});
+}
+
 TEST_CASE("MeshImporter: empty OBJ material libraries are accepted")
 {
 	Testing::TemporaryDirectory directory;

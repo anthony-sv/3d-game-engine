@@ -449,6 +449,40 @@ TEST_CASE("StructSerialization: values outside their fields' ranges are clamped 
 	CHECK(switched.Gain == 2.0f);
 }
 
+TEST_CASE("StructSerialization: data from outside is fitted into its fields, NaN and infinities taking the defaults")
+{
+	constexpr float NaN = std::numeric_limits<float>::quiet_NaN();
+	constexpr float Infinity = std::numeric_limits<float>::infinity();
+
+	// Values that already fit change nothing and name no field.
+	Tuning tuning;
+	tuning.Gain = 1.0e30f;
+	tuning.Tint = {0.25f, 0.5f, 0.75f};
+	CHECK(FitToFieldRanges<StructTraits<Tuning>>(tuning).empty());
+	CHECK(tuning.Gain == 1.0e30f);
+	CHECK(tuning.Tint == glm::vec3(0.25f, 0.5f, 0.75f));
+
+	// Non-finite numbers take the default (0 for elements of arrays), then what lies outside a range is clamped; the
+	// changed fields are named in table order.
+	tuning.Gain = Infinity;
+	tuning.Tint = {NaN, 2.0f, -Infinity};
+	tuning.Weights = {NaN, 0.25f, 7.0f};
+	tuning.Count = 20;
+	tuning.Notes = "kept";
+	CHECK(FitToFieldRanges<StructTraits<Tuning>>(tuning) == std::vector<std::string_view>{"Gain", "Tint", "Weights", "Count"});
+	CHECK(tuning.Gain == 1.0f);
+	CHECK(tuning.Tint == glm::vec3(1.0f, 1.0f, 1.0f));
+	CHECK(tuning.Weights == std::vector<float>{0.0f, 0.25f, 1.0f});
+	CHECK(tuning.Count == 8u);
+	CHECK(tuning.Notes == "kept");
+
+	// What it returns serializes into JSON that reads back.
+	Tuning readBack;
+	Json const json = SerializeFields<StructTraits<Tuning>>(tuning);
+	REQUIRE(DeserializeFields<StructTraits<Tuning>>(json, readBack, DeserializationContext{}, "settings").IsOk());
+	CHECK(SerializeFields<StructTraits<Tuning>>(readBack) == json);
+}
+
 TEST_CASE("StructSerialization: renderer settings and material defaults satisfy their own ranges")
 {
 	auto const checkDefaults = []<typename T>(std::type_identity<T>)

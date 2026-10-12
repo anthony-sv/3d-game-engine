@@ -618,3 +618,46 @@ TEST_CASE("MaterialSlots: Create Material gives a slot an editable copy of its m
 	CHECK(MaterialSlots::CreateEditableCopy(operations, std::vector<UUID>{cube}, 0).IsError());
 	CHECK(GetOverrides(context, cube).empty());
 }
+
+TEST_CASE("MaterialSlots: copies of materials with light and colors above 1 keep their look in a file that reads back")
+{
+	ProjectFixture fixture;
+	EditorOperations& operations = fixture.Operations;
+	std::filesystem::path const models = fixture.GetAssetDirectory() / "Models";
+	REQUIRE(FileSystem::CreateDirectories(models).IsOk());
+	REQUIRE(FileSystem::WriteTextFile(models / "Lamp.mtl", "newmtl Glow\nKd 0.8 0.8 0.8\nKe 4 3 2\n").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(models / "Lamp.obj", "mtllib Lamp.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Glow\nf 1 2 3\n").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const model = AssetManager::FindByPath("Models/Lamp.obj");
+	REQUIRE(model.IsValid());
+	UUID const lamp = CreateMeshEntity(operations, "Lamp", model);
+	std::vector<UUID> const lampOnly = {lamp};
+
+	// The emission of the MTL file (Ke 4 3 2) is light brighter than a color holds: the copy keeps it in the intensity.
+	Result<AssetHandle> const glow = MaterialSlots::CreateEditableCopy(operations, lampOnly, 0);
+	REQUIRE_MESSAGE(glow.IsOk(), glow.GetError());
+	MaterialData const glowData = AssetManager::GetAsset<MaterialAsset>(glow.GetValue())->GetData();
+	CHECK(glowData.EmissiveColor == glm::vec3(1.0f, 0.75f, 0.5f));
+	CHECK(glowData.EmissiveIntensity == doctest::Approx(4.0f));
+	CHECK(glowData.BaseColor.r == doctest::Approx(0.8f));
+	CHECK(GetOverrides(fixture.Context, lamp) == std::vector<AssetHandle>{glow.GetValue()});
+	Result<MaterialData> const file =
+		MaterialSerializer::LoadFromFile(fixture.GetAssetDirectory() / "Materials" / "Glow.smat", DeserializationContext{});
+	REQUIRE_MESSAGE(file.IsOk(), file.GetError());
+	CHECK(file.GetValue() == glowData);
+
+	// Materials made at run time may hold anything: the copy brings it into the material ranges.
+	MaterialData outside;
+	outside.BaseColor = {2.0f, 0.5f, 0.25f, 1.0f};
+	outside.Roughness = -1.0f;
+	outside.EmissiveColor = {0.0f, 8.0f, 2.0f};
+	AssetHandle const runtime = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(outside), "Runtime Glow");
+	Result<AssetHandle> const copy = MaterialSlots::CreateCopy(operations, runtime, "Runtime Glow");
+	REQUIRE_MESSAGE(copy.IsOk(), copy.GetError());
+	MaterialData const copied = AssetManager::GetAsset<MaterialAsset>(copy.GetValue())->GetData();
+	CHECK(copied.BaseColor == glm::vec4(1.0f, 0.5f, 0.25f, 1.0f));
+	CHECK(copied.Roughness == 0.0f);
+	CHECK(copied.EmissiveColor == glm::vec3(0.0f, 1.0f, 0.25f));
+	CHECK(copied.EmissiveIntensity == doctest::Approx(8.0f));
+	AssetManager::RemoveMemoryAsset(runtime);
+}

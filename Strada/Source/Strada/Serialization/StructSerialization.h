@@ -630,6 +630,66 @@ namespace Strada
 				}
 			}
 		}
+
+		// Replaces NaN and infinities: a number by `fallback`, the components of a float vector by the fallback's, the
+		// elements of an array by 0. Returns whether it replaced any.
+		template<typename T>
+		bool ReplaceNonFinite(T& value, T const& fallback)
+		{
+			if constexpr (VectorTraits<T>::value)
+			{
+				using Element = typename VectorTraits<T>::Element;
+				bool replaced = false;
+				for (Element& element : value)
+				{
+					replaced = ReplaceNonFinite(element, Element{}) || replaced;
+				}
+				return replaced;
+			}
+			else if constexpr (IsFloatVector<T>)
+			{
+				bool replaced = false;
+				for (glm::length_t i = 0; i < T::length(); i++)
+				{
+					replaced = ReplaceNonFinite(value[i], fallback[i]) || replaced;
+				}
+				return replaced;
+			}
+			else if constexpr (std::is_floating_point_v<T>)
+			{
+				if (std::isfinite(value))
+				{
+					return false;
+				}
+				value = fallback;
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+
+		// FitToFieldRanges for one field of the object: appends its name to `changed` when it changes the value.
+		template<typename T, typename TField>
+		void FitToRange(T& object, T const& defaults, TField const& field, std::vector<std::string_view>& changed)
+		{
+			using FieldType = StructFieldType<T, TField>;
+			if constexpr (SupportsRange<FieldType>())
+			{
+				FieldType& value = object.*(field.Member);
+				bool const replaced = ReplaceNonFinite(value, defaults.*(field.Member));
+				bool const outside = field.Hints.HasRange() && !IsInRange(value, field.Hints.Min, field.Hints.Max);
+				if (outside)
+				{
+					ClampToRange(value, field.Hints);
+				}
+				if (replaced || outside)
+				{
+					changed.push_back(field.Name);
+				}
+			}
+		}
 	}
 
 	// Writes every field.
@@ -743,6 +803,24 @@ namespace Strada
 				(Detail::ClampToRange(object.*(fields.Member), fields.Hints), ...);
 			},
 			TTraits::Fields);
+	}
+
+	// Brings data from outside the engine (imported files) into what the field table accepts: NaN and infinities take the
+	// values of a value-initialized T (0 in arrays), then numbers outside a field's range move to its nearest bound, so
+	// the object serializes into JSON that reads back. Returns the names of the fields it changed, in table order. Nested
+	// structs are left as they are.
+	template<FieldTable TTraits, typename T>
+	std::vector<std::string_view> FitToFieldRanges(T& object)
+	{
+		T const defaults{};
+		std::vector<std::string_view> changed;
+		std::apply(
+			[&object, &defaults, &changed](auto const&... fields)
+			{
+				(Detail::FitToRange(object, defaults, fields, changed), ...);
+			},
+			TTraits::Fields);
+		return changed;
 	}
 
 	template<FieldTable TTraits, typename T>

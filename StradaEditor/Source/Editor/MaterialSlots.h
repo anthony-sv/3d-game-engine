@@ -41,8 +41,9 @@ namespace Strada
 		// materials.
 		[[nodiscard]] Result<void> Assign(EditorOperations& operations, std::span<UUID const> entities, size_t slot, AssetHandle material);
 		// Writes a material file with the parameters of a material to CopyFolder, named `name` (numbered when the name is
-		// taken; "Material" when nothing of it can be used in a file name). Not undoable, like every file operation. Returns
-		// the new material.
+		// taken; "Material" when nothing of it can be used in a file name). Parameters outside the material ranges are
+		// brought into them first (FitMaterialToFieldRanges, logged). Not undoable, like every file operation. Returns the
+		// new material.
 		[[nodiscard]] Result<AssetHandle> CreateCopy(EditorOperations& operations, AssetHandle material, std::string_view name);
 		// Gives a slot an editable material: a copy of the material the entities render it with (CreateCopy, named after that
 		// material, or after the first entity for built-in materials such as the engine's default one), assigned to the slot of

@@ -15,7 +15,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -171,6 +170,20 @@ namespace Strada
 
 			uint32_t AddMaterial(ImportedMaterial material)
 			{
+				// Models carry parameters the engine's materials do not accept (FBX colors above 1, MTL emission, broken files);
+				// a material file or copy made from them could not be read back. Emitted light keeps its brightness through the
+				// intensity; what else is outside a range is brought into it.
+				std::vector<std::string_view> const adjusted = FitMaterialToFieldRanges(material.Data);
+				if (!adjusted.empty())
+				{
+					std::string fields;
+					for (size_t i = 0; i < adjusted.size(); i++)
+					{
+						fields += i == 0 ? "" : i + 1 == adjusted.size() ? " and " : ", ";
+						fields += adjusted[i];
+					}
+					Warn(fmt::format("material '{}': {} out of range, adjusted to fit", material.Name, fields));
+				}
 				m_Model.Materials.push_back(std::move(material));
 				return static_cast<uint32_t>(m_Model.Materials.size() - 1);
 			}
@@ -1156,13 +1169,14 @@ namespace Strada
 				}
 				float const baseFactor = GetReal(pbr.base_factor, 1.0f);
 				baseColor = glm::vec4(glm::vec3(baseColor) * baseFactor, baseColor.a * GetReal(pbr.opacity, 1.0f));
-				data.BaseColor = glm::clamp(baseColor, glm::vec4(0.0f), glm::vec4(std::numeric_limits<float>::max()));
+				// ModelBuilder::AddMaterial brings what lies outside the material ranges into them.
+				data.BaseColor = baseColor;
 				if (data.BaseColor.a < 1.0f)
 				{
 					data.AlphaMode = MaterialAlphaMode::Blend;
 				}
-				data.Roughness = std::clamp(GetReal(pbr.roughness, 0.5f), 0.0f, 1.0f);
-				data.Metallic = std::clamp(GetReal(pbr.metalness, 0.0f), 0.0f, 1.0f);
+				data.Roughness = GetReal(pbr.roughness, 0.5f);
+				data.Metallic = GetReal(pbr.metalness, 0.0f);
 				if (pbr.emission_color.has_value)
 				{
 					data.EmissiveColor = ToGlm(pbr.emission_color.value_vec3);

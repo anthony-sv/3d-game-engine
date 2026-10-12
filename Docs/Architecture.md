@@ -315,7 +315,11 @@ Asset types:
   memory limit of 256 MB plus 64 times the file size, and models with more than 2^24 vertices or triangles (every
   node instance counted) fail before any geometry is built. Files a model references (glTF buffers and images, FBX/OBJ
   textures, OBJ material libraries) are only read inside the asset directory: buffers outside it fail the import,
-  textures and material libraries outside it are skipped with a warning.
+  textures and material libraries outside it are skipped with a warning. Imported material parameters are brought into
+  the material ranges (`FitMaterialToFieldRanges`), so copies of the materials make valid material files: emitted light
+  above 1 (MTL's `Ke`, FBX emission colors) moves from `EmissiveColor` into `EmissiveIntensity`, which keeps its
+  brightness; other values outside a range (FBX colors above 1, broken files) are clamped, and NaN or infinite ones take
+  the defaults, with a warning.
 - `MaterialAsset` (`.smat`): metallic-roughness parameters — `BaseColor`, `Metallic`, `Roughness`, `EmissiveColor` +
   `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, textures (base color, normal, metallic-roughness with glTF
   packing G = roughness and B = metallic, occlusion, emissive), `AlphaMode` (Opaque/Mask/Blend) + `AlphaCutoff`,

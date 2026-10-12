@@ -8,12 +8,15 @@
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Log.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -162,7 +165,20 @@ namespace Strada
 			}
 			std::string const path =
 				AssetBrowsing::JoinPath(CopyFolder, AssetBrowsing::MakeUniqueName(CopyFolder, fileName, std::string_view(".smat")));
-			return operations.CreateMaterial(path, SerializeFields<StructTraits<MaterialData>>(source.GetValue()->GetData()));
+			// A material file only holds parameters inside the material ranges; imports bring theirs into them, other
+			// materials may still lie outside (made at run time). Emitted light keeps its brightness.
+			MaterialData data = source.GetValue()->GetData();
+			if (std::vector<std::string_view> const adjusted = FitMaterialToFieldRanges(data); !adjusted.empty())
+			{
+				std::string fields;
+				for (std::string_view const field : adjusted)
+				{
+					fields += fields.empty() ? "" : ", ";
+					fields += field;
+				}
+				ST_WARN("The copy of material '{}' has {} adjusted to the ranges materials accept", name, fields);
+			}
+			return operations.CreateMaterial(path, SerializeFields<StructTraits<MaterialData>>(data));
 		}
 
 		Result<AssetHandle> CreateEditableCopy(EditorOperations& operations, std::span<UUID const> entities, size_t slot)
