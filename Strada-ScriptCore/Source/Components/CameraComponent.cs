@@ -87,4 +87,15 @@ public sealed unsafe class CameraComponent : Component
 		InternalCalls.CameraComponent_ScreenToWorldRay(Entity.ID, &screenPosition, &ray);
 		return ray;
 	}
+
+	/// <summary>Where a point of the world shows in the scene's viewport: X and Y in pixels from its top-left corner (as
+	/// <see cref="Input.MousePosition"/> and <see cref="ScreenToWorldRay"/> use them), and Z the point's distance in front of
+	/// the camera along its view direction. A point with a Z of zero or less is behind the camera and does not show; its X
+	/// and Y mean nothing.</summary>
+	public Vector3 WorldToScreenPoint(Vector3 worldPosition)
+	{
+		Vector3 screenPosition;
+		InternalCalls.CameraComponent_WorldToScreenPoint(Entity.ID, &worldPosition, &screenPosition);
+		return screenPosition;
+	}
 }

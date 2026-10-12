@@ -61,6 +61,7 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, float*, void> CameraComponent_GetAspectRatio;
 	internal static delegate* unmanaged<ulong, float*, void> CameraComponent_SetAspectRatio;
 	internal static delegate* unmanaged<ulong, Vector2*, Ray*, void> CameraComponent_ScreenToWorldRay;
+	internal static delegate* unmanaged<ulong, Vector3*, Vector3*, void> CameraComponent_WorldToScreenPoint;
 
 	internal static delegate* unmanaged<ulong, ulong*, void> MeshComponent_GetMesh;
 	internal static delegate* unmanaged<ulong, ulong*, void> MeshComponent_SetMesh;

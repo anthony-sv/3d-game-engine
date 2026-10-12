@@ -369,6 +369,30 @@ public class Hud : Script
 }
 ```
 
+A label that follows something in the world (a name over a character, a marker over a goal) goes where the camera shows
+that point: `WorldToScreenPoint` returns its position in pixels from the top-left corner and its depth in front of the
+camera, which is negative behind it. In a canvas whose `ScaleMode` is `ConstantPixelSize`, canvas units are pixels, so
+the position goes into the label's `UIRect` as it is (here anchored to the top-left corner, with the pivot at its
+bottom middle, so the label stands above the point). Place it after the camera has moved in the frame, or it trails the
+point by a frame while the camera moves:
+
+```csharp
+public class Nameplate : Script
+{
+	public Entity? Target;
+	public Entity? Camera;
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		CameraComponent camera = Camera!.GetComponent<CameraComponent>()!;
+		Vector3 screen = camera.WorldToScreenPoint(Target!.Transform.WorldTranslation + (Vector3.Up * 2.0f));
+		UIRectComponent rect = GetComponent<UIRectComponent>()!;
+		rect.Visible = screen.Z > 0.0f;
+		rect.Position = new Vector2(screen.X, screen.Y);
+	}
+}
+```
+
 A pause menu: a panel with Resume and Quit buttons, and this script on the panel:
 
 ```csharp

@@ -242,6 +242,39 @@ public sealed class TransformProbe : Script
 	private static Vector3 Round(Vector3 value) => new(MathF.Round(value.X, 3) + 0.0f, MathF.Round(value.Y, 3) + 0.0f, MathF.Round(value.Z, 3) + 0.0f);
 }
 
+// A camera ten meters in front of the origin, looking at it with a field of view of 90 degrees on an 800 x 600 viewport (the
+// engine test sets it up): turns world positions into screen positions and back, and reports what it saw in its name.
+public sealed class CameraProbe : Script
+{
+	protected override void OnCreate()
+	{
+		CameraComponent camera = GetComponent<CameraComponent>()!;
+		Vector3 ahead = camera.WorldToScreenPoint(Vector3.Zero);
+		// Up in the world is up on the screen, where y grows downwards.
+		Vector3 above = camera.WorldToScreenPoint(new Vector3(0.0f, 5.0f, 0.0f));
+		Vector3 right = camera.WorldToScreenPoint(new Vector3(5.0f, 0.0f, 0.0f));
+		Vector3 behind = camera.WorldToScreenPoint(new Vector3(0.0f, 0.0f, 20.0f));
+		// A point on the ray through a screen position shows at that position.
+		Ray ray = camera.ScreenToWorldRay(new Vector2(200.0f, 150.0f));
+		Vector3 back = camera.WorldToScreenPoint(ray.GetPoint(5.0f));
+		// Refused (logged): a point that is not a finite number, and a camera that is gone.
+		Vector3 refused = camera.WorldToScreenPoint(new Vector3(float.NaN, 0.0f, 0.0f));
+		Entity other = Create("Camera Probe Other");
+		CameraComponent gone = other.AddComponent<CameraComponent>();
+		other.RemoveComponent<CameraComponent>();
+		Vector3 missing = gone.WorldToScreenPoint(Vector3.Zero);
+		// An orthographic view ten meters high: its depth is the distance along the view direction all the same.
+		camera.Projection = ProjectionType.Orthographic;
+		camera.OrthographicSize = 10.0f;
+		Vector3 orthographic = camera.WorldToScreenPoint(new Vector3(2.5f, 0.0f, 0.0f));
+		Name = string.Create(CultureInfo.InvariantCulture,
+			$"Ahead={Round(ahead)};Above={Round(above)};Right={Round(right)};Behind={Round(behind).Z};Back={Round(back).X},{Round(back).Y};"
+			+ $"Refused={refused};Missing={missing};Orthographic={Round(orthographic)}");
+	}
+
+	private static Vector3 Round(Vector3 value) => new(MathF.Round(value.X, 2) + 0.0f, MathF.Round(value.Y, 2) + 0.0f, MathF.Round(value.Z, 2) + 0.0f);
+}
+
 // Drives physics from a script: a body added this frame takes a velocity change at once.
 public sealed class PhysicsProbe : Script
 {

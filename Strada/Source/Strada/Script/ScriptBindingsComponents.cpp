@@ -6,7 +6,9 @@
 #include "Strada/Scene/SceneCamera.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
+#include <optional>
 #include <string>
 
 namespace Strada::ScriptGlue
@@ -105,6 +107,44 @@ namespace Strada::ScriptGlue
 
 		// --- Camera ---
 
+		// How a camera entity sees the scene's viewport: its view and projection (the conventional one, depth 0..1) and the
+		// viewport's size in pixels.
+		struct CameraView
+		{
+			glm::mat4 View = glm::mat4(1.0f);
+			glm::mat4 Projection = glm::mat4(1.0f);
+			glm::vec2 ViewportSize = glm::vec2(0.0f);
+		};
+
+		// Logs a script error naming the function and returns nothing when the entity has no camera or the scene no viewport.
+		std::optional<CameraView> GetCameraView(uint64_t id, char const* function)
+		{
+			Entity const entity = FindEntity(id, function);
+			CameraComponent const* camera = entity ? FindComponent<CameraComponent>(id) : nullptr;
+			if (camera == nullptr)
+			{
+				return std::nullopt;
+			}
+			Scene& scene = *entity.GetScene();
+			if (scene.GetViewportWidth() == 0 || scene.GetViewportHeight() == 0)
+			{
+				Log::GetScriptLogger().error("{}: the scene has no viewport size", function);
+				return std::nullopt;
+			}
+			glm::vec3 position;
+			glm::quat rotation;
+			glm::vec3 scale;
+			if (!Math::DecomposeTransform(scene.GetWorldTransform(entity), position, rotation, scale))
+			{
+				return std::nullopt;
+			}
+			CameraView view;
+			view.ViewportSize = glm::vec2(static_cast<float>(scene.GetViewportWidth()), static_cast<float>(scene.GetViewportHeight()));
+			view.View = glm::inverse(glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(rotation));
+			view.Projection = ComputeCameraGizmoProjection(*camera, view.ViewportSize.x / view.ViewportSize.y);
+			return view;
+		}
+
 		// The ray from the camera through a point of the scene's viewport (pixels, origin top-left).
 		void CameraComponent_ScreenToWorldRay(uint64_t id, Vector2 const* screenPosition, Ray* ray)
 		{
@@ -113,36 +153,51 @@ namespace Strada::ScriptGlue
 			{
 				return;
 			}
-			Entity const entity = FindEntity(id, "CameraComponent.ScreenToWorldRay");
-			CameraComponent const* camera = entity ? FindComponent<CameraComponent>(id) : nullptr;
-			if (camera == nullptr)
+			std::optional<CameraView> const camera = GetCameraView(id, "CameraComponent.ScreenToWorldRay");
+			if (!camera)
 			{
 				return;
 			}
-			Scene& scene = *entity.GetScene();
-			if (scene.GetViewportWidth() == 0 || scene.GetViewportHeight() == 0)
-			{
-				Log::GetScriptLogger().error("CameraComponent.ScreenToWorldRay: the scene has no viewport size");
-				return;
-			}
-			glm::vec3 position;
-			glm::quat rotation;
-			glm::vec3 scale;
-			if (!Math::DecomposeTransform(scene.GetWorldTransform(entity), position, rotation, scale))
-			{
-				return;
-			}
-			float const width = static_cast<float>(scene.GetViewportWidth());
-			float const height = static_cast<float>(scene.GetViewportHeight());
-			glm::mat4 const view = glm::inverse(glm::translate(glm::mat4(1.0f), position) * glm::mat4_cast(rotation));
-			glm::mat4 const inverseViewProjection = glm::inverse(ComputeCameraGizmoProjection(*camera, width / height) * view);
+			glm::mat4 const inverseViewProjection = glm::inverse(camera->Projection * camera->View);
 			// Clip space has +Y up; the viewport has its origin at the top.
-			glm::vec2 const ndc(2.0f * screenPosition->X / width - 1.0f, 1.0f - 2.0f * screenPosition->Y / height);
+			glm::vec2 const ndc(2.0f * screenPosition->X / camera->ViewportSize.x - 1.0f,
+			                    1.0f - 2.0f * screenPosition->Y / camera->ViewportSize.y);
 			glm::vec4 const nearPoint = inverseViewProjection * glm::vec4(ndc, 0.0f, 1.0f);
 			glm::vec4 const farPoint = inverseViewProjection * glm::vec4(ndc, 1.0f, 1.0f);
 			glm::vec3 const origin = glm::vec3(nearPoint) / nearPoint.w;
 			glm::vec3 const direction = glm::normalize(glm::vec3(farPoint) / farPoint.w - origin);
 			*ray = {ToScript(origin), ToScript(direction)};
+		}
+
+		// Where a point of the world shows in the scene's viewport: pixels from its top-left corner (x, y), and the point's
+		// distance in front of the camera along its view direction (z, negative behind it, where x and y mean nothing).
+		void CameraComponent_WorldToScreenPoint(uint64_t id, Vector3 const* worldPosition, Vector3* screenPosition)
+		{
+			*screenPosition = {0.0f, 0.0f, 0.0f};
+			if (!CheckFinite("CameraComponent.WorldToScreenPoint", *worldPosition))
+			{
+				return;
+			}
+			std::optional<CameraView> const camera = GetCameraView(id, "CameraComponent.WorldToScreenPoint");
+			if (!camera)
+			{
+				return;
+			}
+			glm::vec4 const viewPosition = camera->View * glm::vec4(FromScript(*worldPosition), 1.0f);
+			glm::vec4 const clip = camera->Projection * viewPosition;
+			// A point in the camera's plane has no place on the screen: the division stays finite.
+			constexpr float SmallestW = 1e-6f;
+			float const w = std::abs(clip.w) >= SmallestW ? clip.w : std::copysign(SmallestW, clip.w);
+			glm::vec2 const ndc = glm::vec2(clip) / w;
+			// Clip space has +Y up; the viewport has its origin at the top.
+			glm::vec3 const result((0.5f + 0.5f * ndc.x) * camera->ViewportSize.x, (0.5f - 0.5f * ndc.y) * camera->ViewportSize.y,
+			                       -viewPosition.z);
+			if (!std::isfinite(result.x) || !std::isfinite(result.y) || !std::isfinite(result.z))
+			{
+				Log::GetScriptLogger().error("CameraComponent.WorldToScreenPoint: the point is too far away to show on the screen");
+				return;
+			}
+			*screenPosition = ToScript(result);
 		}
 
 		// --- Mesh materials ---
@@ -502,6 +557,7 @@ namespace Strada::ScriptGlue
 		AddFieldBindings<&CameraComponent::FixedAspectRatio, "CameraComponent", "FixedAspectRatio">(table);
 		AddFieldBindings<&CameraComponent::AspectRatio, "CameraComponent", "AspectRatio">(table);
 		table.Add("CameraComponent_ScreenToWorldRay", &CameraComponent_ScreenToWorldRay);
+		table.Add("CameraComponent_WorldToScreenPoint", &CameraComponent_WorldToScreenPoint);
 
 		AddFieldBindings<&MeshComponent::Mesh, "MeshComponent", "Mesh">(table);
 		AddFieldBindings<&MeshComponent::CastShadows, "MeshComponent", "CastShadows">(table);

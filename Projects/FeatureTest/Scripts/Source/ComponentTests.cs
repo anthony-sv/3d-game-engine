@@ -53,6 +53,11 @@ public sealed class ComponentTests : FeatureTestScript
 		TransformComponent transform = camera.Entity.Transform;
 		Assert.AreApproximatelyEqual(transform.Forward, ray.Direction, 1e-3f);
 		Assert.IsTrue(Vector3.Distance(transform.WorldTranslation, ray.Origin) < camera.PerspectiveNear + 1e-3f);
+		// A point on that ray shows in the middle of the view, at its distance from the camera; a point behind it has no place
+		// there.
+		Vector3 screen = camera.WorldToScreenPoint(transform.WorldTranslation + (transform.Forward * 10.0f));
+		Assert.AreApproximatelyEqual(new Vector3(Application.WindowWidth * 0.5f, Application.WindowHeight * 0.5f, 10.0f), screen, 0.01f);
+		Assert.IsTrue(camera.WorldToScreenPoint(transform.WorldTranslation - transform.Forward).Z < 0.0f, "behind the camera");
 
 		camera.PerspectiveFOV = 60.0f;
 		Assert.AreEqual(60.0f, camera.PerspectiveFOV);
