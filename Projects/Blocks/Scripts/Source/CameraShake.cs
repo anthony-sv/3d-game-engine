@@ -78,6 +78,11 @@ public sealed class CameraShake : Script
 	/// <summary>How far a kick moved the view from its place (the scene's apparent motion).</summary>
 	public Vector3 KickOffset => -m_Kick;
 
+	/// <summary>Raised every frame once the camera stands where it shows the frame from: what is placed by where the camera
+	/// shows things (labels over the board) is placed then, without trailing the camera by a frame, whatever order the scripts
+	/// update in.</summary>
+	public event System.Action? Moved;
+
 	/// <summary>Adds trauma (0 to 1).</summary>
 	public void Shake(float amount)
 	{
@@ -141,6 +146,7 @@ public sealed class CameraShake : Script
 		Translation = place + m_Kick + (wander * (shake * MaximumOffset));
 		float roll = Noise((time * 0.7f) + 143.9f) * shake * MaximumRoll;
 		Rotation = orbit * rotation * Quaternion.AngleAxis(roll, Vector3.Back);
+		Moved?.Invoke();
 	}
 
 	// Smooth noise from -1 to 1: Perlin's gradient noise in one dimension.

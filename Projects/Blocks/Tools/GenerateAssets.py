@@ -1,7 +1,8 @@
-"""Generates the Blocks project's sounds, its beveled block mesh and the grid texture of its board (Assets/Audio, Assets/Meshes,
-Assets/Textures), then checks the sounds: their lengths, levels, clean starts and ends, and that each one is what its action
-needs (short ticks for moves, a low thump for hard drops, clears that grow with the rows). Everything is computed here,
-deterministically, so the files have no license of their own:
+"""Generates the Blocks project's sounds, its beveled block mesh, the grid texture of its board and the images of its screen
+(a glow, an accent gradient, a gloss and the arrows of the arrow keys; Assets/Audio, Assets/Meshes, Assets/Textures), then
+checks the sounds: their lengths, levels, clean starts and ends, and that each one is what its action needs (short ticks for
+moves, a low thump for hard drops, clears that grow with the rows). Everything is computed here, deterministically, so the
+files have no license of their own:
 
     python Projects/Blocks/Tools/GenerateAssets.py
 """
@@ -586,25 +587,80 @@ def write_mesh():
         json.dump(document, file)
 
 
-# --- The board's grid: thin glowing lines on black, one cell per tile ------------------------------------------------------
+# --- Images: the board's grid, and the screen's glow, accent, gloss and arrows ----------------------------------------------
 
 def write_png(path, width, height, pixel):
+    """Writes an 8-bit PNG of the pixels (RGB tuples, or RGBA ones for images with transparency)."""
+    channels = len(pixel(0, 0))
     rows = b"".join(b"\0" + b"".join(bytes(pixel(x, y)) for x in range(width)) for y in range(height))
 
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
 
+    color_type = 6 if channels == 4 else 2
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as file:
-        file.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) +
+        file.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)) +
                    chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
 
 
 def grid_pixel(x, y, size=128):
+    """Thin glowing lines on black, one cell per tile."""
     distance = min(x, y, size - 1 - x, size - 1 - y)
     glow = max(0.0, 1.0 - distance / 3.0) ** 2
     value = int(255 * glow)
     return (value, value, value)
+
+
+def rounded_rectangle_distance(x, y, half_width, half_height, radius):
+    """Signed distance from a rounded rectangle centered on the origin (negative inside)."""
+    qx = abs(x) - half_width + radius
+    qy = abs(y) - half_height + radius
+    return math.hypot(max(qx, 0.0), max(qy, 0.0)) + min(max(qx, qy), 0.0) - radius
+
+
+GLOW_SIZE = (192, 64)
+
+
+def glow_pixel(x, y, margin=20.0, radius=12.0, softness=8.0):
+    """White light around a rounded rectangle that fills the image but a margin: full inside, fading with the distance
+    outside it. The screen stretches it behind buttons and the title, as wide and high as they are plus a margin about as
+    large, for the same falloff on every side."""
+    width, height = GLOW_SIZE
+    outside = rounded_rectangle_distance(x + 0.5 - width / 2.0, y + 0.5 - height / 2.0, width / 2.0 - margin, height / 2.0 - margin, radius)
+    alpha = 1.0 if outside <= 0.0 else math.exp(-(outside / softness) ** 2)
+    return (255, 255, 255, round(255 * alpha))
+
+
+# The screen's accent: cyan through violet to magenta, the colors of the board's neon and the dusk.
+ACCENT = ((64, 224, 255), (150, 112, 255), (255, 82, 196))
+
+
+def accent_pixel(x, y, width=256):
+    position = x / (width - 1) * (len(ACCENT) - 1)
+    index = min(int(position), len(ACCENT) - 2)
+    blend = position - index
+    return tuple(round(a + (b - a) * blend) for a, b in zip(ACCENT[index], ACCENT[index + 1]))
+
+
+def gloss_pixel(x, y, height=64):
+    """A sheen that is brightest at the top and gone at the bottom."""
+    alpha = 0.55 * (1.0 - y / (height - 1)) ** 1.6
+    return (255, 255, 255, round(255 * alpha))
+
+
+def arrow_pixel(direction, size=64, samples=4):
+    """A solid triangle pointing in a direction (up, down, left or right), antialiased by supersampling."""
+    def inside(px, py):
+        # The upward triangle in the unit square, turned to the direction.
+        u, v = {"up": (px, py), "down": (px, 1.0 - py), "left": (py, px), "right": (py, 1.0 - px)}[direction]
+        top, bottom, half = 0.22, 0.78, 0.36
+        return top <= v <= bottom and abs(u - 0.5) <= half * (v - top) / (bottom - top)
+
+    def pixel(x, y):
+        hits = sum(inside((x + (i + 0.5) / samples) / size, (y + (j + 0.5) / samples) / size) for i in range(samples) for j in range(samples))
+        return (255, 255, 255, round(255 * hits / (samples * samples)))
+    return pixel
 
 
 if __name__ == "__main__":
@@ -612,7 +668,13 @@ if __name__ == "__main__":
     for name, make in EFFECTS.items():
         write_wav(name, make(), EFFECT_PEAK, EFFECT_RATE)
     write_mesh()
-    write_png(os.path.join(ASSETS, "Textures", "Grid.png"), 128, 128, grid_pixel)
-    print("generated the sounds, Meshes/Block.gltf and Textures/Grid.png in", ASSETS)
+    textures = os.path.join(ASSETS, "Textures")
+    write_png(os.path.join(textures, "Grid.png"), 128, 128, grid_pixel)
+    write_png(os.path.join(textures, "Glow.png"), *GLOW_SIZE, glow_pixel)
+    write_png(os.path.join(textures, "Accent.png"), 256, 4, accent_pixel)
+    write_png(os.path.join(textures, "Gloss.png"), 4, 64, gloss_pixel)
+    for direction in ("Up", "Down", "Left", "Right"):
+        write_png(os.path.join(textures, f"Arrow{direction}.png"), 64, 64, arrow_pixel(direction.lower()))
+    print("generated the sounds, Meshes/Block.gltf and the textures in", ASSETS)
     check_sounds()
     print("the sounds are as expected")

@@ -525,7 +525,7 @@ TEST_CASE("Runtime: the Blocks sample plays and passes its tests")
 	ProcessResult const tests = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
 	CAPTURE(tests.Output);
 	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 39 checks"));
+	CHECK(Contains(tests.Output, "Tests passed: 53 checks"));
 
 	// The game's own scene runs as well (two seconds, without a window).
 	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});

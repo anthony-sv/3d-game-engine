@@ -5,7 +5,7 @@
 	},
 	"Entities": [
 		{
-			"ID": "10178303087617850629",
+			"ID": "3581591051638832167",
 			"Components": {
 				"Tag": {
 					"Tag": "Debris"
@@ -33,7 +33,7 @@
 					"Children": []
 				},
 				"Mesh": {
-					"Mesh": "4533603722639993620",
+					"Mesh": "17104383339542524357",
 					"Materials": [],
 					"CastShadows": true,
 					"Visible": true

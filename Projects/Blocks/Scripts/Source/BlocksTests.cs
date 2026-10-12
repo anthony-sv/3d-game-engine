@@ -6,10 +6,11 @@ using Strada.Testing;
 namespace Blocks;
 
 /// <summary>The checks of Scenes/Tests.sscene: the rules of the board, the auto player and the camera's spring when the
-/// scene starts, then the scene's game (Game) as it plays: moves, sounds, callouts, the camera, the game-over screen and the
-/// title screen's demo (the test scene starts the game without the title screen, keeps no best score and seeds its demo).
-/// The test run ends once they are done (play the scene, or `StradaRuntime --project Blocks.sproj --scene
-/// Scenes/Tests.sscene --test`).</summary>
+/// scene starts, then the scene's game (Game) as it plays: moves, sounds, callouts, the camera, the screen (the labels over
+/// the board, the score panel and the menus, whose buttons it clicks as the mouse does), the game-over screen and the title
+/// screen's demo (the test scene starts the game without the title screen, keeps no best score and seeds its demo). The test
+/// run ends once they are done (play the scene, or `StradaRuntime --project Blocks.sproj --scene Scenes/Tests.sscene
+/// --test`).</summary>
 public sealed class BlocksTests : Script
 {
 	[Tooltip("The game the checks play")]
@@ -19,16 +20,26 @@ public sealed class BlocksTests : Script
 	private const int Patience = 600;
 
 	// The steps of the run after the first frame: each waits for its frames or condition, runs its checks and starts the
-	// next.
+	// next. A click takes effect at the start of the next frame, so the checks of what it did wait two frames (three for the
+	// camera, which may move before the game does in a frame).
 	private enum Step
 	{
 		Start,
 		Play,
 		Lock,
 		Paused,
+		Resumed,
 		Fade,
+		NewBest,
 		TitleReturn,
 		KeyWait,
+		PlayAgain,
+		PauseRestart,
+		Restarted,
+		PauseQuit,
+		QuitToTitle,
+		GameOverQuit,
+		BackToTitle,
 		DemoHold,
 		DemoBlock,
 		DemoReplan,
@@ -46,6 +57,8 @@ public sealed class BlocksTests : Script
 	private int m_BestBeforeDemo;
 	private int m_PiecesBeforeBlock;
 	private int m_ReplansBeforeBlock;
+	// The score of a game when a closed menu's button was clicked.
+	private int m_ScoreBeforeClicks;
 	// The settled cells that block a demo piece's way, until the demo has planned again.
 	private readonly List<(int X, int Y)> m_Blocked = [];
 	// What the callout checks saw over the frames: the first callout out of its room, and the frames that showed callouts in
@@ -295,12 +308,22 @@ public sealed class BlocksTests : Script
 					Assert.AreEqual(1, game.Level);
 					Assert.IsTrue(game.Active.Y >= Board.Height - 1, game.Active.Y.ToString());
 				});
+				TestReporter.Run("the screen starts on the game: no title, menu, dim or DEMO tag", () =>
+				{
+					Assert.IsFalse(Rect("Title Screen").Visible, "the title");
+					Assert.IsFalse(Rect("Pause Menu").Visible, "the pause menu");
+					Assert.IsFalse(Rect("Game Over").Visible, "the game-over screen");
+					Assert.IsFalse(Rect("Dim").Visible, "the dim");
+					Assert.IsFalse(Rect("Demo Tag").Visible, "the DEMO tag");
+					Assert.IsNull(game.Hud?.OpenMenu, "no menu takes the keys");
+				});
 				m_StartRow = game.Active.Y;
 				m_CameraPlace = camera.Translation;
 				Next(Step.Play);
 				break;
 			case Step.Play when m_StepFrames == 19:
 				CheckPlay(game);
+				CheckLabels(game);
 				Next(Step.Lock);
 				break;
 			case Step.Lock when m_StepFrames == 45:
@@ -318,12 +341,17 @@ public sealed class BlocksTests : Script
 				Next(Step.Paused);
 				break;
 			case Step.Paused when m_StepFrames == 150:
-				TestReporter.Run("callouts wait out of sight while the game is paused", () =>
+				CheckPause(game);
+				// The menu's Resume goes on, as Escape does.
+				Click("Resume Button");
+				Next(Step.Resumed);
+				break;
+			case Step.Resumed when m_StepFrames == 2:
+				TestReporter.Run("the pause menu's Resume goes on with the game", () =>
 				{
-					Assert.AreEqual("TETRIS!", game.Callout(CalloutSlot.Clear));
-					Assert.AreEqual(0.0f, Text("Clear Callout").Color.A);
+					Assert.AreEqual(GameState.Playing, game.State);
+					Assert.IsNull(game.Hud?.OpenMenu);
 				});
-				game.SetPaused(false);
 				Next(Step.Fade);
 				break;
 			case Step.Fade when m_StepFrames < 150:
@@ -351,28 +379,118 @@ public sealed class BlocksTests : Script
 					Assert.IsNull(game.Callout(CalloutSlot.Bonus));
 					Assert.IsNull(game.Callout(CalloutSlot.Level));
 				});
-				// The next game over goes back to the title after a quarter of a second.
+				TestReporter.Run("the pause menu and the dim are gone once the game goes on", () =>
+				{
+					Assert.IsFalse(Rect("Pause Menu").Visible);
+					Assert.IsFalse(Rect("Dim").Visible);
+				});
+				// The game ends with the best score so far; its game-over screen goes back to the title after a quarter of a second.
 				game.TitleReturnDelay = 0.25f;
 				ForceGameOver(game);
+				Next(Step.NewBest);
+				break;
+			case Step.NewBest when m_StepFrames == 2:
+				TestReporter.Run("the game-over screen shows a new best in gold under its tag, with the level and lines reached", () =>
+				{
+					Assert.AreEqual(GameState.Over, game.State);
+					Assert.IsTrue(game.IsNewBest);
+					Assert.IsTrue(Rect("Game Over").Visible);
+					Assert.IsTrue(Rect("New Best Tag").Visible);
+					UITextComponent score = UIText("Final Score");
+					Assert.AreEqual(game.Score.ToString("N0"), score.Text);
+					Assert.IsTrue(score.Color.B < 0.5f && score.Color.G < score.Color.R, $"gold: {score.Color}");
+					Assert.AreEqual($"LEVEL {game.Level}   ·   LINES {game.Rows}", UIText("Final Stats").Text);
+				});
 				Next(Step.TitleReturn);
 				break;
-			case Step.TitleReturn when m_StepFrames == 30:
+			case Step.TitleReturn when m_StepFrames == 28:
 				TestReporter.Run("the game-over screen goes back to the title after a while", () =>
 				{
 					Assert.AreEqual(GameState.Title, game.State);
 					Assert.IsTrue(game.IsDemo);
 				});
-				// Without a delay, the game-over screen waits for a key.
+				// Without a delay, the game-over screen waits for the player.
 				game.TitleReturnDelay = 0.0f;
 				game.Restart();
 				ForceGameOver(game);
 				Next(Step.KeyWait);
 				break;
 			case Step.KeyWait when m_StepFrames == 60:
-				TestReporter.Run("with no delay the game-over screen waits for a key", () =>
+				TestReporter.Run("with no delay the game-over screen waits for the player", () =>
 				{
 					Assert.AreEqual(GameState.Over, game.State);
 				});
+				TestReporter.Run("the game-over screen opens with Play Again focused, the game's score and no new best", () =>
+				{
+					Assert.AreEqual("Play Again Button", game.Hud?.OpenMenu?.FocusedButton.Name);
+					Assert.IsFalse(game.IsNewBest);
+					Assert.IsFalse(Rect("New Best Tag").Visible);
+					Assert.AreEqual(game.Score.ToString("N0"), UIText("Final Score").Text);
+				});
+				Click("Play Again Button");
+				Next(Step.PlayAgain);
+				break;
+			case Step.PlayAgain when m_StepFrames == 2:
+				TestReporter.Run("the game-over screen's Play Again starts a new game", () =>
+				{
+					Assert.AreEqual(GameState.Playing, game.State);
+					Assert.AreEqual(0, game.Score);
+					Assert.AreEqual(0, CountCells(game.Board));
+				});
+				// Points to lose; the title's Play, whose menu is closed, does not start a game.
+				game.HardDrop();
+				m_ScoreBeforeClicks = game.Score;
+				Click("Play Button");
+				game.SetPaused(true);
+				Next(Step.PauseRestart);
+				break;
+			case Step.PauseRestart when m_StepFrames == 2:
+				TestReporter.Run("menus that are closed take no clicks", () =>
+				{
+					Assert.AreEqual(GameState.Paused, game.State);
+					Assert.IsTrue(m_ScoreBeforeClicks > 0, "a hard drop scored");
+					Assert.AreEqual(m_ScoreBeforeClicks, game.Score, "the title's Play started no game");
+					Assert.AreEqual(UIButtonState.Disabled, Element<UIButtonComponent>("Play Button").State);
+				});
+				Click("Restart Button");
+				Next(Step.Restarted);
+				break;
+			case Step.Restarted when m_StepFrames == 2:
+				TestReporter.Run("the pause menu's Restart starts the game over", () =>
+				{
+					Assert.AreEqual(GameState.Playing, game.State);
+					Assert.AreEqual(0, game.Score);
+					Assert.AreEqual(0, CountCells(game.Board));
+					Assert.AreEqual(game.StartSound, game.LastSound);
+				});
+				game.SetPaused(true);
+				Next(Step.PauseQuit);
+				break;
+			case Step.PauseQuit when m_StepFrames == 2:
+				Click("Pause Quit Button");
+				Next(Step.QuitToTitle);
+				break;
+			case Step.QuitToTitle when m_StepFrames == 2:
+				TestReporter.Run("the pause menu's Quit goes back to the title", () =>
+				{
+					Assert.AreEqual(GameState.Title, game.State);
+					Assert.IsTrue(game.IsDemo);
+				});
+				game.Restart();
+				ForceGameOver(game);
+				Next(Step.GameOverQuit);
+				break;
+			case Step.GameOverQuit when m_StepFrames == 2:
+				Click("Game Over Quit Button");
+				Next(Step.BackToTitle);
+				break;
+			case Step.BackToTitle when m_StepFrames == 2:
+				TestReporter.Run("the game-over screen's Quit goes back to the title", () =>
+				{
+					Assert.AreEqual(GameState.Title, game.State);
+					Assert.IsTrue(game.IsDemo);
+				});
+				// The demo starts again from its seed.
 				m_BestBeforeDemo = game.BestScore;
 				game.ShowTitle();
 				Next(Step.DemoHold);
@@ -418,9 +536,23 @@ public sealed class BlocksTests : Script
 				break;
 			case Step.Demo when (game.DemoPieces >= 3 && camera.AttractWeight >= 1.0f) || m_StepFrames == Patience:
 				CheckDemo(game, camera);
+				// What a click on the title's Play does.
+				Click("Play Button");
 				Next(Step.GameStarted);
 				break;
-			case Step.GameStarted:
+			case Step.GameStarted when m_StepFrames == 3:
+				TestReporter.Run("the title's Play button starts a real game on an empty board", () =>
+				{
+					Assert.AreEqual(GameState.Playing, game.State);
+					Assert.IsFalse(game.IsDemo);
+					Assert.AreEqual(0, CountCells(game.Board));
+					Assert.AreEqual(0, game.Score);
+					Assert.AreEqual(0, game.Rows);
+					Assert.IsNull(game.Held);
+					Assert.AreEqual(game.StartSound, game.LastSound);
+					Assert.AreEqual("GO!", game.Callout(CalloutSlot.Level));
+					Assert.IsFalse(Rect("Demo Tag").Visible, "no DEMO tag");
+				});
 				TestReporter.Run("the camera leaves attract mode when a game starts", () =>
 				{
 					Assert.IsFalse(camera.Attract);
@@ -650,6 +782,61 @@ public sealed class BlocksTests : Script
 		});
 	}
 
+	// The HOLD and NEXT labels stand where the camera shows their panels' headers: they follow the camera as it moves.
+	private static void CheckLabels(BlocksGame game)
+	{
+		TestReporter.Run("HOLD and NEXT stand over their panels' headers, as large as the camera shows them", () =>
+		{
+			CameraComponent view = game.Camera!.GetComponent<CameraComponent>()!;
+			foreach ((string label, Entity? header) in new[] { ("Hold Label", game.HoldHeader), ("Next Label", game.NextHeader) })
+			{
+				Assert.IsNotNull(header, label);
+				UIRectComponent rect = Rect(label);
+				Assert.IsTrue(rect.Visible, label);
+				TransformComponent transform = header.Transform;
+				Vector3 half = transform.Up * (0.5f * header.Scale.Y);
+				Vector2 middle = Flat(view.WorldToScreenPoint(transform.WorldTranslation));
+				float height = Vector2.Distance(Flat(view.WorldToScreenPoint(transform.WorldTranslation + half)),
+												Flat(view.WorldToScreenPoint(transform.WorldTranslation - half)));
+				Assert.IsTrue(Vector2.Distance(middle, rect.Position) < 0.5f, $"{label} at {rect.Position}, its header's middle at {middle}");
+				Assert.AreApproximatelyEqual(height, rect.Size.Y, 0.5f, $"{label}: as high as its header");
+				float letters = UIText($"{label} Text").FontSize;
+				Assert.IsTrue(letters > 0.4f * height && letters < 0.8f * height, $"{label}: letters of {letters} in a header of {height}");
+			}
+		});
+	}
+
+	// The paused game: the menu over the dimmed game, the callouts waiting and the score panel's numbers.
+	private static void CheckPause(BlocksGame game)
+	{
+		TestReporter.Run("callouts wait out of sight while the game is paused", () =>
+		{
+			Assert.AreEqual("TETRIS!", game.Callout(CalloutSlot.Clear));
+			Assert.AreEqual(0.0f, Rect("Clear Callout").Opacity);
+		});
+		TestReporter.Run("the pause menu opens over the dimmed game with Resume focused", () =>
+		{
+			UIRectComponent menu = Rect("Pause Menu");
+			Assert.IsTrue(menu.Visible);
+			Assert.AreEqual(1.0f, menu.Opacity);
+			Assert.IsTrue(Rect("Dim").Visible && Rect("Dim").Opacity > 0.5f, "the game is dimmed");
+			Assert.AreEqual("Resume Button", game.Hud?.OpenMenu?.FocusedButton.Name);
+			Assert.AreNotEqual(UIButtonState.Disabled, Element<UIButtonComponent>("Resume Button").State);
+			Assert.AreEqual(UIButtonState.Disabled, Element<UIButtonComponent>("Play Button").State, "the title's menu is closed");
+		});
+		TestReporter.Run("the score panel shows the game's numbers and the rows toward the next level", () =>
+		{
+			Assert.AreEqual(game.Score.ToString("N0"), UIText("Score Value").Text);
+			Assert.AreEqual(game.Level.ToString(), UIText("Level Value").Text);
+			Assert.AreEqual(game.Rows.ToString(), UIText("Lines Value").Text);
+			Assert.AreEqual(System.Math.Max(game.BestScore, game.Score).ToString("N0"), UIText("Best Value").Text);
+			Assert.IsTrue(game.LevelProgress > 0.0f, $"rows toward the next level: {game.Rows}");
+			UIRectComponent bar = Rect("Level Bar Fill");
+			Assert.IsTrue(bar.Visible);
+			Assert.AreApproximatelyEqual(game.LevelProgress, bar.AnchorMax.X, 0.01f);
+		});
+	}
+
 	// The demo has played a few pieces on the title screen.
 	private void CheckDemo(BlocksGame game, CameraShake camera)
 	{
@@ -662,43 +849,51 @@ public sealed class BlocksTests : Script
 			Assert.IsTrue(game.Score > 0, "the demo scores");
 			Assert.AreEqual(m_BestBeforeDemo, game.BestScore, "demos do not count for the best score");
 		});
-		TestReporter.Run("the title camera stands back and sways, with the callouts' rooms between the title's sign and the prompt", () =>
+		TestReporter.Run("the title's menu opens with Play focused, over a score panel tagged DEMO", () =>
+		{
+			UIRectComponent title = Rect("Title Screen");
+			Assert.IsTrue(title.Visible);
+			Assert.AreEqual(1.0f, title.Opacity);
+			Assert.AreEqual("Play Button", game.Hud?.OpenMenu?.FocusedButton.Name);
+			Assert.IsTrue(Rect("Demo Tag").Visible);
+		});
+		TestReporter.Run("the title camera stands back and sways, with the callouts' rooms between the title and its menu", () =>
 		{
 			Assert.IsTrue(camera.Attract);
 			Assert.AreEqual(1.0f, camera.AttractWeight);
-			Assert.AreEqual("PRESS ENTER OR CLICK TO PLAY", Text("Prompt").Text);
-			// The sign's glowing bottom edge (a sprite centered on its height) and the top of the prompt's line.
-			Entity edge = Entity.FindByName("Title Sign Bottom")!;
-			float sign = edge.Translation.Y + (0.5f * edge.Scale.Y / Application.WindowHeight);
-			float prompt = Text("Prompt").Entity.Translation.Y;
+			// The subtitle under the block letters ends the title; the callouts' column hangs from a point over the board.
+			float title = ScreenRect("Subtitle").Max.Y;
+			float menu = ScreenRect("Title Menu").Min.Y;
+			float middle = ScreenRect("Callouts").Min.Y;
+			float scale = CanvasScale();
 			foreach (CalloutSlot slot in System.Enum.GetValues<CalloutSlot>())
 			{
 				(float top, float bottom) = Callouts.Room(slot);
-				Assert.IsTrue(sign < top && bottom < prompt, $"{slot}: room {top} to {bottom}, sign to {sign}, prompt from {prompt}");
+				float roomTop = middle + (top * scale);
+				float roomBottom = middle + (bottom * scale);
+				Assert.IsTrue(title < roomTop && roomBottom < menu, $"{slot}: room {roomTop} to {roomBottom}, title to {title}, menu from {menu}");
 			}
 		});
-		TestReporter.Run("the title's sign and prompt leave the board and its panels in sight", () =>
+		TestReporter.Run("the title and its menu leave the board and its panels in sight", () =>
 		{
-			// Across the sign's width, rays through its bottom edge pass over the panels' tops (the highest part of the board)
-			// and rays through the top of the prompt's line pass under the board's base.
+			// Across the block letters' width, rays through the bottom of the title pass over the panels' tops (the highest part
+			// of the board), and rays through the top of the menu pass under the board's base.
 			CameraComponent view = game.Camera!.GetComponent<CameraComponent>()!;
-			float width = Application.WindowWidth;
-			float height = Application.WindowHeight;
-			Entity sign = Entity.FindByName("Title Sign")!;
-			Entity edge = Entity.FindByName("Title Sign Bottom")!;
 			Entity panel = Entity.FindByName("Next Panel")!;
 			Entity floor = Entity.FindByName("Floor")!;
 			Vector3 panelCenter = panel.GetComponent<TransformComponent>()!.WorldTranslation;
 			Vector3 floorCenter = floor.GetComponent<TransformComponent>()!.WorldTranslation;
-			float signBottom = (edge.Translation.Y * height) + (0.5f * edge.Scale.Y);
-			float promptTop = Text("Prompt").Entity.Translation.Y * height;
+			(Vector2 logoMin, Vector2 logoMax) = ScreenRect("Logo");
+			(Vector2 menuMin, Vector2 menuMax) = ScreenRect("Title Menu");
+			float titleBottom = ScreenRect("Subtitle").Max.Y;
 			for (int i = 0; i <= 8; i++)
 			{
-				float x = (sign.Translation.X * width) + (((i / 8.0f) - 0.5f) * sign.Scale.X);
-				float over = Height(view.ScreenToWorldRay(new Vector2(x, signBottom)), panelCenter.Z + (0.5f * panel.Scale.Z));
-				Assert.IsTrue(over > panelCenter.Y + (0.5f * panel.Scale.Y), $"the sign reaches down to {over} at x {x}");
-				float under = Height(view.ScreenToWorldRay(new Vector2(x, promptTop)), floorCenter.Z + (0.5f * floor.Scale.Z));
-				Assert.IsTrue(under < floorCenter.Y - (0.5f * floor.Scale.Y), $"the prompt reaches up to {under} at x {x}");
+				float x = Mathf.Lerp(logoMin.X, logoMax.X, i / 8.0f);
+				float over = Height(view.ScreenToWorldRay(new Vector2(x, titleBottom)), panelCenter.Z + (0.5f * panel.Scale.Z));
+				Assert.IsTrue(over > panelCenter.Y + (0.5f * panel.Scale.Y), $"the title reaches down to {over} at x {x}");
+				float menuX = Mathf.Lerp(menuMin.X, menuMax.X, i / 8.0f);
+				float under = Height(view.ScreenToWorldRay(new Vector2(menuX, menuMin.Y)), floorCenter.Z + (0.5f * floor.Scale.Z));
+				Assert.IsTrue(under < floorCenter.Y - (0.5f * floor.Scale.Y), $"the menu reaches up to {under} at x {menuX}");
 			}
 		});
 		TestReporter.Run("a demo that tops out starts over without a game over", () =>
@@ -713,19 +908,63 @@ public sealed class BlocksTests : Script
 			Assert.AreEqual(best, game.BestScore);
 			Assert.AreEqual(game.DropSound, game.LastSound, "no game-over sound");
 		});
-		TestReporter.Run("starting from the title gives a real game on an empty board", () =>
+	}
+
+	// A four-row clear right after another, after a three-row clear: the biggest callout of every slot at once ("TETRIS!" with
+	// its points, "BACK-TO-BACK" and "LEVEL UP!" with the level), and a row toward the level after.
+	private static void ShowEveryCallout(BlocksGame game)
+	{
+		game.Restart();
+		foreach (int rows in new[] { 3, 4, 4 })
 		{
-			// What Enter or a click does on the title screen.
-			game.Restart();
-			Assert.AreEqual(GameState.Playing, game.State);
-			Assert.IsFalse(game.IsDemo);
-			Assert.AreEqual(0, CountCells(game.Board));
-			Assert.AreEqual(0, game.Score);
-			Assert.AreEqual(0, game.Rows);
-			Assert.IsNull(game.Held);
-			Assert.AreEqual(game.StartSound, game.LastSound);
-			Assert.AreEqual("GO!", game.Callout(CalloutSlot.Level));
-		});
+			FillRows(game.Board, 0, rows, Board.Width);
+			game.ClearFullRows();
+		}
+	}
+
+	// Checks the callouts that show this frame: each keeps to its slot's room (so none runs into another).
+	private void WatchCallouts()
+	{
+		int showing = 0;
+		foreach (CalloutSlot slot in System.Enum.GetValues<CalloutSlot>())
+		{
+			if (CalloutLines(slot) is not { } lines)
+			{
+				continue;
+			}
+			showing++;
+			(float top, float bottom) = Callouts.Room(slot);
+			// Half a canvas unit for rounding.
+			if (m_CalloutTrouble is null && (lines.Top < top - 0.5f || lines.Bottom > bottom + 0.5f))
+			{
+				m_CalloutTrouble = $"frame {m_StepFrames}: the {slot} callout spans {lines.Top} to {lines.Bottom}, its room {top} to {bottom}";
+			}
+		}
+		m_FramesWithEverySlot += showing == System.Enum.GetValues<CalloutSlot>().Length ? 1 : 0;
+	}
+
+	// The lines a slot's callout shows (its texts and their shadows), from the top of the first to the bottom of the last in
+	// canvas units from the middle of the callouts' column; null when it shows none.
+	private static (float Top, float Bottom)? CalloutLines(CalloutSlot slot)
+	{
+		if (Rect($"{slot} Callout").Opacity <= 0.0f)
+		{
+			return null;
+		}
+		(float Top, float Bottom)? lines = null;
+		foreach (string part in new[] { "Text", "Text Shadow", "Detail", "Detail Shadow" })
+		{
+			UITextComponent text = UIText($"{slot} Callout {part}");
+			if (text.Text.Length == 0)
+			{
+				continue;
+			}
+			// A line hangs from the top of its rectangle and is as tall as the font's size.
+			float top = text.Entity.GetComponent<UIRectComponent>()!.Position.Y;
+			float bottom = top + text.FontSize;
+			lines = lines is { } before ? (Mathf.Min(before.Top, top), Mathf.Max(before.Bottom, bottom)) : (top, bottom);
+		}
+		return lines;
 	}
 
 	// Leaves every visible row full but for the side columns (so none clears, whatever the stack was), then drops the piece:
@@ -760,59 +999,6 @@ public sealed class BlocksTests : Script
 		}
 	}
 
-	// A four-row clear right after another, after a two-row clear: the biggest callout of every slot at once ("TETRIS!" with
-	// its points, "BACK-TO-BACK" and "LEVEL UP!" with the level).
-	private static void ShowEveryCallout(BlocksGame game)
-	{
-		game.Restart();
-		foreach (int rows in new[] { 2, 4, 4 })
-		{
-			FillRows(game.Board, 0, rows, Board.Width);
-			game.ClearFullRows();
-		}
-	}
-
-	// Checks the callouts that show this frame: each keeps to its slot's room (so none runs into another).
-	private void WatchCallouts()
-	{
-		int showing = 0;
-		foreach (CalloutSlot slot in System.Enum.GetValues<CalloutSlot>())
-		{
-			if (CalloutLines(slot) is not { } lines)
-			{
-				continue;
-			}
-			showing++;
-			(float top, float bottom) = Callouts.Room(slot);
-			// A thousandth of the window's height for rounding.
-			if (m_CalloutTrouble is null && (lines.Top < top - 0.001f || lines.Bottom > bottom + 0.001f))
-			{
-				m_CalloutTrouble = $"frame {m_StepFrames}: the {slot} callout spans {lines.Top} to {lines.Bottom}, its room {top} to {bottom}";
-			}
-		}
-		m_FramesWithEverySlot += showing == System.Enum.GetValues<CalloutSlot>().Length ? 1 : 0;
-	}
-
-	// The lines a slot's callout shows (its texts and their shadows that are not transparent), from the top of the first to
-	// the bottom of the last as fractions of the window's height; null when it shows none.
-	private static (float Top, float Bottom)? CalloutLines(CalloutSlot slot)
-	{
-		(float Top, float Bottom)? lines = null;
-		foreach (string part in new[] { "", " Shadow", " Detail", " Detail Shadow" })
-		{
-			TextComponent text = Text($"{slot} Callout{part}");
-			if (text.Text.Length == 0 || text.Color.A <= 0.0f)
-			{
-				continue;
-			}
-			// Texts hang from their top; a line is as tall as the font's size.
-			float top = text.Entity.Translation.Y;
-			float bottom = top + (text.FontSize / Application.WindowHeight);
-			lines = lines is { } before ? (Mathf.Min(before.Top, top), Mathf.Max(before.Bottom, bottom)) : (top, bottom);
-		}
-		return lines;
-	}
-
 	// Settles the first columns of rows.
 	private static void FillRows(Board board, int bottom, int count, int columns)
 	{
@@ -825,7 +1011,58 @@ public sealed class BlocksTests : Script
 		}
 	}
 
-	private static TextComponent Text(string name) => Entity.FindByName(name)!.GetComponent<TextComponent>()!;
+	// A component of an element of the screen, found by its name.
+	private static T Element<T>(string name)
+		where T : Component
+	{
+		T? component = Entity.FindByName(name)?.GetComponent<T>();
+		Assert.IsNotNull(component, $"{name} has a {typeof(T).Name}");
+		return component;
+	}
+
+	private static UIRectComponent Rect(string name) => Element<UIRectComponent>(name);
+
+	private static UITextComponent UIText(string name) => Element<UITextComponent>(name);
+
+	// Clicks a button of the screen as the mouse does: at the start of the next frame.
+	private static void Click(string button) => Entity.FindByName(button)?.GetComponent<UIButtonComponent>()?.Click();
+
+	// Pixels per canvas unit of the screen's canvas, which fits its whole reference resolution on the screen.
+	private static float CanvasScale()
+	{
+		UICanvasComponent canvas = Element<UICanvasComponent>("HUD");
+		Assert.AreEqual(UIScaleMode.ScaleWithScreenSize, canvas.ScaleMode);
+		Vector2 reference = canvas.ReferenceResolution;
+		return Mathf.Min(Application.WindowWidth / reference.X, Application.WindowHeight / reference.Y);
+	}
+
+	// Where an element of the screen's canvas is, in pixels from the screen's top-left corner, laid out as the UI lays it out:
+	// in its parent's rectangle by its anchors, pivot, position and size.
+	private static (Vector2 Min, Vector2 Max) ScreenRect(string name)
+	{
+		List<UIRectComponent> chain = [];
+		for (Entity? entity = Entity.FindByName(name); entity is not null && !entity.HasComponent<UICanvasComponent>(); entity = entity.Parent)
+		{
+			chain.Add(entity.GetComponent<UIRectComponent>()!);
+		}
+		float scale = CanvasScale();
+		Vector2 min = Vector2.Zero;
+		Vector2 max = new(Application.WindowWidth, Application.WindowHeight);
+		for (int i = chain.Count - 1; i >= 0; i--)
+		{
+			UIRectComponent rect = chain[i];
+			Vector2 parent = max - min;
+			Vector2 anchorMin = min + (rect.AnchorMin * parent);
+			Vector2 span = (min + (rect.AnchorMax * parent)) - anchorMin;
+			Vector2 size = span + (rect.Size * scale);
+			Vector2 pivot = anchorMin + (span * rect.Pivot) + (rect.Position * scale);
+			min = pivot - (size * rect.Pivot);
+			max = min + size;
+		}
+		return (min, max);
+	}
+
+	private static Vector2 Flat(Vector3 screen) => new(screen.X, screen.Y);
 
 	// The height at which a ray from the camera crosses the plane at a depth (z).
 	private static float Height(Ray ray, float depth) => ray.GetPoint((depth - ray.Origin.Z) / ray.Direction.Z).Y;

@@ -3,278 +3,456 @@ using Strada;
 
 namespace Blocks;
 
-/// <summary>The screen of the game: the score column (score, level, lines, best), the controls, the title (a sign with the
-/// game's name above the board and a prompt below it), pause and game-over overlays over a dimmed view, flashes and the
-/// callouts over the board. Every text is a screen-space entity it creates; sizes are given for an 800 pixel high window
-/// and follow the window's height.</summary>
-public sealed class Hud
+/// <summary>The game's screen, on the engine's UI system: a canvas of the scene (<see cref="BlocksGame.HudCanvas"/>) whose
+/// elements this class finds by name and brings to life. It shows the score panel (the score, the level with the rows to the
+/// next one, the lines and the best score, tagged DEMO while the title's demo plays), the HOLD and NEXT labels over the
+/// board's panels, the title (the game's name in block letters over the demo, with Play and Quit), the pause menu (Resume,
+/// Restart, Quit), the game-over screen (the score, a new best, Play Again and Quit), flashes and the callouts over the
+/// board. Screens fade in and out; the menus take the mouse and the keyboard (see <see cref="Menu"/>) and their clicks
+/// reach the game.</summary>
+public sealed class Hud : System.IDisposable
 {
-	private const float ReferenceHeight = 800.0f;
-	// The title's letters: their size, the top of their line, and how far apart they stand (reference pixels).
-	private const float TitleSize = 128.0f;
-	private const float TitleY = 0.014f;
-	private const float TitleSpacing = 92.0f;
-	// The letters bob by this fraction of the window's height; their shadows fall this many reference pixels away.
-	private const float TitleBob = 0.005f;
-	private const float TitleShadowOffset = 5.0f;
-	// The sign behind the title, from top to bottom as fractions of the window's height: as wide as the letters with a margin
-	// on each side (reference pixels), with glowing edges. The title camera keeps the board below it.
-	private const float SignTop = 0.022f;
-	private const float SignBottom = 0.228f;
-	private const float SignMargin = 64.0f;
-	private const float SignEdge = 3.0f;
-	private const float SubtitleY = 0.172f;
-	// The prompt: low on the title screen, over the floor in front of the board; under the headline on the overlays.
-	private const float TitlePromptY = 0.918f;
-	private const float OverlayPromptY = 0.62f;
+	// Seconds a flash takes to fade.
 	private const float FlashSeconds = 0.3f;
+	// Seconds screens and the dim take to fade in and out, eased at both ends.
+	private const float FadeInSeconds = 0.22f;
+	private const float FadeOutSeconds = 0.16f;
+	// How far a menu rises as it fades in (canvas units).
+	private const float MenuRise = 28.0f;
+	// The dim over the game: none during a game and over the title's demo, dark under the pause and game-over menus.
+	private const float MenuDim = 0.62f;
+	// The title's block letters bob: by this much (canvas units), this fast (radians per second), each a little after the
+	// one before it (radians).
+	private const float TileBob = 7.0f;
+	private const float TileBobSpeed = 2.2f;
+	private const float TileBobDelay = 0.7f;
+	// A number grows by this part of its size when it goes up, and settles back over the time (seconds).
+	private const float PopGrowth = 0.22f;
+	private const float PopSeconds = 0.3f;
+	// How fast the level's bar follows the rows (the part of the way left per second, exponentially).
+	private const float BarResponse = 8.0f;
+	// Seconds the game-over menu waits before it takes keys: the hard drops that ended the game do not click Play Again.
+	private const float GameOverKeyDelay = 0.5f;
+	// The HOLD and NEXT labels: their letters' size and the drop shadow's offset, in parts of their header's height.
+	private const float LabelSize = 0.56f;
+	private const float LabelShadow = 0.05f;
 
-	private static readonly Color s_Label = new(0.62f, 0.68f, 0.82f);
-	private static readonly Color s_Value = new(0.97f, 0.97f, 1.0f);
-	private static readonly Color s_Best = new(1.0f, 0.86f, 0.45f);
-	private static readonly Color s_Prompt = new(1.0f, 1.0f, 1.0f);
-	private static readonly Color s_Shadow = new(0.0f, 0.0f, 0.05f, 0.6f);
-	private static readonly Color s_Sign = new(0.02f, 0.0f, 0.07f, 0.62f);
-	private static readonly Color s_SignTop = new(0.25f, 0.9f, 1.0f, 0.9f);
-	private static readonly Color s_SignBottom = new(1.0f, 0.3f, 0.8f, 0.9f);
-	private static readonly Color[] s_TitleColors =
-	[
-		new(0.25f, 0.9f, 1.0f), new(1.0f, 0.85f, 0.2f), new(0.8f, 0.4f, 1.0f), new(0.35f, 1.0f, 0.45f), new(1.0f, 0.35f, 0.4f),
-		new(1.0f, 0.6f, 0.2f),
-	];
+	private static readonly Color s_Value = new(0.96f, 0.97f, 1.0f);
+	private static readonly Color s_Best = new(1.0f, 0.68f, 0.16f);
 
-	// A text placed in normalized screen coordinates with a size in reference pixels.
-	private sealed record Item(TextComponent Text, float Size);
-
-	private readonly Entity m_Root;
-	private readonly List<Item> m_Items = [];
-	private readonly TextComponent m_Score;
-	private readonly TextComponent m_Level;
-	private readonly TextComponent m_Lines;
-	private readonly TextComponent m_Best;
-	private readonly List<TextComponent> m_Title = [];
-	private readonly List<TextComponent> m_TitleShadows = [];
-	private readonly List<float> m_TitleOffsets = [];
-	private readonly TextComponent m_Subtitle;
-	private readonly TextComponent m_Headline;
-	private readonly TextComponent m_Detail;
-	private readonly TextComponent m_Prompt;
-	private readonly TextComponent m_PromptShadow;
-	private readonly SpriteRendererComponent m_Dim;
-	private readonly Entity m_DimEntity;
-	private readonly SpriteRendererComponent m_Flash;
-	private readonly Entity m_FlashEntity;
-	private readonly SpriteRendererComponent m_Sign;
-	private readonly SpriteRendererComponent m_SignTop;
-	private readonly SpriteRendererComponent m_SignBottom;
-	private readonly Entity m_Band;
-	private Color m_FlashColor;
+	private readonly BlocksGame m_Game;
+	// The canvas's elements by name.
+	private readonly Dictionary<string, Entity> m_Elements = [];
+	private readonly CameraShake? m_Shake;
+	private readonly CameraComponent? m_Camera;
+	private readonly BoardLabel m_HoldLabel;
+	private readonly BoardLabel m_NextLabel;
+	private readonly UIImageComponent m_Flash;
+	private readonly UIRectComponent m_FlashRect;
+	private readonly Screen m_Dim;
+	private readonly Counter m_Score;
+	private readonly Counter m_Level;
+	private readonly Counter m_Lines;
+	private readonly Counter m_Best;
+	private readonly UIRectComponent m_LevelBar;
+	private readonly UIRectComponent m_DemoTag;
+	private readonly Screen m_Title;
+	private readonly Screen m_Pause;
+	private readonly Screen m_Over;
+	private readonly List<(UIRectComponent Rect, Vector2 Home)> m_Tiles = [];
+	private readonly Menu m_TitleMenu;
+	private readonly Menu m_PauseMenu;
+	private readonly Menu m_OverMenu;
+	private readonly UITextComponent m_FinalScore;
+	private readonly UITextComponent m_FinalStats;
+	private readonly UIRectComponent m_NewBest;
 	private float m_FlashStrength;
 	private float m_FlashAge = FlashSeconds;
-	private int m_LaidOutWidth;
-	private int m_LaidOutHeight;
+	// What the screen shows of the flash, the level's bar and the DEMO tag (written when it changes).
+	private float m_FlashShown = -1.0f;
+	private float m_Bar;
+	private float m_BarShown = -1.0f;
+	private bool? m_DemoShown;
+	// The state the screen showed last, to fill the game-over screen once when the game ends.
+	private GameState? m_State;
 
-	public Hud(Entity parent)
+	/// <summary>The screen of a game on its canvas; the HOLD and NEXT labels stand over the middles of the headers (entities
+	/// of the world whose scale is the header's size). It shows the game from <see cref="ShowAtOnce"/> or the first
+	/// <see cref="Update"/> on. Throws when an element of the screen is missing from the canvas.</summary>
+	public Hud(BlocksGame game, Entity canvas, Entity? holdHeader, Entity? nextHeader)
 	{
-		m_Root = Entity.Create("HUD");
-		m_Root.Parent = parent;
-
-		// The score column right of the next queue, on a dark band so it reads against a bright sky.
-		Entity band = Entity.Create("Score Band");
-		band.Parent = m_Root;
-		band.Translation = new Vector3(0.905f, 0.42f, 0.5f);
-		m_Band = band;
-		SpriteRendererComponent bandSprite = band.AddComponent<SpriteRendererComponent>();
-		bandSprite.ScreenSpace = true;
-		bandSprite.Color = new Color(0.0f, 0.0f, 0.04f, 0.4f);
-		float column = 0.865f;
-		Label("SCORE", column, 0.13f);
-		m_Score = Text("Score", "0", column, 0.165f, 44.0f, s_Value, TextAlignment.Left);
-		Label("LEVEL", column, 0.30f);
-		m_Level = Text("Level", "1", column, 0.335f, 44.0f, s_Value, TextAlignment.Left);
-		Label("LINES", column, 0.47f);
-		m_Lines = Text("Lines", "0", column, 0.505f, 44.0f, s_Value, TextAlignment.Left);
-		Label("BEST", column, 0.64f);
-		m_Best = Text("Best", "0", column, 0.675f, 44.0f, s_Best, TextAlignment.Left);
-
-		Text("Controls", "LEFT / RIGHT   move\nDOWN   soft drop\nUP / X   rotate\nZ   rotate back\nSPACE   hard drop\nC / SHIFT   hold\nESC   pause",
-			 0.035f, 0.66f, 18.0f, s_Label, TextAlignment.Left);
-
-		// Flashes light up the whole view for a moment, under the texts.
-		m_FlashEntity = Entity.Create("Flash");
-		m_FlashEntity.Parent = m_Root;
-		m_Flash = m_FlashEntity.AddComponent<SpriteRendererComponent>();
-		m_Flash.ScreenSpace = true;
-		m_Flash.Color = new Color(1.0f, 1.0f, 1.0f, 0.0f);
-		m_FlashEntity.Translation = new Vector3(0.5f, 0.5f, 0.8f);
-
-		// The overlays, above a dimmed view.
-		m_DimEntity = Entity.Create("Dim");
-		m_DimEntity.Parent = m_Root;
-		m_Dim = m_DimEntity.AddComponent<SpriteRendererComponent>();
-		m_Dim.ScreenSpace = true;
-		m_Dim.Color = new Color(0.0f, 0.0f, 0.03f, 0.55f);
-		m_DimEntity.Translation = new Vector3(0.5f, 0.5f, 1.0f);
-
-		// The title stands on a dark sign with glowing edges, above the board.
-		m_Sign = Sprite("Title Sign", (SignTop + SignBottom) * 0.5f, 1.5f, s_Sign);
-		m_SignTop = Sprite("Title Sign Top", SignTop, 1.6f, s_SignTop);
-		m_SignBottom = Sprite("Title Sign Bottom", SignBottom, 1.6f, s_SignBottom);
-
-		string title = "BLOCKS";
-		for (int i = 0; i < title.Length; i++)
+		m_Game = game;
+		Collect(canvas);
+		m_HoldLabel = new BoardLabel(Find("Hold Label"), holdHeader);
+		m_NextLabel = new BoardLabel(Find("Next Label"), nextHeader);
+		m_Flash = Find("Flash").GetComponent<UIImageComponent>()!;
+		m_FlashRect = Find("Flash").GetComponent<UIRectComponent>()!;
+		m_Dim = new Screen(Find("Dim"), 0.0f, MenuDim);
+		m_Score = new Counter(Find("Score Value"), true);
+		m_Level = new Counter(Find("Level Value"), false);
+		m_Lines = new Counter(Find("Lines Value"), false);
+		m_Best = new Counter(Find("Best Value"), true);
+		m_LevelBar = Find("Level Bar Fill").GetComponent<UIRectComponent>()!;
+		m_DemoTag = Find("Demo Tag").GetComponent<UIRectComponent>()!;
+		m_Title = new Screen(Find("Title Screen"), 0.0f);
+		m_Pause = new Screen(Find("Pause Menu"), MenuRise);
+		m_Over = new Screen(Find("Game Over"), MenuRise);
+		foreach (Entity tile in Find("Logo").Children)
 		{
-			string letter = title[i].ToString();
-			m_TitleShadows.Add(Text($"Title {letter} Shadow", letter, 0.5f, TitleY, TitleSize, s_Shadow, TextAlignment.Center, 1.9f));
-			m_Title.Add(Text($"Title {letter}", letter, 0.5f, TitleY, TitleSize, s_TitleColors[i % s_TitleColors.Length], TextAlignment.Center));
-			m_TitleOffsets.Add((i - ((title.Length - 1) * 0.5f)) * TitleSpacing);
+			UIRectComponent rect = tile.GetComponent<UIRectComponent>()!;
+			m_Tiles.Add((rect, rect.Position));
 		}
-		m_Subtitle = Text("Subtitle", "a Strada engine example", 0.5f, SubtitleY, 24.0f, s_Value, TextAlignment.Center);
-		m_Headline = Text("Headline", "", 0.5f, 0.33f, 96.0f, s_Value, TextAlignment.Center);
-		m_Detail = Text("Detail", "", 0.5f, 0.5f, 30.0f, s_Value, TextAlignment.Center);
-		m_PromptShadow = Text("Prompt Shadow", "", 0.5f, OverlayPromptY, 34.0f, s_Shadow, TextAlignment.Center, 1.9f);
-		m_Prompt = Text("Prompt", "", 0.5f, OverlayPromptY, 34.0f, s_Prompt, TextAlignment.Center);
-		Callouts = new Callouts(m_Root);
-		Layout();
-	}
+		m_TitleMenu = new Menu([Find("Play Button"), Find("Quit Button")], game.PlayMenuTick);
+		m_PauseMenu = new Menu([Find("Resume Button"), Find("Restart Button"), Find("Pause Quit Button")], game.PlayMenuTick);
+		m_OverMenu = new Menu([Find("Play Again Button"), Find("Game Over Quit Button")], game.PlayMenuTick, GameOverKeyDelay);
+		m_FinalScore = Find("Final Score").GetComponent<UITextComponent>()!;
+		m_FinalStats = Find("Final Stats").GetComponent<UITextComponent>()!;
+		m_NewBest = Find("New Best Tag").GetComponent<UIRectComponent>()!;
+		Callouts = new Callouts(Find);
 
-	/// <summary>Whether an overlay (title, pause or game over) shows.</summary>
-	public bool OverlayVisible { get; private set; }
+		// The labels follow the board's panels as the camera shows them: where the camera is once it has moved this frame.
+		m_Camera = game.Camera?.GetComponent<CameraComponent>();
+		m_Shake = game.Camera?.As<CameraShake>();
+		if (m_Shake is not null)
+		{
+			m_Shake.Moved += PlaceBoardLabels;
+		}
+	}
 
 	/// <summary>The words that pop over the board.</summary>
 	public Callouts Callouts { get; }
 
-	public void SetStats(int score, int level, int lines, int best)
+	/// <summary>The menu the title, the pause or the game over shows, if any.</summary>
+	public Menu? OpenMenu => m_TitleMenu.IsOpen ? m_TitleMenu : m_PauseMenu.IsOpen ? m_PauseMenu : m_OverMenu.IsOpen ? m_OverMenu : null;
+
+	/// <summary>Stops following the camera.</summary>
+	public void Dispose()
 	{
-		m_Score.Text = score.ToString("N0");
-		m_Level.Text = level.ToString();
-		m_Lines.Text = lines.ToString();
-		m_Best.Text = best.ToString("N0");
+		if (m_Shake is not null)
+		{
+			m_Shake.Moved -= PlaceBoardLabels;
+		}
 	}
 
 	/// <summary>Lights up the view in a color for a moment; strength is the opacity it starts with.</summary>
 	public void Flash(Color color, float strength)
 	{
-		m_FlashColor = color;
+		m_Flash.Color = new Color(color.R, color.G, color.B);
 		m_FlashStrength = Mathf.Clamp01(strength);
 		m_FlashAge = 0.0f;
 	}
 
-	/// <summary>Shows the overlay of a state (none while playing) and moves flashes and callouts on by the time step. On the
-	/// title the board plays itself under a light dimming, between the sign and the prompt; the prompt pulses with the time.
-	/// Callouts wait, hidden, while the game is paused.</summary>
-	public void Show(GameState state, int score, bool newBest, float time, float deltaTime)
+	/// <summary>Shows the screen of the game's state at once, without fading it in (when the game starts).</summary>
+	public void ShowAtOnce() => Refresh(0.0f, true);
+
+	/// <summary>Runs the menu of the game's state for a frame, before the game's own: the mouse and the keys move its focus,
+	/// and its clicks start, resume, restart or quit the game at once.</summary>
+	public void UpdateMenus(float deltaTime)
 	{
-		Layout();
-		bool title = state == GameState.Title;
-		float offset = TitleShadowOffset * m_LaidOutHeight / ReferenceHeight;
-		for (int i = 0; i < m_Title.Count; i++)
+		OpenMenus();
+		// Every menu animates; at most one is open to click.
+		Entity? title = m_TitleMenu.Update(deltaTime);
+		Entity? pause = m_PauseMenu.Update(deltaTime);
+		Entity? over = m_OverMenu.Update(deltaTime);
+		if ((title ?? pause ?? over) is { } clicked)
 		{
-			float bob = TitleBob * Mathf.Sin((time * 2.2f) - (i * 0.7f));
-			Entity letter = m_Title[i].Entity;
-			letter.Translation = new Vector3(letter.Translation.X, TitleY + bob, letter.Translation.Z);
-			Entity shadow = m_TitleShadows[i].Entity;
-			shadow.Translation = new Vector3(letter.Translation.X + (offset / m_LaidOutWidth), TitleY + bob + (offset / m_LaidOutHeight),
-											 shadow.Translation.Z);
-			m_Title[i].Color = WithAlpha(m_Title[i].Color, title ? 1.0f : 0.0f);
-			m_TitleShadows[i].Color = WithAlpha(s_Shadow, title ? s_Shadow.A : 0.0f);
+			Click(clicked);
+			OpenMenus();
 		}
-		m_Subtitle.Color = WithAlpha(m_Subtitle.Color, title ? 1.0f : 0.0f);
-		m_Sign.Color = WithAlpha(s_Sign, title ? s_Sign.A : 0.0f);
-		m_SignTop.Color = WithAlpha(s_SignTop, title ? s_SignTop.A : 0.0f);
-		m_SignBottom.Color = WithAlpha(s_SignBottom, title ? s_SignBottom.A : 0.0f);
-		(string headline, string detail, string prompt) = state switch
+	}
+
+	/// <summary>Shows the game as it is after its frame and moves the screen's animations on by the time step: the screen of
+	/// the game's state, the numbers, flashes and callouts.</summary>
+	public void Update(float deltaTime) => Refresh(deltaTime, false);
+
+	private void Refresh(float deltaTime, bool snap)
+	{
+		OpenMenus();
+		GameState state = m_Game.State;
+		m_Title.Update(state == GameState.Title, deltaTime, snap);
+		m_Pause.Update(state == GameState.Paused, deltaTime, snap);
+		m_Over.Update(state == GameState.Over, deltaTime, snap);
+		m_Dim.Update(state is GameState.Paused or GameState.Over, deltaTime, snap);
+
+		ShowNumbers(deltaTime, snap);
+		if (m_Title.Opacity > 0.0f)
 		{
-			GameState.Title => ("", "", "PRESS ENTER OR CLICK TO PLAY"),
-			GameState.Paused => ("PAUSED", "", "PRESS ESC OR ENTER TO RESUME"),
-			GameState.Over => ("GAME OVER", newBest ? $"NEW BEST  {score:N0}" : $"SCORE  {score:N0}", "PRESS ENTER OR CLICK TO PLAY AGAIN"),
-			_ => ("", "", ""),
-		};
-		m_Headline.Text = headline;
-		m_Detail.Text = detail;
-		m_Detail.Color = newBest ? s_Best : s_Value;
-		m_Prompt.Text = prompt;
-		m_PromptShadow.Text = prompt;
-		float promptY = title ? TitlePromptY : OverlayPromptY;
-		m_Prompt.Entity.Translation = new Vector3(0.5f, promptY, m_Prompt.Entity.Translation.Z);
-		m_PromptShadow.Entity.Translation = new Vector3(0.5f + (offset * 0.5f / m_LaidOutWidth), promptY + (offset * 0.5f / m_LaidOutHeight),
-														m_PromptShadow.Entity.Translation.Z);
-		// The prompt breathes.
-		float breath = 0.75f + (0.25f * Mathf.Sin(time * 3.0f));
-		m_Prompt.Color = WithAlpha(s_Prompt, breath);
-		m_PromptShadow.Color = WithAlpha(s_Shadow, s_Shadow.A * breath);
-		OverlayVisible = state != GameState.Playing;
-		m_Dim.Color = WithAlpha(m_Dim.Color, OverlayVisible ? (title ? 0.12f : 0.55f) : 0.0f);
+			float time = (float)Time.Elapsed;
+			for (int i = 0; i < m_Tiles.Count; i++)
+			{
+				(UIRectComponent rect, Vector2 home) = m_Tiles[i];
+				rect.Position = home + new Vector2(0.0f, TileBob * Mathf.Sin((time * TileBobSpeed) - (i * TileBobDelay)));
+			}
+		}
+		if (state == GameState.Over && m_State != GameState.Over)
+		{
+			bool newBest = m_Game.IsNewBest;
+			m_FinalScore.Text = m_Game.Score.ToString("N0");
+			m_FinalScore.Color = newBest ? s_Best : s_Value;
+			m_FinalStats.Text = $"LEVEL {m_Game.Level}   ·   LINES {m_Game.Rows}";
+			m_NewBest.Visible = newBest;
+		}
+		m_State = state;
 
 		m_FlashAge += deltaTime;
 		float flash = Mathf.Clamp01(1.0f - (m_FlashAge / FlashSeconds));
-		m_Flash.Color = WithAlpha(m_FlashColor, m_FlashStrength * flash * flash);
+		float flashOpacity = m_FlashStrength * flash * flash;
+		if (flashOpacity != m_FlashShown)
+		{
+			m_FlashShown = flashOpacity;
+			m_FlashRect.Opacity = flashOpacity;
+			m_FlashRect.Visible = flashOpacity > 0.0f;
+		}
 		Callouts.Hidden = state == GameState.Paused;
-		Callouts.Update(deltaTime, m_LaidOutWidth, m_LaidOutHeight);
-	}
-
-	private static Color WithAlpha(Color color, float alpha) => new(color.R, color.G, color.B, alpha);
-
-	private void Label(string text, float x, float y)
-	{
-		Text($"{text} Label", text, x, y, 22.0f, s_Label, TextAlignment.Left);
-	}
-
-	private TextComponent Text(string name, string text, float x, float y, float size, Color color, TextAlignment alignment, float layer = 2.0f)
-	{
-		Entity entity = Entity.Create(name);
-		entity.Parent = m_Root;
-		// Above the dimming sprite.
-		entity.Translation = new Vector3(x, y, layer);
-		TextComponent component = entity.AddComponent<TextComponent>();
-		component.Text = text;
-		component.Color = color;
-		component.ScreenSpace = true;
-		component.Alignment = alignment;
-		component.FontSize = size;
-		m_Items.Add(new Item(component, size));
-		return component;
-	}
-
-	// A quad centered on the window at a height (a fraction of the window's height), sized by Layout.
-	private SpriteRendererComponent Sprite(string name, float y, float layer, Color color)
-	{
-		Entity entity = Entity.Create(name);
-		entity.Parent = m_Root;
-		entity.Translation = new Vector3(0.5f, y, layer);
-		SpriteRendererComponent sprite = entity.AddComponent<SpriteRendererComponent>();
-		sprite.ScreenSpace = true;
-		sprite.Color = color;
-		return sprite;
-	}
-
-	// Sizes follow the window's height; the title's letters keep their spacing and the sign fits them.
-	private void Layout()
-	{
-		int width = System.Math.Max(Application.WindowWidth, 1);
-		int height = System.Math.Max(Application.WindowHeight, 1);
-		if (width == m_LaidOutWidth && height == m_LaidOutHeight)
+		Callouts.Update(deltaTime);
+		if (m_Shake is null)
 		{
-			return;
+			PlaceBoardLabels();
 		}
-		m_LaidOutWidth = width;
-		m_LaidOutHeight = height;
-		float scale = height / ReferenceHeight;
-		foreach (Item item in m_Items)
+	}
+
+	// The menu of the game's state opens; the others close.
+	private void OpenMenus()
+	{
+		m_TitleMenu.Open(m_Game.State == GameState.Title);
+		m_PauseMenu.Open(m_Game.State == GameState.Paused);
+		m_OverMenu.Open(m_Game.State == GameState.Over);
+	}
+
+	// What the menus' buttons do.
+	private void Click(Entity button)
+	{
+		switch (button.Name)
 		{
-			item.Text.FontSize = item.Size * scale;
+			case "Play Button":
+			case "Play Again Button":
+			case "Restart Button":
+				m_Game.Restart();
+				break;
+			case "Resume Button":
+				m_Game.SetPaused(false);
+				break;
+			case "Pause Quit Button":
+			case "Game Over Quit Button":
+				m_Game.ShowTitle();
+				break;
+			case "Quit Button":
+				Application.Quit();
+				break;
 		}
-		for (int i = 0; i < m_Title.Count; i++)
+	}
+
+	// The score panel: the demo's numbers count on the title, but only games count for the best.
+	private void ShowNumbers(float deltaTime, bool snap)
+	{
+		bool demo = m_Game.IsDemo;
+		int score = m_Game.Score;
+		m_Score.Show(score, deltaTime);
+		m_Level.Show(m_Game.Level, deltaTime);
+		m_Lines.Show(m_Game.Rows, deltaTime);
+		m_Best.Show(demo ? m_Game.BestScore : System.Math.Max(m_Game.BestScore, score), deltaTime);
+		// The bar fills with the rows of the level and empties when the next one starts.
+		float progress = m_Game.LevelProgress;
+		m_Bar = progress < m_Bar || snap ? progress : Mathf.Lerp(m_Bar, progress, 1.0f - Mathf.Exp(-BarResponse * deltaTime));
+		if (Mathf.Abs(progress - m_Bar) < 0.001f)
 		{
-			Entity letter = m_Title[i].Entity;
-			letter.Translation = new Vector3(0.5f + (m_TitleOffsets[i] * scale / width), letter.Translation.Y, letter.Translation.Z);
+			m_Bar = progress;
 		}
-		m_DimEntity.Scale = new Vector3(width, height, 1.0f);
-		m_FlashEntity.Scale = new Vector3(width, height, 1.0f);
-		float signWidth = System.Math.Min(((m_Title.Count * TitleSpacing) + (2.0f * SignMargin)) * scale, width);
-		m_Sign.Entity.Scale = new Vector3(signWidth, height * (SignBottom - SignTop), 1.0f);
-		m_SignTop.Entity.Scale = new Vector3(signWidth, SignEdge * scale, 1.0f);
-		m_SignBottom.Entity.Scale = new Vector3(signWidth, SignEdge * scale, 1.0f);
-		m_Band.Scale = new Vector3(width * 0.15f, height * 0.66f, 1.0f);
+		if (m_Bar != m_BarShown)
+		{
+			m_BarShown = m_Bar;
+			m_LevelBar.AnchorMax = new Vector2(m_Bar, 1.0f);
+			m_LevelBar.Visible = m_Bar > 0.0f;
+		}
+		if (demo != m_DemoShown)
+		{
+			m_DemoShown = demo;
+			m_DemoTag.Visible = demo;
+		}
+	}
+
+	private void PlaceBoardLabels()
+	{
+		m_HoldLabel.Place(m_Camera);
+		m_NextLabel.Place(m_Camera);
+	}
+
+	private void Collect(Entity parent)
+	{
+		foreach (Entity child in parent.Children)
+		{
+			if (!m_Elements.TryAdd(child.Name, child))
+			{
+				throw new System.InvalidOperationException($"The HUD's canvas has two elements named \"{child.Name}\"");
+			}
+			Collect(child);
+		}
+	}
+
+	private Entity Find(string name) =>
+		m_Elements.TryGetValue(name, out Entity? element) ? element : throw new System.InvalidOperationException($"The HUD's canvas has no element named \"{name}\"");
+
+	// An element that fades in to its opacity when its state comes and out when it goes, each in a fixed time and eased at
+	// both ends (menus rise as they come); one faded out is hidden, so it takes no clicks.
+	private sealed class Screen
+	{
+		private readonly UIRectComponent m_Rect;
+		private readonly Vector2 m_Home;
+		private readonly float m_Rise;
+		private readonly float m_Opacity;
+		// How far it has faded in, from 0 to 1, and whether the element shows that yet.
+		private float m_Shown;
+		private bool m_Applied;
+
+		public Screen(Entity entity, float rise, float opacity = 1.0f)
+		{
+			m_Rect = entity.GetComponent<UIRectComponent>()!;
+			m_Home = m_Rect.Position;
+			m_Rise = rise;
+			m_Opacity = opacity;
+			m_Shown = m_Rect.Visible && m_Rect.Opacity > 0.0f ? 1.0f : 0.0f;
+		}
+
+		public float Opacity => m_Opacity * Mathf.SmoothStep(0.0f, 1.0f, m_Shown);
+
+		public void Update(bool active, float deltaTime, bool snap)
+		{
+			float target = active ? 1.0f : 0.0f;
+			float shown = snap ? target : Mathf.MoveTowards(m_Shown, target, deltaTime / (active ? FadeInSeconds : FadeOutSeconds));
+			if (m_Applied && shown == m_Shown)
+			{
+				return;
+			}
+			m_Applied = true;
+			m_Shown = shown;
+			m_Rect.Opacity = Opacity;
+			m_Rect.Visible = m_Shown > 0.0f;
+			float away = 1.0f - Mathf.SmoothStep(0.0f, 1.0f, m_Shown);
+			m_Rect.Position = m_Home + new Vector2(0.0f, m_Rise * away * away);
+		}
+	}
+
+	// A number of the score panel that grows for a moment when it goes up.
+	private sealed class Counter
+	{
+		private readonly UITextComponent m_Text;
+		private readonly float m_Size;
+		// Whether the number's thousands are grouped (scores).
+		private readonly bool m_Grouped;
+		private int? m_Value;
+		private float m_Pop;
+
+		public Counter(Entity entity, bool grouped)
+		{
+			m_Text = entity.GetComponent<UITextComponent>()!;
+			m_Size = m_Text.FontSize;
+			m_Grouped = grouped;
+		}
+
+		public void Show(int value, float deltaTime)
+		{
+			if (value != m_Value)
+			{
+				if (m_Value is { } before && value > before)
+				{
+					m_Pop = 1.0f;
+				}
+				m_Value = value;
+				m_Text.Text = m_Grouped ? value.ToString("N0") : value.ToString();
+			}
+			if (m_Pop > 0.0f)
+			{
+				m_Pop = Mathf.Max(m_Pop - (deltaTime / PopSeconds), 0.0f);
+				m_Text.FontSize = m_Size * (1.0f + (PopGrowth * m_Pop * m_Pop));
+			}
+		}
+	}
+
+	// HOLD or NEXT over a panel of the board: a label of the board's labels canvas (whose units are pixels) placed where the
+	// camera shows the middle of the panel's header and sized by the header's height there, with its drop shadow.
+	private sealed class BoardLabel
+	{
+		private readonly Entity? m_Header;
+		private readonly TransformComponent? m_HeaderTransform;
+		private readonly UIRectComponent m_Rect;
+		private readonly UITextComponent m_Text;
+		private readonly UITextComponent m_Shadow;
+		private readonly UIRectComponent m_ShadowRect;
+		// Where the label stands and how high it is in pixels (written when they change); a height of zero hides it.
+		private Vector2 m_Center;
+		private float m_Height = -1.0f;
+		private float m_Width;
+
+		public BoardLabel(Entity label, Entity? header)
+		{
+			m_Header = header;
+			m_HeaderTransform = header?.Transform;
+			m_Rect = label.GetComponent<UIRectComponent>()!;
+			Entity? text = null;
+			Entity? shadow = null;
+			foreach (Entity child in label.Children)
+			{
+				if (child.Name == $"{label.Name} Text")
+				{
+					text = child;
+				}
+				else if (child.Name == $"{label.Name} Shadow")
+				{
+					shadow = child;
+				}
+			}
+			m_Text = text?.GetComponent<UITextComponent>() ?? throw new System.InvalidOperationException($"{label.Name} has no text");
+			m_Shadow = shadow?.GetComponent<UITextComponent>() ?? throw new System.InvalidOperationException($"{label.Name} has no shadow");
+			m_ShadowRect = shadow.GetComponent<UIRectComponent>()!;
+			Show(Vector2.Zero, 0.0f, 0.0f);
+		}
+
+		public void Place(CameraComponent? camera)
+		{
+			if (camera is null || m_Header is null || m_HeaderTransform is null)
+			{
+				Show(Vector2.Zero, 0.0f, 0.0f);
+				return;
+			}
+			Vector3 middle = m_HeaderTransform.WorldTranslation;
+			Vector3 scale = m_Header.Scale;
+			Vector3 up = m_HeaderTransform.Up * (0.5f * scale.Y);
+			Vector3 right = m_HeaderTransform.Right * (0.5f * scale.X);
+			Vector3 center = camera.WorldToScreenPoint(middle);
+			Vector3 top = camera.WorldToScreenPoint(middle + up);
+			Vector3 bottom = camera.WorldToScreenPoint(middle - up);
+			Vector3 left = camera.WorldToScreenPoint(middle - right);
+			Vector3 rightEdge = camera.WorldToScreenPoint(middle + right);
+			// A header behind the camera has no place on the screen.
+			if (center.Z <= 0.0f || top.Z <= 0.0f || bottom.Z <= 0.0f || left.Z <= 0.0f || rightEdge.Z <= 0.0f)
+			{
+				Show(Vector2.Zero, 0.0f, 0.0f);
+				return;
+			}
+			Show(Flat(center), Vector2.Distance(Flat(left), Flat(rightEdge)), Vector2.Distance(Flat(top), Flat(bottom)));
+		}
+
+		private static Vector2 Flat(Vector3 screen) => new(screen.X, screen.Y);
+
+		private void Show(Vector2 center, float width, float height)
+		{
+			if (center == m_Center && width == m_Width && height == m_Height)
+			{
+				return;
+			}
+			m_Center = center;
+			m_Width = width;
+			m_Height = height;
+			m_Rect.Visible = height > 0.0f;
+			if (height <= 0.0f)
+			{
+				return;
+			}
+			m_Rect.Position = center;
+			m_Rect.Size = new Vector2(width, height);
+			m_Text.FontSize = height * LabelSize;
+			m_Shadow.FontSize = height * LabelSize;
+			m_ShadowRect.Position = new Vector2(height * LabelShadow, height * LabelShadow);
+		}
 	}
 }

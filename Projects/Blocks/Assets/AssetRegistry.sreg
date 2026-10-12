@@ -5,142 +5,177 @@
 	},
 	"Assets": [
 		{
-			"Handle": "14616565029167171635",
+			"Handle": "6576681618906799884",
 			"Type": "AudioClip",
 			"Path": "Audio/Double.wav"
 		},
 		{
-			"Handle": "11550066408539185517",
+			"Handle": "15245709849477200095",
 			"Type": "AudioClip",
 			"Path": "Audio/Drop.wav"
 		},
 		{
-			"Handle": "961376375580484234",
+			"Handle": "1812875913616366698",
 			"Type": "AudioClip",
 			"Path": "Audio/GameOver.wav"
 		},
 		{
-			"Handle": "10676747467906009101",
+			"Handle": "14383402937129064812",
 			"Type": "AudioClip",
 			"Path": "Audio/Hold.wav"
 		},
 		{
-			"Handle": "12883458381606711061",
+			"Handle": "65346968053211977",
 			"Type": "AudioClip",
 			"Path": "Audio/LevelUp.wav"
 		},
 		{
-			"Handle": "384729253019385985",
+			"Handle": "688779486636359430",
 			"Type": "AudioClip",
 			"Path": "Audio/Lock.wav"
 		},
 		{
-			"Handle": "14328765067461575928",
+			"Handle": "16643384922999024358",
 			"Type": "AudioClip",
 			"Path": "Audio/Move.wav"
 		},
 		{
-			"Handle": "1975414364657021289",
+			"Handle": "17634637622483238064",
 			"Type": "AudioClip",
 			"Path": "Audio/Music.wav"
 		},
 		{
-			"Handle": "12179056236970932020",
+			"Handle": "9198654272867597105",
 			"Type": "AudioClip",
 			"Path": "Audio/Pause.wav"
 		},
 		{
-			"Handle": "2511646635036724643",
+			"Handle": "17033050667950991870",
 			"Type": "AudioClip",
 			"Path": "Audio/Rotate.wav"
 		},
 		{
-			"Handle": "13067438413325629685",
+			"Handle": "7263476851209060459",
 			"Type": "AudioClip",
 			"Path": "Audio/Single.wav"
 		},
 		{
-			"Handle": "6698226780455752392",
+			"Handle": "9476225055741370011",
 			"Type": "AudioClip",
 			"Path": "Audio/SoftDrop.wav"
 		},
 		{
-			"Handle": "16170653321258916832",
+			"Handle": "16985078239579589438",
 			"Type": "AudioClip",
 			"Path": "Audio/Start.wav"
 		},
 		{
-			"Handle": "5672865159425731402",
+			"Handle": "12573671067622689420",
 			"Type": "AudioClip",
 			"Path": "Audio/Tetris.wav"
 		},
 		{
-			"Handle": "6027359483056508636",
+			"Handle": "7259768034706667002",
 			"Type": "AudioClip",
 			"Path": "Audio/Triple.wav"
 		},
 		{
-			"Handle": "14071234549927658622",
+			"Handle": "13278434087194211250",
 			"Type": "Environment",
 			"Path": "Environments/industrial_sunset_02_puresky_1k.hdr"
 		},
 		{
-			"Handle": "18436308303568868019",
+			"Handle": "17605446848177715449",
 			"Type": "Material",
 			"Path": "Materials/Backdrop.smat"
 		},
 		{
-			"Handle": "15947245717721238074",
+			"Handle": "17417990673554687715",
 			"Type": "Material",
 			"Path": "Materials/Floor.smat"
 		},
 		{
-			"Handle": "13908352015658396071",
+			"Handle": "8269617956851264353",
 			"Type": "Material",
 			"Path": "Materials/Frame.smat"
 		},
 		{
-			"Handle": "18261597356990865373",
+			"Handle": "2323675162832801207",
 			"Type": "Material",
 			"Path": "Materials/Neon.smat"
 		},
 		{
-			"Handle": "17531919155023489611",
+			"Handle": "4327489855053355216",
 			"Type": "Material",
 			"Path": "Materials/Panel.smat"
 		},
 		{
-			"Handle": "4533603722639993620",
+			"Handle": "17104383339542524357",
 			"Type": "Mesh",
 			"Path": "Meshes/Block.gltf"
 		},
 		{
-			"Handle": "1925237942237126964",
+			"Handle": "11117800095765741830",
 			"Type": "Prefab",
 			"Path": "Prefabs/Debris.sprefab"
 		},
 		{
-			"Handle": "2310050473422621402",
+			"Handle": "481937196131755427",
 			"Type": "Prefab",
 			"Path": "Prefabs/DropBurst.sprefab"
 		},
 		{
-			"Handle": "14031810642628853891",
+			"Handle": "2389813724229161121",
 			"Type": "Prefab",
 			"Path": "Prefabs/RowBurst.sprefab"
 		},
 		{
-			"Handle": "3244259045306841845",
+			"Handle": "1893380176729238162",
 			"Type": "Scene",
 			"Path": "Scenes/Main.sscene"
 		},
 		{
-			"Handle": "6471047647239939608",
+			"Handle": "13875350288820169099",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
 		},
 		{
-			"Handle": "9053651186664925527",
+			"Handle": "130957357275876483",
+			"Type": "Texture",
+			"Path": "Textures/Accent.png"
+		},
+		{
+			"Handle": "15016275079739742704",
+			"Type": "Texture",
+			"Path": "Textures/ArrowDown.png"
+		},
+		{
+			"Handle": "2033664662651072384",
+			"Type": "Texture",
+			"Path": "Textures/ArrowLeft.png"
+		},
+		{
+			"Handle": "17864993198024617955",
+			"Type": "Texture",
+			"Path": "Textures/ArrowRight.png"
+		},
+		{
+			"Handle": "2986421714183150939",
+			"Type": "Texture",
+			"Path": "Textures/ArrowUp.png"
+		},
+		{
+			"Handle": "17067533233646769056",
+			"Type": "Texture",
+			"Path": "Textures/Gloss.png"
+		},
+		{
+			"Handle": "7744191960530900315",
+			"Type": "Texture",
+			"Path": "Textures/Glow.png"
+		},
+		{
+			"Handle": "1145682610264363385",
 			"Type": "Texture",
 			"Path": "Textures/Grid.png"
 		}

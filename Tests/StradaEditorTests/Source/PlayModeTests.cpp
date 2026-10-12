@@ -434,7 +434,7 @@ TEST_CASE("PlayCommands: test runs report the scripts' checks and time out")
 	CHECK(fixture.Fails("test.run", Json::object({{"scene", "Scenes/Missing.sscene"}})) == AutomationErrorCode::AssetNotFound);
 }
 
-TEST_CASE("PlayCommands: input.set plays the Blocks sample: Enter and clicks start games, Escape and P pause, R starts over")
+TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in its menus, Escape and P pause, R starts over")
 {
 	// The sample as a player gets it: its scenes and assets, with the scripts this build made of its sources.
 	Testing::AssetManagerScope assets;
@@ -448,12 +448,15 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: Enter and clicks sta
 
 	PlayFixture fixture;
 	REQUIRE(fixture.Operations.OpenProject(directory.GetPath() / "Blocks.sproj").IsOk());
-	// The best score stays out of the user's data folder, and the game-over screen soon goes back to the title.
+	// The best score stays out of the user's data folder, and the game-over screen soon goes back to the title; the game keeps
+	// its other fields (its camera, its screen and its sounds).
 	Entity const game = fixture.Context.GetScene().FindEntityByName("Game");
 	REQUIRE(game);
-	Json const fields = Json::object({{"SaveBestScore", Json::object({{"Type", "Bool"}, {"Value", false}})},
-	                                  {"TitleReturnDelay", Json::object({{"Type", "Float"}, {"Value", 1.0}})}});
-	REQUIRE(fixture.Operations.SetComponentFields(game.GetUUID(), "Script", Json::object({{"Fields", fields}})).IsOk());
+	ScriptComponent script = game.GetComponent<ScriptComponent>();
+	REQUIRE(script.Fields.contains("HudCanvas"));
+	script.Fields["SaveBestScore"] = ScriptFieldValue::FromBool(false);
+	script.Fields["TitleReturnDelay"] = ScriptFieldValue::FromFloat(1.0f);
+	REQUIRE(fixture.Operations.SetComponent(game.GetUUID(), script).IsOk());
 
 	CHECK(fixture.Ok("play.start")["state"] == "play");
 	fixture.Ok("play.pause");
@@ -469,65 +472,116 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: Enter and clicks sta
 		fixture.Ok("input.set", Json::object({{device, Json::object({{name, false}})}}));
 		advance(1);
 	};
-	// What a text of the game's screen says.
-	auto const text = [&fixture](std::string_view name)
+	auto const find = [&fixture](std::string_view name)
 	{
 		Entity const entity = fixture.Context.GetScene().FindEntityByName(name);
 		REQUIRE(entity);
-		return entity.GetComponent<TextComponent>().Text;
+		return entity;
+	};
+	// What a text of the game's screen says.
+	auto const text = [&find](std::string_view name)
+	{
+		return find(name).GetComponent<UITextComponent>().Text;
+	};
+	// Whether a menu's button takes clicks: the menu of the game's state is open, the others are closed.
+	auto const open = [&find](std::string_view button)
+	{
+		return find(button).GetComponent<UIButtonComponent>().Interactable;
+	};
+	// The left mouse button pressed and released over a button, where ui.layout says the game view shows it.
+	auto const click = [&fixture, &find, &advance](std::string_view button)
+	{
+		Json const layout = fixture.Ok("ui.layout", Json::object({{"entity", std::to_string(find(button).GetUUID().GetValue())}}));
+		fixture.Ok("input.set",
+		           Json::object({{"mousePosition", layout["elements"][0]["center"]}, {"mouseButtons", Json::object({{"Left", true}})}}));
+		advance(1);
+		fixture.Ok("input.set", Json::object({{"mouseButtons", Json::object({{"Left", false}})}}));
+		advance(1);
 	};
 	// Hard drops pieces until the stack reaches the top.
-	auto const topOut = [&press, &text]
+	auto const topOut = [&press, &open]
 	{
-		for (int piece = 0; piece < 40 && text("Headline") != "GAME OVER"; piece++)
+		for (int piece = 0; piece < 40 && !open("Play Again Button"); piece++)
 		{
 			press("keys", "Space");
 		}
-		REQUIRE(text("Headline") == "GAME OVER");
+		REQUIRE(open("Play Again Button"));
+	};
+	// The game-over menu takes keys half a second after it opens: hard drops that ended the game do not play again.
+	auto const awaitKeys = [&advance]
+	{
+		advance(30);
 	};
 
-	// The title screen, where the board plays itself, starts a game with Enter.
+	// The title screen, where the board plays itself, starts a game with a click on Play.
 	advance(60);
-	CHECK(text("Prompt") == "PRESS ENTER OR CLICK TO PLAY");
-	press("keys", "Enter");
-	CHECK(text("Prompt").empty());
-	CHECK(text("Score") == "0");
+	CHECK(open("Play Button"));
+	click("Play Button");
+	CHECK_FALSE(open("Play Button"));
+	CHECK(text("Score Value") == "0");
 
-	// Escape pauses and Enter goes on; P pauses and Escape goes on.
+	// Escape pauses and Enter clicks Resume, which the pause menu focuses; P pauses and Escape goes on.
 	press("keys", "Escape");
-	CHECK(text("Headline") == "PAUSED");
+	CHECK(open("Resume Button"));
 	press("keys", "Enter");
-	CHECK(text("Headline").empty());
+	CHECK_FALSE(open("Resume Button"));
 	press("keys", "P");
-	CHECK(text("Headline") == "PAUSED");
+	CHECK(open("Resume Button"));
 	press("keys", "Escape");
-	CHECK(text("Headline").empty());
+	CHECK_FALSE(open("Resume Button"));
 
-	// R starts the game over: the points of a hard drop go.
+	// In the pause menu Down moves to Restart and Enter clicks it: the points of a hard drop go.
 	press("keys", "Space");
-	CHECK(text("Score") != "0");
+	CHECK(text("Score Value") != "0");
+	press("keys", "P");
+	press("keys", "Down");
+	press("keys", "Enter");
+	CHECK_FALSE(open("Resume Button"));
+	CHECK(text("Score Value") == "0");
+
+	// R starts the game over.
+	press("keys", "Space");
+	CHECK(text("Score Value") != "0");
 	press("keys", "R");
-	CHECK(text("Score") == "0");
+	CHECK(text("Score Value") == "0");
 
-	// The game-over screen plays again with a click, with Enter and with R.
-	std::array<std::pair<std::string, std::string>, 3> const playAgain = {{{"mouseButtons", "Left"}, {"keys", "Enter"}, {"keys", "R"}}};
-	for (std::pair<std::string, std::string> const& again : playAgain)
-	{
-		CAPTURE(again.second);
-		topOut();
-		press(again.first, again.second);
-		CHECK(text("Headline").empty());
-		CHECK(text("Prompt").empty());
-		CHECK(text("Score") == "0");
-	}
+	// The game-over screen plays again with a click on Play Again (once the screen has faded in), with Enter (Play Again has
+	// the focus) and with R, which plays again at once.
+	topOut();
+	advance(20);
+	click("Play Again Button");
+	CHECK_FALSE(open("Play Again Button"));
+	CHECK(text("Score Value") == "0");
+	// Keys pressed for the game as it ends do not click the game-over menu: a hard drop's Space at once changes nothing.
+	topOut();
+	press("keys", "Space");
+	CHECK(open("Play Again Button"));
+	awaitKeys();
+	press("keys", "Enter");
+	CHECK_FALSE(open("Play Again Button"));
+	CHECK(text("Score Value") == "0");
+	topOut();
+	press("keys", "R");
+	CHECK_FALSE(open("Play Again Button"));
+	CHECK(text("Score Value") == "0");
 
-	// Left alone, the game-over screen goes back to the title, which starts a game with a click.
+	// Down and Enter click its Quit, though the mouse rests on Play Again: back to the title, where Enter clicks Play.
+	topOut();
+	awaitKeys();
+	press("keys", "Down");
+	press("keys", "Enter");
+	CHECK(open("Play Button"));
+	press("keys", "Enter");
+	CHECK_FALSE(open("Play Button"));
+	CHECK(text("Score Value") == "0");
+
+	// Left alone, the game-over screen goes back to the title.
 	topOut();
 	advance(70);
-	CHECK(text("Prompt") == "PRESS ENTER OR CLICK TO PLAY");
-	press("mouseButtons", "Left");
-	CHECK(text("Prompt").empty());
-	CHECK(text("Headline").empty());
+	CHECK(open("Play Button"));
 
-	CHECK(fixture.Ok("play.stop")["state"] == "edit");
+	// The title's Quit (Right, then Enter) ends the game, which ends play mode.
+	press("keys", "Right");
+	press("keys", "Enter");
+	CHECK(fixture.Ok("play.state")["state"] == "edit");
 }

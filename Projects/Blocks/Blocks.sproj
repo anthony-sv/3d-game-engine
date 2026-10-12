@@ -7,7 +7,7 @@
 		"Name": "Blocks",
 		"AssetDirectory": "Assets",
 		"ScriptModule": "Scripts/Binaries/Blocks.dll",
-		"StartScene": "3244259045306841845",
+		"StartScene": "1893380176729238162",
 		"Window": {
 			"Title": "Blocks",
 			"Width": 1280,

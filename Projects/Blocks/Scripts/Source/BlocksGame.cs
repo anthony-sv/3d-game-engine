@@ -6,12 +6,15 @@ namespace Blocks;
 /// <summary>Where the game is.</summary>
 public enum GameState
 {
-	/// <summary>The title screen, where the board plays itself (attract mode): Enter or a click starts a game.</summary>
+	/// <summary>The title screen, where the board plays itself (attract mode): its Play button starts a game, its Quit button
+	/// ends the application.</summary>
 	Title,
 	Playing,
-	/// <summary>Held: Escape, P or Enter goes on.</summary>
+	/// <summary>Held: Escape or P goes on, and so does the pause menu's Resume; its Restart starts again and its Quit goes back
+	/// to the title.</summary>
 	Paused,
-	/// <summary>The stack reached the top: Enter or a click plays again; after a while the title comes back.</summary>
+	/// <summary>The stack reached the top: Play Again (or R) plays again and Quit goes back to the title, as the game-over
+	/// screen does by itself after a while.</summary>
 	Over,
 }
 
@@ -21,11 +24,20 @@ public enum GameState
 /// score, lines and level rise; clears in a row add combo points and a four-row clear after another adds half again.
 /// Escape or P pauses, R starts again. On the title screen the <see cref="AutoPlayer"/> plays a demo game. The best score
 /// is kept between runs. The board's cells are drawn by blocks this script creates; settled cells take the color of their
-/// piece.</summary>
+/// piece. The screen (scores, menus, callouts) is the <see cref="Hud"/> on the scene's canvas.</summary>
 public sealed class BlocksGame : Script
 {
 	[Tooltip("The camera, shaken by drops and clears (needs a CameraShake script)")]
 	public Entity? Camera;
+
+	[Tooltip("The canvas of the game's screen: scores, labels, menus and callouts (see Hud)")]
+	public Entity? HudCanvas;
+
+	[Tooltip("Where the HOLD label stands: the middle of the hold panel's header, scaled to the header's size")]
+	public Entity? HoldHeader;
+
+	[Tooltip("Where the NEXT label stands: the middle of the next panel's header, scaled to the header's size")]
+	public Entity? NextHeader;
 
 	[Tooltip("Seconds a piece takes to fall one row at level 1")]
 	[Range(0.05f, 2.0f)]
@@ -207,6 +219,12 @@ public sealed class BlocksGame : Script
 	/// count.</summary>
 	public int BestScore { get; private set; }
 
+	/// <summary>Whether the game that ended made a new best score.</summary>
+	public bool IsNewBest => m_NewBest;
+
+	/// <summary>How far the rows have come toward the next level, from 0 to 1.</summary>
+	public float LevelProgress => (Rows % RowsPerLevel) / (float)RowsPerLevel;
+
 	public bool IsOver => State == GameState.Over;
 
 	public bool IsPaused => State == GameState.Paused;
@@ -296,7 +314,14 @@ public sealed class BlocksGame : Script
 			source.Parent = this;
 			m_Sources[i] = source.AddComponent<AudioSourceComponent>();
 		}
-		m_Hud = new Hud(this);
+		if (HudCanvas is not null)
+		{
+			m_Hud = new Hud(this, HudCanvas, HoldHeader, NextHeader);
+		}
+		else
+		{
+			Log.Warn("Blocks has no HUD canvas: no scores, menus or callouts show");
+		}
 		BestScore = LoadBestScore();
 		if (StartOnTitle)
 		{
@@ -306,17 +331,26 @@ public sealed class BlocksGame : Script
 		{
 			Restart();
 		}
+		// The screen shows the first state at once.
+		m_Hud?.ShowAtOnce();
 	}
 
+	protected override void OnDestroy()
+	{
+		m_Hud?.Dispose();
+	}
+
+	// The screen's menus take the mouse, the arrow keys, Enter and Space on the title, pause and game-over screens (see Hud):
+	// they go first, so what they start or resume plays this frame. The game takes its own keys.
 	protected override void OnUpdate(float deltaTime)
 	{
-		bool confirm = Input.IsKeyPressed(KeyCode.Enter) || Input.IsKeyPressed(KeyCode.KPEnter);
-		bool click = Input.IsMouseButtonPressed(MouseButton.Left);
+		m_Hud?.UpdateMenus(deltaTime);
+		bool restart = Input.IsKeyPressed(KeyCode.R);
 		bool pause = Input.IsKeyPressed(KeyCode.Escape) || Input.IsKeyPressed(KeyCode.P);
 		switch (State)
 		{
 			case GameState.Title:
-				if (confirm || click || Input.IsKeyPressed(KeyCode.R))
+				if (restart)
 				{
 					Restart();
 				}
@@ -328,7 +362,7 @@ public sealed class BlocksGame : Script
 				break;
 			case GameState.Over:
 				m_OverTime += deltaTime;
-				if (confirm || click || Input.IsKeyPressed(KeyCode.R))
+				if (restart)
 				{
 					Restart();
 				}
@@ -338,13 +372,17 @@ public sealed class BlocksGame : Script
 				}
 				break;
 			case GameState.Paused:
-				if (pause || confirm)
+				if (pause)
 				{
 					SetPaused(false);
 				}
+				else if (restart)
+				{
+					Restart();
+				}
 				break;
 			case GameState.Playing:
-				if (Input.IsKeyPressed(KeyCode.R))
+				if (restart)
 				{
 					Restart();
 				}
@@ -369,7 +407,7 @@ public sealed class BlocksGame : Script
 		m_NewBest = false;
 		State = GameState.Playing;
 		m_Hud?.Callouts.Clear();
-		m_Hud?.Callouts.Show(CalloutSlot.Level, "GO!", new Color(0.4f, 1.0f, 0.6f), "", 72.0f, 0.9f);
+		m_Hud?.Callouts.Show(CalloutSlot.Level, "GO!", new Color(0.4f, 1.0f, 0.6f), "", 96.0f, 0.9f);
 		PlaySound(StartSound, 1.0f, 1.0f);
 		SpawnNext();
 	}
@@ -538,7 +576,7 @@ public sealed class BlocksGame : Script
 		if (Level > levelBefore)
 		{
 			PlaySound(LevelUpSound, 0.85f, 1.0f);
-			m_Hud?.Callouts.Show(CalloutSlot.Level, "LEVEL UP!", new Color(0.35f, 1.0f, 0.95f), $"LEVEL {Level}", 52.0f, 1.8f);
+			m_Hud?.Callouts.Show(CalloutSlot.Level, "LEVEL UP!", new Color(0.35f, 1.0f, 0.95f), $"LEVEL {Level}", 70.0f, 1.8f);
 			m_Hud?.Flash(new Color(0.3f, 0.9f, 1.0f), 0.12f * (IsDemo ? AttractShake : 1.0f));
 		}
 		// Sparks rise from the top cleared row a moment later in a big clear.
@@ -552,6 +590,16 @@ public sealed class BlocksGame : Script
 	/// <summary>The text of the callout showing in a slot over the board, or null when none shows.</summary>
 	public string? Callout(CalloutSlot slot) => m_Hud?.Callouts.Showing(slot);
 
+	/// <summary>The screen, or null when the game has no <see cref="HudCanvas"/>.</summary>
+	public Hud? Hud => m_Hud;
+
+	/// <summary>Ticks when a menu's selection moves: at the menus' own volume, which the title's quieter demo leaves
+	/// alone.</summary>
+	public void PlayMenuTick()
+	{
+		Play(MoveSound, 0.4f, 1.3f, true);
+	}
+
 	private void ShowClear(int lines, int points, bool backToBack)
 	{
 		if (m_Hud is null)
@@ -559,15 +607,15 @@ public sealed class BlocksGame : Script
 			return;
 		}
 		bool tetris = lines == 4;
-		m_Hud.Callouts.Show(CalloutSlot.Clear, s_ClearNames[lines - 1], s_ClearColors[lines - 1], $"+{points:N0}", tetris ? 84.0f : 62.0f,
+		m_Hud.Callouts.Show(CalloutSlot.Clear, s_ClearNames[lines - 1], s_ClearColors[lines - 1], $"+{points:N0}", tetris ? 114.0f : 84.0f,
 							tetris ? 1.9f : 1.35f, tetris);
 		if (backToBack)
 		{
-			m_Hud.Callouts.Show(CalloutSlot.Bonus, "BACK-TO-BACK", new Color(1.0f, 0.45f, 0.85f), "", 34.0f, 1.9f);
+			m_Hud.Callouts.Show(CalloutSlot.Bonus, "BACK-TO-BACK", new Color(1.0f, 0.45f, 0.85f), "", 46.0f, 1.9f);
 		}
 		else if (Combo > 0)
 		{
-			m_Hud.Callouts.Show(CalloutSlot.Bonus, $"COMBO x{Combo + 1}", new Color(0.55f, 0.8f, 1.0f), "", 34.0f, 1.4f);
+			m_Hud.Callouts.Show(CalloutSlot.Bonus, $"COMBO x{Combo + 1}", new Color(0.55f, 0.8f, 1.0f), "", 46.0f, 1.4f);
 		}
 		if (tetris)
 		{
@@ -910,8 +958,14 @@ public sealed class BlocksGame : Script
 		}
 	}
 
-	// Ticks take turns on their sources; other sounds take a quiet source, or the one after the last when all are busy.
+	// A sound of the game: the title's demo plays them quieter.
 	private void PlaySound(AudioClip? clip, float volume, float pitch, bool tick = false)
+	{
+		Play(clip, volume * SoundScale, pitch, tick);
+	}
+
+	// Ticks take turns on their sources; other sounds take a quiet source, or the one after the last when all are busy.
+	private void Play(AudioClip? clip, float volume, float pitch, bool tick)
 	{
 		if (clip is null || m_Sources[0] is null)
 		{
@@ -939,7 +993,7 @@ public sealed class BlocksGame : Script
 		}
 		source.Stop();
 		source.Clip = clip;
-		source.Volume = volume * SoundScale;
+		source.Volume = volume;
 		source.Pitch = pitch;
 		source.Play();
 		SoundsPlayed++;
@@ -998,9 +1052,7 @@ public sealed class BlocksGame : Script
 			camera.Attract = State == GameState.Title;
 		}
 
-		// The demo's score shows, but only games count for the best.
-		m_Hud!.SetStats(Score, Level, Rows, IsDemo ? BestScore : System.Math.Max(BestScore, Score));
-		m_Hud.Show(State, Score, m_NewBest, (float)Time.Elapsed, deltaTime);
+		m_Hud?.Update(deltaTime);
 	}
 
 	// A piece's shape around a point, turned and scaled; none hides the blocks.
