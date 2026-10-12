@@ -540,6 +540,37 @@ TEST_CASE("MaterialSlots: slots render with their override, the mesh's own mater
 	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
 	CHECK(GetOverrides(context, pair) == std::vector<AssetHandle>{AssetHandle(), rock.GetValue()});
 
+	// Clearing gives slots the mesh's own material back as one undo step, dropping empty overrides at the end; slots
+	// without an override record nothing.
+	CHECK(MaterialSlots::IsOverridden(scene, pairOnly, 1));
+	CHECK_FALSE(MaterialSlots::IsOverridden(scene, pairOnly, 0));
+	CHECK(MaterialSlots::IsOverridden(scene, std::vector<UUID>{cube, pair}, 0));
+	CHECK_FALSE(MaterialSlots::IsOverridden(scene, std::vector<UUID>{empty.GetValue()}, 0));
+	REQUIRE(MaterialSlots::Assign(operations, pairOnly, 0, rock.GetValue()).IsOk());
+	size_t const assigned = context.GetHistory().GetUndoCount();
+	REQUIRE(MaterialSlots::Clear(operations, pairOnly, 1).IsOk());
+	CHECK(GetOverrides(context, pair) == std::vector<AssetHandle>{rock.GetValue()});
+	CHECK(MaterialSlots::GetMaterials(scene, pairOnly) == std::vector<AssetHandle>{rock.GetValue(), imported[1]});
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 1);
+	REQUIRE(MaterialSlots::Clear(operations, pairOnly, 1).IsOk());
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 1);
+	std::vector<UUID> const all = {cube, secondCube, pair};
+	REQUIRE(MaterialSlots::Clear(operations, all, 0).IsOk());
+	CHECK(GetOverrides(context, pair).empty());
+	CHECK(GetOverrides(context, cube).empty());
+	CHECK(GetOverrides(context, secondCube).empty());
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 2);
+	// Refused without changes: slots a mesh does not have, entities without meshes, no entities.
+	CHECK(MaterialSlots::Clear(operations, pairOnly, 2).IsError());
+	CHECK(MaterialSlots::Clear(operations, std::vector<UUID>{empty.GetValue()}, 0).IsError());
+	CHECK(MaterialSlots::Clear(operations, {}, 0).IsError());
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 2);
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(GetOverrides(context, cube) == std::vector<AssetHandle>{rock.GetValue()});
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(GetOverrides(context, pair) == std::vector<AssetHandle>{rock.GetValue(), rock.GetValue()});
+
+	REQUIRE(operations.Undo().IsOk());
 	REQUIRE(operations.Undo().IsOk());
 	REQUIRE(operations.Undo().IsOk());
 	CHECK(GetOverrides(context, pair).empty());

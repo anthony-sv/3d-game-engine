@@ -70,6 +70,10 @@ namespace Strada
 			{
 				description["EnabledBy"] = std::string(field.Hints.EnabledBy);
 			}
+			if (field.Hints.HiddenInEditors)
+			{
+				description["HiddenInEditors"] = true;
+			}
 			if (!field.Fields.empty())
 			{
 				Json nested = Json::array();

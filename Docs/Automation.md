@@ -195,9 +195,10 @@ of every vector component; values outside them are rejected), `Display` (`Color`
 `MultilineText`), `AssetType` (the type of asset an asset field references), `Description`, `VisibleWhen`
 (`{ Field, Values }`: the field only matters, and editors only show it, while that field of the same object has one of
 those values, such as a material's `AlphaCutoff` in the `Mask` alpha mode or a joint's `Axis` for the `Hinge` and
-`Slider` types; values are enumerator names, or `true`/`false` for bool fields) and `EnabledBy` (the bool field that
+`Slider` types; values are enumerator names, or `true`/`false` for bool fields), `EnabledBy` (the bool field that
 switches the field on: a `PostProcess` volume's `Saturation` applies only while its `OverrideSaturation` is true, so set
-both).
+both) and `HiddenInEditors` (`true` for fields the editor edits with UI of its own instead of a row of the generic
+inspector, such as `Mesh.Materials`, which the material slot sections edit; set them like any other field).
 
 ### inspector
 

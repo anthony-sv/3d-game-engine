@@ -113,6 +113,23 @@ struct Strada::StructTraits<LongNameProbe>
 
 namespace
 {
+	// A long name beside an asset path.
+	struct LongNamedDecal
+	{
+		AssetHandle AmbientOcclusionTexture;
+	};
+}
+
+template<>
+struct Strada::StructTraits<LongNamedDecal>
+{
+	static constexpr std::string_view Name = "LongNamedDecal";
+	static constexpr auto Fields =
+		std::make_tuple(Field("AmbientOcclusionTexture", &LongNamedDecal::AmbientOcclusionTexture).References("Texture"));
+};
+
+namespace
+{
 	// Draws one field of Probe in a window with keyboard focus on its widget, then types text and presses Enter; returns
 	// the last change the editor reported.
 	std::optional<FieldChange> TypeIntoField(HeadlessImGui& imgui, size_t fieldIndex, char const* text)
@@ -297,7 +314,7 @@ namespace
 	}
 }
 
-TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 40% to 60% of the table")
+TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 30% to 60% of the table")
 {
 	HeadlessImGui imgui;
 	FieldEditor editor;
@@ -320,6 +337,9 @@ TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 4
 	NameColumnLayout probeColumn;
 	NameColumnLayout wideColumn;
 	NameColumnLayout narrowColumn;
+	NameColumnLayout assetColumn;
+	std::vector<FieldDescriptor> const asset = GetFieldDescriptors<StructTraits<LongNamedDecal>, LongNamedDecal>();
+	Json const assetValues = SerializeFields<StructTraits<LongNamedDecal>>(LongNamedDecal{});
 	auto const draw = [&]
 	{
 		labelWidth = ImGui::CalcTextSize(label).x;
@@ -328,6 +348,7 @@ TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 4
 		probeColumn = DrawFieldsWindow(editor, "Probe", 420.0f, 400.0f, probe, probeValues);
 		wideColumn = DrawFieldsWindow(editor, "Wide", 840.0f, 400.0f, longName, longNameValues);
 		narrowColumn = DrawFieldsWindow(editor, "Narrow", 1260.0f, 250.0f, longName, longNameValues);
+		assetColumn = DrawFieldsWindow(editor, "Asset", 1520.0f, 250.0f, asset, assetValues);
 	};
 	imgui.Frame(draw);
 	imgui.Frame(draw);
@@ -335,8 +356,10 @@ TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 4
 	// At 400 pixels the post-process volume's longest switched name, check box and all, fits in the name column.
 	CHECK(postProcessColumn.Name >= switchedLabelWidth);
 	CHECK(postProcessColumn.Name <= postProcessColumn.Table * 0.6f + 1.0f);
-	// Short names keep the values at 60%, so their tables line up.
-	CHECK(probeColumn.Name == doctest::Approx(probeColumn.Table * 0.4f).epsilon(0.01));
+	// Short names keep the values at 70%, so their tables line up.
+	CHECK(probeColumn.Name == doctest::Approx(probeColumn.Table * 0.3f).epsilon(0.01));
+	// Beside asset fields the column stops at 50%, so the paths keep room.
+	CHECK(assetColumn.Name == doctest::Approx(assetColumn.Table * 0.5f).epsilon(0.01));
 	CHECK(wideColumn.Name >= switchedLabelWidth);
 	// Too narrow for the name: the column stops at 60% and the name is shortened.
 	CHECK(narrowColumn.Name == doctest::Approx(narrowColumn.Table * 0.6f).epsilon(0.01));
@@ -977,6 +1000,12 @@ namespace
 		float Size = 1.0f;
 	};
 
+	struct Showpiece
+	{
+		AssetHandle Mesh;
+		AssetHandle Material;
+	};
+
 	// Moves the mouse from one point to another, a frame every few pixels, until ImGui reports the item hovered; returns
 	// that point. Items are named by their ImGui IDs, which follow the IDs pushed while drawing them.
 	std::optional<ImVec2> FindItem(HeadlessImGui& imgui, ImGuiID item, ImVec2 from, ImVec2 to, std::function<void()> const& draw)
@@ -1027,6 +1056,14 @@ namespace
 		return model;
 	}
 }
+
+template<>
+struct Strada::StructTraits<Showpiece>
+{
+	static constexpr std::string_view Name = "Showpiece";
+	static constexpr auto Fields =
+		std::make_tuple(Field("Mesh", &Showpiece::Mesh).References("Mesh"), Field("Material", &Showpiece::Material).References("Material"));
+};
 
 template<>
 struct Strada::StructTraits<Decal>
@@ -1081,17 +1118,53 @@ TEST_CASE("UI: asset references read as paths in the asset directory, and long o
 			CHECK(UI::FitPath(path, width(ellipsis + "/Wood/Oak_Color.png")) == ellipsis + "/Wood/Oak_Color.png");
 			CHECK(UI::FitPath(path, width(ellipsis + "/Oak_Color.png")) == ellipsis + "/Oak_Color.png");
 			CHECK(UI::FitPath(path, width("Oak_Color.png")) == "Oak_Color.png");
-			// Then the name loses its middle: its end with the extension gets up to half of the room, its start the rest.
-			CHECK(UI::FitPath(path, width("Oak_C" + ellipsis + "r.png")) == "Oak_C" + ellipsis + "r.png");
-			CHECK(UI::FitPath(path, width("Oak_Co" + ellipsis + "r.png")) == "Oak_Co" + ellipsis + "r.png");
+			// Then the name loses its middle: its end with the extension gets up to half of the room, starting at a word when
+		    // one fits (the extension counts), its start the rest.
+			CHECK(UI::FitPath(path, width("Oak_C" + ellipsis + "r.png")) == "Oak_Co" + ellipsis + ".png");
+			CHECK(UI::FitPath(path, width("Oak_Col" + ellipsis + ".png")) == "Oak_Col" + ellipsis + ".png");
+			CHECK(UI::FitPath("Textures/dry_decay_leaves/dry_decay_leaves.smat", width("dry_decay_" + ellipsis + ".smat")) ==
+		          "dry_decay_" + ellipsis + ".smat");
+			CHECK(UI::FitPath("Textures/OakBarkColorMap.png", width("OakBarkC" + ellipsis + "Map.png")) ==
+		          "OakBarkC" + ellipsis + "Map.png");
+			// Without a word in reach the end is cut between characters.
 			CHECK(UI::FitPath(path, width("O" + ellipsis + "g")) == "O" + ellipsis + "g");
 			// Without room for both, the start stays; without room for anything, the ellipsis.
 			CHECK(UI::FitPath(path, width("O" + ellipsis)) == "O" + ellipsis);
 			CHECK(UI::FitPath(path, width(ellipsis)) == ellipsis);
 			CHECK(UI::FitPath(path, 1.0f) == ellipsis);
 			CHECK(UI::FitPath("", 0.0f).empty());
-			CHECK(UI::FitPath("builtin://White", width(ellipsis + "/White")) == ellipsis + "/White");
+			// Built-ins that do not fit show their name; the scheme is no folder.
+			CHECK(UI::FitPath("builtin://White", width(ellipsis + "/White")) == "White");
+			CHECK(UI::FitPath("builtin://White", width("White")) == "White");
 			CHECK(UI::FitPath("Helmet.glb/Materials/Visor", width("Visor")) == "Visor");
+
+			// The maps of a texture set repeat the set's folder in their names: what tells them apart stays.
+			std::string const diffuse = "Models/wooden_crate_01/textures/wooden_crate_01_diff_1k.jpg";
+			std::string const normal = "Textures/dry_decay_leaves/dry_decay_leaves_nor_gl_1k.jpg";
+			CHECK(UI::GetDistinctFileNamePart(diffuse) == "diff_1k.jpg");
+			CHECK(UI::GetDistinctFileNamePart(normal) == "nor_gl_1k.jpg");
+			CHECK(UI::GetDistinctFileNamePart("Models/Lantern_01/textures/LANTERN_01-ARM_1K.JPG") == "ARM_1K.JPG");
+			CHECK(UI::FitPath(diffuse, width(ellipsis + "diff_1k.jpg")) == ellipsis + "diff_1k.jpg");
+			CHECK(UI::FitPath(normal, width(ellipsis + "nor_gl_1k.jpg")) == ellipsis + "nor_gl_1k.jpg");
+			CHECK(UI::FitPath(diffuse, width("wooden_crate_01_diff_1k.jpg")) == "wooden_crate_01_diff_1k.jpg");
+			// Without room for all of that part, its last words stay while they say more than a resolution.
+			std::string const metal = "Models/Lantern_01/textures/Lantern_01_brass_arm_1k.jpg";
+			CHECK(UI::GetDistinctFileNamePart(metal) == "brass_arm_1k.jpg");
+			CHECK(UI::FitPath(metal, width(ellipsis + "brass_arm_1k.jpg")) == ellipsis + "brass_arm_1k.jpg");
+			CHECK(UI::FitPath(metal, width(ellipsis + "arm_1k.jpg")) == ellipsis + "arm_1k.jpg");
+			CHECK(UI::FitPath(metal, width(ellipsis + "arm_1k.jpg") - 1.0f).starts_with("Lan"));
+			// A name that only adds a resolution to its set's name is the set's model: it keeps its start.
+			std::string const crate = "Models/wooden_crate_01/wooden_crate_01_1k.gltf";
+			CHECK(UI::GetDistinctFileNamePart(crate).empty());
+			CHECK(UI::FitPath(crate, width("woode" + ellipsis + "1k.gltf")).starts_with("woode"));
+			// Names that do not start with a folder's name, or only with part of a word of it, are no set's files.
+			CHECK(UI::GetDistinctFileNamePart("Textures/Wood/Oak_Color.png").empty());
+			CHECK(UI::GetDistinctFileNamePart("Textures/Bar/Barrel_Color.png").empty());
+			CHECK(UI::GetDistinctFileNamePart("Lantern_diff.png").empty());
+			// A long path keeps its file name.
+			std::string const deep = "Models/Imported/Environment/Props/Village/Market/Stall/Lantern_01.gltf";
+			REQUIRE(deep.size() == 70);
+			CHECK(UI::FitPath(deep, width(std::string(30, 'M'))).ends_with("/Lantern_01.gltf"));
 			// Characters of several bytes are kept whole.
 			CHECK(UI::FitPath("Gr\xC3\xB6\xC3\x9F"
 		                      "e/\xC3\x96l.png",
@@ -1219,12 +1292,59 @@ TEST_CASE("FieldEditor: asset fields show the asset's path, pick from a searchab
 	{
 		imgui.Press(ImGuiKey_Backspace, draw);
 	}
-	imgui.Type(" oak ");
+	imgui.Type(" stone ");
 	imgui.Frame(draw);
 	imgui.Press(ImGuiKey_Enter, draw);
 	REQUIRE(last);
-	CHECK(last->Value == oak.ToString());
+	CHECK(last->Value == stone.ToString());
 	CHECK(GImGui->OpenPopupStack.Size == 0);
+
+	// Choosing the asset the field has already changes nothing.
+	last.reset();
+	imgui.Click(pick, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("oak");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK_FALSE(last);
+
+	// Up and Down move from the current asset (the last row: file assets follow None and the built-in textures, by path)
+	// through the rows, the search field keeping the keyboard; Enter takes the row.
+	imgui.Click(pick, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_DownArrow, draw);
+	imgui.Press(ImGuiKey_UpArrow, draw);
+	imgui.Press(ImGuiKey_UpArrow, draw);
+	imgui.Press(ImGuiKey_DownArrow, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(last);
+	CHECK(last->Value == stone.ToString());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	last.reset();
+	imgui.Click(pick, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	for (int i = 0; i < 40; i++)
+	{
+		imgui.Press(ImGuiKey_UpArrow, draw);
+	}
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(last);
+	CHECK(last->Value == UUID::Invalid().ToString());
+	// Typing puts the keyboard on the first match.
+	last.reset();
+	imgui.Click(pick, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Textures/");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(last);
+	CHECK(last->Value == stone.ToString());
 
 	// Escape leaves the search field, then closes the picker without a change.
 	last.reset();
@@ -1279,9 +1399,9 @@ TEST_CASE("FieldEditor: asset fields and their picker show images of textures at
 		AssetHandle const cube = GetBuiltInHandle(BuiltInAsset::CubeMesh);
 		AssetHandle const white = GetBuiltInHandle(BuiltInAsset::WhiteTexture);
 		AssetHandle const black = GetBuiltInHandle(BuiltInAsset::BlackTexture);
-		// A mesh with a material in its list of materials, and a texture.
-		ComponentInfo const& mesh = ComponentRegistry::Get<MeshComponent>();
-		Json const meshValues = Json::object({{"Mesh", cube.ToString()}, {"Materials", Json::array({painted.ToString()})}});
+		// A mesh and a material, and a texture.
+		std::vector<FieldDescriptor> const showpieceFields = GetFieldDescriptors<StructTraits<Showpiece>, Showpiece>();
+		Json const showpieceValues = SerializeFields<StructTraits<Showpiece>>(Showpiece{cube, painted});
 		std::vector<FieldDescriptor> const decalFields = GetFieldDescriptors<StructTraits<Decal>, Decal>();
 		Json const decalValues = SerializeFields<StructTraits<Decal>>(Decal{white, 1.0f});
 
@@ -1295,7 +1415,7 @@ TEST_CASE("FieldEditor: asset fields and their picker show images of textures at
 			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
 			ImGui::SetNextWindowSize(ImVec2(600.0f, 300.0f));
 			ImGui::Begin("Fields");
-			CHECK_FALSE(editor.Draw(mesh.Fields, meshValues));
+			CHECK_FALSE(editor.Draw(showpieceFields, showpieceValues));
 			ImGui::End();
 			ImGui::SetNextWindowPos(ImVec2(0.0f, 320.0f));
 			ImGui::SetNextWindowSize(ImVec2(600.0f, 200.0f));
@@ -1378,6 +1498,10 @@ TEST_CASE("FieldEditor: the asset picker opens scrolled to the current asset of 
 	{
 		REQUIRE(image.WritePNG(directory / "Tiles" / fmt::format("Tile{:02}.png", i)).IsOk());
 	}
+	// One path longer than the field is wide.
+	std::string const longName = "Kits/Environment/Village/Market/Stall/Awnings/striped_canvas_awning_diff_2k.png";
+	REQUIRE(FileSystem::CreateDirectories(directory / "Kits" / "Environment" / "Village" / "Market" / "Stall" / "Awnings").IsOk());
+	REQUIRE(image.WritePNG(directory / longName).IsOk());
 	REQUIRE(operations.RefreshAssets().IsOk());
 	// File assets come after the built-in textures, by path: the last tile ends the list.
 	AssetHandle const last = AssetManager::FindByPath("Tiles/Tile59.png");
@@ -1425,8 +1549,29 @@ TEST_CASE("FieldEditor: the asset picker opens scrolled to the current asset of 
 	CHECK(list->ScrollMax.y > 0.0f);
 	CHECK(list->Scroll.y == doctest::Approx(list->ScrollMax.y));
 	CHECK_FALSE(picked);
+	// The picker is as wide as its longest path needs, wider than the field.
+	ImGuiWindow const* popup = GImGui->OpenPopupStack[0].Window;
+	REQUIRE(popup != nullptr);
+	CHECK(popup->Size.x >= ImGui::CalcTextSize(longName.c_str()).x + ImGui::GetTextLineHeight());
+	CHECK(popup->Size.x > tableData->OuterRect.GetWidth() * 0.6f);
+
+	// Up moves through the rows and the list follows: thirty rows up from the last tile is the thirtieth.
+	for (int i = 0; i < 30; i++)
+	{
+		imgui.Press(ImGuiKey_UpArrow, draw);
+	}
+	CHECK(list->Scroll.y < list->ScrollMax.y - ImGui::GetTextLineHeightWithSpacing() * 10.0f);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(picked);
+	CHECK(picked->Value == AssetManager::FindByPath("Tiles/Tile29.png").ToString());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
 
 	// The search finds rows that were out of view, and Enter takes the first match.
+	picked.reset();
+	imgui.Click(*pick, draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
 	imgui.Type("Tile00");
 	imgui.Frame(draw);
 	imgui.Press(ImGuiKey_Enter, draw);
@@ -1720,6 +1865,51 @@ TEST_CASE("Panels: the inspector shows the material of each mesh slot and edits 
 	imgui.Drag(*sourcePosition, header, draw);
 	CHECK(context.GetScene().GetEntityByUUID(cube).GetComponent<MeshComponent>().Materials == std::vector<AssetHandle>{painted.GetValue()});
 	CHECK(context.GetHistory().GetUndoCount() == assigned + 1);
+
+	// The Mesh component's own rows leave the overrides to the sections: Mesh, Cast Shadows and Visible.
+	imgui.Frame(draw);
+	ImGuiTable const* meshTable = ImGui::TableFindByID(ImHashStr("##fields", 0, ImHashStr("Mesh", 0, window->ID)));
+	REQUIRE(meshTable != nullptr);
+	CHECK(meshTable->CurrentRow + 1 == 3);
+
+	// Each section starts with an asset field of the slot's material: "x" gives the slot the mesh's own material back, as
+	// one undo step, and is disabled without an override.
+	ImGuiID const slotTable = ImHashStr("##slotMaterial", 0, section);
+	auto const getMaterials = [&]
+	{
+		return context.GetScene().GetEntityByUUID(cube).GetComponent<MeshComponent>().Materials;
+	};
+	ImVec2 const reset = find(ImHashStr("x", 0, slotTable), window->Pos.x + window->Size.x - ImGui::GetFrameHeight() * 0.5f - 12.0f);
+	size_t const cleared = context.GetHistory().GetUndoCount();
+	imgui.Click(reset, draw);
+	CHECK(getMaterials().empty());
+	CHECK(context.GetHistory().GetUndoCount() == cleared + 1);
+	imgui.Click(reset, draw);
+	CHECK(context.GetHistory().GetUndoCount() == cleared + 1);
+
+	// "..." lists the materials (without None); the one picked overrides the slot, as one undo step.
+	ImVec2 const choose = find(ImHashStr("...", 0, slotTable), reset.x - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemInnerSpacing.x);
+	imgui.Click(choose, draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Painted");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(getMaterials() == std::vector<AssetHandle>{painted.GetValue()});
+	CHECK(context.GetHistory().GetUndoCount() == cleared + 2);
+	imgui.Click(choose, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Cube.smat");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(getMaterials() == std::vector<AssetHandle>{copy});
+	CHECK(context.GetHistory().GetUndoCount() == cleared + 3);
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(getMaterials().empty());
 	CHECK(open);
 }
 

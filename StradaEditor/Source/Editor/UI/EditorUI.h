@@ -54,10 +54,17 @@ namespace Strada
 		// The current font's ellipsis as UTF-8 text, the one ImGui shortens labels with: U+2026, or a "..." glyph made of dots
 		// when the font has none. Inside an ImGui frame.
 		std::string GetEllipsis();
+		// The part of a file's name that tells it apart from the other files of its set: what follows the name of one of its
+		// folders when the file name starts with that name and a word separator ('_', '-' or a space), ignoring case, and
+		// says more than a resolution ("1k") and the extension: "diff_1k.jpg" of
+		// "Models/wooden_crate_01/textures/wooden_crate_01_diff_1k.jpg". Empty when there is none.
+		std::string_view GetDistinctFileNamePart(std::string_view path);
 		// Shortens a path that is wider than maxWidth at the current font, with GetEllipsis() where text is left out: leading
-		// folders give way first (".../Wood/Oak_Color.png"), then the name stands alone ("Oak_Color.png") and at last loses its
-		// middle, keeping its start and, in up to half of the room, its end with the extension ("Oak_...or.png"); never cuts a
-		// UTF-8 character. Paths that fit come back unchanged. Inside an ImGui frame.
+		// folders give way first (".../Wood/Oak_Color.png"), then the name stands alone ("Oak_Color.png"; references with a
+		// scheme, such as "builtin://Plane", show their name), then the files of a set keep what tells them apart
+		// (GetDistinctFileNamePart: "...diff_1k.jpg"), and at last the name loses its middle, keeping its start and, in up
+		// to half of the room, its end with the extension ("Oak_...or.png"); never cuts a UTF-8 character. Paths that fit
+		// come back unchanged. Inside an ImGui frame.
 		std::string FitPath(std::string_view path, float maxWidth);
 
 		// Menu items for every entity preset (EntityPresets::GetMenu: Core's directly, the other categories as submenus);

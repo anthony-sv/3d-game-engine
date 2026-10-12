@@ -60,9 +60,12 @@ namespace Strada
 		// A material section's header: a preview of the slot's material (invalid: the entities use several) beside its name,
 		// the slot and the material's path. Returns whether the section is open.
 		bool DrawMaterialHeader(AssetHandle material, size_t slot, size_t slotCount);
-		// A slot's material: editable parameters of material files; other materials read-only with a Create Material button
-		// that gives the slot an editable copy.
+		// A slot's material: an asset field choosing it ("x" gives the slot the mesh's own material back), then the editable
+		// parameters of material files; other materials read-only with a Create Material button that gives the slot an
+		// editable copy.
 		void DrawSlotMaterial(EditorOperations& operations, std::vector<UUID> const& entities, size_t slot, AssetHandle material);
+		// The asset field of a slot's material (invalid: the entities use several), lined up with the material's fields.
+		void DrawSlotMaterialReference(EditorOperations& operations, std::vector<UUID> const& entities, size_t slot, AssetHandle material);
 
 		void DrawAsset(EditorOperations& operations, AssetHandle asset);
 		void DrawMaterial(EditorOperations& operations, AssetMetadata const& metadata);

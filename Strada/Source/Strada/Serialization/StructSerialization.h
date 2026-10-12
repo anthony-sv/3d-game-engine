@@ -65,6 +65,9 @@ namespace Strada
 		// fields that always apply. Editors draw that switch as a check box in front of this field, which they show
 		// disabled while the switch is off, instead of giving the switch a row of its own.
 		std::string_view EnabledBy;
+		// Editors leave the field to UI of its own (the material slot sections of Mesh components edit its Materials): the
+		// generic field editors draw no row for it. Files and automation read and write it as usual.
+		bool HiddenInEditors = false;
 
 		constexpr bool HasMin() const { return Min != -std::numeric_limits<double>::infinity(); }
 		constexpr bool HasMax() const { return Max != std::numeric_limits<double>::infinity(); }
@@ -140,6 +143,14 @@ namespace Strada
 		{
 			StructField field = *this;
 			field.Hints.EnabledBy = switchName;
+			return field;
+		}
+
+		// Not drawn by generic field editors: UI of its own edits the field (see FieldHints::HiddenInEditors).
+		constexpr StructField HiddenInEditors() const
+		{
+			StructField field = *this;
+			field.Hints.HiddenInEditors = true;
 			return field;
 		}
 
@@ -228,7 +239,7 @@ namespace Strada
 
 	// Schema used by the automation API: { "Name", ["Description"], "Fields": [ { "Name", "Type", "Default", ... }, ... ] }.
 	// Optional keys per field: "Values" (enums), "Min"/"Max", "Display", "AssetType", "Description", "VisibleWhen"
-	// ({ "Field", "Values" }), "EnabledBy" (the switch) and "Fields" (nested structs).
+	// ({ "Field", "Values" }), "EnabledBy" (the switch), "HiddenInEditors" (true) and "Fields" (nested structs).
 	Json DescribeFields(std::string_view name, std::span<FieldDescriptor const> fields, std::string_view description = {});
 
 	namespace Detail

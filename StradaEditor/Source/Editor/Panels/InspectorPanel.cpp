@@ -974,9 +974,49 @@ namespace Strada
 		return open;
 	}
 
+	void InspectorPanel::DrawSlotMaterialReference(EditorOperations& operations, std::vector<UUID> const& entities, size_t slot,
+	                                               AssetHandle material)
+	{
+		// A row lined up with the material's fields below it.
+		float const nameShare = FieldEditor::GetNameColumnShare(m_MaterialFields, ImGui::GetContentRegionAvail().x);
+		if (!ImGui::BeginTable("##slotMaterial", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings))
+		{
+			return;
+		}
+		ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, nameShare);
+		ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f - nameShare);
+		ImGui::TableNextRow();
+		ImGui::TableNextColumn();
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextUnformatted("Material");
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+		{
+			ImGui::SetTooltip("The material this slot renders with: the component's own choice, else the mesh's material.");
+		}
+		ImGui::TableNextColumn();
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		AssetReferenceOptions options;
+		options.Type = AssetType::Material;
+		options.Mixed = !material.IsValid();
+		// A slot always renders a material: "x" goes back to the mesh's own one.
+		options.AllowNone = false;
+		options.CanClear = MaterialSlots::IsOverridden(operations.GetContext().GetScene(), entities, slot);
+		options.ClearTooltip = "Use the mesh's own material";
+		std::optional<AssetHandle> const chosen = m_FieldEditor.DrawAssetReference(material, options);
+		ImGui::EndTable();
+		if (chosen)
+		{
+			// Changes the Mesh component's overrides only: the entities and their components stay as they are drawn.
+			UI::ReportFailure(chosen->IsValid() ? MaterialSlots::Assign(operations, entities, slot, *chosen)
+			                                    : MaterialSlots::Clear(operations, entities, slot),
+			                  "Changing the slot's material");
+		}
+	}
+
 	void InspectorPanel::DrawSlotMaterial(EditorOperations& operations, std::vector<UUID> const& entities, size_t slot,
 	                                      AssetHandle material)
 	{
+		DrawSlotMaterialReference(operations, entities, slot, material);
 		if (!material.IsValid())
 		{
 			ImGui::TextDisabled("The selected entities use different materials here.");

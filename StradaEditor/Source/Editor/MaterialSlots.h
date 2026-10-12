@@ -37,9 +37,16 @@ namespace Strada
 		// built-in materials. Empty for unregistered handles.
 		std::string GetMaterialName(AssetHandle material);
 
+		// Whether the Mesh component of one of the entities overrides the slot's material.
+		bool IsOverridden(Scene& scene, std::span<UUID const> entities, size_t slot);
+
 		// Makes the material override the slot on every entity's Mesh component, as one undo step; the other slots keep their
 		// materials.
 		[[nodiscard]] Result<void> Assign(EditorOperations& operations, std::span<UUID const> entities, size_t slot, AssetHandle material);
+		// Gives the slot of every entity the mesh's own material back: clears the slot's override of each Mesh component that
+		// has one (empty overrides at the end of the list go too), as one undo step; with no override nothing is recorded.
+		// Fails, changing nothing, for entities without a mesh that has the slot.
+		[[nodiscard]] Result<void> Clear(EditorOperations& operations, std::span<UUID const> entities, size_t slot);
 		// Writes a material file with the parameters of a material to CopyFolder, named `name` (numbered when the name is
 		// taken; "Material" when nothing of it can be used in a file name). Parameters outside the material ranges are
 		// brought into them first (FitMaterialToFieldRanges, logged). Not undoable, like every file operation. Returns the

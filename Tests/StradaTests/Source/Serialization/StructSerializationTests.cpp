@@ -132,7 +132,7 @@ struct Strada::StructTraits<Tuning>
 	static constexpr auto Fields = std::make_tuple(
 		Field("Gain", &Tuning::Gain).AtLeast(0.0).Doc("Linear gain."), Field("Tint", &Tuning::Tint).Range(0.0, 1.0).AsColor(),
 		Field("Weights", &Tuning::Weights).Range(0.0, 1.0), Field("Count", &Tuning::Count).Range(1.0, 8.0),
-		Field("Notes", &Tuning::Notes).AsMultilineText(), Field("Texture", &Tuning::Texture).References("Texture"));
+		Field("Notes", &Tuning::Notes).AsMultilineText().HiddenInEditors(), Field("Texture", &Tuning::Texture).References("Texture"));
 };
 
 TEST_CASE("StructSerialization: field hints are checked against their types at compile time")
@@ -334,6 +334,8 @@ TEST_CASE("StructSerialization: descriptors describe kinds, hints, defaults and 
 	CHECK(tuning[1].TypeMin == static_cast<double>(std::numeric_limits<float>::lowest()));
 	CHECK(tuning[4].TypeMin == -std::numeric_limits<double>::infinity());
 	CHECK(tuning[4].Hints.Display == FieldDisplay::MultilineText);
+	CHECK(tuning[4].Hints.HiddenInEditors);
+	CHECK_FALSE(tuning[5].Hints.HiddenInEditors);
 	CHECK(tuning[5].Kind == FieldKind::Asset);
 	CHECK(tuning[5].Hints.AssetTypeName == "Texture");
 
@@ -345,6 +347,9 @@ TEST_CASE("StructSerialization: descriptors describe kinds, hints, defaults and 
 	CHECK(schema["Fields"][3]["Min"].is_number_integer());
 	CHECK(schema["Fields"][3]["Max"] == 8);
 	CHECK(schema["Fields"][5]["AssetType"] == "Texture");
+	// Fields that UI of their own edits say so; the others leave the key out.
+	CHECK(schema["Fields"][4]["HiddenInEditors"] == true);
+	CHECK_FALSE(schema["Fields"][5].contains("HiddenInEditors"));
 	CHECK(DescribeFields<StructTraits<RenderSettings>, RenderSettings>()["Fields"][1]["Fields"][1]["Name"] == "Intensity");
 }
 

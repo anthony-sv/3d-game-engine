@@ -244,7 +244,8 @@ namespace Strada
 			std::make_tuple(Field("Mesh", &MeshComponent::Mesh).References("Mesh"),
 		                    Field("Materials", &MeshComponent::Materials)
 		                        .References("Material")
-		                        .Doc("Material overrides per submesh; an empty entry keeps the mesh's own material."),
+		                        .HiddenInEditors()
+		                        .Doc("Material overrides per material slot of the mesh; an empty entry keeps the mesh's own material."),
 		                    Field("CastShadows", &MeshComponent::CastShadows), Field("Visible", &MeshComponent::Visible));
 	};
 

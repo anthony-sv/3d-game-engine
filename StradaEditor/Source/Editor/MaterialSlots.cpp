@@ -12,6 +12,7 @@
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -40,6 +41,17 @@ namespace Strada
 			{
 				Ref<MeshSource> const mesh = FindMesh(scene, entity).second;
 				return mesh != nullptr ? mesh->GetMaterials().size() : 0;
+			}
+
+			// A Mesh component's Materials as their JSON field value.
+			Json WriteOverrides(std::vector<AssetHandle> const& materials)
+			{
+				Json overrides = Json::array();
+				for (AssetHandle const handle : materials)
+				{
+					overrides.push_back(handle.ToString());
+				}
+				return overrides;
 			}
 
 			// The part of a sub-asset's name after its last '/' ("Helmet.glb/Materials/Visor" -> "Visor").
@@ -137,12 +149,51 @@ namespace Strada
 					materials.resize(slot + 1);
 				}
 				materials[slot] = material;
-				Json overrides = Json::array();
-				for (AssetHandle const handle : materials)
+				edits.push_back({entity, "Mesh", Json::object({{"Materials", WriteOverrides(materials)}})});
+			}
+			return operations.SetComponentFields(std::move(edits));
+		}
+
+		bool IsOverridden(Scene& scene, std::span<UUID const> entities, size_t slot)
+		{
+			return std::any_of(entities.begin(), entities.end(),
+			                   [&scene, slot](UUID entity)
+			                   {
+								   MeshComponent const* component = FindMesh(scene, entity).first;
+								   return component != nullptr && slot < component->Materials.size() &&
+				                          component->Materials[slot].IsValid();
+							   });
+		}
+
+		Result<void> Clear(EditorOperations& operations, std::span<UUID const> entities, size_t slot)
+		{
+			if (entities.empty())
+			{
+				return Error{"no entities to give the mesh's material back to"};
+			}
+			Scene& scene = operations.GetContext().GetScene();
+			std::vector<ComponentEdit> edits;
+			for (UUID const entity : entities)
+			{
+				if (slot >= CountSlots(scene, entity))
 				{
-					overrides.push_back(handle.ToString());
+					return MakeError("entity {} has no mesh with a material slot {}", entity, slot);
 				}
-				edits.push_back({entity, "Mesh", Json::object({{"Materials", std::move(overrides)}})});
+				std::vector<AssetHandle> materials = scene.GetEntityByUUID(entity).GetComponent<MeshComponent>().Materials;
+				if (slot >= materials.size() || !materials[slot].IsValid())
+				{
+					continue;
+				}
+				materials[slot] = AssetHandle();
+				while (!materials.empty() && !materials.back().IsValid())
+				{
+					materials.pop_back();
+				}
+				edits.push_back({entity, "Mesh", Json::object({{"Materials", WriteOverrides(materials)}})});
+			}
+			if (edits.empty())
+			{
+				return {};
 			}
 			return operations.SetComponentFields(std::move(edits));
 		}

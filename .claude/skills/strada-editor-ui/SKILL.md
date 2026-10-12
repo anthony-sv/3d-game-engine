@@ -22,13 +22,17 @@ directly: every modification goes through `EditorOperations` (undoable commands,
 - Reflected data (components, settings, materials) is edited with `FieldEditor::Draw(descriptors, valuesJson,
   mixedFields)`, which returns a `FieldChange`; turn it into a patch per object with `FieldChange::MakePatch(values)`.
   Never write per-component inspector code: improve the field hints (`strada-add-component`) or the FieldEditor.
-- Field tables size their name column for their names (`FieldEditor::GetNameColumnShare`, 40% to 60%). A table of
+- Field tables size their name column for their names (`FieldEditor::GetNameColumnShare`, 30% to 60%, at most 50%
+  beside asset fields). A table of
   your own rows that lines up with a field table (the script class picker above the script's fields) sets up its two
   stretched columns with the same share.
 - Asset references are FieldEditor asset fields (path box, `...` picker, `x`; give the editor the panel's
-  `AssetThumbnails` with `SetAssetPreviews` for images of the assets); text that names an asset elsewhere uses
-  `UI::DescribeAssetReference` and `UI::FitPath`. The material sections of Mesh components go through `MaterialSlots`
-  (the material of each slot, assigning one, editable copies), which is tested without a UI.
+  `AssetThumbnails` with `SetAssetPreviews` for images of the assets); an asset reference outside a field table uses
+  `FieldEditor::DrawAssetReference` (options: type, None in the picker, what `x` does). Text that names an asset
+  elsewhere uses `UI::DescribeAssetReference` and `UI::FitPath`. A field that UI of its own edits gets the
+  `HiddenInEditors` hint so the generic table skips it (Mesh.Materials: the material sections of Mesh components,
+  which go through `MaterialSlots`: the material of each slot, assigning and clearing one, editable copies; tested
+  without a UI).
 - One widget interaction must be one undo step: keep an `EditSession` per panel (unique key prefix), call
   `Update(ImGui::IsAnyItemActive(), history)` at the start of the panel, and pass `GetMergeKey()` to operations.
 - Report failed operations with `UI::ReportFailure(result, "Doing X")` (logged, shown in the console).

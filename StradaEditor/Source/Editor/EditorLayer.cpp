@@ -33,8 +33,9 @@ namespace Strada
 {
 	namespace
 	{
-		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set.
-		constexpr char const* DockspaceName = "Strada.Dockspace.v7";
+		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set or default
+		// layout.
+		constexpr char const* DockspaceName = "Strada.Dockspace.v8";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* NewScriptPopup = "New Script";
@@ -469,7 +470,8 @@ namespace Strada
 		ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
 		ImGuiID center = dockspace;
 		ImGuiID const left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
-		ImGuiID const right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+		// The inspector gets about a quarter of the window: asset fields show paths and images beside their names.
+		ImGuiID const right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30f, nullptr, &center);
 		ImGuiID const bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
 		ImGui::DockBuilderDockWindow("Scene View", center);
 		ImGui::DockBuilderDockWindow("Game View", center);

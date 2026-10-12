@@ -93,6 +93,45 @@ namespace Strada
 				}
 				return std::string(text.substr(0, FitCodePoints(text, width - TextWidth(Ellipsis)))) + std::string(Ellipsis);
 			}
+
+			bool IsWordSeparator(char c)
+			{
+				return c == '_' || c == '-' || c == ' ';
+			}
+
+			// Whether a file name (or the end of one) has a word in front of its extension that is not a resolution ("1k").
+			bool SaysMoreThanResolution(std::string_view name)
+			{
+				std::string_view const stem = name.substr(0, std::min(name.find_last_of('.'), name.size()));
+				for (size_t start = 0; start < stem.size();)
+				{
+					size_t end = start;
+					while (end < stem.size() && !IsWordSeparator(stem[end]))
+					{
+						end++;
+					}
+					std::string_view const word = stem.substr(start, end - start);
+					bool const resolution = word.size() >= 2 && (word.back() == 'k' || word.back() == 'K') &&
+					                        std::all_of(word.begin(), word.end() - 1,
+					                                    [](char c)
+					                                    {
+															return std::isdigit(static_cast<unsigned char>(c)) != 0;
+														});
+					if (!word.empty() && !resolution)
+					{
+						return true;
+					}
+					start = end + 1;
+				}
+				return false;
+			}
+
+			// What follows the first word separator ("arm_1k.jpg" of "brass_arm_1k.jpg"); empty without one.
+			std::string_view DropFirstWord(std::string_view part)
+			{
+				size_t const separator = static_cast<size_t>(std::find_if(part.begin(), part.end(), IsWordSeparator) - part.begin());
+				return separator < part.size() ? part.substr(separator + 1) : std::string_view();
+			}
 		}
 
 		ImVec2 GetToolbarButtonSize()
@@ -222,6 +261,40 @@ namespace Strada
 			return std::string(encoded.data());
 		}
 
+		std::string_view GetDistinctFileNamePart(std::string_view path)
+		{
+			size_t const separator = path.find_last_of('/');
+			if (separator == std::string_view::npos)
+			{
+				return {};
+			}
+			std::string_view const name = path.substr(separator + 1);
+			auto const equalIgnoringCase = [](std::string_view a, std::string_view b)
+			{
+				return a.size() == b.size() &&
+				       std::equal(a.begin(), a.end(), b.begin(),
+				                  [](char x, char y)
+				                  {
+									  return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+								  });
+			};
+			// The longest folder whose name, followed by a word separator, starts the file name.
+			size_t prefix = 0;
+			for (size_t start = 0; start < separator;)
+			{
+				size_t const end = path.find('/', start);
+				std::string_view const folder = path.substr(start, end - start);
+				if (!folder.empty() && folder.size() > prefix && name.size() > folder.size() + 1 && IsWordSeparator(name[folder.size()]) &&
+				    equalIgnoringCase(name.substr(0, folder.size()), folder))
+				{
+					prefix = folder.size() + 1;
+				}
+				start = end + 1;
+			}
+			std::string_view const rest = name.substr(prefix);
+			return prefix > 0 && SaysMoreThanResolution(rest) ? rest : std::string_view();
+		}
+
 		std::string FitPath(std::string_view path, float maxWidth)
 		{
 			auto const measure = [](std::string_view part)
@@ -234,10 +307,13 @@ namespace Strada
 			}
 			std::string const ellipsis = GetEllipsis();
 			float const available = maxWidth - measure(ellipsis);
-			// Whole folders first: the longest end that starts at a separator ("//" of "builtin://" counts as one).
-			for (size_t slash = path.find('/'); slash != std::string_view::npos; slash = path.find('/', slash + 1))
+			// Whole folders first: the longest end that starts at a separator. A scheme ("builtin://") is not a folder: its
+			// references show the name alone.
+			size_t const scheme = path.find("://");
+			size_t const firstFolder = scheme == std::string_view::npos ? 0 : scheme + 3;
+			for (size_t slash = path.find('/', firstFolder); slash != std::string_view::npos; slash = path.find('/', slash + 1))
 			{
-				if ((slash + 1 >= path.size() || path[slash + 1] != '/') && measure(path.substr(slash)) <= available)
+				if (measure(path.substr(slash)) <= available)
 				{
 					return ellipsis + std::string(path.substr(slash));
 				}
@@ -249,15 +325,32 @@ namespace Strada
 			{
 				return std::string(name);
 			}
+			// The files of a set repeat the set's folder in their names ("wooden_crate_01/textures/wooden_crate_01_diff_1k.jpg"):
+			// without that start, what tells them apart remains ("...diff_1k.jpg"), or as many of its last words as fit while
+			// they say more than a resolution ("...arm_1k.jpg" of "brass_arm_1k.jpg").
+			for (std::string_view part = GetDistinctFileNamePart(path); !part.empty() && SaysMoreThanResolution(part);
+			     part = DropFirstWord(part))
+			{
+				if (measure(part) <= available)
+				{
+					return ellipsis + std::string(part);
+				}
+			}
 
-			// At last the middle of the name gives way: its start names the asset, its end holds the extension and the
-			// suffixes that tell the maps of a texture set apart ("wooden_cr...diff_1k.jpg"). The end gets up to half of the
-			// room, the start the rest. Names are cut between characters: UTF-8 continuation bytes (10xxxxxx) start none.
+			// At last the middle of the name gives way: its start names the asset, its end keeps the extension. The end gets up
+			// to half of the room and starts at a word ("leaves.smat", ".smat") when one fits, the start the rest. Names are cut
+			// between characters: UTF-8 continuation bytes (10xxxxxx) start none.
 			auto const startsCharacter = [name](size_t index)
 			{
 				return (static_cast<unsigned char>(name[index]) & 0xC0) != 0x80;
 			};
+			size_t const extension = std::min(name.find_last_of('.'), name.size());
+			auto const startsWord = [name, extension](size_t index)
+			{
+				return index == extension || IsWordSeparator(name[index - 1]) || StartsWord(name, index);
+			};
 			size_t endStart = name.size();
+			size_t wordEndStart = name.size();
 			for (size_t index = name.size(); index-- > 1;)
 			{
 				if (startsCharacter(index))
@@ -267,7 +360,15 @@ namespace Strada
 						break;
 					}
 					endStart = index;
+					if (startsWord(index))
+					{
+						wordEndStart = index;
+					}
 				}
+			}
+			if (wordEndStart < name.size())
+			{
+				endStart = wordEndStart;
 			}
 			float const endWidth = measure(name.substr(endStart));
 			size_t startEnd = 0;
