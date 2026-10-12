@@ -430,23 +430,38 @@ TEST_CASE("ComponentInspection: the Add Component menu groups components by cate
 	CHECK(contains(findGroup(ComponentCategory::UI), "UIButton"));
 	CHECK(ComponentInspection::GroupByCategory({}).empty());
 
+	// The menu searches what can be added: the lamp's point light is not offered.
+	std::vector<std::string_view> const lights = Names(ComponentInspection::SearchComponents(addable, "light"));
+	CHECK(contains(lights, "DirectionalLight"));
+	CHECK_FALSE(contains(lights, "PointLight"));
+	CHECK(ComponentInspection::SearchComponents(addable, "").size() == addable.size());
+
 	// Names starting with the text come first, then names with a word starting with it, then the others; case, spaces
-	// around the text and the spelling of the name do not matter.
-	CHECK(Names(ComponentInspection::SearchComponents(addable, "light")) ==
+	// around the text and the spelling of the name do not matter. These searches run over a fixed set of components, so
+	// components added later cannot change their matches.
+	std::vector<ComponentInfo const*> searched;
+	for (std::string_view const name :
+	     {"AudioListener", "AudioSource", "BoxCollider", "Camera", "CapsuleCollider", "DirectionalLight", "Mesh", "MeshCollider",
+	      "ParticleSystem", "RigidBody", "Script", "SkyLight", "SphereCollider", "SpotLight", "SpriteRenderer", "Text"})
+	{
+		ComponentInfo const* component = ComponentRegistry::Find(name);
+		REQUIRE(component != nullptr);
+		searched.push_back(component);
+	}
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "light")) ==
 	      std::vector<std::string_view>{"DirectionalLight", "SkyLight", "SpotLight"});
-	CHECK(Names(ComponentInspection::SearchComponents(addable, "  COLL ")) ==
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "  COLL ")) ==
 	      std::vector<std::string_view>{"BoxCollider", "CapsuleCollider", "MeshCollider", "SphereCollider"});
-	CHECK(Names(ComponentInspection::SearchComponents(addable, "sphere col")) == std::vector<std::string_view>{"SphereCollider"});
-	CHECK(Names(ComponentInspection::SearchComponents(addable, "spherecol")) == std::vector<std::string_view>{"SphereCollider"});
-	CHECK(Names(ComponentInspection::SearchComponents(addable, "li")) ==
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "sphere col")) == std::vector<std::string_view>{"SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "spherecol")) == std::vector<std::string_view>{"SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "li")) ==
 	      std::vector<std::string_view>{"AudioListener", "DirectionalLight", "SkyLight", "SpotLight", "BoxCollider", "CapsuleCollider",
 	                                    "MeshCollider", "SphereCollider"});
-	std::vector<std::string_view> const startingWithS = Names(ComponentInspection::SearchComponents(addable, "s"));
-	REQUIRE(startingWithS.size() > 7);
-	CHECK(std::vector<std::string_view>(startingWithS.begin(), startingWithS.begin() + 7) ==
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "s")) ==
 	      std::vector<std::string_view>{"Script", "SkyLight", "SphereCollider", "SpotLight", "SpriteRenderer", "AudioSource",
-	                                    "ParticleSystem"});
-	CHECK(Names(ComponentInspection::SearchComponents(addable, "urce")) == std::vector<std::string_view>{"AudioSource"});
-	CHECK(ComponentInspection::SearchComponents(addable, "teleporter").empty());
-	CHECK(ComponentInspection::SearchComponents(addable, "").size() == addable.size());
+	                                    "ParticleSystem", "AudioListener", "CapsuleCollider", "Mesh", "MeshCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "urce")) == std::vector<std::string_view>{"AudioSource"});
+	CHECK(ComponentInspection::SearchComponents(searched, "teleporter").empty());
+	CHECK(ComponentInspection::SearchComponents(searched, "").size() == searched.size());
+	CHECK(ComponentInspection::SearchComponents({}, "light").empty());
 }
