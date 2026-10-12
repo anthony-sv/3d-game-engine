@@ -106,6 +106,8 @@ namespace Strada
 		// Loads the asset on first use. Load failures are logged once and remembered until the asset is reloaded or the
 		// directory is refreshed, so per-frame lookups of a broken asset stay cheap and quiet.
 		[[nodiscard]] static Result<Ref<Asset>> LoadAsset(AssetHandle handle);
+		// Whether the asset's last load failed and that is remembered (until it is reloaded or the directory is refreshed).
+		static bool HasLoadFailure(AssetHandle handle);
 
 		template<typename T>
 		[[nodiscard]] static Result<Ref<T>> TryGetAsset(AssetHandle handle)

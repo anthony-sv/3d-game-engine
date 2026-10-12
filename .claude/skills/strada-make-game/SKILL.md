@@ -50,7 +50,9 @@ undo history as the UI: work in small, checked steps.
 - `material_create` with `path` (`Materials/Name.smat`) and `fields` (`BaseColor`, `Metallic`, `Roughness`,
   `EmissiveColor`, textures...); meshes use it through `Mesh.Materials`.
 - `asset_import` copies models (glTF, FBX, OBJ), textures, HDR environments and sounds into the project from absolute
-  paths.
+  paths. A model whose data is in other files (a glTF with its `.bin` and textures, an OBJ with its `.mtl`) needs them
+  too: with the editor's window, `asset_drop` imports it as a drop from the file manager does, with the files it reads
+  (also whole folders, and C# sources into the scripts).
 - Models and materials: `polyhaven_search_models` / `polyhaven_import_model` bring CC0 props, furniture, plants and rocks
   (meters, with their materials; give dynamic ones a box or convex mesh collider fitted to the model's bounds), and
   `polyhaven_search_textures` / `polyhaven_import_texture` make a material from a PBR texture set (set its `UVTiling`

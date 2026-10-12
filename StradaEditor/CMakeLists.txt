@@ -68,6 +68,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EntityPresets.h
     Source/Editor/EntitySelection.cpp
     Source/Editor/EntitySelection.h
+    Source/Editor/FileCopies.cpp
+    Source/Editor/FileCopies.h
     Source/Editor/FileDialogs.cpp
     Source/Editor/FileDialogs.h
     Source/Editor/GameInputRouter.cpp
@@ -96,8 +98,12 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/ViewportPanel.h
     Source/Editor/PlayMode.cpp
     Source/Editor/PlayMode.h
+    Source/Editor/ProjectImport.cpp
+    Source/Editor/ProjectImport.h
     Source/Editor/RecentProjects.cpp
     Source/Editor/RecentProjects.h
+    Source/Editor/ScriptBrowsing.cpp
+    Source/Editor/ScriptBrowsing.h
     Source/Editor/ScriptFieldInspection.cpp
     Source/Editor/ScriptFieldInspection.h
     Source/Editor/UI/EditorUI.cpp

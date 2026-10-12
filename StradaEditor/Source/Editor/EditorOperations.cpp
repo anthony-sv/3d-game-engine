@@ -6,10 +6,12 @@
 #include "Editor/Commands/CompositeCommand.h"
 #include "Editor/Commands/PrefabCommands.h"
 #include "Editor/Commands/SceneCommands.h"
+#include "Editor/FileCopies.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/MeshImporter.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -398,6 +400,44 @@ namespace Strada
 		return m_Context.ExecuteCommand(CreateScope<SetComponentsCommand>(std::move(edits), mergeKey));
 	}
 
+	Result<void> EditorOperations::SetScriptClass(std::span<UUID const> entities, std::string_view className)
+	{
+		if (className.empty())
+		{
+			return Error{"a script class name is required"};
+		}
+		Scene& scene = m_Context.GetScene();
+		Json const fields = Json::object({{"ClassName", std::string(className)}});
+		std::string const component(ComponentTraits<ScriptComponent>::Name);
+		std::vector<Scope<EditorCommand>> commands;
+		std::vector<ComponentEdit> replaced;
+		for (UUID const entity : entities)
+		{
+			if (!scene.HasEntity(entity))
+			{
+				return MakeError("entity {} does not exist", entity);
+			}
+			Entity const target = scene.GetEntityByUUID(entity);
+			if (!target.HasComponent<ScriptComponent>())
+			{
+				commands.push_back(CreateScope<AddComponentCommand>(entity, component, fields));
+			}
+			else if (target.GetComponent<ScriptComponent>().ClassName != className)
+			{
+				replaced.push_back({entity, component, fields});
+			}
+		}
+		if (!replaced.empty())
+		{
+			commands.push_back(CreateScope<SetComponentsCommand>(std::move(replaced)));
+		}
+		if (commands.empty())
+		{
+			return {};
+		}
+		return m_Context.ExecuteCommand(CreateScope<CompositeCommand>(fmt::format("Set Script {}", className), std::move(commands)));
+	}
+
 	Result<void> EditorOperations::CreateAssetFolder(std::string_view folder)
 	{
 		if (Result<void> available = RequireAssetDirectory(); !available)
@@ -613,7 +653,149 @@ namespace Strada
 		{
 			return available;
 		}
+		// A model that moves to another folder takes the files it reads along.
+		std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(asset);
+		Result<std::string> const normalized = NormalizeAssetPath(newPath);
+		if (metadata && metadata->IsFileAsset() && metadata->Type == AssetType::Mesh && normalized &&
+		    AssetBrowsing::GetParentFolder(normalized.GetValue()) != AssetBrowsing::GetParentFolder(metadata->Path))
+		{
+			return MoveModelWithFiles(asset, *metadata, normalized.GetValue());
+		}
 		return AssetManager::MoveAsset(asset, newPath);
+	}
+
+	Result<void> EditorOperations::MoveModelWithFiles(AssetHandle model, AssetMetadata const& metadata, std::string const& newPath)
+	{
+		std::filesystem::path const& assets = AssetManager::GetAssetDirectory();
+		auto const absolute = [&assets](std::string_view path)
+		{
+			return assets / FileSystem::PathFromUtf8(path);
+		};
+		auto const relative = [&assets](std::filesystem::path const& path)
+		{
+			return FileSystem::PathToUtf8(path.lexically_relative(assets));
+		};
+		std::filesystem::path const from = absolute(metadata.Path).parent_path();
+		std::filesystem::path const to = absolute(newPath).parent_path();
+		Result<std::vector<std::filesystem::path>> const referenced = MeshImporter::FindExternalFiles(absolute(metadata.Path), assets);
+		// A model that cannot be read moves alone; its asset says why it does not load.
+		if (!referenced)
+		{
+			return AssetManager::MoveAsset(model, newPath);
+		}
+
+		// The model names its files relative to itself: those in its folder move along. One outside it stays where it is and
+		// must still be found from the new folder (a textures folder beside a sibling folder is).
+		std::vector<std::filesystem::path> files;
+		for (std::filesystem::path const& file : referenced.GetValue())
+		{
+			if (FileSystem::IsInside(file, from))
+			{
+				files.push_back(file);
+			}
+			else if ((to / file.lexically_relative(from)).lexically_normal() != file)
+			{
+				return MakeError("'{}' reads '{}', which is not in its folder and would be missing from '{}': move the folder that holds "
+				                 "both instead",
+				                 metadata.Path, relative(file), AssetBrowsing::GetParentFolder(newPath));
+			}
+		}
+		if (files.empty())
+		{
+			return AssetManager::MoveAsset(model, newPath);
+		}
+
+		// A file that another model of the folder reads too would be missing there.
+		for (AssetMetadata const& other : AssetManager::GetAssets(AssetType::Mesh))
+		{
+			if (other.Handle == model || !other.IsFileAsset() || !FileSystem::IsInside(absolute(other.Path), from))
+			{
+				continue;
+			}
+			Result<std::vector<std::filesystem::path>> const shared = MeshImporter::FindExternalFiles(absolute(other.Path), assets);
+			for (std::filesystem::path const& file : shared ? shared.GetValue() : std::vector<std::filesystem::path>())
+			{
+				if (std::find(files.begin(), files.end(), file) != files.end())
+				{
+					return MakeError("'{}' reads '{}' too: move the folder that holds both instead", other.Path, relative(file));
+				}
+			}
+		}
+
+		// Every file to the same place relative to the model; registered ones (textures) keep their handles.
+		struct FileMove
+		{
+			std::string From;
+			std::string To;
+			AssetHandle Asset;
+		};
+		std::vector<FileMove> moves;
+		std::string const folder = AssetBrowsing::GetParentFolder(newPath);
+		for (std::filesystem::path const& file : files)
+		{
+			FileMove move{relative(file), AssetBrowsing::JoinPath(folder, FileSystem::PathToUtf8(file.lexically_relative(from))),
+			              AssetHandle()};
+			if (FileSystem::Exists(absolute(move.To)) || AssetManager::FindByPath(move.To).IsValid())
+			{
+				return MakeError("'{}' already exists", move.To);
+			}
+			move.Asset = AssetManager::FindByPath(move.From);
+			moves.push_back(std::move(move));
+		}
+		if (FileSystem::Exists(absolute(newPath)) || AssetManager::FindByPath(newPath).IsValid())
+		{
+			return MakeError("'{}' already exists", newPath);
+		}
+
+		// All or nothing: what moved goes back, with the folders made for it.
+		FileCopies folders;
+		size_t moved = 0;
+		auto const moveFile = [&](std::string const& source, std::string const& target, AssetHandle asset) -> Result<void>
+		{
+			if (Result<void> created = folders.CreateFolder(absolute(target).parent_path()); !created)
+			{
+				return created;
+			}
+			return asset.IsValid() ? AssetManager::MoveAsset(asset, target) : FileSystem::Move(absolute(source), absolute(target));
+		};
+		auto const moveBack = [&]
+		{
+			for (size_t index = moved; index-- > 0;)
+			{
+				FileMove const& move = moves[index];
+				(void)(move.Asset.IsValid() ? AssetManager::MoveAsset(move.Asset, move.From)
+				                            : FileSystem::Move(absolute(move.To), absolute(move.From)));
+			}
+			folders.Rollback();
+		};
+		for (; moved < moves.size(); moved++)
+		{
+			FileMove const& move = moves[moved];
+			if (Result<void> result = moveFile(move.From, move.To, move.Asset); !result)
+			{
+				moveBack();
+				return result;
+			}
+		}
+		if (Result<void> result = moveFile(metadata.Path, newPath, model); !result)
+		{
+			moveBack();
+			return result;
+		}
+		// Folders of the model's folder that the files leave empty go too.
+		for (FileMove const& move : moves)
+		{
+			for (std::filesystem::path directory = absolute(move.From).parent_path();
+			     directory != from && FileSystem::IsInside(directory, from); directory = directory.parent_path())
+			{
+				std::error_code error;
+				if (!std::filesystem::is_empty(directory, error) || error || !FileSystem::Remove(directory))
+				{
+					break;
+				}
+			}
+		}
+		return {};
 	}
 
 	Result<void> EditorOperations::MoveAssetFolder(std::string_view folder, std::string_view newFolder)

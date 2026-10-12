@@ -28,9 +28,13 @@ namespace Strada::Testing
 		HeadlessImGui(HeadlessImGui const&) = delete;
 		HeadlessImGui& operator=(HeadlessImGui const&) = delete;
 
-		void Frame(std::function<void()> const& draw)
+		void Frame(std::function<void()> const& draw) { Frame(draw, 1.0f / 60.0f); }
+
+		// Draws a frame that comes the given number of seconds after the previous one (frames are 1/60 s apart otherwise).
+		void Frame(std::function<void()> const& draw, float seconds)
 		{
 			ImGui_ImplNull_NewFrame();
+			ImGui::GetIO().DeltaTime = seconds;
 			ImGui::NewFrame();
 			draw();
 			ImGui::Render();

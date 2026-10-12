@@ -5,8 +5,11 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
 
+#include <array>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -29,6 +32,14 @@ namespace Strada
 		inline constexpr char const* Asset = "STRADA_ASSET";
 		// A folder of the asset directory: its relative path as UTF-8 characters (no terminator).
 		inline constexpr char const* AssetFolder = "STRADA_ASSET_FOLDER";
+		// A file of the asset directory that is not an asset (a model's buffer): its relative path as UTF-8 characters (no
+		// terminator).
+		inline constexpr char const* AssetFile = "STRADA_ASSET_FILE";
+		// A C# source of the project's scripts: its absolute path as UTF-8 characters (no terminator).
+		inline constexpr char const* ScriptFile = "STRADA_SCRIPT_FILE";
+		// A folder of the project's scripts: its path relative to their directory (ScriptProject::GetSourceDirectory) as UTF-8
+		// characters (no terminator).
+		inline constexpr char const* ScriptFolder = "STRADA_SCRIPT_FOLDER";
 	}
 
 	namespace UI
@@ -50,6 +61,18 @@ namespace Strada
 		AssetHandle AcceptAssetDrop(std::span<AssetType const> types = {});
 		// The entities of a DragDropPayload::Entities payload.
 		std::vector<UUID> ReadEntityPayload(ImGuiPayload const& payload);
+		// Makes the last item a source of a script drag (DragDropPayload::ScriptFile) showing the label while dragging.
+		void ScriptDragSource(std::filesystem::path const& file, std::string_view label);
+		// Call between ImGui::BeginDragDropTarget and EndDragDropTarget: the C# source dropped this frame, if any.
+		std::optional<std::filesystem::path> AcceptScriptDrop();
+
+		// A file or folder name laid out in two lines of the given width with the current font, as content browser tiles show
+		// it: the first line breaks at the last place that fits after a space, '_' or '-', before a '.' or before a word of a
+		// PascalCase name ("Showcase|Tests.cs"), the second is shortened with "..." when the rest does not fit, keeping the
+		// given extension visible ("LongName.smat": "LongNa...smat"). The second line is empty for names that fit on one.
+		std::array<std::string, 2> SplitTileLabel(std::string_view name, float width, std::string_view extension = {});
+		// A length of time as a label: "40 ms" below a second, "2.4 s" below ten seconds, "1:05" (minutes and seconds) above.
+		std::string FormatDuration(double seconds);
 
 		// Icons of the toolbar buttons, drawn as shapes (the editor needs no icon font).
 		enum class ToolbarIcon : uint8_t

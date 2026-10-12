@@ -2,6 +2,7 @@
 
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/EditorCamera.h"
+#include "Editor/EditorScripts.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
@@ -224,6 +225,7 @@ TEST_CASE("EditorCommands: errors carry precise codes")
 	CHECK(fixture.Fails("viewport.statistics") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("asset.browse", Json::object({{"folder", ""}})) == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.overlays") == AutomationErrorCode::Unavailable);
+	CHECK(fixture.Fails("asset.drop", Json::object({{"paths", {"Oak.png"}}})) == AutomationErrorCode::Unavailable);
 }
 
 TEST_CASE("EditorCommands: scene files and unsaved changes")
@@ -581,6 +583,115 @@ TEST_CASE("EditorCommands: asset.browse shows folders of the asset directory in 
 	      AutomationErrorCode::InvalidParams);
 	CHECK(fixture.Fails("asset.browse", Json::object({{"tileScale", 10.0}})) == AutomationErrorCode::InvalidParams);
 	CHECK(fixture.ContentBrowser.GetFolder().empty());
+	// The documented range, both ends included.
+	CHECK(fixture.Ok("asset.browse", Json::object({{"tileScale", 0.6}}))["tileScale"].get<float>() == 0.6f);
+	CHECK(fixture.Ok("asset.browse", Json::object({{"tileScale", 2.5}}))["tileScale"].get<float>() == 2.5f);
+	CHECK(fixture.Fails("asset.browse", Json::object({{"tileScale", 0.59}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("asset.browse", Json::object({{"tileScale", 2.51}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.ContentBrowser.GetTileScale() == 2.5f);
+
+	// A search shows what it finds; browsing a folder ends it.
+	Json const searched = fixture.Ok("asset.browse", Json::object({{"search", "wood"}}));
+	CHECK(searched["search"] == "wood");
+	CHECK(fixture.ContentBrowser.GetSearch() == "wood");
+	Json const browsed = fixture.Ok("asset.browse", Json::object({{"folder", "Textures"}}));
+	CHECK(browsed["folder"] == "Textures");
+	CHECK(browsed["search"] == "");
+	CHECK(fixture.ContentBrowser.GetSearch().empty());
+	fixture.ContentBrowser.SetSearch("oak");
+	fixture.ContentBrowser.SetFolder("");
+	CHECK(fixture.ContentBrowser.GetSearch().empty());
+	fixture.ContentBrowser.SetSearch("oak");
+	fixture.ContentBrowser.SetScriptFolder("");
+	CHECK(fixture.ContentBrowser.GetSearch().empty());
+	CHECK(fixture.Ok("asset.browse", Json::object({{"root", "Assets"}}))["folder"] == "");
+
+	// The project's C# scripts: their directory, even before it exists, and its folders.
+	Json const scripts = fixture.Ok("asset.browse", Json::object({{"root", "Scripts"}}));
+	CHECK(scripts["root"] == "Scripts");
+	CHECK(scripts["folder"] == "");
+	CHECK(fixture.ContentBrowser.GetRoot() == ContentRoot::Scripts);
+	REQUIRE(FileSystem::CreateDirectories(directory.GetPath() / "Game" / "Scripts" / "Source" / "AI").IsOk());
+	CHECK(fixture.Ok("asset.browse", Json::object({{"root", "Scripts"}, {"folder", "AI/"}}))["folder"] == "AI");
+	CHECK(fixture.ContentBrowser.GetScriptFolder() == "AI");
+	CHECK(fixture.Fails("asset.browse", Json::object({{"root", "Scripts"}, {"folder", "Missing"}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("asset.browse", Json::object({{"root", "Scripts"}, {"folder", ".."}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("asset.browse", Json::object({{"root", "Sources"}})) == AutomationErrorCode::InvalidParams);
+	// Without a root the displayed one stays; each root keeps its folder.
+	CHECK(fixture.Ok("asset.browse")["root"] == "Scripts");
+	Json const assets = fixture.Ok("asset.browse", Json::object({{"root", "Assets"}}));
+	CHECK(assets["folder"] == "");
+	CHECK(fixture.ContentBrowser.GetRoot() == ContentRoot::Assets);
+	CHECK(fixture.ContentBrowser.GetScriptFolder() == "AI");
+}
+
+TEST_CASE("EditorCommands: asset.drop imports files and folders as if they were dropped onto the content browser")
+{
+	AssetManager::Init();
+	struct AssetManagerShutdown
+	{
+		~AssetManagerShutdown() { AssetManager::Shutdown(); }
+	} const shutdown;
+	Testing::TemporaryDirectory directory;
+	CommandFixture fixture(true);
+	EditorScripts scripts(fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll");
+	fixture.ContentBrowser.SetScripts(&scripts);
+	std::filesystem::path const outside = directory.GetPath() / "Downloads";
+	REQUIRE(Image(2, 2, 4).WritePNG(outside / "Oak.png").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(outside / "Model.blend", "blender").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(outside / "AI" / "Brain.cs", "namespace Game; class Brain {}").IsOk());
+	std::string const oak = FileSystem::PathToUtf8(outside / "Oak.png");
+	std::string const blend = FileSystem::PathToUtf8(outside / "Model.blend");
+	std::string const ai = FileSystem::PathToUtf8(outside / "AI");
+	// Without a project there is nowhere to drop.
+	CHECK(fixture.Fails("asset.drop", Json::object({{"paths", {oak}}})) == AutomationErrorCode::InvalidOperation);
+
+	fixture.Ok("project.create", Json::object({{"directory", FileSystem::PathToUtf8(directory.GetPath() / "Game")}, {"name", "Game"}}));
+	fixture.Ok("asset.create-folder", Json::object({{"folder", "Textures"}}));
+
+	// Onto a folder of the asset directory: the asset comes in and is selected; a file that is neither an asset nor a C#
+	// source is skipped, which the browser's notice says. The browser keeps showing its folder.
+	Json const dropped = fixture.Ok("asset.drop", Json::object({{"paths", {oak, blend}}, {"folder", "Textures/"}}));
+	REQUIRE(dropped["assets"].size() == 1);
+	CHECK(dropped["assets"][0]["path"] == "Textures/Oak.png");
+	CHECK(dropped["skipped"] == Json::array({"Model.blend"}));
+	CHECK(dropped["errors"].empty());
+	CHECK(fixture.Context.GetSelectedAsset() == AssetManager::FindByPath("Textures/Oak.png"));
+	CHECK(fixture.ContentBrowser.GetNotice().find("Model.blend") != std::string::npos);
+	CHECK(fixture.ContentBrowser.GetFolder().empty());
+
+	// Without a folder, into the displayed one; a taken name gets a number, and a drop without problems ends the notice.
+	Json const again = fixture.Ok("asset.drop", Json::object({{"paths", {oak}}}));
+	REQUIRE(again["assets"].size() == 1);
+	CHECK(again["assets"][0]["path"] == "Oak.png");
+	CHECK(fixture.ContentBrowser.GetNotice().empty());
+
+	// Onto the scripts: a folder of C# sources comes whole, and the browser shows the scripts.
+	Json const scripted = fixture.Ok("asset.drop", Json::object({{"paths", {ai}}, {"root", "Scripts"}}));
+	CHECK(scripted["scriptFolders"] == Json::array({"AI"}));
+	CHECK(scripted["scripts"] == Json::array({"Scripts/Source/AI/Brain.cs"}));
+	CHECK(fixture.ContentBrowser.GetRoot() == ContentRoot::Scripts);
+
+	// Failures are part of the result, not errors of the command: the same folder again would declare Brain twice.
+	Json const refused = fixture.Ok("asset.drop", Json::object({{"paths", {ai}}, {"root", "Scripts"}}));
+	REQUIRE(refused["errors"].size() == 1);
+	CHECK(refused["errors"][0].get<std::string>().find("Brain.cs") != std::string::npos);
+	CHECK(refused["scriptFolders"].empty());
+	CHECK(fixture.ContentBrowser.GetNotice().find("Brain.cs") != std::string::npos);
+	CHECK_FALSE(FileSystem::Exists(directory.GetPath() / "Game" / "Scripts" / "Source" / "AI 1"));
+
+	// Paths must be absolute, and folders must exist inside their root.
+	CHECK(fixture.Fails("asset.drop", Json::object({{"paths", {"Oak.png"}}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("asset.drop", Json::object({{"paths", Json::array()}})) == AutomationErrorCode::InvalidParams);
+	for (char const* folder : {"Missing", "..", "Textures/../../Game"})
+	{
+		CAPTURE(folder);
+		CHECK(fixture.Fails("asset.drop", Json::object({{"paths", {oak}}, {"root", "Assets"}, {"folder", folder}})) ==
+		      AutomationErrorCode::InvalidParams);
+	}
+	CHECK(fixture.Fails("asset.drop", Json::object({{"paths", {oak}}, {"root", "Scripts"}, {"folder", "Missing"}})) ==
+	      AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("asset.drop", Json::object({{"paths", {oak}}, {"root", "Sources"}})) == AutomationErrorCode::InvalidParams);
 }
 
 TEST_CASE("EditorCommands: the viewport's renderer statistics are reported")

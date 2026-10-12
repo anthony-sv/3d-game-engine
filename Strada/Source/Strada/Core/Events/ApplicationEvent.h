@@ -5,6 +5,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <filesystem>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -96,20 +97,26 @@ namespace Strada
 		bool m_Minimized;
 	};
 
-	// Files dropped onto the window from the OS.
-	class WindowDropEvent : public Event
+	// Files and folders dropped onto one of the application's windows from the OS (Explorer, Finder, a file manager),
+	// including the platform windows of ImGui panels dragged out of the main window. GLFW moves the cursor to the drop
+	// point first, so what is under the cursor is what the files were dropped on.
+	class WindowFileDropEvent : public Event
 	{
 	public:
-		explicit WindowDropEvent(std::vector<std::filesystem::path> paths)
+		explicit WindowFileDropEvent(std::vector<std::filesystem::path> paths)
 			: m_Paths(std::move(paths))
 		{
 		}
 
+		// From the UTF-8 strings the OS (GLFW) reports, converted so that names in any script survive on every platform;
+		// null and empty entries are skipped.
+		static WindowFileDropEvent FromUtf8(std::span<char const* const> paths);
+
 		std::vector<std::filesystem::path> const& GetPaths() const { return m_Paths; }
 
-		std::string ToString() const override { return fmt::format("WindowDropEvent: {} path(s)", m_Paths.size()); }
+		std::string ToString() const override { return fmt::format("WindowFileDropEvent: {} path(s)", m_Paths.size()); }
 
-		ST_EVENT_CLASS_TYPE(WindowDrop)
+		ST_EVENT_CLASS_TYPE(WindowFileDrop)
 		ST_EVENT_CLASS_CATEGORY(EventCategoryApplication)
 
 	private:

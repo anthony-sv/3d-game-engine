@@ -1,5 +1,6 @@
 #include "Editor/Panels/SceneHierarchyPanel.h"
 
+#include "Editor/AssetDrops.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/HierarchyEditing.h"
 #include "Editor/UI/EditorUI.h"
@@ -277,6 +278,22 @@ namespace Strada
 			if (AssetHandle const asset = UI::AcceptAssetDrop(EntityAssetTypes); asset.IsValid())
 			{
 				CreateFromAsset(operations, asset, id);
+			}
+			// A C# script dropped onto a row: the entity runs its class.
+			if (std::optional<std::filesystem::path> const script = UI::AcceptScriptDrop())
+			{
+				Defer(
+					[&operations, id, file = *script]
+					{
+						std::array<UUID, 1> const entities = {id};
+						Result<std::string> const added = AssetDrops::AddScript(operations, entities, file);
+						UI::ReportFailure(added, "Adding the script");
+						if (added)
+						{
+							ST_INFO("{} runs the script {}", operations.GetContext().GetScene().GetEntityByUUID(id).GetName(),
+						            added.GetValue());
+						}
+					});
 			}
 			if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(
 					DragDropPayload::Entities, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect))

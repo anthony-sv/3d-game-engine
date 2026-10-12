@@ -1,8 +1,12 @@
 #include "Strada/Core/Events/ApplicationEvent.h"
 #include "Strada/Core/Events/KeyEvent.h"
 #include "Strada/Core/Events/MouseEvent.h"
+#include "Strada/Core/FileSystem.h"
 
 #include <doctest/doctest.h>
+
+#include <array>
+#include <string>
 
 using namespace Strada;
 
@@ -66,12 +70,46 @@ TEST_CASE("Events: handled flag is sticky across dispatches")
 	CHECK(event.Handled);
 }
 
-TEST_CASE("Events: drop event carries paths")
+TEST_CASE("Events: file drop event carries paths")
 {
-	WindowDropEvent const event({std::filesystem::path("a.png"), std::filesystem::path("b.glb")});
+	WindowFileDropEvent const event({std::filesystem::path("a.png"), std::filesystem::path("b.glb")});
 	REQUIRE(event.GetPaths().size() == 2);
 	CHECK(event.GetPaths()[1] == std::filesystem::path("b.glb"));
-	CHECK(event.ToString() == "WindowDropEvent: 2 path(s)");
+	CHECK(event.ToString() == "WindowFileDropEvent: 2 path(s)");
+	CHECK(event.GetEventType() == EventType::WindowFileDrop);
+	CHECK(std::string(event.GetName()) == "WindowFileDrop");
+	CHECK(event.IsInCategory(EventCategoryApplication));
+	CHECK_FALSE(event.IsInCategory(EventCategoryInput));
+}
+
+TEST_CASE("Events: file drop paths reported as UTF-8 keep every character, and empty entries are skipped")
+{
+	// Latin, Japanese and Greek names as the OS hands them over (UTF-8).
+	std::array<char const*, 5> const reported = {"C:/Users/J\xC3\xBCrgen/Textur.png", "", nullptr,
+	                                             "/home/\xE6\x97\xA5\xE6\x9C\xAC/\xE9\x9F\xB3.ogg",
+	                                             "D:/\xCE\x95\xCE\xBB\xCE\xBB\xCE\xAC\xCE\xB4\xCE\xB1"};
+	WindowFileDropEvent event = WindowFileDropEvent::FromUtf8(reported);
+	REQUIRE(event.GetPaths().size() == 3);
+	CHECK(FileSystem::PathToUtf8(event.GetPaths()[0]) == reported[0]);
+	CHECK(FileSystem::PathToUtf8(event.GetPaths()[1]) == reported[3]);
+	CHECK(FileSystem::PathToUtf8(event.GetPaths()[2]) == reported[4]);
+	CHECK(FileSystem::PathToUtf8(event.GetPaths()[0].filename()) == "Textur.png");
+	CHECK(FileSystem::PathToUtf8(event.GetPaths()[1].extension()) == ".ogg");
+	CHECK(FileSystem::PathToUtf8(event.GetPaths()[1].stem()) == "\xE9\x9F\xB3");
+
+	// Dispatched like any other event.
+	bool received = false;
+	EventDispatcher dispatcher(event);
+	CHECK(dispatcher.Dispatch<WindowFileDropEvent>(
+		[&received](WindowFileDropEvent& dropped)
+		{
+			received = dropped.GetPaths().size() == 3;
+			return true;
+		}));
+	CHECK(received);
+	CHECK(event.Handled);
+
+	CHECK(WindowFileDropEvent::FromUtf8({}).GetPaths().empty());
 }
 
 TEST_CASE("Events: key typed event formats its code point")

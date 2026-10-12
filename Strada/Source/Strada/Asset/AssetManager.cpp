@@ -1139,6 +1139,11 @@ namespace Strada
 		return asset;
 	}
 
+	bool AssetManager::HasLoadFailure(AssetHandle handle)
+	{
+		return s_Data != nullptr && s_Data->FailedLoads.contains(handle);
+	}
+
 	Result<void> AssetManager::ReloadAsset(AssetHandle handle)
 	{
 		AssetManagerData& data = GetData();
