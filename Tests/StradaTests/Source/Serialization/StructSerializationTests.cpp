@@ -226,6 +226,107 @@ TEST_CASE("StructSerialization: descriptors describe kinds, hints, defaults and 
 	CHECK(DescribeFields<StructTraits<RenderSettings>, RenderSettings>()["Fields"][1]["Fields"][1]["Name"] == "Intensity");
 }
 
+namespace
+{
+	struct Switched
+	{
+		bool UseGain = false;
+		float Gain = 1.0f;
+		bool Plain = true;
+		int32_t Count = 0;
+	};
+
+	struct MissingSwitch
+	{
+		static constexpr std::string_view Name = "MissingSwitch";
+		static constexpr auto Fields = std::make_tuple(Field("Gain", &Switched::Gain).EnabledBy("UseGain"));
+	};
+
+	struct NumberSwitch
+	{
+		static constexpr std::string_view Name = "NumberSwitch";
+		static constexpr auto Fields = std::make_tuple(Field("Count", &Switched::Count), Field("Gain", &Switched::Gain).EnabledBy("Count"));
+	};
+
+	struct OwnSwitch
+	{
+		static constexpr std::string_view Name = "OwnSwitch";
+		static constexpr auto Fields = std::make_tuple(Field("UseGain", &Switched::UseGain).EnabledBy("UseGain"));
+	};
+
+	struct SwitchedSwitch
+	{
+		static constexpr std::string_view Name = "SwitchedSwitch";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Plain", &Switched::Plain), Field("UseGain", &Switched::UseGain).EnabledBy("Plain"),
+		                    Field("Gain", &Switched::Gain).EnabledBy("UseGain"));
+	};
+}
+
+template<>
+struct Strada::StructTraits<Switched>
+{
+	static constexpr std::string_view Name = "Switched";
+	static constexpr auto Fields = std::make_tuple(Field("UseGain", &Switched::UseGain).Doc("Applies Gain."),
+	                                               Field("Gain", &Switched::Gain).Range(0.0, 2.0).EnabledBy("UseGain"),
+	                                               Field("Plain", &Switched::Plain), Field("Count", &Switched::Count).Range(-3.0, 3.0));
+};
+
+TEST_CASE("StructSerialization: a switch is another bool field of the same table that is not switched itself")
+{
+	static_assert(Detail::IsFieldTableValid<StructTraits<Switched>, Switched>());
+	static_assert(!Detail::AreHintsValid<BloomSettings>(Field("Bloom", &RenderSettings::Bloom).EnabledBy("Enabled").Hints));
+	static_assert(!Detail::IsFieldTableValid<MissingSwitch, Switched>());
+	static_assert(!Detail::IsFieldTableValid<NumberSwitch, Switched>());
+	static_assert(!Detail::IsFieldTableValid<OwnSwitch, Switched>());
+	static_assert(!Detail::IsFieldTableValid<SwitchedSwitch, Switched>());
+
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Switched>, Switched>();
+	CHECK(fields[1].Hints.EnabledBy == "UseGain");
+	CHECK(fields[0].Hints.EnabledBy.empty());
+	Json const schema = DescribeFields<StructTraits<Switched>, Switched>();
+	CHECK(schema["Fields"][1]["EnabledBy"] == "UseGain");
+	CHECK_FALSE(schema["Fields"][0].contains("EnabledBy"));
+
+	// Switched fields are stored and read like any other: the switch only tells where they apply.
+	Switched switched;
+	REQUIRE(
+		DeserializeFields<StructTraits<Switched>>(Json::object({{"Gain", 1.5}}), switched, DeserializationContext{}, "settings").IsOk());
+	CHECK(switched.Gain == 1.5f);
+	CHECK_FALSE(switched.UseGain);
+}
+
+TEST_CASE("StructSerialization: values outside their fields' ranges are clamped to the nearest bound")
+{
+	Tuning tuning;
+	tuning.Gain = -2.0f;
+	tuning.Tint = {-1.0f, 0.5f, 3.0f};
+	tuning.Weights = {-0.5f, 0.25f, 7.0f};
+	tuning.Count = 20;
+	ClampToFieldRanges<StructTraits<Tuning>>(tuning);
+	CHECK(tuning.Gain == 0.0f);
+	CHECK(tuning.Tint == glm::vec3(0.0f, 0.5f, 1.0f));
+	CHECK(tuning.Weights == std::vector<float>{0.0f, 0.25f, 1.0f});
+	CHECK(tuning.Count == 8u);
+	tuning.Count = 0;
+	ClampToFieldRanges<StructTraits<Tuning>>(tuning);
+	CHECK(tuning.Count == 1u);
+
+	// Values in range and bounds a field does not have leave it alone.
+	tuning.Gain = 1.0e30f;
+	tuning.Tint = {0.25f, 0.5f, 0.75f};
+	ClampToFieldRanges<StructTraits<Tuning>>(tuning);
+	CHECK(tuning.Gain == 1.0e30f);
+	CHECK(tuning.Tint == glm::vec3(0.25f, 0.5f, 0.75f));
+
+	Switched switched;
+	switched.Count = -100;
+	switched.Gain = 5.0f;
+	ClampToFieldRanges<StructTraits<Switched>>(switched);
+	CHECK(switched.Count == -3);
+	CHECK(switched.Gain == 2.0f);
+}
+
 TEST_CASE("StructSerialization: renderer settings and material defaults satisfy their own ranges")
 {
 	auto const checkDefaults = []<typename T>(std::type_identity<T>)

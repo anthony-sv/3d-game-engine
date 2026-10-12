@@ -135,6 +135,47 @@ public sealed class ComponentWriter : Script
 		Check(() => sprite.Tiling, value => sprite.Tiling = value, 4.0f, "SpriteRenderer.Tiling");
 		Check(() => sprite.ScreenSpace, value => sprite.ScreenSpace = value, true, "SpriteRenderer.ScreenSpace");
 
+		PostProcessComponent volume = AddComponent<PostProcessComponent>();
+		Check(() => volume.Global, value => volume.Global = value, false, "PostProcess.Global");
+		Check(() => volume.BlendDistance, value => volume.BlendDistance = value, 4.0f, "PostProcess.BlendDistance");
+		Check(() => volume.Priority, value => volume.Priority = value, -2.0f, "PostProcess.Priority");
+		Check(() => volume.Weight, value => volume.Weight = value, 0.25f, "PostProcess.Weight");
+		Check(() => volume.OverrideEV100, value => volume.OverrideEV100 = value, true, "PostProcess.OverrideEV100");
+		Check(() => volume.EV100, value => volume.EV100 = value, 1.5f, "PostProcess.EV100");
+		Check(() => volume.OverrideTonemapper, value => volume.OverrideTonemapper = value, true, "PostProcess.OverrideTonemapper");
+		Check(() => volume.Tonemapper, value => volume.Tonemapper = value, TonemapOperator.PBRNeutral, "PostProcess.Tonemapper");
+		Check(() => volume.OverrideAmbientOcclusion, value => volume.OverrideAmbientOcclusion = value, true,
+			"PostProcess.OverrideAmbientOcclusion");
+		Check(() => volume.AmbientOcclusion, value => volume.AmbientOcclusion = value, false, "PostProcess.AmbientOcclusion");
+		Check(() => volume.OverrideAmbientOcclusionIntensity, value => volume.OverrideAmbientOcclusionIntensity = value, true,
+			"PostProcess.OverrideAmbientOcclusionIntensity");
+		Check(() => volume.AmbientOcclusionIntensity, value => volume.AmbientOcclusionIntensity = value, 3.0f,
+			"PostProcess.AmbientOcclusionIntensity");
+		Check(() => volume.OverrideBloom, value => volume.OverrideBloom = value, true, "PostProcess.OverrideBloom");
+		Check(() => volume.Bloom, value => volume.Bloom = value, false, "PostProcess.Bloom");
+		Check(() => volume.OverrideBloomIntensity, value => volume.OverrideBloomIntensity = value, true, "PostProcess.OverrideBloomIntensity");
+		Check(() => volume.BloomIntensity, value => volume.BloomIntensity = value, 0.5f, "PostProcess.BloomIntensity");
+		Check(() => volume.OverrideContrast, value => volume.OverrideContrast = value, true, "PostProcess.OverrideContrast");
+		Check(() => volume.Contrast, value => volume.Contrast = value, 1.25f, "PostProcess.Contrast");
+		Check(() => volume.OverrideSaturation, value => volume.OverrideSaturation = value, true, "PostProcess.OverrideSaturation");
+		Check(() => volume.Saturation, value => volume.Saturation = value, 0.5f, "PostProcess.Saturation");
+		Check(() => volume.OverrideTemperature, value => volume.OverrideTemperature = value, true, "PostProcess.OverrideTemperature");
+		Check(() => volume.Temperature, value => volume.Temperature = value, 0.75f, "PostProcess.Temperature");
+		Check(() => volume.OverrideTint, value => volume.OverrideTint = value, true, "PostProcess.OverrideTint");
+		Check(() => volume.Tint, value => volume.Tint = value, -0.5f, "PostProcess.Tint");
+		Check(() => volume.OverrideColorFilter, value => volume.OverrideColorFilter = value, true, "PostProcess.OverrideColorFilter");
+		Check(() => volume.ColorFilter, value => volume.ColorFilter = value, new Color(0.5f, 1.0f, 1.5f), "PostProcess.ColorFilter");
+		Check(() => volume.OverrideChromaticAberration, value => volume.OverrideChromaticAberration = value, true,
+			"PostProcess.OverrideChromaticAberration");
+		Check(() => volume.ChromaticAberration, value => volume.ChromaticAberration = value, 0.25f, "PostProcess.ChromaticAberration");
+		Check(() => volume.OverrideVignette, value => volume.OverrideVignette = value, true, "PostProcess.OverrideVignette");
+		Check(() => volume.Vignette, value => volume.Vignette = value, 0.75f, "PostProcess.Vignette");
+		Check(() => volume.OverrideVignetteSmoothness, value => volume.OverrideVignetteSmoothness = value, true,
+			"PostProcess.OverrideVignetteSmoothness");
+		Check(() => volume.VignetteSmoothness, value => volume.VignetteSmoothness = value, 0.125f, "PostProcess.VignetteSmoothness");
+		Check(() => volume.OverrideFilmGrain, value => volume.OverrideFilmGrain = value, true, "PostProcess.OverrideFilmGrain");
+		Check(() => volume.FilmGrain, value => volume.FilmGrain = value, 0.375f, "PostProcess.FilmGrain");
+
 		ScriptComponent script = GetComponent<ScriptComponent>()!;
 		Expect(script.ClassName, "Strada.Tests.ComponentWriter", "Script.ClassName");
 		Expect(ReferenceEquals(script.Instance, this), true, "Script.Instance");

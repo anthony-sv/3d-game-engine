@@ -288,12 +288,18 @@ namespace Strada
 												  return getClassName(value) != className;
 											  });
 
+		// The fields of the class, when every selected entity runs the same class and the game's assembly has it.
+		ScriptClassInfo const* const scriptClass = mixedClasses || className.empty() ? nullptr : ScriptEngine::FindClass(className);
+		std::vector<FieldDescriptor> const fields =
+			scriptClass != nullptr ? ScriptFieldInspection::DescribeFields(*scriptClass) : std::vector<FieldDescriptor>();
+
 		// The class picker, laid out like the field rows below.
 		std::optional<std::string> pickedClass;
+		float const nameShare = FieldEditor::GetNameColumnShare(fields, ImGui::GetContentRegionAvail().x);
 		if (ImGui::BeginTable("##scriptClass", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings))
 		{
-			ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.4f);
-			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+			ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, nameShare);
+			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f - nameShare);
 			ImGui::TableNextRow();
 			ImGui::TableNextColumn();
 			ImGui::AlignTextToFramePadding();
@@ -313,11 +319,11 @@ namespace Strada
 				}
 				if (ScriptEngine::IsInitialized())
 				{
-					for (ScriptClassInfo const& scriptClass : ScriptEngine::GetClasses())
+					for (ScriptClassInfo const& candidate : ScriptEngine::GetClasses())
 					{
-						if (ImGui::Selectable(scriptClass.Name.c_str(), !mixedClasses && scriptClass.Name == className))
+						if (ImGui::Selectable(candidate.Name.c_str(), !mixedClasses && candidate.Name == className))
 						{
-							pickedClass = scriptClass.Name;
+							pickedClass = candidate.Name;
 						}
 					}
 				}
@@ -340,7 +346,6 @@ namespace Strada
 		{
 			return;
 		}
-		ScriptClassInfo const* const scriptClass = ScriptEngine::FindClass(className);
 		if (scriptClass == nullptr)
 		{
 			if (!ScriptEngine::IsInitialized())
@@ -358,7 +363,6 @@ namespace Strada
 			return;
 		}
 
-		std::vector<FieldDescriptor> const fields = ScriptFieldInspection::DescribeFields(*scriptClass);
 		if (fields.empty())
 		{
 			ImGui::TextDisabled("The script has no fields to edit.");

@@ -29,7 +29,20 @@
 				"AmbientOcclusionIntensity": 1.5,
 				"Bloom": true,
 				"BloomIntensity": 0.03999999910593033,
-				"FXAA": true
+				"FXAA": true,
+				"Contrast": 1.0,
+				"Saturation": 1.0,
+				"Temperature": 0.0,
+				"Tint": 0.0,
+				"ColorFilter": [
+					1.0,
+					1.0,
+					1.0
+				],
+				"ChromaticAberration": 0.0,
+				"Vignette": 0.0,
+				"VignetteSmoothness": 0.44999998807907104,
+				"FilmGrain": 0.0
 			}
 		}
 	},
@@ -1001,10 +1014,10 @@
 						2.0
 					],
 					"Rotation": [
-						-0.7071068,
+						-0.7071068286895752,
 						0.0,
 						0.0,
-						0.7071068
+						0.7071068286895752
 					],
 					"Scale": [
 						1.0,
@@ -1021,32 +1034,32 @@
 					"Rate": 30.0,
 					"Burst": 12,
 					"MaxParticles": 100,
-					"LifetimeMin": 0.6,
-					"LifetimeMax": 1.2,
+					"LifetimeMin": 0.6000000238418579,
+					"LifetimeMax": 1.2000000476837158,
 					"SpeedMin": 1.5,
 					"SpeedMax": 3.0,
 					"Shape": "Cone",
 					"ConeAngle": 20.0,
-					"Radius": 0.1,
+					"Radius": 0.10000000149011612,
 					"BoxHalfExtents": [
 						0.5,
 						0.5,
 						0.5
 					],
-					"GravityFactor": 0.3,
+					"GravityFactor": 0.30000001192092896,
 					"Drag": 0.5,
-					"StartSize": 0.15,
-					"EndSize": 0.02,
+					"StartSize": 0.15000000596046448,
+					"EndSize": 0.019999999552965164,
 					"StartColor": [
 						1.0,
-						0.7,
-						0.3,
+						0.699999988079071,
+						0.30000001192092896,
 						1.0
 					],
 					"EndColor": [
 						1.0,
-						0.15,
-						0.02,
+						0.15000000596046448,
+						0.019999999552965164,
 						0.0
 					],
 					"Intensity": 4.0,
@@ -1237,6 +1250,76 @@
 				"Prefab": {
 					"Prefab": "17000004240335447843",
 					"SourceEntity": "3961841714759986885"
+				}
+			}
+		},
+		{
+			"ID": "14461953605273033233",
+			"Components": {
+				"Tag": {
+					"Tag": "Post Process Volume"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						6.0,
+						3.0,
+						6.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"PostProcess": {
+					"Global": false,
+					"BlendDistance": 2.0,
+					"Priority": 1.0,
+					"Weight": 0.800000011920929,
+					"OverrideEV100": false,
+					"EV100": 0.0,
+					"OverrideTonemapper": true,
+					"Tonemapper": "AgX",
+					"OverrideAmbientOcclusion": false,
+					"AmbientOcclusion": true,
+					"OverrideAmbientOcclusionIntensity": false,
+					"AmbientOcclusionIntensity": 1.5,
+					"OverrideBloom": false,
+					"Bloom": true,
+					"OverrideBloomIntensity": false,
+					"BloomIntensity": 0.03999999910593033,
+					"OverrideContrast": false,
+					"Contrast": 1.0,
+					"OverrideSaturation": false,
+					"Saturation": 1.0,
+					"OverrideTemperature": false,
+					"Temperature": 0.0,
+					"OverrideTint": false,
+					"Tint": 0.0,
+					"OverrideColorFilter": false,
+					"ColorFilter": [
+						1.0,
+						1.0,
+						1.0
+					],
+					"OverrideChromaticAberration": false,
+					"ChromaticAberration": 0.0,
+					"OverrideVignette": true,
+					"Vignette": 0.3499999940395355,
+					"OverrideVignetteSmoothness": false,
+					"VignetteSmoothness": 0.44999998807907104,
+					"OverrideFilmGrain": false,
+					"FilmGrain": 0.0
 				}
 			}
 		},
