@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -137,6 +138,7 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 {
 	EditorContext context;
 	EditorOperations operations(context);
+	// Labels are unique across the menus ("3D Text" in 3D Object, "Text" in UI).
 	std::set<std::string_view> labels;
 	glm::vec3 const spawn(1.0f, 2.0f, 3.0f);
 	for (EntityPreset const& preset : EntityPresets::GetAll())
@@ -147,7 +149,15 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 		REQUIRE(created.IsOk());
 		Entity const entity = context.GetScene().GetEntityByUUID(created.GetValue());
 		CHECK(entity.GetName() == preset.EntityName);
-		CHECK(entity.GetComponent<TransformComponent>().Translation == spawn);
+		if (preset.NeedsCanvas)
+		{
+			// UI elements go into the scene's canvas (the Canvas preset comes first).
+			CHECK(context.GetScene().GetParent(entity).HasComponent<UICanvasComponent>());
+		}
+		else
+		{
+			CHECK(entity.GetComponent<TransformComponent>().Translation == spawn);
+		}
 	}
 	// Categories are contiguous, so menus group them.
 	std::span<EntityPreset const> const presets = EntityPresets::GetAll();
@@ -203,12 +213,12 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 	CHECK(volumeEntity.GetComponent<TransformComponent>().Scale == glm::vec3(10.0f));
 }
 
-TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Rendering, Effects, Physics and Audio")
+TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Rendering, Effects, Physics, Audio and UI")
 {
 	using Labels = std::vector<std::string_view>;
 	std::span<std::string_view const> const categories = EntityPresets::GetCategories();
 	CHECK(std::vector<std::string_view>(categories.begin(), categories.end()) ==
-	      Labels{"Core", "3D Object", "2D Object", "Rendering", "Effects", "Physics", "Audio"});
+	      Labels{"Core", "3D Object", "2D Object", "Rendering", "Effects", "Physics", "Audio", "UI"});
 
 	std::vector<EntityPresetMenuSection> const menu = EntityPresets::GetMenu();
 	REQUIRE(menu.size() == categories.size());
@@ -231,6 +241,7 @@ TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Ren
 	CHECK(labels(menu[4]) == Labels{"Particle System", "Fire", "Smoke", "Sparks", "Post Process Volume"});
 	CHECK(labels(menu[5]) == Labels{"Character"});
 	CHECK(labels(menu[6]) == Labels{"Audio Source", "Audio Listener"});
+	CHECK(labels(menu[7]) == Labels{"Canvas", "Panel", "Image", "Text", "Button"});
 	// Every preset is in the menus once, in the section of its category.
 	size_t count = 0;
 	for (size_t i = 0; i < menu.size(); i++)

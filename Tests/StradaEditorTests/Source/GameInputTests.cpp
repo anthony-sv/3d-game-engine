@@ -10,6 +10,8 @@
 #include "Strada/Core/Events/MouseEvent.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/Timestep.h"
+#include "Strada/Scene/Entity.h"
 
 #include <doctest/doctest.h>
 #include <imgui.h>
@@ -1198,4 +1200,86 @@ TEST_CASE("GameInput: a cursor the game locks takes the editor's windows from Im
 	CHECK_FALSE(fixture.Router.HasInput());
 	CHECK_FALSE(cursorChangesOff());
 	CHECK(fixture.Router.GetWindowCursorMode(mainWindow) == CursorMode::Normal);
+}
+
+TEST_CASE("GameInput: the game's UI follows the cursor only while the game has the input, which cancels a press it takes back")
+{
+	GameViewFixture fixture;
+	// A button over the whole game, whatever size the view renders at.
+	Scene& scene = fixture.Context.GetScene();
+	Entity canvas = scene.CreateEntity("Canvas");
+	canvas.AddComponent<UICanvasComponent>();
+	Entity button = scene.CreateEntity("Button", canvas);
+	UIRectComponent& rect = button.AddComponent<UIRectComponent>();
+	rect.AnchorMin = glm::vec2(0.0f);
+	rect.AnchorMax = glm::vec2(1.0f);
+	rect.Size = glm::vec2(0.0f);
+	button.AddComponent<UIImageComponent>();
+	button.AddComponent<UIButtonComponent>();
+
+	// An editor frame as EditorLayer::OnUpdate runs it: the router releases what the game gave back, the game's UI gets the
+	// pointer while the game has the input, the game updates, then the editor draws.
+	int clicks = 0;
+	auto const frame = [&]
+	{
+		fixture.Router.BeginFrame();
+		fixture.Play.SetUIPointerEnabled(fixture.Router.HasInput());
+		fixture.Play.Update(Timestep(1.0f / 60.0f));
+		clicks += scene.WasUIButtonClicked(button) ? 1 : 0;
+		fixture.Interface.Frame(
+			[&fixture]
+			{
+				fixture.Draw();
+			});
+		Input::EndFrame();
+	};
+	glm::vec2 const point = GameViewFixture::ViewPoint;
+
+	// Without the input, the cursor does not reach the game.
+	fixture.Send(MouseMovedEvent(point.x, point.y), At(point));
+	frame();
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Normal);
+	CHECK_FALSE(scene.IsPointerOverUI());
+	// The click that gives the game the input clicks its button too.
+	fixture.Send(MouseButtonPressedEvent(MouseButton::Left), At(point));
+	frame();
+	REQUIRE(fixture.Router.HasInput());
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Pressed);
+	fixture.Send(MouseButtonReleasedEvent(MouseButton::Left), At(point));
+	frame();
+	CHECK(clicks == 1);
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Hovered);
+	CHECK(scene.IsPointerOverUI());
+
+	// Taking the input back while the button is held, the cursor still over it (Shift+Esc), cancels the press.
+	fixture.Send(MouseButtonPressedEvent(MouseButton::Left), At(point));
+	frame();
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Pressed);
+	ImGuiLayer::InputContext shift;
+	shift.Shift = true;
+	CHECK_FALSE(fixture.SendKey(KeyCode::Escape, true, shift));
+	frame();
+	CHECK_FALSE(fixture.Router.HasInput());
+	CHECK(fixture.SendKey(KeyCode::Escape, false, shift));
+	fixture.Send(MouseButtonReleasedEvent(MouseButton::Left), At(point));
+	frame();
+	CHECK(clicks == 1);
+
+	// While the editor has the input, the button under the game's cursor is neither hovered nor clicked, not even by input
+	// set directly (as automation does).
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Normal);
+	CHECK_FALSE(scene.IsPointerOverUI());
+	Input::SetMouseButtonState(MouseButton::Left, true);
+	frame();
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Normal);
+	Input::SetMouseButtonState(MouseButton::Left, false);
+	frame();
+	CHECK(clicks == 1);
+
+	// A click on the view gives the input and the button back.
+	fixture.Send(MouseButtonPressedEvent(MouseButton::Left), At(point));
+	frame();
+	fixture.Send(MouseButtonReleasedEvent(MouseButton::Left), At(point));
+	frame();
+	CHECK(clicks == 2);
 }

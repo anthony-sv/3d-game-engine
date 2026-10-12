@@ -3,6 +3,7 @@
 #include "Editor/AssetDrops.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/UI/EditorUI.h"
+#include "Editor/Viewport/CanvasOverlay.h"
 #include "Editor/Viewport/TransformEditing.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
@@ -349,6 +350,12 @@ namespace Strada
 			};
 		}
 		options.DrawDebugLines = m_Overlays.DebugLines;
+		// The screen-space UI would cover the scene: each canvas shows in its entity's plane instead.
+		options.DrawUI = m_Overlays.Canvases;
+		options.PlaceCanvas = [&scene, &selection](UUID canvas)
+		{
+			return CanvasOverlay::PlaceCanvas(scene, canvas, selection.GetEntities());
+		};
 		options.SubmitOverlays = [&](SceneRenderer& renderer)
 		{
 			SceneRendererOverlays overlays;
@@ -362,6 +369,10 @@ namespace Strada
 			std::vector<OverlayLine> lines;
 			ViewportOverlays::AppendSceneShapes(scene, selection.GetEntities(), m_Overlays, aspectRatio, m_Camera.GetPosition(), lines,
 			                                    &m_MeshColliderOutlines);
+			if (m_Overlays.Canvases)
+			{
+				CanvasOverlay::AppendCanvasOutlines(scene, selection.GetEntities(), lines);
+			}
 			for (OverlayLine const& line : lines)
 			{
 				renderer.SubmitLine(line.From, line.To, line.Color, line.DepthTest);
@@ -423,7 +434,9 @@ namespace Strada
 		EditorContext& context = operations.GetContext();
 		Scene& scene = context.GetScene();
 		Entity const primary = scene.GetEntityByUUID(context.GetSelection().GetPrimary());
-		if (!primary)
+		// A UI element's UIRect places it on the screen, and its canvas's outline shows where: moving its Transform would
+		// change nothing.
+		if (!primary || CanvasOverlay::IsUIElement(scene, primary.GetUUID()))
 		{
 			EndGizmoDrag(context);
 			return;
@@ -733,6 +746,8 @@ namespace Strada
 			ImGui::Separator();
 			ImGui::Checkbox("Debug drawing (scripts)", &m_Overlays.DebugLines);
 			ImGui::SetItemTooltip("Lines scripts draw with Debug.DrawLine and its relatives");
+			ImGui::Checkbox("UI canvases", &m_Overlays.Canvases);
+			ImGui::SetItemTooltip("Each canvas's UI in its entity's plane, faint until the canvas or one of its elements is selected");
 			ImGui::EndPopup();
 		}
 		ImGui::Dummy(ImVec2(0.0f, 2.0f));

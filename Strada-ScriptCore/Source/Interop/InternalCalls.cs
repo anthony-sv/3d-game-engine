@@ -409,6 +409,67 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, int*, byte*> ScriptComponent_GetClassName;
 	internal static delegate* unmanaged<ulong, byte*, int, void> ScriptComponent_SetClassName;
 
+	internal static delegate* unmanaged<ulong, int*, void> UICanvasComponent_GetScaleMode;
+	internal static delegate* unmanaged<ulong, int*, void> UICanvasComponent_SetScaleMode;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UICanvasComponent_GetReferenceResolution;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UICanvasComponent_SetReferenceResolution;
+
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_GetAnchorMin;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_SetAnchorMin;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_GetAnchorMax;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_SetAnchorMax;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_GetPosition;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_SetPosition;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_GetSize;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_SetSize;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_GetPivot;
+	internal static delegate* unmanaged<ulong, Vector2*, void> UIRectComponent_SetPivot;
+	internal static delegate* unmanaged<ulong, byte*, void> UIRectComponent_GetVisible;
+	internal static delegate* unmanaged<ulong, byte*, void> UIRectComponent_SetVisible;
+	internal static delegate* unmanaged<ulong, float*, void> UIRectComponent_GetOpacity;
+	internal static delegate* unmanaged<ulong, float*, void> UIRectComponent_SetOpacity;
+
+	internal static delegate* unmanaged<ulong, Color*, void> UIImageComponent_GetColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UIImageComponent_SetColor;
+	internal static delegate* unmanaged<ulong, ulong*, void> UIImageComponent_GetTexture;
+	internal static delegate* unmanaged<ulong, ulong*, void> UIImageComponent_SetTexture;
+	internal static delegate* unmanaged<ulong, byte*, void> UIImageComponent_GetPreserveAspect;
+	internal static delegate* unmanaged<ulong, byte*, void> UIImageComponent_SetPreserveAspect;
+	internal static delegate* unmanaged<ulong, float*, void> UIImageComponent_GetCornerRadius;
+	internal static delegate* unmanaged<ulong, float*, void> UIImageComponent_SetCornerRadius;
+
+	internal static delegate* unmanaged<ulong, int*, byte*> UITextComponent_GetText;
+	internal static delegate* unmanaged<ulong, byte*, int, void> UITextComponent_SetText;
+	internal static delegate* unmanaged<ulong, ulong*, void> UITextComponent_GetFont;
+	internal static delegate* unmanaged<ulong, ulong*, void> UITextComponent_SetFont;
+	internal static delegate* unmanaged<ulong, Color*, void> UITextComponent_GetColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UITextComponent_SetColor;
+	internal static delegate* unmanaged<ulong, float*, void> UITextComponent_GetFontSize;
+	internal static delegate* unmanaged<ulong, float*, void> UITextComponent_SetFontSize;
+	internal static delegate* unmanaged<ulong, int*, void> UITextComponent_GetAlignment;
+	internal static delegate* unmanaged<ulong, int*, void> UITextComponent_SetAlignment;
+	internal static delegate* unmanaged<ulong, int*, void> UITextComponent_GetVerticalAlignment;
+	internal static delegate* unmanaged<ulong, int*, void> UITextComponent_SetVerticalAlignment;
+	internal static delegate* unmanaged<ulong, byte*, void> UITextComponent_GetWrap;
+	internal static delegate* unmanaged<ulong, byte*, void> UITextComponent_SetWrap;
+	internal static delegate* unmanaged<ulong, float*, void> UITextComponent_GetLineSpacing;
+	internal static delegate* unmanaged<ulong, float*, void> UITextComponent_SetLineSpacing;
+
+	internal static delegate* unmanaged<ulong, byte*, void> UIButtonComponent_GetInteractable;
+	internal static delegate* unmanaged<ulong, byte*, void> UIButtonComponent_SetInteractable;
+	internal static delegate* unmanaged<ulong, Color*, void> UIButtonComponent_GetNormalColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UIButtonComponent_SetNormalColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UIButtonComponent_GetHoveredColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UIButtonComponent_SetHoveredColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UIButtonComponent_GetPressedColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UIButtonComponent_SetPressedColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UIButtonComponent_GetDisabledColor;
+	internal static delegate* unmanaged<ulong, Color*, void> UIButtonComponent_SetDisabledColor;
+	internal static delegate* unmanaged<ulong, byte> UIButtonComponent_WasClicked;
+	internal static delegate* unmanaged<ulong, int> UIButtonComponent_GetState;
+	internal static delegate* unmanaged<ulong, void> UIButtonComponent_Click;
+	internal static delegate* unmanaged<byte> Input_IsPointerOverUI;
+
 	internal static delegate* unmanaged<double> Time_GetElapsed;
 	internal static delegate* unmanaged<float> Time_GetFixedDeltaTime;
 	internal static delegate* unmanaged<ulong> Time_GetFrameCount;

@@ -628,23 +628,29 @@ TEST_CASE("EditorCommands: the viewport's overlays are read and set")
 	                                {"colliders", "selected"},
 	                                {"joints", "selected"},
 	                                {"volumes", "selected"},
-	                                {"debugDrawing", true}}));
+	                                {"debugDrawing", true},
+	                                {"canvases", true}}));
 	CHECK(fixture.Overlays == SceneViewOverlays());
 
 	// Only the given overlays change.
-	Json const changed = fixture.Ok(
-		"viewport.overlays",
-		Json::object(
-			{{"grid", false}, {"icons", false}, {"lights", "all"}, {"colliders", "off"}, {"volumes", "all"}, {"debugDrawing", false}}));
+	Json const changed = fixture.Ok("viewport.overlays", Json::object({{"grid", false},
+	                                                                   {"icons", false},
+	                                                                   {"lights", "all"},
+	                                                                   {"colliders", "off"},
+	                                                                   {"volumes", "all"},
+	                                                                   {"debugDrawing", false},
+	                                                                   {"canvases", false}}));
 	CHECK(changed["grid"] == false);
 	CHECK(changed["selectionOutline"] == true);
 	CHECK(changed["lights"] == "all");
 	CHECK(changed["colliders"] == "off");
 	CHECK(changed["volumes"] == "all");
 	CHECK(changed["cameras"] == "selected");
+	CHECK(changed["canvases"] == false);
 	CHECK_FALSE(fixture.Overlays.Grid);
 	CHECK_FALSE(fixture.Overlays.Icons);
 	CHECK_FALSE(fixture.Overlays.DebugLines);
+	CHECK_FALSE(fixture.Overlays.Canvases);
 	CHECK(fixture.Overlays.Lights == OverlayShapeSetting{true, true});
 	CHECK_FALSE(fixture.Overlays.Colliders.Enabled);
 	CHECK(fixture.Overlays.Volumes == OverlayShapeSetting{true, true});
@@ -659,6 +665,7 @@ TEST_CASE("EditorCommands: the viewport's overlays are read and set")
 	SceneViewOverlays const before = fixture.Overlays;
 	CHECK(fixture.Fails("viewport.overlays", Json::object({{"joints", "some"}})) == AutomationErrorCode::InvalidParams);
 	CHECK(fixture.Fails("viewport.overlays", Json::object({{"grid", "yes"}, {"icons", true}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("viewport.overlays", Json::object({{"canvases", 1}})) == AutomationErrorCode::InvalidParams);
 	CHECK(fixture.Overlays == before);
 	// The scene and its history are untouched.
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == 0);

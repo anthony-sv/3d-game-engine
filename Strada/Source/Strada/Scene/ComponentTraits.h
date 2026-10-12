@@ -42,6 +42,26 @@ namespace Strada
 	};
 
 	template<>
+	struct EnumTraits<TextVerticalAlignment>
+	{
+		static constexpr std::array<std::pair<TextVerticalAlignment, std::string_view>, 3> Values = {{
+			{TextVerticalAlignment::Top, "Top"},
+			{TextVerticalAlignment::Middle, "Middle"},
+			{TextVerticalAlignment::Bottom, "Bottom"},
+		}};
+	};
+
+	template<>
+	struct EnumTraits<UIScaleMode>
+	{
+		static constexpr std::array<std::pair<UIScaleMode, std::string_view>, 3> Values = {{
+			{UIScaleMode::ConstantPixelSize, "ConstantPixelSize"},
+			{UIScaleMode::ScaleWithScreenHeight, "ScaleWithScreenHeight"},
+			{UIScaleMode::ScaleWithScreenSize, "ScaleWithScreenSize"},
+		}};
+	};
+
+	template<>
 	struct EnumTraits<ParticleEmitterShape>
 	{
 		static constexpr std::array<std::pair<ParticleEmitterShape, std::string_view>, 4> Values = {{
@@ -654,6 +674,111 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<UICanvasComponent>
+	{
+		static constexpr std::string_view Name = "UICanvas";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description =
+			"The root of a screen-space UI (HUDs, menus): its descendants are laid out on the screen by their UIRect and drawn over "
+			"the scene in hierarchy order.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("ScaleMode", &UICanvasComponent::ScaleMode)
+				.Doc("ScaleWithScreenSize fits the whole reference resolution on any screen; ScaleWithScreenHeight fits its height "
+		             "(narrower screens cut off the sides); ConstantPixelSize keeps the UI's size in pixels."),
+			Field("ReferenceResolution", &UICanvasComponent::ReferenceResolution)
+				.Range(1.0, 100000.0)
+				.Doc("The screen size the UI is designed for, in canvas units, which the scale mode fits to the screen."));
+	};
+
+	template<>
+	struct ComponentTraits<UIRectComponent>
+	{
+		static constexpr std::string_view Name = "UIRect";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description =
+			"Places a UI element in its parent's rectangle (the screen for a canvas's children) with anchors, a position, a size and "
+			"a pivot.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("AnchorMin", &UIRectComponent::AnchorMin)
+				.Range(0.0, 1.0)
+				.Doc("Where the rectangle's span starts in the parent's: 0 is its left or top edge, 1 its right or bottom edge."),
+			Field("AnchorMax", &UIRectComponent::AnchorMax)
+				.Range(0.0, 1.0)
+				.Doc("Where the span ends; equal anchors attach the rectangle to a point, others stretch it with the parent."),
+			Field("Position", &UIRectComponent::Position)
+				.Range(-1.0e6, 1.0e6)
+				.Doc("Moves the pivot from its point of the anchors' span, in canvas units (y downwards)."),
+			Field("Size", &UIRectComponent::Size)
+				.Range(-1.0e6, 1.0e6)
+				.Doc("Canvas units added to the anchors' span: the size itself when the anchors are equal."),
+			Field("Pivot", &UIRectComponent::Pivot)
+				.Range(0.0, 1.0)
+				.Doc("The point of the rectangle Position places, from its top-left corner (0, 0) to its bottom-right corner (1, 1)."),
+			Field("Visible", &UIRectComponent::Visible).Doc("Hidden rectangles and their descendants are neither drawn nor clicked."),
+			Field("Opacity", &UIRectComponent::Opacity).Range(0.0, 1.0).Doc("Multiplies the alpha of the element and its descendants."));
+	};
+
+	template<>
+	struct ComponentTraits<UIImageComponent>
+	{
+		static constexpr std::string_view Name = "UIImage";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description =
+			"Fills a UI element's rectangle with a color or a texture, with optionally rounded corners (panels, icons, buttons).";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Color", &UIImageComponent::Color)
+				.Range(0.0, 1.0)
+				.AsColor()
+				.Doc("Multiplied with the texture; a UIButton on the entity replaces it with the color of its state."),
+			Field("Texture", &UIImageComponent::Texture).References("Texture").Doc("None fills the rectangle with the color."),
+			Field("PreserveAspect", &UIImageComponent::PreserveAspect)
+				.Doc("Draws the texture at its own aspect ratio, as large as fits and centered in the rectangle."),
+			Field("CornerRadius", &UIImageComponent::CornerRadius)
+				.Range(0.0, 1.0e6)
+				.Doc("Radius of the rounded corners in canvas units (at most half the rectangle's shorter side)."));
+	};
+
+	template<>
+	struct ComponentTraits<UITextComponent>
+	{
+		static constexpr std::string_view Name = "UIText";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description = "Draws text in a UI element's rectangle, wrapped at its width and aligned in it.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Text", &UITextComponent::Text).AsMultilineText(),
+			Field("Font", &UITextComponent::Font).References("Font").Doc("None uses the default font."),
+			Field("Color", &UITextComponent::Color).Range(0.0, 1.0).AsColor(),
+			Field("FontSize", &UITextComponent::FontSize).Range(1.0, 4096.0).Doc("Line height in canvas units."),
+			Field("Alignment", &UITextComponent::Alignment).Doc("Places the lines at the left, center or right of the rectangle."),
+			Field("VerticalAlignment", &UITextComponent::VerticalAlignment)
+				.Doc("Places the text block at the top, middle or bottom of the rectangle."),
+			Field("Wrap", &UITextComponent::Wrap).Doc("Breaks lines that do not fit the rectangle's width at spaces."),
+			Field("LineSpacing", &UITextComponent::LineSpacing).Range(0.0, 100.0).Doc("Multiplier of the font's line height."));
+	};
+
+	template<>
+	struct ComponentTraits<UIButtonComponent>
+	{
+		static constexpr std::string_view Name = "UIButton";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Description =
+			"Makes a UI element clickable: scripts read WasClicked and get OnClick; its colors replace the UIImage's color in each "
+			"state.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Interactable", &UIButtonComponent::Interactable).Doc("Disabled buttons take no clicks and show DisabledColor."),
+			Field("NormalColor", &UIButtonComponent::NormalColor).Range(0.0, 1.0).AsColor().Doc("The image's color at rest."),
+			Field("HoveredColor", &UIButtonComponent::HoveredColor).Range(0.0, 1.0).AsColor().Doc("The image's color under the mouse."),
+			Field("PressedColor", &UIButtonComponent::PressedColor)
+				.Range(0.0, 1.0)
+				.AsColor()
+				.Doc("The image's color while the mouse button is held on it."),
+			Field("DisabledColor", &UIButtonComponent::DisabledColor)
+				.Range(0.0, 1.0)
+				.AsColor()
+				.Doc("The image's color while the button is not interactable."));
+	};
+
+	template<>
 	struct ComponentTraits<PrefabComponent>
 	{
 		static constexpr std::string_view Name = "Prefab";
@@ -681,5 +806,6 @@ namespace Strada
 	                  DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, RigidBodyComponent,
 	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, JointComponent,
 	                  CharacterControllerComponent, AudioSourceComponent, AudioListenerComponent, ScriptComponent, TextComponent,
-	                  SpriteRendererComponent, ParticleSystemComponent, PostProcessComponent, PrefabComponent>;
+	                  SpriteRendererComponent, ParticleSystemComponent, PostProcessComponent, UICanvasComponent, UIRectComponent,
+	                  UIImageComponent, UITextComponent, UIButtonComponent, PrefabComponent>;
 }

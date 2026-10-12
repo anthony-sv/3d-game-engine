@@ -134,7 +134,7 @@ namespace Strada
 		uint32_t ShadowMapViews = 0;
 		// Shadow-casting local lights that did not fit the shadow map budget (MaxLocalShadowSlices).
 		uint32_t ShadowsDropped = 0;
-		// Sprites and text glyphs.
+		// Sprites, text glyphs and UI rectangles.
 		uint32_t Quads = 0;
 		// Submeshes outside the camera's frustum or beyond its MaxDistance, which the camera's passes skip (shadow casters
 		// among them still reach the shadow maps).
@@ -178,6 +178,11 @@ namespace Strada
 		// SpriteSubmission and TextSubmission). Picking IDs and selection work as for meshes.
 		void SubmitSprite(SpriteSubmission const& sprite);
 		void SubmitText(TextSubmission text);
+		// The screen-space UI, drawn over everything else in submission order (see UIRectSubmission and UITextSubmission);
+		// UI placed in the world is drawn after tonemapping over the grid and under the lines, hidden behind surfaces. Picking
+		// IDs and selection work as for meshes.
+		void SubmitUIRect(UIRectSubmission const& rect);
+		void SubmitUIText(UITextSubmission text);
 		// Up to ShaderInterop::MaxLights lights per frame; point and spot lights that cannot reach the camera's view are
 		// skipped (SceneRendererStatistics::CulledLights).
 		void SubmitDirectionalLight(DirectionalLightSubmission const& light);
@@ -294,7 +299,7 @@ namespace Strada
 		nvrhi::IGraphicsPipeline* GetEntityIdPipeline(bool blend, bool doubleSided);
 		// Entity IDs of the opaque and then the blended items, plus the copy for a pending pick request.
 		void RenderEntityIds(nvrhi::ICommandList* commandList);
-		// Grid and lines onto the tonemapped image (before FXAA when it is enabled).
+		// Grid, UI placed in the world and lines onto the tonemapped image (before FXAA when it is enabled).
 		void RenderOverlays(nvrhi::ICommandList* commandList, bool ldrTarget);
 		// The line layer at the viewport's size and the pipeline that draws into it (before recording; lines need them).
 		void CreateLineLayer();
@@ -430,6 +435,9 @@ namespace Strada
 		nvrhi::BindingLayoutHandle m_GridLayout;
 		nvrhi::BindingSetHandle m_GridBindings;
 		nvrhi::GraphicsPipelineHandle m_GridPipeline;
+		// Tonemapped / final image with the scene depth attached read-only (the UI placed in the world).
+		nvrhi::FramebufferHandle m_LdrWorldUIFramebuffer;
+		nvrhi::FramebufferHandle m_FinalWorldUIFramebuffer;
 
 		// Entity IDs and picking.
 		bool m_EntityIdsEnabled = false;

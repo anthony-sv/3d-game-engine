@@ -143,6 +143,7 @@ namespace Strada
 		{
 			return;
 		}
+		m_Runner->GetScene()->SetUIPointerEnabled(m_UIPointerEnabled);
 		m_Runner->Update(timestep);
 		FollowRunner();
 	}
@@ -157,6 +158,7 @@ namespace Strada
 			{
 				scene.Step(1);
 			}
+			scene.SetUIPointerEnabled(m_UIPointerEnabled);
 			m_Runner->Update(timestep);
 			run++;
 			FollowRunner();

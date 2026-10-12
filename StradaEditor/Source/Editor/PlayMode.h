@@ -49,6 +49,12 @@ namespace Strada
 		bool IsPaused() const;
 		void Step(uint32_t frames = 1);
 
+		// Whether the game's UI follows the mouse (Scene::SetUIPointerEnabled), applied to the running scene before each of its
+		// updates, scenes the scripts load included. On by default; the editor turns it off while its game view does not have
+		// the window's input, whose cursor is then over the editor.
+		void SetUIPointerEnabled(bool enabled) { m_UIPointerEnabled = enabled; }
+		bool IsUIPointerEnabled() const { return m_UIPointerEnabled; }
+
 		// Advances the running scene by the editor's frame time, then follows what its scripts asked for.
 		void Update(Timestep timestep);
 		// Runs frames at once with a fixed time step (paused scenes too), each ending like an editor frame ends (input
@@ -70,5 +76,6 @@ namespace Strada
 		Scope<SceneRunner> m_Runner;
 		uint64_t m_RunnerSceneVersion = 0;
 		std::optional<TestRunReport> m_LastTestReport;
+		bool m_UIPointerEnabled = true;
 	};
 }

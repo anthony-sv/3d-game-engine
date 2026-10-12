@@ -2,6 +2,7 @@
 
 #include "Editor/ComponentInspection.h"
 #include "Editor/ScriptFieldInspection.h"
+#include "Editor/Viewport/CanvasOverlay.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AudioClipAsset.h"
@@ -33,6 +34,9 @@ namespace Strada
 		// Texture previews fill the panel's width up to this height (in font sizes, so it follows the display scale).
 		constexpr float MaxPreviewHeightInFontSizes = 16.0f;
 		constexpr ImVec4 ErrorColor = ImVec4(0.95f, 0.40f, 0.35f, 1.0f);
+		// The Transform header of UI elements, and what it says about them.
+		constexpr char const* PlacedByRectHeaderId = "###TransformPlacedByRect";
+		constexpr char const* PlacedByRectNote = "The UI Rect places this UI element on the screen: its Transform is not used.";
 
 		void TextError(std::string const& message)
 		{
@@ -233,15 +237,39 @@ namespace Strada
 			values.push_back(component.Serialize(scene.GetRegistry(), scene.GetEntityByUUID(id).GetHandle()));
 		}
 
+		// The UIRect of UI elements places them: their Transform is not used, so it starts folded and cannot be edited.
+		bool const placedByRect =
+			component.Name == ComponentTraits<TransformComponent>::Name && std::all_of(entities.begin(), entities.end(),
+		                                                                               [&scene](UUID id)
+		                                                                               {
+																						   return CanvasOverlay::IsUIElement(scene, id);
+																					   });
+
 		ImGui::PushID(component.Name.data(), component.Name.data() + component.Name.size());
 		float const rightEdge = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
-		std::string const label = UI::FormatDisplayName(component.Name);
-		bool const open = ImGui::CollapsingHeader(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap);
-		if (!component.Description.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+		std::string const name = UI::FormatDisplayName(component.Name);
+		// A header of its own for UI elements, so that it starts folded whatever other entities' Transform headers are.
+		std::string const label = placedByRect ? name + PlacedByRectHeaderId : name;
+		ImGuiTreeNodeFlags const flags =
+			placedByRect ? ImGuiTreeNodeFlags_AllowOverlap : ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap;
+		bool const open = ImGui::CollapsingHeader(label.c_str(), flags);
+		if (placedByRect)
+		{
+			ImGui::SetItemTooltip("%s", PlacedByRectNote);
+		}
+		else if (!component.Description.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
 		{
 			ImGui::SetTooltip("%.*s", static_cast<int>(component.Description.size()), component.Description.data());
 		}
 		ImGui::OpenPopupOnItemClick("##componentMenu", ImGuiPopupFlags_MouseButtonRight);
+		if (placedByRect)
+		{
+			// A note follows the header's name on its line.
+			float const noteX = ImGui::GetItemRectMin().x - ImGui::GetWindowPos().x + ImGui::GetTreeNodeToLabelSpacing() +
+			                    ImGui::CalcTextSize(name.c_str()).x + ImGui::GetStyle().ItemSpacing.x * 2.0f;
+			ImGui::SameLine(noteX);
+			ImGui::TextDisabled("placed by its UI Rect");
+		}
 		float const buttonWidth = ImGui::GetFrameHeight() * 1.5f;
 		ImGui::SameLine(rightEdge - buttonWidth);
 		if (ImGui::Button("...", ImVec2(buttonWidth, 0.0f)))
@@ -253,6 +281,15 @@ namespace Strada
 		if (open && component.Name == ComponentTraits<ScriptComponent>::Name)
 		{
 			DrawScriptComponent(operations, component, entities, values);
+			ImGui::Spacing();
+		}
+		else if (open && placedByRect)
+		{
+			ImGui::TextDisabled("%s", PlacedByRectNote);
+			// Shown read-only: disabled fields report no changes.
+			ImGui::BeginDisabled();
+			m_FieldEditor.Draw(component.Fields, values.front(), ComponentInspection::FindMixedFields(values), &scene);
+			ImGui::EndDisabled();
 			ImGui::Spacing();
 		}
 		else if (open)

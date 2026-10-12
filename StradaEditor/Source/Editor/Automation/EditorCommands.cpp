@@ -1789,8 +1789,8 @@ namespace Strada
 				              "camera): gpuMilliseconds (the GPU time of its latest finished frame; null before one finished or when the "
 				              "GPU cannot measure time), drawCalls (shadow-map draws included), triangles, shadowDrawCalls, shadowMapViews, "
 				              "shadowsDropped (shadow-casting lights beyond the shadow-map budget), lights, culledLights (point and spot "
-				              "lights out of the view's reach), culled (submeshes outside the view), quads (sprites and text glyphs). "
-				              "Unavailable without a viewport (headless) or a GPU.",
+				              "lights out of the view's reach), culled (submeshes outside the view), quads (sprites, text glyphs and UI "
+				              "rectangles). Unavailable without a viewport (headless) or a GPU.",
 				              Json(), true,
 				              [this](Json const&) -> CommandResult
 				              {
@@ -1819,7 +1819,8 @@ namespace Strada
 				result =
 					result
 						? Add("viewport.frame",
-				              "Points the editor viewport's camera at entities, framing their meshes (their origins without one) from the "
+				              "Points the editor viewport's camera at entities, framing their meshes (canvases and UI elements: their "
+				              "rectangles where the scene view draws the UI; other entities without a mesh: their origins) from the "
 				              "current direction, as Focus in the hierarchy does. Returns the view like viewport.camera. Not undoable; "
 				              "Unavailable without a viewport (headless).",
 				              SchemaBuilder::Object()
@@ -1852,9 +1853,10 @@ namespace Strada
 				                 "What the editor viewport draws over the scene: sets the given overlays (the others stay) and returns "
 				                 "all of them: { grid, selectionOutline, icons (light and camera gizmos), cameras (frustums), lights "
 				                 "(directional light rays, point light ranges, spot light cones), colliders (with character capsules), "
-				                 "joints, volumes (boxes of local post-process volumes), debugDrawing (lines scripts draw) }; the shape "
-				                 "kinds are \"off\", \"selected\" (for the selected entities) or \"all\" (for every entity). Changes "
-				                 "nothing in the scene. Not undoable; Unavailable without a viewport (headless).",
+				                 "joints, volumes (boxes of local post-process volumes), debugDrawing (lines scripts draw), canvases (the "
+				                 "UI of each canvas in its entity's plane, with its outline) }; the shape kinds are \"off\", \"selected\" "
+				                 "(for the selected entities) or \"all\" (for every entity). Changes nothing in the scene. Not undoable; "
+				                 "Unavailable without a viewport (headless).",
 				                 SchemaBuilder::Object()
 				                     .Property("grid", SchemaBuilder::Boolean("The ground grid"))
 				                     .Property("selectionOutline", SchemaBuilder::Boolean("The outline of selected meshes"))
@@ -1865,6 +1867,8 @@ namespace Strada
 				                     .Property("joints", shapeSchema("Joint anchors, axes and connections"))
 				                     .Property("volumes", shapeSchema("Boxes of local post-process volumes and where their blending ends"))
 				                     .Property("debugDrawing", SchemaBuilder::Boolean("Lines scripts draw (Debug.DrawLine)"))
+				                     .Property("canvases",
+				                               SchemaBuilder::Boolean("The UI of each canvas in its entity's plane, with its outline"))
 				                     .Build(),
 				                 false,
 				                 [this](Json const& params) -> CommandResult
@@ -1903,6 +1907,7 @@ namespace Strada
 									 setShapes("joints", overlays.Joints);
 									 setShapes("volumes", overlays.Volumes);
 									 setFlag("debugDrawing", overlays.DebugLines);
+									 setFlag("canvases", overlays.Canvases);
 									 return DescribeOverlays(overlays);
 								 })
 				           : result;
@@ -1922,7 +1927,8 @@ namespace Strada
 				                     {"colliders", shapes(overlays.Colliders)},
 				                     {"joints", shapes(overlays.Joints)},
 				                     {"volumes", shapes(overlays.Volumes)},
-				                     {"debugDrawing", overlays.DebugLines}});
+				                     {"debugDrawing", overlays.DebugLines},
+				                     {"canvases", overlays.Canvases}});
 			}
 
 			static Json DescribeCamera(EditorCamera const& camera)

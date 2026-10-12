@@ -298,6 +298,9 @@ namespace Strada
 		{
 			m_AssetAutoRefresh.Update(IsEditorFocused(), !m_Export.IsRunning(), m_Operations);
 		}
+		// The game's UI follows the cursor only while the game has the input, decided before the scene updates in the frame
+		// the input changes hands. Headless editors have no game view: automation drives their input.
+		m_PlayMode.SetUIPointerEnabled(m_GameViewPanel == nullptr || m_GameInput.HasInput());
 		m_PlayMode.Update(timestep);
 		// The edited scene previews its particle systems in the views (playing scenes run their own).
 		if (!m_Context.IsPlaying() && Application::Get().GetImGuiLayer() != nullptr)

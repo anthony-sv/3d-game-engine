@@ -26,6 +26,8 @@ namespace Strada
 		std::string_view EntityName;
 		// The components of the new entity in the scene-file format.
 		Json (*BuildComponents)();
+		// A UI element, which only shows inside a canvas (see EntityPresets::Create).
+		bool NeedsCanvas = false;
 	};
 
 	// A part of the create menus: the presets of one category, in a submenu or (Core) directly in the menu.
@@ -43,13 +45,14 @@ namespace Strada
 
 		// In menu order; entries of a category are contiguous.
 		std::span<EntityPreset const> GetAll();
-		// Core, 3D Object, 2D Object, Rendering, Effects, Physics and Audio.
+		// Core, 3D Object, 2D Object, Rendering, Effects, Physics, Audio and UI.
 		std::span<std::string_view const> GetCategories();
 		// The create menus (the Entity menu, the hierarchy's create button and Create Child): a section per category in
 		// GetCategories() order, each with its presets in GetAll() order.
 		std::vector<EntityPresetMenuSection> GetMenu();
 		// Creates a preset entity under parent (invalid = root) as one undo step. Root entities are placed at `position`
-		// (for example the viewport's focal point); children start at their parent's origin.
+		// (for example the viewport's focal point); children start at their parent's origin. UI elements outside a canvas
+		// go into one: under a parent, a new canvas there; at the root, the scene's first canvas, or a new one at `position`.
 		[[nodiscard]] Result<UUID> Create(EditorOperations& operations, EntityPreset const& preset, UUID parent, glm::vec3 const& position);
 		// Creates an entity that draws a mesh asset, named after it, placed like preset entities.
 		[[nodiscard]] Result<UUID> CreateFromMesh(EditorOperations& operations, AssetHandle mesh, UUID parent, glm::vec3 const& position);

@@ -140,5 +140,7 @@ namespace Strada
 		// Then destroys the instance.
 		static void InvokeOnDestroy(UUID entity);
 		static void InvokeContactEvent(UUID entity, UUID other, ContactEventType type);
+		// OnClick(button) of the entity's instance: the entity is the clicked UI button or one of its ancestors.
+		static void InvokeOnClick(UUID entity, UUID button);
 	};
 }

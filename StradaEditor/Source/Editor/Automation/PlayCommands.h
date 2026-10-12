@@ -16,8 +16,8 @@ namespace Strada
 	using ViewportSizeProvider = std::function<glm::uvec2()>;
 
 	// Registers the play mode, input and test commands: play.start (asynchronous), play.stop, play.pause, play.step,
-	// play.advance, play.state, input.set, input.release and test.run (asynchronous). Everything passed in must outlive
-	// every registered command. Documented in Docs/Automation.md.
+	// play.advance, play.state, input.set, input.release, ui.layout and test.run (asynchronous). Everything passed in must
+	// outlive every registered command. Documented in Docs/Automation.md.
 	[[nodiscard]] Result<void> RegisterPlayCommands(CommandRegistry& registry, PlayMode& playMode, EditorContext& context,
 	                                                ViewportSizeProvider viewportSize);
 }

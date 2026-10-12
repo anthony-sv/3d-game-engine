@@ -27,8 +27,8 @@ namespace Strada
 		glm::vec4 Color = glm::vec4(1.0f);
 		// Dimmed where surfaces hide it (ViewportOverlays::OccludedLineOpacity); otherwise drawn over everything: joints,
 		// whose anchors lie inside bodies, directional lights, whose position does not matter (they are usually placed on or
-		// under the ground), local post-process volumes, which the camera is often inside, and the capsules of selected
-		// characters, which their models enclose.
+		// under the ground), local post-process volumes, which the camera is often inside, the capsules of selected
+		// characters, which their models enclose, and the outlines of UI canvases (CanvasOverlay).
 		bool DepthTest = true;
 	};
 
@@ -61,6 +61,8 @@ namespace Strada
 		OverlayShapeSetting Volumes;
 		// Lines scripts draw (Debug.DrawLine and friends).
 		bool DebugLines = true;
+		// The UI of each canvas in its entity's plane with the canvas's outline (CanvasOverlay).
+		bool Canvases = true;
 
 		bool operator==(SceneViewOverlays const&) const = default;
 	};
