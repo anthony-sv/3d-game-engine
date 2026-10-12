@@ -1462,6 +1462,39 @@ TEST_CASE("FieldEditor: fields with a visibility condition show while their sibl
 		emitter["Shape"] = shape;
 		CHECK(countRows(particles.Fields, emitter, {}) == allParticleFields - hidden);
 	}
+
+	// Settings that only matter while a switch of the component is on (or off): shown then, and while the selected
+	// entities differ in it.
+	auto const checkSwitch = [&](ComponentInfo const& component, Json fieldValues, std::string const& sibling, bool shownWhen, int hidden)
+	{
+		CAPTURE(component.Name);
+		fieldValues[sibling] = shownWhen;
+		int const shown = countRows(component.Fields, fieldValues, {});
+		fieldValues[sibling] = !shownWhen;
+		CHECK(countRows(component.Fields, fieldValues, {}) == shown - hidden);
+		CHECK(countRows(component.Fields, fieldValues, {sibling}) == shown);
+	};
+	// A fixed aspect ratio; the distances of spatial sounds; the blur of a drawn sky; the blend distance of local volumes.
+	checkSwitch(ComponentRegistry::Get<CameraComponent>(), SerializeFields<ComponentTraits<CameraComponent>>(CameraComponent()),
+	            "FixedAspectRatio", true, 1);
+	checkSwitch(ComponentRegistry::Get<AudioSourceComponent>(),
+	            SerializeFields<ComponentTraits<AudioSourceComponent>>(AudioSourceComponent()), "Spatial", true, 2);
+	checkSwitch(ComponentRegistry::Get<SkyLightComponent>(), SerializeFields<ComponentTraits<SkyLightComponent>>(SkyLightComponent()),
+	            "DrawSkybox", true, 1);
+	checkSwitch(ComponentRegistry::Get<PostProcessComponent>(),
+	            SerializeFields<ComponentTraits<PostProcessComponent>>(PostProcessComponent()), "Global", false, 1);
+
+	// Static bodies never move: they show their type and layer. Kinematic ones move as scripts say, so they also sleep and
+	// start with velocities; only dynamic ones have mass, damping, gravity, locks and continuous collision.
+	ComponentInfo const& rigidBody = ComponentRegistry::Get<RigidBodyComponent>();
+	Json body = SerializeFields<ComponentTraits<RigidBodyComponent>>(RigidBodyComponent());
+	for (auto const& [type, rows] : std::vector<std::pair<char const*, int>>{{"Dynamic", 12}, {"Kinematic", 5}, {"Static", 2}})
+	{
+		CAPTURE(type);
+		body["Type"] = type;
+		CHECK(countRows(rigidBody.Fields, body, {}) == rows);
+	}
+	CHECK(countRows(rigidBody.Fields, body, {"Type"}) == 12);
 }
 
 TEST_CASE("Panels: the Add Component menu shows categories, finds components as the user types and adds the chosen one")

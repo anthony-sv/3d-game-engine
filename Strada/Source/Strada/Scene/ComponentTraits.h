@@ -227,7 +227,10 @@ namespace Strada
 				.Doc("Far clip plane distance in meters."),
 			Field("Primary", &CameraComponent::Primary).Doc("The scene renders from the first primary camera."),
 			Field("FixedAspectRatio", &CameraComponent::FixedAspectRatio).Doc("Uses AspectRatio instead of following the viewport."),
-			Field("AspectRatio", &CameraComponent::AspectRatio).AtLeast(0.01).Doc("Width divided by height when FixedAspectRatio is set."));
+			Field("AspectRatio", &CameraComponent::AspectRatio)
+				.AtLeast(0.01)
+				.VisibleWhen("FixedAspectRatio", "true")
+				.Doc("Width divided by height when FixedAspectRatio is set."));
 	};
 
 	template<>
@@ -305,20 +308,23 @@ namespace Strada
 		static constexpr uint32_t Flags = ComponentFlagsNone;
 		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Image-based lighting and the sky from an HDR environment map.";
-		static constexpr auto Fields = std::make_tuple(
-			Field("Environment", &SkyLightComponent::Environment)
-				.References("Environment")
-				.Doc("HDR environment map; without one, AmbientColor lights the scene."),
-			Field("Intensity", &SkyLightComponent::Intensity).AtLeast(0.0),
-			Field("Rotation", &SkyLightComponent::Rotation)
-				.AsAngle()
-				.Doc("Rotation of the environment around the world Y axis in degrees."),
-			Field("SkyboxBlur", &SkyLightComponent::SkyboxBlur).Range(0.0, 1.0).Doc("0 shows a sharp sky, 1 a fully blurred one."),
-			Field("DrawSkybox", &SkyLightComponent::DrawSkybox).Doc("Draws the environment as the background."),
-			Field("AmbientColor", &SkyLightComponent::AmbientColor)
-				.Range(0.0, 1.0)
-				.AsColor()
-				.Doc("Ambient light used when no environment map is set."));
+		static constexpr auto Fields =
+			std::make_tuple(Field("Environment", &SkyLightComponent::Environment)
+		                        .References("Environment")
+		                        .Doc("HDR environment map; without one, AmbientColor lights the scene."),
+		                    Field("Intensity", &SkyLightComponent::Intensity).AtLeast(0.0),
+		                    Field("Rotation", &SkyLightComponent::Rotation)
+		                        .AsAngle()
+		                        .Doc("Rotation of the environment around the world Y axis in degrees."),
+		                    Field("SkyboxBlur", &SkyLightComponent::SkyboxBlur)
+		                        .Range(0.0, 1.0)
+		                        .VisibleWhen("DrawSkybox", "true")
+		                        .Doc("0 shows a sharp sky, 1 a fully blurred one."),
+		                    Field("DrawSkybox", &SkyLightComponent::DrawSkybox).Doc("Draws the environment as the background."),
+		                    Field("AmbientColor", &SkyLightComponent::AmbientColor)
+		                        .Range(0.0, 1.0)
+		                        .AsColor()
+		                        .Doc("Ambient light used when no environment map is set."));
 	};
 
 	template<>
@@ -331,19 +337,30 @@ namespace Strada
 		static constexpr auto Fields = std::make_tuple(
 			Field("Type", &RigidBodyComponent::Type)
 				.Doc("Static bodies never move, dynamic bodies are simulated and kinematic bodies are moved by scripts."),
-			Field("Mass", &RigidBodyComponent::Mass).AtLeast(0.001).Doc("Mass in kilograms."),
-			Field("LinearDamping", &RigidBodyComponent::LinearDamping).AtLeast(0.0),
-			Field("AngularDamping", &RigidBodyComponent::AngularDamping).AtLeast(0.0),
-			Field("GravityFactor", &RigidBodyComponent::GravityFactor).Doc("Multiplier of the scene's gravity."),
+			Field("Mass", &RigidBodyComponent::Mass).AtLeast(0.001).VisibleWhen("Type", "Dynamic").Doc("Mass in kilograms."),
+			Field("LinearDamping", &RigidBodyComponent::LinearDamping).AtLeast(0.0).VisibleWhen("Type", "Dynamic"),
+			Field("AngularDamping", &RigidBodyComponent::AngularDamping).AtLeast(0.0).VisibleWhen("Type", "Dynamic"),
+			Field("GravityFactor", &RigidBodyComponent::GravityFactor)
+				.VisibleWhen("Type", "Dynamic")
+				.Doc("Multiplier of the scene's gravity."),
 			Field("Layer", &RigidBodyComponent::Layer).Range(0.0, 15.0).Doc("Physics layer index as configured in the project settings."),
-			Field("LockTranslation", &RigidBodyComponent::LockTranslation).Doc("Prevents movement along the X, Y and Z axes."),
-			Field("LockRotation", &RigidBodyComponent::LockRotation).Doc("Prevents rotation around the X, Y and Z axes."),
+			Field("LockTranslation", &RigidBodyComponent::LockTranslation)
+				.VisibleWhen("Type", "Dynamic")
+				.Doc("Prevents movement along the X, Y and Z axes."),
+			Field("LockRotation", &RigidBodyComponent::LockRotation)
+				.VisibleWhen("Type", "Dynamic")
+				.Doc("Prevents rotation around the X, Y and Z axes."),
 			Field("ContinuousCollision", &RigidBodyComponent::ContinuousCollision)
+				.VisibleWhen("Type", "Dynamic")
 				.Doc("Keeps fast bodies from passing through thin geometry, at a performance cost."),
-			Field("AllowSleep", &RigidBodyComponent::AllowSleep).Doc("Lets the body stop simulating while it is at rest."),
+			Field("AllowSleep", &RigidBodyComponent::AllowSleep)
+				.VisibleWhen("Type", "Dynamic", "Kinematic")
+				.Doc("Lets the body stop simulating while it is at rest."),
 			Field("InitialLinearVelocity", &RigidBodyComponent::InitialLinearVelocity)
+				.VisibleWhen("Type", "Dynamic", "Kinematic")
 				.Doc("Velocity in meters per second when play starts (the simulation allows up to 500)."),
 			Field("InitialAngularVelocity", &RigidBodyComponent::InitialAngularVelocity)
+				.VisibleWhen("Type", "Dynamic", "Kinematic")
 				.Doc("Angular velocity in radians per second when play starts (the simulation allows up to about 47)."));
 	};
 
@@ -534,9 +551,11 @@ namespace Strada
 			Field("Spatial", &AudioSourceComponent::Spatial).Doc("Positions the sound in 3D; otherwise it plays at a constant level."),
 			Field("MinDistance", &AudioSourceComponent::MinDistance)
 				.AtLeast(0.0)
+				.VisibleWhen("Spatial", "true")
 				.Doc("Distance in meters within which the sound plays at full volume."),
 			Field("MaxDistance", &AudioSourceComponent::MaxDistance)
 				.AtLeast(0.0)
+				.VisibleWhen("Spatial", "true")
 				.Doc("Distance in meters beyond which the sound gets no quieter."));
 	};
 
@@ -669,6 +688,7 @@ namespace Strada
 				.Doc("Applies everywhere; otherwise only inside the box the entity's transform makes of the unit cube."),
 			Field("BlendDistance", &PostProcessComponent::BlendDistance)
 				.AtLeast(0.0)
+				.VisibleWhen("Global", "false")
 				.Doc("Local volumes: meters around the box over which the volume fades out."),
 			Field("Priority", &PostProcessComponent::Priority).Doc("Volumes with higher priorities apply over those with lower ones."),
 			Field("Weight", &PostProcessComponent::Weight).Range(0.0, 1.0).Doc("How much of the volume applies."),
