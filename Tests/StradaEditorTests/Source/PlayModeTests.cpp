@@ -17,6 +17,7 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <cmath>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -513,8 +514,19 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 		advance(30);
 	};
 
+	// The game starts on its title with the camera already at the title's view, so the title's sign shows from the first
+	// frame, over the board rather than on it. The game view (4:3) is narrower than the 16:10 the view was made for: the field
+	// of view widens to show as much across.
+	advance(1);
+	glm::vec3 const cameraPlace = find("Main Camera").GetComponent<TransformComponent>().Translation;
+	glm::vec3 const attractPlace = find("Attract View").GetComponent<TransformComponent>().Translation;
+	CHECK(glm::distance(cameraPlace, attractPlace) < 0.05f);
+	CHECK(find("Title Sign").GetComponent<UIRectComponent>().Opacity == 1.0f);
+	float const fieldOfView = 2.0f * glm::degrees(std::atan(std::tan(glm::radians(21.0f)) * 1.6f / (640.0f / 480.0f)));
+	CHECK(find("Main Camera").GetComponent<CameraComponent>().PerspectiveFOV == doctest::Approx(fieldOfView).epsilon(1e-4));
+
 	// The title screen, where the board plays itself, starts a game with a click on Play.
-	advance(60);
+	advance(59);
 	CHECK(open("Play Button"));
 	click("Play Button");
 	CHECK_FALSE(open("Play Button"));

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using Strada;
 
 namespace Blocks;
@@ -8,7 +9,8 @@ namespace Blocks;
 /// next one, the lines and the best score, tagged DEMO while the title's demo plays), the HOLD and NEXT labels over the
 /// board's panels, the title (the game's name in block letters over the demo, with Play and Quit), the pause menu (Resume,
 /// Restart, Quit), the game-over screen (the score, a new best, Play Again and Quit), flashes and the callouts over the
-/// board. Screens fade in and out; the menus take the mouse and the keyboard (see <see cref="Menu"/>) and their clicks
+/// board. Screens fade in and out; the title's sign (its block letters and subtitle) waits for the camera to stand back
+/// from the board before it shows. The menus take the mouse and the keyboard (see <see cref="Menu"/>) and their clicks
 /// reach the game.</summary>
 public sealed class Hud : System.IDisposable
 {
@@ -36,6 +38,10 @@ public sealed class Hud : System.IDisposable
 	// The HOLD and NEXT labels: their letters' size and the drop shadow's offset, in parts of their header's height.
 	private const float LabelSize = 0.56f;
 	private const float LabelShadow = 0.05f;
+	// The title's sign fades in over the end of the camera's glide to the attract view, from this part of the way on (see
+	// CameraShake.AttractWeight): by then the board's panels and their labels have moved down out from under it, on screens
+	// from 5:4 to 21:9.
+	private const float SignFromGlide = 0.85f;
 
 	private static readonly Color s_Value = new(0.96f, 0.97f, 1.0f);
 	private static readonly Color s_Best = new(1.0f, 0.68f, 0.16f);
@@ -57,6 +63,7 @@ public sealed class Hud : System.IDisposable
 	private readonly UIRectComponent m_LevelBar;
 	private readonly UIRectComponent m_DemoTag;
 	private readonly Screen m_Title;
+	private readonly UIRectComponent m_Sign;
 	private readonly Screen m_Pause;
 	private readonly Screen m_Over;
 	private readonly List<(UIRectComponent Rect, Vector2 Home)> m_Tiles = [];
@@ -73,6 +80,8 @@ public sealed class Hud : System.IDisposable
 	private float m_Bar;
 	private float m_BarShown = -1.0f;
 	private bool? m_DemoShown;
+	// How far the title's sign shows (written when it changes).
+	private float m_SignShown = -1.0f;
 	// The state the screen showed last, to fill the game-over screen once when the game ends.
 	private GameState? m_State;
 
@@ -95,6 +104,7 @@ public sealed class Hud : System.IDisposable
 		m_LevelBar = Find("Level Bar Fill").GetComponent<UIRectComponent>()!;
 		m_DemoTag = Find("Demo Tag").GetComponent<UIRectComponent>()!;
 		m_Title = new Screen(Find("Title Screen"), 0.0f);
+		m_Sign = Find("Title Sign").GetComponent<UIRectComponent>()!;
 		m_Pause = new Screen(Find("Pause Menu"), MenuRise);
 		m_Over = new Screen(Find("Game Over"), MenuRise);
 		foreach (Entity tile in Find("Logo").Children)
@@ -110,12 +120,13 @@ public sealed class Hud : System.IDisposable
 		m_NewBest = Find("New Best Tag").GetComponent<UIRectComponent>()!;
 		Callouts = new Callouts(Find);
 
-		// The labels follow the board's panels as the camera shows them: where the camera is once it has moved this frame.
+		// The labels follow the board's panels as the camera shows them, and the title's sign the camera's glide: where the
+		// camera is once it has moved this frame.
 		m_Camera = game.Camera?.GetComponent<CameraComponent>();
 		m_Shake = game.Camera?.As<CameraShake>();
 		if (m_Shake is not null)
 		{
-			m_Shake.Moved += PlaceBoardLabels;
+			m_Shake.Moved += FollowCamera;
 		}
 	}
 
@@ -125,12 +136,19 @@ public sealed class Hud : System.IDisposable
 	/// <summary>The menu the title, the pause or the game over shows, if any.</summary>
 	public Menu? OpenMenu => m_TitleMenu.IsOpen ? m_TitleMenu : m_PauseMenu.IsOpen ? m_PauseMenu : m_OverMenu.IsOpen ? m_OverMenu : null;
 
+	/// <summary>A score as the screen shows it, with commas between the thousands in every language: the font has none of the
+	/// spaces some languages group digits with.</summary>
+	public static string FormatScore(int score) => score.ToString("N0", CultureInfo.InvariantCulture);
+
+	/// <summary>A number as the screen shows it, the same in every language.</summary>
+	public static string FormatNumber(int number) => number.ToString(CultureInfo.InvariantCulture);
+
 	/// <summary>Stops following the camera.</summary>
 	public void Dispose()
 	{
 		if (m_Shake is not null)
 		{
-			m_Shake.Moved -= PlaceBoardLabels;
+			m_Shake.Moved -= FollowCamera;
 		}
 	}
 
@@ -187,9 +205,9 @@ public sealed class Hud : System.IDisposable
 		if (state == GameState.Over && m_State != GameState.Over)
 		{
 			bool newBest = m_Game.IsNewBest;
-			m_FinalScore.Text = m_Game.Score.ToString("N0");
+			m_FinalScore.Text = FormatScore(m_Game.Score);
 			m_FinalScore.Color = newBest ? s_Best : s_Value;
-			m_FinalStats.Text = $"LEVEL {m_Game.Level}   ·   LINES {m_Game.Rows}";
+			m_FinalStats.Text = $"LEVEL {FormatNumber(m_Game.Level)}   ·   LINES {FormatNumber(m_Game.Rows)}";
 			m_NewBest.Visible = newBest;
 		}
 		m_State = state;
@@ -207,7 +225,7 @@ public sealed class Hud : System.IDisposable
 		Callouts.Update(deltaTime);
 		if (m_Shake is null)
 		{
-			PlaceBoardLabels();
+			FollowCamera();
 		}
 	}
 
@@ -271,10 +289,19 @@ public sealed class Hud : System.IDisposable
 		}
 	}
 
-	private void PlaceBoardLabels()
+	// What follows the camera: the labels over the board's panels, and the title's sign, which shows over the end of the
+	// camera's glide to the attract view (at once without a CameraShake), once the panels have moved down out from under it.
+	private void FollowCamera()
 	{
 		m_HoldLabel.Place(m_Camera);
 		m_NextLabel.Place(m_Camera);
+		float glide = m_Shake?.AttractWeight ?? 1.0f;
+		float sign = Mathf.SmoothStep(0.0f, 1.0f, Mathf.InverseLerp(SignFromGlide, 1.0f, glide));
+		if (sign != m_SignShown)
+		{
+			m_SignShown = sign;
+			m_Sign.Opacity = sign;
+		}
 	}
 
 	private void Collect(Entity parent)
@@ -360,7 +387,7 @@ public sealed class Hud : System.IDisposable
 					m_Pop = 1.0f;
 				}
 				m_Value = value;
-				m_Text.Text = m_Grouped ? value.ToString("N0") : value.ToString();
+				m_Text.Text = m_Grouped ? FormatScore(value) : FormatNumber(value);
 			}
 			if (m_Pop > 0.0f)
 			{

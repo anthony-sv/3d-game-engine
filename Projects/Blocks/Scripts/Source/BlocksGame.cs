@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using Strada;
 
@@ -331,7 +332,13 @@ public sealed class BlocksGame : Script
 		{
 			Restart();
 		}
-		// The screen shows the first state at once.
+		// The first state shows at once: the camera stands where it shows the board from (back at the attract view on the
+		// title screen, without gliding there from the game's place), and the screen shows its title or game.
+		if (Camera?.As<CameraShake>() is { } camera)
+		{
+			camera.Attract = State == GameState.Title;
+			camera.SkipGlide();
+		}
 		m_Hud?.ShowAtOnce();
 	}
 
@@ -576,7 +583,7 @@ public sealed class BlocksGame : Script
 		if (Level > levelBefore)
 		{
 			PlaySound(LevelUpSound, 0.85f, 1.0f);
-			m_Hud?.Callouts.Show(CalloutSlot.Level, "LEVEL UP!", new Color(0.35f, 1.0f, 0.95f), $"LEVEL {Level}", 70.0f, 1.8f);
+			m_Hud?.Callouts.Show(CalloutSlot.Level, "LEVEL UP!", new Color(0.35f, 1.0f, 0.95f), $"LEVEL {Hud.FormatNumber(Level)}", 70.0f, 1.8f);
 			m_Hud?.Flash(new Color(0.3f, 0.9f, 1.0f), 0.12f * (IsDemo ? AttractShake : 1.0f));
 		}
 		// Sparks rise from the top cleared row a moment later in a big clear.
@@ -607,15 +614,15 @@ public sealed class BlocksGame : Script
 			return;
 		}
 		bool tetris = lines == 4;
-		m_Hud.Callouts.Show(CalloutSlot.Clear, s_ClearNames[lines - 1], s_ClearColors[lines - 1], $"+{points:N0}", tetris ? 114.0f : 84.0f,
-							tetris ? 1.9f : 1.35f, tetris);
+		m_Hud.Callouts.Show(CalloutSlot.Clear, s_ClearNames[lines - 1], s_ClearColors[lines - 1], $"+{Hud.FormatScore(points)}",
+							tetris ? 114.0f : 84.0f, tetris ? 1.9f : 1.35f, tetris);
 		if (backToBack)
 		{
 			m_Hud.Callouts.Show(CalloutSlot.Bonus, "BACK-TO-BACK", new Color(1.0f, 0.45f, 0.85f), "", 46.0f, 1.9f);
 		}
 		else if (Combo > 0)
 		{
-			m_Hud.Callouts.Show(CalloutSlot.Bonus, $"COMBO x{Combo + 1}", new Color(0.55f, 0.8f, 1.0f), "", 46.0f, 1.4f);
+			m_Hud.Callouts.Show(CalloutSlot.Bonus, $"COMBO x{Hud.FormatNumber(Combo + 1)}", new Color(0.55f, 0.8f, 1.0f), "", 46.0f, 1.4f);
 		}
 		if (tetris)
 		{
@@ -885,7 +892,13 @@ public sealed class BlocksGame : Script
 		}
 		try
 		{
-			return File.Exists(BestScoreFile) && int.TryParse(File.ReadAllText(BestScoreFile).Trim(), out int best) ? System.Math.Max(best, 0) : 0;
+			if (!File.Exists(BestScoreFile))
+			{
+				return 0;
+			}
+			// The file holds the score's digits, whatever the player's language.
+			string text = File.ReadAllText(BestScoreFile).Trim();
+			return int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out int best) ? best : 0;
 		}
 		catch (System.Exception exception) when (exception is IOException or System.UnauthorizedAccessException)
 		{
@@ -903,7 +916,7 @@ public sealed class BlocksGame : Script
 		try
 		{
 			Directory.CreateDirectory(Path.GetDirectoryName(BestScoreFile)!);
-			File.WriteAllText(BestScoreFile, BestScore.ToString());
+			File.WriteAllText(BestScoreFile, BestScore.ToString(CultureInfo.InvariantCulture));
 		}
 		catch (System.Exception exception) when (exception is IOException or System.UnauthorizedAccessException)
 		{

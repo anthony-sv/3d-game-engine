@@ -1,16 +1,18 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Strada;
 using Strada.Testing;
 
 namespace Blocks;
 
-/// <summary>The checks of Scenes/Tests.sscene: the rules of the board, the auto player and the camera's spring when the
-/// scene starts, then the scene's game (Game) as it plays: moves, sounds, callouts, the camera, the screen (the labels over
-/// the board, the score panel and the menus, whose buttons it clicks as the mouse does), the game-over screen and the title
-/// screen's demo (the test scene starts the game without the title screen, keeps no best score and seeds its demo). The test
-/// run ends once they are done (play the scene, or `StradaRuntime --project Blocks.sproj --scene Scenes/Tests.sscene
-/// --test`).</summary>
+/// <summary>The checks of Scenes/Tests.sscene: the rules of the board, the auto player, the camera's spring and view and the
+/// screen's numbers when the scene starts, then the scene's game (Game) as it plays: moves, sounds, callouts, the camera, the
+/// screen (the labels over the board, the score panel and the menus, whose buttons it clicks as the mouse does, and that
+/// none of it covers the board on screens from 5:4 to 21:9), the game-over screen and the title screen's demo (the test scene
+/// starts the game without the title screen, keeps no best score and seeds its demo). The checks run in a language that
+/// groups thousands with a narrow no-break space, as French does. The test run ends once they are done (play the scene, or
+/// `StradaRuntime --project Blocks.sproj --scene Scenes/Tests.sscene --test`).</summary>
 public sealed class BlocksTests : Script
 {
 	[Tooltip("The game the checks play")]
@@ -18,6 +20,29 @@ public sealed class BlocksTests : Script
 
 	// How long the checks give the demo to do what they wait for (frames).
 	private const int Patience = 600;
+
+	// The screens the layout checks look at, from 5:4 to 21:9 (the test run's window is 16:10).
+	private static readonly Vector2[] s_Screens =
+	[
+		new(1000.0f, 800.0f), new(1024.0f, 768.0f), new(1280.0f, 800.0f), new(1920.0f, 1080.0f), new(2560.0f, 1080.0f),
+	];
+
+	// The screen on which the title's sign is largest beside the board, so it clears the board last while the camera glides to
+	// the title's view: the canvas fits its 16:9 reference by the screen's height from 16:9 on, where the board keeps its size
+	// too, so wider screens show both as 16:9 does.
+	private static readonly Vector2 s_WideScreen = new(1920.0f, 1080.0f);
+
+	// The board's parts the screen leaves in sight: the frame with its backdrop, and the panels with the strips along their
+	// tops (the highest parts of the board).
+	private static readonly string[] s_BoardParts =
+	[
+		"Left Wall", "Right Wall", "Floor", "Backdrop", "Hold Panel", "Next Panel", "Hold Neon", "Next Neon",
+	];
+
+	// The title's sign (its block letters and the subtitle under them) and its menu.
+	private static readonly string[] s_Sign = ["Tile B", "Tile L", "Tile O", "Tile C", "Tile K", "Tile S", "Subtitle"];
+	private static readonly string[] s_TitleMenu = ["Play Button", "Quit Button", "Title Hint"];
+	private static readonly string[] s_Panels = ["Score Panel", "Controls Panel"];
 
 	// The steps of the run after the first frame: each waits for its frames or condition, runs its checks and starts the
 	// next. A click takes effect at the start of the next frame, so the checks of what it did wait two frames (three for the
@@ -65,9 +90,27 @@ public sealed class BlocksTests : Script
 	// every slot at once.
 	private string? m_CalloutTrouble;
 	private int m_FramesWithEverySlot;
+	// The points of the last clear the callouts showed.
+	private int m_LastClearPoints;
+	// What the title's watch saw over the frames: the first frame the title covered the board, and the frames of the camera's
+	// glide to the title's view in which the sign waited and in which it faded in.
+	private string? m_TitleTrouble;
+	private int m_SignWaited;
+	private int m_SignFadedIn;
+	// The language the scene had, given back when the checks end.
+	private CultureInfo? m_Culture;
+	// Entities of the scene by name, found once.
+	private readonly Dictionary<string, Entity> m_Found = [];
 
 	protected override void OnCreate()
 	{
+		// The checks run in a language that groups thousands with a narrow no-break space, as French does: the font has no
+		// such space, so the screen's numbers must not take the player's language.
+		m_Culture = CultureInfo.CurrentCulture;
+		CultureInfo spaced = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+		spaced.NumberFormat.NumberGroupSeparator = "\u202F";
+		CultureInfo.CurrentCulture = spaced;
+
 		TestReporter.Run("every shape has four cells in every rotation", () =>
 		{
 			foreach (PieceKind kind in System.Enum.GetValues<PieceKind>())
@@ -290,6 +333,40 @@ public sealed class BlocksTests : Script
 			}
 			Assert.IsTrue(offset.Length < 0.001f, $"settled to {offset.Length}");
 		});
+		TestReporter.Run("the view keeps its width on screens narrower than it was made for", () =>
+		{
+			Assert.AreEqual(42.0f, CameraShake.FitFieldOfView(42.0f, 1.6f, 1.6f), "16:10 as made");
+			Assert.AreEqual(42.0f, CameraShake.FitFieldOfView(42.0f, 1.6f, 21.0f / 9.0f), "wider screens see more at the sides");
+			// The half width of the view a unit in front of the camera.
+			float across = Mathf.Tan(21.0f * Mathf.Deg2Rad) * 1.6f;
+			foreach (float aspect in new[] { 1.5f, 4.0f / 3.0f, 1.25f, 9.0f / 16.0f })
+			{
+				float fieldOfView = CameraShake.FitFieldOfView(42.0f, 1.6f, aspect);
+				Assert.IsTrue(fieldOfView > 42.0f, $"{fieldOfView} at {aspect}");
+				Assert.AreApproximatelyEqual(across, Mathf.Tan(0.5f * fieldOfView * Mathf.Deg2Rad) * aspect, 1e-4f, $"as wide at {aspect}");
+			}
+			Assert.AreEqual(170.0f, CameraShake.FitFieldOfView(42.0f, 1.6f, 0.001f), "a sliver of a screen");
+			foreach (float aspect in new[] { 0.0f, -1.0f, float.NaN, float.PositiveInfinity })
+			{
+				Assert.AreEqual(42.0f, CameraShake.FitFieldOfView(42.0f, 1.6f, aspect), $"an aspect ratio of {aspect}");
+			}
+		});
+		TestReporter.Run("the screen's numbers group thousands with commas in every language", () =>
+		{
+			Assert.AreEqual("\u202F", CultureInfo.CurrentCulture.NumberFormat.NumberGroupSeparator, "the checks' language");
+			Assert.AreEqual("2,650", Hud.FormatScore(2650));
+			Assert.AreEqual("1,234,567", Hud.FormatScore(1234567));
+			Assert.AreEqual("0", Hud.FormatScore(0));
+			Assert.AreEqual("12", Hud.FormatNumber(12));
+		});
+	}
+
+	protected override void OnDestroy()
+	{
+		if (m_Culture is not null)
+		{
+			CultureInfo.CurrentCulture = m_Culture;
+		}
 	}
 
 	protected override void OnUpdate(float deltaTime)
@@ -297,6 +374,7 @@ public sealed class BlocksTests : Script
 		BlocksGame game = Game!.As<BlocksGame>()!;
 		CameraShake camera = game.Camera!.As<CameraShake>()!;
 		m_StepFrames++;
+		WatchTitle(game, camera);
 		switch (m_Step)
 		{
 			case Step.Start:
@@ -317,6 +395,11 @@ public sealed class BlocksTests : Script
 					Assert.IsFalse(Rect("Demo Tag").Visible, "the DEMO tag");
 					Assert.IsNull(game.Hud?.OpenMenu, "no menu takes the keys");
 				});
+				TestReporter.Run("in a game the score and controls panels leave the board in sight on screens from 5:4 to 21:9", () =>
+				{
+					Assert.AreEqual(0.0f, camera.AttractWeight, "the camera stands at its place");
+					Assert.IsNull(FindCover(game, s_Screens, s_Panels));
+				});
 				m_StartRow = game.Active.Y;
 				m_CameraPlace = camera.Translation;
 				Next(Step.Play);
@@ -336,12 +419,12 @@ public sealed class BlocksTests : Script
 				});
 				CheckShake(game);
 				// The biggest callouts in every slot at once: they wait while the game is paused, then play out.
-				ShowEveryCallout(game);
+				m_LastClearPoints = ShowEveryCallout(game);
 				game.SetPaused(true);
 				Next(Step.Paused);
 				break;
 			case Step.Paused when m_StepFrames == 150:
-				CheckPause(game);
+				CheckPause(game, m_LastClearPoints);
 				// The menu's Resume goes on, as Escape does.
 				Click("Resume Button");
 				Next(Step.Resumed);
@@ -397,9 +480,10 @@ public sealed class BlocksTests : Script
 					Assert.IsTrue(Rect("Game Over").Visible);
 					Assert.IsTrue(Rect("New Best Tag").Visible);
 					UITextComponent score = UIText("Final Score");
-					Assert.AreEqual(game.Score.ToString("N0"), score.Text);
+					Assert.IsTrue(game.Score >= 1000, $"a score of {game.Score} groups its thousands");
+					Assert.AreEqual(Hud.FormatScore(game.Score), score.Text);
 					Assert.IsTrue(score.Color.B < 0.5f && score.Color.G < score.Color.R, $"gold: {score.Color}");
-					Assert.AreEqual($"LEVEL {game.Level}   ·   LINES {game.Rows}", UIText("Final Stats").Text);
+					Assert.AreEqual($"LEVEL {Hud.FormatNumber(game.Level)}   ·   LINES {Hud.FormatNumber(game.Rows)}", UIText("Final Stats").Text);
 				});
 				Next(Step.TitleReturn);
 				break;
@@ -425,7 +509,7 @@ public sealed class BlocksTests : Script
 					Assert.AreEqual("Play Again Button", game.Hud?.OpenMenu?.FocusedButton.Name);
 					Assert.IsFalse(game.IsNewBest);
 					Assert.IsFalse(Rect("New Best Tag").Visible);
-					Assert.AreEqual(game.Score.ToString("N0"), UIText("Final Score").Text);
+					Assert.AreEqual(Hud.FormatScore(game.Score), UIText("Final Score").Text);
 				});
 				Click("Play Again Button");
 				Next(Step.PlayAgain);
@@ -535,6 +619,12 @@ public sealed class BlocksTests : Script
 				Next(Step.Demo);
 				break;
 			case Step.Demo when (game.DemoPieces >= 3 && camera.AttractWeight >= 1.0f) || m_StepFrames == Patience:
+				TestReporter.Run("the title's sign waits for the camera to stand back, and the title never covers the board", () =>
+				{
+					Assert.IsNull(m_TitleTrouble);
+					Assert.IsTrue(m_SignWaited > 30, $"the sign waited for {m_SignWaited} frames of the camera's glide");
+					Assert.IsTrue(m_SignFadedIn > 10, $"the sign faded in over {m_SignFadedIn} frames of the glide");
+				});
 				CheckDemo(game, camera);
 				// What a click on the title's Play does.
 				Click("Play Button");
@@ -806,12 +896,15 @@ public sealed class BlocksTests : Script
 		});
 	}
 
-	// The paused game: the menu over the dimmed game, the callouts waiting and the score panel's numbers.
-	private static void CheckPause(BlocksGame game)
+	// The paused game: the menu over the dimmed game, the callouts waiting (the clear's with its points) and the score panel's
+	// numbers.
+	private static void CheckPause(BlocksGame game, int clearPoints)
 	{
 		TestReporter.Run("callouts wait out of sight while the game is paused", () =>
 		{
 			Assert.AreEqual("TETRIS!", game.Callout(CalloutSlot.Clear));
+			Assert.IsTrue(clearPoints >= 1000, $"a clear of {clearPoints} points groups its thousands");
+			Assert.AreEqual($"+{Hud.FormatScore(clearPoints)}", UIText("Clear Callout Detail").Text);
 			Assert.AreEqual(0.0f, Rect("Clear Callout").Opacity);
 		});
 		TestReporter.Run("the pause menu opens over the dimmed game with Resume focused", () =>
@@ -826,10 +919,11 @@ public sealed class BlocksTests : Script
 		});
 		TestReporter.Run("the score panel shows the game's numbers and the rows toward the next level", () =>
 		{
-			Assert.AreEqual(game.Score.ToString("N0"), UIText("Score Value").Text);
-			Assert.AreEqual(game.Level.ToString(), UIText("Level Value").Text);
-			Assert.AreEqual(game.Rows.ToString(), UIText("Lines Value").Text);
-			Assert.AreEqual(System.Math.Max(game.BestScore, game.Score).ToString("N0"), UIText("Best Value").Text);
+			Assert.IsTrue(game.Score >= 1000, $"a score of {game.Score} groups its thousands");
+			Assert.AreEqual(Hud.FormatScore(game.Score), UIText("Score Value").Text);
+			Assert.AreEqual(Hud.FormatNumber(game.Level), UIText("Level Value").Text);
+			Assert.AreEqual(Hud.FormatNumber(game.Rows), UIText("Lines Value").Text);
+			Assert.AreEqual(Hud.FormatScore(System.Math.Max(game.BestScore, game.Score)), UIText("Best Value").Text);
 			Assert.IsTrue(game.LevelProgress > 0.0f, $"rows toward the next level: {game.Rows}");
 			UIRectComponent bar = Rect("Level Bar Fill");
 			Assert.IsTrue(bar.Visible);
@@ -854,6 +948,7 @@ public sealed class BlocksTests : Script
 			UIRectComponent title = Rect("Title Screen");
 			Assert.IsTrue(title.Visible);
 			Assert.AreEqual(1.0f, title.Opacity);
+			Assert.AreEqual(1.0f, ShownOpacity("Title Sign"), "the sign shows once the camera stands back");
 			Assert.AreEqual("Play Button", game.Hud?.OpenMenu?.FocusedButton.Name);
 			Assert.IsTrue(Rect("Demo Tag").Visible);
 		});
@@ -865,7 +960,7 @@ public sealed class BlocksTests : Script
 			float title = ScreenRect("Subtitle").Max.Y;
 			float menu = ScreenRect("Title Menu").Min.Y;
 			float middle = ScreenRect("Callouts").Min.Y;
-			float scale = CanvasScale();
+			float scale = CanvasScale(Window);
 			foreach (CalloutSlot slot in System.Enum.GetValues<CalloutSlot>())
 			{
 				(float top, float bottom) = Callouts.Room(slot);
@@ -874,27 +969,22 @@ public sealed class BlocksTests : Script
 				Assert.IsTrue(title < roomTop && roomBottom < menu, $"{slot}: room {roomTop} to {roomBottom}, title to {title}, menu from {menu}");
 			}
 		});
-		TestReporter.Run("the title and its menu leave the board and its panels in sight", () =>
+		TestReporter.Run("the title, its menu and the score and controls panels leave the board in sight on screens from 5:4 to 21:9", () =>
 		{
-			// Across the block letters' width, rays through the bottom of the title pass over the panels' tops (the highest part
-			// of the board), and rays through the top of the menu pass under the board's base.
+			Assert.IsNull(FindCover(game, s_Screens, [.. s_Sign, .. s_TitleMenu, .. s_Panels]));
+			// Through the bottom of the title the camera looks over the panels' tops (the highest part of the board), and through
+			// the top of the menu under the board's base.
 			CameraComponent view = game.Camera!.GetComponent<CameraComponent>()!;
 			Entity panel = Entity.FindByName("Next Panel")!;
 			Entity floor = Entity.FindByName("Floor")!;
-			Vector3 panelCenter = panel.GetComponent<TransformComponent>()!.WorldTranslation;
-			Vector3 floorCenter = floor.GetComponent<TransformComponent>()!.WorldTranslation;
-			(Vector2 logoMin, Vector2 logoMax) = ScreenRect("Logo");
-			(Vector2 menuMin, Vector2 menuMax) = ScreenRect("Title Menu");
-			float titleBottom = ScreenRect("Subtitle").Max.Y;
-			for (int i = 0; i <= 8; i++)
-			{
-				float x = Mathf.Lerp(logoMin.X, logoMax.X, i / 8.0f);
-				float over = Height(view.ScreenToWorldRay(new Vector2(x, titleBottom)), panelCenter.Z + (0.5f * panel.Scale.Z));
-				Assert.IsTrue(over > panelCenter.Y + (0.5f * panel.Scale.Y), $"the title reaches down to {over} at x {x}");
-				float menuX = Mathf.Lerp(menuMin.X, menuMax.X, i / 8.0f);
-				float under = Height(view.ScreenToWorldRay(new Vector2(menuX, menuMin.Y)), floorCenter.Z + (0.5f * floor.Scale.Z));
-				Assert.IsTrue(under < floorCenter.Y - (0.5f * floor.Scale.Y), $"the menu reaches up to {under} at x {menuX}");
-			}
+			Vector3 panelCenter = panel.Transform.WorldTranslation;
+			Vector3 floorCenter = floor.Transform.WorldTranslation;
+			Area sign = ScreenRect("Subtitle");
+			Area menu = ScreenRect("Title Menu");
+			float over = Height(view.ScreenToWorldRay(new Vector2(sign.Center.X, sign.Max.Y)), panelCenter.Z + (0.5f * panel.Scale.Z));
+			Assert.IsTrue(over > panelCenter.Y + (0.5f * panel.Scale.Y), $"the title reaches down to {over}");
+			float under = Height(view.ScreenToWorldRay(new Vector2(menu.Center.X, menu.Min.Y)), floorCenter.Z + (0.5f * floor.Scale.Z));
+			Assert.IsTrue(under < floorCenter.Y - (0.5f * floor.Scale.Y), $"the menu reaches up to {under}");
 		});
 		TestReporter.Run("a demo that tops out starts over without a game over", () =>
 		{
@@ -911,15 +1001,20 @@ public sealed class BlocksTests : Script
 	}
 
 	// A four-row clear right after another, after a three-row clear: the biggest callout of every slot at once ("TETRIS!" with
-	// its points, "BACK-TO-BACK" and "LEVEL UP!" with the level), and a row toward the level after.
-	private static void ShowEveryCallout(BlocksGame game)
+	// its points, "BACK-TO-BACK" and "LEVEL UP!" with the level), and a row toward the level after. Returns the points of the
+	// last clear.
+	private static int ShowEveryCallout(BlocksGame game)
 	{
 		game.Restart();
+		int points = 0;
 		foreach (int rows in new[] { 3, 4, 4 })
 		{
 			FillRows(game.Board, 0, rows, Board.Width);
+			int before = game.Score;
 			game.ClearFullRows();
+			points = game.Score - before;
 		}
+		return points;
 	}
 
 	// Checks the callouts that show this frame: each keeps to its slot's room (so none runs into another).
@@ -1027,39 +1122,208 @@ public sealed class BlocksTests : Script
 	// Clicks a button of the screen as the mouse does: at the start of the next frame.
 	private static void Click(string button) => Entity.FindByName(button)?.GetComponent<UIButtonComponent>()?.Click();
 
-	// Pixels per canvas unit of the screen's canvas, which fits its whole reference resolution on the screen.
-	private static float CanvasScale()
+	// An entity of the scene by its name, found once.
+	private Entity Find(string name)
+	{
+		if (!m_Found.TryGetValue(name, out Entity? entity))
+		{
+			entity = Entity.FindByName(name);
+			Assert.IsNotNull(entity, $"the scene has an entity named {name}");
+			m_Found[name] = entity;
+		}
+		return entity;
+	}
+
+	// The window the checks run in, in pixels.
+	private static Vector2 Window => new(Application.WindowWidth, Application.WindowHeight);
+
+	// Pixels per canvas unit of the screen's canvas on a screen of the size: the canvas fits its whole reference resolution.
+	private static float CanvasScale(Vector2 screen)
 	{
 		UICanvasComponent canvas = Element<UICanvasComponent>("HUD");
 		Assert.AreEqual(UIScaleMode.ScaleWithScreenSize, canvas.ScaleMode);
 		Vector2 reference = canvas.ReferenceResolution;
-		return Mathf.Min(Application.WindowWidth / reference.X, Application.WindowHeight / reference.Y);
+		return Mathf.Min(screen.X / reference.X, screen.Y / reference.Y);
 	}
 
-	// Where an element of the screen's canvas is, in pixels from the screen's top-left corner, laid out as the UI lays it out:
-	// in its parent's rectangle by its anchors, pivot, position and size.
-	private static (Vector2 Min, Vector2 Max) ScreenRect(string name)
+	// Where an element of the screen's canvas lies in the window, in pixels from its top-left corner.
+	private Area ScreenRect(string name) => new Placed(Find(name)).On(Window, CanvasScale(Window));
+
+	// How much of an element of the screen shows: its opacity times its ancestors', none when it or one of them is hidden.
+	private float ShownOpacity(string name) => new Placed(Find(name)).Opacity;
+
+	// Every frame: what of the title shows (its sign and its menu) leaves the board, its panels and their labels in sight, in
+	// the window and on a wide screen, where the sign clears the board last while the camera glides to the title's view. The
+	// frames of that glide in which the sign waited for the camera, and in which it faded in, are counted.
+	private void WatchTitle(BlocksGame game, CameraShake camera)
 	{
-		List<UIRectComponent> chain = [];
-		for (Entity? entity = Entity.FindByName(name); entity is not null && !entity.HasComponent<UICanvasComponent>(); entity = entity.Parent)
+		if (ShownOpacity("Title Screen") <= 0.0f)
 		{
-			chain.Add(entity.GetComponent<UIRectComponent>()!);
+			return;
 		}
-		float scale = CanvasScale();
-		Vector2 min = Vector2.Zero;
-		Vector2 max = new(Application.WindowWidth, Application.WindowHeight);
-		for (int i = chain.Count - 1; i >= 0; i--)
+		if (game.State == GameState.Title && camera.AttractWeight < 1.0f)
 		{
-			UIRectComponent rect = chain[i];
-			Vector2 parent = max - min;
-			Vector2 anchorMin = min + (rect.AnchorMin * parent);
-			Vector2 span = (min + (rect.AnchorMax * parent)) - anchorMin;
-			Vector2 size = span + (rect.Size * scale);
-			Vector2 pivot = anchorMin + (span * rect.Pivot) + (rect.Position * scale);
-			min = pivot - (size * rect.Pivot);
-			max = min + size;
+			bool shows = ShownOpacity("Title Sign") > 0.0f;
+			m_SignWaited += shows ? 0 : 1;
+			m_SignFadedIn += shows ? 1 : 0;
 		}
-		return (min, max);
+		if (m_TitleTrouble is null && FindCover(game, [Window, s_WideScreen], [.. s_Sign, .. s_TitleMenu]) is { } cover)
+		{
+			m_TitleTrouble = $"{cover}, {camera.AttractWeight} of the way to the title's view";
+		}
+	}
+
+	// The first element of the screen that covers a part of the board on one of the screens (in the window also the HOLD or
+	// NEXT label the screen places over a panel), described; null when the elements that show leave all of them in sight.
+	private string? FindCover(BlocksGame game, IEnumerable<Vector2> screens, IEnumerable<string> names)
+	{
+		List<(string Name, Placed Element)> elements = [];
+		foreach (string name in names)
+		{
+			Placed element = new(Find(name));
+			if (element.Opacity > 0.0f)
+			{
+				elements.Add((name, element));
+			}
+		}
+		if (elements.Count == 0)
+		{
+			return null;
+		}
+		foreach (Vector2 screen in screens)
+		{
+			List<(string Name, Area Area)> board = [];
+			using (ScreenView view = new(game, screen))
+			{
+				foreach (string part in s_BoardParts)
+				{
+					board.Add((part, view.Box(Find(part))));
+				}
+			}
+			if (screen == Window)
+			{
+				foreach (string label in new[] { "Hold Label", "Next Label" })
+				{
+					// A label of the canvas of pixels: its position is its middle.
+					UIRectComponent rect = Find(label).GetComponent<UIRectComponent>()!;
+					if (rect.Visible)
+					{
+						board.Add((label, new Area(rect.Position - (0.5f * rect.Size), rect.Position + (0.5f * rect.Size))));
+					}
+				}
+			}
+			float scale = CanvasScale(screen);
+			foreach ((string name, Placed element) in elements)
+			{
+				Area area = element.On(screen, scale);
+				foreach ((string part, Area covered) in board)
+				{
+					if (area.Overlaps(covered))
+					{
+						return $"on a {screen.X} x {screen.Y} screen the {name} ({area}) covers the {part} ({covered})";
+					}
+				}
+			}
+		}
+		return null;
+	}
+
+	// A rectangle of the screen, in pixels from its top-left corner.
+	private readonly record struct Area(Vector2 Min, Vector2 Max)
+	{
+		public Vector2 Center => 0.5f * (Min + Max);
+
+		public bool Overlaps(Area other) => Min.X < other.Max.X && other.Min.X < Max.X && Min.Y < other.Max.Y && other.Min.Y < Max.Y;
+
+		public override string ToString() => $"{Min} to {Max}";
+	}
+
+	// An element of the screen's canvas as the UI places it, read once: its rectangle and those of its ancestors below the
+	// canvas, laid out on screens of any size.
+	private sealed class Placed
+	{
+		private readonly List<(Vector2 AnchorMin, Vector2 AnchorMax, Vector2 Pivot, Vector2 Position, Vector2 Size)> m_Chain = [];
+
+		public Placed(Entity element)
+		{
+			Opacity = 1.0f;
+			for (Entity? entity = element; entity is not null && !entity.HasComponent<UICanvasComponent>(); entity = entity.Parent)
+			{
+				UIRectComponent rect = entity.GetComponent<UIRectComponent>()!;
+				Opacity *= rect.Visible ? rect.Opacity : 0.0f;
+				m_Chain.Add((rect.AnchorMin, rect.AnchorMax, rect.Pivot, rect.Position, rect.Size));
+			}
+		}
+
+		// How much of the element shows: its opacity times its ancestors', none when it or one of them is hidden.
+		public float Opacity { get; }
+
+		// Where the element lies on a screen of the size, in pixels from its top-left corner, at the canvas's scale there
+		// (pixels per canvas unit): laid out as the UI lays it out, in its parent's rectangle by its anchors, pivot, position
+		// and size.
+		public Area On(Vector2 screen, float scale)
+		{
+			Area area = new(Vector2.Zero, screen);
+			for (int i = m_Chain.Count - 1; i >= 0; i--)
+			{
+				(Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 position, Vector2 size) = m_Chain[i];
+				Vector2 parent = area.Max - area.Min;
+				Vector2 spanStart = area.Min + (anchorMin * parent);
+				Vector2 span = area.Min + (anchorMax * parent) - spanStart;
+				Vector2 extent = span + (size * scale);
+				Vector2 min = spanStart + (span * pivot) + (position * scale) - (extent * pivot);
+				area = new Area(min, min + extent);
+			}
+			return area;
+		}
+	}
+
+	// The camera showing the scene on a screen of a size: while the view lasts, the camera keeps that screen's aspect ratio
+	// with the field of view its CameraShake fits to it; disposing the view gives the camera back to the window.
+	private sealed class ScreenView : System.IDisposable
+	{
+		private readonly CameraComponent m_Camera;
+		private readonly bool m_FixedAspectRatio;
+		private readonly float m_AspectRatio;
+		private readonly float m_FieldOfView;
+		// Pixels of the screen per pixel of the window, across and down.
+		private readonly Vector2 m_Scale;
+
+		public ScreenView(BlocksGame game, Vector2 screen)
+		{
+			m_Camera = game.Camera!.GetComponent<CameraComponent>()!;
+			m_FixedAspectRatio = m_Camera.FixedAspectRatio;
+			m_AspectRatio = m_Camera.AspectRatio;
+			m_FieldOfView = m_Camera.PerspectiveFOV;
+			m_Camera.FixedAspectRatio = true;
+			m_Camera.AspectRatio = screen.X / screen.Y;
+			game.Camera!.As<CameraShake>()!.FitView();
+			m_Scale = new Vector2(screen.X / Application.WindowWidth, screen.Y / Application.WindowHeight);
+		}
+
+		// The rectangle around where the camera shows a box (an entity that scales a cube one unit wide) on the screen.
+		public Area Box(Entity box)
+		{
+			Matrix4 world = box.Transform.WorldTransform;
+			Vector2 min = new(float.MaxValue);
+			Vector2 max = new(float.MinValue);
+			for (int corner = 0; corner < 8; corner++)
+			{
+				Vector3 local = new((corner & 1) == 0 ? -0.5f : 0.5f, (corner & 2) == 0 ? -0.5f : 0.5f, (corner & 4) == 0 ? -0.5f : 0.5f);
+				Vector3 shown = m_Camera.WorldToScreenPoint(world.TransformPoint(local));
+				Vector2 point = new(shown.X * m_Scale.X, shown.Y * m_Scale.Y);
+				min = new Vector2(Mathf.Min(min.X, point.X), Mathf.Min(min.Y, point.Y));
+				max = new Vector2(Mathf.Max(max.X, point.X), Mathf.Max(max.Y, point.Y));
+			}
+			return new Area(min, max);
+		}
+
+		public void Dispose()
+		{
+			m_Camera.FixedAspectRatio = m_FixedAspectRatio;
+			m_Camera.AspectRatio = m_AspectRatio;
+			m_Camera.PerspectiveFOV = m_FieldOfView;
+		}
 	}
 
 	private static Vector2 Flat(Vector3 screen) => new(screen.X, screen.Y);

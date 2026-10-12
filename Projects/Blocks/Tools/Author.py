@@ -279,14 +279,16 @@ def build_hud(client):
     # The menus dim the game under them.
     element("Dim", canvas, fill(visible=False, opacity=0.0), image((0.0, 0.0, 0.012, 1.0)))
 
-    # The title: the game's name in block letters over a glow, a subtitle, and Play and Quit at the bottom, over the floor in
-    # front of the board the demo plays on.
+    # The title: its sign (the game's name in block letters over a glow, and a subtitle) above the board, and Play and Quit
+    # at the bottom, over the floor in front of the board the demo plays on. The sign waits for the camera to stand back
+    # from the board (Hud.cs fades it in).
     title = element("Title Screen", canvas, fill())
+    sign = element("Title Sign", title, fill())
     tile, gap = 128.0, 14.0
     logo_width = (len(TILES) * tile) + ((len(TILES) - 1) * gap)
-    element("Logo Glow", title, at((0.5, 0.0), (0.5, 0.0), (0.0, -26.0), (logo_width + 300.0, tile + 150.0)),
+    element("Logo Glow", sign, at((0.5, 0.0), (0.5, 0.0), (0.0, -26.0), (logo_width + 300.0, tile + 150.0)),
             image((0.32, 0.08, 1.0, 0.42), "Glow"))
-    logo = element("Logo", title, at((0.5, 0.0), (0.5, 0.0), (0.0, 46.0), (logo_width, tile)))
+    logo = element("Logo", sign, at((0.5, 0.0), (0.5, 0.0), (0.0, 46.0), (logo_width, tile)))
     for index, (letter, color) in enumerate(TILES):
         side = tuple(c * 0.4 for c in color) + (1.0,)
         block = element(f"Tile {letter}", logo, at((0.0, 0.0), (0.0, 0.0), (index * (tile + gap), 0.0), (tile, tile)), image(side, radius=22.0))
@@ -294,7 +296,7 @@ def build_hud(client):
         element(f"Tile {letter} Gloss", face, ui_rect((0.0, 0.0), (1.0, 0.5), (0.5, 0.0), (0.0, 5.0), (-12.0, 0.0)),
                 image((1.0, 1.0, 1.0, 1.0), "Gloss", 13.0))
         element(f"Tile {letter} Letter", face, fill(), text_fields=text(letter, 90.0, DARK_TEXT))
-    subtitle = element("Subtitle", title, at((0.5, 0.0), (0.5, 0.0), (0.0, 46.0 + tile + 26.0), (470.0, 42.0)), image(GLASS, radius=21.0))
+    subtitle = element("Subtitle", sign, at((0.5, 0.0), (0.5, 0.0), (0.0, 46.0 + tile + 26.0), (470.0, 42.0)), image(GLASS, radius=21.0))
     element("Subtitle Text", subtitle, fill(), text_fields=text("A STRADA ENGINE EXAMPLE", 20.0, (0.78, 0.82, 1.0, 1.0)))
     menu = element("Title Menu", title, at((0.5, 1.0), (0.5, 1.0), (0.0, -78.0), (600.0, 84.0)))
     button("Play Button", menu, (-130.0, 42.0), (340.0, 84.0), "PLAY", 40.0, True)
