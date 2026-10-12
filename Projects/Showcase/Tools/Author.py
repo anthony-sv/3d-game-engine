@@ -8,8 +8,10 @@ The project is rebuilt from scratch: everything but this Tools folder, the .giti
 (Scripts/Source) is replaced. Without an executable, strada runs from the repository (dotnet run).
 
 The clearing is laid out in exhibit areas around a fountain, each with a signpost: physically based materials (west), glass
-and cutouts (east), lights and shadows (north-west), physics (north), triggers (north-east), particles and sound around the
-fountain and the campfire. The camera tours them when the game starts.
+and cutouts (east), lights and shadows (north-west, in an evening zone of post-processing), physics (north), triggers
+(north-east), particles and sound around the fountain and the campfire. A global post-process volume grades the scene; day
+turns to night at the press of a button. The camera tours the exhibits when the game starts, under a neon sign that flickers
+on; then a HUD (a UI canvas) lists the features, counts what was knocked down and scored, and sets the exhibits off.
 """
 import json
 import math
@@ -25,7 +27,7 @@ PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
 SCRIPTS = ["FlyCamera", "CameraShake", "Flythrough", "CameraShot", "ITourCue", "Impact", "LanternFlicker", "Playground",
            "WreckingBall", "DominoRun", "BallLauncher", "GoalZone", "PressurePlate", "Spinner", "Sway", "LightShow", "DebugView",
-           "ScreenScaler", "ShowcaseTests"]
+           "NeonSign", "DayNight", "Hud", "HudFeature", "ShowcaseTests"]
 
 HDRI = "autumn_forest_04"
 GROUND = "dry_decay_leaves"
@@ -239,7 +241,7 @@ HOME = (LAYOUT, (0.0, 2.9, 16.0), (0.0, 1.1, -2.0))
 # the camera arrives it goes off). It opens on the neon sign, the engine's name in light, and pulls back to the gallery under
 # it; it ends at the campfire, beside the home view.
 TOUR = (
-    ("Opening", GALLERY, (-0.8, 5.6, 4.6), (0.2, 6.5, -0.6), 6.0, "", "", None, 0.0),
+    ("Opening", GALLERY, (-0.8, 5.6, 4.6), (0.2, 6.5, -0.6), 6.0, "", "", "neon_sign", 0.0),
     ("Gallery", GALLERY, (0.8, 3.2, 8.2), (0.0, 2.7, 0.0), 4.5, "Physically based materials",
      "metallic and roughness, normal and occlusion maps, emission and bloom", None, 0.0),
     ("Lights", LAYOUT, (-6.55, 5.2, -0.35), (-9.6, 1.2, -7.2), 4.5, "Lights and shadows", "a lighthouse beam, colored spots and soft sun shadows",
@@ -255,15 +257,68 @@ TOUR = (
 )
 
 
-def screen_text(text, position, size, color=(1.0, 1.0, 1.0, 1.0), alignment=None):
-    text_fields = {"Text": text, "Font": "builtin://DefaultFont", "Color": list(color), "FontSize": size, "ScreenSpace": True}
-    if alignment:
-        text_fields["Alignment"] = alignment
-    return {"Transform": transform(position), "Text": text_fields}
-
-
 def world_text(text, size, color, alignment="Center"):
     return {"Text": text, "Font": "builtin://DefaultFont", "Color": list(color), "FontSize": size, "Alignment": alignment}
+
+
+# --- The screen: UI elements ---------------------------------------------------------------------------------------------
+
+def linear(r, g, b, a=1.0):
+    """A color picked in sRGB (as design tools show it) as the linear color the engine's colors are."""
+    def channel(value):
+        return value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+    return [channel(r), channel(g), channel(b), a]
+
+
+def ui_rect(anchor, pivot, position, size, anchor_max=None, **fields):
+    """A UIRect placed at a point of its parent (anchor, from (0, 0) at the top-left corner to (1, 1)), or stretched with it up
+    to anchor_max; its pivot sits there, moved by the position; canvas units, y downwards."""
+    rect = {"AnchorMin": list(anchor), "AnchorMax": list(anchor_max or anchor), "Pivot": list(pivot), "Position": list(position),
+            "Size": list(size)}
+    rect.update(fields)
+    return rect
+
+
+def ui_fill(**fields):
+    """A UIRect covering its parent."""
+    return ui_rect((0.0, 0.0), (0.5, 0.5), (0.0, 0.0), (0.0, 0.0), (1.0, 1.0), **fields)
+
+
+def ui_text(text, size, color, alignment="Left", vertical="Middle", **fields):
+    return {"Text": text, "FontSize": size, "Color": color, "Alignment": alignment, "VerticalAlignment": vertical, **fields}
+
+
+# The HUD's palette: dark glass panels, warm white text, an amber accent (the neon sign's and the lamps' warmth).
+PANEL = linear(0.05, 0.055, 0.07, 0.68)
+TEXT = linear(0.96, 0.94, 0.9)
+DIM = linear(0.66, 0.66, 0.66)
+AMBER = linear(1.0, 0.68, 0.3)
+BUTTON = {"NormalColor": linear(0.05, 0.055, 0.07, 0.7), "HoveredColor": linear(0.5, 0.29, 0.08, 0.92),
+          "PressedColor": linear(0.32, 0.17, 0.04, 0.95), "DisabledColor": linear(0.1, 0.1, 0.1, 0.45)}
+
+# The feature list: a row per exhibit area, lit while the camera is near it (name, what it shows, where on the ground (x, z), and
+# within how many meters it is fully lit); the last row, with no place, lights up while the mouse is over the HUD.
+FEATURES = (
+    ("Physically based materials", "metallic, roughness, normal, occlusion, emission", (-11.2, 1.4), 6.0),
+    ("Transparency", "blended glass, alpha-tested lattice, two-sided cloth", (11.6, 2.2), 6.0),
+    ("Lights and shadows", "sun and sky, spot and point lights, soft shadows", (-8.6, -10.5), 7.0),
+    ("Post-processing", "bloom, ambient occlusion, grading, local volumes", (-9.6, -7.2), 4.5),
+    ("Rigid bodies and joints", "Jolt physics: crates, dominoes, a wrecking ball", (0.5, -11.5), 7.0),
+    ("Triggers", "a goal that counts, a plate that opens a gate", (11.0, -8.0), 6.0),
+    ("Particles and 3D sound", "fire, water, sparks and fireflies, heard in space", (-2.2, 4.0), 7.0),
+    ("UI and C# scripting", "this HUD, and how every exhibit behaves", None, 0.0),
+)
+
+# The HUD's buttons: (entity name, label, icon, key, Hud field).
+BUTTONS = (
+    ("Reset Button", "Reset exhibits", "Reset", "R", "ResetButton"),
+    ("Swing Button", "Swing the wrecking ball", "Swing", "1", "SwingButton"),
+    ("Launch Button", "Launch a ball", "Launch", "3", "LaunchButton"),
+    ("Lights Button", "Toggle lights", "Sun", "L", "LightsButton"),
+)
+
+FLY_HINT = ("Right mouse  look      W A S D  move      Q / E  down · up      Shift  faster      Click  throw a ball      "
+            "T  debug view      H  hide HUD      C  tour")
 
 
 def use_engine_sources(csproj):
@@ -472,12 +527,11 @@ class Showcase:
 
     def make_scene(self):
         call = self.call
-        # Golden hour, graded warm with a little more contrast than life, a soft vignette and a trace of film grain.
+        # The scene's own settings are neutral: its look (golden hour) comes from a global post-process volume (make_grading).
         call("scene_settings", {"name": "Showcase", "settings": {"Renderer": {
             "Tonemapper": "ACES", "EV100": -0.55, "Shadows": True, "SoftShadows": True, "ShadowDistance": 60.0, "CascadeCount": 4,
             "ShadowMapSize": 4096, "LocalShadowMapSize": 1024, "AmbientOcclusion": True, "AmbientOcclusionRadius": 0.8,
-            "AmbientOcclusionIntensity": 1.2, "Bloom": True, "BloomIntensity": 0.12, "FXAA": True, "Contrast": 1.1,
-            "Saturation": 1.1, "Temperature": 0.1, "Tint": 0.02, "Vignette": 0.35, "VignetteSmoothness": 0.5, "FilmGrain": 0.03}}})
+            "AmbientOcclusionIntensity": 1.2, "Bloom": True, "FXAA": True}}})
         found = {entity["name"]: entity["id"] for entity in call("entity_find", {})["entities"]}
         call("entity_delete", {"entities": [found[name] for name in ("Floor", "Cube", "Sphere", "Capsule")]})
         self.found = found
@@ -505,6 +559,8 @@ class Showcase:
         self.make_triggers()
         self.make_scenery()
         self.make_sound()
+        self.make_grading()
+        self.make_playground()
         self.make_hud()
         self.make_tour()
         call("scene_save")
@@ -736,14 +792,21 @@ class Showcase:
                                   "Text": world_text("ROUGHNESS", 0.15, text_color)}, labels)
 
         # The neon sign over the wall, with its glow on the wall and the spheres.
-        sign = self.entity("Neon Sign", {"Transform": frame.place((0.0, 6.85, -0.66))}, gallery)
+        sign = self.entity("Neon Sign", {"Transform": frame.place((0.0, 6.85, -0.66)), "AudioSource": {
+            "Clip": "asset://Audio/NeonIgnite.wav", "Volume": 0.8, "Spatial": True, "MinDistance": 3.0, "MaxDistance": 40.0}}, gallery)
         self.entity("Panel", {"Transform": transform((0.0, 0.0, -0.08), scale=(5.6, 1.6, 0.12)), **self.mesh("Cube", self.slate)}, sign)
-        self.entity("Letters", {"Transform": transform((0.0, 0.0, 0.05), scale=(0.85, 0.85, 0.85)),
-                                **self.mesh("asset://Meshes/NeonStrada.gltf", self.neon["Pink"])}, sign)
-        self.entity("Frame", {"Transform": transform((0.0, 0.0, 0.05), scale=(0.85, 0.85, 0.85)),
-                              **self.mesh("asset://Meshes/NeonFrame.gltf", self.neon["Cyan"])}, sign)
-        self.entity("Glow", {"Transform": transform((0.0, -0.3, 1.2)),
-                             "PointLight": {"Color": [1.0, 0.3, 0.6], "Intensity": 6.0, "Range": 7.0}}, sign)
+        letters = self.entity("Letters", {"Transform": transform((0.0, 0.0, 0.05), scale=(0.85, 0.85, 0.85)),
+                                          **self.mesh("asset://Meshes/NeonStrada.gltf", self.neon["Pink"])}, sign)
+        tubes = self.entity("Frame", {"Transform": transform((0.0, 0.0, 0.05), scale=(0.85, 0.85, 0.85)),
+                                      **self.mesh("asset://Meshes/NeonFrame.gltf", self.neon["Cyan"])}, sign)
+        glow = self.entity("Glow", {"Transform": transform((0.0, -0.3, 1.2)),
+                                    "PointLight": {"Color": [1.0, 0.3, 0.6], "Intensity": 6.0, "Range": 7.0}}, sign)
+        hum = self.entity("Hum", {"AudioSource": {"Clip": "asset://Audio/NeonHum.wav", "Volume": 0.22, "Loop": True, "PlayOnStart": True,
+                                                  "Spatial": True, "MinDistance": 1.5, "MaxDistance": 10.0}}, sign)
+        self.call("component_add", {"entity": sign, "component": "Script", "fields": {"ClassName": "Showcase.NeonSign", "Fields": {
+            "Letters": {"Type": "Entity", "Value": letters}, "Frame": {"Type": "Entity", "Value": tubes},
+            "Glow": {"Type": "Entity", "Value": glow}, "Hum": {"Type": "Entity", "Value": hum}}}})
+        self.neon_sign = sign
 
         # Hero objects on marble pedestals: Poly Haven texture sets with normal and occlusion-roughness-metallic maps, and a
         # scanned marble bust.
@@ -914,6 +977,15 @@ class Showcase:
                                  **self.mesh("Cylinder", self.neon["Lens"], shadows=False)}, spot)
             self.light_shaft(spot, 4.4, 1.7, self.spot_beam, start=-0.08)
         self.light_show = rig
+        # Evening under the truss: a local post-process volume around the stage darkens the exposure, so the spots' colored
+        # pools and the beams outshine the sun, cools and deepens the colors and strengthens the glow and the lens; it fades out
+        # over 5 m around its box as the camera leaves.
+        self.evening_zone = self.entity("Evening Zone", {"Transform": transform((0.0, 3.0, 0.0), scale=(9.0, 6.0, 9.0)), "PostProcess": {
+            "Global": False, "BlendDistance": 5.0, "Priority": 1.0,
+            "OverrideEV100": True, "EV100": 1.0, "OverrideBloomIntensity": True, "BloomIntensity": 0.34,
+            "OverrideContrast": True, "Contrast": 1.24, "OverrideSaturation": True, "Saturation": 1.35,
+            "OverrideTemperature": True, "Temperature": -0.55, "OverrideTint": True, "Tint": 0.24,
+            "OverrideVignette": True, "Vignette": 0.6, "OverrideChromaticAberration": True, "ChromaticAberration": 0.35}}, stage)
         self.signpost((-12.2, -4.6), "LIGHT & SHADOW", "sun and sky, spot and point lights,\nsoft and colored shadows")
 
     def light_shaft(self, lamp, length, radius, material, start=0.0, layers=8):
@@ -1313,49 +1385,39 @@ class Showcase:
 
     def make_sound(self):
         self.entity("Music", {"AudioSource": {"Clip": "asset://Audio/Music.wav", "Volume": 0.3, "Loop": True, "PlayOnStart": True, "Spatial": False}})
-        self.entity("Forest Ambience", {"AudioSource": {"Clip": "asset://Audio/Ambience.wav", "Volume": 0.5, "Loop": True, "PlayOnStart": True,
-                                                        "Spatial": False}})
+        self.ambience = self.entity("Forest Ambience", {"AudioSource": {"Clip": "asset://Audio/Ambience.wav", "Volume": 0.5, "Loop": True,
+                                                                        "PlayOnStart": True, "Spatial": False}})
+        # Crickets, silent until night falls (DayNight turns them up).
+        self.night_ambience = self.entity("Night Ambience", {"AudioSource": {"Clip": "asset://Audio/Night.wav", "Volume": 0.0, "Loop": True,
+                                                                             "PlayOnStart": True, "Spatial": False}})
         self.call("component_add", {"entity": self.fountain, "component": "AudioSource", "fields": {
             "Clip": "asset://Audio/Fountain.wav", "Volume": 0.8, "Loop": True, "PlayOnStart": True, "Spatial": True, "MinDistance": 2.0,
             "MaxDistance": 26.0}})
 
-    def make_hud(self):
-        """What the screen shows while exploring (the HUD), the tour's texts and the crosshair, sized for a window 900 pixels
-        tall and scaled with it; the thrown ball's prefab."""
-        screen = self.entity("Screen", {"Script": {"ClassName": "Showcase.ScreenScaler"}})
-        hud = self.entity("HUD", None, screen)
-        self.entity("Title", screen_text("STRADA ENGINE  |  Showcase", (0.025, 0.04, 0.0), 30.0, (1.0, 0.86, 0.55, 1.0)), hud)
-        self.entity("Controls", screen_text(
-            "Right mouse  look      WASD  move      Q / E  down / up      Shift  faster      Left click  throw a ball\n"
-            "1  wrecking ball      2  dominoes      3  launcher      T  debug view      R  put everything back      C  tour",
-            (0.025, 0.9, 0.0), 18.0, (0.92, 0.92, 0.9, 0.9)), hud)
-        self.status = self.entity("Status", screen_text("", (0.025, 0.09, 0.0), 22.0, (1.0, 1.0, 1.0, 0.95)), hud)
-        self.hud = hud
-        tour_texts = self.entity("Tour Texts", None, screen)
-        # The tour opens on the neon sign, which spells the engine's name: the title under it says what this is, letter-spaced
-        # between two rules on a soft band, over a shadow (children are placed relative to it; lower z is underneath).
-        title = "   ".join(" ".join(word) for word in ("ENGINE", "SHOWCASE"))
-        self.tour_title = self.entity("Tour Title", screen_text(title, (0.5, 0.73, 0.0), 38.0, (1.0, 0.96, 0.9, 1.0), "Center"), tour_texts)
-        self.entity("Title Shadow", screen_text(title, (0.0015, 0.0025, -0.5), 38.0, (0.0, 0.0, 0.0, 0.6), "Center"), self.tour_title)
-        for name, y in (("Rule", -0.018), ("Rule 2", 0.062)):
-            self.entity(name, {"Transform": transform((0.0, y, 0.0), scale=(600.0, 2.0, 1.0)),
-                               "SpriteRenderer": {"Color": [1.0, 0.84, 0.58, 0.85], "ScreenSpace": True}}, self.tour_title)
-        self.entity("Title Band", {"Transform": transform((0.0, 0.022, -1.0), scale=(1100.0, 104.0, 1.0)),
-                                   "SpriteRenderer": {"Color": [0.0, 0.0, 0.0, 0.38], "ScreenSpace": True}}, self.tour_title)
-        # The caption with its detail line on a dark band in the lower third (drawn under the texts: higher z is on top).
-        self.tour_caption = self.entity("Tour Caption", screen_text("", (0.5, 0.82, 0.0), 40.0, (1.0, 0.97, 0.92, 1.0), "Center"), tour_texts)
-        self.tour_detail = self.entity("Detail", screen_text("", (0.0, 0.06, 0.0), 21.0, (1.0, 0.86, 0.6, 1.0), "Center"), self.tour_caption)
-        self.entity("Band", {"Transform": transform((0.0, 0.047, -1.0), scale=(1100.0, 112.0, 1.0)),
-                             "SpriteRenderer": {"Color": [0.0, 0.0, 0.0, 0.42], "ScreenSpace": True}}, self.tour_caption)
-        self.tour_hint = self.entity("Tour Hint", screen_text("Press any key to explore", (0.975, 0.95, 0.0), 17.0, (1.0, 1.0, 1.0, 0.8), "Right"),
-                                     tour_texts)
-        # Over everything (the highest z): the black the tour fades in from. It is transparent until the tour sets its opacity,
-        # so the editor's views stay clear.
-        self.tour_fade = self.entity("Tour Fade", {"Transform": transform((0.5, 0.5, 5.0), scale=(4000.0, 2400.0, 1.0)),
-                                                   "SpriteRenderer": {"Color": [0.0, 0.0, 0.0, 0.0], "ScreenSpace": True}}, tour_texts)
-        crosshair = self.entity("Crosshair", {"Transform": transform((0.5, 0.5, 1.0), scale=(40.0, 40.0, 1.0)),
-                                              "SpriteRenderer": {"Texture": "asset://Textures/Crosshair.png", "Color": [1.0, 1.0, 1.0, 0.85],
-                                                                 "ScreenSpace": True}}, screen)
+    def make_grading(self):
+        """The scene's look in a global post-process volume, golden hour: warm, with a little more contrast and color than life,
+        a soft vignette and a trace of film grain. A second global volume holds the look of the night (cooler, with the
+        exposure of eyes used to the dark), weighted in by DayNight, which also turns the sun into moonlight."""
+        grading = self.entity("Post Processing")
+        self.look = self.entity("Golden Hour", {"PostProcess": {
+            "Global": True, "OverrideContrast": True, "Contrast": 1.1, "OverrideSaturation": True, "Saturation": 1.1,
+            "OverrideTemperature": True, "Temperature": 0.1, "OverrideTint": True, "Tint": 0.02, "OverrideVignette": True, "Vignette": 0.35,
+            "OverrideVignetteSmoothness": True, "VignetteSmoothness": 0.5, "OverrideFilmGrain": True, "FilmGrain": 0.03,
+            "OverrideBloomIntensity": True, "BloomIntensity": 0.12}}, grading)
+        night = self.entity("Night", {"PostProcess": {
+            "Global": True, "Priority": 2.0, "Weight": 0.0, "OverrideEV100": True, "EV100": -2.0, "OverrideTemperature": True,
+            "Temperature": -0.5, "OverrideTint": True, "Tint": 0.04, "OverrideSaturation": True, "Saturation": 0.8,
+            "OverrideContrast": True, "Contrast": 1.15, "OverrideBloomIntensity": True, "BloomIntensity": 0.22, "OverrideVignette": True,
+            "Vignette": 0.5}}, grading)
+        entity = {"Type": "Entity"}
+        self.day_night = self.entity("Day and Night", {"Script": {"ClassName": "Showcase.DayNight", "Fields": {
+            "Sun": entity | {"Value": self.found["Sun"]}, "Sky": entity | {"Value": self.found["Sky"]}, "NightGrade": entity | {"Value": night},
+            "EveningZone": entity | {"Value": self.evening_zone}, "DayAmbience": entity | {"Value": self.ambience},
+            "NightAmbience": entity | {"Value": self.night_ambience}}}})
+
+    def make_playground(self):
+        """The playground, which counts the props knocked down and puts the exhibits back, the debug view and the thrown ball's
+        prefab."""
         ball = self.entity("Ball", {
             "Transform": transform((0.0, -50.0, 0.0), scale=(0.24, 0.24, 0.24)),
             "Mesh": {"Mesh": "builtin://Sphere", "Materials": [self.ball_metal]},
@@ -1364,28 +1426,150 @@ class Showcase:
             "AudioSource": {"Clip": "asset://Audio/MetalHit.wav", "Spatial": True, "MinDistance": 2.0, "MaxDistance": 40.0},
             "Script": {"ClassName": "Showcase.Impact", "Fields": {"Volume": {"Type": "Float", "Value": 0.7},
                                                                   "Lifetime": {"Type": "Float", "Value": 40.0}}}})
-        prefab = self.call("prefab_create", {"entity": ball, "path": "Prefabs/Ball.sprefab"})["reference"]
+        self.ball_prefab = self.call("prefab_create", {"entity": ball, "path": "Prefabs/Ball.sprefab"})["reference"]
         self.call("entity_delete", {"entities": [ball]})
-        self.finish_camera(prefab, crosshair)
-
         self.playground = self.entity("Playground", {"Script": {"ClassName": "Showcase.Playground", "Fields": {
-            "Props": {"Type": "Entity", "Value": self.props}, "Status": {"Type": "Entity", "Value": self.status},
-            "Dominoes": {"Type": "Entity", "Value": self.dominoes}, "Rig": {"Type": "Entity", "Value": self.rig},
-            "Launcher": {"Type": "Entity", "Value": self.launcher}, "WreckingBall": {"Type": "Entity", "Value": self.wrecking_ball}}}})
+            "Props": {"Type": "Entity", "Value": self.props}, "Dominoes": {"Type": "Entity", "Value": self.dominoes},
+            "Rig": {"Type": "Entity", "Value": self.rig}, "Launcher": {"Type": "Entity", "Value": self.launcher},
+            "WreckingBall": {"Type": "Entity", "Value": self.wrecking_ball}}}})
         self.debug_view = self.entity("Debug View", {"Script": {"ClassName": "Showcase.DebugView", "Fields": {
             "Rig": {"Type": "Entity", "Value": self.rig}, "Launcher": {"Type": "Entity", "Value": self.launcher},
             "Triggers": {"Type": "Entity", "Value": self.find_root("Triggers")}, "Bridge": {"Type": "Entity", "Value": self.bridge}}}})
+
+    def make_hud(self):
+        """The screen: a UI canvas, 1920 x 1080 units fitted to any window, with the HUD (the feature list, the status, the
+        buttons, the hint line and the crosshair) and over it the tour's letterbox, title, captions and fade."""
+        # In the editor's scene view the canvas stands behind the home view, out of the way of the exhibits.
+        screen = self.entity("Screen", {"Transform": LAYOUT.place((0.0, 0.0, 24.0)),
+                                        "UICanvas": {"ScaleMode": "ScaleWithScreenSize", "ReferenceResolution": [1920.0, 1080.0]}})
+        hud = self.entity("HUD", {"UIRect": ui_fill(), "AudioSource": {"Clip": "asset://Audio/UIClick.wav", "Volume": 0.5, "Spatial": False}},
+                          screen)
+        hover = self.entity("Hover Sound", {"AudioSource": {"Clip": "asset://Audio/UIHover.wav", "Volume": 0.35, "Spatial": False}}, hud)
+        entity = {"Type": "Entity"}
+        hud_fields = {"Rig": entity | {"Value": self.rig}, "Playground": entity | {"Value": self.playground},
+                      "Goal": entity | {"Value": self.goal}, "WreckingBall": entity | {"Value": self.wrecking_ball},
+                      "Launcher": entity | {"Value": self.launcher}, "Lighting": entity | {"Value": self.day_night},
+                      "HoverSound": entity | {"Value": hover},
+                      "SunIcon": {"Type": "Asset", "Value": "asset://Textures/Icons/Sun.png"},
+                      "MoonIcon": {"Type": "Asset", "Value": "asset://Textures/Icons/Moon.png"}}
+
+        # The feature list, top left: the engine's name, then a row per exhibit area, its name alone until it lights up and
+        # opens (Hud stacks the rows; this is the list with every row closed).
+        row_height, row_gap = 34.0, 4.0
+        rows_height = row_height * len(FEATURES) + row_gap * (len(FEATURES) - 1)
+        panel = self.entity("Feature Panel", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (36.0, 36.0), (440.0, 124.0 + rows_height + 16.0)),
+                                              "UIImage": {"Color": PANEL, "CornerRadius": 18.0}}, hud)
+        self.entity("Brand", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (30.0, 22.0), (380.0, 52.0)),
+                              "UIText": ui_text("S T R A D A", 42.0, TEXT)}, panel)
+        self.entity("Subtitle", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (32.0, 74.0), (380.0, 24.0)),
+                                 "UIText": ui_text("ENGINE SHOWCASE", 17.0, AMBER)}, panel)
+        self.entity("Rule", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (30.0, 110.0), (380.0, 2.0)), "UIImage": {"Color": AMBER[:3] + [0.45]}},
+                    panel)
+        features = self.entity("Features", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (18.0, 124.0), (404.0, rows_height))}, panel)
+        for index, (name, detail, center, radius) in enumerate(FEATURES):
+            row = self.entity(f"Feature: {name}", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (0.0, index * (row_height + row_gap)),
+                                                                     (404.0, row_height))}, features)
+            glow = self.entity("Glow", {"UIRect": ui_fill(Opacity=0.0), "UIImage": {"Color": linear(1.0, 0.68, 0.3, 0.13), "CornerRadius": 10.0}}, row)
+            bar = self.entity("Bar", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.5), (6.0, 0.0), (4.0, -12.0), (0.0, 1.0), Opacity=0.25),
+                                      "UIImage": {"Color": AMBER, "CornerRadius": 2.0}}, row)
+            label = self.entity("Name", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 4.0), (376.0, 26.0)), "UIText": ui_text(name, 21.0, TEXT)},
+                                row)
+            line = self.entity("Detail", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 31.0), (376.0, 18.0), Opacity=0.0),
+                                          "UIText": ui_text(detail, 15.0, DIM)}, row)
+            x, z = center if center else (0.0, 0.0)
+            self.call("component_add", {"entity": row, "component": "Script", "fields": {"ClassName": "Showcase.HudFeature", "Fields": {
+                "Center": {"Type": "Vector3", "Value": [x, 0.0, z]}, "Radius": {"Type": "Float", "Value": radius},
+                "Glow": entity | {"Value": glow}, "Bar": entity | {"Value": bar}, "Label": entity | {"Value": label},
+                "Detail": entity | {"Value": line}, "ClosedHeight": {"Type": "Float", "Value": row_height},
+                "DetailHeight": {"Type": "Float", "Value": 22.0}}}})
+        hud_fields["Features"] = entity | {"Value": features}
+        hud_fields["FeaturePanel"] = entity | {"Value": panel}
+        hud_fields["RowGap"] = {"Type": "Float", "Value": row_gap}
+
+        # The status, top right: the props knocked down and the goals.
+        status = self.entity("Status", {"UIRect": ui_rect((1.0, 0.0), (1.0, 0.0), (-36.0, 36.0), (340.0, 92.0)),
+                                        "UIImage": {"Color": PANEL, "CornerRadius": 16.0}}, hud)
+        for column, (label, field) in enumerate((("KNOCKED DOWN", "KnockedText"), ("GOALS", "GoalsText"))):
+            left = 24.0 + 182.0 * column
+            self.entity(f"{label.title()} Label", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (left, 14.0), (150.0, 20.0)),
+                                                   "UIText": ui_text(label, 14.0, DIM)}, status)
+            value = self.entity(f"{label.title()}", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (left, 36.0), (150.0, 42.0)),
+                                                     "UIText": ui_text("0", 34.0, TEXT)}, status)
+            hud_fields[field] = entity | {"Value": value}
+        self.entity("Divider", {"UIRect": ui_rect((0.0, 0.5), (0.5, 0.5), (190.0, 0.0), (1.0, 56.0)), "UIImage": {"Color": linear(1.0, 1.0, 1.0, 0.14)}},
+                    status)
+
+        # The buttons, down the right side under the status, each with its icon and its key.
+        buttons = self.entity("Buttons", {"UIRect": ui_rect((1.0, 0.0), (1.0, 0.0), (-36.0, 144.0), (340.0, 64.0 * len(BUTTONS)))}, hud)
+        for index, (name, label, icon, key, field) in enumerate(BUTTONS):
+            button = self.entity(name, {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (0.0, 64.0 * index), (340.0, 56.0)),
+                                        "UIImage": {"CornerRadius": 14.0}, "UIButton": BUTTON}, buttons)
+            image = self.entity("Icon", {"UIRect": ui_rect((0.0, 0.5), (0.0, 0.5), (16.0, 0.0), (30.0, 30.0)),
+                                         "UIImage": {"Texture": f"asset://Textures/Icons/{icon}.png", "Color": TEXT}}, button)
+            self.entity("Label", {"UIRect": ui_rect((0.0, 0.5), (0.0, 0.5), (60.0, 0.0), (230.0, 40.0)), "UIText": ui_text(label, 20.0, TEXT)},
+                        button)
+            keycap = self.entity("Key", {"UIRect": ui_rect((1.0, 0.5), (1.0, 0.5), (-14.0, 0.0), (30.0, 30.0)),
+                                         "UIImage": {"Color": linear(1.0, 1.0, 1.0, 0.13), "CornerRadius": 7.0}}, button)
+            self.entity("Letter", {"UIRect": ui_fill(), "UIText": ui_text(key, 16.0, TEXT, "Center")}, keycap)
+            hud_fields[field] = entity | {"Value": button}
+            if field == "LightsButton":
+                hud_fields["LightsIcon"] = entity | {"Value": image}
+
+        # The hint line at the bottom, and the crosshair, shown while looking around.
+        hint = self.entity("Hint", {"UIRect": ui_rect((0.5, 1.0), (0.5, 1.0), (0.0, -26.0), (1300.0, 44.0)),
+                                    "UIImage": {"Color": linear(0.0, 0.0, 0.0, 0.42), "CornerRadius": 22.0}}, hud)
+        self.hint_text = self.entity("Text", {"UIRect": ui_fill(), "UIText": ui_text(FLY_HINT, 18.0, linear(0.9, 0.9, 0.88), "Center")}, hint)
+        self.crosshair = self.entity("Crosshair", {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, 0.0), (40.0, 40.0), Visible=False),
+                                                   "UIImage": {"Texture": "asset://Textures/Crosshair.png", "Color": linear(1.0, 1.0, 1.0, 0.85)}},
+                                     hud)
+        self.call("component_add", {"entity": hud, "component": "Script", "fields": {"ClassName": "Showcase.Hud", "Fields": hud_fields}})
+        self.hud = hud
+
+        # The tour's screen, over the HUD. Its texts and fade are authored transparent and its letterbox flat (Flythrough shows
+        # them), so the editor's game view shows the HUD alone.
+        tour = self.entity("Tour Screen", {"UIRect": ui_fill()}, screen)
+        letterbox = self.entity("Letterbox", {"UIRect": ui_fill()}, tour)
+        black = linear(0.0, 0.0, 0.0)
+        self.entity("Top Bar", {"UIRect": ui_rect((0.0, 0.0), (0.5, 0.0), (0.0, 0.0), (0.0, 0.0), (1.0, 0.0)), "UIImage": {"Color": black}}, letterbox)
+        self.entity("Bottom Bar", {"UIRect": ui_rect((0.0, 1.0), (0.5, 1.0), (0.0, 0.0), (0.0, 0.0), (1.0, 1.0)), "UIImage": {"Color": black}},
+                    letterbox)
+        self.letterbox = letterbox
+        # The title under the neon sign the tour opens on: letter-spaced between two rules, over a soft shadow.
+        self.tour_title = self.entity("Tour Title", {"UIRect": ui_rect((0.5, 1.0), (0.5, 0.5), (0.0, -300.0), (1100.0, 120.0), Opacity=0.0)}, tour)
+        soft = "asset://Textures/SoftBand.png"
+        self.entity("Backdrop", {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, 0.0), (1400.0, 210.0)),
+                                 "UIImage": {"Texture": soft, "Color": linear(0.0, 0.0, 0.0, 0.62)}}, self.tour_title)
+        for name, y in (("Rule", -42.0), ("Rule 2", 44.0)):
+            self.entity(name, {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, y), (620.0, 2.0)), "UIImage": {"Color": AMBER[:3] + [0.85]}},
+                        self.tour_title)
+        title = "   ".join(" ".join(word) for word in ("ENGINE", "SHOWCASE"))
+        self.entity("Text", {"UIRect": ui_fill(), "UIText": ui_text(title, 40.0, TEXT, "Center")}, self.tour_title)
+        # The caption with its detail line in the lower third, over a soft shadow.
+        self.tour_caption = self.entity("Tour Caption", {"UIRect": ui_rect((0.5, 1.0), (0.5, 1.0), (0.0, -136.0), (1500.0, 110.0), Opacity=0.0)},
+                                        tour)
+        self.entity("Backdrop", {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, 0.0), (1600.0, 200.0)),
+                                 "UIImage": {"Texture": soft, "Color": linear(0.0, 0.0, 0.0, 0.66)}}, self.tour_caption)
+        self.tour_caption_text = self.entity("Text", {"UIRect": ui_rect((0.0, 0.0), (0.5, 0.0), (0.0, 0.0), (0.0, 62.0), (1.0, 0.0)),
+                                                      "UIText": ui_text("", 46.0, TEXT, "Center", "Bottom")}, self.tour_caption)
+        self.tour_detail = self.entity("Detail", {"UIRect": ui_rect((0.0, 0.0), (0.5, 0.0), (0.0, 68.0), (0.0, 34.0), (1.0, 0.0)),
+                                                  "UIText": ui_text("", 23.0, AMBER, "Center", "Top")}, self.tour_caption)
+        self.tour_hint = self.entity("Tour Hint", {"UIRect": ui_rect((1.0, 1.0), (1.0, 0.5), (-48.0, -55.0), (600.0, 30.0), Opacity=0.0),
+                                                   "UIText": ui_text("Press any key to explore", 18.0, linear(0.85, 0.85, 0.85), "Right")}, tour)
+        # Over everything: the black the tour fades in from.
+        self.tour_fade = self.entity("Tour Fade", {"UIRect": ui_fill(Opacity=0.0), "UIImage": {"Color": black}}, tour)
+        self.finish_camera(self.ball_prefab, self.crosshair)
 
     def find_root(self, name):
         return [entity["id"] for entity in self.call("entity_find", {"name": name})["entities"]][0]
 
     def make_tour(self):
         """The opening: shots the camera glides through, each a CameraShot with a caption, cueing exhibits on the way."""
+        entity = {"Type": "Entity"}
         self.tour_fields = {
-            "Rig": {"Type": "Entity", "Value": self.rig}, "Fade": {"Type": "Entity", "Value": self.tour_fade},
-            "Title": {"Type": "Entity", "Value": self.tour_title}, "Caption": {"Type": "Entity", "Value": self.tour_caption},
-            "Detail": {"Type": "Entity", "Value": self.tour_detail}, "Hint": {"Type": "Entity", "Value": self.tour_hint},
-            "Hud": {"Type": "Entity", "Value": self.hud}}
+            "Rig": entity | {"Value": self.rig}, "Fade": entity | {"Value": self.tour_fade}, "Letterbox": entity | {"Value": self.letterbox},
+            "Title": entity | {"Value": self.tour_title}, "Caption": entity | {"Value": self.tour_caption},
+            "CaptionText": entity | {"Value": self.tour_caption_text}, "Detail": entity | {"Value": self.tour_detail},
+            "Hint": entity | {"Value": self.tour_hint}, "Hud": entity | {"Value": self.hud}}
         tour = self.entity("Camera Tour", {"Script": {"ClassName": "Showcase.Flythrough", "Fields": self.tour_fields}})
         for name, frame, eye, target, seconds, caption, detail, cue, lead in TOUR:
             fields = {"Caption": {"Type": "String", "Value": caption}, "Detail": {"Type": "String", "Value": detail},
@@ -1417,7 +1601,9 @@ class Showcase:
             "LightShow": entity | {"Value": self.light_show}, "Lighthouse": entity | {"Value": self.lighthouse},
             "Gallery": entity | {"Value": self.gallery_spheres}, "Fountain": entity | {"Value": self.fountain_jets},
             "Fireflies": entity | {"Value": self.fireflies}, "Sparks": entity | {"Value": self.sparks}, "Leaves": entity | {"Value": self.leaves},
-            "DebugView": entity | {"Value": self.debug_view}}}}})
+            "DebugView": entity | {"Value": self.debug_view}, "Hud": entity | {"Value": self.hud}, "Lighting": entity | {"Value": self.day_night},
+            "NeonSign": entity | {"Value": self.neon_sign}, "Look": entity | {"Value": self.look},
+            "EveningZone": entity | {"Value": self.evening_zone}}}}})
         call("scene_save")
         call("scene_open", {"path": "Scenes/Main.sscene"})
 

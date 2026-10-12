@@ -4,14 +4,15 @@ using Strada;
 namespace Showcase;
 
 /// <summary>A free camera rig: hold the right mouse button to look around, WASD to move (Q and E down and up, Shift faster),
-/// and click to throw a ball where the cursor points (along the view while looking around). The camera itself is a child
-/// (View), so a CameraShake on it adds to the rig's movement. The tour (Flythrough) takes the rig over while it plays.</summary>
+/// and click to throw a ball where the cursor points (along the view while looking around); clicks on the HUD stay the HUD's.
+/// The camera itself is a child (View), so a CameraShake on it adds to the rig's movement. The tour (Flythrough) takes the rig
+/// over while it plays.</summary>
 public sealed class FlyCamera : Script
 {
 	[Tooltip("The camera under the rig: it turns screen positions into rays")]
 	public Entity? View;
 
-	[Tooltip("A screen-space sprite shown at the center of the screen while looking around")]
+	[Tooltip("A UI element shown at the center of the screen while looking around")]
 	public Entity? Crosshair;
 
 	[Tooltip("Meters per second")]
@@ -41,7 +42,6 @@ public sealed class FlyCamera : Script
 	public int MaximumBalls = 40;
 
 	private readonly List<Entity> m_Balls = [];
-	private Color m_CrosshairColor = Color.White;
 	private float m_Yaw;
 	private float m_Pitch;
 	private bool m_Controllable = true;
@@ -77,18 +77,14 @@ public sealed class FlyCamera : Script
 		Vector3 angles = Transform.EulerAngles;
 		m_Pitch = angles.X;
 		m_Yaw = angles.Y;
-		if (Crosshair?.GetComponent<SpriteRendererComponent>() is { } crosshair)
-		{
-			m_CrosshairColor = crosshair.Color;
-		}
 	}
 
 	protected override void OnUpdate(float deltaTime)
 	{
 		bool looking = IsLooking;
-		if (Crosshair?.GetComponent<SpriteRendererComponent>() is { } crosshair)
+		if (Crosshair?.GetComponent<UIRectComponent>() is { } crosshair && crosshair.Visible != looking)
 		{
-			crosshair.Color = new Color(m_CrosshairColor.R, m_CrosshairColor.G, m_CrosshairColor.B, looking ? m_CrosshairColor.A : 0.0f);
+			crosshair.Visible = looking;
 		}
 		if (!m_Controllable)
 		{
@@ -113,7 +109,7 @@ public sealed class FlyCamera : Script
 			Translation = position;
 		}
 
-		if (Input.IsMouseButtonPressed(MouseButton.Left))
+		if (Input.IsMouseButtonPressed(MouseButton.Left) && !Input.IsPointerOverUI)
 		{
 			Throw(AimDirection);
 		}

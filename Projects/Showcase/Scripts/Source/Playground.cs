@@ -2,16 +2,13 @@ using Strada;
 
 namespace Showcase;
 
-/// <summary>The physics playground: counts the props knocked over (children of Props that moved or tipped) and shows the count;
-/// R puts everything back: the props where they stood, the dominoes up, the wrecking ball at rest, and the thrown and launched
-/// balls away.</summary>
+/// <summary>The physics playground: counts the props knocked over (children of Props that moved or tipped), which the HUD shows;
+/// R (or the HUD's reset button) puts everything back: the props where they stood, the dominoes up, the wrecking ball at rest,
+/// and the thrown and launched balls away.</summary>
 public sealed class Playground : Script
 {
 	[Tooltip("The parent of the crates and barrels that count")]
 	public Entity? Props;
-
-	[Tooltip("Screen-space text that shows the count")]
-	public Entity? Status;
 
 	[Tooltip("The domino run R stands up again")]
 	public Entity? Dominoes;
@@ -89,13 +86,6 @@ public sealed class Playground : Script
 			}
 		}
 		Knocked = knocked;
-
-		if (Status?.GetComponent<TextComponent>() is { } status)
-		{
-			status.Text = knocked == Total && Total > 0
-				? $"All {Total} knocked down!  Press R to build them again"
-				: $"Knocked down: {knocked} / {Total}";
-		}
 	}
 
 	/// <summary>Puts every prop back where it stood, stands the dominoes up, stops the wrecking ball and clears the balls.</summary>

@@ -1027,13 +1027,18 @@ data directory, and compile out asserts and script debug lines.
   and runs the game's scene headless.
 - `Projects/Showcase`: every engine feature in exhibit areas of an autumn forest clearing, built by `Tools/Author.py`
   through `strada mcp` from Poly Haven assets (fetched by `Tools/FetchAssets.py`, not in the repository) and the meshes,
-  textures and sounds that `Tools/GenerateAssets.py` and `Tools/GenerateAudio.py` make: physically based materials
-  (a metallic and roughness sweep, texture sets with normal and occlusion-roughness-metallic maps, a neon sign),
-  transparency (blended glass, an alpha-tested lattice, two-sided banners), lights (a lighthouse whose beams turn, a
-  light show of shadow-casting spots, street lamps, the sun and the sky), physics (a wrecking ball on a ball joint, a
-  hinged seesaw, a motorized paddle, dominoes, a plank bridge of hinges), triggers (a ball launcher, a goal that counts
-  with sound and a particle burst, a pressure plate that raises a gate), particles and 3D sound. The `Flythrough` script
-  opens it with a camera tour along `CameraShot` children that cues the exhibits, then hands over to the free camera
-  (`FlyCamera`, with a `CameraShake` child); `DebugView` draws ballistic paths and trigger bounds. A test scene that
-  `StradaRuntimeTests` plays checks every exhibit (its checks do not need the downloads).
+  textures, icons and sounds that `Tools/GenerateAssets.py` and `Tools/GenerateAudio.py` make: physically based
+  materials (a metallic and roughness sweep, texture sets with normal and occlusion-roughness-metallic maps, a neon sign
+  that flickers on), transparency (blended glass, an alpha-tested lattice, two-sided banners), lights (a lighthouse
+  whose beams turn, a light show of shadow-casting spots, street lamps, the sun and the sky), post-processing (a global
+  volume carries the golden-hour look, a local one with a blend distance turns the light show into an evening, and
+  `DayNight` turns day into night by dimming the sun to moonlight and weighting in a night volume), physics (a wrecking
+  ball on a ball joint, a hinged seesaw, a motorized paddle, dominoes, a plank bridge of hinges), triggers (a ball
+  launcher, a goal that counts with sound and a particle burst, a pressure plate that raises a gate), particles and 3D
+  sound. The `Flythrough` script opens it with a camera tour along `CameraShot` children that cues the exhibits under
+  letterbox bars, a title and captions, then hands over to the free camera (`FlyCamera`, with a `CameraShake` child)
+  and the HUD, a UI canvas (`Hud`): a feature list whose rows (`HudFeature`) light up and open as the camera nears their
+  exhibits, counters, and buttons that put the exhibits back, set them off and switch day and night. `DebugView` draws
+  ballistic paths and trigger bounds. A test scene that `StradaRuntimeTests` plays checks every exhibit, the volumes,
+  the night and the HUD's buttons (its checks do not need the downloads).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.

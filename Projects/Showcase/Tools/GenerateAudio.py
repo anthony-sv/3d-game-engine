@@ -1,5 +1,6 @@
-"""Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, forest, campfire and fountain loops, the impact
-sounds and the sounds of the exhibits (goal chime, cannon, gate).
+"""Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, forest (day), crickets (night), campfire, fountain
+and neon loops, the impact sounds, the sounds of the exhibits (goal chime, cannon, gate, the neon sign lighting up) and the
+HUD's button sounds.
 
 Everything is synthesized here, so the sounds have no license of their own and regenerate identically (fixed seeds):
 
@@ -349,10 +350,114 @@ def gate_rumble():
     return out
 
 
+# When the neon sign's tubes are lit after it is switched on, as (start, end, level): None ends a tube's last flicker, which
+# stays on. NeonSign.cs flickers the tubes by the same timelines, so the buzz follows the light.
+NEON_FRAME = ((0.18, 0.24, 0.8), (0.36, 0.4, 0.5), (0.55, None, 1.0))
+NEON_LETTERS = ((0.78, 0.86, 0.7), (0.98, 1.02, 0.45), (1.12, 1.24, 0.9), (1.33, 1.36, 0.5), (1.48, None, 1.0))
+
+
+def neon_level(timeline, t):
+    for start, end, level in timeline:
+        if t >= start and (end is None or t < end):
+            return level
+    return 0.0
+
+
+def neon_hum_sample(t):
+    """The hum of a neon transformer at a time: 100 Hz with its harmonics."""
+    return sum(gain * math.sin(2.0 * math.pi * 100.0 * harmonic * t) for harmonic, gain in ((1, 1.0), (2, 0.6), (3, 0.35), (4, 0.2), (6, 0.1)))
+
+
+def neon_ignite():
+    """The neon sign switching on: every flicker of a tube clicks and buzzes (the transformer's hum with a sizzle), as the
+    timelines go; once both tubes hold, the buzz settles and fades, and the quiet hum loop goes on."""
+    random.seed(10)
+    count = int(2.6 * RATE)
+    sizzle = Biquad("band", 3200.0, 1.5)
+    out = []
+    for i in range(count):
+        t = i / RATE
+        level = max(0.55 * neon_level(NEON_FRAME, t), neon_level(NEON_LETTERS, t))
+        settle = 1.0 if t < 1.7 else max(0.0, 1.0 - (t - 1.7) / 0.9)
+        out.append(level * settle * (0.35 * neon_hum_sample(t) + 0.5 * sizzle(random.uniform(-1.0, 1.0))))
+    for timeline, gain in ((NEON_FRAME, 0.7), (NEON_LETTERS, 1.0)):
+        for start, _, level in timeline:
+            begin = int(start * RATE)
+            click = Biquad("band", 1800.0, 0.8)
+            for i in range(int(0.02 * RATE)):
+                out[begin + i] += 3.0 * gain * level * click(random.uniform(-1.0, 1.0)) * math.exp(-i / (0.002 * RATE))
+    return out
+
+
+def neon_hum():
+    """The neon sign's steady hum in a 2 second loop (a whole number of the hum's periods) with a faint sizzle."""
+    random.seed(13)
+    loop_length = int(2.0 * RATE)
+    total = loop_length + int(0.2 * RATE)
+    sizzle = Biquad("band", 3200.0, 1.5)
+    out = [0.0] * total
+    for i in range(loop_length):
+        out[i] += 0.35 * neon_hum_sample(i / RATE)
+    for i in range(total):
+        out[i] += 0.12 * sizzle(random.uniform(-1.0, 1.0))
+    return make_loop(out, loop_length)
+
+
+def crickets():
+    """A night in a 12 second loop: crickets, each chirping at its own pitch and pace (short trains of pulses), over a faint
+    low wind."""
+    random.seed(11)
+    loop_length = int(12.0 * RATE)
+    total = loop_length + int(1.5 * RATE)
+    out = [0.0] * total
+    wind = Biquad("low", 300.0, 0.7)
+    brown = 0.0
+    for i in range(total):
+        brown = 0.99 * brown + random.uniform(-1.0, 1.0) * 0.05
+        out[i] += 0.3 * wind(brown)
+    for _ in range(6):
+        carrier = random.uniform(3900.0, 4900.0)
+        pulses = random.randint(2, 4)
+        pulse_rate = random.uniform(28.0, 40.0)
+        period = random.uniform(0.45, 0.95)
+        gain = random.uniform(0.04, 0.1)
+        time = random.uniform(0.0, period)
+        while time < 12.0:
+            for pulse in range(pulses):
+                begin = int((time + pulse / pulse_rate) * RATE)
+                length = int(0.6 / pulse_rate * RATE)
+                for i in range(length):
+                    if begin + i < total:
+                        out[begin + i] += gain * math.sin(2.0 * math.pi * carrier * i / RATE) * math.sin(math.pi * i / length) ** 2
+            time += period * random.uniform(0.9, 1.1)
+    return make_loop(reverb(out, mix=0.2, seconds=1.2), loop_length)
+
+
+def ui_hover():
+    """A soft tick as the mouse moves onto a HUD button."""
+    count = int(0.05 * RATE)
+    return [math.sin(2.0 * math.pi * 2400.0 * i / RATE) * math.exp(-i / (0.008 * RATE)) * min(1.0, i / 8.0) for i in range(count)]
+
+
+def ui_click():
+    """A HUD button's click: a short, woody tock with a bright edge."""
+    random.seed(9)
+    count = int(0.12 * RATE)
+    body = Biquad("band", 1150.0, 6.0)
+    out = []
+    for i in range(count):
+        t = i / RATE
+        excitation = random.uniform(-1.0, 1.0) * math.exp(-t / 0.0015)
+        tone = math.sin(2.0 * math.pi * 1700.0 * t) * math.exp(-t / 0.02)
+        out.append((3.0 * body(excitation) + 0.35 * tone) * min(1.0, 5.0 * (count - i) / count))
+    return out
+
+
 if __name__ == "__main__":
     for name, generate, peak in (("Music.wav", music, 0.8), ("Ambience.wav", ambience, 0.7), ("WoodHit.wav", wood_hit, 0.9),
                                  ("MetalHit.wav", metal_hit, 0.85), ("Throw.wav", throw, 0.7), ("Crackle.wav", crackle, 0.75),
                                  ("Fountain.wav", fountain_water, 0.7), ("Goal.wav", goal_chime, 0.85), ("Cannon.wav", cannon_boom, 0.9),
-                                 ("Gate.wav", gate_rumble, 0.8)):
+                                 ("Gate.wav", gate_rumble, 0.8), ("NeonIgnite.wav", neon_ignite, 0.85), ("NeonHum.wav", neon_hum, 0.7),
+                                 ("Night.wav", crickets, 0.7), ("UIHover.wav", ui_hover, 0.6), ("UIClick.wav", ui_click, 0.8)):
         write_wav(name, generate(), peak)
         print("wrote", os.path.join(OUTPUT, name))

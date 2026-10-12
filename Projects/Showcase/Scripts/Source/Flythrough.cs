@@ -1,13 +1,13 @@
 using System;
-using System.Collections.Generic;
 using Strada;
 
 namespace Showcase;
 
-/// <summary>The opening tour: the screen fades in from black and the camera glides through the shots (the children, each a
-/// CameraShot) on a smooth path that eases in and out, shows the title and the shots' captions, cues their exhibits, and
-/// then hands the rig over to the free camera. Any key or click skips it (the camera glides to the last shot in a moment);
-/// its key plays it again.</summary>
+/// <summary>The opening tour: letterbox bars close in, the screen fades in from black and the camera glides through the shots
+/// (the children, each a CameraShot) on a smooth path that eases in and out, shows the title and the shots' captions, cues
+/// their exhibits, and then hands the rig over to the free camera as the bars open and the HUD fades in. Any key or click
+/// skips it (the camera glides to the last shot in a moment); its key plays it again. Its texts, bars and fade are UI elements
+/// (it sets their opacities and the bars' heights).</summary>
 public sealed class Flythrough : Script
 {
 	[Tooltip("The camera rig the tour moves (a FlyCamera)")]
@@ -19,15 +19,27 @@ public sealed class Flythrough : Script
 	[Tooltip("The key that plays the tour again")]
 	public KeyCode Key = KeyCode.C;
 
-	// Authored transparent, so that it does not cover the editor's views: the tour sets its opacity.
-	[Tooltip("A screen-space sprite over the screen in the color the tour fades in from (the tour sets its opacity)")]
+	// Authored transparent, so that it covers nothing in the editor: the tour sets its opacity.
+	[Tooltip("A UI element covering the screen in the color the tour fades in from (the tour sets its opacity)")]
 	public Entity? Fade;
 
 	[Tooltip("Seconds the screen takes to fade in from black")]
 	[Range(0.0f, 10.0f)]
 	public float FadeInSeconds = 1.5f;
 
-	[Tooltip("Screen text shown at the start of the tour, with its children (rules, a band, a shadow)")]
+	// Authored with no height, like the texts and the fade without opacity: the editor's game view shows the HUD alone.
+	[Tooltip("The parent of the letterbox bars: UI elements whose heights grow to LetterboxHeight while the tour plays")]
+	public Entity? Letterbox;
+
+	[Tooltip("The letterbox bars' height while the tour plays, in canvas units")]
+	[Range(0.0f, 500.0f)]
+	public float LetterboxHeight = 110.0f;
+
+	[Tooltip("Seconds the letterbox bars take to close in or open")]
+	[Range(0.05f, 5.0f)]
+	public float LetterboxSeconds = 0.9f;
+
+	[Tooltip("The UI element shown at the start of the tour (the title, with its rules and backdrop)")]
 	public Entity? Title;
 
 	[Tooltip("Seconds into the tour the title appears")]
@@ -38,16 +50,19 @@ public sealed class Flythrough : Script
 	[Range(0.0f, 60.0f)]
 	public float TitleUntil = 5.0f;
 
-	[Tooltip("Screen text that shows the caption of the shot the camera is at, shown with its children (the detail line, a band)")]
+	[Tooltip("The UI element shown while the camera is at a shot with a caption (the caption, its detail line and backdrop)")]
 	public Entity? Caption;
 
-	[Tooltip("Screen text that shows the detail line of the shot")]
+	[Tooltip("UI text that shows the caption of the shot the camera is at")]
+	public Entity? CaptionText;
+
+	[Tooltip("UI text that shows the detail line of the shot")]
 	public Entity? Detail;
 
-	[Tooltip("Screen text that says how to skip the tour")]
+	[Tooltip("UI element that says how to skip the tour")]
 	public Entity? Hint;
 
-	[Tooltip("The parent of the screen texts and sprites shown while exploring; hidden during the tour")]
+	[Tooltip("The UI element shown while exploring (the HUD); hidden during the tour")]
 	public Entity? Hud;
 
 	[Tooltip("Seconds the camera takes to get up to speed at the start and to come to rest at the end")]
@@ -64,8 +79,6 @@ public sealed class Flythrough : Script
 
 	private static readonly KeyCode[] s_Keys = Enum.GetValues<KeyCode>();
 
-	private readonly Dictionary<ulong, Color> m_TextColors = [];
-	private readonly Dictionary<ulong, Color> m_SpriteColors = [];
 	private CameraShot?[] m_Shots = [];
 	private Vector3[] m_Positions = [];
 	private Vector3[] m_Angles = [];
@@ -77,7 +90,6 @@ public sealed class Flythrough : Script
 	private Vector3 m_SkipPosition;
 	private Vector3 m_SkipAngles;
 	private float m_HudFade = 1.0f;
-	private Color m_FadeColor = Color.Black;
 
 	/// <summary>Whether the tour is playing.</summary>
 	public bool IsPlaying { get; private set; }
@@ -97,23 +109,24 @@ public sealed class Flythrough : Script
 	/// <summary>Times the tour handed the camera over to the free camera.</summary>
 	public int HandOvers { get; private set; }
 
-	/// <summary>How visible the title is (0 hidden to 1 as authored).</summary>
+	/// <summary>How visible the title is (0 hidden to 1).</summary>
 	public float TitleVisibility { get; private set; }
 
-	/// <summary>How visible the caption is (0 hidden to 1 as authored).</summary>
+	/// <summary>How visible the caption is (0 hidden to 1).</summary>
 	public float CaptionVisibility { get; private set; }
 
 	/// <summary>How opaque the fade over the screen is (1 at the start of the tour).</summary>
 	public float FadeOpacity { get; private set; }
 
+	/// <summary>How far the letterbox bars are closed in, from 0 (gone) to 1 (<see cref="LetterboxHeight"/>).</summary>
+	public float LetterboxAmount { get; private set; }
+
+	/// <summary>How visible the HUD is (0 during the tour; it fades in after the tour).</summary>
+	public float HudVisibility => m_HudFade;
+
 	protected override void OnCreate()
 	{
-		m_FadeColor = Fade?.GetComponent<SpriteRendererComponent>()?.Color ?? Color.Black;
-		RememberColors(Title);
-		RememberColors(Caption);
-		RememberColors(Detail);
-		RememberColors(Hint);
-		RememberColors(Hud);
+		SetLetterbox(0.0f);
 		SetFade(0.0f);
 		FadeTexts(0.0f, 0.0f, 0.0f);
 		if (PlayOnStart)
@@ -136,8 +149,8 @@ public sealed class Flythrough : Script
 		m_Elapsed = 0.0f;
 		m_Cued = new bool[m_Knots.Length];
 		rig.Controllable = false;
-		SetAlpha(Hud, 0.0f);
 		m_HudFade = 0.0f;
+		SetOpacity(Hud, 0.0f);
 		SetFade(FadeInSeconds > 0.0f ? 1.0f : 0.0f);
 		Apply(rig, m_Positions[0], m_Angles[0]);
 	}
@@ -157,12 +170,18 @@ public sealed class Flythrough : Script
 
 	protected override void OnUpdate(float deltaTime)
 	{
+		// The bars close in while the tour plays and open as it ends or is skipped.
+		float bars = IsPlaying && !m_Skipping ? 1.0f : 0.0f;
+		if (LetterboxAmount != bars)
+		{
+			SetLetterbox(Mathf.MoveTowards(LetterboxAmount, bars, deltaTime / LetterboxSeconds));
+		}
 		if (!IsPlaying)
 		{
 			if (m_HudFade < 1.0f)
 			{
 				m_HudFade = Mathf.Min(1.0f, m_HudFade + (deltaTime / FadeSeconds));
-				SetAlpha(Hud, m_HudFade);
+				SetOpacity(Hud, m_HudFade);
 			}
 			if (Input.IsKeyPressed(Key))
 			{
@@ -361,11 +380,11 @@ public sealed class Flythrough : Script
 
 	private void ShowCaption(CameraShot? shot)
 	{
-		if (Caption?.GetComponent<TextComponent>() is { } caption && caption.Text != (shot?.Caption ?? ""))
+		if (CaptionText?.GetComponent<UITextComponent>() is { } caption && caption.Text != (shot?.Caption ?? ""))
 		{
 			caption.Text = shot?.Caption ?? "";
 		}
-		if (Detail?.GetComponent<TextComponent>() is { } detail && detail.Text != (shot?.Detail ?? ""))
+		if (Detail?.GetComponent<UITextComponent>() is { } detail && detail.Text != (shot?.Detail ?? ""))
 		{
 			detail.Text = shot?.Detail ?? "";
 		}
@@ -375,9 +394,9 @@ public sealed class Flythrough : Script
 	{
 		TitleVisibility = title;
 		CaptionVisibility = caption;
-		SetAlpha(Title, title);
-		SetAlpha(Caption, caption);
-		SetAlpha(Hint, hint);
+		SetOpacity(Title, title);
+		SetOpacity(Caption, caption);
+		SetOpacity(Hint, hint);
 	}
 
 	private static bool AnyInput()
@@ -393,55 +412,32 @@ public sealed class Flythrough : Script
 			Input.IsMouseButtonPressed(MouseButton.Middle);
 	}
 
-	// The fade's color at the opacity: its authored alpha is not used (it is authored transparent).
 	private void SetFade(float opacity)
 	{
 		FadeOpacity = opacity;
-		if (Fade?.GetComponent<SpriteRendererComponent>() is { } sprite)
+		SetOpacity(Fade, opacity);
+	}
+
+	// Eased, so the bars glide in and out.
+	private void SetLetterbox(float amount)
+	{
+		LetterboxAmount = amount;
+		float height = LetterboxHeight * Mathf.SmoothStep(0.0f, 1.0f, amount);
+		foreach (Entity child in Letterbox?.Children ?? [])
 		{
-			sprite.Color = new Color(m_FadeColor.R, m_FadeColor.G, m_FadeColor.B, opacity);
+			if (child.GetComponent<UIRectComponent>() is { } bar)
+			{
+				bar.Size = new Vector2(bar.Size.X, height);
+			}
 		}
 	}
 
-	// The colors the entity's and its descendants' texts and sprites have when the scene starts: fading scales their alpha.
-	private void RememberColors(Entity? entity)
+	// A UI element's opacity (its descendants' too); at 0 it takes no clicks.
+	private static void SetOpacity(Entity? element, float opacity)
 	{
-		if (entity is null)
+		if (element?.GetComponent<UIRectComponent>() is { } rect)
 		{
-			return;
-		}
-		if (entity.GetComponent<TextComponent>() is { } text)
-		{
-			m_TextColors[entity.ID] = text.Color;
-		}
-		if (entity.GetComponent<SpriteRendererComponent>() is { } sprite)
-		{
-			m_SpriteColors[entity.ID] = sprite.Color;
-		}
-		foreach (Entity child in entity.Children)
-		{
-			RememberColors(child);
-		}
-	}
-
-	// Scales the alpha of the entity's and its descendants' texts and sprites (as it was when the scene started) by the fraction.
-	private void SetAlpha(Entity? entity, float alpha)
-	{
-		if (entity is null)
-		{
-			return;
-		}
-		if (m_TextColors.TryGetValue(entity.ID, out Color textColor) && entity.GetComponent<TextComponent>() is { } text)
-		{
-			text.Color = new Color(textColor.R, textColor.G, textColor.B, textColor.A * alpha);
-		}
-		if (m_SpriteColors.TryGetValue(entity.ID, out Color spriteColor) && entity.GetComponent<SpriteRendererComponent>() is { } sprite)
-		{
-			sprite.Color = new Color(spriteColor.R, spriteColor.G, spriteColor.B, spriteColor.A * alpha);
-		}
-		foreach (Entity child in entity.Children)
-		{
-			SetAlpha(child, alpha);
+			rect.Opacity = opacity;
 		}
 	}
 }

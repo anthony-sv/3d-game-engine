@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using Strada;
 using Strada.Testing;
@@ -6,9 +8,9 @@ namespace Showcase;
 
 /// <summary>The checks of Scenes/Tests.sscene (the main scene with this script, and without the tour playing at the start). They
 /// play the exhibits through their public methods and look at what happened: the stacks stand and fall, joints hold, balls
-/// score and open the gate, the dominoes fall, the lights move, particles burn, the camera shakes and the tour hands over.
-/// None of them needs the downloaded models. The run ends once they are done (play the scene, or
-/// `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
+/// score and open the gate, the dominoes fall, the lights move, particles burn, the camera shakes, the tour hands over, the
+/// neon sign lights up, night falls and the HUD's buttons work. None of them needs the downloaded models. The run ends once they
+/// are done (play the scene, or `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
 public sealed class ShowcaseTests : Script
 {
 	[Tooltip("The playground that counts the props")]
@@ -77,8 +79,24 @@ public sealed class ShowcaseTests : Script
 	[Tooltip("The debug view")]
 	public Entity? DebugView;
 
+	[Tooltip("The HUD (a Hud)")]
+	public Entity? Hud;
+
+	[Tooltip("The day and night switch (a DayNight)")]
+	public Entity? Lighting;
+
+	[Tooltip("The neon sign (a NeonSign)")]
+	public Entity? NeonSign;
+
+	[Tooltip("The global post-process volume with the scene's look")]
+	public Entity? Look;
+
+	[Tooltip("The local post-process volume around the light show")]
+	public Entity? EveningZone;
+
+	private readonly List<(float Time, Action Step)> m_Schedule = [];
+	private int m_Next;
 	private float m_Time;
-	private int m_Step;
 	private Entity? m_Ball;
 	private Entity? m_Dropped;
 	private float m_LowestLight = float.MaxValue;
@@ -87,59 +105,29 @@ public sealed class ShowcaseTests : Script
 	private Color m_ShowColor;
 	private float m_GateClosed;
 	private Vector3 m_TourStart;
+	private (float Frame, float Letters) m_NeonDark;
+	private (float Frame, float Letters) m_NeonFrameOnly;
+	private (int Swings, int Shots, int Resets, int Switches) m_BeforeClicks;
 
-	protected override void OnUpdate(float deltaTime)
+	protected override void OnCreate()
 	{
-		m_Time += deltaTime;
-		float light = Lantern?.GetComponent<PointLightComponent>()?.Intensity ?? 0.0f;
-		m_LowestLight = Mathf.Min(m_LowestLight, light);
-		m_BrightestLight = Mathf.Max(m_BrightestLight, light);
-
-		if (m_Step == 0 && m_Time > 0.5f)
+		At(0.5f, Begin);
+		At(0.6f, () => m_NeonDark = NeonLevels());
+		At(1.2f, () => m_NeonFrameOnly = NeonLevels());
+		At(2.0f, () =>
 		{
-			m_Step = 1;
-			m_LighthouseAngle = Lighthouse?.As<Spinner>()?.Angle ?? 0.0f;
-			m_ShowColor = LightShow?.As<LightShow>()?.ColorOf(0) ?? Color.Black;
-			m_GateClosed = Gate?.Transform.WorldTranslation.Y ?? 0.0f;
-		}
-		else if (m_Step == 1 && m_Time > 2.0f)
-		{
-			m_Step = 2;
 			CheckTheSceneAtRest();
+			CheckThePostProcessVolumes();
 			ThrowAtTheTower();
 			DropABallIntoTheGoal();
 			Dominoes?.As<DominoRun>()?.Push();
-		}
-		else if (m_Step == 2 && m_Time > 4.0f)
+		});
+		At(2.1f, () => Lighting?.As<DayNight>()?.SetNight(true));
+		At(2.6f, CheckTheNeonSign);
+		At(4.0f, CheckTheGoalAndTheGate);
+		At(5.3f, CheckTheNight);
+		At(6.5f, () =>
 		{
-			m_Step = 3;
-			TestReporter.Run("a ball dropped through the hoop scores", () =>
-			{
-				GoalZone? goal = Goal?.As<GoalZone>();
-				Assert.IsNotNull(goal);
-				Assert.AreEqual(1, goal.Count);
-				Assert.AreEqual("1", goal.Counter?.GetComponent<TextComponent>()?.Text);
-			});
-			TestReporter.Run("the ball lands on the plate and the gate rises", () =>
-			{
-				PressurePlate? plate = Plate?.As<PressurePlate>();
-				Assert.IsNotNull(plate);
-				Assert.IsTrue(plate.Presses >= 1, $"{plate.Presses} presses");
-				Assert.IsTrue(plate.Openness > 0.5f, $"the gate is {plate.Openness} open");
-			});
-			TestReporter.Run("the launcher fires a ball at the goal", () =>
-			{
-				BallLauncher? launcher = Launcher?.As<BallLauncher>();
-				Assert.IsNotNull(launcher);
-				Entity? ball = launcher.Fire();
-				Assert.IsNotNull(ball);
-				Assert.AreEqual(1, launcher.Shots);
-				Assert.IsTrue(launcher.LaunchVelocity.Y > 1.0f, $"it lobs: {launcher.LaunchVelocity}");
-			});
-		}
-		else if (m_Step == 3 && m_Time > 6.5f)
-		{
-			m_Step = 4;
 			CheckWhatHappened();
 			Camera?.As<CameraShake>()?.Shake(1.0f);
 			if (DebugView?.As<DebugView>() is { } debug)
@@ -152,121 +140,18 @@ public sealed class ShowcaseTests : Script
 			m_Dropped?.Destroy();
 			m_Ball = null;
 			m_Dropped = null;
-		}
-		else if (m_Step == 4 && m_Time > 6.6f)
+		});
+		At(6.6f, CheckTheShakeAndStartTheTour);
+		At(8.0f, CheckTheTourUnderWay);
+		At(8.6f, CheckTheDayComesBack);
+		At(11.1f, CheckTheCaptionsAndSkip);
+		At(13.1f, () =>
 		{
-			m_Step = 5;
-			TestReporter.Run("impacts shake the camera", () =>
-			{
-				CameraShake? shake = Camera?.As<CameraShake>();
-				Assert.IsNotNull(shake);
-				Assert.IsTrue(shake.Trauma > 0.8f, $"trauma {shake.Trauma}");
-				Assert.IsTrue(Camera!.Translation.Length > 1e-4f || Camera.Transform.EulerAngles.Length > 1e-3f, "the camera moved");
-			});
-			TestReporter.Run("the debug view draws paths and trigger bounds", () =>
-			{
-				DebugView? debug = DebugView?.As<DebugView>();
-				Assert.IsNotNull(debug);
-				// Two trigger boxes (12 lines each), the bridge's links and the two ballistic paths.
-				Assert.IsTrue(debug.LinesDrawn > 40, $"{debug.LinesDrawn} lines");
-				debug.Visible = false;
-			});
-			TestReporter.Run("the tour takes the camera along its shots", () =>
-			{
-				Flythrough? tour = Tour?.As<Flythrough>();
-				FlyCamera? rig = Rig?.As<FlyCamera>();
-				Assert.IsNotNull(tour);
-				Assert.IsNotNull(rig);
-				Assert.IsFalse(tour.IsPlaying, "the test scene starts without the tour");
-				Assert.IsTrue(tour.ShotCount == 0 || tour.ShotCount >= 8);
-				Assert.AreEqual(0.0f, tour.Fade?.GetComponent<SpriteRendererComponent>()?.Color.A, "the screen is clear");
-				m_TourStart = rig.Translation;
-				tour.Play();
-				Assert.IsTrue(tour.IsPlaying);
-				Assert.IsTrue(tour.ShotCount >= 8, $"{tour.ShotCount} shots");
-				Assert.IsFalse(rig.Controllable, "the tour has the camera");
-				// It fades in from black.
-				Assert.AreEqual(1.0f, tour.FadeOpacity);
-				Assert.AreEqual(1.0f, tour.Fade?.GetComponent<SpriteRendererComponent>()?.Color.A);
-			});
-		}
-		else if (m_Step == 5 && m_Time > 8.0f)
-		{
-			m_Step = 6;
-			TestReporter.Run("the tour moves the camera and opens with its title", () =>
-			{
-				Flythrough? tour = Tour?.As<Flythrough>();
-				FlyCamera? rig = Rig?.As<FlyCamera>();
-				Assert.IsNotNull(tour);
-				Assert.IsNotNull(rig);
-				Assert.IsTrue(tour.IsPlaying);
-				Assert.IsTrue(Vector3.Distance(rig.Translation, m_TourStart) > 1.0f, "the camera left its place");
-				Assert.IsTrue(tour.FadeOpacity < 0.1f, $"the fade is at {tour.FadeOpacity}");
-				Assert.IsTrue(tour.TitleVisibility > 0.5f, $"the title shows at {tour.TitleVisibility}");
-				Assert.AreEqual(0.0f, tour.CaptionVisibility);
-			});
-		}
-		else if (m_Step == 6 && m_Time > 11.1f)
-		{
-			m_Step = 7;
-			// About 4.5 seconds in, the title fades out while the camera nears the first shot with a caption.
-			TestReporter.Run("captions wait until the title is gone, and a skip hands the camera back", () =>
-			{
-				Flythrough? tour = Tour?.As<Flythrough>();
-				Assert.IsNotNull(tour);
-				Assert.IsTrue(tour.IsPlaying);
-				Assert.IsTrue(tour.TitleVisibility > 0.0f && tour.TitleVisibility < 1.0f, $"the title fades at {tour.TitleVisibility}");
-				Assert.IsFalse(string.IsNullOrEmpty(tour.Caption?.GetComponent<TextComponent>()?.Text), "a caption is due");
-				Assert.AreEqual(0.0f, tour.CaptionVisibility);
-				tour.Skip();
-				Assert.IsTrue(tour.IsSkipping);
-			});
-		}
-		else if (m_Step == 7 && m_Time > 13.1f)
-		{
-			m_Step = 8;
-			TestReporter.Run("after the tour the free camera has control", () =>
-			{
-				Flythrough? tour = Tour?.As<Flythrough>();
-				FlyCamera? rig = Rig?.As<FlyCamera>();
-				Assert.IsNotNull(tour);
-				Assert.IsNotNull(rig);
-				Assert.IsFalse(tour.IsPlaying);
-				Assert.AreEqual(1, tour.HandOvers);
-				Assert.IsTrue(rig.Controllable);
-				// It ends where the last shot is: the home view.
-				Entity last = tour.Children[^1];
-				Assert.IsTrue(Vector3.Distance(rig.Translation, last.Transform.WorldTranslation) < 0.01f, $"the camera is at {rig.Translation}");
-			});
-			TestReporter.Run("the dominoes fall one after the other", () =>
-			{
-				DominoRun? run = Dominoes?.As<DominoRun>();
-				Assert.IsNotNull(run);
-				Assert.AreEqual(1, run.Pushes);
-				Assert.IsTrue(run.Count >= 20, $"{run.Count} dominoes");
-				Assert.IsTrue(run.LastFell, $"{run.Fallen} of {run.Count} fell");
-				Assert.IsTrue(run.Fallen >= run.Count - 1, $"{run.Fallen} of {run.Count} fell");
-			});
-			TestReporter.Run("the gate closes again once the plate is clear", () =>
-			{
-				PressurePlate? plate = Plate?.As<PressurePlate>();
-				Assert.IsNotNull(plate);
-				Assert.IsFalse(plate.IsPressed);
-				Assert.AreEqual(0.0f, plate.Openness);
-				Assert.IsTrue(Mathf.Abs(Gate!.Transform.WorldTranslation.Y - m_GateClosed) < 0.05f, $"the gate is at {Gate.Transform.WorldTranslation.Y}");
-			});
-			TestReporter.Run("the shake wears off", () =>
-			{
-				CameraShake? shake = Camera?.As<CameraShake>();
-				Assert.IsNotNull(shake);
-				Assert.AreEqual(0.0f, shake.Trauma);
-				Assert.IsTrue(Camera!.Translation.Length < 1e-4f, $"the camera is at {Camera.Translation}");
-			});
+			CheckTheHandOver();
 			Playground?.As<Playground>()?.PutBack();
-		}
-		else if (m_Step == 8 && m_Time > 14.1f)
+		});
+		At(14.1f, () =>
 		{
-			m_Step = 9;
 			TestReporter.Run("R puts everything back", () =>
 			{
 				Playground? playground = Playground?.As<Playground>();
@@ -277,9 +162,378 @@ public sealed class ShowcaseTests : Script
 				Assert.AreEqual(0, playground.Knocked);
 				Assert.AreEqual(0, run.Fallen);
 			});
+			CheckTheHudAfterTheTour();
+			ClickTheHudButtons();
+		});
+		At(14.9f, () =>
+		{
+			CheckTheFeatureList();
+			CheckTheClicks();
 			TestReporter.Finish();
 			Application.Quit();
+		});
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		m_Time += deltaTime;
+		float light = Lantern?.GetComponent<PointLightComponent>()?.Intensity ?? 0.0f;
+		m_LowestLight = Mathf.Min(m_LowestLight, light);
+		m_BrightestLight = Mathf.Max(m_BrightestLight, light);
+		while (m_Next < m_Schedule.Count && m_Schedule[m_Next].Time <= m_Time)
+		{
+			m_Schedule[m_Next++].Step();
 		}
+	}
+
+	// The steps run in the order they are added, each once the run is that many seconds old.
+	private void At(float time, Action step) => m_Schedule.Add((time, step));
+
+	private void Begin()
+	{
+		m_LighthouseAngle = Lighthouse?.As<Spinner>()?.Angle ?? 0.0f;
+		m_ShowColor = LightShow?.As<LightShow>()?.ColorOf(0) ?? Color.Black;
+		m_GateClosed = Gate?.Transform.WorldTranslation.Y ?? 0.0f;
+		NeonSign?.As<NeonSign>()?.Ignite();
+	}
+
+	private (float Frame, float Letters) NeonLevels()
+	{
+		NeonSign? sign = NeonSign?.As<NeonSign>();
+		return sign is null ? (-1.0f, -1.0f) : (sign.FrameLevel, sign.LettersLevel);
+	}
+
+	private void CheckTheNeonSign()
+	{
+		TestReporter.Run("the neon sign flickers on, its frame before its letters", () =>
+		{
+			NeonSign? sign = NeonSign?.As<NeonSign>();
+			Assert.IsNotNull(sign);
+			Assert.AreEqual(1, sign.Ignitions);
+			// A tenth of a second after it is switched on, the tubes are dark; 0.7 seconds after, the frame holds and the
+			// letters have not flickered yet; two seconds after, both hold.
+			Assert.AreEqual((0.0f, 0.0f), m_NeonDark);
+			Assert.AreEqual((1.0f, 0.0f), m_NeonFrameOnly);
+			Assert.IsFalse(sign.IsIgniting);
+			Assert.AreEqual(1.0f, sign.FrameLevel);
+			Assert.AreEqual(1.0f, sign.LettersLevel);
+			Assert.IsTrue(sign.Letters?.GetComponent<MeshComponent>()?.GetMaterial(0)?.IsEditable == true, "the letters glow through a copy");
+		});
+	}
+
+	private void CheckThePostProcessVolumes()
+	{
+		TestReporter.Run("a global volume carries the scene's look", () =>
+		{
+			PostProcessComponent? look = Look?.GetComponent<PostProcessComponent>();
+			Assert.IsNotNull(look);
+			Assert.IsTrue(look.Global);
+			Assert.AreEqual(1.0f, look.Weight);
+			Assert.IsTrue(look.OverrideContrast && look.OverrideSaturation && look.OverrideTemperature && look.OverrideVignette &&
+				look.OverrideFilmGrain && look.OverrideBloomIntensity, "it grades the scene");
+			Assert.IsTrue(look.Temperature > 0.0f, "warm, at golden hour");
+		});
+		TestReporter.Run("the evening zone surrounds the light show and fades out before the plaza", () =>
+		{
+			PostProcessComponent? zone = EveningZone?.GetComponent<PostProcessComponent>();
+			Assert.IsNotNull(zone);
+			Assert.IsNotNull(LightShow);
+			Assert.IsFalse(zone.Global);
+			Assert.IsTrue(zone.BlendDistance >= 3.0f, $"it fades over {zone.BlendDistance} m");
+			Assert.IsTrue(zone.OverrideEV100 && zone.OverrideBloomIntensity && zone.OverrideTemperature, "an evening grade");
+			Assert.IsTrue(zone.Priority > Look!.GetComponent<PostProcessComponent>()!.Priority, "over the scene's look");
+			Assert.AreEqual(0.0f, DistanceToBox(EveningZone!, LightShow.Transform.WorldTranslation + new Vector3(0.0f, 1.7f, 0.0f)));
+			float plaza = DistanceToBox(EveningZone!, new Vector3(0.0f, 1.7f, 0.0f));
+			Assert.IsTrue(plaza > zone.BlendDistance, $"the plaza is {plaza} m from the zone");
+		});
+	}
+
+	private void CheckTheNight()
+	{
+		TestReporter.Run("night falls: moonlight, a dark sky, the night's grade and crickets", () =>
+		{
+			DayNight? lighting = Lighting?.As<DayNight>();
+			Assert.IsNotNull(lighting);
+			Assert.IsTrue(lighting.IsNight);
+			Assert.AreEqual(1.0f, lighting.Blend);
+			Assert.AreApproximatelyEqual(lighting.MoonIntensity, lighting.Sun!.GetComponent<DirectionalLightComponent>()!.Intensity, 1e-4f);
+			Assert.AreApproximatelyEqual(lighting.NightSkyIntensity, lighting.Sky!.GetComponent<SkyLightComponent>()!.Intensity, 1e-4f);
+			Assert.AreEqual(1.0f, lighting.NightGrade!.GetComponent<PostProcessComponent>()!.Weight);
+			Assert.AreEqual(0.0f, lighting.EveningZone!.GetComponent<PostProcessComponent>()!.Weight);
+			Assert.AreEqual(0.0f, lighting.DayAmbience!.GetComponent<AudioSourceComponent>()!.Volume);
+			Assert.AreApproximatelyEqual(lighting.NightAmbienceVolume, lighting.NightAmbience!.GetComponent<AudioSourceComponent>()!.Volume, 1e-4f);
+			lighting.SetNight(false);
+			Assert.IsFalse(lighting.IsNight);
+		});
+	}
+
+	private void CheckTheDayComesBack()
+	{
+		TestReporter.Run("the day comes back as it was", () =>
+		{
+			DayNight? lighting = Lighting?.As<DayNight>();
+			Assert.IsNotNull(lighting);
+			Assert.AreEqual(0.0f, lighting.Blend);
+			Assert.AreEqual(2, lighting.Switches);
+			Assert.AreApproximatelyEqual(lighting.DaySunIntensity, lighting.Sun!.GetComponent<DirectionalLightComponent>()!.Intensity, 1e-4f);
+			Assert.AreApproximatelyEqual(lighting.DaySkyIntensity, lighting.Sky!.GetComponent<SkyLightComponent>()!.Intensity, 1e-4f);
+			Assert.AreEqual(0.0f, lighting.NightGrade!.GetComponent<PostProcessComponent>()!.Weight);
+			Assert.AreApproximatelyEqual(lighting.DayZoneWeight, lighting.EveningZone!.GetComponent<PostProcessComponent>()!.Weight, 1e-4f);
+			Assert.AreEqual(0.0f, lighting.NightAmbience!.GetComponent<AudioSourceComponent>()!.Volume);
+		});
+	}
+
+	private void CheckTheGoalAndTheGate()
+	{
+		TestReporter.Run("a ball dropped through the hoop scores", () =>
+		{
+			GoalZone? goal = Goal?.As<GoalZone>();
+			Assert.IsNotNull(goal);
+			Assert.AreEqual(1, goal.Count);
+			Assert.AreEqual("1", goal.Counter?.GetComponent<TextComponent>()?.Text);
+		});
+		TestReporter.Run("the ball lands on the plate and the gate rises", () =>
+		{
+			PressurePlate? plate = Plate?.As<PressurePlate>();
+			Assert.IsNotNull(plate);
+			Assert.IsTrue(plate.Presses >= 1, $"{plate.Presses} presses");
+			Assert.IsTrue(plate.Openness > 0.5f, $"the gate is {plate.Openness} open");
+		});
+		TestReporter.Run("the launcher fires a ball at the goal", () =>
+		{
+			BallLauncher? launcher = Launcher?.As<BallLauncher>();
+			Assert.IsNotNull(launcher);
+			Entity? ball = launcher.Fire();
+			Assert.IsNotNull(ball);
+			Assert.AreEqual(1, launcher.Shots);
+			Assert.IsTrue(launcher.LaunchVelocity.Y > 1.0f, $"it lobs: {launcher.LaunchVelocity}");
+		});
+	}
+
+	private void CheckTheShakeAndStartTheTour()
+	{
+		TestReporter.Run("impacts shake the camera", () =>
+		{
+			CameraShake? shake = Camera?.As<CameraShake>();
+			Assert.IsNotNull(shake);
+			Assert.IsTrue(shake.Trauma > 0.8f, $"trauma {shake.Trauma}");
+			Assert.IsTrue(Camera!.Translation.Length > 1e-4f || Camera.Transform.EulerAngles.Length > 1e-3f, "the camera moved");
+		});
+		TestReporter.Run("the debug view draws paths and trigger bounds", () =>
+		{
+			DebugView? debug = DebugView?.As<DebugView>();
+			Assert.IsNotNull(debug);
+			// Two trigger boxes (12 lines each), the bridge's links and the two ballistic paths.
+			Assert.IsTrue(debug.LinesDrawn > 40, $"{debug.LinesDrawn} lines");
+			debug.Visible = false;
+		});
+		TestReporter.Run("the tour takes the camera along its shots", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			FlyCamera? rig = Rig?.As<FlyCamera>();
+			Assert.IsNotNull(tour);
+			Assert.IsNotNull(rig);
+			Assert.IsFalse(tour.IsPlaying, "the test scene starts without the tour");
+			Assert.IsTrue(tour.ShotCount == 0 || tour.ShotCount >= 8);
+			Assert.AreEqual(0.0f, tour.Fade?.GetComponent<UIRectComponent>()?.Opacity, "the screen is clear");
+			Assert.AreEqual(0.0f, tour.LetterboxAmount, "no letterbox while exploring");
+			m_TourStart = rig.Translation;
+			tour.Play();
+			Assert.IsTrue(tour.IsPlaying);
+			Assert.IsTrue(tour.ShotCount >= 8, $"{tour.ShotCount} shots");
+			Assert.IsFalse(rig.Controllable, "the tour has the camera");
+			// It fades in from black.
+			Assert.AreEqual(1.0f, tour.FadeOpacity);
+			Assert.AreEqual(1.0f, tour.Fade?.GetComponent<UIRectComponent>()?.Opacity);
+		});
+	}
+
+	private void CheckTheTourUnderWay()
+	{
+		TestReporter.Run("the tour moves the camera and opens with its title", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			FlyCamera? rig = Rig?.As<FlyCamera>();
+			Assert.IsNotNull(tour);
+			Assert.IsNotNull(rig);
+			Assert.IsTrue(tour.IsPlaying);
+			Assert.IsTrue(Vector3.Distance(rig.Translation, m_TourStart) > 1.0f, "the camera left its place");
+			Assert.IsTrue(tour.FadeOpacity < 0.1f, $"the fade is at {tour.FadeOpacity}");
+			Assert.IsTrue(tour.TitleVisibility > 0.5f, $"the title shows at {tour.TitleVisibility}");
+			Assert.AreEqual(0.0f, tour.CaptionVisibility);
+		});
+		TestReporter.Run("the tour letterboxes the screen and hides the HUD", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			Assert.IsNotNull(tour?.Letterbox);
+			Assert.AreEqual(1.0f, tour.LetterboxAmount);
+			Assert.AreEqual(2, tour.Letterbox.Children.Length);
+			foreach (Entity bar in tour.Letterbox.Children)
+			{
+				Assert.AreApproximatelyEqual(tour.LetterboxHeight, bar.GetComponent<UIRectComponent>()!.Size.Y, 1e-3f);
+			}
+			Assert.AreEqual(0.0f, tour.Hud?.GetComponent<UIRectComponent>()?.Opacity, "the HUD is hidden");
+		});
+	}
+
+	private void CheckTheCaptionsAndSkip()
+	{
+		// About 4.5 seconds in, the title fades out while the camera nears the first shot with a caption.
+		TestReporter.Run("captions wait until the title is gone, and a skip hands the camera back", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			Assert.IsNotNull(tour);
+			Assert.IsTrue(tour.IsPlaying);
+			Assert.IsTrue(tour.TitleVisibility > 0.0f && tour.TitleVisibility < 1.0f, $"the title fades at {tour.TitleVisibility}");
+			Assert.IsFalse(string.IsNullOrEmpty(tour.CaptionText?.GetComponent<UITextComponent>()?.Text), "a caption is due");
+			Assert.AreEqual(0.0f, tour.CaptionVisibility);
+			tour.Skip();
+			Assert.IsTrue(tour.IsSkipping);
+		});
+	}
+
+	private void CheckTheHandOver()
+	{
+		TestReporter.Run("after the tour the free camera has control", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			FlyCamera? rig = Rig?.As<FlyCamera>();
+			Assert.IsNotNull(tour);
+			Assert.IsNotNull(rig);
+			Assert.IsFalse(tour.IsPlaying);
+			Assert.AreEqual(1, tour.HandOvers);
+			Assert.IsTrue(rig.Controllable);
+			// It ends where the last shot is: the home view.
+			Entity last = tour.Children[^1];
+			Assert.IsTrue(Vector3.Distance(rig.Translation, last.Transform.WorldTranslation) < 0.01f, $"the camera is at {rig.Translation}");
+		});
+		TestReporter.Run("the dominoes fall one after the other", () =>
+		{
+			DominoRun? run = Dominoes?.As<DominoRun>();
+			Assert.IsNotNull(run);
+			Assert.AreEqual(1, run.Pushes);
+			Assert.IsTrue(run.Count >= 20, $"{run.Count} dominoes");
+			Assert.IsTrue(run.LastFell, $"{run.Fallen} of {run.Count} fell");
+			Assert.IsTrue(run.Fallen >= run.Count - 1, $"{run.Fallen} of {run.Count} fell");
+		});
+		TestReporter.Run("the gate closes again once the plate is clear", () =>
+		{
+			PressurePlate? plate = Plate?.As<PressurePlate>();
+			Assert.IsNotNull(plate);
+			Assert.IsFalse(plate.IsPressed);
+			Assert.AreEqual(0.0f, plate.Openness);
+			Assert.IsTrue(Mathf.Abs(Gate!.Transform.WorldTranslation.Y - m_GateClosed) < 0.05f, $"the gate is at {Gate.Transform.WorldTranslation.Y}");
+		});
+		TestReporter.Run("the shake wears off", () =>
+		{
+			CameraShake? shake = Camera?.As<CameraShake>();
+			Assert.IsNotNull(shake);
+			Assert.AreEqual(0.0f, shake.Trauma);
+			Assert.IsTrue(Camera!.Translation.Length < 1e-4f, $"the camera is at {Camera.Translation}");
+		});
+	}
+
+	private void CheckTheHudAfterTheTour()
+	{
+		TestReporter.Run("after the tour the letterbox opens and the HUD fades in", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			Assert.IsNotNull(tour?.Letterbox);
+			Assert.AreEqual(0.0f, tour.LetterboxAmount);
+			foreach (Entity bar in tour.Letterbox.Children)
+			{
+				Assert.AreEqual(0.0f, bar.GetComponent<UIRectComponent>()!.Size.Y);
+			}
+			Assert.AreEqual(1.0f, tour.HudVisibility);
+			Assert.AreEqual(1.0f, tour.Hud?.GetComponent<UIRectComponent>()?.Opacity);
+		});
+		// The camera moves to the gallery, whose row of the feature list lights up.
+		Hud? hud = Hud?.As<Hud>();
+		HudFeature? materials = hud?.FeatureRows.FirstOrDefault(row => row.Radius > 0.0f);
+		if (Rig?.As<FlyCamera>() is { } rig && materials is not null)
+		{
+			rig.SetPose(materials.Center + new Vector3(0.0f, 2.0f, 0.0f), 0.0f, rig.Yaw);
+		}
+	}
+
+	private void ClickTheHudButtons()
+	{
+		Hud? hud = Hud?.As<Hud>();
+		m_BeforeClicks = (WreckingBall?.As<WreckingBall>()?.Swings ?? 0, Launcher?.As<BallLauncher>()?.Shots ?? 0,
+			Playground?.As<Playground>()?.Resets ?? 0, Lighting?.As<DayNight>()?.Switches ?? 0);
+		// Clicks in code land at the next frame's UI update, as the mouse's would.
+		foreach (Entity? button in new[] { hud?.SwingButton, hud?.LaunchButton, hud?.LightsButton, hud?.ResetButton })
+		{
+			button?.GetComponent<UIButtonComponent>()?.Click();
+		}
+	}
+
+	private void CheckTheFeatureList()
+	{
+		TestReporter.Run("the feature list lights up the exhibits around the camera", () =>
+		{
+			Hud? hud = Hud?.As<Hud>();
+			FlyCamera? rig = Rig?.As<FlyCamera>();
+			Assert.IsNotNull(hud);
+			Assert.IsNotNull(rig);
+			Assert.IsTrue(hud.FeatureRows.Count >= 8, $"{hud.FeatureRows.Count} rows");
+			int lit = 0;
+			foreach (HudFeature row in hud.FeatureRows.Where(row => row.Radius > 0.0f))
+			{
+				// Every row has come to rest at its nearness to the camera.
+				Assert.AreApproximatelyEqual(row.Nearness(rig.Transform.WorldTranslation), row.Lit, 1e-3f, row.Name);
+				lit += row.Lit > 0.99f ? 1 : 0;
+			}
+			Assert.IsTrue(lit >= 1, "the gallery's row is lit");
+			Assert.IsTrue(lit < hud.FeatureRows.Count - 1, $"{lit} rows are lit");
+			// Lit rows open for their detail lines, and the rows stack under each other.
+			for (int i = 0; i < hud.FeatureRows.Count; i++)
+			{
+				HudFeature row = hud.FeatureRows[i];
+				UIRectComponent rect = row.GetComponent<UIRectComponent>()!;
+				Assert.AreApproximatelyEqual(row.ClosedHeight + (row.DetailHeight * Mathf.SmoothStep(0.0f, 1.0f, row.Lit)), rect.Size.Y, 1e-3f, row.Name);
+				if (i > 0)
+				{
+					UIRectComponent above = hud.FeatureRows[i - 1].GetComponent<UIRectComponent>()!;
+					Assert.AreApproximatelyEqual(above.Position.Y + above.Size.Y + hud.RowGap, rect.Position.Y, 1e-3f, row.Name);
+				}
+			}
+			Assert.IsTrue(hud.FeatureRows[0].GetComponent<UIRectComponent>()!.Size.Y > hud.FeatureRows[0].ClosedHeight + 1.0f, "the gallery's row is open");
+		});
+	}
+
+	private void CheckTheClicks()
+	{
+		TestReporter.Run("the HUD's buttons put the exhibits back, swing the ball, launch and switch the lights", () =>
+		{
+			Hud? hud = Hud?.As<Hud>();
+			DayNight? lighting = Lighting?.As<DayNight>();
+			Assert.IsNotNull(hud);
+			Assert.IsNotNull(lighting);
+			Assert.AreEqual(4, hud.Clicks);
+			Assert.AreEqual(m_BeforeClicks.Swings + 1, WreckingBall?.As<WreckingBall>()?.Swings);
+			Assert.AreEqual(m_BeforeClicks.Shots + 1, Launcher?.As<BallLauncher>()?.Shots);
+			Assert.AreEqual(m_BeforeClicks.Resets + 1, Playground?.As<Playground>()?.Resets);
+			Assert.AreEqual(m_BeforeClicks.Switches + 1, lighting.Switches);
+			Assert.IsTrue(lighting.IsNight, "night falls");
+			lighting.SetNight(false);
+			// The HUD hides and shows again (its key does this).
+			hud.Shown = false;
+			Assert.IsFalse(hud.GetComponent<UIRectComponent>()!.Visible);
+			hud.Shown = true;
+			Assert.IsTrue(hud.Shown);
+		});
+	}
+
+	// Meters from a point to the volume's box: the unit cube under its transform (its parents are not scaled); 0 inside.
+	private static float DistanceToBox(Entity volume, Vector3 point)
+	{
+		Vector3 offset = point - volume.Transform.WorldTranslation;
+		Vector3 half = volume.Scale * 0.5f;
+		float x = Mathf.Max(0.0f, Mathf.Abs(Vector3.Dot(offset, volume.Transform.Right)) - half.X);
+		float y = Mathf.Max(0.0f, Mathf.Abs(Vector3.Dot(offset, volume.Transform.Up)) - half.Y);
+		float z = Mathf.Max(0.0f, Mathf.Abs(Vector3.Dot(offset, volume.Transform.Forward)) - half.Z);
+		return new Vector3(x, y, z).Length;
 	}
 
 	private void CheckTheSceneAtRest()

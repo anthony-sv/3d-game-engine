@@ -25,6 +25,9 @@ Textures (RGBA PNG):
 - Crosshair: the aiming ring shown at the center of the screen.
 - BeamFade: white fading to transparent from top to bottom, which fades the light shaft along its length.
 - Leaf: a pale leaf with veins on a transparent background, which particles tint into falling autumn leaves.
+- SoftBand: white whose opacity fades out towards every edge, a soft backdrop that UI images tint (behind titles).
+- Icons/*: the HUD buttons' white icons on transparent backgrounds: Reset (a circular arrow), Swing (a wrecking ball), Launch
+  (a ball on its arc), Sun and Moon (day and night).
 """
 import base64
 import json
@@ -680,6 +683,135 @@ def crosshair():
     write_png("Crosshair", size, size, pixel)
 
 
+def soft_band():
+    """White, opaque in the middle and fading out towards every edge (more slowly towards the ends), 256 x 64: a soft
+    backdrop that UI images tint behind titles and captions."""
+    width, height = 256, 64
+
+    def pixel(x, y):
+        u, v = (x + 0.5) / width, (y + 0.5) / height
+        across = min(u, 1.0 - u) / 0.36
+        down = min(v, 1.0 - v) / 0.5
+        alpha = smoothstep(min(1.0, across)) * smoothstep(min(1.0, down))
+        return (1.0, 1.0, 1.0, alpha)
+
+    write_png("SoftBand", width, height, pixel)
+
+
+def smoothstep(t):
+    return t * t * (3.0 - 2.0 * t)
+
+
+# --- HUD icons ---------------------------------------------------------------------------------------------------------------
+
+def icon(name, inside, size=96, samples=4):
+    """Writes Textures/Icons/<name>.png: a white icon on a transparent background, size x size pixels. inside(u, v) says
+    whether a point (0 to 1 across, v downwards) belongs to the icon; samples x samples points per pixel smooth its edges."""
+    def pixel(x, y):
+        covered = 0
+        for sy in range(samples):
+            for sx in range(samples):
+                if inside((x + (sx + 0.5) / samples) / size, (y + (sy + 0.5) / samples) / size):
+                    covered += 1
+        return (1.0, 1.0, 1.0, covered / (samples * samples))
+
+    write_png(f"Icons/{name}", size, size, pixel)
+
+
+def near_segment(u, v, a, b, width):
+    """Whether the point lies within width / 2 of the segment a-b (a stroke with round ends)."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    t = max(0.0, min(1.0, ((u - a[0]) * dx + (v - a[1]) * dy) / (dx * dx + dy * dy)))
+    return math.hypot(u - a[0] - t * dx, v - a[1] - t * dy) <= width / 2.0
+
+
+def in_triangle(u, v, a, b, c):
+    def side(p, q):
+        return (q[0] - p[0]) * (v - p[1]) - (q[1] - p[1]) * (u - p[0])
+    sides = (side(a, b), side(b, c), side(c, a))
+    return all(s >= 0.0 for s in sides) or all(s <= 0.0 for s in sides)
+
+
+def reset_icon():
+    """A circular arrow turning clockwise, its head at the top pointing into the gap at the top right."""
+    center, radius, width = (0.5, 0.53), 0.27, 0.095
+    gap_start, gap_end = math.radians(-100.0), math.radians(-38.0)
+    end = (center[0] + radius * math.cos(gap_start), center[1] + radius * math.sin(gap_start))
+    # On the screen (v down), increasing angles turn clockwise: the head points along the circle's tangent there.
+    tangent = (-math.sin(gap_start), math.cos(gap_start))
+    normal = (math.cos(gap_start), math.sin(gap_start))
+    head = ((end[0] + tangent[0] * 0.15, end[1] + tangent[1] * 0.15),
+            (end[0] + normal[0] * 0.12, end[1] + normal[1] * 0.12),
+            (end[0] - normal[0] * 0.12, end[1] - normal[1] * 0.12))
+
+    def inside(u, v):
+        if in_triangle(u, v, *head):
+            return True
+        distance = math.hypot(u - center[0], v - center[1])
+        angle = math.atan2(v - center[1], u - center[0])
+        return abs(distance - radius) <= width / 2.0 and not gap_start < angle < gap_end
+
+    icon("Reset", inside)
+
+
+def swing_icon():
+    """A wrecking ball swung out to the left from a beam, with motion lines trailing it."""
+    pivot, ball, radius = (0.56, 0.15), (0.31, 0.62), 0.165
+    along = (ball[0] - pivot[0], ball[1] - pivot[1])
+    length = math.hypot(*along)
+    # The ball swings to the left: the lines trail on its right, along its path.
+    trail = (along[1] / length, -along[0] / length)
+    side = (along[0] / length, along[1] / length)
+    lines = []
+    for offset, start, stop in ((-0.07, 0.24, 0.38), (0.07, 0.27, 0.36)):
+        base = (ball[0] + side[0] * offset, ball[1] + side[1] * offset)
+        lines.append(((base[0] + trail[0] * start, base[1] + trail[1] * start), (base[0] + trail[0] * stop, base[1] + trail[1] * stop)))
+
+    def inside(u, v):
+        return (near_segment(u, v, (0.2, 0.15), (0.84, 0.15), 0.08) or near_segment(u, v, pivot, ball, 0.045) or
+                math.hypot(u - ball[0], v - ball[1]) <= radius or any(near_segment(u, v, a, b, 0.05) for a, b in lines))
+
+    icon("Swing", inside)
+
+
+def launch_icon():
+    """A ball flying up and away on a dotted arc from the lower left."""
+    start, control, end = (0.14, 0.88), (0.34, 0.1), (0.72, 0.3)
+
+    def bezier(t):
+        return tuple((1.0 - t) ** 2 * start[k] + 2.0 * (1.0 - t) * t * control[k] + t * t * end[k] for k in range(2))
+
+    dots = [(bezier(t), 0.032 + 0.018 * t) for t in (0.04, 0.24, 0.44, 0.62)]
+
+    def inside(u, v):
+        return math.hypot(u - end[0], v - end[1]) <= 0.15 or any(math.hypot(u - c[0], v - c[1]) <= r for c, r in dots)
+
+    icon("Launch", inside)
+
+
+def sun_icon():
+    """A disc with eight rays."""
+    rays = [((0.5 + 0.27 * math.cos(a), 0.5 + 0.27 * math.sin(a)), (0.5 + 0.39 * math.cos(a), 0.5 + 0.39 * math.sin(a)))
+            for a in (math.radians(45.0 * index) for index in range(8))]
+
+    def inside(u, v):
+        return math.hypot(u - 0.5, v - 0.5) <= 0.17 or any(near_segment(u, v, a, b, 0.075) for a, b in rays)
+
+    icon("Sun", inside)
+
+
+def moon_icon():
+    """A crescent moon with a small star."""
+    def inside(u, v):
+        crescent = math.hypot(u - 0.46, v - 0.54) <= 0.33 and math.hypot(u - 0.62, v - 0.42) > 0.28
+        # A four-pointed star at the top right: two thin diamonds crossing.
+        du, dv = abs(u - 0.76), abs(v - 0.2)
+        star = du / 0.1 + dv / 0.03 <= 1.0 or du / 0.03 + dv / 0.1 <= 1.0
+        return crescent or star
+
+    icon("Moon", inside)
+
+
 if __name__ == "__main__":
     write_gltf("TorusKnot", torus_knot())
     write_gltf("Hoop", torus())
@@ -699,3 +831,6 @@ if __name__ == "__main__":
     crosshair()
     beam_fade()
     leaf()
+    soft_band()
+    for make in (reset_icon, swing_icon, launch_icon, sun_icon, moon_icon):
+        make()
