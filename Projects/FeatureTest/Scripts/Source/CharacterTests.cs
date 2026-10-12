@@ -8,7 +8,8 @@ namespace FeatureTest;
 /// Gate, a trigger, stands across its way along +X: it walks through the gate, jumps, lands and is teleported back.</summary>
 public sealed class CharacterTests : FeatureTestScript
 {
-	private const int FrameLimit = 600;
+	// Game seconds the course may take: frames can be shorter or longer than a physics step.
+	private const float TimeLimit = 10.0f;
 	private const float WalkSpeed = 2.0f;
 	private const float WalkDistance = 2.5f;
 	private const float JumpSpeed = 4.0f;
@@ -30,6 +31,10 @@ public sealed class CharacterTests : FeatureTestScript
 	private bool m_Jumped;
 	private bool m_Airborne;
 	private float m_Peak;
+	private float m_Elapsed;
+	// Physics steps run so far, and how many had run when the landing was seen.
+	private int m_FixedSteps;
+	private int m_LandingStep;
 
 	private CharacterControllerComponent Controller => Character!.GetComponent<CharacterControllerComponent>()!;
 
@@ -61,6 +66,7 @@ public sealed class CharacterTests : FeatureTestScript
 
 	protected override void OnFixedUpdate(float fixedDeltaTime)
 	{
+		m_FixedSteps++;
 		CharacterControllerComponent controller = Controller;
 		if (m_Phase == Phase.Walking)
 		{
@@ -77,7 +83,8 @@ public sealed class CharacterTests : FeatureTestScript
 	{
 		CharacterControllerComponent controller = Controller;
 		CollisionProbe probe = Character!.As<CollisionProbe>()!;
-		if (frame >= FrameLimit)
+		m_Elapsed += deltaTime;
+		if (m_Elapsed >= TimeLimit)
 		{
 			Check("the character finished its course", () => Assert.Fail($"stuck {m_Phase} at {Character.Translation}"));
 			return true;
@@ -121,11 +128,16 @@ public sealed class CharacterTests : FeatureTestScript
 				{
 					return false;
 				}
-				// It landed in the last step. Between steps an entity is drawn on its way to where the last step left it, so
-				// it stands on the ground in the next frame.
+				// It landed in a step of an earlier frame. Between steps an entity is drawn on its way to where the last step
+				// left it, so it stands on the ground once another step has run (a frame shorter than a step may run none).
+				m_LandingStep = m_FixedSteps;
 				m_Phase = Phase.Landed;
 				return false;
 			case Phase.Landed:
+				if (m_FixedSteps == m_LandingStep)
+				{
+					return false;
+				}
 				Check("characters jump and land", () =>
 				{
 					Assert.IsTrue(m_Peak > m_Start.Y + 0.5f, $"peak {m_Peak}");
