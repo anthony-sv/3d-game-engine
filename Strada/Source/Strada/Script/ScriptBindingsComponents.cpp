@@ -116,7 +116,8 @@ namespace Strada::ScriptGlue
 			glm::vec2 ViewportSize = glm::vec2(0.0f);
 		};
 
-		// Logs a script error naming the function and returns nothing when the entity has no camera or the scene no viewport.
+		// Logs a script error naming the function and returns nothing when the entity has no camera, the scene no viewport or
+		// the camera no place to look from (its world transform, or a parent's, scales it to zero or beyond what floats hold).
 		std::optional<CameraView> GetCameraView(uint64_t id, char const* function)
 		{
 			Entity const entity = FindEntity(id, function);
@@ -136,6 +137,7 @@ namespace Strada::ScriptGlue
 			glm::vec3 scale;
 			if (!Math::DecomposeTransform(scene.GetWorldTransform(entity), position, rotation, scale))
 			{
+				Log::GetScriptLogger().error("{}: the camera's world scale is zero or too large", function);
 				return std::nullopt;
 			}
 			CameraView view;
@@ -170,7 +172,9 @@ namespace Strada::ScriptGlue
 		}
 
 		// Where a point of the world shows in the scene's viewport: pixels from its top-left corner (x, y), and the point's
-		// distance in front of the camera along its view direction (z, negative behind it, where x and y mean nothing).
+		// distance in front of the camera along its view direction (z, negative behind it). A perspective camera shows only
+		// points in front of it: behind it (z of zero or less) x and y mean nothing. An orthographic camera shows every point
+		// at its x and y, and draws it when z lies between its near and far distances (a negative near one reaches behind it).
 		void CameraComponent_WorldToScreenPoint(uint64_t id, Vector3 const* worldPosition, Vector3* screenPosition)
 		{
 			*screenPosition = {0.0f, 0.0f, 0.0f};
@@ -185,7 +189,8 @@ namespace Strada::ScriptGlue
 			}
 			glm::vec4 const viewPosition = camera->View * glm::vec4(FromScript(*worldPosition), 1.0f);
 			glm::vec4 const clip = camera->Projection * viewPosition;
-			// A point in the camera's plane has no place on the screen: the division stays finite.
+			// A point in a perspective camera's plane has no place on the screen: the division stays finite (orthographic
+			// projections keep w at 1).
 			constexpr float SmallestW = 1e-6f;
 			float const w = std::abs(clip.w) >= SmallestW ? clip.w : std::copysign(SmallestW, clip.w);
 			glm::vec2 const ndc = glm::vec2(clip) / w;

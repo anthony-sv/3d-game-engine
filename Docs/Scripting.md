@@ -353,7 +353,9 @@ public class Turret : Script
 ```
 
 A HUD that shows the score and a health bar (the fill is an image stretched over the bar, whose right anchor follows the
-health):
+health). Its number is formatted with `CultureInfo.InvariantCulture` (`System.Globalization`): formatted for the
+player's language, numbers can take characters the font lacks, such as the narrow no-break space that groups thousands
+in French, which would show as a placeholder glyph:
 
 ```csharp
 public class Hud : Script
@@ -363,7 +365,7 @@ public class Hud : Script
 
 	public void Show(int score, float health)
 	{
-		Score!.GetComponent<UITextComponent>()!.Text = $"SCORE  {score:N0}";
+		Score!.GetComponent<UITextComponent>()!.Text = string.Create(CultureInfo.InvariantCulture, $"SCORE  {score:N0}");
 		HealthFill!.GetComponent<UIRectComponent>()!.AnchorMax = new Vector2(Mathf.Clamp01(health), 1.0f);
 	}
 }
@@ -371,22 +373,59 @@ public class Hud : Script
 
 A label that follows something in the world (a name over a character, a marker over a goal) goes where the camera shows
 that point: `WorldToScreenPoint` returns its position in pixels from the top-left corner and its depth in front of the
-camera, which is negative behind it. In a canvas whose `ScaleMode` is `ConstantPixelSize`, canvas units are pixels, so
-the position goes into the label's `UIRect` as it is (here anchored to the top-left corner, with the pivot at its
-bottom middle, so the label stands above the point). Place it after the camera has moved in the frame, or it trails the
-point by a frame while the camera moves:
+camera, which is negative behind it. A perspective camera shows only what is in front of it, so a label whose point has
+a depth of zero or less hides; an orthographic camera shows every point at its position, between its `OrthographicNear`
+and `OrthographicFar` depths. In a canvas whose `ScaleMode` is `ConstantPixelSize`, canvas units are pixels, so the
+position goes into the label's `UIRect` as it is (here anchored to the top-left corner, with the pivot at its bottom
+middle, so the label stands above the point).
+
+Scripts update one after another in no set order, so a label placed in its own `OnUpdate` may use where the camera stood
+before it moved this frame, and trail the point by a frame while the camera moves. Place it once the camera has moved:
+the script that moves the camera raises an event when it is done, and the label follows it then:
 
 ```csharp
+public class FollowCamera : Script
+{
+	public Entity? Target;
+
+	// Raised every frame once the camera stands where it shows the frame from.
+	public event System.Action? Moved;
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		Vector3 goal = Target!.Transform.WorldTranslation + new Vector3(0.0f, 4.0f, 10.0f);
+		Translation = Vector3.Lerp(Translation, goal, 1.0f - Mathf.Exp(-5.0f * deltaTime));
+		Moved?.Invoke();
+	}
+}
+
 public class Nameplate : Script
 {
 	public Entity? Target;
 	public Entity? Camera;
 
-	protected override void OnUpdate(float deltaTime)
+	protected override void OnCreate()
+	{
+		if (Camera?.As<FollowCamera>() is { } camera)
+		{
+			camera.Moved += Place;
+		}
+	}
+
+	protected override void OnDestroy()
+	{
+		if (Camera?.As<FollowCamera>() is { } camera)
+		{
+			camera.Moved -= Place;
+		}
+	}
+
+	private void Place()
 	{
 		CameraComponent camera = Camera!.GetComponent<CameraComponent>()!;
 		Vector3 screen = camera.WorldToScreenPoint(Target!.Transform.WorldTranslation + (Vector3.Up * 2.0f));
 		UIRectComponent rect = GetComponent<UIRectComponent>()!;
+		// The camera is a perspective one: behind it the point has no place on the screen.
 		rect.Visible = screen.Z > 0.0f;
 		rect.Position = new Vector2(screen.X, screen.Y);
 	}
