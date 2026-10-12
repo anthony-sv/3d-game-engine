@@ -13,10 +13,10 @@
 namespace Strada
 {
 	// A physics world: one rigid body per entity (its colliders form a compound shape), simulated in fixed steps on
-	// PhysicsSystem's worker threads. Object layers are the project's physics layers; broad-phase layers separate static
-	// from moving bodies. Collision and trigger events are collected during steps and taken on the main thread. Knows
-	// nothing about the ECS: the Scene creates bodies from components and writes transforms back. Requires
-	// PhysicsSystem. Main thread only.
+	// PhysicsSystem's worker threads, and characters that games move. Object layers are the project's physics layers;
+	// broad-phase layers separate static from moving bodies. Collision and trigger events are collected during steps and
+	// taken on the main thread. Knows nothing about the ECS: the Scene creates bodies and characters from components and
+	// writes transforms back. Requires PhysicsSystem. Main thread only.
 	class PhysicsScene
 	{
 	public:
@@ -28,7 +28,8 @@ namespace Strada
 
 		// --- Bodies ---
 
-		// Creates the body of an entity, replacing an existing one. Fails without colliders or when a shape is invalid.
+		// Creates the body of an entity, replacing an existing one (or its character). Fails without colliders or when a
+		// shape is invalid. Characters standing on a replaced or removed body find what they stand on at once.
 		[[nodiscard]] Result<void> AddBody(BodyDesc const& desc);
 		void RemoveBody(UUID entity);
 		bool HasBody(UUID entity) const;
@@ -44,8 +45,35 @@ namespace Strada
 		bool HasJoint(UUID entity) const;
 		size_t GetJointCount() const;
 
+		// --- Characters (see CharacterDesc) ---
+
+		// Creates the character of an entity at desc.Position; an entity's existing character moves there (without
+		// colliding on the way), keeps its velocity and takes the new shape and settings (a larger shape is not checked for
+		// room: what it overlaps pushes it out). An entity has a body or a character: each replaces the other. Fails when a
+		// value is not finite, the capsule is larger than MaxPhysicsExtent or the world is full; a refused description
+		// leaves the entity without a character.
+		[[nodiscard]] Result<void> AddCharacter(CharacterDesc const& desc);
+		void RemoveCharacter(UUID entity);
+		bool HasCharacter(UUID entity) const;
+		size_t GetCharacterCount() const;
+		// The velocity (meters per second) at which the character walks during the next step, on top of its own velocity;
+		// a later call before the step replaces it.
+		void MoveCharacter(UUID entity, glm::vec3 const& velocity);
+		// Its own velocity: gravity speeds it up while it is not standing on walkable ground, landing stops it, and what it
+		// runs into removes the part towards it.
+		void SetCharacterVelocity(UUID entity, glm::vec3 const& velocity);
+		// Places the character's capsule center there at once (without colliding on the way), keeping its velocity, and
+		// finds what it stands on there.
+		void SetCharacterPosition(UUID entity, glm::vec3 const& position);
+		// The bodies of these entities (the character's own parts: a held object, a trigger around it) neither block the
+		// character nor touch its inner body, so they report no contacts with it; replaces the earlier list.
+		void SetCharacterIgnoredEntities(UUID entity, std::vector<UUID> entities);
+		std::optional<CharacterState> GetCharacterState(UUID entity) const;
+
 		// --- Simulation ---
 
+		// Moves the characters (in the order of their entities' IDs), carried by what they stand on, then simulates the
+		// bodies; characters standing on bodies that went down (descending platforms) then follow them down.
 		void Step(float deltaTime);
 		// Positions and rotations of the dynamic bodies that are awake.
 		std::vector<BodyTransform> GetActiveBodyTransforms() const;

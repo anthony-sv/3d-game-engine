@@ -16,7 +16,7 @@ using namespace Strada;
 TEST_CASE("Components: every component is registered once with a unique name")
 {
 	std::span<ComponentInfo const> const components = ComponentRegistry::GetComponents();
-	REQUIRE(components.size() == 23);
+	REQUIRE(components.size() == 30);
 
 	std::set<std::string_view> names;
 	for (ComponentInfo const& info : components)
@@ -67,7 +67,13 @@ TEST_CASE("Components: every component belongs to one of the known categories")
 	CHECK(ComponentRegistry::Get<JointComponent>().Category == ComponentCategory::Physics);
 	CHECK(ComponentRegistry::Get<AudioListenerComponent>().Category == ComponentCategory::Audio);
 	CHECK(ComponentRegistry::Get<ScriptComponent>().Category == ComponentCategory::Scripting);
-	CHECK(ComponentRegistry::Get<SpriteRendererComponent>().Category == ComponentCategory::UI);
+	CHECK(ComponentRegistry::Get<CharacterControllerComponent>().Category == ComponentCategory::Physics);
+	CHECK(ComponentRegistry::Get<PostProcessComponent>().Category == ComponentCategory::Rendering);
+	// Text and sprites are renderers in the world or on the screen; UI holds the elements of screen-space canvases.
+	CHECK(ComponentRegistry::Get<TextComponent>().Category == ComponentCategory::Rendering);
+	CHECK(ComponentRegistry::Get<SpriteRendererComponent>().Category == ComponentCategory::Rendering);
+	CHECK(ComponentRegistry::Get<UICanvasComponent>().Category == ComponentCategory::UI);
+	CHECK(ComponentRegistry::Get<UIButtonComponent>().Category == ComponentCategory::UI);
 }
 
 TEST_CASE("Components: every component round trips through JSON with its default values")
@@ -346,4 +352,55 @@ TEST_CASE("Components: schemas include ranges, value lists, presentation hints a
 	CHECK(mesh["Fields"][0]["AssetType"] == "Mesh");
 	CHECK(mesh["Fields"][1]["Type"] == "asset[]");
 	CHECK(mesh["Fields"][1]["AssetType"] == "Material");
+}
+
+TEST_CASE("Components: post-process settings are switched by their overrides and match the scene's renderer settings")
+{
+	ComponentInfo const& volume = ComponentRegistry::Get<PostProcessComponent>();
+	FieldDescriptor const* saturation = volume.FindField("Saturation");
+	REQUIRE(saturation != nullptr);
+	CHECK(saturation->Hints.EnabledBy == "OverrideSaturation");
+	CHECK(volume.FindField("OverrideSaturation")->Kind == FieldKind::Bool);
+	CHECK(volume.FindField("OverrideSaturation")->Default == false);
+	CHECK(volume.FindField("Weight")->Hints.EnabledBy.empty());
+	CHECK(volume.FindField("Global")->Default == true);
+
+	Json const schema = volume.Describe();
+	bool described = false;
+	for (Json const& field : schema["Fields"])
+	{
+		if (field["Name"] == "Saturation")
+		{
+			CHECK(field["EnabledBy"] == "OverrideSaturation");
+			described = true;
+		}
+		if (field["Name"] == "Priority")
+		{
+			CHECK_FALSE(field.contains("EnabledBy"));
+		}
+	}
+	CHECK(described);
+
+	// Each overridable value is the renderer setting of the same name: same type, default, range and presentation.
+	std::vector<FieldDescriptor> const settings = GetFieldDescriptors<StructTraits<SceneRendererSettings>, SceneRendererSettings>();
+	for (FieldDescriptor const& field : volume.Fields)
+	{
+		if (field.Hints.EnabledBy.empty())
+		{
+			continue;
+		}
+		CAPTURE(field.Name);
+		CHECK(field.Hints.EnabledBy == "Override" + std::string(field.Name));
+		auto const setting = std::find_if(settings.begin(), settings.end(),
+		                                  [&field](FieldDescriptor const& candidate)
+		                                  {
+											  return candidate.Name == field.Name;
+										  });
+		REQUIRE(setting != settings.end());
+		CHECK(field.Kind == setting->Kind);
+		CHECK(field.Default == setting->Default);
+		CHECK(field.Hints.Min == setting->Hints.Min);
+		CHECK(field.Hints.Max == setting->Hints.Max);
+		CHECK(field.Hints.Display == setting->Hints.Display);
+	}
 }

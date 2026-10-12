@@ -234,17 +234,34 @@ struct OutlineConstants
 	float3 Padding;
 };
 
+// Debug lines (push constants), drawn as screen-space quads. The outline color is sRGB-encoded with straight alpha.
+struct LineConstants
+{
+	float4 OutlineColor;
+	// Pixels.
+	float Width;
+	// Pixels on each side of the line.
+	float OutlineWidth;
+	// Alpha multiplier of the parts of depth-tested lines behind surfaces (0 hides them).
+	float OccludedOpacity;
+	float Padding;
+};
+
 static uint const QuadModeSprite = 0;
 static uint const QuadModeText = 1;
 // A sprite whose light adds to what is behind it (particles).
 static uint const QuadModeAdditive = 2;
+// A rectangle of the screen-space UI: a sprite with anti-aliased, optionally rounded edges.
+static uint const QuadModeUIRect = 3;
+// A UI rectangle placed in the world: its edges are anti-aliased over a pixel of the screen at any distance.
+static uint const QuadModeWorldUIRect = 4;
 
-// Sprites and text (push constants).
+// Sprites, text and UI rectangles (push constants).
 struct QuadConstants
 {
 	// World quads: the view-projection; screen quads: identity (their positions are in clip space already).
 	float4x4 Transform;
-	// QuadModeSprite, QuadModeText or QuadModeAdditive.
+	// QuadModeSprite, QuadModeText, QuadModeAdditive, QuadModeUIRect or QuadModeWorldUIRect.
 	uint Mode;
 	// Non-zero when drawing onto the 8-bit sRGB-encoded final image.
 	uint EncodeSrgb;

@@ -3,6 +3,7 @@
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/Viewport/PickingIdMap.h"
+#include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
@@ -31,21 +32,6 @@ namespace Strada
 	{
 		Local = 0,
 		World
-	};
-
-	// What the scene view draws over the scene (View > Overlays in its toolbar).
-	struct SceneViewOverlays
-	{
-		bool Grid = true;
-		bool SelectionOutline = true;
-		// Icons of cameras and lights (they can be clicked to select).
-		bool Icons = true;
-		// Frustums of selected cameras, ranges and cones of selected lights, outlines of selected colliders.
-		bool SelectionShapes = true;
-		// Outlines of every collider, selected or not.
-		bool AllColliders = false;
-		// Lines scripts draw (Debug.DrawLine).
-		bool DebugLines = true;
 	};
 
 	// The Scene View: the scene (the edited one, or the running one while playing) from the editor camera with the editor
@@ -131,6 +117,7 @@ namespace Strada
 		uint64_t m_GizmoDragCount = 0;
 
 		SceneViewOverlays m_Overlays;
+		ViewportOverlays::MeshColliderOutlineCache m_MeshColliderOutlines;
 		glm::uvec2 m_ViewportSize = glm::uvec2(1280, 720);
 
 		OpenSceneCallback m_OpenScene;

@@ -5,9 +5,13 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Scene/Entity.h"
+#include "Strada/Scene/Scene.h"
 
 #include <array>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace Strada
 {
@@ -25,17 +29,27 @@ namespace Strada
 			                     {"Transform", Json::object({{"RotationEuler", Json::array({90.0, 0.0, 0.0})}})}});
 		}
 
+		Json CanvasComponents()
+		{
+			return Json::object({{"UICanvas", Json::object()}});
+		}
+
+		// A UI element of the given size (canvas units) in the middle of its parent, with more components.
+		Json UIElementComponents(float width, float height, Json components)
+		{
+			components["UIRect"] = Json::object({{"Size", Json::array({width, height})}});
+			return components;
+		}
+
+		constexpr auto s_Categories = std::to_array<std::string_view>(
+			{EntityPresets::CoreCategory, "3D Object", "2D Object", "Rendering", "Effects", "Physics", "Audio", "UI"});
+
 		// std::to_array deduces the count, so every entry is initialized.
 		constexpr auto s_Presets = std::to_array<EntityPreset>({
-			{"", "Empty Entity", "Entity",
+			{EntityPresets::CoreCategory, "Create Empty", "Entity",
 		     []
 		     {
 				 return Json::object();
-			 }},
-			{"", "Camera", "Camera",
-		     []
-		     {
-				 return Json::object({{"Camera", Json::object()}});
 			 }},
 			{"3D Object", "Cube", "Cube",
 		     []
@@ -72,44 +86,45 @@ namespace Strada
 		     {
 				 return MeshComponents(BuiltInAsset::QuadMesh);
 			 }},
+			// Text in the world, in the entity's XY plane.
+			{"3D Object", "3D Text", "3D Text",
+		     []
+		     {
+				 return Json::object({{"Text", Json::object({{"Text", "Text"}, {"FontSize", 0.5}, {"Alignment", "Center"}})}});
+			 }},
+			{"2D Object", "Sprite", "Sprite",
+		     []
+		     {
+				 return Json::object({{"SpriteRenderer", Json::object()}});
+			 }},
+			{"Rendering", "Camera", "Camera",
+		     []
+		     {
+				 return Json::object({{"Camera", Json::object()}});
+			 }},
 			// Directional and spot lights shine along -Z: tilt them towards the ground.
-			{"Light", "Directional Light", "Directional Light",
+			{"Rendering", "Directional Light", "Directional Light",
 		     []
 		     {
 				 return Json::object({{"DirectionalLight", Json::object()},
 			                          {"Transform", Json::object({{"RotationEuler", Json::array({-50.0, 30.0, 0.0})}})}});
 			 }},
-			{"Light", "Point Light", "Point Light",
+			{"Rendering", "Point Light", "Point Light",
 		     []
 		     {
 				 return Json::object({{"PointLight", Json::object()}});
 			 }},
-			{"Light", "Spot Light", "Spot Light",
+			{"Rendering", "Spot Light", "Spot Light",
 		     []
 		     {
 				 return Json::object(
 					 {{"SpotLight", Json::object()}, {"Transform", Json::object({{"RotationEuler", Json::array({-90.0, 0.0, 0.0})}})}});
 			 }},
-			{"Light", "Sky Light", "Sky Light",
+			{"Rendering", "Sky Light", "Sky Light",
 		     []
 		     {
 				 return Json::object(
 					 {{"SkyLight", Json::object({{"Environment", GetBuiltInHandle(BuiltInAsset::DefaultSky).ToString()}})}});
-			 }},
-			{"Audio", "Audio Source", "Audio Source",
-		     []
-		     {
-				 return Json::object({{"AudioSource", Json::object()}});
-			 }},
-			{"2D", "Text", "Text",
-		     []
-		     {
-				 return Json::object({{"Text", Json::object({{"Text", "Text"}, {"FontSize", 0.5}, {"Alignment", "Center"}})}});
-			 }},
-			{"2D", "Sprite", "Sprite",
-		     []
-		     {
-				 return Json::object({{"SpriteRenderer", Json::object()}});
 			 }},
 			// Particle systems emit along -Z: these point it up.
 			{"Effects", "Particle System", "Particle System",
@@ -170,6 +185,62 @@ namespace Strada
 			                                             {"EndColor", Json::array({1.0, 0.3, 0.05, 0.0})},
 			                                             {"Intensity", 6.0}}));
 			 }},
+			// Global, so its overrides show at once; made local, its scale gives it a 10 m box.
+			{"Effects", "Post Process Volume", "Post Process Volume",
+		     []
+		     {
+				 return Json::object(
+					 {{"PostProcess", Json::object()}, {"Transform", Json::object({{"Scale", Json::array({10.0, 10.0, 10.0})}})}});
+			 }},
+			// The controller's default capsule is the built-in capsule mesh's: what is drawn is what collides.
+			{"Physics", "Character", "Character",
+		     []
+		     {
+				 Json components = MeshComponents(BuiltInAsset::CapsuleMesh);
+				 components["CharacterController"] = Json::object();
+				 return components;
+			 }},
+			{"Audio", "Audio Source", "Audio Source",
+		     []
+		     {
+				 return Json::object({{"AudioSource", Json::object()}});
+			 }},
+			{"Audio", "Audio Listener", "Audio Listener",
+		     []
+		     {
+				 return Json::object({{"AudioListener", Json::object()}});
+			 }},
+			{"UI", "Canvas", "Canvas", &CanvasComponents},
+			// A dark, translucent panel with rounded corners (linear colors).
+			{"UI", "Panel", "Panel",
+		     []
+		     {
+				 return UIElementComponents(640.0f, 400.0f,
+			                                Json::object({{"UIImage", Json::object({{"Color", Json::array({0.0072, 0.0085, 0.0134, 0.85})},
+			                                                                        {"CornerRadius", 16.0}})}}));
+			 },
+		     true},
+			{"UI", "Image", "Image",
+		     []
+		     {
+				 return UIElementComponents(128.0f, 128.0f, Json::object({{"UIImage", Json::object()}}));
+			 },
+		     true},
+			{"UI", "Text", "Text",
+		     []
+		     {
+				 return UIElementComponents(400.0f, 80.0f, Json::object({{"UIText", Json::object({{"Text", "Text"}})}}));
+			 },
+		     true},
+			{"UI", "Button", "Button",
+		     []
+		     {
+				 return UIElementComponents(280.0f, 72.0f,
+			                                Json::object({{"UIImage", Json::object({{"CornerRadius", 14.0}})},
+			                                              {"UIButton", Json::object()},
+			                                              {"UIText", Json::object({{"Text", "Button"}})}}));
+			 },
+		     true},
 		});
 	}
 
@@ -178,6 +249,31 @@ namespace Strada
 		std::span<EntityPreset const> GetAll()
 		{
 			return s_Presets;
+		}
+
+		std::span<std::string_view const> GetCategories()
+		{
+			return s_Categories;
+		}
+
+		std::vector<EntityPresetMenuSection> GetMenu()
+		{
+			std::vector<EntityPresetMenuSection> sections;
+			sections.reserve(s_Categories.size());
+			for (std::string_view const category : s_Categories)
+			{
+				EntityPresetMenuSection& section = sections.emplace_back();
+				section.Category = category;
+				section.Submenu = category != CoreCategory;
+				for (EntityPreset const& preset : s_Presets)
+				{
+					if (preset.Category == category)
+					{
+						section.Presets.push_back(&preset);
+					}
+				}
+			}
+			return sections;
 		}
 
 		namespace
@@ -194,6 +290,64 @@ namespace Strada
 					transform["Translation"] = Json::array({position.x, position.y, position.z});
 				}
 				return operations.CreateEntity(std::move(info));
+			}
+
+			// Whether the entity or one of its ancestors is a canvas.
+			bool IsInCanvas(Scene& scene, UUID id)
+			{
+				for (Entity entity = scene.GetEntityByUUID(id); entity; entity = scene.GetParent(entity))
+				{
+					if (entity.HasComponent<UICanvasComponent>())
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+
+			// UI elements only show inside a canvas.
+			Result<UUID> CreateInCanvas(EditorOperations& operations, EntityCreateInfo info, glm::vec3 const& position)
+			{
+				Scene& scene = operations.GetContext().GetScene();
+				if (IsInCanvas(scene, info.Parent))
+				{
+					return operations.CreateEntity(std::move(info));
+				}
+				if (!info.Parent.IsValid())
+				{
+					Entity canvas;
+					scene.ForEachEntityInHierarchyOrder(
+						[&canvas](Entity entity)
+						{
+							if (!canvas && entity.HasComponent<UICanvasComponent>())
+							{
+								canvas = entity;
+							}
+						});
+					if (canvas)
+					{
+						info.Parent = canvas.GetUUID();
+						return operations.CreateEntity(std::move(info));
+					}
+				}
+
+				EntityCreateInfo canvas;
+				canvas.Name = "Canvas";
+				canvas.Parent = info.Parent;
+				canvas.Components = CanvasComponents();
+				if (!canvas.Parent.IsValid())
+				{
+					// The scene view draws the canvas's outline around its position.
+					canvas.Components["Transform"] = Json::object({{"Translation", Json::array({position.x, position.y, position.z})}});
+				}
+				std::vector<EntityCreateInfo> children;
+				children.push_back(std::move(info));
+				Result<std::vector<UUID>> created = operations.CreateEntityWithChildren(std::move(canvas), std::move(children));
+				if (!created)
+				{
+					return Error{created.GetError()};
+				}
+				return created.GetValue()[1];
 			}
 		}
 
@@ -217,7 +371,8 @@ namespace Strada
 			info.Name = std::string(preset.EntityName);
 			info.Parent = parent;
 			info.Components = preset.BuildComponents();
-			return CreatePlaced(operations, std::move(info), position);
+			return preset.NeedsCanvas ? CreateInCanvas(operations, std::move(info), position)
+			                          : CreatePlaced(operations, std::move(info), position);
 		}
 	}
 }

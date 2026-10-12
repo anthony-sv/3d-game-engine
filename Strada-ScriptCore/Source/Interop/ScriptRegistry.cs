@@ -20,6 +20,7 @@ internal enum ScriptEvent
 	CollisionExit = 5,
 	TriggerEnter = 6,
 	TriggerExit = 7,
+	Click = 8,
 }
 
 // The game's script classes and the instances of the running scene.
@@ -342,6 +343,9 @@ internal static class ScriptRegistry
 					break;
 				case ScriptEvent.TriggerExit:
 					instance.InvokeOnTriggerExit(GetEntity(other));
+					break;
+				case ScriptEvent.Click:
+					instance.InvokeOnClick(GetEntity(other));
 					break;
 				default:
 					return Host.Failure;

@@ -76,19 +76,6 @@ namespace Strada
 			}
 			return false;
 		}
-
-		// Whether a GLFW window still shows one of ImGui's viewports (a panel's own window closes when it docks back).
-		bool IsPlatformWindow(GLFWwindow* window)
-		{
-			for (ImGuiViewport const* viewport : ImGui::GetPlatformIO().Viewports)
-			{
-				if (viewport->PlatformHandle == window)
-				{
-					return true;
-				}
-			}
-			return false;
-		}
 	}
 
 	EditorLayer::EditorLayer(EditorLayerSpecification specification)
@@ -133,6 +120,10 @@ namespace Strada
 			environment.ViewportStatistics = [this]() -> SceneRendererStatistics const*
 			{
 				return m_ViewportPanel->GetRendererStatistics();
+			};
+			environment.ViewportOverlays = [this]() -> SceneViewOverlays&
+			{
+				return m_ViewportPanel->GetOverlays();
 			};
 			environment.ContentBrowser = [this]() -> ContentBrowserPanel&
 			{
@@ -312,6 +303,9 @@ namespace Strada
 		{
 			m_AssetAutoRefresh.Update(IsEditorFocused(), !m_Export.IsRunning(), m_Operations);
 		}
+		// The game's UI follows the cursor only while the game has the input, decided before the scene updates in the frame
+		// the input changes hands. Headless editors have no game view: automation drives their input.
+		m_PlayMode.SetUIPointerEnabled(m_GameViewPanel == nullptr || m_GameInput.HasInput());
 		m_PlayMode.Update(timestep);
 		// The edited scene previews its particle systems in the views (playing scenes run their own).
 		if (!m_Context.IsPlaying() && Application::Get().GetImGuiLayer() != nullptr)
@@ -413,7 +407,11 @@ namespace Strada
 		DrawNewProjectPopup();
 		DrawNewScriptPopup();
 		m_BuildGameDialog.OnImGuiRender(m_Operations, m_Export);
-		UpdateGameCursor();
+		if (m_GameViewPanel)
+		{
+			// After every panel: the game may have given the input back while the view was not drawn.
+			m_GameViewPanel->UpdateWindowCursors();
+		}
 		UpdateWindowTitle();
 	}
 
@@ -1078,37 +1076,6 @@ namespace Strada
 			return glm::uvec2(project->GetSettings().Window.Width, project->GetSettings().Window.Height);
 		}
 		return glm::uvec2(1280, 720);
-	}
-
-	void EditorLayer::UpdateGameCursor()
-	{
-		// A hidden or locked cursor shows on the window the game view is in, and ImGui leaves cursors alone meanwhile.
-		CursorMode const mode = m_GameInput.GetCursorMode();
-		GLFWwindow* const window =
-			mode != CursorMode::Normal && m_GameViewPanel != nullptr ? m_GameViewPanel->GetPlatformWindow() : nullptr;
-		if (mode == m_GameCursorMode && window == m_GameCursorWindow)
-		{
-			return;
-		}
-		if (m_GameCursorWindow != nullptr && IsPlatformWindow(m_GameCursorWindow))
-		{
-			Window::ApplyCursorMode(m_GameCursorWindow, CursorMode::Normal);
-		}
-		if (window != nullptr)
-		{
-			Window::ApplyCursorMode(window, mode);
-		}
-		m_GameCursorWindow = window;
-		m_GameCursorMode = window != nullptr ? mode : CursorMode::Normal;
-		ImGuiIO& io = ImGui::GetIO();
-		if (window != nullptr)
-		{
-			io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
-		}
-		else
-		{
-			io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
-		}
 	}
 
 	std::string EditorLayer::GetExportStatus() const

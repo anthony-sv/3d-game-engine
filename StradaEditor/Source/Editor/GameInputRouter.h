@@ -25,7 +25,12 @@ namespace Strada
 	//
 	// Decisions are made event by event as the window reports them (ImGuiLayer::InputFilter), so the game sees input in the
 	// frame it happens, with the cursor in the pixels the game renders. Releases always reach both sides, which ignore
-	// releases of presses they never saw, so nothing stays held anywhere. Main thread only.
+	// releases of presses they never saw, so nothing stays held anywhere. Gamepads are not the windows' input: the game reads
+	// them whoever has the keyboard and mouse. Main thread only.
+	//
+	// The cursor mode the game asks for applies while it has the input: a locked cursor locks the window showing the game
+	// view, moves only with that window and is hidden over the editor's other windows (GetWindowCursorMode); a hidden one is
+	// hidden over the game view alone, which asks ImGui for no cursor there (GameViewPanel).
 	class GameInputRouter
 	{
 	public:
@@ -64,8 +69,8 @@ namespace Strada
 
 		// Gives the game the input (playing starts) and asks for the game view's focus.
 		void Grant();
-		// Gives the input back to the editor: what the game holds is released at the start of the next frame (or before the
-		// game's next event), the cursor shows normally again.
+		// Gives the input back to the editor: the keys and mouse buttons the game holds are released at the start of the next
+		// frame (or before the game's next event), the cursor shows normally again.
 		void Release();
 		bool HasInput() const { return m_HasInput; }
 		// Call at the start of each editor frame, before anything reads or injects the game's input.
@@ -73,15 +78,20 @@ namespace Strada
 
 		// The cursor mode the game asked for (Input::SetCursorMode); it applies while the game has the input.
 		void SetGameCursorMode(CursorMode mode) { m_GameCursorMode = mode; }
-		// The cursor mode the window showing the game should have: the game's while it has the input, Normal otherwise.
+		// The game's cursor mode while it has the input, Normal otherwise.
 		CursorMode GetCursorMode() const { return m_HasInput ? m_GameCursorMode : CursorMode::Normal; }
+		// The cursor mode the OS window of an ImGui viewport (ImGuiViewport::ID) takes: while the game has the input and locks
+		// the cursor, the window showing the game view locks it and every other window hides it (on Windows another window can
+		// lie over the locked window's middle, where the hidden cursor is kept). Normal otherwise: ImGui shows the cursors, and
+		// the game view hides a hidden game cursor over itself.
+		CursorMode GetWindowCursorMode(uint32_t viewport) const;
 		// Whether the game view should take ImGui's focus because the game took the input; clears the request.
 		bool TakeFocusRequest();
 
 	private:
 		bool RouteKeyPress(KeyCode key, bool repeat, ImGuiLayer::InputContext const& context);
 		bool RouteButtonPress(MouseButton button, ImGuiLayer::InputContext const& context);
-		bool RouteMove(glm::vec2 cursor);
+		bool RouteMove(glm::vec2 cursor, ImGuiLayer::InputContext const& context);
 		bool RouteScroll(glm::vec2 offset, ImGuiLayer::InputContext const& context);
 		// The game view is under the cursor of an event while playing: the event comes from the view's window, and the
 		// cursor is in its area with nothing over it.

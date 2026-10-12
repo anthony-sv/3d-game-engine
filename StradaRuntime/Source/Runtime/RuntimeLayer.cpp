@@ -181,10 +181,10 @@ namespace Strada
 		Scene& scene = *m_Runner.GetScene();
 		if (!RenderSceneFromPrimaryCamera(scene, *m_Renderer))
 		{
-			// The cleared window shows until a camera becomes primary.
+			// The cleared window shows until a camera becomes primary or the scene gets screen-space content.
 			if (!m_MissingCameraReported)
 			{
-				ST_WARN("Scene '{}' has no primary camera: nothing is drawn", scene.GetName());
+				ST_WARN("Scene '{}' has no primary camera and no screen-space UI: nothing is drawn", scene.GetName());
 				m_MissingCameraReported = true;
 			}
 			return;

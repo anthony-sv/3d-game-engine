@@ -3,6 +3,7 @@
 #include "Editor/ComponentInspection.h"
 #include "Editor/MaterialSlots.h"
 #include "Editor/ScriptFieldInspection.h"
+#include "Editor/Viewport/CanvasOverlay.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AudioClipAsset.h"
@@ -44,6 +45,9 @@ namespace Strada
 		constexpr ImVec4 ErrorColor = ImVec4(0.95f, 0.40f, 0.35f, 1.0f);
 		// Headers of the material sections inside Mesh components: darker than component headers.
 		constexpr ImVec4 MaterialHeaderColor = ImVec4(0.180f, 0.196f, 0.227f, 1.0f);
+		// The Transform header of UI elements, and what it says about them.
+		constexpr char const* PlacedByRectHeaderId = "###TransformPlacedByRect";
+		constexpr char const* PlacedByRectNote = "The UI Rect places this UI element on the screen: its Transform is not used.";
 
 		void TextError(std::string const& message)
 		{
@@ -311,15 +315,39 @@ namespace Strada
 			values.push_back(component.Serialize(scene.GetRegistry(), scene.GetEntityByUUID(id).GetHandle()));
 		}
 
+		// The UIRect of UI elements places them: their Transform is not used, so it starts folded and cannot be edited.
+		bool const placedByRect =
+			component.Name == ComponentTraits<TransformComponent>::Name && std::all_of(entities.begin(), entities.end(),
+		                                                                               [&scene](UUID id)
+		                                                                               {
+																						   return CanvasOverlay::IsUIElement(scene, id);
+																					   });
+
 		ImGui::PushID(component.Name.data(), component.Name.data() + component.Name.size());
 		float const rightEdge = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
-		std::string const label = UI::FormatDisplayName(component.Name);
-		bool const open = ImGui::CollapsingHeader(label.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap);
-		if (!component.Description.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+		std::string const name = UI::FormatDisplayName(component.Name);
+		// A header of its own for UI elements, so that it starts folded whatever other entities' Transform headers are.
+		std::string const label = placedByRect ? name + PlacedByRectHeaderId : name;
+		ImGuiTreeNodeFlags const flags =
+			placedByRect ? ImGuiTreeNodeFlags_AllowOverlap : ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap;
+		bool const open = ImGui::CollapsingHeader(label.c_str(), flags);
+		if (placedByRect)
+		{
+			ImGui::SetItemTooltip("%s", PlacedByRectNote);
+		}
+		else if (!component.Description.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
 		{
 			ImGui::SetTooltip("%.*s", static_cast<int>(component.Description.size()), component.Description.data());
 		}
 		ImGui::OpenPopupOnItemClick("##componentMenu", ImGuiPopupFlags_MouseButtonRight);
+		if (placedByRect)
+		{
+			// A note follows the header's name on its line.
+			float const noteX = ImGui::GetItemRectMin().x - ImGui::GetWindowPos().x + ImGui::GetTreeNodeToLabelSpacing() +
+			                    ImGui::CalcTextSize(name.c_str()).x + ImGui::GetStyle().ItemSpacing.x * 2.0f;
+			ImGui::SameLine(noteX);
+			ImGui::TextDisabled("placed by its UI Rect");
+		}
 		float const buttonWidth = ImGui::GetFrameHeight() * 1.5f;
 		ImGui::SameLine(rightEdge - buttonWidth);
 		if (ImGui::Button("...", ImVec2(buttonWidth, 0.0f)))
@@ -331,6 +359,15 @@ namespace Strada
 		if (open && component.Name == ComponentTraits<ScriptComponent>::Name)
 		{
 			DrawScriptComponent(operations, component, entities, values);
+			ImGui::Spacing();
+		}
+		else if (open && placedByRect)
+		{
+			ImGui::TextDisabled("%s", PlacedByRectNote);
+			// Shown read-only: disabled fields report no changes.
+			ImGui::BeginDisabled();
+			m_FieldEditor.Draw(component.Fields, values.front(), ComponentInspection::FindMixedFields(values), &scene);
+			ImGui::EndDisabled();
 			ImGui::Spacing();
 		}
 		else if (open)
@@ -371,12 +408,18 @@ namespace Strada
 												  return getClassName(value) != className;
 											  });
 
+		// The fields of the class, when every selected entity runs the same class and the game's assembly has it.
+		ScriptClassInfo const* const scriptClass = mixedClasses || className.empty() ? nullptr : ScriptEngine::FindClass(className);
+		std::vector<FieldDescriptor> const fields =
+			scriptClass != nullptr ? ScriptFieldInspection::DescribeFields(*scriptClass) : std::vector<FieldDescriptor>();
+
 		// The class picker, laid out like the field rows below.
 		std::optional<std::string> pickedClass;
+		float const nameShare = FieldEditor::GetNameColumnShare(fields, ImGui::GetContentRegionAvail().x);
 		if (ImGui::BeginTable("##scriptClass", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_NoSavedSettings))
 		{
-			ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.4f);
-			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.6f);
+			ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, nameShare);
+			ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f - nameShare);
 			ImGui::TableNextRow();
 			ImGui::TableNextColumn();
 			ImGui::AlignTextToFramePadding();
@@ -396,11 +439,11 @@ namespace Strada
 				}
 				if (ScriptEngine::IsInitialized())
 				{
-					for (ScriptClassInfo const& scriptClass : ScriptEngine::GetClasses())
+					for (ScriptClassInfo const& candidate : ScriptEngine::GetClasses())
 					{
-						if (ImGui::Selectable(scriptClass.Name.c_str(), !mixedClasses && scriptClass.Name == className))
+						if (ImGui::Selectable(candidate.Name.c_str(), !mixedClasses && candidate.Name == className))
 						{
-							pickedClass = scriptClass.Name;
+							pickedClass = candidate.Name;
 						}
 					}
 				}
@@ -423,7 +466,6 @@ namespace Strada
 		{
 			return;
 		}
-		ScriptClassInfo const* const scriptClass = ScriptEngine::FindClass(className);
 		if (scriptClass == nullptr)
 		{
 			if (!ScriptEngine::IsInitialized())
@@ -441,7 +483,6 @@ namespace Strada
 			return;
 		}
 
-		std::vector<FieldDescriptor> const fields = ScriptFieldInspection::DescribeFields(*scriptClass);
 		if (fields.empty())
 		{
 			ImGui::TextDisabled("The script has no fields to edit.");

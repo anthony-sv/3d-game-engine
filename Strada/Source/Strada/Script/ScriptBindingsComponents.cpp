@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <optional>
 #include <string>
 
 namespace Strada::ScriptGlue
@@ -408,6 +409,94 @@ namespace Strada::ScriptGlue
 			}
 		}
 
+		// --- Character controller: the live character while the scene simulates it ---
+
+		// The entity's character once pending physics changes are applied; null (logged) without one.
+		PhysicsScene* FindCharacter(uint64_t id, char const* function)
+		{
+			Entity const entity = FindEntity(id, function);
+			if (!entity || FindComponent<CharacterControllerComponent>(id) == nullptr)
+			{
+				return nullptr;
+			}
+			Scene& scene = *entity.GetScene();
+			scene.ApplyPhysicsChanges();
+			PhysicsScene* const physics = scene.GetPhysicsScene();
+			if (physics == nullptr || !physics->HasCharacter(UUID(id)))
+			{
+				Log::GetScriptLogger().error("{}: entity {} has no character (the scene is not simulating it)", function, id);
+				return nullptr;
+			}
+			return physics;
+		}
+
+		// What the live character does; a character at rest when the scene does not simulate it.
+		CharacterState ReadCharacterState(uint64_t id)
+		{
+			Scene* const scene = FindComponent<CharacterControllerComponent>(id) != nullptr ? ScriptEngine::GetSceneContext() : nullptr;
+			if (scene == nullptr)
+			{
+				return {};
+			}
+			scene->ApplyPhysicsChanges();
+			PhysicsScene const* physics = scene->GetPhysicsScene();
+			std::optional<CharacterState> state = physics != nullptr ? physics->GetCharacterState(UUID(id)) : std::nullopt;
+			return state ? *state : CharacterState{};
+		}
+
+		void CharacterControllerComponent_Move(uint64_t id, Vector3 const* velocity)
+		{
+			if (!CheckFinite("CharacterControllerComponent.Move", *velocity))
+			{
+				return;
+			}
+			if (PhysicsScene* physics = FindCharacter(id, "CharacterControllerComponent.Move"))
+			{
+				physics->MoveCharacter(UUID(id), FromScript(*velocity));
+			}
+		}
+
+		void CharacterControllerComponent_GetVelocity(uint64_t id, Vector3* value)
+		{
+			*value = ToScript(ReadCharacterState(id).Velocity);
+		}
+
+		void CharacterControllerComponent_SetVelocity(uint64_t id, Vector3 const* value)
+		{
+			if (!CheckFinite("CharacterControllerComponent.Velocity", *value))
+			{
+				return;
+			}
+			if (PhysicsScene* physics = FindCharacter(id, "CharacterControllerComponent.Velocity"))
+			{
+				physics->SetCharacterVelocity(UUID(id), FromScript(*value));
+			}
+		}
+
+		uint8_t CharacterControllerComponent_IsGrounded(uint64_t id)
+		{
+			return ReadCharacterState(id).IsGrounded ? 1 : 0;
+		}
+
+		void CharacterControllerComponent_GetGroundNormal(uint64_t id, Vector3* value)
+		{
+			*value = ToScript(ReadCharacterState(id).GroundNormal);
+		}
+
+		// Places the entity in world space (keeping its rotation and scale) and stops its character.
+		void CharacterControllerComponent_Teleport(uint64_t id, Vector3 const* position)
+		{
+			if (!CheckFinite("CharacterControllerComponent.Teleport", *position))
+			{
+				return;
+			}
+			Entity const entity = FindEntity(id, "CharacterControllerComponent.Teleport");
+			if (entity && FindComponent<CharacterControllerComponent>(id) != nullptr)
+			{
+				entity.GetScene()->TeleportCharacter(entity, FromScript(*position));
+			}
+		}
+
 		// --- Particle systems ---
 
 		Entity FindParticleSystem(uint64_t id)
@@ -474,33 +563,6 @@ namespace Strada::ScriptGlue
 		{
 			Entity const entity = FindAudioSource(id);
 			return entity && entity.GetScene()->IsAudioSourcePlaying(entity) ? 1 : 0;
-		}
-
-		// --- Strings ---
-
-		template<typename TComponent, std::string TComponent::* Member>
-		char const* GetText(uint64_t id, int32_t* length)
-		{
-			*length = 0;
-			TComponent const* component = FindComponent<TComponent>(id);
-			if (component == nullptr)
-			{
-				return nullptr;
-			}
-			std::string const& text = component->*Member;
-			*length = static_cast<int32_t>(text.size());
-			return text.data();
-		}
-
-		template<typename TComponent, std::string TComponent::* Member>
-		void SetText(uint64_t id, char const* text, int32_t length)
-		{
-			std::string value(ToStringView(text, length));
-			PatchComponent<TComponent>(id,
-			                           [&value](TComponent& component)
-			                           {
-										   component.*Member = std::move(value);
-									   });
 		}
 	}
 
@@ -621,7 +683,25 @@ namespace Strada::ScriptGlue
 		AddFieldBindings<&JointComponent::MotorSpeed, "JointComponent", "MotorSpeed">(table);
 		AddFieldBindings<&JointComponent::MotorMaxForce, "JointComponent", "MotorMaxForce">(table);
 
+		// Fields change the live character before the next step (or the next call on it).
+		AddFieldBindings<&CharacterControllerComponent::Radius, "CharacterControllerComponent", "Radius">(table);
+		AddFieldBindings<&CharacterControllerComponent::Height, "CharacterControllerComponent", "Height">(table);
+		AddFieldBindings<&CharacterControllerComponent::Offset, "CharacterControllerComponent", "Offset">(table);
+		AddFieldBindings<&CharacterControllerComponent::StepHeight, "CharacterControllerComponent", "StepHeight">(table);
+		AddFieldBindings<&CharacterControllerComponent::MaxSlopeAngle, "CharacterControllerComponent", "MaxSlopeAngle">(table);
+		AddFieldBindings<&CharacterControllerComponent::Mass, "CharacterControllerComponent", "Mass">(table);
+		AddFieldBindings<&CharacterControllerComponent::PushForce, "CharacterControllerComponent", "PushForce">(table);
+		AddFieldBindings<&CharacterControllerComponent::GravityFactor, "CharacterControllerComponent", "GravityFactor">(table);
+		AddFieldBindings<&CharacterControllerComponent::Layer, "CharacterControllerComponent", "Layer">(table);
+		table.Add("CharacterControllerComponent_Move", &CharacterControllerComponent_Move);
+		table.Add("CharacterControllerComponent_GetVelocity", &CharacterControllerComponent_GetVelocity);
+		table.Add("CharacterControllerComponent_SetVelocity", &CharacterControllerComponent_SetVelocity);
+		table.Add("CharacterControllerComponent_IsGrounded", &CharacterControllerComponent_IsGrounded);
+		table.Add("CharacterControllerComponent_GetGroundNormal", &CharacterControllerComponent_GetGroundNormal);
+		table.Add("CharacterControllerComponent_Teleport", &CharacterControllerComponent_Teleport);
+
 		AddFieldBindings<&AudioSourceComponent::Clip, "AudioSourceComponent", "Clip">(table);
+		AddFieldBindings<&AudioSourceComponent::Stream, "AudioSourceComponent", "Stream">(table);
 		AddFieldBindings<&AudioSourceComponent::Volume, "AudioSourceComponent", "Volume">(table);
 		AddFieldBindings<&AudioSourceComponent::Pitch, "AudioSourceComponent", "Pitch">(table);
 		AddFieldBindings<&AudioSourceComponent::Loop, "AudioSourceComponent", "Loop">(table);
@@ -676,6 +756,42 @@ namespace Strada::ScriptGlue
 		table.Add("ParticleSystemComponent_Emit", &ParticleSystemComponent_Emit);
 		table.Add("ParticleSystemComponent_Clear", &ParticleSystemComponent_Clear);
 		table.Add("ParticleSystemComponent_GetParticleCount", &ParticleSystemComponent_GetParticleCount);
+
+		AddFieldBindings<&PostProcessComponent::Global, "PostProcessComponent", "Global">(table);
+		AddFieldBindings<&PostProcessComponent::BlendDistance, "PostProcessComponent", "BlendDistance">(table);
+		AddFieldBindings<&PostProcessComponent::Priority, "PostProcessComponent", "Priority">(table);
+		AddFieldBindings<&PostProcessComponent::Weight, "PostProcessComponent", "Weight">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideEV100, "PostProcessComponent", "OverrideEV100">(table);
+		AddFieldBindings<&PostProcessComponent::EV100, "PostProcessComponent", "EV100">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideTonemapper, "PostProcessComponent", "OverrideTonemapper">(table);
+		AddFieldBindings<&PostProcessComponent::Tonemapper, "PostProcessComponent", "Tonemapper">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideAmbientOcclusion, "PostProcessComponent", "OverrideAmbientOcclusion">(table);
+		AddFieldBindings<&PostProcessComponent::AmbientOcclusion, "PostProcessComponent", "AmbientOcclusion">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideAmbientOcclusionIntensity, "PostProcessComponent",
+		                 "OverrideAmbientOcclusionIntensity">(table);
+		AddFieldBindings<&PostProcessComponent::AmbientOcclusionIntensity, "PostProcessComponent", "AmbientOcclusionIntensity">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideBloom, "PostProcessComponent", "OverrideBloom">(table);
+		AddFieldBindings<&PostProcessComponent::Bloom, "PostProcessComponent", "Bloom">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideBloomIntensity, "PostProcessComponent", "OverrideBloomIntensity">(table);
+		AddFieldBindings<&PostProcessComponent::BloomIntensity, "PostProcessComponent", "BloomIntensity">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideContrast, "PostProcessComponent", "OverrideContrast">(table);
+		AddFieldBindings<&PostProcessComponent::Contrast, "PostProcessComponent", "Contrast">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideSaturation, "PostProcessComponent", "OverrideSaturation">(table);
+		AddFieldBindings<&PostProcessComponent::Saturation, "PostProcessComponent", "Saturation">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideTemperature, "PostProcessComponent", "OverrideTemperature">(table);
+		AddFieldBindings<&PostProcessComponent::Temperature, "PostProcessComponent", "Temperature">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideTint, "PostProcessComponent", "OverrideTint">(table);
+		AddFieldBindings<&PostProcessComponent::Tint, "PostProcessComponent", "Tint">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideColorFilter, "PostProcessComponent", "OverrideColorFilter">(table);
+		AddFieldBindings<&PostProcessComponent::ColorFilter, "PostProcessComponent", "ColorFilter">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideChromaticAberration, "PostProcessComponent", "OverrideChromaticAberration">(table);
+		AddFieldBindings<&PostProcessComponent::ChromaticAberration, "PostProcessComponent", "ChromaticAberration">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideVignette, "PostProcessComponent", "OverrideVignette">(table);
+		AddFieldBindings<&PostProcessComponent::Vignette, "PostProcessComponent", "Vignette">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideVignetteSmoothness, "PostProcessComponent", "OverrideVignetteSmoothness">(table);
+		AddFieldBindings<&PostProcessComponent::VignetteSmoothness, "PostProcessComponent", "VignetteSmoothness">(table);
+		AddFieldBindings<&PostProcessComponent::OverrideFilmGrain, "PostProcessComponent", "OverrideFilmGrain">(table);
+		AddFieldBindings<&PostProcessComponent::FilmGrain, "PostProcessComponent", "FilmGrain">(table);
 
 		table.Add("ScriptComponent_GetClassName", &GetText<ScriptComponent, &ScriptComponent::ClassName>);
 		table.Add("ScriptComponent_SetClassName", &SetText<ScriptComponent, &ScriptComponent::ClassName>);

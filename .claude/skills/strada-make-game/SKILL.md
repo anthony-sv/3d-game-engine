@@ -37,6 +37,12 @@ undo history as the UI: work in small, checked steps.
   `RigidBody` with a collider on each body (`BoxCollider`, `SphereCollider`, `CapsuleCollider`, `MeshCollider`).
   A `Joint` joins a body to another (`ConnectedEntity`) or the world: hinges (doors, pendulums, wheels with a motor),
   ball joints (chains, Newton's cradles), distance, slider and fixed joints; anchors and axes are local to the entity.
+  The player (or a walking creature) gets a `CharacterController` instead of a RigidBody and colliders: an upright
+  capsule (default radius 0.5, height 2, centered on the entity like `builtin://Capsule`) that its script walks with
+  `Move(velocity)` in `OnFixedUpdate`, jumps by setting `Velocity` and checks with `IsGrounded`; it climbs `StepHeight`
+  steps and `MaxSlopeAngle` slopes and pushes dynamic bodies. Put the camera on a child entity at eye height; colliders
+  of its children (a held item, a reach trigger) are its own parts and never block it. Start from the first-person
+  controller in `Docs/Scripting.md` (yaw kept in a field, jump buffer and coyote time for stair edges).
 - `scene_hierarchy`, `entity_find` and `entity_get` show what was built. `scene_save` writes the scene (a `path` such as
   `Scenes/Level.sscene`, relative to Assets, the first time; scenes inside Assets become assets).
 
@@ -57,9 +63,24 @@ undo history as the UI: work in small, checked steps.
   along -Z, so `RotationEuler` `[90, 0, 0]` points it up). Additive particles with an `Intensity` above 1 glow with the
   scene's bloom; `Alpha` ones suit smoke. One-shot effects (explosions, hits) are prefabs with `Emitting` off, a `Burst`
   and `DestroyWhenFinished` that scripts instantiate; `ParticleSystemComponent.Emit(count)` bursts from scripts.
+- Post-processing: the scene's renderer settings (`scene_settings`, under `Renderer`) set the look everywhere; a
+  `PostProcess` component changes it where the camera is. Set each setting together with its `Override` switch (`{"OverrideSaturation": true,
+  "Saturation": 0.3}`); `Global` volumes apply everywhere, local ones inside the entity's box (its scale, in meters) and
+  fade out over `BlendDistance`; `Priority` orders overlapping volumes and `Weight` (0 to 1) scales one, which scripts
+  animate for flashes and transitions.
+- HUDs and menus: a root entity with `UICanvas` (the default `ScaleWithScreenSize` fits a 1920 x 1080 design on any
+  screen), and children with `UIRect` (`AnchorMin`/`AnchorMax` from (0, 0) at the parent's top-left to (1, 1) at
+  its bottom-right, `Pivot`, `Position` and `Size` in canvas units, y down) plus `UIImage` (color or texture,
+  `CornerRadius`), `UIText` (wrapped in the rectangle) or `UIButton` (scripts read `WasClicked` or override
+  `OnClick(Entity button)` on the button or an ancestor; `Input.IsPointerOverUI` keeps world clicks off the UI). Title
+  and menu scenes need no camera: a canvas alone shows over black. The scene view draws each canvas standing on its
+  entity's position (`viewport_frame` on an element frames it); `ui_layout` returns where every element is in the
+  game view.
 - `prefab_create` writes an entity with its children to a `.sprefab`; `prefab_instantiate` places copies.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
-  view, and `viewport_screenshot` returns an image of the editor. `viewport_statistics` tells what the last frame drew
+  view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
+  over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), and `grid`,
+  `icons`, `canvases` and the shapes `off` give clean screenshots. `viewport_statistics` tells what the last frame drew
   (draw calls, triangles, lights, what was culled): check it when a scene grows large.
 
 ## 5. Behavior in C#
@@ -77,6 +98,10 @@ undo history as the UI: work in small, checked steps.
 
 - `play_start`, then `play_pause` and `play_advance` with `frames` for deterministic steps; `input_set` presses keys
   and buttons in the game; `play_state` reports the frame and time; `play_stop` discards everything the run changed.
+  To click a UI button, read its `center` from `ui_layout` (game-view pixels), `input_set` the `mousePosition` there
+  with `mouseButtons` `{"Left": true}`, advance a frame, then release `Left` and advance another; `ui_layout` also
+  reports each button's `state`. Prefer a headless editor for this (a windowed editor's game view also follows the
+  real mouse).
 - Verify behavior with test scripts: `Strada.Testing` (`TestReporter.Run(name, check)`, `Assert`,
   `TestReporter.Finish()`) in a scene, run by `test_run` with `scene` and `timeout`, which returns every check's
   result. Projects/FeatureTest shows the pattern.

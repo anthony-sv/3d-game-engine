@@ -96,7 +96,7 @@ through includes of `Scene.h` in headers.
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
 | Audio | miniaudio engine, per-scene sound sources and listener | `AudioEngine`, `AudioScene` |
 | Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding` |
-| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `RenderScene` |
+| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, post-process volume blending, screen-space UI layout and interaction, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `PostProcessVolumes`, `UILayout`, `RenderScene` |
 | Project | Project files and settings, the C# script project, the scene runner (play mode and the player), game export | `Project`, `ProjectSettings`, `ScriptProject`, `SceneRunner`, `GameExporter` |
 
 ### 4.1 Subsystem lifetime
@@ -114,7 +114,8 @@ it is not already initialized and every `Shutdown` must leave no state behind so
 
 - The **main thread** owns the ECS, assets, rendering submission, scripting and editor state.
 - Jolt runs its own job threads; contact callbacks only enqueue events (thread-safe queue) drained on the main thread.
-- miniaudio runs its own audio thread; only the miniaudio API is touched from the main thread.
+- miniaudio runs its own audio thread; only the miniaudio API is touched from the main thread. The audio streaming
+  thread reads and decodes streamed sounds into their ring buffers, which the audio thread copies from without waiting.
 - Background work (script builds, exports, the automation socket) never touches engine state; results are
   marshalled with `Application::SubmitToMainThread(std::function<void()>)`. The editor notices edited scripts by
   checking their modification times on the main thread once a second, and rescans the assets on the main thread when
@@ -168,11 +169,12 @@ partial atlas uploads) and the multi-viewport renderer callbacks.
 platform windows of panels dragged out of it; the GLFW backend is initialized without its own). Without an input filter
 the application gets the main window's input as it would without ImGui, ImGui gets it as well, and the events ImGui
 wants to capture are marked handled (layers below do not see them, and `Input` only their releases and cursor
-movement). An input filter
-(`ImGuiLayer::SetInputFilter`; the editor's `GameInputRouter`) sees every keyboard and mouse event of those windows
-first, with the cursor in ImGui's coordinates, the ImGui viewport of the window it comes from, the key the keyboard
-layout names and the modifiers held, and returns whether ImGui receives it; the application then gets no input events
-of its own, and the filter gives `Input` what the game should have.
+movement). An input filter (`ImGuiLayer::SetInputFilter`; the editor's `GameInputRouter`) sees every keyboard and mouse
+event of those windows first, with the cursor in ImGui's coordinates, the ImGui viewport of the window it comes from,
+the key the keyboard layout names and the modifiers held, and returns whether ImGui receives it; the application then
+gets no input events of its own, and the filter gives `Input` what the game should have. Where ImGui wants no cursor
+(`ImGuiMouseCursor_None`), the layer hides the OS cursor in every one of those windows: the GLFW backend alone hides it
+in the main window only, and not in the frame after cursor changes were off (`ImGuiConfigFlags_NoMouseCursorChange`).
 
 Shaders (`Strada/Shaders/*.hlsl`) are compiled by DXC to SPIR-V at build time with flags matching NVRHI's default
 Vulkan binding offsets, embedded into the library, and fetched by name through `ShaderLibrary`.
@@ -252,25 +254,35 @@ Frame passes, in order:
     color is used as is), alpha blended, tested against the scene depth without writing it, back to front. On the
     tonemapped image (before FXAA when it is enabled): the editor ground grid (analytic ray/plane intersection on y = 0, anti-aliased minor and
     major lines and colored axes, faded with distance, hidden behind surfaces with a small depth tolerance so ground
-    planes do not z-fight) and debug lines (depth-tested through the scene depth attached read-only, or drawn on
-    top; collider visualization, script `Debug.DrawLine`). After FXAA: the selection outline, an anti-aliased band
+    planes do not z-fight) and debug lines (editor shapes, script `Debug.DrawLine`): every line is an instanced
+    screen-space quad (cut at the near plane) with round caps, an anti-aliased core of the overlays' width and an
+    optional dark outline, drawn into a line layer where each pixel keeps only the nearest line's color (the distance
+    to the line's center is its depth), so lines that meet or cross never blend twice; the layer is then blended over
+    the image. Depth-tested lines compare their depth with the scene depth in the shader: hidden behind surfaces, or
+    dimmed there (`OccludedLineOpacity`, which the scene view uses). After FXAA: the selection outline, an anti-aliased band
     around the visible silhouette of selected meshes, sprites and text read from the ID target. Screen-space sprites
-    and text follow the overlays (their linear colors are sRGB-encoded in the shader). All other overlay colors are
-    sRGB-encoded with straight alpha. Sprites and text also write their picking IDs where they are opaque (screen-space
-    ones on top).
+    and text follow the overlays (their linear colors are sRGB-encoded in the shader), then the screen-space UI in
+    submission order: rectangles (`UIRectSubmission`, with a texture or a color) whose edges and rounded corners are
+    anti-aliased over a pixel from a signed distance computed in the shader (their quads reach a pixel beyond them),
+    and text laid out in rectangles (`UITextSubmission`). All other overlay colors are sRGB-encoded with straight
+    alpha. Sprites, text and the UI also write their picking IDs where they are opaque (screen-space ones on top).
 
 Text uses signed-distance glyphs (`FontAtlas`): stb_truetype renders each character the first time it is used at
 64 pixels per line with a 6-pixel distance range into a single-channel atlas (shelf packing; the atlas doubles up to
 4096x4096 when full, keeping glyph positions), and the shader anti-aliases the outline over one screen pixel at any
 size. `LayoutText` lays out UTF-8 (kerning, `\n`, tab stops of four spaces, left/center/right alignment, line
-spacing) in units of lines. The renderer keeps one atlas per font asset and uploads it when glyphs were added.
-`QuadRenderer` batches the quads of a frame by texture into one vertex buffer.
+spacing, and wrapping at a width: lines break at the last spaces before a word that does not fit, words longer than
+a line before the character that does not fit) in units of lines. The renderer keeps one atlas per font asset and
+uploads it when glyphs were added. `QuadRenderer` batches the quads of a frame by texture into one vertex buffer.
 
 Render targets are recreated on resize and reconfiguration only after the GPU has drained: NVRHI does not track
 clears, which can be a target's only use in a frame.
 
 `SceneRendererSettings` (shadows, SSAO, bloom, exposure, tonemapper, FXAA, sky) are stored per scene, editable in the
-editor and through automation.
+editor and through automation. Post-process volumes (`PostProcess` components, §7.2) change the exposure, tonemapper,
+bloom, ambient occlusion, color grading and lens effects for each frame: `RenderScene` resolves them for the rendering
+camera's position (`PostProcessVolumes::Resolve`) before `BeginScene`, so the editor's scene view (the editor camera),
+its game view and the player all show them; the scene's own settings never change.
 
 ### 6.3 Assets
 
@@ -340,10 +352,11 @@ Lifecycle: `OnRuntimeStart/Stop` (physics + scripts + audio), `OnSimulationStart
 `OnUpdateRuntime(ts)`, `OnUpdateSimulation(ts, camera)`, `OnUpdateEditor(ts, camera)`, `OnViewportResize(w, h)`.
 Play mode runs on a deep copy (`Scene::Copy`); stopping restores the editor scene untouched.
 
-Runtime update order per frame: scripts `OnUpdate` → physics fixed steps (accumulator, default 60 Hz; scripts'
-`OnFixedUpdate` before each step) → contact/trigger events dispatched to scripts → transform sync → audio update →
-deferred entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the
-end of the frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext`
+Runtime update order per frame: UI (the mouse over buttons, clicks and `OnClick`) → scripts `OnUpdate` → physics
+fixed steps (accumulator, default 60 Hz; scripts' `OnFixedUpdate` before each step; characters are then drawn between
+their last two steps, §8) → contact/trigger events dispatched to scripts → transform sync → audio update → deferred
+entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the end of
+the frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext`
 completes their destruction at once (`Scene::FlushPendingDestruction`): later edits and undo, also while paused, find
 the entities gone.
 
@@ -355,12 +368,15 @@ field list are declared once in `ComponentTraits.h`; generic code derives JSON s
 transactional partial updates with readable errors), schemas, copies, the inspector and the `ComponentRegistry` entry
 from that table. Fields carry optional hints: an inclusive range (enforced whenever JSON is read, so files, automation
 and the editor all reject out-of-range values), a presentation (color, angle, multi-line text), the referenced asset
-type, a one-sentence description and a visibility condition (the field only matters while an enum or bool field of
-the same struct has one of some values, like a camera's orthographic size; checked at compile time). Field tables of other structs (renderer settings, materials) use
-the same hints. Each component also names its category (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`).
-The registry provides type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the
-single source of truth for scene serialization, scene copy, automation (`component.*` commands), the inspector "Add
-Component" menu (grouped by category), and script interop component lookups.
+type, a one-sentence description, a visibility condition (the field only matters while an enum or bool field of the
+same struct has one of some values, like a camera's orthographic size) and a switch (`EnabledBy`: another bool field of
+the table, not switched itself, that turns the field on; drawn by the inspector as a check box in front of the field);
+both are checked at compile time. Values that skip the JSON checks (scripts) can be brought into range with
+`ClampToFieldRanges`. Field tables of other structs (renderer settings, materials) use the same hints. Each component
+also names its category (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`). The registry provides
+type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for
+scene serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu (grouped by
+category), and script interop component lookups.
 
 | Serialized name | Struct | Fields |
 |---|---|---|
@@ -380,12 +396,19 @@ Component" menu (grouped by category), and script interop component lookups.
 | `CapsuleCollider` | `CapsuleColliderComponent` | `Radius`, `HalfHeight`, `Offset`, `IsTrigger`, `Friction`, `Restitution` |
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
-| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
+| `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
+| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
 | `Text` | `TextComponent` | `Text`, `Font` asset (0 = default), `Color`, `FontSize`, `ScreenSpace`, `Alignment` (Left/Center/Right), `LineSpacing` |
 | `SpriteRenderer` | `SpriteRendererComponent` | `Color`, `Texture` asset, `Tiling`, `ScreenSpace` |
 | `ParticleSystem` | `ParticleSystemComponent` | `Emitting`, `Rate` (per second), `Burst`, `MaxParticles`, `LifetimeMin`/`LifetimeMax` (s), `SpeedMin`/`SpeedMax` (m/s), `Shape` (Point/Sphere/Cone/Box), `ConeAngle` (deg), `Radius`, `BoxHalfExtents`, `GravityFactor`, `Drag`, `StartSize`/`EndSize`, `StartColor`/`EndColor`, `Intensity`, `Texture` asset (0 = soft dot), `BlendMode` (Additive/Alpha), `WorldSpace`, `DestroyWhenFinished` |
+| `PostProcess` | `PostProcessComponent` | `Global`, `BlendDistance` (m), `Priority`, `Weight` (0-1), and `Override<Setting>` switching `<Setting>` for `EV100`, `Tonemapper`, `AmbientOcclusion`, `AmbientOcclusionIntensity`, `Bloom`, `BloomIntensity`, `Contrast`, `Saturation`, `Temperature`, `Tint`, `ColorFilter`, `ChromaticAberration`, `Vignette`, `VignetteSmoothness`, `FilmGrain` (the renderer settings of the same names, with their defaults and ranges) |
+| `UICanvas` | `UICanvasComponent` | `ScaleMode` (ConstantPixelSize/ScaleWithScreenHeight/ScaleWithScreenSize), `ReferenceResolution` vec2 |
+| `UIRect` | `UIRectComponent` | `AnchorMin`, `AnchorMax` (0..1 of the parent), `Position`, `Size` (canvas units), `Pivot` (0..1), `Visible`, `Opacity` |
+| `UIImage` | `UIImageComponent` | `Color`, `Texture` asset, `PreserveAspect`, `CornerRadius` |
+| `UIText` | `UITextComponent` | `Text`, `Font` asset (0 = default), `Color`, `FontSize` (canvas units per line), `Alignment` (Left/Center/Right), `VerticalAlignment` (Top/Middle/Bottom), `Wrap`, `LineSpacing` |
+| `UIButton` | `UIButtonComponent` | `Interactable`, `NormalColor`, `HoveredColor`, `PressedColor`, `DisabledColor` |
 | `Prefab` | `PrefabComponent` | `Prefab` asset, `SourceEntity` UUID |
 
 Screen-space `Text`/`SpriteRenderer` use the entity translation in normalized viewport coordinates
@@ -394,6 +417,43 @@ translation's z orders them (higher values on top) and the transform's X and Y a
 Text hangs from its origin (the top of the first line), where lines start, are centered or end depending on the
 alignment. World-space sprites are the unit quad in the entity's XY plane (facing +Z), world-space text lies in the
 same plane with `FontSize` world units per line; both are unlit.
+
+The screen-space UI (HUDs, menus) is made of entities. A `UICanvas` entity covers the screen, wherever it is in the
+hierarchy, and its descendants are the UI, laid out by `UILayout` (Scene module; pure functions of the components,
+the hierarchy and the viewport size, unit tested) and drawn in hierarchy order: parents before children, siblings in
+order, an element's image before its text. The scale mode sets the canvas units: with `ScaleWithScreenSize` (the
+default) the whole `ReferenceResolution` fits on any screen (the screen is `ReferenceResolution.y` units high when it is
+wider than the reference, `ReferenceResolution.x` units wide when it is narrower), `ScaleWithScreenHeight` fits the
+height alone (narrower screens cut off the sides), and with `ConstantPixelSize` a unit is a pixel. A `UIRect` places its
+element in the parent's rectangle
+(the screen for the canvas's children; y downwards): on each axis the anchors mark a span of the parent, the rectangle
+is `Size` larger than the span (a negative size makes an empty rectangle), and its pivot sits at the pivot's point of
+the span moved by `Position`. Entities without a `UIRect` take their parent's rectangle; a hidden `UIRect` hides its
+subtree; opacities multiply down the hierarchy. The Transform of UI entities, and a `UIRect` on the canvas entity, are
+not used. `RenderScene` lays the UI out on the renderer's viewport and submits it (`SceneRenderOptions::DrawUI`), with
+a button's state color in place of its image's color; with `SceneRenderOptions::PlaceCanvas` each top-level canvas's UI
+is drawn on a plane in the world instead (the editor's scene view), after tonemapping, over the grid and behind
+surfaces, its edges anti-aliased over a pixel of the screen at any distance. Title, menu and loading scenes need no
+camera: without a primary camera, `RenderSceneFromPrimaryCamera` draws a scene's screen-space content (UI canvases,
+screen-space sprites and text: `HasScreenSpaceContent`) over black with `SceneRenderOptions::DrawWorld` off (no meshes,
+lights, sky, particles, world-space sprites or text, debug lines or post effects), and renders nothing for a scene with
+neither.
+
+While the scene runs, `Scene` follows the mouse (Input's cursor, in pixels of the scene's viewport size) at the start of
+each update: the element under the cursor that takes clicks (a `UIImage` or `UIButton` whose opacity is not zero; the
+last drawn wins) passes them to its nearest `UIButton` (itself or an ancestor below the canvas), so images inside a
+button pass on its clicks and other images keep them from what they cover. An interactable button there is hovered; a
+left button press on it presses it, and a release on the same button clicks it: `WasUIButtonClicked` holds for that
+update, and `OnClick(button)` runs on the scripts of the button and of its ancestors, nearest first, before the frame's
+`OnUpdate`. Presses and releases are Input's one-frame flags or the button's changes since the last update, so they
+also count when updates are further apart (a paused scene stepped, automation setting the button before it advances
+the scene). A release that `Input::ReleaseKeysAndMouseButtons` made (the window lost the focus, the editor took the
+game's input back: `Input::WasMouseButtonReleasedByReset`) cancels the press instead of clicking, as interfaces cancel
+a mouse capture. `IsPointerOverUI` tells whether an element that takes clicks is under the cursor (scripts'
+`Input.IsPointerOverUI`), so games can ignore world clicks that land on the UI. Buttons clicked in code
+(`ClickUIButton`) click at the next update unless disabled. A locked cursor or `SetUIPointerEnabled(false)` (the
+editor's `PlayMode` sets it before each update of the running scene: off while the game view does not have the input)
+points at nothing and drives no buttons, and stopping forgets the pointer and pending clicks.
 
 Particle systems are simulated on the CPU by `ParticleEmitter` (Scene module, independent of the ECS, with a SplitMix64
 generator of its own so a seed gives the same particles everywhere). `Scene::UpdateParticles` runs them each runtime
@@ -405,8 +465,22 @@ drawn as camera-facing sprites (the built-in `Particle` texture, a soft dot, by 
 light (they bloom when bright) and are never picked; alpha sprites cover what is behind. The quad pipeline blends
 premultiplied colors, so both kinds share it.
 
+Post-process volumes (`PostProcessVolumes`, Scene module, independent of rendering) start from the scene's renderer
+settings and apply each `PostProcess` component that reaches the camera, in order of `Priority` (lowest first; equal
+priorities in hierarchy order), with a blend: `Weight` for global volumes; for local ones `Weight` times 1 inside their
+box (the unit cube placed, rotated and scaled by the entity's world transform) fading linearly to 0 at `BlendDistance`
+meters from it. A volume changes only the settings whose `Override` switch is set: numbers move towards its values by
+the blend. `Bloom` fades instead of switching (`PostProcessVolumes::Blender`): how much of the bloom is on moves towards
+the volume's `Bloom` by the blend like a number and scales `BloomIntensity` (the renderer treats bloom that is off like
+bloom with no intensity), so it fades out into a volume that turns it off, fades in where one turns it back on, and
+switches off only once faded out completely. `AmbientOcclusion` and `Tonemapper`, which the renderer has no strength
+to fade by, take the volume's value once the blend reaches one half. Values scripts set outside the fields' ranges act
+as the nearest bound, and scenes without volumes skip the work.
+
 Colliders attach to the entity's own rigid body; multiple colliders on one entity form a compound shape. An
-entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes.
+entity with colliders and no `RigidBody` is a static body. Entity scale is applied to shapes. A `CharacterController`
+makes the entity a character instead (§8): its colliders and `RigidBody` are left out, with a warning. The colliders
+of the entities below a character are its own parts, which neither block it nor touch it.
 
 ### 7.3 Serialization formats (JSON, written with tabs, keys in stable order)
 
@@ -479,10 +553,58 @@ fixed, hinge (with limits within ±180° and a velocity motor with a torque limi
 negative ends keep the starting distance) and slider (limits around the starting position, velocity motor with a force
 limit). Values that are not finite, missing bodies, joints to the entity itself and hinges or sliders without an axis
 are refused; removing a body removes the joints on either side of it. The scene makes every `Joint` component's joint
-when it starts and makes them all again whenever a joint component or a body changes (rebuilt bodies lose their
-joints); a joint whose connected entity no longer exists is left out without a warning (a broken chain), while one
-whose connected entity has no body is logged. Duplicates and prefab instances remap `ConnectedEntity`. The scene view
-draws a selected joint's anchor, axis and connection.
+when it starts and makes them all again whenever a joint component changes or a body is made, rebuilt or removed
+(rebuilt bodies lose their joints; changing a character does not touch them); a joint whose connected entity no longer
+exists is left out without a warning (a broken chain), while one whose connected entity has no body is logged.
+Duplicates and prefab instances remap `ConnectedEntity`. The scene view draws a selected joint's anchor, axis and
+connection.
+
+Characters (`CharacterDesc`, `PhysicsScene::AddCharacter`) are Jolt `CharacterVirtual`s: upright capsules (a sphere when
+the height is below twice the radius) that games move instead of the simulation. An entity has a body or a character;
+adding one replaces the other. Each step moves the characters first, in the order of their entities' IDs, then simulates
+the bodies. A character has a velocity of its own: on walkable ground (`MaxSlopeAngle`) its feet stop it and the ground
+carries it at the ground's velocity of this step (`UpdateGroundVelocity` first: scripts set kinematic targets before the
+step, so a platform that starts, stops or turns back carries it without a slip), gravity (times `GravityFactor`) only
+presses it against the ground, so it does not creep down slopes; elsewhere gravity speeds it up, so it falls and slides
+down slopes too steep to stand on. An upward velocity of its own jumps (it keeps the ground's velocity); after the step,
+the part of it that moved into what the character hit is removed (landing, ceilings, walls). After the bodies' step, a
+character on ground that went down (a descending platform or elevator, which was still in its way when it moved) follows
+it down (`StickToFloor` over the ground's drop), so it neither hovers above it nor loses it. `MoveCharacter` adds a
+walking velocity for the next step only. `ExtendedUpdate` slides it along what it hits, cancels walking up steep slopes,
+climbs steps up to `StepHeight` and keeps it on the ground over drops up to `StepHeight` (walking down stairs and
+slopes); its rounded bottom rolls over edges, which are too steep to stand on for a step or two. It pushes the dynamic
+bodies it walks into with at most `PushForce` newtons and weighs `Mass` on what it stands on. A kinematic inner body,
+larger by the 2 cm the character keeps from what it touches, gives it presence: raycasts hit it, dynamic bodies land on
+it, other characters are blocked by it, and it reports contacts with static and kinematic bodies like kinematic bodies
+do, so triggers notice it and its scripts get collision and trigger callbacks. Trigger colliders never block characters
+(a shape filter skips them), and neither do the bodies of the entities a character ignores
+(`SetCharacterIgnoredEntities`, its own parts: a body filter lets its sweeps pass through them, and the contact listener
+rejects their contacts with its inner body in `OnContactValidate`, so they neither push it nor report touching it).
+Reshaping or moving a character keeps its velocity and refreshes what it stands on, and so does removing or rebuilding
+the body it stands on (rather than standing on, and riding, a body that is gone until its next step); refused
+descriptions (values that are not finite, capsules larger than the world allows) leave the entity without one; speeds
+are kept within 500 m/s.
+
+The scene makes a character for each `CharacterController` when it starts, places its capsule at the entity's world
+position plus `Offset` (both scaled with the entity, the radius by the larger horizontal scale; the capsule does not
+turn with the entity, which scripts rotate freely), and changes it in place when the component or the entity's scale
+changes; the warning about the colliders and `RigidBody` it replaces is logged once, when the character is made.
+Changing the component changes only the character, while adding or removing it replaces the entity's body (which makes
+the joints again). The entities below a character are its parts: the scene has the physics ignore their bodies, and
+follows the hierarchy as it changes. Before each step, an entity moved by a script, the editor or its parent teleports
+its character (keeping its velocity); after it, moved characters write their positions back (parents first). The
+simulation moves entities without taking their transforms apart: characters change only the translation, dynamic bodies
+the translation and rotation, so scales (and characters' rotations) stay exactly as they were. Between frames,
+characters are drawn between their last two steps, so they (and cameras on them) move smoothly whatever the frame rate:
+before a frame's physics changes and steps, entities not moved since they were drawn go back to where the last step left
+them (`OnFixedUpdate`, their parts' bodies and component changes see the physics positions; a component changed between
+steps keeps the character where it is), and after the steps they are drawn as far into the last step as the time left
+over makes up (accumulator / step, so a step behind). The way their ground carried them in the last step
+(`CharacterState::GroundDisplacement`, as far as they went that way) is not delayed, so riders stay on platforms, which
+are drawn where the last step left them. Entities moved between steps stay where they were put, and the next step
+teleports their characters there. Removing the component or destroying the entity removes the character.
+`Scene::TeleportCharacter` places the entity and stops its character at once. The scene view draws a selected
+character's capsule (with the colliders).
 
 Jolt computes in single precision and asserts on (or, in Release, is corrupted by) values its math overflows, so
 `PhysicsScene` keeps everything within limits (`Physics/PhysicsTypes.h`): positions within 10,000 km of the origin
@@ -503,16 +625,29 @@ links Core Audio at build time (`MA_NO_RUNTIME_LINKING`), as notarization requir
 ALSA, JACK) are loaded at runtime and are not build requirements.
 
 `AudioClipAsset`s hold the encoded file (WAV, FLAC, MP3, Ogg Vorbis; the format is detected from the data).
-`AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID): each sound decodes
-its clip from memory through its own decoder while it plays, and a scene's sounds play through one sound group that
-pauses them together. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
+`AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID); a scene's sounds play
+through one sound group that pauses them together. Each sound has its own decoder (`AudioDecoder`): miniaudio's decoder
+of the detected format for WAV, FLAC and MP3 and libvorbis for Ogg Vorbis, so no other decoder ever reads the data (left
+to itself, miniaudio would search a whole file for an MP3 frame). Loaded sounds decode the clip's data in memory while
+they play. Streamed sounds (`AudioSourceDesc::StreamFile`) open the clip's file when they are created, on the main
+thread, which reads only its format and headers (at most `MaxAudioStreamHeaderBytes`: damaged files whose audio would
+start later are refused), and play from a ring buffer that the audio streaming thread (`AudioStreamer`, owned by
+`AudioEngine`) keeps decoded about a second ahead (`AudioStreamBufferSeconds`). The thread that mixes them only copies
+decoded samples and never waits: a read that stalls silences that one sound for a moment, and it continues where it was.
+The streaming thread decodes on past the end of the file from its start and marks where the file ended, where the mixer
+decides whether the sound loops, so loops are seamless and a sound played again after it ended starts at once; stopping
+a sound empties its buffer and decodes the start again. `AudioEngineSettings::StreamFileOpener` opens the files (the
+file system unless set; tests count and hold up reads through it), and `AudioEngine::WaitForStreams` lets manual output
+hear streams without gaps. Files that are missing or not audio are refused when the source is created; damaged ones
+play what can be decoded. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
 so scenes never move each other's listener. Spatial sounds are attenuated by inverse distance (full volume within
 `MinDistance`, `MinDistance / distance` up to `MaxDistance`, constant beyond) and panned by miniaudio's model (its
 stereo speakers face left and right, so a sound in front reaches each at half gain); there is no doppler effect.
 
 The scene drives it while running. `OnRuntimeStart` creates a sound for every `AudioSourceComponent` with a clip,
-playing when `PlayOnStart` is set. Each update compares the components with the settings last applied, so changes
-from anywhere (inspector, scripts, automation) reach the sounds: a new clip makes a new, stopped sound; sources added
+playing when `PlayOnStart` is set; sources with `Stream` stream the clip asset's file without loading the asset. Each
+update compares the components with the settings last applied, so changes from anywhere (inspector, scripts,
+automation) reach the sounds: a new clip, or a change of `Stream`, makes a new, stopped sound; sources added
 while running start like the others; removed components and destroyed entities lose their sound. Spatial sources
 follow their entities' world positions, and the listener follows the first active `AudioListenerComponent` in hierarchy
 order, else the primary camera, else the origin facing -Z. `Scene::SetPaused` holds the scene's sounds.
@@ -555,7 +690,8 @@ boundary (`byte` for bool, UTF-8 `byte*` + length for strings). glm/C# layouts m
 
 Scripts derive from `Strada.Script` (which derives from `Entity`) and override any of: `OnCreate()`,
 `OnUpdate(float deltaTime)`, `OnFixedUpdate(float fixedDeltaTime)`, `OnDestroy()`, `OnCollisionEnter(Entity other)`,
-`OnCollisionExit(Entity other)`, `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)`.
+`OnCollisionExit(Entity other)`, `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)`,
+`OnClick(Entity button)` (a UI button that is the entity or one of its descendants was clicked).
 Public fields (and private fields marked `[SerializeField]`) of supported types are editable in the inspector and
 serialized in the scene: `bool`, `int`, `uint`, `long`, `ulong`, `float`, `double`, `string`, `Vector2`, `Vector3`,
 `Vector4`, `Quaternion`, `Color`, `Entity`, `Prefab`, `AssetHandle`, typed asset references (`Mesh`, `Material`,
@@ -568,7 +704,8 @@ every instance is created before the first `OnCreate`, so scripts can find each 
 follows `ScriptComponent` changes (new components get instances and `OnCreate`; a changed class or a removed
 component gets `OnDestroy`; unknown classes are logged once per class name), then calls `OnUpdate`; `OnFixedUpdate`
 runs before every fixed step, with or without physics; contacts reach the scripts of both entities, the other entity
-arriving as its script instance when it has one. Destroyed entities get `OnDestroy` while still intact (children
+arriving as its script instance when it has one; clicks reach the scripts of the button and its ancestors before the
+frame's `OnUpdate`. Destroyed entities get `OnDestroy` while still intact (children
 after their parent), and stopping or destroying the running scene calls `OnDestroy` on every script.
 
 ### 10.4 Scripting API (namespace `Strada`)
@@ -585,14 +722,18 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `LinearDamping`, `AngularDamping`, `AddForce(Vector3, ForceMode)`, `AddTorque(Vector3, ForceMode)`,
   `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
-  `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
+  `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
+  `GroundNormal`, `Teleport(Vector3)`),
+  `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
-  `Emit(count)`, `Clear()`, `ParticleCount`), `ScriptComponent` (`ClassName`, `Instance`).
+  `Emit(count)`, `Clear()`, `ParticleCount`), `PostProcessComponent` (every field; `Tonemapper` is a `TonemapOperator`),
+  `UICanvasComponent`, `UIRectComponent`, `UIImageComponent`, `UITextComponent` (every field), `UIButtonComponent`
+  (every field, `WasClicked`, `State` (`UIButtonState`), `Click()`), `ScriptComponent` (`ClassName`, `Instance`).
 - `Material` (runtime-creatable): `Create()`, `Clone()`, `IsEditable`, `BaseColor`, `Metallic`, `Roughness`,
   `Emissive`, `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, the five texture maps, `AlphaMode`,
   `AlphaCutoff`, `DoubleSided`, `UVTiling`, `UVOffset`.
 - `Input`: `IsKeyDown/Pressed/Released(KeyCode)`, `IsMouseButtonDown/Pressed/Released(MouseButton)`,
-  `MousePosition`, `MouseDelta`, `MouseScrollDelta`, `CursorMode`, gamepad (`IsGamepadConnected`,
+  `MousePosition`, `MouseDelta`, `MouseScrollDelta`, `CursorMode`, `IsPointerOverUI`, gamepad (`IsGamepadConnected`,
   `GetGamepadAxis`, `IsGamepadButtonDown/Pressed`).
 - `Time`: `DeltaTime`, `FixedDeltaTime`, `Elapsed`, `FrameCount`, `TimeScale`.
 - `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`.
@@ -608,11 +749,15 @@ Semantics: components are views (`GetComponent<T>()` makes no copy) whose proper
 component through typed bindings (`<Component>_Get<Field>`/`_Set<Field>`, generated from member pointers); writes go
 through the registry, so systems watching a component (physics) see them. While the scene runs, `RigidBodyComponent`
 velocities, forces, sleep, `MoveKinematic` and `Teleport` act on the simulated body (bodies of components added that
-frame are created first; `Type`, `Mass` and `Layer` rebuild it), and `AudioSourceComponent` playback acts on the
-entity's sound, brought up to date with the component first. Entity lookups (`FindByName`, `FindByID`, `Parent`,
-`Children`, contacts, raycast hits) return the script instance of scripted entities. `Time.TimeScale` scales script
-and physics time, not sounds. Asset references are typed (`Mesh`, `Material`, `Texture`, `AudioClip`, `Font`,
-`EnvironmentMap` (not `Environment`, which clashes with `System.Environment`), `Prefab`). Calls without a running scene
+frame are created first; `Type`, `Mass` and `Layer` rebuild it), `CharacterControllerComponent.Move` (the walking
+velocity of the next physics step; call it from `OnFixedUpdate`), `Velocity` (the character's own: falling, jumping),
+`IsGrounded`, `GroundNormal` and `Teleport` act on the entity's character (fields change it before the next step;
+without a simulated character the reads are a character at rest and `Move` and setting `Velocity` are logged), and
+`AudioSourceComponent` playback acts on the entity's sound, brought up to date with the component first. Entity
+lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
+entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
+`Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
+`Prefab`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
@@ -654,36 +799,43 @@ than the assembly.
 - Scene Hierarchy: the entity tree; click selects, Ctrl toggles, Shift selects the displayed range; dragging rows
   reparents (onto a row) or reorders (onto its upper or lower edge) the selection as one undo step
   (`MoveEntitiesCommand`); F2 or the context menu renames; double-click frames the entity in the viewport; context
-  menus create preset entities (empty, primitives, lights, camera, audio, text, sprite), duplicate and delete; a search
-  field filters by name. Selections made elsewhere reveal and scroll to the primary entity.
+  menus create preset entities (empty, primitives, lights, camera, audio, text, sprite, particle effects, a global
+  post-process volume with a 10 m box for when it is made local, a character, UI), duplicate and delete; UI elements
+  (Panel, Image, Text, Button) go into a canvas: the parent's, else under a parent a new canvas there, else the
+  scene's first canvas or a new one, created with the element as one undo step; a search field filters by name.
+  Selections made elsewhere reveal and scroll to the primary entity.
 - Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
   the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
   while dragging), enums are combos, fields with a visibility condition (`VisibleWhen`: a material's alpha cutoff in
   the Mask mode, the perspective or orthographic settings of a camera, what a joint type or particle shape uses) show
-  only while it holds, and entity references accept dropped entities. Asset fields (in components, materials, settings
-  and script fields) show the asset's path in the asset directory with its extension (`builtin://<Name>` for
-  built-ins, the name of materials and textures imported with a model, `None` when empty; long paths lose their
-  folders first, then the middle of the name, so its start and its end with the extension stay; the tooltip has all of
-  it) in a box that opens a searchable picker of the assets of the field's type when clicked and takes assets dropped
-  from the content browser, followed by `...` (the picker) and `x` (clears it). In the inspector the box and the
-  picker's rows start with a small image of the asset (textures, materials on a sphere, meshes, prefabs, environments;
-  `AssetThumbnails`), shown larger in the box's tooltip; the picker draws only the rows in view, so long lists stay
-  quick. With several entities selected it shows the components they share, flags fields whose values differ, and an
-  edit sets only the edited value or vector component on every entity. One widget interaction (a drag, typing into a
-  field) is one undo step. Add Component opens a menu with a search field above a submenu per component category
-  (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the Core ones are on every entity); typing
-  lists the matching components instead (names starting with the text first) with their categories, and Enter adds the
-  first. Components can also be reset, copied, pasted as JSON and removed. Below the fields of a Mesh component, each
-  material slot of its mesh gets a section (`MaterialSlots`): a header with the material on a sphere, its name, the
-  slot and where the material comes from, then every parameter of the material the slot renders with (the component's
-  override, else the mesh's own material, else the default one). Edits change the material file as in the material
-  inspector (one undo step per interaction) and show at once in the views and thumbnails; built-in and model-imported
-  materials show their values disabled with a Create Material button that writes an editable copy to
-  `Assets/Materials` and gives it to the slot (one undo step). Without selected entities the inspector shows the asset
-  selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
+  only while it holds, entity references accept dropped entities, and a field's switch (a post-process volume's
+  override) is a check box in front of its name, the value disabled while it is off. Asset fields (in components,
+  materials, settings and script fields) show the asset's path in the asset directory with its extension
+  (`builtin://<Name>` for built-ins, the name of materials and textures imported with a model, `None` when empty; long
+  paths lose their folders first, then the middle of the name, so its start and its end with the extension stay; the
+  tooltip has all of it) in a box that opens a searchable picker of the assets of the field's type when clicked and
+  takes assets dropped from the content browser, followed by `...` (the picker) and `x` (clears it). In the inspector
+  the box and the picker's rows start with a small image of the asset (textures, materials on a sphere, meshes,
+  prefabs, environments; `AssetThumbnails`), shown larger in the box's tooltip; the picker draws only the rows in view,
+  so long lists stay quick. With several entities selected it shows the components they share, flags fields whose
+  values differ, and an edit sets only the edited value or vector component on every entity. One widget interaction (a
+  drag, typing into a field) is one undo step. Add Component opens a menu with a search field above a submenu per
+  component category (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the Core ones are on every
+  entity); typing lists the matching components instead (names starting with the text first) with their categories,
+  and Enter adds the first. Components can also be reset, copied, pasted as JSON and removed. Below the fields of a
+  Mesh component, each material slot of its mesh gets a section (`MaterialSlots`): a header with the material on a
+  sphere, its name, the slot and where the material comes from, then every parameter of the material the slot renders
+  with (the component's override, else the mesh's own material, else the default one). Edits change the material file
+  as in the material inspector (one undo step per interaction) and show at once in the views and thumbnails; built-in
+  and model-imported materials show their values disabled with a Create Material button that writes an editable copy
+  to `Assets/Materials` and gives it to the slot (one undo step). Without selected entities the inspector shows the
+  asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
   and mesh-imported ones), a texture preview, mesh statistics with the mesh's materials, and the details of other
-  asset types.
+  asset types. The Transform of UI elements, which their `UIRect` places, starts folded and is shown read-only, with a
+  note. Every field table's name column starts as wide as its names need, switches and indentation included (40% to
+  60% of the panel; users can resize it); names that still do not fit end in an ellipsis and show in full in their
+  tooltips.
 - Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
   files in red), breadcrumbs, a tile size slider, and a search over every asset path. Textures show themselves, and
   materials (on a sphere), meshes, prefabs and environments show thumbnails that `AssetThumbnails` renders offscreen,
@@ -700,25 +852,43 @@ than the assembly.
 - Renderer Info: the device (adapter, type, Vulkan version, driver, GPU timing support, validation and its error
   count), the frame (average and slowest frame time with a graph over 240 frames, frame count, back buffer), and what
   the scene view's and the game view's renderers drew in their last frames side by side (GPU time, draw calls and the
-  shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite and text quads).
+  shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite, text and UI quads).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
-  (create presets at the scene view's focal point), View, Play (Play/Stop, Simulate, Pause, Step). Shortcuts are global
-  unless a text field is being edited.
+  (create presets at the scene view's focal point: Create Empty, then the 3D Object, 2D Object, Rendering, Effects,
+  Physics, Audio and UI submenus, which the hierarchy's create button and Create Child share;
+  `EntityPresets::GetMenu`), View, Play (Play/Stop, Simulate, Pause, Step). Shortcuts are global unless a text field
+  is being edited.
   Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
   scene name and a `*` while it has unsaved changes.
 - Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
   (fly/orbit/pan/zoom/focus). Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
-  orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays: ground grid
-  (G), selection outline, clickable icons for cameras and lights, shapes of selected cameras (frustums), lights
-  (directions, ranges, cones) and colliders, every collider, and the lines scripts draw. ImGuizmo edits apply to every
-  selected root around the primary selection as one undo step per drag (`SetComponentsCommand` with a merge key); click
-  picking goes through the entity-ID pass (Ctrl toggles, Shift adds, empty space clears; picking IDs are never reused
-  within a scene); assets can be dropped onto it.
+  orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays
+  (`SceneViewOverlays`, also `viewport.overlays`): ground grid (G), selection outline, light and camera gizmos
+  (clickable billboard icons per kind of light and for cameras), camera frustums, light shapes (directional light rays
+  kept at a constant size on screen, point light ranges, spot light cones with their inner cone), colliders (character
+  capsules among them), joints and post-process volumes (the boxes of local volumes with the rounded outlines where
+  their blend distances end), each for the selected entities or every entity, the lines scripts draw, and the UI
+  canvases. Colliders show the shapes physics collides with: mesh colliders as the convex hull Jolt builds
+  (`MeshColliderOutline`; also for the triangle meshes of dynamic bodies) or as their triangles, without the diagonals
+  of flat faces, and character controllers as the upright capsule physics moves. Its lines are wide, light-colored and
+  outlined in dark so they read on bright and dark surfaces, and dimmed where surfaces hide them, except joints (their
+  anchors lie inside bodies), directional lights (their position does not matter), post-process volumes (the camera
+  is often inside), the capsules of selected characters (their models enclose them) and the outlines of canvases,
+  which are drawn over everything. The screen-space UI would cover the scene: the UI canvases overlay draws each
+  top-level canvas's UI in its entity's XY plane instead (`CanvasOverlay`), standing on the entity (the middle of its
+  bottom edge there), laid out at its reference resolution, 1 cm per canvas unit, faint (too faint to pick) until the
+  canvas or one of its elements is selected, with the outline of every canvas and, for the canvas holding the
+  selection, the rectangles of its elements, the selected ones highlighted. Focus and `viewport.frame` frame a canvas
+  or a UI element's rectangle there (`ComputeEntityBounds`). UI elements, which their `UIRect` places, get no
+  transform gizmo. ImGuizmo edits apply to every selected root around the primary selection as one undo step per drag
+  (`SetComponentsCommand` with a merge key); click picking goes through the entity-ID pass (Ctrl toggles, Shift adds,
+  empty space clears; picking IDs are never reused within a scene); assets can be dropped onto it.
 - Game View (`GameViewPanel`): the scene through its primary camera, as the game sees it, at a chosen resolution (free,
   16:9, 16:10, 4:3, 21:9, the project's window size, 1920x1080, 1280x720), letterboxed; fixed sizes render at that size
   and are scaled down to fit. Its size is the scene's view size (`Scene::OnViewportResize`) that scripts read and the
-  size Play starts with. Edit mode shows a preview; playing brings it to the front.
+  size Play starts with. Edit mode shows a preview; playing brings it to the front. Scenes without a primary camera show
+  their screen-space UI over black, and a note when they have none.
 - Undo/redo for every scene modification through a command history (JSON before/after snapshots). Automation
   commands use the same history.
 - Play mode (`PlayMode`, controls in the toolbar and the Play menu): Play (Ctrl+P; scripts, physics and audio, shown in
@@ -739,11 +909,16 @@ than the assembly.
   a popup or window over the view, the window of a panel dragged out of the editor) goes to the editor and gives the
   input back, and so do the view hiding behind another tab or losing the focus and playing stopping. The game sees each
   event in the frame it happens, with the cursor in the pixels it renders and no movement when it gets the cursor back
-  somewhere else; releases reach both sides, and what the game held is released when it gives the input back, so no key
-  stays held on either side. The cursor mode the game asks for (hidden, locked) applies to the window showing the game
-  view while the game has the input. A blue frame marks the game view meanwhile and its toolbar says how to release it;
-  without the input the game gets nothing and the editor works as usual. Automation's `input.set` and `input.release`
-  act on the game's input directly.
+  somewhere else; releases reach both sides, and the keys and mouse buttons the game held are released when it gives the
+  input back, so none stays held on either side (a UI button held then is not clicked). Gamepads are not shared: the
+  game reads them whoever has the keyboard and mouse. The cursor mode the game asks for applies while it has the input:
+  a hidden cursor is hidden over the game view alone (the game view asks ImGui for no cursor there), and a locked cursor
+  is locked to the window showing the game view, moves with that window only and is hidden over the editor's other
+  windows, ImGui changing no cursor meanwhile (`GameViewPanel::UpdateWindowCursors`). A blue frame marks the game view
+  meanwhile and its toolbar says how to release it; without the input the game gets nothing (its UI follows no cursor:
+  `PlayMode::SetUIPointerEnabled` follows `GameInputRouter::HasInput` from the frame the input changes hands, before the
+  scene updates) and the editor works as usual. Automation's `input.set` and `input.release` act on the game's input
+  directly, and `ui.layout` tells where the UI's elements and buttons are in the game view.
 - Project management: File > New Project (name and location; the start scene is the editor's sample scene),
   Open Project, Recent Projects (user data `Editor/RecentProjects.json`), Close Project, and `--project <file>` on the
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
@@ -812,8 +987,9 @@ asset directory and the script assembly relative to the game's directory (`Proje
   scripts (exported games carry `Strada.ScriptCore.dll` next to their assembly, projects use the engine's; a project
   whose C# project was never built does not start), loads the start scene (or `--scene <path in Assets>`) and runs it
   through a `SceneRunner` with scripts, physics and audio. Every frame the primary camera's view is rendered at the
-  window's framebuffer size and drawn into the swapchain image (`TextureBlitter`); without a primary camera the window
-  stays black (logged once). `Application.Quit` closes the player.
+  window's framebuffer size and drawn into the swapchain image (`TextureBlitter`); without a primary camera the
+  screen-space UI, sprites and text are drawn over black, and a scene with neither leaves the window black (logged
+  once). `Application.Quit` closes the player.
 - `--headless` runs without a window, rendering or sound (no GPU needed); the scenes see the game's window size.
   `--frames N` and `--screenshot <png>` serve smoke tests.
 - `--test` runs headless with a fixed time step (`--timestep`, default 1/60 s) until the scripts call
@@ -885,10 +1061,10 @@ data directory, and compile out asserts and script debug lines.
   through their types.
 - `Projects/FeatureTest`: scenes that use every component (checked by `StradaTests`) and scripts that call the entire
   scripting API through `Strada.Testing`, one script per area (entities, transforms, components, physics, audio,
-  assets, math, input, application and time, the testing API, attributes, script lifecycles) with a coordinator that
-  loads the second scene, which finishes the run. CMake builds the scripts (`StradaFeatureTestScripts`) and
-  `StradaRuntimeTests` runs a copy of the project through the player (`StradaRuntime --project ... --test`; exit code =
-  failures).
+  assets, math, input, application and time, the testing API, attributes, script lifecycles, the UI) with a
+  coordinator that loads the second scene, which finishes the run. CMake builds the scripts
+  (`StradaFeatureTestScripts`) and `StradaRuntimeTests` runs a copy of the project through the player
+  (`StradaRuntime --project ... --test`; exit code = failures).
 - `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp`: `Tools/Author.py` builds the
   project, its materials, both scenes and the debris and particle burst prefabs, with the sounds, the beveled block mesh
   and the grid texture that `Tools/GenerateAssets.py` synthesizes and a Poly Haven sunset sky over a neon grid floor.

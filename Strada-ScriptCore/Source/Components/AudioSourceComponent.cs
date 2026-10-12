@@ -21,6 +21,17 @@ public sealed unsafe class AudioSourceComponent : Component
 		set => NativeField.SetAsset(InternalCalls.AudioSourceComponent_SetClip, Entity.ID, value);
 	}
 
+	/// <summary>
+	/// Whether the clip is read from its file while it plays instead of being loaded whole first: only a little of it is
+	/// in memory at a time, which suits music and long ambience. Changing it, like changing <see cref="Clip"/>, makes a
+	/// new sound that is stopped until <see cref="Play"/>.
+	/// </summary>
+	public bool Stream
+	{
+		get => NativeField.GetBool(InternalCalls.AudioSourceComponent_GetStream, Entity.ID);
+		set => NativeField.SetBool(InternalCalls.AudioSourceComponent_SetStream, Entity.ID, value);
+	}
+
 	/// <summary>Linear gain; 1 plays the clip unchanged.</summary>
 	public float Volume
 	{

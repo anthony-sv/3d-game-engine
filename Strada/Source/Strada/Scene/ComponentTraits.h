@@ -42,6 +42,26 @@ namespace Strada
 	};
 
 	template<>
+	struct EnumTraits<TextVerticalAlignment>
+	{
+		static constexpr std::array<std::pair<TextVerticalAlignment, std::string_view>, 3> Values = {{
+			{TextVerticalAlignment::Top, "Top"},
+			{TextVerticalAlignment::Middle, "Middle"},
+			{TextVerticalAlignment::Bottom, "Bottom"},
+		}};
+	};
+
+	template<>
+	struct EnumTraits<UIScaleMode>
+	{
+		static constexpr std::array<std::pair<UIScaleMode, std::string_view>, 3> Values = {{
+			{UIScaleMode::ConstantPixelSize, "ConstantPixelSize"},
+			{UIScaleMode::ScaleWithScreenHeight, "ScaleWithScreenHeight"},
+			{UIScaleMode::ScaleWithScreenSize, "ScaleWithScreenSize"},
+		}};
+	};
+
+	template<>
 	struct EnumTraits<ParticleEmitterShape>
 	{
 		static constexpr std::array<std::pair<ParticleEmitterShape, std::string_view>, 4> Values = {{
@@ -458,6 +478,45 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<CharacterControllerComponent>
+	{
+		static constexpr std::string_view Name = "CharacterController";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
+		static constexpr std::string_view Description =
+			"Makes the entity a character that scripts move (players, creatures): an upright capsule that walks, climbs steps and slopes, "
+			"falls, rides what it stands on and pushes dynamic bodies. It replaces the entity's colliders and RigidBody; colliders of its "
+			"children are its own parts, which neither block nor touch it.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Radius", &CharacterControllerComponent::Radius).AtLeast(0.01).Doc("Radius of the capsule in meters."),
+			Field("Height", &CharacterControllerComponent::Height)
+				.AtLeast(0.01)
+				.Doc("Height of the whole capsule in meters, rounded ends included; below twice the radius it is a sphere."),
+			Field("Offset", &CharacterControllerComponent::Offset)
+				.Doc(
+					"Center of the capsule relative to the entity, in meters (scaled with the entity; the capsule does not turn with it)."),
+			Field("StepHeight", &CharacterControllerComponent::StepHeight)
+				.AtLeast(0.0)
+				.Doc("The highest step the character climbs, and the deepest drop it walks down without leaving the ground, in meters."),
+			Field("MaxSlopeAngle", &CharacterControllerComponent::MaxSlopeAngle)
+				.Range(1.0, 89.0)
+				.AsAngle()
+				.Doc("The steepest slope the character walks up, in degrees; it slides down steeper ones."),
+			Field("Mass", &CharacterControllerComponent::Mass)
+				.AtLeast(0.0)
+				.Doc("Kilograms with which the character weighs on what it stands on."),
+			Field("PushForce", &CharacterControllerComponent::PushForce)
+				.AtLeast(0.0)
+				.Doc("The largest force, in newtons, with which the character pushes dynamic bodies; 0 leaves them where they are."),
+			Field("GravityFactor", &CharacterControllerComponent::GravityFactor)
+				.Range(0.0, 1000.0)
+				.Doc("Multiplier of the scene's gravity; 0 lets scripts fly the character (ladders, swimming)."),
+			Field("Layer", &CharacterControllerComponent::Layer)
+				.Range(0.0, 15.0)
+				.Doc("Physics layer index as configured in the project settings."));
+	};
+
+	template<>
 	struct ComponentTraits<AudioSourceComponent>
 	{
 		static constexpr std::string_view Name = "AudioSource";
@@ -466,6 +525,8 @@ namespace Strada
 		static constexpr std::string_view Description = "Plays an audio clip, optionally positioned in 3D.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Clip", &AudioSourceComponent::Clip).References("AudioClip"),
+			Field("Stream", &AudioSourceComponent::Stream)
+				.Doc("Reads the clip from its file while it plays instead of loading it whole first: for music and long ambience."),
 			Field("Volume", &AudioSourceComponent::Volume).AtLeast(0.0).Doc("Linear gain; 1 plays the clip unchanged."),
 			Field("Pitch", &AudioSourceComponent::Pitch).AtLeast(0.01).Doc("Playback speed multiplier; 1 plays the clip unchanged."),
 			Field("Loop", &AudioSourceComponent::Loop),
@@ -507,7 +568,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Text";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
-		static constexpr std::string_view Category = ComponentCategory::UI;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Draws text in the world or on the screen.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Text", &TextComponent::Text).AsMultilineText(),
@@ -527,7 +588,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "SpriteRenderer";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
-		static constexpr std::string_view Category = ComponentCategory::UI;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Draws a textured or colored quad in the world or on the screen.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Color", &SpriteRendererComponent::Color).Range(0.0, 1.0).AsColor().Doc("Tint multiplied with the texture."),
@@ -594,6 +655,211 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<PostProcessComponent>
+	{
+		static constexpr std::string_view Name = "PostProcess";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
+		static constexpr std::string_view Description =
+			"Post-process volume: overrides the scene's exposure, tonemapper, bloom, ambient occlusion, color grading and lens "
+			"effects everywhere (global) or while the camera is in the entity's box (local, fading over a blend distance), in "
+			"order of priority and scaled by weight.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Global", &PostProcessComponent::Global)
+				.Doc("Applies everywhere; otherwise only inside the box the entity's transform makes of the unit cube."),
+			Field("BlendDistance", &PostProcessComponent::BlendDistance)
+				.AtLeast(0.0)
+				.Doc("Local volumes: meters around the box over which the volume fades out."),
+			Field("Priority", &PostProcessComponent::Priority).Doc("Volumes with higher priorities apply over those with lower ones."),
+			Field("Weight", &PostProcessComponent::Weight).Range(0.0, 1.0).Doc("How much of the volume applies."),
+			Field("OverrideEV100", &PostProcessComponent::OverrideEV100).Doc("Applies the volume's EV100."),
+			Field("EV100", &PostProcessComponent::EV100)
+				.Range(-20.0, 20.0)
+				.EnabledBy("OverrideEV100")
+				.Doc("Exposure value at ISO 100; higher values darken the image."),
+			Field("OverrideTonemapper", &PostProcessComponent::OverrideTonemapper).Doc("Applies the volume's tonemapper."),
+			Field("Tonemapper", &PostProcessComponent::Tonemapper)
+				.EnabledBy("OverrideTonemapper")
+				.Doc("Maps HDR colors to the display range."),
+			Field("OverrideAmbientOcclusion", &PostProcessComponent::OverrideAmbientOcclusion)
+				.Doc("Switches ambient occlusion on or off as the volume says."),
+			Field("AmbientOcclusion", &PostProcessComponent::AmbientOcclusion)
+				.EnabledBy("OverrideAmbientOcclusion")
+				.Doc("Darkens indirect light in creases and corners."),
+			Field("OverrideAmbientOcclusionIntensity", &PostProcessComponent::OverrideAmbientOcclusionIntensity)
+				.Doc("Applies the volume's ambient occlusion intensity."),
+			Field("AmbientOcclusionIntensity", &PostProcessComponent::AmbientOcclusionIntensity)
+				.Range(0.1, 8.0)
+				.EnabledBy("OverrideAmbientOcclusionIntensity")
+				.Doc("Contrast exponent of ambient occlusion."),
+			Field("OverrideBloom", &PostProcessComponent::OverrideBloom).Doc("Fades bloom in or out as the volume says."),
+			Field("Bloom", &PostProcessComponent::Bloom).EnabledBy("OverrideBloom").Doc("Glow around bright areas."),
+			Field("OverrideBloomIntensity", &PostProcessComponent::OverrideBloomIntensity).Doc("Applies the volume's bloom intensity."),
+			Field("BloomIntensity", &PostProcessComponent::BloomIntensity)
+				.Range(0.0, 1.0)
+				.EnabledBy("OverrideBloomIntensity")
+				.Doc("Fraction of the blurred image mixed into the scene."),
+			Field("OverrideContrast", &PostProcessComponent::OverrideContrast).Doc("Applies the volume's contrast."),
+			Field("Contrast", &PostProcessComponent::Contrast)
+				.Range(0.0, 2.0)
+				.EnabledBy("OverrideContrast")
+				.Doc("Contrast around middle gray; 1 leaves colors unchanged."),
+			Field("OverrideSaturation", &PostProcessComponent::OverrideSaturation).Doc("Applies the volume's saturation."),
+			Field("Saturation", &PostProcessComponent::Saturation)
+				.Range(0.0, 2.0)
+				.EnabledBy("OverrideSaturation")
+				.Doc("Color intensity: 0 is grayscale, 1 unchanged, 2 doubles it."),
+			Field("OverrideTemperature", &PostProcessComponent::OverrideTemperature).Doc("Applies the volume's temperature."),
+			Field("Temperature", &PostProcessComponent::Temperature)
+				.Range(-1.0, 1.0)
+				.EnabledBy("OverrideTemperature")
+				.Doc("White balance from cool (-1, blue) to warm (1, orange)."),
+			Field("OverrideTint", &PostProcessComponent::OverrideTint).Doc("Applies the volume's tint."),
+			Field("Tint", &PostProcessComponent::Tint)
+				.Range(-1.0, 1.0)
+				.EnabledBy("OverrideTint")
+				.Doc("White balance from green (-1) to magenta (1)."),
+			Field("OverrideColorFilter", &PostProcessComponent::OverrideColorFilter).Doc("Applies the volume's color filter."),
+			Field("ColorFilter", &PostProcessComponent::ColorFilter)
+				.Range(0.0, 2.0)
+				.AsColor()
+				.EnabledBy("OverrideColorFilter")
+				.Doc("Multiplies every color."),
+			Field("OverrideChromaticAberration", &PostProcessComponent::OverrideChromaticAberration)
+				.Doc("Applies the volume's chromatic aberration."),
+			Field("ChromaticAberration", &PostProcessComponent::ChromaticAberration)
+				.Range(0.0, 1.0)
+				.EnabledBy("OverrideChromaticAberration")
+				.Doc("Lens color fringes that grow towards the edges of the image."),
+			Field("OverrideVignette", &PostProcessComponent::OverrideVignette).Doc("Applies the volume's vignette."),
+			Field("Vignette", &PostProcessComponent::Vignette)
+				.Range(0.0, 1.0)
+				.EnabledBy("OverrideVignette")
+				.Doc("Darkens the corners of the image."),
+			Field("OverrideVignetteSmoothness", &PostProcessComponent::OverrideVignetteSmoothness)
+				.Doc("Applies the volume's vignette smoothness."),
+			Field("VignetteSmoothness", &PostProcessComponent::VignetteSmoothness)
+				.Range(0.01, 1.0)
+				.EnabledBy("OverrideVignetteSmoothness")
+				.Doc("How gradually the vignette fades in from the center."),
+			Field("OverrideFilmGrain", &PostProcessComponent::OverrideFilmGrain).Doc("Applies the volume's film grain."),
+			Field("FilmGrain", &PostProcessComponent::FilmGrain)
+				.Range(0.0, 1.0)
+				.EnabledBy("OverrideFilmGrain")
+				.Doc("Animated film grain."));
+	};
+
+	template<>
+	struct ComponentTraits<UICanvasComponent>
+	{
+		static constexpr std::string_view Name = "UICanvas";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
+		static constexpr std::string_view Description =
+			"The root of a screen-space UI (HUDs, menus): its descendants are laid out on the screen by their UIRect and drawn over "
+			"the scene in hierarchy order.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("ScaleMode", &UICanvasComponent::ScaleMode)
+				.Doc("ScaleWithScreenSize fits the whole reference resolution on any screen; ScaleWithScreenHeight fits its height "
+		             "(narrower screens cut off the sides); ConstantPixelSize keeps the UI's size in pixels."),
+			Field("ReferenceResolution", &UICanvasComponent::ReferenceResolution)
+				.Range(1.0, 100000.0)
+				.Doc("The screen size the UI is designed for, in canvas units, which the scale mode fits to the screen."));
+	};
+
+	template<>
+	struct ComponentTraits<UIRectComponent>
+	{
+		static constexpr std::string_view Name = "UIRect";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
+		static constexpr std::string_view Description =
+			"Places a UI element in its parent's rectangle (the screen for a canvas's children) with anchors, a position, a size and "
+			"a pivot.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("AnchorMin", &UIRectComponent::AnchorMin)
+				.Range(0.0, 1.0)
+				.Doc("Where the rectangle's span starts in the parent's: 0 is its left or top edge, 1 its right or bottom edge."),
+			Field("AnchorMax", &UIRectComponent::AnchorMax)
+				.Range(0.0, 1.0)
+				.Doc("Where the span ends; equal anchors attach the rectangle to a point, others stretch it with the parent."),
+			Field("Position", &UIRectComponent::Position)
+				.Range(-1.0e6, 1.0e6)
+				.Doc("Moves the pivot from its point of the anchors' span, in canvas units (y downwards)."),
+			Field("Size", &UIRectComponent::Size)
+				.Range(-1.0e6, 1.0e6)
+				.Doc("Canvas units added to the anchors' span: the size itself when the anchors are equal."),
+			Field("Pivot", &UIRectComponent::Pivot)
+				.Range(0.0, 1.0)
+				.Doc("The point of the rectangle Position places, from its top-left corner (0, 0) to its bottom-right corner (1, 1)."),
+			Field("Visible", &UIRectComponent::Visible).Doc("Hidden rectangles and their descendants are neither drawn nor clicked."),
+			Field("Opacity", &UIRectComponent::Opacity).Range(0.0, 1.0).Doc("Multiplies the alpha of the element and its descendants."));
+	};
+
+	template<>
+	struct ComponentTraits<UIImageComponent>
+	{
+		static constexpr std::string_view Name = "UIImage";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
+		static constexpr std::string_view Description =
+			"Fills a UI element's rectangle with a color or a texture, with optionally rounded corners (panels, icons, buttons).";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Color", &UIImageComponent::Color)
+				.Range(0.0, 1.0)
+				.AsColor()
+				.Doc("Multiplied with the texture; a UIButton on the entity replaces it with the color of its state."),
+			Field("Texture", &UIImageComponent::Texture).References("Texture").Doc("None fills the rectangle with the color."),
+			Field("PreserveAspect", &UIImageComponent::PreserveAspect)
+				.Doc("Draws the texture at its own aspect ratio, as large as fits and centered in the rectangle."),
+			Field("CornerRadius", &UIImageComponent::CornerRadius)
+				.Range(0.0, 1.0e6)
+				.Doc("Radius of the rounded corners in canvas units (at most half the rectangle's shorter side)."));
+	};
+
+	template<>
+	struct ComponentTraits<UITextComponent>
+	{
+		static constexpr std::string_view Name = "UIText";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
+		static constexpr std::string_view Description = "Draws text in a UI element's rectangle, wrapped at its width and aligned in it.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Text", &UITextComponent::Text).AsMultilineText(),
+			Field("Font", &UITextComponent::Font).References("Font").Doc("None uses the default font."),
+			Field("Color", &UITextComponent::Color).Range(0.0, 1.0).AsColor(),
+			Field("FontSize", &UITextComponent::FontSize).Range(1.0, 4096.0).Doc("Line height in canvas units."),
+			Field("Alignment", &UITextComponent::Alignment).Doc("Places the lines at the left, center or right of the rectangle."),
+			Field("VerticalAlignment", &UITextComponent::VerticalAlignment)
+				.Doc("Places the text block at the top, middle or bottom of the rectangle."),
+			Field("Wrap", &UITextComponent::Wrap).Doc("Breaks lines that do not fit the rectangle's width at spaces."),
+			Field("LineSpacing", &UITextComponent::LineSpacing).Range(0.0, 100.0).Doc("Multiplier of the font's line height."));
+	};
+
+	template<>
+	struct ComponentTraits<UIButtonComponent>
+	{
+		static constexpr std::string_view Name = "UIButton";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
+		static constexpr std::string_view Description =
+			"Makes a UI element clickable: scripts read WasClicked and get OnClick; its colors replace the UIImage's color in each "
+			"state.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Interactable", &UIButtonComponent::Interactable).Doc("Disabled buttons take no clicks and show DisabledColor."),
+			Field("NormalColor", &UIButtonComponent::NormalColor).Range(0.0, 1.0).AsColor().Doc("The image's color at rest."),
+			Field("HoveredColor", &UIButtonComponent::HoveredColor).Range(0.0, 1.0).AsColor().Doc("The image's color under the mouse."),
+			Field("PressedColor", &UIButtonComponent::PressedColor)
+				.Range(0.0, 1.0)
+				.AsColor()
+				.Doc("The image's color while the mouse button is held on it."),
+			Field("DisabledColor", &UIButtonComponent::DisabledColor)
+				.Range(0.0, 1.0)
+				.AsColor()
+				.Doc("The image's color while the button is not interactable."));
+	};
+
+	template<>
 	struct ComponentTraits<PrefabComponent>
 	{
 		static constexpr std::string_view Name = "Prefab";
@@ -622,6 +888,7 @@ namespace Strada
 		ComponentList<IDComponent, TagComponent, TransformComponent, RelationshipComponent, CameraComponent, MeshComponent,
 	                  DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, RigidBodyComponent,
 	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, JointComponent,
-	                  AudioSourceComponent, AudioListenerComponent, ScriptComponent, TextComponent, SpriteRendererComponent,
-	                  ParticleSystemComponent, PrefabComponent>;
+	                  CharacterControllerComponent, AudioSourceComponent, AudioListenerComponent, ScriptComponent, TextComponent,
+	                  SpriteRendererComponent, ParticleSystemComponent, PostProcessComponent, UICanvasComponent, UIRectComponent,
+	                  UIImageComponent, UITextComponent, UIButtonComponent, PrefabComponent>;
 }

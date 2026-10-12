@@ -3,6 +3,7 @@
 #include "Editor/EditorContext.h"
 #include "Editor/GameInputRouter.h"
 
+#include "Strada/Core/Window.h"
 #include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Renderer/Renderer.h"
@@ -191,6 +192,7 @@ namespace Strada
 		ImVec2 const imageMax(imageMin.x + layout.ImageSize.x, imageMin.y + layout.ImageSize.y);
 		// The whole area is an item, so that ImGui focuses the view with the click that gives the game the input.
 		ImGui::InvisibleButton("##GameImage", ImVec2(available.x, available.y));
+		bool const hovered = ImGui::IsItemHovered();
 		if (rendered)
 		{
 			drawList->AddImage(ImGuiRenderer::GetTextureID(m_Renderer->GetFinalImage()), imageMin, imageMax);
@@ -215,6 +217,12 @@ namespace Strada
 		view.RenderSize = layout.RenderSize;
 		m_Input.SetView(view);
 
+		// A cursor the game hides is hidden over its view alone: the editor's cursors show over the toolbar and every other
+		// panel. (A locked cursor takes the windows instead: UpdateWindowCursors.)
+		if (hovered && m_Input.GetCursorMode() == CursorMode::Hidden)
+		{
+			ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+		}
 		if (m_Input.HasInput())
 		{
 			drawList->AddRect(ImVec2(origin.x + 1.0f, origin.y + 1.0f),
@@ -223,13 +231,33 @@ namespace Strada
 		ImGui::End();
 	}
 
-	GLFWwindow* GameViewPanel::GetPlatformWindow() const
+	void GameViewPanel::UpdateWindowCursors()
 	{
-		if (m_Window == nullptr || m_Window->Viewport == nullptr)
+		bool const locked = m_Input.GetCursorMode() == CursorMode::Locked;
+		if (!locked && !m_WindowCursorsLocked)
 		{
-			return nullptr;
+			return;
 		}
-		return static_cast<GLFWwindow*>(m_Window->Viewport->PlatformHandle);
+		// Applied every frame while locked (modes that did not change cost nothing): the windows of panels dragged out of the
+		// editor come and go, and the game view can move to another window. Unlocking gives every window the normal cursor
+		// back for ImGui to manage again.
+		for (ImGuiViewport const* viewport : ImGui::GetPlatformIO().Viewports)
+		{
+			if (GLFWwindow* const window = static_cast<GLFWwindow*>(viewport->PlatformHandle))
+			{
+				Window::ApplyCursorMode(window, m_Input.GetWindowCursorMode(viewport->ID));
+			}
+		}
+		m_WindowCursorsLocked = locked;
+		ImGuiIO& io = ImGui::GetIO();
+		if (locked)
+		{
+			io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+		}
+		else
+		{
+			io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+		}
 	}
 
 	bool GameViewPanel::IsCoveredAt(glm::vec2 position) const

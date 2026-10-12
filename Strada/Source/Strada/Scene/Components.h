@@ -4,6 +4,7 @@
 #include "Strada/Core/UUID.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Physics/PhysicsTypes.h"
+#include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Renderer/TextLayout.h"
 #include "Strada/Script/ScriptField.h"
 
@@ -213,9 +214,38 @@ namespace Strada
 		float MotorMaxForce = 1000.0f;
 	};
 
+	// Makes the entity a character while the scene runs (the player, walking creatures): an upright capsule that scripts
+	// move, which slides along walls, climbs steps and slopes up to its limits, slides down steeper slopes, falls with
+	// gravity, rides what it stands on and pushes dynamic bodies; the entity's transform follows it (drawn between its last
+	// two physics steps, so it moves smoothly at any frame rate). The capsule is scaled with the entity but does not turn
+	// with it. It replaces the entity's colliders and RigidBody; colliders of child entities are the character's own parts
+	// (a held object, a trigger around it), which neither block it nor touch it.
+	struct CharacterControllerComponent
+	{
+		float Radius = 0.5f;
+		// Of the whole capsule, both rounded ends included; heights below twice the radius make a sphere.
+		float Height = 2.0f;
+		// Center of the capsule relative to the entity's origin.
+		glm::vec3 Offset = {0.0f, 0.0f, 0.0f};
+		// The highest step it climbs, and the deepest drop it walks down without leaving the ground.
+		float StepHeight = 0.3f;
+		// The steepest slope it walks up; it slides down steeper ones.
+		float MaxSlopeAngle = 45.0f;
+		// Kilograms with which it weighs on what it stands on.
+		float Mass = 70.0f;
+		// The largest force with which it pushes dynamic bodies, in newtons.
+		float PushForce = 200.0f;
+		float GravityFactor = 1.0f;
+		// Physics layer index (0-15) as configured in the project settings.
+		uint32_t Layer = 0;
+	};
+
 	struct AudioSourceComponent
 	{
 		AssetHandle Clip;
+		// Reads the clip's file while it plays instead of loading the whole clip first (music, long ambience). Changing it
+		// (like changing the clip) makes a new sound, stopped until played.
+		bool Stream = false;
 		float Volume = 1.0f;
 		float Pitch = 1.0f;
 		bool Loop = false;
@@ -323,6 +353,141 @@ namespace Strada
 		bool WorldSpace = true;
 		// The entity is destroyed once it no longer emits and its last particle died (one-shot effects).
 		bool DestroyWhenFinished = false;
+	};
+
+	// A post-process volume: changes the scene's post-processing (its renderer settings) where the camera is. Each setting
+	// applies only while its Override flag is set; the values default to the scene settings' defaults. Global volumes
+	// apply everywhere. Local volumes apply inside their box, the unit cube placed, rotated and scaled by the entity (so
+	// the entity's scale is the box's size in meters), and fade out over BlendDistance meters around it. Volumes apply in
+	// order of Priority, lowest first (equal priorities in hierarchy order), each scaled by its Weight: numbers move towards
+	// the volume's values by the volume's blend, Bloom fades in or out through the bloom's intensity, and AmbientOcclusion
+	// and Tonemapper take the volume's value once the blend reaches one half.
+	struct PostProcessComponent
+	{
+		bool Global = true;
+		// Meters around a local volume's box over which it fades out.
+		float BlendDistance = 1.0f;
+		// Volumes with higher priorities apply later, over those with lower ones.
+		float Priority = 0.0f;
+		// How much of the volume applies, 0 to 1.
+		float Weight = 1.0f;
+
+		bool OverrideEV100 = false;
+		float EV100 = SceneRendererSettings{}.EV100;
+		bool OverrideTonemapper = false;
+		TonemapOperator Tonemapper = SceneRendererSettings{}.Tonemapper;
+		bool OverrideAmbientOcclusion = false;
+		bool AmbientOcclusion = SceneRendererSettings{}.AmbientOcclusion;
+		bool OverrideAmbientOcclusionIntensity = false;
+		float AmbientOcclusionIntensity = SceneRendererSettings{}.AmbientOcclusionIntensity;
+		bool OverrideBloom = false;
+		bool Bloom = SceneRendererSettings{}.Bloom;
+		bool OverrideBloomIntensity = false;
+		float BloomIntensity = SceneRendererSettings{}.BloomIntensity;
+		bool OverrideContrast = false;
+		float Contrast = SceneRendererSettings{}.Contrast;
+		bool OverrideSaturation = false;
+		float Saturation = SceneRendererSettings{}.Saturation;
+		bool OverrideTemperature = false;
+		float Temperature = SceneRendererSettings{}.Temperature;
+		bool OverrideTint = false;
+		float Tint = SceneRendererSettings{}.Tint;
+		bool OverrideColorFilter = false;
+		glm::vec3 ColorFilter = SceneRendererSettings{}.ColorFilter;
+		bool OverrideChromaticAberration = false;
+		float ChromaticAberration = SceneRendererSettings{}.ChromaticAberration;
+		bool OverrideVignette = false;
+		float Vignette = SceneRendererSettings{}.Vignette;
+		bool OverrideVignetteSmoothness = false;
+		float VignetteSmoothness = SceneRendererSettings{}.VignetteSmoothness;
+		bool OverrideFilmGrain = false;
+		float FilmGrain = SceneRendererSettings{}.FilmGrain;
+	};
+
+	// How a UI canvas's units relate to the screen's pixels.
+	enum class UIScaleMode : uint8_t
+	{
+		// A canvas unit is a pixel: the UI keeps its size in pixels on every screen.
+		ConstantPixelSize = 0,
+		// The canvas is ReferenceResolution.y units high on every screen: the UI grows and shrinks with the screen's height,
+		// and screens narrower than the reference cut off its sides.
+		ScaleWithScreenHeight,
+		// The whole reference resolution fits on every screen: the canvas is ReferenceResolution.y units high on screens wider
+		// than the reference and ReferenceResolution.x units wide on narrower ones, with room to spare along the other side.
+		ScaleWithScreenSize
+	};
+
+	// The root of a screen-space UI (HUDs, menus), drawn over the rendered scene after screen-space sprites and text. The
+	// canvas covers the screen and its descendants are the UI, drawn in hierarchy order: children over their parents, later
+	// siblings over earlier ones. Descendants with a UIRect are laid out in their parent's rectangle, the others take their
+	// parent's rectangle. The Transform of UI entities, and a UIRect on the canvas entity itself, are not used.
+	struct UICanvasComponent
+	{
+		UIScaleMode ScaleMode = UIScaleMode::ScaleWithScreenSize;
+		// The screen size the UI is designed for, in canvas units, which the scale modes fit to the screen.
+		glm::vec2 ReferenceResolution = {1920.0f, 1080.0f};
+	};
+
+	// A rectangle of the screen-space UI, placed in its parent's rectangle (the screen for the canvas's children) in canvas
+	// units, x to the right and y downwards. On each axis the anchors mark a span of the parent (0 is its left or top edge, 1
+	// its right or bottom edge): the rectangle is Size larger than the span, so equal anchors give it exactly Size, and its
+	// pivot sits at the pivot's point of the span, moved by Position.
+	struct UIRectComponent
+	{
+		glm::vec2 AnchorMin = {0.5f, 0.5f};
+		glm::vec2 AnchorMax = {0.5f, 0.5f};
+		glm::vec2 Position = {0.0f, 0.0f};
+		glm::vec2 Size = {200.0f, 60.0f};
+		// The point of the rectangle that Position places, from its top-left corner (0, 0) to its bottom-right corner (1, 1).
+		glm::vec2 Pivot = {0.5f, 0.5f};
+		// Hidden rectangles are neither drawn nor clicked, and neither are their descendants.
+		bool Visible = true;
+		// Multiplies the alpha of the element and of its descendants (fades).
+		float Opacity = 1.0f;
+	};
+
+	// Fills its UI element's rectangle with a color or a texture, optionally with rounded corners. A UIButton on the entity
+	// colors it by its state. Images take the clicks over the UI they cover.
+	struct UIImageComponent
+	{
+		// Linear color with straight alpha, multiplied with the texture.
+		glm::vec4 Color = {1.0f, 1.0f, 1.0f, 1.0f};
+		// Sampled as sRGB color; none fills the rectangle with the color.
+		AssetHandle Texture;
+		// Draws the texture at its own aspect ratio: the largest rectangle of that shape centered in the element's.
+		bool PreserveAspect = false;
+		// In canvas units; at most half the rectangle's shorter side.
+		float CornerRadius = 0.0f;
+	};
+
+	// Text in its UI element's rectangle: lines wrap at the rectangle's width and the text block is aligned in it. An invalid
+	// or unloadable font uses the default font.
+	struct UITextComponent
+	{
+		std::string Text;
+		AssetHandle Font;
+		glm::vec4 Color = {1.0f, 1.0f, 1.0f, 1.0f};
+		// Line height in canvas units.
+		float FontSize = 32.0f;
+		TextAlignment Alignment = TextAlignment::Center;
+		TextVerticalAlignment VerticalAlignment = TextVerticalAlignment::Middle;
+		// Breaks lines that do not fit the rectangle's width at spaces (or inside words longer than a line).
+		bool Wrap = true;
+		float LineSpacing = 1.0f;
+	};
+
+	// Makes its UI element a button while the scene runs: the mouse hovers and presses it, and a click (the left button
+	// pressed and released over it) sets WasClicked for the frame and calls OnClick on the scripts of the button and of its
+	// ancestors. Its colors replace the UIImage's color in each state.
+	struct UIButtonComponent
+	{
+		// A disabled button takes no clicks (and still covers the UI below it).
+		bool Interactable = true;
+		// Linear colors with straight alpha.
+		glm::vec4 NormalColor = {0.022f, 0.1473f, 0.7106f, 1.0f};
+		glm::vec4 HoveredColor = {0.055f, 0.2429f, 0.9331f, 1.0f};
+		glm::vec4 PressedColor = {0.01f, 0.0732f, 0.3931f, 1.0f};
+		glm::vec4 DisabledColor = {0.1065f, 0.1193f, 0.1473f, 0.6f};
 	};
 
 	// Links an entity to the prefab it was instantiated from.

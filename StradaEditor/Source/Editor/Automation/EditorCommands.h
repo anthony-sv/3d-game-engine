@@ -14,6 +14,7 @@ namespace Strada
 	class ContentBrowserPanel;
 	class EditorCamera;
 	struct SceneRendererStatistics;
+	struct SceneViewOverlays;
 
 	// What the automation commands need from the running editor besides the document state.
 	struct EditorCommandEnvironment
@@ -30,6 +31,9 @@ namespace Strada
 		// The camera of the editor's viewport. Unset when the editor has no viewport (headless); viewport.camera and
 		// viewport.frame then fail with AutomationErrorCode::Unavailable.
 		std::function<EditorCamera&()> ViewportCamera;
+		// What the viewport draws over the scene. Unset when the editor has no viewport (headless); viewport.overlays then
+		// fails with AutomationErrorCode::Unavailable.
+		std::function<SceneViewOverlays&()> ViewportOverlays;
 		// The statistics of the last frame the viewport rendered, null when it has no renderer (no GPU). Unset when the
 		// editor has no viewport (headless). viewport.statistics fails with AutomationErrorCode::Unavailable in both cases.
 		std::function<SceneRendererStatistics const*()> ViewportStatistics;

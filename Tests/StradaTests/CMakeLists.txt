@@ -40,6 +40,8 @@ add_executable(StradaTests
     Source/Math/AABBTests.cpp
     Source/Math/FrustumTests.cpp
     Source/Math/MathTests.cpp
+    Source/Physics/MeshColliderOutlineTests.cpp
+    Source/Physics/PhysicsCharacterTests.cpp
     Source/Physics/PhysicsJointTests.cpp
     Source/Physics/PhysicsSceneTests.cpp
     Source/Physics/PhysicsTestUtilities.h
@@ -64,17 +66,22 @@ add_executable(StradaTests
     Source/Renderer/SpriteTextRenderingTests.cpp
     Source/Renderer/TextLayoutTests.cpp
     Source/Renderer/TextureBlitterTests.cpp
+    Source/Renderer/UIRenderingTests.cpp
     Source/Scene/ComponentRegistryTests.cpp
     Source/Scene/ParticleEmitterTests.cpp
+    Source/Scene/PostProcessVolumeTests.cpp
     Source/Scene/SceneAudioTests.cpp
     Source/Scene/SceneCameraTests.cpp
     Source/Scene/SceneFuzzTests.cpp
     Source/Scene/SceneRuntimeTests.cpp
     Source/Scene/SceneScriptingApiTests.cpp
+    Source/Scene/SceneScriptingGuideTests.cpp
     Source/Scene/SceneScriptingHostTests.cpp
     Source/Scene/SceneScriptingTests.cpp
     Source/Scene/SceneSerializerTests.cpp
     Source/Scene/SceneTests.cpp
+    Source/Scene/SceneUITests.cpp
+    Source/Scene/UILayoutTests.cpp
     Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp
     Source/Script/ScriptTestUtilities.h
@@ -99,7 +106,10 @@ target_compile_definitions(StradaTests PRIVATE
     # Golden images and other test data.
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data"
     # The feature-test project, whose scenes must use every component.
-    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest")
+    STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
+    # The scripting guide and the test scripts that are its examples, which the scripting tests compare and run.
+    STRADA_SCRIPTING_GUIDE_PATH="${PROJECT_SOURCE_DIR}/Docs/Scripting.md"
+    STRADA_GUIDE_EXAMPLES_PATH="${PROJECT_SOURCE_DIR}/Tests/TestScripts/Source/GuideExamples.cs")
 
 strada_configure_target(StradaTests)
 

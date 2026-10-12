@@ -169,7 +169,7 @@ namespace Strada
 			        {
 						std::snprintf(text, size, "%u", statistics.ShadowsDropped);
 					});
-			ViewRow("Sprite and text quads", sceneView, gameView,
+			ViewRow("Sprite, text and UI quads", sceneView, gameView,
 			        [](SceneRendererStatistics const& statistics, char* text, size_t size)
 			        {
 						std::snprintf(text, size, "%u", statistics.Quads);

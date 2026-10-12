@@ -22,7 +22,7 @@ namespace Strada
 	// simulated), masses within [MinPhysicsMass, MaxPhysicsMass] kilograms, forces, torques and impulses at most
 	// MaxPhysicsForce, gravity at most MaxPhysicsGravity meters per second squared and gravity factors within
 	// ±MaxPhysicsGravityFactor; larger values are clamped. A single step's change of velocity then stays finite, as Jolt
-	// requires, and velocities keep within Jolt's limits (500 m/s, 47 rad/s).
+	// requires, and velocities keep within Jolt's limits (500 m/s, 47 rad/s). Characters move at most MaxCharacterSpeed.
 	inline constexpr float MaxPhysicsCoordinate = 1.0e7f;
 	inline constexpr float MaxPhysicsExtent = 1.0e6f;
 	inline constexpr float MinPhysicsMass = 1.0e-4f;
@@ -30,6 +30,7 @@ namespace Strada
 	inline constexpr float MaxPhysicsForce = 1.0e9f;
 	inline constexpr float MaxPhysicsGravity = 1.0e6f;
 	inline constexpr float MaxPhysicsGravityFactor = 1.0e3f;
+	inline constexpr float MaxCharacterSpeed = 500.0f;
 
 	enum class RigidBodyType : uint8_t
 	{
@@ -157,6 +158,52 @@ namespace Strada
 		bool AllowSleep = true;
 		glm::vec3 LinearVelocity = glm::vec3(0.0f);
 		glm::vec3 AngularVelocity = glm::vec3(0.0f);
+	};
+
+	// A character a game moves (the player, a walking creature): an upright capsule that walks at the velocity it is given,
+	// slides along walls, climbs steps and slopes up to its limits, slides down steeper slopes, falls with gravity, is
+	// carried by what it stands on (moving platforms and elevators) and pushes dynamic bodies (Jolt's CharacterVirtual). A
+	// kinematic body in its place gives it presence in the world: raycasts hit it, dynamic bodies bump into it, and triggers
+	// and bodies report contacts with it like with a kinematic body. Trigger colliders never block it, and neither do the
+	// bodies of the entities it ignores (PhysicsScene::SetCharacterIgnoredEntities: its own parts).
+	struct CharacterDesc
+	{
+		UUID Entity = UUID::Invalid();
+		// World position of the capsule's center.
+		glm::vec3 Position = glm::vec3(0.0f);
+		float Radius = 0.5f;
+		// Of the whole capsule, both rounded ends included; heights below 2 * Radius make a sphere.
+		float Height = 2.0f;
+		// The highest step it climbs, and the deepest drop it walks down without leaving the ground, in meters.
+		float StepHeight = 0.3f;
+		// The steepest slope it walks up, in radians (45 degrees; kept within 1 and 90 degrees).
+		float MaxSlopeAngle = 0.7853982f;
+		// Kilograms with which it weighs on what it stands on.
+		float Mass = 70.0f;
+		// The largest force with which it pushes dynamic bodies, in newtons.
+		float PushForce = 200.0f;
+		// Multiplier of the world's gravity.
+		float GravityFactor = 1.0f;
+		uint32_t Layer = 0;
+	};
+
+	// What a character did in the last step.
+	struct CharacterState
+	{
+		UUID Entity = UUID::Invalid();
+		// World position of the capsule's center.
+		glm::vec3 Position = glm::vec3(0.0f);
+		// Its own velocity (falling, jumping, launched), without the walking velocity it was given.
+		glm::vec3 Velocity = glm::vec3(0.0f);
+		// Standing on ground it can walk on.
+		bool IsGrounded = false;
+		// The normal of the ground under it, walkable or too steep; zero when nothing is under it.
+		glm::vec3 GroundNormal = glm::vec3(0.0f);
+		// What it stands on; invalid when nothing is under it.
+		UUID GroundEntity = UUID::Invalid();
+		// How far what it stands on moved during the last step where the character stands (the ground's velocity there
+		// times the step); zero when it is not on the ground. A moving platform carries it that far.
+		glm::vec3 GroundDisplacement = glm::vec3(0.0f);
 	};
 
 	struct RaycastHit

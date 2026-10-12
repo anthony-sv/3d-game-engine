@@ -36,7 +36,8 @@ namespace Strada
 			CollisionEnter = 4,
 			CollisionExit = 5,
 			TriggerEnter = 6,
-			TriggerExit = 7
+			TriggerExit = 7,
+			Click = 8
 		};
 
 		// The [UnmanagedCallersOnly] entry points of Strada.Interop.Host.
@@ -528,5 +529,10 @@ namespace Strada
 				break;
 		}
 		Invoke(entity, scriptEvent, 0.0f, other);
+	}
+
+	void ScriptEngine::InvokeOnClick(UUID entity, UUID button)
+	{
+		Invoke(entity, ScriptEvent::Click, 0.0f, button);
 	}
 }

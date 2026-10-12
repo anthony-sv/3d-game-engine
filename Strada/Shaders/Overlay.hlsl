@@ -1,6 +1,6 @@
-// Editor overlays drawn after tonemapping onto 8-bit sRGB-encoded targets: debug lines and the ground grid (the selection
-// outline is in Outline.hlsl). Colors are sRGB-encoded with straight alpha (blended with SrcAlpha / InvSrcAlpha).
-// Set 0: the overlay camera (b0), the scene depth (t0, grid) and push constants (b1, grid).
+// The editor's ground grid, drawn after tonemapping onto 8-bit sRGB-encoded targets (debug lines are in OverlayLines.hlsl,
+// the selection outline in Outline.hlsl). Colors are sRGB-encoded with straight alpha (blended with SrcAlpha /
+// InvSrcAlpha). Set 0: the overlay camera (b0), the scene depth (t0) and the grid constants (b1, push constants).
 
 #include "Include/RendererInterop.h"
 
@@ -12,35 +12,6 @@ struct FullscreenVertexOutput
 	float4 Position : SV_Position;
 	float2 TexCoord : TEXCOORD0;
 };
-
-// ------------------------------------------------------------------------------------------------------------- Lines
-
-struct LineVertexInput
-{
-	[[vk::location(0)]] float3 Position : POSITION;
-	[[vk::location(1)]] float4 Color : COLOR;
-};
-
-struct LineVertexOutput
-{
-	float4 Position : SV_Position;
-	float4 Color : COLOR;
-};
-
-LineVertexOutput VSLine(LineVertexInput input)
-{
-	LineVertexOutput output;
-	output.Position = mul(g_Overlay.ViewProjection, float4(input.Position, 1.0));
-	output.Color = input.Color;
-	return output;
-}
-
-float4 PSLine(LineVertexOutput input) : SV_Target0
-{
-	return input.Color;
-}
-
-// -------------------------------------------------------------------------------------------------------------- Grid
 
 Texture2D<float> g_SceneDepth : register(t0, space0);
 [[vk::push_constant]] ConstantBuffer<GridConstants> g_Grid : register(b1, space0);

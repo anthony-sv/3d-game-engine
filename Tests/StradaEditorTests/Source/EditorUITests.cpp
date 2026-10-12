@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -137,6 +138,7 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 {
 	EditorContext context;
 	EditorOperations operations(context);
+	// Labels are unique across the menus ("3D Text" in 3D Object, "Text" in UI).
 	std::set<std::string_view> labels;
 	glm::vec3 const spawn(1.0f, 2.0f, 3.0f);
 	for (EntityPreset const& preset : EntityPresets::GetAll())
@@ -147,7 +149,15 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 		REQUIRE(created.IsOk());
 		Entity const entity = context.GetScene().GetEntityByUUID(created.GetValue());
 		CHECK(entity.GetName() == preset.EntityName);
-		CHECK(entity.GetComponent<TransformComponent>().Translation == spawn);
+		if (preset.NeedsCanvas)
+		{
+			// UI elements go into the scene's canvas (the Canvas preset comes first).
+			CHECK(context.GetScene().GetParent(entity).HasComponent<UICanvasComponent>());
+		}
+		else
+		{
+			CHECK(entity.GetComponent<TransformComponent>().Translation == spawn);
+		}
 	}
 	// Categories are contiguous, so menus group them.
 	std::span<EntityPreset const> const presets = EntityPresets::GetAll();
@@ -176,6 +186,15 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 	Entity const cubeEntity = context.GetScene().GetEntityByUUID(cube.GetValue());
 	CHECK(cubeEntity.GetComponent<MeshComponent>().Mesh == GetBuiltInHandle(BuiltInAsset::CubeMesh));
 
+	// A character draws the capsule mesh its controller's default capsule matches.
+	Result<UUID> const character = EntityPresets::Create(operations, find("Character"), UUID::Invalid(), spawn);
+	REQUIRE(character.IsOk());
+	Entity const characterEntity = context.GetScene().GetEntityByUUID(character.GetValue());
+	CHECK(characterEntity.GetComponent<MeshComponent>().Mesh == GetBuiltInHandle(BuiltInAsset::CapsuleMesh));
+	CharacterControllerComponent const& controller = characterEntity.GetComponent<CharacterControllerComponent>();
+	CHECK(controller.Radius == 0.5f);
+	CHECK(controller.Height == 2.0f);
+
 	// Children start at their parent's origin; lights pointing down keep their rotation.
 	Result<UUID> const spot = EntityPresets::Create(operations, find("Spot Light"), cube.GetValue(), spawn);
 	REQUIRE(spot.IsOk());
@@ -184,6 +203,74 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 	CHECK(spotEntity.GetComponent<TransformComponent>().Translation == glm::vec3(0.0f));
 	glm::vec3 const forward = spotEntity.GetComponent<TransformComponent>().Rotation * glm::vec3(0.0f, 0.0f, -1.0f);
 	CHECK(forward.y == doctest::Approx(-1.0f).epsilon(1e-4));
+
+	// Post-process volumes start global, with a 10 m box for when they are made local.
+	Result<UUID> const volume = EntityPresets::Create(operations, find("Post Process Volume"), UUID::Invalid(), spawn);
+	REQUIRE(volume.IsOk());
+	Entity const volumeEntity = context.GetScene().GetEntityByUUID(volume.GetValue());
+	REQUIRE(volumeEntity.HasComponent<PostProcessComponent>());
+	CHECK(volumeEntity.GetComponent<PostProcessComponent>().Global);
+	CHECK(volumeEntity.GetComponent<TransformComponent>().Scale == glm::vec3(10.0f));
+}
+
+TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Rendering, Effects, Physics, Audio and UI")
+{
+	using Labels = std::vector<std::string_view>;
+	std::span<std::string_view const> const categories = EntityPresets::GetCategories();
+	CHECK(std::vector<std::string_view>(categories.begin(), categories.end()) ==
+	      Labels{"Core", "3D Object", "2D Object", "Rendering", "Effects", "Physics", "Audio", "UI"});
+
+	std::vector<EntityPresetMenuSection> const menu = EntityPresets::GetMenu();
+	REQUIRE(menu.size() == categories.size());
+	auto const labels = [](EntityPresetMenuSection const& section)
+	{
+		Labels result;
+		for (EntityPreset const* preset : section.Presets)
+		{
+			result.push_back(preset->Label);
+		}
+		return result;
+	};
+	// Core comes first, directly in the menu; every other category is a submenu.
+	CHECK(menu[0].Category == EntityPresets::CoreCategory);
+	CHECK_FALSE(menu[0].Submenu);
+	CHECK(labels(menu[0]) == Labels{"Create Empty"});
+	CHECK(labels(menu[1]) == Labels{"Cube", "Sphere", "Plane", "Cylinder", "Capsule", "Cone", "Quad", "3D Text"});
+	CHECK(labels(menu[2]) == Labels{"Sprite"});
+	CHECK(labels(menu[3]) == Labels{"Camera", "Directional Light", "Point Light", "Spot Light", "Sky Light"});
+	CHECK(labels(menu[4]) == Labels{"Particle System", "Fire", "Smoke", "Sparks", "Post Process Volume"});
+	CHECK(labels(menu[5]) == Labels{"Character"});
+	CHECK(labels(menu[6]) == Labels{"Audio Source", "Audio Listener"});
+	CHECK(labels(menu[7]) == Labels{"Canvas", "Panel", "Image", "Text", "Button"});
+	// Every preset is in the menus once, in the section of its category.
+	size_t count = 0;
+	for (size_t i = 0; i < menu.size(); i++)
+	{
+		CAPTURE(menu[i].Category);
+		CHECK(menu[i].Category == categories[i]);
+		CHECK(menu[i].Submenu == (i != 0));
+		for (EntityPreset const* preset : menu[i].Presets)
+		{
+			CHECK(preset->Category == menu[i].Category);
+		}
+		count += menu[i].Presets.size();
+	}
+	CHECK(count == EntityPresets::GetAll().size());
+
+	// What the new entries create.
+	EditorContext context;
+	EditorOperations operations(context);
+	Result<UUID> const empty = EntityPresets::Create(operations, *menu[0].Presets[0], UUID::Invalid(), glm::vec3(0.0f));
+	REQUIRE(empty.IsOk());
+	Entity const emptyEntity = context.GetScene().GetEntityByUUID(empty.GetValue());
+	CHECK(emptyEntity.GetName() == "Entity");
+	CHECK_FALSE(emptyEntity.HasComponent<MeshComponent>());
+	Result<UUID> const listener = EntityPresets::Create(operations, *menu[6].Presets[1], UUID::Invalid(), glm::vec3(0.0f));
+	REQUIRE(listener.IsOk());
+	Entity const listenerEntity = context.GetScene().GetEntityByUUID(listener.GetValue());
+	CHECK(listenerEntity.GetName() == "Audio Listener");
+	CHECK(listenerEntity.HasComponent<AudioListenerComponent>());
+	CHECK(listenerEntity.GetComponent<AudioListenerComponent>().Active);
 }
 
 TEST_CASE("HierarchyEditing: drops resolve to a parent and an anchor, never into an own subtree")
@@ -285,26 +372,62 @@ TEST_CASE("ComponentInspection: the Add Component menu groups components by cate
 	std::vector<ComponentInfo const*> const addable = ComponentInspection::GetAddableComponents(context.GetScene(), selection);
 
 	// Categories in menu order without the empty Core one (nothing core can be added), components by display name; every
-	// addable component is listed exactly once.
+	// addable component is listed exactly once. The expected groups come from the registry, so components added later only
+	// need their category.
 	std::vector<ComponentInspection::ComponentGroup> const groups = ComponentInspection::GroupByCategory(addable);
-	std::vector<std::string_view> categories;
-	size_t listed = 0;
-	for (ComponentInspection::ComponentGroup const& group : groups)
+	std::vector<std::pair<std::string_view, std::vector<std::string>>> expected;
+	for (std::string_view const category : ComponentCategory::All)
 	{
-		categories.push_back(group.Category);
-		listed += group.Components.size();
-		for (ComponentInfo const* component : group.Components)
+		std::vector<std::string> names;
+		for (ComponentInfo const* component : addable)
 		{
-			CHECK(component->Category == group.Category);
+			if (component->Category == category)
+			{
+				names.push_back(UI::FormatDisplayName(component->Name));
+			}
+		}
+		std::sort(names.begin(), names.end());
+		if (!names.empty())
+		{
+			expected.emplace_back(category, std::move(names));
 		}
 	}
-	CHECK(categories == std::vector<std::string_view>{"Rendering", "Physics", "Audio", "Scripting", "UI"});
-	CHECK(listed == addable.size());
-	CHECK(Names(groups[0].Components) ==
-	      std::vector<std::string_view>{"Camera", "DirectionalLight", "Mesh", "ParticleSystem", "SkyLight", "SpotLight"});
-	CHECK(Names(groups[1].Components) ==
-	      std::vector<std::string_view>{"BoxCollider", "CapsuleCollider", "Joint", "MeshCollider", "RigidBody", "SphereCollider"});
-	CHECK(Names(groups[4].Components) == std::vector<std::string_view>{"SpriteRenderer", "Text"});
+	REQUIRE(groups.size() == expected.size());
+	for (size_t i = 0; i < groups.size(); i++)
+	{
+		CAPTURE(groups[i].Category);
+		CHECK(groups[i].Category == expected[i].first);
+		std::vector<std::string> names;
+		for (ComponentInfo const* component : groups[i].Components)
+		{
+			names.push_back(UI::FormatDisplayName(component->Name));
+		}
+		CHECK(names == expected[i].second);
+	}
+	REQUIRE_FALSE(groups.empty());
+	CHECK(groups.front().Category == ComponentCategory::Rendering);
+	auto const findGroup = [&groups](std::string_view category) -> std::vector<std::string_view>
+	{
+		for (ComponentInspection::ComponentGroup const& group : groups)
+		{
+			if (group.Category == category)
+			{
+				return Names(group.Components);
+			}
+		}
+		return {};
+	};
+	auto const contains = [](std::vector<std::string_view> const& names, std::string_view name)
+	{
+		return std::find(names.begin(), names.end(), name) != names.end();
+	};
+	// The lamp has its point light already; the others are where users look for them.
+	CHECK_FALSE(contains(findGroup(ComponentCategory::Rendering), "PointLight"));
+	CHECK(contains(findGroup(ComponentCategory::Rendering), "Mesh"));
+	CHECK(contains(findGroup(ComponentCategory::Rendering), "Text"));
+	CHECK(contains(findGroup(ComponentCategory::Physics), "BoxCollider"));
+	CHECK(contains(findGroup(ComponentCategory::Scripting), "Script"));
+	CHECK(contains(findGroup(ComponentCategory::UI), "UIButton"));
 	CHECK(ComponentInspection::GroupByCategory({}).empty());
 
 	// Names starting with the text come first, then names with a word starting with it, then the others; case, spaces

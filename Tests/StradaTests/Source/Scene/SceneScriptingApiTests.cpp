@@ -66,7 +66,7 @@ TEST_CASE("Scene: scripts read and write every component field")
 
 	scene.OnRuntimeStart();
 	CHECK_FALSE(Testing::WasLogged(logStart, "Mismatch"));
-	CHECK(writer.GetName() == "Checked 87");
+	CHECK(writer.GetName() == "Checked 134");
 
 	CameraComponent const& camera = writer.GetComponent<CameraComponent>();
 	CHECK(camera.Projection == ProjectionType::Orthographic);
@@ -153,8 +153,20 @@ TEST_CASE("Scene: scripts read and write every component field")
 	CHECK(meshCollider.Friction == 0.4f);
 	CHECK(meshCollider.Restitution == 0.6f);
 
+	CharacterControllerComponent const& character = writer.GetComponent<CharacterControllerComponent>();
+	CHECK(character.Radius == 0.4f);
+	CHECK(character.Height == 1.8f);
+	CHECK(character.Offset == glm::vec3(0.0f, 0.9f, 0.0f));
+	CHECK(character.StepHeight == 0.5f);
+	CHECK(character.MaxSlopeAngle == 50.0f);
+	CHECK(character.Mass == 80.0f);
+	CHECK(character.PushForce == 300.0f);
+	CHECK(character.GravityFactor == 2.0f);
+	CHECK(character.Layer == 3);
+
 	AudioSourceComponent const& audio = writer.GetComponent<AudioSourceComponent>();
 	CHECK_FALSE(audio.Clip.IsValid());
+	CHECK(audio.Stream);
 	CHECK(audio.Volume == 0.5f);
 	CHECK(audio.Pitch == 1.5f);
 	CHECK(audio.Loop);
@@ -179,6 +191,42 @@ TEST_CASE("Scene: scripts read and write every component field")
 	CHECK_FALSE(sprite.Texture.IsValid());
 	CHECK(sprite.Tiling == 4.0f);
 	CHECK(sprite.ScreenSpace);
+
+	PostProcessComponent const& volume = writer.GetComponent<PostProcessComponent>();
+	CHECK_FALSE(volume.Global);
+	CHECK(volume.BlendDistance == 4.0f);
+	CHECK(volume.Priority == -2.0f);
+	CHECK(volume.Weight == 0.25f);
+	CHECK(volume.OverrideEV100);
+	CHECK(volume.EV100 == 1.5f);
+	CHECK(volume.OverrideTonemapper);
+	CHECK(volume.Tonemapper == TonemapOperator::PBRNeutral);
+	CHECK(volume.OverrideAmbientOcclusion);
+	CHECK_FALSE(volume.AmbientOcclusion);
+	CHECK(volume.OverrideAmbientOcclusionIntensity);
+	CHECK(volume.AmbientOcclusionIntensity == 3.0f);
+	CHECK(volume.OverrideBloom);
+	CHECK_FALSE(volume.Bloom);
+	CHECK(volume.OverrideBloomIntensity);
+	CHECK(volume.BloomIntensity == 0.5f);
+	CHECK(volume.OverrideContrast);
+	CHECK(volume.Contrast == 1.25f);
+	CHECK(volume.OverrideSaturation);
+	CHECK(volume.Saturation == 0.5f);
+	CHECK(volume.OverrideTemperature);
+	CHECK(volume.Temperature == 0.75f);
+	CHECK(volume.OverrideTint);
+	CHECK(volume.Tint == -0.5f);
+	CHECK(volume.OverrideColorFilter);
+	CHECK(volume.ColorFilter == glm::vec3(0.5f, 1.0f, 1.5f));
+	CHECK(volume.OverrideChromaticAberration);
+	CHECK(volume.ChromaticAberration == 0.25f);
+	CHECK(volume.OverrideVignette);
+	CHECK(volume.Vignette == 0.75f);
+	CHECK(volume.OverrideVignetteSmoothness);
+	CHECK(volume.VignetteSmoothness == 0.125f);
+	CHECK(volume.OverrideFilmGrain);
+	CHECK(volume.FilmGrain == 0.375f);
 	scene.OnRuntimeStop();
 }
 
@@ -250,6 +298,113 @@ TEST_CASE("Scene: scripts drive physics bodies, raycasts and gravity")
 	// The teleport reaches the body before the next step; the upward velocity survives it.
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
 	CHECK(probe.GetComponent<TransformComponent>().Translation.y > 4.0f);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: scripts walk, jump and teleport characters")
+{
+	Testing::PhysicsSystemScope physics;
+	Testing::ScriptEngineScope scripting;
+	InputScope input;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Characters");
+	Entity ground = scene.CreateEntity("Ground");
+	ground.GetComponent<TransformComponent>().Translation = {0.0f, -0.5f, 0.0f};
+	ground.AddComponent<BoxColliderComponent>().HalfExtents = {20.0f, 0.5f, 20.0f};
+	Entity probe = AddScript(scene, "Probe", "Strada.Tests.CharacterProbe", {{"Home", ScriptFieldValue::FromVector3({-3.0f, 4.0f, 2.0f})}});
+	probe.GetComponent<TransformComponent>().Translation = {0.0f, 1.0f, 0.0f};
+	probe.AddComponent<CharacterControllerComponent>();
+	TransformComponent const& transform = probe.GetComponent<TransformComponent>();
+	auto const run = [&scene](int frames)
+	{
+		for (int frame = 0; frame < frames; frame++)
+		{
+			scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+			Input::EndFrame();
+		}
+	};
+
+	scene.OnRuntimeStart();
+	CHECK(Testing::WasLogged(logStart, "CharacterControllerComponent.Move: the value is not a finite number"));
+	// Standing on the ground from the start (the 2 m capsule's center is 1 m up).
+	CHECK(probe.GetName() == "Grounded=True;Normal=(0, 1, 0);Rising=False");
+
+	// Walking along +X at 2 m/s for half a second.
+	Input::SetKeyState(KeyCode::D, true);
+	run(30);
+	Input::SetKeyState(KeyCode::D, false);
+	CHECK(transform.Translation.x == doctest::Approx(1.0f).epsilon(0.05));
+	CHECK(transform.Translation.y == doctest::Approx(1.0f).epsilon(0.01));
+	CHECK(probe.GetName() == "Grounded=True;Normal=(0, 1, 0);Rising=False");
+
+	// Jumping: it leaves the ground, rises, and lands again.
+	Input::SetKeyState(KeyCode::Space, true);
+	run(1);
+	Input::SetKeyState(KeyCode::Space, false);
+	run(10);
+	CHECK(transform.Translation.y > 1.4f);
+	CHECK(probe.GetName() == "Grounded=False;Normal=(0, 0, 0);Rising=True");
+	run(90);
+	CHECK(probe.GetName() == "Grounded=True;Normal=(0, 1, 0);Rising=False");
+	CHECK(transform.Translation.y == doctest::Approx(1.0f).epsilon(0.01));
+
+	// Teleporting places the entity at once and stops the character: it falls from there.
+	Input::SetKeyState(KeyCode::T, true);
+	run(1);
+	Input::SetKeyState(KeyCode::T, false);
+	CHECK(transform.Translation.x == doctest::Approx(-3.0f).epsilon(1e-4));
+	CHECK(transform.Translation.y == doctest::Approx(4.0f).epsilon(0.01));
+	CHECK(transform.Translation.z == doctest::Approx(2.0f).epsilon(1e-4));
+	CHECK(probe.GetName() == "Grounded=False;Normal=(0, 0, 0);Rising=False");
+	run(90);
+	CHECK(transform.Translation.y == doctest::Approx(1.0f).epsilon(0.01));
+
+	// Made taller than the physics world allows, it is not simulated: moving it is logged, and it reads as at rest.
+	auto const setHeight = [&scene, &probe](float height)
+	{
+		scene.GetRegistry().patch<CharacterControllerComponent>(probe.GetHandle(),
+		                                                        [height](CharacterControllerComponent& component)
+		                                                        {
+																	component.Height = height;
+																});
+	};
+	uint64_t const refusedStart = Log::GetNextEntryIndex();
+	setHeight(2.0e6f);
+	Input::SetKeyState(KeyCode::D, true);
+	run(1);
+	Input::SetKeyState(KeyCode::D, false);
+	CHECK(Testing::WasLogged(refusedStart, "the character is larger than the physics world allows"));
+	CHECK(Testing::WasLogged(refusedStart, "CharacterControllerComponent.Move: entity"));
+	CHECK(Testing::WasLogged(refusedStart, "has no character (the scene is not simulating it)"));
+	CHECK(probe.GetName() == "Grounded=False;Normal=(0, 0, 0);Rising=False");
+	// Back to a height it can simulate, it stands where it was left.
+	setHeight(2.0f);
+	run(1);
+	CHECK(scene.GetPhysicsScene()->HasCharacter(probe.GetUUID()));
+	CHECK(probe.GetName() == "Grounded=True;Normal=(0, 1, 0);Rising=False");
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: character calls without a simulated character are logged and harmless")
+{
+	// No physics system: the scene runs without characters.
+	Testing::ScriptEngineScope scripting;
+	InputScope input;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("No Physics");
+	Entity probe = AddScript(scene, "Probe", "Strada.Tests.CharacterProbe", {{"Home", ScriptFieldValue::FromVector3({1.0f, 2.0f, 3.0f})}});
+	probe.AddComponent<CharacterControllerComponent>();
+
+	scene.OnRuntimeStart();
+	CHECK(probe.GetName() == "Grounded=False;Normal=(0, 0, 0);Rising=False");
+	Input::SetKeyState(KeyCode::D, true);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(Testing::WasLogged(logStart, "CharacterControllerComponent.Move: entity"));
+	CHECK(Testing::WasLogged(logStart, "has no character (the scene is not simulating it)"));
+	// Teleporting still places the entity.
+	Input::SetKeyState(KeyCode::T, true);
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(probe.GetComponent<TransformComponent>().Translation == glm::vec3(1.0f, 2.0f, 3.0f));
 	scene.OnRuntimeStop();
 }
 

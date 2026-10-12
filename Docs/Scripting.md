@@ -24,7 +24,8 @@ public class Spinner : Script
 
 	protected override void OnUpdate(float deltaTime)
 	{
-		Transform.EulerAngles += new Vector3(0.0f, Speed * deltaTime, 0.0f);
+		// A little more of a turn around the up axis each frame.
+		Transform.Rotation = Quaternion.AngleAxis(Speed * deltaTime, Vector3.Up) * Transform.Rotation;
 	}
 }
 ```
@@ -46,6 +47,7 @@ Override the methods you need:
 | `OnFixedUpdate(float fixedDeltaTime)` | Before every physics step, at the scene's fixed rate |
 | `OnCollisionEnter(Entity other)`, `OnCollisionExit(Entity other)` | When a collider of the entity starts or stops touching one of `other` |
 | `OnTriggerEnter(Entity other)`, `OnTriggerExit(Entity other)` | When a trigger collider of either entity starts or stops overlapping the other |
+| `OnClick(Entity button)` | When a UI button that is the entity or one of its descendants was clicked, before the frame's `OnUpdate` |
 | `OnDestroy()` | When the entity is destroyed or the scene stops |
 
 Because every script exists before the first `OnCreate`, scripts can look each other up there. Exceptions thrown by
@@ -102,7 +104,10 @@ script alone and start with their initial values.
 
 A script is the entity it is attached to: `Name`, `Translation`, `Rotation` and `Scale` (local, relative to the
 parent), `Transform` (with `WorldTranslation`, `Forward`, `Right`, `Up` and `EulerAngles` in degrees), `Parent` and
-`Children` are right there. Components are views of the entity's data: `GetComponent<T>()` returns null when the entity
+`Children` are right there. Turn entities by multiplying rotations (`Quaternion.AngleAxis(degrees, axis) * Rotation`),
+or keep angles of your own and set them whole: the Euler angles read back from a rotation are one of several sets of
+angles for it (the Y angle comes back within ±90°), so adding to them does not turn an entity all the way around.
+Components are views of the entity's data: `GetComponent<T>()` returns null when the entity
 has none, and every property reads or writes the component itself, so there is nothing to copy back.
 
 ```csharp
@@ -175,8 +180,10 @@ public class Mover : Script
 In the editor the game has the keyboard and mouse from the moment Play starts: every key and click on the Game View
 goes to the game alone, Escape and Enter included, except Shift+Esc, which gives the input back to the editor, and the
 play shortcuts (Ctrl+P, Ctrl+Shift+P, Ctrl+Alt+P). A click elsewhere in the editor gives the input back too, and a click
-on the view returns it to the game. `Application.WindowWidth` and `WindowHeight` are the size the game
-view renders at, which its resolution menu chooses.
+on the view returns it to the game. `CursorMode` applies while the game has the input: a hidden cursor is hidden over
+the Game View only, a locked one is locked until the input goes back to the editor. Gamepads reach the game whoever has
+the keyboard and mouse. `Application.WindowWidth` and `WindowHeight` are the size the game view renders at, which its
+resolution menu chooses.
 
 ## Physics
 
@@ -251,6 +258,93 @@ public class Windmill : Script
 }
 ```
 
+### Characters
+
+Players and walking creatures use a `CharacterControllerComponent` (Entity > Physics > Character makes one with a
+capsule mesh) instead of a rigid body and colliders: an upright capsule (`Radius`, `Height`, its center at `Offset` from
+the entity) that your script moves. `Move(velocity)` walks it at a velocity during the next physics step, so call it
+from `OnFixedUpdate` every step it should move; it slides along walls, climbs steps up to `StepHeight` and slopes up to
+`MaxSlopeAngle`, slides down steeper ones, rides moving platforms and elevators, and pushes dynamic bodies with up to
+`PushForce` newtons. Gravity acts on top of it: `IsGrounded` tells whether it stands on walkable ground (`GroundNormal`
+is the ground's normal), and `Velocity` is its own velocity (falling, jumping), which you set to jump.
+`Teleport(position)` places it and stops it. The entity follows the capsule, which does not turn with it, so the script
+turns the entity freely. Triggers notice characters (`OnTriggerEnter` on both sides), and raycasts hit them. Colliders
+of the entities below a character are its own parts (a held object, a trigger around it for its reach): they neither
+block it nor report touching it.
+
+The capsule's round bottom rolls over the edges of steps and ledges, which are too steep to stand on, so walking down
+stairs or off a ledge `IsGrounded` is false for a physics step or two at each edge. Give jumps a little grace, as the
+controller below does: a jump pressed just before landing still happens (a jump buffer), and so does one pressed just
+after the character left the ground (coyote time).
+
+A first-person controller: the character entity has a child, `Head`, with the camera at eye height. It keeps the yaw and
+pitch itself and sets the rotations whole.
+
+```csharp
+public class FirstPersonController : Script
+{
+	public float Speed = 5.0f;
+	public float JumpSpeed = 5.0f;
+	public float MouseSensitivity = 0.15f;
+	[Tooltip("Seconds a jump press is kept, and seconds after leaving the ground in which the character can still jump")]
+	public float JumpGrace = 0.1f;
+	public Entity? Head;
+
+	private float m_Yaw;
+	private float m_Pitch;
+	private float m_JumpBuffer;
+	private float m_CoyoteTime;
+
+	protected override void OnCreate()
+	{
+		Input.CursorMode = CursorMode.Locked;
+		// Start looking where the entity faces.
+		Vector3 forward = Transform.Forward;
+		m_Yaw = Mathf.Atan2(-forward.X, -forward.Z) * Mathf.Rad2Deg;
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		// Look around: the body turns left and right, the head up and down.
+		Vector2 mouse = Input.MouseDelta * MouseSensitivity;
+		m_Yaw -= mouse.X;
+		m_Pitch = Mathf.Clamp(m_Pitch - mouse.Y, -85.0f, 85.0f);
+		Transform.Rotation = Quaternion.AngleAxis(m_Yaw, Vector3.Up);
+		Head!.Transform.Rotation = Quaternion.AngleAxis(m_Pitch, Vector3.Right);
+		// Key presses last one frame: keep the jump for the next physics steps.
+		if (Input.IsKeyPressed(KeyCode.Space))
+		{
+			m_JumpBuffer = JumpGrace;
+		}
+	}
+
+	protected override void OnFixedUpdate(float fixedDeltaTime)
+	{
+		CharacterControllerComponent character = GetComponent<CharacterControllerComponent>()!;
+		Vector3 direction = (Transform.Forward * Axis(KeyCode.W, KeyCode.S)) + (Transform.Right * Axis(KeyCode.D, KeyCode.A));
+		character.Move(direction.Normalized * Speed);
+
+		m_CoyoteTime = character.IsGrounded ? JumpGrace : m_CoyoteTime - fixedDeltaTime;
+		if (m_JumpBuffer > 0.0f && m_CoyoteTime > 0.0f)
+		{
+			character.Velocity = new Vector3(0.0f, JumpSpeed, 0.0f);
+			m_JumpBuffer = 0.0f;
+			m_CoyoteTime = 0.0f;
+		}
+		m_JumpBuffer -= fixedDeltaTime;
+	}
+
+	private static float Axis(KeyCode positive, KeyCode negative) =>
+		(Input.IsKeyDown(positive) ? 1.0f : 0.0f) - (Input.IsKeyDown(negative) ? 1.0f : 0.0f);
+}
+```
+
+Characters move in physics steps (60 a second unless the project says otherwise), and the screen shows as many frames as
+the display does. Between steps, a character's entity is drawn on its way from where the step before the last left it to
+where the last one did: a step behind, so it and a camera on it move smoothly at any frame rate. Only the way it walked,
+fell or jumped is drawn like that; on a moving platform it stays where it stands on the platform as drawn.
+`OnFixedUpdate` finds the entity where the last step left it, `OnUpdate` where it is drawn.
+
 ## Spawning and destroying
 
 Prefabs are entities saved with their children (Create Prefab in the hierarchy's context menu). Spawn them with
@@ -285,7 +379,9 @@ their scripts get `OnDestroy` while they are intact.
 ## Sound, text and materials
 
 `AudioSourceComponent` plays its clip with `Play()`, `Pause()` and `Stop()` (`IsPlaying`, `Volume`, `Pitch`, `Loop`,
-`Clip` can be set); sources are positioned in 3D relative to the entity with the `AudioListenerComponent`.
+`Clip` can be set); sources are positioned in 3D relative to the entity with the `AudioListenerComponent`. Set
+`Stream` on music and long ambience: the clip is then read from its file while it plays instead of being loaded whole
+(changing it, like changing `Clip`, stops the sound until the next `Play()`).
 `TextComponent` draws text in the world or, with `ScreenSpace`, over the image: set `Text` for scores and messages.
 Materials of the project are shared by every scene, so scripts change copies: `Material.Clone()` (or
 `Material.Create()`) makes one the running scene owns, which `MeshComponent.SetMaterial` gives to a mesh.
@@ -304,6 +400,128 @@ public class Scoreboard : Script
 	}
 }
 ```
+
+## HUDs and menus
+
+The screen-space UI draws over the game's image. Build it in the editor with Entity > UI: a **Canvas** is the root,
+and its descendants are the UI: **Panel**, **Image**, **Text** and **Button** go into a canvas (one is made when the
+scene has none). Children draw over their parents and later siblings over earlier ones. Each element's
+`UIRectComponent` places it in its parent's rectangle, in canvas units with y pointing down:
+
+- `AnchorMin` and `AnchorMax` say where it attaches, from (0, 0) at the parent's top-left corner to (1, 1) at its
+  bottom-right corner. Equal anchors pin it to a point (a corner, the middle of an edge, the center); different ones
+  stretch it with the parent.
+- `Pivot` is the point of the element that `Position` moves from there, and `Size` its size (added to the anchors'
+  span when they stretch, so (-20, -20) leaves a 10-unit margin all around).
+- `Visible` hides it with its children; `Opacity` fades them.
+
+The canvas's `ScaleMode` decides how the UI follows the screen's size. `ScaleWithScreenSize`, the default, fits the
+whole `ReferenceResolution` on any screen: a UI designed for 1920 x 1080 keeps its proportions in a small window and on
+a 4K screen, wider screens add room at the sides and narrower ones (4:3, portrait) above and below, so elements anchored
+to opposite corners never overlap. `ScaleWithScreenHeight` fits the height alone (narrower screens cut off the sides),
+and `ConstantPixelSize` keeps sizes in pixels.
+
+`UIImageComponent` fills the element's rectangle with a color or a texture (`CornerRadius` rounds it),
+`UITextComponent` lays text out in it (wrapped at its width, placed by `Alignment` and `VerticalAlignment`), and
+`UIButtonComponent` makes it clickable: its state colors replace the image's color, and a click sets `WasClicked` for
+one frame and calls `OnClick(Entity button)` on the scripts of the button and of every ancestor, so one script on a
+menu hears all of its buttons. `Click()` clicks a button in code, for keyboard and gamepad menus. Images take the
+clicks over whatever they cover; text does not. A press that ends because the window lost the focus (alt-tab, a
+notification) is canceled rather than clicked.
+
+`Input.IsPointerOverUI` says whether the mouse is over an image or a button of the UI. A game that shoots, places or
+selects with the mouse checks it, so a click on a HUD or menu button does not also act in the world:
+
+```csharp
+public class Turret : Script
+{
+	protected override void OnUpdate(float deltaTime)
+	{
+		if (Input.IsMouseButtonPressed(MouseButton.Left) && !Input.IsPointerOverUI)
+		{
+			Log.Info("Fire!");
+		}
+	}
+}
+```
+
+A HUD that shows the score and a health bar (the fill is an image stretched over the bar, whose right anchor follows the
+health):
+
+```csharp
+public class Hud : Script
+{
+	public Entity? Score;
+	public Entity? HealthFill;
+
+	public void Show(int score, float health)
+	{
+		Score!.GetComponent<UITextComponent>()!.Text = $"SCORE  {score:N0}";
+		HealthFill!.GetComponent<UIRectComponent>()!.AnchorMax = new Vector2(Mathf.Clamp01(health), 1.0f);
+	}
+}
+```
+
+A pause menu: a panel with Resume and Quit buttons, and this script on the panel:
+
+```csharp
+public class PauseMenu : Script
+{
+	protected override void OnCreate() => SetOpen(false);
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		if (Input.IsKeyPressed(KeyCode.Escape))
+		{
+			SetOpen(!GetComponent<UIRectComponent>()!.Visible);
+		}
+	}
+
+	// Every button inside the menu reports here.
+	protected override void OnClick(Entity button)
+	{
+		switch (button.Name)
+		{
+			case "Resume":
+				SetOpen(false);
+				break;
+			case "Quit":
+				SceneManager.LoadScene("Scenes/Title.sscene");
+				break;
+		}
+	}
+
+	private void SetOpen(bool open)
+	{
+		GetComponent<UIRectComponent>()!.Visible = open;
+		Time.TimeScale = open ? 0.0f : 1.0f;
+	}
+}
+```
+
+Title, menu and loading screens need no camera: a scene with a canvas and no camera shows its UI over black. The title
+scene that the pause menu's Quit loads can be a canvas with Play and Quit buttons and this script on the canvas:
+
+```csharp
+public class TitleMenu : Script
+{
+	protected override void OnClick(Entity button)
+	{
+		switch (button.Name)
+		{
+			case "Play":
+				SceneManager.LoadScene("Scenes/Level1.sscene");
+				break;
+			case "Quit":
+				Application.Quit();
+				break;
+		}
+	}
+}
+```
+
+The UI shows in the game view and the exported game. The scene view draws each canvas standing where its entity is,
+faint until the canvas or one of its elements is selected; double-clicking an element in the hierarchy frames it.
 
 ## Particles
 
@@ -331,6 +549,45 @@ public class Crate : Script
 
 `Additive` particles add light (bright colors with an `Intensity` above 1 glow through the bloom); `Alpha` particles
 cover what is behind them, for smoke and dust.
+
+## Post-processing
+
+The scene's look (exposure, tonemapper, bloom, ambient occlusion, color grading, vignette, chromatic aberration, film
+grain) is set in its Scene Settings; a `PostProcessComponent` (the editor's Entity > Effects > Post Process Volume)
+changes it where the camera is. Only the settings whose `Override` property is set change: `OverrideSaturation` and
+`Saturation`, `OverrideVignette` and `Vignette`, and so on. A `Global` volume applies everywhere; a local one applies
+inside its entity's box (scale the entity to size it) and fades out over `BlendDistance` meters around it, so walking
+into a cave or under water changes the look smoothly. Overlapping volumes apply in order of `Priority`, and `Weight`
+says how much of a volume applies, which makes short effects easy:
+
+```csharp
+public class DamageFlash : Script
+{
+	private PostProcessComponent? flash;
+	private float strength;
+
+	protected override void OnCreate()
+	{
+		// A global volume with OverrideVignette, Vignette 0.8, OverrideColorFilter and a red ColorFilter, Weight 0.
+		flash = GetComponent<PostProcessComponent>();
+	}
+
+	public void Hit()
+	{
+		strength = 1.0f;
+	}
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		strength = Mathf.Max(strength - deltaTime * 2.0f, 0.0f);
+		flash!.Weight = strength;
+	}
+}
+```
+
+Numbers blend smoothly with the weight, and so does `Bloom`: a volume that turns bloom off fades the glow out through
+its intensity, one that turns it on fades it in. `AmbientOcclusion` and `Tonemapper` switch once a volume applies at
+least halfway.
 
 ## Time, scenes and the application
 

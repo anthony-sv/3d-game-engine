@@ -29,7 +29,20 @@
 				"AmbientOcclusionIntensity": 1.5,
 				"Bloom": true,
 				"BloomIntensity": 0.03999999910593033,
-				"FXAA": true
+				"FXAA": true,
+				"Contrast": 1.0,
+				"Saturation": 1.0,
+				"Temperature": 0.0,
+				"Tint": 0.0,
+				"ColorFilter": [
+					1.0,
+					1.0,
+					1.0
+				],
+				"ChromaticAberration": 0.0,
+				"Vignette": 0.0,
+				"VignetteSmoothness": 0.44999998807907104,
+				"FilmGrain": 0.0
 			}
 		}
 	},
@@ -1001,10 +1014,10 @@
 						2.0
 					],
 					"Rotation": [
-						-0.7071068,
+						-0.7071068286895752,
 						0.0,
 						0.0,
-						0.7071068
+						0.7071068286895752
 					],
 					"Scale": [
 						1.0,
@@ -1021,32 +1034,32 @@
 					"Rate": 30.0,
 					"Burst": 12,
 					"MaxParticles": 100,
-					"LifetimeMin": 0.6,
-					"LifetimeMax": 1.2,
+					"LifetimeMin": 0.6000000238418579,
+					"LifetimeMax": 1.2000000476837158,
 					"SpeedMin": 1.5,
 					"SpeedMax": 3.0,
 					"Shape": "Cone",
 					"ConeAngle": 20.0,
-					"Radius": 0.1,
+					"Radius": 0.10000000149011612,
 					"BoxHalfExtents": [
 						0.5,
 						0.5,
 						0.5
 					],
-					"GravityFactor": 0.3,
+					"GravityFactor": 0.30000001192092896,
 					"Drag": 0.5,
-					"StartSize": 0.15,
-					"EndSize": 0.02,
+					"StartSize": 0.15000000596046448,
+					"EndSize": 0.019999999552965164,
 					"StartColor": [
 						1.0,
-						0.7,
-						0.3,
+						0.699999988079071,
+						0.30000001192092896,
 						1.0
 					],
 					"EndColor": [
 						1.0,
-						0.15,
-						0.02,
+						0.15000000596046448,
+						0.019999999552965164,
 						0.0
 					],
 					"Intensity": 4.0,
@@ -1241,6 +1254,176 @@
 			}
 		},
 		{
+			"ID": "14461953605273033233",
+			"Components": {
+				"Tag": {
+					"Tag": "Post Process Volume"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						6.0,
+						3.0,
+						6.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"PostProcess": {
+					"Global": false,
+					"BlendDistance": 2.0,
+					"Priority": 1.0,
+					"Weight": 0.800000011920929,
+					"OverrideEV100": false,
+					"EV100": 0.0,
+					"OverrideTonemapper": true,
+					"Tonemapper": "AgX",
+					"OverrideAmbientOcclusion": false,
+					"AmbientOcclusion": true,
+					"OverrideAmbientOcclusionIntensity": false,
+					"AmbientOcclusionIntensity": 1.5,
+					"OverrideBloom": false,
+					"Bloom": true,
+					"OverrideBloomIntensity": false,
+					"BloomIntensity": 0.03999999910593033,
+					"OverrideContrast": false,
+					"Contrast": 1.0,
+					"OverrideSaturation": false,
+					"Saturation": 1.0,
+					"OverrideTemperature": false,
+					"Temperature": 0.0,
+					"OverrideTint": false,
+					"Tint": 0.0,
+					"OverrideColorFilter": false,
+					"ColorFilter": [
+						1.0,
+						1.0,
+						1.0
+					],
+					"OverrideChromaticAberration": false,
+					"ChromaticAberration": 0.0,
+					"OverrideVignette": true,
+					"Vignette": 0.3499999940395355,
+					"OverrideVignetteSmoothness": false,
+					"VignetteSmoothness": 0.44999998807907104,
+					"OverrideFilmGrain": false,
+					"FilmGrain": 0.0
+				}
+			}
+		},
+		{
+			"ID": "10350235558161062824",
+			"Components": {
+				"Tag": {
+					"Tag": "Character"
+				},
+				"Transform": {
+					"Translation": [
+						6.5,
+						1.0,
+						-7.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "5",
+					"Materials": [],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"CharacterController": {
+					"Radius": 0.5,
+					"Height": 2.0,
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"StepHeight": 0.30000001192092896,
+					"MaxSlopeAngle": 45.0,
+					"Mass": 70.0,
+					"PushForce": 200.0,
+					"GravityFactor": 1.0,
+					"Layer": 0
+				},
+				"Script": {
+					"ClassName": "FeatureTest.CollisionProbe",
+					"Fields": {}
+				}
+			}
+		},
+		{
+			"ID": "2602818010955743924",
+			"Components": {
+				"Tag": {
+					"Tag": "Character Gate"
+				},
+				"Transform": {
+					"Translation": [
+						8.0,
+						1.0,
+						-7.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						0.25,
+						1.0,
+						1.5
+					],
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": true,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
 			"ID": "6102744817778416873",
 			"Components": {
 				"Tag": {
@@ -1279,7 +1462,8 @@
 						"16748823186013241524",
 						"676901785231258275",
 						"16478385166964310864",
-						"5755062644795776956"
+						"5755062644795776956",
+						"3211222837210765849"
 					]
 				}
 			}
@@ -1808,6 +1992,336 @@
 							"Value": 3
 						}
 					}
+				}
+			}
+		},
+		{
+			"ID": "3211222837210765849",
+			"Components": {
+				"Tag": {
+					"Tag": "Character Tests"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "6102744817778416873",
+					"Children": []
+				},
+				"Script": {
+					"ClassName": "FeatureTest.CharacterTests",
+					"Fields": {
+						"Character": {
+							"Type": "Entity",
+							"Value": "10350235558161062824"
+						},
+						"Gate": {
+							"Type": "Entity",
+							"Value": "2602818010955743924"
+						}
+					}
+				}
+			}
+		},
+		{
+			"ID": "11488382408858246002",
+			"Components": {
+				"Tag": {
+					"Tag": "UI Canvas"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"12524615500501109046"
+					]
+				},
+				"Script": {
+					"ClassName": "FeatureTest.UITests",
+					"Fields": {}
+				},
+				"UICanvas": {
+					"ScaleMode": "ScaleWithScreenSize",
+					"ReferenceResolution": [
+						1920.0,
+						1080.0
+					]
+				}
+			}
+		},
+		{
+			"ID": "12524615500501109046",
+			"Components": {
+				"Tag": {
+					"Tag": "UI Panel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11488382408858246002",
+					"Children": [
+						"10411498842911442445",
+						"18246370401114516679"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.5
+					],
+					"AnchorMax": [
+						0.5,
+						0.5
+					],
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Size": [
+						800.0,
+						500.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						0.007199999876320362,
+						0.008500000461935997,
+						0.013399999588727951,
+						0.8500000238418579
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 24.0
+				}
+			}
+		},
+		{
+			"ID": "10411498842911442445",
+			"Components": {
+				"Tag": {
+					"Tag": "UI Title"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "12524615500501109046",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						1.0,
+						0.0
+					],
+					"Position": [
+						0.0,
+						40.0
+					],
+					"Size": [
+						-80.0,
+						80.0
+					],
+					"Pivot": [
+						0.5,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "Strada UI",
+					"Font": "0",
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"FontSize": 48.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": true,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "18246370401114516679",
+			"Components": {
+				"Tag": {
+					"Tag": "Play Button"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "12524615500501109046",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.5
+					],
+					"AnchorMax": [
+						0.5,
+						0.5
+					],
+					"Position": [
+						0.0,
+						60.0
+					],
+					"Size": [
+						320.0,
+						80.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 16.0
+				},
+				"UIText": {
+					"Text": "Play",
+					"Font": "0",
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"FontSize": 32.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": true,
+					"LineSpacing": 1.0
+				},
+				"UIButton": {
+					"Interactable": true,
+					"NormalColor": [
+						0.02199999988079071,
+						0.14730000495910645,
+						0.7106000185012817,
+						1.0
+					],
+					"HoveredColor": [
+						0.054999999701976776,
+						0.24289999902248383,
+						0.9330999851226807,
+						1.0
+					],
+					"PressedColor": [
+						0.009999999776482582,
+						0.07320000231266022,
+						0.39309999346733093,
+						1.0
+					],
+					"DisabledColor": [
+						0.10649999976158142,
+						0.1193000003695488,
+						0.14730000495910645,
+						0.6000000238418579
+					]
 				}
 			}
 		}

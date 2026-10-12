@@ -279,31 +279,27 @@ namespace Strada
 		EntityPreset const* DrawEntityPresetMenuItems()
 		{
 			EntityPreset const* chosen = nullptr;
-			std::span<EntityPreset const> const presets = EntityPresets::GetAll();
-			for (size_t i = 0; i < presets.size();)
+			for (EntityPresetMenuSection const& section : EntityPresets::GetMenu())
 			{
-				std::string_view const category = presets[i].Category;
-				size_t end = i;
-				while (end < presets.size() && presets[end].Category == category)
+				if (section.Submenu && !ImGui::BeginMenu(std::string(section.Category).c_str()))
 				{
-					end++;
+					continue;
 				}
-				bool const open = category.empty() || ImGui::BeginMenu(std::string(category).c_str());
-				if (open)
+				for (EntityPreset const* preset : section.Presets)
 				{
-					for (size_t j = i; j < end; j++)
+					if (ImGui::MenuItem(std::string(preset->Label).c_str()))
 					{
-						if (ImGui::MenuItem(std::string(presets[j].Label).c_str()))
-						{
-							chosen = &presets[j];
-						}
-					}
-					if (!category.empty())
-					{
-						ImGui::EndMenu();
+						chosen = preset;
 					}
 				}
-				i = end;
+				if (section.Submenu)
+				{
+					ImGui::EndMenu();
+				}
+				else
+				{
+					ImGui::Separator();
+				}
 			}
 			return chosen;
 		}

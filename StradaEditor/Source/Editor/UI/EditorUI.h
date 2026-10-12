@@ -49,8 +49,8 @@ namespace Strada
 		// UTF-8 character. Paths that fit come back unchanged. Inside an ImGui frame.
 		std::string FitPath(std::string_view path, float maxWidth);
 
-		// Menu items for every entity preset, categories as submenus; returns the preset chosen this frame. Call inside an
-		// open menu or popup.
+		// Menu items for every entity preset (EntityPresets::GetMenu: Core's directly, the other categories as submenus);
+		// returns the preset chosen this frame. Call inside an open menu or popup.
 		EntityPreset const* DrawEntityPresetMenuItems();
 
 		// Makes the last item a source of an asset drag (DragDropPayload::Asset) showing the label while dragging.

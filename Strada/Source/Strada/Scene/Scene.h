@@ -9,6 +9,7 @@
 #include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/ParticleEmitter.h"
+#include "Strada/Scene/UILayout.h"
 
 #include <entt/entity/registry.hpp>
 #include <glm/glm.hpp>
@@ -163,20 +164,22 @@ namespace Strada
 
 		// --- Runtime ---
 
-		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody), a sound for every
-		// audio source with a clip (playing when PlayOnStart is set) and a script instance for every Script component whose
-		// class the loaded game assembly has (all are created, then OnCreate runs for each); sounds and scripts only when
-		// the settings ask for them. Bodies, sounds and scripts
-		// follow component changes while running. Requires PhysicsSystem, AudioEngine and ScriptEngine (without them the
-		// scene runs without physics, audio or scripts, logged); stop the runtime or destroy the scene before shutting them
-		// down. One scene runs scripts at a time.
+		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody), a character for
+		// every CharacterController (instead of a body), a sound for every audio source with a clip (playing when PlayOnStart
+		// is set) and a script instance for every Script component whose class the loaded game assembly has (all are
+		// created, then OnCreate runs for each); sounds and scripts only when the settings ask for them. Bodies, characters,
+		// sounds and scripts follow component changes while running. Requires PhysicsSystem, AudioEngine and ScriptEngine
+		// (without them the scene runs without physics, audio or scripts, logged); stop the runtime or destroy the scene
+		// before shutting them down. One scene runs scripts at a time.
 		void OnRuntimeStart(SceneRuntimeSettings const& settings = {});
 		// Calls OnDestroy on every script, then stops the audio and physics.
 		void OnRuntimeStop();
-		// Advances the runtime: scripts' OnUpdate, fixed steps (scripts' OnFixedUpdate, then physics: kinematic bodies follow
-		// their transforms, moved static and dynamic bodies teleport, dynamic bodies write their transforms back), contact
-		// events to scripts, audio (sources and the listener follow their entities), then deferred entity destruction
-		// (destroyed scripts get OnDestroy).
+		// Advances the runtime: the UI (the mouse over buttons, clicks and OnClick), scripts' OnUpdate, fixed steps (scripts'
+		// OnFixedUpdate, then physics: kinematic bodies follow their transforms, moved static and dynamic bodies and
+		// characters teleport, characters move, dynamic bodies and characters write their positions back), characters drawn
+		// between their last two steps (so they move smoothly at any frame rate, a step behind; OnFixedUpdate sees them where
+		// the last step left them), contact events to scripts, audio (sources and the listener follow their entities),
+		// particles, then deferred entity destruction (destroyed scripts get OnDestroy).
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -199,9 +202,13 @@ namespace Strada
 		float GetTimeScale() const { return m_TimeScale; }
 		// Negative and non-finite scales are ignored.
 		void SetTimeScale(float scale);
-		// Creates and rebuilds the bodies of physics components changed since the last step. The runtime does it before
-		// each update; script calls on bodies do it first, so a body added this frame takes forces at once.
+		// Creates and rebuilds the bodies and characters of physics components changed since the last step. The runtime does
+		// it before each update; script calls on bodies and characters do it first, so a body added this frame takes forces
+		// at once.
 		void ApplyPhysicsChanges();
+		// Places an entity with a CharacterController at a world position at once, keeping its rotation and scale, and stops
+		// its character, which finds what it stands on there.
+		void TeleportCharacter(Entity entity, glm::vec3 const& position);
 		// Control the sound of an entity's AudioSource while running, bringing it up to date with the component first (a
 		// clip set this frame plays). Without a running audio scene or a playable clip they do nothing.
 		void PlayAudioSource(Entity entity);
@@ -227,6 +234,25 @@ namespace Strada
 		static constexpr size_t MaxDebugLines = 100000;
 		void DrawDebugLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, float duration = 0.0f);
 		std::vector<SceneDebugLine> const& GetDebugLines() const { return m_DebugLines; }
+
+		// --- Screen-space UI (see UICanvasComponent; SceneUI.cpp) ---
+
+		// How the entity's UIButton is drawn: Disabled while it is not interactable, Hovered or Pressed by the mouse while the
+		// scene runs, Normal otherwise (and for entities without a button).
+		UIButtonState GetUIButtonState(Entity entity) const;
+		// Whether the entity's UIButton was clicked in the latest runtime update.
+		bool WasUIButtonClicked(Entity entity) const;
+		// Clicks the entity's UIButton at the next runtime update as the mouse would (unless it is not interactable then).
+		// Ignored while the scene does not run.
+		void ClickUIButton(Entity entity);
+		// Whether the mouse (Input's cursor in the scene's viewport) hovers, presses and clicks UI buttons; on by default.
+		// Editors turn it off while the game does not have the input, whose cursor is then elsewhere.
+		void SetUIPointerEnabled(bool enabled) { m_UIPointerEnabled = enabled; }
+		bool IsUIPointerEnabled() const { return m_UIPointerEnabled; }
+		// Whether the mouse is over the UI as of the latest runtime update: an element that takes clicks (an image or a button)
+		// is under the cursor, so a click there goes to the UI. Games that act on clicks in the world check it. False while the
+		// pointer is disabled or the cursor locked, and while the scene does not run.
+		bool IsPointerOverUI() const { return m_UIPointerOver; }
 
 		// Memory assets that belong to the run (materials scripts create): they are removed from the AssetManager when the
 		// runtime stops.
@@ -268,7 +294,8 @@ namespace Strada
 		void StopPhysics();
 		void UpdatePhysics(float deltaTime);
 		void RebuildChangedBodies();
-		void UpdateBody(entt::entity handle);
+		// Creates, rebuilds or removes the body of an entity after its components changed; true when its body changed.
+		bool UpdateBody(entt::entity handle);
 		void SyncBodiesFromTransforms(float stepDelta);
 		void WriteBodyTransforms();
 		void OnPhysicsComponentChanged(entt::registry& registry, entt::entity handle);
@@ -277,6 +304,17 @@ namespace Strada
 		// Makes every joint again from the components and where the bodies are now.
 		void RebuildJoints();
 		void ConnectPhysicsSignals(bool connect);
+		// Creates, changes or removes the character of an entity after its CharacterController (or scale) changed.
+		void UpdateCharacter(entt::entity handle);
+		void SyncCharactersFromTransforms();
+		void WriteCharacterTransforms();
+		// Between frames, characters are drawn between their last two steps. Before the physics changes and steps of a frame,
+		// those not moved since go back to where the last step left them; after the steps, they are drawn the part of the way
+		// from the step before (alpha 0) to the last one (alpha 1) that the time left over makes up.
+		void ReturnCharactersToSteps();
+		void InterpolateCharacterTransforms(float alpha);
+		void OnCharacterComponentChanged(entt::registry& registry, entt::entity handle);
+		void OnCharacterComponentAddedOrRemoved(entt::registry& registry, entt::entity handle);
 
 		// Audio runtime (SceneAudio.cpp).
 		struct AudioSourceState;
@@ -321,6 +359,12 @@ namespace Strada
 		void DestroyRemovedScriptInstances();
 		std::vector<UUID> GetScriptInstanceIDs() const;
 
+		// UI runtime (SceneUI.cpp).
+		void ResetUI();
+		// Follows the mouse over the UI and its buttons, then clicks the buttons it clicked and the ones scripts clicked, calling
+		// OnClick on the scripts of each button and its ancestors.
+		void UpdateUI();
+
 		std::string m_Name;
 		SceneSettings m_Settings;
 		entt::registry m_Registry;
@@ -351,6 +395,32 @@ namespace Strada
 		std::unordered_set<entt::entity> m_ChangedBodies;
 		// A joint or a body changed: the joints are made again before the next step.
 		bool m_JointsChanged = false;
+		// What the scene exchanged with an entity's character: the world position last written to or read from the entity's
+		// transform (to tell edits from movement), where the entity's origin was after the last two steps and how far the
+		// ground carried it in the last one (to draw it between steps), its scale, and the entities below it, whose bodies it
+		// ignores.
+		struct CharacterSyncState
+		{
+			UUID Entity = UUID::Invalid();
+			glm::vec3 Position = glm::vec3(0.0f);
+			glm::vec3 PreviousStepPosition = glm::vec3(0.0f);
+			glm::vec3 StepPosition = glm::vec3(0.0f);
+			glm::vec3 Carried = glm::vec3(0.0f);
+			glm::vec3 Scale = glm::vec3(1.0f);
+			std::vector<UUID> Parts;
+
+			// Placed somewhere (made, moved by an edit or teleported): it is drawn there until it moves.
+			void Place(glm::vec3 const& position)
+			{
+				Position = position;
+				PreviousStepPosition = position;
+				StepPosition = position;
+				Carried = glm::vec3(0.0f);
+			}
+		};
+		std::unordered_map<entt::entity, CharacterSyncState> m_Characters;
+		// Entities whose CharacterController changed while running; their characters are updated before the next step.
+		std::unordered_set<entt::entity> m_ChangedCharacters;
 		std::vector<ContactEvent> m_ContactEvents;
 
 		// The component settings an entity's sound was last updated with (to apply changes made while running).
@@ -388,6 +458,17 @@ namespace Strada
 		std::unordered_map<entt::entity, ParticleSystemState> m_ParticleSystems;
 		// Seeds new emitters, so systems of one scene differ.
 		uint64_t m_ParticleSeed = 0;
+
+		// The interactable button under the mouse, and the one the left button went down on (a click if it comes up there).
+		UUID m_UIHovered = UUID::Invalid();
+		UUID m_UIPressed = UUID::Invalid();
+		// Buttons clicked in the latest update, and the ones scripts clicked since (clicked at the next update).
+		std::vector<UUID> m_UIClicked;
+		std::vector<UUID> m_UIPendingClicks;
+		// Whether the left mouse button was down at the latest update.
+		bool m_UIMouseWasDown = false;
+		bool m_UIPointerEnabled = true;
+		bool m_UIPointerOver = false;
 
 		std::vector<SceneDebugLine> m_DebugLines;
 		bool m_DebugLinesDropped = false;

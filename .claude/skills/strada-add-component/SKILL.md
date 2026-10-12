@@ -39,8 +39,12 @@ Hints: `Range(min, max)` / `AtLeast(min)` (inclusive, enforced when JSON is read
 out-of-range values; the inspector clamps to them), `AsColor()` (vec3/vec4), `AsAngle()` (degrees),
 `AsMultilineText()`, `References("<AssetType>")` for asset fields, `VisibleWhen("<Field>", "<Value>", ...)` for fields
 that only matter while an enum or bool field of the same struct has one of up to four values (editors hide them
-otherwise: a camera's orthographic size, a joint's limits) and `Doc("...")` for anything not obvious from the name. Hints that do not fit the field's type, and visibility conditions that name no
-value of such a field, fail to compile. Defaults must lie inside their ranges (tested).
+otherwise: a camera's orthographic size, a joint's limits), `EnabledBy("<bool field>")` for a field another bool field
+of the table switches on (the inspector draws the switch as a check box in front of the field, like a post-process
+volume's overrides) and `Doc("...")` for anything not obvious from the name. Hints that do not fit the field's type,
+visibility conditions that name no value of such a field, and switches that are not unswitched bool fields of the table
+fail to compile. Defaults must lie inside their ranges (tested). Systems reading values scripts set (which skip the range
+checks) can use `ClampToFieldRanges`.
 
 `Category` is one of `ComponentCategory::All` (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting`, `UI`; tested): the
 inspector's Add Component menu groups components by it and `component.types` lists it.

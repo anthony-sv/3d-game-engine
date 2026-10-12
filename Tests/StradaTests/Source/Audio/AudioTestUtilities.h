@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace Strada::Testing
@@ -18,16 +19,18 @@ namespace Strada::Testing
 	inline constexpr uint32_t AudioSampleRate = 48000;
 
 	// Initializes the AudioEngine with manual stereo output for as long as it lives: the mix advances only when a test
-	// reads it, so playback is deterministic.
+	// reads it, so playback is deterministic. Streamed sounds open their files with the opener (the file system's when
+	// empty).
 	class AudioEngineScope
 	{
 	public:
-		AudioEngineScope()
+		explicit AudioEngineScope(AudioStreamFileOpener streamFileOpener = {})
 		{
 			AudioEngineSettings settings;
 			settings.Output = AudioOutput::Manual;
 			settings.SampleRate = AudioSampleRate;
 			settings.ChannelCount = 2;
+			settings.StreamFileOpener = std::move(streamFileOpener);
 			AudioEngine::Init(settings);
 			REQUIRE(AudioEngine::IsInitialized());
 		}
@@ -269,18 +272,34 @@ namespace Strada::Testing
 		return MakeClip(MakeWav(samples));
 	}
 
-	// Mean absolute sample value per channel of the next part of the manual mix.
+	// The mix is read in parts this long, each after streamed sounds have read ahead (AudioEngine::WaitForStreams), so they
+	// play without gaps as they would in real time.
+	inline constexpr float AudioReadSeconds = 0.1f;
+
+	// The interleaved stereo samples of the next part of the manual mix.
+	inline std::vector<float> ReadSamples(float seconds)
+	{
+		std::vector<float> samples(static_cast<size_t>(AudioFrames(seconds)) * 2);
+		size_t const partSize = static_cast<size_t>(AudioFrames(AudioReadSeconds)) * 2;
+		for (size_t offset = 0; offset < samples.size(); offset += partSize)
+		{
+			AudioEngine::WaitForStreams();
+			std::span<float> const part = std::span<float>(samples).subspan(offset, std::min(partSize, samples.size() - offset));
+			REQUIRE(AudioEngine::ReadFrames(part) == part.size() / 2);
+		}
+		return samples;
+	}
+
+	// Mean absolute sample value per channel of interleaved stereo samples, or of the next part of the manual mix.
 	struct AudioLevels
 	{
 		float Left = 0.0f;
 		float Right = 0.0f;
 	};
 
-	inline AudioLevels ReadLevels(float seconds)
+	inline AudioLevels MeasureLevels(std::span<float const> samples)
 	{
-		uint32_t const frames = AudioFrames(seconds);
-		std::vector<float> samples(static_cast<size_t>(frames) * 2);
-		REQUIRE(AudioEngine::ReadFrames(samples) == frames);
+		size_t const frames = samples.size() / 2;
 		double left = 0.0;
 		double right = 0.0;
 		for (size_t frame = 0; frame < frames; frame++)
@@ -288,7 +307,12 @@ namespace Strada::Testing
 			left += std::abs(samples[frame * 2]);
 			right += std::abs(samples[frame * 2 + 1]);
 		}
-		return {static_cast<float>(left / frames), static_cast<float>(right / frames)};
+		return {static_cast<float>(left / static_cast<double>(frames)), static_cast<float>(right / static_cast<double>(frames))};
+	}
+
+	inline AudioLevels ReadLevels(float seconds)
+	{
+		return MeasureLevels(ReadSamples(seconds));
 	}
 
 	// Advances the manual mix.

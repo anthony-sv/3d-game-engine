@@ -10,6 +10,8 @@
 #include "Strada/Core/Events/MouseEvent.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
+#include "Strada/Core/Timestep.h"
+#include "Strada/Scene/Entity.h"
 
 #include <doctest/doctest.h>
 #include <imgui.h>
@@ -504,6 +506,104 @@ TEST_CASE_FIXTURE(RouterFixture, "GameInput: playing starts with the input and a
 	CHECK(Input::IsKeyPressed(KeyCode::Space));
 }
 
+TEST_CASE_FIXTURE(RouterFixture, "GameInput: a locked cursor moves only with the window showing the game view")
+{
+	Router.SetGameCursorMode(CursorMode::Locked);
+	ClickView();
+	NextFrame();
+	CHECK_FALSE(Move(InView + glm::vec2(10.0f, 0.0f)));
+	glm::vec2 const position = Input::GetMousePosition();
+	glm::vec2 const delta = Input::GetMouseDelta();
+	CHECK(delta == glm::vec2(20.0f, 0.0f));
+
+	// The window of a panel dragged out of the editor lying over the locked window's middle reports where the hidden cursor
+	// really is: neither the game nor ImGui sees it.
+	Context panel = At(InView + glm::vec2(-150.0f, 80.0f));
+	panel.Viewport = PlayingView().Viewport + 1;
+	CHECK_FALSE(Router.Route(MouseMovedEvent(panel.Cursor.x, panel.Cursor.y), panel));
+	CHECK(Input::GetMousePosition() == position);
+	CHECK(Input::GetMouseDelta() == delta);
+
+	// The locked window's movement goes on from where it was.
+	CHECK_FALSE(Move(InView + glm::vec2(15.0f, 0.0f)));
+	CHECK(Input::GetMousePosition() == position + glm::vec2(10.0f, 0.0f));
+	CHECK(Input::GetMouseDelta() == delta + glm::vec2(10.0f, 0.0f));
+
+	// A cursor the game does not lock moves with whichever window it is over.
+	Router.SetGameCursorMode(CursorMode::Hidden);
+	CHECK(Router.Route(MouseMovedEvent(panel.Cursor.x, panel.Cursor.y), panel));
+	CHECK(Input::GetMousePosition() == glm::vec2(100.0f, 560.0f));
+	CHECK(Router.HasInput());
+}
+
+TEST_CASE_FIXTURE(RouterFixture, "GameInput: only a locked game cursor takes the windows' cursor modes")
+{
+	// The windows of the view's viewport and of a panel dragged out of the editor.
+	uint32_t const viewWindow = PlayingView().Viewport;
+	uint32_t const panelWindow = viewWindow + 1;
+
+	// Without the input every window shows the editor's cursors, whatever the game asked for.
+	Router.SetGameCursorMode(CursorMode::Locked);
+	CHECK(Router.GetCursorMode() == CursorMode::Normal);
+	CHECK(Router.GetWindowCursorMode(viewWindow) == CursorMode::Normal);
+	CHECK(Router.GetWindowCursorMode(panelWindow) == CursorMode::Normal);
+
+	// While the game has the input, the window showing the game view locks the cursor and every other window hides it.
+	ClickView();
+	CHECK(Router.GetCursorMode() == CursorMode::Locked);
+	CHECK(Router.GetWindowCursorMode(viewWindow) == CursorMode::Locked);
+	CHECK(Router.GetWindowCursorMode(panelWindow) == CursorMode::Hidden);
+
+	// The view dragged out into the panel's window takes the lock with it.
+	GameInputRouter::View moved = PlayingView();
+	moved.Viewport = panelWindow;
+	Router.SetView(moved);
+	CHECK(Router.HasInput());
+	CHECK(Router.GetWindowCursorMode(panelWindow) == CursorMode::Locked);
+	CHECK(Router.GetWindowCursorMode(viewWindow) == CursorMode::Hidden);
+	Router.SetView(PlayingView());
+
+	// A hidden cursor is hidden by the game view over itself alone: the windows keep showing the editor's cursors.
+	Router.SetGameCursorMode(CursorMode::Hidden);
+	CHECK(Router.GetCursorMode() == CursorMode::Hidden);
+	CHECK(Router.GetWindowCursorMode(viewWindow) == CursorMode::Normal);
+	CHECK(Router.GetWindowCursorMode(panelWindow) == CursorMode::Normal);
+	Router.SetGameCursorMode(CursorMode::Normal);
+	CHECK(Router.GetWindowCursorMode(viewWindow) == CursorMode::Normal);
+	CHECK(Router.GetWindowCursorMode(panelWindow) == CursorMode::Normal);
+
+	// Giving the input back frees a locked cursor everywhere.
+	Router.SetGameCursorMode(CursorMode::Locked);
+	CHECK(Router.GetWindowCursorMode(viewWindow) == CursorMode::Locked);
+	Router.Release();
+	CHECK(Router.GetWindowCursorMode(viewWindow) == CursorMode::Normal);
+	CHECK(Router.GetWindowCursorMode(panelWindow) == CursorMode::Normal);
+}
+
+TEST_CASE_FIXTURE(RouterFixture, "GameInput: giving the input back releases the game's keys and buttons, not its gamepads")
+{
+	Input::GamepadState gamepad;
+	gamepad.Connected = true;
+	gamepad.Buttons[static_cast<size_t>(GamepadButton::A)] = true;
+	Input::SetGamepadState(0, gamepad);
+	ClickView();
+	NextFrame();
+	CHECK_FALSE(Key(KeyCode::W, true));
+	CHECK_FALSE(Button(MouseButton::Right, true, InView));
+
+	Router.Release();
+	NextFrame();
+	CHECK(Input::IsKeyReleased(KeyCode::W));
+	CHECK(Input::IsMouseButtonReleased(MouseButton::Right));
+	// Gamepads are polled every frame rather than shared: a button held on one stays held, without a release and a second
+	// press when it is polled again.
+	CHECK(Input::IsGamepadButtonDown(0, GamepadButton::A));
+	CHECK_FALSE(Input::IsGamepadButtonReleased(0, GamepadButton::A));
+	Input::SetGamepadState(0, gamepad);
+	CHECK(Input::IsGamepadButtonDown(0, GamepadButton::A));
+	CHECK_FALSE(Input::IsGamepadButtonPressed(0, GamepadButton::A));
+}
+
 namespace
 {
 	ImGuiKey ToImGuiKey(KeyCode key)
@@ -636,6 +736,8 @@ namespace
 			{
 				Shortcuts++;
 			}
+			// As the editor does after its panels (without platform windows headless, only ImGui's side shows).
+			View.UpdateWindowCursors();
 		}
 
 		void DrawDockspace()
@@ -961,4 +1063,223 @@ TEST_CASE("GameInput: docked like in the editor, the game view takes clicks in i
 	CHECK_FALSE(fixture.Router.HasInput());
 	CHECK_FALSE(Input::IsMouseButtonDown(MouseButton::Left));
 	CHECK(GameViewFixture::IsFocused("Tab"));
+}
+
+TEST_CASE("GameInput: docked behind another tab, the game view comes forward with the input when playing starts")
+{
+	// The editor's layout keeps the game view behind the scene view until Play gives the game the input.
+	GameViewFixture fixture(true);
+	fixture.FocusWindow("Tab");
+	ImGuiWindow const* const view = ImGui::FindWindowByName("Game View");
+	REQUIRE(view != nullptr);
+	REQUIRE(view->DockIsActive);
+	REQUIRE_FALSE(view->DockTabIsVisible);
+
+	// The hidden tab takes the focus in the frame after: ImGui draws it in that frame already, so the view keeps the input
+	// rather than giving it back as hidden, and it shows from the frame after that.
+	fixture.Router.Grant();
+	fixture.Frame();
+	CHECK(fixture.Router.HasInput());
+	CHECK(GameViewFixture::IsFocused("Game View"));
+	fixture.Frame();
+	CHECK(fixture.Router.HasInput());
+	CHECK(GameViewFixture::IsFocused("Game View"));
+	CHECK(view->DockTabIsVisible);
+
+	// The game has the keys at once, and ImGui none of them.
+	CHECK_FALSE(fixture.SendKey(KeyCode::Space, true));
+	fixture.Frame();
+	CHECK(Input::IsKeyDown(KeyCode::Space));
+	CHECK_FALSE(ImGui::IsKeyDown(ImGuiKey_Space));
+	CHECK(fixture.SendKey(KeyCode::Space, false));
+	fixture.Frame();
+	CHECK_FALSE(Input::IsKeyDown(KeyCode::Space));
+	CHECK(fixture.Router.HasInput());
+}
+
+TEST_CASE("GameInput: a cursor the game hides is hidden over the game view alone")
+{
+	GameViewFixture fixture;
+	fixture.Router.SetGameCursorMode(CursorMode::Hidden);
+	// The cursor ImGui wants once the cursor moved there and a frame was drawn.
+	auto const cursorAt = [&fixture](glm::vec2 position)
+	{
+		fixture.Send(MouseMovedEvent(position.x, position.y), At(position));
+		fixture.Frame();
+		return ImGui::GetMouseCursor();
+	};
+	glm::vec2 const point = GameViewFixture::ViewPoint;
+
+	// Until the game has the input, the view shows the editor's cursor.
+	CHECK(cursorAt(point) == ImGuiMouseCursor_Arrow);
+	fixture.Click(point);
+	REQUIRE(fixture.Router.HasInput());
+	CHECK(ImGui::GetMouseCursor() == ImGuiMouseCursor_None);
+
+	// Over the view's toolbar and the other window the editor's cursor shows, and the game keeps the input.
+	ImGuiWindow const* const window = ImGui::FindWindowByName("Game View");
+	REQUIRE(window != nullptr);
+	glm::vec2 const toolbar(window->InnerRect.GetCenter().x, window->InnerRect.Min.y + 2.0f);
+	CHECK(cursorAt(toolbar) == ImGuiMouseCursor_Arrow);
+	CHECK(cursorAt(fixture.ButtonCenter) == ImGuiMouseCursor_Arrow);
+	CHECK(cursorAt(point) == ImGuiMouseCursor_None);
+	CHECK(fixture.Router.HasInput());
+
+	// A cursor the game shows stays, and a locked one takes the windows' cursors from ImGui instead (UpdateWindowCursors).
+	fixture.Router.SetGameCursorMode(CursorMode::Normal);
+	CHECK(cursorAt(point + glm::vec2(5.0f, 0.0f)) == ImGuiMouseCursor_Arrow);
+	fixture.Router.SetGameCursorMode(CursorMode::Locked);
+	fixture.Frame();
+	CHECK(ImGui::GetMouseCursor() == ImGuiMouseCursor_Arrow);
+	CHECK((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange) != 0);
+
+	// Hidden again right after: ImGui has the cursors back, and hides the one over the view.
+	fixture.Router.SetGameCursorMode(CursorMode::Hidden);
+	fixture.Frame();
+	CHECK(ImGui::GetMouseCursor() == ImGuiMouseCursor_None);
+	CHECK((ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange) == 0);
+
+	// Once the game gave the input back, the view shows the editor's cursor again.
+	ImGuiLayer::InputContext shift;
+	shift.Shift = true;
+	CHECK_FALSE(fixture.SendKey(KeyCode::Escape, true, shift));
+	CHECK_FALSE(fixture.Router.HasInput());
+	CHECK(fixture.SendKey(KeyCode::Escape, false, shift));
+	CHECK(cursorAt(point) == ImGuiMouseCursor_Arrow);
+}
+
+TEST_CASE("GameInput: a cursor the game locks takes the editor's windows from ImGui while the game has the input")
+{
+	GameViewFixture fixture;
+	auto const cursorChangesOff = []
+	{
+		return (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange) != 0;
+	};
+	// The view is drawn in the main window; any other viewport is the window of a panel dragged out of the editor.
+	uint32_t const mainWindow = ImGui::GetMainViewport()->ID;
+	uint32_t const panelWindow = mainWindow + 1;
+
+	// Until the game has the input, ImGui keeps the cursors.
+	fixture.Router.SetGameCursorMode(CursorMode::Locked);
+	fixture.Frame();
+	CHECK_FALSE(cursorChangesOff());
+	CHECK(fixture.Router.GetWindowCursorMode(mainWindow) == CursorMode::Normal);
+
+	// With the click on the view, the main window locks the cursor, the others hide it, and ImGui changes no cursor.
+	fixture.Click(GameViewFixture::ViewPoint);
+	REQUIRE(fixture.Router.HasInput());
+	CHECK(cursorChangesOff());
+	CHECK(fixture.Router.GetWindowCursorMode(mainWindow) == CursorMode::Locked);
+	CHECK(fixture.Router.GetWindowCursorMode(panelWindow) == CursorMode::Hidden);
+
+	// Shift+Esc gives the cursors back to ImGui.
+	ImGuiLayer::InputContext shift;
+	shift.Shift = true;
+	CHECK_FALSE(fixture.SendKey(KeyCode::Escape, true, shift));
+	CHECK(fixture.SendKey(KeyCode::Escape, false, shift));
+	fixture.Frame();
+	CHECK_FALSE(fixture.Router.HasInput());
+	CHECK_FALSE(cursorChangesOff());
+	CHECK(fixture.Router.GetWindowCursorMode(mainWindow) == CursorMode::Normal);
+	CHECK(fixture.Router.GetWindowCursorMode(panelWindow) == CursorMode::Normal);
+
+	// So does the game freeing the cursor while it keeps the input.
+	fixture.Click(GameViewFixture::ViewPoint);
+	REQUIRE(cursorChangesOff());
+	fixture.Router.SetGameCursorMode(CursorMode::Normal);
+	fixture.Frame();
+	CHECK_FALSE(cursorChangesOff());
+	CHECK(fixture.Router.HasInput());
+
+	// And playing stopping.
+	fixture.Router.SetGameCursorMode(CursorMode::Locked);
+	fixture.Frame();
+	REQUIRE(cursorChangesOff());
+	fixture.Play.Stop();
+	fixture.Frame();
+	CHECK_FALSE(fixture.Router.HasInput());
+	CHECK_FALSE(cursorChangesOff());
+	CHECK(fixture.Router.GetWindowCursorMode(mainWindow) == CursorMode::Normal);
+}
+
+TEST_CASE("GameInput: the game's UI follows the cursor only while the game has the input, which cancels a press it takes back")
+{
+	GameViewFixture fixture;
+	// A button over the whole game, whatever size the view renders at.
+	Scene& scene = fixture.Context.GetScene();
+	Entity canvas = scene.CreateEntity("Canvas");
+	canvas.AddComponent<UICanvasComponent>();
+	Entity button = scene.CreateEntity("Button", canvas);
+	UIRectComponent& rect = button.AddComponent<UIRectComponent>();
+	rect.AnchorMin = glm::vec2(0.0f);
+	rect.AnchorMax = glm::vec2(1.0f);
+	rect.Size = glm::vec2(0.0f);
+	button.AddComponent<UIImageComponent>();
+	button.AddComponent<UIButtonComponent>();
+
+	// An editor frame as EditorLayer::OnUpdate runs it: the router releases what the game gave back, the game's UI gets the
+	// pointer while the game has the input, the game updates, then the editor draws.
+	int clicks = 0;
+	auto const frame = [&]
+	{
+		fixture.Router.BeginFrame();
+		fixture.Play.SetUIPointerEnabled(fixture.Router.HasInput());
+		fixture.Play.Update(Timestep(1.0f / 60.0f));
+		clicks += scene.WasUIButtonClicked(button) ? 1 : 0;
+		fixture.Interface.Frame(
+			[&fixture]
+			{
+				fixture.Draw();
+			});
+		Input::EndFrame();
+	};
+	glm::vec2 const point = GameViewFixture::ViewPoint;
+
+	// Without the input, the cursor does not reach the game.
+	fixture.Send(MouseMovedEvent(point.x, point.y), At(point));
+	frame();
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Normal);
+	CHECK_FALSE(scene.IsPointerOverUI());
+	// The click that gives the game the input clicks its button too.
+	fixture.Send(MouseButtonPressedEvent(MouseButton::Left), At(point));
+	frame();
+	REQUIRE(fixture.Router.HasInput());
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Pressed);
+	fixture.Send(MouseButtonReleasedEvent(MouseButton::Left), At(point));
+	frame();
+	CHECK(clicks == 1);
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Hovered);
+	CHECK(scene.IsPointerOverUI());
+
+	// Taking the input back while the button is held, the cursor still over it (Shift+Esc), cancels the press.
+	fixture.Send(MouseButtonPressedEvent(MouseButton::Left), At(point));
+	frame();
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Pressed);
+	ImGuiLayer::InputContext shift;
+	shift.Shift = true;
+	CHECK_FALSE(fixture.SendKey(KeyCode::Escape, true, shift));
+	frame();
+	CHECK_FALSE(fixture.Router.HasInput());
+	CHECK(fixture.SendKey(KeyCode::Escape, false, shift));
+	fixture.Send(MouseButtonReleasedEvent(MouseButton::Left), At(point));
+	frame();
+	CHECK(clicks == 1);
+
+	// While the editor has the input, the button under the game's cursor is neither hovered nor clicked, not even by input
+	// set directly (as automation does).
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Normal);
+	CHECK_FALSE(scene.IsPointerOverUI());
+	Input::SetMouseButtonState(MouseButton::Left, true);
+	frame();
+	CHECK(scene.GetUIButtonState(button) == UIButtonState::Normal);
+	Input::SetMouseButtonState(MouseButton::Left, false);
+	frame();
+	CHECK(clicks == 1);
+
+	// A click on the view gives the input and the button back.
+	fixture.Send(MouseButtonPressedEvent(MouseButton::Left), At(point));
+	frame();
+	fixture.Send(MouseButtonReleasedEvent(MouseButton::Left), At(point));
+	frame();
+	CHECK(clicks == 2);
 }
