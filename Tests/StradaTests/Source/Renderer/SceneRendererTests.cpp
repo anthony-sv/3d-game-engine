@@ -86,7 +86,7 @@ namespace
 	}
 }
 
-TEST_CASE("TextureMips: chains go down to 1x1 and average sRGB in linear space")
+TEST_CASE("TextureMips: chains go down to 1x1 one level at a time and average sRGB in linear space")
 {
 	CHECK(GetMipLevelCount(1, 1) == 1);
 	CHECK(GetMipLevelCount(256, 64) == 9);
@@ -116,6 +116,19 @@ TEST_CASE("TextureMips: chains go down to 1x1 and average sRGB in linear space")
 	CHECK(odd[1].GetWidth() == 2);
 	CHECK(odd[1].GetHeight() == 1);
 	CHECK(odd[2].GetWidth() == 1);
+
+	// One level at a time, as the chain makes them (editor thumbnails shrink textures until they fit).
+	Image const next = GenerateNextMipLevel(checker, true);
+	CHECK(next.GetWidth() == 1);
+	CHECK(next.GetHeight() == 1);
+	CHECK(next.GetPixels() == srgb[1].GetPixels());
+	CHECK(GenerateNextMipLevel(checker, false).GetPixels() == linear[1].GetPixels());
+	Image const tall = GenerateNextMipLevel(Image(1, 6, 4), true);
+	CHECK(tall.GetWidth() == 1);
+	CHECK(tall.GetHeight() == 3);
+	Image const single = GenerateNextMipLevel(Image(1, 1, 4), true);
+	CHECK(single.GetWidth() == 1);
+	CHECK(single.GetHeight() == 1);
 }
 
 TEST_CASE("SceneRenderer: renderer settings are serialized with the scene")

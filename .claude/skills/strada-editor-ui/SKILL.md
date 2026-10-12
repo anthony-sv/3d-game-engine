@@ -26,13 +26,14 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   beside asset fields). A table of
   your own rows that lines up with a field table (the script class picker above the script's fields) sets up its two
   stretched columns with the same share.
-- Asset references are FieldEditor asset fields (path box, `...` picker, `x`; give the editor the panel's
-  `AssetThumbnails` with `SetAssetPreviews` for images of the assets); an asset reference outside a field table uses
-  `FieldEditor::DrawAssetReference` (options: type, None in the picker, what `x` does). Text that names an asset
-  elsewhere uses `UI::DescribeAssetReference` and `UI::FitPath`. A field that UI of its own edits gets the
-  `HiddenInEditors` hint so the generic table skips it (Mesh.Materials: the material sections of Mesh components,
-  which go through `MaterialSlots`: the material of each slot, assigning and clearing one, editable copies; tested
-  without a UI).
+- Asset references are FieldEditor asset fields (path box, `...` picker, `x`; give the editor the editor's shared
+  `AssetThumbnails` with `SetAssetPreviews` for images of the assets: `EditorLayer` owns the one set, hands it to panels
+  through `SetThumbnails` and updates it before the panels draw, so never give a panel thumbnails of its own); an asset
+  reference outside a field table uses `FieldEditor::DrawAssetReference` (options: type, None in the picker, what `x`
+  does). Text that names an asset elsewhere uses `UI::DescribeAssetReference` and `UI::FitPath`. A field that UI of its
+  own edits gets the `HiddenInEditors` hint so the generic table skips it (Mesh.Materials: the material sections of Mesh
+  components, which go through `MaterialSlots`: the material of each slot, assigning and clearing one, editable copies;
+  tested without a UI).
 - One widget interaction must be one undo step: keep an `EditSession` per panel (unique key prefix), call
   `Update(ImGui::IsAnyItemActive(), history)` at the start of the panel, and pass `GetMergeKey()` to operations.
 - Report failed operations with `UI::ReportFailure(result, "Doing X")` (logged, shown in the console).

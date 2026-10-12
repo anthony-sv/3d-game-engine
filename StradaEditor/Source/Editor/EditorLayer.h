@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/AssetAutoRefresh.h"
+#include "Editor/AssetThumbnails.h"
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/AutomationServer.h"
 #include "Editor/Automation/CommandRegistry.h"
@@ -116,6 +117,8 @@ namespace Strada
 		void UpdateInstanceFile();
 		// Closes the editor once the parent process (EditorLayerSpecification::ParentProcessID) has exited.
 		void WatchParentProcess();
+		// Forgets the thumbnails of a project that is no longer open and makes what the panels asked for in the last frame.
+		void UpdateThumbnails();
 
 		// Runs the action now, or after the unsaved-changes prompt when the scene has unsaved changes.
 		void RequestSceneAction(SceneAction action, std::filesystem::path path = {});
@@ -150,6 +153,10 @@ namespace Strada
 		bool m_InstanceFileWritten = false;
 		std::chrono::steady_clock::time_point m_NextParentProcessCheck;
 
+		// Images of the open project's assets, made once for the content browser and the inspector, which draw from them
+		// (declared before them).
+		AssetThumbnails m_Thumbnails;
+		std::filesystem::path m_ThumbnailsProject;
 		ConsolePanel m_ConsolePanel;
 		RendererInfoPanel m_RendererInfoPanel;
 		SceneHierarchyPanel m_HierarchyPanel;

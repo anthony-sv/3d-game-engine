@@ -834,8 +834,9 @@ positions. A build is out of date when a C# source or project file is newer than
   wide as its longest path within the screen (rows that still do not fit are shortened the same way and show the path in
   their tooltips), opens on the current asset, filters as the user types, and Up and Down move through its rows, which
   Enter takes; it draws only the rows in view, so long lists stay quick. In the inspector the box and the picker's rows
-  start with a small image of the asset (textures, materials on a sphere, meshes, prefabs, environments, fonts;
-  `AssetThumbnails`), shown larger in the box's tooltip. With several entities selected it shows the components they
+  start with a small image of the asset (textures, materials on a sphere, meshes, prefabs, environments, fonts) from
+  the editor's one set of `AssetThumbnails`, which the content browser shares, so each image is made once; the images
+  are shown larger in the boxes' tooltips. With several entities selected it shows the components they
   share, flags fields whose values differ, and an edit sets only the edited value or vector component on every entity.
   One widget interaction (a drag, typing into a field) is one undo step. Add Component opens a menu with a search field
   above a submenu per component category (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the
@@ -860,11 +861,16 @@ positions. A build is out of date when a C# source or project file is newer than
   (`Scripts/Source`, `ScriptBrowsing`), beside the displayed folder as tiles (folders, then assets or scripts, then
   files that are not assets, such as a glTF scene's buffers) labeled with their file names on two lines (a long name
   keeps its extension in view: `LongMat...smat`), breadcrumbs, a tile size slider, and a search over the root's paths.
-  Textures show themselves, and materials (on a sphere), meshes, prefabs and environments show thumbnails that
-  `AssetThumbnails` renders offscreen, one per frame, again when the asset is reloaded, unloaded because its file
-  changed, or a material edited; fonts write "Aa" with their own glyphs (rasterized from the text renderer's
-  distance-field atlas); audio clips show their waveform and length, decoded on a worker thread one clip at a time
-  (`ComputeAudioWaveform`) and kept. Files without a picture get cards of the slate theme with a glyph and a band
+  Textures show small copies of themselves: decoded and halved on a worker thread, one texture at a time, until no side
+  is longer than 256 pixels (`AssetThumbnails::ShrinkTexture`, colors averaged in linear light), so showing a texture
+  never decodes, mip-maps or uploads the whole texture on the main thread. Materials (on a sphere), meshes, prefabs and
+  environments show thumbnails that `AssetThumbnails` renders offscreen, one per frame; every preview is made again when
+  its asset is reloaded, unloaded because its file changed, or a material edited. Fonts write "Aa" with their own glyphs
+  (rasterized from the text renderer's distance-field atlas); audio clips show their waveform and length, decoded on a
+  worker thread one clip at a time (`ComputeAudioWaveform`) and kept. The editor keeps one set of these previews for the
+  content browser and the inspector (`EditorLayer`; another project starts a new one) and updates it once per frame
+  before the panels draw, so an image is made once, whichever panel shows it, and the images it replaces are in no
+  frame's draw data. Files without a picture get cards of the slate theme with a glyph and a band
   naming their type, drawn with ImDrawList (a globe for scenes, a cube for prefabs, a wireframe for meshes, a shaded
   ball for materials, a picture for textures, a sunrise for environments, a speaker until a waveform is ready, "Aa" in
   the editor's font for unreadable fonts, a C# document for scripts, a page with the extension for other files);

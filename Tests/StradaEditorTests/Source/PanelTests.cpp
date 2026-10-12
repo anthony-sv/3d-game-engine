@@ -41,6 +41,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -49,6 +50,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -683,6 +685,11 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	EditorOperations operations(context);
 	ContentBrowserPanel browser;
 	InspectorPanel inspector;
+	// One set of thumbnails for both, updated before they draw as the editor does (without a renderer only the audio clips'
+	// waveforms are made).
+	AssetThumbnails thumbnails;
+	browser.SetThumbnails(&thumbnails);
+	inspector.SetThumbnails(&thumbnails);
 	bool browserOpen = true;
 	bool inspectorOpen = true;
 	auto const draw = [&]
@@ -694,6 +701,7 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	{
 		for (int frame = 0; frame < 3; frame++)
 		{
+			thumbnails.Update();
 			imgui.Frame(draw);
 		}
 	};
@@ -1024,6 +1032,27 @@ namespace
 			}
 		}
 		return std::nullopt;
+	}
+
+	// Whether the last frame drew the image in the window or in one of its child windows.
+	bool DrewImage(ImGuiWindow const* window, nvrhi::ITexture* image)
+	{
+		REQUIRE(window != nullptr);
+		ImTextureID const id = ImGuiRenderer::GetTextureID(image);
+		auto const drawsImage = [id](ImGuiWindow const* candidate)
+		{
+			return std::any_of(candidate->DrawList->CmdBuffer.begin(), candidate->DrawList->CmdBuffer.end(),
+			                   [id](ImDrawCmd const& command)
+			                   {
+								   return command.TexRef._TexData == nullptr && command.TexRef._TexID == id;
+							   });
+		};
+		return std::any_of(GImGui->Windows.begin(), GImGui->Windows.end(),
+		                   [&](ImGuiWindow const* candidate)
+		                   {
+							   bool const inside = candidate == window || (candidate->RootWindow == window && candidate->Active);
+							   return inside && drawsImage(candidate);
+						   });
 	}
 
 	// The list of the open asset picker: the child window of the open popup.
@@ -1389,7 +1418,7 @@ TEST_CASE("FieldEditor: asset fields show the asset's path, pick from a searchab
 	CHECK(last->Value == UUID::Invalid().ToString());
 }
 
-TEST_CASE("FieldEditor: asset fields and their picker show images of textures at once and of materials and meshes once rendered")
+TEST_CASE("FieldEditor: asset fields and their picker show images of the assets once their thumbnails are made")
 {
 	ST_REQUIRE_GPU();
 	Testing::AssetManagerScope const assets;
@@ -1423,37 +1452,42 @@ TEST_CASE("FieldEditor: asset fields and their picker show images of textures at
 			CHECK_FALSE(editor.Draw(decalFields, decalValues));
 			ImGui::End();
 		};
-		// Whether the last frame drew the image in the window.
-		auto const drawn = [](ImGuiWindow const* window, nvrhi::ITexture* image)
+		// Draws frames, updating the thumbnails before each as the editor does, until the assets have images or a generous
+		// time has passed (textures are shrunk on a worker thread); then one more frame shows them all.
+		auto const drawUntilMade = [&](std::vector<AssetHandle> const& shown)
 		{
-			REQUIRE(window != nullptr);
-			ImTextureID const id = ImGuiRenderer::GetTextureID(image);
-			return std::any_of(window->DrawList->CmdBuffer.begin(), window->DrawList->CmdBuffer.end(),
-			                   [id](ImDrawCmd const& command)
-			                   {
-								   return command.TexRef._TexData == nullptr && command.TexRef._TexID == id;
-							   });
+			auto const made = [&]
+			{
+				return std::all_of(shown.begin(), shown.end(),
+				                   [&](AssetHandle asset)
+				                   {
+									   return thumbnails.Get(asset) != nullptr;
+								   });
+			};
+			for (int attempt = 0; attempt < 1000 && !made(); attempt++)
+			{
+				thumbnails.Update();
+				imgui.Frame(draw);
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			}
+			thumbnails.Update();
+			imgui.Frame(draw);
 		};
 
+		// The fields ask for the images they show, which are made after: the first frame has none.
 		imgui.Frame(draw);
 		ImGuiWindow const* fields = ImGui::FindWindowByName("Fields");
 		ImGuiWindow const* decal = ImGui::FindWindowByName("Decal");
+		drawUntilMade({white, painted, cube});
 		nvrhi::ITexture* const whiteImage = thumbnails.Get(white);
-		REQUIRE(whiteImage != nullptr);
-		CHECK(drawn(decal, whiteImage));
-		// The fields ask for the thumbnails they show, which render one per update.
-		for (int i = 0; i < 3; i++)
-		{
-			thumbnails.Update();
-			imgui.Frame(draw);
-		}
 		nvrhi::ITexture* const materialImage = thumbnails.Get(painted);
 		nvrhi::ITexture* const meshImage = thumbnails.Get(cube);
+		REQUIRE(whiteImage != nullptr);
 		REQUIRE(materialImage != nullptr);
 		REQUIRE(meshImage != nullptr);
-		CHECK(drawn(fields, materialImage));
-		CHECK(drawn(fields, meshImage));
-		CHECK(drawn(decal, whiteImage));
+		CHECK(DrewImage(fields, materialImage));
+		CHECK(DrewImage(fields, meshImage));
+		CHECK(DrewImage(decal, whiteImage));
 
 		// The texture's picker shows the textures' images in its rows.
 		ImGuiID const table = ImHashStr("##fields", 0, decal->ID);
@@ -1466,19 +1500,99 @@ TEST_CASE("FieldEditor: asset fields and their picker show images of textures at
 		REQUIRE(pick);
 		imgui.Click(*pick, draw);
 		REQUIRE(GImGui->OpenPopupStack.Size == 1);
-		imgui.Frame(draw);
+		drawUntilMade({white, black});
+		REQUIRE(GImGui->OpenPopupStack.Size == 1);
 		ImGuiWindow const* list = FindPickerList();
 		REQUIRE(list != nullptr);
 		nvrhi::ITexture* const blackImage = thumbnails.Get(black);
 		REQUIRE(blackImage != nullptr);
-		CHECK(drawn(list, whiteImage));
-		CHECK(drawn(list, blackImage));
+		CHECK(DrewImage(list, whiteImage));
+		CHECK(DrewImage(list, blackImage));
 		imgui.Press(ImGuiKey_Escape, draw);
 		imgui.Press(ImGuiKey_Escape, draw);
 		imgui.Frame(draw);
 		CHECK(GImGui->OpenPopupStack.Size == 0);
 
 		AssetManager::RemoveMemoryAsset(painted);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+}
+
+TEST_CASE("Panels: the content browser and the inspector draw the same thumbnails, made once for both")
+{
+	ST_REQUIRE_GPU();
+	Testing::AssetManagerScope const assets;
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		HeadlessImGui imgui;
+		Testing::TemporaryDirectory temporary;
+		EditorContext context;
+		EditorOperations operations(context);
+		REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+		Image const swatch(512, 256, 4);
+		REQUIRE(swatch.WritePNG(context.GetProject()->GetAssetDirectory() / "Swatch.png").IsOk());
+		REQUIRE(operations.RefreshAssets().IsOk());
+		AssetHandle const texture = AssetManager::FindByPath("Swatch.png");
+		REQUIRE(texture.IsValid());
+		Result<AssetHandle> const material =
+			operations.CreateMaterial("Rock.smat", Json::object({{"BaseColorTexture", texture.ToString()}}));
+		REQUIRE(material.IsOk());
+		// The material in a mesh slot: its section's header and asset field show it, its Base Color Texture field the texture.
+		std::string const cube = GetBuiltInHandle(BuiltInAsset::CubeMesh).ToString();
+		std::vector<UUID> const rock = {
+			Create(operations, "Rock", Json::object({{"Mesh", {{"Mesh", cube}, {"Materials", {material.GetValue().ToString()}}}}}))};
+		REQUIRE(operations.Select(rock).IsOk());
+
+		AssetThumbnails thumbnails;
+		ContentBrowserPanel browser;
+		InspectorPanel inspector;
+		browser.SetThumbnails(&thumbnails);
+		inspector.SetThumbnails(&thumbnails);
+		bool browserOpen = true;
+		bool inspectorOpen = true;
+		auto const draw = [&]
+		{
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(600.0f, 1000.0f));
+			inspector.OnImGuiRender(operations, inspectorOpen);
+			ImGui::SetNextWindowPos(ImVec2(620.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(900.0f, 600.0f));
+			browser.OnImGuiRender(operations, browserOpen);
+		};
+		// Updated before the panels draw, as the editor does, until both images are made (the texture's on a worker thread).
+		for (int attempt = 0; attempt < 1000 && (thumbnails.Get(material.GetValue()) == nullptr || thumbnails.Get(texture) == nullptr);
+		     attempt++)
+		{
+			thumbnails.Update();
+			imgui.Frame(draw);
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		thumbnails.Update();
+		imgui.Frame(draw);
+		nvrhi::ITexture* const materialImage = thumbnails.Get(material.GetValue());
+		nvrhi::ITexture* const textureImage = thumbnails.Get(texture);
+		REQUIRE(materialImage != nullptr);
+		REQUIRE(textureImage != nullptr);
+		// The texture's thumbnail is a small image of its own, not a copy of the texture with its mip levels.
+		CHECK(textureImage->getDesc().width == AssetThumbnails::Size);
+		CHECK(textureImage->getDesc().height == AssetThumbnails::Size / 2);
+		CHECK(textureImage->getDesc().mipLevels == 1);
+
+		// Both panels draw the same images: one made for both.
+		ImGuiWindow const* inspectorWindow = ImGui::FindWindowByName("Inspector");
+		ImGuiWindow const* browserWindow = ImGui::FindWindowByName("Content Browser");
+		CHECK(DrewImage(inspectorWindow, materialImage));
+		CHECK(DrewImage(inspectorWindow, textureImage));
+		CHECK(DrewImage(browserWindow, materialImage));
+		CHECK(DrewImage(browserWindow, textureImage));
+		// Updating again makes nothing new: the images stay.
+		thumbnails.Update();
+		imgui.Frame(draw);
+		CHECK(thumbnails.Get(material.GetValue()) == materialImage);
+		CHECK(thumbnails.Get(texture) == textureImage);
+		CHECK(browserOpen);
+		CHECK(inspectorOpen);
 		GraphicsDevice::WaitForIdle();
 	}
 	Renderer::Shutdown();

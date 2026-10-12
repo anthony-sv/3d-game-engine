@@ -195,6 +195,8 @@ namespace Strada
 			m_ViewportPanel->SetOpenSceneCallback(openScene);
 			m_ContentBrowserPanel.SetOpenSceneCallback(openScene);
 			m_ContentBrowserPanel.SetScripts(&m_Scripts);
+			m_ContentBrowserPanel.SetThumbnails(&m_Thumbnails);
+			m_InspectorPanel.SetThumbnails(&m_Thumbnails);
 			m_ContentBrowserPanel.SetNewScriptCallback(
 				[this](std::string const& folder)
 				{
@@ -363,6 +365,20 @@ namespace Strada
 			});
 	}
 
+	void EditorLayer::UpdateThumbnails()
+	{
+		Project const* project = m_Context.GetProject();
+		std::filesystem::path const projectFile = project != nullptr ? project->GetFilePath() : std::filesystem::path();
+		if (projectFile != m_ThumbnailsProject)
+		{
+			m_Thumbnails.Clear();
+			m_ThumbnailsProject = projectFile;
+		}
+		// Before the panels draw: what they asked for in the last frame shows in this one, and the images this replaces or
+		// forgets are in no draw data yet.
+		m_Thumbnails.Update();
+	}
+
 	void EditorLayer::RequestScreenshotAtFrame(std::filesystem::path path, uint64_t frame)
 	{
 		m_ScreenshotPath = std::move(path);
@@ -371,6 +387,7 @@ namespace Strada
 
 	void EditorLayer::OnImGuiRender()
 	{
+		UpdateThumbnails();
 		// The menu bar and the toolbar take their space from the main viewport before the dockspace fills the rest.
 		DrawMenuBar();
 		DrawToolbar();

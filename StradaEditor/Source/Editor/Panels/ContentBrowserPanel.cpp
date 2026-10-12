@@ -1,6 +1,7 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 
 #include "Editor/AssetBrowsing.h"
+#include "Editor/AssetThumbnails.h"
 #include "Editor/FileDialogs.h"
 #include "Editor/ScriptBrowsing.h"
 #include "Editor/UI/EditorUI.h"
@@ -670,7 +671,6 @@ namespace Strada
 			m_Notice.reset();
 			m_Listing.Valid = false;
 			m_Subfolders.clear();
-			m_Thumbnails.Clear();
 		}
 		if (!visible)
 		{
@@ -713,7 +713,6 @@ namespace Strada
 		}
 		HandleShortcuts(context);
 		DrawDeletePopup(operations);
-		m_Thumbnails.Update();
 
 		std::vector<std::function<void()>> deferred;
 		deferred.swap(m_Deferred);
@@ -1288,7 +1287,7 @@ namespace Strada
 		if (item.Type == AssetType::AudioClip)
 		{
 			Box const area = DrawCard(drawList, card, style, cardColor);
-			if (AudioWaveform const* waveform = m_Thumbnails.GetWaveform(item.Asset))
+			if (AudioWaveform const* waveform = m_Thumbnails != nullptr ? m_Thumbnails->GetWaveform(item.Asset) : nullptr)
 			{
 				float const margin = area.Width() * 0.08f;
 				float const labelSize = GetBandLabelSize();
@@ -1307,7 +1306,7 @@ namespace Strada
 		{
 			Box const area = DrawCard(drawList, card, style, cardColor);
 			Box const glyph = Square(area, 0.06f);
-			if (nvrhi::ITexture* const sample = m_Thumbnails.Get(item.Asset))
+			if (nvrhi::ITexture* const sample = m_Thumbnails != nullptr ? m_Thumbnails->Get(item.Asset) : nullptr)
 			{
 				drawList->AddImage(ImGuiRenderer::GetTextureID(sample), glyph.Min, glyph.Max, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
 				                   InkColor);
@@ -1317,7 +1316,7 @@ namespace Strada
 				DrawTypographyGlyph(drawList, glyph, MutedInkColor);
 			}
 		}
-		else if (nvrhi::ITexture* const thumbnail = m_Thumbnails.Get(item.Asset))
+		else if (nvrhi::ITexture* const thumbnail = m_Thumbnails != nullptr ? m_Thumbnails->Get(item.Asset) : nullptr)
 		{
 			// Textures keep their aspect ratio; rendered thumbnails are square. A strip of the type's color underneath.
 			float const rounding = GetCardRounding(card);
@@ -1372,7 +1371,7 @@ namespace Strada
 			// Red: the file is gone.
 			DrawCornerBadge(drawList, card, tileSize, MissingBadgeColor);
 		}
-		else if (m_Thumbnails.GetLoadError(item.Asset) != nullptr)
+		else if (m_Thumbnails != nullptr && m_Thumbnails->GetLoadError(item.Asset) != nullptr)
 		{
 			// Amber: the file is there but cannot be read.
 			DrawCornerBadge(drawList, card, tileSize, BrokenBadgeColor);
@@ -1393,7 +1392,8 @@ namespace Strada
 			case ItemKind::Asset:
 			{
 				ImGui::TextDisabled("%s", UI::FormatDisplayName(AssetTypeToString(item.Type)).c_str());
-				if (AudioWaveform const* waveform = item.Type == AssetType::AudioClip ? m_Thumbnails.GetWaveform(item.Asset) : nullptr)
+				if (AudioWaveform const* waveform =
+				        item.Type == AssetType::AudioClip && m_Thumbnails != nullptr ? m_Thumbnails->GetWaveform(item.Asset) : nullptr)
 				{
 					ImGui::TextDisabled("%s, %u Hz, %s", UI::FormatDuration(waveform->Duration).c_str(), waveform->SampleRate,
 					                    DescribeChannels(waveform->ChannelCount).c_str());
@@ -1402,7 +1402,7 @@ namespace Strada
 				{
 					ImGui::TextColored(MissingColor, "The file is missing.");
 				}
-				else if (std::string const* error = m_Thumbnails.GetLoadError(item.Asset))
+				else if (std::string const* error = m_Thumbnails != nullptr ? m_Thumbnails->GetLoadError(item.Asset) : nullptr)
 				{
 					ImGui::PushTextWrapPos(ImGui::GetFontSize() * 32.0f);
 					ImGui::PushStyleColor(ImGuiCol_Text, BrokenColor);

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Editor/AssetThumbnails.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
@@ -10,7 +9,6 @@
 #include "Strada/Scene/ComponentRegistry.h"
 
 #include <cstddef>
-#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
@@ -18,6 +16,8 @@
 
 namespace Strada
 {
+	class AssetThumbnails;
+
 	// Edits the selected entities: name, the components they all have (fields generated from the component registry, one
 	// undo step per widget interaction; Script components get a class picker and the fields of their script class; Mesh
 	// components a section per material slot with the material's parameters), and adding (a searchable menu of the
@@ -25,12 +25,17 @@ namespace Strada
 	// primary entity's values are shown, fields whose values differ are flagged, and an edit changes only the edited value
 	// (or vector component) on every selected entity. Without selected entities it shows the asset selected in the content
 	// browser: its details, the parameters of material files (editable, one undo step per interaction; built-in and
-	// imported materials are read-only and can be copied to a material file), a texture preview and mesh statistics. Main
-	// thread only.
+	// imported materials are read-only and can be copied to a material file), a texture preview and mesh statistics. Images
+	// of assets (in asset fields, the asset picker's rows and the material headers and previews) come from SetThumbnails.
+	// Main thread only.
 	class InspectorPanel
 	{
 	public:
 		InspectorPanel();
+
+		// The images of assets: the editor's set, which the content browser shares and the editor updates once per frame
+		// before the panels draw. Not owned; without them asset fields show paths only.
+		void SetThumbnails(AssetThumbnails* thumbnails);
 
 		void OnImGuiRender(EditorOperations& operations, bool& open);
 		// In the next frame, brings the inspector to the front with its Add Component menu open and the search text typed in
@@ -75,9 +80,7 @@ namespace Strada
 
 		FieldEditor m_FieldEditor;
 		std::vector<FieldDescriptor> m_MaterialFields;
-		// Material previews, kept for the project they were made for.
-		AssetThumbnails m_Previews;
-		std::filesystem::path m_PreviewProject;
+		AssetThumbnails* m_Thumbnails = nullptr;
 		EditSession m_EditSession;
 		// Search text of the Add Component menu; while it is empty the menu shows the categories.
 		std::string m_AddComponentFilter;

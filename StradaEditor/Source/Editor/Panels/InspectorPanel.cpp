@@ -1,6 +1,7 @@
 #include "Editor/Panels/InspectorPanel.h"
 
 #include "Editor/AssetDrops.h"
+#include "Editor/AssetThumbnails.h"
 #include "Editor/ComponentInspection.h"
 #include "Editor/MaterialSlots.h"
 #include "Editor/ScriptFieldInspection.h"
@@ -24,6 +25,7 @@
 #include <imgui_stdlib.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -182,7 +184,12 @@ namespace Strada
 		: m_MaterialFields(GetFieldDescriptors<StructTraits<MaterialData>, MaterialData>()),
 		  m_EditSession(MergeKeyPrefix)
 	{
-		m_FieldEditor.SetAssetPreviews(&m_Previews);
+	}
+
+	void InspectorPanel::SetThumbnails(AssetThumbnails* thumbnails)
+	{
+		m_Thumbnails = thumbnails;
+		m_FieldEditor.SetAssetPreviews(thumbnails);
 	}
 
 	void InspectorPanel::ShowAddComponentMenu(bool open, std::string search)
@@ -202,21 +209,11 @@ namespace Strada
 		{
 			ImGui::SetNextWindowFocus();
 		}
-		// Previews belong to the project's assets.
-		Project const* project = operations.GetContext().GetProject();
-		std::filesystem::path const projectFile = project != nullptr ? project->GetFilePath() : std::filesystem::path();
-		if (projectFile != m_PreviewProject)
-		{
-			m_Previews.Clear();
-			m_PreviewProject = projectFile;
-		}
 		if (ImGui::Begin("Inspector", &open))
 		{
 			DrawContents(operations, menuRequest);
 		}
 		ImGui::End();
-		// Previews requested while drawing render now, one per frame.
-		m_Previews.Update();
 	}
 
 	void InspectorPanel::DrawContents(EditorOperations& operations, std::optional<bool> menuRequest)
@@ -822,7 +819,7 @@ namespace Strada
 	void InspectorPanel::DrawMaterial(EditorOperations& operations, AssetMetadata const& metadata)
 	{
 		// The material on a sphere, as the content browser shows it; edits show as soon as they render.
-		if (nvrhi::ITexture* preview = m_Previews.Get(metadata.Handle))
+		if (nvrhi::ITexture* preview = m_Thumbnails != nullptr ? m_Thumbnails->Get(metadata.Handle) : nullptr)
 		{
 			float const size = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetFontSize() * MaterialPreviewSizeInFontSizes);
 			ImGui::Image(ImGuiRenderer::GetTextureID(preview), ImVec2(size, size));
@@ -924,7 +921,7 @@ namespace Strada
 		ImVec2 const previewMin(min.x + padding.x * 2.0f + fontSize, min.y + padding.y);
 		ImVec2 const previewMax(previewMin.x + textHeight, max.y - padding.y);
 		float const rounding = style.FrameRounding;
-		if (nvrhi::ITexture* preview = registered ? m_Previews.Get(material) : nullptr)
+		if (nvrhi::ITexture* preview = registered && m_Thumbnails != nullptr ? m_Thumbnails->Get(material) : nullptr)
 		{
 			drawList->AddImageRounded(ImGuiRenderer::GetTextureID(preview), previewMin, previewMax, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
 			                          IM_COL32_WHITE, rounding);
