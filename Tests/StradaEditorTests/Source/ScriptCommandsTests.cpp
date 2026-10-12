@@ -139,6 +139,14 @@ TEST_CASE("ScriptCommands: scripts are created, built, hot reloaded and reported
 	CHECK(created["class"] == "Game.Player");
 	CHECK(fixture.Fails("script.create", Json::object({{"className", "Player"}})) == AutomationErrorCode::FileError);
 	CHECK(fixture.Fails("script.create", Json::object({{"className", "class"}})) == AutomationErrorCode::InvalidOperation);
+	// In a folder of the sources; a second Player anywhere would declare the class twice.
+	Json const inFolder = fixture.Ok("script.create", Json::object({{"className", "Brain"}, {"folder", "AI/Steering"}}));
+	CHECK(inFolder["path"] == "Scripts/Source/AI/Steering/Brain.cs");
+	CHECK(inFolder["class"] == "Game.Brain");
+	CHECK(fixture.Fails("script.create", Json::object({{"className", "Player"}, {"folder", "AI"}})) == AutomationErrorCode::FileError);
+	CHECK(fixture.Fails("script.create", Json::object({{"className", "Outside"}, {"folder", "../.."}})) ==
+	      AutomationErrorCode::InvalidParams);
+	CHECK_FALSE(FileSystem::Exists(fixture.Directory.GetPath() / "Game" / "Outside.cs"));
 
 	Json const built = fixture.Ok("script.build");
 	CAPTURE(built.dump());

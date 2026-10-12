@@ -361,14 +361,28 @@ TEST_CASE("AssetManager: failed loads are remembered until a refresh")
 	REQUIRE(AssetManager::OpenAssetDirectory(project.Assets).IsOk());
 
 	AssetHandle const broken = Find("Textures/Broken.png");
+	CHECK_FALSE(AssetManager::HasLoadFailure(broken));
 	Result<Ref<Asset>> const first = AssetManager::LoadAsset(broken);
 	REQUIRE(first.IsError());
 	CHECK(first.GetError().find("Textures/Broken.png") != std::string::npos);
+	CHECK(AssetManager::HasLoadFailure(broken));
 
 	WritePng(project.Assets / "Textures" / "Broken.png", 9);
 	CHECK(AssetManager::LoadAsset(broken).GetError() == first.GetError());
+	CHECK(AssetManager::HasLoadFailure(broken));
 	REQUIRE(AssetManager::Refresh().IsOk());
+	CHECK_FALSE(AssetManager::HasLoadFailure(broken));
 	CHECK(AssetManager::GetAsset<TextureAsset>(broken));
+	CHECK_FALSE(AssetManager::HasLoadFailure(broken));
+
+	// A reload forgets the failure too.
+	WriteBytes(project.Assets / "Textures" / "Broken.png", {1, 2, 3, 4, 5});
+	CHECK(AssetManager::ReloadAsset(broken).IsError());
+	CHECK(AssetManager::HasLoadFailure(broken));
+	WritePng(project.Assets / "Textures" / "Broken.png", 9);
+	CHECK(AssetManager::ReloadAsset(broken).IsOk());
+	CHECK_FALSE(AssetManager::HasLoadFailure(broken));
+	CHECK_FALSE(AssetManager::HasLoadFailure(AssetHandle()));
 }
 
 TEST_CASE("AssetManager: moving, deleting and importing keep the registry consistent")

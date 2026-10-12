@@ -26,6 +26,8 @@ an exporter for distributable games.
 - **Physics**: Jolt Physics, authored through components and controlled from scripts: rigid bodies, colliders, triggers,
   joints and character controllers that walk, climb steps and slopes, jump and push things.
 - **Audio**: miniaudio with 3D spatialization.
+- **UI**: screen-space HUDs and menus built from entities: canvases that fit any screen, anchored rectangles, images
+  with rounded corners, wrapped text and buttons that scripts hear.
 - **Scripting**: C# on .NET 10, hosted in-process, with hot reload in the editor
   ([scripting guide](Docs/Scripting.md)).
 - **Editor**: docking + multi-viewport ImGui, gizmos, undo/redo, play mode, content browser.

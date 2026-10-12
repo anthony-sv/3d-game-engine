@@ -108,6 +108,19 @@ namespace Strada
 		glm::vec4 SelectionColor = glm::vec4(1.0f, 0.55f, 0.1f, 1.0f);
 		// Pixels, clamped to 1-8.
 		uint32_t SelectionOutlineWidth = 2;
+		// Debug lines (SubmitLine), anti-aliased: their width in pixels (clamped to MinLineWidth-MaxLineWidth) and an
+		// outline on each side (pixels, clamped to 0-MaxLineOutlineWidth) that keeps light lines visible on bright
+		// surfaces. The outline color is sRGB-encoded with straight alpha.
+		float LineWidth = 1.5f;
+		float LineOutlineWidth = 0.0f;
+		glm::vec4 LineOutlineColor = glm::vec4(0.0f, 0.0f, 0.0f, 0.6f);
+		// Opacity of the parts of depth-tested lines that surfaces hide (clamped to 0-1): 0 hides them, values between
+		// show them dimmed.
+		float OccludedLineOpacity = 0.0f;
+
+		static constexpr float MinLineWidth = 0.5f;
+		static constexpr float MaxLineWidth = 16.0f;
+		static constexpr float MaxLineOutlineWidth = 8.0f;
 	};
 
 	struct SceneRendererStatistics
@@ -121,7 +134,7 @@ namespace Strada
 		uint32_t ShadowMapViews = 0;
 		// Shadow-casting local lights that did not fit the shadow map budget (MaxLocalShadowSlices).
 		uint32_t ShadowsDropped = 0;
-		// Sprites and text glyphs.
+		// Sprites, text glyphs and UI rectangles.
 		uint32_t Quads = 0;
 		// Submeshes outside the camera's frustum or beyond its MaxDistance, which the camera's passes skip (shadow casters
 		// among them still reach the shadow maps).
@@ -178,8 +191,9 @@ namespace Strada
 		// Uniform ambient light (linear color times intensity), used when there is no environment; also the background.
 		void SetAmbientLight(glm::vec3 const& radiance);
 		void SetEnvironment(EnvironmentSubmission const& environment);
-		// Debug line in world space, drawn after tonemapping (color sRGB-encoded, straight alpha). Depth-tested lines are
-		// hidden behind surfaces.
+		// Debug line in world space, drawn after tonemapping (color sRGB-encoded, straight alpha) in the width and outline of
+		// the frame's overlays. Depth-tested lines are hidden behind surfaces, or dimmed there
+		// (SceneRendererOverlays::OccludedLineOpacity); the others are drawn over everything.
 		void SubmitLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, bool depthTest = true);
 		void SetOverlays(SceneRendererOverlays const& overlays);
 		// Records and submits the frame.
@@ -223,10 +237,13 @@ namespace Strada
 			nvrhi::IGraphicsPipeline* EntityIdPipeline = nullptr;
 		};
 
-		struct LineVertex
+		// One instance of the line quad (OverlayLines.hlsl).
+		struct LineInstance
 		{
-			glm::vec3 Position;
+			glm::vec3 From;
+			glm::vec3 To;
 			glm::vec4 Color;
+			uint32_t DepthTested = 1;
 		};
 
 		struct LocalShadowLight
@@ -284,6 +301,8 @@ namespace Strada
 		void RenderEntityIds(nvrhi::ICommandList* commandList);
 		// Grid, UI placed in the world and lines onto the tonemapped image (before FXAA when it is enabled).
 		void RenderOverlays(nvrhi::ICommandList* commandList, bool ldrTarget);
+		// The line layer at the viewport's size and the pipeline that draws into it (before recording; lines need them).
+		void CreateLineLayer();
 		void RenderSelectionOutline(nvrhi::ICommandList* commandList);
 		void CreateOverlayPipelines();
 
@@ -397,22 +416,28 @@ namespace Strada
 
 		// Editor overlays.
 		SceneRendererOverlays m_Overlays;
-		std::vector<LineVertex> m_DepthTestedLines;
-		std::vector<LineVertex> m_OnTopLines;
+		std::vector<LineInstance> m_Lines;
 		bool m_HasSelection = false;
 		nvrhi::BufferHandle m_OverlayConstants;
-		nvrhi::BufferHandle m_LineVertexBuffer;
+		nvrhi::BufferHandle m_LineBuffer;
 		nvrhi::InputLayoutHandle m_LineInputLayout;
 		nvrhi::BindingLayoutHandle m_LineLayout;
 		nvrhi::BindingSetHandle m_LineBindings;
-		// [depth tested]
-		nvrhi::GraphicsPipelineHandle m_LinePipelines[2];
+		nvrhi::GraphicsPipelineHandle m_LinePipeline;
+		// Lines are drawn into a layer (keeping the line nearest to each pixel, by the distance in its depth) that is then
+		// blended over the image. Created when lines are first drawn at a size.
+		nvrhi::TextureHandle m_LineLayer;
+		nvrhi::TextureHandle m_LineLayerDepth;
+		nvrhi::FramebufferHandle m_LineLayerFramebuffer;
+		nvrhi::BindingLayoutHandle m_LineCompositeLayout;
+		nvrhi::BindingSetHandle m_LineCompositeBindings;
+		nvrhi::GraphicsPipelineHandle m_LineCompositePipeline;
 		nvrhi::BindingLayoutHandle m_GridLayout;
 		nvrhi::BindingSetHandle m_GridBindings;
 		nvrhi::GraphicsPipelineHandle m_GridPipeline;
-		// Tonemapped / final image with the scene depth attached read-only (depth-tested lines).
-		nvrhi::FramebufferHandle m_LdrOverlayFramebuffer;
-		nvrhi::FramebufferHandle m_FinalOverlayFramebuffer;
+		// Tonemapped / final image with the scene depth attached read-only (the UI placed in the world).
+		nvrhi::FramebufferHandle m_LdrWorldUIFramebuffer;
+		nvrhi::FramebufferHandle m_FinalWorldUIFramebuffer;
 
 		// Entity IDs and picking.
 		bool m_EntityIdsEnabled = false;

@@ -6,6 +6,7 @@ add_executable(StradaEditorTests
     Source/AutomationFuzzTests.cpp
     Source/AutomationServerTests.cpp
     Source/CommandRegistryTests.cpp
+    Source/ContentBrowsingTests.cpp
     Source/EditorCameraTests.cpp
     Source/EditorCommandsTests.cpp
     Source/EditorOperationsTests.cpp

@@ -2,13 +2,12 @@
 #include "Strada/Audio/AudioScene.h"
 
 #include "Strada/Asset/AudioClipAsset.h"
+#include "Strada/Audio/AudioDecoder.h"
 #include "Strada/Audio/AudioEngine.h"
+#include "Strada/Audio/AudioStream.h"
 #include "Strada/Audio/MiniaudioContext.h"
 
-#include <extras/decoders/libvorbis/miniaudio_libvorbis.h>
-
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <unordered_map>
 
@@ -16,36 +15,20 @@ namespace Strada
 {
 	namespace
 	{
-		ma_encoding_format ToEncodingFormat(AudioFormat format)
-		{
-			switch (format)
-			{
-				case AudioFormat::Wav:
-					return ma_encoding_format_wav;
-				case AudioFormat::Flac:
-					return ma_encoding_format_flac;
-				case AudioFormat::Mp3:
-					return ma_encoding_format_mp3;
-				case AudioFormat::Ogg:
-					// libvorbis decodes it: miniaudio offers custom backends the data whose encoding it is not told.
-				case AudioFormat::Unknown:
-					break;
-			}
-			return ma_encoding_format_unknown;
-		}
-
 		bool IsFinite(glm::vec3 const& value)
 		{
 			return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 		}
 
-		// A clip played through its own decoder, so every sound has its own read position.
+		// A loaded clip plays through its own decoder of the clip's data, so every sound has its own read position; a streamed
+		// sound plays its stream.
 		struct Sound
 		{
 			Ref<AudioClipAsset> Clip;
-			ma_decoder Decoder{};
+			Scope<AudioMemoryFile> ClipData;
+			Scope<AudioDecoder> Decoder;
+			Ref<AudioStream> Stream;
 			ma_sound Handle{};
-			bool HasDecoder = false;
 			bool HasHandle = false;
 			bool Spatial = true;
 			glm::vec3 Position = glm::vec3(0.0f);
@@ -53,14 +36,18 @@ namespace Strada
 			Sound() = default;
 			~Sound()
 			{
-				// The sound reads from the decoder, which reads from the clip's data.
+				// The mixer reads the decoder or the stream until the sound is uninitialized; then the stream can leave the
+				// streaming thread, and the decoder and the clip's data go with the sound.
 				if (HasHandle)
 				{
 					ma_sound_uninit(&Handle);
 				}
-				if (HasDecoder)
+				if (Stream)
 				{
-					ma_decoder_uninit(&Decoder);
+					if (AudioStreamer* streamer = Miniaudio::GetStreamer())
+					{
+						streamer->Remove(*Stream);
+					}
 				}
 			}
 
@@ -136,34 +123,51 @@ namespace Strada
 
 	Result<void> AudioScene::AddSource(AudioSourceDesc const& desc)
 	{
-		if (!desc.Clip)
+		if (!desc.Clip && desc.StreamFile.empty())
 		{
 			return Error{"the audio source has no clip"};
 		}
 
 		Scope<Sound> sound = CreateScope<Sound>();
-		sound->Clip = desc.Clip;
-		std::span<uint8_t const> const data = sound->Clip->GetData();
-		ma_decoder_config decoderConfig = ma_decoder_config_init(ma_format_f32, 0, 0);
-		decoderConfig.encodingFormat = ToEncodingFormat(sound->Clip->GetFormat());
-		// Read only while the decoder initializes.
-		std::array<ma_decoding_backend_vtable*, 1> customBackends = {ma_decoding_backend_libvorbis};
-		decoderConfig.ppCustomBackendVTables = customBackends.data();
-		decoderConfig.customBackendCount = static_cast<ma_uint32>(customBackends.size());
-		if (ma_result const result = ma_decoder_init_memory(data.data(), data.size(), &decoderConfig, &sound->Decoder);
-		    result != MA_SUCCESS)
+		ma_data_source* dataSource = nullptr;
+		AudioStreamer* const streamer = Miniaudio::GetStreamer();
+		if (!desc.StreamFile.empty())
 		{
-			return MakeError("the {} clip cannot be decoded: {}", AudioFormatToString(sound->Clip->GetFormat()),
-			                 ma_result_description(result));
+			if (streamer == nullptr)
+			{
+				return Error{"sounds cannot stream: the audio streaming thread is not running"};
+			}
+			Result<Ref<AudioStream>> stream = AudioStream::Open(desc.StreamFile, Miniaudio::GetStreamFileOpener());
+			if (!stream)
+			{
+				return Error{stream.GetError()};
+			}
+			sound->Stream = stream.TakeValue();
+			dataSource = sound->Stream->GetDataSource();
 		}
-		sound->HasDecoder = true;
-		if (ma_result const result =
-		        ma_sound_init_from_data_source(&Miniaudio::GetEngine(), &sound->Decoder, 0, &m_Data->Group, &sound->Handle);
+		else
+		{
+			sound->Clip = desc.Clip;
+			sound->ClipData = CreateScope<AudioMemoryFile>(sound->Clip->GetData());
+			Result<Scope<AudioDecoder>> decoder = AudioDecoder::Create(sound->Clip->GetFormat(), *sound->ClipData);
+			if (!decoder)
+			{
+				return MakeError("the {} clip cannot be decoded: {}", AudioFormatToString(sound->Clip->GetFormat()), decoder.GetError());
+			}
+			sound->Decoder = decoder.TakeValue();
+			dataSource = sound->Decoder->GetDataSource();
+		}
+		if (ma_result const result = ma_sound_init_from_data_source(&Miniaudio::GetEngine(), dataSource, 0, &m_Data->Group, &sound->Handle);
 		    result != MA_SUCCESS)
 		{
 			return MakeError("the sound cannot be created: {}", ma_result_description(result));
 		}
 		sound->HasHandle = true;
+		if (sound->Stream)
+		{
+			// Decoding starts now, so a sound played right away is heard within moments.
+			streamer->Add(sound->Stream);
+		}
 
 		ma_sound_set_positioning(&sound->Handle, ma_positioning_relative);
 		ma_sound_set_attenuation_model(&sound->Handle, ma_attenuation_model_inverse);
@@ -191,6 +195,12 @@ namespace Strada
 		return m_Data->Sounds.contains(entity);
 	}
 
+	bool AudioScene::IsStreaming(UUID entity) const
+	{
+		Sound const* sound = m_Data->Find(entity);
+		return sound != nullptr && sound->Stream != nullptr;
+	}
+
 	size_t AudioScene::GetSourceCount() const
 	{
 		return m_Data->Sounds.size();
@@ -207,6 +217,11 @@ namespace Strada
 				ma_sound_stop(&sound->Handle);
 			}
 			ma_sound_start(&sound->Handle);
+			if (sound->Stream)
+			{
+				// Starting over at the end seeks the stream: usually to samples it holds, otherwise it reads them now.
+				Miniaudio::GetStreamer()->Wake();
+			}
 		}
 	}
 
@@ -223,8 +238,17 @@ namespace Strada
 		if (Sound* sound = m_Data->Find(entity))
 		{
 			ma_sound_stop(&sound->Handle);
-			// Applied by the mixer when the sound plays again.
-			ma_sound_seek_to_pcm_frame(&sound->Handle, 0);
+			if (sound->Stream)
+			{
+				// The streaming thread reads the start again while the sound is stopped.
+				sound->Stream->Seek(0);
+				Miniaudio::GetStreamer()->Wake();
+			}
+			else
+			{
+				// Applied by the mixer when the sound plays again.
+				ma_sound_seek_to_pcm_frame(&sound->Handle, 0);
+			}
 		}
 	}
 

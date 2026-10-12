@@ -3,6 +3,7 @@
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/Viewport/PickingIdMap.h"
+#include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
@@ -31,25 +32,6 @@ namespace Strada
 	{
 		Local = 0,
 		World
-	};
-
-	// What the scene view draws over the scene (View > Overlays in its toolbar).
-	struct SceneViewOverlays
-	{
-		bool Grid = true;
-		bool SelectionOutline = true;
-		// Icons of cameras and lights (they can be clicked to select).
-		bool Icons = true;
-		// Frustums of selected cameras, directions, ranges and cones of selected lights, outlines of selected colliders and
-		// character capsules (shown through the character's model), selected joints and the boxes of selected local
-		// post-process volumes.
-		bool SelectionShapes = true;
-		// Outlines of every collider and character capsule, selected or not.
-		bool AllColliders = false;
-		// Lines scripts draw (Debug.DrawLine).
-		bool DebugLines = true;
-		// The UI of each canvas in its entity's plane with the canvas's outline (CanvasOverlay).
-		bool Canvases = true;
 	};
 
 	// The Scene View: the scene (the edited one, or the running one while playing) from the editor camera with the editor
@@ -100,6 +82,8 @@ namespace Strada
 		void ApplyPickResult(EditorOperations& operations);
 		// Applies an asset dropped onto the viewport image at a pixel.
 		void ApplyAssetDrop(EditorOperations& operations, AssetHandle asset, glm::vec2 const& pixel, glm::vec2 const& imageSize);
+		// Picks the entity under a pixel for a material or a C# source dropped there (the pick result applies it).
+		void PickDropTarget(glm::vec2 const& pixel, AssetHandle material, std::filesystem::path script);
 		void DrawToolbar();
 
 		EditorCamera m_Camera;
@@ -112,11 +96,13 @@ namespace Strada
 		// Picking IDs belong to one scene (EditorContext::GetSceneVersion).
 		PickingIdMap m_PickingIds;
 		uint64_t m_PickingSceneVersion = 0;
-		// What the awaited pick result is for: a selection click, or a dropped material (assigned to the picked entity).
+		// What the awaited pick result is for: a selection click, a dropped material (assigned to the picked entity) or a dropped
+		// C# source (its class added to the picked entity).
 		struct PendingPick
 		{
 			SelectionMode Mode = SelectionMode::Replace;
 			AssetHandle Material;
+			std::filesystem::path Script;
 		};
 		std::optional<PendingPick> m_PendingPick;
 		// A pick requested for a previous scene is still in flight: its result is dropped.
@@ -135,6 +121,7 @@ namespace Strada
 		uint64_t m_GizmoDragCount = 0;
 
 		SceneViewOverlays m_Overlays;
+		ViewportOverlays::MeshColliderOutlineCache m_MeshColliderOutlines;
 		glm::uvec2 m_ViewportSize = glm::uvec2(1280, 720);
 
 		OpenSceneCallback m_OpenScene;

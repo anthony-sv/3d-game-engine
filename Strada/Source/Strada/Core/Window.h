@@ -48,6 +48,9 @@ namespace Strada
 		static void WaitEvents(double timeoutSeconds);
 
 		void SetEventCallback(EventCallbackFn callback);
+		// Files dropped onto another GLFW window of the application (the platform window of an ImGui panel dragged out of
+		// this one) reach this window's event callback as WindowFileDropEvents. Takes over the other window's user pointer.
+		void ForwardFileDrops(GLFWwindow* window);
 
 		// Framebuffer size in pixels (what the swapchain uses). Zero while minimized.
 		uint32_t GetWidth() const { return m_Data.FramebufferWidth; }

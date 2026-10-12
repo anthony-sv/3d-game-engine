@@ -7,6 +7,7 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <span>
 #include <string>
@@ -66,6 +67,44 @@ namespace
 		return ReadFile(path);
 	}
 
+	// A "glTF Separate" export: the JSON names its buffer (Separate.bin) and a texture (textures/Albedo.png) beside it.
+	std::vector<uint8_t> MakeSeparateGltfSeed(Testing::TemporaryDirectory const& directory)
+	{
+		REQUIRE(Image(2, 2, 4).WritePNG(directory.GetPath() / "textures" / "Albedo.png").IsOk());
+		GltfTestBuilder builder;
+		int const texture = builder.AddTexture(builder.AddImageUri("textures/Albedo.png"));
+		Json material = Json::object();
+		material["pbrMetallicRoughness"] = Json::object({{"baseColorTexture", Json::object({{"index", texture}})}});
+		GltfTestBuilder::Primitive quad;
+		quad.Positions = {{-0.5f, 0.5f, 0.0f}, {-0.5f, -0.5f, 0.0f}, {0.5f, -0.5f, 0.0f}, {0.5f, 0.5f, 0.0f}};
+		quad.TexCoords = {{0.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 1.0f}, {1.0f, 0.0f}};
+		quad.Indices = {0, 1, 2, 0, 2, 3};
+		quad.Material = builder.AddMaterial(std::move(material));
+		builder.SetScene({builder.AddNode("Quad", builder.AddMesh("Quad", {quad}))});
+		std::filesystem::path const path = directory.GetPath() / "Separate.gltf";
+		REQUIRE(builder.WriteGltf(path, false).IsOk());
+		return ReadFile(path);
+	}
+
+	// The files a model reads besides itself are found without importing it, or the model is refused: each existing file
+	// once, inside the model's directory.
+	void CheckExternalFiles(std::filesystem::path const& path)
+	{
+		Result<std::vector<std::filesystem::path>> const external = MeshImporter::FindExternalFiles(path);
+		if (!external)
+		{
+			return;
+		}
+		std::vector<std::filesystem::path> const& files = external.GetValue();
+		for (auto file = files.begin(); file != files.end(); ++file)
+		{
+			CHECK(FileSystem::IsRegularFile(*file));
+			CHECK(FileSystem::IsInside(*file, path.parent_path()));
+			CHECK(*file != path.lexically_normal());
+			CHECK(std::find(files.begin(), file, *file) == file);
+		}
+	}
+
 	void Damage(std::vector<uint8_t>& data, Testing::FuzzRandom& random)
 	{
 		for (size_t count = 1 + random.Pick(4); count > 0 && data.size() > 1; count--)
@@ -123,6 +162,7 @@ TEST_CASE("MeshImporter: damaged model files are refused or import to valid mesh
 	std::vector<ModelSeed> const seeds = {
 		{".glb", MakeGlbSeed(directory), {}},
 		{".glb", ReadFile(FileSystem::PathFromUtf8(STRADA_TEST_CGLTF_DATA_DIR) / "Box.glb"), {}},
+		{".gltf", MakeSeparateGltfSeed(directory), {}},
 		{".fbx", ReadFile(ufbxData / "blender_279_ball_7400_binary.fbx"), {}},
 		{".fbx", ReadFile(ufbxData / "maya_cube_7500_ascii.fbx"), {}},
 		{".obj", ReadFile(ufbxData / "blender_279_ball_0_obj.obj"), ReadFile(ufbxData / "blender_279_ball_0_obj.mtl")},
@@ -139,7 +179,12 @@ TEST_CASE("MeshImporter: damaged model files are refused or import to valid mesh
 		Result<ImportedModel> imported = MeshImporter::Import(path);
 		REQUIRE_MESSAGE(imported.IsOk(), seed.Extension, ": ", (imported ? std::string() : imported.GetError()));
 		CheckImportedModel(imported.GetValue());
+		REQUIRE(MeshImporter::FindExternalFiles(path).IsOk());
+		CheckExternalFiles(path);
 	}
+	// The separate glTF reads its buffer and texture, the OBJ its material library.
+	CHECK(MeshImporter::FindExternalFiles(directory.GetPath() / "Seed.gltf").GetValue().size() == 2);
+	CHECK(MeshImporter::FindExternalFiles(directory.GetPath() / "Seed.obj").GetValue().size() == 1);
 
 	Testing::FuzzRandom random(8000);
 	int imported = 0;
@@ -158,6 +203,7 @@ TEST_CASE("MeshImporter: damaged model files are refused or import to valid mesh
 			REQUIRE(FileSystem::WriteBinaryFile(directory.GetPath() / "blender_279_ball_0_obj.mtl", seed.MaterialLibrary).IsOk());
 		}
 
+		CheckExternalFiles(path);
 		Result<ImportedModel> model = MeshImporter::Import(path);
 		if (!model)
 		{

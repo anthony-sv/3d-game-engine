@@ -138,13 +138,13 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 {
 	EditorContext context;
 	EditorOperations operations(context);
-	// Menus show labels under their categories ("2D" and "UI" both have a Text).
-	std::set<std::pair<std::string_view, std::string_view>> labels;
+	// Labels are unique across the menus ("3D Text" in 3D Object, "Text" in UI).
+	std::set<std::string_view> labels;
 	glm::vec3 const spawn(1.0f, 2.0f, 3.0f);
 	for (EntityPreset const& preset : EntityPresets::GetAll())
 	{
 		CAPTURE(preset.Label);
-		CHECK(labels.insert({preset.Category, preset.Label}).second);
+		CHECK(labels.insert(preset.Label).second);
 		Result<UUID> created = EntityPresets::Create(operations, preset, UUID::Invalid(), spawn);
 		REQUIRE(created.IsOk());
 		Entity const entity = context.GetScene().GetEntityByUUID(created.GetValue());
@@ -211,6 +211,66 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 	REQUIRE(volumeEntity.HasComponent<PostProcessComponent>());
 	CHECK(volumeEntity.GetComponent<PostProcessComponent>().Global);
 	CHECK(volumeEntity.GetComponent<TransformComponent>().Scale == glm::vec3(10.0f));
+}
+
+TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Rendering, Effects, Physics, Audio and UI")
+{
+	using Labels = std::vector<std::string_view>;
+	std::span<std::string_view const> const categories = EntityPresets::GetCategories();
+	CHECK(std::vector<std::string_view>(categories.begin(), categories.end()) ==
+	      Labels{"Core", "3D Object", "2D Object", "Rendering", "Effects", "Physics", "Audio", "UI"});
+
+	std::vector<EntityPresetMenuSection> const menu = EntityPresets::GetMenu();
+	REQUIRE(menu.size() == categories.size());
+	auto const labels = [](EntityPresetMenuSection const& section)
+	{
+		Labels result;
+		for (EntityPreset const* preset : section.Presets)
+		{
+			result.push_back(preset->Label);
+		}
+		return result;
+	};
+	// Core comes first, directly in the menu; every other category is a submenu.
+	CHECK(menu[0].Category == EntityPresets::CoreCategory);
+	CHECK_FALSE(menu[0].Submenu);
+	CHECK(labels(menu[0]) == Labels{"Create Empty"});
+	CHECK(labels(menu[1]) == Labels{"Cube", "Sphere", "Plane", "Cylinder", "Capsule", "Cone", "Quad", "3D Text"});
+	CHECK(labels(menu[2]) == Labels{"Sprite"});
+	CHECK(labels(menu[3]) == Labels{"Camera", "Directional Light", "Point Light", "Spot Light", "Sky Light"});
+	CHECK(labels(menu[4]) == Labels{"Particle System", "Fire", "Smoke", "Sparks", "Post Process Volume"});
+	CHECK(labels(menu[5]) == Labels{"Character"});
+	CHECK(labels(menu[6]) == Labels{"Audio Source", "Audio Listener"});
+	CHECK(labels(menu[7]) == Labels{"Canvas", "Panel", "Image", "Text", "Button"});
+	// Every preset is in the menus once, in the section of its category.
+	size_t count = 0;
+	for (size_t i = 0; i < menu.size(); i++)
+	{
+		CAPTURE(menu[i].Category);
+		CHECK(menu[i].Category == categories[i]);
+		CHECK(menu[i].Submenu == (i != 0));
+		for (EntityPreset const* preset : menu[i].Presets)
+		{
+			CHECK(preset->Category == menu[i].Category);
+		}
+		count += menu[i].Presets.size();
+	}
+	CHECK(count == EntityPresets::GetAll().size());
+
+	// What the new entries create.
+	EditorContext context;
+	EditorOperations operations(context);
+	Result<UUID> const empty = EntityPresets::Create(operations, *menu[0].Presets[0], UUID::Invalid(), glm::vec3(0.0f));
+	REQUIRE(empty.IsOk());
+	Entity const emptyEntity = context.GetScene().GetEntityByUUID(empty.GetValue());
+	CHECK(emptyEntity.GetName() == "Entity");
+	CHECK_FALSE(emptyEntity.HasComponent<MeshComponent>());
+	Result<UUID> const listener = EntityPresets::Create(operations, *menu[6].Presets[1], UUID::Invalid(), glm::vec3(0.0f));
+	REQUIRE(listener.IsOk());
+	Entity const listenerEntity = context.GetScene().GetEntityByUUID(listener.GetValue());
+	CHECK(listenerEntity.GetName() == "Audio Listener");
+	CHECK(listenerEntity.HasComponent<AudioListenerComponent>());
+	CHECK(listenerEntity.GetComponent<AudioListenerComponent>().Active);
 }
 
 TEST_CASE("HierarchyEditing: drops resolve to a parent and an anchor, never into an own subtree")

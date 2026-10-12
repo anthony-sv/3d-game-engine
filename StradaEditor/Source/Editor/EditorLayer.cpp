@@ -1,5 +1,6 @@
 #include "Editor/EditorLayer.h"
 
+#include "Editor/AssetBrowsing.h"
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/Automation/ExportCommands.h"
@@ -26,6 +27,7 @@
 #include <imgui_stdlib.h>
 
 #include <array>
+#include <utility>
 
 namespace Strada
 {
@@ -121,6 +123,10 @@ namespace Strada
 			{
 				return m_ViewportPanel->GetRendererStatistics();
 			};
+			environment.ViewportOverlays = [this]() -> SceneViewOverlays&
+			{
+				return m_ViewportPanel->GetOverlays();
+			};
 			environment.ContentBrowser = [this]() -> ContentBrowserPanel&
 			{
 				return m_ContentBrowserPanel;
@@ -182,6 +188,18 @@ namespace Strada
 			};
 			m_ViewportPanel->SetOpenSceneCallback(openScene);
 			m_ContentBrowserPanel.SetOpenSceneCallback(openScene);
+			m_ContentBrowserPanel.SetScripts(&m_Scripts);
+			m_ContentBrowserPanel.SetNewScriptCallback(
+				[this](std::string const& folder)
+				{
+					OpenNewScriptPopup(folder);
+				});
+			m_ContentBrowserPanel.SetShowConsoleCallback(
+				[this]
+				{
+					m_ShowConsole = true;
+					m_FocusConsole = true;
+				});
 		}
 
 		if (Result<void> loaded = m_RecentProjects.Load(); !loaded)
@@ -324,6 +342,19 @@ namespace Strada
 				RequestSceneAction(SceneAction::Quit);
 				return true;
 			});
+		// Files dropped onto any of the editor's windows go into the project through the content browser, which imports them
+		// where they were dropped once it is drawn (the cursor is at the drop point by then).
+		dispatcher.Dispatch<WindowFileDropEvent>(
+			[this](WindowFileDropEvent& dropped)
+			{
+				if (Application::Get().GetImGuiLayer() == nullptr)
+				{
+					return false;
+				}
+				m_ShowContentBrowser = true;
+				m_ContentBrowserPanel.DropFiles(dropped.GetPaths());
+				return true;
+			});
 	}
 
 	void EditorLayer::RequestScreenshotAtFrame(std::filesystem::path path, uint64_t frame)
@@ -390,8 +421,14 @@ namespace Strada
 
 		if (m_FocusDefaultTabsFrames > 0 && --m_FocusDefaultTabsFrames == 0)
 		{
+			ImGui::SetWindowFocus("Content Browser");
 			ImGui::SetWindowFocus("Inspector");
 			ImGui::SetWindowFocus("Scene View");
+		}
+		// Asked for by the content browser's notice; the console was drawn above, so it exists.
+		if (std::exchange(m_FocusConsole, false))
+		{
+			ImGui::SetWindowFocus("Console");
 		}
 
 		DrawUnsavedChangesPopup();
@@ -554,8 +591,9 @@ namespace Strada
 		{
 			if (ImGui::MenuItem("New Script...", nullptr, false, m_Context.GetProject() != nullptr))
 			{
-				m_NewScriptName = "NewScript";
-				m_OpenNewScriptPopup = true;
+				// In the scripts' folder the content browser shows, like its "+" > C# Script.
+				OpenNewScriptPopup(m_ContentBrowserPanel.GetRoot() == ContentRoot::Scripts ? m_ContentBrowserPanel.GetScriptFolder()
+				                                                                           : std::string());
 			}
 			if (ImGui::MenuItem("Build Scripts", "Ctrl+B", false, m_Scripts.HasScriptProject() && !m_Scripts.IsBuilding()))
 			{
@@ -887,6 +925,13 @@ namespace Strada
 		ImGui::EndPopup();
 	}
 
+	void EditorLayer::OpenNewScriptPopup(std::string folder)
+	{
+		m_NewScriptName = "NewScript";
+		m_NewScriptFolder = std::move(folder);
+		m_OpenNewScriptPopup = true;
+	}
+
 	void EditorLayer::DrawNewScriptPopup()
 	{
 		if (m_OpenNewScriptPopup)
@@ -912,8 +957,9 @@ namespace Strada
 		Project const* const project = m_Context.GetProject();
 		if (valid && project != nullptr)
 		{
-			ImGui::TextDisabled("Creates Scripts/Source/%s.cs (class %s.%s)", m_NewScriptName.c_str(),
-			                    ScriptProject::GetNamespace(*project).c_str(), m_NewScriptName.c_str());
+			std::string const file = AssetBrowsing::JoinPath(m_NewScriptFolder, m_NewScriptName + ".cs");
+			ImGui::TextDisabled("Creates Scripts/Source/%s (class %s.%s)", file.c_str(), ScriptProject::GetNamespace(*project).c_str(),
+			                    m_NewScriptName.c_str());
 		}
 		else
 		{
@@ -924,11 +970,14 @@ namespace Strada
 		if (ImGui::Button("Create") || (submitted && valid))
 		{
 			ImGui::CloseCurrentPopup();
-			Result<std::filesystem::path> created = m_Scripts.CreateScript(m_NewScriptName);
+			Result<std::filesystem::path> created = m_Scripts.CreateScript(m_NewScriptName, m_NewScriptFolder);
 			UI::ReportFailure(created, "Creating the script");
 			if (created)
 			{
 				ST_INFO("Created {}", FileSystem::PathToUtf8(created.GetValue()));
+				// Shown in the content browser, ready to be opened or dragged onto an entity.
+				m_ShowContentBrowser = true;
+				m_ContentBrowserPanel.RevealScript(m_Context, created.GetValue());
 			}
 		}
 		ImGui::EndDisabled();

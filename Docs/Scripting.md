@@ -8,9 +8,13 @@ scripting runtime, and every public member of the API has XML documentation that
 
 A project's scripts form one C# project, `Scripts/<Name>.csproj`, where `<Name>` is the project's script module
 (`Game` unless the project settings say otherwise); it is also the scripts' namespace. In the editor, Scripts > New
-Script asks for a class name and writes `Scripts/Source/<Class>.cs` from a template (agents use the `script_create`
-tool). Open the project folder in any C# editor (Visual Studio, Rider, VS Code with the C# extension): the C# project
-references this engine's `Strada.ScriptCore.dll`, so completion and documentation work.
+Script, or "+" > C# Script in the content browser, asks for a class name and writes `<Class>.cs` from a template into
+the script folder the content browser shows, else into `Scripts/Source` (agents use the `script_create` tool); a class
+that a source of the scripts declares already is refused, as the C# project would declare it twice. The content
+browser's Scripts root shows the C# sources in `Scripts/Source`: double-click one to open it in the desktop's C#
+editor, drag it onto another folder to move it, and drop `.cs` files or folders of them onto the editor from the file
+manager to copy them in. Open the project folder in any C# editor (Visual Studio, Rider, VS Code with the C#
+extension): the C# project references this engine's `Strada.ScriptCore.dll`, so completion and documentation work.
 
 ```csharp
 using Strada;
@@ -32,9 +36,10 @@ public class Spinner : Script
 
 Save the file: the editor notices changed sources within a second, builds them and loads the new assembly (Scripts >
 Build Scripts, Ctrl+B, builds at once). Build errors go to the console with their file and line, and the menu bar shows
-a failed build. Select an entity, add a Script component in the inspector and pick `Game.Spinner` as its class: `Speed`
-appears below it. Press Play (Ctrl+P) and the entity turns. A build that finishes while the game plays is loaded when
-play mode stops.
+a failed build. Once the build has finished, drag the script from the content browser onto an entity in the hierarchy,
+the inspector or the scene view: the entity gets a Script component running `Game.Spinner` (or select the entity, add a
+Script component in the inspector and pick the class), and `Speed` appears below it. Press Play (Ctrl+P) and the entity
+turns. A build that finishes while the game plays is loaded when play mode stops.
 
 ## How a script runs
 
@@ -379,7 +384,9 @@ their scripts get `OnDestroy` while they are intact.
 ## Sound, text and materials
 
 `AudioSourceComponent` plays its clip with `Play()`, `Pause()` and `Stop()` (`IsPlaying`, `Volume`, `Pitch`, `Loop`,
-`Clip` can be set); sources are positioned in 3D relative to the entity with the `AudioListenerComponent`.
+`Clip` can be set); sources are positioned in 3D relative to the entity with the `AudioListenerComponent`. Set
+`Stream` on music and long ambience: the clip is then read from its file while it plays instead of being loaded whole
+(changing it, like changing `Clip`, stops the sound until the next `Play()`).
 `TextComponent` draws text in the world or, with `ScreenSpace`, over the image: set `Text` for scores and messages.
 Materials of the project are shared by every scene, so scripts change copies: `Material.Clone()` (or
 `Material.Create()`) makes one the running scene owns, which `MeshComponent.SetMaterial` gives to a mesh.

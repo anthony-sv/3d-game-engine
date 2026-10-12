@@ -123,6 +123,7 @@ public sealed class ComponentWriter : Script
 		Expect(audio.Clip?.Handle ?? AssetHandle.Invalid, ExpectedClip, "AudioSource.Clip");
 		audio.Clip = null;
 		Expect(audio.Clip == null, true, "AudioSource.Clip cleared");
+		Check(() => audio.Stream, value => audio.Stream = value, true, "AudioSource.Stream");
 		Check(() => audio.Volume, value => audio.Volume = value, 0.5f, "AudioSource.Volume");
 		Check(() => audio.Pitch, value => audio.Pitch = value, 1.5f, "AudioSource.Pitch");
 		Check(() => audio.Loop, value => audio.Loop = value, true, "AudioSource.Loop");

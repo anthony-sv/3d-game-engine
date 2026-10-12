@@ -94,7 +94,7 @@ through includes of `Scene.h` in headers.
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
-| Audio | miniaudio engine, per-scene sound sources and listener | `AudioEngine`, `AudioScene` |
+| Audio | miniaudio engine, per-scene sound sources and listener, waveforms of clips | `AudioEngine`, `AudioScene`, `ComputeAudioWaveform` |
 | Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding` |
 | Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, post-process volume blending, screen-space UI layout and interaction, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `PostProcessVolumes`, `UILayout`, `RenderScene` |
 | Project | Project files and settings, the C# script project, the scene runner (play mode and the player), game export | `Project`, `ProjectSettings`, `ScriptProject`, `SceneRunner`, `GameExporter` |
@@ -114,7 +114,8 @@ it is not already initialized and every `Shutdown` must leave no state behind so
 
 - The **main thread** owns the ECS, assets, rendering submission, scripting and editor state.
 - Jolt runs its own job threads; contact callbacks only enqueue events (thread-safe queue) drained on the main thread.
-- miniaudio runs its own audio thread; only the miniaudio API is touched from the main thread.
+- miniaudio runs its own audio thread; only the miniaudio API is touched from the main thread. The audio streaming
+  thread reads and decodes streamed sounds into their ring buffers, which the audio thread copies from without waiting.
 - Background work (script builds, exports, the automation socket) never touches engine state; results are
   marshalled with `Application::SubmitToMainThread(std::function<void()>)`. The editor notices edited scripts by
   checking their modification times on the main thread once a second, and rescans the assets on the main thread when
@@ -174,6 +175,8 @@ the key the keyboard layout names and the modifiers held, and returns whether Im
 gets no input events of its own, and the filter gives `Input` what the game should have. Where ImGui wants no cursor
 (`ImGuiMouseCursor_None`), the layer hides the OS cursor in every one of those windows: the GLFW backend alone hides it
 in the main window only, and not in the frame after cursor changes were off (`ImGuiConfigFlags_NoMouseCursorChange`).
+The platform windows of panels forward the files dropped onto them to the application's window
+(`Window::ForwardFileDrops`), which sends them as `WindowFileDropEvent`s like the files dropped onto it.
 
 Shaders (`Strada/Shaders/*.hlsl`) are compiled by DXC to SPIR-V at build time with flags matching NVRHI's default
 Vulkan binding offsets, embedded into the library, and fetched by name through `ShaderLibrary`.
@@ -253,8 +256,12 @@ Frame passes, in order:
     color is used as is), alpha blended, tested against the scene depth without writing it, back to front. On the
     tonemapped image (before FXAA when it is enabled): the editor ground grid (analytic ray/plane intersection on y = 0, anti-aliased minor and
     major lines and colored axes, faded with distance, hidden behind surfaces with a small depth tolerance so ground
-    planes do not z-fight) and debug lines (depth-tested through the scene depth attached read-only, or drawn on
-    top; collider visualization, script `Debug.DrawLine`). After FXAA: the selection outline, an anti-aliased band
+    planes do not z-fight) and debug lines (editor shapes, script `Debug.DrawLine`): every line is an instanced
+    screen-space quad (cut at the near plane) with round caps, an anti-aliased core of the overlays' width and an
+    optional dark outline, drawn into a line layer where each pixel keeps only the nearest line's color (the distance
+    to the line's center is its depth), so lines that meet or cross never blend twice; the layer is then blended over
+    the image. Depth-tested lines compare their depth with the scene depth in the shader: hidden behind surfaces, or
+    dimmed there (`OccludedLineOpacity`, which the scene view uses). After FXAA: the selection outline, an anti-aliased band
     around the visible silhouette of selected meshes, sprites and text read from the ID target. Screen-space sprites
     and text follow the overlays (their linear colors are sRGB-encoded in the shader), then the screen-space UI in
     submission order: rectangles (`UIRectSubmission`, with a texture or a color) whose edges and rounded corners are
@@ -310,7 +317,9 @@ Asset types:
   memory limit of 256 MB plus 64 times the file size, and models with more than 2^24 vertices or triangles (every
   node instance counted) fail before any geometry is built. Files a model references (glTF buffers and images, FBX/OBJ
   textures, OBJ material libraries) are only read inside the asset directory: buffers outside it fail the import,
-  textures and material libraries outside it are skipped with a warning.
+  textures and material libraries outside it are skipped with a warning. `MeshImporter::FindExternalFiles` lists the
+  files a model reads, found like the import finds them but without building geometry, so the editor copies and moves
+  them with the model.
 - `MaterialAsset` (`.smat`): metallic-roughness parameters — `BaseColor`, `Metallic`, `Roughness`, `EmissiveColor` +
   `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, textures (base color, normal, metallic-roughness with glTF
   packing G = roughness and B = metallic, occlusion, emissive), `AlphaMode` (Opaque/Mask/Blend) + `AlphaCutoff`,
@@ -350,10 +359,10 @@ Play mode runs on a deep copy (`Scene::Copy`); stopping restores the editor scen
 Runtime update order per frame: UI (the mouse over buttons, clicks and `OnClick`) → scripts `OnUpdate` → physics
 fixed steps (accumulator, default 60 Hz; scripts' `OnFixedUpdate` before each step; characters are then drawn between
 their last two steps, §8) → contact/trigger events dispatched to scripts → transform sync → audio update → deferred
-entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the end of the
-frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext` completes
-their destruction at once (`Scene::FlushPendingDestruction`): later edits and undo, also while paused, find the
-entities gone.
+entity destruction → render submission. Entity destruction requested during iteration is **deferred** to the end of
+the frame; creation is immediate. Editor edits of the running scene happen between frames, so `EditorContext`
+completes their destruction at once (`Scene::FlushPendingDestruction`): later edits and undo, also while paused, find
+the entities gone.
 
 ### 7.2 Components (`Strada/Scene/Components.h`)
 
@@ -390,7 +399,7 @@ interop component lookups.
 | `MeshCollider` | `MeshColliderComponent` | `Mesh` asset (0 = use `Mesh` component), `Convex`, `IsTrigger`, `Friction`, `Restitution` |
 | `Joint` | `JointComponent` | `Type` (Fixed/Hinge/Ball/Distance/Slider), `ConnectedEntity` UUID (0 = the world), `Anchor` (local), `ConnectedAnchor` (the connected entity's local space, or world), `Axis` (local), `LimitsEnabled`, `MinLimit`/`MaxLimit` (hinges: deg; sliders: m), `MinDistance`/`MaxDistance` (-1 = the starting distance), `MotorEnabled`, `MotorSpeed` (deg/s or m/s), `MotorMaxForce` |
 | `CharacterController` | `CharacterControllerComponent` | `Radius`, `Height` (the whole capsule), `Offset` (the capsule's center), `StepHeight`, `MaxSlopeAngle` (deg, 1..89), `Mass` (kg), `PushForce` (N), `GravityFactor` (0..1000), `Layer` |
-| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
+| `AudioSource` | `AudioSourceComponent` | `Clip` asset, `Stream` (read the clip's file while playing), `Volume`, `Pitch`, `Loop`, `PlayOnStart`, `Spatial`, `MinDistance`, `MaxDistance` |
 | `AudioListener` | `AudioListenerComponent` | `Active` |
 | `Script` | `ScriptComponent` | `ClassName`, `Fields` (name → typed value) |
 | `Text` | `TextComponent` | `Text`, `Font` asset (0 = default), `Color`, `FontSize`, `ScreenSpace`, `Alignment` (Left/Center/Right), `LineSpacing` |
@@ -618,16 +627,32 @@ links Core Audio at build time (`MA_NO_RUNTIME_LINKING`), as notarization requir
 ALSA, JACK) are loaded at runtime and are not build requirements.
 
 `AudioClipAsset`s hold the encoded file (WAV, FLAC, MP3, Ogg Vorbis; the format is detected from the data).
-`AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID): each sound decodes
-its clip from memory through its own decoder while it plays, and a scene's sounds play through one sound group that
-pauses them together. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
+`ComputeAudioWaveform` decodes a clip with a decoder of its own (the `AudioDecoder` of its format, as sounds do), so it
+runs on any thread and can be cancelled, into the peaks of equally long parts (blocks merge as the clip decodes, so
+memory stays bounded for any length); the editor's content browser draws them.
+`AudioScene` holds the sounds of one running scene, independent of the ECS (keyed by entity UUID); a scene's sounds play
+through one sound group that pauses them together. Each sound has its own decoder (`AudioDecoder`): miniaudio's decoder
+of the detected format for WAV, FLAC and MP3 and libvorbis for Ogg Vorbis, so no other decoder ever reads the data (left
+to itself, miniaudio would search a whole file for an MP3 frame). Loaded sounds decode the clip's data in memory while
+they play. Streamed sounds (`AudioSourceDesc::StreamFile`) open the clip's file when they are created, on the main
+thread, which reads only its format and headers (at most `MaxAudioStreamHeaderBytes`: damaged files whose audio would
+start later are refused), and play from a ring buffer that the audio streaming thread (`AudioStreamer`, owned by
+`AudioEngine`) keeps decoded about a second ahead (`AudioStreamBufferSeconds`). The thread that mixes them only copies
+decoded samples and never waits: a read that stalls silences that one sound for a moment, and it continues where it was.
+The streaming thread decodes on past the end of the file from its start and marks where the file ended, where the mixer
+decides whether the sound loops, so loops are seamless and a sound played again after it ended starts at once; stopping
+a sound empties its buffer and decodes the start again. `AudioEngineSettings::StreamFileOpener` opens the files (the
+file system unless set; tests count and hold up reads through it), and `AudioEngine::WaitForStreams` lets manual output
+hear streams without gaps. Files that are missing or not audio are refused when the source is created; damaged ones
+play what can be decoded. Sounds are positioned relative to the scene's own listener (miniaudio's relative positioning),
 so scenes never move each other's listener. Spatial sounds are attenuated by inverse distance (full volume within
 `MinDistance`, `MinDistance / distance` up to `MaxDistance`, constant beyond) and panned by miniaudio's model (its
 stereo speakers face left and right, so a sound in front reaches each at half gain); there is no doppler effect.
 
 The scene drives it while running. `OnRuntimeStart` creates a sound for every `AudioSourceComponent` with a clip,
-playing when `PlayOnStart` is set. Each update compares the components with the settings last applied, so changes
-from anywhere (inspector, scripts, automation) reach the sounds: a new clip makes a new, stopped sound; sources added
+playing when `PlayOnStart` is set; sources with `Stream` stream the clip asset's file without loading the asset. Each
+update compares the components with the settings last applied, so changes from anywhere (inspector, scripts,
+automation) reach the sounds: a new clip, or a change of `Stream`, makes a new, stopped sound; sources added
 while running start like the others; removed components and destroyed entities lose their sound. Spatial sources
 follow their entities' world positions, and the listener follows the first active `AudioListenerComponent` in hierarchy
 order, else the primary camera, else the origin facing -Z. `Scene::SetPaused` holds the scene's sounds.
@@ -704,7 +729,7 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
   `JointComponent`, `CharacterControllerComponent` (every field, `Move(Vector3 velocity)`, `Velocity`, `IsGrounded`,
   `GroundNormal`, `Teleport(Vector3)`),
-  `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`),
+  `AudioSourceComponent` (`Play()`, `Stop()`, `Pause()`, `IsPlaying`, `Volume`, `Pitch`, `Loop`, `Clip`, `Stream`),
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
   `Emit(count)`, `Clear()`, `ParticleCount`), `PostProcessComponent` (every field; `Tonemapper` is a `TonemapOperator`),
   `UICanvasComponent`, `UIRectComponent`, `UIImageComponent`, `UITextComponent` (every field), `UIButtonComponent`
@@ -762,11 +787,13 @@ project's `ScriptModule` (default `Scripts/Binaries/Game.dll`, namespace `Game`)
 writes it once; afterwards it belongs to the user (packages, extra files), and any .NET 10 SDK or C# editor works with
 it. `Scripts/Strada.props`, rewritten whenever its content changes, points the project at this machine's
 `Strada.ScriptCore.dll` (referenced, not copied: the engine provides it). New scripts come from a template in
-`Scripts/Source/<Class>.cs`. Builds run `dotnet build` (found through `DOTNET_ROOT`, PATH, then the default install
-locations) as a child process (`Process`, Platform module, reproc++) into the `ScriptModule`'s directory, without
-build servers (they would outlive the build and keep its output open) and with English output, from which errors and
-warnings are parsed with their files and positions. A build is out of date when a C# source or project file is newer
-than the assembly.
+`Scripts/Source/<Class>.cs` or a folder of `Scripts/Source`; a class name that another file of the C# project has
+(`<Class>.cs` anywhere outside the build output and hidden folders, which the .NET SDK leaves out too) is refused, as
+the class would be declared twice (the editor also refuses a class that a source declares already). Builds run
+`dotnet build` (found through `DOTNET_ROOT`, PATH, then the default install locations) as a child process (`Process`,
+Platform module, reproc++) into the `ScriptModule`'s directory, without build servers (they would outlive the build
+and keep its output open) and with English output, from which errors and warnings are parsed with their files and
+positions. A build is out of date when a C# source or project file is newer than the assembly.
 
 ## 11. Editor (`StradaEditor`)
 
@@ -780,9 +807,9 @@ than the assembly.
   reparents (onto a row) or reorders (onto its upper or lower edge) the selection as one undo step
   (`MoveEntitiesCommand`); F2 or the context menu renames; double-click frames the entity in the viewport; context
   menus create preset entities (empty, primitives, lights, camera, audio, text, sprite, particle effects, a global
-  post-process volume with a 10 m box for when it is made local, UI), duplicate and delete; UI elements (Panel,
-  Image, Text, Button) go into a canvas: the parent's, else under a parent a new canvas there, else the scene's
-  first canvas or a new one, created with the element as one undo step; a search field filters by name.
+  post-process volume with a 10 m box for when it is made local, a character, UI), duplicate and delete; UI elements
+  (Panel, Image, Text, Button) go into a canvas: the parent's, else under a parent a new canvas there, else the
+  scene's first canvas or a new one, created with the element as one undo step; a search field filters by name.
   Selections made elsewhere reveal and scroll to the primary entity.
 - Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
   the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
@@ -798,43 +825,82 @@ than the assembly.
   The Transform of UI elements, which their `UIRect` places, starts folded and is shown read-only, with a note.
   Every field table's name column starts as wide as its names need, switches and indentation included (40% to 60% of
   the panel; users can resize it); names that still do not fit end in an ellipsis and show in full in their tooltips.
-- Content Browser: a folder tree beside the open project's asset directory as tiles (folders, then assets; missing
-  files in red), breadcrumbs, a tile size slider, and a search over every asset path. Textures show themselves, and
-  materials (on a sphere), meshes, prefabs and environments show thumbnails that `AssetThumbnails` renders offscreen,
-  one per frame, again when the asset is reloaded or a material edited; other assets show a page with their type. Click selects (the inspector shows the
-  asset), double-click opens folders and scenes; F2 renames, Delete deletes after a confirmation. Assets and folders
-  drag onto folder tiles and breadcrumbs to move (handles stay valid); assets drag into asset fields, the hierarchy
-  (meshes become entities, as children when dropped onto a row) and the viewport (meshes become entities on the
-  ground under the cursor, materials go to every submesh of the mesh under the cursor, environments to the first sky
-  light or a new one, scenes open). Context menus create folders and materials, import files (native multi-select
-  dialog), refresh, rename, delete and copy references or paths. File operations are not undoable. Files that other
-  applications add, change or delete are picked up when the editor gets the focus back (`AssetAutoRefresh`; one of
-  its windows, floating panels included; after a running game export, which copies the assets) or with Refresh.
+- Content Browser: a folder tree with two roots, the open project's asset directory and its C# scripts
+  (`Scripts/Source`, `ScriptBrowsing`), beside the displayed folder as tiles (folders, then assets or scripts, then
+  files that are not assets, such as a glTF scene's buffers) labeled with their file names on two lines (a long name
+  keeps its extension in view: `LongMat...smat`), breadcrumbs, a tile size slider, and a search over the root's paths.
+  Textures show themselves, and materials (on a sphere), meshes, prefabs and environments show thumbnails that
+  `AssetThumbnails` renders offscreen, one per frame, again when the asset is reloaded, unloaded because its file
+  changed, or a material edited; fonts write "Aa" with their own glyphs (rasterized from the text renderer's
+  distance-field atlas); audio clips show their waveform and length, decoded on a worker thread one clip at a time
+  (`ComputeAudioWaveform`) and kept. Files without a picture get cards of the slate theme with a glyph and a band
+  naming their type, drawn with ImDrawList (a globe for scenes, a cube for prefabs, a wireframe for meshes, a shaded
+  ball for materials, a picture for textures, a sunrise for environments, a speaker until a waveform is ready, "Aa" in
+  the editor's font for unreadable fonts, a C# document for scripts, a page with the extension for other files);
+  missing files get a red badge and a red label, files that do not load or decode an amber badge (the tooltip says
+  why; `AssetThumbnails::GetLoadError`), and audio tooltips the clip's length, rate and channels. Click selects (on
+  release, so dragging keeps the selection the drop target belongs to; the inspector shows assets): the selected tile
+  gets an outline in the theme's accent and its name an accent plate, a hovered one a lighter card and outline.
+  Double-click opens folders, scenes, scripts and other files (with the desktop's application, `Desktop::Open`); the
+  folder tree opens and scrolls to the displayed folder. F2 renames, Delete deletes after a confirmation. Assets,
+  other files and folders drag onto folder tiles, tree nodes and breadcrumbs to move (handles stay valid; a model
+  moving to another folder takes the files it reads along to the same paths relative to it, `EditorOperations::
+  MoveAsset`), scripts and script folders onto script folders; assets drag into asset fields, the hierarchy (meshes
+  become entities, as children when dropped onto a row) and the viewport (meshes become entities on the ground under
+  the cursor, materials go to every submesh of the mesh under the cursor, environments to the first sky light or a new
+  one, scenes open); scripts drag onto hierarchy rows, the inspector and the viewport (the entity under the cursor),
+  which give the entities a Script component of the class the file defines among the loaded classes as one undo step
+  (`AssetDrops::AddScript`, `EditorOperations::SetScriptClass`; the console says when the scripts are not built yet).
+  Context menus create folders, materials and C# scripts (the New Script dialog, in the displayed script folder; the
+  browser then shows the script), import files (native multi-select dialog), refresh, rename, delete, copy references
+  or paths and show items in the file manager. File operations are not undoable. Files and folders dropped onto any of
+  the editor's windows from the OS (`WindowFileDropEvent`, forwarded from the platform windows of floating panels
+  too; `asset.drop` does the same for agents) are imported by `ProjectImport` into the folder under the cursor, else
+  the displayed ones: assets into the asset folder (taken names get a number), models with the files they read at the
+  same paths relative to them (`MeshImporter::FindExternalFiles`; in a new folder named after the model when those
+  names are taken), C# sources into the scripts folder (creating the C# project when needed) unless their file name or
+  a type they declare is taken in the scripts, where the C# project would no longer build, and folders whole but for
+  hidden files, links and C# build output: their C# sources go to the scripts (all of a folder that holds no assets)
+  and the rest to the assets. Other files come only with a model, and what is in a dropped folder only with it. What
+  came in is selected, and a notice under the toolbar says what did not (with a button that shows the console). Files
+  that other applications add, change or delete are picked up when the editor gets the focus back
+  (`AssetAutoRefresh`; one of its windows, floating panels included; after a running game export, which copies the
+  assets) or with Refresh, and their thumbnails are made again; a preview that failed is tried again once a refresh
+  has found its file changed.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
 - Renderer Info: the device (adapter, type, Vulkan version, driver, GPU timing support, validation and its error
   count), the frame (average and slowest frame time with a graph over 240 frames, frame count, back buffer), and what
   the scene view's and the game view's renderers drew in their last frames side by side (GPU time, draw calls and the
-  shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite and text quads).
+  shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite, text and UI quads).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
-  (create presets at the scene view's focal point), View, Play (Play/Stop, Simulate, Pause, Step). Shortcuts are global
-  unless a text field is being edited.
+  (create presets at the scene view's focal point: Create Empty, then the 3D Object, 2D Object, Rendering, Effects,
+  Physics, Audio and UI submenus, which the hierarchy's create button and Create Child share;
+  `EntityPresets::GetMenu`), View, Play (Play/Stop, Simulate, Pause, Step). Shortcuts are global unless a text field
+  is being edited.
   Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
   scene name and a `*` while it has unsaved changes.
 - Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
   (fly/orbit/pan/zoom/focus). Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
-  orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays: ground grid
-  (G), selection outline, clickable icons for cameras and lights, shapes of selected entities (one toggle: camera
-  frustums, light directions, ranges and cones, colliders, character capsules (through the character's model), joints,
-  and the boxes of local post-process volumes with the rounded outlines where their blend distances end, drawn through
-  geometry), every collider and character capsule (hidden behind what is in front of them), and the lines scripts draw.
-  The screen-space UI would cover the scene: the UI canvases overlay draws each top-level canvas's UI in its entity's
-  XY plane instead (`CanvasOverlay`), standing on the entity (the middle of its bottom edge there), laid out at its
-  reference resolution, 1 cm per canvas unit, faint (too faint to pick) until the canvas or one of its elements is
-  selected, with the outline of every canvas and, for the canvas holding the selection, the rectangles of its elements,
-  the selected ones highlighted. Focus and `viewport.frame` frame a canvas or a UI element's rectangle there
-  (`ComputeEntityBounds`). UI elements, which their `UIRect` places, get no transform gizmo. ImGuizmo edits apply to
-  every selected root around the primary selection as one undo step per drag
+  orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays
+  (`SceneViewOverlays`, also `viewport.overlays`): ground grid (G), selection outline, light and camera gizmos
+  (clickable billboard icons per kind of light and for cameras), camera frustums, light shapes (directional light rays
+  kept at a constant size on screen, point light ranges, spot light cones with their inner cone), colliders (character
+  capsules among them), joints and post-process volumes (the boxes of local volumes with the rounded outlines where
+  their blend distances end), each for the selected entities or every entity, the lines scripts draw, and the UI
+  canvases. Colliders show the shapes physics collides with: mesh colliders as the convex hull Jolt builds
+  (`MeshColliderOutline`; also for the triangle meshes of dynamic bodies) or as their triangles, without the diagonals
+  of flat faces, and character controllers as the upright capsule physics moves. Its lines are wide, light-colored and
+  outlined in dark so they read on bright and dark surfaces, and dimmed where surfaces hide them, except joints (their
+  anchors lie inside bodies), directional lights (their position does not matter), post-process volumes (the camera
+  is often inside), the capsules of selected characters (their models enclose them) and the outlines of canvases,
+  which are drawn over everything. The screen-space UI would cover the scene: the UI canvases overlay draws each
+  top-level canvas's UI in its entity's XY plane instead (`CanvasOverlay`), standing on the entity (the middle of its
+  bottom edge there), laid out at its reference resolution, 1 cm per canvas unit, faint (too faint to pick) until the
+  canvas or one of its elements is selected, with the outline of every canvas and, for the canvas holding the
+  selection, the rectangles of its elements, the selected ones highlighted. Focus and `viewport.frame` frame a canvas
+  or a UI element's rectangle there (`ComputeEntityBounds`). UI elements, which their `UIRect` places, get no
+  transform gizmo. ImGuizmo edits apply to every selected root around the primary selection as one undo step per drag
   (`SetComponentsCommand` with a merge key); click picking goes through the entity-ID pass (Ctrl toggles, Shift adds,
   empty space clears; picking IDs are never reused within a scene); assets can be dropped onto it.
 - Game View (`GameViewPanel`): the scene through its primary camera, as the game sees it, at a chosen resolution (free,
@@ -877,12 +943,18 @@ than the assembly.
   command line. The Project Settings panel edits the settings (generated like the inspector, with a layer collision
   matrix); they are saved to the project file when an edit ends and are not part of the scene's undo history. Scenes
   saved inside the asset directory are registered as assets. Without a project the editor works on loose scene files.
-- Scripts (`EditorScripts`): the project's C# project is kept pointing at this engine; Scripts > New Script creates a
-  class from the template, Scripts > Build Scripts (Ctrl+B) builds on a worker thread, and changed sources (checked
-  every second) build by themselves. Errors and warnings go to the console with their files and lines, the menu bar
-  shows a failed build, and each successful build is loaded at once (hot reload; while scripts run, when they stop).
-  The inspector edits Script components with a class picker and the fields of the class: typed asset pickers, enum
-  combos, flag check boxes, colors and Euler angles like component fields, one undo step per interaction.
+- Scripts (`EditorScripts`): the project's C# project is kept pointing at this engine; Scripts > New Script and the
+  content browser's "+" > C# Script create a class from the template in the script folder the browser shows (else in
+  `Scripts/Source`) and show it there, C# sources imported into the browser are copied into a folder of
+  `Scripts/Source` (`AddScripts`, creating the C# project when the project has none). Both refuse what would declare a
+  type twice in the C# project (C# error CS0101): a file name a file of the project has, or a type a source declares
+  already (`ScriptBrowsing::FindDeclaredTypes` reads classes, structs, interfaces, enums, delegates and records with
+  their namespaces; partial and file-local types are allowed), saying which source has it. Scripts > Build Scripts (Ctrl+B)
+  builds on a worker thread, and changed sources (checked every second) build by themselves. Errors and warnings go to
+  the console with their files and lines, the menu bar shows a failed build, and each successful build is loaded at
+  once (hot reload; while scripts run, when they stop). The inspector edits Script components with a class picker and
+  the fields of the class: typed asset pickers, enum combos, flag check boxes, colors and Euler angles like component
+  fields, one undo step per interaction.
 - Prefabs: an entity's "Create Prefab" (hierarchy context menu) writes it with its descendants to `Prefabs/`, and
   entities dragged onto the content browser become prefabs in the folder they are dropped on; neither changes the
   scene. Prefabs dragged onto the scene view, the hierarchy or an entity row are instantiated there (one undo step).
@@ -918,7 +990,8 @@ than the assembly.
 - Command domains: `editor.*` (status, undo, redo, commands), `project.*` (info, create, open, close, settings, export),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
-  `asset.*` (list, get, import, refresh, move, delete, create-folder, move-folder, delete-folder),
+  `asset.*` (list, get, select, import, refresh, browse and drop in the content browser, move, delete, create-folder,
+  move-folder, delete-folder),
   `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities, renderer statistics), `log.*` (read since

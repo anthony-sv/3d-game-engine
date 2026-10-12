@@ -15,7 +15,7 @@ namespace Strada
 		WindowLostFocus,
 		WindowMoved,
 		WindowMinimize,
-		WindowDrop,
+		WindowFileDrop,
 		KeyPressed,
 		KeyReleased,
 		KeyTyped,

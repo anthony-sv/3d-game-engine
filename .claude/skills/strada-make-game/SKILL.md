@@ -50,7 +50,9 @@ undo history as the UI: work in small, checked steps.
 - `material_create` with `path` (`Materials/Name.smat`) and `fields` (`BaseColor`, `Metallic`, `Roughness`,
   `EmissiveColor`, textures...); meshes use it through `Mesh.Materials`.
 - `asset_import` copies models (glTF, FBX, OBJ), textures, HDR environments and sounds into the project from absolute
-  paths.
+  paths. A model whose data is in other files (a glTF with its `.bin` and textures, an OBJ with its `.mtl`) needs them
+  too: with the editor's window, `asset_drop` imports it as a drop from the file manager does, with the files it reads
+  (also whole folders, and C# sources into the scripts).
 - Models and materials: `polyhaven_search_models` / `polyhaven_import_model` bring CC0 props, furniture, plants and rocks
   (meters, with their materials; give dynamic ones a box or convex mesh collider fitted to the model's bounds), and
   `polyhaven_search_textures` / `polyhaven_import_texture` make a material from a PBR texture set (set its `UVTiling`
@@ -77,7 +79,9 @@ undo history as the UI: work in small, checked steps.
   game view.
 - `prefab_create` writes an entity with its children to a `.sprefab`; `prefab_instantiate` places copies.
 - Look at the result in a windowed editor: `viewport_frame` points its camera at entities, `viewport_camera` sets the
-  view, and `viewport_screenshot` returns an image of the editor. `viewport_statistics` tells what the last frame drew
+  view, and `viewport_screenshot` returns an image of the editor. `viewport_overlays` sets what the scene view draws
+  over the scene: `colliders` `all` shows every physics shape (check that colliders fit their meshes), and `grid`,
+  `icons`, `canvases` and the shapes `off` give clean screenshots. `viewport_statistics` tells what the last frame drew
   (draw calls, triangles, lights, what was culled): check it when a scene grows large.
 
 ## 5. Behavior in C#

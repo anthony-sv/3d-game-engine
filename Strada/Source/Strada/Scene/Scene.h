@@ -174,12 +174,12 @@ namespace Strada
 		void OnRuntimeStart(SceneRuntimeSettings const& settings = {});
 		// Calls OnDestroy on every script, then stops the audio and physics.
 		void OnRuntimeStop();
-		// Advances the runtime: scripts' OnUpdate, fixed steps (scripts' OnFixedUpdate, then physics: kinematic bodies follow
-		// their transforms, moved static and dynamic bodies and characters teleport, characters move, dynamic bodies and
-		// characters write their positions back), characters drawn between their last two steps (so they move smoothly at
-		// any frame rate, a step behind; OnFixedUpdate sees them where the last step left them), contact events to scripts,
-		// audio (sources and the listener follow their entities), then deferred entity destruction (destroyed scripts get
-		// OnDestroy).
+		// Advances the runtime: the UI (the mouse over buttons, clicks and OnClick), scripts' OnUpdate, fixed steps (scripts'
+		// OnFixedUpdate, then physics: kinematic bodies follow their transforms, moved static and dynamic bodies and
+		// characters teleport, characters move, dynamic bodies and characters write their positions back), characters drawn
+		// between their last two steps (so they move smoothly at any frame rate, a step behind; OnFixedUpdate sees them where
+		// the last step left them), contact events to scripts, audio (sources and the listener follow their entities),
+		// particles, then deferred entity destruction (destroyed scripts get OnDestroy).
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
