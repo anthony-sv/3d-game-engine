@@ -290,7 +290,9 @@ public sealed class Hud : System.IDisposable
 	}
 
 	private Entity Find(string name) =>
-		m_Elements.TryGetValue(name, out Entity? element) ? element : throw new System.InvalidOperationException($"The HUD's canvas has no element named \"{name}\"");
+		m_Elements.TryGetValue(name, out Entity? element)
+			? element
+			: throw new System.InvalidOperationException($"The HUD's canvas has no element named \"{name}\"");
 
 	// An element that fades in to its opacity when its state comes and out when it goes, each in a fixed time and eased at
 	// both ends (menus rise as they come); one faded out is hidden, so it takes no clicks.

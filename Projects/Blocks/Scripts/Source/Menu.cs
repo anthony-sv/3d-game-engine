@@ -6,9 +6,10 @@ namespace Blocks;
 /// <summary>Buttons the mouse and the keyboard share. The arrow keys (and W, A, S, D) move the focus and Enter or Space
 /// clicks the focused button; the mouse takes the focus when it moves onto a button, so a cursor left resting on one does
 /// not take it back from the keys. The focused button lights up and grows a little over its glow (an image named after it
-/// with " Glow", behind it); a button held down shrinks. Clicks come back from <see cref="Update"/> whether the mouse or a
-/// key made them: a key clicks the button as the mouse does, through <see cref="UIButtonComponent.Click"/>. A menu can wait
-/// a moment after it opens before it takes keys, so keys pressed for the game (a hard drop's Space) do not click it.</summary>
+/// with " Glow", behind it), which breathes; a button held down shrinks. Clicks come back from <see cref="Update"/>
+/// whether the mouse or a key made them: a key clicks the button as the mouse does, through
+/// <see cref="UIButtonComponent.Click"/>. A menu can wait a moment after it opens before it takes keys, so keys pressed for
+/// the game (a hard drop's Space) do not click it.</summary>
 public sealed class Menu
 {
 	// The focused button's colors: a bright fill with dark letters.
@@ -24,6 +25,9 @@ public sealed class Menu
 	private const float Response = 18.0f;
 	// How long a key's click shows its button held down (seconds).
 	private const float KeyPressSeconds = 0.12f;
+	// The focused button's glow breathes: it dims by this part of its light and back, this fast (radians per second).
+	private const float GlowBreath = 0.25f;
+	private const float GlowBreathSpeed = 3.2f;
 
 	private readonly List<MenuButton> m_Buttons = [];
 	private readonly System.Action m_FocusMoved;
@@ -115,9 +119,10 @@ public sealed class Menu
 		}
 
 		float blend = 1.0f - Mathf.Exp(-Response * deltaTime);
+		float breath = 1.0f - (GlowBreath * 0.5f * (1.0f - Mathf.Cos((float)Time.Elapsed * GlowBreathSpeed)));
 		for (int i = 0; i < m_Buttons.Count; i++)
 		{
-			m_Buttons[i].Animate(m_Active && i == Focus, m_Active, blend, deltaTime);
+			m_Buttons[i].Animate(m_Active && i == Focus, m_Active, blend, breath, deltaTime);
 		}
 		return clicked;
 	}
@@ -163,7 +168,7 @@ public sealed class Menu
 		private float m_Light;
 		// What the button shows (written when it changes).
 		private float m_ShownScale = 1.0f;
-		private float m_ShownLight;
+		private float m_ShownGlow;
 		private Color m_ShownNormal;
 		private bool m_ShownFocus;
 
@@ -188,12 +193,13 @@ public sealed class Menu
 			m_Glow = entity.Parent is { } parent ? FindChild(parent, $"{entity.Name} Glow")?.GetComponent<UIRectComponent>() : null;
 			m_GlowSize = m_Glow?.Size ?? Vector2.Zero;
 			m_ShownNormal = m_RestColor;
-			m_ShownLight = m_Glow?.Opacity ?? 0.0f;
+			m_ShownGlow = m_Glow?.Opacity ?? 0.0f;
 		}
 
 		// The focused button lights up and grows; one held down (by the mouse or a key) shrinks. A button under the mouse
-		// without the focus looks as at rest. Only what changes is written to the button.
-		public void Animate(bool focused, bool open, float blend, float deltaTime)
+		// without the focus looks as at rest. The glow shows the light times the breath. Only what changes is written to the
+		// button.
+		public void Animate(bool focused, bool open, float blend, float breath, float deltaTime)
 		{
 			KeyPress = Mathf.Max(KeyPress - deltaTime, 0.0f);
 			bool held = KeyPress > 0.0f || (open && Button.State == UIButtonState.Pressed);
@@ -229,10 +235,11 @@ public sealed class Menu
 					m_Glow.Size = m_GlowSize + (m_Size * (m_Scale - 1.0f));
 				}
 			}
-			if (m_Light != m_ShownLight && m_Glow is not null)
+			float glow = m_Light * breath;
+			if (glow != m_ShownGlow && m_Glow is not null)
 			{
-				m_ShownLight = m_Light;
-				m_Glow.Opacity = m_Light;
+				m_ShownGlow = glow;
+				m_Glow.Opacity = glow;
 			}
 		}
 
