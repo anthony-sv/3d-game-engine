@@ -13,7 +13,7 @@ public sealed class DebugView : Script
 	[Tooltip("Whether the debug view shows")]
 	public bool Visible;
 
-	[Tooltip("The camera rig whose throws are previewed (a FlyCamera)")]
+	[Tooltip("The camera rig whose throws are previewed (a CameraRig)")]
 	public Entity? Rig;
 
 	[Tooltip("The ball launcher whose path is drawn")]
@@ -46,7 +46,7 @@ public sealed class DebugView : Script
 		{
 			return;
 		}
-		if (Rig?.As<FlyCamera>() is { } rig)
+		if (Rig?.As<CameraRig>() is { } rig)
 		{
 			Vector3 aim = rig.AimDirection.Normalized;
 			DrawPath(rig.ThrowOrigin(aim), aim * rig.ThrowSpeed, 4.0f, s_ThrowColor);

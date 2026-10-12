@@ -3,12 +3,15 @@ using Strada;
 namespace Showcase;
 
 /// <summary>The physics playground: counts the props knocked over (children of Props that moved or tipped), which the HUD shows;
-/// R (or the HUD's reset button) puts everything back: the props where they stood, the dominoes up, the wrecking ball at rest,
-/// and the thrown and launched balls away.</summary>
+/// R (or the HUD's reset button) puts everything back: the props and the other movables (the yard's crates) where they stood,
+/// the dominoes up, the wrecking ball at rest, and the thrown and launched balls away.</summary>
 public sealed class Playground : Script
 {
 	[Tooltip("The parent of the crates and barrels that count")]
 	public Entity? Props;
+
+	[Tooltip("The parent of more bodies put back with the props, which do not count")]
+	public Entity? Movables;
 
 	[Tooltip("The domino run R stands up again")]
 	public Entity? Dominoes;
@@ -33,32 +36,36 @@ public sealed class Playground : Script
 	[Range(1.0f, 90.0f)]
 	public float KnockedAngle = 25.0f;
 
-	private Entity[] m_Props = [];
+	// The props first (they count), then the other movables.
+	private Entity[] m_Bodies = [];
 	private Vector3[] m_Starts = [];
 	private Quaternion[] m_Rotations = [];
 	private Vector3[] m_Ups = [];
+	private int m_PropCount;
 
 	/// <summary>Props knocked over so far.</summary>
 	public int Knocked { get; private set; }
 
 	/// <summary>Props that count.</summary>
-	public int Total => m_Props.Length;
+	public int Total => m_PropCount;
 
 	/// <summary>Times everything was put back.</summary>
 	public int Resets { get; private set; }
 
 	protected override void OnCreate()
 	{
-		m_Props = Props?.Children ?? [];
-		m_Starts = new Vector3[m_Props.Length];
-		m_Rotations = new Quaternion[m_Props.Length];
-		m_Ups = new Vector3[m_Props.Length];
-		for (int i = 0; i < m_Props.Length; i++)
+		Entity[] props = Props?.Children ?? [];
+		m_PropCount = props.Length;
+		m_Bodies = [.. props, .. Movables?.Children ?? []];
+		m_Starts = new Vector3[m_Bodies.Length];
+		m_Rotations = new Quaternion[m_Bodies.Length];
+		m_Ups = new Vector3[m_Bodies.Length];
+		for (int i = 0; i < m_Bodies.Length; i++)
 		{
-			m_Starts[i] = m_Props[i].Transform.WorldTranslation;
-			// Props is not turned: the props' rotations are their world rotations.
-			m_Rotations[i] = m_Props[i].Rotation;
-			m_Ups[i] = m_Props[i].Transform.Up;
+			m_Starts[i] = m_Bodies[i].Transform.WorldTranslation;
+			// Their parents are not turned: their rotations are their world rotations.
+			m_Rotations[i] = m_Bodies[i].Rotation;
+			m_Ups[i] = m_Bodies[i].Transform.Up;
 		}
 	}
 
@@ -71,9 +78,9 @@ public sealed class Playground : Script
 
 		int knocked = 0;
 		float tipped = Mathf.Cos(KnockedAngle * Mathf.Deg2Rad);
-		for (int i = 0; i < m_Props.Length; i++)
+		for (int i = 0; i < m_PropCount; i++)
 		{
-			Entity prop = m_Props[i];
+			Entity prop = m_Bodies[i];
 			if (!prop.IsValid)
 			{
 				continue;
@@ -88,12 +95,13 @@ public sealed class Playground : Script
 		Knocked = knocked;
 	}
 
-	/// <summary>Puts every prop back where it stood, stands the dominoes up, stops the wrecking ball and clears the balls.</summary>
+	/// <summary>Puts every prop and movable back where it stood, stands the dominoes up, stops the wrecking ball and clears the
+	/// balls.</summary>
 	public void PutBack()
 	{
-		for (int i = 0; i < m_Props.Length; i++)
+		for (int i = 0; i < m_Bodies.Length; i++)
 		{
-			if (m_Props[i].IsValid && m_Props[i].GetComponent<RigidBodyComponent>() is { } body)
+			if (m_Bodies[i].IsValid && m_Bodies[i].GetComponent<RigidBodyComponent>() is { } body)
 			{
 				body.Teleport(m_Starts[i], m_Rotations[i]);
 				body.LinearVelocity = Vector3.Zero;
@@ -102,7 +110,7 @@ public sealed class Playground : Script
 		}
 		Dominoes?.As<DominoRun>()?.StandUp();
 		WreckingBall?.As<WreckingBall>()?.Stop();
-		Rig?.As<FlyCamera>()?.ClearBalls();
+		Rig?.As<CameraRig>()?.ClearBalls();
 		Launcher?.As<BallLauncher>()?.ClearBalls();
 		Resets++;
 	}

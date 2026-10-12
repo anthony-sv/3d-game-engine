@@ -1034,11 +1034,14 @@ data directory, and compile out asserts and script debug lines.
   volume carries the golden-hour look, a local one with a blend distance turns the light show into an evening, and
   `DayNight` turns day into night by dimming the sun to moonlight and weighting in a night volume), physics (a wrecking
   ball on a ball joint, a hinged seesaw, a motorized paddle, dominoes, a plank bridge of hinges), triggers (a ball
-  launcher, a goal that counts with sound and a particle burst, a pressure plate that raises a gate), particles and 3D
-  sound. The `Flythrough` script opens it with a camera tour along `CameraShot` children that cues the exhibits under
-  letterbox bars, a title and captions, then hands over to the free camera (`FlyCamera`, with a `CameraShake` child)
-  and the HUD, a UI canvas (`Hud`): a feature list whose rows (`HudFeature`) light up and open as the camera nears their
-  exhibits, counters, and buttons that put the exhibits back, set them off and switch day and night. `DebugView` draws
-  ballistic paths and trigger bounds. A test scene that `StradaRuntimeTests` plays checks every exhibit, the volumes,
-  the night and the HUD's buttons (its checks do not need the downloads).
+  launcher, a goal that counts with sound and a particle burst, a pressure plate that raises a gate), a character
+  controller (a yard of stairs, a ramp, posts to jump, a lift (`Lift`, a kinematic platform) and crates to push),
+  particles and 3D sound. The `Flythrough` script opens it with a camera tour along `CameraShot` children that cues the
+  exhibits under letterbox bars, a title and captions, then hands over to the camera rig (`CameraRig`, with a
+  `CameraShake` child), which flies or walks as a first-person character (`Walker`), and to the HUD, a UI canvas
+  (`Hud`): a feature list whose rows (`HudFeature`) light up and open as the camera nears their exhibits, counters, a
+  hint line for the way the camera moves, and buttons that put the exhibits back, set them off, switch day and night and
+  switch between flying and walking. `DebugView` draws ballistic paths and trigger bounds. A test scene that
+  `StradaRuntimeTests` plays checks every exhibit, the volumes, the night, the HUD's buttons and the walker climbing,
+  running, jumping, pushing and riding the lift (its checks do not need the downloads).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.

@@ -6,11 +6,12 @@ namespace Showcase;
 
 /// <summary>The heads-up display, on a UI element of the screen's canvas: the feature list lights up and opens the rows of the
 /// exhibits around the camera (and the scripting row while the mouse is over the HUD), the status shows the props knocked down
-/// and the goals scored, and the buttons put the exhibits back, swing the wrecking ball, launch a ball and switch day and night.
-/// A button lights up as its exhibit's key is pressed too. Its key hides it; the tour hides it while it plays.</summary>
+/// and the goals scored, the buttons put the exhibits back, swing the wrecking ball, launch a ball, switch day and night and
+/// switch between flying and walking, and the hint line shows the keys of the way the camera moves. A button lights up as its
+/// key is pressed too. Its key hides it; the tour hides it while it plays.</summary>
 public sealed class Hud : Script
 {
-	[Tooltip("The camera rig (a FlyCamera): the features near it light up")]
+	[Tooltip("The camera rig (a CameraRig): the features near it light up, and the mode button switches it")]
 	public Entity? Rig;
 
 	[Tooltip("The playground (a Playground): its count of props knocked down shows, and the reset button puts everything back")]
@@ -56,6 +57,33 @@ public sealed class Hud : Script
 	[Tooltip("The button that switches day and night")]
 	public Entity? LightsButton;
 
+	[Tooltip("The button that switches between flying and walking")]
+	public Entity? ModeButton;
+
+	[Tooltip("The mode button's icon (a UI image): footprints while flying, a paper plane while walking")]
+	public Entity? ModeIcon;
+
+	[Tooltip("The mode button's label (UI text)")]
+	public Entity? ModeLabel;
+
+	[Tooltip("The mode button's icon while flying")]
+	public Texture? WalkIcon;
+
+	[Tooltip("The mode button's icon while walking")]
+	public Texture? FlyIcon;
+
+	[Tooltip("UI text of the hint line")]
+	public Entity? HintText;
+
+	[Tooltip("The hint line while flying")]
+	public string FlyHint = "";
+
+	[Tooltip("The hint line while walking with the mouse looking around")]
+	public string WalkHint = "";
+
+	[Tooltip("The hint line while walking with the cursor free")]
+	public string FreeCursorHint = "";
+
 	[Tooltip("The lights button's icon (a UI image): the sun by day, the moon by night")]
 	public Entity? LightsIcon;
 
@@ -82,6 +110,7 @@ public sealed class Hud : Script
 	private bool m_ShowsMoon;
 	private float m_PanelPadding;
 	private (int Knocked, int Total, int Goals) m_Shown = (-1, -1, -1);
+	private int m_ShownMode = -1;
 
 	/// <summary>The rows of the feature list.</summary>
 	public IReadOnlyList<HudFeature> FeatureRows => m_Features;
@@ -114,7 +143,7 @@ public sealed class Hud : Script
 		}
 		m_Features = [.. features];
 		List<Entity> buttons = [];
-		foreach (Entity? button in new[] { ResetButton, SwingButton, LaunchButton, LightsButton })
+		foreach (Entity? button in new[] { ResetButton, SwingButton, LaunchButton, LightsButton, ModeButton })
 		{
 			if (button?.GetComponent<UIButtonComponent>() is { } component)
 			{
@@ -139,6 +168,7 @@ public sealed class Hud : Script
 			Shown = !Shown;
 		}
 		ShowStatus();
+		ShowMode();
 		LightFeatures(deltaTime);
 		FlashOnKeys();
 		Flash(deltaTime);
@@ -168,6 +198,10 @@ public sealed class Hud : Script
 		else if (button == LightsButton)
 		{
 			Lighting?.As<DayNight>()?.Toggle();
+		}
+		else if (button == ModeButton && Rig?.As<CameraRig>() is { } rig)
+		{
+			rig.SetWalking(!rig.IsWalking);
 		}
 		else
 		{
@@ -199,6 +233,35 @@ public sealed class Hud : Script
 		if (GoalsText?.GetComponent<UITextComponent>() is { } goals)
 		{
 			goals.Text = counts.Goals.ToString(CultureInfo.InvariantCulture);
+		}
+	}
+
+	// The mode button offers the other way to move, and the hint line shows the keys of this one.
+	private void ShowMode()
+	{
+		CameraRig? rig = Rig?.As<CameraRig>();
+		int mode = rig is null || !rig.IsWalking ? 0 : rig.IsCursorCaptured ? 1 : 2;
+		if (mode == m_ShownMode)
+		{
+			return;
+		}
+		m_ShownMode = mode;
+		if (HintText?.GetComponent<UITextComponent>() is { } hint)
+		{
+			hint.Text = mode switch
+			{
+				0 => FlyHint,
+				1 => WalkHint,
+				_ => FreeCursorHint
+			};
+		}
+		if (ModeLabel?.GetComponent<UITextComponent>() is { } label)
+		{
+			label.Text = mode == 0 ? "Walk" : "Fly";
+		}
+		if (ModeIcon?.GetComponent<UIImageComponent>() is { } icon)
+		{
+			icon.Texture = mode == 0 ? WalkIcon : FlyIcon;
 		}
 	}
 
@@ -257,6 +320,10 @@ public sealed class Hud : Script
 		if (Lighting?.As<DayNight>() is { } lighting && Input.IsKeyPressed(lighting.Key))
 		{
 			StartFlash(LightsButton);
+		}
+		if (Rig?.As<CameraRig>() is { } rig && rig.Controllable && Input.IsKeyPressed(rig.ModeKey))
+		{
+			StartFlash(ModeButton);
 		}
 	}
 

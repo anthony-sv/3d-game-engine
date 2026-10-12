@@ -1,6 +1,6 @@
-"""Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, forest (day), crickets (night), campfire, fountain
-and neon loops, the impact sounds, the sounds of the exhibits (goal chime, cannon, gate, the neon sign lighting up) and the
-HUD's button sounds.
+"""Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, forest (day), crickets (night), campfire, fountain,
+neon and lift loops, the impact sounds, the sounds of the exhibits (goal chime, cannon, gate, the neon sign lighting up),
+footsteps and landings, and the HUD's button sounds.
 
 Everything is synthesized here, so the sounds have no license of their own and regenerate identically (fixed seeds):
 
@@ -433,6 +433,53 @@ def crickets():
     return make_loop(reverb(out, mix=0.2, seconds=1.2), loop_length)
 
 
+def leaf_step(seed, count, thud_gain, crackles):
+    """A step on dry leaves: a soft thud with their crunch over it (crackling noise bursts)."""
+    random.seed(seed)
+    thud = Biquad("low", 140.0, 0.8)
+    crunch = Biquad("band", 2600.0, 0.7)
+    out = []
+    for i in range(count):
+        t = i / RATE
+        noise = random.uniform(-1.0, 1.0)
+        body = thud(noise) * 4.0 * math.exp(-t / 0.035) * min(1.0, i / 30.0)
+        grain = crunch(noise) * (0.6 + 0.4 * random.random()) * math.exp(-t / 0.06) * min(1.0, i / 60.0)
+        out.append(thud_gain * body + 0.8 * grain)
+    for _ in range(crackles):
+        begin = int(random.uniform(0.005, 0.12) * RATE)
+        band = Biquad("band", random.uniform(2500.0, 6000.0), 1.5)
+        gain = random.uniform(0.2, 0.6)
+        for i in range(int(0.006 * RATE)):
+            if begin + i < count:
+                out[begin + i] += gain * band(random.uniform(-1.0, 1.0)) * math.exp(-i / (0.0015 * RATE))
+    # The filters ring on: the last fifth fades out so the sound ends without a click.
+    return [sample * min(1.0, 5.0 * (count - i) / count) for i, sample in enumerate(out)]
+
+
+def footstep():
+    return leaf_step(12, int(0.25 * RATE), 0.6, 14)
+
+
+def landing():
+    return leaf_step(14, int(0.4 * RATE), 1.4, 24)
+
+
+def lift_hum():
+    """The lift's motor in a 2 second loop: a low hum and the whine of its gears."""
+    random.seed(15)
+    loop_length = int(2.0 * RATE)
+    total = loop_length + int(0.2 * RATE)
+    rumble = Biquad("low", 220.0, 0.7)
+    out = [0.0] * total
+    for i in range(loop_length):
+        t = i / RATE
+        out[i] += 0.5 * math.sin(2.0 * math.pi * 60.0 * t) + 0.25 * math.sin(2.0 * math.pi * 180.0 * t)
+        out[i] += 0.12 * math.sin(2.0 * math.pi * 700.0 * t + 0.6 * math.sin(2.0 * math.pi * 3.0 * t))
+    for i in range(total):
+        out[i] += 0.8 * rumble(random.uniform(-1.0, 1.0))
+    return make_loop(out, loop_length)
+
+
 def ui_hover():
     """A soft tick as the mouse moves onto a HUD button."""
     count = int(0.05 * RATE)
@@ -458,6 +505,7 @@ if __name__ == "__main__":
                                  ("MetalHit.wav", metal_hit, 0.85), ("Throw.wav", throw, 0.7), ("Crackle.wav", crackle, 0.75),
                                  ("Fountain.wav", fountain_water, 0.7), ("Goal.wav", goal_chime, 0.85), ("Cannon.wav", cannon_boom, 0.9),
                                  ("Gate.wav", gate_rumble, 0.8), ("NeonIgnite.wav", neon_ignite, 0.85), ("NeonHum.wav", neon_hum, 0.7),
-                                 ("Night.wav", crickets, 0.7), ("UIHover.wav", ui_hover, 0.6), ("UIClick.wav", ui_click, 0.8)):
+                                 ("Night.wav", crickets, 0.7), ("Step.wav", footstep, 0.85), ("Land.wav", landing, 0.9),
+                                 ("Lift.wav", lift_hum, 0.7), ("UIHover.wav", ui_hover, 0.6), ("UIClick.wav", ui_click, 0.8)):
         write_wav(name, generate(), peak)
         print("wrote", os.path.join(OUTPUT, name))

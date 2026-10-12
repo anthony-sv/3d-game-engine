@@ -4,7 +4,7 @@ namespace Showcase;
 
 /// <summary>Shakes the camera it is on around its rest pose: impacts add trauma, which wears off, and the camera turns and
 /// moves by smooth noise scaled by trauma squared, so small bumps stay subtle and big ones jolt. The camera sits under a rig
-/// that moves it (FlyCamera), so the shake adds to whatever the rig does.</summary>
+/// that moves it (CameraRig), so the shake adds to whatever the rig does.</summary>
 public sealed class CameraShake : Script
 {
 	[Tooltip("Degrees the camera turns at full trauma")]

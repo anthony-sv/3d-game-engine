@@ -10,7 +10,7 @@ namespace Showcase;
 /// (it sets their opacities and the bars' heights).</summary>
 public sealed class Flythrough : Script
 {
-	[Tooltip("The camera rig the tour moves (a FlyCamera)")]
+	[Tooltip("The camera rig the tour moves (a CameraRig)")]
 	public Entity? Rig;
 
 	[Tooltip("Plays the tour when the scene starts")]
@@ -138,10 +138,10 @@ public sealed class Flythrough : Script
 	/// <summary>Starts the tour from its first shot (it needs at least two).</summary>
 	public void Play()
 	{
-		FlyCamera? rig = Rig?.As<FlyCamera>();
+		CameraRig? rig = Rig?.As<CameraRig>();
 		if (rig is null || !GatherShots())
 		{
-			Log.Warn("Flythrough: the tour needs a FlyCamera rig and at least two shots");
+			Log.Warn("Flythrough: the tour needs a CameraRig and at least two shots");
 			return;
 		}
 		IsPlaying = true;
@@ -158,7 +158,7 @@ public sealed class Flythrough : Script
 	/// <summary>Ends the tour early: the camera glides to the last shot and is handed over.</summary>
 	public void Skip()
 	{
-		if (!IsPlaying || m_Skipping || Rig?.As<FlyCamera>() is not { } rig)
+		if (!IsPlaying || m_Skipping || Rig?.As<CameraRig>() is not { } rig)
 		{
 			return;
 		}
@@ -189,7 +189,7 @@ public sealed class Flythrough : Script
 			}
 			return;
 		}
-		FlyCamera? rig = Rig?.As<FlyCamera>();
+		CameraRig? rig = Rig?.As<CameraRig>();
 		if (rig is null)
 		{
 			IsPlaying = false;
@@ -273,7 +273,7 @@ public sealed class Flythrough : Script
 		return true;
 	}
 
-	private void Finish(FlyCamera rig)
+	private void Finish(CameraRig rig)
 	{
 		IsPlaying = false;
 		SetFade(0.0f);
@@ -284,7 +284,7 @@ public sealed class Flythrough : Script
 		HandOvers++;
 	}
 
-	private static void Apply(FlyCamera rig, Vector3 position, Vector3 angles)
+	private static void Apply(CameraRig rig, Vector3 position, Vector3 angles)
 	{
 		rig.SetPose(position, angles.X, angles.Y);
 	}

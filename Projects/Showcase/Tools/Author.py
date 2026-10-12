@@ -9,9 +9,10 @@ The project is rebuilt from scratch: everything but this Tools folder, the .giti
 
 The clearing is laid out in exhibit areas around a fountain, each with a signpost: physically based materials (west), glass
 and cutouts (east), lights and shadows (north-west, in an evening zone of post-processing), physics (north), triggers
-(north-east), particles and sound around the fountain and the campfire. A global post-process volume grades the scene; day
-turns to night at the press of a button. The camera tours the exhibits when the game starts, under a neon sign that flickers
-on; then a HUD (a UI canvas) lists the features, counts what was knocked down and scored, and sets the exhibits off.
+(north-east), particles and sound around the fountain and the campfire, and a yard to walk and climb in (south-east). A global
+post-process volume grades the scene; day turns to night at the press of a button. The camera tours the exhibits when the game
+starts, under a neon sign that flickers on; then it flies or walks, and a HUD (a UI canvas) lists the features, counts what was
+knocked down and scored, and sets the exhibits off.
 """
 import json
 import math
@@ -25,9 +26,9 @@ import tempfile
 TOOLS = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.dirname(TOOLS)
 ROOT = os.path.dirname(os.path.dirname(PROJECT))
-SCRIPTS = ["FlyCamera", "CameraShake", "Flythrough", "CameraShot", "ITourCue", "Impact", "LanternFlicker", "Playground",
+SCRIPTS = ["CameraRig", "Walker", "CameraShake", "Flythrough", "CameraShot", "ITourCue", "Impact", "LanternFlicker", "Playground",
            "WreckingBall", "DominoRun", "BallLauncher", "GoalZone", "PressurePlate", "Spinner", "Sway", "LightShow", "DebugView",
-           "NeonSign", "DayNight", "Hud", "HudFeature", "ShowcaseTests"]
+           "NeonSign", "DayNight", "Lift", "Hud", "HudFeature", "ShowcaseTests"]
 
 HDRI = "autumn_forest_04"
 GROUND = "dry_decay_leaves"
@@ -232,6 +233,11 @@ LAYOUT = Frame()
 # The materials gallery (west) and the glass garden (east) face the plaza.
 GALLERY = Frame((-12.0, 0.0, 1.0), 62.0)
 GARDEN = Frame((11.6, 0.0, 2.2), -58.0)
+# The yard (south-east), where the walker climbs: its front (+Z) faces the plaza, +X is on the right seen from there.
+YARD = Frame((11.0, 0.0, 14.5), -142.8)
+# The yard's heights: the deck the stairs climb to, and the lookout the lift rises to.
+DECK_TOP = 1.5
+LOOKOUT_TOP = 3.4
 
 # Where the free camera starts and the tour ends: south of the plaza, looking north over the fountain.
 HOME = (LAYOUT, (0.0, 2.9, 16.0), (0.0, 1.1, -2.0))
@@ -250,7 +256,9 @@ TOUR = (
      "wrecking_ball", 0.6),
     ("Dominoes", LAYOUT, (2.8, 3.0, -11.2), (1.8, 0.4, -16.0), 4.0, "Chain reactions", "every domino is a rigid body", "dominoes", 3.0),
     ("Triggers", LAYOUT, (4.4, 2.8, -0.6), (12.4, 3.0, -10.4), 4.5, "Triggers", "a goal counts, a pressure plate opens the gate", "launcher", 1.3),
-    ("Glass", LAYOUT, (4.6, 2.5, 10.2), (11.0, 1.7, 2.8), 4.5, "Transparency", "blended glass, alpha-tested lattice, two-sided cloth", None, 0.0),
+    ("Glass", LAYOUT, (4.2, 2.5, 8.6), (11.0, 1.7, 2.8), 4.5, "Transparency", "blended glass, alpha-tested lattice, two-sided cloth", None, 0.0),
+    ("Yard", LAYOUT, (3.6, 5.0, 8.6), (10.6, 1.4, 15.0), 4.5, "Character controller",
+     "press F to walk: climb the stairs, jump the posts, ride the lift", None, 0.0),
     ("Campfire", LAYOUT, (-1.0, 1.5, 13.8), (-4.8, 1.0, 6.2), 4.0, "Particles and sound",
      "fire, smoke, sparks, water and fireflies, heard where they are", None, 0.0),
     ("Home", *HOME, 3.0, "", "", None, 0.0),
@@ -305,6 +313,7 @@ FEATURES = (
     ("Post-processing", "bloom, ambient occlusion, grading, local volumes", (-9.6, -7.2), 4.5),
     ("Rigid bodies and joints", "Jolt physics: crates, dominoes, a wrecking ball", (0.5, -11.5), 7.0),
     ("Triggers", "a goal that counts, a plate that opens a gate", (11.0, -8.0), 6.0),
+    ("Character controller", "walk, run, jump, climb stairs, ride a lift, push", (11.0, 14.5), 7.0),
     ("Particles and 3D sound", "fire, water, sparks and fireflies, heard in space", (-2.2, 4.0), 7.0),
     ("UI and C# scripting", "this HUD, and how every exhibit behaves", None, 0.0),
 )
@@ -315,10 +324,16 @@ BUTTONS = (
     ("Swing Button", "Swing the wrecking ball", "Swing", "1", "SwingButton"),
     ("Launch Button", "Launch a ball", "Launch", "3", "LaunchButton"),
     ("Lights Button", "Toggle lights", "Sun", "L", "LightsButton"),
+    ("Mode Button", "Walk", "Walk", "F", "ModeButton"),
 )
 
-FLY_HINT = ("Right mouse  look      W A S D  move      Q / E  down · up      Shift  faster      Click  throw a ball      "
+# The hint line, by the way the camera moves.
+FLY_HINT = ("Right mouse  look      W A S D  move      Q / E  down · up      Shift  faster      Click  throw a ball      F  walk      "
             "T  debug view      H  hide HUD      C  tour")
+WALK_HINT = ("Mouse  look      W A S D  walk      Shift  run      Space  jump      Click  throw a ball      Esc  free the cursor      "
+             "F  fly      H  hide HUD")
+FREE_CURSOR_HINT = ("Click the scene  look around      W A S D  walk      Shift  run      Space  jump      F  fly      H  hide HUD      "
+                    "C  tour")
 
 
 def use_engine_sources(csproj):
@@ -557,6 +572,7 @@ class Showcase:
         self.make_lights()
         self.make_physics()
         self.make_triggers()
+        self.make_yard()
         self.make_scenery()
         self.make_sound()
         self.make_grading()
@@ -628,8 +644,9 @@ class Showcase:
 
     def finish_camera(self, ball, crosshair):
         self.call("component_add", {"entity": self.rig, "component": "Script", "fields": {
-            "ClassName": "Showcase.FlyCamera", "Fields": {"View": {"Type": "Entity", "Value": self.camera},
+            "ClassName": "Showcase.CameraRig", "Fields": {"View": {"Type": "Entity", "Value": self.camera},
                                                           "Crosshair": {"Type": "Entity", "Value": crosshair},
+                                                          "Walker": {"Type": "Entity", "Value": self.walker},
                                                           "Ball": {"Type": "Prefab", "Value": ball}}}})
 
     # --- The plaza: a fountain on cobbles, the campfire and a picnic table ------------------------------------------------
@@ -1298,6 +1315,104 @@ class Showcase:
         self.call("entity_delete", {"entities": [ball]})
         return reference
 
+    # --- The yard: where the walker climbs, jumps, rides and pushes ---------------------------------------------------------
+
+    def make_yard(self):
+        """The yard (south-east): stairs up to a deck, a ramp down from it, posts to jump along, a lookout a lift rises to, and
+        crates to push; and the walker, the character the camera walks as."""
+        frame = YARD
+        yard = self.entity("Yard")
+        planks, marble = self.textures[PLANKS], self.textures[MARBLE]
+
+        def solid(name, local, scale, material, euler=(0.0, 0.0, 0.0), mesh="Cube", parent=yard):
+            collider = {"BoxCollider": {}} if mesh == "Cube" else {"MeshCollider": {"Mesh": f"builtin://{mesh}", "Convex": True}}
+            return self.entity(name, {"Transform": frame.place(local, euler, scale), **self.mesh(mesh, material), "RigidBody": {"Type": "Static"},
+                                      **collider}, parent)
+
+        # The deck on steel posts, and five steps of 25 cm up to it from the front.
+        self.deck = solid("Deck", (0.5, DECK_TOP - 0.1, 0.0), (3.0, 0.2, 3.0), planks)
+        for index, (x, z) in enumerate(((-0.85, -1.35), (1.85, -1.35), (-0.85, 1.35), (1.85, 1.35))):
+            solid(f"Deck Post {index + 1}", (x, (DECK_TOP - 0.2) / 2.0, z), (0.16, DECK_TOP - 0.2, 0.16), self.iron, mesh="Cylinder")
+        stairs = self.entity("Stairs", None, yard)
+        for step in range(1, 6):
+            top = 0.25 * step
+            entity = solid(f"Step {step}", (0.2, top / 2.0, 1.5 + (5 - step) * 0.36 + 0.18), (1.6, top, 0.36), planks, parent=stairs)
+            if step == 1:
+                self.first_step = entity
+        # The ramp down from the deck's left edge: 1.5 m over 3 m. Its top face runs from (-4, 0) to (-1, 1.5) (x, height); its
+        # local X runs uphill.
+        run, rise, thickness = 3.0, DECK_TOP, 0.15
+        length = math.hypot(run, rise)
+        normal = (-rise / length, run / length)
+        center = (-2.5 - normal[0] * thickness / 2.0, rise / 2.0 - normal[1] * thickness / 2.0)
+        self.ramp = solid("Ramp", (center[0], center[1], 0.0), (length, thickness, 1.6), planks, (0.0, 0.0, math.degrees(math.atan2(rise, run))))
+        # Posts to jump along, up to the deck's front corner.
+        for index, (x, z, top) in enumerate(((-3.4, 3.4, 0.5), (-2.6, 2.7, 0.95), (-1.8, 2.0, 1.4))):
+            solid(f"Jump Post {index + 1}", (x, top / 2.0, z), (0.7, top, 0.7), marble, mesh="Cylinder")
+
+        # The lookout on the right, 3.4 m up, railed at the back and on the right; the lift rises to its front edge.
+        lookout = self.entity("Lookout", None, yard)
+        solid("Floor", (3.7, LOOKOUT_TOP - 0.1, -0.5), (2.2, 0.2, 2.2), planks, parent=lookout)
+        for index, (x, z) in enumerate(((2.7, -1.5), (4.7, -1.5), (2.7, 0.5), (4.7, 0.5))):
+            solid(f"Post {index + 1}", (x, (LOOKOUT_TOP - 0.2) / 2.0, z), (0.18, LOOKOUT_TOP - 0.2, 0.18), self.iron, mesh="Cylinder", parent=lookout)
+        for name, local, scale in (("Back Rail", (3.7, LOOKOUT_TOP + 0.95, -1.55), (2.2, 0.06, 0.06)),
+                                   ("Right Rail", (4.75, LOOKOUT_TOP + 0.95, -0.5), (0.06, 0.06, 2.2)),
+                                   ("Back Rail Post", (2.65, LOOKOUT_TOP + 0.5, -1.55), (0.06, 1.0, 0.06)),
+                                   ("Corner Rail Post", (4.75, LOOKOUT_TOP + 0.5, -1.55), (0.06, 1.0, 0.06)),
+                                   ("Right Rail Post", (4.75, LOOKOUT_TOP + 0.5, 0.55), (0.06, 1.0, 0.06))):
+            solid(name, local, scale, self.iron, parent=lookout)
+        # A lantern on the corner post lights the yard at night.
+        (lantern_low, _) = self.models[LANTERN][1]
+        lantern = self.model_entity("Lantern", LANTERN, frame.place((4.75, LOOKOUT_TOP + 1.0 - lantern_low[1], -1.55)), {
+            "Mesh": {"Mesh": self.models[LANTERN][0], "CastShadows": False}}, parent=lookout)
+        self.entity("Lantern Light", {"Transform": transform((0.0, 0.14, 0.0)),
+                                      "PointLight": {"Color": [1.0, 0.62, 0.3], "Intensity": 10.0, "Range": 13.0},
+                                      "Script": {"ClassName": "Showcase.LanternFlicker", "Fields": {"Amount": {"Type": "Float", "Value": 0.12}}}},
+                    lantern)
+        # The lift: a steel platform between four posts, from the ground to the lookout's floor.
+        rest_top = 0.12
+        self.lift = self.entity("Lift", {"Transform": frame.place((3.7, rest_top - 0.1, 1.5), scale=(1.5, 0.2, 1.5)),
+                                         **self.mesh("Cube", self.textures[PAINTED_METAL]), "RigidBody": {"Type": "Kinematic"}, "BoxCollider": {},
+                                         "AudioSource": {"Clip": "asset://Audio/Lift.wav", "Volume": 0.35, "Loop": True, "PlayOnStart": True,
+                                                         "Spatial": True, "MinDistance": 2.0, "MaxDistance": 20.0},
+                                         "Script": {"ClassName": "Showcase.Lift", "Fields": {
+                                             "Rise": {"Type": "Float", "Value": LOOKOUT_TOP - rest_top}}}}, yard)
+        # Guide posts at its corners, outside the platform, up past the lookout's rails.
+        for index, (x, z) in enumerate(((2.86, 0.66), (4.54, 0.66), (2.86, 2.34), (4.54, 2.34))):
+            solid(f"Lift Post {index + 1}", (x, 2.3, z), (0.1, 4.6, 0.1), self.iron)
+
+        # Crates to push, a size larger than the playground's: two on the deck, a stack by the ramp's foot.
+        crates = self.entity("Yard Crates", None, yard)
+        crate_scale = 1.3
+        (low, high) = self.models[CRATE][1]
+        crate_size = [(high[axis] - low[axis]) * crate_scale for axis in range(3)]
+        center = [(low[axis] + high[axis]) / 2.0 for axis in range(3)]
+        for index, (x, base, z, yaw) in enumerate(((1.4, DECK_TOP, -0.9, 10.0), (1.3, DECK_TOP, 0.6, -25.0), (-3.4, 0.0, -2.3, 5.0),
+                                                   (-4.6, 0.0, -2.1, -8.0), (-4.0, crate_size[1], -2.2, 3.0))):
+            offset = yaw_point((center[0] * crate_scale, 0.0, center[2] * crate_scale), yaw + frame.yaw)
+            position = frame.point((x, base - low[1] * crate_scale, z))
+            self.model_entity(f"Yard Crate {index + 1}", CRATE, {"Translation": [position[0] - offset[0], position[1], position[2] - offset[2]],
+                                                                  "Rotation": frame.rotation((0.0, yaw, 0.0)), "Scale": [crate_scale] * 3}, {
+                "RigidBody": {"Type": "Dynamic", "Mass": 9.0, "AngularDamping": 0.1},
+                # In the crate's own (unscaled) units: the entity's scale scales the collider too.
+                "BoxCollider": {"HalfExtents": [(high[0] - low[0]) / 2.0 - 0.002, (high[1] - low[1]) / 2.0, (high[2] - low[2]) / 2.0 - 0.002],
+                                "Offset": center, "Friction": 0.6, "Restitution": 0.05},
+                "AudioSource": {"Clip": "asset://Audio/WoodHit.wav", "Spatial": True, "MinDistance": 2.0, "MaxDistance": 40.0},
+                "Script": {"ClassName": "Showcase.Impact", "Fields": {"Volume": {"Type": "Float", "Value": 0.8}}}}, crates)
+        self.yard_crates = crates
+
+        # The walker: an upright capsule as tall as a person, its feet at the entity, with its footsteps and landings. It waits
+        # out of the way until the camera walks (Walker parks it).
+        feet = frame.point((0.2, 0.0, 4.4))
+        self.walker = self.entity("Walker", {"Transform": transform(feet), "CharacterController": {
+            "Radius": 0.32, "Height": 1.8, "Offset": [0.0, 0.9, 0.0], "StepHeight": 0.35, "MaxSlopeAngle": 50.0, "Mass": 75.0, "PushForce": 300.0}})
+        footsteps = self.entity("Footsteps", {"AudioSource": {"Clip": "asset://Audio/Step.wav", "Volume": 0.55, "Spatial": False}}, self.walker)
+        landing = self.entity("Landing", {"AudioSource": {"Clip": "asset://Audio/Land.wav", "Volume": 0.8, "Spatial": False}}, self.walker)
+        self.call("component_add", {"entity": self.walker, "component": "Script", "fields": {"ClassName": "Showcase.Walker", "Fields": {
+            "Footsteps": {"Type": "Entity", "Value": footsteps}, "Landing": {"Type": "Entity", "Value": landing}}}})
+        sign = frame.point((2.8, 0.0, 4.6))
+        self.signpost((sign[0], sign[2]), "CHARACTER", "F walks: stairs, a ramp, posts to jump,\na lift and crates to push")
+
     # --- Scenery: rocks, stumps, ferns and branches around the exhibits ---------------------------------------------------
 
     def make_scenery(self):
@@ -1312,7 +1427,7 @@ class Showcase:
                 ("Fern", FERN, (-2.6, 0.0, 12.4), 15.0, 1.2, False),
                 ("Fern 2", FERN, (5.4, 0.0, 6.8), 140.0, 1.3, False),
                 ("Fern 3", FERN, (-14.2, 0.0, 4.6), 260.0, 1.4, False),
-                ("Fern 4", FERN, (9.8, 0.0, 10.4), 80.0, 1.3, False),
+                ("Fern 4", FERN, (6.0, 0.0, 11.8), 80.0, 1.3, False),
                 ("Fern 5", FERN, (-10.4, 0.0, -14.6), 200.0, 1.5, False),
                 ("Fern 6", FERN, (18.5, 0.0, -2.5), 300.0, 1.4, False),
                 ("Fern 7", FERN, (-6.0, 0.0, 14.5), 45.0, 1.3, False),
@@ -1329,7 +1444,7 @@ class Showcase:
         (shrub_low, _) = self.models[SHRUBS][1]
         for index, (x, z, yaw, size) in enumerate(((-15.5, 4.0, 30.0, 0.8), (-14.0, -9.5, 150.0, 0.7), (-9.0, -17.5, 80.0, 0.75),
                                                    (9.0, -18.0, 200.0, 0.8), (17.0, -6.0, 290.0, 0.7), (15.5, 7.5, 10.0, 0.75),
-                                                   (-11.5, 12.5, 120.0, 0.65), (9.5, 13.0, 250.0, 0.65))):
+                                                   (-11.5, 12.5, 120.0, 0.65), (5.5, 17.5, 250.0, 0.65))):
             self.model_entity(f"Shrubs {index + 1}", SHRUBS, LAYOUT.place((x, -shrub_low[1] * size, z), (0.0, yaw, 0.0), (size, size, size)), None,
                               scenery)
 
@@ -1360,7 +1475,7 @@ class Showcase:
                       ((13.2, -11.0), 4.5), ((-12.8, 8.0), 3.0))
         generator = random.Random(17)
         # The first three stand towards the sun (south-east), so their trunks lay long shadows across the plaza.
-        sunward = [(17.1, 10.3), (12.5, 16.0), (21.5, 3.0)]
+        sunward = [(17.1, 10.3), (14.2, 18.6), (21.5, 3.0)]
         placed = []
         attempts = 0
         while len(placed) < 26 and attempts < 2000:
@@ -1429,7 +1544,8 @@ class Showcase:
         self.ball_prefab = self.call("prefab_create", {"entity": ball, "path": "Prefabs/Ball.sprefab"})["reference"]
         self.call("entity_delete", {"entities": [ball]})
         self.playground = self.entity("Playground", {"Script": {"ClassName": "Showcase.Playground", "Fields": {
-            "Props": {"Type": "Entity", "Value": self.props}, "Dominoes": {"Type": "Entity", "Value": self.dominoes},
+            "Props": {"Type": "Entity", "Value": self.props}, "Movables": {"Type": "Entity", "Value": self.yard_crates},
+            "Dominoes": {"Type": "Entity", "Value": self.dominoes},
             "Rig": {"Type": "Entity", "Value": self.rig}, "Launcher": {"Type": "Entity", "Value": self.launcher},
             "WreckingBall": {"Type": "Entity", "Value": self.wrecking_ball}}}})
         self.debug_view = self.entity("Debug View", {"Script": {"ClassName": "Showcase.DebugView", "Fields": {
@@ -1451,7 +1567,11 @@ class Showcase:
                       "Launcher": entity | {"Value": self.launcher}, "Lighting": entity | {"Value": self.day_night},
                       "HoverSound": entity | {"Value": hover},
                       "SunIcon": {"Type": "Asset", "Value": "asset://Textures/Icons/Sun.png"},
-                      "MoonIcon": {"Type": "Asset", "Value": "asset://Textures/Icons/Moon.png"}}
+                      "MoonIcon": {"Type": "Asset", "Value": "asset://Textures/Icons/Moon.png"},
+                      "WalkIcon": {"Type": "Asset", "Value": "asset://Textures/Icons/Walk.png"},
+                      "FlyIcon": {"Type": "Asset", "Value": "asset://Textures/Icons/Fly.png"},
+                      "FlyHint": {"Type": "String", "Value": FLY_HINT}, "WalkHint": {"Type": "String", "Value": WALK_HINT},
+                      "FreeCursorHint": {"Type": "String", "Value": FREE_CURSOR_HINT}}
 
         # The feature list, top left: the engine's name, then a row per exhibit area, its name alone until it lights up and
         # opens (Hud stacks the rows; this is the list with every row closed).
@@ -1506,20 +1626,25 @@ class Showcase:
                                         "UIImage": {"CornerRadius": 14.0}, "UIButton": BUTTON}, buttons)
             image = self.entity("Icon", {"UIRect": ui_rect((0.0, 0.5), (0.0, 0.5), (16.0, 0.0), (30.0, 30.0)),
                                          "UIImage": {"Texture": f"asset://Textures/Icons/{icon}.png", "Color": TEXT}}, button)
-            self.entity("Label", {"UIRect": ui_rect((0.0, 0.5), (0.0, 0.5), (60.0, 0.0), (230.0, 40.0)), "UIText": ui_text(label, 20.0, TEXT)},
-                        button)
+            text = self.entity("Label", {"UIRect": ui_rect((0.0, 0.5), (0.0, 0.5), (60.0, 0.0), (230.0, 40.0)),
+                                         "UIText": ui_text(label, 20.0, TEXT)}, button)
             keycap = self.entity("Key", {"UIRect": ui_rect((1.0, 0.5), (1.0, 0.5), (-14.0, 0.0), (30.0, 30.0)),
                                          "UIImage": {"Color": linear(1.0, 1.0, 1.0, 0.13), "CornerRadius": 7.0}}, button)
             self.entity("Letter", {"UIRect": ui_fill(), "UIText": ui_text(key, 16.0, TEXT, "Center")}, keycap)
             hud_fields[field] = entity | {"Value": button}
             if field == "LightsButton":
                 hud_fields["LightsIcon"] = entity | {"Value": image}
+            if field == "ModeButton":
+                hud_fields["ModeIcon"] = entity | {"Value": image}
+                hud_fields["ModeLabel"] = entity | {"Value": text}
 
         # The hint line at the bottom, and the crosshair, shown while looking around.
         hint = self.entity("Hint", {"UIRect": ui_rect((0.5, 1.0), (0.5, 1.0), (0.0, -26.0), (1300.0, 44.0)),
                                     "UIImage": {"Color": linear(0.0, 0.0, 0.0, 0.42), "CornerRadius": 22.0}}, hud)
-        self.hint_text = self.entity("Text", {"UIRect": ui_fill(), "UIText": ui_text(FLY_HINT, 18.0, linear(0.9, 0.9, 0.88), "Center")}, hint)
-        self.crosshair = self.entity("Crosshair", {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, 0.0), (40.0, 40.0), Visible=False),
+        hud_fields["HintText"] = entity | {"Value": self.entity("Text", {"UIRect": ui_fill(),
+                                                                          "UIText": ui_text(FLY_HINT, 18.0, linear(0.9, 0.9, 0.88), "Center")},
+                                                                hint)}
+        self.crosshair = self.entity("Crosshair", {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, 0.0), (46.0, 46.0), Visible=False),
                                                    "UIImage": {"Texture": "asset://Textures/Crosshair.png", "Color": linear(1.0, 1.0, 1.0, 0.85)}},
                                      hud)
         self.call("component_add", {"entity": hud, "component": "Script", "fields": {"ClassName": "Showcase.Hud", "Fields": hud_fields}})
@@ -1603,11 +1728,13 @@ class Showcase:
             "Fireflies": entity | {"Value": self.fireflies}, "Sparks": entity | {"Value": self.sparks}, "Leaves": entity | {"Value": self.leaves},
             "DebugView": entity | {"Value": self.debug_view}, "Hud": entity | {"Value": self.hud}, "Lighting": entity | {"Value": self.day_night},
             "NeonSign": entity | {"Value": self.neon_sign}, "Look": entity | {"Value": self.look},
-            "EveningZone": entity | {"Value": self.evening_zone}}}}})
+            "EveningZone": entity | {"Value": self.evening_zone}, "Walker": entity | {"Value": self.walker},
+            "Lift": entity | {"Value": self.lift}, "Deck": entity | {"Value": self.deck}, "FirstStep": entity | {"Value": self.first_step},
+            "Ramp": entity | {"Value": self.ramp}}}}})
         call("scene_save")
         call("scene_open", {"path": "Scenes/Main.sscene"})
 
-        run = call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": 40})
+        run = call("test_run", {"scene": "Scenes/Tests.sscene", "timeout": 60})
         print("test run:", {key: run[key] for key in ("finished", "timedOut", "frames", "passed", "failed", "exceptions")})
         for result in run["results"]:
             print("  ", "PASS" if result["passed"] else "FAIL", result["name"], result.get("message", ""))

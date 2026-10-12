@@ -27,7 +27,7 @@ Textures (RGBA PNG):
 - Leaf: a pale leaf with veins on a transparent background, which particles tint into falling autumn leaves.
 - SoftBand: white whose opacity fades out towards every edge, a soft backdrop that UI images tint (behind titles).
 - Icons/*: the HUD buttons' white icons on transparent backgrounds: Reset (a circular arrow), Swing (a wrecking ball), Launch
-  (a ball on its arc), Sun and Moon (day and night).
+  (a ball on its arc), Sun and Moon (day and night), Walk (footprints) and Fly (a paper plane).
 """
 import base64
 import json
@@ -732,6 +732,14 @@ def in_triangle(u, v, a, b, c):
     return all(s >= 0.0 for s in sides) or all(s <= 0.0 for s in sides)
 
 
+def in_ellipse(u, v, center, radii, angle=0.0):
+    """Whether the point lies in the ellipse with the radii, turned by the angle (radians, clockwise on the screen)."""
+    du, dv = u - center[0], v - center[1]
+    cosine, sine = math.cos(angle), math.sin(angle)
+    x, y = du * cosine + dv * sine, -du * sine + dv * cosine
+    return (x / radii[0]) ** 2 + (y / radii[1]) ** 2 <= 1.0
+
+
 def reset_icon():
     """A circular arrow turning clockwise, its head at the top pointing into the gap at the top right."""
     center, radius, width = (0.5, 0.53), 0.27, 0.095
@@ -812,6 +820,44 @@ def moon_icon():
     icon("Moon", inside)
 
 
+def walk_icon():
+    """Two footprints, the left one ahead: a sole with a heel and five toes each."""
+    feet = []
+    for center, angle, mirror in (((0.32, 0.36), -0.18, 1.0), ((0.68, 0.62), 0.18, -1.0)):
+        cosine, sine = math.cos(angle), math.sin(angle)
+
+        def place(x, y, center=center, cosine=cosine, sine=sine):
+            # The foot's own frame (x across, y down the foot) turned by the angle and moved to the center.
+            return (center[0] + x * cosine - y * sine, center[1] + x * sine + y * cosine)
+
+        toes = [(place(mirror * x * 1.25, y * 1.25), r * 1.25) for x, y, r in ((-0.07, -0.19, 0.035), (-0.02, -0.215, 0.03),
+                                                                               (0.025, -0.21, 0.027), (0.063, -0.19, 0.024),
+                                                                               (0.092, -0.16, 0.021))]
+        feet.append((place(0.0, -0.05), place(0.0, 0.15), angle, toes))
+
+    def inside(u, v):
+        for sole, heel, angle, toes in feet:
+            if in_ellipse(u, v, sole, (0.11, 0.14), angle) or in_ellipse(u, v, heel, (0.08, 0.09), angle):
+                return True
+            if any(math.hypot(u - c[0], v - c[1]) <= r for c, r in toes):
+                return True
+        return False
+
+    icon("Walk", inside)
+
+
+def fly_icon():
+    """A paper plane flying up to the right: its wing and its keel, with a fold between them."""
+    nose, wing, fold, keel = (0.88, 0.14), (0.1, 0.46), (0.42, 0.6), (0.52, 0.88)
+
+    def inside(u, v):
+        if near_segment(u, v, fold, nose, 0.04):
+            return False
+        return in_triangle(u, v, wing, nose, fold) or in_triangle(u, v, fold, nose, keel)
+
+    icon("Fly", inside)
+
+
 if __name__ == "__main__":
     write_gltf("TorusKnot", torus_knot())
     write_gltf("Hoop", torus())
@@ -832,5 +878,5 @@ if __name__ == "__main__":
     beam_fade()
     leaf()
     soft_band()
-    for make in (reset_icon, swing_icon, launch_icon, sun_icon, moon_icon):
+    for make in (reset_icon, swing_icon, launch_icon, sun_icon, moon_icon, walk_icon, fly_icon):
         make()

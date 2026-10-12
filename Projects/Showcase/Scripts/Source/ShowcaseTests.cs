@@ -9,14 +9,15 @@ namespace Showcase;
 /// <summary>The checks of Scenes/Tests.sscene (the main scene with this script, and without the tour playing at the start). They
 /// play the exhibits through their public methods and look at what happened: the stacks stand and fall, joints hold, balls
 /// score and open the gate, the dominoes fall, the lights move, particles burn, the camera shakes, the tour hands over, the
-/// neon sign lights up, night falls and the HUD's buttons work. None of them needs the downloaded models. The run ends once they
-/// are done (play the scene, or `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
+/// neon sign lights up, night falls, the HUD's buttons work, and the walker climbs, runs, jumps, pushes and rides the lift. None
+/// of them needs the downloaded models. The run ends once they are done (play the scene, or
+/// `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
 public sealed class ShowcaseTests : Script
 {
 	[Tooltip("The playground that counts the props")]
 	public Entity? Playground;
 
-	[Tooltip("The camera rig (a FlyCamera)")]
+	[Tooltip("The camera rig (a CameraRig)")]
 	public Entity? Rig;
 
 	[Tooltip("The camera under the rig (a CameraShake)")]
@@ -94,6 +95,21 @@ public sealed class ShowcaseTests : Script
 	[Tooltip("The local post-process volume around the light show")]
 	public Entity? EveningZone;
 
+	[Tooltip("The walker (a Walker on a character controller)")]
+	public Entity? Walker;
+
+	[Tooltip("The yard's lift (a Lift)")]
+	public Entity? Lift;
+
+	[Tooltip("The yard's deck, which the stairs climb to")]
+	public Entity? Deck;
+
+	[Tooltip("The lowest of the stairs up to the deck")]
+	public Entity? FirstStep;
+
+	[Tooltip("The ramp down from the deck (its local X runs uphill)")]
+	public Entity? Ramp;
+
 	private readonly List<(float Time, Action Step)> m_Schedule = [];
 	private int m_Next;
 	private float m_Time;
@@ -108,6 +124,14 @@ public sealed class ShowcaseTests : Script
 	private (float Frame, float Letters) m_NeonDark;
 	private (float Frame, float Letters) m_NeonFrameOnly;
 	private (int Swings, int Shots, int Resets, int Switches) m_BeforeClicks;
+	private Vector3 m_WalkFrom;
+	private float m_WalkRange = float.PositiveInfinity;
+	private Vector3 m_PaceFrom;
+	private float m_WalkPace;
+	private float m_JumpPeak = float.MinValue;
+	private bool m_TrackJump;
+	private Entity? m_Crate;
+	private Vector3 m_CrateFrom;
 
 	protected override void OnCreate()
 	{
@@ -135,7 +159,7 @@ public sealed class ShowcaseTests : Script
 				debug.Visible = true;
 			}
 			// The balls leave the plate: the gate closes after a while.
-			Rig?.As<FlyCamera>()?.ClearBalls();
+			Rig?.As<CameraRig>()?.ClearBalls();
 			Launcher?.As<BallLauncher>()?.ClearBalls();
 			m_Dropped?.Destroy();
 			m_Ball = null;
@@ -169,6 +193,45 @@ public sealed class ShowcaseTests : Script
 		{
 			CheckTheFeatureList();
 			CheckTheClicks();
+			// F: the rig walks, on what is under it (the gallery).
+			Rig?.As<CameraRig>()?.SetWalking(true);
+		});
+		At(15.7f, CheckTheRigOnItsFeet);
+		At(15.8f, ClimbTheStairs);
+		At(17.8f, CheckTheStairs);
+		At(17.9f, WalkDownTheRamp);
+		At(19.9f, CheckTheRamp);
+		// North along an open line from south of the plaza: a second at walking pace, then a second running.
+		At(20.5f, () => WalkAlong(new Vector3(-1.0f, 0.04f, 19.0f), 0.0f));
+		At(21.0f, () => m_PaceFrom = Walker?.Transform.WorldTranslation ?? Vector3.Zero);
+		At(21.5f, () =>
+		{
+			m_WalkPace = PaceSince(0.5f);
+			if (Walker?.As<Walker>() is { } walker)
+			{
+				walker.Running = true;
+			}
+		});
+		At(22.0f, () => m_PaceFrom = Walker?.Transform.WorldTranslation ?? Vector3.Zero);
+		At(22.5f, CheckTheSpeeds);
+		At(23.2f, () =>
+		{
+			m_TrackJump = true;
+			Walker?.As<Walker>()?.Jump();
+		});
+		At(24.8f, CheckTheJump);
+		At(24.9f, PushACrate);
+		At(26.5f, CheckThePush);
+		At(26.6f, CheckTheCratesPutBack);
+		At(26.7f, RideTheLift);
+		At(33.4f, () =>
+		{
+			CheckTheLift();
+			Hud?.As<Hud>()?.ModeButton?.GetComponent<UIButtonComponent>()?.Click();
+		});
+		At(33.5f, () =>
+		{
+			CheckTheModeButton();
 			TestReporter.Finish();
 			Application.Quit();
 		});
@@ -177,6 +240,17 @@ public sealed class ShowcaseTests : Script
 	protected override void OnUpdate(float deltaTime)
 	{
 		m_Time += deltaTime;
+		if (m_TrackJump && Walker is not null)
+		{
+			m_JumpPeak = Mathf.Max(m_JumpPeak, Walker.Transform.WorldTranslation.Y);
+		}
+		// A walk with a range stops once the walker has come that far along the ground.
+		if (m_WalkRange < float.PositiveInfinity && Walker?.As<Walker>() is { } walker &&
+			Vector3.Distance(Flat(walker.Transform.WorldTranslation), Flat(m_WalkFrom)) >= m_WalkRange)
+		{
+			walker.MoveInput = Vector2.Zero;
+			m_WalkRange = float.PositiveInfinity;
+		}
 		float light = Lantern?.GetComponent<PointLightComponent>()?.Intensity ?? 0.0f;
 		m_LowestLight = Mathf.Min(m_LowestLight, light);
 		m_BrightestLight = Mathf.Max(m_BrightestLight, light);
@@ -330,7 +404,7 @@ public sealed class ShowcaseTests : Script
 		TestReporter.Run("the tour takes the camera along its shots", () =>
 		{
 			Flythrough? tour = Tour?.As<Flythrough>();
-			FlyCamera? rig = Rig?.As<FlyCamera>();
+			CameraRig? rig = Rig?.As<CameraRig>();
 			Assert.IsNotNull(tour);
 			Assert.IsNotNull(rig);
 			Assert.IsFalse(tour.IsPlaying, "the test scene starts without the tour");
@@ -353,7 +427,7 @@ public sealed class ShowcaseTests : Script
 		TestReporter.Run("the tour moves the camera and opens with its title", () =>
 		{
 			Flythrough? tour = Tour?.As<Flythrough>();
-			FlyCamera? rig = Rig?.As<FlyCamera>();
+			CameraRig? rig = Rig?.As<CameraRig>();
 			Assert.IsNotNull(tour);
 			Assert.IsNotNull(rig);
 			Assert.IsTrue(tour.IsPlaying);
@@ -397,7 +471,7 @@ public sealed class ShowcaseTests : Script
 		TestReporter.Run("after the tour the free camera has control", () =>
 		{
 			Flythrough? tour = Tour?.As<Flythrough>();
-			FlyCamera? rig = Rig?.As<FlyCamera>();
+			CameraRig? rig = Rig?.As<CameraRig>();
 			Assert.IsNotNull(tour);
 			Assert.IsNotNull(rig);
 			Assert.IsFalse(tour.IsPlaying);
@@ -450,7 +524,7 @@ public sealed class ShowcaseTests : Script
 		// The camera moves to the gallery, whose row of the feature list lights up.
 		Hud? hud = Hud?.As<Hud>();
 		HudFeature? materials = hud?.FeatureRows.FirstOrDefault(row => row.Radius > 0.0f);
-		if (Rig?.As<FlyCamera>() is { } rig && materials is not null)
+		if (Rig?.As<CameraRig>() is { } rig && materials is not null)
 		{
 			rig.SetPose(materials.Center + new Vector3(0.0f, 2.0f, 0.0f), 0.0f, rig.Yaw);
 		}
@@ -473,7 +547,7 @@ public sealed class ShowcaseTests : Script
 		TestReporter.Run("the feature list lights up the exhibits around the camera", () =>
 		{
 			Hud? hud = Hud?.As<Hud>();
-			FlyCamera? rig = Rig?.As<FlyCamera>();
+			CameraRig? rig = Rig?.As<CameraRig>();
 			Assert.IsNotNull(hud);
 			Assert.IsNotNull(rig);
 			Assert.IsTrue(hud.FeatureRows.Count >= 8, $"{hud.FeatureRows.Count} rows");
@@ -522,6 +596,217 @@ public sealed class ShowcaseTests : Script
 			Assert.IsFalse(hud.GetComponent<UIRectComponent>()!.Visible);
 			hud.Shown = true;
 			Assert.IsTrue(hud.Shown);
+		});
+	}
+
+	private void CheckTheRigOnItsFeet()
+	{
+		TestReporter.Run("F walks: the walker stands under the camera, which drops to its eyes", () =>
+		{
+			CameraRig? rig = Rig?.As<CameraRig>();
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(rig);
+			Assert.IsNotNull(walker);
+			Assert.IsTrue(rig.IsWalking);
+			Assert.IsTrue(rig.IsCursorCaptured, "the mouse looks around");
+			Assert.IsTrue(walker.IsActive);
+			Assert.IsTrue(walker.IsGrounded, "it stands");
+			Assert.AreApproximatelyEqual(walker.EyePosition, rig.Translation, 0.05f, "the view is at its eyes");
+			// F again: the rig flies on from there, and the walker waits out of the way.
+			rig.SetWalking(false);
+			Assert.IsFalse(rig.IsWalking);
+			Assert.IsFalse(walker.IsActive);
+			Assert.AreEqual(2, rig.ModeSwitches);
+		});
+	}
+
+	// The walker is driven directly from here on (the rig flies and leaves it alone): forward along the heading, as far as the
+	// range along the ground.
+	private void WalkAlong(Vector3 feet, float yaw, float range = float.PositiveInfinity)
+	{
+		if (Walker?.As<Walker>() is { } walker)
+		{
+			walker.Enter(feet, yaw);
+			walker.MoveInput = new Vector2(0.0f, 1.0f);
+			walker.Running = false;
+			m_WalkFrom = feet;
+			m_WalkRange = range;
+		}
+	}
+
+	private static float YawTowards(Vector3 from, Vector3 to) => Mathf.Atan2(-(to.X - from.X), -(to.Z - from.Z)) * Mathf.Rad2Deg;
+
+	private static Vector3 Flat(Vector3 value) => new(value.X, 0.0f, value.Z);
+
+	// From a meter in front of the first step, towards the deck.
+	private void ClimbTheStairs()
+	{
+		if (FirstStep is null || Deck is null)
+		{
+			return;
+		}
+		Vector3 towards = Flat(Deck.Transform.WorldTranslation - FirstStep.Transform.WorldTranslation).Normalized;
+		Vector3 start = Flat(FirstStep.Transform.WorldTranslation) - (towards * 1.0f);
+		// Up the stairs to the middle of the deck.
+		WalkAlong(start, YawTowards(start, Deck.Transform.WorldTranslation), Vector3.Distance(start, Flat(Deck.Transform.WorldTranslation)));
+	}
+
+	private void CheckTheStairs()
+	{
+		TestReporter.Run("the walker climbs the stairs onto the deck", () =>
+		{
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(walker);
+			Assert.IsNotNull(Deck);
+			float deckTop = Deck.Transform.WorldTranslation.Y + (Deck.Scale.Y * 0.5f);
+			float feet = walker.Transform.WorldTranslation.Y;
+			Assert.IsTrue(Mathf.Abs(feet - deckTop) < 0.08f, $"its feet are at {feet} m, the deck at {deckTop} m");
+			Assert.IsTrue(walker.IsGrounded);
+			Assert.IsTrue(walker.Steps >= 3, $"{walker.Steps} footsteps");
+		});
+	}
+
+	// From the deck, a meter before the ramp's top, down the ramp.
+	private void WalkDownTheRamp()
+	{
+		if (Ramp is null)
+		{
+			return;
+		}
+		Vector3 uphill = Ramp.Transform.Right;
+		Vector3 top = Ramp.Transform.WorldTranslation + (uphill * (Ramp.Scale.X * 0.5f));
+		Vector3 start = top + (Flat(uphill).Normalized * 1.0f) + new Vector3(0.0f, 0.1f, 0.0f);
+		// Down to a meter and a half past its foot.
+		float run = Ramp.Scale.X * Flat(uphill).Length;
+		WalkAlong(start, YawTowards(start, Ramp.Transform.WorldTranslation), 1.0f + run + 1.5f);
+	}
+
+	private void CheckTheRamp()
+	{
+		TestReporter.Run("the walker walks down the ramp to the ground", () =>
+		{
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(walker);
+			Assert.IsNotNull(Ramp);
+			Vector3 feet = walker.Transform.WorldTranslation;
+			Assert.IsTrue(feet.Y < 0.1f, $"its feet are at {feet.Y} m");
+			Assert.IsTrue(walker.IsGrounded);
+			float run = Vector3.Distance(Flat(feet), Flat(m_WalkFrom));
+			Assert.IsTrue(run > Ramp.Scale.X, $"it walked {run} m");
+		});
+	}
+
+	// Meters per second along the ground since the pace was last marked, over the seconds.
+	private float PaceSince(float seconds) =>
+		Vector3.Distance(Flat(Walker?.Transform.WorldTranslation ?? Vector3.Zero), Flat(m_PaceFrom)) / seconds;
+
+	private void CheckTheSpeeds()
+	{
+		float runPace = PaceSince(0.5f);
+		TestReporter.Run("the walker walks and runs at its speeds", () =>
+		{
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(walker);
+			Assert.IsTrue(Mathf.Abs(m_WalkPace - walker.WalkSpeed) < 0.3f, $"it walked at {m_WalkPace} m/s");
+			Assert.IsTrue(Mathf.Abs(runPace - walker.RunSpeed) < 0.4f, $"it ran at {runPace} m/s");
+			walker.MoveInput = Vector2.Zero;
+			walker.Running = false;
+		});
+	}
+
+	private void CheckTheJump()
+	{
+		m_TrackJump = false;
+		TestReporter.Run("the walker jumps and lands", () =>
+		{
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(walker);
+			Assert.AreEqual(1, walker.Jumps);
+			Assert.IsTrue(m_JumpPeak > 1.0f, $"its feet rose to {m_JumpPeak} m");
+			Assert.IsTrue(walker.IsGrounded, "it is back on the ground");
+			Assert.IsTrue(walker.Landings >= 1, "it landed");
+		});
+	}
+
+	// From beyond a crate by the ramp's foot, towards the deck: the walker walks into the crate and shoves it.
+	private void PushACrate()
+	{
+		Playground? playground = Playground?.As<Playground>();
+		m_Crate = playground?.Movables?.Children.Where(crate => crate.Transform.WorldTranslation.Y < 0.3f).FirstOrDefault();
+		if (m_Crate is null || Deck is null)
+		{
+			return;
+		}
+		m_CrateFrom = m_Crate.Transform.WorldTranslation;
+		Vector3 away = Flat(m_CrateFrom - Deck.Transform.WorldTranslation).Normalized;
+		Vector3 start = Flat(m_CrateFrom) + (away * 1.1f);
+		WalkAlong(start, YawTowards(start, Deck.Transform.WorldTranslation), 2.4f);
+	}
+
+	private void CheckThePush()
+	{
+		TestReporter.Run("the walker pushes a crate", () =>
+		{
+			Assert.IsNotNull(m_Crate);
+			float moved = Vector3.Distance(Flat(m_Crate.Transform.WorldTranslation), Flat(m_CrateFrom));
+			Assert.IsTrue(moved > 0.3f, $"the crate moved {moved} m");
+		});
+		Walker?.As<Walker>()?.Park();
+		Playground?.As<Playground>()?.PutBack();
+	}
+
+	private void CheckTheCratesPutBack()
+	{
+		TestReporter.Run("putting the exhibits back puts the yard's crates back too", () =>
+		{
+			Assert.IsNotNull(m_Crate);
+			Assert.AreApproximatelyEqual(m_CrateFrom, m_Crate.Transform.WorldTranslation, 0.02f, "the pushed crate is back");
+		});
+	}
+
+	// The walker steps onto the lift as it starts its cycle at the bottom.
+	private void RideTheLift()
+	{
+		if (Lift?.As<Lift>() is not { } lift || Walker?.As<Walker>() is not { } walker)
+		{
+			return;
+		}
+		lift.Restart();
+		walker.Enter(Lift.Transform.WorldTranslation + new Vector3(0.0f, Lift.Scale.Y * 0.5f + 0.05f, 0.0f), walker.Yaw);
+		walker.MoveInput = Vector2.Zero;
+	}
+
+	private void CheckTheLift()
+	{
+		TestReporter.Run("the lift carries the walker up to the lookout", () =>
+		{
+			Lift? lift = Lift?.As<Lift>();
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(lift);
+			Assert.IsNotNull(walker);
+			Assert.IsFalse(lift.IsMoving, "it waits at the top");
+			Assert.AreApproximatelyEqual(lift.Rise, lift.Height, 1e-3f);
+			Assert.IsTrue(lift.Trips >= 1);
+			float top = Lift!.Transform.WorldTranslation.Y + (Lift.Scale.Y * 0.5f);
+			float feet = walker.Transform.WorldTranslation.Y;
+			Assert.IsTrue(Mathf.Abs(feet - top) < 0.08f, $"its feet are at {feet} m, the platform at {top} m");
+			Assert.IsTrue(walker.IsGrounded);
+			walker.Park();
+		});
+	}
+
+	private void CheckTheModeButton()
+	{
+		TestReporter.Run("the HUD's walk button walks and its label offers to fly", () =>
+		{
+			Hud? hud = Hud?.As<Hud>();
+			CameraRig? rig = Rig?.As<CameraRig>();
+			Assert.IsNotNull(hud);
+			Assert.IsNotNull(rig);
+			Assert.IsTrue(rig.IsWalking);
+			Assert.AreEqual("Fly", hud.ModeLabel?.GetComponent<UITextComponent>()?.Text);
+			Assert.AreEqual(hud.WalkHint, hud.HintText?.GetComponent<UITextComponent>()?.Text);
+			rig.SetWalking(false);
 		});
 	}
 
@@ -640,7 +925,7 @@ public sealed class ShowcaseTests : Script
 		Playground? playground = Playground?.As<Playground>();
 		TestReporter.Run("a ball flies from the camera", () =>
 		{
-			FlyCamera? rig = Rig?.As<FlyCamera>();
+			CameraRig? rig = Rig?.As<CameraRig>();
 			Assert.IsNotNull(rig);
 			Assert.IsNotNull(playground?.Props);
 			// The highest crate, at about eye height. Box colliders do not depend on the downloaded models, so this works
@@ -666,7 +951,7 @@ public sealed class ShowcaseTests : Script
 		TestReporter.Run("a ball can be dropped over the hoop", () =>
 		{
 			GoalZone? goal = Goal?.As<GoalZone>();
-			FlyCamera? rig = Rig?.As<FlyCamera>();
+			CameraRig? rig = Rig?.As<CameraRig>();
 			Assert.IsNotNull(goal?.Hoop);
 			Assert.IsNotNull(rig?.Ball);
 			Assert.AreEqual(0, goal.Count);
