@@ -2027,7 +2027,7 @@ TEST_CASE("Panels: the inspector shows the material of each mesh slot and edits 
 	CHECK(open);
 }
 
-TEST_CASE("UI: tile labels show file names on two lines with their extensions in view")
+TEST_CASE("UI: tile labels show file names on two lines with their extensions, or what tells a set's files apart, in view")
 {
 	HeadlessImGui imgui;
 	imgui.Frame(
@@ -2066,6 +2066,19 @@ TEST_CASE("UI: tile labels show file names on two lines with their extensions in
 			CHECK(width(word[0].c_str()) <= narrow);
 			CHECK(word[1].ends_with("...smat"));
 			CHECK(width(word[1].c_str()) <= narrow);
+			// The maps of a texture set keep what tells them apart, or its last words while they say more than a resolution;
+		    // a part that does not end the name is not used.
+			std::string const diffuse = "Models/wooden_crates_large_01/textures/wooden_crates_large_01_diff_1k.jpg";
+			std::string const normal = "Textures/dry_decay_leaves/dry_decay_leaves_nor_gl_2k.jpg";
+			CHECK(UI::SplitTileLabel("wooden_crates_large_01_diff_1k.jpg", width("wooden_crates_l"), ".jpg",
+		                             UI::GetDistinctFileNamePart(diffuse)) ==
+		          std::array<std::string, 2>{"wooden_crates_", "...diff_1k.jpg"});
+			CHECK(UI::SplitTileLabel("dry_decay_leaves_nor_gl_2k.jpg", width("dry_decay_leav"), ".jpg",
+		                             UI::GetDistinctFileNamePart(normal)) == std::array<std::string, 2>{"dry_decay_", "...gl_2k.jpg"});
+			std::array<std::string, 2> const unrelated =
+				UI::SplitTileLabel("wooden_crates_large_01_diff_1k.jpg", width("wooden_crates_l"), ".jpg", "other_1k.jpg");
+			CHECK(unrelated[1].starts_with("large_"));
+			CHECK(unrelated[1].ends_with("...jpg"));
 			// Folders (no extension) are shortened at their end.
 			CHECK(UI::SplitTileLabel("Extremely_Long_Folder_Name_That_Goes_On", narrow)[1].ends_with("..."));
 			// Names in other scripts are cut between code points.

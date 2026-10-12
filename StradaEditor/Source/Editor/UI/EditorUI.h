@@ -87,9 +87,12 @@ namespace Strada
 
 		// A file or folder name laid out in two lines of the given width with the current font, as content browser tiles show
 		// it: the first line breaks at the last place that fits after a space, '_' or '-', before a '.' or before a word of a
-		// PascalCase name ("Showcase|Tests.cs"), the second is shortened with "..." when the rest does not fit, keeping the
-		// given extension visible ("LongName.smat": "LongNa...smat"). The second line is empty for names that fit on one.
-		std::array<std::string, 2> SplitTileLabel(std::string_view name, float width, std::string_view extension = {});
+		// PascalCase name ("Showcase|Tests.cs"), the second is shortened with "..." when the rest does not fit: the files of
+		// a set keep the part that tells them apart (`distinct`, from GetDistinctFileNamePart: "...diff_1k.jpg" of
+		// "wooden_crate_01_diff_1k.jpg", or its last words while they say more than a resolution) when it fits, other names
+		// the given extension ("LongName.smat": "LongNa...smat"). The second line is empty for names that fit on one.
+		std::array<std::string, 2> SplitTileLabel(std::string_view name, float width, std::string_view extension = {},
+		                                          std::string_view distinct = {});
 		// A length of time as a label: "40 ms" below a second, "2.4 s" below ten seconds, "1:05" (minutes and seconds) above.
 		std::string FormatDuration(double seconds);
 

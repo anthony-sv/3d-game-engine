@@ -1211,7 +1211,8 @@ namespace Strada
 	{
 		if (item.LinesWidth != tileSize)
 		{
-			item.Lines = UI::SplitTileLabel(item.Name, tileSize, item.IsFolder() ? std::string() : GetExtension(item.Name));
+			item.Lines = UI::SplitTileLabel(item.Name, tileSize, item.IsFolder() ? std::string() : GetExtension(item.Name),
+			                                item.IsFolder() ? std::string_view() : UI::GetDistinctFileNamePart(item.Path));
 			item.LinesWidth = tileSize;
 		}
 		ImGuiStyle const& style = ImGui::GetStyle();

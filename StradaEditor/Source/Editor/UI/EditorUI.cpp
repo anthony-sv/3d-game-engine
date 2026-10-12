@@ -24,6 +24,9 @@ namespace Strada
 	{
 		namespace
 		{
+			// What shortened tile labels leave text out with.
+			constexpr std::string_view TileEllipsis = "...";
+
 			float TextWidth(std::string_view text)
 			{
 				return ImGui::CalcTextSize(text.data(), text.data() + text.size()).x;
@@ -79,19 +82,18 @@ namespace Strada
 				{
 					return std::string(text);
 				}
-				constexpr std::string_view Ellipsis = "...";
 				if (end.size() > 1 && end.size() < text.size())
 				{
 					// The ellipsis replaces the extension's dot.
 					std::string_view const tail = end.starts_with('.') ? end.substr(1) : end;
-					float const tailWidth = TextWidth(Ellipsis) + TextWidth(tail);
+					float const tailWidth = TextWidth(TileEllipsis) + TextWidth(tail);
 					size_t const head = FitCodePoints(text.substr(0, text.size() - end.size()), width - tailWidth);
 					if (head > 0)
 					{
-						return std::string(text.substr(0, head)) + std::string(Ellipsis) + std::string(tail);
+						return std::string(text.substr(0, head)) + std::string(TileEllipsis) + std::string(tail);
 					}
 				}
-				return std::string(text.substr(0, FitCodePoints(text, width - TextWidth(Ellipsis)))) + std::string(Ellipsis);
+				return std::string(text.substr(0, FitCodePoints(text, width - TextWidth(TileEllipsis)))) + std::string(TileEllipsis);
 			}
 
 			bool IsWordSeparator(char c)
@@ -474,7 +476,7 @@ namespace Strada
 				std::string_view(static_cast<char const*>(payload->Data), static_cast<size_t>(payload->DataSize)));
 		}
 
-		std::array<std::string, 2> SplitTileLabel(std::string_view name, float width, std::string_view extension)
+		std::array<std::string, 2> SplitTileLabel(std::string_view name, float width, std::string_view extension, std::string_view distinct)
 		{
 			if (TextWidth(name) <= width)
 			{
@@ -515,6 +517,18 @@ namespace Strada
 				first.remove_suffix(1);
 			}
 			std::string_view const rest = name.substr(end);
+			// The files of a set repeat the set's name ("wooden_crate_01_diff_1k.jpg", "wooden_crate_01_arm_1k.jpg"): what tells
+			// them apart stays, as in asset fields (FitPath).
+			if (TextWidth(rest) > width && !distinct.empty() && rest.ends_with(distinct))
+			{
+				for (std::string_view part = distinct; !part.empty() && SaysMoreThanResolution(part); part = DropFirstWord(part))
+				{
+					if (TextWidth(TileEllipsis) + TextWidth(part) <= width)
+					{
+						return {std::string(first), std::string(TileEllipsis) + std::string(part)};
+					}
+				}
+			}
 			return {std::string(first), FitTextKeepingEnd(rest, width, rest.ends_with(extension) ? extension : std::string_view())};
 		}
 

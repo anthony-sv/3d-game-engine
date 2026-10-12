@@ -860,7 +860,8 @@ positions. A build is out of date when a C# source or project file is newer than
 - Content Browser: a folder tree with two roots, the open project's asset directory and its C# scripts
   (`Scripts/Source`, `ScriptBrowsing`), beside the displayed folder as tiles (folders, then assets or scripts, then
   files that are not assets, such as a glTF scene's buffers) labeled with their file names on two lines (a long name
-  keeps its extension in view: `LongMat...smat`), breadcrumbs, a tile size slider, and a search over the root's paths.
+  keeps its extension in view, `LongMat...smat`, and the maps of a texture set what tells them apart, `...diff_1k.jpg`),
+  breadcrumbs, a tile size slider, and a search over the root's paths.
   Textures show small copies of themselves: decoded and halved on a worker thread, one texture at a time, until no side
   is longer than 256 pixels (`AssetThumbnails::ShrinkTexture`, colors averaged in linear light), so showing a texture
   never decodes, mip-maps or uploads the whole texture on the main thread. Materials (on a sphere), meshes, prefabs and
