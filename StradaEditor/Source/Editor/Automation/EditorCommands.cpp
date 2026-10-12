@@ -6,6 +6,7 @@
 #include "Editor/EditorCamera.h"
 #include "Editor/EntityBounds.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -16,6 +17,7 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Version.h"
 #include "Strada/Project/Project.h"
+#include "Strada/Project/ScriptProject.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -211,6 +213,63 @@ namespace Strada
 				assets.push_back(DescribeAsset(handle));
 			}
 			return assets;
+		}
+
+		// The directory of a content browser root: the asset directory, or the C# sources of the open project's scripts.
+		std::filesystem::path GetBrowserRootDirectory(ContentRoot root, Project const* project)
+		{
+			return root == ContentRoot::Assets || project == nullptr ? AssetManager::GetAssetDirectory()
+			                                                         : ScriptProject::GetSourceDirectory(*project);
+		}
+
+		// A folder of a content browser root a command names, relative to the root's directory with forward slashes ("" for
+		// the directory itself, which may not exist yet: the scripts' before the first script). Every spelling of a folder is
+		// accepted ("Textures/", "./Textures"); null when it is no existing folder inside the directory.
+		std::optional<std::string> FindBrowserFolder(std::filesystem::path const& directory, std::string const& requested)
+		{
+			std::filesystem::path const relative = FileSystem::PathFromUtf8(requested).lexically_normal();
+			std::filesystem::path const absolute = (directory / relative).lexically_normal();
+			std::string normalized = FileSystem::PathToUtf8(FileSystem::GetRelativePath(absolute, directory));
+			std::replace(normalized.begin(), normalized.end(), '\\', '/');
+			while (normalized.ends_with('/'))
+			{
+				normalized.pop_back();
+			}
+			bool const isRoot = normalized.empty() || normalized == ".";
+			if (relative.is_absolute() || !FileSystem::IsInside(absolute, directory) || (!isRoot && !FileSystem::IsDirectory(absolute)))
+			{
+				return std::nullopt;
+			}
+			return isRoot ? std::string() : normalized;
+		}
+
+		// The root a command names ("Assets" or "Scripts"; the schema allows no other), else the displayed one.
+		ContentRoot GetBrowserRoot(Json const& params, ContentBrowserPanel const& browser)
+		{
+			if (!params.contains("root"))
+			{
+				return browser.GetRoot();
+			}
+			return params["root"].get<std::string>() == "Scripts" ? ContentRoot::Scripts : ContentRoot::Assets;
+		}
+
+		// The folder of the root a command names (FindBrowserFolder), else the root's displayed one.
+		CommandValue<std::string> GetBrowserFolder(Json const& params, ContentBrowserPanel const& browser, ContentRoot root,
+		                                           Project const* project)
+		{
+			if (!params.contains("folder"))
+			{
+				return root == ContentRoot::Assets ? browser.GetFolder() : browser.GetScriptFolder();
+			}
+			std::string const requested = params["folder"].get<std::string>();
+			if (std::optional<std::string> folder = FindBrowserFolder(GetBrowserRootDirectory(root, project), requested))
+			{
+				return std::move(*folder);
+			}
+			CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "'{}' is not a folder of the {}", requested,
+			                                      root == ContentRoot::Assets ? "asset directory" : "scripts");
+			error.Data = Json::object({{"path", "folder"}});
+			return error;
 		}
 
 		// The selected entities, or the asset the inspector shows (null when none or no longer registered).
@@ -749,7 +808,10 @@ namespace Strada
 				result =
 					result
 						? Add("asset.move",
-				              "Moves or renames a file asset (path relative to Assets). Its handle, and every reference to it, stays valid.",
+				              "Moves or renames a file asset (path relative to Assets). Its handle, and every reference to it, stays valid. "
+				              "A model moving to another folder takes the files it reads (buffers, material libraries, textures) along "
+				              "to the same paths relative to it; refused when one outside its folder would no longer be found from "
+				              "the new one or another model of its folder reads one.",
 				              SchemaBuilder::Object()
 				                  .Property("asset", assetParameter, true)
 				                  .Property("path", SchemaBuilder::String("New path relative to Assets").MinLength(1), true)
@@ -1687,57 +1749,144 @@ namespace Strada
 				result = m_Registry.Register(std::move(screenshot));
 
 				result =
-					result ? Add("asset.browse",
-				                 "Shows a folder of the asset directory in the editor's content browser (relative to Assets with forward "
-				                 "slashes, \"\" for Assets itself) and sets the size of its tiles; returns { folder, tileScale }. Changes "
-				                 "nothing in the project. Unavailable without the editor's UI (headless).",
-				                 SchemaBuilder::Object()
-				                     .Property("folder", SchemaBuilder::String("Folder relative to Assets"))
-				                     .Property("tileScale", SchemaBuilder::Number("Tile size as a multiple of the default")
-				                                                .Minimum(ContentBrowserPanel::MinTileScale)
-				                                                .Maximum(ContentBrowserPanel::MaxTileScale))
-				                     .Build(),
-				                 false,
-				                 [this](Json const& params) -> CommandResult
-				                 {
-									 if (!m_Environment.ContentBrowser)
-									 {
-										 return MakeCommandError(AutomationErrorCode::Unavailable,
-						                                         "the editor has no content browser (headless)");
-									 }
-									 if (std::optional<CommandError> error = CheckAssets(true))
-									 {
-										 return *error;
-									 }
-									 ContentBrowserPanel& browser = m_Environment.ContentBrowser();
-									 if (params.contains("folder"))
-									 {
-										 std::string const folder = params["folder"].get<std::string>();
-										 std::filesystem::path const& assets = AssetManager::GetAssetDirectory();
-										 std::filesystem::path const relative = FileSystem::PathFromUtf8(folder).lexically_normal();
-										 std::filesystem::path const absolute = (assets / relative).lexically_normal();
-										 if (relative.is_absolute() || !FileSystem::IsInside(absolute, assets) ||
-						                     !FileSystem::IsDirectory(absolute))
-										 {
-											 return MakeCommandError(AutomationErrorCode::InvalidParams,
-							                                         "'{}' is not a folder of the asset directory", folder);
-										 }
-										 // "Textures/", "./Textures" and "Textures" are the same folder; "" and "." are Assets.
-										 std::string normalized = FileSystem::PathToUtf8(FileSystem::GetRelativePath(absolute, assets));
-										 std::replace(normalized.begin(), normalized.end(), '\\', '/');
-										 while (normalized.ends_with('/'))
-										 {
-											 normalized.pop_back();
-										 }
-										 browser.SetFolder(normalized == "." ? std::string() : normalized);
-									 }
-									 if (params.contains("tileScale"))
-									 {
-										 browser.SetTileScale(params["tileScale"].get<float>());
-									 }
-									 return Json::object({{"folder", browser.GetFolder()}, {"tileScale", browser.GetTileScale()}});
-								 })
-						   : result;
+					result
+						? Add("asset.browse",
+				              "Shows a folder in the editor's content browser and sets the size of its tiles: a folder of the asset "
+				              "directory (root Assets, the default) or of the project's C# scripts (root Scripts: Scripts/Source), "
+				              "relative to the root with forward slashes (\"\" for the root itself), or what a search of the root finds; "
+				              "returns { root, folder, search, tileScale }. Changes nothing in the project. Unavailable without the "
+				              "editor's UI (headless).",
+				              SchemaBuilder::Object()
+				                  .Property("root", SchemaBuilder::String("Which files to browse").Enum({"Assets", "Scripts"}))
+				                  .Property("folder", SchemaBuilder::String("Folder relative to the root"))
+				                  .Property("search",
+				                            SchemaBuilder::String("Shows the root's files whose paths contain this text, ignoring "
+				                                                  "case, instead of the folder; without it a search ends"))
+				                  .Property("tileScale", SchemaBuilder::Number("Tile size as a multiple of the default")
+				                                             .Minimum(ContentBrowserPanel::MinTileScale)
+				                                             .Maximum(ContentBrowserPanel::MaxTileScale))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (!m_Environment.ContentBrowser)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable,
+						                                      "the editor has no content browser (headless)");
+								  }
+								  if (std::optional<CommandError> error = CheckAssets(true))
+								  {
+									  return *error;
+								  }
+								  ContentBrowserPanel& browser = m_Environment.ContentBrowser();
+								  ContentRoot const root = GetBrowserRoot(params, browser);
+								  CommandValue<std::string> found =
+									  GetBrowserFolder(params, browser, root, m_Operations.GetContext().GetProject());
+								  if (!found)
+								  {
+									  return found.TakeError();
+								  }
+								  std::string const folder = found.TakeValue();
+								  if (root == ContentRoot::Assets)
+								  {
+									  browser.SetFolder(folder);
+								  }
+								  else
+								  {
+									  browser.SetScriptFolder(folder);
+								  }
+								  if (params.contains("search"))
+								  {
+									  browser.SetSearch(params["search"].get<std::string>());
+								  }
+								  if (params.contains("tileScale"))
+								  {
+									  browser.SetTileScale(params["tileScale"].get<float>());
+								  }
+								  browser.RequestFocus();
+								  return Json::object({{"root", root == ContentRoot::Assets ? "Assets" : "Scripts"},
+					                                   {"folder", folder},
+					                                   {"search", browser.GetSearch()},
+					                                   {"tileScale", browser.GetTileScale()}});
+							  })
+						: result;
+
+				result =
+					result
+						? Add("asset.drop",
+				              "Imports files and folders (absolute paths) into the project as if they were dropped onto the editor's "
+				              "content browser from the OS, onto a folder of the asset directory (root Assets) or of the project's C# "
+				              "scripts (root Scripts: Scripts/Source); by default the displayed one. Assets are copied into the asset "
+				              "folder and registered (taken names get a number), models with the files they read (glTF buffers and "
+				              "images, OBJ material libraries and their textures); C# sources go to the script folder, refused when "
+				              "their file name or a type they declare is taken in the scripts; folders come whole (their C# sources to "
+				              "the scripts, the rest to the assets); other files only with a model. One failure does not stop the "
+				              "others. The browser shows and selects what came in and says under its toolbar what did not. Returns { "
+				              "assets, scripts (relative to the project directory), folders (made in Assets), scriptFolders (made in "
+				              "Scripts/Source), keptFiles (copied files that are not assets), skipped, notes, errors }. Not undoable. "
+				              "Unavailable without the editor's UI (headless).",
+				              SchemaBuilder::Object()
+				                  .Property("paths",
+				                            SchemaBuilder::Array(SchemaBuilder::String("Absolute path of a file or folder").MinLength(1),
+				                                                 "Files and folders to drop")
+				                                .MinItems(1),
+				                            true)
+				                  .Property("root", SchemaBuilder::String("Where the drop lands").Enum({"Assets", "Scripts"}))
+				                  .Property("folder", SchemaBuilder::String("Folder of the root the drop lands on, relative to it"))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (!m_Environment.ContentBrowser)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable,
+						                                      "the editor has no content browser (headless)");
+								  }
+								  if (std::optional<CommandError> error = CheckAssets(true))
+								  {
+									  return *error;
+								  }
+								  std::vector<std::filesystem::path> paths;
+								  for (Json const& path : params["paths"])
+								  {
+									  std::filesystem::path file = FileSystem::PathFromUtf8(path.get<std::string>());
+									  // Relative to the editor's working directory, a path would name whatever happens to be there.
+									  if (!file.is_absolute())
+									  {
+										  CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams,
+							                                                    "'{}' is not an absolute path", path.get<std::string>());
+										  error.Data = Json::object({{"path", "paths"}});
+										  return error;
+									  }
+									  paths.push_back(std::move(file));
+								  }
+								  ContentBrowserPanel& browser = m_Environment.ContentBrowser();
+								  Project const* const project = m_Operations.GetContext().GetProject();
+								  ContentRoot const root = GetBrowserRoot(params, browser);
+								  CommandValue<std::string> folder = GetBrowserFolder(params, browser, root, project);
+								  if (!folder)
+								  {
+									  return folder.TakeError();
+								  }
+
+								  ProjectImport::Report const report = browser.ImportDropped(m_Operations, paths, root, folder.GetValue());
+								  Json scripts = Json::array();
+								  for (std::filesystem::path const& script : report.Scripts)
+								  {
+									  scripts.push_back(project != nullptr ? FileSystem::PathToUtf8(FileSystem::GetRelativePath(
+																				 script, project->GetDirectory()))
+						                                                   : FileSystem::PathToUtf8(script));
+								  }
+								  return Json::object({{"assets", DescribeAssets(report.Assets)},
+					                                   {"scripts", std::move(scripts)},
+					                                   {"folders", report.Folders},
+					                                   {"scriptFolders", report.ScriptFolders},
+					                                   {"keptFiles", report.KeptFiles},
+					                                   {"skipped", report.Skipped},
+					                                   {"notes", report.Notes},
+					                                   {"errors", report.Errors}});
+							  })
+						: result;
 
 				result =
 					result

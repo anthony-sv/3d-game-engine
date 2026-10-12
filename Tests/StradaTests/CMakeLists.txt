@@ -15,6 +15,7 @@ add_executable(StradaTests
     Source/Audio/AudioEngineTests.cpp
     Source/Audio/AudioSceneTests.cpp
     Source/Audio/AudioTestUtilities.h
+    Source/Audio/AudioWaveformTests.cpp
     Source/Core/ApplicationTests.cpp
     Source/Core/Base64Tests.cpp
     Source/Core/BufferTests.cpp
@@ -36,6 +37,7 @@ add_executable(StradaTests
     Source/Core/WindowTests.cpp
     Source/Fuzzing.h
     Source/GpuTestUtilities.h
+    Source/ImGui/ImGuiFileDropTests.cpp
     Source/ImGui/ImGuiLayerTests.cpp
     Source/Math/AABBTests.cpp
     Source/Math/FrustumTests.cpp

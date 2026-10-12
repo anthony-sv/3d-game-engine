@@ -729,3 +729,77 @@ TEST_CASE("MeshImporter: referenced files are only read inside the reference dir
 		CHECK(glm::vec3(imported.GetValue().Materials[0].Data.BaseColor) != glm::vec3(1.0f, 0.0f, 0.0f));
 	}
 }
+
+TEST_CASE("MeshImporter: the files a model reads besides itself are found")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const modelDirectory = directory.GetPath() / "Assets" / "Model";
+	REQUIRE(FileSystem::CreateDirectories(modelDirectory / "textures").IsOk());
+
+	SUBCASE("glTF buffers and images, without embedded, missing or outside ones")
+	{
+		REQUIRE(FileSystem::WriteBinaryFile(modelDirectory / "textures" / "albedo map.png", MakePng(directory, 10)).IsOk());
+		REQUIRE(FileSystem::WriteBinaryFile(directory.GetPath() / "Assets" / "Shared.png", MakePng(directory, 20)).IsOk());
+		GltfTestBuilder builder;
+		std::vector<int> const images = {builder.AddImageUri("textures/albedo%20map.png"),
+		                                 builder.AddImageUri("data:image/png;base64," + Base64Encode(MakePng(directory, 30))),
+		                                 builder.AddImageUri("textures/missing.png"),
+		                                 builder.AddImageUri("../Shared.png"),
+		                                 builder.AddImageUri("https://example.com/remote.png"),
+		                                 builder.AddImageUri("textures/albedo%20map.png")};
+		Json material = Json::object();
+		material["pbrMetallicRoughness"] = Json::object({{"baseColorTexture", Json::object({{"index", builder.AddTexture(images[0])}})}});
+		GltfTestBuilder::Primitive quad = MakeQuad();
+		quad.Material = builder.AddMaterial(material);
+		builder.SetScene({builder.AddNode("Quad", builder.AddMesh("Quad", {quad}))});
+		std::filesystem::path const path = modelDirectory / "Quad.gltf";
+		REQUIRE(builder.WriteGltf(path, false).IsOk());
+
+		// Buffers first, then images, each once; only files inside the model's directory unless another one is given.
+		Result<std::vector<std::filesystem::path>> const files = MeshImporter::FindExternalFiles(path);
+		REQUIRE_MESSAGE(files.IsOk(), files.GetError());
+		CHECK(files.GetValue() == std::vector<std::filesystem::path>{(modelDirectory / "Quad.bin").lexically_normal(),
+		                                                             (modelDirectory / "textures" / "albedo map.png").lexically_normal()});
+		Result<std::vector<std::filesystem::path>> const wider = MeshImporter::FindExternalFiles(path, directory.GetPath() / "Assets");
+		REQUIRE(wider.IsOk());
+		REQUIRE(wider.GetValue().size() == 3);
+		CHECK(wider.GetValue()[2] == (directory.GetPath() / "Assets" / "Shared.png").lexically_normal());
+
+		// GLB files carry their buffer.
+		std::filesystem::path const binary = modelDirectory / "Quad.glb";
+		REQUIRE(builder.WriteGltf(binary, true).IsOk());
+		Result<std::vector<std::filesystem::path>> const glb = MeshImporter::FindExternalFiles(binary);
+		REQUIRE(glb.IsOk());
+		CHECK(glb.GetValue() == std::vector<std::filesystem::path>{(modelDirectory / "textures" / "albedo map.png").lexically_normal()});
+	}
+	SUBCASE("OBJ material libraries and their textures")
+	{
+		REQUIRE(FileSystem::WriteBinaryFile(modelDirectory / "textures" / "Wood.png", MakePng(directory, 40)).IsOk());
+		WriteText(modelDirectory / "Crate.mtl", "newmtl Wood\nKd 1 1 1\nmap_Kd textures/Wood.png\nmap_Ks textures/Missing.png\n");
+		WriteText(modelDirectory / "Crate.obj", "mtllib Crate.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0 0\nusemtl Wood\nf 1/1 2/1 3/1\n");
+		Result<std::vector<std::filesystem::path>> const files = MeshImporter::FindExternalFiles(modelDirectory / "Crate.obj");
+		REQUIRE_MESSAGE(files.IsOk(), files.GetError());
+		CHECK(files.GetValue() == std::vector<std::filesystem::path>{(modelDirectory / "Crate.mtl").lexically_normal(),
+		                                                             (modelDirectory / "textures" / "Wood.png").lexically_normal()});
+
+		// Without a library, the one named like the model is used, as the import does; with neither, there is nothing.
+		WriteText(modelDirectory / "Plain.obj", "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n");
+		Result<std::vector<std::filesystem::path>> const plain = MeshImporter::FindExternalFiles(modelDirectory / "Plain.obj");
+		REQUIRE(plain.IsOk());
+		CHECK(plain.GetValue().empty());
+		REQUIRE(FileSystem::Copy(modelDirectory / "Crate.mtl", modelDirectory / "Plain.mtl", false).IsOk());
+		Result<std::vector<std::filesystem::path>> const named = MeshImporter::FindExternalFiles(modelDirectory / "Plain.obj");
+		REQUIRE(named.IsOk());
+		REQUIRE_FALSE(named.GetValue().empty());
+		CHECK(named.GetValue().front() == (modelDirectory / "Plain.mtl").lexically_normal());
+	}
+	SUBCASE("files that are not models, or cannot be read")
+	{
+		WriteText(modelDirectory / "Broken.gltf", "{ not json");
+		CHECK(MeshImporter::FindExternalFiles(modelDirectory / "Broken.gltf").IsError());
+		CHECK(MeshImporter::FindExternalFiles(modelDirectory / "Missing.gltf").IsError());
+		CHECK(MeshImporter::FindExternalFiles(modelDirectory / "Missing.obj").IsError());
+		WriteText(modelDirectory / "Notes.txt", "notes");
+		CHECK(MeshImporter::FindExternalFiles(modelDirectory / "Notes.txt").IsError());
+	}
+}

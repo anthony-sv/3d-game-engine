@@ -28,6 +28,9 @@ namespace Strada
 		struct InputCallbackData
 		{
 			ImGuiLayer* Layer = nullptr;
+			// The application's window (whose GLFW window is MainWindow): the platform windows of panels forward the files
+			// dropped onto them to it.
+			Window* ApplicationWindow = nullptr;
 			GLFWwindow* MainWindow = nullptr;
 			// The main window's callbacks from before the layer attached (the application's Window): its input still goes
 			// there first while no input filter is set.
@@ -192,9 +195,11 @@ namespace Strada
 	// backend's chained callbacks did), and pass what ImGui receives on to the backend.
 	struct ImGuiLayer::InputCallbacks
 	{
-		static void Install(ImGuiLayer& layer, GLFWwindow* window)
+		static void Install(ImGuiLayer& layer, Window& applicationWindow)
 		{
+			GLFWwindow* const window = applicationWindow.GetNativeWindow();
 			s_Input.Layer = &layer;
+			s_Input.ApplicationWindow = &applicationWindow;
 			s_Input.MainWindow = window;
 			s_Input.ApplicationFocus = glfwSetWindowFocusCallback(window, OnFocus);
 			s_Input.ApplicationCursorEnter = glfwSetCursorEnterCallback(window, OnCursorEnter);
@@ -235,6 +240,8 @@ namespace Strada
 			glfwSetScrollCallback(window, OnScroll);
 			glfwSetKeyCallback(window, OnKey);
 			glfwSetCharCallback(window, OnChar);
+			// Files dropped onto a panel dragged out of the main window reach the application like files dropped onto it.
+			s_Input.ApplicationWindow->ForwardFileDrops(window);
 		}
 
 		static bool IsFiltered() { return static_cast<bool>(s_Input.Layer->m_InputFilter); }
@@ -546,7 +553,7 @@ namespace Strada
 			ImGui::DestroyContext();
 			return;
 		}
-		InputCallbacks::Install(*this, window->GetNativeWindow());
+		InputCallbacks::Install(*this, *window);
 
 		if (Result<void> result = m_Renderer.Init(); !result)
 		{

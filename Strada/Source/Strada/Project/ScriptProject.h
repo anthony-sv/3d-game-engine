@@ -76,6 +76,11 @@ namespace Strada
 
 		// <project>/Scripts/<ScriptModule's name>.csproj.
 		static std::filesystem::path GetProjectFile(Project const& project);
+		// <project>/Scripts/Source: where the editor adds scripts. The C# project compiles every source under Scripts/.
+		static std::filesystem::path GetSourceDirectory(Project const& project);
+		// The directory of a folder of the source directory, given relative to it with forward slashes ("" for the source
+		// directory itself); it need not exist yet. Fails for absolute paths and folders outside the source directory.
+		[[nodiscard]] static Result<std::filesystem::path> GetSourceFolder(Project const& project, std::string_view folder);
 		// The game assembly (the project's ScriptModule, absolute).
 		static std::filesystem::path GetAssemblyPath(Project const& project);
 		static bool Exists(Project const& project);
@@ -87,9 +92,12 @@ namespace Strada
 		[[nodiscard]] static Result<void> Generate(Project const& project, std::filesystem::path const& scriptCoreAssembly);
 		// Rewrites Strada.props of an existing C# project when it changes (after the editor moved, for one).
 		[[nodiscard]] static Result<void> UpdateProps(Project const& project, std::filesystem::path const& scriptCoreAssembly);
-		// A script class from the template in Scripts/Source/<ClassName>.cs, in the namespace named after the assembly.
-		// Fails when the name is not a C# identifier (ASCII) or the file exists.
-		[[nodiscard]] static Result<std::filesystem::path> CreateScript(Project const& project, std::string_view className);
+		// A script class from the template in Scripts/Source/<folder>/<ClassName>.cs (GetSourceFolder; created when missing),
+		// in the namespace named after the assembly. Fails when the name is not a C# identifier (ASCII), the folder is not
+		// one of the source directory, or the file exists or another file of the C# project has its name (the class would
+		// be declared twice).
+		[[nodiscard]] static Result<std::filesystem::path> CreateScript(Project const& project, std::string_view className,
+		                                                                std::string_view folder = {});
 
 		static ScriptBuildSettings MakeBuildSettings(Project const& project, ScriptBuildConfiguration configuration);
 		// Builds with the .NET SDK (dotnet build), blocking the calling thread; setting *cancel from another thread stops it.
@@ -100,6 +108,11 @@ namespace Strada
 		static bool IsOutOfDate(Project const& project);
 		// When a C# project file or source last changed; empty without any.
 		static std::optional<std::filesystem::file_time_type> GetNewestSourceTime(Project const& project);
+		// The C# sources the C# project compiles: the .cs files under Scripts/ outside build output (Binaries, bin, obj) and
+		// hidden folders, absolute and sorted.
+		static std::vector<std::filesystem::path> ListSources(Project const& project);
+		// A file of the C# project with this name (Scripts/ and below, outside build output and hidden folders), if any.
+		static std::optional<std::filesystem::path> FindSource(Project const& project, std::string_view fileName);
 
 		// The .NET SDK driver: DOTNET_ROOT, PATH, then the default install locations.
 		static std::optional<std::filesystem::path> FindDotNet();
@@ -108,5 +121,7 @@ namespace Strada
 		static std::vector<ScriptDiagnostic> ParseDiagnostics(std::string_view output);
 		// A name usable for a script class and file: an ASCII C# identifier that is not a keyword.
 		static bool IsValidClassName(std::string_view name);
+		// Whether the word is a reserved C# keyword ("class", "in"); contextual keywords ("record", "where") are identifiers.
+		static bool IsKeyword(std::string_view word);
 	};
 }

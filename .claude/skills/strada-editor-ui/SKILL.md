@@ -42,11 +42,18 @@ directly: every modification goes through `EditorOperations` (undoable commands,
 ## Drag and drop, menus, shortcuts, dialogs
 
 - Payload types live in `DragDropPayload` (`Editor/UI/EditorUI.h`): `Entities` carries `uint64_t` UUIDs, `Asset` one
-  `uint64_t` handle, `AssetFolder` a folder path (UTF-8, no terminator). Validate dropped data (entities may not exist,
-  assets may have the wrong type).
+  `uint64_t` handle, `AssetFolder` and `ScriptFolder` a folder path relative to their root, `AssetFile` the path of a
+  file of the asset directory that is not an asset (relative to it), `ScriptFile` the absolute path of a C# source (all
+  paths UTF-8, no terminator). Validate dropped data (entities may not exist, assets may have the wrong type, files may
+  be gone).
 - Assets: make an item a drag source with `UI::AssetDragSource(handle, label)`; inside a drop target accept with
   `UI::AcceptAssetDrop(types)`, which highlights only for registered assets of those types. What dropping an asset onto
-  the scene does lives in `AssetDrops` and `EntityPresets::CreateFromMesh` (unit tested without UI).
+  the scene does lives in `AssetDrops` and `EntityPresets::CreateFromMesh` (unit tested without UI). Scripts use
+  `UI::ScriptDragSource` and `UI::AcceptScriptDrop`; `AssetDrops::AddScript` maps the file to its loaded class and
+  sets it as one undo step (`EditorOperations::SetScriptClass`).
+- Files dropped onto the editor from the OS arrive as `WindowFileDropEvent`s (from every window, floating panels
+  included) and go to `ContentBrowserPanel::DropFiles`; what an import does lives in `ProjectImport`, and the browser's
+  `ImportDropped` (which `asset.drop` calls for agents) selects what came in and shows a notice of what did not.
 - Global shortcuts use `ImGui::Shortcut(chord, ImGuiInputFlags_RouteGlobal)` in `EditorLayer::HandleShortcuts` and skip
   editing keys while `io.WantTextInput`; show the chord in the matching menu item. A panel with its own meaning for a
   key (Delete or F2 in the content browser) registers `ImGuiInputFlags_RouteFocused` every frame while it is focused,

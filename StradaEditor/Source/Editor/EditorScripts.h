@@ -12,6 +12,7 @@
 #include <functional>
 #include <future>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -35,6 +36,14 @@ namespace Strada
 
 	// Logs a script build's errors and warnings with their files relative to the project directory when inside it.
 	void LogScriptDiagnostics(std::vector<ScriptDiagnostic> const& diagnostics, std::filesystem::path const& projectDirectory);
+
+	// A file EditorScripts::AddScriptFiles copies into the scripts.
+	struct ScriptFileCopy
+	{
+		std::filesystem::path Source;
+		// Where it goes, relative to the destination folder with forward slashes ("Mover.cs", "AI/Steering/Seek.cs").
+		std::string Target;
+	};
 
 	// The open project's C# scripts in the editor. It keeps the C# project pointing at this engine, builds it with the .NET
 	// SDK on a worker thread (when asked, and by itself when the sources changed) and loads the built game assembly into
@@ -70,8 +79,23 @@ namespace Strada
 		// The last finished build; null before the first one of the open project.
 		ScriptBuildReport const* GetLastBuild() const { return m_LastBuild ? &*m_LastBuild : nullptr; }
 
-		// A script class from the template, creating the C# project first when the project has none. The next Update builds it.
-		[[nodiscard]] Result<std::filesystem::path> CreateScript(std::string_view className);
+		// A script class from the template in a folder of the scripts directory (ScriptProject::CreateScript), creating the C#
+		// project first when the project has none. Refused when a source of the C# project declares the class already. The
+		// next Update builds it.
+		[[nodiscard]] Result<std::filesystem::path> CreateScript(std::string_view className, std::string_view folder = {});
+		// Copies C# sources, with their names, into a folder of the scripts directory (ScriptProject::GetSourceDirectory;
+		// relative with forward slashes, "" for the directory itself, created when missing), creating the C# project first
+		// when the project has none. Sources already in the C# project's directory (Scripts/) stay where they are. Refused,
+		// with nothing copied, when the C# project would no longer build: a source's name is taken by a file of the C# project
+		// or another of the sources, or a type it declares is declared already (ScriptBrowsing::IsDuplicateDeclaration). All
+		// or nothing: copies made before a failure are removed. The next Update builds them. Returns the files in order.
+		[[nodiscard]] Result<std::vector<std::filesystem::path>> AddScripts(std::span<std::filesystem::path const> files,
+		                                                                    std::string_view folder);
+		// Copies files into a folder of the scripts directory at paths of their own below it (a dropped folder's files in
+		// their subfolders), refusing C# sources like AddScripts does; other files come along unchecked. Targets must lie
+		// inside the folder and not exist. All or nothing. Returns the copies in order.
+		[[nodiscard]] Result<std::vector<std::filesystem::path>> AddScriptFiles(std::span<ScriptFileCopy const> files,
+		                                                                        std::string_view folder);
 
 		bool HasScriptProject() const;
 		// A C# source or project file changed after the game assembly was built.

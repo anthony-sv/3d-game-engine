@@ -36,7 +36,8 @@ namespace Strada
 	// panels dragged out of it) to the platform backend itself. Without an input filter the application receives the main
 	// window's input as before ImGui (events ImGui wants to capture are marked handled); an input filter decides instead,
 	// event by event, whether ImGui receives it. Where ImGui wants no cursor (ImGuiMouseCursor_None), it is hidden in
-	// whichever of those windows it is over.
+	// whichever of those windows it is over. Files dropped onto the platform window of a panel reach the application as
+	// WindowFileDropEvents, like files dropped onto the main window.
 	class ImGuiLayer : public Layer
 	{
 	public:

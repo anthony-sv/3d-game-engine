@@ -4,6 +4,7 @@
 #include "Editor/EntityPresets.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Core/FileSystem.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -21,6 +22,79 @@ namespace Strada
 {
 	namespace UI
 	{
+		namespace
+		{
+			float TextWidth(std::string_view text)
+			{
+				return ImGui::CalcTextSize(text.data(), text.data() + text.size()).x;
+			}
+
+			// Whether an ASCII capital at index starts a word of a PascalCase name: after a lowercase letter ("Showcase|Tests")
+			// or as the last capital of an acronym ("XML|Parser").
+			bool StartsWord(std::string_view text, size_t index)
+			{
+				auto const isUpper = [&text](size_t at)
+				{
+					return at < text.size() && text[at] >= 'A' && text[at] <= 'Z';
+				};
+				auto const isLower = [&text](size_t at)
+				{
+					return at < text.size() && text[at] >= 'a' && text[at] <= 'z';
+				};
+				return index > 0 && isUpper(index) && (isLower(index - 1) || (isUpper(index - 1) && isLower(index + 1)));
+			}
+
+			// Bytes of the UTF-8 code point starting at index.
+			size_t CodePointLength(std::string_view text, size_t index)
+			{
+				size_t length = 1;
+				while (index + length < text.size() && (static_cast<unsigned char>(text[index + length]) & 0xC0) == 0x80)
+				{
+					length++;
+				}
+				return length;
+			}
+
+			// The longest start of the text, cut between code points, that is at most the width wide.
+			size_t FitCodePoints(std::string_view text, float width)
+			{
+				size_t end = 0;
+				while (end < text.size())
+				{
+					size_t const next = end + CodePointLength(text, end);
+					if (TextWidth(text.substr(0, next)) > width)
+					{
+						break;
+					}
+					end = next;
+				}
+				return end;
+			}
+
+			// The text shortened with "..." to fit the width. A given end of the text (a file's extension) stays visible:
+			// "LongMaterialName.smat" becomes "LongMat...smat".
+			std::string FitTextKeepingEnd(std::string_view text, float width, std::string_view end)
+			{
+				if (TextWidth(text) <= width)
+				{
+					return std::string(text);
+				}
+				constexpr std::string_view Ellipsis = "...";
+				if (end.size() > 1 && end.size() < text.size())
+				{
+					// The ellipsis replaces the extension's dot.
+					std::string_view const tail = end.starts_with('.') ? end.substr(1) : end;
+					float const tailWidth = TextWidth(Ellipsis) + TextWidth(tail);
+					size_t const head = FitCodePoints(text.substr(0, text.size() - end.size()), width - tailWidth);
+					if (head > 0)
+					{
+						return std::string(text.substr(0, head)) + std::string(Ellipsis) + std::string(tail);
+					}
+				}
+				return std::string(text.substr(0, FitCodePoints(text, width - TextWidth(Ellipsis)))) + std::string(Ellipsis);
+			}
+		}
+
 		ImVec2 GetToolbarButtonSize()
 		{
 			float const height = ImGui::GetFrameHeight();
@@ -274,6 +348,90 @@ namespace Strada
 				entities.emplace_back(value);
 			}
 			return entities;
+		}
+
+		void ScriptDragSource(std::filesystem::path const& file, std::string_view label)
+		{
+			if (!ImGui::BeginDragDropSource())
+			{
+				return;
+			}
+			std::string const path = FileSystem::PathToUtf8(file);
+			ImGui::SetDragDropPayload(DragDropPayload::ScriptFile, path.data(), path.size());
+			ImGui::TextUnformatted(label.data(), label.data() + label.size());
+			ImGui::EndDragDropSource();
+		}
+
+		std::optional<std::filesystem::path> AcceptScriptDrop()
+		{
+			ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::ScriptFile);
+			if (payload == nullptr || payload->DataSize <= 0)
+			{
+				return std::nullopt;
+			}
+			return FileSystem::PathFromUtf8(
+				std::string_view(static_cast<char const*>(payload->Data), static_cast<size_t>(payload->DataSize)));
+		}
+
+		std::array<std::string, 2> SplitTileLabel(std::string_view name, float width, std::string_view extension)
+		{
+			if (TextWidth(name) <= width)
+			{
+				return {std::string(name), std::string()};
+			}
+			// The first line ends at the last place that fits after a space, '_' or '-', before a '.' (the extension then
+			// starts the second line) or before a word of a PascalCase name ("Showcase|Tests"); a long word breaks where the
+			// line is full. The text before index end always fits.
+			size_t end = 0;
+			size_t breakAt = 0;
+			while (end < name.size())
+			{
+				char const c = name[end];
+				if (end > 0 && (c == '.' || StartsWord(name, end)))
+				{
+					breakAt = end;
+				}
+				size_t const next = end + CodePointLength(name, end);
+				if (TextWidth(name.substr(0, next)) > width)
+				{
+					break;
+				}
+				if (c == ' ' || c == '_' || c == '-')
+				{
+					breakAt = next;
+				}
+				end = next;
+			}
+			if (breakAt > 0)
+			{
+				end = breakAt;
+			}
+			// Every line shows at least one character, however narrow the tile.
+			end = std::max(end, CodePointLength(name, 0));
+			std::string_view first = name.substr(0, end);
+			while (first.ends_with(' '))
+			{
+				first.remove_suffix(1);
+			}
+			std::string_view const rest = name.substr(end);
+			return {std::string(first), FitTextKeepingEnd(rest, width, rest.ends_with(extension) ? extension : std::string_view())};
+		}
+
+		std::string FormatDuration(double seconds)
+		{
+			// Negative and invalid lengths read as none; a billion seconds is beyond any clip.
+			int64_t const milliseconds = std::isfinite(seconds) ? std::llround(std::clamp(seconds, 0.0, 1.0e9) * 1000.0) : 0;
+			if (milliseconds < 1000)
+			{
+				return fmt::format("{} ms", milliseconds);
+			}
+			// From 9.95 seconds on, one decimal would round to "10.0 s".
+			if (milliseconds < 9950)
+			{
+				return fmt::format("{:.1f} s", static_cast<double>(milliseconds) / 1000.0);
+			}
+			int64_t const total = (milliseconds + 500) / 1000;
+			return fmt::format("{}:{:02}", total / 60, total % 60);
 		}
 
 		EntityPreset const* DrawEntityPresetMenuItems()

@@ -87,6 +87,7 @@ TEST_CASE("ScriptProject: script classes come from a template and need valid nam
 	Result<std::filesystem::path> const script = ScriptProject::CreateScript(project, "Player");
 	REQUIRE(script.IsOk());
 	CHECK(script.GetValue() == directory.GetPath() / "Scripts" / "Source" / "Player.cs");
+	CHECK(ScriptProject::GetSourceDirectory(project) == directory.GetPath() / "Scripts" / "Source");
 	std::string const source = ReadFile(script.GetValue());
 	CHECK(Contains(source, "namespace Game;"));
 	CHECK(Contains(source, "public class Player : Script"));
@@ -96,6 +97,61 @@ TEST_CASE("ScriptProject: script classes come from a template and need valid nam
 	REQUIRE(again.IsError());
 	CHECK(Contains(again.GetError(), "already exists"));
 	CHECK(ScriptProject::CreateScript(project, "class").IsError());
+
+	// In folders of the sources, created when missing.
+	std::filesystem::path const sources = ScriptProject::GetSourceDirectory(project);
+	Result<std::filesystem::path> const brain = ScriptProject::CreateScript(project, "Brain", "AI/Steering/");
+	REQUIRE(brain.IsOk());
+	CHECK(brain.GetValue() == sources / "AI" / "Steering" / "Brain.cs");
+	CHECK(Contains(ReadFile(brain.GetValue()), "public class Brain : Script"));
+	CHECK(ScriptProject::GetSourceFolder(project, "").GetValue() == sources);
+	CHECK(ScriptProject::GetSourceFolder(project, "AI/./Steering").GetValue() == sources / "AI" / "Steering");
+	CHECK(ScriptProject::GetSourceFolder(project, "AI/..").GetValue() == sources);
+	// A source of the same name anywhere in the C# project would declare the class twice; build output does not count.
+	Result<std::filesystem::path> const twice = ScriptProject::CreateScript(project, "Player", "AI");
+	REQUIRE(twice.IsError());
+	CHECK(Contains(twice.GetError(), "Player.cs"));
+	REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Scripts" / "Tools" / "Tool.cs", "").IsOk());
+	CHECK(ScriptProject::CreateScript(project, "Tool").IsError());
+	REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Scripts" / "obj" / "Debug" / "Enemy.cs", "").IsOk());
+	CHECK(ScriptProject::CreateScript(project, "Enemy").IsOk());
+	// Folders outside the sources are refused, and nothing is written there.
+	for (char const* folder : {"..", "../..", "AI/../../Other", "/Absolute"})
+	{
+		CAPTURE(folder);
+		CHECK(ScriptProject::GetSourceFolder(project, folder).IsError());
+		CHECK(ScriptProject::CreateScript(project, "Outside", folder).IsError());
+	}
+	CHECK_FALSE(FileSystem::Exists(directory.GetPath() / "Scripts" / "Outside.cs"));
+	CHECK_FALSE(FileSystem::Exists(directory.GetPath() / "Outside.cs"));
+}
+
+TEST_CASE("ScriptProject: the C# sources the project compiles are listed and found by name")
+{
+	Testing::TemporaryDirectory directory;
+	Project const project = MakeProject(directory.GetPath());
+	std::filesystem::path const scripts = directory.GetPath() / "Scripts";
+	// Nothing yet: the C# project's directory does not exist.
+	CHECK(ScriptProject::ListSources(project).empty());
+	CHECK_FALSE(ScriptProject::FindSource(project, "Player.cs").has_value());
+
+	for (char const* file : {"Source/Player.cs", "Source/AI/Brain.CS", "Tools/Tool.cs", "Source/Notes.txt", "obj/Debug/Generated.cs",
+	                         "bin/Old.cs", "Binaries/Built.cs", ".vs/Cache.cs", "Source/.hidden/Secret.cs"})
+	{
+		REQUIRE(FileSystem::WriteTextFile(scripts / FileSystem::PathFromUtf8(file), "").IsOk());
+	}
+	// Build output and hidden folders are not part of the project.
+	CHECK(ScriptProject::ListSources(project) ==
+	      std::vector<std::filesystem::path>{(scripts / "Source" / "AI" / "Brain.CS").lexically_normal(),
+	                                         (scripts / "Source" / "Player.cs").lexically_normal(),
+	                                         (scripts / "Tools" / "Tool.cs").lexically_normal()});
+	CHECK(ScriptProject::FindSource(project, "Tool.cs") == (scripts / "Tools" / "Tool.cs").lexically_normal());
+	CHECK(ScriptProject::FindSource(project, "Notes.txt") == (scripts / "Source" / "Notes.txt").lexically_normal());
+	for (char const* name : {"Generated.cs", "Old.cs", "Built.cs", "Cache.cs", "Secret.cs", "Missing.cs", "player.cs"})
+	{
+		CAPTURE(name);
+		CHECK_FALSE(ScriptProject::FindSource(project, name).has_value());
+	}
 }
 
 TEST_CASE("ScriptProject: diagnostics are read from MSBuild output")

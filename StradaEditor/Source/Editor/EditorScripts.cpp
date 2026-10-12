@@ -1,7 +1,12 @@
 #include "Editor/EditorScripts.h"
 
+#include "Editor/AssetBrowsing.h"
+#include "Editor/FileCopies.h"
+#include "Editor/ScriptBrowsing.h"
+
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Project/Project.h"
 #include "Strada/Script/ScriptEngine.h"
 
 #include <algorithm>
@@ -31,6 +36,86 @@ namespace Strada
 				                                  : fmt::format("({})", diagnostic.Line);
 			}
 			return location;
+		}
+
+		// The types the C# project's sources declare, each with its source as the user knows it.
+		struct DeclaredSources
+		{
+			// "Scripts/Source/AI/Brain.cs".
+			std::string Description;
+			std::vector<ScriptBrowsing::DeclaredType> Types;
+		};
+
+		std::string DescribeProjectFile(Project const& project, std::filesystem::path const& file)
+		{
+			return FileSystem::PathToUtf8(FileSystem::GetRelativePath(file, project.GetDirectory()));
+		}
+
+		std::vector<DeclaredSources> ReadDeclaredSources(Project const& project)
+		{
+			std::vector<DeclaredSources> sources;
+			for (std::filesystem::path const& file : ScriptProject::ListSources(project))
+			{
+				// A source that cannot be read cannot be checked; its build reports what is wrong with it.
+				if (Result<std::string> const text = FileSystem::ReadTextFile(file))
+				{
+					sources.push_back({DescribeProjectFile(project, file), ScriptBrowsing::FindDeclaredTypes(text.GetValue())});
+				}
+			}
+			return sources;
+		}
+
+		// Refuses C# sources that would keep the C# project from building (the files of one assembly may not declare a type
+		// twice): a name that a file of the project or another of the sources has, which gives the same class in the
+		// common case of an updated copy, or a type that the project or another of the sources declares.
+		Result<void> CheckNewSources(Project const& project, std::span<ScriptFileCopy const> files)
+		{
+			std::optional<std::vector<DeclaredSources>> declared;
+			std::vector<std::string> names;
+			for (ScriptFileCopy const& file : files)
+			{
+				if (!ScriptBrowsing::IsScriptFile(FileSystem::PathFromUtf8(file.Target)))
+				{
+					continue;
+				}
+				std::string const name = AssetBrowsing::GetFileName(file.Target);
+				if (std::optional<std::filesystem::path> const existing = ScriptProject::FindSource(project, name))
+				{
+					return MakeError("'{}' already exists in {}: replace it there or rename the class", name,
+					                 DescribeProjectFile(project, existing->parent_path()));
+				}
+				if (std::find(names.begin(), names.end(), name) != names.end())
+				{
+					return MakeError("two of the C# sources are named '{}': rename one of them", name);
+				}
+				names.push_back(name);
+				Result<std::string> const text = FileSystem::ReadTextFile(file.Source);
+				if (!text)
+				{
+					return Error{text.GetError()};
+				}
+				if (!declared)
+				{
+					declared = ReadDeclaredSources(project);
+				}
+				std::vector<ScriptBrowsing::DeclaredType> types = ScriptBrowsing::FindDeclaredTypes(text.GetValue());
+				for (ScriptBrowsing::DeclaredType const& type : types)
+				{
+					for (DeclaredSources const& source : *declared)
+					{
+						for (ScriptBrowsing::DeclaredType const& other : source.Types)
+						{
+							if (ScriptBrowsing::IsDuplicateDeclaration(other, type))
+							{
+								return MakeError("'{}' declares {}, which {} declares already: rename one of them", name,
+								                 ScriptBrowsing::GetTypeDisplayName(type.Name), source.Description);
+							}
+						}
+					}
+				}
+				declared->push_back({fmt::format("{} (added with it)", file.Target), std::move(types)});
+			}
+			return {};
 		}
 	}
 
@@ -146,7 +231,7 @@ namespace Strada
 		}
 	}
 
-	Result<std::filesystem::path> EditorScripts::CreateScript(std::string_view className)
+	Result<std::filesystem::path> EditorScripts::CreateScript(std::string_view className, std::string_view folder)
 	{
 		Project const* const project = m_Context.GetProject();
 		if (project == nullptr)
@@ -158,11 +243,131 @@ namespace Strada
 			return MakeError("'{}' is not a valid script class name: use letters, digits and underscores, starting with a letter",
 			                 className);
 		}
+		if (Result<std::filesystem::path> const directory = ScriptProject::GetSourceFolder(*project, folder); !directory)
+		{
+			return Error{directory.GetError()};
+		}
+		// The template declares the class in the project's namespace.
+		ScriptBrowsing::DeclaredType declared;
+		declared.Name = ScriptProject::GetNamespace(*project) + "." + std::string(className);
+		for (DeclaredSources const& source : ReadDeclaredSources(*project))
+		{
+			for (ScriptBrowsing::DeclaredType const& type : source.Types)
+			{
+				if (ScriptBrowsing::IsDuplicateDeclaration(type, declared))
+				{
+					return MakeError("{} declares {} already: choose another name", source.Description,
+					                 ScriptBrowsing::GetTypeDisplayName(type.Name));
+				}
+			}
+		}
 		if (Result<void> generated = ScriptProject::Generate(*project, m_ScriptCoreAssembly); !generated)
 		{
 			return Error{generated.GetError()};
 		}
-		return ScriptProject::CreateScript(*project, className);
+		return ScriptProject::CreateScript(*project, className, folder);
+	}
+
+	Result<std::vector<std::filesystem::path>> EditorScripts::AddScripts(std::span<std::filesystem::path const> files,
+	                                                                     std::string_view folder)
+	{
+		Project const* const project = m_Context.GetProject();
+		if (project == nullptr)
+		{
+			return Error{"no project is open"};
+		}
+		for (std::filesystem::path const& file : files)
+		{
+			if (!FileSystem::IsRegularFile(file) || !ScriptBrowsing::IsScriptFile(file))
+			{
+				return MakeError("'{}' is not a C# source file", FileSystem::PathToUtf8(file.filename()));
+			}
+		}
+		// Sources of the C# project are compiled already: copies would declare their types twice.
+		std::filesystem::path const projectDirectory = project->GetDirectory() / ScriptProject::DirectoryName;
+		std::vector<ScriptFileCopy> copies;
+		for (std::filesystem::path const& file : files)
+		{
+			if (!FileSystem::IsInside(file, projectDirectory))
+			{
+				copies.push_back({file, FileSystem::PathToUtf8(file.filename())});
+			}
+		}
+		Result<std::vector<std::filesystem::path>> copied = AddScriptFiles(copies, folder);
+		if (!copied)
+		{
+			return Error{copied.GetError()};
+		}
+		std::vector<std::filesystem::path> added;
+		added.reserve(files.size());
+		size_t next = 0;
+		for (std::filesystem::path const& file : files)
+		{
+			added.push_back(FileSystem::IsInside(file, projectDirectory) ? file : copied.GetValue()[next++]);
+		}
+		return added;
+	}
+
+	Result<std::vector<std::filesystem::path>> EditorScripts::AddScriptFiles(std::span<ScriptFileCopy const> files, std::string_view folder)
+	{
+		Project const* const project = m_Context.GetProject();
+		if (project == nullptr)
+		{
+			return Error{"no project is open"};
+		}
+		Result<std::filesystem::path> const folderDirectory = ScriptProject::GetSourceFolder(*project, folder);
+		if (!folderDirectory)
+		{
+			return Error{folderDirectory.GetError()};
+		}
+		std::filesystem::path const& destination = folderDirectory.GetValue();
+		std::vector<std::filesystem::path> targets;
+		targets.reserve(files.size());
+		for (ScriptFileCopy const& file : files)
+		{
+			std::filesystem::path const relative = FileSystem::PathFromUtf8(file.Target);
+			std::filesystem::path const target = (destination / relative).lexically_normal();
+			if (relative.empty() || relative.has_root_path() || target == destination || !FileSystem::IsInside(target, destination))
+			{
+				return MakeError("'{}' is not a file of the scripts' folder", file.Target);
+			}
+			if (!FileSystem::IsRegularFile(file.Source))
+			{
+				return MakeError("'{}' is not a file", FileSystem::PathToUtf8(file.Source));
+			}
+			targets.push_back(target);
+		}
+		// C# sources first: their refusal says where the source of that name or type is.
+		if (Result<void> checked = CheckNewSources(*project, files); !checked)
+		{
+			return Error{checked.GetError()};
+		}
+		for (size_t index = 0; index < targets.size(); index++)
+		{
+			std::filesystem::path const& target = targets[index];
+			if (FileSystem::Exists(target) || std::find(targets.begin(), targets.begin() + static_cast<std::ptrdiff_t>(index), target) !=
+			                                      targets.begin() + static_cast<std::ptrdiff_t>(index))
+			{
+				return MakeError("'{}' already exists",
+				                 FileSystem::PathToUtf8(FileSystem::GetRelativePath(target, project->GetDirectory())));
+			}
+		}
+		if (Result<void> generated = ScriptProject::Generate(*project, m_ScriptCoreAssembly); !generated)
+		{
+			return Error{generated.GetError()};
+		}
+
+		// All or nothing: what was copied, and the folders made for it, go again after a failure.
+		FileCopies copies;
+		for (size_t index = 0; index < files.size(); index++)
+		{
+			if (Result<void> copied = copies.Copy(files[index].Source, targets[index]); !copied)
+			{
+				copies.Rollback();
+				return Error{copied.GetError()};
+			}
+		}
+		return copies.GetCopies();
 	}
 
 	bool EditorScripts::HasScriptProject() const

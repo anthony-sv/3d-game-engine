@@ -66,5 +66,12 @@ namespace Strada
 		// outside it fail the import, textures and material libraries outside it are skipped with a warning.
 		[[nodiscard]] static Result<ImportedModel> Import(std::filesystem::path const& path,
 		                                                  std::filesystem::path const& referenceDirectory = {});
+		// The files besides itself that Import reads for a model (given as an absolute path): glTF buffers and images that are
+		// not embedded, OBJ material libraries and the textures they name, FBX textures. Existing files inside
+		// referenceDirectory (the model's own directory when empty), as absolute, lexically normal paths, each once, in the
+		// order the model names them; files the model names that are missing or lie outside are left out. Fails when the
+		// model cannot be read or parsed.
+		[[nodiscard]] static Result<std::vector<std::filesystem::path>>
+		FindExternalFiles(std::filesystem::path const& path, std::filesystem::path const& referenceDirectory = {});
 	};
 }
