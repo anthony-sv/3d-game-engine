@@ -32,6 +32,10 @@ namespace Strada
 		static bool IsMouseButtonDown(MouseButton button);
 		static bool IsMouseButtonPressed(MouseButton button);
 		static bool IsMouseButtonReleased(MouseButton button);
+		// Whether the mouse button's latest release came from ReleaseKeysAndMouseButtons rather than from the device (the window
+		// lost the focus, the editor took the game's input back): interfaces cancel a press that ends this way instead of
+		// clicking. Holds until the button is pressed again.
+		static bool WasMouseButtonReleasedByReset(MouseButton button);
 
 		// Cursor position in the active game view, in the units of the scene's viewport size: the window's framebuffer pixels in
 		// the player, viewport-relative in the editor.
@@ -57,13 +61,18 @@ namespace Strada
 		static void SetKeyState(KeyCode key, bool down);
 		static void SetMouseButtonState(MouseButton button, bool down);
 		static void SetMousePosition(glm::vec2 position);
+		// Places the cursor without reporting the jump as movement: GetMouseDelta keeps only the movement before it this frame
+		// (the editor's game takes the input back with the cursor somewhere else).
+		static void WarpMousePosition(glm::vec2 position);
 		static void AddScrollDelta(glm::vec2 delta);
 		static void SetGamepadState(uint32_t gamepad, GamepadState const& state);
 
 		// Ends the frame: clears pressed/released flags and per-frame deltas. Called once per frame by Application.
 		static void EndFrame();
-		// Releases everything (e.g. when the window loses focus or play mode stops). Held keys report Released.
-		static void ReleaseAll();
+		// Releases the keys and mouse buttons held, which report Released (mouse buttons also WasMouseButtonReleasedByReset):
+		// for when their release events will not come (the window lost the focus, the editor took the game's input back, play
+		// mode stopped). Gamepads keep their state: it is polled every frame, so a button held on one is still held.
+		static void ReleaseKeysAndMouseButtons();
 		// Clears all state including flags; used by tests and on shutdown.
 		static void Reset();
 

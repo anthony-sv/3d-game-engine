@@ -174,6 +174,9 @@ set(STRADA_SCENE_SOURCES
     Source/Strada/Scene/SceneScripting.cpp
     Source/Strada/Scene/SceneSerializer.cpp
     Source/Strada/Scene/SceneSerializer.h
+    Source/Strada/Scene/SceneUI.cpp
+    Source/Strada/Scene/UILayout.cpp
+    Source/Strada/Scene/UILayout.h
 )
 
 set(STRADA_SCRIPT_SOURCES
@@ -186,6 +189,7 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/ScriptBindingsComponents.cpp
     Source/Strada/Script/ScriptBindingsEntity.cpp
     Source/Strada/Script/ScriptBindingsRuntime.cpp
+    Source/Strada/Script/ScriptBindingsUI.cpp
     Source/Strada/Script/ScriptEngine.cpp
     Source/Strada/Script/ScriptEngine.h
     Source/Strada/Script/ScriptField.cpp

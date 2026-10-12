@@ -1,3 +1,4 @@
+#include "HeadlessImGui.h"
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
@@ -22,7 +23,6 @@
 
 #include <doctest/doctest.h>
 #include <imgui.h>
-#include <imgui_impl_null.h>
 #include <imgui_internal.h>
 
 #include <cmath>
@@ -33,95 +33,10 @@
 #include <vector>
 
 using namespace Strada;
+using Strada::Testing::HeadlessImGui;
 
 namespace
 {
-	// A Dear ImGui context with the null platform and renderer backends: panels draw without a window or GPU, and tests
-	// feed keyboard input between frames.
-	class HeadlessImGui
-	{
-	public:
-		HeadlessImGui()
-		{
-			m_Context = ImGui::CreateContext();
-			ImGui::GetIO().IniFilename = nullptr;
-			ImGui_ImplNull_Init();
-		}
-
-		~HeadlessImGui()
-		{
-			ImGui_ImplNull_Shutdown();
-			ImGui::DestroyContext(m_Context);
-		}
-
-		HeadlessImGui(HeadlessImGui const&) = delete;
-		HeadlessImGui& operator=(HeadlessImGui const&) = delete;
-
-		void Frame(std::function<void()> const& draw)
-		{
-			ImGui_ImplNull_NewFrame();
-			ImGui::NewFrame();
-			draw();
-			ImGui::Render();
-			ImGui_ImplNullRender_RenderDrawData(ImGui::GetDrawData());
-		}
-
-		void Type(char const* text) { ImGui::GetIO().AddInputCharactersUTF8(text); }
-
-		// Drags with the left mouse button from one point to another (screen coordinates), a frame per step, and releases.
-		void Drag(ImVec2 from, ImVec2 to, std::function<void()> const& draw)
-		{
-			ImGuiIO& io = ImGui::GetIO();
-			io.AddMousePosEvent(from.x, from.y);
-			Frame(draw);
-			io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-			Frame(draw);
-			// Past the drag threshold, then onto the target long enough for it to accept the payload.
-			io.AddMousePosEvent(from.x + 20.0f, from.y + 20.0f);
-			Frame(draw);
-			io.AddMousePosEvent(to.x, to.y);
-			Frame(draw);
-			Frame(draw);
-			io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-			Frame(draw);
-			Frame(draw);
-		}
-
-		void Press(ImGuiKey key)
-		{
-			ImGui::GetIO().AddKeyEvent(key, true);
-			Frame([] {});
-			ImGui::GetIO().AddKeyEvent(key, false);
-		}
-
-		// Presses and releases a key while the panels are drawn.
-		void Press(ImGuiKey key, std::function<void()> const& draw)
-		{
-			ImGui::GetIO().AddKeyEvent(key, true);
-			Frame(draw);
-			ImGui::GetIO().AddKeyEvent(key, false);
-			Frame(draw);
-		}
-
-		// Left clicks (one or two times) at a screen position.
-		void Click(ImVec2 position, std::function<void()> const& draw, int count = 1)
-		{
-			ImGuiIO& io = ImGui::GetIO();
-			io.AddMousePosEvent(position.x, position.y);
-			Frame(draw);
-			for (int i = 0; i < count; i++)
-			{
-				io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-				Frame(draw);
-				io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-				Frame(draw);
-			}
-		}
-
-	private:
-		ImGuiContext* m_Context = nullptr;
-	};
-
 	struct Probe
 	{
 		float Gain = 1.0f;
@@ -558,6 +473,83 @@ TEST_CASE("Panels: the inspector shows the fields of loaded script classes witho
 	CHECK(open);
 	CHECK(context.GetHistory().GetUndoCount() == steps);
 	CHECK(SceneSerializer::Serialize(context.GetScene()) == before);
+}
+
+TEST_CASE("Panels: the inspector folds the Transform of UI elements away and shows it read-only")
+{
+	HeadlessImGui imgui;
+	EditorContext context;
+	EditorOperations operations(context);
+	UUID const canvas = Create(operations, "Canvas", Json::object({{"UICanvas", Json::object()}}));
+	EntityCreateInfo panelInfo;
+	panelInfo.Name = "Panel";
+	panelInfo.Parent = canvas;
+	panelInfo.Components = Json::object({{"UIRect", Json::object()}, {"UIImage", Json::object()}});
+	Result<UUID> const created = operations.CreateEntity(panelInfo);
+	REQUIRE(created.IsOk());
+	UUID const panel = created.GetValue();
+	UUID const crate = Create(operations, "Crate", Json::object());
+
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(420.0f, 900.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	// The Transform's field table, when the latest frame drew it.
+	auto const transformFields = []() -> ImGuiTable const*
+	{
+		ImGuiWindow const* window = ImGui::FindWindowByName("Inspector");
+		REQUIRE(window != nullptr);
+		ImGuiTable const* table = ImGui::TableFindByID(ImHashStr("##fields", 0, ImHashStr("Transform", 0, window->ID)));
+		return table != nullptr && table->LastFrameActive == ImGui::GetFrameCount() ? table : nullptr;
+	};
+	auto const select = [&](std::vector<UUID> const& selection)
+	{
+		REQUIRE(operations.Select(selection).IsOk());
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(draw);
+		}
+	};
+	// Drags the first field (Translation's X, after its reset button) to the right.
+	auto const dragTranslation = [&]
+	{
+		ImGuiTable const* table = transformFields();
+		REQUIRE(table != nullptr);
+		ImVec2 const from(table->Columns[1].WorkMinX + ImGui::GetFrameHeight() + 10.0f,
+		                  table->OuterRect.Min.y + ImGui::GetStyle().CellPadding.y + ImGui::GetFrameHeight() * 0.5f);
+		imgui.Drag(from, ImVec2(from.x + 60.0f, from.y), draw);
+	};
+
+	// Entities placed by their Transform show it open, the canvas too (it places the canvas in the scene view).
+	select({crate});
+	CHECK(transformFields() != nullptr);
+	select({canvas});
+	CHECK(transformFields() != nullptr);
+	// A UI element's is folded; selected with an entity that is not UI, it is the other's to edit.
+	select({panel});
+	CHECK(transformFields() == nullptr);
+	select({panel, crate});
+	CHECK(transformFields() != nullptr);
+
+	// Unfolded, the fields of a UI element are disabled: dragging the one that moves the crate changes nothing.
+	select({crate});
+	dragTranslation();
+	CHECK(context.GetScene().GetEntityByUUID(crate).GetComponent<TransformComponent>().Translation.x != 0.0f);
+	select({panel});
+	ImGuiWindow* window = ImGui::FindWindowByName("Inspector");
+	REQUIRE(window != nullptr);
+	window->StateStorage.SetInt(ImHashStr("###TransformPlacedByRect", 0, ImHashStr("Transform", 0, window->ID)), 1);
+	imgui.Frame(draw);
+	REQUIRE(transformFields() != nullptr);
+	size_t const steps = context.GetHistory().GetUndoCount();
+	dragTranslation();
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(context.GetScene().GetEntityByUUID(panel).GetComponent<TransformComponent>().Translation == glm::vec3(0.0f));
+	CHECK(open);
 }
 
 TEST_CASE("Panels: project settings draw with and without a project and do not change it by drawing")

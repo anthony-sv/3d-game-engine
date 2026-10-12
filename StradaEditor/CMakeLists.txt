@@ -70,6 +70,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EntitySelection.h
     Source/Editor/FileDialogs.cpp
     Source/Editor/FileDialogs.h
+    Source/Editor/GameInputRouter.cpp
+    Source/Editor/GameInputRouter.h
     Source/Editor/HierarchyEditing.cpp
     Source/Editor/HierarchyEditing.h
     Source/Editor/Panels/BuildGameDialog.cpp
@@ -102,6 +104,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/UI/EditorUI.h
     Source/Editor/UI/FieldEditor.cpp
     Source/Editor/UI/FieldEditor.h
+    Source/Editor/Viewport/CanvasOverlay.cpp
+    Source/Editor/Viewport/CanvasOverlay.h
     Source/Editor/Viewport/PickingIdMap.cpp
     Source/Editor/Viewport/PickingIdMap.h
     Source/Editor/Viewport/TransformEditing.cpp

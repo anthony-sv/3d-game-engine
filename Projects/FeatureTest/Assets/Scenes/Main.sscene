@@ -2037,6 +2037,293 @@
 					}
 				}
 			}
+		},
+		{
+			"ID": "11488382408858246002",
+			"Components": {
+				"Tag": {
+					"Tag": "UI Canvas"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"12524615500501109046"
+					]
+				},
+				"Script": {
+					"ClassName": "FeatureTest.UITests",
+					"Fields": {}
+				},
+				"UICanvas": {
+					"ScaleMode": "ScaleWithScreenSize",
+					"ReferenceResolution": [
+						1920.0,
+						1080.0
+					]
+				}
+			}
+		},
+		{
+			"ID": "12524615500501109046",
+			"Components": {
+				"Tag": {
+					"Tag": "UI Panel"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "11488382408858246002",
+					"Children": [
+						"10411498842911442445",
+						"18246370401114516679"
+					]
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.5
+					],
+					"AnchorMax": [
+						0.5,
+						0.5
+					],
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Size": [
+						800.0,
+						500.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						0.007199999876320362,
+						0.008500000461935997,
+						0.013399999588727951,
+						0.8500000238418579
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 24.0
+				}
+			}
+		},
+		{
+			"ID": "10411498842911442445",
+			"Components": {
+				"Tag": {
+					"Tag": "UI Title"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "12524615500501109046",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.0,
+						0.0
+					],
+					"AnchorMax": [
+						1.0,
+						0.0
+					],
+					"Position": [
+						0.0,
+						40.0
+					],
+					"Size": [
+						-80.0,
+						80.0
+					],
+					"Pivot": [
+						0.5,
+						0.0
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIText": {
+					"Text": "Strada UI",
+					"Font": "0",
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"FontSize": 48.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": true,
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "18246370401114516679",
+			"Components": {
+				"Tag": {
+					"Tag": "Play Button"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "12524615500501109046",
+					"Children": []
+				},
+				"UIRect": {
+					"AnchorMin": [
+						0.5,
+						0.5
+					],
+					"AnchorMax": [
+						0.5,
+						0.5
+					],
+					"Position": [
+						0.0,
+						60.0
+					],
+					"Size": [
+						320.0,
+						80.0
+					],
+					"Pivot": [
+						0.5,
+						0.5
+					],
+					"Visible": true,
+					"Opacity": 1.0
+				},
+				"UIImage": {
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"Texture": "0",
+					"PreserveAspect": false,
+					"CornerRadius": 16.0
+				},
+				"UIText": {
+					"Text": "Play",
+					"Font": "0",
+					"Color": [
+						1.0,
+						1.0,
+						1.0,
+						1.0
+					],
+					"FontSize": 32.0,
+					"Alignment": "Center",
+					"VerticalAlignment": "Middle",
+					"Wrap": true,
+					"LineSpacing": 1.0
+				},
+				"UIButton": {
+					"Interactable": true,
+					"NormalColor": [
+						0.02199999988079071,
+						0.14730000495910645,
+						0.7106000185012817,
+						1.0
+					],
+					"HoveredColor": [
+						0.054999999701976776,
+						0.24289999902248383,
+						0.9330999851226807,
+						1.0
+					],
+					"PressedColor": [
+						0.009999999776482582,
+						0.07320000231266022,
+						0.39309999346733093,
+						1.0
+					],
+					"DisabledColor": [
+						0.10649999976158142,
+						0.1193000003695488,
+						0.14730000495910645,
+						0.6000000238418579
+					]
+				}
+			}
 		}
 	]
 }

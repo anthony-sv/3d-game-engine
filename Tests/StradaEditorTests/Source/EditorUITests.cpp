@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -137,17 +138,26 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 {
 	EditorContext context;
 	EditorOperations operations(context);
-	std::set<std::string_view> labels;
+	// Menus show labels under their categories ("2D" and "UI" both have a Text).
+	std::set<std::pair<std::string_view, std::string_view>> labels;
 	glm::vec3 const spawn(1.0f, 2.0f, 3.0f);
 	for (EntityPreset const& preset : EntityPresets::GetAll())
 	{
 		CAPTURE(preset.Label);
-		CHECK(labels.insert(preset.Label).second);
+		CHECK(labels.insert({preset.Category, preset.Label}).second);
 		Result<UUID> created = EntityPresets::Create(operations, preset, UUID::Invalid(), spawn);
 		REQUIRE(created.IsOk());
 		Entity const entity = context.GetScene().GetEntityByUUID(created.GetValue());
 		CHECK(entity.GetName() == preset.EntityName);
-		CHECK(entity.GetComponent<TransformComponent>().Translation == spawn);
+		if (preset.NeedsCanvas)
+		{
+			// UI elements go into the scene's canvas (the Canvas preset comes first).
+			CHECK(context.GetScene().GetParent(entity).HasComponent<UICanvasComponent>());
+		}
+		else
+		{
+			CHECK(entity.GetComponent<TransformComponent>().Translation == spawn);
+		}
 	}
 	// Categories are contiguous, so menus group them.
 	std::span<EntityPreset const> const presets = EntityPresets::GetAll();

@@ -9,6 +9,7 @@
 #include "Strada/Renderer/SceneRendererSettings.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/ParticleEmitter.h"
+#include "Strada/Scene/UILayout.h"
 
 #include <entt/entity/registry.hpp>
 #include <glm/glm.hpp>
@@ -234,6 +235,25 @@ namespace Strada
 		void DrawDebugLine(glm::vec3 const& from, glm::vec3 const& to, glm::vec4 const& color, float duration = 0.0f);
 		std::vector<SceneDebugLine> const& GetDebugLines() const { return m_DebugLines; }
 
+		// --- Screen-space UI (see UICanvasComponent; SceneUI.cpp) ---
+
+		// How the entity's UIButton is drawn: Disabled while it is not interactable, Hovered or Pressed by the mouse while the
+		// scene runs, Normal otherwise (and for entities without a button).
+		UIButtonState GetUIButtonState(Entity entity) const;
+		// Whether the entity's UIButton was clicked in the latest runtime update.
+		bool WasUIButtonClicked(Entity entity) const;
+		// Clicks the entity's UIButton at the next runtime update as the mouse would (unless it is not interactable then).
+		// Ignored while the scene does not run.
+		void ClickUIButton(Entity entity);
+		// Whether the mouse (Input's cursor in the scene's viewport) hovers, presses and clicks UI buttons; on by default.
+		// Editors turn it off while the game does not have the input, whose cursor is then elsewhere.
+		void SetUIPointerEnabled(bool enabled) { m_UIPointerEnabled = enabled; }
+		bool IsUIPointerEnabled() const { return m_UIPointerEnabled; }
+		// Whether the mouse is over the UI as of the latest runtime update: an element that takes clicks (an image or a button)
+		// is under the cursor, so a click there goes to the UI. Games that act on clicks in the world check it. False while the
+		// pointer is disabled or the cursor locked, and while the scene does not run.
+		bool IsPointerOverUI() const { return m_UIPointerOver; }
+
 		// Memory assets that belong to the run (materials scripts create): they are removed from the AssetManager when the
 		// runtime stops.
 		void AddRuntimeAsset(AssetHandle handle);
@@ -339,6 +359,12 @@ namespace Strada
 		void DestroyRemovedScriptInstances();
 		std::vector<UUID> GetScriptInstanceIDs() const;
 
+		// UI runtime (SceneUI.cpp).
+		void ResetUI();
+		// Follows the mouse over the UI and its buttons, then clicks the buttons it clicked and the ones scripts clicked, calling
+		// OnClick on the scripts of each button and its ancestors.
+		void UpdateUI();
+
 		std::string m_Name;
 		SceneSettings m_Settings;
 		entt::registry m_Registry;
@@ -432,6 +458,17 @@ namespace Strada
 		std::unordered_map<entt::entity, ParticleSystemState> m_ParticleSystems;
 		// Seeds new emitters, so systems of one scene differ.
 		uint64_t m_ParticleSeed = 0;
+
+		// The interactable button under the mouse, and the one the left button went down on (a click if it comes up there).
+		UUID m_UIHovered = UUID::Invalid();
+		UUID m_UIPressed = UUID::Invalid();
+		// Buttons clicked in the latest update, and the ones scripts clicked since (clicked at the next update).
+		std::vector<UUID> m_UIClicked;
+		std::vector<UUID> m_UIPendingClicks;
+		// Whether the left mouse button was down at the latest update.
+		bool m_UIMouseWasDown = false;
+		bool m_UIPointerEnabled = true;
+		bool m_UIPointerOver = false;
 
 		std::vector<SceneDebugLine> m_DebugLines;
 		bool m_DebugLinesDropped = false;

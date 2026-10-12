@@ -247,8 +247,11 @@ itself when their sources change and loads the built assembly (hot reload); `scr
 ### play, input and test
 
 Play mode runs a copy of the edited scene; while it plays, every scene and entity command acts on the copy (with an
-undo history of its own) and `play.stop` discards it. Scene and project file commands (`scene.new`, `scene.open`,
-`scene.save`, `project.create`, `project.open`, `project.close`) fail with InvalidOperation while playing.
+undo history of its own) and `play.stop` discards it. `input.set` and `input.release` act on the game's input directly,
+whether or not the game view has the window's input. To click a UI button, read its `center` from `ui.layout`, then
+`input.set` the `mousePosition` there and press and release `Left` a frame apart. Scene and project file commands
+(`scene.new`, `scene.open`, `scene.save`, `project.create`, `project.open`, `project.close`) fail with InvalidOperation
+while playing.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
@@ -259,7 +262,8 @@ undo history of its own) and `play.stop` discards it. Scene and project file com
 | `play.advance` | `frames`*, `timestep` (seconds, default 1/60) | Play state plus `framesRun`; runs the frames at once (pause first for deterministic runs); stops early when the scripts quit |
 | `play.state` | — | `state` (`edit`, `play`, `simulate`), `paused`, `startPending`, `scene`, `frame` and `time` while playing, `tests` (the run's test report or null) |
 | `input.set` | `keys` (name -> down), `mouseButtons` (name -> down), `mousePosition` ([x, y] in game-view pixels), `scroll` | `keys`, `mouseButtons` down and `mousePosition`; key and button names are KeyCode and MouseButton names; pressed and released last one frame |
-| `input.release` | — | Same as `input.set`; releases every key and button |
+| `input.release` | — | Same as `input.set`; releases every key and mouse button (gamepads keep their polled state), as the window losing the focus does: a UI button held is not clicked |
+| `ui.layout` | `entity` (one UI element) | Where the screen-space UI is in the game view, laid out as the game lays it out to draw it and to find what the mouse is over (the running scene while playing, else the edited one, at the game view's size): `width`, `height`, `pointerOverUI` (an element that takes clicks was under the mouse at the latest update), `elements`: `[{ id, name, canvas, min, max, center, opacity, hitTarget, button, state }]` in drawing order (topmost last). `min`, `max` and `center` are game-view pixels from the top-left corner, as `input.set`'s `mousePosition`; `hitTarget` says whether the element takes clicks, `button` is the button its clicks go to (or null) and `state` (buttons only) is `normal`, `hovered`, `pressed` or `disabled`. InvalidParams when `entity` is not on the screen (outside every canvas, or hidden) |
 | `test.run` | `scene` (scene file relative to Assets; default a copy of the edited scene), `timeout` (game seconds, default 60), `timestep` (default 1/60) | `finished`, `timedOut`, `frames`, `passed`, `failed`, `exceptions`, `failures`, `results`: `[{ name, passed, message }]`; asynchronous; plays until the scripts call `TestReporter.Finish`, quit or time out |
 
 ### log and viewport
@@ -269,7 +273,7 @@ undo history of its own) and `play.stop` discards it. Scene and project file com
 | `log.read` | `since` (entry index), `maxCount` (default 500), `minLevel` (`trace`..`critical`) | `entries`: `[{ index, level, logger, message, timestampMs }]`, `next` (pass as `since`) |
 | `viewport.screenshot` | — | `mimeType` (`image/png`), `width`, `height`, `data` (base64); asynchronous; Unavailable when headless |
 | `viewport.camera` | `focalPoint` ([x, y, z]), `distance` (0.05 to 10000), `yaw`, `pitch` (degrees, -89 to 89); all optional | The view of the viewport's camera, which orbits its focal point, after setting the given values: `focalPoint`, `distance`, `yaw`, `pitch`, `position`, `forward` (yaw 0 and pitch 0 look down -Z); not undoable; Unavailable when headless |
-| `viewport.frame` | `entities`* | The view after pointing the camera at the entities from its current direction, framing their meshes (their origins without one), as the hierarchy's Focus does; not undoable; Unavailable when headless |
+| `viewport.frame` | `entities`* | The view after pointing the camera at the entities from its current direction, framing their meshes (canvases and UI elements: their rectangles where the scene view draws the UI; other entities without a mesh: their origins), as the hierarchy's Focus does; not undoable; Unavailable when headless |
 | `viewport.statistics` | — | What the scene view's renderer drew in the last frame it rendered (the scene through the editor camera): `gpuMilliseconds` (GPU time of its latest finished frame; null before one has finished or when the GPU cannot measure time), `drawCalls` (shadow-map draws included), `triangles`, `shadowDrawCalls`, `shadowMapViews`, `shadowsDropped` (shadow-casting lights beyond the shadow-map budget), `lights`, `culledLights` (point and spot lights out of the view's reach), `culled` (submeshes outside the view), `quads` (sprites and text glyphs); Unavailable when headless or without a GPU |
 
 Renderer settings (shadows, ambient occlusion, bloom, exposure, tonemapping, FXAA) are scene settings: `scene.settings`

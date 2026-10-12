@@ -583,6 +583,7 @@ namespace Strada
 		m_RuntimeSettings = settings;
 		// Systems start over with the run (their bursts come with its first update).
 		ResetParticles();
+		ResetUI();
 		StartPhysics();
 		if (settings.PlayAudio)
 		{
@@ -609,6 +610,7 @@ namespace Strada
 		m_DebugLines.clear();
 		m_DebugLinesDropped = false;
 		ResetParticles();
+		ResetUI();
 		ReleaseRuntimeAssets();
 	}
 
@@ -632,6 +634,8 @@ namespace Strada
 		m_RuntimeTime += deltaTime;
 		// Lines drawn last frame were rendered; this frame's scripts draw new ones.
 		AgeDebugLines(deltaTime);
+		// Clicks reach the scripts before their update, which sees WasClicked.
+		UpdateUI();
 		UpdateScripts(deltaTime);
 		UpdatePhysics(deltaTime);
 		DispatchContactEventsToScripts();

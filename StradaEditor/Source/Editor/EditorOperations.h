@@ -65,6 +65,8 @@ namespace Strada
 		// --- Entities ---
 
 		[[nodiscard]] Result<UUID> CreateEntity(EntityCreateInfo info);
+		// Creates an entity and children under it (their Parent is replaced) as one undo step. Returns the IDs, the root's first.
+		[[nodiscard]] Result<std::vector<UUID>> CreateEntityWithChildren(EntityCreateInfo root, std::vector<EntityCreateInfo> children);
 		[[nodiscard]] Result<void> DeleteEntities(std::span<UUID const> entities);
 		// Returns the UUIDs of the copies, one per duplicated subtree, in request order.
 		[[nodiscard]] Result<std::vector<UUID>> DuplicateEntities(std::span<UUID const> entities);

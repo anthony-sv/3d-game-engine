@@ -79,6 +79,9 @@ namespace Strada
 		void Focus();
 
 		void SetCursorMode(CursorMode mode);
+		// Applies a cursor mode to any GLFW window, such as the platform window ImGui creates for a panel dragged out of the
+		// main window.
+		static void ApplyCursorMode(GLFWwindow* window, CursorMode mode);
 		// Sets the window icon from tightly packed RGBA8 pixels. Ignored where unsupported (macOS, Wayland).
 		void SetIcon(uint32_t width, uint32_t height, uint8_t const* rgbaPixels);
 

@@ -8,6 +8,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -58,10 +59,56 @@ namespace Strada
 		bool Selected = false;
 	};
 
-	// Batches the sprites and text of one SceneRenderer frame. World-space quads are drawn into the HDR image (unlit:
+	// A rectangle of the screen-space UI (UIImage), in pixels of the viewport from its top-left corner (y downwards). The UI
+	// is drawn over every other screen-space item, in the order it was submitted.
+	struct UIRectSubmission
+	{
+		glm::vec2 Min = glm::vec2(0.0f);
+		glm::vec2 Max = glm::vec2(0.0f);
+		// Linear color with straight alpha, multiplied with the texture.
+		glm::vec4 Color = glm::vec4(1.0f);
+		// Sampled as sRGB color; none fills the rectangle with the color.
+		AssetHandle Texture;
+		// Draws the texture at its aspect ratio: the largest rectangle of that shape centered in Min-Max.
+		bool PreserveAspect = false;
+		// Pixels; at most half the shorter side. The edges are anti-aliased.
+		float CornerRadius = 0.0f;
+		// When set, the rectangle is drawn in the world rather than over the final image: the transform maps its pixels onto a
+		// plane (the editor's scene view shows canvases this way). World UI is drawn after the scene, in submission order and
+		// hidden behind surfaces, with edges anti-aliased over a pixel of the screen at any distance.
+		std::optional<glm::mat4> WorldTransform;
+		uint32_t PickingId = 0;
+		bool Selected = false;
+	};
+
+	// Text of the screen-space UI (UIText) laid out in a rectangle in pixels of the viewport: lines break at its width when Wrap
+	// is set and align by Layout.Alignment (Layout.WrapWidth is ignored), and the text block aligns by VerticalAlignment.
+	// Drawn with the UI rectangles, in submission order.
+	struct UITextSubmission
+	{
+		std::string Text;
+		// Null uses the default font.
+		Ref<FontAsset> Font;
+		glm::vec2 Min = glm::vec2(0.0f);
+		glm::vec2 Max = glm::vec2(0.0f);
+		// Linear color with straight alpha.
+		glm::vec4 Color = glm::vec4(1.0f);
+		// Line height in pixels.
+		float FontSize = 16.0f;
+		TextLayoutSettings Layout;
+		TextVerticalAlignment VerticalAlignment = TextVerticalAlignment::Top;
+		bool Wrap = true;
+		// Draws the text in the world, as UIRectSubmission::WorldTransform does rectangles.
+		std::optional<glm::mat4> WorldTransform;
+		uint32_t PickingId = 0;
+		bool Selected = false;
+	};
+
+	// Batches the sprites, text and UI of one SceneRenderer frame. World-space quads are drawn into the HDR image (unlit:
 	// their color is used as is, alpha blended, tested against the scene depth without writing it, back to front);
-	// screen-space quads onto the final image; both into the entity ID target for picking. Requires Renderer::Init. Main
-	// thread only.
+	// screen-space quads onto the final image, the UI last; UI placed in the world onto the tonemapped image, tested against
+	// the scene depth, in submission order; all into the entity ID target for picking. Requires Renderer::Init. Main thread
+	// only.
 	class QuadRenderer
 	{
 	public:
@@ -74,6 +121,8 @@ namespace Strada
 		// entityId: the picking ID with ShaderInterop::EntityIdSelectedBit for selected items, 0 when not pickable.
 		void SubmitSprite(SpriteSubmission const& sprite, uint32_t entityId);
 		void SubmitText(TextSubmission text, uint32_t entityId);
+		void SubmitUIRect(UIRectSubmission const& rect, uint32_t entityId);
+		void SubmitUIText(UITextSubmission text, uint32_t entityId);
 
 		// Lays out the text, uploads textures and changed font atlases and builds the vertices of the frame. Uploads
 		// submit their own command lists, so this runs before the frame is recorded.
@@ -81,6 +130,8 @@ namespace Strada
 		// Records the vertex upload; call once per frame before the Render functions.
 		void Upload(nvrhi::ICommandList* commandList);
 		void RenderWorld(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
+		// The UI placed in the world, onto an 8-bit sRGB-encoded image with the scene depth attached read-only.
+		void RenderWorldUI(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
 		void RenderScreen(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer);
 		void RenderEntityIds(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer, glm::mat4 const& viewProjection);
 		// Forgets the frame's submissions (they keep their assets alive until then).
@@ -88,16 +139,29 @@ namespace Strada
 
 		// Quads and draw calls of the prepared frame (per pass that draws them).
 		uint32_t GetQuadCount() const { return m_QuadCount; }
-		uint32_t GetBatchCount() const { return static_cast<uint32_t>(m_WorldBatches.size() + m_ScreenBatches.size()); }
+		uint32_t GetBatchCount() const
+		{
+			return static_cast<uint32_t>(m_WorldBatches.size() + m_WorldUIBatches.size() + m_ScreenBatches.size());
+		}
 
 	private:
 		struct Vertex
 		{
-			glm::vec4 Position;
-			glm::vec4 Color;
-			glm::vec2 TexCoord;
+			glm::vec4 Position = glm::vec4(0.0f);
+			glm::vec4 Color = glm::vec4(0.0f);
+			glm::vec2 TexCoord = glm::vec2(0.0f);
 			uint32_t EntityId = 0;
-			uint32_t Padding = 0;
+			// UI rectangles: the corner radius, and the vertex's offset from the rectangle's center (xy) and the rectangle's
+			// half size (zw), in pixels.
+			float CornerRadius = 0.0f;
+			glm::vec4 Shape = glm::vec4(0.0f);
+		};
+
+		// A UI item: an index into m_UIRects or m_UITexts.
+		struct UIItem
+		{
+			uint32_t Index = 0;
+			bool Text = false;
 		};
 
 		// Consecutive quads drawn with the same texture and mode.
@@ -136,7 +200,13 @@ namespace Strada
 		void AddQuad(std::vector<Batch>& batches, glm::vec4 const (&corners)[4], glm::vec2 const& uvMin, glm::vec2 const& uvMax,
 		             glm::vec4 const& color, uint32_t entityId, nvrhi::ITexture* texture, nvrhi::ISampler* sampler, uint32_t mode,
 		             glm::vec2 const& atlasSize);
+		// Appends the quad's vertices (counterclockwise from the bottom-left corner) to the batch they continue, or a new one.
+		void AddVertices(std::vector<Batch>& batches, Vertex const (&vertices)[4], nvrhi::ITexture* texture, nvrhi::ISampler* sampler,
+		                 uint32_t mode, glm::vec2 const& atlasSize);
 		void BuildItem(Item const& item, std::vector<Batch>& batches, glm::uvec2 const& viewportSize);
+		// UI items go to the screen batches, or to the world UI batches when placed in the world.
+		void BuildUIRect(uint32_t index, glm::uvec2 const& viewportSize);
+		void BuildUIText(uint32_t index, glm::uvec2 const& viewportSize);
 		nvrhi::IBindingSet* GetBindingSet(nvrhi::ITexture* texture, nvrhi::ISampler* sampler);
 		nvrhi::IGraphicsPipeline* GetPipeline(nvrhi::GraphicsPipelineHandle& pipeline, nvrhi::IFramebuffer* framebuffer, bool entityIds,
 		                                      bool depthTest);
@@ -148,9 +218,17 @@ namespace Strada
 		// Per text: its layout and font (null when the font cannot be used), valid until Clear.
 		std::vector<TextLayout> m_Layouts;
 		std::vector<GpuFont*> m_TextFonts;
+		std::vector<std::pair<UIRectSubmission, uint32_t>> m_UIRects;
+		std::vector<std::pair<UITextSubmission, uint32_t>> m_UITexts;
+		// The UI in submission (drawing) order.
+		std::vector<UIItem> m_UIItems;
+		// Per UI text, like m_Layouts and m_TextFonts.
+		std::vector<TextLayout> m_UILayouts;
+		std::vector<GpuFont*> m_UITextFonts;
 
 		std::vector<Vertex> m_Vertices;
 		std::vector<Batch> m_WorldBatches;
+		std::vector<Batch> m_WorldUIBatches;
 		std::vector<Batch> m_ScreenBatches;
 		uint32_t m_QuadCount = 0;
 		uint64_t m_Frame = 0;
@@ -164,6 +242,7 @@ namespace Strada
 		nvrhi::BindingLayoutHandle m_BindingLayout;
 		std::unordered_map<std::pair<nvrhi::ITexture*, nvrhi::ISampler*>, CachedBindingSet, BindingKeyHash> m_BindingSets;
 		nvrhi::GraphicsPipelineHandle m_WorldPipeline;
+		nvrhi::GraphicsPipelineHandle m_WorldUIPipeline;
 		nvrhi::GraphicsPipelineHandle m_ScreenPipeline;
 		nvrhi::GraphicsPipelineHandle m_WorldEntityIdPipeline;
 		nvrhi::GraphicsPipelineHandle m_ScreenEntityIdPipeline;

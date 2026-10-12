@@ -1817,7 +1817,8 @@ namespace Strada
 						: result;
 				return result
 				           ? Add("viewport.frame",
-				                 "Points the editor viewport's camera at entities, framing their meshes (their origins without one) from the "
+				                 "Points the editor viewport's camera at entities, framing their meshes (canvases and UI elements: their "
+				                 "rectangles where the scene view draws the UI; other entities without a mesh: their origins) from the "
 				                 "current direction, as Focus in the hierarchy does. Returns the view like viewport.camera. Not undoable; "
 				                 "Unavailable without a viewport (headless).",
 				                 SchemaBuilder::Object()

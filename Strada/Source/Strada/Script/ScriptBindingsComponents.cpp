@@ -564,33 +564,6 @@ namespace Strada::ScriptGlue
 			Entity const entity = FindAudioSource(id);
 			return entity && entity.GetScene()->IsAudioSourcePlaying(entity) ? 1 : 0;
 		}
-
-		// --- Strings ---
-
-		template<typename TComponent, std::string TComponent::* Member>
-		char const* GetText(uint64_t id, int32_t* length)
-		{
-			*length = 0;
-			TComponent const* component = FindComponent<TComponent>(id);
-			if (component == nullptr)
-			{
-				return nullptr;
-			}
-			std::string const& text = component->*Member;
-			*length = static_cast<int32_t>(text.size());
-			return text.data();
-		}
-
-		template<typename TComponent, std::string TComponent::* Member>
-		void SetText(uint64_t id, char const* text, int32_t length)
-		{
-			std::string value(ToStringView(text, length));
-			PatchComponent<TComponent>(id,
-			                           [&value](TComponent& component)
-			                           {
-										   component.*Member = std::move(value);
-									   });
-		}
 	}
 
 	void RegisterComponentBindings(BindingTable& table)

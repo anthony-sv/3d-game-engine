@@ -12,7 +12,11 @@
 #include "Strada/Scene/PostProcessVolumes.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneCamera.h"
+#include "Strada/Scene/UILayout.h"
 
+#include <algorithm>
+#include <cmath>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -62,7 +66,109 @@ namespace Strada
 			}
 		}
 
-		void SubmitScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
+		glm::vec4 GetButtonColor(UIButtonComponent const& button, UIButtonState state)
+		{
+			switch (state)
+			{
+				case UIButtonState::Normal:
+					break;
+				case UIButtonState::Hovered:
+					return button.HoveredColor;
+				case UIButtonState::Pressed:
+					return button.PressedColor;
+				case UIButtonState::Disabled:
+					return button.DisabledColor;
+			}
+			return button.NormalColor;
+		}
+
+		// The UI draws onto the 8-bit final image: scripts may set colors outside the fields' ranges, whose negative alphas
+		// would brighten what is behind.
+		glm::vec4 GetUIColor(glm::vec4 const& color, float opacity)
+		{
+			glm::vec4 result = glm::clamp(color, glm::vec4(0.0f), glm::vec4(1.0f));
+			result.a *= opacity;
+			return result;
+		}
+
+		// An element's image, then its text: over the final image, or in the world through a canvas's transform.
+		void SubmitUIElement(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options, UIElement const& element,
+		                     std::optional<glm::mat4> const& worldTransform, float opacity)
+		{
+			Entity entity(element.Handle, &scene);
+			UUID const id = entity.GetUUID();
+			uint32_t const pickingId = options.GetPickingId ? options.GetPickingId(id) : 0u;
+			bool const selected = options.IsSelected && options.IsSelected(id);
+			if (UIImageComponent const* image = entity.TryGetComponent<UIImageComponent>())
+			{
+				UIRectSubmission submission;
+				submission.Min = element.Rectangle.Min;
+				submission.Max = element.Rectangle.Max;
+				UIButtonComponent const* button = entity.TryGetComponent<UIButtonComponent>();
+				submission.Color = GetUIColor(button != nullptr ? GetButtonColor(*button, scene.GetUIButtonState(entity)) : image->Color,
+				                              element.Opacity * opacity);
+				submission.Texture = image->Texture;
+				submission.PreserveAspect = image->PreserveAspect;
+				submission.CornerRadius = image->CornerRadius * element.Scale;
+				submission.WorldTransform = worldTransform;
+				submission.PickingId = pickingId;
+				submission.Selected = selected;
+				renderer.SubmitUIRect(submission);
+			}
+			UITextComponent const* text = entity.TryGetComponent<UITextComponent>();
+			if (text != nullptr && !text->Text.empty())
+			{
+				UITextSubmission submission;
+				submission.Text = text->Text;
+				// Fonts that cannot be loaded fall back to the default font.
+				submission.Font = text->Font.IsValid() ? AssetManager::GetAsset<FontAsset>(text->Font) : nullptr;
+				submission.Min = element.Rectangle.Min;
+				submission.Max = element.Rectangle.Max;
+				submission.Color = GetUIColor(text->Color, element.Opacity * opacity);
+				submission.FontSize = text->FontSize * element.Scale;
+				submission.Layout.Alignment = text->Alignment;
+				submission.Layout.LineSpacing = text->LineSpacing;
+				submission.VerticalAlignment = text->VerticalAlignment;
+				submission.Wrap = text->Wrap;
+				submission.WorldTransform = worldTransform;
+				submission.PickingId = pickingId;
+				submission.Selected = selected;
+				renderer.SubmitUIText(std::move(submission));
+			}
+		}
+
+		// Every canvas's UI in hierarchy order: over the renderer's viewport, or where the options place each canvas in the
+		// world.
+		void SubmitUI(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options)
+		{
+			if (!options.PlaceCanvas)
+			{
+				glm::vec2 const viewport(static_cast<float>(renderer.GetViewportWidth()), static_cast<float>(renderer.GetViewportHeight()));
+				for (UIElement const& element : UILayout::LayoutScene(scene, viewport))
+				{
+					SubmitUIElement(scene, renderer, options, element, std::nullopt, 1.0f);
+				}
+				return;
+			}
+			std::vector<UIElement> elements;
+			for (entt::entity const canvas : UILayout::GetCanvases(scene))
+			{
+				std::optional<WorldCanvasPlacement> const placement = options.PlaceCanvas(Entity(canvas, &scene).GetUUID());
+				if (!placement)
+				{
+					continue;
+				}
+				elements.clear();
+				UILayout::LayoutCanvas(scene, canvas, placement->Size, elements);
+				float const opacity = std::isfinite(placement->Opacity) ? std::clamp(placement->Opacity, 0.0f, 1.0f) : 1.0f;
+				for (UIElement const& element : elements)
+				{
+					SubmitUIElement(scene, renderer, options, element, placement->Transform, opacity);
+				}
+			}
+		}
+
+		void SubmitMeshes(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options)
 		{
 			std::vector<Ref<MaterialAsset>> materials;
 			for (entt::entity const handle : scene.GetAllEntitiesWith<MeshComponent>())
@@ -93,11 +199,19 @@ namespace Strada
 				bool const selected = options.IsSelected && options.IsSelected(id);
 				renderer.SubmitMesh(mesh, materials, scene.GetWorldTransform(entity), component.CastShadows, pickingId, selected);
 			}
+		}
 
+		// With screenSpaceOnly, only the sprites drawn over the image.
+		void SubmitSprites(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options, bool screenSpaceOnly)
+		{
 			for (entt::entity const handle : scene.GetAllEntitiesWith<SpriteRendererComponent>())
 			{
 				Entity const entity(handle, &scene);
 				SpriteRendererComponent const& component = entity.GetComponent<SpriteRendererComponent>();
+				if (screenSpaceOnly && !component.ScreenSpace)
+				{
+					continue;
+				}
 				UUID const id = entity.GetUUID();
 				SpriteSubmission submission;
 				submission.Transform = scene.GetWorldTransform(entity);
@@ -109,14 +223,16 @@ namespace Strada
 				submission.Selected = options.IsSelected && options.IsSelected(id);
 				renderer.SubmitSprite(submission);
 			}
+		}
 
-			SubmitParticles(scene, renderer, camera);
-
+		// With screenSpaceOnly, only the text drawn over the image.
+		void SubmitTexts(Scene& scene, SceneRenderer& renderer, SceneRenderOptions const& options, bool screenSpaceOnly)
+		{
 			for (entt::entity const handle : scene.GetAllEntitiesWith<TextComponent>())
 			{
 				Entity const entity(handle, &scene);
 				TextComponent const& component = entity.GetComponent<TextComponent>();
-				if (component.Text.empty())
+				if (component.Text.empty() || (screenSpaceOnly && !component.ScreenSpace))
 				{
 					continue;
 				}
@@ -135,7 +251,10 @@ namespace Strada
 				submission.Selected = options.IsSelected && options.IsSelected(id);
 				renderer.SubmitText(std::move(submission));
 			}
+		}
 
+		void SubmitLights(Scene& scene, SceneRenderer& renderer)
+		{
 			for (entt::entity const handle : scene.GetAllEntitiesWith<DirectionalLightComponent>())
 			{
 				Entity const entity(handle, &scene);
@@ -201,15 +320,45 @@ namespace Strada
 					}
 				});
 		}
+
+		// Screen-space content alone has nothing to shade: every pass that works on the world is off, and the black background
+		// stays black.
+		SceneRendererSettings GetScreenSpaceOnlySettings()
+		{
+			SceneRendererSettings settings;
+			settings.Shadows = false;
+			settings.AmbientOcclusion = false;
+			settings.Bloom = false;
+			settings.FXAA = false;
+			settings.Dithering = false;
+			return settings;
+		}
 	}
 
 	void RenderScene(Scene& scene, SceneRenderer& renderer, SceneRendererCamera const& camera, SceneRenderOptions const& options)
 	{
 		// The scene's post-process volumes change its settings around the camera.
-		renderer.BeginScene(camera, PostProcessVolumes::Resolve(scene, camera.Position));
-		SubmitScene(scene, renderer, camera, options);
+		renderer.BeginScene(camera, options.DrawWorld ? PostProcessVolumes::Resolve(scene, camera.Position) : GetScreenSpaceOnlySettings());
+		if (options.DrawWorld)
+		{
+			SubmitMeshes(scene, renderer, options);
+		}
+		SubmitSprites(scene, renderer, options, !options.DrawWorld);
+		if (options.DrawWorld)
+		{
+			SubmitParticles(scene, renderer, camera);
+		}
+		SubmitTexts(scene, renderer, options, !options.DrawWorld);
+		if (options.DrawWorld)
+		{
+			SubmitLights(scene, renderer);
+		}
+		if (options.DrawUI)
+		{
+			SubmitUI(scene, renderer, options);
+		}
 		// Lines scripts drew for debugging have linear colors; lines are drawn after tonemapping, in sRGB.
-		if (options.DrawDebugLines)
+		if (options.DrawWorld && options.DrawDebugLines)
 		{
 			for (SceneDebugLine const& line : scene.GetDebugLines())
 			{
@@ -225,12 +374,44 @@ namespace Strada
 		renderer.EndScene();
 	}
 
+	bool HasScreenSpaceContent(Scene& scene)
+	{
+		if (!scene.GetAllEntitiesWith<UICanvasComponent>().empty())
+		{
+			return true;
+		}
+		for (entt::entity const handle : scene.GetAllEntitiesWith<SpriteRendererComponent>())
+		{
+			if (scene.GetRegistry().get<SpriteRendererComponent>(handle).ScreenSpace)
+			{
+				return true;
+			}
+		}
+		for (entt::entity const handle : scene.GetAllEntitiesWith<TextComponent>())
+		{
+			TextComponent const& text = scene.GetRegistry().get<TextComponent>(handle);
+			if (text.ScreenSpace && !text.Text.empty())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
 	bool RenderSceneFromPrimaryCamera(Scene& scene, SceneRenderer& renderer)
 	{
 		Entity const cameraEntity = scene.GetPrimaryCameraEntity();
 		if (!cameraEntity)
 		{
-			return false;
+			// Title, menu and loading screens are often UI alone: it needs no camera.
+			if (!HasScreenSpaceContent(scene))
+			{
+				return false;
+			}
+			SceneRenderOptions options;
+			options.DrawWorld = false;
+			RenderScene(scene, renderer, SceneRendererCamera(), options);
+			return true;
 		}
 		glm::mat4 const world = scene.GetWorldTransform(cameraEntity);
 		float const aspectRatio = static_cast<float>(renderer.GetViewportWidth()) / static_cast<float>(renderer.GetViewportHeight());

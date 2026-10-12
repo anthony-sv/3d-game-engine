@@ -131,7 +131,7 @@ namespace
 		// Lets go of every key and places the player's feet at a spot, at rest; it settles there.
 		void Place(glm::vec3 const& feet)
 		{
-			Input::ReleaseAll();
+			Input::ReleaseKeysAndMouseButtons();
 			Frame();
 			m_Scene.TeleportCharacter(m_Player, feet + glm::vec3(0.0f, FeetToCenter, 0.0f));
 			for (int i = 0; i < 5; i++)
@@ -367,7 +367,7 @@ TEST_CASE("Scene: the scripting guide's first-person controller jumps just after
 	// Pressed just before it lands, it jumps as it lands (the jump buffer): from the ground, not in the air.
 	driver.Place({2.0f, 1.6f, 3.0f});
 	REQUIRE(driver.WalkUntilInAir(KeyCode::D, 60));
-	Input::ReleaseAll();
+	Input::ReleaseKeysAndMouseButtons();
 	for (int i = 0; i < 120 && driver.GetFeetHeight() > 0.2f; i++)
 	{
 		driver.Frame();

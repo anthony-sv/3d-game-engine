@@ -47,6 +47,13 @@ public abstract class Script : Entity
 	{
 	}
 
+	/// <summary>Called when a <see cref="UIButtonComponent"/> is clicked, before the frame's <see cref="OnUpdate"/>: on the
+	/// script of the button's entity, then on the scripts of its ancestors, nearest first (so a menu's script hears the
+	/// clicks of every button in it). <paramref name="button"/> is the clicked button's entity.</summary>
+	protected virtual void OnClick(Entity button)
+	{
+	}
+
 	internal void InvokeOnCreate() => OnCreate();
 
 	internal void InvokeOnUpdate(float deltaTime) => OnUpdate(deltaTime);
@@ -62,4 +69,6 @@ public abstract class Script : Entity
 	internal void InvokeOnTriggerEnter(Entity other) => OnTriggerEnter(other);
 
 	internal void InvokeOnTriggerExit(Entity other) => OnTriggerExit(other);
+
+	internal void InvokeOnClick(Entity button) => OnClick(button);
 }
