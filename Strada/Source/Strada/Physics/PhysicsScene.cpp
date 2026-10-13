@@ -1089,10 +1089,15 @@ namespace Strada
 		settings.mAllowSleeping = desc.AllowSleep;
 		// Kinematic bodies report touching static and kinematic ones, so they can enter static triggers.
 		settings.mCollideKinematicVsNonDynamic = type == RigidBodyType::Kinematic;
-		if (dynamic)
+		if (type != RigidBodyType::Static)
 		{
+			// Jolt keeps a mass for kinematic bodies too and asserts on a body that moves without one, which triangle meshes
+			// cannot compute: every body that moves takes the component's mass, with its shape's inertia.
 			settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
 			settings.mMassPropertiesOverride.mMass = std::clamp(desc.Mass, MinPhysicsMass, MaxPhysicsMass);
+		}
+		if (dynamic)
+		{
 			settings.mLinearDamping = std::max(desc.LinearDamping, 0.0f);
 			settings.mAngularDamping = std::max(desc.AngularDamping, 0.0f);
 			settings.mGravityFactor = std::clamp(desc.GravityFactor, -MaxPhysicsGravityFactor, MaxPhysicsGravityFactor);

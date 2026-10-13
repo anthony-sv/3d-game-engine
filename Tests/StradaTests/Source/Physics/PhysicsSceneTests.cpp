@@ -184,6 +184,47 @@ TEST_CASE("PhysicsScene: kinematic bodies follow their targets and push dynamic 
 	CHECK(world->GetMass(OtherId) == 0.0f);
 }
 
+TEST_CASE("PhysicsScene: kinematic triangle meshes move and carry dynamic bodies")
+{
+	// Jolt computes no mass for triangle meshes but keeps one for every body that moves (Debug builds stop on its assertion
+	// without one): kinematic bodies keep their triangles.
+	Testing::PhysicsSystemScope physics;
+	Scope<PhysicsScene> world = CreateWorld();
+	ColliderDesc deck;
+	deck.Shape = ColliderShape::TriangleMesh;
+	deck.Mesh = MeshFactory::CreatePlane(AssetHandle());
+	BodyDesc platform = MakeBody(GroundId, RigidBodyType::Kinematic, glm::vec3(0.0f), deck);
+	platform.Scale = glm::vec3(10.0f);
+	REQUIRE(world->AddBody(platform).IsOk());
+	REQUIRE(world->AddBody(MakeBody(BallId, RigidBodyType::Dynamic, {0.0f, 1.0f, 0.0f}, Box(glm::vec3(0.5f)))).IsOk());
+	Simulate(*world, 2.0f);
+	CHECK(HeightOf(*world, BallId) == doctest::Approx(0.5f).epsilon(0.05));
+	CHECK(world->IsSleeping(BallId));
+
+	// Rising 2 m in two seconds, the platform wakes the box resting on it and lifts it.
+	glm::vec3 target(0.0f);
+	for (int step = 0; step < 120; step++)
+	{
+		target.y += Step;
+		world->MoveKinematic(GroundId, target, glm::quat(1.0f, 0.0f, 0.0f, 0.0f), Step);
+		world->Step(Step);
+	}
+	CHECK(HeightOf(*world, GroundId) == doctest::Approx(target.y).epsilon(0.01));
+	CHECK(HeightOf(*world, BallId) == doctest::Approx(target.y + 0.5f).epsilon(0.05));
+	CHECK(world->GetMass(GroundId) == 0.0f);
+
+	// A dynamic body with every degree of freedom locked is made kinematic, triangle mesh included.
+	BodyDesc locked = MakeBody(OtherId, RigidBodyType::Dynamic, {30.0f, 0.0f, 0.0f}, deck);
+	locked.Scale = glm::vec3(10.0f);
+	locked.LockTranslation = {true, true, true};
+	locked.LockRotation = {true, true, true};
+	REQUIRE(world->AddBody(locked).IsOk());
+	CHECK(world->GetMass(OtherId) == 0.0f);
+	std::optional<RaycastHit> const corner = world->Raycast({34.9f, 5.0f, 4.9f}, {0.0f, -1.0f, 0.0f}, 10.0f);
+	REQUIRE(corner);
+	CHECK(corner->Entity == OtherId);
+}
+
 TEST_CASE("PhysicsScene: forces, impulses and velocities respect mass and locked axes")
 {
 	Testing::PhysicsSystemScope physics;

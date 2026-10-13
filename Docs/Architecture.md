@@ -536,7 +536,8 @@ thread per core but one. `PhysicsScene` is one physics world, independent of the
 `BodyDesc` and keyed by entity UUID), so it is tested on its own. Object layers encode the project layer and whether
 the body moves (static bodies never meet each other); broad-phase layers separate static from moving bodies; the
 project's ignored layer pairs never collide. An entity's colliders form one compound shape scaled by the entity's
-world scale (mirroring is ignored); triangle-mesh colliders on dynamic bodies use the mesh's convex hull. Friction
+world scale (mirroring is ignored); triangle-mesh colliders on dynamic bodies use the mesh's convex hull, kinematic ones
+keep the triangles (bodies that move take the `RigidBody`'s mass, which Jolt cannot compute for triangles). Friction
 (geometric mean), restitution (maximum) and triggers are applied per contact by the contact listener, so one entity
 can mix solid and trigger colliders. The listener, called on Jolt's worker threads, turns sub-shape contacts into one
 enter and one exit event per entity pair and contact kind; removing a body ends its contacts with exit events. Jolt
