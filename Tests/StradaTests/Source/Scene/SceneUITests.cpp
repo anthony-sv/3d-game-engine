@@ -456,7 +456,9 @@ TEST_CASE("Scene: UI components round-trip through scene files and reject values
 	CHECK_FALSE(loadedButtonComponent.Interactable);
 	CHECK(loadedButtonComponent.HoveredColor == glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
 	CHECK(loadedButtonComponent.NormalColor == UIButtonComponent().NormalColor);
-	UICanvasComponent const& loadedCanvas = loaded.GetValue()->FindEntityByName("Canvas").GetComponent<UICanvasComponent>();
+	Entity const loadedCanvasEntity = loaded.GetValue()->FindEntityByName("Canvas");
+	REQUIRE(loadedCanvasEntity);
+	UICanvasComponent const& loadedCanvas = loadedCanvasEntity.GetComponent<UICanvasComponent>();
 	CHECK(loadedCanvas.ScaleMode == UIScaleMode::ConstantPixelSize);
 	CHECK(loadedCanvas.ReferenceResolution == glm::vec2(1280.0f, 720.0f));
 

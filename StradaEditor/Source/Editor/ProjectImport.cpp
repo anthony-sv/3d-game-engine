@@ -216,6 +216,12 @@ namespace Strada
 					                 "finds the files when it gets the focus back)",
 					                 FileSystem::PathToUtf8(folder.filename()), maxFiles);
 				}
+				// File systems list a folder in orders of their own (by name on NTFS, not on APFS or ext4): by path, a folder
+				// comes in and is reported alike everywhere.
+				for (std::vector<std::string>* list : {&files.Assets, &files.Scripts, &files.Others})
+				{
+					std::sort(list->begin(), list->end());
+				}
 				return files;
 			}
 

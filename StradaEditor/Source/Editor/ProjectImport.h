@@ -31,7 +31,7 @@ namespace Strada
 		struct Report
 		{
 			// Registered assets: those of the dropped files (models first, with the textures they read), then those of the
-			// dropped folders.
+			// dropped folders, each folder's by their paths in it.
 			std::vector<AssetHandle> Assets;
 			// The C# sources that came in, or were in the scripts already.
 			std::vector<std::filesystem::path> Scripts;

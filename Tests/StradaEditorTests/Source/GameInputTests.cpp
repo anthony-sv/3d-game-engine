@@ -671,9 +671,10 @@ namespace
 		explicit GameViewFixture(bool docked = false)
 			: Docked(docked)
 		{
-			// As in the editor.
+			// As in the editor: play shortcuts use Cmd where ImGui's shortcuts do (macOS).
 			ImGuiIO& io = ImGui::GetIO();
 			io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+			Router.SetShortcutsUseSuper(io.ConfigMacOSXBehaviors);
 			if (Docked)
 			{
 				io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -929,16 +930,20 @@ TEST_CASE("GameInput: while the game has the input the editor's interface sees n
 	CHECK(fixture.Clicks == 0);
 	CHECK(fixture.Router.HasInput());
 
-	// Ctrl+P is the editor's: its shortcut sees it, the game does not.
-	ImGuiLayer::InputContext control;
-	control.Control = true;
-	CHECK_FALSE(fixture.SendKey(KeyCode::LeftControl, true, control));
-	CHECK(fixture.SendKey(KeyCode::P, true, control));
+	// Ctrl+P (Cmd+P on macOS, where ImGui's Ctrl shortcuts take Cmd) is the editor's: its shortcut sees it, the game does
+	// not.
+	bool const command = ImGui::GetIO().ConfigMacOSXBehaviors;
+	KeyCode const modifier = command ? KeyCode::LeftSuper : KeyCode::LeftControl;
+	ImGuiLayer::InputContext shortcut;
+	shortcut.Control = !command;
+	shortcut.Super = command;
+	CHECK_FALSE(fixture.SendKey(modifier, true, shortcut));
+	CHECK(fixture.SendKey(KeyCode::P, true, shortcut));
 	fixture.Frame();
 	CHECK(fixture.Shortcuts == 1);
 	CHECK_FALSE(Input::IsKeyDown(KeyCode::P));
-	CHECK(fixture.SendKey(KeyCode::P, false, control));
-	CHECK(fixture.SendKey(KeyCode::LeftControl, false));
+	CHECK(fixture.SendKey(KeyCode::P, false, shortcut));
+	CHECK(fixture.SendKey(modifier, false));
 	fixture.Frame();
 	CHECK(fixture.Shortcuts == 1);
 }
