@@ -656,14 +656,18 @@ installed or shipped by you in a `dotnet` folder next to the executable.
   physics debris and particle sparks from prefabs, a camera shake, a pool of sound sources, a HUD of screen texts built
   in code, tests).
 - `Projects/Showcase`: a camera tour on a smooth path (`Flythrough`, its stops are `CameraShot` scripts with inspector
-  fields) that cues exhibits through an interface (a night for a while too: `NightInterlude`), fades UI elements and
-  letterbox bars and plays the music up through its audio source's volume, a camera rig that flies and throws balls with
-  a camera shake under it or walks as a first-person character (`Walker`: speeding up and slowing down, a jump buffer
-  and coyote time, footsteps, a head bob and a dip on landing; Esc frees the cursor for the HUD), a lift that characters
-  ride (`Lift`, a kinematic platform), trigger scripts (a goal that counts, a pressure plate that raises a kinematic
-  gate), ballistics for a ball launcher, dominoes and a wrecking ball set off by keys, a light show and a neon sign that
-  flickers on through cloned materials, day and night from lights, a post-process volume's weight and the intensity of
-  unlit particles, a HUD whose buttons act in `OnClick` and whose rows open as the camera nears their exhibits,
-  `Debug.DrawLine` previews of throws and trigger bounds, and tests that play every exhibit, click the HUD's buttons and
-  walk the yard (run `Tools/FetchAssets.py` first for its models and sky).
+  fields) that cues exhibits through an interface (`ITourCue`, which also tells them when the tour ends or is skipped:
+  its night for a while, `NightInterlude`, ends then, unless the visitor switched day and night meanwhile), fades UI
+  elements and letterbox bars, plays the music up through its audio source's volume and plays again with the exhibits
+  put back, a camera rig that flies over the clearing and throws balls with a camera shake under it or walks as a
+  first-person character (`Walker`: speeding up and slowing down, a jump buffer and coyote time, footsteps, a head bob
+  and a dip on landing, kept within the clearing's ground; Esc frees the cursor for the HUD), a lift that characters
+  ride and that stops on its way down while rays from its underside find a character or a loose body below (`Lift`, a
+  kinematic platform), trigger scripts (a goal that counts, a pressure plate that dynamic bodies and characters press
+  to raise a kinematic gate), ballistics for a ball launcher, dominoes and a wrecking ball set off by keys, a light show
+  and a neon sign that flickers on through cloned materials, day and night from lights, a post-process volume's weight
+  and the intensity of unlit particles (also of smoke spawned later), a HUD whose buttons act in `OnClick` and whose
+  rows open as the camera nears their exhibits, `Debug.DrawLine` previews of throws and trigger bounds, and tests that
+  play every exhibit, click the HUD's buttons and walk the yard (run `Tools/FetchAssets.py` first for its models and
+  sky).
 - `Projects/FeatureTest`: scenes whose scripts use every component and the whole API, checked as a test run.

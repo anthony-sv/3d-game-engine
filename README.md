@@ -83,14 +83,16 @@ a game project of your own. `Projects/Blocks`, a falling-blocks game, was made t
 
 `Projects/Showcase` shows every feature of the engine in an autumn forest clearing at golden hour, laid out in exhibit
 areas with signposts around a fountain: a gallery of physically based materials (a metallic and roughness sweep, Poly
-Haven texture sets, a neon sign that blooms), glass, alpha-tested lattice and two-sided banners, a lighthouse and a
-light show of colored spot lights, a physics yard (a wrecking ball on a joint, a crate tower, dominoes, a plank bridge
-of hinges), a ball launcher that scores in a goal whose pressure plate opens a gate, fire, water, sparks and fireflies,
-3D sound and music, graded by post-process volumes (the light show stands in an evening of its own), and a yard to walk
-in. A camera tour opens it under a neon sign that flickers on, with the music up, and lets night fall for a while on its
-way (any key or click skips it); then fly around and throw balls, or press F to walk: climb the stairs, jump along the
-posts, ride the lift up the lookout tower and push the crates. The HUD lists the features you come near and its buttons
-put the exhibits back, set them off and turn day into a moonlit night. Its Poly Haven assets are not in the repository;
+Haven texture sets shown as sprites, a neon sign that blooms), glass, alpha-tested lattice and two-sided banners, a
+lighthouse and a light show of colored spot lights, a physics yard (a wrecking ball on a joint, a crate tower, prefab
+dominoes, a plank bridge of hinges), a ball launcher that scores in a goal whose pressure plate opens a gate, fire,
+water, sparks and fireflies, 3D sound and streamed music, graded by post-process volumes (the light show stands in an
+evening of its own), and a yard to walk in; the clearing's ground fades into the forest floor of the sky. A camera tour
+opens it under a neon sign that flickers on, with the music up, and lets night fall for a while on its way (any key or
+click skips it, C plays it again with the exhibits put back); then fly around and throw balls, or press F to walk:
+climb the stairs, jump along the posts, ride the lift up the lookout tower, push the crates and stand on the pressure
+plate. The HUD lists the features you come near and its buttons put the exhibits back, set them off and turn day into
+a moonlit night. Its Poly Haven assets are not in the repository;
 download them once with `python Projects/Showcase/Tools/FetchAssets.py`, then open `Projects/Showcase/Showcase.sproj`
 and press Play (right mouse to look, WASD to move, left click to throw; walking, the mouse looks, Space jumps and Shift
 runs; the screen lists the other keys).

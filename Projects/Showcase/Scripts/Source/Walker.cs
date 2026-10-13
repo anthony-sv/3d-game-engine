@@ -4,8 +4,9 @@ namespace Showcase;
 
 /// <summary>A first-person walker: the character controller on the entity walks at the input it is given (relative to the
 /// view's heading), runs, and jumps, with a jump buffer and coyote time; it speeds up and slows down smoothly, plays a footstep
-/// every stride and a thump on landing, and tells the view how its head bobs and dips. Out of use it waits far below the
-/// clearing without gravity; <see cref="Enter"/> puts it on its feet (the camera rig does, and then gives it its input).</summary>
+/// every stride and a thump on landing, and tells the view how its head bobs and dips. It stays on the clearing's ground: at
+/// the edge of its area it walks along the edge, not out. Out of use it waits far below the clearing without gravity;
+/// <see cref="Enter"/> puts it on its feet (the camera rig does, and then gives it its input).</summary>
 public sealed class Walker : Script
 {
 	[Tooltip("Meters per second walking")]
@@ -52,6 +53,10 @@ public sealed class Walker : Script
 
 	[Tooltip("Where the walker waits while it is not in use (world space, far from everything)")]
 	public Vector3 ParkingPlace = new(0.0f, -500.0f, 0.0f);
+
+	[Tooltip("Meters from the world's origin, horizontally, the walker stays within: it walks along the edge, not out (0: anywhere)")]
+	[Range(0.0f, 10000.0f)]
+	public float AreaRadius;
 
 	private Vector3 m_Velocity;
 	private Vector3 m_LastPosition;
@@ -164,6 +169,7 @@ public sealed class Walker : Script
 		Vector3 change = wanted - m_Velocity;
 		float step = (grounded ? GroundAcceleration : AirAcceleration) * fixedDeltaTime;
 		m_Velocity = change.Length <= step ? wanted : m_Velocity + (change.Normalized * step);
+		KeepInArea();
 		character.Move(m_Velocity);
 
 		// Jumps: a press is kept for a moment, and the ground is too after the walker left it.
@@ -223,6 +229,23 @@ public sealed class Walker : Script
 		float speed = Mathf.Clamp01(m_Velocity.Length / RunSpeed);
 		float bob = IsGrounded ? Mathf.Sin(m_Stride / StrideLength * Mathf.PI) * BobHeight * speed : 0.0f;
 		HeadOffset = bob - (0.5f * BobHeight * speed) + m_Dip;
+	}
+
+	// At the edge of the area the part of the velocity that leads out goes.
+	private void KeepInArea()
+	{
+		Vector3 position = Transform.WorldTranslation;
+		Vector3 outward = new(position.X, 0.0f, position.Z);
+		if (AreaRadius <= 0.0f || outward.Length < AreaRadius)
+		{
+			return;
+		}
+		outward = outward.Normalized;
+		float leaving = Vector3.Dot(m_Velocity, outward);
+		if (leaving > 0.0f)
+		{
+			m_Velocity -= outward * leaving;
+		}
 	}
 
 	private void Land(float fallSpeed)

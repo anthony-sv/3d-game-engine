@@ -5,7 +5,7 @@ namespace Showcase;
 
 /// <summary>A ball launcher (a squat mortar): its key (or the tour) fires a ball from the muzzle along the barrel's elevation,
 /// fast enough to land on the target (ballistics with the scene's gravity: the balls fly without drag). Every shot booms,
-/// flashes, shakes the camera and kicks the barrel back.</summary>
+/// flashes and puffs smoke, shakes the camera and kicks the barrel back.</summary>
 public sealed class BallLauncher : Script, ITourCue
 {
 	[Tooltip("The ball the launcher fires (keep its linear damping at 0, or it falls short)")]
@@ -17,8 +17,11 @@ public sealed class BallLauncher : Script, ITourCue
 	[Tooltip("What the launcher aims at")]
 	public Entity? Target;
 
-	[Tooltip("A one-shot particle effect made at the muzzle by every shot")]
+	[Tooltip("A one-shot particle effect made at the muzzle by every shot: its own particle system is the smoke")]
 	public Prefab? Flash;
+
+	[Tooltip("The day and night switch (a DayNight): the smoke of a shot is as bright as the rest of the unlit matter")]
+	public Entity? Lighting;
 
 	[Tooltip("The camera every shot shakes (it needs a CameraShake script)")]
 	public Entity? Camera;
@@ -43,6 +46,9 @@ public sealed class BallLauncher : Script, ITourCue
 
 	/// <summary>Shots fired so far.</summary>
 	public int Shots { get; private set; }
+
+	/// <summary>The flash and smoke of the last shot (until its particles are gone).</summary>
+	public Entity? LastFlash { get; private set; }
 
 	protected override void OnCreate()
 	{
@@ -131,7 +137,12 @@ public sealed class BallLauncher : Script, ITourCue
 		}
 		if (Flash is not null)
 		{
-			Entity.Instantiate(Flash, MuzzlePosition, Quaternion.Identity);
+			LastFlash = Entity.Instantiate(Flash, MuzzlePosition, Quaternion.Identity);
+			// Smoke is not lit: at night it dims like the campfire's (the fire of the flash glows on).
+			if (LastFlash?.GetComponent<ParticleSystemComponent>() is { } smoke && Lighting?.As<DayNight>() is { } lighting)
+			{
+				smoke.Intensity *= lighting.MatterBrightness;
+			}
 		}
 		Camera?.As<CameraShake>()?.ShakeFrom(MuzzlePosition, 0.55f);
 		m_Kick = 1.0f;

@@ -8,10 +8,12 @@ namespace Showcase;
 
 /// <summary>The checks of Scenes/Tests.sscene (the main scene with this script, and without the tour playing at the start). They
 /// play the exhibits through their public methods and look at what happened: the stacks stand and fall, joints hold, balls
-/// score and open the gate, the dominoes fall, the lights move, particles burn, the camera shakes, the tour plays the music up
-/// and hands over, the neon sign lights up, night falls and passes again in the tour's interlude, the HUD's buttons work, and
-/// the walker climbs, runs, jumps, pushes and rides the lift. None of them needs the downloaded models. The run ends once they are done (play the scene, or
-/// `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
+/// score and open the gate, the dominoes fall, the lights move, particles burn and smoke dims at night, the camera shakes, the
+/// tour cues its exhibits, plays the music up, hands over and plays again with the exhibits put back, the neon sign lights up,
+/// night falls and passes again in the tour's interlude (which a skip ends and the visitor's choice outlasts), the HUD's buttons
+/// work, the cursor is freed, the walker climbs, runs, jumps, pushes, rides the lift, waits under it, presses the plate and stays
+/// on the ground, and the camera flies within the clearing. None of them needs the downloaded models. The run ends once they
+/// are done (play the scene, or `StradaRuntime --project Showcase.sproj --scene Scenes/Tests.sscene --test`).</summary>
 public sealed class ShowcaseTests : Script
 {
 	[Tooltip("The playground that counts the props")]
@@ -128,7 +130,7 @@ public sealed class ShowcaseTests : Script
 	private Vector3 m_TourStart;
 	private (float Frame, float Letters) m_NeonDark;
 	private (float Frame, float Letters) m_NeonFrameOnly;
-	private (int Swings, int Shots, int Resets, int Switches) m_BeforeClicks;
+	private (int Swings, int Pushes, int Shots, int Resets, int Switches) m_BeforeClicks;
 	private Vector3 m_WalkFrom;
 	private float m_WalkRange = float.PositiveInfinity;
 	private Vector3 m_PaceFrom;
@@ -140,6 +142,10 @@ public sealed class ShowcaseTests : Script
 	private bool m_InterludeNight;
 	private bool m_InterludeDay;
 	private float m_MusicVolume;
+	private float m_NightSmoke = -1.0f;
+	private int m_SwitchesBeforeChoice;
+	private int m_PlatePresses;
+	private int m_ResetsBeforeReplay;
 
 	protected override void OnCreate()
 	{
@@ -240,19 +246,54 @@ public sealed class ShowcaseTests : Script
 		At(33.5f, () =>
 		{
 			CheckTheModeButton();
+			// Esc while walking.
+			Rig?.As<CameraRig>()?.ReleaseCursor();
+		});
+		At(33.6f, () =>
+		{
+			CheckTheFreeCursor();
 			StartTheInterlude(1.0f);
 		});
-		At(34.0f, () => m_InterludeNight = Lighting?.As<DayNight>()?.IsNight ?? false);
-		At(35.2f, () =>
+		// The lift, up at the lookout, comes down from 35.2 seconds on: the walker waits under it.
+		At(33.7f, StandUnderTheLift);
+		At(34.1f, () => m_InterludeNight = Lighting?.As<DayNight>()?.IsNight ?? false);
+		At(35.3f, () =>
 		{
 			// The day came back; an interlude cued at night then leaves the night.
 			m_InterludeDay = Lighting?.As<DayNight>()?.IsNight == false && NightInterlude?.As<NightInterlude>()?.IsActive == false;
 			Lighting?.As<DayNight>()?.SetNight(true);
 			StartTheInterlude(0.5f);
 		});
-		At(36.0f, () =>
+		At(36.1f, () =>
 		{
 			CheckTheInterlude();
+			SwitchDuringTheInterlude();
+		});
+		At(36.9f, CheckTheVisitorsChoiceStands);
+		At(37.5f, CheckTheLiftWaits);
+		At(37.7f, () =>
+		{
+			CheckTheLiftGoesOn();
+			StepOnThePlate();
+		});
+		At(38.7f, () =>
+		{
+			CheckThePlateUnderTheWalker();
+			CheckWhereTheRigFlies();
+			WalkToTheEdge();
+		});
+		At(40.2f, () =>
+		{
+			CheckTheEdge();
+			// The exhibits go off before the tour plays again.
+			WreckingBall?.As<WreckingBall>()?.Swing();
+			Dominoes?.As<DominoRun>()?.Push();
+		});
+		At(42.2f, ReplayTheTour);
+		At(42.3f, CheckTheReplayAndSkip);
+		At(43.7f, () =>
+		{
+			CheckTheSecondHandOver();
 			TestReporter.Finish();
 			Application.Quit();
 		});
@@ -363,6 +404,8 @@ public sealed class ShowcaseTests : Script
 			Assert.IsTrue(m_SmokeIntensity > 0.0f && m_LeavesIntensity > 0.0f, "the smoke and the leaves glow by day");
 			Assert.AreApproximatelyEqual(m_SmokeIntensity * lighting.NightMatterBrightness, smoke, 1e-4f, "the smoke dims");
 			Assert.AreApproximatelyEqual(m_LeavesIntensity * lighting.NightMatterBrightness, leaves, 1e-4f, "the leaves dim");
+			Assert.AreApproximatelyEqual(lighting.NightMatterBrightness, lighting.MatterBrightness, 1e-4f);
+			m_NightSmoke = FireForSmoke();
 			lighting.SetNight(false);
 			Assert.IsFalse(lighting.IsNight);
 		});
@@ -385,6 +428,23 @@ public sealed class ShowcaseTests : Script
 			Assert.AreApproximatelyEqual(m_SmokeIntensity, smoke, 1e-4f);
 			Assert.AreApproximatelyEqual(m_LeavesIntensity, leaves, 1e-4f);
 		});
+		TestReporter.Run("the launcher's smoke dims at night like the campfire's", () =>
+		{
+			DayNight? lighting = Lighting?.As<DayNight>();
+			Assert.IsNotNull(lighting);
+			Assert.AreEqual(1.0f, lighting.MatterBrightness);
+			float daySmoke = FireForSmoke();
+			Assert.IsTrue(daySmoke > 0.0f, $"the smoke shows at {daySmoke} by day");
+			Assert.AreApproximatelyEqual(daySmoke * lighting.NightMatterBrightness, m_NightSmoke, 1e-4f);
+		});
+	}
+
+	// Fires the launcher and takes its ball away at once (nothing lands anywhere); returns how bright the shot's smoke is.
+	private float FireForSmoke()
+	{
+		BallLauncher? launcher = Launcher?.As<BallLauncher>();
+		launcher?.Fire()?.Destroy();
+		return launcher?.LastFlash?.GetComponent<ParticleSystemComponent>()?.Intensity ?? -1.0f;
 	}
 
 	// The brightness of the campfire's smoke and of the first of the falling leaves (a child of the leaves DayNight dims).
@@ -459,6 +519,27 @@ public sealed class ShowcaseTests : Script
 			Assert.AreEqual(1.0f, tour.FadeOpacity);
 			Assert.AreEqual(1.0f, tour.Fade?.GetComponent<UIRectComponent>()?.Opacity);
 		});
+		TestReporter.Run("the tour's shots cue exhibits that perform, and night falls on its way to the campfire", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			Assert.IsNotNull(tour);
+			int cues = 0;
+			foreach (Entity child in tour.Children)
+			{
+				CameraShot? shot = child.As<CameraShot>();
+				Assert.IsNotNull(shot, $"{child.Name} is a shot");
+				if (shot.Cue is not null)
+				{
+					Assert.IsTrue(shot.Cue.As<Script>() is ITourCue, $"{child.Name} cues {shot.Cue.Name}, which performs");
+					cues++;
+				}
+			}
+			// The neon sign, the wrecking ball, the dominoes, the launcher and the night.
+			Assert.AreEqual(5, cues);
+			Entity? campfire = tour.Children.FirstOrDefault(child => child.Name == "Shot: Campfire");
+			Assert.IsNotNull(campfire);
+			Assert.AreEqual(NightInterlude?.ID, campfire.As<CameraShot>()?.Cue?.ID);
+		});
 	}
 
 	private void CheckTheTourUnderWay()
@@ -474,6 +555,8 @@ public sealed class ShowcaseTests : Script
 			Assert.IsTrue(tour.FadeOpacity < 0.1f, $"the fade is at {tour.FadeOpacity}");
 			Assert.IsTrue(tour.TitleVisibility > 0.5f, $"the title shows at {tour.TitleVisibility}");
 			Assert.AreEqual(0.0f, tour.CaptionVisibility);
+			// The first shot cued the neon sign, switched on once before by the test.
+			Assert.AreEqual(2, NeonSign?.As<NeonSign>()?.Ignitions);
 		});
 		TestReporter.Run("the tour letterboxes the screen, hides the HUD and plays the music up", () =>
 		{
@@ -576,10 +659,10 @@ public sealed class ShowcaseTests : Script
 	private void ClickTheHudButtons()
 	{
 		Hud? hud = Hud?.As<Hud>();
-		m_BeforeClicks = (WreckingBall?.As<WreckingBall>()?.Swings ?? 0, Launcher?.As<BallLauncher>()?.Shots ?? 0,
-			Playground?.As<Playground>()?.Resets ?? 0, Lighting?.As<DayNight>()?.Switches ?? 0);
+		m_BeforeClicks = (WreckingBall?.As<WreckingBall>()?.Swings ?? 0, Dominoes?.As<DominoRun>()?.Pushes ?? 0,
+			Launcher?.As<BallLauncher>()?.Shots ?? 0, Playground?.As<Playground>()?.Resets ?? 0, Lighting?.As<DayNight>()?.Switches ?? 0);
 		// Clicks in code land at the next frame's UI update, as the mouse's would.
-		foreach (Entity? button in new[] { hud?.SwingButton, hud?.LaunchButton, hud?.LightsButton, hud?.ResetButton })
+		foreach (Entity? button in new[] { hud?.SwingButton, hud?.DominoesButton, hud?.LaunchButton, hud?.DayNightButton, hud?.ResetButton })
 		{
 			button?.GetComponent<UIButtonComponent>()?.Click();
 		}
@@ -621,14 +704,15 @@ public sealed class ShowcaseTests : Script
 
 	private void CheckTheClicks()
 	{
-		TestReporter.Run("the HUD's buttons put the exhibits back, swing the ball, launch and switch the lights", () =>
+		TestReporter.Run("the HUD's buttons put the exhibits back, swing the ball, tip the dominoes, launch and switch day and night", () =>
 		{
 			Hud? hud = Hud?.As<Hud>();
 			DayNight? lighting = Lighting?.As<DayNight>();
 			Assert.IsNotNull(hud);
 			Assert.IsNotNull(lighting);
-			Assert.AreEqual(4, hud.Clicks);
+			Assert.AreEqual(5, hud.Clicks);
 			Assert.AreEqual(m_BeforeClicks.Swings + 1, WreckingBall?.As<WreckingBall>()?.Swings);
+			Assert.AreEqual(m_BeforeClicks.Pushes + 1, Dominoes?.As<DominoRun>()?.Pushes);
 			Assert.AreEqual(m_BeforeClicks.Shots + 1, Launcher?.As<BallLauncher>()?.Shots);
 			Assert.AreEqual(m_BeforeClicks.Resets + 1, Playground?.As<Playground>()?.Resets);
 			Assert.AreEqual(m_BeforeClicks.Switches + 1, lighting.Switches);
@@ -849,6 +933,22 @@ public sealed class ShowcaseTests : Script
 			Assert.IsTrue(rig.IsWalking);
 			Assert.AreEqual("Fly", hud.ModeLabel?.GetComponent<UITextComponent>()?.Text);
 			Assert.AreEqual(hud.WalkHint, hud.HintText?.GetComponent<UITextComponent>()?.Text);
+		});
+	}
+
+	private void CheckTheFreeCursor()
+	{
+		TestReporter.Run("Esc frees the cursor while walking, and the hint line says how to look around again", () =>
+		{
+			Hud? hud = Hud?.As<Hud>();
+			CameraRig? rig = Rig?.As<CameraRig>();
+			Assert.IsNotNull(hud);
+			Assert.IsNotNull(rig);
+			Assert.IsTrue(rig.IsWalking, "it still walks");
+			Assert.IsFalse(rig.IsCursorCaptured);
+			Assert.IsFalse(rig.IsLooking, "the mouse no longer looks around");
+			Assert.AreEqual(CursorMode.Normal, Input.CursorMode);
+			Assert.AreEqual(hud.FreeCursorHint, hud.HintText?.GetComponent<UITextComponent>()?.Text);
 			rig.SetWalking(false);
 		});
 	}
@@ -874,6 +974,229 @@ public sealed class ShowcaseTests : Script
 			Assert.IsTrue(m_InterludeDay, "the day came back");
 			Assert.IsFalse(interlude.IsActive);
 			Assert.IsTrue(lighting.IsNight, "cued at night, it leaves the night");
+		});
+	}
+
+	// The interlude sets the night; the visitor switches to day and back to night meanwhile, which the interlude leaves be.
+	private void SwitchDuringTheInterlude()
+	{
+		if (Lighting?.As<DayNight>() is not { } lighting)
+		{
+			return;
+		}
+		lighting.SetNight(false);
+		StartTheInterlude(0.6f);
+		m_SwitchesBeforeChoice = lighting.Switches;
+		lighting.Toggle();
+		lighting.Toggle();
+	}
+
+	private void CheckTheVisitorsChoiceStands()
+	{
+		TestReporter.Run("switching day and night during the interlude keeps the visitor's choice", () =>
+		{
+			NightInterlude? interlude = NightInterlude?.As<NightInterlude>();
+			DayNight? lighting = Lighting?.As<DayNight>();
+			Assert.IsNotNull(interlude);
+			Assert.IsNotNull(lighting);
+			Assert.IsFalse(interlude.IsActive, "the interlude is over");
+			// It found the night it set switched away and back: it switched nothing more.
+			Assert.AreEqual(m_SwitchesBeforeChoice + 2, lighting.Switches);
+			Assert.IsTrue(lighting.IsNight, "the night the visitor chose stays");
+			lighting.SetNight(false);
+		});
+	}
+
+	// Under the lift's platform, up at the lookout: its center, on the ground.
+	private void StandUnderTheLift()
+	{
+		if (Lift is null || Walker?.As<Walker>() is not { } walker)
+		{
+			return;
+		}
+		Vector3 center = Lift.Transform.WorldTranslation;
+		walker.Enter(new Vector3(center.X, 0.02f, center.Z), walker.Yaw);
+		walker.MoveInput = Vector2.Zero;
+	}
+
+	private void CheckTheLiftWaits()
+	{
+		TestReporter.Run("the lift stops on its way down while the walker stands under it", () =>
+		{
+			Lift? lift = Lift?.As<Lift>();
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(lift);
+			Assert.IsNotNull(walker);
+			Assert.IsTrue(lift.IsHeld, $"the lift is at {lift.Height} m");
+			Assert.IsFalse(lift.IsMoving);
+			Assert.AreEqual(1, lift.Holds);
+			Assert.IsTrue(lift.Height < lift.Rise, "it had started down");
+			// Its underside stays above the walker's head (the capsule is 1.8 m tall), which stays on the ground.
+			float underside = Lift!.Transform.WorldTranslation.Y - (Lift.Scale.Y * 0.5f);
+			float feet = walker.Transform.WorldTranslation.Y;
+			Assert.IsTrue(underside > feet + 1.9f, $"the platform's underside is at {underside} m, the feet at {feet} m");
+			Assert.IsTrue(feet < 0.1f && walker.IsGrounded, $"the walker stands at {feet} m");
+			walker.Park();
+		});
+	}
+
+	private void CheckTheLiftGoesOn()
+	{
+		TestReporter.Run("the lift goes on down once the walker is gone", () =>
+		{
+			Lift? lift = Lift?.As<Lift>();
+			Assert.IsNotNull(lift);
+			Assert.IsFalse(lift.IsHeld);
+			Assert.IsTrue(lift.IsMoving, $"the lift is at {lift.Height} m");
+		});
+	}
+
+	// The walker steps onto the pressure plate, as a visitor would.
+	private void StepOnThePlate()
+	{
+		if (Plate?.As<PressurePlate>() is not { } plate || Walker?.As<Walker>() is not { } walker)
+		{
+			return;
+		}
+		m_PlatePresses = plate.Presses;
+		Vector3 center = Plate.Transform.WorldTranslation;
+		walker.Enter(new Vector3(center.X, 0.12f, center.Z), walker.Yaw);
+		walker.MoveInput = Vector2.Zero;
+	}
+
+	private void CheckThePlateUnderTheWalker()
+	{
+		TestReporter.Run("the walker standing on the plate raises the gate", () =>
+		{
+			PressurePlate? plate = Plate?.As<PressurePlate>();
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(plate);
+			Assert.IsNotNull(walker);
+			Assert.IsTrue(plate.IsPressed);
+			Assert.AreEqual(m_PlatePresses + 1, plate.Presses);
+			Assert.IsTrue(plate.Openness > 0.5f, $"the gate is {plate.Openness} open");
+			walker.Park();
+		});
+	}
+
+	private void CheckWhereTheRigFlies()
+	{
+		TestReporter.Run("the camera flies within the clearing, and walks only where there is ground", () =>
+		{
+			CameraRig? rig = Rig?.As<CameraRig>();
+			Assert.IsNotNull(rig);
+			Assert.IsTrue(rig.FlightRadius > 0.0f);
+			// Out at the edge of where it flies, flying on outwards slides along the edge.
+			rig.SetPose(new Vector3(rig.FlightRadius - 1.0f, 3.0f, 0.0f), 0.0f, -90.0f);
+			rig.Fly(new Vector3(20.0f, 0.0f, 20.0f), 1.0f);
+			Assert.AreApproximatelyEqual(rig.FlightRadius, Flat(rig.Translation).Length, 1e-3f);
+			Assert.IsTrue(rig.Translation.Z > 1.0f, $"it slid along the edge to {rig.Translation}");
+			rig.Fly(new Vector3(0.0f, 5000.0f, 0.0f), 1.0f);
+			Assert.AreApproximatelyEqual(rig.MaximumHeight, rig.Translation.Y, 1e-3f);
+			// Put far out (the tour or a script may), it only comes nearer.
+			rig.SetPose(new Vector3(500.0f, 5.0f, 0.0f), 0.0f, -90.0f);
+			rig.Fly(new Vector3(10.0f, 0.0f, 0.0f), 1.0f);
+			Assert.AreApproximatelyEqual(500.0f, rig.Translation.X, 1e-3f);
+			rig.Fly(new Vector3(-10.0f, 0.0f, 0.0f), 1.0f);
+			Assert.AreApproximatelyEqual(490.0f, rig.Translation.X, 1e-3f);
+			// Nothing is under it out there: F does not walk.
+			Assert.IsFalse(rig.SetWalking(true));
+			Assert.IsFalse(rig.IsWalking);
+			Assert.IsFalse(Walker?.As<Walker>()?.IsActive ?? true, "the walker waits");
+		});
+	}
+
+	// Out towards the edge of the walker's area, across open ground.
+	private void WalkToTheEdge()
+	{
+		if (Walker?.As<Walker>() is { } walker)
+		{
+			WalkAlong(new Vector3(walker.AreaRadius - 1.5f, 0.04f, 0.0f), -90.0f);
+		}
+	}
+
+	private void CheckTheEdge()
+	{
+		TestReporter.Run("the plate lets go once the walker has stepped off", () =>
+		{
+			PressurePlate? plate = Plate?.As<PressurePlate>();
+			Assert.IsNotNull(plate);
+			Assert.IsFalse(plate.IsPressed);
+		});
+		TestReporter.Run("the walker stops at the edge of the clearing's ground", () =>
+		{
+			Walker? walker = Walker?.As<Walker>();
+			Assert.IsNotNull(walker);
+			Assert.IsTrue(walker.AreaRadius > 0.0f);
+			Vector3 feet = walker.Transform.WorldTranslation;
+			float distance = Flat(feet).Length;
+			Assert.IsTrue(distance > walker.AreaRadius - 0.2f && distance < walker.AreaRadius + 0.2f, $"it walked {distance} m out");
+			Assert.IsTrue(walker.IsGrounded && Mathf.Abs(feet.Y) < 0.1f, $"it stands at {feet.Y} m");
+			walker.Park();
+		});
+	}
+
+	// The exhibits are down; the tour plays again (with a night of its own under way).
+	private void ReplayTheTour()
+	{
+		TestReporter.Run("the exhibits went off before the tour plays again", () =>
+		{
+			Playground? playground = Playground?.As<Playground>();
+			DominoRun? run = Dominoes?.As<DominoRun>();
+			Flythrough? tour = Tour?.As<Flythrough>();
+			Assert.IsNotNull(playground);
+			Assert.IsNotNull(run);
+			Assert.IsNotNull(tour);
+			Assert.IsTrue(playground.Knocked > 0, $"{playground.Knocked} knocked down");
+			Assert.IsTrue(run.Fallen > 0, $"{run.Fallen} dominoes fell");
+			m_ResetsBeforeReplay = playground.Resets;
+			Lighting?.As<DayNight>()?.SetNight(false);
+			StartTheInterlude(9.0f);
+			tour.Replay();
+		});
+	}
+
+	private void CheckTheReplayAndSkip()
+	{
+		TestReporter.Run("the tour plays again with the exhibits put back", () =>
+		{
+			Playground? playground = Playground?.As<Playground>();
+			DominoRun? run = Dominoes?.As<DominoRun>();
+			Flythrough? tour = Tour?.As<Flythrough>();
+			Assert.IsNotNull(playground);
+			Assert.IsNotNull(run);
+			Assert.IsNotNull(tour);
+			Assert.IsTrue(tour.IsPlaying);
+			Assert.AreEqual(m_ResetsBeforeReplay + 1, playground.Resets);
+			Assert.AreEqual(0, playground.Knocked);
+			Assert.AreEqual(0, run.Fallen);
+		});
+		TestReporter.Run("skipping the tour ends its night at once", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			NightInterlude? interlude = NightInterlude?.As<NightInterlude>();
+			DayNight? lighting = Lighting?.As<DayNight>();
+			Assert.IsNotNull(tour);
+			Assert.IsNotNull(interlude);
+			Assert.IsNotNull(lighting);
+			Assert.IsTrue(interlude.IsActive && lighting.IsNight, "night fell");
+			tour.Skip();
+			Assert.IsFalse(interlude.IsActive);
+			Assert.IsFalse(lighting.IsNight, "the day comes back");
+		});
+	}
+
+	private void CheckTheSecondHandOver()
+	{
+		TestReporter.Run("the replayed tour hands the camera over again", () =>
+		{
+			Flythrough? tour = Tour?.As<Flythrough>();
+			CameraRig? rig = Rig?.As<CameraRig>();
+			Assert.IsNotNull(tour);
+			Assert.IsNotNull(rig);
+			Assert.IsFalse(tour.IsPlaying);
+			Assert.AreEqual(2, tour.HandOvers);
+			Assert.IsTrue(rig.Controllable);
 		});
 	}
 

@@ -3,11 +3,12 @@ using Strada;
 
 namespace Showcase;
 
-/// <summary>Day and night: its key (or the HUD's lights button) turns the golden afternoon into a moonlit night and back over a
-/// few seconds. The sun dims to moonlight and the sky darkens; a global post-process volume grades the night (cooler, with the
-/// exposure of eyes used to the dark), so the lamps, the fire, the neon and the lighthouse carry the scene. The evening zone
-/// around the light show fades out (the night needs no evening of its own), and the birds give way to crickets. Particles are
-/// not lit, so it also dims those of unlit matter (smoke, water, leaves), which would otherwise glow in the dark.</summary>
+/// <summary>Day and night: its key (or the HUD's day and night button) turns the golden afternoon into a moonlit night and
+/// back over a few seconds. The sun dims to moonlight and the sky darkens; a global post-process volume grades the night
+/// (cooler, with the exposure of eyes used to the dark), so the lamps, the fire, the neon and the lighthouse carry the scene.
+/// The evening zone around the light show fades out (the night needs no evening of its own), and the birds give way to
+/// crickets. Particles are not lit, so it also dims those of unlit matter (smoke, water, leaves), which would otherwise glow in
+/// the dark.</summary>
 public sealed class DayNight : Script
 {
 	[Tooltip("The sun (a directional light)")]
@@ -89,6 +90,10 @@ public sealed class DayNight : Script
 	/// <summary>The evening zone's weight by day.</summary>
 	public float DayZoneWeight => m_ZoneWeight;
 
+	/// <summary>How bright unlit matter (smoke, water, leaves) is now, as a share of its brightness by day: 1 by day,
+	/// <see cref="NightMatterBrightness"/> at night. Effects made later (a shot's smoke) are scaled by it too.</summary>
+	public float MatterBrightness { get; private set; } = 1.0f;
+
 	protected override void OnCreate()
 	{
 		if (Sun?.GetComponent<DirectionalLightComponent>() is { } sun)
@@ -158,11 +163,12 @@ public sealed class DayNight : Script
 		{
 			nightAmbience.Volume = NightAmbienceVolume * night;
 		}
+		MatterBrightness = Fade(1.0f, NightMatterBrightness, night);
 		foreach ((Entity entity, float intensity) in m_Matter)
 		{
 			if (entity.GetComponent<ParticleSystemComponent>() is { } particles)
 			{
-				particles.Intensity = Fade(intensity, intensity * NightMatterBrightness, night);
+				particles.Intensity = intensity * MatterBrightness;
 			}
 		}
 	}

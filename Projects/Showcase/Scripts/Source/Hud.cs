@@ -6,9 +6,9 @@ namespace Showcase;
 
 /// <summary>The heads-up display, on a UI element of the screen's canvas: the feature list lights up and opens the rows of the
 /// exhibits around the camera (and the scripting row while the mouse is over the HUD), the status shows the props knocked down
-/// and the goals scored, the buttons put the exhibits back, swing the wrecking ball, launch a ball, switch day and night and
-/// switch between flying and walking, and the hint line shows the keys of the way the camera moves. A button lights up as its
-/// key is pressed too. Its key hides it; the tour hides it while it plays.</summary>
+/// and the goals scored, the buttons put the exhibits back, swing the wrecking ball, tip the dominoes, launch a ball, switch
+/// day and night and switch between flying and walking, and the hint line shows the keys of the way the camera moves. A button
+/// lights up as its key is pressed too. Its key hides it; the tour hides it while it plays.</summary>
 public sealed class Hud : Script
 {
 	[Tooltip("The camera rig (a CameraRig): the features near it light up, and the mode button switches it")]
@@ -23,10 +23,13 @@ public sealed class Hud : Script
 	[Tooltip("The wrecking ball (a WreckingBall) the swing button pushes")]
 	public Entity? WreckingBall;
 
+	[Tooltip("The domino run (a DominoRun) the dominoes button tips")]
+	public Entity? Dominoes;
+
 	[Tooltip("The ball launcher (a BallLauncher) the launch button fires")]
 	public Entity? Launcher;
 
-	[Tooltip("The day and night switch (a DayNight) the lights button turns")]
+	[Tooltip("The day and night switch (a DayNight) the day and night button switches")]
 	public Entity? Lighting;
 
 	[Tooltip("The parent of the feature list's rows (HudFeature scripts), which stacks them")]
@@ -51,11 +54,14 @@ public sealed class Hud : Script
 	[Tooltip("The button that swings the wrecking ball")]
 	public Entity? SwingButton;
 
+	[Tooltip("The button that tips the dominoes")]
+	public Entity? DominoesButton;
+
 	[Tooltip("The button that launches a ball")]
 	public Entity? LaunchButton;
 
 	[Tooltip("The button that switches day and night")]
-	public Entity? LightsButton;
+	public Entity? DayNightButton;
 
 	[Tooltip("The button that switches between flying and walking")]
 	public Entity? ModeButton;
@@ -84,13 +90,13 @@ public sealed class Hud : Script
 	[Tooltip("The hint line while walking with the cursor free")]
 	public string FreeCursorHint = "";
 
-	[Tooltip("The lights button's icon (a UI image): the sun by day, the moon by night")]
-	public Entity? LightsIcon;
+	[Tooltip("The day and night button's icon (a UI image): the sun by day, the moon by night")]
+	public Entity? DayNightIcon;
 
-	[Tooltip("The icon the lights button shows by day")]
+	[Tooltip("The icon the day and night button shows by day")]
 	public Texture? SunIcon;
 
-	[Tooltip("The icon the lights button shows at night")]
+	[Tooltip("The icon the day and night button shows at night")]
 	public Texture? MoonIcon;
 
 	[Tooltip("An audio source with the tick played as the mouse moves onto a button")]
@@ -143,7 +149,7 @@ public sealed class Hud : Script
 		}
 		m_Features = [.. features];
 		List<Entity> buttons = [];
-		foreach (Entity? button in new[] { ResetButton, SwingButton, LaunchButton, LightsButton, ModeButton })
+		foreach (Entity? button in new[] { ResetButton, SwingButton, DominoesButton, LaunchButton, DayNightButton, ModeButton })
 		{
 			if (button?.GetComponent<UIButtonComponent>() is { } component)
 			{
@@ -174,7 +180,7 @@ public sealed class Hud : Script
 		Flash(deltaTime);
 		TickOnHover();
 		bool night = Lighting?.As<DayNight>()?.IsNight ?? false;
-		if (night != m_ShowsMoon && LightsIcon?.GetComponent<UIImageComponent>() is { } icon)
+		if (night != m_ShowsMoon && DayNightIcon?.GetComponent<UIImageComponent>() is { } icon)
 		{
 			icon.Texture = night ? MoonIcon : SunIcon;
 			m_ShowsMoon = night;
@@ -191,11 +197,15 @@ public sealed class Hud : Script
 		{
 			WreckingBall?.As<WreckingBall>()?.Swing();
 		}
+		else if (button == DominoesButton)
+		{
+			Dominoes?.As<DominoRun>()?.Push();
+		}
 		else if (button == LaunchButton)
 		{
 			Launcher?.As<BallLauncher>()?.Fire();
 		}
-		else if (button == LightsButton)
+		else if (button == DayNightButton)
 		{
 			Lighting?.As<DayNight>()?.Toggle();
 		}
@@ -313,13 +323,17 @@ public sealed class Hud : Script
 		{
 			StartFlash(SwingButton);
 		}
+		if (Dominoes?.As<DominoRun>() is { } run && Input.IsKeyPressed(run.Key))
+		{
+			StartFlash(DominoesButton);
+		}
 		if (Launcher?.As<BallLauncher>() is { } launcher && Input.IsKeyPressed(launcher.Key))
 		{
 			StartFlash(LaunchButton);
 		}
 		if (Lighting?.As<DayNight>() is { } lighting && Input.IsKeyPressed(lighting.Key))
 		{
-			StartFlash(LightsButton);
+			StartFlash(DayNightButton);
 		}
 		if (Rig?.As<CameraRig>() is { } rig && rig.Controllable && Input.IsKeyPressed(rig.ModeKey))
 		{

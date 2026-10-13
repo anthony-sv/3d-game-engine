@@ -17,6 +17,10 @@ Meshes (glTF 2.0 with positions, normals and texture coordinates, Y up, meters):
   coordinate V running from the tip (0) to the end (1), so a texture can fade it out.
 - TreeA, TreeB, TreeC: bare autumn trees standing on the origin, 14 to 19 m tall: a leaning trunk with a root flare that
   forks into limbs and twigs, all tapered tubes whose texture runs along them (bark grain follows the wood).
+- Ground: the clearing's floor, texture coordinates in meters: a disc of 42 m radius (its first material), and around it a
+  band out to 70 m in 12 rings, one material each from the inside out, which the scene fades out ring by ring into the sky's
+  forest floor, so the ground ends without an edge. The band is cut into 12 sectors: each piece is a submesh of its own,
+  sorted by its own distance among the other transparent surfaces.
 
 Textures (RGBA PNG):
 - Lattice: a diagonal wooden trellis with transparent gaps, for alpha-tested (Mask) materials; tiles seamlessly.
@@ -26,8 +30,9 @@ Textures (RGBA PNG):
 - BeamFade: white fading to transparent from top to bottom, which fades the light shaft along its length.
 - Leaf: a pale leaf with veins on a transparent background, which particles tint into falling autumn leaves.
 - SoftBand: white whose opacity fades out towards every edge, a soft backdrop that UI images tint (behind titles).
-- Icons/*: the HUD buttons' white icons on transparent backgrounds: Reset (a circular arrow), Swing (a wrecking ball), Launch
-  (a ball on its arc), Sun and Moon (day and night), Walk (footprints) and Fly (a paper plane).
+- Icons/*: the HUD buttons' white icons on transparent backgrounds: Reset (a circular arrow), Swing (a wrecking ball),
+  Dominoes (a domino tipping into two more), Launch (a ball on its arc), Sun and Moon (day and night), Walk (footprints) and
+  Fly (a paper plane).
 """
 import base64
 import json
@@ -108,42 +113,54 @@ def rotate_about(vector, axis, angle):
     return add(add(scale(vector, c), scale(cross(axis, vector), s)), scale(axis, dot(axis, vector) * (1.0 - c)))
 
 
-def write_gltf(name, mesh):
-    """Writes Meshes/<name>.gltf with the buffer embedded (base64)."""
-    count = len(mesh.positions)
-    wide = count > 65535
-    buffer = b"".join(struct.pack("<3f", *p) for p in mesh.positions)
-    buffer += b"".join(struct.pack("<3f", *n) for n in mesh.normals)
-    uv_offset = len(buffer)
-    buffer += b"".join(struct.pack("<2f", *uv) for uv in mesh.uvs)
-    index_offset = len(buffer)
-    buffer += b"".join(struct.pack("<I" if wide else "<H", index) for index in mesh.indices)
-    while len(buffer) % 4:
-        buffer += b"\0"
+def write_gltf(name, mesh, materials=()):
+    """Writes Meshes/<name>.gltf with the buffer embedded (base64). The mesh is a MeshBuilder, or a list of (MeshBuilder,
+    material index) pairs, each a primitive of its own (a submesh) drawn with that one of the named materials."""
+    parts = mesh if isinstance(mesh, list) else [(mesh, None)]
+    buffer = b""
+    views = []
+    accessors = []
+    primitives = []
+    for part, material in parts:
+        count = len(part.positions)
+        wide = count > 65535
+        first = len(accessors)
+        for data, kind in ((b"".join(struct.pack("<3f", *p) for p in part.positions), "VEC3"),
+                           (b"".join(struct.pack("<3f", *n) for n in part.normals), "VEC3"),
+                           (b"".join(struct.pack("<2f", *uv) for uv in part.uvs), "VEC2")):
+            accessors.append({"bufferView": len(views), "componentType": 5126, "count": count, "type": kind})
+            views.append({"buffer": 0, "byteOffset": len(buffer), "byteLength": len(data)})
+            buffer += data
+        accessors[first]["min"] = [min(p[k] for p in part.positions) for k in range(3)]
+        accessors[first]["max"] = [max(p[k] for p in part.positions) for k in range(3)]
+        indices = b"".join(struct.pack("<I" if wide else "<H", index) for index in part.indices)
+        accessors.append({"bufferView": len(views), "componentType": 5125 if wide else 5123, "count": len(part.indices), "type": "SCALAR"})
+        views.append({"buffer": 0, "byteOffset": len(buffer), "byteLength": len(indices)})
+        buffer += indices
+        # The next part's floats start on a four-byte boundary.
+        while len(buffer) % 4:
+            buffer += b"\0"
+        primitive = {"attributes": {"POSITION": first, "NORMAL": first + 1, "TEXCOORD_0": first + 2}, "indices": first + 3}
+        if material is not None:
+            primitive["material"] = material
+        primitives.append(primitive)
     document = {
         "asset": {"version": "2.0", "generator": "Showcase/Tools/GenerateAssets.py"},
         "scene": 0, "scenes": [{"nodes": [0]}], "nodes": [{"name": name, "mesh": 0}],
-        "meshes": [{"name": name, "primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 3}]}],
+        "meshes": [{"name": name, "primitives": primitives}],
         "buffers": [{"byteLength": len(buffer), "uri": "data:application/octet-stream;base64," + base64.b64encode(buffer).decode()}],
-        "bufferViews": [
-            {"buffer": 0, "byteOffset": 0, "byteLength": count * 12},
-            {"buffer": 0, "byteOffset": count * 12, "byteLength": count * 12},
-            {"buffer": 0, "byteOffset": uv_offset, "byteLength": count * 8},
-            {"buffer": 0, "byteOffset": index_offset, "byteLength": len(mesh.indices) * (4 if wide else 2)},
-        ],
-        "accessors": [
-            {"bufferView": 0, "componentType": 5126, "count": count, "type": "VEC3",
-             "min": [min(p[k] for p in mesh.positions) for k in range(3)], "max": [max(p[k] for p in mesh.positions) for k in range(3)]},
-            {"bufferView": 1, "componentType": 5126, "count": count, "type": "VEC3"},
-            {"bufferView": 2, "componentType": 5126, "count": count, "type": "VEC2"},
-            {"bufferView": 3, "componentType": 5125 if wide else 5123, "count": len(mesh.indices), "type": "SCALAR"},
-        ],
+        "bufferViews": views,
+        "accessors": accessors,
     }
+    if materials:
+        document["materials"] = [{"name": material} for material in materials]
     path = os.path.join(ASSETS, "Meshes", f"{name}.gltf")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as file:
         json.dump(document, file)
-    print("wrote", path, f"({count} vertices, {len(mesh.indices) // 3} triangles)")
+    vertices = sum(len(part.positions) for part, _ in parts)
+    triangles = sum(len(part.indices) for part, _ in parts) // 3
+    print("wrote", path, f"({vertices} vertices, {triangles} triangles, {len(parts)} primitives)")
 
 
 # --- Meshes -------------------------------------------------------------------------------------------------------------
@@ -282,6 +299,46 @@ def tree(seed, height, radius):
             limb(mesh, twig_spine, [max(0.008, twig_radius * (1.0 - 0.9 * i / (twig_points - 1))) for i in range(twig_points)], 6,
                  1.0 / (2.0 * math.pi * max(0.02, twig_radius)))
     return mesh
+
+
+def ground(inner=42.0, outer=70.0, rings=12, sectors=12, segments=72, rows=7):
+    """The clearing's floor, lying in the XZ plane facing up: a disc of the inner radius (material 0) in rows of quads around a
+    fan, and a band out to the outer radius in rings (materials 1 to rings, from the inside out), each ring cut into sectors.
+    Texture coordinates are the position in meters (X, Z). Returns the parts and the names of their materials."""
+    up = (0.0, 1.0, 0.0)
+
+    def point(radius, step):
+        # Counter-clockwise seen from above: from +X towards -Z.
+        angle = 2.0 * math.pi * step / segments
+        return (radius * math.cos(angle), 0.0, -radius * math.sin(angle))
+
+    def vertex(mesh, radius, step):
+        position = point(radius, step)
+        return mesh.vertex(position, up, (position[0], position[2]))
+
+    disc = MeshBuilder()
+    center = disc.vertex((0.0, 0.0, 0.0), up, (0.0, 0.0))
+    circles = [[vertex(disc, inner * row / rows, step) for step in range(segments)] for row in range(1, rows + 1)]
+    for step in range(segments):
+        disc.triangle(center, circles[0][step], circles[0][(step + 1) % segments])
+    for row in range(rows - 1):
+        for step in range(segments):
+            after = (step + 1) % segments
+            disc.quad(circles[row][step], circles[row + 1][step], circles[row + 1][after], circles[row][after])
+    parts = [(disc, 0)]
+    width = (outer - inner) / rings
+    steps = segments // sectors
+    for sector in range(sectors):
+        for ring in range(rings):
+            piece = MeshBuilder()
+            near = inner + ring * width
+            far = near + width
+            inside = [vertex(piece, near, sector * steps + step) for step in range(steps + 1)]
+            outside = [vertex(piece, far, sector * steps + step) for step in range(steps + 1)]
+            for step in range(steps):
+                piece.quad(inside[step], outside[step], outside[step + 1], inside[step + 1])
+            parts.append((piece, ring + 1))
+    return parts, ["Ground"] + [f"Fade {ring + 1}" for ring in range(rings)]
 
 
 def sphere_cap(mesh, center, radius, rings=6, sides=12):
@@ -782,6 +839,34 @@ def swing_icon():
     icon("Swing", inside)
 
 
+def in_box(u, v, center, half, angle):
+    """Whether the point lies in the rectangle of the half extents around the center, turned by the angle (radians, clockwise
+    on screen)."""
+    du, dv = u - center[0], v - center[1]
+    cosine, sine = math.cos(angle), math.sin(angle)
+    return abs(du * cosine + dv * sine) <= half[0] and abs(-du * sine + dv * cosine) <= half[1]
+
+
+def dominoes_icon():
+    """Three dominoes on the ground, the first tipping into the second."""
+    half = (0.065, 0.22)
+    ground_line = 0.82
+    tilt = math.radians(26.0)
+    # The first domino turns about the foot of its leading edge.
+    pivot = (0.33, ground_line)
+    offset = (-half[0], -half[1])
+    tipped = (pivot[0] + offset[0] * math.cos(tilt) - offset[1] * math.sin(tilt),
+              pivot[1] + offset[0] * math.sin(tilt) + offset[1] * math.cos(tilt))
+    tiles = ((tipped, tilt), ((0.6, ground_line - half[1]), 0.0), ((0.82, ground_line - half[1]), 0.0))
+
+    def inside(u, v):
+        if 0.1 <= u <= 0.92 and ground_line + 0.03 <= v <= ground_line + 0.07:
+            return True
+        return any(in_box(u, v, center, half, angle) for center, angle in tiles)
+
+    icon("Dominoes", inside)
+
+
 def launch_icon():
     """A ball flying up and away on a dotted arc from the lower left."""
     start, control, end = (0.14, 0.88), (0.34, 0.1), (0.72, 0.3)
@@ -871,6 +956,8 @@ if __name__ == "__main__":
     write_gltf("NeonFrame", neon_frame(word_width + 0.7, 1.0 + 0.6))
     for name, seed, height, radius in (("TreeA", 41, 17.0, 0.34), ("TreeB", 52, 14.0, 0.26), ("TreeC", 63, 19.0, 0.4)):
         write_gltf(name, tree(seed, height, radius))
+    floor_parts, floor_materials = ground()
+    write_gltf("Ground", floor_parts, floor_materials)
     lattice("Lattice", 7.5, (0.52, 0.36, 0.21), 0.25, 11)
     lattice("Net", 2.2, (0.96, 0.95, 0.92), 0.08, 13)
     banner()
@@ -878,5 +965,5 @@ if __name__ == "__main__":
     beam_fade()
     leaf()
     soft_band()
-    for make in (reset_icon, swing_icon, launch_icon, sun_icon, moon_icon, walk_icon, fly_icon):
+    for make in (reset_icon, swing_icon, dominoes_icon, launch_icon, sun_icon, moon_icon, walk_icon, fly_icon):
         make()

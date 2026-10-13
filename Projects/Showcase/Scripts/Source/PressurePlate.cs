@@ -3,9 +3,9 @@ using Strada;
 
 namespace Showcase;
 
-/// <summary>A pressure plate: a trigger collider that raises a gate (a kinematic body) while anything heavy lies on it, and
-/// lowers it again a while after the plate is clear. The plate's own mesh (Plate) glows while it is pressed; the gate's sound
-/// plays whenever it starts to move.</summary>
+/// <summary>A pressure plate: a trigger collider that raises a gate (a kinematic body) while anything heavy lies or stands on it
+/// (a dynamic body, or a character such as the walker), and lowers it again a while after the plate is clear. The plate's own
+/// mesh (Plate) glows while it is pressed; the gate's sound plays whenever it starts to move.</summary>
 public sealed class PressurePlate : Script
 {
 	[Tooltip("The gate: a kinematic body the plate raises")]
@@ -26,7 +26,7 @@ public sealed class PressurePlate : Script
 	[Range(0.0f, 30.0f)]
 	public float HoldSeconds = 2.0f;
 
-	[Tooltip("Kilograms a body needs to press the plate")]
+	[Tooltip("Kilograms a body or a character needs to press the plate")]
 	[Range(0.0f, 1000.0f)]
 	public float MinimumMass = 1.0f;
 
@@ -65,8 +65,7 @@ public sealed class PressurePlate : Script
 
 	protected override void OnTriggerEnter(Entity other)
 	{
-		RigidBodyComponent? body = other.GetComponent<RigidBodyComponent>();
-		if (body is null || body.Type != RigidBodyType.Dynamic || body.Mass < MinimumMass)
+		if (!IsHeavyEnough(other))
 		{
 			return;
 		}
@@ -75,6 +74,16 @@ public sealed class PressurePlate : Script
 			Presses++;
 		}
 		m_Bodies.Add(other.ID);
+	}
+
+	// Characters and dynamic bodies of at least MinimumMass press the plate; static and kinematic bodies do not.
+	private bool IsHeavyEnough(Entity other)
+	{
+		if (other.GetComponent<CharacterControllerComponent>() is { } character)
+		{
+			return character.Mass >= MinimumMass;
+		}
+		return other.GetComponent<RigidBodyComponent>() is { Type: RigidBodyType.Dynamic } body && body.Mass >= MinimumMass;
 	}
 
 	protected override void OnTriggerExit(Entity other)

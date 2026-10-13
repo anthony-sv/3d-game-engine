@@ -510,7 +510,7 @@ TEST_CASE("Runtime: the Showcase sample plays and passes its tests")
 	ProcessResult const tests = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
 	CAPTURE(tests.Output);
 	CHECK(tests.ExitCode == 0);
-	CHECK(Contains(tests.Output, "Tests passed: 46 checks"));
+	CHECK(Contains(tests.Output, "Tests passed: 60 checks"));
 
 	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});
 	CAPTURE(game.Output);

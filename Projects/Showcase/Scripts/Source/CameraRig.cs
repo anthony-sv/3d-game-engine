@@ -4,11 +4,12 @@ using Strada;
 namespace Showcase;
 
 /// <summary>The camera rig, which flies or walks. Flying, the right mouse button looks around, WASD moves (Q and E down and up,
-/// Shift faster) and a click throws a ball where the cursor points (along the view while looking around). F puts the camera on
-/// the feet of the walker (a Walker), standing on what is under it: the mouse looks around (Esc frees the cursor for the HUD,
-/// a click into the scene takes it again), WASD walks, Shift runs, Space jumps and clicks throw along the view; F flies on
-/// from there. Clicks on the HUD stay the HUD's. The camera itself is a child (View), so a CameraShake on it adds to the rig's
-/// movement, and its field of view widens a little at speed. The tour (Flythrough) takes the rig over while it plays.</summary>
+/// Shift faster) and a click throws a ball where the cursor points (along the view while looking around); the rig stays over
+/// the clearing, where the ground is. F puts the camera on the feet of the walker (a Walker), standing on what is under it
+/// (with nothing under it, the rig flies on): the mouse looks around (Esc frees the cursor for the HUD, a click into the scene
+/// takes it again), WASD walks, Shift runs, Space jumps and clicks throw along the view; F flies on from there. Clicks on the
+/// HUD stay the HUD's. The camera itself is a child (View), so a CameraShake on it adds to the rig's movement, and its field
+/// of view widens a little at speed. The tour (Flythrough) takes the rig over while it plays.</summary>
 public sealed class CameraRig : Script
 {
 	[Tooltip("The camera under the rig: it turns screen positions into rays")]
@@ -55,6 +56,13 @@ public sealed class CameraRig : Script
 
 	[Tooltip("The camera stays this high above the ground while flying")]
 	public float MinimumHeight = 0.4f;
+
+	[Tooltip("The highest the camera flies, in meters")]
+	public float MaximumHeight = 1000.0f;
+
+	[Tooltip("Meters from the world's origin, horizontally, within which the camera flies (0: anywhere)")]
+	[Range(0.0f, 10000.0f)]
+	public float FlightRadius;
 
 	[Tooltip("Balls kept at once: throwing more removes the oldest")]
 	[Range(1, 200)]
@@ -124,9 +132,9 @@ public sealed class CameraRig : Script
 		{
 			SetWalking(!m_Walking);
 		}
-		if (m_Controllable && m_Walking && Input.IsKeyPressed(ReleaseKey))
+		if (m_Controllable && Input.IsKeyPressed(ReleaseKey))
 		{
-			m_Captured = false;
+			ReleaseCursor();
 		}
 		// A click into the scene while walking takes the mouse back; it throws nothing.
 		bool clicked = m_Controllable && Input.IsMouseButtonPressed(MouseButton.Left) && !Input.IsPointerOverUI;
@@ -182,10 +190,7 @@ public sealed class CameraRig : Script
 			moving = fast && move.LengthSquared > 0.0f;
 			if (move.LengthSquared > 0.0f)
 			{
-				float speed = MoveSpeed * (fast ? SprintFactor : 1.0f);
-				Vector3 position = Translation + (move.Normalized * speed * deltaTime);
-				position.Y = Mathf.Max(position.Y, MinimumHeight);
-				Translation = position;
+				Fly(move.Normalized * (MoveSpeed * (fast ? SprintFactor : 1.0f)), deltaTime);
 			}
 		}
 		KickFieldOfView(moving ? SpeedFovKick : 0.0f, deltaTime);
@@ -196,22 +201,24 @@ public sealed class CameraRig : Script
 		}
 	}
 
-	/// <summary>Switches between walking and flying. Walking starts on what is under the camera (the ground below it when
-	/// nothing is), the view dropping to the walker's eyes, with the mouse looking around; flying goes on from the eyes.</summary>
-	public void SetWalking(bool walking)
+	/// <summary>Switches between walking and flying; returns whether the rig now moves the way asked. Walking starts on what is
+	/// under the camera, the view dropping to the walker's eyes, with the mouse looking around; with nothing under the camera
+	/// (beyond the ground) the rig flies on. Flying goes on from the eyes.</summary>
+	public bool SetWalking(bool walking)
 	{
-		Walker? walker = Walker?.As<Walker>();
-		if (walking == m_Walking || (walking && walker is null))
+		if (walking == m_Walking)
 		{
-			return;
+			return true;
 		}
-		m_Walking = walking;
-		ModeSwitches++;
+		Walker? walker = Walker?.As<Walker>();
 		if (walking)
 		{
 			Vector3 from = Transform.WorldTranslation;
-			Vector3 feet = Physics.Raycast(from, Vector3.Down, 1000.0f, out RaycastHit hit) ? hit.Point : new Vector3(from.X, 0.0f, from.Z);
-			walker!.Enter(feet + new Vector3(0.0f, 0.02f, 0.0f), m_Yaw);
+			if (walker is null || !Physics.Raycast(from, Vector3.Down, 1000.0f, out RaycastHit ground))
+			{
+				return false;
+			}
+			walker.Enter(ground.Point + new Vector3(0.0f, 0.02f, 0.0f), m_Yaw);
 			m_DropFrom = from;
 			m_Drop = 0.0f;
 			m_Captured = true;
@@ -223,6 +230,37 @@ public sealed class CameraRig : Script
 			m_Drop = 1.0f;
 			Input.CursorMode = CursorMode.Normal;
 		}
+		m_Walking = walking;
+		ModeSwitches++;
+		return true;
+	}
+
+	/// <summary>Frees the cursor while walking (Esc does): the mouse stops looking around and can click the HUD; a click into the
+	/// scene takes it back.</summary>
+	public void ReleaseCursor()
+	{
+		m_Captured = false;
+	}
+
+	/// <summary>Moves the flying rig at a velocity (meters per second, world space) for the seconds, within where it flies: between
+	/// <see cref="MinimumHeight"/> and <see cref="MaximumHeight"/> and, horizontally, within <see cref="FlightRadius"/> of the
+	/// world's origin, along whose edge it slides. Put farther out (the tour may), it can only come nearer.</summary>
+	public void Fly(Vector3 velocity, float seconds)
+	{
+		Vector3 from = Translation;
+		Vector3 position = from + (velocity * seconds);
+		position.Y = Mathf.Clamp(position.Y, MinimumHeight, Mathf.Max(MaximumHeight, from.Y));
+		if (FlightRadius > 0.0f)
+		{
+			Vector2 flat = new(position.X, position.Z);
+			float limit = Mathf.Max(FlightRadius, new Vector2(from.X, from.Z).Length);
+			if (flat.Length > limit)
+			{
+				flat = flat.Normalized * limit;
+				position = new Vector3(flat.X, position.Y, flat.Y);
+			}
+		}
+		Translation = position;
 	}
 
 	/// <summary>Places the rig and turns it to the angles (degrees; pitch is clamped to look at most 85 degrees up or down).</summary>

@@ -6,8 +6,9 @@ namespace Showcase;
 /// <summary>The opening tour: letterbox bars close in, the screen fades in from black and the camera glides through the shots
 /// (the children, each a CameraShot) on a smooth path that eases in and out, shows the title and the shots' captions, cues
 /// their exhibits, and then hands the rig over to the free camera as the bars open and the HUD fades in. Any key or click
-/// skips it (the camera glides to the last shot in a moment); its key plays it again. Its texts, bars and fade are UI elements
-/// (it sets their opacities and the bars' heights). The music plays up during the tour and settles back after it.</summary>
+/// skips it (the camera glides to the last shot in a moment); when it ends or is skipped, the exhibits it cues are told
+/// (<see cref="ITourCue.TourEnded"/>). Its key plays it again with the exhibits put back. Its texts, bars and fade are UI
+/// elements (it sets their opacities and the bars' heights). The music plays up during the tour and settles back after it.</summary>
 public sealed class Flythrough : Script
 {
 	[Tooltip("The camera rig the tour moves (a CameraRig)")]
@@ -18,6 +19,9 @@ public sealed class Flythrough : Script
 
 	[Tooltip("The key that plays the tour again")]
 	public KeyCode Key = KeyCode.C;
+
+	[Tooltip("The playground (a Playground) put back before the tour plays again, so the exhibits it cues stand ready")]
+	public Entity? Playground;
 
 	// Authored transparent, so that it covers nothing in the editor: the tour sets its opacity.
 	[Tooltip("A UI element covering the screen in the color the tour fades in from (the tour sets its opacity)")]
@@ -169,7 +173,16 @@ public sealed class Flythrough : Script
 		Apply(rig, m_Positions[0], m_Angles[0]);
 	}
 
-	/// <summary>Ends the tour early: the camera glides to the last shot and is handed over.</summary>
+	/// <summary>Plays the tour again from its first shot with the exhibits put back (the playground's props and movables, the
+	/// dominoes and the wrecking ball), so that what the captions describe happens again on cue.</summary>
+	public void Replay()
+	{
+		Playground?.As<Playground>()?.PutBack();
+		Play();
+	}
+
+	/// <summary>Ends the tour early: the camera glides to the last shot and is handed over, and the exhibits the tour cues are
+	/// told it is over.</summary>
 	public void Skip()
 	{
 		if (!IsPlaying || m_Skipping || Rig?.As<CameraRig>() is not { } rig)
@@ -180,6 +193,7 @@ public sealed class Flythrough : Script
 		m_SkipElapsed = 0.0f;
 		m_SkipPosition = rig.Translation;
 		m_SkipAngles = new Vector3(rig.Pitch, rig.Yaw, 0.0f);
+		EndCues();
 	}
 
 	protected override void OnUpdate(float deltaTime)
@@ -207,7 +221,7 @@ public sealed class Flythrough : Script
 			}
 			if (Input.IsKeyPressed(Key))
 			{
-				Play();
+				Replay();
 			}
 			return;
 		}
@@ -303,7 +317,20 @@ public sealed class Flythrough : Script
 		rig.SetPose(m_Positions[^1], m_Angles[^1].X, m_Angles[^1].Y);
 		rig.Controllable = true;
 		FadeTexts(0.0f, 0.0f, 0.0f);
+		EndCues();
 		HandOvers++;
+	}
+
+	// The exhibits the tour cues are told it is over (a skip tells them at once; the end tells them again, which changes nothing).
+	private void EndCues()
+	{
+		foreach (CameraShot? shot in m_Shots)
+		{
+			if (shot?.Cue?.As<Script>() is ITourCue cue)
+			{
+				cue.TourEnded();
+			}
+		}
 	}
 
 	private static void Apply(CameraRig rig, Vector3 position, Vector3 angles)

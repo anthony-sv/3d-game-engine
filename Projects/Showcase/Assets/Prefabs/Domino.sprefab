@@ -5,7 +5,7 @@
 	},
 	"Entities": [
 		{
-			"ID": "17453484583653338781",
+			"ID": "12683917908732851813",
 			"Components": {
 				"Tag": {
 					"Tag": "Domino"
@@ -35,7 +35,7 @@
 				"Mesh": {
 					"Mesh": "1",
 					"Materials": [
-						"9361182779714863598"
+						"16248595771453711087"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -86,7 +86,8 @@
 					"Restitution": 0.0
 				},
 				"AudioSource": {
-					"Clip": "11379368381779787632",
+					"Clip": "1544104798466537951",
+					"Stream": false,
 					"Volume": 1.0,
 					"Pitch": 1.600000023841858,
 					"Loop": false,

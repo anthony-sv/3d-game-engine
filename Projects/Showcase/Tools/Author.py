@@ -8,11 +8,12 @@ The project is rebuilt from scratch: everything but this Tools folder, the .giti
 (Scripts/Source) is replaced. Without an executable, strada runs from the repository (dotnet run).
 
 The clearing is laid out in exhibit areas around a fountain, each with a signpost: physically based materials (west), glass
-and cutouts (east), lights and shadows (north-west, in an evening zone of post-processing), physics (north), triggers
-(north-east), particles and sound around the fountain and the campfire, and a yard to walk and climb in (south-east). A global
-post-process volume grades the scene; day turns to night at the press of a button. The camera tours the exhibits when the game
-starts, under a neon sign that flickers on; then it flies or walks, and a HUD (a UI canvas) lists the features, counts what was
-knocked down and scored, and sets the exhibits off.
+and cutouts (east), lights and shadows (north-west) in an evening zone of post-processing (with a signpost of its own),
+physics (north), triggers (north-east), particles and sound around the fountain and the campfire, and a yard to walk and climb
+in (south-east). Its ground fades out into the sky's forest floor beyond the trees. A global post-process volume grades the
+scene; day turns to night at the press of a button. The camera tours the exhibits when the game starts, under a neon sign that
+flickers on; then it flies or walks over the clearing, and a HUD (a UI canvas) lists the features, counts what was knocked
+down and scored, and sets the exhibits off.
 """
 import json
 import math
@@ -242,6 +243,14 @@ CANOPY = LOOKOUT_TOP + 2.5
 
 # Where the free camera starts and the tour ends: south of the plaza, looking north over the fountain.
 HOME = (LAYOUT, (0.0, 2.9, 16.0), (0.0, 1.1, -2.0))
+# The camera flies and walks within this many meters of the plaza's center, where the ground under it is opaque (the ground
+# fades out beyond it: GenerateAssets.py's Ground), and flies no higher than the ceiling.
+AREA_RADIUS = 40.0
+FLIGHT_CEILING = 18.0
+# The post-processing signpost: inside the evening zone behind the stage, where the lights' tour shot frames it over the stage
+# and the plaza sees it across the stage, turned between the two (the signs nearer the plaza already stand in a row from home).
+POST_SIGN = (-12.23, -9.78)
+POST_SIGN_FACING = (-3.0, 4.0)
 
 # The opening tour: the shots the camera glides through, as (name, frame, eye, target, seconds to the next shot, caption,
 # detail line, the exhibit set off on the way: an attribute of Showcase whose script is a tour cue, and how many seconds before
@@ -251,15 +260,16 @@ TOUR = (
     ("Opening", GALLERY, (-0.8, 5.6, 4.6), (0.2, 6.5, -0.6), 6.0, "", "", "neon_sign", 0.0),
     ("Gallery", GALLERY, (0.8, 3.2, 8.2), (0.0, 2.7, 0.0), 4.5, "Physically based materials",
      "metallic and roughness, normal and occlusion maps, emission and bloom", None, 0.0),
-    ("Lights", LAYOUT, (-6.55, 5.2, -0.35), (-9.6, 1.2, -7.2), 4.5, "Lights and shadows", "a lighthouse beam, colored spots and soft sun shadows",
-     None, 0.0),
+    ("Lights", LAYOUT, (-6.55, 5.2, -0.35), (-9.6, 1.2, -7.2), 4.5, "Lights and shadows",
+     "colored spots and their shadows, in an evening a local post-process volume makes", None, 0.0),
     ("Physics", LAYOUT, (2.5, 2.4, -5.5), (-1.4, 1.5, -10.2), 4.5, "Rigid bodies and joints", "a wrecking ball on a ball joint meets a tower of crates",
      "wrecking_ball", 0.6),
-    ("Dominoes", LAYOUT, (2.8, 3.0, -11.2), (1.8, 0.4, -16.0), 4.0, "Chain reactions", "every domino is a rigid body", "dominoes", 3.0),
+    ("Dominoes", LAYOUT, (2.8, 3.0, -11.2), (1.8, 0.4, -16.0), 4.0, "Chain reactions", "every domino is a rigid body, placed as a prefab",
+     "dominoes", 3.0),
     ("Triggers", LAYOUT, (4.4, 2.8, -0.6), (12.4, 3.0, -10.4), 4.5, "Triggers", "a goal counts, a pressure plate opens the gate", "launcher", 1.3),
     ("Glass", LAYOUT, (4.2, 2.5, 8.6), (11.0, 1.7, 2.8), 4.5, "Transparency", "blended glass, alpha-tested lattice, two-sided cloth", None, 0.0),
-    ("Yard", LAYOUT, (15.4, 5.0, 7.0), (9.4, 2.7, 15.4), 4.5, "Character controller",
-     "press F to walk: climb the stairs, jump the posts, ride the lift", None, 0.0),
+    ("Yard", LAYOUT, (19.0, 5.5, 13.5), (4.5, 1.2, 11.0), 4.5, "Character controller",
+     "press F to walk: a ramp, stairs, posts to jump and a lift up the lookout", None, 0.0),
     ("Campfire", LAYOUT, (-1.0, 1.5, 13.8), (-4.8, 1.0, 6.2), 4.0, "Particles and sound",
      "fire, smoke, sparks, water and fireflies, heard where they are", "night_interlude", 2.5),
     ("Night", LAYOUT, (-2.0, 7.0, 20.5), (-1.6, -0.2, -4.0), 4.0, "Day and night",
@@ -314,19 +324,20 @@ FEATURES = (
     ("Transparency", "blended glass, alpha-tested lattice, two-sided cloth", (11.6, 2.2), 6.0),
     ("Lights and shadows", "sun and sky, spot and point lights, soft shadows", (-8.6, -10.5), 7.0),
     ("Post-processing", "bloom, ambient occlusion, grading, local volumes", (-9.6, -7.2), 4.5),
-    ("Rigid bodies and joints", "Jolt physics: crates, dominoes, a wrecking ball", (0.5, -11.5), 7.0),
+    ("Rigid bodies and joints", "Jolt: joints, prefab dominoes, camera shake", (0.5, -11.5), 7.0),
     ("Triggers", "a goal that counts, a plate that opens a gate", (11.0, -8.0), 6.0),
     ("Character controller", "walk, run, jump, climb stairs, ride a lift, push", (11.0, 14.5), 7.0),
-    ("Particles and 3D sound", "fire, water, sparks and fireflies, heard in space", (-2.2, 4.0), 7.0),
-    ("UI and C# scripting", "this HUD, and how every exhibit behaves", None, 0.0),
+    ("Particles and 3D sound", "fire, water, sparks; 3D sound and streamed music", (-2.2, 4.0), 7.0),
+    ("UI and C# scripting", "exhibits are C# scripts with inspector fields", None, 0.0),
 )
 
 # The HUD's buttons: (entity name, label, icon, key, Hud field).
 BUTTONS = (
     ("Reset Button", "Reset exhibits", "Reset", "R", "ResetButton"),
     ("Swing Button", "Swing the wrecking ball", "Swing", "1", "SwingButton"),
+    ("Dominoes Button", "Tip the dominoes", "Dominoes", "2", "DominoesButton"),
     ("Launch Button", "Launch a ball", "Launch", "3", "LaunchButton"),
-    ("Lights Button", "Toggle lights", "Sun", "L", "LightsButton"),
+    ("Day and Night Button", "Day and night", "Sun", "L", "DayNightButton"),
     ("Mode Button", "Walk", "Walk", "F", "ModeButton"),
 )
 
@@ -454,7 +465,6 @@ class Showcase:
         for texture in TEXTURES:
             imported = call("polyhaven_import_texture", {"id": texture, "resolution": texture_resolution(texture)})
             self.textures[texture] = imported["material"]["reference"]
-        call("material_set", {"material": self.textures[GROUND], "fields": {"UVTiling": [26.0, 26.0]}})
         for model in MODELS:
             imported = call("polyhaven_import_model", {"id": model, "resolution": "1k"})
             path = os.path.join(PROJECT, "Assets", *imported["mesh"]["path"].split("/"))
@@ -560,12 +570,7 @@ class Showcase:
         call("component_set", {"entity": found["Sky"], "component": "SkyLight",
                                "fields": {"Environment": self.sky, "Intensity": 0.4, "Rotation": SKY_ROTATION, "DrawSkybox": True}})
 
-        # The ground ends before the horizon: beyond it, the sky's own forest floor continues it.
-        self.entity("Ground", {
-            "Transform": transform((0.0, 0.0, 0.0), scale=(110.0, 1.0, 110.0)),
-            "Mesh": {"Mesh": "builtin://Plane", "Materials": [self.textures[GROUND]]},
-            "RigidBody": {"Type": "Static"},
-            "BoxCollider": {"HalfExtents": [0.5, 0.05, 0.5], "Offset": [0.0, -0.05, 0.0], "Friction": 0.8}})
+        self.make_ground()
 
         self.make_camera()
         self.make_signpost_prefab()
@@ -583,6 +588,26 @@ class Showcase:
         self.make_hud()
         self.make_tour()
         call("scene_save")
+
+    def make_ground(self):
+        """The ground ends before the horizon without an edge: an opaque disc of leaf litter under the clearing, and around it a
+        band whose rings (the mesh's other material slots, from the inside out) are ever more transparent, so the sky's own
+        forest floor shows through and takes over. Its collider reaches as far as the band."""
+        with open(os.path.join(PROJECT, "Assets", "Meshes", "Ground.gltf"), encoding="utf-8") as file:
+            rings = len(json.load(file)["materials"]) - 1
+        (_, high) = gltf_bounds(os.path.join(PROJECT, "Assets", "Meshes", "Ground.gltf"))
+        # The mesh's texture coordinates are in meters: the litter repeats every 4.2 meters.
+        self.call("material_set", {"material": self.textures[GROUND], "fields": {"UVTiling": [0.24, 0.24]}})
+        fields = self.call("material_get", {"material": self.textures[GROUND]})["fields"]
+        fades = []
+        for ring in range(rings):
+            color = fields["BaseColor"][:3] + [1.0 - (ring + 0.5) / rings]
+            fades.append(self.material(f"GroundFade/Ring{ring + 1:02d}", fields | {"BaseColor": color, "AlphaMode": "Blend"}))
+        self.entity("Ground", {
+            "Transform": transform((0.0, 0.0, 0.0)),
+            "Mesh": {"Mesh": "asset://Meshes/Ground.gltf", "Materials": [self.textures[GROUND]] + fades},
+            "RigidBody": {"Type": "Static"},
+            "BoxCollider": {"HalfExtents": [high[0], 0.05, high[0]], "Offset": [0.0, -0.05, 0.0], "Friction": 0.8}})
 
     def model_entity(self, name, model, transform_fields, components=None, parent=None):
         fields = {"Transform": transform_fields, "Mesh": {"Mesh": self.models[model][0]}}
@@ -650,7 +675,9 @@ class Showcase:
             "ClassName": "Showcase.CameraRig", "Fields": {"View": {"Type": "Entity", "Value": self.camera},
                                                           "Crosshair": {"Type": "Entity", "Value": crosshair},
                                                           "Walker": {"Type": "Entity", "Value": self.walker},
-                                                          "Ball": {"Type": "Prefab", "Value": ball}}}})
+                                                          "Ball": {"Type": "Prefab", "Value": ball},
+                                                          "FlightRadius": {"Type": "Float", "Value": AREA_RADIUS},
+                                                          "MaximumHeight": {"Type": "Float", "Value": FLIGHT_CEILING}}}})
 
     # --- The plaza: a fountain on cobbles, the campfire and a picnic table ------------------------------------------------
 
@@ -778,7 +805,9 @@ class Showcase:
                 "SpeedMin": 0.1, "SpeedMax": 0.6, "GravityFactor": 0.08, "Drag": 0.9, "StartSize": 0.14, "EndSize": 0.12,
                 "StartColor": list(start) + [1.0], "EndColor": list(end) + [1.0], "Texture": "asset://Textures/Leaf.png", "BlendMode": "Alpha",
                 "MaxParticles": 120}}, self.leaves)
-        self.signpost((-10.2, 7.4), "PARTICLES & SOUND", "fire, water, sparks and fireflies,\nheard where they are", HOME[1][0::2])
+        # Beyond the campfire seen from home and from its tour shot, clear of the gallery's map board.
+        self.signpost((-5.4, 4.0), "PARTICLES & SOUND", "fire, water, sparks and fireflies,\nheard where they are; music streams",
+                      HOME[1][0::2])
 
     # --- The gallery: physically based materials --------------------------------------------------------------------------
 
@@ -848,17 +877,19 @@ class Showcase:
                 texture = self.textures[RUST if name == "Rusted Sphere" else PAINTED_METAL]
                 self.entity(name, {"Transform": frame.place((x, top + 0.57, z), scale=(1.1, 1.1, 1.1)), **self.mesh("Sphere", texture),
                                    "RigidBody": {"Type": "Static"}, "SphereCollider": {}}, heroes)
-        # The rusted sphere's maps as sprites on a board: what the material is made of.
+        # The rusted sphere's maps as sprites on a board, labeled in world text: what the material is made of.
         board = self.entity("Map Board", {"Transform": frame.place((-4.7, 0.0, 3.6), (0.0, 35.0, 0.0))}, gallery)
-        self.entity("Board", {"Transform": transform((0.0, 1.25, -0.03), scale=(2.3, 1.0, 0.05)), **self.mesh("Cube", self.charcoal)}, board)
+        self.entity("Board", {"Transform": transform((0.0, 1.3, -0.03), scale=(2.3, 1.1, 0.05)), **self.mesh("Cube", self.charcoal)}, board)
         for leg in (-0.95, 0.95):
             self.entity("Leg", {"Transform": transform((leg, 0.4, -0.06), scale=(0.06, 0.8, 0.06)), **self.mesh("Cube", self.iron)}, board)
+        self.entity("Heading", {"Transform": transform((0.0, 1.73, 0.0)),
+                                "Text": world_text("SPRITES & WORLD TEXT · THE RUSTED SPHERE'S MAPS", 0.07, (1.0, 0.86, 0.6, 1.0))}, board)
         folder = f"asset://Textures/{RUST}/{RUST}"
         for index, (suffix, label) in enumerate((("diff", "BASE COLOR"), ("nor_gl", "NORMAL"), ("arm", "AO · ROUGH · METAL"))):
             x = (index - 1) * 0.72
-            self.entity(f"Map {label.title()}", {"Transform": transform((x, 1.34, 0.0), scale=(0.6, 0.6, 1.0)),
+            self.entity(f"Map {label.title()}", {"Transform": transform((x, 1.32, 0.0), scale=(0.6, 0.6, 1.0)),
                                                  "SpriteRenderer": {"Texture": f"{folder}_{suffix}_1k.jpg"}}, board)
-            self.entity(f"Label {index + 1}", {"Transform": transform((x, 0.98, 0.0)), "Text": world_text(label, 0.065, text_color)}, board)
+            self.entity(f"Label {index + 1}", {"Transform": transform((x, 0.96, 0.0)), "Text": world_text(label, 0.065, text_color)}, board)
         self.signpost((-7.3, -1.9), "MATERIALS", "physically based: metallic, roughness,\nnormal, occlusion and emissive maps")
 
     # --- The glass garden: transparency, cutouts and cloth ------------------------------------------------------------------
@@ -1009,6 +1040,9 @@ class Showcase:
             "OverrideTemperature": True, "Temperature": -0.55, "OverrideTint": True, "Tint": 0.24,
             "OverrideVignette": True, "Vignette": 0.6, "OverrideChromaticAberration": True, "ChromaticAberration": 0.35}}, stage)
         self.signpost((-12.2, -4.6), "LIGHT & SHADOW", "sun and sky, spot and point lights,\nsoft and colored shadows")
+        # The zone's own signpost stands in its evening, behind the stage.
+        self.signpost(POST_SIGN, "POST-PROCESSING", "a local volume brings evening to the\nstage, blending in over 5 meters;\n"
+                                                    "a global one grades the clearing", POST_SIGN_FACING)
 
     def light_shaft(self, lamp, length, radius, material, start=0.0, layers=8):
         """The visible shaft of a lamp's light: glowing cones along the lamp's -Z from its lens, nested so that the inner,
@@ -1104,7 +1138,7 @@ class Showcase:
         self.make_dominoes(physics, camera)
         self.make_bridge(physics)
         # In front of the wrecking ball's posts as the tour sees them, beside its swing.
-        self.signpost((-4.6, -7.0), "PHYSICS", "rigid bodies, joints and impacts\n1 wrecking ball   2 dominoes")
+        self.signpost((-4.6, -7.0), "PHYSICS", "rigid bodies, joints, prefab dominoes\npress 1: wrecking ball · 2: dominoes")
 
     def make_dominoes(self, physics, camera):
         """A run of rainbow dominoes along an S-curve: prefab instances, each with its own color."""
@@ -1279,13 +1313,16 @@ class Showcase:
                     tube)
         self.entity("Breech", {"Transform": transform((0.0, 0.0, 0.25), scale=(0.56, 0.56, 0.56)), **self.mesh("Sphere", self.iron)}, tube)
         muzzle = self.entity("Muzzle", {"Transform": transform((0.0, 0.0, -1.0))}, tube)
+        # Its Lighting (the day and night switch) is set once that is made (make_grading).
+        self.launcher_fields = {
+            "Ball": {"Type": "Prefab", "Value": launch_ball}, "Muzzle": {"Type": "Entity", "Value": muzzle},
+            "Target": {"Type": "Entity", "Value": rim}, "Flash": {"Type": "Prefab", "Value": "asset://Prefabs/LaunchFlash.sprefab"},
+            "Camera": camera, "Recoil": {"Type": "Entity", "Value": tube}}
         self.call("component_add", {"entity": launcher, "component": "Script", "fields": {
-            "ClassName": "Showcase.BallLauncher", "Fields": {
-                "Ball": {"Type": "Prefab", "Value": launch_ball}, "Muzzle": {"Type": "Entity", "Value": muzzle},
-                "Target": {"Type": "Entity", "Value": rim}, "Flash": {"Type": "Prefab", "Value": "asset://Prefabs/LaunchFlash.sprefab"},
-                "Camera": camera, "Recoil": {"Type": "Entity", "Value": tube}}}})
+            "ClassName": "Showcase.BallLauncher", "Fields": self.launcher_fields}})
         self.launcher = launcher
-        self.signpost((9.8, -3.2), "TRIGGERS", "3 fires the launcher: a goal counts,\nthe plate opens the gate")
+        self.signpost((9.8, -3.2), "TRIGGERS", "press 3 to fire the launcher: a goal\ncounts and the plate opens the gate\n"
+                                               "press T to draw paths and bounds")
 
     def make_burst_prefab(self):
         burst = self.entity("Goal Burst", {"Transform": transform((0.0, -100.0, 0.0)), "ParticleSystem": {
@@ -1367,14 +1404,28 @@ class Showcase:
                                    ("Right Rail", (4.68, LOOKOUT_TOP + 0.95, -0.5), (0.07, 0.07, 1.72)),
                                    ("Right Lower Rail", (4.68, LOOKOUT_TOP + 0.5, -0.5), (0.05, 0.05, 1.72))):
             solid(name, local, scale, self.iron, parent=lookout)
-        # A lantern hangs under the canopy and lights the yard at night.
+        # A lantern hangs under the middle of the canopy, clear of the posts, and lights the lookout at night.
         (lantern_low, lantern_high) = self.models[LANTERN][1]
-        lantern = self.model_entity("Lantern", LANTERN, frame.place((4.3, CANOPY - 0.08 - lantern_high[1], -1.1)), {
+        lantern = self.model_entity("Lantern", LANTERN, frame.place((3.7, CANOPY - 0.08 - lantern_high[1], -0.9)), {
             "Mesh": {"Mesh": self.models[LANTERN][0], "CastShadows": False}}, parent=lookout)
         self.entity("Lantern Light", {"Transform": transform((0.0, 0.14, 0.0)),
                                       "PointLight": {"Color": [1.0, 0.62, 0.3], "Intensity": 10.0, "Range": 13.0},
                                       "Script": {"ClassName": "Showcase.LanternFlicker", "Fields": {"Amount": {"Type": "Float", "Value": 0.12}}}},
                     lantern)
+        # A lamp on a post beside the foot of the stairs lights them and the deck: the lantern, twice its size, on a timber post.
+        post_height, lantern_size = 1.3, 2.0
+        lamp = self.entity("Stair Lamp", {"Transform": frame.place((1.4, 0.0, 3.3)), "RigidBody": {"Type": "Static"},
+                                          "BoxCollider": {"HalfExtents": [0.08, post_height / 2.0, 0.08], "Offset": [0.0, post_height / 2.0, 0.0]}},
+                           yard)
+        self.entity("Post", {"Transform": transform((0.0, post_height / 2.0, 0.0), scale=(0.11, post_height, 0.11)),
+                             **self.mesh("Cylinder", self.sign_wood)}, lamp)
+        self.model_entity("Lantern", LANTERN, transform((0.0, post_height - lantern_low[1] * lantern_size, 0.0),
+                                                        scale=(lantern_size,) * 3), {
+            "Mesh": {"Mesh": self.models[LANTERN][0], "CastShadows": False}}, parent=lamp)
+        self.entity("Lamp Light", {"Transform": transform((0.0, post_height + (lantern_high[1] - lantern_low[1]) * lantern_size * 0.45, 0.0)),
+                                   "PointLight": {"Color": [1.0, 0.62, 0.3], "Intensity": 5.0, "Range": 7.0},
+                                   "Script": {"ClassName": "Showcase.LanternFlicker", "Fields": {"Amount": {"Type": "Float", "Value": 0.12}}}},
+                    lamp)
         # The lift: a steel platform between four posts, from the ground to the lookout's floor.
         rest_top = 0.12
         self.lift = self.entity("Lift", {"Transform": frame.place((3.7, rest_top - 0.1, 1.5), scale=(1.5, 0.2, 1.5)),
@@ -1418,11 +1469,13 @@ class Showcase:
         footsteps = self.entity("Footsteps", {"AudioSource": {"Clip": "asset://Audio/Step.wav", "Volume": 0.55, "Spatial": False}}, self.walker)
         landing = self.entity("Landing", {"AudioSource": {"Clip": "asset://Audio/Land.wav", "Volume": 0.8, "Spatial": False}}, self.walker)
         self.call("component_add", {"entity": self.walker, "component": "Script", "fields": {"ClassName": "Showcase.Walker", "Fields": {
-            "Footsteps": {"Type": "Entity", "Value": footsteps}, "Landing": {"Type": "Entity", "Value": landing}}}})
+            "Footsteps": {"Type": "Entity", "Value": footsteps}, "Landing": {"Type": "Entity", "Value": landing},
+            "AreaRadius": {"Type": "Float", "Value": AREA_RADIUS}}}})
         # Its signpost stands beside the lookout, out of the tour's way, turned to the plaza and the home view, where visitors
         # come from.
         sign = frame.point((6.6, 0.0, 1.2))
-        self.signpost((sign[0], sign[2]), "CHARACTER", "F walks: stairs, a ramp, posts to jump,\na lift and crates to push", facing=(-1.0, 11.0))
+        self.signpost((sign[0], sign[2]), "CHARACTER", "press F to walk: stairs, a ramp, posts\nto jump, a lift and crates to push",
+                      facing=(-1.0, 11.0))
 
     # --- Scenery: rocks, stumps, ferns and branches around the exhibits ---------------------------------------------------
 
@@ -1510,14 +1563,15 @@ class Showcase:
     # --- Sound, screen and tour -----------------------------------------------------------------------------------------------
 
     def make_sound(self):
-        # The music plays up during the tour (Flythrough) and settles to this volume, under the clearing's sounds.
-        self.music = self.entity("Music", {"AudioSource": {"Clip": "asset://Audio/Music.wav", "Volume": 0.26, "Loop": True, "PlayOnStart": True,
-                                                           "Spatial": False}})
-        self.ambience = self.entity("Forest Ambience", {"AudioSource": {"Clip": "asset://Audio/Ambience.wav", "Volume": 0.5, "Loop": True,
-                                                                        "PlayOnStart": True, "Spatial": False}})
+        # The music plays up during the tour (Flythrough) and settles to this volume, under the clearing's sounds. The long loops
+        # stream from their files rather than load whole.
+        self.music = self.entity("Music", {"AudioSource": {"Clip": "asset://Audio/Music.wav", "Stream": True, "Volume": 0.26, "Loop": True,
+                                                           "PlayOnStart": True, "Spatial": False}})
+        self.ambience = self.entity("Forest Ambience", {"AudioSource": {"Clip": "asset://Audio/Ambience.wav", "Stream": True, "Volume": 0.5,
+                                                                        "Loop": True, "PlayOnStart": True, "Spatial": False}})
         # Crickets, silent until night falls (DayNight turns them up).
-        self.night_ambience = self.entity("Night Ambience", {"AudioSource": {"Clip": "asset://Audio/Night.wav", "Volume": 0.0, "Loop": True,
-                                                                             "PlayOnStart": True, "Spatial": False}})
+        self.night_ambience = self.entity("Night Ambience", {"AudioSource": {"Clip": "asset://Audio/Night.wav", "Stream": True, "Volume": 0.0,
+                                                                             "Loop": True, "PlayOnStart": True, "Spatial": False}})
         self.call("component_add", {"entity": self.fountain, "component": "AudioSource", "fields": {
             "Clip": "asset://Audio/Fountain.wav", "Volume": 0.8, "Loop": True, "PlayOnStart": True, "Spatial": True, "MinDistance": 2.0,
             "MaxDistance": 26.0}})
@@ -1546,6 +1600,9 @@ class Showcase:
         # The tour lets night fall on its way to the campfire, for a while.
         self.night_interlude = self.entity("Night Interlude", {"Script": {"ClassName": "Showcase.NightInterlude", "Fields": {
             "Lighting": entity | {"Value": self.day_night}}}}, self.day_night)
+        # The launcher's smoke dims with the rest of the unlit matter (a script's fields are set as a whole).
+        self.call("component_set", {"entity": self.launcher, "component": "Script", "fields": {"Fields": self.launcher_fields | {
+            "Lighting": entity | {"Value": self.day_night}}}})
 
     def make_playground(self):
         """The playground, which counts the props knocked down and puts the exhibits back, the debug view and the thrown ball's
@@ -1581,6 +1638,7 @@ class Showcase:
         entity = {"Type": "Entity"}
         hud_fields = {"Rig": entity | {"Value": self.rig}, "Playground": entity | {"Value": self.playground},
                       "Goal": entity | {"Value": self.goal}, "WreckingBall": entity | {"Value": self.wrecking_ball},
+                      "Dominoes": entity | {"Value": self.dominoes},
                       "Launcher": entity | {"Value": self.launcher}, "Lighting": entity | {"Value": self.day_night},
                       "HoverSound": entity | {"Value": hover},
                       "SunIcon": {"Type": "Asset", "Value": "asset://Textures/Icons/Sun.png"},
@@ -1649,8 +1707,8 @@ class Showcase:
                                          "UIImage": {"Color": linear(1.0, 1.0, 1.0, 0.13), "CornerRadius": 7.0}}, button)
             self.entity("Letter", {"UIRect": ui_fill(), "UIText": ui_text(key, 16.0, TEXT, "Center")}, keycap)
             hud_fields[field] = entity | {"Value": button}
-            if field == "LightsButton":
-                hud_fields["LightsIcon"] = entity | {"Value": image}
+            if field == "DayNightButton":
+                hud_fields["DayNightIcon"] = entity | {"Value": image}
             if field == "ModeButton":
                 hud_fields["ModeIcon"] = entity | {"Value": image}
                 hud_fields["ModeLabel"] = entity | {"Value": text}
@@ -1679,8 +1737,9 @@ class Showcase:
         # The title under the neon sign the tour opens on: letter-spaced between two rules, over a soft shadow.
         self.tour_title = self.entity("Tour Title", {"UIRect": ui_rect((0.5, 1.0), (0.5, 0.5), (0.0, -300.0), (1100.0, 120.0), Opacity=0.0)}, tour)
         soft = "asset://Textures/SoftBand.png"
-        self.entity("Backdrop", {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, 0.0), (1400.0, 210.0)),
-                                 "UIImage": {"Texture": soft, "Color": linear(0.0, 0.0, 0.0, 0.62)}}, self.tour_title)
+        # The backdrop is centered on the whole block, from the upper rule down to the tagline.
+        self.entity("Backdrop", {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, 30.0), (1500.0, 320.0)),
+                                 "UIImage": {"Texture": soft, "Color": linear(0.0, 0.0, 0.0, 0.75)}}, self.tour_title)
         for name, y in (("Rule", -42.0), ("Rule 2", 44.0)):
             self.entity(name, {"UIRect": ui_rect((0.5, 0.5), (0.5, 0.5), (0.0, y), (620.0, 2.0)), "UIImage": {"Color": AMBER[:3] + [0.85]}},
                         self.tour_title)
@@ -1714,7 +1773,8 @@ class Showcase:
             "Rig": entity | {"Value": self.rig}, "Fade": entity | {"Value": self.tour_fade}, "Letterbox": entity | {"Value": self.letterbox},
             "Title": entity | {"Value": self.tour_title}, "Caption": entity | {"Value": self.tour_caption},
             "CaptionText": entity | {"Value": self.tour_caption_text}, "Detail": entity | {"Value": self.tour_detail},
-            "Hint": entity | {"Value": self.tour_hint}, "Hud": entity | {"Value": self.hud}, "Music": entity | {"Value": self.music}}
+            "Hint": entity | {"Value": self.tour_hint}, "Hud": entity | {"Value": self.hud}, "Music": entity | {"Value": self.music},
+            "Playground": entity | {"Value": self.playground}}
         tour = self.entity("Camera Tour", {"Script": {"ClassName": "Showcase.Flythrough", "Fields": self.tour_fields}})
         for name, frame, eye, target, seconds, caption, detail, cue, lead in TOUR:
             fields = {"Caption": {"Type": "String", "Value": caption}, "Detail": {"Type": "String", "Value": detail},

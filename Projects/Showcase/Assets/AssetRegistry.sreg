@@ -5,1097 +5,1167 @@
 	},
 	"Assets": [
 		{
-			"Handle": "2677367978875282855",
+			"Handle": "11938216027329387033",
 			"Type": "AudioClip",
 			"Path": "Audio/Ambience.wav"
 		},
 		{
-			"Handle": "11551941274498921816",
+			"Handle": "2564577131817916467",
 			"Type": "AudioClip",
 			"Path": "Audio/Cannon.wav"
 		},
 		{
-			"Handle": "3139374868566352139",
+			"Handle": "15011385976335414172",
 			"Type": "AudioClip",
 			"Path": "Audio/Crackle.wav"
 		},
 		{
-			"Handle": "9134350765255775895",
+			"Handle": "15596834588143397701",
 			"Type": "AudioClip",
 			"Path": "Audio/Fountain.wav"
 		},
 		{
-			"Handle": "571134028650525445",
+			"Handle": "14236149336403861084",
 			"Type": "AudioClip",
 			"Path": "Audio/Gate.wav"
 		},
 		{
-			"Handle": "10838063313214614981",
+			"Handle": "4060299969820988122",
 			"Type": "AudioClip",
 			"Path": "Audio/Goal.wav"
 		},
 		{
-			"Handle": "8574118851462104742",
+			"Handle": "9090517058048062872",
 			"Type": "AudioClip",
 			"Path": "Audio/Land.wav"
 		},
 		{
-			"Handle": "5715995920170689930",
+			"Handle": "8464106112549471763",
 			"Type": "AudioClip",
 			"Path": "Audio/Lift.wav"
 		},
 		{
-			"Handle": "16109933127499368623",
+			"Handle": "14024148723032489144",
 			"Type": "AudioClip",
 			"Path": "Audio/MetalHit.wav"
 		},
 		{
-			"Handle": "14859201942174635950",
+			"Handle": "12344687747265386856",
 			"Type": "AudioClip",
 			"Path": "Audio/Music.wav"
 		},
 		{
-			"Handle": "2344848071127838448",
+			"Handle": "13364842938155727153",
 			"Type": "AudioClip",
 			"Path": "Audio/NeonHum.wav"
 		},
 		{
-			"Handle": "2668834637990993123",
+			"Handle": "10720680545673699274",
 			"Type": "AudioClip",
 			"Path": "Audio/NeonIgnite.wav"
 		},
 		{
-			"Handle": "7956379894831803996",
+			"Handle": "3321906986722521850",
 			"Type": "AudioClip",
 			"Path": "Audio/Night.wav"
 		},
 		{
-			"Handle": "7808199082336975235",
+			"Handle": "611555295629337623",
 			"Type": "AudioClip",
 			"Path": "Audio/Step.wav"
 		},
 		{
-			"Handle": "13171201645911248546",
+			"Handle": "16133831590646756305",
 			"Type": "AudioClip",
 			"Path": "Audio/Throw.wav"
 		},
 		{
-			"Handle": "325038028135720779",
+			"Handle": "8898453380029991672",
 			"Type": "AudioClip",
 			"Path": "Audio/UIClick.wav"
 		},
 		{
-			"Handle": "13467620558412761882",
+			"Handle": "10538529451534513362",
 			"Type": "AudioClip",
 			"Path": "Audio/UIHover.wav"
 		},
 		{
-			"Handle": "11379368381779787632",
+			"Handle": "1544104798466537951",
 			"Type": "AudioClip",
 			"Path": "Audio/WoodHit.wav"
 		},
 		{
-			"Handle": "8347383391206973765",
+			"Handle": "375101200997494028",
 			"Type": "Environment",
 			"Path": "Environments/autumn_forest_04_4k.hdr"
 		},
 		{
-			"Handle": "16459828879799506528",
+			"Handle": "6132833880205213411",
 			"Type": "Material",
 			"Path": "Materials/BallMetal.smat"
 		},
 		{
-			"Handle": "9593731221648988059",
+			"Handle": "9115577551787533942",
 			"Type": "Material",
 			"Path": "Materials/BannerCrimson.smat"
 		},
 		{
-			"Handle": "12520398752552412475",
+			"Handle": "232060137866053439",
 			"Type": "Material",
 			"Path": "Materials/BannerRoyal.smat"
 		},
 		{
-			"Handle": "10831005939609551467",
+			"Handle": "4670744321375620322",
 			"Type": "Material",
 			"Path": "Materials/Brass.smat"
 		},
 		{
-			"Handle": "2178121832649810305",
+			"Handle": "2492975986797508584",
 			"Type": "Material",
 			"Path": "Materials/Charcoal.smat"
 		},
 		{
-			"Handle": "16502194614254149584",
+			"Handle": "6617568616760586533",
 			"Type": "Material",
 			"Path": "Materials/Chrome.smat"
 		},
 		{
-			"Handle": "9361182779714863598",
+			"Handle": "16248595771453711087",
 			"Type": "Material",
 			"Path": "Materials/Dominoes/Domino1.smat"
 		},
 		{
-			"Handle": "11560270875654537634",
+			"Handle": "2964949656807308178",
 			"Type": "Material",
 			"Path": "Materials/Dominoes/Domino2.smat"
 		},
 		{
-			"Handle": "16720288075427280785",
+			"Handle": "4842489726678680745",
 			"Type": "Material",
 			"Path": "Materials/Dominoes/Domino3.smat"
 		},
 		{
-			"Handle": "8986770805503436182",
+			"Handle": "6175555494825063121",
 			"Type": "Material",
 			"Path": "Materials/Dominoes/Domino4.smat"
 		},
 		{
-			"Handle": "1071563456688250178",
+			"Handle": "7860885828984028625",
 			"Type": "Material",
 			"Path": "Materials/Dominoes/Domino5.smat"
 		},
 		{
-			"Handle": "17004292150458253571",
+			"Handle": "6229441201331603379",
 			"Type": "Material",
 			"Path": "Materials/Dominoes/Domino6.smat"
 		},
 		{
-			"Handle": "14731257821135889180",
+			"Handle": "7288430144304099017",
 			"Type": "Material",
 			"Path": "Materials/Dominoes/Domino7.smat"
 		},
 		{
-			"Handle": "4507329172224713822",
+			"Handle": "11519513272767993806",
 			"Type": "Material",
 			"Path": "Materials/Dominoes/Domino8.smat"
 		},
 		{
-			"Handle": "9258377343607441829",
+			"Handle": "15562083613619405520",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic0Roughness0.smat"
 		},
 		{
-			"Handle": "6712119966315473229",
+			"Handle": "521868539064719914",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic0Roughness100.smat"
 		},
 		{
-			"Handle": "7061693083691141288",
+			"Handle": "7208714063933845237",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic0Roughness25.smat"
 		},
 		{
-			"Handle": "573738872885111479",
+			"Handle": "188134604734104825",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic0Roughness50.smat"
 		},
 		{
-			"Handle": "13453073138190440466",
+			"Handle": "7461804474233864496",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic0Roughness75.smat"
 		},
 		{
-			"Handle": "14873558537883675097",
+			"Handle": "2988592191078513748",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic100Roughness0.smat"
 		},
 		{
-			"Handle": "15010080399607433209",
+			"Handle": "12816928405627523246",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic100Roughness100.smat"
 		},
 		{
-			"Handle": "11693563451197268426",
+			"Handle": "14651932427912855797",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic100Roughness25.smat"
 		},
 		{
-			"Handle": "7643338805441444413",
+			"Handle": "16481834042758859213",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic100Roughness50.smat"
 		},
 		{
-			"Handle": "2023310326220000045",
+			"Handle": "11052321696595566261",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic100Roughness75.smat"
 		},
 		{
-			"Handle": "1583770603078284842",
+			"Handle": "13839547882163215643",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic25Roughness0.smat"
 		},
 		{
-			"Handle": "17147070606055781047",
+			"Handle": "2652350379613750723",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic25Roughness100.smat"
 		},
 		{
-			"Handle": "18063228116485846374",
+			"Handle": "8970230014770201296",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic25Roughness25.smat"
 		},
 		{
-			"Handle": "4362993321772816893",
+			"Handle": "8354310830464030532",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic25Roughness50.smat"
 		},
 		{
-			"Handle": "7340643039972906539",
+			"Handle": "3850104259417629850",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic25Roughness75.smat"
 		},
 		{
-			"Handle": "15660889402752189272",
+			"Handle": "13810894316273317947",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic50Roughness0.smat"
 		},
 		{
-			"Handle": "17013858923521392986",
+			"Handle": "15763034196498285969",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic50Roughness100.smat"
 		},
 		{
-			"Handle": "1215098622196597500",
+			"Handle": "1786956343689798999",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic50Roughness25.smat"
 		},
 		{
-			"Handle": "15595900763933764841",
+			"Handle": "9812244405122162096",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic50Roughness50.smat"
 		},
 		{
-			"Handle": "10056291317533972766",
+			"Handle": "12690227609027512937",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic50Roughness75.smat"
 		},
 		{
-			"Handle": "18335965108449401831",
+			"Handle": "14647541409349908088",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic75Roughness0.smat"
 		},
 		{
-			"Handle": "2746472914814871321",
+			"Handle": "15891789504582731297",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic75Roughness100.smat"
 		},
 		{
-			"Handle": "13401973970286096247",
+			"Handle": "2099236437083456690",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic75Roughness25.smat"
 		},
 		{
-			"Handle": "5866342932763767827",
+			"Handle": "4515287885034211332",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic75Roughness50.smat"
 		},
 		{
-			"Handle": "12899937304818371288",
+			"Handle": "7057382616987462970",
 			"Type": "Material",
 			"Path": "Materials/Gallery/Metallic75Roughness75.smat"
 		},
 		{
-			"Handle": "9982804834636283520",
+			"Handle": "14089801027890379232",
 			"Type": "Material",
 			"Path": "Materials/GlassAmber.smat"
 		},
 		{
-			"Handle": "9714791505519297345",
+			"Handle": "12118548257039738757",
 			"Type": "Material",
 			"Path": "Materials/GlassBackboard.smat"
 		},
 		{
-			"Handle": "2262979786777772672",
+			"Handle": "3871918929504976760",
 			"Type": "Material",
 			"Path": "Materials/GlassClear.smat"
 		},
 		{
-			"Handle": "3230748903164741953",
+			"Handle": "6239308139915456376",
 			"Type": "Material",
 			"Path": "Materials/GlassIce.smat"
 		},
 		{
-			"Handle": "2903187906342293809",
+			"Handle": "2485880363630913285",
 			"Type": "Material",
 			"Path": "Materials/GlassLamp.smat"
 		},
 		{
-			"Handle": "17910763381420443263",
+			"Handle": "11745639541284044271",
 			"Type": "Material",
 			"Path": "Materials/GlassRose.smat"
 		},
 		{
-			"Handle": "13404701657136937895",
+			"Handle": "372869765465031052",
 			"Type": "Material",
 			"Path": "Materials/GlassTeal.smat"
 		},
 		{
-			"Handle": "14733964347949114212",
+			"Handle": "3240312550064657253",
 			"Type": "Material",
 			"Path": "Materials/GlassViolet.smat"
 		},
 		{
-			"Handle": "4892372755564037217",
+			"Handle": "4269483215031823960",
 			"Type": "Material",
 			"Path": "Materials/GlassWater.smat"
 		},
 		{
-			"Handle": "17418085006652254336",
+			"Handle": "7884520692462055205",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring01.smat"
+		},
+		{
+			"Handle": "14682142197434428457",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring02.smat"
+		},
+		{
+			"Handle": "9048236306693801623",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring03.smat"
+		},
+		{
+			"Handle": "17664281269403020378",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring04.smat"
+		},
+		{
+			"Handle": "2539013894426287131",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring05.smat"
+		},
+		{
+			"Handle": "15131840412825305568",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring06.smat"
+		},
+		{
+			"Handle": "7008079220808758702",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring07.smat"
+		},
+		{
+			"Handle": "10119631518827708728",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring08.smat"
+		},
+		{
+			"Handle": "9111602296505221073",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring09.smat"
+		},
+		{
+			"Handle": "12313447391900577402",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring10.smat"
+		},
+		{
+			"Handle": "8039538307094875845",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring11.smat"
+		},
+		{
+			"Handle": "10379452880866383400",
+			"Type": "Material",
+			"Path": "Materials/GroundFade/Ring12.smat"
+		},
+		{
+			"Handle": "13709730466266616144",
 			"Type": "Material",
 			"Path": "Materials/Iron.smat"
 		},
 		{
-			"Handle": "16123716790374953494",
+			"Handle": "16271456285974603552",
 			"Type": "Material",
 			"Path": "Materials/LampGlass.smat"
 		},
 		{
-			"Handle": "2246680524735440296",
+			"Handle": "14027665521787857652",
 			"Type": "Material",
 			"Path": "Materials/Lattice.smat"
 		},
 		{
-			"Handle": "13099673893775935938",
+			"Handle": "9973740438858417111",
 			"Type": "Material",
 			"Path": "Materials/LighthouseBeam.smat"
 		},
 		{
-			"Handle": "4125291399169314003",
+			"Handle": "13701445693112148559",
 			"Type": "Material",
 			"Path": "Materials/NeonAmber.smat"
 		},
 		{
-			"Handle": "11498374813657213053",
+			"Handle": "17355352038596945648",
 			"Type": "Material",
 			"Path": "Materials/NeonCyan.smat"
 		},
 		{
-			"Handle": "14696215620910686733",
+			"Handle": "7286246082687537089",
 			"Type": "Material",
 			"Path": "Materials/NeonLamp.smat"
 		},
 		{
-			"Handle": "2296715254396115099",
+			"Handle": "8259093875888060018",
 			"Type": "Material",
 			"Path": "Materials/NeonLens.smat"
 		},
 		{
-			"Handle": "3383010496035215681",
+			"Handle": "15188891220092788383",
 			"Type": "Material",
 			"Path": "Materials/NeonPink.smat"
 		},
 		{
-			"Handle": "11543858507833350570",
+			"Handle": "12004374003271032714",
 			"Type": "Material",
 			"Path": "Materials/NeonPlate.smat"
 		},
 		{
-			"Handle": "418282218154440880",
+			"Handle": "3189076736847275365",
 			"Type": "Material",
 			"Path": "Materials/Net.smat"
 		},
 		{
-			"Handle": "15494424053261172919",
+			"Handle": "5927009642382035075",
 			"Type": "Material",
 			"Path": "Materials/OrangeBall.smat"
 		},
 		{
-			"Handle": "15306222082154931112",
+			"Handle": "10344644193813191145",
 			"Type": "Material",
 			"Path": "Materials/Plaster.smat"
 		},
 		{
-			"Handle": "11364551413286496031",
+			"Handle": "17520794093664989556",
 			"Type": "Material",
 			"Path": "Materials/RedPaint.smat"
 		},
 		{
-			"Handle": "5724349287696779258",
+			"Handle": "16451696166632742706",
 			"Type": "Material",
 			"Path": "Materials/SignWood.smat"
 		},
 		{
-			"Handle": "12342248160056345287",
+			"Handle": "7945019243552117913",
 			"Type": "Material",
 			"Path": "Materials/Slate.smat"
 		},
 		{
-			"Handle": "3232151635328214877",
+			"Handle": "10542522779870741863",
 			"Type": "Material",
 			"Path": "Materials/SpotBeam.smat"
 		},
 		{
-			"Handle": "6537830652033718613",
+			"Handle": "3005603694843933749",
 			"Type": "Material",
 			"Path": "Materials/StageFloor.smat"
 		},
 		{
-			"Handle": "2876891496879064335",
+			"Handle": "13201603060620454066",
 			"Type": "Material",
 			"Path": "Materials/WhitePaint.smat"
 		},
 		{
-			"Handle": "11865873546381583238",
+			"Handle": "11251291708053514327",
 			"Type": "Mesh",
 			"Path": "Meshes/Beam.gltf"
 		},
 		{
-			"Handle": "5269831480057056955",
+			"Handle": "16101647062806072352",
 			"Type": "Mesh",
 			"Path": "Meshes/Crystal.gltf"
 		},
 		{
-			"Handle": "892041365402663677",
+			"Handle": "14917987047214657838",
 			"Type": "Mesh",
 			"Path": "Meshes/Fountain.gltf"
 		},
 		{
-			"Handle": "14056218207650416603",
+			"Handle": "3615350808656647470",
+			"Type": "Mesh",
+			"Path": "Meshes/Ground.gltf"
+		},
+		{
+			"Handle": "13537453522177613441",
 			"Type": "Mesh",
 			"Path": "Meshes/Hoop.gltf"
 		},
 		{
-			"Handle": "12845862149156471102",
+			"Handle": "9483044977930250411",
 			"Type": "Mesh",
 			"Path": "Meshes/MirrorBall.gltf"
 		},
 		{
-			"Handle": "14734154011914958694",
+			"Handle": "17781879720779169556",
 			"Type": "Mesh",
 			"Path": "Meshes/NeonFrame.gltf"
 		},
 		{
-			"Handle": "6208028608319749211",
+			"Handle": "11930584500367186351",
 			"Type": "Mesh",
 			"Path": "Meshes/NeonStrada.gltf"
 		},
 		{
-			"Handle": "7658756598865558323",
+			"Handle": "1386202074464153269",
 			"Type": "Mesh",
 			"Path": "Meshes/Net.gltf"
 		},
 		{
-			"Handle": "11738820016744647877",
+			"Handle": "4240113548644044676",
 			"Type": "Mesh",
 			"Path": "Meshes/TorusKnot.gltf"
 		},
 		{
-			"Handle": "9351883707759852065",
+			"Handle": "7408861914270786158",
 			"Type": "Mesh",
 			"Path": "Meshes/TreeA.gltf"
 		},
 		{
-			"Handle": "5128541800983708019",
+			"Handle": "11082534248606703941",
 			"Type": "Mesh",
 			"Path": "Meshes/TreeB.gltf"
 		},
 		{
-			"Handle": "7968156729078001719",
+			"Handle": "3391531654504589556",
 			"Type": "Mesh",
 			"Path": "Meshes/TreeC.gltf"
 		},
 		{
-			"Handle": "15957669563966568359",
+			"Handle": "16844068438365320549",
 			"Type": "Mesh",
 			"Path": "Models/Lantern_01/Lantern_01_1k.gltf"
 		},
 		{
-			"Handle": "13466712122145542630",
+			"Handle": "10171157139725533736",
 			"Type": "Texture",
 			"Path": "Models/Lantern_01/textures/Lantern_01_brass_arm_1k.jpg"
 		},
 		{
-			"Handle": "18350021025686152572",
+			"Handle": "4603277103470883086",
 			"Type": "Texture",
 			"Path": "Models/Lantern_01/textures/Lantern_01_brass_diff_1k.jpg"
 		},
 		{
-			"Handle": "15877110590845335432",
+			"Handle": "14406439173919192506",
 			"Type": "Texture",
 			"Path": "Models/Lantern_01/textures/Lantern_01_brass_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "10871099762551611463",
+			"Handle": "11338683269143787433",
 			"Type": "Mesh",
 			"Path": "Models/boulder_01/boulder_01_1k.gltf"
 		},
 		{
-			"Handle": "7852968808765975597",
+			"Handle": "8080485632604708960",
 			"Type": "Texture",
 			"Path": "Models/boulder_01/textures/boulder_01_arm_1k.jpg"
 		},
 		{
-			"Handle": "5193058185896403553",
+			"Handle": "79670540567495796",
 			"Type": "Texture",
 			"Path": "Models/boulder_01/textures/boulder_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "18148508286165445636",
+			"Handle": "8208759101416748847",
 			"Type": "Texture",
 			"Path": "Models/boulder_01/textures/boulder_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "9855533540638776585",
+			"Handle": "16734727099084923249",
 			"Type": "Mesh",
 			"Path": "Models/dead_tree_trunk/dead_tree_trunk_1k.gltf"
 		},
 		{
-			"Handle": "2678081402338367300",
+			"Handle": "1950629658857968097",
 			"Type": "Texture",
 			"Path": "Models/dead_tree_trunk/textures/dead_tree_trunk_arm_1k.jpg"
 		},
 		{
-			"Handle": "12177674342021842662",
+			"Handle": "9306356725147856569",
 			"Type": "Texture",
 			"Path": "Models/dead_tree_trunk/textures/dead_tree_trunk_diff_1k.jpg"
 		},
 		{
-			"Handle": "9013377760805472021",
+			"Handle": "835440139393616710",
 			"Type": "Texture",
 			"Path": "Models/dead_tree_trunk/textures/dead_tree_trunk_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "5205862390596070511",
+			"Handle": "16811007901938027960",
 			"Type": "Mesh",
 			"Path": "Models/dead_tree_trunk_02/dead_tree_trunk_02_1k.gltf"
 		},
 		{
-			"Handle": "15209564847625135160",
+			"Handle": "15983013404219938081",
 			"Type": "Texture",
 			"Path": "Models/dead_tree_trunk_02/textures/dead_tree_trunk_02_arm_1k.jpg"
 		},
 		{
-			"Handle": "4216147565666269375",
+			"Handle": "12683669945026336214",
 			"Type": "Texture",
 			"Path": "Models/dead_tree_trunk_02/textures/dead_tree_trunk_02_diff_1k.jpg"
 		},
 		{
-			"Handle": "3262691602230799662",
+			"Handle": "17101652008909982072",
 			"Type": "Texture",
 			"Path": "Models/dead_tree_trunk_02/textures/dead_tree_trunk_02_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "2866073821632093760",
+			"Handle": "8643333081621310372",
 			"Type": "Mesh",
 			"Path": "Models/dry_branches_medium_01/dry_branches_medium_01_1k.gltf"
 		},
 		{
-			"Handle": "16787276964824313643",
+			"Handle": "16813483342887967321",
 			"Type": "Texture",
 			"Path": "Models/dry_branches_medium_01/textures/dry_branches_medium_01_arm_1k.jpg"
 		},
 		{
-			"Handle": "8296032936629322650",
+			"Handle": "12611238157307728510",
 			"Type": "Texture",
 			"Path": "Models/dry_branches_medium_01/textures/dry_branches_medium_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "6553823961265687521",
+			"Handle": "16948067809813415400",
 			"Type": "Texture",
 			"Path": "Models/dry_branches_medium_01/textures/dry_branches_medium_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "15626644232972324483",
+			"Handle": "16673757555368694932",
 			"Type": "Mesh",
 			"Path": "Models/fern_02/fern_02_1k.gltf"
 		},
 		{
-			"Handle": "4562849902134598485",
+			"Handle": "15601022222951096393",
 			"Type": "Texture",
 			"Path": "Models/fern_02/textures/fern_02_arm_1k.jpg"
 		},
 		{
-			"Handle": "13992073587843229019",
+			"Handle": "14462976935863947505",
 			"Type": "Texture",
 			"Path": "Models/fern_02/textures/fern_02_diff_1k.jpg"
 		},
 		{
-			"Handle": "5270145364933280615",
+			"Handle": "12700807138641030914",
 			"Type": "Texture",
 			"Path": "Models/fern_02/textures/fern_02_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "8682968559588657069",
+			"Handle": "15622678217883240654",
 			"Type": "Mesh",
 			"Path": "Models/marble_bust_01/marble_bust_01_1k.gltf"
 		},
 		{
-			"Handle": "10353563118653471808",
+			"Handle": "13895273078199114064",
 			"Type": "Texture",
 			"Path": "Models/marble_bust_01/textures/marble_bust_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "15720952080228284984",
+			"Handle": "17154979881306502556",
 			"Type": "Texture",
 			"Path": "Models/marble_bust_01/textures/marble_bust_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "14548906126243389277",
+			"Handle": "15915989511719977519",
 			"Type": "Texture",
 			"Path": "Models/marble_bust_01/textures/marble_bust_01_rough_1k.jpg"
 		},
 		{
-			"Handle": "2360107769280619386",
+			"Handle": "8993774100379386537",
 			"Type": "Mesh",
 			"Path": "Models/painted_wooden_bench/painted_wooden_bench_1k.gltf"
 		},
 		{
-			"Handle": "12515954549501214545",
+			"Handle": "8133641373082496230",
 			"Type": "Texture",
 			"Path": "Models/painted_wooden_bench/textures/painted_wooden_bench_arm_1k.jpg"
 		},
 		{
-			"Handle": "720662612132959880",
+			"Handle": "6725375548073805776",
 			"Type": "Texture",
 			"Path": "Models/painted_wooden_bench/textures/painted_wooden_bench_diff_1k.jpg"
 		},
 		{
-			"Handle": "11384437217518342771",
+			"Handle": "3359076062447308119",
 			"Type": "Texture",
 			"Path": "Models/painted_wooden_bench/textures/painted_wooden_bench_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "15054754629475683243",
+			"Handle": "7235374332697379495",
 			"Type": "Mesh",
 			"Path": "Models/rock_moss_set_01/rock_moss_set_01_1k.gltf"
 		},
 		{
-			"Handle": "9989112927385659848",
+			"Handle": "6297667395780818539",
 			"Type": "Texture",
 			"Path": "Models/rock_moss_set_01/textures/rock_moss_set_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "18341489311392345220",
+			"Handle": "17912483102578300884",
 			"Type": "Texture",
 			"Path": "Models/rock_moss_set_01/textures/rock_moss_set_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "6185328183063590482",
+			"Handle": "9475227851169027155",
 			"Type": "Texture",
 			"Path": "Models/rock_moss_set_01/textures/rock_moss_set_01_rough_1k.jpg"
 		},
 		{
-			"Handle": "2066020537791310507",
+			"Handle": "14564390771310489339",
 			"Type": "Mesh",
 			"Path": "Models/rock_moss_set_02/rock_moss_set_02_1k.gltf"
 		},
 		{
-			"Handle": "2759982649096543899",
+			"Handle": "10277367334639556022",
 			"Type": "Texture",
 			"Path": "Models/rock_moss_set_02/textures/rock_moss_set_02_diff_1k.jpg"
 		},
 		{
-			"Handle": "12432617985334060044",
+			"Handle": "1607575474049373178",
 			"Type": "Texture",
 			"Path": "Models/rock_moss_set_02/textures/rock_moss_set_02_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "17280016173055246435",
+			"Handle": "75995160939202988",
 			"Type": "Texture",
 			"Path": "Models/rock_moss_set_02/textures/rock_moss_set_02_rough_1k.jpg"
 		},
 		{
-			"Handle": "15197559902866936750",
+			"Handle": "16184737062237003536",
 			"Type": "Mesh",
 			"Path": "Models/shrub_02/shrub_02_1k.gltf"
 		},
 		{
-			"Handle": "10376774311849297122",
+			"Handle": "2987689069317799620",
 			"Type": "Texture",
 			"Path": "Models/shrub_02/textures/shrub_02_arm_1k.jpg"
 		},
 		{
-			"Handle": "4875014828441712480",
+			"Handle": "16074960916191738478",
 			"Type": "Texture",
 			"Path": "Models/shrub_02/textures/shrub_02_diff_1k.jpg"
 		},
 		{
-			"Handle": "1927021290942140857",
+			"Handle": "12781992875112580955",
 			"Type": "Texture",
 			"Path": "Models/shrub_02/textures/shrub_02_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "13813314797257629334",
+			"Handle": "14670984178151588899",
 			"Type": "Mesh",
 			"Path": "Models/street_lamp_01/street_lamp_01_1k.gltf"
 		},
 		{
-			"Handle": "6721526055630246960",
+			"Handle": "9587708689825136033",
 			"Type": "Texture",
 			"Path": "Models/street_lamp_01/textures/street_lamp_01_arm_1k.jpg"
 		},
 		{
-			"Handle": "3884099455974251423",
+			"Handle": "1843053054871592119",
 			"Type": "Texture",
 			"Path": "Models/street_lamp_01/textures/street_lamp_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "12596086394663735823",
+			"Handle": "3061264747053306128",
 			"Type": "Texture",
 			"Path": "Models/street_lamp_01/textures/street_lamp_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "13375776821528779466",
+			"Handle": "7929584507580679925",
 			"Type": "Texture",
 			"Path": "Models/tree_stump_01/textures/tree_stump_01_arm_1k.jpg"
 		},
 		{
-			"Handle": "771974665775716489",
+			"Handle": "8356437121938545532",
 			"Type": "Texture",
 			"Path": "Models/tree_stump_01/textures/tree_stump_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "2903062442690448397",
+			"Handle": "10497808599366510065",
 			"Type": "Texture",
 			"Path": "Models/tree_stump_01/textures/tree_stump_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "7623304066879840259",
+			"Handle": "1198237102537359569",
 			"Type": "Mesh",
 			"Path": "Models/tree_stump_01/tree_stump_01_1k.gltf"
 		},
 		{
-			"Handle": "5633184162266990890",
+			"Handle": "5390305491707922642",
 			"Type": "Texture",
 			"Path": "Models/tree_stump_02/textures/tree_stump_02_arm_1k.jpg"
 		},
 		{
-			"Handle": "8859064309502735519",
+			"Handle": "9964949138518983175",
 			"Type": "Texture",
 			"Path": "Models/tree_stump_02/textures/tree_stump_02_diff_1k.jpg"
 		},
 		{
-			"Handle": "16309696723016381668",
+			"Handle": "7297557623622562594",
 			"Type": "Texture",
 			"Path": "Models/tree_stump_02/textures/tree_stump_02_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "17930350443570040515",
+			"Handle": "3268404055155130890",
 			"Type": "Mesh",
 			"Path": "Models/tree_stump_02/tree_stump_02_1k.gltf"
 		},
 		{
-			"Handle": "9202415155127899947",
+			"Handle": "14530736324156765912",
 			"Type": "Texture",
 			"Path": "Models/wine_barrel_01/textures/wine_barrel_01_arm_1k.jpg"
 		},
 		{
-			"Handle": "7308277777934993093",
+			"Handle": "8947863442267843528",
 			"Type": "Texture",
 			"Path": "Models/wine_barrel_01/textures/wine_barrel_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "13868679674090465253",
+			"Handle": "6154153102540070118",
 			"Type": "Texture",
 			"Path": "Models/wine_barrel_01/textures/wine_barrel_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "15819839627933637646",
+			"Handle": "2040937098835764862",
 			"Type": "Mesh",
 			"Path": "Models/wine_barrel_01/wine_barrel_01_1k.gltf"
 		},
 		{
-			"Handle": "10655815003612288417",
+			"Handle": "10767426570153336242",
 			"Type": "Texture",
 			"Path": "Models/wooden_crate_01/textures/wooden_crate_01_arm_1k.jpg"
 		},
 		{
-			"Handle": "5476820031740669413",
+			"Handle": "4772163396099777884",
 			"Type": "Texture",
 			"Path": "Models/wooden_crate_01/textures/wooden_crate_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "8168870010596244344",
+			"Handle": "13222059554766671066",
 			"Type": "Texture",
 			"Path": "Models/wooden_crate_01/textures/wooden_crate_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "3170496796130457412",
+			"Handle": "16133267896096928867",
 			"Type": "Mesh",
 			"Path": "Models/wooden_crate_01/wooden_crate_01_1k.gltf"
 		},
 		{
-			"Handle": "3605362834118621976",
+			"Handle": "2052055963647890445",
 			"Type": "Texture",
 			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_bottom_arm_1k.jpg"
 		},
 		{
-			"Handle": "11059953700956633903",
+			"Handle": "8066582786623898695",
 			"Type": "Texture",
 			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_bottom_diff_1k.jpg"
 		},
 		{
-			"Handle": "1665906182039760539",
+			"Handle": "4997844739385896911",
 			"Type": "Texture",
 			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_bottom_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "13172977262954367846",
+			"Handle": "5562547375920152950",
 			"Type": "Texture",
 			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_top_arm_1k.jpg"
 		},
 		{
-			"Handle": "15323344245521525894",
+			"Handle": "8034210064565176525",
 			"Type": "Texture",
 			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_top_diff_1k.jpg"
 		},
 		{
-			"Handle": "2686121906629876014",
+			"Handle": "15627446082554961835",
 			"Type": "Texture",
 			"Path": "Models/wooden_picnic_table/textures/wooden_picnic_table_top_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "1338786940027939089",
+			"Handle": "8764502625715065996",
 			"Type": "Mesh",
 			"Path": "Models/wooden_picnic_table/wooden_picnic_table_1k.gltf"
 		},
 		{
-			"Handle": "1517838441137365521",
+			"Handle": "18152527704459612370",
 			"Type": "Prefab",
 			"Path": "Prefabs/Ball.sprefab"
 		},
 		{
-			"Handle": "16349224357807053027",
+			"Handle": "17105247329111423226",
 			"Type": "Prefab",
 			"Path": "Prefabs/Domino.sprefab"
 		},
 		{
-			"Handle": "3764793848633035069",
+			"Handle": "16986409259160334360",
 			"Type": "Prefab",
 			"Path": "Prefabs/GoalBurst.sprefab"
 		},
 		{
-			"Handle": "13909940067271365450",
+			"Handle": "17581205336627678504",
 			"Type": "Prefab",
 			"Path": "Prefabs/LaunchFlash.sprefab"
 		},
 		{
-			"Handle": "14232126409782783486",
+			"Handle": "10313537348734718223",
 			"Type": "Prefab",
 			"Path": "Prefabs/LauncherBall.sprefab"
 		},
 		{
-			"Handle": "15848050987058998012",
+			"Handle": "17531242261565324532",
 			"Type": "Prefab",
 			"Path": "Prefabs/Signpost.sprefab"
 		},
 		{
-			"Handle": "4326573177755959914",
+			"Handle": "9966227902802158477",
 			"Type": "Scene",
 			"Path": "Scenes/Main.sscene"
 		},
 		{
-			"Handle": "9059625069040850632",
+			"Handle": "13587821679555062944",
 			"Type": "Scene",
 			"Path": "Scenes/Tests.sscene"
 		},
 		{
-			"Handle": "8404362837269543060",
+			"Handle": "16671203739627127322",
 			"Type": "Texture",
 			"Path": "Textures/Banner.png"
 		},
 		{
-			"Handle": "16015091935783750841",
+			"Handle": "17658935525438936067",
 			"Type": "Texture",
 			"Path": "Textures/BeamFade.png"
 		},
 		{
-			"Handle": "3323636264430445268",
+			"Handle": "13580012903880663069",
 			"Type": "Texture",
 			"Path": "Textures/Crosshair.png"
 		},
 		{
-			"Handle": "14245814529597348693",
+			"Handle": "3518862556806940045",
+			"Type": "Texture",
+			"Path": "Textures/Icons/Dominoes.png"
+		},
+		{
+			"Handle": "10482854811430559760",
 			"Type": "Texture",
 			"Path": "Textures/Icons/Fly.png"
 		},
 		{
-			"Handle": "16733839102212811103",
+			"Handle": "15359299796094430318",
 			"Type": "Texture",
 			"Path": "Textures/Icons/Launch.png"
 		},
 		{
-			"Handle": "4812638648642631497",
+			"Handle": "799613002185386992",
 			"Type": "Texture",
 			"Path": "Textures/Icons/Moon.png"
 		},
 		{
-			"Handle": "9809222281554816960",
+			"Handle": "11872970944540067109",
 			"Type": "Texture",
 			"Path": "Textures/Icons/Reset.png"
 		},
 		{
-			"Handle": "16418803082051441896",
+			"Handle": "9223685837291824505",
 			"Type": "Texture",
 			"Path": "Textures/Icons/Sun.png"
 		},
 		{
-			"Handle": "6586806617333827394",
+			"Handle": "9362024635364840916",
 			"Type": "Texture",
 			"Path": "Textures/Icons/Swing.png"
 		},
 		{
-			"Handle": "11270332952996761511",
+			"Handle": "9051759223275659675",
 			"Type": "Texture",
 			"Path": "Textures/Icons/Walk.png"
 		},
 		{
-			"Handle": "11164322891279414724",
+			"Handle": "15484784855523969835",
 			"Type": "Texture",
 			"Path": "Textures/Lattice.png"
 		},
 		{
-			"Handle": "14918736766038210464",
+			"Handle": "17626815332109412051",
 			"Type": "Texture",
 			"Path": "Textures/Leaf.png"
 		},
 		{
-			"Handle": "12845735994277204926",
+			"Handle": "3929870831797108107",
 			"Type": "Texture",
 			"Path": "Textures/Net.png"
 		},
 		{
-			"Handle": "7597464719790827877",
+			"Handle": "17924948962656300910",
 			"Type": "Texture",
 			"Path": "Textures/SoftBand.png"
 		},
 		{
-			"Handle": "13342155245759847657",
+			"Handle": "14356290839752290899",
 			"Type": "Material",
 			"Path": "Textures/bark_brown_02/bark_brown_02.smat"
 		},
 		{
-			"Handle": "3580757452411075771",
+			"Handle": "17114426576454870921",
 			"Type": "Texture",
 			"Path": "Textures/bark_brown_02/bark_brown_02_arm_1k.jpg"
 		},
 		{
-			"Handle": "14883789918899867868",
+			"Handle": "10555428129045349384",
 			"Type": "Texture",
 			"Path": "Textures/bark_brown_02/bark_brown_02_diff_1k.jpg"
 		},
 		{
-			"Handle": "4481903590769972387",
+			"Handle": "18288486971391230871",
 			"Type": "Texture",
 			"Path": "Textures/bark_brown_02/bark_brown_02_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "49599388874597375",
+			"Handle": "1167058066878570443",
 			"Type": "Material",
 			"Path": "Textures/blue_metal_plate/blue_metal_plate.smat"
 		},
 		{
-			"Handle": "5792933507916817421",
+			"Handle": "1947899691291963527",
 			"Type": "Texture",
 			"Path": "Textures/blue_metal_plate/blue_metal_plate_arm_1k.jpg"
 		},
 		{
-			"Handle": "1998490350104335907",
+			"Handle": "27698386731653532",
 			"Type": "Texture",
 			"Path": "Textures/blue_metal_plate/blue_metal_plate_diff_1k.jpg"
 		},
 		{
-			"Handle": "16934897894347904846",
+			"Handle": "3554647142583122284",
 			"Type": "Texture",
 			"Path": "Textures/blue_metal_plate/blue_metal_plate_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "16599379087237691775",
+			"Handle": "351306796999565249",
 			"Type": "Material",
 			"Path": "Textures/brown_planks_05/brown_planks_05.smat"
 		},
 		{
-			"Handle": "15431855540970320373",
+			"Handle": "2230452369737597064",
 			"Type": "Texture",
 			"Path": "Textures/brown_planks_05/brown_planks_05_arm_1k.jpg"
 		},
 		{
-			"Handle": "3808049350052371706",
+			"Handle": "10203478542826657491",
 			"Type": "Texture",
 			"Path": "Textures/brown_planks_05/brown_planks_05_diff_1k.jpg"
 		},
 		{
-			"Handle": "17182134178098041516",
+			"Handle": "11403207287115729205",
 			"Type": "Texture",
 			"Path": "Textures/brown_planks_05/brown_planks_05_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "3053759788999049941",
+			"Handle": "13899218219432274572",
 			"Type": "Material",
 			"Path": "Textures/cobblestone_floor_08/cobblestone_floor_08.smat"
 		},
 		{
-			"Handle": "11602373272592783572",
+			"Handle": "14975438807912540239",
 			"Type": "Texture",
 			"Path": "Textures/cobblestone_floor_08/cobblestone_floor_08_arm_2k.jpg"
 		},
 		{
-			"Handle": "2176981813381083001",
+			"Handle": "10308508526547325410",
 			"Type": "Texture",
 			"Path": "Textures/cobblestone_floor_08/cobblestone_floor_08_diff_2k.jpg"
 		},
 		{
-			"Handle": "17179384981519456985",
+			"Handle": "3637384761149355242",
 			"Type": "Texture",
 			"Path": "Textures/cobblestone_floor_08/cobblestone_floor_08_nor_gl_2k.jpg"
 		},
 		{
-			"Handle": "3484619742125816358",
+			"Handle": "17487079731731685539",
 			"Type": "Material",
 			"Path": "Textures/dry_decay_leaves/dry_decay_leaves.smat"
 		},
 		{
-			"Handle": "7352429400966793522",
+			"Handle": "15788744392749455012",
 			"Type": "Texture",
 			"Path": "Textures/dry_decay_leaves/dry_decay_leaves_arm_2k.jpg"
 		},
 		{
-			"Handle": "2790953101456101629",
+			"Handle": "11556620723063919317",
 			"Type": "Texture",
 			"Path": "Textures/dry_decay_leaves/dry_decay_leaves_diff_2k.jpg"
 		},
 		{
-			"Handle": "3642997311153069274",
+			"Handle": "18039275296800423777",
 			"Type": "Texture",
 			"Path": "Textures/dry_decay_leaves/dry_decay_leaves_nor_gl_2k.jpg"
 		},
 		{
-			"Handle": "9932517690165244409",
+			"Handle": "12794799374483559396",
 			"Type": "Material",
 			"Path": "Textures/marble_01/marble_01.smat"
 		},
 		{
-			"Handle": "9195602320282872600",
+			"Handle": "4674603661179835396",
 			"Type": "Texture",
 			"Path": "Textures/marble_01/marble_01_arm_1k.jpg"
 		},
 		{
-			"Handle": "13990990672905955991",
+			"Handle": "3948967223169496802",
 			"Type": "Texture",
 			"Path": "Textures/marble_01/marble_01_diff_1k.jpg"
 		},
 		{
-			"Handle": "3892743607219584146",
+			"Handle": "279723455054116119",
 			"Type": "Texture",
 			"Path": "Textures/marble_01/marble_01_nor_gl_1k.jpg"
 		},
 		{
-			"Handle": "2422462858081731663",
+			"Handle": "18149643063510354054",
 			"Type": "Material",
 			"Path": "Textures/rusty_metal_02/rusty_metal_02.smat"
 		},
 		{
-			"Handle": "9345782127130416623",
+			"Handle": "9475357605665620067",
 			"Type": "Texture",
 			"Path": "Textures/rusty_metal_02/rusty_metal_02_arm_1k.jpg"
 		},
 		{
-			"Handle": "11737870393085032966",
+			"Handle": "15757862070613983031",
 			"Type": "Texture",
 			"Path": "Textures/rusty_metal_02/rusty_metal_02_diff_1k.jpg"
 		},
 		{
-			"Handle": "13333941131030578380",
+			"Handle": "13620497219116504416",
 			"Type": "Texture",
 			"Path": "Textures/rusty_metal_02/rusty_metal_02_nor_gl_1k.jpg"
 		}
