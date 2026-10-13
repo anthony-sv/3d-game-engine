@@ -87,4 +87,17 @@ public sealed unsafe class CameraComponent : Component
 		InternalCalls.CameraComponent_ScreenToWorldRay(Entity.ID, &screenPosition, &ray);
 		return ray;
 	}
+
+	/// <summary>Where a point of the world shows in the scene's viewport: X and Y in pixels from its top-left corner (as
+	/// <see cref="Input.MousePosition"/> and <see cref="ScreenToWorldRay"/> use them), and Z the point's distance in front of
+	/// the camera along its view direction (negative behind it). A perspective camera shows only points in front of it: for a
+	/// point with a Z of zero or less, X and Y mean nothing. An orthographic camera shows every point at its X and Y, and
+	/// draws it when Z lies between <see cref="OrthographicNear"/> and <see cref="OrthographicFar"/> (behind the camera too,
+	/// when the near distance is negative).</summary>
+	public Vector3 WorldToScreenPoint(Vector3 worldPosition)
+	{
+		Vector3 screenPosition;
+		InternalCalls.CameraComponent_WorldToScreenPoint(Entity.ID, &worldPosition, &screenPosition);
+		return screenPosition;
+	}
 }

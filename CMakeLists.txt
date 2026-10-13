@@ -33,7 +33,7 @@ if(STRADA_BUILD_TESTS)
         OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/FeatureTest"
         DEPENDS StradaScriptCore
         PROPERTIES "StradaScriptCoreAssembly=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Strada.ScriptCore.dll")
-    # The Blocks sample's scripts: StradaRuntimeTests plays its test scene.
+    # The Blocks sample's scripts: StradaRuntimeTests plays its test scene and StradaEditorTests plays the game in play mode.
     strada_add_dotnet_project(StradaBlocksScripts
         PROJECT "${PROJECT_SOURCE_DIR}/Projects/Blocks/Scripts/Blocks.csproj"
         OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/Blocks"

@@ -277,6 +277,48 @@ TEST_CASE("Scene: scripts work in world space through their transforms")
 	scene.OnRuntimeStop();
 }
 
+TEST_CASE("Scene: cameras turn world positions into screen positions and screen positions into rays")
+{
+	Testing::ScriptEngineScope scripting;
+	auto const addProbe = [](Scene& scene)
+	{
+		// Ten meters in front of the origin, looking at it.
+		Entity probe = AddScript(scene, "Probe", "Strada.Tests.CameraProbe");
+		probe.GetComponent<TransformComponent>().Translation = {0.0f, 0.0f, 10.0f};
+		CameraComponent& camera = probe.AddComponent<CameraComponent>();
+		camera.PerspectiveFOV = 90.0f;
+		camera.PerspectiveNear = 0.1f;
+		return probe;
+	};
+
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Camera");
+	scene.OnViewportResize(800, 600);
+	Entity const probe = addProbe(scene);
+	scene.OnRuntimeStart();
+	CHECK(probe.GetName() == "Ahead=(400, 300, 10);Above=(400, 150, 10);Right=(550, 300, 10);Behind=-10;Plane=True,0;Back=200,150;"
+	                         "Refused=(0, 0, 0);TooFar=(0, 0, 0);Missing=(0, 0, 0);Squashed=(0, 0, 0),(0, 0, 0),(0, 0, -1);"
+	                         "Orthographic=(550, 300, 10);OrthographicBehind=(550, 300, -10)");
+	CHECK(Testing::WasLogged(logStart, "CameraComponent.WorldToScreenPoint: the value is not a finite number"));
+	CHECK(Testing::WasLogged(logStart, "CameraComponent.WorldToScreenPoint: the point is too far away to show on the screen"));
+	CHECK(Testing::WasLogged(logStart, "has no Camera component"));
+	CHECK(Testing::WasLogged(logStart, "CameraComponent.WorldToScreenPoint: the camera's world scale is zero or too large"));
+	CHECK(Testing::WasLogged(logStart, "CameraComponent.ScreenToWorldRay: the camera's world scale is zero or too large"));
+	scene.OnRuntimeStop();
+
+	// Without a viewport there is no screen to place points on.
+	uint64_t const unsizedStart = Log::GetNextEntryIndex();
+	Scene unsized("Unsized");
+	Entity const unsizedProbe = addProbe(unsized);
+	unsized.OnRuntimeStart();
+	CHECK(unsizedProbe.GetName() == "Ahead=(0, 0, 0);Above=(0, 0, 0);Right=(0, 0, 0);Behind=0;Plane=False,0;Back=0,0;"
+	                                "Refused=(0, 0, 0);TooFar=(0, 0, 0);Missing=(0, 0, 0);Squashed=(0, 0, 0),(0, 0, 0),(0, 0, -1);"
+	                                "Orthographic=(0, 0, 0);OrthographicBehind=(0, 0, 0)");
+	CHECK(Testing::WasLogged(unsizedStart, "CameraComponent.WorldToScreenPoint: the scene has no viewport size"));
+	CHECK(Testing::WasLogged(unsizedStart, "CameraComponent.ScreenToWorldRay: the scene has no viewport size"));
+	unsized.OnRuntimeStop();
+}
+
 TEST_CASE("Scene: scripts drive physics bodies, raycasts and gravity")
 {
 	Testing::PhysicsSystemScope physics;

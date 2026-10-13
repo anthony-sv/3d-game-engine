@@ -31,6 +31,9 @@ public readonly struct Piece : IEquatable<Piece>
 		[["..#.", "###.", "....", "...."], [".#..", ".#..", ".##.", "...."], ["....", "###.", "#...", "...."], ["##..", ".#..", ".#..", "...."]],
 	];
 
+	// The four cells of each shape in each rotation, read once from the drawings above.
+	private static readonly (int Column, int Row)[][][] s_Cells = ReadCells();
+
 	public Piece(PieceKind kind, int x, int y, int rotation)
 	{
 		Kind = kind;
@@ -51,19 +54,16 @@ public readonly struct Piece : IEquatable<Piece>
 	{
 		get
 		{
-			string[] rows = s_Shapes[(int)Kind][Rotation];
-			for (int row = 0; row < 4; row++)
+			foreach ((int column, int row) in s_Cells[(int)Kind][Rotation])
 			{
-				for (int column = 0; column < 4; column++)
-				{
-					if (rows[row][column] == '#')
-					{
-						yield return (X + column, Y - row);
-					}
-				}
+				yield return (X + column, Y - row);
 			}
 		}
 	}
+
+	/// <summary>The four cells of a kind's shape in a rotation (clockwise quarter turns): columns from the left edge of its
+	/// 4x4 box and rows down from its top edge.</summary>
+	public static ReadOnlySpan<(int Column, int Row)> ShapeCells(PieceKind kind, int rotation) => s_Cells[(int)kind][((rotation % 4) + 4) % 4];
 
 	public Piece Moved(int columns, int rows) => new(Kind, X + columns, Y + rows, Rotation);
 
@@ -78,6 +78,31 @@ public readonly struct Piece : IEquatable<Piece>
 	public static bool operator ==(Piece left, Piece right) => left.Equals(right);
 
 	public static bool operator !=(Piece left, Piece right) => !left.Equals(right);
+
+	private static (int Column, int Row)[][][] ReadCells()
+	{
+		(int Column, int Row)[][][] cells = new (int, int)[s_Shapes.Length][][];
+		for (int kind = 0; kind < s_Shapes.Length; kind++)
+		{
+			cells[kind] = new (int, int)[4][];
+			for (int rotation = 0; rotation < 4; rotation++)
+			{
+				List<(int Column, int Row)> shape = [];
+				for (int row = 0; row < 4; row++)
+				{
+					for (int column = 0; column < 4; column++)
+					{
+						if (s_Shapes[kind][rotation][row][column] == '#')
+						{
+							shape.Add((column, row));
+						}
+					}
+				}
+				cells[kind][rotation] = [.. shape];
+			}
+		}
+		return cells;
+	}
 }
 
 /// <summary>The rules of the board: 10 columns, 20 visible rows and hidden rows above them where pieces appear. Rows count
@@ -95,6 +120,9 @@ public sealed class Board
 
 	/// <summary>The kind of the piece the settled cell came from, or null when it is empty.</summary>
 	public PieceKind? this[int x, int y] => IsInside(x, y) ? m_Cells[x, y] : null;
+
+	/// <summary>Where a turn that does not fit in place tries the turned piece, in order (columns right and rows up).</summary>
+	public static ReadOnlySpan<(int X, int Y)> Kicks => s_Kicks;
 
 	public static bool IsInside(int x, int y) => x >= 0 && x < Width && y >= 0 && y < Height + HiddenRows;
 
@@ -114,8 +142,10 @@ public sealed class Board
 	/// <summary>Whether the piece lies inside the board on empty cells.</summary>
 	public bool Fits(Piece piece)
 	{
-		foreach ((int x, int y) in piece.Cells)
+		foreach ((int column, int row) in Piece.ShapeCells(piece.Kind, piece.Rotation))
 		{
+			int x = piece.X + column;
+			int y = piece.Y - row;
 			if (!IsInside(x, y) || m_Cells[x, y] is not null)
 			{
 				return false;
@@ -156,9 +186,10 @@ public sealed class Board
 	public bool Lock(Piece piece)
 	{
 		bool visible = false;
-		foreach ((int x, int y) in piece.Cells)
+		foreach ((int column, int row) in Piece.ShapeCells(piece.Kind, piece.Rotation))
 		{
-			m_Cells[x, y] = piece.Kind;
+			int y = piece.Y - row;
+			m_Cells[piece.X + column, y] = piece.Kind;
 			visible |= y < Height;
 		}
 		return visible;
@@ -194,10 +225,19 @@ public sealed class Board
 
 	public void Clear() => Array.Clear(m_Cells);
 
+	/// <summary>A copy of the board, to try placements on.</summary>
+	public Board Copy()
+	{
+		Board copy = new();
+		Array.Copy(m_Cells, copy.m_Cells, m_Cells.Length);
+		return copy;
+	}
+
 	/// <summary>Settles a cell directly (to set up situations, as tests do).</summary>
 	public void Set(int x, int y, PieceKind? kind) => m_Cells[x, y] = kind;
 
-	private bool IsFull(int y)
+	/// <summary>Whether every cell of the row is settled.</summary>
+	public bool IsFull(int y)
 	{
 		for (int x = 0; x < Width; x++)
 		{

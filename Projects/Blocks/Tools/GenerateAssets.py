@@ -1,9 +1,13 @@
-"""Generates the Blocks project's sounds, its beveled block mesh and the grid texture of its board (Assets/Audio, Assets/Meshes,
-Assets/Textures). Everything is computed here, deterministically, so the files have no license of their own:
+"""Generates the Blocks project's sounds, its beveled block mesh, the grid texture of its board and the images of its screen
+(a glow, an accent gradient, a gloss and the arrows of the arrow keys; Assets/Audio, Assets/Meshes, Assets/Textures), then
+checks the sounds: their lengths, levels, clean starts and ends, and that each one is what its action needs (short ticks for
+moves, a low thump for hard drops, clears that grow with the rows). Everything is computed here, deterministically, so the
+files have no license of their own:
 
     python Projects/Blocks/Tools/GenerateAssets.py
 """
 import base64
+import cmath
 import json
 import math
 import os
@@ -13,12 +17,14 @@ import wave
 import zlib
 
 RATE = 22050
+# Effects are short: they use the full rate for crisp transients and sparkle.
+EFFECT_RATE = 44100
 ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Assets")
 
 
 # --- Sound ------------------------------------------------------------------------------------------------------------
 
-def write_wav(name, samples, peak=0.85):
+def write_wav(name, samples, peak=0.85, rate=RATE):
     loudest = max(1e-9, max(abs(sample) for sample in samples))
     scale = peak / loudest
     path = os.path.join(ASSETS, "Audio", name)
@@ -26,7 +32,7 @@ def write_wav(name, samples, peak=0.85):
     with wave.open(path, "wb") as file:
         file.setnchannels(1)
         file.setsampwidth(2)
-        file.setframerate(RATE)
+        file.setframerate(rate)
         file.writeframes(b"".join(struct.pack("<h", int(max(-1.0, min(1.0, sample * scale)) * 32767)) for sample in samples))
 
 
@@ -42,33 +48,42 @@ def triangle(phase):
     return 4.0 * abs((phase % 1.0) - 0.5) - 1.0
 
 
-def tone(frequency, seconds, wave_shape, volume=1.0, attack=0.005, decay=None, slide=0.0):
+def sine(phase):
+    return math.sin(2.0 * math.pi * phase)
+
+
+def pulse(phase, duty=0.25):
+    """A pulse wave without the offset an uneven duty cycle gives it."""
+    return square(phase, duty) - (2.0 * duty - 1.0)
+
+
+def tone(frequency, seconds, wave_shape, volume=1.0, attack=0.005, decay=None, slide=0.0, rate=RATE):
     """One note: a waveform with a short attack and an exponential or linear fade; slide bends the pitch (octaves)."""
-    count = int(seconds * RATE)
+    count = int(seconds * rate)
     out = []
     phase = 0.0
     for i in range(count):
-        t = i / RATE
+        t = i / rate
         progress = i / count
-        phase += frequency * 2.0 ** (slide * progress) / RATE
+        phase += frequency * 2.0 ** (slide * progress) / rate
         envelope = min(1.0, t / attack) * (math.exp(-t / decay) if decay else 1.0 - progress)
         out.append(volume * envelope * wave_shape(phase))
     return out
 
 
-def mix(*parts):
+def mix(*parts, rate=RATE):
     """Adds sounds, each (start in seconds, samples)."""
-    length = max(int(start * RATE) + len(samples) for start, samples in parts)
+    length = max(int(start * rate) + len(samples) for start, samples in parts)
     out = [0.0] * length
     for start, samples in parts:
-        offset = int(start * RATE)
+        offset = int(start * rate)
         for i, sample in enumerate(samples):
             out[offset + i] += sample
     return out
 
 
-def fade_out(samples, seconds=0.01):
-    count = min(len(samples), int(seconds * RATE))
+def fade_out(samples, seconds=0.01, rate=RATE):
+    count = min(len(samples), int(seconds * rate))
     for i in range(count):
         samples[-1 - i] *= i / count
     return samples
@@ -79,8 +94,7 @@ def music():
     random.seed(11)
     beat = 60.0 / 128.0
     step = beat / 2.0
-    # Chords per bar (A minor, F, C, G), with a melody of eighth notes over them (rests as None).
-    bars = [(57, 53, 48, 55)] * 4
+    # Melody of eighth notes over the chords A minor, F, C, G (rests as None).
     melody = [
         [76, None, 72, 74, 76, None, 74, 72], [72, None, 69, 72, 74, None, 72, 69],
         [67, None, 64, 67, 72, None, 71, 72], [74, None, 71, 67, 71, 74, None, None],
@@ -114,33 +128,371 @@ def music():
             for j in range(int(0.03 * RATE)):
                 out[offset + j] += random.uniform(-1.0, 1.0) * 0.05 * (1.0 - j / (0.03 * RATE))
             if i % 2 == 0:
-                for j, sample in enumerate(tone(110.0, 0.12, lambda phase: math.sin(2.0 * math.pi * phase), 0.4, decay=0.05, slide=-1.5)):
+                for j, sample in enumerate(tone(110.0, 0.12, sine, 0.4, decay=0.05, slide=-1.5)):
                     out[offset + j] += sample
     for i, sample in enumerate(out[loop:]):
         out[i] += sample
     return out[:loop]
 
 
-def sounds():
-    random.seed(12)
-    pulse = lambda duty: (lambda phase: square(phase, duty))  # noqa: E731
-    sine = lambda phase: math.sin(2.0 * math.pi * phase)  # noqa: E731
-    noise = lambda phase: random.uniform(-1.0, 1.0)  # noqa: E731
-    return {
-        "Move.wav": fade_out(tone(880.0, 0.035, pulse(0.5), decay=0.02)),
-        "Rotate.wav": fade_out(tone(660.0, 0.07, pulse(0.25), slide=0.6, decay=0.05)),
-        "Lock.wav": fade_out(mix((0.0, tone(180.0, 0.09, sine, decay=0.04, slide=-0.5)), (0.0, tone(0.0, 0.02, noise, 0.4)))),
-        "Drop.wav": fade_out(mix((0.0, tone(150.0, 0.22, sine, decay=0.08, slide=-1.2)), (0.0, tone(0.0, 0.06, noise, 0.5, decay=0.02)))),
-        "Clear.wav": fade_out(mix(*[(index * 0.06, tone(note(midi), 0.25, pulse(0.5), 0.5, decay=0.12))
-                                    for index, midi in enumerate((72, 76, 79))])),
-        "BigClear.wav": fade_out(mix(*[(index * 0.07, tone(note(midi), 0.45, pulse(0.25), 0.5, decay=0.25))
-                                       for index, midi in enumerate((72, 76, 79, 84, 88))],
-                                     (0.0, tone(0.0, 0.5, noise, 0.15, decay=0.2)))),
-        "LevelUp.wav": fade_out(mix(*[(index * 0.09, tone(note(midi), 0.2, pulse(0.5), 0.5, decay=0.15))
-                                      for index, midi in enumerate((67, 72, 76, 79, 84))])),
-        "GameOver.wav": fade_out(mix(*[(index * 0.22, tone(note(midi), 0.4, triangle, 0.7, decay=0.3))
-                                       for index, midi in enumerate((67, 63, 60, 55))])),
-    }
+# --- Effects (EFFECT_RATE) --------------------------------------------------------------------------------------------
+
+def effect_mix(*parts):
+    return mix(*parts, rate=EFFECT_RATE)
+
+
+def bell(frequency, seconds, volume=1.0, decay=0.25, attack=0.002, partials=((1.0, 1.0, 1.0), (2.0, 0.45, 0.6), (3.0, 0.2, 0.4),
+                                                                          (4.16, 0.1, 0.25))):
+    """A bell-like note: sine partials (frequency ratio, amplitude, decay relative to the note's) that ring out."""
+    count = int(seconds * EFFECT_RATE)
+    out = [0.0] * count
+    for ratio, amplitude, relative in partials:
+        # Partials above half the sample rate would fold back as harsh, unrelated tones.
+        if frequency * ratio >= EFFECT_RATE / 2.0:
+            continue
+        step = 2.0 * math.pi * frequency * ratio / EFFECT_RATE
+        partial_decay = decay * relative
+        for i in range(count):
+            t = i / EFFECT_RATE
+            out[i] += volume * amplitude * min(1.0, t / attack) * math.exp(-t / partial_decay) * math.sin(step * i)
+    return out
+
+
+def sweep(start, end, seconds, wave_shape, volume=1.0, attack=0.003, decay=None):
+    """A note whose pitch glides exponentially from start to end (Hz), with an attack and an exponential or linear fade."""
+    count = int(seconds * EFFECT_RATE)
+    out = []
+    phase = 0.0
+    for i in range(count):
+        t = i / EFFECT_RATE
+        progress = i / count
+        phase += start * (end / start) ** progress / EFFECT_RATE
+        envelope = min(1.0, t / attack) * (math.exp(-t / decay) if decay else 1.0 - progress)
+        out.append(volume * envelope * wave_shape(phase))
+    return out
+
+
+def noise_burst(seconds, volume=1.0, attack=0.001, decay=0.01, seed=0):
+    generator = random.Random(seed)
+    count = int(seconds * EFFECT_RATE)
+    return [volume * min(1.0, (i / EFFECT_RATE) / attack) * math.exp(-(i / EFFECT_RATE) / decay) * generator.uniform(-1.0, 1.0)
+            for i in range(count)]
+
+
+def band_pass(samples, center, q=2.0):
+    """A resonant band-pass (RBJ biquad, constant peak gain)."""
+    omega = 2.0 * math.pi * center / EFFECT_RATE
+    alpha = math.sin(omega) / (2.0 * q)
+    b0, b2 = alpha, -alpha
+    a0, a1, a2 = 1.0 + alpha, -2.0 * math.cos(omega), 1.0 - alpha
+    out = []
+    x1 = x2 = y1 = y2 = 0.0
+    for x in samples:
+        y = (b0 * x + b2 * x2 - a1 * y1 - a2 * y2) / a0
+        out.append(y)
+        x2, x1 = x1, x
+        y2, y1 = y1, y
+    return out
+
+
+def low_pass(samples, cutoff):
+    """A one-pole low-pass."""
+    k = 1.0 - math.exp(-2.0 * math.pi * cutoff / EFFECT_RATE)
+    out = []
+    y = 0.0
+    for x in samples:
+        y += k * (x - y)
+        out.append(y)
+    return out
+
+
+def saturate(samples, drive):
+    """Soft clipping that thickens a sound without hard edges."""
+    norm = math.tanh(drive)
+    return [math.tanh(drive * sample) / norm for sample in samples]
+
+
+def finish(samples, fade=0.012):
+    """Ends the sound smoothly."""
+    return fade_out(samples, fade, EFFECT_RATE)
+
+
+def move_sound():
+    """A soft, short tick: it repeats quickly while a key is held."""
+    return finish(effect_mix((0.0, bell(1480.0, 0.045, 0.8, decay=0.014, partials=((1.0, 1.0, 1.0), (2.7, 0.3, 0.5)))),
+                             (0.0, band_pass(noise_burst(0.01, 0.6, decay=0.0015, seed=1), 4200.0, 1.5))), 0.008)
+
+
+def rotate_sound():
+    """A quick rising blip with a breath of air: the piece swings round."""
+    blip = sweep(620.0, 1500.0, 0.085, triangle, 0.9, attack=0.002, decay=0.03)
+    air = band_pass(noise_burst(0.07, 0.5, attack=0.012, decay=0.02, seed=2), 3200.0, 1.2)
+    return finish(effect_mix((0.0, blip), (0.0, air)))
+
+
+def hold_sound():
+    """A swap: down, then up, with a soft whoosh, as a piece goes aside and another comes back."""
+    down = sweep(1050.0, 520.0, 0.07, triangle, 0.8, attack=0.004, decay=0.05)
+    up = sweep(520.0, 1250.0, 0.09, triangle, 0.85, attack=0.004, decay=0.05)
+    whoosh = band_pass(noise_burst(0.17, 0.45, attack=0.05, decay=0.06, seed=3), 1600.0, 0.9)
+    return finish(effect_mix((0.0, down), (0.065, up), (0.0, whoosh)), 0.02)
+
+
+def soft_drop_sound():
+    """A muted low tick for each row a soft drop moves the piece."""
+    body = bell(240.0, 0.035, 1.0, decay=0.009, partials=((1.0, 1.0, 1.0), (2.0, 0.3, 0.6)))
+    click = band_pass(noise_burst(0.006, 0.4, decay=0.001, seed=4), 2400.0, 1.0)
+    return finish(effect_mix((0.0, body), (0.0, click)), 0.006)
+
+
+def lock_sound():
+    """A woody clack: a piece settles."""
+    knock = band_pass(noise_burst(0.05, 1.0, decay=0.012, seed=5), 1900.0, 3.0)
+    body = bell(210.0, 0.12, 0.9, decay=0.04, partials=((1.0, 1.0, 1.0), (2.03, 0.5, 0.6), (3.1, 0.2, 0.4)))
+    return finish(effect_mix((0.0, knock), (0.0, body)))
+
+
+def drop_sound():
+    """The hard drop: a solid, low thump with a knock on top, so it lands on small speakers too."""
+    count = int(0.42 * EFFECT_RATE)
+    phase = 0.0
+    thump = []
+    for i in range(count):
+        t = i / EFFECT_RATE
+        # The pitch falls fast from a punch to a low body.
+        frequency = 46.0 + 120.0 * math.exp(-t / 0.035)
+        phase += frequency / EFFECT_RATE
+        thump.append(min(1.0, t / 0.0015) * math.exp(-t / 0.11) * math.sin(2.0 * math.pi * phase))
+    knock = bell(300.0, 0.08, 0.35, decay=0.02, partials=((1.0, 1.0, 1.0), (2.4, 0.4, 0.5)))
+    crack = low_pass(noise_burst(0.03, 0.6, decay=0.006, seed=6), 2500.0)
+    return finish(saturate(effect_mix((0.0, thump), (0.0, knock), (0.0, crack)), 1.8), 0.03)
+
+
+def chime(notes, spacing, decay, volume=0.8, brightness=1.0):
+    """Notes rung one after another (MIDI numbers)."""
+    partials = ((1.0, 1.0, 1.0), (2.0, 0.45 * brightness, 0.6), (3.0, 0.22 * brightness, 0.4), (4.16, 0.1 * brightness, 0.25))
+    return effect_mix(*[(index * spacing, bell(note(midi), decay * 5.0, volume, decay=decay, partials=partials))
+                        for index, midi in enumerate(notes)])
+
+
+def sparkle(seconds, count, seed, volume=0.18):
+    """High glints at random moments."""
+    generator = random.Random(seed)
+    parts = [(generator.uniform(0.0, seconds * 0.7), bell(note(generator.choice((96, 100, 103, 108))), 0.25, volume, decay=0.05))
+             for _ in range(count)]
+    return effect_mix(*parts)
+
+
+def pad(notes, seconds, volume, decay):
+    """A soft body under a chime: sine notes (MIDI numbers) that swell in and fade."""
+    count = int(seconds * EFFECT_RATE)
+    out = [0.0] * count
+    for midi in notes:
+        step = 2.0 * math.pi * note(midi) / EFFECT_RATE
+        for i in range(count):
+            t = i / EFFECT_RATE
+            out[i] += volume * min(1.0, t / 0.03) * math.exp(-t / decay) * math.sin(step * i)
+    return out
+
+
+def single_sound():
+    return finish(chime((72, 79), 0.06, 0.07, brightness=0.8), 0.03)
+
+
+def double_sound():
+    return finish(effect_mix((0.0, chime((72, 76, 79), 0.055, 0.1)), (0.0, pad((60, 67), 0.6, 0.25, 0.18)),
+                             (0.08, sparkle(0.3, 3, 7, 0.1))), 0.03)
+
+
+def triple_sound():
+    bright = chime((72, 76, 79, 84), 0.05, 0.12, brightness=1.2)
+    body = effect_mix(*[(0.0, tone(note(midi), 0.45, pulse, 0.12, attack=0.01, decay=0.15, rate=EFFECT_RATE))
+                        for midi in (60, 64)])
+    return finish(effect_mix((0.0, bright), (0.0, low_pass(body, 2500.0)), (0.0, pad((48, 60, 67), 0.8, 0.22, 0.24)),
+                             (0.1, sparkle(0.4, 5, 8, 0.12))), 0.04)
+
+
+def tetris_sound():
+    """Four rows at once: a fast run up two octaves over a swelling chord, a low boom and glints."""
+    run = chime((60, 64, 67, 72, 76, 79, 84), 0.035, 0.16, 0.7, brightness=1.2)
+    chord = []
+    count = int(1.3 * EFFECT_RATE)
+    phases = [0.0] * 8
+    voices = [note(midi) * detune for midi in (60, 64, 67, 72) for detune in (0.997, 1.003)]
+    for i in range(count):
+        t = i / EFFECT_RATE
+        envelope = min(1.0, t / 0.05) * math.exp(-t / 0.55)
+        value = 0.0
+        for v, frequency in enumerate(voices):
+            phases[v] += frequency / EFFECT_RATE
+            # Sawtooth.
+            value += 2.0 * (phases[v] % 1.0) - 1.0
+        chord.append(0.1 * envelope * value)
+    chord = low_pass(low_pass(chord, 2200.0), 3000.0)
+    boom = sweep(90.0, 42.0, 0.5, sine, 0.55, attack=0.002, decay=0.16)
+    whoosh = band_pass(noise_burst(0.6, 0.35, attack=0.18, decay=0.14, seed=9), 2600.0, 0.8)
+    body = pad((48, 55, 60, 64), 1.3, 0.16, 0.5)
+    layers = effect_mix((0.0, boom), (0.0, chord), (0.0, body), (0.02, run), (0.0, whoosh), (0.25, sparkle(0.9, 9, 10, 0.2)))
+    return finish(saturate(layers, 1.4), 0.08)
+
+
+def level_up_sound():
+    """A fanfare: a quick run up to a ringing chord with vibrato."""
+    run = effect_mix(*[(index * 0.075, tone(note(midi), 0.12, pulse, 0.4, attack=0.004, decay=0.08,
+                                            rate=EFFECT_RATE))
+                       for index, midi in enumerate((67, 72, 76))])
+    count = int(0.75 * EFFECT_RATE)
+    held = []
+    phases = [0.0, 0.0]
+    for i in range(count):
+        t = i / EFFECT_RATE
+        vibrato = 1.0 + 0.006 * math.sin(2.0 * math.pi * 6.0 * t) * min(1.0, t / 0.2)
+        envelope = min(1.0, t / 0.01) * math.exp(-t / 0.35)
+        value = 0.0
+        for v, midi in enumerate((79, 84)):
+            phases[v] += note(midi) * vibrato / EFFECT_RATE
+            value += pulse(phases[v])
+        held.append(0.22 * envelope * value)
+    return finish(effect_mix((0.0, run), (0.225, low_pass(held, 3500.0)), (0.25, sparkle(0.5, 4, 11, 0.1))), 0.06)
+
+
+def game_over_sound():
+    """A falling minor phrase that settles on a low, fading note."""
+    phrase = effect_mix(*[(index * 0.24, tone(note(midi), 0.36, triangle, 0.7, attack=0.008, decay=0.22, rate=EFFECT_RATE))
+                          for index, midi in enumerate((67, 63, 60))])
+    count = int(1.1 * EFFECT_RATE)
+    low = []
+    phases = [0.0, 0.0]
+    for i in range(count):
+        t = i / EFFECT_RATE
+        vibrato = 1.0 + 0.008 * math.sin(2.0 * math.pi * 4.5 * t)
+        envelope = min(1.0, t / 0.01) * math.exp(-t / 0.42)
+        value = 0.0
+        for v, midi in enumerate((43, 55)):
+            phases[v] += note(midi) * vibrato / EFFECT_RATE
+            value += triangle(phases[v])
+        low.append(0.45 * envelope * value)
+    rumble = low_pass(noise_burst(0.9, 0.5, attack=0.05, decay=0.3, seed=12), 180.0)
+    return finish(effect_mix((0.0, phrase), (0.72, low), (0.72, rumble)), 0.1)
+
+
+def start_sound():
+    """A power-up: a rising sweep into a bright chord."""
+    rise = sweep(note(57), note(81), 0.24, pulse, 0.35, attack=0.01)
+    stab = chime((72, 76, 79, 84), 0.0, 0.14, 0.6)
+    return finish(effect_mix((0.0, low_pass(rise, 3000.0)), (0.22, stab), (0.24, sparkle(0.3, 3, 13, 0.1))), 0.05)
+
+
+def pause_sound():
+    """Two soft notes: the game holds (played higher when it goes on)."""
+    return finish(chime((76, 71), 0.07, 0.06, 0.7, brightness=0.6), 0.02)
+
+
+EFFECTS = {
+    "Move.wav": move_sound,
+    "Rotate.wav": rotate_sound,
+    "Hold.wav": hold_sound,
+    "SoftDrop.wav": soft_drop_sound,
+    "Lock.wav": lock_sound,
+    "Drop.wav": drop_sound,
+    "Single.wav": single_sound,
+    "Double.wav": double_sound,
+    "Triple.wav": triple_sound,
+    "Tetris.wav": tetris_sound,
+    "LevelUp.wav": level_up_sound,
+    "GameOver.wav": game_over_sound,
+    "Start.wav": start_sound,
+    "Pause.wav": pause_sound,
+}
+
+# What each effect must be, checked on the written files: (shortest, longest) in seconds, and the highest spectral centroid
+# in Hz (where the sound's energy sits) for the low ones.
+EXPECTED_LENGTHS = {
+    "Move.wav": (0.02, 0.08), "Rotate.wav": (0.05, 0.15), "Hold.wav": (0.1, 0.25), "SoftDrop.wav": (0.015, 0.06),
+    "Lock.wav": (0.05, 0.2), "Drop.wav": (0.2, 0.6), "Single.wav": (0.2, 0.7), "Double.wav": (0.3, 0.9),
+    "Triple.wav": (0.4, 1.2), "Tetris.wav": (0.9, 2.0), "LevelUp.wav": (0.6, 1.4), "GameOver.wav": (1.2, 2.6),
+    "Start.wav": (0.3, 1.0), "Pause.wav": (0.1, 0.5),
+}
+EFFECT_PEAK = 0.89
+
+
+# --- Checks -----------------------------------------------------------------------------------------------------------
+
+def read_wav(path):
+    with wave.open(path, "rb") as file:
+        if file.getnchannels() != 1 or file.getsampwidth() != 2:
+            raise SystemExit(f"{path}: expected 16-bit mono")
+        rate = file.getframerate()
+        frames = file.readframes(file.getnframes())
+    return [value / 32767.0 for (value,) in struct.iter_unpack("<h", frames)], rate
+
+
+def decibels(value):
+    return 20.0 * math.log10(max(value, 1e-9))
+
+
+def spectral_centroid(samples, rate, size=2048, bins=256, top=8000.0):
+    """The energy-weighted mean frequency of the sound's start (a Hann-windowed DFT of its first samples)."""
+    window = samples[:size]
+    count = len(window)
+    weighted = [sample * (0.5 - 0.5 * math.cos(2.0 * math.pi * i / max(count - 1, 1))) for i, sample in enumerate(window)]
+    total = 0.0
+    moment = 0.0
+    for k in range(1, bins + 1):
+        frequency = top * k / bins
+        step = cmath.exp(-2j * math.pi * frequency / rate)
+        value = 0j
+        rotation = 1 + 0j
+        for sample in weighted:
+            value += sample * rotation
+            rotation *= step
+        power = abs(value) ** 2
+        total += power
+        moment += power * frequency
+    return moment / total if total > 0.0 else 0.0
+
+
+def check_sounds():
+    """Reads the effects back and checks them; returns their measurements, or exits naming what is wrong."""
+    problems = []
+    report = {}
+    for name in EFFECTS:
+        samples, rate = read_wav(os.path.join(ASSETS, "Audio", name))
+        seconds = len(samples) / rate
+        peak = max(abs(sample) for sample in samples)
+        energy = sum(sample * sample for sample in samples)
+        rms = math.sqrt(energy / len(samples))
+        dc = sum(samples) / len(samples)
+        centroid = spectral_centroid(samples, rate)
+        report[name] = {"seconds": seconds, "peak": decibels(peak), "rms": decibels(rms), "energy": energy, "centroid": centroid}
+        shortest, longest = EXPECTED_LENGTHS[name]
+        if not shortest <= seconds <= longest:
+            problems.append(f"{name} lasts {seconds:.3f} s, expected {shortest} to {longest} s")
+        if not -1.5 <= decibels(peak) <= -0.5:
+            problems.append(f"{name} peaks at {decibels(peak):.1f} dBFS, expected about {decibels(EFFECT_PEAK):.1f}")
+        if abs(samples[0]) > 0.02 or abs(samples[-1]) > 0.02:
+            problems.append(f"{name} starts or ends with a click ({samples[0]:.3f}, {samples[-1]:.3f})")
+        if abs(dc) > 0.02:
+            problems.append(f"{name} is off center by {dc:.3f}")
+        if rate != EFFECT_RATE:
+            problems.append(f"{name} has {rate} Hz, expected {EFFECT_RATE}")
+    # A hard drop is a low thump, lower than a lock's clack and the ticks.
+    if report["Drop.wav"]["centroid"] > 400.0:
+        problems.append(f"Drop.wav is not low: its energy centers at {report['Drop.wav']['centroid']:.0f} Hz")
+    for other in ("Lock.wav", "Move.wav", "SoftDrop.wav"):
+        if report[other]["centroid"] <= report["Drop.wav"]["centroid"]:
+            problems.append(f"{other} is not higher than Drop.wav")
+    # Bigger clears last longer and carry more energy.
+    clears = ["Single.wav", "Double.wav", "Triple.wav", "Tetris.wav"]
+    for smaller, bigger in zip(clears, clears[1:]):
+        if report[bigger]["seconds"] <= report[smaller]["seconds"] or report[bigger]["energy"] <= report[smaller]["energy"]:
+            problems.append(f"{bigger} is not bigger than {smaller}")
+    for name, values in report.items():
+        print(f"  {name:13} {values['seconds']:6.3f} s  peak {values['peak']:5.1f} dBFS  rms {values['rms']:6.1f} dBFS  "
+              f"centroid {values['centroid']:6.0f} Hz")
+    if problems:
+        raise SystemExit("the sounds are not as expected:\n  " + "\n  ".join(problems))
+    return report
 
 
 # --- The block mesh: a cube with chamfered edges, flat-shaded ------------------------------------------------------------
@@ -235,31 +587,94 @@ def write_mesh():
         json.dump(document, file)
 
 
-# --- The board's grid: thin glowing lines on black, one cell per tile ------------------------------------------------------
+# --- Images: the board's grid, and the screen's glow, accent, gloss and arrows ----------------------------------------------
 
 def write_png(path, width, height, pixel):
+    """Writes an 8-bit PNG of the pixels (RGB tuples, or RGBA ones for images with transparency)."""
+    channels = len(pixel(0, 0))
     rows = b"".join(b"\0" + b"".join(bytes(pixel(x, y)) for x in range(width)) for y in range(height))
 
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
 
+    color_type = 6 if channels == 4 else 2
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as file:
-        file.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) +
+        file.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)) +
                    chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
 
 
 def grid_pixel(x, y, size=128):
+    """Thin glowing lines on black, one cell per tile."""
     distance = min(x, y, size - 1 - x, size - 1 - y)
     glow = max(0.0, 1.0 - distance / 3.0) ** 2
     value = int(255 * glow)
     return (value, value, value)
 
 
+def rounded_rectangle_distance(x, y, half_width, half_height, radius):
+    """Signed distance from a rounded rectangle centered on the origin (negative inside)."""
+    qx = abs(x) - half_width + radius
+    qy = abs(y) - half_height + radius
+    return math.hypot(max(qx, 0.0), max(qy, 0.0)) + min(max(qx, qy), 0.0) - radius
+
+
+GLOW_SIZE = (192, 64)
+
+
+def glow_pixel(x, y, margin=20.0, radius=12.0, softness=8.0):
+    """White light around a rounded rectangle that fills the image but a margin: full inside, fading with the distance
+    outside it. The screen stretches it behind buttons and the title, as wide and high as they are plus a margin about as
+    large, for the same falloff on every side."""
+    width, height = GLOW_SIZE
+    outside = rounded_rectangle_distance(x + 0.5 - width / 2.0, y + 0.5 - height / 2.0, width / 2.0 - margin, height / 2.0 - margin, radius)
+    alpha = 1.0 if outside <= 0.0 else math.exp(-(outside / softness) ** 2)
+    return (255, 255, 255, round(255 * alpha))
+
+
+# The screen's accent: cyan through violet to magenta, the colors of the board's neon and the dusk.
+ACCENT = ((64, 224, 255), (150, 112, 255), (255, 82, 196))
+
+
+def accent_pixel(x, y, width=256):
+    position = x / (width - 1) * (len(ACCENT) - 1)
+    index = min(int(position), len(ACCENT) - 2)
+    blend = position - index
+    return tuple(round(a + (b - a) * blend) for a, b in zip(ACCENT[index], ACCENT[index + 1]))
+
+
+def gloss_pixel(x, y, height=64):
+    """A sheen that is brightest at the top and gone at the bottom."""
+    alpha = 0.55 * (1.0 - y / (height - 1)) ** 1.6
+    return (255, 255, 255, round(255 * alpha))
+
+
+def arrow_pixel(direction, size=64, samples=4):
+    """A solid triangle pointing in a direction (up, down, left or right), antialiased by supersampling."""
+    def inside(px, py):
+        # The upward triangle in the unit square, turned to the direction.
+        u, v = {"up": (px, py), "down": (px, 1.0 - py), "left": (py, px), "right": (py, 1.0 - px)}[direction]
+        top, bottom, half = 0.22, 0.78, 0.36
+        return top <= v <= bottom and abs(u - 0.5) <= half * (v - top) / (bottom - top)
+
+    def pixel(x, y):
+        hits = sum(inside((x + (i + 0.5) / samples) / size, (y + (j + 0.5) / samples) / size) for i in range(samples) for j in range(samples))
+        return (255, 255, 255, round(255 * hits / (samples * samples)))
+    return pixel
+
+
 if __name__ == "__main__":
     write_wav("Music.wav", music(), 0.75)
-    for name, samples in sounds().items():
-        write_wav(name, samples)
+    for name, make in EFFECTS.items():
+        write_wav(name, make(), EFFECT_PEAK, EFFECT_RATE)
     write_mesh()
-    write_png(os.path.join(ASSETS, "Textures", "Grid.png"), 128, 128, grid_pixel)
-    print("generated the sounds, Meshes/Block.gltf and Textures/Grid.png in", ASSETS)
+    textures = os.path.join(ASSETS, "Textures")
+    write_png(os.path.join(textures, "Grid.png"), 128, 128, grid_pixel)
+    write_png(os.path.join(textures, "Glow.png"), *GLOW_SIZE, glow_pixel)
+    write_png(os.path.join(textures, "Accent.png"), 256, 4, accent_pixel)
+    write_png(os.path.join(textures, "Gloss.png"), 4, 64, gloss_pixel)
+    for direction in ("Up", "Down", "Left", "Right"):
+        write_png(os.path.join(textures, f"Arrow{direction}.png"), 64, 64, arrow_pixel(direction.lower()))
+    print("generated the sounds, Meshes/Block.gltf and the textures in", ASSETS)
+    check_sounds()
+    print("the sounds are as expected")

@@ -726,9 +726,10 @@ after their parent), and stopping or destroying the running scene calls `OnDestr
   `Instantiate(Prefab, Vector3 position, Quaternion rotation, Entity parent = null)`.
 - Components: `TransformComponent` (`Translation`, `Rotation`, `EulerAngles` (deg), `Scale`, `WorldTransform`,
   `WorldTranslation`, `Forward`, `Right`, `Up`), `CameraComponent` (projection fields, `Primary`,
-  `ScreenToWorldRay(Vector2)`), `MeshComponent` (`Mesh`, `GetMaterial(i)`, `SetMaterial(i, Material)`,
-  `CastShadows`, `Visible`), `DirectionalLightComponent`, `PointLightComponent`, `SpotLightComponent`,
-  `SkyLightComponent`, `RigidBodyComponent` (`Type`, `Mass`, `LinearVelocity`, `AngularVelocity`, `GravityFactor`,
+  `ScreenToWorldRay(Vector2)`, `WorldToScreenPoint(Vector3)`: viewport pixels and the depth in front of the camera),
+  `MeshComponent` (`Mesh`, `GetMaterial(i)`, `SetMaterial(i, Material)`, `CastShadows`, `Visible`),
+  `DirectionalLightComponent`, `PointLightComponent`, `SpotLightComponent`, `SkyLightComponent`,
+  `RigidBodyComponent` (`Type`, `Mass`, `LinearVelocity`, `AngularVelocity`, `GravityFactor`,
   `LinearDamping`, `AngularDamping`, `AddForce(Vector3, ForceMode)`, `AddTorque(Vector3, ForceMode)`,
   `MoveKinematic(Vector3, Quaternion)`, `Teleport(Vector3, Quaternion)`, `IsSleeping`, `WakeUp()`),
   `BoxColliderComponent`, `SphereColliderComponent`, `CapsuleColliderComponent`, `MeshColliderComponent`,
@@ -1116,7 +1117,11 @@ data directory, and compile out asserts and script debug lines.
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project. A fuzz test sends every command
   parameters built from its schema and the editor's state (mostly names of what exists, plus values to refuse), while
   editing and playing: every request answers once without InternalError, the scene stays loadable, undoing and redoing
-  everything restores it, and nothing outside the project changes.
+  everything restores it, and nothing outside the project changes. A copy of the Blocks sample plays through
+  `input.set` the way a player plays it: it opens at the title's view with its sign shown and a field of view widened
+  for the 4:3 game view, then takes clicks on its menus' buttons where `ui.layout` shows them, the arrow keys and Enter
+  in its menus, and Escape, P, R and Space on its title, game, pause and game-over screens, down to the title's Quit,
+  which ends play mode.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
   layouts, test runs and their exit codes, command-line errors, a windowed run's presented image).
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
@@ -1135,13 +1140,34 @@ data directory, and compile out asserts and script debug lines.
   (`StradaFeatureTestScripts`) and `StradaRuntimeTests` runs a copy of the project through the player
   (`StradaRuntime --project ... --test`; exit code = failures).
 - `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp`: `Tools/Author.py` builds the
-  project, its materials, both scenes and the debris and particle burst prefabs, with the sounds, the beveled block mesh
-  and the grid texture that `Tools/GenerateAssets.py` synthesizes and a Poly Haven sunset sky over a neon grid floor.
-  Falling blocks with pure C# rules (`Board`, `Piece`, `PieceBag` with a look-ahead queue), the `BlocksGame` script
-  (title, pause and game-over states, hold, a three-piece next queue, a best score kept in the user's data folder,
-  sounds, rows that burst into physics debris and sparks, dust under hard drops, a camera shake), its `Hud` (screen
-  texts that follow the window's size) and a test scene whose `BlocksTests` check the rules and play the game. `StradaRuntimeTests` plays that scene
-  and runs the game's scene headless.
+  project, its materials, both scenes with their screen (a UI canvas) and the debris and particle burst prefabs, with the
+  sounds, the beveled block mesh, the grid texture and the screen's images (a glow, an accent gradient, a gloss, arrow
+  keys) that `Tools/GenerateAssets.py` synthesizes (and checks the sounds: lengths, levels, clean ends, a low thump
+  for hard drops, clears that grow with the rows), a Poly Haven sunset sky over a neon grid floor and a warm sun high
+  behind the board that casts the shadows of the frame, the stack, the falling piece and the panels onto the floor in
+  front of it. Falling blocks with pure C# rules (`Board`, `Piece`, `PieceBag` with a look-ahead queue) and an
+  `AutoPlayer` that plays the title screen's demo at a person's pace: it rates every place the piece and the next one
+  reach with Dellacherie's features and El-Ashi's weights, keeps a well open for three- and four-row clears and holds a
+  piece when the one that comes instead fits clearly better, searching rows of bits in buffers it makes once (without
+  allocations, in a fraction of a millisecond). The `BlocksGame` script (title with the demo, pause and game-over
+  states, hold, a three-piece next queue, combos and back-to-back clears, a best score kept in the user's data folder, a
+  sound for every action, rows that burst into physics debris and sparks, dust under hard drops), `CameraShake` (smooth
+  trauma noise with roll, a spring kick for hard drops stepped finely enough for any frame time, the title's view further
+  back, which the camera glides to and sways around (a game that opens on its title starts there), a field of view that
+  widens on screens narrower than the 16:10 the view was made for, so they show as much across, and an event once it has
+  moved each frame), its `Hud`, which brings the scene's canvas to life on the UI system (a score panel with the rows
+  toward the next level, the controls as keycaps, HOLD and NEXT labels that follow the 3D panels' headers through
+  `WorldToScreenPoint` in a canvas of pixels, the title in block letters that bob over the demo, shown once the camera
+  has glided back far enough for them to clear the board, with Play and Quit, pause and game-over menus that fade and
+  rise in, flashes, and numbers formatted alike in every language), its `Menu`s (buttons the mouse and the keys share:
+  the focused one lights up and grows over a glow, a held one shrinks, keys click through `Click()`), `Callouts` that pop
+  over the board ("TETRIS!", "BACK-TO-BACK", "LEVEL UP!") in slots that each keep room for their tallest callout's pop
+  and drift, so callouts never run into one another, and a test scene whose `BlocksTests` check the rules, the auto
+  player and the callouts' rooms, play the game and its demo, click every menu button (Play starts a game, Resume,
+  Restart and Quit, Play Again, closed menus take no clicks) and check on every frame that the title leaves the board in
+  sight, and that the screen's panels do so on screens from 5:4 to 21:9 (seen through the camera with a fixed aspect
+  ratio), in a language that groups thousands with a narrow no-break space. `StradaRuntimeTests` plays that scene and
+  runs the game's scene headless.
 - `Projects/Showcase`: an autumn forest clearing built by `Tools/Author.py` through `strada mcp` from Poly Haven assets
   (fetched by `Tools/FetchAssets.py`, not in the repository) with a physics playground, a corner of joints (a wrecking
   ball on a ball joint, a hinged seesaw, a paddle on a motorized hinge), a campfire of particles with a flickering light,
