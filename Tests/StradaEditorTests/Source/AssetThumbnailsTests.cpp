@@ -5,6 +5,8 @@
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Editor/EditorOperations.h"
+
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/MaterialAsset.h"
@@ -511,17 +513,16 @@ TEST_CASE("AssetThumbnails: files changed outside the editor get new thumbnails,
 		glm::vec3 const redCenter = CenterColor(before.GetValue());
 		CHECK(redCenter.r > redCenter.b * 2.0f);
 
-		// Another application makes it blue: the refresh that notices unloads it, and its thumbnail is rendered again.
+		// Loaded for its thumbnail alone, the material was let go.
+		CHECK_FALSE(AssetManager::IsLoaded(paint));
+
+		// Another application makes it blue: once a refresh noticed, its thumbnail is rendered again.
 		std::filesystem::file_time_type const written = FileSystem::GetLastWriteTime(file).value();
 		REQUIRE(FileSystem::WriteTextFile(file, MakeMaterialFile(glm::vec3(0.05f, 0.05f, 0.9f))).IsOk());
 		std::error_code timeError;
 		std::filesystem::last_write_time(file, written + std::chrono::seconds(2), timeError);
 		REQUIRE_FALSE(timeError);
-		Result<AssetRefreshResult> const refreshed = AssetManager::Refresh();
-		REQUIRE(refreshed.IsOk());
-		CHECK(std::find(refreshed.GetValue().Modified.begin(), refreshed.GetValue().Modified.end(), paint) !=
-		      refreshed.GetValue().Modified.end());
-		CHECK_FALSE(AssetManager::IsLoaded(paint));
+		REQUIRE(AssetManager::Refresh().IsOk());
 		thumbnails.Get(paint);
 		thumbnails.Update();
 		nvrhi::ITexture* const blue = thumbnails.Get(paint);
@@ -611,6 +612,142 @@ TEST_CASE("AssetThumbnails: files changed outside the editor get new thumbnails,
 		REQUIRE(larger != nullptr);
 		CHECK(larger->getDesc().width == 150);
 		CHECK(larger->getDesc().height == 75);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+	AssetManager::Shutdown();
+}
+
+TEST_CASE("AssetThumbnails: what a preview loads for itself alone is let go once it is made")
+{
+	ST_REQUIRE_GPU();
+	Testing::TemporaryDirectory directory;
+	AssetManager::Init();
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Paint.smat", MakeMaterialFile(glm::vec3(0.9f, 0.05f, 0.05f))).IsOk());
+		REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Used.smat", MakeMaterialFile(glm::vec3(0.05f, 0.9f, 0.05f))).IsOk());
+		REQUIRE(Image(64, 32, 4).WritePNG(directory.GetPath() / "Wood.png").IsOk());
+		std::vector<float> const samples = Testing::MakeSamples({{0.5f, 0.2f}});
+		REQUIRE(FileSystem::WriteBinaryFile(directory.GetPath() / "Hit.wav", Testing::MakeWav(samples).GetSpan()).IsOk());
+		REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+		AssetHandle const paint = AssetManager::FindByPath("Paint.smat");
+		AssetHandle const used = AssetManager::FindByPath("Used.smat");
+		AssetHandle const wood = AssetManager::FindByPath("Wood.png");
+		AssetHandle const hit = AssetManager::FindByPath("Hit.wav");
+		REQUIRE(AssetManager::GetLoadedFileAssets().empty());
+
+		// A rendered preview, a texture's and a waveform: each asset is loaded for the preview and let go after.
+		AssetThumbnails thumbnails;
+		thumbnails.Get(paint);
+		thumbnails.Update();
+		nvrhi::ITexture* const painted = thumbnails.Get(paint);
+		REQUIRE(painted != nullptr);
+		REQUIRE(WaitForThumbnail(thumbnails, wood) != nullptr);
+		REQUIRE(WaitForWaveform(thumbnails, hit) != nullptr);
+		CHECK(AssetManager::GetLoadedFileAssets().empty());
+		// They stay current, without loading their assets again, while their files are unchanged.
+		for (int frame = 0; frame < 3; frame++)
+		{
+			CHECK(thumbnails.Get(paint) == painted);
+			CHECK(thumbnails.Get(wood) != nullptr);
+			CHECK(thumbnails.GetWaveform(hit) != nullptr);
+			thumbnails.Update();
+		}
+		CHECK(AssetManager::GetLoadedFileAssets().empty());
+		// Loaded again by something else, an unchanged asset keeps its preview.
+		REQUIRE(AssetManager::LoadAsset(paint).IsOk());
+		thumbnails.Update();
+		CHECK(thumbnails.Get(paint) == painted);
+		AssetManager::UnloadAsset(paint);
+
+		// An asset in use stays loaded, and its preview follows its edits.
+		Result<Ref<MaterialAsset>> const inUse = AssetManager::TryGetAsset<MaterialAsset>(used);
+		REQUIRE(inUse.IsOk());
+		thumbnails.Get(used);
+		thumbnails.Update();
+		REQUIRE(thumbnails.Get(used) != nullptr);
+		CHECK(AssetManager::IsLoaded(used));
+		MaterialData blue = inUse.GetValue()->GetData();
+		blue.BaseColor = glm::vec4(0.05f, 0.05f, 0.9f, 1.0f);
+		inUse.GetValue()->SetData(blue);
+		thumbnails.Get(used);
+		thumbnails.Update();
+		nvrhi::ITexture* const edited = thumbnails.Get(used);
+		REQUIRE(edited != nullptr);
+		Result<Image> const image = ReadbackTexture(edited);
+		REQUIRE(image);
+		glm::vec3 const center = CenterColor(image.GetValue());
+		CHECK(center.b > center.g * 2.0f);
+		CHECK(AssetManager::GetLoadedFileAssets() == std::vector<AssetHandle>{used});
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+	AssetManager::Shutdown();
+}
+
+TEST_CASE("AssetThumbnails: prefabs of particles show them a moment after they start, and prefabs that draw nothing have none")
+{
+	ST_REQUIRE_GPU();
+	Testing::TemporaryDirectory directory;
+	AssetManager::Init();
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		EditorContext context;
+		EditorOperations operations(context);
+		REQUIRE(operations.CreateProject(directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+		// A burst of green sparks, as the samples' effects are, and a lamp alone.
+		ParticleSystemComponent sparks;
+		sparks.Emitting = false;
+		sparks.Burst = 80;
+		sparks.Shape = ParticleEmitterShape::Sphere;
+		sparks.SpeedMin = 1.0f;
+		sparks.SpeedMax = 2.0f;
+		sparks.StartSize = 0.5f;
+		sparks.EndSize = 0.5f;
+		sparks.StartColor = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+		sparks.EndColor = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+		EntityCreateInfo burst;
+		burst.Name = "Burst";
+		burst.Components = Json::object({{"ParticleSystem", SerializeComponent(sparks)}});
+		Result<UUID> const burstEntity = operations.CreateEntity(burst);
+		REQUIRE(burstEntity.IsOk());
+		EntityCreateInfo lamp;
+		lamp.Name = "Lamp";
+		lamp.Components = Json::object({{"PointLight", Json::object()}});
+		Result<UUID> const lampEntity = operations.CreateEntity(lamp);
+		REQUIRE(lampEntity.IsOk());
+		Result<AssetHandle> const burstPrefab = operations.CreatePrefab(burstEntity.GetValue(), "Burst.sprefab");
+		Result<AssetHandle> const lampPrefab = operations.CreatePrefab(lampEntity.GetValue(), "Lamp.sprefab");
+		REQUIRE(burstPrefab.IsOk());
+		REQUIRE(lampPrefab.IsOk());
+
+		AssetThumbnails thumbnails;
+		thumbnails.Get(burstPrefab.GetValue());
+		thumbnails.Update();
+		nvrhi::ITexture* const shown = thumbnails.Get(burstPrefab.GetValue());
+		REQUIRE(shown != nullptr);
+		Result<Image> const image = ReadbackTexture(shown);
+		REQUIRE(image);
+		// The sparks fill the middle of the image, framed with their extent, glowing over a dark backdrop (where they add up,
+		// the glow turns pale).
+		glm::vec3 const center = CenterColor(image.GetValue());
+		CHECK(center.g > 150.0f);
+		CHECK(center.g > center.r + 25.0f);
+		CHECK(center.g > center.b + 25.0f);
+		uint8_t const* const corner = image.GetValue().GetPixel(2, 2);
+		CHECK(corner[0] < 60);
+		CHECK(corner[1] < 60);
+		CHECK(corner[2] < 60);
+
+		// A prefab that draws nothing gets no image (panels show the prefab icon), and no load error: it loads.
+		thumbnails.Get(lampPrefab.GetValue());
+		thumbnails.Update();
+		CHECK(thumbnails.Get(lampPrefab.GetValue()) == nullptr);
+		CHECK(thumbnails.GetLoadError(lampPrefab.GetValue()) == nullptr);
+		// It is not tried again while its file is unchanged.
+		thumbnails.Update();
+		CHECK(thumbnails.Get(lampPrefab.GetValue()) == nullptr);
 		GraphicsDevice::WaitForIdle();
 	}
 	Renderer::Shutdown();

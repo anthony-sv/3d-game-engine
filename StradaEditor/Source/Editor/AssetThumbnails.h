@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <future>
 #include <memory>
 #include <optional>
@@ -40,12 +41,14 @@ namespace Strada
 	// Previews of assets for the editor's panels: the editor keeps one set, which the content browser's tiles and the
 	// inspector's asset fields, picker rows and material headers share. Textures are shrunk to small images on a worker
 	// thread, one texture at a time (decoded and halved there, then uploaded by Update), so showing one never decodes,
-	// mip-maps or uploads a whole texture on the main thread; materials (on a sphere), meshes, prefabs and environments
-	// (their sky) are rendered into small images, and fonts write "Aa" with their glyphs, at most one per Update so browsing
-	// stays smooth. Audio clips get waveforms, decoded on a worker thread one clip at a time. A preview is made again when
-	// its asset is reloaded, unloaded because its file changed, or (materials) edited; one that failed because its asset
-	// did not load is tried again once the asset manager forgets that (a refresh, which may find the file repaired). Main
-	// thread only; images need the Renderer.
+	// mip-maps or uploads a whole texture on the main thread; materials (on a sphere), meshes, prefabs (their particles a
+	// moment after they start) and environments (their sky) are rendered into small images, and fonts write "Aa" with their
+	// glyphs, at most one per Update so browsing stays smooth. Audio clips get waveforms, decoded on a worker thread one
+	// clip at a time. Assets loaded only for a preview (with the meshes, materials and textures a rendered preview needs)
+	// are unloaded once it is made, so browsing keeps no more in memory than the scene and the panels use. A preview is
+	// made again when its asset's file changes, or its asset in use is reloaded or (materials) edited; one that failed
+	// because its asset did not load is tried again once the asset manager forgets that (a refresh, which may find the file
+	// repaired). Main thread only; images need the Renderer.
 	class AssetThumbnails
 	{
 	public:
@@ -69,10 +72,11 @@ namespace Strada
 		static bool Supports(AssetType type);
 
 		// The asset's thumbnail, or null while it is not made yet (it is queued: the first one asked for since the last
-		// Update is made next) or cannot be (panels show the type's icon then). While a thumbnail is made again, the last one
-		// is returned. Textures come back with their aspect ratio, halved until no side is longer than Size (smaller ones
-		// keep their size), with the texture's stored values (sRGB colors as they are); rendered thumbnails are Size x Size,
-		// and those of fonts are white "Aa" on transparent pixels. Valid until the next Update or Clear.
+		// Update is made next) or cannot be (panels show the type's icon then; prefabs that draw nothing, such as a light
+		// alone, have none). While a thumbnail is made again, the last one is returned. Textures come back with their aspect ratio, halved
+		// until no side is longer than Size (smaller ones keep their size), with the texture's stored values (sRGB colors as they are);
+		// rendered thumbnails are Size x Size, and those of fonts are white "Aa" on transparent pixels. Valid until the next Update or
+		// Clear.
 		nvrhi::ITexture* Get(AssetHandle asset);
 		// The waveform of an audio clip, or null while it is computed (queued, the most recently requested first) or when
 		// the clip cannot be decoded.
@@ -99,14 +103,25 @@ namespace Strada
 		                                                 std::atomic<bool> const* cancel = nullptr);
 
 	private:
+		// What a preview was made from, to tell when it is out of date (IsCurrent).
+		struct PreviewSource
+		{
+			// The loaded asset; empty when its load failed.
+			std::weak_ptr<Asset> Object;
+			bool Loaded = false;
+			// Materials: their version (edits change it).
+			uint64_t Version = 0;
+			// The asset was loaded for the preview alone and unloaded once it was made; WriteTime is its file's then, still
+			// found at the asset manager's version CheckedVersion.
+			bool Unloaded = false;
+			std::optional<std::filesystem::file_time_type> WriteTime;
+			uint64_t CheckedVersion = 0;
+		};
+
 		struct Entry
 		{
 			nvrhi::TextureHandle Texture;
-			// What the thumbnail shows: rendered again when the loaded asset or its version changes.
-			std::weak_ptr<Asset> Source;
-			// The asset loaded (Source is it); false when its load failed.
-			bool Loaded = false;
-			uint64_t SourceVersion = 0;
+			PreviewSource Source;
 			bool Failed = false;
 			// Why the asset did not load when that made the thumbnail fail; empty otherwise.
 			std::string LoadError;
@@ -116,8 +131,7 @@ namespace Strada
 		struct WaveformEntry
 		{
 			std::optional<AudioWaveform> Waveform;
-			std::weak_ptr<Asset> Source;
-			bool Loaded = false;
+			PreviewSource Source;
 			bool Failed = false;
 			// The failure was logged.
 			bool Reported = false;
@@ -131,6 +145,9 @@ namespace Strada
 		{
 			AssetHandle Clip;
 			Ref<AudioClipAsset> Source;
+			// The clip was loaded for the waveform alone: unloaded once it is made.
+			bool Unload = false;
+			std::optional<std::filesystem::file_time_type> WriteTime;
 			std::future<Result<AudioWaveform>> Future;
 		};
 
@@ -139,15 +156,24 @@ namespace Strada
 		{
 			AssetHandle Texture;
 			Ref<TextureAsset> Source;
+			// The texture was loaded for the thumbnail alone: unloaded once it is made.
+			bool Unload = false;
+			std::optional<std::filesystem::file_time_type> WriteTime;
 			std::future<Result<Image>> Future;
 		};
 
-		// Whether the preview shows the asset as it is now: the same loaded asset (and material version). Previews are made
-		// from loaded assets, which stay loaded until their files change: one that is no longer loaded is out of date. A
-		// preview of an asset that did not load is current while the asset manager remembers the failed load.
-		static bool IsCurrent(std::weak_ptr<Asset> const& source, bool sourceLoaded, uint64_t sourceVersion, bool failed,
-		                      AssetHandle asset);
+		// Whether the preview shows the asset as it is now. An asset in use when the preview was made stays loaded until its
+		// file changes (or it is reloaded): the preview is current while the same asset (and material version) is loaded.
+		// One loaded for the preview alone is current while its file is unchanged, as far as the asset manager's refreshes
+		// tell, also when it is loaded again since (unless edited). A preview of an asset that did not load is current
+		// while the asset manager remembers the failed load.
+		static bool IsCurrent(PreviewSource& source, bool failed, AssetHandle asset);
+		// The source of a preview of the loaded asset, which the preview loaded (wasLoaded false) or found in use.
+		static PreviewSource MakeSource(Ref<Asset> const& asset, bool wasLoaded, std::optional<std::filesystem::file_time_type> writeTime);
+		// Renders the thumbnail of a material, mesh, prefab or environment, then unloads what it loaded for that alone.
 		bool Render(AssetHandle asset, Entry& entry);
+		// The rendering itself: false when there is nothing to show.
+		bool RenderPreview(AssetHandle asset, Entry& entry);
 		bool RenderFont(AssetHandle asset, Entry& entry);
 		// Copies the image (RGBA) into the entry's texture, which is made again at the image's size when it has another one.
 		bool Upload(Image const& image, Entry& entry);

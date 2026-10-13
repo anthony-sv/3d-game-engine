@@ -878,10 +878,14 @@ positions. A build is out of date when a C# source or project file is newer than
   Textures show small copies of themselves: decoded and halved on a worker thread, one texture at a time, until no side
   is longer than 256 pixels (`AssetThumbnails::ShrinkTexture`, colors averaged in linear light), so showing a texture
   never decodes, mip-maps or uploads the whole texture on the main thread. Materials (on a sphere), meshes, prefabs and
-  environments show thumbnails that `AssetThumbnails` renders offscreen, one per frame; every preview is made again when
-  its asset is reloaded, unloaded because its file changed, or a material edited. Fonts write "Aa" with their own glyphs
-  (rasterized from the text renderer's distance-field atlas); audio clips show their waveform and length, decoded on a
-  worker thread one clip at a time (`ComputeAudioWaveform`) and kept. The editor keeps one set of these previews for the
+  environments show thumbnails that `AssetThumbnails` renders offscreen, one per frame; prefabs show their particles a
+  third of a second after they start (effects alone over a dark backdrop), and those that draw nothing (a light alone)
+  their card. Fonts write "Aa" with their own glyphs (rasterized from the text renderer's distance-field atlas); audio
+  clips show their waveform and length, decoded on a worker thread one clip at a time (`ComputeAudioWaveform`) and kept.
+  What a preview loads for itself alone (the asset, and the meshes, materials and textures a rendered one needs) is
+  unloaded once it is made, so browsing an asset library keeps in memory, and on the GPU, only what the scene and the
+  panels use. A preview is made again when its asset in use is reloaded or (materials) edited, or when a refresh finds the
+  file of an asset it let go changed. The editor keeps one set of these previews for the
   content browser and the inspector (`EditorLayer`; another project starts a new one) and updates it once per frame
   before the panels draw, so an image is made once, whichever panel shows it, and the images it replaces are in no
   frame's draw data. Files without a picture get cards of the slate theme with a glyph and a band

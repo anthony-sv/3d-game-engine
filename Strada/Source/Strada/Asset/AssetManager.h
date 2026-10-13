@@ -83,6 +83,8 @@ namespace Strada
 		// Registered (built-in, file, memory or loaded sub-asset).
 		static bool IsValid(AssetHandle handle);
 		static bool IsLoaded(AssetHandle handle);
+		// The file assets that are loaded now (not built-in, memory or sub-assets), in no particular order.
+		static std::vector<AssetHandle> GetLoadedFileAssets();
 		// A registered file asset whose file was not found by the last scan.
 		static bool IsMissing(AssetHandle handle);
 		static std::optional<AssetMetadata> GetMetadata(AssetHandle handle);
@@ -137,7 +139,7 @@ namespace Strada
 
 		// Reloads a file asset from disk (a sub-asset reloads its parent).
 		[[nodiscard]] static Result<void> ReloadAsset(AssetHandle handle);
-		// Drops a loaded file asset (and its sub-assets); it loads again on next use.
+		// Drops a loaded file asset (and its sub-assets); it loads again on next use. A remembered failed load is forgotten too.
 		static void UnloadAsset(AssetHandle handle);
 	};
 }

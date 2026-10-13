@@ -17,6 +17,7 @@
 #include <doctest/doctest.h>
 
 #include <chrono>
+#include <vector>
 
 using namespace Strada;
 using Strada::Testing::GltfTestBuilder;
@@ -554,9 +555,15 @@ TEST_CASE("AssetManager: the version changes with every change to the registered
 
 	REQUIRE(AssetManager::OpenAssetDirectory(project.Assets).IsOk());
 	CHECK(changed());
-	// Queries, and loads that create no sub-assets, change nothing.
+	// Queries, and loads and unloads that create or drop no sub-assets, change nothing.
 	CHECK_FALSE(AssetManager::GetAssets().empty());
 	AssetHandle const wood = Find("Textures/Wood.png");
+	CHECK(AssetManager::GetLoadedFileAssets().empty());
+	REQUIRE(AssetManager::LoadAsset(wood).IsOk());
+	// Built-in assets are loaded too, but are no file assets.
+	CHECK(AssetManager::GetLoadedFileAssets() == std::vector<AssetHandle>{wood});
+	AssetManager::UnloadAsset(wood);
+	CHECK(AssetManager::GetLoadedFileAssets().empty());
 	REQUIRE(AssetManager::LoadAsset(wood).IsOk());
 	CHECK_FALSE(changed());
 

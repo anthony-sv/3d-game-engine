@@ -7,7 +7,9 @@
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/FontAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Math/Math.h"
 #include "Strada/RHI/GraphicsDevice.h"
@@ -28,6 +30,7 @@
 #include <limits>
 #include <span>
 #include <system_error>
+#include <unordered_set>
 #include <vector>
 
 namespace Strada
@@ -39,6 +42,86 @@ namespace Strada
 		// What font thumbnails write, and how much of the image its ink fills.
 		constexpr std::string_view FontSampleText = "Aa";
 		constexpr float FontSampleExtent = 0.74f;
+		// Prefab thumbnails show their particle systems this long after they start: bursts have spread and emitters
+		// have filled a little.
+		constexpr int ParticlePreviewSteps = 20;
+		constexpr float ParticlePreviewStep = 1.0f / 60.0f;
+		// The backdrop (linear) of prefabs that show particles alone: the light sky would wash out glowing effects.
+		constexpr glm::vec3 ParticleBackdropColor = glm::vec3(0.012f, 0.014f, 0.018f);
+
+		// The file's write time of a file asset; empty for other assets.
+		std::optional<std::filesystem::file_time_type> GetWriteTime(AssetHandle asset)
+		{
+			std::filesystem::path const path = AssetManager::GetAbsolutePath(asset);
+			return path.empty() ? std::nullopt : FileSystem::GetLastWriteTime(path);
+		}
+
+		// Unloads the file assets loaded since the loaded ones were listed: what a preview loaded for itself alone.
+		void UnloadAssetsLoadedSince(std::unordered_set<AssetHandle> const& loadedBefore)
+		{
+			for (AssetHandle const asset : AssetManager::GetLoadedFileAssets())
+			{
+				if (!loadedBefore.contains(asset))
+				{
+					AssetManager::UnloadAsset(asset);
+				}
+			}
+		}
+
+		std::unordered_set<AssetHandle> ListLoadedFileAssets()
+		{
+			std::vector<AssetHandle> const loaded = AssetManager::GetLoadedFileAssets();
+			return std::unordered_set<AssetHandle>(loaded.begin(), loaded.end());
+		}
+
+		// Unloads an asset loaded for a preview alone, unless it was loaded again since (a refresh found its file changed).
+		void UnloadPreviewAsset(AssetHandle asset, Ref<Asset> const& source)
+		{
+			if (!AssetManager::IsInitialized() || !AssetManager::IsLoaded(asset))
+			{
+				return;
+			}
+			Result<Ref<Asset>> const loaded = AssetManager::LoadAsset(asset);
+			if (loaded && loaded.GetValue() == source)
+			{
+				AssetManager::UnloadAsset(asset);
+			}
+		}
+
+		// Where the particles of the scene's systems are, with their size.
+		AABB ComputeParticleBounds(Scene& scene)
+		{
+			AABB bounds;
+			for (entt::entity const handle : scene.GetAllEntitiesWith<ParticleSystemComponent>())
+			{
+				Entity const entity(handle, &scene);
+				ParticleSystemComponent const& component = entity.GetComponent<ParticleSystemComponent>();
+				glm::mat4 const frame = component.WorldSpace ? glm::mat4(1.0f) : scene.GetWorldTransform(entity);
+				for (Particle const& particle : scene.GetParticles(entity))
+				{
+					glm::vec3 const position(frame * glm::vec4(particle.Position, 1.0f));
+					glm::vec3 const extent(ParticleEmitter::GetSize(component, particle) * 0.5f);
+					bounds.Expand(position - extent);
+					bounds.Expand(position + extent);
+				}
+			}
+			return bounds;
+		}
+
+		// Whether an entity of a prefab instance draws a surface in a thumbnail: a mesh, a sprite, text or UI.
+		bool DrawsSurface(Entity entity)
+		{
+			if (MeshComponent const* mesh = entity.TryGetComponent<MeshComponent>();
+			    mesh != nullptr && AssetManager::GetAsset<MeshSource>(mesh->Mesh))
+			{
+				return true;
+			}
+			if (TextComponent const* text = entity.TryGetComponent<TextComponent>(); text != nullptr && !text->Text.empty())
+			{
+				return true;
+			}
+			return entity.HasComponent<SpriteRendererComponent>() || entity.HasComponent<UICanvasComponent>();
+		}
 
 		// Bilinear sample of a single-channel image (pixel centers at +0.5), clamped at the edges; 0 to 255.
 		float SampleBilinear(std::span<uint8_t const> pixels, uint32_t width, uint32_t height, float x, float y)
@@ -123,8 +206,7 @@ namespace Strada
 		}
 		Entry& entry = m_Entries[asset];
 		entry.LastUse = ++m_UseCounter;
-		bool const current =
-			(entry.Texture || entry.Failed) && IsCurrent(entry.Source, entry.Loaded, entry.SourceVersion, entry.Failed, asset);
+		bool const current = (entry.Texture || entry.Failed) && IsCurrent(entry.Source, entry.Failed, asset);
 		if (current)
 		{
 			return entry.Texture;
@@ -153,7 +235,7 @@ namespace Strada
 		}
 		WaveformEntry& entry = m_Waveforms[clip];
 		entry.LastUse = ++m_UseCounter;
-		bool const current = (entry.Waveform || entry.Failed) && IsCurrent(entry.Source, entry.Loaded, 0, entry.Failed, clip);
+		bool const current = (entry.Waveform || entry.Failed) && IsCurrent(entry.Source, entry.Failed, clip);
 		if (!current && !m_RequestedWaveform.IsValid() && !(m_WaveformJob && m_WaveformJob->Clip == clip))
 		{
 			m_RequestedWaveform = clip;
@@ -175,28 +257,59 @@ namespace Strada
 		return nullptr;
 	}
 
-	bool AssetThumbnails::IsCurrent(std::weak_ptr<Asset> const& source, bool sourceLoaded, uint64_t sourceVersion, bool failed,
-	                                AssetHandle asset)
+	bool AssetThumbnails::IsCurrent(PreviewSource& source, bool failed, AssetHandle asset)
 	{
-		if (failed && !sourceLoaded)
+		if (failed && !source.Loaded)
 		{
 			// Until a refresh (which may find the file repaired) or a reload makes the asset manager forget the failed load.
 			return AssetManager::HasLoadFailure(asset);
 		}
-		// Previews are made from loaded assets, which stay loaded: an asset that is no longer loaded was unloaded because
-		// its file changed (or it was reloaded).
-		if (!AssetManager::IsLoaded(asset))
+		auto const sameVersion = [&source](Ref<Asset> const& loaded)
+		{
+			Ref<MaterialAsset> const material = std::dynamic_pointer_cast<MaterialAsset>(loaded);
+			return material == nullptr || material->GetVersion() == source.Version;
+		};
+		Ref<Asset> loaded;
+		if (AssetManager::IsLoaded(asset))
+		{
+			Result<Ref<Asset>> const result = AssetManager::LoadAsset(asset);
+			loaded = result ? result.GetValue() : nullptr;
+			if (loaded == source.Object.lock())
+			{
+				return sameVersion(loaded);
+			}
+		}
+		// An asset in use is unloaded or replaced only when its file changes or it is reloaded.
+		if (!source.Unloaded)
 		{
 			return false;
 		}
-		Result<Ref<Asset>> const result = AssetManager::LoadAsset(asset);
-		Ref<Asset> const loaded = result ? result.GetValue() : nullptr;
-		if (loaded != source.lock())
+		// One the preview let go is the same while its file is (also when it is loaded again since, unless edited). Files
+		// change behind the editor's back until a refresh notices, which changes the asset manager's version: only then are
+		// write times read again, not every frame for every preview shown.
+		if (source.CheckedVersion != AssetManager::GetVersion())
 		{
-			return false;
+			if (GetWriteTime(asset) != source.WriteTime)
+			{
+				return false;
+			}
+			source.CheckedVersion = AssetManager::GetVersion();
 		}
-		Ref<MaterialAsset> const material = std::dynamic_pointer_cast<MaterialAsset>(loaded);
-		return material == nullptr || material->GetVersion() == sourceVersion;
+		return loaded == nullptr || sameVersion(loaded);
+	}
+
+	AssetThumbnails::PreviewSource AssetThumbnails::MakeSource(Ref<Asset> const& asset, bool wasLoaded,
+	                                                           std::optional<std::filesystem::file_time_type> writeTime)
+	{
+		PreviewSource source;
+		source.Object = asset;
+		source.Loaded = true;
+		Ref<MaterialAsset> const material = std::dynamic_pointer_cast<MaterialAsset>(asset);
+		source.Version = material != nullptr ? material->GetVersion() : 0;
+		source.Unloaded = !wasLoaded;
+		source.WriteTime = writeTime;
+		source.CheckedVersion = AssetManager::GetVersion();
+		return source;
 	}
 
 	void AssetThumbnails::Update()
@@ -231,20 +344,27 @@ namespace Strada
 
 	bool AssetThumbnails::Render(AssetHandle asset, Entry& entry)
 	{
+		// What the preview loads for itself alone (the asset, and the meshes, materials and textures it shows) is unloaded
+		// once it is made.
+		std::unordered_set<AssetHandle> const loadedBefore = ListLoadedFileAssets();
+		bool const wasLoaded = AssetManager::IsLoaded(asset);
+		std::optional<std::filesystem::file_time_type> const writeTime = GetWriteTime(asset);
 		Result<Ref<Asset>> const loaded = AssetManager::LoadAsset(asset);
 		if (!loaded)
 		{
 			entry.Source = {};
-			entry.Loaded = false;
 			entry.LoadError = loaded.GetError();
 			return false;
 		}
 		entry.LoadError.clear();
-		entry.Source = loaded.GetValue();
-		entry.Loaded = true;
-		Ref<MaterialAsset> const material = std::dynamic_pointer_cast<MaterialAsset>(loaded.GetValue());
-		entry.SourceVersion = material != nullptr ? material->GetVersion() : 0;
+		entry.Source = MakeSource(loaded.GetValue(), wasLoaded, writeTime);
+		bool const rendered = RenderPreview(asset, entry);
+		UnloadAssetsLoadedSince(loadedBefore);
+		return rendered;
+	}
 
+	bool AssetThumbnails::RenderPreview(AssetHandle asset, Entry& entry)
+	{
 		AssetType const type = AssetManager::GetAssetType(asset);
 		Scene scene("Thumbnail");
 		Entity sun = scene.CreateEntity("Sun");
@@ -259,6 +379,7 @@ namespace Strada
 		skyLight.SkyboxBlur = type == AssetType::Environment ? 0.0f : 1.0f;
 
 		std::vector<UUID> shown;
+		AABB particles;
 		switch (type)
 		{
 			case AssetType::Mesh:
@@ -285,14 +406,33 @@ namespace Strada
 				{
 					return false;
 				}
+				// Particle systems show what they emit in their first moments.
+				for (int step = 0; step < ParticlePreviewSteps; step++)
+				{
+					scene.UpdateParticles(ParticlePreviewStep);
+				}
+				bool surfaces = false;
 				scene.ForEachEntityInHierarchyOrder(
 					[&](Entity entity)
 					{
 						if (entity != sun && entity != sky)
 						{
 							shown.push_back(entity.GetUUID());
+							surfaces = surfaces || DrawsSurface(entity);
 						}
 					});
+				particles = ComputeParticleBounds(scene);
+				// A prefab of lights or empty entities shows nothing: panels draw its type's icon.
+				if (!surfaces && !particles.IsValid())
+				{
+					return false;
+				}
+				// Effects alone (sparks, flashes, smoke) read best in the dark, as they mostly are seen.
+				if (!surfaces)
+				{
+					skyLight.Environment = AssetHandle();
+					skyLight.AmbientColor = ParticleBackdropColor;
+				}
 				break;
 			}
 			case AssetType::Environment:
@@ -325,7 +465,13 @@ namespace Strada
 		}
 		else
 		{
-			ThumbnailCamera const framing = FrameThumbnailBounds(ComputeEntityBounds(scene, shown), FieldOfView);
+			// Particles count with their extent; entities with particles would otherwise count as their origin alone.
+			AABB bounds = ComputeEntityBounds(scene, shown);
+			if (particles.IsValid())
+			{
+				bounds.Expand(particles);
+			}
+			ThumbnailCamera const framing = FrameThumbnailBounds(bounds, FieldOfView);
 			camera.View = glm::lookAt(framing.Position, framing.Target, glm::vec3(0.0f, 1.0f, 0.0f));
 			camera.Projection = Math::PerspectiveReversedZ(FieldOfView, 1.0f, framing.NearPlane);
 			camera.Position = framing.Position;
@@ -357,25 +503,27 @@ namespace Strada
 
 	bool AssetThumbnails::RenderFont(AssetHandle asset, Entry& entry)
 	{
+		bool const wasLoaded = AssetManager::IsLoaded(asset);
+		std::optional<std::filesystem::file_time_type> const writeTime = GetWriteTime(asset);
 		Result<Ref<FontAsset>> const font = AssetManager::TryGetAsset<FontAsset>(asset);
 		if (!font)
 		{
 			entry.Source = {};
-			entry.Loaded = false;
 			entry.LoadError = font.GetError();
 			return false;
 		}
 		entry.LoadError.clear();
-		entry.Source = font.GetValue();
-		entry.Loaded = true;
-		entry.SourceVersion = 0;
+		entry.Source = MakeSource(font.GetValue(), wasLoaded, writeTime);
 		GpuFont* const glyphs = Renderer::GetFont(font.GetValue());
-		if (glyphs == nullptr || !glyphs->Atlas)
+		Result<Image> const sample = glyphs != nullptr && glyphs->Atlas ? RenderFontSample(*glyphs->Atlas, FontSampleText, Size)
+		                                                                : Result<Image>(Error{"the font has no glyph atlas"});
+		bool const made = sample && Upload(sample.GetValue(), entry);
+		// A font loaded for its sample alone is let go with its glyph atlas.
+		if (!wasLoaded)
 		{
-			return false;
+			UnloadPreviewAsset(asset, font.GetValue());
 		}
-		Result<Image> const sample = RenderFontSample(*glyphs->Atlas, FontSampleText, Size);
-		return sample && Upload(sample.GetValue(), entry);
+		return made;
 	}
 
 	bool AssetThumbnails::Upload(Image const& image, Entry& entry)
@@ -521,9 +669,7 @@ namespace Strada
 			if (auto const found = m_Entries.find(job.Texture); found != m_Entries.end())
 			{
 				Entry& entry = found->second;
-				entry.Source = job.Source;
-				entry.Loaded = true;
-				entry.SourceVersion = 0;
+				entry.Source = MakeSource(job.Source, !job.Unload, job.WriteTime);
 				if (result)
 				{
 					entry.LoadError.clear();
@@ -535,6 +681,10 @@ namespace Strada
 					entry.Failed = true;
 					entry.LoadError = result.GetError();
 				}
+			}
+			if (job.Unload)
+			{
+				UnloadPreviewAsset(job.Texture, job.Source);
 			}
 		}
 		if (m_TextureJob || !m_RequestedTexture.IsValid())
@@ -549,12 +699,13 @@ namespace Strada
 			return;
 		}
 		Entry& entry = found->second;
+		bool const wasLoaded = AssetManager::IsLoaded(texture);
+		std::optional<std::filesystem::file_time_type> const writeTime = GetWriteTime(texture);
 		// Loading reads the file and checks its header; decoding and shrinking happen on the worker.
 		Result<Ref<TextureAsset>> loaded = AssetManager::TryGetAsset<TextureAsset>(texture);
 		if (!loaded)
 		{
 			entry.Source = {};
-			entry.Loaded = false;
 			entry.Failed = true;
 			entry.LoadError = loaded.GetError();
 			return;
@@ -563,6 +714,8 @@ namespace Strada
 		TextureJob job;
 		job.Texture = texture;
 		job.Source = loaded.TakeValue();
+		job.Unload = !wasLoaded;
+		job.WriteTime = writeTime;
 		try
 		{
 			// The worker reads only the texture's data, which the job keeps alive.
@@ -574,10 +727,13 @@ namespace Strada
 		}
 		catch (std::system_error const& error)
 		{
-			// Tried again when the texture is loaded again.
-			entry.Source = job.Source;
-			entry.Loaded = true;
+			// Tried again when the texture's file changes.
+			entry.Source = MakeSource(job.Source, !job.Unload, job.WriteTime);
 			entry.Failed = true;
+			if (job.Unload)
+			{
+				UnloadPreviewAsset(job.Texture, job.Source);
+			}
 			ST_WARN("Texture thumbnails cannot be made: {}", error.what());
 			return;
 		}
@@ -593,6 +749,10 @@ namespace Strada
 		// A texture being decoded finishes first; the halving after it stops.
 		m_CancelTexture = true;
 		m_TextureJob->Future.wait();
+		if (m_TextureJob->Unload)
+		{
+			UnloadPreviewAsset(m_TextureJob->Texture, m_TextureJob->Source);
+		}
 		m_TextureJob.reset();
 	}
 
@@ -607,8 +767,7 @@ namespace Strada
 			if (found != m_Waveforms.end())
 			{
 				WaveformEntry& entry = found->second;
-				entry.Source = job.Source;
-				entry.Loaded = true;
+				entry.Source = MakeSource(job.Source, !job.Unload, job.WriteTime);
 				entry.Failed = !result;
 				if (result)
 				{
@@ -626,6 +785,10 @@ namespace Strada
 					}
 				}
 			}
+			if (job.Unload)
+			{
+				UnloadPreviewAsset(job.Clip, job.Source);
+			}
 		}
 		if (m_WaveformJob || !m_RequestedWaveform.IsValid())
 		{
@@ -639,11 +802,12 @@ namespace Strada
 			return;
 		}
 		WaveformEntry& entry = found->second;
+		bool const wasLoaded = AssetManager::IsLoaded(clip);
+		std::optional<std::filesystem::file_time_type> const writeTime = GetWriteTime(clip);
 		Result<Ref<AudioClipAsset>> loaded = AssetManager::TryGetAsset<AudioClipAsset>(clip);
 		if (!loaded)
 		{
 			entry.Source = {};
-			entry.Loaded = false;
 			entry.Waveform.reset();
 			entry.Failed = true;
 			entry.LoadError = loaded.GetError();
@@ -653,6 +817,8 @@ namespace Strada
 		WaveformJob job;
 		job.Clip = clip;
 		job.Source = loaded.TakeValue();
+		job.Unload = !wasLoaded;
+		job.WriteTime = writeTime;
 		try
 		{
 			// The worker reads only the clip's encoded data, which the job keeps alive.
@@ -664,10 +830,13 @@ namespace Strada
 		}
 		catch (std::system_error const& error)
 		{
-			// Tried again when the clip is loaded again.
-			entry.Source = job.Source;
-			entry.Loaded = true;
+			// Tried again when the clip's file changes.
+			entry.Source = MakeSource(job.Source, !job.Unload, job.WriteTime);
 			entry.Failed = true;
+			if (job.Unload)
+			{
+				UnloadPreviewAsset(job.Clip, job.Source);
+			}
 			ST_WARN("Waveforms cannot be computed: {}", error.what());
 			return;
 		}
@@ -682,6 +851,10 @@ namespace Strada
 		}
 		m_CancelWaveform = true;
 		m_WaveformJob->Future.wait();
+		if (m_WaveformJob->Unload)
+		{
+			UnloadPreviewAsset(m_WaveformJob->Clip, m_WaveformJob->Source);
+		}
 		m_WaveformJob.reset();
 	}
 

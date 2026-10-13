@@ -73,13 +73,13 @@ namespace Strada
 
 		void RemoveSubAssets(AssetHandle parent)
 		{
-			MarkChanged();
 			AssetManagerData& data = GetData();
 			auto const it = data.SubAssets.find(parent);
 			if (it == data.SubAssets.end())
 			{
 				return;
 			}
+			MarkChanged();
 			for (AssetHandle const subAsset : it->second)
 			{
 				data.LoadedAssets.erase(subAsset);
@@ -948,6 +948,20 @@ namespace Strada
 	bool AssetManager::IsLoaded(AssetHandle handle)
 	{
 		return GetData().LoadedAssets.contains(handle);
+	}
+
+	std::vector<AssetHandle> AssetManager::GetLoadedFileAssets()
+	{
+		AssetManagerData const& data = GetData();
+		std::vector<AssetHandle> loaded;
+		for (auto const& [handle, asset] : data.LoadedAssets)
+		{
+			if (data.Registry.Contains(handle))
+			{
+				loaded.push_back(handle);
+			}
+		}
+		return loaded;
 	}
 
 	bool AssetManager::IsMissing(AssetHandle handle)
