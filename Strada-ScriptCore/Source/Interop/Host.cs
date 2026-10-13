@@ -120,6 +120,45 @@ internal static unsafe class Host
 		}
 	}
 
+	// Sets fields of the entity's instance from stored values ({ "Name": { "Type", "Value" } }), as CreateInstance does.
+	[UnmanagedCallersOnly]
+	internal static int SetInstanceFields(ulong entity, byte* fields, int fieldsLength)
+	{
+		try
+		{
+			ReadOnlySpan<byte> fieldsJson = fields != null ? new ReadOnlySpan<byte>(fields, fieldsLength) : [];
+			return ScriptRegistry.SetInstanceFields(entity, fieldsJson);
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
+	// Passes the values the fields of the entity's instance hold, in the stored form ({ "Name": { "Type", "Value" } }), to
+	// receive(context, bytes, length).
+	[UnmanagedCallersOnly]
+	internal static int DescribeInstanceFields(ulong entity, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	{
+		try
+		{
+			byte[]? description = ScriptRegistry.DescribeInstanceFields(entity);
+			if (description == null)
+			{
+				return NotFound;
+			}
+			fixed (byte* bytes = description)
+			{
+				receive(context, bytes, description.Length);
+			}
+			return Success;
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
 	[UnmanagedCallersOnly]
 	internal static int DestroyInstance(ulong entity)
 	{

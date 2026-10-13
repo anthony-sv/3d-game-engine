@@ -21,6 +21,7 @@
 #include "Strada/Project/ScriptProject.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
+#include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/SceneSerializer.h"
 
 #include <algorithm>
@@ -1461,6 +1462,8 @@ namespace Strada
 									   }
 									   Scene& scene = Context().GetScene();
 									   Entity const entity = m_Operations.FindEntity(id.GetValue());
+									   // While playing, script fields are the values the running script holds.
+									   (void)scene.ReadScriptFields(entity);
 									   Json components = Json::object();
 									   for (ComponentInfo const& info : ComponentRegistry::GetComponents())
 									   {
@@ -2296,8 +2299,14 @@ namespace Strada
 			Json ComponentFields(UUID id, ComponentInfo const& info)
 			{
 				Scene& scene = Context().GetScene();
-				return Json::object({{"component", std::string(info.Name)},
-				                     {"fields", info.Serialize(scene.GetRegistry(), m_Operations.FindEntity(id).GetHandle())}});
+				Entity const entity = m_Operations.FindEntity(id);
+				// While playing, script fields are the values the running script holds.
+				if (info.Name == ComponentTraits<ScriptComponent>::Name)
+				{
+					(void)scene.ReadScriptFields(entity);
+				}
+				return Json::object(
+					{{"component", std::string(info.Name)}, {"fields", info.Serialize(scene.GetRegistry(), entity.GetHandle())}});
 			}
 
 			CommandRegistry& m_Registry;

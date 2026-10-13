@@ -199,6 +199,57 @@ TEST_CASE("Scene: scripts follow Script components added, changed and removed wh
 	scene.OnRuntimeStop();
 }
 
+TEST_CASE("Scene: running scripts take edited fields and their own values are read back")
+{
+	Testing::ScriptEngineScope scripting;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Live");
+	Entity reporter = AddScript(scene, "Reporter", "Strada.Tests.FieldReporter", {{"Speed", ScriptFieldValue::FromInt32(3)}});
+	Entity const idle = scene.CreateEntity("Idle");
+
+	// Before the scene runs, there is no script to read.
+	CHECK(scene.ReadScriptFields(reporter).IsError());
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(reporter.GetName() == "Speed 3 Visible False");
+
+	// The values the script holds, the ones it changed itself included, become the stored ones.
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	Result<ScriptFieldMap> const read = scene.ReadScriptFields(reporter);
+	REQUIRE(read.IsOk());
+	CHECK(read.GetValue() == ScriptFieldMap{{"Speed", ScriptFieldValue::FromInt32(3)},
+	                                        {"Visible", ScriptFieldValue::FromBool(false)},
+	                                        {"Updates", ScriptFieldValue::FromInt32(2)}});
+	CHECK(reporter.GetComponent<ScriptComponent>().Fields == read.GetValue());
+	CHECK(scene.ReadScriptFields(idle).IsError());
+
+	// Edited stored values reach the script at once; the ones it changed itself and that were not edited stay its own.
+	ScriptComponent& script = reporter.GetComponent<ScriptComponent>();
+	script.Fields["Speed"] = ScriptFieldValue::FromInt32(5);
+	script.Fields["Visible"] = ScriptFieldValue::FromBool(true);
+	scene.ApplyScriptFieldChanges();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(reporter.GetName() == "Speed 5 Visible True");
+	Result<ScriptFieldMap> const updated = scene.ReadScriptFields(reporter);
+	REQUIRE(updated.IsOk());
+	CHECK(updated.GetValue().at("Updates") == ScriptFieldValue::FromInt32(3));
+
+	// Values of another type, or of fields the script does not have, are reported and skipped.
+	script.Fields["Speed"] = ScriptFieldValue::FromString("fast");
+	script.Fields["Removed"] = ScriptFieldValue::FromInt32(1);
+	scene.ApplyScriptFieldChanges();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(reporter.GetName() == "Speed 5 Visible True");
+	CHECK(Testing::WasLogged(logStart, "Strada.Tests.FieldReporter.Speed: stored \"String\" value ignored: the field is a Int32 now"));
+
+	// Without an instance, the script engine refuses to read or set fields.
+	CHECK(ScriptEngine::GetInstanceFields(idle.GetUUID()).IsError());
+	CHECK(ScriptEngine::SetInstanceFields(idle.GetUUID(), {{"Speed", ScriptFieldValue::FromInt32(1)}}).IsError());
+	scene.OnRuntimeStop();
+	CHECK(scene.ReadScriptFields(reporter).IsError());
+	CHECK(ScriptEngine::GetInstanceFields(reporter.GetUUID()).IsError());
+}
+
 TEST_CASE("Scene: script exceptions are logged and the scene keeps running")
 {
 	Testing::ScriptEngineScope scripting;

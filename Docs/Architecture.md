@@ -720,6 +720,11 @@ runs before every fixed step, with or without physics; contacts reach the script
 arriving as its script instance when it has one; clicks reach the scripts of the button and its ancestors before the
 frame's `OnUpdate`. Destroyed entities get `OnDestroy` while still intact (children
 after their parent), and stopping or destroying the running scene calls `OnDestroy` on every script.
+While a scene runs, `Scene::ReadScriptFields` copies the values a script's fields hold
+(`ScriptEngine::GetInstanceFields`) into its Script component, and `Scene::ApplyScriptFieldChanges` gives scripts the
+stored values that differ from those they were last given or read (`ScriptEngine::SetInstanceFields`): the editor reads
+the fields it shows or edits during play and applies its edits (undo included) at once, so tuning a running game
+reaches its scripts.
 
 ### 10.4 Scripting API (namespace `Strada`)
 

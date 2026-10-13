@@ -127,6 +127,12 @@ namespace Strada
 		// Creates the entity's instance of a class and sets its fields. Stored values of fields the class no longer has
 		// are skipped and values of another type are logged and skipped, keeping the field's default.
 		[[nodiscard]] static Result<void> CreateInstance(UUID entity, std::string_view className, ScriptFieldMap const& fields);
+		// The values the serialized fields of the entity's instance hold now, in the stored form, by name (the fields of
+		// every class it derives from included). Fails when the entity has no instance.
+		[[nodiscard]] static Result<ScriptFieldMap> GetInstanceFields(UUID entity);
+		// Sets fields of the entity's instance from stored values, as CreateInstance does: values of fields the class does
+		// not have are skipped, and values of another type are logged and skipped. Fails when the entity has no instance.
+		[[nodiscard]] static Result<void> SetInstanceFields(UUID entity, ScriptFieldMap const& fields);
 		static bool HasInstance(UUID entity);
 		// Without calling OnDestroy.
 		static void DestroyInstance(UUID entity);

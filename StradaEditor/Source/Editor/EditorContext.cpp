@@ -87,6 +87,8 @@ namespace Strada
 	void EditorContext::FinishEdit()
 	{
 		m_Scene->FlushPendingDestruction();
+		// Edits of a running scene's script fields reach its scripts at once, also while paused.
+		m_Scene->ApplyScriptFieldChanges();
 		PruneSelection();
 	}
 

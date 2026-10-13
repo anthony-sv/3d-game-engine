@@ -189,6 +189,11 @@ Project settings are saved to the project file immediately and are not part of t
 | `component.get` | `entity`*, `component`* | `component`, `fields` |
 | `component.set` | `entity`*, `component`*, `fields`* (partial patch; invalid values change nothing) | `component`, `fields` |
 
+While playing, a `Script` component's `Fields` are the values its running script holds (`entity.get` and
+`component.get` read them from the script), and `component.set` sets the given ones in the script at once, also while
+paused; undo gives the script back the values it had. The `Fields` object replaces the stored ones, so values the patch
+leaves out stay the script's own.
+
 `Core` components are on every entity and cannot be added or removed. `Category` says what a component is for: `Core`,
 `Rendering`, `Physics`, `Audio`, `Scripting` or `UI` (the inspector's Add Component menu groups components by it).
 Field descriptions may also contain `Values` (the names of enum values), `Min`/`Max` (inclusive bounds of numbers and

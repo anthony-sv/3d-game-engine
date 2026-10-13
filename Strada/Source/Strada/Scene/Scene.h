@@ -215,6 +215,14 @@ namespace Strada
 		void PauseAudioSource(Entity entity);
 		void StopAudioSource(Entity entity);
 		bool IsAudioSourcePlaying(Entity entity);
+		// While the scene runs scripts: the values the fields of the entity's script hold now, which also become the stored
+		// values of its Script component (Fields), so that the component shows them and edits start from them. Fails when
+		// the entity runs no script.
+		[[nodiscard]] Result<ScriptFieldMap> ReadScriptFields(Entity entity);
+		// While the scene runs scripts: gives each script the stored values of its Script component's fields that differ
+		// from the ones it was last given or read (ReadScriptFields), so that edits of a running scene reach its scripts.
+		// Editors call it after each edit; a class that changed gets a new instance at the next update instead.
+		void ApplyScriptFieldChanges();
 
 		// Advances every particle system: emits its Burst when it starts (first update after the system appeared or the runtime
 		// started), then simulates and emits (ParticleEmitter). While running, systems with DestroyWhenFinished destroy their
@@ -442,6 +450,8 @@ namespace Strada
 			UUID Entity = UUID::Invalid();
 			std::string ClassName;
 			bool HasInstance = false;
+			// The field values the instance was last given or read, by name: stored values that differ are edits to give it.
+			ScriptFieldMap Fields;
 		};
 
 		// Whether this scene runs scripts (it is the ScriptEngine's scene context).

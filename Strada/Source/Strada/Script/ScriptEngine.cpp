@@ -50,6 +50,9 @@ namespace Strada
 			int32_t (*DescribeClasses)(void* context, void (*receive)(void* context, char const* text, int32_t length)) = nullptr;
 			int32_t (*CreateInstance)(char const* className, int32_t classNameLength, uint64_t entity, char const* fields,
 			                          int32_t fieldsLength) = nullptr;
+			int32_t (*SetInstanceFields)(uint64_t entity, char const* fields, int32_t fieldsLength) = nullptr;
+			int32_t (*DescribeInstanceFields)(uint64_t entity, void* context,
+			                                  void (*receive)(void* context, char const* text, int32_t length)) = nullptr;
 			int32_t (*DestroyInstance)(uint64_t entity) = nullptr;
 			int32_t (*DestroyAllInstances)() = nullptr;
 			int32_t (*Invoke)(uint64_t entity, int32_t scriptEvent, float timeStep, uint64_t other) = nullptr;
@@ -89,6 +92,8 @@ namespace Strada
 				Resolve(functions.UnloadGameAssembly, "UnloadGameAssembly"),
 				Resolve(functions.DescribeClasses, "DescribeClasses"),
 				Resolve(functions.CreateInstance, "CreateInstance"),
+				Resolve(functions.SetInstanceFields, "SetInstanceFields"),
+				Resolve(functions.DescribeInstanceFields, "DescribeInstanceFields"),
 				Resolve(functions.DestroyInstance, "DestroyInstance"),
 				Resolve(functions.DestroyAllInstances, "DestroyAllInstances"),
 				Resolve(functions.Invoke, "Invoke"),
@@ -261,6 +266,12 @@ namespace Strada
 			{
 				s_Data->Instances.erase(entity);
 			}
+		}
+
+		std::string ToJsonText(ScriptFieldMap const& fields)
+		{
+			return fields.empty() ? std::string()
+			                      : JsonTraits<ScriptFieldMap>::ToJson(fields).dump(-1, ' ', false, Json::error_handler_t::replace);
 		}
 	}
 
@@ -438,9 +449,7 @@ namespace Strada
 	Result<void> ScriptEngine::CreateInstance(UUID entity, std::string_view className, ScriptFieldMap const& fields)
 	{
 		ST_CORE_ASSERT(s_Data, "ScriptEngine is not initialized");
-		std::string const fieldsJson =
-			fields.empty() ? std::string()
-						   : JsonTraits<ScriptFieldMap>::ToJson(fields).dump(-1, ' ', false, Json::error_handler_t::replace);
+		std::string const fieldsJson = ToJsonText(fields);
 		auto const status = static_cast<ScriptStatus>(s_Data->Host.CreateInstance(
 			className.data(), ToLength(className.size()), entity.GetValue(), fieldsJson.data(), ToLength(fieldsJson.size())));
 		switch (status)
@@ -461,6 +470,45 @@ namespace Strada
 				break;
 		}
 		return MakeError("{} cannot be created (see the log)", className);
+	}
+
+	Result<ScriptFieldMap> ScriptEngine::GetInstanceFields(UUID entity)
+	{
+		if (s_Data == nullptr || !s_Data->Instances.contains(entity))
+		{
+			return MakeError("entity {} runs no script", entity);
+		}
+		std::string description;
+		auto const status = static_cast<ScriptStatus>(s_Data->Host.DescribeInstanceFields(entity.GetValue(), &description, &ReceiveText));
+		if (status != ScriptStatus::Success)
+		{
+			return MakeError("the fields of entity {}'s script cannot be read (see the log)", entity);
+		}
+		Result<Json> const json = ParseJson(description);
+		ScriptFieldMap fields;
+		Result<void> const read = json ? JsonTraits<ScriptFieldMap>::FromJson(json.GetValue(), fields, DeserializationContext{})
+		                               : Result<void>(Error{json.GetError()});
+		if (!read)
+		{
+			return MakeError("the fields of entity {}'s script cannot be read: {}", entity, read.GetError());
+		}
+		return fields;
+	}
+
+	Result<void> ScriptEngine::SetInstanceFields(UUID entity, ScriptFieldMap const& fields)
+	{
+		if (s_Data == nullptr || !s_Data->Instances.contains(entity))
+		{
+			return MakeError("entity {} runs no script", entity);
+		}
+		std::string const fieldsJson = ToJsonText(fields);
+		auto const status =
+			static_cast<ScriptStatus>(s_Data->Host.SetInstanceFields(entity.GetValue(), fieldsJson.data(), ToLength(fieldsJson.size())));
+		if (status != ScriptStatus::Success)
+		{
+			return MakeError("the fields of entity {}'s script cannot be set (see the log)", entity);
+		}
+		return {};
 	}
 
 	bool ScriptEngine::HasInstance(UUID entity)

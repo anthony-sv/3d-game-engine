@@ -96,7 +96,7 @@ namespace Strada
 		std::vector<UUID> created;
 		for (PendingScriptInstance const& instance : pending)
 		{
-			m_ScriptInstances[instance.Handle] = {instance.Entity, instance.ClassName, false};
+			m_ScriptInstances[instance.Handle] = {instance.Entity, instance.ClassName, false, instance.Fields};
 			if (instance.ClassName.empty())
 			{
 				continue;
@@ -135,6 +135,63 @@ namespace Strada
 			}
 		}
 		CreateScriptInstances(pending);
+	}
+
+	Result<ScriptFieldMap> Scene::ReadScriptFields(Entity entity)
+	{
+		auto const state = entity && entity.GetScene() == this ? m_ScriptInstances.find(entity.GetHandle()) : m_ScriptInstances.end();
+		ScriptComponent* const script = entity && entity.GetScene() == this ? entity.TryGetComponent<ScriptComponent>() : nullptr;
+		if (!m_RunsScripts || state == m_ScriptInstances.end() || !state->second.HasInstance || script == nullptr ||
+		    state->second.Entity != entity.GetUUID() || state->second.ClassName != script->ClassName)
+		{
+			return Error{"the entity runs no script"};
+		}
+		Result<ScriptFieldMap> fields = ScriptEngine::GetInstanceFields(state->second.Entity);
+		if (!fields)
+		{
+			return fields;
+		}
+		for (auto const& [name, value] : fields.GetValue())
+		{
+			script->Fields[name] = value;
+			state->second.Fields[name] = value;
+		}
+		return fields;
+	}
+
+	void Scene::ApplyScriptFieldChanges()
+	{
+		if (!m_RunsScripts)
+		{
+			return;
+		}
+		// Setting fields runs no script code, so the registry can be walked meanwhile.
+		for (auto const [handle, script] : m_Registry.view<ScriptComponent>().each())
+		{
+			auto const state = m_ScriptInstances.find(handle);
+			if (state == m_ScriptInstances.end() || !state->second.HasInstance || state->second.ClassName != script.ClassName)
+			{
+				continue;
+			}
+			ScriptFieldMap changed;
+			for (auto const& [name, value] : script.Fields)
+			{
+				auto const given = state->second.Fields.find(name);
+				if (given == state->second.Fields.end() || !(given->second == value))
+				{
+					changed.emplace(name, value);
+					state->second.Fields[name] = value;
+				}
+			}
+			if (changed.empty())
+			{
+				continue;
+			}
+			if (Result<void> const set = ScriptEngine::SetInstanceFields(state->second.Entity, changed); !set)
+			{
+				ST_CORE_WARN("Entity '{}': {}", Entity(handle, this).GetName(), set.GetError());
+			}
+		}
 	}
 
 	void Scene::UpdateScripts(float deltaTime)

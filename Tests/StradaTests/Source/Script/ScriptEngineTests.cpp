@@ -52,19 +52,33 @@ TEST_CASE("ScriptEngine: loads game scripts and describes their classes")
 	{
 		names.push_back(scriptClass.Name);
 	}
-	CHECK(names == std::vector<std::string>{"Strada.Tests.AssetProbe",      "Strada.Tests.AudioProbe",
-	                                        "Strada.Tests.BaseBehaviour",   "Strada.Tests.CameraProbe",
-	                                        "Strada.Tests.CharacterProbe",  "Strada.Tests.ClickRecorder",
-	                                        "Strada.Tests.ComponentWriter", "Strada.Tests.DerivedBehaviour",
-	                                        "Strada.Tests.FieldTypes",      "Strada.Tests.FirstPersonController",
-	                                        "Strada.Tests.HierarchyProbe",  "Strada.Tests.HostProbe",
-	                                        "Strada.Tests.InputProbe",      "Strada.Tests.Lifecycle",
-	                                        "Strada.Tests.Mover",           "Strada.Tests.PhysicsProbe",
-	                                        "Strada.Tests.PrefabMember",    "Strada.Tests.PrefabProbe",
-	                                        "Strada.Tests.SceneSwitcher",   "Strada.Tests.SelfTest",
-	                                        "Strada.Tests.Spawner",         "Strada.Tests.Spinner",
-	                                        "Strada.Tests.Thrower",         "Strada.Tests.TransformProbe",
-	                                        "Strada.Tests.UIWriter",        "Strada.Tests.ValueGuard"});
+	CHECK(names == std::vector<std::string>{"Strada.Tests.AssetProbe",
+	                                        "Strada.Tests.AudioProbe",
+	                                        "Strada.Tests.BaseBehaviour",
+	                                        "Strada.Tests.CameraProbe",
+	                                        "Strada.Tests.CharacterProbe",
+	                                        "Strada.Tests.ClickRecorder",
+	                                        "Strada.Tests.ComponentWriter",
+	                                        "Strada.Tests.DerivedBehaviour",
+	                                        "Strada.Tests.FieldReporter",
+	                                        "Strada.Tests.FieldTypes",
+	                                        "Strada.Tests.FirstPersonController",
+	                                        "Strada.Tests.HierarchyProbe",
+	                                        "Strada.Tests.HostProbe",
+	                                        "Strada.Tests.InputProbe",
+	                                        "Strada.Tests.Lifecycle",
+	                                        "Strada.Tests.Mover",
+	                                        "Strada.Tests.PhysicsProbe",
+	                                        "Strada.Tests.PrefabMember",
+	                                        "Strada.Tests.PrefabProbe",
+	                                        "Strada.Tests.SceneSwitcher",
+	                                        "Strada.Tests.SelfTest",
+	                                        "Strada.Tests.Spawner",
+	                                        "Strada.Tests.Spinner",
+	                                        "Strada.Tests.Thrower",
+	                                        "Strada.Tests.TransformProbe",
+	                                        "Strada.Tests.UIWriter",
+	                                        "Strada.Tests.ValueGuard"});
 	CHECK(ScriptEngine::FindClass("Strada.Tests.NotAScript") == nullptr);
 	CHECK(ScriptEngine::FindClass("Strada.Tests.Missing") == nullptr);
 	CHECK(Testing::WasLogged(logStart, "Strada.Tests.NoDefaultConstructor is ignored"));
@@ -153,7 +167,7 @@ TEST_CASE("ScriptEngine: shuts down, starts again and replaces game assemblies")
 		CHECK(ScriptEngine::FindClass("Strada.Tests.Mover") != nullptr);
 		// Loading again replaces the assembly.
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
-		CHECK(ScriptEngine::GetClasses().size() == 26);
+		CHECK(ScriptEngine::GetClasses().size() == 27);
 		CHECK(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath().parent_path() / "Missing.dll").IsError());
 	}
 	CHECK_FALSE(ScriptEngine::IsInitialized());

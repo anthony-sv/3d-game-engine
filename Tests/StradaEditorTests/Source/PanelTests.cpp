@@ -16,6 +16,7 @@
 #include "Editor/Panels/SceneHierarchyPanel.h"
 #include "Editor/Panels/SceneSettingsPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
+#include "Editor/PlayMode.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 
@@ -42,6 +43,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -519,6 +521,49 @@ TEST_CASE("Panels: the inspector shows the fields of loaded script classes witho
 	CHECK(open);
 	CHECK(context.GetHistory().GetUndoCount() == steps);
 	CHECK(SceneSerializer::Serialize(context.GetScene()) == before);
+}
+
+TEST_CASE("Panels: while playing, the inspector shows the values the running scripts hold")
+{
+	Testing::ScriptEngineScope scripting;
+	HeadlessImGui imgui;
+	EditorContext context;
+	EditorOperations operations(context);
+	EditorScripts scripts(context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll");
+	PlayMode play(context, scripts);
+	UUID const reporter =
+		Create(operations, "Reporter", Json::object({{"Script", Json::object({{"ClassName", "Strada.Tests.FieldReporter"}})}}));
+	std::array<UUID, 1> const selection = {reporter};
+	REQUIRE(operations.Select(selection).IsOk());
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		imgui.Frame(
+			[&]
+			{
+				ImGui::SetNextWindowSize(ImVec2(420.0f, 900.0f));
+				inspector.OnImGuiRender(operations, open);
+			});
+	};
+
+	// The script counts its updates in a field the scene does not store: the inspector shows the count it holds.
+	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	play.Advance(3, Timestep(1.0f / 60.0f));
+	draw();
+	ScriptComponent const& shown = context.GetScene().GetEntityByUUID(reporter).GetComponent<ScriptComponent>();
+	CHECK(shown.Fields.at("Updates") == ScriptFieldValue::FromInt32(3));
+	play.Advance(2, Timestep(1.0f / 60.0f));
+	draw();
+	CHECK(shown.Fields.at("Updates") == ScriptFieldValue::FromInt32(5));
+	// Showing them is no edit.
+	CHECK_FALSE(context.GetHistory().CanUndo());
+
+	// Stopped, the inspector shows the stored values again, which playing did not change.
+	play.Stop();
+	draw();
+	CHECK(context.GetScene().GetEntityByUUID(reporter).GetComponent<ScriptComponent>().Fields.empty());
+	CHECK(open);
 }
 
 TEST_CASE("Panels: the inspector folds the Transform of UI elements away and shows it read-only")

@@ -322,9 +322,16 @@ namespace Strada
 		Scene& scene = operations.GetContext().GetScene();
 		std::vector<Json> values;
 		values.reserve(entities.size());
+		bool const scripts = component.Name == ComponentTraits<ScriptComponent>::Name;
 		for (UUID const id : entities)
 		{
-			values.push_back(component.Serialize(scene.GetRegistry(), scene.GetEntityByUUID(id).GetHandle()));
+			Entity const entity = scene.GetEntityByUUID(id);
+			// While playing, script fields show the values the running scripts hold (Scene::ReadScriptFields).
+			if (scripts)
+			{
+				(void)scene.ReadScriptFields(entity);
+			}
+			values.push_back(component.Serialize(scene.GetRegistry(), entity.GetHandle()));
 		}
 
 		// The UIRect of UI elements places them: their Transform is not used, so it starts folded and cannot be edited.

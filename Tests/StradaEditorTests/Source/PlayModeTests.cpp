@@ -161,6 +161,65 @@ TEST_CASE("PlayMode: playing shows and edits a copy that stopping discards")
 	CHECK(fixture.Context.GetSelection().GetEntities() == std::vector<UUID>{crate});
 }
 
+TEST_CASE("PlayMode: script fields edited while playing reach the running script at once, and edits start from its values")
+{
+	Testing::ScriptEngineScope scripting;
+	PlayFixture fixture;
+	UUID const reporter = fixture.Create(
+		"Reporter",
+		Json::object(
+			{{"Script", Json::object({{"ClassName", "Strada.Tests.FieldReporter"},
+	                                  {"Fields", Json::object({{"Visible", Json::object({{"Type", "Bool"}, {"Value", false}})}})}})}}));
+	auto const field = [&](std::string const& name)
+	{
+		Result<ScriptFieldMap> const fields = ScriptEngine::GetInstanceFields(reporter);
+		REQUIRE(fields.IsOk());
+		return fields.GetValue().at(name);
+	};
+	auto const setField = [&](std::string const& name, char const* type, Json value)
+	{
+		Json const patch = Json::object({{"Fields", Json::object({{name, Json::object({{"Type", type}, {"Value", std::move(value)}})}})}});
+		REQUIRE(fixture.Operations.SetComponentFields(reporter, "Script", patch).IsOk());
+	};
+
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Advance(2, Timestep(1.0f / 60.0f));
+	Entity const entity = fixture.Context.GetScene().GetEntityByUUID(reporter);
+	CHECK(entity.GetName() == "Speed 1 Visible False");
+
+	// An edit reaches the script at once, also while paused (the next frame shows it), and undoing it gives back the value
+	// the script had.
+	fixture.Play.SetPaused(true);
+	setField("Visible", "Bool", true);
+	CHECK(field("Visible") == ScriptFieldValue::FromBool(true));
+	fixture.Play.Advance(1, Timestep(1.0f / 60.0f));
+	CHECK(entity.GetName() == "Speed 1 Visible True");
+	REQUIRE(fixture.Context.Undo().IsOk());
+	CHECK(field("Visible") == ScriptFieldValue::FromBool(false));
+	REQUIRE(fixture.Context.Redo().IsOk());
+	CHECK(field("Visible") == ScriptFieldValue::FromBool(true));
+	// Fields the edit did not set keep the values the script gave them.
+	CHECK(field("Updates") == ScriptFieldValue::FromInt32(3));
+
+	// Edits start from what the script holds: once it changed a value itself (its update count), setting the value the
+	// component still stores reaches it, and undoing gives back the value the script had.
+	fixture.Play.SetPaused(false);
+	setField("Updates", "Int32", 0);
+	CHECK(field("Updates") == ScriptFieldValue::FromInt32(0));
+	fixture.Play.Advance(2, Timestep(1.0f / 60.0f));
+	CHECK(field("Updates") == ScriptFieldValue::FromInt32(2));
+	setField("Updates", "Int32", 0);
+	CHECK(field("Updates") == ScriptFieldValue::FromInt32(0));
+	REQUIRE(fixture.Context.Undo().IsOk());
+	CHECK(field("Updates") == ScriptFieldValue::FromInt32(2));
+	CHECK(entity.GetComponent<ScriptComponent>().Fields.at("Speed") == ScriptFieldValue::FromInt32(1));
+
+	// Stopping discards what was edited.
+	fixture.Play.Stop();
+	ScriptComponent const& stored = fixture.Context.GetScene().GetEntityByUUID(reporter).GetComponent<ScriptComponent>();
+	CHECK(stored.Fields == ScriptFieldMap{{"Visible", ScriptFieldValue::FromBool(false)}});
+}
+
 TEST_CASE("PlayMode: entities deleted while playing go at once, also while paused")
 {
 	PlayFixture fixture;

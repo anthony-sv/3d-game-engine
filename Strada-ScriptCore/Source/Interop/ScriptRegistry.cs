@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -296,6 +297,53 @@ internal static class ScriptRegistry
 			}
 			field.Field.SetValue(instance, fieldValue);
 		}
+	}
+
+	// Sets fields of the entity's instance from stored values, as CreateInstance does: values of fields the class does not
+	// have are skipped, and values that no longer fit their field are reported and skipped.
+	internal static int SetInstanceFields(ulong entity, ReadOnlySpan<byte> fieldsJson)
+	{
+		if (!s_Instances.TryGetValue(entity, out Script? instance) || !TryGetClass(instance, out string className, out ScriptClass? scriptClass))
+		{
+			return Host.NotFound;
+		}
+		if (!fieldsJson.IsEmpty)
+		{
+			ApplyFields(instance, className, scriptClass, fieldsJson);
+		}
+		return Host.Success;
+	}
+
+	// The values the serialized fields of the entity's instance hold, in the stored form: { "Name": { "Type", "Value" } }.
+	// Null when the entity has no instance.
+	internal static byte[]? DescribeInstanceFields(ulong entity)
+	{
+		if (!s_Instances.TryGetValue(entity, out Script? instance) || !TryGetClass(instance, out _, out ScriptClass? scriptClass))
+		{
+			return null;
+		}
+		ArrayBufferWriter<byte> buffer = new();
+		using (Utf8JsonWriter writer = new(buffer))
+		{
+			writer.WriteStartObject();
+			foreach (ScriptField field in scriptClass.Fields)
+			{
+				writer.WriteStartObject(field.Field.Name);
+				writer.WriteString("Type", field.Type.ToString());
+				writer.WritePropertyName("Value");
+				ScriptFieldCodec.WriteValue(writer, field.Type, ScriptFieldCodec.ToStored(field.Field.GetValue(instance), field.Type));
+				writer.WriteEndObject();
+			}
+			writer.WriteEndObject();
+		}
+		return buffer.WrittenSpan.ToArray();
+	}
+
+	// The registered class of an instance, which is named after its type.
+	private static bool TryGetClass(Script instance, out string className, [NotNullWhen(true)] out ScriptClass? scriptClass)
+	{
+		className = instance.GetType().FullName ?? instance.GetType().Name;
+		return s_Classes.TryGetValue(className, out scriptClass);
 	}
 
 	internal static bool HasInstance(ulong entity) => s_Instances.ContainsKey(entity);

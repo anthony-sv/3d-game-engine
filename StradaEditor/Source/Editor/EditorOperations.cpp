@@ -392,11 +392,22 @@ namespace Strada
 	{
 		std::vector<ComponentEdit> edits;
 		edits.push_back({entity, std::string(component), patch});
-		return m_Context.ExecuteCommand(CreateScope<SetComponentsCommand>(std::move(edits), mergeKey));
+		return SetComponentFields(std::move(edits), mergeKey);
 	}
 
 	Result<void> EditorOperations::SetComponentFields(std::vector<ComponentEdit> edits, uint64_t mergeKey)
 	{
+		// While scripts run, edits of their fields start from the values the scripts hold: a value set always reaches the
+		// script, and undoing the edit gives back what the script had.
+		Scene& scene = m_Context.GetScene();
+		for (ComponentEdit const& edit : edits)
+		{
+			if (edit.Component == ComponentTraits<ScriptComponent>::Name)
+			{
+				// Entities that run no script keep their stored values.
+				(void)scene.ReadScriptFields(scene.GetEntityByUUID(edit.Entity));
+			}
+		}
 		return m_Context.ExecuteCommand(CreateScope<SetComponentsCommand>(std::move(edits), mergeKey));
 	}
 

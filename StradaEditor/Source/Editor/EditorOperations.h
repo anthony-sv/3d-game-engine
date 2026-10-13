@@ -91,7 +91,8 @@ namespace Strada
 		// Removes the component from every given entity as one undo step (all or nothing).
 		[[nodiscard]] Result<void> RemoveComponent(std::span<UUID const> entities, std::string_view component);
 		// Applies a partial JSON patch in the scene-file format. Edits with the same non-zero merge key (for example one
-		// inspector drag) merge into one undo step until CommandHistory::BreakMerge is called.
+		// inspector drag) merge into one undo step until CommandHistory::BreakMerge is called. While playing, a Script
+		// component's fields are first read from its running script (Scene::ReadScriptFields) and the values set reach it.
 		[[nodiscard]] Result<void> SetComponentFields(UUID entity, std::string_view component, Json const& patch, uint64_t mergeKey = 0);
 
 		// Applies several partial patches as one undo step, all or nothing. Edits with the same non-zero merge key and the

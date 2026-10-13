@@ -105,6 +105,10 @@ public class Turret : Script
 keeps a field out of the inspector while still saving it. Fields that are neither public nor marked belong to the
 script alone and start with their initial values.
 
+While the game plays in the editor, the inspector shows the values the running script holds, also those it changes
+itself, and a value you set reaches the script at once (also while paused), so you can tune a game while it runs; undo
+gives the script back the value it had. Stopping discards these edits, as it discards every change made while playing.
+
 ## Entities and components
 
 A script is the entity it is attached to: `Name`, `Translation`, `Rotation` and `Scale` (local, relative to the
