@@ -63,6 +63,10 @@ namespace Strada
 		SceneViewOverlays& GetOverlays() { return m_Overlays; }
 		// Moves the camera so the entities (their meshes, or their positions) fill the view.
 		void FocusEntities(Scene& scene, std::span<UUID const> entities);
+		// Moves the camera to where the scene's primary camera looks from, its focal point ahead as far as the middle of the
+		// scene's meshes, sprites and text; without a camera it frames those from above and to the side. The panel does this
+		// when the editor opens another scene (EditorContext::GetOpenedSceneVersion).
+		void FrameScene(Scene& scene);
 
 		// The view's size in pixels when it was last drawn.
 		glm::uvec2 GetViewportSize() const { return m_ViewportSize; }
@@ -125,5 +129,8 @@ namespace Strada
 		glm::uvec2 m_ViewportSize = glm::uvec2(1280, 720);
 
 		OpenSceneCallback m_OpenScene;
+		// The opened scene the view was last framed for.
+		uint64_t m_FramedSceneVersion = 0;
+		std::filesystem::path m_FramedScenePath;
 	};
 }

@@ -323,17 +323,17 @@ TEST_CASE("Runtime: games that cannot start and wrong command lines fail before 
 
 TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 {
+	{
+		// The player needs a Vulkan device (this probe's is released at the end of the block) and a display.
+		ST_REQUIRE_GPU();
+	}
+	ST_REQUIRE_DISPLAY();
 	TestGame game(ProjectFileKind::Game);
 	game.AddScene("Main", MakeScene("Main", std::nullopt));
 	std::filesystem::path const screenshot = game.GetDirectory() / "Shot.png";
 	ProcessResult const result =
 		RunPlayer({"--game", Native(game.Write("Scenes/Main.sscene")), "--frames", "3", "--screenshot", Native(screenshot)});
 	CAPTURE(result.Output);
-	if (result.ExitCode != 0 && Testing::IsMissingDisplayAllowed())
-	{
-		MESSAGE("Skipping the windowed run: the player could not start (no display or GPU)");
-		return;
-	}
 	REQUIRE(result.ExitCode == 0);
 	CHECK_FALSE(Contains(result.Output, "Graphics validation errors"));
 
@@ -363,6 +363,11 @@ TEST_CASE("Runtime: a windowed run shows the primary camera's view")
 
 TEST_CASE("Runtime: a windowed run of a menu without a camera shows its UI over black")
 {
+	{
+		// The player needs a Vulkan device (this probe's is released at the end of the block) and a display.
+		ST_REQUIRE_GPU();
+	}
+	ST_REQUIRE_DISPLAY();
 	TestGame game(ProjectFileKind::Game);
 	// A title screen without a camera (a sky, which needs one to show, included): a red panel over the middle half of the
 	// screen with a green button at its bottom and a title.
@@ -402,11 +407,6 @@ TEST_CASE("Runtime: a windowed run of a menu without a camera shows its UI over 
 	ProcessResult const result =
 		RunPlayer({"--game", Native(game.Write("Scenes/Title.sscene")), "--frames", "3", "--screenshot", Native(screenshot)});
 	CAPTURE(result.Output);
-	if (result.ExitCode != 0 && Testing::IsMissingDisplayAllowed())
-	{
-		MESSAGE("Skipping the windowed run: the player could not start (no display or GPU)");
-		return;
-	}
 	REQUIRE(result.ExitCode == 0);
 	CHECK_FALSE(Contains(result.Output, "nothing is drawn"));
 	CHECK_FALSE(Contains(result.Output, "Graphics validation errors"));

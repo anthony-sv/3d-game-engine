@@ -1000,8 +1000,6 @@ namespace Strada
 		ImGui::PushID(static_cast<int>(root));
 		ImGui::PushID(folder.c_str());
 		bool const open = ImGui::TreeNodeEx("##node", flags, "%s", label.c_str());
-		ImGui::PopID();
-		ImGui::PopID();
 		// The displayed folder's node scrolls into view when it changes.
 		if (m_TreeRevealedFolder != displayed && root == m_Root && folder == displayed.Path)
 		{
@@ -1016,15 +1014,18 @@ namespace Strada
 			ImGui::SetItemTooltip("The project's C# scripts (Scripts/Source)");
 		}
 		AcceptDrop(operations, Location{root, folder});
-		if (!open)
+		if (open)
 		{
-			return;
+			for (std::string const& child : children)
+			{
+				DrawFolderTreeNode(operations, root, child);
+			}
+			ImGui::TreePop();
 		}
-		for (std::string const& child : children)
-		{
-			DrawFolderTreeNode(operations, root, child);
-		}
-		ImGui::TreePop();
+		// Popped once TreePop has removed the open node's own ID: the ID stack stays last in, first out, which ImGui checks
+		// for tree lines and keyboard navigation.
+		ImGui::PopID();
+		ImGui::PopID();
 	}
 
 	void ContentBrowserPanel::DrawItems(EditorOperations& operations)

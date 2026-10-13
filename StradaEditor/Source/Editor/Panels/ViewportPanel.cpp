@@ -44,6 +44,11 @@ namespace Strada
 		constexpr ImU32 PlayFrameColor = IM_COL32(64, 160, 255, 255);
 		constexpr ImU32 SimulateFrameColor = IM_COL32(120, 200, 120, 255);
 		constexpr float PlayFrameThickness = 2.0f;
+		// The view of scenes without a camera before their content is framed: the origin from above and to the side.
+		constexpr glm::vec3 DefaultFocalPoint = glm::vec3(0.0f, 0.5f, 0.0f);
+		constexpr float DefaultDistance = 7.0f;
+		constexpr float DefaultYaw = 30.0f;
+		constexpr float DefaultPitch = -20.0f;
 
 		ImVec2 ToImVec2(glm::vec2 const& value)
 		{
@@ -168,7 +173,7 @@ namespace Strada
 			m_Renderer = CreateScope<SceneRenderer>();
 			m_Renderer->SetEntityIdsEnabled(true);
 		}
-		m_Camera.SetView(glm::vec3(0.0f, 0.5f, 0.0f), 7.0f, 30.0f, -20.0f);
+		m_Camera.SetView(DefaultFocalPoint, DefaultDistance, DefaultYaw, DefaultPitch);
 	}
 
 	void ViewportPanel::OnImGuiRender(EditorOperations& operations, bool& open)
@@ -176,6 +181,16 @@ namespace Strada
 		// ImGuizmo tracks hovering per frame.
 		ImGuizmo::BeginFrame();
 		EditorContext& context = operations.GetContext();
+		// A scene that was opened shows from where its camera looks; opening the scene shown again keeps the view.
+		if (context.GetOpenedSceneVersion() != m_FramedSceneVersion)
+		{
+			m_FramedSceneVersion = context.GetOpenedSceneVersion();
+			if (context.GetScenePath().empty() || context.GetScenePath() != m_FramedScenePath)
+			{
+				FrameScene(context.GetScene());
+			}
+			m_FramedScenePath = context.GetScenePath();
+		}
 		if (context.GetSceneVersion() != m_PickingSceneVersion)
 		{
 			m_PickingIds.Clear();
@@ -781,5 +796,57 @@ namespace Strada
 	void ViewportPanel::FocusEntities(Scene& scene, std::span<UUID const> entities)
 	{
 		m_Camera.Focus(ComputeEntityBounds(scene, entities));
+	}
+
+	void ViewportPanel::FrameScene(Scene& scene)
+	{
+		// What the scene shows: its meshes, sprites and text.
+		std::vector<UUID> shown;
+		auto const addShown = [&](auto const& entities)
+		{
+			for (entt::entity const handle : entities)
+			{
+				shown.push_back(Entity(handle, &scene).GetUUID());
+			}
+		};
+		addShown(scene.GetAllEntitiesWith<MeshComponent>());
+		addShown(scene.GetAllEntitiesWith<SpriteRendererComponent>());
+		addShown(scene.GetAllEntitiesWith<TextComponent>());
+		AABB const bounds = ComputeEntityBounds(scene, shown);
+
+		Entity const camera = scene.GetPrimaryCameraEntity();
+		if (!camera)
+		{
+			m_Camera.SetView(DefaultFocalPoint, DefaultDistance, DefaultYaw, DefaultPitch);
+			m_Camera.Focus(bounds);
+			return;
+		}
+		glm::mat4 const world = scene.GetWorldTransform(camera);
+		glm::vec3 const position(world[3]);
+		auto const direction = [&world](glm::vec3 const& local, glm::vec3 const& fallback)
+		{
+			glm::vec3 const vector(world * glm::vec4(local, 0.0f));
+			float const length = glm::length(vector);
+			return length > 1e-6f ? vector / length : fallback;
+		};
+		glm::vec3 const forward = direction(glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 0.0f, -1.0f));
+		// The focal point, which the view orbits, lies ahead as far as the middle of what the scene shows.
+		float distance = DefaultDistance;
+		if (bounds.IsValid())
+		{
+			if (float const ahead = glm::dot(bounds.GetCenter() - position, forward); ahead > EditorCamera::MinimumDistance)
+			{
+				distance = ahead;
+			}
+		}
+		// The view looks along the camera; looking straight up or down, the top of the camera's image says which way it faces.
+		glm::vec3 heading = forward;
+		if (glm::length(glm::vec2(forward.x, forward.z)) < 1e-3f)
+		{
+			heading = direction(glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, -1.0f)) * (forward.y < 0.0f ? 1.0f : -1.0f);
+		}
+		float const yaw = glm::degrees(std::atan2(-heading.x, -heading.z));
+		float const pitch = glm::degrees(std::asin(std::clamp(forward.y, -1.0f, 1.0f)));
+		m_Camera.SetView(position + forward * distance, distance, yaw, pitch);
 	}
 }

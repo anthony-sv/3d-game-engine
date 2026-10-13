@@ -927,7 +927,9 @@ positions. A build is out of date when a C# source or project file is newer than
   Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
   scene name and a `*` while it has unsaved changes.
 - Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
-  (fly/orbit/pan/zoom/focus). Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
+  (fly/orbit/pan/zoom/focus). A scene the editor opens shows from where its primary camera looks, orbiting the middle of
+  its meshes, sprites and text ahead of it, or, without a camera, with those framed (`FrameScene`); opening the scene
+  shown again keeps the view. Its toolbar picks the tool, Select (no gizmo), Move, Rotate or Scale (Q/W/E/R), the gizmo's
   orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays
   (`SceneViewOverlays`, also `viewport.overlays`): ground grid (G), selection outline, light and camera gizmos
   (clickable billboard icons per kind of light and for cameras), camera frustums, light shapes (directional light rays
@@ -1138,8 +1140,8 @@ data directory, and compile out asserts and script debug lines.
   count when derived types override or call them; constants and enumerators, which compile to literals, count
   through their types.
 - `Projects/FeatureTest`: scenes that use every component (checked by `StradaTests`) and scripts that call the entire
-  scripting API through `Strada.Testing`, one script per area (entities, transforms, components, physics, audio,
-  assets, math, input, application and time, the testing API, attributes, script lifecycles, the UI) with a
+  scripting API through `Strada.Testing`, one script per area (entities, transforms, components, physics, characters,
+  audio, assets, math, input, application and time, the testing API, attributes, script lifecycles, the UI) with a
   coordinator that loads the second scene, which finishes the run. CMake builds the scripts
   (`StradaFeatureTestScripts`) and `StradaRuntimeTests` runs a copy of the project through the player
   (`StradaRuntime --project ... --test`; exit code = failures).

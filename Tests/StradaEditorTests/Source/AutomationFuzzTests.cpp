@@ -9,7 +9,9 @@
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/PlayMode.h"
+#include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
@@ -408,6 +410,11 @@ namespace
 			{
 				return {{m_ImportFiles[0], m_ImportFiles[1]}, {m_ImportFiles[2], "Relative.png", ""}};
 			}
+			// asset.drop: files and the folder holding them.
+			if (property == "paths")
+			{
+				return {{m_ImportFiles[0], m_ImportFiles[1], m_ImportFiles[3]}, {m_ImportFiles[2], "Relative.png", ""}};
+			}
 			if (property == "path")
 			{
 				return Paths(siblings);
@@ -497,11 +504,15 @@ namespace
 		EditorScripts Scripts{Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
 		PlayMode Play{Context, Scripts};
 		EditorCamera Camera;
+		SceneViewOverlays Overlays;
+		ContentBrowserPanel ContentBrowser;
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 
 		FuzzFixture()
 		{
+			// Files and folders dropped onto the content browser go to its folders, C# sources to the scripts.
+			ContentBrowser.SetScripts(&Scripts);
 			EditorCommandEnvironment environment;
 			environment.RequestQuit = [this]
 			{
@@ -511,9 +522,17 @@ namespace
 			{
 				return Camera;
 			};
+			environment.ViewportOverlays = [this]() -> SceneViewOverlays&
+			{
+				return Overlays;
+			};
 			environment.ViewportStatistics = []() -> SceneRendererStatistics const*
 			{
 				return nullptr;
+			};
+			environment.ContentBrowser = [this]() -> ContentBrowserPanel&
+			{
+				return ContentBrowser;
 			};
 			// There is no inspector or menu bar to show the menus, but inspector.add-component-menu and editor.entity-menu still
 			// check and list everything.
@@ -563,11 +582,12 @@ namespace
 			Ok("scene.save");
 		}
 
-		// The files asset.import is given: two that exist and one that does not.
+		// The files asset.import and asset.drop are given: two that exist, one that does not and (asset.drop only) the folder
+		// holding them.
 		std::vector<std::string> ImportFiles() const
 		{
 			return {FileSystem::PathToUtf8(Imports / "Texture.png"), FileSystem::PathToUtf8(Imports / "Sound.wav"),
-			        FileSystem::PathToUtf8(Imports / "Missing.png")};
+			        FileSystem::PathToUtf8(Imports / "Missing.png"), FileSystem::PathToUtf8(Imports)};
 		}
 
 		// Runs a synchronous command.

@@ -13,8 +13,9 @@ scripting startup, so every scripting test fails with the list of names.
 ## 1. Native binding
 
 - Pick the file by area: `ScriptBindingsEntity.cpp` (entities, logging), `ScriptBindingsComponents.cpp` (component
-  classes), `ScriptBindingsRuntime.cpp` (Time, Input, Physics), `ScriptBindingsAssets.cpp` (Assets, Material),
-  `ScriptBindingsApplication.cpp` (Application, SceneManager, Debug, Strada.Testing). Functions live in an anonymous
+  classes), `ScriptBindingsUI.cpp` (the UI components, `Input.IsPointerOverUI`), `ScriptBindingsRuntime.cpp` (Time,
+  Input, Physics), `ScriptBindingsAssets.cpp` (Assets, Material), `ScriptBindingsApplication.cpp` (Application,
+  SceneManager, Debug, Strada.Testing). Functions live in an anonymous
   namespace and are added in the file's `Register*Bindings` function. A new file gets its own `Register*Bindings`
   (declared in `ScriptGlue.h`, called from `ScriptBindings.cpp`) and is listed in `Strada/CMakeLists.txt`.
 - Name: `<CSharpClass>_<Member>` (`RigidBodyComponent_AddForce`, `Physics_Raycast`).
@@ -46,7 +47,22 @@ scripting startup, so every scripting test fails with the list of names.
   native side, and the call returns a neutral value (null, false, zero).
 - Format with `python Tools/format.py` (it runs `dotnet format` on the C# projects).
 
-## 3. Tests
+## 3. New callbacks
+
+A callback scripts override (like `OnClick`) is an event the engine sends, not a binding:
+
+- Give `ScriptEvent` in `Strada/Source/Strada/Script/ScriptEngine.cpp` and in
+  `Strada-ScriptCore/Source/Interop/ScriptRegistry.cs` the same enumerator with the same value, and handle it in
+  `ScriptRegistry.Invoke`.
+- Add `ScriptEngine::InvokeOn<Name>` (declared in `ScriptEngine.h`, calling `Invoke` with the event) and call it where
+  the scene raises the event (`Scene`'s runtime, in the documented order of the frame).
+- In `Script.cs`, add the `protected virtual void On<Name>(...)` with XML documentation and the `internal void
+  InvokeOn<Name>(...)` wrapper `ScriptRegistry` calls.
+- Test it with a probe in `Tests/TestScripts` and override it in a `Projects/FeatureTest` script: the API coverage test
+  counts overrides as uses of a callback.
+- Add its row to the callback table of `Docs/Scripting.md` and to the list in `Docs/Architecture.md` §10.3.
+
+## 4. Tests
 
 - Native behavior: a probe script in `Tests/TestScripts/Source/` exercises the API and records results (often in its
   entity's name). A doctest in `Tests/StradaTests/Source/Scene/` (`SceneScripting*Tests.cpp`) runs it under
@@ -58,6 +74,6 @@ scripting startup, so every scripting test fails with the list of names.
   `ScriptCoreTests` lists unused members; `StradaRuntimeTests` runs the project and fails on any failed check. Values the
   scripts read from the scene (entity, asset and other fields) are set by opening the project in the editor.
 
-## 4. Docs
+## 5. Docs
 
 Update `Docs/Architecture.md` §10.4 (API list and semantics), and §10.3 for new field types or lifecycle rules.

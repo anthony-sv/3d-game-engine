@@ -2891,3 +2891,106 @@ TEST_CASE("Panels: C# scripts dropped onto the scene view run on the entity unde
 	}
 	Renderer::Shutdown();
 }
+
+TEST_CASE("Panels: the content browser's folder tree keeps ImGui's ID stack in order for tree lines")
+{
+	Testing::AssetManagerScope assets;
+	HeadlessImGui imgui;
+	// Tree lines remember each open node and check, when it closes, that its ID is the last one pushed.
+	ImGui::GetStyle().TreeLinesFlags = ImGuiTreeNodeFlags_DrawLinesToNodes;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	ContentBrowserPanel browser;
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	REQUIRE(operations.CreateAssetFolder("Textures/Wood/Oak").IsOk());
+	REQUIRE(operations.CreateAssetFolder("Audio/Music").IsOk());
+	// The displayed folder's ancestors open in the tree.
+	browser.SetFolder("Textures/Wood/Oak");
+	bool open = true;
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(
+			[&]
+			{
+				browser.OnImGuiRender(operations, open);
+			});
+	}
+	CHECK(open);
+	CHECK(browser.GetFolder() == "Textures/Wood/Oak");
+}
+
+TEST_CASE("Panels: the scene view shows an opened scene from its camera, or framed without one, and reopening keeps the view")
+{
+	Testing::AssetManagerScope assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	ViewportPanel viewport;
+	EditorCamera const& camera = viewport.GetCamera();
+	bool open = true;
+	auto const draw = [&]
+	{
+		imgui.Frame(
+			[&]
+			{
+				viewport.OnImGuiRender(operations, open);
+			});
+	};
+	auto const nearly = [](glm::vec3 const& a, glm::vec3 const& b)
+	{
+		return glm::all(glm::lessThanEqual(glm::abs(a - b), glm::vec3(1e-3f)));
+	};
+	// Two cubes far from the origin, and a light at the origin, which shows nothing itself.
+	auto const makeScene = [](std::string name)
+	{
+		Ref<Scene> scene = CreateRef<Scene>(std::move(name));
+		for (float const x : {200.0f, 204.0f})
+		{
+			Entity cube = scene->CreateEntity("Cube");
+			cube.AddComponent<MeshComponent>().Mesh = GetBuiltInHandle(BuiltInAsset::CubeMesh);
+			cube.GetComponent<TransformComponent>().Translation = {x, 3.0f, -150.0f};
+		}
+		scene->CreateEntity("Lamp").AddComponent<PointLightComponent>();
+		return scene;
+	};
+
+	// Without a camera, the cubes fill the view from the side and above.
+	std::filesystem::path const framed = temporary.GetPath() / "Framed.sscene";
+	REQUIRE(SceneSerializer::SaveToFile(*makeScene("Framed"), framed).IsOk());
+	REQUIRE(operations.OpenScene(framed).IsOk());
+	draw();
+	CHECK(nearly(camera.GetFocalPoint(), {202.0f, 3.0f, -150.0f}));
+	CHECK(camera.GetYaw() == doctest::Approx(30.0f));
+	CHECK(camera.GetPitch() == doctest::Approx(-20.0f));
+	CHECK(camera.GetDistance() < 20.0f);
+
+	// With a primary camera, the view starts where it looks from, along its direction, the focal point as far ahead as the
+	// middle of the cubes.
+	Ref<Scene> const filmedScene = makeScene("Filmed");
+	Entity lens = filmedScene->CreateEntity("Camera");
+	lens.AddComponent<CameraComponent>();
+	lens.GetComponent<TransformComponent>().Translation = {202.0f, 10.0f, -130.0f};
+	lens.GetComponent<TransformComponent>().SetRotationEuler({-20.0f, 15.0f, 0.0f});
+	glm::vec3 const lensForward = glm::normalize(glm::vec3(filmedScene->GetWorldTransform(lens) * glm::vec4(0.0f, 0.0f, -1.0f, 0.0f)));
+	std::filesystem::path const filmed = temporary.GetPath() / "Filmed.sscene";
+	REQUIRE(SceneSerializer::SaveToFile(*filmedScene, filmed).IsOk());
+	REQUIRE(operations.OpenScene(filmed).IsOk());
+	draw();
+	CHECK(nearly(camera.GetPosition(), {202.0f, 10.0f, -130.0f}));
+	CHECK(nearly(camera.GetForward(), lensForward));
+	CHECK(camera.GetDistance() ==
+	      doctest::Approx(glm::dot(glm::vec3(202.0f, 3.0f, -150.0f) - glm::vec3(202.0f, 10.0f, -130.0f), lensForward)));
+
+	// Looked around, the view stays when the scene is opened again; another scene is framed (an empty one from the origin).
+	viewport.GetCamera().SetView({1.0f, 2.0f, 3.0f}, 5.0f, 10.0f, -10.0f);
+	draw();
+	REQUIRE(operations.OpenScene(filmed).IsOk());
+	draw();
+	CHECK(nearly(camera.GetFocalPoint(), {1.0f, 2.0f, 3.0f}));
+	REQUIRE(operations.NewScene("Empty").IsOk());
+	draw();
+	CHECK(nearly(camera.GetFocalPoint(), {0.0f, 0.5f, 0.0f}));
+	CHECK(open);
+}

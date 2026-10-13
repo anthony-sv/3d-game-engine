@@ -21,6 +21,7 @@ namespace Strada
 		m_History.Clear();
 		m_Selection.Clear();
 		m_SceneVersion++;
+		m_OpenedSceneVersion++;
 	}
 
 	void EditorContext::BeginPlay(Ref<Scene> runningScene, EditorPlayState state)

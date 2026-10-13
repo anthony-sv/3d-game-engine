@@ -62,6 +62,9 @@ namespace Strada
 		// Changes whenever the scene GetScene returns is replaced (SetScene, play mode starting and stopping, the running
 		// scene loading another), so state tied to one scene, such as viewport picking IDs, resets.
 		uint64_t GetSceneVersion() const { return m_SceneVersion; }
+		// Changes whenever SetScene replaces the edited scene with a new or opened one (not when play mode starts or stops),
+		// so views show it from a fitting place.
+		uint64_t GetOpenedSceneVersion() const { return m_OpenedSceneVersion; }
 
 		// --- Play mode (driven by PlayMode) ---
 
@@ -131,5 +134,6 @@ namespace Strada
 		AssetHandle m_SelectedAsset;
 		AssetReferenceResolver m_AssetReferenceResolver;
 		uint64_t m_SceneVersion = 0;
+		uint64_t m_OpenedSceneVersion = 0;
 	};
 }
