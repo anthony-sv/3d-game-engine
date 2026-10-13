@@ -43,6 +43,39 @@ TEST_CASE("Components: every component is registered once with a unique name")
 	CHECK(ComponentRegistry::Get<PrefabComponent>().IsInternal());
 }
 
+TEST_CASE("Components: every component belongs to one of the known categories")
+{
+	std::set<std::string_view> used;
+	for (ComponentInfo const& info : ComponentRegistry::GetComponents())
+	{
+		CAPTURE(info.Name);
+		CHECK(std::find(ComponentCategory::All.begin(), ComponentCategory::All.end(), info.Category) != ComponentCategory::All.end());
+		used.insert(info.Category);
+		// Core components are on every entity; the other categories group what users add.
+		if (info.IsCore())
+		{
+			CHECK(info.Category == ComponentCategory::Core);
+		}
+	}
+	// Every category the Add Component menu shows has components.
+	CHECK(used.size() == ComponentCategory::All.size());
+
+	CHECK(ComponentRegistry::Get<TransformComponent>().Category == ComponentCategory::Core);
+	CHECK(ComponentRegistry::Get<PrefabComponent>().Category == ComponentCategory::Core);
+	CHECK(ComponentRegistry::Get<MeshComponent>().Category == ComponentCategory::Rendering);
+	CHECK(ComponentRegistry::Get<ParticleSystemComponent>().Category == ComponentCategory::Rendering);
+	CHECK(ComponentRegistry::Get<JointComponent>().Category == ComponentCategory::Physics);
+	CHECK(ComponentRegistry::Get<AudioListenerComponent>().Category == ComponentCategory::Audio);
+	CHECK(ComponentRegistry::Get<ScriptComponent>().Category == ComponentCategory::Scripting);
+	CHECK(ComponentRegistry::Get<CharacterControllerComponent>().Category == ComponentCategory::Physics);
+	CHECK(ComponentRegistry::Get<PostProcessComponent>().Category == ComponentCategory::Rendering);
+	// Text and sprites are renderers in the world or on the screen; UI holds the elements of screen-space canvases.
+	CHECK(ComponentRegistry::Get<TextComponent>().Category == ComponentCategory::Rendering);
+	CHECK(ComponentRegistry::Get<SpriteRendererComponent>().Category == ComponentCategory::Rendering);
+	CHECK(ComponentRegistry::Get<UICanvasComponent>().Category == ComponentCategory::UI);
+	CHECK(ComponentRegistry::Get<UIButtonComponent>().Category == ComponentCategory::UI);
+}
+
 TEST_CASE("Components: every component round trips through JSON with its default values")
 {
 	Scene scene;

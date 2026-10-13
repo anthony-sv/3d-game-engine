@@ -4,6 +4,7 @@
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Editor/AssetThumbnails.h"
 #include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
@@ -19,15 +20,19 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/MeshSource.h"
 #include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Utf8.h"
+#include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Project/ScriptProject.h"
 #include "Strada/RHI/GraphicsDevice.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/ComponentRegistry.h"
+#include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
 
@@ -35,11 +40,18 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -99,6 +111,23 @@ struct Strada::StructTraits<LongNameProbe>
 	static constexpr auto Fields = std::make_tuple(
 		Field("OverrideAmbientOcclusionIntensity", &LongNameProbe::OverrideAmbientOcclusionIntensity),
 		Field("AmbientOcclusionIntensity", &LongNameProbe::AmbientOcclusionIntensity).EnabledBy("OverrideAmbientOcclusionIntensity"));
+};
+
+namespace
+{
+	// A long name beside an asset path.
+	struct LongNamedDecal
+	{
+		AssetHandle AmbientOcclusionTexture;
+	};
+}
+
+template<>
+struct Strada::StructTraits<LongNamedDecal>
+{
+	static constexpr std::string_view Name = "LongNamedDecal";
+	static constexpr auto Fields =
+		std::make_tuple(Field("AmbientOcclusionTexture", &LongNamedDecal::AmbientOcclusionTexture).References("Texture"));
 };
 
 namespace
@@ -287,7 +316,7 @@ namespace
 	}
 }
 
-TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 40% to 60% of the table")
+TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 30% to 60% of the table")
 {
 	HeadlessImGui imgui;
 	FieldEditor editor;
@@ -310,6 +339,9 @@ TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 4
 	NameColumnLayout probeColumn;
 	NameColumnLayout wideColumn;
 	NameColumnLayout narrowColumn;
+	NameColumnLayout assetColumn;
+	std::vector<FieldDescriptor> const asset = GetFieldDescriptors<StructTraits<LongNamedDecal>, LongNamedDecal>();
+	Json const assetValues = SerializeFields<StructTraits<LongNamedDecal>>(LongNamedDecal{});
 	auto const draw = [&]
 	{
 		labelWidth = ImGui::CalcTextSize(label).x;
@@ -318,6 +350,7 @@ TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 4
 		probeColumn = DrawFieldsWindow(editor, "Probe", 420.0f, 400.0f, probe, probeValues);
 		wideColumn = DrawFieldsWindow(editor, "Wide", 840.0f, 400.0f, longName, longNameValues);
 		narrowColumn = DrawFieldsWindow(editor, "Narrow", 1260.0f, 250.0f, longName, longNameValues);
+		assetColumn = DrawFieldsWindow(editor, "Asset", 1520.0f, 250.0f, asset, assetValues);
 	};
 	imgui.Frame(draw);
 	imgui.Frame(draw);
@@ -325,8 +358,10 @@ TEST_CASE("FieldEditor: the name column starts as wide as the names need, from 4
 	// At 400 pixels the post-process volume's longest switched name, check box and all, fits in the name column.
 	CHECK(postProcessColumn.Name >= switchedLabelWidth);
 	CHECK(postProcessColumn.Name <= postProcessColumn.Table * 0.6f + 1.0f);
-	// Short names keep the values at 60%, so their tables line up.
-	CHECK(probeColumn.Name == doctest::Approx(probeColumn.Table * 0.4f).epsilon(0.01));
+	// Short names keep the values at 70%, so their tables line up.
+	CHECK(probeColumn.Name == doctest::Approx(probeColumn.Table * 0.3f).epsilon(0.01));
+	// Beside asset fields the column stops at 50%, so the paths keep room.
+	CHECK(assetColumn.Name == doctest::Approx(assetColumn.Table * 0.5f).epsilon(0.01));
 	CHECK(wideColumn.Name >= switchedLabelWidth);
 	// Too narrow for the name: the column stops at 60% and the name is shortened.
 	CHECK(narrowColumn.Name == doctest::Approx(narrowColumn.Table * 0.6f).epsilon(0.01));
@@ -650,6 +685,11 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	EditorOperations operations(context);
 	ContentBrowserPanel browser;
 	InspectorPanel inspector;
+	// One set of thumbnails for both, updated before they draw as the editor does (without a renderer only the audio clips'
+	// waveforms are made).
+	AssetThumbnails thumbnails;
+	browser.SetThumbnails(&thumbnails);
+	inspector.SetThumbnails(&thumbnails);
 	bool browserOpen = true;
 	bool inspectorOpen = true;
 	auto const draw = [&]
@@ -661,6 +701,7 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	{
 		for (int frame = 0; frame < 3; frame++)
 		{
+			thumbnails.Update();
 			imgui.Frame(draw);
 		}
 	};
@@ -959,7 +1000,1034 @@ TEST_CASE("Panels: the content browser renames with F2, confirms deletions and k
 	CHECK(browser.GetFolder() == "Aaa");
 }
 
-TEST_CASE("UI: tile labels show file names on two lines with their extensions in view")
+namespace
+{
+	struct Decal
+	{
+		AssetHandle Texture;
+		float Size = 1.0f;
+	};
+
+	struct Showpiece
+	{
+		AssetHandle Mesh;
+		AssetHandle Material;
+	};
+
+	// Moves the mouse from one point to another, a frame every few pixels, until ImGui reports the item hovered; returns
+	// that point. Items are named by their ImGui IDs, which follow the IDs pushed while drawing them.
+	std::optional<ImVec2> FindItem(HeadlessImGui& imgui, ImGuiID item, ImVec2 from, ImVec2 to, std::function<void()> const& draw)
+	{
+		float const distance = std::max(std::abs(to.x - from.x), std::abs(to.y - from.y));
+		int const steps = std::max(1, static_cast<int>(distance / 3.0f));
+		for (int i = 0; i <= steps; i++)
+		{
+			float const t = static_cast<float>(i) / static_cast<float>(steps);
+			ImVec2 const point(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+			ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+			imgui.Frame(draw);
+			if (GImGui->HoveredId == item)
+			{
+				return point;
+			}
+		}
+		return std::nullopt;
+	}
+
+	// Whether the last frame drew the image in the window or in one of its child windows.
+	bool DrewImage(ImGuiWindow const* window, nvrhi::ITexture* image)
+	{
+		REQUIRE(window != nullptr);
+		ImTextureID const id = ImGuiRenderer::GetTextureID(image);
+		auto const drawsImage = [id](ImGuiWindow const* candidate)
+		{
+			return std::any_of(candidate->DrawList->CmdBuffer.begin(), candidate->DrawList->CmdBuffer.end(),
+			                   [id](ImDrawCmd const& command)
+			                   {
+								   return command.TexRef._TexData == nullptr && command.TexRef._TexID == id;
+							   });
+		};
+		return std::any_of(GImGui->Windows.begin(), GImGui->Windows.end(),
+		                   [&](ImGuiWindow const* candidate)
+		                   {
+							   bool const inside = candidate == window || (candidate->RootWindow == window && candidate->Active);
+							   return inside && drawsImage(candidate);
+						   });
+	}
+
+	// The list of the open asset picker: the child window of the open popup.
+	ImGuiWindow const* FindPickerList()
+	{
+		for (ImGuiWindow const* window : GImGui->Windows)
+		{
+			if ((window->Flags & ImGuiWindowFlags_ChildWindow) != 0 && window->Active &&
+			    (window->RootWindow->Flags & ImGuiWindowFlags_Popup) != 0)
+			{
+				return window;
+			}
+		}
+		return nullptr;
+	}
+
+	// Assets/Models/Pair.obj: two triangles with the materials Red and Blue, one material slot each.
+	AssetHandle WritePairModel(EditorOperations& operations, std::filesystem::path const& assets)
+	{
+		REQUIRE(FileSystem::CreateDirectories(assets / "Models").IsOk());
+		REQUIRE(FileSystem::WriteTextFile(assets / "Models" / "Pair.mtl", "newmtl Red\nKd 1 0 0\nnewmtl Blue\nKd 0 0 1\n").IsOk());
+		REQUIRE(FileSystem::WriteTextFile(assets / "Models" / "Pair.obj", "mtllib Pair.mtl\n"
+		                                                                  "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\n"
+		                                                                  "usemtl Red\nf 1 2 3\n"
+		                                                                  "usemtl Blue\nf 2 4 3\n")
+		            .IsOk());
+		REQUIRE(operations.RefreshAssets().IsOk());
+		AssetHandle const model = AssetManager::FindByPath("Models/Pair.obj");
+		REQUIRE(model.IsValid());
+		return model;
+	}
+}
+
+template<>
+struct Strada::StructTraits<Showpiece>
+{
+	static constexpr std::string_view Name = "Showpiece";
+	static constexpr auto Fields =
+		std::make_tuple(Field("Mesh", &Showpiece::Mesh).References("Mesh"), Field("Material", &Showpiece::Material).References("Material"));
+};
+
+template<>
+struct Strada::StructTraits<Decal>
+{
+	static constexpr std::string_view Name = "Decal";
+	static constexpr auto Fields =
+		std::make_tuple(Field("Texture", &Decal::Texture).References("Texture"), Field("Size", &Decal::Size).AtLeast(0.0));
+};
+
+TEST_CASE("UI: asset references read as paths in the asset directory, and long ones keep the start and end of their names")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const directory = context.GetProject()->GetAssetDirectory();
+	REQUIRE(FileSystem::CreateDirectories(directory / "Textures" / "Wood").IsOk());
+	Image const image(2, 2, 4);
+	REQUIRE(image.WritePNG(directory / "Textures" / "Wood" / "Oak.png").IsOk());
+	REQUIRE(image.WritePNG(directory / "Ghost.png").IsOk());
+	AssetHandle const model = WritePairModel(operations, directory);
+	AssetHandle const oak = AssetManager::FindByPath("Textures/Wood/Oak.png");
+	AssetHandle const ghost = AssetManager::FindByPath("Ghost.png");
+	REQUIRE(FileSystem::Remove(directory / "Ghost.png").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	Ref<MeshSource> const mesh = AssetManager::GetAsset<MeshSource>(model);
+	REQUIRE(mesh != nullptr);
+
+	CHECK(UI::DescribeAssetReference(AssetHandle()) == "None");
+	CHECK(UI::DescribeAssetReference(oak) == "Textures/Wood/Oak.png");
+	CHECK(UI::DescribeAssetReference(model) == "Models/Pair.obj");
+	CHECK(UI::DescribeAssetReference(GetBuiltInHandle(BuiltInAsset::WhiteTexture)) == "builtin://White");
+	CHECK(UI::DescribeAssetReference(mesh->GetMaterials()[1]) == "Pair.obj/Materials/Blue");
+	CHECK(UI::DescribeAssetReference(ghost) == "Ghost.png (missing)");
+	CHECK(UI::DescribeAssetReference(AssetHandle(UUID(987654321))) == "Unknown asset 987654321");
+
+	HeadlessImGui imgui;
+	imgui.Frame(
+		[]
+		{
+			// The test font is monospaced: parts of the same length are as wide.
+			std::string const ellipsis = UI::GetEllipsis();
+			CHECK(ImTextCountCharsFromUtf8(ellipsis.c_str(), nullptr) == 1);
+			auto const width = [](std::string const& text)
+			{
+				return ImGui::CalcTextSize(text.c_str()).x + 0.5f;
+			};
+			std::string const path = "Textures/Wood/Oak_Color.png";
+			CHECK(UI::FitPath(path, 10000.0f) == path);
+			// Leading folders give way first, then the name stands alone.
+			CHECK(UI::FitPath(path, width(ellipsis + "/Wood/Oak_Color.png")) == ellipsis + "/Wood/Oak_Color.png");
+			CHECK(UI::FitPath(path, width(ellipsis + "/Oak_Color.png")) == ellipsis + "/Oak_Color.png");
+			CHECK(UI::FitPath(path, width("Oak_Color.png")) == "Oak_Color.png");
+			// Then the name loses its middle: its end with the extension gets up to half of the room, starting at a word when
+		    // one fits (the extension counts), its start the rest.
+			CHECK(UI::FitPath(path, width("Oak_C" + ellipsis + "r.png")) == "Oak_Co" + ellipsis + ".png");
+			CHECK(UI::FitPath(path, width("Oak_Col" + ellipsis + ".png")) == "Oak_Col" + ellipsis + ".png");
+			CHECK(UI::FitPath("Textures/dry_decay_leaves/dry_decay_leaves.smat", width("dry_decay_" + ellipsis + ".smat")) ==
+		          "dry_decay_" + ellipsis + ".smat");
+			CHECK(UI::FitPath("Textures/OakBarkColorMap.png", width("OakBarkC" + ellipsis + "Map.png")) ==
+		          "OakBarkC" + ellipsis + "Map.png");
+			// Without a word in reach the end is cut between characters.
+			CHECK(UI::FitPath(path, width("O" + ellipsis + "g")) == "O" + ellipsis + "g");
+			// Without room for both, the start stays; without room for anything, the ellipsis.
+			CHECK(UI::FitPath(path, width("O" + ellipsis)) == "O" + ellipsis);
+			CHECK(UI::FitPath(path, width(ellipsis)) == ellipsis);
+			CHECK(UI::FitPath(path, 1.0f) == ellipsis);
+			CHECK(UI::FitPath("", 0.0f).empty());
+			// Built-ins that do not fit show their name; the scheme is no folder.
+			CHECK(UI::FitPath("builtin://White", width(ellipsis + "/White")) == "White");
+			CHECK(UI::FitPath("builtin://White", width("White")) == "White");
+			CHECK(UI::FitPath("Helmet.glb/Materials/Visor", width("Visor")) == "Visor");
+
+			// The maps of a texture set repeat the set's folder in their names: what tells them apart stays.
+			std::string const diffuse = "Models/wooden_crate_01/textures/wooden_crate_01_diff_1k.jpg";
+			std::string const normal = "Textures/dry_decay_leaves/dry_decay_leaves_nor_gl_1k.jpg";
+			CHECK(UI::GetDistinctFileNamePart(diffuse) == "diff_1k.jpg");
+			CHECK(UI::GetDistinctFileNamePart(normal) == "nor_gl_1k.jpg");
+			CHECK(UI::GetDistinctFileNamePart("Models/Lantern_01/textures/LANTERN_01-ARM_1K.JPG") == "ARM_1K.JPG");
+			CHECK(UI::FitPath(diffuse, width(ellipsis + "diff_1k.jpg")) == ellipsis + "diff_1k.jpg");
+			CHECK(UI::FitPath(normal, width(ellipsis + "nor_gl_1k.jpg")) == ellipsis + "nor_gl_1k.jpg");
+			CHECK(UI::FitPath(diffuse, width("wooden_crate_01_diff_1k.jpg")) == "wooden_crate_01_diff_1k.jpg");
+			// Without room for all of that part, its last words stay while they say more than a resolution.
+			std::string const metal = "Models/Lantern_01/textures/Lantern_01_brass_arm_1k.jpg";
+			CHECK(UI::GetDistinctFileNamePart(metal) == "brass_arm_1k.jpg");
+			CHECK(UI::FitPath(metal, width(ellipsis + "brass_arm_1k.jpg")) == ellipsis + "brass_arm_1k.jpg");
+			CHECK(UI::FitPath(metal, width(ellipsis + "arm_1k.jpg")) == ellipsis + "arm_1k.jpg");
+			CHECK(UI::FitPath(metal, width(ellipsis + "arm_1k.jpg") - 1.0f).starts_with("Lan"));
+			// A name that only adds a resolution to its set's name is the set's model: it keeps its start.
+			std::string const crate = "Models/wooden_crate_01/wooden_crate_01_1k.gltf";
+			CHECK(UI::GetDistinctFileNamePart(crate).empty());
+			CHECK(UI::FitPath(crate, width("woode" + ellipsis + "1k.gltf")).starts_with("woode"));
+			// Names that do not start with a folder's name, or only with part of a word of it, are no set's files.
+			CHECK(UI::GetDistinctFileNamePart("Textures/Wood/Oak_Color.png").empty());
+			CHECK(UI::GetDistinctFileNamePart("Textures/Bar/Barrel_Color.png").empty());
+			CHECK(UI::GetDistinctFileNamePart("Lantern_diff.png").empty());
+			// A long path keeps its file name.
+			std::string const deep = "Models/Imported/Environment/Props/Village/Market/Stall/Lantern_01.gltf";
+			REQUIRE(deep.size() == 70);
+			CHECK(UI::FitPath(deep, width(std::string(30, 'M'))).ends_with("/Lantern_01.gltf"));
+			// Characters of several bytes are kept whole.
+			CHECK(UI::FitPath("Gr\xC3\xB6\xC3\x9F"
+		                      "e/\xC3\x96l.png",
+		                      width(ellipsis + "/\xC3\x96l.png")) == ellipsis + "/\xC3\x96l.png");
+			CHECK(UI::FitPath("\xC3\x96\xC3\x96\xC3\x96\xC3\x96\xC3\x96\xC3\x96.png", width("\xC3\x96\xC3\x96" + ellipsis + "ng")) ==
+		          "\xC3\x96\xC3\x96" + ellipsis + "ng");
+			// Whatever the room, the text fits in it (only the ellipsis alone may not).
+			for (float room = 0.0f; room <= width(path); room += 1.0f)
+			{
+				std::string const fitted = UI::FitPath(path, room);
+				CAPTURE(room);
+				CAPTURE(fitted);
+				CHECK((fitted == ellipsis || ImGui::CalcTextSize(fitted.c_str()).x <= room));
+			}
+		});
+}
+
+TEST_CASE("FieldEditor: asset fields show the asset's path, pick from a searchable list, take drops and clear")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const directory = context.GetProject()->GetAssetDirectory();
+	REQUIRE(FileSystem::CreateDirectories(directory / "Textures" / "Wood").IsOk());
+	Image const image(2, 2, 4);
+	REQUIRE(image.WritePNG(directory / "Textures" / "Wood" / "Oak.png").IsOk());
+	REQUIRE(image.WritePNG(directory / "Textures" / "Stone.png").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const oak = AssetManager::FindByPath("Textures/Wood/Oak.png");
+	AssetHandle const stone = AssetManager::FindByPath("Textures/Stone.png");
+	REQUIRE(oak.IsValid());
+	REQUIRE(stone.IsValid());
+
+	HeadlessImGui imgui;
+	// The editor navigates with the keyboard (Escape closes popups).
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Decal>, Decal>();
+	Json const values = SerializeFields<StructTraits<Decal>>(Decal{oak, 1.0f});
+	AssetThumbnails thumbnails;
+	FieldEditor editor;
+	std::optional<FieldChange> last;
+	bool disabled = false;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 300.0f));
+		ImGui::Begin("Fields");
+		// A drag source like the content browser's tiles.
+		ImGui::Button("Stone");
+		UI::AssetDragSource(stone, "Stone.png");
+		ImGui::BeginDisabled(disabled);
+		if (std::optional<FieldChange> change = editor.Draw(fields, values))
+		{
+			last = std::move(change);
+		}
+		ImGui::EndDisabled();
+		ImGui::End();
+	};
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+
+	// The widgets of the Texture row: the box with the path, "..." and "x", left to right.
+	ImGuiWindow const* window = ImGui::FindWindowByName("Fields");
+	REQUIRE(window != nullptr);
+	ImGuiID const table = ImHashStr("##fields", 0, window->ID);
+	ImGuiID const row = ImHashStr("Texture", 0, table);
+	ImGuiTable const* tableData = ImGui::TableFindByID(table);
+	REQUIRE(tableData != nullptr);
+	float const rowY = tableData->OuterRect.Min.y + ImGui::GetFrameHeight() * 0.5f;
+	auto const find = [&](ImGuiID item)
+	{
+		std::optional<ImVec2> const position =
+			FindItem(imgui, item, ImVec2(window->Pos.x + 2.0f, rowY), ImVec2(window->Pos.x + window->Size.x - 2.0f, rowY), draw);
+		REQUIRE(position);
+		return *position;
+	};
+	ImVec2 const box = find(ImHashStr("##reference", 0, row));
+	ImVec2 const pick = find(ImHashStr("...", 0, row));
+	ImVec2 const clear = find(ImHashStr("x", 0, row));
+	CHECK(box.x < pick.x);
+	CHECK(pick.x < clear.x);
+	CHECK_FALSE(last);
+
+	// "x" clears the reference.
+	imgui.Click(clear, draw);
+	REQUIRE(last);
+	CHECK(last->Path == std::vector<std::string_view>{"Texture"});
+	CHECK(last->Value == UUID::Invalid().ToString());
+
+	// Clicking the box opens the picker; typing searches the paths (the list shrinks to the matches) and Enter takes the first
+	// match.
+	last.reset();
+	imgui.Click(box, draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	// The search field has the keyboard once the picker shows.
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	float const listedHeight = GImGui->OpenPopupStack[0].Window->Size.y;
+	imgui.Type("STONE");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	CHECK(GImGui->OpenPopupStack[0].Window->Size.y < listedHeight);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(last);
+	CHECK(last->Value == stone.ToString());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+
+	// "..." opens it too. Enter without a match keeps the picker open and the search field typing; spaces around the text do
+	// not count.
+	last.reset();
+	imgui.Click(pick, draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("pebble");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+	CHECK_FALSE(last);
+	imgui.Frame(draw);
+	for (int i = 0; i < 6; i++)
+	{
+		imgui.Press(ImGuiKey_Backspace, draw);
+	}
+	imgui.Type(" stone ");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(last);
+	CHECK(last->Value == stone.ToString());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+
+	// Choosing the asset the field has already changes nothing.
+	last.reset();
+	imgui.Click(pick, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("oak");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK_FALSE(last);
+
+	// Up and Down move from the current asset (the last row: file assets follow None and the built-in textures, by path)
+	// through the rows, the search field keeping the keyboard; Enter takes the row.
+	imgui.Click(pick, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_DownArrow, draw);
+	imgui.Press(ImGuiKey_UpArrow, draw);
+	imgui.Press(ImGuiKey_UpArrow, draw);
+	imgui.Press(ImGuiKey_DownArrow, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(last);
+	CHECK(last->Value == stone.ToString());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	last.reset();
+	imgui.Click(pick, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	for (int i = 0; i < 40; i++)
+	{
+		imgui.Press(ImGuiKey_UpArrow, draw);
+	}
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(last);
+	CHECK(last->Value == UUID::Invalid().ToString());
+	// Typing puts the keyboard on the first match.
+	last.reset();
+	imgui.Click(pick, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Textures/");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(last);
+	CHECK(last->Value == stone.ToString());
+
+	// Escape leaves the search field, then closes the picker without a change.
+	last.reset();
+	imgui.Click(pick, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Frame(draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK_FALSE(last);
+
+	// Assets dragged from elsewhere drop onto the box.
+	ImGuiID const source = ImHashStr("Stone", 0, window->ID);
+	float const sourceY = window->DC.CursorStartPos.y + ImGui::GetFrameHeight() * 0.5f;
+	std::optional<ImVec2> const sourcePosition =
+		FindItem(imgui, source, ImVec2(window->Pos.x + 2.0f, sourceY), ImVec2(window->Pos.x + window->Size.x - 2.0f, sourceY), draw);
+	REQUIRE(sourcePosition);
+	imgui.Drag(*sourcePosition, box, draw);
+	REQUIRE(last);
+	CHECK(last->Value == stone.ToString());
+
+	// Disabled fields (read-only materials) neither open the picker nor clear.
+	disabled = true;
+	last.reset();
+	imgui.Click(box, draw);
+	imgui.Click(clear, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK_FALSE(last);
+
+	// With previews the box keeps room for the asset's image (none without a renderer) and works the same.
+	disabled = false;
+	editor.SetAssetPreviews(&thumbnails);
+	imgui.Frame(draw);
+	imgui.Click(box, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Frame(draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	imgui.Click(clear, draw);
+	REQUIRE(last);
+	CHECK(last->Value == UUID::Invalid().ToString());
+}
+
+TEST_CASE("FieldEditor: asset fields and their picker show images of the assets once their thumbnails are made")
+{
+	ST_REQUIRE_GPU();
+	Testing::AssetManagerScope const assets;
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		AssetHandle const painted = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(MaterialData()), "Painted");
+		AssetHandle const cube = GetBuiltInHandle(BuiltInAsset::CubeMesh);
+		AssetHandle const white = GetBuiltInHandle(BuiltInAsset::WhiteTexture);
+		AssetHandle const black = GetBuiltInHandle(BuiltInAsset::BlackTexture);
+		// A mesh and a material, and a texture.
+		std::vector<FieldDescriptor> const showpieceFields = GetFieldDescriptors<StructTraits<Showpiece>, Showpiece>();
+		Json const showpieceValues = SerializeFields<StructTraits<Showpiece>>(Showpiece{cube, painted});
+		std::vector<FieldDescriptor> const decalFields = GetFieldDescriptors<StructTraits<Decal>, Decal>();
+		Json const decalValues = SerializeFields<StructTraits<Decal>>(Decal{white, 1.0f});
+
+		HeadlessImGui imgui;
+		ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		AssetThumbnails thumbnails;
+		FieldEditor editor;
+		editor.SetAssetPreviews(&thumbnails);
+		auto const draw = [&]
+		{
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(600.0f, 300.0f));
+			ImGui::Begin("Fields");
+			CHECK_FALSE(editor.Draw(showpieceFields, showpieceValues));
+			ImGui::End();
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 320.0f));
+			ImGui::SetNextWindowSize(ImVec2(600.0f, 200.0f));
+			ImGui::Begin("Decal");
+			CHECK_FALSE(editor.Draw(decalFields, decalValues));
+			ImGui::End();
+		};
+		// Draws frames, updating the thumbnails before each as the editor does, until the assets have images or a generous
+		// time has passed (textures are shrunk on a worker thread); then one more frame shows them all.
+		auto const drawUntilMade = [&](std::vector<AssetHandle> const& shown)
+		{
+			auto const made = [&]
+			{
+				return std::all_of(shown.begin(), shown.end(),
+				                   [&](AssetHandle asset)
+				                   {
+									   return thumbnails.Get(asset) != nullptr;
+								   });
+			};
+			for (int attempt = 0; attempt < 1000 && !made(); attempt++)
+			{
+				thumbnails.Update();
+				imgui.Frame(draw);
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			}
+			thumbnails.Update();
+			imgui.Frame(draw);
+		};
+
+		// The fields ask for the images they show, which are made after: the first frame has none.
+		imgui.Frame(draw);
+		ImGuiWindow const* fields = ImGui::FindWindowByName("Fields");
+		ImGuiWindow const* decal = ImGui::FindWindowByName("Decal");
+		drawUntilMade({white, painted, cube});
+		nvrhi::ITexture* const whiteImage = thumbnails.Get(white);
+		nvrhi::ITexture* const materialImage = thumbnails.Get(painted);
+		nvrhi::ITexture* const meshImage = thumbnails.Get(cube);
+		REQUIRE(whiteImage != nullptr);
+		REQUIRE(materialImage != nullptr);
+		REQUIRE(meshImage != nullptr);
+		CHECK(DrewImage(fields, materialImage));
+		CHECK(DrewImage(fields, meshImage));
+		CHECK(DrewImage(decal, whiteImage));
+
+		// The texture's picker shows the textures' images in its rows.
+		ImGuiID const table = ImHashStr("##fields", 0, decal->ID);
+		ImGuiTable const* tableData = ImGui::TableFindByID(table);
+		REQUIRE(tableData != nullptr);
+		float const rowY = tableData->OuterRect.Min.y + ImGui::GetFrameHeight() * 0.5f;
+		std::optional<ImVec2> const pick =
+			FindItem(imgui, ImHashStr("...", 0, ImHashStr("Texture", 0, table)), ImVec2(decal->Pos.x + 2.0f, rowY),
+		             ImVec2(decal->Pos.x + decal->Size.x - 2.0f, rowY), draw);
+		REQUIRE(pick);
+		imgui.Click(*pick, draw);
+		REQUIRE(GImGui->OpenPopupStack.Size == 1);
+		drawUntilMade({white, black});
+		REQUIRE(GImGui->OpenPopupStack.Size == 1);
+		ImGuiWindow const* list = FindPickerList();
+		REQUIRE(list != nullptr);
+		nvrhi::ITexture* const blackImage = thumbnails.Get(black);
+		REQUIRE(blackImage != nullptr);
+		CHECK(DrewImage(list, whiteImage));
+		CHECK(DrewImage(list, blackImage));
+		imgui.Press(ImGuiKey_Escape, draw);
+		imgui.Press(ImGuiKey_Escape, draw);
+		imgui.Frame(draw);
+		CHECK(GImGui->OpenPopupStack.Size == 0);
+
+		AssetManager::RemoveMemoryAsset(painted);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+}
+
+TEST_CASE("Panels: the content browser and the inspector draw the same thumbnails, made once for both")
+{
+	ST_REQUIRE_GPU();
+	Testing::AssetManagerScope const assets;
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		HeadlessImGui imgui;
+		Testing::TemporaryDirectory temporary;
+		EditorContext context;
+		EditorOperations operations(context);
+		REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+		Image const swatch(512, 256, 4);
+		REQUIRE(swatch.WritePNG(context.GetProject()->GetAssetDirectory() / "Swatch.png").IsOk());
+		REQUIRE(operations.RefreshAssets().IsOk());
+		AssetHandle const texture = AssetManager::FindByPath("Swatch.png");
+		REQUIRE(texture.IsValid());
+		Result<AssetHandle> const material =
+			operations.CreateMaterial("Rock.smat", Json::object({{"BaseColorTexture", texture.ToString()}}));
+		REQUIRE(material.IsOk());
+		// The material in a mesh slot: its section's header and asset field show it, its Base Color Texture field the texture.
+		std::string const cube = GetBuiltInHandle(BuiltInAsset::CubeMesh).ToString();
+		std::vector<UUID> const rock = {
+			Create(operations, "Rock", Json::object({{"Mesh", {{"Mesh", cube}, {"Materials", {material.GetValue().ToString()}}}}}))};
+		REQUIRE(operations.Select(rock).IsOk());
+
+		AssetThumbnails thumbnails;
+		ContentBrowserPanel browser;
+		InspectorPanel inspector;
+		browser.SetThumbnails(&thumbnails);
+		inspector.SetThumbnails(&thumbnails);
+		bool browserOpen = true;
+		bool inspectorOpen = true;
+		auto const draw = [&]
+		{
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(600.0f, 1000.0f));
+			inspector.OnImGuiRender(operations, inspectorOpen);
+			ImGui::SetNextWindowPos(ImVec2(620.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(900.0f, 600.0f));
+			browser.OnImGuiRender(operations, browserOpen);
+		};
+		// Updated before the panels draw, as the editor does, until both images are made (the texture's on a worker thread).
+		for (int attempt = 0; attempt < 1000 && (thumbnails.Get(material.GetValue()) == nullptr || thumbnails.Get(texture) == nullptr);
+		     attempt++)
+		{
+			thumbnails.Update();
+			imgui.Frame(draw);
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		thumbnails.Update();
+		imgui.Frame(draw);
+		nvrhi::ITexture* const materialImage = thumbnails.Get(material.GetValue());
+		nvrhi::ITexture* const textureImage = thumbnails.Get(texture);
+		REQUIRE(materialImage != nullptr);
+		REQUIRE(textureImage != nullptr);
+		// The texture's thumbnail is a small image of its own, not a copy of the texture with its mip levels.
+		CHECK(textureImage->getDesc().width == AssetThumbnails::Size);
+		CHECK(textureImage->getDesc().height == AssetThumbnails::Size / 2);
+		CHECK(textureImage->getDesc().mipLevels == 1);
+
+		// Both panels draw the same images: one made for both.
+		ImGuiWindow const* inspectorWindow = ImGui::FindWindowByName("Inspector");
+		ImGuiWindow const* browserWindow = ImGui::FindWindowByName("Content Browser");
+		CHECK(DrewImage(inspectorWindow, materialImage));
+		CHECK(DrewImage(inspectorWindow, textureImage));
+		CHECK(DrewImage(browserWindow, materialImage));
+		CHECK(DrewImage(browserWindow, textureImage));
+		// Updating again makes nothing new: the images stay.
+		thumbnails.Update();
+		imgui.Frame(draw);
+		CHECK(thumbnails.Get(material.GetValue()) == materialImage);
+		CHECK(thumbnails.Get(texture) == textureImage);
+		CHECK(browserOpen);
+		CHECK(inspectorOpen);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+}
+
+TEST_CASE("FieldEditor: the asset picker opens scrolled to the current asset of a long list")
+{
+	Testing::AssetManagerScope const assets;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const directory = context.GetProject()->GetAssetDirectory();
+	REQUIRE(FileSystem::CreateDirectories(directory / "Tiles").IsOk());
+	Image const image(2, 2, 4);
+	for (int i = 0; i < 60; i++)
+	{
+		REQUIRE(image.WritePNG(directory / "Tiles" / fmt::format("Tile{:02}.png", i)).IsOk());
+	}
+	// One path longer than the field is wide.
+	std::string const longName = "Kits/Environment/Village/Market/Stall/Awnings/striped_canvas_awning_diff_2k.png";
+	REQUIRE(FileSystem::CreateDirectories(directory / "Kits" / "Environment" / "Village" / "Market" / "Stall" / "Awnings").IsOk());
+	REQUIRE(image.WritePNG(directory / longName).IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	// File assets come after the built-in textures, by path: the last tile ends the list.
+	AssetHandle const last = AssetManager::FindByPath("Tiles/Tile59.png");
+	AssetHandle const first = AssetManager::FindByPath("Tiles/Tile00.png");
+	REQUIRE(last.IsValid());
+	REQUIRE(first.IsValid());
+
+	HeadlessImGui imgui;
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Decal>, Decal>();
+	Json const values = SerializeFields<StructTraits<Decal>>(Decal{last, 1.0f});
+	FieldEditor editor;
+	std::optional<FieldChange> picked;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 300.0f));
+		ImGui::Begin("Fields");
+		if (std::optional<FieldChange> change = editor.Draw(fields, values))
+		{
+			picked = std::move(change);
+		}
+		ImGui::End();
+	};
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow const* window = ImGui::FindWindowByName("Fields");
+	REQUIRE(window != nullptr);
+	ImGuiID const table = ImHashStr("##fields", 0, window->ID);
+	ImGuiTable const* tableData = ImGui::TableFindByID(table);
+	REQUIRE(tableData != nullptr);
+	float const rowY = tableData->OuterRect.Min.y + ImGui::GetFrameHeight() * 0.5f;
+	std::optional<ImVec2> const pick =
+		FindItem(imgui, ImHashStr("...", 0, ImHashStr("Texture", 0, table)), ImVec2(window->Pos.x + 2.0f, rowY),
+	             ImVec2(window->Pos.x + window->Size.x - 2.0f, rowY), draw);
+	REQUIRE(pick);
+	imgui.Click(*pick, draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+
+	// The list shows some of the rows, scrolled down to the current asset's row at its end.
+	ImGuiWindow const* list = FindPickerList();
+	REQUIRE(list != nullptr);
+	CHECK(list->ScrollMax.y > 0.0f);
+	CHECK(list->Scroll.y == doctest::Approx(list->ScrollMax.y));
+	CHECK_FALSE(picked);
+	// The picker is as wide as its longest path needs, wider than the field.
+	ImGuiWindow const* popup = GImGui->OpenPopupStack[0].Window;
+	REQUIRE(popup != nullptr);
+	CHECK(popup->Size.x >= ImGui::CalcTextSize(longName.c_str()).x + ImGui::GetTextLineHeight());
+	CHECK(popup->Size.x > tableData->OuterRect.GetWidth() * 0.6f);
+
+	// Up moves through the rows and the list follows: thirty rows up from the last tile is the thirtieth.
+	for (int i = 0; i < 30; i++)
+	{
+		imgui.Press(ImGuiKey_UpArrow, draw);
+	}
+	CHECK(list->Scroll.y < list->ScrollMax.y - ImGui::GetTextLineHeightWithSpacing() * 10.0f);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(picked);
+	CHECK(picked->Value == AssetManager::FindByPath("Tiles/Tile29.png").ToString());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+
+	// The search finds rows that were out of view, and Enter takes the first match.
+	picked.reset();
+	imgui.Click(*pick, draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Tile00");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	REQUIRE(picked);
+	CHECK(picked->Value == first.ToString());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+}
+
+TEST_CASE("FieldEditor: fields with a visibility condition show while their sibling has one of its values")
+{
+	HeadlessImGui imgui;
+	FieldEditor editor;
+	auto const countRows = [&](std::span<FieldDescriptor const> fields, Json const& values, std::vector<std::string> const& mixed)
+	{
+		int rows = 0;
+		imgui.Frame(
+			[&]
+			{
+				ImGui::Begin("Fields");
+				CHECK_FALSE(editor.Draw(fields, values, mixed));
+				ImGuiTable const* table = ImGui::TableFindByID(ImGui::GetID("##fields"));
+				REQUIRE(table != nullptr);
+				rows = table->CurrentRow + 1;
+				ImGui::End();
+			});
+		return rows;
+	};
+
+	// The alpha cutoff only shows in the Mask alpha mode.
+	std::vector<FieldDescriptor> const material = GetFieldDescriptors<StructTraits<MaterialData>, MaterialData>();
+	int const all = static_cast<int>(material.size());
+	Json values = SerializeFields<StructTraits<MaterialData>>(MaterialData());
+	CHECK(countRows(material, values, {}) == all - 1);
+	values["AlphaMode"] = "Mask";
+	CHECK(countRows(material, values, {}) == all);
+	values["AlphaMode"] = "Blend";
+	CHECK(countRows(material, values, {}) == all - 1);
+	// Objects with different alpha modes show it; values without one use its default (Opaque).
+	CHECK(countRows(material, values, {"AlphaMode"}) == all);
+	values.erase("AlphaMode");
+	CHECK(countRows(material, values, {}) == all - 1);
+
+	// Conditions with several values: particles leave points (no shape fields), spheres (radius), cones (angle and radius)
+	// or boxes (angle and size).
+	ComponentInfo const& particles = ComponentRegistry::Get<ParticleSystemComponent>();
+	int const allParticleFields = static_cast<int>(particles.Fields.size());
+	Json emitter = SerializeFields<ComponentTraits<ParticleSystemComponent>>(ParticleSystemComponent());
+	for (auto const& [shape, hidden] : std::vector<std::pair<char const*, int>>{{"Point", 3}, {"Sphere", 2}, {"Cone", 1}, {"Box", 1}})
+	{
+		CAPTURE(shape);
+		emitter["Shape"] = shape;
+		CHECK(countRows(particles.Fields, emitter, {}) == allParticleFields - hidden);
+	}
+
+	// Settings that only matter while a switch of the component is on (or off): shown then, and while the selected
+	// entities differ in it.
+	auto const checkSwitch = [&](ComponentInfo const& component, Json fieldValues, std::string const& sibling, bool shownWhen, int hidden)
+	{
+		CAPTURE(component.Name);
+		fieldValues[sibling] = shownWhen;
+		int const shown = countRows(component.Fields, fieldValues, {});
+		fieldValues[sibling] = !shownWhen;
+		CHECK(countRows(component.Fields, fieldValues, {}) == shown - hidden);
+		CHECK(countRows(component.Fields, fieldValues, {sibling}) == shown);
+	};
+	// A fixed aspect ratio; the distances of spatial sounds; the blur of a drawn sky; the blend distance of local volumes.
+	checkSwitch(ComponentRegistry::Get<CameraComponent>(), SerializeFields<ComponentTraits<CameraComponent>>(CameraComponent()),
+	            "FixedAspectRatio", true, 1);
+	checkSwitch(ComponentRegistry::Get<AudioSourceComponent>(),
+	            SerializeFields<ComponentTraits<AudioSourceComponent>>(AudioSourceComponent()), "Spatial", true, 2);
+	checkSwitch(ComponentRegistry::Get<SkyLightComponent>(), SerializeFields<ComponentTraits<SkyLightComponent>>(SkyLightComponent()),
+	            "DrawSkybox", true, 1);
+	checkSwitch(ComponentRegistry::Get<PostProcessComponent>(),
+	            SerializeFields<ComponentTraits<PostProcessComponent>>(PostProcessComponent()), "Global", false, 1);
+
+	// Static bodies never move: they show their type and layer. Kinematic ones move as scripts say, so they also sleep and
+	// start with velocities; only dynamic ones have mass, damping, gravity, locks and continuous collision.
+	ComponentInfo const& rigidBody = ComponentRegistry::Get<RigidBodyComponent>();
+	Json body = SerializeFields<ComponentTraits<RigidBodyComponent>>(RigidBodyComponent());
+	for (auto const& [type, rows] : std::vector<std::pair<char const*, int>>{{"Dynamic", 12}, {"Kinematic", 5}, {"Static", 2}})
+	{
+		CAPTURE(type);
+		body["Type"] = type;
+		CHECK(countRows(rigidBody.Fields, body, {}) == rows);
+	}
+	CHECK(countRows(rigidBody.Fields, body, {"Type"}) == 12);
+}
+
+TEST_CASE("Panels: the Add Component menu shows categories, finds components as the user types and adds the chosen one")
+{
+	HeadlessImGui imgui;
+	ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	EditorContext context;
+	EditorOperations operations(context);
+	UUID const lamp = Create(operations, "Lamp", Json::object({{"PointLight", Json::object()}}));
+	std::vector<UUID> const selection = {lamp};
+	REQUIRE(operations.Select(selection).IsOk());
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		inspector.OnImGuiRender(operations, open);
+	};
+	auto const menuOpen = []
+	{
+		return GImGui->OpenPopupStack.Size > 0;
+	};
+	auto const has = [&](std::string_view component)
+	{
+		Scene& scene = context.GetScene();
+		return ComponentRegistry::Find(component)->Has(scene.GetRegistry(), scene.GetEntityByUUID(lamp).GetHandle());
+	};
+	imgui.Frame(draw);
+	size_t const steps = context.GetHistory().GetUndoCount();
+
+	// Typing lists the matches; Enter adds the first one and closes the menu.
+	inspector.ShowAddComponentMenu(true, "");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	REQUIRE(menuOpen());
+	imgui.Type("box col");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(has("BoxCollider"));
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK_FALSE(menuOpen());
+
+	// Enter without a match adds nothing and keeps the menu open for more typing; the menu can be closed.
+	inspector.ShowAddComponentMenu(true, "teleporter");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	CHECK(menuOpen());
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	inspector.ShowAddComponentMenu(false, "");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK_FALSE(menuOpen());
+
+	// Without search text the menu shows the categories: the keyboard goes down to Physics, opens it and adds its first
+	// component (Box Collider is already there, so Capsule Collider).
+	inspector.ShowAddComponentMenu(true, "");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_DownArrow, draw);
+	imgui.Press(ImGuiKey_DownArrow, draw);
+	imgui.Press(ImGuiKey_RightArrow, draw);
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	CHECK(has("CapsuleCollider"));
+	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
+	CHECK_FALSE(menuOpen());
+
+	// Requests without selected entities open nothing, also not later.
+	REQUIRE(operations.Select({}).IsOk());
+	inspector.ShowAddComponentMenu(true, "light");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	REQUIRE(operations.Select(selection).IsOk());
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK_FALSE(menuOpen());
+	CHECK(open);
+}
+
+TEST_CASE("Panels: the inspector shows the material of each mesh slot and edits it in place")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const directory = context.GetProject()->GetAssetDirectory();
+	AssetHandle const model = WritePairModel(operations, directory);
+	Result<AssetHandle> const painted = operations.CreateMaterial("Painted.smat", Json::object({{"AlphaMode", "Mask"}}));
+	Result<AssetHandle> const lost = operations.CreateMaterial("Lost.smat");
+	REQUIRE(painted.IsOk());
+	REQUIRE(lost.IsOk());
+	REQUIRE(FileSystem::Remove(directory / "Lost.smat").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	std::string const cubeMesh = GetBuiltInHandle(BuiltInAsset::CubeMesh).ToString();
+
+	// Every kind of slot: the default material, a material file, imported materials, a missing file, an asset that is no
+	// material, several entities with different materials, a mesh that does not load.
+	std::string const white = GetBuiltInHandle(BuiltInAsset::WhiteTexture).ToString();
+	UUID const cube = Create(operations, "Cube", Json::object({{"Mesh", {{"Mesh", cubeMesh}}}}));
+	UUID const paintedCube =
+		Create(operations, "Painted Cube", Json::object({{"Mesh", {{"Mesh", cubeMesh}, {"Materials", {painted.GetValue().ToString()}}}}}));
+	UUID const pair = Create(operations, "Pair", Json::object({{"Mesh", {{"Mesh", model.ToString()}}}}));
+	UUID const lostCube =
+		Create(operations, "Lost Cube", Json::object({{"Mesh", {{"Mesh", cubeMesh}, {"Materials", {lost.GetValue().ToString()}}}}}));
+	UUID const nowhere = Create(operations, "Nowhere", Json::object({{"Mesh", {{"Mesh", "424242"}}}}));
+	UUID const textured = Create(operations, "Textured", Json::object({{"Mesh", {{"Mesh", cubeMesh}, {"Materials", {white}}}}}));
+	size_t const steps = context.GetHistory().GetUndoCount();
+	Json const scene = SceneSerializer::Serialize(context.GetScene());
+	Result<std::string> const paintedFile = FileSystem::ReadTextFile(directory / "Painted.smat");
+	REQUIRE(paintedFile.IsOk());
+
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+		// A drag source like the content browser's tiles.
+		ImGui::SetNextWindowPos(ImVec2(600.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(200.0f, 100.0f));
+		ImGui::Begin("Source");
+		ImGui::Button("Painted");
+		UI::AssetDragSource(painted.GetValue(), "Painted.smat");
+		ImGui::End();
+	};
+	std::vector<std::vector<UUID>> const selections = {{cube},    {paintedCube}, {pair},       {lostCube},
+	                                                   {nowhere}, {textured},    {cube, pair}, {cube, paintedCube}};
+	for (std::vector<UUID> const& selection : selections)
+	{
+		REQUIRE(operations.Select(selection).IsOk());
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(draw);
+		}
+	}
+	// Drawing changes nothing.
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(SceneSerializer::Serialize(context.GetScene()) == scene);
+	CHECK(FileSystem::ReadTextFile(directory / "Painted.smat").GetValue() == paintedFile.GetValue());
+
+	// The section of the first material slot, inside the Mesh component: the component's ID, the materials' ID, then the
+	// slot's.
+	ImGuiWindow const* window = ImGui::FindWindowByName("Inspector");
+	REQUIRE(window != nullptr);
+	int const firstSlot = 0;
+	ImGuiID const section = ImHashData(&firstSlot, sizeof(firstSlot), ImHashStr("##materials", 0, ImHashStr("Mesh", 0, window->ID)));
+	auto const find = [&](ImGuiID item, float x)
+	{
+		std::optional<ImVec2> const position =
+			FindItem(imgui, item, ImVec2(x, window->Pos.y + 2.0f), ImVec2(x, window->Pos.y + window->Size.y - 2.0f), draw);
+		REQUIRE(position);
+		return *position;
+	};
+
+	// Dragging a parameter of a material file edits the file as one undo step; the scene does not count as modified.
+	std::vector<UUID> const paintedSelection = {paintedCube};
+	REQUIRE(operations.Select(paintedSelection).IsOk());
+	imgui.Frame(draw);
+	ImGuiID const metallic = ImHashStr("##value", 0, ImHashStr("Metallic", 0, ImHashStr("##fields", 0, section)));
+	ImVec2 const metallicPosition = find(metallic, window->Pos.x + window->Size.x * 0.8f);
+	imgui.Drag(metallicPosition, ImVec2(metallicPosition.x + 60.0f, metallicPosition.y), draw);
+	float const dragged = AssetManager::GetAsset<MaterialAsset>(painted.GetValue())->GetData().Metallic;
+	CHECK(dragged > 0.05f);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(context.GetHistory().GetUndoDescription() == "Edit Material");
+	Result<MaterialData> const saved =
+		MaterialSerializer::LoadFromFile(directory / "Painted.smat", AssetManager::CreateDeserializationContext());
+	REQUIRE(saved.IsOk());
+	CHECK(saved.GetValue().Metallic == doctest::Approx(dragged));
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(AssetManager::GetAsset<MaterialAsset>(painted.GetValue())->GetData().Metallic == 0.0f);
+
+	// The default material is read-only: Create Material gives the slot an editable copy named after the entity, as one
+	// undo step.
+	std::vector<UUID> const cubeSelection = {cube};
+	REQUIRE(operations.Select(cubeSelection).IsOk());
+	imgui.Frame(draw);
+	ImVec2 const button = find(ImHashStr("Create Material", 0, section), window->Pos.x + window->Size.x * 0.5f);
+	size_t const before = context.GetHistory().GetUndoCount();
+	imgui.Click(button, draw);
+	AssetHandle const copy = AssetManager::FindByPath("Materials/Cube.smat");
+	REQUIRE(copy.IsValid());
+	CHECK(context.GetScene().GetEntityByUUID(cube).GetComponent<MeshComponent>().Materials == std::vector<AssetHandle>{copy});
+	CHECK(context.GetHistory().GetUndoCount() == before + 1);
+	// The slot now shows the copy, which is editable: no more Create Material button.
+	imgui.Frame(draw);
+	CHECK_FALSE(FindItem(imgui, ImHashStr("Create Material", 0, section),
+	                     ImVec2(window->Pos.x + window->Size.x * 0.5f, window->Pos.y + 2.0f),
+	                     ImVec2(window->Pos.x + window->Size.x * 0.5f, window->Pos.y + window->Size.y - 2.0f), draw));
+
+	// A material dragged onto a section's header goes to the slot, as one undo step.
+	ImGuiWindow const* source = ImGui::FindWindowByName("Source");
+	REQUIRE(source != nullptr);
+	float const sourceY = source->DC.CursorStartPos.y + ImGui::GetFrameHeight() * 0.5f;
+	std::optional<ImVec2> const sourcePosition = FindItem(imgui, ImHashStr("Painted", 0, source->ID), ImVec2(source->Pos.x + 2.0f, sourceY),
+	                                                      ImVec2(source->Pos.x + source->Size.x - 2.0f, sourceY), draw);
+	REQUIRE(sourcePosition);
+	ImVec2 const header = find(ImHashStr("##header", 0, section), window->Pos.x + window->Size.x * 0.5f);
+	size_t const assigned = context.GetHistory().GetUndoCount();
+	imgui.Drag(*sourcePosition, header, draw);
+	CHECK(context.GetScene().GetEntityByUUID(cube).GetComponent<MeshComponent>().Materials == std::vector<AssetHandle>{painted.GetValue()});
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 1);
+
+	// The Mesh component's own rows leave the overrides to the sections: Mesh, Cast Shadows and Visible.
+	imgui.Frame(draw);
+	ImGuiTable const* meshTable = ImGui::TableFindByID(ImHashStr("##fields", 0, ImHashStr("Mesh", 0, window->ID)));
+	REQUIRE(meshTable != nullptr);
+	CHECK(meshTable->CurrentRow + 1 == 3);
+
+	// Each section starts with an asset field of the slot's material: "x" gives the slot the mesh's own material back, as
+	// one undo step, and is disabled without an override.
+	ImGuiID const slotTable = ImHashStr("##slotMaterial", 0, section);
+	auto const getMaterials = [&]
+	{
+		return context.GetScene().GetEntityByUUID(cube).GetComponent<MeshComponent>().Materials;
+	};
+	ImVec2 const reset = find(ImHashStr("x", 0, slotTable), window->Pos.x + window->Size.x - ImGui::GetFrameHeight() * 0.5f - 12.0f);
+	size_t const cleared = context.GetHistory().GetUndoCount();
+	imgui.Click(reset, draw);
+	CHECK(getMaterials().empty());
+	CHECK(context.GetHistory().GetUndoCount() == cleared + 1);
+	imgui.Click(reset, draw);
+	CHECK(context.GetHistory().GetUndoCount() == cleared + 1);
+
+	// "..." lists the materials (without None); the one picked overrides the slot, as one undo step.
+	ImVec2 const choose = find(ImHashStr("...", 0, slotTable), reset.x - ImGui::GetFrameHeight() - ImGui::GetStyle().ItemInnerSpacing.x);
+	imgui.Click(choose, draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Painted");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(getMaterials() == std::vector<AssetHandle>{painted.GetValue()});
+	CHECK(context.GetHistory().GetUndoCount() == cleared + 2);
+	imgui.Click(choose, draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Cube.smat");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	CHECK(getMaterials() == std::vector<AssetHandle>{copy});
+	CHECK(context.GetHistory().GetUndoCount() == cleared + 3);
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(getMaterials().empty());
+	CHECK(open);
+}
+
+TEST_CASE("UI: tile labels show file names on two lines with their extensions, or what tells a set's files apart, in view")
 {
 	HeadlessImGui imgui;
 	imgui.Frame(
@@ -998,6 +2066,19 @@ TEST_CASE("UI: tile labels show file names on two lines with their extensions in
 			CHECK(width(word[0].c_str()) <= narrow);
 			CHECK(word[1].ends_with("...smat"));
 			CHECK(width(word[1].c_str()) <= narrow);
+			// The maps of a texture set keep what tells them apart, or its last words while they say more than a resolution;
+		    // a part that does not end the name is not used.
+			std::string const diffuse = "Models/wooden_crates_large_01/textures/wooden_crates_large_01_diff_1k.jpg";
+			std::string const normal = "Textures/dry_decay_leaves/dry_decay_leaves_nor_gl_2k.jpg";
+			CHECK(UI::SplitTileLabel("wooden_crates_large_01_diff_1k.jpg", width("wooden_crates_l"), ".jpg",
+		                             UI::GetDistinctFileNamePart(diffuse)) ==
+		          std::array<std::string, 2>{"wooden_crates_", "...diff_1k.jpg"});
+			CHECK(UI::SplitTileLabel("dry_decay_leaves_nor_gl_2k.jpg", width("dry_decay_leav"), ".jpg",
+		                             UI::GetDistinctFileNamePart(normal)) == std::array<std::string, 2>{"dry_decay_", "...gl_2k.jpg"});
+			std::array<std::string, 2> const unrelated =
+				UI::SplitTileLabel("wooden_crates_large_01_diff_1k.jpg", width("wooden_crates_l"), ".jpg", "other_1k.jpg");
+			CHECK(unrelated[1].starts_with("large_"));
+			CHECK(unrelated[1].ends_with("...jpg"));
 			// Folders (no extension) are shortened at their end.
 			CHECK(UI::SplitTileLabel("Extremely_Long_Folder_Name_That_Goes_On", narrow)[1].ends_with("..."));
 			// Names in other scripts are cut between code points.

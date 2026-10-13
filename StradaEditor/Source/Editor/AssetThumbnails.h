@@ -24,6 +24,7 @@ namespace Strada
 	class AudioClipAsset;
 	class FontAtlas;
 	class SceneRenderer;
+	class TextureAsset;
 
 	// Where a thumbnail's camera goes to frame bounds: looking at their center from above and in front (yaw and pitch in
 	// degrees), far enough for the bounding sphere to fit the vertical field of view.
@@ -36,16 +37,19 @@ namespace Strada
 	ThumbnailCamera FrameThumbnailBounds(AABB const& bounds, float verticalFovRadians, float yawDegrees = 35.0f,
 	                                     float pitchDegrees = -25.0f);
 
-	// Previews of assets for the content browser. Textures show themselves; materials (on a sphere), meshes, prefabs and
-	// environments (their sky) are rendered into small images, and fonts write "Aa" with their glyphs, at most one per Update
-	// so browsing stays smooth. Audio clips get waveforms, decoded on a worker thread one clip at a time. A preview is made
-	// again when its asset is reloaded, unloaded because its file changed, or (materials) edited; one that failed because its
-	// asset did not load is tried again once the asset manager forgets that (a refresh, which may find the file repaired).
-	// Main thread only; images need the Renderer.
+	// Previews of assets for the editor's panels: the editor keeps one set, which the content browser's tiles and the
+	// inspector's asset fields, picker rows and material headers share. Textures are shrunk to small images on a worker
+	// thread, one texture at a time (decoded and halved there, then uploaded by Update), so showing one never decodes,
+	// mip-maps or uploads a whole texture on the main thread; materials (on a sphere), meshes, prefabs and environments
+	// (their sky) are rendered into small images, and fonts write "Aa" with their glyphs, at most one per Update so browsing
+	// stays smooth. Audio clips get waveforms, decoded on a worker thread one clip at a time. A preview is made again when
+	// its asset is reloaded, unloaded because its file changed, or (materials) edited; one that failed because its asset
+	// did not load is tried again once the asset manager forgets that (a refresh, which may find the file repaired). Main
+	// thread only; images need the Renderer.
 	class AssetThumbnails
 	{
 	public:
-		// Pixels of rendered thumbnails (square).
+		// Pixels of rendered thumbnails (square), and the most either side of a texture's thumbnail has.
 		static constexpr uint32_t Size = 256;
 		// Thumbnails kept by default; the least recently shown go first.
 		static constexpr size_t MaxThumbnails = 512;
@@ -56,7 +60,7 @@ namespace Strada
 
 		// Keeps at most maxThumbnails thumbnails and maxWaveforms waveforms.
 		explicit AssetThumbnails(size_t maxThumbnails = MaxThumbnails, size_t maxWaveforms = MaxWaveforms);
-		// Stops the waveform being computed.
+		// Stops the waveform and the texture thumbnail being made.
 		~AssetThumbnails();
 		AssetThumbnails(AssetThumbnails const&) = delete;
 		AssetThumbnails& operator=(AssetThumbnails const&) = delete;
@@ -64,25 +68,35 @@ namespace Strada
 		// Whether the asset type has thumbnail images.
 		static bool Supports(AssetType type);
 
-		// The asset's thumbnail, or null while it is not rendered yet (it is queued) or cannot be (the content browser shows
-		// the type's icon then). Textures come back with their own size; rendered thumbnails are Size x Size, and those of
-		// fonts are white "Aa" on transparent pixels.
+		// The asset's thumbnail, or null while it is not made yet (it is queued: the first one asked for since the last
+		// Update is made next) or cannot be (panels show the type's icon then). While a thumbnail is made again, the last one
+		// is returned. Textures come back with their aspect ratio, halved until no side is longer than Size (smaller ones
+		// keep their size), with the texture's stored values (sRGB colors as they are); rendered thumbnails are Size x Size,
+		// and those of fonts are white "Aa" on transparent pixels. Valid until the next Update or Clear.
 		nvrhi::ITexture* Get(AssetHandle asset);
 		// The waveform of an audio clip, or null while it is computed (queued, the most recently requested first) or when
 		// the clip cannot be decoded.
 		AudioWaveform const* GetWaveform(AssetHandle clip);
-		// Why the asset cannot be read, when its thumbnail or waveform failed because the file did not load (or, for audio
-		// clips, decode); null otherwise, also before its preview was tried.
+		// Why the asset cannot be read, when its thumbnail or waveform failed because the file did not load (or, for textures
+		// and audio clips, decode); null otherwise, also before its preview was tried.
 		std::string const* GetLoadError(AssetHandle asset) const;
-		// Renders the most recently requested thumbnail that is missing or out of date, collects or starts a waveform, and
-		// forgets the least recently shown previews beyond the limits. Call once per frame.
+		// Renders the thumbnail first asked for since the last Update that is missing or out of date, collects or starts a
+		// texture thumbnail and a waveform, and forgets the least recently shown previews beyond the limits. Call once per
+		// frame before the panels draw: it replaces and releases images, which must not be in the frame's draw data.
 		void Update();
+		// Forgets every preview and stops those being made; before the panels draw, like Update.
 		void Clear();
 
 		// Text (UTF-8, one line) written with a font's glyph atlas, white with anti-aliased coverage in the alpha channel
 		// (RGBA, straight alpha), its ink centered and filling about three quarters of a square image of the given size.
 		// Fails when the size is 0 or the font has no outlines for the text.
 		[[nodiscard]] static Result<Image> RenderFontSample(FontAtlas& atlas, std::string_view text, uint32_t size);
+		// The image of a texture's thumbnail: the texture decoded (RGBA), then halved as mip levels are made (colors averaged
+		// in linear light) until neither side is longer than maxSize; smaller textures keep their size. Touches no engine
+		// state, so it may run on any thread; setting *cancel from another thread stops it. Fails when maxSize is 0, when the
+		// texture cannot be decoded (the error says why, in words for users) and when cancelled.
+		[[nodiscard]] static Result<Image> ShrinkTexture(TextureAsset const& texture, uint32_t maxSize,
+		                                                 std::atomic<bool> const* cancel = nullptr);
 
 	private:
 		struct Entry
@@ -120,6 +134,14 @@ namespace Strada
 			std::future<Result<AudioWaveform>> Future;
 		};
 
+		// A texture's thumbnail image made on a worker thread (ShrinkTexture).
+		struct TextureJob
+		{
+			AssetHandle Texture;
+			Ref<TextureAsset> Source;
+			std::future<Result<Image>> Future;
+		};
+
 		// Whether the preview shows the asset as it is now: the same loaded asset (and material version). Previews are made
 		// from loaded assets, which stay loaded until their files change: one that is no longer loaded is out of date. A
 		// preview of an asset that did not load is current while the asset manager remembers the failed load.
@@ -127,9 +149,13 @@ namespace Strada
 		                      AssetHandle asset);
 		bool Render(AssetHandle asset, Entry& entry);
 		bool RenderFont(AssetHandle asset, Entry& entry);
+		// Copies the image (RGBA) into the entry's texture, which is made again at the image's size when it has another one.
 		bool Upload(Image const& image, Entry& entry);
 		void UpdateWaveforms();
 		void StopWaveformJob();
+		// Collects the finished texture thumbnail and starts the one asked for.
+		void UpdateTextures();
+		void StopTextureJob();
 		void Evict();
 
 		size_t m_MaxThumbnails;
@@ -137,7 +163,11 @@ namespace Strada
 		Scope<SceneRenderer> m_Renderer;
 		nvrhi::CommandListHandle m_CommandList;
 		std::unordered_map<AssetHandle, Entry> m_Entries;
+		// The rendered thumbnail and the texture thumbnail made next.
 		AssetHandle m_Requested;
+		AssetHandle m_RequestedTexture;
+		std::optional<TextureJob> m_TextureJob;
+		std::atomic<bool> m_CancelTexture = false;
 		std::unordered_map<AssetHandle, WaveformEntry> m_Waveforms;
 		AssetHandle m_RequestedWaveform;
 		std::optional<WaveformJob> m_WaveformJob;

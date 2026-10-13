@@ -12,10 +12,17 @@
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Renderer/SceneRenderer.h"
+#include "Strada/Scene/ComponentRegistry.h"
+#include "Strada/Scene/ComponentTraits.h"
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <optional>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
 
 using namespace Strada;
 
@@ -35,6 +42,8 @@ namespace
 		SceneViewOverlays Overlays;
 		std::optional<SceneRendererStatistics> Statistics;
 		ContentBrowserPanel ContentBrowser;
+		// What inspector.add-component-menu asked the inspector to do: open (or close) the menu with a search text.
+		std::vector<std::pair<bool, std::string>> AddComponentMenuRequests;
 
 		explicit CommandFixture(bool withWindow = false)
 		{
@@ -68,6 +77,10 @@ namespace
 				environment.ContentBrowser = [this]() -> ContentBrowserPanel&
 				{
 					return ContentBrowser;
+				};
+				environment.ShowAddComponentMenu = [this](bool open, std::string const& search)
+				{
+					AddComponentMenuRequests.emplace_back(open, search);
 				};
 			}
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
@@ -224,8 +237,70 @@ TEST_CASE("EditorCommands: errors carry precise codes")
 	CHECK(fixture.Fails("viewport.frame", Json::object({{"entities", {entity}}})) == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.statistics") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("asset.browse", Json::object({{"folder", ""}})) == AutomationErrorCode::Unavailable);
+	CHECK(fixture.Fails("inspector.add-component-menu") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.overlays") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("asset.drop", Json::object({{"paths", {"Oak.png"}}})) == AutomationErrorCode::Unavailable);
+}
+
+TEST_CASE("EditorCommands: inspector.add-component-menu opens the inspector's menu for the selected entities")
+{
+	CommandFixture fixture(true);
+	std::string const lamp = fixture.Create("Lamp", Json::object({{"components", {{"PointLight", Json::object()}}}}));
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	Json const scene = fixture.Ok("scene.dump");
+
+	// The menu adds components to the selected entities.
+	CHECK(fixture.Fails("inspector.add-component-menu") == AutomationErrorCode::InvalidOperation);
+	CHECK(fixture.AddComponentMenuRequests.empty());
+	fixture.Ok("entity.select", Json::object({{"entities", {lamp}}}));
+
+	// A search lists the matches in the menu's order; components the entity has are not offered.
+	Json const lights = fixture.Ok("inspector.add-component-menu", Json::object({{"search", "light"}}));
+	CHECK(lights["open"] == true);
+	CHECK(lights["search"] == "light");
+	CHECK(lights["components"] == Json::array({"DirectionalLight", "SkyLight", "SpotLight"}));
+	REQUIRE(fixture.AddComponentMenuRequests.size() == 1);
+	CHECK(fixture.AddComponentMenuRequests.back() == std::pair<bool, std::string>(true, "light"));
+
+	// Without a search the menu shows the categories: every component the lamp can gain, once, category by category.
+	Json const all = fixture.Ok("inspector.add-component-menu")["components"];
+	size_t addable = 0;
+	for (ComponentInfo const& info : ComponentRegistry::GetComponents())
+	{
+		if (!info.IsCore() && !info.IsInternal() && info.Name != "PointLight")
+		{
+			addable++;
+		}
+	}
+	REQUIRE(all.size() == addable);
+	CHECK(all.front() == "Camera");
+	size_t previousCategory = 0;
+	std::set<std::string> listed;
+	for (Json const& name : all)
+	{
+		CAPTURE(name);
+		ComponentInfo const* component = ComponentRegistry::Find(name.get<std::string>());
+		REQUIRE(component != nullptr);
+		CHECK(component->Name != "PointLight");
+		CHECK(listed.insert(name.get<std::string>()).second);
+		size_t const category = static_cast<size_t>(
+			std::find(ComponentCategory::All.begin(), ComponentCategory::All.end(), component->Category) - ComponentCategory::All.begin());
+		CHECK(category >= previousCategory);
+		previousCategory = category;
+	}
+	CHECK(fixture.Ok("inspector.add-component-menu", Json::object({{"search", "nothing like this"}}))["components"].empty());
+
+	// Closing needs no selection.
+	fixture.Ok("entity.select", Json::object({{"entities", {lamp}}, {"mode", "remove"}}));
+	REQUIRE(fixture.Context.GetSelection().IsEmpty());
+	Json const closed = fixture.Ok("inspector.add-component-menu", Json::object({{"open", false}}));
+	CHECK(closed["open"] == false);
+	CHECK(closed["components"].empty());
+	CHECK(fixture.AddComponentMenuRequests.back() == std::pair<bool, std::string>(false, ""));
+
+	// Nothing in the scene changed.
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	CHECK(fixture.Ok("scene.dump") == scene);
 }
 
 TEST_CASE("EditorCommands: scene files and unsaved changes")
@@ -304,8 +379,25 @@ TEST_CASE("EditorCommands: selection, component types and log")
 	bool hasTransform = false;
 	for (Json const& type : types)
 	{
+		CAPTURE(type["Name"]);
 		CHECK(type["Name"] != "Relationship");
 		hasTransform |= type["Name"] == "Transform";
+		// Every component names its category; core components are in the Core one.
+		REQUIRE(type["Category"].is_string());
+		std::string const category = type["Category"].get<std::string>();
+		CHECK(std::find(ComponentCategory::All.begin(), ComponentCategory::All.end(), category) != ComponentCategory::All.end());
+		if (type["Core"].get<bool>())
+		{
+			CHECK(category == ComponentCategory::Core);
+		}
+		if (type["Name"] == "PointLight")
+		{
+			CHECK(category == "Rendering");
+		}
+		if (type["Name"] == "BoxCollider")
+		{
+			CHECK(category == "Physics");
+		}
 	}
 	CHECK(hasTransform);
 

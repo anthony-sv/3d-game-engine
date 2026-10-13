@@ -13,7 +13,8 @@ undo history as the UI: work in small, checked steps.
 ## 1. Orient
 
 - `editor_status`: the open project and scene, unsaved changes, what undo would revert.
-- `component_types`: every component with its fields (types, defaults, ranges, enum values, asset types).
+- `component_types`: every component with its category (Rendering, Physics, Audio, ...) and its fields (types,
+  defaults, ranges, enum values, asset types).
 - `asset_list` with `builtIn: true`: built-in meshes (`builtin://Cube`, `Sphere`, `Capsule`, `Cylinder`, `Plane`...),
   materials, textures, fonts and environments (`builtin://DefaultSky`).
 - `log_read` whenever something is unexpected: the editor explains failures there.

@@ -319,7 +319,10 @@ Asset types:
   textures, OBJ material libraries) are only read inside the asset directory: buffers outside it fail the import,
   textures and material libraries outside it are skipped with a warning. `MeshImporter::FindExternalFiles` lists the
   files a model reads, found like the import finds them but without building geometry, so the editor copies and moves
-  them with the model.
+  them with the model. Imported material parameters are brought into the material ranges (`FitMaterialToFieldRanges`),
+  so copies of the materials make valid material files: emitted light above 1 (MTL's `Ke`, FBX emission colors) moves
+  from `EmissiveColor` into `EmissiveIntensity`, which keeps its brightness; other values outside a range (FBX colors
+  above 1, broken files) are clamped, and NaN or infinite ones take the defaults, with a warning.
 - `MaterialAsset` (`.smat`): metallic-roughness parameters — `BaseColor`, `Metallic`, `Roughness`, `EmissiveColor` +
   `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, textures (base color, normal, metallic-roughness with glTF
   packing G = roughness and B = metallic, occlusion, emissive), `AlphaMode` (Opaque/Mask/Blend) + `AlphaCutoff`,
@@ -372,13 +375,15 @@ field list are declared once in `ComponentTraits.h`; generic code derives JSON s
 transactional partial updates with readable errors), schemas, copies, the inspector and the `ComponentRegistry` entry
 from that table. Fields carry optional hints: an inclusive range (enforced whenever JSON is read, so files, automation
 and the editor all reject out-of-range values), a presentation (color, angle, multi-line text), the referenced asset
-type, a one-sentence description and a switch (`EnabledBy`: another bool field of the table, not switched itself, that
-turns the field on; checked at compile time, drawn by the inspector as a check box in front of the field). Values that
-skip the JSON checks (scripts) can be brought into range with `ClampToFieldRanges`. Field tables of other structs
-(renderer settings, materials) use the same hints. The
-registry provides type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for scene
-serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu, and script
-interop component lookups.
+type, a one-sentence description, a visibility condition (the field only matters while an enum or bool field of the
+same struct has one of some values, like a camera's orthographic size) and a switch (`EnabledBy`: another bool field of
+the table, not switched itself, that turns the field on; drawn by the inspector as a check box in front of the field);
+both are checked at compile time. Values that skip the JSON checks (scripts) can be brought into range with
+`ClampToFieldRanges`. Field tables of other structs (renderer settings, materials) use the same hints. Each component
+also names its category (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`). The registry provides
+type-erased add/has/remove/serialize/deserialize/copy/describe functions. The registry is the single source of truth for
+scene serialization, scene copy, automation (`component.*` commands), the inspector "Add Component" menu (grouped by
+category), and script interop component lookups.
 
 | Serialized name | Struct | Fields |
 |---|---|---|
@@ -813,27 +818,60 @@ positions. A build is out of date when a C# source or project file is newer than
   Selections made elsewhere reveal and scroll to the primary entity.
 - Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
   the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
-  while dragging), enums are combos, asset fields have a searchable picker and accept assets dropped from the content
-  browser, entity references accept dropped entities, and a field's switch (a post-process volume's override) is a
-  check box in front of its name, the value disabled while it is off. With several entities selected it shows the
-  components they share, flags fields whose values differ, and an edit sets only the edited value or vector component
-  on every entity. One widget interaction (a drag, typing into a field) is one undo step. Components can be added (searchable
-  list), reset, copied, pasted as JSON and removed. Without selected entities the inspector shows the asset selected
-  in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference,
-  editable parameters of material files (one undo step per interaction; built-in and mesh-imported materials are
-  read-only), a texture preview, mesh statistics with the mesh's materials, and the details of other asset types.
-  The Transform of UI elements, which their `UIRect` places, starts folded and is shown read-only, with a note.
-  Every field table's name column starts as wide as its names need, switches and indentation included (40% to 60% of
-  the panel; users can resize it); names that still do not fit end in an ellipsis and show in full in their tooltips.
+  while dragging), enums are combos, fields with a visibility condition (`VisibleWhen`: a material's alpha cutoff in
+  the Mask mode, the perspective or orthographic settings of a camera, what a joint type or particle shape uses) show
+  only while it holds, entity references accept dropped entities, and a field's switch (a post-process volume's
+  override) is a check box in front of its name, the value disabled while it is off; fields that UI of their own edits
+  (`HiddenInEditors`: a Mesh component's material overrides) get no row. Asset fields (in components, materials,
+  settings and script fields) show the asset's path in the asset directory with its extension (`builtin://<Name>` for
+  built-ins, the name of materials and textures imported with a model, `None` when empty) in a box that opens a
+  searchable picker of the assets of the field's type when clicked and takes assets dropped from the content browser,
+  followed by `...` (the picker) and `x` (clears it). Paths that do not fit lose their folders first and then stand as
+  their name (built-ins too: `Plane`); the files of a set, whose names repeat a folder's
+  (`wooden_crate_01/textures/wooden_crate_01_diff_1k.jpg`), keep what tells them apart (`...diff_1k.jpg`, or its last
+  words while they say more than a resolution); other names lose their middle, the end keeping the extension and
+  starting at a word when one fits (`dry_decay_....smat`); the tooltip has all of it (`UI::FitPath`). The picker is as
+  wide as its longest path within the screen (rows that still do not fit are shortened the same way and show the path in
+  their tooltips), opens on the current asset, filters as the user types, and Up and Down move through its rows, which
+  Enter takes; it draws only the rows in view, so long lists stay quick. In the inspector the box and the picker's rows
+  start with a small image of the asset (textures, materials on a sphere, meshes, prefabs, environments, fonts) from
+  the editor's one set of `AssetThumbnails`, which the content browser shares, so each image is made once; the images
+  are shown larger in the boxes' tooltips. With several entities selected it shows the components they
+  share, flags fields whose values differ, and an edit sets only the edited value or vector component on every entity.
+  One widget interaction (a drag, typing into a field) is one undo step. Add Component opens a menu with a search field
+  above a submenu per component category (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the
+  Core ones are on every entity); typing lists the matching components instead (names starting with the text first) with
+  their categories, and Enter adds the first. Components can also be reset, copied, pasted as JSON and removed. Below
+  the fields of a Mesh component, each material slot of its mesh gets a section (`MaterialSlots`): a header with the
+  material on a sphere, its name, the slot and where the material comes from; an asset field of the material the slot
+  renders with (the component's override, else the mesh's own material, else the default one), whose picker lists the
+  materials and whose `x` gives the slot the mesh's own material back (`MaterialSlots::Clear`), each one undo step; then
+  every parameter of that material. Edits change the material file as in the material inspector (one undo step per
+  interaction) and show at once in the views and thumbnails; built-in and model-imported materials show their values
+  disabled with a Create Material button that writes an editable copy to `Assets/Materials` and gives it to the slot
+  (one undo step). Without selected entities the inspector shows the asset selected in the content browser
+  (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference, the parameters of materials
+  with a preview (editable for material files; Create Material copies built-in and mesh-imported ones), a texture
+  preview, mesh statistics with the mesh's materials, and the details of other asset types. The Transform of UI
+  elements, which their `UIRect` places, starts folded and is shown read-only, with a note. Every field table's name
+  column starts as wide as its names need, switches and indentation included (30% to 60% of the panel, at most 50%
+  beside asset paths; users can resize it); names that still do not fit end in an ellipsis and show in full in their
+  tooltips. The default layout gives the inspector about a quarter of the window.
 - Content Browser: a folder tree with two roots, the open project's asset directory and its C# scripts
   (`Scripts/Source`, `ScriptBrowsing`), beside the displayed folder as tiles (folders, then assets or scripts, then
   files that are not assets, such as a glTF scene's buffers) labeled with their file names on two lines (a long name
-  keeps its extension in view: `LongMat...smat`), breadcrumbs, a tile size slider, and a search over the root's paths.
-  Textures show themselves, and materials (on a sphere), meshes, prefabs and environments show thumbnails that
-  `AssetThumbnails` renders offscreen, one per frame, again when the asset is reloaded, unloaded because its file
-  changed, or a material edited; fonts write "Aa" with their own glyphs (rasterized from the text renderer's
-  distance-field atlas); audio clips show their waveform and length, decoded on a worker thread one clip at a time
-  (`ComputeAudioWaveform`) and kept. Files without a picture get cards of the slate theme with a glyph and a band
+  keeps its extension in view, `LongMat...smat`, and the maps of a texture set what tells them apart, `...diff_1k.jpg`),
+  breadcrumbs, a tile size slider, and a search over the root's paths.
+  Textures show small copies of themselves: decoded and halved on a worker thread, one texture at a time, until no side
+  is longer than 256 pixels (`AssetThumbnails::ShrinkTexture`, colors averaged in linear light), so showing a texture
+  never decodes, mip-maps or uploads the whole texture on the main thread. Materials (on a sphere), meshes, prefabs and
+  environments show thumbnails that `AssetThumbnails` renders offscreen, one per frame; every preview is made again when
+  its asset is reloaded, unloaded because its file changed, or a material edited. Fonts write "Aa" with their own glyphs
+  (rasterized from the text renderer's distance-field atlas); audio clips show their waveform and length, decoded on a
+  worker thread one clip at a time (`ComputeAudioWaveform`) and kept. The editor keeps one set of these previews for the
+  content browser and the inspector (`EditorLayer`; another project starts a new one) and updates it once per frame
+  before the panels draw, so an image is made once, whichever panel shows it, and the images it replaces are in no
+  frame's draw data. Files without a picture get cards of the slate theme with a glyph and a band
   naming their type, drawn with ImDrawList (a globe for scenes, a cube for prefabs, a wireframe for meshes, a shaded
   ball for materials, a picture for textures, a sunrise for environments, a speaker until a waveform is ready, "Aa" in
   the editor's font for unreadable fonts, a C# document for scripts, a page with the extension for other files);
@@ -994,8 +1032,9 @@ positions. A build is out of date when a C# source or project file is newer than
   move-folder, delete-folder),
   `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
-  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities, renderer statistics), `log.*` (read since
-  index), `test.*` (run a test scene and return results). Renderer settings are scene settings (`scene.settings`).
+  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities, renderer statistics),
+  `inspector.*` (the Add Component menu, as users see it), `log.*` (read since index), `test.*` (run a test scene and
+  return results). Renderer settings are scene settings (`scene.settings`).
 - Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);
   the `strada-make-game` skill in `.claude/skills/` documents building games with the tools.
 

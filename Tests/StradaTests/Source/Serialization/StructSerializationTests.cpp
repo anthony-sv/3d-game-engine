@@ -5,10 +5,14 @@
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -128,7 +132,7 @@ struct Strada::StructTraits<Tuning>
 	static constexpr auto Fields = std::make_tuple(
 		Field("Gain", &Tuning::Gain).AtLeast(0.0).Doc("Linear gain."), Field("Tint", &Tuning::Tint).Range(0.0, 1.0).AsColor(),
 		Field("Weights", &Tuning::Weights).Range(0.0, 1.0), Field("Count", &Tuning::Count).Range(1.0, 8.0),
-		Field("Notes", &Tuning::Notes).AsMultilineText(), Field("Texture", &Tuning::Texture).References("Texture"));
+		Field("Notes", &Tuning::Notes).AsMultilineText().HiddenInEditors(), Field("Texture", &Tuning::Texture).References("Texture"));
 };
 
 TEST_CASE("StructSerialization: field hints are checked against their types at compile time")
@@ -158,6 +162,124 @@ TEST_CASE("StructSerialization: field hints are checked against their types at c
 	static_assert(Detail::AreHintsValid<std::vector<AssetHandle>>(Field("Meshes", &Probe::Meshes).References("Mesh").Hints));
 	static_assert(Detail::IsFieldTableValid<StructTraits<Tuning>, Tuning>());
 	static_assert(Detail::IsFieldTableValid<StructTraits<RenderSettings>, RenderSettings>());
+}
+
+namespace
+{
+	enum class FogMode : uint8_t
+	{
+		Off = 0,
+		Linear,
+		Exponential
+	};
+
+	struct Fog
+	{
+		FogMode Mode = FogMode::Off;
+		bool Animated = false;
+		float Density = 0.1f;
+		float Speed = 1.0f;
+		float Distance = 100.0f;
+	};
+}
+
+template<>
+struct Strada::EnumTraits<FogMode>
+{
+	static constexpr std::array<std::pair<FogMode, std::string_view>, 3> Values = {{
+		{FogMode::Off, "Off"},
+		{FogMode::Linear, "Linear"},
+		{FogMode::Exponential, "Exponential"},
+	}};
+};
+
+template<>
+struct Strada::StructTraits<Fog>
+{
+	static constexpr std::string_view Name = "Fog";
+	static constexpr auto Fields = std::make_tuple(Field("Mode", &Fog::Mode), Field("Animated", &Fog::Animated),
+	                                               Field("Density", &Fog::Density).VisibleWhen("Mode", "Exponential"),
+	                                               Field("Speed", &Fog::Speed).VisibleWhen("Animated", "true"),
+	                                               Field("Distance", &Fog::Distance).VisibleWhen("Mode", "Linear", "Exponential"));
+};
+
+namespace
+{
+	// Field tables whose visibility conditions name no value of an enum or bool field of the struct.
+	struct UnknownConditionField
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields = std::make_tuple(Field("Density", &Fog::Density).VisibleWhen("Weather", "Rain"));
+	};
+
+	struct UnknownConditionValue
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Mode", &Fog::Mode), Field("Density", &Fog::Density).VisibleWhen("Mode", "Cubic"));
+	};
+
+	struct NumberCondition
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Density", &Fog::Density), Field("Speed", &Fog::Speed).VisibleWhen("Density", "0.5"));
+	};
+
+	struct OwnCondition
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields = std::make_tuple(Field("Mode", &Fog::Mode).VisibleWhen("Mode", "Linear"));
+	};
+
+	struct BoolConditionValue
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Animated", &Fog::Animated), Field("Speed", &Fog::Speed).VisibleWhen("Animated", "yes"));
+	};
+
+	struct OneUnknownValue
+	{
+		static constexpr std::string_view Name = "Fog";
+		static constexpr auto Fields =
+			std::make_tuple(Field("Mode", &Fog::Mode), Field("Distance", &Fog::Distance).VisibleWhen("Mode", "Linear", "Cubic"));
+	};
+}
+
+TEST_CASE("StructSerialization: visibility conditions name values of an enum or bool field of the same struct")
+{
+	static_assert(Detail::IsFieldTableValid<StructTraits<Fog>, Fog>());
+	static_assert(!Detail::IsFieldTableValid<UnknownConditionField, Fog>());
+	static_assert(!Detail::IsFieldTableValid<UnknownConditionValue, Fog>());
+	static_assert(!Detail::IsFieldTableValid<NumberCondition, Fog>());
+	static_assert(!Detail::IsFieldTableValid<OwnCondition, Fog>());
+	static_assert(!Detail::IsFieldTableValid<BoolConditionValue, Fog>());
+	static_assert(!Detail::IsFieldTableValid<OneUnknownValue, Fog>());
+	static_assert(Detail::IsFieldTableValid<StructTraits<MaterialData>, MaterialData>());
+
+	// The schema names the condition; conditions change nothing about reading values.
+	Json const schema = DescribeFields<StructTraits<Fog>, Fog>();
+	CHECK_FALSE(schema["Fields"][0].contains("VisibleWhen"));
+	CHECK(schema["Fields"][2]["VisibleWhen"] == Json::object({{"Field", "Mode"}, {"Values", Json::array({"Exponential"})}}));
+	CHECK(schema["Fields"][3]["VisibleWhen"] == Json::object({{"Field", "Animated"}, {"Values", Json::array({"true"})}}));
+	CHECK(schema["Fields"][4]["VisibleWhen"] == Json::object({{"Field", "Mode"}, {"Values", Json::array({"Linear", "Exponential"})}}));
+	Fog fog;
+	REQUIRE(DeserializeFields<StructTraits<Fog>>(Json::object({{"Density", 0.4}}), fog, DeserializationContext{}, "settings").IsOk());
+	CHECK(fog.Density == doctest::Approx(0.4f));
+
+	// A material's alpha cutoff only matters in the Mask alpha mode.
+	std::vector<FieldDescriptor> const material = GetFieldDescriptors<StructTraits<MaterialData>, MaterialData>();
+	auto const cutoff = std::find_if(material.begin(), material.end(),
+	                                 [](FieldDescriptor const& field)
+	                                 {
+										 return field.Name == "AlphaCutoff";
+									 });
+	REQUIRE(cutoff != material.end());
+	CHECK(cutoff->Hints.VisibleWhenField == "AlphaMode");
+	CHECK(std::vector<std::string_view>(cutoff->Hints.GetVisibleWhenValues().begin(), cutoff->Hints.GetVisibleWhenValues().end()) ==
+	      std::vector<std::string_view>{"Mask"});
+	CHECK(material.front().Hints.GetVisibleWhenValues().empty());
 }
 
 TEST_CASE("StructSerialization: values outside a field's range are rejected with readable messages")
@@ -212,6 +334,8 @@ TEST_CASE("StructSerialization: descriptors describe kinds, hints, defaults and 
 	CHECK(tuning[1].TypeMin == static_cast<double>(std::numeric_limits<float>::lowest()));
 	CHECK(tuning[4].TypeMin == -std::numeric_limits<double>::infinity());
 	CHECK(tuning[4].Hints.Display == FieldDisplay::MultilineText);
+	CHECK(tuning[4].Hints.HiddenInEditors);
+	CHECK_FALSE(tuning[5].Hints.HiddenInEditors);
 	CHECK(tuning[5].Kind == FieldKind::Asset);
 	CHECK(tuning[5].Hints.AssetTypeName == "Texture");
 
@@ -223,6 +347,9 @@ TEST_CASE("StructSerialization: descriptors describe kinds, hints, defaults and 
 	CHECK(schema["Fields"][3]["Min"].is_number_integer());
 	CHECK(schema["Fields"][3]["Max"] == 8);
 	CHECK(schema["Fields"][5]["AssetType"] == "Texture");
+	// Fields that UI of their own edits say so; the others leave the key out.
+	CHECK(schema["Fields"][4]["HiddenInEditors"] == true);
+	CHECK_FALSE(schema["Fields"][5].contains("HiddenInEditors"));
 	CHECK(DescribeFields<StructTraits<RenderSettings>, RenderSettings>()["Fields"][1]["Fields"][1]["Name"] == "Intensity");
 }
 
@@ -325,6 +452,40 @@ TEST_CASE("StructSerialization: values outside their fields' ranges are clamped 
 	ClampToFieldRanges<StructTraits<Switched>>(switched);
 	CHECK(switched.Count == -3);
 	CHECK(switched.Gain == 2.0f);
+}
+
+TEST_CASE("StructSerialization: data from outside is fitted into its fields, NaN and infinities taking the defaults")
+{
+	constexpr float NaN = std::numeric_limits<float>::quiet_NaN();
+	constexpr float Infinity = std::numeric_limits<float>::infinity();
+
+	// Values that already fit change nothing and name no field.
+	Tuning tuning;
+	tuning.Gain = 1.0e30f;
+	tuning.Tint = {0.25f, 0.5f, 0.75f};
+	CHECK(FitToFieldRanges<StructTraits<Tuning>>(tuning).empty());
+	CHECK(tuning.Gain == 1.0e30f);
+	CHECK(tuning.Tint == glm::vec3(0.25f, 0.5f, 0.75f));
+
+	// Non-finite numbers take the default (0 for elements of arrays), then what lies outside a range is clamped; the
+	// changed fields are named in table order.
+	tuning.Gain = Infinity;
+	tuning.Tint = {NaN, 2.0f, -Infinity};
+	tuning.Weights = {NaN, 0.25f, 7.0f};
+	tuning.Count = 20;
+	tuning.Notes = "kept";
+	CHECK(FitToFieldRanges<StructTraits<Tuning>>(tuning) == std::vector<std::string_view>{"Gain", "Tint", "Weights", "Count"});
+	CHECK(tuning.Gain == 1.0f);
+	CHECK(tuning.Tint == glm::vec3(1.0f, 1.0f, 1.0f));
+	CHECK(tuning.Weights == std::vector<float>{0.0f, 0.25f, 1.0f});
+	CHECK(tuning.Count == 8u);
+	CHECK(tuning.Notes == "kept");
+
+	// What it returns serializes into JSON that reads back.
+	Tuning readBack;
+	Json const json = SerializeFields<StructTraits<Tuning>>(tuning);
+	REQUIRE(DeserializeFields<StructTraits<Tuning>>(json, readBack, DeserializationContext{}, "settings").IsOk());
+	CHECK(SerializeFields<StructTraits<Tuning>>(readBack) == json);
 }
 
 TEST_CASE("StructSerialization: renderer settings and material defaults satisfy their own ranges")

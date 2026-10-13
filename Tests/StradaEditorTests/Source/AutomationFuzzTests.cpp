@@ -515,6 +515,8 @@ namespace
 			{
 				return nullptr;
 			};
+			// There is no inspector to show the menu, but inspector.add-component-menu still checks and lists everything.
+			environment.ShowAddComponentMenu = [](bool, std::string const&) {};
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
 			REQUIRE(RegisterPlayCommands(Registry, Play, Context,
 			                             []

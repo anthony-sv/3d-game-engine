@@ -14,6 +14,7 @@
 #include <array>
 #include <cctype>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -223,6 +224,52 @@ TEST_CASE("MaterialAsset: files round trip and accept asset references")
 	asset.SetData(changed);
 	CHECK(asset.GetVersion() == 1);
 	CHECK(asset.GetData().Roughness == doctest::Approx(0.9f));
+}
+
+TEST_CASE("MaterialAsset: imported parameters fit the material ranges and keep their emitted light")
+{
+	constexpr float NaN = std::numeric_limits<float>::quiet_NaN();
+
+	// Emission above 1 moves into the intensity: color times intensity stays the same, and nothing is reported.
+	MaterialData glowing;
+	glowing.EmissiveColor = {4.0f, 3.0f, 2.0f};
+	glowing.EmissiveIntensity = 2.0f;
+	CHECK(FitMaterialToFieldRanges(glowing).empty());
+	CHECK(glowing.EmissiveColor == glm::vec3(1.0f, 0.75f, 0.5f));
+	CHECK(glowing.EmissiveIntensity == 8.0f);
+
+	// Parameters within their ranges are kept as they are.
+	MaterialData plain;
+	plain.EmissiveColor = {1.0f, 0.5f, 0.0f};
+	plain.EmissiveIntensity = 3.0f;
+	MaterialData const original = plain;
+	CHECK(FitMaterialToFieldRanges(plain).empty());
+	CHECK(plain == original);
+
+	// The rest is clamped or replaced by the defaults and reported; a NaN channel does not scale the others.
+	MaterialData broken;
+	broken.BaseColor = {2.0f, -1.0f, 0.5f, 1.5f};
+	broken.Metallic = NaN;
+	broken.Roughness = 1.25f;
+	broken.EmissiveColor = {NaN, 2.0f, 1.0f};
+	broken.NormalStrength = -1.0f;
+	broken.AlphaCutoff = 3.0f;
+	broken.UVTiling = {NaN, 2.0f};
+	CHECK(FitMaterialToFieldRanges(broken) == std::vector<std::string_view>{"BaseColor", "Metallic", "Roughness", "NormalStrength",
+	                                                                        "EmissiveColor", "AlphaCutoff", "UVTiling"});
+	CHECK(broken.BaseColor == glm::vec4(1.0f, 0.0f, 0.5f, 1.0f));
+	CHECK(broken.Metallic == MaterialData().Metallic);
+	CHECK(broken.Roughness == 1.0f);
+	CHECK(broken.EmissiveColor == glm::vec3(0.0f, 1.0f, 0.5f));
+	CHECK(broken.EmissiveIntensity == 2.0f);
+	CHECK(broken.NormalStrength == 0.0f);
+	CHECK(broken.AlphaCutoff == 1.0f);
+	CHECK(broken.UVTiling == glm::vec2(1.0f, 2.0f));
+	MaterialData readBack;
+	REQUIRE(DeserializeFields<StructTraits<MaterialData>>(SerializeFields<StructTraits<MaterialData>>(broken), readBack,
+	                                                      DeserializationContext{}, "material")
+	            .IsOk());
+	CHECK(readBack == broken);
 }
 
 TEST_CASE("Asset: every supported extension maps to an asset type, ignoring case")
