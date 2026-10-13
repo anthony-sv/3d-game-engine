@@ -551,7 +551,8 @@ TEST_CASE("Panels: while playing, the inspector shows the values the running scr
 	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
 	play.Advance(3, Timestep(1.0f / 60.0f));
 	draw();
-	ScriptComponent const& shown = context.GetScene().GetEntityByUUID(reporter).GetComponent<ScriptComponent>();
+	Entity const running = context.GetScene().GetEntityByUUID(reporter);
+	ScriptComponent const& shown = running.GetComponent<ScriptComponent>();
 	CHECK(shown.Fields.at("Updates") == ScriptFieldValue::FromInt32(3));
 	play.Advance(2, Timestep(1.0f / 60.0f));
 	draw();

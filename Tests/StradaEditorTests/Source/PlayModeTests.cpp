@@ -216,8 +216,8 @@ TEST_CASE("PlayMode: script fields edited while playing reach the running script
 
 	// Stopping discards what was edited.
 	fixture.Play.Stop();
-	ScriptComponent const& stored = fixture.Context.GetScene().GetEntityByUUID(reporter).GetComponent<ScriptComponent>();
-	CHECK(stored.Fields == ScriptFieldMap{{"Visible", ScriptFieldValue::FromBool(false)}});
+	Entity const edited = fixture.Context.GetScene().GetEntityByUUID(reporter);
+	CHECK(edited.GetComponent<ScriptComponent>().Fields == ScriptFieldMap{{"Visible", ScriptFieldValue::FromBool(false)}});
 }
 
 TEST_CASE("PlayMode: entities deleted while playing go at once, also while paused")
