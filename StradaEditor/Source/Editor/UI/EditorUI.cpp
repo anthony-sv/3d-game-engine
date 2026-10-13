@@ -7,8 +7,10 @@
 #include "Strada/Core/FileSystem.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstring>
@@ -22,6 +24,9 @@ namespace Strada
 	{
 		namespace
 		{
+			// What shortened tile labels leave text out with.
+			constexpr std::string_view TileEllipsis = "...";
+
 			float TextWidth(std::string_view text)
 			{
 				return ImGui::CalcTextSize(text.data(), text.data() + text.size()).x;
@@ -77,19 +82,57 @@ namespace Strada
 				{
 					return std::string(text);
 				}
-				constexpr std::string_view Ellipsis = "...";
 				if (end.size() > 1 && end.size() < text.size())
 				{
 					// The ellipsis replaces the extension's dot.
 					std::string_view const tail = end.starts_with('.') ? end.substr(1) : end;
-					float const tailWidth = TextWidth(Ellipsis) + TextWidth(tail);
+					float const tailWidth = TextWidth(TileEllipsis) + TextWidth(tail);
 					size_t const head = FitCodePoints(text.substr(0, text.size() - end.size()), width - tailWidth);
 					if (head > 0)
 					{
-						return std::string(text.substr(0, head)) + std::string(Ellipsis) + std::string(tail);
+						return std::string(text.substr(0, head)) + std::string(TileEllipsis) + std::string(tail);
 					}
 				}
-				return std::string(text.substr(0, FitCodePoints(text, width - TextWidth(Ellipsis)))) + std::string(Ellipsis);
+				return std::string(text.substr(0, FitCodePoints(text, width - TextWidth(TileEllipsis)))) + std::string(TileEllipsis);
+			}
+
+			bool IsWordSeparator(char c)
+			{
+				return c == '_' || c == '-' || c == ' ';
+			}
+
+			// Whether a file name (or the end of one) has a word in front of its extension that is not a resolution ("1k").
+			bool SaysMoreThanResolution(std::string_view name)
+			{
+				std::string_view const stem = name.substr(0, std::min(name.find_last_of('.'), name.size()));
+				for (size_t start = 0; start < stem.size();)
+				{
+					size_t end = start;
+					while (end < stem.size() && !IsWordSeparator(stem[end]))
+					{
+						end++;
+					}
+					std::string_view const word = stem.substr(start, end - start);
+					bool const resolution = word.size() >= 2 && (word.back() == 'k' || word.back() == 'K') &&
+					                        std::all_of(word.begin(), word.end() - 1,
+					                                    [](char c)
+					                                    {
+															return std::isdigit(static_cast<unsigned char>(c)) != 0;
+														});
+					if (!word.empty() && !resolution)
+					{
+						return true;
+					}
+					start = end + 1;
+				}
+				return false;
+			}
+
+			// What follows the first word separator ("arm_1k.jpg" of "brass_arm_1k.jpg"); empty without one.
+			std::string_view DropFirstWord(std::string_view part)
+			{
+				size_t const separator = static_cast<size_t>(std::find_if(part.begin(), part.end(), IsWordSeparator) - part.begin());
+				return separator < part.size() ? part.substr(separator + 1) : std::string_view();
 			}
 		}
 
@@ -192,6 +235,171 @@ namespace Strada
 			return result;
 		}
 
+		std::string DescribeAssetReference(AssetHandle asset)
+		{
+			if (!asset.IsValid())
+			{
+				return "None";
+			}
+			if (!AssetManager::IsInitialized())
+			{
+				return asset.ToString();
+			}
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(asset);
+			if (!metadata)
+			{
+				return fmt::format("Unknown asset {}", asset);
+			}
+			// File and built-in assets are found by their paths; the others are named after what holds them.
+			std::string text = metadata->IsFileAsset() || metadata->IsBuiltIn() ? metadata->Path : metadata->GetDisplayName();
+			return AssetManager::IsMissing(asset) ? text + " (missing)" : text;
+		}
+
+		std::string GetEllipsis()
+		{
+			// ImGui shortens labels with the font's ellipsis glyph: U+2026, or a "..." it makes from dots.
+			std::array<char, 5> encoded{};
+			ImTextCharToUtf8(encoded.data(), ImGui::GetFont()->EllipsisChar);
+			return std::string(encoded.data());
+		}
+
+		std::string_view GetDistinctFileNamePart(std::string_view path)
+		{
+			size_t const separator = path.find_last_of('/');
+			if (separator == std::string_view::npos)
+			{
+				return {};
+			}
+			std::string_view const name = path.substr(separator + 1);
+			auto const equalIgnoringCase = [](std::string_view a, std::string_view b)
+			{
+				return a.size() == b.size() &&
+				       std::equal(a.begin(), a.end(), b.begin(),
+				                  [](char x, char y)
+				                  {
+									  return std::tolower(static_cast<unsigned char>(x)) == std::tolower(static_cast<unsigned char>(y));
+								  });
+			};
+			// The longest folder whose name, followed by a word separator, starts the file name.
+			size_t prefix = 0;
+			for (size_t start = 0; start < separator;)
+			{
+				size_t const end = path.find('/', start);
+				std::string_view const folder = path.substr(start, end - start);
+				if (!folder.empty() && folder.size() > prefix && name.size() > folder.size() + 1 && IsWordSeparator(name[folder.size()]) &&
+				    equalIgnoringCase(name.substr(0, folder.size()), folder))
+				{
+					prefix = folder.size() + 1;
+				}
+				start = end + 1;
+			}
+			std::string_view const rest = name.substr(prefix);
+			return prefix > 0 && SaysMoreThanResolution(rest) ? rest : std::string_view();
+		}
+
+		std::string FitPath(std::string_view path, float maxWidth)
+		{
+			auto const measure = [](std::string_view part)
+			{
+				return ImGui::CalcTextSize(part.data(), part.data() + part.size()).x;
+			};
+			if (measure(path) <= maxWidth)
+			{
+				return std::string(path);
+			}
+			std::string const ellipsis = GetEllipsis();
+			float const available = maxWidth - measure(ellipsis);
+			// Whole folders first: the longest end that starts at a separator. A scheme ("builtin://") is not a folder: its
+			// references show the name alone.
+			size_t const scheme = path.find("://");
+			size_t const firstFolder = scheme == std::string_view::npos ? 0 : scheme + 3;
+			for (size_t slash = path.find('/', firstFolder); slash != std::string_view::npos; slash = path.find('/', slash + 1))
+			{
+				if (measure(path.substr(slash)) <= available)
+				{
+					return ellipsis + std::string(path.substr(slash));
+				}
+			}
+			// Then the name alone.
+			size_t const separator = path.find_last_of('/');
+			std::string_view const name = separator == std::string_view::npos ? path : path.substr(separator + 1);
+			if (measure(name) <= maxWidth)
+			{
+				return std::string(name);
+			}
+			// The files of a set repeat the set's folder in their names ("wooden_crate_01/textures/wooden_crate_01_diff_1k.jpg"):
+			// without that start, what tells them apart remains ("...diff_1k.jpg"), or as many of its last words as fit while
+			// they say more than a resolution ("...arm_1k.jpg" of "brass_arm_1k.jpg").
+			for (std::string_view part = GetDistinctFileNamePart(path); !part.empty() && SaysMoreThanResolution(part);
+			     part = DropFirstWord(part))
+			{
+				if (measure(part) <= available)
+				{
+					return ellipsis + std::string(part);
+				}
+			}
+
+			// At last the middle of the name gives way: its start names the asset, its end keeps the extension. The end gets up
+			// to half of the room and starts at a word ("leaves.smat", ".smat") when one fits, the start the rest. Names are cut
+			// between characters: UTF-8 continuation bytes (10xxxxxx) start none.
+			auto const startsCharacter = [name](size_t index)
+			{
+				return (static_cast<unsigned char>(name[index]) & 0xC0) != 0x80;
+			};
+			size_t const extension = std::min(name.find_last_of('.'), name.size());
+			auto const startsWord = [name, extension](size_t index)
+			{
+				return index == extension || IsWordSeparator(name[index - 1]) || StartsWord(name, index);
+			};
+			size_t endStart = name.size();
+			size_t wordEndStart = name.size();
+			for (size_t index = name.size(); index-- > 1;)
+			{
+				if (startsCharacter(index))
+				{
+					if (measure(name.substr(index)) > available * 0.5f)
+					{
+						break;
+					}
+					endStart = index;
+					if (startsWord(index))
+					{
+						wordEndStart = index;
+					}
+				}
+			}
+			if (wordEndStart < name.size())
+			{
+				endStart = wordEndStart;
+			}
+			float const endWidth = measure(name.substr(endStart));
+			size_t startEnd = 0;
+			for (size_t index = 1; index < endStart; index++)
+			{
+				if (startsCharacter(index))
+				{
+					if (measure(name.substr(0, index)) + endWidth > available)
+					{
+						break;
+					}
+					startEnd = index;
+				}
+			}
+			if (startEnd > 0)
+			{
+				return std::string(name.substr(0, startEnd)) + ellipsis + std::string(name.substr(endStart));
+			}
+			// Too narrow for both: as much of the start as fits.
+			for (size_t index = name.size(); index-- > 1;)
+			{
+				if (startsCharacter(index) && measure(name.substr(0, index)) <= available)
+				{
+					return std::string(name.substr(0, index)) + ellipsis;
+				}
+			}
+			return ellipsis;
+		}
+
 		void AssetDragSource(AssetHandle asset, std::string_view label)
 		{
 			if (!ImGui::BeginDragDropSource())
@@ -268,7 +476,7 @@ namespace Strada
 				std::string_view(static_cast<char const*>(payload->Data), static_cast<size_t>(payload->DataSize)));
 		}
 
-		std::array<std::string, 2> SplitTileLabel(std::string_view name, float width, std::string_view extension)
+		std::array<std::string, 2> SplitTileLabel(std::string_view name, float width, std::string_view extension, std::string_view distinct)
 		{
 			if (TextWidth(name) <= width)
 			{
@@ -309,6 +517,18 @@ namespace Strada
 				first.remove_suffix(1);
 			}
 			std::string_view const rest = name.substr(end);
+			// The files of a set repeat the set's name ("wooden_crate_01_diff_1k.jpg", "wooden_crate_01_arm_1k.jpg"): what tells
+			// them apart stays, as in asset fields (FitPath).
+			if (TextWidth(rest) > width && !distinct.empty() && rest.ends_with(distinct))
+			{
+				for (std::string_view part = distinct; !part.empty() && SaysMoreThanResolution(part); part = DropFirstWord(part))
+				{
+					if (TextWidth(TileEllipsis) + TextWidth(part) <= width)
+					{
+						return {std::string(first), std::string(TileEllipsis) + std::string(part)};
+					}
+				}
+			}
 			return {std::string(first), FitTextKeepingEnd(rest, width, rest.ends_with(extension) ? extension : std::string_view())};
 		}
 

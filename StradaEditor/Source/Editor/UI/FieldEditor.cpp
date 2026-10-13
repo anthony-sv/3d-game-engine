@@ -1,8 +1,10 @@
 #include "Editor/UI/FieldEditor.h"
 
+#include "Editor/AssetThumbnails.h"
 #include "Editor/UI/EditorUI.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -30,10 +32,18 @@ namespace Strada
 		};
 		constexpr std::array<char const*, 4> AxisLabels = {"X", "Y", "Z", "W"};
 		constexpr ImVec4 MixedLabelColor = ImVec4(0.95f, 0.72f, 0.30f, 1.0f);
+		constexpr ImVec4 MissingAssetColor = ImVec4(0.95f, 0.40f, 0.35f, 1.0f);
+		// The asset picker is at least this wide (in font sizes, so it follows the display scale) and lists this many rows
+		// before it scrolls.
+		constexpr float MinPickerWidthInFontSizes = 20.0f;
+		constexpr size_t MaxPickerRows = 14;
+		// The image of an asset in the tooltip of its field fits a square this large (in font sizes).
+		constexpr float TooltipPreviewSizeInFontSizes = 9.0f;
 		// The share of a table's width the name column starts with: what the names need, but never so much that the values
-		// get less than 40%, and tables of short names line up at the same share.
-		constexpr float MinNameShare = 0.4f;
+		// get less than 40% (50% beside asset paths), and tables of short names line up at the same share.
+		constexpr float MinNameShare = 0.3f;
 		constexpr float MaxNameShare = 0.6f;
+		constexpr float MaxNameShareBesideAssets = 0.5f;
 		constexpr char const* AngleFormat = "%.1f\xc2\xb0";
 		// Integer widgets stay within the integers JSON consumers represent exactly.
 		constexpr int64_t IntegerWidgetLimit = int64_t(1) << 53;
@@ -225,7 +235,7 @@ namespace Strada
 			float widest = 0.0f;
 			for (FieldDescriptor const& field : fields)
 			{
-				if (IsSwitch(fields, field))
+				if (IsSwitch(fields, field) || field.Hints.HiddenInEditors)
 				{
 					continue;
 				}
@@ -242,6 +252,19 @@ namespace Strada
 				widest = std::max(widest, width);
 			}
 			return widest;
+		}
+
+		// Whether rows of these fields (or of their nested structs) show asset paths.
+		bool HasAssetFields(std::span<FieldDescriptor const> fields)
+		{
+			return std::any_of(fields.begin(), fields.end(),
+			                   [](FieldDescriptor const& field)
+			                   {
+								   return !field.Hints.HiddenInEditors &&
+				                          (field.Kind == FieldKind::Asset ||
+				                           (field.Kind == FieldKind::Array && field.ElementKind == FieldKind::Asset) ||
+				                           HasAssetFields(field.Fields));
+							   });
 		}
 
 		// Colored X/Y/Z/W buttons (reset the component to its default) followed by drag fields; reports which component changed.
@@ -289,113 +312,159 @@ namespace Strada
 			return changed;
 		}
 
-		std::string DescribeAsset(AssetHandle handle)
+		// Whether a row is shown: always, unless the field's visibility condition names a sibling (one of `fields`, valued in
+		// `values`) whose value is none of the condition's. A sibling whose values differ between the edited objects (mixed)
+		// shows it.
+		bool IsVisible(FieldDescriptor const& field, std::span<FieldDescriptor const> fields, Json const& values,
+		               std::span<std::string const> mixedFields)
 		{
-			if (!handle.IsValid())
+			std::string_view const siblingName = field.Hints.VisibleWhenField;
+			if (siblingName.empty() || std::find(mixedFields.begin(), mixedFields.end(), siblingName) != mixedFields.end())
 			{
-				return "None";
+				return true;
 			}
-			if (!AssetManager::IsInitialized())
+			FieldDescriptor const* sibling = FindField(fields, siblingName);
+			if (sibling == nullptr)
 			{
-				return handle.ToString();
+				return true;
 			}
-			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
-			if (!metadata)
+			std::string const key(siblingName);
+			Json const& value = values.is_object() && values.contains(key) ? values[key] : sibling->Default;
+			std::span<std::string_view const> const accepted = field.Hints.GetVisibleWhenValues();
+			auto const accepts = [accepted](std::string_view name)
 			{
-				return fmt::format("Unknown asset {}", handle);
+				return std::find(accepted.begin(), accepted.end(), name) != accepted.end();
+			};
+			if (value.is_boolean())
+			{
+				return accepts(value.get<bool>() ? "true" : "false");
 			}
-			std::string name = metadata->GetDisplayName();
-			return AssetManager::IsMissing(handle) ? name + " (missing)" : name;
+			return !value.is_string() || accepts(value.get_ref<std::string const&>());
 		}
 
-		// Asset button with a searchable picker popup, a clear button and an asset drag-and-drop target.
-		bool DrawAsset(FieldDescriptor const& field, Json const& value, std::string& filter, FieldChange& change)
+		// Text color of an asset reference: dimmed without an asset, the error color when its file is missing or the handle is
+		// unknown.
+		ImU32 GetAssetReferenceColor(AssetHandle handle, bool mixed)
 		{
-			AssetHandle const handle(ReadID(value));
-			AssetType const expected = AssetTypeFromString(field.Hints.AssetTypeName).value_or(AssetType::None);
-			bool changed = false;
+			if (mixed || !handle.IsValid())
+			{
+				return ImGui::GetColorU32(ImGuiCol_TextDisabled);
+			}
+			if (AssetManager::IsInitialized() && (!AssetManager::IsValid(handle) || AssetManager::IsMissing(handle)))
+			{
+				return ImGui::GetColorU32(MissingAssetColor);
+			}
+			return ImGui::GetColorU32(ImGuiCol_Text);
+		}
 
-			float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
-			float const clearWidth = handle.IsValid() ? ImGui::GetFrameHeight() + spacing : 0.0f;
-			std::string const label = DescribeAsset(handle);
-			if (ImGui::Button(fmt::format("{}###asset", label).c_str(), ImVec2(std::max(1.0f, ImGui::CalcItemWidth() - clearWidth), 0.0f)))
+		// The part of an image that fills a square: the middle of wide or tall textures.
+		std::pair<ImVec2, ImVec2> GetSquareUVs(nvrhi::ITexture* texture)
+		{
+			nvrhi::TextureDesc const& desc = texture->getDesc();
+			float const aspect = static_cast<float>(desc.width) / static_cast<float>(std::max(desc.height, 1u));
+			if (aspect >= 1.0f)
 			{
-				filter.clear();
-				ImGui::OpenPopup("##assetPicker");
+				float const margin = (1.0f - 1.0f / aspect) * 0.5f;
+				return {ImVec2(margin, 0.0f), ImVec2(1.0f - margin, 1.0f)};
 			}
-			if (handle.IsValid() && AssetManager::IsInitialized() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-			{
-				ImGui::SetTooltip("%s", AssetManager::GetReference(handle).c_str());
-			}
-			if (ImGui::BeginDragDropTarget())
-			{
-				std::span<AssetType const> const types =
-					expected == AssetType::None ? std::span<AssetType const>() : std::span<AssetType const>(&expected, 1);
-				if (AssetHandle const dropped = UI::AcceptAssetDrop(types); dropped.IsValid())
-				{
-					change.Value = dropped.ToString();
-					changed = true;
-				}
-				ImGui::EndDragDropTarget();
-			}
-			if (handle.IsValid())
-			{
-				ImGui::SameLine(0.0f, spacing);
-				if (ImGui::Button("x##clear", ImVec2(ImGui::GetFrameHeight(), 0.0f)))
-				{
-					change.Value = UUID::Invalid().ToString();
-					changed = true;
-				}
-				if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-				{
-					ImGui::SetTooltip("Clear");
-				}
-			}
+			float const margin = (1.0f - aspect) * 0.5f;
+			return {ImVec2(0.0f, margin), ImVec2(1.0f, 1.0f - margin)};
+		}
 
-			if (ImGui::BeginPopup("##assetPicker"))
+		// The image of an asset in a square, when `previews` makes images of its type: the asset's image, or a placeholder while
+		// the image is made. Returns false (and draws nothing) for assets without images.
+		bool DrawAssetImage(AssetThumbnails* previews, AssetHandle asset, ImVec2 min, float size)
+		{
+			if (previews == nullptr || !AssetManager::IsInitialized() || !AssetThumbnails::Supports(AssetManager::GetAssetType(asset)) ||
+			    AssetManager::IsMissing(asset))
 			{
-				if (ImGui::IsWindowAppearing())
-				{
-					ImGui::SetKeyboardFocusHere();
-				}
-				ImGui::SetNextItemWidth(260.0f);
-				ImGui::InputTextWithHint("##filter", "Search", &filter);
-				ImGui::Separator();
-				ImGui::BeginChild("##assets", ImVec2(260.0f, 240.0f));
-				if (ImGui::Selectable("None", !handle.IsValid()))
-				{
-					change.Value = UUID::Invalid().ToString();
-					changed = true;
-					ImGui::CloseCurrentPopup();
-				}
-				if (AssetManager::IsInitialized())
-				{
-					for (AssetMetadata const& asset : AssetManager::GetAssets(expected))
-					{
-						std::string const name = asset.GetDisplayName();
-						std::string const& searchable = asset.Path.empty() ? name : asset.Path;
-						if (!filter.empty() && !ImStristr(searchable.c_str(), nullptr, filter.c_str(), nullptr))
-						{
-							continue;
-						}
-						ImGui::PushID(reinterpret_cast<void const*>(static_cast<uintptr_t>(asset.Handle.GetUUID().GetValue())));
-						if (ImGui::Selectable(name.c_str(), asset.Handle == handle))
-						{
-							change.Value = asset.Handle.ToString();
-							changed = true;
-							ImGui::CloseCurrentPopup();
-						}
-						if (!asset.Path.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
-						{
-							ImGui::SetTooltip("%s", asset.Path.c_str());
-						}
-						ImGui::PopID();
-					}
-				}
-				ImGui::EndChild();
-				ImGui::EndPopup();
+				return false;
 			}
-			return changed;
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			ImVec2 const max(min.x + size, min.y + size);
+			float const rounding = ImGui::GetStyle().FrameRounding * 0.5f;
+			if (nvrhi::ITexture* const image = previews->Get(asset))
+			{
+				// GetColorU32 applies the style's alpha: the images of disabled (read-only) fields fade like their text.
+				auto const [uv0, uv1] = GetSquareUVs(image);
+				drawList->AddImageRounded(ImGuiRenderer::GetTextureID(image), min, max, uv0, uv1, ImGui::GetColorU32(IM_COL32_WHITE),
+				                          rounding);
+			}
+			else
+			{
+				drawList->AddRectFilled(min, max, ImGui::GetColorU32(ImGuiCol_FrameBgHovered), rounding);
+			}
+			return true;
+		}
+
+		// A row of the asset picker: the asset's image (when `previews` makes one) and its path, shortened to the row (the
+		// tooltip has all of it); returns true when clicked.
+		bool DrawAssetPickerRow(AssetThumbnails* previews, AssetHandle asset, std::string const& label, bool selected)
+		{
+			ImVec2 const position = ImGui::GetCursorScreenPos();
+			float const right = position.x + ImGui::GetContentRegionAvail().x;
+			bool const clicked = ImGui::Selectable("##asset", selected);
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+			{
+				ImGui::SetTooltip("%s", label.c_str());
+			}
+			float const imageSize = ImGui::GetTextLineHeight();
+			float const textX = DrawAssetImage(previews, asset, position, imageSize)
+			                        ? position.x + imageSize + ImGui::GetStyle().ItemInnerSpacing.x
+			                        : position.x;
+			std::string const text = UI::FitPath(label, right - textX);
+			ImGui::GetWindowDrawList()->AddText(ImVec2(textX, position.y), GetAssetReferenceColor(asset, false), text.c_str());
+			return clicked;
+		}
+
+		// A box framed like a text field showing the referenced asset (long paths shortened), after a small image of it when
+		// `previews` makes one (the place stays while the image is made); returns true when clicked. The tooltip has the whole
+		// path and a larger image.
+		bool DrawAssetReferenceBox(AssetHandle handle, bool mixed, float width, AssetThumbnails* previews)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			bool const clicked = ImGui::InvisibleButton("##reference", ImVec2(std::max(1.0f, width), ImGui::GetFrameHeight()));
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			ImGuiCol const background =
+				ImGui::IsItemActive() ? ImGuiCol_FrameBgActive : (ImGui::IsItemHovered() ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+			ImGui::RenderFrame(min, max, ImGui::GetColorU32(background), true, style.FrameRounding);
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+			float const inset = std::max(1.0f, std::floor(style.FramePadding.y * 0.5f));
+			float const imageSize = max.y - min.y - inset * 2.0f;
+			bool const pictured =
+				!mixed && handle.IsValid() && DrawAssetImage(previews, handle, ImVec2(min.x + inset, min.y + inset), imageSize);
+			float const textX = pictured ? min.x + inset + imageSize + style.ItemInnerSpacing.x : min.x + style.FramePadding.x;
+			std::string const text =
+				UI::FitPath(mixed ? std::string("--") : UI::DescribeAssetReference(handle), max.x - style.FramePadding.x - textX);
+			drawList->PushClipRect(min, max, true);
+			drawList->AddText(ImVec2(textX, min.y + style.FramePadding.y), GetAssetReferenceColor(handle, mixed), text.c_str());
+			drawList->PopClipRect();
+
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+			{
+				// The whole path, which the box may shorten, the image (whole textures) and how to change it unless the field is
+				// read-only.
+				bool const disabled = (ImGui::GetItemFlags() & ImGuiItemFlags_Disabled) != 0;
+				ImGui::BeginTooltip();
+				ImGui::TextUnformatted(mixed ? "The selected entities reference different assets."
+				                             : UI::DescribeAssetReference(handle).c_str());
+				if (nvrhi::ITexture* const preview = pictured ? previews->Get(handle) : nullptr)
+				{
+					nvrhi::TextureDesc const& desc = preview->getDesc();
+					float const size = ImGui::GetFontSize() * TooltipPreviewSizeInFontSizes;
+					float const scale = size / static_cast<float>(std::max({desc.width, desc.height, 1u}));
+					ImGui::Image(ImGuiRenderer::GetTextureID(preview),
+					             ImVec2(static_cast<float>(desc.width) * scale, static_cast<float>(desc.height) * scale));
+				}
+				if (!disabled)
+				{
+					ImGui::TextDisabled("Click to choose an asset, or drop one here.");
+				}
+				ImGui::EndTooltip();
+			}
+			return clicked;
 		}
 
 		// Flags enums: a combo of check boxes; the value is the array of the set names, in declaration order.
@@ -589,7 +658,8 @@ namespace Strada
 		{
 			return MinNameShare;
 		}
-		return std::clamp((MeasureNames(fields, 0) + 1.0f) / contentWidth, MinNameShare, MaxNameShare);
+		float const maxShare = HasAssetFields(fields) ? MaxNameShareBesideAssets : MaxNameShare;
+		return std::clamp((MeasureNames(fields, 0) + 1.0f) / contentWidth, MinNameShare, maxShare);
 	}
 
 	std::optional<FieldChange> FieldEditor::Draw(std::span<FieldDescriptor const> fields, Json const& values,
@@ -626,7 +696,10 @@ namespace Strada
 		};
 		for (FieldDescriptor const& field : fields)
 		{
-			if (IsSwitch(fields, field))
+			// Switches are drawn in front of the fields they switch; fields that do not matter for their siblings' values are
+			// hidden, as are those edited by UI of their own.
+			if (IsSwitch(fields, field) || field.Hints.HiddenInEditors ||
+			    (!parentMixed && !IsVisible(field, fields, values, depth == 0 ? mixedFields : std::span<std::string const>())))
 			{
 				continue;
 			}
@@ -792,7 +865,7 @@ namespace Strada
 			case FieldKind::UUID:
 				return DrawEntityReference(value, m_Scene, change);
 			case FieldKind::Asset:
-				return DrawAsset(field, value, m_AssetFilter, change);
+				return DrawAsset(field, value, mixed, change);
 			case FieldKind::Vec2:
 			case FieldKind::Vec3:
 			case FieldKind::Vec4:
@@ -996,6 +1069,261 @@ namespace Strada
 			change.Value = std::move(elements);
 		}
 		return changed;
+	}
+
+	bool FieldEditor::DrawAsset(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change)
+	{
+		AssetHandle const handle(ReadID(value));
+		AssetReferenceOptions options;
+		options.Type = AssetTypeFromString(field.Hints.AssetTypeName).value_or(AssetType::None);
+		options.Mixed = mixed;
+		options.CanClear = handle.IsValid() || mixed;
+		std::optional<AssetHandle> const chosen = DrawAssetReference(handle, options);
+		if (!chosen)
+		{
+			return false;
+		}
+		change.Value = chosen->ToString();
+		return true;
+	}
+
+	std::optional<AssetHandle> FieldEditor::DrawAssetReference(AssetHandle current, AssetReferenceOptions const& options)
+	{
+		// [image and path of the asset] [...] [x]: the box and "..." open the picker, "x" clears the reference.
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const spacing = style.ItemInnerSpacing.x;
+		float const buttonWidth = ImGui::GetFrameHeight();
+		float const width = ImGui::CalcItemWidth();
+		ImVec2 const start = ImGui::GetCursorScreenPos();
+		std::optional<AssetHandle> chosen;
+		bool openPicker = DrawAssetReferenceBox(current, options.Mixed, width - 2.0f * (buttonWidth + spacing), m_AssetPreviews);
+		if (ImGui::BeginDragDropTarget())
+		{
+			std::span<AssetType const> const types =
+				options.Type == AssetType::None ? std::span<AssetType const>() : std::span<AssetType const>(&options.Type, 1);
+			if (AssetHandle const dropped = UI::AcceptAssetDrop(types); dropped.IsValid())
+			{
+				chosen = dropped;
+			}
+			ImGui::EndDragDropTarget();
+		}
+		ImGui::SameLine(0.0f, spacing);
+		openPicker = ImGui::Button("...", ImVec2(buttonWidth, 0.0f)) || openPicker;
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+		{
+			ImGui::SetTooltip("Choose an asset");
+		}
+		ImGui::SameLine(0.0f, spacing);
+		ImGui::BeginDisabled(!options.CanClear);
+		if (ImGui::Button("x", ImVec2(buttonWidth, 0.0f)))
+		{
+			chosen = AssetHandle();
+		}
+		ImGui::EndDisabled();
+		if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+		{
+			ImGui::SetTooltip("%.*s", static_cast<int>(options.ClearTooltip.size()), options.ClearTooltip.data());
+		}
+
+		ImGuiID const picker = ImGui::GetID("##assetPicker");
+		if (openPicker)
+		{
+			m_AssetFilter.clear();
+			ImGui::OpenPopupEx(picker);
+		}
+		if (ImGui::IsPopupOpen(picker, ImGuiPopupFlags_None))
+		{
+			// Drops down from the field like a combo box, as wide as the longest path needs within the screen; rows that still
+			// do not fit are shortened.
+			UpdatePickerAssets(options.Type);
+			float const rowWidth = ImGui::GetTextLineHeight() + spacing + m_PickerLabelWidth;
+			float const needed = rowWidth + style.FramePadding.x * 2.0f + style.WindowPadding.x * 2.0f + style.ScrollbarSize;
+			float const screen = ImGui::GetWindowViewport()->WorkSize.x - style.WindowPadding.x * 2.0f;
+			float const popupWidth =
+				std::max(1.0f, std::min(std::max({width, ImGui::GetFontSize() * MinPickerWidthInFontSizes, needed}), screen));
+			ImGui::SetNextWindowSizeConstraints(ImVec2(popupWidth, 0.0f), ImVec2(popupWidth, FLT_MAX));
+		}
+		ImRect const bounds(start, ImVec2(start.x + width, start.y + ImGui::GetFrameHeight()));
+		if (ImGui::BeginComboPopup(picker, bounds, ImGuiComboFlags_None))
+		{
+			if (std::optional<AssetHandle> const picked = DrawAssetPicker(options.Type, current, options.AllowNone))
+			{
+				chosen = picked;
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndCombo();
+		}
+		if (chosen && *chosen == current && !options.Mixed)
+		{
+			return std::nullopt;
+		}
+		return chosen;
+	}
+
+	void FieldEditor::UpdatePickerAssets(AssetType type)
+	{
+		// Listed again when assets change; labels are measured again when the font changes (display scale).
+		uint64_t const version = AssetManager::IsInitialized() ? AssetManager::GetVersion() : 0;
+		float const fontSize = ImGui::GetFontSize();
+		if (m_PickerVersion && version == *m_PickerVersion && type == m_PickerType && fontSize == m_PickerFontSize)
+		{
+			return;
+		}
+		m_PickerAssets.clear();
+		m_PickerLabelWidth = ImGui::CalcTextSize("None").x;
+		if (AssetManager::IsInitialized())
+		{
+			for (AssetMetadata const& asset : AssetManager::GetAssets(type))
+			{
+				std::string label = UI::DescribeAssetReference(asset.Handle);
+				m_PickerLabelWidth = std::max(m_PickerLabelWidth, ImGui::CalcTextSize(label.c_str()).x);
+				m_PickerAssets.emplace_back(asset.Handle, std::move(label));
+			}
+		}
+		m_PickerVersion = version;
+		m_PickerType = type;
+		m_PickerFontSize = fontSize;
+	}
+
+	int FieldEditor::OnPickerSearchKey(ImGuiInputTextCallbackData* data)
+	{
+		if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory)
+		{
+			static_cast<FieldEditor*>(data->UserData)->m_PickerMove += data->EventKey == ImGuiKey_UpArrow ? -1 : 1;
+		}
+		return 0;
+	}
+
+	std::optional<AssetHandle> FieldEditor::DrawAssetPicker(AssetType type, AssetHandle current, bool allowNone)
+	{
+		bool const appearing = ImGui::IsWindowAppearing();
+		if (appearing || m_FocusAssetSearch)
+		{
+			ImGui::SetKeyboardFocusHere();
+			m_FocusAssetSearch = false;
+		}
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		m_PickerMove = 0;
+		bool const confirmed = ImGui::InputTextWithHint("##search", "Search", &m_AssetFilter,
+		                                                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory,
+		                                                &FieldEditor::OnPickerSearchKey, this);
+		ImGui::Separator();
+		UpdatePickerAssets(type);
+
+		// None (when allowed, without search text), then the assets whose paths contain the search text (ignoring case and
+		// surrounding spaces); the list shrinks to its rows.
+		size_t const first = m_AssetFilter.find_first_not_of(' ');
+		std::string const search =
+			first == std::string::npos ? std::string() : m_AssetFilter.substr(first, m_AssetFilter.find_last_not_of(' ') - first + 1);
+		bool const searching = !search.empty();
+		std::vector<size_t> matches;
+		matches.reserve(m_PickerAssets.size());
+		for (size_t i = 0; i < m_PickerAssets.size(); i++)
+		{
+			if (!searching || ImStristr(m_PickerAssets[i].second.c_str(), nullptr, search.c_str(), nullptr) != nullptr)
+			{
+				matches.push_back(i);
+			}
+		}
+		int const noneRows = allowNone && !searching ? 1 : 0;
+		int const rowCount = noneRows + static_cast<int>(matches.size());
+		auto const getAsset = [&](int row)
+		{
+			return row < noneRows ? AssetHandle() : m_PickerAssets[matches[static_cast<size_t>(row - noneRows)]].first;
+		};
+
+		// The keyboard is on the current asset when the picker opens and on the first match when the search changes; Up and
+		// Down move it, and the list follows.
+		if (appearing)
+		{
+			auto const currentMatch = std::find_if(matches.begin(), matches.end(),
+			                                       [this, current](size_t index)
+			                                       {
+													   return m_PickerAssets[index].first == current;
+												   });
+			m_PickerHighlight = currentMatch != matches.end() ? noneRows + static_cast<int>(currentMatch - matches.begin()) : 0;
+			m_PickerHighlightFilter = m_AssetFilter;
+		}
+		else if (m_AssetFilter != m_PickerHighlightFilter)
+		{
+			m_PickerHighlight = 0;
+			m_PickerHighlightFilter = m_AssetFilter;
+			m_ScrollToPickerHighlight = true;
+		}
+		if (m_PickerMove != 0)
+		{
+			m_PickerHighlight += m_PickerMove;
+			m_ScrollToPickerHighlight = true;
+		}
+		m_PickerHighlight = std::clamp(m_PickerHighlight, 0, std::max(rowCount - 1, 0));
+
+		std::optional<AssetHandle> picked;
+		// Enter takes the keyboard's row; without a row it ends the text input, so the search field gets the keyboard back.
+		if (confirmed && rowCount > 0)
+		{
+			picked = getAsset(m_PickerHighlight);
+		}
+		else if (confirmed)
+		{
+			m_FocusAssetSearch = true;
+		}
+
+		// Only the rows in view are drawn, so long lists stay quick and only the images that show are made; the keyboard's row
+		// is drawn when the list scrolls to it (centered when the picker opens).
+		float const rowHeight = ImGui::GetTextLineHeightWithSpacing();
+		size_t const shownRows = std::clamp<size_t>(static_cast<size_t>(rowCount), 1, MaxPickerRows);
+		ImGui::BeginChild("##assets", ImVec2(0.0f, rowHeight * static_cast<float>(shownRows)), ImGuiChildFlags_None,
+		                  ImGuiWindowFlags_NoNavInputs);
+		bool const scroll = (appearing || m_ScrollToPickerHighlight) && rowCount > 0;
+		m_ScrollToPickerHighlight = false;
+		ImGuiListClipper clipper;
+		clipper.Begin(rowCount, rowHeight);
+		if (scroll)
+		{
+			clipper.IncludeItemByIndex(m_PickerHighlight);
+		}
+		while (clipper.Step())
+		{
+			for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
+			{
+				bool const highlighted = row == m_PickerHighlight;
+				if (row < noneRows)
+				{
+					if (ImGui::Selectable("None", highlighted))
+					{
+						picked = AssetHandle();
+					}
+				}
+				else
+				{
+					AssetHandle const asset = getAsset(row);
+					ImGui::PushID(reinterpret_cast<void const*>(static_cast<uintptr_t>(asset.GetUUID().GetValue())));
+					if (DrawAssetPickerRow(m_AssetPreviews, asset, m_PickerAssets[matches[static_cast<size_t>(row - noneRows)]].second,
+					                       highlighted))
+					{
+						picked = asset;
+					}
+					ImGui::PopID();
+				}
+				if (highlighted && scroll)
+				{
+					if (appearing)
+					{
+						ImGui::SetScrollHereY();
+					}
+					else
+					{
+						ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
+					}
+				}
+			}
+		}
+		if (searching && matches.empty())
+		{
+			ImGui::TextDisabled("No assets match");
+		}
+		ImGui::EndChild();
+		return picked;
 	}
 
 	void FieldEditor::PruneEulerStates()

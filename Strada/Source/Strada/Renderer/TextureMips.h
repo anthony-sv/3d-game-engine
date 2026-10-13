@@ -14,4 +14,7 @@ namespace Strada
 	// sRGB images are averaged in linear space; alpha (and every channel of linear images) is averaged directly. Odd
 	// dimensions clamp the filter footprint at the edge.
 	std::vector<Image> GenerateMipChain(Image const& image, bool srgb);
+	// The level after an RGBA8 image in its mip chain, filtered as GenerateMipChain filters: half its width and height,
+	// rounded down, at least 1x1.
+	Image GenerateNextMipLevel(Image const& image, bool srgb);
 }

@@ -33,8 +33,9 @@ namespace Strada
 {
 	namespace
 	{
-		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set.
-		constexpr char const* DockspaceName = "Strada.Dockspace.v7";
+		// Bumping the version rebuilds the default layout once for users with a saved layout of an older panel set or default
+		// layout.
+		constexpr char const* DockspaceName = "Strada.Dockspace.v8";
 		constexpr char const* UnsavedChangesPopup = "Unsaved Changes";
 		constexpr char const* NewProjectPopup = "New Project";
 		constexpr char const* NewScriptPopup = "New Script";
@@ -131,6 +132,11 @@ namespace Strada
 			{
 				return m_ContentBrowserPanel;
 			};
+			environment.ShowAddComponentMenu = [this](bool open, std::string const& search)
+			{
+				m_ShowInspector = m_ShowInspector || open;
+				m_InspectorPanel.ShowAddComponentMenu(open, search);
+			};
 		}
 		environment.RequestQuit = []
 		{
@@ -189,6 +195,8 @@ namespace Strada
 			m_ViewportPanel->SetOpenSceneCallback(openScene);
 			m_ContentBrowserPanel.SetOpenSceneCallback(openScene);
 			m_ContentBrowserPanel.SetScripts(&m_Scripts);
+			m_ContentBrowserPanel.SetThumbnails(&m_Thumbnails);
+			m_InspectorPanel.SetThumbnails(&m_Thumbnails);
 			m_ContentBrowserPanel.SetNewScriptCallback(
 				[this](std::string const& folder)
 				{
@@ -357,6 +365,20 @@ namespace Strada
 			});
 	}
 
+	void EditorLayer::UpdateThumbnails()
+	{
+		Project const* project = m_Context.GetProject();
+		std::filesystem::path const projectFile = project != nullptr ? project->GetFilePath() : std::filesystem::path();
+		if (projectFile != m_ThumbnailsProject)
+		{
+			m_Thumbnails.Clear();
+			m_ThumbnailsProject = projectFile;
+		}
+		// Before the panels draw: what they asked for in the last frame shows in this one, and the images this replaces or
+		// forgets are in no draw data yet.
+		m_Thumbnails.Update();
+	}
+
 	void EditorLayer::RequestScreenshotAtFrame(std::filesystem::path path, uint64_t frame)
 	{
 		m_ScreenshotPath = std::move(path);
@@ -365,6 +387,7 @@ namespace Strada
 
 	void EditorLayer::OnImGuiRender()
 	{
+		UpdateThumbnails();
 		// The menu bar and the toolbar take their space from the main viewport before the dockspace fills the rest.
 		DrawMenuBar();
 		DrawToolbar();
@@ -464,7 +487,8 @@ namespace Strada
 		ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
 		ImGuiID center = dockspace;
 		ImGuiID const left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
-		ImGuiID const right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
+		// The inspector gets about a quarter of the window: asset fields show paths and images beside their names.
+		ImGuiID const right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.30f, nullptr, &center);
 		ImGuiID const bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
 		ImGui::DockBuilderDockWindow("Scene View", center);
 		ImGui::DockBuilderDockWindow("Game View", center);

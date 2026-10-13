@@ -26,6 +26,7 @@ struct ComponentTraits<FooComponent>
 {
 	static constexpr std::string_view Name = "Foo";             // serialized name, never change once shipped
 	static constexpr uint32_t Flags = ComponentFlagsNone;       // Core / Internal flags if applicable
+	static constexpr std::string_view Category = ComponentCategory::Physics;  // group of the Add Component menu
 	static constexpr std::string_view Description = "One sentence for users and agents.";
 	static constexpr auto Fields = std::make_tuple(              // EVERY field, with hints
 		Field("Speed", &FooComponent::Speed).AtLeast(0.0).Doc("Meters per second."),
@@ -35,12 +36,19 @@ struct ComponentTraits<FooComponent>
 ```
 
 Hints: `Range(min, max)` / `AtLeast(min)` (inclusive, enforced when JSON is read, so files and automation reject
-out-of-range values; the inspector clamps to them), `AsColor()` (vec3/vec4), `AsAngle()` (degrees),
-`AsMultilineText()`, `References("<AssetType>")` for asset fields, `EnabledBy("<bool field>")` for a field another bool
-field of the table switches on (the inspector draws the switch as a check box in front of the field, like a
-post-process volume's overrides) and `Doc("...")` for anything not obvious from the name. Hints that do not fit the
-field's type, and switches that are not unswitched bool fields of the table, fail to compile. Defaults must lie inside
-their ranges (tested). Systems reading values scripts set (which skip the range checks) can use `ClampToFieldRanges`.
+out-of-range values; the inspector clamps to them), `AsColor()` (vec3/vec4), `AsAngle()` (degrees), `AsMultilineText()`,
+`References("<AssetType>")` for asset fields, `VisibleWhen("<Field>", "<Value>", ...)` for fields that only matter while
+an enum or bool field of the same struct has one of up to four values (editors hide them otherwise: a camera's
+orthographic size, a joint's limits), `EnabledBy("<bool field>")` for a field another bool field of the table switches
+on (the inspector draws the switch as a check box in front of the field, like a post-process volume's overrides),
+`HiddenInEditors()` for a field the editor edits with UI of its own (a Mesh's material overrides, which the material
+slot sections edit) and `Doc("...")` for anything not obvious from the name. Hints that do not fit the field's type,
+visibility conditions that name no value of such a field, and switches that are not unswitched bool fields of the table
+fail to compile. Defaults must lie inside their ranges (tested). Systems reading values scripts set (which skip the
+range checks) can use `ClampToFieldRanges`.
+
+`Category` is one of `ComponentCategory::All` (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting`, `UI`; tested): the
+inspector's Add Component menu groups components by it and `component.types` lists it.
 
 Append the type to `AllComponents` (order = serialization order). Optional: `ReadExtraField` for alternative input
 keys (see Transform's `RotationEuler`).

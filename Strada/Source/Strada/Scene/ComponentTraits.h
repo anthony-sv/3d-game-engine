@@ -102,9 +102,25 @@ namespace Strada
 		ComponentFlagsInternal = ST_BIT(1)
 	};
 
+	// What a component is for: the editor's Add Component menu groups components by category, and the automation schema
+	// lists it.
+	namespace ComponentCategory
+	{
+		inline constexpr std::string_view Core = "Core";
+		inline constexpr std::string_view Rendering = "Rendering";
+		inline constexpr std::string_view Physics = "Physics";
+		inline constexpr std::string_view Audio = "Audio";
+		inline constexpr std::string_view Scripting = "Scripting";
+		inline constexpr std::string_view UI = "UI";
+
+		// Every category, in menu order.
+		inline constexpr std::array<std::string_view, 6> All = {Core, Rendering, Physics, Audio, Scripting, UI};
+	}
+
 	// Specialized for every component:
 	//   static constexpr std::string_view Name;          serialized name
 	//   static constexpr uint32_t Flags;                 ComponentFlags
+	//   static constexpr std::string_view Category;      one of ComponentCategory::All
 	//   static constexpr std::string_view Description;   one sentence for users and agents
 	//   static constexpr auto Fields;                    tuple of StructField with hints (see Serialization/StructSerialization.h)
 	// Optionally:
@@ -118,6 +134,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "ID";
 		static constexpr uint32_t Flags = ComponentFlagsCore | ComponentFlagsInternal;
+		static constexpr std::string_view Category = ComponentCategory::Core;
 		static constexpr std::string_view Description = "Unique, persistent ID of the entity.";
 		static constexpr auto Fields = std::make_tuple(Field("ID", &IDComponent::ID));
 	};
@@ -127,6 +144,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Tag";
 		static constexpr uint32_t Flags = ComponentFlagsCore;
+		static constexpr std::string_view Category = ComponentCategory::Core;
 		static constexpr std::string_view Description = "The entity's name.";
 		static constexpr auto Fields = std::make_tuple(Field("Tag", &TagComponent::Tag));
 	};
@@ -136,6 +154,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Transform";
 		static constexpr uint32_t Flags = ComponentFlagsCore;
+		static constexpr std::string_view Category = ComponentCategory::Core;
 		static constexpr std::string_view Description = "Position, rotation and scale relative to the parent entity.";
 		static constexpr auto Fields =
 			std::make_tuple(Field("Translation", &TransformComponent::Translation).Doc("Position relative to the parent, in meters."),
@@ -167,6 +186,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Relationship";
 		static constexpr uint32_t Flags = ComponentFlagsCore | ComponentFlagsInternal;
+		static constexpr std::string_view Category = ComponentCategory::Core;
 		static constexpr std::string_view Description = "Parent and children in the hierarchy.";
 		static constexpr auto Fields =
 			std::make_tuple(Field("Parent", &RelationshipComponent::Parent).Doc("The parent entity; \"0\" for root entities."),
@@ -178,20 +198,39 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Camera";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Renders the scene in play mode and in exported games.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Projection", &CameraComponent::Projection),
-			Field("PerspectiveFOV", &CameraComponent::PerspectiveFOV).Range(1.0, 179.0).AsAngle().Doc("Vertical field of view in degrees."),
-			Field("PerspectiveNear", &CameraComponent::PerspectiveNear).AtLeast(0.001).Doc("Near clip distance in meters."),
+			Field("PerspectiveFOV", &CameraComponent::PerspectiveFOV)
+				.Range(1.0, 179.0)
+				.AsAngle()
+				.VisibleWhen("Projection", "Perspective")
+				.Doc("Vertical field of view in degrees."),
+			Field("PerspectiveNear", &CameraComponent::PerspectiveNear)
+				.AtLeast(0.001)
+				.VisibleWhen("Projection", "Perspective")
+				.Doc("Near clip distance in meters."),
 			Field("PerspectiveFar", &CameraComponent::PerspectiveFar)
 				.AtLeast(0.01)
+				.VisibleWhen("Projection", "Perspective")
 				.Doc("Maximum view distance for culling and shadows; the projection itself has no far plane."),
-			Field("OrthographicSize", &CameraComponent::OrthographicSize).AtLeast(0.001).Doc("Full view height in world units."),
-			Field("OrthographicNear", &CameraComponent::OrthographicNear).Doc("Near clip plane distance in meters (may be negative)."),
-			Field("OrthographicFar", &CameraComponent::OrthographicFar).Doc("Far clip plane distance in meters."),
+			Field("OrthographicSize", &CameraComponent::OrthographicSize)
+				.AtLeast(0.001)
+				.VisibleWhen("Projection", "Orthographic")
+				.Doc("Full view height in world units."),
+			Field("OrthographicNear", &CameraComponent::OrthographicNear)
+				.VisibleWhen("Projection", "Orthographic")
+				.Doc("Near clip plane distance in meters (may be negative)."),
+			Field("OrthographicFar", &CameraComponent::OrthographicFar)
+				.VisibleWhen("Projection", "Orthographic")
+				.Doc("Far clip plane distance in meters."),
 			Field("Primary", &CameraComponent::Primary).Doc("The scene renders from the first primary camera."),
 			Field("FixedAspectRatio", &CameraComponent::FixedAspectRatio).Doc("Uses AspectRatio instead of following the viewport."),
-			Field("AspectRatio", &CameraComponent::AspectRatio).AtLeast(0.01).Doc("Width divided by height when FixedAspectRatio is set."));
+			Field("AspectRatio", &CameraComponent::AspectRatio)
+				.AtLeast(0.01)
+				.VisibleWhen("FixedAspectRatio", "true")
+				.Doc("Width divided by height when FixedAspectRatio is set."));
 	};
 
 	template<>
@@ -199,12 +238,14 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Mesh";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Draws a mesh with materials.";
 		static constexpr auto Fields =
 			std::make_tuple(Field("Mesh", &MeshComponent::Mesh).References("Mesh"),
 		                    Field("Materials", &MeshComponent::Materials)
 		                        .References("Material")
-		                        .Doc("Material overrides per submesh; an empty entry keeps the mesh's own material."),
+		                        .HiddenInEditors()
+		                        .Doc("Material overrides per material slot of the mesh; an empty entry keeps the mesh's own material."),
 		                    Field("CastShadows", &MeshComponent::CastShadows), Field("Visible", &MeshComponent::Visible));
 	};
 
@@ -213,6 +254,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "DirectionalLight";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Sun-like light shining along the entity's forward direction (-Z).";
 		static constexpr auto Fields =
 			std::make_tuple(Field("Color", &DirectionalLightComponent::Color).Range(0.0, 1.0).AsColor(),
@@ -229,6 +271,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "PointLight";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Light shining in every direction from the entity's position.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Color", &PointLightComponent::Color).Range(0.0, 1.0).AsColor(),
@@ -242,6 +285,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "SpotLight";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Cone of light shining along the entity's forward direction (-Z).";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Color", &SpotLightComponent::Color).Range(0.0, 1.0).AsColor(),
@@ -263,21 +307,25 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "SkyLight";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Image-based lighting and the sky from an HDR environment map.";
-		static constexpr auto Fields = std::make_tuple(
-			Field("Environment", &SkyLightComponent::Environment)
-				.References("Environment")
-				.Doc("HDR environment map; without one, AmbientColor lights the scene."),
-			Field("Intensity", &SkyLightComponent::Intensity).AtLeast(0.0),
-			Field("Rotation", &SkyLightComponent::Rotation)
-				.AsAngle()
-				.Doc("Rotation of the environment around the world Y axis in degrees."),
-			Field("SkyboxBlur", &SkyLightComponent::SkyboxBlur).Range(0.0, 1.0).Doc("0 shows a sharp sky, 1 a fully blurred one."),
-			Field("DrawSkybox", &SkyLightComponent::DrawSkybox).Doc("Draws the environment as the background."),
-			Field("AmbientColor", &SkyLightComponent::AmbientColor)
-				.Range(0.0, 1.0)
-				.AsColor()
-				.Doc("Ambient light used when no environment map is set."));
+		static constexpr auto Fields =
+			std::make_tuple(Field("Environment", &SkyLightComponent::Environment)
+		                        .References("Environment")
+		                        .Doc("HDR environment map; without one, AmbientColor lights the scene."),
+		                    Field("Intensity", &SkyLightComponent::Intensity).AtLeast(0.0),
+		                    Field("Rotation", &SkyLightComponent::Rotation)
+		                        .AsAngle()
+		                        .Doc("Rotation of the environment around the world Y axis in degrees."),
+		                    Field("SkyboxBlur", &SkyLightComponent::SkyboxBlur)
+		                        .Range(0.0, 1.0)
+		                        .VisibleWhen("DrawSkybox", "true")
+		                        .Doc("0 shows a sharp sky, 1 a fully blurred one."),
+		                    Field("DrawSkybox", &SkyLightComponent::DrawSkybox).Doc("Draws the environment as the background."),
+		                    Field("AmbientColor", &SkyLightComponent::AmbientColor)
+		                        .Range(0.0, 1.0)
+		                        .AsColor()
+		                        .Doc("Ambient light used when no environment map is set."));
 	};
 
 	template<>
@@ -285,23 +333,35 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "RigidBody";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
 		static constexpr std::string_view Description = "Simulates the entity with physics; the entity's colliders give it its shape.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Type", &RigidBodyComponent::Type)
 				.Doc("Static bodies never move, dynamic bodies are simulated and kinematic bodies are moved by scripts."),
-			Field("Mass", &RigidBodyComponent::Mass).AtLeast(0.001).Doc("Mass in kilograms."),
-			Field("LinearDamping", &RigidBodyComponent::LinearDamping).AtLeast(0.0),
-			Field("AngularDamping", &RigidBodyComponent::AngularDamping).AtLeast(0.0),
-			Field("GravityFactor", &RigidBodyComponent::GravityFactor).Doc("Multiplier of the scene's gravity."),
+			Field("Mass", &RigidBodyComponent::Mass).AtLeast(0.001).VisibleWhen("Type", "Dynamic").Doc("Mass in kilograms."),
+			Field("LinearDamping", &RigidBodyComponent::LinearDamping).AtLeast(0.0).VisibleWhen("Type", "Dynamic"),
+			Field("AngularDamping", &RigidBodyComponent::AngularDamping).AtLeast(0.0).VisibleWhen("Type", "Dynamic"),
+			Field("GravityFactor", &RigidBodyComponent::GravityFactor)
+				.VisibleWhen("Type", "Dynamic")
+				.Doc("Multiplier of the scene's gravity."),
 			Field("Layer", &RigidBodyComponent::Layer).Range(0.0, 15.0).Doc("Physics layer index as configured in the project settings."),
-			Field("LockTranslation", &RigidBodyComponent::LockTranslation).Doc("Prevents movement along the X, Y and Z axes."),
-			Field("LockRotation", &RigidBodyComponent::LockRotation).Doc("Prevents rotation around the X, Y and Z axes."),
+			Field("LockTranslation", &RigidBodyComponent::LockTranslation)
+				.VisibleWhen("Type", "Dynamic")
+				.Doc("Prevents movement along the X, Y and Z axes."),
+			Field("LockRotation", &RigidBodyComponent::LockRotation)
+				.VisibleWhen("Type", "Dynamic")
+				.Doc("Prevents rotation around the X, Y and Z axes."),
 			Field("ContinuousCollision", &RigidBodyComponent::ContinuousCollision)
+				.VisibleWhen("Type", "Dynamic")
 				.Doc("Keeps fast bodies from passing through thin geometry, at a performance cost."),
-			Field("AllowSleep", &RigidBodyComponent::AllowSleep).Doc("Lets the body stop simulating while it is at rest."),
+			Field("AllowSleep", &RigidBodyComponent::AllowSleep)
+				.VisibleWhen("Type", "Dynamic", "Kinematic")
+				.Doc("Lets the body stop simulating while it is at rest."),
 			Field("InitialLinearVelocity", &RigidBodyComponent::InitialLinearVelocity)
+				.VisibleWhen("Type", "Dynamic", "Kinematic")
 				.Doc("Velocity in meters per second when play starts (the simulation allows up to 500)."),
 			Field("InitialAngularVelocity", &RigidBodyComponent::InitialAngularVelocity)
+				.VisibleWhen("Type", "Dynamic", "Kinematic")
 				.Doc("Angular velocity in radians per second when play starts (the simulation allows up to about 47)."));
 	};
 
@@ -310,6 +370,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "BoxCollider";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
 		static constexpr std::string_view Description = "Box collision shape, scaled by the entity.";
 		static constexpr auto Fields =
 			std::make_tuple(Field("HalfExtents", &BoxColliderComponent::HalfExtents)
@@ -328,6 +389,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "SphereCollider";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
 		static constexpr std::string_view Description = "Sphere collision shape, scaled by the entity.";
 		static constexpr auto Fields =
 			std::make_tuple(Field("Radius", &SphereColliderComponent::Radius).AtLeast(0.001).Doc("Radius in meters."),
@@ -344,6 +406,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "CapsuleCollider";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
 		static constexpr std::string_view Description = "Capsule collision shape along the local Y axis, scaled by the entity.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Radius", &CapsuleColliderComponent::Radius).AtLeast(0.001).Doc("Radius in meters."),
@@ -363,6 +426,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "MeshCollider";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
 		static constexpr std::string_view Description = "Collision shape made from a mesh, as a convex hull or as triangles.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Mesh", &MeshColliderComponent::Mesh).References("Mesh").Doc("Collision mesh; none uses the entity's Mesh component."),
@@ -380,6 +444,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Joint";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
 		static constexpr std::string_view Description =
 			"Joins the body to another body or the world: fixed, hinge (doors, wheels, pendulums), ball (chains, ropes), distance "
 			"or slider (pistons), with limits and motors.";
@@ -392,25 +457,41 @@ namespace Strada
 			Field("Anchor", &JointComponent::Anchor).Range(-1.0e6, 1.0e6).Doc("Where the joint is, in this entity's local space."),
 			Field("ConnectedAnchor", &JointComponent::ConnectedAnchor)
 				.Range(-1.0e6, 1.0e6)
+				.VisibleWhen("Type", "Distance")
 				.Doc("Distance joints: the far point, in the connected entity's local space (world space without one)."),
-			Field("Axis", &JointComponent::Axis).Range(-1.0, 1.0).Doc("Hinge or slider axis in this entity's local space."),
-			Field("LimitsEnabled", &JointComponent::LimitsEnabled).Doc("Limits a hinge's angle or a slider's travel."),
+			Field("Axis", &JointComponent::Axis)
+				.Range(-1.0, 1.0)
+				.VisibleWhen("Type", "Hinge", "Slider")
+				.Doc("Hinge or slider axis in this entity's local space."),
+			Field("LimitsEnabled", &JointComponent::LimitsEnabled)
+				.VisibleWhen("Type", "Hinge", "Slider")
+				.Doc("Limits a hinge's angle or a slider's travel."),
 			Field("MinLimit", &JointComponent::MinLimit)
 				.Range(-1.0e6, 0.0)
+				.VisibleWhen("Type", "Hinge", "Slider")
 				.Doc("Hinges: degrees (down to -180); sliders: meters (0 is where the bodies start)."),
-			Field("MaxLimit", &JointComponent::MaxLimit).Range(0.0, 1.0e6).Doc("Hinges: degrees (up to 180); sliders: meters."),
+			Field("MaxLimit", &JointComponent::MaxLimit)
+				.Range(0.0, 1.0e6)
+				.VisibleWhen("Type", "Hinge", "Slider")
+				.Doc("Hinges: degrees (up to 180); sliders: meters."),
 			Field("MinDistance", &JointComponent::MinDistance)
 				.Range(-1.0, 1.0e6)
+				.VisibleWhen("Type", "Distance")
 				.Doc("Distance joints: the shortest distance; -1 keeps the starting distance."),
 			Field("MaxDistance", &JointComponent::MaxDistance)
 				.Range(-1.0, 1.0e6)
+				.VisibleWhen("Type", "Distance")
 				.Doc("Distance joints: the longest distance; -1 keeps the starting distance."),
-			Field("MotorEnabled", &JointComponent::MotorEnabled).Doc("Drives a hinge or slider at MotorSpeed."),
+			Field("MotorEnabled", &JointComponent::MotorEnabled)
+				.VisibleWhen("Type", "Hinge", "Slider")
+				.Doc("Drives a hinge or slider at MotorSpeed."),
 			Field("MotorSpeed", &JointComponent::MotorSpeed)
 				.Range(-1.0e4, 1.0e4)
+				.VisibleWhen("Type", "Hinge", "Slider")
 				.Doc("Hinges: degrees per second; sliders: meters per second."),
 			Field("MotorMaxForce", &JointComponent::MotorMaxForce)
 				.Range(0.0, 1.0e9)
+				.VisibleWhen("Type", "Hinge", "Slider")
 				.Doc("The most torque (hinges, newton meters) or force (sliders, newtons) the motor uses."));
 	};
 
@@ -419,6 +500,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "CharacterController";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Physics;
 		static constexpr std::string_view Description =
 			"Makes the entity a character that scripts move (players, creatures): an upright capsule that walks, climbs steps and slopes, "
 			"falls, rides what it stands on and pushes dynamic bodies. It replaces the entity's colliders and RigidBody; colliders of its "
@@ -457,6 +539,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "AudioSource";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Audio;
 		static constexpr std::string_view Description = "Plays an audio clip, optionally positioned in 3D.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Clip", &AudioSourceComponent::Clip).References("AudioClip"),
@@ -469,9 +552,11 @@ namespace Strada
 			Field("Spatial", &AudioSourceComponent::Spatial).Doc("Positions the sound in 3D; otherwise it plays at a constant level."),
 			Field("MinDistance", &AudioSourceComponent::MinDistance)
 				.AtLeast(0.0)
+				.VisibleWhen("Spatial", "true")
 				.Doc("Distance in meters within which the sound plays at full volume."),
 			Field("MaxDistance", &AudioSourceComponent::MaxDistance)
 				.AtLeast(0.0)
+				.VisibleWhen("Spatial", "true")
 				.Doc("Distance in meters beyond which the sound gets no quieter."));
 	};
 
@@ -480,6 +565,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "AudioListener";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Audio;
 		static constexpr std::string_view Description = "The ears of the scene, usually on the camera.";
 		static constexpr auto Fields =
 			std::make_tuple(Field("Active", &AudioListenerComponent::Active).Doc("The first active listener hears the scene."));
@@ -490,6 +576,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Script";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Scripting;
 		static constexpr std::string_view Description = "Attaches a C# script class to the entity.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("ClassName", &ScriptComponent::ClassName).Doc("Fully qualified C# class name, e.g. Game.PlayerController."),
@@ -501,6 +588,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Text";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Draws text in the world or on the screen.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Text", &TextComponent::Text).AsMultilineText(),
@@ -520,6 +608,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "SpriteRenderer";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description = "Draws a textured or colored quad in the world or on the screen.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Color", &SpriteRendererComponent::Color).Range(0.0, 1.0).AsColor().Doc("Tint multiplied with the texture."),
@@ -534,6 +623,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "ParticleSystem";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description =
 			"Emits glowing or smoky camera-facing particles (fire, sparks, smoke, dust, magic) while the scene runs.";
 		static constexpr auto Fields = std::make_tuple(
@@ -554,11 +644,16 @@ namespace Strada
 			Field("ConeAngle", &ParticleSystemComponent::ConeAngle)
 				.Range(0.0, 180.0)
 				.AsAngle()
+				.VisibleWhen("Shape", "Cone", "Box")
 				.Doc("Spread around the forward axis (-Z) in degrees, for cones and boxes."),
 			Field("Radius", &ParticleSystemComponent::Radius)
 				.Range(0.0, 1000.0)
+				.VisibleWhen("Shape", "Sphere", "Cone")
 				.Doc("Radius of the sphere or of the cone's base, in meters."),
-			Field("BoxHalfExtents", &ParticleSystemComponent::BoxHalfExtents).Range(0.0, 1000.0).Doc("Half size of the box in meters."),
+			Field("BoxHalfExtents", &ParticleSystemComponent::BoxHalfExtents)
+				.Range(0.0, 1000.0)
+				.VisibleWhen("Shape", "Box")
+				.Doc("Half size of the box in meters."),
 			Field("GravityFactor", &ParticleSystemComponent::GravityFactor)
 				.Range(-100.0, 100.0)
 				.Doc("Multiplies the scene's gravity; negative values make particles rise."),
@@ -584,6 +679,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "PostProcess";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Rendering;
 		static constexpr std::string_view Description =
 			"Post-process volume: overrides the scene's exposure, tonemapper, bloom, ambient occlusion, color grading and lens "
 			"effects everywhere (global) or while the camera is in the entity's box (local, fading over a blend distance), in "
@@ -593,6 +689,7 @@ namespace Strada
 				.Doc("Applies everywhere; otherwise only inside the box the entity's transform makes of the unit cube."),
 			Field("BlendDistance", &PostProcessComponent::BlendDistance)
 				.AtLeast(0.0)
+				.VisibleWhen("Global", "false")
 				.Doc("Local volumes: meters around the box over which the volume fades out."),
 			Field("Priority", &PostProcessComponent::Priority).Doc("Volumes with higher priorities apply over those with lower ones."),
 			Field("Weight", &PostProcessComponent::Weight).Range(0.0, 1.0).Doc("How much of the volume applies."),
@@ -678,6 +775,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "UICanvas";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
 		static constexpr std::string_view Description =
 			"The root of a screen-space UI (HUDs, menus): its descendants are laid out on the screen by their UIRect and drawn over "
 			"the scene in hierarchy order.";
@@ -695,6 +793,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "UIRect";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
 		static constexpr std::string_view Description =
 			"Places a UI element in its parent's rectangle (the screen for a canvas's children) with anchors, a position, a size and "
 			"a pivot.";
@@ -723,6 +822,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "UIImage";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
 		static constexpr std::string_view Description =
 			"Fills a UI element's rectangle with a color or a texture, with optionally rounded corners (panels, icons, buttons).";
 		static constexpr auto Fields = std::make_tuple(
@@ -743,6 +843,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "UIText";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
 		static constexpr std::string_view Description = "Draws text in a UI element's rectangle, wrapped at its width and aligned in it.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Text", &UITextComponent::Text).AsMultilineText(),
@@ -761,6 +862,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "UIButton";
 		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::UI;
 		static constexpr std::string_view Description =
 			"Makes a UI element clickable: scripts read WasClicked and get OnClick; its colors replace the UIImage's color in each "
 			"state.";
@@ -783,6 +885,7 @@ namespace Strada
 	{
 		static constexpr std::string_view Name = "Prefab";
 		static constexpr uint32_t Flags = ComponentFlagsInternal;
+		static constexpr std::string_view Category = ComponentCategory::Core;
 		static constexpr std::string_view Description = "Links the entity to the prefab it was instantiated from.";
 		static constexpr auto Fields = std::make_tuple(
 			Field("Prefab", &PrefabComponent::Prefab).References("Prefab"),
@@ -792,6 +895,7 @@ namespace Strada
 	template<typename T>
 	concept RegisteredComponent = FieldTable<ComponentTraits<T>> && requires {
 		{ ComponentTraits<T>::Flags } -> std::convertible_to<uint32_t>;
+		{ ComponentTraits<T>::Category } -> std::convertible_to<std::string_view>;
 		{ ComponentTraits<T>::Description } -> std::convertible_to<std::string_view>;
 	};
 

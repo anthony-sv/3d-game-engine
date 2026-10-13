@@ -5,6 +5,7 @@
 #include "Editor/AssetDrops.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EntityPresets.h"
+#include "Editor/MaterialSlots.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
@@ -435,4 +436,259 @@ TEST_CASE("AssetDrops: environments go to the first sky light, or a new one")
 	CHECK(updated.GetValue() == firstLight.GetValue());
 	CHECK(context.GetScene().GetEntityByUUID(firstLight.GetValue()).GetComponent<SkyLightComponent>().Environment == sky);
 	CHECK_FALSE(context.GetScene().GetEntityByUUID(secondLight.GetValue()).GetComponent<SkyLightComponent>().Environment.IsValid());
+}
+
+namespace
+{
+	// Assets/Models/Pair.obj: two triangles with the materials Red and Blue of Pair.mtl, one material slot each.
+	AssetHandle WritePairModel(ProjectFixture& fixture)
+	{
+		std::filesystem::path const models = fixture.GetAssetDirectory() / "Models";
+		REQUIRE(FileSystem::CreateDirectories(models).IsOk());
+		REQUIRE(FileSystem::WriteTextFile(models / "Pair.mtl", "newmtl Red\nKd 1 0 0\nnewmtl Blue\nKd 0 0 1\n").IsOk());
+		REQUIRE(FileSystem::WriteTextFile(models / "Pair.obj", "mtllib Pair.mtl\n"
+		                                                       "v 0 0 0\nv 1 0 0\nv 0 1 0\nv 1 1 0\n"
+		                                                       "usemtl Red\nf 1 2 3\n"
+		                                                       "usemtl Blue\nf 2 4 3\n")
+		            .IsOk());
+		REQUIRE(fixture.Operations.RefreshAssets().IsOk());
+		AssetHandle const model = AssetManager::FindByPath("Models/Pair.obj");
+		REQUIRE(model.IsValid());
+		return model;
+	}
+
+	UUID CreateMeshEntity(EditorOperations& operations, std::string name, AssetHandle mesh)
+	{
+		EntityCreateInfo info;
+		info.Name = std::move(name);
+		info.Components = Json::object({{"Mesh", {{"Mesh", mesh.ToString()}}}});
+		Result<UUID> entity = operations.CreateEntity(std::move(info));
+		REQUIRE(entity.IsOk());
+		return entity.GetValue();
+	}
+
+	std::vector<AssetHandle> GetOverrides(EditorContext& context, UUID entity)
+	{
+		return context.GetScene().GetEntityByUUID(entity).GetComponent<MeshComponent>().Materials;
+	}
+}
+
+TEST_CASE("MaterialSlots: slots render with their override, the mesh's own material or the default material")
+{
+	ProjectFixture fixture;
+	EditorContext& context = fixture.Context;
+	EditorOperations& operations = fixture.Operations;
+	Scene& scene = context.GetScene();
+	AssetHandle const model = WritePairModel(fixture);
+	Result<AssetHandle> const rock = operations.CreateMaterial("Rock.smat");
+	REQUIRE(rock.IsOk());
+	AssetHandle const defaultMaterial = GetBuiltInHandle(BuiltInAsset::DefaultMaterial);
+	UUID const cube = CreateMeshEntity(operations, "Cube", GetBuiltInHandle(BuiltInAsset::CubeMesh));
+	UUID const pair = CreateMeshEntity(operations, "Pair", model);
+	UUID const unknownMesh = CreateMeshEntity(operations, "Unknown Mesh", AssetHandle(UUID(424242)));
+	Result<UUID> const empty = operations.CreateEntity(EntityCreateInfo{});
+	REQUIRE(empty.IsOk());
+
+	// A built-in mesh has one slot with the default material; the model one slot per material it imports.
+	std::vector<UUID> const cubeOnly = {cube};
+	CHECK(MaterialSlots::GetMaterials(scene, cubeOnly) == std::vector<AssetHandle>{defaultMaterial});
+	std::vector<UUID> const pairOnly = {pair};
+	std::vector<AssetHandle> const imported = MaterialSlots::GetMaterials(scene, pairOnly);
+	REQUIRE(imported.size() == 2);
+	CHECK(AssetManager::GetMetadata(imported[0])->GetDisplayName() == "Pair.obj/Materials/Red");
+	CHECK(AssetManager::GetMetadata(imported[1])->GetDisplayName() == "Pair.obj/Materials/Blue");
+	CHECK(MaterialSlots::GetMaterial(scene, pair, 1) == imported[1]);
+	CHECK_FALSE(MaterialSlots::GetMaterial(scene, pair, 2).IsValid());
+	// No slots without a mesh, a loadable one or entities.
+	CHECK(MaterialSlots::GetMaterials(scene, std::vector<UUID>{empty.GetValue()}).empty());
+	CHECK(MaterialSlots::GetMaterials(scene, std::vector<UUID>{unknownMesh}).empty());
+	CHECK(MaterialSlots::GetMaterials(scene, std::vector<UUID>{UUID(777)}).empty());
+	CHECK(MaterialSlots::GetMaterials(scene, {}).empty());
+	// Several entities: the first one's slots, invalid where the others render something else or have no such slot.
+	CHECK(MaterialSlots::GetMaterials(scene, std::vector<UUID>{cube, pair}) == std::vector<AssetHandle>{AssetHandle()});
+	CHECK(MaterialSlots::GetMaterials(scene, std::vector<UUID>{cube, empty.GetValue()}) == std::vector<AssetHandle>{AssetHandle()});
+	UUID const secondCube = CreateMeshEntity(operations, "Second Cube", GetBuiltInHandle(BuiltInAsset::CubeMesh));
+	CHECK(MaterialSlots::GetMaterials(scene, std::vector<UUID>{cube, secondCube}) == std::vector<AssetHandle>{defaultMaterial});
+
+	// Only material files are editable.
+	CHECK(MaterialSlots::IsEditable(rock.GetValue()));
+	CHECK_FALSE(MaterialSlots::IsEditable(defaultMaterial));
+	CHECK_FALSE(MaterialSlots::IsEditable(imported[0]));
+	CHECK_FALSE(MaterialSlots::IsEditable(model));
+	CHECK_FALSE(MaterialSlots::IsEditable(AssetHandle()));
+	CHECK(MaterialSlots::GetMaterialName(rock.GetValue()) == "Rock");
+	CHECK(MaterialSlots::GetMaterialName(imported[1]) == "Blue");
+	CHECK(MaterialSlots::GetMaterialName(defaultMaterial) == "DefaultMaterial");
+	CHECK(MaterialSlots::GetMaterialName(AssetHandle(UUID(31337))).empty());
+
+	// Assigning overrides one slot as one undo step and keeps the others.
+	size_t const steps = context.GetHistory().GetUndoCount();
+	REQUIRE(MaterialSlots::Assign(operations, pairOnly, 1, rock.GetValue()).IsOk());
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(GetOverrides(context, pair) == std::vector<AssetHandle>{AssetHandle(), rock.GetValue()});
+	CHECK(MaterialSlots::GetMaterials(scene, pairOnly) == std::vector<AssetHandle>{imported[0], rock.GetValue()});
+	std::vector<UUID> const cubes = {cube, secondCube};
+	REQUIRE(MaterialSlots::Assign(operations, cubes, 0, rock.GetValue()).IsOk());
+	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
+	CHECK(MaterialSlots::GetMaterials(scene, cubes) == std::vector<AssetHandle>{rock.GetValue()});
+
+	// Refused: assets that are not materials, slots a mesh does not have, entities without meshes; nothing changes.
+	CHECK(MaterialSlots::Assign(operations, pairOnly, 0, model).IsError());
+	CHECK(MaterialSlots::Assign(operations, pairOnly, 2, rock.GetValue()).IsError());
+	CHECK(MaterialSlots::Assign(operations, std::vector<UUID>{pair, empty.GetValue()}, 0, rock.GetValue()).IsError());
+	CHECK(MaterialSlots::Assign(operations, {}, 0, rock.GetValue()).IsError());
+	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
+	CHECK(GetOverrides(context, pair) == std::vector<AssetHandle>{AssetHandle(), rock.GetValue()});
+
+	// Clearing gives slots the mesh's own material back as one undo step, dropping empty overrides at the end; slots
+	// without an override record nothing.
+	CHECK(MaterialSlots::IsOverridden(scene, pairOnly, 1));
+	CHECK_FALSE(MaterialSlots::IsOverridden(scene, pairOnly, 0));
+	CHECK(MaterialSlots::IsOverridden(scene, std::vector<UUID>{cube, pair}, 0));
+	CHECK_FALSE(MaterialSlots::IsOverridden(scene, std::vector<UUID>{empty.GetValue()}, 0));
+	REQUIRE(MaterialSlots::Assign(operations, pairOnly, 0, rock.GetValue()).IsOk());
+	size_t const assigned = context.GetHistory().GetUndoCount();
+	REQUIRE(MaterialSlots::Clear(operations, pairOnly, 1).IsOk());
+	CHECK(GetOverrides(context, pair) == std::vector<AssetHandle>{rock.GetValue()});
+	CHECK(MaterialSlots::GetMaterials(scene, pairOnly) == std::vector<AssetHandle>{rock.GetValue(), imported[1]});
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 1);
+	REQUIRE(MaterialSlots::Clear(operations, pairOnly, 1).IsOk());
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 1);
+	std::vector<UUID> const all = {cube, secondCube, pair};
+	REQUIRE(MaterialSlots::Clear(operations, all, 0).IsOk());
+	CHECK(GetOverrides(context, pair).empty());
+	CHECK(GetOverrides(context, cube).empty());
+	CHECK(GetOverrides(context, secondCube).empty());
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 2);
+	// Refused without changes: slots a mesh does not have, entities without meshes, no entities.
+	CHECK(MaterialSlots::Clear(operations, pairOnly, 2).IsError());
+	CHECK(MaterialSlots::Clear(operations, std::vector<UUID>{empty.GetValue()}, 0).IsError());
+	CHECK(MaterialSlots::Clear(operations, {}, 0).IsError());
+	CHECK(context.GetHistory().GetUndoCount() == assigned + 2);
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(GetOverrides(context, cube) == std::vector<AssetHandle>{rock.GetValue()});
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(GetOverrides(context, pair) == std::vector<AssetHandle>{rock.GetValue(), rock.GetValue()});
+
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(GetOverrides(context, pair).empty());
+	CHECK(GetOverrides(context, cube).empty());
+}
+
+TEST_CASE("MaterialSlots: Create Material gives a slot an editable copy of its material as one undo step")
+{
+	ProjectFixture fixture;
+	EditorContext& context = fixture.Context;
+	EditorOperations& operations = fixture.Operations;
+	Scene& scene = context.GetScene();
+	AssetHandle const model = WritePairModel(fixture);
+	UUID const crate = CreateMeshEntity(operations, "Crate", GetBuiltInHandle(BuiltInAsset::CubeMesh));
+	UUID const pair = CreateMeshEntity(operations, "Pair", model);
+	UUID const otherPair = CreateMeshEntity(operations, "Other Pair", model);
+	std::vector<UUID> const crateOnly = {crate};
+	std::vector<UUID> const pairs = {pair, otherPair};
+	std::vector<AssetHandle> const imported = MaterialSlots::GetMaterials(scene, pairs);
+	REQUIRE(imported.size() == 2);
+
+	// The default material's copy is named after the entity and has the default parameters.
+	size_t const steps = context.GetHistory().GetUndoCount();
+	Result<AssetHandle> const crateMaterial = MaterialSlots::CreateEditableCopy(operations, crateOnly, 0);
+	REQUIRE_MESSAGE(crateMaterial.IsOk(), crateMaterial.GetError());
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(AssetManager::GetMetadata(crateMaterial.GetValue())->Path == "Materials/Crate.smat");
+	CHECK(FileSystem::Exists(fixture.GetAssetDirectory() / "Materials" / "Crate.smat"));
+	CHECK(MaterialSlots::IsEditable(crateMaterial.GetValue()));
+	CHECK(AssetManager::GetAsset<MaterialAsset>(crateMaterial.GetValue())->GetData() == MaterialData());
+	CHECK(GetOverrides(context, crate) == std::vector<AssetHandle>{crateMaterial.GetValue()});
+
+	// An imported material's copy is named after it, keeps its parameters and goes to every entity sharing the slot.
+	Result<AssetHandle> const blue = MaterialSlots::CreateEditableCopy(operations, pairs, 1);
+	REQUIRE_MESSAGE(blue.IsOk(), blue.GetError());
+	CHECK(AssetManager::GetMetadata(blue.GetValue())->Path == "Materials/Blue.smat");
+	MaterialData const blueData = AssetManager::GetAsset<MaterialAsset>(blue.GetValue())->GetData();
+	CHECK(blueData == AssetManager::GetAsset<MaterialAsset>(imported[1])->GetData());
+	CHECK(glm::vec3(blueData.BaseColor) == glm::vec3(0.0f, 0.0f, 1.0f));
+	CHECK(MaterialSlots::GetMaterials(scene, pairs) == std::vector<AssetHandle>{imported[0], blue.GetValue()});
+	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
+
+	// Taken names are numbered; names that are not portable are made portable.
+	Result<AssetHandle> const again = MaterialSlots::CreateEditableCopy(operations, pairs, 1);
+	REQUIRE(again.IsOk());
+	CHECK(AssetManager::GetMetadata(again.GetValue())->Path == "Materials/Blue 1.smat");
+	REQUIRE(operations.RenameEntity(crate, "Door: Frame/Left").IsOk());
+	REQUIRE(MaterialSlots::Assign(operations, crateOnly, 0, GetBuiltInHandle(BuiltInAsset::DefaultMaterial)).IsOk());
+	Result<AssetHandle> const renamed = MaterialSlots::CreateEditableCopy(operations, crateOnly, 0);
+	REQUIRE(renamed.IsOk());
+	CHECK(AssetManager::GetMetadata(renamed.GetValue())->Path == "Materials/Door_ Frame_Left.smat");
+
+	// Undoing gives the slot its earlier material back; the file stays, like every file operation.
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(GetOverrides(context, crate) == std::vector<AssetHandle>{GetBuiltInHandle(BuiltInAsset::DefaultMaterial)});
+	CHECK(AssetManager::IsValid(renamed.GetValue()));
+
+	// Refused without changes: slots the meshes do not have, slots with different materials, no entities, no material.
+	size_t const recorded = context.GetHistory().GetUndoCount();
+	size_t const materials = AssetManager::GetAssets(AssetType::Material).size();
+	CHECK(MaterialSlots::CreateEditableCopy(operations, pairs, 2).IsError());
+	CHECK(MaterialSlots::CreateEditableCopy(operations, std::vector<UUID>{crate, pair}, 0).IsError());
+	CHECK(MaterialSlots::CreateEditableCopy(operations, {}, 0).IsError());
+	CHECK(MaterialSlots::CreateCopy(operations, model, "Model").IsError());
+	CHECK(context.GetHistory().GetUndoCount() == recorded);
+	CHECK(AssetManager::GetAssets(AssetType::Material).size() == materials);
+
+	// A copy whose name has nothing usable for a file is called "Material".
+	Result<AssetHandle> const unnamed = MaterialSlots::CreateCopy(operations, imported[0], "   ");
+	REQUIRE(unnamed.IsOk());
+	CHECK(AssetManager::GetMetadata(unnamed.GetValue())->Path == "Materials/Material.smat");
+
+	// Without a project there is nowhere to write the material.
+	REQUIRE(operations.CloseProject().IsOk());
+	UUID const cube = CreateMeshEntity(operations, "Cube", GetBuiltInHandle(BuiltInAsset::CubeMesh));
+	CHECK(MaterialSlots::CreateEditableCopy(operations, std::vector<UUID>{cube}, 0).IsError());
+	CHECK(GetOverrides(context, cube).empty());
+}
+
+TEST_CASE("MaterialSlots: copies of materials with light and colors above 1 keep their look in a file that reads back")
+{
+	ProjectFixture fixture;
+	EditorOperations& operations = fixture.Operations;
+	std::filesystem::path const models = fixture.GetAssetDirectory() / "Models";
+	REQUIRE(FileSystem::CreateDirectories(models).IsOk());
+	REQUIRE(FileSystem::WriteTextFile(models / "Lamp.mtl", "newmtl Glow\nKd 0.8 0.8 0.8\nKe 4 3 2\n").IsOk());
+	REQUIRE(FileSystem::WriteTextFile(models / "Lamp.obj", "mtllib Lamp.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl Glow\nf 1 2 3\n").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const model = AssetManager::FindByPath("Models/Lamp.obj");
+	REQUIRE(model.IsValid());
+	UUID const lamp = CreateMeshEntity(operations, "Lamp", model);
+	std::vector<UUID> const lampOnly = {lamp};
+
+	// The emission of the MTL file (Ke 4 3 2) is light brighter than a color holds: the copy keeps it in the intensity.
+	Result<AssetHandle> const glow = MaterialSlots::CreateEditableCopy(operations, lampOnly, 0);
+	REQUIRE_MESSAGE(glow.IsOk(), glow.GetError());
+	MaterialData const glowData = AssetManager::GetAsset<MaterialAsset>(glow.GetValue())->GetData();
+	CHECK(glowData.EmissiveColor == glm::vec3(1.0f, 0.75f, 0.5f));
+	CHECK(glowData.EmissiveIntensity == doctest::Approx(4.0f));
+	CHECK(glowData.BaseColor.r == doctest::Approx(0.8f));
+	CHECK(GetOverrides(fixture.Context, lamp) == std::vector<AssetHandle>{glow.GetValue()});
+	Result<MaterialData> const file =
+		MaterialSerializer::LoadFromFile(fixture.GetAssetDirectory() / "Materials" / "Glow.smat", DeserializationContext{});
+	REQUIRE_MESSAGE(file.IsOk(), file.GetError());
+	CHECK(file.GetValue() == glowData);
+
+	// Materials made at run time may hold anything: the copy brings it into the material ranges.
+	MaterialData outside;
+	outside.BaseColor = {2.0f, 0.5f, 0.25f, 1.0f};
+	outside.Roughness = -1.0f;
+	outside.EmissiveColor = {0.0f, 8.0f, 2.0f};
+	AssetHandle const runtime = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(outside), "Runtime Glow");
+	Result<AssetHandle> const copy = MaterialSlots::CreateCopy(operations, runtime, "Runtime Glow");
+	REQUIRE_MESSAGE(copy.IsOk(), copy.GetError());
+	MaterialData const copied = AssetManager::GetAsset<MaterialAsset>(copy.GetValue())->GetData();
+	CHECK(copied.BaseColor == glm::vec4(1.0f, 0.5f, 0.25f, 1.0f));
+	CHECK(copied.Roughness == 0.0f);
+	CHECK(copied.EmissiveColor == glm::vec3(0.0f, 1.0f, 0.25f));
+	CHECK(copied.EmissiveIntensity == doctest::Approx(8.0f));
+	AssetManager::RemoveMemoryAsset(runtime);
 }

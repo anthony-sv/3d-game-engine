@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Editor/AssetThumbnails.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/ProjectImport.h"
 
@@ -21,6 +20,7 @@ struct ImVec2;
 
 namespace Strada
 {
+	class AssetThumbnails;
 	class EditorScripts;
 
 	// The two trees of files the content browser shows: the project's asset directory and the C# sources of its scripts
@@ -33,8 +33,8 @@ namespace Strada
 
 	// Browses the open project's files: the asset directory and, under a second root, the C# sources of its scripts. A folder
 	// tree, breadcrumbs, folders and files as tiles labeled with their file names (textures, materials, meshes, prefabs and
-	// environments show rendered thumbnails, fonts "Aa" in their own glyphs, audio clips their waveforms, other files icons of
-	// their type; a slider sizes them), and a search field. Click selects (the inspector shows assets), double-click opens
+	// environments show thumbnails, fonts "Aa" in their own glyphs, audio clips their waveforms (SetThumbnails); other files
+	// icons of their type; a slider sizes them), and a search field. Click selects (the inspector shows assets), double-click opens
 	// folders, scenes and scripts (in the desktop's editor for C#); assets drag into the scene view, the hierarchy and asset
 	// fields, scripts onto entities (hierarchy rows, the inspector), and assets, folders and scripts onto folders to move them.
 	// Files and folders dropped onto the editor from the OS are imported into the folder under the cursor, else the displayed
@@ -60,6 +60,10 @@ namespace Strada
 		// The project's scripts, which receive the C# sources imported into the browser. Not owned; without them C# sources
 		// are refused.
 		void SetScripts(EditorScripts* scripts) { m_Scripts = scripts; }
+		// The images of the tiles (thumbnails, font samples, waveforms) and why files cannot be read: the editor's set, which
+		// the inspector shares and the editor updates once per frame before the panels draw. Not owned; without them tiles
+		// show the icons of their types.
+		void SetThumbnails(AssetThumbnails* thumbnails) { m_Thumbnails = thumbnails; }
 		// Brings the console to the front: the notice about an import that did not go well offers it. Without it the notice
 		// only says what happened.
 		using ShowConsoleCallback = std::function<void()>;
@@ -234,7 +238,7 @@ namespace Strada
 		uint32_t m_SearchFieldGeneration = 0;
 		Listing m_Listing;
 		float m_TileScale = 1.0f;
-		AssetThumbnails m_Thumbnails;
+		AssetThumbnails* m_Thumbnails = nullptr;
 		// The folder tree's listings (root and folder -> its folders) and when they were made.
 		std::unordered_map<std::string, std::vector<std::string>> m_Subfolders;
 		double m_SubfoldersTime = 0.0;

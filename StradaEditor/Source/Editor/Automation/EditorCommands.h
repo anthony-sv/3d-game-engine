@@ -7,6 +7,7 @@
 #include "Strada/Core/Result.h"
 
 #include <functional>
+#include <string>
 
 namespace Strada
 {
@@ -39,11 +40,14 @@ namespace Strada
 		// The content browser panel. Unset when the editor has no UI (headless); asset.browse then fails with
 		// AutomationErrorCode::Unavailable.
 		std::function<ContentBrowserPanel&()> ContentBrowser;
+		// Shows the inspector with its Add Component menu open and the search text typed in (open), or closes the menu. Unset
+		// when the editor has no UI (headless); inspector.add-component-menu then fails with AutomationErrorCode::Unavailable.
+		std::function<void(bool open, std::string const& search)> ShowAddComponentMenu;
 	};
 
-	// Registers the editor, project, scene, entity, component, asset, material, prefab, log and viewport commands. Entity parameters are
-	// UUIDs written as decimal strings. The registry, the operations (and their context) and the environment callbacks must outlive every
-	// registered command. Documented in Docs/Automation.md.
+	// Registers the editor, project, scene, entity, component, asset, material, prefab, inspector, log and viewport commands. Entity
+	// parameters are UUIDs written as decimal strings. The registry, the operations (and their context) and the environment callbacks must
+	// outlive every registered command. Documented in Docs/Automation.md.
 	[[nodiscard]] Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations,
 	                                                  EditorCommandEnvironment environment);
 }

@@ -362,3 +362,106 @@ TEST_CASE("ComponentInspection: shared and addable components, mixed fields and 
 	CHECK(defaults["Range"] == 10.0f);
 	CHECK(defaults.size() == light.Fields.size());
 }
+
+TEST_CASE("ComponentInspection: the Add Component menu groups components by category and finds them by name")
+{
+	EditorContext context;
+	EditorOperations operations(context);
+	UUID const entity = Create(operations, "Lamp", UUID::Invalid(), Json::object({{"PointLight", Json::object()}}));
+	std::vector<UUID> const selection = {entity};
+	std::vector<ComponentInfo const*> const addable = ComponentInspection::GetAddableComponents(context.GetScene(), selection);
+
+	// Categories in menu order without the empty Core one (nothing core can be added), components by display name; every
+	// addable component is listed exactly once. The expected groups come from the registry, so components added later only
+	// need their category.
+	std::vector<ComponentInspection::ComponentGroup> const groups = ComponentInspection::GroupByCategory(addable);
+	std::vector<std::pair<std::string_view, std::vector<std::string>>> expected;
+	for (std::string_view const category : ComponentCategory::All)
+	{
+		std::vector<std::string> names;
+		for (ComponentInfo const* component : addable)
+		{
+			if (component->Category == category)
+			{
+				names.push_back(UI::FormatDisplayName(component->Name));
+			}
+		}
+		std::sort(names.begin(), names.end());
+		if (!names.empty())
+		{
+			expected.emplace_back(category, std::move(names));
+		}
+	}
+	REQUIRE(groups.size() == expected.size());
+	for (size_t i = 0; i < groups.size(); i++)
+	{
+		CAPTURE(groups[i].Category);
+		CHECK(groups[i].Category == expected[i].first);
+		std::vector<std::string> names;
+		for (ComponentInfo const* component : groups[i].Components)
+		{
+			names.push_back(UI::FormatDisplayName(component->Name));
+		}
+		CHECK(names == expected[i].second);
+	}
+	REQUIRE_FALSE(groups.empty());
+	CHECK(groups.front().Category == ComponentCategory::Rendering);
+	auto const findGroup = [&groups](std::string_view category) -> std::vector<std::string_view>
+	{
+		for (ComponentInspection::ComponentGroup const& group : groups)
+		{
+			if (group.Category == category)
+			{
+				return Names(group.Components);
+			}
+		}
+		return {};
+	};
+	auto const contains = [](std::vector<std::string_view> const& names, std::string_view name)
+	{
+		return std::find(names.begin(), names.end(), name) != names.end();
+	};
+	// The lamp has its point light already; the others are where users look for them.
+	CHECK_FALSE(contains(findGroup(ComponentCategory::Rendering), "PointLight"));
+	CHECK(contains(findGroup(ComponentCategory::Rendering), "Mesh"));
+	CHECK(contains(findGroup(ComponentCategory::Rendering), "Text"));
+	CHECK(contains(findGroup(ComponentCategory::Physics), "BoxCollider"));
+	CHECK(contains(findGroup(ComponentCategory::Scripting), "Script"));
+	CHECK(contains(findGroup(ComponentCategory::UI), "UIButton"));
+	CHECK(ComponentInspection::GroupByCategory({}).empty());
+
+	// The menu searches what can be added: the lamp's point light is not offered.
+	std::vector<std::string_view> const lights = Names(ComponentInspection::SearchComponents(addable, "light"));
+	CHECK(contains(lights, "DirectionalLight"));
+	CHECK_FALSE(contains(lights, "PointLight"));
+	CHECK(ComponentInspection::SearchComponents(addable, "").size() == addable.size());
+
+	// Names starting with the text come first, then names with a word starting with it, then the others; case, spaces
+	// around the text and the spelling of the name do not matter. These searches run over a fixed set of components, so
+	// components added later cannot change their matches.
+	std::vector<ComponentInfo const*> searched;
+	for (std::string_view const name :
+	     {"AudioListener", "AudioSource", "BoxCollider", "Camera", "CapsuleCollider", "DirectionalLight", "Mesh", "MeshCollider",
+	      "ParticleSystem", "RigidBody", "Script", "SkyLight", "SphereCollider", "SpotLight", "SpriteRenderer", "Text"})
+	{
+		ComponentInfo const* component = ComponentRegistry::Find(name);
+		REQUIRE(component != nullptr);
+		searched.push_back(component);
+	}
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "light")) ==
+	      std::vector<std::string_view>{"DirectionalLight", "SkyLight", "SpotLight"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "  COLL ")) ==
+	      std::vector<std::string_view>{"BoxCollider", "CapsuleCollider", "MeshCollider", "SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "sphere col")) == std::vector<std::string_view>{"SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "spherecol")) == std::vector<std::string_view>{"SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "li")) ==
+	      std::vector<std::string_view>{"AudioListener", "DirectionalLight", "SkyLight", "SpotLight", "BoxCollider", "CapsuleCollider",
+	                                    "MeshCollider", "SphereCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "s")) ==
+	      std::vector<std::string_view>{"Script", "SkyLight", "SphereCollider", "SpotLight", "SpriteRenderer", "AudioSource",
+	                                    "ParticleSystem", "AudioListener", "CapsuleCollider", "Mesh", "MeshCollider"});
+	CHECK(Names(ComponentInspection::SearchComponents(searched, "urce")) == std::vector<std::string_view>{"AudioSource"});
+	CHECK(ComponentInspection::SearchComponents(searched, "teleporter").empty());
+	CHECK(ComponentInspection::SearchComponents(searched, "").size() == searched.size());
+	CHECK(ComponentInspection::SearchComponents({}, "light").empty());
+}

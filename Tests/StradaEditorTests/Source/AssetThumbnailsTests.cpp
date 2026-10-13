@@ -8,6 +8,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/TextureAsset.h"
 #include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
@@ -20,6 +21,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <thread>
@@ -50,6 +52,41 @@ namespace
 			std::this_thread::sleep_for(std::chrono::milliseconds(10));
 		}
 		return nullptr;
+	}
+
+	// Updates the thumbnails until the asset has a thumbnail or a generous time has passed (textures are shrunk on a worker
+	// thread).
+	nvrhi::ITexture* WaitForThumbnail(AssetThumbnails& thumbnails, AssetHandle asset)
+	{
+		for (int attempt = 0; attempt < 1000; attempt++)
+		{
+			if (nvrhi::ITexture* const thumbnail = thumbnails.Get(asset))
+			{
+				return thumbnail;
+			}
+			thumbnails.Update();
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		return nullptr;
+	}
+
+	// An image whose left half is one color and right half another (opaque).
+	Image MakeHalvesImage(uint32_t width, uint32_t height, glm::u8vec3 left, glm::u8vec3 right)
+	{
+		Image image(width, height, 4);
+		for (uint32_t y = 0; y < height; y++)
+		{
+			for (uint32_t x = 0; x < width; x++)
+			{
+				glm::u8vec3 const color = x < width / 2 ? left : right;
+				uint8_t* pixel = image.GetPixel(x, y);
+				pixel[0] = color.r;
+				pixel[1] = color.g;
+				pixel[2] = color.b;
+				pixel[3] = 255;
+			}
+		}
+		return image;
 	}
 
 	// The average color of the image's central quarter.
@@ -160,10 +197,123 @@ TEST_CASE("AssetThumbnails: material thumbnails show the material and follow its
 		glm::vec3 const blueCenter = CenterColor(after.GetValue());
 		CHECK(blueCenter.b > blueCenter.r * 2.0f);
 
-		// Textures are their own thumbnails.
-		nvrhi::ITexture* const white = thumbnails.Get(GetBuiltInHandle(BuiltInAsset::WhiteTexture));
+		AssetManager::RemoveMemoryAsset(handle);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+	AssetManager::Shutdown();
+}
+
+TEST_CASE("AssetThumbnails: texture thumbnails are halved until they fit, keep their aspect ratio and average in linear light")
+{
+	glm::u8vec3 const red(220, 30, 30);
+	glm::u8vec3 const blue(30, 30, 220);
+	Result<Ref<TextureAsset>> const wide = TextureAsset::CreateFromImage(MakeHalvesImage(1024, 512, red, blue));
+	REQUIRE(wide.IsOk());
+	Result<Image> const shrunk = AssetThumbnails::ShrinkTexture(*wide.GetValue(), AssetThumbnails::Size);
+	REQUIRE(shrunk.IsOk());
+	Image const& image = shrunk.GetValue();
+	CHECK(image.GetWidth() == AssetThumbnails::Size);
+	CHECK(image.GetHeight() == AssetThumbnails::Size / 2);
+	CHECK(image.GetChannels() == 4);
+	CHECK(glm::u8vec3(image.GetPixel(10, 64)[0], image.GetPixel(10, 64)[1], image.GetPixel(10, 64)[2]) == red);
+	CHECK(glm::u8vec3(image.GetPixel(245, 64)[0], image.GetPixel(245, 64)[1], image.GetPixel(245, 64)[2]) == blue);
+
+	// Fine black and white checks become linear mid-gray: 188 in sRGB, where averaging the stored values would give 128.
+	Image checks(512, 512, 4);
+	for (uint32_t y = 0; y < 512; y++)
+	{
+		for (uint32_t x = 0; x < 512; x++)
+		{
+			uint8_t* pixel = checks.GetPixel(x, y);
+			pixel[0] = pixel[1] = pixel[2] = (x + y) % 2 == 0 ? 255 : 0;
+			pixel[3] = 255;
+		}
+	}
+	Result<Ref<TextureAsset>> const checked = TextureAsset::CreateFromImage(checks);
+	REQUIRE(checked.IsOk());
+	Result<Image> const gray = AssetThumbnails::ShrinkTexture(*checked.GetValue(), AssetThumbnails::Size);
+	REQUIRE(gray.IsOk());
+	CHECK(gray.GetValue().GetWidth() == AssetThumbnails::Size);
+	CHECK(gray.GetValue().GetPixel(100, 100)[0] == 188);
+
+	// Encoded textures are decoded first; small ones keep their size and pixels, and odd sizes round down when halved.
+	Image const small = MakeHalvesImage(40, 30, red, blue);
+	Result<std::vector<uint8_t>> const encoded = small.EncodePNG();
+	REQUIRE(encoded.IsOk());
+	Result<Ref<TextureAsset>> const file =
+		TextureAsset::CreateFromEncoded(Buffer::Copy(encoded.GetValue().data(), encoded.GetValue().size()));
+	REQUIRE(file.IsOk());
+	Result<Image> const kept = AssetThumbnails::ShrinkTexture(*file.GetValue(), AssetThumbnails::Size);
+	REQUIRE(kept.IsOk());
+	CHECK(kept.GetValue().GetWidth() == 40);
+	CHECK(kept.GetValue().GetHeight() == 30);
+	CHECK(kept.GetValue().GetPixels() == small.GetPixels());
+	Result<Ref<TextureAsset>> const odd = TextureAsset::CreateFromImage(Image(301, 77, 4));
+	REQUIRE(odd.IsOk());
+	Result<Image> const oddShrunk = AssetThumbnails::ShrinkTexture(*odd.GetValue(), AssetThumbnails::Size);
+	REQUIRE(oddShrunk.IsOk());
+	CHECK(oddShrunk.GetValue().GetWidth() == 150);
+	CHECK(oddShrunk.GetValue().GetHeight() == 38);
+
+	// A file whose header reads but whose pixels do not decode, no room for pixels, and cancelled work fail.
+	std::vector<uint8_t> truncated = encoded.GetValue();
+	truncated.resize(60);
+	Result<Ref<TextureAsset>> const damaged = TextureAsset::CreateFromEncoded(Buffer::Copy(truncated.data(), truncated.size()));
+	REQUIRE(damaged.IsOk());
+	Result<Image> const undecoded = AssetThumbnails::ShrinkTexture(*damaged.GetValue(), AssetThumbnails::Size);
+	REQUIRE(undecoded.IsError());
+	CHECK(undecoded.GetError().find("cannot be decoded") != std::string::npos);
+	CHECK(AssetThumbnails::ShrinkTexture(*wide.GetValue(), 0).IsError());
+	std::atomic<bool> const cancel = true;
+	CHECK(AssetThumbnails::ShrinkTexture(*wide.GetValue(), AssetThumbnails::Size, &cancel).IsError());
+}
+
+TEST_CASE("AssetThumbnails: textures get thumbnails of their own, made on a worker thread and uploaded by an update")
+{
+	ST_REQUIRE_GPU();
+	AssetManager::Init();
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		glm::u8vec3 const red(220, 30, 30);
+		glm::u8vec3 const blue(30, 30, 220);
+		Result<Ref<TextureAsset>> wide = TextureAsset::CreateFromImage(MakeHalvesImage(1024, 512, red, blue));
+		REQUIRE(wide.IsOk());
+		AssetHandle const handle = AssetManager::AddMemoryAsset(wide.TakeValue(), "Wide");
+
+		AssetThumbnails thumbnails;
+		// Asked for by the first look, made on a worker, uploaded by an update after it finished.
+		CHECK(thumbnails.Get(handle) == nullptr);
+		nvrhi::ITexture* const texture = WaitForThumbnail(thumbnails, handle);
+		REQUIRE(texture != nullptr);
+		// Small, without mip levels, with the texture's stored values (the swapchain shows them unchanged).
+		nvrhi::TextureDesc const& desc = texture->getDesc();
+		CHECK(desc.width == AssetThumbnails::Size);
+		CHECK(desc.height == AssetThumbnails::Size / 2);
+		CHECK(desc.mipLevels == 1);
+		CHECK(desc.format == nvrhi::Format::RGBA8_UNORM);
+		Result<Image> const pixels = ReadbackTexture(texture);
+		REQUIRE(pixels);
+		uint8_t const* left = pixels.GetValue().GetPixel(10, 64);
+		uint8_t const* right = pixels.GetValue().GetPixel(245, 64);
+		CHECK(glm::u8vec3(left[0], left[1], left[2]) == red);
+		CHECK(glm::u8vec3(right[0], right[1], right[2]) == blue);
+		// Kept: asking again does not make it again.
+		thumbnails.Update();
+		CHECK(thumbnails.Get(handle) == texture);
+		CHECK(thumbnails.GetLoadError(handle) == nullptr);
+
+		// Built-in textures too, at their own small size.
+		nvrhi::ITexture* const white = WaitForThumbnail(thumbnails, GetBuiltInHandle(BuiltInAsset::WhiteTexture));
 		REQUIRE(white != nullptr);
-		CHECK(white != updated);
+		CHECK(white->getDesc().width <= AssetThumbnails::Size);
+
+		// Clearing forgets the thumbnails and stops the one being made; asking again makes it again.
+		thumbnails.Clear();
+		CHECK(thumbnails.Get(handle) == nullptr);
+		thumbnails.Update();
+		thumbnails.Clear();
+		CHECK(WaitForThumbnail(thumbnails, handle) != nullptr);
 
 		AssetManager::RemoveMemoryAsset(handle);
 		GraphicsDevice::WaitForIdle();
@@ -401,16 +551,22 @@ TEST_CASE("AssetThumbnails: files changed outside the editor get new thumbnails,
 		CHECK(glyphs.GetValue().GetPixel(0, 0)[3] == 0);
 		CHECK(thumbnails.GetLoadError(title) == nullptr);
 
-		// Files that do not load have no thumbnail and say why, once their thumbnail was tried; textures at once.
+		// Files that do not load or decode have no thumbnail and say why, once their thumbnail was tried.
 		REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Broken.smat", "not a material").IsOk());
 		REQUIRE(FileSystem::WriteTextFile(directory.GetPath() / "Broken.png", "not an image").IsOk());
+		Result<std::vector<uint8_t>> damaged = Image(64, 64, 4).EncodePNG();
+		REQUIRE(damaged.IsOk());
+		damaged.GetValue().resize(60);
+		REQUIRE(FileSystem::WriteBinaryFile(directory.GetPath() / "Damaged.png", damaged.GetValue()).IsOk());
 		REQUIRE(Image(4, 4, 4).WritePNG(directory.GetPath() / "Fine.png").IsOk());
 		REQUIRE(AssetManager::Refresh().IsOk());
 		AssetHandle const broken = AssetManager::FindByPath("Broken.smat");
 		AssetHandle const brokenTexture = AssetManager::FindByPath("Broken.png");
+		AssetHandle const damagedTexture = AssetManager::FindByPath("Damaged.png");
 		AssetHandle const fineTexture = AssetManager::FindByPath("Fine.png");
 		REQUIRE(broken.IsValid());
 		REQUIRE(brokenTexture.IsValid());
+		REQUIRE(damagedTexture.IsValid());
 		REQUIRE(fineTexture.IsValid());
 		CHECK(thumbnails.GetLoadError(broken) == nullptr);
 		CHECK(thumbnails.Get(broken) == nullptr);
@@ -419,10 +575,42 @@ TEST_CASE("AssetThumbnails: files changed outside the editor get new thumbnails,
 		REQUIRE(thumbnails.GetLoadError(broken) != nullptr);
 		CHECK_FALSE(thumbnails.GetLoadError(broken)->empty());
 		CHECK(thumbnails.GetLoadError(paint) == nullptr);
+		CHECK(thumbnails.GetLoadError(brokenTexture) == nullptr);
+		CHECK(thumbnails.Get(brokenTexture) == nullptr);
+		thumbnails.Update();
 		CHECK(thumbnails.Get(brokenTexture) == nullptr);
 		REQUIRE(thumbnails.GetLoadError(brokenTexture) != nullptr);
-		CHECK(thumbnails.Get(fineTexture) != nullptr);
+		for (int attempt = 0; attempt < 1000 && thumbnails.GetLoadError(damagedTexture) == nullptr; attempt++)
+		{
+			CHECK(thumbnails.Get(damagedTexture) == nullptr);
+			thumbnails.Update();
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		REQUIRE(thumbnails.GetLoadError(damagedTexture) != nullptr);
+		CHECK(thumbnails.GetLoadError(damagedTexture)->find("cannot be decoded") != std::string::npos);
+		nvrhi::ITexture* const fine = WaitForThumbnail(thumbnails, fineTexture);
+		REQUIRE(fine != nullptr);
+		CHECK(fine->getDesc().width == 4);
 		CHECK(thumbnails.GetLoadError(fineTexture) == nullptr);
+
+		// A texture changed by another application gets a thumbnail of its new size once a refresh notices.
+		std::filesystem::path const fineFile = directory.GetPath() / "Fine.png";
+		std::filesystem::file_time_type const fineWritten = FileSystem::GetLastWriteTime(fineFile).value();
+		REQUIRE(Image(600, 300, 4).WritePNG(fineFile).IsOk());
+		std::filesystem::last_write_time(fineFile, fineWritten + std::chrono::seconds(2), timeError);
+		REQUIRE_FALSE(timeError);
+		REQUIRE(AssetManager::Refresh().IsOk());
+		nvrhi::ITexture* larger = nullptr;
+		for (int attempt = 0; attempt < 1000 && larger == nullptr; attempt++)
+		{
+			thumbnails.Update();
+			nvrhi::ITexture* const current = thumbnails.Get(fineTexture);
+			larger = current != nullptr && current->getDesc().width != 4 ? current : nullptr;
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+		}
+		REQUIRE(larger != nullptr);
+		CHECK(larger->getDesc().width == 150);
+		CHECK(larger->getDesc().height == 75);
 		GraphicsDevice::WaitForIdle();
 	}
 	Renderer::Shutdown();

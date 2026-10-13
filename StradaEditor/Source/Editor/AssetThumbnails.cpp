@@ -7,6 +7,7 @@
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/FontAsset.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/TextureAsset.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Math/Math.h"
 #include "Strada/RHI/GraphicsDevice.h"
@@ -14,6 +15,7 @@
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Renderer/SceneRenderer.h"
 #include "Strada/Renderer/TextLayout.h"
+#include "Strada/Renderer/TextureMips.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneRendering.h"
@@ -90,6 +92,7 @@ namespace Strada
 	AssetThumbnails::~AssetThumbnails()
 	{
 		StopWaveformJob();
+		StopTextureJob();
 	}
 
 	bool AssetThumbnails::Supports(AssetType type)
@@ -120,29 +123,23 @@ namespace Strada
 		}
 		Entry& entry = m_Entries[asset];
 		entry.LastUse = ++m_UseCounter;
-		if (type == AssetType::Texture)
-		{
-			// Textures show themselves (the renderer keeps them), sampled without sRGB decoding: the stored, already
-			// sRGB-encoded values reach the 8-bit swapchain unchanged. Only why a texture cannot be shown is kept here; the
-			// asset manager remembers failed loads, so asking again is cheap.
-			nvrhi::ITexture* const texture = Renderer::GetTexture(asset, false, AssetHandle());
-			entry.Failed = texture == nullptr;
-			entry.LoadError.clear();
-			if (texture == nullptr)
-			{
-				if (Result<Ref<Asset>> const loaded = AssetManager::LoadAsset(asset); !loaded)
-				{
-					entry.LoadError = loaded.GetError();
-				}
-			}
-			return texture;
-		}
-
 		bool const current =
 			(entry.Texture || entry.Failed) && IsCurrent(entry.Source, entry.Loaded, entry.SourceVersion, entry.Failed, asset);
-		if (!current && !m_Requested.IsValid())
+		if (current)
 		{
-			// The first missing thumbnail drawn this frame renders next.
+			return entry.Texture;
+		}
+		// The first missing thumbnail drawn this frame is made next: textures on a worker thread (one at a time, beside the
+		// rendered thumbnails), the others rendered by the next Update.
+		if (type == AssetType::Texture)
+		{
+			if (!m_RequestedTexture.IsValid() && !(m_TextureJob && m_TextureJob->Texture == asset))
+			{
+				m_RequestedTexture = asset;
+			}
+		}
+		else if (!m_Requested.IsValid())
+		{
 			m_Requested = asset;
 		}
 		return entry.Texture;
@@ -205,6 +202,7 @@ namespace Strada
 	void AssetThumbnails::Update()
 	{
 		UpdateWaveforms();
+		UpdateTextures();
 		AssetHandle const asset = std::exchange(m_Requested, AssetHandle());
 		if (asset.IsValid() && Renderer::IsInitialized())
 		{
@@ -223,8 +221,10 @@ namespace Strada
 	void AssetThumbnails::Clear()
 	{
 		StopWaveformJob();
+		StopTextureJob();
 		m_Entries.clear();
 		m_Requested = AssetHandle();
+		m_RequestedTexture = AssetHandle();
 		m_Waveforms.clear();
 		m_RequestedWaveform = AssetHandle();
 	}
@@ -380,6 +380,12 @@ namespace Strada
 
 	bool AssetThumbnails::Upload(Image const& image, Entry& entry)
 	{
+		if (entry.Texture && (entry.Texture->getDesc().width != image.GetWidth() || entry.Texture->getDesc().height != image.GetHeight()))
+		{
+			// A texture whose file changed may have another size. Update runs before the panels draw, so no image of this
+			// frame shows the old one.
+			entry.Texture = nullptr;
+		}
 		if (!entry.Texture)
 		{
 			nvrhi::TextureDesc desc;
@@ -477,6 +483,117 @@ namespace Strada
 			}
 		}
 		return image;
+	}
+
+	Result<Image> AssetThumbnails::ShrinkTexture(TextureAsset const& texture, uint32_t maxSize, std::atomic<bool> const* cancel)
+	{
+		if (maxSize == 0)
+		{
+			return Error{"a thumbnail needs pixels"};
+		}
+		Result<Image> decoded = texture.Decode();
+		if (!decoded)
+		{
+			return MakeError("the image cannot be decoded ({})", decoded.GetError());
+		}
+		Image image = decoded.TakeValue();
+		while (image.GetWidth() > maxSize || image.GetHeight() > maxSize)
+		{
+			if (cancel != nullptr && cancel->load(std::memory_order_relaxed))
+			{
+				return Error{"cancelled"};
+			}
+			// Colors are averaged in linear light, as for the sRGB textures materials show; the thumbnail keeps the stored
+			// (sRGB-encoded) values the 8-bit swapchain shows unchanged.
+			image = GenerateNextMipLevel(image, true);
+		}
+		return image;
+	}
+
+	void AssetThumbnails::UpdateTextures()
+	{
+		if (m_TextureJob && m_TextureJob->Future.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+		{
+			TextureJob job = std::move(*m_TextureJob);
+			m_TextureJob.reset();
+			Result<Image> const result = job.Future.get();
+			// The entry is gone when the texture was not shown for long enough to be forgotten meanwhile.
+			if (auto const found = m_Entries.find(job.Texture); found != m_Entries.end())
+			{
+				Entry& entry = found->second;
+				entry.Source = job.Source;
+				entry.Loaded = true;
+				entry.SourceVersion = 0;
+				if (result)
+				{
+					entry.LoadError.clear();
+					entry.Failed = !Upload(result.GetValue(), entry);
+				}
+				else
+				{
+					// Tried again when the file changes (a refresh reloads the texture).
+					entry.Failed = true;
+					entry.LoadError = result.GetError();
+				}
+			}
+		}
+		if (m_TextureJob || !m_RequestedTexture.IsValid())
+		{
+			return;
+		}
+
+		AssetHandle const texture = std::exchange(m_RequestedTexture, AssetHandle());
+		auto const found = m_Entries.find(texture);
+		if (found == m_Entries.end() || !Renderer::IsInitialized())
+		{
+			return;
+		}
+		Entry& entry = found->second;
+		// Loading reads the file and checks its header; decoding and shrinking happen on the worker.
+		Result<Ref<TextureAsset>> loaded = AssetManager::TryGetAsset<TextureAsset>(texture);
+		if (!loaded)
+		{
+			entry.Source = {};
+			entry.Loaded = false;
+			entry.Failed = true;
+			entry.LoadError = loaded.GetError();
+			return;
+		}
+		m_CancelTexture = false;
+		TextureJob job;
+		job.Texture = texture;
+		job.Source = loaded.TakeValue();
+		try
+		{
+			// The worker reads only the texture's data, which the job keeps alive.
+			job.Future = std::async(std::launch::async,
+			                        [source = job.Source, &cancel = m_CancelTexture]()
+			                        {
+										return ShrinkTexture(*source, Size, &cancel);
+									});
+		}
+		catch (std::system_error const& error)
+		{
+			// Tried again when the texture is loaded again.
+			entry.Source = job.Source;
+			entry.Loaded = true;
+			entry.Failed = true;
+			ST_WARN("Texture thumbnails cannot be made: {}", error.what());
+			return;
+		}
+		m_TextureJob = std::move(job);
+	}
+
+	void AssetThumbnails::StopTextureJob()
+	{
+		if (!m_TextureJob)
+		{
+			return;
+		}
+		// A texture being decoded finishes first; the halving after it stops.
+		m_CancelTexture = true;
+		m_TextureJob->Future.wait();
+		m_TextureJob.reset();
 	}
 
 	void AssetThumbnails::UpdateWaveforms()

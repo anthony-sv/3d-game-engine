@@ -17,6 +17,8 @@ namespace Strada
 	{
 		std::string_view Name;
 		uint32_t Flags = ComponentFlagsNone;
+		// One of ComponentCategory::All (what the Add Component menu groups the component under).
+		std::string_view Category;
 		// One sentence for users and agents.
 		std::string_view Description;
 
