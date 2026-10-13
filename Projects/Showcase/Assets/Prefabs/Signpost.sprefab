@@ -1,0 +1,369 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "8710411763621788947",
+			"Components": {
+				"Tag": {
+					"Tag": "Signpost"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"14293558378011923379",
+						"1092589189136031972",
+						"13102988618210600185",
+						"15959440857784798385",
+						"4888159297601459977",
+						"1067756179545821584",
+						"7022254069300336071"
+					]
+				},
+				"RigidBody": {
+					"Type": "Static",
+					"Mass": 1.0,
+					"LinearDamping": 0.05000000074505806,
+					"AngularDamping": 0.05000000074505806,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": false,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"BoxCollider": {
+					"HalfExtents": [
+						1.399999976158142,
+						1.149999976158142,
+						0.07999999821186066
+					],
+					"Offset": [
+						0.0,
+						1.149999976158142,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.0
+				}
+			}
+		},
+		{
+			"ID": "14293558378011923379",
+			"Components": {
+				"Tag": {
+					"Tag": "Left Post"
+				},
+				"Transform": {
+					"Translation": [
+						-1.2000000476837158,
+						1.149999976158142,
+						-0.07000000029802322
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.11999999731779099,
+						2.299999952316284,
+						0.11999999731779099
+					]
+				},
+				"Relationship": {
+					"Parent": "8710411763621788947",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"11419306540440130392"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "1092589189136031972",
+			"Components": {
+				"Tag": {
+					"Tag": "Right Post"
+				},
+				"Transform": {
+					"Translation": [
+						1.2000000476837158,
+						1.149999976158142,
+						-0.07000000029802322
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.11999999731779099,
+						2.299999952316284,
+						0.11999999731779099
+					]
+				},
+				"Relationship": {
+					"Parent": "8710411763621788947",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "4",
+					"Materials": [
+						"11419306540440130392"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "13102988618210600185",
+			"Components": {
+				"Tag": {
+					"Tag": "Board"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.7200000286102295,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						2.700000047683716,
+						1.0,
+						0.07999999821186066
+					]
+				},
+				"Relationship": {
+					"Parent": "8710411763621788947",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"11419306540440130392"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "15959440857784798385",
+			"Components": {
+				"Tag": {
+					"Tag": "Face"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.7200000286102295,
+						0.029999999329447746
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						2.5,
+						0.8199999928474426,
+						0.029999999329447746
+					]
+				},
+				"Relationship": {
+					"Parent": "8710411763621788947",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"15406988759476204801"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "4888159297601459977",
+			"Components": {
+				"Tag": {
+					"Tag": "Cap"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						2.25,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						2.819999933242798,
+						0.07000000029802322,
+						0.1599999964237213
+					]
+				},
+				"Relationship": {
+					"Parent": "8710411763621788947",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "1",
+					"Materials": [
+						"17277966160511517351"
+					],
+					"CastShadows": true,
+					"Visible": true
+				}
+			}
+		},
+		{
+			"ID": "1067756179545821584",
+			"Components": {
+				"Tag": {
+					"Tag": "Title"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						2.0899999141693115,
+						0.05000000074505806
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "8710411763621788947",
+					"Children": []
+				},
+				"Text": {
+					"Text": "TITLE",
+					"Font": "300",
+					"Color": [
+						1.0,
+						0.8600000143051147,
+						0.6000000238418579,
+						1.0
+					],
+					"FontSize": 0.2800000011920929,
+					"ScreenSpace": false,
+					"Alignment": "Center",
+					"LineSpacing": 1.0
+				}
+			}
+		},
+		{
+			"ID": "7022254069300336071",
+			"Components": {
+				"Tag": {
+					"Tag": "Detail"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						1.7000000476837158,
+						0.05000000074505806
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "8710411763621788947",
+					"Children": []
+				},
+				"Text": {
+					"Text": "detail",
+					"Font": "300",
+					"Color": [
+						0.949999988079071,
+						0.9300000071525574,
+						0.8799999952316284,
+						1.0
+					],
+					"FontSize": 0.11999999731779099,
+					"ScreenSpace": false,
+					"Alignment": "Center",
+					"LineSpacing": 1.149999976158142
+				}
+			}
+		}
+	]
+}

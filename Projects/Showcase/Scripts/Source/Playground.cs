@@ -2,18 +2,31 @@ using Strada;
 
 namespace Showcase;
 
-/// <summary>The physics playground: counts the props knocked over (children of Props that moved or tipped), shows it with the
-/// controls, and restarts the scene with R.</summary>
+/// <summary>The physics playground: counts the props knocked over (children of Props that moved or tipped), which the HUD shows;
+/// R (or the HUD's reset button) puts everything back: the props and the other movables (the yard's crates) where they stood,
+/// the dominoes up, the wrecking ball at rest, and the thrown and launched balls away.</summary>
 public sealed class Playground : Script
 {
 	[Tooltip("The parent of the crates and barrels that count")]
 	public Entity? Props;
 
-	[Tooltip("Screen-space text that shows the count")]
-	public Entity? Status;
+	[Tooltip("The parent of more bodies put back with the props, which do not count")]
+	public Entity? Movables;
 
-	[Tooltip("The scene R restarts")]
-	public string Scene = "Scenes/Main.sscene";
+	[Tooltip("The domino run R stands up again")]
+	public Entity? Dominoes;
+
+	[Tooltip("The camera rig whose balls R clears")]
+	public Entity? Rig;
+
+	[Tooltip("The ball launcher whose balls R clears")]
+	public Entity? Launcher;
+
+	[Tooltip("The wrecking ball R stops")]
+	public Entity? WreckingBall;
+
+	[Tooltip("The key that puts everything back")]
+	public KeyCode Key = KeyCode.R;
 
 	[Tooltip("Meters a prop moves to count as knocked over")]
 	[Range(0.05f, 5.0f)]
@@ -23,40 +36,51 @@ public sealed class Playground : Script
 	[Range(1.0f, 90.0f)]
 	public float KnockedAngle = 25.0f;
 
-	private Entity[] m_Props = [];
+	// The props first (they count), then the other movables.
+	private Entity[] m_Bodies = [];
 	private Vector3[] m_Starts = [];
+	private Quaternion[] m_Rotations = [];
 	private Vector3[] m_Ups = [];
+	private int m_PropCount;
 
 	/// <summary>Props knocked over so far.</summary>
 	public int Knocked { get; private set; }
 
 	/// <summary>Props that count.</summary>
-	public int Total => m_Props.Length;
+	public int Total => m_PropCount;
+
+	/// <summary>Times everything was put back.</summary>
+	public int Resets { get; private set; }
 
 	protected override void OnCreate()
 	{
-		m_Props = Props?.Children ?? [];
-		m_Starts = new Vector3[m_Props.Length];
-		m_Ups = new Vector3[m_Props.Length];
-		for (int i = 0; i < m_Props.Length; i++)
+		Entity[] props = Props?.Children ?? [];
+		m_PropCount = props.Length;
+		m_Bodies = [.. props, .. Movables?.Children ?? []];
+		m_Starts = new Vector3[m_Bodies.Length];
+		m_Rotations = new Quaternion[m_Bodies.Length];
+		m_Ups = new Vector3[m_Bodies.Length];
+		for (int i = 0; i < m_Bodies.Length; i++)
 		{
-			m_Starts[i] = m_Props[i].Transform.WorldTranslation;
-			m_Ups[i] = m_Props[i].Transform.Up;
+			m_Starts[i] = m_Bodies[i].Transform.WorldTranslation;
+			// Their parents are not turned: their rotations are their world rotations.
+			m_Rotations[i] = m_Bodies[i].Rotation;
+			m_Ups[i] = m_Bodies[i].Transform.Up;
 		}
 	}
 
 	protected override void OnUpdate(float deltaTime)
 	{
-		if (Input.IsKeyPressed(KeyCode.R))
+		if (Input.IsKeyPressed(Key))
 		{
-			SceneManager.LoadScene(Scene);
+			PutBack();
 		}
 
 		int knocked = 0;
-		float tipped = System.MathF.Cos(KnockedAngle * System.MathF.PI / 180.0f);
-		for (int i = 0; i < m_Props.Length; i++)
+		float tipped = Mathf.Cos(KnockedAngle * Mathf.Deg2Rad);
+		for (int i = 0; i < m_PropCount; i++)
 		{
-			Entity prop = m_Props[i];
+			Entity prop = m_Bodies[i];
 			if (!prop.IsValid)
 			{
 				continue;
@@ -69,13 +93,25 @@ public sealed class Playground : Script
 			}
 		}
 		Knocked = knocked;
+	}
 
-		TextComponent? status = Status?.GetComponent<TextComponent>();
-		if (status is not null)
+	/// <summary>Puts every prop and movable back where it stood, stands the dominoes up, stops the wrecking ball and clears the
+	/// balls.</summary>
+	public void PutBack()
+	{
+		for (int i = 0; i < m_Bodies.Length; i++)
 		{
-			status.Text = knocked == Total && Total > 0
-				? $"All {Total} knocked down!  Press R to build them again"
-				: $"Knocked down: {knocked} / {Total}";
+			if (m_Bodies[i].IsValid && m_Bodies[i].GetComponent<RigidBodyComponent>() is { } body)
+			{
+				body.Teleport(m_Starts[i], m_Rotations[i]);
+				body.LinearVelocity = Vector3.Zero;
+				body.AngularVelocity = Vector3.Zero;
+			}
 		}
+		Dominoes?.As<DominoRun>()?.StandUp();
+		WreckingBall?.As<WreckingBall>()?.Stop();
+		Rig?.As<CameraRig>()?.ClearBalls();
+		Launcher?.As<BallLauncher>()?.ClearBalls();
+		Resets++;
 	}
 }

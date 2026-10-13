@@ -5,7 +5,7 @@
 	},
 	"Entities": [
 		{
-			"ID": "11127648637555377546",
+			"ID": "11319201144346131268",
 			"Components": {
 				"Tag": {
 					"Tag": "Ball"
@@ -35,7 +35,7 @@
 				"Mesh": {
 					"Mesh": "2",
 					"Materials": [
-						"14741620940223045719"
+						"16110064610351873854"
 					],
 					"CastShadows": true,
 					"Visible": true
@@ -82,7 +82,8 @@
 					"Restitution": 0.3499999940395355
 				},
 				"AudioSource": {
-					"Clip": "1785110575118148664",
+					"Clip": "15578095552182520408",
+					"Stream": false,
 					"Volume": 1.0,
 					"Pitch": 1.0,
 					"Loop": false,
@@ -94,6 +95,10 @@
 				"Script": {
 					"ClassName": "Showcase.Impact",
 					"Fields": {
+						"Lifetime": {
+							"Type": "Float",
+							"Value": 40.0
+						},
 						"Volume": {
 							"Type": "Float",
 							"Value": 0.699999988079071

@@ -1,0 +1,111 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "5592658038821733347",
+			"Components": {
+				"Tag": {
+					"Tag": "Launcher Ball"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-50.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						0.25999999046325684,
+						0.25999999046325684,
+						0.25999999046325684
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": []
+				},
+				"Mesh": {
+					"Mesh": "2",
+					"Materials": [
+						"5579596342552424073"
+					],
+					"CastShadows": true,
+					"Visible": true
+				},
+				"RigidBody": {
+					"Type": "Dynamic",
+					"Mass": 2.0,
+					"LinearDamping": 0.0,
+					"AngularDamping": 0.10000000149011612,
+					"GravityFactor": 1.0,
+					"Layer": 0,
+					"LockTranslation": [
+						false,
+						false,
+						false
+					],
+					"LockRotation": [
+						false,
+						false,
+						false
+					],
+					"ContinuousCollision": true,
+					"AllowSleep": true,
+					"InitialLinearVelocity": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"InitialAngularVelocity": [
+						0.0,
+						0.0,
+						0.0
+					]
+				},
+				"SphereCollider": {
+					"Radius": 0.5,
+					"Offset": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"IsTrigger": false,
+					"Friction": 0.6000000238418579,
+					"Restitution": 0.550000011920929
+				},
+				"AudioSource": {
+					"Clip": "13786681102645458122",
+					"Stream": false,
+					"Volume": 1.0,
+					"Pitch": 1.2999999523162842,
+					"Loop": false,
+					"PlayOnStart": false,
+					"Spatial": true,
+					"MinDistance": 2.0,
+					"MaxDistance": 40.0
+				},
+				"Script": {
+					"ClassName": "Showcase.Impact",
+					"Fields": {
+						"Lifetime": {
+							"Type": "Float",
+							"Value": 20.0
+						},
+						"Volume": {
+							"Type": "Float",
+							"Value": 0.6000000238418579
+						}
+					}
+				}
+			}
+		}
+	]
+}

@@ -71,7 +71,7 @@ Third-party libraries are downloaded automatically by CMake (pinned versions, ve
 | `StradaRuntime/` | Game player (`StradaRuntime --help` lists its options) |
 | `Strada-ScriptCore/` | C# scripting API |
 | `StradaTool/` | `strada`: command-line tool and MCP server for the editor (`strada --help`) |
-| `Projects/` | `Blocks`, a sample game, and `FeatureTest`, which exercises every feature |
+| `Projects/` | `Blocks`, a sample game, `Showcase`, every feature in a forest clearing, and `FeatureTest`, which tests every feature |
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |
@@ -87,11 +87,21 @@ running editor or starts one. [Docs/Automation.md](Docs/Automation.md) describes
 a game project of your own. `Projects/Blocks`, a falling-blocks game, was made this way: open
 `Projects/Blocks/Blocks.sproj` in the editor and press Play.
 
-`Projects/Showcase` shows the renderer, physics and audio together: an autumn forest clearing (Poly Haven sky, ground,
-props and plants), crates and barrels to knock over with thrown steel balls, a flickering lantern, music and impact
-sounds. Its Poly Haven assets are not in the repository; download them once with
-`python Projects/Showcase/Tools/FetchAssets.py`, then open `Projects/Showcase/Showcase.sproj` and press Play (right
-mouse to look, WASD to move, left click to throw).
+`Projects/Showcase` shows every feature of the engine in an autumn forest clearing at golden hour, laid out in exhibit
+areas with signposts around a fountain: a gallery of physically based materials (a metallic and roughness sweep, Poly
+Haven texture sets shown as sprites, a neon sign that blooms), glass, alpha-tested lattice and two-sided banners, a
+lighthouse and a light show of colored spot lights, a physics yard (a wrecking ball on a joint, a crate tower, prefab
+dominoes, a plank bridge of hinges), a ball launcher that scores in a goal whose pressure plate opens a gate, fire,
+water, sparks and fireflies, 3D sound and streamed music, graded by post-process volumes (the light show stands in an
+evening of its own), and a yard to walk in; the clearing's ground fades into the forest floor of the sky. A camera tour
+opens it under a neon sign that flickers on, with the music up, and lets night fall for a while on its way (any key or
+click skips it, C plays it again with the exhibits put back); then fly around and throw balls, or press F to walk:
+climb the stairs, jump along the posts, ride the lift up the lookout tower, push the crates and stand on the pressure
+plate. The HUD lists the features you come near and its buttons put the exhibits back, set them off and turn day into
+a moonlit night. Its Poly Haven assets are not in the repository;
+download them once with `python Projects/Showcase/Tools/FetchAssets.py`, then open `Projects/Showcase/Showcase.sproj`
+and press Play (right mouse to look, WASD to move, left click to throw; walking, the mouse looks, Space jumps and Shift
+runs; the screen lists the other keys).
 
 ## Contributing
 

@@ -720,7 +720,19 @@ installed or shipped by you in a `dotnet` folder next to the executable.
   board, a camera shake with a spring kick, pools of sound sources, a HUD and menus on a UI canvas that a script brings
   to life: buttons for the mouse and the keys, screens that fade in, labels that follow 3D panels; tests that click the
   buttons).
-- `Projects/Showcase`: a free camera that throws physics balls, impact sounds scaled by speed, flickering lights, a
-  wrecking ball on a joint that a key pushes, and a playground that counts what was knocked over (run
-  `Tools/FetchAssets.py` first for its models and sky).
+- `Projects/Showcase`: a camera tour on a smooth path (`Flythrough`, its stops are `CameraShot` scripts with inspector
+  fields) that cues exhibits through an interface (`ITourCue`, which also tells them when the tour ends or is skipped:
+  its night for a while, `NightInterlude`, ends then, unless the visitor switched day and night meanwhile), fades UI
+  elements and letterbox bars, plays the music up through its audio source's volume and plays again with the exhibits
+  put back, a camera rig that flies over the clearing and throws balls with a camera shake under it or walks as a
+  first-person character (`Walker`: speeding up and slowing down, a jump buffer and coyote time, footsteps, a head bob
+  and a dip on landing, kept within the clearing's ground; Esc frees the cursor for the HUD), a lift that characters
+  ride and that stops on its way down while rays from its underside find a character or a loose body below (`Lift`, a
+  kinematic platform), trigger scripts (a goal that counts, a pressure plate that dynamic bodies and characters press
+  to raise a kinematic gate), ballistics for a ball launcher, dominoes and a wrecking ball set off by keys, a light show
+  and a neon sign that flickers on through cloned materials, day and night from lights, a post-process volume's weight
+  and the intensity of unlit particles (also of smoke spawned later), a HUD whose buttons act in `OnClick` and whose
+  rows open as the camera nears their exhibits, `Debug.DrawLine` previews of throws and trigger bounds, and tests that
+  play every exhibit, click the HUD's buttons and walk the yard (run `Tools/FetchAssets.py` first for its models and
+  sky).
 - `Projects/FeatureTest`: scenes whose scripts use every component and the whole API, checked as a test run.

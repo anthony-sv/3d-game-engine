@@ -1,0 +1,148 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "Prefab"
+	},
+	"Entities": [
+		{
+			"ID": "16980390852429463071",
+			"Components": {
+				"Tag": {
+					"Tag": "Launch Flash"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						-100.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "0",
+					"Children": [
+						"2889984139070137335"
+					]
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 26,
+					"MaxParticles": 1000,
+					"LifetimeMin": 1.2000000476837158,
+					"LifetimeMax": 2.200000047683716,
+					"SpeedMin": 0.5,
+					"SpeedMax": 1.600000023841858,
+					"Shape": "Sphere",
+					"ConeAngle": 25.0,
+					"Radius": 0.15000000596046448,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": -0.05000000074505806,
+					"Drag": 0.800000011920929,
+					"StartSize": 0.30000001192092896,
+					"EndSize": 1.100000023841858,
+					"StartColor": [
+						0.5,
+						0.5,
+						0.5,
+						0.44999998807907104
+					],
+					"EndColor": [
+						0.6000000238418579,
+						0.6000000238418579,
+						0.6000000238418579,
+						0.0
+					],
+					"Intensity": 1.0,
+					"Texture": "0",
+					"BlendMode": "Alpha",
+					"WorldSpace": true,
+					"DestroyWhenFinished": true
+				}
+			}
+		},
+		{
+			"ID": "2889984139070137335",
+			"Components": {
+				"Tag": {
+					"Tag": "Fire"
+				},
+				"Transform": {
+					"Translation": [
+						0.0,
+						0.0,
+						0.0
+					],
+					"Rotation": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					],
+					"Scale": [
+						1.0,
+						1.0,
+						1.0
+					]
+				},
+				"Relationship": {
+					"Parent": "16980390852429463071",
+					"Children": []
+				},
+				"ParticleSystem": {
+					"Emitting": false,
+					"Rate": 20.0,
+					"Burst": 34,
+					"MaxParticles": 1000,
+					"LifetimeMin": 0.15000000596046448,
+					"LifetimeMax": 0.3499999940395355,
+					"SpeedMin": 2.0,
+					"SpeedMax": 4.0,
+					"Shape": "Sphere",
+					"ConeAngle": 25.0,
+					"Radius": 0.10000000149011612,
+					"BoxHalfExtents": [
+						0.5,
+						0.5,
+						0.5
+					],
+					"GravityFactor": 0.0,
+					"Drag": 0.0,
+					"StartSize": 0.2800000011920929,
+					"EndSize": 0.05000000074505806,
+					"StartColor": [
+						1.0,
+						0.699999988079071,
+						0.30000001192092896,
+						1.0
+					],
+					"EndColor": [
+						1.0,
+						0.20000000298023224,
+						0.05000000074505806,
+						0.0
+					],
+					"Intensity": 8.0,
+					"Texture": "0",
+					"BlendMode": "Additive",
+					"WorldSpace": true,
+					"DestroyWhenFinished": true
+				}
+			}
+		}
+	]
+}

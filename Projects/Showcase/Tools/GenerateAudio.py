@@ -1,4 +1,6 @@
-"""Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, a forest ambience loop and the impact sounds.
+"""Generates the Showcase project's sounds (Assets/Audio/*.wav): a music loop, forest (day), crickets (night), campfire, fountain,
+neon and lift loops, the impact sounds, the sounds of the exhibits (goal chime, cannon, gate, the neon sign lighting up),
+footsteps and landings, and the HUD's button sounds.
 
 Everything is synthesized here, so the sounds have no license of their own and regenerate identically (fixed seeds):
 
@@ -233,8 +235,277 @@ def throw():
     return out
 
 
+def crackle():
+    """A campfire in an 8 second loop: the low roar of the flames, crackles (short bright bursts) and a few deeper pops."""
+    random.seed(5)
+    loop_length = int(8.0 * RATE)
+    total = loop_length + int(0.5 * RATE)
+    out = [0.0] * total
+    roar = Biquad("low", 260.0, 0.7)
+    brown = 0.0
+    for i in range(total):
+        brown = 0.99 * brown + random.uniform(-1.0, 1.0) * 0.1
+        flicker = 0.75 + 0.25 * math.sin(2.0 * math.pi * i / RATE * 0.7) * math.sin(2.0 * math.pi * i / RATE * 1.9)
+        out[i] += 0.5 * flicker * roar(brown)
+    time = 0.0
+    while time < 8.0:
+        pop = random.random() < 0.12
+        band = Biquad("band", random.uniform(500.0, 900.0) if pop else random.uniform(1500.0, 5000.0), 1.2)
+        gain = random.uniform(0.5, 1.0) if pop else random.uniform(0.08, 0.45)
+        decay = random.uniform(0.012, 0.03) if pop else random.uniform(0.002, 0.008)
+        begin = int(time * RATE)
+        for i in range(int(decay * RATE * 6.0)):
+            if begin + i < total:
+                out[begin + i] += gain * band(random.uniform(-1.0, 1.0)) * math.exp(-i / (decay * RATE))
+        # Crackles come in little clusters.
+        time += random.expovariate(14.0) if random.random() < 0.7 else random.uniform(0.15, 0.5)
+    return make_loop(out, loop_length)
+
+
+def fountain_water():
+    """Falling water in a 6 second loop: a wash of droplets (fast-flickering band-passed noise) and bubbling chirps."""
+    random.seed(6)
+    loop_length = int(6.0 * RATE)
+    total = loop_length + int(0.5 * RATE)
+    out = [0.0] * total
+    wash = Biquad("band", 1800.0, 0.5)
+    low = Biquad("low", 5200.0, 0.7)
+    level = 0.0
+    for i in range(total):
+        if i % 40 == 0:
+            level = random.uniform(0.55, 1.0)
+        out[i] += 0.35 * level * low(wash(random.uniform(-1.0, 1.0)))
+    for _ in range(int(6.0 * 22)):
+        begin = random.randint(0, total - 1)
+        length = random.uniform(0.008, 0.03)
+        start = random.uniform(500.0, 1100.0)
+        rise = random.uniform(1.4, 2.4)
+        phase = 0.0
+        count = int(length * RATE)
+        gain = random.uniform(0.05, 0.16)
+        for i in range(count):
+            progress = i / count
+            phase += 2.0 * math.pi * start * (1.0 + (rise - 1.0) * progress) / RATE
+            if begin + i < total:
+                out[begin + i] += gain * math.sin(phase) * math.sin(math.pi * progress)
+    return make_loop(reverb(out, mix=0.2, seconds=0.8), loop_length)
+
+
+def goal_chime():
+    """A bright rising arpeggio of bell tones for a goal."""
+    count = int(2.2 * RATE)
+    out = [0.0] * count
+    for index, midi in enumerate((72, 76, 79, 84)):
+        begin = int(index * 0.09 * RATE)
+        frequency = note(midi)
+        for i in range(count - begin):
+            t = i / RATE
+            # Bell partials: the fundamental, a minor-third-ish partial and the octaves, the high ones fading first.
+            sample = (math.sin(2.0 * math.pi * frequency * t) * math.exp(-t / 0.9) +
+                      0.4 * math.sin(2.0 * math.pi * frequency * 2.4 * t) * math.exp(-t / 0.35) +
+                      0.25 * math.sin(2.0 * math.pi * frequency * 4.0 * t) * math.exp(-t / 0.2))
+            out[begin + i] += 0.25 * sample * min(1.0, i / 40.0)
+    return reverb(out, mix=0.3, seconds=1.6)
+
+
+def cannon_boom():
+    """A cannon shot: a crack, a low thump sweeping down and a rumbling tail."""
+    random.seed(7)
+    count = int(1.8 * RATE)
+    rumble = Biquad("low", 180.0, 0.7)
+    crack = Biquad("band", 2400.0, 0.8)
+    out = []
+    phase = 0.0
+    for i in range(count):
+        t = i / RATE
+        frequency = 40.0 + 70.0 * math.exp(-t / 0.08)
+        phase += 2.0 * math.pi * frequency / RATE
+        thump = math.sin(phase) * math.exp(-t / 0.35)
+        noise = random.uniform(-1.0, 1.0)
+        tail = rumble(noise) * 2.5 * math.exp(-t / 0.6)
+        snap = crack(noise) * math.exp(-t / 0.012)
+        out.append((0.9 * thump + 0.7 * tail + 0.8 * snap) * min(1.0, i / 20.0))
+    return reverb(out, mix=0.25, seconds=1.5)
+
+
+def gate_rumble():
+    """A portcullis on the move: a motor's hum, the rattle of its chain and a clank at the end."""
+    random.seed(8)
+    count = int(1.6 * RATE)
+    rattle = Biquad("band", 1100.0, 2.0)
+    out = [0.0] * count
+    for i in range(count):
+        t = i / RATE
+        envelope = min(1.0, t / 0.1) * min(1.0, (1.25 - t) / 0.1) if t < 1.25 else 0.0
+        hum = math.sin(2.0 * math.pi * 72.0 * t) + 0.5 * math.sin(2.0 * math.pi * 144.0 * t) + 0.25 * math.sin(2.0 * math.pi * 216.0 * t)
+        # Chain links click past at about 26 per second.
+        click = math.exp(-((t * 26.0) % 1.0) * 18.0)
+        out[i] += envelope * (0.18 * hum + 0.6 * click * rattle(random.uniform(-1.0, 1.0)))
+    clank_start = int(1.22 * RATE)
+    for i in range(count - clank_start):
+        t = i / RATE
+        sample = sum(gain * math.exp(-t / decay) * math.sin(2.0 * math.pi * 180.0 * ratio * t)
+                     for ratio, gain, decay in ((1.0, 1.0, 0.25), (2.7, 0.5, 0.12), (5.1, 0.3, 0.06)))
+        out[clank_start + i] += 0.6 * sample * min(1.0, i / 25.0)
+    return out
+
+
+# When the neon sign's tubes are lit after it is switched on, as (start, end, level): None ends a tube's last flicker, which
+# stays on. NeonSign.cs flickers the tubes by the same timelines, so the buzz follows the light.
+NEON_FRAME = ((0.18, 0.24, 0.8), (0.36, 0.4, 0.5), (0.55, None, 1.0))
+NEON_LETTERS = ((0.78, 0.86, 0.7), (0.98, 1.02, 0.45), (1.12, 1.24, 0.9), (1.33, 1.36, 0.5), (1.48, None, 1.0))
+
+
+def neon_level(timeline, t):
+    for start, end, level in timeline:
+        if t >= start and (end is None or t < end):
+            return level
+    return 0.0
+
+
+def neon_hum_sample(t):
+    """The hum of a neon transformer at a time: 100 Hz with its harmonics."""
+    return sum(gain * math.sin(2.0 * math.pi * 100.0 * harmonic * t) for harmonic, gain in ((1, 1.0), (2, 0.6), (3, 0.35), (4, 0.2), (6, 0.1)))
+
+
+def neon_ignite():
+    """The neon sign switching on: every flicker of a tube clicks and buzzes (the transformer's hum with a sizzle), as the
+    timelines go; once both tubes hold, the buzz settles and fades, and the quiet hum loop goes on."""
+    random.seed(10)
+    count = int(2.6 * RATE)
+    sizzle = Biquad("band", 3200.0, 1.5)
+    out = []
+    for i in range(count):
+        t = i / RATE
+        level = max(0.55 * neon_level(NEON_FRAME, t), neon_level(NEON_LETTERS, t))
+        settle = 1.0 if t < 1.7 else max(0.0, 1.0 - (t - 1.7) / 0.9)
+        out.append(level * settle * (0.35 * neon_hum_sample(t) + 0.5 * sizzle(random.uniform(-1.0, 1.0))))
+    for timeline, gain in ((NEON_FRAME, 0.7), (NEON_LETTERS, 1.0)):
+        for start, _, level in timeline:
+            begin = int(start * RATE)
+            click = Biquad("band", 1800.0, 0.8)
+            for i in range(int(0.02 * RATE)):
+                out[begin + i] += 3.0 * gain * level * click(random.uniform(-1.0, 1.0)) * math.exp(-i / (0.002 * RATE))
+    return out
+
+
+def neon_hum():
+    """The neon sign's steady hum in a 2 second loop (a whole number of the hum's periods) with a faint sizzle."""
+    random.seed(13)
+    loop_length = int(2.0 * RATE)
+    total = loop_length + int(0.2 * RATE)
+    sizzle = Biquad("band", 3200.0, 1.5)
+    out = [0.0] * total
+    for i in range(loop_length):
+        out[i] += 0.35 * neon_hum_sample(i / RATE)
+    for i in range(total):
+        out[i] += 0.12 * sizzle(random.uniform(-1.0, 1.0))
+    return make_loop(out, loop_length)
+
+
+def crickets():
+    """A night in a 12 second loop: crickets, each chirping at its own pitch and pace (short trains of pulses), over a faint
+    low wind."""
+    random.seed(11)
+    loop_length = int(12.0 * RATE)
+    total = loop_length + int(1.5 * RATE)
+    out = [0.0] * total
+    wind = Biquad("low", 300.0, 0.7)
+    brown = 0.0
+    for i in range(total):
+        brown = 0.99 * brown + random.uniform(-1.0, 1.0) * 0.05
+        out[i] += 0.3 * wind(brown)
+    for _ in range(6):
+        carrier = random.uniform(3900.0, 4900.0)
+        pulses = random.randint(2, 4)
+        pulse_rate = random.uniform(28.0, 40.0)
+        period = random.uniform(0.45, 0.95)
+        gain = random.uniform(0.04, 0.1)
+        time = random.uniform(0.0, period)
+        while time < 12.0:
+            for pulse in range(pulses):
+                begin = int((time + pulse / pulse_rate) * RATE)
+                length = int(0.6 / pulse_rate * RATE)
+                for i in range(length):
+                    if begin + i < total:
+                        out[begin + i] += gain * math.sin(2.0 * math.pi * carrier * i / RATE) * math.sin(math.pi * i / length) ** 2
+            time += period * random.uniform(0.9, 1.1)
+    return make_loop(reverb(out, mix=0.2, seconds=1.2), loop_length)
+
+
+def leaf_step(seed, count, thud_gain, crackles):
+    """A step on dry leaves: a soft thud with their crunch over it (crackling noise bursts)."""
+    random.seed(seed)
+    thud = Biquad("low", 140.0, 0.8)
+    crunch = Biquad("band", 2600.0, 0.7)
+    out = []
+    for i in range(count):
+        t = i / RATE
+        noise = random.uniform(-1.0, 1.0)
+        body = thud(noise) * 4.0 * math.exp(-t / 0.035) * min(1.0, i / 30.0)
+        grain = crunch(noise) * (0.6 + 0.4 * random.random()) * math.exp(-t / 0.06) * min(1.0, i / 60.0)
+        out.append(thud_gain * body + 0.8 * grain)
+    for _ in range(crackles):
+        begin = int(random.uniform(0.005, 0.12) * RATE)
+        band = Biquad("band", random.uniform(2500.0, 6000.0), 1.5)
+        gain = random.uniform(0.2, 0.6)
+        for i in range(int(0.006 * RATE)):
+            if begin + i < count:
+                out[begin + i] += gain * band(random.uniform(-1.0, 1.0)) * math.exp(-i / (0.0015 * RATE))
+    # The filters ring on: the last fifth fades out so the sound ends without a click.
+    return [sample * min(1.0, 5.0 * (count - i) / count) for i, sample in enumerate(out)]
+
+
+def footstep():
+    return leaf_step(12, int(0.25 * RATE), 0.6, 14)
+
+
+def landing():
+    return leaf_step(14, int(0.4 * RATE), 1.4, 24)
+
+
+def lift_hum():
+    """The lift's motor in a 2 second loop: a low hum and the whine of its gears."""
+    random.seed(15)
+    loop_length = int(2.0 * RATE)
+    total = loop_length + int(0.2 * RATE)
+    rumble = Biquad("low", 220.0, 0.7)
+    out = [0.0] * total
+    for i in range(loop_length):
+        t = i / RATE
+        out[i] += 0.5 * math.sin(2.0 * math.pi * 60.0 * t) + 0.25 * math.sin(2.0 * math.pi * 180.0 * t)
+        out[i] += 0.12 * math.sin(2.0 * math.pi * 700.0 * t + 0.6 * math.sin(2.0 * math.pi * 3.0 * t))
+    for i in range(total):
+        out[i] += 0.8 * rumble(random.uniform(-1.0, 1.0))
+    return make_loop(out, loop_length)
+
+
+def ui_hover():
+    """A soft tick as the mouse moves onto a HUD button."""
+    count = int(0.05 * RATE)
+    return [math.sin(2.0 * math.pi * 2400.0 * i / RATE) * math.exp(-i / (0.008 * RATE)) * min(1.0, i / 8.0) for i in range(count)]
+
+
+def ui_click():
+    """A HUD button's click: a short, woody tock with a bright edge."""
+    random.seed(9)
+    count = int(0.12 * RATE)
+    body = Biquad("band", 1150.0, 6.0)
+    out = []
+    for i in range(count):
+        t = i / RATE
+        excitation = random.uniform(-1.0, 1.0) * math.exp(-t / 0.0015)
+        tone = math.sin(2.0 * math.pi * 1700.0 * t) * math.exp(-t / 0.02)
+        out.append((3.0 * body(excitation) + 0.35 * tone) * min(1.0, 5.0 * (count - i) / count))
+    return out
+
+
 if __name__ == "__main__":
     for name, generate, peak in (("Music.wav", music, 0.8), ("Ambience.wav", ambience, 0.7), ("WoodHit.wav", wood_hit, 0.9),
-                                 ("MetalHit.wav", metal_hit, 0.85), ("Throw.wav", throw, 0.7)):
+                                 ("MetalHit.wav", metal_hit, 0.85), ("Throw.wav", throw, 0.7), ("Crackle.wav", crackle, 0.75),
+                                 ("Fountain.wav", fountain_water, 0.7), ("Goal.wav", goal_chime, 0.85), ("Cannon.wav", cannon_boom, 0.9),
+                                 ("Gate.wav", gate_rumble, 0.8), ("NeonIgnite.wav", neon_ignite, 0.85), ("NeonHum.wav", neon_hum, 0.7),
+                                 ("Night.wav", crickets, 0.7), ("Step.wav", footstep, 0.85), ("Land.wav", landing, 0.9),
+                                 ("Lift.wav", lift_hum, 0.7), ("UIHover.wav", ui_hover, 0.6), ("UIClick.wav", ui_click, 0.8)):
         write_wav(name, generate(), peak)
         print("wrote", os.path.join(OUTPUT, name))

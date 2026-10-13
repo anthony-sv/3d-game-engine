@@ -61,7 +61,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 │   └── Data/                                         Test assets and golden images
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
-├── Projects/Showcase/                                Showcase scene (Poly Haven assets, physics playground, sound)
+├── Projects/Showcase/                                Showcase of every feature (exhibits, camera tour, Poly Haven assets)
 ├── Tools/                                            Developer scripts (configure/build/test, formatting)
 ├── Docs/                                             Architecture contract, automation reference, scripting guide
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
@@ -1169,8 +1169,29 @@ data directory, and compile out asserts and script debug lines.
   sight, and that the screen's panels do so on screens from 5:4 to 21:9 (seen through the camera with a fixed aspect
   ratio), in a language that groups thousands with a narrow no-break space. `StradaRuntimeTests` plays that scene and
   runs the game's scene headless.
-- `Projects/Showcase`: an autumn forest clearing built by `Tools/Author.py` through `strada mcp` from Poly Haven assets
-  (fetched by `Tools/FetchAssets.py`, not in the repository) with a physics playground, a corner of joints (a wrecking
-  ball on a ball joint, a hinged seesaw, a paddle on a motorized hinge), a campfire of particles with a flickering light,
-  sound and a test scene that `StradaRuntimeTests` plays (its checks do not need the downloads).
+- `Projects/Showcase`: every engine feature in exhibit areas of an autumn forest clearing, built by `Tools/Author.py`
+  through `strada mcp` from Poly Haven assets (fetched by `Tools/FetchAssets.py`, not in the repository) and the meshes,
+  textures, icons and sounds that `Tools/GenerateAssets.py` and `Tools/GenerateAudio.py` make, on a ground whose outer
+  band (rings of ever more transparent copies of its material, cut into sectors that sort on their own) fades into the
+  sky's forest floor: physically based materials (a metallic and roughness sweep, texture sets with normal and
+  occlusion-roughness-metallic maps shown as sprites with world-text labels, a neon sign that flickers on), transparency
+  (blended glass, an alpha-tested lattice, two-sided banners), lights (a lighthouse whose beams turn, a light show of
+  shadow-casting spots, street lamps, the sun and the sky), post-processing (a global volume carries the golden-hour
+  look, a local one with a blend distance turns the light show into an evening, and `DayNight` turns day into night by
+  dimming the sun to moonlight, weighting in a night volume and dimming the unlit particles of smoke, water and leaves),
+  physics (a wrecking ball on a ball joint, a hinged seesaw, a motorized paddle, prefab dominoes, a plank bridge of
+  hinges), triggers (a ball launcher, a goal that counts with sound and a particle burst, a pressure plate that bodies
+  and characters press to raise a gate), a character controller (a yard of stairs, a ramp, posts to jump, a lift
+  (`Lift`, a kinematic platform that waits while anything is under it) up a lookout tower and crates to push),
+  particles, 3D sound and streamed music and ambience. The `Flythrough` script opens it with a camera tour along
+  `CameraShot` children that cues the exhibits (`ITourCue`; a night for a while, `NightInterlude`, ends with the tour)
+  under letterbox bars, a title and captions, with the music played up, then hands over to the camera rig (`CameraRig`,
+  with a `CameraShake` child), which flies over the clearing or walks as a first-person character (`Walker`), and to the
+  HUD, a UI canvas (`Hud`): a feature list whose rows (`HudFeature`) light up and open as the camera nears their
+  exhibits, counters, a hint line for the way the camera moves, and buttons that put the exhibits back, set them off,
+  switch day and night and switch between flying and walking; the tour's key plays it again with the exhibits put back.
+  `DebugView` draws ballistic paths and trigger bounds. A test scene that `StradaRuntimeTests` plays checks every
+  exhibit, the volumes, the night and the tour's night interlude, the tour's cues and replay, the music, the HUD's
+  buttons, the free cursor, where the camera flies and the walker climbing, running, jumping, pushing, riding the lift,
+  waiting under it, pressing the plate and staying on the ground (its checks do not need the downloads).
 - CI: Windows (MSVC), Ubuntu 24.04 (GCC + Clang), macOS (Apple Clang, arm64); format check; tests on every push.
