@@ -357,9 +357,14 @@ namespace Strada
 		{
 			SubmitUI(scene, renderer, options);
 		}
-		// Lines scripts drew for debugging have linear colors; lines are drawn after tonemapping, in sRGB.
-		if (options.DrawWorld && options.DrawDebugLines)
+		// Lines scripts drew for debugging have linear colors; lines are drawn after tonemapping, in sRGB. Their width follows
+		// the display, and a dark outline keeps them visible on bright ground (the editor's overlays may restyle them).
+		if (options.DrawWorld && options.DrawDebugLines && !scene.GetDebugLines().empty())
 		{
+			SceneRendererOverlays overlays;
+			overlays.LineWidth = SceneRenderOptions::DebugLineWidth * options.DisplayScale;
+			overlays.LineOutlineWidth = SceneRenderOptions::DebugLineOutlineWidth * options.DisplayScale;
+			renderer.SetOverlays(overlays);
 			for (SceneDebugLine const& line : scene.GetDebugLines())
 			{
 				glm::vec4 const color(Math::LinearToSrgb(line.Color.r), Math::LinearToSrgb(line.Color.g), Math::LinearToSrgb(line.Color.b),
@@ -398,7 +403,7 @@ namespace Strada
 		return false;
 	}
 
-	bool RenderSceneFromPrimaryCamera(Scene& scene, SceneRenderer& renderer)
+	bool RenderSceneFromPrimaryCamera(Scene& scene, SceneRenderer& renderer, SceneRenderOptions options)
 	{
 		Entity const cameraEntity = scene.GetPrimaryCameraEntity();
 		if (!cameraEntity)
@@ -408,7 +413,6 @@ namespace Strada
 			{
 				return false;
 			}
-			SceneRenderOptions options;
 			options.DrawWorld = false;
 			RenderScene(scene, renderer, SceneRendererCamera(), options);
 			return true;
@@ -422,7 +426,7 @@ namespace Strada
 		camera.Position = glm::vec3(world[3]);
 		CameraComponent const& component = cameraEntity.GetComponent<CameraComponent>();
 		camera.MaxDistance = component.Projection == ProjectionType::Perspective ? component.PerspectiveFar : component.OrthographicFar;
-		RenderScene(scene, renderer, camera);
+		RenderScene(scene, renderer, camera, options);
 		return true;
 	}
 }

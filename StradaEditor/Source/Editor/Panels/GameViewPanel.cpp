@@ -185,7 +185,10 @@ namespace Strada
 		if (m_Renderer)
 		{
 			m_Renderer->SetViewportSize(layout.RenderSize.x, layout.RenderSize.y);
-			rendered = RenderSceneFromPrimaryCamera(scene, *m_Renderer);
+			// The lines scripts draw are as wide as on the player's display at the editor's scale.
+			SceneRenderOptions options;
+			options.DisplayScale = ImGui::GetStyle().FontScaleDpi;
+			rendered = RenderSceneFromPrimaryCamera(scene, *m_Renderer, options);
 		}
 
 		ImVec2 const imageMin(origin.x + layout.ImageOffset.x, origin.y + layout.ImageOffset.y);

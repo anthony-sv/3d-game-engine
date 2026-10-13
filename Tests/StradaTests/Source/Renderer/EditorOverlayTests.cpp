@@ -6,7 +6,9 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <optional>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -377,4 +379,72 @@ TEST_CASE("SceneRenderer: debug lines have their width, an outline beneath them,
 	Image const behind = Render(renderer, camera, frame);
 	frame.Lines.clear();
 	CHECK(Testing::CompareImages(behind, Render(renderer, camera, frame), 0).MaxDifference == 0);
+}
+
+TEST_CASE("SceneRendering: the lines scripts draw keep their width on every display, outlined in dark")
+{
+	ST_REQUIRE_GPU();
+	Testing::RenderTestScope scope(stGpuTestScope);
+	// A camera looking down -Z at a horizontal green line in front of a white sky, without effects that blur the image.
+	Scene scene("Lines");
+	scene.CreateEntity("Camera").AddComponent<CameraComponent>();
+	scene.FindEntityByName("Camera").GetComponent<TransformComponent>().Translation = {0.0f, 0.0f, 6.0f};
+	scene.CreateEntity("Sky").AddComponent<SkyLightComponent>().AmbientColor = glm::vec3(1.0f);
+	SceneRendererSettings& settings = scene.GetSettings().Renderer;
+	settings.Tonemapper = TonemapOperator::None;
+	settings.Bloom = false;
+	settings.FXAA = false;
+	settings.AmbientOcclusion = false;
+	settings.Dithering = false;
+	SceneRuntimeSettings runtime;
+	runtime.RunScripts = false;
+	runtime.PlayAudio = false;
+	scene.OnRuntimeStart(runtime);
+	scene.DrawDebugLine({-3.0f, 0.0f, 0.0f}, {3.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f, 1.0f}, 10.0f);
+	SceneRenderer renderer;
+	renderer.SetViewportSize(ImageSize, ImageSize);
+
+	// How much of the middle column the line and its outline cover, against the image without them: the sky is light, the
+	// line green and the outline dark.
+	auto const render = [&](float displayScale, bool lines)
+	{
+		SceneRenderOptions options;
+		options.DisplayScale = displayScale;
+		options.DrawDebugLines = lines;
+		REQUIRE(RenderSceneFromPrimaryCamera(scene, renderer, options));
+		Result<Image> image = ReadbackTexture(renderer.GetFinalImage());
+		REQUIRE(image.IsOk());
+		return std::move(image.GetValue());
+	};
+	Image const sky = render(1.0f, false);
+	struct Coverage
+	{
+		float Total = 0.0f;
+		bool Green = false;
+		bool Dark = false;
+	};
+	auto const cover = [&](float displayScale)
+	{
+		Image const image = render(displayScale, true);
+		Coverage coverage;
+		for (uint32_t y = 0; y < ImageSize; y++)
+		{
+			glm::ivec3 const color = Pixel(image, {ImageSize / 2, y});
+			glm::ivec3 const background = Pixel(sky, {ImageSize / 2, y});
+			coverage.Total += static_cast<float>(std::max(background.r - color.r, 0)) / 255.0f;
+			coverage.Green = coverage.Green || (color.g > 160 && color.r < background.r / 2);
+			coverage.Dark = coverage.Dark || (color.r < background.r / 2 && color.g < background.g / 2);
+		}
+		return coverage;
+	};
+	Coverage const standard = cover(1.0f);
+	Coverage const dense = cover(2.0f);
+	CHECK(standard.Green);
+	CHECK(dense.Green);
+	// The outline fills whole pixels once it is wider than one.
+	CHECK(dense.Dark);
+	// Twice the pixels per point, twice as wide in pixels.
+	CHECK(standard.Total > 1.5f);
+	CHECK(dense.Total / standard.Total == doctest::Approx(2.0f).epsilon(0.2));
+	scene.OnRuntimeStop();
 }

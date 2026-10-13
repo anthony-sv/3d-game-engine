@@ -179,7 +179,13 @@ namespace Strada
 		nvrhi::FramebufferInfoEx const& target = backBuffer->getFramebufferInfo();
 		m_Renderer->SetViewportSize(target.width, target.height);
 		Scene& scene = *m_Runner.GetScene();
-		if (!RenderSceneFromPrimaryCamera(scene, *m_Renderer))
+		// The lines scripts draw are as wide on every display.
+		SceneRenderOptions options;
+		if (Window const* window = Application::Get().GetWindow())
+		{
+			options.DisplayScale = window->GetContentScale().x;
+		}
+		if (!RenderSceneFromPrimaryCamera(scene, *m_Renderer, options))
 		{
 			// The cleared window shows until a camera becomes primary or the scene gets screen-space content.
 			if (!m_MissingCameraReported)

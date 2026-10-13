@@ -782,7 +782,10 @@ numbers and unknown enumerators are rejected and logged, rotations are normalize
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
 instance's scripts before it returns. The project's materials are shared by every scene and the editor, so scripts
 change only runtime materials (`Material.Create`, `Clone`), which the running scene owns and releases when it stops.
-`Debug.DrawLine` lines last a duration of scaled runtime (0: one rendered frame); Dist builds ignore them.
+`Debug.DrawLine` lines last a duration of scaled runtime (0: one rendered frame); Dist builds ignore them. They are
+drawn 1.5 points wide with a dark outline of 0.75 points, in pixels at the display's scale
+(`SceneRenderOptions::DisplayScale`: the player's window content scale, the editor's UI scale in the game view), so
+they read alike on every display.
 
 The application running scenes implements `ScriptHost` and registers it with `ScriptEngine::SetHost`:
 `Application.IsEditor`, `Application.Quit` and `SceneManager.LoadScene` (both acted on once the frame's update has
