@@ -92,6 +92,34 @@ namespace Strada
 			}
 			return {};
 		}
+
+		// The directory followed by the names of relative, each one that names an existing file or folder spelled as stored.
+		// canonical() reads the stored name of the last element but also replaces links by their targets: links, and what
+		// follows a name that does not exist, keep the spelling given.
+		std::filesystem::path AppendStoredNames(std::filesystem::path directory, std::filesystem::path const& relative)
+		{
+			bool exists = true;
+			for (std::filesystem::path const& name : relative)
+			{
+				std::filesystem::path next = directory / name;
+				if (exists && !name.empty())
+				{
+					std::error_code error;
+					std::filesystem::file_status const status = std::filesystem::symlink_status(next, error);
+					exists = !error && std::filesystem::exists(status);
+					if (exists && (std::filesystem::is_directory(status) || std::filesystem::is_regular_file(status)))
+					{
+						std::filesystem::path const stored = std::filesystem::canonical(next, error);
+						if (!error && stored.has_filename())
+						{
+							next = directory / stored.filename();
+						}
+					}
+				}
+				directory = std::move(next);
+			}
+			return directory;
+		}
 	}
 
 	Result<std::string> FileSystem::ReadTextFile(std::filesystem::path const& path)
@@ -308,6 +336,52 @@ namespace Strada
 		}
 		auto const first = relative.begin();
 		return first == relative.end() || *first != "..";
+	}
+
+	std::filesystem::path FileSystem::GetStoredSpelling(std::filesystem::path const& path)
+	{
+		std::error_code error;
+		std::filesystem::path const absolutePath = std::filesystem::absolute(path, error).lexically_normal();
+		if (error)
+		{
+			return path.lexically_normal();
+		}
+		// A drive letter names its drive in either case.
+		std::filesystem::path::string_type rootName = absolutePath.root_name().native();
+		if (rootName.size() == 2 && rootName[1] == ':' && rootName[0] >= 'a' && rootName[0] <= 'z')
+		{
+			rootName[0] = static_cast<std::filesystem::path::value_type>(rootName[0] - 'a' + 'A');
+		}
+		return AppendStoredNames(std::filesystem::path(rootName) / absolutePath.root_directory(), absolutePath.relative_path());
+	}
+
+	std::optional<std::filesystem::path> FileSystem::FindInside(std::filesystem::path const& path, std::filesystem::path const& base)
+	{
+		std::error_code error;
+		std::filesystem::path absoluteBase = std::filesystem::absolute(base, error).lexically_normal();
+		if (error)
+		{
+			return std::nullopt;
+		}
+		if (!absoluteBase.has_filename() && absoluteBase.has_relative_path())
+		{
+			absoluteBase = absoluteBase.parent_path();
+		}
+		auto const isBelow = [](std::filesystem::path const& relative)
+		{
+			return !relative.empty() && *relative.begin() != "..";
+		};
+		// Spelled like base where it passes through it, only the names below base need reading.
+		if (std::filesystem::path const relative = GetRelativePath(path, absoluteBase); isBelow(relative))
+		{
+			return relative == "." ? absoluteBase : AppendStoredNames(absoluteBase, relative).lexically_normal();
+		}
+		std::filesystem::path const relative = GetStoredSpelling(path).lexically_relative(GetStoredSpelling(absoluteBase));
+		if (!isBelow(relative))
+		{
+			return std::nullopt;
+		}
+		return relative == "." ? absoluteBase : (absoluteBase / relative).lexically_normal();
 	}
 
 	std::string FileSystem::MakePortableFileName(std::string_view name)

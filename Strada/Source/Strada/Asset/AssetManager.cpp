@@ -232,11 +232,12 @@ namespace Strada
 				ImportedTexture& texture = model.Textures[i];
 				if (!texture.FilePath.empty())
 				{
-					// Textures inside the asset directory are shared through their own registered asset.
-					if (FileSystem::IsInside(texture.FilePath, data.AssetDirectory))
+					// Textures inside the asset directory are shared through their own registered asset, whatever spelling of their
+					// names the model gives (file systems that ignore letter case take any).
+					if (std::optional<std::filesystem::path> const inside = FileSystem::FindInside(texture.FilePath, data.AssetDirectory))
 					{
 						Result<std::string> relative =
-							NormalizeAssetPath(FileSystem::PathToUtf8(FileSystem::GetRelativePath(texture.FilePath, data.AssetDirectory)));
+							NormalizeAssetPath(FileSystem::PathToUtf8(FileSystem::GetRelativePath(*inside, data.AssetDirectory)));
 						if (relative)
 						{
 							if (AssetHandle const registered = data.Registry.FindByPath(relative.GetValue()); registered.IsValid())
@@ -634,11 +635,14 @@ namespace Strada
 			return Error{"no asset directory is open"};
 		}
 
-		std::filesystem::path const absolute = (path.is_absolute() ? path : data.AssetDirectory / path).lexically_normal();
-		if (!FileSystem::IsInside(absolute, data.AssetDirectory))
+		// Under any spelling the file system takes, the file is registered with the names it has, as the scan finds it.
+		std::optional<std::filesystem::path> const inside =
+			FileSystem::FindInside(path.is_absolute() ? path : data.AssetDirectory / path, data.AssetDirectory);
+		if (!inside)
 		{
 			return MakeError("'{}' is outside the asset directory", FileSystem::PathToUtf8(path));
 		}
+		std::filesystem::path const& absolute = *inside;
 		if (!FileSystem::IsRegularFile(absolute))
 		{
 			return MakeError("'{}' does not exist", FileSystem::PathToUtf8(path));

@@ -319,10 +319,12 @@ Asset types:
   textures, OBJ material libraries) are only read inside the asset directory: buffers outside it fail the import,
   textures and material libraries outside it are skipped with a warning. `MeshImporter::FindExternalFiles` lists the
   files a model reads, found like the import finds them but without building geometry, so the editor copies and moves
-  them with the model. Imported material parameters are brought into the material ranges (`FitMaterialToFieldRanges`),
-  so copies of the materials make valid material files: emitted light above 1 (MTL's `Ke`, FBX emission colors) moves
-  from `EmissiveColor` into `EmissiveIntensity`, which keeps its brightness; other values outside a range (FBX colors
-  above 1, broken files) are clamped, and NaN or infinite ones take the defaults, with a warning.
+  them with the model; each once, spelled as stored (`FileSystem::FindInside`), as file systems that ignore letter case
+  (Windows, macOS) take a model's several spellings of one file. Imported material parameters are brought into the
+  material ranges (`FitMaterialToFieldRanges`), so copies of the materials make valid material files: emitted light
+  above 1 (MTL's `Ke`, FBX emission colors) moves from `EmissiveColor` into `EmissiveIntensity`, which keeps its
+  brightness; other values outside a range (FBX colors above 1, broken files) are clamped, and NaN or infinite ones take
+  the defaults, with a warning.
 - `MaterialAsset` (`.smat`): metallic-roughness parameters — `BaseColor`, `Metallic`, `Roughness`, `EmissiveColor` +
   `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, textures (base color, normal, metallic-roughness with glTF
   packing G = roughness and B = metallic, occlusion, emissive), `AlphaMode` (Opaque/Mask/Blend) + `AlphaCutoff`,
@@ -902,12 +904,13 @@ positions. A build is out of date when a C# source or project file is newer than
   names are taken), C# sources into the scripts folder (creating the C# project when needed) unless their file name or
   a type they declare is taken in the scripts, where the C# project would no longer build, and folders whole but for
   hidden files, links and C# build output: their C# sources go to the scripts (all of a folder that holds no assets)
-  and the rest to the assets. Other files come only with a model, and what is in a dropped folder only with it. What
-  came in is selected, and a notice under the toolbar says what did not (with a button that shows the console). Files
-  that other applications add, change or delete are picked up when the editor gets the focus back
-  (`AssetAutoRefresh`; one of its windows, floating panels included; after a running game export, which copies the
-  assets) or with Refresh, and their thumbnails are made again; a preview that failed is tried again once a refresh
-  has found its file changed.
+  and the rest to the assets. Other files come only with a model, and what is in a dropped folder only with it. Dropped
+  paths are compared with each other and with the project's folders spelled as stored (`FileSystem::GetStoredSpelling`),
+  so the project's files and folders in another letter case are still the project's. What came in is selected, and a
+  notice under the toolbar says what did not (with a button that shows the console). Files that other applications
+  add, change or delete are picked up when the editor gets the focus back (`AssetAutoRefresh`; one of its windows,
+  floating panels included; after a running game export, which copies the assets) or with Refresh, and their
+  thumbnails are made again; a preview that failed is tried again once a refresh has found its file changed.
 - Scene Settings: the scene name and the physics and renderer settings, generated the same way.
 - Renderer Info: the device (adapter, type, Vulkan version, driver, GPU timing support, validation and its error
   count), the frame (average and slowest frame time with a graph over 240 frames, frame count, back buffer), and what

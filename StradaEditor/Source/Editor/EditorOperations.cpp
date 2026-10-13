@@ -616,10 +616,13 @@ namespace Strada
 		};
 		for (std::filesystem::path const& file : files)
 		{
-			bool const inside = FileSystem::IsInside(file, AssetManager::GetAssetDirectory());
+			// A file of the asset directory is registered where it is, also when it is spelled otherwise (file systems that
+			// ignore letter case take any spelling of its names).
+			std::optional<std::filesystem::path> const inProject = FileSystem::FindInside(file, AssetManager::GetAssetDirectory());
+			bool const inside = inProject.has_value();
 			std::string const name = AssetBrowsing::MakeUniqueName(destination.GetValue(), FileSystem::PathToUtf8(file.stem()),
 			                                                       FileSystem::PathToUtf8(file.extension()));
-			std::filesystem::path const target = inside ? file : destinationPath / FileSystem::PathFromUtf8(name);
+			std::filesystem::path const target = inside ? *inProject : destinationPath / FileSystem::PathFromUtf8(name);
 			if (!inside)
 			{
 				if (Result<void> copied = FileSystem::Copy(file, target, false); !copied)
@@ -705,10 +708,11 @@ namespace Strada
 			return AssetManager::MoveAsset(model, newPath);
 		}
 
-		// A file that another model of the folder reads too would be missing there.
+		// A file that another model reads too would be missing for it: models of any folder may read files of the model's
+		// folder (they read every file of the asset directory they name).
 		for (AssetMetadata const& other : AssetManager::GetAssets(AssetType::Mesh))
 		{
-			if (other.Handle == model || !other.IsFileAsset() || !FileSystem::IsInside(absolute(other.Path), from))
+			if (other.Handle == model || !other.IsFileAsset())
 			{
 				continue;
 			}

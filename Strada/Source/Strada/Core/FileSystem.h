@@ -44,6 +44,16 @@ namespace Strada
 		static std::filesystem::path GetRelativePath(std::filesystem::path const& path, std::filesystem::path const& base);
 		// True if path is base itself or located inside base (lexical check on normalized absolute paths).
 		static bool IsInside(std::filesystem::path const& path, std::filesystem::path const& base);
+		// The absolute, lexically normal form of a path with the names of its existing files and folders spelled as they are
+		// stored. File systems that ignore letter case (Windows, macOS by default) find a file under any spelling of its
+		// names, and Windows under their short (8.3) forms too, which lexical comparisons of paths miss: spelled as stored,
+		// the paths of one file compare equal. Drive letters become upper case; links keep the name given (their targets are
+		// not followed), and so do the names from the first one that does not exist on.
+		static std::filesystem::path GetStoredSpelling(std::filesystem::path const& path);
+		// path, when it lies inside base (or is base) under any spelling the file system takes (see GetStoredSpelling): base
+		// in its absolute, lexically normal form, followed by the names below it spelled as stored. Empty when path lies
+		// elsewhere.
+		static std::optional<std::filesystem::path> FindInside(std::filesystem::path const& path, std::filesystem::path const& base);
 		// A file or directory name (without extension) for a user-chosen name that is valid on every platform: characters
 		// other than ASCII letters, digits, spaces, '-' and '_' become '_', surrounding spaces are removed and reserved
 		// Windows device names (CON, NUL, COM1, ...) get a trailing '_'. Empty when nothing usable remains.

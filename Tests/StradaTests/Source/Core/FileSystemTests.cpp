@@ -171,6 +171,62 @@ TEST_CASE("FileSystem: relative paths and containment")
 	CHECK_FALSE(FileSystem::IsInside(base / ".." / "Other", base));
 }
 
+TEST_CASE("FileSystem: paths are spelled as their files are stored, so every spelling of a file is one path")
+{
+	Testing::TemporaryDirectory directory;
+	// Temporary directories may be given with short (8.3) names on Windows.
+	std::filesystem::path const root = FileSystem::GetStoredSpelling(directory.GetPath());
+	CHECK(root.is_absolute());
+	CHECK(FileSystem::GetStoredSpelling(root) == root);
+	REQUIRE(FileSystem::WriteTextFile(root / "Textures" / "Wood Grain.png", "wood").IsOk());
+	std::filesystem::path const wood = root / "Textures" / "Wood Grain.png";
+
+	// Spelled as stored, a path stays as it is; it is made lexically normal, and what does not exist keeps its spelling.
+	CHECK(FileSystem::GetStoredSpelling(wood) == wood);
+	CHECK(FileSystem::GetStoredSpelling(root / "Textures" / "." / ".." / "Textures" / "Wood Grain.png") == wood);
+	CHECK(FileSystem::GetStoredSpelling(root / "Textures" / "Missing" / "Bark.PNG") == root / "Textures" / "Missing" / "Bark.PNG");
+
+	// Inside a folder: from the folder as given, under any spelling; elsewhere nothing.
+	std::filesystem::path const base = directory.GetPath() / "Textures";
+	CHECK(FileSystem::FindInside(directory.GetPath() / "Textures" / "Wood Grain.png", base) ==
+	      (base / "Wood Grain.png").lexically_normal());
+	CHECK(FileSystem::FindInside(base, base) == base.lexically_normal());
+	CHECK(FileSystem::FindInside(base / "Missing.png", base) == (base / "Missing.png").lexically_normal());
+	CHECK(FileSystem::FindInside(wood, base) == (base / "Wood Grain.png").lexically_normal());
+	CHECK_FALSE(FileSystem::FindInside(root / "Other.png", base).has_value());
+	CHECK_FALSE(FileSystem::FindInside(base / ".." / "Textures2" / "Wood Grain.png", base).has_value());
+
+	if (Testing::IgnoresLetterCase(directory.GetPath()))
+	{
+		// Another spelling of the same file is spelled as stored: the paths compare equal.
+		CHECK(FileSystem::GetStoredSpelling(root / "TEXTURES" / "wood grain.PNG") == wood);
+		CHECK(FileSystem::GetStoredSpelling(root / "textures" / "Missing" / "Bark.PNG") == root / "Textures" / "Missing" / "Bark.PNG");
+		CHECK(FileSystem::FindInside(root / "textures" / "WOOD GRAIN.png", base) == (base / "Wood Grain.png").lexically_normal());
+		// A folder given in another spelling keeps it.
+		std::filesystem::path const otherBase = root / "TEXTURES";
+		CHECK(FileSystem::FindInside(wood, otherBase) == (otherBase / "Wood Grain.png").lexically_normal());
+	}
+	else
+	{
+		MESSAGE("The file system tells letter cases apart: other spellings name other files");
+		CHECK(FileSystem::GetStoredSpelling(root / "TEXTURES" / "wood grain.PNG") == root / "TEXTURES" / "wood grain.PNG");
+		CHECK_FALSE(FileSystem::FindInside(root / "TEXTURES" / "Wood Grain.png", base).has_value());
+	}
+
+	// A link keeps its name, which reading the stored spelling would replace by its target's.
+	std::error_code errorCode;
+	std::filesystem::create_directory_symlink(root / "Textures", root / "Linked", errorCode);
+	if (errorCode)
+	{
+		// Windows allows links only with developer mode or elevation.
+		MESSAGE("symbolic links cannot be created here: " << errorCode.message());
+		return;
+	}
+	CHECK(FileSystem::GetStoredSpelling(root / "Linked" / "Wood Grain.png") == root / "Linked" / "Wood Grain.png");
+	CHECK(FileSystem::FindInside(root / "Linked" / "Wood Grain.png", root / "Linked") ==
+	      (root / "Linked" / "Wood Grain.png").lexically_normal());
+}
+
 TEST_CASE("FileSystem: executable and user data locations")
 {
 	std::filesystem::path const executable = FileSystem::GetExecutablePath();

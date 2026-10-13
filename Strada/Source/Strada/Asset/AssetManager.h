@@ -55,8 +55,9 @@ namespace Strada
 
 		// --- Registration ---
 
-		// Registers an existing file inside the asset directory (absolute, or relative to the directory). Returns the existing
-		// handle when the file is already registered.
+		// Registers an existing file inside the asset directory (absolute, or relative to the directory), under the names it
+		// is stored with whatever spelling the file system takes (FileSystem::FindInside). Returns the existing handle when
+		// the file is already registered.
 		[[nodiscard]] static Result<AssetHandle> ImportFile(std::filesystem::path const& path);
 		// Moves or renames a file asset on disk and in the registry; the handle (and every reference to it) stays valid.
 		[[nodiscard]] static Result<void> MoveAsset(AssetHandle handle, std::string_view newPath);

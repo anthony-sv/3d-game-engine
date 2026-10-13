@@ -10,6 +10,7 @@
 #include "Strada/Script/ScriptEngine.h"
 
 #include <algorithm>
+#include <optional>
 #include <system_error>
 #include <utility>
 
@@ -283,12 +284,16 @@ namespace Strada
 				return MakeError("'{}' is not a C# source file", FileSystem::PathToUtf8(file.filename()));
 			}
 		}
-		// Sources of the C# project are compiled already: copies would declare their types twice.
+		// Sources of the C# project, under any spelling the file system takes, are compiled already: copies would declare
+		// their types twice.
 		std::filesystem::path const projectDirectory = project->GetDirectory() / ScriptProject::DirectoryName;
+		std::vector<std::optional<std::filesystem::path>> inProject;
+		inProject.reserve(files.size());
 		std::vector<ScriptFileCopy> copies;
 		for (std::filesystem::path const& file : files)
 		{
-			if (!FileSystem::IsInside(file, projectDirectory))
+			inProject.push_back(FileSystem::FindInside(file, projectDirectory));
+			if (!inProject.back())
 			{
 				copies.push_back({file, FileSystem::PathToUtf8(file.filename())});
 			}
@@ -301,9 +306,9 @@ namespace Strada
 		std::vector<std::filesystem::path> added;
 		added.reserve(files.size());
 		size_t next = 0;
-		for (std::filesystem::path const& file : files)
+		for (std::optional<std::filesystem::path> const& source : inProject)
 		{
-			added.push_back(FileSystem::IsInside(file, projectDirectory) ? file : copied.GetValue()[next++]);
+			added.push_back(source ? *source : copied.GetValue()[next++]);
 		}
 		return added;
 	}

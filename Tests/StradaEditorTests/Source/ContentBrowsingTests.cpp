@@ -648,6 +648,68 @@ TEST_CASE("ProjectImport: models dropped as files come with the files they read"
 	CHECK_FALSE(ProjectImport::DescribeSkipped(fifth).empty());
 }
 
+TEST_CASE("ProjectImport: a file named in several spellings is one file, in the project and outside it")
+{
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	EditorScripts scripts(context, GetScriptCoreAssembly());
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	std::filesystem::path const assetDirectory = context.GetProject()->GetAssetDirectory();
+
+	// A model whose material library names its texture in two letter cases, as exporters on Windows write them: file
+	// systems that ignore case find one file under both. Dropped, the model comes with the texture once.
+	std::filesystem::path const outside = temporary.GetPath() / "Downloads" / "Crate";
+	REQUIRE(FileSystem::WriteTextFile(outside / "Crate.obj",
+	                                  "mtllib Crate.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0 0\nusemtl Wood\nf 1/1 2/1 3/1\n")
+	            .IsOk());
+	REQUIRE(
+		FileSystem::WriteTextFile(outside / "Crate.mtl", "newmtl Wood\nKd 1 1 1\nmap_Kd Textures/Wood.png\nmap_bump textures/WOOD.png\n")
+			.IsOk());
+	REQUIRE(Image(2, 2, 4).WritePNG(outside / "Textures" / "Wood.png").IsOk());
+	std::vector<std::filesystem::path> const model = {outside / "Crate.obj"};
+	ProjectImport::Report const dropped = ProjectImport::Import(operations, &scripts, model, {"Props", ""});
+	CHECK(dropped.Errors.empty());
+	REQUIRE(dropped.Assets.size() == 2);
+	CHECK(GetAssetPath(dropped.Assets[0]) == "Props/Crate.obj");
+	CHECK(GetAssetPath(dropped.Assets[1]) == "Props/Textures/Wood.png");
+	CHECK(dropped.KeptFiles == std::vector<std::string>{"Props/Crate.mtl"});
+	CheckModelLoads(dropped.Assets[0]);
+
+	// Moved to another folder, the texture goes along once, keeping its handle.
+	REQUIRE(operations.MoveAsset(dropped.Assets[0], "Crates/Crate.obj").IsOk());
+	CHECK(GetAssetPath(dropped.Assets[1]) == "Crates/Textures/Wood.png");
+	CHECK(FileSystem::IsRegularFile(assetDirectory / "Crates" / "Crate.mtl"));
+	CHECK_FALSE(FileSystem::Exists(assetDirectory / "Props" / "Textures"));
+	AssetManager::UnloadAsset(dropped.Assets[0]);
+	CheckModelLoads(dropped.Assets[0]);
+
+	if (!Testing::IgnoresLetterCase(temporary.GetPath()))
+	{
+		MESSAGE("The file system tells letter cases apart: other spellings name other files");
+		return;
+	}
+	// The project's folders and files spelled otherwise are still the project's: the asset directory is not copied into
+	// itself, and a texture of the project is the asset it is.
+	size_t const registered = AssetManager::GetAssets().size();
+	std::vector<std::filesystem::path> const ownFolder = {temporary.GetPath() / "GAME" / "ASSETS"};
+	ProjectImport::Report const folder = ProjectImport::Import(operations, &scripts, ownFolder, {"", ""});
+	REQUIRE(folder.Errors.size() == 1);
+	CHECK(folder.Errors.front().find("holds the project's assets") != std::string::npos);
+	std::vector<std::filesystem::path> const ownTexture = {temporary.GetPath() / "game" / "assets" / "crates" / "textures" / "wood.PNG"};
+	ProjectImport::Report const texture = ProjectImport::Import(operations, &scripts, ownTexture, {"", ""});
+	CHECK(texture.Errors.empty());
+	CHECK(texture.Assets == std::vector<AssetHandle>{dropped.Assets[1]});
+	CHECK(AssetManager::GetAssets().size() == registered);
+	CHECK_FALSE(FileSystem::Exists(assetDirectory / "Wood.png"));
+	// The same goes for files given to the operations directly.
+	Result<std::vector<AssetHandle>> const imported = operations.ImportAssets(ownTexture, "Elsewhere");
+	REQUIRE(imported.IsOk());
+	CHECK(imported.GetValue() == std::vector<AssetHandle>{dropped.Assets[1]});
+	CHECK(AssetManager::GetAssets().size() == registered);
+}
+
 TEST_CASE("ProjectImport: dropped folders of C# sources go to the scripts, and so do the C# sources of other folders")
 {
 	Testing::AssetManagerScope assets;
@@ -850,6 +912,21 @@ TEST_CASE("EditorOperations: a model moved to another folder takes the files it 
 	CHECK(FileSystem::IsRegularFile(assetDirectory / "Textures" / "Shared.png"));
 	AssetManager::UnloadAsset(panel);
 	CheckModelLoads(panel);
+
+	// A model of another folder reading a file of the moved model's folder keeps it there: the move is refused.
+	WriteSeparateGltf(assetDirectory / "Rocks" / "A", "RockA");
+	WriteSeparateGltf(assetDirectory / "Rocks" / "B", "RockB", "../A/textures/RockA_albedo.png");
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const rockA = AssetManager::FindByPath("Rocks/A/RockA.gltf");
+	REQUIRE(rockA.IsValid());
+	Result<void> const read = operations.MoveAsset(rockA, "Cliffs/RockA.gltf");
+	REQUIRE(read.IsError());
+	CHECK(read.GetError().find("Rocks/B/RockB.gltf") != std::string::npos);
+	CHECK(read.GetError().find("Rocks/A/textures/RockA_albedo.png") != std::string::npos);
+	CHECK(AssetManager::GetMetadata(rockA)->Path == "Rocks/A/RockA.gltf");
+	CHECK(FileSystem::IsRegularFile(assetDirectory / "Rocks" / "A" / "textures" / "RockA_albedo.png"));
+	CHECK_FALSE(FileSystem::Exists(assetDirectory / "Cliffs"));
+	CheckModelLoads(AssetManager::FindByPath("Rocks/B/RockB.gltf"));
 }
 
 TEST_CASE("AssetDrops: a C# source dropped onto entities makes them run its class, as one undoable step")

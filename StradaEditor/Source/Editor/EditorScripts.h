@@ -85,10 +85,11 @@ namespace Strada
 		[[nodiscard]] Result<std::filesystem::path> CreateScript(std::string_view className, std::string_view folder = {});
 		// Copies C# sources, with their names, into a folder of the scripts directory (ScriptProject::GetSourceDirectory;
 		// relative with forward slashes, "" for the directory itself, created when missing), creating the C# project first
-		// when the project has none. Sources already in the C# project's directory (Scripts/) stay where they are. Refused,
-		// with nothing copied, when the C# project would no longer build: a source's name is taken by a file of the C# project
-		// or another of the sources, or a type it declares is declared already (ScriptBrowsing::IsDuplicateDeclaration). All
-		// or nothing: copies made before a failure are removed. The next Update builds them. Returns the files in order.
+		// when the project has none. Sources already in the C# project's directory (Scripts/), under any spelling the file
+		// system takes, stay where they are (returned as the project spells their paths). Refused, with nothing copied, when
+		// the C# project would no longer build: a source's name is taken by a file of the C# project or another of the
+		// sources, or a type it declares is declared already (ScriptBrowsing::IsDuplicateDeclaration). All or nothing: copies
+		// made before a failure are removed. The next Update builds them. Returns the files in order.
 		[[nodiscard]] Result<std::vector<std::filesystem::path>> AddScripts(std::span<std::filesystem::path const> files,
 		                                                                    std::string_view folder);
 		// Copies files into a folder of the scripts directory at paths of their own below it (a dropped folder's files in

@@ -1547,8 +1547,22 @@ namespace Strada
 		{
 			return MakeError("'{}': {}", FileSystem::PathToUtf8(path), result.GetError());
 		}
+		// File systems that ignore letter case (Windows, macOS by default) find a file under every spelling a model gives it,
+		// and models made there often name one file in two spellings: with the names below the reference directory spelled
+		// as stored, each file is listed once, under the name it has.
+		std::filesystem::path const reference = referenceDirectory.empty() ? path.parent_path() : referenceDirectory;
+		std::vector<std::filesystem::path> unique;
+		unique.reserve(files.size());
+		for (std::filesystem::path const& file : files)
+		{
+			std::filesystem::path spelled = FileSystem::FindInside(file, reference).value_or(file);
+			if (std::find(unique.begin(), unique.end(), spelled) == unique.end())
+			{
+				unique.push_back(std::move(spelled));
+			}
+		}
 		// A model that names itself (an OBJ whose material library is the model) needs nothing more.
-		std::erase(files, path.lexically_normal());
-		return files;
+		std::erase(unique, FileSystem::FindInside(path, reference).value_or(path.lexically_normal()));
+		return unique;
 	}
 }

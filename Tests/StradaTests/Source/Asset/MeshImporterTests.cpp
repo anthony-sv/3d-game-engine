@@ -792,6 +792,15 @@ TEST_CASE("MeshImporter: the files a model reads besides itself are found")
 		REQUIRE(named.IsOk());
 		REQUIRE_FALSE(named.GetValue().empty());
 		CHECK(named.GetValue().front() == (modelDirectory / "Plain.mtl").lexically_normal());
+
+		// A library naming its texture in two letter cases (exporters on Windows write such files): file systems that ignore
+		// case find both, and either way the texture is listed once, as its file is named.
+		WriteText(modelDirectory / "Mixed.mtl", "newmtl Wood\nKd 1 1 1\nmap_Kd TEXTURES/WOOD.png\nmap_bump textures/Wood.png\n");
+		WriteText(modelDirectory / "Mixed.obj", "mtllib Mixed.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0 0\nusemtl Wood\nf 1/1 2/1 3/1\n");
+		Result<std::vector<std::filesystem::path>> const mixed = MeshImporter::FindExternalFiles(modelDirectory / "Mixed.obj");
+		REQUIRE_MESSAGE(mixed.IsOk(), mixed.GetError());
+		CHECK(mixed.GetValue() == std::vector<std::filesystem::path>{(modelDirectory / "Mixed.mtl").lexically_normal(),
+		                                                             (modelDirectory / "textures" / "Wood.png").lexically_normal()});
 	}
 	SUBCASE("files that are not models, or cannot be read")
 	{

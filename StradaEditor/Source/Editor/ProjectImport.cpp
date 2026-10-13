@@ -63,6 +63,14 @@ namespace Strada
 				return std::find(paths.begin(), paths.end(), path) != paths.end();
 			}
 
+			// The project's folders that dropped paths are compared with, spelled as stored like the dropped paths (see Import).
+			struct ProjectFolders
+			{
+				std::filesystem::path Assets;
+				// The directory of the C# scripts; empty without a project.
+				std::filesystem::path Scripts;
+			};
+
 			// Imports the files as one batch; when the batch fails (all or nothing), one by one, so that a broken file does
 			// not hold up the others.
 			void ImportAssetFiles(EditorOperations& operations, std::span<std::filesystem::path const> files, std::string_view folder,
@@ -90,8 +98,8 @@ namespace Strada
 			}
 
 			// Registers the assets among files copied into a folder of the asset directory; the others are kept files.
-			void RegisterCopies(EditorOperations& operations, std::span<std::filesystem::path const> copies, std::string_view folder,
-			                    Report& report)
+			void RegisterCopies(EditorOperations& operations, ProjectFolders const& project, std::span<std::filesystem::path const> copies,
+			                    std::string_view folder, Report& report)
 			{
 				std::vector<std::filesystem::path> assets;
 				for (std::filesystem::path const& copy : copies)
@@ -102,7 +110,7 @@ namespace Strada
 					}
 					else
 					{
-						report.KeptFiles.push_back(GetRelativePath(copy, AssetManager::GetAssetDirectory()));
+						report.KeptFiles.push_back(GetRelativePath(copy, project.Assets));
 					}
 				}
 				ImportAssetFiles(operations, assets, folder, report);
@@ -282,20 +290,17 @@ namespace Strada
 				return folder;
 			}
 
-			void ImportFolder(EditorOperations& operations, EditorScripts* scripts, std::filesystem::path const& source,
-			                  Destination const& destination, size_t maxFiles, Report& report)
+			void ImportFolder(EditorOperations& operations, EditorScripts* scripts, ProjectFolders const& project,
+			                  std::filesystem::path const& source, Destination const& destination, size_t maxFiles, Report& report)
 			{
-				std::filesystem::path const& assets = AssetManager::GetAssetDirectory();
+				std::filesystem::path const& assets = project.Assets;
 				std::string const name = FileSystem::PathToUtf8(source.filename());
 				if (FileSystem::IsInside(assets, source))
 				{
 					report.Errors.push_back(fmt::format("'{}' holds the project's assets and cannot be imported into them", name));
 					return;
 				}
-				Project const* const project = operations.GetContext().GetProject();
-				std::filesystem::path const scriptsDirectory =
-					project != nullptr ? project->GetDirectory() / ScriptProject::DirectoryName : std::filesystem::path();
-				if (!scriptsDirectory.empty() && FileSystem::IsInside(scriptsDirectory, source))
+				if (!project.Scripts.empty() && FileSystem::IsInside(project.Scripts, source))
 				{
 					report.Errors.push_back(fmt::format("'{}' holds the project's scripts and cannot be imported into them", name));
 					return;
@@ -319,11 +324,15 @@ namespace Strada
 					ImportAssetFiles(operations, registered, destination.AssetFolder, report);
 					return;
 				}
-				if (!scriptsDirectory.empty() && FileSystem::IsInside(source, scriptsDirectory))
+				Project const* const openProject = operations.GetContext().GetProject();
+				if (!project.Scripts.empty() && openProject != nullptr && FileSystem::IsInside(source, project.Scripts))
 				{
+					// Reported as the project spells its scripts' paths.
+					std::filesystem::path const scriptsDirectory = openProject->GetDirectory() / ScriptProject::DirectoryName;
 					for (std::string const& file : files.Scripts)
 					{
-						report.Scripts.push_back(source / FileSystem::PathFromUtf8(file));
+						std::filesystem::path const script = source / FileSystem::PathFromUtf8(file);
+						report.Scripts.push_back(FileSystem::FindInside(script, scriptsDirectory).value_or(script));
 					}
 					return;
 				}
@@ -372,9 +381,10 @@ namespace Strada
 					Result<std::string> const added = AddScriptFolder(*scripts, *scriptFolder, destination, source, files.Scripts, report);
 					if (added)
 					{
-						report.Notes.push_back(fmt::format(
-							"The C# sources of '{}' went to the scripts, {}/{}", name,
-							GetRelativePath(ScriptProject::GetSourceDirectory(*project), project->GetDirectory()), added.GetValue()));
+						report.Notes.push_back(
+							fmt::format("The C# sources of '{}' went to the scripts, {}/{}", name,
+						                GetRelativePath(ScriptProject::GetSourceDirectory(*openProject), openProject->GetDirectory()),
+						                added.GetValue()));
 					}
 					else
 					{
@@ -389,7 +399,7 @@ namespace Strada
 					return;
 				}
 				report.Folders.push_back(folder);
-				RegisterCopies(operations, copies.GetCopies(), folder, report);
+				RegisterCopies(operations, project, copies.GetCopies(), folder, report);
 			}
 
 			// Models dropped as files with the files they read; dropped folders holding some of those files come whole.
@@ -416,13 +426,13 @@ namespace Strada
 
 			// Finds the files the dropped models outside the project read and groups them with the models (models reading
 			// the same files are one group); the files and folders the groups hold are taken out of the other lists.
-			std::vector<ModelGroup> GroupModels(std::vector<std::filesystem::path>& assetFiles,
+			std::vector<ModelGroup> GroupModels(ProjectFolders const& project, std::vector<std::filesystem::path>& assetFiles,
 			                                    std::vector<std::filesystem::path>& otherFiles, std::vector<std::filesystem::path>& folders)
 			{
 				std::vector<ModelGroup> groups;
 				for (std::filesystem::path const& file : assetFiles)
 				{
-					if (GetFileAssetType(file) != AssetType::Mesh || FileSystem::IsInside(file, AssetManager::GetAssetDirectory()))
+					if (GetFileAssetType(file) != AssetType::Mesh || FileSystem::IsInside(file, project.Assets))
 					{
 						continue;
 					}
@@ -500,10 +510,10 @@ namespace Strada
 				return groups;
 			}
 
-			void ImportModelGroup(EditorOperations& operations, EditorScripts* scripts, ModelGroup const& group,
-			                      Destination const& destination, size_t maxFiles, Report& report)
+			void ImportModelGroup(EditorOperations& operations, EditorScripts* scripts, ProjectFolders const& project,
+			                      ModelGroup const& group, Destination const& destination, size_t maxFiles, Report& report)
 			{
-				std::filesystem::path const& assets = AssetManager::GetAssetDirectory();
+				std::filesystem::path const& assets = project.Assets;
 				std::filesystem::path const base = GetCommonDirectory(group.Models);
 				std::string const modelName = FileSystem::PathToUtf8(group.Models.front().filename());
 				// The files keep their paths relative to the models, so the models find them. When one of those paths is taken,
@@ -588,13 +598,14 @@ namespace Strada
 					                "exist where it was dropped",
 					                modelName, folder));
 				}
-				RegisterCopies(operations, copies.GetCopies(), folder, report);
+				RegisterCopies(operations, project, copies.GetCopies(), folder, report);
 			}
 
 			// Files that are neither assets nor C# sources, dropped with models: copied beside them, numbered when taken.
-			void KeepFiles(std::span<std::filesystem::path const> files, std::string_view folder, Report& report)
+			void KeepFiles(ProjectFolders const& project, std::span<std::filesystem::path const> files, std::string_view folder,
+			               Report& report)
 			{
-				std::filesystem::path const& assets = AssetManager::GetAssetDirectory();
+				std::filesystem::path const& assets = project.Assets;
 				for (std::filesystem::path const& file : files)
 				{
 					std::string const path =
@@ -621,20 +632,29 @@ namespace Strada
 				report.Errors.push_back("no project is open");
 				return report;
 			}
+			// Dropped paths are compared with each other and with the project's folders: spelled as stored, each spelling a file
+			// system takes for one file (letter case on Windows and macOS, short names on Windows) is one path.
+			ProjectFolders project;
+			project.Assets = FileSystem::GetStoredSpelling(AssetManager::GetAssetDirectory());
+			if (Project const* const openProject = operations.GetContext().GetProject())
+			{
+				project.Scripts = FileSystem::GetStoredSpelling(openProject->GetDirectory() / ScriptProject::DirectoryName);
+			}
 			std::vector<std::filesystem::path> dropped;
 			for (std::filesystem::path const& path : paths)
 			{
 				// "C:/Pack/" names the folder Pack; a drive or file system root is never copied.
 				std::filesystem::path const normal = path.lexically_normal();
-				std::filesystem::path const file = normal.has_filename() ? normal : normal.parent_path();
-				if (!file.has_relative_path())
+				std::filesystem::path const named = normal.has_filename() ? normal : normal.parent_path();
+				if (!named.has_relative_path())
 				{
 					report.Errors.push_back(fmt::format("'{}' is a drive and cannot be imported", FileSystem::PathToUtf8(path)));
 					continue;
 				}
+				std::filesystem::path file = FileSystem::GetStoredSpelling(named);
 				if (!Contains(dropped, file))
 				{
-					dropped.push_back(file);
+					dropped.push_back(std::move(file));
 				}
 			}
 
@@ -672,7 +692,7 @@ namespace Strada
 					assetFiles.push_back(path);
 				}
 				// Other files of the project are in it already.
-				else if (!FileSystem::IsInside(path, AssetManager::GetAssetDirectory()))
+				else if (!FileSystem::IsInside(path, project.Assets))
 				{
 					otherFiles.push_back(path);
 				}
@@ -683,14 +703,14 @@ namespace Strada
 			                                    {
 													return GetFileAssetType(file) == AssetType::Mesh;
 												});
-			for (ModelGroup const& group : GroupModels(assetFiles, otherFiles, folders))
+			for (ModelGroup const& group : GroupModels(project, assetFiles, otherFiles, folders))
 			{
-				ImportModelGroup(operations, scripts, group, destination, maxFolderFiles, report);
+				ImportModelGroup(operations, scripts, project, group, destination, maxFolderFiles, report);
 			}
 			ImportAssetFiles(operations, assetFiles, destination.AssetFolder, report);
 			if (withModels)
 			{
-				KeepFiles(otherFiles, destination.AssetFolder, report);
+				KeepFiles(project, otherFiles, destination.AssetFolder, report);
 			}
 			else
 			{
@@ -701,7 +721,7 @@ namespace Strada
 			}
 			for (std::filesystem::path const& folder : folders)
 			{
-				ImportFolder(operations, scripts, folder, destination, maxFolderFiles, report);
+				ImportFolder(operations, scripts, project, folder, destination, maxFolderFiles, report);
 			}
 			if (scriptFiles.empty())
 			{

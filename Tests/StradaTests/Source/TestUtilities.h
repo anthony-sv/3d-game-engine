@@ -51,4 +51,15 @@ namespace Strada::Testing
 	private:
 		std::filesystem::path m_Path;
 	};
+
+	// Whether the file system of a directory finds files under names written in another letter case, as those of Windows
+	// and (by default) macOS do, unlike those of Linux.
+	inline bool IgnoresLetterCase(std::filesystem::path const& directory)
+	{
+		std::filesystem::path const probe = directory / "LetterCaseProbe";
+		REQUIRE(FileSystem::WriteTextFile(probe, "probe").IsOk());
+		bool const ignores = FileSystem::Exists(directory / "lettercaseprobe");
+		REQUIRE(FileSystem::Remove(probe).IsOk());
+		return ignores;
+	}
 }

@@ -126,13 +126,14 @@ namespace Strada
 		[[nodiscard]] Result<UUID> InstantiatePrefab(AssetHandle prefab, UUID parent = UUID::Invalid(),
 		                                             std::optional<glm::vec3> position = std::nullopt);
 		// Copies files into a folder of the asset directory (numbering names that are taken) and registers them, all or
-		// nothing; files already inside the asset directory are registered in place. Returns their handles in order.
+		// nothing; files already inside the asset directory, under any spelling the file system takes, are registered in
+		// place. Returns their handles in order.
 		[[nodiscard]] Result<std::vector<AssetHandle>> ImportAssets(std::span<std::filesystem::path const> files, std::string_view folder);
 		// Moves or renames a file asset; its handle (and every reference to it) stays valid. A model moving to another folder
 		// takes the files of its folder it reads (MeshImporter::FindExternalFiles: buffers, material libraries, textures)
 		// along to the same paths relative to it, all or nothing, and removes the folders they leave empty. Files outside its
-		// folder stay; the move is refused when one of them would not be found from the new folder, or when another model of
-		// the folder reads a file that would move (moving the folder keeps them together).
+		// folder stay; the move is refused when one of them would not be found from the new folder, or when another model
+		// (of any folder) reads a file that would move (moving a folder that holds both keeps them together).
 		[[nodiscard]] Result<void> MoveAsset(AssetHandle asset, std::string_view newPath);
 		[[nodiscard]] Result<void> MoveAssetFolder(std::string_view folder, std::string_view newFolder);
 		[[nodiscard]] Result<void> DeleteAsset(AssetHandle asset);
