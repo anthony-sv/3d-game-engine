@@ -10,11 +10,11 @@
 			1.0,
 			1.0
 		],
-		"BaseColorTexture": "16011051675902565810",
+		"BaseColorTexture": "2305806693994185180",
 		"Metallic": 1.0,
 		"Roughness": 1.0,
-		"MetallicRoughnessTexture": "6435547489371317992",
-		"NormalTexture": "15364395374925127584",
+		"MetallicRoughnessTexture": "9097955615881422857",
+		"NormalTexture": "4620788015362514111",
 		"NormalStrength": 1.0,
 		"EmissiveColor": [
 			0.0,
@@ -23,7 +23,7 @@
 		],
 		"EmissiveIntensity": 1.0,
 		"EmissiveTexture": "0",
-		"OcclusionTexture": "6435547489371317992",
+		"OcclusionTexture": "9097955615881422857",
 		"OcclusionStrength": 1.0,
 		"AlphaMode": "Opaque",
 		"AlphaCutoff": 0.5,

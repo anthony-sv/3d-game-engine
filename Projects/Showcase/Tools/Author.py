@@ -1098,7 +1098,8 @@ class Showcase:
             self.model_entity(f"Barrel {index + 1}", BARREL, LAYOUT.place((5.8 + x, bottom - barrel_low[1] + 0.002, -10.6),
                                                                           (0.0, 37.0 * index, 0.0)), {
                 "RigidBody": {"Type": "Dynamic", "Mass": 14.0, "AngularDamping": 0.15},
-                "MeshCollider": {"Mesh": self.models[BARREL][0], "Convex": True, "Friction": 0.6, "Restitution": 0.05},
+                # The collider is the model's outline, a mesh GenerateAssets.py makes: it is there whether or not the model is.
+                "MeshCollider": {"Mesh": "asset://Meshes/BarrelHull.gltf", "Convex": True, "Friction": 0.6, "Restitution": 0.05},
                 "AudioSource": {"Clip": "asset://Audio/WoodHit.wav", "Pitch": 0.8, "Spatial": True, "MinDistance": 2.0, "MaxDistance": 40.0},
                 "Script": {"ClassName": "Showcase.Impact", "Fields": {"Volume": {"Type": "Float", "Value": 1.0}, "Camera": camera,
                                                                       "ShakeStrength": {"Type": "Float", "Value": 0.15}}}}, props)

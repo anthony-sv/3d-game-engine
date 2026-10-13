@@ -10,7 +10,7 @@
 			0.0,
 			0.02500000037252903
 		],
-		"BaseColorTexture": "17083428259765299447",
+		"BaseColorTexture": "4473973698500312298",
 		"Metallic": 0.0,
 		"Roughness": 1.0,
 		"MetallicRoughnessTexture": "0",
@@ -22,7 +22,7 @@
 			0.5
 		],
 		"EmissiveIntensity": 10.0,
-		"EmissiveTexture": "17083428259765299447",
+		"EmissiveTexture": "4473973698500312298",
 		"OcclusionTexture": "0",
 		"OcclusionStrength": 1.0,
 		"AlphaMode": "Blend",

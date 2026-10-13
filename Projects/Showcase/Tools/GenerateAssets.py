@@ -10,6 +10,9 @@ Meshes (glTF 2.0 with positions, normals and texture coordinates, Y up, meters):
 - Net: the goal's net, an open tube narrowing downwards from its top ring (radius 0.95 at the origin, 1.2 m long) that
   catches balls and drops them straight down; a net texture makes its mesh (Lattice, alpha-tested).
 - Fountain: the fountain's basin with its column and upper bowl (a lathe), 4 m across.
+- BarrelHull: the collision shape of the barrels: the outline of Poly Haven's wine_barrel_01 turned about Y in the model's
+  space (0.87 m tall, ends of radius 0.307 m swelling to 0.371 m at the middle), so the barrels stand, stack and roll alike
+  whether or not Tools/FetchAssets.py has fetched the model.
 - MirrorBall: a faceted sphere of radius 0.5 whose flat facets scatter reflections.
 - Crystal: a hexagonal crystal with a pointed tip standing on the origin, 1 m tall.
 - NeonStrada and NeonFrame: neon tubes spelling STRADA, and the frame around it (centered, in the XY plane).
@@ -448,6 +451,21 @@ def fountain():
     column = [(0.34, 0.15), (0.34, 0.24), (0.22, 0.32), (0.18, 0.9), (0.24, 1.0), (0.3, 1.04), (0.78, 1.24), (0.82, 1.3), (0.8, 1.34),
               (0.72, 1.32), (0.2, 1.22), (0.14, 1.4), (0.18, 1.5), (0.1, 1.62), (0.0, 1.66)]
     lathe(mesh, column, 48, smooth={4, 5, 7, 8, 12, 13})
+    return mesh
+
+
+def barrel_hull(sides=16, bands=8):
+    """A closed barrel in the space of Poly Haven's wine_barrel_01 (measured from its vertices): a base 0.7 mm above the
+    origin, a top 0.8719 m up, a radius of 0.307 m at both ends and of 0.371 m halfway up, the sides swelling as a parabola
+    between them. Its convex hull is the barrels' collider."""
+    base, top, end, belly = 0.0007, 0.8719, 0.307, 0.371
+    side = []
+    for k in range(bands + 1):
+        t = k / bands
+        side.append((end + (belly - end) * (1.0 - (2.0 * t - 1.0) ** 2), base + (top - base) * t))
+    mesh = MeshBuilder()
+    # From the middle of the base out, up the side and in to the middle of the top: the ends are flat, the side smooth.
+    lathe(mesh, [(0.0, base)] + side + [(0.0, top)], sides, smooth=set(range(2, bands + 1)))
     return mesh
 
 
@@ -948,6 +966,7 @@ if __name__ == "__main__":
     write_gltf("Hoop", torus())
     write_gltf("Net", net())
     write_gltf("Fountain", fountain())
+    write_gltf("BarrelHull", barrel_hull())
     write_gltf("MirrorBall", mirror_ball())
     write_gltf("Crystal", crystal())
     write_gltf("Beam", beam())
