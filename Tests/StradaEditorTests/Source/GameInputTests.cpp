@@ -628,6 +628,8 @@ namespace
 				return ImGuiKey_LeftCtrl;
 			case KeyCode::LeftShift:
 				return ImGuiKey_LeftShift;
+			case KeyCode::LeftSuper:
+				return ImGuiKey_LeftSuper;
 			case KeyCode::P:
 				return ImGuiKey_P;
 			case KeyCode::W:
