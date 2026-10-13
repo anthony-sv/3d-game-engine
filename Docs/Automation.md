@@ -140,6 +140,7 @@ Parameters marked * are required.
 | `editor.undo` | — | `undone` (description), `scene` |
 | `editor.redo` | — | `redone`, `scene` |
 | `editor.quit` | `discardChanges` | `quitting`; fails with UnsavedChanges when the scene is dirty |
+| `editor.entity-menu` | `submenu` (`3D Object`, `2D Object`, `Rendering`, `Effects`, `Physics`, `Audio` or `UI`), `open` (default true; false closes the menu) | Opens the menu bar's Entity menu, which creates entities from presets (the hierarchy's create menus are the same), as if the user clicked Entity and pointed at `submenu`; returns `open`, `submenu`, `sections`: `[{ category, submenu, presets }]`, the menu in its order (Core's Create Empty in the menu itself, then a submenu per category with the labels of its presets). Changes nothing in the scene (`entity.create` creates entities); InvalidOperation while a dialog is open; Unavailable when headless |
 
 ### project
 
@@ -204,7 +205,7 @@ inspector, such as `Mesh.Materials`, which the material slot sections edit; set 
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `inspector.add-component-menu` | `search` (text typed into the menu's search field), `open` (default true; false closes the menu) | Brings the inspector to the front with its Add Component menu open for the selected entities, as if the user clicked Add Component and typed `search` (without one the menu shows the categories); returns `open`, `search`, `components` (the components the menu offers, in its order). Changes nothing in the scene; InvalidOperation without selected entities; Unavailable when headless |
+| `inspector.add-component-menu` | `search` (text typed into the menu's search field), `category` (without `search`: `Rendering`, `Physics`, `Audio`, `Scripting` or `UI`, the category whose submenu opens), `open` (default true; false closes the menu) | Brings the inspector to the front with its Add Component menu open for the selected entities, as if the user clicked Add Component and typed `search` (without one the menu shows the categories, and `category` opens one of their submenus as if the user pointed at it); returns `open`, `search`, `category`, `components` (the components the menu offers, in its order: those of the open submenu with a `category`). Changes nothing in the scene; InvalidParams for `search` with `category`; InvalidOperation without selected entities, for a category the menu offers nothing of (the entities have its components) and while a dialog is open; Unavailable when headless |
 
 ### asset
 

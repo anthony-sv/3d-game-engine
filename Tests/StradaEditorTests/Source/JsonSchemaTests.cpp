@@ -2,6 +2,10 @@
 
 #include <doctest/doctest.h>
 
+#include <span>
+#include <string_view>
+#include <vector>
+
 using namespace Strada;
 
 namespace
@@ -34,6 +38,20 @@ TEST_CASE("JsonSchema: builder output is a valid definition")
 	CHECK(JsonSchema::CheckDefinition(Json::object({{"type", "object"}, {"required", {"missing"}}, {"properties", Json::object()}}))
 	          .IsError());
 	CHECK(JsonSchema::CheckDefinition(Json::object({{"type", "nonsense"}})).IsError());
+}
+
+TEST_CASE("JsonSchema: enums are built from lists known at compile time or at run time alike")
+{
+	std::vector<std::string_view> const values = {"Rendering", "UI"};
+	Json const fromSpan = SchemaBuilder::String("Category").Enum(values).Build();
+	CHECK(fromSpan == SchemaBuilder::String("Category").Enum({"Rendering", "UI"}).Build());
+	CHECK(fromSpan["enum"] == Json::array({"Rendering", "UI"}));
+	CHECK_FALSE(JsonSchema::Validate("UI", fromSpan).has_value());
+	CHECK(JsonSchema::Validate("Core", fromSpan).has_value());
+	// An empty list accepts nothing, which no command's parameter may do.
+	CHECK(JsonSchema::CheckDefinition(
+			  SchemaBuilder::Object().Property("category", SchemaBuilder::String().Enum(std::span<std::string_view const>())).Build())
+	          .IsError());
 }
 
 TEST_CASE("JsonSchema: valid values pass")

@@ -811,9 +811,9 @@ positions. A build is out of date when a C# source or project file is newer than
 - Scene Hierarchy: the entity tree; click selects, Ctrl toggles, Shift selects the displayed range; dragging rows
   reparents (onto a row) or reorders (onto its upper or lower edge) the selection as one undo step
   (`MoveEntitiesCommand`); F2 or the context menu renames; double-click frames the entity in the viewport; context
-  menus create preset entities (empty, primitives, lights, camera, audio, text, sprite, particle effects, a global
-  post-process volume with a 10 m box for when it is made local, a character, UI), duplicate and delete; UI elements
-  (Panel, Image, Text, Button) go into a canvas: the parent's, else under a parent a new canvas there, else the
+  menus create preset entities (empty, primitives, 3D text, a sprite, camera, lights, a global post-process volume with
+  a 10 m box for when it is made local, particle effects, a character controller, audio, UI), duplicate and delete; UI
+  elements (Panel, Image, Text, Button) go into a canvas: the parent's, else under a parent a new canvas there, else the
   scene's first canvas or a new one, created with the element as one undo step; a search field filters by name.
   Selections made elsewhere reveal and scroll to the primary entity.
 - Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
@@ -841,7 +841,8 @@ positions. A build is out of date when a C# source or project file is newer than
   One widget interaction (a drag, typing into a field) is one undo step. Add Component opens a menu with a search field
   above a submenu per component category (`ComponentTraits::Category`: Rendering, Physics, Audio, Scripting, UI; the
   Core ones are on every entity); typing lists the matching components instead (names starting with the text first) with
-  their categories, and Enter adds the first. Components can also be reset, copied, pasted as JSON and removed. Below
+  their categories, and Enter adds the first (`inspector.add-component-menu` opens the menu for agents, with search text
+  or a category's submenu). Components can also be reset, copied, pasted as JSON and removed. Below
   the fields of a Mesh component, each material slot of its mesh gets a section (`MaterialSlots`): a header with the
   material on a sphere, its name, the slot and where the material comes from; an asset field of the material the slot
   renders with (the component's override, else the mesh's own material, else the default one), whose picker lists the
@@ -912,10 +913,12 @@ positions. A build is out of date when a C# source or project file is newer than
   shadow-map share, triangles, culled submeshes, lights and culled lights, dropped shadows, sprite, text and UI quads).
 - Menus and shortcuts: File (New Scene Ctrl+N, Open Scene Ctrl+O, Save Ctrl+S, Save As Ctrl+Shift+S) with native
   file dialogs, Edit (Undo Ctrl+Z, Redo Ctrl+Y / Ctrl+Shift+Z, Duplicate Ctrl+D, Delete, Select All Ctrl+A), Entity
-  (create presets at the scene view's focal point: Create Empty, then the 3D Object, 2D Object, Rendering, Effects,
-  Physics, Audio and UI submenus, which the hierarchy's create button and Create Child share;
-  `EntityPresets::GetMenu`), View, Play (Play/Stop, Simulate, Pause, Step). Shortcuts are global unless a text field
-  is being edited.
+  (create presets at the scene view's focal point: Create Empty, then the submenus 3D Object (the primitives and 3D
+  Text, world-space text), 2D Object (Sprite), Rendering (Camera, the lights and Post Process Volume), Effects (Particle
+  System, Fire, Smoke, Sparks), Physics (Character Controller), Audio (Audio Source, Audio Listener) and UI (Canvas,
+  Panel, Image, Text, Button), which the hierarchy's create button and Create Child share; `EntityPresets::GetMenu`;
+  `editor.entity-menu` opens it for agents), View, Play (Play/Stop, Simulate, Pause, Step). Shortcuts are global
+  unless a text field is being edited.
   Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
   scene name and a `*` while it has unsaved changes.
 - Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
@@ -923,22 +926,22 @@ positions. A build is out of date when a C# source or project file is newer than
   orientation (local/world, X), snapping (Ctrl toggles it while dragging) and its steps, and the overlays
   (`SceneViewOverlays`, also `viewport.overlays`): ground grid (G), selection outline, light and camera gizmos
   (clickable billboard icons per kind of light and for cameras), camera frustums, light shapes (directional light rays
-  kept at a constant size on screen, point light ranges, spot light cones with their inner cone), colliders (character
-  capsules among them), joints and post-process volumes (the boxes of local volumes with the rounded outlines where
-  their blend distances end), each for the selected entities or every entity, the lines scripts draw, and the UI
-  canvases. Colliders show the shapes physics collides with: mesh colliders as the convex hull Jolt builds
-  (`MeshColliderOutline`; also for the triangle meshes of dynamic bodies) or as their triangles, without the diagonals
-  of flat faces, and character controllers as the upright capsule physics moves. Its lines are wide, light-colored and
-  outlined in dark so they read on bright and dark surfaces, and dimmed where surfaces hide them, except joints (their
-  anchors lie inside bodies), directional lights (their position does not matter), post-process volumes (the camera
-  is often inside), the capsules of selected characters (their models enclose them) and the outlines of canvases,
-  which are drawn over everything. The screen-space UI would cover the scene: the UI canvases overlay draws each
-  top-level canvas's UI in its entity's XY plane instead (`CanvasOverlay`), standing on the entity (the middle of its
-  bottom edge there), laid out at its reference resolution, 1 cm per canvas unit, faint (too faint to pick) until the
-  canvas or one of its elements is selected, with the outline of every canvas and, for the canvas holding the
-  selection, the rectangles of its elements, the selected ones highlighted. Focus and `viewport.frame` frame a canvas
-  or a UI element's rectangle there (`ComputeEntityBounds`). UI elements, which their `UIRect` places, get no
-  transform gizmo. ImGuizmo edits apply to every selected root around the primary selection as one undo step per drag
+  kept at a constant size on screen, point light ranges, spot light cones with their inner cone), colliders and
+  characters (the capsules of character controllers), joints and post-process volumes (the boxes of local volumes with
+  the rounded outlines where their blend distances end), each for the selected entities or every entity, the lines
+  scripts draw, and the UI canvases. Colliders show the shapes physics collides with: mesh colliders as the convex hull
+  Jolt builds (`MeshColliderOutline`; also for the triangle meshes of dynamic bodies) or as their triangles, without the
+  diagonals of flat faces, and character controllers as the upright capsule physics moves. Its lines are wide,
+  light-colored and outlined in dark so they read on bright and dark surfaces, and dimmed where surfaces hide them,
+  except joints (their anchors lie inside bodies), directional lights (their position does not matter), post-process
+  volumes (the camera is often inside), the capsules of selected characters (their models enclose them) and the outlines
+  of canvases, which are drawn over everything. The screen-space UI would cover the scene: the UI canvases overlay draws
+  each top-level canvas's UI in its entity's XY plane instead (`CanvasOverlay`), standing on the entity (the middle of
+  its bottom edge there), laid out at its reference resolution, 1 cm per canvas unit, faint (too faint to pick) until
+  the canvas or one of its elements is selected, with the outline of every canvas and, for the canvas holding the
+  selection, the rectangles of its elements, the selected ones highlighted. Focus and `viewport.frame` frame a canvas or
+  a UI element's rectangle there (`ComputeEntityBounds`). UI elements, which their `UIRect` places, get no transform
+  gizmo. ImGuizmo edits apply to every selected root around the primary selection as one undo step per drag
   (`SetComponentsCommand` with a merge key); click picking goes through the entity-ID pass (Ctrl toggles, Shift adds,
   empty space clears; picking IDs are never reused within a scene); assets can be dropped onto it.
 - Game View (`GameViewPanel`): the scene through its primary camera, as the game sees it, at a chosen resolution (free,
@@ -1025,14 +1028,16 @@ positions. A build is out of date when a C# source or project file is newer than
   `strada call <command> [json]`, `strada launch`, `strada commands`, `strada instances`, `strada hdris`, `strada hdri`,
   `strada models`, `strada model`, `strada textures`, `strada texture`. Editors ignore SIGPIPE (`Platform::IgnoreBrokenPipeSignal`), so the ones strada starts with a
   window outlive its output pipes.
-- Command domains: `editor.*` (status, undo, redo, commands), `project.*` (info, create, open, close, settings, export),
+- Command domains: `editor.*` (status, undo, redo, commands, quit, the Entity menu as users see it), `project.*` (info,
+  create, open, close, settings, export),
   `scene.*` (new, open, save, hierarchy, settings, dump), `entity.*` (create with components, delete, duplicate,
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
   `asset.*` (list, get, select, import, refresh, browse and drop in the content browser, move, delete, create-folder,
   move-folder, delete-folder),
   `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
-  `input.*` (inject keys/mouse during play), `viewport.*` (screenshot, camera, frame entities, renderer statistics),
+  `input.*` (inject keys/mouse during play), `ui.*` (where the screen-space UI's elements and buttons are in the game
+  view), `viewport.*` (screenshot, camera, frame entities, overlays, renderer statistics),
   `inspector.*` (the Add Component menu, as users see it), `log.*` (read since index), `test.*` (run a test scene and
   return results). Renderer settings are scene settings (`scene.settings`).
 - Claude Code integration: `.mcp.json` registers `strada mcp` (through `dotnet run`, so it works in any checkout);

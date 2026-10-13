@@ -67,6 +67,12 @@ directly: every modification goes through `EditorOperations` (undoable commands,
   the play shortcuts and no clicks over the game view: global shortcuts need no play-mode checks, and a new shortcut that
   must work while the game has the input goes into `GameInputRouter::RouteKeyPress` too. While the game also locks the
   cursor, ImGui receives no mouse movement and changes no cursor (`GameViewPanel::UpdateWindowCursors`).
+- The create menus (the Entity menu, the hierarchy's create button and Create Child) all draw
+  `UI::DrawEntityPresetMenuItems` over `EntityPresets` (categories, presets and what they create, unit tested without
+  UI): new kinds of entities are presets there. Menus that agents open (`editor.entity-menu`,
+  `inspector.add-component-menu`) take a request the panel applies in its next frame, calling `ImGui::OpenPopup` with
+  the menu's label just before the `BeginMenu`/`BeginPopup` that draws it (same window, same ID); the commands refuse
+  to open a menu over a dialog (`EditorCommandEnvironment::IsDialogOpen`), whose modal popup it would close.
 - Native dialogs: `FileDialogs::OpenFile/OpenFiles/SaveFile/PickFolder` (editor only; add the extension when it is
   missing).
 - Actions that discard the scene go through `EditorLayer::RequestSceneAction` (unsaved-changes prompt).

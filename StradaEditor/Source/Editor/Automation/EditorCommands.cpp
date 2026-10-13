@@ -5,6 +5,7 @@
 #include "Editor/DefaultScene.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EntityBounds.h"
+#include "Editor/EntityPresets.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
@@ -25,10 +26,12 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -333,6 +336,32 @@ namespace Strada
 			return std::nullopt;
 		}
 
+		// The categories of the Entity menu that are submenus (all but Core, whose presets are in the menu itself).
+		std::vector<std::string_view> GetEntityMenuSubmenus()
+		{
+			std::vector<std::string_view> submenus;
+			for (EntityPresetMenuSection const& section : EntityPresets::GetMenu())
+			{
+				if (section.Submenu)
+				{
+					submenus.push_back(section.Category);
+				}
+			}
+			return submenus;
+		}
+
+		// The component categories the Add Component menu can show (Core components are on every entity already).
+		std::vector<std::string_view> GetAddableCategories()
+		{
+			std::vector<std::string_view> categories;
+			std::copy_if(ComponentCategory::All.begin(), ComponentCategory::All.end(), std::back_inserter(categories),
+			             [](std::string_view category)
+			             {
+							 return category != ComponentCategory::Core;
+						 });
+			return categories;
+		}
+
 		class CommandSet : public std::enable_shared_from_this<CommandSet>
 		{
 		public:
@@ -381,6 +410,17 @@ namespace Strada
 				if (Context().IsPlaying())
 				{
 					return MakeCommandError(AutomationErrorCode::InvalidOperation, "the editor is playing: stop playing first (play.stop)");
+				}
+				return std::nullopt;
+			}
+
+			// Menus do not open over a dialog, as users cannot open them then either.
+			std::optional<CommandError> CheckNoDialog()
+			{
+				if (m_Environment.IsDialogOpen && m_Environment.IsDialogOpen())
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation,
+					                        "a dialog is open in the editor: no menu opens until it is answered");
 				}
 				return std::nullopt;
 			}
@@ -462,6 +502,55 @@ namespace Strada
 										  return Json::object({{"quitting", true}});
 									  })
 				                : result;
+				result =
+					result
+						? Add("editor.entity-menu",
+				              "Opens the menu bar's Entity menu, which creates entities from presets (the hierarchy's create menus are the "
+				              "same), as if the user clicked Entity and pointed at the submenu of a category, or closes it (open false). "
+				              "Returns { open, submenu, sections }: the menu's sections in order, each with its category, whether it is a "
+				              "submenu and the labels of its presets. Changes nothing in the scene (entity.create creates entities). "
+				              "InvalidOperation while a dialog is open; Unavailable without the editor's UI (headless).",
+				              SchemaBuilder::Object()
+				                  .Property("submenu",
+				                            SchemaBuilder::String("The category whose submenu opens").Enum(GetEntityMenuSubmenus()))
+				                  .Property("open", SchemaBuilder::Boolean("False closes the menu").Default(true))
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (!m_Environment.ShowEntityMenu)
+								  {
+									  return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no menu bar (headless)");
+								  }
+								  bool const open = GetBool(params, "open", true);
+								  if (open)
+								  {
+									  if (std::optional<CommandError> dialog = CheckNoDialog())
+									  {
+										  return *dialog;
+									  }
+								  }
+								  std::string const submenu = open ? GetString(params, "submenu") : std::string();
+								  m_Environment.ShowEntityMenu(open, submenu);
+
+								  Json sections = Json::array();
+								  if (open)
+								  {
+									  for (EntityPresetMenuSection const& section : EntityPresets::GetMenu())
+									  {
+										  Json presets = Json::array();
+										  for (EntityPreset const* preset : section.Presets)
+										  {
+											  presets.push_back(std::string(preset->Label));
+										  }
+										  sections.push_back(Json::object({{"category", std::string(section.Category)},
+							                                               {"submenu", section.Submenu},
+							                                               {"presets", std::move(presets)}}));
+									  }
+								  }
+								  return Json::object({{"open", open}, {"submenu", submenu}, {"sections", std::move(sections)}});
+							  })
+						: result;
 				return result;
 			}
 
@@ -1892,12 +1981,16 @@ namespace Strada
 					result
 						? Add("inspector.add-component-menu",
 				              "Opens the inspector's Add Component menu for the selected entities, as if the user clicked Add Component "
-				              "and typed the search text (without one the menu shows the component categories), or closes it (open "
-				              "false). Returns { open, search, components }: the components the menu offers, in its order. Changes "
-				              "nothing in the scene (component.add adds components). InvalidOperation without selected entities; "
-				              "Unavailable without the editor's UI (headless).",
+				              "and typed the search text (without one the menu shows the component categories, and category opens one "
+				              "of their submenus as if the user pointed at it), or closes it (open false). Returns { open, search, "
+				              "category, components }: the components the menu offers, in its order (those of the open submenu with a "
+				              "category). Changes nothing in the scene (component.add adds components). InvalidParams for a search with "
+				              "a category; InvalidOperation without selected entities, for a category the menu offers no components of "
+				              "and while a dialog is open; Unavailable without the editor's UI (headless).",
 				              SchemaBuilder::Object()
 				                  .Property("search", SchemaBuilder::String("Text typed into the menu's search field"))
+				                  .Property("category", SchemaBuilder::String("Without search text: the category whose submenu opens")
+				                                            .Enum(GetAddableCategories()))
 				                  .Property("open", SchemaBuilder::Boolean("False closes the menu").Default(true))
 				                  .Build(),
 				              false,
@@ -1908,7 +2001,17 @@ namespace Strada
 									  return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no inspector (headless)");
 								  }
 								  bool const open = GetBool(params, "open", true);
-								  std::string const search = GetString(params, "search");
+								  std::string const search = open ? GetString(params, "search") : std::string();
+								  std::string const category = open ? GetString(params, "category") : std::string();
+								  bool const searching = search.find_first_not_of(' ') != std::string::npos;
+								  if (searching && !category.empty())
+								  {
+									  CommandError error = MakeCommandError(
+										  AutomationErrorCode::InvalidParams,
+										  "a search lists the matching components instead of the categories: give search or category");
+									  error.Data = Json::object({{"path", "category"}});
+									  return error;
+								  }
 								  EditorContext& context = m_Operations.GetContext();
 								  std::vector<UUID> const& entities = context.GetSelection().GetEntities();
 								  if (open && entities.empty())
@@ -1917,23 +2020,40 @@ namespace Strada
 										  AutomationErrorCode::InvalidOperation,
 										  "no entities are selected: the menu adds components to the selected entities");
 								  }
-								  m_Environment.ShowAddComponentMenu(open, search);
+								  if (open)
+								  {
+									  if (std::optional<CommandError> dialog = CheckNoDialog())
+									  {
+										  return *dialog;
+									  }
+								  }
 
-								  // What the menu lists: the categories' components in order, or the matches of the search.
+								  // What the menu lists: the categories' components in order (one category's with its submenu
+					              // open), or the matches of the search.
 								  Json components = Json::array();
 								  if (open)
 								  {
 									  std::vector<ComponentInfo const*> const addable =
 										  ComponentInspection::GetAddableComponents(context.GetScene(), entities);
-									  if (search.find_first_not_of(' ') == std::string::npos)
+									  if (!searching)
 									  {
 										  for (ComponentInspection::ComponentGroup const& group :
 							                   ComponentInspection::GroupByCategory(addable))
 										  {
+											  if (!category.empty() && group.Category != category)
+											  {
+												  continue;
+											  }
 											  for (ComponentInfo const* component : group.Components)
 											  {
 												  components.push_back(std::string(component->Name));
 											  }
+										  }
+										  if (!category.empty() && components.empty())
+										  {
+											  return MakeCommandError(
+												  AutomationErrorCode::InvalidOperation,
+												  "the menu offers no {} components: the selected entities have them all", category);
 										  }
 									  }
 									  else
@@ -1944,7 +2064,9 @@ namespace Strada
 										  }
 									  }
 								  }
-								  return Json::object({{"open", open}, {"search", search}, {"components", std::move(components)}});
+								  m_Environment.ShowAddComponentMenu(open, search, category);
+								  return Json::object(
+									  {{"open", open}, {"search", search}, {"category", category}, {"components", std::move(components)}});
 							  })
 						: result;
 

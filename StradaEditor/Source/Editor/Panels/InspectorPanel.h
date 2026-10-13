@@ -39,13 +39,23 @@ namespace Strada
 
 		void OnImGuiRender(EditorOperations& operations, bool& open);
 		// In the next frame, brings the inspector to the front with its Add Component menu open and the search text typed in
-		// (as if the user clicked Add Component and typed), or closes the menu (open false). Without selected entities in that
+		// (as if the user clicked Add Component and typed) or, without search text, the submenu of a component category open
+		// (none when empty; as if the user pointed at it), or closes the menu (open false). Without selected entities in that
 		// frame nothing opens.
-		void ShowAddComponentMenu(bool open, std::string search);
+		void ShowAddComponentMenu(bool open, std::string search, std::string category = {});
 
 	private:
+		// What ShowAddComponentMenu asks of the next frame.
+		struct AddComponentMenuRequest
+		{
+			// Open the menu, or close it.
+			bool Open = false;
+			// The category whose submenu opens (none when empty).
+			std::string Category;
+		};
+
 		// The selected entities, or the selected asset.
-		void DrawContents(EditorOperations& operations, std::optional<bool> menuRequest);
+		void DrawContents(EditorOperations& operations, std::optional<AddComponentMenuRequest> const& menuRequest);
 		void DrawHeader(EditorOperations& operations, std::vector<UUID> const& entities);
 		void DrawComponent(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities);
 		void DrawComponentMenu(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities,
@@ -54,8 +64,9 @@ namespace Strada
 		void DrawScriptComponent(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities,
 		                         std::vector<Json> const& values);
 		// The Add Component button and its menu: a search field above submenus per category; typing lists the matches, and
-		// Enter adds the first one. `request` opens (true) or closes (false) the menu this frame.
-		void DrawAddComponent(EditorOperations& operations, std::vector<UUID> const& entities, std::optional<bool> request);
+		// Enter adds the first one. `request` opens (with a category's submenu) or closes the menu this frame.
+		void DrawAddComponent(EditorOperations& operations, std::vector<UUID> const& entities,
+		                      std::optional<AddComponentMenuRequest> const& request);
 		// Applies the same partial patch to the component of every entity as one undo step.
 		void ApplyPatch(EditorOperations& operations, ComponentInfo const& component, std::vector<UUID> const& entities, Json const& patch,
 		                uint64_t mergeKey);
@@ -86,8 +97,8 @@ namespace Strada
 		std::string m_AddComponentFilter;
 		// Gives the menu's search field the keyboard again next frame (Enter without a match ended the input).
 		bool m_FocusComponentSearch = false;
-		// ShowAddComponentMenu's request for the next frame: open (true) or close (false) the menu.
-		std::optional<bool> m_AddComponentMenuRequest;
+		// ShowAddComponentMenu's request for the next frame.
+		std::optional<AddComponentMenuRequest> m_AddComponentMenuRequest;
 		// Component removals requested while the components are drawn.
 		std::vector<std::function<void()>> m_Deferred;
 	};

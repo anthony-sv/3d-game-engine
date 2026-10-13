@@ -750,7 +750,8 @@ namespace Strada
 			ShapeRow const rows[] = {
 				{"Camera frustums", "What cameras see, up to a few meters", m_Overlays.Cameras},
 				{"Light shapes", "Directional light rays, point light ranges and spot light cones", m_Overlays.Lights},
-				{"Colliders", "Collider outlines (triggers in blue) and character capsules", m_Overlays.Colliders},
+				{"Colliders and characters", "Collider outlines (triggers in blue) and the capsules of character controllers",
+			     m_Overlays.Colliders},
 				{"Joints", "Joint anchors, hinge and slider axes, and what they connect to", m_Overlays.Joints},
 				{"Post-process volumes", "Boxes of local post-process volumes and where their blending ends", m_Overlays.Volumes},
 			};

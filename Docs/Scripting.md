@@ -265,17 +265,17 @@ public class Windmill : Script
 
 ### Characters
 
-Players and walking creatures use a `CharacterControllerComponent` (Entity > Physics > Character makes one with a
-capsule mesh) instead of a rigid body and colliders: an upright capsule (`Radius`, `Height`, its center at `Offset` from
-the entity) that your script moves. `Move(velocity)` walks it at a velocity during the next physics step, so call it
-from `OnFixedUpdate` every step it should move; it slides along walls, climbs steps up to `StepHeight` and slopes up to
-`MaxSlopeAngle`, slides down steeper ones, rides moving platforms and elevators, and pushes dynamic bodies with up to
-`PushForce` newtons. Gravity acts on top of it: `IsGrounded` tells whether it stands on walkable ground (`GroundNormal`
-is the ground's normal), and `Velocity` is its own velocity (falling, jumping), which you set to jump.
-`Teleport(position)` places it and stops it. The entity follows the capsule, which does not turn with it, so the script
-turns the entity freely. Triggers notice characters (`OnTriggerEnter` on both sides), and raycasts hit them. Colliders
-of the entities below a character are its own parts (a held object, a trigger around it for its reach): they neither
-block it nor report touching it.
+Players and walking creatures use a `CharacterControllerComponent` (Entity > Physics > Character Controller makes one
+with a capsule mesh) instead of a rigid body and colliders: an upright capsule (`Radius`, `Height`, its center at
+`Offset` from the entity) that your script moves. `Move(velocity)` walks it at a velocity during the next physics
+step, so call it from `OnFixedUpdate` every step it should move; it slides along walls, climbs steps up to
+`StepHeight` and slopes up to `MaxSlopeAngle`, slides down steeper ones, rides moving platforms and elevators, and
+pushes dynamic bodies with up to `PushForce` newtons. Gravity acts on top of it: `IsGrounded` tells whether it stands
+on walkable ground (`GroundNormal` is the ground's normal), and `Velocity` is its own velocity (falling, jumping),
+which you set to jump. `Teleport(position)` places it and stops it. The entity follows the capsule, which does not
+turn with it, so the script turns the entity freely. Triggers notice characters (`OnTriggerEnter` on both sides), and
+raycasts hit them. Colliders of the entities below a character are its own parts (a held object, a trigger around it
+for its reach): they neither block it nor report touching it.
 
 The capsule's round bottom rolls over the edges of steps and ledges, which are too steep to stand on, so walking down
 stairs or off a ledge `IsGrounded` is false for a physics step or two at each edge. Give jumps a little grace, as the
@@ -558,7 +558,7 @@ cover what is behind them, for smoke and dust.
 ## Post-processing
 
 The scene's look (exposure, tonemapper, bloom, ambient occlusion, color grading, vignette, chromatic aberration, film
-grain) is set in its Scene Settings; a `PostProcessComponent` (the editor's Entity > Effects > Post Process Volume)
+grain) is set in its Scene Settings; a `PostProcessComponent` (the editor's Entity > Rendering > Post Process Volume)
 changes it where the camera is. Only the settings whose `Override` property is set change: `OverrideSaturation` and
 `Saturation`, `OverrideVignette` and `Vignette`, and so on. A `Global` volume applies everywhere; a local one applies
 inside its entity's box (scale the entity to size it) and fades out over `BlendDistance` meters around it, so walking

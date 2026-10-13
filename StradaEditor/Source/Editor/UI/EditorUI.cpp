@@ -549,12 +549,18 @@ namespace Strada
 			return fmt::format("{}:{:02}", total / 60, total % 60);
 		}
 
-		EntityPreset const* DrawEntityPresetMenuItems()
+		EntityPreset const* DrawEntityPresetMenuItems(std::string_view openSubmenu)
 		{
 			EntityPreset const* chosen = nullptr;
 			for (EntityPresetMenuSection const& section : EntityPresets::GetMenu())
 			{
-				if (section.Submenu && !ImGui::BeginMenu(std::string(section.Category).c_str()))
+				std::string const category(section.Category);
+				if (section.Submenu && section.Category == openSubmenu)
+				{
+					// The submenu's popup has the ID BeginMenu gives it, from its label in this window.
+					ImGui::OpenPopup(category.c_str());
+				}
+				if (section.Submenu && !ImGui::BeginMenu(category.c_str()))
 				{
 					continue;
 				}

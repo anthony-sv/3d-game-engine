@@ -3,6 +3,7 @@
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/EditorCamera.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/EntityPresets.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 
@@ -42,8 +43,21 @@ namespace
 		SceneViewOverlays Overlays;
 		std::optional<SceneRendererStatistics> Statistics;
 		ContentBrowserPanel ContentBrowser;
-		// What inspector.add-component-menu asked the inspector to do: open (or close) the menu with a search text.
-		std::vector<std::pair<bool, std::string>> AddComponentMenuRequests;
+		// What inspector.add-component-menu asked the inspector to do: open (or close) the menu with a search text or the
+		// submenu of a category open.
+		struct AddComponentMenuRequest
+		{
+			bool Open = false;
+			std::string Search;
+			std::string Category;
+
+			bool operator==(AddComponentMenuRequest const&) const = default;
+		};
+		std::vector<AddComponentMenuRequest> AddComponentMenuRequests;
+		// What editor.entity-menu asked the menu bar to do: open (or close) the Entity menu with the submenu of a category open.
+		std::vector<std::pair<bool, std::string>> EntityMenuRequests;
+		// Whether the editor shows a dialog, over which no menu opens.
+		bool DialogOpen = false;
 
 		explicit CommandFixture(bool withWindow = false)
 		{
@@ -78,9 +92,17 @@ namespace
 				{
 					return ContentBrowser;
 				};
-				environment.ShowAddComponentMenu = [this](bool open, std::string const& search)
+				environment.IsDialogOpen = [this]
 				{
-					AddComponentMenuRequests.emplace_back(open, search);
+					return DialogOpen;
+				};
+				environment.ShowAddComponentMenu = [this](bool open, std::string const& search, std::string const& category)
+				{
+					AddComponentMenuRequests.push_back({open, search, category});
+				};
+				environment.ShowEntityMenu = [this](bool open, std::string const& submenu)
+				{
+					EntityMenuRequests.emplace_back(open, submenu);
 				};
 			}
 			REQUIRE(RegisterEditorCommands(Registry, Operations, std::move(environment)).IsOk());
@@ -124,12 +146,12 @@ TEST_CASE("EditorCommands: every command is registered with a schema and descrip
 {
 	CommandFixture fixture;
 	for (char const* name :
-	     {"editor.status",    "editor.commands",     "editor.undo",     "editor.redo",      "editor.quit",         "scene.new",
-	      "scene.open",       "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings",      "entity.create",
-	      "entity.delete",    "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",         "entity.get",
-	      "entity.select",    "component.types",     "component.add",   "component.remove", "component.get",       "component.set",
-	      "log.read",         "viewport.screenshot", "viewport.camera", "viewport.frame",   "viewport.statistics", "asset.browse",
-	      "viewport.overlays"})
+	     {"editor.status", "editor.commands",  "editor.undo",         "editor.redo",     "editor.quit",      "editor.entity-menu",
+	      "scene.new",     "scene.open",       "scene.save",          "scene.hierarchy", "scene.dump",       "scene.settings",
+	      "entity.create", "entity.delete",    "entity.duplicate",    "entity.rename",   "entity.reparent",  "entity.find",
+	      "entity.get",    "entity.select",    "component.types",     "component.add",   "component.remove", "component.get",
+	      "component.set", "log.read",         "viewport.screenshot", "viewport.camera", "viewport.frame",   "viewport.statistics",
+	      "asset.browse",  "viewport.overlays"})
 	{
 		CAPTURE(name);
 		CHECK(fixture.Registry.Contains(name));
@@ -238,6 +260,7 @@ TEST_CASE("EditorCommands: errors carry precise codes")
 	CHECK(fixture.Fails("viewport.statistics") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("asset.browse", Json::object({{"folder", ""}})) == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("inspector.add-component-menu") == AutomationErrorCode::Unavailable);
+	CHECK(fixture.Fails("editor.entity-menu") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("viewport.overlays") == AutomationErrorCode::Unavailable);
 	CHECK(fixture.Fails("asset.drop", Json::object({{"paths", {"Oak.png"}}})) == AutomationErrorCode::Unavailable);
 }
@@ -246,6 +269,7 @@ TEST_CASE("EditorCommands: inspector.add-component-menu opens the inspector's me
 {
 	CommandFixture fixture(true);
 	std::string const lamp = fixture.Create("Lamp", Json::object({{"components", {{"PointLight", Json::object()}}}}));
+	std::string const scripted = fixture.Create("Scripted", Json::object({{"components", {{"Script", Json::object()}}}}));
 	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
 	Json const scene = fixture.Ok("scene.dump");
 
@@ -260,7 +284,7 @@ TEST_CASE("EditorCommands: inspector.add-component-menu opens the inspector's me
 	CHECK(lights["search"] == "light");
 	CHECK(lights["components"] == Json::array({"DirectionalLight", "SkyLight", "SpotLight"}));
 	REQUIRE(fixture.AddComponentMenuRequests.size() == 1);
-	CHECK(fixture.AddComponentMenuRequests.back() == std::pair<bool, std::string>(true, "light"));
+	CHECK(fixture.AddComponentMenuRequests.back() == CommandFixture::AddComponentMenuRequest{true, "light", ""});
 
 	// Without a search the menu shows the categories: every component the lamp can gain, once, category by category.
 	Json const all = fixture.Ok("inspector.add-component-menu")["components"];
@@ -290,13 +314,98 @@ TEST_CASE("EditorCommands: inspector.add-component-menu opens the inspector's me
 	}
 	CHECK(fixture.Ok("inspector.add-component-menu", Json::object({{"search", "nothing like this"}}))["components"].empty());
 
-	// Closing needs no selection.
-	fixture.Ok("entity.select", Json::object({{"entities", {lamp}}, {"mode", "remove"}}));
+	// A category opens its submenu: the menu offers the components of that category, the character controller among the
+	// physics ones.
+	Json const physics = fixture.Ok("inspector.add-component-menu", Json::object({{"category", "Physics"}}));
+	CHECK(physics["category"] == "Physics");
+	size_t physicsComponents = 0;
+	for (ComponentInfo const& info : ComponentRegistry::GetComponents())
+	{
+		physicsComponents += info.Category == ComponentCategory::Physics ? 1 : 0;
+	}
+	REQUIRE(physics["components"].size() == physicsComponents);
+	for (Json const& name : physics["components"])
+	{
+		CAPTURE(name);
+		CHECK(ComponentRegistry::Find(name.get<std::string>())->Category == ComponentCategory::Physics);
+	}
+	CHECK(std::find(physics["components"].begin(), physics["components"].end(), "CharacterController") != physics["components"].end());
+	CHECK(fixture.AddComponentMenuRequests.back() == CommandFixture::AddComponentMenuRequest{true, "", "Physics"});
+	CHECK(fixture.Ok("inspector.add-component-menu", Json::object({{"category", "UI"}}))["components"] ==
+	      Json::array({"UIButton", "UICanvas", "UIImage", "UIRect", "UIText"}));
+
+	// A search lists matches instead of the categories, so it takes no category; Core is no category of the menu; a category
+	// of which the entities have every component has no submenu; no menu opens over a dialog. None of them asks the
+	// inspector for anything.
+	size_t const requests = fixture.AddComponentMenuRequests.size();
+	CHECK(fixture.Fails("inspector.add-component-menu", Json::object({{"search", "light"}, {"category", "Rendering"}})) ==
+	      AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("inspector.add-component-menu", Json::object({{"category", "Core"}})) == AutomationErrorCode::InvalidParams);
+	fixture.Ok("entity.select", Json::object({{"entities", {scripted}}}));
+	CHECK(fixture.Fails("inspector.add-component-menu", Json::object({{"category", "Scripting"}})) ==
+	      AutomationErrorCode::InvalidOperation);
+	fixture.DialogOpen = true;
+	CHECK(fixture.Fails("inspector.add-component-menu") == AutomationErrorCode::InvalidOperation);
+	CHECK(fixture.AddComponentMenuRequests.size() == requests);
+
+	// Closing needs no selection, also with a dialog open.
+	fixture.Ok("entity.select", Json::object({{"entities", {scripted}}, {"mode", "remove"}}));
 	REQUIRE(fixture.Context.GetSelection().IsEmpty());
 	Json const closed = fixture.Ok("inspector.add-component-menu", Json::object({{"open", false}}));
 	CHECK(closed["open"] == false);
 	CHECK(closed["components"].empty());
-	CHECK(fixture.AddComponentMenuRequests.back() == std::pair<bool, std::string>(false, ""));
+	CHECK(fixture.AddComponentMenuRequests.back() == CommandFixture::AddComponentMenuRequest{false, "", ""});
+
+	// Nothing in the scene changed.
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	CHECK(fixture.Ok("scene.dump") == scene);
+}
+
+TEST_CASE("EditorCommands: editor.entity-menu opens the Entity menu with the submenu of a category")
+{
+	CommandFixture fixture(true);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	Json const scene = fixture.Ok("scene.dump");
+
+	// The result is the menu the editor draws (EntityPresets::GetMenu): Create Empty, then a submenu per category.
+	Json const menu = fixture.Ok("editor.entity-menu", Json::object({{"submenu", "Rendering"}}));
+	CHECK(menu["open"] == true);
+	CHECK(menu["submenu"] == "Rendering");
+	std::vector<EntityPresetMenuSection> const sections = EntityPresets::GetMenu();
+	REQUIRE(menu["sections"].size() == sections.size());
+	for (size_t i = 0; i < sections.size(); i++)
+	{
+		Json const& section = menu["sections"][i];
+		CAPTURE(section);
+		CHECK(section["category"] == std::string(sections[i].Category));
+		CHECK(section["submenu"] == sections[i].Submenu);
+		Json labels = Json::array();
+		for (EntityPreset const* preset : sections[i].Presets)
+		{
+			labels.push_back(std::string(preset->Label));
+		}
+		CHECK(section["presets"] == labels);
+	}
+	CHECK(menu["sections"][0]["presets"] == Json::array({"Create Empty"}));
+	REQUIRE(fixture.EntityMenuRequests.size() == 1);
+	CHECK(fixture.EntityMenuRequests.back() == std::pair<bool, std::string>(true, "Rendering"));
+
+	// Without a submenu the menu opens alone; Core, whose presets are in the menu itself, and unknown categories are no
+	// submenus.
+	CHECK(fixture.Ok("editor.entity-menu")["submenu"] == "");
+	CHECK(fixture.EntityMenuRequests.back() == std::pair<bool, std::string>(true, ""));
+	CHECK(fixture.Fails("editor.entity-menu", Json::object({{"submenu", "Core"}})) == AutomationErrorCode::InvalidParams);
+	CHECK(fixture.Fails("editor.entity-menu", Json::object({{"submenu", "Weapons"}})) == AutomationErrorCode::InvalidParams);
+
+	// No menu opens over a dialog; closing it still works.
+	fixture.DialogOpen = true;
+	CHECK(fixture.Fails("editor.entity-menu", Json::object({{"submenu", "UI"}})) == AutomationErrorCode::InvalidOperation);
+	CHECK(fixture.EntityMenuRequests.size() == 2);
+	Json const closed = fixture.Ok("editor.entity-menu", Json::object({{"open", false}, {"submenu", "UI"}}));
+	CHECK(closed["open"] == false);
+	CHECK(closed["submenu"] == "");
+	CHECK(closed["sections"].empty());
+	CHECK(fixture.EntityMenuRequests.back() == std::pair<bool, std::string>(false, ""));
 
 	// Nothing in the scene changed.
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);

@@ -89,6 +89,15 @@ namespace Strada
 			Quit
 		};
 
+		// What editor.entity-menu asks of the next frame.
+		struct EntityMenuRequest
+		{
+			// Open the Entity menu, or close it.
+			bool Open = false;
+			// The category whose submenu opens (none when empty).
+			std::string Submenu;
+		};
+
 		void DrawDockspace();
 		void BuildDefaultLayout(uint32_t dockspace);
 		void DrawMenuBar();
@@ -184,6 +193,8 @@ namespace Strada
 		uint8_t m_FocusDefaultTabsFrames = 0;
 		// Bring the console to the front after the panels are drawn.
 		bool m_FocusConsole = false;
+		// editor.entity-menu's request for the next frame.
+		std::optional<EntityMenuRequest> m_EntityMenuRequest;
 
 		SceneAction m_PendingAction = SceneAction::None;
 		std::filesystem::path m_PendingPath;

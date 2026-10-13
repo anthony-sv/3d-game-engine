@@ -187,7 +187,7 @@ TEST_CASE("EntityPresets: every preset creates its entity, placed at the spawn p
 	CHECK(cubeEntity.GetComponent<MeshComponent>().Mesh == GetBuiltInHandle(BuiltInAsset::CubeMesh));
 
 	// A character draws the capsule mesh its controller's default capsule matches.
-	Result<UUID> const character = EntityPresets::Create(operations, find("Character"), UUID::Invalid(), spawn);
+	Result<UUID> const character = EntityPresets::Create(operations, find("Character Controller"), UUID::Invalid(), spawn);
 	REQUIRE(character.IsOk());
 	Entity const characterEntity = context.GetScene().GetEntityByUUID(character.GetValue());
 	CHECK(characterEntity.GetComponent<MeshComponent>().Mesh == GetBuiltInHandle(BuiltInAsset::CapsuleMesh));
@@ -237,9 +237,10 @@ TEST_CASE("EntityPresets: the create menus offer Core, 3D Object, 2D Object, Ren
 	CHECK(labels(menu[0]) == Labels{"Create Empty"});
 	CHECK(labels(menu[1]) == Labels{"Cube", "Sphere", "Plane", "Cylinder", "Capsule", "Cone", "Quad", "3D Text"});
 	CHECK(labels(menu[2]) == Labels{"Sprite"});
-	CHECK(labels(menu[3]) == Labels{"Camera", "Directional Light", "Point Light", "Spot Light", "Sky Light"});
-	CHECK(labels(menu[4]) == Labels{"Particle System", "Fire", "Smoke", "Sparks", "Post Process Volume"});
-	CHECK(labels(menu[5]) == Labels{"Character"});
+	// Post-process volumes are rendering settings, next to the lights; the character is a physics object.
+	CHECK(labels(menu[3]) == Labels{"Camera", "Directional Light", "Point Light", "Spot Light", "Sky Light", "Post Process Volume"});
+	CHECK(labels(menu[4]) == Labels{"Particle System", "Fire", "Smoke", "Sparks"});
+	CHECK(labels(menu[5]) == Labels{"Character Controller"});
 	CHECK(labels(menu[6]) == Labels{"Audio Source", "Audio Listener"});
 	CHECK(labels(menu[7]) == Labels{"Canvas", "Panel", "Image", "Text", "Button"});
 	// Every preset is in the menus once, in the section of its category.

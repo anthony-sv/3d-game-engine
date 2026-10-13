@@ -192,9 +192,9 @@ namespace Strada
 		m_FieldEditor.SetAssetPreviews(thumbnails);
 	}
 
-	void InspectorPanel::ShowAddComponentMenu(bool open, std::string search)
+	void InspectorPanel::ShowAddComponentMenu(bool open, std::string search, std::string category)
 	{
-		m_AddComponentMenuRequest = open;
+		m_AddComponentMenuRequest = AddComponentMenuRequest{open, open ? std::move(category) : std::string()};
 		if (open)
 		{
 			m_AddComponentFilter = std::move(search);
@@ -204,8 +204,8 @@ namespace Strada
 	void InspectorPanel::OnImGuiRender(EditorOperations& operations, bool& open)
 	{
 		// A request to show the Add Component menu applies to this frame only (nothing opens without selected entities).
-		std::optional<bool> const menuRequest = std::exchange(m_AddComponentMenuRequest, std::nullopt);
-		if (menuRequest.value_or(false))
+		std::optional<AddComponentMenuRequest> const menuRequest = std::exchange(m_AddComponentMenuRequest, std::nullopt);
+		if (menuRequest && menuRequest->Open)
 		{
 			ImGui::SetNextWindowFocus();
 		}
@@ -216,7 +216,7 @@ namespace Strada
 		ImGui::End();
 	}
 
-	void InspectorPanel::DrawContents(EditorOperations& operations, std::optional<bool> menuRequest)
+	void InspectorPanel::DrawContents(EditorOperations& operations, std::optional<AddComponentMenuRequest> const& menuRequest)
 	{
 		EditorContext& context = operations.GetContext();
 		m_EditSession.Update(ImGui::IsAnyItemActive(), context.GetHistory());
@@ -572,7 +572,8 @@ namespace Strada
 		ImGui::EndPopup();
 	}
 
-	void InspectorPanel::DrawAddComponent(EditorOperations& operations, std::vector<UUID> const& entities, std::optional<bool> request)
+	void InspectorPanel::DrawAddComponent(EditorOperations& operations, std::vector<UUID> const& entities,
+	                                      std::optional<AddComponentMenuRequest> const& request)
 	{
 		float const width = ImGui::GetContentRegionAvail().x;
 		if (ImGui::Button("Add Component", ImVec2(width, 0.0f)))
@@ -580,7 +581,7 @@ namespace Strada
 			m_AddComponentFilter.clear();
 			ImGui::OpenPopup(AddComponentPopup);
 		}
-		else if (request.value_or(false))
+		else if (request && request->Open)
 		{
 			// The search text came with the request; the inspector scrolls down to the button, which the menu drops from.
 			ImGui::SetScrollHereY(1.0f);
@@ -602,7 +603,7 @@ namespace Strada
 		{
 			return;
 		}
-		if (request == false)
+		if (request && !request->Open)
 		{
 			ImGui::CloseCurrentPopup();
 			ImGui::EndPopup();
@@ -629,7 +630,13 @@ namespace Strada
 		{
 			for (ComponentInspection::ComponentGroup const& group : ComponentInspection::GroupByCategory(addable))
 			{
-				if (!ImGui::BeginMenu(std::string(group.Category).c_str()))
+				std::string const category(group.Category);
+				if (request && request->Open && group.Category == request->Category)
+				{
+					// The submenu's popup has the ID BeginMenu gives it, from its label in this window.
+					ImGui::OpenPopup(category.c_str());
+				}
+				if (!ImGui::BeginMenu(category.c_str()))
 				{
 					continue;
 				}

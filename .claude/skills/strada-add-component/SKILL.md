@@ -47,8 +47,9 @@ visibility conditions that name no value of such a field, and switches that are 
 fail to compile. Defaults must lie inside their ranges (tested). Systems reading values scripts set (which skip the
 range checks) can use `ClampToFieldRanges`.
 
-`Category` is one of `ComponentCategory::All` (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting`, `UI`; tested): the
-inspector's Add Component menu groups components by it and `component.types` lists it.
+`Category` is one of `ComponentCategory::All` (`Core`, `Rendering`, `Physics`, `Audio`, `Scripting`, `UI`): the
+inspector's Add Component menu groups components by it and `component.types` lists it. The category test in
+`ComponentRegistryTests.cpp` lists every component with its category, so add the new one there.
 
 Append the type to `AllComponents` (order = serialization order). Optional: `ReadExtraField` for alternative input
 keys (see Transform's `RotationEuler`).
@@ -67,6 +68,9 @@ handle the component being added/removed while the scene is running.
 
 - The inspector, `component.*` automation commands and `component.types` schemas are generated from the field table;
   good hints are what make them usable. Verify the component in the editor's inspector and `component.types` output.
+- Components users create as entities of their own (lights, a character, UI elements) get a preset in
+  `StradaEditor/Source/Editor/EntityPresets.cpp`, in the create menus' category where users look for it (usually the
+  component's), with the values that make it useful at once; `EditorUITests.cpp` lists every menu entry.
 
 ## 6. Scripting
 

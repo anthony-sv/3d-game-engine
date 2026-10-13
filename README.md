@@ -9,28 +9,34 @@ an exporter for distributable games.
 > docking and multi-viewports, the ECS scene system (components, hierarchy, reflection-driven JSON scenes, prefabs),
 > projects, the asset system (registry, glTF/FBX/OBJ import, materials, textures, HDR environments, built-in
 > primitives and font), the forward PBR scene renderer (image-based lighting, soft shadows, GTAO, bloom, FXAA,
-> tonemapping, signed-distance text and sprites), Jolt physics and miniaudio sound (spatial audio sources and
-> listeners) driven by the scene runtime, C# scripting with hot reload, the editor (viewport with gizmos and picking,
-> hierarchy, generated inspector, content browser, project settings, undo/redo, play mode, AI automation server), the
-> game player, game export, the `strada` tool with its MCP server for AI agents, a feature-test project exercising
-> every component and the whole scripting API, and CI on all three platforms.
+> tonemapping, post-process volumes, particles, signed-distance text and sprites), the screen-space UI, Jolt physics
+> (rigid bodies, joints, character controllers) and miniaudio sound (spatial and streamed audio sources, listeners)
+> driven by the scene runtime, C# scripting with hot reload, the editor (scene and game views with gizmos, overlays and
+> picking, hierarchy, generated inspector with inline materials, content browser, project settings, undo/redo, play
+> mode, AI automation server), the game player, game export, the `strada` tool with its MCP server for AI agents, a
+> feature-test project exercising every component and the whole scripting API, and CI on all three platforms.
 > [Docs/Architecture.md](Docs/Architecture.md) describes the complete design.
 
 ## Features
 
 - **Renderer**: Vulkan (MoltenVK on macOS) through NVRHI; PBR metallic-roughness materials, image-based lighting from
   HDRIs (`strada hdri <id>` imports one from [Poly Haven](https://polyhaven.com/hdris)), soft cascaded shadow maps,
-  GTAO ambient occlusion, HDR pipeline with bloom and tonemapping, frustum culling.
+  GTAO ambient occlusion, HDR pipeline with bloom and tonemapping, post-process volumes (exposure, color grading,
+  vignette, chromatic aberration, film grain) that blend where the camera is, particles, frustum culling.
 - **Scene**: EnTT-based entities and components, hierarchies, prefabs, JSON scene files.
 - **Assets**: glTF/GLB, FBX and OBJ import with materials and textures.
 - **Physics**: Jolt Physics, authored through components and controlled from scripts: rigid bodies, colliders, triggers,
   joints and character controllers that walk, climb steps and slopes, jump and push things.
-- **Audio**: miniaudio with 3D spatialization.
+- **Audio**: miniaudio with 3D spatialization; music and long ambience stream from their files.
 - **UI**: screen-space HUDs and menus built from entities: canvases that fit any screen, anchored rectangles, images
   with rounded corners, wrapped text and buttons that scripts hear.
 - **Scripting**: C# on .NET 10, hosted in-process, with hot reload in the editor
   ([scripting guide](Docs/Scripting.md)).
-- **Editor**: docking + multi-viewport ImGui, gizmos, undo/redo, play mode, content browser.
+- **Editor**: docking + multi-viewport ImGui; scene and game views with gizmos and overlays (light shapes, colliders,
+  joints, post-process volumes, UI canvases); create menus of ready-made entities; an inspector with a categorized,
+  searchable Add Component menu, asset fields with previews and every mesh's materials edited in place; a content
+  browser with previews of textures, materials, meshes, fonts and sounds that takes files dropped from the desktop;
+  undo/redo and play mode.
 - **AI automation**: every editor operation is available to agents through an automation server and an MCP bridge.
 - **Export**: one command produces a self-contained game folder for the host platform.
 

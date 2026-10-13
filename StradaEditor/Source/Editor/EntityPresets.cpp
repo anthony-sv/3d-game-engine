@@ -126,6 +126,13 @@ namespace Strada
 				 return Json::object(
 					 {{"SkyLight", Json::object({{"Environment", GetBuiltInHandle(BuiltInAsset::DefaultSky).ToString()}})}});
 			 }},
+			// Global, so its overrides show at once; made local, its scale gives it a 10 m box.
+			{"Rendering", "Post Process Volume", "Post Process Volume",
+		     []
+		     {
+				 return Json::object(
+					 {{"PostProcess", Json::object()}, {"Transform", Json::object({{"Scale", Json::array({10.0, 10.0, 10.0})}})}});
+			 }},
 			// Particle systems emit along -Z: these point it up.
 			{"Effects", "Particle System", "Particle System",
 		     []
@@ -185,15 +192,8 @@ namespace Strada
 			                                             {"EndColor", Json::array({1.0, 0.3, 0.05, 0.0})},
 			                                             {"Intensity", 6.0}}));
 			 }},
-			// Global, so its overrides show at once; made local, its scale gives it a 10 m box.
-			{"Effects", "Post Process Volume", "Post Process Volume",
-		     []
-		     {
-				 return Json::object(
-					 {{"PostProcess", Json::object()}, {"Transform", Json::object({{"Scale", Json::array({10.0, 10.0, 10.0})}})}});
-			 }},
 			// The controller's default capsule is the built-in capsule mesh's: what is drawn is what collides.
-			{"Physics", "Character", "Character",
+			{"Physics", "Character Controller", "Character",
 		     []
 		     {
 				 Json components = MeshComponents(BuiltInAsset::CapsuleMesh);

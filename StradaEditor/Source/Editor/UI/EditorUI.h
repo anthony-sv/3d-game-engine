@@ -68,8 +68,9 @@ namespace Strada
 		std::string FitPath(std::string_view path, float maxWidth);
 
 		// Menu items for every entity preset (EntityPresets::GetMenu: Core's directly, the other categories as submenus);
-		// returns the preset chosen this frame. Call inside an open menu or popup.
-		EntityPreset const* DrawEntityPresetMenuItems();
+		// returns the preset chosen this frame. openSubmenu, a category, opens its submenu as if the user pointed at it (it
+		// then stays open like one the user opened). Call inside an open menu or popup.
+		EntityPreset const* DrawEntityPresetMenuItems(std::string_view openSubmenu = {});
 
 		// Makes the last item a source of an asset drag (DragDropPayload::Asset) showing the label while dragging.
 		void AssetDragSource(AssetHandle asset, std::string_view label);

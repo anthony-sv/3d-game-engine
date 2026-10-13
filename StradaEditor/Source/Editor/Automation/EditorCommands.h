@@ -40,9 +40,17 @@ namespace Strada
 		// The content browser panel. Unset when the editor has no UI (headless); asset.browse then fails with
 		// AutomationErrorCode::Unavailable.
 		std::function<ContentBrowserPanel&()> ContentBrowser;
-		// Shows the inspector with its Add Component menu open and the search text typed in (open), or closes the menu. Unset
-		// when the editor has no UI (headless); inspector.add-component-menu then fails with AutomationErrorCode::Unavailable.
-		std::function<void(bool open, std::string const& search)> ShowAddComponentMenu;
+		// Whether a dialog (a modal popup such as the unsaved changes prompt) is open: menus do not open over it, as users
+		// cannot open them then either. May be unset (the editor shows no dialogs).
+		std::function<bool()> IsDialogOpen;
+		// Shows the inspector with its Add Component menu open and the search text typed in or, without search text, the
+		// submenu of a component category open (none when empty), or closes the menu (open false). Unset when the editor has
+		// no UI (headless); inspector.add-component-menu then fails with AutomationErrorCode::Unavailable.
+		std::function<void(bool open, std::string const& search, std::string const& category)> ShowAddComponentMenu;
+		// Opens the menu bar's Entity menu with the submenu of an entity preset category open (none when empty), or closes
+		// it (open false). Unset when the editor has no UI (headless); editor.entity-menu then fails with
+		// AutomationErrorCode::Unavailable.
+		std::function<void(bool open, std::string const& submenu)> ShowEntityMenu;
 	};
 
 	// Registers the editor, project, scene, entity, component, asset, material, prefab, inspector, log and viewport commands. Entity

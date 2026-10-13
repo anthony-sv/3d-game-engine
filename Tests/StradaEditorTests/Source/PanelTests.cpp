@@ -8,6 +8,7 @@
 #include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
+#include "Editor/EntityPresets.h"
 #include "Editor/Panels/BuildGameDialog.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/Panels/InspectorPanel.h"
@@ -1841,6 +1842,21 @@ TEST_CASE("Panels: the Add Component menu shows categories, finds components as 
 	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
 	CHECK_FALSE(menuOpen());
 
+	// A category's submenu opens with the menu, as if the user pointed at it, and stays open like one the user opened.
+	inspector.ShowAddComponentMenu(true, "", "UI");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	REQUIRE(GImGui->OpenPopupStack.Size == 2);
+	REQUIRE(GImGui->OpenPopupStack[1].Window != nullptr);
+	CHECK(std::string_view(GImGui->OpenPopupStack[1].Window->Name).starts_with("UI###"));
+	imgui.Frame(draw);
+	CHECK(GImGui->OpenPopupStack.Size == 2);
+	inspector.ShowAddComponentMenu(false, "");
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK_FALSE(menuOpen());
+	CHECK(context.GetHistory().GetUndoCount() == steps + 2);
+
 	// Requests without selected entities open nothing, also not later.
 	REQUIRE(operations.Select({}).IsOk());
 	inspector.ShowAddComponentMenu(true, "light");
@@ -1851,6 +1867,71 @@ TEST_CASE("Panels: the Add Component menu shows categories, finds components as 
 	imgui.Frame(draw);
 	CHECK_FALSE(menuOpen());
 	CHECK(open);
+}
+
+TEST_CASE("UI: the create menus open the submenu of a category when asked, as if the user pointed at it")
+{
+	HeadlessImGui imgui;
+	bool openMenu = false;
+	bool closeMenu = false;
+	std::string_view openSubmenu;
+	EntityPreset const* chosen = nullptr;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(100.0f, 100.0f));
+		ImGui::Begin("Hierarchy", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		if (std::exchange(openMenu, false))
+		{
+			ImGui::OpenPopup("##create");
+		}
+		if (ImGui::BeginPopup("##create"))
+		{
+			chosen = UI::DrawEntityPresetMenuItems(std::exchange(openSubmenu, std::string_view()));
+			if (std::exchange(closeMenu, false))
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+		ImGui::End();
+	};
+	auto const openSubmenuName = []() -> std::string_view
+	{
+		return GImGui->OpenPopupStack.Size == 2 && GImGui->OpenPopupStack[1].Window != nullptr
+		           ? std::string_view(GImGui->OpenPopupStack[1].Window->Name)
+		           : std::string_view();
+	};
+
+	// The menu alone opens no submenu.
+	openMenu = true;
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+
+	// A category's submenu opens and stays open, choosing nothing.
+	openSubmenu = "Rendering";
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK(openSubmenuName().starts_with("Rendering###"));
+	imgui.Frame(draw);
+	CHECK(openSubmenuName().starts_with("Rendering###"));
+	CHECK(chosen == nullptr);
+
+	// Another category's submenu takes its place; Core's presets are in the menu itself, so it opens nothing.
+	openSubmenu = "UI";
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK(openSubmenuName().starts_with("UI###"));
+	closeMenu = true;
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	openMenu = true;
+	openSubmenu = EntityPresets::CoreCategory;
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+	CHECK(chosen == nullptr);
 }
 
 TEST_CASE("Panels: the inspector shows the material of each mesh slot and edits it in place")

@@ -602,6 +602,11 @@ namespace Strada
 
 	SchemaBuilder& SchemaBuilder::Enum(std::initializer_list<std::string_view> values)
 	{
+		return Enum(std::span<std::string_view const>(values.begin(), values.size()));
+	}
+
+	SchemaBuilder& SchemaBuilder::Enum(std::span<std::string_view const> values)
+	{
 		Json list = Json::array();
 		for (std::string_view const value : values)
 		{

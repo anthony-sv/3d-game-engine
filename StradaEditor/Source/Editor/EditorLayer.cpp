@@ -132,10 +132,18 @@ namespace Strada
 			{
 				return m_ContentBrowserPanel;
 			};
-			environment.ShowAddComponentMenu = [this](bool open, std::string const& search)
+			environment.IsDialogOpen = []
+			{
+				return ImGui::GetTopMostPopupModal() != nullptr;
+			};
+			environment.ShowAddComponentMenu = [this](bool open, std::string const& search, std::string const& category)
 			{
 				m_ShowInspector = m_ShowInspector || open;
-				m_InspectorPanel.ShowAddComponentMenu(open, search);
+				m_InspectorPanel.ShowAddComponentMenu(open, search, category);
+			};
+			environment.ShowEntityMenu = [this](bool open, std::string const& submenu)
+			{
+				m_EntityMenuRequest = EntityMenuRequest{open, submenu};
 			};
 		}
 		environment.RequestQuit = []
@@ -596,9 +604,18 @@ namespace Strada
 			ImGui::EndMenu();
 		}
 
+		// A request of editor.entity-menu applies to this frame only. The menu's popup has the ID BeginMenu gives it, from its
+		// label in the menu bar.
+		std::optional<EntityMenuRequest> const entityMenuRequest = std::exchange(m_EntityMenuRequest, std::nullopt);
+		bool const openEntityMenu = entityMenuRequest && entityMenuRequest->Open;
+		if (openEntityMenu)
+		{
+			ImGui::OpenPopup("Entity");
+		}
 		if (ImGui::BeginMenu("Entity"))
 		{
-			if (EntityPreset const* preset = UI::DrawEntityPresetMenuItems())
+			if (EntityPreset const* preset =
+			        UI::DrawEntityPresetMenuItems(openEntityMenu ? std::string_view(entityMenuRequest->Submenu) : std::string_view()))
 			{
 				Result<UUID> created = EntityPresets::Create(m_Operations, *preset, UUID::Invalid(), GetSpawnPosition());
 				UI::ReportFailure(created, "Creating the entity");
@@ -607,6 +624,10 @@ namespace Strada
 					std::array<UUID, 1> const selection = {created.GetValue()};
 					UI::ReportFailure(m_Operations.Select(selection), "Selecting the new entity");
 				}
+			}
+			if (entityMenuRequest && !entityMenuRequest->Open)
+			{
+				ImGui::CloseCurrentPopup();
 			}
 			ImGui::EndMenu();
 		}

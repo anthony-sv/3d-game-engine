@@ -6,7 +6,9 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <map>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,11 +47,52 @@ TEST_CASE("Components: every component is registered once with a unique name")
 
 TEST_CASE("Components: every component belongs to one of the known categories")
 {
+	// Where users find each component in the Add Component menu. Every registered component is listed, so a new one fails
+	// here until its category is chosen.
+	std::map<std::string_view, std::string_view> const expected = {
+		{"ID", ComponentCategory::Core},
+		{"Tag", ComponentCategory::Core},
+		{"Transform", ComponentCategory::Core},
+		{"Relationship", ComponentCategory::Core},
+		{"Camera", ComponentCategory::Rendering},
+		{"Mesh", ComponentCategory::Rendering},
+		{"DirectionalLight", ComponentCategory::Rendering},
+		{"PointLight", ComponentCategory::Rendering},
+		{"SpotLight", ComponentCategory::Rendering},
+		{"SkyLight", ComponentCategory::Rendering},
+		{"RigidBody", ComponentCategory::Physics},
+		{"BoxCollider", ComponentCategory::Physics},
+		{"SphereCollider", ComponentCategory::Physics},
+		{"CapsuleCollider", ComponentCategory::Physics},
+		{"MeshCollider", ComponentCategory::Physics},
+		{"Joint", ComponentCategory::Physics},
+		{"CharacterController", ComponentCategory::Physics},
+		{"AudioSource", ComponentCategory::Audio},
+		{"AudioListener", ComponentCategory::Audio},
+		{"Script", ComponentCategory::Scripting},
+		// Text and sprites are renderers in the world or on the screen; UI holds the elements of screen-space canvases.
+		{"Text", ComponentCategory::Rendering},
+		{"SpriteRenderer", ComponentCategory::Rendering},
+		{"ParticleSystem", ComponentCategory::Rendering},
+		{"PostProcess", ComponentCategory::Rendering},
+		{"UICanvas", ComponentCategory::UI},
+		{"UIRect", ComponentCategory::UI},
+		{"UIImage", ComponentCategory::UI},
+		{"UIText", ComponentCategory::UI},
+		{"UIButton", ComponentCategory::UI},
+		{"Prefab", ComponentCategory::Core},
+	};
+
+	std::span<ComponentInfo const> const components = ComponentRegistry::GetComponents();
+	CHECK(components.size() == expected.size());
 	std::set<std::string_view> used;
-	for (ComponentInfo const& info : ComponentRegistry::GetComponents())
+	for (ComponentInfo const& info : components)
 	{
 		CAPTURE(info.Name);
 		CHECK(std::find(ComponentCategory::All.begin(), ComponentCategory::All.end(), info.Category) != ComponentCategory::All.end());
+		auto const category = expected.find(info.Name);
+		REQUIRE_MESSAGE(category != expected.end(), "the test lists no category for the component");
+		CHECK(info.Category == category->second);
 		used.insert(info.Category);
 		// Core components are on every entity; the other categories group what users add.
 		if (info.IsCore())
@@ -59,21 +102,6 @@ TEST_CASE("Components: every component belongs to one of the known categories")
 	}
 	// Every category the Add Component menu shows has components.
 	CHECK(used.size() == ComponentCategory::All.size());
-
-	CHECK(ComponentRegistry::Get<TransformComponent>().Category == ComponentCategory::Core);
-	CHECK(ComponentRegistry::Get<PrefabComponent>().Category == ComponentCategory::Core);
-	CHECK(ComponentRegistry::Get<MeshComponent>().Category == ComponentCategory::Rendering);
-	CHECK(ComponentRegistry::Get<ParticleSystemComponent>().Category == ComponentCategory::Rendering);
-	CHECK(ComponentRegistry::Get<JointComponent>().Category == ComponentCategory::Physics);
-	CHECK(ComponentRegistry::Get<AudioListenerComponent>().Category == ComponentCategory::Audio);
-	CHECK(ComponentRegistry::Get<ScriptComponent>().Category == ComponentCategory::Scripting);
-	CHECK(ComponentRegistry::Get<CharacterControllerComponent>().Category == ComponentCategory::Physics);
-	CHECK(ComponentRegistry::Get<PostProcessComponent>().Category == ComponentCategory::Rendering);
-	// Text and sprites are renderers in the world or on the screen; UI holds the elements of screen-space canvases.
-	CHECK(ComponentRegistry::Get<TextComponent>().Category == ComponentCategory::Rendering);
-	CHECK(ComponentRegistry::Get<SpriteRendererComponent>().Category == ComponentCategory::Rendering);
-	CHECK(ComponentRegistry::Get<UICanvasComponent>().Category == ComponentCategory::UI);
-	CHECK(ComponentRegistry::Get<UIButtonComponent>().Category == ComponentCategory::UI);
 }
 
 TEST_CASE("Components: every component round trips through JSON with its default values")

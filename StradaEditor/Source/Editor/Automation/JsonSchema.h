@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -55,6 +56,8 @@ namespace Strada
 		// Also accepts null.
 		SchemaBuilder& Nullable();
 		SchemaBuilder& Enum(std::initializer_list<std::string_view> values);
+		// Values known at run time, such as the categories of a menu.
+		SchemaBuilder& Enum(std::span<std::string_view const> values);
 		SchemaBuilder& Minimum(Json minimum);
 		SchemaBuilder& Maximum(Json maximum);
 		SchemaBuilder& MinLength(uint64_t length);
