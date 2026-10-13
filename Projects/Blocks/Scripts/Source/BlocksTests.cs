@@ -11,15 +11,20 @@ namespace Blocks;
 /// screen (the labels over the board, the score panel and the menus, whose buttons it clicks as the mouse does, and that
 /// none of it covers the board on screens from 5:4 to 21:9), the game-over screen and the title screen's demo (the test scene
 /// starts the game without the title screen, keeps no best score and seeds its demo). The checks run in a language that
-/// groups thousands with a narrow no-break space, as French does. The test run ends once they are done (play the scene, or
-/// `StradaRuntime --project Blocks.sproj --scene Scenes/Tests.sscene --test`).</summary>
+/// groups thousands with a narrow no-break space, as French does. They wait in seconds of the game, so they pass at any time
+/// step, and they seed <see cref="Random"/>, so every run plays the same. The test run ends once they are done (play the
+/// scene, or `StradaRuntime --project Blocks.sproj --scene Scenes/Tests.sscene --test`).</summary>
 public sealed class BlocksTests : Script
 {
 	[Tooltip("The game the checks play")]
 	public Entity? Game;
 
-	// How long the checks give the demo to do what they wait for (frames).
-	private const int Patience = 600;
+	// How long the checks give the demo to do what they wait for (seconds).
+	private const float Patience = 10.0f;
+	// The seed of the run's random numbers (pieces, sounds' pitches, debris, the demo's pace).
+	private const int RandomSeed = 7;
+	// Seconds the game-over screen waits before it goes back to the title, when the checks wait for that.
+	private const float TitleReturnTime = 0.25f;
 
 	// The screens the layout checks look at, from 5:4 to 21:9 (the test run's window is 16:10).
 	private static readonly Vector2[] s_Screens =
@@ -44,9 +49,10 @@ public sealed class BlocksTests : Script
 	private static readonly string[] s_TitleMenu = ["Play Button", "Quit Button", "Title Hint"];
 	private static readonly string[] s_Panels = ["Score Panel", "Controls Panel"];
 
-	// The steps of the run after the first frame: each waits for its frames or condition, runs its checks and starts the
-	// next. A click takes effect at the start of the next frame, so the checks of what it did wait two frames (three for the
-	// camera, which may move before the game does in a frame).
+	// The steps of the run after the first frame: each waits for its time, frames or condition, runs its checks and starts
+	// the next. What takes time (pieces falling, screens fading, the camera gliding) is waited for in seconds of the game, so
+	// the run passes at any time step. A click takes effect at the start of the next frame, so the checks of what it did wait
+	// two frames (three for the camera, which may move before the game does in a frame).
 	private enum Step
 	{
 		Start,
@@ -76,7 +82,9 @@ public sealed class BlocksTests : Script
 	}
 
 	private Step m_Step = Step.Start;
+	// Frames and seconds since the step started.
 	private int m_StepFrames;
+	private float m_StepTime;
 	private int m_StartRow;
 	private Vector3 m_CameraPlace;
 	private int m_BestBeforeDemo;
@@ -86,17 +94,17 @@ public sealed class BlocksTests : Script
 	private int m_ScoreBeforeClicks;
 	// The settled cells that block a demo piece's way, until the demo has planned again.
 	private readonly List<(int X, int Y)> m_Blocked = [];
-	// What the callout checks saw over the frames: the first callout out of its room, and the frames that showed callouts in
-	// every slot at once.
+	// What the callout checks saw over the frames: the first callout out of its room, and how long callouts showed in every
+	// slot at once (seconds).
 	private string? m_CalloutTrouble;
-	private int m_FramesWithEverySlot;
+	private float m_EverySlotTime;
 	// The points of the last clear the callouts showed.
 	private int m_LastClearPoints;
-	// What the title's watch saw over the frames: the first frame the title covered the board, and the frames of the camera's
-	// glide to the title's view in which the sign waited and in which it faded in.
+	// What the title's watch saw over the frames: the first frame the title covered the board, and how long the sign waited
+	// and faded in during the camera's glide to the title's view (seconds).
 	private string? m_TitleTrouble;
-	private int m_SignWaited;
-	private int m_SignFadedIn;
+	private float m_SignWaited;
+	private float m_SignFadedIn;
 	// The language the scene had, given back when the checks end.
 	private CultureInfo? m_Culture;
 	// Entities of the scene by name, found once.
@@ -104,6 +112,7 @@ public sealed class BlocksTests : Script
 
 	protected override void OnCreate()
 	{
+		Random.Seed(RandomSeed);
 		// The checks run in a language that groups thousands with a narrow no-break space, as French does: the font has no
 		// such space, so the screen's numbers must not take the player's language.
 		m_Culture = CultureInfo.CurrentCulture;
@@ -374,10 +383,14 @@ public sealed class BlocksTests : Script
 		BlocksGame game = Game!.As<BlocksGame>()!;
 		CameraShake camera = game.Camera!.As<CameraShake>()!;
 		m_StepFrames++;
-		WatchTitle(game, camera);
+		m_StepTime += deltaTime;
+		WatchTitle(game, camera, deltaTime);
 		switch (m_Step)
 		{
 			case Step.Start:
+				// The game starts over with pieces from the seed: scripts start in no set order, so the game may have started
+				// before the seed.
+				game.Restart();
 				TestReporter.Run("a game starts with a piece at the top", () =>
 				{
 					Assert.IsFalse(game.IsOver);
@@ -404,12 +417,12 @@ public sealed class BlocksTests : Script
 				m_CameraPlace = camera.Translation;
 				Next(Step.Play);
 				break;
-			case Step.Play when m_StepFrames == 19:
+			case Step.Play when m_StepTime >= 0.32f:
 				CheckPlay(game);
 				CheckLabels(game);
 				Next(Step.Lock);
 				break;
-			case Step.Lock when m_StepFrames == 45:
+			case Step.Lock when m_StepTime >= 0.75f:
 				// The piece the play checks left on the floor has waited there.
 				TestReporter.Run("a landed piece settles after a moment, with a click", () =>
 				{
@@ -423,7 +436,7 @@ public sealed class BlocksTests : Script
 				game.SetPaused(true);
 				Next(Step.Paused);
 				break;
-			case Step.Paused when m_StepFrames == 150:
+			case Step.Paused when m_StepTime >= 2.5f:
 				CheckPause(game, m_LastClearPoints);
 				// The menu's Resume goes on, as Escape does.
 				Click("Resume Button");
@@ -437,14 +450,14 @@ public sealed class BlocksTests : Script
 				});
 				Next(Step.Fade);
 				break;
-			case Step.Fade when m_StepFrames < 150:
-				WatchCallouts();
+			case Step.Fade when m_StepTime < 2.5f:
+				WatchCallouts(deltaTime);
 				break;
 			case Step.Fade:
 				TestReporter.Run("callouts keep to rooms of their own, so they never run into one another", () =>
 				{
 					Assert.IsNull(m_CalloutTrouble, "a callout left its room");
-					Assert.IsTrue(m_FramesWithEverySlot > 60, $"every slot showed for {m_FramesWithEverySlot} frames");
+					Assert.IsTrue(m_EverySlotTime > 1.0f, $"every slot showed for {m_EverySlotTime} s");
 					foreach (CalloutSlot slot in System.Enum.GetValues<CalloutSlot>())
 					{
 						(float top, float bottom) = Callouts.Room(slot);
@@ -468,7 +481,7 @@ public sealed class BlocksTests : Script
 					Assert.IsFalse(Rect("Dim").Visible);
 				});
 				// The game ends with the best score so far; its game-over screen goes back to the title after a quarter of a second.
-				game.TitleReturnDelay = 0.25f;
+				game.TitleReturnDelay = TitleReturnTime;
 				ForceGameOver(game);
 				Next(Step.NewBest);
 				break;
@@ -487,7 +500,7 @@ public sealed class BlocksTests : Script
 				});
 				Next(Step.TitleReturn);
 				break;
-			case Step.TitleReturn when m_StepFrames == 28:
+			case Step.TitleReturn when m_StepTime >= TitleReturnTime + 0.2f:
 				TestReporter.Run("the game-over screen goes back to the title after a while", () =>
 				{
 					Assert.AreEqual(GameState.Title, game.State);
@@ -499,7 +512,7 @@ public sealed class BlocksTests : Script
 				ForceGameOver(game);
 				Next(Step.KeyWait);
 				break;
-			case Step.KeyWait when m_StepFrames == 60:
+			case Step.KeyWait when m_StepTime >= 1.0f:
 				TestReporter.Run("with no delay the game-over screen waits for the player", () =>
 				{
 					Assert.AreEqual(GameState.Over, game.State);
@@ -579,7 +592,7 @@ public sealed class BlocksTests : Script
 				game.ShowTitle();
 				Next(Step.DemoHold);
 				break;
-			case Step.DemoHold when game.DemoHolds > 0 || m_StepFrames == Patience:
+			case Step.DemoHold when game.DemoHolds > 0 || m_StepTime >= Patience:
 				// The scene's demo seed starts with a piece the auto player puts aside.
 				TestReporter.Run("the demo puts a piece aside when the one that comes instead fits better", () =>
 				{
@@ -596,11 +609,11 @@ public sealed class BlocksTests : Script
 				BlockSlide(game, System.Math.Sign(plan.Landed.X - game.Active.X));
 				Next(Step.DemoReplan);
 				break;
-			case Step.DemoBlock when m_StepFrames == Patience:
+			case Step.DemoBlock when m_StepTime >= Patience:
 				TestReporter.Fail("a blocked demo move makes a new plan, and the piece still settles", "the demo never slid a piece");
 				Next(Step.Demo);
 				break;
-			case Step.DemoReplan when game.DemoReplans > m_ReplansBeforeBlock || game.DemoPieces > m_PiecesBeforeBlock || m_StepFrames == Patience:
+			case Step.DemoReplan when game.DemoReplans > m_ReplansBeforeBlock || game.DemoPieces > m_PiecesBeforeBlock || m_StepTime >= Patience:
 				// It planned again (or the piece settled): the cells go, so the pieces after it find the board the demo made.
 				foreach ((int x, int y) in m_Blocked)
 				{
@@ -609,7 +622,7 @@ public sealed class BlocksTests : Script
 				m_Blocked.Clear();
 				Next(Step.DemoSettle);
 				break;
-			case Step.DemoSettle when game.DemoPieces > m_PiecesBeforeBlock || m_StepFrames == Patience:
+			case Step.DemoSettle when game.DemoPieces > m_PiecesBeforeBlock || m_StepTime >= Patience:
 				TestReporter.Run("a blocked demo move makes a new plan, and the piece still settles", () =>
 				{
 					Assert.IsTrue(game.DemoReplans > m_ReplansBeforeBlock, "it planned again");
@@ -618,12 +631,12 @@ public sealed class BlocksTests : Script
 				});
 				Next(Step.Demo);
 				break;
-			case Step.Demo when (game.DemoPieces >= 3 && camera.AttractWeight >= 1.0f) || m_StepFrames == Patience:
+			case Step.Demo when (game.DemoPieces >= 3 && camera.AttractWeight >= 1.0f) || m_StepTime >= Patience:
 				TestReporter.Run("the title's sign waits for the camera to stand back, and the title never covers the board", () =>
 				{
 					Assert.IsNull(m_TitleTrouble);
-					Assert.IsTrue(m_SignWaited > 30, $"the sign waited for {m_SignWaited} frames of the camera's glide");
-					Assert.IsTrue(m_SignFadedIn > 10, $"the sign faded in over {m_SignFadedIn} frames of the glide");
+					Assert.IsTrue(m_SignWaited > 0.5f, $"the sign waited for {m_SignWaited} s of the camera's glide");
+					Assert.IsTrue(m_SignFadedIn > 0.15f, $"the sign faded in over {m_SignFadedIn} s of the glide");
 				});
 				CheckDemo(game, camera);
 				// What a click on the title's Play does.
@@ -650,7 +663,7 @@ public sealed class BlocksTests : Script
 				});
 				Next(Step.CameraBack);
 				break;
-			case Step.CameraBack when m_StepFrames == 120:
+			case Step.CameraBack when m_StepTime >= 2.0f:
 				TestReporter.Run("the camera glides back to its place in a game", () =>
 				{
 					Assert.AreEqual(0.0f, camera.AttractWeight);
@@ -667,6 +680,7 @@ public sealed class BlocksTests : Script
 	{
 		m_Step = step;
 		m_StepFrames = 0;
+		m_StepTime = 0.0f;
 	}
 
 	// The checks that play the game through its public methods, right after one another.
@@ -1017,8 +1031,9 @@ public sealed class BlocksTests : Script
 		return points;
 	}
 
-	// Checks the callouts that show this frame: each keeps to its slot's room (so none runs into another).
-	private void WatchCallouts()
+	// Checks the callouts that show this frame (one of the time step): each keeps to its slot's room (so none runs into
+	// another).
+	private void WatchCallouts(float deltaTime)
 	{
 		int showing = 0;
 		foreach (CalloutSlot slot in System.Enum.GetValues<CalloutSlot>())
@@ -1032,10 +1047,10 @@ public sealed class BlocksTests : Script
 			// Half a canvas unit for rounding.
 			if (m_CalloutTrouble is null && (lines.Top < top - 0.5f || lines.Bottom > bottom + 0.5f))
 			{
-				m_CalloutTrouble = $"frame {m_StepFrames}: the {slot} callout spans {lines.Top} to {lines.Bottom}, its room {top} to {bottom}";
+				m_CalloutTrouble = $"at {m_StepTime} s: the {slot} callout spans {lines.Top} to {lines.Bottom}, its room {top} to {bottom}";
 			}
 		}
-		m_FramesWithEverySlot += showing == System.Enum.GetValues<CalloutSlot>().Length ? 1 : 0;
+		m_EverySlotTime += showing == System.Enum.GetValues<CalloutSlot>().Length ? deltaTime : 0.0f;
 	}
 
 	// The lines a slot's callout shows (its texts and their shadows), from the top of the first to the bottom of the last in
@@ -1152,10 +1167,10 @@ public sealed class BlocksTests : Script
 	// How much of an element of the screen shows: its opacity times its ancestors', none when it or one of them is hidden.
 	private float ShownOpacity(string name) => new Placed(Find(name)).Opacity;
 
-	// Every frame: what of the title shows (its sign and its menu) leaves the board, its panels and their labels in sight, in
-	// the window and on a wide screen, where the sign clears the board last while the camera glides to the title's view. The
-	// frames of that glide in which the sign waited for the camera, and in which it faded in, are counted.
-	private void WatchTitle(BlocksGame game, CameraShake camera)
+	// Every frame (one of the time step): what of the title shows (its sign and its menu) leaves the board, its panels and their
+	// labels in sight, in the window and on a wide screen, where the sign clears the board last while the camera glides to the
+	// title's view. How long the sign waited for the camera during that glide, and how long it faded in, add up.
+	private void WatchTitle(BlocksGame game, CameraShake camera, float deltaTime)
 	{
 		if (ShownOpacity("Title Screen") <= 0.0f)
 		{
@@ -1164,8 +1179,8 @@ public sealed class BlocksTests : Script
 		if (game.State == GameState.Title && camera.AttractWeight < 1.0f)
 		{
 			bool shows = ShownOpacity("Title Sign") > 0.0f;
-			m_SignWaited += shows ? 0 : 1;
-			m_SignFadedIn += shows ? 1 : 0;
+			m_SignWaited += shows ? 0.0f : deltaTime;
+			m_SignFadedIn += shows ? deltaTime : 0.0f;
 		}
 		if (m_TitleTrouble is null && FindCover(game, [Window, s_WideScreen], [.. s_Sign, .. s_TitleMenu]) is { } cover)
 		{

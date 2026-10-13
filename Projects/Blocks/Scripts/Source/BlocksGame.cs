@@ -347,8 +347,9 @@ public sealed class BlocksGame : Script
 		m_Hud?.Dispose();
 	}
 
-	// The screen's menus take the mouse, the arrow keys, Enter and Space on the title, pause and game-over screens (see Hud):
-	// they go first, so what they start or resume plays this frame. The game takes its own keys.
+	// The screen's menus take the mouse, the arrow keys and Enter on the title, pause and game-over screens, and Space on the
+	// title and pause screens (see Hud): they go first, so what they start or resume plays this frame. The game takes its own
+	// keys.
 	protected override void OnUpdate(float deltaTime)
 	{
 		m_Hud?.UpdateMenus(deltaTime);

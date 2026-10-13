@@ -33,7 +33,9 @@ public sealed class Hud : System.IDisposable
 	private const float PopSeconds = 0.3f;
 	// How fast the level's bar follows the rows (the part of the way left per second, exponentially).
 	private const float BarResponse = 8.0f;
-	// Seconds the game-over menu waits before it takes keys: the hard drops that ended the game do not click Play Again.
+	// Seconds the game-over menu waits before it takes keys, so the keys pressed for the game as it ends do not move its focus.
+	// Only Enter clicks it: Space, the hard drop, stays the game's, so a player who keeps pressing it as the stack reaches the
+	// top keeps the game-over screen in front of them.
 	private const float GameOverKeyDelay = 0.5f;
 	// The HOLD and NEXT labels: their letters' size and the drop shadow's offset, in parts of their header's height.
 	private const float LabelSize = 0.56f;
@@ -114,7 +116,8 @@ public sealed class Hud : System.IDisposable
 		}
 		m_TitleMenu = new Menu([Find("Play Button"), Find("Quit Button")], game.PlayMenuTick);
 		m_PauseMenu = new Menu([Find("Resume Button"), Find("Restart Button"), Find("Pause Quit Button")], game.PlayMenuTick);
-		m_OverMenu = new Menu([Find("Play Again Button"), Find("Game Over Quit Button")], game.PlayMenuTick, GameOverKeyDelay);
+		m_OverMenu = new Menu([Find("Play Again Button"), Find("Game Over Quit Button")], game.PlayMenuTick, GameOverKeyDelay,
+			spaceClicks: false);
 		m_FinalScore = Find("Final Score").GetComponent<UITextComponent>()!;
 		m_FinalStats = Find("Final Stats").GetComponent<UITextComponent>()!;
 		m_NewBest = Find("New Best Tag").GetComponent<UIRectComponent>()!;

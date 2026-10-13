@@ -55,6 +55,18 @@ namespace
 		return text.find(part) != std::string_view::npos;
 	}
 
+	// The test run's summary in a player's output ("Tests passed: <checks> checks in <frames> frames"); empty without one.
+	std::string_view TestSummary(std::string_view output)
+	{
+		size_t const start = output.find("Tests passed: ");
+		if (start == std::string_view::npos)
+		{
+			return {};
+		}
+		size_t const end = output.find_first_of("\r\n", start);
+		return output.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
+	}
+
 	// A scene seen by a primary camera against a red sky; with fields, an entity runs Strada.Tests.SelfTest with them.
 	Ref<Scene> MakeScene(std::string const& name, std::optional<ScriptFieldMap> selfTest)
 	{
@@ -526,6 +538,24 @@ TEST_CASE("Runtime: the Blocks sample plays and passes its tests")
 	CAPTURE(tests.Output);
 	CHECK(tests.ExitCode == 0);
 	CHECK(Contains(tests.Output, "Tests passed: 57 checks"));
+
+	// The checks seed the game's random numbers, so every run plays the same frames.
+	ProcessResult const again = RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test"});
+	CAPTURE(again.Output);
+	CHECK(again.ExitCode == 0);
+	CHECK_FALSE(TestSummary(tests.Output).empty());
+	CHECK(TestSummary(again.Output) == TestSummary(tests.Output));
+
+	// They wait in seconds of the game, so they pass at other frame rates too.
+	for (char const* timestep : {"0.0333333", "0.00694444"})
+	{
+		ProcessResult const run =
+			RunPlayer({"--project", Native(project), "--scene", "Scenes/Tests.sscene", "--test", "--timestep", timestep});
+		CAPTURE(timestep);
+		CAPTURE(run.Output);
+		CHECK(run.ExitCode == 0);
+		CHECK(Contains(run.Output, "Tests passed: 57 checks"));
+	}
 
 	// The game's own scene runs as well (two seconds, without a window).
 	ProcessResult const game = RunPlayer({"--project", Native(project), "--headless", "--frames", "120"});

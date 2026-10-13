@@ -515,7 +515,7 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 	ScriptComponent script = game.GetComponent<ScriptComponent>();
 	REQUIRE(script.Fields.contains("HudCanvas"));
 	script.Fields["SaveBestScore"] = ScriptFieldValue::FromBool(false);
-	script.Fields["TitleReturnDelay"] = ScriptFieldValue::FromFloat(1.0f);
+	script.Fields["TitleReturnDelay"] = ScriptFieldValue::FromFloat(2.0f);
 	REQUIRE(fixture.Operations.SetComponent(game.GetUUID(), script).IsOk());
 
 	CHECK(fixture.Ok("play.start")["state"] == "play");
@@ -567,7 +567,28 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 		}
 		REQUIRE(open("Play Again Button"));
 	};
-	// The game-over menu takes keys half a second after it opens: hard drops that ended the game do not play again.
+	// Space pressed five times a second (each press a frame long) until the stack reaches the top, and on for a second and a
+	// half: a player mashing hard drops as the game ends.
+	auto const mashThroughTopOut = [&fixture, &advance, &open]
+	{
+		auto const tap = [&fixture, &advance]
+		{
+			fixture.Ok("input.set", Json::object({{"keys", Json::object({{"Space", true}})}}));
+			advance(1);
+			fixture.Ok("input.set", Json::object({{"keys", Json::object({{"Space", false}})}}));
+			advance(11);
+		};
+		for (int piece = 0; piece < 40 && !open("Play Again Button"); piece++)
+		{
+			tap();
+		}
+		REQUIRE(open("Play Again Button"));
+		for (int presses = 0; presses < 8; presses++)
+		{
+			tap();
+		}
+	};
+	// The game-over menu takes keys half a second after it opens.
 	auto const awaitKeys = [&advance]
 	{
 		advance(30);
@@ -623,13 +644,22 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 	click("Play Again Button");
 	CHECK_FALSE(open("Play Again Button"));
 	CHECK(text("Score Value") == "0");
-	// Keys pressed for the game as it ends do not click the game-over menu: a hard drop's Space at once changes nothing.
-	topOut();
-	press("keys", "Space");
+	// Space, the hard drop, stays the game's: mashed through the end of a game and on, it leaves the game-over screen up with
+	// the game's score. Enter plays again.
+	mashThroughTopOut();
 	CHECK(open("Play Again Button"));
+	CHECK(text("Final Score") != "0");
+	press("keys", "Enter");
+	CHECK_FALSE(open("Play Again Button"));
+	CHECK(text("Score Value") == "0");
+	// Keys pressed for the game as it ends do not act on the game-over menu: Down (a soft drop) at once leaves Play Again
+	// focused, which Enter clicks once the menu takes keys.
+	topOut();
+	press("keys", "Down");
 	awaitKeys();
 	press("keys", "Enter");
 	CHECK_FALSE(open("Play Again Button"));
+	CHECK_FALSE(open("Play Button"));
 	CHECK(text("Score Value") == "0");
 	topOut();
 	press("keys", "R");
@@ -648,7 +678,7 @@ TEST_CASE("PlayCommands: input.set plays the Blocks sample: clicks and keys in i
 
 	// Left alone, the game-over screen goes back to the title.
 	topOut();
-	advance(70);
+	advance(130);
 	CHECK(open("Play Button"));
 
 	// The title's Quit (Right, then Enter) ends the game, which ends play mode.

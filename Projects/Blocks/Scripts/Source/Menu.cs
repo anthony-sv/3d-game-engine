@@ -3,13 +3,14 @@ using Strada;
 
 namespace Blocks;
 
-/// <summary>Buttons the mouse and the keyboard share. The arrow keys (and W, A, S, D) move the focus and Enter or Space
-/// clicks the focused button; the mouse takes the focus when it moves onto a button, so a cursor left resting on one does
-/// not take it back from the keys. The focused button lights up and grows a little over its glow (an image named after it
-/// with " Glow", behind it), which breathes; a button held down shrinks. Clicks come back from <see cref="Update"/>
-/// whether the mouse or a key made them: a key clicks the button as the mouse does, through
+/// <summary>Buttons the mouse and the keyboard share. The arrow keys (and W, A, S, D) move the focus and Enter (or Space,
+/// unless the menu leaves it to the game) clicks the focused button; the mouse takes the focus when it moves onto a button,
+/// so a cursor left resting on one does not take it back from the keys. The focused button lights up and grows a little
+/// over its glow (an image named after it with " Glow", behind it), which breathes; a button held down shrinks. Clicks come
+/// back from <see cref="Update"/> whether the mouse or a key made them: a key clicks the button as the mouse does, through
 /// <see cref="UIButtonComponent.Click"/>. A menu can wait a moment after it opens before it takes keys, so keys pressed for
-/// the game (a hard drop's Space) do not click it.</summary>
+/// the game as the menu opens do not move its focus or click it. Keys act when they go down: one held from before does
+/// nothing until it is pressed again.</summary>
 public sealed class Menu
 {
 	// The focused button's colors: a bright fill with dark letters.
@@ -19,6 +20,7 @@ public sealed class Menu
 	private static readonly KeyCode[] s_PreviousKeys = [KeyCode.Up, KeyCode.W, KeyCode.Left, KeyCode.A];
 	private static readonly KeyCode[] s_NextKeys = [KeyCode.Down, KeyCode.S, KeyCode.Right, KeyCode.D];
 	private static readonly KeyCode[] s_ClickKeys = [KeyCode.Enter, KeyCode.KPEnter, KeyCode.Space];
+	private static readonly KeyCode[] s_EnterKeys = [KeyCode.Enter, KeyCode.KPEnter];
 	private const float FocusScale = 1.06f;
 	private const float PressScale = 0.95f;
 	// How fast buttons grow, shrink and light up: the part of the way left they go per second, exponentially.
@@ -32,14 +34,17 @@ public sealed class Menu
 	private readonly List<MenuButton> m_Buttons = [];
 	private readonly System.Action m_FocusMoved;
 	private readonly float m_KeyDelay;
+	private readonly KeyCode[] m_ClickKeys;
 	private Vector2 m_Mouse;
 	private bool m_Active;
 	// Seconds the open menu still waits before it takes keys.
 	private float m_KeyWait;
 
 	/// <summary>A closed menu of the buttons, in the order the keys move through them; focusMoved is called whenever the
-	/// focus moves to another button. Once open, it takes keys after keyDelay seconds (the mouse at once).</summary>
-	public Menu(IEnumerable<Entity> buttons, System.Action focusMoved, float keyDelay = 0.0f)
+	/// focus moves to another button. Once open, it takes keys after keyDelay seconds (the mouse at once). Without
+	/// spaceClicks only Enter clicks: Space stays the game's (a menu that opens as the game ends, while the player may still be
+	/// pressing it).</summary>
+	public Menu(IEnumerable<Entity> buttons, System.Action focusMoved, float keyDelay = 0.0f, bool spaceClicks = true)
 	{
 		foreach (Entity button in buttons)
 		{
@@ -49,6 +54,7 @@ public sealed class Menu
 		}
 		m_FocusMoved = focusMoved;
 		m_KeyDelay = keyDelay;
+		m_ClickKeys = spaceClicks ? s_ClickKeys : s_EnterKeys;
 	}
 
 	/// <summary>The focused button's index.</summary>
@@ -110,7 +116,7 @@ public sealed class Menu
 			{
 				MoveFocus((Focus + step + m_Buttons.Count) % m_Buttons.Count);
 			}
-			if (keys && IsPressed(s_ClickKeys))
+			if (keys && IsPressed(m_ClickKeys))
 			{
 				MenuButton focused = m_Buttons[Focus];
 				focused.Button.Click();
