@@ -241,8 +241,9 @@ DECK_TOP = 1.5
 LOOKOUT_TOP = 3.4
 CANOPY = LOOKOUT_TOP + 2.5
 
-# Where the free camera starts and the tour ends: south of the plaza, looking north over the fountain.
-HOME = (LAYOUT, (0.0, 2.9, 16.0), (0.0, 1.1, -2.0))
+# Where the free camera starts and the tour ends: south of the plaza and above it, looking north over the fountain, far
+# enough back that the neon sign (west) and the glass garden (east) both stand between the HUD's columns.
+HOME = (LAYOUT, (-1.5, 5.5, 28.0), (-1.5, 1.2, -3.0))
 # The camera flies and walks within this many meters of the plaza's center, where the ground under it is opaque (the ground
 # fades out beyond it: GenerateAssets.py's Ground), and flies no higher than the ceiling.
 AREA_RADIUS = 40.0
@@ -1087,14 +1088,29 @@ class Showcase:
         (barrel_low, barrel_high) = self.models[BARREL][1]
         barrel_height = barrel_high[1] - barrel_low[1]
         barrel_width = max(barrel_high[0] - barrel_low[0], barrel_high[2] - barrel_low[2]) + 0.03
-        for index, (x, level) in enumerate(((-barrel_width, 0), (0.0, 0), (barrel_width, 0), (-barrel_width / 2.0, 1), (barrel_width / 2.0, 1))):
-            self.model_entity(f"Barrel {index + 1}", BARREL, LAYOUT.place((5.8 + x, level * barrel_height - barrel_low[1] + 0.002, -10.6),
+        # Three barrels with a plank across their lids and two more standing on the plank: a barrel resting on the rims of two
+        # others slides off them, and pushes them apart.
+        plank_thickness = 0.06
+        plank_bottom = barrel_height + 0.004
+        upper = plank_bottom + plank_thickness + 0.002
+        for index, (x, bottom) in enumerate(((-barrel_width, 0.0), (0.0, 0.0), (barrel_width, 0.0), (-barrel_width / 2.0, upper),
+                                             (barrel_width / 2.0, upper))):
+            self.model_entity(f"Barrel {index + 1}", BARREL, LAYOUT.place((5.8 + x, bottom - barrel_low[1] + 0.002, -10.6),
                                                                           (0.0, 37.0 * index, 0.0)), {
                 "RigidBody": {"Type": "Dynamic", "Mass": 14.0, "AngularDamping": 0.15},
                 "MeshCollider": {"Mesh": self.models[BARREL][0], "Convex": True, "Friction": 0.6, "Restitution": 0.05},
                 "AudioSource": {"Clip": "asset://Audio/WoodHit.wav", "Pitch": 0.8, "Spatial": True, "MinDistance": 2.0, "MaxDistance": 40.0},
                 "Script": {"ClassName": "Showcase.Impact", "Fields": {"Volume": {"Type": "Float", "Value": 1.0}, "Camera": camera,
                                                                       "ShakeStrength": {"Type": "Float", "Value": 0.15}}}}, props)
+        self.entity("Barrel Plank", {"Transform": LAYOUT.place((5.8, plank_bottom + plank_thickness / 2.0, -10.6),
+                                                               scale=(2.0 * barrel_width + 0.4, plank_thickness, 0.42)),
+                                     **self.mesh("Cube", self.textures[PLANKS]),
+                                     "RigidBody": {"Type": "Dynamic", "Mass": 10.0, "AngularDamping": 0.15},
+                                     "BoxCollider": {"Friction": 0.8, "Restitution": 0.05},
+                                     "AudioSource": {"Clip": "asset://Audio/WoodHit.wav", "Pitch": 1.2, "Spatial": True, "MinDistance": 2.0,
+                                                     "MaxDistance": 40.0},
+                                     "Script": {"ClassName": "Showcase.Impact", "Fields": {"Volume": {"Type": "Float", "Value": 0.8},
+                                                                                          "Camera": camera}}}, props)
         self.props = props
 
         def shape(name, mesh, position, scale, material, components=None, euler=(0.0, 0.0, 0.0), parent=physics):
@@ -1652,24 +1668,24 @@ class Showcase:
         # opens (Hud stacks the rows; this is the list with every row closed).
         row_height, row_gap = 34.0, 4.0
         rows_height = row_height * len(FEATURES) + row_gap * (len(FEATURES) - 1)
-        panel = self.entity("Feature Panel", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (36.0, 36.0), (440.0, 124.0 + rows_height + 16.0)),
+        panel = self.entity("Feature Panel", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (36.0, 36.0), (392.0, 124.0 + rows_height + 16.0)),
                                               "UIImage": {"Color": PANEL, "CornerRadius": 18.0}}, hud)
-        self.entity("Brand", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (30.0, 22.0), (380.0, 52.0)),
+        self.entity("Brand", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (30.0, 22.0), (340.0, 52.0)),
                               "UIText": ui_text("S T R A D A", 42.0, TEXT)}, panel)
-        self.entity("Subtitle", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (32.0, 74.0), (380.0, 24.0)),
+        self.entity("Subtitle", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (32.0, 74.0), (340.0, 24.0)),
                                  "UIText": ui_text("ENGINE SHOWCASE", 17.0, AMBER)}, panel)
-        self.entity("Rule", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (30.0, 110.0), (380.0, 2.0)), "UIImage": {"Color": AMBER[:3] + [0.45]}},
+        self.entity("Rule", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (30.0, 110.0), (332.0, 2.0)), "UIImage": {"Color": AMBER[:3] + [0.45]}},
                     panel)
-        features = self.entity("Features", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (18.0, 124.0), (404.0, rows_height))}, panel)
+        features = self.entity("Features", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (18.0, 124.0), (356.0, rows_height))}, panel)
         for index, (name, detail, center, radius) in enumerate(FEATURES):
             row = self.entity(f"Feature: {name}", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (0.0, index * (row_height + row_gap)),
-                                                                     (404.0, row_height))}, features)
+                                                                     (356.0, row_height))}, features)
             glow = self.entity("Glow", {"UIRect": ui_fill(Opacity=0.0), "UIImage": {"Color": linear(1.0, 0.68, 0.3, 0.13), "CornerRadius": 10.0}}, row)
             bar = self.entity("Bar", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.5), (6.0, 0.0), (4.0, -12.0), (0.0, 1.0), Opacity=0.25),
                                       "UIImage": {"Color": AMBER, "CornerRadius": 2.0}}, row)
-            label = self.entity("Name", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 4.0), (376.0, 26.0)), "UIText": ui_text(name, 21.0, TEXT)},
+            label = self.entity("Name", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 4.0), (328.0, 26.0)), "UIText": ui_text(name, 21.0, TEXT)},
                                 row)
-            line = self.entity("Detail", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 31.0), (376.0, 18.0), Opacity=0.0),
+            line = self.entity("Detail", {"UIRect": ui_rect((0.0, 0.0), (0.0, 0.0), (22.0, 31.0), (328.0, 18.0), Opacity=0.0),
                                           "UIText": ui_text(detail, 15.0, DIM)}, row)
             x, z = center if center else (0.0, 0.0)
             self.call("component_add", {"entity": row, "component": "Script", "fields": {"ClassName": "Showcase.HudFeature", "Fields": {

@@ -146,6 +146,7 @@ public sealed class ShowcaseTests : Script
 	private int m_SwitchesBeforeChoice;
 	private int m_PlatePresses;
 	private int m_ResetsBeforeReplay;
+	private (Entity Body, Vector3 Position, Vector3 Up)[] m_BarrelStack = [];
 
 	protected override void OnCreate()
 	{
@@ -183,6 +184,8 @@ public sealed class ShowcaseTests : Script
 		At(8.0f, CheckTheTourUnderWay);
 		At(8.6f, CheckTheDayComesBack);
 		At(11.1f, CheckTheCaptionsAndSkip);
+		// Nothing touches the barrels until the playground is put back: a stack that settles or topples by itself shows here.
+		At(13.0f, CheckTheBarrelStack);
 		At(13.1f, () =>
 		{
 			CheckTheHandOver();
@@ -327,12 +330,29 @@ public sealed class ShowcaseTests : Script
 
 	private void Begin()
 	{
+		m_BarrelStack = [.. (Playground?.As<Playground>()?.Props?.Children ?? []).Where(prop => prop.Name.StartsWith("Barrel", StringComparison.Ordinal))
+			.Select(prop => (prop, prop.Transform.WorldTranslation, prop.Transform.Up))];
 		m_LighthouseAngle = Lighthouse?.As<Spinner>()?.Angle ?? 0.0f;
 		m_ShowColor = LightShow?.As<LightShow>()?.ColorOf(0) ?? Color.Black;
 		m_GateClosed = Gate?.Transform.WorldTranslation.Y ?? 0.0f;
 		(m_SmokeIntensity, m_LeavesIntensity) = MatterIntensities();
 		m_MusicVolume = Tour?.As<Flythrough>()?.Music?.GetComponent<AudioSourceComponent>()?.Volume ?? 0.0f;
 		NeonSign?.As<NeonSign>()?.Ignite();
+	}
+
+	private void CheckTheBarrelStack()
+	{
+		TestReporter.Run("the barrels stand as they were stacked until something hits them", () =>
+		{
+			Assert.IsTrue(m_BarrelStack.Length >= 6, $"{m_BarrelStack.Length} barrels and planks");
+			float upright = Mathf.Cos(5.0f * Mathf.Deg2Rad);
+			foreach ((Entity body, Vector3 position, Vector3 up) in m_BarrelStack)
+			{
+				Vector3 now = body.Transform.WorldTranslation;
+				Assert.IsTrue(Vector3.Distance(now, position) < 0.05f, $"{body.Name} moved from {position} to {now}");
+				Assert.IsTrue(Vector3.Dot(body.Transform.Up, up) > upright, $"{body.Name} tipped");
+			}
+		});
 	}
 
 	private (float Frame, float Letters) NeonLevels()
