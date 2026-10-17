@@ -35,7 +35,7 @@ before changing anything structural; it is the architectural contract.
 | `Projects/Showcase/` | Every engine feature in exhibit areas of a forest clearing (materials, glass, lights, post-processing, physics, triggers, a yard to walk in, particles, sound) with an opening camera tour, a HUD and day and night, built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its Poly Haven assets |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
 | `Tools/` | `build.py` (configure/build/test), `format.py` (clang-format and dotnet format) |
-| `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference), `Scripting.md` (guide to writing game scripts) |
+| `Docs/` | `Architecture.md` (the contract), `Automation.md` (automation protocol and command reference), `Scripting.md` (guide to writing game scripts), `EngineComparison.md` (research: other engines, what a motorcycle simulation needs), `Roadmap.md` (the plan built on it) |
 | `.claude/skills/` | Task-specific playbooks (see [Skills](#skills)) |
 
 ## Building

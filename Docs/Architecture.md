@@ -63,7 +63,7 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
 ├── Projects/Showcase/                                Showcase of every feature (exhibits, camera tour, Poly Haven assets)
 ├── Tools/                                            Developer scripts (configure/build/test, formatting)
-├── Docs/                                             Architecture contract, automation reference, scripting guide
+├── Docs/                                             Architecture, automation and scripting docs, comparison, roadmap
 └── .github/workflows/, .claude/skills/, .mcp.json    CI, agent skills, MCP configuration
 ```
 

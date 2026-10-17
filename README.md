@@ -75,7 +75,7 @@ Third-party libraries are downloaded automatically by CMake (pinned versions, ve
 | `Tests/` | Test suites |
 | `cmake/` | Build system modules |
 | `Tools/` | Build and formatting scripts |
-| `Docs/` | Architecture and design documentation, the automation reference and the scripting guide |
+| `Docs/` | Architecture and design documentation, the automation reference, the scripting guide, a comparison with other engines and the roadmap |
 | `.claude/skills/` | Development playbooks for AI agents |
 
 ## AI agents
