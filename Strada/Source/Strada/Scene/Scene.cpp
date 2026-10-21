@@ -15,6 +15,25 @@
 
 namespace Strada
 {
+	namespace
+	{
+		// Entity-typed values that refer to remapped entities refer to their copies; the others are kept.
+		void RemapEntityValues(ScriptFieldMap& values, std::unordered_map<UUID, UUID> const& remap)
+		{
+			for (auto& [name, value] : values)
+			{
+				if (value.GetType() != ScriptFieldType::Entity)
+				{
+					continue;
+				}
+				if (auto const it = remap.find(value.GetEntity()); it != remap.end())
+				{
+					value = ScriptFieldValue::FromEntity(it->second);
+				}
+			}
+		}
+	}
+
 	Scene::Scene(std::string name)
 		: m_Name(std::move(name))
 	{
@@ -277,17 +296,11 @@ namespace Strada
 		}
 		if (ScriptComponent* script = m_Registry.try_get<ScriptComponent>(handle))
 		{
-			for (auto& [name, value] : script->Fields)
-			{
-				if (value.GetType() != ScriptFieldType::Entity)
-				{
-					continue;
-				}
-				if (auto const it = remap.find(value.GetEntity()); it != remap.end())
-				{
-					value = ScriptFieldValue::FromEntity(it->second);
-				}
-			}
+			RemapEntityValues(script->Fields, remap);
+		}
+		if (VisualScriptComponent* visualScript = m_Registry.try_get<VisualScriptComponent>(handle))
+		{
+			RemapEntityValues(visualScript->Variables, remap);
 		}
 	}
 

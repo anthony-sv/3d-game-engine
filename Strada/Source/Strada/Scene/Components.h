@@ -268,6 +268,17 @@ namespace Strada
 		ScriptFieldMap Fields;
 	};
 
+	// One visual script per entity: further behaviours go on child entities with components of their own. An entity may
+	// have a Script component as well.
+	struct VisualScriptComponent
+	{
+		// The visual script (.sgraph asset); none runs nothing.
+		AssetHandle Graph;
+		// Values of the graph's public variables for this entity, by variable name, in the encoding of script fields; a
+		// variable without one starts with the graph's value.
+		ScriptFieldMap Variables;
+	};
+
 	// Screen-space text is positioned with the entity's translation in normalized viewport coordinates (x and y in
 	// [0, 1], origin top-left; z orders screen-space items, higher on top) and sized by FontSize in pixels; world-space
 	// text lies in the entity's XY plane with FontSize world units per line. The origin is the top of the first line,

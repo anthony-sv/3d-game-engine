@@ -214,6 +214,8 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/ScriptFieldSerialization.cpp
     Source/Strada/Script/ScriptFieldSerialization.h
     Source/Strada/Script/ScriptGlue.h
+    Source/Strada/Script/VisualScriptVariables.cpp
+    Source/Strada/Script/VisualScriptVariables.h
 )
 
 set(STRADA_SERIALIZATION_SOURCES

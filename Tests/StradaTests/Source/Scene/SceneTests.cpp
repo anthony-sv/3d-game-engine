@@ -178,6 +178,12 @@ TEST_CASE("Scene: duplication copies the subtree with new IDs and remaps interna
 	script.Fields["Barrel"] = ScriptFieldValue::FromEntity(child.GetUUID());
 	script.Fields["Target"] = ScriptFieldValue::FromEntity(outside.GetUUID());
 	child.AddComponent<PointLightComponent>().Range = 3.0f;
+	// A visual script on a child, the way behaviours compose: its variables refer to its root and to an entity outside.
+	VisualScriptComponent& behaviour = child.AddComponent<VisualScriptComponent>();
+	behaviour.Graph = AssetHandle(UUID(4242));
+	behaviour.Variables["Owner"] = ScriptFieldValue::FromEntity(root.GetUUID());
+	behaviour.Variables["Target"] = ScriptFieldValue::FromEntity(outside.GetUUID());
+	behaviour.Variables["Speed"] = ScriptFieldValue::FromFloat(2.5f);
 
 	Entity const copy = scene.DuplicateEntity(root);
 	REQUIRE(copy);
@@ -195,6 +201,13 @@ TEST_CASE("Scene: duplication copies the subtree with new IDs and remaps interna
 	ScriptComponent const& copiedScript = copy.GetComponent<ScriptComponent>();
 	CHECK(copiedScript.Fields.at("Barrel").GetEntity() == copiedChild.GetUUID());
 	CHECK(copiedScript.Fields.at("Target").GetEntity() == outside.GetUUID());
+
+	VisualScriptComponent const& copiedBehaviour = copiedChild.GetComponent<VisualScriptComponent>();
+	CHECK(copiedBehaviour.Graph == AssetHandle(UUID(4242)));
+	CHECK(copiedBehaviour.Variables.at("Owner").GetEntity() == copy.GetUUID());
+	CHECK(copiedBehaviour.Variables.at("Target").GetEntity() == outside.GetUUID());
+	CHECK(copiedBehaviour.Variables.at("Speed") == ScriptFieldValue::FromFloat(2.5f));
+	CHECK(child.GetComponent<VisualScriptComponent>().Variables.at("Owner").GetEntity() == root.GetUUID());
 	CHECK(scene.GetEntityCount() == 6);
 }
 

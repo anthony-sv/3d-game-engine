@@ -1,3 +1,4 @@
+#include "Strada/Asset/Asset.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/ComponentSerialization.h"
 #include "Strada/Scene/Entity.h"
@@ -18,7 +19,7 @@ using namespace Strada;
 TEST_CASE("Components: every component is registered once with a unique name")
 {
 	std::span<ComponentInfo const> const components = ComponentRegistry::GetComponents();
-	REQUIRE(components.size() == 30);
+	REQUIRE(components.size() == 31);
 
 	std::set<std::string_view> names;
 	for (ComponentInfo const& info : components)
@@ -70,6 +71,7 @@ TEST_CASE("Components: every component belongs to one of the known categories")
 		{"AudioSource", ComponentCategory::Audio},
 		{"AudioListener", ComponentCategory::Audio},
 		{"Script", ComponentCategory::Scripting},
+		{"VisualScript", ComponentCategory::Scripting},
 		// Text and sprites are renderers in the world or on the screen; UI holds the elements of screen-space canvases.
 		{"Text", ComponentCategory::Rendering},
 		{"SpriteRenderer", ComponentCategory::Rendering},
@@ -157,6 +159,22 @@ TEST_CASE("Components: field values survive a round trip")
 	REQUIRE(DeserializeComponent(SerializeComponent(script), loadedScript, DeserializationContext{}).IsOk());
 	CHECK(loadedScript.ClassName == "Game.Player");
 	CHECK(loadedScript.Fields == script.Fields);
+
+	VisualScriptComponent visualScript;
+	visualScript.Graph = AssetHandle(UUID(8146390251172604461ull));
+	visualScript.Variables["Partner"] = ScriptFieldValue::FromEntity(UUID(77));
+	visualScript.Variables["Seed"] = ScriptFieldValue::FromInt64(-9007199254740993LL);
+	visualScript.Variables["Tint"] = ScriptFieldValue::FromColor({1.0f, 0.5f, 0.25f, 0.75f});
+	Json const visualScriptJson = SerializeComponent(visualScript);
+	// Like script fields: 64-bit integers and entities as decimal strings.
+	CHECK(visualScriptJson["Graph"] == "8146390251172604461");
+	CHECK(visualScriptJson["Variables"]["Partner"] == Json::object({{"Type", "Entity"}, {"Value", "77"}}));
+	CHECK(visualScriptJson["Variables"]["Seed"] == Json::object({{"Type", "Int64"}, {"Value", "-9007199254740993"}}));
+	CHECK(visualScriptJson["Variables"]["Tint"]["Type"] == "Color");
+	VisualScriptComponent loadedVisualScript;
+	REQUIRE(DeserializeComponent(visualScriptJson, loadedVisualScript, DeserializationContext{}).IsOk());
+	CHECK(loadedVisualScript.Graph == visualScript.Graph);
+	CHECK(loadedVisualScript.Variables == visualScript.Variables);
 }
 
 TEST_CASE("Components: partial updates only touch the given fields")
@@ -348,6 +366,17 @@ TEST_CASE("Components: field descriptors carry kinds, hints and enum values")
 	CHECK(ComponentRegistry::Get<RigidBodyComponent>().FindField("LockRotation")->Kind == FieldKind::BVec3);
 	CHECK(ComponentRegistry::Get<TextComponent>().FindField("Text")->Hints.Display == FieldDisplay::MultilineText);
 	CHECK(ComponentRegistry::Get<ScriptComponent>().FindField("Fields")->Kind == FieldKind::Custom);
+	// The inspector edits a visual script's variables in a section of its own, after the graph's picker.
+	ComponentInfo const& visualScript = ComponentRegistry::Get<VisualScriptComponent>();
+	FieldDescriptor const* graph = visualScript.FindField("Graph");
+	REQUIRE(graph != nullptr);
+	CHECK(graph->Kind == FieldKind::Asset);
+	CHECK(graph->Hints.AssetTypeName == AssetTypeToString(AssetType::VisualScript));
+	CHECK_FALSE(graph->Hints.HiddenInEditors);
+	FieldDescriptor const* variables = visualScript.FindField("Variables");
+	REQUIRE(variables != nullptr);
+	CHECK(variables->Kind == FieldKind::Custom);
+	CHECK(variables->Hints.HiddenInEditors);
 	CHECK(ComponentRegistry::Get<RelationshipComponent>().FindField("Parent")->Kind == FieldKind::UUID);
 	CHECK(ComponentRegistry::Get<RelationshipComponent>().FindField("Children")->ElementKind == FieldKind::UUID);
 	CHECK(ComponentRegistry::Get<TagComponent>().FindField("Tag")->Kind == FieldKind::String);
@@ -380,6 +409,19 @@ TEST_CASE("Components: schemas include ranges, value lists, presentation hints a
 	CHECK(mesh["Fields"][0]["AssetType"] == "Mesh");
 	CHECK(mesh["Fields"][1]["Type"] == "asset[]");
 	CHECK(mesh["Fields"][1]["AssetType"] == "Material");
+
+	Json const visualScript = ComponentRegistry::Get<VisualScriptComponent>().Describe();
+	CHECK(visualScript["Name"] == "VisualScript");
+	REQUIRE(visualScript["Fields"].size() == 2);
+	CHECK(visualScript["Fields"][0]["Name"] == "Graph");
+	CHECK(visualScript["Fields"][0]["Type"] == "asset");
+	CHECK(visualScript["Fields"][0]["AssetType"] == "VisualScript");
+	CHECK(visualScript["Fields"][0]["Default"] == "0");
+	CHECK(visualScript["Fields"][1]["Name"] == "Variables");
+	CHECK(visualScript["Fields"][1]["Type"] == "scriptFields");
+	CHECK(visualScript["Fields"][1]["Default"] == Json::object());
+	CHECK(visualScript["Fields"][1]["HiddenInEditors"] == true);
+	CHECK_FALSE(visualScript["Fields"][1]["Description"].get<std::string>().empty());
 }
 
 TEST_CASE("Components: post-process settings are switched by their overrides and match the scene's renderer settings")

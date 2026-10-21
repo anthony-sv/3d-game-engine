@@ -584,6 +584,22 @@ namespace Strada
 	};
 
 	template<>
+	struct ComponentTraits<VisualScriptComponent>
+	{
+		static constexpr std::string_view Name = "VisualScript";
+		static constexpr uint32_t Flags = ComponentFlagsNone;
+		static constexpr std::string_view Category = ComponentCategory::Scripting;
+		static constexpr std::string_view Description = "Runs a visual script (.sgraph) on the entity.";
+		static constexpr auto Fields = std::make_tuple(
+			Field("Graph", &VisualScriptComponent::Graph)
+				.References("VisualScript")
+				.Doc("The visual script the entity runs; none runs nothing."),
+			Field("Variables", &VisualScriptComponent::Variables)
+				.HiddenInEditors()
+				.Doc("Values of the graph's public variables for this entity, by name; the others start with the graph's values."));
+	};
+
+	template<>
 	struct ComponentTraits<TextComponent>
 	{
 		static constexpr std::string_view Name = "Text";
@@ -909,7 +925,7 @@ namespace Strada
 		ComponentList<IDComponent, TagComponent, TransformComponent, RelationshipComponent, CameraComponent, MeshComponent,
 	                  DirectionalLightComponent, PointLightComponent, SpotLightComponent, SkyLightComponent, RigidBodyComponent,
 	                  BoxColliderComponent, SphereColliderComponent, CapsuleColliderComponent, MeshColliderComponent, JointComponent,
-	                  CharacterControllerComponent, AudioSourceComponent, AudioListenerComponent, ScriptComponent, TextComponent,
-	                  SpriteRendererComponent, ParticleSystemComponent, PostProcessComponent, UICanvasComponent, UIRectComponent,
-	                  UIImageComponent, UITextComponent, UIButtonComponent, PrefabComponent>;
+	                  CharacterControllerComponent, AudioSourceComponent, AudioListenerComponent, ScriptComponent, VisualScriptComponent,
+	                  TextComponent, SpriteRendererComponent, ParticleSystemComponent, PostProcessComponent, UICanvasComponent,
+	                  UIRectComponent, UIImageComponent, UITextComponent, UIButtonComponent, PrefabComponent>;
 }

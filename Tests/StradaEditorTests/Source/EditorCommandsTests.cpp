@@ -270,7 +270,8 @@ TEST_CASE("EditorCommands: inspector.add-component-menu opens the inspector's me
 {
 	CommandFixture fixture(true);
 	std::string const lamp = fixture.Create("Lamp", Json::object({{"components", {{"PointLight", Json::object()}}}}));
-	std::string const scripted = fixture.Create("Scripted", Json::object({{"components", {{"Script", Json::object()}}}}));
+	std::string const scripted =
+		fixture.Create("Scripted", Json::object({{"components", {{"Script", Json::object()}, {"VisualScript", Json::object()}}}}));
 	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
 	Json const scene = fixture.Ok("scene.dump");
 

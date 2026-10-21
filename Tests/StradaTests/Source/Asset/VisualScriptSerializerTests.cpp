@@ -396,6 +396,17 @@ TEST_CASE("VisualScript: the FeatureTest format sample is canonical and uses eve
 	CHECK(depth >= 4);
 }
 
+TEST_CASE("VisualScript: the FeatureTest scene's graph loads without issues and keeps the writer's layout")
+{
+	std::filesystem::path const path = FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets" / "Scripts" / "Features.sgraph";
+	std::string const text = ReadText(path);
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> loaded = VisualScriptSerializer::Deserialize(Parse(text), MakeContext(UnknownFieldPolicy::Warn), &issues);
+	REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
+	CHECK(GetPaths(issues).empty());
+	CHECK(DumpJson(VisualScriptSerializer::Serialize(loaded.GetValue())) == text);
+}
+
 TEST_CASE("VisualScript: files that are not visual scripts of this version are refused")
 {
 	Testing::TemporaryDirectory const directory;

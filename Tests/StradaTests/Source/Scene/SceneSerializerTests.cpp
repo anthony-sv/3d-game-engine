@@ -395,8 +395,13 @@ TEST_CASE("Prefab: instances get fresh IDs, remapped references and prefab links
 	Ref<Scene> const source = MakeRichScene();
 	Entity player = source->FindEntityByName("Player");
 	ScriptComponent& script = player.GetComponent<ScriptComponent>();
-	Entity const weapon = source->GetChildren(player)[0];
+	Entity weapon = source->GetChildren(player)[0];
 	script.Fields["Weapon"] = ScriptFieldValue::FromEntity(weapon.GetUUID());
+	// The weapon's visual script refers to its holder, in the prefab, and to the camera, outside it.
+	VisualScriptComponent& weaponScript = weapon.AddComponent<VisualScriptComponent>();
+	weaponScript.Graph = AssetHandle(UUID(5001));
+	weaponScript.Variables["Holder"] = ScriptFieldValue::FromEntity(player.GetUUID());
+	weaponScript.Variables["Camera"] = ScriptFieldValue::FromEntity(source->FindEntityByName("Camera").GetUUID());
 
 	Json const prefab = PrefabSerializer::Serialize(*source, player);
 	CHECK(prefab["Strada"]["Type"] == "Prefab");
@@ -431,6 +436,11 @@ TEST_CASE("Prefab: instances get fresh IDs, remapped references and prefab links
 	ScriptComponent const& instanceScript = instance.GetComponent<ScriptComponent>();
 	CHECK(instanceScript.Fields.at("Weapon").GetEntity() == children[0].GetUUID());
 	CHECK(instanceScript.Fields.at("Camera").GetEntity() == source->FindEntityByName("Camera").GetUUID());
+	Entity const instanceWeapon = children[0];
+	VisualScriptComponent const& instanceWeaponScript = instanceWeapon.GetComponent<VisualScriptComponent>();
+	CHECK(instanceWeaponScript.Graph == AssetHandle(UUID(5001)));
+	CHECK(instanceWeaponScript.Variables.at("Holder").GetEntity() == instance.GetUUID());
+	CHECK(instanceWeaponScript.Variables.at("Camera").GetEntity() == source->FindEntityByName("Camera").GetUUID());
 }
 
 TEST_CASE("Prefab: failed instantiation creates nothing")

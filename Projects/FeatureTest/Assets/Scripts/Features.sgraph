@@ -1,0 +1,33 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "",
+		"Variables": [],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 1,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 2,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						160.0
+					]
+				}
+			],
+			"Links": [],
+			"Comments": []
+		}
+	}
+}
