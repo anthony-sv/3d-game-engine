@@ -1,0 +1,731 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "Every feature of the .sgraph format, for the format tests and the format fuzzer; it is not meant to run",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Enabled",
+				"Type": "bool",
+				"Value": true,
+				"Public": true,
+				"Tooltip": "Whether the sample runs"
+			},
+			{
+				"ID": 2,
+				"Name": "Lives",
+				"Type": "int",
+				"Value": 3,
+				"Public": true,
+				"Tooltip": "Tries left",
+				"Range": [
+					0.0,
+					9.0
+				]
+			},
+			{
+				"ID": 3,
+				"Name": "Mask",
+				"Type": "uint",
+				"Value": 7,
+				"Public": true
+			},
+			{
+				"ID": 4,
+				"Name": "Distance",
+				"Type": "long",
+				"Value": "-9000000000",
+				"Public": true
+			},
+			{
+				"ID": 5,
+				"Name": "Seed",
+				"Type": "ulong",
+				"Value": "18000000000000000000",
+				"Public": true
+			},
+			{
+				"ID": 6,
+				"Name": "Speed",
+				"Type": "float",
+				"Value": 2.5,
+				"Public": true,
+				"Tooltip": "Meters per second",
+				"Range": [
+					0.0,
+					20.0
+				],
+				"FormerNames": [
+					"Velocity"
+				]
+			},
+			{
+				"ID": 7,
+				"Name": "Ratio",
+				"Type": "double",
+				"Value": 0.125,
+				"Public": true,
+				"Range": [
+					-1.0,
+					1.0
+				]
+			},
+			{
+				"ID": 8,
+				"Name": "Greeting",
+				"Type": "string",
+				"Value": "Hello",
+				"Public": true,
+				"Tooltip": "Logged on start"
+			},
+			{
+				"ID": 9,
+				"Name": "Offset",
+				"Type": "Strada.Vector2",
+				"Value": [
+					1.0,
+					2.0
+				],
+				"Public": true
+			},
+			{
+				"ID": 10,
+				"Name": "Direction",
+				"Type": "Strada.Vector3",
+				"Value": [
+					0.0,
+					1.0,
+					0.0
+				],
+				"Public": true
+			},
+			{
+				"ID": 11,
+				"Name": "Plane",
+				"Type": "Strada.Vector4",
+				"Value": [
+					0.0,
+					1.0,
+					0.0,
+					2.0
+				],
+				"Public": true
+			},
+			{
+				"ID": 12,
+				"Name": "Facing",
+				"Type": "Strada.Quaternion",
+				"Value": [
+					0.0,
+					0.0,
+					0.0,
+					1.0
+				],
+				"Public": true
+			},
+			{
+				"ID": 13,
+				"Name": "Tint",
+				"Type": "Strada.Color",
+				"Value": [
+					1.0,
+					0.5,
+					0.25,
+					1.0
+				],
+				"Public": true
+			},
+			{
+				"ID": 14,
+				"Name": "Target",
+				"Type": "Strada.Entity",
+				"Value": "0",
+				"Public": true,
+				"Tooltip": "Set on the component"
+			},
+			{
+				"ID": 15,
+				"Name": "Spawn",
+				"Type": "Strada.Prefab",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 16,
+				"Name": "Anything",
+				"Type": "Strada.AssetHandle",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 17,
+				"Name": "Body",
+				"Type": "Strada.Mesh",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 18,
+				"Name": "Paint",
+				"Type": "Strada.Material",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 19,
+				"Name": "Picture",
+				"Type": "Strada.Texture",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 20,
+				"Name": "Sound",
+				"Type": "Strada.AudioClip",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 21,
+				"Name": "Lettering",
+				"Type": "Strada.Font",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 22,
+				"Name": "Sky",
+				"Type": "Strada.EnvironmentMap",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 23,
+				"Name": "Behaviour",
+				"Type": "Strada.VisualScript",
+				"Value": "0",
+				"Public": true
+			},
+			{
+				"ID": 24,
+				"Name": "Mode",
+				"Type": "Strada.ForceMode",
+				"Value": "Impulse",
+				"Public": true,
+				"Tooltip": "How pushes apply"
+			},
+			{
+				"ID": 25,
+				"Name": "Pose",
+				"Type": "Strada.Matrix4"
+			},
+			{
+				"ID": 26,
+				"Name": "Score",
+				"Type": "int",
+				"Value": 0
+			}
+		],
+		"Functions": [
+			{
+				"ID": 30,
+				"Name": "Average",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "A",
+						"Type": "float"
+					},
+					{
+						"Name": "B",
+						"Type": "float"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Mean",
+						"Type": "float"
+					}
+				],
+				"Locals": [
+					{
+						"ID": 31,
+						"Name": "Sum",
+						"Type": "float"
+					}
+				],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 32,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 33,
+							"Type": "Operator.Add",
+							"Position": [
+								280.0,
+								0.0
+							]
+						},
+						{
+							"ID": 34,
+							"Type": "Operator.Divide",
+							"Inputs": {
+								"B": 2.0
+							}
+						},
+						{
+							"ID": 35,
+							"Type": "Function.Return",
+							"Position": [
+								840.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								32,
+								"A"
+							],
+							"To": [
+								33,
+								"A"
+							]
+						},
+						{
+							"From": [
+								32,
+								"B"
+							],
+							"To": [
+								33,
+								"B"
+							]
+						},
+						{
+							"From": [
+								33,
+								"Result"
+							],
+							"To": [
+								34,
+								"A"
+							]
+						},
+						{
+							"From": [
+								34,
+								"Result"
+							],
+							"To": [
+								35,
+								"Mean"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 36,
+							"Text": "The mean of two numbers",
+							"Position": [
+								-40.0,
+								-80.0
+							],
+							"Size": [
+								960.0,
+								320.0
+							],
+							"Color": [
+								0.25,
+								0.5,
+								0.75,
+								0.25
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 40,
+				"Name": "Award",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Points",
+						"Type": "int"
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Total",
+						"Type": "int"
+					}
+				],
+				"Locals": [
+					{
+						"ID": 41,
+						"Name": "Bonus",
+						"Type": "int",
+						"Value": 2
+					}
+				],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 42,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 43,
+							"Type": "Variable.Get",
+							"Position": [
+								0.0,
+								160.0
+							],
+							"Settings": {
+								"Variable": 26
+							}
+						},
+						{
+							"ID": 44,
+							"Type": "Operator.Add"
+						},
+						{
+							"ID": 45,
+							"Type": "Variable.Set",
+							"Position": [
+								560.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 26
+							}
+						},
+						{
+							"ID": 46,
+							"Type": "Function.Return",
+							"Position": [
+								840.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								42,
+								"Then"
+							],
+							"To": [
+								45,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								43,
+								"Value"
+							],
+							"To": [
+								44,
+								"A"
+							]
+						},
+						{
+							"From": [
+								42,
+								"Points"
+							],
+							"To": [
+								44,
+								"B"
+							]
+						},
+						{
+							"From": [
+								44,
+								"Result"
+							],
+							"To": [
+								45,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								45,
+								"Then"
+							],
+							"To": [
+								46,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								45,
+								"Value"
+							],
+							"To": [
+								46,
+								"Total"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 47,
+							"Text": "Adds the points to the score",
+							"Position": [
+								-40.0,
+								-80.0
+							],
+							"Size": [
+								960.0,
+								400.0
+							],
+							"Color": [
+								0.75,
+								0.5,
+								0.25,
+								0.5
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 50,
+					"Type": "Event.Create",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 51,
+					"Type": "Event.Update",
+					"Position": [
+						0.0,
+						320.0
+					]
+				},
+				{
+					"ID": 52,
+					"Type": "Flow.Sequence",
+					"Position": [
+						280.0,
+						0.0
+					],
+					"Settings": {
+						"Count": 2
+					}
+				},
+				{
+					"ID": 53,
+					"Type": "Call:Strada.Log.Info(string)",
+					"Inputs": {
+						"Message": "Started"
+					}
+				},
+				{
+					"ID": 54,
+					"Type": "Function.Call",
+					"Position": [
+						560.0,
+						160.0
+					],
+					"Settings": {
+						"Function": 40
+					},
+					"Inputs": {
+						"Points": 5
+					}
+				},
+				{
+					"ID": 55,
+					"Type": "Flow.Switch",
+					"Position": [
+						280.0,
+						320.0
+					],
+					"Settings": {
+						"Type": "string",
+						"Cases": [
+							"open",
+							"close"
+						]
+					}
+				},
+				{
+					"ID": 56,
+					"Type": "Event.Custom",
+					"Position": [
+						0.0,
+						640.0
+					],
+					"Settings": {
+						"Name": "Hit",
+						"Parameters": [
+							{
+								"Name": "Damage",
+								"Type": "float"
+							}
+						]
+					}
+				},
+				{
+					"ID": 57,
+					"Type": "Literal",
+					"Settings": {
+						"Type": "bool",
+						"Value": true
+					}
+				},
+				{
+					"ID": 58,
+					"Type": "Sample.EveryValueKind",
+					"Position": [
+						280.0,
+						640.0
+					],
+					"Settings": {
+						"Nested": {
+							"Level": [
+								1,
+								[
+									2,
+									{
+										"Deep": null
+									}
+								]
+							],
+							"Ready": false
+						}
+					},
+					"Inputs": {
+						"Count": -3,
+						"Big": 18446744073709551615,
+						"Scale": 0.5,
+						"Name": "text",
+						"List": [
+							1,
+							"two",
+							true
+						],
+						"Object": {
+							"Key": "value"
+						}
+					}
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						50,
+						"Then"
+					],
+					"To": [
+						52,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						52,
+						"Then0"
+					],
+					"To": [
+						53,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						52,
+						"Then1"
+					],
+					"To": [
+						54,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						51,
+						"Then"
+					],
+					"To": [
+						55,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						57,
+						"Value"
+					],
+					"To": [
+						58,
+						"Flag"
+					]
+				}
+			],
+			"Comments": [
+				{
+					"ID": 60,
+					"Text": "Start",
+					"Position": [
+						-40.0,
+						-80.0
+					],
+					"Size": [
+						880.0,
+						400.0
+					],
+					"Color": [
+						0.25,
+						0.75,
+						0.5,
+						0.25
+					]
+				},
+				{
+					"ID": 61,
+					"Text": "Every frame",
+					"Position": [
+						-40.0,
+						240.0
+					],
+					"Size": [
+						600.0,
+						240.0
+					],
+					"Color": [
+						0.5,
+						0.5,
+						0.5,
+						0.25
+					]
+				}
+			]
+		}
+	}
+}

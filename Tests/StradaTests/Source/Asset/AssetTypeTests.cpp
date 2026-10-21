@@ -294,6 +294,7 @@ TEST_CASE("Asset: every supported extension maps to an asset type, ignoring case
 	CHECK(GetAssetTypeForExtension(".sscene") == AssetType::Scene);
 	CHECK(GetAssetTypeForExtension(".glb") == AssetType::Mesh);
 	CHECK(GetAssetTypeForExtension(".ttf") == AssetType::Font);
+	CHECK(GetAssetTypeForExtension(".sgraph") == AssetType::VisualScript);
 	CHECK(GetAssetTypeForExtension(".txt") == AssetType::None);
 	CHECK(GetAssetTypeForExtension("") == AssetType::None);
 }

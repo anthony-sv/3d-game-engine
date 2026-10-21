@@ -8,6 +8,7 @@
 #include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
@@ -655,6 +656,17 @@ TEST_CASE("EditorCommands: assets and materials are listed, imported, edited, mo
 	CHECK(listed["folders"] == Json::array({"Textures/Wood"}));
 	CHECK(fixture.Ok("asset.list", Json::object({{"folder", "Textures"}, {"recursive", false}}))["assets"].empty());
 	CHECK(fixture.Ok("asset.list", Json::object({{"type", "Scene"}}))["assets"].size() == 1);
+
+	// Visual scripts are listed by their type too.
+	std::filesystem::path const spin = directory.GetPath() / "Download" / "Spin.sgraph";
+	REQUIRE(VisualScriptSerializer::SaveToFile(MakeVisualScriptTemplate(VisualScriptTemplate::Events), spin).IsOk());
+	Json const graph = fixture.Ok("asset.import", Json::object({{"files", {FileSystem::PathToUtf8(spin)}}}));
+	REQUIRE(graph["assets"].size() == 1);
+	CHECK(graph["assets"][0]["type"] == "VisualScript");
+	Json const graphs = fixture.Ok("asset.list", Json::object({{"type", "VisualScript"}}));
+	REQUIRE(graphs["assets"].size() == 1);
+	CHECK(graphs["assets"][0]["path"] == "Spin.sgraph");
+	CHECK(fixture.Ok("asset.get", Json::object({{"asset", "asset://Spin.sgraph"}}))["type"] == "VisualScript");
 
 	Json const material =
 		fixture.Ok("material.create",

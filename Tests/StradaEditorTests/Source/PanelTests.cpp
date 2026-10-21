@@ -24,6 +24,7 @@
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
@@ -774,14 +775,16 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	            .IsOk());
 	REQUIRE(operations.CreateMaterial("NoSpacesInThisRatherLongMaterialFileName.smat").IsOk());
 	REQUIRE(FileSystem::WriteTextFile(assets / "Ghost.smat", "{}").IsOk());
-	// Every kind of tile: audio (a waveform), a font, a scene, a prefab and files that fail to load (their type icons), and
-	// C# scripts under the Scripts root.
+	// Every kind of tile: audio (a waveform), a font, a scene, a prefab, a visual script and files that fail to load (their
+	// type icons), and C# scripts under the Scripts root.
 	std::vector<float> const samples = Testing::MakeSamples({{0.5f, 0.2f}, {0.1f, 0.2f}});
 	REQUIRE(FileSystem::WriteBinaryFile(assets / "Audio" / "Hit.wav", Testing::MakeWav(samples).GetSpan()).IsOk());
 	std::span<uint8_t const> const font = EmbeddedResources::Get(EmbeddedResources::DefaultFont);
 	REQUIRE(FileSystem::WriteBinaryFile(assets / "Fonts" / "Title.ttf", font).IsOk());
+	REQUIRE(VisualScriptSerializer::SaveToFile(MakeVisualScriptTemplate(VisualScriptTemplate::Events), assets / "Graphs" / "Spin.sgraph")
+	            .IsOk());
 	for (char const* broken : {"Broken/Broken.gltf", "Broken/Broken.hdr", "Broken/Broken.sprefab", "Broken/Broken.sscene",
-	                           "Broken/Broken.ogg", "Broken/Notes.txt"})
+	                           "Broken/Broken.ogg", "Broken/Broken.sgraph", "Broken/Notes.txt"})
 	{
 		REQUIRE(FileSystem::WriteTextFile(assets / FileSystem::PathFromUtf8(broken), "broken").IsOk());
 	}
@@ -798,10 +801,16 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 
 	Result<std::string> const materialFile = FileSystem::ReadTextFile(assets / "Rock.smat");
 	REQUIRE(materialFile.IsOk());
+	Result<std::string> const graphFile = FileSystem::ReadTextFile(assets / "Graphs" / "Spin.sgraph");
+	REQUIRE(graphFile.IsOk());
+	AssetHandle const graph = AssetManager::FindByPath("Graphs/Spin.sgraph");
+	REQUIRE(AssetManager::GetAssetType(graph) == AssetType::VisualScript);
+	AssetHandle const brokenGraph = AssetManager::FindByPath("Broken/Broken.sgraph");
+	REQUIRE(brokenGraph.IsValid());
 	size_t const steps = context.GetHistory().GetUndoCount();
 	Json const scene = SceneSerializer::Serialize(context.GetScene());
 
-	for (std::string const folder : {"", "Textures", "Textures/Wood", "Scenes", "Audio", "Fonts", "Broken", "Prefabs", "Missing"})
+	for (std::string const folder : {"", "Textures", "Textures/Wood", "Scenes", "Audio", "Fonts", "Graphs", "Broken", "Prefabs", "Missing"})
 	{
 		browser.SetFolder(folder);
 		drawFrames();
@@ -816,8 +825,8 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	CHECK(browser.GetRoot() == ContentRoot::Scripts);
 	CHECK(browser.GetScriptFolder().empty());
 
-	// Every kind of asset the inspector shows: material files, built-in and missing assets, textures, meshes, environments
-	// and scenes.
+	// Every kind of asset the inspector shows: material files, built-in and missing assets, textures, meshes, environments,
+	// scenes and visual scripts (one that loads and one that does not).
 	std::vector<AssetHandle> const inspected = {material.GetValue(),
 	                                            texture,
 	                                            ghost,
@@ -825,6 +834,8 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	                                            GetBuiltInHandle(BuiltInAsset::CubeMesh),
 	                                            GetBuiltInHandle(BuiltInAsset::DefaultSky),
 	                                            context.GetProject()->GetSettings().StartScene,
+	                                            graph,
+	                                            brokenGraph,
 	                                            AssetHandle(UUID(987654321))};
 	for (AssetHandle const asset : inspected)
 	{
@@ -839,6 +850,7 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	CHECK(context.GetHistory().GetUndoCount() == steps);
 	CHECK(SceneSerializer::Serialize(context.GetScene()) == scene);
 	CHECK(FileSystem::ReadTextFile(assets / "Rock.smat").GetValue() == materialFile.GetValue());
+	CHECK(FileSystem::ReadTextFile(assets / "Graphs" / "Spin.sgraph").GetValue() == graphFile.GetValue());
 
 	// Closing the project returns the browser to the (next) asset directory.
 	browser.SetFolder("Textures");

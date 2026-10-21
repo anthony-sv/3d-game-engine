@@ -90,7 +90,7 @@ through includes of `Scene.h` in headers.
 | Serialization | JSON conversions for glm, UUIDs, enums and reflected structs; deserialization warnings | `JsonTraits<T>`, `EnumTraits<T>`, `StructTraits<T>`, `DeserializationContext` |
 | Platform | Child processes (reproc++): spawning, output capture, exit codes, termination | `Process` |
 | RHI | Vulkan instance/device creation, NVRHI device, swapchains (one per OS window), frame pacing, embedded shader library, texture readback | `GraphicsDevice`, `Swapchain`, `ShaderLibrary`, `ReadbackTexture` |
-| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, model importers, built-in primitives | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `MeshImporter` |
+| Asset | Asset handles and metadata, the persistent registry, the asset manager, CPU asset types, model importers, built-in primitives, the visual script format and its layout | `AssetHandle`, `AssetManager`, `AssetRegistry`, `MeshSource`, `MaterialAsset`, `TextureAsset`, `EnvironmentAsset`, `PrefabAsset`, `AudioClipAsset`, `FontAsset`, `VisualScriptAsset`, `VisualScriptSerializer`, `MeshImporter` |
 | Renderer | GPU resources created from assets (meshes, textures, materials, environments, fonts), samplers and fallback textures, the scene renderer and its passes, environment processing, shadow math, text layout, sprites, picking, presentation blits | `Renderer`, `SceneRenderer`, `EnvironmentProcessor`, `QuadRenderer`, `FontAtlas`, `TextureBlitter` |
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
@@ -343,6 +343,12 @@ Asset types:
   in a font, so `SanitizeTrueTypeFont` (`Asset/TrueTypeSanitizer`) first checks everything it reads: damaged glyphs
   become empty, damaged kerning is ignored, other damage refuses the font, and so do CFF outlines, which stb_truetype
   cannot keep within their table. `FontAtlas` skips glyphs whose distance field would take too long.
+- `VisualScriptAsset` (`.sgraph`): the document of a visual script (`VisualScriptDocument`): variables, functions (each
+  with its parameters, locals and graph) and the event graph of nodes, links and comments. The engine checks only its
+  structure (`VisualScriptSerializer`, §7.3); what node types, settings, inputs and values mean is left to the scripting
+  runtime. A version counter tells users when the document was replaced. `PlaceUnplacedNodes`
+  (`Asset/VisualScriptLayout`) gives the nodes without a position one, in columns that follow the links; it is never
+  applied by loading or saving. Visual scripts have no thumbnails.
 - Built-in assets: meshes `Cube`, `Sphere`, `Plane`, `Cylinder`, `Capsule`, `Cone`, `Quad` (unit sizes matching the
   default colliders), `DefaultMaterial`, textures `White`, `Black`, `FlatNormal`, the `DefaultFont` (Roboto Medium,
   compiled into the engine with `strada_embed_resources` from `cmake/StradaResources.cmake` and found with
@@ -493,7 +499,7 @@ of the entities below a character are its own parts, which neither block it nor 
 
 ### 7.3 Serialization formats (JSON, written with tabs, keys in stable order)
 
-Every file starts with a header: `"Strada": { "Version": <int>, "Type": "Scene" | "Prefab" | "Material" | "Project" | "AssetRegistry" }`.
+Every file starts with a header: `"Strada": { "Version": <int>, "Type": "Scene" | "Prefab" | "Material" | "Project" | "AssetRegistry" | "VisualScript" }`.
 
 Scene (`.sscene`):
 
@@ -530,6 +536,36 @@ of the project and its exported games). Invalid entries are skipped with warning
 would break references).
 
 Material (`.smat`): `"Material": { <MaterialAsset fields> }`; missing fields keep their defaults.
+
+Visual script (`.sgraph`, `VisualScriptSerializer`; `Tests/Data/VisualScripting/Example.sgraph` is the writer's golden
+file):
+
+```json
+"VisualScript": {
+	"Description": "",
+	"Variables": [ { "ID": 1, "Name": "Speed", "Type": "float", "Value": 4.0, "Public": true, "Tooltip": "", "Range": [0, 20], "FormerNames": [] } ],
+	"Functions": [ { "ID": 2, "Name": "AddScore", "Pure": false, "Inputs": [ { "Name": "Points", "Type": "int" } ], "Outputs": [], "Locals": [], "Graph": { } } ],
+	"Graph": {
+		"Nodes": [ { "ID": 3, "Type": "Event.Update", "Position": [0, 0] }, { "ID": 4, "Type": "Flow.Branch", "Settings": { }, "Inputs": { "Condition": true } } ],
+		"Links": [ { "From": [3, "Then"], "To": [4, "Execute"] } ],
+		"Comments": [ { "ID": 5, "Text": "", "Position": [0, 0], "Size": [400, 200], "Color": [0.5, 0.5, 0.5, 0.25] } ]
+	}
+}
+```
+
+Variables, locals, functions, nodes and comments share one space of IDs (1 to 2147483647). Files store no pins: a link
+names an output (`From`) and an input (`To`) by node and pin name, within one graph. A node without `Position` is
+unplaced. `Value`, `Settings` and `Inputs` hold raw JSON (nested at most 16 levels) that only the scripting runtime
+interprets. The loader checks shape only: a header other than version 1 of type `VisualScript`, a content object that
+is not an object, and an unknown key under `UnknownFieldPolicy::Error` refuse the file; everything else that is damaged
+is repaired (an element with a bad ID, name or type is dropped, and of two with one ID the later in document order;
+values of the wrong kind take their defaults; geometry is clamped) and reported as an issue with its path, such as
+`Graph.Nodes[3].ID`. Files load with unknown keys as warnings and log each issue with the file; strict use (automation
+input) refuses input with any issue. Names (of variables, locals, functions, parameters and former names) are 1 to 64
+bytes of UTF-8 without control characters, `.` (reserved for the fields of split pins) or spaces at either end. Limits:
+10000 nodes, 40000 links and 2000 comments per graph, 1024 variables and functions, 64 parameters per list, 256 locals
+per function, 16 former names per variable. The writer writes keys in a fixed order, omits optional keys at their
+defaults and writes raw values as stored, so what loads saves and loads again without issues.
 
 ## 8. Physics (Jolt)
 

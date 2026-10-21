@@ -220,7 +220,7 @@ relative to the project's `Assets` directory with forward slashes. Asset file op
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `asset.list` | `folder`, `type` (`Scene`/`Prefab`/`Mesh`/`Material`/`Texture`/`Environment`/`AudioClip`/`Font`), `recursive` (default true), `builtIn` | `assets`: `[{ id, name, type, path, reference, missing }]`, `folders` |
+| `asset.list` | `folder`, `type` (`Scene`/`Prefab`/`Mesh`/`Material`/`Texture`/`Environment`/`AudioClip`/`Font`/`VisualScript`), `recursive` (default true), `builtIn` | `assets`: `[{ id, name, type, path, reference, missing }]`, `folders` |
 | `asset.get` | `asset`* | `{ id, name, type, path, reference, missing }` |
 | `asset.select` | `asset`* | the selection: the inspector shows the asset instead of entities (not undoable) |
 | `asset.import` | `files`* (absolute paths), `folder` | `assets` (all or nothing; taken names get a number) |

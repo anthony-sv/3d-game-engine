@@ -40,16 +40,17 @@ namespace Strada
 		{
 			return Error{"file header has no integer \"Version\""};
 		}
-		int const value = version->get<int>();
-		if (value < 1)
+		// Compared at full width: narrowing to int first would turn huge versions into small ones (4294967297 into 1).
+		if (version->is_number_unsigned() ? version->get<uint64_t>() == 0 : version->get<int64_t>() < 1)
 		{
-			return MakeError("invalid file version {}", value);
+			return MakeError("invalid file version {}", version->get<int64_t>());
 		}
-		if (value > maximumVersion)
+		uint64_t const value = version->get<uint64_t>();
+		if (value > static_cast<uint64_t>(maximumVersion))
 		{
 			return MakeError("file version {} is newer than the supported version {}", value, maximumVersion);
 		}
-		return value;
+		return static_cast<int>(value);
 	}
 
 	namespace

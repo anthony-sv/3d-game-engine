@@ -9,7 +9,7 @@ namespace Strada
 {
 	namespace
 	{
-		constexpr std::array<std::pair<AssetType, char const*>, 9> s_TypeNames = {{
+		constexpr std::array<std::pair<AssetType, char const*>, 10> s_TypeNames = {{
 			{AssetType::None, "None"},
 			{AssetType::Scene, "Scene"},
 			{AssetType::Prefab, "Prefab"},
@@ -19,6 +19,7 @@ namespace Strada
 			{AssetType::Environment, "Environment"},
 			{AssetType::AudioClip, "AudioClip"},
 			{AssetType::Font, "Font"},
+			{AssetType::VisualScript, "VisualScript"},
 		}};
 
 		struct ExtensionMapping
@@ -27,7 +28,7 @@ namespace Strada
 			AssetType Type;
 		};
 
-		constexpr std::array<ExtensionMapping, 17> s_Extensions = {{
+		constexpr std::array<ExtensionMapping, 18> s_Extensions = {{
 			{".sscene", AssetType::Scene},
 			{".sprefab", AssetType::Prefab},
 			{".gltf", AssetType::Mesh},
@@ -45,6 +46,7 @@ namespace Strada
 			{".mp3", AssetType::AudioClip},
 			{".flac", AssetType::AudioClip},
 			{".ogg", AssetType::AudioClip},
+			{".sgraph", AssetType::VisualScript},
 		}};
 
 		constexpr std::array<std::string_view, 2> s_FontExtensions = {".ttf", ".otf"};

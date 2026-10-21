@@ -824,6 +824,7 @@ namespace Strada
 				ImGui::TextDisabled("Double-click the scene in the content browser to open it.");
 				break;
 			case AssetType::Prefab:
+			case AssetType::VisualScript:
 			case AssetType::None:
 				break;
 		}

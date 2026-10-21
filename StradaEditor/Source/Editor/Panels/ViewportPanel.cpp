@@ -657,6 +657,7 @@ namespace Strada
 			case AssetType::Texture:
 			case AssetType::AudioClip:
 			case AssetType::Font:
+			case AssetType::VisualScript:
 				break;
 		}
 	}

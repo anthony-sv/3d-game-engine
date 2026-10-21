@@ -12,6 +12,9 @@ add_executable(StradaTests
     Source/Asset/MeshImporterTests.cpp
     Source/Asset/MeshSourceTests.cpp
     Source/Asset/TrueTypeSanitizerTests.cpp
+    Source/Asset/VisualScriptFuzzTests.cpp
+    Source/Asset/VisualScriptLayoutTests.cpp
+    Source/Asset/VisualScriptSerializerTests.cpp
     Source/Audio/AudioEngineTests.cpp
     Source/Audio/AudioSceneTests.cpp
     Source/Audio/AudioTestUtilities.h

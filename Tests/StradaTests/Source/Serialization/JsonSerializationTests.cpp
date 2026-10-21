@@ -4,6 +4,7 @@
 
 #include <doctest/doctest.h>
 
+#include <cstdint>
 #include <limits>
 #include <string>
 
@@ -173,7 +174,16 @@ TEST_CASE("Serialization: file headers are validated")
 	document["Strada"]["Version"] = 3;
 	CHECK(ReadFileHeader(document, "Scene", 2).GetError() == "file version 3 is newer than the supported version 2");
 	document["Strada"]["Version"] = 0;
-	CHECK(ReadFileHeader(document, "Scene", 2).IsError());
+	CHECK(ReadFileHeader(document, "Scene", 2).GetError() == "invalid file version 0");
+	document["Strada"]["Version"] = -1;
+	CHECK(ReadFileHeader(document, "Scene", 2).GetError() == "invalid file version -1");
+	// Versions are compared at full width, never narrowed to small ones.
+	document["Strada"]["Version"] = 4294967297ull;
+	CHECK(ReadFileHeader(document, "Scene", 2).GetError() == "file version 4294967297 is newer than the supported version 2");
+	document["Strada"]["Version"] = std::numeric_limits<int64_t>::min();
+	CHECK(ReadFileHeader(document, "Scene", 2).GetError() == "invalid file version -9223372036854775808");
+	document["Strada"]["Version"] = 1.0;
+	CHECK(ReadFileHeader(document, "Scene", 2).GetError() == "file header has no integer \"Version\"");
 	CHECK(ReadFileHeader(Json::object(), "Scene", 1).GetError() == "missing \"Strada\" file header");
 	CHECK(ReadFileHeader(Json::array(), "Scene", 1).IsError());
 }

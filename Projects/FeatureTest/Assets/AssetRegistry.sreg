@@ -28,6 +28,11 @@
 			"Handle": "2156050258587788051",
 			"Type": "Scene",
 			"Path": "Scenes/Second.sscene"
+		},
+		{
+			"Handle": "10572961384733210271",
+			"Type": "VisualScript",
+			"Path": "Scripts/FormatSample.sgraph"
 		}
 	]
 }

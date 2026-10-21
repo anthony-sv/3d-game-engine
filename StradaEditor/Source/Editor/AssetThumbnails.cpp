@@ -192,6 +192,7 @@ namespace Strada
 			case AssetType::None:
 			case AssetType::Scene:
 			case AssetType::AudioClip:
+			case AssetType::VisualScript:
 				break;
 		}
 		return false;
@@ -442,6 +443,7 @@ namespace Strada
 			case AssetType::Texture:
 			case AssetType::AudioClip:
 			case AssetType::Font:
+			case AssetType::VisualScript:
 				return false;
 		}
 

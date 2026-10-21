@@ -92,6 +92,8 @@ namespace Strada
 					return {"AUDIO", "AUD", IM_COL32(236, 98, 152, 255)};
 				case AssetType::Font:
 					return {"FONT", "FNT", IM_COL32(156, 166, 188, 255)};
+				case AssetType::VisualScript:
+					return {"VISUAL SCRIPT", "VS", IM_COL32(150, 206, 72, 255)};
 				case AssetType::None:
 					break;
 			}
@@ -1363,6 +1365,7 @@ namespace Strada
 					break;
 				case AssetType::AudioClip:
 				case AssetType::Font:
+				case AssetType::VisualScript:
 				case AssetType::None:
 					DrawUnknownGlyph(drawList, glyph);
 					break;

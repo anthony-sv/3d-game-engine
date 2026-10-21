@@ -733,7 +733,8 @@ namespace Strada
 					SchemaBuilder::Object()
 						.Property("folder", SchemaBuilder::String("Folder relative to Assets (empty for all)").Default(""))
 						.Property("type", SchemaBuilder::String("Only assets of this type")
-				                              .Enum({"Scene", "Prefab", "Mesh", "Material", "Texture", "Environment", "AudioClip", "Font"}))
+				                              .Enum({"Scene", "Prefab", "Mesh", "Material", "Texture", "Environment", "AudioClip", "Font",
+				                                     "VisualScript"}))
 						.Property("recursive", SchemaBuilder::Boolean("Include subfolders").Default(true))
 						.Property("builtIn", SchemaBuilder::Boolean("Include built-in assets").Default(false))
 						.Build(),

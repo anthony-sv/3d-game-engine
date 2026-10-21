@@ -82,6 +82,12 @@ set(STRADA_ASSET_SOURCES
     Source/Strada/Asset/TextureAsset.h
     Source/Strada/Asset/TrueTypeSanitizer.cpp
     Source/Strada/Asset/TrueTypeSanitizer.h
+    Source/Strada/Asset/VisualScriptAsset.cpp
+    Source/Strada/Asset/VisualScriptAsset.h
+    Source/Strada/Asset/VisualScriptLayout.cpp
+    Source/Strada/Asset/VisualScriptLayout.h
+    Source/Strada/Asset/VisualScriptSerializer.cpp
+    Source/Strada/Asset/VisualScriptSerializer.h
 )
 
 set(STRADA_MATH_SOURCES

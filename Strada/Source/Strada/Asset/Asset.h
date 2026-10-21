@@ -21,7 +21,8 @@ namespace Strada
 		Texture,
 		Environment,
 		AudioClip,
-		Font
+		Font,
+		VisualScript
 	};
 
 	char const* AssetTypeToString(AssetType type);

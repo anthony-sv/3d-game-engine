@@ -146,6 +146,7 @@ TEST_CASE("AssetThumbnails: which assets have thumbnails, and none without a ren
 	CHECK(AssetThumbnails::Supports(AssetType::Font));
 	CHECK_FALSE(AssetThumbnails::Supports(AssetType::Scene));
 	CHECK_FALSE(AssetThumbnails::Supports(AssetType::AudioClip));
+	CHECK_FALSE(AssetThumbnails::Supports(AssetType::VisualScript));
 
 	AssetManager::Init();
 	AssetThumbnails thumbnails;

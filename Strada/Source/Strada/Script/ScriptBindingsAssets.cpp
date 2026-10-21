@@ -132,6 +132,7 @@ namespace Strada::ScriptGlue
 					return true;
 				case AssetType::None:
 				case AssetType::Scene:
+				case AssetType::VisualScript:
 					break;
 			}
 			return false;

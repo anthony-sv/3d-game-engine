@@ -14,6 +14,7 @@ internal enum NativeAssetType
 	Environment,
 	AudioClip,
 	Font,
+	VisualScript,
 }
 
 // The engine's type of each asset class, and references of a class made from handles.

@@ -11,6 +11,7 @@
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Core/FileSystem.h"
 
@@ -360,6 +361,23 @@ namespace Strada
 						return Error{prefab.GetError()};
 					}
 					return Ref<Asset>(prefab.GetValue());
+				}
+				case AssetType::VisualScript:
+				{
+					// Damaged parts are repaired, and unknown fields only warn so files written by newer engine versions still
+					// load; each repair is logged with the file.
+					std::vector<std::string> warnings;
+					Result<VisualScriptDocument> document = VisualScriptSerializer::LoadFromFile(
+						path, AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn, &warnings));
+					for (std::string const& warning : warnings)
+					{
+						ST_CORE_WARN("'{}': {}", metadata.Path, warning);
+					}
+					if (!document)
+					{
+						return Error{document.GetError()};
+					}
+					return Ref<Asset>(CreateRef<VisualScriptAsset>(document.TakeValue()));
 				}
 				case AssetType::Mesh:
 					return LoadMesh(metadata, path);
