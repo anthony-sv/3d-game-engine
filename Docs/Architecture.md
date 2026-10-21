@@ -565,8 +565,10 @@ values of the wrong kind take their defaults; geometry is clamped) and reported 
 input) refuses input with any issue. Names (of variables, locals, functions, parameters and former names) are 1 to 64
 bytes of UTF-8 without control characters, `.` (reserved for the fields of split pins) or spaces at either end. Limits:
 10000 nodes, 40000 links and 2000 comments per graph, 1024 variables and functions, 64 parameters per list, 256 locals
-per function, 16 former names per variable. The writer writes keys in a fixed order, omits optional keys at their
-defaults and writes raw values as stored, so what loads saves and loads again without issues.
+per function, 16 former names per variable. A `Range` is two floats, the minimum first; like float literals, they are
+finite numbers of at most 3.4028235e38 in magnitude (float's largest value written with the fewest digits). The writer
+writes keys in a fixed order, omits optional keys at their defaults and writes raw values as stored, so what loads
+saves and loads again without issues.
 
 ## 8. Physics (Jolt)
 
@@ -866,7 +868,8 @@ positions. A build is out of date when a C# source or project file is newer than
   scene's first canvas or a new one, created with the element as one undo step; a search field filters by name.
   Selections made elsewhere reveal and scroll to the primary entity.
 - Inspector: generated from the component registry's field descriptors (no per-component UI code): numbers clamp to
-  the field ranges, colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
+  the field ranges (a range that holds no value of the field's type, which script and visual script authors can write,
+  is left out), colors are picked in sRGB and stored linear, quaternions are edited as Euler angles (kept stable
   while dragging), enums are combos, fields with a visibility condition (`VisibleWhen`: a material's alpha cutoff in
   the Mask mode, the perspective or orthographic settings of a camera, what a joint type or particle shape uses) show
   only while it holds, entity references accept dropped entities, and a field's switch (a post-process volume's

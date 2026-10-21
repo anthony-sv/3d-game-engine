@@ -100,10 +100,18 @@ namespace Strada
 			}
 		}
 
-		// The range numeric widgets clamp to: the hinted range within what the C++ type represents.
+		// The range numeric widgets clamp to: the hinted range within what the C++ type represents. Hints can come from user
+		// data (the ranges of script fields and of visual script variables), so a hinted range no value of the type lies in
+		// is left out.
 		std::pair<double, double> GetBounds(FieldDescriptor const& field)
 		{
-			return {std::max(field.Hints.Min, field.TypeMin), std::min(field.Hints.Max, field.TypeMax)};
+			double const min = std::max(field.Hints.Min, field.TypeMin);
+			double const max = std::min(field.Hints.Max, field.TypeMax);
+			if (min <= max)
+			{
+				return {min, max};
+			}
+			return {field.TypeMin, field.TypeMax};
 		}
 
 		float ToFloatBound(double bound)
@@ -800,8 +808,10 @@ namespace Strada
 			case FieldKind::UInt:
 			{
 				auto const [min, max] = GetBounds(field);
-				int64_t const lower = static_cast<int64_t>(std::max(min, static_cast<double>(-IntegerWidgetLimit)));
-				int64_t const upper = static_cast<int64_t>(std::min(max, static_cast<double>(IntegerWidgetLimit)));
+				// Clamped before the conversion: a bound past the range of int64_t would not convert.
+				constexpr double Limit = static_cast<double>(IntegerWidgetLimit);
+				int64_t const lower = static_cast<int64_t>(std::clamp(min, -Limit, Limit));
+				int64_t const upper = static_cast<int64_t>(std::clamp(max, -Limit, Limit));
 				int64_t number = 0;
 				if (value.is_number_unsigned())
 				{

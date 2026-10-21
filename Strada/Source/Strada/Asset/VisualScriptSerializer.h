@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -71,6 +72,14 @@ namespace Strada
 		static constexpr double MaxCoordinate = 1.0e7;
 		static constexpr double MinCommentSize = 16.0;
 		static constexpr double MaxCommentSize = 1.0e6;
+		// Floats (ranges, and the literals of float and of the components of vectors, quaternions and colors) are finite
+		// numbers of at most this magnitude: float's largest value as written with the fewest digits that read back as it
+		// (.NET writes float.MaxValue so), a little above its exact value.
+		static constexpr double MaxFloatMagnitude = 3.4028235e38;
+
+		// A float as documents store it: a finite number of magnitude at most MaxFloatMagnitude, as the nearest float.
+		// Nothing for anything else.
+		[[nodiscard]] static std::optional<float> ReadFloat(Json const& value);
 
 		static Json SerializeDocument(VisualScriptDocument const& document);
 		// Repairs are appended to issues (when given) and always reported through the context's warnings.

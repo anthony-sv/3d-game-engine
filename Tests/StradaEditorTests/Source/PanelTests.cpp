@@ -17,6 +17,7 @@
 #include "Editor/Panels/SceneSettingsPanel.h"
 #include "Editor/Panels/ViewportPanel.h"
 #include "Editor/PlayMode.h"
+#include "Editor/ScriptFieldInspection.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 
@@ -48,9 +49,11 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -137,13 +140,11 @@ struct Strada::StructTraits<LongNamedDecal>
 
 namespace
 {
-	// Draws one field of Probe in a window with keyboard focus on its widget, then types text and presses Enter; returns
-	// the last change the editor reported.
-	std::optional<FieldChange> TypeIntoField(HeadlessImGui& imgui, size_t fieldIndex, char const* text)
+	// Draws the field in a window with keyboard focus on its widget, then types text and presses Enter; returns the last
+	// change the editor reported.
+	std::optional<FieldChange> TypeInto(HeadlessImGui& imgui, FieldDescriptor const& descriptor, Json const& values, char const* text)
 	{
-		std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Probe>, Probe>();
-		std::span<FieldDescriptor const> const field(&fields[fieldIndex], 1);
-		Json const values = SerializeFields<StructTraits<Probe>>(Probe{});
+		std::span<FieldDescriptor const> const field(&descriptor, 1);
 		FieldEditor editor;
 		std::optional<FieldChange> last;
 		bool focus = true;
@@ -173,6 +174,13 @@ namespace
 		ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, false);
 		imgui.Frame(draw);
 		return last;
+	}
+
+	// Types into one field of Probe.
+	std::optional<FieldChange> TypeIntoField(HeadlessImGui& imgui, size_t fieldIndex, char const* text)
+	{
+		std::vector<FieldDescriptor> const fields = GetFieldDescriptors<StructTraits<Probe>, Probe>();
+		return TypeInto(imgui, fields[fieldIndex], SerializeFields<StructTraits<Probe>>(Probe{}), text);
 	}
 
 	UUID Create(EditorOperations& operations, std::string name, Json components)
@@ -208,6 +216,44 @@ TEST_CASE("FieldEditor: typed values are reported with their path and clamped to
 	REQUIRE(label);
 	CHECK(label->Path == std::vector<std::string_view>{"Label"});
 	CHECK(label->Value.get<std::string>().ends_with("Lamp"));
+}
+
+TEST_CASE("FieldEditor: integer fields whose range holds no value of their type keep to the type's range")
+{
+	HeadlessImGui imgui;
+
+	// Ranges are user data (script attributes, the variables of visual scripts), so they can lie beyond the field's type.
+	ScriptClassInfo scriptClass;
+	scriptClass.Name = "Bounds";
+	auto const addField = [&scriptClass](char const* name, ScriptFieldType type, glm::vec2 range)
+	{
+		ScriptFieldInfo field;
+		field.Name = name;
+		field.Type = type;
+		field.DefaultValue = ScriptFieldValue::CreateDefault(type);
+		field.Range = range;
+		scriptClass.Fields.push_back(std::move(field));
+	};
+	addField("Above", ScriptFieldType::Int32, glm::vec2(1e30f, 1e30f));
+	addField("Below", ScriptFieldType::Int32, glm::vec2(-1e30f, -1e30f));
+	addField("Negative", ScriptFieldType::UInt32, glm::vec2(-1e30f, -1e30f));
+	std::vector<FieldDescriptor> const fields = ScriptFieldInspection::DescribeFields(scriptClass);
+	REQUIRE(fields.size() == 3);
+	Json const values = ScriptFieldInspection::ToEditorValues(scriptClass, Json::object());
+
+	auto const type = [&](size_t field, char const* text)
+	{
+		std::optional<FieldChange> const change = TypeInto(imgui, fields[field], values, text);
+		REQUIRE(change);
+		REQUIRE(change->Value.is_number_integer());
+		return change->Value.get<int64_t>();
+	};
+	CHECK(type(0, "5") == 5);
+	CHECK(type(0, "-99999999999") == std::numeric_limits<int32_t>::min());
+	CHECK(type(1, "-5") == -5);
+	CHECK(type(1, "99999999999") == std::numeric_limits<int32_t>::max());
+	CHECK(type(2, "7") == 7);
+	CHECK(type(2, "99999999999") == static_cast<int64_t>(std::numeric_limits<uint32_t>::max()));
 }
 
 TEST_CASE("FieldEditor: a switch is a check box in front of the field it switches, which is disabled while it is off")
@@ -2863,8 +2909,9 @@ TEST_CASE("Panels: the inspector edits the values entities give the public varia
 	EditorOperations operations(context);
 	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
 
-	// Public variables: a float with a range that was renamed, an int, an enum (its values need the scripting runtime) and a
-	// matrix (no component can set one); and a private variable, which components do not set.
+	// Public variables: a float with a range that was renamed, an int, an enum (its values need the scripting runtime), a
+	// matrix (no component can set one) and an int whose range no int lies in (a graph's ranges are its author's data); and
+	// a private variable, which components do not set.
 	VisualScriptDocument document;
 	document.Variables.push_back(MakeVariable(1, "Speed", "float", 4.0, true));
 	document.Variables.back().Range = glm::vec2(0.0f, 20.0f);
@@ -2873,12 +2920,16 @@ TEST_CASE("Panels: the inspector edits the values entities give the public varia
 	document.Variables.push_back(MakeVariable(3, "Mode", "Strada.ForceMode", "Impulse", true));
 	document.Variables.push_back(MakeVariable(4, "Pose", "Strada.Matrix4", Json(), true));
 	document.Variables.push_back(MakeVariable(5, "Score", "int", 0, false));
+	document.Variables.push_back(MakeVariable(6, "Ceiling", "int", 2, true));
+	document.Variables.back().Range = glm::vec2(1e30f, 1e30f);
 	REQUIRE(VisualScriptSerializer::SaveToFile(document, context.GetProject()->GetAssetDirectory() / "Mover.sgraph").IsOk());
 	REQUIRE(operations.RefreshAssets().IsOk());
 	AssetHandle const mover = AssetManager::FindByPath("Mover.sgraph");
 	REQUIRE(mover.IsValid());
 	Result<AssetHandle> const other = operations.CreateVisualScript("Other.sgraph");
 	REQUIRE(other.IsOk());
+	Result<AssetHandle> const material = operations.CreateMaterial("Shell.smat", Json::object());
+	REQUIRE(material.IsOk());
 
 	// First set Speed under its former name, a variable the graph no longer has, and the enum.
 	Json const firstValues = Json::object({{"Velocity", StoredValue("Float", 7.0)},
@@ -2890,6 +2941,8 @@ TEST_CASE("Panels: the inspector edits the values entities give the public varia
 	UUID const second = Create(operations, "Second", Json::object({{"VisualScript", {{"Graph", mover.ToString()}}}}));
 	UUID const third = Create(operations, "Third", Json::object({{"VisualScript", {{"Graph", other.GetValue().ToString()}}}}));
 	UUID const lost = Create(operations, "Lost", Json::object({{"VisualScript", {{"Graph", "987654321"}}}}));
+	// Nothing keeps a graph's handle from naming an asset of another type (scene files, component.set).
+	UUID const shelled = Create(operations, "Shelled", Json::object({{"VisualScript", {{"Graph", material.GetValue().ToString()}}}}));
 	size_t const steps = context.GetHistory().GetUndoCount();
 	Json const scene = SceneSerializer::Serialize(context.GetScene());
 	auto const getVariables = [&context](UUID id)
@@ -2917,19 +2970,31 @@ TEST_CASE("Panels: the inspector edits the values entities give the public varia
 	};
 
 	// Drawing changes nothing: one entity, two running the graph, entities running different graphs, a graph that is not
-	// registered. Only one graph that loads shows its variables: the enum and the matrix as text with why they are read-only.
-	for (std::vector<UUID> const& selection : std::vector<std::vector<UUID>>{{first}, {first, second}, {first, third}, {lost}, {third}})
+	// registered, the Events template (it has no public variables) and a material. Only a graph that loads shows its
+	// variables (the enum and the matrix as text with why they are read-only), and only a visual script is loaded for it.
+	struct Expectation
 	{
-		select(selection);
+		std::vector<UUID> Selection;
+		bool ShowsVariables = false;
+		bool ShowsNoVariables = false;
+	};
+	std::vector<Expectation> const expectations = {
+		{{first}, true, false}, {{first, second}, true, false}, {{first, third}, false, false},
+		{{lost}, false, false}, {{third}, false, true},         {{shelled}, false, false},
+	};
+	REQUIRE_FALSE(AssetManager::IsLoaded(material.GetValue()));
+	for (Expectation const& expectation : expectations)
+	{
+		select(expectation.Selection);
 		std::string const text = CaptureText(imgui, draw);
 		CAPTURE(text);
-		bool const shown = selection.size() == 1 ? selection.front() == first : selection.back() == second;
-		CHECK((text.find("Mode (Strada.ForceMode): needs the scripting runtime") != std::string::npos) == shown);
-		CHECK((text.find("Pose (Strada.Matrix4): not exposable") != std::string::npos) == shown);
+		CHECK((text.find("Mode (Strada.ForceMode): needs the scripting runtime") != std::string::npos) == expectation.ShowsVariables);
+		CHECK((text.find("Pose (Strada.Matrix4): not exposable") != std::string::npos) == expectation.ShowsVariables);
+		CHECK((text.find("Ceiling") != std::string::npos) == expectation.ShowsVariables);
 		CHECK(text.find("Score") == std::string::npos);
-		// The Events template has no public variables.
-		CHECK((text.find("The visual script has no public variables.") != std::string::npos) == (selection.front() == third));
+		CHECK((text.find("The visual script has no public variables.") != std::string::npos) == expectation.ShowsNoVariables);
 	}
+	CHECK_FALSE(AssetManager::IsLoaded(material.GetValue()));
 	CHECK(context.GetHistory().GetUndoCount() == steps);
 	CHECK(SceneSerializer::Serialize(context.GetScene()) == scene);
 

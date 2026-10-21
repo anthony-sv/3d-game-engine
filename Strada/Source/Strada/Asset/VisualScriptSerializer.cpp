@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <set>
 #include <string_view>
@@ -401,12 +402,18 @@ namespace Strada
 					return std::nullopt;
 				}
 				// Compared as floats, as stored, so a range that loads stays valid when saved.
-				glm::vec2 range{};
-				if (JsonTraits<glm::vec2>::FromJson(*found, range, m_Context) && range.x <= range.y)
+				if (found->is_array() && found->size() == 2)
 				{
-					return range;
+					std::optional<float> const minimum = Format::ReadFloat((*found)[0]);
+					std::optional<float> const maximum = Format::ReadFloat((*found)[1]);
+					if (minimum && maximum && *minimum <= *maximum)
+					{
+						return glm::vec2(*minimum, *maximum);
+					}
 				}
-				Report(Member(path, "Range"), "expected two finite numbers, the minimum first; removed");
+				Report(Member(path, "Range"),
+				       fmt::format("expected two finite numbers of at most {} in magnitude, the minimum first; removed",
+				                   Format::MaxFloatMagnitude));
 				return std::nullopt;
 			}
 
@@ -1127,6 +1134,22 @@ namespace Strada
 			}
 			return json;
 		}
+	}
+
+	std::optional<float> VisualScriptSerializer::ReadFloat(Json const& value)
+	{
+		if (!value.is_number())
+		{
+			return std::nullopt;
+		}
+		double const number = value.get<double>();
+		if (!std::isfinite(number) || std::abs(number) > MaxFloatMagnitude)
+		{
+			return std::nullopt;
+		}
+		// The numbers past float's largest value up to the bound round to it.
+		constexpr double Largest = static_cast<double>(std::numeric_limits<float>::max());
+		return static_cast<float>(std::clamp(number, -Largest, Largest));
 	}
 
 	Json VisualScriptSerializer::SerializeDocument(VisualScriptDocument const& document)

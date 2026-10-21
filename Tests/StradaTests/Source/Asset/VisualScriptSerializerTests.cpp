@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -1123,15 +1124,22 @@ TEST_CASE("VisualScript: nodes, links and comments beyond the limits of a graph 
 	CHECK(functionGraph.Comments.size() == 1);
 }
 
-TEST_CASE("VisualScript: text, settings and values at their limits are kept, one more is repaired")
+TEST_CASE("VisualScript: text, settings, values and ranges at their limits are kept, one more is repaired")
 {
 	static_assert(VisualScriptSerializer::MaxTextBytes == 65536 && VisualScriptSerializer::MaxSettingsMembers == 256);
 	static_assert(VisualScriptSerializer::MaxValueDepth == 16 && VisualScriptSerializer::MaxNameBytes == 64);
+	static_assert(VisualScriptSerializer::MaxFloatMagnitude == 3.4028235e38);
 
 	std::string const maxText(65536, 't');
-	Json variables = Json::array({MakeVariable(1, "A"), MakeVariable(2, "B")});
+	Json variables =
+		Json::array({MakeVariable(1, "A"), MakeVariable(2, "B"), MakeVariable(6, "C"), MakeVariable(7, "D"), MakeVariable(8, "E")});
 	variables[0]["Tooltip"] = maxText;
 	variables[1]["Tooltip"] = maxText + "t";
+	// Ranges are floats up to float's largest value written with the fewest digits, a little above its exact value; past
+	// it, a number is no float even where it would round to the largest one.
+	variables[2]["Range"] = Json::array({-3.4028235e38, 3.4028235e38});
+	variables[3]["Range"] = Json::array({0.0, 3.40282355e38});
+	variables[4]["Range"] = Json::array({-3.40282355e38, 0.0});
 	Json comments = Json::array({Json::object({{"ID", 3}, {"Text", maxText}}), Json::object({{"ID", 4}, {"Text", maxText + "t"}})});
 	Json settings = Json::object();
 	Json inputs = Json::object();
@@ -1148,11 +1156,19 @@ TEST_CASE("VisualScript: text, settings and values at their limits are kept, one
 	content["Description"] = maxText + "t";
 
 	LoadedDocument const loaded = Load(content);
-	CHECK(GetPaths(loaded.Issues) == "Description, Variables[1].Tooltip, Graph.Nodes[0].Settings.S256, Graph.Comments[1].Text");
+	CHECK(GetPaths(loaded.Issues) == "Description, Variables[1].Tooltip, Variables[3].Range, Variables[4].Range, "
+	                                 "Graph.Nodes[0].Settings.S256, Graph.Comments[1].Text");
 	VisualScriptDocument const& document = loaded.Document;
 	CHECK(document.Description.empty());
 	CHECK(document.Variables[0].Tooltip == maxText);
 	CHECK(document.Variables[1].Tooltip.empty());
+	float const largest = std::numeric_limits<float>::max();
+	CHECK(document.Variables[2].Range == std::optional<glm::vec2>(glm::vec2(-largest, largest)));
+	CHECK_FALSE(document.Variables[3].Range);
+	CHECK_FALSE(document.Variables[4].Range);
+	// Written as the float it is, which reads back as itself (Load saves and loads every document again).
+	CHECK(VisualScriptSerializer::SerializeDocument(document)["Variables"][2]["Range"] ==
+	      Json::array({-3.4028234663852886e38, 3.4028234663852886e38}));
 	CHECK(document.Graph.Comments[0].Text == maxText);
 	CHECK(document.Graph.Comments[1].Text.empty());
 	CHECK(document.Graph.Nodes[0].Settings.size() == 256);
@@ -1161,6 +1177,8 @@ TEST_CASE("VisualScript: text, settings and values at their limits are kept, one
 
 	content["Description"] = maxText;
 	content["Variables"][1].erase("Tooltip");
+	content["Variables"][3].erase("Range");
+	content["Variables"][4].erase("Range");
 	content["Graph"]["Comments"].erase(1);
 	content["Graph"]["Nodes"][0]["Settings"].erase("S256");
 	CHECK(IsStrictlyValid(content));

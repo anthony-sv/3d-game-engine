@@ -1,14 +1,17 @@
 #include "stpch.h"
 #include "Strada/Script/VisualScriptVariables.h"
 
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstddef>
 #include <cstdint>
 #include <set>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 
 namespace Strada
@@ -21,7 +24,7 @@ namespace Strada
 			VisualScriptExposableType Type;
 		};
 
-		constexpr std::array<ExposableTypeEntry, 23> s_ExposableTypes = {{
+		constexpr std::array<ExposableTypeEntry, 23> ExposableTypes = {{
 			{"bool", {ScriptFieldType::Bool, AssetType::None}},
 			{"int", {ScriptFieldType::Int32, AssetType::None}},
 			{"uint", {ScriptFieldType::UInt32, AssetType::None}},
@@ -121,6 +124,43 @@ namespace Strada
 			return make(std::move(value));
 		}
 
+		// A float, or a vector of floats as the array of its components, with the floats read as documents store them: up to
+		// a magnitude a little above float's largest value (VisualScriptSerializer::ReadFloat).
+		template<typename T>
+		std::optional<T> ReadFloats(Json const& literal)
+		{
+			if constexpr (std::is_same_v<T, float>)
+			{
+				return VisualScriptSerializer::ReadFloat(literal);
+			}
+			else
+			{
+				constexpr glm::length_t Length = T::length();
+				if (!literal.is_array() || literal.size() != static_cast<size_t>(Length))
+				{
+					return std::nullopt;
+				}
+				T value{};
+				for (glm::length_t i = 0; i < Length; i++)
+				{
+					std::optional<float> const component = VisualScriptSerializer::ReadFloat(literal[static_cast<size_t>(i)]);
+					if (!component)
+					{
+						return std::nullopt;
+					}
+					value[i] = *component;
+				}
+				return value;
+			}
+		}
+
+		template<typename T>
+		std::optional<ScriptFieldValue> ReadFloatLiteral(Json const& literal, ScriptFieldValue (*make)(T))
+		{
+			std::optional<T> const value = ReadFloats<T>(literal);
+			return value ? std::optional<ScriptFieldValue>(make(*value)) : std::nullopt;
+		}
+
 		// 64-bit integers and handles are decimal strings.
 		template<typename T>
 		std::optional<T> ReadDecimal(Json const& literal)
@@ -170,34 +210,37 @@ namespace Strada
 					return value ? std::optional<ScriptFieldValue>(ScriptFieldValue::FromUInt64(*value)) : std::nullopt;
 				}
 				case ScriptFieldType::Float:
-					return Read(literal, &ScriptFieldValue::FromFloat);
+					return ReadFloatLiteral(literal, &ScriptFieldValue::FromFloat);
 				case ScriptFieldType::Double:
 					return Read(literal, &ScriptFieldValue::FromDouble);
 				case ScriptFieldType::String:
 					return Read(literal, &ScriptFieldValue::FromString);
 				case ScriptFieldType::Vector2:
-					return Read(literal, &ScriptFieldValue::FromVector2);
+					return ReadFloatLiteral(literal, &ScriptFieldValue::FromVector2);
 				case ScriptFieldType::Vector3:
-					return Read(literal, &ScriptFieldValue::FromVector3);
+					return ReadFloatLiteral(literal, &ScriptFieldValue::FromVector3);
 				case ScriptFieldType::Vector4:
-					return Read(literal, &ScriptFieldValue::FromVector4);
+					return ReadFloatLiteral(literal, &ScriptFieldValue::FromVector4);
 				case ScriptFieldType::Quaternion:
 				{
-					std::array<float, 4> components{};
-					if (!Detail::ReadFloatArray(literal, components))
+					// [x, y, z, w]
+					std::optional<glm::vec4> const components = ReadFloats<glm::vec4>(literal);
+					if (!components)
 					{
 						return std::nullopt;
 					}
-					// Read normalized; a quaternion of zero length is the identity (the scripting runtime warns about it).
+					// Normalized as the engine reads rotations, from the floats as read; a quaternion of zero length is the
+					// identity (the scripting runtime warns about it).
+					Json const floats = Json::array({components->x, components->y, components->z, components->w});
 					glm::quat rotation(1.0f, 0.0f, 0.0f, 0.0f);
-					if (glm::quat normalized; JsonTraits<glm::quat>::FromJson(literal, normalized, DeserializationContext{}))
+					if (glm::quat normalized; JsonTraits<glm::quat>::FromJson(floats, normalized, DeserializationContext{}))
 					{
 						rotation = normalized;
 					}
 					return ScriptFieldValue::FromQuaternion(rotation);
 				}
 				case ScriptFieldType::Color:
-					return Read(literal, &ScriptFieldValue::FromColor);
+					return ReadFloatLiteral(literal, &ScriptFieldValue::FromColor);
 				case ScriptFieldType::Entity:
 					// Graphs are shared by entities, so they refer to none: entities are set on each component.
 					return literal == "0" ? std::optional<ScriptFieldValue>(ScriptFieldValue::FromEntity(UUID::Invalid())) : std::nullopt;
@@ -253,7 +296,7 @@ namespace Strada
 
 	std::optional<VisualScriptExposableType> FindVisualScriptExposableType(std::string_view typeId)
 	{
-		for (ExposableTypeEntry const& entry : s_ExposableTypes)
+		for (ExposableTypeEntry const& entry : ExposableTypes)
 		{
 			if (entry.TypeId == typeId)
 			{

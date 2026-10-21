@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <functional>
 #include <initializer_list>
+#include <limits>
 #include <optional>
 #include <set>
 #include <string>
@@ -292,6 +293,20 @@ TEST_CASE("VisualScriptVariables: values are read as literals of their variable'
 	// Numbers of floating-point types may be written as integers.
 	CHECK(GetStartValue("float", 4) == ScriptFieldValue::FromFloat(4.0f));
 	CHECK(GetStartValue("float", 3.4028234663852886e38) == ScriptFieldValue::FromFloat(3.4028234663852886e38f));
+	// Floats, alone and as the components of vectors, quaternions and colors, go up to float's largest value written with
+	// the fewest digits (3.4028235e38, a little above its exact value), which they read as.
+	float const largest = std::numeric_limits<float>::max();
+	CHECK(GetStartValue("float", 3.4028235e38) == ScriptFieldValue::FromFloat(largest));
+	CHECK(GetStartValue("float", -3.4028235e38) == ScriptFieldValue::FromFloat(-largest));
+	CHECK(GetStartValue("Strada.Vector2", Json::array({3.4028235e38, -3.4028235e38})) ==
+	      ScriptFieldValue::FromVector2({largest, -largest}));
+	CHECK(GetStartValue("Strada.Vector3", Json::array({0.0, 3.4028235e38, 0.0})) == ScriptFieldValue::FromVector3({0.0f, largest, 0.0f}));
+	CHECK(GetStartValue("Strada.Vector4", Json::array({0.0, 0.0, 0.0, -3.4028235e38})) ==
+	      ScriptFieldValue::FromVector4({0.0f, 0.0f, 0.0f, -largest}));
+	CHECK(GetStartValue("Strada.Color", Json::array({3.4028235e38, 0.0, 0.0, 1.0})) ==
+	      ScriptFieldValue::FromColor({largest, 0.0f, 0.0f, 1.0f}));
+	CHECK(GetStartValue("Strada.Quaternion", Json::array({3.4028235e38, 0.0, 0.0, 0.0})) ==
+	      ScriptFieldValue::FromQuaternion(glm::quat::wxyz(0.0f, 1.0f, 0.0f, 0.0f)));
 	CHECK(GetStartValue("double", 1e300) == ScriptFieldValue::FromDouble(1e300));
 	CHECK(GetStartValue("string", "asset://Textures/Oak.png") == ScriptFieldValue::FromString("asset://Textures/Oak.png"));
 	// Colors are linear and not clamped.
@@ -332,6 +347,9 @@ TEST_CASE("VisualScriptVariables: values that are no literal of their type start
 		{"ulong", 5},
 		{"ulong", "18446744073709551616"},
 		{"float", 1e39},
+		// Past the largest float literal, even where the number would round to float's largest value.
+		{"float", 3.40282355e38},
+		{"float", -3.40282355e38},
 		{"float", "1"},
 		{"double", "x"},
 		{"double", true},
@@ -341,11 +359,14 @@ TEST_CASE("VisualScriptVariables: values that are no literal of their type start
 		{"Strada.Vector2", Json::array({1.0, "2"})},
 		{"Strada.Vector3", Json::array({1.0, 2.0})},
 		{"Strada.Vector3", Json::object({{"X", 1.0}})},
+		{"Strada.Vector3", Json::array({0.0, 3.40282355e38, 0.0})},
 		{"Strada.Vector4", Json::array({1.0, 2.0, 3.0})},
 		{"Strada.Quaternion", Json::array({0.0, 0.0, 1.0})},
 		{"Strada.Quaternion", "identity"},
+		{"Strada.Quaternion", Json::array({3.40282355e38, 0.0, 0.0, 0.0})},
 		{"Strada.Color", Json::array({1.0, 1.0, 1.0})},
 		{"Strada.Color", Json::array({1.0, 1.0, 1.0, "1"})},
+		{"Strada.Color", Json::array({1.0, 1.0, 1.0, 1e39})},
 		// Graphs are shared by entities: entities are set on each component.
 		{"Strada.Entity", "12777872994629461483"},
 		{"Strada.Entity", 0},
