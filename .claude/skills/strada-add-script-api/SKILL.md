@@ -51,7 +51,7 @@ scripting startup, so every scripting test fails with the list of names.
 
 A callback scripts override (like `OnClick`) is an event the engine sends, not a binding:
 
-- Give `ScriptEvent` in `Strada/Source/Strada/Script/ScriptEngine.cpp` and in
+- Give `ScriptEvent` in `Strada/Source/Strada/Script/ScriptEngineInternal.h` and in
   `Strada-ScriptCore/Source/Interop/ScriptRegistry.cs` the same enumerator with the same value, and handle it in
   `ScriptRegistry.Invoke`.
 - Add `ScriptEngine::InvokeOn<Name>` (declared in `ScriptEngine.h`, calling `Invoke` with the event) and call it where

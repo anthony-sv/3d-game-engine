@@ -104,9 +104,11 @@ namespace Strada
 		static void Shutdown();
 		static bool IsInitialized();
 
-		// Loads the game's script assembly in place of the current one; fails while instances exist. The file stays
-		// unlocked, so it can be rebuilt and loaded again (hot reload).
+		// Loads the game's script assembly in place of the current one; fails while instances exist (GetInstanceCount). The
+		// file stays unlocked, so it can be rebuilt and loaded again (hot reload).
 		[[nodiscard]] static Result<void> LoadGameAssembly(std::filesystem::path const& path);
+		// Unloads the game's scripts, if any: the instances of both kinds go with them (without OnDestroy or Event.Destroy),
+		// and visual scripts compile again when next used.
 		static void UnloadGameAssembly();
 		static bool HasGameAssembly();
 		static std::filesystem::path const& GetGameAssemblyPath();
@@ -137,6 +139,8 @@ namespace Strada
 		// Without calling OnDestroy.
 		static void DestroyInstance(UUID entity);
 		static void DestroyAllInstances();
+		// The instances of the running scene: C# script instances plus graph instances (VisualScriptEngine). The game
+		// assembly cannot change while there are any.
 		static size_t GetInstanceCount();
 
 		// Lifecycle calls on the entity's instance, if it has one; script exceptions are logged and do not propagate.

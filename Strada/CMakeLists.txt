@@ -209,11 +209,16 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/ScriptBindingsUI.cpp
     Source/Strada/Script/ScriptEngine.cpp
     Source/Strada/Script/ScriptEngine.h
+    Source/Strada/Script/ScriptEngineInternal.h
     Source/Strada/Script/ScriptField.cpp
     Source/Strada/Script/ScriptField.h
     Source/Strada/Script/ScriptFieldSerialization.cpp
     Source/Strada/Script/ScriptFieldSerialization.h
     Source/Strada/Script/ScriptGlue.h
+    Source/Strada/Script/VisualScriptEngine.cpp
+    Source/Strada/Script/VisualScriptEngine.h
+    Source/Strada/Script/VisualScriptLibrary.cpp
+    Source/Strada/Script/VisualScriptLibrary.h
     Source/Strada/Script/VisualScriptVariables.cpp
     Source/Strada/Script/VisualScriptVariables.h
 )

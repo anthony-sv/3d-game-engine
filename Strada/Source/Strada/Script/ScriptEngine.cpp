@@ -4,69 +4,27 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Script/DotNetHost.h"
 #include "Strada/Script/ScriptBindings.h"
+#include "Strada/Script/ScriptEngineInternal.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
 
 #include <algorithm>
 #include <limits>
-#include <unordered_set>
 
 namespace Strada
 {
 	namespace
 	{
+		using ScriptEngineInternal::HostFunctions;
+		using ScriptEngineInternal::ReceiveText;
+		using ScriptEngineInternal::ReportScriptException;
+		using ScriptEngineInternal::ScriptEngineData;
+		using ScriptEngineInternal::ScriptEvent;
+		using ScriptEngineInternal::ScriptStatus;
+		using ScriptEngineInternal::ToJsonText;
+		using ScriptEngineInternal::ToLength;
+
 		constexpr std::string_view HostType = "Strada.Interop.Host, Strada.ScriptCore";
 		constexpr char const* ScriptCoreFileName = "Strada.ScriptCore.dll";
-
-		// The statuses of Strada.Interop.Host.
-		enum class ScriptStatus : int32_t
-		{
-			Success = 0,
-			Failure = 1,
-			NotFound = 2,
-			BindingMismatch = 3
-		};
-
-		// Strada.Interop.ScriptEvent.
-		enum class ScriptEvent : int32_t
-		{
-			Create = 0,
-			Update = 1,
-			FixedUpdate = 2,
-			Destroy = 3,
-			CollisionEnter = 4,
-			CollisionExit = 5,
-			TriggerEnter = 6,
-			TriggerExit = 7,
-			Click = 8
-		};
-
-		// The [UnmanagedCallersOnly] entry points of Strada.Interop.Host.
-		struct HostFunctions
-		{
-			int32_t (*Initialize)(ScriptBinding const* bindings, int32_t count) = nullptr;
-			int32_t (*Shutdown)() = nullptr;
-			int32_t (*LoadGameAssembly)(char const* path, int32_t pathLength) = nullptr;
-			int32_t (*UnloadGameAssembly)() = nullptr;
-			int32_t (*DescribeClasses)(void* context, void (*receive)(void* context, char const* text, int32_t length)) = nullptr;
-			int32_t (*CreateInstance)(char const* className, int32_t classNameLength, uint64_t entity, char const* fields,
-			                          int32_t fieldsLength) = nullptr;
-			int32_t (*SetInstanceFields)(uint64_t entity, char const* fields, int32_t fieldsLength) = nullptr;
-			int32_t (*DescribeInstanceFields)(uint64_t entity, void* context,
-			                                  void (*receive)(void* context, char const* text, int32_t length)) = nullptr;
-			int32_t (*DestroyInstance)(uint64_t entity) = nullptr;
-			int32_t (*DestroyAllInstances)() = nullptr;
-			int32_t (*Invoke)(uint64_t entity, int32_t scriptEvent, float timeStep, uint64_t other) = nullptr;
-		};
-
-		struct ScriptEngineData
-		{
-			HostFunctions Host;
-			std::filesystem::path GameAssemblyPath;
-			std::vector<ScriptClassInfo> Classes;
-			Scene* SceneContext = nullptr;
-			ScriptHost* Application = nullptr;
-			std::unordered_set<UUID> Instances;
-		};
 
 		Scope<ScriptEngineData> s_Data;
 
@@ -97,6 +55,16 @@ namespace Strada
 				Resolve(functions.DestroyInstance, "DestroyInstance"),
 				Resolve(functions.DestroyAllInstances, "DestroyAllInstances"),
 				Resolve(functions.Invoke, "Invoke"),
+				Resolve(functions.VisualScriptDescribeLibrary, "VisualScriptDescribeLibrary"),
+				Resolve(functions.VisualScriptAnalyze, "VisualScriptAnalyze"),
+				Resolve(functions.VisualScriptLoad, "VisualScriptLoad"),
+				Resolve(functions.VisualScriptUnload, "VisualScriptUnload"),
+				Resolve(functions.VisualScriptCreateInstance, "VisualScriptCreateInstance"),
+				Resolve(functions.VisualScriptDestroyInstance, "VisualScriptDestroyInstance"),
+				Resolve(functions.VisualScriptDestroyAllInstances, "VisualScriptDestroyAllInstances"),
+				Resolve(functions.VisualScriptInvoke, "VisualScriptInvoke"),
+				Resolve(functions.VisualScriptDescribeInstanceVariables, "VisualScriptDescribeInstanceVariables"),
+				Resolve(functions.VisualScriptSetInstanceVariables, "VisualScriptSetInstanceVariables"),
 			};
 			for (Result<void> const& result : results)
 			{
@@ -106,16 +74,6 @@ namespace Strada
 				}
 			}
 			return functions;
-		}
-
-		int32_t ToLength(size_t size)
-		{
-			return static_cast<int32_t>(std::min<size_t>(size, std::numeric_limits<int32_t>::max()));
-		}
-
-		void ReceiveText(void* context, char const* text, int32_t length)
-		{
-			static_cast<std::string*>(context)->assign(text, static_cast<size_t>(std::max(length, 0)));
 		}
 
 		bool IsIntegerType(ScriptFieldType type)
@@ -258,9 +216,9 @@ namespace Strada
 			// Script exceptions were logged by the runtime; the application learns of them (test runs fail on them).
 			auto const status = static_cast<ScriptStatus>(
 				s_Data->Host.Invoke(entity.GetValue(), static_cast<int32_t>(scriptEvent), timeStep, other.GetValue()));
-			if (status == ScriptStatus::Failure && s_Data->Application != nullptr)
+			if (status == ScriptStatus::Failure)
 			{
-				s_Data->Application->OnScriptException();
+				ReportScriptException();
 			}
 			if (scriptEvent == ScriptEvent::Destroy || status == ScriptStatus::NotFound)
 			{
@@ -268,10 +226,65 @@ namespace Strada
 			}
 		}
 
+		// Asks the runtime to unload the game's assembly: graph instances and compiled visual scripts go with it.
+		void UnloadFromRuntime()
+		{
+			s_Data->Host.UnloadGameAssembly();
+			ScriptEngineInternal::OnGameAssemblyChanged();
+		}
+	}
+
+	namespace ScriptEngineInternal
+	{
+		ScriptEngineData* GetData()
+		{
+			return s_Data.get();
+		}
+
+		int32_t ToLength(size_t size)
+		{
+			return static_cast<int32_t>(std::min<size_t>(size, std::numeric_limits<int32_t>::max()));
+		}
+
+		void ReceiveText(void* context, char const* text, int32_t length)
+		{
+			std::string& received = *static_cast<std::string*>(context);
+			if (text == nullptr || length <= 0)
+			{
+				received.clear();
+				return;
+			}
+			received.assign(text, static_cast<size_t>(length));
+		}
+
 		std::string ToJsonText(ScriptFieldMap const& fields)
 		{
 			return fields.empty() ? std::string()
 			                      : JsonTraits<ScriptFieldMap>::ToJson(fields).dump(-1, ' ', false, Json::error_handler_t::replace);
+		}
+
+		void ReportScriptException()
+		{
+			if (s_Data != nullptr && s_Data->Application != nullptr)
+			{
+				s_Data->Application->OnScriptException();
+			}
+		}
+
+		ScriptEvent ToScriptEvent(ContactEventType type)
+		{
+			switch (type)
+			{
+				case ContactEventType::CollisionEnter:
+					return ScriptEvent::CollisionEnter;
+				case ContactEventType::CollisionExit:
+					return ScriptEvent::CollisionExit;
+				case ContactEventType::TriggerEnter:
+					return ScriptEvent::TriggerEnter;
+				case ContactEventType::TriggerExit:
+					return ScriptEvent::TriggerExit;
+			}
+			return ScriptEvent::CollisionEnter;
 		}
 	}
 
@@ -339,9 +352,9 @@ namespace Strada
 	Result<void> ScriptEngine::LoadGameAssembly(std::filesystem::path const& path)
 	{
 		ST_CORE_ASSERT(s_Data, "ScriptEngine is not initialized");
-		if (!s_Data->Instances.empty())
+		if (GetInstanceCount() > 0)
 		{
-			return Error{"the game's scripts cannot be replaced while a scene runs them"};
+			return Error{"the game's scripts cannot be replaced while a scene runs scripts or visual scripts"};
 		}
 		std::error_code error;
 		std::filesystem::path const absolutePath = std::filesystem::absolute(path, error);
@@ -352,20 +365,23 @@ namespace Strada
 
 		UnloadGameAssembly();
 		std::string const utf8Path = FileSystem::PathToUtf8(absolutePath);
-		if (static_cast<ScriptStatus>(s_Data->Host.LoadGameAssembly(utf8Path.data(), ToLength(utf8Path.size()))) != ScriptStatus::Success)
+		auto const loaded = static_cast<ScriptStatus>(s_Data->Host.LoadGameAssembly(utf8Path.data(), ToLength(utf8Path.size())));
+		// Whatever the outcome, the runtime unloaded the previous assembly first, with the visual scripts compiled for it.
+		ScriptEngineInternal::OnGameAssemblyChanged();
+		if (loaded != ScriptStatus::Success)
 		{
 			return MakeError("{} cannot be loaded (see the log)", utf8Path);
 		}
 		std::string description;
 		if (static_cast<ScriptStatus>(s_Data->Host.DescribeClasses(&description, &ReceiveText)) != ScriptStatus::Success)
 		{
-			s_Data->Host.UnloadGameAssembly();
+			UnloadFromRuntime();
 			return MakeError("the script classes of {} cannot be listed (see the log)", utf8Path);
 		}
 		Result<std::vector<ScriptClassInfo>> classes = ParseClasses(description);
 		if (!classes)
 		{
-			s_Data->Host.UnloadGameAssembly();
+			UnloadFromRuntime();
 			return Error{classes.GetError()};
 		}
 		s_Data->Classes = classes.TakeValue();
@@ -384,7 +400,7 @@ namespace Strada
 		s_Data->Instances.clear();
 		s_Data->Classes.clear();
 		s_Data->GameAssemblyPath.clear();
-		s_Data->Host.UnloadGameAssembly();
+		UnloadFromRuntime();
 	}
 
 	bool ScriptEngine::HasGameAssembly()
@@ -461,10 +477,7 @@ namespace Strada
 				return MakeError("there is no script class {}", className);
 			case ScriptStatus::Failure:
 				// An exception (the constructor threw); the runtime logged it.
-				if (s_Data->Application != nullptr)
-				{
-					s_Data->Application->OnScriptException();
-				}
+				ReportScriptException();
 				break;
 			case ScriptStatus::BindingMismatch:
 				break;
@@ -535,7 +548,7 @@ namespace Strada
 
 	size_t ScriptEngine::GetInstanceCount()
 	{
-		return s_Data != nullptr ? s_Data->Instances.size() : 0;
+		return s_Data != nullptr ? s_Data->Instances.size() + s_Data->GraphInstances.size() : 0;
 	}
 
 	void ScriptEngine::InvokeOnCreate(UUID entity)
@@ -560,23 +573,7 @@ namespace Strada
 
 	void ScriptEngine::InvokeContactEvent(UUID entity, UUID other, ContactEventType type)
 	{
-		ScriptEvent scriptEvent = ScriptEvent::CollisionEnter;
-		switch (type)
-		{
-			case ContactEventType::CollisionEnter:
-				scriptEvent = ScriptEvent::CollisionEnter;
-				break;
-			case ContactEventType::CollisionExit:
-				scriptEvent = ScriptEvent::CollisionExit;
-				break;
-			case ContactEventType::TriggerEnter:
-				scriptEvent = ScriptEvent::TriggerEnter;
-				break;
-			case ContactEventType::TriggerExit:
-				scriptEvent = ScriptEvent::TriggerExit;
-				break;
-		}
-		Invoke(entity, scriptEvent, 0.0f, other);
+		Invoke(entity, ScriptEngineInternal::ToScriptEvent(type), 0.0f, other);
 	}
 
 	void ScriptEngine::InvokeOnClick(UUID entity, UUID button)

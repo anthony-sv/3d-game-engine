@@ -48,6 +48,28 @@ namespace Strada::Testing
 		ScriptEngineScope& operator=(ScriptEngineScope const&) = delete;
 	};
 
+	// Initializes the ScriptEngine without game scripts for as long as it lives: visual scripts run, C# scripts do not.
+	class ScriptRuntimeScope
+	{
+	public:
+		ScriptRuntimeScope()
+		{
+			Result<void> const initialized = ScriptEngine::Init();
+			REQUIRE_MESSAGE(initialized.IsOk(), (initialized ? std::string() : initialized.GetError()));
+		}
+
+		~ScriptRuntimeScope()
+		{
+			if (ScriptEngine::IsInitialized())
+			{
+				ScriptEngine::Shutdown();
+			}
+		}
+
+		ScriptRuntimeScope(ScriptRuntimeScope const&) = delete;
+		ScriptRuntimeScope& operator=(ScriptRuntimeScope const&) = delete;
+	};
+
 	// Whether a log entry since firstIndex contains the text.
 	inline bool WasLogged(uint64_t firstIndex, std::string_view text)
 	{

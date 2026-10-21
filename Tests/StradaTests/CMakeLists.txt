@@ -90,6 +90,7 @@ add_executable(StradaTests
     Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp
     Source/Script/ScriptTestUtilities.h
+    Source/Script/VisualScriptEngineTests.cpp
     Source/Script/VisualScriptVariablesTests.cpp
     Source/Serialization/JsonSerializationTests.cpp
     Source/Serialization/StructSerializationTests.cpp
@@ -113,6 +114,8 @@ target_compile_definitions(StradaTests PRIVATE
     STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data"
     # The feature-test project, whose scenes must use every component.
     STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
+    # The repository's projects, whose scenes' visual scripts must analyze without errors (with the scripts CMake builds).
+    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
     # The scripting guide and the test scripts that are its examples, which the scripting tests compare and run.
     STRADA_SCRIPTING_GUIDE_PATH="${PROJECT_SOURCE_DIR}/Docs/Scripting.md"
     STRADA_GUIDE_EXAMPLES_PATH="${PROJECT_SOURCE_DIR}/Tests/TestScripts/Source/GuideExamples.cs")
@@ -134,6 +137,8 @@ strada_add_dotnet_project(StradaTestScripts
     DEPENDS StradaScriptCore
     PROPERTIES "StradaScriptCoreDirectory=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 add_dependencies(StradaTests StradaTestScripts)
+# The projects' scripts: the visual scripts of their scenes may use their classes as types (VisualScriptEngineTests).
+add_dependencies(StradaTests StradaFeatureTestScripts StradaBlocksScripts StradaShowcaseScripts)
 set_target_properties(StradaTests PROPERTIES FOLDER "Tests")
 
 add_test(NAME StradaTests COMMAND StradaTests --reporters=console --no-intro=true)
