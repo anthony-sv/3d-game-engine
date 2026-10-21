@@ -1640,8 +1640,54 @@ TEST_CASE("VisualScriptEngine: graph instances block game-assembly loads, and a 
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) != reloaded);
 }
 
-TEST_CASE(
-	"VisualScriptEngine: the graphs the projects' scenes run load strictly, analyze without errors and resolve exactly or by redirect")
+TEST_CASE("VisualScriptEngine: a graph that needs the game's types runs once they load, and stops when they go")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Scene scene;
+	UUID const id = scene.CreateEntity("Mover").GetUUID();
+	SceneContextScope context(scene);
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(MakeMoverDocument());
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Mover check");
+
+	// Without the game's scripts Strada.Tests.Mover is no type: the graph cannot run.
+	uint64_t logStart = Log::GetNextEntryIndex();
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has "));
+	CHECK(VisualScriptEngine::CreateInstance(id, graph, {}).IsError());
+	CHECK(host.Exceptions == 1);
+	uint64_t const before = VisualScriptEngine::GetProgramGeneration(graph);
+
+	// With them its document compiles again (the generation tells entities to try again) and runs, so a broken edit then
+	// leaves it running.
+	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	CHECK(VisualScriptEngine::GetProgramGeneration(graph) != before);
+	REQUIRE(VisualScriptEngine::CreateInstance(id, graph, {}).IsOk());
+	VisualScriptEngine::InvokeOnCreate(id);
+	CHECK(ReadVariable(id, "IsMover") == ScriptFieldValue::FromBool(false));
+	VisualScriptEngine::DestroyInstance(id);
+	logStart = Log::GetNextEntryIndex();
+	asset->SetDocument(MakeBrokenDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
+	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	asset->SetDocument(MakeMoverDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+
+	// Without them again it cannot compile, so nothing keeps running when a broken edit comes.
+	ScriptEngine::UnloadGameAssembly();
+	logStart = Log::GetNextEntryIndex();
+	CHECK(VisualScriptEngine::CreateInstance(id, graph, {}).IsError());
+	CHECK(host.Exceptions == 2);
+	CHECK(Testing::WasLogged(logStart, "Mover check was compiled again for the changed game assembly: "));
+	asset->SetDocument(MakeBrokenDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
+	CHECK_FALSE(Testing::WasLogged(logStart, "keeps running"));
+}
+
+TEST_CASE("VisualScriptEngine: the projects' scene graphs load strictly, analyze cleanly and resolve exactly or by redirect")
 {
 	std::filesystem::path const projectsDirectory = FileSystem::PathFromUtf8(STRADA_PROJECTS_DIR);
 	std::vector<std::filesystem::path> projects;

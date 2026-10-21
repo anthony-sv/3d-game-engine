@@ -90,8 +90,8 @@ namespace Strada::ScriptEngineInternal
 		// not sent again.
 		VisualScriptDocument Document;
 		// Whether the runtime has a working program for the handle as far as the engine has seen: a load without errors or
-		// a created instance says so (a broken document loaded over it keeps it running), a failed creation or a change of
-		// the game assembly (programs compile again) does not.
+		// a created instance says so (a broken document loaded over it keeps it running), a failed creation (the program no
+		// longer compiles for the game assembly, say) says not.
 		bool HasWorkingProgram = false;
 		// Whether the last EnsureLoaded found the graph absent.
 		bool IsAbsent = false;

@@ -158,7 +158,6 @@ namespace Strada
 			for (auto& entry : data->VisualScriptPrograms)
 			{
 				entry.second.Generation = generation;
-				entry.second.HasWorkingProgram = false;
 			}
 		}
 	}
