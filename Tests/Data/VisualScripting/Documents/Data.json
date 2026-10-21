@@ -1,0 +1,1425 @@
+{
+	"Description": "Every data node: Self, literals of each kind, reroutes of exec and data, Select, IsValid, Convert, Make, Break, FormatString, the array nodes and every operator",
+	"Variables": [
+		{
+			"ID": 1,
+			"Name": "Flag",
+			"Type": "bool"
+		},
+		{
+			"ID": 2,
+			"Name": "Toggle",
+			"Type": "bool"
+		},
+		{
+			"ID": 3,
+			"Name": "Count",
+			"Type": "int",
+			"Value": 2
+		},
+		{
+			"ID": 4,
+			"Name": "Big",
+			"Type": "long"
+		},
+		{
+			"ID": 5,
+			"Name": "Ratio",
+			"Type": "float"
+		},
+		{
+			"ID": 6,
+			"Name": "Parsed",
+			"Type": "int"
+		},
+		{
+			"ID": 7,
+			"Name": "Label",
+			"Type": "string"
+		},
+		{
+			"ID": 8,
+			"Name": "Offset",
+			"Type": "Strada.Vector3"
+		},
+		{
+			"ID": 9,
+			"Name": "Height",
+			"Type": "float"
+		},
+		{
+			"ID": 10,
+			"Name": "Turn",
+			"Type": "Strada.Quaternion"
+		},
+		{
+			"ID": 11,
+			"Name": "Tint",
+			"Type": "Strada.Color"
+		},
+		{
+			"ID": 12,
+			"Name": "Mode",
+			"Type": "Strada.ForceMode",
+			"Value": "Force"
+		},
+		{
+			"ID": 13,
+			"Name": "Valid",
+			"Type": "bool"
+		},
+		{
+			"ID": 14,
+			"Name": "Picked",
+			"Type": "Strada.Entity"
+		},
+		{
+			"ID": 15,
+			"Name": "FirstChild",
+			"Type": "Strada.Entity"
+		}
+	],
+	"Functions": [],
+	"Graph": {
+		"Nodes": [
+			{
+				"ID": 20,
+				"Type": "Event.Create",
+				"Position": [
+					0.0,
+					0.0
+				]
+			},
+			{
+				"ID": 21,
+				"Type": "Reroute",
+				"Position": [
+					320.0,
+					0.0
+				]
+			},
+			{
+				"ID": 22,
+				"Type": "Variable.Set",
+				"Position": [
+					640.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 1
+				}
+			},
+			{
+				"ID": 23,
+				"Type": "Variable.Set",
+				"Position": [
+					960.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 2
+				}
+			},
+			{
+				"ID": 24,
+				"Type": "Variable.Set",
+				"Position": [
+					1280.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 3
+				}
+			},
+			{
+				"ID": 25,
+				"Type": "Variable.Set",
+				"Position": [
+					1600.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 4
+				}
+			},
+			{
+				"ID": 26,
+				"Type": "Variable.Set",
+				"Position": [
+					1920.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 5
+				}
+			},
+			{
+				"ID": 27,
+				"Type": "Variable.Set",
+				"Position": [
+					2240.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 6
+				}
+			},
+			{
+				"ID": 28,
+				"Type": "Variable.Set",
+				"Position": [
+					2560.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 10
+				}
+			},
+			{
+				"ID": 29,
+				"Type": "Variable.Set",
+				"Position": [
+					2880.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 11
+				}
+			},
+			{
+				"ID": 30,
+				"Type": "Variable.Set",
+				"Position": [
+					0.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 12
+				}
+			},
+			{
+				"ID": 31,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 8
+				}
+			},
+			{
+				"ID": 32,
+				"Type": "Variable.Set",
+				"Position": [
+					640.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 9
+				}
+			},
+			{
+				"ID": 33,
+				"Type": "Variable.Set",
+				"Position": [
+					960.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 13
+				}
+			},
+			{
+				"ID": 34,
+				"Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
+				"Position": [
+					1280.0,
+					160.0
+				],
+				"Inputs": {
+					"Direction": [
+						0.0,
+						-1.0,
+						0.0
+					],
+					"MaxDistance": 50.0
+				}
+			},
+			{
+				"ID": 35,
+				"Type": "Variable.Set",
+				"Position": [
+					1600.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 14
+				}
+			},
+			{
+				"ID": 36,
+				"Type": "Variable.Set",
+				"Position": [
+					1920.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 7
+				}
+			},
+			{
+				"ID": 37,
+				"Type": "Flow.Branch",
+				"Position": [
+					2240.0,
+					160.0
+				]
+			},
+			{
+				"ID": 38,
+				"Type": "Variable.Set",
+				"Position": [
+					2560.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 15
+				}
+			},
+			{
+				"ID": 40,
+				"Type": "Literal",
+				"Position": [
+					0.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "bool",
+					"Value": true
+				}
+			},
+			{
+				"ID": 41,
+				"Type": "Literal",
+				"Position": [
+					320.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "int",
+					"Value": 7
+				}
+			},
+			{
+				"ID": 42,
+				"Type": "Literal",
+				"Position": [
+					640.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "long",
+					"Value": "-9000000000"
+				}
+			},
+			{
+				"ID": 43,
+				"Type": "Literal",
+				"Position": [
+					960.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "float",
+					"Value": 1.5
+				}
+			},
+			{
+				"ID": 44,
+				"Type": "Literal",
+				"Position": [
+					1280.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "string",
+					"Value": "Probe"
+				}
+			},
+			{
+				"ID": 45,
+				"Type": "Literal",
+				"Position": [
+					1600.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "Strada.Vector3",
+					"Value": [
+						1.0,
+						2.0,
+						3.0
+					]
+				}
+			},
+			{
+				"ID": 46,
+				"Type": "Literal",
+				"Position": [
+					1920.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "Strada.Quaternion",
+					"Value": [
+						0.0,
+						0.6,
+						0.0,
+						0.8
+					]
+				}
+			},
+			{
+				"ID": 47,
+				"Type": "Literal",
+				"Position": [
+					2240.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "Strada.Color",
+					"Value": [
+						1.0,
+						0.5,
+						0.25,
+						1.0
+					]
+				}
+			},
+			{
+				"ID": 48,
+				"Type": "Literal",
+				"Position": [
+					2560.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "Strada.ForceMode",
+					"Value": "Impulse"
+				}
+			},
+			{
+				"ID": 49,
+				"Type": "Literal",
+				"Position": [
+					2880.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "string",
+					"Value": "42"
+				}
+			},
+			{
+				"ID": 50,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 3
+				}
+			},
+			{
+				"ID": 51,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 12
+				}
+			},
+			{
+				"ID": 52,
+				"Type": "Operator.Add"
+			},
+			{
+				"ID": 53,
+				"Type": "Operator.Subtract",
+				"Inputs": {
+					"B": 0.5
+				}
+			},
+			{
+				"ID": 54,
+				"Type": "Operator.Multiply",
+				"Inputs": {
+					"B": 2
+				}
+			},
+			{
+				"ID": 55,
+				"Type": "Operator.Divide",
+				"Inputs": {
+					"B": 4.0
+				}
+			},
+			{
+				"ID": 56,
+				"Type": "Operator.Modulo",
+				"Inputs": {
+					"B": 5
+				}
+			},
+			{
+				"ID": 57,
+				"Type": "Operator.Negate"
+			},
+			{
+				"ID": 58,
+				"Type": "Operator.Equal"
+			},
+			{
+				"ID": 59,
+				"Type": "Operator.NotEqual",
+				"Inputs": {
+					"B": "Other"
+				}
+			},
+			{
+				"ID": 60,
+				"Type": "Operator.Less",
+				"Inputs": {
+					"B": 10
+				}
+			},
+			{
+				"ID": 61,
+				"Type": "Operator.LessOrEqual"
+			},
+			{
+				"ID": 62,
+				"Type": "Operator.Greater",
+				"Inputs": {
+					"B": 0
+				}
+			},
+			{
+				"ID": 63,
+				"Type": "Operator.GreaterOrEqual"
+			},
+			{
+				"ID": 64,
+				"Type": "Operator.And"
+			},
+			{
+				"ID": 65,
+				"Type": "Operator.Or"
+			},
+			{
+				"ID": 66,
+				"Type": "Operator.Xor"
+			},
+			{
+				"ID": 67,
+				"Type": "Operator.Not"
+			},
+			{
+				"ID": 68,
+				"Type": "Self",
+				"Position": [
+					0.0,
+					800.0
+				]
+			},
+			{
+				"ID": 69,
+				"Type": "Make",
+				"Position": [
+					320.0,
+					800.0
+				],
+				"Settings": {
+					"Type": "Strada.Vector3"
+				},
+				"Inputs": {
+					"Y": 1.0,
+					"Z": -2.0
+				}
+			},
+			{
+				"ID": 70,
+				"Type": "Convert",
+				"Position": [
+					640.0,
+					800.0
+				],
+				"Settings": {
+					"To": "float"
+				}
+			},
+			{
+				"ID": 71,
+				"Type": "Convert",
+				"Position": [
+					960.0,
+					800.0
+				],
+				"Settings": {
+					"To": "int"
+				}
+			},
+			{
+				"ID": 72,
+				"Type": "Reroute",
+				"Position": [
+					1280.0,
+					800.0
+				]
+			},
+			{
+				"ID": 73,
+				"Type": "Select",
+				"Position": [
+					1600.0,
+					800.0
+				]
+			},
+			{
+				"ID": 74,
+				"Type": "Break",
+				"Position": [
+					1920.0,
+					800.0
+				],
+				"Settings": {
+					"Type": "Strada.Vector3"
+				}
+			},
+			{
+				"ID": 75,
+				"Type": "IsValid",
+				"Position": [
+					2240.0,
+					800.0
+				]
+			},
+			{
+				"ID": 76,
+				"Type": "Break",
+				"Position": [
+					2560.0,
+					800.0
+				],
+				"Settings": {
+					"Type": "Strada.RaycastHit"
+				}
+			},
+			{
+				"ID": 77,
+				"Type": "FormatString",
+				"Position": [
+					2880.0,
+					800.0
+				],
+				"Settings": {
+					"Format": "{Who} hit at {Distance} m"
+				},
+				"Inputs": {
+					"Who": "Probe"
+				}
+			},
+			{
+				"ID": 78,
+				"Type": "Get:Strada.Entity.Children",
+				"Position": [
+					0.0,
+					960.0
+				]
+			},
+			{
+				"ID": 79,
+				"Type": "Array.Length",
+				"Position": [
+					320.0,
+					960.0
+				]
+			},
+			{
+				"ID": 80,
+				"Type": "Array.Get",
+				"Position": [
+					640.0,
+					960.0
+				],
+				"Inputs": {
+					"Index": 0
+				}
+			}
+		],
+		"Links": [
+			{
+				"From": [
+					20,
+					"Then"
+				],
+				"To": [
+					21,
+					"In"
+				]
+			},
+			{
+				"From": [
+					21,
+					"Out"
+				],
+				"To": [
+					22,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					22,
+					"Then"
+				],
+				"To": [
+					23,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					23,
+					"Then"
+				],
+				"To": [
+					24,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					24,
+					"Then"
+				],
+				"To": [
+					25,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					25,
+					"Then"
+				],
+				"To": [
+					26,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					26,
+					"Then"
+				],
+				"To": [
+					27,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					27,
+					"Then"
+				],
+				"To": [
+					28,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					28,
+					"Then"
+				],
+				"To": [
+					29,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					29,
+					"Then"
+				],
+				"To": [
+					30,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					30,
+					"Then"
+				],
+				"To": [
+					31,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					31,
+					"Then"
+				],
+				"To": [
+					32,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					32,
+					"Then"
+				],
+				"To": [
+					33,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					33,
+					"Then"
+				],
+				"To": [
+					34,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					34,
+					"Then"
+				],
+				"To": [
+					35,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					35,
+					"Then"
+				],
+				"To": [
+					36,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					36,
+					"Then"
+				],
+				"To": [
+					37,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					37,
+					"True"
+				],
+				"To": [
+					38,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					66,
+					"Result"
+				],
+				"To": [
+					22,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					40,
+					"Value"
+				],
+				"To": [
+					23,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					56,
+					"Result"
+				],
+				"To": [
+					24,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					42,
+					"Value"
+				],
+				"To": [
+					25,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					70,
+					"Result"
+				],
+				"To": [
+					26,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					71,
+					"Result"
+				],
+				"To": [
+					27,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					46,
+					"Value"
+				],
+				"To": [
+					28,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					47,
+					"Value"
+				],
+				"To": [
+					29,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					72,
+					"Out"
+				],
+				"To": [
+					30,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					73,
+					"Result"
+				],
+				"To": [
+					31,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					74,
+					"Y"
+				],
+				"To": [
+					32,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					75,
+					"Result"
+				],
+				"To": [
+					33,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					45,
+					"Value"
+				],
+				"To": [
+					34,
+					"Origin"
+				]
+			},
+			{
+				"From": [
+					76,
+					"Entity"
+				],
+				"To": [
+					35,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					77,
+					"Result"
+				],
+				"To": [
+					36,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					62,
+					"Result"
+				],
+				"To": [
+					37,
+					"Condition"
+				]
+			},
+			{
+				"From": [
+					80,
+					"Element"
+				],
+				"To": [
+					38,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					41,
+					"Value"
+				],
+				"To": [
+					52,
+					"A"
+				]
+			},
+			{
+				"From": [
+					50,
+					"Value"
+				],
+				"To": [
+					52,
+					"B"
+				]
+			},
+			{
+				"From": [
+					43,
+					"Value"
+				],
+				"To": [
+					53,
+					"A"
+				]
+			},
+			{
+				"From": [
+					52,
+					"Result"
+				],
+				"To": [
+					54,
+					"A"
+				]
+			},
+			{
+				"From": [
+					53,
+					"Result"
+				],
+				"To": [
+					55,
+					"A"
+				]
+			},
+			{
+				"From": [
+					54,
+					"Result"
+				],
+				"To": [
+					56,
+					"A"
+				]
+			},
+			{
+				"From": [
+					55,
+					"Result"
+				],
+				"To": [
+					57,
+					"A"
+				]
+			},
+			{
+				"From": [
+					51,
+					"Value"
+				],
+				"To": [
+					58,
+					"A"
+				]
+			},
+			{
+				"From": [
+					48,
+					"Value"
+				],
+				"To": [
+					58,
+					"B"
+				]
+			},
+			{
+				"From": [
+					44,
+					"Value"
+				],
+				"To": [
+					59,
+					"A"
+				]
+			},
+			{
+				"From": [
+					56,
+					"Result"
+				],
+				"To": [
+					60,
+					"A"
+				]
+			},
+			{
+				"From": [
+					42,
+					"Value"
+				],
+				"To": [
+					61,
+					"A"
+				]
+			},
+			{
+				"From": [
+					52,
+					"Result"
+				],
+				"To": [
+					61,
+					"B"
+				]
+			},
+			{
+				"From": [
+					79,
+					"Length"
+				],
+				"To": [
+					62,
+					"A"
+				]
+			},
+			{
+				"From": [
+					57,
+					"Result"
+				],
+				"To": [
+					63,
+					"A"
+				]
+			},
+			{
+				"From": [
+					41,
+					"Value"
+				],
+				"To": [
+					63,
+					"B"
+				]
+			},
+			{
+				"From": [
+					58,
+					"Result"
+				],
+				"To": [
+					64,
+					"A"
+				]
+			},
+			{
+				"From": [
+					59,
+					"Result"
+				],
+				"To": [
+					64,
+					"B"
+				]
+			},
+			{
+				"From": [
+					60,
+					"Result"
+				],
+				"To": [
+					65,
+					"A"
+				]
+			},
+			{
+				"From": [
+					61,
+					"Result"
+				],
+				"To": [
+					65,
+					"B"
+				]
+			},
+			{
+				"From": [
+					64,
+					"Result"
+				],
+				"To": [
+					66,
+					"A"
+				]
+			},
+			{
+				"From": [
+					65,
+					"Result"
+				],
+				"To": [
+					66,
+					"B"
+				]
+			},
+			{
+				"From": [
+					63,
+					"Result"
+				],
+				"To": [
+					67,
+					"A"
+				]
+			},
+			{
+				"From": [
+					57,
+					"Result"
+				],
+				"To": [
+					69,
+					"X"
+				]
+			},
+			{
+				"From": [
+					52,
+					"Result"
+				],
+				"To": [
+					70,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					49,
+					"Value"
+				],
+				"To": [
+					71,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					48,
+					"Value"
+				],
+				"To": [
+					72,
+					"In"
+				]
+			},
+			{
+				"From": [
+					67,
+					"Result"
+				],
+				"To": [
+					73,
+					"Condition"
+				]
+			},
+			{
+				"From": [
+					45,
+					"Value"
+				],
+				"To": [
+					73,
+					"True"
+				]
+			},
+			{
+				"From": [
+					69,
+					"Value"
+				],
+				"To": [
+					73,
+					"False"
+				]
+			},
+			{
+				"From": [
+					73,
+					"Result"
+				],
+				"To": [
+					74,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					68,
+					"Self"
+				],
+				"To": [
+					75,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					34,
+					"Hit"
+				],
+				"To": [
+					76,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					76,
+					"Distance"
+				],
+				"To": [
+					77,
+					"Distance"
+				]
+			},
+			{
+				"From": [
+					78,
+					"Value"
+				],
+				"To": [
+					79,
+					"Array"
+				]
+			},
+			{
+				"From": [
+					78,
+					"Value"
+				],
+				"To": [
+					80,
+					"Array"
+				]
+			}
+		],
+		"Comments": [
+			{
+				"ID": 90,
+				"Text": "On create every value lands in a typed variable (the first reroute carries exec, the second data); the first child is read only when there is one",
+				"Position": [
+					-40.0,
+					-80.0
+				],
+				"Size": [
+					3240.0,
+					400.0
+				],
+				"Color": [
+					0.25,
+					0.5,
+					0.75,
+					0.25
+				]
+			},
+			{
+				"ID": 91,
+				"Text": "A literal of each kind; the operators that combine them are unplaced",
+				"Position": [
+					-40.0,
+					400.0
+				],
+				"Size": [
+					3240.0,
+					240.0
+				],
+				"Color": [
+					0.25,
+					0.75,
+					0.5,
+					0.25
+				]
+			},
+			{
+				"ID": 92,
+				"Text": "Self, Make, Convert, Reroute, Select, Break, IsValid, FormatString and the array nodes",
+				"Position": [
+					-40.0,
+					720.0
+				],
+				"Size": [
+					3240.0,
+					400.0
+				],
+				"Color": [
+					0.75,
+					0.5,
+					0.25,
+					0.25
+				]
+			}
+		]
+	}
+}

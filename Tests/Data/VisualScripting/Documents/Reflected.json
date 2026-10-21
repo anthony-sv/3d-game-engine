@@ -1,0 +1,543 @@
+{
+	"Description": "Reflected nodes of the scripting API: math, logging, transform, rigid body, components, physics, input, time, entity and testing members",
+	"Variables": [],
+	"Functions": [],
+	"Graph": {
+		"Nodes": [
+			{
+				"ID": 10,
+				"Type": "Event.Create",
+				"Position": [
+					0.0,
+					0.0
+				]
+			},
+			{
+				"ID": 11,
+				"Type": "Set:Strada.Entity.Name",
+				"Position": [
+					320.0,
+					0.0
+				],
+				"Inputs": {
+					"Value": "Reflected Probe"
+				}
+			},
+			{
+				"ID": 12,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					640.0,
+					0.0
+				]
+			},
+			{
+				"ID": 13,
+				"Type": "Get:Strada.Entity.Name"
+			},
+			{
+				"ID": 14,
+				"Type": "Call:Strada.Testing.TestReporter.Pass(string)",
+				"Position": [
+					960.0,
+					0.0
+				],
+				"Inputs": {
+					"Name": "reflected nodes ran"
+				}
+			},
+			{
+				"ID": 20,
+				"Type": "Event.Update",
+				"Position": [
+					0.0,
+					320.0
+				]
+			},
+			{
+				"ID": 21,
+				"Type": "Flow.Branch",
+				"Position": [
+					320.0,
+					320.0
+				]
+			},
+			{
+				"ID": 22,
+				"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+				"Inputs": {
+					"Key": "Space"
+				}
+			},
+			{
+				"ID": 23,
+				"Type": "Set:Strada.TransformComponent.Translation",
+				"Position": [
+					640.0,
+					320.0
+				]
+			},
+			{
+				"ID": 24,
+				"Type": "Call:Strada.Vector3.Lerp(Strada.Vector3,Strada.Vector3,float)",
+				"Position": [
+					640.0,
+					480.0
+				]
+			},
+			{
+				"ID": 25,
+				"Type": "Get:Strada.TransformComponent.Translation"
+			},
+			{
+				"ID": 26,
+				"Type": "New:Strada.Vector3(float,float,float)",
+				"Position": [
+					320.0,
+					640.0
+				],
+				"Inputs": {
+					"X": 1.0,
+					"Z": 0.5
+				}
+			},
+			{
+				"ID": 27,
+				"Type": "Get:Strada.Time.DeltaTime"
+			},
+			{
+				"ID": 28,
+				"Type": "Call:Strada.Mathf.Clamp(float,float,float)",
+				"Position": [
+					0.0,
+					640.0
+				],
+				"Inputs": {
+					"Min": 0.0,
+					"Max": 2.0
+				}
+			},
+			{
+				"ID": 29,
+				"Type": "Get:Strada.Mathf.PI"
+			},
+			{
+				"ID": 30,
+				"Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
+				"Position": [
+					960.0,
+					320.0
+				],
+				"Inputs": {
+					"Direction": [
+						0.0,
+						-1.0,
+						0.0
+					]
+				}
+			},
+			{
+				"ID": 31,
+				"Type": "Get:Strada.Vector3.Length",
+				"Position": [
+					640.0,
+					640.0
+				]
+			},
+			{
+				"ID": 32,
+				"Type": "Flow.Branch",
+				"Position": [
+					1280.0,
+					320.0
+				]
+			},
+			{
+				"ID": 33,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1600.0,
+					320.0
+				]
+			},
+			{
+				"ID": 34,
+				"Type": "Flow.Branch",
+				"Position": [
+					640.0,
+					960.0
+				]
+			},
+			{
+				"ID": 35,
+				"Type": "IsValid",
+				"Position": [
+					320.0,
+					960.0
+				]
+			},
+			{
+				"ID": 36,
+				"Type": "Call:Strada.Entity.GetComponent<T>()",
+				"Position": [
+					0.0,
+					960.0
+				],
+				"Settings": {
+					"TypeArguments": [
+						"Strada.RigidBodyComponent"
+					]
+				}
+			},
+			{
+				"ID": 37,
+				"Type": "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
+				"Position": [
+					960.0,
+					960.0
+				],
+				"Inputs": {
+					"Mode": "Impulse"
+				}
+			},
+			{
+				"ID": 38,
+				"Type": "Operator.Multiply",
+				"Position": [
+					640.0,
+					800.0
+				]
+			}
+		],
+		"Links": [
+			{
+				"From": [
+					10,
+					"Then"
+				],
+				"To": [
+					11,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					11,
+					"Then"
+				],
+				"To": [
+					12,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					13,
+					"Value"
+				],
+				"To": [
+					12,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					12,
+					"Then"
+				],
+				"To": [
+					14,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					20,
+					"Then"
+				],
+				"To": [
+					21,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					22,
+					"Result"
+				],
+				"To": [
+					21,
+					"Condition"
+				]
+			},
+			{
+				"From": [
+					21,
+					"True"
+				],
+				"To": [
+					23,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					24,
+					"Result"
+				],
+				"To": [
+					23,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					25,
+					"Value"
+				],
+				"To": [
+					24,
+					"A"
+				]
+			},
+			{
+				"From": [
+					26,
+					"Value"
+				],
+				"To": [
+					24,
+					"B"
+				]
+			},
+			{
+				"From": [
+					27,
+					"Value"
+				],
+				"To": [
+					24,
+					"T"
+				]
+			},
+			{
+				"From": [
+					29,
+					"Value"
+				],
+				"To": [
+					28,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					28,
+					"Result"
+				],
+				"To": [
+					26,
+					"Y"
+				]
+			},
+			{
+				"From": [
+					23,
+					"Then"
+				],
+				"To": [
+					30,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					25,
+					"Value"
+				],
+				"To": [
+					30,
+					"Origin"
+				]
+			},
+			{
+				"From": [
+					26,
+					"Value"
+				],
+				"To": [
+					31,
+					"Target"
+				]
+			},
+			{
+				"From": [
+					31,
+					"Value"
+				],
+				"To": [
+					30,
+					"MaxDistance"
+				]
+			},
+			{
+				"From": [
+					30,
+					"Then"
+				],
+				"To": [
+					32,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					30,
+					"Result"
+				],
+				"To": [
+					32,
+					"Condition"
+				]
+			},
+			{
+				"From": [
+					32,
+					"True"
+				],
+				"To": [
+					33,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					30,
+					"Hit"
+				],
+				"To": [
+					33,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					21,
+					"False"
+				],
+				"To": [
+					34,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					36,
+					"Result"
+				],
+				"To": [
+					35,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					35,
+					"Result"
+				],
+				"To": [
+					34,
+					"Condition"
+				]
+			},
+			{
+				"From": [
+					34,
+					"True"
+				],
+				"To": [
+					37,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					36,
+					"Result"
+				],
+				"To": [
+					37,
+					"Target"
+				]
+			},
+			{
+				"From": [
+					26,
+					"Value"
+				],
+				"To": [
+					38,
+					"A"
+				]
+			},
+			{
+				"From": [
+					31,
+					"Value"
+				],
+				"To": [
+					38,
+					"B"
+				]
+			},
+			{
+				"From": [
+					38,
+					"Result"
+				],
+				"To": [
+					37,
+					"Force"
+				]
+			}
+		],
+		"Comments": [
+			{
+				"ID": 40,
+				"Text": "On create: rename this entity, log its name and report a passed check",
+				"Position": [
+					-40.0,
+					-80.0
+				],
+				"Size": [
+					1320.0,
+					240.0
+				],
+				"Color": [
+					0.25,
+					0.5,
+					0.75,
+					0.25
+				]
+			},
+			{
+				"ID": 41,
+				"Text": "While Space is held, move towards (1, clamp(pi, 0, 2), 0.5) and cast a ray down; otherwise push the rigid body, when there is one",
+				"Position": [
+					-40.0,
+					240.0
+				],
+				"Size": [
+					1960.0,
+					880.0
+				],
+				"Color": [
+					0.25,
+					0.75,
+					0.5,
+					0.25
+				]
+			}
+		]
+	}
+}

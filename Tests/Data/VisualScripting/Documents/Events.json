@@ -1,0 +1,888 @@
+{
+	"Description": "Every event node: the nine standard events, the input events and a custom event raised with Event.Send",
+	"Variables": [
+		{
+			"ID": 1,
+			"Name": "Created",
+			"Type": "bool"
+		},
+		{
+			"ID": 2,
+			"Name": "Frames",
+			"Type": "int",
+			"Value": 0
+		},
+		{
+			"ID": 3,
+			"Name": "Elapsed",
+			"Type": "float",
+			"Value": 0.0
+		},
+		{
+			"ID": 4,
+			"Name": "LastOther",
+			"Type": "Strada.Entity"
+		},
+		{
+			"ID": 5,
+			"Name": "LastButton",
+			"Type": "Strada.Entity"
+		},
+		{
+			"ID": 6,
+			"Name": "Received",
+			"Type": "float"
+		},
+		{
+			"ID": 7,
+			"Name": "Presses",
+			"Type": "int",
+			"Value": 0
+		}
+	],
+	"Functions": [],
+	"Graph": {
+		"Nodes": [
+			{
+				"ID": 10,
+				"Type": "Event.Create",
+				"Position": [
+					0.0,
+					0.0
+				]
+			},
+			{
+				"ID": 11,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 1
+				},
+				"Inputs": {
+					"Value": true
+				}
+			},
+			{
+				"ID": 12,
+				"Type": "Event.Update",
+				"Position": [
+					0.0,
+					160.0
+				]
+			},
+			{
+				"ID": 13,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 3
+				}
+			},
+			{
+				"ID": 14,
+				"Type": "Operator.Add"
+			},
+			{
+				"ID": 15,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 3
+				}
+			},
+			{
+				"ID": 16,
+				"Type": "Variable.Set",
+				"Position": [
+					640.0,
+					160.0
+				],
+				"Settings": {
+					"Variable": 2
+				}
+			},
+			{
+				"ID": 17,
+				"Type": "Operator.Add",
+				"Inputs": {
+					"B": 1
+				}
+			},
+			{
+				"ID": 18,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 2
+				}
+			},
+			{
+				"ID": 19,
+				"Type": "Event.FixedUpdate",
+				"Position": [
+					0.0,
+					320.0
+				]
+			},
+			{
+				"ID": 20,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					320.0
+				]
+			},
+			{
+				"ID": 21,
+				"Type": "Event.Destroy",
+				"Position": [
+					0.0,
+					480.0
+				]
+			},
+			{
+				"ID": 22,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					480.0
+				],
+				"Inputs": {
+					"Message": "destroyed"
+				}
+			},
+			{
+				"ID": 23,
+				"Type": "Event.CollisionEnter",
+				"Position": [
+					0.0,
+					640.0
+				]
+			},
+			{
+				"ID": 24,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					640.0
+				],
+				"Settings": {
+					"Variable": 4
+				}
+			},
+			{
+				"ID": 25,
+				"Type": "Event.CollisionExit",
+				"Position": [
+					0.0,
+					800.0
+				]
+			},
+			{
+				"ID": 26,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					800.0
+				]
+			},
+			{
+				"ID": 27,
+				"Type": "Event.TriggerEnter",
+				"Position": [
+					0.0,
+					960.0
+				]
+			},
+			{
+				"ID": 28,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					960.0
+				],
+				"Settings": {
+					"Variable": 4
+				}
+			},
+			{
+				"ID": 29,
+				"Type": "Event.TriggerExit",
+				"Position": [
+					0.0,
+					1120.0
+				]
+			},
+			{
+				"ID": 30,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					1120.0
+				],
+				"Inputs": {
+					"Message": "trigger exit"
+				}
+			},
+			{
+				"ID": 31,
+				"Type": "Event.Click",
+				"Position": [
+					0.0,
+					1280.0
+				]
+			},
+			{
+				"ID": 32,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					1280.0
+				],
+				"Settings": {
+					"Variable": 5
+				}
+			},
+			{
+				"ID": 33,
+				"Type": "Event.KeyPressed",
+				"Position": [
+					0.0,
+					1440.0
+				],
+				"Settings": {
+					"Key": "Space"
+				}
+			},
+			{
+				"ID": 34,
+				"Type": "Event.Send",
+				"Position": [
+					640.0,
+					1440.0
+				],
+				"Settings": {
+					"Name": "Hit",
+					"Parameters": [
+						{
+							"Name": "Damage",
+							"Type": "float"
+						},
+						{
+							"Name": "Source",
+							"Type": "Strada.Entity"
+						}
+					]
+				},
+				"Inputs": {
+					"Damage": 2.5
+				}
+			},
+			{
+				"ID": 35,
+				"Type": "Self"
+			},
+			{
+				"ID": 36,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					1440.0
+				],
+				"Settings": {
+					"Variable": 7
+				}
+			},
+			{
+				"ID": 37,
+				"Type": "Operator.Add",
+				"Inputs": {
+					"B": 1
+				}
+			},
+			{
+				"ID": 38,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 7
+				}
+			},
+			{
+				"ID": 39,
+				"Type": "Event.KeyReleased",
+				"Position": [
+					0.0,
+					1600.0
+				],
+				"Settings": {
+					"Key": "Escape"
+				}
+			},
+			{
+				"ID": 40,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					1600.0
+				],
+				"Inputs": {
+					"Message": "Escape released"
+				}
+			},
+			{
+				"ID": 41,
+				"Type": "Event.MouseButtonPressed",
+				"Position": [
+					0.0,
+					1760.0
+				],
+				"Settings": {
+					"Button": "Left"
+				}
+			},
+			{
+				"ID": 42,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					1760.0
+				],
+				"Inputs": {
+					"Message": "left mouse button pressed"
+				}
+			},
+			{
+				"ID": 43,
+				"Type": "Event.MouseButtonReleased",
+				"Position": [
+					0.0,
+					1920.0
+				],
+				"Settings": {
+					"Button": "Right"
+				}
+			},
+			{
+				"ID": 44,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					1920.0
+				],
+				"Inputs": {
+					"Message": "right mouse button released"
+				}
+			},
+			{
+				"ID": 45,
+				"Type": "Event.GamepadButtonPressed",
+				"Position": [
+					0.0,
+					2080.0
+				],
+				"Settings": {
+					"Button": "A"
+				},
+				"Inputs": {
+					"Gamepad": 1
+				}
+			},
+			{
+				"ID": 46,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					2080.0
+				],
+				"Inputs": {
+					"Message": "gamepad 1: A pressed"
+				}
+			},
+			{
+				"ID": 47,
+				"Type": "Event.GamepadButtonReleased",
+				"Position": [
+					0.0,
+					2240.0
+				],
+				"Settings": {
+					"Button": "B"
+				},
+				"Inputs": {
+					"Gamepad": 1
+				}
+			},
+			{
+				"ID": 48,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					2240.0
+				],
+				"Inputs": {
+					"Message": "gamepad 1: B released"
+				}
+			},
+			{
+				"ID": 49,
+				"Type": "Event.Custom",
+				"Position": [
+					0.0,
+					2400.0
+				],
+				"Settings": {
+					"Name": "Hit",
+					"Parameters": [
+						{
+							"Name": "Damage",
+							"Type": "float"
+						},
+						{
+							"Name": "Source",
+							"Type": "Strada.Entity"
+						}
+					]
+				}
+			},
+			{
+				"ID": 50,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					2400.0
+				],
+				"Settings": {
+					"Variable": 6
+				}
+			},
+			{
+				"ID": 51,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					640.0,
+					2400.0
+				]
+			}
+		],
+		"Links": [
+			{
+				"From": [
+					10,
+					"Then"
+				],
+				"To": [
+					11,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					12,
+					"Then"
+				],
+				"To": [
+					13,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					15,
+					"Value"
+				],
+				"To": [
+					14,
+					"A"
+				]
+			},
+			{
+				"From": [
+					12,
+					"DeltaTime"
+				],
+				"To": [
+					14,
+					"B"
+				]
+			},
+			{
+				"From": [
+					14,
+					"Result"
+				],
+				"To": [
+					13,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					13,
+					"Then"
+				],
+				"To": [
+					16,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					18,
+					"Value"
+				],
+				"To": [
+					17,
+					"A"
+				]
+			},
+			{
+				"From": [
+					17,
+					"Result"
+				],
+				"To": [
+					16,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					19,
+					"Then"
+				],
+				"To": [
+					20,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					19,
+					"FixedDeltaTime"
+				],
+				"To": [
+					20,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					21,
+					"Then"
+				],
+				"To": [
+					22,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					23,
+					"Then"
+				],
+				"To": [
+					24,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					23,
+					"Other"
+				],
+				"To": [
+					24,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					25,
+					"Then"
+				],
+				"To": [
+					26,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					25,
+					"Other"
+				],
+				"To": [
+					26,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					27,
+					"Then"
+				],
+				"To": [
+					28,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					27,
+					"Other"
+				],
+				"To": [
+					28,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					29,
+					"Then"
+				],
+				"To": [
+					30,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					31,
+					"Then"
+				],
+				"To": [
+					32,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					31,
+					"Button"
+				],
+				"To": [
+					32,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					33,
+					"Then"
+				],
+				"To": [
+					36,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					38,
+					"Value"
+				],
+				"To": [
+					37,
+					"A"
+				]
+			},
+			{
+				"From": [
+					37,
+					"Result"
+				],
+				"To": [
+					36,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					36,
+					"Then"
+				],
+				"To": [
+					34,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					35,
+					"Self"
+				],
+				"To": [
+					34,
+					"Source"
+				]
+			},
+			{
+				"From": [
+					39,
+					"Then"
+				],
+				"To": [
+					40,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					41,
+					"Then"
+				],
+				"To": [
+					42,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					43,
+					"Then"
+				],
+				"To": [
+					44,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					45,
+					"Then"
+				],
+				"To": [
+					46,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					47,
+					"Then"
+				],
+				"To": [
+					48,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					49,
+					"Then"
+				],
+				"To": [
+					50,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					49,
+					"Damage"
+				],
+				"To": [
+					50,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					50,
+					"Then"
+				],
+				"To": [
+					51,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					49,
+					"Source"
+				],
+				"To": [
+					51,
+					"Message"
+				]
+			}
+		],
+		"Comments": [
+			{
+				"ID": 60,
+				"Text": "Lifecycle events",
+				"Position": [
+					-40.0,
+					-80.0
+				],
+				"Size": [
+					1000.0,
+					720.0
+				],
+				"Color": [
+					0.25,
+					0.5,
+					0.75,
+					0.25
+				]
+			},
+			{
+				"ID": 61,
+				"Text": "Contacts and clicks receive the other entity",
+				"Position": [
+					-40.0,
+					560.0
+				],
+				"Size": [
+					680.0,
+					880.0
+				],
+				"Color": [
+					0.25,
+					0.75,
+					0.5,
+					0.25
+				]
+			},
+			{
+				"ID": 62,
+				"Text": "Input events: Space counts the press and raises the custom event Hit on this entity",
+				"Position": [
+					-40.0,
+					1360.0
+				],
+				"Size": [
+					1000.0,
+					1040.0
+				],
+				"Color": [
+					0.75,
+					0.5,
+					0.25,
+					0.25
+				]
+			},
+			{
+				"ID": 63,
+				"Text": "Custom event Hit, raised by Event.Send",
+				"Position": [
+					-40.0,
+					2320.0
+				],
+				"Size": [
+					1000.0,
+					240.0
+				],
+				"Color": [
+					0.5,
+					0.5,
+					0.5,
+					0.25
+				]
+			}
+		]
+	}
+}

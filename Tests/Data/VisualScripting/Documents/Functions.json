@@ -1,0 +1,829 @@
+{
+	"Description": "Functions: a pure one, an impure recursive one with a local accumulator that raises an event, and a latent one",
+	"Variables": [
+		{
+			"ID": 1,
+			"Name": "Score",
+			"Type": "int",
+			"Value": 0
+		},
+		{
+			"ID": 2,
+			"Name": "Average",
+			"Type": "float"
+		}
+	],
+	"Functions": [
+		{
+			"ID": 3,
+			"Name": "Midpoint",
+			"Pure": true,
+			"Inputs": [
+				{
+					"Name": "From",
+					"Type": "float"
+				},
+				{
+					"Name": "To",
+					"Type": "float"
+				}
+			],
+			"Outputs": [
+				{
+					"Name": "Middle",
+					"Type": "float"
+				}
+			],
+			"Locals": [],
+			"Graph": {
+				"Nodes": [
+					{
+						"ID": 10,
+						"Type": "Function.Entry",
+						"Position": [
+							0.0,
+							0.0
+						]
+					},
+					{
+						"ID": 11,
+						"Type": "Operator.Add"
+					},
+					{
+						"ID": 12,
+						"Type": "Operator.Multiply",
+						"Inputs": {
+							"B": 0.5
+						}
+					},
+					{
+						"ID": 13,
+						"Type": "Function.Return",
+						"Position": [
+							960.0,
+							0.0
+						]
+					}
+				],
+				"Links": [
+					{
+						"From": [
+							10,
+							"From"
+						],
+						"To": [
+							11,
+							"A"
+						]
+					},
+					{
+						"From": [
+							10,
+							"To"
+						],
+						"To": [
+							11,
+							"B"
+						]
+					},
+					{
+						"From": [
+							11,
+							"Result"
+						],
+						"To": [
+							12,
+							"A"
+						]
+					},
+					{
+						"From": [
+							12,
+							"Result"
+						],
+						"To": [
+							13,
+							"Middle"
+						]
+					}
+				],
+				"Comments": [
+					{
+						"ID": 14,
+						"Text": "Pure: the middle of From and To",
+						"Position": [
+							-40.0,
+							-80.0
+						],
+						"Size": [
+							1320.0,
+							240.0
+						],
+						"Color": [
+							0.25,
+							0.75,
+							0.5,
+							0.25
+						]
+					}
+				]
+			}
+		},
+		{
+			"ID": 4,
+			"Name": "SumTo",
+			"Pure": false,
+			"Inputs": [
+				{
+					"Name": "N",
+					"Type": "int"
+				}
+			],
+			"Outputs": [
+				{
+					"Name": "Total",
+					"Type": "int"
+				}
+			],
+			"Locals": [
+				{
+					"ID": 5,
+					"Name": "Sum",
+					"Type": "int",
+					"Value": 0
+				}
+			],
+			"Graph": {
+				"Nodes": [
+					{
+						"ID": 30,
+						"Type": "Function.Entry",
+						"Position": [
+							0.0,
+							0.0
+						]
+					},
+					{
+						"ID": 31,
+						"Type": "Flow.Branch",
+						"Position": [
+							320.0,
+							0.0
+						]
+					},
+					{
+						"ID": 32,
+						"Type": "Operator.Greater",
+						"Inputs": {
+							"B": 0
+						}
+					},
+					{
+						"ID": 33,
+						"Type": "Variable.Set",
+						"Position": [
+							640.0,
+							0.0
+						],
+						"Settings": {
+							"Variable": 5
+						}
+					},
+					{
+						"ID": 34,
+						"Type": "Function.Call",
+						"Position": [
+							960.0,
+							0.0
+						],
+						"Settings": {
+							"Function": 4
+						}
+					},
+					{
+						"ID": 35,
+						"Type": "Operator.Subtract",
+						"Inputs": {
+							"B": 1
+						}
+					},
+					{
+						"ID": 36,
+						"Type": "Variable.Set",
+						"Position": [
+							1280.0,
+							0.0
+						],
+						"Settings": {
+							"Variable": 5
+						}
+					},
+					{
+						"ID": 37,
+						"Type": "Operator.Add"
+					},
+					{
+						"ID": 38,
+						"Type": "Variable.Get",
+						"Settings": {
+							"Variable": 5
+						}
+					},
+					{
+						"ID": 39,
+						"Type": "Event.Send",
+						"Position": [
+							1600.0,
+							0.0
+						],
+						"Settings": {
+							"Name": "Counted",
+							"Parameters": [
+								{
+									"Name": "Amount",
+									"Type": "int"
+								}
+							]
+						}
+					},
+					{
+						"ID": 40,
+						"Type": "Function.Return",
+						"Position": [
+							1920.0,
+							0.0
+						]
+					},
+					{
+						"ID": 41,
+						"Type": "Function.Return",
+						"Position": [
+							640.0,
+							160.0
+						]
+					}
+				],
+				"Links": [
+					{
+						"From": [
+							30,
+							"Then"
+						],
+						"To": [
+							31,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							30,
+							"N"
+						],
+						"To": [
+							32,
+							"A"
+						]
+					},
+					{
+						"From": [
+							32,
+							"Result"
+						],
+						"To": [
+							31,
+							"Condition"
+						]
+					},
+					{
+						"From": [
+							31,
+							"True"
+						],
+						"To": [
+							33,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							30,
+							"N"
+						],
+						"To": [
+							33,
+							"Value"
+						]
+					},
+					{
+						"From": [
+							33,
+							"Then"
+						],
+						"To": [
+							34,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							30,
+							"N"
+						],
+						"To": [
+							35,
+							"A"
+						]
+					},
+					{
+						"From": [
+							35,
+							"Result"
+						],
+						"To": [
+							34,
+							"N"
+						]
+					},
+					{
+						"From": [
+							34,
+							"Then"
+						],
+						"To": [
+							36,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							38,
+							"Value"
+						],
+						"To": [
+							37,
+							"A"
+						]
+					},
+					{
+						"From": [
+							34,
+							"Total"
+						],
+						"To": [
+							37,
+							"B"
+						]
+					},
+					{
+						"From": [
+							37,
+							"Result"
+						],
+						"To": [
+							36,
+							"Value"
+						]
+					},
+					{
+						"From": [
+							36,
+							"Then"
+						],
+						"To": [
+							39,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							36,
+							"Value"
+						],
+						"To": [
+							39,
+							"Amount"
+						]
+					},
+					{
+						"From": [
+							39,
+							"Then"
+						],
+						"To": [
+							40,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							36,
+							"Value"
+						],
+						"To": [
+							40,
+							"Total"
+						]
+					},
+					{
+						"From": [
+							31,
+							"False"
+						],
+						"To": [
+							41,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							38,
+							"Value"
+						],
+						"To": [
+							41,
+							"Total"
+						]
+					}
+				],
+				"Comments": [
+					{
+						"ID": 42,
+						"Text": "Impure and recursive: Sum = N + SumTo(N - 1), reported with the event Counted; N <= 0 returns the local's initial 0",
+						"Position": [
+							-40.0,
+							-80.0
+						],
+						"Size": [
+							2280.0,
+							400.0
+						],
+						"Color": [
+							0.25,
+							0.5,
+							0.75,
+							0.25
+						]
+					}
+				]
+			}
+		},
+		{
+			"ID": 6,
+			"Name": "WaitThenLog",
+			"Pure": false,
+			"Inputs": [
+				{
+					"Name": "Seconds",
+					"Type": "float"
+				}
+			],
+			"Outputs": [],
+			"Locals": [],
+			"Graph": {
+				"Nodes": [
+					{
+						"ID": 50,
+						"Type": "Function.Entry",
+						"Position": [
+							0.0,
+							0.0
+						]
+					},
+					{
+						"ID": 51,
+						"Type": "Flow.Delay",
+						"Position": [
+							320.0,
+							0.0
+						]
+					},
+					{
+						"ID": 52,
+						"Type": "Call:Strada.Log.Info(string)",
+						"Position": [
+							640.0,
+							0.0
+						],
+						"Inputs": {
+							"Message": "waited"
+						}
+					}
+				],
+				"Links": [
+					{
+						"From": [
+							50,
+							"Then"
+						],
+						"To": [
+							51,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							50,
+							"Seconds"
+						],
+						"To": [
+							51,
+							"Duration"
+						]
+					},
+					{
+						"From": [
+							51,
+							"Completed"
+						],
+						"To": [
+							52,
+							"Execute"
+						]
+					}
+				],
+				"Comments": [
+					{
+						"ID": 53,
+						"Text": "Latent: a call returns when the chain after the delay ends (no Function.Return)",
+						"Position": [
+							-40.0,
+							-80.0
+						],
+						"Size": [
+							1000.0,
+							240.0
+						],
+						"Color": [
+							0.75,
+							0.5,
+							0.25,
+							0.25
+						]
+					}
+				]
+			}
+		}
+	],
+	"Graph": {
+		"Nodes": [
+			{
+				"ID": 60,
+				"Type": "Event.Create",
+				"Position": [
+					0.0,
+					0.0
+				]
+			},
+			{
+				"ID": 61,
+				"Type": "Function.Call",
+				"Position": [
+					320.0,
+					0.0
+				],
+				"Settings": {
+					"Function": 4
+				},
+				"Inputs": {
+					"N": 4
+				}
+			},
+			{
+				"ID": 62,
+				"Type": "Variable.Set",
+				"Position": [
+					640.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 1
+				}
+			},
+			{
+				"ID": 63,
+				"Type": "Function.Call",
+				"Position": [
+					960.0,
+					0.0
+				],
+				"Settings": {
+					"Function": 6
+				},
+				"Inputs": {
+					"Seconds": 0.5
+				}
+			},
+			{
+				"ID": 64,
+				"Type": "Variable.Set",
+				"Position": [
+					1280.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 2
+				}
+			},
+			{
+				"ID": 65,
+				"Type": "Function.Call",
+				"Settings": {
+					"Function": 3
+				},
+				"Inputs": {
+					"To": 10.0
+				}
+			},
+			{
+				"ID": 66,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1600.0,
+					0.0
+				]
+			},
+			{
+				"ID": 67,
+				"Type": "Event.Custom",
+				"Position": [
+					0.0,
+					320.0
+				],
+				"Settings": {
+					"Name": "Counted",
+					"Parameters": [
+						{
+							"Name": "Amount",
+							"Type": "int"
+						}
+					]
+				}
+			},
+			{
+				"ID": 68,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					320.0
+				]
+			},
+			{
+				"ID": 69,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 1
+				}
+			}
+		],
+		"Links": [
+			{
+				"From": [
+					60,
+					"Then"
+				],
+				"To": [
+					61,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					61,
+					"Then"
+				],
+				"To": [
+					62,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					61,
+					"Total"
+				],
+				"To": [
+					62,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					62,
+					"Then"
+				],
+				"To": [
+					63,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					63,
+					"Then"
+				],
+				"To": [
+					64,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					61,
+					"Total"
+				],
+				"To": [
+					65,
+					"From"
+				]
+			},
+			{
+				"From": [
+					65,
+					"Middle"
+				],
+				"To": [
+					64,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					64,
+					"Then"
+				],
+				"To": [
+					66,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					69,
+					"Value"
+				],
+				"To": [
+					66,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					67,
+					"Then"
+				],
+				"To": [
+					68,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					67,
+					"Amount"
+				],
+				"To": [
+					68,
+					"Message"
+				]
+			}
+		],
+		"Comments": [
+			{
+				"ID": 70,
+				"Text": "Score = SumTo(4); wait half a second; Average = Midpoint(Score, 10)",
+				"Position": [
+					-40.0,
+					-80.0
+				],
+				"Size": [
+					1960.0,
+					240.0
+				],
+				"Color": [
+					0.25,
+					0.5,
+					0.75,
+					0.25
+				]
+			},
+			{
+				"ID": 71,
+				"Text": "SumTo reports each partial sum here",
+				"Position": [
+					-40.0,
+					240.0
+				],
+				"Size": [
+					680.0,
+					240.0
+				],
+				"Color": [
+					0.5,
+					0.5,
+					0.5,
+					0.25
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,803 @@
+{
+	"Description": "Public variables of every exposable type with tooltips, ranges and a former name, private variables of other types, and Variable.Get and Variable.Set of several",
+	"Variables": [
+		{
+			"ID": 1,
+			"Name": "Enabled",
+			"Type": "bool",
+			"Value": true,
+			"Public": true,
+			"Tooltip": "Whether the probe runs"
+		},
+		{
+			"ID": 2,
+			"Name": "Lives",
+			"Type": "int",
+			"Value": 3,
+			"Public": true,
+			"Tooltip": "Tries left",
+			"Range": [
+				0.0,
+				9.0
+			],
+			"FormerNames": [
+				"Health"
+			]
+		},
+		{
+			"ID": 3,
+			"Name": "Coins",
+			"Type": "uint",
+			"Value": 250,
+			"Public": true,
+			"Tooltip": "Coins collected",
+			"Range": [
+				0.0,
+				1000.0
+			]
+		},
+		{
+			"ID": 4,
+			"Name": "Seed",
+			"Type": "long",
+			"Value": "-9000000000",
+			"Public": true,
+			"Tooltip": "A 64-bit seed",
+			"Range": [
+				-10000000000.0,
+				10000000000.0
+			]
+		},
+		{
+			"ID": 5,
+			"Name": "Highscore",
+			"Type": "ulong",
+			"Value": "5000000000",
+			"Public": true,
+			"Tooltip": "The best score so far",
+			"Range": [
+				0.0,
+				8589934592.0
+			]
+		},
+		{
+			"ID": 6,
+			"Name": "Speed",
+			"Type": "float",
+			"Value": 4.5,
+			"Public": true,
+			"Tooltip": "Meters per second",
+			"Range": [
+				0.0,
+				20.0
+			]
+		},
+		{
+			"ID": 7,
+			"Name": "Gravity",
+			"Type": "double",
+			"Value": -9.75,
+			"Public": true,
+			"Tooltip": "Meters per second squared",
+			"Range": [
+				-20.0,
+				0.0
+			]
+		},
+		{
+			"ID": 8,
+			"Name": "Greeting",
+			"Type": "string",
+			"Value": "Hello",
+			"Public": true,
+			"Tooltip": "Logged on start"
+		},
+		{
+			"ID": 9,
+			"Name": "Aim",
+			"Type": "Strada.Vector2",
+			"Value": [
+				0.5,
+				-0.5
+			],
+			"Public": true
+		},
+		{
+			"ID": 10,
+			"Name": "SpawnPoint",
+			"Type": "Strada.Vector3",
+			"Value": [
+				1.0,
+				2.0,
+				3.0
+			],
+			"Public": true
+		},
+		{
+			"ID": 11,
+			"Name": "Weights",
+			"Type": "Strada.Vector4",
+			"Value": [
+				0.25,
+				0.25,
+				0.25,
+				0.25
+			],
+			"Public": true
+		},
+		{
+			"ID": 12,
+			"Name": "Facing",
+			"Type": "Strada.Quaternion",
+			"Value": [
+				0.0,
+				0.6,
+				0.0,
+				0.8
+			],
+			"Public": true
+		},
+		{
+			"ID": 13,
+			"Name": "Tint",
+			"Type": "Strada.Color",
+			"Value": [
+				1.0,
+				0.5,
+				0.25,
+				1.0
+			],
+			"Public": true
+		},
+		{
+			"ID": 14,
+			"Name": "Partner",
+			"Type": "Strada.Entity",
+			"Value": "0",
+			"Public": true,
+			"Tooltip": "Set on each component"
+		},
+		{
+			"ID": 15,
+			"Name": "EnemyPrefab",
+			"Type": "Strada.Prefab",
+			"Value": "0",
+			"Public": true
+		},
+		{
+			"ID": 16,
+			"Name": "AnyAsset",
+			"Type": "Strada.AssetHandle",
+			"Value": "0",
+			"Public": true
+		},
+		{
+			"ID": 17,
+			"Name": "BodyMesh",
+			"Type": "Strada.Mesh",
+			"Value": "0",
+			"Public": true
+		},
+		{
+			"ID": 18,
+			"Name": "BodyMaterial",
+			"Type": "Strada.Material",
+			"Value": "0",
+			"Public": true
+		},
+		{
+			"ID": 19,
+			"Name": "Icon",
+			"Type": "Strada.Texture",
+			"Value": "0",
+			"Public": true
+		},
+		{
+			"ID": 20,
+			"Name": "HitSound",
+			"Type": "Strada.AudioClip",
+			"Value": "0",
+			"Public": true
+		},
+		{
+			"ID": 21,
+			"Name": "LabelFont",
+			"Type": "Strada.Font",
+			"Value": "0",
+			"Public": true
+		},
+		{
+			"ID": 22,
+			"Name": "Sky",
+			"Type": "Strada.EnvironmentMap",
+			"Value": "0",
+			"Public": true
+		},
+		{
+			"ID": 23,
+			"Name": "Push",
+			"Type": "Strada.ForceMode",
+			"Value": "Impulse",
+			"Public": true,
+			"Tooltip": "How pushes apply"
+		},
+		{
+			"ID": 24,
+			"Name": "Accent",
+			"Type": "Strada.Color",
+			"Public": true
+		},
+		{
+			"ID": 25,
+			"Name": "WorldMatrix",
+			"Type": "Strada.Matrix4",
+			"Value": [
+				1.0,
+				0.0,
+				0.0,
+				0.0,
+				0.0,
+				1.0,
+				0.0,
+				0.0,
+				0.0,
+				0.0,
+				1.0,
+				0.0,
+				1.0,
+				2.0,
+				3.0,
+				1.0
+			]
+		},
+		{
+			"ID": 26,
+			"Name": "LastHit",
+			"Type": "Strada.RaycastHit"
+		},
+		{
+			"ID": 27,
+			"Name": "Body",
+			"Type": "Strada.RigidBodyComponent"
+		},
+		{
+			"ID": 28,
+			"Name": "Retries",
+			"Type": "int"
+		}
+	],
+	"Functions": [],
+	"Graph": {
+		"Nodes": [
+			{
+				"ID": 40,
+				"Type": "Event.Create",
+				"Position": [
+					0.0,
+					0.0
+				]
+			},
+			{
+				"ID": 41,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 2
+				}
+			},
+			{
+				"ID": 42,
+				"Type": "Operator.Subtract",
+				"Inputs": {
+					"B": 1
+				}
+			},
+			{
+				"ID": 43,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 2
+				}
+			},
+			{
+				"ID": 44,
+				"Type": "Variable.Set",
+				"Position": [
+					640.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 4
+				}
+			},
+			{
+				"ID": 45,
+				"Type": "Variable.Set",
+				"Position": [
+					960.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 5
+				}
+			},
+			{
+				"ID": 46,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 3
+				}
+			},
+			{
+				"ID": 47,
+				"Type": "Variable.Set",
+				"Position": [
+					1280.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 7
+				}
+			},
+			{
+				"ID": 48,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 6
+				}
+			},
+			{
+				"ID": 49,
+				"Type": "Variable.Set",
+				"Position": [
+					1600.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 16
+				}
+			},
+			{
+				"ID": 50,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 18
+				}
+			},
+			{
+				"ID": 51,
+				"Type": "Variable.Set",
+				"Position": [
+					1920.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 8
+				}
+			},
+			{
+				"ID": 52,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 10
+				}
+			},
+			{
+				"ID": 53,
+				"Type": "Variable.Set",
+				"Position": [
+					0.0,
+					320.0
+				],
+				"Settings": {
+					"Variable": 14
+				}
+			},
+			{
+				"ID": 54,
+				"Type": "Self",
+				"Position": [
+					0.0,
+					480.0
+				]
+			},
+			{
+				"ID": 55,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					320.0
+				],
+				"Settings": {
+					"Variable": 23
+				},
+				"Inputs": {
+					"Value": "Force"
+				}
+			},
+			{
+				"ID": 56,
+				"Type": "Variable.Set",
+				"Position": [
+					640.0,
+					320.0
+				],
+				"Settings": {
+					"Variable": 27
+				}
+			},
+			{
+				"ID": 57,
+				"Type": "Call:Strada.Entity.GetComponent<T>()",
+				"Position": [
+					640.0,
+					480.0
+				],
+				"Settings": {
+					"TypeArguments": [
+						"Strada.RigidBodyComponent"
+					]
+				}
+			},
+			{
+				"ID": 58,
+				"Type": "Variable.Set",
+				"Position": [
+					960.0,
+					320.0
+				],
+				"Settings": {
+					"Variable": 28
+				},
+				"Inputs": {
+					"Value": 2
+				}
+			},
+			{
+				"ID": 59,
+				"Type": "Variable.Set",
+				"Position": [
+					1280.0,
+					320.0
+				],
+				"Settings": {
+					"Variable": 12
+				},
+				"Inputs": {
+					"Value": [
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					]
+				}
+			},
+			{
+				"ID": 60,
+				"Type": "Variable.Set",
+				"Position": [
+					1600.0,
+					320.0
+				],
+				"Settings": {
+					"Variable": 13
+				}
+			},
+			{
+				"ID": 61,
+				"Type": "Variable.Get",
+				"Position": [
+					1600.0,
+					480.0
+				],
+				"Settings": {
+					"Variable": 24
+				}
+			},
+			{
+				"ID": 62,
+				"Type": "Variable.Set",
+				"Position": [
+					1920.0,
+					320.0
+				],
+				"Settings": {
+					"Variable": 25
+				},
+				"Inputs": {
+					"Value": [
+						1.0,
+						0.0,
+						0.0,
+						0.0,
+						0.0,
+						1.0,
+						0.0,
+						0.0,
+						0.0,
+						0.0,
+						1.0,
+						0.0,
+						0.0,
+						0.0,
+						0.0,
+						1.0
+					]
+				}
+			}
+		],
+		"Links": [
+			{
+				"From": [
+					40,
+					"Then"
+				],
+				"To": [
+					41,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					43,
+					"Value"
+				],
+				"To": [
+					42,
+					"A"
+				]
+			},
+			{
+				"From": [
+					42,
+					"Result"
+				],
+				"To": [
+					41,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					41,
+					"Then"
+				],
+				"To": [
+					44,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					43,
+					"Value"
+				],
+				"To": [
+					44,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					44,
+					"Then"
+				],
+				"To": [
+					45,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					46,
+					"Value"
+				],
+				"To": [
+					45,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					45,
+					"Then"
+				],
+				"To": [
+					47,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					48,
+					"Value"
+				],
+				"To": [
+					47,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					47,
+					"Then"
+				],
+				"To": [
+					49,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					50,
+					"Value"
+				],
+				"To": [
+					49,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					49,
+					"Then"
+				],
+				"To": [
+					51,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					52,
+					"Value"
+				],
+				"To": [
+					51,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					51,
+					"Then"
+				],
+				"To": [
+					53,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					54,
+					"Self"
+				],
+				"To": [
+					53,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					53,
+					"Then"
+				],
+				"To": [
+					55,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					55,
+					"Then"
+				],
+				"To": [
+					56,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					57,
+					"Result"
+				],
+				"To": [
+					56,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					56,
+					"Then"
+				],
+				"To": [
+					58,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					58,
+					"Then"
+				],
+				"To": [
+					59,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					59,
+					"Then"
+				],
+				"To": [
+					60,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					61,
+					"Value"
+				],
+				"To": [
+					60,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					60,
+					"Then"
+				],
+				"To": [
+					62,
+					"Execute"
+				]
+			}
+		],
+		"Comments": [
+			{
+				"ID": 70,
+				"Text": "Implicit conversions: int to long, uint to ulong, float to double, Material to AssetHandle and Vector3 to string",
+				"Position": [
+					-40.0,
+					-80.0
+				],
+				"Size": [
+					2280.0,
+					240.0
+				],
+				"Color": [
+					0.25,
+					0.5,
+					0.75,
+					0.25
+				]
+			},
+			{
+				"ID": 71,
+				"Text": "Self, enum, component, quaternion, color and matrix values",
+				"Position": [
+					-40.0,
+					240.0
+				],
+				"Size": [
+					2280.0,
+					400.0
+				],
+				"Color": [
+					0.25,
+					0.75,
+					0.5,
+					0.25
+				]
+			}
+		]
+	}
+}

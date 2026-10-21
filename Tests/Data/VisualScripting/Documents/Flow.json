@@ -1,0 +1,1004 @@
+{
+	"Description": "Every flow-control node: branch, sequence, the three kinds of switch, the loops, the gates and the latent nodes",
+	"Variables": [
+		{
+			"ID": 1,
+			"Name": "Enabled",
+			"Type": "bool",
+			"Value": true
+		},
+		{
+			"ID": 2,
+			"Name": "Running",
+			"Type": "bool",
+			"Value": true
+		},
+		{
+			"ID": 3,
+			"Name": "Ticks",
+			"Type": "int",
+			"Value": 0
+		}
+	],
+	"Functions": [],
+	"Graph": {
+		"Nodes": [
+			{
+				"ID": 10,
+				"Type": "Event.Create",
+				"Position": [
+					0.0,
+					0.0
+				]
+			},
+			{
+				"ID": 11,
+				"Type": "Flow.Sequence",
+				"Position": [
+					320.0,
+					0.0
+				],
+				"Settings": {
+					"Count": 3
+				}
+			},
+			{
+				"ID": 12,
+				"Type": "Flow.Branch",
+				"Position": [
+					640.0,
+					0.0
+				]
+			},
+			{
+				"ID": 13,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 1
+				}
+			},
+			{
+				"ID": 14,
+				"Type": "Flow.Switch",
+				"Position": [
+					960.0,
+					0.0
+				],
+				"Settings": {
+					"Type": "string",
+					"Cases": [
+						"open",
+						"close"
+					]
+				},
+				"Inputs": {
+					"Selection": "open"
+				}
+			},
+			{
+				"ID": 15,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1280.0,
+					0.0
+				],
+				"Inputs": {
+					"Message": "opened"
+				}
+			},
+			{
+				"ID": 16,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1280.0,
+					160.0
+				],
+				"Inputs": {
+					"Message": "closed or unknown"
+				}
+			},
+			{
+				"ID": 17,
+				"Type": "Flow.Switch",
+				"Position": [
+					960.0,
+					320.0
+				],
+				"Settings": {
+					"Type": "Strada.ForceMode"
+				},
+				"Inputs": {
+					"Selection": "Impulse"
+				}
+			},
+			{
+				"ID": 18,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1280.0,
+					320.0
+				],
+				"Inputs": {
+					"Message": "an instant change"
+				}
+			},
+			{
+				"ID": 19,
+				"Type": "Flow.ForLoop",
+				"Position": [
+					640.0,
+					480.0
+				],
+				"Inputs": {
+					"First": 0,
+					"Last": 3
+				}
+			},
+			{
+				"ID": 20,
+				"Type": "Flow.Switch",
+				"Position": [
+					960.0,
+					480.0
+				],
+				"Settings": {
+					"Type": "int",
+					"Cases": [
+						1,
+						2
+					]
+				}
+			},
+			{
+				"ID": 21,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1280.0,
+					480.0
+				]
+			},
+			{
+				"ID": 22,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					960.0,
+					640.0
+				],
+				"Inputs": {
+					"Message": "loop completed"
+				}
+			},
+			{
+				"ID": 23,
+				"Type": "Flow.ForEach",
+				"Position": [
+					640.0,
+					800.0
+				]
+			},
+			{
+				"ID": 24,
+				"Type": "Get:Strada.Entity.Children"
+			},
+			{
+				"ID": 25,
+				"Type": "Flow.FlipFlop",
+				"Position": [
+					960.0,
+					800.0
+				]
+			},
+			{
+				"ID": 26,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1280.0,
+					800.0
+				]
+			},
+			{
+				"ID": 27,
+				"Type": "Flow.While",
+				"Position": [
+					960.0,
+					960.0
+				]
+			},
+			{
+				"ID": 28,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 2
+				}
+			},
+			{
+				"ID": 29,
+				"Type": "Variable.Set",
+				"Position": [
+					1280.0,
+					960.0
+				],
+				"Settings": {
+					"Variable": 2
+				},
+				"Inputs": {
+					"Value": false
+				}
+			},
+			{
+				"ID": 30,
+				"Type": "Flow.DoOnce",
+				"Position": [
+					1280.0,
+					1120.0
+				],
+				"Settings": {
+					"StartClosed": true
+				}
+			},
+			{
+				"ID": 31,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1600.0,
+					1120.0
+				],
+				"Inputs": {
+					"Message": "done once"
+				}
+			},
+			{
+				"ID": 40,
+				"Type": "Event.Update",
+				"Position": [
+					0.0,
+					1440.0
+				]
+			},
+			{
+				"ID": 41,
+				"Type": "Flow.Gate",
+				"Position": [
+					320.0,
+					1440.0
+				]
+			},
+			{
+				"ID": 42,
+				"Type": "Flow.DoN",
+				"Position": [
+					640.0,
+					1440.0
+				],
+				"Inputs": {
+					"N": 3
+				}
+			},
+			{
+				"ID": 43,
+				"Type": "Flow.Delay",
+				"Position": [
+					960.0,
+					1440.0
+				],
+				"Inputs": {
+					"Duration": 0.5
+				}
+			},
+			{
+				"ID": 44,
+				"Type": "Flow.RetriggerableDelay",
+				"Position": [
+					1280.0,
+					1440.0
+				],
+				"Inputs": {
+					"Duration": 0.25
+				}
+			},
+			{
+				"ID": 45,
+				"Type": "Flow.WaitFrames",
+				"Position": [
+					1600.0,
+					1440.0
+				],
+				"Inputs": {
+					"Frames": 2
+				}
+			},
+			{
+				"ID": 46,
+				"Type": "Flow.WaitUntil",
+				"Position": [
+					1920.0,
+					1440.0
+				]
+			},
+			{
+				"ID": 50,
+				"Type": "Event.KeyPressed",
+				"Position": [
+					0.0,
+					1760.0
+				],
+				"Settings": {
+					"Key": "T"
+				}
+			},
+			{
+				"ID": 51,
+				"Type": "Flow.Tween",
+				"Position": [
+					320.0,
+					1760.0
+				],
+				"Settings": {
+					"Easing": "EaseInOut"
+				},
+				"Inputs": {
+					"Duration": 2.0
+				}
+			},
+			{
+				"ID": 52,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					640.0,
+					1760.0
+				]
+			},
+			{
+				"ID": 53,
+				"Type": "Flow.Interval",
+				"Position": [
+					640.0,
+					1920.0
+				],
+				"Inputs": {
+					"Interval": 0.5,
+					"Count": 3
+				}
+			},
+			{
+				"ID": 54,
+				"Type": "Variable.Set",
+				"Position": [
+					960.0,
+					1920.0
+				],
+				"Settings": {
+					"Variable": 3
+				}
+			},
+			{
+				"ID": 55,
+				"Type": "Event.KeyReleased",
+				"Position": [
+					0.0,
+					2080.0
+				],
+				"Settings": {
+					"Key": "T"
+				}
+			},
+			{
+				"ID": 56,
+				"Type": "Flow.Sequence",
+				"Position": [
+					320.0,
+					2080.0
+				]
+			},
+			{
+				"ID": 57,
+				"Type": "Event.KeyPressed",
+				"Position": [
+					0.0,
+					2240.0
+				],
+				"Settings": {
+					"Key": "G"
+				}
+			},
+			{
+				"ID": 58,
+				"Type": "Event.KeyPressed",
+				"Position": [
+					0.0,
+					2400.0
+				],
+				"Settings": {
+					"Key": "R"
+				}
+			},
+			{
+				"ID": 59,
+				"Type": "Event.KeyReleased",
+				"Position": [
+					0.0,
+					2560.0
+				],
+				"Settings": {
+					"Key": "R"
+				}
+			}
+		],
+		"Links": [
+			{
+				"From": [
+					10,
+					"Then"
+				],
+				"To": [
+					11,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					11,
+					"Then0"
+				],
+				"To": [
+					12,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					13,
+					"Value"
+				],
+				"To": [
+					12,
+					"Condition"
+				]
+			},
+			{
+				"From": [
+					12,
+					"True"
+				],
+				"To": [
+					14,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					14,
+					"Case:open"
+				],
+				"To": [
+					15,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					14,
+					"Case:close"
+				],
+				"To": [
+					16,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					14,
+					"Default"
+				],
+				"To": [
+					16,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					12,
+					"False"
+				],
+				"To": [
+					17,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					17,
+					"Case:Impulse"
+				],
+				"To": [
+					18,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					17,
+					"Case:VelocityChange"
+				],
+				"To": [
+					18,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					11,
+					"Then1"
+				],
+				"To": [
+					19,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					19,
+					"Body"
+				],
+				"To": [
+					20,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					19,
+					"Index"
+				],
+				"To": [
+					20,
+					"Selection"
+				]
+			},
+			{
+				"From": [
+					20,
+					"Case:1"
+				],
+				"To": [
+					21,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					20,
+					"Default"
+				],
+				"To": [
+					21,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					19,
+					"Index"
+				],
+				"To": [
+					21,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					20,
+					"Case:2"
+				],
+				"To": [
+					19,
+					"Break"
+				]
+			},
+			{
+				"From": [
+					19,
+					"Completed"
+				],
+				"To": [
+					22,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					11,
+					"Then2"
+				],
+				"To": [
+					23,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					24,
+					"Value"
+				],
+				"To": [
+					23,
+					"Array"
+				]
+			},
+			{
+				"From": [
+					23,
+					"Body"
+				],
+				"To": [
+					25,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					25,
+					"A"
+				],
+				"To": [
+					26,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					23,
+					"Element"
+				],
+				"To": [
+					26,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					25,
+					"B"
+				],
+				"To": [
+					23,
+					"Break"
+				]
+			},
+			{
+				"From": [
+					23,
+					"Completed"
+				],
+				"To": [
+					27,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					28,
+					"Value"
+				],
+				"To": [
+					27,
+					"Condition"
+				]
+			},
+			{
+				"From": [
+					27,
+					"Body"
+				],
+				"To": [
+					29,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					27,
+					"Completed"
+				],
+				"To": [
+					30,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					30,
+					"Completed"
+				],
+				"To": [
+					31,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					40,
+					"Then"
+				],
+				"To": [
+					41,
+					"Enter"
+				]
+			},
+			{
+				"From": [
+					41,
+					"Exit"
+				],
+				"To": [
+					42,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					42,
+					"Exit"
+				],
+				"To": [
+					43,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					43,
+					"Completed"
+				],
+				"To": [
+					44,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					44,
+					"Completed"
+				],
+				"To": [
+					45,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					45,
+					"Completed"
+				],
+				"To": [
+					46,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					13,
+					"Value"
+				],
+				"To": [
+					46,
+					"Condition"
+				]
+			},
+			{
+				"From": [
+					46,
+					"Completed"
+				],
+				"To": [
+					41,
+					"Close"
+				]
+			},
+			{
+				"From": [
+					50,
+					"Then"
+				],
+				"To": [
+					51,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					51,
+					"Update"
+				],
+				"To": [
+					52,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					51,
+					"Alpha"
+				],
+				"To": [
+					52,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					51,
+					"Completed"
+				],
+				"To": [
+					53,
+					"Start"
+				]
+			},
+			{
+				"From": [
+					53,
+					"Tick"
+				],
+				"To": [
+					54,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					53,
+					"Index"
+				],
+				"To": [
+					54,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					53,
+					"Completed"
+				],
+				"To": [
+					41,
+					"Open"
+				]
+			},
+			{
+				"From": [
+					55,
+					"Then"
+				],
+				"To": [
+					56,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					56,
+					"Then0"
+				],
+				"To": [
+					51,
+					"Stop"
+				]
+			},
+			{
+				"From": [
+					56,
+					"Then1"
+				],
+				"To": [
+					53,
+					"Stop"
+				]
+			},
+			{
+				"From": [
+					57,
+					"Then"
+				],
+				"To": [
+					41,
+					"Toggle"
+				]
+			},
+			{
+				"From": [
+					58,
+					"Then"
+				],
+				"To": [
+					30,
+					"Reset"
+				]
+			},
+			{
+				"From": [
+					59,
+					"Then"
+				],
+				"To": [
+					42,
+					"Reset"
+				]
+			}
+		],
+		"Comments": [
+			{
+				"ID": 70,
+				"Text": "On create: a branch into two switches, a for loop with a switch on its index, a for-each over the children, a while loop and a do-once",
+				"Position": [
+					-40.0,
+					-80.0
+				],
+				"Size": [
+					1960.0,
+					1360.0
+				],
+				"Color": [
+					0.25,
+					0.5,
+					0.75,
+					0.25
+				]
+			},
+			{
+				"ID": 71,
+				"Text": "Every frame through the gate: three times a delay, a retriggerable delay, two frames and a wait until Enabled, then the gate closes",
+				"Position": [
+					-40.0,
+					1360.0
+				],
+				"Size": [
+					2280.0,
+					240.0
+				],
+				"Color": [
+					0.25,
+					0.75,
+					0.5,
+					0.25
+				]
+			},
+			{
+				"ID": 72,
+				"Text": "T plays a two-second tween, then an interval of three ticks that reopens the gate; releasing T stops both",
+				"Position": [
+					-40.0,
+					1680.0
+				],
+				"Size": [
+					1320.0,
+					560.0
+				],
+				"Color": [
+					0.75,
+					0.5,
+					0.25,
+					0.25
+				]
+			},
+			{
+				"ID": 73,
+				"Text": "G toggles the gate; R resets the do-once, releasing R the do-n",
+				"Position": [
+					-40.0,
+					2160.0
+				],
+				"Size": [
+					680.0,
+					560.0
+				],
+				"Color": [
+					0.5,
+					0.5,
+					0.5,
+					0.25
+				]
+			}
+		]
+	}
+}

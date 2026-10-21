@@ -1,0 +1,159 @@
+Sources of the reflected nodes in the visual scripting fixtures (Tests/Data/VisualScripting).
+
+For each reflected node type used by Example.sgraph or a Documents/*.json fixture: the C# declaration its type string
+and pins were derived from (spec section 4.5), the pins, literals and enumerators the fixtures use, and the nodes that
+use it. Paths are relative to Strada-ScriptCore/Source; line numbers are those of the commit that added the fixtures.
+"Target (Self)" is an input of type Strada.Entity flagged DefaultsToSelf: the fixtures leave it unconnected (Self) or
+link it, and never store a literal for it. Pin names are the parameter names with the first character upper-cased.
+When B's reflection disagrees with an entry here, compare the declaration first: a fixture that contradicts the spec
+is corrected by the track that finds it (spec section 11.1).
+
+
+Call:Strada.Entity.GetComponent<T>()
+    Source:   Entity.cs:81  public T? GetComponent<T>() where T : Component
+    Settings: TypeArguments ["Strada.RigidBodyComponent"] (T constrained to Strada.Component)
+    Pins:     in Target (Self); out Result: T, here Strada.RigidBodyComponent
+    Purity:   pure ([PureNode] member list of section 4.5)
+    Used by:  Variables.json (57: Result -> Variable.Set of a Strada.RigidBodyComponent variable);
+              Reflected.json (36: Result -> IsValid.Value, and -> AddForce's Target through the component-to-entity
+              conversion of section 3.4 rule 5)
+
+Call:Strada.Input.IsKeyDown(Strada.KeyCode)
+    Source:   Input/Input.cs:10  public static bool IsKeyDown(KeyCode key)
+    Pins:     in Key: Strada.KeyCode; out Result: bool
+    Literal:  Key "Space" (Input/InputEnums.cs:9, Space = 32)
+    Purity:   pure ([PureNode] member list of section 4.5)
+    Used by:  Example.sgraph (11); Reflected.json (22)
+
+Call:Strada.Log.Info(string)
+    Source:   Log.cs:18  public static void Info(string message)
+    Pins:     in Execute, Message: string; out Then
+    Purity:   impure (returns void, rule 4)
+    Used by:  Events.json (20, 22, 26, 30, 40, 42, 44, 46, 48, 51); Flow.json (15, 16, 18, 21, 22, 26, 31, 52);
+              Functions.json (52, 66, 68); Reflected.json (12, 33). Several link a non-string output into Message
+              (section 3.4 rule 7): float (Events 20, Flow 52), Strada.Entity (Events 26 and 51, Flow 26), int
+              (Flow 21, Functions 66 and 68), Strada.RaycastHit (Reflected 33).
+
+Call:Strada.Mathf.Clamp(float,float,float)
+    Source:   Math/Mathf.cs:30  public static float Clamp(float value, float min, float max)
+    Pins:     in Value: float, Min: float, Max: float; out Result: float
+              (the input Value keeps its name: the Parameter suffix applies only to a clash with a pin of the same
+              direction, and the only output is Result)
+    Literals: Min 0.0, Max 2.0
+    Purity:   pure (every Strada.Mathf method, rule 2)
+    Used by:  Reflected.json (28: Value <- Get:Strada.Mathf.PI)
+
+Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)
+    Source:   Physics.cs:70  public static bool Raycast(Vector3 origin, Vector3 direction, float maxDistance,
+                             out RaycastHit hit, uint layerMask = AllLayers)
+              (the other overload, Raycast(Ray, float, out RaycastHit, uint) at Physics.cs:83, is not used)
+    Pins:     in Execute, Origin: Strada.Vector3, Direction: Strada.Vector3, MaxDistance: float,
+              LayerMask: uint (default 4294967295, Physics.cs:54 AllLayers = 0xFFFFFFFF);
+              out Then, Hit: Strada.RaycastHit (the out parameter hit), Result: bool
+    Literals: Direction [0.0, -1.0, 0.0]; MaxDistance 50.0 (Data.json); LayerMask is never stored
+    Purity:   impure (section 4.5: Physics.Raycast stays impure)
+    Used by:  Data.json (34: Hit -> Break of Strada.RaycastHit); Reflected.json (30: Hit -> Log.Info's Message,
+              Result -> Flow.Branch)
+
+Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)
+    Source:   Components/RigidBodyComponent.cs:76  public void AddForce(Vector3 force, ForceMode mode = ForceMode.Force)
+    Pins:     in Execute, Target (Self), Force: Strada.Vector3, Mode: Strada.ForceMode (default "Force"); out Then
+    Literal:  Mode "Impulse" (Components/ComponentEnums.cs:30, Impulse = 1)
+    Purity:   impure (returns void, rule 4)
+    Used by:  Reflected.json (37: Target <- GetComponent<T> Result, Force <- Operator.Multiply of a Strada.Vector3
+              and a float)
+
+Call:Strada.Testing.TestReporter.Pass(string)
+    Source:   Testing/TestReporter.cs:12  public static void Pass(string name)
+    Pins:     in Execute, Name: string; out Then
+    Purity:   impure (returns void, rule 4)
+    Used by:  Reflected.json (14)
+
+Call:Strada.Vector3.Lerp(Strada.Vector3,Strada.Vector3,float)
+    Source:   Math/Vector3.cs:84  public static Vector3 Lerp(Vector3 a, Vector3 b, float t)
+    Pins:     in A: Strada.Vector3, B: Strada.Vector3, T: float; out Result: Strada.Vector3
+    Purity:   pure (every Strada.Vector3 method, rule 2)
+    Used by:  Reflected.json (24)
+
+Get:Strada.Entity.Children
+    Source:   Entity.cs:129  public Entity[] Children { get; }
+    Pins:     in Target (Self); out Value: Strada.Entity[]
+    Purity:   pure (a property getter, rule 1)
+    Used by:  Flow.json (24: Value -> Flow.ForEach's Array); Data.json (78: Value -> Array.Length and Array.Get)
+
+Get:Strada.Entity.Name
+    Source:   Entity.cs:28  public string Name { get; set; }
+    Pins:     in Target (Self); out Value: string
+    Purity:   pure (a property getter, rule 1)
+    Used by:  Reflected.json (13)
+
+Get:Strada.Mathf.PI
+    Source:   Math/Mathf.cs:9  public const float PI = MathF.PI;  (a literal field: Get only)
+    Pins:     out Value: float
+    Purity:   pure (a field getter, rule 1)
+    Used by:  Reflected.json (29)
+
+Get:Strada.Time.DeltaTime
+    Source:   Time.cs:9  public static float DeltaTime { get; internal set; }  (internal setter: no Set node)
+    Pins:     out Value: float
+    Purity:   pure (a property getter, rule 1)
+    Used by:  Reflected.json (27)
+
+Get:Strada.TransformComponent.Translation
+    Source:   Components/TransformComponent.cs:14  public Vector3 Translation { get; set; }
+    Pins:     in Target (Self); out Value: Strada.Vector3
+    Purity:   pure (a property getter, rule 1)
+    Used by:  Reflected.json (25)
+
+Get:Strada.Vector3.Length
+    Source:   Math/Vector3.cs:59  public readonly float Length { get; }
+    Pins:     in Target: Strada.Vector3 (an instance member of a struct: no default; the fixture links it);
+              out Value: float
+    Purity:   pure (a property getter, rule 1)
+    Used by:  Reflected.json (31: Target <- New:Strada.Vector3's Value)
+
+New:Strada.Vector3(float,float,float)
+    Source:   Math/Vector3.cs:19  public Vector3(float x, float y, float z)
+              (the other constructors, Vector3(float) and Vector3(Vector2, float), are not used)
+    Pins:     in X: float, Y: float, Z: float; out Value: Strada.Vector3
+    Literals: X 1.0, Z 0.5
+    Purity:   pure (a struct constructor, rule 1)
+    Used by:  Reflected.json (26)
+
+Set:Strada.Entity.Name
+    Source:   Entity.cs:28  public string Name { get; set; }  (Entity is a class, so the setter is a node)
+    Pins:     in Execute, Target (Self), Value: string; out Then
+    Literal:  Value "Reflected Probe"
+    Purity:   impure (setters, rule 5)
+    Used by:  Reflected.json (11)
+
+Set:Strada.TransformComponent.Translation
+    Source:   Components/TransformComponent.cs:14  public Vector3 Translation { get; set; }
+              (TransformComponent is a class, so the setter is a node)
+    Pins:     in Execute, Target (Self), Value: Strada.Vector3; out Then
+    Purity:   impure (setters, rule 5)
+    Used by:  Reflected.json (23)
+
+
+Other names the fixtures take from the sources
+
+Operator.Multiply of a Strada.Vector3 (A) and a float (B), Reflected.json 38:
+    Math/Vector3.cs:105  public static Vector3 operator *(Vector3 value, float scalar)  (the exact-type match;
+    the overloads at :102 (Vector3, Vector3) and :108 (float, Vector3) do not take these operand types)
+
+Make and Break of Strada.Vector3 (Data.json 69 and 74): the public fields in declaration order,
+    Math/Vector3.cs:12-16  X, Y, Z (float)
+
+Break of Strada.RaycastHit (Data.json 76): a readonly struct without public fields, so its public get-only
+properties in declaration order,
+    Physics.cs:38-47  Entity (Strada.Entity), Point (Strada.Vector3), Normal (Strada.Vector3), Distance (float)
+
+Enumerators (enum literals, input-event settings and switch cases):
+    Strada.KeyCode, Input/InputEnums.cs:4     Space = 32 (:9), G = 71 (:57), R = 82 (:79), T = 84 (:83),
+                                              Escape = 256 (:109)
+    Strada.MouseButton, Input/InputEnums.cs:251  Left = 0 (:254), Right = 1 (:256)
+    Strada.GamepadButton, Input/InputEnums.cs:272  A = 0 (:275), B = 1 (:277)
+    Strada.ForceMode, Components/ComponentEnums.cs:25  Force = 0 (:28), Impulse = 1 (:30), Acceleration = 2 (:32),
+                                              VelocityChange = 3 (:34). Flow.json's switch on Strada.ForceMode omits
+                                              Cases, so its pins are Case:Force, Case:Impulse, Case:Acceleration,
+                                              Case:VelocityChange and Default (declaration order).
