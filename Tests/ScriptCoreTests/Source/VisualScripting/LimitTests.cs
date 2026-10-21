@@ -187,6 +187,9 @@ public sealed class LimitTests
 		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.Update));
 		Assert.Equal(["None"], runtime.Records);
 		Assert.Equal([(TestRuntime.Hero, typeof(ScriptComponent)), (TestRuntime.Hero, typeof(ScriptComponent))], runtime.Environment.ComponentFetches);
+		// The component of Self is fetched by the instance's entity ID: the runtime looks no entity object up for it (the
+		// fake environment looks one up for the view it makes).
+		Assert.Equal(1, runtime.Environment.EntityLookups);
 	}
 
 	[Theory]

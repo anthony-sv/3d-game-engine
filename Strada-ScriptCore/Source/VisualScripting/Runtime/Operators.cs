@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 
 namespace Strada.VisualScripting;
 
@@ -14,9 +15,11 @@ internal sealed class VisualScriptException : Exception
 
 // The numeric operators (spec section 4.4): both operands staged at their join type, C# unchecked arithmetic, IEEE for
 // floating point. Integer division or modulo by zero, and the one quotient that overflows (the minimum divided by -1, as
-// C# throws an OverflowException for it), are aborting errors.
+// C# throws an OverflowException for it), are aborting errors. The operators are inlined into the interpreter's
+// evaluation of pure nodes: a tight loop of them runs without calls.
 internal static class Operators
 {
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal static Slot Arithmetic(OperatorKind op, SlotKind kind, in Slot a, in Slot b) => kind switch
 	{
 		SlotKind.Int => Slot.FromInt(Int(op, a.Int, b.Int)),
@@ -28,6 +31,7 @@ internal static class Operators
 	};
 
 	// C# unary minus: uint operands are staged as long, ulong ones have no node.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal static Slot Negate(SlotKind kind, in Slot a) => kind switch
 	{
 		SlotKind.Int => Slot.FromInt(unchecked(-a.Int)),
@@ -36,6 +40,7 @@ internal static class Operators
 		_ => Slot.FromDouble(-a.Double),
 	};
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal static bool Compare(OperatorKind op, SlotKind kind, in Slot a, in Slot b) => kind switch
 	{
 		SlotKind.Int => Compare(op, a.Int.CompareTo(b.Int)),
@@ -48,6 +53,7 @@ internal static class Operators
 	};
 
 	// IEEE equality: NaN equals nothing.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	internal static bool Equal(SlotKind kind, in Slot a, in Slot b) => kind switch
 	{
 		SlotKind.Int => a.Int == b.Int,
@@ -66,6 +72,7 @@ internal static class Operators
 		_ => !a,
 	};
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static int Int(OperatorKind op, int a, int b)
 	{
 		switch (op)
@@ -82,6 +89,7 @@ internal static class Operators
 		}
 	}
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static uint UInt(OperatorKind op, uint a, uint b)
 	{
 		switch (op)
@@ -98,6 +106,7 @@ internal static class Operators
 		}
 	}
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static long Long(OperatorKind op, long a, long b)
 	{
 		switch (op)
@@ -114,6 +123,7 @@ internal static class Operators
 		}
 	}
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static ulong ULong(OperatorKind op, ulong a, ulong b)
 	{
 		switch (op)

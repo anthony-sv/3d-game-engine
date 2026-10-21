@@ -279,52 +279,63 @@ internal sealed partial class VisualScriptRuntime
 	}
 
 	// The chain ended: the top frame's continuations run first, then a function call returns (as if Function.Return set
-	// nothing); false when the execution is over.
+	// nothing); false when the execution is over. The continuation on top of the flow stack advances in place and is
+	// popped when it is done.
 	private bool ContinueAfterChain(Execution execution)
 	{
-		if (execution.FlowCount > execution.Top.FlowBase)
+		int top = execution.FlowCount - 1;
+		if (top >= execution.Top.FlowBase)
 		{
-			FlowEntry entry = execution.PopFlow();
+			ref FlowEntry entry = ref execution.Flow[top];
 			Frame frame = execution.TopFrame;
 			CompiledNode node = frame.Graph.Nodes[entry.Node];
 			Step(execution, node);
 			switch (entry.Kind)
 			{
 				case FlowKind.Sequence:
-					if (entry.Index + 1 < node.Count)
+					int output = entry.Index;
+					if (output + 1 < node.Count)
 					{
-						execution.PushFlow(entry with { Index = entry.Index + 1 });
+						entry.Index = output + 1;
 					}
-					Follow(execution, node, entry.Index);
+					else
+					{
+						execution.PopFlow();
+					}
+					Follow(execution, node, output);
 					break;
 				case FlowKind.ForLoop:
 					// The index stops at Last, so a loop up to int.MaxValue does not overflow.
 					if (entry.Break || entry.Index == entry.Last)
 					{
+						execution.PopFlow();
 						Follow(execution, node, 1);
 						break;
 					}
-					execution.PushFlow(entry with { Index = entry.Index + 1 });
+					entry.Index++;
 					Follow(execution, node, 0);
 					break;
 				case FlowKind.ForEach:
 					if (entry.Break || entry.Index + 1 >= entry.Items!.Length)
 					{
+						execution.PopFlow();
 						Follow(execution, node, 1);
 						break;
 					}
-					execution.PushFlow(entry with { Index = entry.Index + 1 });
+					entry.Index++;
 					Follow(execution, node, 0);
 					break;
 				default:
+					// While: plans push call frames, never flow entries, so the entry stays on top while the condition is
+					// evaluated.
 					Evaluate(execution, node, frame);
 					if (frame.Slots[node.InputBase].Bool)
 					{
-						execution.PushFlow(entry);
 						Follow(execution, node, 0);
 					}
 					else
 					{
+						execution.PopFlow();
 						Follow(execution, node, 1);
 					}
 					break;
@@ -591,6 +602,7 @@ internal sealed partial class VisualScriptRuntime
 	}
 
 	// Stages the node's connected inputs: each value converted to its input's staging type.
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static void Load(Execution execution, CompiledNode node, Slot[] slots)
 	{
 		foreach (ref readonly Operand operand in node.Operands.AsSpan())
@@ -619,6 +631,7 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private void EvaluatePure(Execution execution, CompiledNode node, Frame frame)
 	{
 		Slot[] slots = frame.Slots;
@@ -718,16 +731,19 @@ internal sealed partial class VisualScriptRuntime
 		switch (node.Target)
 		{
 			case TargetKind.Entity:
-			case TargetKind.Component:
 				Entity entity = (node.TargetIsSelf ? m_Environment.GetEntity(execution.Instance.Entity) : (Entity?)slots[node.InputBase].Object) ??
 					throw new VisualScriptException(NoTarget);
-				if (node.Target == TargetKind.Entity)
+				slots[node.InputBase] = Slot.FromObject(entity);
+				break;
+			case TargetKind.Component:
+				// The component is fetched by its entity's ID, so Self needs no entity object.
+				ulong id = node.TargetIsSelf ? execution.Instance.Entity : ((Entity?)slots[node.InputBase].Object)?.ID ?? 0;
+				if (id == 0)
 				{
-					slots[node.InputBase] = Slot.FromObject(entity);
-					break;
+					throw new VisualScriptException(NoTarget);
 				}
-				Component component = m_Environment.GetComponent(entity.ID, node.DeclaringType!) ??
-					throw new VisualScriptException($"{m_Environment.GetEntityName(entity.ID)} has no {Titles.OfType(node.DeclaringType!)}");
+				Component component = m_Environment.GetComponent(id, node.DeclaringType!) ??
+					throw new VisualScriptException($"{m_Environment.GetEntityName(id)} has no {Titles.OfType(node.DeclaringType!)}");
 				slots[node.InputBase] = Slot.FromObject(component);
 				break;
 			case TargetKind.Value when !node.DeclaringType!.IsValueType && slots[node.InputBase].Object == null:

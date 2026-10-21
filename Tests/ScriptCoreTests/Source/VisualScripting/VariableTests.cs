@@ -97,6 +97,29 @@ public sealed class VariableTests
 		Assert.Equal([$"{TestRuntime.Name} on Hero (7): {warning}"], runtime.Environment.Warnings);
 	}
 
+	// Overrides that are not text (bytes that are not UTF-8, an escaped surrogate without its pair) are not JSON either:
+	// creating and updating the instance ignore them with a Warning.
+	[Fact]
+	public void OverridesThatAreNotTextAreIgnoredWithAWarning()
+	{
+		byte[][] overrides =
+		[
+			[.. """{ "Speed": { "Type": "Float", "Value": 2.5 }, "Tag": { "Type": "String", "Value": """u8, (byte)'"', 0xFF, .. "\" } }"u8],
+			"""{ "Speed": { "Type": "Float", "Value": 2.5 }, "Tag": { "Type": "String", "Value": "\uD800" } }"""u8.ToArray(),
+			"""{ "Speed": { "Type": "Float", "Value": 2.5 }, "\uDFFF": 1 }"""u8.ToArray(),
+		];
+		string warning = $"{TestRuntime.Name} on Hero (7): variable values ignored: they are not JSON";
+		foreach (byte[] text in overrides)
+		{
+			TestRuntime runtime = new();
+			runtime.LoadWorking(Variables().Build());
+			Assert.Equal(VisualScriptStatus.Success, runtime.Runtime.CreateInstance(TestRuntime.Hero, TestRuntime.Graph, text));
+			Assert.Equal(VisualScriptStatus.Success, runtime.Runtime.SetInstanceVariables(TestRuntime.Hero, text));
+			Assert.Equal(4.0f, runtime.Variable("Speed"));
+			Assert.Equal([warning, warning], runtime.Environment.Warnings);
+		}
+	}
+
 	[Fact]
 	public void DescribeInstanceVariablesWritesThePublicVariablesInDocumentOrder()
 	{

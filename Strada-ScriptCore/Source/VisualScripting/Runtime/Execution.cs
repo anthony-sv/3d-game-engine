@@ -198,11 +198,10 @@ internal sealed class Execution
 		Flow[FlowCount++] = entry;
 	}
 
-	internal FlowEntry PopFlow()
+	// Drops the entry on top: its continuation is done.
+	internal void PopFlow()
 	{
-		FlowEntry entry = Flow[--FlowCount];
-		Flow[FlowCount] = default;
-		return entry;
+		Flow[--FlowCount] = default;
 	}
 
 	// Drops the entries of the top frame's segment (Function.Return discards the call's pending continuations).

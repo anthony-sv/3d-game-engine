@@ -119,6 +119,32 @@ public sealed class AnalysisDiagnosticsTests
 		Assert.Empty(VisualScriptTesting.Analyze("{}").Diagnostics);
 	}
 
+	// JSON text is UTF-8 and its strings are text: bytes that are not UTF-8 (a stray continuation byte, an overlong form, a
+	// sequence cut short), and an escaped surrogate without its pair, in a value or a member name, refuse the document.
+	[Fact]
+	public void DocumentsThatAreNotTextAreOneInvalidDocument()
+	{
+		byte[][] documents =
+		[
+			[.. """{ "Graph": { "Nodes": [ { "ID": 1, "Type": "Self"""u8, 0xC3, 0x28, .. "\" } ] } }"u8],
+			[.. """{ "Description": """u8, (byte)'"', 0xC0, 0xAF, .. "\" }"u8],
+			[.. "{ \""u8, 0xE2, 0x82, .. "\": 1 }"u8],
+			[.. """{ "Description": "x"""u8, 0xF0, 0x9F, 0x98],
+			"""{ "Graph": { "Nodes": [ { "ID": 1, "Type": "Self\uD800" } ] } }"""u8.ToArray(),
+			"""{ "Description": "\uDC00\uD800" }"""u8.ToArray(),
+			"""{ "\uD83D": 1 }"""u8.ToArray(),
+		];
+		foreach (byte[] text in documents)
+		{
+			AnalyzedDocument document = GraphAnalyzer.Analyze(VisualScriptTesting.Library, text);
+			Diagnostic diagnostic = Assert.Single(document.Diagnostics);
+			Assert.Equal(DiagnosticCode.InvalidDocument, diagnostic.Code);
+			Assert.Equal(1, VisualScriptTesting.ParseObject(AnalysisWriter.Write(document)).GetProperty("Diagnostics").GetArrayLength());
+		}
+		// A surrogate pair escaped as such is text.
+		VisualScriptTesting.AssertNoErrors(VisualScriptTesting.Analyze("""{ "Description": "\uD83D\uDE00" }"""));
+	}
+
 	[Fact]
 	public void StructuralDefectsAreInvalidDocumentWithTheirPath()
 	{

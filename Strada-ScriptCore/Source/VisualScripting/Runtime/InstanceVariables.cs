@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Text.Json;
+using System.Text.Unicode;
 using Strada.Interop;
 
 namespace Strada.VisualScripting;
@@ -68,6 +69,12 @@ internal sealed partial class VisualScriptRuntime
 		{
 			return;
 		}
+		// JSON text is UTF-8 (RFC 8259): the parser checks only its structure, and the stored-field codec reads its strings.
+		if (!Utf8.IsValid(json))
+		{
+			WarnVariables(instance, "variable values ignored: they are not JSON");
+			return;
+		}
 		JsonDocument document;
 		try
 		{
@@ -80,6 +87,11 @@ internal sealed partial class VisualScriptRuntime
 		}
 		using (document)
 		{
+			if (!JsonText.HasValidText(document.RootElement))
+			{
+				WarnVariables(instance, "variable values ignored: they are not JSON");
+				return;
+			}
 			if (document.RootElement.ValueKind != JsonValueKind.Object)
 			{
 				WarnVariables(instance, "variable values ignored: expected an object");

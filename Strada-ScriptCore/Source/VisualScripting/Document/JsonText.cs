@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
@@ -6,7 +7,7 @@ using System.Text.Json;
 namespace Strada.VisualScripting;
 
 // Reading documents safely: strings that are not valid UTF-16 (an escaped unpaired surrogate) count as invalid instead of
-// throwing, and messages quote values briefly.
+// throwing, documents can be checked for them once, and messages quote values briefly.
 internal static class JsonText
 {
 	private const int ExcerptLength = 48;
@@ -41,6 +42,39 @@ internal static class JsonText
 			name = null;
 			return false;
 		}
+	}
+
+	// Whether every string and member name of the value is text: read as UTF-16, none holds an escaped surrogate without its
+	// pair. The values of a document that passed can be read without exceptions.
+	internal static bool HasValidText(JsonElement root)
+	{
+		Stack<JsonElement> pending = new();
+		pending.Push(root);
+		while (pending.TryPop(out JsonElement element))
+		{
+			switch (element.ValueKind)
+			{
+				case JsonValueKind.String when !TryGetString(element, out _):
+					return false;
+				case JsonValueKind.Array:
+					foreach (JsonElement item in element.EnumerateArray())
+					{
+						pending.Push(item);
+					}
+					break;
+				case JsonValueKind.Object:
+					foreach (JsonProperty property in element.EnumerateObject())
+					{
+						if (!TryGetName(property, out _))
+						{
+							return false;
+						}
+						pending.Push(property.Value);
+					}
+					break;
+			}
+		}
+		return true;
 	}
 
 	// The value as JSON text, shortened for messages.

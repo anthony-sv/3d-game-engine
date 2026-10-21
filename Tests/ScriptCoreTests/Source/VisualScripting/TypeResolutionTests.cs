@@ -327,4 +327,25 @@ public sealed class TypeResolutionTests
 			"""{ "From": [1, "Then"], "To": [2, "Condition"] }, { "From": [1, "DeltaTime"], "To": [2, "Execute"] }"""));
 		Assert.Equal(2, document.Diagnostics.Count(static diagnostic => diagnostic.Code == DiagnosticCode.TypeMismatch && diagnostic.Link != null));
 	}
+
+	// Exec connects only to exec where a pin's type is still open too: an exec output into an operand, and an unresolved
+	// output into an exec input, are mismatches (a Reroute passes the flow on, and it is exec by then).
+	[Fact]
+	public void ExecAndOpenPinsDoNotMix()
+	{
+		AnalyzedDocument document = VisualScriptTesting.Analyze(VisualScriptTesting.Document(
+			"""
+			{ "ID": 1, "Type": "Event.Update" }, { "ID": 2, "Type": "Operator.Add", "Inputs": { "A": 1 } }, { "ID": 3, "Type": "Select" },
+			{ "ID": 4, "Type": "Flow.Branch" }, { "ID": 5, "Type": "Reroute" }, { "ID": 6, "Type": "Flow.Branch" }
+			""",
+			"""
+			{ "From": [1, "Then"], "To": [2, "B"] }, { "From": [3, "Result"], "To": [4, "Execute"] },
+			{ "From": [4, "True"], "To": [5, "In"] }, { "From": [5, "Out"], "To": [6, "Execute"] }
+			"""));
+		Diagnostic[] mismatches = [.. document.Diagnostics.Where(static diagnostic => diagnostic.Code == DiagnosticCode.TypeMismatch)];
+		Assert.Equal(2, mismatches.Length);
+		Assert.Equal((2u, "B"), (mismatches[0].Link!.To.Node, mismatches[0].Link!.To.Pin));
+		Assert.Equal((4u, "Execute"), (mismatches[1].Link!.To.Node, mismatches[1].Link!.To.Pin));
+		Assert.True(VisualScriptTesting.Pin(document, 5, "Out").Type.IsExec);
+	}
 }

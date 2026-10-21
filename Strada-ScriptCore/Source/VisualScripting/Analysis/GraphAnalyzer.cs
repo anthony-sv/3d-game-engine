@@ -258,15 +258,13 @@ internal static class GraphAnalyzer
 			}
 			AnalyzedPin from = link.From;
 			AnalyzedPin to = link.To;
+			// Exec connects only to exec (rule 2), wildcards included: a Reroute linked to the flow was resolved to exec.
 			if (from.Type.IsExec != to.Type.IsExec)
 			{
-				if (!from.Type.IsWildcard && !to.Type.IsWildcard)
-				{
-					link.IsValid = false;
-					context.ReportLink(DiagnosticCode.TypeMismatch, link, from.Type.IsExec
-						? $"the exec output {from.Node.ID}.{from.Name} cannot connect to the data input {to.Node.ID}.{to.Name} ({to.Type.Id})"
-						: $"the {from.Type.Id} output {from.Node.ID}.{from.Name} cannot connect to the exec input {to.Node.ID}.{to.Name}");
-				}
+				link.IsValid = false;
+				context.ReportLink(DiagnosticCode.TypeMismatch, link, from.Type.IsExec
+					? $"the exec output {from.Node.ID}.{from.Name} cannot connect to the data input {to.Node.ID}.{to.Name} ({to.Type.Id})"
+					: $"the {from.Type.Id} output {from.Node.ID}.{from.Name} cannot connect to the exec input {to.Node.ID}.{to.Name}");
 				continue;
 			}
 			if (from.Type.IsExec)

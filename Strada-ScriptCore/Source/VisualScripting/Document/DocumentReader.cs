@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Unicode;
 
 namespace Strada.VisualScripting;
 
@@ -27,6 +28,12 @@ internal static class DocumentReader
 			diagnostics.Add(new Diagnostic(DiagnosticCode.InvalidDocument, 0, "the document is empty: expected a JSON object"));
 			return null;
 		}
+		// JSON text is UTF-8 (RFC 8259); the parser checks only its structure.
+		if (!Utf8.IsValid(utf8))
+		{
+			diagnostics.Add(new Diagnostic(DiagnosticCode.InvalidDocument, 0, "the document is not UTF-8 text"));
+			return null;
+		}
 		JsonElement root;
 		try
 		{
@@ -43,6 +50,12 @@ internal static class DocumentReader
 		if (root.ValueKind != JsonValueKind.Object)
 		{
 			diagnostics.Add(new Diagnostic(DiagnosticCode.InvalidDocument, 0, "the document is not a JSON object"));
+			return null;
+		}
+		if (!JsonText.HasValidText(root))
+		{
+			diagnostics.Add(new Diagnostic(DiagnosticCode.InvalidDocument, 0,
+				"the document has a string or member name that is not text: an escaped surrogate without its pair"));
 			return null;
 		}
 		return new Reader(diagnostics).ReadDocument(root);
