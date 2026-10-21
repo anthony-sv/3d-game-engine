@@ -899,10 +899,19 @@ positions. A build is out of date when a C# source or project file is newer than
   every parameter of that material. Edits change the material file as in the material inspector (one undo step per
   interaction) and show at once in the views and thumbnails; built-in and model-imported materials show their values
   disabled with a Create Material button that writes an editable copy to `Assets/Materials` and gives it to the slot
-  (one undo step). Without selected entities the inspector shows the asset selected in the content browser
-  (`EditorContext::SelectAsset`; selecting entities replaces it): its type and reference, the parameters of materials
-  with a preview (editable for material files; Create Material copies built-in and mesh-imported ones), a texture
-  preview, mesh statistics with the mesh's materials, and the details of other asset types. The Transform of UI
+  (one undo step). Below the `Graph` of VisualScript components come the public variables of the graph
+  (`DescribeVisualScriptVariables`), edited like script fields when every selected entity runs the same graph and it
+  loads (nothing shows otherwise): one undo step per interaction writes each entity's whole `Variables` map, with values
+  stored under a variable's former name moved to its current one (`NormalizeVisualScriptOverrides`). Variables of enum
+  types are listed read-only with the reason until the scripting runtime describes its enums
+  (`InspectorPanel::SetVisualScriptEnumLookup`), and so are those of types components cannot set. C# scripts and visual
+  scripts dropped onto the inspector run on the selected entities. Without selected entities the inspector shows the
+  asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
+  reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
+  and mesh-imported ones), a texture preview, mesh statistics with the mesh's materials, what a visual script holds
+  (read-only: its description, the numbers of nodes and links of all its graphs, the events it uses, its variables with
+  their types, values and whether they are public, and the signatures of its functions, marked when pure), and the
+  details of other asset types. Showing an asset never writes its file. The Transform of UI
   elements, which their `UIRect` places, starts folded and is shown read-only, with a note. Every field table's name
   column starts as wide as its names need, switches and indentation included (30% to 60% of the panel, at most 50%
   beside asset paths; users can resize it); names that still do not fit end in an ellipsis and show in full in their
@@ -927,8 +936,9 @@ positions. A build is out of date when a C# source or project file is newer than
   before the panels draw, so an image is made once, whichever panel shows it, and the images it replaces are in no
   frame's draw data. Files without a picture get cards of the slate theme with a glyph and a band
   naming their type, drawn with ImDrawList (a globe for scenes, a cube for prefabs, a wireframe for meshes, a shaded
-  ball for materials, a picture for textures, a sunrise for environments, a speaker until a waveform is ready, "Aa" in
-  the editor's font for unreadable fonts, a C# document for scripts, a page with the extension for other files);
+  ball for materials, a picture for textures, a sunrise for environments, three linked nodes for visual scripts, a
+  speaker until a waveform is ready, "Aa" in the editor's font for unreadable fonts, a C# document for scripts, a page
+  with the extension for other files);
   missing files get a red badge and a red label, files that do not load or decode an amber badge (the tooltip says
   why; `AssetThumbnails::GetLoadError`), and audio tooltips the clip's length, rate and channels. Click selects (on
   release, so dragging keeps the selection the drop target belongs to; the inspector shows assets): the selected tile
@@ -943,12 +953,19 @@ positions. A build is out of date when a C# source or project file is newer than
   one, scenes open); scripts drag onto hierarchy rows, the inspector and the viewport (the entity under the cursor),
   which give the entities a Script component of the class the file defines among the loaded classes as one undo step
   (`AssetDrops::AddScript`, `EditorOperations::SetScriptClass`; the console says when the scripts are not built yet).
-  Context menus create folders, materials and C# scripts (the New Script dialog, in the displayed script folder; the
-  browser then shows the script), import files (native multi-select dialog), refresh, rename, delete, copy references
-  or paths and show items in the file manager. File operations are not undoable. Files and folders dropped onto any of
-  the editor's windows from the OS (`WindowFileDropEvent`, forwarded from the platform windows of floating panels
-  too; `asset.drop` does the same for agents) are imported by `ProjectImport` into the folder under the cursor, else
-  the displayed ones: assets into the asset folder (taken names get a number), models with the files they read at the
+  Visual scripts drag onto the same places, without the scripting runtime: entities without a VisualScript component
+  get one running the graph and the others change graph (keeping the values they give its variables), as one undo step,
+  none when every entity runs the graph already, and nothing changes when an entity is gone
+  (`AssetDrops::AddVisualScript`, `EditorOperations::SetVisualScriptGraph`; a drop on the viewport's empty space says
+  to drop it onto an entity). Context menus (and the toolbar's "+") create folders, materials, visual scripts
+  (`New Visual Script.sgraph`, numbered when taken, from the Events template: an `Event.Create` and an `Event.Update`
+  node; `EditorOperations::CreateVisualScript`, selected and ready to be named) and C# scripts (the New Script dialog,
+  in the displayed script folder; the browser then shows the script), import files (native multi-select dialog),
+  refresh, rename, delete, copy references or paths and show items in the file manager. File operations are not
+  undoable. Files and folders dropped onto any of the editor's windows from the OS (`WindowFileDropEvent`, forwarded
+  from the platform windows of floating panels too; `asset.drop` does the same for agents) are imported by
+  `ProjectImport` into the folder under the cursor, else the displayed ones: assets into the asset folder (taken names
+  get a number), models with the files they read at the
   same paths relative to them (`MeshImporter::FindExternalFiles`; in a new folder named after the model when those
   names are taken), C# sources into the scripts folder (creating the C# project when needed) unless their file name or
   a type they declare is taken in the scripts, where the C# project would no longer build, and folders whole but for

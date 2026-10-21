@@ -12,6 +12,7 @@
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshImporter.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Scene/SceneSerializer.h"
@@ -449,6 +450,47 @@ namespace Strada
 		return m_Context.ExecuteCommand(CreateScope<CompositeCommand>(fmt::format("Set Script {}", className), std::move(commands)));
 	}
 
+	Result<void> EditorOperations::SetVisualScriptGraph(std::span<UUID const> entities, AssetHandle graph)
+	{
+		if (!graph.IsValid())
+		{
+			return Error{"a visual script is required"};
+		}
+		Scene& scene = m_Context.GetScene();
+		Json const fields = Json::object({{"Graph", graph.ToString()}});
+		std::string const component(ComponentTraits<VisualScriptComponent>::Name);
+		std::vector<Scope<EditorCommand>> commands;
+		std::vector<ComponentEdit> replaced;
+		for (UUID const entity : entities)
+		{
+			if (!scene.HasEntity(entity))
+			{
+				return MakeError("entity {} does not exist", entity);
+			}
+			Entity const target = scene.GetEntityByUUID(entity);
+			if (!target.HasComponent<VisualScriptComponent>())
+			{
+				commands.push_back(CreateScope<AddComponentCommand>(entity, component, fields));
+			}
+			else if (target.GetComponent<VisualScriptComponent>().Graph != graph)
+			{
+				// Only the graph changes: the values the entity gives the variables stay for the variables of the same names.
+				replaced.push_back({entity, component, fields});
+			}
+		}
+		if (!replaced.empty())
+		{
+			commands.push_back(CreateScope<SetComponentsCommand>(std::move(replaced)));
+		}
+		if (commands.empty())
+		{
+			return {};
+		}
+		std::optional<AssetMetadata> const metadata = AssetManager::IsInitialized() ? AssetManager::GetMetadata(graph) : std::nullopt;
+		std::string const name = metadata ? metadata->GetDisplayName() : graph.ToString();
+		return m_Context.ExecuteCommand(CreateScope<CompositeCommand>(fmt::format("Set Visual Script {}", name), std::move(commands)));
+	}
+
 	Result<void> EditorOperations::CreateAssetFolder(std::string_view folder)
 	{
 		if (Result<void> available = RequireAssetDirectory(); !available)
@@ -504,6 +546,42 @@ namespace Strada
 			return Error{created.GetError()};
 		}
 		if (Result<void> saved = MaterialSerializer::SaveToFile(data, file); !saved)
+		{
+			return Error{saved.GetError()};
+		}
+		Result<AssetHandle> imported = AssetManager::ImportFile(file);
+		if (!imported)
+		{
+			(void)FileSystem::Remove(file);
+		}
+		return imported;
+	}
+
+	Result<AssetHandle> EditorOperations::CreateVisualScript(std::string_view path, VisualScriptTemplate kind)
+	{
+		if (Result<void> available = RequireAssetDirectory(); !available)
+		{
+			return Error{available.GetError()};
+		}
+		Result<std::string> normalized = NormalizeAssetPath(path);
+		if (!normalized)
+		{
+			return Error{normalized.GetError()};
+		}
+		std::filesystem::path const file = AssetManager::GetAssetDirectory() / FileSystem::PathFromUtf8(normalized.GetValue());
+		if (GetAssetTypeForExtension(FileSystem::PathToUtf8(file.extension())) != AssetType::VisualScript)
+		{
+			return MakeError("visual script files end with .sgraph, got '{}'", normalized.GetValue());
+		}
+		if (FileSystem::Exists(file))
+		{
+			return MakeError("'{}' already exists", normalized.GetValue());
+		}
+		if (Result<void> created = FileSystem::CreateDirectories(file.parent_path()); !created)
+		{
+			return Error{created.GetError()};
+		}
+		if (Result<void> saved = VisualScriptSerializer::SaveToFile(MakeVisualScriptTemplate(kind), file); !saved)
 		{
 			return Error{saved.GetError()};
 		}

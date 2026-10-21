@@ -7,11 +7,13 @@
 #include "Strada/Asset/Asset.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Scene/ComponentRegistry.h"
+#include "Strada/Script/VisualScriptVariables.h"
 
 #include <cstddef>
 #include <functional>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Strada
@@ -20,14 +22,15 @@ namespace Strada
 
 	// Edits the selected entities: name, the components they all have (fields generated from the component registry, one
 	// undo step per widget interaction; Script components get a class picker and the fields of their script class; Mesh
-	// components a section per material slot with the material's parameters), and adding (a searchable menu of the
-	// component categories), resetting, copying, pasting and removing components. With several entities selected, the
-	// primary entity's values are shown, fields whose values differ are flagged, and an edit changes only the edited value
-	// (or vector component) on every selected entity. Without selected entities it shows the asset selected in the content
-	// browser: its details, the parameters of material files (editable, one undo step per interaction; built-in and
-	// imported materials are read-only and can be copied to a material file), a texture preview and mesh statistics. Images
-	// of assets (in asset fields, the asset picker's rows and the material headers and previews) come from SetThumbnails.
-	// Main thread only.
+	// components a section per material slot with the material's parameters; VisualScript components the values they give
+	// the public variables of their graph), and adding (a searchable menu of the component categories), resetting, copying,
+	// pasting and removing components. With several entities selected, the primary entity's values are shown, fields whose
+	// values differ are flagged, and an edit changes only the edited value (or vector component) on every selected entity.
+	// C# scripts and visual scripts dropped onto the panel run on the selected entities. Without selected entities it shows
+	// the asset selected in the content browser: its details, the parameters of material files (editable, one undo step per
+	// interaction; built-in and imported materials are read-only and can be copied to a material file), a texture preview,
+	// mesh statistics and what a visual script holds (read-only). Images of assets (in asset fields, the asset picker's rows
+	// and the material headers and previews) come from SetThumbnails. Main thread only.
 	class InspectorPanel
 	{
 	public:
@@ -36,6 +39,9 @@ namespace Strada
 		// The images of assets: the editor's set, which the content browser shares and the editor updates once per frame
 		// before the panels draw. Not owned; without them asset fields show paths only.
 		void SetThumbnails(AssetThumbnails* thumbnails);
+		// Tells the enum types of the scripting runtime, so public variables of enum types can be set; without it (the
+		// default) they are listed read-only.
+		void SetVisualScriptEnumLookup(VisualScriptEnumLookup lookup) { m_VisualScriptEnumLookup = std::move(lookup); }
 
 		void OnImGuiRender(EditorOperations& operations, bool& open);
 		// In the next frame, brings the inspector to the front with its Add Component menu open and the search text typed in
@@ -83,6 +89,11 @@ namespace Strada
 		// The asset field of a slot's material (invalid: the entities use several), lined up with the material's fields.
 		void DrawSlotMaterialReference(EditorOperations& operations, std::vector<UUID> const& entities, size_t slot, AssetHandle material);
 
+		// The values the entities give the public variables of the visual script they all run (one undo step per interaction,
+		// each writing an entity's whole map with the values under the variables' current names); variables that cannot be
+		// set here are listed with the reason. Nothing when the entities run different graphs or theirs does not load.
+		void DrawVisualScriptVariables(EditorOperations& operations, std::vector<UUID> const& entities);
+
 		void DrawAsset(EditorOperations& operations, AssetHandle asset);
 		void DrawMaterial(EditorOperations& operations, AssetMetadata const& metadata);
 		// The parameters of a material: editable for material files (one undo step per interaction), disabled otherwise.
@@ -92,6 +103,7 @@ namespace Strada
 		FieldEditor m_FieldEditor;
 		std::vector<FieldDescriptor> m_MaterialFields;
 		AssetThumbnails* m_Thumbnails = nullptr;
+		VisualScriptEnumLookup m_VisualScriptEnumLookup;
 		EditSession m_EditSession;
 		// Search text of the Add Component menu; while it is empty the menu shows the categories.
 		std::string m_AddComponentFilter;

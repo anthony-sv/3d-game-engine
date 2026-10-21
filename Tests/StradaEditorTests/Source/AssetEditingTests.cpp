@@ -10,6 +10,8 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Scene/Entity.h"
@@ -151,6 +153,54 @@ TEST_CASE("EditorOperations: asset folders and materials are created, moved and 
 	CHECK(operations.CreateAssetFolder("Textures").IsError());
 	CHECK(operations.CreateMaterial("New.smat").IsError());
 	CHECK(operations.RefreshAssets().IsError());
+}
+
+TEST_CASE("EditorOperations: visual scripts are created from a template and registered, never over another file")
+{
+	ProjectFixture fixture;
+	EditorOperations& operations = fixture.Operations;
+	auto const getDocument = [](AssetHandle graph)
+	{
+		Ref<VisualScriptAsset> const script = AssetManager::GetAsset<VisualScriptAsset>(graph);
+		REQUIRE(script != nullptr);
+		return script->GetDocument();
+	};
+
+	// The Events template by default (an Event.Create and an Event.Update node), in a folder made for it; saved as the
+	// serializer writes it.
+	Result<AssetHandle> const spin = operations.CreateVisualScript("Scripts/Spin.sgraph");
+	REQUIRE_MESSAGE(spin.IsOk(), (spin ? std::string() : spin.GetError()));
+	CHECK(AssetManager::FindByPath("Scripts/Spin.sgraph") == spin.GetValue());
+	CHECK(AssetManager::GetAssetType(spin.GetValue()) == AssetType::VisualScript);
+	CHECK(getDocument(spin.GetValue()) == MakeVisualScriptTemplate(VisualScriptTemplate::Events));
+	Result<std::string> const file = FileSystem::ReadTextFile(fixture.GetAssetDirectory() / "Scripts" / "Spin.sgraph");
+	REQUIRE(file.IsOk());
+	CHECK(file.GetValue() == DumpJson(VisualScriptSerializer::Serialize(MakeVisualScriptTemplate(VisualScriptTemplate::Events))));
+	Result<AssetHandle> const empty = operations.CreateVisualScript("Empty.sgraph", VisualScriptTemplate::Empty);
+	REQUIRE(empty.IsOk());
+	CHECK(getDocument(empty.GetValue()) == MakeVisualScriptTemplate(VisualScriptTemplate::Empty));
+
+	// An existing path is refused and its file kept; so are other extensions and paths outside the asset directory.
+	REQUIRE(FileSystem::WriteTextFile(fixture.GetAssetDirectory() / "Notes.sgraph", "kept").IsOk());
+	Result<AssetHandle> const taken = operations.CreateVisualScript("Notes.sgraph");
+	REQUIRE(taken.IsError());
+	CHECK(taken.GetError().find("already exists") != std::string::npos);
+	CHECK(FileSystem::ReadTextFile(fixture.GetAssetDirectory() / "Notes.sgraph").GetValue() == "kept");
+	CHECK(operations.CreateVisualScript("Scripts/Spin.sgraph").IsError());
+	CHECK(getDocument(spin.GetValue()) == MakeVisualScriptTemplate(VisualScriptTemplate::Events));
+	Result<AssetHandle> const material = operations.CreateVisualScript("Scripts/Spin.smat");
+	REQUIRE(material.IsError());
+	CHECK(material.GetError().find(".sgraph") != std::string::npos);
+	CHECK_FALSE(FileSystem::Exists(fixture.GetAssetDirectory() / "Scripts" / "Spin.smat"));
+	CHECK(operations.CreateVisualScript("../Outside.sgraph").IsError());
+	CHECK_FALSE(FileSystem::Exists(fixture.Directory.GetPath() / "Game" / "Outside.sgraph"));
+
+	// Creating files is no step of the scene's history.
+	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
+
+	// Without a project nothing is created.
+	REQUIRE(operations.CloseProject().IsOk());
+	CHECK(operations.CreateVisualScript("Later.sgraph").IsError());
 }
 
 TEST_CASE("EditorOperations: imported files are copied, numbered when taken, and registered all or nothing")

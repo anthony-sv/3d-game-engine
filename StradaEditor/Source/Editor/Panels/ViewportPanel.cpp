@@ -239,8 +239,8 @@ namespace Strada
 		std::optional<std::filesystem::path> droppedScript;
 		if (ImGui::BeginDragDropTarget())
 		{
-			constexpr std::array<AssetType, 5> DroppableTypes = {AssetType::Mesh, AssetType::Material, AssetType::Environment,
-			                                                     AssetType::Scene, AssetType::Prefab};
+			constexpr std::array<AssetType, 6> DroppableTypes = {AssetType::Mesh,  AssetType::Material, AssetType::Environment,
+			                                                     AssetType::Scene, AssetType::Prefab,   AssetType::VisualScript};
 			droppedAsset = UI::AcceptAssetDrop(DroppableTypes);
 			droppedScript = UI::AcceptScriptDrop();
 			ImGui::EndDragDropTarget();
@@ -260,7 +260,9 @@ namespace Strada
 		}
 		if (droppedScript)
 		{
-			PickDropTarget(dropPixel, AssetHandle(), std::move(*droppedScript));
+			PendingPick request;
+			request.Script = std::move(*droppedScript);
+			PickDropTarget(dropPixel, std::move(request));
 		}
 		ImGui::End();
 	}
@@ -567,7 +569,9 @@ namespace Strada
 		if (pixel.x >= 0.0f && pixel.y >= 0.0f && !m_Renderer->IsPickPending())
 		{
 			m_Renderer->RequestPick(static_cast<uint32_t>(pixel.x), static_cast<uint32_t>(pixel.y));
-			m_PendingPick = PendingPick{mode, AssetHandle(), {}};
+			PendingPick request;
+			request.Mode = mode;
+			m_PendingPick = std::move(request);
 		}
 	}
 
@@ -607,6 +611,19 @@ namespace Strada
 			UI::ReportFailure(AssetDrops::AddScript(operations, targets, request->Script), "Adding the script");
 			return;
 		}
+		if (request->Graph.IsValid())
+		{
+			if (!hit)
+			{
+				std::optional<AssetMetadata> const metadata =
+					AssetManager::IsInitialized() ? AssetManager::GetMetadata(request->Graph) : std::nullopt;
+				ST_WARN("'{}' was not added: drop it onto an entity", metadata ? metadata->GetDisplayName() : request->Graph.ToString());
+				return;
+			}
+			UUID const targets[] = {entity};
+			UI::ReportFailure(AssetDrops::AddVisualScript(operations, targets, request->Graph), "Adding the visual script");
+			return;
+		}
 		SelectionMode const mode = request->Mode;
 		if (!hit)
 		{
@@ -641,8 +658,19 @@ namespace Strada
 				break;
 			}
 			case AssetType::Material:
-				PickDropTarget(pixel, asset, {});
+			{
+				PendingPick request;
+				request.Material = asset;
+				PickDropTarget(pixel, std::move(request));
 				break;
+			}
+			case AssetType::VisualScript:
+			{
+				PendingPick request;
+				request.Graph = asset;
+				PickDropTarget(pixel, std::move(request));
+				break;
+			}
 			case AssetType::Environment:
 				UI::ReportFailure(AssetDrops::SetSkyEnvironment(operations, asset), "Setting the environment");
 				break;
@@ -657,12 +685,11 @@ namespace Strada
 			case AssetType::Texture:
 			case AssetType::AudioClip:
 			case AssetType::Font:
-			case AssetType::VisualScript:
 				break;
 		}
 	}
 
-	void ViewportPanel::PickDropTarget(glm::vec2 const& pixel, AssetHandle material, std::filesystem::path script)
+	void ViewportPanel::PickDropTarget(glm::vec2 const& pixel, PendingPick request)
 	{
 		// The entity under the cursor is known when the pick result arrives, a frame or two later. Picks run one at a time,
 		// and a click's pick can only be pending if the drop happened right after a click.
@@ -674,7 +701,7 @@ namespace Strada
 		if (pixel.x >= 0.0f && pixel.y >= 0.0f)
 		{
 			m_Renderer->RequestPick(static_cast<uint32_t>(pixel.x), static_cast<uint32_t>(pixel.y));
-			m_PendingPick = PendingPick{SelectionMode::Replace, material, std::move(script)};
+			m_PendingPick = std::move(request);
 		}
 	}
 

@@ -11,6 +11,7 @@
 #include "Strada/Script/ScriptEngine.h"
 
 #include <algorithm>
+#include <optional>
 
 namespace Strada
 {
@@ -118,6 +119,33 @@ namespace Strada
 				return Error{result.GetError()};
 			}
 			return className;
+		}
+
+		Result<std::string> AddVisualScript(EditorOperations& operations, std::span<UUID const> entities, AssetHandle graph)
+		{
+			if (entities.empty())
+			{
+				return Error{"there is no entity to add the visual script to"};
+			}
+			Scene& scene = operations.GetContext().GetScene();
+			for (UUID const entity : entities)
+			{
+				if (!scene.HasEntity(entity))
+				{
+					return MakeError("entity {} does not exist", entity);
+				}
+			}
+			if (Result<void> valid = RequireAssetType(graph, AssetType::VisualScript); !valid)
+			{
+				return Error{valid.GetError()};
+			}
+
+			if (Result<void> result = operations.SetVisualScriptGraph(entities, graph); !result)
+			{
+				return Error{result.GetError()};
+			}
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
+			return metadata ? metadata->GetDisplayName() : graph.ToString();
 		}
 	}
 }

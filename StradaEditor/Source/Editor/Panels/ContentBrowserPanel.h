@@ -36,10 +36,11 @@ namespace Strada
 	// environments show thumbnails, fonts "Aa" in their own glyphs, audio clips their waveforms (SetThumbnails); other files
 	// icons of their type; a slider sizes them), and a search field. Click selects (the inspector shows assets), double-click opens
 	// folders, scenes and scripts (in the desktop's editor for C#); assets drag into the scene view, the hierarchy and asset
-	// fields, scripts onto entities (hierarchy rows, the inspector), and assets, folders and scripts onto folders to move them.
-	// Files and folders dropped onto the editor from the OS are imported into the folder under the cursor, else the displayed
-	// one (ProjectImport). Context menus create folders, materials and scripts, import files, rename (F2), delete (with
-	// confirmation) and copy references or paths. File operations are not part of the undo history. Main thread only.
+	// fields, scripts and visual scripts onto entities (hierarchy rows, the inspector, the scene view), and assets, folders and
+	// scripts onto folders to move them. Files and folders dropped onto the editor from the OS are imported into the folder
+	// under the cursor, else the displayed one (ProjectImport). Context menus create folders, materials, visual scripts and
+	// scripts, import files, rename (F2), delete (with confirmation) and copy references or paths. File operations are not
+	// part of the undo history. Main thread only.
 	class ContentBrowserPanel
 	{
 	public:
@@ -182,7 +183,7 @@ namespace Strada
 		// The panel's own file operations changed folders: listings and the tree are made again.
 		void InvalidateListings();
 		void DrawToolbar(EditorOperations& operations);
-		// "Folder", "Material" and "C# Script..." items, prefixed with "New " in context menus.
+		// "Folder", "Material", "Visual Script" and "C# Script..." items, prefixed with "New " in context menus.
 		void DrawCreateMenuItems(EditorOperations& operations, bool prefixNew);
 		void DrawFolderTree(EditorOperations& operations);
 		void DrawFolderTreeNode(EditorOperations& operations, ContentRoot root, std::string const& folder);
@@ -213,6 +214,8 @@ namespace Strada
 		void Delete(EditorOperations& operations, Item const& item);
 		void CreateFolder(EditorOperations& operations);
 		void CreateMaterial(EditorOperations& operations);
+		// A visual script from the Events template, in the displayed folder.
+		void CreateVisualScript(EditorOperations& operations);
 		void ImportFiles(EditorOperations& operations);
 		void ImportDroppedFiles(EditorOperations& operations);
 		// Imports into the given folders and shows what came in: selected, in the root where it went when it all went to

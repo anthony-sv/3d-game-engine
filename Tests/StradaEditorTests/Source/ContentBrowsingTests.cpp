@@ -993,3 +993,91 @@ TEST_CASE("AssetDrops: a C# source dropped onto entities makes them run its clas
 	REQUIRE(noAssembly.IsError());
 	CHECK(noAssembly.GetError().find("not built yet") != std::string::npos);
 }
+
+TEST_CASE("AssetDrops: a visual script dropped onto entities makes them run it, as one undoable step")
+{
+	// No scripting runtime: visual scripts are assets the editor sets without it.
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	Result<AssetHandle> const spin = operations.CreateVisualScript("Scripts/Spin.sgraph");
+	Result<AssetHandle> const hover = operations.CreateVisualScript("Scripts/Hover.sgraph");
+	Result<AssetHandle> const rock = operations.CreateMaterial("Rock.smat");
+	REQUIRE(spin.IsOk());
+	REQUIRE(hover.IsOk());
+	REQUIRE(rock.IsOk());
+
+	Json const speed = Json::object({{"Speed", Json::object({{"Type", "Float"}, {"Value", 3.0}})}});
+	UUID const plain = CreateEntity(operations, "Plain");
+	UUID const hovering = CreateEntity(operations, "Hovering",
+	                                   Json::object({{"VisualScript", {{"Graph", hover.GetValue().ToString()}, {"Variables", speed}}}}));
+	size_t const steps = context.GetHistory().GetUndoCount();
+	Scene& scene = context.GetScene();
+	auto const getGraph = [&scene](UUID id)
+	{
+		Entity const entity = scene.GetEntityByUUID(id);
+		return entity.HasComponent<VisualScriptComponent>() ? entity.GetComponent<VisualScriptComponent>().Graph : AssetHandle();
+	};
+	auto const getVariables = [&scene](UUID id)
+	{
+		Entity const entity = scene.GetEntityByUUID(id);
+		return entity.GetComponent<VisualScriptComponent>().Variables;
+	};
+	ScriptFieldMap const speedValues = {{"Speed", ScriptFieldValue::FromFloat(3.0f)}};
+
+	// One step adds the component to one entity and replaces the graph of the other, whose variable values stay.
+	std::array<UUID, 2> const both = {plain, hovering};
+	Result<std::string> const added = AssetDrops::AddVisualScript(operations, both, spin.GetValue());
+	REQUIRE_MESSAGE(added.IsOk(), (added ? std::string() : added.GetError()));
+	CHECK(added.GetValue() == "Spin.sgraph");
+	CHECK(getGraph(plain) == spin.GetValue());
+	CHECK(getVariables(plain).empty());
+	CHECK(getGraph(hovering) == spin.GetValue());
+	CHECK(getVariables(hovering) == speedValues);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(context.GetHistory().GetUndoDescription() == "Set Visual Script Spin.sgraph");
+
+	// Entities that run the graph already are left alone: no step at all.
+	CHECK(AssetDrops::AddVisualScript(operations, both, spin.GetValue()).IsOk());
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+
+	// One undo restores both entities; redo makes the drop again.
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(getGraph(plain) == AssetHandle());
+	CHECK(getGraph(hovering) == hover.GetValue());
+	CHECK(getVariables(hovering) == speedValues);
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	REQUIRE(operations.Redo().IsOk());
+	CHECK(getGraph(plain) == spin.GetValue());
+	CHECK(getGraph(hovering) == spin.GetValue());
+	REQUIRE(operations.Undo().IsOk());
+
+	// Only the entities that need it change: the one running Hover already keeps it, as the step does not touch it.
+	std::array<UUID, 2> const again = {plain, hovering};
+	REQUIRE(operations.SetVisualScriptGraph(again, hover.GetValue()).IsOk());
+	CHECK(getGraph(plain) == hover.GetValue());
+	CHECK(getGraph(hovering) == hover.GetValue());
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	REQUIRE(operations.Undo().IsOk());
+	std::array<UUID, 1> const one = {plain};
+	CHECK(operations.SetVisualScriptGraph(one, AssetHandle()).IsError());
+
+	// Failures change nothing and say why: no entities, an entity that does not exist (all or nothing), an asset that is no
+	// visual script, a handle that is not registered.
+	Result<std::string> const nobody = AssetDrops::AddVisualScript(operations, std::span<UUID const>(), spin.GetValue());
+	REQUIRE(nobody.IsError());
+	CHECK(nobody.GetError() == "there is no entity to add the visual script to");
+	std::array<UUID, 2> const unknown = {plain, UUID(12345)};
+	Result<std::string> const missing = AssetDrops::AddVisualScript(operations, unknown, spin.GetValue());
+	REQUIRE(missing.IsError());
+	CHECK(missing.GetError() == "entity 12345 does not exist");
+	Result<std::string> const material = AssetDrops::AddVisualScript(operations, one, rock.GetValue());
+	REQUIRE(material.IsError());
+	CHECK(material.GetError() == "asset " + rock.GetValue().ToString() + " is not a VisualScript");
+	CHECK(AssetDrops::AddVisualScript(operations, one, AssetHandle(UUID(987654321))).IsError());
+	CHECK(getGraph(plain) == AssetHandle());
+	CHECK(getGraph(hovering) == hover.GetValue());
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+}

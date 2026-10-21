@@ -14,11 +14,14 @@
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/ScriptFieldSerialization.h"
+#include "Strada/Script/VisualScriptVariables.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -27,6 +30,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -51,6 +55,10 @@ namespace Strada
 		// The Transform header of UI elements, and what it says about them.
 		constexpr char const* PlacedByRectHeaderId = "###TransformPlacedByRect";
 		constexpr char const* PlacedByRectNote = "The UI Rect places this UI element on the screen: its Transform is not used.";
+		// The field of VisualScript components that holds the values they give their graph's public variables.
+		constexpr char const* VisualScriptVariablesKey = "Variables";
+		// Visual scripts dropped onto the panel run on the inspected entities.
+		constexpr AssetType VisualScriptType = AssetType::VisualScript;
 
 		void TextError(std::string const& message)
 		{
@@ -178,6 +186,132 @@ namespace Strada
 			}
 			return prefab.ToString();
 		}
+
+		// "AddScore(int Points) -> int Total": the function's inputs, then its outputs after an arrow.
+		std::string FormatSignature(VisualScriptFunction const& function)
+		{
+			auto const join = [](std::vector<VisualScriptParameter> const& parameters)
+			{
+				std::string text;
+				for (VisualScriptParameter const& parameter : parameters)
+				{
+					text += text.empty() ? "" : ", ";
+					text += parameter.Type + " " + parameter.Name;
+				}
+				return text;
+			};
+			std::string signature = function.Name + "(" + join(function.Inputs) + ")";
+			if (!function.Outputs.empty())
+			{
+				signature += " -> " + join(function.Outputs);
+			}
+			return signature;
+		}
+
+		// A raw value of a visual script as one line of JSON, shortened when long (values may hold texts of 64 KB).
+		std::string FormatRawValue(Json const& value)
+		{
+			constexpr size_t MaxBytes = 120;
+			// Invalid UTF-8 is replaced rather than thrown about.
+			std::string text = value.dump(-1, ' ', false, Json::error_handler_t::replace);
+			if (text.size() <= MaxBytes)
+			{
+				return text;
+			}
+			// Cut before a character, never inside one.
+			size_t cut = MaxBytes;
+			while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xC0u) == 0x80u)
+			{
+				cut--;
+			}
+			text.resize(cut);
+			return text + UI::GetEllipsis();
+		}
+
+		// What a visual script holds: its description, the number of nodes and links of all its graphs, the events it uses (the
+		// distinct node types starting with "Event."), its variables (type, value, public) and the signatures of its functions.
+		void DrawVisualScriptDetails(AssetHandle asset)
+		{
+			Ref<VisualScriptAsset> const script = LoadForInspection<VisualScriptAsset>(asset);
+			if (!script)
+			{
+				return;
+			}
+			VisualScriptDocument const& document = script->GetDocument();
+			if (!document.Description.empty())
+			{
+				ImGui::TextWrapped("%s", document.Description.c_str());
+				ImGui::Spacing();
+			}
+
+			size_t nodes = 0;
+			size_t links = 0;
+			std::set<std::string> events;
+			auto const count = [&](VisualScriptGraph const& graph)
+			{
+				nodes += graph.Nodes.size();
+				links += graph.Links.size();
+				for (VisualScriptNode const& node : graph.Nodes)
+				{
+					if (node.Type.starts_with("Event."))
+					{
+						events.insert(node.Type);
+					}
+				}
+			};
+			count(document.Graph);
+			for (VisualScriptFunction const& function : document.Functions)
+			{
+				count(function.Graph);
+			}
+			std::string eventList;
+			for (std::string const& event : events)
+			{
+				eventList += eventList.empty() ? "" : "\n";
+				eventList += event;
+			}
+			if (BeginDetails())
+			{
+				DetailRow("Nodes", fmt::format("{}", nodes));
+				DetailRow("Links", fmt::format("{}", links));
+				DetailRow("Events", events.empty() ? std::string("None") : eventList);
+				ImGui::EndTable();
+			}
+
+			if (!document.Variables.empty())
+			{
+				ImGui::SeparatorText("Variables");
+				ImGui::PushID("##variables");
+				if (BeginDetails())
+				{
+					for (VisualScriptVariable const& variable : document.Variables)
+					{
+						std::string description = variable.Type;
+						if (!variable.Value.is_null())
+						{
+							description += " = " + FormatRawValue(variable.Value);
+						}
+						if (variable.Public)
+						{
+							description += " (public)";
+						}
+						DetailRow(variable.Name.c_str(), description);
+					}
+					ImGui::EndTable();
+				}
+				ImGui::PopID();
+			}
+
+			if (!document.Functions.empty())
+			{
+				ImGui::SeparatorText("Functions");
+				for (VisualScriptFunction const& function : document.Functions)
+				{
+					std::string const line = function.Pure ? FormatSignature(function) + " (pure)" : FormatSignature(function);
+					ImGui::TextWrapped("%s", line.c_str());
+				}
+			}
+		}
 	}
 
 	InspectorPanel::InspectorPanel()
@@ -253,7 +387,7 @@ namespace Strada
 		ImGui::Spacing();
 		DrawAddComponent(operations, entities, menuRequest);
 
-		// C# scripts dragged from the content browser onto the inspector go to the inspected entities.
+		// C# scripts and visual scripts dragged from the content browser onto the inspector go to the inspected entities.
 		if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->Rect(), ImGui::GetID("##scriptDrop")))
 		{
 			if (std::optional<std::filesystem::path> const script = UI::AcceptScriptDrop())
@@ -262,6 +396,14 @@ namespace Strada
 					[&operations, entities, file = *script]
 					{
 						UI::ReportFailure(AssetDrops::AddScript(operations, entities, file), "Adding the script");
+					});
+			}
+			if (AssetHandle const graph = UI::AcceptAssetDrop(std::span<AssetType const>(&VisualScriptType, 1)); graph.IsValid())
+			{
+				m_Deferred.push_back(
+					[&operations, entities, graph]
+					{
+						UI::ReportFailure(AssetDrops::AddVisualScript(operations, entities, graph), "Adding the visual script");
 					});
 			}
 			ImGui::EndDragDropTarget();
@@ -407,7 +549,95 @@ namespace Strada
 			{
 				DrawMeshMaterials(operations, entities);
 			}
+			// The values the entities give the public variables of their graph, right below the graph.
+			if (component.Name == ComponentTraits<VisualScriptComponent>::Name)
+			{
+				DrawVisualScriptVariables(operations, entities);
+			}
 			ImGui::Spacing();
+		}
+		ImGui::PopID();
+	}
+
+	void InspectorPanel::DrawVisualScriptVariables(EditorOperations& operations, std::vector<UUID> const& entities)
+	{
+		// The stored values alone do not tell the variables: the section needs the graph, which every entity must share.
+		if (!AssetManager::IsInitialized())
+		{
+			return;
+		}
+		Scene& scene = operations.GetContext().GetScene();
+		AssetHandle graph;
+		for (UUID const id : entities)
+		{
+			Entity const entity = scene.GetEntityByUUID(id);
+			AssetHandle const entityGraph = entity.GetComponent<VisualScriptComponent>().Graph;
+			if (!entityGraph.IsValid() || (graph.IsValid() && entityGraph != graph))
+			{
+				return;
+			}
+			graph = entityGraph;
+		}
+		// An asset of another type is not loaded for nothing. Failed loads are remembered by the asset manager: a broken graph
+		// is not read again every frame.
+		Ref<VisualScriptAsset> const script =
+			AssetManager::GetAssetType(graph) == AssetType::VisualScript ? AssetManager::GetAsset<VisualScriptAsset>(graph) : nullptr;
+		if (!script)
+		{
+			return;
+		}
+		VisualScriptDocument const& document = script->GetDocument();
+		// The descriptors and the editor's change refer to the description's strings: it lives until the edit is made.
+		VisualScriptVariableDescription const description = DescribeVisualScriptVariables(document, m_VisualScriptEnumLookup);
+		if (description.Editable.Fields.empty() && description.ReadOnly.empty())
+		{
+			ImGui::TextDisabled("The visual script has no public variables.");
+			return;
+		}
+
+		ImGui::PushID("##variables");
+		ImGui::SeparatorText("Variables");
+		if (!description.Editable.Fields.empty())
+		{
+			// Each entity's values under the variables' current names (values set under a former name apply to the renamed
+			// variable): what is shown, and the map an edit writes back whole.
+			std::vector<Json> components;
+			std::vector<Json> editorValues;
+			components.reserve(entities.size());
+			editorValues.reserve(entities.size());
+			for (UUID const id : entities)
+			{
+				Entity const entity = scene.GetEntityByUUID(id);
+				VisualScriptComponent const& component = entity.GetComponent<VisualScriptComponent>();
+				Json stored = JsonTraits<ScriptFieldMap>::ToJson(NormalizeVisualScriptOverrides(document, component.Variables));
+				editorValues.push_back(ScriptFieldInspection::ToEditorValues(description.Editable, stored));
+				components.push_back(Json::object({{VisualScriptVariablesKey, std::move(stored)}}));
+			}
+			std::vector<FieldDescriptor> const fields = ScriptFieldInspection::DescribeFields(description.Editable);
+			std::vector<std::string> const mixed = ComponentInspection::FindMixedFields(editorValues);
+			std::optional<FieldChange> const change = m_FieldEditor.Draw(fields, editorValues.front(), mixed, &scene);
+			if (change && !change->Path.empty())
+			{
+				Result<std::vector<ComponentEdit>> edits =
+					ScriptFieldInspection::MakeEdits(description.Editable, entities, components, editorValues, *change,
+				                                     ComponentTraits<VisualScriptComponent>::Name, VisualScriptVariablesKey);
+				if (edits)
+				{
+					UI::ReportFailure(operations.SetComponentFields(edits.TakeValue(), m_EditSession.GetMergeKey()),
+					                  "Editing the visual script's variables");
+				}
+				else
+				{
+					UI::ReportFailure(edits, "Editing the visual script's variables");
+				}
+			}
+		}
+		// Variables whose values cannot be set here: their types need the scripting runtime, or are none a component can set.
+		for (VisualScriptReadOnlyVariable const& variable : description.ReadOnly)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+			ImGui::TextWrapped("%s (%s): %s", variable.Name.c_str(), variable.Type.c_str(), variable.Reason.c_str());
+			ImGui::PopStyleColor();
 		}
 		ImGui::PopID();
 	}
@@ -823,8 +1053,10 @@ namespace Strada
 			case AssetType::Scene:
 				ImGui::TextDisabled("Double-click the scene in the content browser to open it.");
 				break;
-			case AssetType::Prefab:
 			case AssetType::VisualScript:
+				DrawVisualScriptDetails(asset);
+				break;
+			case AssetType::Prefab:
 			case AssetType::None:
 				break;
 		}

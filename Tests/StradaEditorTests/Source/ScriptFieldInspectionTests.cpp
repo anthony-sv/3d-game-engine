@@ -190,3 +190,37 @@ TEST_CASE("ScriptFieldInspection: an edit reaches every selected entity's own va
 	change.Component.reset();
 	CHECK(ScriptFieldInspection::MakeEdits(info, entities, components, editorValues, change).IsError());
 }
+
+TEST_CASE("ScriptFieldInspection: edits of another component's map of script fields write that map under its key")
+{
+	// The values VisualScript components give the public variables of their graph, described as the fields of a class.
+	ScriptClassInfo const info = MakeClass();
+	std::array<UUID, 2> const entities = {UUID(1), UUID(2)};
+	std::array<Json, 2> const components = {
+		Json::object({{"Graph", "77"}, {"Variables", Json::object({{"Lives", Stored("Int32", 9)}, {"Removed", Stored("Int32", 1)}})}}),
+		Json::object({{"Graph", "77"}})};
+	std::array<Json, 2> const editorValues = {ScriptFieldInspection::ToEditorValues(info, components[0]["Variables"]),
+	                                          ScriptFieldInspection::ToEditorValues(info, Json::object())};
+
+	FieldChange change;
+	change.Path = {"Speed"};
+	change.Value = 6.0;
+	Result<std::vector<ComponentEdit>> edits =
+		ScriptFieldInspection::MakeEdits(info, entities, components, editorValues, change, "VisualScript", "Variables");
+	REQUIRE(edits.IsOk());
+	REQUIRE(edits.GetValue().size() == 2);
+	// Each edit names the component and writes its whole map under the key: the edited value with every stored one kept.
+	CHECK(edits.GetValue()[0].Component == "VisualScript");
+	CHECK(
+		edits.GetValue()[0].Patch ==
+		Json::object({{"Variables",
+	                   Json::object({{"Lives", Stored("Int32", 9)}, {"Removed", Stored("Int32", 1)}, {"Speed", Stored("Float", 6.0)}})}}));
+	CHECK(edits.GetValue()[1].Entity == UUID(2));
+	CHECK(edits.GetValue()[1].Patch == Json::object({{"Variables", Json::object({{"Speed", Stored("Float", 6.0)}})}}));
+
+	// Without a key or component name given, the edits are a Script component's: maps under other keys are not read.
+	Result<std::vector<ComponentEdit>> scripts = ScriptFieldInspection::MakeEdits(info, entities, components, editorValues, change);
+	REQUIRE(scripts.IsOk());
+	CHECK(scripts.GetValue()[0].Component == "Script");
+	CHECK(scripts.GetValue()[0].Patch == Json::object({{"Fields", Json::object({{"Speed", Stored("Float", 6.0)}})}}));
+}

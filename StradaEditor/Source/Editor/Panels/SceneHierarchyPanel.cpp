@@ -35,6 +35,8 @@ namespace Strada
 
 		// Meshes and prefabs dropped onto the hierarchy become entities.
 		constexpr std::array<AssetType, 2> EntityAssetTypes = {AssetType::Mesh, AssetType::Prefab};
+		// Visual scripts dropped onto a row run on its entity.
+		constexpr std::array<AssetType, 1> VisualScriptTypes = {AssetType::VisualScript};
 
 		void DrawDropIndicator(ImVec2 const& rowMin, ImVec2 const& rowMax, DropPosition position)
 		{
@@ -291,6 +293,22 @@ namespace Strada
 						if (added)
 						{
 							ST_INFO("{} runs the script {}", operations.GetContext().GetScene().GetEntityByUUID(id).GetName(),
+						            added.GetValue());
+						}
+					});
+			}
+			// A visual script dropped onto a row: the entity runs it.
+			if (AssetHandle const graph = UI::AcceptAssetDrop(VisualScriptTypes); graph.IsValid())
+			{
+				Defer(
+					[&operations, id, graph]
+					{
+						std::array<UUID, 1> const entities = {id};
+						Result<std::string> const added = AssetDrops::AddVisualScript(operations, entities, graph);
+						UI::ReportFailure(added, "Adding the visual script");
+						if (added)
+						{
+							ST_INFO("{} runs the visual script {}", operations.GetContext().GetScene().GetEntityByUUID(id).GetName(),
 						            added.GetValue());
 						}
 					});

@@ -375,13 +375,14 @@ namespace Strada::ScriptFieldInspection
 
 	Result<std::vector<ComponentEdit>> MakeEdits(ScriptClassInfo const& scriptClass, std::span<UUID const> entities,
 	                                             std::span<Json const> components, std::span<Json const> editorValues,
-	                                             FieldChange const& change)
+	                                             FieldChange const& change, std::string_view componentName, std::string_view fieldsKey)
 	{
 		if (change.Path.empty() || entities.size() != components.size() || entities.size() != editorValues.size())
 		{
 			return Error{"the edit does not match the selection"};
 		}
 		std::string const fieldName(change.Path.front());
+		std::string const key(fieldsKey);
 		std::vector<ComponentEdit> edits;
 		edits.reserve(entities.size());
 		for (size_t i = 0; i < entities.size(); i++)
@@ -392,14 +393,13 @@ namespace Strada::ScriptFieldInspection
 			{
 				return MakeError("{} has no field {}", scriptClass.Name, fieldName);
 			}
-			auto const stored = components[i].find("Fields");
+			auto const stored = components[i].find(key);
 			Result<Json> fields = SetEditorValue(scriptClass, stored != components[i].end() ? *stored : Json::object(), fieldName, *edited);
 			if (!fields)
 			{
 				return Error{fields.GetError()};
 			}
-			edits.push_back(
-				{entities[i], std::string(ComponentTraits<ScriptComponent>::Name), Json::object({{"Fields", fields.TakeValue()}})});
+			edits.push_back({entities[i], std::string(componentName), Json::object({{key, fields.TakeValue()}})});
 		}
 		return edits;
 	}

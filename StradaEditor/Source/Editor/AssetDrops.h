@@ -28,5 +28,10 @@ namespace Strada
 		// scripts are not built yet, which the error says) or an entity does not exist. Returns the class.
 		[[nodiscard]] Result<std::string> AddScript(EditorOperations& operations, std::span<UUID const> entities,
 		                                            std::filesystem::path const& file);
+		// Makes the entities run a visual script as one undo step (EditorOperations::SetVisualScriptGraph): entities without a
+		// VisualScript component get one, the graph of the others is replaced (the values they give its variables are kept).
+		// Needs no scripting runtime. Fails without changes when there are no entities, an entity does not exist or the asset
+		// is not a registered visual script. Returns the visual script's name.
+		[[nodiscard]] Result<std::string> AddVisualScript(EditorOperations& operations, std::span<UUID const> entities, AssetHandle graph);
 	}
 }

@@ -426,6 +426,37 @@ namespace Strada
 			}
 		}
 
+		// Visual scripts: three nodes, the one on the left linked to the two on the right.
+		void DrawVisualScriptGlyph(ImDrawList* drawList, Box const& box, ImU32 accent)
+		{
+			float const stroke = std::max(1.0f, GetStroke(box) * 0.8f);
+			float const rounding = std::max(1.5f, box.Width() * 0.05f);
+			ImU32 const link = Shade(accent, 1.3f);
+			// The left node's output and the inputs of the right nodes, at the middle of their facing edges.
+			ImVec2 const output = box.At(0.38f, 0.5f);
+			std::array<ImVec2, 2> const inputs = {box.At(0.62f, 0.2f), box.At(0.62f, 0.8f)};
+			for (ImVec2 const& input : inputs)
+			{
+				float const bend = (input.x - output.x) * 0.5f;
+				drawList->AddBezierCubic(output, ImVec2(output.x + bend, output.y), ImVec2(input.x - bend, input.y), input, link, stroke);
+			}
+			// Each node: a body, a header band of the accent color and an outline.
+			for (Box const& node : {Box{box.At(0.0f, 0.36f), box.At(0.38f, 0.64f)}, Box{box.At(0.62f, 0.06f), box.At(1.0f, 0.34f)},
+			                        Box{box.At(0.62f, 0.66f), box.At(1.0f, 0.94f)}})
+			{
+				drawList->AddRectFilled(node.Min, node.Max, Shade(accent, 0.38f), rounding);
+				drawList->AddRectFilled(node.Min, node.At(1.0f, 0.36f), accent, rounding, ImDrawFlags_RoundCornersTop);
+				drawList->AddRect(node.Min, node.Max, Shade(accent, 1.25f), rounding, std::max(1.0f, stroke * 0.6f));
+			}
+			// The pins the links join.
+			float const pin = stroke * 1.4f;
+			drawList->AddCircleFilled(output, pin, Shade(accent, 1.6f));
+			for (ImVec2 const& input : inputs)
+			{
+				drawList->AddCircleFilled(input, pin, Shade(accent, 1.6f));
+			}
+		}
+
 		// Files of no known type: a blank page with a question mark.
 		void DrawUnknownGlyph(ImDrawList* drawList, Box const& box)
 		{
@@ -923,6 +954,10 @@ namespace Strada
 		{
 			CreateMaterial(operations);
 		}
+		if (ImGui::MenuItem(prefixNew ? "New Visual Script" : "Visual Script", nullptr, false, m_Root == ContentRoot::Assets))
+		{
+			CreateVisualScript(operations);
+		}
 		if (m_NewScript && ImGui::MenuItem(prefixNew ? "New C# Script..." : "C# Script..."))
 		{
 			m_NewScript(m_Root == ContentRoot::Scripts ? m_ScriptFolder : std::string());
@@ -1363,9 +1398,11 @@ namespace Strada
 				case AssetType::Environment:
 					DrawEnvironmentGlyph(drawList, glyph, style.Accent);
 					break;
+				case AssetType::VisualScript:
+					DrawVisualScriptGlyph(drawList, glyph, style.Accent);
+					break;
 				case AssetType::AudioClip:
 				case AssetType::Font:
-				case AssetType::VisualScript:
 				case AssetType::None:
 					DrawUnknownGlyph(drawList, glyph);
 					break;
@@ -1906,6 +1943,22 @@ namespace Strada
 		std::string const name = AssetBrowsing::MakeUniqueName(m_Folder, "New Material", ".smat");
 		Result<AssetHandle> const created = operations.CreateMaterial(AssetBrowsing::JoinPath(m_Folder, name));
 		UI::ReportFailure(created, "Creating the material");
+		std::optional<AssetMetadata> const metadata = created ? AssetManager::GetMetadata(created.GetValue()) : std::nullopt;
+		if (!metadata)
+		{
+			return;
+		}
+		SetFilter({});
+		Item const item = MakeAssetItem(*metadata);
+		Select(operations, item);
+		BeginRename(item);
+	}
+
+	void ContentBrowserPanel::CreateVisualScript(EditorOperations& operations)
+	{
+		std::string const name = AssetBrowsing::MakeUniqueName(m_Folder, "New Visual Script", ".sgraph");
+		Result<AssetHandle> const created = operations.CreateVisualScript(AssetBrowsing::JoinPath(m_Folder, name));
+		UI::ReportFailure(created, "Creating the visual script");
 		std::optional<AssetMetadata> const metadata = created ? AssetManager::GetMetadata(created.GetValue()) : std::nullopt;
 		if (!metadata)
 		{

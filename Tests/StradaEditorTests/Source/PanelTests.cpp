@@ -38,6 +38,7 @@
 #include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/VisualScriptVariables.h"
 
 #include <doctest/doctest.h>
 #include <imgui.h>
@@ -439,6 +440,9 @@ TEST_CASE("Panels: the hierarchy, inspector and scene settings draw every compon
 		}
 	}
 	everything["Script"] = Json::object({{"ClassName", "Game.Player"}});
+	// A visual script that cannot be looked up: there is no asset manager.
+	everything["VisualScript"] = Json::object(
+		{{"Graph", "4242424242"}, {"Variables", Json::object({{"Speed", Json::object({{"Type", "Float"}, {"Value", 2.0}})}})}});
 	UUID const full = Create(operations, "Everything", everything);
 	EntityCreateInfo childInfo;
 	childInfo.Name = "Child";
@@ -783,6 +787,11 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	REQUIRE(FileSystem::WriteBinaryFile(assets / "Fonts" / "Title.ttf", font).IsOk());
 	REQUIRE(VisualScriptSerializer::SaveToFile(MakeVisualScriptTemplate(VisualScriptTemplate::Events), assets / "Graphs" / "Spin.sgraph")
 	            .IsOk());
+	// A visual script with every part the format has: a description, variables of every kind, functions, comments.
+	Result<std::string> const sample =
+		FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets" / "Scripts" / "FormatSample.sgraph");
+	REQUIRE(sample.IsOk());
+	REQUIRE(FileSystem::WriteTextFile(assets / "Graphs" / "Sample.sgraph", sample.GetValue()).IsOk());
 	for (char const* broken : {"Broken/Broken.gltf", "Broken/Broken.hdr", "Broken/Broken.sprefab", "Broken/Broken.sscene",
 	                           "Broken/Broken.ogg", "Broken/Broken.sgraph", "Broken/Notes.txt"})
 	{
@@ -805,6 +814,8 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	REQUIRE(graphFile.IsOk());
 	AssetHandle const graph = AssetManager::FindByPath("Graphs/Spin.sgraph");
 	REQUIRE(AssetManager::GetAssetType(graph) == AssetType::VisualScript);
+	AssetHandle const sampleGraph = AssetManager::FindByPath("Graphs/Sample.sgraph");
+	REQUIRE(AssetManager::GetAssetType(sampleGraph) == AssetType::VisualScript);
 	AssetHandle const brokenGraph = AssetManager::FindByPath("Broken/Broken.sgraph");
 	REQUIRE(brokenGraph.IsValid());
 	size_t const steps = context.GetHistory().GetUndoCount();
@@ -826,7 +837,7 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	CHECK(browser.GetScriptFolder().empty());
 
 	// Every kind of asset the inspector shows: material files, built-in and missing assets, textures, meshes, environments,
-	// scenes and visual scripts (one that loads and one that does not).
+	// scenes and visual scripts (two that load and one that does not).
 	std::vector<AssetHandle> const inspected = {material.GetValue(),
 	                                            texture,
 	                                            ghost,
@@ -835,6 +846,7 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	                                            GetBuiltInHandle(BuiltInAsset::DefaultSky),
 	                                            context.GetProject()->GetSettings().StartScene,
 	                                            graph,
+	                                            sampleGraph,
 	                                            brokenGraph,
 	                                            AssetHandle(UUID(987654321))};
 	for (AssetHandle const asset : inspected)
@@ -851,6 +863,7 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	CHECK(SceneSerializer::Serialize(context.GetScene()) == scene);
 	CHECK(FileSystem::ReadTextFile(assets / "Rock.smat").GetValue() == materialFile.GetValue());
 	CHECK(FileSystem::ReadTextFile(assets / "Graphs" / "Spin.sgraph").GetValue() == graphFile.GetValue());
+	CHECK(FileSystem::ReadTextFile(assets / "Graphs" / "Sample.sgraph").GetValue() == sample.GetValue());
 
 	// Closing the project returns the browser to the (next) asset directory.
 	browser.SetFolder("Textures");
@@ -2651,6 +2664,408 @@ TEST_CASE("Panels: the content browser's + menu makes C# scripts in the shown sc
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
 }
 
+TEST_CASE("Panels: the content browser's + menu makes visual scripts in the shown asset folder, named uniquely and selected")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	REQUIRE(fixture.Operations.CreateAssetFolder("Logic").IsOk());
+	std::function<void()> const draw = fixture.GetDraw();
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	// Opens the "+" menu and returns a point on its Visual Script item, which is then hovered.
+	auto const findItem = [&]
+	{
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		std::vector<ImVec2> const toolbar = FindToolbarItems(imgui, draw);
+		imgui.Click(toolbar[2], draw);
+		// A popup that appears is sized after its first frame.
+		imgui.Frame(draw);
+		imgui.Frame(draw);
+		ImGuiWindow* menu = GetOpenPopup();
+		std::optional<ImVec2> const item = FindHovered(imgui, draw, GetColumnPoints(menu), menu->GetID("Visual Script"));
+		REQUIRE(item.has_value());
+		return *item;
+	};
+
+	// Visual scripts belong to the assets: the item is disabled among the scripts (ImGui reports disabled items as hovered).
+	fixture.Browser.SetScriptFolder("");
+	findItem();
+	CHECK(GImGui->HoveredIdIsDisabled);
+	// A click outside the menu closes it.
+	imgui.Click(ImVec2(1150.0f, 900.0f), draw);
+	REQUIRE(GImGui->OpenPopupStack.empty());
+
+	// Among the assets it writes a visual script from the Events template into the shown folder and selects it, its name
+	// ready to be typed (Escape keeps it).
+	fixture.Browser.SetFolder("Logic");
+	ImVec2 const item = findItem();
+	CHECK_FALSE(GImGui->HoveredIdIsDisabled);
+	imgui.Click(item, draw);
+	AssetHandle const first = AssetManager::FindByPath("Logic/New Visual Script.sgraph");
+	REQUIRE(first.IsValid());
+	CHECK(fixture.Context.GetSelectedAsset() == first);
+	Ref<VisualScriptAsset> const script = AssetManager::GetAsset<VisualScriptAsset>(first);
+	REQUIRE(script != nullptr);
+	CHECK(script->GetDocument() == MakeVisualScriptTemplate(VisualScriptTemplate::Events));
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Frame(draw);
+	CHECK(AssetManager::GetMetadata(first)->Path == "Logic/New Visual Script.sgraph");
+
+	// The next one gets a name of its own, and typing renames it.
+	imgui.Click(findItem(), draw);
+	AssetHandle const second = AssetManager::FindByPath("Logic/New Visual Script 1.sgraph");
+	REQUIRE(second.IsValid());
+	CHECK(fixture.Context.GetSelectedAsset() == second);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Type("Patrol");
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Enter, draw);
+	imgui.Frame(draw);
+	CHECK(AssetManager::GetMetadata(second)->Path == "Logic/Patrol.sgraph");
+	// Making files is no step of the scene's history.
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	CHECK(fixture.BrowserOpen);
+}
+
+namespace
+{
+	// The value after a label in text ImGui logged: table cells are logged with '|' between them ("| Nodes | 13 |").
+	std::string FindLoggedValue(std::string const& text, std::string_view label)
+	{
+		size_t start = text.find(label);
+		if (start == std::string::npos)
+		{
+			return {};
+		}
+		start = text.find_first_not_of(" |", start + label.size());
+		if (start == std::string::npos)
+		{
+			return {};
+		}
+		size_t const end = text.find_first_of(" |\r\n", start);
+		return text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+	}
+
+	VisualScriptVariable MakeVariable(uint32_t id, std::string name, std::string type, Json value, bool isPublic)
+	{
+		VisualScriptVariable variable;
+		variable.ID = id;
+		variable.Name = std::move(name);
+		variable.Type = std::move(type);
+		variable.Value = std::move(value);
+		variable.Public = isPublic;
+		return variable;
+	}
+
+	VisualScriptNode MakeNode(uint32_t id, std::string type)
+	{
+		VisualScriptNode node;
+		node.ID = id;
+		node.Type = std::move(type);
+		return node;
+	}
+
+	VisualScriptLink MakeLink(uint32_t from, std::string output, uint32_t to, std::string input)
+	{
+		return VisualScriptLink{{from, std::move(output)}, {to, std::move(input)}};
+	}
+
+	Json StoredValue(char const* type, Json value)
+	{
+		return Json::object({{"Type", type}, {"Value", std::move(value)}});
+	}
+}
+
+TEST_CASE("Panels: the asset inspector shows a visual script's description, nodes, links, events, variables and functions")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+
+	VisualScriptDocument document;
+	document.Description = "Adds 5 points per frame while Space is held";
+	document.Variables.push_back(MakeVariable(1, "Speed", "float", 4.0, true));
+	document.Variables.push_back(MakeVariable(2, "Score", "int", 0, false));
+	document.Variables.push_back(MakeVariable(3, "Greeting", "string", Json(), false));
+	VisualScriptFunction addScore;
+	addScore.ID = 4;
+	addScore.Name = "AddScore";
+	addScore.Inputs = {{"Points", "int"}};
+	addScore.Outputs = {{"Total", "int"}};
+	addScore.Graph.Nodes = {MakeNode(30, "Function.Entry"), MakeNode(31, "Variable.Get"), MakeNode(32, "Operator.Add"),
+	                        MakeNode(33, "Variable.Set"), MakeNode(34, "Function.Return")};
+	addScore.Graph.Links = {MakeLink(30, "Then", 33, "Execute"), MakeLink(31, "Value", 32, "A"),      MakeLink(30, "Points", 32, "B"),
+	                        MakeLink(32, "Result", 33, "Value"), MakeLink(33, "Then", 34, "Execute"), MakeLink(33, "Value", 34, "Total")};
+	VisualScriptFunction split;
+	split.ID = 5;
+	split.Name = "Split";
+	split.Pure = true;
+	split.Inputs = {{"Value", "float"}, {"Parts", "int"}};
+	split.Outputs = {{"Part", "float"}, {"Rest", "float"}};
+	split.Graph.Nodes = {MakeNode(40, "Function.Entry"), MakeNode(41, "Function.Return")};
+	split.Graph.Links = {MakeLink(40, "Value", 41, "Part")};
+	document.Functions = {addScore, split};
+	// Two Update events count once among the events; sending an event is using one.
+	document.Graph.Nodes = {MakeNode(10, "Event.Update"), MakeNode(11, "Flow.Branch"),  MakeNode(12, "Function.Call"),
+	                        MakeNode(13, "Event.Send"),   MakeNode(14, "Event.Update"), MakeNode(15, "Log.Info")};
+	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(11, "True", 12, "Execute"), MakeLink(14, "Then", 15, "Execute")};
+	std::filesystem::path const file = context.GetProject()->GetAssetDirectory() / "Scoring.sgraph";
+	REQUIRE(VisualScriptSerializer::SaveToFile(document, file).IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const scoring = AssetManager::FindByPath("Scoring.sgraph");
+	REQUIRE(scoring.IsValid());
+	Result<std::string> const bytes = FileSystem::ReadTextFile(file);
+	REQUIRE(bytes.IsOk());
+
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	context.SelectAsset(scoring);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	std::string const text = CaptureText(imgui, draw);
+	CAPTURE(text);
+	CHECK(text.find("Adds 5 points per frame while Space is held") != std::string::npos);
+	// Counted over the event graph and the functions' graphs.
+	CHECK(FindLoggedValue(text, "Nodes") == "13");
+	CHECK(FindLoggedValue(text, "Links") == "10");
+	CHECK(FindLoggedValue(text, "Events") == "Event.Send");
+	CHECK(text.find("Event.Update") != std::string::npos);
+	CHECK(text.find("float = 4.0 (public)") != std::string::npos);
+	CHECK(text.find("int = 0") != std::string::npos);
+	CHECK(FindLoggedValue(text, "Greeting") == "string");
+	CHECK(text.find("AddScore(int Points) -> int Total") != std::string::npos);
+	CHECK(text.find("Split(float Value, int Parts) -> float Part, float Rest (pure)") != std::string::npos);
+
+	// Showing it changes nothing.
+	CHECK(FileSystem::ReadTextFile(file).GetValue() == bytes.GetValue());
+	CHECK_FALSE(context.GetHistory().CanUndo());
+	CHECK(open);
+}
+
+TEST_CASE("Panels: the inspector edits the values entities give the public variables of their visual script")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+
+	// Public variables: a float with a range that was renamed, an int, an enum (its values need the scripting runtime) and a
+	// matrix (no component can set one); and a private variable, which components do not set.
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Speed", "float", 4.0, true));
+	document.Variables.back().Range = glm::vec2(0.0f, 20.0f);
+	document.Variables.back().FormerNames = {"Velocity"};
+	document.Variables.push_back(MakeVariable(2, "Lives", "int", 3, true));
+	document.Variables.push_back(MakeVariable(3, "Mode", "Strada.ForceMode", "Impulse", true));
+	document.Variables.push_back(MakeVariable(4, "Pose", "Strada.Matrix4", Json(), true));
+	document.Variables.push_back(MakeVariable(5, "Score", "int", 0, false));
+	REQUIRE(VisualScriptSerializer::SaveToFile(document, context.GetProject()->GetAssetDirectory() / "Mover.sgraph").IsOk());
+	REQUIRE(operations.RefreshAssets().IsOk());
+	AssetHandle const mover = AssetManager::FindByPath("Mover.sgraph");
+	REQUIRE(mover.IsValid());
+	Result<AssetHandle> const other = operations.CreateVisualScript("Other.sgraph");
+	REQUIRE(other.IsOk());
+
+	// First set Speed under its former name, a variable the graph no longer has, and the enum.
+	Json const firstValues = Json::object({{"Velocity", StoredValue("Float", 7.0)},
+	                                       {"Lives", StoredValue("Int32", 5)},
+	                                       {"Gone", StoredValue("Bool", true)},
+	                                       {"Mode", StoredValue("Int32", 1)}});
+	UUID const first =
+		Create(operations, "First", Json::object({{"VisualScript", {{"Graph", mover.ToString()}, {"Variables", firstValues}}}}));
+	UUID const second = Create(operations, "Second", Json::object({{"VisualScript", {{"Graph", mover.ToString()}}}}));
+	UUID const third = Create(operations, "Third", Json::object({{"VisualScript", {{"Graph", other.GetValue().ToString()}}}}));
+	UUID const lost = Create(operations, "Lost", Json::object({{"VisualScript", {{"Graph", "987654321"}}}}));
+	size_t const steps = context.GetHistory().GetUndoCount();
+	Json const scene = SceneSerializer::Serialize(context.GetScene());
+	auto const getVariables = [&context](UUID id)
+	{
+		Entity const entity = context.GetScene().GetEntityByUUID(id);
+		return entity.GetComponent<VisualScriptComponent>().Variables;
+	};
+	ScriptFieldMap const firstStored = getVariables(first);
+
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(500.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	auto const select = [&](std::vector<UUID> const& entities)
+	{
+		REQUIRE(operations.Select(entities).IsOk());
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(draw);
+		}
+	};
+
+	// Drawing changes nothing: one entity, two running the graph, entities running different graphs, a graph that is not
+	// registered. Only one graph that loads shows its variables: the enum and the matrix as text with why they are read-only.
+	for (std::vector<UUID> const& selection : std::vector<std::vector<UUID>>{{first}, {first, second}, {first, third}, {lost}, {third}})
+	{
+		select(selection);
+		std::string const text = CaptureText(imgui, draw);
+		CAPTURE(text);
+		bool const shown = selection.size() == 1 ? selection.front() == first : selection.back() == second;
+		CHECK((text.find("Mode (Strada.ForceMode): needs the scripting runtime") != std::string::npos) == shown);
+		CHECK((text.find("Pose (Strada.Matrix4): not exposable") != std::string::npos) == shown);
+		CHECK(text.find("Score") == std::string::npos);
+		// The Events template has no public variables.
+		CHECK((text.find("The visual script has no public variables.") != std::string::npos) == (selection.front() == third));
+	}
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(SceneSerializer::Serialize(context.GetScene()) == scene);
+
+	// The value widget of a variable: inside the component, the section and its field table.
+	ImGuiWindow const* window = ImGui::FindWindowByName("Inspector");
+	REQUIRE(window != nullptr);
+	ImGuiID const table = ImHashStr("##fields", 0, ImHashStr("##variables", 0, ImHashStr("VisualScript", 0, window->ID)));
+	auto const findValue = [&](char const* variable)
+	{
+		float const x = window->Pos.x + window->Size.x * 0.8f;
+		std::optional<ImVec2> const position =
+			FindItem(imgui, ImHashStr("##value", 0, ImHashStr(variable, 0, table)), ImVec2(x, window->Pos.y + 2.0f),
+		             ImVec2(x, window->Pos.y + window->Size.y - 2.0f), draw);
+		REQUIRE(position);
+		return *position;
+	};
+
+	// Dragging Speed (shown with the value stored under its former name) is one undo step that writes the entity's whole
+	// map under the variables' current names.
+	select({first});
+	ImVec2 const speed = findValue("Speed");
+	imgui.Drag(speed, ImVec2(speed.x + 60.0f, speed.y), draw);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	ScriptFieldMap const edited = getVariables(first);
+	CHECK(edited.size() == 4);
+	CHECK_FALSE(edited.contains("Velocity"));
+	REQUIRE(edited.contains("Speed"));
+	REQUIRE(edited.at("Speed").GetType() == ScriptFieldType::Float);
+	float const dragged = edited.at("Speed").GetFloat();
+	CHECK(dragged != 7.0f);
+	CHECK(dragged >= 0.0f);
+	CHECK(dragged <= 20.0f);
+	CHECK(edited.at("Lives") == ScriptFieldValue::FromInt32(5));
+	CHECK(edited.at("Gone") == ScriptFieldValue::FromBool(true));
+	CHECK(edited.at("Mode") == ScriptFieldValue::FromInt32(1));
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(getVariables(first) == firstStored);
+
+	// With both entities selected, an edit sets the dragged value on each, as one step; each keeps its other values.
+	select({first, second});
+	ImVec2 const both = findValue("Speed");
+	imgui.Drag(both, ImVec2(both.x + 60.0f, both.y), draw);
+	CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+	ScriptFieldMap const firstEdited = getVariables(first);
+	ScriptFieldMap const secondEdited = getVariables(second);
+	REQUIRE(firstEdited.contains("Speed"));
+	CHECK(firstEdited.at("Lives") == ScriptFieldValue::FromInt32(5));
+	CHECK(secondEdited == ScriptFieldMap{{"Speed", firstEdited.at("Speed")}});
+	REQUIRE(operations.Undo().IsOk());
+
+	// With the scripting runtime's enums the enum gets a combo of its enumerators showing the stored value; the matrix stays
+	// read-only.
+	inspector.SetVisualScriptEnumLookup(
+		[](std::string_view type) -> std::optional<VisualScriptEnumInfo>
+		{
+			if (type != "Strada.ForceMode")
+			{
+				return std::nullopt;
+			}
+			return VisualScriptEnumInfo{
+				ScriptFieldType::Int32, {{"Force", ScriptFieldValue::FromInt32(0)}, {"Impulse", ScriptFieldValue::FromInt32(1)}}, false};
+		});
+	select({first});
+	std::string const withEnums = CaptureText(imgui, draw);
+	CAPTURE(withEnums);
+	CHECK(withEnums.find("needs the scripting runtime") == std::string::npos);
+	CHECK(withEnums.find("Impulse") != std::string::npos);
+	CHECK(withEnums.find("Pose (Strada.Matrix4): not exposable") != std::string::npos);
+	CHECK(getVariables(first) == firstStored);
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+	CHECK(open);
+}
+
+TEST_CASE("Panels: visual scripts dragged from the content browser onto a hierarchy row or the inspector run on the entities")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	Result<AssetHandle> const spin = fixture.Operations.CreateVisualScript("Logic/Spin.sgraph");
+	REQUIRE(spin.IsOk());
+	UUID const hero = Create(fixture.Operations, "Hero", Json::object());
+	UUID const other = Create(fixture.Operations, "Other", Json::object());
+	fixture.Browser.SetFolder("Logic");
+	std::function<void()> const draw = fixture.GetDraw();
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImVec2 const graphTile = fixture.GetTile(0);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	Scene& scene = fixture.Context.GetScene();
+	auto const getGraph = [&scene](UUID id)
+	{
+		Entity const entity = scene.GetEntityByUUID(id);
+		return entity.HasComponent<VisualScriptComponent>() ? entity.GetComponent<VisualScriptComponent>().Graph : AssetHandle();
+	};
+
+	// Onto the row of Hero (the first row of the hierarchy): Hero runs it, as one undo step, and the console says so.
+	ImGuiWindow const* hierarchy = ImGui::FindWindowByName("Scene Hierarchy");
+	REQUIRE(hierarchy != nullptr);
+	ImGuiWindow const* rows = nullptr;
+	for (ImGuiWindow const* window : GImGui->Windows)
+	{
+		if (window->ParentWindow == hierarchy && std::strstr(window->Name, "##entities") != nullptr)
+		{
+			rows = window;
+		}
+	}
+	REQUIRE(rows != nullptr);
+	ImVec2 const heroRow(rows->DC.CursorStartPos.x + 60.0f, rows->DC.CursorStartPos.y + ImGui::GetTextLineHeight() * 0.5f);
+	uint64_t const firstLog = Log::GetNextEntryIndex();
+	imgui.Drag(graphTile, heroRow, draw);
+	CHECK(getGraph(hero) == spin.GetValue());
+	CHECK(getGraph(other) == AssetHandle());
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(Testing::WasLogged(firstLog, "Hero runs the visual script Spin.sgraph"));
+
+	// Onto the inspector: the inspected entities. Hero runs it already, so the step only gives it to Other; dropped again,
+	// nothing changes. (Frames pass first: a second press on the tile right after the first would be a double click.)
+	std::vector<UUID> const selection = {hero, other};
+	REQUIRE(fixture.Operations.Select(selection).IsOk());
+	ImGuiWindow const* inspector = ImGui::FindWindowByName("Inspector");
+	REQUIRE(inspector != nullptr);
+	ImVec2 const inspectorSpace(inspector->Pos.x + inspector->Size.x * 0.5f, inspector->Pos.y + inspector->Size.y - 40.0f);
+	for (int drop = 0; drop < 2; drop++)
+	{
+		for (int frame = 0; frame < 40; frame++)
+		{
+			imgui.Frame(draw);
+		}
+		imgui.Drag(graphTile, inspectorSpace, draw);
+		CHECK(fixture.Context.GetSelection().Contains(other));
+		CHECK(getGraph(hero) == spin.GetValue());
+		CHECK(getGraph(other) == spin.GetValue());
+		CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 2);
+	}
+	CHECK(fixture.InspectorOpen);
+}
+
 TEST_CASE("Panels: the content browser searches the shown root for what is typed into its search field")
 {
 	ContentBrowserFixture fixture;
@@ -2944,6 +3359,84 @@ TEST_CASE("Panels: C# scripts dropped onto the scene view run on the entity unde
 		REQUIRE(context.GetScene().GetEntityByUUID(cube).HasComponent<ScriptComponent>());
 		CHECK(context.GetScene().GetEntityByUUID(cube).GetComponent<ScriptComponent>().ClassName == "Strada.Tests.Mover");
 		CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+		CHECK(open);
+		GraphicsDevice::WaitForIdle();
+	}
+	Renderer::Shutdown();
+}
+
+TEST_CASE("Panels: visual scripts dropped onto the scene view run on the entity under the cursor")
+{
+	ST_REQUIRE_GPU();
+	Testing::AssetManagerScope assets;
+	REQUIRE(Renderer::Init().IsOk());
+	{
+		HeadlessImGui imgui;
+		EditorContext context;
+		EditorOperations operations(context);
+		// A visual script in memory (no scripting runtime and no project are needed), and a cube where the scene view looks.
+		AssetHandle const spin =
+			AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeVisualScriptTemplate(VisualScriptTemplate::Events)), "Spin");
+		UUID const cube = Create(operations, "Cube",
+		                         Json::object({{"Transform", Json::object({{"Translation", {0.0, 0.5, 0.0}}})},
+		                                       {"Mesh", Json::object({{"Mesh", GetBuiltInHandle(BuiltInAsset::CubeMesh).ToString()}})}}));
+		size_t const steps = context.GetHistory().GetUndoCount();
+		auto const getGraph = [&context, cube]
+		{
+			Entity const entity = context.GetScene().GetEntityByUUID(cube);
+			return entity.HasComponent<VisualScriptComponent>() ? entity.GetComponent<VisualScriptComponent>().Graph : AssetHandle();
+		};
+
+		ViewportPanel viewport;
+		bool open = true;
+		auto const draw = [&]
+		{
+			// The panel first begins ImGuizmo's frame, which takes SetNextWindowPos/Size for a window of its own: the scene view
+			// is placed by name once it exists.
+			ImGui::SetWindowPos("Scene View", ImVec2(0.0f, 0.0f));
+			ImGui::SetWindowSize("Scene View", ImVec2(800.0f, 600.0f));
+			viewport.OnImGuiRender(operations, open);
+			// The visual script to drag, as the content browser's tiles are.
+			ImGui::SetNextWindowPos(ImVec2(900.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(300.0f, 200.0f));
+			ImGui::Begin("Assets");
+			ImGui::Button("Spin", ImVec2(200.0f, 60.0f));
+			UI::AssetDragSource(spin, "Spin");
+			ImGui::End();
+			// The GPU finishes every frame, so a pick requested in one arrives in the next, and the frame's resources are
+			// recycled as the editor's frame loop does.
+			GraphicsDevice::WaitForIdle();
+			GraphicsDevice::EndFrame();
+		};
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(draw);
+		}
+		ImGuiWindow const* view = ImGui::FindWindowByName("Scene View");
+		REQUIRE(view != nullptr);
+		ImVec2 const source(1000.0f, 60.0f);
+		auto const dropAt = [&](ImVec2 target)
+		{
+			imgui.Drag(source, target, draw);
+			for (int frame = 0; frame < 4; frame++)
+			{
+				imgui.Frame(draw);
+			}
+		};
+
+		// Onto empty space: nothing changes, and the console says why.
+		uint64_t const firstLog = Log::GetNextEntryIndex();
+		REQUIRE(view->Size.x == 800.0f);
+		dropAt(ImVec2(view->Pos.x + 40.0f, view->Pos.y + view->Size.y - 40.0f));
+		CHECK(Testing::WasLogged(firstLog, "'Spin' was not added: drop it onto an entity"));
+		CHECK(getGraph() == AssetHandle());
+		CHECK(context.GetHistory().GetUndoCount() == steps);
+
+		// Onto the cube: it runs the visual script, as one undo step.
+		dropAt(ImVec2(view->Pos.x + view->Size.x * 0.5f, view->Pos.y + view->Size.y * 0.5f));
+		CHECK(getGraph() == spin);
+		CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+		CHECK(context.GetHistory().GetUndoDescription() == "Set Visual Script Spin");
 		CHECK(open);
 		GraphicsDevice::WaitForIdle();
 	}

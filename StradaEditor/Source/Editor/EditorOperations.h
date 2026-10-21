@@ -5,6 +5,7 @@
 #include "Editor/EditorContext.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Scene/ComponentSerialization.h"
@@ -103,6 +104,11 @@ namespace Strada
 		// run the class already are left alone (no step at all when every entity does). Fails without changes when an entity
 		// does not exist or the class name is empty.
 		[[nodiscard]] Result<void> SetScriptClass(std::span<UUID const> entities, std::string_view className);
+		// Makes the entities run a visual script as one undo step, all or nothing: entities without a VisualScript component get
+		// one, the others change graph (keeping the values they give its variables), and those that run the graph already are
+		// left alone (no step at all when every entity does). Fails without changes when an entity does not exist or the
+		// graph is invalid; the asset is not checked (AssetDrops::AddVisualScript does).
+		[[nodiscard]] Result<void> SetVisualScriptGraph(std::span<UUID const> entities, AssetHandle graph);
 
 		// Replaces every field of a component with the given value (convenient for inspector widgets editing a copy).
 		template<RegisteredComponent T>
@@ -118,6 +124,9 @@ namespace Strada
 		[[nodiscard]] Result<void> CreateAssetFolder(std::string_view folder);
 		// Writes a material file (.smat) with default parameters plus the given fields and registers it.
 		[[nodiscard]] Result<AssetHandle> CreateMaterial(std::string_view path, Json const& fields = Json::object());
+		// Writes a visual script file (.sgraph) starting from a template and registers it.
+		[[nodiscard]] Result<AssetHandle> CreateVisualScript(std::string_view path,
+		                                                     VisualScriptTemplate kind = VisualScriptTemplate::Events);
 		// Writes an entity with its descendants as a prefab file (.sprefab) and registers it; the scene does not change.
 		[[nodiscard]] Result<AssetHandle> CreatePrefab(UUID entity, std::string_view path);
 		// CreatePrefab into a folder, named after the entity (numbered when the name is taken).
