@@ -209,7 +209,8 @@ internal sealed class CompiledNode
 	// An unconnected Target input that means Self.
 	internal bool TargetIsSelf { get; set; }
 
-	// Literal: its value.
+	// Literal: its value. ForEach: the type default Element reads outside an active iteration. Convert from text: the type
+	// default, the result of text it cannot read. Made once, so evaluating the node never boxes a default.
 	internal Slot Constant { get; set; }
 
 	// Sequence: the number of outputs. Switch: the number of cases (Default is the exit after them). Variable nodes: the

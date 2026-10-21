@@ -516,6 +516,10 @@ internal static class ProgramCompiler
 					LiteralBinding literal = (LiteralBinding)source.Binding!;
 					node.Constant = SlotValues.FromValue(literal.Value, literal.Type);
 					break;
+				case Opcode.ForEach:
+					VisualType element = source.FindPin("Element", PinDirection.Out)!.Type;
+					node.Constant = element.HasValues ? SlotValues.DefaultOf(element) : default;
+					break;
 				case Opcode.Latent when source.Binding is TweenBinding tween:
 					node.Easing = tween.Easing;
 					break;
@@ -610,6 +614,11 @@ internal static class ProgramCompiler
 			{
 				// Enum bits hold the underlying value sign-extended: read them as a long or a ulong.
 				node.Kind = SlotValues.IsSigned(Enum.GetUnderlyingType(binding.From.ClrType!)) ? SlotKind.Long : SlotKind.ULong;
+			}
+			else if (binding.Plan is ConvertPlan.ParseBool or ConvertPlan.ParseNumber or ConvertPlan.ParseEnum)
+			{
+				// Text that cannot be read gives the type default.
+				node.Constant = SlotValues.DefaultOf(binding.To);
 			}
 		}
 

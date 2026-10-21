@@ -101,6 +101,28 @@ public sealed class EventTests
 		Assert.Equal(VisualScriptStatus.NotFound, runtime.Invoke(ScriptEvent.Create));
 	}
 
+	// The other entity of a contact or click is looked up only for a graph with a node for the event: a physics scene
+	// reports contacts every step, and graphs without handlers must not pay for them.
+	[Theory]
+	[InlineData((int)ScriptEvent.CollisionEnter)]
+	[InlineData((int)ScriptEvent.CollisionExit)]
+	[InlineData((int)ScriptEvent.TriggerEnter)]
+	[InlineData((int)ScriptEvent.TriggerExit)]
+	[InlineData((int)ScriptEvent.Click)]
+	public void AContactWithoutAnEventNodeLooksNothingUp(int scriptEvent)
+	{
+		DocumentBuilder document = new();
+		document.Graph.Writes(document.Graph.Node("Event.Update"), "Then", "updated");
+		TestRuntime runtime = TestRuntime.Start(document);
+
+		for (int contact = 0; contact < 10; contact++)
+		{
+			Assert.Equal(VisualScriptStatus.Success, runtime.Invoke((ScriptEvent)scriptEvent, other: 9));
+		}
+		Assert.Equal(0, runtime.Environment.EntityLookups);
+		Assert.Empty(runtime.Records);
+	}
+
 	[Fact]
 	public void DestroyRemovesTheInstanceBeforeItsEventRuns()
 	{

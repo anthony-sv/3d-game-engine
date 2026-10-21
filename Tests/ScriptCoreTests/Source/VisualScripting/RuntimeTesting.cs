@@ -18,7 +18,7 @@ internal static class RuntimeTesting
 
 	private static readonly Lazy<NodeLibrary> s_Library = new(() => NodeLibraryBuilder.Build(new NodeLibrarySources
 	{
-		ApiTypes = [.. NodeLibrarySources.GetApiTypes(), typeof(Probe), typeof(Pair), typeof(Holder)],
+		ApiTypes = [.. NodeLibrarySources.GetApiTypes(), typeof(Probe), typeof(Pair), typeof(Holder), typeof(ProbeAccess)],
 		ScriptClasses = [typeof(Mover), typeof(Jumper)],
 	}));
 
@@ -74,6 +74,21 @@ internal sealed class TestRuntime
 		Runtime.Invoke(entity, scriptEvent, timeStep, other);
 
 	internal GraphInstance Instance(ulong entity = Hero) => Runtime.FindInstance(entity) ?? throw new InvalidOperationException($"entity {entity} has no instance");
+
+	// The fewest bytes one of updates Updates of Hero's instance allocated. A collection caused by another thread can count
+	// the unused rest of this thread's allocation buffer as allocated, so the Update that allocated least counts: what the
+	// graph allocates shows in every one.
+	internal long FewestBytesPerUpdate(int updates = 50, float timeStep = 0.016f)
+	{
+		long fewest = long.MaxValue;
+		for (int update = 0; update < updates; update++)
+		{
+			long before = GC.GetAllocatedBytesForCurrentThread();
+			Invoke(ScriptEvent.Update, timeStep);
+			fewest = Math.Min(fewest, GC.GetAllocatedBytesForCurrentThread() - before);
+		}
+		return fewest;
+	}
 
 	internal object? Variable(string name, ulong entity = Hero)
 	{

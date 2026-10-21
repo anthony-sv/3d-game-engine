@@ -359,8 +359,8 @@ internal static unsafe class Host
 
 	private static ReadOnlySpan<byte> Bytes(byte* data, int length) => data != null && length > 0 ? new ReadOnlySpan<byte>(data, length) : [];
 
-	// The reply's text goes to receive exactly when its status is Success.
-	private static int Deliver(HostReply reply, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	// The reply's text goes to receive exactly when its status is Success, once (ScriptCoreTests call it directly).
+	internal static int Deliver(HostReply reply, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
 	{
 		if (reply.Status == VisualScriptStatus.Success)
 		{

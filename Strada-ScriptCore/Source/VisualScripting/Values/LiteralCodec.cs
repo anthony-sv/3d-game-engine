@@ -235,6 +235,8 @@ internal static class LiteralCodec
 
 	private static string Format(long value) => value.ToString(CultureInfo.InvariantCulture);
 
+	// An enumerator name; a [Flags] enum's value is an array of names instead ([] is 0). Integers (decimal strings for long and
+	// ulong enums), the form of values without an enumerator, are read for any value.
 	private static DecodedLiteral DecodeEnum(VisualType type, JsonElement json)
 	{
 		Type enumType = type.ClrType!;
@@ -242,16 +244,18 @@ internal static class LiteralCodec
 		bool wide = underlying is TypeCode.Int64 or TypeCode.UInt64;
 		if (JsonText.TryGetString(json, out string? text))
 		{
-			foreach (EnumeratorInfo enumerator in type.Enumerators)
+			if (!type.IsFlags && FindEnumerator(type, text) is { } enumerator)
 			{
-				if (enumerator.Name == text)
-				{
-					return DecodedLiteral.Of(enumerator.Value);
-				}
+				return DecodedLiteral.Of(enumerator.Value);
 			}
 			if (wide && TryParseWide(text, underlying, out object? wideValue))
 			{
 				return DecodedLiteral.Of(Enum.ToObject(enumType, wideValue));
+			}
+			if (type.IsFlags)
+			{
+				string example = FindEnumerator(type, text) != null ? $", such as [{JsonText.Quote(text)}]" : string.Empty;
+				return DecodedLiteral.Invalid($"{type.Id} is a [Flags] enum: its values are arrays of enumerator names{example}");
 			}
 			return DecodedLiteral.Invalid($"{JsonText.Quote(text)} is not an enumerator of {type.Id}");
 		}
@@ -269,18 +273,7 @@ internal static class LiteralCodec
 			ulong bits = 0;
 			foreach (JsonElement element in json.EnumerateArray())
 			{
-				EnumeratorInfo? match = null;
-				if (JsonText.TryGetString(element, out string? name))
-				{
-					foreach (EnumeratorInfo enumerator in type.Enumerators)
-					{
-						if (enumerator.Name == name)
-						{
-							match = enumerator;
-							break;
-						}
-					}
-				}
+				EnumeratorInfo? match = JsonText.TryGetString(element, out string? name) ? FindEnumerator(type, name) : null;
 				if (match == null)
 				{
 					return DecodedLiteral.Invalid($"{JsonText.Excerpt(element)} is not an enumerator of {type.Id}");
@@ -395,25 +388,26 @@ internal static class LiteralCodec
 		return new Quaternion((float)(value.X / length), (float)(value.Y / length), (float)(value.Z / length), (float)(value.W / length));
 	}
 
+	// The forms DecodeEnum reads: the enumerator name, an array of names for a [Flags] enum, else the integer.
 	private static void WriteEnum(Utf8JsonWriter writer, VisualType type, Enum value)
 	{
 		ulong bits = ToBits(value);
-		foreach (EnumeratorInfo enumerator in type.Enumerators)
+		if (type.IsFlags)
 		{
-			if (ToBits(enumerator.Value) == bits)
+			if (TryNameFlags(type, bits, out List<string> names))
 			{
-				writer.WriteStringValue(enumerator.Name);
+				writer.WriteStartArray();
+				foreach (string name in names)
+				{
+					writer.WriteStringValue(name);
+				}
+				writer.WriteEndArray();
 				return;
 			}
 		}
-		if (type.IsFlags && TryDecompose(type, bits, out List<string> names))
+		else if (FindEnumerator(type, bits) is { } enumerator)
 		{
-			writer.WriteStartArray();
-			foreach (string name in names)
-			{
-				writer.WriteStringValue(name);
-			}
-			writer.WriteEndArray();
+			writer.WriteStringValue(enumerator.Name);
 			return;
 		}
 		TypeCode underlying = Type.GetTypeCode(Enum.GetUnderlyingType(type.ClrType!));
@@ -432,6 +426,42 @@ internal static class LiteralCodec
 				writer.WriteNumberValue(Convert.ToInt64(value, CultureInfo.InvariantCulture));
 				break;
 		}
+	}
+
+	// The names of a [Flags] value: none for 0, the enumerator of exactly its bits when there is one, else the enumerators
+	// whose bits make it up, when they do exactly.
+	private static bool TryNameFlags(VisualType type, ulong bits, out List<string> names)
+	{
+		if (bits != 0 && FindEnumerator(type, bits) is { } enumerator)
+		{
+			names = [enumerator.Name];
+			return true;
+		}
+		return TryDecompose(type, bits, out names);
+	}
+
+	private static EnumeratorInfo? FindEnumerator(VisualType type, string name)
+	{
+		foreach (EnumeratorInfo enumerator in type.Enumerators)
+		{
+			if (enumerator.Name == name)
+			{
+				return enumerator;
+			}
+		}
+		return null;
+	}
+
+	private static EnumeratorInfo? FindEnumerator(VisualType type, ulong bits)
+	{
+		foreach (EnumeratorInfo enumerator in type.Enumerators)
+		{
+			if (ToBits(enumerator.Value) == bits)
+			{
+				return enumerator;
+			}
+		}
+		return null;
 	}
 
 	// The names of the enumerators whose bits make up the value, when they do exactly.

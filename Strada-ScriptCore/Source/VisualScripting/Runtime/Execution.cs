@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Strada.VisualScripting;
 
@@ -90,9 +91,23 @@ internal sealed class Execution
 
 	private const int InitialCapacity = 8;
 
+	internal Execution()
+	{
+		FiberNode = new LinkedListNode<Execution>(this);
+	}
+
 	// The execution's number, new each time a pooled execution starts: a reference kept across dispatches still means the
 	// same execution only while it matches.
 	internal ulong Serial { get; set; }
+
+	// The execution's place in its instance's fibers (GraphInstance) while it is one; made once and reused with the execution,
+	// so becoming a fiber, resuming and being discarded cost constant time and allocate nothing.
+	internal LinkedListNode<Execution> FiberNode { get; }
+
+	// Whether the execution runs on the host stack now (VisualScriptRuntime.Execute). A fiber keeps its place among its
+	// instance's fibers while its WaitUntil condition is checked, and a RetriggerableDelay's latest trigger takes its place
+	// as it suspends: whatever runs meanwhile never releases or advances a running execution.
+	internal bool IsRunning { get; set; }
 
 	// The debugger tracing the execution; null when it is not traced (spec section 5.5).
 	internal IVisualScriptDebugger? Debugger { get; set; }
@@ -121,10 +136,8 @@ internal sealed class Execution
 	// A suspended execution: the latent node it waits in (its frame is the top of the call stack).
 	internal int SuspendedAt { get; set; } = -1;
 
-	// A fiber's place in the order its instance's latent nodes became pending, and the number of the instance's Update
-	// dispatches when it suspended: only later ones advance or resume it (spec section 5.2).
-	internal ulong PendingOrder { get; set; }
-
+	// The number of the instance's Update dispatches when the fiber's latent node became pending: only later ones advance
+	// or resume it (spec section 5.2).
 	internal ulong Since { get; set; }
 
 	// What a fiber's latent node waits for (spec section 5.3, Timing). Delay and RetriggerableDelay: the time summed and
@@ -235,7 +248,6 @@ internal sealed class Execution
 		Entry = 0;
 		Current = null;
 		SuspendedAt = -1;
-		PendingOrder = 0;
 		Since = 0;
 		WaitTime = 0.0;
 		WaitLimit = 0.0;

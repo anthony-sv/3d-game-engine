@@ -211,7 +211,9 @@ internal sealed class TypeResolution
 		return string.Join(", ", names);
 	}
 
-	// A Reroute with an unconnected In: the type of the first typed input its Out leads to, through other Reroutes.
+	// A Reroute with an unconnected In: the type of the first typed input its Out leads to, through other Reroutes. The walk
+	// enters a Reroute only through the link its In takes its value from (any other link into it is an Error
+	// MultipleDataLinks): each Reroute is entered from one Reroute at most, so all the walks together visit it at most once.
 	private static VisualType ResolveDownstream(AnalyzedNode reroute)
 	{
 		HashSet<AnalyzedNode> visited = [reroute];
@@ -225,7 +227,7 @@ internal sealed class TypeResolution
 				AnalyzedPin target = link.To;
 				if (target.Node.Builtin == BuiltinNode.Reroute && target.Name == "In")
 				{
-					if (visited.Add(target.Node))
+					if (ReferenceEquals(target.Source, link) && visited.Add(target.Node))
 					{
 						pending.Enqueue(target.Node);
 					}

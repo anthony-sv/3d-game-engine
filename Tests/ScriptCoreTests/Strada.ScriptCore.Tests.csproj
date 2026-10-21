@@ -10,6 +10,8 @@
 		<IsPackable>false</IsPackable>
 		<!-- packages.lock.json pins every package, with its content hash. -->
 		<RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+		<!-- The protocol tests call the engine's entry points the way the engine does: with pointers and function pointers. -->
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 	</PropertyGroup>
 
 	<ItemGroup>

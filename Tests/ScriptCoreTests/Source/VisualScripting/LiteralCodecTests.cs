@@ -160,12 +160,20 @@ public sealed class LiteralCodecTests
 	[Fact]
 	public void FlagsAndWideEnumsHaveTheirForms()
 	{
+		// A [Flags] value is an array of names, also when it is one enumerator or none; a name alone is not a value.
 		VisualType access = EnumType(typeof(ProbeAccess), true);
 		Assert.Equal(ProbeAccess.Read | ProbeAccess.Write, Decode(access, "[\"Read\", \"Write\"]").Value);
+		Assert.Equal(ProbeAccess.Write, Decode(access, "[\"Write\"]").Value);
 		Assert.Equal(ProbeAccess.None, Decode(access, "[]").Value);
+		Assert.Equal((ProbeAccess)8, Decode(access, "8").Value);
 		Assert.False(Decode(access, "[\"Read\", \"Nope\"]").IsValid);
+		DecodedLiteral name = Decode(access, "\"Write\"");
+		Assert.False(name.IsValid);
+		Assert.Equal("Strada.ScriptCore.Tests.ProbeAccess is a [Flags] enum: its values are arrays of enumerator names, such as [\"Write\"]", name.Message);
+		Assert.False(Decode(access, "\"Nope\"").IsValid);
 		Assert.Equal("[\"Read\",\"Write\"]", Written(access, ProbeAccess.Read | ProbeAccess.Write));
-		Assert.Equal("\"Write\"", Written(access, ProbeAccess.Write));
+		Assert.Equal("[\"Write\"]", Written(access, ProbeAccess.Write));
+		Assert.Equal("[]", Written(access, ProbeAccess.None));
 		Assert.Equal("8", Written(access, (ProbeAccess)8));
 
 		VisualType wide = EnumType(typeof(ProbeWide), false);

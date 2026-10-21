@@ -247,9 +247,12 @@ internal static class GraphAnalyzer
 	}
 
 	// Exec links: exec to exec, one link per exec output. Data links: one per input, and a conversion from the output's type
-	// to the input's (spec section 3.4); a wildcard input accepts what satisfies its constraint, at its resolved type.
+	// to the input's (spec section 3.4); a wildcard input accepts what satisfies its constraint, at its resolved type. Links
+	// are checked in document order, which is the order of every pin's links: an exec output or a data input has an earlier
+	// valid link exactly when it is in taken, so a pin with thousands of links costs no more per link than one with one.
 	private static void CheckLinks(AnalysisContext context, AnalyzedGraph graph)
 	{
+		HashSet<AnalyzedPin> taken = [];
 		foreach (AnalyzedLink link in graph.Links)
 		{
 			if (!link.IsValid)
@@ -269,7 +272,7 @@ internal static class GraphAnalyzer
 			}
 			if (from.Type.IsExec)
 			{
-				if (HasEarlierValidLink(from, link))
+				if (!taken.Add(from))
 				{
 					link.IsValid = false;
 					context.ReportPin(DiagnosticCode.MultipleExecLinks, from.Node, from.Name, PinDirection.Out,
@@ -279,58 +282,54 @@ internal static class GraphAnalyzer
 				link.Conversion = ConversionKind.Identity;
 				continue;
 			}
-			if (HasEarlierValidLink(to, link))
+			if (taken.Contains(to))
 			{
 				link.IsValid = false;
 				context.ReportPin(DiagnosticCode.MultipleDataLinks, to.Node, to.Name, PinDirection.In,
 					$"the input {to.Name} has a link already: an input takes its value from one output", link.Document);
 				continue;
 			}
-			if (!from.Type.HasValues || !to.Type.HasValues)
+			CheckConversion(context, link);
+			if (link.IsValid)
 			{
-				continue;
+				taken.Add(to);
 			}
-			ConversionKind? conversion;
-			if (to.Description.Source == WildcardSource.Links)
-			{
-				if (!TypeRules.Satisfies(from.Type, to.Description.Constraint))
-				{
-					link.IsValid = false;
-					context.ReportLink(DiagnosticCode.TypeMismatch, link,
-						$"{to.Node.Title}'s {to.Name} takes {TypeRules.Describe(to.Description.Constraint)}, not {from.Type.Id}");
-					continue;
-				}
-				conversion = TypeRules.GetJoinConversion(from.Type, to.Type);
-			}
-			else
-			{
-				conversion = TypeRules.GetConversion(from.Type, to.Type);
-			}
-			if (conversion == null)
-			{
-				link.IsValid = false;
-				context.ReportLink(DiagnosticCode.TypeMismatch, link,
-					$"{from.Node.ID}.{from.Name} ({from.Type.Id}) cannot connect to {to.Node.ID}.{to.Name} ({to.Type.Id}): use Convert");
-				continue;
-			}
-			link.Conversion = conversion;
 		}
 	}
 
-	private static bool HasEarlierValidLink(AnalyzedPin pin, AnalyzedLink link)
+	// A data link between pins whose types are known: the conversion it needs, or an Error TypeMismatch.
+	private static void CheckConversion(AnalysisContext context, AnalyzedLink link)
 	{
-		foreach (AnalyzedLink earlier in pin.Links)
+		AnalyzedPin from = link.From;
+		AnalyzedPin to = link.To;
+		if (!from.Type.HasValues || !to.Type.HasValues)
 		{
-			if (ReferenceEquals(earlier, link))
-			{
-				return false;
-			}
-			if (earlier.IsValid)
-			{
-				return true;
-			}
+			return;
 		}
-		return false;
+		ConversionKind? conversion;
+		if (to.Description.Source == WildcardSource.Links)
+		{
+			if (!TypeRules.Satisfies(from.Type, to.Description.Constraint))
+			{
+				link.IsValid = false;
+				context.ReportLink(DiagnosticCode.TypeMismatch, link,
+					$"{to.Node.Title}'s {to.Name} takes {TypeRules.Describe(to.Description.Constraint)}, not {from.Type.Id}");
+				return;
+			}
+			conversion = TypeRules.GetJoinConversion(from.Type, to.Type);
+		}
+		else
+		{
+			conversion = TypeRules.GetConversion(from.Type, to.Type);
+		}
+		if (conversion == null)
+		{
+			link.IsValid = false;
+			context.ReportLink(DiagnosticCode.TypeMismatch, link,
+				$"{from.Node.ID}.{from.Name} ({from.Type.Id}) cannot connect to {to.Node.ID}.{to.Name} ({to.Type.Id}): use Convert");
+			return;
+		}
+		link.Conversion = conversion;
 	}
 
 	// The stored literals of a node's inputs (spec sections 2.1 and 3.5): decoded with the resolved pin types; and the value

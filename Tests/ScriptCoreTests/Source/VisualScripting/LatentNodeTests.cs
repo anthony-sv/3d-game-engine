@@ -475,6 +475,107 @@ public sealed class LatentNodeTests
 		Assert.Empty(runtime.Records);
 	}
 
+	// Two fibers wait in the order their Sends started them: a WaitUntil that is still false in the first Update keeps its
+	// place, so in the second both resume in that order.
+	[Theory]
+	[InlineData(true)]
+	[InlineData(false)]
+	public void AWaitUntilThatStaysFalseKeepsItsPlaceInThePendingOrder(bool watchFirst)
+	{
+		DocumentBuilder document = new();
+		uint go = document.Variable("Go", "bool", "false");
+		GraphBuilder graph = document.Graph;
+		uint watch = graph.Node("Event.Custom", """{ "Name": "Watch" }""");
+		uint until = graph.Node("Flow.WaitUntil");
+		graph.Link(graph.Get(go), "Value", until, "Condition");
+		graph.Flow(watch, until);
+		graph.Writes(until, "Completed", "watch");
+		uint count = graph.Node("Event.Custom", """{ "Name": "Count" }""");
+		uint frames = graph.Node("Flow.WaitFrames", inputs: """{ "Frames": 2 }""");
+		graph.Flow(count, frames);
+		graph.Writes(frames, "Completed", "count");
+		uint sequence = graph.Node("Flow.Sequence");
+		graph.Flow(graph.Node("Event.Create"), sequence);
+		graph.Flow(sequence, graph.Node("Event.Send", watchFirst ? """{ "Name": "Watch" }""" : """{ "Name": "Count" }"""), "Then0");
+		graph.Flow(sequence, graph.Node("Event.Send", watchFirst ? """{ "Name": "Count" }""" : """{ "Name": "Watch" }"""), "Then1");
+		TestRuntime runtime = TestRuntime.Start(document);
+
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Equal(2, runtime.Instance().Fibers.Count);
+		runtime.Invoke(ScriptEvent.Update, 0.25f);
+		Assert.Empty(runtime.Records);
+		runtime.Runtime.SetVariable(TestRuntime.Hero, "Go", typeof(bool), true);
+		runtime.Invoke(ScriptEvent.Update, 0.25f);
+		Assert.Equal(watchFirst ? ["watch", "count"] : ["count", "watch"], runtime.Records);
+		Assert.Empty(runtime.Instance().Fibers);
+	}
+
+	// A Delay and a WaitUntil waiting on what the Delay sets: in pending order, the WaitUntil sees the change in the same
+	// Update only when the Delay became pending first.
+	[Theory]
+	[InlineData(true, 1)]
+	[InlineData(false, 2)]
+	public void PendingLatentNodesAdvanceInTheOrderTheyBecamePending(bool delayFirst, int watchedIn)
+	{
+		DocumentBuilder document = new();
+		uint go = document.Variable("Go", "bool", "false");
+		GraphBuilder graph = document.Graph;
+		uint watch = graph.Node("Event.Custom", """{ "Name": "Watch" }""");
+		uint until = graph.Node("Flow.WaitUntil");
+		graph.Link(graph.Get(go), "Value", until, "Condition");
+		graph.Flow(watch, until);
+		graph.Writes(until, "Completed", "watched");
+		uint start = graph.Node("Event.Custom", """{ "Name": "Start" }""");
+		uint delay = graph.Node("Flow.Delay", inputs: """{ "Duration": 0.0 }""");
+		uint set = graph.Set(go, "true");
+		graph.Flow(start, delay);
+		graph.Flow(delay, set, "Completed");
+		graph.Writes(set, "Then", "started");
+		uint sequence = graph.Node("Flow.Sequence");
+		graph.Flow(graph.Node("Event.Create"), sequence);
+		graph.Flow(sequence, graph.Node("Event.Send", delayFirst ? """{ "Name": "Start" }""" : """{ "Name": "Watch" }"""), "Then0");
+		graph.Flow(sequence, graph.Node("Event.Send", delayFirst ? """{ "Name": "Watch" }""" : """{ "Name": "Start" }"""), "Then1");
+		TestRuntime runtime = TestRuntime.Start(document);
+
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Invoke(ScriptEvent.Update, 0.25f);
+		Assert.Equal(watchedIn == 1 ? ["started", "watched"] : ["started"], runtime.Records);
+		runtime.Invoke(ScriptEvent.Update, 0.25f);
+		Assert.Equal(["started", "watched"], runtime.Records);
+	}
+
+	// The latest trigger of a RetriggerableDelay waits in the place of the one it replaced: when it and a Delay that became
+	// pending after the first trigger are due in one Update, it resumes first.
+	[Fact]
+	public void ARetriggeredDelayKeepsTheFirstTriggersPlaceInThePendingOrder()
+	{
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint retrigger = graph.Node("Event.Custom", """{ "Name": "Retrigger" }""");
+		uint retriggerable = graph.Node("Flow.RetriggerableDelay", inputs: """{ "Duration": 1.0 }""");
+		graph.Flow(retrigger, retriggerable);
+		graph.Writes(retriggerable, "Completed", "retriggered");
+		uint wait = graph.Node("Event.Custom", """{ "Name": "Wait" }""");
+		uint delay = graph.Node("Flow.Delay", inputs: """{ "Duration": 1.5 }""");
+		graph.Flow(wait, delay);
+		graph.Writes(delay, "Completed", "waited");
+		uint sequence = graph.Node("Flow.Sequence");
+		graph.Flow(graph.Node("Event.Create"), sequence);
+		graph.Flow(sequence, graph.Node("Event.Send", """{ "Name": "Retrigger" }"""), "Then0");
+		graph.Flow(sequence, graph.Node("Event.Send", """{ "Name": "Wait" }"""), "Then1");
+		graph.Flow(graph.Node("Event.KeyPressed", """{ "Key": "Space" }"""), graph.Node("Event.Send", """{ "Name": "Retrigger" }"""));
+		TestRuntime runtime = TestRuntime.Start(document);
+
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Environment.PressedKeys.Add(KeyCode.Space);
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		runtime.Environment.PressedKeys.Clear();
+		Assert.Equal(2, runtime.Instance().Fibers.Count);
+		runtime.Invoke(ScriptEvent.Update, 1.0f);
+		Assert.Equal(["retriggered", "waited"], runtime.Records);
+		Assert.Empty(runtime.Instance().Fibers);
+	}
+
 	[Fact]
 	public void InputEventsRunBeforeTheUpdateEventAndTheLatentNodes()
 	{

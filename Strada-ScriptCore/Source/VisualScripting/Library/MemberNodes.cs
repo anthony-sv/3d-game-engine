@@ -409,7 +409,9 @@ internal static class MemberNodes
 	private static PinDescription TypedPin(string name, PinDirection direction, VisualType type) =>
 		type.IsWildcard ? BuiltinNodes.Wildcard(name, direction, PinConstraint.Reference, WildcardSource.None) : new PinDescription(name, direction, type);
 
-	// An optional parameter's default becomes the pin's default (enums by enumerator, strings never null).
+	// An optional parameter's default becomes the pin's default (enums by enumerator, strings never null). A struct declared
+	// "= default" defaults to default(T), all zeros, as in C#; a quaternion is the exception: its zero is no rotation, and
+	// graphs never hold one (spec sections 2.1 and 2.2), so its pin keeps the type default, the identity.
 	private static PinDescription ParameterPin(string name, PinDirection direction, VisualType type, ParameterInfo parameter)
 	{
 		if (type.IsWildcard || direction == PinDirection.Out || !parameter.HasDefaultValue || !LiteralCodec.HasLiteralForm(type.ClrType!))
@@ -418,10 +420,14 @@ internal static class MemberNodes
 		}
 		Type clrType = type.ClrType!;
 		object? raw = parameter.DefaultValue;
+		if (raw == null && clrType == typeof(Quaternion))
+		{
+			return TypedPin(name, direction, type);
+		}
 		object? value = raw switch
 		{
 			null when clrType == typeof(string) => string.Empty,
-			null => clrType.IsValueType ? LiteralCodec.DefaultOf(type) : null,
+			null => clrType.IsValueType ? RuntimeHelpers.GetUninitializedObject(clrType) : null,
 			_ when clrType.IsEnum => Enum.ToObject(clrType, raw),
 			_ => raw,
 		};

@@ -1,12 +1,14 @@
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 
 namespace Strada.VisualScripting;
 
 // The pending latent nodes of instances (spec sections 4.2 and 5.3): each Update dispatch ends with one pass over the
 // instance's fibers in the order their nodes became pending, which resumes the due ones and advances Tweens and Intervals.
 // A fiber is advanced only by Update dispatches after the one running when it suspended, so it never resumes in the
-// dispatch that created it.
+// dispatch that created it. The pass costs time linear in the number of fibers: each fiber resumes, waits on, leaves
+// or takes another's place among its instance's fibers in constant time (GraphInstance).
 internal sealed partial class VisualScriptRuntime
 {
 	// Spec section 4.2: an Interval fires at most this many ticks per dispatch.
@@ -26,9 +28,9 @@ internal sealed partial class VisualScriptRuntime
 		}
 		PendingFiber[] due = ArrayPool<PendingFiber>.Shared.Rent(count);
 		int dueCount = 0;
-		for (int index = 0; index < count; index++)
+		for (LinkedListNode<Execution>? node = instance.FirstFiber; node != null; node = node.Next)
 		{
-			Execution fiber = instance.FiberAt(index);
+			Execution fiber = node.Value;
 			if (fiber.Since < dispatch)
 			{
 				due[dueCount++] = new PendingFiber(fiber, fiber.Serial);
@@ -58,7 +60,7 @@ internal sealed partial class VisualScriptRuntime
 	// Whether the fiber the pass found still waits in its instance (an execution earlier in the pass may have stopped,
 	// replaced or destroyed it).
 	private static bool IsWaiting(PendingFiber pending, GraphInstance instance) => pending.Fiber.Serial == pending.Serial &&
-		pending.Fiber.SuspendedAt >= 0 && ReferenceEquals(pending.Fiber.Instance, instance) && instance.IsAlive;
+		pending.Fiber.SuspendedAt >= 0 && !pending.Fiber.IsRunning && instance.HasFiber(pending.Fiber);
 
 	private bool Advance(PendingFiber pending, double step)
 	{
@@ -119,8 +121,7 @@ internal sealed partial class VisualScriptRuntime
 			if (fired == MaxTicksPerUpdate)
 			{
 				fiber.WaitTime = double.IsFinite(fiber.WaitTime) ? fiber.WaitTime % fiber.WaitLimit : 0.0;
-				Warn(fiber, node,
-					FormattableString.Invariant($"more than {MaxTicksPerUpdate} ticks were due in one update: the time beyond them is dropped"));
+				Warn(fiber, node, $"more than {MaxTicksPerUpdate} ticks were due in one update: the time beyond them is dropped");
 				break;
 			}
 			if (!everyUpdate)

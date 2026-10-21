@@ -7,8 +7,11 @@ namespace Strada.VisualScripting;
 // (the outputs of impure and event nodes, and the state of DoOnce, DoN, FlipFlop, Gate and latent nodes), and its fibers.
 internal sealed class GraphInstance
 {
-	// In the order their latent nodes became pending (Execution.PendingOrder).
-	private readonly List<Execution> m_Fibers = [];
+	// In the order their latent nodes became pending (spec section 5.2): a node that becomes pending goes last, a WaitUntil
+	// checked again keeps its place, and the latest trigger of a RetriggerableDelay takes the place of the fiber it replaces.
+	// Each fiber brings its own list node (Execution.FiberNode), so every change costs constant time and one Update's pass
+	// over the fibers costs time linear in their number.
+	private readonly LinkedList<Execution> m_Fibers = new();
 	private HashSet<uint>? m_Warned;
 
 	internal GraphInstance(ulong entity, ulong graph, GraphProgram program)
@@ -43,43 +46,51 @@ internal sealed class GraphInstance
 	internal ulong Updates { get; set; }
 
 	// The suspended executions the instance owns, in the order their latent nodes became pending.
-	internal IReadOnlyList<Execution> Fibers => m_Fibers;
+	internal IReadOnlyCollection<Execution> Fibers => m_Fibers;
 
 	internal int FiberCount => m_Fibers.Count;
 
-	internal Execution FiberAt(int index) => m_Fibers[index];
+	// The first fiber in the pending order; its Next is the one after it.
+	internal LinkedListNode<Execution>? FirstFiber => m_Fibers.First;
 
-	// Adds a fiber at its place in the pending order: the end for a node that just became pending, the place it had for
-	// one that keeps waiting (a WaitUntil checked again, a RetriggerableDelay's latest trigger).
+	// Whether the execution is one of the instance's fibers now.
+	internal bool HasFiber(Execution fiber) => ReferenceEquals(fiber.FiberNode.List, m_Fibers);
+
+	// A latent node of the fiber became pending: the fiber goes last in the pending order.
 	internal void AddFiber(Execution fiber)
 	{
-		int index = m_Fibers.Count;
-		while (index > 0 && m_Fibers[index - 1].PendingOrder > fiber.PendingOrder)
-		{
-			index--;
-		}
-		m_Fibers.Insert(index, fiber);
+		m_Fibers.AddLast(fiber.FiberNode);
 	}
 
-	internal bool RemoveFiber(Execution fiber) => m_Fibers.Remove(fiber);
+	// The fiber is no longer one of the instance's (it resumed, was discarded or is released); nothing for one that is not.
+	internal void RemoveFiber(Execution fiber)
+	{
+		if (HasFiber(fiber))
+		{
+			m_Fibers.Remove(fiber.FiberNode);
+		}
+	}
 
-	// A live edit: the instance runs the new program from now on, with the variables, frame and fibers carried over to it.
-	internal void Swap(GraphProgram program, Slot[] variables, Frame frame, List<Execution> fibers)
+	// A RetriggerableDelay's latest trigger: the new fiber waits in the place of the one it replaces, which leaves.
+	internal void ReplaceFiber(Execution replaced, Execution latest)
+	{
+		m_Fibers.AddBefore(replaced.FiberNode, latest.FiberNode);
+		m_Fibers.Remove(replaced.FiberNode);
+	}
+
+	// A live edit: the instance runs the new program from now on, with the variables and frame carried over to it (the
+	// fibers that survive the edit stay in their places).
+	internal void Swap(GraphProgram program, Slot[] variables, Frame frame)
 	{
 		Program = program;
 		Variables = variables;
 		Frame = frame;
-		m_Fibers.Clear();
-		m_Fibers.AddRange(fibers);
 	}
 
-	// Kills the instance: its fibers are handed back (to be released) and it never owns another.
-	internal List<Execution> Kill()
+	// The instance is destroyed or replaced: it never owns another fiber (the runtime releases the ones it has).
+	internal void Kill()
 	{
 		IsAlive = false;
-		List<Execution> fibers = [.. m_Fibers];
-		m_Fibers.Clear();
-		return fibers;
 	}
 
 	// Whether the node may log its once-per-instance warning now (spec section 5.3, non-aborting errors).

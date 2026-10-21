@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Strada.Interop;
 using Strada.VisualScripting;
 using Xunit;
@@ -84,20 +85,84 @@ public sealed class AllocationTests
 
 		runtime.Invoke(ScriptEvent.Update, 0.016f);
 		runtime.Invoke(ScriptEvent.Update, 0.016f);
-		// A collection caused by another thread can count the unused rest of this thread's allocation buffer as allocated:
-		// the frame that allocated least counts (an allocation of the graph would show in every frame).
-		long fewest = long.MaxValue;
-		for (int frame = 0; frame < 50; frame++)
-		{
-			long before = GC.GetAllocatedBytesForCurrentThread();
-			runtime.Invoke(ScriptEvent.Update, 0.016f);
-			fewest = Math.Min(fewest, GC.GetAllocatedBytesForCurrentThread() - before);
-		}
 
-		Assert.Equal(0, fewest);
+		Assert.Equal(0, runtime.FewestBytesPerUpdate());
 		Assert.Empty(runtime.Environment.Logs);
 		Assert.Equal(52 * 79.0f, runtime.Variable("Total"));
 		Assert.Equal(40, runtime.Variable("Picks"));
 		Assert.NotEqual(new Vector3(0.0f, 0.0f, 0.0f), runtime.Variable("Offset"));
+	}
+
+	// A node logs its Warning once per instance (spec section 5.3): when it runs into the problem again, nothing of the
+	// message is built (no text, no engine call for a name), so it allocates nothing.
+	[Fact]
+	public void AWarningLoggedAlreadyAllocatesNothing()
+	{
+		DocumentBuilder document = new();
+		uint none = document.Variable("None", "Strada.Entity");
+		uint other = document.Variable("Other", "Strada.Entity", isPublic: true);
+		uint number = document.Variable("Number", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint sequence = graph.Node("Flow.Sequence", """{ "Count": 4 }""");
+		graph.Flow(graph.Node("Event.Update"), sequence);
+		uint toNone = graph.Node("Event.Send", """{ "Name": "Ping" }""");
+		graph.Link(graph.Get(none), "Value", toNone, "Target");
+		graph.Flow(sequence, toNone, "Then0");
+		uint toOther = graph.Node("Event.Send", """{ "Name": "Ping" }""");
+		graph.Link(graph.Get(other), "Value", toOther, "Target");
+		graph.Flow(sequence, toOther, "Then1");
+		graph.Flow(sequence, graph.Node("Event.Send", """{ "Name": "Missing", "Parameters": [{ "Name": "Count", "Type": "int" }] }"""), "Then2");
+		uint convert = graph.Node("Convert", """{ "To": "int" }""");
+		graph.Link(graph.Literal("string", "\"many\""), "Value", convert, "Value");
+		uint set = graph.Set(number);
+		graph.Link(convert, "Result", set, "Value");
+		graph.Flow(sequence, set, "Then3");
+		uint interval = graph.Node("Flow.Interval", inputs: """{ "Interval": 0.000001 }""");
+		graph.Flow(graph.Node("Event.Create"), interval, "Then", "Start");
+		graph.Flow(graph.Node("Event.Custom", """{ "Name": "Ping" }"""), graph.Write("pinged"));
+		TestRuntime runtime = new();
+		// With a script instance, Self is that object: looking it up allocates nothing.
+		runtime.Environment.Add(TestRuntime.Hero, "Hero", new Mover());
+		runtime.Environment.Add(5, "Crate");
+		runtime.LoadWorking(document.Build());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create(variables: """{ "Other": { "Type": "Entity", "Value": "5" } }"""));
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Invoke(ScriptEvent.Update, 0.016f);
+		string[] warnings = [.. runtime.Environment.Warnings];
+		Assert.Equal(5, warnings.Length);
+		foreach (string message in new[]
+		{
+			"Target is None, so no graph receives Ping", "Crate (5) runs no visual script to receive Ping",
+			"the graph of Hero (7) has no custom event Missing(int)", "\"many\" cannot be read as ",
+			"more than 1000 ticks were due in one update: the time beyond them is dropped",
+		})
+		{
+			Assert.Contains(warnings, warning => warning.Contains(message, StringComparison.Ordinal));
+		}
+
+		Assert.Equal(0, runtime.FewestBytesPerUpdate());
+		Assert.Equal(5, runtime.Environment.Warnings.Count());
+		Assert.Empty(runtime.Environment.Errors);
+		Assert.Empty(runtime.Records);
+	}
+
+	// Element read outside an active iteration is its type default (spec section 5.3, State), which the program holds.
+	[Fact]
+	public void TheElementOfAForEachThatDoesNotRunAllocatesNothing()
+	{
+		DocumentBuilder document = new();
+		uint point = document.Variable("Point", "Strada.Vector3", "[1, 2, 3]");
+		GraphBuilder graph = document.Graph;
+		uint each = graph.Node("Flow.ForEach");
+		graph.Link(graph.Node("Call:Strada.ScriptCore.Tests.Probe.Points(int)", inputs: """{ "Count": 3 }"""), "Result", each, "Array");
+		uint set = graph.Set(point);
+		graph.Link(each, "Element", set, "Value");
+		graph.Flow(graph.Node("Event.Update"), set);
+		TestRuntime runtime = TestRuntime.Start(document);
+		runtime.Invoke(ScriptEvent.Update, 0.016f);
+		Assert.Equal(new Vector3(0.0f, 0.0f, 0.0f), runtime.Variable("Point"));
+
+		Assert.Equal(0, runtime.FewestBytesPerUpdate());
+		Assert.Empty(runtime.Environment.Logs);
 	}
 }

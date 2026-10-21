@@ -55,14 +55,16 @@ internal sealed partial class VisualScriptRuntime
 		Slot[] variables = CarryVariables(instance.Program, instance.Variables, target);
 		Frame frame = new(target.EventGraph);
 		CarryNodes(instance.Frame, frame);
-		List<Execution> fibers = new(instance.FiberCount);
-		for (int index = 0; index < instance.FiberCount; index++)
+		// The fibers that survive keep their places in the pending order; releasing a cancelled one takes it out, so the next
+		// fiber is read first.
+		LinkedListNode<Execution>? next = instance.FirstFiber;
+		while (next != null)
 		{
-			Execution fiber = instance.FiberAt(index);
+			Execution fiber = next.Value;
+			next = next.Next;
 			if (FindMissing(fiber, target) is not { } problem)
 			{
 				Move(fiber, target, frame);
-				fibers.Add(fiber);
 				continue;
 			}
 			CompiledNode latent = fiber.TopFrame.Graph.Nodes[fiber.SuspendedAt];
@@ -71,7 +73,7 @@ internal sealed partial class VisualScriptRuntime
 				FormattableString.Invariant($"{target.Name} on {entity}: the execution waiting in {latent.Title} (node {latent.Id}) is cancelled: {problem}"));
 			Release(fiber);
 		}
-		instance.Swap(target, variables, frame, fibers);
+		instance.Swap(target, variables, frame);
 	}
 
 	// Variables match by ID (with the same type), then by name and type; the others start at the type default (spec

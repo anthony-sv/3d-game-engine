@@ -168,7 +168,8 @@ internal static class SlotValues
 		_ => slot.Object,
 	};
 
-	// The slot of the type default (spec section 2.2). Boxed defaults are shared: boxes are never changed.
+	// The slot of the type default (spec section 2.2), made anew by each call (a struct the union cannot hold is boxed
+	// again), so the interpreter never calls it: programs hold the defaults their nodes need, made once when they compile.
 	internal static Slot DefaultOf(VisualType type) => FromValue(LiteralCodec.DefaultOf(type), type);
 
 	// An enum value from the bits of its underlying value.

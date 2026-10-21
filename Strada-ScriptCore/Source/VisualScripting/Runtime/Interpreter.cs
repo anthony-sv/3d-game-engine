@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 
 namespace Strada.VisualScripting;
@@ -26,6 +27,7 @@ internal sealed partial class VisualScriptRuntime
 		{
 			m_StepsRemaining = MaxSteps;
 		}
+		execution.IsRunning = true;
 		try
 		{
 			if (m_Depth + 1 + execution.FunctionDepth > MaxDepth)
@@ -40,6 +42,7 @@ internal sealed partial class VisualScriptRuntime
 		}
 		finally
 		{
+			execution.IsRunning = false;
 			m_Depth = depth;
 			if (freshBudget)
 			{
@@ -387,15 +390,17 @@ internal sealed partial class VisualScriptRuntime
 				Follow(execution, node, node.ContinuationExit);
 				return false;
 			case Execution.RecheckEntry:
-				// An error here is aborting and discards the fiber; a condition that is still false keeps its place.
+				// An error here is aborting and discards the fiber. The fiber is still in its place among the instance's fibers
+				// (Continue): it leaves when the condition holds, and keeps the place while the condition is still false.
 				StopPending(execution, node, frame);
 				Evaluate(execution, node, frame);
 				if (slots[node.InputBase].Bool)
 				{
+					execution.Instance.RemoveFiber(execution);
 					Follow(execution, node, node.ContinuationExit);
 					return false;
 				}
-				Suspend(execution, node, frame, execution.PendingOrder, execution.Since);
+				Suspend(execution, node, frame, execution.Since);
 				return true;
 			case Execution.TickEntry:
 				Follow(execution, node, node.TickExit);
@@ -449,27 +454,22 @@ internal sealed partial class VisualScriptRuntime
 				execution.WaitLimit = slots[input].Float;
 				break;
 		}
-		ulong order;
 		if (pending != null)
 		{
-			// The latest trigger waits in the earlier one's place; nothing of the earlier one's stack ever runs.
-			order = pending.PendingOrder;
+			// The latest trigger waits in the earlier one's place in the pending order; nothing of the earlier one's stack
+			// ever runs.
+			execution.Instance.ReplaceFiber(pending, execution);
 			Discard(pending);
 		}
-		else
-		{
-			order = ++m_LastPendingOrder;
-		}
-		Suspend(execution, node, frame, order, execution.Instance.Updates);
+		Suspend(execution, node, frame, execution.Instance.Updates);
 		return true;
 	}
 
 	// The execution suspends in the latent node, which is pending while the node's state slot holds it.
-	private static void Suspend(Execution execution, CompiledNode node, Frame frame, ulong order, ulong since)
+	private static void Suspend(Execution execution, CompiledNode node, Frame frame, ulong since)
 	{
 		execution.SuspendedAt = node.Index;
 		execution.Current = node;
-		execution.PendingOrder = order;
 		execution.Since = since;
 		frame.Slots[node.StateSlot] = Slot.FromObject(execution);
 		EndChain(execution, node);
@@ -618,9 +618,10 @@ internal sealed partial class VisualScriptRuntime
 					value = Slot.FromInt(loop >= 0 ? execution.Flow[loop].Index : 0);
 					break;
 				default:
+					// Outside an active iteration Element is its type default, which the ForEach node holds.
 					int each = execution.FindLoop(operand.Index);
 					value = each >= 0 ? ArrayElements.Read(execution.Flow[each].Items!, execution.Flow[each].Index, operand.From)
-						: SlotValues.DefaultOf(operand.From);
+						: execution.TopFrame.Graph.Nodes[operand.Index].Constant;
 					break;
 			}
 			if (operand.Conversion != ConversionOp.None)
@@ -765,15 +766,15 @@ internal sealed partial class VisualScriptRuntime
 		}
 		if (!m_Instances.TryGetValue(target.ID, out GraphInstance? receiver))
 		{
-			Warn(execution, node, FormattableString.Invariant($"{m_Environment.GetEntityName(target.ID)} ({target.ID}) runs no visual script to receive {node.EventName}"));
+			Warn(execution, node, $"{m_Environment.GetEntityName(target.ID)} ({target.ID}) runs no visual script to receive {node.EventName}");
 			return ExecutionResult.Ended;
 		}
 		CompiledGraph graph = receiver.Program.EventGraph;
 		int custom = receiver.Program.FindCustomEvent(node.EventName!);
 		if (custom < 0 || !SameTypes(graph.Nodes[custom].EventParameters, node.EventParameters))
 		{
-			Warn(execution, node, FormattableString.Invariant(
-				$"the graph of {m_Environment.GetEntityName(target.ID)} ({target.ID}) has no custom event {node.EventName}({string.Join(", ", (object[])node.EventParameters)})"));
+			Warn(execution, node,
+				$"the graph of {m_Environment.GetEntityName(target.ID)} ({target.ID}) has no custom event {node.EventName}({string.Join(", ", (object[])node.EventParameters)})");
 			return ExecutionResult.Ended;
 		}
 		if (m_Depth >= MaxDepth)
@@ -919,7 +920,7 @@ internal sealed partial class VisualScriptRuntime
 					slots[output] = parsed;
 					break;
 				}
-				slots[output] = SlotValues.DefaultOf(to);
+				slots[output] = node.Constant;
 				Warn(execution, node, $"{JsonText.Quote(text)} cannot be read as {to.Title}: the result is {Conversions.ToText(slots[output], to)}");
 				break;
 			case ConvertPlan.ToText:
@@ -958,7 +959,16 @@ internal sealed partial class VisualScriptRuntime
 		return text.ToStringAndClear();
 	}
 
-	// A non-aborting error: logged once per node per instance (spec section 5.3).
+	// A non-aborting error: logged once per node per instance (spec section 5.3). Its text is built only when it is logged
+	// (WarningText), so a Warning the node logged already costs one set lookup.
+	private void Warn(Execution execution, CompiledNode node, [InterpolatedStringHandlerArgument(nameof(execution), nameof(node))] ref WarningText message)
+	{
+		if (message.IsLogged)
+		{
+			m_Environment.Log(VisualScriptLogLevel.Warn, Describe(execution, node, message.ToStringAndClear()));
+		}
+	}
+
 	private void Warn(Execution execution, CompiledNode node, string message)
 	{
 		if (execution.Instance.ShouldWarn(node.Id))
@@ -1031,4 +1041,33 @@ internal static class ArrayElements
 				return SlotValues.FromValue(array.GetValue(index), element);
 		}
 	}
+}
+
+// The text of a node's Warning, formatted in the invariant culture only when the Warning is logged: once per node per
+// instance (spec section 5.3), so a later one evaluates none of its parts and allocates nothing.
+[InterpolatedStringHandler]
+internal ref struct WarningText
+{
+	private DefaultInterpolatedStringHandler m_Text;
+
+	internal WarningText(int literalLength, int formattedCount, Execution execution, CompiledNode node, out bool isLogged)
+	{
+		isLogged = execution.Instance.ShouldWarn(node.Id);
+		IsLogged = isLogged;
+		m_Text = isLogged ? new DefaultInterpolatedStringHandler(literalLength, formattedCount, CultureInfo.InvariantCulture) : default;
+	}
+
+	internal bool IsLogged { get; }
+
+	internal void AppendLiteral(string text)
+	{
+		m_Text.AppendLiteral(text);
+	}
+
+	internal void AppendFormatted<T>(T value)
+	{
+		m_Text.AppendFormatted(value);
+	}
+
+	internal string ToStringAndClear() => m_Text.ToStringAndClear();
 }

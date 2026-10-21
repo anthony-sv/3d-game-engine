@@ -20,10 +20,16 @@ public static class Probe
 	[ThreadStatic]
 	private static VisualScriptRuntime? s_Runtime;
 
+	[ThreadStatic]
+	private static (Color Color, Matrix4 Transform, Quaternion Rotation, ProbeAccess Access)? s_Tinted;
+
 	// What graphs recorded on this thread (tests run their graphs on their own thread).
 	internal static List<string> Records => s_Records ??= [];
 
 	internal static int Evaluations => s_Evaluations;
+
+	// What the last Tint received.
+	internal static (Color Color, Matrix4 Transform, Quaternion Rotation, ProbeAccess Access)? Tinted => s_Tinted;
 
 	// The runtime Reenter dispatches to.
 	internal static VisualScriptRuntime? Runtime
@@ -37,6 +43,7 @@ public static class Probe
 		s_Records = [];
 		s_Evaluations = 0;
 		s_Runtime = null;
+		s_Tinted = null;
 	}
 
 	// Dispatches an event to an entity's instance while the calling graph runs, as engine calls that run scripts do
@@ -57,6 +64,12 @@ public static class Probe
 	public static void Write(string text)
 	{
 		Records.Add(text);
+	}
+
+	// Optional parameters: structs declared "= default" (all zeros in C#) and a [Flags] enum with an enumerator default.
+	public static void Tint(Color color = default, Matrix4 transform = default, Quaternion rotation = default, ProbeAccess access = ProbeAccess.Read)
+	{
+		s_Tinted = (color, transform, rotation, access);
 	}
 
 	// A new number each time a consumer evaluates it (a pure node that counts its evaluations).

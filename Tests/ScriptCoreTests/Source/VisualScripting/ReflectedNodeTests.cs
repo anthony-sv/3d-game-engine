@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+using System.Text.Json;
 using Strada.Interop;
 using Strada.VisualScripting;
 using Xunit;
@@ -33,6 +36,37 @@ public sealed class ReflectedNodeTests
 
 		runtime.Invoke(ScriptEvent.Create);
 		Assert.Equal(["3 3.1415927 5 (1, 1.5, 1) 4294967295"], runtime.Records);
+	}
+
+	// Optional parameters' defaults are pin defaults (spec section 4.5), passed when the pin is unconnected: a struct declared
+	// "= default" is default(T), all zeros as in C#, except a quaternion, whose zero is no rotation: graphs never hold one
+	// (spec sections 2.1 and 2.2), so its pin keeps the type default, the identity. A [Flags] enum's default is written as an
+	// array of enumerator names (spec section 2.1).
+	[Fact]
+	public void OptionalParametersPassTheirDefaults()
+	{
+		const string tint = "Call:Strada.ScriptCore.Tests.Probe.Tint(Strada.Color,Strada.Matrix4,Strada.Quaternion,Strada.ScriptCore.Tests.ProbeAccess)";
+		NodeDefinition definition = RuntimeTesting.Library.FindNode(tint) ?? throw new InvalidOperationException($"the library has no {tint}");
+		PinDescription Pin(string name) => definition.Pins.Single(pin => pin.Name == name);
+		Assert.Equal(default(Color), Pin("Color").Default);
+		Assert.Equal(default(Matrix4), Pin("Transform").Default);
+		Assert.False(Pin("Rotation").HasDefault);
+		Assert.Equal(ProbeAccess.Read, Pin("Access").Default);
+		using JsonDocument library = JsonDocument.Parse(LibraryWriter.Write(RuntimeTesting.Library));
+		string pins = library.RootElement.GetProperty("Nodes").EnumerateArray().Single(static node => node.GetProperty("Type").GetString() == tint)
+			.GetProperty("Pins").GetRawText();
+		Assert.Contains("""{"Name":"Color","Direction":"In","Type":"Strada.Color","Default":[0,0,0,0]}""", pins, StringComparison.Ordinal);
+		Assert.Contains("""{"Name":"Transform","Direction":"In","Type":"Strada.Matrix4","Default":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}""", pins,
+			StringComparison.Ordinal);
+		Assert.Contains("""{"Name":"Rotation","Direction":"In","Type":"Strada.Quaternion"}""", pins, StringComparison.Ordinal);
+		Assert.Contains("""{"Name":"Access","Direction":"In","Type":"Strada.ScriptCore.Tests.ProbeAccess","Default":["Read"]}""", pins,
+			StringComparison.Ordinal);
+
+		DocumentBuilder document = new();
+		document.Graph.Flow(document.Graph.Node("Event.Create"), document.Graph.Node(tint));
+		TestRuntime runtime = TestRuntime.Start(document);
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Equal((default(Color), default(Matrix4), Quaternion.Identity, ProbeAccess.Read), Probe.Tinted);
 	}
 
 	[Fact]

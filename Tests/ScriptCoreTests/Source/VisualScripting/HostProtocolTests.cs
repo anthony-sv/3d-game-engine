@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -75,6 +76,61 @@ public sealed class HostProtocolTests
 			.Where(static method => method.Name.StartsWith("VisualScript", StringComparison.Ordinal) && method.IsDefined(typeof(UnmanagedCallersOnlyAttribute)))
 			.Select(static method => method.Name).Order(StringComparer.Ordinal)];
 		Assert.Equal(s_EntryPoints.Select(static entryPoint => entryPoint.Name).Order(StringComparer.Ordinal), declared);
+	}
+
+	// receive as the engine passes it: each call adds a copy of the bytes to the list context refers to (a GCHandle).
+	[UnmanagedCallersOnly]
+	private static unsafe void Receive(void* context, byte* bytes, int length)
+	{
+		List<byte[]> received = (List<byte[]>)GCHandle.FromIntPtr((IntPtr)context).Target!;
+		received.Add(new ReadOnlySpan<byte>(bytes, length).ToArray());
+	}
+
+	// The status the entry points answer for a reply, and the texts receive got.
+	private static unsafe (int Status, List<byte[]> Received) Deliver(HostReply reply)
+	{
+		List<byte[]> received = [];
+		GCHandle handle = GCHandle.Alloc(received);
+		try
+		{
+			return (Host.Deliver(reply, (void*)GCHandle.ToIntPtr(handle), &Receive), received);
+		}
+		finally
+		{
+			handle.Free();
+		}
+	}
+
+	// The entry points that answer text pass their operation's reply on: receive gets the text of a Success exactly once.
+	[Fact]
+	public void ReceiveGetsTheTextOfASuccessOnce()
+	{
+		DocumentBuilder document = new();
+		document.Variable("Speed", "float", "2.0", isPublic: true);
+		TestRuntime runtime = TestRuntime.Start(document);
+		VisualScriptRuntime host = runtime.Runtime;
+		HostReply[] replies =
+		[
+			host.DescribeLibrary(), host.AnalyzeDocument([]), host.AnalyzeDocument(Encoding.UTF8.GetBytes(document.Build())),
+			host.LoadDocument(TestRuntime.Graph, TestRuntime.Name, Encoding.UTF8.GetBytes(document.Build())), host.DescribeVariables(TestRuntime.Hero),
+		];
+
+		foreach (HostReply reply in replies)
+		{
+			(int status, List<byte[]> received) = Deliver(reply);
+			Assert.Equal(Host.Success, status);
+			Assert.Equal(reply.Text, Assert.Single(received));
+		}
+	}
+
+	[Fact]
+	public void ReceiveIsNotCalledWithoutASuccess()
+	{
+		TestRuntime runtime = new();
+
+		(int status, List<byte[]> received) = Deliver(runtime.Runtime.DescribeVariables(TestRuntime.Hero));
+		Assert.Equal(Host.NotFound, status);
+		Assert.Empty(received);
 	}
 
 	private static JsonElement Parse(HostReply reply)

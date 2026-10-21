@@ -41,9 +41,8 @@ internal sealed partial class VisualScriptRuntime
 	private int m_Depth;
 	// Steps left to the outermost active execution, which its nested executions share.
 	private int m_StepsRemaining;
-	// The last execution serial and the last place in the order latent nodes became pending.
+	// The last execution serial.
 	private ulong m_LastSerial;
-	private ulong m_LastPendingOrder;
 
 	// The engine's runtime: documents are analyzed and compiled with the node library of the loaded assemblies.
 	internal VisualScriptRuntime(IVisualScriptEnvironment environment)
@@ -203,7 +202,7 @@ internal sealed partial class VisualScriptRuntime
 	// finished, or its instance died).
 	internal VisualScriptStatus Resume(Execution fiber)
 	{
-		if (fiber.SuspendedAt < 0 || !fiber.Instance.IsAlive || !Contains(fiber.Instance, fiber))
+		if (fiber.SuspendedAt < 0 || fiber.IsRunning || !fiber.Instance.HasFiber(fiber))
 		{
 			return VisualScriptStatus.NotFound;
 		}
@@ -235,7 +234,9 @@ internal sealed partial class VisualScriptRuntime
 				Kill(instance);
 				return Start(instance, program.Events[(int)ScriptEvent.Destroy], default);
 			default:
-				return Start(instance, program.Events[(int)scriptEvent], Slot.FromObject(m_Environment.GetEntity(other)));
+				// Contacts and clicks look the other entity up only for a graph that has a node for the event.
+				int eventNode = program.Events[(int)scriptEvent];
+				return eventNode >= 0 && Start(instance, eventNode, Slot.FromObject(m_Environment.GetEntity(other)));
 		}
 	}
 
@@ -296,10 +297,15 @@ internal sealed partial class VisualScriptRuntime
 	}
 
 	// Runs a fiber again at its latent node, as an outermost execution: entry ResumeEntry continues at the node's
-	// continuation, RecheckEntry checks a WaitUntil's condition first. True when it ended in an aborting error.
+	// continuation, RecheckEntry checks a WaitUntil's condition first. True when it ended in an aborting error. A fiber whose
+	// condition is checked stays in its place among the instance's fibers while the condition runs, and leaves only when it
+	// holds (Wait); its instance's program is running then, so no live edit can move it.
 	private bool Continue(Execution fiber, int entry)
 	{
-		fiber.Instance.RemoveFiber(fiber);
+		if (entry != Execution.RecheckEntry)
+		{
+			fiber.Instance.RemoveFiber(fiber);
+		}
 		fiber.Node = fiber.SuspendedAt;
 		fiber.Entry = entry;
 		fiber.SuspendedAt = -1;
@@ -326,17 +332,21 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	// A suspended execution becomes a fiber of its instance, at its place in the pending order; one whose instance died
-	// while it ran dies with it.
+	// A suspended execution becomes a fiber of its instance, last in the pending order; one already in its place (a WaitUntil
+	// whose condition is still false, a RetriggerableDelay's latest trigger) stays there. One whose instance died while it
+	// ran dies with it.
 	private void Park(Execution fiber)
 	{
-		if (fiber.Instance.IsAlive)
+		if (!fiber.Instance.IsAlive)
 		{
-			fiber.Instance.AddFiber(fiber);
+			ClearPending(fiber);
+			Release(fiber);
 			return;
 		}
-		ClearPending(fiber);
-		Release(fiber);
+		if (!fiber.Instance.HasFiber(fiber))
+		{
+			fiber.Instance.AddFiber(fiber);
+		}
 	}
 
 	// A new execution of the instance that starts at a node of its event graph (and its exec input), traced when the
@@ -356,9 +366,11 @@ internal sealed partial class VisualScriptRuntime
 
 	private IVisualScriptDebugger? Trace(GraphInstance instance) => m_Debugger is { } debugger && debugger.IsTarget(instance.Entity) ? debugger : null;
 
-	// Returns the frames of an execution's function calls to their pools and the execution to the runtime's pool.
+	// Returns the frames of an execution's function calls to their pools and the execution to the runtime's pool; a fiber
+	// leaves its instance's fibers first.
 	private void Release(Execution execution)
 	{
+		execution.Instance.RemoveFiber(execution);
 		for (int index = execution.CallCount - 1; index > 0; index--)
 		{
 			Frame frame = execution.Calls[index].Frame;
@@ -368,11 +380,10 @@ internal sealed partial class VisualScriptRuntime
 		m_ExecutionPool.Push(execution);
 	}
 
-	// A fiber that never runs again: Stop cancelled its Tween or Interval, a RetriggerableDelay's latest trigger replaced
-	// it, or a live edit cancelled it. Nothing of its stack runs.
+	// A fiber that never runs again: Stop cancelled its Tween or Interval, or a RetriggerableDelay's latest trigger replaced
+	// it. Nothing of its stack runs.
 	private void Discard(Execution fiber)
 	{
-		fiber.Instance.RemoveFiber(fiber);
 		ClearPending(fiber);
 		Release(fiber);
 	}
@@ -389,25 +400,19 @@ internal sealed partial class VisualScriptRuntime
 	}
 
 	// An instance that is destroyed or replaced: its fibers die and its latent nodes stop being pending (spec section 5.1).
+	// A fiber that is running (its WaitUntil condition is checked) leaves too, and dies when its run is over (Park, Finish).
 	private void Kill(GraphInstance instance)
 	{
-		foreach (Execution fiber in instance.Kill())
+		instance.Kill();
+		while (instance.FirstFiber is { Value: { } fiber })
 		{
-			ClearPending(fiber);
-			Release(fiber);
-		}
-	}
-
-	private static bool Contains(GraphInstance instance, Execution fiber)
-	{
-		for (int index = 0; index < instance.FiberCount; index++)
-		{
-			if (ReferenceEquals(instance.FiberAt(index), fiber))
+			instance.RemoveFiber(fiber);
+			if (!fiber.IsRunning)
 			{
-				return true;
+				ClearPending(fiber);
+				Release(fiber);
 			}
 		}
-		return false;
 	}
 
 	// A dispatch or execution of the program starts running, and one ends: when none runs any more, the live edits that

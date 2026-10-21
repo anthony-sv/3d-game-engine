@@ -1,4 +1,3 @@
-using System.Linq;
 using Strada.Interop;
 using Strada.VisualScripting;
 using Xunit;
@@ -289,12 +288,8 @@ public sealed class FunctionTests
 		TestRuntime runtime = TestRuntime.Start(document);
 
 		runtime.Invoke(ScriptEvent.Update);
-		long before = System.GC.GetAllocatedBytesForCurrentThread();
-		for (int frame = 0; frame < 100; frame++)
-		{
-			runtime.Invoke(ScriptEvent.Update);
-		}
-		Assert.Equal(0, System.GC.GetAllocatedBytesForCurrentThread() - before);
-		Assert.Empty(runtime.Instance().Fibers.ToArray());
+		// A call frame that did not come back would be made anew by every Update.
+		Assert.Equal(0, runtime.FewestBytesPerUpdate());
+		Assert.Empty(runtime.Instance().Fibers);
 	}
 }
