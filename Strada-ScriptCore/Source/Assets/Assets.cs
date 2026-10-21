@@ -1,5 +1,6 @@
 using System;
 using Strada.Interop;
+using Strada.VisualScripting;
 
 namespace Strada;
 
@@ -10,6 +11,7 @@ public static unsafe class Assets
 	/// ("builtin://Cube"). Returns null (logged) when there is no such asset of type <typeparamref name="T"/> or it cannot
 	/// be loaded.</summary>
 	/// <exception cref="ArgumentException"><typeparamref name="T"/> is <see cref="Asset"/> itself.</exception>
+	[PureNode]
 	public static T? Load<T>(string path)
 		where T : Asset
 	{

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Strada.Interop;
+using Strada.VisualScripting;
 
 namespace Strada;
 
@@ -20,6 +21,7 @@ public struct Ray
 	}
 
 	/// <summary>The point <paramref name="distance"/> along the ray (in units of the direction's length).</summary>
+	[PureNode]
 	public readonly Vector3 GetPoint(float distance) => Origin + (Direction * distance);
 }
 

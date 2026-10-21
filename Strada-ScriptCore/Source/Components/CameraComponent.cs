@@ -1,4 +1,5 @@
 using Strada.Interop;
+using Strada.VisualScripting;
 
 namespace Strada;
 
@@ -81,6 +82,7 @@ public sealed unsafe class CameraComponent : Component
 	}
 
 	/// <summary>The ray from the camera through a point of the scene's viewport, in pixels from its top-left corner.</summary>
+	[PureNode]
 	public Ray ScreenToWorldRay(Vector2 screenPosition)
 	{
 		Ray ray;
@@ -94,6 +96,7 @@ public sealed unsafe class CameraComponent : Component
 	/// point with a Z of zero or less, X and Y mean nothing. An orthographic camera shows every point at its X and Y, and
 	/// draws it when Z lies between <see cref="OrthographicNear"/> and <see cref="OrthographicFar"/> (behind the camera too,
 	/// when the near distance is negative).</summary>
+	[PureNode]
 	public Vector3 WorldToScreenPoint(Vector3 worldPosition)
 	{
 		Vector3 screenPosition;

@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Strada.VisualScripting;
 
 namespace Strada.Interop;
 
@@ -73,10 +74,17 @@ internal static class ScriptRegistry
 				RegisterClass(type);
 			}
 		}
+		// Graphs that did not compile without the game's types may compile now: they compile again when next used, with a
+		// node library that has the new script classes (spec section 5.6).
+		Host.VisualScripts.OnGameAssemblyLoaded();
+		EngineLibrary.Drop();
 	}
 
 	internal static void UnloadGameAssembly()
 	{
+		// Visual scripts reference game types too: their instances, compiled programs and node library go first.
+		Host.VisualScripts.OnGameAssemblyUnloading();
+		EngineLibrary.Drop();
 		s_Instances.Clear();
 		s_Classes.Clear();
 		if (s_LoadContext == null)
@@ -234,6 +242,17 @@ internal static class ScriptRegistry
 	}
 
 	internal static bool HasClass(string name) => s_Classes.ContainsKey(name);
+
+	// The registered script classes, in name order: the game's types in the visual-script node library.
+	internal static IReadOnlyList<Type> GetScriptClasses()
+	{
+		List<Type> classes = new(s_Classes.Count);
+		foreach (ScriptClass scriptClass in s_Classes.Values)
+		{
+			classes.Add(scriptClass.Type);
+		}
+		return classes;
+	}
 
 	// Creates the entity's instance with the stored field values ({ "Name": { "Type", "Value" } }), replacing a current
 	// one. Values that no longer fit their field (the script changed) are reported and keep the field's default.
