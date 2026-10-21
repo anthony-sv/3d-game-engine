@@ -16,6 +16,11 @@
 		<PackageReference Include="xunit.v3" Version="4.0.2" />
 	</ItemGroup>
 
+	<!-- The visual-script documents the tracks share (Tests/Data/VisualScripting), as VisualScripting/ next to the tests. -->
+	<ItemGroup>
+		<None Include="../Data/VisualScripting/**" LinkBase="VisualScripting" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
 	<!-- CMake tests the engine's Strada.ScriptCore.dll, which it builds once: building the project again into this output
 	     would share its intermediate files, and MSBuild would remove one of the two copies. -->
 	<ItemGroup Condition="'$(StradaScriptCoreDirectory)' != ''">

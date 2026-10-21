@@ -1,4 +1,5 @@
 using Strada.Interop;
+using Strada.VisualScripting;
 
 namespace Strada;
 
@@ -39,6 +40,7 @@ public sealed unsafe class MeshComponent : Component
 	public int MaterialCount => InternalCalls.MeshComponent_GetMaterialCount(Entity.ID);
 
 	/// <summary>The material override of a submesh, or null when it uses the mesh's own material.</summary>
+	[PureNode]
 	public Material? GetMaterial(int index)
 	{
 		ulong material = InternalCalls.MeshComponent_GetMaterial(Entity.ID, index);

@@ -5,6 +5,7 @@ using Xunit;
 
 namespace Strada.ScriptCore.Tests;
 
+[Collection(ProcessStaticsCollection.Name)]
 public sealed class MathTests
 {
 	private const float Tolerance = 1e-5f;

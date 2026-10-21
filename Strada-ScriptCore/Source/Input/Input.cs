@@ -1,4 +1,5 @@
 using Strada.Interop;
+using Strada.VisualScripting;
 
 namespace Strada;
 
@@ -7,21 +8,27 @@ namespace Strada;
 public static unsafe class Input
 {
 	/// <summary>Whether the key is held down.</summary>
+	[PureNode]
 	public static bool IsKeyDown(KeyCode key) => InternalCalls.Input_IsKeyDown((int)key) != 0;
 
 	/// <summary>Whether the key went down this frame.</summary>
+	[PureNode]
 	public static bool IsKeyPressed(KeyCode key) => InternalCalls.Input_IsKeyPressed((int)key) != 0;
 
 	/// <summary>Whether the key went up this frame.</summary>
+	[PureNode]
 	public static bool IsKeyReleased(KeyCode key) => InternalCalls.Input_IsKeyReleased((int)key) != 0;
 
 	/// <summary>Whether the mouse button is held down.</summary>
+	[PureNode]
 	public static bool IsMouseButtonDown(MouseButton button) => InternalCalls.Input_IsMouseButtonDown((int)button) != 0;
 
 	/// <summary>Whether the mouse button went down this frame.</summary>
+	[PureNode]
 	public static bool IsMouseButtonPressed(MouseButton button) => InternalCalls.Input_IsMouseButtonPressed((int)button) != 0;
 
 	/// <summary>Whether the mouse button went up this frame.</summary>
+	[PureNode]
 	public static bool IsMouseButtonReleased(MouseButton button) => InternalCalls.Input_IsMouseButtonReleased((int)button) != 0;
 
 	/// <summary>The cursor position in pixels from the window's top-left corner.</summary>
@@ -71,21 +78,26 @@ public static unsafe class Input
 	}
 
 	/// <summary>Whether a gamepad is connected at the index (0-15).</summary>
+	[PureNode]
 	public static bool IsGamepadConnected(int gamepad = 0) => gamepad >= 0 && InternalCalls.Input_IsGamepadConnected((uint)gamepad) != 0;
 
 	/// <summary>The position of a gamepad axis (0 when the gamepad is not connected).</summary>
+	[PureNode]
 	public static float GetGamepadAxis(GamepadAxis axis, int gamepad = 0) =>
 		gamepad >= 0 ? InternalCalls.Input_GetGamepadAxis((uint)gamepad, (int)axis) : 0.0f;
 
 	/// <summary>Whether a gamepad button is held down.</summary>
+	[PureNode]
 	public static bool IsGamepadButtonDown(GamepadButton button, int gamepad = 0) =>
 		gamepad >= 0 && InternalCalls.Input_IsGamepadButtonDown((uint)gamepad, (int)button) != 0;
 
 	/// <summary>Whether a gamepad button went down this frame.</summary>
+	[PureNode]
 	public static bool IsGamepadButtonPressed(GamepadButton button, int gamepad = 0) =>
 		gamepad >= 0 && InternalCalls.Input_IsGamepadButtonPressed((uint)gamepad, (int)button) != 0;
 
 	/// <summary>Whether a gamepad button went up this frame.</summary>
+	[PureNode]
 	public static bool IsGamepadButtonReleased(GamepadButton button, int gamepad = 0) =>
 		gamepad >= 0 && InternalCalls.Input_IsGamepadButtonReleased((uint)gamepad, (int)button) != 0;
 }

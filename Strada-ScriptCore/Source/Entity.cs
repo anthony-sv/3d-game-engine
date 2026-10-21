@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using Strada.Interop;
+using Strada.VisualScripting;
 
 namespace Strada;
 
@@ -68,6 +69,7 @@ public unsafe class Entity : IEquatable<Entity>
 	}
 
 	/// <summary>Whether the entity has a component of type <typeparamref name="T"/>.</summary>
+	[PureNode]
 	public bool HasComponent<T>()
 		where T : Component
 	{
@@ -78,6 +80,7 @@ public unsafe class Entity : IEquatable<Entity>
 	}
 
 	/// <summary>The entity's component of type <typeparamref name="T"/>, or null when it has none.</summary>
+	[PureNode]
 	public T? GetComponent<T>()
 		where T : Component
 	{
@@ -107,6 +110,7 @@ public unsafe class Entity : IEquatable<Entity>
 	}
 
 	/// <summary>The entity's script instance as <typeparamref name="T"/>, or null when it runs no such script.</summary>
+	[PureNode]
 	public T? As<T>()
 		where T : Script
 	{
@@ -175,6 +179,7 @@ public unsafe class Entity : IEquatable<Entity>
 
 	/// <summary>The first entity (in hierarchy order) with the given name, or null. Entities running a script are
 	/// returned as their script instance.</summary>
+	[PureNode]
 	public static Entity? FindByName(string name)
 	{
 		byte[] text = NativeString.ToUtf8(name);
@@ -187,6 +192,7 @@ public unsafe class Entity : IEquatable<Entity>
 
 	/// <summary>The entity with the given ID, or null when there is none. Entities running a script are returned as their
 	/// script instance.</summary>
+	[PureNode]
 	public static Entity? FindByID(ulong id)
 	{
 		return id != 0 && InternalCalls.Entity_IsValid(id) != 0 ? ScriptRegistry.GetEntity(id) : null;
