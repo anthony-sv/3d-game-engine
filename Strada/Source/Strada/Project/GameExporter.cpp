@@ -519,6 +519,8 @@ namespace Strada
 			settings.ScriptProjectFile = ScriptProject::GetProjectFile(project);
 		}
 		settings.ScriptAssembly = ScriptProject::GetAssemblyPath(project);
+		// After the refresh, so visual scripts added since the last scan count.
+		settings.UsesVisualScripts = project.UsesVisualScripts();
 		settings.EngineDirectory = FileSystem::GetExecutableDirectory();
 		settings.Player = settings.EngineDirectory / FileSystem::PathFromUtf8(settings.Platform == ExportPlatform::Windows
 		                                                                          ? std::string_view("StradaRuntime.exe")
@@ -598,9 +600,10 @@ namespace Strada
 			game.ScriptModule = "Scripts/" + FileSystem::PathToUtf8(settings.ScriptAssembly.filename());
 			hasScripts = true;
 		}
-		if (hasScripts)
+		if (hasScripts || settings.UsesVisualScripts)
 		{
-			// Exported games carry the scripting API next to their scripts.
+			// Exported games carry the scripting API next to their scripts, where the player looks for it; visual scripts need
+			// it without C# scripts too (the game's configuration keeps naming the assembly it would have).
 			for (std::string_view const file : ScriptCoreFiles)
 			{
 				if (Result<void> copied = CopyEngineFile(settings.EngineDirectory, file, scripts / FileSystem::PathFromUtf8(file)); !copied)

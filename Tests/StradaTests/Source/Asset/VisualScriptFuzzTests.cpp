@@ -1,11 +1,20 @@
 #include "Fuzzing.h"
+#include "Script/ScriptTestUtilities.h"
+#include "TestUtilities.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/Timestep.h"
+#include "Strada/Scene/Entity.h"
+#include "Strada/Scene/Scene.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
 
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -60,4 +69,43 @@ TEST_CASE("VisualScript: damaged files are refused or load and save again")
 	}
 	CHECK(loaded > 0);
 	CHECK(refused > 0);
+}
+
+TEST_CASE("VisualScript: damaged graphs that load also run")
+{
+	Json const original = Testing::LoadFeatureTestDocument("Assets/Scripts/Features.sgraph");
+	Testing::AssetManagerScope assets;
+	Testing::ScriptEngineScope scripting;
+
+	// Each document that loads runs on an entity of a scene that starts, updates and stops: whatever the runtime makes of
+	// it, including failures, nothing crashes or hangs.
+	Testing::DocumentMutator mutator(10100);
+	int ran = 0;
+	for (int round = 0, rounds = Testing::GetFuzzRounds(100); round < rounds; round++)
+	{
+		CAPTURE(round);
+		std::optional<VisualScriptDocument> document = LoadDamagedFile(mutator.Damage(original, round));
+		if (!document)
+		{
+			continue;
+		}
+		AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(std::move(*document)), "Damaged");
+		{
+			Scene scene("Fuzz");
+			Entity entity = scene.CreateEntity("Graph");
+			entity.AddComponent<VisualScriptComponent>().Graph = graph;
+			scene.OnRuntimeStart();
+			if (VisualScriptEngine::HasInstance(entity.GetUUID()))
+			{
+				ran++;
+			}
+			for (int frame = 0; frame < 5; frame++)
+			{
+				scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+			}
+			scene.OnRuntimeStop();
+		}
+		AssetManager::RemoveMemoryAsset(graph);
+	}
+	CHECK(ran > 0);
 }

@@ -1,12 +1,16 @@
+using Strada.Testing;
+
 namespace Strada.Tests;
 
-// Appends each lifecycle call and contact to the name of its Recorder entity (comma separated), so tests can see what
-// ran and in which order, and logs its destruction.
+// Appends each lifecycle call, contact and click to the name of its Recorder entity (comma separated), so tests can see
+// what ran and in which order, and logs its destruction. With Report set it also reports each call as a passed check
+// (TestReporter), so a test's host sees each one as it happens.
 public sealed class Lifecycle : Script
 {
 	public string Label = "";
 	public Entity? Recorder;
 	public bool RecordUpdates = true;
+	public bool Report;
 
 	protected override void OnCreate() => Record("Create");
 
@@ -40,12 +44,18 @@ public sealed class Lifecycle : Script
 
 	protected override void OnTriggerExit(Entity other) => Record($"TriggerExit({other.Name})");
 
+	protected override void OnClick(Entity button) => Record($"Click({button.Name})");
+
 	private void Record(string call)
 	{
+		string entry = $"{Label}:{call}";
 		if (Recorder != null && Recorder.IsValid)
 		{
-			string entry = $"{Label}:{call}";
 			Recorder.Name = Recorder.Name.Length == 0 ? entry : $"{Recorder.Name},{entry}";
+		}
+		if (Report)
+		{
+			TestReporter.Pass(entry);
 		}
 	}
 }

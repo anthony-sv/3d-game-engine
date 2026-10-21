@@ -214,6 +214,26 @@ TEST_CASE("GameExporter: games without scripts ship none")
 	CheckGameFile(fixture.GetOutputDirectory() / "Game.sgame", "Scripts/Missing.dll");
 }
 
+TEST_CASE("GameExporter: games whose only scripts are visual scripts ship the scripting API")
+{
+	ExportFixture fixture;
+	GameExportSettings settings = fixture.MakeSettings(ExportPlatform::Linux);
+	settings.ScriptAssembly = fixture.GetProjectDirectory() / "Scripts" / "Binaries" / "Missing.dll";
+	settings.Project.ScriptModule = "Scripts/Binaries/Missing.dll";
+	settings.UsesVisualScripts = true;
+	fixture.Export(settings);
+	CHECK(ListNames(fixture.GetOutputDirectory() / "Scripts") ==
+	      std::vector<std::string>{"Strada.ScriptCore.deps.json", "Strada.ScriptCore.dll", "Strada.ScriptCore.runtimeconfig.json"});
+	CHECK(Read(fixture.GetOutputDirectory() / "Scripts" / "Strada.ScriptCore.dll") == "Strada.ScriptCore.dll");
+	CheckGameFile(fixture.GetOutputDirectory() / "Game.sgame", "Scripts/Missing.dll");
+
+	// With C# scripts too, the scripts ship as before.
+	settings.ScriptAssembly = fixture.GetProjectDirectory() / "Scripts" / "Binaries" / "Game.dll";
+	settings.Project.ScriptModule = "Scripts/Binaries/Game.dll";
+	fixture.Export(settings);
+	CheckGameDirectory(fixture.GetOutputDirectory());
+}
+
 TEST_CASE("GameExporter: exports that cannot finish leave the earlier game and no partial one")
 {
 	ExportFixture fixture;

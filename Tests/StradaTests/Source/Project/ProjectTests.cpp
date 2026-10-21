@@ -1,6 +1,8 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Scene/Entity.h"
@@ -250,6 +252,39 @@ TEST_CASE("Project: an exported game's configuration opens like a project and ke
 	AssetManager::CloseAssetDirectory();
 	CHECK(Project::OpenGame(created.GetValue()->GetFilePath()).IsError());
 	CHECK_FALSE(AssetManager::HasAssetDirectory());
+}
+
+TEST_CASE("Project: it uses visual scripts when its open asset directory registers some")
+{
+	AssetManagerScope assets;
+	Testing::TemporaryDirectory temporary;
+	Result<Ref<Project>> created = Project::Create(temporary.GetPath() / "Game", "Game", *MakeStartScene());
+	REQUIRE(created.IsOk());
+	Project const& project = *created.GetValue();
+	CHECK_FALSE(project.UsesVisualScripts());
+
+	// Memory assets are not the project's.
+	AssetHandle const memory = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(), "Memory");
+	CHECK_FALSE(project.UsesVisualScripts());
+	AssetManager::RemoveMemoryAsset(memory);
+
+	// A visual script file counts once it is registered.
+	REQUIRE(VisualScriptSerializer::SaveToFile(VisualScriptDocument(), project.GetAssetDirectory() / "Scripts" / "Logic.sgraph").IsOk());
+	CHECK_FALSE(project.UsesVisualScripts());
+	REQUIRE(AssetManager::Refresh().IsOk());
+	CHECK(project.UsesVisualScripts());
+
+	// Only while its asset directory is the one open.
+	Result<Ref<Project>> other = Project::Create(temporary.GetPath() / "Other", "Other", *MakeStartScene());
+	REQUIRE(other.IsOk());
+	CHECK_FALSE(project.UsesVisualScripts());
+	CHECK_FALSE(other.GetValue()->UsesVisualScripts());
+	AssetManager::CloseAssetDirectory();
+	CHECK_FALSE(project.UsesVisualScripts());
+	REQUIRE(Project::Open(project.GetFilePath()).IsOk());
+	CHECK(project.UsesVisualScripts());
+	AssetManager::Shutdown();
+	CHECK_FALSE(project.UsesVisualScripts());
 }
 
 TEST_CASE("Project: the window settings are read without opening the file")

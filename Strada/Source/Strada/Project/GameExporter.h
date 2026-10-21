@@ -37,6 +37,9 @@ namespace Strada
 		// The C# project, built in Release into the game; empty without one (a built ScriptAssembly then ships as it is).
 		std::filesystem::path ScriptProjectFile;
 		std::filesystem::path ScriptAssembly;
+		// Whether the project has visual scripts (Project::UsesVisualScripts): the game then ships the scripting API in
+		// Scripts/ even without C# scripts.
+		bool UsesVisualScripts = false;
 		// The player shipped as the game's executable: StradaRuntime next to the editor.
 		std::filesystem::path Player;
 		// The engine's files games ship, as the build puts them next to the editor: Strada.ScriptCore.dll with its
@@ -62,12 +65,13 @@ namespace Strada
 	//   <Out>/<Name>[.exe]        the player, renamed after the game
 	//   <Out>/Game.sgame          the game's configuration (Project::OpenGame)
 	//   <Out>/Assets/             the asset directory with its registry (hidden files stay behind)
-	//   <Out>/Scripts/            the scripts built in Release, with Strada.ScriptCore.dll (only for games with scripts)
+	//   <Out>/Scripts/            the C# scripts built in Release, with Strada.ScriptCore.dll (only for games with C# scripts
+	//                             or visual scripts; with visual scripts only, the scripting API alone)
 	//   <Out>/ThirdPartyNotices.md
 	// plus the MSVC runtime DLLs next to the executable on Windows. On macOS <Out> holds <Name>.app: the player in
 	// Contents/MacOS, the files above in Contents/Resources, the Vulkan loader and MoltenVK in Contents/Frameworks with
 	// MoltenVK's driver manifest in Contents/Resources/vulkan/icd.d. Players of other machines need no installed Vulkan SDK;
-	// games with scripts need the .NET 10 runtime.
+	// games with C# scripts or visual scripts need the .NET 10 runtime.
 	class GameExporter
 	{
 	public:

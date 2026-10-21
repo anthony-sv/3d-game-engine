@@ -85,27 +85,29 @@ namespace Strada
 		}
 
 	private:
-		// Games without scripts run without .NET.
+		// Games without C# scripts or visual scripts run without .NET; visual scripts need no game assembly.
 		static Result<void> StartScripts(Project const& game)
 		{
 			std::filesystem::path const assembly = ScriptProject::GetAssemblyPath(game);
-			if (!FileSystem::IsRegularFile(assembly))
+			bool const hasAssembly = FileSystem::IsRegularFile(assembly);
+			if (!hasAssembly && !game.IsGame() && ScriptProject::Exists(game))
 			{
-				if (!game.IsGame() && ScriptProject::Exists(game))
-				{
-					return MakeError("the project's scripts are not built ({} is missing): build them in the editor first",
-					                 FileSystem::PathToUtf8(assembly));
-				}
+				return MakeError("the project's scripts are not built ({} is missing): build them in the editor first",
+				                 FileSystem::PathToUtf8(assembly));
+			}
+			if (!hasAssembly && !game.UsesVisualScripts())
+			{
 				ST_INFO("The game has no scripts");
 				return {};
 			}
-			if (!game.IsGame() && ScriptProject::IsOutOfDate(game))
+			if (hasAssembly && !game.IsGame() && ScriptProject::IsOutOfDate(game))
 			{
 				ST_WARN("The project's scripts changed since they were built: running the last build");
 			}
 
 			ScriptEngineSettings settings;
-			// Exported games carry the scripting API next to their scripts; projects use the engine's.
+			// Exported games carry the scripting API in their scripts' directory (also when they have visual scripts only);
+			// projects use the engine's.
 			if (game.IsGame())
 			{
 				settings.ScriptCoreDirectory = assembly.parent_path();
@@ -113,6 +115,10 @@ namespace Strada
 			if (Result<void> started = ScriptEngine::Init(settings); !started)
 			{
 				return MakeError("the game's scripts cannot run: {}", started.GetError());
+			}
+			if (!hasAssembly)
+			{
+				return {};
 			}
 			if (Result<void> loaded = ScriptEngine::LoadGameAssembly(assembly); !loaded)
 			{
@@ -243,7 +249,7 @@ namespace Strada
 		specification.Window.Fullscreen = window.GetValue().Fullscreen;
 		specification.Window.Resizable = window.GetValue().Resizable;
 		specification.Window.VSync = window.GetValue().VSync && !arguments.HasFlag("no-vsync");
-		// Scripting starts once the game's scripts are found (StartScripts).
+		// Scripting starts once the game's C# scripts or visual scripts are found (StartScripts).
 		specification.EnableScripting = false;
 		runtime.Layer.ViewportWidth = window.GetValue().Width;
 		runtime.Layer.ViewportHeight = window.GetValue().Height;

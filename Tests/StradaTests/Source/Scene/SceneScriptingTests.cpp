@@ -1,9 +1,13 @@
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
+#include "TestUtilities.h"
 
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
 
@@ -341,4 +345,58 @@ TEST_CASE("Scene: without the script engine or game scripts the runtime runs wit
 	CHECK(ScriptEngine::GetSceneContext() == nullptr);
 	scene.OnRuntimeStop();
 	ScriptEngine::Shutdown();
+}
+
+TEST_CASE("Scene: without the script engine visual scripts do not run, and without game scripts they run alone")
+{
+	Testing::AssetManagerScope assets;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	// Counts its updates in a public variable.
+	VisualScriptDocument document;
+	VisualScriptVariable updates;
+	updates.ID = 1;
+	updates.Name = "Updates";
+	updates.Type = "int";
+	updates.Public = true;
+	document.Variables.push_back(updates);
+	VisualScriptNode update;
+	update.ID = 10;
+	update.Type = "Event.Update";
+	VisualScriptNode set;
+	set.ID = 11;
+	set.Type = "Variable.Set";
+	set.Settings = Json::object({{"Variable", 1}});
+	VisualScriptNode add;
+	add.ID = 12;
+	add.Type = "Operator.Add";
+	add.Inputs = Json::object({{"B", 1}});
+	VisualScriptNode get;
+	get.ID = 13;
+	get.Type = "Variable.Get";
+	get.Settings = Json::object({{"Variable", 1}});
+	document.Graph.Nodes = {update, set, add, get};
+	document.Graph.Links = {{{10, "Then"}, {11, "Execute"}}, {{13, "Value"}, {12, "A"}}, {{12, "Result"}, {11, "Value"}}};
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(document), "Counter");
+
+	Scene scene("Graphs only");
+	Entity counter = scene.CreateEntity("Counter");
+	counter.AddComponent<VisualScriptComponent>().Graph = graph;
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(0.5f));
+	CHECK(Testing::WasLogged(logStart, "Scene 'Graphs only' runs without scripts: the script engine is not initialized"));
+	CHECK(VisualScriptEngine::GetInstanceCount() == 0);
+	scene.OnRuntimeStop();
+
+	Testing::ScriptRuntimeScope runtime;
+	scene.OnRuntimeStart();
+	CHECK(ScriptEngine::GetSceneContext() == &scene);
+	CHECK(VisualScriptEngine::HasInstance(counter.GetUUID()));
+	scene.OnUpdateRuntime(Timestep(0.5f));
+	Result<ScriptFieldMap> const read = scene.ReadVisualScriptVariables(counter);
+	REQUIRE(read.IsOk());
+	CHECK(read.GetValue() == ScriptFieldMap{{"Updates", ScriptFieldValue::FromInt32(1)}});
+	CHECK_FALSE(Testing::WasLogged(logStart, "no game assembly is loaded"));
+	scene.OnRuntimeStop();
+	CHECK(ScriptEngine::GetSceneContext() == nullptr);
+	CHECK(VisualScriptEngine::GetInstanceCount() == 0);
 }

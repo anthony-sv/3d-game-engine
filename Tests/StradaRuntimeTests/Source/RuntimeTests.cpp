@@ -3,6 +3,8 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Platform/Process.h"
@@ -169,6 +171,43 @@ namespace
 	std::string Native(std::filesystem::path const& path)
 	{
 		return FileSystem::PathToNativeUtf8(path);
+	}
+
+	VisualScriptNode MakeNode(uint32_t id, std::string type, Json inputs = Json::object())
+	{
+		VisualScriptNode node;
+		node.ID = id;
+		node.Type = std::move(type);
+		node.Inputs = std::move(inputs);
+		return node;
+	}
+
+	// Checks as a visual script: one passes when it is created, one in its first update, which then finishes the test run.
+	VisualScriptDocument MakeChecksDocument()
+	{
+		VisualScriptDocument document;
+		document.Graph.Nodes.push_back(MakeNode(1, "Event.Create"));
+		document.Graph.Nodes.push_back(
+			MakeNode(2, "Call:Strada.Testing.TestReporter.Pass(string)", Json::object({{"Name", "graph created"}})));
+		document.Graph.Nodes.push_back(MakeNode(3, "Event.Update"));
+		document.Graph.Nodes.push_back(
+			MakeNode(4, "Call:Strada.Testing.TestReporter.Pass(string)", Json::object({{"Name", "graph updated"}})));
+		document.Graph.Nodes.push_back(MakeNode(5, "Call:Strada.Testing.TestReporter.Finish()"));
+		document.Graph.Links.push_back({{1, "Then"}, {2, "Execute"}});
+		document.Graph.Links.push_back({{3, "Then"}, {4, "Execute"}});
+		document.Graph.Links.push_back({{4, "Then"}, {5, "Execute"}});
+		return document;
+	}
+
+	// Writes the checks graph into the open asset directory and adds an entity running it to the scene.
+	void AddChecksGraph(Scene& scene)
+	{
+		std::filesystem::path const file = AssetManager::GetAssetDirectory() / "Scripts" / "Checks.sgraph";
+		REQUIRE(VisualScriptSerializer::SaveToFile(MakeChecksDocument(), file).IsOk());
+		Result<AssetHandle> graph = AssetManager::ImportFile(file);
+		REQUIRE(graph.IsOk());
+		REQUIRE(AssetManager::SaveRegistry().IsOk());
+		scene.CreateEntity("Checker").AddComponent<VisualScriptComponent>().Graph = graph.GetValue();
 	}
 
 	// A copy of Projects/<name> (its project file named after it) in the directory, with the scripts CMake built for it
@@ -500,6 +539,70 @@ TEST_CASE("Runtime: exported games run from their own directory")
 	CAPTURE(failed.Output);
 	CHECK(failed.ExitCode == 1);
 	CHECK(Contains(failed.Output, "Tests failed: 1 of 2 checks failed"));
+}
+
+TEST_CASE("Runtime: projects whose only scripts are visual scripts run them without a C# project")
+{
+	TestGame project(ProjectFileKind::Project);
+	{
+		Testing::AssetManagerScope assets;
+		REQUIRE(FileSystem::CreateDirectories(project.GetDirectory() / "Assets").IsOk());
+		REQUIRE(AssetManager::OpenAssetDirectory(project.GetDirectory() / "Assets").IsOk());
+		Ref<Scene> const scene = MakeScene("Graphs", std::nullopt);
+		AddChecksGraph(*scene);
+		project.AddScene("Main", scene);
+	}
+	std::string const file = Native(project.Write("Scenes/Main.sscene"));
+
+	// The scripting runtime starts without game scripts, and the graph's checks pass and finish the run.
+	ProcessResult const passed = RunPlayer({"--project", file, "--test"});
+	CAPTURE(passed.Output);
+	CHECK(passed.ExitCode == 0);
+	CHECK(Contains(passed.Output, ".NET runtime started"));
+	CHECK(Contains(passed.Output, "Test passed: graph created"));
+	CHECK(Contains(passed.Output, "Tests passed: 2 checks in 1 frame"));
+	CHECK_FALSE(Contains(passed.Output, "The game has no scripts"));
+}
+
+TEST_CASE("Runtime: exported games whose only scripts are visual scripts carry the scripting API and run them")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path player;
+	std::filesystem::path scripts;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> created = Project::Create(directory.GetPath() / "Project", "Visual Test", *MakeScene("Main", std::nullopt));
+		REQUIRE(created.IsOk());
+		Ref<Project> const project = created.GetValue();
+		Ref<Scene> const main = MakeScene("Main", std::nullopt);
+		AddChecksGraph(*main);
+		REQUIRE(SceneSerializer::SaveToFile(*main, project->GetAssetDirectory() / "Scenes" / "Main.sscene").IsOk());
+
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*project, directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		CHECK(prepared.GetValue().UsesVisualScripts);
+		CHECK(prepared.GetValue().ScriptProjectFile.empty());
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		scripts = directory.GetPath() / "Export" / "Scripts";
+		if (player.extension() == ".app")
+		{
+			scripts = player / "Contents" / "Resources" / "Scripts";
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+	// Nothing is left of the project: the game carries the scripting API, without game scripts.
+	REQUIRE(FileSystem::RemoveAll(directory.GetPath() / "Project").IsOk());
+	CHECK(FileSystem::IsRegularFile(scripts / "Strada.ScriptCore.dll"));
+	CHECK(FileSystem::IsRegularFile(scripts / "Strada.ScriptCore.runtimeconfig.json"));
+	CHECK_FALSE(FileSystem::Exists(scripts / "Game.dll"));
+
+	ProcessResult const passed = RunProgram(player, {"--test"});
+	CAPTURE(passed.Output);
+	CHECK(passed.ExitCode == 0);
+	CHECK(Contains(passed.Output, "Tests passed: 2 checks in 1 frame"));
 }
 
 TEST_CASE("Runtime: the feature-test project passes its test run")

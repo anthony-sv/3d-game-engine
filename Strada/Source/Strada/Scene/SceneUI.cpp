@@ -4,6 +4,7 @@
 #include "Strada/Core/Input.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <algorithm>
 #include <utility>
@@ -140,6 +141,7 @@ namespace Strada
 			for (UUID const receiver : receivers)
 			{
 				ScriptEngine::InvokeOnClick(receiver, button);
+				VisualScriptEngine::InvokeOnClick(receiver, button);
 			}
 		}
 	}

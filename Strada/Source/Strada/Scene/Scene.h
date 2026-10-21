@@ -124,7 +124,7 @@ namespace Strada
 		Entity DuplicateEntity(Entity entity);
 		// Instantiates a prefab asset (see PrefabSerializer::Instantiate) under parent (a root entity when invalid) and places
 		// its root at a world position and rotation, keeping its scale. While the scene runs scripts, the instance's scripts
-		// exist and have run OnCreate when this returns.
+		// (C# and visual) exist and have run OnCreate when this returns.
 		[[nodiscard]] Result<Entity> InstantiatePrefab(AssetHandle prefab, glm::vec3 const& position, glm::quat const& rotation,
 		                                               Entity parent);
 
@@ -166,20 +166,23 @@ namespace Strada
 
 		// Starts simulating: a physics body for every entity with colliders (static without a RigidBody), a character for
 		// every CharacterController (instead of a body), a sound for every audio source with a clip (playing when PlayOnStart
-		// is set) and a script instance for every Script component whose class the loaded game assembly has (all are
-		// created, then OnCreate runs for each); sounds and scripts only when the settings ask for them. Bodies, characters,
-		// sounds and scripts follow component changes while running. Requires PhysicsSystem, AudioEngine and ScriptEngine
-		// (without them the scene runs without physics, audio or scripts, logged); stop the runtime or destroy the scene
-		// before shutting them down. One scene runs scripts at a time.
+		// is set), a script instance for every Script component whose class the loaded game assembly has and a graph
+		// instance for every VisualScript component whose graph runs (all are created, then OnCreate runs for each: the C#
+		// scripts first); sounds and scripts only when the settings ask for them. Bodies, characters, sounds and scripts
+		// follow component changes while running, and graph instances follow edits of their graphs (live edit). Visual
+		// scripts need no game assembly; C# scripts run only when one is loaded as the scene starts. Requires PhysicsSystem,
+		// AudioEngine and ScriptEngine (without them the scene runs without physics, audio or scripts, logged); stop the
+		// runtime or destroy the scene before shutting them down. One scene runs scripts at a time.
 		void OnRuntimeStart(SceneRuntimeSettings const& settings = {});
-		// Calls OnDestroy on every script, then stops the audio and physics.
+		// Calls OnDestroy on every script (the C# scripts, then the visual scripts), then stops the audio and physics.
 		void OnRuntimeStop();
 		// Advances the runtime: the UI (the mouse over buttons, clicks and OnClick), scripts' OnUpdate, fixed steps (scripts'
 		// OnFixedUpdate, then physics: kinematic bodies follow their transforms, moved static and dynamic bodies and
 		// characters teleport, characters move, dynamic bodies and characters write their positions back), characters drawn
 		// between their last two steps (so they move smoothly at any frame rate, a step behind; OnFixedUpdate sees them where
 		// the last step left them), contact events to scripts, audio (sources and the listener follow their entities),
-		// particles, then deferred entity destruction (destroyed scripts get OnDestroy).
+		// particles, then deferred entity destruction (destroyed scripts get OnDestroy). Every update and fixed update reaches
+		// the C# scripts, then the visual scripts; an event of an entity reaches its C# script, then its visual script.
 		void OnUpdateRuntime(Timestep timestep);
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -223,6 +226,15 @@ namespace Strada
 		// from the ones it was last given or read (ReadScriptFields), so that edits of a running scene reach its scripts.
 		// Editors call it after each edit; a class that changed gets a new instance at the next update instead.
 		void ApplyScriptFieldChanges();
+		// While the scene runs scripts: the values the public variables of the entity's graph instance hold now, which also
+		// become the stored values of its VisualScript component (Variables, under the graph's current variable names), so that
+		// the component shows them and edits start from them. Fails when the entity runs no visual script.
+		[[nodiscard]] Result<ScriptFieldMap> ReadVisualScriptVariables(Entity entity);
+		// While the scene runs scripts: gives each graph instance the stored values of its VisualScript component's variables
+		// that differ from the ones it was last given or read (ReadVisualScriptVariables), so that edits of a running scene
+		// reach its visual scripts. Editors call it after each edit; a graph that changed gets a new instance at the next
+		// update instead.
+		void ApplyVisualScriptVariableChanges();
 
 		// Advances every particle system: emits its Burst when it starts (first update after the system appeared or the runtime
 		// started), then simulates and emits (ParticleEmitter). While running, systems with DestroyWhenFinished destroy their
@@ -342,7 +354,9 @@ namespace Strada
 		// The entity's started system: created (with its burst) when missing.
 		ParticleSystemState& StartParticleSystem(entt::entity handle, ParticleSystemComponent const& component);
 
-		// Script runtime (SceneScripting.cpp).
+		// Script runtime: C# script instances (Script components) and graph instances (VisualScript components), which start
+		// together and get every event in that order (SceneScripting.cpp; the visual scripts' own part in
+		// SceneVisualScripting.cpp).
 		struct PendingScriptInstance
 		{
 			entt::entity Handle = entt::null;
@@ -350,22 +364,38 @@ namespace Strada
 			std::string ClassName;
 			ScriptFieldMap Fields;
 		};
+		struct PendingVisualScriptInstance
+		{
+			entt::entity Handle = entt::null;
+			UUID Entity = UUID::Invalid();
+			AssetHandle Graph;
+			ScriptFieldMap Variables;
+		};
 		void StartScripts();
 		void StopScripts();
-		// Creates instances for new Script components and replaces those whose class changed; OnCreate runs for each new
-		// instance once all exist.
+		// Creates instances for new Script and VisualScript components, replaces those whose class or graph changed and tries
+		// again the graphs that could not start once their program changed; OnCreate runs for each new instance once all exist.
 		void SyncScriptInstances();
-		// Creates the instances, then runs OnCreate for each, so scripts can find each other there.
-		void CreateScriptInstances(std::vector<PendingScriptInstance> const& pending);
+		// The graph instances SyncScriptInstances replaces and creates. The runtime gets the current document of each graph
+		// first, so the running instances of an edited graph take the edit (live edit).
+		void CollectVisualScriptChanges(std::vector<entt::entity>& replaced, std::vector<PendingVisualScriptInstance>& pending);
+		// Creates the instances of both kinds, then runs OnCreate for each (the C# scripts first), so scripts can find each
+		// other there.
+		void CreateScriptInstances(std::vector<PendingScriptInstance> const& scripts,
+		                           std::vector<PendingVisualScriptInstance> const& visualScripts);
+		// Creates graph instances without running OnCreate; returns the entities that got one.
+		std::vector<UUID> CreateVisualScriptInstances(std::vector<PendingVisualScriptInstance> const& pending);
 		// Starts the scripts of new entities (prefab instances) at once instead of at the next update.
 		void StartScriptsOf(std::vector<entt::entity> const& handles);
 		void UpdateScripts(float deltaTime);
 		void FixedUpdateScripts(float fixedDeltaTime);
 		void DispatchContactEventsToScripts();
 		void DestroyScriptInstance(entt::entity handle);
-		// Instances whose entity or Script component is gone.
+		void DestroyVisualScriptInstance(entt::entity handle);
+		// Instances of both kinds whose entity or component is gone, in handle order (an entity's C# script first).
 		void DestroyRemovedScriptInstances();
 		std::vector<UUID> GetScriptInstanceIDs() const;
+		std::vector<UUID> GetVisualScriptInstanceIDs() const;
 
 		// UI runtime (SceneUI.cpp).
 		void ResetUI();
@@ -454,11 +484,29 @@ namespace Strada
 			ScriptFieldMap Fields;
 		};
 
+		// The graph an entity's graph instance was made from, and its program's generation then (VisualScriptEngine);
+		// HasInstance is false when it could not be made (no graph, a graph that is absent or has no program that runs) until
+		// the graph or its program changes.
+		struct VisualScriptInstanceState
+		{
+			UUID Entity = UUID::Invalid();
+			AssetHandle Graph;
+			uint64_t Generation = 0;
+			bool HasInstance = false;
+			// The values the instance's public variables were last given or read, by the graph's current names: stored values
+			// that differ are edits to give it.
+			ScriptFieldMap Variables;
+		};
+
 		// Whether this scene runs scripts (it is the ScriptEngine's scene context).
 		bool m_RunsScripts = false;
+		// Whether its Script components get instances: a game assembly was loaded when its scripts started (visual scripts
+		// need none, so a scene with VisualScript components runs them anyway).
+		bool m_RunsScriptComponents = false;
 		// Set while OnDestroy runs on every script: entities created then start no scripts.
 		bool m_StoppingScripts = false;
 		std::unordered_map<entt::entity, ScriptInstanceState> m_ScriptInstances;
+		std::unordered_map<entt::entity, VisualScriptInstanceState> m_VisualScriptInstances;
 
 		struct ParticleSystemState
 		{

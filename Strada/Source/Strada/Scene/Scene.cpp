@@ -137,8 +137,9 @@ namespace Strada
 
 	void Scene::DestroyEntityImmediate(entt::entity handle)
 	{
-		// The script sees its entity and the children intact in OnDestroy.
+		// The scripts (the C# script, then the visual script) see their entity and the children intact in OnDestroy.
 		DestroyScriptInstance(handle);
+		DestroyVisualScriptInstance(handle);
 
 		// Copy: destroying a child modifies this entity's child list.
 		std::vector<UUID> const children = m_Registry.get<RelationshipComponent>(handle).Children;

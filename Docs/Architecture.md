@@ -1129,8 +1129,10 @@ asset directory and the script assembly relative to the game's directory (`Proje
 
 - The window (title, size, fullscreen, vsync, resizability) follows the game's window settings, read before the engine
   starts (`Project::ReadWindowSettings`). The player opens the asset directory, starts .NET only when the game has
-  scripts (exported games carry `Strada.ScriptCore.dll` next to their assembly, projects use the engine's; a project
-  whose C# project was never built does not start), loads the start scene (or `--scene <path in Assets>`) and runs it
+  C# scripts or visual scripts (`Project::UsesVisualScripts`: its asset directory registers `.sgraph` files; a game
+  with visual scripts only starts the scripting runtime without a game assembly; exported games carry
+  `Strada.ScriptCore.dll` in `Scripts/`, projects use the engine's; a project whose C# project was never built does not
+  start), loads the start scene (or `--scene <path in Assets>`) and runs it
   through a `SceneRunner` with scripts, physics and audio. Every frame the primary camera's view is rendered at the
   window's framebuffer size and drawn into the swapchain image (`TextureBlitter`); without a primary camera the
   screen-space UI, sprites and text are drawn over black, and a scene with neither leaves the window black (logged
@@ -1153,6 +1155,10 @@ asset directory and the script assembly relative to the game's directory (`Proje
 <Out>/ThirdPartyNotices.md
 ```
 
+`Scripts/` ships only with games that have C# scripts or visual scripts; with visual scripts only it holds the scripting
+API alone (`GameExportSettings::UsesVisualScripts`, gathered by `Prepare`), and `Game.sgame` keeps naming the assembly
+the project would build.
+
 - Windows: the MSVC runtime DLLs go next to the executable. Release and Dist builds stage them in `Redist/` next to the
   player; Debug builds have none (the debug runtime is not redistributable), so their exports run where Visual Studio
   is installed.
@@ -1166,8 +1172,8 @@ asset directory and the script assembly relative to the game's directory (`Proje
 - The game is assembled next to the output directory and moved into place at the end: a failed or cancelled export,
   or scripts that do not compile, leave an earlier export untouched. Only new, empty or previously exported directories
   are written to. The editor's own script builds wait while an export builds the same C# project.
-- Games with scripts need the .NET 10 runtime: installed, or shipped by the developer in `dotnet/` next to the
-  executable, where the player looks first.
+- Games with C# scripts or visual scripts need the .NET 10 runtime: installed, or shipped by the developer in
+  `dotnet/` next to the executable, where the player looks first.
 
 Dist builds of the runtime have no console window on Windows, log only warnings and errors, to a file in the user
 data directory, and compile out asserts and script debug lines.

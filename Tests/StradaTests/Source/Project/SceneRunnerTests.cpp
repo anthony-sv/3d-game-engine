@@ -3,12 +3,14 @@
 #include "TestUtilities.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/KeyCodes.h"
 #include "Strada/Project/SceneRunner.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
 
@@ -153,4 +155,44 @@ TEST_CASE("SceneRunner: simulating runs physics without scripts or sounds")
 		runner.Update(Timestep(1.0f / 60.0f));
 	}
 	CHECK(ball.GetComponent<TransformComponent>().Translation.y < 5.0f);
+}
+
+TEST_CASE("SceneRunner: simulating runs no visual scripts")
+{
+	Testing::PhysicsSystemScope physics;
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	// A graph that runs when created.
+	VisualScriptDocument document;
+	VisualScriptNode create;
+	create.ID = 1;
+	create.Type = "Event.Create";
+	document.Graph.Nodes.push_back(create);
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(document), "Created");
+	Ref<Scene> scene = CreateRef<Scene>("Simulated");
+	Entity ball = scene->CreateEntity("Ball");
+	ball.AddComponent<VisualScriptComponent>().Graph = graph;
+
+	SceneRunnerSettings settings;
+	settings.Runtime.RunScripts = false;
+	settings.Runtime.PlayAudio = false;
+	settings.IsEditor = true;
+	{
+		SceneRunner runner(settings);
+		runner.Start(scene);
+		for (int frame = 0; frame < 3; frame++)
+		{
+			runner.Update(Timestep(1.0f / 60.0f));
+		}
+		CHECK(VisualScriptEngine::GetInstanceCount() == 0);
+		CHECK(ScriptEngine::GetSceneContext() == nullptr);
+	}
+
+	// Playing runs it.
+	settings.Runtime.RunScripts = true;
+	SceneRunner player(settings);
+	player.Start(scene);
+	CHECK(VisualScriptEngine::HasInstance(ball.GetUUID()));
+	player.Stop();
+	CHECK(VisualScriptEngine::GetInstanceCount() == 0);
 }

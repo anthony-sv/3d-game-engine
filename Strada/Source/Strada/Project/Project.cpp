@@ -6,6 +6,7 @@
 #include "Strada/Scene/Scene.h"
 #include "Strada/Scene/SceneSerializer.h"
 
+#include <algorithm>
 #include <system_error>
 #include <utility>
 
@@ -276,6 +277,21 @@ namespace Strada
 	std::filesystem::path Project::GetAssetDirectory() const
 	{
 		return (GetDirectory() / FileSystem::PathFromUtf8(m_Settings.AssetDirectory)).lexically_normal();
+	}
+
+	bool Project::UsesVisualScripts() const
+	{
+		if (!AssetManager::IsInitialized() || !AssetManager::HasAssetDirectory() ||
+		    AssetManager::GetAssetDirectory() != GetAssetDirectory())
+		{
+			return false;
+		}
+		std::vector<AssetMetadata> const visualScripts = AssetManager::GetAssets(AssetType::VisualScript);
+		return std::any_of(visualScripts.begin(), visualScripts.end(),
+		                   [](AssetMetadata const& asset)
+		                   {
+							   return asset.IsFileAsset();
+						   });
 	}
 
 	Json Project::Serialize(ProjectSettings const& settings, ProjectFileKind kind)

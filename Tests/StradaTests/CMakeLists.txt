@@ -86,6 +86,7 @@ add_executable(StradaTests
     Source/Scene/SceneSerializerTests.cpp
     Source/Scene/SceneTests.cpp
     Source/Scene/SceneUITests.cpp
+    Source/Scene/SceneVisualScriptingTests.cpp
     Source/Scene/UILayoutTests.cpp
     Source/Script/ScriptEngineTests.cpp
     Source/Script/ScriptFieldTests.cpp

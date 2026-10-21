@@ -66,6 +66,9 @@ namespace Strada
 		bool IsGame() const { return m_FileKind == ProjectFileKind::Game; }
 		std::filesystem::path GetDirectory() const { return m_FilePath.parent_path(); }
 		std::filesystem::path GetAssetDirectory() const;
+		// Whether the project's asset directory, open in the AssetManager (Open, OpenGame), registers visual scripts: running
+		// the game then needs the scripting runtime, with or without C# scripts.
+		bool UsesVisualScripts() const;
 
 		static Json Serialize(ProjectSettings const& settings, ProjectFileKind kind = ProjectFileKind::Project);
 		// Validates the file header and the settings.
