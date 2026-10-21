@@ -143,13 +143,18 @@ internal sealed class CompiledNode
 	internal CompiledNode(AnalyzedNode source, int index, Opcode op)
 	{
 		Id = source.ID;
+		Type = source.Definition!.Type;
 		Title = source.Title;
 		Index = index;
 		Op = op;
 		Builtin = source.Builtin;
+		Pure = source.Pure;
 	}
 
 	internal uint Id { get; }
+
+	// The library node type (canonical): a live edit carries the node's state over when it is unchanged (spec section 5.6).
+	internal string Type { get; }
 
 	internal string Title { get; }
 
@@ -158,6 +163,8 @@ internal sealed class CompiledNode
 	internal Opcode Op { get; }
 
 	internal BuiltinNode? Builtin { get; }
+
+	internal bool Pure { get; }
 
 	// The staging slots of the data inputs (in the kind's order) and the slots of the data outputs.
 	internal int InputBase { get; set; }
@@ -168,7 +175,13 @@ internal sealed class CompiledNode
 
 	internal int OutputCount { get; set; }
 
-	// The node's own state (DoOnce and Gate: open; DoN: the counter; FlipFlop: IsA).
+	// The names and types of the data outputs, by slot (OutputBase onwards).
+	internal string[] OutputPins { get; set; } = [];
+
+	internal VisualType[] OutputTypes { get; set; } = [];
+
+	// The node's own state (DoOnce and Gate: open; DoN: the counter; FlipFlop: IsA; latent nodes: the fiber waiting in
+	// them while they are pending).
 	internal int StateSlot { get; set; } = -1;
 
 	internal Operand[] Operands { get; set; } = [];
@@ -184,8 +197,14 @@ internal sealed class CompiledNode
 	// The names of the exec outputs, by exit (positions that outlive a program are node IDs and pin names).
 	internal string[] ExitPins { get; set; } = [];
 
-	// Latent nodes: the exit a resumed execution continues at (their Continuation output).
+	// Latent nodes: the exit a resumed execution continues at (their Continuation output), and the exit whose firings start
+	// executions of their own (Tween's and Interval's Tick output).
 	internal int ContinuationExit { get; set; } = -1;
+
+	internal int TickExit { get; set; } = -1;
+
+	// Tween: how Alpha follows the elapsed time.
+	internal Easing Easing { get; set; }
 
 	// An unconnected Target input that means Self.
 	internal bool TargetIsSelf { get; set; }
@@ -278,6 +297,9 @@ internal sealed class CompiledGraph
 	internal int FindNode(uint id) => m_IndexById.TryGetValue(id, out int index) ? index : -1;
 }
 
+// A local of a function and the slot it has in the function's frames.
+internal readonly record struct LocalSlot(uint Id, VisualType Type, int Slot);
+
 // A function of the document. Frames of impure calls come from a pool, so calls do not allocate once it holds enough.
 internal sealed class CompiledFunction
 {
@@ -288,6 +310,8 @@ internal sealed class CompiledFunction
 		Id = source.ID;
 		Name = source.Name;
 		Pure = source.Pure;
+		InputTypes = TypesOf(source.Inputs);
+		OutputTypes = TypesOf(source.Outputs);
 	}
 
 	internal uint Id { get; }
@@ -295,6 +319,14 @@ internal sealed class CompiledFunction
 	internal string Name { get; }
 
 	internal bool Pure { get; }
+
+	// The types of the inputs and outputs, in order: a suspended call frame survives a live edit only while its function
+	// keeps them and the types of its locals (spec section 5.6).
+	internal VisualType[] InputTypes { get; }
+
+	internal VisualType[] OutputTypes { get; }
+
+	internal LocalSlot[] Locals { get; set; } = [];
 
 	internal CompiledGraph Graph { get; set; } = null!;
 
@@ -320,6 +352,16 @@ internal sealed class CompiledFunction
 	{
 		Array.Copy(Graph.Template, frame.Slots, frame.Slots.Length);
 		m_Pool.Push(frame);
+	}
+
+	private static VisualType[] TypesOf(IReadOnlyList<AnalyzedParameter> parameters)
+	{
+		VisualType[] types = new VisualType[parameters.Count];
+		for (int index = 0; index < types.Length; index++)
+		{
+			types[index] = parameters[index].Type!;
+		}
+		return types;
 	}
 }
 
@@ -353,27 +395,36 @@ internal sealed class CompiledVariable
 internal readonly record struct InputEvent(int Node, BuiltinNode Kind, int Value, int Gamepad);
 
 // A program: a compiled document, or a broken one that says why it cannot run (spec section 5.1). Programs never change
-// once compiled, except for the members' invokers and the plans, which nodes create the first time they need them.
+// once compiled, except for the members' invokers and the plans, which nodes create the first time they need them, and
+// the count of their activity.
 internal sealed class GraphProgram
 {
 	private readonly Dictionary<string, int> m_CustomEvents = new(StringComparer.Ordinal);
+	private readonly Dictionary<uint, CompiledFunction> m_FunctionsById = [];
 
 	// A broken program.
-	internal GraphProgram(string name, int errorCount, Diagnostic? firstError)
+	internal GraphProgram(NodeLibrary library, string name, int errorCount, Diagnostic? firstError)
 	{
+		Library = library;
 		Name = name;
 		ErrorCount = errorCount;
 		FirstError = firstError;
 		EventGraph = new CompiledGraph([], [], null);
 	}
 
-	internal GraphProgram(string name, CompiledVariable[] variables, CompiledGraph eventGraph, int[] events, InputEvent[] inputEvents)
+	internal GraphProgram(NodeLibrary library, string name, CompiledVariable[] variables, CompiledFunction[] functions, CompiledGraph eventGraph,
+		int[] events, InputEvent[] inputEvents)
 	{
+		Library = library;
 		Name = name;
 		Variables = variables;
 		EventGraph = eventGraph;
 		Events = events;
 		InputEvents = inputEvents;
+		foreach (CompiledFunction function in functions)
+		{
+			m_FunctionsById[function.Id] = function;
+		}
 		foreach (CompiledNode node in eventGraph.Nodes)
 		{
 			if (node.Builtin == BuiltinNode.EventCustom)
@@ -382,6 +433,9 @@ internal sealed class GraphProgram
 			}
 		}
 	}
+
+	// The library the program was compiled with: the types of its values (the managed API converts values with them).
+	internal NodeLibrary Library { get; }
 
 	// The display name in messages (the asset path).
 	internal string Name { get; }
@@ -396,6 +450,10 @@ internal sealed class GraphProgram
 
 	internal CompiledGraph EventGraph { get; }
 
+	// The dispatches and executions of the program now running (on the host stack, not suspended): a live edit swaps the
+	// program of its instances only while this is 0 (spec section 5.6).
+	internal int Activity { get; set; }
+
 	// The event node of each ScriptEvent (Create to Click), -1 when the graph has none.
 	internal int[] Events { get; } = [];
 
@@ -404,6 +462,8 @@ internal sealed class GraphProgram
 
 	// The Event.Custom node of a name, -1 when there is none.
 	internal int FindCustomEvent(string name) => m_CustomEvents.TryGetValue(name, out int node) ? node : -1;
+
+	internal CompiledFunction? FindFunction(uint id) => m_FunctionsById.GetValueOrDefault(id);
 
 	internal int FindVariable(string name)
 	{

@@ -138,7 +138,7 @@ internal sealed partial class VisualScriptRuntime
 						if (entry == 1)
 						{
 							slots[node.StateSlot] = Slot.FromBool(true);
-							execution.Node = -1;
+							EndChain(execution, node);
 						}
 						else if (slots[node.StateSlot].Bool)
 						{
@@ -147,14 +147,14 @@ internal sealed partial class VisualScriptRuntime
 						}
 						else
 						{
-							execution.Node = -1;
+							EndChain(execution, node);
 						}
 						break;
 					case Opcode.DoN:
 						if (entry == 1)
 						{
 							slots[node.StateSlot] = Slot.FromInt(0);
-							execution.Node = -1;
+							EndChain(execution, node);
 							break;
 						}
 						Evaluate(execution, node, frame);
@@ -166,7 +166,7 @@ internal sealed partial class VisualScriptRuntime
 						}
 						else
 						{
-							execution.Node = -1;
+							EndChain(execution, node);
 						}
 						break;
 					case Opcode.FlipFlop:
@@ -185,7 +185,7 @@ internal sealed partial class VisualScriptRuntime
 						{
 							slots[node.StateSlot] = Slot.FromBool(entry == 1 || (entry == 3 && !open));
 						}
-						execution.Node = -1;
+						EndChain(execution, node);
 						break;
 					case Opcode.Latent:
 						if (Wait(execution, node, frame, entry))
@@ -253,12 +253,29 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
+	// The flow leaves the node through an exec output and goes where its link leads (nowhere: the chain ends). Every
+	// instruction ends here or in EndChain, so a traced execution reports each one exactly once.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static void Follow(Execution execution, CompiledNode node, int exit)
 	{
 		ExecLink link = node.Exits[exit];
 		execution.Node = link.Node;
 		execution.Entry = link.Entry;
+		if (execution.Debugger is { } debugger)
+		{
+			debugger.OnStep(execution.Instance, node.Id, node.ExitPins[exit]);
+		}
+	}
+
+	// The node ends its chain without leaving through an output (or the execution suspends in it).
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static void EndChain(Execution execution, CompiledNode node)
+	{
+		execution.Node = -1;
+		if (execution.Debugger is { } debugger)
+		{
+			debugger.OnStep(execution.Instance, node.Id, null);
+		}
 	}
 
 	// The chain ended: the top frame's continuations run first, then a function call returns (as if Function.Return set
@@ -331,7 +348,7 @@ internal sealed partial class VisualScriptRuntime
 		{
 			execution.Flow[loop].Break = true;
 		}
-		execution.Node = -1;
+		EndChain(execution, node);
 	}
 
 	private static int SwitchExit(CompiledNode node, in Slot selection)
@@ -343,28 +360,123 @@ internal sealed partial class VisualScriptRuntime
 		return found ? exit : node.Count;
 	}
 
-	// A latent node. Its waiting and resuming belong to the latent kinds; what every one of them shares is here: the
-	// execution suspends at the node (its whole flow stack and call stack stay in it) and becomes a fiber of its instance.
-	// An instance that was destroyed owns no fibers: the chain ends there with a Warning. Stop inputs end their chain.
+	// A latent node (spec section 5.3, Suspension). Execute (Interval: Start) reaching it while it is pending ends the
+	// chain there, except at a RetriggerableDelay, whose latest trigger replaces the waiting one; otherwise the node reads
+	// its inputs and the whole execution (its position, flow stack and call frames) suspends in it as a fiber of its
+	// instance, unless a WaitUntil's condition holds already. Stop cancels a pending Tween or Interval. A fiber runs the
+	// node again when it resumes (Execution.ResumeEntry) or when its WaitUntil is checked (Execution.RecheckEntry). An
+	// instance that was destroyed owns no fibers: the chain ends there with a Warning. True when the execution suspended.
 	private bool Wait(Execution execution, CompiledNode node, Frame frame, int entry)
 	{
-		if (entry != 0)
+		Slot[] slots = frame.Slots;
+		switch (entry)
 		{
-			execution.Node = -1;
+			case Execution.ResumeEntry:
+				StopPending(execution, node, frame);
+				Follow(execution, node, node.ContinuationExit);
+				return false;
+			case Execution.RecheckEntry:
+				// An error here is aborting and discards the fiber; a condition that is still false keeps its place.
+				StopPending(execution, node, frame);
+				Evaluate(execution, node, frame);
+				if (slots[node.InputBase].Bool)
+				{
+					Follow(execution, node, node.ContinuationExit);
+					return false;
+				}
+				Suspend(execution, node, frame, execution.PendingOrder, execution.Since);
+				return true;
+			case Execution.TickEntry:
+				Follow(execution, node, node.TickExit);
+				return false;
+			case 0:
+				break;
+			default:
+				// Stop: the run is cancelled (no more ticks, Completed never runs); the chain that reached Stop ends.
+				if (PendingAt(frame, node) is { } run)
+				{
+					Discard(run);
+				}
+				EndChain(execution, node);
+				return false;
+		}
+		Execution? pending = PendingAt(frame, node);
+		if (pending != null && node.Builtin != BuiltinNode.FlowRetriggerableDelay)
+		{
+			EndChain(execution, node);
 			return false;
 		}
 		Evaluate(execution, node, frame);
 		if (!execution.Instance.IsAlive)
 		{
 			Warn(execution, node, "the graph's instance was destroyed, so nothing can wait here: the chain ends");
-			execution.Node = -1;
+			EndChain(execution, node);
 			return false;
 		}
-		execution.SuspendedAt = node.Index;
-		execution.Current = node;
-		execution.Node = -1;
+		int input = node.InputBase;
+		switch (node.Builtin)
+		{
+			case BuiltinNode.FlowWaitUntil:
+				if (slots[input].Bool)
+				{
+					Follow(execution, node, node.ContinuationExit);
+					return false;
+				}
+				break;
+			case BuiltinNode.FlowWaitFrames:
+				execution.WaitCount = Math.Max(slots[input].Int, 1);
+				break;
+			case BuiltinNode.FlowInterval:
+				execution.WaitTime = 0.0;
+				execution.WaitLimit = slots[input].Float;
+				execution.WaitCount = slots[input + 1].Int;
+				execution.WaitIndex = 0;
+				break;
+			default:
+				// Delay, RetriggerableDelay and Tween: Duration, read once.
+				execution.WaitTime = 0.0;
+				execution.WaitLimit = slots[input].Float;
+				break;
+		}
+		ulong order;
+		if (pending != null)
+		{
+			// The latest trigger waits in the earlier one's place; nothing of the earlier one's stack ever runs.
+			order = pending.PendingOrder;
+			Discard(pending);
+		}
+		else
+		{
+			order = ++m_LastPendingOrder;
+		}
+		Suspend(execution, node, frame, order, execution.Instance.Updates);
 		return true;
 	}
+
+	// The execution suspends in the latent node, which is pending while the node's state slot holds it.
+	private static void Suspend(Execution execution, CompiledNode node, Frame frame, ulong order, ulong since)
+	{
+		execution.SuspendedAt = node.Index;
+		execution.Current = node;
+		execution.PendingOrder = order;
+		execution.Since = since;
+		frame.Slots[node.StateSlot] = Slot.FromObject(execution);
+		EndChain(execution, node);
+	}
+
+	// A resumed fiber's latent node stops being pending.
+	private static void StopPending(Execution execution, CompiledNode node, Frame frame)
+	{
+		if (ReferenceEquals(frame.Slots[node.StateSlot].Object, execution))
+		{
+			frame.Slots[node.StateSlot] = default;
+		}
+	}
+
+	// The fiber waiting in a latent node of the frame; null when the node is not pending. The state slot is checked against
+	// the fiber, so a reference that outlived its fiber (resumed or released) never counts.
+	private static Execution? PendingAt(Frame frame, CompiledNode node) => frame.Slots[node.StateSlot].Object is Execution fiber &&
+		fiber.SuspendedAt == node.Index && ReferenceEquals(fiber.TopFrame, frame) ? fiber : null;
 
 	// An impure function call: the call frame (the inputs, the locals and outputs of the function's nodes at their initial
 	// values, fresh node states) goes on the call stack, and the flow enters the function at its Entry.
@@ -373,6 +485,10 @@ internal sealed partial class VisualScriptRuntime
 		PushFrame(execution, node, frame, null, 0);
 		execution.Node = node.Function!.EntryNode;
 		execution.Entry = 0;
+		if (execution.Debugger is { } debugger)
+		{
+			debugger.OnStep(execution.Instance, node.Id, null);
+		}
 	}
 
 	// Pushes the frame of a call of the node's function with the node's staged inputs as the function's inputs.
@@ -464,6 +580,10 @@ internal sealed partial class VisualScriptRuntime
 			CompiledNode call = caller.Graph.Nodes[record.CallNode];
 			Array.Copy(frame.Slots, returned.InputBase, caller.Slots, call.OutputBase, call.OutputCount);
 			function.ReleaseFrame(frame);
+			if (execution.Debugger is { } debugger)
+			{
+				ReportValues(debugger, execution, call, caller.Slots);
+			}
 			frame = caller;
 			plan = record.ResumePlan!;
 			index = record.ResumeIndex;
@@ -575,6 +695,20 @@ internal sealed partial class VisualScriptRuntime
 			default:
 				throw new InvalidOperationException($"{node} is impure: a plan never evaluates it");
 		}
+		if (execution.Debugger is { } debugger)
+		{
+			ReportValues(debugger, execution, node, slots);
+		}
+	}
+
+	// The values a pure node of a traced execution computed (spec section 5.5).
+	private static void ReportValues(IVisualScriptDebugger debugger, Execution execution, CompiledNode node, Slot[] slots)
+	{
+		for (int index = 0; index < node.OutputCount; index++)
+		{
+			object? value = SlotValues.ToValue(slots[node.OutputBase + index], node.OutputTypes[index]);
+			debugger.OnValue(execution.Instance, node.Id, node.OutputPins[index], value);
+		}
 	}
 
 	// Calls a reflected member. Component members fetch the Target entity's component through the environment (Self when
@@ -632,22 +766,30 @@ internal sealed partial class VisualScriptRuntime
 		}
 		CompiledNode eventNode = graph.Nodes[custom];
 		Array.Copy(slots, node.InputBase + 1, receiver.Frame.Slots, eventNode.OutputBase, eventNode.OutputCount);
-		Execution nested = Acquire(receiver, custom);
-		ExecutionResult result = Execute(nested, false);
-		switch (result)
+		GraphProgram program = receiver.Program;
+		Enter(program);
+		try
 		{
-			case ExecutionResult.Suspended:
-				receiver.AddFiber(nested);
-				break;
-			case ExecutionResult.Aborted:
-				execution.Error = nested.Error;
-				Release(nested);
-				break;
-			default:
-				Release(nested);
-				break;
+			Execution nested = Acquire(receiver, custom, 0);
+			ExecutionResult result = Execute(nested, false);
+			switch (result)
+			{
+				case ExecutionResult.Suspended:
+					Park(nested);
+					return ExecutionResult.Ended;
+				case ExecutionResult.Aborted:
+					execution.Error = nested.Error;
+					Release(nested);
+					return ExecutionResult.Aborted;
+				default:
+					Release(nested);
+					return ExecutionResult.Ended;
+			}
 		}
-		return result == ExecutionResult.Aborted ? ExecutionResult.Aborted : ExecutionResult.Ended;
+		finally
+		{
+			Leave(program);
+		}
 	}
 
 	private static bool SameTypes(VisualType[] a, VisualType[] b)

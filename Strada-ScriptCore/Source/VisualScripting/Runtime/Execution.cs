@@ -81,7 +81,21 @@ internal sealed record ExecutionError(string Message);
 // pooled by their runtime: starting one does not allocate once the pool holds enough.
 internal sealed class Execution
 {
+	// The entries of a latent node below its exec inputs (0 and up): a fiber runs the node again to continue at its
+	// continuation, or to check a WaitUntil's condition first; a Tick execution starts at a Tween or Interval and leaves
+	// through its Tick output.
+	internal const int ResumeEntry = -1;
+	internal const int RecheckEntry = -2;
+	internal const int TickEntry = -3;
+
 	private const int InitialCapacity = 8;
+
+	// The execution's number, new each time a pooled execution starts: a reference kept across dispatches still means the
+	// same execution only while it matches.
+	internal ulong Serial { get; set; }
+
+	// The debugger tracing the execution; null when it is not traced (spec section 5.5).
+	internal IVisualScriptDebugger? Debugger { get; set; }
 
 	internal GraphInstance Instance { get; set; } = null!;
 
@@ -106,6 +120,23 @@ internal sealed class Execution
 
 	// A suspended execution: the latent node it waits in (its frame is the top of the call stack).
 	internal int SuspendedAt { get; set; } = -1;
+
+	// A fiber's place in the order its instance's latent nodes became pending, and the number of the instance's Update
+	// dispatches when it suspended: only later ones advance or resume it (spec section 5.2).
+	internal ulong PendingOrder { get; set; }
+
+	internal ulong Since { get; set; }
+
+	// What a fiber's latent node waits for (spec section 5.3, Timing). Delay and RetriggerableDelay: the time summed and
+	// Duration. Tween: the time elapsed and Duration. Interval: the timer and Interval, Count, and the next Index.
+	// WaitFrames: the updates left.
+	internal double WaitTime { get; set; }
+
+	internal double WaitLimit { get; set; }
+
+	internal int WaitCount { get; set; }
+
+	internal long WaitIndex { get; set; }
 
 	internal ExecutionError? Error { get; set; }
 
@@ -205,7 +236,14 @@ internal sealed class Execution
 		Entry = 0;
 		Current = null;
 		SuspendedAt = -1;
+		PendingOrder = 0;
+		Since = 0;
+		WaitTime = 0.0;
+		WaitLimit = 0.0;
+		WaitCount = 0;
+		WaitIndex = 0;
 		Error = null;
+		Debugger = null;
 		Instance = null!;
 		Program = null!;
 	}

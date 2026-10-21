@@ -33,10 +33,23 @@ internal sealed partial class VisualScriptRuntime
 	private readonly Dictionary<(MemberInfo Member, MemberNodeKind Kind), MemberInvoker> m_Invokers = [];
 	private readonly Dictionary<Type, MemberInvoker> m_Makers = [];
 	private readonly Dictionary<Type, MemberInvoker> m_Breakers = [];
+	// The graph handles whose instances still run an older program than the handle's effective one: it was running when
+	// the new program loaded (spec section 5.6).
+	private readonly HashSet<ulong> m_PendingSwaps = [];
+	private IVisualScriptDebugger? m_Debugger;
 	// Active executions plus the function frames on their call stacks.
 	private int m_Depth;
 	// Steps left to the outermost active execution, which its nested executions share.
 	private int m_StepsRemaining;
+	// The last execution serial and the last place in the order latent nodes became pending.
+	private ulong m_LastSerial;
+	private ulong m_LastPendingOrder;
+
+	// The engine's runtime: documents are analyzed and compiled with the node library of the loaded assemblies.
+	internal VisualScriptRuntime(IVisualScriptEnvironment environment)
+		: this(environment, EngineLibrary.Get)
+	{
+	}
 
 	// library gives the node library documents are analyzed and compiled with (spec section 5.1: built when first needed,
 	// shared by every runtime).
@@ -51,31 +64,62 @@ internal sealed partial class VisualScriptRuntime
 
 	internal int InstanceCount => m_Instances.Count;
 
+	// Attaches the debugger that traces executions from now on (spec section 5.5); null detaches it.
+	internal void AttachDebugger(IVisualScriptDebugger? debugger)
+	{
+		m_Debugger = debugger;
+	}
+
 	// Analyzes and compiles a document for a graph handle and returns its diagnostics. A program is stored whatever the
-	// document holds; a broken one keeps the handle's working program running (spec section 5.1). name is the display name
-	// in messages (the asset path).
+	// document holds; a broken one keeps the handle's working program running (spec section 5.1), a working one swaps the
+	// program of the handle's instances (spec section 5.6). name is the display name in messages (the asset path).
 	internal IReadOnlyList<Diagnostic> Load(ulong graph, string name, ReadOnlySpan<byte> document)
 	{
 		AnalyzedDocument analyzed = GraphAnalyzer.Analyze(m_Library(), document);
 		GraphProgram program = ProgramCompiler.Compile(analyzed, name);
-		if (!m_Graphs.TryGetValue(graph, out GraphEntry? entry))
+		ProgramSource source = new(name, document.ToArray());
+		bool stale = false;
+		if (m_Graphs.TryGetValue(graph, out GraphEntry? entry))
 		{
-			entry = new GraphEntry();
+			stale = entry.IsStale;
+			entry.LatestSource = source;
+		}
+		else
+		{
+			entry = new GraphEntry(source);
 			m_Graphs[graph] = entry;
 		}
 		entry.Latest = program;
+		entry.IsStale = false;
 		if (!program.IsBroken)
 		{
 			entry.Effective = program;
+			entry.EffectiveSource = source;
+			m_PendingSwaps.Add(graph);
+			ApplySwaps();
+		}
+		else if (stale)
+		{
+			// The game assembly changed since the working program compiled: it keeps running if it still compiles.
+			entry.Effective = entry.EffectiveSource is { } working ? Recompile(working) : null;
+			if (entry.Effective == null)
+			{
+				entry.EffectiveSource = null;
+			}
 		}
 		return analyzed.Diagnostics;
 	}
 
-	// Forgets the handle and its programs; instances keep the program they run until they are destroyed. False when the
-	// handle was not loaded.
-	internal bool Unload(ulong graph) => m_Graphs.Remove(graph);
+	// Forgets the handle and its programs; instances keep the program they run until they are destroyed. NotFound when
+	// the handle was not loaded.
+	internal VisualScriptStatus Unload(ulong graph)
+	{
+		m_PendingSwaps.Remove(graph);
+		return m_Graphs.Remove(graph) ? VisualScriptStatus.Success : VisualScriptStatus.NotFound;
+	}
 
-	// The last program loaded for the handle (broken or not), and the last working one.
+	// The last program loaded for the handle (broken or not), and the last working one; null when the handle is unknown,
+	// or when the game assembly changed and the programs did not compile again yet.
 	internal GraphProgram? FindLatestProgram(ulong graph) => m_Graphs.TryGetValue(graph, out GraphEntry? entry) ? entry.Latest : null;
 
 	internal GraphProgram? FindEffectiveProgram(ulong graph) => m_Graphs.TryGetValue(graph, out GraphEntry? entry) ? entry.Effective : null;
@@ -88,18 +132,14 @@ internal sealed partial class VisualScriptRuntime
 		{
 			return VisualScriptStatus.NotFound;
 		}
+		Refresh(entry);
 		if (entry.Effective is not { } program)
 		{
 			GraphProgram latest = entry.Latest!;
-			Diagnostic first = latest.FirstError!;
-			string location = first.Node is { } node ? FormattableString.Invariant($" (node {node})")
-				: first.Variable is { } variable ? FormattableString.Invariant($" (variable {variable})")
-				: string.Empty;
-			string errors = latest.ErrorCount == 1 ? "1 error" : FormattableString.Invariant($"{latest.ErrorCount} errors");
-			m_Environment.Log(VisualScriptLogLevel.Error, $"{latest.Name} cannot run: {errors}, first: {first.Message}{location}");
+			m_Environment.Log(VisualScriptLogLevel.Error, $"{latest.Name} cannot run: {DescribeErrors(latest)}");
 			return VisualScriptStatus.Failure;
 		}
-		GraphInstance instance = new(entity, program);
+		GraphInstance instance = new(entity, graph, program);
 		ApplyVariables(instance, variables);
 		if (m_Instances.Remove(entity, out GraphInstance? replaced))
 		{
@@ -109,15 +149,15 @@ internal sealed partial class VisualScriptRuntime
 		return VisualScriptStatus.Success;
 	}
 
-	// Removes the entity's instance without running Event.Destroy; false when it has none.
-	internal bool DestroyInstance(ulong entity)
+	// Removes the entity's instance without running Event.Destroy; NotFound when it has none.
+	internal VisualScriptStatus DestroyInstance(ulong entity)
 	{
 		if (!m_Instances.Remove(entity, out GraphInstance? instance))
 		{
-			return false;
+			return VisualScriptStatus.NotFound;
 		}
 		Kill(instance);
-		return true;
+		return VisualScriptStatus.Success;
 	}
 
 	// Removes every instance; no events run.
@@ -134,65 +174,98 @@ internal sealed partial class VisualScriptRuntime
 	internal GraphInstance? FindInstance(ulong entity) => m_Instances.GetValueOrDefault(entity);
 
 	// Dispatches a lifecycle event to the entity's instance (spec section 5.2). Failure when an execution it started
-	// ended in an aborting error (each logged once); NotFound without an instance.
+	// ended in an aborting error (each logged once); NotFound without an instance. A live edit of the instance's graph
+	// waits until the dispatch is over.
 	internal VisualScriptStatus Invoke(ulong entity, ScriptEvent scriptEvent, float timeStep, ulong other)
 	{
 		if (!m_Instances.TryGetValue(entity, out GraphInstance? instance))
 		{
 			return VisualScriptStatus.NotFound;
 		}
-		GraphProgram program = instance.Program;
-		bool failed = false;
-		switch (scriptEvent)
+		if (scriptEvent is < ScriptEvent.Create or > ScriptEvent.Click)
 		{
-			case ScriptEvent.Create:
-				failed = Start(instance, program.Events[(int)ScriptEvent.Create], default);
-				break;
-			case ScriptEvent.Update:
-				m_Environment.SetDeltaTime(timeStep);
-				foreach (InputEvent input in program.InputEvents)
-				{
-					if (IsTriggered(input))
-					{
-						failed |= Start(instance, input.Node, default);
-					}
-				}
-				failed |= Start(instance, program.Events[(int)ScriptEvent.Update], Slot.FromFloat(timeStep));
-				break;
-			case ScriptEvent.FixedUpdate:
-				failed = Start(instance, program.Events[(int)ScriptEvent.FixedUpdate], Slot.FromFloat(timeStep));
-				break;
-			case ScriptEvent.Destroy:
-				m_Instances.Remove(entity);
-				Kill(instance);
-				failed = Start(instance, program.Events[(int)ScriptEvent.Destroy], default);
-				break;
-			case ScriptEvent.CollisionEnter:
-			case ScriptEvent.CollisionExit:
-			case ScriptEvent.TriggerEnter:
-			case ScriptEvent.TriggerExit:
-			case ScriptEvent.Click:
-				failed = Start(instance, program.Events[(int)scriptEvent], Slot.FromObject(m_Environment.GetEntity(other)));
-				break;
-			default:
-				return VisualScriptStatus.Failure;
+			return VisualScriptStatus.Failure;
 		}
-		return failed ? VisualScriptStatus.Failure : VisualScriptStatus.Success;
+		GraphProgram program = instance.Program;
+		Enter(program);
+		try
+		{
+			return Dispatch(instance, program, scriptEvent, timeStep, other) ? VisualScriptStatus.Failure : VisualScriptStatus.Success;
+		}
+		finally
+		{
+			Leave(program);
+		}
 	}
 
-	// Continues a fiber of an instance at the continuation of the latent node it waits in, as an outermost execution with
-	// a budget of its own (spec section 5.3). NotFound when the fiber is not one of its instance's (it finished, or its
-	// instance died).
+	// Continues a fiber now at the continuation of the latent node it waits in, as an outermost execution with a budget of
+	// its own (spec section 5.3), whether or not the node is due. NotFound when the fiber is not one of its instance's (it
+	// finished, or its instance died).
 	internal VisualScriptStatus Resume(Execution fiber)
 	{
-		if (fiber.SuspendedAt < 0 || !fiber.Instance.RemoveFiber(fiber))
+		if (fiber.SuspendedAt < 0 || !fiber.Instance.IsAlive || !Contains(fiber.Instance, fiber))
 		{
 			return VisualScriptStatus.NotFound;
 		}
-		CompiledNode node = fiber.TopFrame.Graph.Nodes[fiber.SuspendedAt];
-		fiber.SuspendedAt = -1;
-		Follow(fiber, node, node.ContinuationExit);
-		return Finish(fiber, Execute(fiber, true)) ? VisualScriptStatus.Failure : VisualScriptStatus.Success;
+		GraphProgram program = fiber.Program;
+		Enter(program);
+		try
+		{
+			return Continue(fiber, Execution.ResumeEntry) ? VisualScriptStatus.Failure : VisualScriptStatus.Success;
+		}
+		finally
+		{
+			Leave(program);
+		}
+	}
+
+	// True when an execution the dispatch started ended in an aborting error.
+	private bool Dispatch(GraphInstance instance, GraphProgram program, ScriptEvent scriptEvent, float timeStep, ulong other)
+	{
+		switch (scriptEvent)
+		{
+			case ScriptEvent.Create:
+				return Start(instance, program.Events[(int)ScriptEvent.Create], default);
+			case ScriptEvent.Update:
+				return Update(instance, program, timeStep);
+			case ScriptEvent.FixedUpdate:
+				return Start(instance, program.Events[(int)ScriptEvent.FixedUpdate], Slot.FromFloat(timeStep));
+			case ScriptEvent.Destroy:
+				m_Instances.Remove(instance.Entity);
+				Kill(instance);
+				return Start(instance, program.Events[(int)ScriptEvent.Destroy], default);
+			default:
+				return Start(instance, program.Events[(int)scriptEvent], Slot.FromObject(m_Environment.GetEntity(other)));
+		}
+	}
+
+	// The Update dispatch (spec section 5.2): the frame time, the input events in Nodes order, Event.Update, then one pass
+	// over the instance's pending latent nodes. An instance destroyed on the way receives nothing more.
+	private bool Update(GraphInstance instance, GraphProgram program, float timeStep)
+	{
+		ulong dispatch = ++instance.Updates;
+		m_Environment.SetDeltaTime(timeStep);
+		bool failed = false;
+		foreach (InputEvent input in program.InputEvents)
+		{
+			if (!instance.IsAlive)
+			{
+				return failed;
+			}
+			if (IsTriggered(input))
+			{
+				failed |= Start(instance, input.Node, default);
+			}
+		}
+		if (instance.IsAlive)
+		{
+			failed |= Start(instance, program.Events[(int)ScriptEvent.Update], Slot.FromFloat(timeStep));
+		}
+		if (instance.IsAlive)
+		{
+			failed |= AdvancePending(instance, dispatch, timeStep);
+		}
+		return failed;
 	}
 
 	private bool IsTriggered(InputEvent input) => input.Kind switch
@@ -218,8 +291,20 @@ internal sealed partial class VisualScriptRuntime
 		{
 			instance.Frame.Slots[node.OutputBase] = value;
 		}
-		Execution execution = Acquire(instance, eventNode);
+		Execution execution = Acquire(instance, eventNode, 0);
 		return Finish(execution, Execute(execution, !IsExecuting));
+	}
+
+	// Runs a fiber again at its latent node, as an outermost execution: entry ResumeEntry continues at the node's
+	// continuation, RecheckEntry checks a WaitUntil's condition first. True when it ended in an aborting error.
+	private bool Continue(Execution fiber, int entry)
+	{
+		fiber.Instance.RemoveFiber(fiber);
+		fiber.Node = fiber.SuspendedAt;
+		fiber.Entry = entry;
+		fiber.SuspendedAt = -1;
+		fiber.Debugger = Trace(fiber.Instance);
+		return Finish(fiber, Execute(fiber, true));
 	}
 
 	// What happens to an execution after it ran: one that ended or aborted is released (an abort logged once); a suspended
@@ -229,7 +314,7 @@ internal sealed partial class VisualScriptRuntime
 		switch (result)
 		{
 			case ExecutionResult.Suspended:
-				execution.Instance.AddFiber(execution);
+				Park(execution);
 				return false;
 			case ExecutionResult.Aborted:
 				m_Environment.Log(VisualScriptLogLevel.Error, execution.Error!.Message);
@@ -241,17 +326,35 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	// A new execution of the instance that starts at a node of its event graph.
-	private Execution Acquire(GraphInstance instance, int node)
+	// A suspended execution becomes a fiber of its instance, at its place in the pending order; one whose instance died
+	// while it ran dies with it.
+	private void Park(Execution fiber)
+	{
+		if (fiber.Instance.IsAlive)
+		{
+			fiber.Instance.AddFiber(fiber);
+			return;
+		}
+		ClearPending(fiber);
+		Release(fiber);
+	}
+
+	// A new execution of the instance that starts at a node of its event graph (and its exec input), traced when the
+	// debugger targets the instance's entity.
+	private Execution Acquire(GraphInstance instance, int node, int entry)
 	{
 		Execution execution = m_ExecutionPool.TryPop(out Execution? pooled) ? pooled : new Execution();
+		execution.Serial = ++m_LastSerial;
 		execution.Instance = instance;
 		execution.Program = instance.Program;
 		execution.PushCall(instance.Frame, -1, null, 0);
 		execution.Node = node;
-		execution.Entry = 0;
+		execution.Entry = entry;
+		execution.Debugger = Trace(instance);
 		return execution;
 	}
+
+	private IVisualScriptDebugger? Trace(GraphInstance instance) => m_Debugger is { } debugger && debugger.IsTarget(instance.Entity) ? debugger : null;
 
 	// Returns the frames of an execution's function calls to their pools and the execution to the runtime's pool.
 	private void Release(Execution execution)
@@ -265,13 +368,117 @@ internal sealed partial class VisualScriptRuntime
 		m_ExecutionPool.Push(execution);
 	}
 
-	// An instance that is destroyed or replaced: its fibers die (spec section 5.1).
+	// A fiber that never runs again: Stop cancelled its Tween or Interval, a RetriggerableDelay's latest trigger replaced
+	// it, or a live edit cancelled it. Nothing of its stack runs.
+	private void Discard(Execution fiber)
+	{
+		fiber.Instance.RemoveFiber(fiber);
+		ClearPending(fiber);
+		Release(fiber);
+	}
+
+	// The latent node a fiber waits in stops being pending.
+	private static void ClearPending(Execution fiber)
+	{
+		Frame frame = fiber.TopFrame;
+		CompiledNode node = frame.Graph.Nodes[fiber.SuspendedAt];
+		if (ReferenceEquals(frame.Slots[node.StateSlot].Object, fiber))
+		{
+			frame.Slots[node.StateSlot] = default;
+		}
+	}
+
+	// An instance that is destroyed or replaced: its fibers die and its latent nodes stop being pending (spec section 5.1).
 	private void Kill(GraphInstance instance)
 	{
 		foreach (Execution fiber in instance.Kill())
 		{
+			ClearPending(fiber);
 			Release(fiber);
 		}
+	}
+
+	private static bool Contains(GraphInstance instance, Execution fiber)
+	{
+		for (int index = 0; index < instance.FiberCount; index++)
+		{
+			if (ReferenceEquals(instance.FiberAt(index), fiber))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// A dispatch or execution of the program starts running, and one ends: when none runs any more, the live edits that
+	// waited for it take effect.
+	private static void Enter(GraphProgram program)
+	{
+		program.Activity++;
+	}
+
+	private void Leave(GraphProgram program)
+	{
+		if (--program.Activity == 0 && m_PendingSwaps.Count > 0)
+		{
+			ApplySwaps();
+		}
+	}
+
+	// After the game assembly changed, a handle's programs compile again from their documents when the handle is next used
+	// (spec section 5.6). The errors of documents that do not compile now are logged once, here.
+	private void Refresh(GraphEntry entry)
+	{
+		if (!entry.IsStale)
+		{
+			return;
+		}
+		entry.IsStale = false;
+		GraphProgram latest = Compile(entry.LatestSource);
+		entry.Latest = latest;
+		if (!latest.IsBroken)
+		{
+			entry.Effective = latest;
+			entry.EffectiveSource = entry.LatestSource;
+			return;
+		}
+		LogRecompiled(latest);
+		entry.Effective = entry.EffectiveSource is { } working && !ReferenceEquals(working, entry.LatestSource) ? Recompile(working) : null;
+		if (entry.Effective == null)
+		{
+			entry.EffectiveSource = null;
+		}
+	}
+
+	// The program of a document that worked before the game assembly changed; null (its errors logged) when it does not
+	// compile now.
+	private GraphProgram? Recompile(ProgramSource source)
+	{
+		GraphProgram program = Compile(source);
+		if (!program.IsBroken)
+		{
+			return program;
+		}
+		LogRecompiled(program);
+		return null;
+	}
+
+	private GraphProgram Compile(ProgramSource source) => ProgramCompiler.Compile(GraphAnalyzer.Analyze(m_Library(), source.Document), source.Name);
+
+	private void LogRecompiled(GraphProgram program)
+	{
+		m_Environment.Log(VisualScriptLogLevel.Error, $"{program.Name} was compiled again for the changed game assembly: {DescribeErrors(program)}");
+	}
+
+	// "<n> errors, first: <message> (node <id>)" of a broken program.
+	private static string DescribeErrors(GraphProgram program)
+	{
+		Diagnostic first = program.FirstError!;
+		string location = first.Node is { } node ? FormattableString.Invariant($" (node {node})")
+			: first.Variable is { } variable ? FormattableString.Invariant($" (variable {variable})")
+			: string.Empty;
+		string errors = program.ErrorCount == 1 ? "1 error" : FormattableString.Invariant($"{program.ErrorCount} errors");
+		return $"{errors}, first: {first.Message}{location}";
 	}
 
 	// The invoker of a member, built the first time a node of the runtime calls it.
@@ -296,11 +503,28 @@ internal sealed partial class VisualScriptRuntime
 		return invoker;
 	}
 
+	// A document as it was loaded: what a program compiles from again after the game assembly changed.
+	private sealed record ProgramSource(string Name, byte[] Document);
+
 	// The programs of a graph handle.
 	private sealed class GraphEntry
 	{
+		internal GraphEntry(ProgramSource source)
+		{
+			LatestSource = source;
+		}
+
+		// The document last loaded and its program, broken or not.
+		internal ProgramSource LatestSource { get; set; }
+
 		internal GraphProgram? Latest { get; set; }
 
+		// The last document whose program worked, and that program.
+		internal ProgramSource? EffectiveSource { get; set; }
+
 		internal GraphProgram? Effective { get; set; }
+
+		// The game assembly changed since the programs compiled: they were dropped and compile again when next used.
+		internal bool IsStale { get; set; }
 	}
 }

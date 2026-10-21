@@ -84,23 +84,26 @@ public sealed class ProgramTests
 	}
 
 	[Fact]
-	public void AWorkingDocumentGivesNewInstancesItsProgram()
+	public void AWorkingDocumentRunsInNewAndRunningInstances()
 	{
 		TestRuntime runtime = TestRuntime.Start(Writing("first"));
+		GraphProgram first = runtime.Instance().Program;
 		runtime.LoadWorking(Writing("second"));
 		runtime.Create(8);
 
 		runtime.Invoke(ScriptEvent.Create);
 		runtime.Invoke(ScriptEvent.Create, entity: 8);
-		Assert.Equal(["first", "second"], runtime.Records);
+		Assert.Equal(["second", "second"], runtime.Records);
+		Assert.NotSame(first, runtime.Instance().Program);
+		Assert.Same(runtime.Runtime.FindEffectiveProgram(TestRuntime.Graph), runtime.Instance().Program);
 	}
 
 	[Fact]
 	public void UnloadForgetsTheHandleButNotItsInstances()
 	{
 		TestRuntime runtime = TestRuntime.Start(Writing("running"));
-		Assert.True(runtime.Runtime.Unload(TestRuntime.Graph));
-		Assert.False(runtime.Runtime.Unload(TestRuntime.Graph));
+		Assert.Equal(VisualScriptStatus.Success, runtime.Runtime.Unload(TestRuntime.Graph));
+		Assert.Equal(VisualScriptStatus.NotFound, runtime.Runtime.Unload(TestRuntime.Graph));
 
 		Assert.Equal(VisualScriptStatus.NotFound, runtime.Create(8));
 		Assert.Equal(VisualScriptStatus.NotFound, runtime.Create(8, 404));
@@ -117,8 +120,8 @@ public sealed class ProgramTests
 		runtime.Create(8);
 		runtime.Create(9);
 
-		Assert.True(runtime.Runtime.DestroyInstance(TestRuntime.Hero));
-		Assert.False(runtime.Runtime.DestroyInstance(TestRuntime.Hero));
+		Assert.Equal(VisualScriptStatus.Success, runtime.Runtime.DestroyInstance(TestRuntime.Hero));
+		Assert.Equal(VisualScriptStatus.NotFound, runtime.Runtime.DestroyInstance(TestRuntime.Hero));
 		Assert.Equal(2, runtime.Runtime.InstanceCount);
 		runtime.Runtime.DestroyAllInstances();
 		Assert.Equal(0, runtime.Runtime.InstanceCount);

@@ -21,7 +21,7 @@ internal static class ProgramCompiler
 	{
 		if (document.HasErrors)
 		{
-			return new GraphProgram(name, document.ErrorCount, document.FirstError);
+			return new GraphProgram(document.Library, name, document.ErrorCount, document.FirstError);
 		}
 		Dictionary<AnalyzedVariable, int> variableIndexes = [];
 		CompiledVariable[] variables = new CompiledVariable[document.Variables.Count];
@@ -44,7 +44,9 @@ internal static class ProgramCompiler
 		{
 			AnalyzedFunction source = document.Functions[index];
 			CompiledFunction function = compiledFunctions[index];
-			function.Graph = new GraphCompiler(context, source.Graph, function).Compile();
+			GraphCompiler compiler = new(context, source.Graph, function);
+			function.Graph = compiler.Compile();
+			function.Locals = compiler.Locals;
 			foreach (CompiledNode node in function.Graph.Nodes)
 			{
 				if (node.Builtin == BuiltinNode.FunctionEntry)
@@ -86,7 +88,7 @@ internal static class ProgramCompiler
 				inputEvents.Add(new InputEvent(index, builtin, unchecked((int)LiteralCodec.ToBits(input.Value)), gamepad));
 			}
 		}
-		return new GraphProgram(name, variables, eventGraph, events, [.. inputEvents]);
+		return new GraphProgram(document.Library, name, variables, compiledFunctions, eventGraph, events, [.. inputEvents]);
 	}
 
 	private sealed record Context(NodeLibrary Library, Dictionary<AnalyzedVariable, int> Variables, Dictionary<AnalyzedFunction, CompiledFunction> Functions);
@@ -100,6 +102,7 @@ internal static class ProgramCompiler
 		private readonly Dictionary<AnalyzedPin, int> m_OutputSlots = [];
 		private readonly Dictionary<AnalyzedNode, int> m_Indexes = [];
 		private readonly Dictionary<AnalyzedVariable, int> m_LocalSlots = [];
+		private readonly List<LocalSlot> m_Locals = [];
 
 		internal GraphCompiler(Context context, AnalyzedGraph graph, CompiledFunction? function)
 		{
@@ -107,6 +110,9 @@ internal static class ProgramCompiler
 			m_Graph = graph;
 			m_Function = function;
 		}
+
+		// The locals of a function's graph and their slots, in declaration order.
+		internal LocalSlot[] Locals => [.. m_Locals];
 
 		internal CompiledGraph Compile()
 		{
@@ -116,7 +122,9 @@ internal static class ProgramCompiler
 			}
 			foreach (AnalyzedVariable local in m_Graph.Owner?.Locals ?? [])
 			{
-				m_LocalSlots[local] = Allocate(SlotValues.FromValue(local.Value, local.Type!));
+				int slot = Allocate(SlotValues.FromValue(local.Value, local.Type!));
+				m_LocalSlots[local] = slot;
+				m_Locals.Add(new LocalSlot(local.ID, local.Type!, slot));
 			}
 			CompiledNode[] nodes = new CompiledNode[m_Graph.Nodes.Count];
 			List<AnalyzedPin>[] inputs = new List<AnalyzedPin>[nodes.Length];
@@ -250,6 +258,13 @@ internal static class ProgramCompiler
 				Opcode.OperatorMethod => source.Builtin == BuiltinNode.OperatorNegate ? ["A"] : ["A", "B"],
 				Opcode.VariableSet => ["Value"],
 				Opcode.Self or Opcode.Literal or Opcode.VariableGet or Opcode.FunctionEntry => [],
+				Opcode.Latent => source.Builtin switch
+				{
+					BuiltinNode.FlowWaitFrames => ["Frames"],
+					BuiltinNode.FlowWaitUntil => ["Condition"],
+					BuiltinNode.FlowInterval => ["Interval", "Count"],
+					_ => ["Duration"],
+				},
 				_ => null,
 			});
 			node.InputBase = m_Template.Count;
@@ -261,11 +276,13 @@ internal static class ProgramCompiler
 			return inputs;
 		}
 
-		// Outputs get slots in pin order; DoN's Counter and FlipFlop's IsA are their nodes' state.
+		// Outputs get slots in pin order; DoN's Counter and FlipFlop's IsA are their nodes' state. A latent node's state slot
+		// holds the fiber waiting in it while it is pending (none at first).
 		private void AllocateOutputs(AnalyzedNode source, CompiledNode node)
 		{
 			node.OutputBase = m_Template.Count;
-			int count = 0;
+			List<string> names = [];
+			List<VisualType> types = [];
 			foreach (AnalyzedPin pin in source.Pins)
 			{
 				if (pin.IsInput || pin.Type.IsExec)
@@ -273,9 +290,12 @@ internal static class ProgramCompiler
 					continue;
 				}
 				m_OutputSlots[pin] = Allocate(pin.Type.HasValues ? SlotValues.DefaultOf(pin.Type) : default);
-				count++;
+				names.Add(pin.Name);
+				types.Add(pin.Type);
 			}
-			node.OutputCount = count;
+			node.OutputCount = names.Count;
+			node.OutputPins = [.. names];
+			node.OutputTypes = [.. types];
 			switch (node.Op)
 			{
 				case Opcode.DoN:
@@ -285,6 +305,9 @@ internal static class ProgramCompiler
 				case Opcode.DoOnce:
 				case Opcode.Gate:
 					node.StateSlot = Allocate(Slot.FromBool(((GateBinding)source.Binding!).StartOpen));
+					break;
+				case Opcode.Latent:
+					node.StateSlot = Allocate(default);
 					break;
 			}
 		}
@@ -310,6 +333,10 @@ internal static class ProgramCompiler
 				{
 					node.ContinuationExit = exits.Count;
 				}
+				else if (pin.Description.Role == PinRole.Tick)
+				{
+					node.TickExit = exits.Count;
+				}
 				exits.Add(pin.Name);
 				ExecLink target = ExecLink.None;
 				foreach (AnalyzedLink link in pin.Links)
@@ -330,6 +357,13 @@ internal static class ProgramCompiler
 				Opcode.DoOnce or Opcode.DoN => ["Execute", "Reset"],
 				Opcode.Gate => ["Enter", "Open", "Close", "Toggle"],
 				Opcode.Branch or Opcode.Sequence or Opcode.Switch or Opcode.While or Opcode.FlipFlop or Opcode.Send or Opcode.VariableSet => ["Execute"],
+				// Entry 0 starts a latent node, entry 1 stops a Tween or Interval.
+				Opcode.Latent => source.Builtin switch
+				{
+					BuiltinNode.FlowTween => ["Execute", "Stop"],
+					BuiltinNode.FlowInterval => ["Start", "Stop"],
+					_ => ["Execute"],
+				},
 				_ => null,
 			};
 			string[]? expectedExits = node.Op switch
@@ -340,6 +374,12 @@ internal static class ProgramCompiler
 				Opcode.DoN or Opcode.Gate => ["Exit"],
 				Opcode.FlipFlop => ["A", "B"],
 				Opcode.Event or Opcode.Send or Opcode.VariableSet or Opcode.FunctionCall => ["Then"],
+				Opcode.Latent => source.Builtin switch
+				{
+					BuiltinNode.FlowTween => ["Update", "Completed"],
+					BuiltinNode.FlowInterval => ["Tick", "Completed"],
+					_ => ["Completed"],
+				},
 				_ => null,
 			};
 			if ((expectedEntries != null && !SameNames(entries, expectedEntries)) || (expectedExits != null && !SameNames(exits, expectedExits)))
@@ -475,6 +515,9 @@ internal static class ProgramCompiler
 				case Opcode.Literal:
 					LiteralBinding literal = (LiteralBinding)source.Binding!;
 					node.Constant = SlotValues.FromValue(literal.Value, literal.Type);
+					break;
+				case Opcode.Latent when source.Binding is TweenBinding tween:
+					node.Easing = tween.Easing;
 					break;
 				case Opcode.IsValid:
 					VisualType value = source.FindPin("Value", PinDirection.In)!.Type;

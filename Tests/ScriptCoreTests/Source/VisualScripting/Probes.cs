@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using Strada.Interop;
 using Strada.VisualScripting;
 
@@ -41,6 +42,16 @@ public static class Probe
 	// Dispatches an event to an entity's instance while the calling graph runs, as engine calls that run scripts do
 	// (Entity.Instantiate runs the Create event of the new instance before it returns); returns the status.
 	public static int Reenter(ulong entity, int scriptEvent) => (int)s_Runtime!.Invoke(entity, (ScriptEvent)scriptEvent, 0.0f, 0);
+
+	// Loads a new document for the test graph while the calling graph runs, as the engine does when an asset changed while
+	// a script it called instantiated a prefab.
+	public static void Reload(string document)
+	{
+		s_Runtime!.Load(TestRuntime.Graph, TestRuntime.Name, Encoding.UTF8.GetBytes(document));
+	}
+
+	// Sends a custom event without arguments through the managed API, as a C# script would; returns what SendEvent did.
+	public static bool Send(ulong entity, string name) => s_Runtime!.SendEvent(entity, name, []);
 
 	// Records a line (an impure node: Execute, Text, Then).
 	public static void Write(string text)
