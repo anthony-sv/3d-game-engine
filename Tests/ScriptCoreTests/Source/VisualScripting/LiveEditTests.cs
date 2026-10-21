@@ -70,7 +70,7 @@ public sealed class LiveEditTests
 	}
 
 	[Fact]
-	public void VariablesCarryOverByIdThenByNameAndType()
+	public void VariablesCarryOverByIdThenByNameAndTypeAndTheOthersStartAtTheirValue()
 	{
 		DocumentBuilder document = new();
 		uint score = document.Variable("Score", "int", "0");
@@ -88,22 +88,28 @@ public sealed class LiveEditTests
 
 		runtime.LoadWorking(FormattableString.Invariant($$"""
 			{ "Variables": [
-				{ "ID": {{score}}, "Name": "Points", "Type": "int" },
-				{ "ID": 50, "Name": "Name", "Type": "string" },
+				{ "ID": {{score}}, "Name": "Points", "Type": "int", "Value": 100 },
+				{ "ID": 50, "Name": "Name", "Type": "string", "Value": "villain" },
 				{ "ID": {{speed}}, "Name": "Speed", "Type": "int", "Value": 4 },
-				{ "ID": 51, "Name": "Extra", "Type": "bool", "Value": true }
+				{ "ID": 51, "Name": "Extra", "Type": "bool", "Value": true },
+				{ "ID": 52, "Name": "Tint", "Type": "Strada.Color" }
 			], "Functions": [], "Graph": { "Nodes": [], "Links": [], "Comments": [] } }
 			"""));
-		// Score kept its ID under a new name, Name its name and type under a new ID. Speed changed its type and Extra is new:
-		// they start at the type default, not at their Value.
+		// Score kept its ID under a new name, Name its name and type under a new ID: they keep their values, whatever Value the
+		// edit gives them. Speed changed its type, and Extra and Tint are new: they start as in a new instance, at their Value,
+		// else at the type default.
 		Assert.Equal(7, runtime.Variable("Points"));
 		Assert.Equal("hero", runtime.Variable("Name"));
-		Assert.Equal(0, runtime.Variable("Speed"));
-		Assert.Equal(false, runtime.Variable("Extra"));
+		Assert.Equal(4, runtime.Variable("Speed"));
+		Assert.Equal(true, runtime.Variable("Extra"));
+		Assert.Equal(new Color(1.0f, 1.0f, 1.0f, 1.0f), runtime.Variable("Tint"));
 		// A new instance starts at the Values.
 		runtime.Create(8);
+		Assert.Equal(100, runtime.Variable("Points", 8));
+		Assert.Equal("villain", runtime.Variable("Name", 8));
 		Assert.Equal(4, runtime.Variable("Speed", 8));
 		Assert.Equal(true, runtime.Variable("Extra", 8));
+		Assert.Equal(new Color(1.0f, 1.0f, 1.0f, 1.0f), runtime.Variable("Tint", 8));
 	}
 
 	[Fact]

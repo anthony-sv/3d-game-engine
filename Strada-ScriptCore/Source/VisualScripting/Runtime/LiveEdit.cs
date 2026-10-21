@@ -76,8 +76,8 @@ internal sealed partial class VisualScriptRuntime
 		instance.Swap(target, variables, frame);
 	}
 
-	// Variables match by ID (with the same type), then by name and type; the others start at the type default (spec
-	// section 2.2), whatever Value the document gives them.
+	// Variables match by ID (with the same type), then by name and type, and keep their values; the others start as they do
+	// in a new instance (spec section 5.1): at their Value, else at the type default.
 	private static Slot[] CarryVariables(GraphProgram source, Slot[] values, GraphProgram target)
 	{
 		Dictionary<uint, int> byId = [];
@@ -107,7 +107,7 @@ internal sealed partial class VisualScriptRuntime
 				matches[index] = old;
 				taken[old] = true;
 			}
-			carried[index] = matches[index] >= 0 ? values[matches[index]] : SlotValues.DefaultOf(variables[index].Type);
+			carried[index] = matches[index] >= 0 ? values[matches[index]] : variables[index].Initial;
 		}
 		return carried;
 	}
