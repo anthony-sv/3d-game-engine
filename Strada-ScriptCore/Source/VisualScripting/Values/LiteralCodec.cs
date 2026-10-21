@@ -372,20 +372,27 @@ internal static class LiteralCodec
 				new Vector4(values[4], values[5], values[6], values[7]), new Vector4(values[8], values[9], values[10], values[11]),
 				new Vector4(values[12], values[13], values[14], values[15])));
 		}
-		// Quaternions are normalized as the engine's decoder does it: unit ones are kept bit-exact (renormalizing would move them
-		// by an ulp on every round trip), and one too short to have a direction is the identity (with a Warning ZeroQuaternion).
-		double length = Math.Sqrt(((double)values[0] * values[0]) + ((double)values[1] * values[1]) + ((double)values[2] * values[2]) +
-			((double)values[3] * values[3]));
-		if (length < MinQuaternionLength)
+		Quaternion quaternion = Normalize(new Quaternion(values[0], values[1], values[2], values[3]), out bool wasZero);
+		return new DecodedLiteral(quaternion, LiteralProblem.None, null, wasZero);
+	}
+
+	// Quaternions are normalized as the engine's decoder does it: unit ones are kept bit-exact (renormalizing would move them
+	// by an ulp on every round trip), and one too short (or too broken) to have a direction is the identity (a literal gets a
+	// Warning ZeroQuaternion for it).
+	internal static Quaternion Normalize(Quaternion value, out bool wasZero)
+	{
+		double length = Math.Sqrt(((double)value.X * value.X) + ((double)value.Y * value.Y) + ((double)value.Z * value.Z) +
+			((double)value.W * value.W));
+		wasZero = !(length >= MinQuaternionLength) || double.IsInfinity(length);
+		if (wasZero)
 		{
-			return new DecodedLiteral(Quaternion.Identity, LiteralProblem.None, null, true);
+			return Quaternion.Identity;
 		}
 		if (Math.Abs(length - 1.0) <= UnitQuaternionTolerance)
 		{
-			return DecodedLiteral.Of(new Quaternion(values[0], values[1], values[2], values[3]));
+			return value;
 		}
-		return DecodedLiteral.Of(new Quaternion((float)(values[0] / length), (float)(values[1] / length), (float)(values[2] / length),
-			(float)(values[3] / length)));
+		return new Quaternion((float)(value.X / length), (float)(value.Y / length), (float)(value.Z / length), (float)(value.W / length));
 	}
 
 	private static void WriteEnum(Utf8JsonWriter writer, VisualType type, Enum value)
