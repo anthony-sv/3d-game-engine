@@ -192,7 +192,10 @@ Project settings are saved to the project file immediately and are not part of t
 While playing, a `Script` component's `Fields` are the values its running script holds (`entity.get` and
 `component.get` read them from the script), and `component.set` sets the given ones in the script at once, also while
 paused; undo gives the script back the values it had. The `Fields` object replaces the stored ones, so values the patch
-leaves out stay the script's own.
+leaves out stay the script's own. A `VisualScript` component's `Variables` (the values the entity gives the public
+variables of its graph, by name) work the same way with its running graph: a `Variables` patch replaces the whole map,
+so variables it leaves out have no stored value (the graph gives them their own) and, while playing, keep the values the
+graph holds.
 
 `Core` components are on every entity and cannot be added or removed. `Category` says what a component is for: `Core`,
 `Rendering`, `Physics`, `Audio`, `Scripting` or `UI` (the inspector's Add Component menu groups components by it).
@@ -243,6 +246,121 @@ Material fields are those of `.smat` files (`BaseColor`, `Metallic`, `Roughness`
 | `material.create` | `path`* (`.smat`, relative to Assets), `fields` | `material` (asset), `fields` |
 | `material.get` | `material`* | `material`, `fields` |
 | `material.set` | `material`*, `fields`* (partial patch; undoable without marking the scene modified; built-in and mesh-embedded materials are read-only) | `material`, `fields` |
+
+### graph
+
+Visual scripts are graph assets (`.sgraph` files) that a `VisualScript` component runs on its entity: its `Graph` is the
+asset, its `Variables` the values the entity gives the graph's public variables. The graph commands read and write a
+graph's **document**, the content of its file without the header: `{ "Description", "Variables", "Functions", "Graph" }`
+(Docs/Architecture.md section 7.3). Variables, function locals, functions, nodes and comments share one space of IDs (1
+to 2147483647). A node is `{ "ID", "Type", "Position"?, "Settings"?, "Inputs"? }`: `Type` is a node kind of
+`graph.library` (`Flow.Branch`, `Call:Strada.Input.IsKeyDown(Strada.KeyCode)`), a node without `Position` is laid out
+by `graph.set`, `Settings` configure the kind and `Inputs` hold the literals of unconnected inputs. A link is
+`{ "From": [<node>, "<output pin>"], "To": [<node>, "<input pin>"] }`, within one graph (the event graph, or one
+function's). Documents store no pins: the scripting runtime derives them (`graph.library` lists each kind's, an analysis
+each node's).
+
+| Command | Parameters | Result |
+|---------|-----------|--------|
+| `graph.create` | `path`* (`.sgraph`, relative to Assets), `template` (`Events` (default): an `Event.Create` and an `Event.Update` node; `Empty`) | `asset` (the graph's handle), `path`; not undoable (file creation); InvalidParams for a path that is taken, outside Assets or not `.sgraph` |
+| `graph.get` | `graph`* (handle or `"asset://<path>.sgraph"`), `analyze` (default true) | `asset`, `path`, `document`, `analyzed`, `nodes` and `diagnostics` (the analysis, below); FileError when the file does not load |
+| `graph.set` | `graph`*, `document`* (strict) | `asset`, `path`, `changed` (false when the document is the stored one: no undo step), `analyzed`, `warnings` (what `graph.set` changed besides the given document), `nodes`, `diagnostics`; saves the file as one undo step that does not mark the scene modified; allowed while playing (below) |
+| `graph.check` | `document`*, `graph` (the graph the document is for) | `valid`, `issues` (`[{ path, message }]`: what `graph.set` would refuse), `warnings` (what it would change), `analyzed`, `nodes`, `diagnostics`; writes nothing |
+| `graph.library` | `query` (in titles, keywords, categories and types, ignoring case), `category` (`Flow`, `Math`, `Components/Rigid Body`, ...: with the categories below it), `pinType` (a type ID, `exec` for flow), `direction` (with `pinType`: `In` for nodes with an input taking the type, `Out` for nodes with an output giving it; without it either), `limit` (1 to 500, default 50), `offset` | `nodes` (in library order: by category, then title), `total` (matches before paging); each node `{ Type, Title, Subtitle?, Category, Description?, Keywords, Kind, Pure, Latent, Pins, Settings }`, its pins `{ Name, Direction, Type, Label?, Default?, DefaultsToSelf?, Role?, Constraint?, Group?, ElementOf? }` (wildcards have the type `*`); InvalidParams for an unknown `pinType` and for `direction` without one |
+| `graph.types` | `query` (in IDs and titles, ignoring case), `kind` (`Exec`, `Bool`, `Integer`, `Float`, `String`, `Vector`, `Quaternion`, `Color`, `Matrix`, `Entity`, `Component`, `Asset`, `Enum`, `Struct`, `Class`, `Array` or `Object`), `limit` (1 to 500, default 50), `offset` | `types` (by ID), `total`; each type `{ ID, Title, Kind, FieldType? (the types public variables can have), AssetType?, Literal? (documents can hold its values), Enumerators? and Flags (enums), Makeable?, Breakable?, Fields? (structs), Base? (classes), Element? (arrays), ImplicitTo }` (`ImplicitTo`: the types its values convert to; every type also converts to `string`) |
+
+`graph.library` and `graph.types` need the scripting runtime (.NET 10): without it they fail with Unavailable, and
+`graph.get`, `graph.set` and `graph.check` answer `analyzed: false` without `nodes` and `diagnostics`. Every graph command
+fails with Unavailable without assets and `graph.create` and `graph.set` with InvalidOperation without a project; a
+`graph` that is not registered is AssetNotFound, and one that is not a visual script (or, for `graph.set`, has no file
+of its own) InvalidParams with `data.path` `"graph"`. `graph.set` fails with FileError when the file cannot be read
+(missing) or written.
+
+**Strictness.** `graph.set` checks its `document` as the loader checks files, but refuses what the loader would repair:
+an unknown key, a missing or duplicate ID, a name or type that is invalid or taken, a link to a node of another graph or
+one that repeats another, a value nested more than 16 levels deep, a position outside ±1e7, a list past its limit, ...
+It then fails with InvalidParams: the message is the first issue (`"<path>: <message>"`), `data.path` is `"document."`
+followed by its path and `data.issues` lists every issue as `{ path, message }`, with paths relative to the document
+(`Graph.Nodes[3].ID`, `Functions[0].Locals[1].Name`, `Variables[2].Range`). Nothing is written then. Keys left out take
+their defaults, and `"Value": null` means no value; neither is an issue. `graph.check` reports the issues in `issues`
+instead (`valid` is true without any) and checks the repaired document further. Problems of meaning (unknown node types,
+pins, links of types that do not convert, ...) are never issues: the analysis reports them as diagnostics, and
+`graph.set` stores such documents (they do not run until fixed).
+
+**What graph.set changes.** Besides storing the document it is given, `graph.set` reports in `warnings` (and `graph.check`
+lists) what it changes:
+- A variable whose ID the stored document has under another name keeps that name in its `FormerNames`, so values
+  components store under it still apply to the variable (`"variable renamed: <old> → <new> (<old> is kept in
+  FormerNames)"`); a variable keeps its 16 most recent former names. A name that is a variable's current name, or a
+  former name of another variable, is not kept.
+- With the runtime, a node whose `Type` resolved through a redirect (an API member that was renamed or changed its
+  signature) or as the only overload of its member with the node's pins is stored under its exact type, its renamed pins'
+  links and inputs following (`"node updated: <old> → <new>"`).
+- Nodes without a `Position` are placed (not reported): each group of linked nodes below the placed ones, links running
+  left to right in columns 320 apart, the nodes of a column 160 apart.
+
+While playing, `graph.set` goes into the play history (dropped at `play.stop`; the file keeps the change), and running
+instances of the graph take the edit at their next update: variables keep their values (matched by ID, then by name and
+type; others start at their `Value`), and nodes waiting (a `Flow.Delay`, ...) keep waiting while they still exist.
+
+**Analysis.** `nodes` lists every node of the document (those of the functions' graphs, then those of the event graph):
+`{ ID, Function (0 for the event graph), Type (as stored), Resolved (Exact, Redirect, Unique or Unknown), CanonicalType?
+and PinRenames? (Redirect and Unique: [{ Direction, From, To }]), Title, Subtitle?, Kind, Pure, Latent, Pins }`, with the
+types the runtime resolved its wildcards to (`*` while open). `diagnostics` are `{ Severity (Error or Warning), Code,
+Function, Message, Node?, Pin?, Direction?, Link? ({ From, To }), Variable? (a variable or local ID), Suggestions? }`;
+`Suggestions` lists the nearest known names for unknown ones and the candidates of an ambiguous node. A graph with an
+Error does not run (the log names its first error), and a graph edited while playing into one with an Error keeps
+running its last working version. The codes (W: Warning, the others are Errors):
+
+| Code | Meaning |
+|------|---------|
+| InvalidDocument | The document is not a JSON object, or not text: "the document is not UTF-8 text", "the document has a string or member name that is not text: an escaped surrogate without its pair" (the editor parses what it is given, so its documents are always text) |
+| UnknownNodeType | No node kind has the node's `Type` |
+| AmbiguousNode | A `Type` without a signature (`Call:<class>.<member>`) fits several overloads of the member; `Suggestions` lists them |
+| NodeUpdated (W) | The `Type` resolved through a redirect or as the only overload of its member: `"node updated: <old> → <new>"` (`graph.set` stores the new type) |
+| UnknownPin | A link names a pin the node does not have, or links an output as an input |
+| UnusedInput (W) | An `Inputs` key names no input of the node |
+| MultipleExecLinks | An exec output has more than one link |
+| MultipleDataLinks | A data input has more than one link |
+| TypeMismatch | A link joins types that do not convert (a `Convert` node converts explicitly), or an exec pin to a data pin |
+| UnresolvedWildcard | A wildcard input gets no type: link it, or give it a literal another operand types |
+| NoOperator | An `Operator.*` node has no operator for its operands' types |
+| NoConversion | A `Convert` node cannot convert between its types |
+| InvalidValue | A literal (a variable's `Value`, an `Inputs` member, `Literal`'s `Value`) is not one of its type (below), or a `DefaultsToSelf` input has one |
+| EntityValue | An entity literal other than `"0"`: graphs are shared, so entities come from public variables set per component |
+| ZeroQuaternion (W) | A quaternion literal of length 0 reads as the identity |
+| InvalidSetting | A setting has a value its node kind does not take |
+| MissingSetting | A required setting is missing |
+| UnknownSetting (W) | A `Settings` key names no setting of the node kind |
+| MissingTypeArgument | A generic member's node has no `TypeArguments` |
+| InvalidCase | A `Flow.Switch` case is not a literal of the switched type |
+| DuplicateEvent | An event the document may have once (`Event.Update`, one `Event.KeyPressed` per key, one `Event.Custom` per name, ...) appears again |
+| EventInFunction | An event node in a function's graph |
+| EventInputLinked | A link into an input of an event node (they take literals) |
+| InvalidName | A name declared in settings (a custom event, its parameters, a `FormatString` placeholder) breaks the name rule: 1 to 64 bytes, no control characters or `.`, no surrounding spaces |
+| ReservedName | A function parameter, custom event parameter or placeholder is named `Execute`, `Then`, `Target`, `Self` or `Default` |
+| UnknownType | A type ID names no type (`graph.types` lists them) |
+| InvalidType | `exec`, `*` or an array type for a variable, local or parameter |
+| NotExposable | A public variable of a type components cannot store (the types with a `FieldType`) |
+| UnknownVariable | A `Variable` setting names no variable (or local) of the graph |
+| UnknownFunction | A `Function` setting names no function |
+| MissingEntry, DuplicateEntry | A function's graph needs exactly one `Function.Entry` |
+| MissingReturn, DuplicateReturn | A pure function's graph needs exactly one `Function.Return` |
+| ImpureInPureFunction | An impure node in a pure function's graph |
+| NotInFunction | `Function.Entry` or `Function.Return` in the event graph |
+| LatentInPureContext | A latent node (`Flow.Delay`, ...) or a call of a latent function in a pure function's graph |
+| TickInFunction | `Flow.Tween` or `Flow.Interval` in a function's graph |
+| PureCycle | Pure nodes that need each other's values |
+| PureRecursion | A pure function that calls itself, directly or not |
+
+**Literals** (variables' `Value`, `Inputs`, `Literal`'s `Value`, `Flow.Switch` cases): `bool` true/false; `int` and
+`uint` JSON integers; `long` and `ulong` decimal strings (`"-9000000000"`); `float` (up to 3.4028235e38) and `double`
+numbers; `string` strings; `Strada.Vector2`/`3`/`4` arrays of 2, 3 or 4 numbers; `Strada.Quaternion` `[x, y, z, w]`
+(normalized); `Strada.Color` `[r, g, b, a]` (linear); `Strada.Matrix4` 16 numbers, column by column; `Strada.Entity`
+`"0"` only; assets (`Strada.Material`, `Strada.Prefab`, ..., `Strada.AssetHandle`) decimal handle strings (`"0"` for
+none; `asset.list` gives handles); enums the enumerator's name (`"Space"`), and `[Flags]` enums an array of names
+(`[]` for none, `["Read", "Write"]`; a `Flow.Switch` case on such an enum is an array too), or the value as an integer (a
+decimal string for 64-bit enums). Other types have no literal: link their inputs.
 
 ### prefab
 

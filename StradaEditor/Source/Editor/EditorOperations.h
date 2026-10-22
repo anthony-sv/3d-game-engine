@@ -93,7 +93,8 @@ namespace Strada
 		[[nodiscard]] Result<void> RemoveComponent(std::span<UUID const> entities, std::string_view component);
 		// Applies a partial JSON patch in the scene-file format. Edits with the same non-zero merge key (for example one
 		// inspector drag) merge into one undo step until CommandHistory::BreakMerge is called. While playing, a Script
-		// component's fields are first read from its running script (Scene::ReadScriptFields) and the values set reach it.
+		// component's fields are first read from its running script (Scene::ReadScriptFields), and a VisualScript component's
+		// variables from its running graph (Scene::ReadVisualScriptVariables); the values set reach them.
 		[[nodiscard]] Result<void> SetComponentFields(UUID entity, std::string_view component, Json const& patch, uint64_t mergeKey = 0);
 
 		// Applies several partial patches as one undo step, all or nothing. Edits with the same non-zero merge key and the
@@ -154,6 +155,13 @@ namespace Strada
 		// Applies a partial patch to a material file's parameters as an undoable step; edits with the same non-zero merge key
 		// (one inspector drag) merge.
 		[[nodiscard]] Result<void> SetMaterialFields(AssetHandle material, Json const& patch, uint64_t mergeKey = 0);
+		// Replaces the document of a visual script file as an undoable step (SetVisualScriptCommand): the file is written, then
+		// the loaded asset takes the document, so graphs running while playing take the edit. A file that does not load is
+		// replaced too, and undoing writes it back. No step is recorded when the document is the stored one; edits with the same
+		// non-zero merge key merge. The document must load as written (VisualScriptSerializer reports no issue for it):
+		// graph.set checks what it is given. Fails without changes for other assets, graphs without a file of their own and
+		// missing files.
+		[[nodiscard]] Result<void> SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey = 0);
 
 		// --- Selection and history ---
 

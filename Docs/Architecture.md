@@ -1110,7 +1110,9 @@ positions. A build is out of date when a C# source or project file is newer than
   rename, reparent, find, get, select), `component.*` (types, add, remove, get, set with partial JSON patch),
   `asset.*` (list, get, select, import, refresh, browse and drop in the content browser, move, delete, create-folder,
   move-folder, delete-folder),
-  `material.*` (create, get, set; edits are undoable without marking the scene modified), `prefab.*`,
+  `material.*` (create, get, set; edits are undoable without marking the scene modified), `graph.*` (visual scripts:
+  create, get, set and check documents, checked strictly, with the scripting runtime's analysis; edits are undoable
+  without marking the scene modified; library and types list the runtime's node kinds and types), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `ui.*` (where the screen-space UI's elements and buttons are in the game
   view), `viewport.*` (screenshot, camera, frame entities, overlays, renderer statistics),

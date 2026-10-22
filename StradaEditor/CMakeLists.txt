@@ -120,6 +120,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Viewport/TransformEditing.h
     Source/Editor/Viewport/ViewportOverlays.cpp
     Source/Editor/Viewport/ViewportOverlays.h
+    Source/Editor/VisualScriptEditing.cpp
+    Source/Editor/VisualScriptEditing.h
 )
 
 add_library(StradaEditorCore STATIC ${STRADA_EDITOR_CORE_SOURCES})

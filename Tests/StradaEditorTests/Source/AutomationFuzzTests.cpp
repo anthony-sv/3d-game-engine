@@ -99,6 +99,8 @@ namespace
 		std::vector<std::string> ScenePaths;
 		std::vector<std::string> Folders;
 		Json MaterialFields = Json::object();
+		// The document of the first visual script (graph.get), for graph.set and graph.check.
+		Json GraphDocument = Json::object();
 		Json ProjectSettings = Json::object();
 		Json SceneSettings = Json::object();
 	};
@@ -327,6 +329,16 @@ namespace
 			{
 				return Damage(m_Command == "project.settings" ? m_State.ProjectSettings : m_State.SceneSettings);
 			}
+			// A whole visual script document (graph.set, graph.check), damaged half the time.
+			if (property == "document")
+			{
+				Json document = m_State.GraphDocument;
+				if (m_Random.Pick(2) == 0)
+				{
+					m_Mutator.Mutate(document);
+				}
+				return document;
+			}
 			return std::nullopt;
 		}
 
@@ -394,6 +406,11 @@ namespace
 				auto const typed = m_State.AssetsByType.find(property == "material" ? "Material" : "Prefab");
 				return {typed != m_State.AssetsByType.end() ? typed->second : std::vector<std::string>(), invalidAssets};
 			}
+			if (property == "graph")
+			{
+				auto const graphs = m_State.AssetsByType.find("VisualScript");
+				return {graphs != m_State.AssetsByType.end() ? graphs->second : std::vector<std::string>(), invalidAssets};
+			}
 			if (property == "scene")
 			{
 				return {m_State.ScenePaths, {"Missing.sscene", "../Escape.sscene", ""}};
@@ -452,6 +469,10 @@ namespace
 			if (m_Command == "prefab.create")
 			{
 				return {{"Prefabs/Fuzz.sprefab", "Fuzz.sprefab"}, refused};
+			}
+			if (m_Command == "graph.create")
+			{
+				return {{"Scripts/Fuzz.sgraph", "Fuzz.sgraph"}, refused};
 			}
 			// asset.move: a new place for the asset, under the same name.
 			auto const asset = siblings.find("asset");
@@ -554,8 +575,9 @@ namespace
 			REQUIRE(FileSystem::WriteBinaryFile(Imports / "Sound.wav", Testing::MakeWav(silence).GetSpan()).IsOk());
 			REQUIRE(Operations.CreateProject(ProjectDirectory, "Fuzz", Scene("Main")).IsOk());
 
-			// An entity for each component, in one hierarchy, a material, a prefab, a folder and imported files.
+			// An entity for each component, in one hierarchy, a material, a visual script, a prefab, a folder and imported files.
 			std::string parent;
+			std::string visualScript;
 			Json const types = Ok("component.types");
 			for (Json const& type : types["components"])
 			{
@@ -566,6 +588,10 @@ namespace
 				}
 				std::string const id =
 					Ok("entity.create", Json::object({{"name", name}, {"components", {{name, Json::object()}}}}))["id"].get<std::string>();
+				if (name == "VisualScript")
+				{
+					visualScript = id;
+				}
 				if (parent.empty())
 				{
 					parent = id;
@@ -576,6 +602,11 @@ namespace
 				}
 			}
 			Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}, {"fields", {{"Roughness", 0.25}}}}));
+			// The VisualScript component was created without a graph: it gets one.
+			REQUIRE_FALSE(visualScript.empty());
+			std::string const graph = Ok("graph.create", Json::object({{"path", "Scripts/Everything.sgraph"}}))["asset"].get<std::string>();
+			Ok("component.set",
+			   Json::object({{"entity", visualScript}, {"component", "VisualScript"}, {"fields", Json::object({{"Graph", graph}})}}));
 			Ok("prefab.create", Json::object({{"entity", parent}, {"path", "Prefabs/Everything.sprefab"}}));
 			Ok("asset.create-folder", Json::object({{"folder", "Empty"}}));
 			Ok("asset.import", Json::object({{"files", Json::array({ImportFiles()[0], ImportFiles()[1]})}, {"folder", "Imported"}}));
@@ -757,6 +788,14 @@ namespace
 						state.MaterialFields = material.GetValue()["fields"];
 					}
 				}
+				if (type == "VisualScript" && state.GraphDocument.empty())
+				{
+					CommandResult graph = Run("graph.get", Json::object({{"graph", names.front()}, {"analyze", false}}));
+					if (graph.IsOk())
+					{
+						state.GraphDocument = graph.GetValue()["document"];
+					}
+				}
 				for (size_t slash = path.find('/'); slash != std::string::npos; slash = path.find('/', slash + 1))
 				{
 					folders.insert(path.substr(0, slash));
@@ -869,6 +908,13 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 																		   return outcome.second.first > 0;
 																	   }));
 	CHECK_MESSAGE(exercised * 4 >= commands.size() * 3, exercised << " of " << commands.size() << " commands succeeded");
+	// The visual script commands reach their work too (graph.library and graph.types need the scripting runtime, which the
+	// fixture does not start).
+	for (char const* const graphCommand : {"graph.create", "graph.get", "graph.set", "graph.check"})
+	{
+		CAPTURE(graphCommand);
+		CHECK(outcomes[graphCommand].first > 0);
+	}
 
 	// Nothing outside the project changed, but where absolute scene paths pointed.
 	CHECK(SnapshotFiles(fixture.Directory.GetPath(), writable) == filesBefore);

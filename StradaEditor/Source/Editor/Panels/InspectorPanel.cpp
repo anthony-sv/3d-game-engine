@@ -465,13 +465,19 @@ namespace Strada
 		std::vector<Json> values;
 		values.reserve(entities.size());
 		bool const scripts = component.Name == ComponentTraits<ScriptComponent>::Name;
+		bool const visualScripts = component.Name == ComponentTraits<VisualScriptComponent>::Name;
 		for (UUID const id : entities)
 		{
 			Entity const entity = scene.GetEntityByUUID(id);
-			// While playing, script fields show the values the running scripts hold (Scene::ReadScriptFields).
+			// While playing, script fields show the values the running scripts hold (Scene::ReadScriptFields), and the variables
+			// section of visual scripts the values their running graphs hold (Scene::ReadVisualScriptVariables).
 			if (scripts)
 			{
 				(void)scene.ReadScriptFields(entity);
+			}
+			else if (visualScripts)
+			{
+				(void)scene.ReadVisualScriptVariables(entity);
 			}
 			values.push_back(component.Serialize(scene.GetRegistry(), entity.GetHandle()));
 		}

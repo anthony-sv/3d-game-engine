@@ -398,15 +398,19 @@ namespace Strada
 
 	Result<void> EditorOperations::SetComponentFields(std::vector<ComponentEdit> edits, uint64_t mergeKey)
 	{
-		// While scripts run, edits of their fields start from the values the scripts hold: a value set always reaches the
-		// script, and undoing the edit gives back what the script had.
+		// While scripts run, edits of their fields (and of the variables of visual scripts) start from the values the scripts
+		// hold: a value set always reaches the script, and undoing the edit gives back what the script had.
 		Scene& scene = m_Context.GetScene();
 		for (ComponentEdit const& edit : edits)
 		{
+			// Entities that run no script keep their stored values.
 			if (edit.Component == ComponentTraits<ScriptComponent>::Name)
 			{
-				// Entities that run no script keep their stored values.
 				(void)scene.ReadScriptFields(scene.GetEntityByUUID(edit.Entity));
+			}
+			else if (edit.Component == ComponentTraits<VisualScriptComponent>::Name)
+			{
+				(void)scene.ReadVisualScriptVariables(scene.GetEntityByUUID(edit.Entity));
 			}
 		}
 		return m_Context.ExecuteCommand(CreateScope<SetComponentsCommand>(std::move(edits), mergeKey));
@@ -943,6 +947,11 @@ namespace Strada
 	Result<void> EditorOperations::SetMaterialFields(AssetHandle material, Json const& patch, uint64_t mergeKey)
 	{
 		return m_Context.ExecuteCommand(CreateScope<SetMaterialCommand>(material, patch, mergeKey));
+	}
+
+	Result<void> EditorOperations::SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey)
+	{
+		return m_Context.ExecuteCommand(CreateScope<SetVisualScriptCommand>(graph, std::move(document), mergeKey));
 	}
 
 	Result<void> EditorOperations::Select(std::span<UUID const> entities, SelectionMode mode, UUID primary)

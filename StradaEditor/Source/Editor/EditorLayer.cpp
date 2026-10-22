@@ -21,6 +21,7 @@
 #include "Strada/Core/Window.h"
 #include "Strada/ImGui/ImGuiLayer.h"
 #include "Strada/Scene/Entity.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -387,6 +388,20 @@ namespace Strada
 		m_Thumbnails.Update();
 	}
 
+	void EditorLayer::UpdateVisualScriptEnumLookup()
+	{
+		// The runtime describes its library the first time it is asked for, and again after it dropped it. A lookup searches
+		// the library it was made with, so the inspector gets a new one with each library: enum variables show the enumerators
+		// the runtime has, and without a library the lookup is empty (they read as needing the runtime).
+		Ref<VisualScriptLibrary const> library = VisualScriptEngine::GetLibrary();
+		if (library == m_VisualScriptEnumLibrary)
+		{
+			return;
+		}
+		m_VisualScriptEnumLibrary = std::move(library);
+		m_InspectorPanel.SetVisualScriptEnumLookup(VisualScriptEngine::MakeEnumLookup());
+	}
+
 	void EditorLayer::RequestScreenshotAtFrame(std::filesystem::path path, uint64_t frame)
 	{
 		m_ScreenshotPath = std::move(path);
@@ -396,6 +411,7 @@ namespace Strada
 	void EditorLayer::OnImGuiRender()
 	{
 		UpdateThumbnails();
+		UpdateVisualScriptEnumLookup();
 		// The menu bar and the toolbar take their space from the main viewport before the dockspace fills the rest.
 		DrawMenuBar();
 		DrawToolbar();

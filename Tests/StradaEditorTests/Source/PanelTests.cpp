@@ -618,6 +618,78 @@ TEST_CASE("Panels: while playing, the inspector shows the values the running scr
 	CHECK(open);
 }
 
+TEST_CASE("Panels: while playing, the inspector shows the values the running visual scripts hold")
+{
+	Testing::ScriptRuntimeScope scripting;
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	EditorContext context;
+	EditorOperations operations(context);
+	EditorScripts scripts(context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll");
+	PlayMode play(context, scripts);
+
+	// Counts its updates in a public variable the component does not store.
+	VisualScriptDocument counter;
+	VisualScriptVariable updates;
+	updates.ID = 1;
+	updates.Name = "Updates";
+	updates.Type = "int";
+	updates.Public = true;
+	counter.Variables.push_back(updates);
+	auto const node = [](uint32_t id, std::string type, Json settings, Json inputs)
+	{
+		VisualScriptNode made;
+		made.ID = id;
+		made.Type = std::move(type);
+		made.Settings = std::move(settings);
+		made.Inputs = std::move(inputs);
+		return made;
+	};
+	counter.Graph.Nodes.push_back(node(10, "Event.Update", Json::object(), Json::object()));
+	counter.Graph.Nodes.push_back(node(11, "Variable.Set", Json::object({{"Variable", 1}}), Json::object()));
+	counter.Graph.Nodes.push_back(node(12, "Operator.Add", Json::object(), Json::object({{"B", 1}})));
+	counter.Graph.Nodes.push_back(node(13, "Variable.Get", Json::object({{"Variable", 1}}), Json::object()));
+	counter.Graph.Links.push_back({{10, "Then"}, {11, "Execute"}});
+	counter.Graph.Links.push_back({{13, "Value"}, {12, "A"}});
+	counter.Graph.Links.push_back({{12, "Result"}, {11, "Value"}});
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(counter), "Counter");
+	UUID const entity = Create(operations, "Counter", Json::object({{"VisualScript", Json::object({{"Graph", graph.ToString()}})}}));
+	std::array<UUID, 1> const selection = {entity};
+	REQUIRE(operations.Select(selection).IsOk());
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		imgui.Frame(
+			[&]
+			{
+				ImGui::SetNextWindowSize(ImVec2(420.0f, 900.0f));
+				inspector.OnImGuiRender(operations, open);
+			});
+	};
+	auto const shown = [&]
+	{
+		Entity const running = context.GetScene().GetEntityByUUID(entity);
+		return running.GetComponent<VisualScriptComponent>().Variables;
+	};
+
+	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	play.Advance(3, Timestep(1.0f / 60.0f));
+	draw();
+	CHECK(shown() == ScriptFieldMap{{"Updates", ScriptFieldValue::FromInt32(3)}});
+	play.Advance(2, Timestep(1.0f / 60.0f));
+	draw();
+	CHECK(shown() == ScriptFieldMap{{"Updates", ScriptFieldValue::FromInt32(5)}});
+	// Showing them is no edit.
+	CHECK_FALSE(context.GetHistory().CanUndo());
+
+	// Stopped, the inspector shows the stored values again, which playing did not change.
+	play.Stop();
+	draw();
+	CHECK(shown().empty());
+	CHECK(open);
+}
+
 TEST_CASE("Panels: the inspector folds the Transform of UI elements away and shows it read-only")
 {
 	HeadlessImGui imgui;

@@ -9,10 +9,14 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
+#include "Editor/VisualScriptEditing.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptLayout.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Log.h"
@@ -23,10 +27,15 @@
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/ComponentTraits.h"
 #include "Strada/Scene/SceneSerializer.h"
+#include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/VisualScriptEngine.h"
+#include "Strada/Script/VisualScriptLibrary.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -351,6 +360,214 @@ namespace Strada
 			return submenus;
 		}
 
+		// graph.library and graph.types list at most this many entries per call.
+		constexpr int64_t MaxListedGraphEntries = 500;
+
+		// A count parameter whose schema allows no negative value: an integer, or a number without a fraction (3.0), which may
+		// be too large for size_t.
+		size_t GetCount(Json const& params, char const* key, size_t fallback)
+		{
+			auto const it = params.find(key);
+			if (it == params.end())
+			{
+				return fallback;
+			}
+			if (it->is_number_unsigned())
+			{
+				return static_cast<size_t>(std::min<uint64_t>(it->get<uint64_t>(), std::numeric_limits<size_t>::max()));
+			}
+			if (it->is_number_integer())
+			{
+				return static_cast<size_t>(std::max<int64_t>(it->get<int64_t>(), 0));
+			}
+			double const value = it->get<double>();
+			return value >= static_cast<double>(std::numeric_limits<size_t>::max()) ? std::numeric_limits<size_t>::max()
+			                                                                        : static_cast<size_t>(std::max(value, 0.0));
+		}
+
+		char ToLowerAscii(char character)
+		{
+			return character >= 'A' && character <= 'Z' ? static_cast<char>(character - 'A' + 'a') : character;
+		}
+
+		bool EqualIgnoringCase(char a, char b)
+		{
+			return ToLowerAscii(a) == ToLowerAscii(b);
+		}
+
+		// Whether the text contains the part, ignoring the case of ASCII letters.
+		bool ContainsIgnoringCase(std::string_view text, std::string_view part)
+		{
+			return std::search(text.begin(), text.end(), part.begin(), part.end(), EqualIgnoringCase) != text.end();
+		}
+
+		// Whether a node category is the given one or lies below it ("Math" holds "Math/Operators"), ignoring the case of
+		// ASCII letters. Every category lies below the empty one.
+		bool IsInCategory(std::string_view category, std::string_view parent)
+		{
+			while (parent.ends_with('/'))
+			{
+				parent.remove_suffix(1);
+			}
+			return parent.empty() ||
+			       (category.size() >= parent.size() && std::equal(parent.begin(), parent.end(), category.begin(), EqualIgnoringCase) &&
+			        (category.size() == parent.size() || category[parent.size()] == '/'));
+		}
+
+		// A visual script parameter: a registered asset of that type.
+		CommandValue<AssetHandle> ParseGraph(Json const& value)
+		{
+			CommandValue<AssetHandle> graph = ParseAsset(value, "graph");
+			if (!graph)
+			{
+				return graph;
+			}
+			if (AssetType const type = AssetManager::GetAssetType(graph.GetValue()); type != AssetType::VisualScript)
+			{
+				CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "graph: asset {} is a {}, not a visual script",
+				                                      graph.GetValue(), AssetTypeToString(type));
+				error.Data = Json::object({{"path", "graph"}});
+				return error;
+			}
+			return graph;
+		}
+
+		// How the graph commands name a graph: its handle, and its file relative to Assets (null without a file of its own).
+		Json DescribeGraph(AssetHandle graph)
+		{
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
+			return Json::object(
+				{{"asset", graph.ToString()}, {"path", metadata && metadata->IsFileAsset() ? Json(metadata->Path) : Json()}});
+		}
+
+		// A document given to graph.set or graph.check, read as the loader reads files but strictly: every repair it would
+		// make is an issue. Without a document when it is refused, which only a document that is no object is (the commands'
+		// schemas let none through).
+		struct StrictDocument
+		{
+			std::optional<VisualScriptDocument> Document;
+			std::vector<VisualScriptIssue> Issues;
+		};
+
+		StrictDocument ReadStrictDocument(Json const& content)
+		{
+			DeserializationContext context;
+			context.UnknownFields = UnknownFieldPolicy::Warn;
+			StrictDocument read;
+			Result<VisualScriptDocument> document = VisualScriptSerializer::DeserializeDocument(content, context, &read.Issues);
+			if (document)
+			{
+				read.Document = document.TakeValue();
+			}
+			else
+			{
+				read.Issues.push_back({std::string(), document.GetError()});
+			}
+			return read;
+		}
+
+		// [{ path, message }], the paths relative to the document.
+		Json DescribeIssues(std::vector<VisualScriptIssue> const& issues)
+		{
+			Json described = Json::array();
+			for (VisualScriptIssue const& issue : issues)
+			{
+				described.push_back(Json::object({{"path", issue.Path}, {"message", issue.Message}}));
+			}
+			return described;
+		}
+
+		// graph.set refuses a document with issues: the message is the first, data.path the parameter it is in and data.issues
+		// lists every one.
+		CommandError MakeIssuesError(std::vector<VisualScriptIssue> const& issues)
+		{
+			VisualScriptIssue const& first = issues.front();
+			CommandError error = first.Path.empty()
+			                         ? MakeCommandError(AutomationErrorCode::InvalidParams, "{}", first.Message)
+			                         : MakeCommandError(AutomationErrorCode::InvalidParams, "{}: {}", first.Path, first.Message);
+			error.Data = Json::object(
+				{{"path", first.Path.empty() ? std::string("document") : "document." + first.Path}, {"issues", DescribeIssues(issues)}});
+			return error;
+		}
+
+		// The scripting runtime's analysis of a document; none without the runtime, or when the runtime fails (logged).
+		std::optional<VisualScriptAnalysis> AnalyzeGraph(VisualScriptDocument const& document)
+		{
+			if (!ScriptEngine::IsInitialized())
+			{
+				return std::nullopt;
+			}
+			Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(document);
+			if (!analysis)
+			{
+				ST_WARN("The visual script is not analyzed: {}", analysis.GetError());
+				return std::nullopt;
+			}
+			return analysis.TakeValue();
+		}
+
+		// The analysis in a result: the runtime's nodes and diagnostics.
+		void AddAnalysis(Json& result, VisualScriptAnalysis const& analysis)
+		{
+			Json const& source = analysis.Source;
+			auto const nodes = source.find("Nodes");
+			auto const diagnostics = source.find("Diagnostics");
+			result["nodes"] = nodes != source.end() ? *nodes : Json::array();
+			result["diagnostics"] = diagnostics != source.end() ? *diagnostics : Json::array();
+		}
+
+		// What graph.set does to a document besides checking it, and graph.check reports: variables renamed since the stored
+		// document (when one loads) keep their stored values through FormerNames, and with the runtime, nodes resolved
+		// inexactly are stored under their canonical types. The warnings say what changed; the analysis is of the result.
+		struct PreparedDocument
+		{
+			std::vector<std::string> Warnings;
+			std::optional<VisualScriptAnalysis> Analysis;
+		};
+
+		PreparedDocument PrepareDocument(VisualScriptDocument& document, VisualScriptDocument const* stored)
+		{
+			PreparedDocument prepared;
+			if (stored != nullptr)
+			{
+				prepared.Warnings = RecordFormerNames(document, *stored);
+			}
+			prepared.Analysis = AnalyzeGraph(document);
+			if (prepared.Analysis)
+			{
+				std::vector<std::string> const updated = ApplyCanonicalNodeTypes(document, *prepared.Analysis);
+				if (!updated.empty())
+				{
+					prepared.Warnings.insert(prepared.Warnings.end(), updated.begin(), updated.end());
+					prepared.Analysis = AnalyzeGraph(document);
+				}
+			}
+			return prepared;
+		}
+
+		// Whether a node of the library has a pin that links to a pin of the type: an input that takes an output of the type
+		// (direction In), an output that goes to an input of the type (Out), or either without a direction.
+		bool HasPinLinkingTo(VisualScriptLibrary const& library, VisualScriptNodeTemplate const& node, std::string const& type,
+		                     std::optional<VisualScriptPinDirection> direction)
+		{
+			VisualScriptPin output;
+			output.Direction = VisualScriptPinDirection::Out;
+			output.Type = type;
+			VisualScriptPin input;
+			input.Direction = VisualScriptPinDirection::In;
+			input.Type = type;
+			return std::any_of(node.Pins.begin(), node.Pins.end(),
+			                   [&](VisualScriptPin const& pin)
+			                   {
+								   if (direction && pin.Direction != *direction)
+								   {
+									   return false;
+								   }
+								   return pin.Direction == VisualScriptPinDirection::In ? library.CanConnect(output, pin)
+				                                                                        : library.CanConnect(pin, input);
+							   });
+		}
+
 		// The component categories the Add Component menu can show (Core components are on every entity already).
 		std::vector<std::string_view> GetAddableCategories()
 		{
@@ -378,7 +595,7 @@ namespace Strada
 				for (auto const registerDomain :
 				     {&CommandSet::RegisterEditor, &CommandSet::RegisterProject, &CommandSet::RegisterScene, &CommandSet::RegisterEntities,
 				      &CommandSet::RegisterComponents, &CommandSet::RegisterAssets, &CommandSet::RegisterMaterials,
-				      &CommandSet::RegisterPrefabs, &CommandSet::RegisterLogAndViewport})
+				      &CommandSet::RegisterGraphs, &CommandSet::RegisterPrefabs, &CommandSet::RegisterLogAndViewport})
 				{
 					if (Result<void> result = (this->*registerDomain)(); !result)
 					{
@@ -1097,6 +1314,359 @@ namespace Strada
 				return result;
 			}
 
+			// Visual scripts: graph assets (.sgraph) and the node library of the scripting runtime.
+			Result<void> RegisterGraphs()
+			{
+				SchemaBuilder const graphParameter =
+					SchemaBuilder::String("Visual script asset: a handle (decimal string) or \"asset://<path>.sgraph\"").MinLength(1);
+				SchemaBuilder const documentParameter =
+					SchemaBuilder::Object("The document: the content of a .sgraph file without its header (Description, Variables, "
+				                          "Functions, Graph), as graph.get returns it")
+						.AllowAdditionalProperties();
+				SchemaBuilder const limitParameter =
+					SchemaBuilder::Integer("The most entries to return").Minimum(1).Maximum(MaxListedGraphEntries).Default(50);
+				SchemaBuilder const offsetParameter = SchemaBuilder::Integer("How many matching entries to skip").Minimum(0).Default(0);
+
+				Result<void> result = Add(
+					"graph.create",
+					"Creates a visual script file (.sgraph, path relative to Assets) from a template: Events (an Event.Create and an "
+					"Event.Update node) or Empty. Not undoable (file creation). Returns { asset (the graph's handle), path }; a "
+					"VisualScript component whose Graph is the asset runs it on its entity.",
+					SchemaBuilder::Object()
+						.Property("path", SchemaBuilder::String("File path relative to Assets, ending in .sgraph").MinLength(1), true)
+						.Property("template",
+				                  SchemaBuilder::String("What the graph starts with: Events (Event.Create and Event.Update nodes) or Empty")
+				                      .Enum({"Events", "Empty"})
+				                      .Default("Events"))
+						.Build(),
+					false,
+					[this](Json const& params) -> CommandResult
+					{
+						if (std::optional<CommandError> error = CheckAssets(true))
+						{
+							return *error;
+						}
+						VisualScriptTemplate const kind =
+							GetString(params, "template", "Events") == "Empty" ? VisualScriptTemplate::Empty : VisualScriptTemplate::Events;
+						Result<AssetHandle> created = m_Operations.CreateVisualScript(GetString(params, "path"), kind);
+						if (!created)
+						{
+							CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}", created.GetError());
+							error.Data = Json::object({{"path", "path"}});
+							return error;
+						}
+						return DescribeGraph(created.GetValue());
+					});
+				result =
+					result ? Add("graph.get",
+				                 "A visual script's document (the content of its .sgraph file: Description, Variables, Functions, Graph) "
+				                 "and, with analyze (the default) and the scripting runtime, the runtime's analysis: nodes (every node "
+				                 "with its resolved type, title and pins) and diagnostics (errors and warnings with stable codes). "
+				                 "Returns { asset, path, document, analyzed, nodes?, diagnostics? }; analyzed is false without the "
+				                 "runtime. FileError when the file does not load.",
+				                 SchemaBuilder::Object()
+				                     .Property("graph", graphParameter, true)
+				                     .Property("analyze", SchemaBuilder::Boolean("Add the runtime's analysis").Default(true))
+				                     .Build(),
+				                 true,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 if (std::optional<CommandError> error = CheckAssets(false))
+									 {
+										 return *error;
+									 }
+									 CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+									 if (!graph)
+									 {
+										 return graph.TakeError();
+									 }
+									 Result<Ref<VisualScriptAsset>> asset = AssetManager::TryGetAsset<VisualScriptAsset>(graph.GetValue());
+									 if (!asset)
+									 {
+										 return CommandError{AutomationErrorCode::FileError, asset.GetError(), Json()};
+									 }
+									 Ref<VisualScriptAsset> const script = asset.TakeValue();
+									 VisualScriptDocument const& document = script->GetDocument();
+									 std::optional<VisualScriptAnalysis> const analysis =
+										 GetBool(params, "analyze", true) ? AnalyzeGraph(document) : std::nullopt;
+									 Json described = DescribeGraph(graph.GetValue());
+									 described["document"] = VisualScriptSerializer::SerializeDocument(document);
+									 described["analyzed"] = analysis.has_value();
+									 if (analysis)
+									 {
+										 AddAnalysis(described, *analysis);
+									 }
+									 return described;
+								 })
+						   : result;
+				result = result
+				             ? Add("graph.set",
+				                   "Replaces a visual script's document (the content of its .sgraph file: Description, Variables, "
+				                   "Functions, Graph, as graph.get returns it) and saves the file. The document is checked strictly: "
+				                   "anything the loader would repair (a duplicate ID, an unknown key, a link to a node that does not "
+				                   "exist, ...) fails with InvalidParams, data.path naming the first issue and data.issues listing every "
+				                   "one { path, message }; nothing is written then (graph.check reports the same without writing). A "
+				                   "variable renamed (same ID) keeps its old name in FormerNames, so values components store for it still "
+				                   "apply; with the scripting runtime, nodes resolved through a redirect or by their member's name alone "
+				                   "are stored under their exact types; nodes without a Position are laid out. One undo step "
+				                   "(editor.undo) that does not mark the scene modified; allowed while playing, where running graphs take "
+				                   "the edit at once. Returns { asset, path, changed, analyzed, warnings (what was changed besides the "
+				                   "given document), nodes?, diagnostics? }.",
+				                   SchemaBuilder::Object()
+				                       .Property("graph", graphParameter, true)
+				                       .Property("document", documentParameter, true)
+				                       .Build(),
+				                   false,
+				                   [this](Json const& params) -> CommandResult
+				                   {
+									   if (std::optional<CommandError> error = CheckAssets(true))
+									   {
+										   return *error;
+									   }
+									   CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+									   if (!graph)
+									   {
+										   return graph.TakeError();
+									   }
+									   AssetHandle const handle = graph.GetValue();
+									   if (std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
+					                       !metadata || !metadata->IsFileAsset())
+									   {
+										   CommandError error = MakeCommandError(
+											   AutomationErrorCode::InvalidParams,
+											   "graph: visual script {} has no file of its own and cannot be edited", handle);
+										   error.Data = Json::object({{"path", "graph"}});
+										   return error;
+									   }
+									   StrictDocument read = ReadStrictDocument(params["document"]);
+									   if (!read.Issues.empty())
+									   {
+										   return MakeIssuesError(read.Issues);
+									   }
+									   VisualScriptDocument document = std::move(*read.Document);
+
+									   // The document the file has, when it loads: renamed variables are found against it, and
+					                   // giving it again changes nothing.
+									   Result<Ref<VisualScriptAsset>> stored = AssetManager::TryGetAsset<VisualScriptAsset>(handle);
+									   Ref<VisualScriptAsset> const storedScript = stored ? stored.TakeValue() : nullptr;
+									   PreparedDocument prepared =
+										   PrepareDocument(document, storedScript != nullptr ? &storedScript->GetDocument() : nullptr);
+									   PlaceUnplacedNodes(document);
+									   bool const changed = storedScript == nullptr || storedScript->GetDocument() != document;
+									   if (Result<void> set = m_Operations.SetVisualScriptDocument(handle, std::move(document)); !set)
+									   {
+										   return Failure(AutomationErrorCode::FileError, set);
+									   }
+
+									   Json described = DescribeGraph(handle);
+									   described["changed"] = changed;
+									   described["analyzed"] = prepared.Analysis.has_value();
+									   described["warnings"] = std::move(prepared.Warnings);
+									   if (prepared.Analysis)
+									   {
+										   AddAnalysis(described, *prepared.Analysis);
+									   }
+									   return described;
+								   })
+				             : result;
+				result = result ? Add("graph.check",
+				                      "Checks a visual script document without writing anything. issues are what graph.set would refuse "
+				                      "(the strict structural check: [{ path, message }], paths relative to the document; valid when there "
+				                      "is none); warnings are what graph.set would change (renamed variables kept in FormerNames, found "
+				                      "against the stored document of graph when it is given; nodes stored under their exact types); with "
+				                      "the scripting runtime, nodes and diagnostics are the analysis of the document as graph.set would "
+				                      "write it (elements with an issue as the loader repairs them). Returns { valid, issues, warnings, "
+				                      "analyzed, nodes?, diagnostics? }.",
+				                      SchemaBuilder::Object()
+				                          .Property("document", documentParameter, true)
+				                          .Property("graph", SchemaBuilder::String(
+																 "The visual script the document is for (renamed variables are "
+																 "found against its document): a handle or \"asset://<path>.sgraph\"")
+				                                                 .MinLength(1))
+				                          .Build(),
+				                      true,
+				                      [this](Json const& params) -> CommandResult
+				                      {
+										  if (std::optional<CommandError> error = CheckAssets(false))
+										  {
+											  return *error;
+										  }
+										  Ref<VisualScriptAsset> storedScript;
+										  if (params.contains("graph"))
+										  {
+											  CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+											  if (!graph)
+											  {
+												  return graph.TakeError();
+											  }
+											  // A file that does not load has no variables to rename.
+											  Result<Ref<VisualScriptAsset>> stored =
+												  AssetManager::TryGetAsset<VisualScriptAsset>(graph.GetValue());
+											  storedScript = stored ? stored.TakeValue() : nullptr;
+										  }
+										  StrictDocument read = ReadStrictDocument(params["document"]);
+										  PreparedDocument prepared;
+										  if (read.Document)
+										  {
+											  prepared = PrepareDocument(*read.Document,
+						                                                 storedScript != nullptr ? &storedScript->GetDocument() : nullptr);
+										  }
+										  Json described = Json::object({{"valid", read.Issues.empty()},
+					                                                     {"issues", DescribeIssues(read.Issues)},
+					                                                     {"warnings", std::move(prepared.Warnings)},
+					                                                     {"analyzed", prepared.Analysis.has_value()}});
+										  if (prepared.Analysis)
+										  {
+											  AddAnalysis(described, *prepared.Analysis);
+										  }
+										  return described;
+									  })
+				                : result;
+				result =
+					result
+						? Add("graph.library",
+				              "Lists the node kinds visual scripts can use (the built-in kinds and the scripting API's members) in "
+				              "library order (by category, then title): each { Type (what a node stores as its Type), Title, "
+				              "Category, Description?, Keywords, Kind, Pure, Latent, Pins: [{ Name, Direction, Type, Default?, ... }], "
+				              "Settings }. query keeps nodes whose title, keywords, category or type contain the text, category "
+				              "keeps a category with the ones below it (both ignoring case), and pinType keeps nodes with a pin that "
+				              "links to a pin of that type: an input taking it (direction In), an output giving it (Out) or either. "
+				              "Paged with limit and offset; total counts every match. Unavailable without the scripting runtime.",
+				              SchemaBuilder::Object()
+				                  .Property("query", SchemaBuilder::String("Text the title, keywords, category or type contain"))
+				                  .Property("category", SchemaBuilder::String("A category, such as \"Flow\" or \"Components/Rigid Body\": "
+				                                                              "its nodes and those of the categories below it"))
+				                  .Property("pinType", SchemaBuilder::String("A type ID (graph.types lists them; exec for flow): nodes "
+				                                                             "with a pin that links to a pin of this type")
+				                                           .MinLength(1))
+				                  .Property("direction", SchemaBuilder::String("With pinType: In for nodes with an input taking the type, "
+				                                                               "Out for nodes with an output giving it")
+				                                             .Enum({"In", "Out"}))
+				                  .Property("limit", limitParameter)
+				                  .Property("offset", offsetParameter)
+				                  .Build(),
+				              true,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  CommandValue<Ref<VisualScriptLibrary const>> library = GetGraphLibrary();
+								  if (!library)
+								  {
+									  return library.TakeError();
+								  }
+								  std::optional<VisualScriptPinDirection> direction;
+								  if (params.contains("direction"))
+								  {
+									  direction = params["direction"].get<std::string>() == "In" ? VisualScriptPinDirection::In
+						                                                                         : VisualScriptPinDirection::Out;
+								  }
+								  std::string const pinType = GetString(params, "pinType");
+								  if (direction && pinType.empty())
+								  {
+									  CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams,
+						                                                    "direction needs pinType: the type of the pins to link to");
+									  error.Data = Json::object({{"path", "direction"}});
+									  return error;
+								  }
+								  Ref<VisualScriptLibrary const> const nodes = library.TakeValue();
+								  if (!pinType.empty() && nodes->FindType(pinType) == nullptr)
+								  {
+									  CommandError error = MakeCommandError(
+										  AutomationErrorCode::InvalidParams,
+										  "pinType: the node library has no type '{}' (graph.types lists the types)", pinType);
+									  error.Data = Json::object({{"path", "pinType"}});
+									  return error;
+								  }
+								  std::string const category = GetString(params, "category");
+								  std::vector<VisualScriptNodeTemplate const*> matches = nodes->Search(GetString(params, "query"));
+								  std::erase_if(matches,
+					                            [&](VisualScriptNodeTemplate const* node)
+					                            {
+													return !IsInCategory(node->Category, category) ||
+						                                   (!pinType.empty() && !HasPinLinkingTo(*nodes, *node, pinType, direction));
+												});
+								  size_t const offset = GetCount(params, "offset", 0);
+								  size_t const limit = GetCount(params, "limit", 50);
+								  Json listed = Json::array();
+								  for (size_t index = offset; index < matches.size() && index - offset < limit; index++)
+								  {
+									  listed.push_back(matches[index]->Source);
+								  }
+								  return Json::object({{"nodes", std::move(listed)}, {"total", matches.size()}});
+							  })
+						: result;
+				result =
+					result ? Add("graph.types",
+				                 "Lists the types visual scripts use for variables, pins and literals, by ID: each { ID, Title, Kind, "
+				                 "FieldType? (types public variables can have), AssetType?, Literal? (documents can hold values of it), "
+				                 "Enumerators? and Flags (enums), Fields? (structs), Base? (classes), Element? (arrays), ImplicitTo (the "
+				                 "types it converts to; every type also converts to string) }. query keeps types whose ID or title "
+				                 "contains the text (ignoring case), kind one kind. Paged with limit and offset; total counts every "
+				                 "match. Unavailable without the scripting runtime.",
+				                 SchemaBuilder::Object()
+				                     .Property("query", SchemaBuilder::String("Text the ID or title contains"))
+				                     .Property("kind", SchemaBuilder::String("Only types of this kind")
+				                                           .Enum({"Exec", "Bool", "Integer", "Float", "String", "Vector", "Quaternion",
+				                                                  "Color", "Matrix", "Entity", "Component", "Asset", "Enum", "Struct",
+				                                                  "Class", "Array", "Object"}))
+				                     .Property("limit", limitParameter)
+				                     .Property("offset", offsetParameter)
+				                     .Build(),
+				                 true,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 CommandValue<Ref<VisualScriptLibrary const>> library = GetGraphLibrary();
+									 if (!library)
+									 {
+										 return library.TakeError();
+									 }
+									 Ref<VisualScriptLibrary const> const types = library.TakeValue();
+									 std::string const query = GetString(params, "query");
+									 std::string const kind = GetString(params, "kind");
+									 std::vector<VisualScriptTypeInfo const*> matches;
+									 for (VisualScriptTypeInfo const& type : types->GetTypes())
+									 {
+										 auto const typeKind = type.Source.find("Kind");
+										 bool const ofKind =
+											 kind.empty() || (typeKind != type.Source.end() && typeKind->is_string() && *typeKind == kind);
+										 if (ofKind && (ContainsIgnoringCase(type.ID, query) || ContainsIgnoringCase(type.Title, query)))
+										 {
+											 matches.push_back(&type);
+										 }
+									 }
+									 size_t const offset = GetCount(params, "offset", 0);
+									 size_t const limit = GetCount(params, "limit", 50);
+									 Json listed = Json::array();
+									 for (size_t index = offset; index < matches.size() && index - offset < limit; index++)
+									 {
+										 listed.push_back(matches[index]->Source);
+									 }
+									 return Json::object({{"types", std::move(listed)}, {"total", matches.size()}});
+								 })
+						   : result;
+				return result;
+			}
+
+			// The node library for graph.library and graph.types: the asset checks apply, and the library needs the runtime.
+			CommandValue<Ref<VisualScriptLibrary const>> GetGraphLibrary() const
+			{
+				if (std::optional<CommandError> error = CheckAssets(false))
+				{
+					return *error;
+				}
+				if (!ScriptEngine::IsInitialized())
+				{
+					return MakeCommandError(AutomationErrorCode::Unavailable,
+					                        "the visual script node library needs the scripting runtime (.NET 10), which is not running");
+				}
+				Ref<VisualScriptLibrary const> library = VisualScriptEngine::GetLibrary();
+				if (library == nullptr)
+				{
+					return MakeCommandError(AutomationErrorCode::Unavailable,
+					                        "the scripting runtime cannot describe the visual script node library (see the log)");
+				}
+				return library;
+			}
+
 			void NotifyProjectOpened()
 			{
 				if (m_Environment.ProjectOpened)
@@ -1463,8 +2033,10 @@ namespace Strada
 									   }
 									   Scene& scene = Context().GetScene();
 									   Entity const entity = m_Operations.FindEntity(id.GetValue());
-									   // While playing, script fields are the values the running script holds.
+									   // While playing, script fields are the values the running script holds, and visual script
+					                   // variables the values the running graph holds.
 									   (void)scene.ReadScriptFields(entity);
+									   (void)scene.ReadVisualScriptVariables(entity);
 									   Json components = Json::object();
 									   for (ComponentInfo const& info : ComponentRegistry::GetComponents())
 									   {
@@ -2301,10 +2873,15 @@ namespace Strada
 			{
 				Scene& scene = Context().GetScene();
 				Entity const entity = m_Operations.FindEntity(id);
-				// While playing, script fields are the values the running script holds.
+				// While playing, script fields are the values the running script holds, and visual script variables the values
+				// the running graph holds.
 				if (info.Name == ComponentTraits<ScriptComponent>::Name)
 				{
 					(void)scene.ReadScriptFields(entity);
+				}
+				else if (info.Name == ComponentTraits<VisualScriptComponent>::Name)
+				{
+					(void)scene.ReadVisualScriptVariables(entity);
 				}
 				return Json::object(
 					{{"component", std::string(info.Name)}, {"fields", info.Serialize(scene.GetRegistry(), entity.GetHandle())}});

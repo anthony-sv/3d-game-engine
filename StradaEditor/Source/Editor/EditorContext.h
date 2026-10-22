@@ -89,8 +89,8 @@ namespace Strada
 		// Executes the command through the history (see CommandHistory::Execute), then drops deleted entities from the
 		// selection. Edits run between frames: entities they destroy in a running scene go at once, as when editing (the
 		// scene would wait for the end of the next frame, which never comes while it is paused), so later edits, undo
-		// included, find them gone, and the script fields they change reach the running scripts at once
-		// (Scene::ApplyScriptFieldChanges). The same holds for Undo and Redo.
+		// included, find them gone, and the script fields and visual script variables they change reach the running scripts
+		// at once (Scene::ApplyScriptFieldChanges, Scene::ApplyVisualScriptVariableChanges). The same holds for Undo and Redo.
 		[[nodiscard]] Result<void> ExecuteCommand(Scope<EditorCommand> command);
 		[[nodiscard]] Result<void> Undo();
 		[[nodiscard]] Result<void> Redo();
