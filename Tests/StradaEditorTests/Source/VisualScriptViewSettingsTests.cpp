@@ -516,14 +516,20 @@ TEST_CASE("VisualScriptViews: the limits keep the most recently used projects, g
 		crowded["VisualScriptViews"]["HintsSeen"].push_back(fmt::format("Hint{}", index));
 	}
 	WriteJson(file, crowded);
+	settings.SetProject(project(5));
 	std::vector<std::string> const warnings = settings.Load();
 	CHECK(warnings.size() == 2);
 	CHECK(AnyContains(warnings, "Projects: more than 32 entries; the rest are dropped"));
 	CHECK(AnyContains(warnings, "HintsSeen: more than 16 entries; the rest are dropped"));
-	REQUIRE(settings.GetViews().Projects.size() == VisualScriptViewSettings::MaxProjects);
-	// The project current before the load is current again, at the front.
-	CHECK(settings.GetViews().Projects.front().Project == RecentProjects::NormalizePath(project(0)));
-	CHECK(settings.GetViews().Projects[1].Project == RecentProjects::NormalizePath(project(1)));
+	std::vector<VisualScriptProjectViews> const& loaded = settings.GetViews().Projects;
+	REQUIRE(loaded.size() == VisualScriptViewSettings::MaxProjects);
+	// The project current before the load is current again, moved to the front; the others keep the file's order.
+	CHECK(settings.GetProject() == RecentProjects::NormalizePath(project(5)));
+	CHECK(loaded[0].Project == RecentProjects::NormalizePath(project(5)));
+	CHECK(loaded[1].Project == RecentProjects::NormalizePath(project(0)));
+	CHECK(loaded[5].Project == RecentProjects::NormalizePath(project(4)));
+	CHECK(loaded[6].Project == RecentProjects::NormalizePath(project(6)));
+	CHECK(loaded.back().Project == RecentProjects::NormalizePath(project(31)));
 	CHECK(settings.GetViews().HintsSeen.back() == "Hint15");
 }
 
