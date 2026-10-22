@@ -1,0 +1,2321 @@
+{
+	"Types": [
+		{
+			"ID": "Strada.Asset",
+			"Title": "Asset",
+			"Kind": "Asset",
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.AssetHandle",
+			"Title": "Asset Handle",
+			"Kind": "Struct",
+			"FieldType": "Asset",
+			"Literal": true,
+			"Breakable": true,
+			"Fields": [
+				{
+					"Name": "ID",
+					"Type": "ulong"
+				},
+				{
+					"Name": "IsValid",
+					"Type": "bool"
+				}
+			],
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Color",
+			"Title": "Color",
+			"Kind": "Color",
+			"FieldType": "Color",
+			"Literal": true,
+			"Makeable": true,
+			"Breakable": true,
+			"Fields": [
+				{
+					"Name": "R",
+					"Type": "float"
+				},
+				{
+					"Name": "G",
+					"Type": "float"
+				},
+				{
+					"Name": "B",
+					"Type": "float"
+				},
+				{
+					"Name": "A",
+					"Type": "float"
+				}
+			],
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Component",
+			"Title": "Component",
+			"Kind": "Component",
+			"ImplicitTo": [
+				"Strada.Entity",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Entity",
+			"Title": "Entity",
+			"Kind": "Entity",
+			"FieldType": "Entity",
+			"Literal": true,
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Entity[]",
+			"Title": "Entity Array",
+			"Kind": "Array",
+			"Element": "Strada.Entity",
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.ForceMode",
+			"Title": "Force Mode",
+			"Kind": "Enum",
+			"FieldType": "Int32",
+			"Literal": true,
+			"Enumerators": [
+				{
+					"Name": "Force",
+					"Value": 0
+				},
+				{
+					"Name": "Impulse",
+					"Value": 1
+				},
+				{
+					"Name": "Acceleration",
+					"Value": 2
+				},
+				{
+					"Name": "VelocityChange",
+					"Value": 3
+				}
+			],
+			"Flags": false,
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.KeyCode",
+			"Title": "Key Code",
+			"Kind": "Enum",
+			"FieldType": "Int32",
+			"Literal": true,
+			"Enumerators": [
+				{
+					"Name": "Unknown",
+					"Value": 0
+				},
+				{
+					"Name": "Space",
+					"Value": 32
+				},
+				{
+					"Name": "Apostrophe",
+					"Value": 39
+				},
+				{
+					"Name": "Comma",
+					"Value": 44
+				},
+				{
+					"Name": "Minus",
+					"Value": 45
+				},
+				{
+					"Name": "Period",
+					"Value": 46
+				},
+				{
+					"Name": "Slash",
+					"Value": 47
+				},
+				{
+					"Name": "D0",
+					"Value": 48
+				},
+				{
+					"Name": "D1",
+					"Value": 49
+				},
+				{
+					"Name": "D2",
+					"Value": 50
+				},
+				{
+					"Name": "D3",
+					"Value": 51
+				},
+				{
+					"Name": "D4",
+					"Value": 52
+				},
+				{
+					"Name": "D5",
+					"Value": 53
+				},
+				{
+					"Name": "D6",
+					"Value": 54
+				},
+				{
+					"Name": "D7",
+					"Value": 55
+				},
+				{
+					"Name": "D8",
+					"Value": 56
+				},
+				{
+					"Name": "D9",
+					"Value": 57
+				},
+				{
+					"Name": "Semicolon",
+					"Value": 59
+				},
+				{
+					"Name": "Equal",
+					"Value": 61
+				},
+				{
+					"Name": "A",
+					"Value": 65
+				},
+				{
+					"Name": "B",
+					"Value": 66
+				},
+				{
+					"Name": "C",
+					"Value": 67
+				},
+				{
+					"Name": "D",
+					"Value": 68
+				},
+				{
+					"Name": "E",
+					"Value": 69
+				},
+				{
+					"Name": "F",
+					"Value": 70
+				},
+				{
+					"Name": "G",
+					"Value": 71
+				},
+				{
+					"Name": "H",
+					"Value": 72
+				},
+				{
+					"Name": "I",
+					"Value": 73
+				},
+				{
+					"Name": "J",
+					"Value": 74
+				},
+				{
+					"Name": "K",
+					"Value": 75
+				},
+				{
+					"Name": "L",
+					"Value": 76
+				},
+				{
+					"Name": "M",
+					"Value": 77
+				},
+				{
+					"Name": "N",
+					"Value": 78
+				},
+				{
+					"Name": "O",
+					"Value": 79
+				},
+				{
+					"Name": "P",
+					"Value": 80
+				},
+				{
+					"Name": "Q",
+					"Value": 81
+				},
+				{
+					"Name": "R",
+					"Value": 82
+				},
+				{
+					"Name": "S",
+					"Value": 83
+				},
+				{
+					"Name": "T",
+					"Value": 84
+				},
+				{
+					"Name": "U",
+					"Value": 85
+				},
+				{
+					"Name": "V",
+					"Value": 86
+				},
+				{
+					"Name": "W",
+					"Value": 87
+				},
+				{
+					"Name": "X",
+					"Value": 88
+				},
+				{
+					"Name": "Y",
+					"Value": 89
+				},
+				{
+					"Name": "Z",
+					"Value": 90
+				},
+				{
+					"Name": "LeftBracket",
+					"Value": 91
+				},
+				{
+					"Name": "Backslash",
+					"Value": 92
+				},
+				{
+					"Name": "RightBracket",
+					"Value": 93
+				},
+				{
+					"Name": "GraveAccent",
+					"Value": 96
+				},
+				{
+					"Name": "World1",
+					"Value": 161
+				},
+				{
+					"Name": "World2",
+					"Value": 162
+				},
+				{
+					"Name": "Escape",
+					"Value": 256
+				},
+				{
+					"Name": "Enter",
+					"Value": 257
+				},
+				{
+					"Name": "Tab",
+					"Value": 258
+				},
+				{
+					"Name": "Backspace",
+					"Value": 259
+				},
+				{
+					"Name": "Insert",
+					"Value": 260
+				},
+				{
+					"Name": "Delete",
+					"Value": 261
+				},
+				{
+					"Name": "Right",
+					"Value": 262
+				},
+				{
+					"Name": "Left",
+					"Value": 263
+				},
+				{
+					"Name": "Down",
+					"Value": 264
+				},
+				{
+					"Name": "Up",
+					"Value": 265
+				},
+				{
+					"Name": "PageUp",
+					"Value": 266
+				},
+				{
+					"Name": "PageDown",
+					"Value": 267
+				},
+				{
+					"Name": "Home",
+					"Value": 268
+				},
+				{
+					"Name": "End",
+					"Value": 269
+				},
+				{
+					"Name": "CapsLock",
+					"Value": 280
+				},
+				{
+					"Name": "ScrollLock",
+					"Value": 281
+				},
+				{
+					"Name": "NumLock",
+					"Value": 282
+				},
+				{
+					"Name": "PrintScreen",
+					"Value": 283
+				},
+				{
+					"Name": "Pause",
+					"Value": 284
+				},
+				{
+					"Name": "F1",
+					"Value": 290
+				},
+				{
+					"Name": "F2",
+					"Value": 291
+				},
+				{
+					"Name": "F3",
+					"Value": 292
+				},
+				{
+					"Name": "F4",
+					"Value": 293
+				},
+				{
+					"Name": "F5",
+					"Value": 294
+				},
+				{
+					"Name": "F6",
+					"Value": 295
+				},
+				{
+					"Name": "F7",
+					"Value": 296
+				},
+				{
+					"Name": "F8",
+					"Value": 297
+				},
+				{
+					"Name": "F9",
+					"Value": 298
+				},
+				{
+					"Name": "F10",
+					"Value": 299
+				},
+				{
+					"Name": "F11",
+					"Value": 300
+				},
+				{
+					"Name": "F12",
+					"Value": 301
+				},
+				{
+					"Name": "F13",
+					"Value": 302
+				},
+				{
+					"Name": "F14",
+					"Value": 303
+				},
+				{
+					"Name": "F15",
+					"Value": 304
+				},
+				{
+					"Name": "F16",
+					"Value": 305
+				},
+				{
+					"Name": "F17",
+					"Value": 306
+				},
+				{
+					"Name": "F18",
+					"Value": 307
+				},
+				{
+					"Name": "F19",
+					"Value": 308
+				},
+				{
+					"Name": "F20",
+					"Value": 309
+				},
+				{
+					"Name": "F21",
+					"Value": 310
+				},
+				{
+					"Name": "F22",
+					"Value": 311
+				},
+				{
+					"Name": "F23",
+					"Value": 312
+				},
+				{
+					"Name": "F24",
+					"Value": 313
+				},
+				{
+					"Name": "F25",
+					"Value": 314
+				},
+				{
+					"Name": "KP0",
+					"Value": 320
+				},
+				{
+					"Name": "KP1",
+					"Value": 321
+				},
+				{
+					"Name": "KP2",
+					"Value": 322
+				},
+				{
+					"Name": "KP3",
+					"Value": 323
+				},
+				{
+					"Name": "KP4",
+					"Value": 324
+				},
+				{
+					"Name": "KP5",
+					"Value": 325
+				},
+				{
+					"Name": "KP6",
+					"Value": 326
+				},
+				{
+					"Name": "KP7",
+					"Value": 327
+				},
+				{
+					"Name": "KP8",
+					"Value": 328
+				},
+				{
+					"Name": "KP9",
+					"Value": 329
+				},
+				{
+					"Name": "KPDecimal",
+					"Value": 330
+				},
+				{
+					"Name": "KPDivide",
+					"Value": 331
+				},
+				{
+					"Name": "KPMultiply",
+					"Value": 332
+				},
+				{
+					"Name": "KPSubtract",
+					"Value": 333
+				},
+				{
+					"Name": "KPAdd",
+					"Value": 334
+				},
+				{
+					"Name": "KPEnter",
+					"Value": 335
+				},
+				{
+					"Name": "KPEqual",
+					"Value": 336
+				},
+				{
+					"Name": "LeftShift",
+					"Value": 340
+				},
+				{
+					"Name": "LeftControl",
+					"Value": 341
+				},
+				{
+					"Name": "LeftAlt",
+					"Value": 342
+				},
+				{
+					"Name": "LeftSuper",
+					"Value": 343
+				},
+				{
+					"Name": "RightShift",
+					"Value": 344
+				},
+				{
+					"Name": "RightControl",
+					"Value": 345
+				},
+				{
+					"Name": "RightAlt",
+					"Value": 346
+				},
+				{
+					"Name": "RightSuper",
+					"Value": 347
+				},
+				{
+					"Name": "Menu",
+					"Value": 348
+				}
+			],
+			"Flags": false,
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Matrix4",
+			"Title": "Matrix4",
+			"Kind": "Matrix",
+			"Literal": true,
+			"Makeable": true,
+			"Breakable": true,
+			"Fields": [
+				{
+					"Name": "Column0",
+					"Type": "Strada.Vector4"
+				},
+				{
+					"Name": "Column1",
+					"Type": "Strada.Vector4"
+				},
+				{
+					"Name": "Column2",
+					"Type": "Strada.Vector4"
+				},
+				{
+					"Name": "Column3",
+					"Type": "Strada.Vector4"
+				}
+			],
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.ParticleSystemComponent",
+			"Title": "Particle System",
+			"Kind": "Component",
+			"Base": "Strada.Component",
+			"ImplicitTo": [
+				"Strada.Entity",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Prefab",
+			"Title": "Prefab",
+			"Kind": "Asset",
+			"FieldType": "Prefab",
+			"AssetType": "Prefab",
+			"Literal": true,
+			"Base": "Strada.Asset",
+			"ImplicitTo": [
+				"Strada.Asset",
+				"Strada.AssetHandle",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Quaternion",
+			"Title": "Quaternion",
+			"Kind": "Quaternion",
+			"FieldType": "Quaternion",
+			"Literal": true,
+			"Makeable": true,
+			"Breakable": true,
+			"Fields": [
+				{
+					"Name": "X",
+					"Type": "float"
+				},
+				{
+					"Name": "Y",
+					"Type": "float"
+				},
+				{
+					"Name": "Z",
+					"Type": "float"
+				},
+				{
+					"Name": "W",
+					"Type": "float"
+				}
+			],
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Ray",
+			"Title": "Ray",
+			"Kind": "Struct",
+			"Makeable": true,
+			"Breakable": true,
+			"Fields": [
+				{
+					"Name": "Origin",
+					"Type": "Strada.Vector3"
+				},
+				{
+					"Name": "Direction",
+					"Type": "Strada.Vector3"
+				}
+			],
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.RaycastHit",
+			"Title": "Raycast Hit",
+			"Kind": "Struct",
+			"Breakable": true,
+			"Fields": [
+				{
+					"Name": "Entity",
+					"Type": "Strada.Entity"
+				},
+				{
+					"Name": "Point",
+					"Type": "Strada.Vector3"
+				},
+				{
+					"Name": "Normal",
+					"Type": "Strada.Vector3"
+				},
+				{
+					"Name": "Distance",
+					"Type": "float"
+				}
+			],
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.RigidBodyComponent",
+			"Title": "Rigid Body",
+			"Kind": "Component",
+			"Base": "Strada.Component",
+			"ImplicitTo": [
+				"Strada.Entity",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.TransformComponent",
+			"Title": "Transform",
+			"Kind": "Component",
+			"Base": "Strada.Component",
+			"ImplicitTo": [
+				"Strada.Entity",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Vector3",
+			"Title": "Vector3",
+			"Kind": "Vector",
+			"FieldType": "Vector3",
+			"Literal": true,
+			"Makeable": true,
+			"Breakable": true,
+			"Fields": [
+				{
+					"Name": "X",
+					"Type": "float"
+				},
+				{
+					"Name": "Y",
+					"Type": "float"
+				},
+				{
+					"Name": "Z",
+					"Type": "float"
+				}
+			],
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "Strada.Vector4",
+			"Title": "Vector4",
+			"Kind": "Vector",
+			"FieldType": "Vector4",
+			"Literal": true,
+			"Makeable": true,
+			"Breakable": true,
+			"Fields": [
+				{
+					"Name": "X",
+					"Type": "float"
+				},
+				{
+					"Name": "Y",
+					"Type": "float"
+				},
+				{
+					"Name": "Z",
+					"Type": "float"
+				},
+				{
+					"Name": "W",
+					"Type": "float"
+				}
+			],
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "System.Object",
+			"Title": "Object",
+			"Kind": "Object",
+			"ImplicitTo": []
+		},
+		{
+			"ID": "bool",
+			"Title": "Bool",
+			"Kind": "Bool",
+			"FieldType": "Bool",
+			"Literal": true,
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "double",
+			"Title": "Double",
+			"Kind": "Float",
+			"FieldType": "Double",
+			"Literal": true,
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "exec",
+			"Title": "Exec",
+			"Kind": "Exec",
+			"ImplicitTo": []
+		},
+		{
+			"ID": "float",
+			"Title": "Float",
+			"Kind": "Float",
+			"FieldType": "Float",
+			"Literal": true,
+			"ImplicitTo": [
+				"double",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "int",
+			"Title": "Int",
+			"Kind": "Integer",
+			"FieldType": "Int32",
+			"Literal": true,
+			"ImplicitTo": [
+				"long",
+				"float",
+				"double",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "long",
+			"Title": "Long",
+			"Kind": "Integer",
+			"FieldType": "Int64",
+			"Literal": true,
+			"ImplicitTo": [
+				"float",
+				"double",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "string",
+			"Title": "String",
+			"Kind": "String",
+			"FieldType": "String",
+			"Literal": true,
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
+			"ID": "uint",
+			"Title": "UInt",
+			"Kind": "Integer",
+			"FieldType": "UInt32",
+			"Literal": true,
+			"ImplicitTo": [
+				"long",
+				"ulong",
+				"float",
+				"double",
+				"System.Object"
+			]
+		},
+		{
+			"ID": "ulong",
+			"Title": "ULong",
+			"Kind": "Integer",
+			"FieldType": "UInt64",
+			"Literal": true,
+			"ImplicitTo": [
+				"float",
+				"double",
+				"System.Object"
+			]
+		}
+	],
+	"Nodes": [
+		{
+			"Type": "Call:Strada.Assets.Load<T>(string)",
+			"Title": "Load",
+			"Subtitle": "Assets",
+			"Category": "Assets",
+			"Description": "Loads an asset by its path in the project's asset directory (\"Prefabs/Enemy.sprefab\") or by reference (\"builtin://Cube\"). Returns null (logged) when there is no such asset of type T or it cannot be loaded.",
+			"Keywords": [],
+			"Kind": "Pure",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Path",
+					"Direction": "In",
+					"Type": "string"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Reference"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "TypeArguments",
+					"Kind": "TypeList",
+					"Required": true,
+					"Constraint": "Asset"
+				}
+			]
+		},
+		{
+			"Type": "Get:Strada.ParticleSystemComponent.SpeedMax",
+			"Title": "Get Speed Max",
+			"Subtitle": "Target is Particle System",
+			"Category": "Components/Particle System",
+			"Description": "Fastest start speed in meters per second.",
+			"Keywords": [],
+			"Kind": "Pure",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Target",
+					"Direction": "In",
+					"Type": "Strada.Entity",
+					"DefaultsToSelf": true
+				},
+				{
+					"Name": "Value",
+					"Direction": "Out",
+					"Type": "float"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
+			"Title": "Add Force",
+			"Subtitle": "Target is Rigid Body",
+			"Category": "Components/Rigid Body",
+			"Description": "Applies a force (or impulse, acceleration or velocity change, see ForceMode) at the center of mass. Dynamic bodies only; wakes the body.",
+			"Keywords": [],
+			"Kind": "Call",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Target",
+					"Direction": "In",
+					"Type": "Strada.Entity",
+					"DefaultsToSelf": true
+				},
+				{
+					"Name": "Force",
+					"Direction": "In",
+					"Type": "Strada.Vector3"
+				},
+				{
+					"Name": "Mode",
+					"Direction": "In",
+					"Type": "Strada.ForceMode",
+					"Default": "Force"
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Get:Strada.TransformComponent.Translation",
+			"Title": "Get Translation",
+			"Subtitle": "Target is Transform",
+			"Category": "Components/Transform",
+			"Description": "The position relative to the parent.",
+			"Keywords": [],
+			"Kind": "Pure",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Target",
+					"Direction": "In",
+					"Type": "Strada.Entity",
+					"DefaultsToSelf": true
+				},
+				{
+					"Name": "Value",
+					"Direction": "Out",
+					"Type": "Strada.Vector3"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Set:Strada.TransformComponent.Translation",
+			"Title": "Set Translation",
+			"Subtitle": "Target is Transform",
+			"Category": "Components/Transform",
+			"Description": "The position relative to the parent.",
+			"Keywords": [],
+			"Kind": "Call",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Target",
+					"Direction": "In",
+					"Type": "Strada.Entity",
+					"DefaultsToSelf": true
+				},
+				{
+					"Name": "Value",
+					"Direction": "In",
+					"Type": "Strada.Vector3"
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Convert",
+			"Title": "Convert",
+			"Category": "Conversions",
+			"Description": "Converts a value to the type To: numbers, enums and text, entities to script classes, and the types' own conversions.",
+			"Keywords": [
+				"cast",
+				"parse",
+				"to",
+				"change type"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Value",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "To",
+					"Kind": "Type",
+					"Required": true,
+					"Constraint": "Any"
+				}
+			]
+		},
+		{
+			"Type": "Call:Strada.Log.Info(string)",
+			"Title": "Info",
+			"Subtitle": "Log",
+			"Category": "Debug",
+			"Description": "Logs an informational message.",
+			"Keywords": [],
+			"Kind": "Call",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Message",
+					"Direction": "In",
+					"Type": "string"
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Call:Strada.Entity.GetComponent<T>()",
+			"Title": "Get Component",
+			"Subtitle": "Target is Entity",
+			"Category": "Entity",
+			"Description": "The entity's component of type T, or null when it has none.",
+			"Keywords": [],
+			"Kind": "Pure",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Target",
+					"Direction": "In",
+					"Type": "Strada.Entity",
+					"DefaultsToSelf": true
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Reference"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "TypeArguments",
+					"Kind": "TypeList",
+					"Required": true,
+					"Constraint": "Component"
+				}
+			]
+		},
+		{
+			"Type": "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
+			"Title": "Instantiate",
+			"Subtitle": "Entity",
+			"Category": "Entity",
+			"Description": "Creates an instance of a prefab with its root at a world position and rotation (keeping the prefab's scale), under parent or at the root of the running scene. The instance's scripts have run OnCreate when this returns. Returns the root (its script instance when it runs a script), or null (logged) when the prefab cannot be instantiated.",
+			"Keywords": [],
+			"Kind": "Call",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Prefab",
+					"Direction": "In",
+					"Type": "Strada.Prefab"
+				},
+				{
+					"Name": "Position",
+					"Direction": "In",
+					"Type": "Strada.Vector3"
+				},
+				{
+					"Name": "Rotation",
+					"Direction": "In",
+					"Type": "Strada.Quaternion"
+				},
+				{
+					"Name": "Parent",
+					"Direction": "In",
+					"Type": "Strada.Entity",
+					"Default": "0"
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "Strada.Entity"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Event.Create",
+			"Title": "Create",
+			"Category": "Events",
+			"Description": "Runs once when the scene starts, or when the entity starts running the graph during play, after every new instance exists.",
+			"Keywords": [
+				"start",
+				"begin",
+				"init"
+			],
+			"Kind": "Event",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Event.Custom",
+			"Title": "Custom Event",
+			"Category": "Events",
+			"Description": "Runs when Event.Send or a C# script raises the event by its name; its outputs are the event's parameters.",
+			"Keywords": [
+				"custom",
+				"message",
+				"receive"
+			],
+			"Kind": "Event",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Name",
+					"Kind": "String",
+					"Required": true
+				},
+				{
+					"Name": "Parameters",
+					"Kind": "Parameters",
+					"Default": []
+				}
+			]
+		},
+		{
+			"Type": "Event.KeyPressed",
+			"Title": "Key Pressed",
+			"Category": "Events",
+			"Description": "Runs in the frame the key goes down.",
+			"Keywords": [
+				"input",
+				"press",
+				"release",
+				"keyboard"
+			],
+			"Kind": "Event",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Key",
+					"Kind": "Enum",
+					"Required": true,
+					"Type": "Strada.KeyCode"
+				}
+			]
+		},
+		{
+			"Type": "Event.Send",
+			"Title": "Send Event",
+			"Category": "Events",
+			"Description": "Raises the custom event of that name on the Target entity's graph (Self when unconnected) and continues when it ends or waits.",
+			"Keywords": [
+				"send",
+				"message",
+				"raise",
+				"event"
+			],
+			"Kind": "Call",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Target",
+					"Direction": "In",
+					"Type": "Strada.Entity",
+					"DefaultsToSelf": true
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Name",
+					"Kind": "String",
+					"Required": true
+				},
+				{
+					"Name": "Parameters",
+					"Kind": "Parameters",
+					"Default": []
+				}
+			]
+		},
+		{
+			"Type": "Event.Update",
+			"Title": "Update",
+			"Category": "Events",
+			"Description": "Runs every frame with the seconds since the previous frame (scaled by the time scale).",
+			"Keywords": [
+				"tick",
+				"frame",
+				"every frame"
+			],
+			"Kind": "Event",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				},
+				{
+					"Name": "DeltaTime",
+					"Direction": "Out",
+					"Type": "float"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Flow.Branch",
+			"Title": "Branch",
+			"Category": "Flow",
+			"Description": "Continues at True or False depending on Condition.",
+			"Keywords": [
+				"if",
+				"else",
+				"condition"
+			],
+			"Kind": "Flow",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Condition",
+					"Direction": "In",
+					"Type": "bool"
+				},
+				{
+					"Name": "True",
+					"Direction": "Out",
+					"Type": "exec"
+				},
+				{
+					"Name": "False",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Flow.Delay",
+			"Title": "Delay",
+			"Category": "Flow",
+			"Description": "Waits Duration seconds of scene time, then continues at Completed.",
+			"Keywords": [
+				"wait",
+				"timer",
+				"seconds",
+				"sleep"
+			],
+			"Kind": "Latent",
+			"Pure": false,
+			"Latent": true,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Duration",
+					"Direction": "In",
+					"Type": "float",
+					"Default": 0.2
+				},
+				{
+					"Name": "Completed",
+					"Direction": "Out",
+					"Type": "exec",
+					"Role": "Continuation"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Flow.ForEach",
+			"Title": "For Each",
+			"Category": "Flow",
+			"Description": "Runs Body for each element of a snapshot of Array, then Completed.",
+			"Keywords": [
+				"each",
+				"loop",
+				"array",
+				"iterate"
+			],
+			"Kind": "Flow",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Array",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Array"
+				},
+				{
+					"Name": "Break",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Body",
+					"Direction": "Out",
+					"Type": "exec"
+				},
+				{
+					"Name": "Element",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any",
+					"ElementOf": "Array"
+				},
+				{
+					"Name": "Index",
+					"Direction": "Out",
+					"Type": "int"
+				},
+				{
+					"Name": "Completed",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Flow.Sequence",
+			"Title": "Sequence",
+			"Category": "Flow",
+			"Description": "Runs its outputs one after another: each starts when the chain of the one before it has ended.",
+			"Keywords": [
+				"order",
+				"then",
+				"multiple"
+			],
+			"Kind": "Flow",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Then0",
+					"Direction": "Out",
+					"Type": "exec"
+				},
+				{
+					"Name": "Then1",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Count",
+					"Kind": "Int",
+					"Default": 2,
+					"Min": 2,
+					"Max": 64
+				}
+			]
+		},
+		{
+			"Type": "Flow.Switch",
+			"Title": "Switch",
+			"Category": "Flow",
+			"Description": "Continues at the case whose value equals Selection, else at Default.",
+			"Keywords": [
+				"case",
+				"select",
+				"match"
+			],
+			"Kind": "Flow",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Selection",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any"
+				},
+				{
+					"Name": "Default",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Type",
+					"Kind": "Type",
+					"Required": true,
+					"Constraint": "Switch"
+				},
+				{
+					"Name": "Cases",
+					"Kind": "Cases"
+				}
+			]
+		},
+		{
+			"Type": "Flow.Tween",
+			"Title": "Tween",
+			"Category": "Flow",
+			"Description": "Runs Update every frame for Duration seconds with Alpha eased from 0 to 1, then continues at Completed; Stop cancels it.",
+			"Keywords": [
+				"animate",
+				"ease",
+				"interpolate",
+				"lerp",
+				"timeline"
+			],
+			"Kind": "Latent",
+			"Pure": false,
+			"Latent": true,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Stop",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Duration",
+					"Direction": "In",
+					"Type": "float",
+					"Default": 1
+				},
+				{
+					"Name": "Update",
+					"Direction": "Out",
+					"Type": "exec",
+					"Role": "Tick"
+				},
+				{
+					"Name": "Alpha",
+					"Direction": "Out",
+					"Type": "float"
+				},
+				{
+					"Name": "Completed",
+					"Direction": "Out",
+					"Type": "exec",
+					"Role": "Continuation"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Easing",
+					"Kind": "Choice",
+					"Default": "Linear",
+					"Choices": [
+						"Linear",
+						"EaseIn",
+						"EaseOut",
+						"EaseInOut",
+						"EaseInCubic",
+						"EaseOutCubic",
+						"EaseInOutCubic",
+						"EaseOutBack",
+						"EaseOutBounce",
+						"EaseOutElastic"
+					]
+				}
+			]
+		},
+		{
+			"Type": "Function.Call",
+			"Title": "Call Function",
+			"Category": "Functions",
+			"Description": "Calls a function of the graph with its inputs and outputs its results.",
+			"Keywords": [
+				"call",
+				"invoke",
+				"run"
+			],
+			"Kind": "Function",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Function",
+					"Kind": "Function",
+					"Required": true
+				}
+			]
+		},
+		{
+			"Type": "Function.Entry",
+			"Title": "Function Entry",
+			"Category": "Functions",
+			"Description": "Where a call of the function starts; its outputs are the function's inputs.",
+			"Keywords": [
+				"start",
+				"parameters",
+				"inputs"
+			],
+			"Kind": "Function",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Function.Return",
+			"Title": "Return",
+			"Category": "Functions",
+			"Description": "Ends the call; its inputs are the function's outputs.",
+			"Keywords": [
+				"return",
+				"result",
+				"outputs",
+				"end"
+			],
+			"Kind": "Function",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Call:Strada.Input.IsKeyDown(Strada.KeyCode)",
+			"Title": "Is Key Down",
+			"Subtitle": "Input",
+			"Category": "Input",
+			"Description": "Whether the key is held down.",
+			"Keywords": [],
+			"Kind": "Pure",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Key",
+					"Direction": "In",
+					"Type": "Strada.KeyCode"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "bool"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Call:Strada.Color.Lerp(Strada.Color,Strada.Color,float)",
+			"Title": "Lerp",
+			"Subtitle": "Color",
+			"Category": "Math/Color",
+			"Description": "Linear interpolation from a (t = 0) to b (t = 1); t is not clamped.",
+			"Keywords": [],
+			"Kind": "Pure",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "A",
+					"Direction": "In",
+					"Type": "Strada.Color"
+				},
+				{
+					"Name": "B",
+					"Direction": "In",
+					"Type": "Strada.Color"
+				},
+				{
+					"Name": "T",
+					"Direction": "In",
+					"Type": "float"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "Strada.Color"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Operator.Add",
+			"Title": "Add",
+			"Category": "Math/Operators",
+			"Description": "A + B: numbers, text (joined, the other value as text) or values with an addition operator.",
+			"Keywords": [
+				"+",
+				"plus",
+				"sum",
+				"concatenate"
+			],
+			"Kind": "Operator",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "A",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any"
+				},
+				{
+					"Name": "B",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Operator.Less",
+			"Title": "Less",
+			"Category": "Math/Operators",
+			"Description": "Whether A < B.",
+			"Keywords": [
+				"<",
+				"smaller",
+				"below"
+			],
+			"Kind": "Operator",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "A",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any"
+				},
+				{
+					"Name": "B",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "bool"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "New:Strada.Vector3(float,float,float)",
+			"Title": "Make Vector3 (X, Y, Z)",
+			"Subtitle": "Vector3",
+			"Category": "Math/Vector3",
+			"Description": "Creates a vector from its components.",
+			"Keywords": [],
+			"Kind": "Pure",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "X",
+					"Direction": "In",
+					"Type": "float"
+				},
+				{
+					"Name": "Y",
+					"Direction": "In",
+					"Type": "float"
+				},
+				{
+					"Name": "Z",
+					"Direction": "In",
+					"Type": "float"
+				},
+				{
+					"Name": "Value",
+					"Direction": "Out",
+					"Type": "Strada.Vector3"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
+			"Title": "Raycast",
+			"Subtitle": "Physics",
+			"Category": "Physics",
+			"Description": "The closest solid collider along a ray, on the layers of layerMask (bit n is layer n). Triggers and colliders containing the origin are ignored.",
+			"Keywords": [],
+			"Kind": "Call",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Origin",
+					"Direction": "In",
+					"Type": "Strada.Vector3"
+				},
+				{
+					"Name": "Direction",
+					"Direction": "In",
+					"Type": "Strada.Vector3"
+				},
+				{
+					"Name": "MaxDistance",
+					"Direction": "In",
+					"Type": "float"
+				},
+				{
+					"Name": "LayerMask",
+					"Direction": "In",
+					"Type": "uint",
+					"Default": 4294967295
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				},
+				{
+					"Name": "Hit",
+					"Direction": "Out",
+					"Type": "Strada.RaycastHit"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "bool"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Break",
+			"Title": "Break",
+			"Category": "Structs",
+			"Description": "Splits a struct into its fields.",
+			"Keywords": [
+				"split",
+				"fields",
+				"decompose"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Value",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Type",
+					"Kind": "Type",
+					"Required": true,
+					"Constraint": "Breakable"
+				}
+			]
+		},
+		{
+			"Type": "Make",
+			"Title": "Make",
+			"Category": "Structs",
+			"Description": "Builds a struct from its fields.",
+			"Keywords": [
+				"construct",
+				"struct",
+				"compose",
+				"new"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Value",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Type",
+					"Kind": "Type",
+					"Required": true,
+					"Constraint": "Makeable"
+				}
+			]
+		},
+		{
+			"Type": "Get:Strada.Time.DeltaTime",
+			"Title": "Get Delta Time",
+			"Subtitle": "Time",
+			"Category": "Time",
+			"Description": "Seconds since the previous frame; the value passed to OnUpdate.",
+			"Keywords": [],
+			"Kind": "Pure",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Value",
+					"Direction": "Out",
+					"Type": "float"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "IsValid",
+			"Title": "Is Valid",
+			"Category": "Utilities",
+			"Description": "Whether a reference is set: an entity that exists, a component its entity still has, a valid asset, any other object.",
+			"Keywords": [
+				"null",
+				"none",
+				"exists",
+				"valid"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Value",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Reference"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "bool"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Literal",
+			"Title": "Literal",
+			"Category": "Utilities",
+			"Description": "A constant value of a type.",
+			"Keywords": [
+				"constant",
+				"value",
+				"number",
+				"text"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Value",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Type",
+					"Kind": "Type",
+					"Required": true,
+					"Constraint": "Literal"
+				},
+				{
+					"Name": "Value",
+					"Kind": "Value"
+				}
+			]
+		},
+		{
+			"Type": "Reroute",
+			"Title": "Reroute",
+			"Category": "Utilities",
+			"Description": "Passes a value, or the flow, through unchanged, to route links.",
+			"Keywords": [
+				"wire",
+				"knot",
+				"pass",
+				"route"
+			],
+			"Kind": "Reroute",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "In",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				},
+				{
+					"Name": "Out",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Select",
+			"Title": "Select",
+			"Category": "Utilities",
+			"Description": "Outputs True or False depending on Condition (both inputs are evaluated).",
+			"Keywords": [
+				"choose",
+				"pick",
+				"ternary",
+				"if"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Condition",
+					"Direction": "In",
+					"Type": "bool"
+				},
+				{
+					"Name": "True",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				},
+				{
+					"Name": "False",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Self",
+			"Title": "Self",
+			"Category": "Utilities",
+			"Description": "The entity running the graph.",
+			"Keywords": [
+				"this",
+				"me",
+				"owner"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Self",
+					"Direction": "Out",
+					"Type": "Strada.Entity"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Array.Get",
+			"Title": "Get",
+			"Category": "Utilities/Array",
+			"Description": "The element of an array at Index (from 0).",
+			"Keywords": [
+				"index",
+				"element",
+				"item",
+				"array"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Array",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Array"
+				},
+				{
+					"Name": "Index",
+					"Direction": "In",
+					"Type": "int"
+				},
+				{
+					"Name": "Element",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any",
+					"ElementOf": "Array"
+				}
+			],
+			"Settings": []
+		},
+		{
+			"Type": "Variable.Get",
+			"Title": "Get Variable",
+			"Category": "Variables",
+			"Description": "Reads a variable of the graph, or a local of the function.",
+			"Keywords": [
+				"get",
+				"read"
+			],
+			"Kind": "Variable",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Value",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Variable",
+					"Kind": "Variable",
+					"Required": true
+				}
+			]
+		},
+		{
+			"Type": "Variable.Set",
+			"Title": "Set Variable",
+			"Category": "Variables",
+			"Description": "Writes a variable of the graph or a local of the function, then outputs the value it wrote.",
+			"Keywords": [
+				"set",
+				"write",
+				"assign"
+			],
+			"Kind": "Variable",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Value",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any"
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				},
+				{
+					"Name": "Value",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Variable",
+					"Kind": "Variable",
+					"Required": true
+				}
+			]
+		}
+	]
+}

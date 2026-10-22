@@ -1,3 +1,5 @@
+#include "VisualScriptTestDocuments.h"
+
 #include "Editor/VisualScripting/VisualScriptNormalization.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -53,19 +55,6 @@ namespace
 		node.CanonicalType = std::move(canonicalType);
 		node.PinRenames = std::move(renames);
 		return node;
-	}
-
-	// What graph.set requires: the document loads strictly, with no issue, as it is.
-	void CheckLoadsStrictly(VisualScriptDocument const& document)
-	{
-		DeserializationContext context;
-		context.UnknownFields = UnknownFieldPolicy::Error;
-		std::vector<VisualScriptIssue> issues;
-		Result<VisualScriptDocument> read =
-			VisualScriptSerializer::DeserializeDocument(VisualScriptSerializer::SerializeDocument(document), context, &issues);
-		REQUIRE_MESSAGE(read.IsOk(), read.GetError());
-		CHECK(issues.empty());
-		CHECK(read.GetValue() == document);
 	}
 }
 
@@ -234,7 +223,9 @@ TEST_CASE("VisualScriptNormalization: split pins renamed by a redirect keep thei
 	                                             MakeLink(12, "Value", 11, "Impulse.Offset.X"), MakeLink(12, "Value", 11, "Forces.Y"),
 	                                             MakeLink(11, "Then", 13, "Execute"), MakeLink(11, "Contact.Point.Y", 13, "Value"),
 	                                             MakeLink(13, "Then", 14, "Execute"), MakeLink(11, "Force.X", 14, "Value")});
-	CheckLoadsStrictly(document);
+	// It loads as graph.set requires, and it addresses fields only of the pins it splits.
+	Testing::ExpectStrictRoundTrip(document);
+	Testing::ExpectSplitConsistency(document);
 }
 
 TEST_CASE("VisualScriptNormalization: split paths follow the pin they name, all renames at once, and repeated entries go")
@@ -271,5 +262,7 @@ TEST_CASE("VisualScriptNormalization: split paths follow the pin they name, all 
 	CHECK(nodes[1].Inputs == Json::object({{"Q", 1}, {"Q.C", 2}, {"P.C", 3}}));
 	// Both links now end at Input.Z: the first stays.
 	CHECK(links == std::vector<VisualScriptLink>{MakeLink(3, "Value", 1, "Input.Z"), MakeLink(3, "Value", 1, "Right.X")});
-	CheckLoadsStrictly(document);
+	// It loads as graph.set requires, and it addresses fields only of the pins it splits.
+	Testing::ExpectStrictRoundTrip(document);
+	Testing::ExpectSplitConsistency(document);
 }

@@ -1,3 +1,5 @@
+#include "HeadlessImGui.h"
+
 #include "Editor/ComponentInspection.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EntityPresets.h"
@@ -10,10 +12,15 @@
 #include "Strada/Scene/Entity.h"
 
 #include <doctest/doctest.h>
+#include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
+#include <cfloat>
+#include <cmath>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -61,6 +68,218 @@ TEST_CASE("UI: display names split PascalCase words and keep acronyms together")
 	CHECK(UI::FormatDisplayName("m_") == "m_");
 	CHECK(UI::FormatDisplayName("m_lower") == "m_lower");
 	CHECK(UI::FormatDisplayName("").empty());
+}
+
+TEST_CASE("UI: arrows in text are drawn as shapes, which the editor's fonts have no glyphs for, and measured with the text")
+{
+	Testing::HeadlessImGui imgui;
+	ImFont* const monospace = imgui.UseEditorStyle();
+	REQUIRE(monospace != nullptr);
+	imgui.Frame(
+		[&]
+		{
+			ImFont* const font = ImGui::GetFont();
+			float const size = ImGui::GetFontSize();
+			// Neither editor font has the two arrows: ImGui would draw its fallback character for them.
+			for (ImFont* const editorFont : {font, monospace})
+			{
+				CHECK(!editorFont->IsGlyphInFont(0x2192));
+				CHECK(!editorFont->IsGlyphInFont(0x2190));
+			}
+			auto const width = [font](float pixels, char const* text)
+			{
+				return font->CalcTextSizeA(pixels, FLT_MAX, 0.0f, text).x;
+			};
+
+			// Text without them is measured as ImGui measures it, the other arrows of their block and a cut sequence included.
+			CHECK(UI::CalcArrowTextSize("Count (int)") == ImGui::CalcTextSize("Count (int)"));
+			CHECK(UI::CalcArrowTextSize("Two\nlines\n") == ImGui::CalcTextSize("Two\nlines\n"));
+			CHECK(UI::CalcArrowTextSize(font, 31.0f, "Count\nAlpha") == font->CalcTextSizeA(31.0f, FLT_MAX, 0.0f, "Count\nAlpha"));
+			CHECK(UI::CalcArrowTextSize("") == ImGui::CalcTextSize(""));
+			CHECK(UI::CalcArrowTextSize(std::string_view()) == ImVec2(0.0f, size));
+			CHECK(UI::CalcArrowTextSize(font, 20.0f, "↑") == font->CalcTextSizeA(20.0f, FLT_MAX, 0.0f, "↑"));
+			CHECK(UI::CalcArrowTextSize(font, 20.0f, "a\xE2\x86") == font->CalcTextSizeA(20.0f, FLT_MAX, 0.0f, "a\xE2\x86"));
+
+			// An arrow is about an em wide, either way, and adds to the text around it.
+			float const arrow = UI::CalcArrowTextSize(font, 20.0f, "→").x;
+			CHECK(arrow > 10.0f);
+			CHECK(arrow < 24.0f);
+			CHECK(UI::CalcArrowTextSize(font, 20.0f, "←").x == arrow);
+			ImVec2 const pill = UI::CalcArrowTextSize(font, 20.0f, "Count → Alpha");
+			CHECK(pill.x == doctest::Approx(width(20.0f, "Count ") + arrow + width(20.0f, " Alpha")));
+			CHECK(pill.y == 20.0f);
+			ImVec2 const lines = UI::CalcArrowTextSize(font, 20.0f, "a → b\nCondition ← Is Key Down");
+			CHECK(lines.x == doctest::Approx(width(20.0f, "Condition ") + arrow + width(20.0f, " Is Key Down")));
+			CHECK(lines.y == 40.0f);
+			CHECK(UI::CalcArrowTextSize(font, 20.0f, "a →\n").y == 20.0f);
+			// At the current font and size the width is rounded up, as ImGui::CalcTextSize rounds it.
+			ImVec2 const current = UI::CalcArrowTextSize("x → y");
+			CHECK(current.x == std::ceil(UI::CalcArrowTextSize(font, size, "x → y").x));
+			CHECK(current.y == size);
+		});
+
+	imgui.Frame(
+		[&]
+		{
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+			ImGui::SetNextWindowSize(ImVec2(800.0f, 600.0f));
+			ImGui::Begin("Arrows");
+			ImDrawList* const drawList = ImGui::GetWindowDrawList();
+			ImFont* const font = ImGui::GetFont();
+			float const size = ImGui::GetFontSize();
+			ImVec2 const white = drawList->_Data->TexUvWhitePixel;
+			auto const drawn = [drawList](auto const& draw)
+			{
+				int const first = drawList->VtxBuffer.Size;
+				draw();
+				return std::vector<ImDrawVert>(drawList->VtxBuffer.begin() + first, drawList->VtxBuffer.end());
+			};
+			auto const same = [](std::vector<ImDrawVert> const& a, std::vector<ImDrawVert> const& b)
+			{
+				return std::equal(a.begin(), a.end(), b.begin(), b.end(),
+			                      [](ImDrawVert const& x, ImDrawVert const& y)
+			                      {
+									  return x.pos == y.pos && x.uv == y.uv && x.col == y.col;
+								  });
+			};
+
+			// Text without arrows is drawn exactly as ImGui draws it; a null font and a size of 0 are the current ones.
+			ImVec2 const at(10.5f, 20.25f);
+			std::vector<ImDrawVert> const hello = drawn(
+				[&]
+				{
+					UI::DrawArrowText(drawList, at, IM_COL32_WHITE, "Hello\nWorld");
+				});
+			CHECK(same(hello, drawn(
+								  [&]
+								  {
+									  drawList->AddText(at, IM_COL32_WHITE, "Hello\nWorld");
+								  })));
+			std::vector<ImDrawVert> const resolved = drawn(
+				[&]
+				{
+					UI::DrawArrowText(drawList, nullptr, 0.0f, at, IM_COL32_WHITE, "x → y");
+				});
+			CHECK(same(resolved, drawn(
+									 [&]
+									 {
+										 UI::DrawArrowText(drawList, font, size, at, IM_COL32_WHITE, "x → y");
+									 })));
+
+			// An arrow is shapes in the text's colour, no glyph (not the fallback either), within its advance and its line,
+		    // with its head on the side it points to.
+			ImU32 const orange = IM_COL32(255, 128, 0, 255);
+			float const advance = UI::CalcArrowTextSize(font, size, "→").x;
+			std::vector<float> widths;
+			for (bool const pointsRight : {true, false})
+			{
+				CAPTURE(pointsRight);
+				std::vector<ImDrawVert> const shapes = drawn(
+					[&]
+					{
+						UI::DrawArrowText(drawList, ImVec2(100.0f, 100.0f), orange, pointsRight ? "→" : "←");
+					});
+				REQUIRE(!shapes.empty());
+				ImVec2 minimum(FLT_MAX, FLT_MAX);
+				ImVec2 maximum(-FLT_MAX, -FLT_MAX);
+				for (ImDrawVert const& vertex : shapes)
+				{
+					CHECK(vertex.uv == white);
+					CHECK((vertex.col & ~IM_COL32_A_MASK) == (orange & ~IM_COL32_A_MASK));
+					CHECK(((vertex.col & IM_COL32_A_MASK) == IM_COL32_A_MASK || (vertex.col & IM_COL32_A_MASK) == 0));
+					minimum = ImMin(minimum, vertex.pos);
+					maximum = ImMax(maximum, vertex.pos);
+				}
+				CHECK(minimum.x >= 99.0f);
+				CHECK(maximum.x <= 100.0f + advance + 1.0f);
+				CHECK(minimum.y >= 99.0f);
+				CHECK(maximum.y <= 100.0f + size + 1.0f);
+				widths.push_back(maximum.x - minimum.x);
+				// The tip is the one opaque point on the arrow's middle row: the stem's corners lie on whole rows of pixels
+			    // above and below it, and the anti-aliased fringe is transparent.
+				float const middle = (minimum.y + maximum.y) * 0.5f;
+				std::vector<float> tips;
+				for (ImDrawVert const& vertex : shapes)
+				{
+					if ((vertex.col & IM_COL32_A_MASK) == IM_COL32_A_MASK && std::abs(vertex.pos.y - middle) < 0.25f)
+					{
+						tips.push_back(vertex.pos.x);
+					}
+				}
+				REQUIRE(tips.size() == 1);
+				CHECK((tips[0] > (minimum.x + maximum.x) * 0.5f) == pointsRight);
+			}
+			CHECK(widths[0] == doctest::Approx(widths[1]).epsilon(0.01));
+
+			// The text around an arrow is drawn where it is measured.
+			std::vector<ImDrawVert> const pill = drawn(
+				[&]
+				{
+					UI::DrawArrowText(drawList, ImVec2(100.0f, 200.0f), IM_COL32_WHITE, "A → B");
+				});
+			float const arrowStart = 100.0f + font->CalcTextSizeA(size, FLT_MAX, 0.0f, "A ").x;
+			std::vector<ImDrawVert> glyphs;
+			for (ImDrawVert const& vertex : pill)
+			{
+				if (vertex.uv == white)
+				{
+					CHECK(vertex.pos.x >= arrowStart - 1.0f);
+					CHECK(vertex.pos.x <= arrowStart + advance + 1.0f);
+				}
+				else
+				{
+					glyphs.push_back(vertex);
+				}
+			}
+			// Two glyphs of four vertices each: "A" before the arrow, "B" after it.
+			REQUIRE(glyphs.size() == 8);
+			for (size_t index = 0; index < 4; index++)
+			{
+				CHECK(glyphs[index].pos.x < arrowStart);
+				CHECK(glyphs[index + 4].pos.x > arrowStart + advance);
+			}
+
+			// Lines break as ImGui's do: the arrow of the second line is drawn on it.
+			std::vector<ImDrawVert> const twoLines = drawn(
+				[&]
+				{
+					UI::DrawArrowText(drawList, ImVec2(100.0f, 300.0f), IM_COL32_WHITE, "a\n→");
+				});
+			for (ImDrawVert const& vertex : twoLines)
+			{
+				if (vertex.uv == white)
+				{
+					CHECK(vertex.pos.y >= 300.0f + size - 1.0f);
+					CHECK(vertex.pos.y <= 300.0f + 2.0f * size + 1.0f);
+				}
+			}
+
+			// An arrow grows with the size it is drawn at; a transparent colour draws nothing.
+			auto const extent = [&](float pixels)
+			{
+				std::vector<ImDrawVert> const shapes = drawn(
+					[&]
+					{
+						UI::DrawArrowText(drawList, font, pixels, ImVec2(100.0f, 400.0f), IM_COL32_WHITE, "→");
+					});
+				float left = FLT_MAX;
+				float right = -FLT_MAX;
+				for (ImDrawVert const& vertex : shapes)
+				{
+					left = std::min(left, vertex.pos.x);
+					right = std::max(right, vertex.pos.x);
+				}
+				return right - left;
+			};
+			CHECK(extent(2.0f * size) == doctest::Approx(2.0f * extent(size)).epsilon(0.1));
+			std::vector<ImDrawVert> const transparent = drawn(
+				[&]
+				{
+					UI::DrawArrowText(drawList, ImVec2(100.0f, 500.0f), IM_COL32(255, 255, 255, 0), "A → B");
+				});
+			CHECK(transparent.empty());
+			ImGui::End();
+		});
 }
 
 TEST_CASE("EditSession: one interaction is one undo step")
