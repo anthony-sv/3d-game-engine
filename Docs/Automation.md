@@ -301,7 +301,8 @@ lists) what it changes:
 
 While playing, `graph.set` goes into the play history (dropped at `play.stop`; the file keeps the change), and running
 instances of the graph take the edit at their next update: variables keep their values (matched by ID, then by name and
-type; others start at their `Value`), and nodes waiting (a `Flow.Delay`, ...) keep waiting while they still exist.
+type; others start at their `Value`, else their type's default), and nodes waiting (a `Flow.Delay`, ...) keep waiting
+while they still exist.
 
 **Analysis.** `nodes` lists every node of the document (those of the functions' graphs, then those of the event graph):
 `{ ID, Function (0 for the event graph), Type (as stored), Resolved (Exact, Redirect, Unique or Unknown), CanonicalType?
@@ -309,8 +310,9 @@ and PinRenames? (Redirect and Unique: [{ Direction, From, To }]), Title, Subtitl
 types the runtime resolved its wildcards to (`*` while open). `diagnostics` are `{ Severity (Error or Warning), Code,
 Function, Message, Node?, Pin?, Direction?, Link? ({ From, To }), Variable? (a variable or local ID), Suggestions? }`;
 `Suggestions` lists the nearest known names for unknown ones and the candidates of an ambiguous node. A graph with an
-Error does not run (the log names its first error), and a graph edited while playing into one with an Error keeps
-running its last working version. The codes (W: Warning, the others are Errors):
+Error does not run: the log names its first error (`Visual script '<path>' has 1 error; first: <message> (node <id>)`)
+and each entity left without the graph (`Entity '<name>' runs no visual script: <reason>`), and a graph edited while
+playing into one with an Error keeps running its last working version. The codes (W: Warning, the others are Errors):
 
 | Code | Meaning |
 |------|---------|

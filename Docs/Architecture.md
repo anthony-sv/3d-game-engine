@@ -49,16 +49,16 @@ Exact pinned versions live in `cmake/StradaDependencies.cmake` and `ThirdPartyNo
 ├── StradaEditor/                                     Editor: StradaEditorCore static lib + StradaEditor executable
 │   └── Source/Editor/...                             Panels, automation, commands (undo/redo), export, project management
 ├── StradaRuntime/                                    Runtime/player executable used for exported games
-├── Strada-ScriptCore/                                C# scripting API (assembly Strada.ScriptCore.dll)
+├── Strada-ScriptCore/                                C# scripting API, visual script VM (Strada.ScriptCore.dll)
 ├── StradaTool/                                       C# CLI + MCP stdio bridge (executable `strada`)
 ├── Tests/
 │   ├── StradaTests/                                  C++ unit tests (doctest) for the engine library
 │   ├── StradaEditorTests/                            C++ tests for editor automation commands (headless)
 │   ├── StradaRuntimeTests/                           C++ tests running the game player on generated games
-│   ├── ScriptCoreTests/                              C# unit tests (math, API coverage checks)
+│   ├── ScriptCoreTests/                              C# unit tests (math, API coverage, the visual script VM)
 │   ├── StradaToolTests/                              C# tests of strada (MCP server, sessions with the headless editor)
 │   ├── TestScripts/                                  C# script assembly used by C++ scripting tests
-│   └── Data/                                         Test assets and golden images
+│   └── Data/                                         Test assets, visual script documents and golden images
 ├── Projects/FeatureTest/                             Project whose scene exercises every feature and the whole script API
 ├── Projects/Blocks/                                  Sample game (falling blocks) made through the agent tools
 ├── Projects/Showcase/                                Showcase of every feature (exhibits, camera tour, Poly Haven assets)
@@ -95,8 +95,8 @@ through includes of `Scene.h` in headers.
 | ImGui | ImGui context/layer, NVRHI renderer backend with multi-viewport support, UI helpers | `ImGuiLayer`, `ImGuiRenderer` |
 | Physics | Jolt init/shutdown, per-scene physics world, layers, contact events, queries | `PhysicsSystem`, `PhysicsScene` |
 | Audio | miniaudio engine, per-scene sound sources and listener, waveforms of clips | `AudioEngine`, `AudioScene`, `ComputeAudioWaveform` |
-| Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload, the public variables of visual scripts as script fields | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding`, `DescribeVisualScriptVariables` |
-| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle, post-process volume blending, screen-space UI layout and interaction, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `PostProcessVolumes`, `UILayout`, `RenderScene` |
+| Script | .NET runtime hosting (hostfxr), managed bridge, native bindings, script instances and fields, hot reload, the public variables of visual scripts as script fields, the visual scripts of the runtime (node library, analysis, programs, graph instances) | `ScriptEngine`, `DotNet::LoadAssembly`, `ScriptBinding`, `DescribeVisualScriptVariables`, `VisualScriptEngine`, `VisualScriptLibrary` |
+| Scene | ECS scene, entities, components, component registry/reflection, serialization, prefab instantiation, runtime lifecycle (C# scripts and visual scripts), post-process volume blending, screen-space UI layout and interaction, render submission | `Scene`, `Entity`, `ComponentRegistry`, `ComponentTraits`, `SceneSerializer`, `PostProcessVolumes`, `UILayout`, `RenderScene` |
 | Project | Project files and settings, the C# script project, the scene runner (play mode and the player), game export | `Project`, `ProjectSettings`, `ScriptProject`, `SceneRunner`, `GameExporter` |
 
 ### 4.1 Subsystem lifetime
@@ -707,7 +707,7 @@ order, else the primary camera, else the origin facing -Z. `Scene::SetPaused` ho
 ## 10. Scripting (C# / .NET 10)
 
 This section is the contract of the scripting runtime; [Scripting.md](Scripting.md) shows game developers how to write
-scripts.
+scripts and visual scripts.
 
 ### 10.1 Hosting
 
@@ -717,15 +717,21 @@ SDK's static nethost library links against the static C runtime, which the engin
 SDK's hosting headers are used. It initializes the runtime from `Strada.ScriptCore.runtimeconfig.json` (CoreCLR starts
 once per process and is never unloaded: `ScriptEngine::Shutdown` unloads the game and later `Init`s reuse the
 runtime), loads `Strada.ScriptCore.dll` into the default load context and resolves the `[UnmanagedCallersOnly]`
-entry points of `Strada.Interop.Host`. Game assemblies load into a collectible `AssemblyLoadContext` from bytes (with
-their symbols, for line numbers), so the files are never locked (hot reload); `Strada.ScriptCore` and the framework
-resolve to the default context's assemblies, other dependencies from the game assembly's directory. Managed
-exceptions never cross into native code: every entry point catches, logs (with stack trace) and returns a status.
+entry points of `Strada.Interop.Host` by name: 11 for the runtime, the game assembly and C# script instances, and 10
+for visual scripts (`VisualScript*`, §10.6); a missing one fails `ScriptEngine::Init`. Game assemblies load into a
+collectible `AssemblyLoadContext` from bytes (with their symbols, for line numbers), so the files are never locked (hot
+reload); `Strada.ScriptCore` and the framework resolve to the default context's assemblies, other dependencies from the
+game assembly's directory. Managed exceptions never cross into native code: every entry point catches, logs (with
+stack trace) and returns a status. Entry points take strings and JSON as UTF-8 pointers and lengths, borrowed for the
+call, and answer with text through a `receive(context, text, length)` callback that native code copies at once; the
+visual-script entry points call it exactly once when they answer Success, and never otherwise.
 
 Class metadata and field values cross the boundary as JSON in the scene files' script field format: the runtime
 describes every concrete, non-generic `Script` class with a public parameterless constructor (field names, types,
 defaults read from a default instance, `[Range]`, `[Tooltip]`, `[HideInInspector]`), and instances receive their
-`ScriptComponent.Fields`; stored values of fields that changed type are logged and skipped.
+`ScriptComponent.Fields`; stored values of fields that changed type are logged and skipped. Visual scripts cross as JSON
+too: documents in their content form (§7.3, compact), the values of public variables in the script field format, and
+the runtime's node library and analyses (§10.6).
 
 CMake builds the C# projects with the .NET SDK (`strada_add_dotnet_project`; MSBuild decides what is out of date, and
 `Directory.Build.props` keeps outputs in the build tree): `Strada.ScriptCore.dll` lands next to the executables.
@@ -765,6 +771,13 @@ stored values that differ from those they were last given or read (`ScriptEngine
 the fields it shows or edits during play and applies its edits (undo included) at once, so tuning a running game
 reaches its scripts.
 
+Visual scripts (§10.6) are a second kind of instance with the same lifecycle: `VisualScriptComponent`s get graph
+instances as `ScriptComponent`s get script instances, every instance of both kinds exists before the first `OnCreate`
+or `Event.Create`, and each event reaches an entity's C# script before its graph. A scene runs scripts when the
+scripting runtime is initialized and a game assembly is loaded or the scene has VisualScript components; C# scripts run
+only when the game assembly was loaded as the scene started (one loaded while it runs does not start them), and the
+editor's Simulate mode runs neither kind.
+
 ### 10.4 Scripting API (namespace `Strada`)
 
 - `Entity`: `ID`, `Name`, `IsValid`, `Translation`/`Rotation`/`Scale` shortcuts, `Transform`, `Parent`, `Children`,
@@ -786,7 +799,9 @@ reaches its scripts.
   `AudioListenerComponent`, `TextComponent`, `SpriteRendererComponent`, `ParticleSystemComponent` (every field,
   `Emit(count)`, `Clear()`, `ParticleCount`), `PostProcessComponent` (every field; `Tonemapper` is a `TonemapOperator`),
   `UICanvasComponent`, `UIRectComponent`, `UIImageComponent`, `UITextComponent` (every field), `UIButtonComponent`
-  (every field, `WasClicked`, `State` (`UIButtonState`), `Click()`), `ScriptComponent` (`ClassName`, `Instance`).
+  (every field, `WasClicked`, `State` (`UIButtonState`), `Click()`), `ScriptComponent` (`ClassName`, `Instance`),
+  `VisualScriptComponent` (`Graph`; `SendEvent(name, params arguments)`, `HasVariable(name)`, `GetVariable<T>(name)`,
+  `SetVariable<T>(name, value)` on the entity's running graph, §10.6).
 - `Material` (runtime-creatable): `Create()`, `Clone()`, `IsEditable`, `BaseColor`, `Metallic`, `Roughness`,
   `Emissive`, `EmissiveIntensity`, `NormalStrength`, `OcclusionStrength`, the five texture maps, `AlphaMode`,
   `AlphaCutoff`, `DoubleSided`, `UVTiling`, `UVOffset`.
@@ -797,7 +812,8 @@ reaches its scripts.
 - `Physics`: `Gravity`, `Raycast(origin, direction, maxDistance, out RaycastHit, layerMask)`.
 - `Log`: `Trace/Info/Warn/Error`. `Debug`: `DrawLine(from, to, color, duration)`.
 - `SceneManager`: `LoadScene(path)`, `CurrentSceneName`. `Application`: `Quit()`, `WindowWidth/Height`, `IsEditor`.
-- `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`.
+- `Assets`: `Load<T>(path)` for `Prefab`, `Material`, `Mesh`, `AudioClip`, `Texture`, `Font`, `EnvironmentMap`,
+  `VisualScript`.
 - Math: `Vector2/3/4`, `Quaternion`, `Matrix4`, `Color`, `Mathf`, `Random`.
 - Attributes: `[SerializeField]`, `[HideInInspector]`, `[Range(min, max)]`, `[Tooltip(text)]`.
 - `Strada.Testing`: `Assert` (throws `AssertionException`), `TestReporter` (`Pass`, `Fail`, `Run`, `Finish`; used by
@@ -815,7 +831,7 @@ without a simulated character the reads are a character at rest and `Move` and s
 lookups (`FindByName`, `FindByID`, `Parent`, `Children`, contacts, raycast hits) return the script instance of scripted
 entities. `Time.TimeScale` scales script and physics time, not sounds. Asset references are typed (`Mesh`, `Material`,
 `Texture`, `AudioClip`, `Font`, `EnvironmentMap` (not `Environment`, which clashes with `System.Environment`),
-`Prefab`). Calls without a running scene
+`Prefab`, `VisualScript`). Calls without a running scene
 or on missing entities and components log a script error and do nothing; values from scripts are checked (non-finite
 numbers and unknown enumerators are rejected and logged, rotations are normalized), and null arguments throw.
 `Entity.Instantiate` places the prefab's root at a world position and rotation (keeping its scale) and starts the
@@ -850,6 +866,189 @@ the class would be declared twice (the editor also refuses a class that a source
 Platform module, reproc++) into the `ScriptModule`'s directory, without build servers (they would outlive the build
 and keep its output open) and with English output, from which errors and warnings are parsed with their files and
 positions. A build is out of date when a C# source or project file is newer than the assembly.
+
+### 10.6 Visual scripting
+
+Visual scripts are graph assets (`.sgraph`, §6.3 and §7.3) that a `VisualScriptComponent` (§7.2) runs on its entity,
+beside or instead of a C# script. A component runs one graph: behaviours compose through child entities with components
+of their own, whose graphs talk through custom events (`Event.Send` runs the `Event.Custom` of its target's graph) and
+public variables set per component (`Self` in a child's graph is the child). C++ owns the document (format, validation
+and repair, editor, undo, automation) and the scene integration. The graph VM in `Strada.ScriptCore` (namespace
+`Strada.VisualScripting`, internal) owns the semantics: the node library, pin resolution and type rules, analysis,
+compilation and execution. C++ never derives pins or types itself; it asks the VM through the ten `VisualScript*` entry
+points of `Strada.Interop.Host` (§10.1: `VisualScriptDescribeLibrary`, `VisualScriptAnalyze`, `VisualScriptLoad`,
+`VisualScriptCreateInstance`, `VisualScriptInvoke`, ...). They are thin adapters that marshal UTF-8 and answer a status:
+Success 0, Failure 1 or NotFound 2. On Success, and only then, the JSON answer goes to the `receive` callback, exactly
+once. Without .NET a document still loads, saves and shows in the editor; analysis and running need the runtime.
+
+- **Node library**: the built-in node kinds (events, flow, variables and functions, data, operators) and one node per
+  usable member of the scripting API:
+  - methods (`Call:`);
+  - property and field getters and setters (`Get:`/`Set:`; setters only for static members and reference types);
+  - constructors (`New:`);
+  - generic methods constrained to components, assets or scripts, through a `TypeArguments` setting.
+
+  The methods of `VisualScriptComponent` are not nodes (graphs use `Event.Send` and the variable nodes); its `Graph`
+  property is. The library is built by reflection over `Strada.ScriptCore` and the game's script classes the first time
+  it is needed, once even when several threads ask. It is immutable and is dropped whenever that set of assemblies
+  changes. A stored node type resolves in this order: exactly; through the redirect table `NodeRedirects`, for renamed
+  or re-signed API members; or as the only overload of its member that has every pin the node uses. Anything else is a
+  diagnostic, so an API change never makes a graph unloadable. The library JSON and the analysis JSON (resolved pins and
+  types; diagnostics with stable codes and suggestions) are the same bytes in every build, run and culture.
+- **Purity**: getters, struct constructors, the methods of the math types (`Mathf`, `Random`, the vectors, `Quaternion`,
+  `Matrix4`, `Color`) and methods marked with the internal `[PureNode]` attribute are pure. A method returning `void`
+  without `out` parameters never is, and neither is a setter. Pure nodes have no exec pins and are evaluated eagerly
+  whenever a consumer needs them, so a pure `Random` rolls again for every consumer. Impure nodes run where the flow
+  enters them and keep their outputs. A query member added to the API gets `[PureNode]` in the same change.
+- **Runtime and environment**: `VisualScriptRuntime` owns the programs (by graph handle), the graph instances (by
+  entity) with their fibers, the member invokers and the attached debugger. `Host.VisualScripts` is the engine's
+  runtime; `Initialize` and `Shutdown` replace it with an empty one. The VM reaches the engine only through
+  `IVisualScriptEnvironment`: the log, entities and their script instances, names and validity, components by runtime
+  type, `Time.DeltaTime` and input. ScriptCoreTests replace it with a fake engine. Calls of reflected API members are
+  not seam calls.
+- **Programs and instances**: `Load` analyzes and compiles a document and always stores a program. A program with an
+  Error diagnostic is broken and kept for its diagnostics, and its handle runs its last working program.
+  - A program lays out each graph as a frame of 24-byte slots. Each slot is an explicit-layout union: booleans, numbers,
+    enums and the math structs of up to 16 bytes are held in place, and any other value is an immutable object at offset
+    16.
+  - Each frame starts from a template holding the type defaults, the unconnected inputs and the initial node states.
+  - Members are called through expression-compiled invokers built the first time a node runs.
+
+  An instance holds the variables (their values, then the component's values for public ones), the persistent frame of
+  the event graph (outputs of impure nodes; the state of DoOnce, DoN, FlipFlop, Gate and latent nodes) and its fibers.
+  `Invoke` dispatches the C# `ScriptEvent`s. Update sets `Time.DeltaTime`, runs the input events in node order and then
+  `Event.Update`, then makes one pass over the pending latent nodes. Destroy removes the instance before `Event.Destroy`
+  runs.
+- **Execution**: each execution keeps its flow stack and call stack on the heap. The interpreter therefore never
+  recurses on the host stack, holds no static state and is re-entrant: a graph may start another execution while it
+  runs. It runs the node it enters and follows the link of the exec output the node takes. When a chain ends, it
+  continues at the top of its flow stack: the next output of a `Sequence`, or the next iteration of a loop, whose entry
+  carries the loop's state. When the call's part of the stack is empty, it returns from the function. `Function.Call`
+  pushes a call frame (inputs, locals, per-call node state); a pure call pushes one while the plan that needs it runs. A
+  node's plan is the pure nodes its inputs depend on, in dependency order, computed once. Executions and frames are
+  pooled, so running a graph again allocates nothing unless its nodes make objects; `PerformanceTests` reports the steps
+  a second of a tight loop.
+- **Suspension**: a latent node (`Delay`, `RetriggerableDelay`, `WaitFrames`, `WaitUntil`, `Tween`, `Interval`, or a
+  call of a latent function) suspends the whole execution into a fiber of its instance: its position, flow stack and
+  call frames. Nothing pushed on its stack runs before the fiber resumes at the node's continuation, in a later Update
+  dispatch, never the one that created it. While they are pending, `Tween` and `Interval` fire their Tick output as new
+  executions. An instance keeps its fibers in the order their nodes became pending; a fiber joins that order, keeps its
+  place (a `WaitUntil` whose condition is still false) or leaves it in constant time, so an Update's pass over the
+  fibers costs time linear in their number. Fibers die with their instance.
+- **Budget and depth**: every node evaluation is one step. An outermost execution may take 1,000,000 steps, and its
+  nested executions share them: `Event.Send`, `SendEvent` from C#, and an `Invoke` that arrives while a graph runs.
+  Resumed fibers and Ticks start a budget of their own. One counter of active executions and call frames stops at 64.
+  Endless loops and runaway recursion end with an error instead of hanging or overflowing the stack.
+- **Errors**: these are aborting errors:
+  - an exception thrown by a member;
+  - a component missing from a Target;
+  - a null Target or array;
+  - an index outside its array;
+  - integer division by zero;
+  - running out of budget or depth.
+
+  An aborting error stops its execution and is logged once as `<graph>: <node> (node <id>) on <entity> (<id>):
+  <message>`. The `Invoke` then answers Failure, which the scene counts as a script exception; an abort inside a sent
+  event stops the sender too. Non-aborting problems are Warnings, logged once per node and instance (a repeated one
+  builds no message and allocates nothing): text that `Convert` cannot read, a Send without a receiver, the Interval
+  tick cap, a latent node reached during Destroy. Nothing crosses into native code as an exception: any input, including
+  a damaged document or one that is not UTF-8 text, gives a status and diagnostics, which a fuzz test of damaged
+  documents checks.
+- **Live edit and assembly reload**: a working program loaded for a handle replaces the program of its instances as soon
+  as no dispatch or execution of the old one runs.
+  - Variables carry over by ID, then by name and type; the others start at their `Value`, else the type default. A
+    component's value for a variable the edit adds reaches it once that value changes or the instance starts again.
+  - Node states and stored outputs carry over by node ID while the node's type is unchanged.
+  - Fibers survive while every position they hold still exists; otherwise they are cancelled with one log line.
+
+  A broken document leaves the running program alone. Before the game assembly unloads, the runtime destroys the graph
+  instances, reduces every program to its name and document and drops the invokers, so nothing holds the collectible
+  assembly. Programs compile again from their documents when their handle is next used, logging their errors once if
+  they no longer compile (`<graph> was compiled again for the changed game assembly: ...`).
+- **Debug hook**: `AttachDebugger(IVisualScriptDebugger)` lets a debugger choose which executions to trace, by entity:
+  `IsTarget` is asked when an execution starts or a fiber resumes. The debugger then hears of every instruction those
+  executions run (`OnStep`: the node and the exec output the flow left through) and of every value their pure nodes
+  compute (`OnValue`). Without a debugger an instruction costs one null check. Breakpoints and stepping (slice 4) will
+  suspend executions with the same fiber machinery.
+- **C# API**: `VisualScriptComponent`'s methods forward to `Host.VisualScripts` with the component's entity. `SendEvent`
+  runs the graph's `Event.Custom` of the name at once (nested in, and sharing the budget of, a graph that runs, else
+  outermost); its arguments must match the event's parameters in number and convert to their types as links convert
+  values (to the same type, a wider number, a base class, a component's entity, a typed asset's handle, `object` or
+  `string`; null only for reference types). It returns false with a Warning, running nothing, without a graph instance,
+  an event of the name or fitting arguments, and true when the event ended or waits; an aborting error in the event is
+  logged and thrown to the caller as `InvalidOperationException` (a C# callback then fails as a script exception).
+  `HasVariable`, `GetVariable` and `SetVariable` address a document variable by name (public or private, never a local)
+  and convert values only to the same type, a wider number, a base class, a component's entity or `object`;
+  `GetVariable` and `SetVariable` throw `InvalidOperationException` without a graph instance, `ArgumentException` for an
+  unknown name and `InvalidCastException` for a value that does not convert.
+- **Native facade** (`VisualScriptEngine`, Script module): static, main thread only, working while `ScriptEngine` is
+  initialized. Its state belongs to `ScriptEngineData`, which it shares with `ScriptEngine` through the module's
+  internal `ScriptEngineInternal.h`, so `ScriptEngine::Shutdown` drops it: a record per graph handle, the set of
+  entities with a graph instance and the node library. A graph instance thus has an entry in three tables, all keyed by
+  entity: the scene's (`VisualScriptInstanceState`), the facade's set and the VM's. `ScriptEngine::GetInstanceCount`
+  counts C# and graph instances, so the game assembly cannot change while graphs run (the editor's hot reload waits for
+  them). A load or unload of the game assembly, failed ones included, also drops the library, forgets the graph
+  instances (the VM destroyed them) and gives every record a new generation.
+- **Loading programs** (`VisualScriptEngine::EnsureLoaded`): a graph is absent when its handle is not a registered
+  VisualScript asset or its file does not load; nothing is sent then. A record holds the asset object and version whose
+  document the runtime has, a copy of that document, whether the handle has a working program and a generation, so an
+  unchanged graph costs a lookup and two comparisons and the scene asks every update. A new object or version with an
+  equal document (a save, then a refresh) only updates the record; another document is sent (`VisualScriptLoad`, named
+  by the asset's path, a memory asset's name, else its handle) and the record takes it whatever the outcome, so a broken
+  document is sent once. Its errors are logged once: `Visual script '<path>' has 1 error; first: <message> (node <id>)`
+  (`<n> errors`; `(variable <id>)` for a variable, nothing for the document), plus `; the previous version keeps
+  running` when the handle has a working program. Generations come from one engine-wide counter: a record takes a new
+  one when a document is sent, when its graph comes back after being absent and at every game-assembly change.
+  `CreateInstance` loads first and gives the instance the component's values; its Failure (no working program) is a
+  script exception (`ScriptHost::OnScriptException`), as is a Failure of `Invoke`, and an `Invoke` answered NotFound
+  forgets the instance. `Analyze` sends a document for analysis and keeps nothing. Programs stay with the runtime until
+  `Shutdown`: `VisualScriptUnload` is resolved but has no caller.
+- **Library in C++** (`VisualScriptLibrary`, Script module): the runtime's library JSON read into types (ID, kind, field
+  type, accepted asset type, enumerators, struct fields, base, element, implicit conversions) and node kinds (pins with
+  their types, defaults, roles and wildcard constraints; settings), with a category tree and a search ignoring ASCII
+  case; every entry keeps its JSON, which automation returns as it is. `VisualScriptEngine::GetLibrary` reads it the
+  first time it is asked for (never in `Init`): null without the runtime, or when the runtime cannot describe it or the
+  JSON is not of its form, which is logged once until the next game-assembly change. Lookups return pointers.
+  `CanConnect(output, input)` allows the links analysis allows: the same type; `exec` only to `exec` or to a `Reroute`'s
+  wildcards; a wildcard input takes the types its constraint accepts, and a wildcard output goes to an input of such a
+  type or to another wildcard; then the output type's implicit conversions, and any value to `string`. A test compares
+  it with analysis over every pair of 19 output and 22 input pins. `MakeEnumLookup` describes the enum types of public
+  variables to the inspector (§11) from the library it keeps, never calling into .NET, and is empty without a library;
+  the editor makes a new one whenever `GetLibrary` returns another library
+  (`EditorLayer::UpdateVisualScriptEnumLookup`). `VisualScriptAnalysis` reads an analysis: each node's resolution
+  (`CanonicalType` and `PinRenames` for those resolved inexactly) and the diagnostics.
+- **Scene** (`Scene/SceneVisualScripting.cpp`): graph instances follow the lifecycle of §10.3.
+  - Start: C# scripts run when the game assembly was loaded as the scene started (Script components without it log
+    `Scene '<name>' runs without C# scripts: no game assembly is loaded` when the scene runs graphs); graphs need no
+    game assembly. Simulate runs no graph.
+  - Every update first follows the components, running no managed code while it walks them: each distinct graph among
+    them is loaded (`EnsureLoaded`, in handle order); new components get instances; a changed `Graph` ends the instance
+    (`Event.Destroy`) and starts the new graph; a component without an instance tries again when its graph's generation
+    changed (a graph fixed or added while playing starts its entities); removed components and entities lose their
+    instances (in handle order, an entity's C# script before its graph). A component without a graph runs nothing; one
+    whose graph is absent or cannot run logs `Entity '<name>' runs no visual script: <reason>`.
+  - Creation is two-phase across both kinds: every C# and graph instance of a pass exists before the first `OnCreate`,
+    then `OnCreate` runs for the new C# instances and `Event.Create` for the new graph instances. Prefab instances
+    (`StartScriptsOf`) start both kinds before `Entity.Instantiate` returns.
+  - Order: `Update` and `FixedUpdate` reach every C# instance, then every graph instance (in the order of their
+    components, as the pass starts). A contact reaches the first entity's C# script, then its graph, then the second
+    entity's; a click each receiver's C# script, then its graph, nearest receiver first; a destroyed entity's C# script,
+    then its graph, before its children.
+  - Stop: removed instances end, then `OnDestroy` runs for every C# instance and `Event.Destroy` for every graph
+    instance before both kinds are destroyed; `~Scene` stops them too, and entities created while stopping start
+    nothing.
+- **Variables**: a component stores values by variable name in the script field format (`Variables`). A value stored
+  under a former name applies to the renamed variable (`NormalizeVisualScriptOverrides`: the value under the current
+  name wins, else the one under the most recent former name), and instances get the normalized values. While a scene
+  runs, `Scene::ReadVisualScriptVariables` copies the values an instance's public variables hold into its component and
+  `Scene::ApplyVisualScriptVariableChanges` gives instances the stored values that differ from those they were given or
+  read, at the editor's sites for script fields (§10.3): the inspector, `EditorOperations::SetComponentFields`,
+  `EditorContext::FinishEdit` (every edit, undo and redo) and the automation reads (`entity.get`, `component.get`).
+- **Games and tools**: `Project::UsesVisualScripts` (the project's asset directory, open in the `AssetManager`,
+  registers a visual script file) makes the player start .NET without a game assembly and the exporter ship the
+  scripting API (§13). Automation reads, checks and writes documents and lists the library with the `graph.*` commands
+  (§12, [Automation.md](Automation.md)); the editor's play mode needs nothing more, as the editor starts the scripting
+  runtime when it starts (§4.1).
 
 ## 11. Editor (`StradaEditor`)
 
@@ -905,9 +1104,11 @@ positions. A build is out of date when a C# source or project file is newer than
   (one undo step). Below the `Graph` of VisualScript components come the public variables of the graph
   (`DescribeVisualScriptVariables`), edited like script fields when every selected entity runs the same graph and it
   loads (nothing shows otherwise): one undo step per interaction writes each entity's whole `Variables` map, with values
-  stored under a variable's former name moved to its current one (`NormalizeVisualScriptOverrides`). Variables of enum
-  types are listed read-only with the reason until the scripting runtime describes its enums
-  (`InspectorPanel::SetVisualScriptEnumLookup`), and so are those of types components cannot set. C# scripts and visual
+  stored under a variable's former name moved to its current one (`NormalizeVisualScriptOverrides`). While playing it
+  shows the values the running graph holds, and edits reach the graph at once, as for script fields (§10.6). Variables
+  of enum types are listed read-only with the reason until the scripting runtime describes its enums
+  (`InspectorPanel::SetVisualScriptEnumLookup`, given a new `VisualScriptEngine::MakeEnumLookup` by `EditorLayer`
+  whenever the runtime's node library changes), and so are those of types components cannot set. C# scripts and visual
   scripts dropped onto the inspector run on the selected entities. Without selected entities the inspector shows the
   asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
@@ -1069,9 +1270,9 @@ positions. A build is out of date when a C# source or project file is newer than
   their namespaces; partial and file-local types are allowed), saying which source has it. Scripts > Build Scripts (Ctrl+B)
   builds on a worker thread, and changed sources (checked every second) build by themselves. Errors and warnings go to
   the console with their files and lines, the menu bar shows a failed build, and each successful build is loaded at
-  once (hot reload; while scripts run, when they stop). The inspector edits Script components with a class picker and
-  the fields of the class: typed asset pickers, enum combos, flag check boxes, colors and Euler angles like component
-  fields, one undo step per interaction.
+  once (hot reload; while C# scripts or visual scripts run, when they stop). The inspector edits Script components with
+  a class picker and the fields of the class: typed asset pickers, enum combos, flag check boxes, colors and Euler
+  angles like component fields, one undo step per interaction.
 - Prefabs: an entity's "Create Prefab" (hierarchy context menu) writes it with its descendants to `Prefabs/`, and
   entities dragged onto the content browser become prefabs in the folder they are dropped on; neither changes the
   scene. Prefabs dragged onto the scene view, the hierarchy or an entity row are instantiated there (one undo step).
@@ -1192,34 +1393,52 @@ data directory, and compile out asserts and script debug lines.
 
 - `StradaTests` (doctest): every module; GPU tests create a headless device and skip cleanly when no Vulkan
   device exists; renderer golden-image tests compare against `Tests/Data/Golden` with a tolerance. Fuzz tests damage
-  the FeatureTest project's scenes, prefab, material, asset registry and project file deterministically (members and
-  elements removed or repeated, values of another kind or extreme): every result must be refused or repaired, what
-  loads must save and load again, scenes and prefab instances that load must run with physics and sound, and project
-  settings that load must simulate a scene (`STRADA_FUZZ_SCALE` multiplies the rounds). Crash handling runs in a child
-  process (`StradaCrashTester`).
+  the FeatureTest project's scenes, prefab, material, asset registry, project file and visual scripts deterministically
+  (members and elements removed or repeated, values of another kind or extreme): every result must be refused or
+  repaired, what loads must save and load again, scenes and prefab instances that load must run with physics and sound,
+  graphs that load must run in a scene, and project settings that load must simulate a scene (`STRADA_FUZZ_SCALE`
+  multiplies the rounds). Crash handling runs in a child process (`StradaCrashTester`). Visual scripts are tested with
+  the shared documents of `Tests/Data/VisualScripting` (every built-in kind of node, valid and canonical): the format
+  (the writer's golden file, every refusal and repair, the layout, public variables), the native facade against the
+  real runtime (every entry point's statuses and single answer, documents sent once per change, a broken document
+  leaving the working program running, graph instances blocking game-assembly loads, `CanConnect` against analysis) and
+  scenes running C# scripts and graphs together (lifecycle and event order, prefabs, live variables, live edits,
+  failures as script exceptions, the step budget, C# calling graphs). Every graph a scene of `Projects/` uses must load
+  strictly, analyze without errors and resolve its nodes exactly or by a redirect, so an API change that breaks one
+  needs a redirect entry.
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project. A fuzz test sends every command
-  parameters built from its schema and the editor's state (mostly names of what exists, plus values to refuse), while
-  editing and playing: every request answers once without InternalError, the scene stays loadable, undoing and redoing
-  everything restores it, and nothing outside the project changes. A copy of the Blocks sample plays through
+  parameters built from its schema and the editor's state (mostly names of what exists, plus values to refuse; damaged
+  graph documents to `graph.set` and `graph.check`), while editing and playing: every request answers once without
+  InternalError, the scene stays loadable, undoing and redoing everything restores it, and nothing outside the project
+  changes. The graph commands are tested with and without the scripting runtime: strict refusals naming every issue,
+  renamed variables, layout, undo restoring the file's bytes, the library's filters, and edits of running graphs and
+  their variables while playing. A copy of the Blocks sample plays through
   `input.set` the way a player plays it: it opens at the title's view with its sign shown and a field of view widened
   for the 4:3 game view, then takes clicks on its menus' buttons where `ui.layout` shows them, the arrow keys and Enter
   in its menus, and Escape, P, R and Space on its title, game, pause and game-over screens (Space mashed through the
   end of a game leaves the game-over screen up), down to the title's Quit, which ends play mode.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
-  layouts, test runs and their exit codes, command-line errors, a windowed run's presented image).
+  layouts, test runs and their exit codes, games whose only scripts are visual scripts, command-line errors, a windowed
+  run's presented image).
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
   stand-in editor, Poly Haven downloads against a stand-in server, and MCP sessions with the real editor started
   headless (`STRADA_EDITOR`; ctest sets it), among them an agent's whole workflow: a project, a script it writes and
   builds, a scene that uses it, a test run in play mode, and an export whose player passes the same checks.
-- `ScriptCoreTests` (xUnit): math types and an API-coverage test asserting every public `Strada.ScriptCore` member
-  is used by the FeatureTest scripts. It reads their compiled metadata: references to every type, method (accessors
-  and operators included, overloads matched by signature) and field; Script's callbacks and protected constructors
-  count when derived types override or call them; constants and enumerators, which compile to literals, count
-  through their types.
+- `ScriptCoreTests` (xUnit): math types, the visual script VM and an API-coverage test asserting every public
+  `Strada.ScriptCore` member is used by the FeatureTest scripts. The VM's tests build runtimes of their own over fake
+  engines (`IVisualScriptEnvironment`) and never touch native code: the library (inclusion, purity, resolution,
+  identical bytes in every culture), analysis and its diagnostics, every node kind, suspension and timing, budgets,
+  live edits, game-assembly reloads, the protocol of the entry points, the C# API and the debug hook. The coverage test
+  reads the scripts' compiled metadata: references to every type, method (accessors and operators included, overloads
+  matched by signature) and field; Script's callbacks and protected constructors count when derived types override or
+  call them; constants and enumerators, which compile to literals, count through their types.
 - `Projects/FeatureTest`: scenes that use every component (checked by `StradaTests`) and scripts that call the entire
   scripting API through `Strada.Testing`, one script per area (entities, transforms, components, physics, characters,
-  audio, assets, math, input, application and time, the testing API, attributes, script lifecycles, the UI) with a
-  coordinator that loads the second scene, which finishes the run. CMake builds the scripts
+  audio, assets, math, input, application and time, the testing API, attributes, script lifecycles, the UI, visual
+  scripts) with a coordinator that loads the second scene, which finishes the run. Its graphs use every built-in kind of
+  node and report their checks through `TestReporter` nodes: `Assets/Scripts/Features.sgraph` on the visual-script test
+  entity, `Contacts.sgraph` on a falling box and ball beside their C# scripts and `Clicks.sgraph` on the UI canvas;
+  `VisualScriptTests` waits for them, checks what they counted and drives them from C#. CMake builds the scripts
   (`StradaFeatureTestScripts`) and `StradaRuntimeTests` runs a copy of the project through the player
   (`StradaRuntime --project ... --test`; exit code = failures).
 - `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp`: `Tools/Author.py` builds the

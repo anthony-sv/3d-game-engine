@@ -1,6 +1,6 @@
 ---
 name: strada-add-script-api
-description: Checklist for adding or changing C# scripting API in Strada (native bindings in Strada/Source/Strada/Script/ScriptBindings*.cpp, InternalCalls.cs, the managed API in Strada-ScriptCore, value checks, XML docs, tests in StradaTests/TestScripts/ScriptCoreTests, the feature-test project and docs). Use whenever scripts gain, lose or change an engine function, component class, property or type.
+description: Checklist for adding or changing C# scripting API in Strada (native bindings in Strada/Source/Strada/Script/ScriptBindings*.cpp, InternalCalls.cs, the managed API in Strada-ScriptCore, value checks, XML docs, the visual-script nodes the API becomes (purity, [PureNode], redirects), tests in StradaTests/TestScripts/ScriptCoreTests, the feature-test project and docs). Use whenever scripts gain, lose or change an engine function, component class, property or type.
 ---
 
 # Adding or changing scripting API
@@ -60,7 +60,14 @@ A callback scripts override (like `OnClick`) is an event the engine sends, not a
   InvokeOn<Name>(...)` wrapper `ScriptRegistry` calls.
 - Test it with a probe in `Tests/TestScripts` and override it in a `Projects/FeatureTest` script: the API coverage test
   counts overrides as uses of a callback.
-- Add its row to the callback table of `Docs/Scripting.md` and to the list in `Docs/Architecture.md` §10.3.
+- Visual scripts get the event too: a `BuiltinNode` event kind (in `Library/NodeDefinition.cs` of
+  `Strada-ScriptCore/Source/VisualScripting`, its node in `Library/BuiltinNodes.cs`), its place in `ProgramCompiler`'s
+  table of `ScriptEvent`s and in the range `VisualScriptRuntime.Invoke` accepts, and
+  `VisualScriptEngine::InvokeOn<Name>` (`VisualScriptEngine.h`), which the scene calls right after the C# callback. Add
+  the node to `Tests/Data/VisualScripting/Documents/Events.json` and to
+  `Projects/FeatureTest/Assets/Scripts/Features.sgraph` (through `graph.set`), whose graphs use every built-in kind.
+- Add its row to the callback table of `Docs/Scripting.md` and to the list in `Docs/Architecture.md` §10.3, and the
+  event node to the table in the guide's "Visual scripts" section.
 
 ## 4. Tests
 
@@ -74,6 +81,47 @@ A callback scripts override (like `OnClick`) is an event the engine sends, not a
   `ScriptCoreTests` lists unused members; `StradaRuntimeTests` runs the project and fails on any failed check. Values the
   scripts read from the scene (entity, asset and other fields) are set by opening the project in the editor.
 
-## 5. Docs
+## 5. Visual scripts
+
+Every public member of the API is also a node of visual scripts: the VM's library is built by reflection over the
+public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testing`
+(`Strada-ScriptCore/Source/VisualScripting/Library/MemberNodes.cs`). Check what a change does to it.
+
+- Which members become nodes: methods (`Call:<Type>.<Method>(<parameter type IDs>)`), property and field getters
+  (`Get:`), setters (`Set:`, only for static members and members of classes: struct fields change through Make and
+  Break; never for init-only, readonly or constant ones) and the public constructors of non-abstract types
+  (`New:<Type>(...)`). Left out: members marked `[Obsolete]` or `[EditorBrowsable(EditorBrowsableState.Never)]`;
+  `Equals`, `GetHashCode`, `ToString`, operators (they feed the operator and `Convert` nodes) and indexers; the members
+  of enums, interfaces, delegates, attributes, exceptions, generic types and `Component` itself; methods with `ref`,
+  `in` or `params` parameters (`out` parameters become outputs) and members whose types are no library types (pointers,
+  delegates, generic types other than arrays, `Nullable<T>`); generic methods unless every type parameter is
+  constrained to exactly `Component`, `Asset` or `Script` (they get a `TypeArguments` setting); the methods of
+  `VisualScriptComponent` (graphs use `Event.Send` and the variable nodes; its properties are nodes).
+- Pins: `Execute` and `Then` on impure nodes; `Target` on instance members (an `Entity` that defaults to the graph's
+  own entity for `Entity` and component members); a pin per parameter, its name's first letter upper-cased, with the
+  suffix `Parameter` when it would clash with a fixed pin; `Result` for a return value, `Value` for setters, getters and
+  constructors. An optional parameter's default is the pin's default (an enum by its name; a struct declared
+  `= default` gives `default(T)`, except a `Quaternion`, which keeps the identity). Titles come from the names,
+  categories from the declaring types and descriptions from the XML documentation's summaries.
+- Purity: getters and struct constructors are pure; so is every method of `Mathf`, `Random`, the vectors, `Quaternion`,
+  `Matrix4` and `Color`, and a method marked `[PureNode]` (the internal attribute in
+  `Strada-ScriptCore/Source/VisualScripting/PureNodeAttribute.cs`; not `System.Diagnostics.Contracts.Pure`, which never
+  reaches the assembly). A method returning `void` without `out` parameters is never pure, whatever it is marked with,
+  and setters never are; everything else is impure. Pure nodes have no flow pins and run for every node that reads them,
+  so only side-effect-free queries may be pure. A query added to the API (`Input.IsKeyDown`, `Entity.FindByName`, ...)
+  gets `[PureNode]` in the same change, and `NodeLibraryTests.ExactlyTheListedQueriesAreMarkedPure` (ScriptCoreTests)
+  lists the marked methods.
+- Renaming or re-signing a member that graphs use (its name, declaring type or parameter types) changes its node's type
+  string: add a `NodeRedirect(OldType, NewType, PinRenames)` entry to `NodeRedirects.Current`
+  (`Strada-ScriptCore/Source/VisualScripting/Library/NodeRedirect.cs`), with a `PinRename(Direction, From, To)` for each
+  pin whose name changed with it, so stored graphs keep resolving (their analysis reports `NodeUpdated`, and
+  `graph.set` stores the new type). A redirect applies only to type strings the library no longer has, so renaming a
+  parameter alone breaks the links of graphs that use its pin: keep the parameter names of members graphs may use.
+  StradaTests fails when a graph that a scene of `Projects/` uses no longer analyzes cleanly with every node resolved
+  exactly or by a redirect ("VisualScriptEngine: the projects' scene graphs load strictly, analyze cleanly and resolve
+  exactly or by redirect"), and ScriptCoreTests analyze the shared documents of `Tests/Data/VisualScripting` (their
+  reflected nodes and where they come from are in `Documents/Reflected.sources.txt`).
+
+## 6. Docs
 
 Update `Docs/Architecture.md` §10.4 (API list and semantics), and §10.3 for new field types or lifecycle rules.

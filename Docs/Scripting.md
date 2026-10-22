@@ -1,8 +1,9 @@
 # Scripting guide
 
 Games get their behavior from C# scripts: classes deriving from `Strada.Script`, attached to entities by Script
-components. This guide shows how to write them. §10 of [Architecture.md](Architecture.md) is the reference of the
-scripting runtime, and every public member of the API has XML documentation that C# editors show as you type.
+components, and from [visual scripts](#visual-scripts), graphs of nodes that VisualScript components run. This guide
+shows how to write them. §10 of [Architecture.md](Architecture.md) is the reference of the scripting runtime, and every
+public member of the API has XML documentation that C# editors show as you type.
 
 ## A first script
 
@@ -678,6 +679,184 @@ script that threw. Players built in the Dist configuration log only warnings and
 Two of the API's names exist in .NET as well: with `using System;` (or `using System.Diagnostics;`), write
 `Strada.Random` (or `Strada.Debug`), or leave that `using` out.
 
+## Visual scripts
+
+A visual script is a graph of nodes instead of code: a `.sgraph` asset that a `VisualScriptComponent` runs on its
+entity, beside a C# script or instead of one. Its nodes are events (those of the methods above, keys and buttons,
+events of your own), flow control (branches, sequences, loops, delays), variables and functions, operators, and a node
+for each member of the scripting API, so graphs reach the engine the way scripts do. Graphs run in the same .NET
+runtime as C# scripts but need no C# project: a game can be made of graphs alone.
+
+The editor has no graph canvas yet. "+" > Visual Script in the content browser creates a graph
+(`New Visual Script.sgraph`, with an `Event.Create` and an `Event.Update` node), dragging it onto entities in the
+hierarchy, the inspector or the scene view runs it there, and selecting it shows what it holds. Its nodes are written
+through the editor's automation commands, which agents call as MCP tools and `strada call` runs from a shell:
+`graph.library` lists the kinds of nodes with their pins, `graph.types` the types, `graph.check` checks a document and
+`graph.set` saves it. [Automation.md](Automation.md) describes the document and the commands. This graph turns its
+entity like the `Spinner` script at the top of this guide:
+
+```json
+{
+	"Variables": [
+		{ "ID": 1, "Name": "Speed", "Type": "float", "Value": 90.0, "Public": true, "Tooltip": "Turn speed in degrees per second" }
+	],
+	"Graph": {
+		"Nodes": [
+			{ "ID": 2, "Type": "Event.Update" },
+			{ "ID": 3, "Type": "Variable.Get", "Settings": { "Variable": 1 } },
+			{ "ID": 4, "Type": "Operator.Multiply" },
+			{ "ID": 5, "Type": "Call:Strada.Quaternion.AngleAxis(float,Strada.Vector3)", "Inputs": { "Axis": [0, 1, 0] } },
+			{ "ID": 6, "Type": "Get:Strada.Entity.Rotation" },
+			{ "ID": 7, "Type": "Operator.Multiply" },
+			{ "ID": 8, "Type": "Set:Strada.Entity.Rotation" }
+		],
+		"Links": [
+			{ "From": [2, "Then"], "To": [8, "Execute"] },
+			{ "From": [3, "Value"], "To": [4, "A"] },
+			{ "From": [2, "DeltaTime"], "To": [4, "B"] },
+			{ "From": [4, "Result"], "To": [5, "Degrees"] },
+			{ "From": [5, "Result"], "To": [7, "A"] },
+			{ "From": [6, "Value"], "To": [7, "B"] },
+			{ "From": [7, "Result"], "To": [8, "Value"] }
+		]
+	}
+}
+```
+
+Variables, functions and nodes share one numbering of IDs. A node's `Type` is a kind `graph.library` lists, its
+`Settings` configure it (which variable `Variable.Get` reads) and its `Inputs` hold the values of inputs no link feeds
+(the axis). Links go from an output to an input, each named by its node and pin. `Execute` and `Then` are flow pins: the
+flow starts at the event and runs `Set Rotation`. The other nodes are pure: they have no flow pins and work out their
+outputs whenever a node that runs needs them, here the turn from the speed and the frame's `DeltaTime`, and the current
+rotation. The `Target` of an entity's or a component's member, left unlinked, is the entity the graph runs on. Nodes
+need no `Position`: `graph.set` places those without one.
+
+Public variables show in the inspector below the component's `Graph`, where each entity gives them values of its own
+(the component's `Variables`, saved with the scene like script fields), so one graph serves many entities: this one
+turns each at its own speed. They take the types C# fields take, named by type IDs (`bool`, `int`, `float`, `string`,
+`Strada.Vector3`, `Strada.Color`, `Strada.Entity`, `Strada.Material`, enums such as `Strada.KeyCode`; `graph.types`
+gives those types a `FieldType`). Graphs hold no entities themselves, as every entity that runs a graph shares it: an
+entity a graph needs comes from a public `Strada.Entity` variable its component sets, from `Self`, an event's `Other` or
+a lookup such as `Entity.FindByName`.
+
+| Event node | Runs |
+|------------|------|
+| `Event.Create`, `Event.Update` (`DeltaTime`), `Event.FixedUpdate` (`FixedDeltaTime`), `Event.Destroy` | When a script's `OnCreate`, `OnUpdate`, `OnFixedUpdate` and `OnDestroy` would |
+| `Event.CollisionEnter`, `Event.CollisionExit`, `Event.TriggerEnter`, `Event.TriggerExit` (`Other`) | When the contacts of the C# methods of those names happen |
+| `Event.Click` (`Button`) | When a UI button that is the entity or one of its descendants was clicked |
+| `Event.KeyPressed`, `Event.KeyReleased` (setting `Key`), `Event.MouseButtonPressed`, `Event.MouseButtonReleased`, `Event.GamepadButtonPressed`, `Event.GamepadButtonReleased` (setting `Button`) | When the key or button went down or up this frame, before `Event.Update` |
+| `Event.Custom` (settings `Name` and `Parameters`, which become outputs) | When a graph's `Event.Send` or a C# script's `SendEvent` raises it |
+
+A graph has each event once (each key or button once, each custom event name once). An entity can run a C# script and a
+graph: each event reaches its C# script first, and as for scripts, every script and graph of the scene exists before the
+first `OnCreate` or `Event.Create`. `Flow.Delay`, `Flow.RetriggerableDelay`, `Flow.WaitFrames` and `Flow.WaitUntil` make
+the flow wait without holding up the game: it goes on at their `Completed` output in a later frame, its loops and
+sequences where it left them. `Flow.Tween` runs its `Update` output every frame for a duration, with an eased `Alpha`,
+and `Flow.Interval` its `Tick` output at intervals.
+
+A VisualScript component runs one graph. To give an entity several behaviors, put each on a child entity with a
+component of its own ("Spin", "Pickup", "Health"): `Self` in a child's graph is the child (`Get:Strada.Entity.Parent`
+the entity it belongs to), and graphs talk through custom events. `Event.Send` runs the `Event.Custom` of the same
+`Name` and parameter types in the graph of its `Target` at once, passing its inputs; a target without such an event only
+logs a warning. A coin that gives its points to whatever touches it, then destroys itself:
+
+```json
+{
+	"Variables": [
+		{ "ID": 1, "Name": "Points", "Type": "int", "Value": 10, "Public": true }
+	],
+	"Graph": {
+		"Nodes": [
+			{ "ID": 2, "Type": "Event.TriggerEnter" },
+			{ "ID": 3, "Type": "Variable.Get", "Settings": { "Variable": 1 } },
+			{ "ID": 4, "Type": "Event.Send", "Settings": { "Name": "Collected", "Parameters": [{ "Name": "Points", "Type": "int" }] } },
+			{ "ID": 5, "Type": "Call:Strada.Entity.Destroy()" }
+		],
+		"Links": [
+			{ "From": [2, "Then"], "To": [4, "Execute"] },
+			{ "From": [2, "Other"], "To": [4, "Target"] },
+			{ "From": [3, "Value"], "To": [4, "Points"] },
+			{ "From": [4, "Then"], "To": [5, "Execute"] }
+		]
+	}
+}
+```
+
+The player's graph counts them:
+
+```json
+{
+	"Variables": [
+		{ "ID": 1, "Name": "Score", "Type": "int", "Public": true }
+	],
+	"Graph": {
+		"Nodes": [
+			{ "ID": 2, "Type": "Event.Custom", "Settings": { "Name": "Collected", "Parameters": [{ "Name": "Points", "Type": "int" }] } },
+			{ "ID": 3, "Type": "Variable.Get", "Settings": { "Variable": 1 } },
+			{ "ID": 4, "Type": "Operator.Add" },
+			{ "ID": 5, "Type": "Variable.Set", "Settings": { "Variable": 1 } }
+		],
+		"Links": [
+			{ "From": [2, "Then"], "To": [5, "Execute"] },
+			{ "From": [3, "Value"], "To": [4, "A"] },
+			{ "From": [2, "Points"], "To": [4, "B"] },
+			{ "From": [4, "Result"], "To": [5, "Value"] }
+		]
+	}
+}
+```
+
+C# scripts reach an entity's graph through its `VisualScriptComponent`: `SendEvent(name, arguments)` raises a custom
+event, `HasVariable(name)`, `GetVariable<T>(name)` and `SetVariable<T>(name, value)` read and write its variables
+(public or not), and `Graph` is the graph it runs (`Assets.Load<VisualScript>(path)` loads one; a new graph starts at
+the scene's next update). A label that shows the player's score, with a key that adds a bonus:
+
+```csharp
+public class ScoreLabel : Script
+{
+	[Tooltip("The entity whose visual script counts the score")]
+	public Entity? Player;
+
+	protected override void OnUpdate(float deltaTime)
+	{
+		VisualScriptComponent? graph = Player?.GetComponent<VisualScriptComponent>();
+		if (graph is null || !graph.HasVariable("Score"))
+		{
+			// The player runs no graph with a score.
+			return;
+		}
+		if (Input.IsKeyPressed(KeyCode.B))
+		{
+			// Runs the graph's Collected event at once, as a coin's Event.Send does.
+			graph.SendEvent("Collected", 100);
+		}
+		GetComponent<UITextComponent>()!.Text = $"Score: {graph.GetVariable<int>("Score")}";
+	}
+}
+```
+
+`GetVariable<T>` and `SetVariable<T>` convert values only to their own type, a wider number (`int` to `long`, `float` or
+`double`), a base class or `object`, and a component to its `Entity`. `SendEvent` converts its arguments as links
+between nodes convert values, which also turns any value into text for a `string` parameter and a typed asset into its
+`AssetHandle`; it returns false with a warning, running nothing, when the entity runs no graph, its graph has no such
+event or the arguments do not fit its parameters. The variable methods throw: `InvalidOperationException` when the
+entity runs no graph, `ArgumentException` for a variable the graph does not have, and `InvalidCastException` for a value
+that does not convert. An error in an event raised from C# reaches the caller as an `InvalidOperationException`.
+
+A graph that does not make sense does not run: `graph.check` and `graph.set` report every problem with the node it
+concerns (the codes are listed in [Automation.md](Automation.md)), and the console names the first one (`Visual script
+'Scripts/Coin.sgraph' has 1 error; first: ... (node 4)`) and each entity left without its graph (`Entity 'Coin' runs no
+visual script: ...`). An error while a graph runs (a member call that throws, a `Target` without the component, an
+integer division by zero, more than 1,000,000 nodes in one go, calls nested deeper than 64) stops that flow and is
+logged with the graph, the node and the entity; like an exception in a C# script, it counts as a failure in test runs,
+and the game goes on.
+
+While the game plays in the editor, the inspector shows the values the public variables of a running graph hold, and an
+edit reaches the graph at once, as for script fields. A graph saved while the game plays (`graph.set`) changes its
+running instances at their next update: variables keep their values (a new variable, or one whose type changed, starts
+at its `Value`), waiting nodes keep waiting while they still exist, and a graph saved with an error keeps running its
+last working version.
+
 ## Testing a game
 
 `Strada.Testing` turns a scene into a test: run checks with `TestReporter.Run`, using `Assert` inside them, and call
@@ -709,12 +888,16 @@ public class GameTests : Script
 Put it in a scene of its own and run that scene: in the editor with Play, through an agent with the `test_run` tool,
 or headless with the player: `StradaRuntime --project Game.sproj --scene Scenes/Tests.sscene --test` exits with a
 non-zero code when a check failed, a script threw or the run did not finish, which suits continuous integration.
-Checks can also let frames pass in `OnUpdate` first, as `Projects/Blocks/Scripts/Source/BlocksTests.cs` does.
+Checks can also let frames pass in `OnUpdate` first, as `Projects/Blocks/Scripts/Source/BlocksTests.cs` does. Graphs
+report checks with `TestReporter` nodes (`Call:Strada.Testing.TestReporter.Pass(string)`, `Fail(string,string)`), and a
+C# test can read what graphs counted (`GetVariable<T>`), as `Projects/FeatureTest/Scripts/Source/VisualScriptTests.cs`
+does.
 
 ## Exporting
 
-File > Build Game builds the scripts in Release and ships the assembly with the game. Players need the .NET 10 runtime,
-installed or shipped by you in a `dotnet` folder next to the executable.
+File > Build Game builds the scripts in Release and ships the assembly with the game; a game with visual scripts ships
+the scripting API they run on, also without C# scripts. Players of games with C# scripts or visual scripts need the .NET
+10 runtime, installed or shipped by you in a `dotnet` folder next to the executable.
 
 ## Examples
 
@@ -739,4 +922,5 @@ installed or shipped by you in a `dotnet` folder next to the executable.
   rows open as the camera nears their exhibits, `Debug.DrawLine` previews of throws and trigger bounds, and tests that
   play every exhibit, click the HUD's buttons and walk the yard (run `Tools/FetchAssets.py` first for its models and
   sky).
-- `Projects/FeatureTest`: scenes whose scripts use every component and the whole API, checked as a test run.
+- `Projects/FeatureTest`: scenes whose scripts use every component and the whole API, and graphs that use every kind of
+  built-in node (`Assets/Scripts/Features.sgraph`, `Contacts.sgraph` and `Clicks.sgraph`), checked as a test run.

@@ -1,6 +1,6 @@
 ---
 name: strada-make-game
-description: How to make or change a game with the Strada editor through its MCP tools (strada mcp) - projects, scenes from entities and components, materials, prefabs, C# scripts, play mode and test runs, export. Use when asked to build a game, level or prototype with Strada, or to drive the editor as an agent.
+description: How to make or change a game with the Strada editor through its MCP tools (strada mcp) - projects, scenes from entities and components, materials, prefabs, C# scripts, visual scripts (graphs), play mode and test runs, export. Use when asked to build a game, level or prototype with Strada, or to drive the editor as an agent.
 ---
 
 # Making a game with the Strada editor
@@ -98,7 +98,46 @@ undo history as the UI: work in small, checked steps.
 - Attach scripts with a `Script` component: `{"ClassName": "Game.Player", "Fields": {"Speed": {"Type": "Float",
   "Value": 5}}}`. Public fields (and `[SerializeField]` private ones) are stored in the scene.
 
-## 6. Play and test
+## 6. Behavior in visual scripts
+
+Visual scripts are graphs of nodes (`.sgraph` assets) that a `VisualScript` component runs on its entity, with or
+without C# scripts; they need no C# project, only the scripting runtime (.NET 10). The "Visual scripts" section of
+[Docs/Scripting.md](../../../Docs/Scripting.md) explains them with examples; the `graph` section of Docs/Automation.md
+describes documents, literals and every diagnostic code.
+
+- `graph_create` with `path` (`Scripts/Spin.sgraph`; `template` `Events` (default) or `Empty`) returns the graph's
+  `asset` handle.
+- Look up what to use; never guess type strings or pin names. `graph_library` lists node kinds, filtered by `query`
+  ("rotation", "delay"), `category` (`Flow`, `Math`, `Components/Rigid Body`, ...) or `pinType` with `direction` (nodes
+  with an input taking, or an output giving, a type): each kind's `Type` (what a node stores), its pins (name,
+  direction, type, default; `exec` for flow) and its settings. `graph_types` lists the types (`float`, `Strada.Vector3`,
+  `Strada.RigidBodyComponent`, ...); those with a `FieldType` can be public variables.
+- Write the document: `Variables` (`ID`, `Name`, `Type`, `Value`, `Public`), `Functions` if any, and in `Graph` the
+  `Nodes` (`ID`, `Type`, `Settings`, `Inputs` for the values of unlinked inputs) and `Links`
+  (`{"From": [<node>, "<output>"], "To": [<node>, "<input>"]}`). IDs are unique across the document. Leave `Position`
+  out: `graph_set` lays out nodes without one. The `Target` of an entity's or a component's member, left unlinked, is
+  the entity the graph runs on. Graphs hold no entity values: other entities come from public `Strada.Entity` variables
+  (set per component), `Self`, an event's `Other` or lookups (`Call:Strada.Entity.FindByName(string)`).
+- `graph_check` with `document` (and `graph`, to see renamed variables): fix every `issues` entry (structure:
+  `graph_set` refuses them) and every Error in `diagnostics` (meaning: a graph with one does not run), until `valid` is
+  true and only Warnings remain. Then `graph_set` with `graph` and `document`, and read its `warnings` and
+  `diagnostics`. It saves the file as an undo step.
+- Attach it: `component_add` with `component` `VisualScript` and `fields` `{"Graph": "<asset>", "Variables": {"Speed":
+  {"Type": "Float", "Value": 180}}}`: the values of public variables, per entity, in the format of Script `Fields`
+  (an entity is `{"Type": "Entity", "Value": "<id>"}`). A `Variables` patch replaces the whole map.
+- One graph per entity: put further behaviors on child entities with VisualScript components of their own. Graphs call
+  each other's `Event.Custom` nodes with `Event.Send`; C# scripts use `VisualScriptComponent` (`SendEvent`,
+  `HasVariable`, `GetVariable<T>`, `SetVariable<T>`, `Graph`).
+- Test graphs like scripts: `TestReporter` nodes (`Call:Strada.Testing.TestReporter.Pass(string)`,
+  `Fail(string,string)`, `Finish()`) report checks to `test_run`, or a C# test reads the graphs' variables. `log_read`
+  shows graphs that do not load (`Visual script '<path>' has 1 error; first: ...`), entities left without theirs
+  (`Entity '<name>' runs no visual script: ...`) and errors while running
+  (`<graph>: <node> (node <id>) on <entity> (<id>): <message>`).
+- While playing, `graph_set` changes running graphs at their next update (live edit), `entity_get` shows the values the
+  public variables hold, and `component_set` sets them in the running graph.
+- `Projects/FeatureTest/Assets/Scripts/*.sgraph` together use every built-in kind of node.
+
+## 7. Play and test
 
 - `play_start`, then `play_pause` and `play_advance` with `frames` for deterministic steps; `input_set` presses keys
   and buttons in the game; `play_state` reports the frame and time; `play_stop` discards everything the run changed.
@@ -110,10 +149,10 @@ undo history as the UI: work in small, checked steps.
   `TestReporter.Finish()`) in a scene, run by `test_run` with `scene` and `timeout`, which returns every check's
   result. Projects/FeatureTest shows the pattern.
 
-## 7. Ship
+## 8. Ship
 
 - Save everything (`scene_save`), then `project_export` with `directory`: it builds the scripts and writes a game
-  that runs on its own; the result names the executable.
+  that runs on its own (with the scripting runtime's API for visual scripts); the result names the executable.
 
 ## Example
 

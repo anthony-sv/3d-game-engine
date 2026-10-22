@@ -29,12 +29,15 @@ internal sealed class McpServer
 
 	private const string Instructions =
 		"These tools run the Strada game editor's automation commands (Docs/Automation.md in the engine's repository): projects, " +
-		"scenes, entities and components, assets, materials, prefabs, C# scripts, play mode with input, tests and game export. " +
-		"They act on the editor the user works in, through its undo history, or on an editor started for them. Entities are " +
-		"UUIDs written as strings; component fields use the scene-file format (asset references \"asset://<path in Assets>\" or " +
-		"\"builtin://<name>\", rotations as quaternions [x, y, z, w] or \"RotationEuler\" in degrees). editor_status shows the " +
-		"open project and scene, component_types lists the components and their fields, and log_read reads the editor's log. " +
-		"polyhaven_search_hdris and polyhaven_import_hdri bring CC0 skies from Poly Haven into the project for a SkyLight.";
+		"scenes, entities and components, assets, materials, prefabs, C# scripts, visual scripts, play mode with input, tests and " +
+		"game export. They act on the editor the user works in, through its undo history, or on an editor started for them. " +
+		"Entities are UUIDs written as strings; component fields use the scene-file format (asset references " +
+		"\"asset://<path in Assets>\" or \"builtin://<name>\", rotations as quaternions [x, y, z, w] or \"RotationEuler\" in " +
+		"degrees). editor_status shows the open project and scene, component_types lists the components and their fields, and " +
+		"log_read reads the editor's log. Visual scripts are graphs of nodes that a VisualScript component runs on its entity: " +
+		"graph_create makes one, graph_library and graph_types list the kinds of nodes (with their pins) and the types graphs " +
+		"use, graph_check checks a document without saving it and graph_set saves it. polyhaven_search_hdris and " +
+		"polyhaven_import_hdri bring CC0 skies from Poly Haven into the project for a SkyLight.";
 
 	private readonly EditorSession m_Session;
 	private readonly IReadOnlyList<McpTool> m_OwnTools;

@@ -54,8 +54,10 @@ directly: every modification goes through `EditorOperations` (undoable commands,
 - Assets: make an item a drag source with `UI::AssetDragSource(handle, label)`; inside a drop target accept with
   `UI::AcceptAssetDrop(types)`, which highlights only for registered assets of those types. What dropping an asset onto
   the scene does lives in `AssetDrops` and `EntityPresets::CreateFromMesh` (unit tested without UI). Scripts use
-  `UI::ScriptDragSource` and `UI::AcceptScriptDrop`; `AssetDrops::AddScript` maps the file to its loaded class and
-  sets it as one undo step (`EditorOperations::SetScriptClass`).
+  `UI::ScriptDragSource` and `UI::AcceptScriptDrop`; `AssetDrops::AddScript` maps the file to its loaded class and sets
+  it as one undo step (`EditorOperations::SetScriptClass`). Visual scripts are assets: `AssetDrops::AddVisualScript`
+  gives the entities a VisualScript component running the graph, or changes the graph of the one they have, as one undo
+  step (`EditorOperations::SetVisualScriptGraph`), without the scripting runtime.
 - Files dropped onto the editor from the OS arrive as `WindowFileDropEvent`s (from every window, floating panels
   included) and go to `ContentBrowserPanel::DropFiles`; what an import does lives in `ProjectImport`, and the browser's
   `ImportDropped` (which `asset.drop` calls for agents) selects what came in and shows a notice of what did not.

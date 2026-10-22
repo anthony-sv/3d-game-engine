@@ -30,7 +30,13 @@ public sealed class McpServerTests
 		Assert.Equal("strada", result["serverInfo"]!["name"]!.GetValue<string>());
 		Assert.Equal("Strada Editor", result["serverInfo"]!["title"]!.GetValue<string>());
 		Assert.False(result["capabilities"]!["tools"]!["listChanged"]!.GetValue<bool>());
-		Assert.Contains("editor_status", result["instructions"]!.GetValue<string>());
+		string instructions = result["instructions"]!.GetValue<string>();
+		Assert.Contains("editor_status", instructions);
+		// Visual scripts are written through the graph tools, which the instructions name.
+		Assert.Contains("visual scripts", instructions);
+		Assert.Contains("graph_library", instructions);
+		Assert.Contains("graph_check", instructions);
+		Assert.Contains("graph_set", instructions);
 
 		JsonObject unknown = await client.ResultAsync("initialize", new JsonObject { ["protocolVersion"] = "1999-01-01" });
 		Assert.Equal(McpServer.ProtocolVersions[0], unknown["protocolVersion"]!.GetValue<string>());
