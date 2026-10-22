@@ -50,15 +50,19 @@ namespace Strada
 	// writable again), on every platform. A file that does not load is replaced too.
 	//
 	// Undo gives the file back byte for byte: a version-1 file stays version 1, a file the loader repaired keeps what it
-	// repairs, a byte order mark stays, and a file that did not load fails to load again. Redo writes the canonical text of
-	// the document again. Every write is recorded (AssetManager::RecordFileWrite), so a refresh does not reload what the
-	// step wrote. Commands of the same graph with the same non-zero merge key merge into one step; consecutive steps share
-	// their documents (a step's document is the object the next one keeps as its document before).
+	// repairs, a byte order mark stays, an emptied file is empty again, and a file that did not load fails to load again.
+	// Redo writes the canonical text of the document again. Every write is recorded (AssetManager::RecordFileWrite), so a
+	// refresh does not reload what the step wrote. Commands of the same graph with the same non-zero merge key merge into one
+	// step; consecutive steps share their documents (a step's document is the object the next one keeps as its document
+	// before).
 	class SetVisualScriptCommand final : public EditorCommand
 	{
 	public:
-		// document: complete and prepared (PrepareVisualScriptCommit); description: the Edit menu's text.
-		SetVisualScriptCommand(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description, uint64_t mergeKey = 0);
+		// document: complete and prepared (PrepareVisualScriptCommit); description: the Edit menu's text. text: the canonical
+		// text of document's file when the caller has it (VisualScriptCommit::Text, which only the pipeline makes), written by
+		// the first execution as it is, unchecked; empty to have the document serialized. A redo serializes it again.
+		SetVisualScriptCommand(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description, uint64_t mergeKey = 0,
+		                       std::string text = {});
 
 		Result<void> Execute(EditorContext& context) override;
 		Result<void> Undo(EditorContext& context) override;
@@ -77,17 +81,16 @@ namespace Strada
 		size_t GetMemoryUse() const override { return m_AfterTextSize + m_BeforeBytes.size(); }
 
 	private:
-		// Undo writes the kept bytes, not the canonical text of m_Before.
-		bool KeepsBytes() const { return m_Before == nullptr || !m_BeforeBytes.empty(); }
 		// Reads what the file holds before the first execution.
 		Result<void> RecordBefore(EditorContext const& context, std::filesystem::path const& path, std::string const& name);
 
 		AssetHandle m_Graph;
 		Ref<VisualScriptDocument const> m_After;
+		// The text the constructor was given, until the first execution takes it: the step never keeps it.
+		std::string m_GivenText;
 		// The asset's document before the first execution (the object itself); null when the file did not load.
 		Ref<VisualScriptDocument const> m_Before;
-		// The file's bytes before the first execution, kept when the file did not load or when they are not the canonical
-		// text of m_Before (a version-1 file, a file the loader repaired, a byte order mark): undo writes them back.
+		// The file's bytes before the first execution, when m_KeepsBytes.
 		std::vector<uint8_t> m_BeforeBytes;
 		std::string m_Description;
 		uint64_t m_MergeKey = 0;
@@ -95,6 +98,10 @@ namespace Strada
 		size_t m_AfterTextSize = 0;
 		// The first execution read what the file held.
 		bool m_Recorded = false;
+		// The first execution kept the file's bytes, because the file did not load or they are not the canonical text of
+		// m_Before (a version-1 file, a file the loader repaired, a byte order mark, an empty file): undo writes them back
+		// instead of that text. Recorded apart from the bytes, which may be none at all.
+		bool m_KeepsBytes = false;
 		// An execution wrote the file.
 		bool m_Wrote = false;
 		// The kept bytes load as m_Before. They do not when the file changed outside the editor after the asset loaded and
@@ -111,8 +118,9 @@ namespace Strada
 	class SetVisualScriptAndComponentsCommand final : public EditorCommand
 	{
 	public:
+		// text: as SetVisualScriptCommand takes it.
 		SetVisualScriptAndComponentsCommand(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description,
-		                                    std::vector<ComponentEdit> edits);
+		                                    std::vector<ComponentEdit> edits, std::string text = {});
 
 		Result<void> Execute(EditorContext& context) override;
 		Result<void> Undo(EditorContext& context) override;

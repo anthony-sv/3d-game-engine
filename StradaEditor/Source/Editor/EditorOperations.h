@@ -163,17 +163,21 @@ namespace Strada
 		// takes the document object itself, so graphs running while playing take the edit. A file that does not load is
 		// replaced too. Undoing gives the file its bytes back exactly. No step is recorded when the document is the stored one
 		// (IsSameVisualScriptDocument); edits of the graph with the same non-zero merge key merge into one step. The document
-		// must be prepared (PrepareVisualScriptCommit). Fails without changes for other assets, graphs without a file of their
-		// own, missing files and read-only files.
+		// must be prepared (PrepareVisualScriptCommit), and text is the canonical text of its file that preparing it made
+		// (VisualScriptCommit::Text, VisualScriptCommitRequest::Text), written as it is so the document is not serialized
+		// again; an empty text has it serialized. Fails without changes for other assets, graphs without a file of their own,
+		// missing files and read-only files.
 		[[nodiscard]] Result<void> EditVisualScript(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description,
-		                                            uint64_t mergeKey = 0);
+		                                            uint64_t mergeKey = 0, std::string text = {});
 		// One undoable step that edits a visual script and the components of entities that run it, all or nothing
-		// (SetVisualScriptAndComponentsCommand): the graph as EditVisualScript edits it, then the components as
-		// SetComponentFields patches them. A step of the scene: it marks the scene modified.
+		// (SetVisualScriptAndComponentsCommand): the graph as EditVisualScript edits it (text as it takes it), then the
+		// components as SetComponentFields patches them. A step of the scene: it marks the scene modified.
 		[[nodiscard]] Result<void> EditVisualScriptAndComponents(AssetHandle graph, Ref<VisualScriptDocument const> document,
-		                                                         std::string description, std::vector<ComponentEdit> edits);
+		                                                         std::string description, std::vector<ComponentEdit> edits,
+		                                                         std::string text = {});
 		// EditVisualScript with the description "Edit Visual Script" (graph.set's step).
-		[[nodiscard]] Result<void> SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey = 0);
+		[[nodiscard]] Result<void> SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey = 0,
+		                                                   std::string text = {});
 
 		// --- Selection and history ---
 

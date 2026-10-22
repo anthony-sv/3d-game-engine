@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <string>
@@ -224,6 +225,80 @@ TEST_CASE("VisualScriptCommit: renamed variables keep their stored names as form
 	CHECK(unstored.GetValue().Document == edited);
 }
 
+TEST_CASE("VisualScriptCommit: a variable added and named in one undo step gets no former name, since each commit of a step passes the "
+          "document from before it")
+{
+	// Add Variable commits a variable under the name it is given (NewVar), then the name typed for it, under one merge key.
+	VisualScriptDocument before;
+	before.Variables.push_back(MakeVariable(1, "Speed", "float", 4.0));
+	before.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	VisualScriptDocument created = before;
+	created.Variables.push_back(MakeVariable(2, "NewVar", "float"));
+	Result<VisualScriptCommit> const creation = PrepareVisualScriptCommit(before, created, nullptr);
+	REQUIRE(creation.IsOk());
+	CHECK(creation.GetValue().Warnings.empty());
+	VisualScriptDocument named = creation.GetValue().Document;
+	named.Variables[1].Name = "Jump";
+	Result<VisualScriptCommit> const naming = PrepareVisualScriptCommit(before, named, nullptr);
+	REQUIRE(naming.IsOk());
+	CHECK(naming.GetValue().Warnings.empty());
+	CHECK(naming.GetValue().Document.Variables[1].FormerNames.empty());
+	// Against the document the first commit wrote, the name it was added under would be kept, as a rename of its own keeps it.
+	Result<VisualScriptCommit> const renaming = PrepareVisualScriptCommit(creation.GetValue().Document, named, nullptr);
+	REQUIRE(renaming.IsOk());
+	CHECK(renaming.GetValue().Document.Variables[1].FormerNames == std::vector<std::string>{"NewVar"});
+
+	// Committed as a graph window commits the run: one step that writes the variable without a former name, and whose undo
+	// gives the file its bytes back.
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory directory;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	Result<AssetHandle> const script = operations.CreateVisualScript("Scripts/Player.sgraph", VisualScriptTemplate::Empty);
+	REQUIRE(script.IsOk());
+	AssetHandle const graph = script.GetValue();
+	REQUIRE(operations.SetVisualScriptDocument(graph, before).IsOk());
+	Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+	REQUIRE(asset != nullptr);
+	Ref<VisualScriptDocument const> const start = asset->GetSharedDocument();
+	std::filesystem::path const file = AssetManager::GetAbsolutePath(graph);
+	Result<Buffer> const startBytes = FileSystem::ReadBinaryFile(file);
+	REQUIRE(startBytes.IsOk());
+	CommandHistory const& history = context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	// "VSNM" and a counter.
+	constexpr uint64_t Key = 0x56534E4D00000001ull;
+
+	VisualScriptDocument adding = *start;
+	adding.Variables.push_back(MakeVariable(2, "NewVar", "float"));
+	Result<VisualScriptCommitRequest> add =
+		MakeVisualScriptCommitRequest(*start, std::move(adding), nullptr, "Add Variable", "Player", Key);
+	REQUIRE(add.IsOk());
+	REQUIRE(operations.EditVisualScript(graph, add.GetValue().Document, add.GetValue().Description, Key, add.GetValue().Text).IsOk());
+	VisualScriptDocument typed = *asset->GetSharedDocument();
+	typed.Variables.back().Name = "Jump";
+	Result<VisualScriptCommitRequest> name =
+		MakeVisualScriptCommitRequest(*start, std::move(typed), nullptr, "Add Variable", "Player", Key);
+	REQUIRE(name.IsOk());
+	REQUIRE(operations.EditVisualScript(graph, name.GetValue().Document, name.GetValue().Description, Key, name.GetValue().Text).IsOk());
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoDescription() == "Add Variable in Player");
+	VisualScriptVariable const jump = asset->GetDocument().Variables.back();
+	CHECK(jump.Name == "Jump");
+	CHECK(jump.FormerNames.empty());
+	Result<Buffer> const written = FileSystem::ReadBinaryFile(file);
+	REQUIRE(written.IsOk());
+	CHECK(std::string(written.GetValue().As<char>(), static_cast<size_t>(written.GetValue().GetSize())) == name.GetValue().Text);
+
+	REQUIRE(operations.Undo().IsOk());
+	CHECK(asset->GetSharedDocument().get() == start.get());
+	Result<Buffer> const undone = FileSystem::ReadBinaryFile(file);
+	REQUIRE(undone.IsOk());
+	CHECK(std::string(undone.GetValue().As<char>(), static_cast<size_t>(undone.GetValue().GetSize())) ==
+	      std::string(startBytes.GetValue().As<char>(), static_cast<size_t>(startBytes.GetValue().GetSize())));
+}
+
 TEST_CASE("VisualScriptCommit: nodes resolved inexactly take their canonical types, their pins' links, literals and split paths following")
 {
 	VisualScriptDocument const stored = MakeOutdatedDocument();
@@ -282,6 +357,8 @@ TEST_CASE("VisualScriptCommit: unplaced nodes are laid out, and a document that 
 	REQUIRE(placed.IsOk());
 	CHECK(placed.GetValue().Document == expected);
 	CHECK(placed.GetValue().Warnings.empty());
+	// The text to write is the file's canonical text of what was placed.
+	CHECK(placed.GetValue().Text == DumpJson(VisualScriptSerializer::Serialize(placed.GetValue().Document)));
 	for (VisualScriptNode const& node : placed.GetValue().Document.Graph.Nodes)
 	{
 		CHECK(node.Position.has_value());
@@ -326,11 +403,13 @@ TEST_CASE("VisualScriptCommit: a commit request names its action in its script, 
 	CHECK(request.GetValue().Notes == std::vector<std::string>{"node updated: Call:Old.Scale → Call:New.Scale(int)",
 	                                                           "node updated: Call:Old.Push → Call:New.Push(Strada.Vector3)",
 	                                                           "node updated: Call:Old.Store → Call:Old.Store(int)"});
-	// The document is the prepared one.
+	// The document is the prepared one, with its file's text.
 	Result<VisualScriptCommit> const prepared = PrepareVisualScriptCommit(stored, edited, &analysis);
 	REQUIRE(prepared.IsOk());
 	REQUIRE(request.GetValue().Document != nullptr);
 	CHECK(*request.GetValue().Document == prepared.GetValue().Document);
+	CHECK(request.GetValue().Text == prepared.GetValue().Text);
+	CHECK(request.GetValue().Text == DumpJson(VisualScriptSerializer::Serialize(*request.GetValue().Document)));
 
 	// Without a script name the action alone; without anything to note, no notes.
 	Result<VisualScriptCommitRequest> const plain = MakeVisualScriptCommitRequest(stored, stored, nullptr, "Update Nodes", "", 0);
@@ -371,8 +450,8 @@ TEST_CASE("VisualScriptCommit: documents are the same only when every value is w
 	CHECK_FALSE(IsSameVisualScriptDocument(document, described));
 }
 
-TEST_CASE(
-	"VisualScriptCommit: one edit of a 2,000-node graph is prepared, written and taken by the asset as one step, in its time on request")
+TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, serialized once, written and taken by the asset as one step, "
+          "in its time on request")
 {
 	Testing::AssetManagerScope assets;
 	Testing::TemporaryDirectory directory;
@@ -409,17 +488,24 @@ TEST_CASE(
 		size_t const steps = context.GetHistory().GetUndoCount();
 
 		std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
-		Result<VisualScriptCommitRequest> request =
+		Result<VisualScriptCommitRequest> made =
 			MakeVisualScriptCommitRequest(*stored, std::move(edited), &analysis, "Move Node", "Large", 0);
-		REQUIRE_MESSAGE(request.IsOk(), (request ? std::string() : request.GetError()));
-		Ref<VisualScriptDocument const> const committed = request.GetValue().Document;
-		REQUIRE(operations.EditVisualScript(graph, committed, request.GetValue().Description).IsOk());
+		REQUIRE_MESSAGE(made.IsOk(), (made ? std::string() : made.GetError()));
+		VisualScriptCommitRequest request = made.TakeValue();
+		Ref<VisualScriptDocument const> const committed = request.Document;
+		auto const text = reinterpret_cast<std::uintptr_t>(request.Text.data());
+		REQUIRE(operations.EditVisualScript(graph, committed, request.Description, request.MergeKey, std::move(request.Text)).IsOk());
 		milliseconds.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
 
 		// Always: one step, one new version, and the asset holds the committed document itself.
 		CHECK(context.GetHistory().GetUndoCount() == steps + 1);
 		CHECK(asset->GetVersion() == version + 1);
 		CHECK(asset->GetSharedDocument().get() == committed.get());
+		// The document was serialized once: the text the strict check read back is the one written and remembered, moved
+		// along without a copy.
+		std::string const* const remembered = context.FindVisualScriptText(graph, committed.get());
+		REQUIRE(remembered != nullptr);
+		CHECK(reinterpret_cast<std::uintptr_t>(remembered->data()) == text);
 	}
 	Result<Buffer> const written = FileSystem::ReadBinaryFile(AssetManager::GetAbsolutePath(graph));
 	REQUIRE(written.IsOk());
@@ -432,11 +518,12 @@ TEST_CASE(
 	MESSAGE("committing one edit of 2,000 nodes and 3,000 links: median " << median << " ms, p95 " << percentile95 << " ms");
 	if (ArePerformanceTestsEnabled())
 	{
-		// Three times the median measured when the test was written (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51).
+		// Three times the median of five runs measured with no build running (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC
+		// 19.51).
 #if defined(ST_DEBUG)
-		constexpr double MeasuredMilliseconds = 993.0;
+		constexpr double MeasuredMilliseconds = 371.0;
 #else
-		constexpr double MeasuredMilliseconds = 36.1;
+		constexpr double MeasuredMilliseconds = 21.9;
 #endif
 		CHECK(median <= 3.0 * MeasuredMilliseconds);
 	}

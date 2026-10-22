@@ -20,6 +20,9 @@ namespace Strada
 	struct VisualScriptCommit
 	{
 		VisualScriptDocument Document;
+		// The canonical text of Document's file (DumpJson(VisualScriptSerializer::Serialize(Document))), which the strict check
+		// read back: writers hand it to EditorOperations::EditVisualScript, so a commit serializes its document once.
+		std::string Text;
 		// In this order: "variable renamed: <old> → <new> (<old> is kept in FormerNames)" for each former name step 1 of
 		// PrepareVisualScriptCommit recorded, then "node updated: <old> → <new>" for each node step 2 stored under its
 		// canonical type.
@@ -36,12 +39,16 @@ namespace Strada
 	//     overload) whose Type is still the analyzed one are stored under their canonical types, their renamed pins' links,
 	//     inputs and split paths following;
 	//  3. PlaceUnplacedNodes;
-	//  4. the strict check: the document must save and load again as graph.set reads documents, with no repair and
-	//     unchanged. Otherwise nothing may be written and the commit fails with "the edit would write an invalid document:
-	//     <path>: <message>" (an editor bug, never user input that loaded).
-	// stored is the document the file has; an empty one when it has none that loads (no variable can have been renamed). The
-	// analysis is passed in, never computed here: graph.set passes a fresh one, a graph window the one it has (nodes it does
-	// not describe as they are now are left as they are); without one, step 2 is skipped.
+	//  4. the strict check: the file to write (the Json its text is made of) must load again as graph.set reads documents,
+	//     with no repair and unchanged. Otherwise nothing may be written and the commit fails with "the edit would write an
+	//     invalid document: <path>: <message>" (an editor bug, never user input that loaded).
+	// stored is the document from before the undo step the commit belongs to: the document the file has, except for a commit
+	// that merges into the step of earlier ones (the same graph and merge key), which passes the stored document of the
+	// step's first commit. So a variable added and then given its first name in one step (Add Variable) is new to stored when
+	// its name is committed, and the name it was added under never becomes a former name. An empty document when the file
+	// has none that loads (no variable can have been renamed). The analysis is passed in, never computed here: graph.set
+	// passes a fresh one, a graph window the one it has (nodes it does not describe as they are now are left as they are);
+	// without one, step 2 is skipped.
 	[[nodiscard]] Result<VisualScriptCommit> PrepareVisualScriptCommit(VisualScriptDocument const& stored, VisualScriptDocument edited,
 	                                                                   VisualScriptAnalysis const* analysis);
 
@@ -50,6 +57,8 @@ namespace Strada
 	{
 		// Prepared (PrepareVisualScriptCommit).
 		Ref<VisualScriptDocument const> Document;
+		// The canonical text of Document's file (VisualScriptCommit::Text), for EditVisualScript to write as it is.
+		std::string Text;
 		// The Edit menu's text: "Move 3 Nodes in Player".
 		std::string Description;
 		uint64_t MergeKey = 0;
@@ -59,8 +68,9 @@ namespace Strada
 		std::vector<std::string> Notes;
 	};
 
-	// PrepareVisualScriptCommit, then "<action> in <script name>" as the description (the action alone without a name). The
-	// canonical rewrites become Notes; the renames do not, since the user's own rename already says it.
+	// PrepareVisualScriptCommit (stored as it says: the document from before the step, for each commit of a step), then
+	// "<action> in <script name>" as the description (the action alone without a name). The canonical rewrites become Notes;
+	// the renames do not, since the user's own rename already says it.
 	[[nodiscard]] Result<VisualScriptCommitRequest>
 	MakeVisualScriptCommitRequest(VisualScriptDocument const& stored, VisualScriptDocument edited, VisualScriptAnalysis const* analysis,
 	                              std::string_view action, std::string_view scriptName, uint64_t mergeKey);

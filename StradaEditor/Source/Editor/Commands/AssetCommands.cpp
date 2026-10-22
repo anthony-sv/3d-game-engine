@@ -225,9 +225,10 @@ namespace Strada
 	}
 
 	SetVisualScriptCommand::SetVisualScriptCommand(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description,
-	                                               uint64_t mergeKey)
+	                                               uint64_t mergeKey, std::string text)
 		: m_Graph(graph),
 		  m_After(std::move(document)),
+		  m_GivenText(std::move(text)),
 		  m_Description(std::move(description)),
 		  m_MergeKey(mergeKey)
 	{
@@ -236,6 +237,9 @@ namespace Strada
 
 	Result<void> SetVisualScriptCommand::Execute(EditorContext& context)
 	{
+		// The given text serves the first execution only, written or not: the step never keeps it, so the memory it keeps is
+		// what GetMemoryUse counts.
+		std::string givenText = std::exchange(m_GivenText, std::string());
 		if (m_After == nullptr)
 		{
 			return Error{"there is no visual script document to write"};
@@ -260,7 +264,7 @@ namespace Strada
 			}
 		}
 
-		std::string text = DumpJson(VisualScriptSerializer::Serialize(*m_After));
+		std::string text = givenText.empty() ? DumpJson(VisualScriptSerializer::Serialize(*m_After)) : std::move(givenText);
 		if (Result<void> written = FileSystem::WriteTextFile(file.Path, text); !written)
 		{
 			// A first execution that failed reads the file again when it runs again.
@@ -293,9 +297,9 @@ namespace Strada
 		}
 		std::filesystem::path const& path = found.GetValue().Path;
 		// The kept bytes, or the canonical text of the document the file had.
-		std::string text = KeepsBytes() ? std::string() : DumpJson(VisualScriptSerializer::Serialize(*m_Before));
+		std::string text = m_KeepsBytes ? std::string() : DumpJson(VisualScriptSerializer::Serialize(*m_Before));
 		Result<void> const written =
-			KeepsBytes() ? FileSystem::WriteBinaryFile(path, m_BeforeBytes) : FileSystem::WriteTextFile(path, text);
+			m_KeepsBytes ? FileSystem::WriteBinaryFile(path, m_BeforeBytes) : FileSystem::WriteTextFile(path, text);
 		if (!written)
 		{
 			return written;
@@ -310,7 +314,7 @@ namespace Strada
 			// A file that did not load fails to load again at the asset's next use, as it did.
 			AssetManager::UnloadAsset(m_Graph);
 		}
-		if (asset != nullptr && !KeepsBytes())
+		if (asset != nullptr && !m_KeepsBytes)
 		{
 			context.RememberVisualScriptText(m_Graph, m_Before, std::move(text));
 		}
@@ -328,7 +332,7 @@ namespace Strada
 	bool SetVisualScriptCommand::HasEffect() const
 	{
 		bool const same = m_Before != nullptr && m_After != nullptr && IsSameVisualScriptDocument(*m_Before, *m_After);
-		return !same || (m_Wrote && KeepsBytes());
+		return !same || (m_Wrote && m_KeepsBytes);
 	}
 
 	bool SetVisualScriptCommand::CanMergeWith(EditorCommand const& next) const
@@ -370,7 +374,8 @@ namespace Strada
 			canonical =
 				written != nullptr ? HoldsText(read, *written) : HoldsText(read, DumpJson(VisualScriptSerializer::Serialize(*m_Before)));
 		}
-		if (!canonical)
+		m_KeepsBytes = !canonical;
+		if (m_KeepsBytes)
 		{
 			m_BeforeBytes.assign(read.begin(), read.end());
 			m_BytesLoadAsBefore = m_Before == nullptr || LoadsAs(read, *m_Before);
@@ -380,8 +385,9 @@ namespace Strada
 	}
 
 	SetVisualScriptAndComponentsCommand::SetVisualScriptAndComponentsCommand(AssetHandle graph, Ref<VisualScriptDocument const> document,
-	                                                                         std::string description, std::vector<ComponentEdit> edits)
-		: m_Graph(CreateScope<SetVisualScriptCommand>(graph, std::move(document), description)),
+	                                                                         std::string description, std::vector<ComponentEdit> edits,
+	                                                                         std::string text)
+		: m_Graph(CreateScope<SetVisualScriptCommand>(graph, std::move(document), description, 0, std::move(text))),
 		  m_Components(std::move(edits), 0, description),
 		  m_Description(std::move(description))
 	{

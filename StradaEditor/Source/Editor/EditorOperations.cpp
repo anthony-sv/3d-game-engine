@@ -981,29 +981,33 @@ namespace Strada
 	}
 
 	Result<void> EditorOperations::EditVisualScript(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description,
-	                                                uint64_t mergeKey)
-	{
-		if (document == nullptr)
-		{
-			return Error{"there is no visual script document to write"};
-		}
-		return m_Context.ExecuteCommand(CreateScope<SetVisualScriptCommand>(graph, std::move(document), std::move(description), mergeKey));
-	}
-
-	Result<void> EditorOperations::EditVisualScriptAndComponents(AssetHandle graph, Ref<VisualScriptDocument const> document,
-	                                                             std::string description, std::vector<ComponentEdit> edits)
+	                                                uint64_t mergeKey, std::string text)
 	{
 		if (document == nullptr)
 		{
 			return Error{"there is no visual script document to write"};
 		}
 		return m_Context.ExecuteCommand(
-			CreateScope<SetVisualScriptAndComponentsCommand>(graph, std::move(document), std::move(description), std::move(edits)));
+			CreateScope<SetVisualScriptCommand>(graph, std::move(document), std::move(description), mergeKey, std::move(text)));
 	}
 
-	Result<void> EditorOperations::SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey)
+	Result<void> EditorOperations::EditVisualScriptAndComponents(AssetHandle graph, Ref<VisualScriptDocument const> document,
+	                                                             std::string description, std::vector<ComponentEdit> edits,
+	                                                             std::string text)
 	{
-		return EditVisualScript(graph, CreateRef<VisualScriptDocument const>(std::move(document)), "Edit Visual Script", mergeKey);
+		if (document == nullptr)
+		{
+			return Error{"there is no visual script document to write"};
+		}
+		return m_Context.ExecuteCommand(CreateScope<SetVisualScriptAndComponentsCommand>(graph, std::move(document), std::move(description),
+		                                                                                 std::move(edits), std::move(text)));
+	}
+
+	Result<void> EditorOperations::SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey,
+	                                                       std::string text)
+	{
+		return EditVisualScript(graph, CreateRef<VisualScriptDocument const>(std::move(document)), "Edit Visual Script", mergeKey,
+		                        std::move(text));
 	}
 
 	Result<void> EditorOperations::Select(std::span<UUID const> entities, SelectionMode mode, UUID primary)

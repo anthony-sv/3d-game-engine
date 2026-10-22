@@ -1189,6 +1189,48 @@ TEST_CASE("SetVisualScriptCommand: undo after the file changed outside the edito
 	CHECK(fixture.GetGraph(graph)->GetDocument() == MakeGraphDocument());
 }
 
+TEST_CASE("SetVisualScriptCommand: a file emptied outside the editor is given back empty, by one step even when the edit comes back")
+{
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	Ref<VisualScriptDocument const> const shown = fixture.Edit(graph, MakeGraphDocument());
+	Ref<VisualScriptAsset> const asset = fixture.GetGraph(graph);
+	// Another program empties the file; no refresh has seen it yet.
+	std::filesystem::path const file = fixture.GetFile("Scripts/Player.sgraph");
+	REQUIRE(FileSystem::WriteTextFile(file, "").IsOk());
+
+	// An edit of what the editor shows replaces the file, and its undo gives it back empty: no bytes are bytes too.
+	Ref<VisualScriptDocument const> const edited = fixture.Edit(graph, Described(*shown, "Edited"));
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*edited));
+	// The step's write is recorded an hour back, so that the undo's write is later even on file systems with coarse times.
+	std::error_code error;
+	std::filesystem::last_write_time(file, std::filesystem::last_write_time(file, error) - std::chrono::hours(1), error);
+	REQUIRE_FALSE(error);
+	AssetManager::RecordFileWrite(graph);
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph").empty());
+	CHECK(asset->GetSharedDocument().get() == shown.get());
+	// The write is not recorded, since the file no longer holds what the asset shows: the next refresh loads it, and fails.
+	CHECK(fixture.Refresh() == std::vector<AssetHandle>{graph});
+	CHECK(AssetManager::TryGetAsset<VisualScriptAsset>(graph).IsError());
+	CHECK(fixture.Context.FindVisualScriptText(graph, shown.get()) == nullptr);
+
+	// An interaction that comes back to where it started on an emptied file stays one step, whose undo empties it again.
+	AssetHandle const enemy = fixture.CreateGraph("Scripts/Enemy.sgraph");
+	Ref<VisualScriptDocument const> const start = fixture.Edit(enemy, MakeGraphDocument());
+	REQUIRE(FileSystem::WriteTextFile(fixture.GetFile("Scripts/Enemy.sgraph"), "").IsOk());
+	CommandHistory const& history = fixture.Context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	constexpr uint64_t Key = 0x5445535400000004ull;
+	fixture.Edit(enemy, Moved(*start, 16.0f), "Move Node in Enemy", Key);
+	fixture.Edit(enemy, VisualScriptDocument(*start), "Move Node in Enemy", Key);
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(fixture.ReadFile("Scripts/Enemy.sgraph") == Canonical(*start));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Enemy.sgraph").empty());
+	CHECK(history.GetUndoCount() == steps);
+}
+
 TEST_CASE("EditorContext: the text the editor wrote last to a visual script counts only for the document object it is the text of")
 {
 	EditorContext context;

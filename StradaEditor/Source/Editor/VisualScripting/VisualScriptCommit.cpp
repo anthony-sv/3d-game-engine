@@ -14,14 +14,14 @@ namespace Strada
 	namespace
 	{
 		// Step 4: what is written must load again as it is, since the loaded asset keeps the document itself and a later load
-		// of the file must give the same program.
-		Result<void> CheckWritable(VisualScriptDocument const& document)
+		// of the file must give the same program. Returns the text of the file, made from the Json the check read back.
+		Result<std::string> MakeWritableText(VisualScriptDocument const& document)
 		{
+			Json const file = VisualScriptSerializer::Serialize(document);
 			DeserializationContext context;
 			context.UnknownFields = UnknownFieldPolicy::Warn;
 			std::vector<VisualScriptIssue> issues;
-			Result<VisualScriptDocument> const read =
-				VisualScriptSerializer::DeserializeDocument(VisualScriptSerializer::SerializeDocument(document), context, &issues);
+			Result<VisualScriptDocument> const read = VisualScriptSerializer::Deserialize(file, context, &issues);
 			if (!read)
 			{
 				return MakeError("the edit would write an invalid document: {}", read.GetError());
@@ -34,7 +34,7 @@ namespace Strada
 			{
 				return Error{"the edit would write an invalid document: it does not load back as written"};
 			}
-			return {};
+			return DumpJson(file);
 		}
 	}
 
@@ -50,10 +50,12 @@ namespace Strada
 			commit.Warnings.insert(commit.Warnings.end(), std::make_move_iterator(updated.begin()), std::make_move_iterator(updated.end()));
 		}
 		PlaceUnplacedNodes(edited);
-		if (Result<void> checked = CheckWritable(edited); !checked)
+		Result<std::string> text = MakeWritableText(edited);
+		if (!text)
 		{
-			return Error{checked.GetError()};
+			return Error{text.GetError()};
 		}
+		commit.Text = text.TakeValue();
 		commit.Document = std::move(edited);
 		return commit;
 	}
@@ -70,6 +72,7 @@ namespace Strada
 		VisualScriptCommit commit = prepared.TakeValue();
 		VisualScriptCommitRequest request;
 		request.Document = CreateRef<VisualScriptDocument const>(std::move(commit.Document));
+		request.Text = std::move(commit.Text);
 		request.Description = scriptName.empty() ? std::string(action) : fmt::format("{} in {}", action, scriptName);
 		request.MergeKey = mergeKey;
 		request.Notes.assign(std::make_move_iterator(commit.Warnings.begin() + static_cast<std::ptrdiff_t>(commit.RenameCount)),
