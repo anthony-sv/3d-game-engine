@@ -14,10 +14,12 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -309,6 +311,179 @@ TEST_CASE("VisualScriptAsset: the document is a shared object that a change repl
 	CHECK(constructed.GetVersion() == 0);
 	REQUIRE(constructed.GetSharedDocument() != nullptr);
 	CHECK(constructed.GetDocument() == changed);
+}
+
+TEST_CASE("VisualScriptAsset: documents give the same program unless something the scripting runtime reads differs")
+{
+	auto const makeNode = [](uint32_t id, std::string type)
+	{
+		VisualScriptNode node;
+		node.ID = id;
+		node.Type = std::move(type);
+		node.Position = glm::vec2(static_cast<float>(id) * 20.0f, 40.0f);
+		return node;
+	};
+	auto const makeLink = [](uint32_t from, std::string fromPin, uint32_t to, std::string toPin)
+	{
+		return VisualScriptLink{{from, std::move(fromPin)}, {to, std::move(toPin)}};
+	};
+
+	// Every member set, in the event graph and in a function's graph.
+	VisualScriptDocument document;
+	document.Description = "Casts a ray down and moves the entity onto what it hits";
+	VisualScriptVariable speed;
+	speed.ID = 1;
+	speed.Name = "Speed";
+	speed.Type = "float";
+	speed.Value = 2.5;
+	speed.Public = true;
+	speed.Tooltip = "How fast it moves";
+	speed.Range = glm::vec2(0.0f, 10.0f);
+	speed.FormerNames = {"Pace"};
+	document.Variables.push_back(speed);
+	VisualScriptVariable ground;
+	ground.ID = 2;
+	ground.Name = "Ground";
+	ground.Type = "float";
+	document.Variables.push_back(ground);
+
+	VisualScriptFunction scale;
+	scale.ID = 3;
+	scale.Name = "Scale";
+	scale.Pure = true;
+	scale.Inputs = {{"Factor", "float"}};
+	scale.Outputs = {{"Result", "float"}};
+	scale.Locals = {{4, "Twice", "float", 2.0}};
+	scale.Graph.Nodes = {makeNode(5, "Function.Entry"), makeNode(6, "Function.Return")};
+	scale.Graph.Nodes[1].Comment = "Gives the factor back";
+	scale.Graph.Links = {makeLink(5, "Factor", 6, "Result")};
+	scale.Graph.Comments = {{7, "Scaling", {0.0f, 0.0f}, {300.0f, 200.0f}, {0.2f, 0.4f, 0.8f, 0.25f}}};
+	document.Functions.push_back(scale);
+
+	document.Graph.Nodes = {makeNode(10, "Event.Update"), makeNode(11, "Call:Strada.Physics.Raycast"), makeNode(12, "Variable.Set")};
+	VisualScriptNode& raycast = document.Graph.Nodes[1];
+	raycast.Settings = Json::object({{"Layers", Json::array({"Default"})}});
+	raycast.Inputs = Json::object({{"Origin.Y", 5.0}, {"MaxDistance", 100.0}});
+	raycast.Split.Inputs = {"Origin"};
+	raycast.Split.Outputs = {"Hit", "Hit.Point"};
+	raycast.Comment = "Looks down";
+	raycast.Collapsed = true;
+	raycast.Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	document.Graph.Nodes[2].Settings = Json::object({{"Variable", "Ground"}});
+	document.Graph.Links = {makeLink(10, "Then", 11, "Execute"), makeLink(11, "Then", 12, "Execute"),
+	                        makeLink(11, "Hit.Point.Y", 12, "Value")};
+	document.Graph.Comments = {{13, "Ground probe", {-20.0f, -20.0f}, {600.0f, 240.0f}, {0.5f, 0.5f, 0.5f, 0.25f}}};
+
+	CHECK(HaveSameVisualScriptProgram(document, document));
+	CHECK(HaveSameVisualScriptProgram(VisualScriptDocument{}, VisualScriptDocument{}));
+
+	// Copies of the document, each changed in one way.
+	struct Change
+	{
+		std::string_view What;
+		VisualScriptDocument Document;
+	};
+	struct Changes
+	{
+		VisualScriptDocument const& Original;
+		std::vector<Change> Documents;
+
+		VisualScriptDocument& Add(std::string_view what) { return Documents.emplace_back(Change{what, Original}).Document; }
+	};
+
+	// What the scripting runtime never reads.
+	Changes ignored{document, {}};
+	ignored.Add("the description").Description.clear();
+	ignored.Add("a variable's tooltip").Variables[0].Tooltip = "Metres per second";
+	ignored.Add("a variable's range").Variables[0].Range = glm::vec2(1.0f, 20.0f);
+	ignored.Add("a variable's range removed").Variables[0].Range.reset();
+	ignored.Add("a node moved").Graph.Nodes[1].Position = glm::vec2(500.0f, -60.0f);
+	ignored.Add("a node unplaced").Graph.Nodes[1].Position.reset();
+	ignored.Add("a node's comment").Graph.Nodes[1].Comment = "Looks around";
+	ignored.Add("a node expanded").Graph.Nodes[1].Collapsed = false;
+	ignored.Add("a node collapsed").Graph.Nodes[0].Collapsed = true;
+	ignored.Add("a function's node moved").Functions[0].Graph.Nodes[0].Position = glm::vec2(9.0f);
+	ignored.Add("a function's node comment removed").Functions[0].Graph.Nodes[1].Comment.clear();
+	ignored.Add("a comment box moved").Graph.Comments[0].Position = glm::vec2(80.0f, 0.0f);
+	ignored.Add("a comment box resized").Graph.Comments[0].Size = glm::vec2(100.0f, 50.0f);
+	ignored.Add("a comment box's text").Graph.Comments[0].Text = "Probe";
+	ignored.Add("a comment box's color").Graph.Comments[0].Color = glm::vec4(1.0f);
+	ignored.Add("a comment box added").Graph.Comments.push_back({14, "More", {0.0f, 400.0f}, {200.0f, 100.0f}, glm::vec4(0.5f)});
+	ignored.Add("the comment boxes removed").Graph.Comments.clear();
+	ignored.Add("a function's comment boxes removed").Functions[0].Graph.Comments.clear();
+
+	// What it reads, order and counts included.
+	Changes compared{document, {}};
+	compared.Add("a variable's ID").Variables[1].ID = 20;
+	compared.Add("a variable's name").Variables[0].Name = "Velocity";
+	compared.Add("a variable's type").Variables[1].Type = "double";
+	compared.Add("a variable's value").Variables[0].Value = 3.0;
+	compared.Add("a variable's value removed").Variables[0].Value = Json();
+	compared.Add("a variable made private").Variables[0].Public = false;
+	compared.Add("a variable's former name added").Variables[0].FormerNames.push_back("Rate");
+	compared.Add("a variable's former names removed").Variables[0].FormerNames.clear();
+	compared.Add("a variable added").Variables.push_back(ground);
+	compared.Add("a variable removed").Variables.pop_back();
+	std::ranges::reverse(compared.Add("the variables reordered").Variables);
+	compared.Add("a function's ID").Functions[0].ID = 30;
+	compared.Add("a function's name").Functions[0].Name = "Grow";
+	compared.Add("a function made impure").Functions[0].Pure = false;
+	compared.Add("a function input's name").Functions[0].Inputs[0].Name = "By";
+	compared.Add("a function input's type").Functions[0].Inputs[0].Type = "int";
+	compared.Add("a function output added").Functions[0].Outputs.push_back({"Twice", "float"});
+	compared.Add("a local's value").Functions[0].Locals[0].Value = 3.0;
+	compared.Add("a local's name").Functions[0].Locals[0].Name = "Double";
+	compared.Add("a local removed").Functions[0].Locals.clear();
+	compared.Add("a function removed").Functions.clear();
+	compared.Add("a function's link removed").Functions[0].Graph.Links.clear();
+	compared.Add("a function's node disabled").Functions[0].Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::Disabled;
+	compared.Add("a node's ID").Graph.Nodes[2].ID = 15;
+	compared.Add("a node's type").Graph.Nodes[1].Type = "Call:Strada.Physics.SphereCast";
+	compared.Add("a node's setting").Graph.Nodes[2].Settings["Variable"] = "Speed";
+	compared.Add("a node's literal").Graph.Nodes[1].Inputs["MaxDistance"] = 50.0;
+	compared.Add("a node's literal added").Graph.Nodes[1].Inputs["Origin.X"] = 1.0;
+	compared.Add("a node's split input joined").Graph.Nodes[1].Split.Inputs.clear();
+	compared.Add("a node's split output added").Graph.Nodes[1].Split.Outputs.push_back("Hit.Normal");
+	compared.Add("a node enabled").Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::Enabled;
+	compared.Add("a node disabled").Graph.Nodes[0].Enabled = VisualScriptNodeEnabled::Disabled;
+	compared.Add("a node added").Graph.Nodes.push_back(makeNode(14, "Event.Create"));
+	compared.Add("a node removed").Graph.Nodes.pop_back();
+	std::ranges::reverse(compared.Add("the nodes reordered").Graph.Nodes);
+	compared.Add("a link's end").Graph.Links[2].From.Pin = "Hit.Point.X";
+	compared.Add("a link added").Graph.Links.push_back(makeLink(12, "Then", 10, "Execute"));
+	compared.Add("a link removed").Graph.Links.pop_back();
+
+	for (Change const& change : ignored.Documents)
+	{
+		CAPTURE(change.What);
+		REQUIRE(change.Document != document);
+		CHECK(HaveSameVisualScriptProgram(document, change.Document));
+		CHECK(HaveSameVisualScriptProgram(change.Document, document));
+	}
+	for (Change const& change : compared.Documents)
+	{
+		CAPTURE(change.What);
+		REQUIRE(change.Document != document);
+		CHECK_FALSE(HaveSameVisualScriptProgram(document, change.Document));
+		CHECK_FALSE(HaveSameVisualScriptProgram(change.Document, document));
+	}
+
+	// Everything the runtime never reads changed at once: still the same program.
+	VisualScriptDocument relaidOut = document;
+	relaidOut.Description.clear();
+	relaidOut.Variables[0].Tooltip.clear();
+	relaidOut.Variables[0].Range.reset();
+	for (VisualScriptGraph* const graph : {&relaidOut.Graph, &relaidOut.Functions[0].Graph})
+	{
+		for (VisualScriptNode& node : graph->Nodes)
+		{
+			node.Position.reset();
+			node.Comment = "Moved";
+			node.Collapsed = !node.Collapsed;
+		}
+		graph->Comments.clear();
+	}
+	CHECK(HaveSameVisualScriptProgram(document, relaidOut));
 }
 
 TEST_CASE("Asset: every supported extension maps to an asset type, ignoring case")

@@ -6,7 +6,6 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/EditorScripts.h"
 #include "Editor/PlayMode.h"
-#include "Editor/VisualScriptEditing.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -981,129 +980,6 @@ TEST_CASE("GraphCommands: while paused, a graph.set that renames a variable and 
 	CHECK(fixture.Ok("entity.get", Json::object({{"entity", counter}}))["components"]["VisualScript"]["Variables"] ==
 	      Json::object({{"Updates", StoredInt(54)}, {"Velocity", StoredInt(50)}}));
 	fixture.Play.Stop();
-}
-
-TEST_CASE("VisualScriptEditing: renamed variables keep their stored names as former names when the document stays valid")
-{
-	VisualScriptDocument stored;
-	stored.Variables.push_back(MakeVariable(1, "Speed", "float"));
-	stored.Variables.push_back(MakeVariable(2, "Score", "int"));
-	stored.Variables.push_back(MakeVariable(3, "Health", "int"));
-	stored.Variables.push_back(MakeVariable(4, "Old", "int"));
-
-	VisualScriptDocument document = stored;
-	document.Variables[0].Name = "Velocity";
-	// Swapped: both names stay current names.
-	document.Variables[1].Name = "Health";
-	document.Variables[2].Name = "Score";
-	// Variable 5's former name is variable 4's stored name: no other variable may take it.
-	document.Variables[3].Name = "New";
-	document.Variables.push_back(MakeVariable(5, "Other", "int"));
-	document.Variables[4].FormerNames = {"Old"};
-	// Not in the stored document: nothing to keep.
-	document.Variables.push_back(MakeVariable(6, "Fresh", "int"));
-
-	std::vector<std::string> const warnings = RecordFormerNames(document, stored);
-	CHECK(warnings == std::vector<std::string>{"variable renamed: Speed → Velocity (Speed is kept in FormerNames)"});
-	CHECK(document.Variables[0].FormerNames == std::vector<std::string>{"Speed"});
-	CHECK(document.Variables[1].FormerNames.empty());
-	CHECK(document.Variables[2].FormerNames.empty());
-	CHECK(document.Variables[3].FormerNames.empty());
-	CHECK(document.Variables[4].FormerNames == std::vector<std::string>{"Old"});
-
-	// Up to 16, the oldest dropped.
-	VisualScriptDocument full = stored;
-	full.Variables[0].Name = "Latest";
-	for (int name = 0; name < 16; name++)
-	{
-		full.Variables[0].FormerNames.push_back("Former" + std::to_string(name));
-	}
-	CHECK(RecordFormerNames(full, stored).size() == 1);
-	REQUIRE(full.Variables[0].FormerNames.size() == VisualScriptSerializer::MaxFormerNames);
-	CHECK(full.Variables[0].FormerNames.front() == "Former1");
-	CHECK(full.Variables[0].FormerNames.back() == "Speed");
-
-	// What it gives loads without issues.
-	for (VisualScriptDocument const* result : {&document, &full})
-	{
-		std::vector<VisualScriptIssue> issues;
-		DeserializationContext context;
-		context.UnknownFields = UnknownFieldPolicy::Warn;
-		REQUIRE(VisualScriptSerializer::DeserializeDocument(VisualScriptSerializer::SerializeDocument(*result), context, &issues).IsOk());
-		CHECK(issues.empty());
-	}
-}
-
-TEST_CASE("VisualScriptEditing: nodes take their canonical types, their renamed pins' links and inputs following")
-{
-	VisualScriptDocument document;
-	VisualScriptFunction function;
-	function.ID = 1;
-	function.Name = "Helper";
-	function.Graph.Nodes.push_back(MakeNode(2, "Call:Old.Scale", Json::object(), Json::object({{"Factor", 2}})));
-	document.Functions.push_back(function);
-	std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
-	nodes.push_back(MakeNode(10, "Event.Update"));
-	// Its pins Amount and Value swap names, Result becomes Sum; Other keeps its name and its input.
-	nodes.push_back(MakeNode(11, "Call:Old.Add", Json::object(), Json::object({{"Amount", 3}, {"Value", 1}, {"Other", 4}})));
-	nodes.push_back(MakeNode(12, "Variable.Get"));
-	nodes.push_back(MakeNode(13, "Variable.Set"));
-	// Renamed to Input, which it stores already: the renamed one wins, and the links that end up the same are one.
-	nodes.push_back(MakeNode(14, "Call:Old.Store", Json::object(), Json::object({{"Input", 7}, {"Data", 8}})));
-	// Resolved exactly, of an unknown type, and an analysis of another type: left as they are.
-	nodes.push_back(MakeNode(15, "Flow.Branch"));
-	nodes.push_back(MakeNode(16, "Call:Missing.Member"));
-	nodes.push_back(MakeNode(17, "Call:Changed.Member"));
-	std::vector<VisualScriptLink>& links = document.Graph.Links;
-	links.push_back(MakeLink(10, "Then", 11, "Execute"));
-	links.push_back(MakeLink(12, "Value", 11, "Amount"));
-	links.push_back(MakeLink(12, "Value", 11, "Value"));
-	links.push_back(MakeLink(11, "Result", 13, "Value"));
-	links.push_back(MakeLink(12, "Value", 13, "Amount"));
-	links.push_back(MakeLink(12, "Value", 14, "Input"));
-	links.push_back(MakeLink(12, "Value", 14, "Data"));
-	links.push_back(MakeLink(11, "Then", 14, "Execute"));
-
-	auto const analyzed = [](uint32_t id, std::string type, VisualScriptResolution resolved, std::string canonical,
-	                         std::vector<VisualScriptPinRename> renames)
-	{
-		VisualScriptAnalyzedNode node;
-		node.ID = id;
-		node.Type = std::move(type);
-		node.Resolved = resolved;
-		node.CanonicalType = std::move(canonical);
-		node.PinRenames = std::move(renames);
-		return node;
-	};
-	VisualScriptAnalysis analysis;
-	analysis.Nodes.push_back(analyzed(2, "Call:Old.Scale", VisualScriptResolution::Redirect, "Call:New.Scale(int)", {}));
-	analysis.Nodes.push_back(analyzed(11, "Call:Old.Add", VisualScriptResolution::Redirect, "Call:New.Add(int,int)",
-	                                  {{VisualScriptPinDirection::In, "Amount", "Value"},
-	                                   {VisualScriptPinDirection::In, "Value", "Amount"},
-	                                   {VisualScriptPinDirection::Out, "Result", "Sum"}}));
-	analysis.Nodes.push_back(analyzed(14, "Call:Old.Store", VisualScriptResolution::Unique, "Call:Old.Store(int)",
-	                                  {{VisualScriptPinDirection::In, "Data", "Input"}}));
-	analysis.Nodes.push_back(analyzed(15, "Flow.Branch", VisualScriptResolution::Exact, "", {}));
-	analysis.Nodes.push_back(analyzed(16, "Call:Missing.Member", VisualScriptResolution::Unknown, "", {}));
-	analysis.Nodes.push_back(analyzed(17, "Call:Other.Member", VisualScriptResolution::Redirect, "Call:Other.Member(int)", {}));
-
-	std::vector<std::string> const warnings = ApplyCanonicalNodeTypes(document, analysis);
-	CHECK(warnings == std::vector<std::string>{"node updated: Call:Old.Scale → Call:New.Scale(int)",
-	                                           "node updated: Call:Old.Add → Call:New.Add(int,int)",
-	                                           "node updated: Call:Old.Store → Call:Old.Store(int)"});
-	CHECK(document.Functions[0].Graph.Nodes[0].Type == "Call:New.Scale(int)");
-	CHECK(document.Functions[0].Graph.Nodes[0].Inputs == Json::object({{"Factor", 2}}));
-	CHECK(nodes[1].Type == "Call:New.Add(int,int)");
-	CHECK(nodes[1].Inputs == Json::object({{"Value", 3}, {"Amount", 1}, {"Other", 4}}));
-	CHECK(nodes[4].Type == "Call:Old.Store(int)");
-	CHECK(nodes[4].Inputs == Json::object({{"Input", 8}}));
-	CHECK(nodes[5].Type == "Flow.Branch");
-	CHECK(nodes[6].Type == "Call:Missing.Member");
-	CHECK(nodes[7].Type == "Call:Changed.Member");
-	CHECK(links == std::vector<VisualScriptLink>{MakeLink(10, "Then", 11, "Execute"), MakeLink(12, "Value", 11, "Value"),
-	                                             MakeLink(12, "Value", 11, "Amount"), MakeLink(11, "Sum", 13, "Value"),
-	                                             MakeLink(12, "Value", 13, "Amount"), MakeLink(12, "Value", 14, "Input"),
-	                                             MakeLink(11, "Then", 14, "Execute")});
 }
 
 TEST_CASE(

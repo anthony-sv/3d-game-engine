@@ -29,6 +29,7 @@ add_executable(StradaEditorTests
     Source/TcpTestClient.h
     Source/UIEditingTests.cpp
     Source/ViewportTests.cpp
+    Source/VisualScriptNormalizationTests.cpp
 )
 
 target_include_directories(StradaEditorTests PRIVATE

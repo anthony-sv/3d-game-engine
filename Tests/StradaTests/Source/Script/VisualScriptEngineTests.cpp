@@ -960,6 +960,37 @@ TEST_CASE("VisualScriptLibrary: reads analyses and diagnostics, and describes th
 	CHECK(element.GetError() == "[0]: expected an object");
 }
 
+TEST_CASE("VisualScriptLibrary: reads where the flow leaves a disabled node, which the analysis leaves out where it ends")
+{
+	// A disabled Delay continues at Completed; the flow through a disabled Print ends there, and an enabled Branch has no
+	// pass-through.
+	constexpr std::string_view AnalysisJson = R"json({
+	"Nodes": [
+		{ "ID": 1, "Function": 0, "Type": "Flow.Delay", "Resolved": "Exact", "Title": "Delay", "Kind": "Latent", "Pure": false,
+		  "Latent": true, "Pins": [], "PassThrough": "Completed" },
+		{ "ID": 2, "Function": 0, "Type": "Game.Print", "Resolved": "Unknown", "Title": "Print", "Kind": "Unknown", "Pure": false,
+		  "Latent": false, "Pins": [] },
+		{ "ID": 3, "Function": 0, "Type": "Flow.Branch", "Resolved": "Exact", "Title": "Branch", "Kind": "Flow", "Pure": false,
+		  "Latent": false, "Pins": [] }
+	],
+	"Diagnostics": []
+})json";
+	Result<VisualScriptAnalysis> parsed = VisualScriptAnalysis::Parse(AnalysisJson);
+	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
+	VisualScriptAnalysis const& analysis = parsed.GetValue();
+	REQUIRE(analysis.Nodes.size() == 3);
+	CHECK(analysis.Nodes[0].PassThrough == "Completed");
+	CHECK(analysis.Nodes[1].PassThrough.empty());
+	CHECK(analysis.Nodes[2].PassThrough.empty());
+
+	// Present, it is a string.
+	Result<VisualScriptAnalysis> refused = VisualScriptAnalysis::Parse(
+		R"({ "Nodes": [ { "ID": 1, "Function": 0, "Type": "Flow.Delay", "Resolved": "Exact", "Title": "Delay", "Kind": "Latent",
+		     "Pure": false, "Latent": true, "Pins": [], "PassThrough": 1 } ], "Diagnostics": [] })");
+	REQUIRE(refused.IsError());
+	CHECK(refused.GetError() == "Nodes[0].PassThrough: expected a string");
+}
+
 TEST_CASE("VisualScriptEngine: the node library describes the scripting API, and enum lookups read it")
 {
 	// Without the runtime there is no library, and enum variables need the runtime.

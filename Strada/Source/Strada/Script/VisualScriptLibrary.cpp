@@ -595,6 +595,8 @@ namespace Strada
 			{
 				reader.Keep(pins.GetError());
 			}
+			// Only disabled nodes have it, and only where their flow continues.
+			node.PassThrough = reader.ReadString("PassThrough", Presence::Optional);
 			if (Result<void> finished = reader.Finish(); !finished)
 			{
 				return Error{finished.GetError()};

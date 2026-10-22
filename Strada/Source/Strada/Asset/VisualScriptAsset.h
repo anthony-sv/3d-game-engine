@@ -171,6 +171,12 @@ namespace Strada
 		bool operator==(VisualScriptDocument const& other) const = default;
 	};
 
+	// Whether two documents give the same program: equal except for what the scripting runtime never reads (the document's
+	// Description; variables' Tooltip and Range; nodes' Position, Comment and Collapsed; the graphs' Comments). Everything
+	// else, order included, is compared as operator== compares it, so equal documents give the same program. Pure; any
+	// thread.
+	[[nodiscard]] bool HaveSameVisualScriptProgram(VisualScriptDocument const& a, VisualScriptDocument const& b);
+
 	// A visual script (.sgraph file). Its document is an immutable shared object: a change replaces it with another, so
 	// whoever keeps the previous one (an undo step, an editor) keeps it unchanged and without a copy.
 	class VisualScriptAsset final : public Asset

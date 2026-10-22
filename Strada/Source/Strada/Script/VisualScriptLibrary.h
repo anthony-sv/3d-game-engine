@@ -307,6 +307,9 @@ namespace Strada
 		// With the types analysis resolved wildcards to (VisualScriptWildcardType while undecided). An unknown node has the
 		// pins its links and inputs name.
 		std::vector<VisualScriptPin> Pins;
+		// A disabled node: the exec output its flow continues at; empty when the chain ends there, or for a node that is not
+		// disabled. Where the flow leaves a disabled node is for the scripting runtime to say: the editor draws it from here.
+		std::string PassThrough;
 
 		// Null when the node has no such pin.
 		VisualScriptPin const* FindPin(std::string_view name, VisualScriptPinDirection direction) const;

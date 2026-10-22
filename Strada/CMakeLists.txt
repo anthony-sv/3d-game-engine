@@ -220,6 +220,8 @@ set(STRADA_SCRIPT_SOURCES
     Source/Strada/Script/VisualScriptEngine.h
     Source/Strada/Script/VisualScriptLibrary.cpp
     Source/Strada/Script/VisualScriptLibrary.h
+    Source/Strada/Script/VisualScriptLiterals.cpp
+    Source/Strada/Script/VisualScriptLiterals.h
     Source/Strada/Script/VisualScriptVariables.cpp
     Source/Strada/Script/VisualScriptVariables.h
 )
