@@ -122,6 +122,7 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Viewport/ViewportOverlays.h
     Source/Editor/VisualScriptEnumLookupSource.cpp
     Source/Editor/VisualScriptEnumLookupSource.h
+    Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
     Source/Editor/VisualScripting/VisualScriptEditorTypes.h
     Source/Editor/VisualScripting/VisualScriptNodeTitles.cpp
     Source/Editor/VisualScripting/VisualScriptNodeTitles.h
@@ -129,6 +130,9 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptNormalization.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp
     Source/Editor/VisualScripting/VisualScriptSemantics.h
+    Source/Editor/VisualScripting/VisualScriptTheme.cpp
+    Source/Editor/VisualScripting/VisualScriptTheme.h
+    Source/Editor/VisualScripting/VisualScriptView.cpp
     Source/Editor/VisualScripting/VisualScriptView.h
     Source/Editor/VisualScripting/VisualScriptViewSettings.cpp
     Source/Editor/VisualScripting/VisualScriptViewSettings.h

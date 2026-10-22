@@ -145,7 +145,7 @@ namespace Strada
 		static constexpr size_t MaxHintBytes = 64;
 		// The centres of views lie within +-MaxCenter, the documents' coordinate limit; zooms within VisualScriptMinZoom and
 		// VisualScriptMaxZoom.
-		static constexpr float MaxCenter = 1.0e7f;
+		static constexpr float MaxCenter = VisualScriptMaxCenter;
 		// Pane widths, in font sizes.
 		static constexpr float MinSidebarWidth = 10.0f;
 		static constexpr float MinDetailsWidth = 14.0f;
