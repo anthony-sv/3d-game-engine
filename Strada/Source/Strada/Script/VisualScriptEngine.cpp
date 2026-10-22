@@ -144,6 +144,14 @@ namespace Strada
 			}
 			if (errors)
 			{
+				// After a game-assembly change, a document of the working program that does not compile tells that the working
+				// program does not either (the runtime compiled it again and dropped it), as sending it first would have.
+				if (record.IsStale && record.WorkingDocument != nullptr &&
+				    HaveSameVisualScriptProgram(*record.WorkingDocument, *record.Document))
+				{
+					record.WorkingDocument = nullptr;
+					record.IsStale = false;
+				}
 				ST_CORE_ERROR("Visual script '{}' has {}{}", record.Name, *errors,
 				              record.HasWorkingProgram() ? "; the previous version keeps running" : "");
 			}

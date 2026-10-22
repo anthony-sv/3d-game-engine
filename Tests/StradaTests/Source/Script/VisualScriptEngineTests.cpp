@@ -2155,6 +2155,27 @@ TEST_CASE("VisualScriptEngine: a graph that needs the game's types runs once the
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
 	CHECK_FALSE(Testing::WasLogged(logStart, "keeps running"));
+
+	// Working again under a broken edit, then unloaded: the working program with a node moved is sent alone, and since it
+	// does not compile, the working program does not either, so nothing runs.
+	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	asset->SetDocument(MakeMoverDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	asset->SetDocument(MakeBrokenDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+	ScriptEngine::UnloadGameAssembly();
+	logStart = Log::GetNextEntryIndex();
+	VisualScriptDocument moved = MakeMoverDocument();
+	moved.Graph.Nodes[1].Position = glm::vec2(240.0f, 0.0f);
+	asset->SetDocument(moved);
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(Testing::WasLogged(logStart, "Mover check was compiled again for the changed game assembly: "));
+	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 2 errors; first: "));
+	CHECK_FALSE(Testing::WasLogged(logStart, "keeps running"));
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == nullptr);
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
+	CHECK(host.Exceptions == 3);
 }
 
 TEST_CASE("VisualScriptEngine: the projects' scene graphs load strictly, analyze cleanly and resolve exactly or by redirect")
