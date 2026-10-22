@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Strada
@@ -25,8 +26,12 @@ namespace Strada
 	};
 
 	// Reads and writes visual scripts. The file form is
-	//   { "Strada": { "Version": 1, "Type": "VisualScript" }, "VisualScript": { <content> } }
+	//   { "Strada": { "Version": 2, "Type": "VisualScript" }, "VisualScript": { <content> } }
 	// and the content form is the "VisualScript" object alone (automation documents, the scripting runtime's input).
+	//
+	// Files of version 1 load too. Version 2 added the node keys Split, Comment, Collapsed and Enabled: in a file of version
+	// 1 they are unknown keys (no writer of version 1 wrote them), and its nodes keep their defaults. The content form has
+	// no version and has every key of the current one. Saving always writes the current version.
 	//
 	// Loading checks structure only: never what node types, pins, settings, inputs or values mean (the scripting runtime
 	// reports those). A document is refused when its header or its content object is unusable, and when it has an unknown
@@ -42,7 +47,7 @@ namespace Strada
 	class VisualScriptSerializer
 	{
 	public:
-		static constexpr int FormatVersion = 1;
+		static constexpr int FormatVersion = 2;
 
 		// IDs are 1 to MaxID, unique across the document.
 		static constexpr uint32_t MaxID = 2147483647;
@@ -50,11 +55,12 @@ namespace Strada
 		// leading or trailing space.
 		static constexpr size_t MaxNameBytes = 64;
 		// The other strings of the format are UTF-8 without control characters too: the types of variables, locals and
-		// parameters, the types of nodes, and pin names (of links) and member names (of Settings and Inputs).
+		// parameters, the types of nodes, pin names (of links), member names (of Settings and Inputs) and the pin paths of
+		// Split (pin and field names separated by '.', none of them empty).
 		static constexpr size_t MaxTypeBytes = 256;
 		static constexpr size_t MaxNodeTypeBytes = 1024;
 		static constexpr size_t MaxPinNameBytes = 128;
-		// Description, tooltips, comment texts and every string inside a value.
+		// Description, tooltips, the texts of comments and nodes, and every string inside a value.
 		static constexpr size_t MaxTextBytes = 65536;
 		// Values (of variables and locals, and the members of Settings and Inputs) nest at most this deep; a value that is
 		// not an array or object is one level.
@@ -68,6 +74,8 @@ namespace Strada
 		static constexpr size_t MaxParameters = 64;
 		static constexpr size_t MaxLocals = 256;
 		static constexpr size_t MaxFormerNames = 16;
+		// Entries of each list (Inputs, Outputs) of a node's Split.
+		static constexpr size_t MaxSplitPins = 64;
 		// Positions of nodes and comments lie within +-MaxCoordinate; comment sizes within [MinCommentSize, MaxCommentSize].
 		static constexpr double MaxCoordinate = 1.0e7;
 		static constexpr double MinCommentSize = 16.0;
@@ -76,6 +84,11 @@ namespace Strada
 		// numbers of at most this magnitude: float's largest value as written with the fewest digits that read back as it
 		// (.NET writes float.MaxValue so), a little above its exact value.
 		static constexpr double MaxFloatMagnitude = 3.4028235e38;
+
+		// Whether a name has the shape the format requires of the names of variables, locals, functions, parameters and former
+		// names: 1 to MaxNameBytes of UTF-8 without control characters or '.', and no leading or trailing space. The loader
+		// drops what is named otherwise; it also requires names to be unique in their scope, which this does not check.
+		[[nodiscard]] static bool IsValidName(std::string_view name);
 
 		// A float as documents store it: a finite number of magnitude at most MaxFloatMagnitude, as the nearest float.
 		// Nothing for anything else.

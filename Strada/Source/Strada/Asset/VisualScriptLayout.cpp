@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -26,53 +27,41 @@ namespace Strada
 			Done
 		};
 
+		struct LayeredNode
+		{
+			size_t Component = 0;
+			size_t Layer = 0;
+			size_t Row = 0;
+		};
+
 		float ToCoordinate(double value)
 		{
 			// Large graphs laid out below placed nodes far out could leave the format's range; its edge keeps them loadable.
 			return static_cast<float>(std::clamp(value, -VisualScriptSerializer::MaxCoordinate, VisualScriptSerializer::MaxCoordinate));
 		}
 
-		void PlaceGraph(VisualScriptGraph& graph)
+		void SortByID(VisualScriptGraph const& graph, std::vector<size_t>& indices)
 		{
-			// The unplaced nodes (indices into graph.Nodes) and the left and bottom edges of the placed ones.
-			std::vector<size_t> unplaced;
-			bool hasPlaced = false;
-			double left = 0.0;
-			double bottom = 0.0;
-			for (size_t i = 0; i < graph.Nodes.size(); i++)
-			{
-				std::optional<glm::vec2> const& position = graph.Nodes[i].Position;
-				if (!position)
-				{
-					unplaced.push_back(i);
-					continue;
-				}
-				double const x = static_cast<double>(position->x);
-				double const y = static_cast<double>(position->y);
-				left = hasPlaced ? std::min(left, x) : x;
-				bottom = hasPlaced ? std::max(bottom, y) : y;
-				hasPlaced = true;
-			}
-			if (unplaced.empty())
-			{
-				return;
-			}
-
-			// From here on nodes are numbered in ID order. A document built in memory may repeat an ID: links then lead to the
-			// first node with it.
-			std::stable_sort(unplaced.begin(), unplaced.end(),
+			std::stable_sort(indices.begin(), indices.end(),
 			                 [&graph](size_t first, size_t second)
 			                 {
 								 return graph.Nodes[first].ID < graph.Nodes[second].ID;
 							 });
-			size_t const count = unplaced.size();
+		}
+
+		// Groups, layers and rows of some nodes of a graph, given as indices into its nodes in ID order: one entry per given
+		// node, in the same order, and the nodes are numbered in that order. Only links between the given nodes count. A
+		// graph built in memory may repeat an ID among them: links then lead to the first node with it.
+		std::vector<LayeredNode> AssignLayers(VisualScriptGraph const& graph, std::vector<size_t> const& numbered)
+		{
+			size_t const count = numbered.size();
 			std::unordered_map<uint32_t, size_t> numbers;
 			for (size_t number = 0; number < count; number++)
 			{
-				numbers.emplace(graph.Nodes[unplaced[number]].ID, number);
+				numbers.emplace(graph.Nodes[numbered[number]].ID, number);
 			}
 
-			// Links between unplaced nodes, as successors in ID order and as undirected neighbors.
+			// Links between the nodes, as successors in ID order and as undirected neighbors.
 			std::vector<std::vector<size_t>> successors(count);
 			std::vector<std::vector<size_t>> neighbors(count);
 			for (VisualScriptLink const& link : graph.Links)
@@ -167,31 +156,83 @@ namespace Strada
 				}
 			}
 
-			// A node's column is the length of the longest chain of the remaining links that leads to it.
-			std::vector<size_t> columns(count, 0);
+			// A node's layer is the length of the longest chain of the remaining links that leads to it.
+			std::vector<size_t> layers(count, 0);
 			for (auto node = finished.rbegin(); node != finished.rend(); ++node)
 			{
 				for (size_t const successor : acyclicSuccessors[*node])
 				{
-					columns[successor] = std::max(columns[successor], columns[*node] + 1);
+					layers[successor] = std::max(layers[successor], layers[*node] + 1);
 				}
 			}
 
-			double top = hasPlaced ? bottom + GroupSpacing : 0.0;
-			for (std::vector<size_t> const& group : groups)
+			std::vector<LayeredNode> layered(count);
+			for (size_t component = 0; component < groups.size(); component++)
 			{
-				// The next free row of each column of the group.
+				// The next free row of each layer of the group.
 				std::unordered_map<size_t, size_t> rows;
-				size_t lastRow = 0;
-				for (size_t const node : group)
+				for (size_t const node : groups[component])
 				{
-					size_t const column = columns[node];
-					size_t const row = rows[column]++;
-					lastRow = std::max(lastRow, row);
-					graph.Nodes[unplaced[node]].Position = glm::vec2(ToCoordinate(left + static_cast<double>(column) * ColumnSpacing),
-					                                                 ToCoordinate(top + static_cast<double>(row) * RowSpacing));
+					layered[node] = {component, layers[node], rows[layers[node]]++};
 				}
-				top += static_cast<double>(lastRow) * RowSpacing + GroupSpacing;
+			}
+			return layered;
+		}
+
+		void PlaceGraph(VisualScriptGraph& graph)
+		{
+			// The unplaced nodes (indices into graph.Nodes) and the left and bottom edges of the placed ones.
+			std::vector<size_t> unplaced;
+			bool hasPlaced = false;
+			double left = 0.0;
+			double bottom = 0.0;
+			for (size_t i = 0; i < graph.Nodes.size(); i++)
+			{
+				std::optional<glm::vec2> const& position = graph.Nodes[i].Position;
+				if (!position)
+				{
+					unplaced.push_back(i);
+					continue;
+				}
+				double const x = static_cast<double>(position->x);
+				double const y = static_cast<double>(position->y);
+				left = hasPlaced ? std::min(left, x) : x;
+				bottom = hasPlaced ? std::max(bottom, y) : y;
+				hasPlaced = true;
+			}
+			if (unplaced.empty())
+			{
+				return;
+			}
+
+			SortByID(graph, unplaced);
+			std::vector<LayeredNode> const layered = AssignLayers(graph, unplaced);
+
+			// Groups stand one below the other, the first below the placed nodes: each starts below the last row of the one
+			// before it.
+			std::vector<size_t> lastRows;
+			for (LayeredNode const& node : layered)
+			{
+				if (node.Component >= lastRows.size())
+				{
+					lastRows.resize(node.Component + 1, 0);
+				}
+				lastRows[node.Component] = std::max(lastRows[node.Component], node.Row);
+			}
+			std::vector<double> tops(lastRows.size());
+			double top = hasPlaced ? bottom + GroupSpacing : 0.0;
+			for (size_t component = 0; component < lastRows.size(); component++)
+			{
+				tops[component] = top;
+				top += static_cast<double>(lastRows[component]) * RowSpacing + GroupSpacing;
+			}
+
+			for (size_t number = 0; number < unplaced.size(); number++)
+			{
+				LayeredNode const& node = layered[number];
+				graph.Nodes[unplaced[number]].Position =
+					glm::vec2(ToCoordinate(left + static_cast<double>(node.Layer) * ColumnSpacing),
+				              ToCoordinate(tops[node.Component] + static_cast<double>(node.Row) * RowSpacing));
 			}
 		}
 	}
@@ -203,5 +244,33 @@ namespace Strada
 		{
 			PlaceGraph(function.Graph);
 		}
+	}
+
+	std::vector<VisualScriptLayerAssignment> AssignVisualScriptLayers(VisualScriptGraph const& graph, std::span<uint32_t const> nodes)
+	{
+		// The first node of the graph with each given ID.
+		std::unordered_set<uint32_t> const given(nodes.begin(), nodes.end());
+		std::unordered_set<uint32_t> found;
+		std::vector<size_t> numbered;
+		for (size_t i = 0; i < graph.Nodes.size(); i++)
+		{
+			uint32_t const id = graph.Nodes[i].ID;
+			if (given.contains(id) && found.insert(id).second)
+			{
+				numbered.push_back(i);
+			}
+		}
+		SortByID(graph, numbered);
+		std::vector<LayeredNode> const layered = AssignLayers(graph, numbered);
+
+		std::vector<VisualScriptLayerAssignment> assignments;
+		assignments.reserve(numbered.size());
+		for (size_t number = 0; number < numbered.size(); number++)
+		{
+			LayeredNode const& node = layered[number];
+			assignments.push_back({graph.Nodes[numbered[number]].ID, static_cast<uint32_t>(node.Component),
+			                       static_cast<uint32_t>(node.Layer), static_cast<uint32_t>(node.Row)});
+		}
+		return assignments;
 	}
 }

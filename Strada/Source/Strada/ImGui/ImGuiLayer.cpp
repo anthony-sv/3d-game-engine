@@ -480,6 +480,17 @@ namespace Strada
 		colors[ImGuiCol_ModalWindowDimBg] = Rgb(0x000000, 0.45f);
 	}
 
+	ImFont* ImGuiLayer::AddEditorFonts()
+	{
+		// Without a default font of its own the context uses the atlas' first font, which is Roboto when it comes first (as
+		// in OnAttach); naming it keeps it the default after ImGui added its built-in font to an atlas used before.
+		if (ImFont* const font = AddEmbeddedFont(EmbeddedResources::DefaultFont))
+		{
+			ImGui::GetIO().FontDefault = font;
+		}
+		return AddEmbeddedFont(EmbeddedResources::MonospaceFont);
+	}
+
 	ImGuiLayer::ImGuiLayer(ImGuiLayerSpecification specification)
 		: Layer("ImGuiLayer"),
 		  m_Specification(std::move(specification))
@@ -528,9 +539,7 @@ namespace Strada
 		}
 
 		ApplyTheme();
-		// The first font added is the default.
-		AddEmbeddedFont(EmbeddedResources::DefaultFont);
-		m_MonospaceFont = AddEmbeddedFont(EmbeddedResources::MonospaceFont);
+		m_MonospaceFont = AddEditorFonts();
 		ImGuiStyle& style = ImGui::GetStyle();
 		if (m_ViewportsEnabled)
 		{

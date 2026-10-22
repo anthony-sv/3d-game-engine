@@ -87,6 +87,10 @@ namespace Strada
 
 		// Strada's theme (colors, rounding, spacing) at a content scale of 1, applied to the current ImGui context.
 		static void ApplyTheme();
+		// Adds the editor's fonts to the current ImGui context's atlas at the UI font size: the embedded Roboto, which
+		// becomes the default font, and the fixed-width Cousine, which is returned (null when its data is missing, logged).
+		// OnAttach calls it; headless tests call it to measure and draw with the editor's fonts.
+		static ImFont* AddEditorFonts();
 
 	private:
 		// The GLFW callbacks that share the windows' input between the application, the input filter and ImGui

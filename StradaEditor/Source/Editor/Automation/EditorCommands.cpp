@@ -9,7 +9,7 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
-#include "Editor/VisualScriptEditing.h"
+#include "Editor/VisualScripting/VisualScriptNormalization.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"

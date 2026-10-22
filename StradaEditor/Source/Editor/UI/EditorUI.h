@@ -15,6 +15,8 @@
 #include <string_view>
 #include <vector>
 
+struct ImDrawList;
+struct ImFont;
 struct ImGuiPayload;
 struct ImVec2;
 
@@ -110,6 +112,22 @@ namespace Strada
 		ImVec2 GetToolbarButtonSize();
 		// A button showing an icon; active buttons are highlighted. Returns true when clicked. Follows ImGui::BeginDisabled.
 		bool ToolbarButton(char const* id, ToolbarIcon icon, bool active);
+
+		// Text in which U+2192 and U+2190 (right and left arrows) are drawn as shapes, a stem and a filled head sized from
+		// the font, on its math axis: the editor's fonts have no glyphs for them, and ImGui would draw its fallback
+		// character. Draw such text with these, never with ImGui's text functions or widgets. Lines break at '\n'; without
+		// arrows the text is measured and drawn exactly as ImGui's text is. Inside an ImGui frame.
+		//
+		// The size of the text in the current font at the current size, its width rounded up as ImGui::CalcTextSize rounds.
+		ImVec2 CalcArrowTextSize(std::string_view text);
+		// The size of the text in a font at a size in pixels, unrounded as ImFont::CalcTextSizeA measures; a null font is the
+		// current font, a size of 0 (or less) the current size, as ImDrawList::AddText takes them.
+		ImVec2 CalcArrowTextSize(ImFont* font, float fontSize, std::string_view text);
+		// Draws the text in the current font at the current size, its first line's top-left corner at the position, in an
+		// ImU32 colour (IM_COL32).
+		void DrawArrowText(ImDrawList* drawList, ImVec2 position, uint32_t color, std::string_view text);
+		// Draws the text in a font at a size in pixels (a null font is the current font, a size of 0 or less the current size).
+		void DrawArrowText(ImDrawList* drawList, ImFont* font, float fontSize, ImVec2 position, uint32_t color, std::string_view text);
 
 		// Logs a failed user action; the console panel shows it.
 		template<typename T>

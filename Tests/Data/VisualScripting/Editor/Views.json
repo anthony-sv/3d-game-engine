@@ -1,0 +1,179 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "VisualScriptViews"
+	},
+	"VisualScriptViews": {
+		"Panes": {
+			"Sidebar": 18.5,
+			"Details": 22.25,
+			"ShowSidebar": true,
+			"ShowDetails": false,
+			"ShowMinimap": true
+		},
+		"ContextPalette": false,
+		"ReduceMotion": true,
+		"Scroll": "Pan",
+		"SnapToGrid": false,
+		"MoveCommentContents": false,
+		"Recents": [
+			{
+				"Type": "Flow.Branch",
+				"Settings": {}
+			},
+			{
+				"Type": "Literal",
+				"Settings": {
+					"Type": "float"
+				}
+			},
+			{
+				"Type": "Event.KeyPressed",
+				"Settings": {
+					"Key": "Space"
+				}
+			},
+			{
+				"Type": "Call:Strada.Entity.GetComponent<T>()",
+				"Settings": {
+					"TypeArguments": [
+						"Strada.RigidBodyComponent"
+					]
+				}
+			}
+		],
+		"RecentTypes": [
+			"float",
+			"Strada.Vector3",
+			"Strada.Entity"
+		],
+		"CommentColor": [
+			0.25,
+			0.5,
+			0.75,
+			0.375
+		],
+		"LastVariableType": "Strada.Vector3",
+		"HintsSeen": [
+			"Canvas"
+		],
+		"Projects": [
+			{
+				"Project": "C:/Games/Blocks/Blocks.sproj",
+				"Open": [
+					"8146390251172604461",
+					"1202590842880147981"
+				],
+				"Graphs": [
+					{
+						"Graph": "8146390251172604461",
+						"Shown": 12,
+						"ContextEntity": "3823112500970735607",
+						"Views": [
+							{
+								"Function": 0,
+								"Center": [
+									120.0,
+									40.0
+								],
+								"Zoom": 0.75
+							},
+							{
+								"Function": 12,
+								"Center": [
+									-512.5,
+									96.0
+								],
+								"Zoom": 1.25
+							}
+						],
+						"Bookmarks": [
+							{
+								"Slot": 1,
+								"Name": "Scoring",
+								"Function": 0,
+								"Center": [
+									400.0,
+									80.0
+								],
+								"Zoom": 1.0
+							},
+							{
+								"Slot": 9,
+								"Name": "Spawn Waves",
+								"Function": 12,
+								"Center": [
+									-64.0,
+									2048.0
+								],
+								"Zoom": 0.5
+							}
+						]
+					},
+					{
+						"Graph": "1202590842880147981",
+						"Shown": 0,
+						"ContextEntity": "5571303960119128070",
+						"Views": [
+							{
+								"Function": 0,
+								"Center": [
+									0.0,
+									-160.0
+								],
+								"Zoom": 2.0
+							}
+						],
+						"Bookmarks": [
+							{
+								"Slot": 4,
+								"Name": "Doors",
+								"Function": 0,
+								"Center": [
+									1024.0,
+									0.0
+								],
+								"Zoom": 0.125
+							}
+						]
+					}
+				]
+			},
+			{
+				"Project": "/home/player/Games/Orbit/Orbit.sproj",
+				"Open": [
+					"6917529027641081857"
+				],
+				"Graphs": [
+					{
+						"Graph": "6917529027641081857",
+						"Shown": 0,
+						"ContextEntity": "1152921504606846977",
+						"Views": [
+							{
+								"Function": 0,
+								"Center": [
+									-2560.0,
+									640.0
+								],
+								"Zoom": 0.25
+							}
+						],
+						"Bookmarks": [
+							{
+								"Slot": 2,
+								"Name": "Thrusters",
+								"Function": 0,
+								"Center": [
+									-2048.0,
+									512.0
+								],
+								"Zoom": 1.5
+							}
+						]
+					}
+				]
+			}
+		]
+	}
+}

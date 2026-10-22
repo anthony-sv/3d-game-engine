@@ -11,6 +11,7 @@
 #include <limits>
 #include <optional>
 #include <set>
+#include <span>
 #include <string_view>
 #include <tuple>
 #include <unordered_set>
@@ -32,7 +33,11 @@ namespace Strada
 		constexpr std::array<std::string_view, 2> ParameterKeys = {"Name", "Type"};
 		constexpr std::array<std::string_view, 4> LocalKeys = {"ID", "Name", "Type", "Value"};
 		constexpr std::array<std::string_view, 3> GraphKeys = {"Nodes", "Links", "Comments"};
-		constexpr std::array<std::string_view, 5> NodeKeys = {"ID", "Type", "Position", "Settings", "Inputs"};
+		// Version 2 appended the last four; a file of version 1 knows only the others.
+		constexpr std::array<std::string_view, 9> NodeKeys = {"ID",    "Type",    "Position",  "Settings", "Inputs",
+		                                                      "Split", "Comment", "Collapsed", "Enabled"};
+		constexpr size_t Version1NodeKeyCount = 5;
+		constexpr std::array<std::string_view, 2> SplitKeys = {"Inputs", "Outputs"};
 		constexpr std::array<std::string_view, 2> LinkKeys = {"From", "To"};
 		constexpr std::array<std::string_view, 5> CommentKeys = {"ID", "Text", "Position", "Size", "Color"};
 
@@ -72,11 +77,12 @@ namespace Strada
 			return !text.empty() && text.size() <= maxBytes && !HasControlCharacters(text) && Utf8::IsValid(text);
 		}
 
-		// The names users declare. '.' is reserved for the paths of the fields of split struct pins.
-		bool IsValidName(std::string_view name)
+		// The entries of Split: a pin name ("Hit") or the path of a field pin ("Hit.Point"), names separated by '.' of which
+		// none is empty.
+		bool IsValidPinPath(std::string_view path)
 		{
-			return IsValidText(name, Format::MaxNameBytes) && name.front() != ' ' && name.back() != ' ' &&
-			       name.find('.') == std::string_view::npos;
+			return IsValidText(path, Format::MaxPinNameBytes) && path.front() != '.' && path.back() != '.' &&
+			       path.find("..") == std::string_view::npos;
 		}
 
 		// Whether a value nests at most MaxValueDepth levels deep (depth is the value's own level) and holds no string, member
@@ -181,20 +187,21 @@ namespace Strada
 			return numbers;
 		}
 
-		// Reads the content object. Refuses it only for an unknown key under UnknownFieldPolicy::Error; everything else that
-		// is damaged is repaired, and every repair is recorded as an issue.
+		// Reads the content object of a version of the format (the keys a version does not have are unknown keys). Refuses it
+		// only for an unknown key under UnknownFieldPolicy::Error; everything else that is damaged is repaired, and every
+		// repair is recorded as an issue.
 		class DocumentReader
 		{
 		public:
-			explicit DocumentReader(DeserializationContext const& context)
-				: m_Context(context)
+			DocumentReader(DeserializationContext const& context, int version)
+				: m_Context(context),
+				  m_Version(version)
 			{
 			}
 
 			// Unknown keys of an object: each refuses the document under UnknownFieldPolicy::Error, is an issue under Warn and
 			// is skipped under Ignore.
-			template<size_t N>
-			[[nodiscard]] Result<void> CheckKeys(Json const& object, std::array<std::string_view, N> const& allowed, std::string_view path,
+			[[nodiscard]] Result<void> CheckKeys(Json const& object, std::span<std::string_view const> allowed, std::string_view path,
 			                                     std::string_view message = "unknown key; it is ignored")
 			{
 				for (auto const& item : object.items())
@@ -319,7 +326,7 @@ namespace Strada
 					Report(Member(path, "Name"), fmt::format("missing; the {} is dropped", kind));
 					return std::nullopt;
 				}
-				if (!found->is_string() || !IsValidName(found->get_ref<std::string const&>()))
+				if (!found->is_string() || !Format::IsValidName(found->get_ref<std::string const&>()))
 				{
 					Report(Member(path, "Name"),
 					       fmt::format(
@@ -647,7 +654,7 @@ namespace Strada
 						continue;
 					}
 					std::string const& name = entry.get_ref<std::string const&>();
-					if (!IsValidName(name))
+					if (!Format::IsValidName(name))
 					{
 						Report(entryPath, fmt::format("expected a name of 1 to {} bytes without control characters, '.' or a leading or "
 						                              "trailing space; dropped",
@@ -886,6 +893,98 @@ namespace Strada
 				return ReadComments(*found, path, graph);
 			}
 
+			// The pins of one direction a node shows by field. Each list keeps a parent ahead of its fields, so an entry is
+			// dropped when it is no pin path, when the list already holds MaxSplitPins entries or the same path, or when it is a
+			// field of a path the list does not hold before it (a dropped path drops its fields with it).
+			std::vector<std::string> ReadSplitPins(Json const& split, char const* key, std::string_view splitPath)
+			{
+				std::vector<std::string> paths;
+				Json const* const list = FindList(split, key, splitPath);
+				if (list == nullptr)
+				{
+					return paths;
+				}
+
+				std::string const listPath = Member(splitPath, key);
+				for (size_t i = 0; i < list->size(); i++)
+				{
+					Json const& entry = (*list)[i];
+					std::string const path = Element(listPath, i);
+					if (!entry.is_string() || !IsValidPinPath(entry.get_ref<std::string const&>()))
+					{
+						Report(path, fmt::format("expected a pin name or the path of a field pin (\"Hit.Point\"): names separated by '.', "
+						                         "1 to {} bytes without control characters; dropped",
+						                         Format::MaxPinNameBytes));
+						continue;
+					}
+					if (paths.size() == Format::MaxSplitPins)
+					{
+						Report(path, fmt::format("more than {} split pins; dropped", Format::MaxSplitPins));
+						continue;
+					}
+					std::string const& pin = entry.get_ref<std::string const&>();
+					if (std::find(paths.begin(), paths.end(), pin) != paths.end())
+					{
+						Report(path, fmt::format("'{}' is already split; dropped", pin));
+						continue;
+					}
+					size_t const field = pin.rfind('.');
+					if (field != std::string::npos)
+					{
+						std::string_view const parent = std::string_view(pin).substr(0, field);
+						if (std::find(paths.begin(), paths.end(), parent) == paths.end())
+						{
+							Report(path, fmt::format("'{}' is a field of '{}', which is not split before it; dropped", pin, parent));
+							continue;
+						}
+					}
+					paths.push_back(pin);
+				}
+				return paths;
+			}
+
+			[[nodiscard]] Result<VisualScriptSplitPins> ReadSplit(Json const& node, std::string_view nodePath)
+			{
+				auto const found = node.find("Split");
+				if (found == node.end())
+				{
+					return VisualScriptSplitPins{};
+				}
+				std::string const path = Member(nodePath, "Split");
+				if (!found->is_object())
+				{
+					Report(path, "expected an object; replaced by {}");
+					return VisualScriptSplitPins{};
+				}
+				if (Result<void> keys = CheckKeys(*found, SplitKeys, path); !keys)
+				{
+					return Error{keys.GetError()};
+				}
+				VisualScriptSplitPins split;
+				split.Inputs = ReadSplitPins(*found, "Inputs", path);
+				split.Outputs = ReadSplitPins(*found, "Outputs", path);
+				return split;
+			}
+
+			VisualScriptNodeEnabled ReadEnabled(Json const& node, std::string_view nodePath)
+			{
+				auto const found = node.find("Enabled");
+				if (found == node.end())
+				{
+					return VisualScriptNodeEnabled::Enabled;
+				}
+				if (found->is_string())
+				{
+					if (std::optional<VisualScriptNodeEnabled> const enabled =
+					        VisualScriptNodeEnabledFromString(found->get_ref<std::string const&>()))
+					{
+						return *enabled;
+					}
+				}
+				Report(Member(nodePath, "Enabled"), "expected \"Enabled\", \"Disabled\" or \"DevelopmentOnly\"; replaced by \"Enabled\"");
+				return VisualScriptNodeEnabled::Enabled;
+			}
+
 			[[nodiscard]] Result<void> ReadNodes(Json const& graphObject, std::string_view graphPath, VisualScriptGraph& graph,
 			                                     std::unordered_set<uint32_t>& nodeIDs)
 			{
@@ -895,6 +994,11 @@ namespace Strada
 					return {};
 				}
 
+				// A version-2 key in a file of version 1 is an unknown key, read as such: no writer of version 1 wrote one.
+				bool const hasVersion2Keys = m_Version >= 2;
+				std::span<std::string_view const> const nodeKeys =
+					hasVersion2Keys ? std::span<std::string_view const>(NodeKeys)
+									: std::span<std::string_view const>(NodeKeys).first(Version1NodeKeyCount);
 				std::string const listPath = Member(graphPath, "Nodes");
 				for (size_t i = 0; i < list->size(); i++)
 				{
@@ -905,7 +1009,7 @@ namespace Strada
 						Report(path, "expected an object; the node is dropped");
 						continue;
 					}
-					if (Result<void> keys = CheckKeys(value, NodeKeys, path); !keys)
+					if (Result<void> keys = CheckKeys(value, nodeKeys, path); !keys)
 					{
 						return keys;
 					}
@@ -932,6 +1036,18 @@ namespace Strada
 					node.Position = ReadNodePosition(value, path);
 					node.Settings = ReadMembers(value, "Settings", path);
 					node.Inputs = ReadMembers(value, "Inputs", path);
+					if (hasVersion2Keys)
+					{
+						Result<VisualScriptSplitPins> split = ReadSplit(value, path);
+						if (!split)
+						{
+							return Error{split.GetError()};
+						}
+						node.Split = split.TakeValue();
+						node.Comment = ReadText(value, "Comment", path);
+						node.Collapsed = ReadBool(value, "Collapsed", path);
+						node.Enabled = ReadEnabled(value, path);
+					}
 					graph.Nodes.push_back(std::move(node));
 				}
 				return {};
@@ -1060,6 +1176,7 @@ namespace Strada
 			}
 
 			DeserializationContext const& m_Context;
+			int m_Version = Format::FormatVersion;
 			std::vector<VisualScriptIssue> m_Issues;
 			std::unordered_set<uint32_t> m_IDs;
 			std::unordered_set<std::string> m_VariableNames;
@@ -1090,6 +1207,31 @@ namespace Strada
 				if (!node.Inputs.empty())
 				{
 					json["Inputs"] = node.Inputs;
+				}
+				if (!node.Split.IsEmpty())
+				{
+					Json split = Json::object();
+					if (!node.Split.Inputs.empty())
+					{
+						split["Inputs"] = node.Split.Inputs;
+					}
+					if (!node.Split.Outputs.empty())
+					{
+						split["Outputs"] = node.Split.Outputs;
+					}
+					json["Split"] = std::move(split);
+				}
+				if (!node.Comment.empty())
+				{
+					json["Comment"] = node.Comment;
+				}
+				if (node.Collapsed)
+				{
+					json["Collapsed"] = true;
+				}
+				if (node.Enabled != VisualScriptNodeEnabled::Enabled)
+				{
+					json["Enabled"] = std::string(VisualScriptNodeEnabledToString(node.Enabled));
 				}
 				nodes.push_back(std::move(json));
 			}
@@ -1134,6 +1276,12 @@ namespace Strada
 			}
 			return json;
 		}
+	}
+
+	bool VisualScriptSerializer::IsValidName(std::string_view name)
+	{
+		// '.' is reserved for the paths of the fields of split struct pins.
+		return IsValidText(name, MaxNameBytes) && name.front() != ' ' && name.back() != ' ' && name.find('.') == std::string_view::npos;
 	}
 
 	std::optional<float> VisualScriptSerializer::ReadFloat(Json const& value)
@@ -1223,7 +1371,8 @@ namespace Strada
 	Result<VisualScriptDocument> VisualScriptSerializer::DeserializeDocument(Json const& content, DeserializationContext const& context,
 	                                                                         std::vector<VisualScriptIssue>* issues)
 	{
-		DocumentReader reader(context);
+		// The content form has no version: it has the keys of the current one.
+		DocumentReader reader(context, FormatVersion);
 		Result<VisualScriptDocument> document = reader.ReadContent(content);
 		if (document)
 		{
@@ -1243,7 +1392,8 @@ namespace Strada
 	Result<VisualScriptDocument> VisualScriptSerializer::Deserialize(Json const& file, DeserializationContext const& context,
 	                                                                 std::vector<VisualScriptIssue>* issues)
 	{
-		if (Result<int> header = ReadFileHeader(file, "VisualScript", FormatVersion); !header)
+		Result<int> const header = ReadFileHeader(file, "VisualScript", FormatVersion);
+		if (!header)
 		{
 			return Error{header.GetError()};
 		}
@@ -1253,7 +1403,7 @@ namespace Strada
 			return Error{"visual script file has no \"VisualScript\" object"};
 		}
 
-		DocumentReader reader(context);
+		DocumentReader reader(context, header.GetValue());
 		if (Result<void> keys = reader.CheckKeys(file, FileKeys, {}, "unknown key in the file; it is ignored"); !keys)
 		{
 			return Error{keys.GetError()};

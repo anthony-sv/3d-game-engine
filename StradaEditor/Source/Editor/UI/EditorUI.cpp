@@ -12,11 +12,13 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace Strada
 {
@@ -134,6 +136,120 @@ namespace Strada
 				size_t const separator = static_cast<size_t>(std::find_if(part.begin(), part.end(), IsWordSeparator) - part.begin());
 				return separator < part.size() ? part.substr(separator + 1) : std::string_view();
 			}
+
+			// The UTF-8 encodings of U+2192 and U+2190 share their first two bytes.
+			constexpr std::string_view ArrowLead = "\xE2\x86";
+			constexpr char RightArrowLast = '\x92';
+			constexpr char LeftArrowLast = '\x90';
+			// Drawn arrows in font sizes: about as wide as an em of the editor's fonts, with side bearings like a glyph's.
+			constexpr float ArrowAdvance = 0.85f;
+			constexpr float ArrowSideBearing = 0.12f;
+			constexpr float ArrowHeadLength = 0.3f;
+			constexpr float ArrowHeadHalfHeight = 0.18f;
+			constexpr float ArrowStemThickness = 0.075f;
+
+			bool HasArrows(std::string_view text)
+			{
+				for (size_t position = text.find(ArrowLead); position != std::string_view::npos;
+				     position = text.find(ArrowLead, position + 1))
+				{
+					if (position + 2 < text.size() && (text[position + 2] == RightArrowLast || text[position + 2] == LeftArrowLast))
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+
+			// Calls onText with each run of text between the arrows of a line (none of them empty) and onArrow with each arrow
+			// (true for a right arrow), in order.
+			template<typename TOnText, typename TOnArrow>
+			void ForEachArrowTextPart(std::string_view line, TOnText const& onText, TOnArrow const& onArrow)
+			{
+				size_t start = 0;
+				size_t position = line.find(ArrowLead);
+				while (position != std::string_view::npos)
+				{
+					bool const isArrow =
+						position + 2 < line.size() && (line[position + 2] == RightArrowLast || line[position + 2] == LeftArrowLast);
+					if (!isArrow)
+					{
+						position = line.find(ArrowLead, position + 1);
+						continue;
+					}
+					if (position > start)
+					{
+						onText(line.substr(start, position - start));
+					}
+					onArrow(line[position + 2] == RightArrowLast);
+					start = position + 3;
+					position = line.find(ArrowLead, start);
+				}
+				if (start < line.size())
+				{
+					onText(line.substr(start));
+				}
+			}
+
+			// A null font is the current font, a size of 0 or less the current size, as ImDrawList::AddText takes them.
+			void ResolveFont(ImFont*& font, float& fontSize)
+			{
+				if (font == nullptr)
+				{
+					font = ImGui::GetFont();
+				}
+				if (fontSize <= 0.0f)
+				{
+					fontSize = ImGui::GetFontSize();
+				}
+			}
+
+			float MeasureText(ImFont* font, float fontSize, std::string_view text)
+			{
+				return font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text.data(), text.data() + text.size()).x;
+			}
+
+			// How far below the top of a line the font's math axis lies, in pixels: the middle of its '+', where arrows sit
+			// (as minus signs do); the middle of the line for a font without one.
+			float GetMathAxis(ImFont* font, float fontSize)
+			{
+				ImFontBaked* const baked = font->GetFontBaked(fontSize);
+				ImFontGlyph const* const plus = baked != nullptr ? baked->FindGlyphNoFallback('+') : nullptr;
+				if (plus == nullptr || !plus->Visible || baked->Size <= 0.0f)
+				{
+					return fontSize * 0.5f;
+				}
+				return (plus->Y0 + plus->Y1) * 0.5f * (fontSize / baked->Size);
+			}
+
+			// An arrow in the advance whose top-left corner is at, on the math axis that lies axis pixels below it.
+			void DrawArrow(ImDrawList* drawList, ImVec2 at, float fontSize, float axis, ImU32 color, bool pointsRight)
+			{
+				// The stem covers whole rows of pixels, so it stays sharp at every size; the head is anti-aliased.
+				float const thickness = std::max(1.0f, std::round(fontSize * ArrowStemThickness));
+				float const stemTop = std::round(at.y + axis - thickness * 0.5f);
+				float const middle = stemTop + thickness * 0.5f;
+				float const halfHeight = std::max(thickness + 1.0f, fontSize * ArrowHeadHalfHeight);
+				float const headLength = std::max(thickness + 2.0f, fontSize * ArrowHeadLength);
+				float const left = at.x + fontSize * ArrowSideBearing;
+				float const right = at.x + fontSize * (ArrowAdvance - ArrowSideBearing);
+				// The stem reaches half a pixel into the head, so no seam shows between them. Filled shapes list their points
+				// clockwise (screen Y points down), as ImGui's anti-aliasing expects.
+				if (pointsRight)
+				{
+					float const base = right - headLength;
+					drawList->AddRectFilled(ImVec2(left, stemTop), ImVec2(base + 0.5f, stemTop + thickness), color);
+					drawList->AddTriangleFilled(ImVec2(base, middle - halfHeight), ImVec2(right, middle), ImVec2(base, middle + halfHeight),
+					                            color);
+				}
+				else
+				{
+					float const base = left + headLength;
+					drawList->AddRectFilled(ImVec2(base - 0.5f, stemTop), ImVec2(right, stemTop + thickness), color);
+					drawList->AddTriangleFilled(ImVec2(left, middle), ImVec2(base, middle - halfHeight), ImVec2(base, middle + halfHeight),
+					                            color);
+				}
+			}
 		}
 
 		ImVec2 GetToolbarButtonSize()
@@ -189,6 +305,105 @@ namespace Strada
 				}
 			}
 			return pressed;
+		}
+
+		ImVec2 CalcArrowTextSize(std::string_view text)
+		{
+			ImVec2 size = CalcArrowTextSize(nullptr, 0.0f, text);
+			size.x = ImCeilFast(size.x);
+			return size;
+		}
+
+		ImVec2 CalcArrowTextSize(ImFont* font, float fontSize, std::string_view text)
+		{
+			ResolveFont(font, fontSize);
+			if (text.empty())
+			{
+				// What ImGui measures an empty text as; an empty view may have no data, which ImGui would read up to a zero.
+				return ImVec2(0.0f, fontSize);
+			}
+			if (!HasArrows(text))
+			{
+				return font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text.data(), text.data() + text.size());
+			}
+			float width = 0.0f;
+			float height = 0.0f;
+			size_t lineStart = 0;
+			while (true)
+			{
+				size_t const lineEnd = text.find('\n', lineStart);
+				std::string_view const line =
+					text.substr(lineStart, lineEnd != std::string_view::npos ? lineEnd - lineStart : std::string_view::npos);
+				float lineWidth = 0.0f;
+				ForEachArrowTextPart(
+					line,
+					[&](std::string_view run)
+					{
+						lineWidth += MeasureText(font, fontSize, run);
+					},
+					[&](bool)
+					{
+						lineWidth += fontSize * ArrowAdvance;
+					});
+				width = std::max(width, lineWidth);
+				if (lineEnd == std::string_view::npos)
+				{
+					// As ImGui measures text: each line break adds a line, and the last line counts unless it is empty.
+					if (lineWidth > 0.0f || height == 0.0f)
+					{
+						height += fontSize;
+					}
+					return ImVec2(width, height);
+				}
+				height += fontSize;
+				lineStart = lineEnd + 1;
+			}
+		}
+
+		void DrawArrowText(ImDrawList* drawList, ImVec2 position, uint32_t color, std::string_view text)
+		{
+			DrawArrowText(drawList, nullptr, 0.0f, position, color, text);
+		}
+
+		void DrawArrowText(ImDrawList* drawList, ImFont* font, float fontSize, ImVec2 position, uint32_t color, std::string_view text)
+		{
+			ResolveFont(font, fontSize);
+			if (!HasArrows(text))
+			{
+				drawList->AddText(font, fontSize, position, color, text.data(), text.data() + text.size());
+				return;
+			}
+			float const axis = GetMathAxis(font, fontSize);
+			float lineTop = position.y;
+			size_t lineStart = 0;
+			while (true)
+			{
+				size_t const lineEnd = text.find('\n', lineStart);
+				std::string_view const line =
+					text.substr(lineStart, lineEnd != std::string_view::npos ? lineEnd - lineStart : std::string_view::npos);
+				float x = position.x;
+				ForEachArrowTextPart(
+					line,
+					[&](std::string_view run)
+					{
+						drawList->AddText(font, fontSize, ImVec2(x, lineTop), color, run.data(), run.data() + run.size());
+						x += MeasureText(font, fontSize, run);
+					},
+					[&](bool pointsRight)
+					{
+						// Snapped to whole pixels as ImGui snaps text, so the arrow sits on the rows of the glyphs beside it.
+						ImVec2 const origin =
+							(drawList->Flags & ImDrawListFlags_TextNoPixelSnap) != 0 ? ImVec2(x, lineTop) : ImTrunc(ImVec2(x, lineTop));
+						DrawArrow(drawList, origin, fontSize, axis, color, pointsRight);
+						x += fontSize * ArrowAdvance;
+					});
+				if (lineEnd == std::string_view::npos)
+				{
+					return;
+				}
+				lineTop += fontSize;
+				lineStart = lineEnd + 1;
+			}
 		}
 
 		std::string FormatDisplayName(std::string_view name)

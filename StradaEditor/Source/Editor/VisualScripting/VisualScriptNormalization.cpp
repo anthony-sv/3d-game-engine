@@ -1,10 +1,12 @@
-#include "Editor/VisualScriptEditing.h"
+#include "Editor/VisualScripting/VisualScriptNormalization.h"
 
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Result.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <set>
 #include <span>
 #include <string_view>
@@ -29,19 +31,54 @@ namespace Strada
 			return graphs;
 		}
 
-		// The new name of a pin of the node, or null when it keeps its name. The renames apply at once: a pin renamed to the
-		// former name of another one does not take that one's links.
-		std::string const* FindRename(std::span<VisualScriptPinRename const> renames, VisualScriptPinDirection direction,
-		                              std::string const& pin)
+		// The new path of a pin path of the node (a pin's name, or a field pin of a split pin: "Hit.Point"), or nothing when it
+		// keeps its path. A pin's rename renames the paths of its fields with it. A path that names a renamed pin is that
+		// pin's (an exact name wins over a split reading), else it is a field of the longest renamed pin it continues with
+		// a '.'. The renames apply at once: a pin renamed to the former name of another one does not take that one's links.
+		std::optional<std::string> RenamePath(std::span<VisualScriptPinRename const> renames, VisualScriptPinDirection direction,
+		                                      std::string const& path)
 		{
+			VisualScriptPinRename const* parent = nullptr;
 			for (VisualScriptPinRename const& rename : renames)
 			{
-				if (rename.Direction == direction && rename.From == pin)
+				if (rename.Direction != direction)
 				{
-					return &rename.To;
+					continue;
+				}
+				if (rename.From == path)
+				{
+					return rename.To;
+				}
+				bool const isField = path.size() > rename.From.size() && path.starts_with(rename.From) && path[rename.From.size()] == '.';
+				if (isField && (parent == nullptr || rename.From.size() > parent->From.size()))
+				{
+					parent = &rename;
 				}
 			}
-			return nullptr;
+			if (parent == nullptr)
+			{
+				return std::nullopt;
+			}
+			return parent->To + path.substr(parent->From.size());
+		}
+
+		// A field stays behind its pin, renamed with it; of entries that end up the same, the first stays (the loader drops
+		// the others).
+		void RenameSplitEntries(std::vector<std::string>& entries, std::span<VisualScriptPinRename const> renames,
+		                        VisualScriptPinDirection direction)
+		{
+			std::vector<std::string> renamed;
+			renamed.reserve(entries.size());
+			for (std::string& entry : entries)
+			{
+				std::optional<std::string> path = RenamePath(renames, direction, entry);
+				std::string name = path ? std::move(*path) : std::move(entry);
+				if (std::find(renamed.begin(), renamed.end(), name) == renamed.end())
+				{
+					renamed.push_back(std::move(name));
+				}
+			}
+			entries = std::move(renamed);
 		}
 
 		void RenamePins(VisualScriptGraph& graph, VisualScriptNode& node, std::span<VisualScriptPinRename const> renames)
@@ -50,16 +87,16 @@ namespace Strada
 			{
 				if (link.To.Node == node.ID)
 				{
-					if (std::string const* name = FindRename(renames, VisualScriptPinDirection::In, link.To.Pin))
+					if (std::optional<std::string> path = RenamePath(renames, VisualScriptPinDirection::In, link.To.Pin))
 					{
-						link.To.Pin = *name;
+						link.To.Pin = std::move(*path);
 					}
 				}
 				if (link.From.Node == node.ID)
 				{
-					if (std::string const* name = FindRename(renames, VisualScriptPinDirection::Out, link.From.Pin))
+					if (std::optional<std::string> path = RenamePath(renames, VisualScriptPinDirection::Out, link.From.Pin))
 					{
-						link.From.Pin = *name;
+						link.From.Pin = std::move(*path);
 					}
 				}
 			}
@@ -69,9 +106,9 @@ namespace Strada
 			Json inputs = Json::object();
 			for (auto const& [name, value] : node.Inputs.items())
 			{
-				if (std::string const* renamed = FindRename(renames, VisualScriptPinDirection::In, name))
+				if (std::optional<std::string> const path = RenamePath(renames, VisualScriptPinDirection::In, name))
 				{
-					inputs[*renamed] = value;
+					inputs[*path] = value;
 				}
 				else if (!inputs.contains(name))
 				{
@@ -79,6 +116,9 @@ namespace Strada
 				}
 			}
 			node.Inputs = std::move(inputs);
+
+			RenameSplitEntries(node.Split.Inputs, renames, VisualScriptPinDirection::In);
+			RenameSplitEntries(node.Split.Outputs, renames, VisualScriptPinDirection::Out);
 		}
 
 		// Of links that are the same, the first stays (the loader drops the others).

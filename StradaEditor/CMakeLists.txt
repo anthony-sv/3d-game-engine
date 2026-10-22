@@ -120,10 +120,13 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Viewport/TransformEditing.h
     Source/Editor/Viewport/ViewportOverlays.cpp
     Source/Editor/Viewport/ViewportOverlays.h
-    Source/Editor/VisualScriptEditing.cpp
-    Source/Editor/VisualScriptEditing.h
     Source/Editor/VisualScriptEnumLookupSource.cpp
     Source/Editor/VisualScriptEnumLookupSource.h
+    Source/Editor/VisualScripting/VisualScriptEditorTypes.h
+    Source/Editor/VisualScripting/VisualScriptNodeTitles.cpp
+    Source/Editor/VisualScripting/VisualScriptNodeTitles.h
+    Source/Editor/VisualScripting/VisualScriptNormalization.cpp
+    Source/Editor/VisualScripting/VisualScriptNormalization.h
 )
 
 add_library(StradaEditorCore STATIC ${STRADA_EDITOR_CORE_SOURCES})

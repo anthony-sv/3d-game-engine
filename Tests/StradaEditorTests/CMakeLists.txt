@@ -15,6 +15,7 @@ add_executable(StradaEditorTests
     Source/GameInputTests.cpp
     Source/GraphCommandsTests.cpp
     Source/HeadlessImGui.h
+    Source/HeadlessImGuiTests.cpp
     Source/HierarchyOperationsTests.cpp
     Source/JsonRpcTests.cpp
     Source/JsonSchemaTests.cpp
@@ -29,6 +30,10 @@ add_executable(StradaEditorTests
     Source/TcpTestClient.h
     Source/UIEditingTests.cpp
     Source/ViewportTests.cpp
+    Source/VisualScriptEditorFoundationTests.cpp
+    Source/VisualScriptNodeTitlesTests.cpp
+    Source/VisualScriptNormalizationTests.cpp
+    Source/VisualScriptTestDocuments.h
 )
 
 target_include_directories(StradaEditorTests PRIVATE
@@ -46,7 +51,9 @@ target_compile_definitions(StradaEditorTests PRIVATE
     # The shared fuzzing helpers (Fuzzing.h) take their seed documents from the FeatureTest project.
     STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
     # The repository's projects: the play mode tests play the Blocks sample with the scripts CMake builds.
-    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects")
+    STRADA_PROJECTS_DIR="${PROJECT_SOURCE_DIR}/Projects"
+    # Shared test data: the visual script editor's tests read their node library and documents from it.
+    STRADA_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/Tests/Data")
 
 # The inspector tests show the fields of the test scripts; the play mode tests play the Blocks sample.
 add_dependencies(StradaEditorTests StradaTestScripts StradaBlocksScripts)

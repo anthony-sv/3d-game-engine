@@ -20,7 +20,9 @@ namespace Strada
 
 	// Stores the nodes the analysis of the document resolved inexactly (through a redirect of an API member that was renamed
 	// or changed its signature, or as the only overload of their member with their pins) under their canonical types. The
-	// links of their renamed pins and the inputs stored for them are renamed too (a renamed input replaces one that already
-	// has its new name), and a link that then repeats another one is dropped. Warnings read "node updated: <old> → <new>".
+	// links of their renamed pins, the inputs stored for them and their Split entries are renamed too, with the paths of the
+	// pins' fields ("Force.X" follows Force; "Forces.X" does not): a renamed input replaces one that already has its new
+	// name, and a link or a Split entry that then repeats another one is dropped. Warnings read
+	// "node updated: <old> → <new>".
 	std::vector<std::string> ApplyCanonicalNodeTypes(VisualScriptDocument& document, VisualScriptAnalysis const& analysis);
 }
