@@ -944,7 +944,7 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   - a component missing from a Target;
   - a null Target or array;
   - an index outside its array;
-  - integer division by zero;
+  - integer division or modulo by zero, and the one integer quotient that overflows (the minimum divided by -1);
   - running out of budget or depth.
 
   An aborting error stops its execution and is logged once as `<graph>: <node> (node <id>) on <entity> (<id>):
@@ -957,7 +957,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 - **Live edit and assembly reload**: a working program loaded for a handle replaces the program of its instances as soon
   as no dispatch or execution of the old one runs.
   - Variables carry over by ID, then by name and type; the others start at their `Value`, else the type default. A
-    component's value for a variable the edit adds reaches it once that value changes or the instance starts again.
+    value the component stores for a variable the edit adds is not given to it: the variable keeps its `Value` until
+    that value is edited again or a new instance starts (play starts again, or the component's graph changes).
   - Node states and stored outputs carry over by node ID while the node's type is unchanged.
   - Fibers survive while every position they hold still exists; otherwise they are cancelled with one log line.
 

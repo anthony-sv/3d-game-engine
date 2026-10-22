@@ -844,12 +844,12 @@ entity runs no graph, `ArgumentException` for a variable the graph does not have
 that does not convert. An error in an event raised from C# reaches the caller as an `InvalidOperationException`.
 
 A graph that does not make sense does not run: `graph.check` and `graph.set` report every problem with the node it
-concerns (the codes are listed in [Automation.md](Automation.md)), and the console names the first one (`Visual script
-'Scripts/Coin.sgraph' has 1 error; first: ... (node 4)`) and each entity left without its graph (`Entity 'Coin' runs no
-visual script: ...`). An error while a graph runs (a member call that throws, a `Target` without the component, an
-integer division by zero, more than 1,000,000 nodes in one go, calls nested deeper than 64) stops that flow and is
-logged with the graph, the node and the entity; like an exception in a C# script, it counts as a failure in test runs,
-and the game goes on.
+concerns (the codes are listed in [Automation.md](Automation.md)), and the console names the first one
+(`Visual script 'Scripts/Door.sgraph' has 2 errors; first: ...`) and each entity left without its graph
+(`Entity 'Door' runs no visual script: ...`). An error while a graph runs (a member call that throws, a `Target`
+without the component, an integer division by zero, more than 1,000,000 nodes in one go, calls nested deeper than 64)
+stops that flow and is logged with the graph, the node and the entity; like an exception in a C# script, it counts as a
+failure in test runs, and the game goes on.
 
 While the game plays in the editor, the inspector shows the values the public variables of a running graph hold, and an
 edit reaches the graph at once, as for script fields. A graph saved while the game plays (`graph.set`) changes its
