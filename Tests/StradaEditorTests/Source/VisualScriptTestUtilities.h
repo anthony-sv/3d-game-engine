@@ -1019,7 +1019,7 @@ namespace Strada::Testing
 				for (VisualScriptAnalyzedNode& node : analysis.GetValue().Nodes)
 				{
 					auto const passThrough = m_InjectedPassThroughs.find(node.ID);
-					if (passThrough != m_InjectedPassThroughs.end())
+					if (passThrough != m_InjectedPassThroughs.end() && IsDisabled(document, node.ID))
 					{
 						node.PassThrough = passThrough->second;
 					}
@@ -1042,8 +1042,8 @@ namespace Strada::Testing
 		// Every analysis reports the diagnostic after its own.
 		void InjectDiagnostic(VisualScriptDiagnostic diagnostic) { m_InjectedDiagnostics.push_back(std::move(diagnostic)); }
 		void ClearInjectedDiagnostics() { m_InjectedDiagnostics.clear(); }
-		// Every analysis reports the exit the flow takes through the node (as the scripting runtime reports a disabled node's
-		// pass-through exit, which the template analyzer does not compute).
+		// Every analysis of a document in which the node is disabled reports the exit the flow takes through it, as the
+		// scripting runtime reports a disabled node's pass-through exit (which the template analyzer does not compute).
 		void InjectPassThrough(uint32_t node, std::string pin) { m_InjectedPassThroughs[node] = std::move(pin); }
 
 		uint64_t GetLibraryCallCount() const { return m_LibraryCallCount; }
@@ -1052,6 +1052,24 @@ namespace Strada::Testing
 		VisualScriptLibrary const& GetFixtureLibrary() const { return *m_Library; }
 
 	private:
+		// Node IDs are unique in a document, functions' graphs included.
+		static bool IsDisabled(VisualScriptDocument const& document, uint32_t id)
+		{
+			auto const disabled = [id](VisualScriptGraph const& graph)
+			{
+				return std::any_of(graph.Nodes.begin(), graph.Nodes.end(),
+				                   [id](VisualScriptNode const& node)
+				                   {
+									   return node.ID == id && node.Enabled == VisualScriptNodeEnabled::Disabled;
+								   });
+			};
+			return disabled(document.Graph) || std::any_of(document.Functions.begin(), document.Functions.end(),
+			                                               [&disabled](VisualScriptFunction const& function)
+			                                               {
+															   return disabled(function.Graph);
+														   });
+		}
+
 		Ref<VisualScriptLibrary const> m_Library;
 		std::vector<VisualScriptDiagnostic> m_InjectedDiagnostics;
 		std::unordered_map<uint32_t, std::string> m_InjectedPassThroughs;

@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -290,6 +291,56 @@ TEST_CASE(
 	CHECK(fixture.Model.GetAnalysisCount() == 6);
 	CHECK(fixture.Model.GetAnalysis() != nullptr);
 	CHECK(fixture.Node(2).ErrorCount == 1);
+}
+
+TEST_CASE("VisualScriptEditor: disabling a node analyzes the graph again, and the canvas draws the bypass that analysis reports")
+{
+	ModelFixture fixture(MakeDocument());
+	// The scripting runtime's answer for the Delay while it is disabled: its flow continues at Completed.
+	fixture.Semantics.InjectPassThrough(2, "Completed");
+	fixture.Frame();
+	CHECK(fixture.Model.GetAnalysisCount() == 1);
+	CHECK_FALSE(fixture.Node(2).HasFlag(VisualScriptNodeFlags::PassThroughExit));
+
+	// Disabled: the commit's frame draws the node disabled with the last analysis, made while it was enabled (no bypass); the
+	// next frame analyzes the new program, which has one.
+	VisualScriptDocument document = fixture.Model.GetDisplayDocument();
+	document.Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::Disabled;
+	fixture.Commit(document);
+	CHECK(fixture.Node(2).HasFlag(VisualScriptNodeFlags::Disabled));
+	CHECK_FALSE(fixture.Node(2).HasFlag(VisualScriptNodeFlags::PassThroughExit));
+	fixture.Frame();
+	CHECK(fixture.Model.GetAnalysisCount() == 2);
+	{
+		VisualScriptCanvasModel const& canvas = fixture.Model.GetCanvas();
+		VisualScriptNodeVisual const& disabled = fixture.Node(2);
+		REQUIRE(disabled.HasFlag(VisualScriptNodeFlags::PassThroughExit));
+		std::span<VisualScriptPinVisual const> const pins = canvas.GetPins(disabled);
+		REQUIRE(disabled.PassThroughPin < pins.size());
+		CHECK(canvas.GetText(pins[disabled.PassThroughPin].Name) == "Completed");
+	}
+
+	// Development only runs in the editor: analyzed again, without a bypass.
+	document.Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	fixture.Commit(document);
+	fixture.Frame();
+	CHECK(fixture.Model.GetAnalysisCount() == 3);
+	CHECK(fixture.Node(2).HasFlag(VisualScriptNodeFlags::DevelopmentOnly));
+	CHECK_FALSE(fixture.Node(2).HasFlag(VisualScriptNodeFlags::Disabled));
+	CHECK_FALSE(fixture.Node(2).HasFlag(VisualScriptNodeFlags::PassThroughExit));
+
+	// Disabled again, then enabled: the bypass comes back with the analysis and goes with the commit that enables the node,
+	// before the analysis that follows.
+	document.Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::Disabled;
+	fixture.Commit(document);
+	fixture.Frame();
+	CHECK(fixture.Node(2).HasFlag(VisualScriptNodeFlags::PassThroughExit));
+	document.Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::Enabled;
+	fixture.Commit(document);
+	CHECK_FALSE(fixture.Node(2).HasFlag(VisualScriptNodeFlags::PassThroughExit));
+	fixture.Frame();
+	CHECK(fixture.Model.GetAnalysisCount() == 5);
+	CHECK_FALSE(fixture.Node(2).HasFlag(VisualScriptNodeFlags::PassThroughExit));
 }
 
 TEST_CASE("VisualScriptEditor: while a widget is used, its preview draws and the analysis runs at most every 0.25 s")
