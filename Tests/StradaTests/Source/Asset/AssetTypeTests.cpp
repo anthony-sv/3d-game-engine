@@ -6,6 +6,7 @@
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
 
 #include <doctest/doctest.h>
@@ -270,6 +271,44 @@ TEST_CASE("MaterialAsset: imported parameters fit the material ranges and keep t
 	                                                      DeserializationContext{}, "material")
 	            .IsOk());
 	CHECK(readBack == broken);
+}
+
+TEST_CASE("VisualScriptAsset: the document is a shared object that a change replaces, and every change counts")
+{
+	VisualScriptAsset asset;
+	Ref<VisualScriptDocument const> const empty = asset.GetSharedDocument();
+	REQUIRE(empty != nullptr);
+	CHECK(*empty == VisualScriptDocument{});
+	CHECK(&asset.GetDocument() == empty.get());
+
+	// The shared overload keeps the object it is given; the one before it is left as it was.
+	VisualScriptDocument const events = MakeVisualScriptTemplate(VisualScriptTemplate::Events);
+	Ref<VisualScriptDocument const> const shared = CreateRef<VisualScriptDocument const>(events);
+	asset.SetDocument(shared);
+	CHECK(asset.GetVersion() == 1);
+	CHECK(asset.GetSharedDocument() == shared);
+	CHECK(&asset.GetDocument() == shared.get());
+	CHECK(*empty == VisualScriptDocument{});
+
+	// The document overload makes a new object; the shared one keeps its contents.
+	VisualScriptDocument changed = events;
+	changed.Description = "Spins";
+	asset.SetDocument(changed);
+	CHECK(asset.GetVersion() == 2);
+	CHECK(asset.GetSharedDocument() != shared);
+	CHECK(asset.GetDocument() == changed);
+	CHECK(*shared == events);
+
+	// Giving the same object again is still a change.
+	asset.SetDocument(shared);
+	asset.SetDocument(shared);
+	CHECK(asset.GetVersion() == 4);
+	CHECK(asset.GetSharedDocument() == shared);
+
+	VisualScriptAsset const constructed(changed);
+	CHECK(constructed.GetVersion() == 0);
+	REQUIRE(constructed.GetSharedDocument() != nullptr);
+	CHECK(constructed.GetDocument() == changed);
 }
 
 TEST_CASE("Asset: every supported extension maps to an asset type, ignoring case")

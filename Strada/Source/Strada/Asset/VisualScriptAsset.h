@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Strada/Asset/Asset.h"
+#include "Strada/Core/Base.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <glm/glm.hpp>
@@ -8,7 +9,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
-#include <utility>
+#include <string_view>
 #include <vector>
 
 namespace Strada
@@ -57,6 +58,33 @@ namespace Strada
 		bool operator==(VisualScriptParameter const& other) const = default;
 	};
 
+	// Whether a node takes part when its graph runs.
+	enum class VisualScriptNodeEnabled : uint8_t
+	{
+		Enabled = 0,
+		// The node passes the flow through to its next node instead of running.
+		Disabled,
+		// Enabled, except in exported games, where it runs as Disabled.
+		DevelopmentOnly
+	};
+
+	// "Enabled", "Disabled" or "DevelopmentOnly"; empty for a value that is none of the enumerators.
+	[[nodiscard]] std::string_view VisualScriptNodeEnabledToString(VisualScriptNodeEnabled enabled);
+	[[nodiscard]] std::optional<VisualScriptNodeEnabled> VisualScriptNodeEnabledFromString(std::string_view text);
+
+	// The struct pins of a node shown as one pin per field, by direction. An entry is a pin path: the name of a pin ("Hit"),
+	// or a field pin of an entry listed earlier in the same list ("Hit.Point"). Whether a path names a pin whose type can
+	// split is for the scripting runtime to say; the format only keeps parents ahead of their fields.
+	struct VisualScriptSplitPins
+	{
+		std::vector<std::string> Inputs;
+		std::vector<std::string> Outputs;
+
+		bool IsEmpty() const { return Inputs.empty() && Outputs.empty(); }
+
+		bool operator==(VisualScriptSplitPins const& other) const = default;
+	};
+
 	struct VisualScriptNode
 	{
 		uint32_t ID = 0;
@@ -67,6 +95,13 @@ namespace Strada
 		// The node's settings and the literals of its unconnected inputs, by name, stored as written.
 		Json Settings = Json::object();
 		Json Inputs = Json::object();
+		// Version 2 of the format added the members below.
+		VisualScriptSplitPins Split;
+		// A note shown with the node.
+		std::string Comment;
+		// Only the node's header is shown.
+		bool Collapsed = false;
+		VisualScriptNodeEnabled Enabled = VisualScriptNodeEnabled::Enabled;
 
 		bool operator==(VisualScriptNode const& other) const = default;
 	};
@@ -136,26 +171,29 @@ namespace Strada
 		bool operator==(VisualScriptDocument const& other) const = default;
 	};
 
-	// A visual script (.sgraph file).
+	// A visual script (.sgraph file). Its document is an immutable shared object: a change replaces it with another, so
+	// whoever keeps the previous one (an undo step, an editor) keeps it unchanged and without a copy.
 	class VisualScriptAsset final : public Asset
 	{
 	public:
 		VisualScriptAsset() = default;
-		explicit VisualScriptAsset(VisualScriptDocument document)
-			: m_Document(std::move(document))
-		{
-		}
+		explicit VisualScriptAsset(VisualScriptDocument document);
 
 		static AssetType GetStaticType() { return AssetType::VisualScript; }
 		AssetType GetAssetType() const override { return GetStaticType(); }
 
-		VisualScriptDocument const& GetDocument() const { return m_Document; }
+		// Valid until the next SetDocument, which replaces the document object rather than its contents.
+		VisualScriptDocument const& GetDocument() const { return *m_Document; }
+		// The document as the shared object it is; never null.
+		Ref<VisualScriptDocument const> const& GetSharedDocument() const { return m_Document; }
 		void SetDocument(VisualScriptDocument document);
+		// Takes the object itself (document must not be null).
+		void SetDocument(Ref<VisualScriptDocument const> document);
 		// Incremented by every change; users of the document compare it to notice edits.
 		uint64_t GetVersion() const { return m_Version; }
 
 	private:
-		VisualScriptDocument m_Document;
+		Ref<VisualScriptDocument const> m_Document = CreateRef<VisualScriptDocument const>();
 		uint64_t m_Version = 0;
 	};
 

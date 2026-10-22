@@ -583,7 +583,7 @@ TEST_CASE("GraphCommands: graph.set replaces a file that does not load, and undo
 {
 	GraphFixture fixture;
 	std::string const graph = fixture.Ok("graph.create", Json::object({{"path", "Scripts/Damaged.sgraph"}}))["asset"].get<std::string>();
-	std::string const damaged = "{ \"Strada\": { \"Version\": 2, \"Type\": \"VisualScript\" }, \"VisualScript\": {} }\n";
+	std::string const damaged = "{ \"Strada\": { \"Version\": 3, \"Type\": \"VisualScript\" }, \"VisualScript\": {} }\n";
 	fixture.WriteFile("Scripts/Damaged.sgraph", damaged);
 	CHECK(fixture.Fails("graph.get", Json::object({{"graph", graph}})).Code == AutomationErrorCode::FileError);
 
@@ -603,6 +603,40 @@ TEST_CASE("GraphCommands: graph.set replaces a file that does not load, and undo
 	CHECK(fixture.ReadFile("Scripts/Damaged.sgraph") == written);
 	CHECK(fixture.GetDocument(graph) == counter);
 	CHECK(fixture.Ok("editor.status")["scene"]["dirty"] == false);
+}
+
+TEST_CASE("GraphCommands: graph.set keeps the node keys of version 2, which graph.get returns unchanged")
+{
+	// Without the scripting runtime nothing is analyzed, so the keys need not make sense to it: this is the format's round trip.
+	GraphFixture fixture;
+	VisualScriptDocument document = MakeCounterDocument();
+	std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+	nodes[0].Comment = "Every frame";
+	nodes[1].Split.Inputs = {"Value"};
+	nodes[1].Inputs = Json::object({{"Value.X", 1}});
+	nodes[2].Collapsed = true;
+	nodes[3].Split.Outputs = {"Value", "Value.Position"};
+	nodes[3].Enabled = VisualScriptNodeEnabled::Disabled;
+	nodes[4].Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	Json const content = VisualScriptSerializer::SerializeDocument(document);
+
+	std::string const graph = fixture.CreateGraph("Scripts/Notes.sgraph", document);
+	CHECK(fixture.GetDocument(graph) == document);
+	CHECK(fixture.Ok("graph.get", Json::object({{"graph", graph}}))["document"] == content);
+	std::string const written = fixture.ReadFile("Scripts/Notes.sgraph");
+	CHECK(written == DumpJson(VisualScriptSerializer::Serialize(document)));
+	CHECK(written.find("\"Version\": 2,") != std::string::npos);
+	CHECK(fixture.Ok("graph.check", Json::object({{"graph", graph}, {"document", content}}))["valid"] == true);
+
+	// Giving the same document again changes nothing; a repair of a version-2 key is refused as any other.
+	CHECK(fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", content}}))["changed"] == false);
+	Json damaged = content;
+	damaged["Graph"]["Nodes"][3]["Enabled"] = "Off";
+	CommandError const refused = fixture.Fails("graph.set", Json::object({{"graph", graph}, {"document", damaged}}));
+	CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+	CHECK(refused.Data["path"] == "document.Graph.Nodes[3].Enabled");
+	CHECK(fixture.GetDocument(graph) == document);
+	CHECK(fixture.ReadFile("Scripts/Notes.sgraph") == written);
 }
 
 TEST_CASE("GraphCommands: without the scripting runtime there is no node library and nothing is analyzed")

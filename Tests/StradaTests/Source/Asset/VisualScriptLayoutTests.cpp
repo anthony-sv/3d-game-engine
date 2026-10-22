@@ -59,6 +59,22 @@ namespace
 		return *node->Position;
 	}
 
+	// The layer assignment of the given nodes: entries {node, component, layer, row} in ID order.
+	std::vector<VisualScriptLayerAssignment> Assign(VisualScriptGraph const& graph, std::vector<uint32_t> const& nodes)
+	{
+		return AssignVisualScriptLayers(graph, nodes);
+	}
+
+	std::vector<uint32_t> GetAllIDs(VisualScriptGraph const& graph)
+	{
+		std::vector<uint32_t> ids;
+		for (VisualScriptNode const& node : graph.Nodes)
+		{
+			ids.push_back(node.ID);
+		}
+		return ids;
+	}
+
 	bool IsPlacedEverywhere(VisualScriptDocument const& document)
 	{
 		auto const placed = [](VisualScriptGraph const& graph)
@@ -208,6 +224,91 @@ TEST_CASE("VisualScript: layout is deterministic and does not depend on the orde
 		CAPTURE(node.ID);
 		CHECK(GetPosition(fromReversed, node.ID) == *node.Position);
 	}
+}
+
+TEST_CASE("VisualScript: layer assignment puts chains in successive layers and fans in one layer, rows in ID order")
+{
+	VisualScriptGraph const chain = MakeGraph({3, 1, 2}, {{1, 2}, {2, 3}});
+	CHECK(Assign(chain, {1, 2, 3}) == std::vector<VisualScriptLayerAssignment>{{1, 0, 0, 0}, {2, 0, 1, 0}, {3, 0, 2, 0}});
+
+	// Fan-out: the targets share a layer, ordered by ID, not by link order.
+	VisualScriptGraph const fanOut = MakeGraph({1, 2, 3, 4}, {{1, 4}, {1, 2}, {1, 3}});
+	CHECK(Assign(fanOut, {1, 2, 3, 4}) == std::vector<VisualScriptLayerAssignment>{{1, 0, 0, 0}, {2, 0, 1, 0}, {3, 0, 1, 1}, {4, 0, 1, 2}});
+
+	// Fan-in: every source is in the first layer; a node follows its longest chain, whatever shortcuts lead to it.
+	VisualScriptGraph const fanIn = MakeGraph({1, 2, 3, 4}, {{2, 4}, {1, 3}, {3, 4}, {1, 4}});
+	CHECK(Assign(fanIn, {1, 2, 3, 4}) == std::vector<VisualScriptLayerAssignment>{{1, 0, 0, 0}, {2, 0, 0, 1}, {3, 0, 1, 0}, {4, 0, 2, 0}});
+}
+
+TEST_CASE("VisualScript: layer assignment drops the links that close cycles and orders groups by their smallest IDs")
+{
+	// 1 -> 2 -> 3 -> 1: the search from 1 finds 3 -> 1 closing the cycle. A node linked to itself stays in the first layer.
+	VisualScriptGraph const cycle = MakeGraph({1, 2, 3, 4}, {{1, 2}, {2, 3}, {3, 1}, {4, 4}});
+	CHECK(Assign(cycle, {1, 2, 3, 4}) == std::vector<VisualScriptLayerAssignment>{{1, 0, 0, 0}, {2, 0, 1, 0}, {3, 0, 2, 0}, {4, 1, 0, 0}});
+
+	// Groups {1, 5}, {2, 3, 6} and {4}; rows count within a group's layer.
+	VisualScriptGraph const groups = MakeGraph({6, 5, 4, 3, 2, 1}, {{5, 1}, {2, 3}, {2, 6}});
+	CHECK(Assign(groups, {1, 2, 3, 4, 5, 6}) ==
+	      std::vector<VisualScriptLayerAssignment>{{1, 0, 1, 0}, {2, 1, 0, 0}, {3, 1, 1, 0}, {4, 2, 0, 0}, {5, 0, 0, 0}, {6, 1, 1, 1}});
+}
+
+TEST_CASE("VisualScript: layer assignment counts only the links between the given nodes, placed or not")
+{
+	// 1 -> 2 -> 3 -> 4 with 1 and 4 placed: without 2, the given nodes 1, 3 and 4 form two groups.
+	VisualScriptGraph graph = MakeGraph({2, 3}, {{1, 2}, {2, 3}, {3, 4}});
+	graph.Nodes.push_back(MakeNode(1, glm::vec2(500.0f, 500.0f)));
+	graph.Nodes.push_back(MakeNode(4, glm::vec2(-500.0f, 0.0f)));
+	CHECK(Assign(graph, {4, 3, 1}) == std::vector<VisualScriptLayerAssignment>{{1, 0, 0, 0}, {3, 1, 0, 0}, {4, 1, 1, 0}});
+
+	// IDs of no node and repeated IDs are left out; no node, no entry.
+	CHECK(Assign(graph, {3, 9, 3, 0, 2}) == std::vector<VisualScriptLayerAssignment>{{2, 0, 0, 0}, {3, 0, 1, 0}});
+	CHECK(Assign(graph, {}).empty());
+	CHECK(Assign(VisualScriptGraph{}, {1, 2}).empty());
+}
+
+TEST_CASE("VisualScript: layer assignment is deterministic and does not depend on the order of nodes, links and given IDs")
+{
+	VisualScriptGraph const graph = MakeGraph({1, 2, 3, 4, 5, 6, 7, 8}, {{1, 2}, {2, 3}, {3, 1}, {1, 4}, {5, 6}, {6, 6}, {7, 5}, {2, 4}});
+	VisualScriptGraph reversed = graph;
+	std::reverse(reversed.Nodes.begin(), reversed.Nodes.end());
+	std::reverse(reversed.Links.begin(), reversed.Links.end());
+	std::vector<uint32_t> ids = GetAllIDs(graph);
+	std::vector<VisualScriptLayerAssignment> const first = Assign(graph, ids);
+	CHECK(first.size() == 8);
+	CHECK(Assign(graph, ids) == first);
+	std::reverse(ids.begin(), ids.end());
+	CHECK(Assign(reversed, ids) == first);
+}
+
+TEST_CASE("VisualScript: layout places the unplaced nodes at their layer assignment")
+{
+	// Groups {1, 2, 3, 4} (a fan into a chain) and {5, 6}, below a placed node at (-100, 40).
+	VisualScriptGraph graph = MakeGraph({1, 2, 3, 4, 5, 6}, {{1, 3}, {2, 3}, {3, 4}, {1, 4}, {6, 5}});
+	graph.Nodes.push_back(MakeNode(7, glm::vec2(-100.0f, 40.0f)));
+	std::vector<uint32_t> unplaced = GetAllIDs(graph);
+	unplaced.pop_back();
+	std::vector<VisualScriptLayerAssignment> const assignments = Assign(graph, unplaced);
+	VisualScriptGraph const placed = Place(graph);
+
+	// Each group starts 240 below the lowest row of the one before it, the first 240 below the placed node.
+	std::vector<float> tops = {280.0f};
+	for (VisualScriptLayerAssignment const& assignment : assignments)
+	{
+		CAPTURE(assignment.Node);
+		if (assignment.Component == tops.size())
+		{
+			float lastRow = 0.0f;
+			for (VisualScriptLayerAssignment const& other : assignments)
+			{
+				lastRow = other.Component + 1 == tops.size() ? std::max(lastRow, static_cast<float>(other.Row)) : lastRow;
+			}
+			tops.push_back(tops.back() + lastRow * 160.0f + 240.0f);
+		}
+		CHECK(GetPosition(placed, assignment.Node) ==
+		      glm::vec2(-100.0f + static_cast<float>(assignment.Layer) * 320.0f,
+		                tops.at(assignment.Component) + static_cast<float>(assignment.Row) * 160.0f));
+	}
+	CHECK(tops.size() == 2);
 }
 
 TEST_CASE("VisualScript: laid out documents load without issues, also when the layout reaches the edge of the canvas")

@@ -1,10 +1,61 @@
 #include "stpch.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 
+#include <array>
+#include <utility>
+
 namespace Strada
 {
+	namespace
+	{
+		constexpr std::array<std::pair<VisualScriptNodeEnabled, std::string_view>, 3> s_EnabledNames = {{
+			{VisualScriptNodeEnabled::Enabled, "Enabled"},
+			{VisualScriptNodeEnabled::Disabled, "Disabled"},
+			{VisualScriptNodeEnabled::DevelopmentOnly, "DevelopmentOnly"},
+		}};
+	}
+
+	std::string_view VisualScriptNodeEnabledToString(VisualScriptNodeEnabled enabled)
+	{
+		for (auto const& [value, name] : s_EnabledNames)
+		{
+			if (value == enabled)
+			{
+				return name;
+			}
+		}
+		return {};
+	}
+
+	std::optional<VisualScriptNodeEnabled> VisualScriptNodeEnabledFromString(std::string_view text)
+	{
+		for (auto const& [value, name] : s_EnabledNames)
+		{
+			if (text == name)
+			{
+				return value;
+			}
+		}
+		return std::nullopt;
+	}
+
+	VisualScriptAsset::VisualScriptAsset(VisualScriptDocument document)
+		: m_Document(CreateRef<VisualScriptDocument const>(std::move(document)))
+	{
+	}
+
 	void VisualScriptAsset::SetDocument(VisualScriptDocument document)
 	{
+		SetDocument(CreateRef<VisualScriptDocument const>(std::move(document)));
+	}
+
+	void VisualScriptAsset::SetDocument(Ref<VisualScriptDocument const> document)
+	{
+		ST_CORE_ASSERT(document != nullptr, "A visual script's document is never null");
+		if (document == nullptr)
+		{
+			return;
+		}
 		m_Document = std::move(document);
 		m_Version++;
 	}

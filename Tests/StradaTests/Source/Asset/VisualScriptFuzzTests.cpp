@@ -52,13 +52,23 @@ TEST_CASE("VisualScript: damaged files are refused or load and save again")
 	REQUIRE(VisualScriptSerializer::Deserialize(original, Testing::MakeTolerantContext(warnings), &issues).IsOk());
 	REQUIRE(issues.empty());
 
+	// The seed is damaged as a file of version 2 and, every other round, of version 1, where the node keys of version 2 it
+	// holds are unknown keys.
+	Json version1 = original;
+	version1["Strada"]["Version"] = 1;
+	Json version2 = original;
+	version2["Strada"]["Version"] = 2;
+	issues.clear();
+	REQUIRE(VisualScriptSerializer::Deserialize(version1, Testing::MakeTolerantContext(warnings), &issues).IsOk());
+	CHECK_FALSE(issues.empty());
+
 	Testing::DocumentMutator mutator(10000);
 	int loaded = 0;
 	int refused = 0;
 	for (int round = 0, rounds = Testing::GetFuzzRounds(300); round < rounds; round++)
 	{
 		CAPTURE(round);
-		if (LoadDamagedFile(mutator.Damage(original, round)))
+		if (LoadDamagedFile(mutator.Damage(round % 2 == 0 ? version2 : version1, round)))
 		{
 			loaded++;
 		}

@@ -129,6 +129,7 @@ namespace
 	}
 
 	constexpr std::string_view ValidHeader = R"({"Version": 1, "Type": "VisualScript"})";
+	constexpr std::string_view Version2Header = R"({"Version": 2, "Type": "VisualScript"})";
 
 	bool Contains(std::string_view text, std::string_view part)
 	{
@@ -265,9 +266,58 @@ TEST_CASE("VisualScript: the example file loads without issues and saves byte fo
 	CHECK(VisualScriptSerializer::Serialize(example)["VisualScript"] == VisualScriptSerializer::SerializeDocument(example));
 }
 
+TEST_CASE("VisualScript: a file of version 1 loads without issues and saves as version 2, its content unchanged")
+{
+	// Version1/Example.sgraph keeps the bytes Example.sgraph had in version 1 of the format.
+	std::string const old = ReadText(GetFixturePath("Version1/Example.sgraph"));
+	std::string const current = ReadText(GetFixturePath("Example.sgraph"));
+	Json const oldFile = Parse(old);
+	REQUIRE(oldFile["Strada"]["Version"] == 1);
+	CHECK(Parse(current)["Strada"]["Version"] == 2);
+
+	std::vector<std::string> warnings;
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> migrated =
+		VisualScriptSerializer::Deserialize(oldFile, MakeContext(UnknownFieldPolicy::Error, &warnings), &issues);
+	REQUIRE_MESSAGE(migrated.IsOk(), migrated.GetError());
+	CHECK(GetPaths(issues).empty());
+	CHECK(warnings.empty());
+	Result<VisualScriptDocument> example = VisualScriptSerializer::Deserialize(Parse(current), MakeContext(UnknownFieldPolicy::Error));
+	REQUIRE_MESSAGE(example.IsOk(), example.GetError());
+	CHECK(migrated.GetValue() == example.GetValue());
+	CHECK(DumpJson(VisualScriptSerializer::Serialize(migrated.GetValue())) == current);
+
+	// Only the digit of the header differs.
+	constexpr std::string_view OldVersion = "\"Version\": 1,";
+	std::string withNewHeader = old;
+	size_t const digit = withNewHeader.find(OldVersion);
+	REQUIRE(digit != std::string::npos);
+	withNewHeader.replace(digit, OldVersion.size(), "\"Version\": 2,");
+	CHECK(withNewHeader == current);
+
+	// Every node of a file of version 1 has the defaults of the keys version 2 added.
+	VisualScriptDocument const& document = migrated.GetValue();
+	std::vector<VisualScriptGraph const*> graphs = {&document.Graph};
+	for (VisualScriptFunction const& function : document.Functions)
+	{
+		graphs.push_back(&function.Graph);
+	}
+	for (VisualScriptGraph const* graph : graphs)
+	{
+		for (VisualScriptNode const& node : graph->Nodes)
+		{
+			CAPTURE(node.ID);
+			CHECK(node.Split.IsEmpty());
+			CHECK(node.Comment.empty());
+			CHECK_FALSE(node.Collapsed);
+			CHECK(node.Enabled == VisualScriptNodeEnabled::Enabled);
+		}
+	}
+}
+
 TEST_CASE("VisualScript: the shared fixture documents load strictly, round trip and keep the writer's layout")
 {
-	constexpr std::array<std::string_view, 6> Documents = {"Data.json",      "Events.json",    "Flow.json",
+	constexpr std::array<std::string_view, 7> Documents = {"Data.json",      "Editor.json",    "Events.json",   "Flow.json",
 	                                                       "Functions.json", "Reflected.json", "Variables.json"};
 	for (std::string_view const name : Documents)
 	{
@@ -395,6 +445,148 @@ TEST_CASE("VisualScript: the FeatureTest format sample is canonical and uses eve
 		CHECK(kinds.contains(static_cast<uint8_t>(kind)));
 	}
 	CHECK(depth >= 4);
+
+	// Every node key of version 2: split inputs on one node and nested split outputs on another, comments, collapsed nodes
+	// and both states other than Enabled, on placed and on unplaced nodes and in a function graph.
+	auto const hasVersion2Key = [](VisualScriptNode const& node)
+	{
+		return !node.Split.IsEmpty() || !node.Comment.empty() || node.Collapsed || node.Enabled != VisualScriptNodeEnabled::Enabled;
+	};
+	VisualScriptNode const* splitInputs = nullptr;
+	VisualScriptNode const* nestedSplitOutputs = nullptr;
+	bool comment = false;
+	bool collapsed = false;
+	bool disabled = false;
+	bool developmentOnly = false;
+	bool version2Placed = false;
+	bool version2Unplaced = false;
+	for (VisualScriptGraph const* graph : graphs)
+	{
+		for (VisualScriptNode const& node : graph->Nodes)
+		{
+			if (!node.Split.Inputs.empty())
+			{
+				splitInputs = &node;
+			}
+			if (std::any_of(node.Split.Outputs.begin(), node.Split.Outputs.end(),
+			                [](std::string const& pin)
+			                {
+								return pin.find('.') != std::string::npos;
+							}))
+			{
+				nestedSplitOutputs = &node;
+			}
+			comment = comment || !node.Comment.empty();
+			collapsed = collapsed || node.Collapsed;
+			disabled = disabled || node.Enabled == VisualScriptNodeEnabled::Disabled;
+			developmentOnly = developmentOnly || node.Enabled == VisualScriptNodeEnabled::DevelopmentOnly;
+			version2Placed = version2Placed || (hasVersion2Key(node) && node.Position.has_value());
+			version2Unplaced = version2Unplaced || (hasVersion2Key(node) && !node.Position.has_value());
+		}
+	}
+	REQUIRE(splitInputs != nullptr);
+	REQUIRE(nestedSplitOutputs != nullptr);
+	CHECK(splitInputs != nestedSplitOutputs);
+	CHECK(comment);
+	CHECK(collapsed);
+	CHECK(disabled);
+	CHECK(developmentOnly);
+	CHECK(version2Placed);
+	CHECK(version2Unplaced);
+	CHECK(std::any_of(sample.Functions.begin(), sample.Functions.end(),
+	                  [&hasVersion2Key](VisualScriptFunction const& function)
+	                  {
+						  return std::any_of(function.Graph.Nodes.begin(), function.Graph.Nodes.end(), hasVersion2Key);
+					  }));
+}
+
+TEST_CASE("VisualScript: the editor fixture document uses every node key of version 2 where the editor shows it")
+{
+	LoadedDocument const loaded = Load(Parse(ReadText(GetFixturePath("Documents/Editor.json"))));
+	CHECK(GetPaths(loaded.Issues).empty());
+	VisualScriptDocument const& document = loaded.Document;
+	std::vector<VisualScriptGraph const*> graphs = {&document.Graph};
+	for (VisualScriptFunction const& function : document.Functions)
+	{
+		graphs.push_back(&function.Graph);
+	}
+	std::vector<std::pair<VisualScriptGraph const*, VisualScriptNode const*>> nodes;
+	size_t unplaced = 0;
+	for (VisualScriptGraph const* graph : graphs)
+	{
+		for (VisualScriptNode const& node : graph->Nodes)
+		{
+			nodes.emplace_back(graph, &node);
+			unplaced += node.Position.has_value() ? 0 : 1;
+		}
+	}
+	CHECK(unplaced >= 2);
+	auto const has = [&nodes](auto const& predicate)
+	{
+		return std::any_of(nodes.begin(), nodes.end(),
+		                   [&predicate](std::pair<VisualScriptGraph const*, VisualScriptNode const*> const& entry)
+		                   {
+							   return predicate(*entry.first, *entry.second);
+						   });
+	};
+
+	// Each state on an impure node, on a latent node and on an event; a disabled function entry (which ignores it).
+	auto const hasState = [&has](std::string_view typePrefix, VisualScriptNodeEnabled enabled)
+	{
+		return has(
+			[typePrefix, enabled](VisualScriptGraph const&, VisualScriptNode const& node)
+			{
+				return node.Type.starts_with(typePrefix) && node.Enabled == enabled;
+			});
+	};
+	for (VisualScriptNodeEnabled const enabled :
+	     {VisualScriptNodeEnabled::Enabled, VisualScriptNodeEnabled::Disabled, VisualScriptNodeEnabled::DevelopmentOnly})
+	{
+		CAPTURE(VisualScriptNodeEnabledToString(enabled));
+		CHECK(hasState("Call:Strada.Log.Info(string)", enabled));
+		CHECK(hasState("Flow.Delay", enabled));
+		CHECK(hasState("Event.", enabled));
+	}
+	CHECK(hasState("Function.Entry", VisualScriptNodeEnabled::Disabled));
+
+	// The value of a transform setter split into fields, with literals and a link; a raycast's hit split, and its point.
+	CHECK(has(
+		[](VisualScriptGraph const& graph, VisualScriptNode const& node)
+		{
+			bool const linkedField = std::any_of(graph.Links.begin(), graph.Links.end(),
+		                                         [&node](VisualScriptLink const& link)
+		                                         {
+													 return link.To.Node == node.ID && link.To.Pin.starts_with("Value.");
+												 });
+			bool fieldLiteral = false;
+			for (auto const& item : node.Inputs.items())
+			{
+				fieldLiteral = fieldLiteral || item.key().starts_with("Value.");
+			}
+			return node.Type == "Set:Strada.TransformComponent.Translation" && node.Split.Inputs == std::vector<std::string>{"Value"} &&
+		           linkedField && fieldLiteral;
+		}));
+	CHECK(has(
+		[](VisualScriptGraph const& graph, VisualScriptNode const& node)
+		{
+			bool const linkedField = std::any_of(graph.Links.begin(), graph.Links.end(),
+		                                         [&node](VisualScriptLink const& link)
+		                                         {
+													 return link.From.Node == node.ID && link.From.Pin.starts_with("Hit.Point.");
+												 });
+			return node.Type.starts_with("Call:Strada.Physics.Raycast(") &&
+		           node.Split.Outputs == std::vector<std::string>{"Hit", "Hit.Point"} && linkedField;
+		}));
+	CHECK(has(
+		[](VisualScriptGraph const&, VisualScriptNode const& node)
+		{
+			return !node.Comment.empty();
+		}));
+	CHECK(has(
+		[](VisualScriptGraph const&, VisualScriptNode const& node)
+		{
+			return node.Collapsed;
+		}));
 }
 
 TEST_CASE("VisualScript: the FeatureTest scene's graph loads without issues and keeps the writer's layout")
@@ -412,6 +604,7 @@ TEST_CASE("VisualScript: files that are not visual scripts of this version are r
 {
 	Testing::TemporaryDirectory const directory;
 	CHECK(GetFileError(directory, MakeFileText(ValidHeader, "{}")).empty());
+	CHECK(GetFileError(directory, MakeFileText(Version2Header, "{}")).empty());
 
 	// What ParseJson refuses: syntax errors, values nested deeper than 256 levels, objects of more than 4096 members.
 	CHECK(Contains(GetFileError(directory, MakeFileText(ValidHeader, "{\"Description\": ")), "invalid JSON"));
@@ -443,7 +636,7 @@ TEST_CASE("VisualScript: files that are not visual scripts of this version are r
 			GetFileError(directory, MakeFileText(fmt::format(R"({{"Version": {}, "Type": "VisualScript"}})", version), "{}")).empty());
 	}
 	CHECK_FALSE(GetFileError(directory, MakeFileText(R"({"Type": "VisualScript"})", "{}")).empty());
-	for (std::string_view const version : {"2", "2147483648", "4294967297", "18446744073709551615"})
+	for (std::string_view const version : {"3", "2147483648", "4294967297", "18446744073709551615"})
 	{
 		CAPTURE(version);
 		CHECK(Contains(GetFileError(directory, MakeFileText(fmt::format(R"({{"Version": {}, "Type": "VisualScript"}})", version), "{}")),
@@ -530,8 +723,291 @@ TEST_CASE("VisualScript: unknown keys refuse the document under Error, are issue
 	CHECK(VisualScriptSerializer::DeserializeDocument(content, MakeContext(UnknownFieldPolicy::Error)).GetError() ==
 	      "Functions[0].Inputs[0].Default: unknown key");
 	content["Functions"].erase(0);
+	// The content form has no version: it knows the node keys of version 2, which the file of version 1 does not.
 	CHECK(VisualScriptSerializer::DeserializeDocument(content, MakeContext(UnknownFieldPolicy::Error)).GetError() ==
-	      "Graph.Nodes[0].Comment: unknown key");
+	      "Graph.Links[0].Color: unknown key");
+}
+
+TEST_CASE("VisualScript: the node keys of version 2 are unknown keys in a file of version 1")
+{
+	constexpr std::string_view Content = R"({
+		"Functions": [{"ID": 1, "Name": "F", "Graph": {"Nodes": [{"ID": 2, "Type": "Function.Entry", "Collapsed": true}]}}],
+		"Graph": {
+			"Nodes": [{"ID": 3, "Type": "Flow.Branch", "Split": {"Inputs": ["Condition"]}, "Comment": "c", "Collapsed": true, "Enabled": "Disabled"}]
+		}
+	})";
+	Json const version1 = Parse(MakeFileText(ValidHeader, Content));
+	Json const version2 = Parse(MakeFileText(Version2Header, Content));
+
+	// A file of version 2 has them.
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> read = VisualScriptSerializer::Deserialize(version2, MakeContext(UnknownFieldPolicy::Error), &issues);
+	REQUIRE_MESSAGE(read.IsOk(), read.GetError());
+	CHECK(GetPaths(issues).empty());
+	VisualScriptNode const& branch = read.GetValue().Graph.Nodes.at(0);
+	CHECK(branch.Split == VisualScriptSplitPins{{"Condition"}, {}});
+	CHECK(branch.Comment == "c");
+	CHECK(branch.Collapsed);
+	CHECK(branch.Enabled == VisualScriptNodeEnabled::Disabled);
+	CHECK(read.GetValue().Functions.at(0).Graph.Nodes.at(0).Collapsed);
+
+	// A file of version 1 does not: each is an issue under Warn, and the nodes keep the defaults.
+	std::vector<std::string> warnings;
+	issues.clear();
+	Result<VisualScriptDocument> warned =
+		VisualScriptSerializer::Deserialize(version1, MakeContext(UnknownFieldPolicy::Warn, &warnings), &issues);
+	REQUIRE_MESSAGE(warned.IsOk(), warned.GetError());
+	CHECK(GetPaths(issues) == "Functions[0].Graph.Nodes[0].Collapsed, Graph.Nodes[0].Split, Graph.Nodes[0].Comment, "
+	                          "Graph.Nodes[0].Collapsed, Graph.Nodes[0].Enabled");
+	CHECK(warnings.size() == issues.size());
+	VisualScriptNode plainBranch;
+	plainBranch.ID = 3;
+	plainBranch.Type = "Flow.Branch";
+	VisualScriptDocument expected = read.GetValue();
+	expected.Graph.Nodes.at(0) = plainBranch;
+	expected.Functions.at(0).Graph.Nodes.at(0).Collapsed = false;
+	CHECK(warned.GetValue() == expected);
+	CheckSavesAndLoadsAgain(warned.GetValue());
+
+	// They are skipped under Ignore and refuse the file under Error.
+	warnings.clear();
+	issues.clear();
+	Result<VisualScriptDocument> ignored =
+		VisualScriptSerializer::Deserialize(version1, MakeContext(UnknownFieldPolicy::Ignore, &warnings), &issues);
+	REQUIRE(ignored.IsOk());
+	CHECK(issues.empty());
+	CHECK(warnings.empty());
+	CHECK(ignored.GetValue() == expected);
+	CHECK(VisualScriptSerializer::Deserialize(version1, MakeContext(UnknownFieldPolicy::Error)).GetError() ==
+	      "Functions[0].Graph.Nodes[0].Collapsed: unknown key");
+}
+
+TEST_CASE("VisualScript: node comments, collapsed and enabled states of the wrong kind take their defaults")
+{
+	Json nodes = Parse(R"([
+		{"ID": 1, "Type": "N", "Comment": 5, "Collapsed": "yes", "Enabled": "Off"},
+		{"ID": 2, "Type": "N", "Comment": ["c"], "Collapsed": 1, "Enabled": false},
+		{"ID": 3, "Type": "N", "Comment": null, "Collapsed": null, "Enabled": "disabled"},
+		{"ID": 4, "Type": "N", "Comment": "Kept", "Collapsed": true, "Enabled": "DevelopmentOnly"},
+		{"ID": 5, "Type": "N", "Collapsed": false, "Enabled": "Disabled"},
+		{"ID": 6, "Type": "N", "Enabled": "Enabled"}
+	])");
+	std::string const maxComment(65536, 'c');
+	nodes.push_back(Json::object({{"ID", 7}, {"Type", "N"}, {"Comment", maxComment}}));
+	nodes.push_back(Json::object({{"ID", 8}, {"Type", "N"}, {"Comment", maxComment + "c"}}));
+
+	LoadedDocument const loaded = Load(MakeContent(Json::array(), Json::array(), MakeGraph(nodes)));
+	CHECK(GetPaths(loaded.Issues) == "Graph.Nodes[0].Comment, Graph.Nodes[0].Collapsed, Graph.Nodes[0].Enabled, Graph.Nodes[1].Comment, "
+	                                 "Graph.Nodes[1].Collapsed, Graph.Nodes[1].Enabled, Graph.Nodes[2].Comment, Graph.Nodes[2].Collapsed, "
+	                                 "Graph.Nodes[2].Enabled, Graph.Nodes[7].Comment");
+	std::vector<VisualScriptNode> const& kept = loaded.Document.Graph.Nodes;
+	REQUIRE(kept.size() == 8);
+	for (size_t const i : std::array<size_t, 4>{0, 1, 2, 7})
+	{
+		CAPTURE(i);
+		CHECK(kept[i].Comment.empty());
+		CHECK_FALSE(kept[i].Collapsed);
+		CHECK(kept[i].Enabled == VisualScriptNodeEnabled::Enabled);
+	}
+	CHECK(kept[3].Comment == "Kept");
+	CHECK(kept[3].Collapsed);
+	CHECK(kept[3].Enabled == VisualScriptNodeEnabled::DevelopmentOnly);
+	CHECK_FALSE(kept[4].Collapsed);
+	CHECK(kept[4].Enabled == VisualScriptNodeEnabled::Disabled);
+	CHECK(kept[5].Enabled == VisualScriptNodeEnabled::Enabled);
+	CHECK(kept[6].Comment == maxComment);
+}
+
+TEST_CASE("VisualScript: split pins keep pin paths once each, parents ahead of their fields, at most 64 per list")
+{
+	std::string const longest(128, 'p');
+	Json nodes = Json::array();
+	nodes.push_back(Parse(R"({"ID": 1, "Type": "N", "Split": ["Hit"]})"));
+	nodes.push_back(Parse(R"({"ID": 2, "Type": "N", "Split": {"Inputs": "Hit", "Outputs": {"Hit": 1}}})"));
+	// A pin name holding a '.' (a string switch's case "Case:a.b") reads as a path too, here a field of "Case:a".
+	Json paths = Json::array({5, "", ".Hit", "Hit.", "Hit..Point", "Tab\tPin", longest + "p", longest, "Hit", "Hit", "Hit.Point",
+	                          "Hit.Point", "Force.X", "Hit.Normal.X", "Hit.Normal", "Case:a.b", nullptr});
+	nodes.push_back(Json::object({{"ID", 3}, {"Type", "N"}, {"Split", Json::object({{"Inputs", paths}})}}));
+	// Each list is its own: an output's field needs the output split, not an input of the same name.
+	nodes.push_back(Parse(R"({"ID": 4, "Type": "N", "Split": {"Inputs": ["Value"], "Outputs": ["Value.X", "Value"]}})"));
+	Json many = Json::array();
+	for (size_t i = 0; i < 65; i++)
+	{
+		many.push_back(fmt::format("Pin{}", i));
+	}
+	many.push_back("Pin0.X");
+	nodes.push_back(Json::object({{"ID", 5}, {"Type", "N"}, {"Split", Json::object({{"Outputs", many}})}}));
+	nodes.push_back(Parse(R"({"ID": 6, "Type": "N", "Split": {"Inputs": ["A"], "Fields": ["B"]}})"));
+
+	LoadedDocument const loaded = Load(MakeContent(Json::array(), Json::array(), MakeGraph(nodes)));
+	CHECK(GetPaths(loaded.Issues) ==
+	      "Graph.Nodes[0].Split, Graph.Nodes[1].Split.Inputs, Graph.Nodes[1].Split.Outputs, Graph.Nodes[2].Split.Inputs[0], "
+	      "Graph.Nodes[2].Split.Inputs[1], Graph.Nodes[2].Split.Inputs[2], Graph.Nodes[2].Split.Inputs[3], "
+	      "Graph.Nodes[2].Split.Inputs[4], Graph.Nodes[2].Split.Inputs[5], Graph.Nodes[2].Split.Inputs[6], "
+	      "Graph.Nodes[2].Split.Inputs[9], Graph.Nodes[2].Split.Inputs[11], Graph.Nodes[2].Split.Inputs[12], "
+	      "Graph.Nodes[2].Split.Inputs[13], Graph.Nodes[2].Split.Inputs[15], Graph.Nodes[2].Split.Inputs[16], "
+	      "Graph.Nodes[3].Split.Outputs[0], Graph.Nodes[4].Split.Outputs[64], Graph.Nodes[4].Split.Outputs[65], "
+	      "Graph.Nodes[5].Split.Fields");
+
+	std::vector<VisualScriptNode> const& kept = loaded.Document.Graph.Nodes;
+	REQUIRE(kept.size() == 6);
+	CHECK(kept[0].Split.IsEmpty());
+	CHECK(kept[1].Split.IsEmpty());
+	CHECK(kept[2].Split.Inputs == std::vector<std::string>{longest, "Hit", "Hit.Point", "Hit.Normal"});
+	CHECK(kept[2].Split.Outputs.empty());
+	CHECK(kept[3].Split == VisualScriptSplitPins{{"Value"}, {"Value"}});
+	REQUIRE(kept[4].Split.Outputs.size() == VisualScriptSerializer::MaxSplitPins);
+	CHECK(kept[4].Split.Outputs.back() == "Pin63");
+	CHECK(kept[5].Split == VisualScriptSplitPins{{"A"}, {}});
+
+	// The messages say why an entry is dropped; an unknown member of Split refuses the document under Error.
+	auto const message = [&loaded](std::string_view path)
+	{
+		auto const issue = std::find_if(loaded.Issues.begin(), loaded.Issues.end(),
+		                                [path](VisualScriptIssue const& candidate)
+		                                {
+											return candidate.Path == path;
+										});
+		return issue == loaded.Issues.end() ? std::string() : issue->Message;
+	};
+	CHECK(Contains(message("Graph.Nodes[2].Split.Inputs[11]"), "'Hit.Point' is already split"));
+	CHECK(Contains(message("Graph.Nodes[2].Split.Inputs[13]"), "'Hit.Normal.X' is a field of 'Hit.Normal', which is not split before it"));
+	CHECK(Contains(message("Graph.Nodes[2].Split.Inputs[15]"), "'Case:a.b' is a field of 'Case:a'"));
+	CHECK(Contains(message("Graph.Nodes[4].Split.Outputs[64]"), "more than 64 split pins"));
+	CHECK(Contains(message("Graph.Nodes[0].Split"), "expected an object"));
+	CHECK(VisualScriptSerializer::DeserializeDocument(MakeContent(Json::array(), Json::array(), MakeGraph(nodes)),
+	                                                  MakeContext(UnknownFieldPolicy::Error))
+	          .GetError() == "Graph.Nodes[5].Split.Fields: unknown key");
+}
+
+TEST_CASE("VisualScript: a split path dropped from its list drops the paths of its fields")
+{
+	auto const loadInputs = [](Json paths)
+	{
+		Json const node = Json::object({{"ID", 1}, {"Type", "N"}, {"Split", Json::object({{"Inputs", std::move(paths)}})}});
+		return Load(MakeContent(Json::array(), Json::array(), MakeGraph(Json::array({node}))));
+	};
+
+	LoadedDocument const fieldFirst = loadInputs(Json::array({"A.B", "A", "A.B.C"}));
+	CHECK(GetPaths(fieldFirst.Issues) == "Graph.Nodes[0].Split.Inputs[0], Graph.Nodes[0].Split.Inputs[2]");
+	CHECK(fieldFirst.Document.Graph.Nodes.at(0).Split.Inputs == std::vector<std::string>{"A"});
+
+	LoadedDocument const parentsFirst = loadInputs(Json::array({"A", "A.B", "A.B.C"}));
+	CHECK(GetPaths(parentsFirst.Issues).empty());
+	CHECK(parentsFirst.Document.Graph.Nodes.at(0).Split.Inputs == std::vector<std::string>{"A", "A.B", "A.B.C"});
+
+	LoadedDocument const invalidParent = loadInputs(Json::array({"A", "B.", "B.C", "B.C.D", "A.X"}));
+	CHECK(GetPaths(invalidParent.Issues) ==
+	      "Graph.Nodes[0].Split.Inputs[1], Graph.Nodes[0].Split.Inputs[2], Graph.Nodes[0].Split.Inputs[3]");
+	CHECK(invalidParent.Document.Graph.Nodes.at(0).Split.Inputs == std::vector<std::string>{"A", "A.X"});
+
+	// A parent beyond the limit takes its fields with it.
+	Json full = Json::array();
+	for (size_t i = 0; i < VisualScriptSerializer::MaxSplitPins; i++)
+	{
+		full.push_back(fmt::format("Pin{}", i));
+	}
+	full.push_back("Extra");
+	full.push_back("Extra.X");
+	LoadedDocument const limited = loadInputs(full);
+	CHECK(GetPaths(limited.Issues) == "Graph.Nodes[0].Split.Inputs[64], Graph.Nodes[0].Split.Inputs[65]");
+	CHECK(limited.Document.Graph.Nodes.at(0).Split.Inputs.size() == VisualScriptSerializer::MaxSplitPins);
+	CHECK(std::find(limited.Document.Graph.Nodes.at(0).Split.Inputs.begin(), limited.Document.Graph.Nodes.at(0).Split.Inputs.end(),
+	                "Extra.X") == limited.Document.Graph.Nodes.at(0).Split.Inputs.end());
+}
+
+TEST_CASE("VisualScript: the content form carries the node keys of version 2, and strict use refuses their repairs")
+{
+	Json const content = Parse(R"({
+		"Functions": [{"ID": 1, "Name": "F", "Graph": {"Nodes": [{"ID": 2, "Type": "Function.Entry", "Comment": "Starts here"}]}}],
+		"Graph": {
+			"Nodes": [
+				{"ID": 3, "Type": "N", "Position": [0.0, 0.0], "Split": {"Inputs": ["Force"], "Outputs": ["Hit", "Hit.Point"]}, "Comment": "c", "Collapsed": true, "Enabled": "DevelopmentOnly"},
+				{"ID": 4, "Type": "N", "Split": {"Outputs": ["Value"]}, "Enabled": "Disabled"}
+			],
+			"Links": [{"From": [4, "Value.X"], "To": [3, "Force.Y"]}]
+		}
+	})");
+	CHECK(IsStrictlyValid(content));
+	LoadedDocument const loaded = Load(content);
+	VisualScriptNode const& node = loaded.Document.Graph.Nodes.at(0);
+	CHECK(node.Split == VisualScriptSplitPins{{"Force"}, {"Hit", "Hit.Point"}});
+	CHECK(node.Enabled == VisualScriptNodeEnabled::DevelopmentOnly);
+	CHECK(loaded.Document.Functions.at(0).Graph.Nodes.at(0).Comment == "Starts here");
+
+	// What the writer gives back is the content as given (it is in the writer's order).
+	Json const written = VisualScriptSerializer::SerializeDocument(loaded.Document);
+	CHECK(written["Graph"]["Nodes"] == content["Graph"]["Nodes"]);
+	CHECK(written["Functions"][0]["Graph"]["Nodes"] == content["Functions"][0]["Graph"]["Nodes"]);
+
+	// Defaults written out are no issues; every repair is.
+	Json explicitDefaults = content;
+	explicitDefaults["Graph"]["Nodes"][1].update(Parse(R"({"Comment": "", "Collapsed": false})"));
+	explicitDefaults["Functions"][0]["Graph"]["Nodes"][0].update(
+		Parse(R"({"Split": {"Inputs": [], "Outputs": []}, "Collapsed": false, "Enabled": "Enabled"})"));
+	CHECK(IsStrictlyValid(explicitDefaults));
+	CHECK(Load(explicitDefaults).Document == loaded.Document);
+	for (std::string_view const damage :
+	     {R"({"Comment": 1})", R"({"Collapsed": "true"})", R"({"Enabled": "On"})", R"({"Split": []})", R"({"Split": {"Inputs": "Force"}})",
+	      R"({"Split": {"Inputs": ["Force.X"]}})", R"({"Split": {"Inputs": ["Force", "Force"]}})", R"({"Split": {"Pins": []}})"})
+	{
+		CAPTURE(damage);
+		Json damaged = content;
+		damaged["Graph"]["Nodes"][1].update(Parse(damage));
+		CHECK_FALSE(IsStrictlyValid(damaged));
+	}
+}
+
+TEST_CASE("VisualScript: the writer appends the node keys of version 2 in order and omits them at their defaults")
+{
+	VisualScriptNode full;
+	full.ID = 1;
+	full.Type = "N";
+	full.Enabled = VisualScriptNodeEnabled::Disabled;
+	full.Collapsed = true;
+	full.Comment = "Note";
+	full.Split.Outputs = {"Hit", "Hit.Point"};
+	full.Split.Inputs = {"Value"};
+	full.Inputs = Json::object({{"Value.X", 1}});
+	full.Position = glm::vec2(16.0f, 32.0f);
+	VisualScriptNode outputsOnly;
+	outputsOnly.ID = 2;
+	outputsOnly.Type = "N";
+	outputsOnly.Split.Outputs = {"Hit"};
+	outputsOnly.Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	VisualScriptNode defaults;
+	defaults.ID = 3;
+	defaults.Type = "N";
+	VisualScriptDocument document;
+	document.Graph.Nodes = {full, outputsOnly, defaults};
+
+	std::string const expected = DumpJson(Parse(R"([
+		{"ID": 1, "Type": "N", "Position": [16.0, 32.0], "Inputs": {"Value.X": 1}, "Split": {"Inputs": ["Value"], "Outputs": ["Hit", "Hit.Point"]}, "Comment": "Note", "Collapsed": true, "Enabled": "Disabled"},
+		{"ID": 2, "Type": "N", "Split": {"Outputs": ["Hit"]}, "Enabled": "DevelopmentOnly"},
+		{"ID": 3, "Type": "N"}
+	])"));
+	CHECK(DumpJson(VisualScriptSerializer::SerializeDocument(document)["Graph"]["Nodes"]) == expected);
+	CHECK(DumpJson(VisualScriptSerializer::Serialize(document)["VisualScript"]["Graph"]["Nodes"]) == expected);
+	CheckSavesAndLoadsAgain(document);
+}
+
+TEST_CASE("VisualScript: the enabled states of nodes convert to and from their names")
+{
+	CHECK(VisualScriptNodeEnabledToString(VisualScriptNodeEnabled::Enabled) == "Enabled");
+	CHECK(VisualScriptNodeEnabledToString(VisualScriptNodeEnabled::Disabled) == "Disabled");
+	CHECK(VisualScriptNodeEnabledToString(VisualScriptNodeEnabled::DevelopmentOnly) == "DevelopmentOnly");
+	for (VisualScriptNodeEnabled const enabled :
+	     {VisualScriptNodeEnabled::Enabled, VisualScriptNodeEnabled::Disabled, VisualScriptNodeEnabled::DevelopmentOnly})
+	{
+		CHECK(VisualScriptNodeEnabledFromString(VisualScriptNodeEnabledToString(enabled)) == enabled);
+	}
+	for (std::string_view const text : {"", "enabled", "Disabled ", "Development Only", "None"})
+	{
+		CAPTURE(text);
+		CHECK_FALSE(VisualScriptNodeEnabledFromString(text).has_value());
+	}
+	CHECK(VisualScriptNodeEnabledToString(static_cast<VisualScriptNodeEnabled>(3)).empty());
+	CHECK(VisualScriptNode().Enabled == VisualScriptNodeEnabled::Enabled);
 }
 
 TEST_CASE("VisualScript: text, flags, ranges and lists of the wrong kind are repaired")
@@ -959,7 +1435,8 @@ TEST_CASE("VisualScript: strict use accepts omitted optional keys and refuses ev
 	Json explicitDefaults = minimal;
 	explicitDefaults["Description"] = "";
 	explicitDefaults["Variables"][0].update(Parse(R"({"Value": null, "Public": false, "Tooltip": "", "FormerNames": []})"));
-	explicitDefaults["Graph"]["Nodes"][0].update(Parse(R"({"Settings": {}, "Inputs": {}})"));
+	explicitDefaults["Graph"]["Nodes"][0].update(
+		Parse(R"({"Settings": {}, "Inputs": {}, "Split": {}, "Comment": "", "Collapsed": false, "Enabled": "Enabled"})"));
 	explicitDefaults["Graph"]["Comments"][0].update(
 		Parse(R"({"Text": "", "Position": [0, 0], "Size": [400, 200], "Color": [0.5, 0.5, 0.5, 0.25]})"));
 	CHECK(IsStrictlyValid(explicitDefaults));
@@ -1001,6 +1478,11 @@ TEST_CASE("VisualScript: strict use accepts omitted optional keys and refuses ev
 		[](Json& content)
 		{
 			content["Layout"] = "auto";
+		})));
+	CHECK_FALSE(IsStrictlyValid(damaged(
+		[](Json& content)
+		{
+			content["Graph"]["Nodes"][0]["Split"] = Json::object({{"Inputs", Json::array({"Condition.X"})}});
 		})));
 }
 
@@ -1251,9 +1733,9 @@ TEST_CASE("VisualScript: the writer omits defaults, keeps raw values as stored a
 	CHECK(DumpJson(VisualScriptSerializer::SerializeDocument({})) ==
 	      DumpJson(Parse(R"({"Description": "", "Variables": [], "Functions": [], "Graph": {"Nodes": [], "Links": [], "Comments": []}})")));
 	Json const file = VisualScriptSerializer::Serialize(document);
-	CHECK(file["Strada"] == Parse(R"({"Version": 1, "Type": "VisualScript"})"));
+	CHECK(file["Strada"] == Parse(R"({"Version": 2, "Type": "VisualScript"})"));
 	CHECK(file.size() == 2);
-	CHECK(VisualScriptSerializer::FormatVersion == 1);
+	CHECK(VisualScriptSerializer::FormatVersion == 2);
 }
 
 TEST_CASE("VisualScript: unplaced nodes, locals and former names survive saving and loading")
@@ -1349,7 +1831,7 @@ TEST_CASE("VisualScript: the asset manager loads .sgraph files and logs their re
 	REQUIRE(FileSystem::WriteTextFile(assets / "Scripts" / "Damaged.sgraph",
 	                                  MakeFileText(ValidHeader, R"({"Variables": [{"ID": 1, "Name": "Speed"}], "Layout": "auto"})"))
 	            .IsOk());
-	REQUIRE(FileSystem::WriteTextFile(assets / "Scripts" / "Newer.sgraph", MakeFileText(R"({"Version": 2, "Type": "VisualScript"})", "{}"))
+	REQUIRE(FileSystem::WriteTextFile(assets / "Scripts" / "Newer.sgraph", MakeFileText(R"({"Version": 3, "Type": "VisualScript"})", "{}"))
 	            .IsOk());
 	REQUIRE(AssetManager::OpenAssetDirectory(assets).IsOk());
 

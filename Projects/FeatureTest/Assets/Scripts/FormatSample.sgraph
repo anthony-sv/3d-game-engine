@@ -1,6 +1,6 @@
 {
 	"Strada": {
-		"Version": 1,
+		"Version": 2,
 		"Type": "VisualScript"
 	},
 	"VisualScript": {
@@ -280,7 +280,8 @@
 							"Type": "Operator.Divide",
 							"Inputs": {
 								"B": 2.0
-							}
+							},
+							"Collapsed": true
 						},
 						{
 							"ID": 35,
@@ -413,7 +414,9 @@
 							],
 							"Settings": {
 								"Variable": 26
-							}
+							},
+							"Comment": "Keeps the total",
+							"Enabled": "Disabled"
 						},
 						{
 							"ID": 46,
@@ -543,7 +546,9 @@
 					"Type": "Call:Strada.Log.Info(string)",
 					"Inputs": {
 						"Message": "Started"
-					}
+					},
+					"Comment": "Logs in development builds only",
+					"Enabled": "DevelopmentOnly"
 				},
 				{
 					"ID": 54,
@@ -557,7 +562,8 @@
 					},
 					"Inputs": {
 						"Points": 5
-					}
+					},
+					"Enabled": "Disabled"
 				},
 				{
 					"ID": 55,
@@ -634,6 +640,34 @@
 							"Key": "value"
 						}
 					}
+				},
+				{
+					"ID": 62,
+					"Type": "Set:Strada.TransformComponent.Translation",
+					"Inputs": {
+						"Value.X": 1.5
+					},
+					"Split": {
+						"Inputs": [
+							"Value"
+						]
+					},
+					"Collapsed": true
+				},
+				{
+					"ID": 63,
+					"Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
+					"Position": [
+						560.0,
+						320.0
+					],
+					"Split": {
+						"Outputs": [
+							"Hit",
+							"Hit.Point"
+						]
+					},
+					"Comment": "The hit and its point by field"
 				}
 			],
 			"Links": [
@@ -685,6 +719,16 @@
 					"To": [
 						58,
 						"Flag"
+					]
+				},
+				{
+					"From": [
+						63,
+						"Hit.Point.Y"
+					],
+					"To": [
+						62,
+						"Value.Y"
 					]
 				}
 			],

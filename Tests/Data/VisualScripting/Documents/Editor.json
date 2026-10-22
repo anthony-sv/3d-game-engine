@@ -1,0 +1,505 @@
+{
+	"Description": "Version 2 of the format as the editor writes it: every enabled state, split pins (an input with field literals and a linked field, an output and a field of it), node comments and collapsed nodes",
+	"Variables": [
+		{
+			"ID": 1,
+			"Name": "Ground",
+			"Type": "float",
+			"Value": 0.0
+		}
+	],
+	"Functions": [
+		{
+			"ID": 2,
+			"Name": "Report",
+			"Pure": false,
+			"Inputs": [
+				{
+					"Name": "Distance",
+					"Type": "float"
+				}
+			],
+			"Outputs": [],
+			"Locals": [],
+			"Graph": {
+				"Nodes": [
+					{
+						"ID": 30,
+						"Type": "Function.Entry",
+						"Position": [
+							0.0,
+							0.0
+						],
+						"Comment": "An entry cannot be disabled: it runs, with a warning",
+						"Enabled": "Disabled"
+					},
+					{
+						"ID": 31,
+						"Type": "Call:Strada.Log.Info(string)",
+						"Position": [
+							320.0,
+							0.0
+						]
+					}
+				],
+				"Links": [
+					{
+						"From": [
+							30,
+							"Then"
+						],
+						"To": [
+							31,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							30,
+							"Distance"
+						],
+						"To": [
+							31,
+							"Message"
+						]
+					}
+				],
+				"Comments": [
+					{
+						"ID": 32,
+						"Text": "Logs the distance it is given",
+						"Position": [
+							-40.0,
+							-80.0
+						],
+						"Size": [
+							680.0,
+							240.0
+						],
+						"Color": [
+							0.25,
+							0.75,
+							0.5,
+							0.25
+						]
+					}
+				]
+			}
+		}
+	],
+	"Graph": {
+		"Nodes": [
+			{
+				"ID": 10,
+				"Type": "Event.Create",
+				"Position": [
+					0.0,
+					0.0
+				]
+			},
+			{
+				"ID": 11,
+				"Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
+				"Position": [
+					320.0,
+					0.0
+				],
+				"Inputs": {
+					"Direction": [
+						0.0,
+						-1.0,
+						0.0
+					],
+					"MaxDistance": 50.0
+				},
+				"Split": {
+					"Outputs": [
+						"Hit",
+						"Hit.Point"
+					]
+				},
+				"Comment": "The hit and the point of the hit are split into their fields"
+			},
+			{
+				"ID": 12,
+				"Type": "Get:Strada.TransformComponent.Translation",
+				"Collapsed": true
+			},
+			{
+				"ID": 13,
+				"Type": "Variable.Set",
+				"Position": [
+					640.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 1
+				}
+			},
+			{
+				"ID": 14,
+				"Type": "Set:Strada.TransformComponent.Translation",
+				"Position": [
+					960.0,
+					0.0
+				],
+				"Inputs": {
+					"Value.X": 1.0,
+					"Value.Z": -2.0
+				},
+				"Split": {
+					"Inputs": [
+						"Value"
+					]
+				},
+				"Comment": "Moves the entity to (1, Ground, -2)"
+			},
+			{
+				"ID": 15,
+				"Type": "Function.Call",
+				"Position": [
+					1280.0,
+					0.0
+				],
+				"Settings": {
+					"Function": 2
+				},
+				"Collapsed": true
+			},
+			{
+				"ID": 16,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1600.0,
+					0.0
+				],
+				"Inputs": {
+					"Message": "logged: enabled"
+				}
+			},
+			{
+				"ID": 17,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1920.0,
+					0.0
+				],
+				"Inputs": {
+					"Message": "never logged: disabled"
+				},
+				"Comment": "Disabled: the flow passes through",
+				"Enabled": "Disabled"
+			},
+			{
+				"ID": 18,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					2240.0,
+					0.0
+				],
+				"Inputs": {
+					"Message": "logged in development builds only"
+				},
+				"Enabled": "DevelopmentOnly"
+			},
+			{
+				"ID": 19,
+				"Type": "Flow.Delay",
+				"Position": [
+					2560.0,
+					0.0
+				],
+				"Inputs": {
+					"Duration": 0.5
+				},
+				"Comment": "Disabled: it does not wait, the flow goes on at Completed",
+				"Enabled": "Disabled"
+			},
+			{
+				"ID": 20,
+				"Type": "Flow.Delay",
+				"Position": [
+					2880.0,
+					0.0
+				],
+				"Inputs": {
+					"Duration": 0.25
+				},
+				"Enabled": "DevelopmentOnly"
+			},
+			{
+				"ID": 21,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					3520.0,
+					0.0
+				],
+				"Inputs": {
+					"Message": "done"
+				}
+			},
+			{
+				"ID": 22,
+				"Type": "Event.Update",
+				"Position": [
+					0.0,
+					320.0
+				],
+				"Comment": "Disabled: it never starts",
+				"Enabled": "Disabled"
+			},
+			{
+				"ID": 23,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Inputs": {
+					"Message": "never logged: its event is disabled"
+				}
+			},
+			{
+				"ID": 24,
+				"Type": "Event.KeyPressed",
+				"Position": [
+					0.0,
+					640.0
+				],
+				"Settings": {
+					"Key": "G"
+				},
+				"Enabled": "DevelopmentOnly"
+			},
+			{
+				"ID": 25,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					320.0,
+					640.0
+				],
+				"Inputs": {
+					"Message": "G pressed in a development build"
+				},
+				"Collapsed": true
+			},
+			{
+				"ID": 26,
+				"Type": "Flow.Delay",
+				"Position": [
+					3200.0,
+					0.0
+				],
+				"Inputs": {
+					"Duration": 0.125
+				}
+			}
+		],
+		"Links": [
+			{
+				"From": [
+					10,
+					"Then"
+				],
+				"To": [
+					11,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					12,
+					"Value"
+				],
+				"To": [
+					11,
+					"Origin"
+				]
+			},
+			{
+				"From": [
+					11,
+					"Then"
+				],
+				"To": [
+					13,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					11,
+					"Hit.Point.Y"
+				],
+				"To": [
+					13,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					13,
+					"Then"
+				],
+				"To": [
+					14,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					13,
+					"Value"
+				],
+				"To": [
+					14,
+					"Value.Y"
+				]
+			},
+			{
+				"From": [
+					14,
+					"Then"
+				],
+				"To": [
+					15,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					11,
+					"Hit.Distance"
+				],
+				"To": [
+					15,
+					"Distance"
+				]
+			},
+			{
+				"From": [
+					15,
+					"Then"
+				],
+				"To": [
+					16,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					16,
+					"Then"
+				],
+				"To": [
+					17,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					17,
+					"Then"
+				],
+				"To": [
+					18,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					18,
+					"Then"
+				],
+				"To": [
+					19,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					19,
+					"Completed"
+				],
+				"To": [
+					20,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					20,
+					"Completed"
+				],
+				"To": [
+					26,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					26,
+					"Completed"
+				],
+				"To": [
+					21,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					22,
+					"Then"
+				],
+				"To": [
+					23,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					24,
+					"Then"
+				],
+				"To": [
+					25,
+					"Execute"
+				]
+			}
+		],
+		"Comments": [
+			{
+				"ID": 40,
+				"Text": "On create: cast a ray down, keep the height of the ground, move there and report the distance; then an enabled, a disabled and a development-only log, and a disabled, a development-only and an enabled delay",
+				"Position": [
+					-40.0,
+					-80.0
+				],
+				"Size": [
+					3880.0,
+					240.0
+				],
+				"Color": [
+					0.25,
+					0.5,
+					0.75,
+					0.25
+				]
+			},
+			{
+				"ID": 41,
+				"Text": "A disabled event starts nothing; a development-only one runs only in development builds",
+				"Position": [
+					-40.0,
+					240.0
+				],
+				"Size": [
+					680.0,
+					560.0
+				],
+				"Color": [
+					0.75,
+					0.5,
+					0.25,
+					0.25
+				]
+			}
+		]
+	}
+}
