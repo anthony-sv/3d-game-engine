@@ -48,7 +48,8 @@ namespace Strada
 		// Writes the open project's file.
 		[[nodiscard]] Result<void> SaveProject();
 
-		// --- Scene files (not undoable: they replace the scene and clear the history; not while playing) ---
+		// --- Scene files (not undoable: they replace the scene and clear the history but for its steps of asset files,
+		// which stay undoable; not while playing) ---
 
 		[[nodiscard]] Result<void> NewScene(std::string name = "Untitled");
 		// Loads a scene file; unknown components and fields (files from newer versions) are skipped with warnings, which
@@ -147,6 +148,8 @@ namespace Strada
 		// (of any folder) reads a file that would move (moving a folder that holds both keeps them together).
 		[[nodiscard]] Result<void> MoveAsset(AssetHandle asset, std::string_view newPath);
 		[[nodiscard]] Result<void> MoveAssetFolder(std::string_view folder, std::string_view newFolder);
+		// The undo steps that edited a deleted asset's file are discarded (EditorContext::DiscardAssetSteps), so undo goes on
+		// with the steps before them; DeleteAssetFolder does so for every asset it deletes.
 		[[nodiscard]] Result<void> DeleteAsset(AssetHandle asset);
 		// Deletes a folder with every file inside.
 		[[nodiscard]] Result<void> DeleteAssetFolder(std::string_view folder);
@@ -183,13 +186,19 @@ namespace Strada
 	private:
 		// Scene and project files cannot change while the editor plays a copy of the scene.
 		Result<void> CheckNotPlaying() const;
-		void ResetScene(std::string name);
+		// An empty scene, or the scene of a file, replaces the edited one; keepAssetSteps is false when the project changes
+		// (EditorContext::SetScene).
+		void ResetScene(std::string name, bool keepAssetSteps);
+		Result<std::vector<std::string>> LoadScene(std::filesystem::path const& path, bool keepAssetSteps);
 		// Makes the project the open one and opens its start scene; returns warnings about the start scene.
 		Result<std::vector<std::string>> UseProject(Ref<Project> project);
 		// After a failed create or open: keeps the current project when its asset directory is still open, otherwise closes it.
 		void KeepProjectIfOpen();
 		// Deselects the inspected asset when it is no longer registered.
 		void ForgetDeletedSelection();
+		// Of these assets, the ones no longer registered (deleted, even by a call that then failed): their undo steps and the
+		// text the editor remembers of their files go.
+		void ForgetDeletedAssets(std::span<AssetHandle const> assets);
 		// MoveAsset for a model that changes folder (newPath normalized).
 		Result<void> MoveModelWithFiles(AssetHandle model, AssetMetadata const& metadata, std::string const& newPath);
 

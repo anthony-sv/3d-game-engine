@@ -887,6 +887,8 @@ TEST_CASE("GraphCommands: graph.set while playing reaches the running graph, and
 	std::string const graph = fixture.CreateGraph("Scripts/Delay.sgraph", MakeDelayDocument());
 	std::string const waiter = fixture.CreateEntity("Waiter", Json::object({{"VisualScript", Json::object({{"Graph", graph}})}}));
 	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	bool const dirty = fixture.Context.IsDirty();
+	std::string const bytes = fixture.ReadFile("Scripts/Delay.sgraph");
 	auto const done = [&]
 	{
 		// What the running graph holds (members it lacks read as null).
@@ -919,10 +921,21 @@ TEST_CASE("GraphCommands: graph.set while playing reaches the running graph, and
 	CHECK(done() == true);
 	CHECK_FALSE(Testing::WasLogged(logStart, "cancelled"));
 
-	// Stopping drops the play history's step; the file keeps the edit.
+	// The step stays undoable after Stop, and the scene has the unsaved changes it had before playing. Undo gives the file
+	// its bytes from before the edit (the asset was reloaded by the refresh meanwhile), redo the edit.
+	std::string const edit = fixture.ReadFile("Scripts/Delay.sgraph");
 	fixture.Play.Stop();
-	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Edit Visual Script");
+	CHECK(fixture.Context.IsDirty() == dirty);
 	CHECK(fixture.Ok("graph.get", Json::object({{"graph", graph}}))["document"]["Description"] == "Waits half a second");
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Visual Script");
+	CHECK(fixture.ReadFile("Scripts/Delay.sgraph") == bytes);
+	CHECK(fixture.Ok("graph.get", Json::object({{"graph", graph}}))["document"]["Description"] == "");
+	CHECK(fixture.Context.IsDirty() == dirty);
+	fixture.Ok("editor.redo");
+	CHECK(fixture.ReadFile("Scripts/Delay.sgraph") == edit);
+	CHECK(fixture.Context.IsDirty() == dirty);
 }
 
 TEST_CASE("GraphCommands: while playing, visual script variables are the running graph's values, and edits reach it at once")

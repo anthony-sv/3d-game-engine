@@ -14,6 +14,7 @@
 #include "Editor/Viewport/ViewportOverlays.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Input.h"
@@ -79,6 +80,49 @@ namespace
 		}
 		REQUIRE_FALSE(static_cast<bool>(errorCode));
 		return files;
+	}
+
+	using FileContents = std::map<std::filesystem::path, std::string>;
+
+	// Every file below a directory with its bytes, to tell whether undoing and redoing gave each file back exactly.
+	FileContents ReadFiles(std::filesystem::path const& directory)
+	{
+		FileContents files;
+		std::error_code errorCode;
+		for (auto it = std::filesystem::recursive_directory_iterator(directory, errorCode);
+		     !errorCode && it != std::filesystem::recursive_directory_iterator(); it.increment(errorCode))
+		{
+			if (it->is_regular_file(errorCode))
+			{
+				Result<Buffer> const bytes = FileSystem::ReadBinaryFile(it->path());
+				REQUIRE(bytes.IsOk());
+				files[it->path()] = std::string(bytes.GetValue().As<char>(), static_cast<size_t>(bytes.GetValue().GetSize()));
+			}
+		}
+		REQUIRE_FALSE(static_cast<bool>(errorCode));
+		return files;
+	}
+
+	// The files whose bytes differ between two readings, and the files only one of them has.
+	std::string ListChangedFiles(FileContents const& before, FileContents const& after)
+	{
+		std::string changed;
+		for (auto const& [path, bytes] : before)
+		{
+			auto const found = after.find(path);
+			if (found == after.end() || found->second != bytes)
+			{
+				changed += " " + FileSystem::PathToUtf8(path);
+			}
+		}
+		for (auto const& [path, bytes] : after)
+		{
+			if (!before.contains(path))
+			{
+				changed += " " + FileSystem::PathToUtf8(path);
+			}
+		}
+		return changed;
 	}
 
 	// What the generator knows about the editor, so parameters name entities, components and assets that exist.
@@ -700,28 +744,43 @@ namespace
 			return scene;
 		}
 
-		// Undoing every step, then redoing them all, brings the scene back (once what was undone before is redone).
+		// Runs editor.undo or editor.redo until it fails: how many steps it took, and the message of the failure that ended it.
+		std::pair<int, std::string> RunAll(std::string_view command)
+		{
+			int steps = 0;
+			while (true)
+			{
+				CommandResult result = Run(command);
+				if (result.IsError())
+				{
+					return {steps, result.GetError().Message};
+				}
+				steps++;
+			}
+		}
+
+		// Undoing every step, then redoing them all, brings the scene back (once what was undone before is redone), and every
+		// file of the asset directory byte for byte: undo and redo rewrite graph and material files, the steps carried across
+		// Stop and scene changes included. Every step undoes and redoes: each loop ends because nothing is left, never at a
+		// step that fails, where both loops would stop alike and hide it.
 		bool CheckHistory()
 		{
-			while (Run("editor.redo").IsOk())
-			{
-			}
+			std::pair<int, std::string> const before = RunAll("editor.redo");
+			CHECK(before.second == "there is nothing to redo");
 			Json const edited = WithoutSimulatedPoses(Ok("scene.dump"));
-			int undone = 0;
-			while (Run("editor.undo").IsOk())
-			{
-				undone++;
-			}
+			FileContents const files = ReadFiles(AssetManager::GetAssetDirectory());
+			std::pair<int, std::string> const undone = RunAll("editor.undo");
+			CHECK(undone.second == "there is nothing to undo");
 			CheckSceneLoads();
-			int redone = 0;
-			while (Run("editor.redo").IsOk())
-			{
-				redone++;
-			}
+			std::pair<int, std::string> const redone = RunAll("editor.redo");
+			CHECK(redone.second == "there is nothing to redo");
 			Json const restored = WithoutSimulatedPoses(Ok("scene.dump"));
-			CHECK(redone == undone);
+			std::string const changed = ListChangedFiles(files, ReadFiles(AssetManager::GetAssetDirectory()));
+			CHECK(redone.first == undone.first);
 			CHECK(restored == edited);
-			return redone == undone && restored == edited;
+			CHECK_MESSAGE(changed.empty(), "files undo and redo did not give back:" << changed);
+			return before.second == "there is nothing to redo" && undone.second == "there is nothing to undo" &&
+			       redone.second == "there is nothing to redo" && redone.first == undone.first && restored == edited && changed.empty();
 		}
 
 		EditorState ReadState()

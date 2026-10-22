@@ -176,6 +176,76 @@ namespace
 		REQUIRE(bytes.IsOk());
 		return std::string(bytes.GetValue().As<char>(), static_cast<size_t>(bytes.GetValue().GetSize()));
 	}
+
+	// A step for the history's own tests: whether it changes the scene, the asset whose file it edits, the memory it keeps
+	// and its merge key.
+	struct FakeStepInfo
+	{
+		std::string Name;
+		bool ModifiesScene = true;
+		AssetHandle Asset = AssetHandle();
+		size_t Memory = 0;
+		uint64_t MergeKey = 0;
+	};
+
+	// Logs what the history does with it ("do", "undo", "forget" and its name). A merge takes the next step's memory.
+	class FakeStep final : public EditorCommand
+	{
+	public:
+		FakeStep(FakeStepInfo info, std::vector<std::string>& log)
+			: m_Info(std::move(info)),
+			  m_Log(log)
+		{
+		}
+
+		Result<void> Execute(EditorContext&) override
+		{
+			m_Log.push_back("do " + m_Info.Name);
+			return {};
+		}
+
+		Result<void> Undo(EditorContext&) override
+		{
+			m_Log.push_back("undo " + m_Info.Name);
+			return {};
+		}
+
+		std::string GetDescription() const override { return m_Info.Name; }
+		bool ModifiesScene() const override { return m_Info.ModifiesScene; }
+
+		bool CanMergeWith(EditorCommand const& next) const override
+		{
+			auto const* other = dynamic_cast<FakeStep const*>(&next);
+			return m_Info.MergeKey != 0 && other != nullptr && other->m_Info.MergeKey == m_Info.MergeKey;
+		}
+
+		void MergeWith(EditorCommand& next) override { m_Info.Memory = static_cast<FakeStep&>(next).m_Info.Memory; }
+		size_t GetMemoryUse() const override { return m_Info.Memory; }
+		AssetHandle GetEditedAsset() const override { return m_Info.Asset; }
+
+		void ForgetEditedAsset() override
+		{
+			m_Info.Asset = AssetHandle();
+			m_Log.push_back("forget " + m_Info.Name);
+		}
+
+	private:
+		FakeStepInfo m_Info;
+		std::vector<std::string>& m_Log;
+	};
+
+	void Record(CommandHistory& history, EditorContext& context, std::vector<std::string>& log, FakeStepInfo info)
+	{
+		REQUIRE(history.Execute(CreateScope<FakeStep>(std::move(info), log), context).IsOk());
+	}
+
+	void UndoAll(CommandHistory& history, EditorContext& context)
+	{
+		while (history.CanUndo())
+		{
+			REQUIRE(history.Undo(context).IsOk());
+		}
+	}
 }
 
 TEST_CASE("UI: display names split PascalCase words and keep acronyms together")
@@ -1275,4 +1345,213 @@ TEST_CASE("SetMaterialCommand: a material edit names its material and records it
 	CHECK(command.GetEditedAsset() == material);
 	CHECK(command.GetMemoryUse() == 0);
 	CHECK_FALSE(command.ModifiesScene());
+}
+
+TEST_CASE("CommandHistory: undo steps keep at most DefaultMaxMemory, the oldest dropped first, but the last MinStepsKept always stay")
+{
+	EditorContext context;
+	std::vector<std::string> log;
+	AssetHandle const graph = AssetHandle::Generate();
+	constexpr size_t Budget = CommandHistory::DefaultMaxMemory;
+
+	// Steps of a 64th of the budget: 64 fit, and each one more drops the oldest.
+	CommandHistory history;
+	for (int step = 0; step < 70; step++)
+	{
+		Record(history, context, log, {"Edit " + std::to_string(step), false, graph, Budget / 64});
+	}
+	CHECK(history.GetUndoCount() == 64);
+	UndoAll(history, context);
+	CHECK(log.back() == "undo Edit 6");
+
+	// Scene steps keep nothing, but they are steps: the oldest go first whatever they keep.
+	CommandHistory mixed;
+	Record(mixed, context, log, {"Move"});
+	for (int step = 0; step < 64; step++)
+	{
+		Record(mixed, context, log, {"Edit " + std::to_string(step), false, graph, Budget / 64});
+	}
+	CHECK(mixed.GetUndoCount() == 65);
+	Record(mixed, context, log, {"Rename"});
+	Record(mixed, context, log, {"Edit 64", false, graph, Budget / 64});
+	CHECK(mixed.GetUndoCount() == 65);
+	UndoAll(mixed, context);
+	CHECK(log.back() == "undo Edit 1");
+
+	// Steps larger than the budget: the last MinStepsKept stay all the same.
+	CommandHistory large;
+	for (int step = 0; step < 20; step++)
+	{
+		Record(large, context, log, {"Large " + std::to_string(step), false, graph, Budget / 2});
+	}
+	CHECK(large.GetUndoCount() == CommandHistory::MinStepsKept);
+	UndoAll(large, context);
+	CHECK(log.back() == "undo Large 4");
+
+	// A merged step keeps the memory of its last change: the steps before it make room when it grows.
+	CommandHistory merging;
+	constexpr uint64_t Key = 0x5445535400000004ull;
+	for (int step = 0; step < 64; step++)
+	{
+		Record(merging, context, log, {"Edit " + std::to_string(step), false, graph, Budget / 64});
+	}
+	Record(merging, context, log, {"Drag", false, graph, Budget / 64, Key});
+	CHECK(merging.GetUndoCount() == 64);
+	Record(merging, context, log, {"Drag", false, graph, 3 * (Budget / 64), Key});
+	CHECK(merging.GetUndoCount() == 62);
+	CHECK(merging.GetUndoDescription() == "Drag");
+	UndoAll(merging, context);
+	CHECK(log.back() == "undo Edit 3");
+}
+
+TEST_CASE("CommandHistory: steps of asset files move to another history, whose scene keeps its state and whose next edit starts a step")
+{
+	EditorContext context;
+	std::vector<std::string> log;
+	AssetHandle const graph = AssetHandle::Generate();
+	AssetHandle const material = AssetHandle::Generate();
+	constexpr uint64_t Key = 0x5445535400000005ull;
+
+	// The history of a scene that played: scene steps and steps of asset files, the last one undone.
+	CommandHistory played;
+	Record(played, context, log, {"Move"});
+	Record(played, context, log, {"Edit Graph", false, graph});
+	Record(played, context, log, {"Rename"});
+	Record(played, context, log, {"Edit Material", false, material, 0, Key});
+	Record(played, context, log, {"Edit Graph Again", false, graph});
+	REQUIRE(played.Undo(context).IsOk());
+	std::vector<Scope<EditorCommand>> steps = played.TakeAssetSteps();
+
+	// The undo steps of asset files, oldest first; the undone one is not taken, and the redo stack is cleared. The scene
+	// steps that stay still lead back to where the scene started.
+	REQUIRE(steps.size() == 2);
+	CHECK(steps[0]->GetDescription() == "Edit Graph");
+	CHECK(steps[1]->GetDescription() == "Edit Material");
+	CHECK(played.GetUndoCount() == 2);
+	CHECK_FALSE(played.CanRedo());
+	CHECK(played.GetUndoDescription() == "Rename");
+	CHECK(played.IsDirty());
+	UndoAll(played, context);
+	CHECK(log.back() == "undo Move");
+	CHECK_FALSE(played.IsDirty());
+
+	// The history of the edited scene: saved after a step, and a later step undone.
+	CommandHistory edited;
+	Record(edited, context, log, {"Create"});
+	edited.MarkSaved();
+	Record(edited, context, log, {"Delete"});
+	REQUIRE(edited.Undo(context).IsOk());
+	CHECK_FALSE(edited.IsDirty());
+
+	// No steps change nothing: the step undone can still be redone.
+	edited.AppendAssetSteps({});
+	CHECK(edited.GetUndoCount() == 1);
+	CHECK(edited.GetRedoDescription() == "Delete");
+
+	// The steps become the newest undo steps. They leave the scene as it is, so it stays saved; the redo stack is cleared.
+	edited.AppendAssetSteps(std::move(steps));
+	CHECK(edited.GetUndoCount() == 3);
+	CHECK(edited.GetUndoDescription() == "Edit Material");
+	CHECK_FALSE(edited.CanRedo());
+	CHECK_FALSE(edited.IsDirty());
+
+	// The next edit starts a step of its own, even under the merge key of the last step taken.
+	Record(edited, context, log, {"Edit Material", false, material, 0, Key});
+	CHECK(edited.GetUndoCount() == 4);
+	for (int step = 0; step < 3; step++)
+	{
+		REQUIRE(edited.Undo(context).IsOk());
+		CHECK_FALSE(edited.IsDirty());
+	}
+	CHECK(log.back() == "undo Edit Graph");
+	REQUIRE(edited.Undo(context).IsOk());
+	CHECK(log.back() == "undo Create");
+	CHECK(edited.IsDirty());
+
+	// Also when the history would have merged the next edit into its last step before the steps came.
+	CommandHistory merging;
+	Record(merging, context, log, {"Edit Graph", false, graph, 0, Key});
+	std::vector<Scope<EditorCommand>> taken;
+	taken.push_back(CreateScope<FakeStep>(FakeStepInfo{"Edit Material", false, material, 0, Key}, log));
+	merging.AppendAssetSteps(std::move(taken));
+	Record(merging, context, log, {"Edit Material", false, material, 0, Key});
+	CHECK(merging.GetUndoCount() == 3);
+
+	// Appended steps are bounded like recorded ones.
+	CommandHistory small(2);
+	std::vector<Scope<EditorCommand>> many;
+	for (int step = 0; step < 3; step++)
+	{
+		many.push_back(CreateScope<FakeStep>(FakeStepInfo{"Step " + std::to_string(step), false, graph}, log));
+	}
+	small.AppendAssetSteps(std::move(many));
+	CHECK(small.GetUndoCount() == 2);
+	UndoAll(small, context);
+	CHECK(log.back() == "undo Step 1");
+}
+
+TEST_CASE("CommandHistory: the steps of a deleted asset leave both stacks, and a step that also changed the scene stays and forgets it")
+{
+	EditorContext context;
+	std::vector<std::string> log;
+	AssetHandle const graph = AssetHandle::Generate();
+	AssetHandle const material = AssetHandle::Generate();
+	CommandHistory history;
+	CHECK_FALSE(history.GetUndoEditedAsset().IsValid());
+	CHECK_FALSE(history.GetRedoEditedAsset().IsValid());
+
+	Record(history, context, log, {"Create"});
+	Record(history, context, log, {"Edit Graph", false, graph});
+	// A step of the scene that edits the graph too, as an entity dropped into a graph does.
+	Record(history, context, log, {"Reference Door", true, graph});
+	Record(history, context, log, {"Edit Material", false, material});
+	Record(history, context, log, {"Edit Graph Again", false, graph});
+	Record(history, context, log, {"Edit Graph Last", false, graph});
+	REQUIRE(history.Undo(context).IsOk());
+	// The assets the next undo and redo steps edit, invalid for a step of the scene alone.
+	CHECK(history.GetUndoEditedAsset() == graph);
+	CHECK(history.GetRedoEditedAsset() == graph);
+	CHECK(history.IsDirty());
+
+	// Neither an invalid handle nor an asset no step edits changes anything.
+	history.DiscardStepsOf(AssetHandle());
+	history.DiscardStepsOf(AssetHandle::Generate());
+	CHECK(history.GetUndoCount() == 5);
+	CHECK(history.GetRedoCount() == 1);
+
+	history.DiscardStepsOf(graph);
+	CHECK(history.GetUndoCount() == 3);
+	CHECK_FALSE(history.CanRedo());
+	CHECK(history.GetUndoDescription() == "Edit Material");
+	CHECK(history.GetUndoEditedAsset() == material);
+	CHECK(log.back() == "forget Reference Door");
+	CHECK(history.IsDirty());
+
+	// Undo goes on with the steps before; the step that stayed edits the scene alone now.
+	REQUIRE(history.Undo(context).IsOk());
+	CHECK(history.GetUndoDescription() == "Reference Door");
+	CHECK_FALSE(history.GetUndoEditedAsset().IsValid());
+	CHECK(history.GetRedoEditedAsset() == material);
+	REQUIRE(history.Undo(context).IsOk());
+	REQUIRE(history.Undo(context).IsOk());
+	CHECK(log.back() == "undo Create");
+	CHECK_FALSE(history.CanUndo());
+	CHECK_FALSE(history.IsDirty());
+
+	// Steps waiting to be redone go too.
+	history.DiscardStepsOf(material);
+	CHECK(history.GetRedoCount() == 2);
+	REQUIRE(history.Redo(context).IsOk());
+	REQUIRE(history.Redo(context).IsOk());
+	CHECK(log.back() == "do Reference Door");
+	CHECK_FALSE(history.CanRedo());
+
+	// The step before a discarded one does not take the next edit: it starts a step of its own.
+	constexpr uint64_t Key = 0x5445535400000006ull;
+	CommandHistory merging;
+	Record(merging, context, log, {"Edit Material", false, material, 0, Key});
+	Record(merging, context, log, {"Edit Graph", false, graph});
+	merging.DiscardStepsOf(graph);
+	Record(merging, context, log, {"Edit Material", false, material, 0, Key});
+	CHECK(merging.GetUndoCount() == 2);
 }

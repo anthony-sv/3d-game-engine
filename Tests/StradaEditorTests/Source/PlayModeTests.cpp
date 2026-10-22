@@ -8,6 +8,9 @@
 #include "Editor/PlayMode.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Scene/Components.h"
@@ -18,10 +21,12 @@
 
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 using namespace Strada;
 
@@ -93,6 +98,69 @@ namespace
 			REQUIRE(result.IsError());
 			return result.GetError().Code;
 		}
+	};
+
+	// A project open in the editor model with play mode, whose asset files the steps under test edit.
+	struct ProjectPlayFixture
+	{
+		Testing::AssetManagerScope Assets;
+		Testing::TemporaryDirectory Directory;
+		EditorContext Context;
+		EditorOperations Operations{Context};
+		EditorScripts Scripts{Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+		PlayMode Play{Context, Scripts};
+
+		ProjectPlayFixture() { REQUIRE(Operations.CreateProject(Directory.GetPath() / "Game", "Game", Scene("Main")).IsOk()); }
+
+		UUID Create(std::string name, Json components = Json::object())
+		{
+			EntityCreateInfo info;
+			info.Name = std::move(name);
+			info.Components = std::move(components);
+			Result<UUID> entity = Operations.CreateEntity(info);
+			REQUIRE(entity.IsOk());
+			return entity.GetValue();
+		}
+
+		AssetHandle CreateGraph(std::string_view path)
+		{
+			Result<AssetHandle> const created = Operations.CreateVisualScript(path);
+			REQUIRE(created.IsOk());
+			return created.GetValue();
+		}
+
+		AssetHandle CreateMaterial(std::string_view path)
+		{
+			Result<AssetHandle> const created = Operations.CreateMaterial(path);
+			REQUIRE(created.IsOk());
+			return created.GetValue();
+		}
+
+		std::string ReadFile(AssetHandle asset) const
+		{
+			Result<Buffer> const bytes = FileSystem::ReadBinaryFile(AssetManager::GetAbsolutePath(asset));
+			REQUIRE(bytes.IsOk());
+			return std::string(bytes.GetValue().As<char>(), static_cast<size_t>(bytes.GetValue().GetSize()));
+		}
+
+		// Gives the graph another description, committed as a graph window commits its edits.
+		void Describe(AssetHandle graph, std::string const& description)
+		{
+			Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+			REQUIRE(asset != nullptr);
+			VisualScriptDocument document = asset->GetDocument();
+			document.Description = description;
+			Result<void> const edited =
+				Operations.EditVisualScript(graph, CreateRef<VisualScriptDocument const>(std::move(document)), "Describe Graph");
+			REQUIRE_MESSAGE(edited.IsOk(), (edited ? std::string() : edited.GetError()));
+		}
+
+		void SetRoughness(AssetHandle material, double roughness, uint64_t mergeKey = 0)
+		{
+			REQUIRE(Operations.SetMaterialFields(material, Json::object({{"Roughness", roughness}}), mergeKey).IsOk());
+		}
+
+		size_t GetUndoCount() const { return Context.GetHistory().GetUndoCount(); }
 	};
 
 	// A scene whose SceneSwitcher loads nextScene on L and quits on Q.
@@ -251,7 +319,7 @@ TEST_CASE("PlayMode: entities deleted while playing go at once, also while pause
 	CHECK(fixture.Context.GetScene().HasEntity(child));
 }
 
-TEST_CASE("PlayMode: scenes the scripts load replace the copy, and quitting stops playing")
+TEST_CASE("PlayMode: scenes the scripts load replace the copy and keep the steps of asset files, and quitting stops playing")
 {
 	Testing::AssetManagerScope assets;
 	Testing::ScriptEngineScope scripting;
@@ -265,16 +333,36 @@ TEST_CASE("PlayMode: scenes the scripts load replace the copy, and quitting stop
 
 	PlayFixture fixture;
 	REQUIRE(fixture.Operations.OpenScene(scenes / "First.sscene").IsOk());
+	Result<AssetHandle> const created = fixture.Operations.CreateMaterial("Materials/Rock.smat");
+	REQUIRE(created.IsOk());
+	AssetHandle const material = created.GetValue();
 	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	// An edit of the material and one of the running scene.
+	REQUIRE(fixture.Operations.SetMaterialFields(material, Json::object({{"Roughness", 0.75}})).IsOk());
+	UUID const switcher = fixture.Context.GetScene().FindEntityByName("Switcher").GetUUID();
+	REQUIRE(fixture.Operations.RenameEntity(switcher, "Renamed").IsOk());
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == 2);
+
+	// The scene loaded replaces the copy and its steps; the material's step stays.
 	uint64_t const version = fixture.Context.GetSceneVersion();
 	AdvanceWithKey(fixture.Play, KeyCode::L);
 	CHECK(fixture.Context.GetScene().GetName() == "Second");
 	CHECK(fixture.Context.GetSceneVersion() != version);
 	CHECK(fixture.Context.GetScene().IsRunning());
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Edit Material");
 
+	// Quitting stops playing; the edited scene's history takes the material's step, which undoes.
 	AdvanceWithKey(fixture.Play, KeyCode::Q);
 	CHECK_FALSE(fixture.Play.IsPlaying());
 	CHECK(fixture.Context.GetScene().GetName() == "First");
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == 1);
+	CHECK(fixture.Context.GetHistory().GetUndoEditedAsset() == material);
+	CHECK_FALSE(fixture.Context.IsDirty());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	Ref<MaterialAsset> const rock = AssetManager::GetAsset<MaterialAsset>(material);
+	REQUIRE(rock != nullptr);
+	CHECK(rock->GetData().Roughness == doctest::Approx(0.5f));
 	TestRunReport const* const report = fixture.Play.GetTestReport();
 	REQUIRE(report != nullptr);
 	REQUIRE(report->Results.size() == 4);
@@ -321,6 +409,212 @@ TEST_CASE("PlayMode: simulating runs physics only, and pausing holds the scene")
 
 	fixture.Play.Stop();
 	CHECK(height() == 5.0f);
+}
+
+TEST_CASE("PlayMode: graph and material edits made while playing stay undoable after Stop, and a saved scene stays clean")
+{
+	ProjectPlayFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	AssetHandle const material = fixture.CreateMaterial("Materials/Rock.smat");
+	UUID const crate = fixture.Create("Crate");
+	REQUIRE(fixture.Operations.SaveScene().IsOk());
+	CHECK_FALSE(fixture.Context.IsDirty());
+	size_t const steps = fixture.GetUndoCount();
+	std::string const graphBytes = fixture.ReadFile(graph);
+	std::string const materialBytes = fixture.ReadFile(material);
+	constexpr uint64_t Key = 0x5445535400000007ull;
+
+	// While playing: an edit of the running copy, a graph edit, a material drag, and a graph edit undone again.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	REQUIRE(fixture.Operations.RenameEntity(crate, "Moved").IsOk());
+	fixture.Describe(graph, "Played");
+	std::string const playedGraph = fixture.ReadFile(graph);
+	fixture.SetRoughness(material, 0.75, Key);
+	std::string const playedMaterial = fixture.ReadFile(material);
+	fixture.Describe(graph, "Undone");
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile(graph) == playedGraph);
+	CHECK(fixture.GetUndoCount() == 3);
+	CHECK_FALSE(fixture.Context.IsDirty());
+
+	// Stopped: the copy and its edit are gone, the steps of the files stay (not the one undone), and the scene is clean.
+	fixture.Play.Stop();
+	CommandHistory const& history = fixture.Context.GetHistory();
+	CHECK(fixture.Context.GetScene().GetEntityByUUID(crate).GetName() == "Crate");
+	CHECK(history.GetUndoCount() == steps + 2);
+	CHECK(history.GetUndoDescription() == "Edit Material");
+	CHECK(history.GetUndoEditedAsset() == material);
+	CHECK_FALSE(history.CanRedo());
+	CHECK_FALSE(fixture.Context.IsDirty());
+
+	// An edit after Stop is a step of its own, even under the merge key of the last edit made while playing.
+	fixture.SetRoughness(material, 0.25, Key);
+	CHECK(history.GetUndoCount() == steps + 3);
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile(material) == playedMaterial);
+
+	// Undo gives the files the bytes they had before playing, and redo the ones playing gave them; the scene stays clean.
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile(material) == materialBytes);
+	CHECK_FALSE(fixture.Context.IsDirty());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile(graph) == graphBytes);
+	CHECK(history.GetUndoCount() == steps);
+	CHECK_FALSE(fixture.Context.IsDirty());
+	REQUIRE(fixture.Operations.Redo().IsOk());
+	REQUIRE(fixture.Operations.Redo().IsOk());
+	CHECK(fixture.ReadFile(graph) == playedGraph);
+	CHECK(fixture.ReadFile(material) == playedMaterial);
+	CHECK_FALSE(fixture.Context.IsDirty());
+}
+
+TEST_CASE("PlayMode: another scene of the project keeps the steps of asset files, and another project drops them")
+{
+	ProjectPlayFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	std::filesystem::path const mainScene = fixture.Context.GetScenePath();
+	REQUIRE_FALSE(mainScene.empty());
+	std::string const original = fixture.ReadFile(graph);
+	fixture.Create("Crate");
+	fixture.Describe(graph, "Kept");
+	std::string const kept = fixture.ReadFile(graph);
+	fixture.Create("Barrel");
+	CHECK(fixture.GetUndoCount() == 3);
+	CHECK(fixture.Context.IsDirty());
+
+	// A new scene: the steps of the scene go with it, the graph's step stays, and the new scene is clean.
+	REQUIRE(fixture.Operations.NewScene("Level").IsOk());
+	CHECK(fixture.GetUndoCount() == 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Describe Graph");
+	CHECK_FALSE(fixture.Context.IsDirty());
+	// A scene file opened: the same.
+	REQUIRE(fixture.Operations.OpenScene(mainScene).IsOk());
+	CHECK(fixture.GetUndoCount() == 1);
+	CHECK_FALSE(fixture.Context.IsDirty());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile(graph) == original);
+	CHECK_FALSE(fixture.Context.IsDirty());
+	REQUIRE(fixture.Operations.Redo().IsOk());
+	CHECK(fixture.ReadFile(graph) == kept);
+
+	// Another project created, opened or closed: the steps name the assets of the project before, so none stays.
+	std::filesystem::path const game = fixture.Context.GetProject()->GetFilePath();
+	REQUIRE(fixture.Operations.CreateProject(fixture.Directory.GetPath() / "Other", "Other", Scene("Main")).IsOk());
+	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
+	AssetHandle const other = fixture.CreateGraph("Scripts/Enemy.sgraph");
+	fixture.Describe(other, "Other");
+	CHECK(fixture.GetUndoCount() == 1);
+	REQUIRE(fixture.Operations.OpenProject(game).IsOk());
+	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
+	fixture.Describe(graph, "Again");
+	CHECK(fixture.GetUndoCount() == 1);
+	REQUIRE(fixture.Operations.CloseProject().IsOk());
+	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
+	CHECK_FALSE(fixture.Context.GetHistory().CanRedo());
+}
+
+TEST_CASE("PlayMode: deleting an edited graph or material discards its steps, and undo goes on with the steps before them")
+{
+	ProjectPlayFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	AssetHandle const material = fixture.CreateMaterial("Materials/Rock.smat");
+	UUID const crate = fixture.Create("Crate");
+	fixture.Describe(graph, "First");
+	fixture.SetRoughness(material, 0.75);
+	REQUIRE(fixture.Operations.RenameEntity(crate, "Box").IsOk());
+	fixture.Describe(graph, "Second");
+	fixture.Describe(graph, "Third");
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.GetUndoCount() == 5);
+
+	// The graph's steps leave both stacks, and undo goes on with the steps before them.
+	REQUIRE(fixture.Operations.DeleteAsset(graph).IsOk());
+	CommandHistory const& history = fixture.Context.GetHistory();
+	CHECK(history.GetUndoCount() == 3);
+	CHECK_FALSE(history.CanRedo());
+	CHECK(history.GetUndoDescription() == "Rename Entity");
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.Context.GetScene().GetEntityByUUID(crate).GetName() == "Crate");
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	Ref<MaterialAsset> const rock = AssetManager::GetAsset<MaterialAsset>(material);
+	REQUIRE(rock != nullptr);
+	CHECK(rock->GetData().Roughness == doctest::Approx(0.5f));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK_FALSE(fixture.Context.GetScene().HasEntity(crate));
+	CHECK_FALSE(history.CanUndo());
+	for (int step = 0; step < 3; step++)
+	{
+		REQUIRE(fixture.Operations.Redo().IsOk());
+	}
+	CHECK(rock->GetData().Roughness == doctest::Approx(0.75f));
+
+	// Deleted while playing, with its folder: the material's steps leave the running scene's history and the edited one's.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.SetRoughness(material, 0.25);
+	CHECK(fixture.GetUndoCount() == 1);
+	REQUIRE(fixture.Operations.DeleteAssetFolder("Materials").IsOk());
+	CHECK_FALSE(AssetManager::IsValid(material));
+	CHECK_FALSE(history.CanUndo());
+	fixture.Play.Stop();
+	CHECK(history.GetUndoCount() == 2);
+	CHECK(history.GetUndoDescription() == "Rename Entity");
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK_FALSE(history.CanUndo());
+	CHECK_FALSE(fixture.Context.GetScene().HasEntity(crate));
+}
+
+TEST_CASE("PlayMode: after an entity drop, deleting its graph keeps the step, whose undo gives the component its value back")
+{
+	ProjectPlayFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	UUID const door = fixture.Create("Door");
+	UUID const player = fixture.Create("Player", Json::object({{"VisualScript", Json::object({{"Graph", graph.ToString()}})}}));
+	size_t const steps = fixture.GetUndoCount();
+	auto const variables = [&]
+	{
+		Entity const entity = fixture.Operations.FindEntity(player);
+		REQUIRE(entity);
+		return entity.GetComponent<VisualScriptComponent>().Variables;
+	};
+
+	// The door dropped into the graph: a variable of the graph, and the player's value of it, in one step.
+	Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+	REQUIRE(asset != nullptr);
+	VisualScriptDocument referencing = asset->GetDocument();
+	VisualScriptVariable variable;
+	variable.ID = 1000;
+	variable.Name = "Door";
+	variable.Type = "Strada.Entity";
+	variable.Public = true;
+	referencing.Variables.push_back(variable);
+	Json const value = Json::object({{"Type", "Entity"}, {"Value", std::to_string(door.GetValue())}});
+	std::vector<ComponentEdit> edits = {{player, "VisualScript", Json::object({{"Variables", Json::object({{"Door", value}})}})}};
+	REQUIRE(fixture.Operations
+	            .EditVisualScriptAndComponents(graph, CreateRef<VisualScriptDocument const>(std::move(referencing)),
+	                                           "Reference Door in Player", std::move(edits))
+	            .IsOk());
+	CommandHistory const& history = fixture.Context.GetHistory();
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoEditedAsset() == graph);
+	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(door)}});
+
+	// The step changed the scene: it stays, edits the components alone, and the steps before it still undo.
+	REQUIRE(fixture.Operations.DeleteAsset(graph).IsOk());
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoDescription() == "Reference Door in Player");
+	CHECK_FALSE(history.GetUndoEditedAsset().IsValid());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(variables().empty());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK_FALSE(history.CanUndo());
+	CHECK_FALSE(fixture.Context.GetScene().HasEntity(door));
+	for (int step = 0; step < 3; step++)
+	{
+		REQUIRE(fixture.Operations.Redo().IsOk());
+	}
+	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(door)}});
 }
 
 TEST_CASE("PlayCommands: every play, input and test command is documented in Docs/Automation.md")

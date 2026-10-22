@@ -12,13 +12,15 @@ namespace Strada
 	{
 	}
 
-	void EditorContext::SetScene(Ref<Scene> scene, std::filesystem::path path)
+	void EditorContext::SetScene(Ref<Scene> scene, std::filesystem::path path, bool keepAssetSteps)
 	{
 		ST_CORE_ASSERT(scene != nullptr, "The editor needs a scene");
 		ST_CORE_ASSERT(!IsPlaying(), "The edited scene cannot be replaced while playing");
 		m_Scene = std::move(scene);
 		m_ScenePath = std::move(path);
+		std::vector<Scope<EditorCommand>> steps = keepAssetSteps ? m_History.TakeAssetSteps() : std::vector<Scope<EditorCommand>>();
 		m_History.Clear();
+		m_History.AppendAssetSteps(std::move(steps));
 		m_Selection.Clear();
 		m_SceneVersion++;
 		m_OpenedSceneVersion++;
@@ -38,7 +40,9 @@ namespace Strada
 	{
 		ST_CORE_ASSERT(runningScene != nullptr && IsPlaying(), "SetRunningScene is for play mode");
 		m_Scene = std::move(runningScene);
+		std::vector<Scope<EditorCommand>> steps = m_History.TakeAssetSteps();
 		m_History.Clear();
+		m_History.AppendAssetSteps(std::move(steps));
 		m_SceneVersion++;
 		PruneSelection();
 	}
@@ -50,11 +54,20 @@ namespace Strada
 			return;
 		}
 		m_Scene = std::move(m_EditedScene);
+		std::vector<Scope<EditorCommand>> steps = m_History.TakeAssetSteps();
 		m_History = std::move(m_EditedHistory);
 		m_EditedHistory = CommandHistory();
+		m_History.AppendAssetSteps(std::move(steps));
 		m_PlayState = EditorPlayState::Edit;
 		m_SceneVersion++;
 		PruneSelection();
+	}
+
+	void EditorContext::DiscardAssetSteps(AssetHandle asset)
+	{
+		m_History.DiscardStepsOf(asset);
+		// While playing, the edited scene's history (when not playing, an empty one).
+		m_EditedHistory.DiscardStepsOf(asset);
 	}
 
 	void EditorContext::MarkSaved(std::filesystem::path path)
