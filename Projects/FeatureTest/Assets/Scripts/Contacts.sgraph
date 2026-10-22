@@ -1,0 +1,890 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "Counts its entity's contacts: collisions and triggers that begin and end. At the first contact that ends, it checks that every contact that ended had begun (Checks counts it) and sets Done. The feature test's falling box and ball run it next to their C# CollisionProbe.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "CollisionsEntered",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Collisions that began"
+			},
+			{
+				"ID": 2,
+				"Name": "CollisionsExited",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Collisions that ended"
+			},
+			{
+				"ID": 3,
+				"Name": "TriggersEntered",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Trigger overlaps that began"
+			},
+			{
+				"ID": 4,
+				"Name": "TriggersExited",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Trigger overlaps that ended"
+			},
+			{
+				"ID": 5,
+				"Name": "Checks",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Checks that passed"
+			},
+			{
+				"ID": 6,
+				"Name": "Done",
+				"Type": "bool",
+				"Value": false,
+				"Public": true,
+				"Tooltip": "Whether a contact has ended"
+			},
+			{
+				"ID": 7,
+				"Name": "LastOther",
+				"Type": "Strada.Entity"
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 8,
+					"Type": "Event.CollisionEnter",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 9,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						160.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						0.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 11,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 12,
+					"Type": "Variable.Set",
+					"Position": [
+						960.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 7
+					}
+				},
+				{
+					"ID": 13,
+					"Type": "Event.TriggerEnter",
+					"Position": [
+						0.0,
+						400.0
+					]
+				},
+				{
+					"ID": 14,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						560.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 15,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						400.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 16,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						400.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 17,
+					"Type": "Variable.Set",
+					"Position": [
+						960.0,
+						400.0
+					],
+					"Settings": {
+						"Variable": 7
+					}
+				},
+				{
+					"ID": 18,
+					"Type": "Flow.DoOnce",
+					"Position": [
+						960.0,
+						800.0
+					]
+				},
+				{
+					"ID": 19,
+					"Type": "Event.CollisionExit",
+					"Position": [
+						0.0,
+						800.0
+					]
+				},
+				{
+					"ID": 20,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						960.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 21,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						800.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 22,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						800.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 23,
+					"Type": "Event.TriggerExit",
+					"Position": [
+						0.0,
+						1120.0
+					]
+				},
+				{
+					"ID": 24,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1280.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 25,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						960.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 26,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						960.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 27,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1440.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 28,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1600.0
+					],
+					"Settings": {
+						"Variable": 3
+					}
+				},
+				{
+					"ID": 29,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						1120.0
+					]
+				},
+				{
+					"ID": 30,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1760.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 31,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						1920.0
+					],
+					"Settings": {
+						"Variable": 4
+					}
+				},
+				{
+					"ID": 32,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						1280.0
+					]
+				},
+				{
+					"ID": 33,
+					"Type": "Operator.GreaterOrEqual",
+					"Position": [
+						640.0,
+						1120.0
+					]
+				},
+				{
+					"ID": 34,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2080.0
+					],
+					"Settings": {
+						"Variable": 7
+					}
+				},
+				{
+					"ID": 35,
+					"Type": "IsValid",
+					"Position": [
+						320.0,
+						1440.0
+					]
+				},
+				{
+					"ID": 36,
+					"Type": "Operator.And",
+					"Position": [
+						960.0,
+						960.0
+					]
+				},
+				{
+					"ID": 37,
+					"Type": "Flow.Branch",
+					"Position": [
+						1280.0,
+						800.0
+					]
+				},
+				{
+					"ID": 38,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						2240.0
+					]
+				},
+				{
+					"ID": 39,
+					"Type": "Get:Strada.Entity.Name",
+					"Position": [
+						320.0,
+						1600.0
+					]
+				},
+				{
+					"ID": 40,
+					"Type": "FormatString",
+					"Position": [
+						640.0,
+						1280.0
+					],
+					"Settings": {
+						"Format": "Contacts: {Name}: every contact that ended had begun"
+					}
+				},
+				{
+					"ID": 41,
+					"Type": "Call:Strada.Testing.TestReporter.Pass(string)",
+					"Position": [
+						1600.0,
+						800.0
+					]
+				},
+				{
+					"ID": 42,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						2400.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 43,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						1760.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 44,
+					"Type": "Variable.Set",
+					"Position": [
+						1920.0,
+						800.0
+					],
+					"Settings": {
+						"Variable": 5
+					}
+				},
+				{
+					"ID": 45,
+					"Type": "Variable.Set",
+					"Position": [
+						2240.0,
+						800.0
+					],
+					"Settings": {
+						"Variable": 6
+					},
+					"Inputs": {
+						"Value": true
+					}
+				},
+				{
+					"ID": 46,
+					"Type": "FormatString",
+					"Position": [
+						640.0,
+						1440.0
+					],
+					"Settings": {
+						"Format": "{Began} began, {Ended} ended"
+					}
+				},
+				{
+					"ID": 47,
+					"Type": "Call:Strada.Testing.TestReporter.Fail(string,string)",
+					"Position": [
+						1600.0,
+						960.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						9,
+						"Value"
+					],
+					"To": [
+						10,
+						"A"
+					]
+				},
+				{
+					"From": [
+						10,
+						"Result"
+					],
+					"To": [
+						11,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Other"
+					],
+					"To": [
+						12,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Then"
+					],
+					"To": [
+						11,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Then"
+					],
+					"To": [
+						12,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Value"
+					],
+					"To": [
+						15,
+						"A"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Result"
+					],
+					"To": [
+						16,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Other"
+					],
+					"To": [
+						17,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Then"
+					],
+					"To": [
+						16,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						16,
+						"Then"
+					],
+					"To": [
+						17,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Value"
+					],
+					"To": [
+						21,
+						"A"
+					]
+				},
+				{
+					"From": [
+						21,
+						"Result"
+					],
+					"To": [
+						22,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						19,
+						"Then"
+					],
+					"To": [
+						22,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						22,
+						"Then"
+					],
+					"To": [
+						18,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						24,
+						"Value"
+					],
+					"To": [
+						25,
+						"A"
+					]
+				},
+				{
+					"From": [
+						25,
+						"Result"
+					],
+					"To": [
+						26,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						23,
+						"Then"
+					],
+					"To": [
+						26,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						26,
+						"Then"
+					],
+					"To": [
+						18,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						27,
+						"Value"
+					],
+					"To": [
+						29,
+						"A"
+					]
+				},
+				{
+					"From": [
+						28,
+						"Value"
+					],
+					"To": [
+						29,
+						"B"
+					]
+				},
+				{
+					"From": [
+						30,
+						"Value"
+					],
+					"To": [
+						32,
+						"A"
+					]
+				},
+				{
+					"From": [
+						31,
+						"Value"
+					],
+					"To": [
+						32,
+						"B"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Result"
+					],
+					"To": [
+						33,
+						"A"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Result"
+					],
+					"To": [
+						33,
+						"B"
+					]
+				},
+				{
+					"From": [
+						34,
+						"Value"
+					],
+					"To": [
+						35,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						33,
+						"Result"
+					],
+					"To": [
+						36,
+						"A"
+					]
+				},
+				{
+					"From": [
+						35,
+						"Result"
+					],
+					"To": [
+						36,
+						"B"
+					]
+				},
+				{
+					"From": [
+						36,
+						"Result"
+					],
+					"To": [
+						37,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Completed"
+					],
+					"To": [
+						37,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						38,
+						"Self"
+					],
+					"To": [
+						39,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						39,
+						"Value"
+					],
+					"To": [
+						40,
+						"Name"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Result"
+					],
+					"To": [
+						41,
+						"Name"
+					]
+				},
+				{
+					"From": [
+						42,
+						"Value"
+					],
+					"To": [
+						43,
+						"A"
+					]
+				},
+				{
+					"From": [
+						43,
+						"Result"
+					],
+					"To": [
+						44,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						37,
+						"True"
+					],
+					"To": [
+						41,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						41,
+						"Then"
+					],
+					"To": [
+						44,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						44,
+						"Then"
+					],
+					"To": [
+						45,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						29,
+						"Result"
+					],
+					"To": [
+						46,
+						"Began"
+					]
+				},
+				{
+					"From": [
+						32,
+						"Result"
+					],
+					"To": [
+						46,
+						"Ended"
+					]
+				},
+				{
+					"From": [
+						40,
+						"Result"
+					],
+					"To": [
+						47,
+						"Name"
+					]
+				},
+				{
+					"From": [
+						46,
+						"Result"
+					],
+					"To": [
+						47,
+						"Message"
+					]
+				},
+				{
+					"From": [
+						37,
+						"False"
+					],
+					"To": [
+						47,
+						"Execute"
+					]
+				}
+			],
+			"Comments": []
+		}
+	}
+}

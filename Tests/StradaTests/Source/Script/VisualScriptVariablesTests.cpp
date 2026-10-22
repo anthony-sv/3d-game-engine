@@ -190,7 +190,7 @@ TEST_CASE("VisualScriptVariables: public variables are described in document ord
 	CHECK(GetNames(description.Editable.Fields) ==
 	      std::vector<std::string>{"Enabled",  "Lives",        "Coins",   "Seed",     "Highscore", "Speed",   "Gravity",     "Greeting",
 	                               "Aim",      "SpawnPoint",   "Weights", "Facing",   "Tint",      "Partner", "EnemyPrefab", "AnyAsset",
-	                               "BodyMesh", "BodyMaterial", "Icon",    "HitSound", "LabelFont", "Sky",     "Accent"});
+	                               "BodyMesh", "BodyMaterial", "Icon",    "HitSound", "LabelFont", "Sky",     "Behaviour",   "Accent"});
 	REQUIRE(description.ReadOnly.size() == 1);
 	CHECK(description.ReadOnly[0].Name == "Push");
 	CHECK(description.ReadOnly[0].Type == "Strada.ForceMode");
@@ -230,6 +230,7 @@ TEST_CASE("VisualScriptVariables: public variables are described in document ord
 	CHECK(field("EnemyPrefab").DefaultValue == ScriptFieldValue::FromPrefab(AssetHandle()));
 	CHECK(field("AnyAsset").DefaultValue == ScriptFieldValue::FromAsset(AssetHandle()));
 	CHECK(field("Sky").DefaultValue == ScriptFieldValue::FromAsset(AssetHandle()));
+	CHECK(field("Behaviour").DefaultValue == ScriptFieldValue::FromAsset(AssetHandle()));
 	CHECK(field("Accent").DefaultValue == ScriptFieldValue::FromColor(glm::vec4(1.0f)));
 
 	// Tooltips and ranges as the graph declares them; typed asset references keep their asset type.
@@ -248,6 +249,7 @@ TEST_CASE("VisualScriptVariables: public variables are described in document ord
 	CHECK(field("HitSound").AcceptedAssetType == AssetType::AudioClip);
 	CHECK(field("LabelFont").AcceptedAssetType == AssetType::Font);
 	CHECK(field("Sky").AcceptedAssetType == AssetType::Environment);
+	CHECK(field("Behaviour").AcceptedAssetType == AssetType::VisualScript);
 
 	// A document without public variables describes none.
 	VisualScriptDocument hidden = document;

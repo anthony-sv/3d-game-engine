@@ -129,10 +129,10 @@ namespace Strada::ScriptGlue
 				case AssetType::Environment:
 				case AssetType::AudioClip:
 				case AssetType::Font:
+				case AssetType::VisualScript:
 					return true;
 				case AssetType::None:
 				case AssetType::Scene:
-				case AssetType::VisualScript:
 					break;
 			}
 			return false;

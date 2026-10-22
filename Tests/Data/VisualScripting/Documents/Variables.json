@@ -214,6 +214,13 @@
 			"Public": true
 		},
 		{
+			"ID": 29,
+			"Name": "Behaviour",
+			"Type": "Strada.VisualScript",
+			"Value": "0",
+			"Public": true
+		},
+		{
 			"ID": 23,
 			"Name": "Push",
 			"Type": "Strada.ForceMode",

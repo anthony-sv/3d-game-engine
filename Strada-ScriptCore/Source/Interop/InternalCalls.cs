@@ -410,6 +410,9 @@ internal static unsafe class InternalCalls
 	internal static delegate* unmanaged<ulong, int*, byte*> ScriptComponent_GetClassName;
 	internal static delegate* unmanaged<ulong, byte*, int, void> ScriptComponent_SetClassName;
 
+	internal static delegate* unmanaged<ulong, ulong*, void> VisualScriptComponent_GetGraph;
+	internal static delegate* unmanaged<ulong, ulong*, void> VisualScriptComponent_SetGraph;
+
 	internal static delegate* unmanaged<ulong, int*, void> UICanvasComponent_GetScaleMode;
 	internal static delegate* unmanaged<ulong, int*, void> UICanvasComponent_SetScaleMode;
 	internal static delegate* unmanaged<ulong, Vector2*, void> UICanvasComponent_GetReferenceResolution;

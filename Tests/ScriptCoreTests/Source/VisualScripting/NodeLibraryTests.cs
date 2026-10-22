@@ -369,7 +369,8 @@ public sealed class NodeLibraryTests
 		Assert.Contains(Library.Domains.Components, static type => type.Id == "Strada.RigidBodyComponent");
 		Assert.Contains(Library.Domains.Components, static type => type.Id == "Strada.TransformComponent");
 		Assert.DoesNotContain(Library.Domains.Components, static type => type.Id == "Strada.Component");
-		Assert.Equal(["Strada.AudioClip", "Strada.EnvironmentMap", "Strada.Font", "Strada.Material", "Strada.Mesh", "Strada.Prefab", "Strada.Texture"],
+		Assert.Equal(["Strada.AudioClip", "Strada.EnvironmentMap", "Strada.Font", "Strada.Material", "Strada.Mesh", "Strada.Prefab", "Strada.Texture",
+				"Strada.VisualScript"],
 			Library.Domains.Assets.Select(static type => type.Id));
 		Assert.Empty(Library.Domains.Scripts);
 		Assert.Equal(["Strada.ScriptCore.Tests.ProbeBoss", "Strada.ScriptCore.Tests.ProbeEnemy", "Strada.ScriptCore.Tests.ProbePlayer"],

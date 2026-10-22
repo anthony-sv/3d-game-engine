@@ -86,3 +86,13 @@ public sealed class Prefab : Asset
 	{
 	}
 }
+
+/// <summary>A visual script asset (<c>.sgraph</c>): a graph of nodes that a <see cref="VisualScriptComponent"/> runs on its
+/// entity.</summary>
+public sealed class VisualScript : Asset
+{
+	internal VisualScript(AssetHandle handle)
+		: base(handle)
+	{
+	}
+}

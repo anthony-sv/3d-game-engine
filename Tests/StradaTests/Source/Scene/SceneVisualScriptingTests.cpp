@@ -38,6 +38,8 @@ namespace
 		struct Report
 		{
 			std::string Name;
+			bool Passed = false;
+			std::string Message;
 			size_t Instances = 0;
 			size_t GraphInstances = 0;
 		};
@@ -53,7 +55,8 @@ namespace
 		void RequestQuit() override {}
 		void ReportTestResult(ScriptTestResult const& result) override
 		{
-			Reports.push_back({result.Name, ScriptEngine::GetInstanceCount(), VisualScriptEngine::GetInstanceCount()});
+			Reports.push_back(
+				{result.Name, result.Passed, result.Message, ScriptEngine::GetInstanceCount(), VisualScriptEngine::GetInstanceCount()});
 		}
 		void FinishTests() override {}
 		void OnScriptException() override { Exceptions++; }
@@ -227,6 +230,64 @@ namespace
 		document.Graph.Nodes.push_back(MakeNode(10, "Event.Create"));
 		document.Graph.Nodes.push_back(MakeNode(11, "Flow.While", Json::object(), Json::object({{"Condition", true}})));
 		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		return document;
+	}
+
+	// The graph Strada.Tests.VisualScriptProbe uses from C#: the custom events Add(int Amount) and Boost(float Amount), which
+	// add to Score (public, 1) and Speed (0.5), Name(string Text, Entity Who), which sets Label and Partner, and Fail(), which
+	// divides Score by Zero (0).
+	VisualScriptDocument MakeApiDocument()
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Score", "int", 1));
+		document.Variables.push_back(MakeVariable(2, "Speed", "float", 0.5, false));
+		document.Variables.push_back(MakeVariable(3, "Label", "string", Json(), false));
+		document.Variables.push_back(MakeVariable(4, "Partner", "Strada.Entity", Json(), false));
+		document.Variables.push_back(MakeVariable(5, "Zero", "int", 0, false));
+		std::vector<VisualScriptNode>& nodes = document.Graph.Nodes;
+		std::vector<VisualScriptLink>& links = document.Graph.Links;
+		auto const parameters = [](std::vector<std::pair<std::string, std::string>> const& list)
+		{
+			Json result = Json::array();
+			for (auto const& [name, type] : list)
+			{
+				result.push_back(Json::object({{"Name", name}, {"Type", type}}));
+			}
+			return result;
+		};
+		// Add and Boost: <variable> = <variable> + Amount.
+		auto const addTo = [&](uint32_t event, std::string const& name, std::string const& type, uint32_t variable)
+		{
+			nodes.push_back(
+				MakeNode(event, "Event.Custom", Json::object({{"Name", name}, {"Parameters", parameters({{"Amount", type}})}})));
+			nodes.push_back(MakeNode(event + 1, "Variable.Set", Json::object({{"Variable", variable}})));
+			nodes.push_back(MakeNode(event + 2, "Operator.Add"));
+			nodes.push_back(MakeNode(event + 3, "Variable.Get", Json::object({{"Variable", variable}})));
+			links.push_back(MakeLink(event, "Then", event + 1, "Execute"));
+			links.push_back(MakeLink(event + 3, "Value", event + 2, "A"));
+			links.push_back(MakeLink(event, "Amount", event + 2, "B"));
+			links.push_back(MakeLink(event + 2, "Result", event + 1, "Value"));
+		};
+		addTo(10, "Add", "int", 1);
+		addTo(20, "Boost", "float", 2);
+		nodes.push_back(
+			MakeNode(30, "Event.Custom",
+		             Json::object({{"Name", "Name"}, {"Parameters", parameters({{"Text", "string"}, {"Who", "Strada.Entity"}})}})));
+		nodes.push_back(MakeNode(31, "Variable.Set", Json::object({{"Variable", 3}})));
+		nodes.push_back(MakeNode(32, "Variable.Set", Json::object({{"Variable", 4}})));
+		links.push_back(MakeLink(30, "Then", 31, "Execute"));
+		links.push_back(MakeLink(30, "Text", 31, "Value"));
+		links.push_back(MakeLink(31, "Then", 32, "Execute"));
+		links.push_back(MakeLink(30, "Who", 32, "Value"));
+		nodes.push_back(MakeNode(40, "Event.Custom", Json::object({{"Name", "Fail"}})));
+		nodes.push_back(MakeNode(41, "Variable.Set", Json::object({{"Variable", 1}})));
+		nodes.push_back(MakeNode(42, "Operator.Divide"));
+		nodes.push_back(MakeNode(43, "Variable.Get", Json::object({{"Variable", 1}})));
+		nodes.push_back(MakeNode(44, "Variable.Get", Json::object({{"Variable", 5}})));
+		links.push_back(MakeLink(40, "Then", 41, "Execute"));
+		links.push_back(MakeLink(43, "Value", 42, "A"));
+		links.push_back(MakeLink(44, "Value", 42, "B"));
+		links.push_back(MakeLink(42, "Result", 41, "Value"));
 		return document;
 	}
 
@@ -826,5 +887,54 @@ TEST_CASE("Scene: failing visual scripts are script exceptions, an endless loop 
 	CHECK(host.Exceptions == 3);
 	CHECK(CountLogged(logStart, "integer division by zero") == 2);
 	CHECK(ReadVariable(counter.GetUUID(), "Updates") == ScriptFieldValue::FromInt32(2));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: C# scripts raise visual scripts' custom events and read and write their variables")
+{
+	// A file asset, so that the probe can load it by its path.
+	Testing::TemporaryDirectory directory;
+	REQUIRE(VisualScriptSerializer::SaveToFile(MakeApiDocument(), directory.GetPath() / "Api.sgraph").IsOk());
+	Testing::AssetManagerScope assets;
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const graph = AssetManager::FindByPath("Api.sgraph");
+	REQUIRE(graph.IsValid());
+	Testing::ScriptEngineScope scripting;
+	RecordingHost host;
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	Scene scene("Api");
+	Entity const target = AddVisualScript(scene.CreateEntity("Target"), graph);
+	AddScript(scene.CreateEntity("Probe"), "Strada.Tests.VisualScriptProbe",
+	          {{"Target", ScriptFieldValue::FromEntity(target.GetUUID())}, {"GraphPath", ScriptFieldValue::FromString("Api.sgraph")}});
+
+	// The probe uses the graph in its OnCreate, when the graph's instance exists already; each part is a check.
+	scene.OnRuntimeStart();
+	std::vector<std::string> checks;
+	for (RecordingHost::Report const& report : host.Reports)
+	{
+		CAPTURE(report.Name);
+		CHECK_MESSAGE(report.Passed, report.Message);
+		checks.push_back(report.Name);
+	}
+	CHECK(checks == std::vector<std::string>{"variables", "references", "events", "refused events", "errors", "graphs"});
+
+	// The graph holds what C# left in it. Events it refused were logged and did not run; the event that failed was logged once
+	// and was the caller's exception, not a failure of a script.
+	CHECK(ReadVariable(target.GetUUID(), "Score") == ScriptFieldValue::FromInt32(8));
+	CHECK(CountLogged(logStart, "SendEvent Missing: the graph has no custom event Missing") == 1);
+	CHECK(CountLogged(logStart, "SendEvent Add: the event takes 1 argument, not 2") == 1);
+	CHECK(CountLogged(logStart, "SendEvent Add: argument 1 (Amount) is a System.String, which does not convert to int") == 1);
+	CHECK(CountLogged(logStart, "integer division by zero") == 1);
+	CHECK(host.Exceptions == 0);
+
+	// The entity the probe gave the graph runs it from the next update.
+	Entity const holder = scene.FindEntityByName("Holder");
+	REQUIRE(holder);
+	CHECK(Testing::WasLogged(logStart, "SendEvent Add: Holder (" + holder.GetUUID().ToString() + ") runs no visual script"));
+	CHECK(holder.GetComponent<VisualScriptComponent>().Graph == graph);
+	CHECK_FALSE(VisualScriptEngine::HasInstance(holder.GetUUID()));
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(VisualScriptEngine::HasInstance(holder.GetUUID()));
+	CHECK(ReadVariable(holder.GetUUID(), "Score") == ScriptFieldValue::FromInt32(1));
 	scene.OnRuntimeStop();
 }

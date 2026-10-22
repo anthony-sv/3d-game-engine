@@ -110,6 +110,7 @@ public sealed class InteropTests
 			[typeof(AssetHandle)] = ScriptFieldType.Asset,
 			[typeof(Mesh)] = ScriptFieldType.Asset,
 			[typeof(AudioClip)] = ScriptFieldType.Asset,
+			[typeof(VisualScript)] = ScriptFieldType.Asset,
 			[typeof(MaterialAlphaMode)] = ScriptFieldType.Int32,
 			[typeof(ByteEnum)] = ScriptFieldType.Int32,
 			[typeof(UnsignedEnum)] = ScriptFieldType.UInt32,
@@ -138,7 +139,7 @@ public sealed class InteropTests
 	public void AssetClassesMapToTheEngineTypes()
 	{
 		System.Type[] classes = [typeof(Prefab), typeof(Mesh), typeof(Material), typeof(Texture), typeof(EnvironmentMap),
-			typeof(AudioClip), typeof(Font)];
+			typeof(AudioClip), typeof(Font), typeof(VisualScript)];
 		foreach (System.Type assetClass in classes)
 		{
 			NativeAssetType type = AssetTypes.GetNativeType(assetClass);

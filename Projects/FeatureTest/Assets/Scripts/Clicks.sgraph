@@ -1,0 +1,422 @@
+{
+	"Strada": {
+		"Version": 1,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Description": "Counts the clicks of the buttons of its entity's UI. At the first, it checks that the clicked entity is a button (Checks counts it) and sets Done. The feature test's UI canvas runs it next to the C# UITests.",
+		"Variables": [
+			{
+				"ID": 1,
+				"Name": "Clicks",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Buttons clicked"
+			},
+			{
+				"ID": 2,
+				"Name": "Checks",
+				"Type": "int",
+				"Value": 0,
+				"Public": true,
+				"Tooltip": "Checks that passed"
+			},
+			{
+				"ID": 3,
+				"Name": "Done",
+				"Type": "bool",
+				"Value": false,
+				"Public": true,
+				"Tooltip": "Whether a button was clicked"
+			}
+		],
+		"Functions": [],
+		"Graph": {
+			"Nodes": [
+				{
+					"ID": 4,
+					"Type": "Event.Click",
+					"Position": [
+						0.0,
+						0.0
+					]
+				},
+				{
+					"ID": 5,
+					"Type": "Flow.DoOnce",
+					"Position": [
+						960.0,
+						0.0
+					]
+				},
+				{
+					"ID": 6,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						160.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 7,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						0.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 8,
+					"Type": "Variable.Set",
+					"Position": [
+						640.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 1
+					}
+				},
+				{
+					"ID": 9,
+					"Type": "Call:Strada.Entity.HasComponent<T>()",
+					"Position": [
+						320.0,
+						160.0
+					],
+					"Settings": {
+						"TypeArguments": [
+							"Strada.UIButtonComponent"
+						]
+					}
+				},
+				{
+					"ID": 10,
+					"Type": "Flow.Branch",
+					"Position": [
+						1280.0,
+						0.0
+					]
+				},
+				{
+					"ID": 11,
+					"Type": "Get:Strada.Entity.Name",
+					"Position": [
+						320.0,
+						320.0
+					]
+				},
+				{
+					"ID": 12,
+					"Type": "Self",
+					"Position": [
+						0.0,
+						320.0
+					]
+				},
+				{
+					"ID": 13,
+					"Type": "Get:Strada.Entity.Name",
+					"Position": [
+						320.0,
+						480.0
+					]
+				},
+				{
+					"ID": 14,
+					"Type": "FormatString",
+					"Position": [
+						640.0,
+						160.0
+					],
+					"Settings": {
+						"Format": "Clicks: {Name}: the clicked entity is a button"
+					}
+				},
+				{
+					"ID": 15,
+					"Type": "Call:Strada.Testing.TestReporter.Pass(string)",
+					"Position": [
+						1600.0,
+						0.0
+					]
+				},
+				{
+					"ID": 16,
+					"Type": "Variable.Get",
+					"Position": [
+						0.0,
+						480.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 17,
+					"Type": "Operator.Add",
+					"Position": [
+						320.0,
+						640.0
+					],
+					"Inputs": {
+						"B": 1
+					}
+				},
+				{
+					"ID": 18,
+					"Type": "Variable.Set",
+					"Position": [
+						1920.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 2
+					}
+				},
+				{
+					"ID": 19,
+					"Type": "Variable.Set",
+					"Position": [
+						2240.0,
+						0.0
+					],
+					"Settings": {
+						"Variable": 3
+					},
+					"Inputs": {
+						"Value": true
+					}
+				},
+				{
+					"ID": 20,
+					"Type": "FormatString",
+					"Position": [
+						640.0,
+						320.0
+					],
+					"Settings": {
+						"Format": "{Button} has no UIButton component"
+					}
+				},
+				{
+					"ID": 21,
+					"Type": "Call:Strada.Testing.TestReporter.Fail(string,string)",
+					"Position": [
+						1600.0,
+						160.0
+					]
+				}
+			],
+			"Links": [
+				{
+					"From": [
+						6,
+						"Value"
+					],
+					"To": [
+						7,
+						"A"
+					]
+				},
+				{
+					"From": [
+						7,
+						"Result"
+					],
+					"To": [
+						8,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						4,
+						"Then"
+					],
+					"To": [
+						8,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						8,
+						"Then"
+					],
+					"To": [
+						5,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						4,
+						"Button"
+					],
+					"To": [
+						9,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						9,
+						"Result"
+					],
+					"To": [
+						10,
+						"Condition"
+					]
+				},
+				{
+					"From": [
+						5,
+						"Completed"
+					],
+					"To": [
+						10,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						4,
+						"Button"
+					],
+					"To": [
+						11,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						12,
+						"Self"
+					],
+					"To": [
+						13,
+						"Target"
+					]
+				},
+				{
+					"From": [
+						13,
+						"Value"
+					],
+					"To": [
+						14,
+						"Name"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Result"
+					],
+					"To": [
+						15,
+						"Name"
+					]
+				},
+				{
+					"From": [
+						16,
+						"Value"
+					],
+					"To": [
+						17,
+						"A"
+					]
+				},
+				{
+					"From": [
+						17,
+						"Result"
+					],
+					"To": [
+						18,
+						"Value"
+					]
+				},
+				{
+					"From": [
+						10,
+						"True"
+					],
+					"To": [
+						15,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						15,
+						"Then"
+					],
+					"To": [
+						18,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						18,
+						"Then"
+					],
+					"To": [
+						19,
+						"Execute"
+					]
+				},
+				{
+					"From": [
+						11,
+						"Value"
+					],
+					"To": [
+						20,
+						"Button"
+					]
+				},
+				{
+					"From": [
+						14,
+						"Result"
+					],
+					"To": [
+						21,
+						"Name"
+					]
+				},
+				{
+					"From": [
+						20,
+						"Result"
+					],
+					"To": [
+						21,
+						"Message"
+					]
+				},
+				{
+					"From": [
+						10,
+						"False"
+					],
+					"To": [
+						21,
+						"Execute"
+					]
+				}
+			],
+			"Comments": []
+		}
+	}
+}

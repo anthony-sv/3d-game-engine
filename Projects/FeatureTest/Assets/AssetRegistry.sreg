@@ -30,6 +30,16 @@
 			"Path": "Scenes/Second.sscene"
 		},
 		{
+			"Handle": "3404165207728817409",
+			"Type": "VisualScript",
+			"Path": "Scripts/Clicks.sgraph"
+		},
+		{
+			"Handle": "5938021440186637523",
+			"Type": "VisualScript",
+			"Path": "Scripts/Contacts.sgraph"
+		},
+		{
 			"Handle": "8146390251172604461",
 			"Type": "VisualScript",
 			"Path": "Scripts/Features.sgraph"

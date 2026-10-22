@@ -1083,6 +1083,89 @@ TEST_CASE("VisualScriptEngine: the node library describes the scripting API, and
 	CHECK(kept("Strada.KeyCode").has_value());
 }
 
+TEST_CASE("VisualScriptEngine: graphs get and set a VisualScript component's graph, but not call its methods, and load visual scripts")
+{
+	Testing::ScriptRuntimeScope runtime;
+	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
+	REQUIRE(library != nullptr);
+
+	// The component's Graph has a getter and a setter node; graphs use Event.Send and the variable nodes, not its methods.
+	VisualScriptTypeInfo const* component = library->FindType("Strada.VisualScriptComponent");
+	REQUIRE(component != nullptr);
+	CHECK(component->Kind == VisualScriptTypeKind::Component);
+	std::vector<std::string> members;
+	for (VisualScriptNodeTemplate const& node : library->GetNodes())
+	{
+		if (node.Type.find("Strada.VisualScriptComponent.") != std::string::npos)
+		{
+			members.push_back(node.Type);
+		}
+	}
+	std::sort(members.begin(), members.end());
+	CHECK(members == std::vector<std::string>{"Get:Strada.VisualScriptComponent.Graph", "Set:Strada.VisualScriptComponent.Graph"});
+	VisualScriptNodeTemplate const* getter = library->FindNode("Get:Strada.VisualScriptComponent.Graph");
+	REQUIRE(getter != nullptr);
+	CHECK(getter->Pure);
+	VisualScriptPin const* target = getter->FindPin("Target", VisualScriptPinDirection::In);
+	REQUIRE(target != nullptr);
+	CHECK(target->DefaultsToSelf);
+	VisualScriptPin const* value = getter->FindPin("Value", VisualScriptPinDirection::Out);
+	REQUIRE(value != nullptr);
+	CHECK(value->Type == "Strada.VisualScript");
+	VisualScriptNodeTemplate const* setter = library->FindNode("Set:Strada.VisualScriptComponent.Graph");
+	REQUIRE(setter != nullptr);
+	CHECK_FALSE(setter->Pure);
+	VisualScriptPin const* assigned = setter->FindPin("Value", VisualScriptPinDirection::In);
+	REQUIRE(assigned != nullptr);
+	CHECK(assigned->Type == "Strada.VisualScript");
+
+	// Visual scripts are assets: variables hold them, components store them for public ones, documents hold their handles.
+	VisualScriptTypeInfo const* visualScript = library->FindType("Strada.VisualScript");
+	REQUIRE(visualScript != nullptr);
+	CHECK(visualScript->Kind == VisualScriptTypeKind::Asset);
+	CHECK(visualScript->FieldType == ScriptFieldType::Asset);
+	CHECK(visualScript->AcceptedAssetType == AssetType::VisualScript);
+	CHECK(visualScript->HasLiteral);
+	CHECK(visualScript->Base == "Strada.Asset");
+	CHECK(visualScript->ImplicitTo == std::vector<std::string>{"Strada.Asset", "Strada.AssetHandle", "System.Object"});
+
+	// Assets.Load<T> loads them: a graph that does analyzes cleanly with a result of the type, and a type that is not an asset
+	// class is refused.
+	auto const analyzeLoad = [](std::string const& typeArgument)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Loaded", "Strada.Asset", Json(), false));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Create"));
+		document.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 1}})));
+		document.Graph.Nodes.push_back(MakeNode(12, "Call:Strada.Assets.Load<T>(string)",
+		                                        Json::object({{"TypeArguments", Json::array({typeArgument})}}),
+		                                        Json::object({{"Path", "Scripts/Behaviour.sgraph"}})));
+		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		document.Graph.Links.push_back(MakeLink(12, "Result", 11, "Value"));
+		Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(document);
+		REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
+		return analysis.TakeValue();
+	};
+	VisualScriptAnalysis const loaded = analyzeLoad("Strada.VisualScript");
+	for (VisualScriptDiagnostic const& diagnostic : loaded.Diagnostics)
+	{
+		CAPTURE(diagnostic.Message);
+		CHECK(diagnostic.Severity == VisualScriptSeverity::Warning);
+	}
+	VisualScriptAnalyzedNode const* load = loaded.FindNode(12);
+	REQUIRE(load != nullptr);
+	VisualScriptPin const* result = load->FindPin("Result", VisualScriptPinDirection::Out);
+	REQUIRE(result != nullptr);
+	CHECK(result->Type == "Strada.VisualScript");
+	VisualScriptAnalysis const refused = analyzeLoad("Strada.Entity");
+	CHECK(std::any_of(refused.Diagnostics.begin(), refused.Diagnostics.end(),
+	                  [](VisualScriptDiagnostic const& diagnostic)
+	                  {
+						  return diagnostic.Severity == VisualScriptSeverity::Error && diagnostic.Code == "InvalidSetting" &&
+		                         diagnostic.Node == std::optional<uint32_t>(12);
+					  }));
+}
+
 TEST_CASE("VisualScriptEngine: CanConnect allows exactly the links analysis accepts")
 {
 	Testing::ScriptRuntimeScope runtime;

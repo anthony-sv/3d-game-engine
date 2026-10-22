@@ -29,6 +29,7 @@ internal static class AssetTypes
 		_ when type == typeof(EnvironmentMap) => NativeAssetType.Environment,
 		_ when type == typeof(AudioClip) => NativeAssetType.AudioClip,
 		_ when type == typeof(Font) => NativeAssetType.Font,
+		_ when type == typeof(VisualScript) => NativeAssetType.VisualScript,
 		_ => NativeAssetType.None,
 	};
 
@@ -41,6 +42,7 @@ internal static class AssetTypes
 		NativeAssetType.Environment => new EnvironmentMap(handle),
 		NativeAssetType.AudioClip => new AudioClip(handle),
 		NativeAssetType.Font => new Font(handle),
+		NativeAssetType.VisualScript => new VisualScript(handle),
 		_ => throw new ArgumentOutOfRangeException(nameof(type), type, "not an asset class"),
 	};
 }

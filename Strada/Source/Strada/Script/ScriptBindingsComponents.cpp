@@ -855,5 +855,7 @@ namespace Strada::ScriptGlue
 
 		table.Add("ScriptComponent_GetClassName", &GetText<ScriptComponent, &ScriptComponent::ClassName>);
 		table.Add("ScriptComponent_SetClassName", &SetText<ScriptComponent, &ScriptComponent::ClassName>);
+
+		AddFieldBindings<&VisualScriptComponent::Graph, "VisualScriptComponent", "Graph">(table);
 	}
 }
