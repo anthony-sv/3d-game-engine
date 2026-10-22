@@ -48,29 +48,30 @@ deviations".
 
 ## The editor's node library
 
-`Editor/Library.json` holds the runtime's own entries, as `graph.types` and `graph.library` report them, for 40 node kinds
-and 28 types: types in ID order and nodes in library order (by category, then title, then type), each entry unchanged.
-They cover every kind of node a library has (`Unknown` is only the analysis') and every kind of type the scripting API
-has (there is no type of kind `Class` in it): input events with an enum setting; flow with outputs and wildcards that
-depend on settings; latent nodes, one with a tick (`Flow.Tween`); every node whose pins come from its settings
-(variables, functions, custom events, `Flow.Sequence`, `Flow.Switch`, `Literal`, `Convert`, `Make`, `Break`); the
-wildcards of `Reroute`, `Select`, `IsValid`, the operators, `Flow.ForEach` and `Array.Get`; and the scripting API's
-calls, getters, a setter, a constructor, the generic `GetComponent<T>` and `Load<T>`, an out struct whose fields split
-again (`Physics.Raycast`'s `Hit`), and inputs of an enum, an asset and a colour. Every type an entry names (pins,
-settings, fields, elements, bases and implicit conversions) is one of its types.
+`Editor/Library.json` holds the runtime's own entries, as `graph.types` and `graph.library` report them, for 41 node
+kinds and 28 types: types in ID order and nodes in library order (by category, then title, then type), each entry
+unchanged. They cover every kind of node a library has (`Unknown` is only the analysis') and every kind of type the
+scripting API has (there is no type of kind `Class` in it): input events with an enum setting; flow with outputs and
+wildcards that depend on settings; latent nodes, one with a tick (`Flow.Tween`); every node whose pins come from its
+settings (variables, functions, custom events, `Flow.Sequence`, `Flow.Switch`, `FormatString`, `Literal`, `Convert`,
+`Make`, `Break` and the generic calls below); the wildcards of `Reroute`, `Select`, `IsValid`, the operators,
+`Flow.ForEach` and `Array.Get`; and the scripting API's calls, getters, a setter, a constructor, the generic
+`GetComponent<T>` and `Load<T>` (whose `TypeArguments` setting types their pins), an out struct whose fields split again
+(`Physics.Raycast`'s `Hit`), and inputs of an enum, an asset and a colour. Every type an entry names (pins, settings,
+fields, elements, bases and implicit conversions) is one of its types.
 
 - Nodes: `Call:Strada.Assets.Load<T>(string)`, `Get:Strada.ParticleSystemComponent.SpeedMax`,
-  `Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)`, `Get:Strada.TransformComponent.Translation`,
-  `Set:Strada.TransformComponent.Translation`, `Convert`, `Call:Strada.Log.Info(string)`,
-  `Call:Strada.Entity.GetComponent<T>()`,
+  `Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)`,
+  `Get:Strada.TransformComponent.Translation`, `Set:Strada.TransformComponent.Translation`, `Convert`,
+  `Call:Strada.Log.Info(string)`, `Call:Strada.Entity.GetComponent<T>()`,
   `Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)`, `Event.Create`,
   `Event.Custom`, `Event.KeyPressed`, `Event.Send`, `Event.Update`, `Flow.Branch`, `Flow.Delay`, `Flow.ForEach`,
   `Flow.Sequence`, `Flow.Switch`, `Flow.Tween`, `Function.Call`, `Function.Entry`, `Function.Return`,
   `Call:Strada.Input.IsKeyDown(Strada.KeyCode)`, `Call:Strada.Color.Lerp(Strada.Color,Strada.Color,float)`,
   `Operator.Add`, `Operator.Less`, `New:Strada.Vector3(float,float,float)`,
   `Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)`, `Break`, `Make`,
-  `Get:Strada.Time.DeltaTime`, `IsValid`, `Literal`, `Reroute`, `Select`, `Self`, `Array.Get`, `Variable.Get`,
-  `Variable.Set`.
+  `Get:Strada.Time.DeltaTime`, `FormatString`, `IsValid`, `Literal`, `Reroute`, `Select`, `Self`, `Array.Get`,
+  `Variable.Get`, `Variable.Set`.
 - Types: `Strada.Asset`, `Strada.AssetHandle`, `Strada.Color`, `Strada.Component`, `Strada.Entity`, `Strada.Entity[]`,
   `Strada.ForceMode`, `Strada.KeyCode`, `Strada.Matrix4`, `Strada.ParticleSystemComponent`, `Strada.Prefab`,
   `Strada.Quaternion`, `Strada.Ray`, `Strada.RaycastHit`, `Strada.RigidBodyComponent`, `Strada.TransformComponent`,

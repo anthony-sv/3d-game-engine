@@ -193,9 +193,9 @@ TEST_CASE("VisualScriptEditor: the fixture library is the node library's own ent
 												  return pin.Role == VisualScriptPinRole::Tick;
 											  });
 		}));
-	for (std::string_view const type :
-	     {"Variable.Get", "Variable.Set", "Function.Entry", "Function.Return", "Function.Call", "Flow.Sequence", "Flow.Switch",
-	      "Event.Custom", "Event.Send", "Literal", "Convert", "Make", "Break"})
+	for (std::string_view const type : {"Variable.Get", "Variable.Set", "Function.Entry", "Function.Return", "Function.Call",
+	                                    "Flow.Sequence", "Flow.Switch", "Event.Custom", "Event.Send", "FormatString", "Literal", "Convert",
+	                                    "Make", "Break", "Call:Strada.Entity.GetComponent<T>()", "Call:Strada.Assets.Load<T>(string)"})
 	{
 		CAPTURE(type);
 		CHECK(library.FindNode(type) != nullptr);

@@ -171,10 +171,12 @@ namespace Strada
 		bool operator==(VisualScriptDocument const& other) const = default;
 	};
 
-	// Whether two documents give the same program: equal except for what the scripting runtime never reads (the document's
+	// Whether two documents give the same program: alike except for what the scripting runtime never reads (the document's
 	// Description; variables' Tooltip and Range; nodes' Position, Comment and Collapsed; the graphs' Comments). Everything
-	// else, order included, is compared as operator== compares it, so equal documents give the same program. Pure; any
-	// thread.
+	// else is compared, order included. Values (of variables and locals, and nodes' Settings and Inputs) are compared as the
+	// runtime reads them, from the document's text: an integer and a float are never alike, since an int literal or an ID
+	// must be an integer (operator== takes 1 and 1.0 as equal), integers are alike by value whether stored signed or
+	// unsigned, and floats bit for bit. Pure; any thread.
 	[[nodiscard]] bool HaveSameVisualScriptProgram(VisualScriptDocument const& a, VisualScriptDocument const& b);
 
 	// A visual script (.sgraph file). Its document is an immutable shared object: a change replaces it with another, so

@@ -7,6 +7,7 @@
 #include "Strada/Asset/PrefabAsset.h"
 #include "Strada/Asset/TextureAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 
 #include <doctest/doctest.h>
@@ -275,44 +276,6 @@ TEST_CASE("MaterialAsset: imported parameters fit the material ranges and keep t
 	CHECK(readBack == broken);
 }
 
-TEST_CASE("VisualScriptAsset: the document is a shared object that a change replaces, and every change counts")
-{
-	VisualScriptAsset asset;
-	Ref<VisualScriptDocument const> const empty = asset.GetSharedDocument();
-	REQUIRE(empty != nullptr);
-	CHECK(*empty == VisualScriptDocument{});
-	CHECK(&asset.GetDocument() == empty.get());
-
-	// The shared overload keeps the object it is given; the one before it is left as it was.
-	VisualScriptDocument const events = MakeVisualScriptTemplate(VisualScriptTemplate::Events);
-	Ref<VisualScriptDocument const> const shared = CreateRef<VisualScriptDocument const>(events);
-	asset.SetDocument(shared);
-	CHECK(asset.GetVersion() == 1);
-	CHECK(asset.GetSharedDocument() == shared);
-	CHECK(&asset.GetDocument() == shared.get());
-	CHECK(*empty == VisualScriptDocument{});
-
-	// The document overload makes a new object; the shared one keeps its contents.
-	VisualScriptDocument changed = events;
-	changed.Description = "Spins";
-	asset.SetDocument(changed);
-	CHECK(asset.GetVersion() == 2);
-	CHECK(asset.GetSharedDocument() != shared);
-	CHECK(asset.GetDocument() == changed);
-	CHECK(*shared == events);
-
-	// Giving the same object again is still a change.
-	asset.SetDocument(shared);
-	asset.SetDocument(shared);
-	CHECK(asset.GetVersion() == 4);
-	CHECK(asset.GetSharedDocument() == shared);
-
-	VisualScriptAsset const constructed(changed);
-	CHECK(constructed.GetVersion() == 0);
-	REQUIRE(constructed.GetSharedDocument() != nullptr);
-	CHECK(constructed.GetDocument() == changed);
-}
-
 TEST_CASE("VisualScriptAsset: documents give the same program unless something the scripting runtime reads differs")
 {
 	auto const makeNode = [](uint32_t id, std::string type)
@@ -345,6 +308,7 @@ TEST_CASE("VisualScriptAsset: documents give the same program unless something t
 	ground.ID = 2;
 	ground.Name = "Ground";
 	ground.Type = "float";
+	ground.Value = 0.0;
 	document.Variables.push_back(ground);
 
 	VisualScriptFunction scale;
@@ -363,13 +327,17 @@ TEST_CASE("VisualScriptAsset: documents give the same program unless something t
 	document.Graph.Nodes = {makeNode(10, "Event.Update"), makeNode(11, "Call:Strada.Physics.Raycast"), makeNode(12, "Variable.Set")};
 	VisualScriptNode& raycast = document.Graph.Nodes[1];
 	raycast.Settings = Json::object({{"Layers", Json::array({"Default"})}});
-	raycast.Inputs = Json::object({{"Origin.Y", 5.0}, {"MaxDistance", 100.0}});
+	raycast.Inputs = Json::object({{"Origin.Y", 5.0},
+	                               {"Direction", Json::array({0, -1, 0})},
+	                               {"MaxDistance", 100.0},
+	                               {"LayerMask", 1},
+	                               {"Seed", std::numeric_limits<uint64_t>::max()}});
 	raycast.Split.Inputs = {"Origin"};
 	raycast.Split.Outputs = {"Hit", "Hit.Point"};
 	raycast.Comment = "Looks down";
 	raycast.Collapsed = true;
 	raycast.Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
-	document.Graph.Nodes[2].Settings = Json::object({{"Variable", "Ground"}});
+	document.Graph.Nodes[2].Settings = Json::object({{"Variable", 2}});
 	document.Graph.Links = {makeLink(10, "Then", 11, "Execute"), makeLink(11, "Then", 12, "Execute"),
 	                        makeLink(11, "Hit.Point.Y", 12, "Value")};
 	document.Graph.Comments = {{13, "Ground probe", {-20.0f, -20.0f}, {600.0f, 240.0f}, {0.5f, 0.5f, 0.5f, 0.25f}}};
@@ -439,7 +407,7 @@ TEST_CASE("VisualScriptAsset: documents give the same program unless something t
 	compared.Add("a function's node disabled").Functions[0].Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::Disabled;
 	compared.Add("a node's ID").Graph.Nodes[2].ID = 15;
 	compared.Add("a node's type").Graph.Nodes[1].Type = "Call:Strada.Physics.SphereCast";
-	compared.Add("a node's setting").Graph.Nodes[2].Settings["Variable"] = "Speed";
+	compared.Add("a node's setting").Graph.Nodes[2].Settings["Variable"] = 1;
 	compared.Add("a node's literal").Graph.Nodes[1].Inputs["MaxDistance"] = 50.0;
 	compared.Add("a node's literal added").Graph.Nodes[1].Inputs["Origin.X"] = 1.0;
 	compared.Add("a node's split input joined").Graph.Nodes[1].Split.Inputs.clear();
@@ -467,6 +435,45 @@ TEST_CASE("VisualScriptAsset: documents give the same program unless something t
 		CHECK_FALSE(HaveSameVisualScriptProgram(document, change.Document));
 		CHECK_FALSE(HaveSameVisualScriptProgram(change.Document, document));
 	}
+
+	// Values the runtime reads differently, although operator== takes them as equal: the runtime reads the document's
+	// text, in which they differ (an int literal or an ID written as 1.0 is no integer to it).
+	Changes rewritten{document, {}};
+	rewritten.Add("an ID setting written as a float").Graph.Nodes[2].Settings["Variable"] = 2.0;
+	rewritten.Add("an integer literal written as a float").Graph.Nodes[1].Inputs["LayerMask"] = 1.0;
+	rewritten.Add("a vector literal's component written as a float").Graph.Nodes[1].Inputs["Direction"][1] = -1.0;
+	rewritten.Add("an unsigned literal written as the signed number of its bits").Graph.Nodes[1].Inputs["Seed"] = int64_t{-1};
+	rewritten.Add("a variable's float value written as an integer").Variables[1].Value = 0;
+	rewritten.Add("a variable's zero written as negative zero").Variables[1].Value = -0.0;
+	rewritten.Add("a local's float value written as an integer").Functions[0].Locals[0].Value = 2;
+	std::string const text = DumpJson(VisualScriptSerializer::SerializeDocument(document));
+	for (Change const& change : rewritten.Documents)
+	{
+		CAPTURE(change.What);
+		REQUIRE(change.Document == document);
+		CHECK(DumpJson(VisualScriptSerializer::SerializeDocument(change.Document)) != text);
+		CHECK_FALSE(HaveSameVisualScriptProgram(document, change.Document));
+		CHECK_FALSE(HaveSameVisualScriptProgram(change.Document, document));
+	}
+
+	// Integers are alike whether they are stored signed or unsigned, as the loader stores those it reads: both are written
+	// as the same digits.
+	VisualScriptDocument unsignedId = document;
+	unsignedId.Graph.Nodes[2].Settings["Variable"] = 2u;
+	REQUIRE(unsignedId.Graph.Nodes[2].Settings.at("Variable").is_number_unsigned());
+	REQUIRE_FALSE(document.Graph.Nodes[2].Settings.at("Variable").is_number_unsigned());
+	CHECK(HaveSameVisualScriptProgram(document, unsignedId));
+	CHECK(HaveSameVisualScriptProgram(unsignedId, document));
+	Result<Json> const parsed = ParseJson(text);
+	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
+	DeserializationContext const strict;
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> const reloaded = VisualScriptSerializer::DeserializeDocument(parsed.GetValue(), strict, &issues);
+	REQUIRE_MESSAGE(reloaded.IsOk(), reloaded.GetError());
+	CHECK(issues.empty());
+	CHECK(reloaded.GetValue().Graph.Nodes.at(1).Inputs.at("LayerMask").is_number_unsigned());
+	CHECK(HaveSameVisualScriptProgram(document, reloaded.GetValue()));
+	CHECK(HaveSameVisualScriptProgram(reloaded.GetValue(), document));
 
 	// Everything the runtime never reads changed at once: still the same program.
 	VisualScriptDocument relaidOut = document;

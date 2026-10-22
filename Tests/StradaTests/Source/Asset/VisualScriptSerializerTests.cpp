@@ -1153,16 +1153,37 @@ TEST_CASE("VisualScript: of two elements with one ID the later in document order
 
 TEST_CASE("VisualScript: names are checked for their shape and their uniqueness in each scope")
 {
+	// The first two have the shape of a name; the loader drops the variables named by the others.
+	std::vector<std::string> const names = {std::string(64, 'a'),
+	                                        std::string("Gr\xC3\xB6\xC3\x9F"
+	                                                    "e der Welt"),
+	                                        std::string(65, 'b'),
+	                                        std::string(),
+	                                        std::string(" Lead"),
+	                                        std::string("Trail "),
+	                                        std::string("Split.Pin"),
+	                                        std::string("Tab\tName"),
+	                                        std::string("Delete\x7F"),
+	                                        std::string("\xC3")};
 	Json variables = Json::array();
 	uint32_t id = 1;
-	for (std::string name : {std::string(64, 'a'),
-	                         std::string("Gr\xC3\xB6\xC3\x9F"
-	                                     "e der Welt"),
-	                         std::string(65, 'b'), std::string(), std::string(" Lead"), std::string("Trail "), std::string("Split.Pin"),
-	                         std::string("Tab\tName"), std::string("Delete\x7F"), std::string("\xC3")})
+	for (std::string const& name : names)
 	{
-		variables.push_back(MakeVariable(id++, std::move(name)));
+		// The rule is public, so editors check names as they are typed against the loader's own.
+		CAPTURE(id);
+		CHECK(VisualScriptSerializer::IsValidName(name) == (id <= 2));
+		variables.push_back(MakeVariable(id++, name));
 	}
+	// Spaces may only be inside a name, and its limit counts bytes.
+	CHECK(VisualScriptSerializer::IsValidName("Max Speed"));
+	CHECK_FALSE(VisualScriptSerializer::IsValidName(" "));
+	std::string umlauts;
+	for (size_t character = 0; character < VisualScriptSerializer::MaxNameBytes / 2; character++)
+	{
+		umlauts += "\xC3\xB6";
+	}
+	CHECK(VisualScriptSerializer::IsValidName(umlauts));
+	CHECK_FALSE(VisualScriptSerializer::IsValidName(umlauts + "s"));
 	LoadedDocument const shapes = Load(MakeContent(variables, Json::array(), MakeGraph(Json::array())));
 	CHECK(GetPaths(shapes.Issues) == "Variables[2].Name, Variables[3].Name, Variables[4].Name, Variables[5].Name, Variables[6].Name, "
 	                                 "Variables[7].Name, Variables[8].Name, Variables[9].Name");
@@ -1819,6 +1840,42 @@ TEST_CASE("VisualScript: the asset holds a document and counts its changes")
 	asset.SetDocument(VisualScriptDocument{});
 	CHECK(asset.GetVersion() == 2);
 	CHECK(VisualScriptAsset().GetDocument() == VisualScriptDocument{});
+
+	// The document is a shared object. The shared overload keeps the object it is given, and the one before it stays as
+	// it was for whoever keeps it (an undo step, an editor).
+	Ref<VisualScriptDocument const> const empty = asset.GetSharedDocument();
+	REQUIRE(empty != nullptr);
+	CHECK(&asset.GetDocument() == empty.get());
+	Ref<VisualScriptDocument const> const shared = CreateRef<VisualScriptDocument const>(changed);
+	asset.SetDocument(shared);
+	CHECK(asset.GetVersion() == 3);
+	CHECK(asset.GetSharedDocument() == shared);
+	CHECK(&asset.GetDocument() == shared.get());
+	CHECK(*empty == VisualScriptDocument{});
+
+	// The document overload makes a new object; the shared one keeps its contents.
+	VisualScriptDocument turned = changed;
+	turned.Description = "Turns";
+	asset.SetDocument(turned);
+	CHECK(asset.GetVersion() == 4);
+	CHECK(asset.GetSharedDocument() != shared);
+	CHECK(asset.GetDocument() == turned);
+	CHECK(*shared == changed);
+
+	// Giving the same object again is still a change.
+	asset.SetDocument(shared);
+	asset.SetDocument(shared);
+	CHECK(asset.GetVersion() == 6);
+	CHECK(asset.GetSharedDocument() == shared);
+
+	// Every asset has a document object, from its start.
+	VisualScriptAsset const fresh;
+	REQUIRE(fresh.GetSharedDocument() != nullptr);
+	CHECK(fresh.GetVersion() == 0);
+	VisualScriptAsset const constructed(changed);
+	REQUIRE(constructed.GetSharedDocument() != nullptr);
+	CHECK(constructed.GetVersion() == 0);
+	CHECK(constructed.GetDocument() == changed);
 }
 
 TEST_CASE("VisualScript: the asset manager loads .sgraph files and logs their repairs with the file")

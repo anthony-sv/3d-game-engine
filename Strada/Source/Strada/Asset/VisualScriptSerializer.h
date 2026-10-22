@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Strada
@@ -83,6 +84,11 @@ namespace Strada
 		// numbers of at most this magnitude: float's largest value as written with the fewest digits that read back as it
 		// (.NET writes float.MaxValue so), a little above its exact value.
 		static constexpr double MaxFloatMagnitude = 3.4028235e38;
+
+		// Whether a name has the shape the format requires of the names of variables, locals, functions, parameters and former
+		// names: 1 to MaxNameBytes of UTF-8 without control characters or '.', and no leading or trailing space. The loader
+		// drops what is named otherwise; it also requires names to be unique in their scope, which this does not check.
+		[[nodiscard]] static bool IsValidName(std::string_view name);
 
 		// A float as documents store it: a finite number of magnitude at most MaxFloatMagnitude, as the nearest float.
 		// Nothing for anything else.

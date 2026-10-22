@@ -1,7 +1,6 @@
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 
 #include "Strada/Asset/VisualScriptSerializer.h"
-#include "Strada/Core/Utf8.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <algorithm>
@@ -171,24 +170,8 @@ namespace Strada
 			return std::nullopt;
 		}
 
-		bool HasControlCharacters(std::string_view text)
-		{
-			return std::any_of(text.begin(), text.end(),
-			                   [](char character)
-			                   {
-								   auto const code = static_cast<unsigned char>(character);
-								   return code < 0x20 || code == 0x7F;
-							   });
-		}
-
-		// The name rule of the format's names, which the runtime applies to custom events' names.
-		bool IsValidName(std::string_view name)
-		{
-			return !name.empty() && name.size() <= VisualScriptSerializer::MaxNameBytes && name.front() != ' ' && name.back() != ' ' &&
-			       name.find('.') == std::string_view::npos && !HasControlCharacters(name) && Utf8::IsValid(name);
-		}
-
-		// The custom event's name a node's Name setting holds; nothing when it holds no valid name.
+		// The custom event's name a node's Name setting holds; nothing when it holds no valid name (the runtime applies the
+		// format's name rule to custom events' names).
 		std::optional<std::string_view> ReadEventName(Json const& settings)
 		{
 			if (!settings.is_object())
@@ -201,7 +184,7 @@ namespace Strada
 				return std::nullopt;
 			}
 			std::string const& name = found->get_ref<std::string const&>();
-			return IsValidName(name) ? std::optional<std::string_view>(name) : std::nullopt;
+			return VisualScriptSerializer::IsValidName(name) ? std::optional<std::string_view>(name) : std::nullopt;
 		}
 
 		// The name of what a Variable.Get/Set node reads or writes, as the runtime resolves its Variable setting: a local of

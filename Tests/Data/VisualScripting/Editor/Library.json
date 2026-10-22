@@ -2047,6 +2047,36 @@
 			"Settings": []
 		},
 		{
+			"Type": "FormatString",
+			"Title": "Format String",
+			"Category": "Utilities",
+			"Description": "Builds text from Format, replacing each {Name} with its input's value as text; {{ and }} are braces.",
+			"Keywords": [
+				"text",
+				"format",
+				"interpolate",
+				"string",
+				"concatenate"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "string"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Format",
+					"Kind": "String",
+					"Default": ""
+				}
+			]
+		},
+		{
 			"Type": "IsValid",
 			"Title": "Is Valid",
 			"Category": "Utilities",

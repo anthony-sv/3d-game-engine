@@ -77,13 +77,6 @@ namespace Strada
 			return !text.empty() && text.size() <= maxBytes && !HasControlCharacters(text) && Utf8::IsValid(text);
 		}
 
-		// The names users declare. '.' is reserved for the paths of the fields of split struct pins.
-		bool IsValidName(std::string_view name)
-		{
-			return IsValidText(name, Format::MaxNameBytes) && name.front() != ' ' && name.back() != ' ' &&
-			       name.find('.') == std::string_view::npos;
-		}
-
 		// The entries of Split: a pin name ("Hit") or the path of a field pin ("Hit.Point"), names separated by '.' of which
 		// none is empty.
 		bool IsValidPinPath(std::string_view path)
@@ -333,7 +326,7 @@ namespace Strada
 					Report(Member(path, "Name"), fmt::format("missing; the {} is dropped", kind));
 					return std::nullopt;
 				}
-				if (!found->is_string() || !IsValidName(found->get_ref<std::string const&>()))
+				if (!found->is_string() || !Format::IsValidName(found->get_ref<std::string const&>()))
 				{
 					Report(Member(path, "Name"),
 					       fmt::format(
@@ -661,7 +654,7 @@ namespace Strada
 						continue;
 					}
 					std::string const& name = entry.get_ref<std::string const&>();
-					if (!IsValidName(name))
+					if (!Format::IsValidName(name))
 					{
 						Report(entryPath, fmt::format("expected a name of 1 to {} bytes without control characters, '.' or a leading or "
 						                              "trailing space; dropped",
@@ -1283,6 +1276,12 @@ namespace Strada
 			}
 			return json;
 		}
+	}
+
+	bool VisualScriptSerializer::IsValidName(std::string_view name)
+	{
+		// '.' is reserved for the paths of the fields of split struct pins.
+		return IsValidText(name, MaxNameBytes) && name.front() != ' ' && name.back() != ' ' && name.find('.') == std::string_view::npos;
 	}
 
 	std::optional<float> VisualScriptSerializer::ReadFloat(Json const& value)
