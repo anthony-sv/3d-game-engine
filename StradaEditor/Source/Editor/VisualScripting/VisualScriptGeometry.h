@@ -1,0 +1,183 @@
+#pragma once
+
+#include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptView.h"
+
+#include <glm/glm.hpp>
+
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <vector>
+
+// The one source of the canvas's geometry: every rectangle, anchor, curve and tolerance the renderer draws with comes from
+// these functions, and hit testing calls the same ones, so what the mouse hits is what is drawn under it. Canvas units unless
+// a name or a comment says screen pixels. Pure; any thread.
+namespace Strada
+{
+	// How a wire meets its ends. It leaves an output to the right and reaches an input from the left, except at a reroute that
+	// faces left (its first target lies to its left), so a wire can loop back cleanly through reroutes.
+	struct VisualScriptWireEnds
+	{
+		// The wire leaves its start toward the left.
+		bool FromReversed = false;
+		// The wire reaches its end from the right.
+		bool ToReversed = false;
+
+		bool operator==(VisualScriptWireEnds const& other) const = default;
+	};
+
+	// Where nodes are drawn this frame other than at their stored places: moved by Offset during a move (a preview), and a
+	// collapsed node drawn expanded under a dragged wire. Indexed by the canvas model's node indices; empty means none.
+	struct VisualScriptNodePreview
+	{
+		// Non-zero for each moved node.
+		std::span<uint8_t const> Moved;
+		glm::vec2 Offset{0.0f};
+		std::optional<uint32_t> Expanded;
+
+		bool IsMoved(uint32_t node) const { return node < Moved.size() && Moved[node] != 0; }
+		glm::vec2 GetOffset(uint32_t node) const { return IsMoved(node) ? Offset : glm::vec2(0.0f); }
+	};
+
+	namespace VisualScriptGeometry
+	{
+		// A wire's tangents: forward (its input right of its output) between MinTangent and MaxTangent long; backward from
+		// BackwardMinTangent, and a backward wire between ends closer in height than LoopDrop loops LoopDrop below them.
+		inline constexpr float MinTangent = 40.0f;
+		inline constexpr float MaxTangent = 400.0f;
+		inline constexpr float BackwardMinTangent = 100.0f;
+		inline constexpr float LoopDrop = 120.0f;
+		// Flattening wires: at most MaxDepth subdivisions, and at most MaxSegments segments at Detail and Compact,
+		// OverviewMaxSegments at Overview; at Far, FarSegments segments of equal steps.
+		inline constexpr int MaxDepth = 10;
+		inline constexpr int MaxSegments = 64;
+		inline constexpr int OverviewMaxSegments = 12;
+		inline constexpr int FarSegments = 3;
+		// What the spatial index holds for a wire: its control points' box, this much larger on every side (the stroke).
+		inline constexpr float WireBoundsMargin = 3.0f;
+
+		// The bits of VisualScriptHit::Edges: which edges of a comment box a point is on.
+		inline constexpr uint8_t LeftEdge = 1u << 0;
+		inline constexpr uint8_t TopEdge = 1u << 1;
+		inline constexpr uint8_t RightEdge = 1u << 2;
+		inline constexpr uint8_t BottomEdge = 1u << 3;
+
+		// Nodes. Rectangles are absolute; offset moves the node, as a move preview does.
+		//
+		// Its rectangle as drawn (Position, Size).
+		VisualScriptRect GetNodeRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		// The node as drawn expanded: a collapsed node under a dragged wire takes its ExpandedSize and its pin rows. Others are
+		// returned unchanged.
+		VisualScriptNodeVisual GetExpandedNode(VisualScriptNodeVisual node);
+		// The header: a Standard node's top HeaderHeight (HeaderHeightWithSubtitle with a subtitle); a pill or an operator box
+		// is all header; a reroute has none.
+		VisualScriptRect GetHeaderRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		// Where the title text is drawn: left-aligned after the kind glyph's slot in a Standard header, centred in a pill (left
+		// of its output) and in an operator box; as wide as the measured title and as high as its text size.
+		VisualScriptRect GetTitleRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		// Under the title, in a header with a subtitle; empty without one.
+		VisualScriptRect GetSubtitleRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		// HeaderGlyphSize boxes in a Standard header: the kind's glyph left of the title (events, function nodes), the latent
+		// clock at the header's right end before the badges, and the collapsed marker after the title. Empty when the node
+		// has no such glyph.
+		VisualScriptRect GetKindGlyphRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		VisualScriptRect GetLatentGlyphRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		VisualScriptRect GetCollapsedMarkerRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		// The radius badges are drawn with: BadgeRadius × zoom logical pixels, at least BadgeMinLogicalPixels, in canvas units.
+		float GetBadgeRadius(float pixelsPerUnit, float uiScale);
+		// The badges' centres: the error badge's in the rightmost badge slot of a Standard header, else on the top-right corner;
+		// a warning badge left of it (in the rightmost slot without errors). Nothing for a node without problems.
+		std::optional<glm::vec2> GetErrorBadgeCenter(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		std::optional<glm::vec2> GetWarningBadgeCenter(VisualScriptNodeVisual const& node, float pixelsPerUnit, float uiScale,
+		                                               glm::vec2 offset = {});
+		// The box around the node's badges (circles of GetBadgeRadius around their centres); empty without problems.
+		VisualScriptRect GetBadgeRect(VisualScriptNodeVisual const& node, float pixelsPerUnit, float uiScale, glm::vec2 offset = {});
+		// The node comment's bubble above the node, its tail included; empty without a comment.
+		VisualScriptRect GetBubbleRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		// The strip under a disabled or development-only node; empty for other nodes and for reroutes.
+		VisualScriptRect GetEnabledStripRect(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+		// A reroute's dot (and any node's middle).
+		glm::vec2 GetRerouteCenter(VisualScriptNodeVisual const& node, glm::vec2 offset = {});
+
+		// Pins.
+		//
+		// Where the pin's wires end: its glyph's centre; for a collapsed node, the middle of its header's left edge (inputs) or
+		// right edge (outputs).
+		glm::vec2 GetPinAnchor(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, glm::vec2 offset = {});
+		// Where pressing starts a wire from the pin: its row up to the end of its label, and at least minimumCu around its
+		// anchor (a collapsed node's pins: around the anchor only).
+		VisualScriptRect GetPinHitRect(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, float minimumCu,
+		                               glm::vec2 offset = {});
+		// The label's box (its measured width, PinLabelTextSize high, centred on the row): after the glyph for inputs, before it
+		// for outputs. Empty for unlabelled pins (LabelHidden, compact shapes).
+		VisualScriptRect GetPinLabelRect(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, glm::vec2 offset = {});
+		// The value chip; empty when the pin draws none.
+		VisualScriptRect GetChipRect(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, glm::vec2 offset = {});
+		// A cell of a Cells chip (vector and quaternion components), ChipVectorCellWidth wide and ChipCellGap apart.
+		VisualScriptRect GetChipCellRect(VisualScriptRect const& chip, uint32_t cell);
+
+		// Wires. Points and bounds are canvas units unless named screen.
+		//
+		// The cubic Bézier of a wire from an output's anchor to an input's anchor. Forward (the input right of the output, as
+		// the ends face): tangents of clamp(0.5 |dx| + 0.25 |dy|, MinTangent, MaxTangent). Backward: clamp(0.5 |dx| + 0.5 |dy|,
+		// BackwardMinTangent, MaxTangent), and with both ends facing right and heights closer than LoopDrop the wire loops
+		// below both nodes.
+		std::array<glm::vec2, 4> GetWireControlPoints(glm::vec2 from, glm::vec2 to, VisualScriptWireEnds ends);
+		// The box of the control points, which holds the whole curve.
+		VisualScriptRect GetWireBounds(std::array<glm::vec2, 4> const& points);
+		// A link's wire as drawn this frame: its pins' anchors (moved and expanded nodes as the preview says) and the facing of
+		// reroutes at its ends.
+		std::array<glm::vec2, 4> GetLinkControlPoints(VisualScriptCanvasModel const& model, uint32_t link,
+		                                              VisualScriptNodePreview const& preview = {});
+		// What the spatial index holds for a link: the box of its stored control points, WireBoundsMargin larger.
+		VisualScriptRect GetLinkBounds(VisualScriptCanvasModel const& model, uint32_t link);
+		// How finely wires are flattened at a level of detail, given ImGuiStyle::CurveTessellationTol.
+		struct WireFlattening
+		{
+			// Screen pixels; 0 flattens into SegmentCap equal steps.
+			float Tolerance = 0.0f;
+			// The most segments.
+			int SegmentCap = MaxSegments;
+		};
+		WireFlattening GetWireFlattening(VisualScriptDetailLevel level, float curveTessellationTolerance);
+		// The polyline the renderer strokes, in screen pixels, its first point included: ImGui's recursive subdivision with its
+		// flatness test (to MaxDepth), or, when that gives more than maxSegments segments or toleranceScreen is 0, maxSegments
+		// equal steps of the curve's parameter. Replaces out's contents.
+		void FlattenWire(std::array<glm::vec2, 4> const& screenPoints, float toleranceScreen, int maxSegments, std::vector<glm::vec2>& out);
+
+		// How far a point is from a polyline, and where on it the nearest point is (as a fraction of its length from its first
+		// point). Screen pixels where the renderer and hit testing use it. A polyline of one point is that point; none is
+		// infinitely far.
+		struct WireDistance
+		{
+			float Distance = 0.0f;
+			float ArcFraction = 0.0f;
+		};
+		WireDistance MeasureDistance(std::span<glm::vec2 const> polyline, glm::vec2 point);
+		// Whether the segment from a to b crosses or touches the polyline: the cut line.
+		bool SegmentCrossesPolyline(glm::vec2 a, glm::vec2 b, std::span<glm::vec2 const> polyline);
+
+		// Comment boxes.
+		//
+		// The title bar: CommentTitleBarHeight, but never lower on the screen than the title's pixel size plus
+		// CommentTitleBarPaddingLogicalPixels, nor higher than the comment.
+		VisualScriptRect GetCommentBarRect(VisualScriptCommentVisual const& comment, float pixelsPerUnit, float uiScale);
+		// The text size of a comment's title on the screen: CommentTitleTextSize × zoom, at least CommentTitleMinLogicalPixels,
+		// times the UI scale, floored to the text ladder.
+		float GetCommentTitlePixels(float pixelsPerUnit, float uiScale);
+		// Which edges of the comment a point is within tolerance of (LeftEdge | TopEdge | ...): a corner gives two. 0 when the
+		// point is farther from every edge, or outside the comment's box grown by the tolerance.
+		uint8_t GetCommentEdges(VisualScriptCommentVisual const& comment, glm::vec2 point, float tolerance);
+
+		// Rectangles.
+		bool Contains(VisualScriptRect const& rect, glm::vec2 point);
+		bool Intersects(VisualScriptRect const& a, VisualScriptRect const& b);
+		bool IsEmpty(VisualScriptRect const& rect);
+		// The smallest rectangle holding both; an empty one counts as nothing.
+		VisualScriptRect Unite(VisualScriptRect const& a, VisualScriptRect const& b);
+		VisualScriptRect Expand(VisualScriptRect const& rect, float amount);
+		VisualScriptRect Translate(VisualScriptRect const& rect, glm::vec2 offset);
+	}
+}

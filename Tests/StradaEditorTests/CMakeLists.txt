@@ -30,10 +30,15 @@ add_executable(StradaEditorTests
     Source/TcpTestClient.h
     Source/UIEditingTests.cpp
     Source/ViewportTests.cpp
+    Source/VisualScriptCanvasModelTests.cpp
     Source/VisualScriptEditorFoundationTests.cpp
+    Source/VisualScriptEditorModelTests.cpp
+    Source/VisualScriptGeometryTests.cpp
+    Source/VisualScriptHitTestTests.cpp
     Source/VisualScriptNodeTitlesTests.cpp
     Source/VisualScriptNormalizationTests.cpp
     Source/VisualScriptSemanticsTests.cpp
+    Source/VisualScriptSpatialIndexTests.cpp
     Source/VisualScriptTestDocuments.h
     Source/VisualScriptTestUtilities.h
     Source/VisualScriptThemeTests.cpp

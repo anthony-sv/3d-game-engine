@@ -2,14 +2,20 @@
 
 #include "TestUtilities.h"
 
+#include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
+#include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
+#include "Editor/VisualScripting/VisualScriptView.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Hash.h"
+#include "Strada/Core/Platform.h"
 #include "Strada/Project/Project.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
@@ -20,7 +26,11 @@
 
 #include <doctest/doctest.h>
 
+#include <glm/glm.hpp>
+
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -1003,7 +1013,19 @@ namespace Strada::Testing
 			{
 				return Error{"the scripting runtime is not running"};
 			}
-			return AnalyzeWithFixtureTemplates(*m_Library, document, m_InjectedDiagnostics);
+			Result<VisualScriptAnalysis> analysis = AnalyzeWithFixtureTemplates(*m_Library, document, m_InjectedDiagnostics);
+			if (analysis)
+			{
+				for (VisualScriptAnalyzedNode& node : analysis.GetValue().Nodes)
+				{
+					auto const passThrough = m_InjectedPassThroughs.find(node.ID);
+					if (passThrough != m_InjectedPassThroughs.end())
+					{
+						node.PassThrough = passThrough->second;
+					}
+				}
+			}
+			return analysis;
 		}
 
 		// The runtime stops (GetLibrary gives null, Analyze fails) or starts again.
@@ -1020,6 +1042,9 @@ namespace Strada::Testing
 		// Every analysis reports the diagnostic after its own.
 		void InjectDiagnostic(VisualScriptDiagnostic diagnostic) { m_InjectedDiagnostics.push_back(std::move(diagnostic)); }
 		void ClearInjectedDiagnostics() { m_InjectedDiagnostics.clear(); }
+		// Every analysis reports the exit the flow takes through the node (as the scripting runtime reports a disabled node's
+		// pass-through exit, which the template analyzer does not compute).
+		void InjectPassThrough(uint32_t node, std::string pin) { m_InjectedPassThroughs[node] = std::move(pin); }
 
 		uint64_t GetLibraryCallCount() const { return m_LibraryCallCount; }
 		uint64_t GetAnalyzeCallCount() const { return m_AnalyzeCallCount; }
@@ -1029,19 +1054,24 @@ namespace Strada::Testing
 	private:
 		Ref<VisualScriptLibrary const> m_Library;
 		std::vector<VisualScriptDiagnostic> m_InjectedDiagnostics;
+		std::unordered_map<uint32_t, std::string> m_InjectedPassThroughs;
 		uint64_t m_LibraryCallCount = 0;
 		uint64_t m_AnalyzeCallCount = 0;
 		bool m_Available = true;
 	};
 
 	// The canvas' text measurer (width in canvas units of a text of a size in canvas units) for layout tests: every byte is
-	// factor times the size wide, so widths are exact and the same with any font. The canvas tests use FixedWidthMeasurer(0.5f).
-	inline std::function<float(std::string_view text, float sizeCu)> FixedWidthMeasurer(float factor)
+	// factor times the size wide, so widths are exact and the same with any font. Measurers of different factors have
+	// different signatures. The canvas tests use FixedWidthMeasurer(0.5f).
+	inline VisualScriptTextMeasurer FixedWidthMeasurer(float factor)
 	{
-		return [factor](std::string_view text, float sizeCu)
+		VisualScriptTextMeasurer measurer;
+		measurer.Measure = [factor](std::string_view text, float sizeCu)
 		{
 			return static_cast<float>(text.size()) * factor * sizeCu;
 		};
+		measurer.Signature = Hash::Combine(Hash::FNV1a("FixedWidthMeasurer"), std::bit_cast<uint32_t>(factor));
+		return measurer;
 	}
 
 	// A project made by MakeGraphProject.
@@ -1073,5 +1103,129 @@ namespace Strada::Testing
 		REQUIRE_MESSAGE(imported.IsOk(), imported.GetError());
 		made.Graph = imported.GetValue();
 		return made;
+	}
+
+	// Whether the tests assert wall-clock times: only with STRADA_PERFORMANCE_TESTS=1, as STRADA_FUZZ_SCALE opts into more fuzz
+	// rounds, because shared CI runners make sub-second bounds noise. Counters are asserted always.
+	inline bool ArePerformanceTestsEnabled()
+	{
+		std::optional<std::string> const value = Platform::ReadEnvironmentVariable("STRADA_PERFORMANCE_TESTS");
+		return value && *value == "1";
+	}
+
+	// The screen point of a pin's anchor (where its wires end), from the visual model and the view: tests never search the
+	// screen for items. node is a node ID of the model's graph; the pin must exist.
+	inline glm::vec2 CanvasPoint(VisualScriptCanvasModel const& model, VisualScriptView const& view, uint32_t node, std::string_view pin,
+	                             VisualScriptPinDirection direction = VisualScriptPinDirection::In)
+	{
+		std::optional<uint32_t> const index = model.FindNode(node);
+		REQUIRE_MESSAGE(index.has_value(), "node ", node, " is not on the canvas");
+		std::optional<uint32_t> const pinIndex = model.FindPin(*index, pin, direction);
+		REQUIRE_MESSAGE(pinIndex.has_value(), "node ", node, " has no pin ", std::string(pin));
+		std::span<VisualScriptNodeVisual const> const nodes = model.GetNodes();
+		VisualScriptNodeVisual const& visual = nodes[*index];
+		return view.ToScreen(VisualScriptGeometry::GetPinAnchor(visual, model.GetPins()[*pinIndex]));
+	}
+
+	// The screen point at a fraction of a node's rectangle ((0.5, 0.5) is its middle).
+	inline glm::vec2 CanvasPoint(VisualScriptCanvasModel const& model, VisualScriptView const& view, uint32_t node, glm::vec2 fraction)
+	{
+		std::optional<uint32_t> const index = model.FindNode(node);
+		REQUIRE_MESSAGE(index.has_value(), "node ", node, " is not on the canvas");
+		VisualScriptRect const rect = VisualScriptGeometry::GetNodeRect(model.GetNodes()[*index]);
+		return view.ToScreen(rect.Min + rect.GetSize() * fraction);
+	}
+
+	// A large graph for the canvas's performance guards: columns × rows nodes of the fixture library on a 320 × 180 grid, each
+	// with linksPerNode links to the nodes of the next column (the last column links back to the one before), and comment
+	// boxes around blocks of 2 × 2 nodes. Five node kinds take turns, with stored literals that make value chips: Branch, Log
+	// Info (a string), Add (a number, so it keeps its full shape), Delay (a float) and Add Force (a vector and an enum).
+	// Every link names pins of the library's templates. Node IDs start at 1, comment IDs follow them.
+	inline VisualScriptDocument MakeGridGraph(uint32_t columns, uint32_t rows, uint32_t linksPerNode, uint32_t comments)
+	{
+		struct Kind
+		{
+			std::string_view Type;
+			std::array<std::string_view, 4> Inputs;
+			size_t InputCount;
+			std::array<std::string_view, 2> Outputs;
+			size_t OutputCount;
+		};
+		static constexpr std::array<Kind, 5> Kinds = {{
+			{"Flow.Branch", {"Execute", "Condition"}, 2, {"True", "False"}, 2},
+			{"Call:Strada.Log.Info(string)", {"Execute", "Message"}, 2, {"Then"}, 1},
+			{"Operator.Add", {"A", "B"}, 2, {"Result"}, 1},
+			{"Flow.Delay", {"Execute", "Duration"}, 2, {"Completed"}, 1},
+			{"Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
+		     {"Execute", "Target", "Force", "Mode"},
+		     4,
+		     {"Then"},
+		     1},
+		}};
+		auto const getID = [rows](uint32_t column, uint32_t row)
+		{
+			return 1 + column * rows + row;
+		};
+		VisualScriptDocument document;
+		document.Graph.Nodes.reserve(static_cast<size_t>(columns) * rows);
+		for (uint32_t column = 0; column < columns; column++)
+		{
+			for (uint32_t row = 0; row < rows; row++)
+			{
+				uint32_t const id = getID(column, row);
+				Kind const& kind = Kinds[id % Kinds.size()];
+				VisualScriptNode& node = document.Graph.Nodes.emplace_back();
+				node.ID = id;
+				node.Type = std::string(kind.Type);
+				node.Position = glm::vec2(static_cast<float>(column) * 320.0f, static_cast<float>(row) * 180.0f);
+				switch (id % Kinds.size())
+				{
+					case 1:
+						node.Inputs["Message"] = "Hello";
+						break;
+					case 2:
+						node.Inputs["B"] = 1;
+						break;
+					case 3:
+						node.Inputs["Duration"] = 0.5;
+						break;
+					case 4:
+						node.Inputs["Force"] = Json::array({1, 0, 0});
+						break;
+					default:
+						break;
+				}
+			}
+		}
+		document.Graph.Links.reserve(static_cast<size_t>(columns) * rows * linksPerNode);
+		for (uint32_t column = 0; column < columns && columns > 1; column++)
+		{
+			uint32_t const next = column + 1 < columns ? column + 1 : column - 1;
+			for (uint32_t row = 0; row < rows; row++)
+			{
+				uint32_t const id = getID(column, row);
+				Kind const& kind = Kinds[id % Kinds.size()];
+				for (uint32_t link = 0; link < linksPerNode; link++)
+				{
+					uint32_t const target = getID(next, (row + link) % rows);
+					Kind const& targetKind = Kinds[target % Kinds.size()];
+					std::string_view const from = kind.Outputs[link % kind.OutputCount];
+					std::string_view const to = targetKind.Inputs[(link + id) % targetKind.InputCount];
+					document.Graph.Links.push_back({{id, std::string(from)}, {target, std::string(to)}});
+				}
+			}
+		}
+		uint32_t const blocksPerRow = std::max(columns / 2, 1u);
+		for (uint32_t index = 0; index < comments; index++)
+		{
+			VisualScriptComment& comment = document.Graph.Comments.emplace_back();
+			comment.ID = getID(columns, 0) + index;
+			comment.Text = "Block " + std::to_string(index);
+			uint32_t const blockColumn = (index % blocksPerRow) * 2;
+			uint32_t const blockRow = (index / blocksPerRow) * 2;
+			comment.Position = glm::vec2(static_cast<float>(blockColumn) * 320.0f - 32.0f, static_cast<float>(blockRow) * 180.0f - 72.0f);
+			comment.Size = glm::vec2(584.0f, 400.0f);
+		}
+		return document;
 	}
 }

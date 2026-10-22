@@ -123,13 +123,23 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScriptEnumLookupSource.cpp
     Source/Editor/VisualScriptEnumLookupSource.h
     Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
+    Source/Editor/VisualScripting/VisualScriptCanvasModel.cpp
+    Source/Editor/VisualScripting/VisualScriptCanvasModel.h
+    Source/Editor/VisualScripting/VisualScriptEditorModel.cpp
+    Source/Editor/VisualScripting/VisualScriptEditorModel.h
     Source/Editor/VisualScripting/VisualScriptEditorTypes.h
+    Source/Editor/VisualScripting/VisualScriptGeometry.cpp
+    Source/Editor/VisualScripting/VisualScriptGeometry.h
+    Source/Editor/VisualScripting/VisualScriptHitTest.cpp
+    Source/Editor/VisualScripting/VisualScriptHitTest.h
     Source/Editor/VisualScripting/VisualScriptNodeTitles.cpp
     Source/Editor/VisualScripting/VisualScriptNodeTitles.h
     Source/Editor/VisualScripting/VisualScriptNormalization.cpp
     Source/Editor/VisualScripting/VisualScriptNormalization.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp
     Source/Editor/VisualScripting/VisualScriptSemantics.h
+    Source/Editor/VisualScripting/VisualScriptSpatialIndex.cpp
+    Source/Editor/VisualScripting/VisualScriptSpatialIndex.h
     Source/Editor/VisualScripting/VisualScriptTheme.cpp
     Source/Editor/VisualScripting/VisualScriptTheme.h
     Source/Editor/VisualScripting/VisualScriptView.cpp
