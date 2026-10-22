@@ -33,7 +33,10 @@ add_executable(StradaEditorTests
     Source/VisualScriptEditorFoundationTests.cpp
     Source/VisualScriptNodeTitlesTests.cpp
     Source/VisualScriptNormalizationTests.cpp
+    Source/VisualScriptSemanticsTests.cpp
     Source/VisualScriptTestDocuments.h
+    Source/VisualScriptTestUtilities.h
+    Source/VisualScriptViewSettingsTests.cpp
 )
 
 target_include_directories(StradaEditorTests PRIVATE

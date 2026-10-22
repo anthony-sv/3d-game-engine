@@ -18,6 +18,11 @@ namespace Strada
 
 		explicit RecentProjects(std::filesystem::path file);
 
+		// The form under which the spellings of one project file's path compare equal: lexically normal, with the leading
+		// parts that exist made absolute and spelled as stored (their real letter case on case-insensitive file systems); a
+		// relative path none of whose parts exist stays relative. Other per-project state keys projects by it too.
+		static std::filesystem::path NormalizePath(std::filesystem::path const& path);
+
 		// Reads the list; a missing file is an empty list. Entries that are not valid paths are skipped.
 		[[nodiscard]] Result<void> Load();
 		[[nodiscard]] Result<void> Save() const;

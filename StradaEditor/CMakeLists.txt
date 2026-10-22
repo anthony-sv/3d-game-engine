@@ -127,6 +127,11 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptNodeTitles.h
     Source/Editor/VisualScripting/VisualScriptNormalization.cpp
     Source/Editor/VisualScripting/VisualScriptNormalization.h
+    Source/Editor/VisualScripting/VisualScriptSemantics.cpp
+    Source/Editor/VisualScripting/VisualScriptSemantics.h
+    Source/Editor/VisualScripting/VisualScriptView.h
+    Source/Editor/VisualScripting/VisualScriptViewSettings.cpp
+    Source/Editor/VisualScripting/VisualScriptViewSettings.h
 )
 
 add_library(StradaEditorCore STATIC ${STRADA_EDITOR_CORE_SOURCES})
