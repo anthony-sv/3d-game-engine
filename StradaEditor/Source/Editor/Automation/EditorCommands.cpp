@@ -9,13 +9,13 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
+#include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptNormalization.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
-#include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
@@ -516,9 +516,11 @@ namespace Strada
 			result["diagnostics"] = diagnostics != source.end() ? *diagnostics : Json::array();
 		}
 
-		// What graph.set does to a document besides checking it, and graph.check reports: variables renamed since the stored
-		// document (when one loads) keep their stored values through FormerNames, and with the runtime, nodes resolved
-		// inexactly are stored under their canonical types. The warnings say what changed; the analysis is of the result.
+		// What graph.check reports graph.set would do to a document besides checking it (graph.set does it through
+		// PrepareVisualScriptCommit): variables renamed since the stored document (when one loads) keep their stored values
+		// through FormerNames, and with the runtime, nodes resolved inexactly are stored under their canonical types. The
+		// warnings say what changed; the analysis is of the result. It runs on documents with issues too (as the loader
+		// repairs them), which graph.set refuses before preparing anything.
 		struct PreparedDocument
 		{
 			std::vector<std::string> Warnings;
@@ -1443,28 +1445,45 @@ namespace Strada
 									   {
 										   return MakeIssuesError(read.Issues);
 									   }
-									   VisualScriptDocument document = std::move(*read.Document);
 
 									   // The document the file has, when it loads: renamed variables are found against it, and
 					                   // giving it again changes nothing.
-									   Result<Ref<VisualScriptAsset>> stored = AssetManager::TryGetAsset<VisualScriptAsset>(handle);
-									   Ref<VisualScriptAsset> const storedScript = stored ? stored.TakeValue() : nullptr;
-									   PreparedDocument prepared =
-										   PrepareDocument(document, storedScript != nullptr ? &storedScript->GetDocument() : nullptr);
-									   PlaceUnplacedNodes(document);
-									   bool const changed = storedScript == nullptr || storedScript->GetDocument() != document;
-									   if (Result<void> set = m_Operations.SetVisualScriptDocument(handle, std::move(document)); !set)
+									   Result<Ref<VisualScriptAsset>> const stored = AssetManager::TryGetAsset<VisualScriptAsset>(handle);
+									   Ref<VisualScriptDocument const> const storedDocument =
+										   stored ? stored.GetValue()->GetSharedDocument() : nullptr;
+									   VisualScriptDocument const none;
+									   std::optional<VisualScriptAnalysis> analysis = AnalyzeGraph(*read.Document);
+									   Result<VisualScriptCommit> prepared =
+										   PrepareVisualScriptCommit(storedDocument != nullptr ? *storedDocument : none,
+					                                                 std::move(*read.Document), analysis ? &*analysis : nullptr);
+									   if (!prepared)
+									   {
+										   // The document was valid, and preparing it keeps it valid: this is the editor's fault.
+										   return MakeCommandError(AutomationErrorCode::InternalError, "{}", prepared.GetError());
+									   }
+									   VisualScriptCommit commit = prepared.TakeValue();
+									   // The analysis is of the document as written: again when preparing it changed what the
+					                   // runtime reads (not when it only placed nodes).
+									   if (analysis && !commit.Warnings.empty())
+									   {
+										   analysis = AnalyzeGraph(commit.Document);
+									   }
+									   bool const changed =
+										   storedDocument == nullptr || !IsSameVisualScriptDocument(*storedDocument, commit.Document);
+									   if (Result<void> set = m_Operations.SetVisualScriptDocument(handle, std::move(commit.Document), 0,
+					                                                                               std::move(commit.Text));
+					                       !set)
 									   {
 										   return Failure(AutomationErrorCode::FileError, set);
 									   }
 
 									   Json described = DescribeGraph(handle);
 									   described["changed"] = changed;
-									   described["analyzed"] = prepared.Analysis.has_value();
-									   described["warnings"] = std::move(prepared.Warnings);
-									   if (prepared.Analysis)
+									   described["analyzed"] = analysis.has_value();
+									   described["warnings"] = std::move(commit.Warnings);
+									   if (analysis)
 									   {
-										   AddAnalysis(described, *prepared.Analysis);
+										   AddAnalysis(described, *analysis);
 									   }
 									   return described;
 								   })

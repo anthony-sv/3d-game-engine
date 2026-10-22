@@ -14,12 +14,17 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <span>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace Strada
 {
+	struct VisualScriptDocument;
+
 	// What the editor does with the scene.
 	enum class EditorPlayState : uint8_t
 	{
@@ -35,8 +40,10 @@ namespace Strada
 	//
 	// Every modification of the scene goes through ExecuteCommand so it can be undone; EditorOperations builds the
 	// commands. During play mode GetScene returns the running copy of the scene, which panels and automation show and
-	// edit like the scene itself, with a history of its own; stopping discards the copy, its history and every change made
-	// to it, and the edited scene comes back with its history.
+	// edit like the scene itself, with a history of its own; stopping discards the copy and every change made to it, and
+	// the edited scene comes back with its history. Steps that edit asset files (visual scripts, materials) leave the scene
+	// alone and their files keep the change, so they stay undoable when the history they are in goes: playing stopping,
+	// the running scene being replaced, another scene of the project being opened (CommandHistory::TakeAssetSteps).
 	class EditorContext
 	{
 	public:
@@ -52,9 +59,10 @@ namespace Strada
 		Scene const& GetScene() const { return *m_Scene; }
 		// Empty for scenes that were never saved.
 		std::filesystem::path const& GetScenePath() const { return m_ScenePath; }
-		// Replaces the edited scene (new scene or opened file). Clears the history and the selection; the scene counts as
-		// saved. Not while playing.
-		void SetScene(Ref<Scene> scene, std::filesystem::path path);
+		// Replaces the edited scene (new scene or opened file); the scene counts as saved and the selection is cleared. The
+		// history keeps only its steps of asset files, which stay undoable, or none when keepAssetSteps is false (another
+		// project is opening: the steps name the assets of the one before). Not while playing.
+		void SetScene(Ref<Scene> scene, std::filesystem::path path, bool keepAssetSteps = true);
 		// Records that the scene was written to path: it becomes the scene path and the current state the saved one.
 		void MarkSaved(std::filesystem::path path);
 		// The edited scene has unsaved changes (changes to the running copy during play mode do not count).
@@ -73,16 +81,18 @@ namespace Strada
 		// Makes the running copy the scene GetScene returns, with an empty history; the selection carries over (the copy
 		// has the same entity IDs).
 		void BeginPlay(Ref<Scene> runningScene, EditorPlayState state);
-		// The running scene was replaced (a script loaded another scene): its history starts over and the selection keeps
-		// the entities it has.
+		// The running scene was replaced (a script loaded another scene): its history starts over with the steps of asset
+		// files it had, and the selection keeps the entities it has.
 		void SetRunningScene(Ref<Scene> runningScene);
-		// Returns to the edited scene and its history; the selection keeps the entities the edited scene has.
+		// Returns to the edited scene and its history, which takes the steps of asset files made while playing as its newest
+		// undo steps (steps undone while playing are not taken): they stay undoable, and the edited scene's unsaved changes
+		// are the ones it had. The selection keeps the entities the edited scene has.
 		void EndPlay();
 
 		// The open project; null when none is open. Its asset directory is the AssetManager's.
 		Project* GetProject() { return m_Project.get(); }
 		Project const* GetProject() const { return m_Project.get(); }
-		void SetProject(Ref<Project> project) { m_Project = std::move(project); }
+		void SetProject(Ref<Project> project);
 
 		// --- Undoable modifications ---
 
@@ -96,6 +106,10 @@ namespace Strada
 		[[nodiscard]] Result<void> Redo();
 		CommandHistory& GetHistory() { return m_History; }
 		CommandHistory const& GetHistory() const { return m_History; }
+		// The asset was deleted: its steps leave the history and the edited scene's history put aside while playing, but for
+		// steps that also changed the scene, which stay and forget it (CommandHistory::DiscardStepsOf). Undo then goes on
+		// with the steps before them instead of failing at a step whose file is gone.
+		void DiscardAssetSteps(AssetHandle asset);
 
 		// --- Selection (not part of the undo history) ---
 
@@ -119,7 +133,23 @@ namespace Strada
 		void SetAssetReferenceResolver(AssetReferenceResolver resolver) { m_AssetReferenceResolver = std::move(resolver); }
 		DeserializationContext CreateDeserializationContext(UnknownFieldPolicy unknownFields = UnknownFieldPolicy::Error) const;
 
+		// --- Files the editor writes ---
+
+		// The canonical text the editor last wrote to a visual script's file, as the text of the document object the asset
+		// took with it. Documents never change, so while the asset holds that very object, a file with these bytes holds its
+		// canonical text: edits compare the file with it instead of serializing the document again (SetVisualScriptCommand).
+		void RememberVisualScriptText(AssetHandle graph, Ref<VisualScriptDocument const> const& document, std::string text);
+		void ForgetVisualScriptText(AssetHandle graph);
+		// The text remembered for the graph when it is the text of this document object; null otherwise.
+		std::string const* FindVisualScriptText(AssetHandle graph, VisualScriptDocument const* document) const;
+
 	private:
+		struct VisualScriptText
+		{
+			std::weak_ptr<VisualScriptDocument const> Document;
+			std::string Text;
+		};
+
 		void FinishEdit();
 		void PruneSelection();
 
@@ -134,6 +164,7 @@ namespace Strada
 		EntitySelection m_Selection;
 		AssetHandle m_SelectedAsset;
 		AssetReferenceResolver m_AssetReferenceResolver;
+		std::unordered_map<AssetHandle, VisualScriptText> m_VisualScriptTexts;
 		uint64_t m_SceneVersion = 0;
 		uint64_t m_OpenedSceneVersion = 0;
 	};

@@ -7,6 +7,7 @@
 #include "Strada/Core/Log.h"
 #include "Strada/Project/ScriptProject.h"
 #include "Strada/Script/ScriptEngine.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <cmath>
 #include <cstdio>
@@ -116,6 +117,8 @@ namespace Strada
 			{
 				return MakeError("the game's scripts cannot run: {}", started.GetError());
 			}
+			// Exported games skip the development-only nodes of their visual scripts; projects run them, as the editor does.
+			VisualScriptEngine::SetDevelopmentNodesEnabled(!game.IsGame());
 			if (!hasAssembly)
 			{
 				return {};

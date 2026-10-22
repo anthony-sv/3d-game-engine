@@ -48,7 +48,8 @@ namespace Strada
 		// Writes the open project's file.
 		[[nodiscard]] Result<void> SaveProject();
 
-		// --- Scene files (not undoable: they replace the scene and clear the history; not while playing) ---
+		// --- Scene files (not undoable: they replace the scene and clear the history but for its steps of asset files,
+		// which stay undoable; not while playing) ---
 
 		[[nodiscard]] Result<void> NewScene(std::string name = "Untitled");
 		// Loads a scene file; unknown components and fields (files from newer versions) are skipped with warnings, which
@@ -147,6 +148,8 @@ namespace Strada
 		// (of any folder) reads a file that would move (moving a folder that holds both keeps them together).
 		[[nodiscard]] Result<void> MoveAsset(AssetHandle asset, std::string_view newPath);
 		[[nodiscard]] Result<void> MoveAssetFolder(std::string_view folder, std::string_view newFolder);
+		// The undo steps that edited a deleted asset's file are discarded (EditorContext::DiscardAssetSteps), so undo goes on
+		// with the steps before them; DeleteAssetFolder does so for every asset it deletes.
 		[[nodiscard]] Result<void> DeleteAsset(AssetHandle asset);
 		// Deletes a folder with every file inside.
 		[[nodiscard]] Result<void> DeleteAssetFolder(std::string_view folder);
@@ -155,13 +158,26 @@ namespace Strada
 		// Applies a partial patch to a material file's parameters as an undoable step; edits with the same non-zero merge key
 		// (one inspector drag) merge.
 		[[nodiscard]] Result<void> SetMaterialFields(AssetHandle material, Json const& patch, uint64_t mergeKey = 0);
-		// Replaces the document of a visual script file as an undoable step (SetVisualScriptCommand): the file is written, then
-		// the loaded asset takes the document, so graphs running while playing take the edit. A file that does not load is
-		// replaced too, and undoing writes it back. No step is recorded when the document is the stored one; edits with the same
-		// non-zero merge key merge. The document must load as written (VisualScriptSerializer reports no issue for it):
-		// graph.set checks what it is given. Fails without changes for other assets, graphs without a file of their own and
-		// missing files.
-		[[nodiscard]] Result<void> SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey = 0);
+		// Replaces the document of a visual script file as an undoable step that does not mark the scene modified
+		// (SetVisualScriptCommand), shown in the Edit menu with the description: the file is written, then the loaded asset
+		// takes the document object itself, so graphs running while playing take the edit. A file that does not load is
+		// replaced too. Undoing gives the file its bytes back exactly. No step is recorded when the document is the stored one
+		// (IsSameVisualScriptDocument); edits of the graph with the same non-zero merge key merge into one step. The document
+		// must be prepared (PrepareVisualScriptCommit), and text is the canonical text of its file that preparing it made
+		// (VisualScriptCommit::Text, VisualScriptCommitRequest::Text), written as it is so the document is not serialized
+		// again; an empty text has it serialized. Fails without changes for other assets, graphs without a file of their own,
+		// missing files and read-only files.
+		[[nodiscard]] Result<void> EditVisualScript(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description,
+		                                            uint64_t mergeKey = 0, std::string text = {});
+		// One undoable step that edits a visual script and the components of entities that run it, all or nothing
+		// (SetVisualScriptAndComponentsCommand): the graph as EditVisualScript edits it (text as it takes it), then the
+		// components as SetComponentFields patches them. A step of the scene: it marks the scene modified.
+		[[nodiscard]] Result<void> EditVisualScriptAndComponents(AssetHandle graph, Ref<VisualScriptDocument const> document,
+		                                                         std::string description, std::vector<ComponentEdit> edits,
+		                                                         std::string text = {});
+		// EditVisualScript with the description "Edit Visual Script" (graph.set's step).
+		[[nodiscard]] Result<void> SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey = 0,
+		                                                   std::string text = {});
 
 		// --- Selection and history ---
 
@@ -174,13 +190,19 @@ namespace Strada
 	private:
 		// Scene and project files cannot change while the editor plays a copy of the scene.
 		Result<void> CheckNotPlaying() const;
-		void ResetScene(std::string name);
+		// An empty scene, or the scene of a file, replaces the edited one; keepAssetSteps is false when the project changes
+		// (EditorContext::SetScene).
+		void ResetScene(std::string name, bool keepAssetSteps);
+		Result<std::vector<std::string>> LoadScene(std::filesystem::path const& path, bool keepAssetSteps);
 		// Makes the project the open one and opens its start scene; returns warnings about the start scene.
 		Result<std::vector<std::string>> UseProject(Ref<Project> project);
 		// After a failed create or open: keeps the current project when its asset directory is still open, otherwise closes it.
 		void KeepProjectIfOpen();
 		// Deselects the inspected asset when it is no longer registered.
 		void ForgetDeletedSelection();
+		// Of these assets, the ones no longer registered (deleted, even by a call that then failed): their undo steps and the
+		// text the editor remembers of their files go.
+		void ForgetDeletedAssets(std::span<AssetHandle const> assets);
 		// MoveAsset for a model that changes folder (newPath normalized).
 		Result<void> MoveModelWithFiles(AssetHandle model, AssetMetadata const& metadata, std::string const& newPath);
 

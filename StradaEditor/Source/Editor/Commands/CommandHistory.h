@@ -2,6 +2,7 @@
 
 #include "Editor/Commands/EditorCommand.h"
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
 
@@ -14,11 +15,16 @@
 namespace Strada
 {
 	// Undo and redo stacks of executed editor commands. Continuous edits merge into one step, a save point tracks unsaved
-	// changes, and the number of undo steps is bounded (the oldest are dropped). Main thread only.
+	// changes, and the undo steps are bounded in number and in the memory they keep (the oldest are dropped). Main thread
+	// only.
 	class CommandHistory
 	{
 	public:
 		static constexpr size_t DefaultMaxSize = 256;
+		// The memory the undo steps may keep beyond the documents they edit (EditorCommand::GetMemoryUse: snapshots of asset
+		// files) before the oldest are dropped, which never leaves fewer than MinStepsKept steps.
+		static constexpr size_t DefaultMaxMemory = 256u * 1024u * 1024u;
+		static constexpr size_t MinStepsKept = 16;
 
 		explicit CommandHistory(size_t maxSize = DefaultMaxSize);
 
@@ -37,6 +43,10 @@ namespace Strada
 		// Descriptions of the steps Undo and Redo would apply; empty when there is none.
 		std::string GetUndoDescription() const;
 		std::string GetRedoDescription() const;
+		// The asset whose file the step Undo (Redo) would apply edits (EditorCommand::GetEditedAsset); invalid when that step
+		// edits only the scene, and when there is none.
+		AssetHandle GetUndoEditedAsset() const;
+		AssetHandle GetRedoEditedAsset() const;
 		size_t GetUndoCount() const { return m_UndoStack.size(); }
 		size_t GetRedoCount() const { return m_RedoStack.size(); }
 
@@ -54,6 +64,22 @@ namespace Strada
 		// Drops the oldest undo steps beyond maxSize (at least 1).
 		void SetMaxSize(size_t maxSize);
 
+		// --- Steps of asset files ---
+
+		// Removes the undo steps that leave the scene alone (ModifiesScene() false: edits of asset files, which keep their
+		// changes on disk) and returns them, oldest first, for another history to take (AppendAssetSteps) before this one is
+		// dropped. The redo stack is cleared; the steps that stay still lead to the scene's current state.
+		[[nodiscard]] std::vector<Scope<EditorCommand>> TakeAssetSteps();
+		// Appends steps taken from another history (TakeAssetSteps) as the newest undo steps. They leave the scene in its
+		// current state, so whether it has unsaved changes does not change. As when a step is recorded, the redo stack is
+		// cleared, the next command starts a new step and the oldest steps beyond the bounds are dropped. No steps change
+		// nothing.
+		void AppendAssetSteps(std::vector<Scope<EditorCommand>> steps);
+		// The asset was deleted: the steps of both stacks that edit it (GetEditedAsset) are removed when they leave the scene
+		// alone; steps that also changed the scene stay, so every state of the scene can still be reached, and forget the
+		// asset (EditorCommand::ForgetEditedAsset). The next command starts a new step.
+		void DiscardStepsOf(AssetHandle asset);
+
 	private:
 		struct Entry
 		{
@@ -64,7 +90,10 @@ namespace Strada
 
 		uint64_t GetCurrentStateID() const { return m_UndoStack.empty() ? m_BaseStateID : m_UndoStack.back().StateID; }
 		bool TryMerge(EditorCommand& command);
+		// Drops the oldest undo steps beyond the maximum size, then while they keep more than DefaultMaxMemory and more than
+		// MinStepsKept remain.
 		void TrimToMaxSize();
+		void DropOldestStep();
 
 		std::deque<Entry> m_UndoStack;
 		std::vector<Entry> m_RedoStack;

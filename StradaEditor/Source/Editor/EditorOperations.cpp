@@ -112,7 +112,7 @@ namespace Strada
 		}
 		m_Context.SetProject(nullptr);
 		m_Context.SelectAsset(AssetHandle());
-		ResetScene("Untitled");
+		ResetScene("Untitled", false);
 		return {};
 	}
 
@@ -142,22 +142,24 @@ namespace Strada
 		AssetHandle const startScene = project->GetSettings().StartScene;
 		m_Context.SetProject(std::move(project));
 
+		// The steps of asset files in the history name the assets of the project before.
 		std::vector<std::string> warnings;
 		if (!startScene.IsValid())
 		{
-			ResetScene("Untitled");
+			ResetScene("Untitled", false);
 			return warnings;
 		}
 		std::filesystem::path const scenePath = AssetManager::GetAbsolutePath(startScene);
-		Result<std::vector<std::string>> opened =
-			scenePath.empty() ? Result<std::vector<std::string>>(Error{"it is not a scene file of the project"}) : OpenScene(scenePath);
+		Result<std::vector<std::string>> opened = scenePath.empty()
+		                                              ? Result<std::vector<std::string>>(Error{"it is not a scene file of the project"})
+		                                              : LoadScene(scenePath, false);
 		if (!opened)
 		{
 			// The project stays usable: its settings can point at another scene.
 			std::string warning = fmt::format("the start scene could not be opened: {}", opened.GetError());
 			ST_WARN("{}", warning);
 			warnings.push_back(std::move(warning));
-			ResetScene("Untitled");
+			ResetScene("Untitled", false);
 			return warnings;
 		}
 		return opened.TakeValue();
@@ -172,7 +174,7 @@ namespace Strada
 		if (project != nullptr && !assetsOpen)
 		{
 			m_Context.SetProject(nullptr);
-			ResetScene("Untitled");
+			ResetScene("Untitled", false);
 		}
 	}
 
@@ -185,9 +187,9 @@ namespace Strada
 		return {};
 	}
 
-	void EditorOperations::ResetScene(std::string name)
+	void EditorOperations::ResetScene(std::string name, bool keepAssetSteps)
 	{
-		m_Context.SetScene(CreateRef<Scene>(std::move(name)), {});
+		m_Context.SetScene(CreateRef<Scene>(std::move(name)), {}, keepAssetSteps);
 	}
 
 	Result<void> EditorOperations::NewScene(std::string name)
@@ -196,7 +198,7 @@ namespace Strada
 		{
 			return notPlaying;
 		}
-		ResetScene(std::move(name));
+		ResetScene(std::move(name), true);
 		return {};
 	}
 
@@ -206,6 +208,11 @@ namespace Strada
 		{
 			return Error{notPlaying.GetError()};
 		}
+		return LoadScene(path, true);
+	}
+
+	Result<std::vector<std::string>> EditorOperations::LoadScene(std::filesystem::path const& path, bool keepAssetSteps)
+	{
 		std::vector<std::string> warnings;
 		DeserializationContext context = m_Context.CreateDeserializationContext(UnknownFieldPolicy::Warn);
 		context.Warnings = &warnings;
@@ -221,7 +228,7 @@ namespace Strada
 			ST_WARN("'{}': {}", FileSystem::PathToUtf8(absolute), warning);
 		}
 		ST_INFO("Opened scene '{}'", FileSystem::PathToUtf8(absolute));
-		m_Context.SetScene(scene.TakeValue(), std::move(absolute));
+		m_Context.SetScene(scene.TakeValue(), std::move(absolute), keepAssetSteps);
 		return warnings;
 	}
 
@@ -911,6 +918,7 @@ namespace Strada
 			return available;
 		}
 		Result<void> deleted = AssetManager::DeleteAsset(asset);
+		ForgetDeletedAssets(std::span<AssetHandle const>(&asset, 1));
 		ForgetDeletedSelection();
 		return deleted;
 	}
@@ -921,7 +929,16 @@ namespace Strada
 		{
 			return available;
 		}
+		std::vector<AssetHandle> files;
+		for (AssetMetadata const& metadata : AssetManager::GetAssets())
+		{
+			if (metadata.IsFileAsset())
+			{
+				files.push_back(metadata.Handle);
+			}
+		}
 		Result<void> deleted = AssetManager::DeleteFolder(folder);
+		ForgetDeletedAssets(files);
 		ForgetDeletedSelection();
 		return deleted;
 	}
@@ -944,14 +961,53 @@ namespace Strada
 		}
 	}
 
+	void EditorOperations::ForgetDeletedAssets(std::span<AssetHandle const> assets)
+	{
+		// The registry may drop an asset and still fail (saving the registry), so what is gone is read from it, not from the
+		// result.
+		for (AssetHandle const asset : assets)
+		{
+			if (!AssetManager::IsValid(asset))
+			{
+				m_Context.DiscardAssetSteps(asset);
+				m_Context.ForgetVisualScriptText(asset);
+			}
+		}
+	}
+
 	Result<void> EditorOperations::SetMaterialFields(AssetHandle material, Json const& patch, uint64_t mergeKey)
 	{
 		return m_Context.ExecuteCommand(CreateScope<SetMaterialCommand>(material, patch, mergeKey));
 	}
 
-	Result<void> EditorOperations::SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey)
+	Result<void> EditorOperations::EditVisualScript(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description,
+	                                                uint64_t mergeKey, std::string text)
 	{
-		return m_Context.ExecuteCommand(CreateScope<SetVisualScriptCommand>(graph, std::move(document), mergeKey));
+		if (document == nullptr)
+		{
+			return Error{"there is no visual script document to write"};
+		}
+		return m_Context.ExecuteCommand(
+			CreateScope<SetVisualScriptCommand>(graph, std::move(document), std::move(description), mergeKey, std::move(text)));
+	}
+
+	Result<void> EditorOperations::EditVisualScriptAndComponents(AssetHandle graph, Ref<VisualScriptDocument const> document,
+	                                                             std::string description, std::vector<ComponentEdit> edits,
+	                                                             std::string text)
+	{
+		if (document == nullptr)
+		{
+			return Error{"there is no visual script document to write"};
+		}
+		return m_Context.ExecuteCommand(CreateScope<SetVisualScriptAndComponentsCommand>(graph, std::move(document), std::move(description),
+		                                                                                 std::move(edits), std::move(text)));
+	}
+
+	Result<void> EditorOperations::SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey,
+	                                                       std::string text)
+	{
+		return EditVisualScript(graph, CreateRef<VisualScriptDocument const>(std::move(document)), "Edit Visual Script", mergeKey,
+		                        std::move(text));
 	}
 
 	Result<void> EditorOperations::Select(std::span<UUID const> entities, SelectionMode mode, UUID primary)

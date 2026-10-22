@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Result.h"
 
+#include <cstddef>
 #include <string>
 
 namespace Strada
@@ -39,5 +41,14 @@ namespace Strada
 		}
 		// Absorbs `next` (only called after CanMergeWith returned true); this command then reverts both changes.
 		virtual void MergeWith(EditorCommand& next) { (void)next; }
+
+		// Memory the step keeps beyond what the documents it edits hold anyway (snapshots of asset files, in bytes); 0 for
+		// scene commands, whose JSON snapshots are small.
+		virtual size_t GetMemoryUse() const { return 0; }
+		// The asset whose file the step edits; invalid for steps that edit only the scene.
+		virtual AssetHandle GetEditedAsset() const { return {}; }
+		// The asset GetEditedAsset() names was deleted, and this step also changes the scene: from now on its undo and redo
+		// change only the scene, and GetEditedAsset() is invalid. Only steps that edit both override it.
+		virtual void ForgetEditedAsset() {}
 	};
 }
