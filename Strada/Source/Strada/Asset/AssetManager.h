@@ -141,5 +141,9 @@ namespace Strada
 		[[nodiscard]] static Result<void> ReloadAsset(AssetHandle handle);
 		// Drops a loaded file asset (and its sub-assets); it loads again on next use. A remembered failed load is forgotten too.
 		static void UnloadAsset(AssetHandle handle);
+		// Records the asset file's current write time as the one it was loaded with, so a refresh does not reload what the
+		// editor itself just wrote; a change of the file made after it still is. No effect for assets that are not loaded or
+		// have no file of their own.
+		static void RecordFileWrite(AssetHandle handle);
 	};
 }

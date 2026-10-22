@@ -258,6 +258,72 @@ namespace
 		return variable->second;
 	}
 
+	// Gives the graph's asset the document and loads the graph: whether that sent the document to the runtime (the
+	// graph's generation changed).
+	bool SendsDocument(VisualScriptAsset& asset, AssetHandle graph, VisualScriptDocument document)
+	{
+		uint64_t const generation = VisualScriptEngine::GetProgramGeneration(graph);
+		asset.SetDocument(std::move(document));
+		Result<void> const loaded = VisualScriptEngine::EnsureLoaded(graph);
+		REQUIRE_MESSAGE(loaded.IsOk(), (loaded ? std::string() : loaded.GetError()));
+		return VisualScriptEngine::GetProgramGeneration(graph) != generation;
+	}
+
+	// Records each document the engine sends to the runtime while it lives, and passes it on (the runtime compiles it as
+	// ever). Lives within a Testing::ScriptRuntimeScope, one at a time.
+	class SentDocuments
+	{
+	public:
+		SentDocuments()
+		{
+			ScriptEngineInternal::ScriptEngineData* const data = ScriptEngineInternal::GetData();
+			REQUIRE(data != nullptr);
+			REQUIRE(s_Load == nullptr);
+			s_Sent.clear();
+			s_Load = std::exchange(data->Host.VisualScriptLoad, &Load);
+		}
+
+		~SentDocuments()
+		{
+			if (ScriptEngineInternal::ScriptEngineData* const data = ScriptEngineInternal::GetData(); data != nullptr)
+			{
+				data->Host.VisualScriptLoad = s_Load;
+			}
+			s_Load = nullptr;
+			s_Sent.clear();
+		}
+
+		SentDocuments(SentDocuments const&) = delete;
+		SentDocuments& operator=(SentDocuments const&) = delete;
+
+		size_t GetCount() const { return s_Sent.size(); }
+
+		// The document of a send, read from the content form the runtime received.
+		VisualScriptDocument Get(size_t index) const
+		{
+			REQUIRE(index < s_Sent.size());
+			Result<Json> json = ParseJson(s_Sent[index]);
+			REQUIRE_MESSAGE(json.IsOk(), json.GetError());
+			std::vector<VisualScriptIssue> issues;
+			Result<VisualScriptDocument> document =
+				VisualScriptSerializer::DeserializeDocument(json.GetValue(), MakeStrictContext(), &issues);
+			REQUIRE_MESSAGE(document.IsOk(), document.GetError());
+			CHECK_MESSAGE(issues.empty(), DescribeIssues(issues));
+			return document.TakeValue();
+		}
+
+	private:
+		static int32_t Load(uint64_t graph, char const* name, int32_t nameLength, char const* document, int32_t documentLength,
+		                    void* context, ScriptEngineInternal::ReceiveFunction receive)
+		{
+			s_Sent.emplace_back(document, static_cast<size_t>(documentLength));
+			return s_Load(graph, name, nameLength, document, documentLength, context, receive);
+		}
+
+		static inline decltype(ScriptEngineInternal::HostFunctions::VisualScriptLoad) s_Load = nullptr;
+		static inline std::vector<std::string> s_Sent;
+	};
+
 	// receive for the entry points: counts its calls and keeps the last text.
 	struct Received
 	{
@@ -1387,9 +1453,13 @@ TEST_CASE("VisualScriptEngine: documents are sent once per change, and a broken 
 
 	uint64_t logStart = Log::GetNextEntryIndex();
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == 0);
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	uint64_t const first = VisualScriptEngine::GetProgramGeneration(graph);
 	CHECK(first != 0);
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+	// The engine keeps the asset's document itself, not a copy.
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == asset->GetSharedDocument());
 	// Unchanged, then saved with the same document: nothing is sent.
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == first);
@@ -1397,6 +1467,51 @@ TEST_CASE("VisualScriptEngine: documents are sent once per change, and a broken 
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == first);
 	CHECK_FALSE(Testing::WasLogged(logStart, "Visual script 'Counter'"));
+
+	// Edits of what the runtime never reads give the same program, so nothing compiles again: a node moved, given a
+	// comment or collapsed; a comment box, the description, a tooltip and a range. The running program's document is the
+	// newest of them.
+	VisualScriptDocument laidOut = MakeCountDocument(1);
+	laidOut.Graph.Nodes[1].Position = glm::vec2(240.0f, 0.0f);
+	CHECK_FALSE(SendsDocument(*asset, graph, laidOut));
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == asset->GetSharedDocument());
+	laidOut.Graph.Nodes[1].Comment = "Counts once";
+	CHECK_FALSE(SendsDocument(*asset, graph, laidOut));
+	laidOut.Graph.Nodes[0].Collapsed = true;
+	CHECK_FALSE(SendsDocument(*asset, graph, laidOut));
+	VisualScriptComment box;
+	box.ID = 20;
+	box.Text = "Start";
+	laidOut.Graph.Comments.push_back(box);
+	laidOut.Description = "Counts";
+	laidOut.Variables[0].Tooltip = "How often";
+	laidOut.Variables[0].Range = glm::vec2(0.0f, 10.0f);
+	CHECK_FALSE(SendsDocument(*asset, graph, laidOut));
+	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == first);
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == asset->GetSharedDocument());
+
+	// What it reads is sent: a link, a literal, whether a node is enabled, and how a number is written (operator== takes
+	// the int literal 1.0 for 1, which the runtime reads as no int).
+	VisualScriptDocument unlinked = laidOut;
+	unlinked.Graph.Links.clear();
+	VisualScriptDocument otherLiteral = laidOut;
+	otherLiteral.Graph.Nodes[1].Inputs["Value"] = 2;
+	VisualScriptDocument disabled = laidOut;
+	disabled.Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::Disabled;
+	VisualScriptDocument floatLiteral = laidOut;
+	floatLiteral.Graph.Nodes[1].Inputs["Value"] = 1.0;
+	REQUIRE(floatLiteral == laidOut);
+	CHECK(SendsDocument(*asset, graph, unlinked));
+	CHECK(SendsDocument(*asset, graph, laidOut));
+	CHECK(SendsDocument(*asset, graph, otherLiteral));
+	CHECK(SendsDocument(*asset, graph, laidOut));
+	CHECK(SendsDocument(*asset, graph, disabled));
+	CHECK(SendsDocument(*asset, graph, laidOut));
+	CHECK(SendsDocument(*asset, graph, floatLiteral));
+	CHECK(SendsDocument(*asset, graph, laidOut));
+	// The layout taken away again changes no program either.
+	CHECK_FALSE(SendsDocument(*asset, graph, MakeCountDocument(1)));
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == asset->GetSharedDocument());
 
 	UUID const one(1001);
 	REQUIRE(VisualScriptEngine::CreateInstance(one, graph, {}).IsOk());
@@ -1411,8 +1526,13 @@ TEST_CASE("VisualScriptEngine: documents are sent once per change, and a broken 
 	CHECK(broken > first);
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == broken);
+	// A node of the broken document moved: nothing is sent, and the program that runs keeps its document.
+	VisualScriptDocument movedBroken = MakeBrokenDocument();
+	movedBroken.Graph.Nodes[2].Position = glm::vec2(0.0f, 240.0f);
+	CHECK_FALSE(SendsDocument(*asset, graph, movedBroken));
 	CHECK(CountLogged(logStart, "Visual script 'Counter' has 1 error; first: ") == 1);
 	CHECK(Testing::WasLogged(logStart, " (node 12); the previous version keeps running"));
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 	// Instances run the working program, whose document the engine keeps.
 	Ref<VisualScriptDocument const> const working = VisualScriptEngine::GetWorkingDocument(graph);
 	REQUIRE(working != nullptr);
@@ -1440,6 +1560,7 @@ TEST_CASE("VisualScriptEngine: documents are sent once per change, and a broken 
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Broken' has 1 error; first: "));
 	CHECK_FALSE(Testing::WasLogged(logStart, "keeps running"));
 	CHECK(VisualScriptEngine::GetWorkingDocument(failing) == nullptr);
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(failing));
 	UUID const four(1004);
 	Result<void> const notCreated = VisualScriptEngine::CreateInstance(four, failing, {});
 	REQUIRE(notCreated.IsError());
@@ -1579,6 +1700,7 @@ TEST_CASE("VisualScriptEngine: its state goes with ScriptEngine::Shutdown and st
 		Testing::ScriptRuntimeScope runtime;
 		REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 		CHECK(VisualScriptEngine::GetProgramGeneration(graph) != 0);
+		CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 		REQUIRE(VisualScriptEngine::CreateInstance(entity, graph, {}).IsOk());
 		CHECK(VisualScriptEngine::HasInstance(entity));
 	}
@@ -1588,6 +1710,7 @@ TEST_CASE("VisualScriptEngine: its state goes with ScriptEngine::Shutdown and st
 	CHECK(VisualScriptEngine::GetInstanceCount() == 0);
 	CHECK(ScriptEngine::GetInstanceCount() == 0);
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == 0);
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
 	CHECK(VisualScriptEngine::EnsureLoaded(graph).GetError() == "the scripting runtime is not running");
 	CHECK(VisualScriptEngine::CreateInstance(entity, graph, {}).GetError() == "the scripting runtime is not running");
 	CHECK(VisualScriptEngine::Analyze(MakeCountDocument(4)).IsError());
@@ -1606,6 +1729,123 @@ TEST_CASE("VisualScriptEngine: its state goes with ScriptEngine::Shutdown and st
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) != 0);
 	VisualScriptEngine::InvokeOnCreate(entity);
 	CHECK(ReadVariable(entity, "Count") == ScriptFieldValue::FromInt32(4));
+}
+
+TEST_CASE("VisualScriptEngine: development-only nodes run unless turned off before graphs load, until ScriptEngine::Shutdown")
+{
+	Testing::AssetManagerScope assets;
+	VisualScriptDocument document = MakeCountDocument(5);
+	document.Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(document);
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Development");
+
+	// They run without the runtime and once it starts, as in the editor and in projects.
+	CHECK(VisualScriptEngine::AreDevelopmentNodesEnabled());
+	{
+		Testing::ScriptRuntimeScope runtime;
+		SentDocuments sent;
+		CHECK(VisualScriptEngine::AreDevelopmentNodesEnabled());
+		// Turned off, as the player does for exported games: the runtime receives every document with its development-only
+		// nodes disabled, while the engine keeps the asset's documents as they are.
+		VisualScriptEngine::SetDevelopmentNodesEnabled(false);
+		CHECK_FALSE(VisualScriptEngine::AreDevelopmentNodesEnabled());
+		uint64_t const logStart = Log::GetNextEntryIndex();
+		REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+		CHECK_FALSE(Testing::WasLogged(logStart, "Visual script 'Development'"));
+		REQUIRE(sent.GetCount() == 1);
+		CHECK(sent.Get(0) == DisableDevelopmentOnlyNodes(document));
+		CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+		CHECK(VisualScriptEngine::GetWorkingDocument(graph) == asset->GetSharedDocument());
+
+		// So is the working document sent again first after a game-assembly change, and the edit sent after it.
+		REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+		VisualScriptDocument edited = document;
+		edited.Graph.Nodes[1].Inputs["Value"] = 6;
+		CHECK(SendsDocument(*asset, graph, edited));
+		REQUIRE(sent.GetCount() == 3);
+		CHECK(sent.Get(1) == DisableDevelopmentOnlyNodes(document));
+		CHECK(sent.Get(2) == DisableDevelopmentOnlyNodes(edited));
+		CHECK(VisualScriptEngine::GetWorkingDocument(graph) == asset->GetSharedDocument());
+	}
+
+	// ScriptEngine::Shutdown turns them on again: the runtime receives the document as it is.
+	CHECK(VisualScriptEngine::AreDevelopmentNodesEnabled());
+	Testing::ScriptRuntimeScope again;
+	SentDocuments sent;
+	CHECK(VisualScriptEngine::AreDevelopmentNodesEnabled());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	REQUIRE(sent.GetCount() == 1);
+	CHECK(sent.Get(0) == asset->GetDocument());
+	CHECK(asset->GetDocument().Graph.Nodes[1].Enabled == VisualScriptNodeEnabled::DevelopmentOnly);
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+}
+
+TEST_CASE("VisualScriptEngine: the working document goes first again only when it is another program, so none compiles twice")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(MakeCountDocument(1));
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Counter");
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(SendsDocument(*asset, graph, MakeBrokenDocument()));
+	SentDocuments sent;
+
+	// After a game-assembly change only compiling the working document again tells whether it still runs, so it goes
+	// before the next document.
+	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	VisualScriptDocument otherBroken = MakeBrokenDocument();
+	otherBroken.Graph.Nodes[1].Inputs["Value"] = 3;
+	CHECK(SendsDocument(*asset, graph, otherBroken));
+	REQUIRE(sent.GetCount() == 2);
+	CHECK(sent.Get(0) == MakeCountDocument(1));
+	CHECK(sent.Get(1) == otherBroken);
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+
+	// A document of the working program tells that itself: the program is compiled once.
+	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	VisualScriptDocument moved = MakeCountDocument(1);
+	moved.Graph.Nodes[1].Position = glm::vec2(240.0f, 0.0f);
+	CHECK(SendsDocument(*asset, graph, moved));
+	REQUIRE(sent.GetCount() == 3);
+	CHECK(sent.Get(2) == moved);
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == asset->GetSharedDocument());
+}
+
+TEST_CASE("VisualScriptEngine: DisableDevelopmentOnlyNodes disables the development-only nodes of every graph and nothing else")
+{
+	// Nodes of every state with every node key of version 2, and a development-only node in a function too.
+	VisualScriptDocument document = ReadFixture("Editor.json");
+	REQUIRE_FALSE(document.Functions.empty());
+	REQUIRE_FALSE(document.Functions[0].Graph.Nodes.empty());
+	document.Functions[0].Graph.Nodes.back().Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	VisualScriptDocument disabled = DisableDevelopmentOnlyNodes(document);
+
+	// Each development-only node is disabled and every other node keeps its state; given back the states they had, the
+	// nodes leave nothing different. Answers how many nodes were development-only.
+	auto const restore = [](VisualScriptGraph const& before, VisualScriptGraph& after)
+	{
+		size_t developmentOnly = 0;
+		REQUIRE(after.Nodes.size() == before.Nodes.size());
+		for (size_t index = 0; index < before.Nodes.size(); index++)
+		{
+			VisualScriptNodeEnabled const state = before.Nodes[index].Enabled;
+			bool const isDevelopmentOnly = state == VisualScriptNodeEnabled::DevelopmentOnly;
+			CAPTURE(before.Nodes[index].ID);
+			CHECK(after.Nodes[index].Enabled == (isDevelopmentOnly ? VisualScriptNodeEnabled::Disabled : state));
+			after.Nodes[index].Enabled = state;
+			developmentOnly += isDevelopmentOnly ? 1 : 0;
+		}
+		return developmentOnly;
+	};
+	CHECK(restore(document.Graph, disabled.Graph) > 0);
+	REQUIRE(disabled.Functions.size() == document.Functions.size());
+	CHECK(restore(document.Functions[0].Graph, disabled.Functions[0].Graph) > 0);
+	CHECK(disabled == document);
+	CHECK(HaveSameVisualScriptProgram(disabled, document));
+
+	// A document without them comes back as it was.
+	CHECK(DisableDevelopmentOnlyNodes(MakeCountDocument(1)) == MakeCountDocument(1));
 }
 
 TEST_CASE("VisualScriptEngine: graph instances run their events, hold their variables and report failures")
@@ -1835,6 +2075,7 @@ TEST_CASE("VisualScriptEngine: a graph that needs the game's types runs once the
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has "));
 	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == nullptr);
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
 	CHECK(VisualScriptEngine::CreateInstance(id, graph, {}).IsError());
 	CHECK(host.Exceptions == 1);
 	uint64_t const before = VisualScriptEngine::GetProgramGeneration(graph);
@@ -1851,6 +2092,7 @@ TEST_CASE("VisualScriptEngine: a graph that needs the game's types runs once the
 	Ref<VisualScriptDocument const> const working = VisualScriptEngine::GetWorkingDocument(graph);
 	REQUIRE(working != nullptr);
 	CHECK(*working == MakeMoverDocument());
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 	REQUIRE(VisualScriptEngine::CreateInstance(id, graph, {}).IsOk());
 	VisualScriptEngine::InvokeOnCreate(id);
 	CHECK(ReadVariable(id, "IsMover") == ScriptFieldValue::FromBool(false));
@@ -1861,38 +2103,46 @@ TEST_CASE("VisualScriptEngine: a graph that needs the game's types runs once the
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
 	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
 	CHECK(*VisualScriptEngine::GetWorkingDocument(graph) == MakeMoverDocument());
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 	asset->SetDocument(MakeMoverDocument());
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 
 	// Loaded again, a broken edit leaves the program running only if it still compiles, which the engine learns by sending
-	// its document again first, before any instance exists.
+	// its document again first, before any instance exists. Until then the engine keeps the program's document but does
+	// not count on it running.
 	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) != nullptr);
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
 	logStart = Log::GetNextEntryIndex();
 	asset->SetDocument(MakeBrokenDocument());
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
 	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 	REQUIRE(VisualScriptEngine::CreateInstance(id, graph, {}).IsOk());
 	VisualScriptEngine::DestroyInstance(id);
 	CHECK(host.Exceptions == 1);
 
 	// Unloaded, it no longer compiles: a broken edit right after leaves nothing running, and says so.
 	ScriptEngine::UnloadGameAssembly();
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
 	logStart = Log::GetNextEntryIndex();
 	VisualScriptDocument otherBroken = MakeBrokenDocument();
-	otherBroken.Description = "Still broken";
+	otherBroken.Graph.Nodes[1].Inputs["Value"] = 3;
 	asset->SetDocument(otherBroken);
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(Testing::WasLogged(logStart, "Mover check was compiled again for the changed game assembly: "));
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
 	CHECK_FALSE(Testing::WasLogged(logStart, "keeps running"));
 	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == nullptr);
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
 	CHECK(VisualScriptEngine::CreateInstance(id, graph, {}).IsError());
 	CHECK(host.Exceptions == 2);
 	asset->SetDocument(MakeMoverDocument());
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
 	REQUIRE(VisualScriptEngine::CreateInstance(id, graph, {}).IsOk());
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 	VisualScriptEngine::DestroyInstance(id);
 
 	// Without them again it cannot compile, so nothing keeps running when a broken edit comes.

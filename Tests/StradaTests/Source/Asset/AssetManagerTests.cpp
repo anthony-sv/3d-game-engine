@@ -9,6 +9,8 @@
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/TextureAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/EmbeddedResources.h"
 #include "Strada/Scene/ComponentRegistry.h"
 #include "Strada/Scene/Entity.h"
@@ -51,6 +53,16 @@ namespace
 	void WriteBytes(std::filesystem::path const& path, std::vector<uint8_t> const& bytes)
 	{
 		REQUIRE(FileSystem::WriteBinaryFile(path, bytes).IsOk());
+	}
+
+	// Moves a file's write time later, so that a refresh sees it changed whatever the resolution of the file system's clock.
+	void PostponeWriteTime(std::filesystem::path const& path, std::chrono::seconds delay)
+	{
+		std::error_code errorCode;
+		std::filesystem::file_time_type const writeTime = std::filesystem::last_write_time(path, errorCode);
+		REQUIRE_FALSE(errorCode);
+		std::filesystem::last_write_time(path, writeTime + delay, errorCode);
+		REQUIRE_FALSE(errorCode);
 	}
 
 	std::vector<uint8_t> MakeWav()
@@ -319,6 +331,66 @@ TEST_CASE("AssetManager: refresh detects new, missing and modified files")
 	REQUIRE(AssetManager::Refresh().IsOk());
 	CHECK_FALSE(AssetManager::IsMissing(clip));
 	CHECK(AssetManager::GetAsset<AudioClipAsset>(clip));
+}
+
+TEST_CASE("AssetManager: a refresh does not reload a file whose writing was recorded, but one changed outside after it")
+{
+	AssetManagerScope scope;
+	TestProject project;
+	std::filesystem::path const file = project.Assets / "Counter.sgraph";
+	VisualScriptDocument const original = MakeVisualScriptTemplate(VisualScriptTemplate::Events);
+	REQUIRE(VisualScriptSerializer::SaveToFile(original, file).IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(project.Assets).IsOk());
+	AssetHandle const graph = Find("Counter.sgraph");
+	Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+	REQUIRE(asset != nullptr);
+
+	// The editor writes the file, later than the asset was loaded, and records it: the asset stays, holding what it wrote.
+	VisualScriptDocument const edited = MakeVisualScriptTemplate(VisualScriptTemplate::Empty);
+	REQUIRE(VisualScriptSerializer::SaveToFile(edited, file).IsOk());
+	PostponeWriteTime(file, std::chrono::seconds(5));
+	asset->SetDocument(edited);
+	uint64_t const version = AssetManager::GetVersion();
+	AssetManager::RecordFileWrite(graph);
+	CHECK(AssetManager::GetVersion() == version);
+	Result<AssetRefreshResult> refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
+	CHECK(AssetManager::IsLoaded(graph));
+	CHECK(AssetManager::GetAsset<VisualScriptAsset>(graph) == asset);
+
+	// Written outside the editor: reloaded, as a new object holding what the file holds.
+	REQUIRE(VisualScriptSerializer::SaveToFile(original, file).IsOk());
+	PostponeWriteTime(file, std::chrono::seconds(10));
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified == std::vector<AssetHandle>{graph});
+	CHECK_FALSE(AssetManager::IsLoaded(graph));
+	Ref<VisualScriptAsset> const reloaded = AssetManager::GetAsset<VisualScriptAsset>(graph);
+	REQUIRE(reloaded != nullptr);
+	CHECK(reloaded != asset);
+	CHECK(reloaded->GetDocument() == original);
+
+	// Nothing is recorded for an asset that is not loaded: a later change of its file is no change of a loaded asset.
+	AssetHandle const wood = Find("Textures/Wood.png");
+	REQUIRE_FALSE(AssetManager::IsLoaded(wood));
+	AssetManager::RecordFileWrite(wood);
+	CHECK_FALSE(AssetManager::IsLoaded(wood));
+	WritePng(project.Assets / "Textures" / "Wood.png", 9);
+	PostponeWriteTime(project.Assets / "Textures" / "Wood.png", std::chrono::seconds(5));
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
+
+	// Nor for assets without a file of their own.
+	AssetHandle const memory = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(), "Scratch");
+	AssetManager::RecordFileWrite(memory);
+	AssetManager::RecordFileWrite(GetBuiltInHandle(BuiltInAsset::WhiteTexture));
+	AssetManager::RecordFileWrite(AssetHandle());
+	CHECK(AssetManager::IsLoaded(memory));
+	refreshed = AssetManager::Refresh();
+	REQUIRE(refreshed.IsOk());
+	CHECK(refreshed.GetValue().Modified.empty());
 }
 
 TEST_CASE("AssetManager: symbolic links in the asset directory are not followed")

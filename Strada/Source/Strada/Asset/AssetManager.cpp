@@ -1217,4 +1217,20 @@ namespace Strada
 		data.LoadedWriteTimes.erase(handle);
 		data.FailedLoads.erase(handle);
 	}
+
+	void AssetManager::RecordFileWrite(AssetHandle handle)
+	{
+		AssetManagerData& data = GetData();
+		// Only file assets are in the registry; one that is not loaded reads the file when it loads.
+		if (!data.Registry.Contains(handle) || !data.LoadedAssets.contains(handle))
+		{
+			return;
+		}
+		// When the time cannot be read, the time recorded at load stays: the next refresh then finds the file changed and
+		// reloads the asset.
+		if (std::optional<std::filesystem::file_time_type> const writeTime = FileSystem::GetLastWriteTime(GetAbsolutePath(handle)))
+		{
+			data.LoadedWriteTimes[handle] = *writeTime;
+		}
+	}
 }

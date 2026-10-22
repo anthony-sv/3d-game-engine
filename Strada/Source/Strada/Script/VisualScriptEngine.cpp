@@ -79,12 +79,15 @@ namespace Strada
 		}
 
 		// Sends a document of the graph to the runtime, which compiles a program of it for the handle: a working one replaces
-		// the program of the handle's instances, a broken one leaves it running. Answers the errors of its Error diagnostics
-		// (empty when it compiles), or nothing when the runtime failed or its answer cannot be read (logged).
+		// the program of the handle's instances, a broken one leaves it running. Every document sent goes through here, so
+		// while development nodes do not run, the runtime receives each with its DevelopmentOnly nodes Disabled. Answers the
+		// errors of its Error diagnostics (empty when it compiles), or nothing when the runtime failed or its answer cannot
+		// be read (logged).
 		std::optional<std::string> LoadDocument(ScriptEngineData& data, AssetHandle graph, std::string const& name,
 		                                        VisualScriptDocument const& document)
 		{
-			std::string const text = ToDocumentText(document);
+			std::string const text =
+				data.DevelopmentNodesEnabled ? ToDocumentText(document) : ToDocumentText(DisableDevelopmentOnlyNodes(document));
 			std::string answer;
 			auto const status = static_cast<ScriptStatus>(data.Host.VisualScriptLoad(
 				graph.GetUUID().GetValue(), name.data(), ToLength(name.size()), text.data(), ToLength(text.size()), &answer, &ReceiveText));
@@ -107,7 +110,8 @@ namespace Strada
 		// document that does not compile is not sent again every frame; its errors are logged once. The working program's
 		// document goes first when the runtime must hear of it again: under a new name, which the runtime's messages give,
 		// and after a game-assembly change, when only compiling it again tells whether it still runs (and so whether a
-		// broken document leaves it running).
+		// broken document leaves it running). A document of the same program tells that itself, so no program is compiled
+		// twice.
 		void SendDocument(ScriptEngineData& data, AssetHandle graph, VisualScriptProgramRecord& record,
 		                  Ref<VisualScriptDocument const> document, std::string name)
 		{
@@ -116,7 +120,7 @@ namespace Strada
 			record.RegistryVersion = AssetManager::GetVersion();
 			record.IsSendPending = false;
 			if (record.WorkingDocument != nullptr && (renamed || record.IsStale) && record.WorkingDocument != document &&
-			    *record.WorkingDocument != *document)
+			    !HaveSameVisualScriptProgram(*record.WorkingDocument, *document))
 			{
 				if (std::optional<std::string> const working = LoadDocument(data, graph, record.Name, *record.WorkingDocument))
 				{
@@ -140,9 +144,8 @@ namespace Strada
 			}
 			if (errors)
 			{
-				bool const keepsRunning = record.WorkingDocument != nullptr && !record.IsStale;
 				ST_CORE_ERROR("Visual script '{}' has {}{}", record.Name, *errors,
-				              keepsRunning ? "; the previous version keeps running" : "");
+				              record.HasWorkingProgram() ? "; the previous version keeps running" : "");
 			}
 		}
 
@@ -306,7 +309,7 @@ namespace Strada
 			program.Asset = asset;
 			program.Version = asset->GetVersion();
 			program.Generation = NextGeneration(*data);
-			SendDocument(*data, graph, program, CreateRef<VisualScriptDocument const>(asset->GetDocument()), GetGraphName(graph));
+			SendDocument(*data, graph, program, asset->GetSharedDocument(), GetGraphName(graph));
 			return {};
 		}
 
@@ -314,16 +317,23 @@ namespace Strada
 		bool const cameBack = std::exchange(program.IsAbsent, false);
 		if (program.Asset != asset || program.Version != asset->GetVersion())
 		{
-			// Saved and loaded again, or set to what it was, the document is one the runtime has.
-			bool const changed = *program.Document != asset->GetDocument();
 			program.Asset = asset;
 			program.Version = asset->GetVersion();
-			if (changed)
+			Ref<VisualScriptDocument const> document = asset->GetSharedDocument();
+			if (document != program.Document && !HaveSameVisualScriptProgram(*program.Document, *document))
 			{
 				program.Generation = NextGeneration(*data);
-				SendDocument(*data, graph, program, CreateRef<VisualScriptDocument const>(asset->GetDocument()), GetGraphName(graph));
+				SendDocument(*data, graph, program, std::move(document), GetGraphName(graph));
 				return {};
 			}
+			// The runtime has the program: saved and loaded again, set to what it was, or changed only where the runtime never
+			// reads (a node moved, a comment edited). The record keeps the newest document, for the running program too when
+			// the program last sent is the one that runs.
+			if (program.WorkingDocument == program.Document)
+			{
+				program.WorkingDocument = document;
+			}
+			program.Document = std::move(document);
 		}
 		if (program.IsSendPending)
 		{
@@ -368,6 +378,37 @@ namespace Strada
 		}
 		auto const record = data->VisualScriptPrograms.find(graph);
 		return record != data->VisualScriptPrograms.end() ? record->second.Generation : 0;
+	}
+
+	bool VisualScriptEngine::HasWorkingProgram(AssetHandle graph)
+	{
+		ScriptEngineData const* const data = GetData();
+		if (data == nullptr)
+		{
+			return false;
+		}
+		auto const record = data->VisualScriptPrograms.find(graph);
+		return record != data->VisualScriptPrograms.end() && record->second.HasWorkingProgram();
+	}
+
+	void VisualScriptEngine::SetDevelopmentNodesEnabled(bool enabled)
+	{
+		ScriptEngineData* const data = GetData();
+		ST_CORE_ASSERT(data != nullptr, "ScriptEngine is not initialized");
+		// The programs sent so far would keep the other setting.
+		ST_CORE_ASSERT(data == nullptr || data->VisualScriptPrograms.empty(),
+		               "Whether development nodes run is set before any visual script is loaded");
+		if (data == nullptr || !data->VisualScriptPrograms.empty())
+		{
+			return;
+		}
+		data->DevelopmentNodesEnabled = enabled;
+	}
+
+	bool VisualScriptEngine::AreDevelopmentNodesEnabled()
+	{
+		ScriptEngineData const* const data = GetData();
+		return data == nullptr || data->DevelopmentNodesEnabled;
 	}
 
 	Result<void> VisualScriptEngine::CreateInstance(UUID entity, AssetHandle graph, ScriptFieldMap const& variables)
@@ -513,5 +554,25 @@ namespace Strada
 	void VisualScriptEngine::InvokeOnClick(UUID entity, UUID button)
 	{
 		Invoke(entity, ScriptEvent::Click, 0.0f, button);
+	}
+
+	VisualScriptDocument DisableDevelopmentOnlyNodes(VisualScriptDocument document)
+	{
+		auto const disable = [](VisualScriptGraph& graph)
+		{
+			for (VisualScriptNode& node : graph.Nodes)
+			{
+				if (node.Enabled == VisualScriptNodeEnabled::DevelopmentOnly)
+				{
+					node.Enabled = VisualScriptNodeEnabled::Disabled;
+				}
+			}
+		};
+		disable(document.Graph);
+		for (VisualScriptFunction& function : document.Functions)
+		{
+			disable(function.Graph);
+		}
+		return document;
 	}
 }

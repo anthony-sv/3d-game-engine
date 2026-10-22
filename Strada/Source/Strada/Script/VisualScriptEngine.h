@@ -56,21 +56,34 @@ namespace Strada
 
 		// --- Programs ---
 
-		// Gives the runtime the graph asset's current document unless it has it: a new asset object or version whose
-		// document differs from the one sent is sent again (a live edit while playing), one with the same document only
-		// updates what is known. A document that does not compile is sent once, its errors logged once; the program the
-		// handle had keeps running. It is sent again after a game-assembly change, as it may compile now. The runtime names
-		// the graph by its path: a graph moved or renamed is sent again under its new one. Unchanged graphs cost a lookup and
-		// a few comparisons, so Scene calls it every update. Fails, with the reason, when the graph is absent: not a
-		// registered VisualScript asset, or its file does not load.
+		// Gives the runtime the program of the graph asset's current document unless it has it: a new asset object or
+		// version whose document gives another program than the one sent (HaveSameVisualScriptProgram) is sent again (a
+		// live edit while playing); one that gives the same program (saved and loaded again, a node moved, a comment edited)
+		// only updates what is known, so nothing compiles again and running instances are not swapped. A document that does
+		// not compile is sent once, its errors logged once; the program the handle had keeps running. It is sent again after
+		// a game-assembly change, as it may compile now. The runtime names the graph by its path: a graph moved or renamed is
+		// sent again under its new one. Unchanged graphs cost a lookup and a few comparisons, so Scene calls it every update.
+		// Fails, with the reason, when the graph is absent: not a registered VisualScript asset, or its file does not load.
 		[[nodiscard]] static Result<void> EnsureLoaded(AssetHandle graph);
-		// Changes whenever another document of the graph is sent, the graph comes back after being absent, or the game
+		// Changes whenever another program of the graph is sent, the graph comes back after being absent, or the game
 		// assembly changes: an entity whose instance could not be created may get one then. 0 for a graph never loaded.
 		static uint64_t GetProgramGeneration(AssetHandle graph);
-		// The document of the graph's working program, which its instances run: the last one sent that compiled (the asset
-		// may hold a newer one, sent at the next EnsureLoaded, or a broken one, which leaves it running). Null when the
-		// graph has no working program as far as the engine has seen, or was never loaded.
+		// The document of the graph's working program, which its instances run: the newest document of the last program
+		// sent that compiled (the asset may hold a newer one, sent at the next EnsureLoaded, or a broken one, which leaves it
+		// running). Null when the graph has no working program as far as the engine has seen, or was never loaded.
 		static Ref<VisualScriptDocument const> GetWorkingDocument(AssetHandle graph);
+		// Whether the graph's working program runs, so that a broken document leaves it running: the graph has one
+		// (GetWorkingDocument), compiled for the game assembly the runtime has. Right after a game-assembly change that is
+		// not known until it compiles again (an instance is created, or a document sent). False without a record or without
+		// the runtime.
+		static bool HasWorkingProgram(AssetHandle graph);
+		// Whether DevelopmentOnly nodes run: they do unless this is set to false, as the player does for exported games (the
+		// editor and projects run them). It is set right after ScriptEngine::Init, before any graph is loaded, and
+		// ScriptEngine::Shutdown resets it. While false, the runtime receives every document with its DevelopmentOnly nodes
+		// Disabled (DisableDevelopmentOnlyNodes), while GetWorkingDocument gives the asset's document as it is; Analyze never
+		// rewrites, the editor being a development host. True without the runtime.
+		static void SetDevelopmentNodesEnabled(bool enabled);
+		static bool AreDevelopmentNodesEnabled();
 
 		// --- Graph instances of the running scene (driven by Scene) ---
 
@@ -103,4 +116,9 @@ namespace Strada
 		// The entity is the clicked UI button or one of its ancestors.
 		static void InvokeOnClick(UUID entity, UUID button);
 	};
+
+	// The document the runtime receives while development nodes do not run (VisualScriptEngine::SetDevelopmentNodesEnabled):
+	// every DevelopmentOnly node of every graph (the event graph and the functions') Disabled, nothing else changed. Pure;
+	// any thread.
+	[[nodiscard]] VisualScriptDocument DisableDevelopmentOnlyNodes(VisualScriptDocument document);
 }
