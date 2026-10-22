@@ -1,5 +1,7 @@
 #include "HeadlessImGui.h"
+#include "TestUtilities.h"
 
+#include "Editor/Commands/AssetCommands.h"
 #include "Editor/ComponentInspection.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/EntityPresets.h"
@@ -7,7 +9,13 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 
+#include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
+#include "Strada/Asset/MaterialAsset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/Buffer.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Math/Math.h"
 #include "Strada/Scene/Entity.h"
 
@@ -17,10 +25,13 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
 #include <set>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -47,6 +58,123 @@ namespace
 			names.push_back(component->Name);
 		}
 		return names;
+	}
+
+	// A project open in an editor model, whose asset files the steps under test edit.
+	struct AssetStepFixture
+	{
+		Testing::AssetManagerScope Assets;
+		Testing::TemporaryDirectory Directory;
+		EditorContext Context;
+		EditorOperations Operations{Context};
+
+		AssetStepFixture() { REQUIRE(Operations.CreateProject(Directory.GetPath() / "Game", "Game", Scene("Main")).IsOk()); }
+
+		std::filesystem::path GetFile(std::string_view path) const
+		{
+			return AssetManager::GetAssetDirectory() / FileSystem::PathFromUtf8(path);
+		}
+
+		std::string ReadFile(std::string_view path) const
+		{
+			Result<Buffer> const bytes = FileSystem::ReadBinaryFile(GetFile(path));
+			REQUIRE(bytes.IsOk());
+			return std::string(bytes.GetValue().As<char>(), static_cast<size_t>(bytes.GetValue().GetSize()));
+		}
+
+		// Writes a file into the asset directory and registers it: the asset loads it at its first use.
+		AssetHandle AddFile(std::string_view path, std::string_view bytes)
+		{
+			REQUIRE(FileSystem::WriteTextFile(GetFile(path), bytes).IsOk());
+			REQUIRE(Operations.RefreshAssets().IsOk());
+			AssetHandle const handle = AssetManager::FindByPath(path);
+			REQUIRE(handle.IsValid());
+			return handle;
+		}
+
+		AssetHandle CreateGraph(std::string_view path)
+		{
+			Result<AssetHandle> const created = Operations.CreateVisualScript(path);
+			REQUIRE(created.IsOk());
+			return created.GetValue();
+		}
+
+		Ref<VisualScriptAsset> GetGraph(AssetHandle graph) const
+		{
+			Ref<VisualScriptAsset> asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+			REQUIRE(asset != nullptr);
+			return asset;
+		}
+
+		// Commits a document as the graph windows do; returns the object the asset takes.
+		Ref<VisualScriptDocument const> Edit(AssetHandle graph, VisualScriptDocument document, std::string description = "Edit Graph",
+		                                     uint64_t mergeKey = 0)
+		{
+			Ref<VisualScriptDocument const> shared = CreateRef<VisualScriptDocument const>(std::move(document));
+			Result<void> const edited = Operations.EditVisualScript(graph, shared, std::move(description), mergeKey);
+			REQUIRE_MESSAGE(edited.IsOk(), (edited ? std::string() : edited.GetError()));
+			return shared;
+		}
+
+		// Rescans the asset directory: the loaded assets whose files changed since they loaded or the editor wrote them.
+		std::vector<AssetHandle> Refresh()
+		{
+			Result<AssetRefreshResult> refreshed = Operations.RefreshAssets();
+			REQUIRE(refreshed.IsOk());
+			return refreshed.GetValue().Modified;
+		}
+	};
+
+	// An update event that runs a sequence of three outputs.
+	VisualScriptDocument MakeGraphDocument()
+	{
+		VisualScriptDocument document;
+		VisualScriptVariable speed;
+		speed.ID = 1;
+		speed.Name = "Speed";
+		speed.Type = "int";
+		speed.Value = 1;
+		speed.Public = true;
+		document.Variables.push_back(speed);
+		VisualScriptNode update;
+		update.ID = 10;
+		update.Type = "Event.Update";
+		update.Position = glm::vec2(0.0f, 0.0f);
+		document.Graph.Nodes.push_back(update);
+		VisualScriptNode sequence;
+		sequence.ID = 11;
+		sequence.Type = "Flow.Sequence";
+		sequence.Position = glm::vec2(320.0f, 0.0f);
+		sequence.Settings = Json::object({{"Count", 3}});
+		document.Graph.Nodes.push_back(sequence);
+		document.Graph.Links.push_back({{10, "Then"}, {11, "Execute"}});
+		return document;
+	}
+
+	// The document with its first node moved to x.
+	VisualScriptDocument Moved(VisualScriptDocument document, float x)
+	{
+		document.Graph.Nodes.front().Position = glm::vec2(x, 0.0f);
+		return document;
+	}
+
+	VisualScriptDocument Described(VisualScriptDocument document, std::string description)
+	{
+		document.Description = std::move(description);
+		return document;
+	}
+
+	std::string Canonical(VisualScriptDocument const& document)
+	{
+		return DumpJson(VisualScriptSerializer::Serialize(document));
+	}
+
+	std::string ReadVersion1Example()
+	{
+		Result<Buffer> const bytes =
+			FileSystem::ReadBinaryFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Version1" / "Example.sgraph");
+		REQUIRE(bytes.IsOk());
+		return std::string(bytes.GetValue().As<char>(), static_cast<size_t>(bytes.GetValue().GetSize()));
 	}
 }
 
@@ -684,4 +812,467 @@ TEST_CASE("ComponentInspection: the Add Component menu groups components by cate
 	CHECK(ComponentInspection::SearchComponents(searched, "teleporter").empty());
 	CHECK(ComponentInspection::SearchComponents(searched, "").size() == searched.size());
 	CHECK(ComponentInspection::SearchComponents({}, "light").empty());
+}
+
+TEST_CASE(
+	"SetVisualScriptCommand: an edit is one step of its own description that gives the asset the document itself and records its writes")
+{
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	Ref<VisualScriptAsset> const asset = fixture.GetGraph(graph);
+	Ref<VisualScriptDocument const> const original = asset->GetSharedDocument();
+	std::string const originalBytes = fixture.ReadFile("Scripts/Player.sgraph");
+	CommandHistory const& history = fixture.Context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	CHECK_FALSE(fixture.Context.IsDirty());
+
+	// The file takes the canonical text, then the asset the committed object itself; the scene is not modified.
+	Ref<VisualScriptDocument const> const first = fixture.Edit(graph, MakeGraphDocument(), "Add Sequence in Player");
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoDescription() == "Add Sequence in Player");
+	CHECK_FALSE(fixture.Context.IsDirty());
+	CHECK(asset->GetSharedDocument().get() == first.get());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*first));
+	// The write is recorded: a refresh keeps the asset object.
+	CHECK(fixture.Refresh().empty());
+	CHECK(fixture.GetGraph(graph).get() == asset.get());
+
+	// Consecutive steps share their documents: undoing the second gives the asset the first one's object back.
+	Ref<VisualScriptDocument const> const second = fixture.Edit(graph, Moved(*first, 64.0f), "Move Node in Player");
+	CHECK(history.GetUndoCount() == steps + 2);
+	CHECK(asset->GetSharedDocument().get() == second.get());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(asset->GetSharedDocument().get() == first.get());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*first));
+
+	// Undo gives the file its bytes back, and the asset its document; an undo then a refresh keeps the asset object.
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(asset->GetSharedDocument().get() == original.get());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == originalBytes);
+	CHECK(fixture.Refresh().empty());
+	CHECK(fixture.GetGraph(graph).get() == asset.get());
+	CHECK_FALSE(fixture.Context.IsDirty());
+
+	// Redo writes again, recorded too.
+	REQUIRE(fixture.Operations.Redo().IsOk());
+	CHECK(asset->GetSharedDocument().get() == first.get());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*first));
+	CHECK(fixture.Refresh().empty());
+	CHECK(fixture.GetGraph(graph).get() == asset.get());
+	CHECK(history.GetRedoDescription() == "Move Node in Player");
+	CHECK_FALSE(fixture.Context.IsDirty());
+
+	// A change of the file made after the editor's write is still one.
+	std::error_code error;
+	std::filesystem::path const file = fixture.GetFile("Scripts/Player.sgraph");
+	std::filesystem::last_write_time(file, std::filesystem::last_write_time(file, error) + std::chrono::hours(1), error);
+	REQUIRE_FALSE(error);
+	CHECK(fixture.Refresh() == std::vector<AssetHandle>{graph});
+}
+
+TEST_CASE(
+	"SetVisualScriptCommand: the document the file has already makes no step and writes nothing, and an integer written as a float is another")
+{
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	fixture.Edit(graph, MakeGraphDocument());
+	Ref<VisualScriptAsset> const asset = fixture.GetGraph(graph);
+	Ref<VisualScriptDocument const> const stored = asset->GetSharedDocument();
+	CommandHistory const& history = fixture.Context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	uint64_t const version = asset->GetVersion();
+
+	// The file's time of writing moved back, as read back on this file system: a write would change it.
+	std::error_code error;
+	std::filesystem::path const file = fixture.GetFile("Scripts/Player.sgraph");
+	std::filesystem::last_write_time(file, std::filesystem::last_write_time(file, error) - std::chrono::hours(2), error);
+	REQUIRE_FALSE(error);
+	std::filesystem::file_time_type const written = std::filesystem::last_write_time(file, error);
+	REQUIRE_FALSE(error);
+
+	// The same object, an equal copy, and graph.set's path.
+	CHECK(fixture.Operations.EditVisualScript(graph, stored, "Edit Graph").IsOk());
+	CHECK(fixture.Operations.EditVisualScript(graph, CreateRef<VisualScriptDocument const>(*stored), "Edit Graph").IsOk());
+	CHECK(fixture.Operations.SetVisualScriptDocument(graph, *stored).IsOk());
+	CHECK(history.GetUndoCount() == steps);
+	CHECK(asset->GetVersion() == version);
+	CHECK(asset->GetSharedDocument().get() == stored.get());
+	CHECK(std::filesystem::last_write_time(file, error) == written);
+
+	// A count of 3 written as 3.0 equals the stored document by operator==, but the runtime needs an integer: it is a change.
+	VisualScriptDocument floating = *stored;
+	floating.Graph.Nodes[1].Settings["Count"] = 3.0;
+	REQUIRE(floating == *stored);
+	Ref<VisualScriptDocument const> const changed = fixture.Edit(graph, floating, "Set Count on Sequence in Player");
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(asset->GetSharedDocument().get() == changed.get());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph").find("\"Count\": 3.0") != std::string::npos);
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph").find("\"Count\": 3\n") != std::string::npos);
+}
+
+TEST_CASE("SetVisualScriptCommand: edits of one graph with one merge key are one step, which disappears when it ends where it started")
+{
+	AssetStepFixture fixture;
+	AssetHandle const player = fixture.CreateGraph("Scripts/Player.sgraph");
+	AssetHandle const enemy = fixture.CreateGraph("Scripts/Enemy.sgraph");
+	fixture.Edit(player, MakeGraphDocument());
+	fixture.Edit(enemy, MakeGraphDocument());
+	CommandHistory& history = fixture.Context.GetHistory();
+	history.BreakMerge();
+	Ref<VisualScriptDocument const> const start = fixture.GetGraph(player)->GetSharedDocument();
+	std::string const startBytes = fixture.ReadFile("Scripts/Player.sgraph");
+	size_t const steps = history.GetUndoCount();
+	constexpr uint64_t Key = 0x5445535400000001ull;
+
+	// One interaction: the step keeps its first description and takes the last document.
+	fixture.Edit(player, Moved(*start, 16.0f), "Move Node in Player", Key);
+	Ref<VisualScriptDocument const> const dragged = fixture.Edit(player, Moved(*start, 32.0f), "Move Node in Player (again)", Key);
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoDescription() == "Move Node in Player");
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*dragged));
+	// Another graph with the same key, and edits without a key, are steps of their own.
+	fixture.Edit(enemy, Moved(*start, 16.0f), "Move Node in Enemy", Key);
+	CHECK(history.GetUndoCount() == steps + 2);
+	fixture.Edit(enemy, Moved(*start, 48.0f), "Move Node in Enemy");
+	fixture.Edit(enemy, Moved(*start, 64.0f), "Move Node in Enemy");
+	CHECK(history.GetUndoCount() == steps + 4);
+	for (int step = 0; step < 4; step++)
+	{
+		REQUIRE(fixture.Operations.Undo().IsOk());
+	}
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == startBytes);
+	CHECK(fixture.GetGraph(player)->GetSharedDocument().get() == start.get());
+
+	// An interaction that comes back to where it started leaves no step, and the file its bytes.
+	constexpr uint64_t Back = 0x5445535400000002ull;
+	fixture.Edit(player, Moved(*start, 16.0f), "Move Node in Player", Back);
+	fixture.Edit(player, VisualScriptDocument(*start), "Move Node in Player", Back);
+	CHECK(history.GetUndoCount() == steps);
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == startBytes);
+	CHECK(fixture.GetGraph(player)->GetDocument() == *start);
+	CHECK_FALSE(history.CanRedo());
+}
+
+TEST_CASE(
+	"SetVisualScriptCommand: undo gives the file back byte for byte, a version-1 file, a repaired file and a byte order mark included")
+{
+	AssetStepFixture fixture;
+	struct File
+	{
+		std::string Path;
+		std::string Bytes;
+	};
+	std::vector<File> const files = {
+		{"Scripts/Version1.sgraph", ReadVersion1Example()},
+		// The second node repeats the first one's ID: the loader drops it.
+		{"Scripts/Repaired.sgraph",
+	     "{\"Strada\": {\"Version\": 2, \"Type\": \"VisualScript\"}, \"VisualScript\": {\"Graph\": {\"Nodes\": [{\"ID\": 1, \"Type\": "
+	     "\"Event.Update\", \"Position\": [0, 0]}, {\"ID\": 1, \"Type\": \"Flow.Branch\"}]}}}\n"},
+		{"Scripts/Marked.sgraph", "\xEF\xBB\xBF" + Canonical(MakeGraphDocument())},
+	};
+	for (File const& file : files)
+	{
+		CAPTURE(file.Path);
+		AssetHandle const graph = fixture.AddFile(file.Path, file.Bytes);
+		Ref<VisualScriptAsset> const asset = fixture.GetGraph(graph);
+		Ref<VisualScriptDocument const> const loaded = asset->GetSharedDocument();
+		REQUIRE(Canonical(*loaded) != file.Bytes);
+
+		Ref<VisualScriptDocument const> const edited = fixture.Edit(graph, Described(*loaded, "Edited"));
+		std::string const canonical = Canonical(*edited);
+		CHECK(fixture.ReadFile(file.Path) == canonical);
+		CHECK(canonical.find("\"Version\": 2,") != std::string::npos);
+		REQUIRE(fixture.Operations.Undo().IsOk());
+		CHECK(fixture.ReadFile(file.Path) == file.Bytes);
+		CHECK(asset->GetSharedDocument().get() == loaded.get());
+		// The bytes given back load as the document the asset holds: a refresh keeps it.
+		CHECK(fixture.Refresh().empty());
+		CHECK(fixture.GetGraph(graph).get() == asset.get());
+		REQUIRE(fixture.Operations.Redo().IsOk());
+		CHECK(fixture.ReadFile(file.Path) == canonical);
+		REQUIRE(fixture.Operations.Undo().IsOk());
+		CHECK(fixture.ReadFile(file.Path) == file.Bytes);
+	}
+
+	// A file that does not load: it is replaced, and undo gives its bytes back, which fail to load again.
+	std::string const damaged = "{ \"Strada\": { \"Version\": 3, \"Type\": \"VisualScript\" }, \"VisualScript\": {} }\n";
+	AssetHandle const graph = fixture.AddFile("Scripts/Damaged.sgraph", damaged);
+	REQUIRE(AssetManager::TryGetAsset<VisualScriptAsset>(graph).IsError());
+	Ref<VisualScriptDocument const> const repaired = fixture.Edit(graph, MakeGraphDocument());
+	CHECK(fixture.ReadFile("Scripts/Damaged.sgraph") == Canonical(*repaired));
+	CHECK(fixture.GetGraph(graph)->GetDocument() == *repaired);
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Damaged.sgraph") == damaged);
+	CHECK(AssetManager::TryGetAsset<VisualScriptAsset>(graph).IsError());
+	REQUIRE(fixture.Operations.Redo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Damaged.sgraph") == Canonical(*repaired));
+	CHECK(fixture.GetGraph(graph)->GetDocument() == *repaired);
+	CHECK_FALSE(fixture.Context.IsDirty());
+}
+
+TEST_CASE(
+	"SetVisualScriptCommand: a step keeps the text it wrote and the bytes it gives back, and on a version-1 file even a round trip stays")
+{
+	AssetStepFixture fixture;
+	std::string const version1 = ReadVersion1Example();
+	AssetHandle const graph = fixture.AddFile("Scripts/Version1.sgraph", version1);
+	Ref<VisualScriptDocument const> const loaded = fixture.GetGraph(graph)->GetSharedDocument();
+	constexpr uint64_t Key = 0x5445535400000003ull;
+
+	// What the step reports: its graph, no scene change, and the memory of the text written and of the bytes kept.
+	SetVisualScriptCommand first(graph, CreateRef<VisualScriptDocument const>(Described(*loaded, "First")), "Describe Player", Key);
+	REQUIRE(first.Execute(fixture.Context).IsOk());
+	CHECK(first.GetEditedAsset() == graph);
+	CHECK_FALSE(first.ModifiesScene());
+	CHECK(first.HasEffect());
+	CHECK(first.GetMemoryUse() == fixture.ReadFile("Scripts/Version1.sgraph").size() + version1.size());
+
+	// A merge takes the later document and its text; the step keeps its description and the bytes from before its own
+	// first execution.
+	SetVisualScriptCommand second(graph, CreateRef<VisualScriptDocument const>(Described(*loaded, "Second and longer")), "Again", Key);
+	REQUIRE(second.Execute(fixture.Context).IsOk());
+	CHECK(first.CanMergeWith(second));
+	SetVisualScriptCommand otherKey(graph, loaded, "Describe Player", Key + 1);
+	CHECK_FALSE(first.CanMergeWith(otherKey));
+	SetVisualScriptCommand withoutKey(graph, loaded, "Describe Player");
+	CHECK_FALSE(withoutKey.CanMergeWith(withoutKey));
+	SetMaterialCommand material(graph, Json::object(), Key);
+	CHECK_FALSE(first.CanMergeWith(material));
+	first.MergeWith(second);
+	CHECK(first.GetDescription() == "Describe Player");
+	CHECK(first.GetMemoryUse() == fixture.ReadFile("Scripts/Version1.sgraph").size() + version1.size());
+	REQUIRE(first.Undo(fixture.Context).IsOk());
+	CHECK(fixture.ReadFile("Scripts/Version1.sgraph") == version1);
+	CHECK(fixture.GetGraph(graph)->GetSharedDocument().get() == loaded.get());
+
+	// Through the history: an interaction that comes back to where it started is one step that gives the version-1 bytes back.
+	CommandHistory const& history = fixture.Context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	fixture.Edit(graph, Described(*loaded, "Edited"), "Describe Player", Key);
+	fixture.Edit(graph, VisualScriptDocument(*loaded), "Describe Player", Key);
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(fixture.ReadFile("Scripts/Version1.sgraph") == Canonical(*loaded));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Version1.sgraph") == version1);
+}
+
+TEST_CASE("SetVisualScriptCommand: a read-only file is refused by edits and by undo, which stays on the stack until the file is writable")
+{
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	fixture.Edit(graph, MakeGraphDocument(), "Add Sequence in Player");
+	Ref<VisualScriptAsset> const asset = fixture.GetGraph(graph);
+	Ref<VisualScriptDocument const> const current = asset->GetSharedDocument();
+	std::string const bytes = fixture.ReadFile("Scripts/Player.sgraph");
+	CommandHistory const& history = fixture.Context.GetHistory();
+	size_t const steps = history.GetUndoCount();
+	{
+		Testing::ReadOnlyFileScope const readOnly(fixture.GetFile("Scripts/Player.sgraph"));
+		Result<void> const refused = fixture.Operations.EditVisualScript(
+			graph, CreateRef<VisualScriptDocument const>(Moved(*current, 64.0f)), "Move Node in Player");
+		REQUIRE(refused.IsError());
+		CHECK(refused.GetError() == "the file of visual script 'Scripts/Player.sgraph' is read-only");
+		CHECK(history.GetUndoCount() == steps);
+		CHECK(asset->GetSharedDocument().get() == current.get());
+
+		Result<void> const undone = fixture.Operations.Undo();
+		REQUIRE(undone.IsError());
+		CHECK(undone.GetError().find("is read-only") != std::string::npos);
+		CHECK(history.GetUndoCount() == steps);
+		CHECK(history.GetUndoDescription() == "Add Sequence in Player");
+		CHECK(asset->GetSharedDocument().get() == current.get());
+		CHECK(fixture.ReadFile("Scripts/Player.sgraph") == bytes);
+	}
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(history.GetUndoCount() == steps - 1);
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") != bytes);
+}
+
+TEST_CASE("SetVisualScriptCommand: undo after the file changed outside the editor gives that change back, for the next refresh to load")
+{
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	Ref<VisualScriptAsset> const asset = fixture.GetGraph(graph);
+	// The editor wrote the file last, and remembers the text it wrote.
+	Ref<VisualScriptDocument const> const shown = fixture.Edit(graph, Described(*asset->GetSharedDocument(), "Shown"));
+	REQUIRE(fixture.Context.FindVisualScriptText(graph, shown.get()) != nullptr);
+	std::filesystem::path const file = fixture.GetFile("Scripts/Player.sgraph");
+	// Another program writes the file; no refresh has seen it yet.
+	std::string const outside = Canonical(MakeGraphDocument());
+	REQUIRE(FileSystem::WriteTextFile(file, outside).IsOk());
+
+	// An edit of what the editor shows replaces the file.
+	fixture.Edit(graph, Described(*shown, "Edited"));
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") != outside);
+	// The step's write is recorded an hour back, so that the undo's write is later even on file systems with coarse times.
+	std::error_code error;
+	std::filesystem::last_write_time(file, std::filesystem::last_write_time(file, error) - std::chrono::hours(1), error);
+	REQUIRE_FALSE(error);
+	AssetManager::RecordFileWrite(graph);
+
+	// Undo gives the file the other program's bytes and the asset what it showed; the next refresh loads what the file has.
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == outside);
+	CHECK(asset->GetSharedDocument().get() == shown.get());
+	CHECK(fixture.Refresh() == std::vector<AssetHandle>{graph});
+	CHECK(fixture.GetGraph(graph)->GetDocument() == MakeGraphDocument());
+}
+
+TEST_CASE("EditorContext: the text the editor wrote last to a visual script counts only for the document object it is the text of")
+{
+	EditorContext context;
+	AssetHandle const graph = AssetHandle::Generate();
+	AssetHandle const other = AssetHandle::Generate();
+	Ref<VisualScriptDocument const> written = CreateRef<VisualScriptDocument const>(MakeGraphDocument());
+	Ref<VisualScriptDocument const> const equal = CreateRef<VisualScriptDocument const>(MakeGraphDocument());
+	CHECK(context.FindVisualScriptText(graph, written.get()) == nullptr);
+	context.RememberVisualScriptText(graph, written, Canonical(*written));
+	std::string const* const found = context.FindVisualScriptText(graph, written.get());
+	REQUIRE(found != nullptr);
+	CHECK(*found == Canonical(*written));
+
+	// Another object, even an equal one, another graph or no document: not its text.
+	CHECK(context.FindVisualScriptText(graph, equal.get()) == nullptr);
+	CHECK(context.FindVisualScriptText(other, written.get()) == nullptr);
+	CHECK(context.FindVisualScriptText(graph, nullptr) == nullptr);
+	// Forgotten, and gone with its document (another object may take its address).
+	context.ForgetVisualScriptText(graph);
+	CHECK(context.FindVisualScriptText(graph, written.get()) == nullptr);
+	context.RememberVisualScriptText(graph, written, "text");
+	VisualScriptDocument const* const address = written.get();
+	written.reset();
+	CHECK(context.FindVisualScriptText(graph, address) == nullptr);
+	// The texts belong to the project's files: another project forgets them.
+	context.RememberVisualScriptText(graph, equal, "text");
+	REQUIRE(context.FindVisualScriptText(graph, equal.get()) != nullptr);
+	context.SetProject(nullptr);
+	CHECK(context.FindVisualScriptText(graph, equal.get()) == nullptr);
+}
+
+TEST_CASE("SetVisualScriptAndComponentsCommand: a graph and the components of entities that run it change in one step, all or nothing")
+{
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	fixture.Edit(graph, MakeGraphDocument());
+	Ref<VisualScriptAsset> const asset = fixture.GetGraph(graph);
+	Ref<VisualScriptDocument const> const original = asset->GetSharedDocument();
+	std::string const originalBytes = fixture.ReadFile("Scripts/Player.sgraph");
+	UUID const door = Create(fixture.Operations, "Door");
+	UUID const window = Create(fixture.Operations, "Window");
+	UUID const player = Create(fixture.Operations, "Player", UUID::Invalid(),
+	                           Json::object({{"VisualScript", Json::object({{"Graph", graph.ToString()}})}}));
+	CommandHistory& history = fixture.Context.GetHistory();
+	history.MarkSaved();
+	size_t const steps = history.GetUndoCount();
+	auto const variables = [&]
+	{
+		Entity const entity = fixture.Operations.FindEntity(player);
+		REQUIRE(entity);
+		return entity.GetComponent<VisualScriptComponent>().Variables;
+	};
+
+	// The dropped door becomes a variable of the graph, and the player's value of it.
+	VisualScriptDocument referencing = *original;
+	VisualScriptVariable doorVariable;
+	doorVariable.ID = 12;
+	doorVariable.Name = "Door";
+	doorVariable.Type = "Strada.Entity";
+	doorVariable.Public = true;
+	referencing.Variables.push_back(doorVariable);
+	VisualScriptNode get;
+	get.ID = 13;
+	get.Type = "Variable.Get";
+	get.Position = glm::vec2(0.0f, 160.0f);
+	get.Settings = Json::object({{"Variable", 12}});
+	referencing.Graph.Nodes.push_back(get);
+	// The edit that gives an entity's VisualScript component the value of Door.
+	auto const reference = [](UUID entity, UUID target)
+	{
+		Json const value = Json::object({{"Type", "Entity"}, {"Value", std::to_string(target.GetValue())}});
+		return std::vector<ComponentEdit>{{entity, "VisualScript", Json::object({{"Variables", Json::object({{"Door", value}})}})}};
+	};
+	Ref<VisualScriptDocument const> const referenced = CreateRef<VisualScriptDocument const>(referencing);
+	REQUIRE(
+		fixture.Operations.EditVisualScriptAndComponents(graph, referenced, "Reference Door in Player", reference(player, door)).IsOk());
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(history.GetUndoDescription() == "Reference Door in Player");
+	CHECK(fixture.Context.IsDirty());
+	CHECK(asset->GetSharedDocument().get() == referenced.get());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*referenced));
+	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(door)}});
+
+	// Undo takes back both, components first; redo makes both again.
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(variables().empty());
+	CHECK(asset->GetSharedDocument().get() == original.get());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == originalBytes);
+	CHECK_FALSE(fixture.Context.IsDirty());
+	REQUIRE(fixture.Operations.Redo().IsOk());
+	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(door)}});
+	CHECK(asset->GetSharedDocument().get() == referenced.get());
+
+	// All or nothing: components that cannot be edited leave the graph as it was, and a graph that cannot be written the
+	// components.
+	Ref<VisualScriptDocument const> const described = CreateRef<VisualScriptDocument const>(Described(*referenced, "Opens doors"));
+	CHECK(fixture.Operations.EditVisualScriptAndComponents(graph, described, "Reference Door in Player", reference(UUID(77), door))
+	          .IsError());
+	CHECK(asset->GetSharedDocument().get() == referenced.get());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*referenced));
+	{
+		Testing::ReadOnlyFileScope const readOnly(fixture.GetFile("Scripts/Player.sgraph"));
+		REQUIRE(fixture.Operations.SetComponentFields(player, "VisualScript", Json::object({{"Variables", Json::object()}})).IsOk());
+		CHECK(fixture.Operations.EditVisualScriptAndComponents(graph, described, "Reference Door in Player", reference(player, door))
+		          .IsError());
+		CHECK(variables().empty());
+		REQUIRE(fixture.Operations.Undo().IsOk());
+	}
+	CHECK(history.GetUndoCount() == steps + 1);
+	CHECK(asset->GetSharedDocument().get() == referenced.get());
+
+	// Once its graph is forgotten (the graph was deleted), the step undoes and redoes the components alone.
+	SetVisualScriptAndComponentsCommand command(graph, described, "Reference Window in Player", reference(player, window));
+	REQUIRE(command.Execute(fixture.Context).IsOk());
+	std::string const describedBytes = fixture.ReadFile("Scripts/Player.sgraph");
+	CHECK(describedBytes == Canonical(*described));
+	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(window)}});
+	CHECK(command.GetDescription() == "Reference Window in Player");
+	CHECK(command.GetEditedAsset() == graph);
+	CHECK(command.GetMemoryUse() == describedBytes.size());
+	CHECK(command.HasEffect());
+	CHECK(command.ModifiesScene());
+	command.ForgetEditedAsset();
+	CHECK_FALSE(command.GetEditedAsset().IsValid());
+	CHECK(command.GetMemoryUse() == 0);
+	REQUIRE(command.Undo(fixture.Context).IsOk());
+	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(door)}});
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == describedBytes);
+	REQUIRE(command.Execute(fixture.Context).IsOk());
+	CHECK(variables() == ScriptFieldMap{{"Door", ScriptFieldValue::FromEntity(window)}});
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == describedBytes);
+}
+
+TEST_CASE("SetMaterialCommand: a material edit names its material and records its writes, so a refresh keeps the asset")
+{
+	AssetStepFixture fixture;
+	Result<AssetHandle> const created = fixture.Operations.CreateMaterial("Materials/Rock.smat");
+	REQUIRE(created.IsOk());
+	AssetHandle const material = created.GetValue();
+	Ref<MaterialAsset> const asset = AssetManager::GetAsset<MaterialAsset>(material);
+	REQUIRE(asset != nullptr);
+
+	REQUIRE(fixture.Operations.SetMaterialFields(material, Json::object({{"Roughness", 0.25}})).IsOk());
+	CHECK(fixture.Refresh().empty());
+	CHECK(AssetManager::GetAsset<MaterialAsset>(material).get() == asset.get());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.Refresh().empty());
+	REQUIRE(fixture.Operations.Redo().IsOk());
+	CHECK(fixture.Refresh().empty());
+	CHECK(AssetManager::GetAsset<MaterialAsset>(material).get() == asset.get());
+	CHECK(asset->GetData().Roughness == doctest::Approx(0.25f));
+
+	SetMaterialCommand const command(material, Json::object({{"Roughness", 0.75}}));
+	CHECK(command.GetEditedAsset() == material);
+	CHECK(command.GetMemoryUse() == 0);
+	CHECK_FALSE(command.ModifiesScene());
 }

@@ -9,13 +9,13 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
+#include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptNormalization.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
-#include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
@@ -516,9 +516,11 @@ namespace Strada
 			result["diagnostics"] = diagnostics != source.end() ? *diagnostics : Json::array();
 		}
 
-		// What graph.set does to a document besides checking it, and graph.check reports: variables renamed since the stored
-		// document (when one loads) keep their stored values through FormerNames, and with the runtime, nodes resolved
-		// inexactly are stored under their canonical types. The warnings say what changed; the analysis is of the result.
+		// What graph.check reports graph.set would do to a document besides checking it (graph.set does it through
+		// PrepareVisualScriptCommit): variables renamed since the stored document (when one loads) keep their stored values
+		// through FormerNames, and with the runtime, nodes resolved inexactly are stored under their canonical types. The
+		// warnings say what changed; the analysis is of the result. It runs on documents with issues too (as the loader
+		// repairs them), which graph.set refuses before preparing anything.
 		struct PreparedDocument
 		{
 			std::vector<std::string> Warnings;
@@ -1399,76 +1401,92 @@ namespace Strada
 									 return described;
 								 })
 						   : result;
-				result = result
-				             ? Add("graph.set",
-				                   "Replaces a visual script's document (the content of its .sgraph file: Description, Variables, "
-				                   "Functions, Graph, as graph.get returns it) and saves the file. The document is checked strictly: "
-				                   "anything the loader would repair (a duplicate ID, an unknown key, a link to a node that does not "
-				                   "exist, ...) fails with InvalidParams, data.path naming the first issue and data.issues listing every "
-				                   "one { path, message }; nothing is written then (graph.check reports the same without writing). A "
-				                   "variable renamed (same ID) keeps its old name in FormerNames, so values components store for it still "
-				                   "apply; with the scripting runtime, nodes resolved through a redirect or by their member's name alone "
-				                   "are stored under their exact types; nodes without a Position are laid out. One undo step "
-				                   "(editor.undo) that does not mark the scene modified; allowed while playing, where running graphs take "
-				                   "the edit at once. Returns { asset, path, changed, analyzed, warnings (what was changed besides the "
-				                   "given document), nodes?, diagnostics? }.",
-				                   SchemaBuilder::Object()
-				                       .Property("graph", graphParameter, true)
-				                       .Property("document", documentParameter, true)
-				                       .Build(),
-				                   false,
-				                   [this](Json const& params) -> CommandResult
-				                   {
-									   if (std::optional<CommandError> error = CheckAssets(true))
-									   {
-										   return *error;
-									   }
-									   CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
-									   if (!graph)
-									   {
-										   return graph.TakeError();
-									   }
-									   AssetHandle const handle = graph.GetValue();
-									   if (std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
-					                       !metadata || !metadata->IsFileAsset())
-									   {
-										   CommandError error = MakeCommandError(
-											   AutomationErrorCode::InvalidParams,
-											   "graph: visual script {} has no file of its own and cannot be edited", handle);
-										   error.Data = Json::object({{"path", "graph"}});
-										   return error;
-									   }
-									   StrictDocument read = ReadStrictDocument(params["document"]);
-									   if (!read.Issues.empty())
-									   {
-										   return MakeIssuesError(read.Issues);
-									   }
-									   VisualScriptDocument document = std::move(*read.Document);
+				result =
+					result
+						? Add("graph.set",
+				              "Replaces a visual script's document (the content of its .sgraph file: Description, Variables, "
+				              "Functions, Graph, as graph.get returns it) and saves the file. The document is checked strictly: "
+				              "anything the loader would repair (a duplicate ID, an unknown key, a link to a node that does not "
+				              "exist, ...) fails with InvalidParams, data.path naming the first issue and data.issues listing every "
+				              "one { path, message }; nothing is written then (graph.check reports the same without writing). A "
+				              "variable renamed (same ID) keeps its old name in FormerNames, so values components store for it still "
+				              "apply; with the scripting runtime, nodes resolved through a redirect or by their member's name alone "
+				              "are stored under their exact types; nodes without a Position are laid out. One undo step "
+				              "(editor.undo) that does not mark the scene modified; allowed while playing, where running graphs take "
+				              "the edit at once. Returns { asset, path, changed, analyzed, warnings (what was changed besides the "
+				              "given document), nodes?, diagnostics? }.",
+				              SchemaBuilder::Object()
+				                  .Property("graph", graphParameter, true)
+				                  .Property("document", documentParameter, true)
+				                  .Build(),
+				              false,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  if (std::optional<CommandError> error = CheckAssets(true))
+								  {
+									  return *error;
+								  }
+								  CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+								  if (!graph)
+								  {
+									  return graph.TakeError();
+								  }
+								  AssetHandle const handle = graph.GetValue();
+								  if (std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
+					                  !metadata || !metadata->IsFileAsset())
+								  {
+									  CommandError error =
+										  MakeCommandError(AutomationErrorCode::InvalidParams,
+						                                   "graph: visual script {} has no file of its own and cannot be edited", handle);
+									  error.Data = Json::object({{"path", "graph"}});
+									  return error;
+								  }
+								  StrictDocument read = ReadStrictDocument(params["document"]);
+								  if (!read.Issues.empty())
+								  {
+									  return MakeIssuesError(read.Issues);
+								  }
 
-									   // The document the file has, when it loads: renamed variables are found against it, and
-					                   // giving it again changes nothing.
-									   Result<Ref<VisualScriptAsset>> stored = AssetManager::TryGetAsset<VisualScriptAsset>(handle);
-									   Ref<VisualScriptAsset> const storedScript = stored ? stored.TakeValue() : nullptr;
-									   PreparedDocument prepared =
-										   PrepareDocument(document, storedScript != nullptr ? &storedScript->GetDocument() : nullptr);
-									   PlaceUnplacedNodes(document);
-									   bool const changed = storedScript == nullptr || storedScript->GetDocument() != document;
-									   if (Result<void> set = m_Operations.SetVisualScriptDocument(handle, std::move(document)); !set)
-									   {
-										   return Failure(AutomationErrorCode::FileError, set);
-									   }
+								  // The document the file has, when it loads: renamed variables are found against it, and
+					              // giving it again changes nothing.
+								  Result<Ref<VisualScriptAsset>> const stored = AssetManager::TryGetAsset<VisualScriptAsset>(handle);
+								  Ref<VisualScriptDocument const> const storedDocument =
+									  stored ? stored.GetValue()->GetSharedDocument() : nullptr;
+								  VisualScriptDocument const none;
+								  std::optional<VisualScriptAnalysis> analysis = AnalyzeGraph(*read.Document);
+								  Result<VisualScriptCommit> prepared =
+									  PrepareVisualScriptCommit(storedDocument != nullptr ? *storedDocument : none,
+					                                            std::move(*read.Document), analysis ? &*analysis : nullptr);
+								  if (!prepared)
+								  {
+									  // The document was valid, and preparing it keeps it valid: this is the editor's fault.
+									  return MakeCommandError(AutomationErrorCode::InternalError, "{}", prepared.GetError());
+								  }
+								  VisualScriptCommit commit = prepared.TakeValue();
+								  // The analysis is of the document as written: again when preparing it changed what the
+					              // runtime reads (not when it only placed nodes).
+								  if (analysis && !commit.Warnings.empty())
+								  {
+									  analysis = AnalyzeGraph(commit.Document);
+								  }
+								  bool const changed =
+									  storedDocument == nullptr || !IsSameVisualScriptDocument(*storedDocument, commit.Document);
+								  if (Result<void> set = m_Operations.SetVisualScriptDocument(handle, std::move(commit.Document)); !set)
+								  {
+									  return Failure(AutomationErrorCode::FileError, set);
+								  }
 
-									   Json described = DescribeGraph(handle);
-									   described["changed"] = changed;
-									   described["analyzed"] = prepared.Analysis.has_value();
-									   described["warnings"] = std::move(prepared.Warnings);
-									   if (prepared.Analysis)
-									   {
-										   AddAnalysis(described, *prepared.Analysis);
-									   }
-									   return described;
-								   })
-				             : result;
+								  Json described = DescribeGraph(handle);
+								  described["changed"] = changed;
+								  described["analyzed"] = analysis.has_value();
+								  described["warnings"] = std::move(commit.Warnings);
+								  if (analysis)
+								  {
+									  AddAnalysis(described, *analysis);
+								  }
+								  return described;
+							  })
+						: result;
 				result = result ? Add("graph.check",
 				                      "Checks a visual script document without writing anything. issues are what graph.set would refuse "
 				                      "(the strict structural check: [{ path, message }], paths relative to the document; valid when there "

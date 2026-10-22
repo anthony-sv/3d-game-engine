@@ -949,9 +949,30 @@ namespace Strada
 		return m_Context.ExecuteCommand(CreateScope<SetMaterialCommand>(material, patch, mergeKey));
 	}
 
+	Result<void> EditorOperations::EditVisualScript(AssetHandle graph, Ref<VisualScriptDocument const> document, std::string description,
+	                                                uint64_t mergeKey)
+	{
+		if (document == nullptr)
+		{
+			return Error{"there is no visual script document to write"};
+		}
+		return m_Context.ExecuteCommand(CreateScope<SetVisualScriptCommand>(graph, std::move(document), std::move(description), mergeKey));
+	}
+
+	Result<void> EditorOperations::EditVisualScriptAndComponents(AssetHandle graph, Ref<VisualScriptDocument const> document,
+	                                                             std::string description, std::vector<ComponentEdit> edits)
+	{
+		if (document == nullptr)
+		{
+			return Error{"there is no visual script document to write"};
+		}
+		return m_Context.ExecuteCommand(
+			CreateScope<SetVisualScriptAndComponentsCommand>(graph, std::move(document), std::move(description), std::move(edits)));
+	}
+
 	Result<void> EditorOperations::SetVisualScriptDocument(AssetHandle graph, VisualScriptDocument document, uint64_t mergeKey)
 	{
-		return m_Context.ExecuteCommand(CreateScope<SetVisualScriptCommand>(graph, std::move(document), mergeKey));
+		return EditVisualScript(graph, CreateRef<VisualScriptDocument const>(std::move(document)), "Edit Visual Script", mergeKey);
 	}
 
 	Result<void> EditorOperations::Select(std::span<UUID const> entities, SelectionMode mode, UUID primary)

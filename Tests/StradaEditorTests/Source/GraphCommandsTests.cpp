@@ -723,6 +723,51 @@ TEST_CASE("GraphCommands: with the scripting runtime documents are analyzed, and
 	CHECK(fixture.GetDocument(graph) == unknown);
 }
 
+TEST_CASE("GraphCommands: graph.set writes an integer given as a float, which the analysis reports, and refuses a read-only file")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	VisualScriptDocument document;
+	document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	document.Graph.Nodes.push_back(MakeNode(11, "Flow.Sequence", Json::object({{"Count", 3}})));
+	document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	std::string const graph = fixture.CreateGraph("Scripts/Sequence.sgraph", document);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	auto const hasInvalidCount = [](Json const& diagnostics)
+	{
+		return std::any_of(diagnostics.begin(), diagnostics.end(),
+		                   [](Json const& diagnostic)
+		                   {
+							   return diagnostic["Code"] == "InvalidSetting" && diagnostic["Node"] == 11;
+						   });
+	};
+
+	// operator== takes 3.0 for the stored 3, the scripting runtime does not (a count is an integer): graph.set writes it,
+	// and its analysis is of what it wrote.
+	Json floating = VisualScriptSerializer::SerializeDocument(document);
+	floating["Graph"]["Nodes"][1]["Settings"]["Count"] = 3.0;
+	Json const set = fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", floating}}));
+	CHECK(set["changed"] == true);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.ReadFile("Scripts/Sequence.sgraph").find("\"Count\": 3.0") != std::string::npos);
+	CHECK(hasInvalidCount(set["diagnostics"]));
+	// The integer again is another change, which the runtime takes.
+	Json const restored =
+		fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", VisualScriptSerializer::SerializeDocument(document)}}));
+	CHECK(restored["changed"] == true);
+	CHECK_FALSE(hasInvalidCount(restored["diagnostics"]));
+
+	// A file that is read-only on disk is refused as a file error, on every platform, and no step is recorded.
+	{
+		Testing::ReadOnlyFileScope const readOnly(fixture.GetFile("Scripts/Sequence.sgraph"));
+		CommandError const refused = fixture.Fails("graph.set", Json::object({{"graph", graph}, {"document", floating}}));
+		CHECK(refused.Code == AutomationErrorCode::FileError);
+		CHECK(refused.Message == "the file of visual script 'Scripts/Sequence.sgraph' is read-only");
+	}
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 2);
+	CHECK(fixture.GetDocument(graph) == document);
+}
+
 TEST_CASE("GraphCommands: graph.library and graph.types list the runtime's node kinds and types, filtered and paged")
 {
 	Testing::ScriptRuntimeScope runtime;

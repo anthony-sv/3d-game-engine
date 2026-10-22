@@ -139,6 +139,33 @@ namespace Strada
 		return context;
 	}
 
+	void EditorContext::SetProject(Ref<Project> project)
+	{
+		m_Project = std::move(project);
+		// The texts belong to the files of the asset directory that was open.
+		m_VisualScriptTexts.clear();
+	}
+
+	void EditorContext::RememberVisualScriptText(AssetHandle graph, Ref<VisualScriptDocument const> const& document, std::string text)
+	{
+		m_VisualScriptTexts[graph] = VisualScriptText{document, std::move(text)};
+	}
+
+	void EditorContext::ForgetVisualScriptText(AssetHandle graph)
+	{
+		m_VisualScriptTexts.erase(graph);
+	}
+
+	std::string const* EditorContext::FindVisualScriptText(AssetHandle graph, VisualScriptDocument const* document) const
+	{
+		auto const found = m_VisualScriptTexts.find(graph);
+		if (found == m_VisualScriptTexts.end() || document == nullptr || found->second.Document.lock().get() != document)
+		{
+			return nullptr;
+		}
+		return &found->second.Text;
+	}
+
 	void EditorContext::PruneSelection()
 	{
 		m_Selection.Retain(

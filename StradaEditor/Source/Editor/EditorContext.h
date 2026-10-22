@@ -14,12 +14,17 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <span>
+#include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace Strada
 {
+	struct VisualScriptDocument;
+
 	// What the editor does with the scene.
 	enum class EditorPlayState : uint8_t
 	{
@@ -82,7 +87,7 @@ namespace Strada
 		// The open project; null when none is open. Its asset directory is the AssetManager's.
 		Project* GetProject() { return m_Project.get(); }
 		Project const* GetProject() const { return m_Project.get(); }
-		void SetProject(Ref<Project> project) { m_Project = std::move(project); }
+		void SetProject(Ref<Project> project);
 
 		// --- Undoable modifications ---
 
@@ -119,7 +124,23 @@ namespace Strada
 		void SetAssetReferenceResolver(AssetReferenceResolver resolver) { m_AssetReferenceResolver = std::move(resolver); }
 		DeserializationContext CreateDeserializationContext(UnknownFieldPolicy unknownFields = UnknownFieldPolicy::Error) const;
 
+		// --- Files the editor writes ---
+
+		// The canonical text the editor last wrote to a visual script's file, as the text of the document object the asset
+		// took with it. Documents never change, so while the asset holds that very object, a file with these bytes holds its
+		// canonical text: edits compare the file with it instead of serializing the document again (SetVisualScriptCommand).
+		void RememberVisualScriptText(AssetHandle graph, Ref<VisualScriptDocument const> const& document, std::string text);
+		void ForgetVisualScriptText(AssetHandle graph);
+		// The text remembered for the graph when it is the text of this document object; null otherwise.
+		std::string const* FindVisualScriptText(AssetHandle graph, VisualScriptDocument const* document) const;
+
 	private:
+		struct VisualScriptText
+		{
+			std::weak_ptr<VisualScriptDocument const> Document;
+			std::string Text;
+		};
+
 		void FinishEdit();
 		void PruneSelection();
 
@@ -134,6 +155,7 @@ namespace Strada
 		EntitySelection m_Selection;
 		AssetHandle m_SelectedAsset;
 		AssetReferenceResolver m_AssetReferenceResolver;
+		std::unordered_map<AssetHandle, VisualScriptText> m_VisualScriptTexts;
 		uint64_t m_SceneVersion = 0;
 		uint64_t m_OpenedSceneVersion = 0;
 	};
