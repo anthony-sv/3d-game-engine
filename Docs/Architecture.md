@@ -944,7 +944,7 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   - a component missing from a Target;
   - a null Target or array;
   - an index outside its array;
-  - integer division or modulo by zero, and the one integer quotient that overflows (the minimum divided by -1);
+  - integer division or modulo by zero, and division or modulo of the minimum `int` or `long` by -1 (an overflow);
   - running out of budget or depth.
 
   An aborting error stops its execution and is logged once as `<graph>: <node> (node <id>) on <entity> (<id>):
@@ -958,7 +958,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   as no dispatch or execution of the old one runs.
   - Variables carry over by ID, then by name and type; the others start at their `Value`, else the type default. A
     value the component stores for a variable the edit adds is not given to it: the variable keeps its `Value` until
-    that value is edited again or a new instance starts (play starts again, or the component's graph changes).
+    that value is edited or a new instance starts (play starts again, or the component's graph changes). An edit made
+    before the instance takes the live edit (the graph saved while paused, its variable edited before the next frame)
+    reaches the variable as the instance takes it.
   - Node states and stored outputs carry over by node ID while the node's type is unchanged.
   - Fibers survive while every position they hold still exists; otherwise they are cancelled with one log line.
 
@@ -992,14 +994,21 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   instances (the VM destroyed them) and gives every record a new generation.
 - **Loading programs** (`VisualScriptEngine::EnsureLoaded`): a graph is absent when its handle is not a registered
   VisualScript asset or its file does not load; nothing is sent then. A record holds the asset object and version whose
-  document the runtime has, a copy of that document, whether the handle has a working program and a generation, so an
-  unchanged graph costs a lookup and two comparisons and the scene asks every update. A new object or version with an
+  document the runtime has, that document and whether it compiled, the document of the working program the handle's
+  instances run (`GetWorkingDocument`; null without one), the name the runtime gives the graph and a generation, so an
+  unchanged graph costs a lookup and a few comparisons and the scene asks every update. A new object or version with an
   equal document (a save, then a refresh) only updates the record; another document is sent (`VisualScriptLoad`, named
   by the asset's path, a memory asset's name, else its handle) and the record takes it whatever the outcome, so a broken
   document is sent once. Its errors are logged once: `Visual script '<path>' has 1 error; first: <message> (node <id>)`
   (`<n> errors`; `(variable <id>)` for a variable, nothing for the document), plus `; the previous version keeps
-  running` when the handle has a working program. Generations come from one engine-wide counter: a record takes a new
-  one when a document is sent, when its graph comes back after being absent and at every game-assembly change.
+  running` when the handle has a working program. After a game-assembly change the working program may no longer
+  compile: the next document sent goes after the working one, sent again first, which tells; until then the suffix is
+  not claimed. A document that did not compile is sent again after a game-assembly change, as it may compile now, so
+  the record always knows which document instances run. The name is looked up again only when the asset registry
+  changed (`AssetManager::GetVersion`): a graph moved or renamed is sent again under its new path, its working program
+  first, so the runtime's messages name the file that exists. Generations come from one engine-wide counter: a record
+  takes a new one when another document is sent or one is sent again after a game-assembly change, when its graph comes
+  back after being absent and at every game-assembly change (a new name gives none: nothing can start that could not).
   `CreateInstance` loads first and gives the instance the component's values; its Failure (no working program) is a
   script exception (`ScriptHost::OnScriptException`), as is a Failure of `Invoke`, and an `Invoke` answered NotFound
   forgets the instance. `Analyze` sends a document for analysis and keeps nothing. Programs stay with the runtime until
@@ -1014,10 +1023,13 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   wildcards; a wildcard input takes the types its constraint accepts, and a wildcard output goes to an input of such a
   type or to another wildcard; then the output type's implicit conversions, and any value to `string`. A test compares
   it with analysis over every pair of 19 output and 22 input pins. `MakeEnumLookup` describes the enum types of public
-  variables to the inspector (§11) from the library it keeps, never calling into .NET, and is empty without a library;
-  the editor makes a new one whenever `GetLibrary` returns another library
-  (`EditorLayer::UpdateVisualScriptEnumLookup`). `VisualScriptAnalysis` reads an analysis: each node's resolution
-  (`CanonicalType` and `PinRenames` for those resolved inexactly) and the diagnostics.
+  variables from the library it keeps, never calling into .NET, and is empty without a library; `FindEnum` asks the
+  library the engine has, reading it when it has none yet, and `GetLibraryState` tells whether it is read. The
+  inspector (§11) gets its lookup from `VisualScriptEnumLookupSource` (StradaEditorCore, updated by `EditorLayer` every
+  frame): one that asks `FindEnum`, so the library is read only once a variable that may be an enum is shown (reading
+  it takes a moment, and every game-assembly change drops it), and an empty one while the runtime is not running or its
+  library cannot be read. `VisualScriptAnalysis` reads an analysis: each node's resolution (`CanonicalType` and
+  `PinRenames` for those resolved inexactly) and the diagnostics.
 - **Scene** (`Scene/SceneVisualScripting.cpp`): graph instances follow the lifecycle of §10.3.
   - Start: C# scripts run when the game assembly was loaded as the scene started (Script components without it log
     `Scene '<name>' runs without C# scripts: no game assembly is loaded` when the scene runs graphs); graphs need no
@@ -1045,6 +1057,11 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   `Scene::ApplyVisualScriptVariableChanges` gives instances the stored values that differ from those they were given or
   read, at the editor's sites for script fields (§10.3): the inspector, `EditorOperations::SetComponentFields`,
   `EditorContext::FinishEdit` (every edit, undo and redo) and the automation reads (`entity.get`, `component.get`).
+  Both use the names of the program the instance runs (the working document, which may be older than the asset's): a
+  value for a variable that program lacks is not given and waits. When a live edit swaps the program (a new
+  generation, seen by the next update or read), the values the instance was given are renamed as its variables were
+  (`FormerNames`), so values given before are not given again over the values the variables carried, while values edited
+  meanwhile, those of variables the edit adds included, are given before the instance runs.
 - **Games and tools**: `Project::UsesVisualScripts` (the project's asset directory, open in the `AssetManager`,
   registers a visual script file) makes the player start .NET without a game assembly and the exporter ship the
   scripting API (§13). Automation reads, checks and writes documents and lists the library with the `graph.*` commands
@@ -1108,8 +1125,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   stored under a variable's former name moved to its current one (`NormalizeVisualScriptOverrides`). While playing it
   shows the values the running graph holds, and edits reach the graph at once, as for script fields (§10.6). Variables
   of enum types are listed read-only with the reason until the scripting runtime describes its enums
-  (`InspectorPanel::SetVisualScriptEnumLookup`, given a new `VisualScriptEngine::MakeEnumLookup` by `EditorLayer`
-  whenever the runtime's node library changes), and so are those of types components cannot set. C# scripts and visual
+  (`InspectorPanel::SetVisualScriptEnumLookup`, given by `EditorLayer` from `VisualScriptEnumLookupSource`: a lookup
+  that reads the runtime's node library when first asked about a type, empty without the runtime), and so are those of
+  types components cannot set. C# scripts and visual
   scripts dropped onto the inspector run on the selected entities. Without selected entities the inspector shows the
   asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
@@ -1438,9 +1456,11 @@ data directory, and compile out asserts and script debug lines.
   audio, assets, math, input, application and time, the testing API, attributes, script lifecycles, the UI, visual
   scripts) with a coordinator that loads the second scene, which finishes the run. Its graphs use every built-in kind of
   node and report their checks through `TestReporter` nodes: `Assets/Scripts/Features.sgraph` on the visual-script test
-  entity, `Contacts.sgraph` on a falling box and ball beside their C# scripts and `Clicks.sgraph` on the UI canvas;
-  `VisualScriptTests` waits for them, checks what they counted and drives them from C#. CMake builds the scripts
-  (`StradaFeatureTestScripts`) and `StradaRuntimeTests` runs a copy of the project through the player
+  entity (comparisons, logic and `Select` checked to give false as well as true), `Contacts.sgraph` on a falling box and
+  ball beside their C# scripts and `Clicks.sgraph` on the UI canvas; `VisualScriptTests` waits for them, checks what
+  they counted and drives them from C#. `Tools/AuthorGraphs.py` writes the three graphs through `strada mcp`
+  (`graph.check`, then `graph.set`) and runs the tests, so a new built-in kind of node gets its check there. CMake
+  builds the scripts (`StradaFeatureTestScripts`) and `StradaRuntimeTests` runs a copy of the project through the player
   (`StradaRuntime --project ... --test`; exit code = failures).
 - `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp`: `Tools/Author.py` builds the
   project, its materials, both scenes with their screen (a UI canvas) and the debris and particle burst prefabs, with the

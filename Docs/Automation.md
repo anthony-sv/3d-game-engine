@@ -195,7 +195,9 @@ paused; undo gives the script back the values it had. The `Fields` object replac
 leaves out stay the script's own. A `VisualScript` component's `Variables` (the values the entity gives the public
 variables of its graph, by name) work the same way with its running graph: a `Variables` patch replaces the whole map,
 so variables it leaves out have no stored value (the graph gives them their own) and, while playing, keep the values the
-graph holds.
+graph holds. While the running graph has not taken an edit of its document yet (`graph.set` while paused), the read
+values are under the names of the variables it runs, and a value set for a variable only the edit has (renamed or
+added) reaches it as the graph takes the edit, at its next update.
 
 `Core` components are on every entity and cannot be added or removed. `Category` says what a component is for: `Core`,
 `Rendering`, `Physics`, `Audio`, `Scripting` or `UI` (the inspector's Add Component menu groups components by it).
@@ -301,8 +303,9 @@ lists) what it changes:
 
 While playing, `graph.set` goes into the play history (dropped at `play.stop`; the file keeps the change), and running
 instances of the graph take the edit at their next update: variables keep their values (matched by ID, then by name and
-type; others start at their `Value`, else their type's default), and nodes waiting (a `Flow.Delay`, ...) keep waiting
-while they still exist.
+type; others start at their `Value`, else their type's default, not at a value the component stored before they
+existed), values set for them since (`component.set`) reach them then, and nodes waiting (a `Flow.Delay`, ...) keep
+waiting while they still exist.
 
 **Analysis.** `nodes` lists every node of the document (those of the functions' graphs, then those of the event graph):
 `{ ID, Function (0 for the event graph), Type (as stored), Resolved (Exact, Redirect, Unique or Unknown), CanonicalType?

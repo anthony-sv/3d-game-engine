@@ -78,40 +78,72 @@ namespace Strada
 			return AssetManager::TryGetAsset<VisualScriptAsset>(graph);
 		}
 
-		// Sends the asset's document to the runtime, which compiles a program of it. The record takes the document whatever
-		// the outcome, so a document that does not compile is not sent again every frame.
-		void SendDocument(ScriptEngineData& data, AssetHandle graph, VisualScriptProgramRecord& record, Ref<VisualScriptAsset> const& asset)
+		// Sends a document of the graph to the runtime, which compiles a program of it for the handle: a working one replaces
+		// the program of the handle's instances, a broken one leaves it running. Answers the errors of its Error diagnostics
+		// (empty when it compiles), or nothing when the runtime failed or its answer cannot be read (logged).
+		std::optional<std::string> LoadDocument(ScriptEngineData& data, AssetHandle graph, std::string const& name,
+		                                        VisualScriptDocument const& document)
 		{
-			VisualScriptDocument const& document = asset->GetDocument();
-			std::string const name = GetGraphName(graph);
 			std::string const text = ToDocumentText(document);
 			std::string answer;
 			auto const status = static_cast<ScriptStatus>(data.Host.VisualScriptLoad(
 				graph.GetUUID().GetValue(), name.data(), ToLength(name.size()), text.data(), ToLength(text.size()), &answer, &ReceiveText));
-			record.Asset = asset;
-			record.Version = asset->GetVersion();
-			record.Document = document;
-			record.Generation = NextGeneration(data);
 			if (status != ScriptStatus::Success)
 			{
-				// The runtime logged why; the handle keeps the program it had.
+				// The runtime logged why; the handle keeps the programs it had.
 				ST_CORE_ERROR("Visual script '{}' cannot be loaded (see the log)", name);
-				return;
+				return std::nullopt;
 			}
 			Result<std::vector<VisualScriptDiagnostic>> diagnostics = ParseVisualScriptDiagnostics(answer);
 			if (!diagnostics)
 			{
 				ST_CORE_ERROR("The diagnostics of visual script '{}' cannot be read: {}", name, diagnostics.GetError());
-				return;
+				return std::nullopt;
 			}
-			std::string const errors = DescribeVisualScriptErrors(diagnostics.GetValue());
-			if (errors.empty())
+			return DescribeVisualScriptErrors(diagnostics.GetValue());
+		}
+
+		// Gives the runtime a document of the graph under the graph's name and records it whatever the outcome, so that a
+		// document that does not compile is not sent again every frame; its errors are logged once. The working program's
+		// document goes first when the runtime must hear of it again: under a new name, which the runtime's messages give,
+		// and after a game-assembly change, when only compiling it again tells whether it still runs (and so whether a
+		// broken document leaves it running).
+		void SendDocument(ScriptEngineData& data, AssetHandle graph, VisualScriptProgramRecord& record,
+		                  Ref<VisualScriptDocument const> document, std::string name)
+		{
+			bool const renamed = name != record.Name;
+			record.Name = std::move(name);
+			record.RegistryVersion = AssetManager::GetVersion();
+			record.IsSendPending = false;
+			if (record.WorkingDocument != nullptr && (renamed || record.IsStale) && record.WorkingDocument != document &&
+			    *record.WorkingDocument != *document)
 			{
-				record.HasWorkingProgram = true;
+				if (std::optional<std::string> const working = LoadDocument(data, graph, record.Name, *record.WorkingDocument))
+				{
+					record.IsStale = false;
+					if (!working->empty())
+					{
+						// It no longer compiles for the changed game assembly (the runtime logged that it was compiled again), so
+						// nothing runs.
+						record.WorkingDocument = nullptr;
+					}
+				}
+			}
+			record.Document = std::move(document);
+			std::optional<std::string> const errors = LoadDocument(data, graph, record.Name, *record.Document);
+			record.DocumentCompiles = errors.has_value() && errors->empty();
+			if (record.DocumentCompiles)
+			{
+				record.WorkingDocument = record.Document;
+				record.IsStale = false;
 				return;
 			}
-			ST_CORE_ERROR("Visual script '{}' has {}{}", name, errors,
-			              record.HasWorkingProgram ? "; the previous version keeps running" : "");
+			if (errors)
+			{
+				bool const keepsRunning = record.WorkingDocument != nullptr && !record.IsStale;
+				ST_CORE_ERROR("Visual script '{}' has {}{}", record.Name, *errors,
+				              keepsRunning ? "; the previous version keeps running" : "");
+			}
 		}
 
 		// The runtime has no instance for the entity: the engine forgets it too.
@@ -157,7 +189,10 @@ namespace Strada
 			uint64_t const generation = NextGeneration(*data);
 			for (auto& entry : data->VisualScriptPrograms)
 			{
-				entry.second.Generation = generation;
+				VisualScriptProgramRecord& record = entry.second;
+				record.Generation = generation;
+				record.IsStale = true;
+				record.IsSendPending = !record.DocumentCompiles;
 			}
 		}
 	}
@@ -204,6 +239,26 @@ namespace Strada
 		};
 	}
 
+	VisualScriptLibraryState VisualScriptEngine::GetLibraryState()
+	{
+		ScriptEngineData const* const data = GetData();
+		if (data == nullptr)
+		{
+			return VisualScriptLibraryState::NoRuntime;
+		}
+		if (data->Library != nullptr)
+		{
+			return VisualScriptLibraryState::Built;
+		}
+		return data->IsLibraryUnavailable ? VisualScriptLibraryState::Failed : VisualScriptLibraryState::NotBuilt;
+	}
+
+	std::optional<VisualScriptEnumInfo> VisualScriptEngine::FindEnum(std::string_view typeId)
+	{
+		Ref<VisualScriptLibrary const> const library = GetLibrary();
+		return library != nullptr ? library->FindEnum(typeId) : std::nullopt;
+	}
+
 	Result<VisualScriptAnalysis> VisualScriptEngine::Analyze(VisualScriptDocument const& document)
 	{
 		ScriptEngineData* const data = GetData();
@@ -247,7 +302,11 @@ namespace Strada
 		Ref<VisualScriptAsset> const asset = found.TakeValue();
 		if (record == data->VisualScriptPrograms.end())
 		{
-			SendDocument(*data, graph, data->VisualScriptPrograms[graph], asset);
+			VisualScriptProgramRecord& program = data->VisualScriptPrograms[graph];
+			program.Asset = asset;
+			program.Version = asset->GetVersion();
+			program.Generation = NextGeneration(*data);
+			SendDocument(*data, graph, program, CreateRef<VisualScriptDocument const>(asset->GetDocument()), GetGraphName(graph));
 			return {};
 		}
 
@@ -255,20 +314,49 @@ namespace Strada
 		bool const cameBack = std::exchange(program.IsAbsent, false);
 		if (program.Asset != asset || program.Version != asset->GetVersion())
 		{
-			if (program.Document != asset->GetDocument())
-			{
-				SendDocument(*data, graph, program, asset);
-				return {};
-			}
-			// Saved and loaded again, or set to what it was: the runtime has this document.
+			// Saved and loaded again, or set to what it was, the document is one the runtime has.
+			bool const changed = *program.Document != asset->GetDocument();
 			program.Asset = asset;
 			program.Version = asset->GetVersion();
+			if (changed)
+			{
+				program.Generation = NextGeneration(*data);
+				SendDocument(*data, graph, program, CreateRef<VisualScriptDocument const>(asset->GetDocument()), GetGraphName(graph));
+				return {};
+			}
+		}
+		if (program.IsSendPending)
+		{
+			program.Generation = NextGeneration(*data);
+			SendDocument(*data, graph, program, program.Document, GetGraphName(graph));
+			return {};
+		}
+		// Only a change of the registry can give the graph another name.
+		if (uint64_t const registryVersion = AssetManager::GetVersion(); registryVersion != program.RegistryVersion)
+		{
+			program.RegistryVersion = registryVersion;
+			if (std::string name = GetGraphName(graph); name != program.Name)
+			{
+				// Moved or renamed: the same programs under the new name, so no entity can start now that could not before.
+				SendDocument(*data, graph, program, program.Document, std::move(name));
+			}
 		}
 		if (cameBack)
 		{
 			program.Generation = NextGeneration(*data);
 		}
 		return {};
+	}
+
+	Ref<VisualScriptDocument const> VisualScriptEngine::GetWorkingDocument(AssetHandle graph)
+	{
+		ScriptEngineData const* const data = GetData();
+		if (data == nullptr)
+		{
+			return nullptr;
+		}
+		auto const record = data->VisualScriptPrograms.find(graph);
+		return record != data->VisualScriptPrograms.end() ? record->second.WorkingDocument : nullptr;
 	}
 
 	uint64_t VisualScriptEngine::GetProgramGeneration(AssetHandle graph)
@@ -297,14 +385,17 @@ namespace Strada
 		{
 			case ScriptStatus::Success:
 				data.GraphInstances.insert(entity);
-				record.HasWorkingProgram = true;
+				// After a game-assembly change the runtime compiled the working program again: it still runs.
+				record.IsStale = false;
 				return {};
 			case ScriptStatus::NotFound:
 				// The runtime failed to load the document (logged when it was sent).
 				return MakeError("the visual script '{}' is not loaded (see the log)", GetGraphName(graph));
 			case ScriptStatus::Failure:
-				// It has no working program: the runtime logged its errors.
-				record.HasWorkingProgram = false;
+				// It has no working program, and the document last sent does not compile either: the runtime logged the errors.
+				record.WorkingDocument = nullptr;
+				record.DocumentCompiles = false;
+				record.IsStale = false;
 				ReportScriptException();
 				return MakeError("the visual script '{}' cannot run (see the log)", GetGraphName(graph));
 			case ScriptStatus::BindingMismatch:

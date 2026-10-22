@@ -21,7 +21,6 @@
 #include "Strada/Core/Window.h"
 #include "Strada/ImGui/ImGuiLayer.h"
 #include "Strada/Scene/Entity.h"
-#include "Strada/Script/VisualScriptEngine.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -390,16 +389,10 @@ namespace Strada
 
 	void EditorLayer::UpdateVisualScriptEnumLookup()
 	{
-		// The runtime describes its library the first time it is asked for, and again after it dropped it. A lookup searches
-		// the library it was made with, so the inspector gets a new one with each library: enum variables show the enumerators
-		// the runtime has, and without a library the lookup is empty (they read as needing the runtime).
-		Ref<VisualScriptLibrary const> library = VisualScriptEngine::GetLibrary();
-		if (library == m_VisualScriptEnumLibrary)
+		if (std::optional<VisualScriptEnumLookup> lookup = m_VisualScriptEnumLookups.Update())
 		{
-			return;
+			m_InspectorPanel.SetVisualScriptEnumLookup(std::move(*lookup));
 		}
-		m_VisualScriptEnumLibrary = std::move(library);
-		m_InspectorPanel.SetVisualScriptEnumLookup(VisualScriptEngine::MakeEnumLookup());
 	}
 
 	void EditorLayer::RequestScreenshotAtFrame(std::filesystem::path path, uint64_t frame)

@@ -854,8 +854,8 @@ failure in test runs, and the game goes on.
 While the game plays in the editor, the inspector shows the values the public variables of a running graph hold, and an
 edit reaches the graph at once, as for script fields. A graph saved while the game plays (`graph.set`) changes its
 running instances at their next update: variables keep their values (a new variable, or one whose type changed, starts
-at its `Value`), waiting nodes keep waiting while they still exist, and a graph saved with an error keeps running its
-last working version.
+at its `Value`; one renamed or added and edited before that update takes the edited value), waiting nodes keep waiting
+while they still exist, and a graph saved with an error keeps running its last working version.
 
 ## Testing a game
 

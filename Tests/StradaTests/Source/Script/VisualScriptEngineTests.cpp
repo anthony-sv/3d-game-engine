@@ -964,11 +964,18 @@ TEST_CASE("VisualScriptEngine: the node library describes the scripting API, and
 {
 	// Without the runtime there is no library, and enum variables need the runtime.
 	CHECK(VisualScriptEngine::GetLibrary() == nullptr);
+	CHECK(VisualScriptEngine::GetLibraryState() == VisualScriptLibraryState::NoRuntime);
 	CHECK_FALSE(VisualScriptEngine::MakeEnumLookup());
+	CHECK_FALSE(VisualScriptEngine::FindEnum("Strada.KeyCode").has_value());
 
 	VisualScriptEnumLookup kept;
 	{
 		Testing::ScriptRuntimeScope runtime;
+		// The library is read when first needed: by an enum lookup as well.
+		CHECK(VisualScriptEngine::GetLibraryState() == VisualScriptLibraryState::NotBuilt);
+		CHECK(VisualScriptEngine::FindEnum("Strada.ForceMode").has_value());
+		CHECK_FALSE(VisualScriptEngine::FindEnum("float").has_value());
+		CHECK(VisualScriptEngine::GetLibraryState() == VisualScriptLibraryState::Built);
 		Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
 		REQUIRE(library != nullptr);
 		CHECK(VisualScriptEngine::GetLibrary() == library);
@@ -1375,6 +1382,10 @@ TEST_CASE("VisualScriptEngine: documents are sent once per change, and a broken 
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == broken);
 	CHECK(CountLogged(logStart, "Visual script 'Counter' has 1 error; first: ") == 1);
 	CHECK(Testing::WasLogged(logStart, " (node 12); the previous version keeps running"));
+	// Instances run the working program, whose document the engine keeps.
+	Ref<VisualScriptDocument const> const working = VisualScriptEngine::GetWorkingDocument(graph);
+	REQUIRE(working != nullptr);
+	CHECK(*working == MakeCountDocument(1));
 	UUID const two(1002);
 	REQUIRE(VisualScriptEngine::CreateInstance(two, graph, {}).IsOk());
 	VisualScriptEngine::InvokeOnCreate(two);
@@ -1384,6 +1395,7 @@ TEST_CASE("VisualScriptEngine: documents are sent once per change, and a broken 
 	asset->SetDocument(MakeCountDocument(3));
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(VisualScriptEngine::GetProgramGeneration(graph) > broken);
+	CHECK(*VisualScriptEngine::GetWorkingDocument(graph) == MakeCountDocument(3));
 	UUID const three(1003);
 	REQUIRE(VisualScriptEngine::CreateInstance(three, graph, {}).IsOk());
 	VisualScriptEngine::InvokeOnCreate(three);
@@ -1396,6 +1408,7 @@ TEST_CASE("VisualScriptEngine: documents are sent once per change, and a broken 
 	REQUIRE(VisualScriptEngine::EnsureLoaded(failing).IsOk());
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Broken' has 1 error; first: "));
 	CHECK_FALSE(Testing::WasLogged(logStart, "keeps running"));
+	CHECK(VisualScriptEngine::GetWorkingDocument(failing) == nullptr);
 	UUID const four(1004);
 	Result<void> const notCreated = VisualScriptEngine::CreateInstance(four, failing, {});
 	REQUIRE(notCreated.IsError());
@@ -1472,6 +1485,58 @@ TEST_CASE("VisualScriptEngine: a graph file loaded again unchanged is not sent a
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Counter.sgraph' has 1 error; first: "));
 	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+}
+
+TEST_CASE("VisualScriptEngine: a graph moved to another path is named by it in messages, by its running program too")
+{
+	Testing::TemporaryDirectory directory;
+	REQUIRE(VisualScriptSerializer::SaveToFile(MakeDivisionDocument(), directory.GetPath() / "Old.sgraph").IsOk());
+	Testing::AssetManagerScope assets;
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const graph = AssetManager::FindByPath("Old.sgraph");
+	REQUIRE(graph.IsValid());
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Scene scene;
+	UUID const id = scene.CreateEntity("Divider").GetUUID();
+	SceneContextScope context(scene);
+
+	REQUIRE(VisualScriptEngine::CreateInstance(id, graph, {}).IsOk());
+	uint64_t logStart = Log::GetNextEntryIndex();
+	VisualScriptEngine::InvokeOnCreate(id);
+	CHECK(Testing::WasLogged(logStart, "Old.sgraph: Divide (node 12) on Divider ("));
+	uint64_t const generation = VisualScriptEngine::GetProgramGeneration(graph);
+
+	// Moved: the runtime gets the same document under the new path and the running instance takes its program. Nothing that
+	// could not start before can now, so the generation stays.
+	REQUIRE(AssetManager::MoveAsset(graph, "New.sgraph").IsOk());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == generation);
+	logStart = Log::GetNextEntryIndex();
+	VisualScriptEngine::InvokeOnCreate(id);
+	CHECK(Testing::WasLogged(logStart, "New.sgraph: Divide (node 12) on Divider ("));
+	CHECK_FALSE(Testing::WasLogged(logStart, "Old.sgraph"));
+
+	// Moved while a broken edit leaves the program running: both take the new name, and the errors are told under it.
+	Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+	REQUIRE(asset != nullptr);
+	asset->SetDocument(MakeBrokenDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	REQUIRE(AssetManager::MoveAsset(graph, "Moved.sgraph").IsOk());
+	logStart = Log::GetNextEntryIndex();
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(Testing::WasLogged(logStart, "Visual script 'Moved.sgraph' has 1 error; first: "));
+	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	VisualScriptEngine::InvokeOnCreate(id);
+	CHECK(Testing::WasLogged(logStart, "Moved.sgraph: Divide (node 12) on Divider ("));
+	CHECK_FALSE(Testing::WasLogged(logStart, "New.sgraph"));
+
+	// Unchanged since, nothing is sent again.
+	logStart = Log::GetNextEntryIndex();
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK_FALSE(Testing::WasLogged(logStart, "Moved.sgraph"));
+	CHECK(host.Exceptions == 3);
+	VisualScriptEngine::DestroyInstance(id);
 }
 
 TEST_CASE("VisualScriptEngine: its state goes with ScriptEngine::Shutdown and starts again with Init")
@@ -1738,14 +1803,23 @@ TEST_CASE("VisualScriptEngine: a graph that needs the game's types runs once the
 	uint64_t logStart = Log::GetNextEntryIndex();
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has "));
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == nullptr);
 	CHECK(VisualScriptEngine::CreateInstance(id, graph, {}).IsError());
 	CHECK(host.Exceptions == 1);
 	uint64_t const before = VisualScriptEngine::GetProgramGeneration(graph);
 
-	// With them its document compiles again (the generation tells entities to try again) and runs, so a broken edit then
-	// leaves it running.
+	// With them its document compiles: it is sent again (the generation tells entities to try again), so the engine knows
+	// what instances run, and it runs. A broken edit then leaves it running.
 	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
-	CHECK(VisualScriptEngine::GetProgramGeneration(graph) != before);
+	uint64_t const reloaded = VisualScriptEngine::GetProgramGeneration(graph);
+	CHECK(reloaded != before);
+	logStart = Log::GetNextEntryIndex();
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(VisualScriptEngine::GetProgramGeneration(graph) != reloaded);
+	CHECK_FALSE(Testing::WasLogged(logStart, "Mover check"));
+	Ref<VisualScriptDocument const> const working = VisualScriptEngine::GetWorkingDocument(graph);
+	REQUIRE(working != nullptr);
+	CHECK(*working == MakeMoverDocument());
 	REQUIRE(VisualScriptEngine::CreateInstance(id, graph, {}).IsOk());
 	VisualScriptEngine::InvokeOnCreate(id);
 	CHECK(ReadVariable(id, "IsMover") == ScriptFieldValue::FromBool(false));
@@ -1755,14 +1829,46 @@ TEST_CASE("VisualScriptEngine: a graph that needs the game's types runs once the
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
 	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
 	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	CHECK(*VisualScriptEngine::GetWorkingDocument(graph) == MakeMoverDocument());
 	asset->SetDocument(MakeMoverDocument());
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+
+	// Loaded again, a broken edit leaves the program running only if it still compiles, which the engine learns by sending
+	// its document again first, before any instance exists.
+	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	logStart = Log::GetNextEntryIndex();
+	asset->SetDocument(MakeBrokenDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
+	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	REQUIRE(VisualScriptEngine::CreateInstance(id, graph, {}).IsOk());
+	VisualScriptEngine::DestroyInstance(id);
+	CHECK(host.Exceptions == 1);
+
+	// Unloaded, it no longer compiles: a broken edit right after leaves nothing running, and says so.
+	ScriptEngine::UnloadGameAssembly();
+	logStart = Log::GetNextEntryIndex();
+	VisualScriptDocument otherBroken = MakeBrokenDocument();
+	otherBroken.Description = "Still broken";
+	asset->SetDocument(otherBroken);
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(Testing::WasLogged(logStart, "Mover check was compiled again for the changed game assembly: "));
+	CHECK(Testing::WasLogged(logStart, "Visual script 'Mover check' has 1 error; first: "));
+	CHECK_FALSE(Testing::WasLogged(logStart, "keeps running"));
+	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == nullptr);
+	CHECK(VisualScriptEngine::CreateInstance(id, graph, {}).IsError());
+	CHECK(host.Exceptions == 2);
+	asset->SetDocument(MakeMoverDocument());
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	REQUIRE(VisualScriptEngine::CreateInstance(id, graph, {}).IsOk());
+	VisualScriptEngine::DestroyInstance(id);
 
 	// Without them again it cannot compile, so nothing keeps running when a broken edit comes.
 	ScriptEngine::UnloadGameAssembly();
 	logStart = Log::GetNextEntryIndex();
 	CHECK(VisualScriptEngine::CreateInstance(id, graph, {}).IsError());
-	CHECK(host.Exceptions == 2);
+	CHECK(host.Exceptions == 3);
 	CHECK(Testing::WasLogged(logStart, "Mover check was compiled again for the changed game assembly: "));
 	asset->SetDocument(MakeBrokenDocument());
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());

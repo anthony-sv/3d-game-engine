@@ -64,8 +64,11 @@ A callback scripts override (like `OnClick`) is an event the engine sends, not a
   `Strada-ScriptCore/Source/VisualScripting`, its node in `Library/BuiltinNodes.cs`), its place in `ProgramCompiler`'s
   table of `ScriptEvent`s and in the range `VisualScriptRuntime.Invoke` accepts, and
   `VisualScriptEngine::InvokeOn<Name>` (`VisualScriptEngine.h`), which the scene calls right after the C# callback. Add
-  the node to `Tests/Data/VisualScripting/Documents/Events.json` and to
-  `Projects/FeatureTest/Assets/Scripts/Features.sgraph` (through `graph.set`), whose graphs use every built-in kind.
+  the node to `Tests/Data/VisualScripting/Documents/Events.json`, and a check of it to the FeatureTest graphs, which use
+  every built-in kind: edit `build_features` (or the graph builder that fits) in `Projects/FeatureTest/Tools/AuthorGraphs.py`
+  and run it (`python Projects/FeatureTest/Tools/AuthorGraphs.py build/<preset>/bin/strada.exe`); it writes the graphs
+  through `graph.check` and `graph.set` and runs the tests, and stops until `FeaturesChecks` in
+  `Projects/FeatureTest/Scripts/Source/VisualScriptTests.cs` equals the number of Features checks.
 - Add its row to the callback table of `Docs/Scripting.md` and to the list in `Docs/Architecture.md` §10.3, and the
   event node to the table in the guide's "Visual scripts" section.
 

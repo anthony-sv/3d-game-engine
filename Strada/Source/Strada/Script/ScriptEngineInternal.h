@@ -80,23 +80,34 @@ namespace Strada::ScriptEngineInternal
 		int32_t (*VisualScriptSetInstanceVariables)(uint64_t entity, char const* variables, int32_t variablesLength) = nullptr;
 	};
 
-	// What the engine knows of the program the runtime has for a graph handle (VisualScriptEngine::EnsureLoaded).
+	// What the engine knows of the programs the runtime has for a graph handle (VisualScriptEngine::EnsureLoaded).
 	struct VisualScriptProgramRecord
 	{
 		// The asset object and version whose document the runtime has: comparing them is all an unchanged graph costs.
 		Ref<VisualScriptAsset> Asset;
 		uint64_t Version = 0;
 		// The document last sent, so an asset that changed object or version but not content (a save, then a refresh) is
-		// not sent again.
-		VisualScriptDocument Document;
-		// Whether the runtime has a working program for the handle as far as the engine has seen: a load without errors or
-		// a created instance says so (a broken document loaded over it keeps it running), a failed creation (the program no
-		// longer compiles for the game assembly, say) says not.
-		bool HasWorkingProgram = false;
+		// not sent again, and whether it compiled (no Error diagnostics) for the game assembly the runtime has.
+		Ref<VisualScriptDocument const> Document;
+		bool DocumentCompiles = false;
+		// The document of the handle's working program, which the handle's instances run: the last one sent that compiled
+		// (a broken one sent later leaves it running). Null when the handle has none as far as the engine has seen: no
+		// document compiled, or a creation failed (it no longer compiles for the game assembly).
+		Ref<VisualScriptDocument const> WorkingDocument;
+		// The game assembly changed since the working document compiled, so it may not compile any more: sending it again
+		// or creating an instance tells.
+		bool IsStale = false;
+		// The game assembly changed while the document last sent did not compile: it is sent again at the next
+		// EnsureLoaded, since it may compile now and the engine must know which document instances run.
+		bool IsSendPending = false;
+		// The name the runtime's messages give the graph (its path), and the asset registry's version when it was taken:
+		// the name is looked up again only after the registry changed, and a new one (a moved or renamed asset) is sent.
+		std::string Name;
+		uint64_t RegistryVersion = 0;
 		// Whether the last EnsureLoaded found the graph absent.
 		bool IsAbsent = false;
-		// Changes whenever a document is sent, the graph comes back after being absent, or the game assembly changes: the
-		// entities whose instance could not be created may get one now.
+		// Changes whenever another document is sent or one is sent again after a game-assembly change, the graph comes back
+		// after being absent, or the game assembly changes: the entities whose instance could not be created may get one now.
 		uint64_t Generation = 0;
 	};
 
@@ -134,7 +145,8 @@ namespace Strada::ScriptEngineInternal
 	ScriptEvent ToScriptEvent(ContactEventType type);
 
 	// Called whenever the runtime was asked to load or unload a game assembly: it then destroyed every graph instance and
-	// made every program stale (programs compile again from their documents when next used). Drops the node library and
-	// changes every program's generation (one broken by a missing game type may work now). Defined by VisualScriptEngine.
+	// made every program stale (programs compile again from their documents when next used). Drops the node library,
+	// changes every program's generation (one broken by a missing game type may work now) and marks every record stale.
+	// Defined by VisualScriptEngine.
 	void OnGameAssemblyChanged();
 }

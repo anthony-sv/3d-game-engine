@@ -10,8 +10,8 @@ namespace FeatureTest;
 public sealed class VisualScriptTests : FeatureTestScript
 {
 	private const int FrameLimit = 600;
-	// The checks each graph passes before it sets Done.
-	private const int FeaturesChecks = 27;
+	// The checks each graph passes before it sets Done (Tools/AuthorGraphs.py writes the graphs and compares Features').
+	private const int FeaturesChecks = 28;
 	private const int ContactsChecks = 1;
 	private const int ClicksChecks = 1;
 	// The graphs, in messages.

@@ -711,6 +711,74 @@ TEST_CASE("Scene: stored variable values reach renamed variables, and entity val
 	scene.OnRuntimeStop();
 }
 
+TEST_CASE("Scene: a live edit that renames variables keeps the values they carried, and edits made before it reach its program")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	Ref<VisualScriptAsset> const refreshed = CreateRef<VisualScriptAsset>(MakeCounterDocument());
+	Ref<VisualScriptAsset> const edited = CreateRef<VisualScriptAsset>(MakeCounterDocument());
+	Scene scene("Renames");
+	Entity quiet = AddVisualScript(scene.CreateEntity("Quiet"), AssetManager::AddMemoryAsset(refreshed, "Refreshed"),
+	                               {{"Updates", ScriptFieldValue::FromInt32(100)}, {"Speed", ScriptFieldValue::FromInt32(2)}});
+	Entity editing = AddVisualScript(scene.CreateEntity("Editing"), AssetManager::AddMemoryAsset(edited, "Edited"),
+	                                 {{"Speed", ScriptFieldValue::FromInt32(3)}, {"Extra", ScriptFieldValue::FromInt32(5)}});
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(quiet.GetUUID(), "Updates") == ScriptFieldValue::FromInt32(104));
+
+	// A rename that arrives without an edit of the scene (a file loaded again), then any edit: the renamed variable keeps the
+	// value it carried, as the value stored under its old name was given to it already.
+	VisualScriptDocument renamed = MakeCounterDocument();
+	renamed.Variables[1].Name = "Count";
+	renamed.Variables[1].FormerNames = {"Updates"};
+	refreshed->SetDocument(renamed);
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(quiet.GetUUID(), "Count") == ScriptFieldValue::FromInt32(106));
+	scene.ApplyVisualScriptVariableChanges();
+	CHECK(ReadVariable(quiet.GetUUID(), "Count") == ScriptFieldValue::FromInt32(106));
+	REQUIRE(scene.ReadVisualScriptVariables(quiet).IsOk());
+	CHECK(quiet.GetComponent<VisualScriptComponent>().Variables ==
+	      ScriptFieldMap{{"Count", ScriptFieldValue::FromInt32(106)}, {"Speed", ScriptFieldValue::FromInt32(2)}});
+	scene.ApplyVisualScriptVariableChanges();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(quiet.GetUUID(), "Count") == ScriptFieldValue::FromInt32(108));
+
+	// An edit of the graph renames Speed and adds Bonus; before the scene takes it, both are edited (read first, as editors
+	// do). The edits wait for the program that has the variables, and reach it before it runs: Updates grows by 50.
+	VisualScriptDocument edit = MakeCounterDocument();
+	edit.Variables[0].Name = "Velocity";
+	edit.Variables[0].FormerNames = {"Speed"};
+	edit.Variables.push_back(MakeVariable(3, "Bonus", "int", 7));
+	edited->SetDocument(edit);
+	REQUIRE(scene.ReadVisualScriptVariables(editing).IsOk());
+	CHECK(editing.GetComponent<VisualScriptComponent>().Variables == ScriptFieldMap{{"Extra", ScriptFieldValue::FromInt32(5)},
+	                                                                                {"Speed", ScriptFieldValue::FromInt32(3)},
+	                                                                                {"Updates", ScriptFieldValue::FromInt32(12)}});
+	editing.GetComponent<VisualScriptComponent>().Variables = {{"Velocity", ScriptFieldValue::FromInt32(50)},
+	                                                           {"Bonus", ScriptFieldValue::FromInt32(9)},
+	                                                           {"Extra", ScriptFieldValue::FromInt32(5)}};
+	scene.ApplyVisualScriptVariableChanges();
+	CHECK(ReadVariable(editing.GetUUID(), "Speed") == ScriptFieldValue::FromInt32(3));
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(editing.GetUUID(), "Velocity") == ScriptFieldValue::FromInt32(50));
+	CHECK(ReadVariable(editing.GetUUID(), "Bonus") == ScriptFieldValue::FromInt32(9));
+	CHECK(ReadVariable(editing.GetUUID(), "Updates") == ScriptFieldValue::FromInt32(62));
+
+	// A variable an edit adds starts at its Value, not at a value stored for its name before it existed; editing that value
+	// gives it.
+	VisualScriptDocument extra = edit;
+	extra.Variables.push_back(MakeVariable(4, "Extra", "int", 7));
+	edited->SetDocument(extra);
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(editing.GetUUID(), "Extra") == ScriptFieldValue::FromInt32(7));
+	CHECK(ReadVariable(editing.GetUUID(), "Velocity") == ScriptFieldValue::FromInt32(50));
+	editing.GetComponent<VisualScriptComponent>().Variables["Extra"] = ScriptFieldValue::FromInt32(8);
+	scene.ApplyVisualScriptVariableChanges();
+	CHECK(ReadVariable(editing.GetUUID(), "Extra") == ScriptFieldValue::FromInt32(8));
+	scene.OnRuntimeStop();
+}
+
 TEST_CASE("Scene: visual scripts run without game scripts, which start only when loaded before the scene")
 {
 	Testing::AssetManagerScope assets;

@@ -227,13 +227,15 @@ namespace Strada
 		// Editors call it after each edit; a class that changed gets a new instance at the next update instead.
 		void ApplyScriptFieldChanges();
 		// While the scene runs scripts: the values the public variables of the entity's graph instance hold now, which also
-		// become the stored values of its VisualScript component (Variables, under the graph's current variable names), so that
-		// the component shows them and edits start from them. Fails when the entity runs no visual script.
+		// become the stored values of its VisualScript component (Variables, under the current names of the variables of the
+		// program it runs), so that the component shows them and edits start from them. Fails when the entity runs no visual
+		// script.
 		[[nodiscard]] Result<ScriptFieldMap> ReadVisualScriptVariables(Entity entity);
 		// While the scene runs scripts: gives each graph instance the stored values of its VisualScript component's variables
 		// that differ from the ones it was last given or read (ReadVisualScriptVariables), so that edits of a running scene
 		// reach its visual scripts. Editors call it after each edit; a graph that changed gets a new instance at the next
-		// update instead.
+		// update instead. Values of variables the running program lacks wait for a live edit that adds them, and reach the
+		// instance as it takes the edit.
 		void ApplyVisualScriptVariableChanges();
 
 		// Advances every particle system: emits its Burst when it starts (first update after the system appeared or the runtime
@@ -484,19 +486,25 @@ namespace Strada
 			ScriptFieldMap Fields;
 		};
 
-		// The graph an entity's graph instance was made from, and its program's generation then (VisualScriptEngine);
-		// HasInstance is false when it could not be made (no graph, a graph that is absent or has no program that runs) until
-		// the graph or its program changes.
+		// The graph an entity's graph instance was made from, and the generation of its program (VisualScriptEngine) then,
+		// followed by its variables while it runs; HasInstance is false when it could not be made (no graph, a graph that is
+		// absent or has no program that runs) until the graph or its program changes.
 		struct VisualScriptInstanceState
 		{
 			UUID Entity = UUID::Invalid();
 			AssetHandle Graph;
 			uint64_t Generation = 0;
 			bool HasInstance = false;
-			// The values the instance's public variables were last given or read, by the graph's current names: stored values
-			// that differ are edits to give it.
+			// The values the instance was last given or read, by the names of the variables of the program it runs (stored
+			// values of variables it lacks are kept as it was given them): stored values that differ are edits to give it.
 			ScriptFieldMap Variables;
 		};
+		// Gives a running graph instance the stored values of its component that differ from those it was given or read and
+		// that its program has variables for, after following a live edit of its program (a new generation): the values it
+		// was given then go under the variables' new names, so only edits reach it, those of variables the edit adds
+		// included. Without giveEdits nothing happens unless the program changed.
+		void UpdateVisualScriptVariables(entt::entity handle, VisualScriptInstanceState& state, VisualScriptComponent const& component,
+		                                 bool giveEdits);
 
 		// Whether this scene runs scripts (it is the ScriptEngine's scene context).
 		bool m_RunsScripts = false;

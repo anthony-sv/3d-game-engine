@@ -7,6 +7,7 @@
 #include "Editor/EditorScripts.h"
 #include "Editor/PlayMode.h"
 #include "Editor/VisualScriptEditing.h"
+#include "Editor/VisualScriptEnumLookupSource.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -908,6 +909,46 @@ TEST_CASE("GraphCommands: while playing, visual script variables are the running
 	      Json::object({{"Speed", StoredInt(2)}}));
 }
 
+TEST_CASE("GraphCommands: while paused, a graph.set that renames a variable and an edit of it before the next update both reach the graph")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", MakeCounterDocument());
+	std::string const counter = fixture.CreateEntity(
+		"Counter",
+		Json::object({{"VisualScript", Json::object({{"Graph", graph}, {"Variables", Json::object({{"Speed", StoredInt(2)}})}})}}));
+	std::optional<UUID> const id = UUID::FromString(counter);
+	REQUIRE(id.has_value());
+	auto const variable = [&](std::string const& name)
+	{
+		Result<ScriptFieldMap> const values = VisualScriptEngine::GetInstanceVariables(*id);
+		REQUIRE_MESSAGE(values.IsOk(), (values ? std::string() : values.GetError()));
+		return values.GetValue().at(name);
+	};
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Advance(2, Timestep(FrameTime));
+	fixture.Play.SetPaused(true);
+	CHECK(variable("Updates") == ScriptFieldValue::FromInt32(4));
+
+	// The rename keeps Speed as a former name; the running graph takes it at its next update. The renamed variable edited
+	// before then takes the edit with it.
+	VisualScriptDocument renamed = MakeCounterDocument();
+	renamed.Variables[0].Name = "Velocity";
+	Json const set =
+		fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", VisualScriptSerializer::SerializeDocument(renamed)}}));
+	CHECK(set["warnings"] == Json::array({"variable renamed: Speed → Velocity (Speed is kept in FormerNames)"}));
+	fixture.Ok("component.set", Json::object({{"entity", counter},
+	                                          {"component", "VisualScript"},
+	                                          {"fields", Json::object({{"Variables", Json::object({{"Velocity", StoredInt(50)}})}})}}));
+	CHECK(variable("Speed") == ScriptFieldValue::FromInt32(2));
+	fixture.Play.Advance(1, Timestep(FrameTime));
+	CHECK(variable("Velocity") == ScriptFieldValue::FromInt32(50));
+	CHECK(variable("Updates") == ScriptFieldValue::FromInt32(54));
+	CHECK(fixture.Ok("entity.get", Json::object({{"entity", counter}}))["components"]["VisualScript"]["Variables"] ==
+	      Json::object({{"Updates", StoredInt(54)}, {"Velocity", StoredInt(50)}}));
+	fixture.Play.Stop();
+}
+
 TEST_CASE("VisualScriptEditing: renamed variables keep their stored names as former names when the document stays valid")
 {
 	VisualScriptDocument stored;
@@ -1029,4 +1070,42 @@ TEST_CASE("VisualScriptEditing: nodes take their canonical types, their renamed 
 	                                             MakeLink(12, "Value", 11, "Amount"), MakeLink(11, "Sum", 13, "Value"),
 	                                             MakeLink(12, "Value", 13, "Amount"), MakeLink(12, "Value", 14, "Input"),
 	                                             MakeLink(11, "Then", 14, "Execute")});
+}
+
+TEST_CASE(
+	"VisualScriptEnumLookupSource: the inspector's enum lookup reads the node library only when asked, and is empty without the runtime")
+{
+	// Without the runtime: an empty lookup (enum variables need the runtime), given once.
+	VisualScriptEnumLookupSource source;
+	std::optional<VisualScriptEnumLookup> const none = source.Update();
+	REQUIRE(none.has_value());
+	CHECK_FALSE(*none);
+	CHECK_FALSE(source.Update().has_value());
+	{
+		Testing::ScriptRuntimeScope runtime;
+		std::optional<VisualScriptEnumLookup> const lookup = source.Update();
+		REQUIRE(lookup.has_value());
+		REQUIRE(*lookup);
+		CHECK_FALSE(source.Update().has_value());
+		// Giving the lookup reads nothing; asking it about a type reads the library.
+		CHECK(VisualScriptEngine::GetLibraryState() == VisualScriptLibraryState::NotBuilt);
+		std::optional<VisualScriptEnumInfo> const modes = (*lookup)("Strada.ForceMode");
+		REQUIRE(modes.has_value());
+		CHECK(modes->UnderlyingType == ScriptFieldType::Int32);
+		CHECK_FALSE((*lookup)("float").has_value());
+		CHECK(VisualScriptEngine::GetLibraryState() == VisualScriptLibraryState::Built);
+
+		// A game-assembly change drops the library: the same lookup reads it again when next asked.
+		REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+		CHECK(VisualScriptEngine::GetLibraryState() == VisualScriptLibraryState::NotBuilt);
+		CHECK_FALSE(source.Update().has_value());
+		CHECK((*lookup)("Strada.KeyCode").has_value());
+		CHECK(VisualScriptEngine::GetLibraryState() == VisualScriptLibraryState::Built);
+	}
+
+	// The runtime stopped: an empty lookup again.
+	std::optional<VisualScriptEnumLookup> const stopped = source.Update();
+	REQUIRE(stopped.has_value());
+	CHECK_FALSE(*stopped);
+	CHECK_FALSE(source.Update().has_value());
 }

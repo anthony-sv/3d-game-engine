@@ -22,9 +22,9 @@
 #include "Editor/Panels/ViewportPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/RecentProjects.h"
+#include "Editor/VisualScriptEnumLookupSource.h"
 
 #include "Strada/Core/Layer.h"
-#include "Strada/Script/VisualScriptLibrary.h"
 
 #include <chrono>
 #include <cstdint>
@@ -129,8 +129,8 @@ namespace Strada
 		void WatchParentProcess();
 		// Forgets the thumbnails of a project that is no longer open and makes what the panels asked for in the last frame.
 		void UpdateThumbnails();
-		// Gives the inspector a lookup of the enum types of the scripting runtime's node library, again whenever the runtime
-		// replaced its library (after a game-assembly load or unload, or a restart), and none without the runtime.
+		// Gives the inspector a lookup of the enum types of the scripting runtime's node library, which reads the library only
+		// when asked about a type, and none without the runtime (VisualScriptEnumLookupSource).
 		void UpdateVisualScriptEnumLookup();
 
 		// Runs the action now, or after the unsaved-changes prompt when the scene has unsaved changes.
@@ -170,8 +170,7 @@ namespace Strada
 		// (declared before them).
 		AssetThumbnails m_Thumbnails;
 		std::filesystem::path m_ThumbnailsProject;
-		// The node library the inspector's enum lookup searches; null when it has none.
-		Ref<VisualScriptLibrary const> m_VisualScriptEnumLibrary;
+		VisualScriptEnumLookupSource m_VisualScriptEnumLookups;
 		ConsolePanel m_ConsolePanel;
 		RendererInfoPanel m_RendererInfoPanel;
 		SceneHierarchyPanel m_HierarchyPanel;
