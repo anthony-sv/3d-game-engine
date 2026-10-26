@@ -101,7 +101,8 @@ namespace Strada
 	// CommentHandleLogicalPixels), a comment's title bar, the background. Nodes are tried in reverse draw order
 	// (GetVisualScriptNodeDrawKey), and a pin only on the topmost node whose rectangle (grown by PinSlopLogicalPixels) holds the
 	// mouse; comments smallest first, as they are drawn largest first. At Far no pins and no wires are hit (only selecting and
-	// moving work there). One index query at most 4 cells wide.
+	// moving work there). Comments the index has as dynamic are not hit: the gesture moving or resizing them holds the mouse.
+	// One index query at most 4 cells wide.
 	[[nodiscard]] VisualScriptHit HitTestCanvas(VisualScriptCanvasModel const& model, VisualScriptSpatialIndex const& index,
 	                                            VisualScriptView const& view, VisualScriptHitContext const& context, glm::vec2 mouse);
 	// The same, written into hit: a wire's pin names are assigned into the strings hit already holds, so a hover kept in one

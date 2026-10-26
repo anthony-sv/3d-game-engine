@@ -1045,14 +1045,14 @@ TEST_CASE(
 	{
 		MESSAGE("full sync of 10,000 nodes and 40,000 links: ", syncSeconds * 1000.0, " ms; index build: ", buildSeconds * 1000.0,
 		        " ms; idle sync and index rebuild: ", idleSeconds * 1000.0, " ms");
-		// 3 × the medians measured on the track's machine (track M's report): 470 ms and 42 ms in Debug, 26 ms and 6.8 ms in
-		// Release.
+		// 3 × the medians of 5 runs measured on the track's machine (track M's final report): 438 ms and 41 ms in Debug,
+		// 24.4 ms and 5.4 ms in Release.
 #if defined(ST_DEBUG)
-		constexpr double SyncBound = 3.0 * 0.470;
-		constexpr double BuildBound = 3.0 * 0.042;
+		constexpr double SyncBound = 3.0 * 0.438;
+		constexpr double BuildBound = 3.0 * 0.041;
 #else
-		constexpr double SyncBound = 3.0 * 0.026;
-		constexpr double BuildBound = 3.0 * 0.0068;
+		constexpr double SyncBound = 3.0 * 0.0244;
+		constexpr double BuildBound = 3.0 * 0.0054;
 #endif
 		CHECK(syncSeconds <= SyncBound);
 		CHECK(buildSeconds <= BuildBound);
