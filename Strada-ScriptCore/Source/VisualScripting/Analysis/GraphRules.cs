@@ -22,13 +22,14 @@ internal static class GraphRules
 		CheckPureRecursion(context, functions);
 	}
 
-	// Each standard event once per document, input events once per key or button, custom events once per name.
+	// Each standard event once per document, input events once per key or button, custom events once per name. A disabled
+	// event handles nothing, so it takes no event from an enabled one.
 	private static void CheckEvents(AnalysisContext context, AnalyzedGraph graph)
 	{
 		Dictionary<string, AnalyzedNode> first = new(StringComparer.Ordinal);
 		foreach (AnalyzedNode node in graph.Nodes)
 		{
-			if (node.Builtin is not { } builtin || !BuiltinNodes.IsEvent(builtin))
+			if (node.IsDisabled || node.Builtin is not { } builtin || !BuiltinNodes.IsEvent(builtin))
 			{
 				continue;
 			}

@@ -127,6 +127,8 @@ public sealed class RobustnessTests
 		Assert.True(tally.Aborted > 0, $"no execution aborted: {tally}");
 		Assert.True(tally.OverBudget > 0, $"no endless execution was stopped by the budget: {tally}");
 		Assert.True(tally.Swapped > 0, $"no live edit swapped a running instance: {tally}");
+		Assert.True(tally.Disabled > 0, $"no graph with a disabled node ran: {tally}");
+		Assert.True(tally.Demoted > 0, $"no graph ran with an error located on a disabled node: {tally}");
 	}
 
 	// What the rounds reached.
@@ -144,8 +146,14 @@ public sealed class RobustnessTests
 
 		internal int Swapped { get; set; }
 
+		// Graphs that ran with a disabled node in their event graph, and graphs that ran although a finding of an Error code
+		// was located on a disabled node (a Warning there).
+		internal int Disabled { get; set; }
+
+		internal int Demoted { get; set; }
+
 		public override string ToString() => FormattableString.Invariant(
-			$"{InvalidDocuments} refused, {Broken} broken, {Ran} ran, {Aborted} aborted, {OverBudget} over budget, {Swapped} swapped");
+			$"{InvalidDocuments} refused, {Broken} broken, {Ran} ran, {Aborted} aborted, {OverBudget} over budget, {Swapped} swapped, {Disabled} ran with a disabled node, {Demoted} ran with an error on one");
 	}
 
 	// One damaged document through a runtime of its own: every operation of the protocol, with the statuses spec sections
@@ -184,12 +192,28 @@ public sealed class RobustnessTests
 			{
 				Check(created == VisualScriptStatus.Success, $"CreateInstance of a working program answered {created}");
 				m_Tally.Ran++;
+				if (program.EventGraph.Nodes.Any(static node => node.IsDisabled))
+				{
+					m_Tally.Disabled++;
+				}
+				if (HasDemotedError(diagnostics))
+				{
+					m_Tally.Demoted++;
+				}
 				RunInstance(program);
 			}
 			Check(m_Runtime.CreateInstance(Hero, Graph + 1, []) == VisualScriptStatus.NotFound, "CreateInstance of a graph never loaded");
 			Check(m_Runtime.Unload(Graph) == VisualScriptStatus.Success, "Unload of a loaded graph");
 			Check(m_Runtime.Unload(Graph) == VisualScriptStatus.NotFound, "Unload of an unloaded graph");
 			Check(m_Runtime.CreateInstance(Hero, Graph, []) == VisualScriptStatus.NotFound, "CreateInstance of an unloaded graph");
+		}
+
+		// Whether a finding of an Error code is a Warning: it is located on a disabled node.
+		private static bool HasDemotedError(string diagnostics)
+		{
+			using JsonDocument array = JsonDocument.Parse(diagnostics);
+			return array.RootElement.EnumerateArray().Any(static diagnostic => diagnostic.GetProperty("Severity").GetString() == "Warning" &&
+				Diagnostic.GetSeverity(Enum.Parse<DiagnosticCode>(diagnostic.GetProperty("Code").GetString()!)) == DiagnosticSeverity.Error);
 		}
 
 		// Analyze answers Success with the analysis of any bytes: one InvalidDocument for what is not a JSON object. Returns
@@ -303,12 +327,13 @@ public sealed class RobustnessTests
 			Assert.Throws<ArgumentException>(() => m_Runtime.GetVariable(Hero, "No Such Variable", typeof(object)));
 		}
 
-		// Every custom event, sent with the type defaults of its parameters and with one argument too many.
+		// Every custom event that is not disabled, sent with the type defaults of its parameters and with one argument too
+		// many.
 		private void SendEvents(GraphProgram program)
 		{
 			foreach (CompiledNode node in program.EventGraph.Nodes)
 			{
-				if (node.Builtin != BuiltinNode.EventCustom)
+				if (node.Op != Opcode.Event || node.Builtin != BuiltinNode.EventCustom)
 				{
 					continue;
 				}

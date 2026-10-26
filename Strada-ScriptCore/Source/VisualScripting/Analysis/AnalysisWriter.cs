@@ -5,7 +5,8 @@ using System.Text.Json;
 namespace Strada.VisualScripting;
 
 // The analysis JSON of VisualScriptAnalyze (spec section 6.2): { "Nodes": [...], "Diagnostics": [...] }, every node of the
-// document (the function graphs in order, then the event graph) with its resolved pins.
+// document (the function graphs in order, then the event graph) with its resolved pins, and for a disabled node the exec
+// output its flow continues at ("PassThrough").
 internal static class AnalysisWriter
 {
 	internal static byte[] Write(AnalyzedDocument document)
@@ -117,6 +118,11 @@ internal static class AnalysisWriter
 		writer.WriteString("Kind", node.Kind.ToString());
 		writer.WriteBoolean("Pure", node.Pure);
 		writer.WriteBoolean("Latent", node.Latent);
+		// A disabled node's exit; absent where its chain ends, and for every node that is not disabled.
+		if (node.PassThrough is { } passThrough)
+		{
+			writer.WriteString("PassThrough", passThrough.Name);
+		}
 		writer.WriteStartArray("Pins");
 		foreach (AnalyzedPin pin in node.Pins)
 		{

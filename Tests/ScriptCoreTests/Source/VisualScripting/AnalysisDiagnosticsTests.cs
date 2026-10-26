@@ -8,7 +8,7 @@ using Xunit;
 
 namespace Strada.ScriptCore.Tests;
 
-// Every diagnostic code of spec section 6.2 (and the two the VM adds), where it is reported, and its suggestions.
+// Every diagnostic code of spec section 6.2 (and the three the VM adds), where it is reported, and its suggestions.
 public sealed class AnalysisDiagnosticsTests
 {
 	private const string Update = """{ "ID": 1, "Type": "Event.Update" }""";
@@ -77,6 +77,7 @@ public sealed class AnalysisDiagnosticsTests
 		[DiagnosticCode.ImpureInPureFunction] = VisualScriptTesting.Document("", functions: Function("Half", true,
 			Entry(101) + ", " + Return(102) + ", " + """{ "ID": 103, "Type": "Call:Strada.Log.Info(string)" }""")),
 		[DiagnosticCode.NotInFunction] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Function.Entry" }"""),
+		[DiagnosticCode.DisabledIgnored] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Self", "Enabled": "Disabled" }"""),
 	};
 
 	public static TheoryData<string> Codes => [.. s_Cases.Keys.Select(static code => code.ToString())];
@@ -89,7 +90,8 @@ public sealed class AnalysisDiagnosticsTests
 		AnalyzedDocument document = VisualScriptTesting.Analyze(s_Cases[code]);
 		Diagnostic diagnostic = document.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Code == code)
 			?? throw new Xunit.Sdk.XunitException($"no {code} in:\n{VisualScriptTesting.Describe(document.Diagnostics)}");
-		bool warning = code is DiagnosticCode.NodeUpdated or DiagnosticCode.UnusedInput or DiagnosticCode.ZeroQuaternion or DiagnosticCode.UnknownSetting;
+		bool warning = code is DiagnosticCode.NodeUpdated or DiagnosticCode.UnusedInput or DiagnosticCode.ZeroQuaternion or DiagnosticCode.UnknownSetting or
+			DiagnosticCode.DisabledIgnored;
 		Assert.Equal(warning ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error, diagnostic.Severity);
 		Assert.NotEmpty(diagnostic.Message);
 		// The analysis JSON writes it with its code name.

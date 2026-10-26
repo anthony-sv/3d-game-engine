@@ -54,6 +54,10 @@ internal static class GraphAnalyzer
 		}
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
+			MarkDisabledNodes(context, graph);
+		}
+		foreach ((AnalyzedGraph graph, _) in graphs)
+		{
 			CheckLinks(context, graph);
 		}
 		foreach ((AnalyzedGraph graph, _) in graphs)
@@ -64,6 +68,7 @@ internal static class GraphAnalyzer
 			}
 		}
 		GraphRules.Check(context, context.Functions, eventGraph);
+		DemoteDisabledNodeDiagnostics(diagnostics, graphs);
 		return new AnalyzedDocument(library, diagnostics, context.Variables, context.Functions, eventGraph);
 	}
 
@@ -146,7 +151,9 @@ internal static class GraphAnalyzer
 		pins.Add((direction, pin));
 	}
 
-	// An impure function is latent when its graph holds a latent node or calls a latent function (spec section 4.3).
+	// An impure function is latent when its graph holds a latent node or calls a latent function (spec section 4.3). A
+	// disabled node never waits (it passes the flow on), so it makes no function latent; latent nodes and calls of latent
+	// functions are impure, so their Enabled alone says whether they are disabled.
 	private static void ComputeLatency(AnalysisContext context)
 	{
 		bool changed = true;
@@ -161,7 +168,7 @@ internal static class GraphAnalyzer
 				}
 				foreach (AnalyzedNode node in function.Graph.Nodes)
 				{
-					bool latent = node.Builtin is { } builtin && (BuiltinNodes.IsLatent(builtin) ||
+					bool latent = !node.Source.Disabled && node.Builtin is { } builtin && (BuiltinNodes.IsLatent(builtin) ||
 						(builtin == BuiltinNode.FunctionCall && node.Source.Settings.TryGet("Function", out JsonElement id) &&
 						 id.ValueKind == JsonValueKind.Number && id.TryGetUInt32(out uint callee) && context.FindFunction(callee) is { Latent: true }));
 					if (latent)
@@ -171,6 +178,105 @@ internal static class GraphAnalyzer
 						break;
 					}
 				}
+			}
+		}
+	}
+
+	// Nodes whose Enabled is "Disabled" (once types are resolved, which decides whether a Reroute is pure): Function.Entry,
+	// Function.Return and pure nodes cannot be disabled and run, with a Warning DisabledIgnored; every other one is a
+	// pass-through, and its exit is where the flow entering it continues.
+	private static void MarkDisabledNodes(AnalysisContext context, AnalyzedGraph graph)
+	{
+		foreach (AnalyzedNode node in graph.Nodes)
+		{
+			if (!node.Source.Disabled)
+			{
+				continue;
+			}
+			if (node.Builtin is BuiltinNode.FunctionEntry or BuiltinNode.FunctionReturn)
+			{
+				context.ReportNode(DiagnosticCode.DisabledIgnored, node, node.Builtin == BuiltinNode.FunctionEntry
+					? $"{node.Title} cannot be disabled: every call of the function starts there, so it runs"
+					: $"{node.Title} cannot be disabled: the call returns there, so it runs");
+				continue;
+			}
+			if (node.Pure)
+			{
+				context.ReportNode(DiagnosticCode.DisabledIgnored, node,
+					$"{node.Title} is pure: it runs only when a node reads it, so it cannot be disabled and runs (disable the node that reads it)");
+				continue;
+			}
+			node.IsDisabled = true;
+			node.PassThrough = FindPassThrough(node);
+		}
+	}
+
+	// Where the flow entering a disabled node continues: its Then output, else Completed, else Default, else its first exec
+	// output that is not a Tick output. Null when no flow enters it (it has no exec input: an event starts no execution) or
+	// it has no such output (an unknown node's pins are typed by nothing, so it has no exec output).
+	private static AnalyzedPin? FindPassThrough(AnalyzedNode node)
+	{
+		bool entered = false;
+		AnalyzedPin? then = null;
+		AnalyzedPin? completed = null;
+		AnalyzedPin? otherwise = null;
+		AnalyzedPin? first = null;
+		foreach (AnalyzedPin pin in node.Pins)
+		{
+			if (!pin.Type.IsExec)
+			{
+				continue;
+			}
+			if (pin.IsInput)
+			{
+				entered = true;
+				continue;
+			}
+			switch (pin.Name)
+			{
+				case "Then":
+					then ??= pin;
+					break;
+				case "Completed":
+					completed ??= pin;
+					break;
+				case "Default":
+					otherwise ??= pin;
+					break;
+			}
+			if (pin.Description.Role != PinRole.Tick)
+			{
+				first ??= pin;
+			}
+		}
+		return entered ? then ?? completed ?? otherwise ?? first : null;
+	}
+
+	// Every finding located on a disabled node, on its node or at an end of its link, is a Warning: a disabled node never
+	// makes a program broken, so disabling a broken node is how its graph keeps running. Node IDs are unique in a document.
+	private static void DemoteDisabledNodeDiagnostics(List<Diagnostic> diagnostics, List<(AnalyzedGraph Graph, DocumentGraph Source)> graphs)
+	{
+		HashSet<uint> disabled = [];
+		foreach ((AnalyzedGraph graph, _) in graphs)
+		{
+			foreach (AnalyzedNode node in graph.Nodes)
+			{
+				if (node.IsDisabled)
+				{
+					disabled.Add(node.ID);
+				}
+			}
+		}
+		if (disabled.Count == 0)
+		{
+			return;
+		}
+		foreach (Diagnostic diagnostic in diagnostics)
+		{
+			if ((diagnostic.Node is { } node && disabled.Contains(node)) ||
+				(diagnostic.Link is { } link && (disabled.Contains(link.From.Node) || disabled.Contains(link.To.Node))))
+			{
+				diagnostic.Demote();
 			}
 		}
 	}
@@ -268,6 +374,15 @@ internal static class GraphAnalyzer
 				context.ReportLink(DiagnosticCode.TypeMismatch, link, from.Type.IsExec
 					? $"the exec output {from.Node.ID}.{from.Name} cannot connect to the data input {to.Node.ID}.{to.Name} ({to.Type.Id})"
 					: $"the {from.Type.Id} output {from.Node.ID}.{from.Name} cannot connect to the exec input {to.Node.ID}.{to.Name}");
+				continue;
+			}
+			if (!from.Type.IsExec && !from.Type.HasValues && from.Node.IsDisabled)
+			{
+				// An output of a disabled node that nothing typed (an unknown node's, or one its settings could not shape)
+				// gives no value: the input takes its own, as if unconnected.
+				link.IsValid = false;
+				context.ReportLink(DiagnosticCode.UnresolvedWildcard, link,
+					$"the type of {from.Node.ID}.{from.Name} is unknown and {from.Node.Title} is disabled: {to.Node.ID}.{to.Name} takes no value from it");
 				continue;
 			}
 			if (from.Type.IsExec)

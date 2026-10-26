@@ -6,7 +6,8 @@ namespace Strada.VisualScripting;
 // Live edit (spec section 5.6): a new working program of a graph handle replaces the program of every instance of the
 // handle, as soon as no dispatch or execution of the old program is running. An instance keeps what still means the same
 // in the new program: its variables by ID (then by name and type), the state and stored outputs of nodes whose ID and type
-// are unchanged, and its fibers, when every position they hold still exists. Positions are carried over by node ID.
+// are unchanged, and its fibers, when every position they hold still exists. Positions are carried over by node ID. A node
+// the edit disables counts as removed, and one it enables again as new: neither carries anything over.
 internal sealed partial class VisualScriptRuntime
 {
 	// Swaps the instances of every handle waiting for it whose old program is not running; the others swap when it ends.
@@ -123,7 +124,7 @@ internal sealed partial class VisualScriptRuntime
 		foreach (CompiledNode node in to.Graph.Nodes)
 		{
 			int index = source.FindNode(node.Id);
-			if (index < 0 || source.Nodes[index].Type != node.Type)
+			if (index < 0 || !IsSameNode(source.Nodes[index], node))
 			{
 				continue;
 			}
@@ -169,7 +170,7 @@ internal sealed partial class VisualScriptRuntime
 				CompiledNode call = caller.Nodes[record.CallNode];
 				if (Find(newCaller, call) is not { } newCall || newCall.Function?.Id != function.Id)
 				{
-					return Removed(call);
+					return Removed(call, newCaller);
 				}
 				newGraph = newFunction.Graph;
 			}
@@ -181,24 +182,34 @@ internal sealed partial class VisualScriptRuntime
 				// A Sequence entry continues at Then<Index>, which must still be an output.
 				if (Find(newGraph, node) is not { } moved || (entry.Kind == FlowKind.Sequence && entry.Index >= moved.Count))
 				{
-					return Removed(node);
+					return Removed(node, newGraph);
 				}
 			}
 			caller = graph;
 			newCaller = newGraph;
 		}
 		CompiledNode latent = caller.Nodes[fiber.SuspendedAt];
-		return Find(newCaller, latent) == null ? Removed(latent) : null;
+		return Find(newCaller, latent) == null ? Removed(latent, newCaller) : null;
 	}
 
-	// The node of the new graph with the ID and type of an old one; null when there is none.
+	// The node of the new graph with the ID and type of an old one, enabled or disabled as it was; null when there is none.
 	private static CompiledNode? Find(CompiledGraph graph, CompiledNode old)
 	{
 		int index = graph.FindNode(old.Id);
-		return index >= 0 && graph.Nodes[index].Type == old.Type ? graph.Nodes[index] : null;
+		return index >= 0 && IsSameNode(graph.Nodes[index], old) ? graph.Nodes[index] : null;
 	}
 
-	private static string Removed(CompiledNode node) => FormattableString.Invariant($"the edit removed or changed {node.Title} (node {node.Id})");
+	// Whether a node of the new program continues one of the old: the same type, and disabled only if it was.
+	private static bool IsSameNode(CompiledNode old, CompiledNode node) => old.Type == node.Type && old.IsDisabled == node.IsDisabled;
+
+	// Why a node the fiber holds has no continuation in the new graph.
+	private static string Removed(CompiledNode node, CompiledGraph graph)
+	{
+		int index = graph.FindNode(node.Id);
+		bool disabled = !node.IsDisabled && index >= 0 && graph.Nodes[index].IsDisabled && graph.Nodes[index].Type == node.Type;
+		return disabled ? FormattableString.Invariant($"the edit disabled {node.Title} (node {node.Id})")
+			: FormattableString.Invariant($"the edit removed or changed {node.Title} (node {node.Id})");
+	}
 
 	private static bool SameSignature(CompiledFunction a, CompiledFunction b)
 	{

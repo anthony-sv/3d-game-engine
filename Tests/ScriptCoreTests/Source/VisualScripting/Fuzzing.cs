@@ -46,9 +46,9 @@ internal sealed class FuzzRandom
 }
 
 // Damages visual-script documents the way bad files, hand edits and careless tools do: members and elements go missing,
-// repeat or change kind; nodes change type or repeat by the thousand; links name wrong pins, missing nodes or the node
-// they leave (cycles); numbers become extreme; values nest far too deep; and the text itself is cut short or has a byte
-// changed. Deterministic, so a failure reproduces from its seed and round.
+// repeat or change kind; nodes change type or repeat by the thousand, or are disabled; links name wrong pins, missing nodes
+// or the node they leave (cycles); numbers become extreme; values nest far too deep; and the text itself is cut short or
+// has a byte changed. Deterministic, so a failure reproduces from its seed and round.
 internal sealed class DocumentMutator
 {
 	private static readonly string[] s_Extremes =
@@ -64,6 +64,8 @@ internal sealed class DocumentMutator
 	private static readonly int[] s_Depths = [15, 16, 17, 60, 63, 64, 65, 300];
 
 	private static readonly int[] s_Copies = [8, 200, 3000];
+
+	private static readonly string[] s_EnabledStates = ["Disabled", "DevelopmentOnly", "Enabled"];
 
 	private readonly FuzzRandom m_Random;
 
@@ -86,7 +88,7 @@ internal sealed class DocumentMutator
 	}
 
 	// Applies one or two changes that tend to keep a graph valid but change what it does: links that loop back, links
-	// rewired or gone, nodes repeated under new IDs, extreme inputs.
+	// rewired or gone, nodes repeated under new IDs, nodes disabled or enabled, extreme inputs.
 	internal JsonNode? Rewire(JsonNode? original, int round)
 	{
 		JsonNode? document = original?.DeepClone();
@@ -95,13 +97,14 @@ internal sealed class DocumentMutator
 			List<Place> places = [];
 			Collect(document, null, null, -1, null, places);
 			Facts facts = new(places);
-			bool changed = Pick(7) switch
+			bool changed = Pick(8) switch
 			{
 				0 => LoopLink(facts),
 				1 => LeadBack(facts),
 				2 => SwapTargets(facts),
 				3 => RemoveLink(facts),
 				4 => RepeatNode(facts, 1 + Pick(3)),
+				5 => SetEnabled(facts, true),
 				_ => MakeExtremeInput(places),
 			};
 			if (!changed)
@@ -242,6 +245,12 @@ internal sealed class DocumentMutator
 				break;
 			case 15:
 				return Replace(document, places[Pick(places.Count)], Nest(s_Depths[Pick(s_Depths.Length)]));
+			case 16:
+				if (SetEnabled(facts, false))
+				{
+					return document;
+				}
+				break;
 			default:
 				break;
 		}
@@ -327,6 +336,30 @@ internal sealed class DocumentMutator
 			1 => type.Contains('(', StringComparison.Ordinal) ? type[..type.IndexOf('(', StringComparison.Ordinal)] : type[..(type.Length / 2)],
 			_ => type,
 		};
+		return true;
+	}
+
+	// A node is disabled, development-only or enabled again. When damaging, its Enabled may also be no state at all, or
+	// about half of the nodes are disabled, so that nodes the other damage broke are disabled too.
+	private bool SetEnabled(Facts facts, bool valid)
+	{
+		if (facts.Nodes.Count == 0)
+		{
+			return false;
+		}
+		if (!valid && Pick(2) == 0)
+		{
+			foreach (JsonObject each in facts.Nodes)
+			{
+				if (Pick(2) == 0)
+				{
+					each["Enabled"] = "Disabled";
+				}
+			}
+			return true;
+		}
+		JsonObject node = facts.Nodes[Pick(facts.Nodes.Count)];
+		node["Enabled"] = valid || Pick(2) == 0 ? s_EnabledStates[Pick(s_EnabledStates.Length)] : MakeValue();
 		return true;
 	}
 

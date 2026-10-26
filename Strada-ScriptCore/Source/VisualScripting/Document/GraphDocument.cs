@@ -39,8 +39,10 @@ internal sealed record DocumentFunction(uint ID, string Name, bool Pure, IReadOn
 // The nodes and links of the event graph (Function 0) or of a function's graph.
 internal sealed record DocumentGraph(uint Function, IReadOnlyList<DocumentNode> Nodes, IReadOnlyList<DocumentLink> Links);
 
-// A node. Index is its position in its graph's Nodes ("later" means a higher index).
-internal sealed record DocumentNode(uint ID, string Type, DocumentMembers Settings, DocumentMembers Inputs, int Index);
+// A node. Index is its position in its graph's Nodes ("later" means a higher index). Disabled: its Enabled is "Disabled",
+// which compiles it as a pass-through; "DevelopmentOnly" runs as "Enabled", because the engine rewrites it to "Disabled"
+// in the documents it sends where development nodes do not run (exported games).
+internal sealed record DocumentNode(uint ID, string Type, DocumentMembers Settings, DocumentMembers Inputs, bool Disabled, int Index);
 
 internal readonly record struct PinReference(uint Node, string Pin);
 

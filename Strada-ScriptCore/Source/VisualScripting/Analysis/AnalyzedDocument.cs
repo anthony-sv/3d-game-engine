@@ -224,6 +224,14 @@ internal sealed class AnalyzedNode
 	// What the node's settings resolved to; null for unknown nodes and nodes whose settings are invalid.
 	internal NodeBinding? Binding { get; set; }
 
+	// A node whose Enabled is "Disabled" and that can be disabled (not pure, not Function.Entry or Function.Return): it
+	// compiles as a pass-through, whatever its kind, settings and diagnostics, and its diagnostics are Warnings.
+	internal bool IsDisabled { get; set; }
+
+	// A disabled node: the exec output the flow entering it continues at; null when its chain ends there (it has no exec
+	// output, or no exec input to enter).
+	internal AnalyzedPin? PassThrough { get; set; }
+
 	internal BuiltinNode? Builtin => (Definition as BuiltinNodeDefinition)?.Node;
 
 	internal AnalyzedPin? FindPin(string name, PinDirection direction)

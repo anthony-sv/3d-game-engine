@@ -11,7 +11,9 @@ namespace Strada.VisualScripting;
 // but the VM accepts any bytes: text that is not a JSON object is one Error InvalidDocument, and a structural defect the
 // loader would have repaired or refused is an Error InvalidDocument naming its path, with the element skipped (an
 // element with a missing, invalid or duplicate ID, Name or Type; a malformed link or one between graphs; a duplicate
-// link). Keys the VM does not use (Description, positions, comments, tooltips, ranges) are not checked.
+// link). A node's Enabled that is not "Enabled", "Disabled" or "DevelopmentOnly" is an Error InvalidDocument, and the node
+// stays enabled. Keys the VM does not use (Description, positions, comment boxes, node comments, collapsed states,
+// tooltips, ranges) are not checked.
 internal static class DocumentReader
 {
 	internal const int MaxDepth = 64;
@@ -271,7 +273,7 @@ internal static class DocumentReader
 				}
 				nodeIds.Add(id);
 				nodes.Add(new DocumentNode(id, type, ReadMembers(element, nodePath, "Settings"), ReadMembers(element, nodePath, "Inputs"),
-					nodes.Count));
+					ReadDisabled(element, nodePath), nodes.Count));
 			}
 			List<DocumentLink> links = [];
 			HashSet<(PinReference, PinReference)> seen = [];
@@ -422,6 +424,28 @@ internal static class DocumentReader
 		private static JsonElement? ReadValue(JsonElement element)
 		{
 			return element.TryGetProperty("Value", out JsonElement value) && value.ValueKind != JsonValueKind.Null ? value : null;
+		}
+
+		// Whether a node's Enabled is "Disabled". "DevelopmentOnly" runs as "Enabled"; a missing Enabled is "Enabled".
+		private bool ReadDisabled(JsonElement node, string path)
+		{
+			if (!node.TryGetProperty("Enabled", out JsonElement value))
+			{
+				return false;
+			}
+			if (JsonText.TryGetString(value, out string? state))
+			{
+				switch (state)
+				{
+					case "Enabled":
+					case "DevelopmentOnly":
+						return false;
+					case "Disabled":
+						return true;
+				}
+			}
+			Problem($"{path}.Enabled", "expected \"Enabled\", \"Disabled\" or \"DevelopmentOnly\"");
+			return false;
 		}
 
 		private bool ReadBool(JsonElement element, string path, string key)

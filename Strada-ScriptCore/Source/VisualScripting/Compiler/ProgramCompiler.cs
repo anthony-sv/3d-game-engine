@@ -7,7 +7,8 @@ namespace Strada.VisualScripting;
 // Compiles analyzed documents into programs (spec section 5.1): the frame layout of each graph (a slot for every data
 // output, a staging slot for every data input, the node states and the locals), the loads of the connected inputs with
 // their conversions, where every exec output leads, and what each kind of node needs. A document with an Error diagnostic
-// gives a broken program, which only says why it cannot run.
+// gives a broken program, which only says why it cannot run. A disabled node compiles as a pass-through whatever its
+// kind: its findings are Warnings, so nothing of its kind (definition, settings, pins of unknown type) is read.
 internal static class ProgramCompiler
 {
 	// The ScriptEvent values (Create 0 to Click 8) and their event nodes.
@@ -72,7 +73,8 @@ internal static class ProgramCompiler
 		List<InputEvent> inputEvents = [];
 		foreach (AnalyzedNode node in document.EventGraph.Nodes)
 		{
-			if (node.Builtin is not { } builtin)
+			// A disabled event starts no execution.
+			if (node.IsDisabled || node.Builtin is not { } builtin)
 			{
 				continue;
 			}
@@ -155,6 +157,10 @@ internal static class ProgramCompiler
 
 		private static Opcode OpcodeOf(AnalyzedNode node)
 		{
+			if (node.IsDisabled)
+			{
+				return Opcode.PassThrough;
+			}
 			if (node.Definition is MemberNodeDefinition)
 			{
 				return node.Pure ? Opcode.PureMember : Opcode.Member;
@@ -233,11 +239,18 @@ internal static class ProgramCompiler
 			{
 				return inputs;
 			}
-			foreach (AnalyzedPin pin in source.Pins)
+			if (node.Op == Opcode.PassThrough)
 			{
-				if (pin.IsInput && !pin.Type.IsExec)
+				inputs = PassThroughInputs(source, node);
+			}
+			else
+			{
+				foreach (AnalyzedPin pin in source.Pins)
 				{
-					inputs.Add(pin);
+					if (pin.IsInput && !pin.Type.IsExec)
+					{
+						inputs.Add(pin);
+					}
 				}
 			}
 			ExpectNames(source, inputs, node.Op switch
@@ -273,6 +286,46 @@ internal static class ProgramCompiler
 			{
 				Allocate(SlotValues.DefaultOf(StagingType(source, node, pin)));
 			}
+			return inputs;
+		}
+
+		// A disabled node's data outputs, in pin order, each take the first data input of the same type that no earlier output
+		// takes, in pin order (a disabled Variable.Set passes its Value on); the others take their type default. Only the
+		// inputs an output takes are loaded, so only their pure sources are evaluated. Pins of unknown type take part in
+		// nothing, and neither does an unconnected Target: it holds no value, it means Self only to the node that runs.
+		private static List<AnalyzedPin> PassThroughInputs(AnalyzedNode source, CompiledNode node)
+		{
+			List<AnalyzedPin> candidates = [];
+			foreach (AnalyzedPin pin in source.Pins)
+			{
+				if (pin.IsInput && !pin.Type.IsExec && pin.Type.HasValues && !(pin.Description.DefaultsToSelf && !pin.IsConnected))
+				{
+					candidates.Add(pin);
+				}
+			}
+			bool[] taken = new bool[candidates.Count];
+			List<AnalyzedPin> inputs = [];
+			List<int> sources = [];
+			foreach (AnalyzedPin pin in source.Pins)
+			{
+				if (pin.IsInput || pin.Type.IsExec)
+				{
+					continue;
+				}
+				int staged = -1;
+				for (int candidate = 0; pin.Type.HasValues && candidate < candidates.Count; candidate++)
+				{
+					if (!taken[candidate] && candidates[candidate].Type.Id == pin.Type.Id)
+					{
+						taken[candidate] = true;
+						staged = inputs.Count;
+						inputs.Add(candidates[candidate]);
+						break;
+					}
+				}
+				sources.Add(staged);
+			}
+			node.PassThroughSources = [.. sources];
 			return inputs;
 		}
 
@@ -312,9 +365,19 @@ internal static class ProgramCompiler
 			}
 		}
 
-		// Exec inputs and outputs in pin order; an output leads to the exec input its link enters.
+		// Exec inputs and outputs in pin order; an output leads to the exec input its link enters. A disabled node has one exit,
+		// its pass-through, or none when its chain ends there; every exec input enters it alike.
 		private void CompileExecPins(AnalyzedNode source, CompiledNode node)
 		{
+			if (node.Op == Opcode.PassThrough)
+			{
+				if (source.PassThrough is { } exit)
+				{
+					node.ExitPins = [exit.Name];
+					node.Exits = [ExitTarget(exit)];
+				}
+				return;
+			}
 			List<string> entries = [];
 			List<string> exits = [];
 			List<ExecLink> links = [];
@@ -338,16 +401,7 @@ internal static class ProgramCompiler
 					node.TickExit = exits.Count;
 				}
 				exits.Add(pin.Name);
-				ExecLink target = ExecLink.None;
-				foreach (AnalyzedLink link in pin.Links)
-				{
-					if (link.IsValid)
-					{
-						target = new ExecLink(m_Indexes[link.To.Node], EntryIndex(link.To));
-						break;
-					}
-				}
-				links.Add(target);
+				links.Add(ExitTarget(pin));
 			}
 			node.ExitPins = [.. exits];
 			node.Exits = [.. links];
@@ -386,6 +440,19 @@ internal static class ProgramCompiler
 			{
 				throw new InvalidOperationException($"{source} does not have the exec pins of its kind");
 			}
+		}
+
+		// Where the flow leaving through an exec output goes: the exec input its valid link enters, else nowhere.
+		private ExecLink ExitTarget(AnalyzedPin output)
+		{
+			foreach (AnalyzedLink link in output.Links)
+			{
+				if (link.IsValid)
+				{
+					return new ExecLink(m_Indexes[link.To.Node], EntryIndex(link.To));
+				}
+			}
+			return ExecLink.None;
 		}
 
 		private static int EntryIndex(AnalyzedPin input)
@@ -450,8 +517,9 @@ internal static class ProgramCompiler
 			node.PureSources = [.. pureSources];
 		}
 
-		// ForLoop's Index and ForEach's Index and Element are read from the active loop entry, not from slots.
-		private static OperandSource LoopOutput(AnalyzedPin output) => output.Node.Builtin switch
+		// ForLoop's Index and ForEach's Index and Element are read from the active loop entry, not from slots; a disabled loop
+		// runs no iteration, and its outputs are slots like every disabled node's.
+		private static OperandSource LoopOutput(AnalyzedPin output) => output.Node.IsDisabled ? OperandSource.Slot : output.Node.Builtin switch
 		{
 			BuiltinNode.FlowForLoop when output.Name == "Index" => OperandSource.LoopIndex,
 			BuiltinNode.FlowForEach when output.Name == "Index" => OperandSource.LoopIndex,
