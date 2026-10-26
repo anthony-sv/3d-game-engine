@@ -158,6 +158,11 @@ namespace Strada
 		       HaveSameProgram(graph, b.Graph);
 	}
 
+	bool HaveSameVisualScriptProgram(VisualScriptNode const& a, VisualScriptNode const& b)
+	{
+		return HaveSameProgram(a, b);
+	}
+
 	VisualScriptAsset::VisualScriptAsset(VisualScriptDocument document)
 		: m_Document(CreateRef<VisualScriptDocument const>(std::move(document)))
 	{

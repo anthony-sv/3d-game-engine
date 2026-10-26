@@ -13,23 +13,22 @@ namespace Strada
 	namespace
 	{
 		constexpr char const* FileType = "RecentProjects";
-
-		// Comparable form of a path: absolute, normalized, with the real case of existing parts on case-insensitive systems.
-		std::filesystem::path Normalize(std::filesystem::path const& path)
-		{
-			std::error_code errorCode;
-			std::filesystem::path normalized = std::filesystem::weakly_canonical(path, errorCode);
-			if (errorCode)
-			{
-				normalized = std::filesystem::absolute(path, errorCode);
-			}
-			return (errorCode ? path : normalized).lexically_normal();
-		}
 	}
 
 	RecentProjects::RecentProjects(std::filesystem::path file)
 		: m_File(std::move(file))
 	{
+	}
+
+	std::filesystem::path RecentProjects::NormalizePath(std::filesystem::path const& path)
+	{
+		std::error_code errorCode;
+		std::filesystem::path normalized = std::filesystem::weakly_canonical(path, errorCode);
+		if (errorCode)
+		{
+			normalized = std::filesystem::absolute(path, errorCode);
+		}
+		return (errorCode ? path : normalized).lexically_normal();
 	}
 
 	Result<void> RecentProjects::Load()
@@ -88,7 +87,7 @@ namespace Strada
 	void RecentProjects::Add(std::filesystem::path const& projectFile)
 	{
 		Remove(projectFile);
-		m_Projects.insert(m_Projects.begin(), Normalize(projectFile));
+		m_Projects.insert(m_Projects.begin(), NormalizePath(projectFile));
 		if (m_Projects.size() > MaxCount)
 		{
 			m_Projects.resize(MaxCount);
@@ -97,11 +96,11 @@ namespace Strada
 
 	void RecentProjects::Remove(std::filesystem::path const& projectFile)
 	{
-		std::filesystem::path const normalized = Normalize(projectFile);
+		std::filesystem::path const normalized = NormalizePath(projectFile);
 		std::erase_if(m_Projects,
 		              [&normalized](std::filesystem::path const& project)
 		              {
-						  return Normalize(project) == normalized;
+						  return NormalizePath(project) == normalized;
 					  });
 	}
 }

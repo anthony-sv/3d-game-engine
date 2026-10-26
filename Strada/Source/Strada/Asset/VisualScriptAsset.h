@@ -178,6 +178,9 @@ namespace Strada
 	// must be an integer (operator== takes 1 and 1.0 as equal), integers are alike by value whether stored signed or
 	// unsigned, and floats bit for bit. Pure; any thread.
 	[[nodiscard]] bool HaveSameVisualScriptProgram(VisualScriptDocument const& a, VisualScriptDocument const& b);
+	// The same comparison for one node (its ID, Type, Settings, Inputs, Split and Enabled): with operator==, whether a node is
+	// stored identically, representation included. Pure; any thread.
+	[[nodiscard]] bool HaveSameVisualScriptProgram(VisualScriptNode const& a, VisualScriptNode const& b);
 
 	// A visual script (.sgraph file). Its document is an immutable shared object: a change replaces it with another, so
 	// whoever keeps the previous one (an undo step, an editor) keeps it unchanged and without a copy.

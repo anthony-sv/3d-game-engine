@@ -464,6 +464,27 @@ TEST_CASE("VisualScriptAsset: documents give the same program unless something t
 	REQUIRE_FALSE(document.Graph.Nodes[2].Settings.at("Variable").is_number_unsigned());
 	CHECK(HaveSameVisualScriptProgram(document, unsignedId));
 	CHECK(HaveSameVisualScriptProgram(unsignedId, document));
+
+	// The same comparison for one node, which the editor uses to tell the nodes an outside change rewrote.
+	VisualScriptNode const& probe = document.Graph.Nodes[1];
+	CHECK(HaveSameVisualScriptProgram(probe, probe));
+	CHECK(HaveSameVisualScriptProgram(document.Graph.Nodes[2], unsignedId.Graph.Nodes[2]));
+	VisualScriptNode moved = probe;
+	moved.Position = glm::vec2(500.0f, -60.0f);
+	moved.Comment = "Looks around";
+	moved.Collapsed = false;
+	CHECK(HaveSameVisualScriptProgram(probe, moved));
+	VisualScriptNode floatMask = probe;
+	floatMask.Inputs["LayerMask"] = 1.0;
+	REQUIRE(floatMask == probe);
+	CHECK_FALSE(HaveSameVisualScriptProgram(probe, floatMask));
+	CHECK_FALSE(HaveSameVisualScriptProgram(floatMask, probe));
+	VisualScriptNode joined = probe;
+	joined.Split.Inputs.clear();
+	CHECK_FALSE(HaveSameVisualScriptProgram(probe, joined));
+	VisualScriptNode enabled = probe;
+	enabled.Enabled = VisualScriptNodeEnabled::Enabled;
+	CHECK_FALSE(HaveSameVisualScriptProgram(probe, enabled));
 	Result<Json> const parsed = ParseJson(text);
 	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
 	DeserializationContext const strict;
