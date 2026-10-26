@@ -10,6 +10,7 @@
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -110,6 +111,13 @@ namespace Strada
 		[[nodiscard]] bool IsCustomEventNameTaken(VisualScriptDocument const& document, std::string_view name);
 		// The pin names nodes have whatever their settings: Execute, Then, Target, Self and Default. Parameters cannot have them.
 		[[nodiscard]] bool IsReservedPinName(std::string_view name);
+
+		// What the format accepts as a type, a node type, a pin name or the name of a Settings or Inputs member: 1 to maxBytes
+		// of UTF-8 without control characters (VisualScriptSerializer's MaxTypeBytes, MaxNodeTypeBytes, MaxPinNameBytes).
+		[[nodiscard]] bool IsValidVisualScriptText(std::string_view text, size_t maxBytes);
+		// What the format accepts as a pin path (an entry of Split, or a pin a link or a literal names): a valid pin name
+		// whose '.'-separated parts are not empty.
+		[[nodiscard]] bool IsValidVisualScriptPinPath(std::string_view path);
 
 		// IDs and the shapes the operations share.
 

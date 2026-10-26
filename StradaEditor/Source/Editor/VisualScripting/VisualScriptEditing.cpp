@@ -1559,6 +1559,16 @@ namespace Strada
 			return std::find(ReservedPinNames.begin(), ReservedPinNames.end(), name) != ReservedPinNames.end();
 		}
 
+		bool IsValidVisualScriptText(std::string_view text, size_t maxBytes)
+		{
+			return IsValidText(text, maxBytes);
+		}
+
+		bool IsValidVisualScriptPinPath(std::string_view path)
+		{
+			return IsValidPinPath(path);
+		}
+
 		uint32_t GetLargestVisualScriptID(VisualScriptDocument const& document)
 		{
 			uint32_t largest = 0;
