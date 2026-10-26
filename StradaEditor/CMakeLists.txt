@@ -124,6 +124,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScriptEnumLookupSource.h
     Source/Editor/VisualScripting/VisualScriptCommit.cpp
     Source/Editor/VisualScripting/VisualScriptCommit.h
+    Source/Editor/VisualScripting/VisualScriptEditing.cpp
+    Source/Editor/VisualScripting/VisualScriptEditing.h
     Source/Editor/VisualScripting/VisualScriptEditorTypes.h
     Source/Editor/VisualScripting/VisualScriptNodeTitles.cpp
     Source/Editor/VisualScripting/VisualScriptNodeTitles.h
