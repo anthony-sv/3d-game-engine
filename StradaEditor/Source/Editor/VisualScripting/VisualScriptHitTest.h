@@ -82,6 +82,10 @@ namespace Strada
 		// Nodes drawn moved (a move preview, whose nodes and wires the index has as dynamic) and a collapsed node drawn
 		// expanded under a dragged wire.
 		VisualScriptNodePreview Preview;
+		// The index's dynamic links (VisualScriptEditorModel::GetDynamicLinks): wires whose shape follows the preview (those of
+		// moved and expanded nodes, and of reroutes facing a moved node), which the index leaves out; tested at their preview
+		// places.
+		std::span<uint32_t const> DynamicLinks;
 		// The moved nodes and their wires are not hit: what lies under a dragged node (the wire it may be dropped on).
 		bool SkipMoved = false;
 		// ImGuiStyle::CurveTessellationTol: wires are hit where they are drawn.
@@ -100,4 +104,8 @@ namespace Strada
 	// moving work there). One index query at most 4 cells wide.
 	[[nodiscard]] VisualScriptHit HitTestCanvas(VisualScriptCanvasModel const& model, VisualScriptSpatialIndex const& index,
 	                                            VisualScriptView const& view, VisualScriptHitContext const& context, glm::vec2 mouse);
+	// The same, written into hit: a wire's pin names are assigned into the strings hit already holds, so a hover kept in one
+	// VisualScriptHit and resting on a wire allocates nothing from frame to frame.
+	void HitTestCanvas(VisualScriptCanvasModel const& model, VisualScriptSpatialIndex const& index, VisualScriptView const& view,
+	                   VisualScriptHitContext const& context, glm::vec2 mouse, VisualScriptHit& hit);
 }

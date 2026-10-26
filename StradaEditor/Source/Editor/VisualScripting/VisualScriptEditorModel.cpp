@@ -145,6 +145,18 @@ namespace Strada
 			return AssetManager::IsMissing(handle) ? name + " (missing)" : name;
 		}
 
+		// Whether an element is stored identically, values as they are written included (operator== takes 1 and 1.0 as equal).
+		bool IsSameElement(VisualScriptNode const& a, VisualScriptNode const& b)
+		{
+			return a == b && HaveSameVisualScriptProgram(a, b);
+		}
+
+		// Comments hold no values written in JSON.
+		bool IsSameElement(VisualScriptComment const& a, VisualScriptComment const& b)
+		{
+			return a == b;
+		}
+
 		template<typename T>
 		size_t GetCapacity(std::vector<T> const& vector)
 		{
@@ -492,8 +504,8 @@ namespace Strada
 		       GetCapacity(m_Raised) + GetCapacity(m_NodeSelected) + GetCapacity(m_CommentSelected) + GetCapacity(m_NodeRaise) +
 		       GetCapacity(m_NodeMoved) + GetCapacity(m_HitScratch.Candidates) + GetCapacity(m_HitScratch.Nodes) +
 		       GetCapacity(m_HitScratch.Polyline) + GetCapacity(m_Query) + GetCapacity(m_Polyline) + GetCapacity(m_DynamicNodes) +
-		       GetCapacity(m_DynamicLinks) + GetCapacity(m_MarqueeElements) + GetCapacity(m_CutLinks) + GetCapacity(m_Wire.Classes) +
-		       GetCapacity(m_Wire.Shown) + GetCapacity(m_Move.Elements) + GetCapacity(m_Move.Nodes);
+		       GetCapacity(m_DynamicComments) + GetCapacity(m_DynamicLinks) + GetCapacity(m_MarqueeElements) + GetCapacity(m_CutLinks) +
+		       GetCapacity(m_Wire.Classes) + GetCapacity(m_Wire.Shown) + GetCapacity(m_Move.Elements) + GetCapacity(m_Move.Nodes);
 	}
 
 	VisualScriptEditorState VisualScriptEditorModel::GetState() const
@@ -666,8 +678,10 @@ namespace Strada
 		{
 			RecordCommittedLinks(*m_Document, *document);
 		}
-		else if (m_Document != nullptr && !(*document == *m_Document))
+		else if (m_Document != nullptr && !(*document == *m_Document && HaveSameVisualScriptProgram(*document, *m_Document)))
 		{
+			// (operator== takes 1 and 1.0 as equal, which the runtime reads as different programs: only an identical document
+			// is adopted silently.)
 			// An outside change (undo, redo, automation, another window, a reload): a widget's pending value no longer applies,
 			// and a gesture in progress ends without an edit.
 			RecordChangedElements(*m_Document, *document);
@@ -717,7 +731,7 @@ namespace Strada
 			for (auto const& element : elements)
 			{
 				std::optional<uint32_t> const found = FindByID(sorted, element.ID);
-				if (!found || !((*earlier)[*found] == element))
+				if (!found || !IsSameElement((*earlier)[*found], element))
 				{
 					m_ChangedElements.push_back(element.ID);
 				}
@@ -880,11 +894,11 @@ namespace Strada
 		PruneToCanvas();
 		RebuildSelectionMasks();
 		RebuildRaise();
-		RebuildMoved();
+		RebuildDynamic();
 		// Pin indices may have moved: what the mouse is over, again.
 		if (m_Hover.Kind != Kind::None)
 		{
-			m_Hover = HitTest(m_LastMouse);
+			UpdateHover(m_LastMouse);
 		}
 	}
 
@@ -1071,7 +1085,14 @@ namespace Strada
 		// What the mouse is over as the last frame drew it: what a press this frame means.
 		bool const tracking = input.Hovered || m_Gesture != VisualScriptGesture::Idle || m_Press.Active;
 		m_LastMouse = input.Mouse;
-		m_Hover = tracking ? HitTest(input.Mouse) : VisualScriptHit{};
+		if (tracking)
+		{
+			UpdateHover(input.Mouse);
+		}
+		else
+		{
+			m_Hover = {};
+		}
 		VisualScriptViewState const viewBefore = m_View.GetState();
 		uint64_t const revisionBefore = m_CanvasRevision;
 
@@ -1094,7 +1115,7 @@ namespace Strada
 		if (tracking && (!(m_View.GetState() == viewBefore) || m_CanvasRevision != revisionBefore))
 		{
 			// The view moved or the canvas was laid out again: what the renderer shows under the mouse now.
-			m_Hover = HitTest(input.Mouse);
+			UpdateHover(input.Mouse);
 		}
 		StoreView();
 		return intents;
@@ -1107,7 +1128,6 @@ namespace Strada
 
 	void VisualScriptEditorModel::EndGesture()
 	{
-		bool const moving = m_Gesture == VisualScriptGesture::MovingElements;
 		m_Gesture = VisualScriptGesture::Idle;
 		m_Press.Active = false;
 		m_Press.Kind = PressKind::Inert;
@@ -1130,10 +1150,7 @@ namespace Strada
 		m_MarqueeElements.clear();
 		m_CutLinks.clear();
 		m_Resize = ResizeState{};
-		if (moving)
-		{
-			RebuildMoved();
-		}
+		RebuildDynamic();
 	}
 
 	void VisualScriptEditorModel::ApplyOpenRequest(VisualScriptOpenRequest const& request)
@@ -1270,6 +1287,21 @@ namespace Strada
 			// A gesture keeps the mouse when it leaves the canvas, but what lies beyond the canvas's edges is not drawn there.
 			return VisualScriptHit{};
 		}
+		return HitTestCanvas(m_Canvas, m_Index, m_View, MakeHitContext(skipMoved), mouse);
+	}
+
+	void VisualScriptEditorModel::UpdateHover(glm::vec2 mouse)
+	{
+		if (!IsInCanvas(mouse))
+		{
+			m_Hover = {};
+			return;
+		}
+		HitTestCanvas(m_Canvas, m_Index, m_View, MakeHitContext(false), mouse, m_Hover);
+	}
+
+	VisualScriptHitContext VisualScriptEditorModel::MakeHitContext(bool skipMoved)
+	{
 		VisualScriptHitContext context;
 		if (m_Minimap.Alpha > 0.0f && m_Minimap.Transform.Scale > 0.0f)
 		{
@@ -1278,10 +1310,11 @@ namespace Strada
 		context.Selected = m_NodeSelected;
 		context.Z = m_NodeRaise;
 		context.Preview = GetNodePreview();
+		context.DynamicLinks = m_DynamicLinks;
 		context.SkipMoved = skipMoved;
 		context.CurveTessellationTolerance = m_CurveTolerance;
 		context.Scratch = &m_HitScratch;
-		return HitTestCanvas(m_Canvas, m_Index, m_View, context, mouse);
+		return context;
 	}
 
 	void VisualScriptEditorModel::UpdateMinimap(double deltaTime, bool first)
@@ -1642,6 +1675,10 @@ namespace Strada
 		if (button == 1)
 		{
 			m_Press.Kind = PressKind::Right;
+			if (m_Hover.Kind == Kind::Pin)
+			{
+				KeepPressedPin();
+			}
 			return;
 		}
 		if (m_SpaceHeld)
@@ -1826,22 +1863,32 @@ namespace Strada
 		m_Press.DecideOnRelease = !input.Shift;
 	}
 
+	bool VisualScriptEditorModel::KeepPressedPin()
+	{
+		std::optional<uint32_t> const nodeIndex = m_Canvas.FindNode(m_Hover.Element);
+		std::span<VisualScriptPinVisual const> const allPins = m_Canvas.GetPins();
+		if (!nodeIndex || m_Hover.Pin >= allPins.size())
+		{
+			return false;
+		}
+		VisualScriptPinVisual const& pin = allPins[m_Hover.Pin];
+		m_Press.PinNode = m_Hover.Element;
+		m_Press.Pin.assign(m_Canvas.GetText(pin.Name));
+		m_Press.Direction = pin.Direction;
+		m_Press.PinLinked = pin.HasFlag(VisualScriptPinFlags::Linked);
+		return true;
+	}
+
 	void VisualScriptEditorModel::PressPin(VisualScriptCanvasInput const& input, std::vector<VisualScriptEditorIntent>& intents)
 	{
 		m_Press.Kind = PressKind::Inert;
-		std::optional<uint32_t> const nodeIndex = m_Canvas.FindNode(m_Hover.Element);
-		std::span<VisualScriptPinVisual const> const allPins = m_Canvas.GetPins();
-		if (IsReadOnly() || !nodeIndex || m_Hover.Pin >= allPins.size())
+		if (IsReadOnly() || !KeepPressedPin())
 		{
 			return;
 		}
 		std::span<VisualScriptNodeVisual const> const nodes = m_Canvas.GetNodes();
-		VisualScriptNodeVisual const& node = nodes[*nodeIndex];
-		VisualScriptPinVisual const& pin = allPins[m_Hover.Pin];
-		m_Press.PinNode = node.ID;
-		m_Press.Pin = std::string(m_Canvas.GetText(pin.Name));
-		m_Press.Direction = pin.Direction;
-		m_Press.PinLinked = pin.HasFlag(VisualScriptPinFlags::Linked);
+		VisualScriptNodeVisual const& node = nodes[*m_Canvas.FindNode(m_Hover.Element)];
+		VisualScriptPinVisual const& pin = m_Canvas.GetPins()[m_Hover.Pin];
 		if (input.Alt)
 		{
 			m_Press.Kind = PressKind::AltPin;
@@ -2050,12 +2097,32 @@ namespace Strada
 					Select(elements, VisualScriptSelectMode::Replace);
 				}
 				[[fallthrough]];
-			case Kind::Pin:
 			case Kind::Link:
 			{
 				VisualScriptContextMenuIntent menu;
 				menu.Target = target;
 				menu.ScreenPosition = input.Mouse;
+				intents.emplace_back(std::move(menu));
+				return;
+			}
+			case Kind::Pin:
+			{
+				// The pin pressed, found again by name: a layout since the press may have moved pin indices. A pin that is gone
+				// has no menu.
+				std::optional<std::pair<uint32_t, uint32_t>> const pin =
+					FindCanvasPin(PinKey{m_Press.PinNode, m_Press.Pin, m_Press.Direction});
+				if (!pin)
+				{
+					return;
+				}
+				std::span<VisualScriptNodeVisual const> const nodes = m_Canvas.GetNodes();
+				VisualScriptContextMenuIntent menu;
+				menu.Target = target;
+				menu.Target.Pin = pin->second;
+				menu.ScreenPosition = input.Mouse;
+				menu.Pin = VisualScriptPinReference{m_Press.PinNode, m_Press.Pin};
+				menu.PinDirection = m_Press.Direction;
+				menu.WholeSide = IsCollapsedBox(nodes[pin->first]);
 				intents.emplace_back(std::move(menu));
 				return;
 			}
@@ -2282,7 +2349,7 @@ namespace Strada
 		m_Gesture = VisualScriptGesture::MovingElements;
 		m_GestureButton = 0;
 		m_Press.Active = false;
-		RebuildMoved();
+		RebuildDynamic();
 	}
 
 	void VisualScriptEditorModel::ContinueMove(VisualScriptCanvasInput const& input, double deltaTime,
@@ -2415,6 +2482,7 @@ namespace Strada
 		m_Gesture = VisualScriptGesture::ResizingComment;
 		m_GestureButton = 0;
 		m_Press.Active = false;
+		RebuildDynamic();
 	}
 
 	void VisualScriptEditorModel::ContinueResize(VisualScriptCanvasInput const& input, double deltaTime,
@@ -2585,6 +2653,7 @@ namespace Strada
 		if (m_Wire.Expanded && over != m_Wire.Expanded)
 		{
 			m_Wire.Expanded.reset();
+			RebuildDynamic();
 		}
 		if (!over || m_Wire.Expanded)
 		{
@@ -2600,6 +2669,7 @@ namespace Strada
 		{
 			m_Wire.Expanded = over;
 			m_Wire.Resting.reset();
+			RebuildDynamic();
 		}
 	}
 
@@ -2885,6 +2955,8 @@ namespace Strada
 		}
 		float const radius = Metrics::WireSnapLogicalPixels * m_View.GetUIScale();
 		float const slop = Metrics::PinSlopLogicalPixels * m_View.GetUIScale() / pixelsPerUnit;
+		// A pin's row counts only where its label is drawn, as hit testing has it.
+		bool const labelRows = VisualScriptGeometry::ArePinLabelsDrawn(m_View.GetDetailLevel(), m_View.GetState().Zoom);
 		glm::vec2 const point = m_View.ToCanvas(mouse);
 		std::span<VisualScriptNodeVisual const> const nodes = m_Canvas.GetNodes();
 		std::span<VisualScriptPinVisual const> const pins = m_Canvas.GetPins();
@@ -2925,7 +2997,8 @@ namespace Strada
 						nearestKey = key;
 					}
 				}
-				else if (VisualScriptGeometry::Contains(VisualScriptGeometry::GetPinHitRect(node, pins[pinIndex], slop), point))
+				else if (VisualScriptGeometry::Contains(VisualScriptGeometry::GetPinHitRect(node, pins[pinIndex], slop, {}, labelRows),
+				                                        point))
 				{
 					std::tuple<int, uint32_t> const key{rank, pinIndex};
 					if (!row || key < rowKey)
@@ -3277,31 +3350,120 @@ namespace Strada
 		}
 	}
 
-	void VisualScriptEditorModel::RebuildMoved()
+	void VisualScriptEditorModel::RebuildDynamic()
 	{
 		m_DynamicNodes.clear();
+		m_DynamicComments.clear();
 		m_DynamicLinks.clear();
-		if (m_Gesture != VisualScriptGesture::MovingElements)
+		m_NodeMoved.clear();
+		std::span<VisualScriptNodeVisual const> const nodes = m_Canvas.GetNodes();
+		std::span<VisualScriptLinkVisual const> const links = m_Canvas.GetLinks();
+		if (m_Gesture == VisualScriptGesture::MovingElements)
 		{
-			m_NodeMoved.clear();
-			m_Index.SetDynamic({}, {});
-			return;
-		}
-		// The moved nodes and their wires are tested at their preview places, so the drag never rebuilds the index.
-		m_NodeMoved.assign(m_Canvas.GetNodes().size(), 0);
-		for (uint32_t const element : m_Move.Nodes)
-		{
-			if (std::optional<uint32_t> const node = m_Canvas.FindNode(element))
+			// The moved nodes and comments, tested at their preview places, so the drag never rebuilds the index.
+			m_NodeMoved.assign(nodes.size(), 0);
+			for (uint32_t const element : m_Move.Elements)
 			{
-				m_NodeMoved[*node] = 1;
-				m_DynamicNodes.push_back(*node);
-				for (uint32_t const link : m_Canvas.GetIncidentLinks(*node))
+				if (std::optional<uint32_t> const node = m_Canvas.FindNode(element))
 				{
-					m_DynamicLinks.push_back(link);
+					m_NodeMoved[*node] = 1;
+					m_DynamicNodes.push_back(*node);
+				}
+				else if (std::optional<uint32_t> const comment = m_Canvas.FindComment(element))
+				{
+					m_DynamicComments.push_back(*comment);
 				}
 			}
 		}
-		m_Index.SetDynamic(m_DynamicNodes, m_DynamicLinks);
+		else if (m_Gesture == VisualScriptGesture::ResizingComment)
+		{
+			if (std::optional<uint32_t> const comment = m_Canvas.FindComment(m_Resize.Comment))
+			{
+				m_DynamicComments.push_back(*comment);
+			}
+		}
+		else if (m_Gesture == VisualScriptGesture::Wiring && m_Wire.Expanded)
+		{
+			// Drawn expanded, its pins anchor on its rows.
+			if (std::optional<uint32_t> const node = m_Canvas.FindNode(*m_Wire.Expanded))
+			{
+				m_DynamicNodes.push_back(*node);
+			}
+		}
+		for (uint32_t const node : m_DynamicNodes)
+		{
+			for (uint32_t const link : m_Canvas.GetIncidentLinks(node))
+			{
+				m_DynamicLinks.push_back(link);
+				// A reroute faces its first target: when that target is drawn elsewhere the reroute may turn, which changes
+				// the shape of every wire of the reroute. (A reroute's own anchor is its dot whichever way it faces, so this
+				// goes one reroute deep.)
+				VisualScriptLinkVisual const& visual = links[link];
+				uint32_t const reroute = visual.FromNode;
+				if (visual.ToNode == node && reroute != node && nodes[reroute].Shape == VisualScriptNodeShape::Reroute &&
+				    m_Canvas.GetFirstOutgoingLink(reroute) == link)
+				{
+					for (uint32_t const rerouteLink : m_Canvas.GetIncidentLinks(reroute))
+					{
+						m_DynamicLinks.push_back(rerouteLink);
+					}
+				}
+			}
+		}
+		std::sort(m_DynamicLinks.begin(), m_DynamicLinks.end());
+		m_DynamicLinks.erase(std::unique(m_DynamicLinks.begin(), m_DynamicLinks.end()), m_DynamicLinks.end());
+		m_Index.SetDynamic(m_DynamicNodes, m_DynamicComments, m_DynamicLinks);
+	}
+
+	void VisualScriptEditorModel::QueryDrawn(VisualScriptRect const& rect, uint8_t kindMask, std::vector<uint32_t>& out,
+	                                         VisualScriptIndexStats* stats) const
+	{
+		using ItemKind = VisualScriptSpatialIndex::ItemKind;
+		m_Index.Query(rect, kindMask, out, stats);
+		VisualScriptNodePreview const preview = GetNodePreview();
+		if ((kindMask & VisualScriptSpatialIndex::NodeMask) != 0)
+		{
+			std::span<VisualScriptNodeVisual const> const nodes = m_Canvas.GetNodes();
+			for (uint32_t const node : m_DynamicNodes)
+			{
+				VisualScriptNodeVisual const& visual = nodes[node];
+				glm::vec2 const offset = preview.GetOffset(node);
+				VisualScriptRect bounds = VisualScriptGeometry::Translate(visual.VisualBounds, offset);
+				if (preview.Expanded == node)
+				{
+					VisualScriptNodeVisual const expanded = VisualScriptGeometry::GetExpandedNode(visual);
+					bounds = VisualScriptGeometry::Unite(bounds, VisualScriptGeometry::GetNodeRect(expanded, offset));
+				}
+				if (VisualScriptGeometry::Intersects(bounds, rect))
+				{
+					out.push_back(VisualScriptSpatialIndex::MakeItem(ItemKind::Node, node));
+				}
+			}
+		}
+		if ((kindMask & VisualScriptSpatialIndex::CommentMask) != 0)
+		{
+			std::span<VisualScriptCommentVisual const> const comments = m_Canvas.GetComments();
+			for (uint32_t const comment : m_DynamicComments)
+			{
+				VisualScriptCommentVisual const& visual = comments[comment];
+				bool const resized = m_Gesture == VisualScriptGesture::ResizingComment && visual.ID == m_Resize.Comment;
+				VisualScriptRect const bounds = resized ? m_Resize.Rect : VisualScriptGeometry::Translate(visual.Rect, m_Move.Offset);
+				if (VisualScriptGeometry::Intersects(bounds, rect))
+				{
+					out.push_back(VisualScriptSpatialIndex::MakeItem(ItemKind::Comment, comment));
+				}
+			}
+		}
+		if ((kindMask & VisualScriptSpatialIndex::LinkMask) != 0)
+		{
+			for (uint32_t const link : m_DynamicLinks)
+			{
+				if (VisualScriptGeometry::Intersects(VisualScriptGeometry::GetLinkBounds(m_Canvas, link, preview), rect))
+				{
+					out.push_back(VisualScriptSpatialIndex::MakeItem(ItemKind::Link, link));
+				}
+			}
+		}
 	}
 
 	void VisualScriptEditorModel::PruneToCanvas()

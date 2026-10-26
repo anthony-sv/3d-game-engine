@@ -224,9 +224,15 @@ namespace Strada
 	// A right click on an element (a press and release within the click threshold): the panel opens that element's menu.
 	struct VisualScriptContextMenuIntent
 	{
-		// What was under the mouse at the press.
+		// What was under the mouse at the press. A pin's Target.Pin is its index in the visual model as laid out in the frame
+		// the intent is emitted (found again by name at the release); a menu that stays open over later frames keeps Pin below.
 		VisualScriptHit Target;
 		glm::vec2 ScreenPosition{0.0f};
+		// Pin: the pin by its name as the canvas knows it (as intents name pins), of PinDirection. WholeSide: it is a collapsed
+		// node's anchor, which stands for every pin of its side (Pin names the side's first pin).
+		std::optional<VisualScriptPinReference> Pin;
+		VisualScriptPinDirection PinDirection = VisualScriptPinDirection::In;
+		bool WholeSide = false;
 	};
 
 	// A keyboard or menu action that edits, or that the panel handles (find, the shortcut sheet).
@@ -603,6 +609,18 @@ namespace Strada
 		// The nodes drawn moved (the move preview) and expanded (under a dragged wire) this frame, by node index: what the
 		// renderer passes to VisualScriptGeometry. Valid until the next Sync or Update.
 		VisualScriptNodePreview GetNodePreview() const;
+		// The spatial index's dynamic items this frame, by index of the visual model: the moved nodes and comments, the comment
+		// being resized, a collapsed node drawn expanded under a dragged wire, and the wires whose shape follows them (their
+		// own, and every wire of a reroute whose first target is one of those nodes, since the reroute may turn). Index
+		// queries leave them out, as their stored bounds are not where they are drawn. Valid until the next Sync or Update.
+		std::span<uint32_t const> GetDynamicNodes() const { return m_DynamicNodes; }
+		std::span<uint32_t const> GetDynamicComments() const { return m_DynamicComments; }
+		std::span<uint32_t const> GetDynamicLinks() const { return m_DynamicLinks; }
+		// What is drawn within a canvas rectangle this frame, as VisualScriptSpatialIndex items of the kinds in kindMask: the
+		// index's query, and the dynamic items whose bounds where they are drawn (GetNodePreview, the gesture's move offset and
+		// resized rectangle) intersect it. Replaces out's contents. The renderer culls with it.
+		void QueryDrawn(VisualScriptRect const& rect, uint8_t kindMask, std::vector<uint32_t>& out,
+		                VisualScriptIndexStats* stats = nullptr) const;
 		VisualScriptMinimapState const& GetMinimap() const { return m_Minimap; }
 		// The links this window's own commit added to the shown graph, reported for the frame of that commit's Sync (the
 		// renderer pulses them).
@@ -652,7 +670,8 @@ namespace Strada
 			bool Alt = false;
 			// Element: the click (no drag) replaces the selection with it, or with Ctrl removes it.
 			bool DecideOnRelease = false;
-			// Pin: the pin's node, name as the canvas knows it, and direction, and whether it is linked.
+			// Pin, and a right press on a pin: the pin's node, name as the canvas knows it, and direction, and whether it is
+			// linked. Kept by name, since a layout during the press (an analysis, a commit) may move pin indices.
 			uint32_t PinNode = 0;
 			std::string Pin;
 			VisualScriptPinDirection Direction = VisualScriptPinDirection::In;
@@ -770,6 +789,9 @@ namespace Strada
 		bool IsInCanvas(glm::vec2 screenPoint) const;
 		// What a screen point is over: nothing outside the canvas, where nothing is drawn.
 		VisualScriptHit HitTest(glm::vec2 mouse, bool skipMoved = false);
+		// The same into m_Hover, reusing the strings it holds: hovering a wire allocates nothing from frame to frame.
+		void UpdateHover(glm::vec2 mouse);
+		VisualScriptHitContext MakeHitContext(bool skipMoved);
 		void UpdateMinimap(double deltaTime, bool first);
 		void ApplyPendingView(double time);
 		// Whether Space was held during the frame (its keys then type).
@@ -789,6 +811,8 @@ namespace Strada
 		bool HandleDoubleClick(VisualScriptCanvasInput const& input, std::vector<VisualScriptEditorIntent>& intents);
 		void PressElement(uint32_t element, VisualScriptCanvasInput const& input);
 		void PressPin(VisualScriptCanvasInput const& input, std::vector<VisualScriptEditorIntent>& intents);
+		// Keeps the hovered pin in the press by name (PinNode, Pin, Direction, PinLinked); false when it is not on the canvas.
+		bool KeepPressedPin();
 		void ContinuePress(VisualScriptCanvasInput const& input, double deltaTime, std::vector<VisualScriptEditorIntent>& intents);
 		void StartDrag(VisualScriptCanvasInput const& input);
 		void Click(VisualScriptCanvasInput const& input, std::vector<VisualScriptEditorIntent>& intents);
@@ -836,7 +860,7 @@ namespace Strada
 		void Raise(uint32_t node);
 		void RebuildSelectionMasks();
 		void RebuildRaise();
-		void RebuildMoved();
+		void RebuildDynamic();
 		void PruneToCanvas();
 		std::vector<uint32_t> GetAllElements() const;
 		void Frame(std::span<uint32_t const> elements, double time);
@@ -958,8 +982,9 @@ namespace Strada
 		glm::vec2 m_PanLast{0.0f};
 		// Canvas units: where the marquee and the cut line end.
 		glm::vec2 m_GestureCanvas{0.0f};
-		// The moved nodes and their links as index items (SetDynamic's input).
+		// The index's dynamic items (SetDynamic's input), by model index.
 		std::vector<uint32_t> m_DynamicNodes;
+		std::vector<uint32_t> m_DynamicComments;
 		std::vector<uint32_t> m_DynamicLinks;
 		MoveState m_Move;
 		WireState m_Wire;

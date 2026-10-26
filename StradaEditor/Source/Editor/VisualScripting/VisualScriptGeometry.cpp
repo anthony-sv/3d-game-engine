@@ -349,11 +349,18 @@ namespace Strada::VisualScriptGeometry
 		return origin + pin.Anchor;
 	}
 
-	VisualScriptRect GetPinHitRect(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, float minimumCu, glm::vec2 offset)
+	bool ArePinLabelsDrawn(VisualScriptDetailLevel level, float zoom)
+	{
+		return level == VisualScriptDetailLevel::Detail ||
+		       (level == VisualScriptDetailLevel::Compact && Metrics::IsTextVisible(Metrics::PinLabelTextSize, zoom));
+	}
+
+	VisualScriptRect GetPinHitRect(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, float minimumCu, glm::vec2 offset,
+	                               bool labelRows)
 	{
 		glm::vec2 const anchor = GetPinAnchor(node, pin, offset);
 		VisualScriptRect const around = MakeSquare(anchor, std::max(minimumCu, 0.0f));
-		if (node.HasFlag(VisualScriptNodeFlags::Collapsed) && node.Shape == VisualScriptNodeShape::Standard)
+		if (!labelRows || (node.HasFlag(VisualScriptNodeFlags::Collapsed) && node.Shape == VisualScriptNodeShape::Standard))
 		{
 			return around;
 		}
@@ -433,9 +440,9 @@ namespace Strada::VisualScriptGeometry
 		return GetWireControlPoints(from, to, ends);
 	}
 
-	VisualScriptRect GetLinkBounds(VisualScriptCanvasModel const& model, uint32_t link)
+	VisualScriptRect GetLinkBounds(VisualScriptCanvasModel const& model, uint32_t link, VisualScriptNodePreview const& preview)
 	{
-		return Expand(GetWireBounds(GetLinkControlPoints(model, link)), WireBoundsMargin);
+		return Expand(GetWireBounds(GetLinkControlPoints(model, link, preview)), WireBoundsMargin);
 	}
 
 	WireFlattening GetWireFlattening(VisualScriptDetailLevel level, float curveTessellationTolerance)

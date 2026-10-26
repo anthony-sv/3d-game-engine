@@ -43,7 +43,7 @@ namespace
 
 		// Every item of the kinds whose bounds (as the index holds them) intersect the rectangle, dynamic ones left out.
 		std::vector<uint32_t> Scan(VisualScriptRect const& rect, uint8_t mask, std::vector<uint8_t> const& dynamicNodes = {},
-		                           std::vector<uint8_t> const& dynamicLinks = {}) const
+		                           std::vector<uint8_t> const& dynamicLinks = {}, std::vector<uint8_t> const& dynamicComments = {}) const
 		{
 			std::vector<uint32_t> found;
 			auto const scan = [&](Index::ItemKind kind, size_t count, uint8_t bit, std::vector<uint8_t> const& dynamic)
@@ -63,7 +63,7 @@ namespace
 				}
 			};
 			scan(Index::ItemKind::Node, Model.GetNodes().size(), Index::NodeMask, dynamicNodes);
-			scan(Index::ItemKind::Comment, Model.GetComments().size(), Index::CommentMask, {});
+			scan(Index::ItemKind::Comment, Model.GetComments().size(), Index::CommentMask, dynamicComments);
 			scan(Index::ItemKind::Link, Model.GetLinks().size(), Index::LinkMask, dynamicLinks);
 			std::sort(found.begin(), found.end());
 			return found;
@@ -164,12 +164,14 @@ TEST_CASE("VisualScriptEditor: the spatial index leaves dynamic items out until 
 	std::vector<uint32_t> const all = graph.Query(everything, Index::AllMask);
 	REQUIRE(all.size() == graph.Model.GetNodes().size() + graph.Model.GetLinks().size() + graph.Model.GetComments().size());
 
-	// A moved node and its wires.
+	// A moved node and its wires, and a moved comment.
 	std::vector<uint32_t> const nodes = {5};
 	std::span<uint32_t const> const incident = graph.Model.GetIncidentLinks(5);
 	std::vector<uint32_t> const links(incident.begin(), incident.end());
 	REQUIRE_FALSE(links.empty());
-	graph.Grid.SetDynamic(nodes, links);
+	REQUIRE_FALSE(graph.Model.GetComments().empty());
+	std::vector<uint32_t> const comments = {0};
+	graph.Grid.SetDynamic(nodes, comments, links);
 	std::vector<uint8_t> dynamicNodes(graph.Model.GetNodes().size(), 0);
 	dynamicNodes[5] = 1;
 	std::vector<uint8_t> dynamicLinks(graph.Model.GetLinks().size(), 0);
@@ -177,20 +179,23 @@ TEST_CASE("VisualScriptEditor: the spatial index leaves dynamic items out until 
 	{
 		dynamicLinks[link] = 1;
 	}
+	std::vector<uint8_t> dynamicComments(graph.Model.GetComments().size(), 0);
+	dynamicComments[0] = 1;
 	std::vector<uint32_t> const moving = graph.Query(everything, Index::AllMask);
-	CHECK(moving == graph.Scan(everything, Index::AllMask, dynamicNodes, dynamicLinks));
-	CHECK(moving.size() == all.size() - 1 - links.size());
+	CHECK(moving == graph.Scan(everything, Index::AllMask, dynamicNodes, dynamicLinks, dynamicComments));
+	CHECK(moving.size() == all.size() - 2 - links.size());
 	CHECK(std::find(moving.begin(), moving.end(), Index::MakeItem(Index::ItemKind::Node, 5)) == moving.end());
+	CHECK(std::find(moving.begin(), moving.end(), Index::MakeItem(Index::ItemKind::Comment, 0)) == moving.end());
 
 	// Cleared, and rebuilt.
-	graph.Grid.SetDynamic({}, {});
+	graph.Grid.SetDynamic({}, {}, {});
 	CHECK(graph.Query(everything, Index::AllMask) == all);
-	graph.Grid.SetDynamic(nodes, links);
+	graph.Grid.SetDynamic(nodes, comments, links);
 	graph.Grid.Build(graph.Model);
 	CHECK(graph.Query(everything, Index::AllMask) == all);
 	// Out-of-range indices are ignored.
 	std::vector<uint32_t> const wrong = {100000};
-	graph.Grid.SetDynamic(wrong, wrong);
+	graph.Grid.SetDynamic(wrong, wrong, wrong);
 	CHECK(graph.Query(everything, Index::AllMask) == all);
 }
 

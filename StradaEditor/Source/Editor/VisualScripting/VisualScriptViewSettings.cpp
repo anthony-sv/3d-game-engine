@@ -694,6 +694,26 @@ namespace Strada
 				m_Views = Deserialize(json.GetValue(), warnings);
 			}
 		}
+		// Projects are keyed by their normalized path, as SetProject normalizes the current one.
+		std::vector<VisualScriptProjectViews>& projects = m_Views.Projects;
+		for (size_t index = 0; index < projects.size();)
+		{
+			std::filesystem::path normalized = RecentProjects::NormalizePath(projects[index].Project);
+			bool const repeated = std::any_of(projects.begin(), projects.begin() + static_cast<std::ptrdiff_t>(index),
+			                                  [&normalized](VisualScriptProjectViews const& earlier)
+			                                  {
+												  return earlier.Project == normalized;
+											  });
+			if (repeated)
+			{
+				warnings.push_back(fmt::format("VisualScriptViews.Projects: '{}' is the file of an earlier project; skipped",
+				                               FileSystem::PathToUtf8(projects[index].Project)));
+				projects.erase(projects.begin() + static_cast<std::ptrdiff_t>(index));
+				continue;
+			}
+			projects[index].Project = std::move(normalized);
+			index++;
+		}
 		UseProject();
 		std::string const file = FileSystem::PathToUtf8(m_File);
 		for (std::string& warning : warnings)

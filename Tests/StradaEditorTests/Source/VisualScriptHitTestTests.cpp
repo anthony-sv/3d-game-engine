@@ -199,10 +199,26 @@ TEST_CASE("VisualScriptEditor: a pin is hit only on the topmost node under the m
 	CheckHit(fixture.Hit(covered), VisualScriptHitKind::Pin, 1);
 	fixture.Z[fixture.NodeIndex(1)] = 0;
 
-	// At Overview pins are dots and still hit; at Far only nodes are.
+	// Where pin labels are drawn (Detail, and Compact from 13 z >= 7), a pin is hit over its label's row; elsewhere pins are
+	// dots, hit only around their glyphs, and the rest of the row is the node's body (a press there selects and moves it).
 	glm::vec2 const condition = fixture.Anchor(2, "Condition");
-	fixture.SetZoom(0.3f);
+	glm::vec2 const conditionRow = condition + glm::vec2(40.0f, 0.0f);
+	CheckHit(fixture.Hit(conditionRow), VisualScriptHitKind::Pin, 2);
+	fixture.SetZoom(0.6f);
+	REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Compact);
+	CHECK(Geometry::ArePinLabelsDrawn(VisualScriptDetailLevel::Compact, 0.6f));
+	CheckHit(fixture.Hit(conditionRow), VisualScriptHitKind::Pin, 2);
+	fixture.SetZoom(0.5f);
+	REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Compact);
+	CHECK_FALSE(Geometry::ArePinLabelsDrawn(VisualScriptDetailLevel::Compact, 0.5f));
+	CheckHit(fixture.Hit(conditionRow), VisualScriptHitKind::Node, 2);
 	CheckHit(fixture.Hit(condition), VisualScriptHitKind::Pin, 2);
+
+	// At Overview pins are dots and still hit around their glyphs; at Far only nodes are.
+	fixture.SetZoom(0.3f);
+	CHECK_FALSE(Geometry::ArePinLabelsDrawn(VisualScriptDetailLevel::Overview, 0.3f));
+	CheckHit(fixture.Hit(condition), VisualScriptHitKind::Pin, 2);
+	CheckHit(fixture.Hit(conditionRow), VisualScriptHitKind::Node, 2);
 	fixture.SetZoom(0.1f);
 	CHECK(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Far);
 	CHECK(fixture.Hit(condition).Kind != VisualScriptHitKind::Pin);
@@ -243,11 +259,12 @@ TEST_CASE("VisualScriptEditor: moved nodes and their wires are hit where the mov
 	std::vector<uint32_t> const nodes = {branch};
 	std::span<uint32_t const> const incident = fixture.Model.GetIncidentLinks(branch);
 	std::vector<uint32_t> const links(incident.begin(), incident.end());
-	fixture.Index.SetDynamic(nodes, links);
+	fixture.Index.SetDynamic(nodes, {}, links);
 	std::vector<uint8_t> moved(fixture.Model.GetNodes().size(), 0);
 	moved[branch] = 1;
 	fixture.Context.Preview.Moved = moved;
 	fixture.Context.Preview.Offset = glm::vec2(0.0f, 300.0f);
+	fixture.Context.DynamicLinks = links;
 
 	glm::vec2 const body(400.0f + 90.0f, 100.0f + 81.0f);
 	CheckHit(fixture.Hit(body), VisualScriptHitKind::Background);
@@ -315,7 +332,7 @@ TEST_CASE("VisualScriptEditor: a node comment's bubble is hit as its node where 
 	uint32_t const moved = fixture.NodeIndex(1);
 	VisualScriptRect const rect = Geometry::GetNodeRect(fixture.Model.GetNodes()[moved]);
 	std::vector<uint32_t> const dynamic = {moved};
-	fixture.Index.SetDynamic(dynamic, {});
+	fixture.Index.SetDynamic(dynamic, {}, {});
 	std::vector<uint8_t> movedMask(fixture.Model.GetNodes().size(), 0);
 	movedMask[moved] = 1;
 	fixture.Context.Preview.Moved = movedMask;

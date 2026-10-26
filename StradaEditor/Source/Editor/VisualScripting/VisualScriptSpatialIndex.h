@@ -25,8 +25,9 @@ namespace Strada
 
 	// A uniform grid over the visual model's nodes, comments and wires, so culling and hit testing touch only what is near a
 	// rectangle: a query costs O(cells + candidates), not O(graph). It is rebuilt when the visual model's geometry changes
-	// (VisualScriptCanvasModel::Sync returns true). While a gesture moves nodes, they and their wires are dynamic: queries leave
-	// them out and the caller tests them at their preview places, so dragging never rebuilds the index. Main thread only.
+	// (VisualScriptCanvasModel::Sync returns true). While a gesture moves or reshapes items (moved nodes and comments, a resized
+	// comment, a collapsed node drawn expanded, and the wires whose shape follows them) they are dynamic: queries leave them out
+	// and the caller tests them at their preview places, so dragging never rebuilds the index. Main thread only.
 	class VisualScriptSpatialIndex
 	{
 	public:
@@ -64,9 +65,9 @@ namespace Strada
 		// Indexes every node, comment and link of the model, and clears the dynamic items. Reuses its buffers: rebuilding an
 		// unchanged model allocates nothing.
 		void Build(VisualScriptCanvasModel const& model);
-		// Leaves these nodes and links (model indices) out of query results until the next SetDynamic or Build; empty spans
-		// clear it.
-		void SetDynamic(std::span<uint32_t const> nodes, std::span<uint32_t const> links);
+		// Leaves these nodes, comments and links (model indices) out of query results until the next SetDynamic or Build;
+		// empty spans clear it. Indices beyond the model's are ignored.
+		void SetDynamic(std::span<uint32_t const> nodes, std::span<uint32_t const> comments, std::span<uint32_t const> links);
 		// The items of the kinds in kindMask whose bounds intersect rect (canvas units), each once, dynamic ones left out, in
 		// no particular order: replaces out's contents. Adds to stats when given.
 		void Query(VisualScriptRect const& rect, uint8_t kindMask, std::vector<uint32_t>& out,

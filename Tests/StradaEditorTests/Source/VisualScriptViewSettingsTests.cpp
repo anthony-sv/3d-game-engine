@@ -118,7 +118,8 @@ TEST_CASE("VisualScriptViews: every member round-trips through the file, and a f
 
 	REQUIRE(views.Projects.size() == 2);
 	VisualScriptProjectViews const& blocks = views.Projects[0];
-	CHECK(blocks.Project == FileSystem::PathFromUtf8("C:/Games/Blocks/Blocks.sproj"));
+	// Projects are keyed by their normalized path (absolute on every platform).
+	CHECK(blocks.Project == RecentProjects::NormalizePath(FileSystem::PathFromUtf8("C:/Games/Blocks/Blocks.sproj")));
 	CHECK(blocks.Open == std::vector<AssetHandle>{MakeHandle(8146390251172604461ull), MakeHandle(1202590842880147981ull)});
 	REQUIRE(blocks.Graphs.size() == 2);
 	VisualScriptGraphViews const& player = blocks.Graphs[0];
@@ -134,7 +135,7 @@ TEST_CASE("VisualScriptViews: every member round-trips through the file, and a f
 	REQUIRE(player.FindBookmark(1) != nullptr);
 	CHECK(player.FindBookmark(1)->Name == "Scoring");
 	CHECK(player.FindBookmark(2) == nullptr);
-	CHECK(views.Projects[1].Project == FileSystem::PathFromUtf8("/home/player/Games/Orbit/Orbit.sproj"));
+	CHECK(views.Projects[1].Project == RecentProjects::NormalizePath(FileSystem::PathFromUtf8("/home/player/Games/Orbit/Orbit.sproj")));
 	CHECK(views.Projects[1].FindGraph(MakeHandle(6917529027641081857ull)) != nullptr);
 	CHECK(views.Projects[1].FindGraph(MakeHandle(8146390251172604461ull)) == nullptr);
 
@@ -636,6 +637,55 @@ TEST_CASE("VisualScriptViews: graphs are kept per project, keyed by the project 
 	CHECK(settings.FindGraph(door) == nullptr);
 	REQUIRE(settings.Save().IsOk());
 	CHECK(LoadCleanly(settings.GetFile()) == settings.GetViews());
+}
+
+TEST_CASE("VisualScriptViews: a project's entry is found by any spelling of its file, also after a rename of its directory's letter case")
+{
+	Testing::TemporaryDirectory temporary;
+	std::filesystem::path const file = temporary.GetPath() / "VisualScriptViews.json";
+	std::filesystem::path const game = temporary.GetPath() / "Game" / "Game.sproj";
+	REQUIRE(FileSystem::WriteTextFile(game, "{}").IsOk());
+	AssetHandle const player = MakeHandle(8146390251172604461ull);
+	AssetHandle const door = MakeHandle(1202590842880147981ull);
+
+	// A hand-written file names the project with a "." part, and again as it is spelled: one project, the later entry
+	// skipped with a warning.
+	VisualScriptViews written;
+	VisualScriptProjectViews dotted;
+	dotted.Project = temporary.GetPath() / "Game" / "." / "Game.sproj";
+	dotted.Open = {player};
+	VisualScriptProjectViews plain;
+	plain.Project = game;
+	plain.Open = {door};
+	written.Projects = {dotted, plain};
+	WriteJson(file, VisualScriptViewSettings::Serialize(written));
+	VisualScriptViewSettings settings(file);
+	std::vector<std::string> const warnings = settings.Load();
+	CHECK(warnings.size() == 1);
+	CHECK(AnyContains(warnings, "is the file of an earlier project; skipped"));
+	REQUIRE(settings.GetViews().Projects.size() == 1);
+	CHECK(settings.GetViews().Projects.front().Project == RecentProjects::NormalizePath(game));
+	settings.SetProject(game);
+	CHECK(settings.GetViews().Projects.size() == 1);
+	CHECK(std::vector<AssetHandle>(settings.GetOpenGraphs().begin(), settings.GetOpenGraphs().end()) == std::vector<AssetHandle>{player});
+	REQUIRE(settings.Save().IsOk());
+	CHECK(LoadCleanly(file) == settings.GetViews());
+
+	// Where file systems ignore letter case, the project's directory renamed in letter case only is the same project: its
+	// entry, kept under the old spelling, is found by the new one.
+	if (Testing::IgnoresLetterCase(temporary.GetPath()))
+	{
+		std::error_code error;
+		std::filesystem::rename(temporary.GetPath() / "Game", temporary.GetPath() / "game", error);
+		REQUIRE_MESSAGE(!error, error.message());
+		std::filesystem::path const renamed = temporary.GetPath() / "game" / "Game.sproj";
+		VisualScriptViewSettings reloaded(file);
+		CHECK(reloaded.Load().empty());
+		reloaded.SetProject(renamed);
+		CHECK(reloaded.GetViews().Projects.size() == 1);
+		CHECK(std::vector<AssetHandle>(reloaded.GetOpenGraphs().begin(), reloaded.GetOpenGraphs().end()) ==
+		      std::vector<AssetHandle>{player});
+	}
 }
 
 TEST_CASE("VisualScriptViews: damaged files load or start empty, and what loads saves and loads again")

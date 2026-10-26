@@ -205,7 +205,8 @@ namespace Strada
 		}
 	}
 
-	void VisualScriptSpatialIndex::SetDynamic(std::span<uint32_t const> nodes, std::span<uint32_t const> links)
+	void VisualScriptSpatialIndex::SetDynamic(std::span<uint32_t const> nodes, std::span<uint32_t const> comments,
+	                                          std::span<uint32_t const> links)
 	{
 		for (uint32_t const flat : m_DynamicItems)
 		{
@@ -228,6 +229,10 @@ namespace Strada
 		for (uint32_t const node : nodes)
 		{
 			mark(ItemKind::Node, node, m_NodeCount);
+		}
+		for (uint32_t const comment : comments)
+		{
+			mark(ItemKind::Comment, comment, m_CommentCount);
 		}
 		for (uint32_t const link : links)
 		{

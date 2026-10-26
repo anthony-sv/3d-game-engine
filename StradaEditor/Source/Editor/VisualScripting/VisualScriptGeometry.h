@@ -128,10 +128,15 @@ namespace Strada
 		// Where the pin's wires end: its glyph's centre; for a collapsed node, the middle of its header's left edge (inputs) or
 		// right edge (outputs).
 		glm::vec2 GetPinAnchor(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, glm::vec2 offset = {});
-		// Where pressing starts a wire from the pin: its row up to the end of its label, and at least minimumCu around its
-		// anchor (a collapsed node's pins: around the anchor only).
+		// Whether pins are drawn with their labels at a level and zoom: at Detail, and at Compact while PinLabelTextSize text
+		// is drawn (13 z >= 7). Elsewhere pins are dots without labels, hit only around their glyphs, so that pressing a node's
+		// body there selects and moves it. The renderer draws pin labels by the same rule.
+		bool ArePinLabelsDrawn(VisualScriptDetailLevel level, float zoom);
+		// Where pressing starts a wire from the pin: its row up to the end of its label when labelRows (ArePinLabelsDrawn), and
+		// at least minimumCu around its anchor (a collapsed node's pins, and every pin without labelRows: around the anchor
+		// only).
 		VisualScriptRect GetPinHitRect(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, float minimumCu,
-		                               glm::vec2 offset = {});
+		                               glm::vec2 offset = {}, bool labelRows = true);
 		// The label's box (its measured width, PinLabelTextSize high, centred on the row): after the glyph for inputs, before it
 		// for outputs. Empty for unlabelled pins (LabelHidden, compact shapes).
 		VisualScriptRect GetPinLabelRect(VisualScriptNodeVisual const& node, VisualScriptPinVisual const& pin, glm::vec2 offset = {});
@@ -153,8 +158,9 @@ namespace Strada
 		// reroutes at its ends.
 		std::array<glm::vec2, 4> GetLinkControlPoints(VisualScriptCanvasModel const& model, uint32_t link,
 		                                              VisualScriptNodePreview const& preview = {});
-		// What the spatial index holds for a link: the box of its stored control points, WireBoundsMargin larger.
-		VisualScriptRect GetLinkBounds(VisualScriptCanvasModel const& model, uint32_t link);
+		// What the spatial index holds for a link: the box of its stored control points, WireBoundsMargin larger; with a
+		// preview, of the control points it is drawn with.
+		VisualScriptRect GetLinkBounds(VisualScriptCanvasModel const& model, uint32_t link, VisualScriptNodePreview const& preview = {});
 		// How finely wires are flattened at a level of detail, given ImGuiStyle::CurveTessellationTol.
 		struct WireFlattening
 		{

@@ -3,7 +3,10 @@
 
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
+#include "Editor/VisualScripting/VisualScriptGeometry.h"
+#include "Editor/VisualScripting/VisualScriptHitTest.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
+#include "Editor/VisualScripting/VisualScriptSpatialIndex.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
@@ -19,6 +22,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <filesystem>
 #include <optional>
@@ -623,6 +627,23 @@ TEST_CASE("VisualScriptEditor: while a widget is used, its preview draws and the
 	// Without a widget, the stored document is analyzed again at once.
 	fixture.Frame();
 	CHECK(fixture.Model.GetAnalysisCount() == 4);
+
+	// An outside change that only writes a literal otherwise (1 as 1.0) is still an outside change, though operator== takes
+	// the documents as equal: the runtime reads another program. The preview is dropped and the node flashes.
+	preview = fixture.Model.GetDisplayDocument();
+	preview.Graph.Nodes[1].Inputs["Duration"] = 7;
+	fixture.Model.SetWidgetPreview(preview);
+	fixture.Frame(true, 0.05);
+	CHECK(chip() == "7");
+	VisualScriptDocument rewritten = *fixture.Model.GetStoredDocument();
+	rewritten.Graph.Nodes[1].Inputs["Duration"] = 1.0;
+	REQUIRE(rewritten == *fixture.Model.GetStoredDocument());
+	REQUIRE_FALSE(HaveSameVisualScriptProgram(rewritten, *fixture.Model.GetStoredDocument()));
+	fixture.GetAsset()->SetDocument(rewritten);
+	fixture.Frame(true, 0.05);
+	CHECK(fixture.GetChanged() == std::vector<uint32_t>{2});
+	CHECK(chip() == "1");
+	CHECK(fixture.Model.GetDisplayDocument().Graph.Nodes[1].Inputs.at("Duration").is_number_float());
 }
 
 TEST_CASE("VisualScriptEditor: each Sync's measurer lays out until the next Sync, also when it has the last one's Signature")
@@ -866,6 +887,35 @@ TEST_CASE("VisualScriptEditor: idle frames of a 10,000-node graph change nothing
 	CHECK(model.GetHover().Kind != VisualScriptHitKind::None);
 	// The failed analysis is not asked for again.
 	CHECK(model.GetAnalysisCount() == 1);
+}
+
+TEST_CASE("VisualScriptEditor: a hover resting on a wire with long pin names allocates nothing from frame to frame")
+{
+	// Pin names longer than a string's small buffer: a custom event's parameter into a Delay.
+	VisualScriptDocument document;
+	VisualScriptNode received = MakeNode(1, "Event.Custom", glm::vec2(0.0f, 0.0f));
+	received.Settings =
+		Json::object({{"Name", "Hit"}, {"Parameters", Json::array({Json::object({{"Name", "DamageAmountReceived"}, {"Type", "float"}})})}});
+	document.Graph.Nodes = {received, MakeNode(2, "Flow.Delay", glm::vec2(600.0f, 200.0f))};
+	VisualScriptLink const link = MakeLink(1, "DamageAmountReceived", 2, "Duration");
+	document.Graph.Links = {link};
+	InteractionFixture fixture(document);
+	fixture.MoveTo(Testing::WirePoint(fixture.Model, link));
+	VisualScriptHit const& hover = fixture.Model.GetHover();
+	REQUIRE(hover.Kind == VisualScriptHitKind::Link);
+	REQUIRE(hover.Link.has_value());
+	CHECK(*hover.Link == link);
+	char const* const name = hover.Link->From.Pin.data();
+	size_t const capacity = fixture.Model.GetCapacityBytes();
+	for (int frame = 0; frame < 10; frame++)
+	{
+		fixture.Frame();
+		REQUIRE(hover.Link.has_value());
+		CHECK(*hover.Link == link);
+		// The same string, its name assigned in place.
+		CHECK(hover.Link->From.Pin.data() == name);
+		CHECK(fixture.Model.GetCapacityBytes() == capacity);
+	}
 }
 
 TEST_CASE("VisualScriptEditor: a click selects; Shift adds, Ctrl toggles, and a click on empty canvas clears unless Shift or Ctrl is held")
@@ -1401,6 +1451,45 @@ TEST_CASE(
 	// Pins and wires leave the selection alone.
 	menu = Single<VisualScriptContextMenuIntent>(fixture.Click(Testing::CanvasPoint(model, 2, "Duration"), 1));
 	CHECK(menu.Target.Kind == VisualScriptHitKind::Pin);
+	auto const durationIndex = [&model]()
+	{
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		std::optional<uint32_t> const pin = canvas.FindPin(*canvas.FindNode(2), "Duration", VisualScriptPinDirection::In);
+		REQUIRE(pin.has_value());
+		return *pin;
+	};
+	CHECK(menu.Target.Pin == durationIndex());
+	REQUIRE(menu.Pin.has_value());
+	CHECK(*menu.Pin == VisualScriptPinReference{2, "Duration"});
+	CHECK(menu.PinDirection == VisualScriptPinDirection::In);
+	CHECK_FALSE(menu.WholeSide);
+	// A layout between the press and the release moves the pins' indices (a commit puts a node before the Delay): the menu
+	// names the pin pressed, at its index of now.
+	fixture.MoveTo(Testing::CanvasPoint(model, 2, "Duration"));
+	fixture.Press(1);
+	uint32_t const pressedIndex = durationIndex();
+	VisualScriptDocument document = model.GetDisplayDocument();
+	document.Graph.Nodes.insert(document.Graph.Nodes.begin(), MakeNode(9, "Flow.Sequence", glm::vec2(0.0f, 2000.0f)));
+	fixture.Commit(document);
+	REQUIRE(durationIndex() != pressedIndex);
+	menu = Single<VisualScriptContextMenuIntent>(fixture.Release(1));
+	CHECK(menu.Target.Kind == VisualScriptHitKind::Pin);
+	CHECK(menu.Target.Pin == durationIndex());
+	REQUIRE(menu.Pin.has_value());
+	CHECK(*menu.Pin == VisualScriptPinReference{2, "Duration"});
+	// A collapsed node's anchor stands for its whole side.
+	document.Graph.Nodes[2].Collapsed = true;
+	REQUIRE(document.Graph.Nodes[2].ID == 2);
+	fixture.Commit(document);
+	fixture.Frame();
+	menu = Single<VisualScriptContextMenuIntent>(fixture.Click(Testing::CanvasPoint(model, 2, "Duration"), 1));
+	CHECK(menu.Target.Kind == VisualScriptHitKind::Pin);
+	CHECK(menu.WholeSide);
+	REQUIRE(menu.Pin.has_value());
+	CHECK(menu.Pin->Node == 2);
+	document.Graph.Nodes[2].Collapsed = false;
+	fixture.Commit(document);
+	fixture.Frame();
 	menu = Single<VisualScriptContextMenuIntent>(fixture.Click(Testing::WirePoint(model, MakeLink(1, "Then", 2, "Execute")), 1));
 	CHECK(menu.Target.Kind == VisualScriptHitKind::Link);
 	CHECK(menu.Target.Link == std::optional<VisualScriptLink>(MakeLink(1, "Then", 2, "Execute")));
@@ -1984,6 +2073,100 @@ TEST_CASE("VisualScriptEditor: a single unlinked node resting 0.3 s on a wire it
 	fixture.MoveTo(wire, 0.35);
 	CHECK(model.GetGesture().SpliceTarget == nullptr);
 	fixture.Release();
+}
+
+TEST_CASE(
+	"VisualScriptEditor: during a drag, moved comments and the wires of a reroute that faces a moved node are drawn and hit where they are drawn")
+{
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.Update", glm::vec2(0.0f, 0.0f)), MakeNode(2, "Reroute", glm::vec2(600.0f, 300.0f)),
+	                        MakeNode(3, "Flow.Branch", glm::vec2(900.0f, 300.0f))};
+	document.Graph.Links = {MakeLink(1, "Then", 2, "In"), MakeLink(2, "Out", 3, "Execute")};
+	VisualScriptComment box;
+	box.ID = 20;
+	box.Text = "Box";
+	box.Position = glm::vec2(0.0f, 600.0f);
+	box.Size = glm::vec2(300.0f, 160.0f);
+	document.Graph.Comments = {box};
+	InteractionFixture fixture(document);
+	VisualScriptEditorModel const& model = fixture.Model;
+	VisualScriptCanvasModel const& canvas = model.GetCanvas();
+	uint32_t const update = *canvas.FindNode(1);
+	uint32_t const reroute = *canvas.FindNode(2);
+	std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+	auto const findLink = [&links](uint32_t from, uint32_t to)
+	{
+		for (uint32_t link = 0; link < links.size(); link++)
+		{
+			if (links[link].FromNode == from && links[link].ToNode == to)
+			{
+				return link;
+			}
+		}
+		FAIL("no such link");
+		return 0u;
+	};
+	uint32_t const intoReroute = findLink(update, reroute);
+
+	// The Branch dragged left of the reroute: the reroute turns to face it, so its incoming wire bends out to the right, past
+	// the bounds the index holds for it. That wire is dynamic, drawn and hit where it is drawn.
+	glm::vec2 const branch = Testing::CanvasPoint(model, 3, glm::vec2(0.5f, 0.15f));
+	fixture.Drag(branch, branch - glm::vec2(500.0f, 0.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::MovingElements);
+	std::span<uint32_t const> const dynamic = model.GetDynamicLinks();
+	CHECK(std::find(dynamic.begin(), dynamic.end(), intoReroute) != dynamic.end());
+	VisualScriptNodePreview const preview = model.GetNodePreview();
+	std::array<glm::vec2, 4> const points = VisualScriptGeometry::GetLinkControlPoints(canvas, intoReroute, preview);
+	glm::vec2 rightmost = points[0];
+	for (int step = 0; step <= 40; step++)
+	{
+		float const t = static_cast<float>(step) / 40.0f;
+		float const u = 1.0f - t;
+		glm::vec2 const point = u * u * u * points[0] + 3.0f * u * u * t * points[1] + 3.0f * u * t * t * points[2] + t * t * t * points[3];
+		if (point.x > rightmost.x)
+		{
+			rightmost = point;
+		}
+	}
+	VisualScriptRect const stored =
+		model.GetIndex().GetBounds(VisualScriptSpatialIndex::MakeItem(VisualScriptSpatialIndex::ItemKind::Link, intoReroute));
+	REQUIRE(rightmost.x > stored.Max.x + 20.0f);
+	VisualScriptHitContext context;
+	context.Selected = model.GetNodeSelection();
+	context.Z = model.GetNodeRaise();
+	context.Preview = preview;
+	context.DynamicLinks = model.GetDynamicLinks();
+	VisualScriptHit const hit = HitTestCanvas(canvas, model.GetIndex(), model.GetView(), context, fixture.Screen(rightmost));
+	CHECK(hit.Kind == VisualScriptHitKind::Link);
+	REQUIRE(hit.Link.has_value());
+	CHECK(*hit.Link == MakeLink(1, "Then", 2, "In"));
+	VisualScriptRect const around{rightmost - glm::vec2(2.0f), rightmost + glm::vec2(2.0f)};
+	std::vector<uint32_t> drawn;
+	model.QueryDrawn(around, VisualScriptSpatialIndex::LinkMask, drawn);
+	CHECK(std::find(drawn.begin(), drawn.end(),
+	                VisualScriptSpatialIndex::MakeItem(VisualScriptSpatialIndex::ItemKind::Link, intoReroute)) != drawn.end());
+	fixture.Release();
+	CHECK(model.GetDynamicLinks().empty());
+
+	// The comment dragged down, out of its stored rectangle: left out of the index's queries, but drawn where the preview has
+	// it.
+	glm::vec2 const title = Testing::CommentPoint(model, 20, glm::vec2(0.5f, 0.1f));
+	fixture.Drag(title, title + glm::vec2(0.0f, 300.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::MovingElements);
+	uint32_t const comment = *canvas.FindComment(20);
+	uint32_t const commentItem = VisualScriptSpatialIndex::MakeItem(VisualScriptSpatialIndex::ItemKind::Comment, comment);
+	CHECK(std::vector<uint32_t>(model.GetDynamicComments().begin(), model.GetDynamicComments().end()) == std::vector<uint32_t>{comment});
+	VisualScriptRect const moved = VisualScriptGeometry::Translate(canvas.GetComments()[comment].Rect, model.GetGesture().MoveOffset);
+	VisualScriptRect const below{glm::vec2(moved.Min.x, canvas.GetComments()[comment].Rect.Max.y + 10.0f), moved.Max};
+	REQUIRE(below.Min.y < below.Max.y);
+	model.GetIndex().Query(below, VisualScriptSpatialIndex::CommentMask, drawn);
+	CHECK(drawn.empty());
+	model.QueryDrawn(below, VisualScriptSpatialIndex::CommentMask, drawn);
+	CHECK(drawn == std::vector<uint32_t>{commentItem});
+	fixture.Release();
+	CHECK(model.GetDynamicComments().empty());
+	model.QueryDrawn(below, VisualScriptSpatialIndex::CommentMask, drawn);
+	CHECK(drawn.empty());
 }
 
 TEST_CASE("VisualScriptEditor: dragging a comment's edge resizes it, snapped, and never below 96 x 64")

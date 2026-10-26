@@ -159,8 +159,10 @@ namespace Strada
 		// Replaces what this holds with the file's content; the current project stays current. A missing file holds the
 		// defaults. A file that cannot be read or parsed, is not a views file or has a newer version is ignored (the
 		// defaults) with one warning; parts of it that are not valid are skipped or clamped into their ranges, each with a
-		// warning, and members this version does not know are ignored. Returns the warnings, which the caller logs: a file
-		// this class wrote has none.
+		// warning, and members this version does not know are ignored. Projects' paths are normalized as
+		// RecentProjects::NormalizePath normalizes them (as they are now on disk: another spelling of the same file, or a
+		// directory renamed in letter case only, finds its entry), and a later entry of the same file is skipped with a
+		// warning. Returns the warnings, which the caller logs: a file this class wrote has none.
 		[[nodiscard]] std::vector<std::string> Load();
 		// Writes the file atomically, creating its directory.
 		[[nodiscard]] Result<void> Save() const;
@@ -170,7 +172,8 @@ namespace Strada
 		// The file's form: { "Strada": { "Version": 1, "Type": "VisualScriptViews" }, "VisualScriptViews": { ... } }, members at
 		// their defaults included, except Scroll, CommentColor and a graph's ContextEntity when they are none.
 		static Json Serialize(VisualScriptViews const& views);
-		// Reads the file's form as Load does: what is valid within the limits, the warnings appended.
+		// Reads the file's form as Load does: what is valid within the limits, the warnings appended. Projects' paths are kept
+		// as written (Load normalizes them, which reads the file system).
 		static VisualScriptViews Deserialize(Json const& file, std::vector<std::string>& warnings);
 
 		// --- Shared by every graph window ---
