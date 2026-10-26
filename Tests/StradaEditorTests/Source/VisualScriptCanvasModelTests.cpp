@@ -465,6 +465,7 @@ TEST_CASE("VisualScriptEditor: value chips show stored literals, pin defaults an
 	canvas.AssetVersion++;
 	canvas.Sync();
 	CHECK(canvas.Model.GetMeasuredNodeCount() == 2);
+	CHECK(canvas.Model.ShowsAssetNames());
 }
 
 TEST_CASE("VisualScriptEditor: literals format as value chips show them")
@@ -539,6 +540,7 @@ TEST_CASE("VisualScriptEditor: a sync lays out only the nodes that changed, and 
 	canvas.Document = Testing::MakeGridGraph(5, 5, 2, 2);
 	CHECK(canvas.Sync());
 	CHECK(canvas.Model.GetMeasuredNodeCount() == 25);
+	CHECK_FALSE(canvas.Model.ShowsAssetNames());
 	size_t const capacity = canvas.Model.GetCapacityBytes();
 
 	// Nothing changed: nothing is laid out, nothing for the index to do, no memory reserved.

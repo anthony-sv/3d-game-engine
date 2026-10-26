@@ -323,7 +323,9 @@ namespace Strada
 	};
 
 	// What the renderer draws of the gesture in progress (all canvas units). Elements are named by ID; the moved and expanded
-	// nodes by index are VisualScriptEditorModel::GetNodePreview's.
+	// nodes by index are VisualScriptEditorModel::GetNodePreview's. A view of the model's own state, made without allocating:
+	// its spans and pointers stay valid until the model's next Sync, Update, CancelGesture or StartWire (copy what is kept
+	// longer).
 	struct VisualScriptGestureView
 	{
 		// Also picks the gesture's hint at the canvas's bottom.
@@ -338,31 +340,36 @@ namespace Strada
 		uint32_t GhostColorFrom = 0;
 		uint32_t GhostColorTo = 0;
 		// Over a pin it cannot connect to, which no Convert bridges: drawn in the Error colour, dashed, with the not-allowed
-		// cursor and a tooltip naming both types.
+		// cursor and a tooltip naming both types (the pin under the mouse is GetHover()'s, the wire's own is WireSource).
 		bool GhostInvalid = false;
+		// Wiring: the pin the wire is dragged from, by its name as the canvas knows it (as intents name pins), of
+		// WireDirection; null for other gestures.
+		VisualScriptPinReference const* WireSource = nullptr;
+		VisualScriptPinDirection WireDirection = VisualScriptPinDirection::Out;
 		std::optional<VisualScriptRect> Marquee;
 		// From the press to the mouse.
 		std::optional<std::pair<glm::vec2, glm::vec2>> CutLine;
-		// Per pin of the visual model (VisualScriptCanvasModel::GetPins), a VisualScriptPinClass while a wire is dragged; every
-		// pin on the screen is classed.
-		std::vector<uint8_t> PinClasses;
+		// While a wire is dragged: per pin of the visual model (by index, as VisualScriptCanvasModel::GetPins), a
+		// VisualScriptPinClass. Every pin on the screen is classed; pins never on the screen during the drag stay None. Empty
+		// for other gestures.
+		std::span<uint8_t const> PinClasses;
 		// The move preview: node and comment IDs, drawn moved by MoveOffset.
-		std::vector<uint32_t> MovedElements;
+		std::span<uint32_t const> MovedElements;
 		glm::vec2 MoveOffset{0.0f};
-		// The wire a dragged node rests on, highlighted: releasing splices the node into it.
-		std::optional<VisualScriptLink> SpliceTarget;
+		// The wire a dragged node rests on, highlighted: releasing splices the node into it. Null when there is none.
+		VisualScriptLink const* SpliceTarget = nullptr;
 		// The wires the cut line crosses, drawn dashed.
-		std::vector<VisualScriptLink> CutLinks;
+		std::span<VisualScriptLink const> CutLinks;
 		// The nodes and comments the marquee would apply to, ascending IDs: drawn with hover outlines.
-		std::vector<uint32_t> MarqueeElements;
+		std::span<uint32_t const> MarqueeElements;
 		// A comment being resized: drawn at ResizedRect; ResizeEdges are VisualScriptGeometry::LeftEdge... (the resize cursor).
 		std::optional<uint32_t> ResizedComment;
 		VisualScriptRect ResizedRect;
 		uint8_t ResizeEdges = 0;
 		// Relinking: the links picked up (their wires are not drawn) and their ghosts, from each far end to the mouse or the
 		// pin it snaps to, in the same order.
-		std::vector<VisualScriptLink> PickedLinks;
-		std::vector<std::array<glm::vec2, 4>> PickedWires;
+		std::span<VisualScriptLink const> PickedLinks;
+		std::span<std::array<glm::vec2, 4> const> PickedWires;
 	};
 
 	// The minimap as the model hit-tests it and the renderer draws it.
@@ -508,9 +515,11 @@ namespace Strada
 
 		// Looks the asset up (never keeping it across frames as the document's source), adopts a changed document, analyzes
 		// as the policy says, and brings the visual model and the index up to date. time is in seconds (ImGui's time): two
-		// Syncs given the same time are one frame. semantics and the measurer's function must stay valid until the next Sync
-		// (the model analyzes and lays out in Update when a gesture needs pins); the measurer is kept while its Signature is
-		// the same.
+		// Syncs given the same time are one frame. semantics must stay valid until the next Sync (the model analyzes and lays
+		// out in Update when a gesture needs pins). The measurer is copied at every Sync and that copy is what lays out until
+		// the next Sync, so what its function captures must stay valid until then; a measurer whose captures fit
+		// std::function's small buffer (a font pointer and two floats) copies without allocating. A new Signature lays every
+		// node out anew; the same Signature promises the same widths.
 		VisualScriptSyncResult Sync(VisualScriptSemantics& semantics, VisualScriptTextMeasurer const& measure,
 		                            VisualScriptThemeAnchors const& theme, bool widgetActive, double time);
 		// Handles a frame of input after Sync: hover, view moves, the Space rule, routed actions, gestures and drops. Returns
@@ -575,6 +584,9 @@ namespace Strada
 		std::span<uint32_t const> ChangedElements() const { return m_ChangedElements; }
 		// How many analyses ran: for tests of the policy.
 		uint64_t GetAnalysisCount() const { return m_AnalysisCount; }
+		// Counts the visual model's Syncs: what is cached by its node, pin and link indices (and their texts) is valid while it
+		// stays the same.
+		uint64_t GetCanvasRevision() const { return m_CanvasRevision; }
 		// Bytes the visual model, the index and the model's own buffers have reserved: an idle frame does not grow it.
 		size_t GetCapacityBytes() const;
 
@@ -676,14 +688,18 @@ namespace Strada
 		struct WireState
 		{
 			PinKey Source;
+			// The same pin, as the gesture view names it.
+			VisualScriptPinReference SourceReference;
 			// Its library pin (the analysis' or the template's), which stays valid during the gesture: no analysis runs then.
 			VisualScriptPin const* SourceInfo = nullptr;
 			// Started by StartWire: ends at the next press, not at a release.
 			bool EndsOnPress = false;
 			// The visual model's pins the classes are for (a layout during the gesture classes them anew).
 			uint64_t CanvasRevision = 0;
-			// Per pin of the visual model: a VisualScriptPinClass, or Unclassified.
+			// Per pin of the visual model: a VisualScriptPinClass, or Unclassified (not classed yet); and what the gesture view
+			// shows of them, None for those not classed and Snapped for the one the wire snaps to.
 			std::vector<uint8_t> Classes;
+			std::vector<uint8_t> Shown;
 			// The pin index the wire snaps to.
 			std::optional<uint32_t> Snapped;
 			// A collapsed node the wire rests over (ID) and since when; the one drawn expanded.
@@ -794,6 +810,8 @@ namespace Strada
 		void UpdateGhostWire(VisualScriptCanvasInput const& input);
 		void FinishWire(VisualScriptCanvasInput const& input, std::vector<VisualScriptEditorIntent>& intents);
 		uint8_t ClassifyPin(uint32_t nodeIndex, uint32_t pinIndex);
+		// The pin the wire snaps to (an index of the visual model's pins), kept in the shown classes too.
+		void SetWireSnap(std::optional<uint32_t> pinIndex);
 		void ClassifyVisiblePins();
 		// Whether a wire (relink: the picked links) snaps to and connects with a pin, and how much it prefers it (lower first).
 		bool Accepts(bool relink, uint32_t nodeIndex, uint32_t pinIndex);
@@ -863,12 +881,15 @@ namespace Strada
 		bool m_CheckWritable = true;
 		bool m_Writable = true;
 
-		// The analysis: the library it was made with, the document it was made from, a document the runtime failed on.
+		// The analysis: the library of the last Sync, the analysis with the document and library it was made from, and a
+		// document the runtime failed on with that library.
 		VisualScriptSemantics* m_Semantics = nullptr;
 		Ref<VisualScriptLibrary const> m_Library;
 		Ref<VisualScriptAnalysis const> m_Analysis;
 		Ref<VisualScriptDocument const> m_AnalyzedDocument;
+		Ref<VisualScriptLibrary const> m_AnalyzedLibrary;
 		Ref<VisualScriptDocument const> m_FailedDocument;
+		Ref<VisualScriptLibrary const> m_FailedLibrary;
 		// The runtime stopped: the analysis is kept for its pins, without its problems.
 		bool m_AnalysisStale = false;
 		bool m_AnalysisPending = true;

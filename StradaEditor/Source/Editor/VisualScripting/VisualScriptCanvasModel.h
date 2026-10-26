@@ -403,6 +403,9 @@ namespace Strada
 		size_t GetCapacityBytes() const;
 		// How many nodes the last Sync laid out anew (the others kept their layout).
 		uint32_t GetMeasuredNodeCount() const { return m_MeasuredNodeCount; }
+		// Whether some node's chip shows an asset's name: only then does a new AssetVersion change anything, so a caller need
+		// not Sync for one otherwise.
+		bool ShowsAssetNames() const { return m_ShowsAssetNames; }
 
 	private:
 		// What a node's or a comment's layout was made from, and where its texts are.
@@ -449,6 +452,7 @@ namespace Strada
 		uint32_t m_Function = 0;
 		uint64_t m_GeometryHash = 0;
 		uint32_t m_MeasuredNodeCount = 0;
+		bool m_ShowsAssetNames = false;
 
 		// The previous Sync's results, which the next one copies kept layouts from; their capacity is kept equal to the
 		// results', so building into them never grows them.

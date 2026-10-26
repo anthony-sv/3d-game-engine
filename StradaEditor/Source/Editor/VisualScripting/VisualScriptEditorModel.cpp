@@ -385,12 +385,14 @@ namespace Strada
 	{
 		VisualScriptSyncResult result;
 		m_Semantics = &semantics;
+		// The caller's measurer of this frame is the one used until the next Sync (its captures may not outlive the frame); only
+		// a new Signature lays everything out anew.
 		if (!m_HasMeasure || measure.Signature != m_Measure.Signature)
 		{
-			m_Measure = measure;
-			m_HasMeasure = true;
 			m_CanvasStale = true;
 		}
+		m_Measure = measure;
+		m_HasMeasure = true;
 		// What changed outside, and the links an own commit added, are reported until the next frame's first Sync.
 		if (time != m_LastSyncTime)
 		{
@@ -491,7 +493,7 @@ namespace Strada
 		       GetCapacity(m_NodeMoved) + GetCapacity(m_HitScratch.Candidates) + GetCapacity(m_HitScratch.Nodes) +
 		       GetCapacity(m_HitScratch.Polyline) + GetCapacity(m_Query) + GetCapacity(m_Polyline) + GetCapacity(m_DynamicNodes) +
 		       GetCapacity(m_DynamicLinks) + GetCapacity(m_MarqueeElements) + GetCapacity(m_CutLinks) + GetCapacity(m_Wire.Classes) +
-		       GetCapacity(m_Move.Elements) + GetCapacity(m_Move.Nodes);
+		       GetCapacity(m_Wire.Shown) + GetCapacity(m_Move.Elements) + GetCapacity(m_Move.Nodes);
 	}
 
 	VisualScriptEditorState VisualScriptEditorModel::GetState() const
@@ -554,7 +556,7 @@ namespace Strada
 			case VisualScriptGesture::MovingElements:
 				view.MovedElements = m_Move.Elements;
 				view.MoveOffset = m_Move.Offset;
-				view.SpliceTarget = m_Move.SpliceTarget;
+				view.SpliceTarget = m_Move.SpliceTarget ? &*m_Move.SpliceTarget : nullptr;
 				break;
 			case VisualScriptGesture::ResizingComment:
 				view.ResizedComment = m_Resize.Comment;
@@ -568,16 +570,9 @@ namespace Strada
 				view.GhostColorFrom = m_Wire.ColorFrom;
 				view.GhostColorTo = m_Wire.ColorTo;
 				view.GhostInvalid = m_Wire.Invalid;
-				view.PinClasses.resize(m_Wire.Classes.size());
-				for (size_t pin = 0; pin < m_Wire.Classes.size(); pin++)
-				{
-					uint8_t const pinClass = m_Wire.Classes[pin];
-					view.PinClasses[pin] = pinClass == Unclassified ? static_cast<uint8_t>(VisualScriptPinClass::None) : pinClass;
-				}
-				if (m_Wire.Snapped && *m_Wire.Snapped < view.PinClasses.size())
-				{
-					view.PinClasses[*m_Wire.Snapped] = static_cast<uint8_t>(VisualScriptPinClass::Snapped);
-				}
+				view.WireSource = &m_Wire.SourceReference;
+				view.WireDirection = m_Wire.Source.Direction;
+				view.PinClasses = m_Wire.Shown;
 				break;
 			}
 			case VisualScriptGesture::Relinking:
@@ -795,9 +790,10 @@ namespace Strada
 			return;
 		}
 		Ref<VisualScriptDocument const> const& drawn = GetDrawnDocumentRef();
-		bool const current = m_AnalyzedDocument != nullptr && !m_AnalysisStale && !libraryChanged &&
+		// Made with the library of now: a library seen first in a frame whose analysis was put off still counts as new later.
+		bool const current = m_AnalyzedDocument != nullptr && !m_AnalysisStale && m_AnalyzedLibrary == m_Library &&
 		                     (drawn == m_AnalyzedDocument || HaveSameVisualScriptProgram(*drawn, *m_AnalyzedDocument));
-		if (current || (!libraryChanged && drawn == m_FailedDocument))
+		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument))
 		{
 			// The program the analysis describes (only positions, comments or collapsing changed), or the very document the
 			// runtime could not analyze.
@@ -819,13 +815,16 @@ namespace Strada
 		{
 			m_Analysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
 			m_AnalyzedDocument = drawn;
+			m_AnalyzedLibrary = m_Library;
 			m_AnalysisStale = false;
 			m_FailedDocument.reset();
+			m_FailedLibrary.reset();
 			IndexAnalysis();
 			result.AnalysisChanged = true;
 			return;
 		}
 		m_FailedDocument = drawn;
+		m_FailedLibrary = m_Library;
 		if (m_Analysis != nullptr && !m_AnalysisStale)
 		{
 			m_AnalysisStale = true;
@@ -835,11 +834,15 @@ namespace Strada
 
 	void VisualScriptEditorModel::SyncCanvas(VisualScriptThemeAnchors const& theme, VisualScriptSyncResult& result)
 	{
+		// The asset registry's version moves often (thumbnails, focus refreshes, model loads): it matters only while a chip
+		// shows an asset's name.
 		uint64_t const assetVersion = AssetManager::IsInitialized() ? AssetManager::GetVersion() : 0;
-		bool const stale = m_CanvasStale || result.DocumentChanged || result.AnalysisChanged || !(theme == m_Theme) ||
-		                   assetVersion != m_AssetVersion || m_Function != m_CanvasFunction;
+		bool const assetNamesChanged = assetVersion != m_AssetVersion && m_Canvas.ShowsAssetNames();
+		bool const stale = m_CanvasStale || result.DocumentChanged || result.AnalysisChanged || !(theme == m_Theme) || assetNamesChanged ||
+		                   m_Function != m_CanvasFunction;
 		if (!stale)
 		{
+			m_AssetVersion = assetVersion;
 			return;
 		}
 		VisualScriptCanvasSource source;
@@ -1115,6 +1118,7 @@ namespace Strada
 		m_Move.SpliceCandidate.reset();
 		m_Move.SpliceTarget.reset();
 		m_Wire.Classes.clear();
+		m_Wire.Shown.clear();
 		m_Wire.Snapped.reset();
 		m_Wire.Resting.reset();
 		m_Wire.Expanded.reset();
@@ -2509,10 +2513,12 @@ namespace Strada
 			return false;
 		}
 		m_Wire.Source = source;
+		m_Wire.SourceReference = {source.Node, source.Pin};
 		m_Wire.SourceInfo = info;
 		m_Wire.EndsOnPress = endsOnPress;
 		m_Wire.CanvasRevision = m_CanvasRevision;
 		m_Wire.Classes.assign(m_Canvas.GetPins().size(), Unclassified);
+		m_Wire.Shown.assign(m_Canvas.GetPins().size(), static_cast<uint8_t>(VisualScriptPinClass::None));
 		m_Wire.Snapped.reset();
 		m_Wire.Resting.reset();
 		m_Wire.Expanded.reset();
@@ -2545,12 +2551,13 @@ namespace Strada
 		{
 			// Laid out anew (the fonts changed): the pins are classed again by their new indices.
 			m_Wire.Classes.assign(m_Canvas.GetPins().size(), Unclassified);
+			m_Wire.Shown.assign(m_Canvas.GetPins().size(), static_cast<uint8_t>(VisualScriptPinClass::None));
 			m_Wire.CanvasRevision = m_CanvasRevision;
 			m_Wire.Snapped.reset();
 		}
 		UpdateExpandedNode();
 		ClassifyVisiblePins();
-		m_Wire.Snapped = FindSnapPin(input.Mouse, false);
+		SetWireSnap(FindSnapPin(input.Mouse, false));
 		UpdateGhostWire(input);
 		bool const finished = m_Wire.EndsOnPress ? input.Pressed[0] && input.Hovered : input.Released[0];
 		if (finished)
@@ -2755,32 +2762,59 @@ namespace Strada
 		{
 			return stored;
 		}
-		std::span<VisualScriptNodeVisual const> const nodes = m_Canvas.GetNodes();
-		std::span<VisualScriptPinVisual const> const pins = m_Canvas.GetPins();
-		VisualScriptNodeVisual const& node = nodes[nodeIndex];
-		VisualScriptPinVisual const& pin = pins[pinIndex];
-		stored = static_cast<uint8_t>(VisualScriptPinClass::Incompatible);
-		if (node.ID == m_Wire.Source.Node || pin.Direction == m_Wire.Source.Direction || pin.HasFlag(VisualScriptPinFlags::Orphan) ||
-		    m_Library == nullptr || m_Wire.SourceInfo == nullptr)
+		auto const classify = [this, nodeIndex, pinIndex]()
 		{
-			return stored;
-		}
-		VisualScriptPin const* info = FindPinInfo(node.ID, m_Canvas.GetText(pin.Name), pin.Direction);
-		if (info == nullptr)
+			std::span<VisualScriptNodeVisual const> const nodes = m_Canvas.GetNodes();
+			std::span<VisualScriptPinVisual const> const pins = m_Canvas.GetPins();
+			VisualScriptNodeVisual const& node = nodes[nodeIndex];
+			VisualScriptPinVisual const& pin = pins[pinIndex];
+			if (node.ID == m_Wire.Source.Node || pin.Direction == m_Wire.Source.Direction || pin.HasFlag(VisualScriptPinFlags::Orphan) ||
+			    m_Library == nullptr || m_Wire.SourceInfo == nullptr)
+			{
+				return VisualScriptPinClass::Incompatible;
+			}
+			VisualScriptPin const* info = FindPinInfo(node.ID, m_Canvas.GetText(pin.Name), pin.Direction);
+			if (info == nullptr)
+			{
+				return VisualScriptPinClass::Incompatible;
+			}
+			bool const out = m_Wire.Source.Direction == VisualScriptPinDirection::Out;
+			VisualScriptPin const& output = out ? *m_Wire.SourceInfo : *info;
+			VisualScriptPin const& input = out ? *info : *m_Wire.SourceInfo;
+			if (!m_Library->CanConnect(output, input))
+			{
+				return VisualScriptPinClass::Incompatible;
+			}
+			// Converting: the analyzed types differ and neither is a wildcard, so the link converts implicitly (drawn as a
+			// gradient).
+			bool const same =
+				output.Type == input.Type || output.Type == VisualScriptWildcardType || input.Type == VisualScriptWildcardType;
+			return same ? VisualScriptPinClass::Compatible : VisualScriptPinClass::Converting;
+		};
+		stored = static_cast<uint8_t>(classify());
+		if (m_Wire.Snapped != pinIndex && pinIndex < m_Wire.Shown.size())
 		{
-			return stored;
+			m_Wire.Shown[pinIndex] = stored;
 		}
-		bool const out = m_Wire.Source.Direction == VisualScriptPinDirection::Out;
-		VisualScriptPin const& output = out ? *m_Wire.SourceInfo : *info;
-		VisualScriptPin const& input = out ? *info : *m_Wire.SourceInfo;
-		if (!m_Library->CanConnect(output, input))
-		{
-			return stored;
-		}
-		// Converting: the analyzed types differ and neither is a wildcard, so the link converts implicitly (drawn as a gradient).
-		bool const same = output.Type == input.Type || output.Type == VisualScriptWildcardType || input.Type == VisualScriptWildcardType;
-		stored = static_cast<uint8_t>(same ? VisualScriptPinClass::Compatible : VisualScriptPinClass::Converting);
 		return stored;
+	}
+
+	void VisualScriptEditorModel::SetWireSnap(std::optional<uint32_t> pinIndex)
+	{
+		if (pinIndex == m_Wire.Snapped)
+		{
+			return;
+		}
+		if (m_Wire.Snapped && *m_Wire.Snapped < m_Wire.Shown.size())
+		{
+			uint8_t const stored = m_Wire.Classes[*m_Wire.Snapped];
+			m_Wire.Shown[*m_Wire.Snapped] = stored == Unclassified ? static_cast<uint8_t>(VisualScriptPinClass::None) : stored;
+		}
+		m_Wire.Snapped = pinIndex;
+		if (pinIndex && *pinIndex < m_Wire.Shown.size())
+		{
+			m_Wire.Shown[*pinIndex] = static_cast<uint8_t>(VisualScriptPinClass::Snapped);
+		}
 	}
 
 	void VisualScriptEditorModel::ClassifyVisiblePins()
@@ -2948,10 +2982,10 @@ namespace Strada
 		for (uint32_t const link : m_Canvas.GetIncidentLinks(pin->first))
 		{
 			VisualScriptLinkVisual const& visual = links[link];
-			bool const near = key.Direction == VisualScriptPinDirection::Out
-			                      ? visual.FromNode == pin->first && visual.FromPin == pin->second
-			                      : visual.ToNode == pin->first && visual.ToPin == pin->second;
-			if (!near)
+			bool const atPin = key.Direction == VisualScriptPinDirection::Out
+			                       ? visual.FromNode == pin->first && visual.FromPin == pin->second
+			                       : visual.ToNode == pin->first && visual.ToPin == pin->second;
+			if (!atPin)
 			{
 				continue;
 			}
@@ -2974,14 +3008,14 @@ namespace Strada
 		std::span<VisualScriptPinVisual const> const pins = m_Canvas.GetPins();
 		VisualScriptNodeVisual const& node = nodes[nodeIndex];
 		VisualScriptPinVisual const& pin = pins[pinIndex];
-		PinKey const& far = m_Relink.FarEnds[link];
-		if (m_Library == nullptr || pin.Direction != m_Relink.Pin.Direction || node.ID == far.Node ||
+		PinKey const& farEnd = m_Relink.FarEnds[link];
+		if (m_Library == nullptr || pin.Direction != m_Relink.Pin.Direction || node.ID == farEnd.Node ||
 		    pin.HasFlag(VisualScriptPinFlags::Orphan))
 		{
 			return false;
 		}
 		VisualScriptPin const* target = FindPinInfo(node.ID, m_Canvas.GetText(pin.Name), pin.Direction);
-		VisualScriptPin const* farInfo = FindPinInfo(far);
+		VisualScriptPin const* farInfo = FindPinInfo(farEnd);
 		if (target == nullptr || farInfo == nullptr)
 		{
 			return false;
@@ -3018,9 +3052,9 @@ namespace Strada
 		}
 		// Each picked link from its far end to the mouse: the near end follows it.
 		m_Relink.Wires.clear();
-		for (PinKey const& far : m_Relink.FarEnds)
+		for (PinKey const& farEnd : m_Relink.FarEnds)
 		{
-			std::optional<std::pair<uint32_t, uint32_t>> const farPin = FindCanvasPin(far);
+			std::optional<std::pair<uint32_t, uint32_t>> const farPin = FindCanvasPin(farEnd);
 			if (!farPin)
 			{
 				continue;
@@ -3039,7 +3073,7 @@ namespace Strada
 
 	void VisualScriptEditorModel::FinishRelink(std::vector<VisualScriptEditorIntent>& intents)
 	{
-		std::optional<std::pair<uint32_t, uint32_t>> const near = FindCanvasPin(m_Relink.Pin);
+		std::optional<std::pair<uint32_t, uint32_t>> const pickedPin = FindCanvasPin(m_Relink.Pin);
 		std::optional<std::pair<uint32_t, uint32_t>> target;
 		if (m_Relink.Snapped)
 		{
@@ -3072,7 +3106,7 @@ namespace Strada
 			intents.emplace_back(std::move(relink));
 			return;
 		}
-		if (!target || target == near)
+		if (!target || target == pickedPin)
 		{
 			return;
 		}
@@ -3090,13 +3124,13 @@ namespace Strada
 			{
 				continue;
 			}
-			PinKey const& far = m_Relink.FarEnds[link];
-			bool const exec = IsExecPin(targetInfo) || IsExecPin(FindPinInfo(far));
+			PinKey const& farEnd = m_Relink.FarEnds[link];
+			bool const exec = IsExecPin(targetInfo) || IsExecPin(FindPinInfo(farEnd));
 			bool const single = pin.Direction == VisualScriptPinDirection::In ? !exec : exec;
 			VisualScriptLink moved;
 			moved.From = pin.Direction == VisualScriptPinDirection::Out ? VisualScriptPinReference{key.Node, key.Pin}
-			                                                            : VisualScriptPinReference{far.Node, far.Pin};
-			moved.To = pin.Direction == VisualScriptPinDirection::Out ? VisualScriptPinReference{far.Node, far.Pin}
+			                                                            : VisualScriptPinReference{farEnd.Node, farEnd.Pin};
+			moved.To = pin.Direction == VisualScriptPinDirection::Out ? VisualScriptPinReference{farEnd.Node, farEnd.Pin}
 			                                                          : VisualScriptPinReference{key.Node, key.Pin};
 			relink.Add.push_back(std::move(moved));
 			if (single)
@@ -3514,15 +3548,24 @@ namespace Strada
 
 	std::optional<uint32_t> VisualScriptEditorModel::FindPinNode(uint32_t pinIndex) const
 	{
+		// The visual model appends each node's pins after the previous node's, so FirstPin ascends in node order: the node is
+		// the last one starting at or before the pin.
 		std::span<VisualScriptNodeVisual const> const nodes = m_Canvas.GetNodes();
-		for (uint32_t node = 0; node < nodes.size(); node++)
+		auto const after = std::upper_bound(nodes.begin(), nodes.end(), pinIndex,
+		                                    [](uint32_t pin, VisualScriptNodeVisual const& node)
+		                                    {
+												return pin < node.FirstPin;
+											});
+		if (after == nodes.begin())
 		{
-			if (pinIndex >= nodes[node].FirstPin && pinIndex < nodes[node].FirstPin + nodes[node].PinCount)
-			{
-				return node;
-			}
+			return std::nullopt;
 		}
-		return std::nullopt;
+		VisualScriptNodeVisual const& node = *(after - 1);
+		if (pinIndex >= node.FirstPin + node.PinCount)
+		{
+			return std::nullopt;
+		}
+		return static_cast<uint32_t>(after - 1 - nodes.begin());
 	}
 
 	std::optional<uint32_t> VisualScriptEditorModel::FindCanvasLink(VisualScriptLink const& link) const

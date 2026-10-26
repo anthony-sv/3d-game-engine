@@ -223,8 +223,8 @@ TEST_CASE("VisualScriptEditor: a viewport query visits the cells it covers and t
 
 	// A point query of a radius under half a cell visits at most 4 cells.
 	VisualScriptIndexStats point;
-	std::vector<uint32_t> near;
-	small.Grid.QueryPoint(glm::vec2(511.0f, 511.0f), 255.0f, Index::AllMask, near, &point);
+	std::vector<uint32_t> nearby;
+	small.Grid.QueryPoint(glm::vec2(511.0f, 511.0f), 255.0f, Index::AllMask, nearby, &point);
 	CHECK(point.CellsVisited <= 4);
 }
 

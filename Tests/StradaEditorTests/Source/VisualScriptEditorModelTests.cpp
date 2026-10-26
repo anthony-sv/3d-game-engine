@@ -483,6 +483,15 @@ TEST_CASE(
 	fixture.Semantics.ReloadLibrary();
 	fixture.Frame();
 	CHECK(fixture.Model.GetAnalysisCount() == 4);
+	// Read again in a frame whose analysis is put off (a widget in use within 0.25 s of the last one): the first frame that
+	// may analyze does, with the new library, though no frame sees the library change again.
+	fixture.Semantics.ReloadLibrary();
+	fixture.Frame(true, 0.05);
+	CHECK(fixture.Model.GetAnalysisCount() == 4);
+	fixture.Frame(true, 0.5);
+	CHECK(fixture.Model.GetAnalysisCount() == 5);
+	fixture.Frame();
+	CHECK(fixture.Model.GetAnalysisCount() == 5);
 
 	// The runtime stops: no analysis, none reported; the last one keeps its pins without its problems.
 	VisualScriptDiagnostic error;
@@ -493,7 +502,7 @@ TEST_CASE(
 	document.Graph.Nodes[1].Inputs["Duration"] = 3;
 	fixture.Commit(document);
 	fixture.Frame();
-	CHECK(fixture.Model.GetAnalysisCount() == 5);
+	CHECK(fixture.Model.GetAnalysisCount() == 6);
 	CHECK(fixture.Node(2).ErrorCount == 1);
 	fixture.Semantics.SetAvailable(false);
 	VisualScriptSyncResult const stopped = fixture.Frame();
@@ -504,15 +513,15 @@ TEST_CASE(
 	document.Graph.Nodes[1].Inputs["Duration"] = 5;
 	fixture.Commit(document);
 	fixture.Frame();
-	CHECK(fixture.Model.GetAnalysisCount() == 5);
-	CHECK(fixture.Semantics.GetAnalyzeCallCount() == 5);
+	CHECK(fixture.Model.GetAnalysisCount() == 6);
+	CHECK(fixture.Semantics.GetAnalyzeCallCount() == 6);
 	// A changed literal keeps the kept analysis' pins: the node's input keys are those analyzed.
 	CHECK(fixture.Node(2).HasFlag(VisualScriptNodeFlags::Analyzed));
 
 	// The runtime starts again: analyzed at once.
 	fixture.Semantics.SetAvailable(true);
 	fixture.Frame();
-	CHECK(fixture.Model.GetAnalysisCount() == 6);
+	CHECK(fixture.Model.GetAnalysisCount() == 7);
 	CHECK(fixture.Model.GetAnalysis() != nullptr);
 	CHECK(fixture.Node(2).ErrorCount == 1);
 }
@@ -614,6 +623,82 @@ TEST_CASE("VisualScriptEditor: while a widget is used, its preview draws and the
 	// Without a widget, the stored document is analyzed again at once.
 	fixture.Frame();
 	CHECK(fixture.Model.GetAnalysisCount() == 4);
+}
+
+TEST_CASE("VisualScriptEditor: each Sync's measurer lays out until the next Sync, also when it has the last one's Signature")
+{
+	// Measurers the panel makes each frame, which may capture what lives only for that frame: both measure as the fixture's
+	// measurer does, with its Signature, and count their calls.
+	uint32_t firstCalls = 0;
+	uint32_t secondCalls = 0;
+	auto const counting = [](uint32_t& calls)
+	{
+		VisualScriptTextMeasurer measurer = Testing::FixedWidthMeasurer(0.5f);
+		measurer.Measure = [&calls](std::string_view text, float sizeCu)
+		{
+			calls++;
+			return static_cast<float>(text.size()) * 0.5f * sizeCu;
+		};
+		return measurer;
+	};
+	InteractionFixture fixture(MakeCanvasDocument());
+	fixture.Measure = counting(firstCalls);
+	fixture.Frame();
+	REQUIRE(fixture.Model.GetCanvas().GetNodes().size() == 7);
+
+	// The next frame's measurer, of the same Signature: nothing is measured again for it, but what is measured from now on
+	// is measured with it (the copy the model keeps is this frame's; Update lays out with that copy too).
+	fixture.Measure = counting(secondCalls);
+	firstCalls = 0;
+	fixture.Frame();
+	CHECK(secondCalls == 0);
+	VisualScriptDocument document = fixture.Model.GetDisplayDocument();
+	document.Graph.Nodes[1].Inputs["Duration"] = 4;
+	fixture.Commit(document);
+	CHECK(secondCalls > 0);
+	fixture.Frame();
+	CHECK(firstCalls == 0);
+}
+
+TEST_CASE("VisualScriptEditor: a new version of the asset registry lays the canvas out again only while a chip shows an asset's name")
+{
+	ModelFixture fixture(MakeDocument());
+	fixture.Frame();
+	fixture.Frame();
+	uint64_t const revision = fixture.Model.GetCanvasRevision();
+
+	// The registry changes (a thumbnail's model loaded and unloaded, a refresh): no chip names an asset, so nothing is synced.
+	AssetHandle const extra = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(VisualScriptDocument()), "Extra");
+	AssetManager::RemoveMemoryAsset(extra);
+	VisualScriptSyncResult const idle = fixture.Frame();
+	CHECK_FALSE(idle.GeometryChanged);
+	CHECK(fixture.Model.GetCanvasRevision() == revision);
+	CHECK_FALSE(fixture.Model.GetCanvas().ShowsAssetNames());
+
+	// A chip names an asset: a registry change lays its node out again, and the chip shows the name of now.
+	AssetHandle const hero = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(VisualScriptDocument()), "Hero");
+	VisualScriptDocument document = fixture.Model.GetDisplayDocument();
+	document.Graph.Nodes.push_back(MakeNode(4,
+	                                        "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)",
+	                                        glm::vec2(0.0f, 400.0f), Json::object({{"Prefab", hero.ToString()}})));
+	fixture.Commit(document);
+	fixture.Frame();
+	auto const chip = [&fixture]()
+	{
+		VisualScriptCanvasModel const& canvas = fixture.Model.GetCanvas();
+		std::optional<uint32_t> const node = canvas.FindNode(4);
+		REQUIRE(node.has_value());
+		std::optional<uint32_t> const pin = canvas.FindPin(*node, "Prefab", VisualScriptPinDirection::In);
+		REQUIRE(pin.has_value());
+		return std::string(canvas.GetText(canvas.GetPins()[*pin].ChipText));
+	};
+	CHECK(chip() == "Hero");
+	CHECK(fixture.Model.GetCanvas().ShowsAssetNames());
+	uint64_t const named = fixture.Model.GetCanvasRevision();
+	AssetManager::RemoveMemoryAsset(hero);
+	fixture.Frame();
+	CHECK(fixture.Model.GetCanvasRevision() == named + 1);
+	CHECK(chip() == "Unknown asset " + hero.ToString());
 }
 
 TEST_CASE("VisualScriptEditor: a node created in the frame of its commit takes its template's pins until the next frame's analysis")
@@ -847,7 +932,7 @@ TEST_CASE("VisualScriptEditor: a marquee selects the nodes it touches and the co
 		VisualScriptGestureView const gesture = model.GetGesture();
 		CHECK(gesture.Kind == VisualScriptGesture::Marquee);
 		REQUIRE(gesture.Marquee.has_value());
-		CHECK(gesture.MarqueeElements == std::vector<uint32_t>{2, 3});
+		CHECK(std::vector<uint32_t>(gesture.MarqueeElements.begin(), gesture.MarqueeElements.end()) == std::vector<uint32_t>{2, 3});
 		CHECK(fixture.Selection() == std::vector<uint32_t>{7});
 	}
 	CHECK(fixture.Release().empty());
@@ -892,7 +977,7 @@ TEST_CASE("VisualScriptEditor: a drag past 4 px gives one move intent at its rel
 	glm::vec2 const expected = fixture.SnappedOffset(glm::vec2(400.0f, 0.0f), start, end);
 	{
 		VisualScriptGestureView const gesture = model.GetGesture();
-		CHECK(gesture.MovedElements == std::vector<uint32_t>{2});
+		CHECK(std::vector<uint32_t>(gesture.MovedElements.begin(), gesture.MovedElements.end()) == std::vector<uint32_t>{2});
 		CHECK(gesture.MoveOffset == expected);
 		VisualScriptNodePreview const preview = model.GetNodePreview();
 		CHECK(preview.IsMoved(*model.GetCanvas().FindNode(2)));
@@ -1002,7 +1087,7 @@ TEST_CASE(
 	};
 	auto const pinClass = [&model](uint32_t pin)
 	{
-		std::vector<uint8_t> const classes = model.GetGesture().PinClasses;
+		std::span<uint8_t const> const classes = model.GetGesture().PinClasses;
 		REQUIRE(pin < classes.size());
 		return static_cast<VisualScriptPinClass>(classes[pin]);
 	};
@@ -1020,6 +1105,12 @@ TEST_CASE(
 		CHECK(gesture.Kind == VisualScriptGesture::Wiring);
 		CHECK(gesture.GhostInvalid);
 		REQUIRE(gesture.GhostWire.has_value());
+		// The not-allowed tooltip names both pins: the one under the mouse and the wire's own.
+		CHECK(model.GetHover().Kind == VisualScriptHitKind::Pin);
+		CHECK(model.GetHover().Element == 3);
+		REQUIRE(gesture.WireSource != nullptr);
+		CHECK(*gesture.WireSource == VisualScriptPinReference{4, "DeltaTime"});
+		CHECK(gesture.WireDirection == VisualScriptPinDirection::Out);
 		CHECK(pinClass(pinIndex(3, "Condition", VisualScriptPinDirection::In)) == VisualScriptPinClass::Incompatible);
 		CHECK(pinClass(pinIndex(2, "Duration", VisualScriptPinDirection::In)) == VisualScriptPinClass::Compatible);
 		// Pins of the wire's own node and of its direction never connect.
@@ -1037,6 +1128,14 @@ TEST_CASE(
 	CHECK(palette.Query.empty());
 
 	// From an input to an output: the link still runs from the output.
+	fixture.Drag(duration, deltaTime, 0, 4, false);
+	REQUIRE(model.GetGesture().WireSource != nullptr);
+	CHECK(*model.GetGesture().WireSource == VisualScriptPinReference{2, "Duration"});
+	CHECK(model.GetGesture().WireDirection == VisualScriptPinDirection::In);
+	CHECK(model.GetGesture().PinClasses.size() == canvas.GetPins().size());
+	fixture.Release();
+	CHECK(model.GetGesture().WireSource == nullptr);
+	CHECK(model.GetGesture().PinClasses.empty());
 	connect = Single<VisualScriptConnectIntent>(fixture.Drag(duration, deltaTime));
 	CHECK(connect.Link == MakeLink(4, "DeltaTime", 2, "Duration"));
 	// Within 16 px of a compatible pin the wire snaps to it.
@@ -1082,7 +1181,8 @@ TEST_CASE(
 	{
 		VisualScriptGestureView const gesture = model.GetGesture();
 		CHECK(gesture.Kind == VisualScriptGesture::Relinking);
-		CHECK(gesture.PickedLinks == std::vector<VisualScriptLink>{MakeLink(1, "Then", 2, "Execute")});
+		CHECK(std::vector<VisualScriptLink>(gesture.PickedLinks.begin(), gesture.PickedLinks.end()) ==
+		      std::vector<VisualScriptLink>{MakeLink(1, "Then", 2, "Execute")});
 		CHECK(gesture.PickedWires.size() == 1);
 	}
 	VisualScriptRelinkIntent relink = Single<VisualScriptRelinkIntent>(fixture.Release());
@@ -1123,7 +1223,8 @@ TEST_CASE("VisualScriptEditor: Ctrl+right drag cuts the wires its line crosses; 
 		VisualScriptGestureView const gesture = model.GetGesture();
 		CHECK(gesture.Kind == VisualScriptGesture::Cutting);
 		REQUIRE(gesture.CutLine.has_value());
-		CHECK(gesture.CutLinks == std::vector<VisualScriptLink>{MakeLink(1, "Then", 2, "Execute")});
+		CHECK(std::vector<VisualScriptLink>(gesture.CutLinks.begin(), gesture.CutLinks.end()) ==
+		      std::vector<VisualScriptLink>{MakeLink(1, "Then", 2, "Execute")});
 	}
 	VisualScriptDisconnectIntent const cut = Single<VisualScriptDisconnectIntent>(fixture.Release(1));
 	CHECK(cut.Links == std::vector<VisualScriptLink>{MakeLink(1, "Then", 2, "Execute")});
@@ -1158,7 +1259,7 @@ TEST_CASE("VisualScriptEditor: nothing beyond the canvas's edges is hit: a wire 
 	fixture.Drag(then, hidden, 0, 4, false);
 	CHECK(model.GetGesture().Kind == VisualScriptGesture::Wiring);
 	CHECK(model.GetHover().Kind == VisualScriptHitKind::None);
-	std::vector<uint8_t> const classes = model.GetGesture().PinClasses;
+	std::span<uint8_t const> const classes = model.GetGesture().PinClasses;
 	CHECK(std::count(classes.begin(), classes.end(), static_cast<uint8_t>(VisualScriptPinClass::Snapped)) == 0);
 	CHECK(fixture.Release().empty());
 
@@ -1857,9 +1958,10 @@ TEST_CASE("VisualScriptEditor: a single unlinked node resting 0.3 s on a wire it
 	glm::vec2 const wire = Testing::WirePoint(model, link);
 
 	fixture.Drag(header, wire, 0, 4, false);
-	CHECK_FALSE(model.GetGesture().SpliceTarget.has_value());
+	CHECK(model.GetGesture().SpliceTarget == nullptr);
 	fixture.MoveTo(wire, 0.35);
-	CHECK(model.GetGesture().SpliceTarget == std::optional<VisualScriptLink>(link));
+	REQUIRE(model.GetGesture().SpliceTarget != nullptr);
+	CHECK(*model.GetGesture().SpliceTarget == link);
 	VisualScriptSpliceIntent const splice = Single<VisualScriptSpliceIntent>(fixture.Release());
 	CHECK(splice.Node == 8);
 	CHECK(splice.Link == link);
@@ -1873,14 +1975,14 @@ TEST_CASE("VisualScriptEditor: a single unlinked node resting 0.3 s on a wire it
 	fixture.Input.Alt = true;
 	fixture.Drag(header, wire, 0, 4, false);
 	fixture.MoveTo(wire, 0.35);
-	CHECK_FALSE(model.GetGesture().SpliceTarget.has_value());
+	CHECK(model.GetGesture().SpliceTarget == nullptr);
 	CHECK(Single<VisualScriptMoveIntent>(fixture.Release()).Elements == std::vector<uint32_t>{8});
 	fixture.Input.Alt = false;
 	// A node with links is never spliced.
 	glm::vec2 const branch = Testing::CanvasPoint(model, 3, glm::vec2(0.5f, 0.15f));
 	fixture.Drag(branch, wire, 0, 4, false);
 	fixture.MoveTo(wire, 0.35);
-	CHECK_FALSE(model.GetGesture().SpliceTarget.has_value());
+	CHECK(model.GetGesture().SpliceTarget == nullptr);
 	fixture.Release();
 }
 

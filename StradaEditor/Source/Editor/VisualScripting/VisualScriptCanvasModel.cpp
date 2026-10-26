@@ -2410,6 +2410,11 @@ namespace Strada
 		m_Theme = theme;
 		m_MeasureSignature = measure.Signature;
 		m_AssetVersion = source.AssetVersion;
+		m_ShowsAssetNames = std::any_of(m_NodeRecords.begin(), m_NodeRecords.end(),
+		                                [](NodeRecord const& record)
+		                                {
+											return record.ShowsAssetNames;
+										});
 		// The spare buffers are done with. The vectors keep the results' capacity (vectors reserve exactly what they are
 		// asked), so the next Sync builds into them without growing.
 		m_SpareNodes.clear();

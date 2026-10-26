@@ -128,11 +128,11 @@ TEST_CASE("VisualScriptEditor: wires flatten as ImGui flattens curves, within th
 	}
 
 	// The levels' settings: Far is three equal steps whatever the tolerance.
-	Geometry::WireFlattening const far = Geometry::GetWireFlattening(VisualScriptDetailLevel::Far, 1.25f);
-	CHECK(far.Tolerance == 0.0f);
-	CHECK(far.SegmentCap == 3);
+	Geometry::WireFlattening const farLevel = Geometry::GetWireFlattening(VisualScriptDetailLevel::Far, 1.25f);
+	CHECK(farLevel.Tolerance == 0.0f);
+	CHECK(farLevel.SegmentCap == 3);
 	std::vector<glm::vec2> fixed;
-	Geometry::FlattenWire(points, far.Tolerance, far.SegmentCap, fixed);
+	Geometry::FlattenWire(points, farLevel.Tolerance, farLevel.SegmentCap, fixed);
 	CHECK(fixed.size() == 4);
 	CHECK(Geometry::GetWireFlattening(VisualScriptDetailLevel::Overview, 1.25f).SegmentCap == 12);
 	CHECK(Geometry::GetWireFlattening(VisualScriptDetailLevel::Compact, 1.25f).SegmentCap == 64);
