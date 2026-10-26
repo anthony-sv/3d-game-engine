@@ -122,6 +122,10 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Viewport/ViewportOverlays.h
     Source/Editor/VisualScriptEnumLookupSource.cpp
     Source/Editor/VisualScriptEnumLookupSource.h
+    Source/Editor/VisualScripting/VisualScriptArrange.cpp
+    Source/Editor/VisualScripting/VisualScriptArrange.h
+    Source/Editor/VisualScripting/VisualScriptClipboard.cpp
+    Source/Editor/VisualScripting/VisualScriptClipboard.h
     Source/Editor/VisualScripting/VisualScriptCommit.cpp
     Source/Editor/VisualScripting/VisualScriptCommit.h
     Source/Editor/VisualScripting/VisualScriptEditing.cpp

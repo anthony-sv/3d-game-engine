@@ -111,6 +111,16 @@ namespace Strada
 		// The pin names nodes have whatever their settings: Execute, Then, Target, Self and Default. Parameters cannot have them.
 		[[nodiscard]] bool IsReservedPinName(std::string_view name);
 
+		// IDs and the shapes the operations share.
+
+		// The largest ID of the document's variables, locals, functions, nodes and comments; 0 when it has none. New elements
+		// take the IDs after it.
+		[[nodiscard]] uint32_t GetLargestVisualScriptID(VisualScriptDocument const& document);
+
+		// What a comment box that frames elements adds around their bounds: on every side, and above for its title.
+		inline constexpr float CommentFrameMargin = 32.0f;
+		inline constexpr float CommentFrameTitleSpace = 40.0f;
+
 		// Nodes and links.
 
 		// Adds a node of the type with the settings (an object; null for none) at the position (kept within the format's

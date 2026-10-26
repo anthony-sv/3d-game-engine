@@ -56,9 +56,6 @@ namespace Strada
 		constexpr float PromotedGetOffset = -240.0f;
 		constexpr float PromotedSetOffset = 80.0f;
 		constexpr float PromotedNodeRise = 16.0f;
-		// What a comment box framing elements adds around them.
-		constexpr float CommentMargin = 32.0f;
-		constexpr float CommentTitleSpace = 40.0f;
 		// The size of a comment box that frames nothing.
 		constexpr glm::vec2 DefaultCommentSize{400.0f, 200.0f};
 
@@ -390,41 +387,10 @@ namespace Strada
 
 		// IDs.
 
-		uint32_t GetLargestID(VisualScriptDocument const& document)
-		{
-			uint32_t largest = 0;
-			auto const takeGraph = [&largest](VisualScriptGraph const& graph)
-			{
-				for (VisualScriptNode const& node : graph.Nodes)
-				{
-					largest = std::max(largest, node.ID);
-				}
-				for (VisualScriptComment const& comment : graph.Comments)
-				{
-					largest = std::max(largest, comment.ID);
-				}
-			};
-			for (VisualScriptVariable const& variable : document.Variables)
-			{
-				largest = std::max(largest, variable.ID);
-			}
-			for (VisualScriptFunction const& function : document.Functions)
-			{
-				largest = std::max(largest, function.ID);
-				for (VisualScriptLocal const& local : function.Locals)
-				{
-					largest = std::max(largest, local.ID);
-				}
-				takeGraph(function.Graph);
-			}
-			takeGraph(document.Graph);
-			return largest;
-		}
-
 		// The first of count new IDs: the document's largest plus one.
 		Result<uint32_t> TakeIDs(VisualScriptDocument const& document, size_t count)
 		{
-			uint32_t const largest = GetLargestID(document);
+			uint32_t const largest = VisualScriptEditing::GetLargestVisualScriptID(document);
 			if (count > Format::MaxID || largest > Format::MaxID - count)
 			{
 				return MakeError("the document has no free ID left: IDs end at {}", Format::MaxID);
@@ -1593,6 +1559,37 @@ namespace Strada
 			return std::find(ReservedPinNames.begin(), ReservedPinNames.end(), name) != ReservedPinNames.end();
 		}
 
+		uint32_t GetLargestVisualScriptID(VisualScriptDocument const& document)
+		{
+			uint32_t largest = 0;
+			auto const takeGraph = [&largest](VisualScriptGraph const& graph)
+			{
+				for (VisualScriptNode const& node : graph.Nodes)
+				{
+					largest = std::max(largest, node.ID);
+				}
+				for (VisualScriptComment const& comment : graph.Comments)
+				{
+					largest = std::max(largest, comment.ID);
+				}
+			};
+			for (VisualScriptVariable const& variable : document.Variables)
+			{
+				largest = std::max(largest, variable.ID);
+			}
+			for (VisualScriptFunction const& function : document.Functions)
+			{
+				largest = std::max(largest, function.ID);
+				for (VisualScriptLocal const& local : function.Locals)
+				{
+					largest = std::max(largest, local.ID);
+				}
+				takeGraph(function.Graph);
+			}
+			takeGraph(document.Graph);
+			return largest;
+		}
+
 		Result<uint32_t> AddNode(VisualScriptDocument& document, uint32_t function, std::string type, Json settings, glm::vec2 position)
 		{
 			Result<VisualScriptGraph*> found = GetGraph(document, function);
@@ -2669,8 +2666,9 @@ namespace Strada
 					minimum = glm::min(minimum, rect.Position);
 					maximum = glm::max(maximum, rect.Position + rect.Size);
 				}
-				minimum -= glm::vec2(CommentMargin, CommentMargin + CommentTitleSpace);
-				maximum += glm::vec2(CommentMargin);
+				minimum -= glm::vec2(VisualScriptEditing::CommentFrameMargin,
+				                     VisualScriptEditing::CommentFrameMargin + VisualScriptEditing::CommentFrameTitleSpace);
+				maximum += glm::vec2(VisualScriptEditing::CommentFrameMargin);
 				comment.Position = ClampPosition(minimum);
 				comment.Size = glm::clamp(maximum - minimum, glm::vec2(MinCommentSize), glm::vec2(MaxCommentSize));
 			}
