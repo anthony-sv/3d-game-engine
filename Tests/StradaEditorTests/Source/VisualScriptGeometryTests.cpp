@@ -8,6 +8,8 @@
 
 #include <array>
 #include <cmath>
+#include <limits>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -304,4 +306,72 @@ TEST_CASE("VisualScriptEditor: node rectangles, headers, pins and chips are plac
 	CHECK(Geometry::IsEmpty(Geometry::GetEnabledStripRect(node)));
 	node.Flags |= VisualScriptNodeFlags::Disabled;
 	CheckPoint(Geometry::GetEnabledStripRect(node).Min, glm::vec2(100.0f, 224.0f));
+}
+
+TEST_CASE("VisualScriptEditor: the point at a fraction of a wire's drawn length lies on it, the fraction clamped")
+{
+	std::array<glm::vec2, 4> const polyline = {glm::vec2(0.0f, 0.0f), glm::vec2(10.0f, 0.0f), glm::vec2(10.0f, 0.0f),
+	                                           glm::vec2(10.0f, 10.0f)};
+	CheckPoint(Geometry::GetPolylinePoint(polyline, 0.0f), glm::vec2(0.0f, 0.0f));
+	CheckPoint(Geometry::GetPolylinePoint(polyline, 0.25f), glm::vec2(5.0f, 0.0f));
+	CheckPoint(Geometry::GetPolylinePoint(polyline, 0.5f), glm::vec2(10.0f, 0.0f));
+	// The repeated point adds no length.
+	CheckPoint(Geometry::GetPolylinePoint(polyline, 0.75f), glm::vec2(10.0f, 5.0f));
+	CheckPoint(Geometry::GetPolylinePoint(polyline, 1.0f), glm::vec2(10.0f, 10.0f));
+	CheckPoint(Geometry::GetPolylinePoint(polyline, -1.0f), glm::vec2(0.0f, 0.0f));
+	CheckPoint(Geometry::GetPolylinePoint(polyline, 2.0f), glm::vec2(10.0f, 10.0f));
+	CheckPoint(Geometry::GetPolylinePoint(polyline, std::numeric_limits<float>::quiet_NaN()), glm::vec2(0.0f, 0.0f));
+
+	// It finds again the point MeasureDistance placed on a drawn wire.
+	std::array<glm::vec2, 4> const points = {glm::vec2(0.0f, 0.0f), glm::vec2(200.0f, 0.0f), glm::vec2(200.0f, 300.0f),
+	                                         glm::vec2(400.0f, 300.0f)};
+	std::vector<glm::vec2> wire;
+	Geometry::FlattenWire(points, 1.25f, Geometry::MaxSegments, wire);
+	for (float t : {0.1f, 0.5f, 0.8f})
+	{
+		glm::vec2 const onCurve = EvaluateBezier(points, t);
+		glm::vec2 const found = Geometry::GetPolylinePoint(wire, Geometry::MeasureDistance(wire, onCurve).ArcFraction);
+		CHECK(glm::length(found - onCurve) < 1.0f);
+	}
+
+	// Degenerate polylines.
+	CheckPoint(Geometry::GetPolylinePoint({}, 0.5f), glm::vec2(0.0f));
+	std::array<glm::vec2, 1> const single = {glm::vec2(3.0f, 4.0f)};
+	CheckPoint(Geometry::GetPolylinePoint(single, 0.5f), glm::vec2(3.0f, 4.0f));
+}
+
+TEST_CASE("VisualScriptEditor: the minimap sits in the canvas's bottom-right corner and maps the content's bounds, grown, at one scale")
+{
+	// 20 % of the canvas's width within 160 and 280 logical pixels, 0.65 times as high, 12 logical pixels inside the corner.
+	VisualScriptRect rect = Geometry::GetMinimapRect(glm::vec2(100.0f, 50.0f), glm::vec2(1920.0f, 1080.0f), 1.0f);
+	CheckPoint(rect.Max, glm::vec2(100.0f + 1920.0f - 12.0f, 50.0f + 1080.0f - 12.0f));
+	CheckPoint(rect.GetSize(), glm::vec2(280.0f, 182.0f));
+	CHECK(Geometry::GetMinimapRect(glm::vec2(0.0f), glm::vec2(1000.0f, 600.0f), 1.0f).GetSize().x == doctest::Approx(200.0f));
+	CHECK(Geometry::GetMinimapRect(glm::vec2(0.0f), glm::vec2(500.0f, 600.0f), 1.0f).GetSize().x == doctest::Approx(160.0f));
+	rect = Geometry::GetMinimapRect(glm::vec2(0.0f), glm::vec2(1000.0f, 600.0f), 2.0f);
+	CHECK(rect.GetSize().x == doctest::Approx(320.0f));
+	CheckPoint(rect.Max, glm::vec2(1000.0f - 24.0f, 600.0f - 24.0f));
+	CHECK(Geometry::IsEmpty(Geometry::GetMinimapRect(glm::vec2(5.0f), glm::vec2(0.0f), 1.0f)));
+
+	// Content of 1000 x 500 units, grown by 5 % of its larger side on every side, centred in the rectangle.
+	VisualScriptRect const minimap{glm::vec2(0.0f), glm::vec2(280.0f, 182.0f)};
+	VisualScriptMinimapTransform const transform =
+		Geometry::GetMinimapTransform(minimap, VisualScriptRect{glm::vec2(0.0f), glm::vec2(1000.0f, 500.0f)});
+	CheckPoint(transform.Bounds.Min, glm::vec2(-50.0f));
+	CheckPoint(transform.Bounds.Max, glm::vec2(1050.0f, 550.0f));
+	CHECK(transform.Scale == doctest::Approx(280.0f / 1100.0f));
+	CheckPoint(transform.ToScreen(transform.Bounds.GetCenter()), minimap.GetCenter());
+	for (glm::vec2 const point : {glm::vec2(0.0f), glm::vec2(1000.0f, 500.0f), glm::vec2(250.0f, 125.0f)})
+	{
+		CheckPoint(transform.ToCanvas(transform.ToScreen(point)), point);
+		CHECK(Geometry::Contains(minimap, transform.ToScreen(point)));
+	}
+	// A single point of content still maps at a finite scale.
+	VisualScriptMinimapTransform const point = Geometry::GetMinimapTransform(minimap, VisualScriptRect{glm::vec2(7.0f), glm::vec2(7.0f)});
+	CHECK(std::isfinite(point.Scale));
+	CHECK(point.Scale > 0.0f);
+	CheckPoint(point.ToScreen(glm::vec2(7.0f)), minimap.GetCenter());
+	// Nothing to show: no content, or no rectangle.
+	CHECK(Geometry::GetMinimapTransform(minimap, std::nullopt).Scale == 0.0f);
+	CHECK(Geometry::GetMinimapTransform(VisualScriptRect{}, VisualScriptRect{glm::vec2(0.0f), glm::vec2(10.0f)}).Scale == 0.0f);
 }

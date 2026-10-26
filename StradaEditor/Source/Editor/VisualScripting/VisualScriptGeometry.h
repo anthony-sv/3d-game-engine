@@ -41,6 +41,28 @@ namespace Strada
 		glm::vec2 GetOffset(uint32_t node) const { return IsMoved(node) ? Offset : glm::vec2(0.0f); }
 	};
 
+	// Where the minimap is on the screen and how it maps the canvas: the area it shows, centred in its rectangle at one scale
+	// for both axes.
+	struct VisualScriptMinimapTransform
+	{
+		// Screen pixels.
+		VisualScriptRect Rect;
+		// Canvas units: the bounds of the nodes and comments, grown on every side by VisualScriptCanvasMetrics::
+		// MinimapContentMargin of their larger side. Empty when there is nothing to show.
+		VisualScriptRect Bounds;
+		// Screen pixels per canvas unit; 0 when there is nothing to show.
+		float Scale = 0.0f;
+
+		glm::vec2 ToScreen(glm::vec2 canvasPoint) const { return Rect.GetCenter() + (canvasPoint - Bounds.GetCenter()) * Scale; }
+		// The canvas point a screen point of the minimap stands for; the middle of Bounds when nothing is shown.
+		glm::vec2 ToCanvas(glm::vec2 screenPoint) const
+		{
+			return Scale > 0.0f ? Bounds.GetCenter() + (screenPoint - Rect.GetCenter()) / Scale : Bounds.GetCenter();
+		}
+
+		bool operator==(VisualScriptMinimapTransform const& other) const = default;
+	};
+
 	namespace VisualScriptGeometry
 	{
 		// A wire's tangents: forward (its input right of its output) between MinTangent and MaxTangent long; backward from
@@ -156,6 +178,9 @@ namespace Strada
 			float ArcFraction = 0.0f;
 		};
 		WireDistance MeasureDistance(std::span<glm::vec2 const> polyline, glm::vec2 point);
+		// The point at a fraction of a polyline's length from its first point (MeasureDistance's ArcFraction), the fraction
+		// clamped to [0, 1]; the origin for an empty polyline.
+		glm::vec2 GetPolylinePoint(std::span<glm::vec2 const> polyline, float arcFraction);
 		// Whether the segment from a to b crosses or touches the polyline: the cut line.
 		bool SegmentCrossesPolyline(glm::vec2 a, glm::vec2 b, std::span<glm::vec2 const> polyline);
 
@@ -170,6 +195,15 @@ namespace Strada
 		// Which edges of the comment a point is within tolerance of (LeftEdge | TopEdge | ...): a corner gives two. 0 when the
 		// point is farther from every edge, or outside the comment's box grown by the tolerance.
 		uint8_t GetCommentEdges(VisualScriptCommentVisual const& comment, glm::vec2 point, float tolerance);
+
+		// The minimap.
+		//
+		// Its rectangle in screen pixels for a canvas rectangle and UI scale (VisualScriptCanvasMetrics' Minimap metrics).
+		VisualScriptRect GetMinimapRect(glm::vec2 canvasMin, glm::vec2 canvasSize, float uiScale);
+		// How a minimap rectangle shows content of these bounds (nodes and comments, canvas units); nothing to show without
+		// bounds or with an empty rectangle.
+		VisualScriptMinimapTransform GetMinimapTransform(VisualScriptRect const& minimapRect,
+		                                                 std::optional<VisualScriptRect> const& contentBounds);
 
 		// Rectangles.
 		bool Contains(VisualScriptRect const& rect, glm::vec2 point);

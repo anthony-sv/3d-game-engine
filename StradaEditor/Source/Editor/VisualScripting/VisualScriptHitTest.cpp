@@ -78,6 +78,10 @@ namespace Strada
 		order.clear();
 		auto const addNode = [&](uint32_t node)
 		{
+			if (context.SkipMoved && context.Preview.IsMoved(node))
+			{
+				return;
+			}
 			order.push_back(GetVisualScriptNodeDrawKey(IsSelected(context, node), GetRaise(context, node), node));
 		};
 		for (uint32_t const item : candidates)
@@ -87,7 +91,7 @@ namespace Strada
 				addNode(VisualScriptSpatialIndex::GetIndex(item));
 			}
 		}
-		for (uint32_t node = 0; node < context.Preview.Moved.size() && node < nodes.size(); node++)
+		for (uint32_t node = 0; node < context.Preview.Moved.size() && node < nodes.size() && !context.SkipMoved; node++)
 		{
 			if (context.Preview.IsMoved(node))
 			{
@@ -149,7 +153,9 @@ namespace Strada
 			}
 		}
 
-		// The topmost node under the mouse: its badge, its header or its body.
+		// The topmost node under the mouse: its badge, its header or its body, and the bubble of its comment where it is drawn
+		// with its text.
+		bool const bubbles = level == VisualScriptDetailLevel::Compact || level == VisualScriptDetailLevel::Detail;
 		for (uint64_t const key : order)
 		{
 			uint32_t const nodeIndex = getNodeIndex(key);
@@ -176,6 +182,11 @@ namespace Strada
 			{
 				bool const header = VisualScriptGeometry::Contains(VisualScriptGeometry::GetHeaderRect(node, offset), point);
 				return MakeNodeHit(header ? VisualScriptHitKind::NodeHeader : VisualScriptHitKind::Node, node);
+			}
+			VisualScriptRect const bubble = VisualScriptGeometry::GetBubbleRect(node, offset);
+			if (bubbles && !VisualScriptGeometry::IsEmpty(bubble) && VisualScriptGeometry::Contains(bubble, point))
+			{
+				return MakeNodeHit(VisualScriptHitKind::Node, node);
 			}
 		}
 
@@ -236,7 +247,7 @@ namespace Strada
 				}
 			}
 			std::span<VisualScriptLinkVisual const> const links = model.GetLinks();
-			for (uint32_t node = 0; node < context.Preview.Moved.size() && node < nodes.size(); node++)
+			for (uint32_t node = 0; node < context.Preview.Moved.size() && node < nodes.size() && !context.SkipMoved; node++)
 			{
 				if (!context.Preview.IsMoved(node))
 				{

@@ -284,3 +284,50 @@ TEST_CASE("VisualScriptEditor: a hit test queries the index once, within at most
 		}
 	}
 }
+
+TEST_CASE("VisualScriptEditor: a node comment's bubble is hit as its node where its text is drawn, and moved nodes can be looked through")
+{
+	HitFixture fixture;
+	VisualScriptNode branch = MakeNode(1, "Flow.Branch", glm::vec2(100.0f, 300.0f));
+	branch.Comment = "Checks the condition";
+	fixture.Document.Graph.Nodes = {branch, MakeNode(2, "Event.Create", glm::vec2(500.0f, 100.0f)),
+	                                MakeNode(3, "Flow.Branch", glm::vec2(900.0f, 100.0f))};
+	fixture.Document.Graph.Links = {MakeLink(2, "Then", 3, "Execute")};
+	fixture.Sync();
+	VisualScriptRect const bubble = Geometry::GetBubbleRect(fixture.Model.GetNodes()[fixture.NodeIndex(1)]);
+	REQUIRE_FALSE(Geometry::IsEmpty(bubble));
+
+	// At Detail and Compact the bubble shows its text, and a press on it is on its node.
+	CheckHit(fixture.Hit(bubble.GetCenter()), VisualScriptHitKind::Node, 1);
+	fixture.SetZoom(0.5f);
+	REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Compact);
+	CheckHit(fixture.Hit(bubble.GetCenter()), VisualScriptHitKind::Node, 1);
+	// At Overview it shows no text: what lies under it is hit.
+	fixture.SetZoom(0.3f);
+	REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Overview);
+	CheckHit(fixture.Hit(bubble.GetCenter()), VisualScriptHitKind::Background);
+	fixture.SetZoom(1.0f);
+
+	// The first Branch dragged onto the middle of the wire: hit where the preview draws it, unless moved nodes are looked
+	// through, which finds the wire a dragged node may be dropped on.
+	std::array<glm::vec2, 4> const points = Geometry::GetLinkControlPoints(fixture.Model, 0);
+	glm::vec2 const middle = (points[0] + points[1] * 3.0f + points[2] * 3.0f + points[3]) / 8.0f;
+	uint32_t const moved = fixture.NodeIndex(1);
+	VisualScriptRect const rect = Geometry::GetNodeRect(fixture.Model.GetNodes()[moved]);
+	std::vector<uint32_t> const dynamic = {moved};
+	fixture.Index.SetDynamic(dynamic, {});
+	std::vector<uint8_t> movedMask(fixture.Model.GetNodes().size(), 0);
+	movedMask[moved] = 1;
+	fixture.Context.Preview.Moved = movedMask;
+	fixture.Context.Preview.Offset = middle - rect.GetCenter();
+	CheckHit(fixture.Hit(middle), VisualScriptHitKind::Node, 1);
+	fixture.Context.SkipMoved = true;
+	VisualScriptHit const under = fixture.Hit(middle);
+	CheckHit(under, VisualScriptHitKind::Link);
+	REQUIRE(under.Link.has_value());
+	CHECK(*under.Link == fixture.Document.Graph.Links[0]);
+	// Where the node was before the move is empty either way.
+	CheckHit(fixture.Hit(rect.GetCenter()), VisualScriptHitKind::Background);
+	fixture.Context.SkipMoved = false;
+	CheckHit(fixture.Hit(rect.GetCenter()), VisualScriptHitKind::Background);
+}

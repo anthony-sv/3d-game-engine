@@ -82,6 +82,8 @@ namespace Strada
 		// Nodes drawn moved (a move preview, whose nodes and wires the index has as dynamic) and a collapsed node drawn
 		// expanded under a dragged wire.
 		VisualScriptNodePreview Preview;
+		// The moved nodes and their wires are not hit: what lies under a dragged node (the wire it may be dropped on).
+		bool SkipMoved = false;
 		// ImGuiStyle::CurveTessellationTol: wires are hit where they are drawn.
 		float CurveTessellationTolerance = 1.25f;
 		// The index's cost of the hit test is added here when given.
@@ -90,8 +92,9 @@ namespace Strada
 	};
 
 	// What the mouse (screen pixels) is over. The first match wins: the minimap, a pin, a node's badge, a node's header, a
-	// node's body, a reroute's dot, a wire (within WireHitLogicalPixels of its drawn polyline, the nearest), a comment's edge
-	// (within CommentHandleLogicalPixels), a comment's title bar, the background. Nodes are tried in reverse draw order
+	// node's body (its comment's bubble included at Compact and Detail, where the bubble is drawn with its text), a reroute's
+	// dot, a wire (within WireHitLogicalPixels of its drawn polyline, the nearest), a comment's edge (within
+	// CommentHandleLogicalPixels), a comment's title bar, the background. Nodes are tried in reverse draw order
 	// (GetVisualScriptNodeDrawKey), and a pin only on the topmost node whose rectangle (grown by PinSlopLogicalPixels) holds the
 	// mouse; comments smallest first, as they are drawn largest first. At Far no pins and no wires are hit (only selecting and
 	// moving work there). One index query at most 4 cells wide.

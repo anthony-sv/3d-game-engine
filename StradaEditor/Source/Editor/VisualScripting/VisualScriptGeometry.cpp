@@ -508,6 +508,32 @@ namespace Strada::VisualScriptGeometry
 		return {best, arc > 0.0f ? bestArc / arc : 0.0f};
 	}
 
+	glm::vec2 GetPolylinePoint(std::span<glm::vec2 const> polyline, float arcFraction)
+	{
+		if (polyline.empty())
+		{
+			return glm::vec2(0.0f);
+		}
+		float total = 0.0f;
+		for (size_t index = 1; index < polyline.size(); index++)
+		{
+			total += glm::length(polyline[index] - polyline[index - 1]);
+		}
+		float remaining = (std::isfinite(arcFraction) ? std::clamp(arcFraction, 0.0f, 1.0f) : 0.0f) * total;
+		for (size_t index = 1; index < polyline.size(); index++)
+		{
+			glm::vec2 const a = polyline[index - 1];
+			glm::vec2 const b = polyline[index];
+			float const length = glm::length(b - a);
+			if (remaining <= length && length > 0.0f)
+			{
+				return a + (b - a) * (remaining / length);
+			}
+			remaining -= length;
+		}
+		return polyline.back();
+	}
+
 	bool SegmentCrossesPolyline(glm::vec2 a, glm::vec2 b, std::span<glm::vec2 const> polyline)
 	{
 		for (size_t index = 1; index < polyline.size(); index++)
@@ -564,6 +590,43 @@ namespace Strada::VisualScriptGeometry
 			edges |= top <= bottom ? TopEdge : BottomEdge;
 		}
 		return edges;
+	}
+
+	VisualScriptRect GetMinimapRect(glm::vec2 canvasMin, glm::vec2 canvasSize, float uiScale)
+	{
+		float const scale = uiScale > 0.0f && std::isfinite(uiScale) ? uiScale : 1.0f;
+		if (!(canvasSize.x > 0.0f) || !(canvasSize.y > 0.0f) || !std::isfinite(canvasSize.x) || !std::isfinite(canvasSize.y))
+		{
+			return {canvasMin, canvasMin};
+		}
+		float const width = std::clamp(Metrics::MinimapWidthShare * canvasSize.x, Metrics::MinimapMinWidthLogicalPixels * scale,
+		                               Metrics::MinimapMaxWidthLogicalPixels * scale);
+		glm::vec2 const size(width, width * Metrics::MinimapAspect);
+		glm::vec2 const max = canvasMin + canvasSize - glm::vec2(Metrics::MinimapMarginLogicalPixels * scale);
+		return {max - size, max};
+	}
+
+	VisualScriptMinimapTransform GetMinimapTransform(VisualScriptRect const& minimapRect,
+	                                                 std::optional<VisualScriptRect> const& contentBounds)
+	{
+		VisualScriptMinimapTransform transform;
+		transform.Rect = minimapRect;
+		glm::vec2 const rectSize = minimapRect.GetSize();
+		if (!contentBounds || !(rectSize.x > 0.0f) || !(rectSize.y > 0.0f))
+		{
+			return transform;
+		}
+		glm::vec2 const size = glm::max(contentBounds->GetSize(), glm::vec2(0.0f));
+		// A margin of the larger side keeps a single node from filling the minimap edge to edge.
+		float const margin = std::max(std::max(size.x, size.y) * Metrics::MinimapContentMargin, 1.0f);
+		transform.Bounds = Expand(*contentBounds, margin);
+		glm::vec2 const shown = transform.Bounds.GetSize();
+		transform.Scale = std::min(rectSize.x / shown.x, rectSize.y / shown.y);
+		if (!std::isfinite(transform.Scale) || !(transform.Scale > 0.0f))
+		{
+			transform.Scale = 0.0f;
+		}
+		return transform;
 	}
 
 	bool Contains(VisualScriptRect const& rect, glm::vec2 point)

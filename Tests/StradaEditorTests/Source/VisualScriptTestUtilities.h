@@ -4,6 +4,7 @@
 
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
@@ -1152,6 +1153,50 @@ namespace Strada::Testing
 		REQUIRE_MESSAGE(index.has_value(), "node ", node, " is not on the canvas");
 		VisualScriptRect const rect = VisualScriptGeometry::GetNodeRect(model.GetNodes()[*index]);
 		return view.ToScreen(rect.Min + rect.GetSize() * fraction);
+	}
+
+	// The same points of a graph window's canvas, through its model's visual model and view (as the last Update set them).
+	inline glm::vec2 CanvasPoint(VisualScriptEditorModel const& model, uint32_t node, std::string_view pin,
+	                             VisualScriptPinDirection direction = VisualScriptPinDirection::In)
+	{
+		return CanvasPoint(model.GetCanvas(), model.GetView(), node, pin, direction);
+	}
+
+	inline glm::vec2 CanvasPoint(VisualScriptEditorModel const& model, uint32_t node, glm::vec2 fraction = glm::vec2(0.5f))
+	{
+		return CanvasPoint(model.GetCanvas(), model.GetView(), node, fraction);
+	}
+
+	// The screen point at a fraction of a comment box's rectangle; its title bar is near the top, its edges at 0 and 1.
+	inline glm::vec2 CommentPoint(VisualScriptEditorModel const& model, uint32_t comment, glm::vec2 fraction)
+	{
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		std::optional<uint32_t> const index = canvas.FindComment(comment);
+		REQUIRE_MESSAGE(index.has_value(), "comment ", comment, " is not on the canvas");
+		VisualScriptRect const rect = canvas.GetComments()[*index].Rect;
+		return model.GetView().ToScreen(rect.Min + rect.GetSize() * fraction);
+	}
+
+	// The screen point on a link's wire at the middle of its curve (where it is drawn, within the flattening's tolerance).
+	inline glm::vec2 WirePoint(VisualScriptEditorModel const& model, VisualScriptLink const& link)
+	{
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+		std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+		for (uint32_t index = 0; index < links.size(); index++)
+		{
+			VisualScriptLinkVisual const& visual = links[index];
+			if (nodes[visual.FromNode].ID == link.From.Node && nodes[visual.ToNode].ID == link.To.Node &&
+			    canvas.GetText(visual.FromName) == link.From.Pin && canvas.GetText(visual.ToName) == link.To.Pin)
+			{
+				std::array<glm::vec2, 4> const p = VisualScriptGeometry::GetLinkControlPoints(canvas, index);
+				// The cubic Bezier curve at t = 0.5.
+				glm::vec2 const middle = (p[0] + 3.0f * p[1] + 3.0f * p[2] + p[3]) * 0.125f;
+				return model.GetView().ToScreen(middle);
+			}
+		}
+		FAIL("link ", link.From.Node, ".", link.From.Pin, " -> ", link.To.Node, ".", link.To.Pin, " is not on the canvas");
+		return glm::vec2(0.0f);
 	}
 
 	// A large graph for the canvas's performance guards: columns × rows nodes of the fixture library on a 320 × 180 grid, each

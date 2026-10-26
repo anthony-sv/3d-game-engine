@@ -149,6 +149,29 @@ namespace Strada
 		inline constexpr float WireHitLogicalPixels = 6.0f;
 		inline constexpr float CommentHandleLogicalPixels = 8.0f;
 
+		// Interaction. A press becomes a drag once the mouse moved more than ClickDragThresholdPixels screen pixels from it (the
+		// editor's threshold, ViewportPanel.cpp, unscaled as there); a dragged wire snaps to a pin whose glyph is within
+		// WireSnapLogicalPixels. Moves and resizes snap to GridSize, and an arrow key nudges by one GridSize (Alt+arrow: 1).
+		inline constexpr float ClickDragThresholdPixels = 4.0f;
+		inline constexpr float WireSnapLogicalPixels = 16.0f;
+		inline constexpr float GridSize = 16.0f;
+		// A wire resting this long over a collapsed node draws it expanded, and a node dragged over a wire this long makes the
+		// wire its splice target; a Space press released within SpaceTapSeconds is a tap (the palette).
+		inline constexpr double HoverExpandSeconds = 0.3;
+		inline constexpr double SpaceTapSeconds = 0.25;
+
+		// The minimap: at the canvas's bottom-right corner, MinimapMarginLogicalPixels inside it, MinimapWidthShare of the
+		// canvas's width within MinimapMinWidthLogicalPixels and MinimapMaxWidthLogicalPixels, MinimapAspect as high as wide. It
+		// shows the bounds of the nodes and comments grown by MinimapContentMargin of their larger side on every side, and fades
+		// in or out over MinimapFadeSeconds.
+		inline constexpr float MinimapMarginLogicalPixels = 12.0f;
+		inline constexpr float MinimapWidthShare = 0.2f;
+		inline constexpr float MinimapMinWidthLogicalPixels = 160.0f;
+		inline constexpr float MinimapMaxWidthLogicalPixels = 280.0f;
+		inline constexpr float MinimapAspect = 0.65f;
+		inline constexpr float MinimapContentMargin = 0.05f;
+		inline constexpr double MinimapFadeSeconds = 0.2;
+
 		static_assert(ChipHeight == ChipTextSize + 2.0f * ChipPaddingY);
 
 		// Whether text of sizeCu canvas units is drawn at a zoom: when it is at least MinTextLogicalPixels at a UI scale of 1.
