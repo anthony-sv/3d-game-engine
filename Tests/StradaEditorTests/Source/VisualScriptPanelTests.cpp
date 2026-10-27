@@ -1588,3 +1588,21 @@ TEST_CASE("VisualScriptEditor: a payload over a pin that cannot take it shows th
 	CHECK(fixture.FindNode(3)->Inputs.value("Message", Json()) == Json("Hi"));
 	CHECK_FALSE(fixture.Panel->GetState().Toasts.empty());
 }
+
+TEST_CASE("VisualScriptEditor: the node menu's Find References lists a variable's uses in the drawer")
+{
+	PanelFixture fixture(MakeSetterDocument());
+	fixture.CheckDrawingChangesNothing();
+	REQUIRE(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Closed);
+	fixture.Click(Testing::CanvasPoint(fixture.Model(), 5, glm::vec2(0.5f, 0.06f)), ImGuiMouseButton_Right);
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	std::optional<glm::vec2> const find = fixture.FindPopupItem("Find References");
+	REQUIRE(find.has_value());
+	size_t const undo = fixture.GetUndoCount();
+	fixture.Click(*find);
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Find);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(fixture.GetUndoCount() == undo);
+}

@@ -7,6 +7,7 @@
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
+#include "Editor/VisualScripting/VisualScriptLiteralEditor.h"
 #include "Editor/VisualScripting/VisualScriptThemeStyle.h"
 #include "Editor/VisualScripting/VisualScriptView.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
@@ -27,6 +28,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -92,7 +94,40 @@ namespace
 		return document;
 	}
 
-	// Draws the live widget of the chip under the mouse as the literal editor's compact form does: a drag per cell.
+	// The live widget as the graph window draws it (VisualScriptEditorPanel::DrawLiveChip): the literal editor's compact form
+	// of the chip's pin type, as wide as the chip's cells, with the descriptor it builds on every draw (ruling R7.6).
+	class LiteralChipHost final : public VisualScriptLiveChipHost
+	{
+	public:
+		void DrawLiveChip(VisualScriptLiveChip const& chip) override
+		{
+			std::span<VisualScriptPinVisual const> const pins = Model->GetCanvas().GetPins();
+			if (chip.Pin >= pins.size())
+			{
+				return;
+			}
+			VisualScriptLiveChipScope const scope(chip);
+			ImGui::PushID("LiveChip");
+			uint32_t const cells = std::max(chip.CellCount, 1u);
+			float const width = cells > 1
+			                        ? std::ceil(chip.CellWidth * static_cast<float>(cells) + chip.CellGap * static_cast<float>(cells - 1))
+			                        : std::round(chip.CellWidth);
+			ImGui::SetNextItemWidth(width);
+			bool popupRequested = false;
+			std::optional<Json> const changed =
+				m_Editor.Draw(pins[chip.Pin].Type, Json(), Json(), Library, FieldInlineMode::Compact, &popupRequested);
+			CHECK_FALSE(changed.has_value());
+			ImGui::PopID();
+		}
+
+		VisualScriptEditorModel const* Model = nullptr;
+		VisualScriptLibrary const* Library = nullptr;
+
+	private:
+		VisualScriptLiteralEditor m_Editor;
+	};
+
+	// The renderer-only baseline of the live widget: a plain drag per cell, which shows what the literal editor adds.
 	class CellChipHost final : public VisualScriptLiveChipHost
 	{
 	public:
@@ -128,6 +163,8 @@ namespace
 		uint32_t NodeVertices = 0;
 		uint32_t WireVertices = 0;
 		bool LiveWidget = false;
+		// The input whose chip the mouse rests on, with LiveWidget.
+		std::string_view ChipPin = "Duration";
 
 		glm::vec2 GetCenter() const { return glm::vec2(-100.0f) + Canvas * 0.5f / Zoom; }
 	};
@@ -213,7 +250,11 @@ namespace
 					VisualScriptDrawInput.Hovered = input.Hovered;
 					VisualScriptDrawInput.ReduceMotion = true;
 					VisualScriptDrawInput.Brushes = &Brushes;
-					VisualScriptDrawInput.LiveChips = scenario.LiveWidget ? &Host : nullptr;
+					Host.Model = &*Models[graph];
+					Host.Library = &Semantics.GetFixtureLibrary();
+					VisualScriptDrawInput.LiveChips = !scenario.LiveWidget ? nullptr
+				                                      : UseBaseline        ? static_cast<VisualScriptLiveChipHost*>(&Baseline)
+				                                                           : static_cast<VisualScriptLiveChipHost*>(&Host);
 					VisualScriptDrawInput.MeasurePhases = measurePhases;
 					Theme = MakeVisualScriptThemeAnchors(style);
 
@@ -234,8 +275,9 @@ namespace
 
 		VisualScriptRenderStats const& GetStats(size_t graph) const { return Renderers[graph].GetStats(); }
 
-		// The middle of the value chip of a Delay's Duration that T2 shows: an unlinked one, wholly inside the view.
-		glm::vec2 FindChip(size_t graph) const
+		// The middle of a value chip of an input (a Delay's Duration, an Add Force's Force or Mode) that T2 shows: an unlinked
+		// one, wholly inside the view.
+		glm::vec2 FindChip(size_t graph, std::string_view pinName) const
 		{
 			VisualScriptEditorModel const& model = *Models[graph];
 			VisualScriptCanvasModel const& canvas = model.GetCanvas();
@@ -244,7 +286,7 @@ namespace
 			{
 				std::optional<uint32_t> const index = canvas.FindNode(node.ID);
 				std::optional<uint32_t> const pin =
-					index ? canvas.FindPin(*index, "Duration", VisualScriptPinDirection::In) : std::optional<uint32_t>();
+					index ? canvas.FindPin(*index, pinName, VisualScriptPinDirection::In) : std::optional<uint32_t>();
 				if (!pin)
 				{
 					continue;
@@ -256,7 +298,7 @@ namespace
 					return model.GetView().ToScreen(chip.GetCenter());
 				}
 			}
-			FAIL("no Delay with a Duration chip in view");
+			FAIL("no chip of an input ", pinName, " in view");
 			return glm::vec2(0.0f);
 		}
 
@@ -273,7 +315,10 @@ namespace
 		std::array<std::optional<VisualScriptEditorModel>, GraphCount> Models;
 		std::array<VisualScriptCanvasRenderer, GraphCount> Renderers;
 		VisualScriptBrushes Brushes;
-		CellChipHost Host;
+		LiteralChipHost Host;
+		CellChipHost Baseline;
+		// The live widget is drawn by Baseline instead of Host.
+		bool UseBaseline = false;
 		VisualScriptCanvasDrawInput VisualScriptDrawInput;
 		std::optional<glm::vec2> Mouse;
 		double Time = 0.0;
@@ -317,21 +362,32 @@ namespace
 		return values.empty() ? 0.0 : values[std::min(values.size() - 1, values.size() * 95 / 100)];
 	}
 
-	// The medians the track measured on its machine (track U's report, step U4), in milliseconds; the wall-clock checks
-	// allow 3 times them (spec §15.7).
+	// The medians the track measured on its machine (track U's report: step U4, and U-fix for T2 with the literal editor's
+	// widget and the graph window's frames), in milliseconds; the wall-clock checks allow 3 times them (spec §15.7).
 #if defined(ST_DEBUG)
 	constexpr double T1Milliseconds = 9.95;
-	constexpr double T2Milliseconds = 7.89;
+	constexpr double T2Milliseconds = 7.88;
 	constexpr double T3Milliseconds = 0.98;
 	constexpr double T4Milliseconds = 22.9;
 	constexpr double CommitFrameMilliseconds = 686.0;
+	// T2 with the live widget of a vector and of an enum chip (track U's report, step U-fix).
+	constexpr double T2VectorMilliseconds = 8.08;
+	constexpr double T2EnumMilliseconds = 8.12;
+	// The graph window's whole frame (ImGui's included) with the mouse on the live widget of a float, a vector and an enum chip.
+	constexpr std::array<double, 3> WindowFrameMilliseconds = {3.08, 3.07, 3.07};
 #else
 	constexpr double T1Milliseconds = 1.03;
-	constexpr double T2Milliseconds = 0.873;
+	constexpr double T2Milliseconds = 0.832;
 	constexpr double T3Milliseconds = 0.104;
 	constexpr double T4Milliseconds = 1.425;
 	constexpr double CommitFrameMilliseconds = 37.9;
+	constexpr double T2VectorMilliseconds = 0.821;
+	constexpr double T2EnumMilliseconds = 0.829;
+	constexpr std::array<double, 3> WindowFrameMilliseconds = {0.447, 0.445, 0.462};
 #endif
+
+	// The chips of T2's live widget: a float, a vector and an enum (the grid's Delay and Add Force).
+	constexpr std::array<std::string_view, 3> ChipPins = {"Duration", "Force", "Mode"};
 
 	// Times a scenario's frames: their median and 95th percentile, and the renderer's phases of the last one, printed.
 	double TimeScenario(PerformanceFixture& fixture, size_t graph, Scenario const& scenario)
@@ -364,7 +420,7 @@ TEST_CASE("VisualScriptEditor: the canvas's frames T1 to T4 stay within their co
 		if (scenario.LiveWidget)
 		{
 			// The mouse over a chip: its live widget.
-			fixture.Mouse = fixture.FindChip(Medium);
+			fixture.Mouse = fixture.FindChip(Medium, scenario.ChipPin);
 			fixture.Frame(Medium, scenario);
 		}
 		fixture.Frame(Medium, scenario);
@@ -411,7 +467,7 @@ TEST_CASE("VisualScriptEditor: T1's view costs the same on graphs of 676, 5,000 
 		        " candidates");
 	}
 	// The same view holds the same elements, and draws them alike.
-	auto const near = [](uint32_t value, uint32_t reference)
+	auto const isNear = [](uint32_t value, uint32_t reference)
 	{
 		return std::abs(static_cast<double>(value) - static_cast<double>(reference)) <= 0.02 * static_cast<double>(reference);
 	};
@@ -421,9 +477,9 @@ TEST_CASE("VisualScriptEditor: T1's view costs the same on graphs of 676, 5,000 
 		CHECK(stats[graph].VisibleNodes == stats[Medium].VisibleNodes);
 		CHECK(stats[graph].VisibleWires == stats[Medium].VisibleWires);
 		CHECK(stats[graph].VisibleComments == stats[Medium].VisibleComments);
-		CHECK(near(stats[graph].Vertices, stats[Medium].Vertices));
-		CHECK(near(stats[graph].Indices, stats[Medium].Indices));
-		CHECK(near(stats[graph].Index.Candidates, stats[Medium].Index.Candidates));
+		CHECK(isNear(stats[graph].Vertices, stats[Medium].Vertices));
+		CHECK(isNear(stats[graph].Indices, stats[Medium].Indices));
+		CHECK(isNear(stats[graph].Index.Candidates, stats[Medium].Index.Candidates));
 		CHECK(stats[graph].DrawCommands == stats[Medium].DrawCommands);
 	}
 
@@ -500,5 +556,106 @@ TEST_CASE("VisualScriptEditor: the frame that commits a move in a graph of 2,000
 	{
 		MESSAGE("commit frame of a 2,000-node, 4,000-link graph: ", milliseconds, " ms");
 		CHECK(milliseconds <= 3.0 * CommitFrameMilliseconds);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: T2's live widget is the literal editor's compact form for a float, a vector and an enum chip")
+{
+	PerformanceFixture fixture;
+	std::array<double, 3> const recorded = {T2Milliseconds, T2VectorMilliseconds, T2EnumMilliseconds};
+	for (size_t chip = 0; chip < ChipPins.size(); chip++)
+	{
+		Scenario scenario = T2;
+		scenario.ChipPin = ChipPins[chip];
+		CAPTURE(scenario.ChipPin);
+		fixture.Mouse.reset();
+		fixture.Show(Medium, scenario);
+		fixture.Mouse = fixture.FindChip(Medium, scenario.ChipPin);
+		fixture.Frame(Medium, scenario);
+		fixture.Frame(Medium, scenario);
+		CheckCounters(fixture.GetStats(Medium), scenario);
+		if (Testing::ArePerformanceTestsEnabled())
+		{
+			double const median = TimeScenario(fixture, Medium, scenario);
+			fixture.UseBaseline = true;
+			double const baseline = TimeScenario(fixture, Medium, scenario);
+			fixture.UseBaseline = false;
+			MESSAGE("T2 on ", scenario.ChipPin, ": the literal editor ", median, " ms, a plain drag per cell ", baseline, " ms");
+			CHECK(median <= 3.0 * recorded[chip]);
+		}
+	}
+}
+
+namespace
+{
+	// The middle of a value chip of an input well inside the view and away from its bottom-right corner (the minimap's).
+	std::optional<glm::vec2> FindChipInView(VisualScriptEditorModel const& model, std::string_view pinName)
+	{
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+		std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+		VisualScriptRect const visible = model.GetView().GetVisibleRect();
+		glm::vec2 const lower = visible.Min + visible.GetSize() * 0.1f;
+		glm::vec2 const upper = visible.Min + visible.GetSize() * 0.9f;
+		glm::vec2 const corner = visible.Min + visible.GetSize() * 0.55f;
+		for (uint32_t index = 0; index < nodes.size(); index++)
+		{
+			std::optional<uint32_t> const pin = canvas.FindPin(index, pinName, VisualScriptPinDirection::In);
+			if (!pin)
+			{
+				continue;
+			}
+			VisualScriptRect const chip = VisualScriptGeometry::GetChipRect(nodes[index], pins[*pin]);
+			bool const inside = chip.Min.x > lower.x && chip.Min.y > lower.y && chip.Max.x < upper.x && chip.Max.y < upper.y;
+			bool const underMinimap = chip.Max.x > corner.x && chip.Max.y > corner.y;
+			if (!VisualScriptGeometry::IsEmpty(chip) && inside && !underMinimap)
+			{
+				return model.GetView().ToScreen(chip.GetCenter());
+			}
+		}
+		return std::nullopt;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: the graph window's frame with the mouse resting on the live widget of a float, a vector and an enum chip")
+{
+	// T2's zoom through the production path: the window with its panes, its live widget (the literal editor's compact form)
+	// and what it resolves for it, ImGui's frame included.
+	Testing::PanelFixture fixture(Testing::MakeGridGraph(30, 30, LinksPerNode, 10));
+	fixture.WindowSize = ImVec2(1920.0f, 1080.0f);
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Graph;
+	request.Center = glm::vec2(1600.0f, 1000.0f);
+	request.Zoom = T2.Zoom;
+	request.Focus = false;
+	fixture.Panel->Apply(request);
+	fixture.Frames(3);
+	fixture.CheckDrawingChangesNothing();
+	for (size_t chip = 0; chip < ChipPins.size(); chip++)
+	{
+		CAPTURE(ChipPins[chip]);
+		std::optional<glm::vec2> const point = FindChipInView(fixture.Model(), ChipPins[chip]);
+		REQUIRE(point.has_value());
+		fixture.MoveMouse(*point);
+		fixture.Frames(2);
+		REQUIRE(fixture.Panel->GetLiveWidget().has_value());
+		CHECK(fixture.Panel->GetRenderer().GetStats().LiveWidgets == 1);
+		fixture.CheckDrawingChangesNothing();
+		if (Testing::ArePerformanceTestsEnabled())
+		{
+			constexpr int Frames = 60;
+			std::vector<double> times;
+			times.reserve(Frames);
+			for (int frame = 0; frame < Frames; frame++)
+			{
+				auto const start = std::chrono::steady_clock::now();
+				fixture.Frames(1);
+				times.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+			}
+			double const median = Median(times);
+			MESSAGE("the graph window's frame on the live widget of ", ChipPins[chip], ": median ", median, " ms, p95 ",
+			        Percentile95(times), " ms");
+			CHECK(median <= 3.0 * WindowFrameMilliseconds[chip]);
+		}
 	}
 }
