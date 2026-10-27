@@ -915,8 +915,7 @@ place. H collapses selected nodes to their header.
 
 **Split pins.** Right-click a vector, colour or other struct pin and choose Split Struct Pin to show one pin per field
 (a `Vector3` input becomes `X`, `Y` and `Z`), so you can link or set each field on its own; Recombine Struct Pin puts it
-back.
-Outputs split the same way (a raycast's hit point, then its `Y`).
+back. Outputs split the same way (a raycast's hit point, then its `Y`).
 
 **Disabling nodes.** M disables the selected nodes (or enables them again): a disabled node is dimmed and passes the
 flow on to its next node without running, and passes its values through where it can, so you can switch part of a graph
@@ -932,18 +931,18 @@ lists everything, errors first; click a row to go there.
 
 **Find.** Ctrl+F finds text in the script (titles, values, comments, names): Enter goes to the next match and selects
 it, and the find field keeps the keyboard; Escape closes the bar and gives the keyboard back to the canvas, where
-Delete, F2, Ctrl+X or Ctrl+D act on what you found. Ctrl+Shift+F searches every script of the project. Find References on a
-variable, Find Callers on a function and Find Senders on a custom event (in their right-click menus in My Script) list
-their uses; senders are found in every script.
+Delete, F2, Ctrl+X or Ctrl+D act on what you found. Ctrl+Shift+F searches every script of the project. Find References
+on a variable, Find Callers on a function and Find Senders on a custom event (in their right-click menus in My Script)
+list their uses; senders are found in every script.
 
-**Editing while playing.** Keep the graph window open while the game plays. Graph windows open as tabs beside the
-Scene View and the Game View, and Play brings the Game View to the front (Stop the Scene View): to watch the game while you edit, drag the
-graph window's tab to the side of the editor (or onto another panel's edge) so both show. Every edit reaches the running
-game at once (the toolbar's LIVE pill says so), variables keep their values, and waiting nodes keep waiting while they still
-exist. When an edit leaves an error, the pill turns amber ("last working version") and the game goes on with the last
-version that worked until you fix it. The toolbar's Instance list picks which entity running the script the window
-shows: My Script then shows its public variables' current values, and dropped entities set its values. Edits made
-while playing stay in the script after Stop, and stay undoable.
+**Editing while playing.** Keep the graph window open while the game plays. Graph windows open as tabs beside the Scene
+View and the Game View, and Play brings the Game View to the front (and Stop brings the Scene View back): to watch the
+game while you edit, drag the graph window's tab to the side of the editor (or onto another panel's edge) so both show.
+Every edit reaches the running game at once (the toolbar's LIVE pill says so), variables keep their values, and waiting
+nodes keep waiting while they still exist. When an edit leaves an error, the pill turns amber ("last working version")
+and the game goes on with the last version that worked until you fix it. The toolbar's Instance list picks which entity
+running the script the window shows: My Script then shows its public variables' current values, and dropped entities set
+its values. Edits made while playing stay in the script after Stop, and stay undoable.
 
 ## Testing a game
 

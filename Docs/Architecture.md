@@ -1496,8 +1496,8 @@ inspector's primary entity as the context entity; without an asset directory the
   counters always, on graphs of up to 10,000 nodes, and their wall-clock bounds (3 times the measured figures) only with
   `STRADA_PERFORMANCE_TESTS=1`. Pins and wires take their type's colour, wires with an implicit conversion a gradient
   between the two; disabled nodes are dimmed with a bypass line from the exec input to their `PassThrough` exit, and
-  disabled and development-only nodes carry a strip that names their state. Links made by any means pulse once, and elements changed from outside (undo,
-  automation, another window) flash.
+  disabled and development-only nodes carry a strip that names their state. Links made by any means pulse once, and
+  elements changed from outside (undo, automation, another window) flash.
 - **Palette** (Tab, a Space tap, a right click on the background, a wire released on empty canvas, `graph.palette`): the
   node library's kinds with their typed expansions ("Get Component: Rigid Body"), the document's variables (and the
   shown function's locals), functions and custom events, and the actions (a comment box, a reroute, a custom event, a
@@ -1544,8 +1544,9 @@ inspector's primary entity as the context entity; without an asset directory the
   function impure, update a node to its canonical type, remove an unused split, enable a node the runtime runs anyway;
   Go To, Edit Setting and Rename navigate instead. The **find bar** (Ctrl+F) outlines matches in amber; Enter and
   Shift+Enter go to the next and previous match, which becomes the selection, while the find field keeps the keyboard;
-  Escape closes the bar and gives the keyboard back to the canvas, so the keys after a find act on what it showed. Find (`FindInVisualScript`, shared with `graph.find`) matches titles, subtitles, types, node comments, pin
-  labels, literals and text settings, comment boxes and names, one result per element and field, in document order.
+  Escape closes the bar and gives the keyboard back to the canvas, so the keys after a find act on what it showed. Find
+  (`FindInVisualScript`, shared with `graph.find`) matches titles, subtitles, types, node comments, pin labels, literals
+  and text settings, comment boxes and names, one result per element and field, in document order.
 - **Commits and undo**: every edit is a new document made by an L2 operation, prepared by `PrepareVisualScriptCommit`
   (former names, canonical node types, the layout of unplaced nodes, then a strict check that what is written loads
   back unchanged, whose text is the text written) and executed by `EditorOperations::EditVisualScript` through
