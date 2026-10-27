@@ -1042,3 +1042,54 @@ TEST_CASE("VisualScriptEditor: the graph window's live widget, the literal edito
 	CHECK(popup->WindowPadding.y == doctest::Approx(style.WindowPadding.y));
 	ImGui::GetStyle().FontScaleDpi = 1.0f;
 }
+
+TEST_CASE("VisualScriptEditor: the find bar's matches are outlined in amber, and the palette's preview draws a node alone at its "
+          "place and scale")
+{
+	Testing::CanvasRenderFixture fixture(MakeChipDocument());
+	fixture.Frame();
+	CHECK_FALSE(fixture.Item(VisualScriptDrawItemKind::Node, 2).Color == VisualScriptWarningColor);
+	std::vector<uint32_t> const outlined = {2};
+	fixture.Draw.Outlined = outlined;
+	fixture.Frame();
+	VisualScriptDrawRecordItem const& match = fixture.Item(VisualScriptDrawItemKind::Node, 2);
+	CHECK(match.Has(Elements::Outline));
+	CHECK(match.Color == VisualScriptWarningColor);
+	CHECK_FALSE(fixture.Item(VisualScriptDrawItemKind::Node, 3).Color == VisualScriptWarningColor);
+	fixture.Draw.Outlined = {};
+
+	// A node alone: the canvas's Delay, drawn with its top-left at a point, 0.75 screen pixels per canvas unit.
+	VisualScriptCanvasModel const& canvas = fixture.Model.GetCanvas();
+	std::optional<uint32_t> const index = canvas.FindNode(2);
+	REQUIRE(index.has_value());
+	glm::vec2 const size = canvas.GetNodes()[*index].Size;
+	glm::vec2 const position = canvas.GetNodes()[*index].Position;
+	VisualScriptCanvasRenderer preview;
+	VisualScriptDrawRecord record;
+	size_t const canvasItems = fixture.Record.Items.size();
+	fixture.Extra = [&]
+	{
+		VisualScriptViewState state;
+		state.Center = position + size * 0.5f;
+		state.Zoom = 0.75f;
+		VisualScriptView view(state);
+		view.SetCanvas(glm::vec2(100.0f, 50.0f), size * 0.75f, 1.0f);
+		VisualScriptCanvasDrawInput input = fixture.Draw;
+		input.Record = &record;
+		preview.DrawNodePreview(canvas, *index, view, input);
+	};
+	fixture.Frame();
+	fixture.Extra = nullptr;
+	REQUIRE(record.Items.size() == 1);
+	VisualScriptDrawRecordItem const& item = record.Items.front();
+	CHECK(item.Kind == VisualScriptDrawItemKind::Node);
+	CHECK(item.Element == 2);
+	CHECK(item.Level == VisualScriptDetailLevel::Detail);
+	CHECK(item.Has(Elements::Body | Elements::Title | Elements::Pins));
+	CHECK(item.Screen.Min.x == doctest::Approx(100.0f));
+	CHECK(item.Screen.Min.y == doctest::Approx(50.0f));
+	CHECK(item.Screen.Max.x == doctest::Approx(100.0f + size.x * 0.75f));
+	CHECK(preview.GetStats().VisibleNodes == 1);
+	// The canvas's own record and counts are untouched by it.
+	CHECK(fixture.Record.Items.size() == canvasItems);
+}
