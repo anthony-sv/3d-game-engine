@@ -47,6 +47,8 @@ namespace
 		std::string Name;
 		VisualScriptPinDirection Direction = In;
 		std::string Type;
+		Json Default = nullptr;
+		bool DefaultsToSelf = false;
 	};
 
 	std::optional<uint32_t> ReadID(Json const& settings, char const* key)
@@ -185,7 +187,7 @@ namespace
 			if (sends)
 			{
 				pins.push_back({"Execute", In, exec});
-				pins.push_back({"Target", In, "Strada.Entity"});
+				pins.push_back({"Target", In, "Strada.Entity", Json(), true});
 			}
 			for (VisualScriptParameter const& parameter : ReadParameters(node.Settings))
 			{
@@ -213,7 +215,7 @@ namespace
 		{
 			for (VisualScriptPin const& pin : kind->Pins)
 			{
-				pins.push_back({pin.Name, pin.Direction, pin.Type});
+				pins.push_back({pin.Name, pin.Direction, pin.Type, pin.Default, pin.DefaultsToSelf});
 			}
 		}
 		return pins;
@@ -274,7 +276,7 @@ namespace
 			float& row = pin.Direction == In ? inputs : outputs;
 			glm::vec2 const anchor(pin.Direction == In ? 0.0f : OutputX, FirstRowY + row * RowHeight);
 			row += 1.0f;
-			pins.push_back({std::move(pin.Name), pin.Direction, std::move(pin.Type), anchor});
+			pins.push_back({std::move(pin.Name), pin.Direction, std::move(pin.Type), anchor, std::move(pin.Default), pin.DefaultsToSelf});
 		}
 		return pins;
 	}
@@ -477,6 +479,27 @@ TEST_CASE("VisualScriptEditing: each kind of name is free or taken in its own sc
 	CHECK(VisualScriptEditing::IsCustomEventNameTaken(document, "Hit"));
 	CHECK_FALSE(VisualScriptEditing::IsCustomEventNameTaken(document, "Inner"));
 	CHECK_FALSE(VisualScriptEditing::IsCustomEventNameTaken(document, "Sent"));
+}
+
+TEST_CASE("VisualScriptEditing: pins the analysis renamed, and their fields, map back to the names the document stores")
+{
+	VisualScriptAnalyzedNode analyzed;
+	analyzed.ID = 1;
+	analyzed.PinRenames = {{In, "Amount", "Value"}, {In, "Value", "Input"}, {In, "Vec", "Value.Inner"}, {Out, "Sum", "Result"}};
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, In, "Value") == "Amount");
+	// A swap: the exact name wins over the name the other rename starts from.
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, In, "Input") == "Value");
+	// A field of a renamed pin; the longest renamed pin wins.
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, In, "Value.X") == "Amount.X");
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, In, "Value.Inner.Y") == "Vec.Y");
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, In, "Value.Inner") == "Vec");
+	// Not a field: the name only starts alike.
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, In, "ValueX") == "ValueX");
+	// Renames apply in their own direction only.
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, Out, "Value") == "Value");
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, Out, "Result.X") == "Sum.X");
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(&analyzed, In, "Result") == "Result");
+	CHECK(VisualScriptEditing::ToStoredVisualScriptPin(nullptr, In, "Value.X") == "Value.X");
 }
 
 TEST_CASE("VisualScriptEditing: nodes are added with the next ID, and what a document cannot hold is refused")
@@ -1848,12 +1871,16 @@ TEST_CASE("VisualScriptEditing: pins are promoted to variables and to function i
 	               MakeNode(73, "Get:Strada.Time.DeltaTime", glm::vec2(0.0f, 400.0f)),
 	               MakeNode(74, "Reroute", glm::vec2(0.0f, 600.0f)),
 	               MakeNode(75, "Flow.Branch", std::nullopt),
-	               MakeNode(83, "Function.Call", glm::vec2(0.0f, 800.0f), {{"Function", 80}})};
+	               MakeNode(83, "Function.Call", glm::vec2(0.0f, 800.0f), {{"Function", 80}}),
+	               MakeNode(76, "Flow.Delay", glm::vec2(400.0f, 400.0f)),
+	               MakeNode(77, "Event.Send", glm::vec2(400.0f, 600.0f), {{"Name", "Hit"}})};
 	graph.Links = {MakeLink(71, "Then", 72, "Execute")};
 	VisualScriptFunction apply = MakeFunction(80, "Apply");
 	apply.Graph.Nodes = {MakeNode(81, "Function.Entry"),
 	                     MakeNode(82, "Call:Strada.Log.Info(string)", glm::vec2(300.0f, 0.0f), Json::object(), {{"Message", "hi"}}),
-	                     MakeNode(85, "Set:Strada.TransformComponent.Translation", glm::vec2(300.0f, 200.0f))};
+	                     MakeNode(85, "Set:Strada.TransformComponent.Translation", glm::vec2(300.0f, 200.0f)),
+	                     MakeNode(86, "Flow.Delay", glm::vec2(300.0f, 400.0f)),
+	                     MakeNode(87, "Call:Strada.Log.Info(string)", glm::vec2(300.0f, 600.0f))};
 	VisualScriptFunction other = MakeFunction(90, "Other");
 	other.Graph.Nodes = {MakeNode(91, "Function.Entry"), MakeNode(84, "Function.Call", glm::vec2(300.0f, 0.0f), {{"Function", 80}})};
 	document.Functions = {apply, other};
@@ -1873,6 +1900,36 @@ TEST_CASE("VisualScriptEditing: pins are promoted to variables and to function i
 		CHECK(RequireOk(VisualScriptEditing::PromoteToVariable(document, 0, {70, "Mode"}, In, pins)) == 94);
 		CHECK(document.Variables.back().Name == "Mode1");
 		CHECK(document.Variables.back().Value == "Impulse");
+		CheckDocument(document);
+	}
+
+	SUBCASE("an input without a literal gives the variable its default, which the program read")
+	{
+		CHECK(RequireOk(VisualScriptEditing::PromoteToVariable(document, 0, {76, "Duration"}, In, pins)) == 92);
+		CHECK(document.Variables.back() == MakeVariable(92, "Duration", "float", 0.2));
+		CHECK(RequireOk(VisualScriptEditing::PromoteToVariable(document, 0, {71, "LayerMask"}, In, pins)) == 94);
+		CHECK(document.Variables.back() == MakeVariable(94, "LayerMask", "uint", 4294967295u));
+		// Without a default, the type's default.
+		CHECK(RequireOk(VisualScriptEditing::PromoteToVariable(document, 0, {71, "MaxDistance"}, In, pins)) == 96);
+		CHECK(document.Variables.back() == MakeVariable(96, "MaxDistance", "float"));
+		CheckDocument(document);
+	}
+
+	SUBCASE("an unlinked input that means the entity running the graph is not promoted")
+	{
+		CheckRefused(
+			document,
+			[&pins](VisualScriptDocument& edited)
+			{
+				return VisualScriptEditing::PromoteToVariable(edited, 0, {77, "Target"}, In, pins);
+			},
+			"Target means the entity running the graph while nothing is linked to it");
+		// Linked, it passes what the link gives: the variable takes its place.
+		graph.Nodes.push_back(MakeNode(78, "Self", glm::vec2(0.0f, 1000.0f)));
+		graph.Links.push_back(MakeLink(78, "Self", 77, "Target"));
+		CHECK(RequireOk(VisualScriptEditing::PromoteToVariable(document, 0, {77, "Target"}, In, pins)) == 92);
+		CHECK(document.Variables.back() == MakeVariable(92, "Target", "Strada.Entity"));
+		CHECK(HasLink(graph, MakeLink(93, "Value", 77, "Target")));
 		CheckDocument(document);
 	}
 
@@ -1926,12 +1983,41 @@ TEST_CASE("VisualScriptEditing: pins are promoted to variables and to function i
 		CHECK(function.Graph.Nodes[1].Inputs == Json::object());
 		CHECK(GetNode(graph, 83).Inputs == Json({{"Message", "hi"}}));
 		CHECK(document.Functions[1].Graph.Nodes[1].Inputs == Json({{"Message", "hi"}}));
-		// A reserved pin name is no parameter's.
-		RequireOk(VisualScriptEditing::PromoteToFunctionInput(document, 80, {85, "Target"}, pins));
+		// A name the inputs have is made free; an input without a literal or a default passes nothing.
+		RequireOk(VisualScriptEditing::PromoteToFunctionInput(document, 80, {87, "Message"}, pins));
 		REQUIRE(function.Inputs.size() == 2);
+		CHECK(function.Inputs.back() == VisualScriptParameter{"Message1", "string"});
+		CHECK(GetNode(graph, 83).Inputs == Json({{"Message", "hi"}}));
+		// Without a literal, the calls pass the input's default.
+		RequireOk(VisualScriptEditing::PromoteToFunctionInput(document, 80, {86, "Duration"}, pins));
+		REQUIRE(function.Inputs.size() == 3);
+		CHECK(function.Inputs.back() == VisualScriptParameter{"Duration", "float"});
+		CHECK(HasLink(function.Graph, MakeLink(81, "Duration", 86, "Duration")));
+		CHECK(GetNode(graph, 83).Inputs == Json({{"Message", "hi"}, {"Duration", 0.2}}));
+		CHECK(document.Functions[1].Graph.Nodes[1].Inputs == Json({{"Message", "hi"}, {"Duration", 0.2}}));
+		CheckDocument(document);
+		// No call can pass the entity running the graph.
+		CheckRefused(
+			document,
+			[&pins](VisualScriptDocument& edited)
+			{
+				return VisualScriptEditing::PromoteToFunctionInput(edited, 80, {85, "Target"}, pins);
+			},
+			"Target means the entity running the graph while nothing is linked to it");
+		// A reserved pin name is no parameter's.
+		VisualScriptNodePins const entityTarget = [&pins](uint32_t node)
+		{
+			std::vector<VisualScriptNodePin> row = pins(node);
+			for (VisualScriptNodePin& pin : row)
+			{
+				pin.DefaultsToSelf = false;
+			}
+			return row;
+		};
+		RequireOk(VisualScriptEditing::PromoteToFunctionInput(document, 80, {85, "Target"}, entityTarget));
+		REQUIRE(function.Inputs.size() == 4);
 		CHECK(function.Inputs.back() == VisualScriptParameter{"Target1", "Strada.Entity"});
 		CHECK(HasLink(function.Graph, MakeLink(81, "Target1", 85, "Target")));
-		CHECK(GetNode(graph, 83).Inputs == Json({{"Message", "hi"}}));
 		CheckDocument(document);
 
 		auto const promote = [&pins](uint32_t owner, uint32_t node, std::string pin)

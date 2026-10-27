@@ -169,36 +169,32 @@ namespace Strada
 			return {};
 		}
 
-		// The name the document stores for a pin the analysis names (which renames the pins of a node it resolved through a
-		// redirect), and the other way.
-		std::string ToStoredPin(VisualScriptAnalyzedNode const* analyzed, VisualScriptPinDirection direction, std::string const& name)
-		{
-			if (analyzed != nullptr)
-			{
-				for (VisualScriptPinRename const& rename : analyzed->PinRenames)
-				{
-					if (rename.Direction == direction && rename.To == name)
-					{
-						return rename.From;
-					}
-				}
-			}
-			return name;
-		}
-
+		// The name the analysis gives a stored pin, or a field of one, the inverse of VisualScriptEditing::ToStoredVisualScriptPin:
+		// "Amount.X" of a pin renamed to Value is "Value.X"; an exact name wins, then the longest renamed pin.
 		std::string ToAnalyzedPin(VisualScriptAnalyzedNode const* analyzed, VisualScriptPinDirection direction, std::string const& name)
 		{
-			if (analyzed != nullptr)
+			if (analyzed == nullptr)
 			{
-				for (VisualScriptPinRename const& rename : analyzed->PinRenames)
+				return name;
+			}
+			VisualScriptPinRename const* field = nullptr;
+			for (VisualScriptPinRename const& rename : analyzed->PinRenames)
+			{
+				if (rename.Direction != direction)
 				{
-					if (rename.Direction == direction && rename.From == name)
-					{
-						return rename.To;
-					}
+					continue;
+				}
+				if (rename.From == name)
+				{
+					return rename.To;
+				}
+				bool const isField = name.size() > rename.From.size() && name.starts_with(rename.From) && name[rename.From.size()] == '.';
+				if (isField && (field == nullptr || rename.From.size() > field->From.size()))
+				{
+					field = &rename;
 				}
 			}
-			return name;
+			return field != nullptr ? field->To + name.substr(field->From.size()) : name;
 		}
 
 		// The type the analysis gives a stored pin; empty when it has none.
@@ -472,7 +468,8 @@ namespace Strada
 			}
 			if (!diagnostic.Pin.empty())
 			{
-				key = ToStoredPin(analysis.FindNode(place.NodeOf->ID), VisualScriptPinDirection::In, diagnostic.Pin);
+				key = VisualScriptEditing::ToStoredVisualScriptPin(analysis.FindNode(place.NodeOf->ID), VisualScriptPinDirection::In,
+				                                                   diagnostic.Pin);
 				return place.NodeOf->Inputs.is_object() && place.NodeOf->Inputs.contains(key) ? ValuePlace::Input : ValuePlace::None;
 			}
 			// A node's own values: a Literal's Value, the only value setting analysis decodes.
@@ -716,9 +713,10 @@ namespace Strada
 					}
 					else
 					{
-						endpoint = {place.NodeOf->ID,
-						            ToStoredPin(analysis.FindNode(place.NodeOf->ID),
-						                        exec ? VisualScriptPinDirection::Out : VisualScriptPinDirection::In, diagnostic.Pin)};
+						endpoint = {place.NodeOf->ID, VisualScriptEditing::ToStoredVisualScriptPin(analysis.FindNode(place.NodeOf->ID),
+						                                                                           exec ? VisualScriptPinDirection::Out
+						                                                                                : VisualScriptPinDirection::In,
+						                                                                           diagnostic.Pin)};
 					}
 					bool first = true;
 					size_t const before = place.GraphOf->Links.size();
@@ -1131,7 +1129,7 @@ namespace Strada
 			}
 			else
 			{
-				replaces = ToStoredPin(analyzed, VisualScriptPinDirection::In, diagnostic.Pin);
+				replaces = VisualScriptEditing::ToStoredVisualScriptPin(analyzed, VisualScriptPinDirection::In, diagnostic.Pin);
 				if (*diagnostic.Direction != VisualScriptPinDirection::In || !node->Inputs.is_object() || !node->Inputs.contains(replaces))
 				{
 					return fixes;
@@ -1152,7 +1150,7 @@ namespace Strada
 			{
 				return fixes;
 			}
-			std::string const stored = ToStoredPin(analyzed, VisualScriptPinDirection::In, diagnostic.Pin);
+			std::string const stored = VisualScriptEditing::ToStoredVisualScriptPin(analyzed, VisualScriptPinDirection::In, diagnostic.Pin);
 			if (!node->Inputs.contains(stored))
 			{
 				return fixes;
@@ -1426,10 +1424,8 @@ namespace Strada
 			}
 			bool const output = *diagnostic.Direction == VisualScriptPinDirection::Out;
 			std::vector<std::string> const& split = output ? node->Split.Outputs : node->Split.Inputs;
-			// The path as the document stores it: its first segment is the pin, which a redirect may have renamed.
-			size_t const dot = diagnostic.Pin.find('.');
-			std::string const pin = ToStoredPin(analyzed, *diagnostic.Direction, diagnostic.Pin.substr(0, dot));
-			std::string const path = dot == std::string::npos ? pin : pin + diagnostic.Pin.substr(dot);
+			// The path as the document stores it: a redirect may have renamed the pin it starts with.
+			std::string const path = VisualScriptEditing::ToStoredVisualScriptPin(analyzed, *diagnostic.Direction, diagnostic.Pin);
 			if (std::find(split.begin(), split.end(), path) != split.end())
 			{
 				fixes.push_back(MakeFix("Remove Split", VisualScriptFixKind::RemoveSplit, nodeID, path));

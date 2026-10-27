@@ -59,6 +59,8 @@ namespace Strada
 		// What the palette remembers recent entries by: NodeType followed by the compact JSON of Settings
 		// ("Flow.Branch{}", "Variable.Get{\"Variable\":12}"); "Action:<action>" for the actions that add no node of their own
 		// settings (comment boxes, reroutes, custom events, variables). A GoToNode entry keeps the key of the node it would add.
+		// The actions' keys must stay apart from NodeType + "{}": Add Reroute and Add Custom Event would otherwise share the
+		// keys of the library's Reroute and Event.Custom entries. MakeVisualScriptRecentKey turns a stored record into a key.
 		std::string RecentKey;
 	};
 
@@ -69,9 +71,19 @@ namespace Strada
 		VisualScriptPin Pin;
 	};
 
+	// The prefix of the actions' RecentKey values.
+	inline constexpr std::string_view VisualScriptPaletteActionKeyPrefix = "Action:";
+
+	// The RecentKey of a node added from the palette, as the view settings keep it (VisualScriptRecentNode: a type and the
+	// settings it was added with): type followed by the compact JSON of settings. An action is kept as its RecentKey with
+	// empty settings ({ "Type": "Action:AddReroute", "Settings": {} }), and a type that starts with "Action:" is that key as
+	// it is.
+	[[nodiscard]] std::string MakeVisualScriptRecentKey(std::string_view type, Json const& settings);
+
 	struct VisualScriptPaletteMatch
 	{
-		// The entry's index in VisualScriptPaletteIndex::GetEntries().
+		// The entry's index in VisualScriptPaletteIndex::GetEntries(): valid until the index's next Rebuild, or the next
+		// SetDocument that changes what it reads. Rank again after either; never keep matches across them.
 		uint32_t Entry = 0;
 		int32_t Score = 0;
 		// The bytes of the entry's title that the query matched, ascending.
@@ -137,6 +149,8 @@ namespace Strada
 		// when what the palette reads from the document is unchanged.
 		void SetDocument(VisualScriptDocument const& document, uint32_t function);
 
+		// Valid, as are the entries' indices, until the next Rebuild or the next SetDocument that changes what the index reads
+		// (either composes the entries again): never keep the span or an index across them.
 		std::span<VisualScriptPaletteEntry const> GetEntries() const { return m_Entries; }
 
 	private:

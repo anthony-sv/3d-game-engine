@@ -4,6 +4,7 @@
 
 #include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Script/VisualScriptLiterals.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <algorithm>
@@ -45,6 +46,7 @@ namespace Strada
 		constexpr char const* NameSetting = "Name";
 		constexpr std::string_view VariableKind = "Variable";
 		constexpr std::string_view FunctionKind = "Function";
+		constexpr std::string_view EnumKind = "Enum";
 
 		// The events a script has at most one node of.
 		constexpr std::array<std::string_view, 9> SingleEvents = {"Event.Create",       "Event.Update",         "Event.FixedUpdate",
@@ -511,7 +513,8 @@ namespace Strada
 		}
 
 		// What makes an event node unique in a script: its type, and for input events the key or button, for custom events
-		// the name, as compact JSON (integers read alike however they are stored).
+		// the name, as compact JSON. A key or button is compared by the value it stands for, as the scripting runtime reads
+		// it ("Space" and 32 alike), when the library knows its enum; else as stored.
 		using EventKey = std::pair<std::string, std::string>;
 
 		EventKey MakeEventKey(std::string_view type, Json const& value)
@@ -519,9 +522,63 @@ namespace Strada
 			return {std::string(type), value.dump(-1, ' ', false, Json::error_handler_t::replace)};
 		}
 
+		// The enums of the input events' key and button settings, as the library describes them; empty without a library.
+		class InputEventEnums
+		{
+		public:
+			explicit InputEventEnums(VisualScriptLibrary const* library)
+			{
+				if (library == nullptr)
+				{
+					return;
+				}
+				for (auto const& [type, settingName] : InputEvents)
+				{
+					VisualScriptNodeTemplate const* const nodeTemplate = library->FindNode(type);
+					if (nodeTemplate == nullptr)
+					{
+						continue;
+					}
+					for (VisualScriptSetting const& setting : nodeTemplate->Settings)
+					{
+						if (setting.Name != settingName || setting.Kind != EnumKind)
+						{
+							continue;
+						}
+						if (std::optional<VisualScriptEnumInfo> info = library->FindEnum(setting.Type))
+						{
+							m_Enums.emplace(type, std::move(*info));
+						}
+						break;
+					}
+				}
+			}
+
+			// The literal of the value a key or button stands for, written as the enum writes it; the value itself when it
+			// is no value of the event's enum or the enum is not known.
+			Json Canonicalize(std::string_view type, Json const& value) const
+			{
+				auto const found = m_Enums.find(type);
+				if (found == m_Enums.end())
+				{
+					return value;
+				}
+				std::optional<ScriptFieldValue> const decoded = DecodeVisualScriptEnumLiteral(value, found->second);
+				if (!decoded.has_value())
+				{
+					return value;
+				}
+				std::optional<Json> canonical = EncodeVisualScriptEnumLiteral(*decoded, found->second);
+				return canonical.has_value() ? std::move(*canonical) : value;
+			}
+
+		private:
+			std::unordered_map<std::string_view, VisualScriptEnumInfo> m_Enums;
+		};
+
 		// Nothing for nodes that may repeat.
 
-		std::optional<EventKey> GetUniqueEventKey(VisualScriptNode const& node)
+		std::optional<EventKey> GetUniqueEventKey(VisualScriptNode const& node, InputEventEnums const& enums)
 		{
 			if (std::find(SingleEvents.begin(), SingleEvents.end(), node.Type) != SingleEvents.end())
 			{
@@ -539,7 +596,7 @@ namespace Strada
 							value = *found;
 						}
 					}
-					return MakeEventKey(type, value);
+					return MakeEventKey(type, enums.Canonicalize(type, value));
 				}
 			}
 			if (node.Type == CustomEventType && node.Settings.is_object())
@@ -1036,11 +1093,12 @@ namespace Strada
 
 		// What stays out: events in a function's graph, events the event graph has, a second entry.
 		VisualScriptGraph const& before = *FindGraph(target, function);
+		InputEventEnums const enums(library);
 		std::set<EventKey> events;
 		bool hasEntry = false;
 		for (VisualScriptNode const& node : before.Nodes)
 		{
-			if (std::optional<EventKey> key = GetUniqueEventKey(node))
+			if (std::optional<EventKey> key = GetUniqueEventKey(node, enums))
 			{
 				events.insert(std::move(*key));
 			}
@@ -1059,7 +1117,7 @@ namespace Strada
 			}
 			if (function == 0)
 			{
-				if (std::optional<EventKey> key = GetUniqueEventKey(node))
+				if (std::optional<EventKey> key = GetUniqueEventKey(node, enums))
 				{
 					if (!events.insert(std::move(*key)).second)
 					{

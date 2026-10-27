@@ -426,6 +426,17 @@ TEST_CASE("VisualScriptPalette: the index offers every library kind with its typ
 	CHECK(entries[entries.size() - 3].NodeType == "Reroute");
 	CHECK(DescribePins(entries[entries.size() - 3].Pins) == DescribePins(library->FindNode("Reroute")->Pins));
 	CHECK(entries[entries.size() - 2].NodeType == "Event.Custom");
+	// The actions' keys stay apart from those of the kinds that add the same node.
+	CHECK(entries[entries.size() - 3].RecentKey == "Action:AddReroute");
+	CHECK(GetEntry(index, "Reroute").RecentKey == "Reroute{}");
+	// Recent nodes as the view settings keep them (a type and settings) give the entries' keys back.
+	for (VisualScriptPaletteEntry const& entry : entries)
+	{
+		bool const action = entry.RecentKey.starts_with(VisualScriptPaletteActionKeyPrefix);
+		std::string const key =
+			action ? MakeVisualScriptRecentKey(entry.RecentKey, Json::object()) : MakeVisualScriptRecentKey(entry.NodeType, entry.Settings);
+		CHECK_MESSAGE(key == entry.RecentKey, entry.Title);
+	}
 
 	// The document's entries follow the library's.
 	CHECK(*FindEntry(index, "Get Speed") > *FindEntry(index, "To ULong"));
@@ -746,10 +757,11 @@ TEST_CASE("VisualScriptPalette: Convert's rows bridge to text and between number
 	VisualScriptPaletteIndex const index = MakeIndex(*library, document, 0);
 	auto const convertRows = [&index](std::vector<VisualScriptPaletteMatch> const& matches)
 	{
+		std::span<VisualScriptPaletteEntry const> const entries = index.GetEntries();
 		std::vector<std::string> titles;
 		for (VisualScriptPaletteMatch const& match : matches)
 		{
-			VisualScriptPaletteEntry const& entry = index.GetEntries()[match.Entry];
+			VisualScriptPaletteEntry const& entry = entries[match.Entry];
 			if (entry.NodeType == "Convert" && !entry.Settings.empty())
 			{
 				titles.push_back(entry.Title);

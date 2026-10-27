@@ -390,6 +390,15 @@ namespace Strada
 		};
 	}
 
+	std::string MakeVisualScriptRecentKey(std::string_view type, Json const& settings)
+	{
+		if (type.starts_with(VisualScriptPaletteActionKeyPrefix))
+		{
+			return std::string(type);
+		}
+		return std::string(type) + CompactJson(settings);
+	}
+
 	void VisualScriptPaletteIndex::Rebuild(VisualScriptLibrary const& library)
 	{
 		m_LibraryEntries.clear();
@@ -1010,7 +1019,7 @@ namespace Strada
 				entry.Pins = m_CustomEventPins;
 			}
 			entry.Action = action.Kind;
-			entry.RecentKey = fmt::format("Action:{}", action.Key);
+			entry.RecentKey = fmt::format("{}{}", VisualScriptPaletteActionKeyPrefix, action.Key);
 			Add(std::move(entry), std::move(facts));
 		}
 	}

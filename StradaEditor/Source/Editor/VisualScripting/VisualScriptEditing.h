@@ -44,12 +44,19 @@ namespace Strada
 		std::string Type;
 		// Where the pin's wires end, relative to the node's position (its top-left corner), in canvas units.
 		glm::vec2 Anchor{0.0f};
+		// An input's default: the literal it takes while it has none of its own and nothing is linked to it (the node
+		// library's VisualScriptPin::Default, in the document encoding); null when none, so the type's default.
+		Json Default = nullptr;
+		// An input that means the entity running the graph while nothing is linked to it (VisualScriptPin::DefaultsToSelf):
+		// no literal stands for that.
+		bool DefaultsToSelf = false;
 
 		bool operator==(VisualScriptNodePin const& other) const = default;
 	};
 
 	// The pins of a node in the canvas's order (inputs and outputs each in pin order, a split pin's fields in its place, no
-	// orphan rows); empty for a node the canvas does not show. The operations that need pins take this rather than a
+	// orphan rows), with the names the document stores (VisualScriptEditing::ToStoredVisualScriptPin); empty for a node the
+	// canvas does not show. The operations that need pins take this rather than a
 	// VisualScriptPinTypeLookup, which answers for one pin at a time: they also need a node's whole row of pins (whether a
 	// node has a single exec input and a single exec output, its first exec output, the fields of a split pin) and where
 	// pins sit (straightening).
@@ -119,6 +126,16 @@ namespace Strada
 		// whose '.'-separated parts are not empty.
 		[[nodiscard]] bool IsValidVisualScriptPinPath(std::string_view path);
 
+		// Pin names. The operations take pins, links and Inputs keys by the names the document stores. A node the analysis
+		// resolved through a redirect shows some pins under new names until the next commit rewrites it, and a canvas names
+		// its pins (and the fields of split pins) that way: translate those names with this before calling an operation.
+
+		// The name the document stores for a pin the analysis of its node names: the pin a rename gave that name, else, for a
+		// field of a renamed pin ("Value.X" of a pin stored as "Amount"), that pin's stored name with the field ("Amount.X"),
+		// the longest renamed pin winning; else the name itself. With no analysis (null), the name itself.
+		[[nodiscard]] std::string ToStoredVisualScriptPin(VisualScriptAnalyzedNode const* analyzed, VisualScriptPinDirection direction,
+		                                                  std::string_view name);
+
 		// IDs and the shapes the operations share.
 
 		// The largest ID of the document's variables, locals, functions, nodes and comments; 0 when it has none. New elements
@@ -136,7 +153,8 @@ namespace Strada
 		[[nodiscard]] Result<uint32_t> AddNode(VisualScriptDocument& document, uint32_t function, std::string type, Json settings,
 		                                       glm::vec2 position);
 		// Puts a node of the graph into a link: A → B becomes A → node.inputPin and node.outputPin → B, each connected as
-		// Connect connects (so the node's input and output keep at most the links their kinds allow).
+		// Connect connects (so the node's input and output keep at most the links their kinds allow). The link and the pins
+		// are named as the document stores them.
 		[[nodiscard]] Result<void> SpliceNode(VisualScriptDocument& document, uint32_t function, uint32_t node,
 		                                      VisualScriptLink const& link, std::string const& inputPin, std::string const& outputPin,
 		                                      VisualScriptNodePins const& pins);
@@ -155,25 +173,27 @@ namespace Strada
 		// Sets the positions of nodes and comments of the graph (kept within the format's coordinates).
 		[[nodiscard]] Result<void> SetPositions(VisualScriptDocument& document, uint32_t function,
 		                                        std::span<std::pair<uint32_t, glm::vec2> const> positions);
-		// Adds a link between pins the nodes have, in the graph. A link of exec pins (either end exec) leaves its output with
-		// no other link, a link of data pins its input: each keeps at most one. Returns how many links it replaced. A link
-		// the graph has already changes nothing; a link from a node to itself is refused.
+		// Adds a link between pins the nodes have, in the graph, named as the document stores them. A link of exec pins
+		// (either end exec) leaves its output with no other link, a link of data pins its input: each keeps at most one.
+		// Returns how many links it replaced. A link the graph has already changes nothing; a link from a node to itself is
+		// refused.
 		[[nodiscard]] Result<uint32_t> Connect(VisualScriptDocument& document, uint32_t function, VisualScriptLink const& link,
 		                                       VisualScriptNodePins const& pins);
-		// Removes links of the graph.
+		// Removes links of the graph (named as the document stores them).
 		[[nodiscard]] Result<void> Disconnect(VisualScriptDocument& document, uint32_t function, std::span<VisualScriptLink const> links);
-		// Removes links of the graph, then connects others as Connect does (links moved by a drag). Returns how many links
-		// the connections replaced.
+		// Removes links of the graph, then connects others as Connect does (links moved by a drag), all named as the document
+		// stores them. Returns how many links the connections replaced.
 		[[nodiscard]] Result<uint32_t> Relink(VisualScriptDocument& document, uint32_t function, std::span<VisualScriptLink const> remove,
 		                                      std::span<VisualScriptLink const> add, VisualScriptNodePins const& pins);
-		// Adds a Reroute into a link: A → B becomes A → Reroute.In and Reroute.Out → B. Returns its ID.
+		// Adds a Reroute into a link (named as the document stores it): A → B becomes A → Reroute.In and Reroute.Out → B.
+		// Returns its ID.
 		[[nodiscard]] Result<uint32_t> InsertReroute(VisualScriptDocument& document, uint32_t function, VisualScriptLink const& link,
 		                                             glm::vec2 position);
 
 		// Values and settings.
 
-		// Stores the literal of a node's input; null removes it. A field of a struct input ("Force.X") takes literals only
-		// while the struct is split, and a split struct takes none of its own.
+		// Stores the literal of a node's input (named as the document stores it); null removes it. A field of a struct input
+		// ("Force.X") takes literals only while the struct is split, and a split struct takes none of its own.
 		[[nodiscard]] Result<void> SetInput(VisualScriptDocument& document, uint32_t node, std::string pin, Json literal);
 		// Stores a node's setting; null removes it. The settings that rename or remove pins have operations of their own,
 		// which also update the links, and are refused here: a Sequence's Count (SetSequenceOutputs), a Switch's Cases
@@ -209,7 +229,7 @@ namespace Strada
 		[[nodiscard]] Result<void> SetNodeEnabled(VisualScriptDocument& document, std::span<uint32_t const> nodes,
 		                                          VisualScriptNodeEnabled enabled);
 
-		// Split struct pins.
+		// Split struct pins, named by the paths the document stores.
 
 		// Shows a struct pin of a node as one pin per field: an input whose type the library's Make builds, an output whose
 		// type Break takes apart, with two fields or more (a field pin of a split pin splits again). The path joins the
@@ -298,19 +318,21 @@ namespace Strada
 		// nodes name the copy's locals, and its calls of itself call the copy. Returns its ID.
 		[[nodiscard]] Result<uint32_t> DuplicateFunction(VisualScriptDocument& document, uint32_t function);
 
-		// Promotions.
+		// Promotions, of a pin named as the document stores it. An input's value stays what the program reads: its literal,
+		// else its default (VisualScriptNodePin::Default), else its type's default. An unlinked input that means the entity
+		// running the graph (DefaultsToSelf) is refused, since no value stands for that.
 
 		// Adds a private variable of a data pin's type, named after the pin (made a valid, free name: "Force.X" gives
 		// "ForceX"), and a node that uses it, 240 left of an input's anchor or 80 right of an output's (its top 16 above the
-		// anchor): for an input, a Variable.Get linked into it (the input's literal moves to the variable's value); for an
-		// output, a Variable.Set fed by it, put after the node's first exec output (linked from it, or into its link). The
-		// new node takes the ID after the variable's. Returns the variable's ID.
+		// anchor): for an input, a Variable.Get linked into it (the input's literal moves to the variable's value, else its
+		// default is the value); for an output, a Variable.Set fed by it, put after the node's first exec output (linked from
+		// it, or into its link). The new node takes the ID after the variable's. Returns the variable's ID.
 		[[nodiscard]] Result<uint32_t> PromoteToVariable(VisualScriptDocument& document, uint32_t function,
 		                                                 VisualScriptPinReference const& pin, VisualScriptPinDirection direction,
 		                                                 VisualScriptNodePins const& pins);
 		// Makes an unlinked data input of a node in a function's graph a new input of the function, named after the pin (a
 		// free name among the function's inputs), linked from the function's entry. The input's literal moves to the
-		// function's calls, so they pass what it had.
+		// function's calls, else its default becomes their literal, so they pass what it had.
 		[[nodiscard]] Result<void> PromoteToFunctionInput(VisualScriptDocument& document, uint32_t function,
 		                                                  VisualScriptPinReference const& pin, VisualScriptNodePins const& pins);
 

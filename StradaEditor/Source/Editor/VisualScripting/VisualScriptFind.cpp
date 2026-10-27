@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace Strada
@@ -88,12 +89,20 @@ namespace Strada
 		public:
 			Finder(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis, VisualScriptFindQuery const& query)
 				: m_Document(document),
-				  m_Analysis(analysis),
 				  m_Query(query)
 			{
 				for (char const character : query.Text)
 				{
 					m_Needle += ToLowerAscii(character);
+				}
+				// The analysis' nodes by ID, the first of each as VisualScriptAnalysis::FindNode finds it.
+				if (analysis != nullptr)
+				{
+					m_AnalyzedNodes.reserve(analysis->Nodes.size());
+					for (VisualScriptAnalyzedNode const& analyzed : analysis->Nodes)
+					{
+						m_AnalyzedNodes.emplace(analyzed.ID, &analyzed);
+					}
 				}
 			}
 
@@ -136,9 +145,14 @@ namespace Strada
 				}
 			}
 
-			std::string GetTitle(VisualScriptNode const& node) const
+			VisualScriptAnalyzedNode const* FindAnalyzedNode(uint32_t id) const
 			{
-				VisualScriptAnalyzedNode const* analyzed = m_Analysis != nullptr ? m_Analysis->FindNode(node.ID) : nullptr;
+				auto const found = m_AnalyzedNodes.find(id);
+				return found != m_AnalyzedNodes.end() ? found->second : nullptr;
+			}
+
+			std::string GetTitle(VisualScriptNode const& node, VisualScriptAnalyzedNode const* analyzed) const
+			{
 				return analyzed != nullptr && !analyzed->Title.empty() ? analyzed->Title : DeriveVisualScriptNodeTitle(node, m_Document);
 			}
 
@@ -150,7 +164,8 @@ namespace Strada
 					{
 						if (IsReference(node))
 						{
-							m_Results.push_back({function, node.ID, 0, 0, VisualScriptFindField::Title, GetTitle(node)});
+							m_Results.push_back(
+								{function, node.ID, 0, 0, VisualScriptFindField::Title, GetTitle(node, FindAnalyzedNode(node.ID))});
 						}
 						continue;
 					}
@@ -190,8 +205,8 @@ namespace Strada
 				{
 					m_Results.push_back({function, node.ID, 0, 0, field, std::move(text)});
 				};
-				VisualScriptAnalyzedNode const* analyzed = m_Analysis != nullptr ? m_Analysis->FindNode(node.ID) : nullptr;
-				if (std::string title = GetTitle(node); Contains(title, m_Needle))
+				VisualScriptAnalyzedNode const* const analyzed = FindAnalyzedNode(node.ID);
+				if (std::string title = GetTitle(node, analyzed); Contains(title, m_Needle))
 				{
 					add(VisualScriptFindField::Title, std::move(title));
 				}
@@ -283,7 +298,7 @@ namespace Strada
 			}
 
 			VisualScriptDocument const& m_Document;
-			VisualScriptAnalysis const* m_Analysis;
+			std::unordered_map<uint32_t, VisualScriptAnalyzedNode const*> m_AnalyzedNodes;
 			VisualScriptFindQuery const& m_Query;
 			std::string m_Needle;
 			std::vector<VisualScriptFindResult> m_Results;

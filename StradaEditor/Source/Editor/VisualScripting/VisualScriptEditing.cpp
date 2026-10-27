@@ -354,25 +354,80 @@ namespace Strada
 			return MakeError("the document has no comment {}", id);
 		}
 
-		// The nodes of a list of IDs, each found in whichever graph holds it; an ID listed twice gives its node once.
+		// The nodes of a list of IDs, each found in whichever graph holds it (as GetNode finds it), in one pass over the
+		// document; an ID listed twice gives its node once.
 		Result<std::vector<VisualScriptNode*>> GetNodes(VisualScriptDocument& document, std::span<uint32_t const> ids)
 		{
+			std::unordered_set<uint32_t> const wanted(ids.begin(), ids.end());
+			std::unordered_map<uint32_t, VisualScriptNode*> found;
+			for (VisualScriptGraph* const graph : GetGraphs(document))
+			{
+				for (VisualScriptNode& node : graph->Nodes)
+				{
+					if (wanted.contains(node.ID))
+					{
+						found.emplace(node.ID, &node);
+					}
+				}
+			}
 			std::vector<VisualScriptNode*> nodes;
-			nodes.reserve(ids.size());
+			nodes.reserve(found.size());
+			std::unordered_set<uint32_t> listed;
 			for (uint32_t const id : ids)
 			{
-				Result<NodePlace> place = GetNode(document, id);
-				if (!place)
+				auto const node = found.find(id);
+				if (node == found.end())
 				{
-					return Error{place.GetError()};
+					return MakeError("the document has no node {}", id);
 				}
-				if (std::find(nodes.begin(), nodes.end(), place.GetValue().Node) == nodes.end())
+				if (listed.insert(id).second)
 				{
-					nodes.push_back(place.GetValue().Node);
+					nodes.push_back(node->second);
 				}
 			}
 			return nodes;
 		}
+
+		// The nodes and comments of a graph that a list of IDs names, found in one pass over the graph: for each ID the node
+		// FindNode finds, else the comment FindComment finds. Valid while the graph's lists keep their elements.
+		class ElementLookup
+		{
+		public:
+			ElementLookup(VisualScriptGraph& graph, std::span<uint32_t const> ids)
+			{
+				std::unordered_set<uint32_t> const wanted(ids.begin(), ids.end());
+				for (VisualScriptNode& node : graph.Nodes)
+				{
+					if (wanted.contains(node.ID))
+					{
+						m_Nodes.emplace(node.ID, &node);
+					}
+				}
+				for (VisualScriptComment& comment : graph.Comments)
+				{
+					if (wanted.contains(comment.ID))
+					{
+						m_Comments.emplace(comment.ID, &comment);
+					}
+				}
+			}
+
+			VisualScriptNode* FindNode(uint32_t id) const
+			{
+				auto const found = m_Nodes.find(id);
+				return found != m_Nodes.end() ? found->second : nullptr;
+			}
+
+			VisualScriptComment* FindComment(uint32_t id) const
+			{
+				auto const found = m_Comments.find(id);
+				return found != m_Comments.end() ? found->second : nullptr;
+			}
+
+		private:
+			std::unordered_map<uint32_t, VisualScriptNode*> m_Nodes;
+			std::unordered_map<uint32_t, VisualScriptComment*> m_Comments;
+		};
 
 		// The first Function.Entry of a graph: the entry a function keeps; null when it has none.
 		VisualScriptNode* FindEntry(VisualScriptGraph& graph)
@@ -514,6 +569,26 @@ namespace Strada
 			                   {
 								   return link.To.Node == node && link.To.Pin == pin;
 							   });
+		}
+
+		// What a promoted input passes while nothing is linked to it, as a literal: its own, else its default; null for its
+		// type's default. Refused for an unlinked input that means the entity running the graph, which no literal stands for.
+		Result<Json> GetPromotedLiteral(std::span<VisualScriptLink const> links, VisualScriptNode const& node,
+		                                VisualScriptNodePin const& pin)
+		{
+			if (auto const literal = node.Inputs.find(pin.Name); literal != node.Inputs.end())
+			{
+				return *literal;
+			}
+			if (pin.DefaultsToSelf && !IsLinkedInput(links, node.ID, pin.Name))
+			{
+				return MakeError("{} means the entity running the graph while nothing is linked to it: no value stands for that", pin.Name);
+			}
+			if (!IsValidValue(pin.Default))
+			{
+				return MakeValueError(fmt::format("the default of {}", pin.Name));
+			}
+			return pin.Default;
 		}
 
 		// The end of a link at a node in a direction: To for inputs, From for outputs.
@@ -1409,20 +1484,17 @@ namespace Strada
 		Result<std::vector<ElementRect>> GetElementRects(VisualScriptGraph& graph, std::span<uint32_t const> elements,
 		                                                 VisualScriptNodeExtents const& extents)
 		{
+			ElementLookup const lookup(graph, elements);
 			std::vector<ElementRect> rects;
 			rects.reserve(elements.size());
+			std::unordered_set<uint32_t> listed;
 			for (uint32_t const id : elements)
 			{
-				bool const listed = std::any_of(rects.begin(), rects.end(),
-				                                [id](ElementRect const& rect)
-				                                {
-													return rect.ID == id;
-												});
-				if (listed)
+				if (!listed.insert(id).second)
 				{
 					continue;
 				}
-				if (VisualScriptNode* const node = FindNode(graph, id))
+				if (VisualScriptNode* const node = lookup.FindNode(id))
 				{
 					if (!node->Position)
 					{
@@ -1440,7 +1512,7 @@ namespace Strada
 					rects.push_back({id, node, nullptr, *node->Position, size});
 					continue;
 				}
-				if (VisualScriptComment* const comment = FindComment(graph, id))
+				if (VisualScriptComment* const comment = lookup.FindComment(id))
 				{
 					rects.push_back({id, nullptr, comment, comment->Position, comment->Size});
 					continue;
@@ -1567,6 +1639,37 @@ namespace Strada
 		bool IsValidVisualScriptPinPath(std::string_view path)
 		{
 			return IsValidPinPath(path);
+		}
+
+		std::string ToStoredVisualScriptPin(VisualScriptAnalyzedNode const* analyzed, VisualScriptPinDirection direction,
+		                                    std::string_view name)
+		{
+			if (analyzed == nullptr)
+			{
+				return std::string(name);
+			}
+			VisualScriptPinRename const* field = nullptr;
+			for (VisualScriptPinRename const& rename : analyzed->PinRenames)
+			{
+				if (rename.Direction != direction)
+				{
+					continue;
+				}
+				if (rename.To == name)
+				{
+					return rename.From;
+				}
+				bool const isField = name.size() > rename.To.size() && name.starts_with(rename.To) && name[rename.To.size()] == '.';
+				if (isField && (field == nullptr || rename.To.size() > field->To.size()))
+				{
+					field = &rename;
+				}
+			}
+			if (field == nullptr)
+			{
+				return std::string(name);
+			}
+			return field->From + std::string(name.substr(field->To.size()));
 		}
 
 		uint32_t GetLargestVisualScriptID(VisualScriptDocument const& document)
@@ -1715,11 +1818,12 @@ namespace Strada
 
 			VisualScriptRemoval removal;
 			VisualScriptNode const* const entry = function != 0 ? FindEntry(graph) : nullptr;
+			ElementLookup const lookup(graph, elements);
 			std::unordered_set<uint32_t> nodes;
 			std::unordered_set<uint32_t> comments;
 			for (uint32_t const id : elements)
 			{
-				if (FindNode(graph, id) != nullptr)
+				if (lookup.FindNode(id) != nullptr)
 				{
 					if (entry != nullptr && id == entry->ID)
 					{
@@ -1733,7 +1837,7 @@ namespace Strada
 					}
 					nodes.insert(id);
 				}
-				else if (FindComment(graph, id) != nullptr)
+				else if (lookup.FindComment(id) != nullptr)
 				{
 					comments.insert(id);
 				}
@@ -1851,24 +1955,26 @@ namespace Strada
 			{
 				return Error{"an offset must be finite"};
 			}
+			ElementLookup const lookup(graph, elements);
 			std::vector<VisualScriptNode*> nodes;
 			std::vector<VisualScriptComment*> comments;
+			std::unordered_set<uint32_t> listed;
 			for (uint32_t const id : elements)
 			{
-				if (VisualScriptNode* const node = FindNode(graph, id))
+				if (VisualScriptNode* const node = lookup.FindNode(id))
 				{
 					if (!node->Position)
 					{
 						return MakeError("node {} has no position yet", id);
 					}
-					if (std::find(nodes.begin(), nodes.end(), node) == nodes.end())
+					if (listed.insert(id).second)
 					{
 						nodes.push_back(node);
 					}
 				}
-				else if (VisualScriptComment* const comment = FindComment(graph, id))
+				else if (VisualScriptComment* const comment = lookup.FindComment(id))
 				{
-					if (std::find(comments.begin(), comments.end(), comment) == comments.end())
+					if (listed.insert(id).second)
 					{
 						comments.push_back(comment);
 					}
@@ -1898,9 +2004,16 @@ namespace Strada
 				return Error{found.GetError()};
 			}
 			VisualScriptGraph& graph = *found.GetValue();
+			std::vector<uint32_t> ids;
+			ids.reserve(positions.size());
 			for (auto const& [id, position] : positions)
 			{
-				if (FindNode(graph, id) == nullptr && FindComment(graph, id) == nullptr)
+				ids.push_back(id);
+			}
+			ElementLookup const lookup(graph, ids);
+			for (auto const& [id, position] : positions)
+			{
+				if (lookup.FindNode(id) == nullptr && lookup.FindComment(id) == nullptr)
 				{
 					return MakeError("the graph has no node or comment {}", id);
 				}
@@ -1911,13 +2024,13 @@ namespace Strada
 			}
 			for (auto const& [id, position] : positions)
 			{
-				if (VisualScriptNode* const node = FindNode(graph, id))
+				if (VisualScriptNode* const node = lookup.FindNode(id))
 				{
 					node->Position = ClampPosition(position);
 				}
 				else
 				{
-					FindComment(graph, id)->Position = ClampPosition(position);
+					lookup.FindComment(id)->Position = ClampPosition(position);
 				}
 			}
 			return {};
@@ -3336,6 +3449,17 @@ namespace Strada
 			{
 				return Error{checked.GetError()};
 			}
+			// The value an input passed while nothing was linked to it becomes the variable's.
+			Json value;
+			if (direction == VisualScriptPinDirection::In)
+			{
+				Result<Json> literal = GetPromotedLiteral(graph.Links, *node, *promoted);
+				if (!literal)
+				{
+					return Error{literal.GetError()};
+				}
+				value = literal.TakeValue();
+			}
 			// The node after whose first exec output a Set goes, and the link it goes into.
 			VisualScriptNodePin const* flow = nullptr;
 			if (direction == VisualScriptPinDirection::Out)
@@ -3381,12 +3505,8 @@ namespace Strada
 			{
 				user.Type = std::string(GetVariableType);
 				user.Position = RoundPosition(anchor + glm::vec2(PromotedGetOffset, -PromotedNodeRise));
-				auto const literal = node->Inputs.find(pin.Pin);
-				if (literal != node->Inputs.end())
-				{
-					variable.Value = *literal;
-					node->Inputs.erase(literal);
-				}
+				variable.Value = std::move(value);
+				node->Inputs.erase(pin.Pin);
 				std::erase_if(graph.Links,
 				              [&pin](VisualScriptLink const& link)
 				              {
@@ -3488,9 +3608,13 @@ namespace Strada
 			                                                    {
 																	return IsParameterNameTaken(target.Inputs, candidate);
 																});
-			// The calls take over the input's literal: each must have room for it.
-			auto const literal = node->Inputs.find(pin.Pin);
-			std::optional<Json> const value = literal != node->Inputs.end() ? std::optional<Json>(*literal) : std::nullopt;
+			// The calls take over what the input passed (its literal, else its default): each must have room for it.
+			Result<Json> literal = GetPromotedLiteral(target.Graph.Links, *node, *promoted);
+			if (!literal)
+			{
+				return Error{literal.GetError()};
+			}
+			std::optional<Json> const value = literal.GetValue().is_null() ? std::nullopt : std::optional<Json>(literal.TakeValue());
 			std::vector<VisualScriptNode*> calls;
 			for (VisualScriptGraph* const graph : GetGraphs(document))
 			{
@@ -3511,9 +3635,9 @@ namespace Strada
 				}
 			}
 
+			node->Inputs.erase(pin.Pin);
 			if (value)
 			{
-				node->Inputs.erase(pin.Pin);
 				for (VisualScriptNode* const call : calls)
 				{
 					call->Inputs[name] = *value;
@@ -3649,10 +3773,11 @@ namespace Strada
 			}
 			VisualScriptGraph& graph = *found.GetValue();
 			// The nodes in the graph's order, with their pins.
+			ElementLookup const lookup(graph, nodes);
 			std::unordered_map<uint32_t, std::vector<VisualScriptNodePin>> rows;
 			for (uint32_t const id : nodes)
 			{
-				VisualScriptNode const* const node = FindNode(graph, id);
+				VisualScriptNode const* const node = lookup.FindNode(id);
 				if (node == nullptr)
 				{
 					return MakeError("the graph has no node {}", id);

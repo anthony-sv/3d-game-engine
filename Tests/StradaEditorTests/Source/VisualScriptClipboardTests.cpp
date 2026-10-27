@@ -772,6 +772,31 @@ TEST_CASE("VisualScriptClipboard: events the graph has, events in functions and 
 		std::vector<uint32_t> const pastedIDs = pasted.GetValue().Pasted;
 		CHECK(document.Graph.Links.back() == VisualScriptLink{{pastedIDs[0], "Then"}, {pastedIDs[1], "Execute"}});
 	}
+	SUBCASE("a key stored as its value is the same key as its name, when the library knows the enum")
+	{
+		Scope<VisualScriptLibrary> const library = ParseLibrary();
+		VisualScriptDocument numbered = scores;
+		numbered.Graph.Nodes[3].Settings["Key"] = 32;
+		VisualScriptClipboardContent const copied = Copy(numbered, 0, {33, 34});
+		VisualScriptDocument document = scores;
+		Result<VisualScriptPasteResult> pasted = PasteVisualScriptClipboard(document, Scores, 0, copied, glm::vec2(0.0f), library.get());
+		REQUIRE(pasted.IsOk());
+		std::vector<std::string> const notes = {"left out 1 event the event graph has already"};
+		CHECK(pasted.GetValue().Notes == notes);
+		CHECK(pasted.GetValue().NodeCount == 1);
+		// A value no enumerator has is another key; without the library, keys compare as stored.
+		VisualScriptDocument other = scores;
+		other.Graph.Nodes[3].Settings["Key"] = 31;
+		Result<VisualScriptPasteResult> unknown =
+			PasteVisualScriptClipboard(document, Scores, 0, Copy(other, 0, {33}), glm::vec2(0.0f), library.get());
+		REQUIRE(unknown.IsOk());
+		CHECK(unknown.GetValue().NodeCount == 1);
+		VisualScriptDocument plain = scores;
+		Result<VisualScriptPasteResult> stored = PasteVisualScriptClipboard(plain, Scores, 0, copied, glm::vec2(0.0f), nullptr);
+		REQUIRE(stored.IsOk());
+		CHECK(stored.GetValue().NodeCount == 2);
+		Testing::ExpectStrictRoundTrip(document);
+	}
 	SUBCASE("events belong in the event graph")
 	{
 		VisualScriptDocument document = scores;
