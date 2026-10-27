@@ -380,10 +380,10 @@ TEST_CASE("VisualScriptCommit: unplaced nodes are laid out, and a document that 
 	VisualScriptDocument dotted = stored;
 	dotted.Variables.push_back(MakeVariable(5, "Max.Speed", "float"));
 	CHECK(CommitError(stored, dotted).starts_with(prefix + "Variables[0].Name: "));
-	// A value no file can hold: what would be written does not load back as it is.
+	// A value no file can hold (a NaN would be written as null): the loader refuses it in memory, naming it.
 	VisualScriptDocument notANumber = stored;
 	notANumber.Variables.push_back(MakeVariable(5, "Speed", "float", std::numeric_limits<double>::quiet_NaN()));
-	CHECK(CommitError(stored, notANumber) == prefix + "it does not load back as written");
+	CHECK(CommitError(stored, notANumber).starts_with(prefix + "Variables[0].Value: "));
 }
 
 TEST_CASE("VisualScriptCommit: a commit request names its action in its script, and notes the canonical rewrites but not the renames")

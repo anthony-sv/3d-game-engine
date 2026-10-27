@@ -119,12 +119,8 @@ namespace Strada
 		// The pin names nodes have whatever their settings: Execute, Then, Target, Self and Default. Parameters cannot have them.
 		[[nodiscard]] bool IsReservedPinName(std::string_view name);
 
-		// What the format accepts as a type, a node type, a pin name or the name of a Settings or Inputs member: 1 to maxBytes
-		// of UTF-8 without control characters (VisualScriptSerializer's MaxTypeBytes, MaxNodeTypeBytes, MaxPinNameBytes).
-		[[nodiscard]] bool IsValidVisualScriptText(std::string_view text, size_t maxBytes);
-		// What the format accepts as a pin path (an entry of Split, or a pin a link or a literal names): a valid pin name
-		// whose '.'-separated parts are not empty.
-		[[nodiscard]] bool IsValidVisualScriptPinPath(std::string_view path);
+		// What the format accepts as a type, a node type, a pin name, a pin path and a value is the serializer's rule:
+		// VisualScriptSerializer::IsValidText, IsValidPinPath and IsValidValue.
 
 		// Pin names. The operations take pins, links and Inputs keys by the names the document stores. A node the analysis
 		// resolved through a redirect shows some pins under new names until the next commit rewrites it, and a canvas names
@@ -275,9 +271,11 @@ namespace Strada
 		// a type components can store. Returns whether that cleared the value.
 		[[nodiscard]] Result<bool> SetVariable(VisualScriptDocument& document, uint32_t id, VisualScriptVariable variable,
 		                                       VisualScriptEnumLookup const& enums = {});
-		// Removes a variable; with removeNodes, also the Variable.Get and Variable.Set nodes of every graph that name it, with
-		// their links (no flow is bridged). Returns how many nodes it removed.
-		[[nodiscard]] Result<uint32_t> RemoveVariable(VisualScriptDocument& document, uint32_t id, bool removeNodes);
+		// Removes a variable; with removeNodes, also the Variable.Get and Variable.Set nodes of every graph that name it, graph by
+		// graph as RemoveElements removes them with bridging: the flow through a removed Set goes on to what followed it (with
+		// pins; without, null, only reroutes bridge). Returns how many nodes it removed.
+		[[nodiscard]] Result<uint32_t> RemoveVariable(VisualScriptDocument& document, uint32_t id, bool removeNodes,
+		                                              VisualScriptNodePins const* pins);
 		// Puts the variables in the order of their IDs in order, which lists each variable once.
 		[[nodiscard]] Result<void> ReorderVariables(VisualScriptDocument& document, std::span<uint32_t const> order);
 		// Adds a copy of a variable after it, with a name of its own and no former names. Returns its ID.
@@ -291,8 +289,9 @@ namespace Strada
 		[[nodiscard]] Result<bool> SetLocal(VisualScriptDocument& document, uint32_t function, uint32_t id, VisualScriptLocal local,
 		                                    VisualScriptEnumLookup const& enums = {});
 		// Removes a local of the function; with removeNodes, also the Variable.Get and Variable.Set nodes of the function's
-		// graph that name it, with their links (no flow is bridged). Returns how many nodes it removed.
-		[[nodiscard]] Result<uint32_t> RemoveLocal(VisualScriptDocument& document, uint32_t function, uint32_t id, bool removeNodes);
+		// graph that name it, bridged as RemoveVariable bridges them. Returns how many nodes it removed.
+		[[nodiscard]] Result<uint32_t> RemoveLocal(VisualScriptDocument& document, uint32_t function, uint32_t id, bool removeNodes,
+		                                           VisualScriptNodePins const* pins);
 
 		// Functions.
 
@@ -312,8 +311,9 @@ namespace Strada
 		// functions do not have. Returns how many links it removed.
 		[[nodiscard]] Result<uint32_t> SetFunctionPure(VisualScriptDocument& document, uint32_t function, bool pure);
 		// Removes a function with its graph; with removeCalls, also the Function.Call nodes of the other graphs that call it,
-		// with their links (no flow is bridged). Returns how many calls it removed.
-		[[nodiscard]] Result<uint32_t> RemoveFunction(VisualScriptDocument& document, uint32_t function, bool removeCalls);
+		// bridged as RemoveVariable bridges them (an impure call in a chain is passed over). Returns how many calls it removed.
+		[[nodiscard]] Result<uint32_t> RemoveFunction(VisualScriptDocument& document, uint32_t function, bool removeCalls,
+		                                              VisualScriptNodePins const* pins);
 		// Adds a copy of a function after it, with a name of its own and new IDs for it, its locals, nodes and comments; its
 		// nodes name the copy's locals, and its calls of itself call the copy. Returns its ID.
 		[[nodiscard]] Result<uint32_t> DuplicateFunction(VisualScriptDocument& document, uint32_t function);

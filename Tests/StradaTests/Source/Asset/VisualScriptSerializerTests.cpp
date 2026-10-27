@@ -1687,6 +1687,74 @@ TEST_CASE("VisualScript: text, settings, values and ranges at their limits are k
 	CHECK(IsStrictlyValid(content));
 }
 
+TEST_CASE("VisualScript: the format's rules for texts, pin paths and values are the loader's, for documents built in memory too")
+{
+	using Format = VisualScriptSerializer;
+	std::string const invalidUtf8 = "\xC3\x28";
+
+	CHECK(Format::IsValidText("Then", Format::MaxPinNameBytes));
+	CHECK(Format::IsValidText("\xC3\x9C"
+	                          "ber",
+	                          Format::MaxPinNameBytes));
+	CHECK(Format::IsValidText(std::string(128, 'p'), Format::MaxPinNameBytes));
+	CHECK_FALSE(Format::IsValidText(std::string(129, 'p'), Format::MaxPinNameBytes));
+	CHECK_FALSE(Format::IsValidText("", Format::MaxPinNameBytes));
+	CHECK_FALSE(Format::IsValidText("A\nB", Format::MaxPinNameBytes));
+	CHECK_FALSE(Format::IsValidText("A\x7F", Format::MaxPinNameBytes));
+	CHECK_FALSE(Format::IsValidText(invalidUtf8, Format::MaxPinNameBytes));
+
+	CHECK(Format::IsValidPinPath("Hit"));
+	CHECK(Format::IsValidPinPath("Hit.Point.X"));
+	CHECK_FALSE(Format::IsValidPinPath(""));
+	CHECK_FALSE(Format::IsValidPinPath(".Hit"));
+	CHECK_FALSE(Format::IsValidPinPath("Hit."));
+	CHECK_FALSE(Format::IsValidPinPath("Hit..Point"));
+	CHECK_FALSE(Format::IsValidPinPath(std::string(129, 'p')));
+
+	double const nan = std::numeric_limits<double>::quiet_NaN();
+	double const infinity = std::numeric_limits<double>::infinity();
+	for (Json const& valid : {Json(), Json(true), Json(-3), Json(18446744073709551615u), Json(0.25), Json("text"),
+	                          Json::array({1, "two", Json::object({{"Three", 3.0}})}), Json(std::string(65536, 't')),
+	                          Json::object({{std::string(65536, 'k'), 1}}), MakeNestedValue(16)})
+	{
+		CHECK_MESSAGE(Format::IsValidValue(valid), valid.dump());
+	}
+	for (Json const& invalid :
+	     {Json(nan), Json(infinity), Json(-infinity), Json::array({1.0, nan}), Json::object({{"X", infinity}}), Json(invalidUtf8),
+	      Json::array({invalidUtf8}), Json::object({{invalidUtf8, 1}}), Json(std::string(65537, 't')),
+	      Json::object({{std::string(65537, 'k'), 1}}), MakeNestedValue(17), Json::binary({1, 2})})
+	{
+		CHECK_FALSE(Format::IsValidValue(invalid));
+	}
+
+	// What the writer does with a value the format refuses, which only a document built in memory can hold: a number that is
+	// not finite is written as null and invalid UTF-8 is replaced, so the file would not load back as the document. The
+	// loader refuses both in memory, so the strict check before every write fails such an edit instead.
+	VisualScriptDocument document;
+	VisualScriptVariable notFinite;
+	notFinite.ID = 1;
+	notFinite.Name = "NotFinite";
+	notFinite.Type = "float";
+	notFinite.Value = nan;
+	VisualScriptVariable badText;
+	badText.ID = 2;
+	badText.Name = "BadText";
+	badText.Type = "string";
+	badText.Value = invalidUtf8;
+	document.Variables = {notFinite, badText};
+	Json const content = VisualScriptSerializer::SerializeDocument(document);
+	Json const written = Parse(DumpJson(content));
+	CHECK(written["Variables"][0]["Value"].is_null());
+	CHECK(written["Variables"][1]["Value"] == "\xEF\xBF\xBD(");
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> const reloaded =
+		VisualScriptSerializer::DeserializeDocument(content, MakeContext(UnknownFieldPolicy::Error), &issues);
+	REQUIRE_MESSAGE(reloaded.IsOk(), reloaded.GetError());
+	CHECK(GetPaths(issues) == "Variables[0].Value, Variables[1].Value");
+	CHECK(reloaded.GetValue().Variables[0].Value.is_null());
+	CHECK(reloaded.GetValue().Variables[1].Value.is_null());
+}
+
 TEST_CASE("VisualScript: the writer omits defaults, keeps raw values as stored and widens floats")
 {
 	VisualScriptDocument document;
