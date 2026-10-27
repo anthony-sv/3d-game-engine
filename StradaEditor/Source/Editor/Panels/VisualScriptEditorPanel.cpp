@@ -568,6 +568,10 @@ namespace Strada
 
 	VisualScriptEditorPanel::~VisualScriptEditorPanel() = default;
 
+	VisualScriptEditorPanel::LiveChipData::LiveChipData() = default;
+
+	VisualScriptEditorPanel::NodePreview::NodePreview() = default;
+
 	UUID VisualScriptEditorPanel::GetContextEntity() const
 	{
 		return GetPresentContextEntity();
