@@ -692,10 +692,10 @@ namespace
 		return (row->first + row->second) * 0.5f;
 	}
 
-	// Drags from one point to another, a frame per step, holding a modifier key from the last step.
+	// Drags from one point to another, a frame per step, holding a modifier key from the last step (sent as the platform
+	// reports it, so ImGuiMod_Ctrl is the shortcut key on macOS too).
 	void DragWith(PanelFixture& fixture, glm::vec2 from, glm::vec2 to, ImGuiKey modifier)
 	{
-		ImGuiIO& io = ImGui::GetIO();
 		fixture.MoveMouse(from);
 		fixture.SetButton(ImGuiMouseButton_Left, true);
 		for (int step = 1; step <= 6; step++)
@@ -704,13 +704,13 @@ namespace
 		}
 		if (modifier != ImGuiKey_None)
 		{
-			io.AddKeyEvent(modifier, true);
+			Testing::HeadlessImGui::SetModifiers(modifier, true);
 			fixture.MoveMouse(to);
 		}
 		fixture.SetButton(ImGuiMouseButton_Left, false);
 		if (modifier != ImGuiKey_None)
 		{
-			io.AddKeyEvent(modifier, false);
+			Testing::HeadlessImGui::SetModifiers(modifier, false);
 		}
 		fixture.Frames(1);
 	}

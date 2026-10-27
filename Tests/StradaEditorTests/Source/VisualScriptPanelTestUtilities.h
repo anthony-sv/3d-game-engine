@@ -321,6 +321,8 @@ namespace Strada::Testing
 			REQUIRE(Graph.IsValid());
 			Settings.SetProject(Context.GetProject()->GetFilePath());
 			Settings.SetReduceMotion(true);
+			// The wheel zooms on every platform, as on Windows and Linux by default (macOS's default scroll mode pans).
+			Settings.SetScrollMode(VisualScriptScrollMode::Zoom);
 			Panel.emplace(Graph, Operations, *UsedSemantics, Settings, Session, Services);
 			Frames(3);
 		}

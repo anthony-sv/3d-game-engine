@@ -192,9 +192,9 @@ namespace Strada::Testing
 			}
 		}
 
-	private:
 		// Sends the modifiers of a chord as the platform backend reports them: with macOS behaviors, the key ImGui turns into
-		// Ctrl is Super (Cmd), and the other way around (imgui.cpp, ImGuiIO::AddKeyEvent).
+		// Ctrl is Super (Cmd), and the other way around (imgui.cpp, ImGuiIO::AddKeyEvent). Tests that hold a modifier across
+		// other input (a drag with Ctrl) send it through this, never as a raw ImGuiMod_Ctrl key event.
 		static void SetModifiers(ImGuiKeyChord chord, bool down)
 		{
 			ImGuiIO& io = ImGui::GetIO();
@@ -217,6 +217,7 @@ namespace Strada::Testing
 			}
 		}
 
+	private:
 		ImGuiContext* m_Context = nullptr;
 		// What the context's clipboard holds (its Platform_ClipboardUserData is this object, which never moves).
 		std::string m_Clipboard;

@@ -364,6 +364,11 @@ namespace Strada
 		// A chip of the live value widget resolved (ResolveLiveChip): its key, then what it shows and edits.
 		struct LiveChipData
 		{
+			// Defaulted in the .cpp. Clang reads the default member initializers of a type nested in a class only once that class
+			// is complete, and libstdc++'s std::optional, instantiated for a member before then, records the type as not
+			// default-constructible, which refuses emplace(). A constructor declared here is known at once.
+			LiveChipData();
+
 			uint32_t Node = 0;
 			std::string Pin;
 			std::weak_ptr<VisualScriptDocument const> Pending;
@@ -393,6 +398,9 @@ namespace Strada
 		// kept alive), the sub-graph, the library and the measurer stay.
 		struct NodePreview
 		{
+			// Defaulted in the .cpp, as LiveChipData's.
+			NodePreview();
+
 			// The node's ID in its scratch document.
 			static constexpr uint32_t Node = 1;
 			std::string NodeType;
