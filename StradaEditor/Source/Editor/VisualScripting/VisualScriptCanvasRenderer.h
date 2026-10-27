@@ -238,6 +238,8 @@ namespace Strada
 		// Distinct text sizes requested (pixels, from VisualScriptTextLadder).
 		uint32_t TextSizes = 0;
 		uint32_t LiveWidgets = 0;
+		// Link pulses under way (links a commit of the window made, VisualScriptCanvasRenderer::PulseHighlightSeconds long).
+		uint32_t Pulses = 0;
 		// Soft rectangles and dots drawn with the brushes.
 		uint32_t BrushDraws = 0;
 		// Wires drawn, and wires left out at Far (shorter than FarMinWireLength, or over FarWireLimit).
@@ -385,6 +387,9 @@ namespace Strada
 		// ones over GlideSeconds from time; drawing only, the document changed at once. Instant with Reduce Motion (nothing
 		// to do then).
 		void StartGlide(std::span<std::pair<uint32_t, glm::vec2> const> oldPositions, double time);
+		// Pulses links from time as Draw pulses the links the model reports committed: for commits made after the frame's Draw
+		// (a menu pick, the palette, a pane), which the model reports only until the next frame's first Sync.
+		void StartPulses(std::span<VisualScriptLink const> links, double time);
 		// Draws one node of a visual model alone, as the canvas draws it at the view's level and scale: the palette's hover
 		// preview. Nothing else is drawn (no grid, wires, selection, hover, animations or live widget), and only the input's
 		// draw list, font, style, time, brushes and record are read. Counts into GetStats as Draw does, so a window gives its
@@ -502,7 +507,7 @@ namespace Strada
 		bool DrawSoftRect(Frame& frame, ImVec2 lower, ImVec2 upper, float reach, uint32_t color);
 		bool DrawSoftDot(Frame& frame, glm::vec2 center, float radius, uint32_t color);
 		// Draws text at a size of the text ladder (counted); the ellipsis is drawn after an ellipsized text.
-		void DrawText(Frame& frame, float pixels, glm::vec2 position, uint32_t color, std::string_view text, bool ellipsis = false);
+		void DrawLadderText(Frame& frame, float pixels, glm::vec2 position, uint32_t color, std::string_view text, bool ellipsis = false);
 		void CountTextSize(float pixels);
 
 		// The node's offset from its stored place: the move preview and an Arrange's glide.
@@ -536,6 +541,8 @@ namespace Strada
 		uint32_t m_TextSizeCount = 0;
 		std::string m_Text;
 		std::string m_PillText;
+		// What m_PillText holds a pin's text for (BuildPinText's key); 0 when it holds another pill's.
+		uint64_t m_PinTextKey = 0;
 
 		// Animations.
 		std::vector<Pulse> m_Pulses;

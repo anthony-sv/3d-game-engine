@@ -2,6 +2,7 @@
 
 #include "Editor/VisualScripting/VisualScriptBrushes.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
+#include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
 #include "Editor/VisualScripting/VisualScriptController.h"
 #include "Editor/VisualScripting/VisualScriptDetails.h"
@@ -30,6 +31,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -143,9 +145,9 @@ namespace Strada
 	// test (the editor's UI font must have each character).
 	namespace VisualScriptPanelTexts
 	{
-		inline constexpr std::string_view Degraded =
-			"Node details need the scripting runtime, which is not running: you can arrange, comment, copy and delete nodes.";
-		inline constexpr std::string_view ReadOnlyMemory = "Read only: this visual script has no file";
+		// The controller refuses edits with the notices' texts (spec §9.1).
+		inline constexpr std::string_view Degraded = VisualScriptRefusals::Degraded;
+		inline constexpr std::string_view ReadOnlyMemory = VisualScriptRefusals::ReadOnlyMemory;
 		inline constexpr std::string_view NewFunction = "A function starts at Entry. Add inputs and outputs in Details.";
 		inline constexpr std::string_view EmptyGraph = "This script does nothing yet.";
 		inline constexpr std::string_view EmptyGraphHelp = "Right-click or press Tab to add nodes; drag variables from My Script.";
@@ -169,11 +171,15 @@ namespace Strada
 		inline constexpr std::string_view PanHint = "Drag to pan";
 		inline constexpr std::string_view NoBookmarks = "No bookmarks yet";
 		inline constexpr std::string_view ShortcutSheet = "Visual Script Shortcuts";
+		// The toolbar's problems pill without counts to show.
+		inline constexpr std::string_view NoProblems = "No problems";
+		inline constexpr std::string_view NotAnalyzed = "Not analyzed";
 
-		inline constexpr std::array<std::string_view, 21> All = {
-			Degraded,       ReadOnlyMemory, NewFunction,       EmptyGraph,       EmptyGraphHelp, Live,     LastWorking,     Simulating,
-			SimulatingFull, LiveTooltip,    SimulatingTooltip, CanvasHint,       CanvasHintPan,  WireHint, MoveSnappedHint, MoveFreeHint,
-			PanHint,        NoBookmarks,    ShortcutSheet,     "Instance: None", "Not saved"};
+		inline constexpr std::array<std::string_view, 23> All = {
+			Degraded,      ReadOnlyMemory, NewFunction,     EmptyGraph,       EmptyGraphHelp,    Live,
+			LastWorking,   Simulating,     SimulatingFull,  LiveTooltip,      SimulatingTooltip, CanvasHint,
+			CanvasHintPan, WireHint,       MoveSnappedHint, MoveFreeHint,     PanHint,           NoBookmarks,
+			ShortcutSheet, NoProblems,     NotAnalyzed,     "Instance: None", "Not saved"};
 	}
 
 	// The pane sizes of spec §10.1, in font sizes.
@@ -197,7 +203,7 @@ namespace Strada
 	// (EditorOperations::EditVisualScript), draws the canvas and its panes, and executes what the panes ask for as it executes
 	// its own edits. Only OnImGuiRender calls ImGui; every other member records or reads state, so automation can drive a
 	// window between frames. Main thread only.
-	class VisualScriptEditorPanel : private VisualScriptLiveChipHost
+	class VisualScriptEditorPanel final : private VisualScriptLiveChipHost
 	{
 	public:
 		// Toasts stay this long (seconds), longer while hovered; failures stay until dismissed.
@@ -218,8 +224,11 @@ namespace Strada
 		void OnImGuiRender(bool& open, std::optional<ImGuiID> dockTarget);
 		// Applied at the next draw: the sub-graph, selection and view (the model's), and the focus.
 		void Apply(VisualScriptOpenRequest const& request);
-		// An action of the Edit menu while this window is the edit target; applied at the next draw, as its key would be.
-		void RequestAction(VisualScriptEditorAction action);
+		// An action of the Edit menu while this window is the edit target; applied at the next draw, routed as its key would be
+		// (a row key goes to the My Script row Details shows). Refused, returning false, while the last draw found the window
+		// hidden (a tab not in front): an action taken then would run whenever the window is shown again. A window that is
+		// hidden afterwards drops the actions it took.
+		[[nodiscard]] bool RequestAction(VisualScriptEditorAction action);
 		// After an undo or redo while this window is the edit target: "Undone: <description>" or "Redone: <description>", with
 		// [Show] when the step edited the scene (an invalid editedAsset) or another visual script.
 		void NotifyHistoryStep(bool undone, std::string const& description, AssetHandle editedAsset);
@@ -234,7 +243,8 @@ namespace Strada
 		// runtime"), for a From node the shown sub-graph does not have, and for a From pin that node does not have.
 		[[nodiscard]] Result<VisualScriptPaletteState> OpenPalette(VisualScriptPaletteRequest const& request);
 		void ClosePalette();
-		// What the palette showed in the last draw (Open false while it is closed).
+		// What the palette showed in the last draw (Open false while it is closed, and from OpenPalette until it is drawn);
+		// GetState's PaletteOpen and PaletteQuery are the same.
 		VisualScriptPaletteState GetPaletteState() const;
 		// What graph.editors reports of the window, as its last draw saw it.
 		VisualScriptEditorState GetState() const;
@@ -253,6 +263,8 @@ namespace Strada
 		VisualScriptDrawer const& GetDrawer() const { return m_Drawer; }
 		VisualScriptFindBar const& GetFindBar() const { return m_FindBar; }
 		VisualScriptPaneShared const& GetPaneShared() const { return m_PaneShared; }
+		// What the problems popup of a badge (a node's or a link's) listed in the last draw; empty while none is open.
+		std::span<VisualScriptDiagnostic const> GetPopupProblems() const { return m_PopupProblems; }
 		// The live value widget the last draw drew; none when no chip was live.
 		std::optional<VisualScriptLiveWidgetFrames> const& GetLiveWidget() const { return m_LiveWidget; }
 		// The canvas's renderer, as the last frame left it (its counters).
@@ -349,11 +361,50 @@ namespace Strada
 			Json Literal;
 		};
 
+		// A chip of the live value widget resolved (ResolveLiveChip): its key, then what it shows and edits.
+		struct LiveChipData
+		{
+			uint32_t Node = 0;
+			std::string Pin;
+			std::weak_ptr<VisualScriptDocument const> Pending;
+			std::weak_ptr<VisualScriptDocument const> Stored;
+			uint64_t Analysis = 0;
+			uint64_t Revision = 0;
+			VisualScriptLibrary const* Library = nullptr;
+			// The node is shown and the literal editor edits the pin's type.
+			bool Editable = false;
+			std::string Type;
+			// The input as the document stores it, the label the step's description uses, and the node's title.
+			std::string StoredPin;
+			std::string Label;
+			std::string Title;
+			Json Literal;
+			Json Fallback;
+		};
+
 		// The popup a compact live widget asked for (a colour, an enum, an asset), drawn at the window's normal size.
 		struct LivePopup
 		{
 			VisualScriptPinReference Pin;
 			bool OpenPending = true;
+		};
+
+		// The palette's hover preview: its entry's node laid out alone, kept while the entry, the document (by identity, never
+		// kept alive), the sub-graph, the library and the measurer stay.
+		struct NodePreview
+		{
+			// The node's ID in its scratch document.
+			static constexpr uint32_t Node = 1;
+			std::string NodeType;
+			Json Settings;
+			std::weak_ptr<VisualScriptDocument const> Document;
+			uint32_t Function = 0;
+			VisualScriptLibrary const* Library = nullptr;
+			uint64_t Signature = 0;
+			VisualScriptCanvasModel Canvas;
+			std::optional<uint32_t> Index;
+			// The sub-graph the node was laid out in (the event graph when the shown function is gone).
+			uint32_t ShownFunction = 0;
 		};
 
 		// The in-place text editor over the canvas: a node comment or a comment box's title.
@@ -422,6 +473,8 @@ namespace Strada
 		void DrawCanvas(ImVec2 size);
 		void UpdateCanvas(VisualScriptCanvasInput& input);
 		void AcceptDrops(VisualScriptCanvasInput& input);
+		// Whether the pin a payload hovers at the mouse (screen pixels) cannot take it (CanDropOnVisualScriptPin).
+		bool IsDropRefusedByPin(VisualScriptDropKind kind, uint64_t payload, glm::vec2 mouse);
 		void DrawCanvasOverlays(ImVec2 canvasMin, ImVec2 canvasMax);
 		void DrawHeaderTooltip();
 		// A click on a node's problem badge, or on a link's, opens the popup of its problems.
@@ -429,6 +482,9 @@ namespace Strada
 		void DrawProblemsPopup();
 		void DrawLivePopup();
 		void CommitLiveChange();
+		// The chip of a node's input (its canvas name) as slot resolved it, resolved again when its key changed; null when the
+		// window cannot edit it (the node or pin is gone, or the literal editor has no widget for its type).
+		LiveChipData const* ResolveLiveChip(std::optional<LiveChipData>& slot, uint32_t node, std::string_view pin);
 		// The live value widget (VisualScriptLiveChipHost): the literal editor's compact form over the chip.
 		void DrawLiveChip(VisualScriptLiveChip const& chip) override;
 		void DrawGestureHint(ImVec2 canvasMin, ImVec2 canvasMax);
@@ -456,6 +512,10 @@ namespace Strada
 		void ApplyPaneResult(VisualScriptPaneResult result);
 		// A shortcut of class 1 (spec §8.3) for the part of the window that has the keyboard.
 		void RouteFocusedAction(VisualScriptEditorAction action);
+		// A row key (Delete, Rename, Duplicate, OpenNode) for the My Script row Details shows.
+		void RouteRowAction(VisualScriptEditorAction action);
+		// Shows My Script over the canvas when it is not beside it, for the rest of an interaction it has to draw.
+		void OpenSidebarOverlay();
 		// Shows the drawer in a mode (Problems or Find), or closes it.
 		void ShowDrawer(VisualScriptDrawerMode mode);
 		void ExecuteIntent(VisualScriptEditorIntent const& intent);
@@ -491,8 +551,9 @@ namespace Strada
 
 		VisualScriptEditorModel m_Model;
 		VisualScriptCanvasRenderer m_Renderer;
-		// Draws the palette's hover previews, so their counts never mix with the canvas's.
+		// Draws the palette's hover previews, so their counts never mix with the canvas's, from the preview's layout.
 		VisualScriptCanvasRenderer m_PreviewRenderer;
+		std::optional<NodePreview> m_NodePreview;
 		VisualScriptBrushes m_Brushes;
 
 		// The panes (spec §11).
@@ -511,16 +572,22 @@ namespace Strada
 		bool m_LiveActive = false;
 		bool m_LiveDeactivated = false;
 		std::optional<LivePopup> m_LivePopup;
+		// The live widget's chip and its popup's, resolved.
+		std::optional<LiveChipData> m_LiveChipData;
+		std::optional<LiveChipData> m_LivePopupData;
 		// A widget interaction of the panes or the live widget was in progress in the last draw (the model's Sync paces its
 		// analysis by it).
 		bool m_WidgetActive = false;
 		bool m_PanesWidgetActive = false;
 		// The find bar's matches of the shown sub-graph, sorted, which the canvas outlines.
 		std::vector<uint32_t> m_Outlined;
+		// What a payload dragged over the canvas hovers (reused, so a drag allocates nothing from frame to frame).
+		VisualScriptHit m_DropHit;
 		// A left press on a problem badge (a node's ID, or a link), released where it was pressed to open its popup.
 		std::optional<ProblemsPopup> m_BadgePress;
 		glm::vec2 m_BadgePressPoint{0.0f};
 		std::optional<ProblemsPopup> m_Problems;
+		std::vector<VisualScriptDiagnostic> m_PopupProblems;
 		std::vector<VisualScriptOpenRequest> m_OtherGraphRequests;
 		// Whether the live widget was drawn this frame (the chip it edits may be gone), and where.
 		bool m_LiveDrawn = false;
@@ -529,11 +596,14 @@ namespace Strada
 		// keeps the hover from the canvas's surface (and so from the model).
 		std::optional<VisualScriptPinReference> m_LiveChip;
 		std::optional<VisualScriptPinReference> m_HoveredChip;
-		// What the frame syncs and draws with: the library (kept alive through the frame), the measurer and the theme.
+		// What the frame syncs and draws with: the library (kept alive while the window is drawn, so a commit of the frame or
+		// between frames resolves with the one the frame drew with; released while hidden), the measurer and the theme.
 		Ref<VisualScriptLibrary const> m_Library;
 		VisualScriptTextMeasurer m_Measure;
 		VisualScriptThemeAnchors m_Theme;
 		double m_Time = 0.0;
+		// How many of the links the model reports committed this frame the canvas's draw pulsed.
+		size_t m_PulsedLinks = 0;
 
 		// Requests applied at the next draw.
 		std::optional<VisualScriptOpenRequest> m_PendingOpen;
@@ -572,7 +642,7 @@ namespace Strada
 		// object that was loaded so.
 		std::vector<NoticeKind> m_Notices;
 		VisualScriptCard m_Card = VisualScriptCard::None;
-		Ref<VisualScriptAsset> m_RepairAsset;
+		std::weak_ptr<VisualScriptAsset> m_RepairAsset;
 		uint32_t m_Repairs = 0;
 		bool m_RepairNotice = false;
 		// The nodes the next edit rewrites (canonical types and positions), counted for the document and the analysis last

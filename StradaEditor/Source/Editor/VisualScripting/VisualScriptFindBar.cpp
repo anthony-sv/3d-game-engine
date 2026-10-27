@@ -15,7 +15,7 @@ namespace Strada
 		return std::max(0.0f, std::min(WidthInFontSizes * fontSize, canvasWidth - 2.0f * fontSize));
 	}
 
-	void VisualScriptFindBar::Open(std::string text)
+	void VisualScriptFindBar::Open(std::string text, bool goToFirst)
 	{
 		m_Open = true;
 		m_Focus = true;
@@ -24,12 +24,19 @@ namespace Strada
 		{
 			m_Text = std::move(text);
 		}
+		if (goToFirst)
+		{
+			// From no match, the next match is the first.
+			m_GoToFirst = true;
+			m_Index = -1;
+		}
 	}
 
 	void VisualScriptFindBar::Close()
 	{
 		m_Open = false;
 		m_Focus = false;
+		m_GoToFirst = false;
 		m_Index = -1;
 		m_Matches.clear();
 		m_Outlined.clear();
@@ -193,6 +200,11 @@ namespace Strada
 		{
 			Close();
 			return result;
+		}
+		if (m_GoToFirst)
+		{
+			m_GoToFirst = false;
+			step = step != 0 ? step : 1;
 		}
 		if (step != 0)
 		{

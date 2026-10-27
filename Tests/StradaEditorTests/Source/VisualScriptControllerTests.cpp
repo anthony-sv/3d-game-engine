@@ -1,4 +1,5 @@
 #include "TestUtilities.h"
+#include "VisualScriptPanelTestUtilities.h"
 #include "VisualScriptTestDocuments.h"
 #include "VisualScriptTestUtilities.h"
 
@@ -23,7 +24,9 @@
 
 #include <algorithm>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -209,69 +212,6 @@ namespace
 		VisualScriptThemeAnchors Theme;
 		Scope<VisualScriptEditorModel> Model;
 		double Time = 0.0;
-	};
-
-	// The analysis the scripting runtime gives a document that stores Log Info (node 3) under its member's former name,
-	// Log.Write, whose input "Text" is "Message" now: resolved through a redirect, with Info's pins and the pin renamed.
-	class RenamedMemberSemantics final : public VisualScriptSemantics
-	{
-	public:
-		static constexpr std::string_view FormerType = "Call:Strada.Log.Write(string)";
-		static constexpr std::string_view Type = "Call:Strada.Log.Info(string)";
-
-		explicit RenamedMemberSemantics(Testing::FixtureVisualScriptSemantics& fixture)
-			: m_Fixture(fixture)
-		{
-		}
-
-		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
-
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
-		{
-			// The document as the redirect reads it, analyzed; then node 3 reported as stored.
-			VisualScriptDocument read = document;
-			bool former = false;
-			for (VisualScriptNode& node : read.Graph.Nodes)
-			{
-				if (node.ID == 3 && node.Type == FormerType)
-				{
-					former = true;
-					node.Type = std::string(Type);
-					if (node.Inputs.contains("Text"))
-					{
-						node.Inputs["Message"] = node.Inputs["Text"];
-						node.Inputs.erase("Text");
-					}
-				}
-			}
-			for (VisualScriptLink& link : read.Graph.Links)
-			{
-				if (former && link.To.Node == 3 && link.To.Pin == "Text")
-				{
-					link.To.Pin = "Message";
-				}
-			}
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(read);
-			if (!analysis.IsOk() || !former)
-			{
-				return analysis;
-			}
-			Json source = analysis.GetValue().Source;
-			for (Json& node : source["Nodes"])
-			{
-				if (node["ID"] == 3)
-				{
-					node["Type"] = std::string(FormerType);
-					node["Resolved"] = "Redirect";
-					node["CanonicalType"] = std::string(Type);
-					node["PinRenames"] = Json::array({Json::object({{"Direction", "In"}, {"From", "Text"}, {"To", "Message"}})});
-				}
-			}
-			return VisualScriptAnalysis::Parse(source.dump());
-		}
-
-	private:
-		Testing::FixtureVisualScriptSemantics& m_Fixture;
 	};
 
 	std::string Description(VisualScriptControllerResult const& result)
@@ -961,10 +901,10 @@ TEST_CASE("VisualScriptEditor: the node menu lists its items in order, enabled a
 TEST_CASE("VisualScriptEditor: pins named as the canvas shows a renamed member's pins are edited under the names the document stores")
 {
 	VisualScriptDocument document = MakeDocument();
-	document.Graph.Nodes[2].Type = std::string(RenamedMemberSemantics::FormerType);
+	document.Graph.Nodes[2].Type = std::string(Testing::RenamedLogSemantics::FormerType);
 	document.Graph.Nodes[2].Inputs = Json::object({{"Text", "Hi"}});
 	ControllerFixture fixture(document);
-	RenamedMemberSemantics renamed(fixture.Semantics);
+	Testing::RenamedLogSemantics renamed(fixture.Semantics);
 	fixture.SemanticsOverride = &renamed;
 	fixture.Semantics.ReloadLibrary();
 	fixture.Frame();
@@ -977,7 +917,7 @@ TEST_CASE("VisualScriptEditor: pins named as the canvas shows a renamed member's
 	VisualScriptControllerResult value = fixture.Edit(VisualScriptLiteralEdit{{3, "Message"}, "Bye"});
 	CHECK(Description(value) == "Set Message on Info in Player");
 	CHECK(value.Commit->Notes == std::vector<std::string>{"node updated: Call:Strada.Log.Write(string) → Call:Strada.Log.Info(string)"});
-	CHECK(value.Commit->Document->Graph.Nodes[2].Type == RenamedMemberSemantics::Type);
+	CHECK(value.Commit->Document->Graph.Nodes[2].Type == Testing::RenamedLogSemantics::Type);
 	CHECK(value.Commit->Document->Graph.Nodes[2].Inputs == Json::object({{"Message", "Bye"}}));
 
 	VisualScriptControllerResult linked = fixture.Resolve(VisualScriptConnectIntent{MakeLink(5, "Value", 3, "Message"), false, {}});
@@ -1106,10 +1046,10 @@ TEST_CASE("VisualScriptEditor: Update Node is offered on an updated node and sto
 	SUBCASE("a node stored under its member's former name")
 	{
 		VisualScriptDocument document = MakeDocument();
-		document.Graph.Nodes[2].Type = std::string(RenamedMemberSemantics::FormerType);
+		document.Graph.Nodes[2].Type = std::string(Testing::RenamedLogSemantics::FormerType);
 		document.Graph.Nodes[2].Inputs = Json::object({{"Text", "Hi"}});
 		ControllerFixture fixture(document);
-		RenamedMemberSemantics renamed(fixture.Semantics);
+		Testing::RenamedLogSemantics renamed(fixture.Semantics);
 		fixture.SemanticsOverride = &renamed;
 		fixture.Semantics.ReloadLibrary();
 		fixture.Frame();
@@ -1119,7 +1059,7 @@ TEST_CASE("VisualScriptEditor: Update Node is offered on an updated node and sto
 		CHECK(result.Commit->Notes ==
 		      std::vector<std::string>{"node updated: Call:Strada.Log.Write(string) → Call:Strada.Log.Info(string)"});
 		fixture.Execute(result);
-		CHECK(fixture.Node(3)->Type == RenamedMemberSemantics::Type);
+		CHECK(fixture.Node(3)->Type == Testing::RenamedLogSemantics::Type);
 		CHECK(fixture.Node(3)->Inputs == Json::object({{"Message", "Hi"}}));
 		CHECK(fixture.History().GetUndoCount() == 1);
 	}
@@ -1239,4 +1179,144 @@ TEST_CASE("VisualScriptEditor: the node menu's Enabled State follows the panes' 
 	fixture.Frame();
 	REQUIRE(offer(21) == VisualScriptEnabledOffer::FunctionEnd);
 	CHECK(states(21).empty());
+}
+
+TEST_CASE("VisualScriptEditor: a variable dropped on a data output runs after that node only when its first exec output is free")
+{
+	VisualScriptDocument document = MakeDocument();
+	// A Tween whose Update goes on to a Delay, and a free Tween.
+	document.Graph.Nodes.push_back(MakeNode(40, "Flow.Tween", glm::vec2(0.0f, 960.0f)));
+	document.Graph.Nodes.push_back(MakeNode(41, "Flow.Delay", glm::vec2(400.0f, 960.0f)));
+	document.Graph.Nodes.push_back(MakeNode(42, "Flow.Tween", glm::vec2(0.0f, 1280.0f)));
+	document.Graph.Links.push_back(MakeLink(40, "Update", 41, "Execute"));
+	ControllerFixture fixture(document);
+	auto const dropOnAlpha = [&fixture](uint32_t tween)
+	{
+		VisualScriptDropIntent intent;
+		intent.Kind = VisualScriptDropKind::Element;
+		intent.Payload = PackVisualScriptElement(VisualScriptElementKind::Variable, 10);
+		intent.Position = glm::vec2(400.0f, 1200.0f);
+		intent.Pin = VisualScriptPinReference{tween, "Alpha"};
+		intent.Direction = VisualScriptPinDirection::Out;
+		VisualScriptControllerResult result = fixture.Resolve(intent);
+		REQUIRE(result.Commit.has_value());
+		fixture.Execute(result);
+		return fixture.Stored().Graph.Nodes.back().ID;
+	};
+
+	// Update, the first exec output, is linked: the Set is fed but never run after Completed, which comes once at the end.
+	uint32_t const fed = dropOnAlpha(40);
+	CHECK(fixture.HasLink(MakeLink(40, "Alpha", fed, "Value")));
+	CHECK_FALSE(fixture.HasLink(MakeLink(40, "Completed", fed, "Execute")));
+	CHECK_FALSE(fixture.HasLink(MakeLink(40, "Update", fed, "Execute")));
+	// Free: the Set runs on every Update.
+	uint32_t const run = dropOnAlpha(42);
+	CHECK(fixture.HasLink(MakeLink(42, "Alpha", run, "Value")));
+	CHECK(fixture.HasLink(MakeLink(42, "Update", run, "Execute")));
+}
+
+namespace
+{
+	// The fixture's analysis with the Get of Targets (node 40) resolved to its array type, as the scripting runtime resolves it
+	// (the fixture analyzer resolves no wildcard).
+	class ArrayGetSemantics final : public VisualScriptSemantics
+	{
+	public:
+		explicit ArrayGetSemantics(Testing::FixtureVisualScriptSemantics& fixture)
+			: m_Fixture(fixture)
+		{
+		}
+
+		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
+
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
+		{
+			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document);
+			if (!analysis.IsOk())
+			{
+				return analysis;
+			}
+			Json source = analysis.GetValue().Source;
+			for (Json& node : source["Nodes"])
+			{
+				if (node["ID"] != 40)
+				{
+					continue;
+				}
+				for (Json& pin : node["Pins"])
+				{
+					pin["Type"] = "Strada.Entity[]";
+				}
+			}
+			return VisualScriptAnalysis::Parse(source.dump());
+		}
+
+	private:
+		Testing::FixtureVisualScriptSemantics& m_Fixture;
+	};
+}
+
+TEST_CASE("VisualScriptEditor: an array pin is never promoted to a variable or a function input, and says why")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptVariable targets;
+	targets.ID = 11;
+	targets.Name = "Targets";
+	targets.Type = "Strada.Entity[]";
+	targets.Public = true;
+	document.Variables.push_back(targets);
+	document.Graph.Nodes.push_back(MakeNode(40, "Variable.Get", glm::vec2(0.0f, 960.0f), Json::object({{"Variable", 11}})));
+	ControllerFixture fixture(document);
+	ArrayGetSemantics arrays(fixture.Semantics);
+	fixture.SemanticsOverride = &arrays;
+	fixture.Semantics.ReloadLibrary();
+	fixture.Frame();
+	fixture.Frame();
+	VisualScriptCanvasModel const& canvas = fixture.Model->GetCanvas();
+	std::optional<uint32_t> const node = canvas.FindNode(40);
+	REQUIRE(node.has_value());
+	std::optional<uint32_t> const pin = canvas.FindPin(*node, "Value", VisualScriptPinDirection::Out);
+	REQUIRE(pin.has_value());
+	std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+	REQUIRE(pins[*pin].Shape == VisualScriptPinShape::Array);
+	size_t const steps = fixture.History().GetUndoCount();
+
+	VisualScriptPinEdit promote;
+	promote.Action = VisualScriptPinAction::PromoteToVariable;
+	promote.Pin = VisualScriptPinReference{40, "Value"};
+	promote.Direction = VisualScriptPinDirection::Out;
+	VisualScriptControllerResult const refused = fixture.Edit(promote);
+	CHECK_FALSE(refused.Commit.has_value());
+	CHECK(refused.Notes == std::vector<std::string>{std::string(VisualScriptRefusals::PromoteArray)});
+	CHECK(fixture.History().GetUndoCount() == steps);
+	CHECK(fixture.Stored().Variables.size() == 2);
+}
+
+TEST_CASE("VisualScriptEditor: what a drop on a pin can change: assets of the input's type, entities on Entity inputs, variables on "
+          "data pins")
+{
+	ControllerFixture fixture;
+	VisualScriptCanvasModel const& canvas = fixture.Model->GetCanvas();
+	std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+	auto const pinOf = [&](uint32_t id, std::string_view name, VisualScriptPinDirection direction)
+	{
+		std::optional<uint32_t> const node = canvas.FindNode(id);
+		REQUIRE(node.has_value());
+		std::optional<uint32_t> const pin = canvas.FindPin(*node, name, direction);
+		REQUIRE(pin.has_value());
+		return VisualScriptPinVisual(pins[*pin]);
+	};
+	VisualScriptPinVisual const message = pinOf(3, "Message", VisualScriptPinDirection::In);
+	VisualScriptPinVisual const execute = pinOf(3, "Execute", VisualScriptPinDirection::In);
+	VisualScriptPinVisual const value = pinOf(5, "Value", VisualScriptPinDirection::Out);
+
+	uint64_t const speed = PackVisualScriptElement(VisualScriptElementKind::Variable, 10);
+	CHECK(CanDropOnVisualScriptPin(VisualScriptDropKind::Element, speed, message));
+	CHECK(CanDropOnVisualScriptPin(VisualScriptDropKind::Element, speed, value));
+	CHECK_FALSE(CanDropOnVisualScriptPin(VisualScriptDropKind::Element, speed, execute));
+	// A function's call is placed beside any pin.
+	CHECK(CanDropOnVisualScriptPin(VisualScriptDropKind::Element, PackVisualScriptElement(VisualScriptElementKind::Function, 20), execute));
+	// Entities only on Entity inputs; an asset that is not in the project nowhere.
+	CHECK_FALSE(CanDropOnVisualScriptPin(VisualScriptDropKind::Entities, 0, message));
+	CHECK_FALSE(CanDropOnVisualScriptPin(VisualScriptDropKind::Asset, 12345, message));
 }

@@ -928,6 +928,85 @@ TEST_CASE("VisualScriptEditor: pins and wires name their types in a pill after t
 	}
 }
 
+namespace
+{
+	// The fixture's analysis with Add's wildcards resolved to float, as the scripting runtime resolves an Add of two floats (the
+	// fixture analyzer resolves no wildcard).
+	class FloatAddSemantics final : public VisualScriptSemantics
+	{
+	public:
+		explicit FloatAddSemantics(Testing::FixtureVisualScriptSemantics& fixture)
+			: m_Fixture(fixture)
+		{
+		}
+
+		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
+
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
+		{
+			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document);
+			if (!analysis.IsOk())
+			{
+				return analysis;
+			}
+			Json source = analysis.GetValue().Source;
+			for (Json& node : source["Nodes"])
+			{
+				if (node["Type"] != "Operator.Add")
+				{
+					continue;
+				}
+				for (Json& pin : node["Pins"])
+				{
+					pin["Type"] = "float";
+				}
+			}
+			return VisualScriptAnalysis::Parse(source.dump());
+		}
+
+	private:
+		Testing::FixtureVisualScriptSemantics& m_Fixture;
+	};
+}
+
+TEST_CASE("VisualScriptEditor: a wildcard pin's pill names the type it resolved to, or says it is unresolved")
+{
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(6, "Operator.Add", glm::vec2(0.0f, 0.0f))};
+	Testing::CanvasRenderFixture fixture(document, glm::vec2(1600.0f, 900.0f), true);
+	fixture.SetView(glm::vec2(60.0f, 40.0f), 1.0f);
+	auto const restOn = [&fixture](std::string_view pin, VisualScriptPinDirection direction = VisualScriptPinDirection::In)
+	{
+		fixture.MoveTo(glm::vec2(-1000.0f));
+		fixture.MoveTo(Testing::CanvasPoint(fixture.Model, 6, pin, direction));
+		for (int frame = 0; frame < 30; frame++)
+		{
+			fixture.Frame();
+		}
+		VisualScriptDrawRecordItem const* pill = fixture.Record.Find(VisualScriptDrawItemKind::Pill, 6);
+		REQUIRE(pill != nullptr);
+		return pill->Text;
+	};
+	std::string const wildcard(VisualScriptWildcardType);
+
+	// The fixture analyzer resolves none: unresolved.
+	std::string const unresolved = restOn("A");
+	CHECK(unresolved.find(std::string(VisualScriptCanvasTexts::Unresolved)) != std::string::npos);
+	CHECK(unresolved.find(std::string(VisualScriptCanvasTexts::ResolvedTo)) == std::string::npos);
+
+	// Resolved by the analysis: "* resolved to" the type.
+	FloatAddSemantics resolving(fixture.Semantics);
+	fixture.SemanticsOverride = &resolving;
+	fixture.Semantics.ReloadLibrary();
+	fixture.Frame();
+	fixture.Frame();
+	std::string const resolved = restOn("B");
+	CHECK(resolved.find(wildcard + std::string(VisualScriptCanvasTexts::ResolvedTo)) != std::string::npos);
+	CHECK(resolved.find(std::string(VisualScriptCanvasTexts::Unresolved)) == std::string::npos);
+	CHECK(restOn("Result", VisualScriptPinDirection::Out).find(wildcard + std::string(VisualScriptCanvasTexts::ResolvedTo)) !=
+	      std::string::npos);
+}
+
 TEST_CASE("VisualScriptEditor: the minimap shows the graph while some of it is out of view")
 {
 	Testing::CanvasRenderFixture fixture(MakeRenderDocument());
@@ -1041,6 +1120,42 @@ TEST_CASE("VisualScriptEditor: the graph window's live widget, the literal edito
 	CHECK(popup->WindowPadding.x == doctest::Approx(style.WindowPadding.x));
 	CHECK(popup->WindowPadding.y == doctest::Approx(style.WindowPadding.y));
 	ImGui::GetStyle().FontScaleDpi = 1.0f;
+}
+
+TEST_CASE("VisualScriptEditor: the live widget's colour and asset frames show no tooltip, which would take the canvas's zoom")
+{
+	VisualScriptDocument document = MakeChipDocument();
+	document.Graph.Nodes.push_back(MakeNode(
+		40, "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)", glm::vec2(0.0f, 1600.0f)));
+	Testing::PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
+	struct Target
+	{
+		uint32_t Node;
+		std::string_view Pin;
+	};
+	for (Target const& target : {Target{8, "A"}, Target{40, "Prefab"}})
+	{
+		CAPTURE(target.Pin);
+		glm::vec2 const center = ChipCenter(fixture.Model(), target.Node, target.Pin);
+		VisualScriptOpenRequest request;
+		request.Graph = fixture.Graph;
+		request.Center = center;
+		request.Zoom = 2.0f;
+		request.Focus = false;
+		fixture.Panel->Apply(request);
+		fixture.Frames(2);
+		fixture.MoveMouse(fixture.Model().GetView().ToScreen(center));
+		// Well past ImGui's tooltip delays, the mouse held still.
+		fixture.Frames(90);
+		REQUIRE(fixture.Panel->GetLiveWidget().has_value());
+		CHECK(fixture.Panel->GetLiveWidget()->Chip.Node == target.Node);
+		CHECK(std::none_of(GImGui->Windows.begin(), GImGui->Windows.end(),
+		                   [](ImGuiWindow const* window)
+		                   {
+							   return window->Active && (window->Flags & ImGuiWindowFlags_Tooltip) != 0;
+						   }));
+	}
 }
 
 TEST_CASE("VisualScriptEditor: the find bar's matches are outlined in amber, and the palette's preview draws a node alone at its "

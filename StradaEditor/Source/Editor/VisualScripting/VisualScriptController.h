@@ -62,7 +62,13 @@ namespace Strada
 		inline constexpr std::string_view NoClipboard = "The clipboard holds no visual script nodes";
 		// A My Script row dragged from another script's window.
 		inline constexpr std::string_view OtherScriptRow = "Variables belong to their script: copy the nodes instead";
+		// Promote to Variable or to Function Input on an array pin (v2 §3.2: arrays as variables come with slice 3).
+		inline constexpr std::string_view PromoteArray = "Variables and function inputs cannot hold arrays";
 	}
+
+	// The note of a file without write permission, which the window's notice shows too: "<file name> is read-only on disk: edits
+	// cannot be saved."
+	[[nodiscard]] std::string MakeVisualScriptReadOnlyFileNote(std::string_view fileName);
 
 	// What an entity drop needs of the edited scene (the running copy is never written: drops are refused while playing).
 	struct VisualScriptSceneContext
@@ -278,6 +284,11 @@ namespace Strada
 	// cannot be made (an editor bug, such as a document the commit would not write).
 	[[nodiscard]] Result<VisualScriptControllerResult> ResolveVisualScriptIntent(VisualScriptEditorIntent const& intent,
 	                                                                             VisualScriptEditContext const& context);
+	// Whether a drop can change the pin it is dropped on (spec §9.4 rule 5): an asset (payload: its handle) on an input whose
+	// type takes assets of its type, entities on a Strada.Entity input, a My Script variable or local (payload: the packed row)
+	// on a data pin; a function or a custom event is placed beside any pin. The canvas shows the not-allowed cursor while a
+	// payload it would refuse hovers a pin, and the controller refuses it on delivery with a note, by this one rule.
+	[[nodiscard]] bool CanDropOnVisualScriptPin(VisualScriptDropKind kind, uint64_t payload, VisualScriptPinVisual const& pin);
 	// Resolves an edit of the window's menus and fields, as ResolveVisualScriptIntent does.
 	[[nodiscard]] Result<VisualScriptControllerResult> ResolveVisualScriptEdit(VisualScriptCanvasEdit const& edit,
 	                                                                           VisualScriptEditContext const& context);

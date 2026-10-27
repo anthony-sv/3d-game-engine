@@ -28,10 +28,12 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -249,6 +251,21 @@ TEST_CASE("VisualScriptEditor: an auto-hidden Details opens over the canvas from
 	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
 	fixture.Frames(1);
 	CHECK(fixture.Panel->GetState().Details == VisualScriptPaneState::AutoHidden);
+
+	// With the keyboard in the overlay itself (a click on its empty space), one Escape closes it and gives the keyboard back to
+	// the canvas.
+	fixture.ClickItem(Item::DetailsToggle);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().Details == VisualScriptPaneState::Overlay);
+	ImGuiWindow const* overlay = fixture.GetChild("##detailsOverlay");
+	fixture.Click(glm::vec2(overlay->Pos.x + overlay->Size.x * 0.5f, overlay->Pos.y + overlay->Size.y - 8.0f));
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Details);
+	REQUIRE(fixture.Panel->GetState().Details == VisualScriptPaneState::Overlay);
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetState().Details == VisualScriptPaneState::AutoHidden);
+	CHECK(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Canvas);
 }
 
 TEST_CASE("VisualScriptEditor: without the scripting runtime the degraded notice shows, offers the console and blinks when a "
@@ -997,4 +1014,102 @@ TEST_CASE("VisualScriptEditor: a chosen context entity that was deleted is no co
 	fixture.Frames(1);
 	CHECK(fixture.Panel->GetContextEntity() == gate);
 	CHECK(fixture.Panel->GetState().ContextEntity == gate);
+}
+
+TEST_CASE("VisualScriptEditor: a click on a link's problem badge at half the wire's length opens that link's problems and no other's")
+{
+	PanelFixture fixture(MakeDocument());
+	VisualScriptLink const flow{{1, "Then"}, {2, "Execute"}};
+	VisualScriptDiagnostic linkError;
+	linkError.Code = "TypeMismatch";
+	linkError.Severity = VisualScriptSeverity::Error;
+	linkError.Link = flow;
+	linkError.Message = "a test error of the link";
+	fixture.Semantics.InjectDiagnostic(linkError);
+	VisualScriptDiagnostic nodeError;
+	nodeError.Code = "InvalidValue";
+	nodeError.Severity = VisualScriptSeverity::Error;
+	nodeError.Node = 3;
+	nodeError.Message = "a test error of a node";
+	fixture.Semantics.InjectDiagnostic(nodeError);
+	fixture.Semantics.ReloadLibrary();
+	fixture.Frames(3);
+	fixture.CheckDrawingChangesNothing();
+
+	VisualScriptCanvasModel const& canvas = fixture.Model().GetCanvas();
+	std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+	std::optional<uint32_t> index;
+	for (uint32_t link = 0; link < links.size(); link++)
+	{
+		if (canvas.GetDocumentLink(link) == flow)
+		{
+			index = link;
+		}
+	}
+	REQUIRE(index.has_value());
+	REQUIRE(links[*index].HasFlag(VisualScriptLinkFlags::Error));
+	// The badge's place, as the renderer draws it: half the flattened wire's length.
+	VisualScriptView const& view = fixture.Model().GetView();
+	std::array<glm::vec2, 4> points = VisualScriptGeometry::GetLinkControlPoints(canvas, *index, fixture.Model().GetNodePreview());
+	for (glm::vec2& point : points)
+	{
+		point = view.ToScreen(point);
+	}
+	VisualScriptGeometry::WireFlattening const flattening =
+		VisualScriptGeometry::GetWireFlattening(view.GetDetailLevel(), ImGui::GetStyle().CurveTessellationTol);
+	std::vector<glm::vec2> polyline;
+	VisualScriptGeometry::FlattenWire(points, flattening.Tolerance, flattening.SegmentCap, polyline);
+	REQUIRE_FALSE(polyline.empty());
+	glm::vec2 const badge = VisualScriptGeometry::GetPolylinePoint(polyline, 0.5f);
+
+	// A click on the wire away from the badge opens nothing.
+	fixture.Click(VisualScriptGeometry::GetPolylinePoint(polyline, 0.15f));
+	fixture.Frames(1);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(fixture.Panel->GetPopupProblems().empty());
+
+	fixture.Click(badge);
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	ImGuiWindow const* canvasWindow = fixture.GetChild("##canvas");
+	CHECK(GImGui->OpenPopupStack.back().PopupId == ImHashStr("##problemsPopup", 0, canvasWindow->ID));
+	std::span<VisualScriptDiagnostic const> const problems = fixture.Panel->GetPopupProblems();
+	REQUIRE(problems.size() == 1);
+	CHECK(problems.front().Message == linkError.Message);
+	fixture.Click(fixture.EmptyPoint());
+	fixture.Frames(1);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(fixture.Panel->GetPopupProblems().empty());
+}
+
+TEST_CASE("VisualScriptEditor: the toolbar's problems pill says No problems without any, and Not analyzed without the scripting runtime")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptEditorState const state = fixture.Panel->GetState();
+	REQUIRE(state.Errors + state.Warnings == 0);
+	ImGuiStyle const& style = ImGui::GetStyle();
+	auto const width = [&style](std::string_view text)
+	{
+		return ImGui::CalcTextSize(text.data(), text.data() + text.size()).x + style.FramePadding.x * 2.0f;
+	};
+	CHECK(fixture.ItemRect(Item::Problems).GetSize().x == doctest::Approx(width(VisualScriptPanelTexts::NoProblems)));
+
+	fixture.Semantics.SetAvailable(false);
+	fixture.Frames(2);
+	REQUIRE_FALSE(fixture.Panel->GetState().Analyzed);
+	CHECK(fixture.ItemRect(Item::Problems).GetSize().x == doctest::Approx(width(VisualScriptPanelTexts::NotAnalyzed)));
+
+	// With problems: the counts.
+	fixture.Semantics.SetAvailable(true);
+	VisualScriptDiagnostic problem;
+	problem.Code = "InvalidValue";
+	problem.Severity = VisualScriptSeverity::Warning;
+	problem.Node = 3;
+	problem.Message = "a test warning";
+	fixture.Semantics.InjectDiagnostic(problem);
+	fixture.Semantics.ReloadLibrary();
+	fixture.Frames(3);
+	REQUIRE(fixture.Panel->GetState().Warnings == 1);
+	CHECK(fixture.ItemRect(Item::Problems).GetSize().x != doctest::Approx(width(VisualScriptPanelTexts::NoProblems)));
 }

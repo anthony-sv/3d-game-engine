@@ -226,6 +226,70 @@ namespace Strada::Testing
 		double Time = 0.0;
 	};
 
+	// The fixture's analysis of a document whose node 3 still has a renamed member's former type, Log.Write(string), as the
+	// scripting runtime reports it through a redirect to Log.Info(string), whose pin Text became Message: the canvas shows the new
+	// names while the document keeps the stored ones.
+	class RenamedLogSemantics final : public VisualScriptSemantics
+	{
+	public:
+		static constexpr std::string_view FormerType = "Call:Strada.Log.Write(string)";
+		static constexpr std::string_view Type = "Call:Strada.Log.Info(string)";
+
+		explicit RenamedLogSemantics(FixtureVisualScriptSemantics& fixture)
+			: m_Fixture(fixture)
+		{
+		}
+
+		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
+
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
+		{
+			// The document as the redirect reads it, analyzed; then node 3 reported as stored.
+			VisualScriptDocument read = document;
+			bool former = false;
+			for (VisualScriptNode& node : read.Graph.Nodes)
+			{
+				if (node.ID == 3 && node.Type == FormerType)
+				{
+					former = true;
+					node.Type = std::string(Type);
+					if (node.Inputs.contains("Text"))
+					{
+						node.Inputs["Message"] = node.Inputs["Text"];
+						node.Inputs.erase("Text");
+					}
+				}
+			}
+			for (VisualScriptLink& link : read.Graph.Links)
+			{
+				if (former && link.To.Node == 3 && link.To.Pin == "Text")
+				{
+					link.To.Pin = "Message";
+				}
+			}
+			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(read);
+			if (!analysis.IsOk() || !former)
+			{
+				return analysis;
+			}
+			Json source = analysis.GetValue().Source;
+			for (Json& node : source["Nodes"])
+			{
+				if (node["ID"] == 3)
+				{
+					node["Type"] = std::string(FormerType);
+					node["Resolved"] = "Redirect";
+					node["CanonicalType"] = std::string(Type);
+					node["PinRenames"] = Json::array({Json::object({{"Direction", "In"}, {"From", "Text"}, {"To", "Message"}})});
+				}
+			}
+			return VisualScriptAnalysis::Parse(source.dump());
+		}
+
+	private:
+		FixtureVisualScriptSemantics& m_Fixture;
+	};
+
 	// The edit session prefix every graph window shares ("VSED").
 	inline constexpr uint64_t SessionKey = 0x5653454400000000ull;
 

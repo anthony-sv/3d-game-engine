@@ -159,6 +159,12 @@ TEST_CASE("VisualScriptEditor: the editor's UI font has every character the canv
 	}
 	// The graph window's notices, cards, pills and hints, and the shortcut sheet's rows on both platforms.
 	texts.insert(texts.end(), VisualScriptPanelTexts::All.begin(), VisualScriptPanelTexts::All.end());
+	// The separators the panes put between the parts of their texts (spec §15.4: the strings the panes format): Details' middle
+	// dots and its mixed-values dash, the palette's and the drawer's chevron between a place's parts, My Script's function sign.
+	texts.emplace_back("Node 1 \xC2\xB7 Flow.Delay");
+	texts.emplace_back("\xE2\x80\x93");
+	texts.emplace_back("AddScore \xE2\x80\xBA Set Score");
+	texts.emplace_back("\xC6\x92");
 	for (bool const macOS : {false, true})
 	{
 		for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)

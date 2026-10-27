@@ -106,22 +106,6 @@ namespace Strada
 			return found->get<std::string>();
 		}
 
-		VisualScriptGraph const* FindGraph(VisualScriptDocument const& document, uint32_t function)
-		{
-			if (function == 0)
-			{
-				return &document.Graph;
-			}
-			for (VisualScriptFunction const& candidate : document.Functions)
-			{
-				if (candidate.ID == function)
-				{
-					return &candidate.Graph;
-				}
-			}
-			return nullptr;
-		}
-
 		VisualScriptFunction const* FindFunction(VisualScriptDocument const& document, uint32_t function)
 		{
 			for (VisualScriptFunction const& candidate : document.Functions)
@@ -169,6 +153,26 @@ namespace Strada
 		}
 
 		// The edits of one call: what the controller computes on a copy of the window's display document.
+		// The literal of an asset for an input of a type: none when the type takes no assets of its type.
+		std::optional<Json> EncodeAssetLiteral(AssetHandle asset, AssetType type, std::string_view typeId)
+		{
+			std::optional<VisualScriptExposableType> const exposable = FindVisualScriptExposableType(typeId);
+			if (!exposable || (exposable->AcceptedAssetType != AssetType::None && exposable->AcceptedAssetType != type))
+			{
+				return std::nullopt;
+			}
+			switch (exposable->FieldType)
+			{
+				case ScriptFieldType::Asset:
+					return EncodeVisualScriptLiteral(ScriptFieldValue::FromAsset(asset), typeId, {});
+				case ScriptFieldType::Prefab:
+					return type == AssetType::Prefab ? EncodeVisualScriptLiteral(ScriptFieldValue::FromPrefab(asset), typeId, {})
+					                                 : std::nullopt;
+				default:
+					return std::nullopt;
+			}
+		}
+
 		class Controller
 		{
 		public:
@@ -508,7 +512,7 @@ namespace Strada
 
 			Result<void> Resolve(VisualScriptNodeCommentEdit const& edit)
 			{
-				VisualScriptGraph const* graph = FindGraph(GetDisplay(), m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
 				VisualScriptNode const* node = graph != nullptr ? FindNode(*graph, edit.Node) : nullptr;
 				if (node == nullptr || node->Comment == edit.Text)
 				{
@@ -539,7 +543,7 @@ namespace Strada
 				{
 					return {};
 				}
-				VisualScriptGraph const* graph = FindGraph(GetDisplay(), m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
 				VisualScriptComment const* comment = graph != nullptr ? FindComment(*graph, edit.Comment) : nullptr;
 				if (comment == nullptr)
 				{
@@ -630,7 +634,7 @@ namespace Strada
 					return Error{added.GetError()};
 				}
 				VisualScriptNodeTemplate const* found = m_Context.Library != nullptr ? m_Context.Library->FindNode(edit.Type) : nullptr;
-				VisualScriptGraph const* graph = FindGraph(document, m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(document, m_Function);
 				VisualScriptNode const* node = graph != nullptr ? FindNode(*graph, added.GetValue()) : nullptr;
 				std::string const title = found != nullptr  ? found->Title
 				                          : node != nullptr ? DeriveVisualScriptNodeTitle(*node, document)
@@ -674,7 +678,7 @@ namespace Strada
 					case VisualScriptDocumentState::ReadOnly:
 						return std::string(VisualScriptRefusals::ReadOnlyMemory);
 					case VisualScriptDocumentState::ReadOnlyFile:
-						return fmt::format("{} is read-only on disk: edits cannot be saved.", GetFileName());
+						return MakeVisualScriptReadOnlyFileNote(GetFileName());
 					case VisualScriptDocumentState::Missing:
 						return fmt::format("The file is missing: {}.", m_Model.GetState().Path);
 					case VisualScriptDocumentState::Unloadable:
@@ -776,7 +780,7 @@ namespace Strada
 
 			VisualScriptNode const* FindDisplayNode(uint32_t node) const
 			{
-				VisualScriptGraph const* graph = FindGraph(GetDisplay(), m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
 				return graph != nullptr ? FindNode(*graph, node) : nullptr;
 			}
 
@@ -877,7 +881,7 @@ namespace Strada
 					}
 					return rows;
 				}
-				VisualScriptGraph const* graph = FindGraph(document, m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(document, m_Function);
 				VisualScriptNode const* added = graph != nullptr ? FindNode(*graph, node) : nullptr;
 				VisualScriptNodeTemplate const* found = library != nullptr && added != nullptr ? library->FindNode(added->Type) : nullptr;
 				if (found == nullptr)
@@ -915,7 +919,7 @@ namespace Strada
 			// The selection's nodes and comments of the shown graph, in selection order.
 			void SplitSelection(std::span<uint32_t const> selection, std::vector<uint32_t>& nodes, std::vector<uint32_t>& comments) const
 			{
-				VisualScriptGraph const* graph = FindGraph(GetDisplay(), m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
 				if (graph == nullptr)
 				{
 					return;
@@ -1033,7 +1037,9 @@ namespace Strada
 					// Onto an input whose type takes assets of its type: the input's literal.
 					VisualScriptPinVisual const* pin = FindPinVisual(intent.Pin->Node, intent.Pin->Pin, intent.Direction);
 					std::optional<Json> const literal =
-						pin != nullptr && intent.Direction == Direction::In ? EncodeAsset(asset, type, pin->Type) : std::nullopt;
+						pin != nullptr && CanDropOnVisualScriptPin(VisualScriptDropKind::Asset, intent.Payload, *pin)
+							? EncodeAssetLiteral(asset, type, pin->Type)
+							: std::nullopt;
 					std::string const label = GetPinLabel(intent.Pin->Node, intent.Pin->Pin, Direction::In);
 					if (!literal)
 					{
@@ -1059,7 +1065,7 @@ namespace Strada
 					{
 						continue;
 					}
-					std::optional<Json> const literal = EncodeAsset(asset, type, candidate.ID);
+					std::optional<Json> const literal = EncodeAssetLiteral(asset, type, candidate.ID);
 					if (!literal)
 					{
 						continue;
@@ -1075,26 +1081,6 @@ namespace Strada
 				}
 				m_Result.Notes.push_back(fmt::format("Visual scripts have no values of {} assets", AssetTypeToString(type)));
 				return {};
-			}
-
-			// The literal of a type that refers to the asset; nothing when the type takes no such asset.
-			static std::optional<Json> EncodeAsset(AssetHandle asset, AssetType type, std::string_view typeId)
-			{
-				std::optional<VisualScriptExposableType> const exposable = FindVisualScriptExposableType(typeId);
-				if (!exposable || (exposable->AcceptedAssetType != AssetType::None && exposable->AcceptedAssetType != type))
-				{
-					return std::nullopt;
-				}
-				switch (exposable->FieldType)
-				{
-					case ScriptFieldType::Asset:
-						return EncodeVisualScriptLiteral(ScriptFieldValue::FromAsset(asset), typeId, {});
-					case ScriptFieldType::Prefab:
-						return type == AssetType::Prefab ? EncodeVisualScriptLiteral(ScriptFieldValue::FromPrefab(asset), typeId, {})
-						                                 : std::nullopt;
-					default:
-						return std::nullopt;
-				}
 			}
 
 			Result<void> DropEntities(VisualScriptDropIntent const& intent)
@@ -1131,7 +1117,7 @@ namespace Strada
 				if (intent.Pin)
 				{
 					VisualScriptPinVisual const* pin = FindPinVisual(intent.Pin->Node, intent.Pin->Pin, intent.Direction);
-					if (pin == nullptr || intent.Direction != Direction::In || pin->Type != "Strada.Entity")
+					if (pin == nullptr || !CanDropOnVisualScriptPin(VisualScriptDropKind::Entities, intent.Payload, *pin))
 					{
 						m_Result.Notes.emplace_back("Entities are dropped on Entity inputs or on the canvas");
 						return {};
@@ -1319,7 +1305,7 @@ namespace Strada
 				if (intent.Pin)
 				{
 					VisualScriptPinVisual const* pin = FindPinVisual(intent.Pin->Node, intent.Pin->Pin, intent.Direction);
-					if (pin == nullptr || pin->Type == VisualScriptExecType)
+					if (pin == nullptr || !CanDropOnVisualScriptPin(VisualScriptDropKind::Element, intent.Payload, *pin))
 					{
 						m_Result.Notes.push_back(fmt::format("{} connects to data pins", *name));
 						return {};
@@ -1357,8 +1343,9 @@ namespace Strada
 					}
 					if (!get)
 					{
-						// The Set runs after the node whose value it stores, when that node's flow goes nowhere yet.
-						if (std::optional<std::string> const then = FindFreeExecOutput(target->Node))
+						// The Set runs after the node whose value it stores, when that node's flow goes nowhere yet (the palette's
+						// rule, spec §11.2 rule 7).
+						if (std::optional<std::string> const then = FindFreeFirstExecOutput(target->Node))
 						{
 							VisualScriptLink const flow{{target->Node, *then}, {node, "Execute"}};
 							if (Result<uint32_t> const linked = Editing::Connect(document, m_Function, flow, pins); !linked)
@@ -1371,8 +1358,9 @@ namespace Strada
 				return Commit(std::move(document), fmt::format("Add {} {}", get ? "Get" : "Set", *name), 0, {node});
 			}
 
-			// The stored name of a node's first exec output that has no link; nothing when every one is linked.
-			std::optional<std::string> FindFreeExecOutput(uint32_t node) const
+			// The stored name of a node's first exec output (in pin order, orphans left out) when it has no link; nothing when it
+			// has one or the node has none. A later output is never taken: Tween's Completed is not where its Update goes.
+			std::optional<std::string> FindFreeFirstExecOutput(uint32_t node) const
 			{
 				VisualScriptNodeVisual const* visual = FindVisual(node);
 				if (visual == nullptr)
@@ -1381,11 +1369,15 @@ namespace Strada
 				}
 				for (VisualScriptPinVisual const& pin : m_Canvas.GetPins(*visual))
 				{
-					if (pin.Direction == Direction::Out && pin.Type == VisualScriptExecType && !pin.HasFlag(VisualScriptPinFlags::Linked) &&
-					    !pin.HasFlag(VisualScriptPinFlags::Orphan))
+					if (pin.Direction != Direction::Out || pin.Type != VisualScriptExecType || pin.HasFlag(VisualScriptPinFlags::Orphan))
 					{
-						return ToStored(node, m_Canvas.GetText(pin.Name), Direction::Out);
+						continue;
 					}
+					if (pin.HasFlag(VisualScriptPinFlags::Linked))
+					{
+						return std::nullopt;
+					}
+					return ToStored(node, m_Canvas.GetText(pin.Name), Direction::Out);
 				}
 				return std::nullopt;
 			}
@@ -1518,7 +1510,7 @@ namespace Strada
 					return {};
 				}
 				uint32_t const primary = selection.front();
-				VisualScriptGraph const* graph = FindGraph(GetDisplay(), m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
 				if (graph == nullptr)
 				{
 					return {};
@@ -1670,7 +1662,7 @@ namespace Strada
 				{
 					return {};
 				}
-				VisualScriptGraph const* graph = FindGraph(GetDisplay(), m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
 				if (graph == nullptr || graph->Nodes.empty())
 				{
 					return {};
@@ -1799,7 +1791,7 @@ namespace Strada
 			std::vector<VisualScriptLink> GetLinksOf(std::span<uint32_t const> nodes) const
 			{
 				std::vector<VisualScriptLink> links;
-				VisualScriptGraph const* graph = FindGraph(GetDisplay(), m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
 				if (graph == nullptr)
 				{
 					return links;
@@ -2060,7 +2052,7 @@ namespace Strada
 			std::vector<VisualScriptLink> GetPinLinks(VisualScriptPinEdit const& edit) const
 			{
 				std::vector<VisualScriptLink> links;
-				VisualScriptGraph const* graph = FindGraph(GetDisplay(), m_Function);
+				VisualScriptGraph const* graph = FindVisualScriptGraph(GetDisplay(), m_Function);
 				if (graph == nullptr)
 				{
 					return links;
@@ -2165,6 +2157,12 @@ namespace Strada
 					return {};
 				}
 				std::string const label = GetPinLabel(edit.Pin.Node, edit.Pin.Pin, edit.Direction);
+				if (VisualScriptPinVisual const* visual = FindPinVisual(edit.Pin.Node, edit.Pin.Pin, edit.Direction);
+				    visual != nullptr && visual->Shape == VisualScriptPinShape::Array)
+				{
+					m_Result.Notes.emplace_back(VisualScriptRefusals::PromoteArray);
+					return {};
+				}
 				VisualScriptPinReference const pin{edit.Pin.Node, ToStored(edit.Pin.Node, edit.Pin.Pin, edit.Direction)};
 				VisualScriptDocument document = GetDisplay();
 				if (edit.Action == VisualScriptPinAction::PromoteToVariable)
@@ -2435,6 +2433,36 @@ namespace Strada
 			}
 			return items;
 		}
+	}
+
+	std::string MakeVisualScriptReadOnlyFileNote(std::string_view fileName)
+	{
+		return fmt::format("{} is read-only on disk: edits cannot be saved.", fileName);
+	}
+
+	bool CanDropOnVisualScriptPin(VisualScriptDropKind kind, uint64_t payload, VisualScriptPinVisual const& pin)
+	{
+		switch (kind)
+		{
+			case VisualScriptDropKind::Asset:
+			{
+				AssetHandle const asset(payload);
+				AssetType const type = AssetManager::GetAssetType(asset);
+				return pin.Direction == VisualScriptPinDirection::In && type != AssetType::None &&
+				       EncodeAssetLiteral(asset, type, pin.Type).has_value();
+			}
+			case VisualScriptDropKind::Entities:
+				return pin.Direction == VisualScriptPinDirection::In && pin.Type == "Strada.Entity";
+			case VisualScriptDropKind::Element:
+			{
+				// Variables and locals link to data pins; functions and custom events are placed beside any pin.
+				std::optional<std::pair<VisualScriptElementKind, uint32_t>> const element = UnpackVisualScriptElement(payload);
+				bool const variable =
+					element && (element->first == VisualScriptElementKind::Variable || element->first == VisualScriptElementKind::Local);
+				return !variable || pin.Type != VisualScriptExecType;
+			}
+		}
+		return false;
 	}
 
 	Result<VisualScriptControllerResult> ResolveVisualScriptIntent(VisualScriptEditorIntent const& intent,

@@ -91,7 +91,7 @@ namespace Strada
 		constexpr float PulseDotRadius = 7.0f;
 
 		// The overlay (pixels × UI scale).
-		constexpr float MarqueeFillAlpha = 0.10f;
+		constexpr float MarqueeFillAlpha = 0.12f;
 		constexpr float MarqueeOutlineAlpha = 0.80f;
 		constexpr float MinimapBodyAlpha = 0.92f;
 		constexpr float MinimapCommentAlpha = 0.50f;
@@ -597,6 +597,14 @@ namespace Strada
 		m_GlideStart = time;
 	}
 
+	void VisualScriptCanvasRenderer::StartPulses(std::span<VisualScriptLink const> links, double time)
+	{
+		for (VisualScriptLink const& link : links)
+		{
+			m_Pulses.push_back({link, time});
+		}
+	}
+
 	void VisualScriptCanvasRenderer::DrawNodePreview(VisualScriptCanvasModel const& canvas, uint32_t node, VisualScriptView const& view,
 	                                                 VisualScriptCanvasDrawInput const& input)
 	{
@@ -714,6 +722,7 @@ namespace Strada
 			}
 			m_ActivePulses.push_back(active);
 		}
+		m_Stats.Pulses = static_cast<uint32_t>(m_ActivePulses.size());
 	}
 
 	glm::vec2 VisualScriptCanvasRenderer::GetNodeOffset(Frame const& frame, uint32_t index) const
@@ -967,8 +976,8 @@ namespace Strada
 		m_TextSizeCount++;
 	}
 
-	void VisualScriptCanvasRenderer::DrawText(Frame& frame, float pixels, glm::vec2 position, uint32_t color, std::string_view text,
-	                                          bool ellipsis)
+	void VisualScriptCanvasRenderer::DrawLadderText(Frame& frame, float pixels, glm::vec2 position, uint32_t color, std::string_view text,
+	                                                bool ellipsis)
 	{
 		if (!(pixels > 0.0f) || (text.empty() && !ellipsis) || (color & IM_COL32_A_MASK) == 0)
 		{
@@ -1090,8 +1099,8 @@ namespace Strada
 			glm::vec2 const position(screen.Min.x + inset, std::floor((barScreen.Min.y + barScreen.Max.y - titlePixels) * 0.5f));
 			if (layoutWidth <= available)
 			{
-				DrawText(frame, titlePixels, position, comment.BarTextColor, frame.Canvas.GetVisibleText(comment.Title),
-				         comment.Title.IsEllipsized());
+				DrawLadderText(frame, titlePixels, position, comment.BarTextColor, frame.Canvas.GetVisibleText(comment.Title),
+				               comment.Title.IsEllipsized());
 				item.Elements |= Elements::Title;
 			}
 			else
@@ -1106,7 +1115,7 @@ namespace Strada
 				size_t const visible = remaining != nullptr ? static_cast<size_t>(remaining - title.data()) : 0;
 				if (visible > 0)
 				{
-					DrawText(frame, titlePixels, position, comment.BarTextColor, title.substr(0, visible), true);
+					DrawLadderText(frame, titlePixels, position, comment.BarTextColor, title.substr(0, visible), true);
 					item.Elements |= Elements::Title;
 				}
 			}
@@ -1122,7 +1131,7 @@ namespace Strada
 			uint32_t const lines = CountLines(body);
 			for (uint32_t line = 0; line < lines && y + lineHeight <= screen.Max.y; line++)
 			{
-				DrawText(frame, pixels, glm::vec2(x, y), frame.Theme.Text, GetLine(body, line));
+				DrawLadderText(frame, pixels, glm::vec2(x, y), frame.Theme.Text, GetLine(body, line));
 				y += lineHeight;
 			}
 			item.Elements |= Elements::BodyText;
@@ -1727,8 +1736,8 @@ namespace Strada
 			if (glyphs >= static_cast<size_t>(Metrics::OverviewTitleMinGlyphs) || (!ellipsis && glyphs > 0))
 			{
 				glm::vec2 const center = state.Screen.GetCenter();
-				DrawText(frame, pixels, glm::floor(glm::vec2(center.x - width * 0.5f, center.y - pixels * 0.5f)), frame.Theme.Text, shown,
-				         ellipsis);
+				DrawLadderText(frame, pixels, glm::floor(glm::vec2(center.x - width * 0.5f, center.y - pixels * 0.5f)), frame.Theme.Text,
+				               shown, ellipsis);
 				item.Elements |= Elements::Title;
 			}
 		}
@@ -1816,8 +1825,8 @@ namespace Strada
 							->CalcTextSizeA(pixels, FLT_MAX, 0.0f, VisualScriptCanvasTexts::FunctionGlyph.data(),
 					                        VisualScriptCanvasTexts::FunctionGlyph.data() + VisualScriptCanvasTexts::FunctionGlyph.size())
 							.x;
-					DrawText(frame, pixels, glm::floor(center - glm::vec2(width, pixels) * 0.5f), theme.Text,
-					         VisualScriptCanvasTexts::FunctionGlyph);
+					DrawLadderText(frame, pixels, glm::floor(center - glm::vec2(width, pixels) * 0.5f), theme.Text,
+					               VisualScriptCanvasTexts::FunctionGlyph);
 				}
 				item.Elements |= Elements::KindGlyph;
 			}
@@ -1838,8 +1847,8 @@ namespace Strada
 		{
 			float const pixels = Metrics::LadderFloor(Metrics::TitleTextSize * k);
 			VisualScriptRect const title = frame.ToScreen(VisualScriptGeometry::GetTitleRect(node, state.Offset));
-			DrawText(frame, pixels, glm::floor(glm::vec2(title.Min.x, title.Min.y + (Metrics::TitleTextSize * k - pixels) * 0.5f)),
-			         theme.Text, frame.Canvas.GetVisibleText(node.Title), node.Title.IsEllipsized());
+			DrawLadderText(frame, pixels, glm::floor(glm::vec2(title.Min.x, title.Min.y + (Metrics::TitleTextSize * k - pixels) * 0.5f)),
+			               theme.Text, frame.Canvas.GetVisibleText(node.Title), node.Title.IsEllipsized());
 			item.Elements |= Elements::Title;
 		}
 		if (frame.Level == VisualScriptDetailLevel::Detail && node.Subtitle.Length > 0 &&
@@ -1848,8 +1857,9 @@ namespace Strada
 			float const pixels = Metrics::LadderFloor(Metrics::SubtitleTextSize * k);
 			VisualScriptRect const subtitle = frame.ToScreen(VisualScriptGeometry::GetSubtitleRect(node, state.Offset));
 			uint32_t const color = ComputeVisualScriptNodeColors(node.HeaderColor, theme).Subtitle;
-			DrawText(frame, pixels, glm::floor(glm::vec2(subtitle.Min.x, subtitle.Min.y + (Metrics::SubtitleTextSize * k - pixels) * 0.5f)),
-			         color, frame.Canvas.GetVisibleText(node.Subtitle), node.Subtitle.IsEllipsized());
+			DrawLadderText(frame, pixels,
+			               glm::floor(glm::vec2(subtitle.Min.x, subtitle.Min.y + (Metrics::SubtitleTextSize * k - pixels) * 0.5f)), color,
+			               frame.Canvas.GetVisibleText(node.Subtitle), node.Subtitle.IsEllipsized());
 			item.Elements |= Elements::Subtitle;
 		}
 		if (collapsed)
@@ -1908,8 +1918,8 @@ namespace Strada
 		{
 			float const pixels = Metrics::LadderFloor(sizeCu * k);
 			VisualScriptRect const title = frame.ToScreen(VisualScriptGeometry::GetTitleRect(node, state.Offset));
-			DrawText(frame, pixels, glm::floor(glm::vec2(title.Min.x, title.Min.y + (sizeCu * k - pixels) * 0.5f)), theme.Text,
-			         frame.Canvas.GetVisibleText(node.Title), node.Title.IsEllipsized());
+			DrawLadderText(frame, pixels, glm::floor(glm::vec2(title.Min.x, title.Min.y + (sizeCu * k - pixels) * 0.5f)), theme.Text,
+			               frame.Canvas.GetVisibleText(node.Title), node.Title.IsEllipsized());
 			item.Elements |= Elements::Title;
 		}
 		DrawPins(frame, node, state, item);
@@ -1996,7 +2006,7 @@ namespace Strada
 			}
 			std::string_view const text(digits, static_cast<size_t>(length));
 			float const width = frame.Font->CalcTextSizeA(pixels, FLT_MAX, 0.0f, text.data(), text.data() + text.size()).x;
-			DrawText(frame, pixels, glm::floor(center - glm::vec2(width, pixels) * 0.5f), color, text);
+			DrawLadderText(frame, pixels, glm::floor(center - glm::vec2(width, pixels) * 0.5f), color, text);
 		};
 		if (std::optional<glm::vec2> const error = VisualScriptGeometry::GetErrorBadgeCenter(node, state.Offset);
 		    error && node.ErrorCount > 0)
@@ -2070,7 +2080,7 @@ namespace Strada
 		if (pixels > 0.0f)
 		{
 			drawList->AddRectFilled(pillMin, pillMax, theme.Body, pillHalfHeight);
-			DrawText(frame, pixels, glm::floor(glm::vec2(center.x - labelWidth * 0.5f, center.y - pixels * 0.5f)), theme.Text, label);
+			DrawLadderText(frame, pixels, glm::floor(glm::vec2(center.x - labelWidth * 0.5f, center.y - pixels * 0.5f)), theme.Text, label);
 			item.Elements |= Elements::StripLabel;
 		}
 	}
@@ -2103,7 +2113,7 @@ namespace Strada
 			uint32_t const lines = CountLines(text);
 			for (uint32_t line = 0; line < lines; line++)
 			{
-				DrawText(frame, pixels, glm::floor(glm::vec2(x, y)), frame.Theme.Text, GetLine(text, line));
+				DrawLadderText(frame, pixels, glm::floor(glm::vec2(x, y)), frame.Theme.Text, GetLine(text, line));
 				y += lineHeight;
 			}
 		}
@@ -2419,8 +2429,9 @@ namespace Strada
 					color = VisualScriptWarningColor;
 				}
 				float const pixels = Metrics::LadderFloor(Metrics::PinLabelTextSize * k);
-				DrawText(frame, pixels, glm::floor(glm::vec2(label.Min.x, label.Min.y + (Metrics::PinLabelTextSize * k - pixels) * 0.5f)),
-				         MultiplyVisualScriptAlpha(color, record.Alpha), frame.Canvas.GetVisibleText(pin.Label), pin.Label.IsEllipsized());
+				DrawLadderText(
+					frame, pixels, glm::floor(glm::vec2(label.Min.x, label.Min.y + (Metrics::PinLabelTextSize * k - pixels) * 0.5f)),
+					MultiplyVisualScriptAlpha(color, record.Alpha), frame.Canvas.GetVisibleText(pin.Label), pin.Label.IsEllipsized());
 				item.Elements |= Elements::PinLabels;
 			}
 		}
@@ -2482,8 +2493,8 @@ namespace Strada
 				return;
 			case VisualScriptChipKind::Placeholder:
 				// "Self" or "None": no frame.
-				DrawText(frame, pixels, glm::vec2(chip.Min.x, textTop), MultiplyVisualScriptAlpha(theme.TextDisabled, alpha), text,
-				         ellipsis);
+				DrawLadderText(frame, pixels, glm::vec2(chip.Min.x, textTop), MultiplyVisualScriptAlpha(theme.TextDisabled, alpha), text,
+				               ellipsis);
 				break;
 			case VisualScriptChipKind::Check:
 			{
@@ -2501,7 +2512,7 @@ namespace Strada
 				}
 				else
 				{
-					DrawText(frame, pixels, glm::vec2(chip.Min.x, textTop), textColor, text);
+					DrawLadderText(frame, pixels, glm::vec2(chip.Min.x, textTop), textColor, text);
 				}
 				break;
 			}
@@ -2517,11 +2528,12 @@ namespace Strada
 				{
 					drawList->AddRectFilled(ToIm(chip.Min), ToIm(chip.Max), frameColor, rounding);
 					float const width = textWidth(text) + (ellipsis ? textWidth(VisualScriptEllipsis) : 0.0f);
-					DrawText(frame, pixels, glm::floor(glm::vec2(chip.GetCenter().x - width * 0.5f, textTop)), textColor, text, ellipsis);
+					DrawLadderText(frame, pixels, glm::floor(glm::vec2(chip.GetCenter().x - width * 0.5f, textTop)), textColor, text,
+					               ellipsis);
 				}
 				else
 				{
-					DrawText(frame, pixels, glm::vec2(chip.Min.x, textTop), textColor, text, ellipsis);
+					DrawLadderText(frame, pixels, glm::vec2(chip.Min.x, textTop), textColor, text, ellipsis);
 				}
 				break;
 			}
@@ -2543,7 +2555,7 @@ namespace Strada
 						                        rounding, ImDrawFlags_RoundCornersLeft);
 					}
 					float const width = textWidth(value);
-					DrawText(frame, pixels, glm::floor(glm::vec2(cellRect.GetCenter().x - width * 0.5f, textTop)), textColor, value);
+					DrawLadderText(frame, pixels, glm::floor(glm::vec2(cellRect.GetCenter().x - width * 0.5f, textTop)), textColor, value);
 				}
 				break;
 			}
@@ -2565,7 +2577,7 @@ namespace Strada
 						                   pixels / fontSize);
 					}
 				}
-				DrawText(frame, pixels, glm::vec2(chip.Min.x + (frames ? padding : 0.0f), textTop), textColor, text, ellipsis);
+				DrawLadderText(frame, pixels, glm::vec2(chip.Min.x + (frames ? padding : 0.0f), textTop), textColor, text, ellipsis);
 				break;
 			}
 			case VisualScriptChipKind::Text:
@@ -2578,7 +2590,7 @@ namespace Strada
 				{
 					drawList->AddRectFilled(ToIm(chip.Min), ToIm(chip.Max), frameColor, rounding);
 				}
-				DrawText(frame, pixels, glm::vec2(chip.Min.x + (frames ? padding : 0.0f), textTop), textColor, text, ellipsis);
+				DrawLadderText(frame, pixels, glm::vec2(chip.Min.x + (frames ? padding : 0.0f), textTop), textColor, text, ellipsis);
 				break;
 			}
 		}
@@ -2831,6 +2843,16 @@ namespace Strada
 		VisualScriptCanvasModel const& canvas = frame.Canvas;
 		VisualScriptNodeVisual const& node = frame.Nodes[nodeIndex];
 		VisualScriptPinVisual const& pin = frame.Pins[pinIndex];
+		// Built once per pin rested on, layout, analysis and library: the pill shows over many frames (spec §7.12).
+		uint64_t key = HashValue(m_HoverKey, HashSeed);
+		key = HashValue(frame.Model->GetCanvasRevision(), key);
+		key = HashValue(frame.Model->GetAnalysisCount(), key);
+		key = HashValue(static_cast<uint64_t>(reinterpret_cast<uintptr_t>(frame.Input.Library)), key) | 1u;
+		if (key == m_PinTextKey)
+		{
+			return;
+		}
+		m_PinTextKey = key;
 		std::string_view const name = canvas.GetText(pin.Name);
 		std::string_view const label = pin.Label.Length > 0 ? canvas.GetText(pin.Label) : name;
 		m_PillText.assign(label);
@@ -2940,6 +2962,7 @@ namespace Strada
 				m_PillText.append(")");
 			}
 		};
+		m_PinTextKey = 0;
 		m_PillText.clear();
 		appendEnd(from);
 		m_PillText.append(VisualScriptCanvasTexts::Arrow);
@@ -3005,6 +3028,7 @@ namespace Strada
 		if (wiring && gesture.GhostInvalid && gesture.WireSource != nullptr && hover.Kind == VisualScriptHitKind::Pin && frame.HoveredPin)
 		{
 			// Why the wire cannot connect, naming both types, at once.
+			m_PinTextKey = 0;
 			m_PillText.assign(VisualScriptCanvasTexts::Cannot);
 			std::string_view sourceType = VisualScriptWildcardType;
 			if (std::optional<uint32_t> const node = frame.Canvas.FindNode(gesture.WireSource->Node))
@@ -3057,6 +3081,7 @@ namespace Strada
 		else if (hover.Kind == VisualScriptHitKind::Badge && frame.HoveredNode && delayed)
 		{
 			// The node's problems, one per line.
+			m_PinTextKey = 0;
 			m_PillText.clear();
 			if (VisualScriptAnalysis const* analysis = frame.Model->GetAnalysis())
 			{

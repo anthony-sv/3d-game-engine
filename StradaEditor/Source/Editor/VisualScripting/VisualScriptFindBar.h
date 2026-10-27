@@ -26,8 +26,9 @@ namespace Strada
 		static constexpr float WidthInFontSizes = 24.0f;
 		[[nodiscard]] static float GetWidth(float canvasWidth, float fontSize);
 
-		// Opens the bar with its field's keyboard; a text not empty replaces the one typed before.
-		void Open(std::string text = {});
+		// Opens the bar with its field's keyboard; a text not empty replaces the one typed before. With goToFirst, its next Draw
+		// goes to the first match (an open request's find, spec §13.2), as Enter would from no match.
+		void Open(std::string text = {}, bool goToFirst = false);
 		// Closes the bar; the selection it made stays.
 		void Close();
 		bool IsOpen() const { return m_Open; }
@@ -56,6 +57,8 @@ namespace Strada
 		// The field, and the window the bar is drawn in, take the keyboard at the next Draw.
 		bool m_Focus = false;
 		bool m_FocusWindow = false;
+		// The next Draw goes to the first match.
+		bool m_GoToFirst = false;
 		std::string m_Text;
 		bool m_AllGraphs = true;
 		std::vector<VisualScriptFindResult> m_Matches;

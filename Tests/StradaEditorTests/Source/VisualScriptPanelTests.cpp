@@ -28,6 +28,7 @@
 #include <cstring>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -80,6 +81,7 @@ TEST_CASE("VisualScriptEditor: a node drag is one step, drawn moved in its relea
 	std::string const bytes = fixture.ReadFile();
 	size_t const undo = fixture.GetUndoCount();
 	glm::vec2 const before = *fixture.FindNode(2)->Position;
+	REQUIRE_FALSE(fixture.Context.IsDirty());
 
 	// The header of Delay, dragged by a press, four moves and a release.
 	glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), 2, glm::vec2(0.5f, 0.06f));
@@ -104,10 +106,14 @@ TEST_CASE("VisualScriptEditor: a node drag is one step, drawn moved in its relea
 	CHECK(fixture.Model().GetCanvas().GetNodes()[*index].Position == after);
 	CHECK(fixture.Model().GetGesture().Kind == VisualScriptGesture::Idle);
 
+	// A visual script's step never marks the scene modified.
+	CHECK_FALSE(fixture.Context.IsDirty());
+
 	REQUIRE(fixture.Operations.Undo().IsOk());
 	fixture.Frames(2);
 	CHECK(fixture.ReadFile() == bytes);
 	CHECK(*fixture.FindNode(2)->Position == before);
+	CHECK_FALSE(fixture.Context.IsDirty());
 }
 
 TEST_CASE("VisualScriptEditor: the first edit writes the positions of the nodes that had none, in the same step")
@@ -393,7 +399,7 @@ TEST_CASE("VisualScriptEditor: H and M collapse and disable the selected nodes, 
 
 	// "Add Node Comment..." opens the in-place editor, which has the keyboard: H types, and Escape adds nothing.
 	std::string const bytes = fixture.ReadFile();
-	fixture.Panel->RequestAction(Action::AddNodeComment);
+	REQUIRE(fixture.Panel->RequestAction(Action::AddNodeComment));
 	fixture.Frames(3);
 	REQUIRE(ImGui::GetIO().WantTextInput);
 	CHECK(fixture.Panel->HasPendingWidgetEdit() == false);
@@ -416,7 +422,7 @@ TEST_CASE("VisualScriptEditor: a node comment typed in place is one step when it
 	fixture.CheckDrawingChangesNothing();
 	fixture.Click(Testing::CanvasPoint(fixture.Model(), 2, glm::vec2(0.5f, 0.06f)));
 	size_t const undo = fixture.GetUndoCount();
-	fixture.Panel->RequestAction(Action::AddNodeComment);
+	REQUIRE(fixture.Panel->RequestAction(Action::AddNodeComment));
 	fixture.Frames(3);
 	fixture.Gui.Type("Wait first");
 	fixture.Frames(1);
@@ -631,9 +637,12 @@ TEST_CASE("VisualScriptEditor: a visual script without a file is shown read only
 	AssetHandle const memory = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeDocument()), "Generated");
 	fixture.Panel.reset();
 	fixture.Panel.emplace(memory, fixture.Operations, fixture.Semantics, fixture.Settings, fixture.Session, fixture.Services);
-	fixture.Frames(3);
-	REQUIRE(fixture.Model().IsReadOnly());
+	// The panel invariant, for an asset without a file: three frames of drawing change no undo count and no asset version.
 	size_t const undo = fixture.GetUndoCount();
+	fixture.Frames(3);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(AssetManager::GetAsset<VisualScriptAsset>(memory)->GetVersion() == 0);
+	REQUIRE(fixture.Model().IsReadOnly());
 
 	glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), 3, glm::vec2(0.5f, 0.06f));
 	fixture.Gui.DragPath(ToImVec2(from), ToImVec2(from + glm::vec2(64.0f, 64.0f)), fixture.Drawer());
@@ -750,6 +759,8 @@ TEST_CASE("VisualScriptEditor: a wire released on empty canvas opens the palette
 									 });
 	CHECK(linked != document.Graph.Links.end());
 	CHECK_FALSE(fixture.Panel->GetState().PaletteOpen);
+	// The new link pulses, although the palette committed after the canvas was drawn (spec §7.11).
+	CHECK(fixture.Panel->GetRenderer().GetStats().Pulses == 1);
 	// The new node is selected.
 	REQUIRE(fixture.Model().GetSelection().size() == 1);
 	CHECK(fixture.Model().GetSelection().front() == added);
@@ -1015,4 +1026,565 @@ TEST_CASE("VisualScriptEditor: the Arrange button arranges the selection of two 
 	REQUIRE(fixture.GetUndoCount() == undo + 1);
 	CHECK(*fixture.FindNode(2)->Position == delay);
 	CHECK(*fixture.FindNode(6)->Position == add);
+}
+
+namespace
+{
+	// MakeVariableDocument with a Set of Speed (5), whose header a double-click opens.
+	VisualScriptDocument MakeSetterDocument()
+	{
+		VisualScriptDocument document = MakeVariableDocument();
+		document.Graph.Nodes.push_back(MakeNode(5, "Variable.Set", glm::vec2(1100.0f, 320.0f), Json::object({{"Variable", 100}})));
+		return document;
+	}
+
+	bool IsNavPopup(ImGuiWindowFlags flags)
+	{
+		return GImGui->NavWindow != nullptr && (GImGui->NavWindow->Flags & flags) != 0;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: while a menu or My Script's delete modal of the window has the keyboard, Delete and Ctrl+D reach neither "
+          "the selected entities nor the graph")
+{
+	PanelFixture fixture(MakeVariableDocument());
+	fixture.CheckDrawingChangesNothing();
+	EntityCreateInfo info;
+	info.Name = "Hero";
+	Result<UUID> const hero = fixture.Operations.CreateEntity(info);
+	REQUIRE(hero.IsOk());
+	std::vector<UUID> const heroSelection = {hero.GetValue()};
+	REQUIRE(fixture.Operations.Select(heroSelection).IsOk());
+	// The editor's global Delete and Ctrl+D, which delete and duplicate the selected entities.
+	bool global = false;
+	fixture.Probe = [&global]
+	{
+		bool const deleted = ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteGlobal);
+		bool const duplicated = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, ImGuiInputFlags_RouteGlobal);
+		global = global || deleted || duplicated;
+	};
+	auto const pressKeys = [&]
+	{
+		size_t const undo = fixture.GetUndoCount();
+		global = false;
+		fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+		fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_D, fixture.Drawer());
+		fixture.Frames(1);
+		CHECK_FALSE(global);
+		CHECK(fixture.GetUndoCount() == undo);
+		CHECK(fixture.Context.GetScene().HasEntity(hero.GetValue()));
+		CHECK(fixture.Context.GetSelection().Contains(hero.GetValue()));
+	};
+
+	// The node menu, which shows Delete as its item's key.
+	fixture.Click(Testing::CanvasPoint(fixture.Model(), 6, glm::vec2(0.5f, 0.5f)), ImGuiMouseButton_Right);
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	REQUIRE(IsNavPopup(ImGuiWindowFlags_Popup));
+	pressKeys();
+	CHECK(fixture.FindNode(6) != nullptr);
+	fixture.Click(fixture.EmptyPoint());
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 0);
+
+	// My Script's modal asking whether Speed goes with its Get.
+	fixture.Click(RowPoint(fixture, {VisualScriptElementKind::Variable, 100}));
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Sidebar);
+	REQUIRE(fixture.Panel->GetPaneShared().Element.has_value());
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.Panel->GetSidebar().GetPendingDelete().has_value());
+	REQUIRE(IsNavPopup(ImGuiWindowFlags_Modal));
+	pressKeys();
+	CHECK(fixture.GetDocument().Variables.size() == 1);
+}
+
+TEST_CASE("VisualScriptEditor: after a find shows a variable, Delete on the canvas deletes that variable through its modal")
+{
+	PanelFixture fixture(MakeVariableDocument());
+	fixture.CheckDrawingChangesNothing();
+	fixture.Click(fixture.EmptyPoint());
+	size_t const undo = fixture.GetUndoCount();
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_F, fixture.Drawer());
+	fixture.Frames(2);
+	ImGui::GetIO().AddInputCharactersUTF8("Speed");
+	fixture.Frames(3);
+	// Enter goes from match to match (the variable and its Get) until the bar shows the variable.
+	VisualScriptElement const speed{VisualScriptElementKind::Variable, 100};
+	for (int match = 0; match < 4 && fixture.Panel->GetPaneShared().Element != speed; match++)
+	{
+		fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+		fixture.Frames(1);
+	}
+	REQUIRE(fixture.Panel->GetPaneShared().Element == speed);
+	CHECK(fixture.Model().GetSelection().empty());
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE_FALSE(fixture.Panel->GetState().FindOpen);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Canvas);
+
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	REQUIRE(fixture.Panel->GetSidebar().GetPendingDelete() == std::optional<VisualScriptElement>(speed));
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.GetDocument().Variables.empty());
+	CHECK(fixture.FindNode(4) == nullptr);
+	CHECK(fixture.FindNode(2) != nullptr);
+}
+
+TEST_CASE("VisualScriptEditor: with My Script turned off, F2, Ctrl+D and Delete act on the row Details shows, opening My Script over "
+          "the canvas for them")
+{
+	PanelFixture fixture(MakeSetterDocument());
+	fixture.CheckDrawingChangesNothing();
+	fixture.ClickItem(VisualScriptPanelItem::SidebarToggle);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::Hidden);
+	size_t const undo = fixture.GetUndoCount();
+	VisualScriptElement const speed{VisualScriptElementKind::Variable, 100};
+
+	// A double-click on the Set's header shows its variable in Details; the canvas keeps the keyboard.
+	glm::vec2 const header = Testing::CanvasPoint(fixture.Model(), 5, glm::vec2(0.5f, 0.06f));
+	fixture.Gui.MouseClick(ToImVec2(header), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetPaneShared().Element == speed);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Canvas);
+	CHECK(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::Hidden);
+
+	// F2: My Script opens over the canvas with the variable's name field; Escape stops typing, and a second Escape closes it.
+	fixture.Gui.Press(ImGuiKey_F2, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::Overlay);
+	CHECK(fixture.Panel->GetSidebar().GetRenaming() == std::optional<VisualScriptElement>(speed));
+	CHECK(ImGui::GetIO().WantTextInput);
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE_FALSE(ImGui::GetIO().WantTextInput);
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::Hidden);
+	CHECK(fixture.GetUndoCount() == undo);
+
+	// From Details, which has the keyboard after a click on its empty space: Ctrl+D duplicates Speed in one step.
+	REQUIRE(fixture.Panel->GetPaneShared().Element == speed);
+	ImGuiWindow const* details = fixture.GetChild("##details");
+	fixture.Click(glm::vec2(details->Pos.x + details->Size.x * 0.5f, details->Pos.y + details->Size.y - 8.0f));
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Details);
+	REQUIRE(fixture.Panel->GetPaneShared().Element == speed);
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_D, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.GetDocument().Variables.size() == 2);
+
+	// Delete asks first (nodes use Speed), in My Script over the canvas, and deletes it with its nodes.
+	if (fixture.Panel->GetPaneShared().Element != speed)
+	{
+		fixture.Gui.MouseClick(ToImVec2(Testing::CanvasPoint(fixture.Model(), 5, glm::vec2(0.5f, 0.06f))), ImGuiMouseButton_Left,
+		                       fixture.Drawer(), 2);
+		fixture.Frames(1);
+	}
+	REQUIRE(fixture.Panel->GetPaneShared().Element == speed);
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.Panel->GetSidebar().GetPendingDelete() == std::optional<VisualScriptElement>(speed));
+	CHECK(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::Overlay);
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.GetDocument().Variables.size() == 1);
+	CHECK(fixture.FindNode(4) == nullptr);
+	CHECK(fixture.FindNode(5) == nullptr);
+}
+
+TEST_CASE("VisualScriptEditor: F2 on a variable's node opens My Script's name field, over the canvas while My Script is turned off")
+{
+	PanelFixture fixture(MakeSetterDocument());
+	fixture.CheckDrawingChangesNothing();
+	fixture.ClickItem(VisualScriptPanelItem::SidebarToggle);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::Hidden);
+	fixture.Click(Testing::CanvasPoint(fixture.Model(), 5, glm::vec2(0.5f, 0.06f)));
+	REQUIRE(std::vector<uint32_t>(fixture.Model().GetSelection().begin(), fixture.Model().GetSelection().end()) ==
+	        std::vector<uint32_t>{5});
+	fixture.Gui.Press(ImGuiKey_F2, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::Overlay);
+	CHECK(fixture.Panel->GetSidebar().GetRenaming() ==
+	      std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::Variable, 100}));
+	CHECK(ImGui::GetIO().WantTextInput);
+}
+
+TEST_CASE("VisualScriptEditor: over the live widget the wheel zooms, right and middle drags pan, and Space and a left drag pan")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	auto const restOnChip = [&fixture]
+	{
+		glm::vec2 const chip = ChipPoint(fixture.Model(), 2, "Duration");
+		fixture.MoveMouse(chip);
+		fixture.Frames(2);
+		REQUIRE(fixture.Panel->GetLiveWidget().has_value());
+		return chip;
+	};
+
+	glm::vec2 chip = restOnChip();
+	float const zoom = fixture.Model().GetViewState().Zoom;
+	fixture.Gui.Wheel(ToImVec2(chip), ImVec2(0.0f, 1.0f), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Model().GetViewState().Zoom > zoom);
+
+	for (ImGuiMouseButton const button : {ImGuiMouseButton_Right, ImGuiMouseButton_Middle})
+	{
+		CAPTURE(button);
+		chip = restOnChip();
+		glm::vec2 const center = fixture.Model().GetViewState().Center;
+		fixture.Gui.DragPath(ToImVec2(chip), ToImVec2(chip + glm::vec2(120.0f, 60.0f)), fixture.Drawer(), button);
+		fixture.Frames(1);
+		CHECK(fixture.Model().GetViewState().Center != center);
+		CHECK(GImGui->OpenPopupStack.Size == 0);
+		// The press gave the canvas the keyboard.
+		CHECK(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Canvas);
+	}
+
+	// Space held: no chip is live, so the left drag from the chip is the canvas's pan.
+	chip = restOnChip();
+	glm::vec2 const center = fixture.Model().GetViewState().Center;
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddKeyEvent(ImGuiKey_Space, true);
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Panel->GetLiveWidget().has_value());
+	fixture.Gui.DragPath(ToImVec2(chip), ToImVec2(chip + glm::vec2(-140.0f, 80.0f)), fixture.Drawer());
+	io.AddKeyEvent(ImGuiKey_Space, false);
+	fixture.Frames(2);
+	CHECK(fixture.Model().GetViewState().Center != center);
+	CHECK(fixture.Model().GetSelection().empty());
+	CHECK_FALSE(fixture.Panel->GetState().PaletteOpen);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.FindNode(2)->Inputs["Duration"].get<double>() == doctest::Approx(1.5));
+}
+
+TEST_CASE("VisualScriptEditor: Space and a left drag pan, and neither select nor start a marquee")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	fixture.Click(fixture.EmptyPoint());
+	size_t const undo = fixture.GetUndoCount();
+	glm::vec2 const center = fixture.Model().GetViewState().Center;
+	// From a node's header, which a drag would otherwise move.
+	glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), 2, glm::vec2(0.5f, 0.06f));
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddKeyEvent(ImGuiKey_Space, true);
+	fixture.Frames(2);
+	fixture.MoveMouse(from);
+	fixture.SetButton(ImGuiMouseButton_Left, true);
+	for (int step = 1; step <= 4; step++)
+	{
+		fixture.MoveMouse(from + glm::vec2(30.0f, 20.0f) * static_cast<float>(step));
+		CHECK(fixture.Model().GetGesture().Kind != VisualScriptGesture::Marquee);
+		CHECK(fixture.Model().GetGesture().Kind != VisualScriptGesture::MovingElements);
+	}
+	fixture.SetButton(ImGuiMouseButton_Left, false);
+	io.AddKeyEvent(ImGuiKey_Space, false);
+	fixture.Frames(2);
+	glm::vec2 const moved = fixture.Model().GetViewState().Center - center;
+	float const pixelsPerUnit = fixture.Model().GetView().GetPixelsPerUnit();
+	CHECK(moved.x == doctest::Approx(-120.0f / pixelsPerUnit).epsilon(0.05));
+	CHECK(moved.y == doctest::Approx(-80.0f / pixelsPerUnit).epsilon(0.05));
+	CHECK(fixture.Model().GetSelection().empty());
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK_FALSE(fixture.Panel->GetState().PaletteOpen);
+}
+
+namespace
+{
+	// MakeDocument with a comment box (40) around the Add (6).
+	VisualScriptDocument MakeCommentDocument()
+	{
+		VisualScriptDocument document = MakeDocument();
+		VisualScriptComment box;
+		box.ID = 40;
+		box.Text = "Maths";
+		box.Position = glm::vec2(336.0f, 256.0f);
+		box.Size = glm::vec2(480.0f, 288.0f);
+		document.Graph.Comments.push_back(box);
+		return document;
+	}
+
+	// The middle of a comment box's title bar, in screen pixels.
+	glm::vec2 TitlePoint(VisualScriptEditorModel const& model, uint32_t comment)
+	{
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		std::optional<uint32_t> const index = canvas.FindComment(comment);
+		REQUIRE(index.has_value());
+		std::span<VisualScriptCommentVisual const> const comments = canvas.GetComments();
+		VisualScriptView const& view = model.GetView();
+		VisualScriptRect const bar = VisualScriptGeometry::GetCommentBarRect(comments[*index], view.GetPixelsPerUnit(), view.GetUIScale());
+		return view.ToScreen(glm::vec2(bar.Min.x + 24.0f, bar.GetCenter().y));
+	}
+
+	VisualScriptComment const& FindComment(PanelFixture const& fixture, uint32_t id)
+	{
+		std::vector<VisualScriptComment> const& comments = fixture.GetDocument().Graph.Comments;
+		auto const found = std::find_if(comments.begin(), comments.end(),
+		                                [id](VisualScriptComment const& comment)
+		                                {
+											return comment.ID == id;
+										});
+		REQUIRE(found != comments.end());
+		return *found;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a comment box dragged by its title moves its contents in the same step, Alt keeps them, and its edges "
+          "stop at the minimum size")
+{
+	PanelFixture fixture(MakeCommentDocument());
+	fixture.Settings.SetMoveCommentContents(true);
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	glm::vec2 const box = FindComment(fixture, 40).Position;
+	glm::vec2 const add = *fixture.FindNode(6)->Position;
+	glm::vec2 const delay = *fixture.FindNode(2)->Position;
+
+	glm::vec2 const title = TitlePoint(fixture.Model(), 40);
+	fixture.Gui.DragPath(ToImVec2(title), ToImVec2(title + glm::vec2(96.0f, 64.0f)), fixture.Drawer());
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	glm::vec2 const moved = FindComment(fixture, 40).Position - box;
+	CHECK(moved != glm::vec2(0.0f));
+	CHECK(*fixture.FindNode(6)->Position - add == moved);
+	CHECK(*fixture.FindNode(2)->Position == delay);
+
+	// Alt held from the press: the box moves alone.
+	glm::vec2 const boxBefore = FindComment(fixture, 40).Position;
+	glm::vec2 const addBefore = *fixture.FindNode(6)->Position;
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddKeyEvent(ImGuiMod_Alt, true);
+	glm::vec2 const again = TitlePoint(fixture.Model(), 40);
+	fixture.Gui.DragPath(ToImVec2(again), ToImVec2(again + glm::vec2(-80.0f, 48.0f)), fixture.Drawer());
+	io.AddKeyEvent(ImGuiMod_Alt, false);
+	fixture.Frames(1);
+	REQUIRE(fixture.GetUndoCount() == undo + 2);
+	CHECK(FindComment(fixture, 40).Position != boxBefore);
+	CHECK(*fixture.FindNode(6)->Position == addBefore);
+
+	// The bottom-right corner dragged past the top-left: the box keeps 96 x 64.
+	VisualScriptComment const before = FindComment(fixture, 40);
+	VisualScriptView const& view = fixture.Model().GetView();
+	glm::vec2 const corner = view.ToScreen(before.Position + before.Size) - glm::vec2(2.0f);
+	glm::vec2 const past = view.ToScreen(before.Position) - glm::vec2(40.0f);
+	fixture.Gui.DragPath(ToImVec2(corner), ToImVec2(past), fixture.Drawer(), ImGuiMouseButton_Left, 8);
+	REQUIRE(fixture.GetUndoCount() == undo + 3);
+	VisualScriptComment const resized = FindComment(fixture, 40);
+	CHECK(resized.Size.x == doctest::Approx(VisualScriptCanvasMetrics::CommentMinWidth));
+	CHECK(resized.Size.y == doctest::Approx(VisualScriptCanvasMetrics::CommentMinHeight));
+	CHECK(resized.Position == before.Position);
+}
+
+TEST_CASE("VisualScriptEditor: a click on the minimap centres the view on the point it stands for, and adds no step")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	// Zoomed in on Delay, so the rest is out of view and the minimap shows.
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Graph;
+	request.Frame = VisualScriptFrame::Keep;
+	request.Center = glm::vec2(480.0f, 60.0f);
+	request.Zoom = 2.0f;
+	fixture.Panel->Apply(request);
+	fixture.Frames(3);
+	VisualScriptMinimapState const minimap = fixture.Model().GetMinimap();
+	REQUIRE(minimap.Alpha > 0.0f);
+	size_t const undo = fixture.GetUndoCount();
+
+	// A whole pixel: ImGui floors the mouse's position (imgui.cpp:11012), and one pixel of the minimap is several
+	// canvas units.
+	glm::vec2 const point = glm::floor(minimap.Transform.Rect.GetCenter() + glm::vec2(-20.0f, 10.0f));
+	fixture.Click(point);
+	fixture.Frames(1);
+	// The point it stands for as the minimap shows the graph now (its view rectangle moved with the click).
+	glm::vec2 const expected = fixture.Model().GetMinimap().Transform.ToCanvas(point);
+	CHECK(glm::length(fixture.Model().GetViewState().Center - expected) < 0.5f);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.Model().GetSelection().empty());
+}
+
+TEST_CASE("VisualScriptEditor: an open request's find goes to the first match, which becomes the selection")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Graph;
+	request.Find = "Delay";
+	fixture.Panel->Apply(request);
+	fixture.Frames(2);
+	VisualScriptEditorState const state = fixture.Panel->GetState();
+	CHECK(state.FindOpen);
+	CHECK(state.FindText == "Delay");
+	CHECK(state.FindIndex == 1);
+	REQUIRE(fixture.Model().GetSelection().size() == 1);
+	CHECK(fixture.Model().GetSelection().front() == 2);
+}
+
+TEST_CASE("VisualScriptEditor: the palette's state is the one its last draw showed, the same through both getters")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptPaletteRequest request;
+	request.Query = "bra";
+	Result<VisualScriptPaletteState> const opened = fixture.Panel->OpenPalette(request);
+	REQUIRE(opened.IsOk());
+	CHECK(opened.GetValue().Open);
+	// Not drawn yet: closed through both.
+	CHECK_FALSE(fixture.Panel->GetState().PaletteOpen);
+	CHECK_FALSE(fixture.Panel->GetPaletteState().Open);
+	fixture.Frames(1);
+	VisualScriptPaletteState const palette = fixture.Panel->GetPaletteState();
+	CHECK(palette.Open);
+	CHECK(palette.Query == "bra");
+	CHECK_FALSE(palette.Entries.empty());
+	CHECK(fixture.Panel->GetState().PaletteOpen);
+	CHECK(fixture.Panel->GetState().PaletteQuery == "bra");
+}
+
+TEST_CASE("VisualScriptEditor: a hidden window takes no Edit menu actions, and drops those it took before it was hidden")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	bool collapsed = false;
+	fixture.Probe = [&collapsed]
+	{
+		ImGui::SetNextWindowCollapsed(collapsed);
+	};
+	fixture.Click(Testing::CanvasPoint(fixture.Model(), 3, glm::vec2(0.5f, 0.06f)));
+	size_t const undo = fixture.GetUndoCount();
+
+	// Taken, then the window is hidden before its next draw: dropped, never done when it shows again.
+	REQUIRE(fixture.Panel->RequestAction(Action::Delete));
+	collapsed = true;
+	fixture.Frames(1);
+	REQUIRE_FALSE(fixture.Panel->GetState().Visible);
+	CHECK_FALSE(fixture.Panel->RequestAction(Action::Delete));
+	collapsed = false;
+	fixture.Frames(2);
+	REQUIRE(fixture.Panel->GetState().Visible);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.FindNode(3) != nullptr);
+
+	// Shown: taken and done at the next draw.
+	fixture.Click(Testing::CanvasPoint(fixture.Model(), 3, glm::vec2(0.5f, 0.06f)));
+	REQUIRE(fixture.Panel->RequestAction(Action::Delete));
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.FindNode(3) == nullptr);
+}
+
+TEST_CASE("VisualScriptEditor: the palette's Add Comment Box and the title typed at once are one step")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	size_t const comments = fixture.GetDocument().Graph.Comments.size();
+	fixture.Click(fixture.EmptyPoint() + glm::vec2(300.0f, -300.0f), ImGuiMouseButton_Right);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().PaletteOpen);
+	ImGui::GetIO().AddInputCharactersUTF8("Add Comment Box");
+	fixture.Frames(2);
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.GetDocument().Graph.Comments.size() == comments + 1);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	// The title editor has the keyboard with "Comment" selected: typing replaces it.
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	fixture.Gui.Type("Setup");
+	fixture.Frames(1);
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.GetDocument().Graph.Comments.back().Text.starts_with("Setup"));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.GetDocument().Graph.Comments.size() == comments);
+}
+
+TEST_CASE("VisualScriptEditor: a pin of a renamed member resets to its default from its menu")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes[2].Type = std::string(Testing::RenamedLogSemantics::FormerType);
+	document.Graph.Nodes[2].Inputs = Json::object({{"Text", "Hi"}});
+	Testing::FixtureVisualScriptSemantics fixtureSemantics;
+	Testing::RenamedLogSemantics renamed(fixtureSemantics);
+	PanelFixture fixture(document, &renamed);
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	// The canvas calls the stored Text Message.
+	fixture.Click(Testing::CanvasPoint(fixture.Model(), 3, "Message"), ImGuiMouseButton_Right);
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	std::optional<glm::vec2> const reset = fixture.FindPopupItem("Reset to Default");
+	REQUIRE(reset.has_value());
+	fixture.Click(*reset);
+	fixture.Frames(1);
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	VisualScriptNode const* log = fixture.FindNode(3);
+	REQUIRE(log != nullptr);
+	CHECK_FALSE(log->Inputs.contains("Text"));
+	CHECK_FALSE(log->Inputs.contains("Message"));
+}
+
+TEST_CASE("VisualScriptEditor: a payload over a pin that cannot take it shows the not-allowed cursor, and over one that can the "
+          "normal one")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(
+		40, "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)", glm::vec2(400.0f, 600.0f)));
+	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
+	EntityCreateInfo info;
+	info.Name = "Door";
+	Result<UUID> const door = fixture.Operations.CreateEntity(info);
+	REQUIRE(door.IsOk());
+	Result<AssetHandle> const prefab = fixture.Operations.CreatePrefab(door.GetValue(), "Door.sprefab");
+	REQUIRE(prefab.IsOk());
+	glm::vec2 const source(1500.0f, 860.0f);
+	fixture.Probe = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(source.x - 40.0f, source.y - 20.0f));
+		ImGui::SetNextWindowSize(ImVec2(80.0f, 40.0f));
+		ImGui::Begin("Source", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings);
+		ImGui::Button("Door", ImVec2(60.0f, 20.0f));
+		UI::AssetDragSource(prefab.GetValue(), "Door.sprefab");
+		ImGui::End();
+	};
+	fixture.Frames(2);
+	size_t const undo = fixture.GetUndoCount();
+
+	// The prefab held over Log's Message (a string): refused before the release.
+	glm::vec2 const grab(source.x - 10.0f, source.y - 5.0f);
+	glm::vec2 const message = Testing::CanvasPoint(fixture.Model(), 3, "Message");
+	fixture.MoveMouse(grab);
+	fixture.SetButton(ImGuiMouseButton_Left, true);
+	for (int step = 1; step <= 6; step++)
+	{
+		fixture.MoveMouse(grab + (message - grab) * (static_cast<float>(step) / 6.0f));
+	}
+	fixture.Frames(1);
+	REQUIRE(ImGui::GetDragDropPayload() != nullptr);
+	CHECK(ImGui::GetMouseCursor() == ImGuiMouseCursor_NotAllowed);
+	// Over Instantiate's Prefab input it is taken.
+	fixture.MoveMouse(Testing::CanvasPoint(fixture.Model(), 40, "Prefab"));
+	fixture.Frames(1);
+	CHECK(ImGui::GetMouseCursor() != ImGuiMouseCursor_NotAllowed);
+	// Released over Message after all: nothing changes, and the toast says why.
+	fixture.MoveMouse(message);
+	fixture.Frames(1);
+	fixture.SetButton(ImGuiMouseButton_Left, false);
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.FindNode(3)->Inputs.value("Message", Json()) == Json("Hi"));
+	CHECK_FALSE(fixture.Panel->GetState().Toasts.empty());
 }
