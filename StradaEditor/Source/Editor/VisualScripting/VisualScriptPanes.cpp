@@ -690,7 +690,8 @@ namespace Strada
 			std::string text = std::move(m_LeftText);
 			if (m_LeftFrame + 1 >= frame)
 			{
-				ImGui::InputText(id, &text, inputFlags);
+				// No callback here: the cursor is placed only for a field opened for typing.
+				ImGui::InputText(id, &text, ImGuiInputTextFlags_EnterReturnsTrue);
 				outcome.Active = ImGui::IsItemActive();
 				if (text != current)
 				{
