@@ -43,11 +43,15 @@ add_executable(StradaEditorTests
     Source/VisualScriptNodeTitlesTests.cpp
     Source/VisualScriptNormalizationTests.cpp
     Source/VisualScriptPaletteTests.cpp
+    Source/VisualScriptPanelTestUtilities.h
     Source/VisualScriptQuickFixTests.cpp
+    Source/VisualScriptRenderTests.cpp
     Source/VisualScriptSemanticsTests.cpp
     Source/VisualScriptSpatialIndexTests.cpp
     Source/VisualScriptTestDocuments.h
     Source/VisualScriptTestUtilities.h
+    Source/VisualScriptTextTests.cpp
+    Source/VisualScriptThemeStyleTests.cpp
     Source/VisualScriptThemeTests.cpp
     Source/VisualScriptViewSettingsTests.cpp
     Source/VisualScriptViewTests.cpp

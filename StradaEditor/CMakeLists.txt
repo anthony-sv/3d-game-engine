@@ -124,9 +124,13 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScriptEnumLookupSource.h
     Source/Editor/VisualScripting/VisualScriptArrange.cpp
     Source/Editor/VisualScripting/VisualScriptArrange.h
+    Source/Editor/VisualScripting/VisualScriptBrushes.cpp
+    Source/Editor/VisualScripting/VisualScriptBrushes.h
     Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
     Source/Editor/VisualScripting/VisualScriptCanvasModel.cpp
     Source/Editor/VisualScripting/VisualScriptCanvasModel.h
+    Source/Editor/VisualScripting/VisualScriptCanvasRenderer.cpp
+    Source/Editor/VisualScripting/VisualScriptCanvasRenderer.h
     Source/Editor/VisualScripting/VisualScriptClipboard.cpp
     Source/Editor/VisualScripting/VisualScriptClipboard.h
     Source/Editor/VisualScripting/VisualScriptCommit.cpp
@@ -156,6 +160,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.h
     Source/Editor/VisualScripting/VisualScriptTheme.cpp
     Source/Editor/VisualScripting/VisualScriptTheme.h
+    Source/Editor/VisualScripting/VisualScriptThemeStyle.cpp
+    Source/Editor/VisualScripting/VisualScriptThemeStyle.h
     Source/Editor/VisualScripting/VisualScriptView.cpp
     Source/Editor/VisualScripting/VisualScriptView.h
     Source/Editor/VisualScripting/VisualScriptViewSettings.cpp
