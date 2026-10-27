@@ -37,6 +37,9 @@ namespace Strada
 		// before it scrolls.
 		constexpr float MinPickerWidthInFontSizes = 20.0f;
 		constexpr size_t MaxPickerRows = 14;
+		// An enum's list in a popup of its own is at least this wide (in font sizes), as is the widget of a value that opens no
+		// popup of its own when DrawValuePopup draws it.
+		constexpr float MinEnumListWidthInFontSizes = 12.0f;
 		// The image of an asset in the tooltip of its field fits a square this large (in font sizes).
 		constexpr float TooltipPreviewSizeInFontSizes = 9.0f;
 		// The share of a table's width the name column starts with: what the names need, but never so much that the values
@@ -45,6 +48,12 @@ namespace Strada
 		constexpr float MaxNameShare = 0.6f;
 		constexpr float MaxNameShareBesideAssets = 0.5f;
 		constexpr char const* AngleFormat = "%.1f\xc2\xb0";
+		// Compact widgets show numbers as short as they read, Euler degrees too (as the visual script canvas' chips they replace
+		// show them: no degree sign).
+		constexpr char const* CompactFloatFormat = "%g";
+		// The axis stripe at the left edge of a compact vector's cells, as a share of the cell's height: the canvas chips' 2
+		// units of 19.
+		constexpr float CompactStripeShare = 2.0f / 19.0f;
 		// Integer widgets stay within the integers JSON consumers represent exactly.
 		constexpr int64_t IntegerWidgetLimit = int64_t(1) << 53;
 
@@ -320,6 +329,39 @@ namespace Strada
 			return changed;
 		}
 
+		// Drag fields without axis buttons, one per component in the item's width, each with its axis's stripe at its left edge
+		// (compact widgets); reports which component changed.
+		bool DrawComponentCells(float* values, int count, float speed, float min, float max, char const* format, int& changedComponent)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			bool changed = false;
+			float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+			float const cellWidth =
+				std::max(1.0f, (ImGui::CalcItemWidth() - static_cast<float>(count - 1) * spacing) / static_cast<float>(count));
+			for (int i = 0; i < count; i++)
+			{
+				ImGui::PushID(i);
+				if (i > 0)
+				{
+					ImGui::SameLine(0.0f, spacing);
+				}
+				ImGui::SetNextItemWidth(cellWidth);
+				if (ImGui::DragFloat("##component", &values[i], speed, min, max, format, ImGuiSliderFlags_AlwaysClamp))
+				{
+					changed = true;
+					changedComponent = i;
+				}
+				ImVec2 const cellMin = ImGui::GetItemRectMin();
+				ImVec2 const cellMax = ImGui::GetItemRectMax();
+				float const stripe = std::max(1.0f, (cellMax.y - cellMin.y) * CompactStripeShare);
+				ImGui::GetWindowDrawList()->AddRectFilled(cellMin, ImVec2(cellMin.x + stripe, cellMax.y),
+				                                          ImGui::GetColorU32(AxisColors[static_cast<size_t>(std::min(i, 3))]),
+				                                          style.FrameRounding, ImDrawFlags_RoundCornersLeft);
+				ImGui::PopID();
+			}
+			return changed;
+		}
+
 		// Whether a row is shown: always, unless the field's visibility condition names a sibling (one of `fields`, valued in
 		// `values`) whose value is none of the condition's. A sibling whose values differ between the edited objects (mixed)
 		// shows it.
@@ -428,7 +470,28 @@ namespace Strada
 		// A box framed like a text field showing the referenced asset (long paths shortened), after a small image of it when
 		// `previews` makes one (the place stays while the image is made); returns true when clicked. The tooltip has the whole
 		// path and a larger image.
-		bool DrawAssetReferenceBox(AssetHandle handle, bool mixed, float width, AssetThumbnails* previews)
+		// An asset as the visual script canvas' chips name it: its display name (a memory asset's name), marked when its file
+		// is missing; "None" without one.
+		std::string DescribeCompactAsset(AssetHandle handle)
+		{
+			if (!handle.IsValid())
+			{
+				return "None";
+			}
+			if (!AssetManager::IsInitialized())
+			{
+				return handle.ToString();
+			}
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
+			if (!metadata)
+			{
+				return "Unknown asset " + handle.ToString();
+			}
+			std::string name = metadata->GetDisplayName();
+			return AssetManager::IsMissing(handle) ? name + " (missing)" : name;
+		}
+
+		bool DrawAssetReferenceBox(AssetHandle handle, bool mixed, float width, AssetThumbnails* previews, bool compact = false)
 		{
 			ImGuiStyle const& style = ImGui::GetStyle();
 			bool const clicked = ImGui::InvisibleButton("##reference", ImVec2(std::max(1.0f, width), ImGui::GetFrameHeight()));
@@ -444,8 +507,10 @@ namespace Strada
 			bool const pictured =
 				!mixed && handle.IsValid() && DrawAssetImage(previews, handle, ImVec2(min.x + inset, min.y + inset), imageSize);
 			float const textX = pictured ? min.x + inset + imageSize + style.ItemInnerSpacing.x : min.x + style.FramePadding.x;
-			std::string const text =
-				UI::FitPath(mixed ? std::string("--") : UI::DescribeAssetReference(handle), max.x - style.FramePadding.x - textX);
+			std::string const text = UI::FitPath(mixed     ? std::string("--")
+			                                     : compact ? DescribeCompactAsset(handle)
+			                                               : UI::DescribeAssetReference(handle),
+			                                     max.x - style.FramePadding.x - textX);
 			drawList->PushClipRect(min, max, true);
 			drawList->AddText(ImVec2(textX, min.y + style.FramePadding.y), GetAssetReferenceColor(handle, mixed), text.c_str());
 			drawList->PopClipRect();
@@ -475,61 +540,254 @@ namespace Strada
 			return clicked;
 		}
 
-		// Flags enums: a combo of check boxes; the value is the array of the set names, in declaration order.
-		bool DrawFlags(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change)
+		bool IsFlagSet(Json const& value, std::string_view name)
 		{
-			auto const isSet = [&value](std::string_view name)
+			return value.is_array() && std::any_of(value.begin(), value.end(),
+			                                       [name](Json const& element)
+			                                       {
+													   return element.is_string() && element.get_ref<std::string const&>() == name;
+												   });
+		}
+
+		// How wide an enum's list is drawn: its longest name, at least the width of a short field.
+		float GetEnumListWidth(FieldDescriptor const& field)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			float labelWidth = 0.0f;
+			for (std::string_view const name : field.EnumValues)
 			{
-				return value.is_array() && std::any_of(value.begin(), value.end(),
-				                                       [name](Json const& element)
-				                                       {
-														   return element.is_string() && element.get_ref<std::string const&>() == name;
-													   });
-			};
+				labelWidth = std::max(labelWidth, ImGui::CalcTextSize(UI::FormatDisplayName(name).c_str()).x);
+			}
+			return std::max(labelWidth + style.FramePadding.x * 2.0f + style.ScrollbarSize,
+			                ImGui::GetFontSize() * MinEnumListWidthInFontSizes);
+		}
+
+		// The set flags' stored names joined with " | ", as a compact frame shows them (the canvas chip's text).
+		std::string DescribeCompactFlags(FieldDescriptor const& field, Json const& value, bool mixed)
+		{
+			if (mixed)
+			{
+				return "--";
+			}
+			std::string text;
+			for (std::string_view const name : field.EnumValues)
+			{
+				if (IsFlagSet(value, name))
+				{
+					text += (text.empty() ? "" : " | ") + std::string(name);
+				}
+			}
+			return text.empty() ? std::string("None") : text;
+		}
+
+		// The set flags' names, as a combo shows them.
+		std::string DescribeFlags(FieldDescriptor const& field, Json const& value, bool mixed)
+		{
+			if (mixed)
+			{
+				return "--";
+			}
 			std::string preview;
 			for (std::string_view const name : field.EnumValues)
 			{
-				if (isSet(name))
+				if (IsFlagSet(value, name))
 				{
 					preview += (preview.empty() ? "" : ", ") + UI::FormatDisplayName(name);
 				}
 			}
-			if (mixed)
-			{
-				preview = "--";
-			}
-			else if (preview.empty())
-			{
-				preview = "None";
-			}
+			return preview.empty() ? std::string("None") : preview;
+		}
 
+		// A check box per flag; the value is the array of the set names, in declaration order.
+		bool DrawFlagList(FieldDescriptor const& field, Json const& value, FieldChange& change)
+		{
 			bool changed = false;
-			if (ImGui::BeginCombo("##value", preview.c_str()))
+			Json names = Json::array();
+			for (std::string_view const name : field.EnumValues)
 			{
-				Json names = Json::array();
-				for (std::string_view const name : field.EnumValues)
+				bool set = IsFlagSet(value, name);
+				if (ImGui::Checkbox(UI::FormatDisplayName(name).c_str(), &set))
 				{
-					bool set = isSet(name);
-					if (ImGui::Checkbox(UI::FormatDisplayName(name).c_str(), &set))
-					{
-						changed = true;
-					}
-					if (set)
-					{
-						names.push_back(std::string(name));
-					}
+					changed = true;
 				}
-				ImGui::EndCombo();
-				if (changed)
+				if (set)
 				{
-					change.Value = std::move(names);
+					names.push_back(std::string(name));
 				}
+			}
+			if (changed)
+			{
+				change.Value = std::move(names);
 			}
 			return changed;
 		}
 
-		// Entity reference: the entity's name, an entity drag-and-drop target and a context menu to clear it.
-		bool DrawEntityReference(Json const& value, Scene* scene, FieldChange& change)
+		// Flags enums: a combo of check boxes.
+		bool DrawFlags(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change)
+		{
+			bool changed = false;
+			if (ImGui::BeginCombo("##value", DescribeFlags(field, value, mixed).c_str()))
+			{
+				changed = DrawFlagList(field, value, change);
+				ImGui::EndCombo();
+			}
+			return changed;
+		}
+
+		bool IsColor(FieldDescriptor const& field)
+		{
+			return field.Hints.Display == FieldDisplay::Color && GetVectorSize(field.Kind) >= 3;
+		}
+
+		// Colours are linear in the data and shown and picked in sRGB, so the swatch shows what the renderer displays.
+		std::array<float, 4> ToDisplayColor(Json const& value)
+		{
+			std::array<float, 4> display = ReadFloats(value);
+			for (size_t i = 0; i < 3; i++)
+			{
+				display[i] = Math::LinearToSrgb(std::clamp(display[i], 0.0f, 1.0f));
+			}
+			return display;
+		}
+
+		// A colour edited in sRGB by a widget that edits the display values in place (a colour edit or picker), back to the
+		// data's linear values.
+		bool EditColor(FieldDescriptor const& field, Json const& value, FieldChange& change, bool (*edit)(float* display, int components))
+		{
+			int const size = GetVectorSize(field.Kind);
+			std::array<float, 4> values = ReadFloats(value);
+			std::array<float, 4> display = ToDisplayColor(value);
+			if (!edit(display.data(), size))
+			{
+				return false;
+			}
+			auto const [min, max] = GetBounds(field);
+			for (size_t i = 0; i < static_cast<size_t>(size); i++)
+			{
+				float const linear = i < 3 ? Math::SrgbToLinear(display[i]) : display[i];
+				values[i] = std::clamp(linear, ToFloatBound(min), ToFloatBound(max));
+			}
+			change.Value = WriteFloats(values.data(), size);
+			return true;
+		}
+
+		ImGuiColorEditFlags GetColorFlags(int components)
+		{
+			return components == 4 ? ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_None;
+		}
+
+		// A frame drawn like a closed combo box (the text, then the arrow box), as wide as the next item: compact widgets draw
+		// it in place of a combo and report its click instead of opening a popup. Returns true when clicked.
+		bool DrawChoiceFrame(std::string const& text)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			float const height = ImGui::GetFrameHeight();
+			bool const clicked = ImGui::InvisibleButton("##value", ImVec2(std::max(1.0f, ImGui::CalcItemWidth()), height));
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			bool const hovered = ImGui::IsItemHovered();
+			ImGuiCol const background =
+				ImGui::IsItemActive() ? ImGuiCol_FrameBgActive : (hovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg);
+			ImGui::RenderFrame(min, max, ImGui::GetColorU32(background), true, style.FrameRounding);
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			float textRight = max.x - style.FramePadding.x;
+			if (max.x - min.x > height * 2.0f)
+			{
+				// The combo box's arrow box, at its right end.
+				textRight = max.x - height;
+				drawList->AddRectFilled(ImVec2(textRight, min.y), max,
+				                        ImGui::GetColorU32(hovered ? ImGuiCol_ButtonHovered : ImGuiCol_Button), style.FrameRounding,
+				                        ImDrawFlags_RoundCornersRight);
+				ImGui::RenderArrow(drawList, ImVec2(textRight + style.FramePadding.y, min.y + style.FramePadding.y),
+				                   ImGui::GetColorU32(ImGuiCol_Text), ImGuiDir_Down, 1.0f);
+			}
+			ImGui::RenderTextClipped(ImVec2(min.x + style.FramePadding.x, min.y + style.FramePadding.y), ImVec2(textRight, max.y),
+			                         text.c_str(), nullptr, nullptr);
+			return clicked;
+		}
+
+		// An enumerator's rank in a filtered list: 0 when its name (or label) is the filter text, 1 when it starts with it, 2
+		// when it holds it, ignoring the case of ASCII letters; nothing when it does neither.
+		std::optional<int> RankEnumerator(std::string const& name, std::string const& label, std::string const& filter)
+		{
+			auto const startsWith = [&filter](std::string const& text)
+			{
+				return text.size() >= filter.size() && ImStrnicmp(text.c_str(), filter.c_str(), filter.size()) == 0;
+			};
+			auto const equals = [&filter, &startsWith](std::string const& text)
+			{
+				return text.size() == filter.size() && startsWith(text);
+			};
+			auto const holds = [&filter](std::string const& text)
+			{
+				return ImStristr(text.c_str(), nullptr, filter.c_str(), nullptr) != nullptr;
+			};
+			if (equals(name) || equals(label))
+			{
+				return 0;
+			}
+			if (startsWith(name) || startsWith(label))
+			{
+				return 1;
+			}
+			if (holds(name) || holds(label))
+			{
+				return 2;
+			}
+			return std::nullopt;
+		}
+
+		// A search field given text before it had the keyboard: its first active frame puts the cursor after the text (ImGui
+		// selects all of a field the keyboard is given to, and the next character would replace it).
+		void PlaceCursorAtEnd(ImGuiInputTextCallbackData* data, bool& pending)
+		{
+			if (pending)
+			{
+				data->CursorPos = data->BufTextLen;
+				data->SelectionStart = data->BufTextLen;
+				data->SelectionEnd = data->BufTextLen;
+				pending = false;
+			}
+		}
+
+		// Enter pressed while a search field is active. ImGui routes the key to a field that just took the keyboard only from
+		// the next frame, so the field alone would miss an Enter pressed right after its popup opened.
+		bool IsEnterPressed()
+		{
+			return ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+		}
+
+		// Takes the characters typed this frame into a search field that is still to get the keyboard (a popup opens with its
+		// field asked for it, which takes a frame or two): what is typed as a list opens is its filter.
+		bool TakeTypedCharacters(std::string& text)
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			if (io.InputQueueCharacters.empty())
+			{
+				return false;
+			}
+			for (ImWchar const character : io.InputQueueCharacters)
+			{
+				if (character >= 0x20 && character != 0x7F)
+				{
+					std::array<char, 5> utf8{};
+					ImTextCharToUtf8(utf8.data(), character);
+					text += utf8.data();
+				}
+			}
+			io.InputQueueCharacters.resize(0);
+			return true;
+		}
+
+		// Text without its leading and trailing spaces.
+		std::string Trim(std::string const& text)
+		{
+			size_t const first = text.find_first_not_of(' ');
+			return first == std::string::npos ? std::string() : text.substr(first, text.find_last_not_of(' ') - first + 1);
+		}
+
+		// Entity reference: the entity's name, an entity drag-and-drop target and, with menu, a context menu to clear it.
+		bool DrawEntityReference(Json const& value, Scene* scene, FieldChange& change, bool menu)
 		{
 			UUID const id = ReadID(value);
 			std::string label = "None";
@@ -554,7 +812,7 @@ namespace Strada
 				}
 				ImGui::EndDragDropTarget();
 			}
-			if (ImGui::BeginPopupContextItem("##entityMenu"))
+			if (menu && ImGui::BeginPopupContextItem("##entityMenu"))
 			{
 				if (ImGui::MenuItem("Clear", nullptr, false, id.IsValid()))
 				{
@@ -873,7 +1131,7 @@ namespace Strada
 				return changed;
 			}
 			case FieldKind::UUID:
-				return DrawEntityReference(value, m_Scene, change);
+				return DrawEntityReference(value, m_Scene, change, true);
 			case FieldKind::Asset:
 				return DrawAsset(field, value, mixed, change);
 			case FieldKind::Vec2:
@@ -883,32 +1141,14 @@ namespace Strada
 				int const size = GetVectorSize(field.Kind);
 				std::array<float, 4> values = ReadFloats(value);
 				auto const [min, max] = GetBounds(field);
-				if (field.Hints.Display == FieldDisplay::Color && size >= 3)
+				if (IsColor(field))
 				{
-					// Colors are linear in the data and picked in sRGB, so the swatch shows what the renderer displays.
-					std::array<float, 4> display = values;
-					for (size_t i = 0; i < 3; i++)
-					{
-						display[i] = Math::LinearToSrgb(std::clamp(values[i], 0.0f, 1.0f));
-					}
-					ImGuiColorEditFlags flags = ImGuiColorEditFlags_None;
-					if (size == 4)
-					{
-						flags |= ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreviewHalf;
-					}
-					bool const changed = size == 4 ? ImGui::ColorEdit4("##value", display.data(), flags)
-					                               : ImGui::ColorEdit3("##value", display.data(), flags);
-					if (!changed)
-					{
-						return false;
-					}
-					for (size_t i = 0; i < static_cast<size_t>(size); i++)
-					{
-						float const linear = i < 3 ? Math::SrgbToLinear(display[i]) : display[i];
-						values[i] = std::clamp(linear, ToFloatBound(min), ToFloatBound(max));
-					}
-					change.Value = WriteFloats(values.data(), size);
-					return true;
+					return EditColor(field, value, change,
+					                 [](float* display, int components)
+					                 {
+										 return components == 4 ? ImGui::ColorEdit4("##value", display, GetColorFlags(components))
+						                                        : ImGui::ColorEdit3("##value", display, GetColorFlags(components));
+									 });
 				}
 
 				std::array<float, 4> const defaults = ReadFloats(field.Default);
@@ -923,7 +1163,7 @@ namespace Strada
 				return true;
 			}
 			case FieldKind::Quat:
-				return DrawQuaternion(value, change);
+				return DrawQuaternion(value, change, FieldInlineMode::Normal);
 			case FieldKind::BVec3:
 			{
 				std::array<bool, 3> flags{};
@@ -959,21 +1199,17 @@ namespace Strada
 				std::string const current = value.is_string() ? value.get<std::string>() : std::string();
 				std::string const preview = mixed ? std::string("--") : UI::FormatDisplayName(current);
 				bool changed = false;
-				if (ImGui::BeginCombo("##value", preview.c_str()))
+				// A filtered list is a filter above a list of its own height: the combo's popup takes both whole.
+				ImGuiComboFlags const flags =
+					field.EnumValues.size() > MaxUnfilteredEnumerators ? ImGuiComboFlags_HeightLargest : ImGuiComboFlags_None;
+				if (ImGui::BeginCombo("##value", preview.c_str(), flags))
 				{
-					for (std::string_view const name : field.EnumValues)
-					{
-						bool const selected = name == current;
-						if (ImGui::Selectable(UI::FormatDisplayName(name).c_str(), selected))
-						{
-							change.Value = std::string(name);
-							changed = true;
-						}
-						if (selected)
-						{
-							ImGui::SetItemDefaultFocus();
-						}
-					}
+					// A filtered list's rows are in a child window, which does not widen the popup to its longest name as rows
+					// directly in it do: it is given that width, and the combo's at least.
+					float const width = field.EnumValues.size() > MaxUnfilteredEnumerators
+					                        ? std::max(GetEnumListWidth(field), ImGui::GetContentRegionAvail().x)
+					                        : 0.0f;
+					changed = DrawEnumList(field, current, width, change);
 					ImGui::EndCombo();
 				}
 				return changed;
@@ -1000,7 +1236,7 @@ namespace Strada
 		return false;
 	}
 
-	bool FieldEditor::DrawQuaternion(Json const& value, FieldChange& change)
+	bool FieldEditor::DrawQuaternion(Json const& value, FieldChange& change, FieldInlineMode mode)
 	{
 		std::array<float, 4> const components = ReadFloats(value);
 		glm::quat const rotation = Math::NormalizeRotation(glm::quat::wxyz(components[3], components[0], components[1], components[2]));
@@ -1021,7 +1257,10 @@ namespace Strada
 		std::array<float, 3> const defaults{};
 		int changedComponent = -1;
 		ImGui::PushID("##euler");
-		bool const changed = DrawVectorComponents(&degrees.x, 3, 0.5f, -FLT_MAX, FLT_MAX, AngleFormat, defaults.data(), changedComponent);
+		bool const changed =
+			mode == FieldInlineMode::Compact
+				? DrawComponentCells(&degrees.x, 3, 0.5f, -FLT_MAX, FLT_MAX, CompactFloatFormat, changedComponent)
+				: DrawVectorComponents(&degrees.x, 3, 0.5f, -FLT_MAX, FLT_MAX, AngleFormat, defaults.data(), changedComponent);
 		ImGui::PopID();
 		if (!changed)
 		{
@@ -1145,12 +1384,7 @@ namespace Strada
 		{
 			// Drops down from the field like a combo box, as wide as the longest path needs within the screen; rows that still
 			// do not fit are shortened.
-			UpdatePickerAssets(options.Type);
-			float const rowWidth = ImGui::GetTextLineHeight() + spacing + m_PickerLabelWidth;
-			float const needed = rowWidth + style.FramePadding.x * 2.0f + style.WindowPadding.x * 2.0f + style.ScrollbarSize;
-			float const screen = ImGui::GetWindowViewport()->WorkSize.x - style.WindowPadding.x * 2.0f;
-			float const popupWidth =
-				std::max(1.0f, std::min(std::max({width, ImGui::GetFontSize() * MinPickerWidthInFontSizes, needed}), screen));
+			float const popupWidth = GetPickerWidth(options.Type, width);
 			ImGui::SetNextWindowSizeConstraints(ImVec2(popupWidth, 0.0f), ImVec2(popupWidth, FLT_MAX));
 		}
 		ImRect const bounds(start, ImVec2(start.x + width, start.y + ImGui::GetFrameHeight()));
@@ -1168,6 +1402,405 @@ namespace Strada
 			return std::nullopt;
 		}
 		return chosen;
+	}
+
+	float FieldEditor::GetPickerWidth(AssetType type, float minWidth)
+	{
+		UpdatePickerAssets(type);
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const rowWidth = ImGui::GetTextLineHeight() + style.ItemInnerSpacing.x + m_PickerLabelWidth;
+		float const needed = rowWidth + style.FramePadding.x * 2.0f + style.WindowPadding.x * 2.0f + style.ScrollbarSize;
+		float const screen = ImGui::GetWindowViewport()->WorkSize.x - style.WindowPadding.x * 2.0f;
+		return std::max(1.0f, std::min(std::max({minWidth, ImGui::GetFontSize() * MinPickerWidthInFontSizes, needed}), screen));
+	}
+
+	std::optional<AssetHandle> FieldEditor::DrawAssetPickerPopup(char const* popupId, AssetType type, AssetHandle current, bool allowNone)
+	{
+		if (!ImGui::IsPopupOpen(ImGui::GetID(popupId), ImGuiPopupFlags_None))
+		{
+			return std::nullopt;
+		}
+		float const width = GetPickerWidth(type, 0.0f);
+		ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.0f), ImVec2(width, FLT_MAX));
+		std::optional<AssetHandle> chosen;
+		if (ImGui::BeginPopup(popupId))
+		{
+			if (ImGui::IsWindowAppearing())
+			{
+				m_AssetFilter.clear();
+			}
+			chosen = DrawAssetPicker(type, current, allowNone);
+			if (chosen)
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+		if (chosen && *chosen == current)
+		{
+			return std::nullopt;
+		}
+		return chosen;
+	}
+
+	bool FieldEditor::DrawInlineValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change,
+	                                  FieldInlineMode mode, bool* popupRequested)
+	{
+		PruneEulerStates();
+		if (mode == FieldInlineMode::Normal)
+		{
+			return DrawValue(field, value, mixed, change);
+		}
+		bool requested = false;
+		bool const changed = DrawCompactValue(field, value, mixed, change, requested);
+		if (requested && popupRequested != nullptr)
+		{
+			*popupRequested = true;
+		}
+		return changed;
+	}
+
+	bool FieldEditor::DrawCompactValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change,
+	                                   bool& popupRequested)
+	{
+		switch (field.Kind)
+		{
+			case FieldKind::Float:
+			case FieldKind::Double:
+			{
+				auto const [min, max] = GetBounds(field);
+				double number = value.is_number() ? value.get<double>() : 0.0;
+				if (field.Kind == FieldKind::Float)
+				{
+					float single = static_cast<float>(number);
+					if (!ImGui::DragFloat("##value", &single, GetDragSpeed(field), ToFloatBound(min), ToFloatBound(max), CompactFloatFormat,
+					                      ImGuiSliderFlags_AlwaysClamp))
+					{
+						return false;
+					}
+					change.Value = single;
+					return true;
+				}
+				if (!ImGui::DragScalar("##value", ImGuiDataType_Double, &number, GetDragSpeed(field), &min, &max, CompactFloatFormat,
+				                       ImGuiSliderFlags_AlwaysClamp))
+				{
+					return false;
+				}
+				change.Value = number;
+				return true;
+			}
+			case FieldKind::String:
+			{
+				// One line, as the canvas has room for.
+				std::string text = value.is_string() ? value.get<std::string>() : std::string();
+				if (!ImGui::InputText("##value", &text))
+				{
+					return false;
+				}
+				change.Value = std::move(text);
+				return true;
+			}
+			case FieldKind::UUID:
+				return DrawEntityReference(value, m_Scene, change, false);
+			case FieldKind::Asset:
+			{
+				AssetHandle const handle(ReadID(value));
+				popupRequested = DrawAssetReferenceBox(handle, mixed, ImGui::CalcItemWidth(), m_AssetPreviews, true) || popupRequested;
+				if (ImGui::BeginDragDropTarget())
+				{
+					std::optional<AssetType> const type = AssetTypeFromString(field.Hints.AssetTypeName);
+					std::span<AssetType const> const types =
+						type && *type != AssetType::None ? std::span<AssetType const>(&*type, 1) : std::span<AssetType const>();
+					AssetHandle const dropped = UI::AcceptAssetDrop(types);
+					ImGui::EndDragDropTarget();
+					if (dropped.IsValid() && (dropped != handle || mixed))
+					{
+						change.Value = dropped.ToString();
+						return true;
+					}
+				}
+				return false;
+			}
+			case FieldKind::Vec2:
+			case FieldKind::Vec3:
+			case FieldKind::Vec4:
+			{
+				int const size = GetVectorSize(field.Kind);
+				if (IsColor(field))
+				{
+					std::array<float, 4> const display = ToDisplayColor(value);
+					ImGuiColorEditFlags const flags =
+						ImGuiColorEditFlags_NoDragDrop | (size == 4 ? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
+					ImVec4 const color(display[0], display[1], display[2], size == 4 ? display[3] : 1.0f);
+					popupRequested = ImGui::ColorButton("##value", color, flags, ImVec2(ImGui::CalcItemWidth(), ImGui::GetFrameHeight())) ||
+					                 popupRequested;
+					return false;
+				}
+				std::array<float, 4> values = ReadFloats(value);
+				auto const [min, max] = GetBounds(field);
+				int changedComponent = -1;
+				if (!DrawComponentCells(values.data(), size, GetDragSpeed(field), ToFloatBound(min), ToFloatBound(max), CompactFloatFormat,
+				                        changedComponent))
+				{
+					return false;
+				}
+				change.Value = WriteFloats(values.data(), size);
+				change.Component = static_cast<uint32_t>(changedComponent);
+				return true;
+			}
+			case FieldKind::Quat:
+				return DrawQuaternion(value, change, FieldInlineMode::Compact);
+			case FieldKind::Enum:
+			{
+				popupRequested = DrawChoiceFrame(mixed ? std::string("--") : DescribeCompactText(field, value)) || popupRequested;
+				return false;
+			}
+			case FieldKind::Array:
+			{
+				// Lists are edited in Details, whose elements may open popups of their own.
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextDisabled("%zu items", value.is_array() ? value.size() : size_t(0));
+				return false;
+			}
+			case FieldKind::Bool:
+			case FieldKind::Int:
+			case FieldKind::UInt:
+			case FieldKind::BVec3:
+			case FieldKind::Struct:
+			case FieldKind::Custom:
+				break;
+		}
+		// Check boxes, integers ("%lld") and what has no widget open no popup in their normal form either.
+		return DrawValue(field, value, mixed, change);
+	}
+
+	std::string FieldEditor::DescribeCompactText(FieldDescriptor const& field, Json const& value)
+	{
+		if (field.Kind == FieldKind::Enum)
+		{
+			// The stored names, as the canvas chip shows them.
+			return field.IsFlags ? DescribeCompactFlags(field, value, false)
+			                     : std::string(value.is_string() ? value.get_ref<std::string const&>() : "");
+		}
+		if (field.Kind == FieldKind::Asset)
+		{
+			return DescribeCompactAsset(AssetHandle(ReadID(value)));
+		}
+		return {};
+	}
+
+	bool FieldEditor::DrawValuePopup(FieldDescriptor const& field, Json const& value, FieldChange& change)
+	{
+		PruneEulerStates();
+		ImGuiStyle const& style = ImGui::GetStyle();
+		if (field.Kind == FieldKind::Enum)
+		{
+			if (field.IsFlags)
+			{
+				return DrawFlagList(field, value, change);
+			}
+			return DrawEnumList(field, value.is_string() ? value.get<std::string>() : std::string(), GetEnumListWidth(field), change);
+		}
+		if (IsColor(field))
+		{
+			return EditColor(field, value, change,
+			                 [](float* display, int components)
+			                 {
+								 return components == 4 ? ImGui::ColorPicker4("##picker", display, GetColorFlags(components))
+				                                        : ImGui::ColorPicker3("##picker", display, GetColorFlags(components));
+							 });
+		}
+		if (field.Kind == FieldKind::Asset)
+		{
+			AssetType const type = AssetTypeFromString(field.Hints.AssetTypeName).value_or(AssetType::None);
+			AssetHandle const handle(ReadID(value));
+			if (ImGui::IsWindowAppearing())
+			{
+				m_AssetFilter.clear();
+			}
+			float const width = GetPickerWidth(type, 0.0f) - style.WindowPadding.x * 2.0f;
+			std::optional<AssetHandle> const picked = DrawAssetPicker(type, handle, true, width);
+			if (!picked)
+			{
+				return false;
+			}
+			ImGui::CloseCurrentPopup();
+			if (*picked == handle)
+			{
+				return false;
+			}
+			change.Value = picked->ToString();
+			return true;
+		}
+		// The others open no popup of their own: their normal widget, at a width of its own in a popup that fits its content.
+		ImGui::PushItemWidth(ImGui::GetFontSize() * MinEnumListWidthInFontSizes);
+		bool const changed = DrawValue(field, value, false, change);
+		ImGui::PopItemWidth();
+		return changed;
+	}
+
+	int FieldEditor::OnEnumFilterKey(ImGuiInputTextCallbackData* data)
+	{
+		FieldEditor* const editor = static_cast<FieldEditor*>(data->UserData);
+		if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory)
+		{
+			editor->m_EnumMove += data->EventKey == ImGuiKey_UpArrow ? -1 : 1;
+		}
+		else if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways)
+		{
+			PlaceCursorAtEnd(data, editor->m_PlaceFilterCursor);
+		}
+		return 0;
+	}
+
+	bool FieldEditor::DrawEnumList(FieldDescriptor const& field, std::string const& current, float width, FieldChange& change)
+	{
+		std::optional<std::string_view> picked;
+		bool const appearing = ImGui::IsWindowAppearing();
+		if (field.EnumValues.size() <= MaxUnfilteredEnumerators)
+		{
+			for (std::string_view const name : field.EnumValues)
+			{
+				bool const selected = name == current;
+				if (ImGui::Selectable(UI::FormatDisplayName(name).c_str(), selected, ImGuiSelectableFlags_None, ImVec2(width, 0.0f)))
+				{
+					picked = name;
+				}
+				if (selected)
+				{
+					ImGui::SetItemDefaultFocus();
+				}
+			}
+		}
+		else
+		{
+			// ImGui's typing-select is internal and combos do not use it: the filter is the editor's own.
+			// The filter is asked for the keyboard until it has it (a popup's first frame is laid out hidden, and may not
+			// take it), and never while it has it.
+			if (appearing)
+			{
+				m_EnumFilter.clear();
+				m_FocusEnumFilter = true;
+			}
+			bool typed = false;
+			if (m_FocusEnumFilter && ImGui::GetActiveID() != ImGui::GetID("##filter"))
+			{
+				typed = TakeTypedCharacters(m_EnumFilter);
+				m_PlaceFilterCursor = true;
+				ImGui::SetKeyboardFocusHere();
+			}
+			ImGui::SetNextItemWidth(width > 0.0f ? width : -FLT_MIN);
+			m_EnumMove = 0;
+			bool confirmed = ImGui::InputTextWithHint("##filter", "Search", &m_EnumFilter,
+			                                          ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory |
+			                                              ImGuiInputTextFlags_CallbackAlways,
+			                                          &FieldEditor::OnEnumFilterKey, this);
+			bool const edited = ImGui::IsItemEdited() || typed;
+			if (ImGui::IsItemActive())
+			{
+				m_FocusEnumFilter = false;
+				confirmed = confirmed || IsEnterPressed();
+			}
+			ImGui::Separator();
+
+			// Exact names first, then those starting with the filter, then those holding it, each in declaration order.
+			std::string const filter = Trim(m_EnumFilter);
+			std::vector<std::pair<int, size_t>> matches;
+			matches.reserve(field.EnumValues.size());
+			for (size_t i = 0; i < field.EnumValues.size(); i++)
+			{
+				if (filter.empty())
+				{
+					matches.emplace_back(0, i);
+				}
+				else if (std::optional<int> const rank =
+				             RankEnumerator(std::string(field.EnumValues[i]), UI::FormatDisplayName(field.EnumValues[i]), filter))
+				{
+					matches.emplace_back(*rank, i);
+				}
+			}
+			std::stable_sort(matches.begin(), matches.end(),
+			                 [](auto const& a, auto const& b)
+			                 {
+								 return a.first < b.first;
+							 });
+
+			int const rowCount = static_cast<int>(matches.size());
+			if (appearing)
+			{
+				auto const currentMatch = std::find_if(matches.begin(), matches.end(),
+				                                       [&field, &current](auto const& match)
+				                                       {
+														   return field.EnumValues[match.second] == current;
+													   });
+				m_EnumHighlight = currentMatch != matches.end() ? static_cast<int>(currentMatch - matches.begin()) : 0;
+			}
+			else if (edited)
+			{
+				m_EnumHighlight = 0;
+			}
+			m_EnumHighlight = std::clamp(m_EnumHighlight + m_EnumMove, 0, std::max(rowCount - 1, 0));
+			bool const scroll = (appearing || edited || m_EnumMove != 0) && rowCount > 0;
+
+			// Enter takes the keyboard's row; without a row it ends the text input, so the filter gets the keyboard back.
+			if (confirmed && rowCount > 0)
+			{
+				picked = field.EnumValues[matches[static_cast<size_t>(m_EnumHighlight)].second];
+			}
+			else if (confirmed)
+			{
+				m_FocusEnumFilter = true;
+			}
+
+			float const rowHeight = ImGui::GetTextLineHeightWithSpacing();
+			size_t const shownRows = std::clamp<size_t>(matches.size(), 1, MaxPickerRows);
+			ImGui::BeginChild("##enumerators", ImVec2(width, rowHeight * static_cast<float>(shownRows)), ImGuiChildFlags_None,
+			                  ImGuiWindowFlags_NoNavInputs);
+			ImGuiListClipper clipper;
+			clipper.Begin(rowCount, rowHeight);
+			if (scroll)
+			{
+				clipper.IncludeItemByIndex(m_EnumHighlight);
+			}
+			while (clipper.Step())
+			{
+				for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
+				{
+					std::string_view const name = field.EnumValues[matches[static_cast<size_t>(row)].second];
+					bool const highlighted = row == m_EnumHighlight;
+					ImGui::PushID(row);
+					if (ImGui::Selectable(UI::FormatDisplayName(name).c_str(), highlighted))
+					{
+						picked = name;
+					}
+					ImGui::PopID();
+					if (highlighted && scroll)
+					{
+						if (appearing)
+						{
+							ImGui::SetScrollHereY();
+						}
+						else
+						{
+							ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleEdgeY);
+						}
+					}
+				}
+			}
+			if (rowCount == 0)
+			{
+				ImGui::TextDisabled("No values match");
+			}
+			ImGui::EndChild();
+		}
+		if (!picked)
+		{
+			return false;
+		}
+		change.Value = std::string(*picked);
+		// The rows of a filtered list are in a child window, whose selectables do not close the popup they are in.
+		ImGui::CloseCurrentPopup();
+		return true;
 	}
 
 	void FieldEditor::UpdatePickerAssets(AssetType type)
@@ -1197,26 +1830,44 @@ namespace Strada
 
 	int FieldEditor::OnPickerSearchKey(ImGuiInputTextCallbackData* data)
 	{
+		FieldEditor* const editor = static_cast<FieldEditor*>(data->UserData);
 		if (data->EventFlag == ImGuiInputTextFlags_CallbackHistory)
 		{
-			static_cast<FieldEditor*>(data->UserData)->m_PickerMove += data->EventKey == ImGuiKey_UpArrow ? -1 : 1;
+			editor->m_PickerMove += data->EventKey == ImGuiKey_UpArrow ? -1 : 1;
+		}
+		else if (data->EventFlag == ImGuiInputTextFlags_CallbackAlways)
+		{
+			PlaceCursorAtEnd(data, editor->m_PlaceFilterCursor);
 		}
 		return 0;
 	}
 
-	std::optional<AssetHandle> FieldEditor::DrawAssetPicker(AssetType type, AssetHandle current, bool allowNone)
+	std::optional<AssetHandle> FieldEditor::DrawAssetPicker(AssetType type, AssetHandle current, bool allowNone, float width)
 	{
+		// The search field is asked for the keyboard until it has it (a popup's first frame is laid out hidden, and may not
+		// take it), and never while it has it.
 		bool const appearing = ImGui::IsWindowAppearing();
-		if (appearing || m_FocusAssetSearch)
+		if (appearing)
 		{
-			ImGui::SetKeyboardFocusHere();
-			m_FocusAssetSearch = false;
+			m_FocusAssetSearch = true;
 		}
-		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (m_FocusAssetSearch && ImGui::GetActiveID() != ImGui::GetID("##search"))
+		{
+			TakeTypedCharacters(m_AssetFilter);
+			m_PlaceFilterCursor = true;
+			ImGui::SetKeyboardFocusHere();
+		}
+		ImGui::SetNextItemWidth(width > 0.0f ? width : -FLT_MIN);
 		m_PickerMove = 0;
-		bool const confirmed = ImGui::InputTextWithHint("##search", "Search", &m_AssetFilter,
-		                                                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory,
-		                                                &FieldEditor::OnPickerSearchKey, this);
+		bool confirmed = ImGui::InputTextWithHint("##search", "Search", &m_AssetFilter,
+		                                          ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackHistory |
+		                                              ImGuiInputTextFlags_CallbackAlways,
+		                                          &FieldEditor::OnPickerSearchKey, this);
+		if (ImGui::IsItemActive())
+		{
+			m_FocusAssetSearch = false;
+			confirmed = confirmed || IsEnterPressed();
+		}
 		ImGui::Separator();
 		UpdatePickerAssets(type);
 
@@ -1282,7 +1933,7 @@ namespace Strada
 		// is drawn when the list scrolls to it (centered when the picker opens).
 		float const rowHeight = ImGui::GetTextLineHeightWithSpacing();
 		size_t const shownRows = std::clamp<size_t>(static_cast<size_t>(rowCount), 1, MaxPickerRows);
-		ImGui::BeginChild("##assets", ImVec2(0.0f, rowHeight * static_cast<float>(shownRows)), ImGuiChildFlags_None,
+		ImGui::BeginChild("##assets", ImVec2(width, rowHeight * static_cast<float>(shownRows)), ImGuiChildFlags_None,
 		                  ImGuiWindowFlags_NoNavInputs);
 		bool const scroll = (appearing || m_ScrollToPickerHighlight) && rowCount > 0;
 		m_ScrollToPickerHighlight = false;

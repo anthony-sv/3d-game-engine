@@ -89,6 +89,18 @@ namespace Strada
 		// names: 1 to MaxNameBytes of UTF-8 without control characters or '.', and no leading or trailing space. The loader
 		// drops what is named otherwise; it also requires names to be unique in their scope, which this does not check.
 		[[nodiscard]] static bool IsValidName(std::string_view name);
+		// Whether a text has the shape the format requires of types, node types, pin names and the names of Settings and Inputs
+		// members: 1 to maxBytes (MaxTypeBytes, MaxNodeTypeBytes, MaxPinNameBytes) of UTF-8 without control characters.
+		// Parsed JSON always holds UTF-8; documents built in memory may not.
+		[[nodiscard]] static bool IsValidText(std::string_view text, size_t maxBytes);
+		// Whether a text is a pin path as Split lists and links and literals name pins: a pin name ("Hit") or the path of a
+		// field pin ("Hit.Point"), IsValidText within MaxPinNameBytes, of '.'-separated parts none of which is empty.
+		[[nodiscard]] static bool IsValidPinPath(std::string_view path);
+		// Whether a value of a variable, a setting or an input literal saves and loads back as it is: nested at most
+		// MaxValueDepth levels deep (the value itself is one), with finite numbers, and strings and member names of at most
+		// MaxTextBytes of UTF-8. Parsed JSON always has UTF-8 and finite numbers; values built in memory may not (a NaN or an
+		// infinity would be written as null).
+		[[nodiscard]] static bool IsValidValue(Json const& value);
 
 		// A float as documents store it: a finite number of magnitude at most MaxFloatMagnitude, as the nearest float.
 		// Nothing for anything else.

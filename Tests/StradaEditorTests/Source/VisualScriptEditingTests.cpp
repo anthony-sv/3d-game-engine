@@ -820,6 +820,133 @@ TEST_CASE("VisualScriptEditing: deleting keeps the flow through nodes with one e
 	}
 }
 
+TEST_CASE("VisualScriptEditing: removing a variable, a local or a function with its nodes keeps the flow as deleting the nodes does")
+{
+	Scope<VisualScriptLibrary> const library = ParseLibrary();
+	VisualScriptDocument document;
+	document.Variables = {MakeVariable(100, "Speed", "float"), MakeVariable(101, "Score", "int")};
+	VisualScriptFunction addScore = MakeFunction(200, "AddScore");
+	addScore.Locals.push_back({201, "Total", "int", Json()});
+	addScore.Graph.Nodes = {MakeNode(202, "Function.Entry"), MakeNode(203, "Variable.Set", glm::vec2(300.0f, 0.0f), {{"Variable", 201}}),
+	                        MakeNode(204, "Variable.Get", glm::vec2(0.0f, 200.0f), {{"Variable", 201}}),
+	                        MakeNode(205, "Function.Return", glm::vec2(600.0f, 0.0f))};
+	addScore.Graph.Links = {MakeLink(202, "Then", 203, "Execute"), MakeLink(203, "Then", 205, "Execute"),
+	                        MakeLink(204, "Value", 203, "Value")};
+	document.Functions.push_back(addScore);
+	VisualScriptGraph& graph = document.Graph;
+	// Update → Set Speed → Move, the Set fed by a pure Get; Create → AddScore → Log.
+	graph.Nodes = {MakeNode(1, "Event.Update"),
+	               MakeNode(2, "Variable.Set", glm::vec2(300.0f, 0.0f), {{"Variable", 100}}),
+	               MakeNode(3, "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)", glm::vec2(600.0f, 0.0f)),
+	               MakeNode(4, "Variable.Get", glm::vec2(0.0f, 200.0f), {{"Variable", 100}}),
+	               MakeNode(5, "Event.Create", glm::vec2(0.0f, 400.0f)),
+	               MakeNode(6, "Function.Call", glm::vec2(300.0f, 400.0f), {{"Function", 200}}),
+	               MakeNode(7, "Call:Strada.Log.Info(string)", glm::vec2(600.0f, 400.0f)),
+	               MakeNode(8, "Variable.Get", glm::vec2(0.0f, 600.0f), {{"Variable", 101}})};
+	graph.Links = {MakeLink(1, "Then", 2, "Execute"), MakeLink(2, "Then", 3, "Execute"), MakeLink(4, "Value", 2, "Value"),
+	               MakeLink(5, "Then", 6, "Execute"), MakeLink(6, "Then", 7, "Execute")};
+	VisualScriptNodePins const pins = MakePins(*library, document);
+
+	SUBCASE("a Set in a chain is passed over, and pure Gets go with their data links")
+	{
+		CHECK(RequireOk(VisualScriptEditing::RemoveVariable(document, 100, true, &pins)) == 2);
+		CHECK_FALSE(HasNode(graph, 2));
+		CHECK_FALSE(HasNode(graph, 4));
+		CHECK(graph.Links.size() == 3);
+		CHECK(HasLink(graph, MakeLink(1, "Then", 3, "Execute")));
+		CHECK(HasLink(graph, MakeLink(5, "Then", 6, "Execute")));
+		CHECK(HasLink(graph, MakeLink(6, "Then", 7, "Execute")));
+		CheckDocument(document);
+	}
+
+	SUBCASE("only pure Gets: nothing to bridge")
+	{
+		CHECK(RequireOk(VisualScriptEditing::RemoveVariable(document, 101, true, &pins)) == 1);
+		CHECK_FALSE(HasNode(graph, 8));
+		CHECK(graph.Links.size() == 5);
+		CheckDocument(document);
+	}
+
+	SUBCASE("a local's Set in its function's chain is passed over")
+	{
+		CHECK(RequireOk(VisualScriptEditing::RemoveLocal(document, 200, 201, true, &pins)) == 2);
+		VisualScriptGraph const& own = document.Functions[0].Graph;
+		CHECK(own.Nodes.size() == 2);
+		CHECK(own.Links == std::vector<VisualScriptLink>{MakeLink(202, "Then", 205, "Execute")});
+		CheckDocument(document);
+	}
+
+	SUBCASE("an impure call in a chain is passed over")
+	{
+		CHECK(RequireOk(VisualScriptEditing::RemoveFunction(document, 200, true, &pins)) == 1);
+		CHECK(document.Functions.empty());
+		CHECK_FALSE(HasNode(graph, 6));
+		CHECK(HasLink(graph, MakeLink(5, "Then", 7, "Execute")));
+		CheckDocument(document);
+	}
+
+	SUBCASE("without pins (no scripting runtime) only reroutes bridge, so the flow stops where a node went")
+	{
+		CHECK(RequireOk(VisualScriptEditing::RemoveVariable(document, 100, true, nullptr)) == 2);
+		CHECK_FALSE(HasLink(graph, MakeLink(1, "Then", 3, "Execute")));
+		CHECK(RequireOk(VisualScriptEditing::RemoveFunction(document, 200, true, nullptr)) == 1);
+		CHECK(graph.Links.empty());
+		CheckDocument(document);
+	}
+}
+
+TEST_CASE("VisualScriptEditing: values that would not save and load back as they are are refused")
+{
+	double const nan = std::numeric_limits<double>::quiet_NaN();
+	double const infinity = std::numeric_limits<double>::infinity();
+	std::string const invalidUtf8 = "\xC3\x28";
+	VisualScriptDocument document;
+	document.Variables = {MakeVariable(1, "Speed", "float", 1.0)};
+	VisualScriptFunction function = MakeFunction(2, "AddScore");
+	function.Locals.push_back({3, "Total", "int", Json()});
+	document.Functions.push_back(function);
+	document.Graph.Nodes = {MakeNode(4, "Call:Strada.Log.Info(string)"), MakeNode(5, "Literal", glm::vec2(0.0f), {{"Type", "float"}})};
+
+	for (Json const& refused :
+	     {Json(nan), Json(infinity), Json(-infinity), Json::array({1.0, nan}), Json(invalidUtf8), Json::object({{invalidUtf8, 1}})})
+	{
+		CAPTURE(refused.dump(-1, ' ', false, Json::error_handler_t::replace));
+		CheckRefused(
+			document,
+			[&refused](VisualScriptDocument& edited)
+			{
+				return VisualScriptEditing::SetSetting(edited, 5, "Value", refused);
+			},
+			"the setting Value must nest");
+		CheckRefused(
+			document,
+			[&refused](VisualScriptDocument& edited)
+			{
+				return VisualScriptEditing::SetInput(edited, 4, "Message", refused);
+			},
+			"a literal must nest");
+		VisualScriptVariable variable = document.Variables[0];
+		variable.Value = refused;
+		CheckRefused(
+			document,
+			[&variable](VisualScriptDocument& edited)
+			{
+				return VisualScriptEditing::SetVariable(edited, 1, variable);
+			},
+			"a variable's value must nest");
+		VisualScriptLocal local = document.Functions[0].Locals[0];
+		local.Value = refused;
+		CheckRefused(
+			document,
+			[&local](VisualScriptDocument& edited)
+			{
+				return VisualScriptEditing::SetLocal(edited, 2, 3, local);
+			},
+			"must nest");
+	}
+	CheckDocument(document);
+}
+
 TEST_CASE("VisualScriptEditing: moving and placing keep nodes and comments within the format's coordinates")
 {
 	VisualScriptDocument document;
@@ -1577,18 +1704,18 @@ TEST_CASE("VisualScriptEditing: variables are added, changed, removed, reordered
 
 	SUBCASE("removing takes the nodes that name a variable from every graph, when asked")
 	{
-		CHECK(RequireOk(VisualScriptEditing::RemoveVariable(document, 1, true)) == 3);
+		CHECK(RequireOk(VisualScriptEditing::RemoveVariable(document, 1, true, nullptr)) == 3);
 		CHECK(document.Variables.size() == 1);
 		CHECK(graph.Nodes.size() == 2);
 		CHECK(graph.Links.empty());
 		CHECK(document.Functions[0].Graph.Nodes.size() == 2);
-		CHECK(RequireOk(VisualScriptEditing::RemoveVariable(document, 2, false)) == 0);
+		CHECK(RequireOk(VisualScriptEditing::RemoveVariable(document, 2, false, nullptr)) == 0);
 		CHECK(HasNode(graph, 22));
 		CheckRefused(
 			document,
 			[](VisualScriptDocument& edited)
 			{
-				return VisualScriptEditing::RemoveVariable(edited, 2, true);
+				return VisualScriptEditing::RemoveVariable(edited, 2, true, nullptr);
 			},
 			"the document has no variable 2");
 	}
@@ -1671,16 +1798,16 @@ TEST_CASE("VisualScriptEditing: locals are added, changed and removed within the
 	CheckRefused(document, set(11, "Speed"), "a variable is named Speed");
 	CheckRefused(document, set(99, "Sum"), "AddScore has no local 99");
 
-	CHECK(RequireOk(VisualScriptEditing::RemoveLocal(document, 10, 11, true)) == 1);
+	CHECK(RequireOk(VisualScriptEditing::RemoveLocal(document, 10, 11, true, nullptr)) == 1);
 	CHECK_FALSE(HasNode(document.Functions[0].Graph, 13));
 	CHECK(HasNode(document.Functions[0].Graph, 14));
-	CHECK(RequireOk(VisualScriptEditing::RemoveLocal(document, 20, 23, false)) == 0);
+	CHECK(RequireOk(VisualScriptEditing::RemoveLocal(document, 20, 23, false, nullptr)) == 0);
 	CheckDocument(document);
 	CheckRefused(
 		document,
 		[](VisualScriptDocument& edited)
 		{
-			return VisualScriptEditing::RemoveLocal(edited, 10, 11, true);
+			return VisualScriptEditing::RemoveLocal(edited, 10, 11, true, nullptr);
 		},
 		"AddScore has no local 11");
 }
@@ -1812,18 +1939,18 @@ TEST_CASE("VisualScriptEditing: a function's signature and purity rewrite its pi
 	SUBCASE("removing a function takes its calls when asked")
 	{
 		VisualScriptDocument keepingCalls = document;
-		CHECK(RequireOk(VisualScriptEditing::RemoveFunction(document, 6, true)) == 1);
+		CHECK(RequireOk(VisualScriptEditing::RemoveFunction(document, 6, true, nullptr)) == 1);
 		CHECK(document.Functions.empty());
 		CHECK_FALSE(HasNode(graph, 13));
 		CHECK(graph.Links.empty());
 		CheckDocument(document);
-		CHECK(RequireOk(VisualScriptEditing::RemoveFunction(keepingCalls, 6, false)) == 0);
+		CHECK(RequireOk(VisualScriptEditing::RemoveFunction(keepingCalls, 6, false, nullptr)) == 0);
 		CHECK(HasNode(keepingCalls.Graph, 13));
 		CheckRefused(
 			document,
 			[](VisualScriptDocument& edited)
 			{
-				return VisualScriptEditing::RemoveFunction(edited, 6, true);
+				return VisualScriptEditing::RemoveFunction(edited, 6, true, nullptr);
 			},
 			"the document has no function 6");
 	}

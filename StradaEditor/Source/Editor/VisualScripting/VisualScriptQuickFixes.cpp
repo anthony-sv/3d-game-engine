@@ -596,7 +596,7 @@ namespace Strada
 					{
 						return found;
 					}
-					if (!VisualScriptEditing::IsValidVisualScriptText(fix.Argument, Format::MaxNodeTypeBytes))
+					if (!VisualScriptSerializer::IsValidText(fix.Argument, Format::MaxNodeTypeBytes))
 					{
 						return MakeError("a node type is 1 to {} bytes of text", Format::MaxNodeTypeBytes);
 					}
@@ -626,7 +626,7 @@ namespace Strada
 					{
 						return found;
 					}
-					if (!VisualScriptEditing::IsValidVisualScriptPinPath(fix.Argument))
+					if (!VisualScriptSerializer::IsValidPinPath(fix.Argument))
 					{
 						return MakeError("a pin name is 1 to {} bytes of text", Format::MaxPinNameBytes);
 					}
@@ -682,7 +682,7 @@ namespace Strada
 						return found;
 					}
 					Json& settings = place.NodeOf->Settings;
-					if (!VisualScriptEditing::IsValidVisualScriptText(fix.Argument, Format::MaxPinNameBytes))
+					if (!VisualScriptSerializer::IsValidText(fix.Argument, Format::MaxPinNameBytes))
 					{
 						return MakeError("a setting name is 1 to {} bytes of text", Format::MaxPinNameBytes);
 					}
@@ -752,7 +752,7 @@ namespace Strada
 					{
 						return Error{"the link is gone"};
 					}
-					if (!VisualScriptEditing::IsValidVisualScriptText(fix.Argument, Format::MaxTypeBytes))
+					if (!VisualScriptSerializer::IsValidText(fix.Argument, Format::MaxTypeBytes))
 					{
 						return MakeError("a type is 1 to {} bytes of text", Format::MaxTypeBytes);
 					}
@@ -855,7 +855,7 @@ namespace Strada
 				}
 				case VisualScriptFixKind::UseType:
 				{
-					if (!VisualScriptEditing::IsValidVisualScriptText(fix.Argument, Format::MaxTypeBytes))
+					if (!VisualScriptSerializer::IsValidText(fix.Argument, Format::MaxTypeBytes))
 					{
 						return MakeError("a type is 1 to {} bytes of text", Format::MaxTypeBytes);
 					}
@@ -1424,11 +1424,11 @@ namespace Strada
 			}
 			bool const output = *diagnostic.Direction == VisualScriptPinDirection::Out;
 			std::vector<std::string> const& split = output ? node->Split.Outputs : node->Split.Inputs;
-			// The path as the document stores it: a redirect may have renamed the pin it starts with.
-			std::string const path = VisualScriptEditing::ToStoredVisualScriptPin(analyzed, *diagnostic.Direction, diagnostic.Pin);
-			if (std::find(split.begin(), split.end(), path) != split.end())
+			// The analysis names the entry exactly as the Split list stores it, also when a redirect renamed the pin it starts
+			// with: mapping it through the renames would pick another entry when one equals a renamed pin's new name.
+			if (std::find(split.begin(), split.end(), diagnostic.Pin) != split.end())
 			{
-				fixes.push_back(MakeFix("Remove Split", VisualScriptFixKind::RemoveSplit, nodeID, path));
+				fixes.push_back(MakeFix("Remove Split", VisualScriptFixKind::RemoveSplit, nodeID, diagnostic.Pin));
 			}
 		}
 		else if (code == "DisabledIgnored")

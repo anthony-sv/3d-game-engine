@@ -78,23 +78,6 @@ namespace Strada
 			                 Quote(name), Format::MaxNameBytes);
 		}
 
-		bool HasControlCharacters(std::string_view text)
-		{
-			return std::any_of(text.begin(), text.end(),
-			                   [](char character)
-			                   {
-								   auto const code = static_cast<unsigned char>(character);
-								   return code < 0x20 || code == 0x7F;
-							   });
-		}
-
-		// Types, pin names and the names of Settings and Inputs members: 1 to maxBytes of UTF-8 without control characters, as
-		// the format requires of them.
-		bool IsValidText(std::string_view text, size_t maxBytes)
-		{
-			return !text.empty() && text.size() <= maxBytes && !HasControlCharacters(text) && Utf8::IsValid(text);
-		}
-
 		// Descriptions, tooltips and the texts of comments and nodes: at most MaxTextBytes of UTF-8 (lines allowed).
 		bool IsValidLongText(std::string_view text)
 		{
@@ -106,51 +89,6 @@ namespace Strada
 			return MakeError("{} must be UTF-8 of at most {} bytes", what, Format::MaxTextBytes);
 		}
 
-		// The entries of Split: pin and field names separated by '.', none of them empty.
-		bool IsValidPinPath(std::string_view path)
-		{
-			return IsValidText(path, Format::MaxPinNameBytes) && path.front() != '.' && path.back() != '.' &&
-			       path.find("..") == std::string_view::npos;
-		}
-
-		// A value as variables, Settings and Inputs store it that saves and loads back as it is: nested at most MaxValueDepth
-		// levels (the value itself is one), strings and member names of at most MaxTextBytes of UTF-8, and finite numbers.
-		bool IsValidValue(Json const& value, size_t depth = 1)
-		{
-			if (depth > Format::MaxValueDepth)
-			{
-				return false;
-			}
-			if (value.is_string())
-			{
-				return IsValidLongText(value.get_ref<std::string const&>());
-			}
-			if (value.is_number_float())
-			{
-				return std::isfinite(value.get<double>());
-			}
-			if (value.is_object())
-			{
-				for (auto const& item : value.items())
-				{
-					if (!IsValidLongText(item.key()) || !IsValidValue(item.value(), depth + 1))
-					{
-						return false;
-					}
-				}
-				return true;
-			}
-			if (value.is_array())
-			{
-				return std::all_of(value.begin(), value.end(),
-				                   [depth](Json const& element)
-				                   {
-									   return IsValidValue(element, depth + 1);
-								   });
-			}
-			return value.is_null() || value.is_boolean() || value.is_number();
-		}
-
 		Error MakeValueError(std::string_view what)
 		{
 			return MakeError("{} must nest at most {} levels deep, with finite numbers and strings of at most {} bytes of UTF-8", what,
@@ -160,7 +98,7 @@ namespace Strada
 		// The types of variables, locals and parameters: what the format accepts as a type, and a type with values.
 		Result<void> CheckValueType(std::string_view type, std::string_view what)
 		{
-			if (!IsValidText(type, Format::MaxTypeBytes))
+			if (!Format::IsValidText(type, Format::MaxTypeBytes))
 			{
 				return MakeError("{}: expected a type of 1 to {} bytes without control characters", Quote(type), Format::MaxTypeBytes);
 			}
@@ -584,7 +522,7 @@ namespace Strada
 			{
 				return MakeError("{} means the entity running the graph while nothing is linked to it: no value stands for that", pin.Name);
 			}
-			if (!IsValidValue(pin.Default))
+			if (!Format::IsValidValue(pin.Default))
 			{
 				return MakeValueError(fmt::format("the default of {}", pin.Name));
 			}
@@ -645,7 +583,7 @@ namespace Strada
 			// A split pin itself is no pin of the node: its fields are.
 			std::vector<VisualScriptNodePin> const fromPins = GetPinRow(pins, from->ID);
 			VisualScriptNodePin const* const output = FindPin(fromPins, link.From.Pin, VisualScriptPinDirection::Out);
-			if (output == nullptr || !IsValidText(link.From.Pin, Format::MaxPinNameBytes) ||
+			if (output == nullptr || !Format::IsValidText(link.From.Pin, Format::MaxPinNameBytes) ||
 			    AddressesUnsplitField(*from, link.From.Pin, VisualScriptPinDirection::Out) ||
 			    IsSplit(*from, link.From.Pin, VisualScriptPinDirection::Out))
 			{
@@ -653,7 +591,7 @@ namespace Strada
 			}
 			std::vector<VisualScriptNodePin> const toPins = GetPinRow(pins, to->ID);
 			VisualScriptNodePin const* const input = FindPin(toPins, link.To.Pin, VisualScriptPinDirection::In);
-			if (input == nullptr || !IsValidText(link.To.Pin, Format::MaxPinNameBytes) ||
+			if (input == nullptr || !Format::IsValidText(link.To.Pin, Format::MaxPinNameBytes) ||
 			    AddressesUnsplitField(*to, link.To.Pin, VisualScriptPinDirection::In) ||
 			    IsSplit(*to, link.To.Pin, VisualScriptPinDirection::In))
 			{
@@ -681,33 +619,57 @@ namespace Strada
 			return replaced;
 		}
 
-		// Removes the nodes a predicate picks from a graph, with their links. Returns how many it removed.
-		template<typename TPredicate>
-		uint32_t RemoveNodesIf(VisualScriptGraph& graph, TPredicate const& predicate)
+		// A Variable.Get or Variable.Set of the variable or local.
+		bool IsVariableNode(VisualScriptNode const& node, uint32_t id)
 		{
-			std::unordered_set<uint32_t> removed;
-			for (VisualScriptNode const& node : graph.Nodes)
+			return (node.Type == GetVariableType || node.Type == SetVariableType) && NamesID(node.Settings, VariableSetting, id);
+		}
+
+		// Removes the nodes a predicate picks from the graphs of the document (every graph, or only the function's: 0 for the
+		// event graph), graph by graph as deleting them on the canvas does (VisualScriptEditing::RemoveElements with bridging),
+		// so the flow through a removed node with one exec input and one exec output goes on to what followed it. Returns how
+		// many nodes it removed.
+		template<typename TPredicate>
+		Result<uint32_t> RemoveNodesBridged(VisualScriptDocument& document, std::optional<uint32_t> onlyFunction,
+		                                    VisualScriptNodePins const* pins, TPredicate const& predicate)
+		{
+			std::vector<std::pair<uint32_t, std::vector<uint32_t>>> picked;
+			auto const pick = [&picked, &predicate, onlyFunction](uint32_t function, VisualScriptGraph const& graph)
 			{
-				if (predicate(node))
+				if (onlyFunction && *onlyFunction != function)
 				{
-					removed.insert(node.ID);
+					return;
 				}
-			}
-			if (removed.empty())
+				std::vector<uint32_t> nodes;
+				for (VisualScriptNode const& node : graph.Nodes)
+				{
+					if (predicate(node))
+					{
+						nodes.push_back(node.ID);
+					}
+				}
+				if (!nodes.empty())
+				{
+					picked.emplace_back(function, std::move(nodes));
+				}
+			};
+			for (VisualScriptFunction const& function : document.Functions)
 			{
-				return 0;
+				pick(function.ID, function.Graph);
 			}
-			std::erase_if(graph.Links,
-			              [&removed](VisualScriptLink const& link)
-			              {
-							  return removed.contains(link.From.Node) || removed.contains(link.To.Node);
-						  });
-			std::erase_if(graph.Nodes,
-			              [&removed](VisualScriptNode const& node)
-			              {
-							  return removed.contains(node.ID);
-						  });
-			return static_cast<uint32_t>(removed.size());
+			pick(0, document.Graph);
+
+			uint32_t removed = 0;
+			for (auto const& [function, nodes] : picked)
+			{
+				Result<VisualScriptRemoval> const removal = VisualScriptEditing::RemoveElements(document, function, nodes, pins, true);
+				if (!removal)
+				{
+					return Error{removal.GetError()};
+				}
+				removed += removal.GetValue().Nodes;
+			}
+			return removed;
 		}
 
 		// Bridging removed nodes (RemoveElements).
@@ -996,7 +958,7 @@ namespace Strada
 		CaseKind GetCaseKind(VisualScriptNode const& node)
 		{
 			std::string const* const type = FindStringSetting(node, TypeSetting);
-			if (type == nullptr || !IsValidText(*type, Format::MaxTypeBytes))
+			if (type == nullptr || !Format::IsValidText(*type, Format::MaxTypeBytes))
 			{
 				return CaseKind::Any;
 			}
@@ -1007,7 +969,7 @@ namespace Strada
 		bool SwitchesOnEnum(VisualScriptNode const& node)
 		{
 			std::string const* const type = FindStringSetting(node, TypeSetting);
-			return type != nullptr && IsValidText(*type, Format::MaxTypeBytes) && *type != "int" && *type != "string";
+			return type != nullptr && Format::IsValidText(*type, Format::MaxTypeBytes) && *type != "int" && *type != "string";
 		}
 
 		// The output pin of a case value: "Case:" and an integer in decimal or a string as it is; nothing for other values.
@@ -1631,16 +1593,6 @@ namespace Strada
 			return std::find(ReservedPinNames.begin(), ReservedPinNames.end(), name) != ReservedPinNames.end();
 		}
 
-		bool IsValidVisualScriptText(std::string_view text, size_t maxBytes)
-		{
-			return IsValidText(text, maxBytes);
-		}
-
-		bool IsValidVisualScriptPinPath(std::string_view path)
-		{
-			return IsValidPinPath(path);
-		}
-
 		std::string ToStoredVisualScriptPin(VisualScriptAnalyzedNode const* analyzed, VisualScriptPinDirection direction,
 		                                    std::string_view name)
 		{
@@ -1711,7 +1663,7 @@ namespace Strada
 				return Error{found.GetError()};
 			}
 			VisualScriptGraph& graph = *found.GetValue();
-			if (!IsValidText(type, Format::MaxNodeTypeBytes))
+			if (!Format::IsValidText(type, Format::MaxNodeTypeBytes))
 			{
 				return MakeError("{}: expected a node type of 1 to {} bytes without control characters", Quote(type),
 				                 Format::MaxNodeTypeBytes);
@@ -1726,12 +1678,12 @@ namespace Strada
 			}
 			for (auto const& [name, value] : settings.items())
 			{
-				if (!IsValidText(name, Format::MaxPinNameBytes))
+				if (!Format::IsValidText(name, Format::MaxPinNameBytes))
 				{
 					return MakeError("{}: expected a setting name of 1 to {} bytes without control characters", Quote(name),
 					                 Format::MaxPinNameBytes);
 				}
-				if (!IsValidValue(value))
+				if (!Format::IsValidValue(value))
 				{
 					return MakeValueError(fmt::format("the setting {}", name));
 				}
@@ -2155,7 +2107,7 @@ namespace Strada
 			{
 				return members;
 			}
-			if (!IsValidText(pin, Format::MaxPinNameBytes))
+			if (!Format::IsValidText(pin, Format::MaxPinNameBytes))
 			{
 				return MakeError("{}: expected a pin name of 1 to {} bytes without control characters", Quote(pin),
 				                 Format::MaxPinNameBytes);
@@ -2173,7 +2125,7 @@ namespace Strada
 			{
 				return MakeError("node {} splits its input {}: its fields take its literals", node, pin);
 			}
-			if (!IsValidValue(literal))
+			if (!Format::IsValidValue(literal))
 			{
 				return MakeValueError("a literal");
 			}
@@ -2197,7 +2149,7 @@ namespace Strada
 			{
 				return members;
 			}
-			if (!IsValidText(name, Format::MaxPinNameBytes))
+			if (!Format::IsValidText(name, Format::MaxPinNameBytes))
 			{
 				return MakeError("{}: expected a setting name of 1 to {} bytes without control characters", Quote(name),
 				                 Format::MaxPinNameBytes);
@@ -2216,7 +2168,7 @@ namespace Strada
 				target.Settings.erase(name);
 				return {};
 			}
-			if (!IsValidValue(value))
+			if (!Format::IsValidValue(value))
 			{
 				return MakeValueError(fmt::format("the setting {}", name));
 			}
@@ -2360,7 +2312,7 @@ namespace Strada
 						                                                            : "integers or non-empty strings";
 						return MakeError("{} is no case of this Switch: its cases are {}", DescribeValue(value), expected);
 					}
-					if (!IsValidText(*pin, Format::MaxPinNameBytes))
+					if (!Format::IsValidText(*pin, Format::MaxPinNameBytes))
 					{
 						return MakeError("the case {} would name a pin of more than {} bytes or with control characters",
 						                 Quote(pin->substr(CasePrefix.size())), Format::MaxPinNameBytes);
@@ -2604,7 +2556,7 @@ namespace Strada
 			}
 			std::vector<VisualScriptNodePin> const row = GetPinRow(pins, node);
 			VisualScriptNodePin const* const pin = FindPin(row, path, direction);
-			if (pin == nullptr || !IsValidPinPath(path) || AddressesUnsplitField(target, path, direction))
+			if (pin == nullptr || !Format::IsValidPinPath(path) || AddressesUnsplitField(target, path, direction))
 			{
 				return MakeError("node {} has no {} {}", node, DescribeDirection(direction), path);
 			}
@@ -2622,7 +2574,7 @@ namespace Strada
 			}
 			for (VisualScriptStructField const& field : type->Fields)
 			{
-				if (!IsValidPinPath(path + "." + field.Name))
+				if (!Format::IsValidPinPath(path + "." + field.Name))
 				{
 					return MakeError("the field pins of {} would have names of more than {} bytes", path, Format::MaxPinNameBytes);
 				}
@@ -2919,7 +2871,7 @@ namespace Strada
 			{
 				return Error{checked.GetError()};
 			}
-			if (!IsValidValue(variable.Value))
+			if (!Format::IsValidValue(variable.Value))
 			{
 				return MakeValueError("a variable's value");
 			}
@@ -2950,31 +2902,34 @@ namespace Strada
 			return cleared;
 		}
 
-		Result<uint32_t> RemoveVariable(VisualScriptDocument& document, uint32_t id, bool removeNodes)
+		Result<uint32_t> RemoveVariable(VisualScriptDocument& document, uint32_t id, bool removeNodes, VisualScriptNodePins const* pins)
 		{
-			size_t const before = document.Variables.size();
-			std::erase_if(document.Variables,
+			VisualScriptDocument edited = document;
+			size_t const before = edited.Variables.size();
+			std::erase_if(edited.Variables,
 			              [id](VisualScriptVariable const& variable)
 			              {
 							  return variable.ID == id;
 						  });
-			if (document.Variables.size() == before)
+			if (edited.Variables.size() == before)
 			{
 				return MakeError("the document has no variable {}", id);
 			}
 			uint32_t removed = 0;
 			if (removeNodes)
 			{
-				for (VisualScriptGraph* const graph : GetGraphs(document))
+				Result<uint32_t> const nodes = RemoveNodesBridged(edited, std::nullopt, pins,
+				                                                  [id](VisualScriptNode const& node)
+				                                                  {
+																	  return IsVariableNode(node, id);
+																  });
+				if (!nodes)
 				{
-					removed += RemoveNodesIf(*graph,
-					                         [id](VisualScriptNode const& node)
-					                         {
-												 return (node.Type == GetVariableType || node.Type == SetVariableType) &&
-						                                NamesID(node.Settings, VariableSetting, id);
-											 });
+					return nodes;
 				}
+				removed = nodes.GetValue();
 			}
+			document = std::move(edited);
 			return removed;
 		}
 
@@ -3113,7 +3068,7 @@ namespace Strada
 			{
 				return Error{checked.GetError()};
 			}
-			if (!IsValidValue(local.Value))
+			if (!Format::IsValidValue(local.Value))
 			{
 				return MakeValueError("a local's value");
 			}
@@ -3126,9 +3081,11 @@ namespace Strada
 			return cleared;
 		}
 
-		Result<uint32_t> RemoveLocal(VisualScriptDocument& document, uint32_t function, uint32_t id, bool removeNodes)
+		Result<uint32_t> RemoveLocal(VisualScriptDocument& document, uint32_t function, uint32_t id, bool removeNodes,
+		                             VisualScriptNodePins const* pins)
 		{
-			Result<VisualScriptFunction*> owner = GetFunction(document, function);
+			VisualScriptDocument edited = document;
+			Result<VisualScriptFunction*> owner = GetFunction(edited, function);
 			if (!owner)
 			{
 				return Error{owner.GetError()};
@@ -3144,16 +3101,22 @@ namespace Strada
 			{
 				return MakeError("{} has no local {}", target.Name, id);
 			}
-			if (!removeNodes)
+			uint32_t removed = 0;
+			if (removeNodes)
 			{
-				return 0u;
+				Result<uint32_t> const nodes = RemoveNodesBridged(edited, function, pins,
+				                                                  [id](VisualScriptNode const& node)
+				                                                  {
+																	  return IsVariableNode(node, id);
+																  });
+				if (!nodes)
+				{
+					return nodes;
+				}
+				removed = nodes.GetValue();
 			}
-			return RemoveNodesIf(target.Graph,
-			                     [id](VisualScriptNode const& node)
-			                     {
-									 return (node.Type == GetVariableType || node.Type == SetVariableType) &&
-				                            NamesID(node.Settings, VariableSetting, id);
-								 });
+			document = std::move(edited);
+			return removed;
 		}
 
 		Result<uint32_t> AddFunction(VisualScriptDocument& document, std::string name)
@@ -3307,13 +3270,15 @@ namespace Strada
 			return removed;
 		}
 
-		Result<uint32_t> RemoveFunction(VisualScriptDocument& document, uint32_t function, bool removeCalls)
+		Result<uint32_t> RemoveFunction(VisualScriptDocument& document, uint32_t function, bool removeCalls,
+		                                VisualScriptNodePins const* pins)
 		{
 			if (FindFunction(document, function) == nullptr)
 			{
 				return MakeError("the document has no function {}", function);
 			}
-			std::erase_if(document.Functions,
+			VisualScriptDocument edited = document;
+			std::erase_if(edited.Functions,
 			              [function](VisualScriptFunction const& existing)
 			              {
 							  return existing.ID == function;
@@ -3321,15 +3286,19 @@ namespace Strada
 			uint32_t removed = 0;
 			if (removeCalls)
 			{
-				for (VisualScriptGraph* const graph : GetGraphs(document))
+				Result<uint32_t> const calls =
+					RemoveNodesBridged(edited, std::nullopt, pins,
+				                       [function](VisualScriptNode const& node)
+				                       {
+										   return node.Type == CallType && NamesID(node.Settings, FunctionSetting, function);
+									   });
+				if (!calls)
 				{
-					removed += RemoveNodesIf(*graph,
-					                         [function](VisualScriptNode const& node)
-					                         {
-												 return node.Type == CallType && NamesID(node.Settings, FunctionSetting, function);
-											 });
+					return calls;
 				}
+				removed = calls.GetValue();
 			}
+			document = std::move(edited);
 			return removed;
 		}
 

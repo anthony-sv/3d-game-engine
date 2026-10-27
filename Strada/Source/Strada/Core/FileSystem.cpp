@@ -311,6 +311,19 @@ namespace Strada
 		return time;
 	}
 
+	bool FileSystem::IsReadOnly(std::filesystem::path const& path)
+	{
+		std::error_code errorCode;
+		std::filesystem::file_status const status = std::filesystem::status(path, errorCode);
+		if (errorCode || !std::filesystem::exists(status))
+		{
+			return false;
+		}
+		constexpr std::filesystem::perms Writable =
+			std::filesystem::perms::owner_write | std::filesystem::perms::group_write | std::filesystem::perms::others_write;
+		return (status.permissions() & Writable) == std::filesystem::perms::none;
+	}
+
 	std::filesystem::path FileSystem::GetRelativePath(std::filesystem::path const& path, std::filesystem::path const& base)
 	{
 		std::error_code errorCode;

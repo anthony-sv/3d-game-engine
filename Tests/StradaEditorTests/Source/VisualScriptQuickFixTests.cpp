@@ -745,6 +745,33 @@ TEST_CASE("VisualScriptQuickFix: an unused split is removed with its fields, and
 	CHECK(FindNode(fixture.Apply(disabled, "Enable Node").Graph, 123)->Enabled == VisualScriptNodeEnabled::Enabled);
 }
 
+TEST_CASE("VisualScriptQuickFix: Remove Split removes the entry the analysis names as stored, also when a redirect renamed its pin")
+{
+	// Split.Outputs ["Value", "Result"] on a node a redirect renamed Value to Result: "Value" splits the pin the node now calls
+	// Result, and the entry "Result" is the unused one. Mapping it through the renames would name "Value" instead.
+	Fixture fixture;
+	VisualScriptNode node;
+	node.ID = 128;
+	node.Type = "Get:Strada.TransformComponent.Translation";
+	node.Position = glm::vec2(1600.0f, 160.0f);
+	node.Split.Outputs = {"Value", "Result"};
+	fixture.Document.Graph.Nodes.push_back(node);
+	VisualScriptAnalyzedNode analyzed = MakeAnalyzedNode(128, 0, node.Type, "Get Translation",
+	                                                     {MakePin("Target", VisualScriptPinDirection::In, "Strada.Entity"),
+	                                                      MakePin("Result", VisualScriptPinDirection::Out, "Strada.Vector3")});
+	analyzed.Resolved = VisualScriptResolution::Redirect;
+	analyzed.PinRenames.push_back({VisualScriptPinDirection::Out, "Value", "Result"});
+	fixture.Analysis.Nodes.push_back(std::move(analyzed));
+
+	VisualScriptDiagnostic const unused = MakePinDiagnostic("UnusedSplit", 128, "Result", VisualScriptPinDirection::Out);
+	std::vector<VisualScriptQuickFix> const fixes = fixture.Fixes(unused);
+	REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Remove Split"});
+	CHECK(fixes[0].Argument == "Result");
+	VisualScriptDocument fixed = fixture.Document;
+	REQUIRE(ApplyVisualScriptQuickFix(fixed, fixture.Analysis, unused, fixes[0]).IsOk());
+	CHECK(FindNode(fixed.Graph, 128)->Split.Outputs == std::vector<std::string>{"Value"});
+}
+
 TEST_CASE("VisualScriptQuickFix: problems whose message says what to do have no fix")
 {
 	Fixture const fixture;

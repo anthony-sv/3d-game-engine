@@ -14,7 +14,6 @@
 #include <optional>
 #include <span>
 #include <string_view>
-#include <system_error>
 #include <utility>
 
 namespace Strada
@@ -83,20 +82,6 @@ namespace Strada
 			std::string Name;
 		};
 
-		// A file without any write permission, which is how the standard library reports the read-only attribute on Windows.
-		bool IsReadOnly(std::filesystem::path const& path)
-		{
-			std::error_code error;
-			std::filesystem::file_status const status = std::filesystem::status(path, error);
-			if (error || !std::filesystem::exists(status))
-			{
-				return false;
-			}
-			constexpr std::filesystem::perms Writable =
-				std::filesystem::perms::owner_write | std::filesystem::perms::group_write | std::filesystem::perms::others_write;
-			return (status.permissions() & Writable) == std::filesystem::perms::none;
-		}
-
 		// Only visual script files can be edited: a graph without a file of its own has nowhere to keep the change, and a
 		// file the asset directory misses is written again only once it is back (asset.refresh finds it). A read-only file
 		// is refused: Windows refuses to replace it while a rename on other systems replaces it anyway, and edits must
@@ -121,7 +106,7 @@ namespace Strada
 				return MakeError("asset file '{}' is missing", metadata->Path);
 			}
 			std::filesystem::path path = AssetManager::GetAbsolutePath(handle);
-			if (IsReadOnly(path))
+			if (FileSystem::IsReadOnly(path))
 			{
 				return MakeError("the file of visual script '{}' is read-only", metadata->Path);
 			}
