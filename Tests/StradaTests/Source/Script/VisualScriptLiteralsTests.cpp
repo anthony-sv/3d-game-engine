@@ -1,6 +1,8 @@
 #include "Fuzzing.h"
 
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Script/VisualScriptLiterals.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
 
@@ -429,6 +431,27 @@ TEST_CASE("VisualScript: a float literal is the shortest text that reads back as
 	CHECK(GetText(*half) == "[0,0.6,0,0.8]");
 	CHECK(EncodeVisualScriptLiteral(ScriptFieldValue::FromQuaternion(glm::quat::wxyz(0.0f, 0.0f, 0.0f, 0.0f)), "Strada.Quaternion", none) ==
 	      std::optional<Json>(Json::array({0, 0, 0, 1})));
+}
+
+TEST_CASE("VisualScript: a float is read as the double its text denotes, narrowed, as the scripting runtime reads it")
+{
+	auto const read = [](std::string_view text)
+	{
+		Result<Json> const number = ParseJson(text);
+		REQUIRE(number.IsOk());
+		std::optional<float> const value = VisualScriptSerializer::ReadFloat(number.GetValue());
+		REQUIRE(value.has_value());
+		return GetBits(*value);
+	};
+	// The shortest texts of ±7.038531e-26 lie almost on the midpoint between two floats: through a double they read as the
+	// neighbouring floats. The runtime reads them alike (ScriptCoreTests' LiteralCodecTests pins its side, with these texts).
+	CHECK(read("7.038531e-26") == 0x15AE43FEu);
+	CHECK(read("-7.038531e-26") == 0x95AE43FEu);
+	// What the runtime writes for the floats themselves, and for -0, reads back bit for bit.
+	CHECK(read("7.038530691851209E-26") == 0x15AE43FDu);
+	CHECK(read("-7.038530691851209E-26") == 0x95AE43FDu);
+	CHECK(read("-0.0") == 0x80000000u);
+	CHECK(read("0.5") == GetBits(0.5f));
 }
 
 TEST_CASE("VisualScript: enum values are written as the scripting runtime writes them")

@@ -66,7 +66,7 @@ namespace Strada
 		// request's, else the window's, else the one the views file keeps); the context entity must be in the scene. A file
 		// that is missing or does not load opens too, showing its card: the request's function, selection, framing and find
 		// cannot be checked then and are left out. Returns the window's state as its last draw saw it (a new window's: not
-		// visible, not focused).
+		// visible, not focused), but for Function: the sub-graph the window shows once its next draw applied the request.
 		[[nodiscard]] Result<VisualScriptEditorState> Open(VisualScriptOpenRequest const& request);
 		// Closes the graph's window, or every window when none is given; closing a graph that is not open is no error. Each
 		// window commits its pending widget edits first, and the views file is written (as a window's X does). Returns the
@@ -74,6 +74,15 @@ namespace Strada
 		std::vector<AssetHandle> Close(std::optional<AssetHandle> graph = std::nullopt);
 		// The open windows in the order they were opened, each as its last draw saw it.
 		std::vector<VisualScriptEditorState> Describe();
+		// The sub-graph the graph's window shows, or shows when it opens without asking for one: the open window's, else the one
+		// the views file keeps, else 0 (the event graph). A function the document no longer has shows the event graph.
+		uint32_t GetShownFunction(AssetHandle graph);
+		// Whether the windows have a node library (the scripting runtime's): the node palette needs it.
+		bool HasNodeLibrary();
+		// Calls back once the next OnImGuiRender has drawn every window, in the order given (graph.palette reads what a window's
+		// palette showed in that draw). A callback given while they run waits for the draw after. Callbacks still waiting when
+		// the windows are destroyed are dropped uncalled.
+		void AfterNextDraw(std::function<void()> callback);
 		// The graph's window; null when it is not open.
 		VisualScriptEditorPanel* FindPanel(AssetHandle graph);
 		// The window the Edit menu acts on (spec §8.4): the graph window focused last while its tab is in front; null while the
@@ -150,5 +159,7 @@ namespace Strada
 		// The graph window focused last (none: the scene), and the graphs whose windows were focused, the most recent first.
 		std::optional<AssetHandle> m_EditTarget;
 		std::vector<AssetHandle> m_FocusOrder;
+		// What AfterNextDraw was given, called at the end of the next OnImGuiRender.
+		std::vector<std::function<void()>> m_AfterDraw;
 	};
 }

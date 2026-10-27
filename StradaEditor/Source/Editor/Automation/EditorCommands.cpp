@@ -7,10 +7,17 @@
 #include "Editor/EntityBounds.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/Panels/ContentBrowserPanel.h"
+#include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
 #include "Editor/VisualScripting/VisualScriptCommit.h"
+#include "Editor/VisualScripting/VisualScriptEditors.h"
+#include "Editor/VisualScripting/VisualScriptFind.h"
 #include "Editor/VisualScripting/VisualScriptNormalization.h"
+#include "Editor/VisualScripting/VisualScriptPalette.h"
+#include "Editor/VisualScripting/VisualScriptPalettePopup.h"
+#include "Editor/VisualScripting/VisualScriptPanes.h"
+#include "Editor/VisualScripting/VisualScriptView.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AssetRegistry.h"
@@ -32,6 +39,7 @@
 #include "Strada/Script/VisualScriptLibrary.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstddef>
@@ -40,9 +48,11 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace Strada
@@ -415,18 +425,18 @@ namespace Strada
 		}
 
 		// A visual script parameter: a registered asset of that type.
-		CommandValue<AssetHandle> ParseGraph(Json const& value)
+		CommandValue<AssetHandle> ParseGraph(Json const& value, std::string_view parameter = "graph")
 		{
-			CommandValue<AssetHandle> graph = ParseAsset(value, "graph");
+			CommandValue<AssetHandle> graph = ParseAsset(value, parameter);
 			if (!graph)
 			{
 				return graph;
 			}
 			if (AssetType const type = AssetManager::GetAssetType(graph.GetValue()); type != AssetType::VisualScript)
 			{
-				CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "graph: asset {} is a {}, not a visual script",
-				                                      graph.GetValue(), AssetTypeToString(type));
-				error.Data = Json::object({{"path", "graph"}});
+				CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: asset {} is a {}, not a visual script",
+				                                      parameter, graph.GetValue(), AssetTypeToString(type));
+				error.Data = Json::object({{"path", std::string(parameter)}});
 				return error;
 			}
 			return graph;
@@ -438,6 +448,357 @@ namespace Strada
 			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
 			return Json::object(
 				{{"asset", graph.ToString()}, {"path", metadata && metadata->IsFileAsset() ? Json(metadata->Path) : Json()}});
+		}
+
+		CommandError MakeParameterError(std::string_view parameter, std::string const& message)
+		{
+			CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams, "{}: {}", parameter, message);
+			error.Data = Json::object({{"path", std::string(parameter)}});
+			return error;
+		}
+
+		// A visual script's asset as the graph windows load it: a missing file is not read.
+		Result<Ref<VisualScriptAsset>> LoadGraph(AssetHandle graph)
+		{
+			if (AssetManager::IsMissing(graph))
+			{
+				return Error{"its file is missing"};
+			}
+			return AssetManager::TryGetAsset<VisualScriptAsset>(graph);
+		}
+
+		bool HasGraphNode(VisualScriptGraph const& graph, uint32_t id)
+		{
+			return std::any_of(graph.Nodes.begin(), graph.Nodes.end(),
+			                   [id](VisualScriptNode const& node)
+			                   {
+								   return node.ID == id;
+							   });
+		}
+
+		bool HasGraphElement(VisualScriptGraph const& graph, uint32_t id)
+		{
+			return HasGraphNode(graph, id) || std::any_of(graph.Comments.begin(), graph.Comments.end(),
+			                                              [id](VisualScriptComment const& comment)
+			                                              {
+															  return comment.ID == id;
+														  });
+		}
+
+		// An ID parameter whose schema allows 0 to VisualScriptSerializer::MaxID: an integer, or a number without a fraction.
+		uint32_t GetElementId(Json const& value)
+		{
+			double const id = value.get<double>();
+			return std::isfinite(id) && id > 0.0 ? static_cast<uint32_t>(std::min(id, static_cast<double>(VisualScriptSerializer::MaxID)))
+			                                     : 0;
+		}
+
+		// A canvas point parameter ([x, y] in canvas units, the units of positions in documents): finite and within the
+		// coordinates documents allow.
+		std::optional<glm::vec2> ReadCanvasPoint(Json const& value)
+		{
+			std::array<double, 2> coordinates{};
+			for (size_t i = 0; i < coordinates.size(); i++)
+			{
+				double const coordinate = value[i].get<double>();
+				if (!std::isfinite(coordinate) || std::abs(coordinate) > VisualScriptSerializer::MaxCoordinate)
+				{
+					return std::nullopt;
+				}
+				coordinates[i] = coordinate;
+			}
+			return glm::vec2(static_cast<float>(coordinates[0]), static_cast<float>(coordinates[1]));
+		}
+
+		// The names graph.editors and graph.find give the states of a graph window and the fields find matches, as their
+		// enumerators are named.
+		char const* GetDetailLevelName(VisualScriptDetailLevel level)
+		{
+			switch (level)
+			{
+				case VisualScriptDetailLevel::Far:
+					return "Far";
+				case VisualScriptDetailLevel::Overview:
+					return "Overview";
+				case VisualScriptDetailLevel::Compact:
+					return "Compact";
+				case VisualScriptDetailLevel::Detail:
+					return "Detail";
+			}
+			return "Detail";
+		}
+
+		char const* GetNoticeName(VisualScriptNotice notice)
+		{
+			switch (notice)
+			{
+				case VisualScriptNotice::Degraded:
+					return "Degraded";
+				case VisualScriptNotice::Normalization:
+					return "Normalization";
+				case VisualScriptNotice::Repaired:
+					return "Repaired";
+				case VisualScriptNotice::ReadOnlyMemory:
+					return "ReadOnlyMemory";
+				case VisualScriptNotice::ReadOnlyFile:
+					return "ReadOnlyFile";
+				case VisualScriptNotice::NewFunction:
+					return "NewFunction";
+				case VisualScriptNotice::FirstCanvas:
+					return "FirstCanvas";
+				case VisualScriptNotice::GestureHint:
+					return "GestureHint";
+			}
+			return "Degraded";
+		}
+
+		char const* GetCardName(VisualScriptCard card)
+		{
+			switch (card)
+			{
+				case VisualScriptCard::None:
+					return "None";
+				case VisualScriptCard::Missing:
+					return "Missing";
+				case VisualScriptCard::Unloadable:
+					return "Unloadable";
+				case VisualScriptCard::EmptyGraph:
+					return "EmptyGraph";
+			}
+			return "None";
+		}
+
+		char const* GetLiveStateName(VisualScriptLiveState live)
+		{
+			switch (live)
+			{
+				case VisualScriptLiveState::None:
+					return "None";
+				case VisualScriptLiveState::Live:
+					return "Live";
+				case VisualScriptLiveState::LastWorking:
+					return "LastWorking";
+				case VisualScriptLiveState::Simulating:
+					return "Simulating";
+			}
+			return "None";
+		}
+
+		char const* GetSaveStateName(VisualScriptSaveState save)
+		{
+			switch (save)
+			{
+				case VisualScriptSaveState::Saved:
+					return "Saved";
+				case VisualScriptSaveState::NotSaved:
+					return "NotSaved";
+			}
+			return "Saved";
+		}
+
+		char const* GetDrawerModeName(VisualScriptDrawerMode drawer)
+		{
+			switch (drawer)
+			{
+				case VisualScriptDrawerMode::Closed:
+					return "Closed";
+				case VisualScriptDrawerMode::Problems:
+					return "Problems";
+				case VisualScriptDrawerMode::Find:
+					return "Find";
+			}
+			return "Closed";
+		}
+
+		char const* GetPaneStateName(VisualScriptPaneState pane)
+		{
+			switch (pane)
+			{
+				case VisualScriptPaneState::Hidden:
+					return "Hidden";
+				case VisualScriptPaneState::Shown:
+					return "Shown";
+				case VisualScriptPaneState::AutoHidden:
+					return "AutoHidden";
+				case VisualScriptPaneState::Overlay:
+					return "Overlay";
+			}
+			return "Shown";
+		}
+
+		char const* GetFindFieldName(VisualScriptFindField field)
+		{
+			switch (field)
+			{
+				case VisualScriptFindField::Title:
+					return "Title";
+				case VisualScriptFindField::Subtitle:
+					return "Subtitle";
+				case VisualScriptFindField::Type:
+					return "Type";
+				case VisualScriptFindField::NodeComment:
+					return "NodeComment";
+				case VisualScriptFindField::PinLabel:
+					return "PinLabel";
+				case VisualScriptFindField::Value:
+					return "Value";
+				case VisualScriptFindField::CommentText:
+					return "CommentText";
+				case VisualScriptFindField::VariableName:
+					return "VariableName";
+				case VisualScriptFindField::FunctionName:
+					return "FunctionName";
+				case VisualScriptFindField::EventName:
+					return "EventName";
+			}
+			return "Title";
+		}
+
+		// A graph window as graph.editors reports it: what its last draw saw.
+		Json DescribeGraphEditor(VisualScriptEditorState const& state)
+		{
+			Json notices = Json::array();
+			for (VisualScriptNotice const notice : state.Notices)
+			{
+				notices.push_back(GetNoticeName(notice));
+			}
+			bool const loaded = state.Document != VisualScriptDocumentState::Missing &&
+			                    state.Document != VisualScriptDocumentState::Unloadable && !AssetManager::IsMissing(state.Graph) &&
+			                    !AssetManager::HasLoadFailure(state.Graph);
+			Json described = DescribeGraph(state.Graph);
+			described["function"] = state.Function;
+			described["focused"] = state.Focused;
+			described["visible"] = state.Visible;
+			described["readOnly"] =
+				state.Document == VisualScriptDocumentState::ReadOnly || state.Document == VisualScriptDocumentState::ReadOnlyFile;
+			described["loaded"] = loaded;
+			described["analyzed"] = state.Analyzed;
+			described["errors"] = state.Errors;
+			described["warnings"] = state.Warnings;
+			described["view"] = Json::object({{"center", Json::array({state.View.Center.x, state.View.Center.y})},
+			                                  {"zoom", state.View.Zoom},
+			                                  {"level", GetDetailLevelName(state.Level)}});
+			described["selection"] = Json::object({{"nodes", state.SelectedNodes}, {"comments", state.SelectedComments}});
+			described["contextEntity"] = state.ContextEntity.IsValid() ? Json(state.ContextEntity.ToString()) : Json();
+			described["palette"] = Json::object({{"open", state.PaletteOpen}, {"query", state.PaletteQuery}});
+			described["notices"] = std::move(notices);
+			described["card"] = GetCardName(state.Card);
+			described["toasts"] = state.Toasts;
+			described["live"] = GetLiveStateName(state.Live);
+			described["save"] = GetSaveStateName(state.Save);
+			described["drawer"] = GetDrawerModeName(state.Drawer);
+			described["find"] =
+				Json::object({{"open", state.FindOpen}, {"text", state.FindText}, {"index", state.FindIndex}, {"count", state.FindCount}});
+			described["bookmarks"] = state.Bookmarks;
+			described["minimap"] = state.MinimapVisible;
+			described["panes"] = Json::object({{"sidebar", GetPaneStateName(state.Sidebar)}, {"details", GetPaneStateName(state.Details)}});
+			described["shortcuts"] = state.ShortcutsOpen;
+			return described;
+		}
+
+		// What a graph window's palette showed in its last draw, as graph.palette reports it.
+		Json DescribeGraphPalette(VisualScriptPaletteState const& state, VisualScriptPaletteIndex const& index)
+		{
+			std::span<VisualScriptPaletteEntry const> const entries = index.GetEntries();
+			Json listed = Json::array();
+			for (VisualScriptPaletteMatch const& match : state.Entries)
+			{
+				if (match.Entry >= entries.size())
+				{
+					continue;
+				}
+				VisualScriptPaletteEntry const& entry = entries[match.Entry];
+				Json row = Json::object({{"title", entry.Title},
+				                         {"subtitle", entry.Subtitle},
+				                         {"category", entry.Category},
+				                         {"type", entry.NodeType},
+				                         {"settings", entry.Settings}});
+				if (state.From)
+				{
+					row["connects"] = match.ConnectPin;
+					row["converts"] = match.Converts;
+				}
+				listed.push_back(std::move(row));
+			}
+			return Json::object({{"open", state.Open},
+			                     {"query", state.Query},
+			                     {"context", state.From.has_value()},
+			                     {"entries", std::move(listed)},
+			                     {"total", state.Total}});
+		}
+
+		// What graph.palette does once its parameters passed their checks: open the graph window's palette with the request,
+		// or close it.
+		struct GraphPaletteCall
+		{
+			AssetHandle Graph;
+			VisualScriptPaletteRequest Request;
+			bool Open = true;
+		};
+
+		CommandError MakeClosedWindowError(AssetHandle graph)
+		{
+			return MakeCommandError(AutomationErrorCode::InvalidOperation,
+			                        "the window of visual script {} was closed before its palette was drawn", graph);
+		}
+
+		// graph.palette from its checked request on: opens the window's palette once the window is shown (at once when its last
+		// draw showed it, else after the next draw, which shows a window graph.open opened in this frame), then completes with
+		// what the palette showed in the draw after that, which ranks its entries.
+		void OpenGraphPalette(VisualScriptEditors& editors, AssetHandle graph, VisualScriptPaletteRequest request,
+		                      CommandCompletion completion, bool waited)
+		{
+			VisualScriptEditorPanel* panel = editors.FindPanel(graph);
+			if (panel == nullptr)
+			{
+				completion.Complete(MakeClosedWindowError(graph));
+				return;
+			}
+			if (!panel->GetState().Visible)
+			{
+				if (waited)
+				{
+					completion.Complete(MakeCommandError(
+						AutomationErrorCode::InvalidOperation,
+						"the window of visual script {} is not shown (another tab is in front of it): graph.open brings it to the front",
+						graph));
+					return;
+				}
+				editors.AfterNextDraw(
+					[&editors, graph, request = std::move(request), completion]() mutable
+					{
+						OpenGraphPalette(editors, graph, std::move(request), std::move(completion), true);
+					});
+				return;
+			}
+			bool const fromPin = request.From.has_value();
+			Result<VisualScriptPaletteState> const opened = panel->OpenPalette(request);
+			if (!opened)
+			{
+				// The library and the node were checked: what the window refuses is the pin, unless the library went meanwhile.
+				completion.Complete(!editors.HasNodeLibrary() || !fromPin
+				                        ? MakeCommandError(AutomationErrorCode::Unavailable, "{}", opened.GetError())
+				                        : MakeParameterError("from.pin", opened.GetError()));
+				return;
+			}
+			editors.AfterNextDraw(
+				[&editors, graph, completion]
+				{
+					VisualScriptEditorPanel const* drawn = editors.FindPanel(graph);
+					if (drawn == nullptr)
+					{
+						completion.Complete(MakeClosedWindowError(graph));
+						return;
+					}
+					VisualScriptPaletteState const state = drawn->GetPaletteState();
+					if (!state.Open)
+					{
+						completion.Complete(MakeCommandError(AutomationErrorCode::InvalidOperation,
+					                                         "the palette of visual script {} closed before it was drawn", graph));
+						return;
+					}
+					completion.Complete(DescribeGraphPalette(state, drawn->GetPalette().GetIndex()));
+				});
 		}
 
 		// A document given to graph.set or graph.check, read as the loader reads files but strictly: every repair it would
@@ -1662,7 +2023,640 @@ namespace Strada
 									 return Json::object({{"types", std::move(listed)}, {"total", matches.size()}});
 								 })
 						   : result;
+				result = result ? RegisterGraphWindows() : result;
 				return result;
+			}
+
+			// The graph windows: Unavailable without the editor's UI, and the asset checks (a project for the commands that
+			// open something).
+			std::optional<CommandError> CheckGraphWindows(bool needsProject) const
+			{
+				if (!m_Environment.GraphEditors)
+				{
+					return MakeCommandError(AutomationErrorCode::Unavailable, "the editor has no graph windows (headless)");
+				}
+				return CheckAssets(needsProject);
+			}
+
+			// graph.open, graph.close, graph.editors, graph.palette (the editor's graph windows) and graph.find.
+			Result<void> RegisterGraphWindows()
+			{
+				SchemaBuilder const graphParameter =
+					SchemaBuilder::String("Visual script asset: a handle (decimal string) or \"asset://<path>.sgraph\"").MinLength(1);
+				SchemaBuilder const idParameter = SchemaBuilder::Integer().Minimum(0).Maximum(VisualScriptSerializer::MaxID);
+				SchemaBuilder const pointParameter = SchemaBuilder::Array(SchemaBuilder::Number(), "").MinItems(2).MaxItems(2);
+
+				Result<void> result = Add(
+					"graph.open",
+					"Opens a visual script in its graph window, or focuses the window open already, as double-clicking it in the content "
+					"browser does; with the parameters, shows a sub-graph (function), selects nodes and comments (select, the first "
+					"the primary selection), frames them or the whole sub-graph (frame), sets the zoom and the view's centre, picks "
+					"the context entity whose live values the window shows while playing, opens the problems drawer or the find bar "
+					"(find, going to the first match, which becomes the selection). The view parameters apply in order: the framing, "
+					"then zoom around its centre, then center. Applied when the window is next drawn: graph.editors a frame later "
+					"shows the result. Works while playing. A file that is missing or does not load opens on its card (loaded false): "
+					"function, select, frame and find are then ignored, which warnings says. Returns { asset, path, function (the "
+					"sub-graph shown), selection (the IDs selected), loaded, warnings }. Unavailable without the editor's UI "
+					"(headless); InvalidOperation while a dialog is open.",
+					SchemaBuilder::Object()
+						.Property("graph", graphParameter, true)
+						.Property("function", SchemaBuilder::Integer("The sub-graph to show: 0 for the event graph, else a function's ID "
+				                                                     "(default: the one shown last)")
+				                                  .Minimum(0)
+				                                  .Maximum(VisualScriptSerializer::MaxID))
+						.Property("select", SchemaBuilder::Array(idParameter, "IDs of nodes and comments of that sub-graph to select")
+				                                .MaxItems(static_cast<int64_t>(VisualScriptSerializer::MaxNodesPerGraph)))
+						.Property("frame", SchemaBuilder::String("What the view frames: Keep (the view the sub-graph had), Selection "
+				                                                 "(default with select) or All (the whole sub-graph)")
+				                               .Enum({"Keep", "Selection", "All"}))
+						.Property("zoom", SchemaBuilder::Number("Screen pixels per canvas unit at a UI scale of 1")
+				                              .Minimum(static_cast<double>(VisualScriptMinZoom))
+				                              .Maximum(static_cast<double>(VisualScriptMaxZoom)))
+						.Property("center", SchemaBuilder::Array(SchemaBuilder::Number()
+				                                                     .Minimum(-VisualScriptSerializer::MaxCoordinate)
+				                                                     .Maximum(VisualScriptSerializer::MaxCoordinate),
+				                                                 "The canvas point [x, y] at the centre of the view, in canvas units")
+				                                .MinItems(2)
+				                                .MaxItems(2))
+						.Property("entity", EntityIdSchema("The context entity: an entity of the scene that runs the graph"))
+						.Property("problems", SchemaBuilder::Boolean("Opens the problems drawer"))
+						.Property("find", SchemaBuilder::String("Opens the find bar with this text and goes to the first match"))
+						.Build(),
+					false,
+					[this](Json const& params) -> CommandResult
+					{
+						if (std::optional<CommandError> error = CheckGraphWindows(true))
+						{
+							return *error;
+						}
+						if (std::optional<CommandError> dialog = CheckNoDialog())
+						{
+							return *dialog;
+						}
+						CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+						if (!graph)
+						{
+							return graph.TakeError();
+						}
+						VisualScriptEditors& editors = m_Environment.GraphEditors();
+						VisualScriptOpenRequest request;
+						request.Graph = graph.GetValue();
+						if (params.contains("entity"))
+						{
+							CommandValue<UUID> entity = ParseEntityId(params["entity"], "entity");
+							if (!entity)
+							{
+								return entity.TakeError();
+							}
+							if (!m_Operations.FindEntity(entity.GetValue()))
+							{
+								return MakeParameterError("entity", fmt::format("the scene has no entity {}", entity.GetValue()));
+							}
+							request.ContextEntity = entity.GetValue();
+						}
+						if (params.contains("zoom"))
+						{
+							double const zoom = params["zoom"].get<double>();
+							if (!std::isfinite(zoom))
+							{
+								return MakeParameterError("zoom", "expected a finite number");
+							}
+							request.Zoom = static_cast<float>(zoom);
+						}
+						if (params.contains("center"))
+						{
+							std::optional<glm::vec2> const center = ReadCanvasPoint(params["center"]);
+							if (!center)
+							{
+								return MakeParameterError("center", fmt::format("expected two finite numbers of at most {} in magnitude",
+							                                                    VisualScriptSerializer::MaxCoordinate));
+							}
+							request.Center = *center;
+						}
+						std::vector<uint32_t> select;
+						if (params.contains("select"))
+						{
+							for (Json const& id : params["select"])
+							{
+								select.push_back(GetElementId(id));
+							}
+						}
+						std::string const frame = GetString(params, "frame", select.empty() ? "Keep" : "Selection");
+						std::string const find = GetString(params, "find");
+
+						Result<Ref<VisualScriptAsset>> const asset = LoadGraph(request.Graph);
+						Json warnings = Json::array();
+						if (asset)
+						{
+							// Checked against the document: the sub-graph asked for, else the one the window shows (a function that
+						    // is gone shows the event graph), holds what is selected.
+							Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
+							uint32_t function =
+								params.contains("function") ? GetElementId(params["function"]) : editors.GetShownFunction(request.Graph);
+							VisualScriptGraph const* shown = FindVisualScriptGraph(*document, function);
+							if (shown == nullptr)
+							{
+								if (params.contains("function"))
+								{
+									return MakeParameterError(
+										"function", fmt::format("the visual script has no function {}", params["function"].dump()));
+								}
+								function = 0;
+								shown = &document->Graph;
+							}
+							for (size_t i = 0; i < select.size(); i++)
+							{
+								if (!HasGraphElement(*shown, select[i]))
+								{
+									return MakeParameterError(fmt::format("select[{}]", i),
+								                              fmt::format("the sub-graph shown has no node or comment {}", select[i]));
+								}
+							}
+							if (params.contains("function"))
+							{
+								request.Function = function;
+							}
+							request.Select = select;
+							request.Frame = frame == "All"         ? VisualScriptFrame::All
+						                    : frame == "Selection" ? VisualScriptFrame::Selection
+						                                           : VisualScriptFrame::Keep;
+							request.Find = find;
+						}
+						else
+						{
+							// The window shows the file's card: nothing of the document can be shown or checked.
+							for (char const* const ignored : {"function", "select", "frame", "find"})
+							{
+								if (params.contains(ignored))
+								{
+									warnings.push_back(
+										fmt::format("{} is ignored: the visual script does not load ({})", ignored, asset.GetError()));
+								}
+							}
+							select.clear();
+						}
+						request.ShowProblems = GetBool(params, "problems", false);
+						Result<VisualScriptEditorState> const opened = editors.Open(request);
+						if (!opened)
+						{
+							return MakeCommandError(AutomationErrorCode::InvalidOperation, "{}", opened.GetError());
+						}
+						Json described = DescribeGraph(request.Graph);
+						described["function"] = opened.GetValue().Function;
+						described["selection"] = std::move(select);
+						described["loaded"] = asset.IsOk();
+						described["warnings"] = std::move(warnings);
+						return described;
+					});
+				result =
+					result ? Add("graph.close",
+				                 "Closes the window of a visual script, or every graph window without graph, as its close button does: "
+				                 "edits still in a field are kept first, and the per-user view state is saved. Closing a graph whose "
+				                 "window is not open (or that was deleted, whose window closed with it) is no error. Returns { closed "
+				                 "(the assets whose windows closed, in tab order) }. Unavailable without the editor's UI (headless).",
+				                 SchemaBuilder::Object()
+				                     .Property("graph", SchemaBuilder::String("The visual script whose window closes: a handle or "
+				                                                              "\"asset://<path>.sgraph\" (default: every window)")
+				                                            .MinLength(1))
+				                     .Build(),
+				                 false,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 if (std::optional<CommandError> error = CheckGraphWindows(false))
+									 {
+										 return *error;
+									 }
+									 std::optional<AssetHandle> target;
+									 if (params.contains("graph"))
+									 {
+										 // A handle that is no longer registered names a deleted graph: its window closed with it.
+										 std::optional<UUID> const handle = UUID::FromString(params["graph"].get_ref<std::string const&>());
+										 if (handle && handle->IsValid() && !AssetManager::IsValid(AssetHandle(*handle)))
+										 {
+											 return Json::object({{"closed", Json::array()}});
+										 }
+										 CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+										 if (!graph)
+										 {
+											 return graph.TakeError();
+										 }
+										 target = graph.GetValue();
+									 }
+									 Json closed = Json::array();
+									 for (AssetHandle const handle : m_Environment.GraphEditors().Close(target))
+									 {
+										 closed.push_back(handle.ToString());
+									 }
+									 return Json::object({{"closed", std::move(closed)}});
+								 })
+						   : result;
+				result =
+					result
+						? Add("graph.editors",
+				              "The open graph windows in tab order, each as its last draw showed it: { asset, path, function (the sub-graph "
+				              "shown: 0 is the event graph), focused, visible (its tab is in front), readOnly, loaded, analyzed, errors, "
+				              "warnings (the analysis' problems), view { center, zoom, level (Detail, Compact, Overview or Far) }, "
+				              "selection { nodes, comments }, contextEntity, palette { open, query }, notices, card, toasts, live, save, "
+				              "drawer, find { open, text, index, count }, bookmarks (the slots stored), minimap (shown), panes { sidebar, "
+				              "details }, shortcuts (the shortcut sheet is open) }. A window opened since the last frame reports its "
+				              "state before its first draw (not visible, nothing selected). Unavailable without the editor's UI "
+				              "(headless).",
+				              Json(), true,
+				              [this](Json const&) -> CommandResult
+				              {
+								  if (std::optional<CommandError> error = CheckGraphWindows(false))
+								  {
+									  return *error;
+								  }
+								  Json editors = Json::array();
+								  for (VisualScriptEditorState const& state : m_Environment.GraphEditors().Describe())
+								  {
+									  editors.push_back(DescribeGraphEditor(state));
+								  }
+								  return Json::object({{"editors", std::move(editors)}});
+							  })
+						: result;
+				if (!result)
+				{
+					return result;
+				}
+
+				CommandDefinition palette;
+				palette.Name = "graph.palette";
+				palette.Description =
+					"Opens the node palette of an open graph window as if the user pressed Tab at a canvas point (at, default the "
+					"view's centre) and typed the query, or, with from, as if a wire dragged from that pin was released there (the "
+					"palette then lists what connects to the pin), or closes it (open false). Changes nothing in the document "
+					"(graph.set adds nodes). Completes once the palette was drawn: { open, query, context (from was given), entries "
+					"(in rank order, at most limit: without query or from, the recent ones), total (the entries before the limit) }, "
+					"each entry { title, subtitle, category, type (the node type it adds; empty for actions that add none), settings, "
+					"connects (with from: the entry's pin that the wire links to), converts (with from: the link converts its value) }. "
+					"Unavailable without the editor's UI (headless) and without the scripting runtime (the palette lists the node "
+					"library); InvalidOperation when the graph's window is not open or not shown, its file does not load, or a dialog "
+					"is open; InvalidParams for a from node the sub-graph shown does not have, a pin it does not have and an at "
+					"beyond the canvas.";
+				palette.Parameters =
+					SchemaBuilder::Object()
+						.Property("graph", graphParameter, true)
+						.Property("query", SchemaBuilder::String("The text typed into the palette's search field"))
+						.Property("at", SchemaBuilder::Array(SchemaBuilder::Number(), "The canvas point [x, y] where the node would go, in "
+				                                                                      "canvas units (default: the view's centre)")
+				                            .MinItems(2)
+				                            .MaxItems(2))
+						.Property("from",
+				                  SchemaBuilder::Object("Context mode: the pin a wire is dragged from")
+				                      .Property("node", idParameter, true)
+				                      .Property("pin",
+				                                SchemaBuilder::String("The pin, as the canvas names it (\"Hit.Point\" for a "
+				                                                      "field of a split pin)"),
+				                                true)
+				                      .Property("direction",
+				                                SchemaBuilder::String("Whether the pin is an input or an output").Enum({"In", "Out"}),
+				                                true))
+						.Property("limit", SchemaBuilder::Integer("The most entries to return").Minimum(1).Maximum(200).Default(50))
+						.Property("open", SchemaBuilder::Boolean("False closes the palette").Default(true))
+						.Build();
+				palette.AsyncHandler = [this, self = shared_from_this()](Json const& params, CommandCompletion completion)
+				{
+					std::variant<CommandError, GraphPaletteCall> checked = CheckPaletteRequest(params);
+					if (CommandError* error = std::get_if<CommandError>(&checked))
+					{
+						completion.Complete(std::move(*error));
+						return;
+					}
+					GraphPaletteCall& call = std::get<GraphPaletteCall>(checked);
+					VisualScriptEditors& editors = m_Environment.GraphEditors();
+					if (!call.Open)
+					{
+						if (VisualScriptEditorPanel* panel = editors.FindPanel(call.Graph))
+						{
+							panel->ClosePalette();
+						}
+						completion.Complete(
+							Json::object({{"open", false}, {"query", ""}, {"context", false}, {"entries", Json::array()}, {"total", 0}}));
+						return;
+					}
+					OpenGraphPalette(editors, call.Graph, std::move(call.Request), std::move(completion), false);
+				};
+				result = m_Registry.Register(std::move(palette));
+
+				result =
+					result
+						? Add("graph.find",
+				              "Finds text in visual scripts, as the graph window's find drawer does, or lists the references of a variable "
+				              "or local, a function or a custom event. Text is looked for in node titles, subtitles, types, comments, pin "
+				              "labels and stored values, comment boxes, and the names of variables, functions and custom events (ASCII "
+				              "letters in any case). References are the Get and Set nodes of a variable or local and the Call nodes of a "
+				              "function (in its own graph), and the Event.Custom and Event.Send nodes of a custom event's name (in every "
+				              "graph). Searches every visual script of the project by path, or one (graph); results come in document "
+				              "order: { results: [{ asset, path, function (0 for the event graph), node?, comment?, variable?, field "
+				              "(Title, Subtitle, Type, NodeComment, PinLabel, Value, CommentText, VariableName, FunctionName or "
+				              "EventName), text }], total (before paging), analyzed (titles, subtitles and pin labels are the scripting "
+				              "runtime's; without it titles are derived from the documents and subtitles and pin labels not searched), "
+				              "skipped (the scripts that do not load: [{ asset, path, error }]) }. Works headless and changes nothing.",
+				              SchemaBuilder::Object()
+				                  .Property("query", SchemaBuilder::String("The text to find"))
+				                  .Property(
+									  "references",
+									  SchemaBuilder::Object("The element whose references to list")
+										  .Property(
+											  "kind",
+											  SchemaBuilder::String("What the element is").Enum({"Variable", "Function", "CustomEvent"}),
+											  true)
+										  .Property("graph", SchemaBuilder::String("Variable and Function: the visual script that has the "
+				                                                                   "element (a handle or \"asset://<path>.sgraph\")")
+				                                                 .MinLength(1))
+										  .Property("id", SchemaBuilder::Integer("Variable and Function: the element's ID")
+				                                              .Minimum(0)
+				                                              .Maximum(VisualScriptSerializer::MaxID))
+										  .Property("name", SchemaBuilder::String("CustomEvent: the event's name").MinLength(1)))
+				                  .Property(
+									  "graph",
+									  SchemaBuilder::String("Only this visual script: a handle or \"asset://<path>.sgraph\"").MinLength(1))
+				                  .Property("limit",
+				                            SchemaBuilder::Integer("The most results to return").Minimum(1).Maximum(500).Default(50))
+				                  .Property("offset", SchemaBuilder::Integer("How many results to skip").Minimum(0).Default(0))
+				                  .Build(),
+				              true,
+				              [this](Json const& params) -> CommandResult
+				              {
+								  return FindInGraphs(params);
+							  })
+						: result;
+				return result;
+			}
+
+			// graph.palette's checks, in the order the documentation gives (so its parameters are checked, and fuzzed, without the
+			// runtime too): what to do when they pass.
+			std::variant<CommandError, GraphPaletteCall> CheckPaletteRequest(Json const& params) const
+			{
+				if (std::optional<CommandError> error = CheckGraphWindows(true))
+				{
+					return *error;
+				}
+				CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+				if (!graph)
+				{
+					return graph.TakeError();
+				}
+				AssetHandle const handle = graph.GetValue();
+				VisualScriptEditors& editors = m_Environment.GraphEditors();
+				if (editors.FindPanel(handle) == nullptr)
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation,
+					                        "the window of visual script {} is not open: graph.open opens it", handle);
+				}
+				GraphPaletteCall call;
+				call.Graph = handle;
+				call.Open = GetBool(params, "open", true);
+				if (!call.Open)
+				{
+					return call;
+				}
+				if (m_Environment.IsDialogOpen && m_Environment.IsDialogOpen())
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation,
+					                        "a dialog is open in the editor: no menu opens until it is answered");
+				}
+				Result<Ref<VisualScriptAsset>> const asset = LoadGraph(handle);
+				if (!asset)
+				{
+					return MakeCommandError(AutomationErrorCode::InvalidOperation,
+					                        "the visual script does not load ({}): its window shows no graph", asset.GetError());
+				}
+
+				VisualScriptPaletteRequest& request = call.Request;
+				request.Query = GetString(params, "query");
+				request.Limit = static_cast<uint32_t>(std::min<size_t>(GetCount(params, "limit", 50), 200));
+				if (params.contains("from"))
+				{
+					Json const& from = params["from"];
+					Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
+					VisualScriptGraph const* shown = FindVisualScriptGraph(*document, editors.GetShownFunction(handle));
+					if (shown == nullptr)
+					{
+						shown = &document->Graph;
+					}
+					uint32_t const node = GetElementId(from["node"]);
+					if (!HasGraphNode(*shown, node))
+					{
+						return MakeParameterError("from.node", fmt::format("the sub-graph shown has no node {}", from["node"].dump()));
+					}
+					std::string const& pin = from["pin"].get_ref<std::string const&>();
+					if (!VisualScriptSerializer::IsValidPinPath(pin))
+					{
+						return MakeParameterError("from.pin", "expected a pin name, or a field path of a split pin (\"Hit.Point\")");
+					}
+					request.From = VisualScriptPinReference{node, pin};
+					request.Direction =
+						from["direction"].get<std::string>() == "In" ? VisualScriptPinDirection::In : VisualScriptPinDirection::Out;
+				}
+				if (params.contains("at"))
+				{
+					std::optional<glm::vec2> const at = ReadCanvasPoint(params["at"]);
+					if (!at)
+					{
+						return MakeParameterError("at", fmt::format("expected two finite numbers of at most {} in magnitude",
+						                                            VisualScriptSerializer::MaxCoordinate));
+					}
+					request.At = *at;
+				}
+				if (!editors.HasNodeLibrary())
+				{
+					return MakeCommandError(AutomationErrorCode::Unavailable, "the node palette needs the scripting runtime");
+				}
+				return call;
+			}
+
+			// graph.find: the scripts searched, then FindInVisualScript in each.
+			CommandResult FindInGraphs(Json const& params)
+			{
+				if (std::optional<CommandError> error = CheckAssets(false))
+				{
+					return *error;
+				}
+				bool const hasQuery = params.contains("query");
+				if (hasQuery == params.contains("references"))
+				{
+					CommandError error = MakeCommandError(AutomationErrorCode::InvalidParams,
+					                                      "give either query (the text to find) or references (the element whose "
+					                                      "references to list)");
+					error.Data = Json::object({{"path", hasQuery ? "references" : "query"}});
+					return error;
+				}
+				std::optional<AssetHandle> only;
+				if (params.contains("graph"))
+				{
+					CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+					if (!graph)
+					{
+						return graph.TakeError();
+					}
+					only = graph.GetValue();
+				}
+
+				VisualScriptFindQuery query;
+				// Variables and functions are referred to in their own script only.
+				std::optional<AssetHandle> owner;
+				if (hasQuery)
+				{
+					query.Text = params["query"].get<std::string>();
+				}
+				else
+				{
+					Json const& references = params["references"];
+					std::string const kind = references["kind"].get<std::string>();
+					VisualScriptReference reference;
+					if (kind == "CustomEvent")
+					{
+						if (!references.contains("name"))
+						{
+							return MakeParameterError("references.name", "a custom event's references need its name");
+						}
+						reference.ReferenceKind = VisualScriptReference::Kind::CustomEvent;
+						reference.Name = references["name"].get<std::string>();
+					}
+					else
+					{
+						reference.ReferenceKind =
+							kind == "Function" ? VisualScriptReference::Kind::Function : VisualScriptReference::Kind::Variable;
+						if (!references.contains("graph"))
+						{
+							return MakeParameterError("references.graph", fmt::format("a {}'s references need the visual script that "
+							                                                          "has it",
+							                                                          kind == "Function" ? "function" : "variable"));
+						}
+						if (!references.contains("id"))
+						{
+							return MakeParameterError("references.id", fmt::format("a {}'s references need its ID",
+							                                                       kind == "Function" ? "function" : "variable"));
+						}
+						CommandValue<AssetHandle> graph = ParseGraph(references["graph"], "references.graph");
+						if (!graph)
+						{
+							return graph.TakeError();
+						}
+						Result<Ref<VisualScriptAsset>> const asset = LoadGraph(graph.GetValue());
+						if (!asset)
+						{
+							return MakeCommandError(AutomationErrorCode::FileError,
+							                        "references.graph: the visual script does not load ({})", asset.GetError());
+						}
+						reference.ID = GetElementId(references["id"]);
+						Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
+						if (!HasReferencedElement(*document, reference))
+						{
+							return MakeParameterError("references.id", fmt::format("the visual script has no {} {}",
+							                                                       kind == "Function" ? "function" : "variable or local",
+							                                                       references["id"].dump()));
+						}
+						owner = graph.GetValue();
+					}
+					query.References = std::move(reference);
+				}
+
+				// The scripts searched, by path (memory assets, which have none, first).
+				std::vector<AssetHandle> scripts;
+				if (owner)
+				{
+					if (!only || *only == *owner)
+					{
+						scripts.push_back(*owner);
+					}
+				}
+				else if (only)
+				{
+					scripts.push_back(*only);
+				}
+				else
+				{
+					std::vector<AssetMetadata> all = AssetManager::GetAssets(AssetType::VisualScript);
+					std::sort(all.begin(), all.end(),
+					          [](AssetMetadata const& a, AssetMetadata const& b)
+					          {
+								  return a.Path != b.Path ? a.Path < b.Path : a.Name < b.Name;
+							  });
+					for (AssetMetadata const& script : all)
+					{
+						scripts.push_back(script.Handle);
+					}
+				}
+
+				size_t const offset = GetCount(params, "offset", 0);
+				size_t const limit = GetCount(params, "limit", 50);
+				bool analyzed = ScriptEngine::IsInitialized();
+				size_t total = 0;
+				Json results = Json::array();
+				Json skipped = Json::array();
+				for (AssetHandle const script : scripts)
+				{
+					Result<Ref<VisualScriptAsset>> const asset = LoadGraph(script);
+					if (!asset)
+					{
+						// A script asked for by name must be read; among every script, one that does not load is reported.
+						if (only)
+						{
+							return MakeCommandError(AutomationErrorCode::FileError, "graph: the visual script does not load ({})",
+							                        asset.GetError());
+						}
+						Json described = DescribeGraph(script);
+						described["error"] = asset.GetError();
+						skipped.push_back(std::move(described));
+						continue;
+					}
+					Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
+					std::optional<VisualScriptAnalysis> const analysis = AnalyzeGraph(*document);
+					analyzed = analyzed && analysis.has_value();
+					std::vector<VisualScriptFindResult> const found = FindInVisualScript(*document, analysis ? &*analysis : nullptr, query);
+					for (VisualScriptFindResult const& match : found)
+					{
+						if (total >= offset && total - offset < limit)
+						{
+							Json row = DescribeGraph(script);
+							row["function"] = match.Function;
+							if (match.Node != 0)
+							{
+								row["node"] = match.Node;
+							}
+							if (match.Comment != 0)
+							{
+								row["comment"] = match.Comment;
+							}
+							if (match.Variable != 0)
+							{
+								row["variable"] = match.Variable;
+							}
+							row["field"] = GetFindFieldName(match.Field);
+							row["text"] = match.Text;
+							results.push_back(std::move(row));
+						}
+						total++;
+					}
+				}
+				return Json::object(
+					{{"results", std::move(results)}, {"total", total}, {"analyzed", analyzed}, {"skipped", std::move(skipped)}});
+			}
+
+			// Whether the document has the variable or local, or the function, whose references graph.find lists.
+			static bool HasReferencedElement(VisualScriptDocument const& document, VisualScriptReference const& reference)
+			{
+				auto const hasID = [&reference](auto const& elements)
+				{
+					return std::any_of(elements.begin(), elements.end(),
+					                   [&reference](auto const& element)
+					                   {
+										   return element.ID == reference.ID;
+									   });
+				};
+				if (reference.ReferenceKind == VisualScriptReference::Kind::Function)
+				{
+					return hasID(document.Functions);
+				}
+				return hasID(document.Variables) || std::any_of(document.Functions.begin(), document.Functions.end(),
+				                                                [&hasID](VisualScriptFunction const& function)
+				                                                {
+																	return hasID(function.Locals);
+																});
 			}
 
 			// The node library for graph.library and graph.types: the asset checks apply, and the library needs the runtime.

@@ -1780,6 +1780,83 @@ TEST_CASE("VisualScriptEngine: development-only nodes run unless turned off befo
 	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 }
 
+TEST_CASE("VisualScriptEngine: a development-only node runs by default, and once development nodes are turned off the flow passes "
+          "through it")
+{
+	Testing::AssetManagerScope assets;
+	// Create -> Set Count to 5 (development only) -> Set Done to true.
+	VisualScriptDocument document = MakeCountDocument(5);
+	document.Variables.push_back(MakeVariable(2, "Done", "bool", false, true));
+	document.Graph.Nodes[1].Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	document.Graph.Nodes.push_back(MakeNode(12, "Variable.Set", Json::object({{"Variable", 2}}), Json::object({{"Value", true}})));
+	document.Graph.Links.push_back(MakeLink(11, "Then", 12, "Execute"));
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(document), "Development");
+	UUID const entity(41);
+	auto const run = [graph, entity]
+	{
+		RecordingHost host;
+		REQUIRE(VisualScriptEngine::CreateInstance(entity, graph, {}).IsOk());
+		VisualScriptEngine::InvokeOnCreate(entity);
+		std::pair<ScriptFieldValue, ScriptFieldValue> const values = {ReadVariable(entity, "Count"), ReadVariable(entity, "Done")};
+		VisualScriptEngine::DestroyInstance(entity);
+		CHECK(host.Exceptions == 0);
+		return values;
+	};
+
+	// In the editor and in projects, it runs.
+	{
+		Testing::ScriptRuntimeScope runtime;
+		CHECK(run() == std::pair(ScriptFieldValue::FromInt32(5), ScriptFieldValue::FromBool(true)));
+	}
+	// In exported games, it is skipped and the flow goes on after it.
+	{
+		Testing::ScriptRuntimeScope runtime;
+		VisualScriptEngine::SetDevelopmentNodesEnabled(false);
+		CHECK(run() == std::pair(ScriptFieldValue::FromInt32(0), ScriptFieldValue::FromBool(true)));
+	}
+}
+
+TEST_CASE("VisualScriptEngine: a development-only node of a type the runtime does not know breaks its graph, unless development "
+          "nodes are turned off")
+{
+	Testing::AssetManagerScope assets;
+	// Create -> Set Count to 3 -> an unknown node (development only).
+	VisualScriptDocument document = MakeCountDocument(3);
+	VisualScriptNode unknown = MakeNode(12, "Sample.NoSuchNode");
+	unknown.Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	document.Graph.Nodes.push_back(std::move(unknown));
+	document.Graph.Links.push_back(MakeLink(11, "Then", 12, "Execute"));
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(document), "Unknown");
+	UUID const entity(42);
+
+	// Enabled in development, its type is an Error: the graph does not run.
+	{
+		Testing::ScriptRuntimeScope runtime;
+		RecordingHost host;
+		uint64_t const logStart = Log::GetNextEntryIndex();
+		REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+		CHECK(
+			Testing::WasLogged(logStart, "Visual script 'Unknown' has 2 errors; first: unknown node type \"Sample.NoSuchNode\" (node 12)"));
+		CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
+		CHECK(VisualScriptEngine::CreateInstance(entity, graph, {}).IsError());
+	}
+	// Disabled in exported games, its type is only a Warning: the graph runs up to it.
+	{
+		Testing::ScriptRuntimeScope runtime;
+		RecordingHost host;
+		VisualScriptEngine::SetDevelopmentNodesEnabled(false);
+		uint64_t const logStart = Log::GetNextEntryIndex();
+		REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+		CHECK_FALSE(Testing::WasLogged(logStart, "Visual script 'Unknown'"));
+		CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+		REQUIRE(VisualScriptEngine::CreateInstance(entity, graph, {}).IsOk());
+		VisualScriptEngine::InvokeOnCreate(entity);
+		CHECK(ReadVariable(entity, "Count") == ScriptFieldValue::FromInt32(3));
+		VisualScriptEngine::DestroyInstance(entity);
+		CHECK(host.Exceptions == 0);
+	}
+}
+
 TEST_CASE("VisualScriptEngine: the working document goes first again only when it is another program, so none compiles twice")
 {
 	Testing::AssetManagerScope assets;
@@ -1969,7 +2046,8 @@ TEST_CASE("VisualScriptEngine: the shared fixture documents run on entities with
 	scene.OnRuntimeStart();
 	SceneContextScope context(scene);
 
-	constexpr std::array<std::string_view, 6> Documents = {"Data.json",      "Events.json",    "Flow.json",
+	// Editor.json has disabled, development-only and split nodes.
+	constexpr std::array<std::string_view, 7> Documents = {"Data.json",      "Editor.json",    "Events.json",   "Flow.json",
 	                                                       "Functions.json", "Reflected.json", "Variables.json"};
 	uint64_t const logStart = Log::GetNextEntryIndex();
 	for (std::string_view const name : Documents)

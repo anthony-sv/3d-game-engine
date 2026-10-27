@@ -270,6 +270,11 @@ each node's).
 | `graph.check` | `document`*, `graph` (the graph the document is for) | `valid`, `issues` (`[{ path, message }]`: what `graph.set` would refuse), `warnings` (what it would change), `analyzed`, `nodes`, `diagnostics`; writes nothing |
 | `graph.library` | `query` (in titles, keywords, categories and types, ignoring case), `category` (`Flow`, `Math`, `Components/Rigid Body`, ...: with the categories below it), `pinType` (a type ID, `exec` for flow), `direction` (with `pinType`: `In` for nodes with an input taking the type, `Out` for nodes with an output giving it; without it either), `limit` (1 to 500, default 50), `offset` | `nodes` (in library order: by category, then title), `total` (matches before paging); each node `{ Type, Title, Subtitle?, Category, Description?, Keywords, Kind, Pure, Latent, Pins, Settings }`, its pins `{ Name, Direction, Type, Label?, Default?, DefaultsToSelf?, Role?, Constraint?, Group?, ElementOf? }` (wildcards have the type `*`); InvalidParams for an unknown `pinType` and for `direction` without one |
 | `graph.types` | `query` (in IDs and titles, ignoring case), `kind` (`Exec`, `Bool`, `Integer`, `Float`, `String`, `Vector`, `Quaternion`, `Color`, `Matrix`, `Entity`, `Component`, `Asset`, `Enum`, `Struct`, `Class`, `Array` or `Object`), `limit` (1 to 500, default 50), `offset` | `types` (by ID), `total`; each type `{ ID, Title, Kind, FieldType? (the types public variables can have), AssetType?, Literal? (documents can hold its values), Enumerators? and Flags (enums), Makeable?, Breakable?, Fields? (structs), Base? (classes), Element? (arrays), ImplicitTo }` (`ImplicitTo`: the types its values convert to; every type also converts to `string`) |
+| `graph.open` | `graph`*, `function` (0: the event graph, else a function's ID; default the sub-graph shown last), `select` (IDs of nodes and comments of that sub-graph, at most 10000; the first is the primary selection), `frame` (`Keep`, `Selection` (the default with `select`) or `All`), `zoom` (0.1 to 2), `center` (`[x, y]` in canvas units, within ±1e7), `entity` (the context entity), `problems` (opens the problems drawer), `find` (opens the find bar with the text and goes to the first match, which becomes the selection) | `asset`, `path`, `function` (the sub-graph shown), `selection` (the IDs selected), `loaded`, `warnings`; opens the graph's window or brings it to the front, applied at its next draw; InvalidParams with `data.path` `function`, `select[<i>]` or `entity` for what the graph or the scene does not have |
+| `graph.close` | `graph` (default: every window) | `closed` (the assets whose windows closed, in tab order); a graph whose window is not open, or that was deleted, is no error |
+| `graph.editors` | – | `editors`: the open graph windows in tab order, each `{ asset, path, function, focused, visible, readOnly, loaded, analyzed, errors, warnings, view: { center, zoom, level }, selection: { nodes, comments }, contextEntity, palette: { open, query }, notices, card, toasts, live, save, drawer, find: { open, text, index, count }, bookmarks, minimap, panes: { sidebar, details }, shortcuts }` (below) |
+| `graph.palette` | `graph`* (an open window), `query`, `at` (`[x, y]` in canvas units; default the view's centre), `from` (`{ node*, pin*, direction* (In or Out) }`: context mode), `limit` (1 to 200, default 50), `open` (default true; false closes it) | `open`, `query`, `context`, `entries` (`[{ title, subtitle, category, type, settings, connects?, converts? }]` in rank order), `total`; asynchronous: answers once the palette was drawn (below) |
+| `graph.find` | `query` or `references` (`{ kind* (Variable, Function or CustomEvent), graph and id (Variable, Function), name (CustomEvent) }`), `graph` (only this script), `limit` (1 to 500, default 50), `offset` | `results` (`[{ asset, path, function, node?, comment?, variable?, field, text }]` in document order, the scripts by path), `total`, `analyzed`, `skipped` (scripts that do not load: `[{ asset, path, error }]`); works headless |
 
 `graph.library` and `graph.types` need the scripting runtime (.NET 10): without it they fail with Unavailable, and
 `graph.get`, `graph.set` and `graph.check` answer `analyzed: false` without `nodes` and `diagnostics`. Every graph command
@@ -277,6 +282,48 @@ fails with Unavailable without assets and `graph.create` and `graph.set` with In
 `graph` that is not registered is AssetNotFound, and one that is not a visual script (or, for `graph.set`, has no file
 of its own) InvalidParams with `data.path` `"graph"`. `graph.set` fails with FileError when the file cannot be read
 (missing) or written.
+
+**Graph windows.** `graph.open`, `graph.close`, `graph.editors` and `graph.palette` drive the editor's graph windows, one
+per open visual script (Docs/Architecture.md section 11); without the editor's UI (headless) they fail with Unavailable,
+and `graph.open` and `graph.palette` with InvalidOperation while a dialog is open. `graph.open` works while playing and
+applies at the window's next draw: `graph.editors` a frame later shows what the user sees, its members as that draw saw
+them. A file that is missing or does not load opens on its card (`loaded` false); `function`, `select`, `frame` and
+`find` cannot be checked then and are ignored, which `warnings` says. The view parameters combine in a fixed order: the
+framing (`frame`, or its default) first, then `zoom` around the framed centre, then `center`, so `{ select, zoom: 1.25 }`
+frames the selection at 125 %. Views move smoothly unless the user turned on Reduce Motion, so a view read right after
+`graph.open` may still be on its way.
+
+In `graph.editors`, `function` 0 is the event graph; `visible` is false while another tab is in front of the window;
+`readOnly` is true for memory assets and files without write permission; `view.level` is the level of detail (`Detail`,
+`Compact`, `Overview` or `Far`); `notices` lists, top to bottom, `Degraded` (no scripting runtime), `Normalization`,
+`Repaired`, `ReadOnlyMemory`, `ReadOnlyFile`, `NewFunction`, `FirstCanvas` and `GestureHint`; `card` is `None`,
+`Missing`, `Unloadable` or `EmptyGraph`; `live` the toolbar's pill (`None`, `Live`, `LastWorking` or `Simulating`);
+`save` `Saved` or `NotSaved`; `drawer` `Closed`, `Problems` or `Find`; `bookmarks` the slots stored (1 to 9); the panes
+`Hidden`, `Shown`, `AutoHidden` or `Overlay`; `shortcuts` whether the shortcut sheet is open. A window opened since the
+last frame reports its state before its first draw: not visible, not focused, nothing selected.
+
+`graph.palette` opens the window's node palette as if the user pressed Tab at `at` and typed `query`, or, with `from`,
+released a wire dragged from that pin there (named as the canvas names it: `Hit.Point` for a field of a split pin); it
+changes nothing in the document (`graph.set` adds nodes). It answers once the palette was drawn, a frame later (two for a
+window `graph.open` opened in the same frame): `entries` are its rows in rank order, at most `limit` (without `query` and
+`from`, the recent entries), `total` the rows before the limit, `type` the node type a row adds (empty for actions that
+add none), and with `from`, `connects` is the row's pin the wire links to and `converts` whether the link converts its
+value. Its checks come in this order: Unavailable without the UI; the asset checks; InvalidOperation when the graph's
+window is not open (`graph.open` first), its file does not load, or a dialog is open; InvalidParams for a `from.node`
+that is not a node of the sub-graph shown, a `from.pin` that is no pin name and an `at` beyond ±1e7 (`data.path`
+`from.node`, `from.pin`, `at`); Unavailable without the scripting runtime (the palette lists the node library); then
+InvalidParams (`from.pin`) for a pin the node does not have, and InvalidOperation when the window is not shown (another
+tab in front of it).
+
+`graph.find` searches what the find drawer searches: node titles, subtitles, types, comments, pin labels and stored
+values (a literal's compact JSON, a `Format`), comment boxes, and the names of variables, locals, functions and custom
+events, one result per element and field (ASCII letters in any case). References are the `Variable.Get` and
+`Variable.Set` nodes of a variable or local and the `Function.Call` nodes of a function, in their script, and the
+`Event.Custom` and `Event.Send` nodes of a custom event's name, in every script. Without the runtime, titles are
+derived from the documents and subtitles and pin labels are not searched (`analyzed` false). InvalidParams when both or
+neither of `query` and `references` are given, for `references` without what its kind needs and for an `id` the script
+does not have (`data.path` `references.id`); AssetNotFound for a `graph` or `references.graph` that is not registered;
+FileError when a script it names does not load.
 
 **Strictness.** `graph.set` checks its `document` as the loader checks files, but refuses what the loader would repair:
 an unknown key, a missing or duplicate ID, a name or type that is invalid or taken, a link to a node of another graph or

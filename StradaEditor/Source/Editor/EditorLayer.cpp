@@ -146,6 +146,11 @@ namespace Strada
 			{
 				m_EntityMenuRequest = EntityMenuRequest{open, submenu};
 			};
+			// The visual script windows are created below, before any command can run.
+			environment.GraphEditors = [this]() -> VisualScriptEditors&
+			{
+				return *m_VisualScripts;
+			};
 		}
 		environment.RequestQuit = []
 		{

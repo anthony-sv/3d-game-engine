@@ -14,6 +14,7 @@
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
+#include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -30,6 +31,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -472,4 +474,101 @@ TEST_CASE("VisualScriptEditor: while playing, moving a node sends nothing and a 
 		REQUIRE(fixture.Window.Operations.Undo().IsOk());
 	}
 	CHECK(fixture.Window.ReadFile() == bytes);
+}
+
+TEST_CASE("VisualScriptEditor: the runtime's analysis offers Remove Split for an unused split and Enable Node for a disabled node "
+          "that runs, and each fix removes its problem")
+{
+	Testing::ScriptRuntimeScope runtime;
+	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
+	REQUIRE(library != nullptr);
+	// A text input split (a string has no fields), and a pure Get disabled (it runs whenever it is read).
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "Speed", "float", 1.0));
+	document.Graph.Nodes = {
+		MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+		MakeNode(11, "Call:Strada.Log.Info(string)", glm::vec2(320.0f, 0.0f), Json::object(), Json::object({{"Message", "Hi"}})),
+		MakeNode(12, "Variable.Get", glm::vec2(0.0f, 300.0f), Json::object({{"Variable", 1}})),
+	};
+	document.Graph.Nodes[1].Split.Inputs = {"Message"};
+	document.Graph.Nodes[2].Enabled = VisualScriptNodeEnabled::Disabled;
+	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute")};
+
+	auto const find = [](VisualScriptAnalysis const& analysis, std::string_view code) -> VisualScriptDiagnostic const*
+	{
+		auto const found = std::find_if(analysis.Diagnostics.begin(), analysis.Diagnostics.end(),
+		                                [code](VisualScriptDiagnostic const& diagnostic)
+		                                {
+											return diagnostic.Code == code;
+										});
+		return found != analysis.Diagnostics.end() ? &*found : nullptr;
+	};
+	struct Case
+	{
+		char const* Code;
+		char const* Label;
+		VisualScriptFixKind Kind;
+	};
+	for (Case const& problem : {Case{"UnusedSplit", "Remove Split", VisualScriptFixKind::RemoveSplit},
+	                            Case{"DisabledIgnored", "Enable Node", VisualScriptFixKind::EnableNode}})
+	{
+		CAPTURE(problem.Code);
+		Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document);
+		REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+		VisualScriptDiagnostic const* diagnostic = find(analysis.GetValue(), problem.Code);
+		REQUIRE(diagnostic != nullptr);
+		CHECK(diagnostic->Severity == VisualScriptSeverity::Warning);
+		std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, analysis.GetValue(), *diagnostic, *library);
+		REQUIRE(fixes.size() == 1);
+		CHECK(fixes[0].Label == problem.Label);
+		CHECK(fixes[0].Kind == problem.Kind);
+		VisualScriptDocument fixed = document;
+		REQUIRE(ApplyVisualScriptQuickFix(fixed, analysis.GetValue(), *diagnostic, fixes[0]).IsOk());
+		Result<VisualScriptAnalysis> const after = VisualScriptEngine::Analyze(fixed);
+		REQUIRE(after.IsOk());
+		CHECK(find(after.GetValue(), problem.Code) == nullptr);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: the problems drawer's Edit in Details of a setting the runtime refuses focuses that setting")
+{
+	// A Sequence with more outputs than it may have.
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(11, "Flow.Sequence", glm::vec2(320.0f, 0.0f), Json::object({{"Count", 99}}))};
+	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute")};
+	RuntimeFixture fixture(document);
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Window.Graph;
+	request.ShowProblems = true;
+	fixture.Window.Panel->Apply(request);
+	fixture.Window.Frames(3);
+	VisualScriptDrawer const& drawer = fixture.Window.Panel->GetDrawer();
+	REQUIRE(drawer.GetProblems().size() == 1);
+	CHECK(drawer.GetProblems()[0].Code == "InvalidSetting");
+	CHECK(drawer.GetProblems()[0].Node == std::optional<uint32_t>(11));
+	std::optional<std::pair<glm::vec2, glm::vec2>> const fix = drawer.FindFixButton(0);
+	REQUIRE(fix.has_value());
+
+	// Navigating: the node is selected and Details gives its Count field the keyboard; nothing is edited.
+	size_t const undo = fixture.Window.GetUndoCount();
+	fixture.Window.Click((fix->first + fix->second) * 0.5f);
+	fixture.Window.Frames(3);
+	CHECK(fixture.Window.GetUndoCount() == undo);
+	std::span<uint32_t const> const selection = fixture.Model().GetSelection();
+	CHECK(std::vector<uint32_t>(selection.begin(), selection.end()) == std::vector<uint32_t>{11});
+	VisualScriptDetails const& details = fixture.Window.Panel->GetDetails();
+	REQUIRE(details.GetSubject() == VisualScriptDetailsSubject::Node);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const count = details.FindRow("Count");
+	REQUIRE(count.has_value());
+	ImGuiContext const& gui = *GImGui;
+	REQUIRE(gui.ActiveId != 0);
+	REQUIRE(gui.ActiveIdWindow != nullptr);
+	CHECK(gui.InputTextState.ID == gui.ActiveId);
+	// The active field is in Count's row.
+	ImRect const field = ImGui::WindowRectRelToAbs(gui.ActiveIdWindow, gui.ActiveIdWindow->NavRectRel[0]);
+	glm::vec2 const center((field.Min.x + field.Max.x) * 0.5f, (field.Min.y + field.Max.y) * 0.5f);
+	CHECK(center.y >= count->first.y);
+	CHECK(center.y <= count->second.y);
+	CHECK_FALSE(fixture.Window.Panel->GetPaneShared().FocusSetting.has_value());
 }

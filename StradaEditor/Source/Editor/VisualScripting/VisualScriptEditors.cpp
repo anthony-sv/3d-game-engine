@@ -97,6 +97,8 @@ namespace Strada
 		}
 
 		VisualScriptOpenRequest applied = request;
+		// The sub-graph the window shows once the request is applied; unknown for a file that does not load.
+		std::optional<uint32_t> shown;
 		GraphWindow* window = FindGraphWindow(request.Graph);
 		bool const loadable = !AssetManager::IsMissing(request.Graph) && !AssetManager::HasLoadFailure(request.Graph);
 		Result<Ref<VisualScriptAsset>> asset =
@@ -127,7 +129,9 @@ namespace Strada
 			if (graph == nullptr)
 			{
 				graph = &document->Graph;
+				function = 0;
 			}
+			shown = function;
 			for (uint32_t const id : request.Select)
 			{
 				if (!HasElement(*graph, id))
@@ -156,7 +160,13 @@ namespace Strada
 			RefreshPath(*window);
 		}
 		window->Panel->Apply(applied);
-		return window->Panel->GetState();
+		VisualScriptEditorState state = window->Panel->GetState();
+		// The draw that applies the request switches to it.
+		if (shown)
+		{
+			state.Function = *shown;
+		}
+		return state;
 	}
 
 	std::vector<AssetHandle> VisualScriptEditors::Close(std::optional<AssetHandle> graph)
@@ -188,6 +198,27 @@ namespace Strada
 			states.push_back(window.Panel->GetState());
 		}
 		return states;
+	}
+
+	uint32_t VisualScriptEditors::GetShownFunction(AssetHandle graph)
+	{
+		Maintain();
+		if (GraphWindow const* window = FindGraphWindow(graph))
+		{
+			return window->Panel->GetModel().GetFunction();
+		}
+		VisualScriptGraphViews const* views = m_Settings.FindGraph(graph);
+		return views != nullptr ? views->Shown : 0;
+	}
+
+	bool VisualScriptEditors::HasNodeLibrary()
+	{
+		return m_Semantics.GetLibrary() != nullptr;
+	}
+
+	void VisualScriptEditors::AfterNextDraw(std::function<void()> callback)
+	{
+		m_AfterDraw.push_back(std::move(callback));
 	}
 
 	VisualScriptEditorPanel* VisualScriptEditors::FindPanel(AssetHandle graph)
@@ -261,6 +292,13 @@ namespace Strada
 		{
 			RemoveWindows(closed);
 			SaveViews();
+		}
+
+		// Taken first: a callback may ask for the draw after this one.
+		std::vector<std::function<void()>> const callbacks = std::exchange(m_AfterDraw, {});
+		for (std::function<void()> const& callback : callbacks)
+		{
+			callback();
 		}
 	}
 
