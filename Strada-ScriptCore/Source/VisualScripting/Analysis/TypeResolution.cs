@@ -602,7 +602,8 @@ internal sealed class TypeResolution
 		node.Binding = binding;
 	}
 
-	private ConvertBinding? PlanConversion(VisualType from, VisualType to)
+	// How a Convert node converts from one type to another; null when no Convert node converts between them.
+	internal static ConvertBinding? PlanConversion(VisualType from, VisualType to)
 	{
 		if (ReferenceEquals(from, to))
 		{

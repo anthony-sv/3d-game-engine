@@ -526,10 +526,11 @@ internal static class LiteralCodec
 		{
 			return false;
 		}
-		// The float is read from the number's text, rounded once: a double rounded to float rounds twice, which turns the
-		// shortest texts of ±7.038531e-26 into the neighbouring floats. Magnitudes up to the bound round to at most float's
-		// largest value, so the double's float is only the fallback of a reader that refuses what it parsed.
-		value = json.TryGetSingle(out float single) && float.IsFinite(single) ? single : (float)number;
+		// As the engine reads documents (VisualScriptSerializer::ReadFloat): the double the text denotes, narrowed to float. So
+		// every reader of a document reads every float alike, also the few texts that lie almost on the midpoint between two
+		// floats (the shortest texts of ±7.038531e-26), which WriteFloat never writes. Magnitudes up to the bound narrow to at
+		// most float's largest value.
+		value = (float)number;
 		return true;
 	}
 
@@ -553,9 +554,29 @@ internal static class LiteralCodec
 
 	private static DecodedLiteral Expected(string what, JsonElement json) => DecodedLiteral.Invalid($"expected {what}, not {JsonText.Excerpt(json)}");
 
+	// A float so that every reader of documents, which reads the double a number's text denotes and narrows it to float, reads
+	// it back bit for bit (as the engine's literal codec writes floats): its shortest text, unless that text reads back as
+	// another float through a double (the shortest texts of ±7.038531e-26), then its double's text; -0 as "-0.0", because "-0"
+	// is the integer 0 to the engine's JSON reader. A float that is not finite is written as 0.
 	private static void WriteFloat(Utf8JsonWriter writer, float value)
 	{
-		writer.WriteNumberValue(float.IsFinite(value) ? value : 0.0f);
+		if (!float.IsFinite(value))
+		{
+			writer.WriteNumberValue(0.0f);
+		}
+		else if (value == 0.0f && float.IsNegative(value))
+		{
+			writer.WriteRawValue("-0.0", skipInputValidation: true);
+		}
+		else if (BitConverter.SingleToInt32Bits((float)double.Parse(value.ToString("R", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)) ==
+			BitConverter.SingleToInt32Bits(value))
+		{
+			writer.WriteNumberValue(value);
+		}
+		else
+		{
+			writer.WriteNumberValue((double)value);
+		}
 	}
 
 	private static void WriteFloats(Utf8JsonWriter writer, params ReadOnlySpan<float> values)

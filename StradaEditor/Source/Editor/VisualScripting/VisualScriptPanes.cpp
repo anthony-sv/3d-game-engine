@@ -429,14 +429,15 @@ namespace Strada
 			{
 				return VisualScriptEnabledOffer::Offered;
 			}
+			// A type nothing describes (Inferred without a library, UnknownType when the library does not know it): disabling it
+			// ends its chain, which is how its graph keeps running (spec §21).
+			if (visual.HasFlag(VisualScriptNodeFlags::Inferred) || visual.HasFlag(VisualScriptNodeFlags::UnknownType))
+			{
+				return VisualScriptEnabledOffer::Offered;
+			}
 			if (visual.HasFlag(VisualScriptNodeFlags::Pure))
 			{
 				return VisualScriptEnabledOffer::PureNode;
-			}
-			if (visual.HasFlag(VisualScriptNodeFlags::Inferred))
-			{
-				// A type nothing describes: disabling it ends its chain.
-				return VisualScriptEnabledOffer::Offered;
 			}
 			bool execIn = false;
 			bool execOut = false;

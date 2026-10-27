@@ -12,6 +12,9 @@
 #include "Editor/Panels/ContentBrowserPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/Viewport/ViewportOverlays.h"
+#include "Editor/VisualScripting/VisualScriptEditors.h"
+#include "Editor/VisualScripting/VisualScriptSemantics.h"
+#include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/Buffer.h"
@@ -25,8 +28,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -145,6 +150,17 @@ namespace
 		Json MaterialFields = Json::object();
 		// The document of the first visual script (graph.get), for graph.set and graph.check.
 		Json GraphDocument = Json::object();
+		// What that document holds, for the graph windows' commands and graph.find: its functions' IDs; the IDs of each
+		// sub-graph's nodes and comments (0: the event graph); its node IDs; the pin names its links and literals name; its
+		// variables', locals' and functions' IDs; its custom events' names.
+		std::vector<int64_t> GraphFunctions;
+		std::map<int64_t, std::vector<int64_t>> GraphElements;
+		std::vector<int64_t> GraphNodes;
+		std::vector<std::string> GraphPins;
+		std::vector<int64_t> GraphReferences;
+		std::vector<std::string> GraphEvents;
+		// The visual scripts whose windows are open (graph.editors).
+		std::vector<std::string> OpenGraphs;
 		Json ProjectSettings = Json::object();
 		Json SceneSettings = Json::object();
 	};
@@ -180,7 +196,12 @@ namespace
 				// Commands without parameters must refuse any.
 				return m_Random.Pick(10) == 0 ? Json::object({{"unexpected", 1}}) : Json::object();
 			}
-			return Value(schema, "", Json::object(), 0);
+			Json params = Value(schema, "", Json::object(), 0);
+			if (params.is_object() && m_Command.starts_with("graph."))
+			{
+				AdjustGraphParameters(params);
+			}
+			return params;
 		}
 
 	private:
@@ -299,6 +320,10 @@ namespace
 
 		Json IntegerValue(Json const& schema, std::string_view property)
 		{
+			if (std::optional<int64_t> const id = GraphId(property))
+			{
+				return *id;
+			}
 			double const minimum = schema.value("minimum", -1000.0);
 			double maximum = schema.value("maximum", 1000.0);
 			if (property == "frames")
@@ -312,6 +337,13 @@ namespace
 
 		Json NumberValue(Json const& schema, std::string_view property)
 		{
+			// Canvas points: finite, huge and not finite (which no JSON text holds, but a request built in memory can).
+			if (property == "at" || property == "center")
+			{
+				std::array<double, 7> const coordinates = {
+					0.0, 120.5, -2400.0, 9.0e6, 1.0e8, std::numeric_limits<double>::quiet_NaN(), -std::numeric_limits<double>::infinity()};
+				return coordinates[m_Random.Pick(coordinates.size())];
+			}
 			double minimum = schema.value("minimum", -1.0e30);
 			double maximum = schema.value("maximum", 1.0e30);
 			if (property == "timeout")
@@ -324,6 +356,85 @@ namespace
 			}
 			std::array<double, 8> const candidates = {minimum, maximum, 0.0, 0.5, -1.0, 1.0e6, -1.0e6, (minimum + maximum) / 2.0};
 			return std::clamp(candidates[m_Random.Pick(candidates.size())], minimum, maximum);
+		}
+
+		// Parameters of the graph window commands and graph.find that combine as the commands expect most of the time, so
+		// their work is reached in a run's few rounds of each command: graph.find gets one of query and references, graph.open
+		// selects elements of the sub-graph it shows, and graph.close mostly closes one window.
+		void AdjustGraphParameters(Json& params)
+		{
+			if (m_Command == "graph.find" && m_Random.Pick(4) != 0)
+			{
+				if (params.contains("query") && params.contains("references"))
+				{
+					params.erase(m_Random.Pick(2) == 0 ? "query" : "references");
+				}
+				else if (!params.contains("query") && !params.contains("references"))
+				{
+					std::vector<std::string> const texts = {"s", "Get", "Speed", "Hit", "e"};
+					params["query"] = PickFrom(texts);
+				}
+			}
+			if (m_Command == "graph.open" && params.contains("select") && m_Random.Pick(5) != 0)
+			{
+				auto const function = params.find("function");
+				int64_t const shown = function != params.end() && function->is_number_integer() ? function->get<int64_t>() : 0;
+				auto const elements = m_State.GraphElements.find(shown);
+				Json select = Json::array();
+				if (elements != m_State.GraphElements.end() && !elements->second.empty())
+				{
+					for (size_t count = 1 + m_Random.Pick(3); count > 0; count--)
+					{
+						select.push_back(PickFrom(elements->second));
+					}
+				}
+				params["select"] = std::move(select);
+			}
+			if (m_Command == "graph.close" && !params.contains("graph") && !m_State.OpenGraphs.empty() && m_Random.Pick(4) != 0)
+			{
+				params["graph"] = PickFrom(m_State.OpenGraphs);
+			}
+		}
+
+		// The IDs graph parameters name: those of the document's sub-graphs, nodes and comments, variables and functions, and
+		// IDs it does not have.
+		std::optional<int64_t> GraphId(std::string_view property)
+		{
+			if (!m_Command.starts_with("graph."))
+			{
+				return std::nullopt;
+			}
+			std::vector<int64_t> choices;
+			if (property == "function")
+			{
+				choices = m_State.GraphFunctions;
+				choices.push_back(0);
+			}
+			else if (property == "select")
+			{
+				// Mostly the event graph's, which graph.open shows unless it is given another.
+				auto const elements = m_State.GraphElements.find(
+					m_Random.Pick(3) == 0 && !m_State.GraphFunctions.empty() ? PickFrom(m_State.GraphFunctions) : 0);
+				if (elements != m_State.GraphElements.end())
+				{
+					choices = elements->second;
+				}
+			}
+			else if (property == "node")
+			{
+				choices = m_State.GraphNodes;
+			}
+			else if (property == "id")
+			{
+				choices = m_State.GraphReferences;
+			}
+			else
+			{
+				return std::nullopt;
+			}
+			// IDs the document does not have.
+			choices.insert(choices.end(), {999999, 2147483647});
+			return PickFrom(choices);
 		}
 
 		// A value of any kind, which the schema most likely rejects.
@@ -372,6 +483,26 @@ namespace
 			if (property == "settings")
 			{
 				return Damage(m_Command == "project.settings" ? m_State.ProjectSettings : m_State.SceneSettings);
+			}
+			// graph.find's references: an element of the document, a member left out now and then.
+			if (property == "references" && m_Random.Pick(4) != 0)
+			{
+				auto const graphs = m_State.AssetsByType.find("VisualScript");
+				std::array<char const*, 3> const kinds = {"Variable", "Function", "CustomEvent"};
+				Json reference = Json::object({{"kind", kinds[m_Random.Pick(kinds.size())]}});
+				if (graphs != m_State.AssetsByType.end() && m_Random.Pick(8) != 0)
+				{
+					reference["graph"] = PickFrom(graphs->second);
+				}
+				if (!m_State.GraphReferences.empty() && m_Random.Pick(8) != 0)
+				{
+					reference["id"] = PickFrom(m_State.GraphReferences);
+				}
+				if (!m_State.GraphEvents.empty() && m_Random.Pick(8) != 0)
+				{
+					reference["name"] = PickFrom(m_State.GraphEvents);
+				}
+				return reference;
 			}
 			// A whole visual script document (graph.set, graph.check), damaged half the time.
 			if (property == "document")
@@ -450,6 +581,11 @@ namespace
 				auto const typed = m_State.AssetsByType.find(property == "material" ? "Material" : "Prefab");
 				return {typed != m_State.AssetsByType.end() ? typed->second : std::vector<std::string>(), invalidAssets};
 			}
+			// The palette needs an open window, and closing one that is open does more than closing one that is not.
+			if (property == "graph" && (m_Command == "graph.palette" || m_Command == "graph.close") && !m_State.OpenGraphs.empty())
+			{
+				return {m_State.OpenGraphs, invalidAssets};
+			}
 			if (property == "graph")
 			{
 				auto const graphs = m_State.AssetsByType.find("VisualScript");
@@ -479,6 +615,19 @@ namespace
 			if (property == "path")
 			{
 				return Paths(siblings);
+			}
+			// graph.palette's pins and graph.find's texts and custom events.
+			if (property == "pin")
+			{
+				return {m_State.GraphPins, {"", "Hit.", ".Point", "A..B", "Nope"}};
+			}
+			if (property == "query" && m_Command == "graph.find")
+			{
+				return {{"s", "Get", "Speed", "Hit", "e"}, {"", "名前", "nothing like it"}};
+			}
+			if (property == "name" && m_Command == "graph.find")
+			{
+				return {m_State.GraphEvents, {"Nope", "  "}};
 			}
 			if (property == "name")
 			{
@@ -571,6 +720,12 @@ namespace
 		EditorCamera Camera;
 		SceneViewOverlays Overlays;
 		ContentBrowserPanel ContentBrowser;
+		// The graph windows, never drawn and without the scripting runtime (degraded): every command but graph.find only records
+		// state between frames, which needs no ImGui. Closing a window writes the views file.
+		std::filesystem::path ViewsDirectory = Directory.GetPath() / "UserData" / "Editor";
+		VisualScriptViewSettings ViewSettings{ViewsDirectory / "VisualScriptViews.json"};
+		EngineVisualScriptSemantics Semantics;
+		VisualScriptEditors GraphEditors{Operations, Semantics, ViewSettings};
 		CommandRegistry Registry;
 		bool QuitRequested = false;
 
@@ -598,6 +753,10 @@ namespace
 			environment.ContentBrowser = [this]() -> ContentBrowserPanel&
 			{
 				return ContentBrowser;
+			};
+			environment.GraphEditors = [this]() -> VisualScriptEditors&
+			{
+				return GraphEditors;
 			};
 			// There is no inspector or menu bar to show the menus, but inspector.add-component-menu and editor.entity-menu still
 			// check and list everything.
@@ -649,6 +808,10 @@ namespace
 			// The VisualScript component was created without a graph: it gets one.
 			REQUIRE_FALSE(visualScript.empty());
 			std::string const graph = Ok("graph.create", Json::object({{"path", "Scripts/Everything.sgraph"}}))["asset"].get<std::string>();
+			// The mutator only damages what the seed holds: the feature-test sample of the format has functions, locals, comments,
+			// a custom event and every node key of version 2.
+			Json const sample = Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph");
+			Ok("graph.set", Json::object({{"graph", graph}, {"document", sample["VisualScript"]}}));
 			Ok("component.set",
 			   Json::object({{"entity", visualScript}, {"component", "VisualScript"}, {"fields", Json::object({{"Graph", graph}})}}));
 			Ok("prefab.create", Json::object({{"entity", parent}, {"path", "Prefabs/Everything.sprefab"}}));
@@ -696,6 +859,17 @@ namespace
 			for (char const* const component : {"RigidBody", "PointLight", "AudioSource"})
 			{
 				static_cast<void>(Run("entity.create", Json::object({{"name", component}, {"components", {{component, Json::object()}}}})));
+			}
+		}
+
+		// Opens a visual script's window again when none is open (as Replenish puts entities back), so the palette has a window
+		// to open in.
+		void ReopenGraphWindow(EditorState const& state)
+		{
+			auto const graphs = state.AssetsByType.find("VisualScript");
+			if (graphs != state.AssetsByType.end() && !graphs->second.empty())
+			{
+				static_cast<void>(Run("graph.open", Json::object({{"graph", graphs->second.front()}})));
 			}
 		}
 
@@ -783,6 +957,71 @@ namespace
 			       redone.second == "there is nothing to redo" && redone.first == undone.first && restored == edited && changed.empty();
 		}
 
+		// What the graph commands name in the document graph.get gave.
+		static void ReadGraph(EditorState& state)
+		{
+			Json const& document = state.GraphDocument;
+			std::set<std::string> pins;
+			std::set<std::string> events;
+			auto const readGraph = [&](Json const& graph, int64_t function)
+			{
+				std::vector<int64_t>& elements = state.GraphElements[function];
+				Json const nodes = graph.value("Nodes", Json::array());
+				for (Json const& node : nodes)
+				{
+					elements.push_back(node.value("ID", int64_t(0)));
+					state.GraphNodes.push_back(elements.back());
+					Json const inputs = node.value("Inputs", Json::object());
+					for (auto const& [pin, value] : inputs.items())
+					{
+						pins.insert(pin);
+					}
+					Json const settings = node.value("Settings", Json::object());
+					if (node.value("Type", std::string()) == "Event.Custom" && settings.contains("Name") && settings["Name"].is_string())
+					{
+						events.insert(settings["Name"].get<std::string>());
+					}
+				}
+				Json const comments = graph.value("Comments", Json::array());
+				for (Json const& comment : comments)
+				{
+					elements.push_back(comment.value("ID", int64_t(0)));
+				}
+				Json const links = graph.value("Links", Json::array());
+				for (Json const& link : links)
+				{
+					for (char const* const end : {"From", "To"})
+					{
+						if (link.contains(end) && link[end].is_array() && link[end].size() == 2 && link[end][1].is_string())
+						{
+							pins.insert(link[end][1].get<std::string>());
+						}
+					}
+				}
+			};
+			readGraph(document.value("Graph", Json::object()), 0);
+			Json const variables = document.value("Variables", Json::array());
+			for (Json const& variable : variables)
+			{
+				state.GraphReferences.push_back(variable.value("ID", int64_t(0)));
+			}
+			Json const functions = document.value("Functions", Json::array());
+			for (Json const& function : functions)
+			{
+				int64_t const id = function.value("ID", int64_t(0));
+				state.GraphFunctions.push_back(id);
+				state.GraphReferences.push_back(id);
+				Json const locals = function.value("Locals", Json::array());
+				for (Json const& local : locals)
+				{
+					state.GraphReferences.push_back(local.value("ID", int64_t(0)));
+				}
+				readGraph(function.value("Graph", Json::object()), id);
+			}
+			state.GraphPins.assign(pins.begin(), pins.end());
+			state.GraphEvents.assign(events.begin(), events.end());
+		}
+
 		EditorState ReadState()
 		{
 			EditorState state;
@@ -853,6 +1092,7 @@ namespace
 					if (graph.IsOk())
 					{
 						state.GraphDocument = graph.GetValue()["document"];
+						ReadGraph(state);
 					}
 				}
 				for (size_t slash = path.find('/'); slash != std::string::npos; slash = path.find('/', slash + 1))
@@ -861,6 +1101,11 @@ namespace
 				}
 			}
 			state.Folders.assign(folders.begin(), folders.end());
+			Json const editors = Ok("graph.editors")["editors"];
+			for (Json const& editor : editors)
+			{
+				state.OpenGraphs.push_back(editor["asset"].get<std::string>());
+			}
 			state.ProjectSettings = Ok("project.info")["settings"];
 			state.SceneSettings = Ok("scene.settings")["settings"];
 			return state;
@@ -871,7 +1116,8 @@ namespace
 TEST_CASE("Automation: commands with any parameters answer once, keep the editor consistent and write only in the project")
 {
 	FuzzFixture fixture;
-	std::vector<std::filesystem::path> const writable = {fixture.ProjectDirectory, fixture.Outside};
+	// Closing graph windows writes the per-user views file.
+	std::vector<std::filesystem::path> const writable = {fixture.ProjectDirectory, fixture.Outside, fixture.ViewsDirectory};
 	FileSnapshot const filesBefore = SnapshotFiles(fixture.Directory.GetPath(), writable);
 
 	std::vector<CommandDefinition const*> commands;
@@ -887,8 +1133,10 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	ParameterGenerator generator(7, state, fixture.Outside, fixture.ImportFiles());
 	Testing::FuzzRandom random(11);
 	std::set<int> unanswered;
-	// Command name -> how often it succeeded and failed.
+	// Command name -> how often it succeeded and failed; graph.find's by query and by references, and graph.palette's errors.
 	std::map<std::string, std::pair<int, int>> outcomes;
+	std::map<std::string, int> findSuccesses;
+	std::map<AutomationErrorCode, int> paletteErrors;
 	// The requests since the last history check, listed when it fails, to find the step that breaks the history.
 	std::vector<std::string> recent;
 	for (int round = 0, rounds = Testing::GetFuzzRounds(1500); round < rounds; round++)
@@ -901,24 +1149,39 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 				fixture.Replenish();
 				state = fixture.ReadState();
 			}
+			if (state.OpenGraphs.empty())
+			{
+				fixture.ReopenGraphWindow(state);
+				state = fixture.ReadState();
+			}
 		}
 		CommandDefinition const& command = *commands[random.Pick(commands.size())];
 		Json const params = generator.Generate(command.Name, command.Parameters);
 		std::string const request = command.Name + " " + params.dump();
+		std::string const findKind = params.is_object() && params.contains("references") ? "references" : "query";
 		CAPTURE(round);
 		CAPTURE(request);
 		unanswered.insert(round);
 		fixture.Registry.Execute(command.Name, params,
-		                         [&unanswered, &outcomes, &recent, name = command.Name, round, request](CommandResult result)
+		                         [&unanswered, &outcomes, &findSuccesses, &paletteErrors, &recent, name = command.Name, round, request,
+		                          findKind](CommandResult result)
 		                         {
 									 CHECK_MESSAGE(unanswered.erase(round) == 1, "answered twice: " << request);
 									 recent.push_back(request + (result.IsOk() ? " -> ok" : " -> " + result.GetError().Message));
 									 if (result.IsOk())
 									 {
 										 outcomes[name].first++;
+										 if (name == "graph.find")
+										 {
+											 findSuccesses[findKind]++;
+										 }
 										 return;
 									 }
 									 outcomes[name].second++;
+									 if (name == "graph.palette")
+									 {
+										 paletteErrors[result.GetError().Code]++;
+									 }
 									 // InternalError means a handler threw: it relied on something it did not check.
 									 CHECK_MESSAGE(result.GetError().Code != AutomationErrorCode::InternalError,
 			                                       request << ": " << result.GetError().Message);
@@ -969,11 +1232,23 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	CHECK_MESSAGE(exercised * 4 >= commands.size() * 3, exercised << " of " << commands.size() << " commands succeeded");
 	// The visual script commands reach their work too (graph.library and graph.types need the scripting runtime, which the
 	// fixture does not start).
-	for (char const* const graphCommand : {"graph.create", "graph.get", "graph.set", "graph.check"})
+	for (char const* const graphCommand :
+	     {"graph.create", "graph.get", "graph.set", "graph.check", "graph.open", "graph.close", "graph.editors"})
 	{
 		CAPTURE(graphCommand);
 		CHECK(outcomes[graphCommand].first > 0);
 	}
+	CHECK(findSuccesses["query"] > 0);
+	CHECK(findSuccesses["references"] > 0);
+	// The palette needs the runtime, so it opens nowhere: its parameters are still checked before that.
+	CHECK(paletteErrors[AutomationErrorCode::InvalidParams] > 0);
+	CHECK(paletteErrors[AutomationErrorCode::Unavailable] > 0);
+
+	// The views file the windows wrote loads without a warning.
+	fixture.Ok("graph.close");
+	VisualScriptViewSettings views(fixture.ViewsDirectory / "VisualScriptViews.json");
+	CHECK(FileSystem::Exists(fixture.ViewsDirectory / "VisualScriptViews.json"));
+	CHECK(views.Load().empty());
 
 	// Nothing outside the project changed, but where absolute scene paths pointed.
 	CHECK(SnapshotFiles(fixture.Directory.GetPath(), writable) == filesBefore);

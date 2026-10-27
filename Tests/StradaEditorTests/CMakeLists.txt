@@ -39,6 +39,7 @@ add_executable(StradaEditorTests
     Source/VisualScriptEditingTests.cpp
     Source/VisualScriptEditorFoundationTests.cpp
     Source/VisualScriptEditorModelTests.cpp
+    Source/VisualScriptEditorsTests.cpp
     Source/VisualScriptFindTests.cpp
     Source/VisualScriptGeometryTests.cpp
     Source/VisualScriptHitTestTests.cpp
@@ -76,6 +77,8 @@ target_compile_definitions(StradaEditorTests PRIVATE
     DOCTEST_CONFIG_SUPER_FAST_ASSERTS
     # The command reference; a test checks that every registered command is documented.
     STRADA_AUTOMATION_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Automation.md"
+    # The architecture; a test checks that section 11 lists every key and mouse gesture of the visual script editor.
+    STRADA_ARCHITECTURE_DOC_PATH="${PROJECT_SOURCE_DIR}/Docs/Architecture.md"
     # The shared fuzzing helpers (Fuzzing.h) take their seed documents from the FeatureTest project.
     STRADA_FEATURE_TEST_DIR="${PROJECT_SOURCE_DIR}/Projects/FeatureTest"
     # The repository's projects: the play mode tests play the Blocks sample with the scripts CMake builds.

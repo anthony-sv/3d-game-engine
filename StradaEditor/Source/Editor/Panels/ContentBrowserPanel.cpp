@@ -1433,7 +1433,14 @@ namespace Strada
 				break;
 			case ItemKind::Asset:
 			{
-				ImGui::TextDisabled("%s", UI::FormatDisplayName(AssetTypeToString(item.Type)).c_str());
+				if (item.Type == AssetType::VisualScript)
+				{
+					ImGui::TextDisabled("Visual script: double-click to edit it, drag it onto an entity to run it there");
+				}
+				else
+				{
+					ImGui::TextDisabled("%s", UI::FormatDisplayName(AssetTypeToString(item.Type)).c_str());
+				}
 				if (AudioWaveform const* waveform =
 				        item.Type == AssetType::AudioClip && m_Thumbnails != nullptr ? m_Thumbnails->GetWaveform(item.Asset) : nullptr)
 				{
@@ -1478,7 +1485,8 @@ namespace Strada
 		{
 			Open(operations, item);
 		}
-		if ((item.IsFolder() || item.Type == AssetType::Scene) && ImGui::MenuItem("Open"))
+		bool const opens = item.IsFolder() || item.Type == AssetType::Scene || (item.Type == AssetType::VisualScript && m_OpenVisualScript);
+		if (opens && ImGui::MenuItem("Open"))
 		{
 			Open(operations, item);
 		}
@@ -1884,6 +1892,10 @@ namespace Strada
 				if (item.Type == AssetType::Scene && m_OpenScene)
 				{
 					m_OpenScene(AssetManager::GetAbsolutePath(item.Asset));
+				}
+				else if (item.Type == AssetType::VisualScript && m_OpenVisualScript)
+				{
+					m_OpenVisualScript(item.Asset);
 				}
 				return;
 			case ItemKind::Script:

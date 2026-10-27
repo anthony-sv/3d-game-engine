@@ -20,6 +20,9 @@
 #include "Editor/ScriptFieldInspection.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
+#include "Editor/VisualScripting/VisualScriptEditors.h"
+#include "Editor/VisualScripting/VisualScriptSemantics.h"
+#include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/BuiltInAssets.h"
@@ -862,10 +865,15 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	inspector.SetThumbnails(&thumbnails);
 	bool browserOpen = true;
 	bool inspectorOpen = true;
+	// The graph windows, without the scripting runtime (the node library is not needed to show a graph).
+	EngineVisualScriptSemantics semantics;
+	VisualScriptViewSettings views(temporary.GetPath() / "Views.json");
+	VisualScriptEditors editors(operations, semantics, views);
 	auto const draw = [&]
 	{
 		browser.OnImGuiRender(operations, browserOpen);
 		inspector.OnImGuiRender(operations, inspectorOpen);
+		editors.OnImGuiRender();
 	};
 	auto const drawFrames = [&]
 	{
@@ -974,6 +982,15 @@ TEST_CASE("Panels: the content browser and the asset inspector show a project's 
 	}
 	// An unknown asset is deselected by the inspector.
 	CHECK_FALSE(context.GetSelectedAsset().IsValid());
+	// Each visual script in its graph window, the one that does not load on its card.
+	for (AssetHandle const asset : {graph, sampleGraph, brokenGraph})
+	{
+		VisualScriptOpenRequest request;
+		request.Graph = asset;
+		REQUIRE(editors.Open(request).IsOk());
+		drawFrames();
+	}
+	CHECK(editors.Describe().size() == 3);
 
 	CHECK(browserOpen);
 	CHECK(inspectorOpen);
@@ -3201,6 +3218,182 @@ TEST_CASE("Panels: visual scripts dragged from the content browser onto a hierar
 		CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 2);
 	}
 	CHECK(fixture.InspectorOpen);
+}
+
+TEST_CASE("Panels: visual scripts open in their graph windows from the content browser and the asset inspector")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	Result<AssetHandle> const spin = fixture.Operations.CreateVisualScript("Logic/Spin.sgraph");
+	REQUIRE(spin.IsOk());
+	std::vector<AssetHandle> opened;
+	fixture.Browser.SetOpenVisualScriptCallback(
+		[&opened](AssetHandle graph)
+		{
+			opened.push_back(graph);
+		});
+	fixture.Inspector.SetOpenVisualScriptCallback(
+		[&opened](AssetHandle graph, UUID entity)
+		{
+			CHECK_FALSE(entity.IsValid());
+			opened.push_back(graph);
+		});
+	fixture.Browser.SetFolder("Logic");
+	std::function<void()> const draw = fixture.GetDraw();
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	// A double-click on its tile.
+	ImVec2 const tile = fixture.GetTile(0);
+	imgui.Click(tile, draw, 2);
+	CHECK(opened == std::vector<AssetHandle>{spin.GetValue()});
+	CHECK(fixture.Context.GetSelectedAsset() == spin.GetValue());
+
+	// Open in its menu (frames pass first: a press right after the double-click would be another).
+	for (int frame = 0; frame < 40; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	ImGui::GetIO().AddMousePosEvent(tile.x, tile.y);
+	imgui.Frame(draw);
+	ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Right, true);
+	imgui.Frame(draw);
+	ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Right, false);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow* menu = GetOpenPopup();
+	REQUIRE(menu != nullptr);
+	std::optional<ImVec2> const open = FindHovered(imgui, draw, GetColumnPoints(menu), menu->GetID("Open"));
+	REQUIRE(open.has_value());
+	imgui.Click(*open, draw);
+	CHECK(opened == std::vector<AssetHandle>{spin.GetValue(), spin.GetValue()});
+
+	// The asset inspector's Open, above the script's details.
+	ImGuiWindow const* inspector = ImGui::FindWindowByName("Inspector");
+	REQUIRE(inspector != nullptr);
+	ImGuiID const button = ImHashStr("Open", 0, ImHashStr("##asset", 0, inspector->ID));
+	std::optional<ImVec2> const inspectorOpen = FindHovered(imgui, draw, GetColumnPoints(inspector), button);
+	REQUIRE(inspectorOpen.has_value());
+	imgui.Click(*inspectorOpen, draw);
+	CHECK(opened == std::vector<AssetHandle>{spin.GetValue(), spin.GetValue(), spin.GetValue()});
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+}
+
+TEST_CASE("Panels: the component inspector opens the entities' visual script, and creates one for entities that run none")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	// The graph windows the inspector opens, without the scripting runtime.
+	EngineVisualScriptSemantics semantics;
+	VisualScriptViewSettings views(fixture.Temporary.GetPath() / "Views.json");
+	VisualScriptEditors editors(fixture.Operations, semantics, views);
+	std::vector<std::pair<AssetHandle, UUID>> opened;
+	fixture.Inspector.SetOpenVisualScriptCallback(
+		[&opened, &editors](AssetHandle graph, UUID entity)
+		{
+			opened.emplace_back(graph, entity);
+			VisualScriptOpenRequest request;
+			request.Graph = graph;
+			request.ContextEntity = entity;
+			REQUIRE(editors.Open(request).IsOk());
+		});
+	std::function<void()> const panels = fixture.GetDraw();
+	std::function<void()> const draw = [&panels, &editors]
+	{
+		panels();
+		editors.OnImGuiRender();
+	};
+	// The scene is looked up each time: closing the project replaces it.
+	auto const getGraph = [&fixture](UUID id)
+	{
+		Entity const entity = fixture.Context.GetScene().GetEntityByUUID(id);
+		return entity.GetComponent<VisualScriptComponent>().Graph;
+	};
+	auto const findButton = [&imgui, &draw](char const* label)
+	{
+		ImGuiWindow const* window = ImGui::FindWindowByName("Inspector");
+		REQUIRE(window != nullptr);
+		ImGuiID const id = ImHashStr(label, 0, ImHashStr("VisualScript", 0, window->ID));
+		return FindHovered(imgui, draw, GetColumnPoints(window), id);
+	};
+
+	// Entities that run no graph: Create Visual Script writes Scripts/<the primary one's name>.sgraph (the inspector's first,
+	// selected last), both run it in one step, and its window opens with the primary one as its context entity.
+	UUID const hero = Create(fixture.Operations, "Hero", Json::object({{"VisualScript", Json::object()}}));
+	UUID const sidekick = Create(fixture.Operations, "Sidekick", Json::object({{"VisualScript", Json::object()}}));
+	std::vector<UUID> const selection = {sidekick, hero};
+	REQUIRE(fixture.Operations.Select(selection).IsOk());
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	std::optional<ImVec2> const create = findButton("Create Visual Script");
+	REQUIRE(create.has_value());
+	CHECK_FALSE(GImGui->HoveredIdIsDisabled);
+	imgui.Click(*create, draw);
+	AssetHandle const made = AssetManager::FindByPath("Scripts/Hero.sgraph");
+	REQUIRE(made.IsValid());
+	CHECK(AssetManager::GetAsset<VisualScriptAsset>(made)->GetDocument() == MakeVisualScriptTemplate(VisualScriptTemplate::Events));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Create Visual Script");
+	CHECK(getGraph(hero) == made);
+	CHECK(getGraph(sidekick) == made);
+	REQUIRE(opened.size() == 1);
+	CHECK(opened.front() == std::pair(made, hero));
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	std::vector<VisualScriptEditorState> const states = editors.Describe();
+	REQUIRE(states.size() == 1);
+	CHECK(states.front().Graph == made);
+	CHECK(states.front().ContextEntity == hero);
+	// The window floats over the inspector: closed, it uncovers the inspector again.
+	editors.Close();
+
+	// Undone, the entities run nothing again; the file stays, so the next one is named after it.
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK_FALSE(getGraph(hero).IsValid());
+	CHECK(FileSystem::Exists(fixture.GetAssetDirectory() / "Scripts" / "Hero.sgraph"));
+	imgui.Frame(draw);
+	std::optional<ImVec2> const again = findButton("Create Visual Script");
+	REQUIRE(again.has_value());
+	imgui.Click(*again, draw);
+	AssetHandle const second = AssetManager::FindByPath("Scripts/Hero1.sgraph");
+	REQUIRE(second.IsValid());
+	CHECK(getGraph(hero) == second);
+	editors.Close();
+
+	// Entities that share a graph: Open Visual Script, with the primary one as the context entity.
+	for (int frame = 0; frame < 3; frame++)
+	{
+		imgui.Frame(draw);
+	}
+	std::optional<ImVec2> const open = findButton("Open Visual Script");
+	REQUIRE(open.has_value());
+	opened.clear();
+	imgui.Click(*open, draw);
+	REQUIRE(opened.size() == 1);
+	CHECK(opened.front() == std::pair(second, hero));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+
+	// Without an asset directory there is nowhere to write one: the button is disabled.
+	editors.Close();
+	REQUIRE(fixture.Operations.CloseProject().IsOk());
+	UUID const loner = Create(fixture.Operations, "Loner", Json::object({{"VisualScript", Json::object()}}));
+	std::array<UUID, 1> const alone = {loner};
+	REQUIRE(fixture.Operations.Select(alone).IsOk());
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	size_t const before = fixture.Context.GetHistory().GetUndoCount();
+	std::optional<ImVec2> const disabled = findButton("Create Visual Script");
+	REQUIRE(disabled.has_value());
+	CHECK(GImGui->HoveredIdIsDisabled);
+	opened.clear();
+	imgui.Click(*disabled, draw);
+	CHECK(opened.empty());
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == before);
+	CHECK_FALSE(getGraph(loner).IsValid());
 }
 
 TEST_CASE("Panels: the content browser searches the shown root for what is typed into its search field")

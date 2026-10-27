@@ -199,11 +199,25 @@ namespace
 		return document;
 	}
 
-	// Writes the checks graph into the open asset directory and adds an entity running it to the scene.
-	void AddChecksGraph(Scene& scene)
+	// The checks graph with a check that passes only where development-only nodes run: Create -> Pass "development node ran"
+	// (development only) -> Pass "graph created".
+	VisualScriptDocument MakeDevelopmentChecksDocument()
+	{
+		VisualScriptDocument document = MakeChecksDocument();
+		VisualScriptNode development =
+			MakeNode(6, "Call:Strada.Testing.TestReporter.Pass(string)", Json::object({{"Name", "development node ran"}}));
+		development.Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+		document.Graph.Nodes.push_back(std::move(development));
+		document.Graph.Links.front() = {{1, "Then"}, {6, "Execute"}};
+		document.Graph.Links.push_back({{6, "Then"}, {2, "Execute"}});
+		return document;
+	}
+
+	// Writes a checks graph into the open asset directory and adds an entity running it to the scene.
+	void AddChecksGraph(Scene& scene, VisualScriptDocument const& document = MakeChecksDocument())
 	{
 		std::filesystem::path const file = AssetManager::GetAssetDirectory() / "Scripts" / "Checks.sgraph";
-		REQUIRE(VisualScriptSerializer::SaveToFile(MakeChecksDocument(), file).IsOk());
+		REQUIRE(VisualScriptSerializer::SaveToFile(document, file).IsOk());
 		Result<AssetHandle> graph = AssetManager::ImportFile(file);
 		REQUIRE(graph.IsOk());
 		REQUIRE(AssetManager::SaveRegistry().IsOk());
@@ -603,6 +617,51 @@ TEST_CASE("Runtime: exported games whose only scripts are visual scripts carry t
 	CAPTURE(passed.Output);
 	CHECK(passed.ExitCode == 0);
 	CHECK(Contains(passed.Output, "Tests passed: 2 checks in 1 frame"));
+}
+
+TEST_CASE("Runtime: an exported game skips the development-only nodes of its visual scripts, which its project runs")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path projectFile;
+	std::filesystem::path player;
+	{
+		Testing::AssetManagerScope assets;
+		Result<Ref<Project>> created =
+			Project::Create(directory.GetPath() / "Project", "Development Test", *MakeScene("Main", std::nullopt));
+		REQUIRE(created.IsOk());
+		Ref<Project> const project = created.GetValue();
+		Ref<Scene> const main = MakeScene("Main", std::nullopt);
+		AddChecksGraph(*main, MakeDevelopmentChecksDocument());
+		REQUIRE(SceneSerializer::SaveToFile(*main, project->GetAssetDirectory() / "Scenes" / "Main.sscene").IsOk());
+		projectFile = project->GetFilePath();
+
+		Result<GameExportSettings> prepared = GameExporter::Prepare(*project, directory.GetPath() / "Export");
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		Result<GameExportResult> exported = GameExporter::Export(prepared.GetValue());
+		REQUIRE_MESSAGE(exported.IsOk(), (exported ? std::string() : exported.GetError()));
+		REQUIRE(exported.GetValue().Succeeded);
+		player = exported.GetValue().Executable;
+		if (player.extension() == ".app")
+		{
+			player = player / "Contents" / "MacOS" / player.stem();
+		}
+	}
+
+	// The project runs the development-only node.
+	ProcessResult const project = RunPlayer({"--project", Native(projectFile), "--test"});
+	CAPTURE(project.Output);
+	CHECK(project.ExitCode == 0);
+	CHECK(Contains(project.Output, "Test passed: development node ran"));
+	CHECK(Contains(project.Output, "Test passed: graph created"));
+	CHECK(Contains(project.Output, "Tests passed: 3 checks in 1 frame"));
+
+	// The exported game passes the flow through it.
+	ProcessResult const game = RunProgram(player, {"--test"});
+	CAPTURE(game.Output);
+	CHECK(game.ExitCode == 0);
+	CHECK_FALSE(Contains(game.Output, "development node ran"));
+	CHECK(Contains(game.Output, "Test passed: graph created"));
+	CHECK(Contains(game.Output, "Tests passed: 2 checks in 1 frame"));
 }
 
 TEST_CASE("Runtime: the feature-test project passes its test run")

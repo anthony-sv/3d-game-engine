@@ -461,7 +461,7 @@ namespace Strada
 		return m_Context.ExecuteCommand(CreateScope<CompositeCommand>(fmt::format("Set Script {}", className), std::move(commands)));
 	}
 
-	Result<void> EditorOperations::SetVisualScriptGraph(std::span<UUID const> entities, AssetHandle graph)
+	Result<void> EditorOperations::SetVisualScriptGraph(std::span<UUID const> entities, AssetHandle graph, std::string description)
 	{
 		if (!graph.IsValid())
 		{
@@ -497,9 +497,12 @@ namespace Strada
 		{
 			return {};
 		}
-		std::optional<AssetMetadata> const metadata = AssetManager::IsInitialized() ? AssetManager::GetMetadata(graph) : std::nullopt;
-		std::string const name = metadata ? metadata->GetDisplayName() : graph.ToString();
-		return m_Context.ExecuteCommand(CreateScope<CompositeCommand>(fmt::format("Set Visual Script {}", name), std::move(commands)));
+		if (description.empty())
+		{
+			std::optional<AssetMetadata> const metadata = AssetManager::IsInitialized() ? AssetManager::GetMetadata(graph) : std::nullopt;
+			description = fmt::format("Set Visual Script {}", metadata ? metadata->GetDisplayName() : graph.ToString());
+		}
+		return m_Context.ExecuteCommand(CreateScope<CompositeCommand>(std::move(description), std::move(commands)));
 	}
 
 	Result<void> EditorOperations::CreateAssetFolder(std::string_view folder)

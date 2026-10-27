@@ -23,6 +23,9 @@
 #include "Editor/PlayMode.h"
 #include "Editor/RecentProjects.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
+#include "Editor/VisualScripting/VisualScriptEditors.h"
+#include "Editor/VisualScripting/VisualScriptSemantics.h"
+#include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Core/Layer.h"
 
@@ -51,7 +54,8 @@ namespace Strada
 
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
 	// and hot reload), play mode, game export, the automation command registry and server, and the UI (dockspace, menu bar,
-	// toolbar with the play controls, shortcuts and panels) when ImGui is available; with the UI, the assets are rescanned
+	// toolbar with the play controls, shortcuts, panels and the visual script windows) when ImGui is available. The Edit
+	// menu acts on the graph window focused last while it is shown, else on the scene; with the UI, the assets are rescanned
 	// whenever the editor gets the focus back, and the windows' input is shared between the editor and the game in the game
 	// view (GameInputRouter, as ImGuiLayer's input filter). Playing brings the game view to the front with the input;
 	// stopping, the scene view. Replacing the scene (new or opened scenes and projects) or closing the editor with unsaved
@@ -146,6 +150,12 @@ namespace Strada
 		bool SaveScene();
 		bool SaveSceneAs();
 
+		// Undo and Redo of the one history; while a graph window is the Edit menu's target, it says what was undone or redone.
+		void Undo();
+		void Redo();
+		// Opens a visual script's window (the content browser, the inspector), with the entity it runs on when given.
+		void OpenVisualScript(AssetHandle graph, UUID contextEntity);
+
 		void DuplicateSelection();
 		void DeleteSelection();
 		void SelectAll();
@@ -183,6 +193,10 @@ namespace Strada
 		// Created when ImGui is available.
 		Scope<ViewportPanel> m_ViewportPanel;
 		Scope<GameViewPanel> m_GameViewPanel;
+		// The visual script windows (created with the UI), what they analyze with, and the per-user views file they keep.
+		EngineVisualScriptSemantics m_VisualScriptSemantics;
+		VisualScriptViewSettings m_VisualScriptViews;
+		Scope<VisualScriptEditors> m_VisualScripts;
 		bool m_ShowViewport = true;
 		bool m_ShowGameView = true;
 		bool m_ShowHierarchy = true;

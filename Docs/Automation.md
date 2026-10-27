@@ -159,8 +159,8 @@ Project settings are saved to the project file immediately and are not part of t
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
-| `scene.new` | `name`, `discardChanges` | `scene` |
-| `scene.open` | `path`* (absolute, or relative to Assets), `discardChanges` | `scene`, `warnings` (skipped unknown components/fields) |
+| `scene.new` | `name`, `discardChanges` | `scene`; the history keeps its steps of asset files (`graph.set`, `material.set`) |
+| `scene.open` | `path`* (absolute, or relative to Assets), `discardChanges` | `scene`, `warnings` (skipped unknown components/fields); the history keeps its steps of asset files (`graph.set`, `material.set`) |
 | `scene.save` | `path` (absolute, or relative to Assets; required for never-saved scenes) | `scene` |
 | `scene.hierarchy` | — | `scene`, `entities`: tree of `{ id, name, components, children }` |
 | `scene.dump` | — | the scene in the `.sscene` format |
@@ -221,7 +221,9 @@ inspector, such as `Mesh.Materials`, which the material slot sections edit; set 
 
 Asset parameters accept a handle (decimal string), `"asset://<path in Assets>"` or `"builtin://<name>"`. Paths are
 relative to the project's `Assets` directory with forward slashes. Asset file operations need an open project
-(InvalidOperation otherwise) and are not part of the undo history; handles stay valid when assets move.
+(InvalidOperation otherwise) and are not part of the undo history; handles stay valid when assets move. Deleting an
+asset (`asset.delete`, `asset.delete-folder`) discards the undo steps that edited its file; a step that also changed the
+scene keeps its scene part. `project.create`, `project.open` and `project.close` drop every step of asset files.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
@@ -255,28 +257,82 @@ Visual scripts are graph assets (`.sgraph` files) that a `VisualScript` componen
 asset, its `Variables` the values the entity gives the graph's public variables. The graph commands read and write a
 graph's **document**, the content of its file without the header: `{ "Description", "Variables", "Functions", "Graph" }`
 (Docs/Architecture.md section 7.3). Variables, function locals, functions, nodes and comments share one space of IDs (1
-to 2147483647). A node is `{ "ID", "Type", "Position"?, "Settings"?, "Inputs"? }`: `Type` is a node kind of
-`graph.library` (`Flow.Branch`, `Call:Strada.Input.IsKeyDown(Strada.KeyCode)`), a node without `Position` is laid out
-by `graph.set`, `Settings` configure the kind and `Inputs` hold the literals of unconnected inputs. A link is
-`{ "From": [<node>, "<output pin>"], "To": [<node>, "<input pin>"] }`, within one graph (the event graph, or one
-function's). Documents store no pins: the scripting runtime derives them (`graph.library` lists each kind's, an analysis
-each node's).
+to 2147483647). A node is `{ "ID", "Type", "Position"?, "Settings"?, "Inputs"?, "Split"?, "Comment"?, "Collapsed"?,
+"Enabled"? }`: `Type` is a node kind of `graph.library` (`Flow.Branch`, `Call:Strada.Input.IsKeyDown(Strada.KeyCode)`),
+a node without `Position` is laid out by `graph.set`, `Settings` configure the kind and `Inputs` hold the literals of
+unconnected inputs. The other four are those of version 2 of the format, each left out at its default: `Split`
+(`{ "Inputs": [...], "Outputs": [...] }`) shows each listed pin as one pin per field (`"Hit"` gives `Hit.Point`,
+`Hit.Normal`, ...; `"Hit.Point"` after it splits that field again; at most 64 per list), and links and `Inputs` then
+name the field pins; `Comment` is a note on the node (at most 65536 bytes); `Collapsed` (true) shows only its header;
+`Enabled` is `"Enabled"` (the default), `"Disabled"` (the node passes the flow and its values through instead of
+running: below) or `"DevelopmentOnly"` (it runs in the editor and in `StradaRuntime --project`, and is disabled in
+exported games). A link is `{ "From": [<node>, "<output pin>"], "To": [<node>, "<input pin>"] }`, within one graph (the
+event graph, or one function's). Documents store no pins: the scripting runtime derives them (`graph.library` lists
+each kind's, an analysis each node's).
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
 | `graph.create` | `path`* (`.sgraph`, relative to Assets), `template` (`Events` (default): an `Event.Create` and an `Event.Update` node; `Empty`) | `asset` (the graph's handle), `path`; not undoable (file creation); InvalidParams for a path that is taken, outside Assets or not `.sgraph` |
 | `graph.get` | `graph`* (handle or `"asset://<path>.sgraph"`), `analyze` (default true) | `asset`, `path`, `document`, `analyzed`, `nodes` and `diagnostics` (the analysis, below); FileError when the file does not load |
-| `graph.set` | `graph`*, `document`* (strict) | `asset`, `path`, `changed` (false when the document is the stored one: no undo step), `analyzed`, `warnings` (what `graph.set` changed besides the given document), `nodes`, `diagnostics`; saves the file as one undo step that does not mark the scene modified; allowed while playing (below) |
+| `graph.set` | `graph`*, `document`* (strict) | `asset`, `path`, `changed` (false when the document is the stored one, as written: no undo step; an integer written as a float, `1` as `1.0`, is a change), `analyzed`, `warnings` (what `graph.set` changed besides the given document), `nodes`, `diagnostics`; saves the file as one undo step that does not mark the scene modified, whose undo gives the file its exact bytes back (a version-1 file stays version 1); allowed while playing (below) |
 | `graph.check` | `document`*, `graph` (the graph the document is for) | `valid`, `issues` (`[{ path, message }]`: what `graph.set` would refuse), `warnings` (what it would change), `analyzed`, `nodes`, `diagnostics`; writes nothing |
 | `graph.library` | `query` (in titles, keywords, categories and types, ignoring case), `category` (`Flow`, `Math`, `Components/Rigid Body`, ...: with the categories below it), `pinType` (a type ID, `exec` for flow), `direction` (with `pinType`: `In` for nodes with an input taking the type, `Out` for nodes with an output giving it; without it either), `limit` (1 to 500, default 50), `offset` | `nodes` (in library order: by category, then title), `total` (matches before paging); each node `{ Type, Title, Subtitle?, Category, Description?, Keywords, Kind, Pure, Latent, Pins, Settings }`, its pins `{ Name, Direction, Type, Label?, Default?, DefaultsToSelf?, Role?, Constraint?, Group?, ElementOf? }` (wildcards have the type `*`); InvalidParams for an unknown `pinType` and for `direction` without one |
 | `graph.types` | `query` (in IDs and titles, ignoring case), `kind` (`Exec`, `Bool`, `Integer`, `Float`, `String`, `Vector`, `Quaternion`, `Color`, `Matrix`, `Entity`, `Component`, `Asset`, `Enum`, `Struct`, `Class`, `Array` or `Object`), `limit` (1 to 500, default 50), `offset` | `types` (by ID), `total`; each type `{ ID, Title, Kind, FieldType? (the types public variables can have), AssetType?, Literal? (documents can hold its values), Enumerators? and Flags (enums), Makeable?, Breakable?, Fields? (structs), Base? (classes), Element? (arrays), ImplicitTo }` (`ImplicitTo`: the types its values convert to; every type also converts to `string`) |
+| `graph.open` | `graph`*, `function` (0: the event graph, else a function's ID; default the sub-graph shown last), `select` (IDs of nodes and comments of that sub-graph, at most 10000; the first is the primary selection), `frame` (`Keep`, `Selection` (the default with `select`) or `All`), `zoom` (0.1 to 2), `center` (`[x, y]` in canvas units, within ±1e7), `entity` (the context entity), `problems` (opens the problems drawer), `find` (opens the find bar with the text and goes to the first match, which becomes the selection) | `asset`, `path`, `function` (the sub-graph shown), `selection` (the `select` given, as applied: empty without one or for a file that does not load; an empty `select` keeps the window's selection), `loaded`, `warnings`; opens the graph's window or brings it to the front, applied at its next draw; InvalidParams with `data.path` `function`, `select[<i>]` or `entity` for what the graph or the scene does not have |
+| `graph.close` | `graph` (default: every window) | `closed` (the assets whose windows closed, in tab order); a graph whose window is not open is no error, nor is a deleted graph named by its handle (an `asset://` path no graph has is AssetNotFound) |
+| `graph.editors` | – | `editors`: the open graph windows in tab order, each `{ asset, path, function, focused, visible, readOnly, loaded, analyzed, errors, warnings, view: { center, zoom, level }, selection: { nodes, comments }, contextEntity, palette: { open, query }, notices, card, toasts, live, save, drawer, find: { open, text, index, count }, bookmarks, minimap, panes: { sidebar, details }, shortcuts }` (below) |
+| `graph.palette` | `graph`* (an open window), `query`, `at` (`[x, y]` in canvas units; default the view's centre), `from` (`{ node*, pin*, direction* (In or Out) }`: context mode), `limit` (1 to 200, default 50), `open` (default true; false closes it) | `open`, `query`, `context`, `entries` (`[{ title, subtitle, category, type, settings, connects?, converts? }]` in rank order), `total`; asynchronous: answers once the palette was drawn (below) |
+| `graph.find` | `query` or `references` (`{ kind* (Variable, Function or CustomEvent), graph and id (Variable, Function), name (CustomEvent) }`), `graph` (only this script), `limit` (1 to 500, default 50), `offset` | `results` (`[{ asset, path, function, node?, comment?, variable?, field, text }]` in document order, the scripts by path), `total`, `analyzed`, `skipped` (scripts that do not load: `[{ asset, path, error }]`); works headless |
 
 `graph.library` and `graph.types` need the scripting runtime (.NET 10): without it they fail with Unavailable, and
 `graph.get`, `graph.set` and `graph.check` answer `analyzed: false` without `nodes` and `diagnostics`. Every graph command
 fails with Unavailable without assets and `graph.create` and `graph.set` with InvalidOperation without a project; a
 `graph` that is not registered is AssetNotFound, and one that is not a visual script (or, for `graph.set`, has no file
 of its own) InvalidParams with `data.path` `"graph"`. `graph.set` fails with FileError when the file cannot be read
-(missing) or written.
+(missing) or written, or is read-only (`the file of visual script '<path>' is read-only`), and with InternalError when
+the document it prepared would not load back as written (an editor bug).
+
+**Graph windows.** `graph.open`, `graph.close`, `graph.editors` and `graph.palette` drive the editor's graph windows, one
+per open visual script (Docs/Architecture.md section 11); without the editor's UI (headless) they fail with Unavailable,
+and `graph.open` and `graph.palette` with InvalidOperation while a dialog is open. `graph.open` works while playing and
+applies at the window's next draw: `graph.editors` a frame later shows what the user sees, its members as that draw saw
+them. A file that is missing or does not load opens on its card (`loaded` false); `function`, `select`, `frame` and
+`find` cannot be checked then and are ignored, which `warnings` says. The view parameters combine in a fixed order: the
+framing (`frame`, or its default) first, then `zoom` around the framed centre, then `center`, so `{ select, zoom: 1.25 }`
+frames the selection at 125 %. Views move smoothly unless the user turned on Reduce Motion, so a view read right after
+`graph.open` may still be on its way.
+
+In `graph.editors`, `function` 0 is the event graph; `visible` is false while another tab is in front of the window;
+`readOnly` is true for memory assets and files without write permission; `view.level` is the level of detail (`Detail`,
+`Compact`, `Overview` or `Far`); `notices` lists, top to bottom, `Degraded` (no scripting runtime), `Normalization`,
+`Repaired`, `ReadOnlyMemory`, `ReadOnlyFile`, `NewFunction`, `FirstCanvas` and `GestureHint`; `card` is `None`,
+`Missing`, `Unloadable` or `EmptyGraph`; `live` the toolbar's pill (`None`, `Live`, `LastWorking` or `Simulating`);
+`save` `Saved` or `NotSaved`; `drawer` `Closed`, `Problems` or `Find`; `bookmarks` the slots stored (1 to 9); the panes
+`Hidden`, `Shown`, `AutoHidden` or `Overlay`; `shortcuts` whether the shortcut sheet is open. A window opened since the
+last frame reports its state before its first draw: not visible, not focused, nothing selected.
+
+`graph.palette` opens the window's node palette as if the user pressed Tab at `at` and typed `query`, or, with `from`,
+released a wire dragged from that pin there (named as the canvas names it: `Hit.Point` for a field of a split pin); it
+changes nothing in the document (`graph.set` adds nodes). It answers once the palette was drawn, a frame later (two for a
+window `graph.open` opened in the same frame): `entries` are its rows in rank order, at most `limit` (without `query` and
+`from`, the recent entries), `total` the rows before the limit, `type` the node type a row adds (empty for actions that
+add none), and with `from`, `connects` is the row's pin the wire links to and `converts` whether the link converts its
+value. Its checks come in this order: Unavailable without the UI; the asset checks; InvalidOperation when the graph's
+window is not open (`graph.open` first), its file does not load, or a dialog is open; InvalidParams for a `from.node`
+that is not a node of the sub-graph shown, a `from.pin` that is no pin name and an `at` beyond ±1e7 (`data.path`
+`from.node`, `from.pin`, `at`); Unavailable without the scripting runtime (the palette lists the node library); then
+InvalidOperation when the window is not shown (another tab in front of it) after a draw; then InvalidParams (`from.pin`)
+for a pin the node does not have.
+
+`graph.find` searches what the find drawer searches: node titles, subtitles, types, comments, pin labels and stored
+values (a literal's compact JSON, a `Format`), comment boxes, and the names of variables, locals, functions and custom
+events, one result per element and field (ASCII letters in any case). References are the `Variable.Get` and
+`Variable.Set` nodes of a variable or local and the `Function.Call` nodes of a function, in their script, and the
+`Event.Custom` and `Event.Send` nodes of a custom event's name, in every script. Without the runtime, titles are
+derived from the documents and subtitles and pin labels are not searched (`analyzed` false). InvalidParams when both or
+neither of `query` and `references` are given, for `references` without what its kind needs and for an `id` the script
+does not have (`data.path` `references.id`); AssetNotFound for a `graph` or `references.graph` that is not registered;
+FileError when a script it names does not load.
 
 **Strictness.** `graph.set` checks its `document` as the loader checks files, but refuses what the loader would repair:
 an unknown key, a missing or duplicate ID, a name or type that is invalid or taken, a link to a node of another graph or
@@ -297,38 +353,62 @@ lists) what it changes:
   former name of another variable, is not kept.
 - With the runtime, a node whose `Type` resolved through a redirect (an API member that was renamed or changed its
   signature) or as the only overload of its member with the node's pins is stored under its exact type, its renamed pins'
-  links and inputs following (`"node updated: <old> → <new>"`).
+  links, inputs and `Split` entries following with the paths of their fields (`Force.X` follows a renamed `Force`;
+  `Forces.X` does not), `Split` entries that end up repeated dropped (`"node updated: <old> → <new>"`).
 - Nodes without a `Position` are placed (not reported): each group of linked nodes below the placed ones, links running
   left to right in columns 320 apart, the nodes of a column 160 apart.
 
-While playing, `graph.set` goes into the play history (dropped at `play.stop`; the file keeps the change), and running
+While playing, `graph.set`'s step goes into the play history; `play.stop` moves the steps that edited asset files
+(`graph.set`, `material.set`) into the edited scene's history as its newest steps, so they stay undoable and the scene
+keeps the unsaved state it had (steps undone while playing are not kept). The file keeps the change either way. Running
 instances of the graph take the edit at their next update: variables keep their values (matched by ID, then by name and
 type; others start at their `Value`, else their type's default, not at a value the component stored before they
 existed), values set for them since (`component.set`) reach them then, and nodes waiting (a `Flow.Delay`, ...) keep
-waiting while they still exist.
+waiting while they still exist and are not disabled by the edit (disabling a node counts as removing it: its state does
+not carry over, and an execution waiting in it is cancelled with a Warning). An edit that changes no program (positions,
+comments, collapsed states, the description, tooltips, ranges) reaches nothing and compiles nothing.
 
 **Analysis.** `nodes` lists every node of the document (those of the functions' graphs, then those of the event graph):
 `{ ID, Function (0 for the event graph), Type (as stored), Resolved (Exact, Redirect, Unique or Unknown), CanonicalType?
-and PinRenames? (Redirect and Unique: [{ Direction, From, To }]), Title, Subtitle?, Kind, Pure, Latent, Pins }`, with the
-types the runtime resolved its wildcards to (`*` while open). `diagnostics` are `{ Severity (Error or Warning), Code,
+and PinRenames? (Redirect and Unique: [{ Direction, From, To }]), Title, Subtitle?, Kind, Pure, Latent, PassThrough?,
+Pins }`, with the types the runtime resolved its wildcards to (`*` while open) and, in place of each split pin, its field
+pins (`Hit.Point`, typed by the field; an input field pin with the `Default` it takes unlinked). `PassThrough` is the
+exec output where the flow entering a disabled node continues; it is absent where the chain ends, on disabled nodes no
+flow enters (events) and on every node that is not disabled. `diagnostics` are `{ Severity (Error or Warning), Code,
 Function, Message, Node?, Pin?, Direction?, Link? ({ From, To }), Variable? (a variable or local ID), Suggestions? }`;
 `Suggestions` lists the nearest known names for unknown ones and the candidates of an ambiguous node. A graph with an
 Error does not run: the log names its first error (`Visual script '<path>' has 1 error; first: <message> (node <id>)`)
 and each entity left without the graph (`Entity '<name>' runs no visual script: <reason>`), and a graph edited while
-playing into one with an Error keeps running its last working version. The codes (W: Warning, the others are Errors):
+playing into one with an Error keeps running its last working version. A code is an Error unless it is marked W or
+located on a disabled node: on its node, or at either end of its link. Disabling a broken node is how its graph keeps
+running.
+
+**Disabled nodes.** A node whose `Enabled` is `"Disabled"` passes through, whatever its kind: flow entering any of its
+exec inputs continues at its `Then` output, else `Completed`, else `Default`, else its first exec output that is not a
+Tick output; without one the chain ends there (a node of an unknown type has none). Each of its data outputs takes the
+value of the first data input of the same type that no earlier output takes, both in pin order (only those inputs, and
+the pure nodes feeding them, are evaluated); the other outputs take their type's default, and an unconnected `Target`
+feeds none. It costs one step, never waits and keeps no state. A disabled event starts nothing and is no duplicate of an
+enabled one; a disabled latent node makes no function latent. `Function.Entry`, `Function.Return` and pure nodes cannot
+be disabled and run as usual (`DisabledIgnored`). `"DevelopmentOnly"` nodes run as `"Enabled"` ones, except in exported
+games, where they are disabled.
+
+The codes:
 
 | Code | Meaning |
 |------|---------|
-| InvalidDocument | The document is not a JSON object, or not text: "the document is not UTF-8 text", "the document has a string or member name that is not text: an escaped surrogate without its pair" (the editor parses what it is given, so its documents are always text) |
+| InvalidDocument | The document is not a JSON object, or not text: "the document is not UTF-8 text", "the document has a string or member name that is not text: an escaped surrogate without its pair" (the editor parses what it is given, so its documents are always text); or an `Enabled` or `Split` the loader would repair: `<path>.Enabled: expected "Enabled", "Disabled" or "DevelopmentOnly"`, `<path>: expected a pin path: 1 to 128 bytes without control characters, its '.'-separated parts not empty`, `a list of split pins has at most 64 entries`, `"<entry>" comes earlier`, `"<entry>" is a field of "<parent>", which is not an earlier entry`, `Split: expected an object`, `Split.Inputs: expected an array` (the entry is skipped; a skipped parent skips its fields) |
 | UnknownNodeType | No node kind has the node's `Type` |
 | AmbiguousNode | A `Type` without a signature (`Call:<class>.<member>`) fits several overloads of the member; `Suggestions` lists them |
 | NodeUpdated (W) | The `Type` resolved through a redirect or as the only overload of its member: `"node updated: <old> → <new>"` (`graph.set` stores the new type) |
-| UnknownPin | A link names a pin the node does not have, or links an output as an input |
-| UnusedInput (W) | An `Inputs` key names no input of the node |
+| UnknownPin | A link names a pin the node does not have, or links an output as an input; a link to or from a split pin itself (`<Title> has no input pin "<Pin>": it is split, so links reach its fields`), or a link or `Inputs` key naming a field of a pin that is not split (`... "<Pin>.<Field>": <Pin> is not split`) |
+| UnusedInput (W) | An `Inputs` key names no input of the node, or holds a literal of a split input (`<Pin> is split: the stored value is not used (its fields take values of their own)`) |
+| UnusedSplit (W) | An entry of a node's `Split` splits nothing, and the pin stays whole. `Direction` is In for an entry of `Split.Inputs`, Out for one of `Split.Outputs`; `Pin` is the entry exactly as stored. `Split.<Inputs\|Outputs> "<entry>" is ignored: <why>`: the node has no such pin, it is an exec pin, its type is not resolved, its type is no struct that splits (inputs split only structs whose public fields are all writable; outputs structs with public fields or readonly structs with get-only properties), it is a field of a pin that is not split, or an earlier entry splits it. Not reported on unknown nodes and nodes with broken settings |
+| DisabledIgnored (W) | `Function.Entry`, `Function.Return` or a pure node is disabled, and runs anyway (`Node` only): "<title> cannot be disabled: every call of the function starts there, so it runs", "... the call returns there, so it runs", "<title> is pure: it runs only when a node reads it, so it cannot be disabled and runs (disable the node that reads it)" |
 | MultipleExecLinks | An exec output has more than one link |
 | MultipleDataLinks | A data input has more than one link |
-| TypeMismatch | A link joins types that do not convert (a `Convert` node converts explicitly), or an exec pin to a data pin |
-| UnresolvedWildcard | A wildcard input gets no type: link it, or give it a literal another operand types |
+| TypeMismatch | A link joins types that do not convert (a `Convert` node converts explicitly), or an exec pin to a data pin; also a link from a disabled node's output that a wildcard input's constraint refuses (the input then takes no type from it) |
+| UnresolvedWildcard | A wildcard input gets no type: link it, or give it a literal another operand types (`the type of <pin> is unknown: none of its links gives it a value` when all its links are errors); on a link, a link from a wildcard output nothing typed (`the type of <id>.<pin> is unknown: <id>.<pin> takes no value from it`), and from an untyped output of a disabled node (`... and <title> is disabled: <id>.<pin> takes no value from it`, which the input ignores) |
 | NoOperator | An `Operator.*` node has no operator for its operands' types |
 | NoConversion | A `Convert` node cannot convert between its types |
 | InvalidValue | A literal (a variable's `Value`, an `Inputs` member, `Literal`'s `Value`) is not one of its type (below), or a `DefaultsToSelf` input has one |
@@ -360,12 +440,13 @@ playing into one with an Error keeps running its last working version. The codes
 
 **Literals** (variables' `Value`, `Inputs`, `Literal`'s `Value`, `Flow.Switch` cases): `bool` true/false; `int` and
 `uint` JSON integers; `long` and `ulong` decimal strings (`"-9000000000"`); `float` (up to 3.4028235e38) and `double`
-numbers; `string` strings; `Strada.Vector2`/`3`/`4` arrays of 2, 3 or 4 numbers; `Strada.Quaternion` `[x, y, z, w]`
-(normalized); `Strada.Color` `[r, g, b, a]` (linear); `Strada.Matrix4` 16 numbers, column by column; `Strada.Entity`
-`"0"` only; assets (`Strada.Material`, `Strada.Prefab`, ..., `Strada.AssetHandle`) decimal handle strings (`"0"` for
-none; `asset.list` gives handles); enums the enumerator's name (`"Space"`), and `[Flags]` enums an array of names
-(`[]` for none, `["Read", "Write"]`; a `Flow.Switch` case on such an enum is an array too), or the value as an integer (a
-decimal string for 64-bit enums). Other types have no literal: link their inputs.
+numbers (a float is read as the double its text denotes, narrowed to float; the editor and the VM write every float so
+that it reads back exactly); `string` strings; `Strada.Vector2`/`3`/`4` arrays of 2, 3 or 4 numbers; `Strada.Quaternion`
+`[x, y, z, w]` (normalized); `Strada.Color` `[r, g, b, a]` (linear); `Strada.Matrix4` 16 numbers, column by column;
+`Strada.Entity` `"0"` only; assets (`Strada.Material`, `Strada.Prefab`, ..., `Strada.AssetHandle`) decimal handle
+strings (`"0"` for none; `asset.list` gives handles); enums the enumerator's name (`"Space"`), and `[Flags]` enums an
+array of names (`[]` for none, `["Read", "Write"]`; a `Flow.Switch` case on such an enum is an array too), or the value
+as an integer (a decimal string for 64-bit enums). Other types have no literal: link their inputs.
 
 ### prefab
 
@@ -389,16 +470,16 @@ itself when their sources change and loads the built assembly (hot reload); `scr
 ### play, input and test
 
 Play mode runs a copy of the edited scene; while it plays, every scene and entity command acts on the copy (with an
-undo history of its own) and `play.stop` discards it. `input.set` and `input.release` act on the game's input directly,
-whether or not the game view has the window's input. To click a UI button, read its `center` from `ui.layout`, then
-`input.set` the `mousePosition` there and press and release `Left` a frame apart. Scene and project file commands
-(`scene.new`, `scene.open`, `scene.save`, `project.create`, `project.open`, `project.close`) fail with InvalidOperation
-while playing.
+undo history of its own) and `play.stop` discards it (the steps of asset files made while playing stay undoable).
+`input.set` and `input.release` act on the game's input directly, whether or not the game view has the window's input.
+To click a UI button, read its `center` from `ui.layout`, then `input.set` the `mousePosition` there and press and
+release `Left` a frame apart. Scene and project file commands (`scene.new`, `scene.open`, `scene.save`,
+`project.create`, `project.open`, `project.close`) fail with InvalidOperation while playing.
 
 | Command | Parameters | Result |
 |---------|-----------|--------|
 | `play.start` | `mode` (`play` (default): scripts, physics, audio; `simulate`: physics only) | Play state; asynchronous: Play builds changed scripts first and fails when they do not build |
-| `play.stop` | — | Play state (the copy and every change to it are discarded) |
+| `play.stop` | — | Play state (the copy and every change to it are discarded; steps that edited asset files stay undoable) |
 | `play.pause` | `paused` (default true) | Play state |
 | `play.step` | `frames` (default 1) | Play state; advances the paused scene one frame per editor frame |
 | `play.advance` | `frames`*, `timestep` (seconds, default 1/60) | Play state plus `framesRun`; runs the frames at once (pause first for deterministic runs); stops early when the scripts quit |

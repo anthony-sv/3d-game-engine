@@ -30,7 +30,9 @@ namespace Strada
 	// the asset selected in the content browser: its details, the parameters of material files (editable, one undo step per
 	// interaction; built-in and imported materials are read-only and can be copied to a material file), a texture preview,
 	// mesh statistics and what a visual script holds (read-only). Images of assets (in asset fields, the asset picker's rows
-	// and the material headers and previews) come from SetThumbnails. Main thread only.
+	// and the material headers and previews) come from SetThumbnails. Visual scripts open in their graph windows from the
+	// asset's Open and the component's Open Visual Script; entities whose VisualScript components run no graph get a Create
+	// Visual Script button that writes one for them (SetOpenVisualScriptCallback). Main thread only.
 	class InspectorPanel
 	{
 	public:
@@ -42,6 +44,11 @@ namespace Strada
 		// Tells the enum types of the scripting runtime, so public variables of enum types can be set; without it (the
 		// default) they are listed read-only.
 		void SetVisualScriptEnumLookup(VisualScriptEnumLookup lookup) { m_VisualScriptEnumLookup = std::move(lookup); }
+		// Opens a visual script's graph window with the entity it runs on (invalid: none): the asset's Open, the component's
+		// Open Visual Script, and the graph Create Visual Script makes. Without it no Open buttons are drawn and the graph made
+		// is not opened.
+		using OpenVisualScriptCallback = std::function<void(AssetHandle graph, UUID contextEntity)>;
+		void SetOpenVisualScriptCallback(OpenVisualScriptCallback callback) { m_OpenVisualScript = std::move(callback); }
 
 		void OnImGuiRender(EditorOperations& operations, bool& open);
 		// In the next frame, brings the inspector to the front with its Add Component menu open and the search text typed in
@@ -90,9 +97,14 @@ namespace Strada
 		void DrawSlotMaterialReference(EditorOperations& operations, std::vector<UUID> const& entities, size_t slot, AssetHandle material);
 
 		// The values the entities give the public variables of the visual script they all run (one undo step per interaction,
-		// each writing an entity's whole map with the values under the variables' current names); variables that cannot be
-		// set here are listed with the reason. Nothing when the entities run different graphs or theirs does not load.
+		// each writing an entity's whole map with the values under the variables' current names), under an Open Visual Script
+		// button; variables that cannot be set here are listed with the reason. Nothing when the entities run different graphs
+		// or theirs does not load; Create Visual Script when none of them runs a graph.
 		void DrawVisualScriptVariables(EditorOperations& operations, std::vector<UUID> const& entities);
+		// Writes Assets/Scripts/<the first entity's name>.sgraph from the Events template (the name made a portable file name
+		// that no file has), makes every entity run it in one undo step ("Create Visual Script"), and opens it with the first
+		// entity as its context entity. The file stays when that step is undone, as created materials do.
+		void CreateVisualScript(EditorOperations& operations, std::vector<UUID> const& entities);
 
 		void DrawAsset(EditorOperations& operations, AssetHandle asset);
 		void DrawMaterial(EditorOperations& operations, AssetMetadata const& metadata);
@@ -104,6 +116,7 @@ namespace Strada
 		std::vector<FieldDescriptor> m_MaterialFields;
 		AssetThumbnails* m_Thumbnails = nullptr;
 		VisualScriptEnumLookup m_VisualScriptEnumLookup;
+		OpenVisualScriptCallback m_OpenVisualScript;
 		EditSession m_EditSession;
 		// Search text of the Add Component menu; while it is empty the menu shows the categories.
 		std::string m_AddComponentFilter;

@@ -5,13 +5,16 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Timestep.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/VisualScriptEngine.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
 
+#include <array>
 #include <optional>
 #include <string>
 #include <utility>
@@ -83,18 +86,33 @@ TEST_CASE("VisualScript: damaged files are refused or load and save again")
 
 TEST_CASE("VisualScript: damaged graphs that load also run")
 {
-	Json const original = Testing::LoadFeatureTestDocument("Assets/Scripts/Features.sgraph");
+	Json const features = Testing::LoadFeatureTestDocument("Assets/Scripts/Features.sgraph");
+	// The editor's fixture document in a file of version 2: disabled, development-only and split nodes.
+	Result<std::string> const text =
+		FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Documents" / "Editor.json");
+	REQUIRE(text.IsOk());
+	Result<Json> const content = ParseJson(text.GetValue());
+	REQUIRE(content.IsOk());
+	std::vector<std::string> warnings;
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> editor =
+		VisualScriptSerializer::DeserializeDocument(content.GetValue(), Testing::MakeTolerantContext(warnings), &issues);
+	REQUIRE_MESSAGE(editor.IsOk(), (editor ? std::string() : editor.GetError()));
+	REQUIRE(issues.empty());
+	Json const seeds[] = {features, VisualScriptSerializer::Serialize(editor.GetValue())};
+	REQUIRE(seeds[1]["Strada"]["Version"] == 2);
 	Testing::AssetManagerScope assets;
 	Testing::ScriptEngineScope scripting;
 
 	// Each document that loads runs on an entity of a scene that starts, updates and stops: whatever the runtime makes of
-	// it, including failures, nothing crashes or hangs.
+	// it, including failures, nothing crashes or hangs. The seeds take turns.
 	Testing::DocumentMutator mutator(10100);
-	int ran = 0;
+	std::array<int, 2> ran{};
 	for (int round = 0, rounds = Testing::GetFuzzRounds(100); round < rounds; round++)
 	{
 		CAPTURE(round);
-		std::optional<VisualScriptDocument> document = LoadDamagedFile(mutator.Damage(original, round));
+		size_t const seed = static_cast<size_t>(round % 2);
+		std::optional<VisualScriptDocument> document = LoadDamagedFile(mutator.Damage(seeds[seed], round));
 		if (!document)
 		{
 			continue;
@@ -107,7 +125,7 @@ TEST_CASE("VisualScript: damaged graphs that load also run")
 			scene.OnRuntimeStart();
 			if (VisualScriptEngine::HasInstance(entity.GetUUID()))
 			{
-				ran++;
+				ran[seed]++;
 			}
 			for (int frame = 0; frame < 5; frame++)
 			{
@@ -117,5 +135,6 @@ TEST_CASE("VisualScript: damaged graphs that load also run")
 		}
 		AssetManager::RemoveMemoryAsset(graph);
 	}
-	CHECK(ran > 0);
+	CHECK(ran[0] > 0);
+	CHECK(ran[1] > 0);
 }

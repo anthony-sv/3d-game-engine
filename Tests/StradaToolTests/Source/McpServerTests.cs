@@ -37,6 +37,8 @@ public sealed class McpServerTests
 		Assert.Contains("graph_library", instructions);
 		Assert.Contains("graph_check", instructions);
 		Assert.Contains("graph_set", instructions);
+		// graph_open is how agents show a graph to the user.
+		Assert.Contains("graph_open", instructions);
 
 		JsonObject unknown = await client.ResultAsync("initialize", new JsonObject { ["protocolVersion"] = "1999-01-01" });
 		Assert.Equal(McpServer.ProtocolVersions[0], unknown["protocolVersion"]!.GetValue<string>());

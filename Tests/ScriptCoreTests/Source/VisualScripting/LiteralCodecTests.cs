@@ -204,23 +204,47 @@ public sealed class LiteralCodecTests
 		Assert.Equal("\"-9000000000\"", Written(Type("long"), -9000000000L));
 	}
 
-	// Floats are read from their text rounded once, so every float decodes from its own shortest text bit for bit: the
-	// shortest texts of ±7.038531e-26 lie almost on the midpoint between two floats, and read through a double they round to
-	// the neighbouring float (0x15AE43FE). Components of vectors are read the same way; -0 keeps its sign.
+	// Floats are read as the engine reads documents (VisualScriptSerializer::ReadFloat): the double the text denotes, narrowed
+	// to float. So the shortest texts of ±7.038531e-26, which lie almost on the midpoint between two floats, read as the
+	// neighbouring floats (0x15AE43FE, 0x95AE43FE), as they do in the engine (VisualScriptLiteralsTests pins its side), and
+	// every float is written so that it reads back bit for bit: those two as their doubles' texts, -0 as "-0.0" ("-0" is the
+	// integer 0 to the engine's JSON reader). Components of vectors are read and written the same way; library pin defaults
+	// are written as literals are.
 	[Fact]
-	public void FloatsReadFromTheirShortestTextRoundOnce()
+	public void FloatsReadAsTheDoubleTheirTextDenotesAndAreWrittenToReadBackExactly()
 	{
-		foreach (int bits in (int[])[0x15AE43FD, unchecked((int)0x95AE43FD), 0x15AE43FE, 0x00000001, 0x7F7FFFFF])
+		Assert.Equal(0x15AE43FE, BitConverter.SingleToInt32Bits((float)Value("float", "7.038531e-26")!));
+		Assert.Equal(unchecked((int)0x95AE43FE), BitConverter.SingleToInt32Bits((float)Value("float", "-7.038531e-26")!));
+		Assert.Equal("7.038530691851209E-26", Written(Type("float"), BitConverter.Int32BitsToSingle(0x15AE43FD)));
+		Assert.Equal("-7.038530691851209E-26", Written(Type("float"), BitConverter.Int32BitsToSingle(unchecked((int)0x95AE43FD))));
+		Assert.Equal("-0.0", Written(Type("float"), -0.0f));
+		Assert.Equal("0.5", Written(Type("float"), 0.5f));
+		Assert.Equal("[0,-0.0,1.5]", Written(Type("Strada.Vector3"), new Vector3(0.0f, -0.0f, 1.5f)));
+
+		foreach (int bits in (int[])[0x15AE43FD, unchecked((int)0x95AE43FD), unchecked((int)0x80000000), 0x15AE43FE, 0x00000001, 0x7F7FFFFF,
+			0x3E4CCCCD])
 		{
 			float value = BitConverter.Int32BitsToSingle(bits);
 			string text = Written(Type("float"), value);
 			Assert.Equal(bits, BitConverter.SingleToInt32Bits((float)Value("float", text)!));
-			Vector3 vector = (Vector3)Value("Strada.Vector3", $"[0.0, {text}, 0.0]")!;
+			// The engine's reader: the double the text denotes, narrowed.
+			Assert.Equal(bits, BitConverter.SingleToInt32Bits((float)double.Parse(text, System.Globalization.CultureInfo.InvariantCulture)));
+			Vector3 vector = (Vector3)Value("Strada.Vector3", Written(Type("Strada.Vector3"), new Vector3(0.0f, value, 0.0f)))!;
 			Assert.Equal(bits, BitConverter.SingleToInt32Bits(vector.Y));
+
+			// A library pin's default.
+			ArrayBufferWriter<byte> buffer = new();
+			using (Utf8JsonWriter writer = new(buffer))
+			{
+				LibraryWriter.WritePin(writer, new PinDescription("Amount", PinDirection.In, Type("float")) { HasDefault = true, Default = value },
+					Type("float"));
+			}
+			using JsonDocument pin = JsonDocument.Parse(buffer.WrittenMemory);
+			JsonElement written = pin.RootElement.GetProperty("Default");
+			Assert.Equal(text, written.GetRawText());
+			Assert.Equal(bits, BitConverter.SingleToInt32Bits((float)Value("float", written.GetRawText())!));
 		}
-		Assert.Equal(0x15AE43FD, BitConverter.SingleToInt32Bits((float)Value("float", "7.038531e-26")!));
-		Assert.Equal(unchecked((int)0x80000000), BitConverter.SingleToInt32Bits((float)Value("float", "-0.0")!));
-		// Past float's largest value up to the bound, numbers round to it.
+		// Past float's largest value up to the bound, numbers narrow to it.
 		Assert.Equal(float.MaxValue, Value("float", "3.40282349e38"));
 	}
 

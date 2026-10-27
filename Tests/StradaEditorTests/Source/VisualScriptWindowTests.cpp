@@ -268,6 +268,66 @@ TEST_CASE("VisualScriptEditor: an auto-hidden Details opens over the canvas from
 	CHECK(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Canvas);
 }
 
+TEST_CASE("VisualScriptEditor: the panes shown over a narrow canvas list and edit what they list beside it")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptVariable speed;
+	speed.ID = 100;
+	speed.Name = "Speed";
+	speed.Type = "float";
+	document.Variables.push_back(std::move(speed));
+	PanelFixture fixture(document);
+	// Too narrow for either pane beside the canvas.
+	fixture.WindowSize = ImVec2(560.0f, 700.0f);
+	fixture.Frames(3);
+	fixture.CheckDrawingChangesNothing();
+	REQUIRE(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::AutoHidden);
+	REQUIRE(fixture.Panel->GetState().Details == VisualScriptPaneState::AutoHidden);
+	auto const inside = [](std::pair<glm::vec2, glm::vec2> const& row, ImGuiWindow const* window)
+	{
+		return row.first.x >= window->Pos.x && row.first.y >= window->Pos.y && row.second.x <= window->Pos.x + window->Size.x &&
+		       row.second.y <= window->Pos.y + window->Size.y;
+	};
+
+	// My Script over the canvas lists the variable; a click on its row selects it (Details, hidden, would show it).
+	fixture.ClickItem(Item::SidebarToggle);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().Sidebar == VisualScriptPaneState::Overlay);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const row =
+		fixture.Panel->GetSidebar().FindRow({VisualScriptElementKind::Variable, 100});
+	REQUIRE(row.has_value());
+	CHECK(inside(*row, fixture.GetChild("##sidebarOverlay")));
+	fixture.Click((row->first + row->second) * 0.5f);
+	fixture.Frames(1);
+	std::optional<VisualScriptElement> const selected = fixture.Panel->GetPaneShared().Element;
+	REQUIRE(selected.has_value());
+	CHECK(selected->Kind == VisualScriptElementKind::Variable);
+	CHECK(selected->ID == 100);
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+
+	// Details over the canvas shows a node's rows, and edits it: its Enabled state, in one step.
+	glm::vec2 const header = Testing::CanvasPoint(fixture.Model(), 2, glm::vec2(0.5f, 0.06f));
+	fixture.Gui.MouseClick(ToImVec2(header), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().Details == VisualScriptPaneState::Overlay);
+	REQUIRE(fixture.Panel->GetDetails().GetSubject() == VisualScriptDetailsSubject::Node);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const enabled = fixture.Panel->GetDetails().FindRow("Enabled");
+	REQUIRE(enabled.has_value());
+	CHECK(inside(*enabled, fixture.GetChild("##detailsOverlay")));
+	size_t const undo = fixture.GetUndoCount();
+	fixture.Click((enabled->first + enabled->second) * 0.5f);
+	fixture.Frames(2);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	fixture.Gui.Press(ImGuiKey_DownArrow, fixture.Drawer());
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	REQUIRE(fixture.FindNode(2) != nullptr);
+	CHECK(fixture.FindNode(2)->Enabled == VisualScriptNodeEnabled::Disabled);
+	CHECK(fixture.Panel->GetState().Details == VisualScriptPaneState::Overlay);
+}
+
 TEST_CASE("VisualScriptEditor: without the scripting runtime the degraded notice shows, offers the console and blinks when a "
           "gesture needs the runtime")
 {

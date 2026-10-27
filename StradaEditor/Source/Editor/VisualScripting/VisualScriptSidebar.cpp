@@ -311,6 +311,9 @@ namespace Strada
 			}
 		}
 		bool const selected = context.Shared.Element == element;
+		// Where the row's contents start: Selectable widens its box by half the item spacing on each side
+		// (imgui_widgets.cpp:7434-7440), so its rectangle starts left of the content region, where the pane clips.
+		float const contentX = ImGui::GetCursorScreenPos().x;
 		ImGui::SetNextItemAllowOverlap();
 		bool const clicked =
 			ImGui::Selectable("##row", selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0.0f, ImGui::GetFrameHeight()));
@@ -397,8 +400,9 @@ namespace Strada
 			}
 			ImGui::EndPopup();
 		}
-		// The row's contents start after the selectable's padding.
-		ImGui::SetCursorScreenPos(ImVec2(min.x, min.y));
+		// The row's contents start a frame padding inside the content region (as its right end does), on the selectable's top,
+		// so that glyphs reaching left of their origin (the function glyph) are not clipped either.
+		ImGui::SetCursorScreenPos(ImVec2(contentX + ImGui::GetStyle().FramePadding.x, min.y));
 		return true;
 	}
 
@@ -614,10 +618,9 @@ namespace Strada
 				float const pill = ImGui::GetFontSize() * 0.9f;
 				float const pillHeight = ImGui::GetFontSize() * 0.5f;
 				float const top = start.y + (ImGui::GetFrameHeight() - pillHeight) * 0.5f;
-				ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(start.x + ImGui::GetStyle().FramePadding.x, top),
-				                                          ImVec2(start.x + ImGui::GetStyle().FramePadding.x + pill, top + pillHeight),
+				ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(start.x, top), ImVec2(start.x + pill, top + pillHeight),
 				                                          GetVisualScriptTypeColor(variable.Type, frame.Library), pillHeight * 0.5f);
-				ImGui::SetCursorScreenPos(ImVec2(start.x + ImGui::GetStyle().FramePadding.x * 2.0f + pill, start.y));
+				ImGui::SetCursorScreenPos(ImVec2(start.x + ImGui::GetStyle().FramePadding.x + pill, start.y));
 				ImGui::AlignTextToFramePadding();
 				ImGui::TextUnformatted(variable.Name.c_str());
 				auto const live = m_LiveValues.find(variable.Name);
@@ -697,10 +700,9 @@ namespace Strada
 				float const pill = ImGui::GetFontSize() * 0.9f;
 				float const pillHeight = ImGui::GetFontSize() * 0.5f;
 				float const top = start.y + (ImGui::GetFrameHeight() - pillHeight) * 0.5f;
-				ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(start.x + ImGui::GetStyle().FramePadding.x, top),
-				                                          ImVec2(start.x + ImGui::GetStyle().FramePadding.x + pill, top + pillHeight),
+				ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(start.x, top), ImVec2(start.x + pill, top + pillHeight),
 				                                          GetVisualScriptTypeColor(local.Type, frame.Library), pillHeight * 0.5f);
-				ImGui::SetCursorScreenPos(ImVec2(start.x + ImGui::GetStyle().FramePadding.x * 2.0f + pill, start.y));
+				ImGui::SetCursorScreenPos(ImVec2(start.x + ImGui::GetStyle().FramePadding.x + pill, start.y));
 				ImGui::AlignTextToFramePadding();
 				ImGui::TextUnformatted(local.Name.c_str());
 				ImGui::SameLine();

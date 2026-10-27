@@ -373,4 +373,23 @@ public sealed class TypeResolutionTests
 		Assert.Equal((4u, "Execute"), (mismatches[1].Link!.To.Node, mismatches[1].Link!.To.Pin));
 		Assert.True(VisualScriptTesting.Pin(document, 5, "Out").Type.IsExec);
 	}
+
+	// A link between types that do not connect says how to mend it: Convert where a Convert node converts between the two
+	// types, else another value or no link.
+	[Fact]
+	public void MismatchesAdviseConvertOnlyWhereItConverts()
+	{
+		AnalyzedDocument document = WithVariables(["Strada.Vector3", "string", "int"],
+			"""{ "ID": 1, "Type": "Flow.Branch" }, { "ID": 2, "Type": "Variable.Set", "Settings": { "Variable": 23 } }""",
+			"""{ "From": [11, "Value"], "To": [1, "Condition"] }, { "From": [12, "Value"], "To": [2, "Value"] }""");
+		Diagnostic[] mismatches = [.. document.Diagnostics.Where(static diagnostic => diagnostic.Code == DiagnosticCode.TypeMismatch)];
+		Assert.Equal(2, mismatches.Length);
+		Diagnostic vector = Assert.Single(mismatches, static diagnostic => diagnostic.Link!.To.Node == 1);
+		Assert.Equal("11.Value (Strada.Vector3) cannot connect to 1.Condition (bool): the types do not convert, so link a bool or break the link",
+			vector.Message);
+		Diagnostic text = Assert.Single(mismatches, static diagnostic => diagnostic.Link!.To.Node == 2);
+		Assert.Equal("12.Value (string) cannot connect to 2.Value (int): use Convert", text.Message);
+		Assert.NotNull(TypeResolution.PlanConversion(Type("string"), Type("int")));
+		Assert.Null(TypeResolution.PlanConversion(Type("Strada.Vector3"), Type("bool")));
+	}
 }

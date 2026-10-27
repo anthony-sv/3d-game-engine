@@ -15,6 +15,7 @@ namespace Strada
 	class EditorCamera;
 	struct SceneRendererStatistics;
 	struct SceneViewOverlays;
+	class VisualScriptEditors;
 
 	// What the automation commands need from the running editor besides the document state.
 	struct EditorCommandEnvironment
@@ -51,6 +52,9 @@ namespace Strada
 		// it (open false). Unset when the editor has no UI (headless); editor.entity-menu then fails with
 		// AutomationErrorCode::Unavailable.
 		std::function<void(bool open, std::string const& submenu)> ShowEntityMenu;
+		// The visual script editor windows. Unset when the editor has no UI (headless); graph.open, graph.close, graph.editors
+		// and graph.palette then fail with AutomationErrorCode::Unavailable.
+		std::function<VisualScriptEditors&()> GraphEditors;
 	};
 
 	// Registers the editor, project, scene, entity, component, asset, material, graph (visual script), prefab, inspector, log and

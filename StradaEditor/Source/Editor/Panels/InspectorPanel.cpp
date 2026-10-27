@@ -6,6 +6,7 @@
 #include "Editor/MaterialSlots.h"
 #include "Editor/ScriptFieldInspection.h"
 #include "Editor/Viewport/CanvasOverlay.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AudioClipAsset.h"
@@ -15,6 +16,7 @@
 #include "Strada/Asset/MeshSource.h"
 #include "Strada/Asset/TextureAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Core/FileSystem.h"
 #include "Strada/ImGui/ImGuiRenderer.h"
 #include "Strada/Renderer/Renderer.h"
 #include "Strada/Scene/Entity.h"
@@ -91,6 +93,9 @@ namespace Strada
 			}
 			return "This material has no file of its own and is read-only.";
 		}
+
+		// Where Create Visual Script writes the graphs it makes, in the asset directory.
+		constexpr std::string_view VisualScriptFolder = "Scripts";
 
 		// A full-width "Create Material" button, disabled without a project to write the material to; true when clicked.
 		bool DrawCreateMaterialButton(char const* tooltip)
@@ -574,15 +579,36 @@ namespace Strada
 		}
 		Scene& scene = operations.GetContext().GetScene();
 		AssetHandle graph;
+		bool shared = true;
 		for (UUID const id : entities)
 		{
 			Entity const entity = scene.GetEntityByUUID(id);
 			AssetHandle const entityGraph = entity.GetComponent<VisualScriptComponent>().Graph;
-			if (!entityGraph.IsValid() || (graph.IsValid() && entityGraph != graph))
+			shared = shared && entityGraph.IsValid() && (!graph.IsValid() || entityGraph == graph);
+			graph = entityGraph.IsValid() ? entityGraph : graph;
+		}
+		// None of them runs a graph yet: the usual next step is to make one.
+		if (!graph.IsValid())
+		{
+			bool const available = AssetManager::HasAssetDirectory();
+			ImGui::BeginDisabled(!available);
+			bool const clicked = ImGui::Button("Create Visual Script", ImVec2(-FLT_MIN, 0.0f));
+			ImGui::EndDisabled();
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
 			{
-				return;
+				ImGui::SetTooltip("%s", available ? "Writes a visual script named after the entity to Assets/Scripts, runs it here and "
+				                                    "opens it."
+				                                  : "Open a project to create visual scripts.");
 			}
-			graph = entityGraph;
+			if (clicked)
+			{
+				CreateVisualScript(operations, entities);
+			}
+			return;
+		}
+		if (!shared)
+		{
+			return;
 		}
 		// An asset of another type is not loaded for nothing. Failed loads are remembered by the asset manager: a broken graph
 		// is not read again every frame.
@@ -591,6 +617,10 @@ namespace Strada
 		if (!script)
 		{
 			return;
+		}
+		if (m_OpenVisualScript && ImGui::Button("Open Visual Script", ImVec2(-FLT_MIN, 0.0f)))
+		{
+			m_OpenVisualScript(graph, entities.front());
 		}
 		VisualScriptDocument const& document = script->GetDocument();
 		// The descriptors and the editor's change refer to the description's strings: it lives until the edit is made.
@@ -646,6 +676,46 @@ namespace Strada
 			ImGui::PopStyleColor();
 		}
 		ImGui::PopID();
+	}
+
+	void InspectorPanel::CreateVisualScript(EditorOperations& operations, std::vector<UUID> const& entities)
+	{
+		Scene& scene = operations.GetContext().GetScene();
+		Entity const first = scene.GetEntityByUUID(entities.front());
+		// A name every platform takes as a file name, which also names a visual script as the format's names do (spec §5.2),
+		// made unique among the folder's files.
+		std::string base = FileSystem::MakePortableFileName(first ? first.GetName() : std::string());
+		if (base.empty())
+		{
+			base = "New Visual Script";
+		}
+		std::filesystem::path const folder = AssetManager::GetAssetDirectory() / FileSystem::PathFromUtf8(VisualScriptFolder);
+		std::string const name = VisualScriptEditing::MakeUniqueVisualScriptName(
+			base,
+			[&folder](std::string_view candidate)
+			{
+				std::string const file = std::string(candidate) + ".sgraph";
+				return FileSystem::Exists(folder / FileSystem::PathFromUtf8(file)) ||
+			           AssetManager::FindByPath(fmt::format("{}/{}", VisualScriptFolder, file)).IsValid();
+			});
+		Result<AssetHandle> const created =
+			operations.CreateVisualScript(fmt::format("{}/{}.sgraph", VisualScriptFolder, name), VisualScriptTemplate::Events);
+		UI::ReportFailure(created, "Creating the visual script");
+		if (!created)
+		{
+			return;
+		}
+		AssetHandle const graph = created.GetValue();
+		if (Result<void> assigned = operations.SetVisualScriptGraph(entities, graph, "Create Visual Script"); !assigned)
+		{
+			UI::ReportFailure(assigned, "Creating the visual script");
+			UI::ReportFailure(operations.DeleteAsset(graph), "Removing the visual script");
+			return;
+		}
+		if (m_OpenVisualScript)
+		{
+			m_OpenVisualScript(graph, entities.front());
+		}
 	}
 
 	void InspectorPanel::DrawScriptComponent(EditorOperations& operations, ComponentInfo const& component,
@@ -999,6 +1069,17 @@ namespace Strada
 			ImGui::TextDisabled("Imported with %s.", parent ? parent->GetDisplayName().c_str() : metadata->Parent.ToString().c_str());
 		}
 		ImGui::Spacing();
+
+		// A visual script opens in its graph window, which also shows a file that is missing or does not load.
+		if (metadata->Type == AssetType::VisualScript && m_OpenVisualScript)
+		{
+			if (ImGui::Button("Open", ImVec2(-FLT_MIN, 0.0f)))
+			{
+				m_OpenVisualScript(asset, UUID::Invalid());
+			}
+			ImGui::SetItemTooltip("Opens the visual script in its graph window.");
+			ImGui::Spacing();
+		}
 
 		if (AssetManager::IsMissing(asset))
 		{
