@@ -162,6 +162,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptQuickFixes.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp
     Source/Editor/VisualScripting/VisualScriptSemantics.h
+    Source/Editor/VisualScripting/VisualScriptSidebar.cpp
+    Source/Editor/VisualScripting/VisualScriptSidebar.h
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.cpp
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.h
     Source/Editor/VisualScripting/VisualScriptTheme.cpp

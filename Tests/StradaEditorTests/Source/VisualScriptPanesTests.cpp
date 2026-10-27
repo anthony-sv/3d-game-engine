@@ -13,6 +13,7 @@
 #include "Editor/VisualScripting/VisualScriptPalettePopup.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
+#include "Editor/VisualScripting/VisualScriptSidebar.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -20,6 +21,7 @@
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Script/VisualScriptLiterals.h"
+#include "Strada/Script/VisualScriptVariables.h"
 
 #include <doctest/doctest.h>
 
@@ -30,8 +32,10 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -109,7 +113,7 @@ namespace
 		VisualScriptPaneContext MakeContext()
 		{
 			return {*Model,  *ActiveSemantics, Settings, Session, Services, Shared, Graph,
-			        "Graph", UUID::Invalid(),  false,    Time,    Measure,  {},     {}};
+			        "Graph", ContextEntity,    Playing,  Time,    Measure,  {},     ReadLiveVariables};
 		}
 
 		// What the window's shell does before any window draws: flush the edits of widgets that are no longer active, then
@@ -119,10 +123,12 @@ namespace
 			ImGuiID const active = GImGui->ActiveId;
 			if (active == 0)
 			{
-				std::optional<VisualScriptCommitRequest> pending = Details.TakePendingEdit();
-				if (pending)
+				for (std::optional<VisualScriptCommitRequest> pending : {Details.TakePendingEdit(), Sidebar.TakePendingEdit()})
 				{
-					ExecuteCommit(std::move(*pending));
+					if (pending)
+					{
+						ExecuteCommit(std::move(*pending));
+					}
 				}
 			}
 			Session.Update(active != 0 && active == PreviousActive, Context.GetHistory());
@@ -209,6 +215,12 @@ namespace
 								 });
 						break;
 					case FixturePane::Sidebar:
+						DrawPane("My Script", ImVec2(0.0f, 0.0f), SidebarSize,
+						         [this](VisualScriptPaneContext& context)
+						         {
+									 return Sidebar.Draw(context);
+								 });
+						break;
 					case FixturePane::Drawer:
 					case FixturePane::FindBar:
 						break;
@@ -285,6 +297,21 @@ namespace
 			return titles;
 		}
 
+		// The centre of a My Script row, and of a section's "+" button.
+		ImVec2 SidebarRow(VisualScriptElement element) const
+		{
+			std::optional<std::pair<glm::vec2, glm::vec2>> const row = Sidebar.FindRow(element);
+			REQUIRE_MESSAGE(row, "no My Script row " << static_cast<uint32_t>(element.Kind) << " " << element.ID);
+			return ImVec2((row->first.x + row->second.x) * 0.5f, (row->first.y + row->second.y) * 0.5f);
+		}
+		ImVec2 SidebarAdd(VisualScriptElementKind section) const
+		{
+			std::optional<std::pair<glm::vec2, glm::vec2>> const button = Sidebar.FindAddButton(section);
+			REQUIRE(button);
+			return ImVec2((button->first.x + button->second.x) * 0.5f, (button->first.y + button->second.y) * 0.5f);
+		}
+
+		static constexpr ImVec2 SidebarSize{340.0f, 900.0f};
 		static constexpr ImVec2 DetailsPosition{760.0f, 0.0f};
 		static constexpr ImVec2 DetailsSize{440.0f, 900.0f};
 
@@ -312,7 +339,12 @@ namespace
 		std::optional<VisualScriptEditorModel> Model;
 		VisualScriptPalettePopup Palette;
 		VisualScriptDetails Details;
+		VisualScriptSidebar Sidebar;
 		std::vector<VisualScriptPaneResult> Results;
+		// The window's play state and context entity, and how it reads live values.
+		bool Playing = false;
+		UUID ContextEntity = UUID::Invalid();
+		std::function<Result<ScriptFieldMap>(UUID)> ReadLiveVariables;
 		ImGuiID PreviousActive = 0;
 		double Time = 0.0;
 	};
@@ -1536,4 +1568,361 @@ TEST_CASE("VisualScriptEditor: the problems popup names codes with the injected 
 		CHECK(fixture.GetUndoCount() == undo + 1);
 		CHECK(FindNode(fixture.GetDocument(), "Call:Strada.Log.Info(string)")->Inputs == Json::object({{"Message", "Hello"}}));
 	}
+}
+
+// --- My Script ---
+
+namespace
+{
+	VisualScriptVariable const* FindVariable(VisualScriptDocument const& document, uint32_t id)
+	{
+		auto const found = std::find_if(document.Variables.begin(), document.Variables.end(),
+		                                [id](VisualScriptVariable const& variable)
+		                                {
+											return variable.ID == id;
+										});
+		return found != document.Variables.end() ? &*found : nullptr;
+	}
+
+	// Update → Set Speed → Log, a Get of Speed, a custom event Hit with two senders, and a function AddScore.
+	VisualScriptDocument MakeScriptDocument()
+	{
+		VisualScriptDocument document = MakeDocument();
+		document.Graph.Nodes = {MakeNode(1, "Event.Update", glm::vec2(0.0f)),
+		                        MakeNode(2, "Variable.Set", glm::vec2(240.0f, 0.0f), Json::object({{"Variable", 100}})),
+		                        MakeNode(3, "Call:Strada.Log.Info(string)", glm::vec2(560.0f, 0.0f)),
+		                        MakeNode(4, "Variable.Get", glm::vec2(0.0f, 240.0f), Json::object({{"Variable", 100}})),
+		                        MakeNode(5, "Event.Custom", glm::vec2(0.0f, 480.0f), Json::object({{"Name", "Hit"}})),
+		                        MakeNode(6, "Event.Send", glm::vec2(320.0f, 480.0f), Json::object({{"Name", "Hit"}})),
+		                        MakeNode(7, "Event.Send", glm::vec2(320.0f, 640.0f), Json::object({{"Name", "Hit"}}))};
+		document.Graph.Links = {MakeLink(1, "Then", 2, "Execute"), MakeLink(2, "Then", 3, "Execute"), MakeLink(4, "Value", 2, "Value")};
+		VisualScriptFunction function;
+		function.ID = 10;
+		function.Name = "AddScore";
+		function.Graph.Nodes = {MakeNode(11, "Function.Entry", glm::vec2(0.0f)), MakeNode(12, "Function.Return", glm::vec2(480.0f, 0.0f))};
+		function.Graph.Links = {MakeLink(11, "Then", 12, "Execute")};
+		document.Functions.push_back(std::move(function));
+		return document;
+	}
+
+	// Selects a row of My Script with a click and presses F2 (the window routes it to My Script, whose window has the
+	// keyboard), then types a name.
+	void RenameRow(PaneFixture& fixture, VisualScriptElement element, char const* name)
+	{
+		fixture.ImGui.Click(fixture.SidebarRow(element), fixture.Drawer());
+		REQUIRE(fixture.Shared.Element == element);
+		REQUIRE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Rename, fixture.Shared));
+		fixture.Frames(2);
+		REQUIRE(fixture.Sidebar.GetRenaming() == element);
+		// The field opens with its name selected: typing replaces it.
+		fixture.ImGui.Type(name);
+		fixture.Frames(2);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: My Script's + adds a variable whose name is typed next, and Enter makes one step of both")
+{
+	PaneFixture fixture(MakeDocument(), {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(fixture.SidebarAdd(VisualScriptElementKind::Variable), fixture.Drawer());
+	fixture.Frames(2);
+	// Added at once, its name open for typing.
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	VisualScriptVariable const* const added = FindVariable(fixture.GetDocument(), 102);
+	REQUIRE(added != nullptr);
+	CHECK(added->Name == "NewVar");
+	CHECK(added->Type == "float");
+	CHECK_FALSE(added->Public);
+	CHECK(fixture.Sidebar.GetRenaming() == VisualScriptElement{VisualScriptElementKind::Variable, 102});
+	CHECK(fixture.Shared.Element == VisualScriptElement{VisualScriptElementKind::Variable, 102});
+	fixture.ImGui.Type("Health");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Sidebar.GetRenaming());
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Add Variable in Graph");
+	VisualScriptVariable const* const named = FindVariable(fixture.GetDocument(), 102);
+	REQUIRE(named != nullptr);
+	CHECK(named->Name == "Health");
+	// Named in the step that created it: no former name.
+	CHECK(named->FormerNames.empty());
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.GetDocument().Variables.size() == 2);
+}
+
+TEST_CASE("VisualScriptEditor: an invalid name typed in My Script keeps the old one and says why")
+{
+	PaneFixture fixture(MakeDocument(), {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+	VisualScriptElement const speed{VisualScriptElementKind::Variable, 100};
+	RenameRow(fixture, speed, "Alive");
+	CHECK(fixture.Sidebar.GetRenameError() == "a variable is named Alive already");
+	// Enter is refused: the name stays open for typing.
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetRenaming() == speed);
+	CHECK(fixture.GetUndoCount() == undo);
+	fixture.ImGui.Type(".");
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetRenameError().starts_with("expected a name of 1 to 64 bytes"));
+	// Leaving the field keeps the old name, with a note saying why.
+	fixture.ImGui.Click(ImVec2(PaneFixture::SidebarSize.x * 0.5f, PaneFixture::SidebarSize.y - 20.0f), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Sidebar.GetRenaming());
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.ReadFile() == bytes);
+	CHECK(std::any_of(fixture.Results.begin(), fixture.Results.end(),
+	                  [](VisualScriptPaneResult const& result)
+	                  {
+						  return std::find(result.Notes.begin(), result.Notes.end(),
+		                                   "Speed keeps its name: expected a name of 1 to 64 bytes without control characters, '.' or a "
+		                                   "leading or trailing space") != result.Notes.end();
+					  }));
+}
+
+TEST_CASE("VisualScriptEditor: renaming a variable in My Script keeps its old name, so a component value set under it still applies")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Variables.front().Public = true;
+	PaneFixture fixture(document, {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	RenameRow(fixture, {VisualScriptElementKind::Variable, 100}, "MaxSpeed");
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Rename Speed to MaxSpeed in Graph");
+	VisualScriptVariable const* const renamed = FindVariable(fixture.GetDocument(), 100);
+	REQUIRE(renamed != nullptr);
+	CHECK(renamed->Name == "MaxSpeed");
+	CHECK(renamed->FormerNames == std::vector<std::string>{"Speed"});
+	// The value a component stored under the old name is the inspector's value of the renamed variable
+	// (InspectorPanel::DrawVisualScriptVariables reads the stored values through NormalizeVisualScriptOverrides).
+	ScriptFieldMap const stored{{"Speed", ScriptFieldValue::FromFloat(7.5f)}};
+	ScriptFieldMap const shown = NormalizeVisualScriptOverrides(fixture.GetDocument(), stored);
+	REQUIRE(shown.contains("MaxSpeed"));
+	CHECK(shown.at("MaxSpeed") == ScriptFieldValue::FromFloat(7.5f));
+	CHECK_FALSE(shown.contains("Speed"));
+}
+
+TEST_CASE("VisualScriptEditor: a variable of a type components cannot store cannot be made public from My Script")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Variables.push_back(MakeVariable(102, "Pose", "Strada.Matrix4"));
+	PaneFixture fixture(document, {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+	std::optional<std::pair<glm::vec2, glm::vec2>> const eye = fixture.Sidebar.FindEye(102);
+	REQUIRE(eye);
+	fixture.ImGui.Click(ImVec2((eye->first.x + eye->second.x) * 0.5f, (eye->first.y + eye->second.y) * 0.5f), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.ReadFile() == bytes);
+	CHECK_FALSE(FindVariable(fixture.GetDocument(), 102)->Public);
+	CHECK(std::any_of(fixture.Results.begin(), fixture.Results.end(),
+	                  [](VisualScriptPaneResult const& result)
+	                  {
+						  return std::find(result.Notes.begin(), result.Notes.end(),
+		                                   "Strada.Matrix4 cannot be public: components cannot store it") != result.Notes.end();
+					  }));
+	// A float can.
+	std::optional<std::pair<glm::vec2, glm::vec2>> const speedEye = fixture.Sidebar.FindEye(100);
+	REQUIRE(speedEye);
+	fixture.ImGui.Click(ImVec2((speedEye->first.x + speedEye->second.x) * 0.5f, (speedEye->first.y + speedEye->second.y) * 0.5f),
+	                    fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Make Speed Public in Graph");
+	CHECK(FindVariable(fixture.GetDocument(), 100)->Public);
+}
+
+TEST_CASE(
+	"VisualScriptEditor: deleting a used variable in My Script asks first, then deletes it and its nodes in one step, bridging the flow")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 100};
+	fixture.Frames(1);
+	REQUIRE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Delete, fixture.Shared));
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetPendingDelete() == VisualScriptElement{VisualScriptElementKind::Variable, 100});
+	CHECK(fixture.Sidebar.GetDeleteMessage() == "2 nodes use it; they are deleted too.");
+	CHECK(GImGui->OpenPopupStack.Size == 1);
+	CHECK(fixture.GetUndoCount() == undo);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Delete Variable Speed (and 2 nodes) in Graph");
+	VisualScriptDocument const& document = fixture.GetDocument();
+	CHECK(FindVariable(document, 100) == nullptr);
+	CHECK(FindVisualScriptNode(document, 2) == nullptr);
+	CHECK(FindVisualScriptNode(document, 4) == nullptr);
+	CHECK(HasLinkIn(document.Graph, MakeLink(1, "Then", 3, "Execute")));
+	CHECK_FALSE(fixture.Shared.Element);
+
+	// An unused variable goes at once; Cancel keeps a used one.
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	fixture.Frames(2);
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 101};
+	fixture.Frames(1);
+	REQUIRE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Delete, fixture.Shared));
+	fixture.Frames(2);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Delete Variable Alive in Graph");
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 100};
+	fixture.Frames(1);
+	REQUIRE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Delete, fixture.Shared));
+	fixture.Frames(2);
+	REQUIRE(fixture.Sidebar.GetPendingDelete());
+	size_t const before = fixture.GetUndoCount();
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Sidebar.GetPendingDelete());
+	CHECK(fixture.GetUndoCount() == before);
+	CHECK(FindVariable(fixture.GetDocument(), 100) != nullptr);
+}
+
+TEST_CASE("VisualScriptEditor: My Script's rows drag their graph, kind and ID, and a variable dropped on another goes before it")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	ImVec2 const alive = fixture.SidebarRow({VisualScriptElementKind::Variable, 101});
+	ImVec2 const speed = fixture.SidebarRow({VisualScriptElementKind::Variable, 100});
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(alive.x, alive.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	io.AddMousePosEvent(alive.x, alive.y - 8.0f);
+	fixture.Frames(1);
+	io.AddMousePosEvent(speed.x, speed.y);
+	fixture.Frames(2);
+	REQUIRE(GImGui->DragDropActive);
+	REQUIRE(GImGui->DragDropPayload.IsDataType(DragDropPayload::VisualScriptElement));
+	REQUIRE(GImGui->DragDropPayload.DataSize == static_cast<int>(sizeof(VisualScriptElementPayload)));
+	VisualScriptElementPayload payload;
+	std::memcpy(&payload, GImGui->DragDropPayload.Data, sizeof(payload));
+	CHECK(payload.Graph == fixture.Graph.GetUUID().GetValue());
+	CHECK(payload.Kind == static_cast<uint32_t>(VisualScriptElementKind::Variable));
+	CHECK(payload.ID == 101);
+	size_t const undo = fixture.GetUndoCount();
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Reorder Variables in Graph");
+	REQUIRE(fixture.GetDocument().Variables.size() == 2);
+	CHECK(fixture.GetDocument().Variables[0].ID == 101);
+	CHECK(fixture.GetDocument().Variables[1].ID == 100);
+}
+
+TEST_CASE("VisualScriptEditor: renaming a custom event in My Script renames the senders of this script in the same step")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	RenameRow(fixture, {VisualScriptElementKind::CustomEvent, 5}, "Damaged");
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Rename Event Hit to Damaged (and 2 senders) in Graph");
+	for (uint32_t const id : {5u, 6u, 7u})
+	{
+		VisualScriptNode const* const node = FindVisualScriptNode(fixture.GetDocument(), id);
+		REQUIRE(node != nullptr);
+		CHECK(node->Settings.value("Name", Json()) == "Damaged");
+	}
+}
+
+TEST_CASE("VisualScriptEditor: opening My Script's rows shows a function, frames a custom event and selects a variable's nodes")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	// A double click on a function's row shows its graph.
+	fixture.ImGui.Click(fixture.SidebarRow({VisualScriptElementKind::Function, 10}), fixture.Drawer(), 2);
+	fixture.Frames(2);
+	CHECK(fixture.Model->GetFunction() == 10);
+	CHECK(fixture.Shared.Element == VisualScriptElement{VisualScriptElementKind::Function, 10});
+	// Enter on a custom event's row shows the event graph and selects its Event.Custom.
+	fixture.ImGui.Click(fixture.SidebarRow({VisualScriptElementKind::CustomEvent, 5}), fixture.Drawer());
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(fixture.Model->GetFunction() == 0);
+	CHECK(std::vector<uint32_t>(fixture.Model->GetSelection().begin(), fixture.Model->GetSelection().end()) == std::vector<uint32_t>{5});
+	// A double click on a variable's row selects its Get and Set nodes in the shown graph.
+	fixture.ImGui.Click(fixture.SidebarRow({VisualScriptElementKind::Variable, 100}), fixture.Drawer(), 2);
+	fixture.Frames(3);
+	std::vector<uint32_t> selection(fixture.Model->GetSelection().begin(), fixture.Model->GetSelection().end());
+	std::sort(selection.begin(), selection.end());
+	CHECK(selection == std::vector<uint32_t>{2, 4});
+	// The canvas's selection replaces the row's.
+	CHECK_FALSE(fixture.Shared.Element);
+}
+
+TEST_CASE("VisualScriptEditor: My Script's + adds a function shown at once and a custom event whose name Details takes")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar, FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(fixture.SidebarAdd(VisualScriptElementKind::Function), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Add Function in Graph");
+	REQUIRE(fixture.GetDocument().Functions.size() == 2);
+	uint32_t const added = fixture.GetDocument().Functions.back().ID;
+	CHECK(fixture.GetDocument().Functions.back().Name == "NewFunction");
+	CHECK(fixture.Model->GetFunction() == added);
+	CHECK(fixture.Sidebar.GetRenaming() == VisualScriptElement{VisualScriptElementKind::Function, added});
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Sidebar.GetRenaming());
+
+	fixture.ImGui.Click(fixture.SidebarAdd(VisualScriptElementKind::CustomEvent), fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Add Custom Event in Graph");
+	CHECK(fixture.Model->GetFunction() == 0);
+	REQUIRE(fixture.Model->GetSelection().size() == 1);
+	VisualScriptNode const* const event = FindVisualScriptNode(fixture.GetDocument(), fixture.Model->GetSelection().front());
+	REQUIRE(event != nullptr);
+	CHECK(event->Type == "Event.Custom");
+	CHECK(event->Settings.value("Name", Json()) == "NewEvent");
+	// Details has its name, selected for typing.
+	fixture.ImGui.Type("Landed");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), event->ID)->Settings.value("Name", Json()) == "Landed");
+}
+
+TEST_CASE("VisualScriptEditor: while playing, My Script shows the context entity's public values, read at most 4 times a second")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Variables.front().Public = true;
+	PaneFixture fixture(document, {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	int reads = 0;
+	fixture.ReadLiveVariables = [&reads](UUID)
+	{
+		reads++;
+		return Result<ScriptFieldMap>(
+			ScriptFieldMap{{"Speed", ScriptFieldValue::FromFloat(2.5f)}, {"Alive", ScriptFieldValue::FromBool(true)}});
+	};
+	fixture.Frames(30);
+	CHECK(reads == 0);
+	CHECK(fixture.Sidebar.GetLiveValues().empty());
+	fixture.Playing = true;
+	fixture.ContextEntity = UUID(42);
+	fixture.Frames(60);
+	CHECK(reads >= 4);
+	CHECK(reads <= 5);
+	// Public variables only.
+	CHECK(fixture.Sidebar.GetLiveValues() == std::map<std::string, Json>{{"Speed", Json(2.5)}});
 }
