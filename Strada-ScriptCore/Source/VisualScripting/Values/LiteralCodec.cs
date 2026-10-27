@@ -526,7 +526,10 @@ internal static class LiteralCodec
 		{
 			return false;
 		}
-		value = (float)number;
+		// The float is read from the number's text, rounded once: a double rounded to float rounds twice, which turns the
+		// shortest texts of ±7.038531e-26 into the neighbouring floats. Magnitudes up to the bound round to at most float's
+		// largest value, so the double's float is only the fallback of a reader that refuses what it parsed.
+		value = json.TryGetSingle(out float single) && float.IsFinite(single) ? single : (float)number;
 		return true;
 	}
 

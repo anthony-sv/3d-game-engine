@@ -204,6 +204,26 @@ public sealed class LiteralCodecTests
 		Assert.Equal("\"-9000000000\"", Written(Type("long"), -9000000000L));
 	}
 
+	// Floats are read from their text rounded once, so every float decodes from its own shortest text bit for bit: the
+	// shortest texts of ±7.038531e-26 lie almost on the midpoint between two floats, and read through a double they round to
+	// the neighbouring float (0x15AE43FE). Components of vectors are read the same way; -0 keeps its sign.
+	[Fact]
+	public void FloatsReadFromTheirShortestTextRoundOnce()
+	{
+		foreach (int bits in (int[])[0x15AE43FD, unchecked((int)0x95AE43FD), 0x15AE43FE, 0x00000001, 0x7F7FFFFF])
+		{
+			float value = BitConverter.Int32BitsToSingle(bits);
+			string text = Written(Type("float"), value);
+			Assert.Equal(bits, BitConverter.SingleToInt32Bits((float)Value("float", text)!));
+			Vector3 vector = (Vector3)Value("Strada.Vector3", $"[0.0, {text}, 0.0]")!;
+			Assert.Equal(bits, BitConverter.SingleToInt32Bits(vector.Y));
+		}
+		Assert.Equal(0x15AE43FD, BitConverter.SingleToInt32Bits((float)Value("float", "7.038531e-26")!));
+		Assert.Equal(unchecked((int)0x80000000), BitConverter.SingleToInt32Bits((float)Value("float", "-0.0")!));
+		// Past float's largest value up to the bound, numbers round to it.
+		Assert.Equal(float.MaxValue, Value("float", "3.40282349e38"));
+	}
+
 	[Fact]
 	public void VariablesStartAtTheirValueOrTheTypeDefault()
 	{
