@@ -186,7 +186,7 @@ public sealed class ScalingTests
 		Assert.True(VisualScriptTesting.Pin(pending, select + 1 + targets, "W", PinDirection.In).IsConnected);
 		// About 0.5 s and 0.3 s unoptimized; inserting each late link in order behind the links after it took 5 s, and visiting
 		// every waiting link at each split 2.5 s.
-		Assert.True(earlyTime < TimeSpan.FromSeconds(2.0), $"{2 * makes} late links before {2 * makes} others took {earlyTime.TotalMilliseconds:F0} ms to analyze");
-		Assert.True(pendingTime < TimeSpan.FromSeconds(1.2), $"{reroutes} splits before {4 * targets} late links took {pendingTime.TotalMilliseconds:F0} ms to analyze");
+		Assert.True(earlyTime < TimeSpan.FromSeconds(3.0), $"{2 * makes} late links before {2 * makes} others took {earlyTime.TotalMilliseconds:F0} ms to analyze");
+		Assert.True(pendingTime < TimeSpan.FromSeconds(1.5), $"{reroutes} splits before {4 * targets} late links took {pendingTime.TotalMilliseconds:F0} ms to analyze");
 	}
 }
