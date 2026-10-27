@@ -1493,7 +1493,7 @@ inspector's primary entity as the context entity; without an asset directory the
   counters always, on graphs of up to 10,000 nodes, and their wall-clock bounds (3 times the measured figures) only with
   `STRADA_PERFORMANCE_TESTS=1`. Pins and wires take their type's colour, wires with an implicit conversion a gradient
   between the two; disabled nodes are dimmed with a bypass line from the exec input to their `PassThrough` exit, and
-  development-only nodes carry a strip. Links made by any means pulse once, and elements changed from outside (undo,
+  disabled and development-only nodes carry a strip that names their state. Links made by any means pulse once, and elements changed from outside (undo,
   automation, another window) flash.
 - **Palette** (Tab, a Space tap, a right click on the background, a wire released on empty canvas, `graph.palette`): the
   node library's kinds with their typed expansions ("Get Component: Rigid Body"), the document's variables (and the

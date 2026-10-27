@@ -895,7 +895,7 @@ chain); Shift+Delete removes it without that. F1, or `?` in the toolbar, lists e
 
 **Values.** An input that nothing is linked to shows its value on the node; click it to change it (drag a number,
 pick an enum, a colour or an asset), or select the node and change it in Details. Drop an asset from the content browser
-onto an input to use it, or onto the canvas to get the node that uses it; drop an entity from the hierarchy onto the
+onto an input to use it, or onto the canvas to get a value node holding it; drop an entity from the hierarchy onto the
 canvas to give the graph a public variable for it, set on the entity this window shows (below). Right-click a pin for
 Reset to Default, Promote to Variable and its links.
 
