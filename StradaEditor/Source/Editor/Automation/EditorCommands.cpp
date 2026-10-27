@@ -2045,6 +2045,11 @@ namespace Strada
 					SchemaBuilder::String("Visual script asset: a handle (decimal string) or \"asset://<path>.sgraph\"").MinLength(1);
 				SchemaBuilder const idParameter = SchemaBuilder::Integer().Minimum(0).Maximum(VisualScriptSerializer::MaxID);
 				SchemaBuilder const pointParameter = SchemaBuilder::Array(SchemaBuilder::Number(), "").MinItems(2).MaxItems(2);
+				// The zoom's bounds as the decimals clients write: the float bounds widened to double (0.10000000149...) would
+				// refuse 0.1, the farthest zoom. Every number they admit narrows to a zoom within the float bounds.
+				constexpr double MinZoom = 0.1;
+				constexpr double MaxZoom = 2.0;
+				static_assert(static_cast<float>(MinZoom) == VisualScriptMinZoom && static_cast<float>(MaxZoom) == VisualScriptMaxZoom);
 
 				Result<void> result = Add(
 					"graph.open",
@@ -2069,9 +2074,9 @@ namespace Strada
 						.Property("frame", SchemaBuilder::String("What the view frames: Keep (the view the sub-graph had), Selection "
 				                                                 "(default with select) or All (the whole sub-graph)")
 				                               .Enum({"Keep", "Selection", "All"}))
-						.Property("zoom", SchemaBuilder::Number("Screen pixels per canvas unit at a UI scale of 1")
-				                              .Minimum(static_cast<double>(VisualScriptMinZoom))
-				                              .Maximum(static_cast<double>(VisualScriptMaxZoom)))
+						.Property(
+							"zoom",
+							SchemaBuilder::Number("Screen pixels per canvas unit at a UI scale of 1").Minimum(MinZoom).Maximum(MaxZoom))
 						.Property("center", SchemaBuilder::Array(SchemaBuilder::Number()
 				                                                     .Minimum(-VisualScriptSerializer::MaxCoordinate)
 				                                                     .Maximum(VisualScriptSerializer::MaxCoordinate),

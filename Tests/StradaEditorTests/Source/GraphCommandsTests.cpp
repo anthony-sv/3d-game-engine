@@ -1467,6 +1467,25 @@ TEST_CASE("GraphCommands: graph.open frames, then zooms around the framed centre
 	}
 }
 
+TEST_CASE("GraphCommands: graph.open takes the farthest and the nearest zoom as clients write them (0.1 and 2)")
+{
+	using Failure = std::pair<AutomationErrorCode, std::string>;
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	for (double const zoom : {0.1, 2.0, 0.1})
+	{
+		CAPTURE(zoom);
+		fixture.Ok("graph.open", Json::object({{"graph", graph}, {"zoom", zoom}}));
+		// Past the view's animation.
+		fixture.Frames(30);
+		CHECK(fixture.Editor(graph)["view"]["zoom"].get<float>() == static_cast<float>(zoom));
+	}
+	CHECK(fixture.Failure("graph.open", Json::object({{"graph", graph}, {"zoom", 0.0999}})) ==
+	      Failure{AutomationErrorCode::InvalidParams, "zoom"});
+	CHECK(fixture.Failure("graph.open", Json::object({{"graph", graph}, {"zoom", 2.001}})) ==
+	      Failure{AutomationErrorCode::InvalidParams, "zoom"});
+}
+
 TEST_CASE("GraphCommands: graph.open refuses what the graph or the scene does not have, and opens a file that does not load on "
           "its card")
 {

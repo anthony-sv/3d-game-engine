@@ -1910,6 +1910,53 @@ TEST_CASE("VisualScriptEditor: opening My Script's rows shows a function, frames
 	CHECK_FALSE(fixture.Shared.Element);
 }
 
+TEST_CASE("VisualScriptEditor: My Script's rows draw their text inside the pane that clips at its left edge as the graph window's does")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar});
+	// The graph window draws My Script in a child without borders, which has no padding: its clip rectangle starts where its
+	// contents do. The fixture's window gets the same.
+	ImGuiStyle& style = ImGui::GetStyle();
+	style.WindowPadding = ImVec2(0.0f, 0.0f);
+	style.WindowBorderSize = 0.0f;
+	fixture.Frames(3);
+	ImGuiWindow* const pane = ImGui::FindWindowByName("My Script");
+	REQUIRE(pane != nullptr);
+	// The text's triangles: those whose texture coordinates vary vertically. Filled shapes use the white pixel and textured
+	// lines one row of the atlas (imgui_draw.cpp:3694), so their v is constant.
+	uint32_t glyphTriangles = 0;
+	for (ImGuiWindow const* const window : GImGui->Windows)
+	{
+		if (window->RootWindow != pane || !window->WasActive)
+		{
+			continue;
+		}
+		ImDrawList const& drawList = *window->DrawList;
+		for (ImDrawCmd const& command : drawList.CmdBuffer)
+		{
+			for (uint32_t index = 0; index + 2 < command.ElemCount; index += 3)
+			{
+				std::array<ImDrawVert const*, 3> corners{};
+				for (uint32_t corner = 0; corner < 3; corner++)
+				{
+					corners[corner] = &drawList.VtxBuffer[static_cast<int>(
+						command.VtxOffset + drawList.IdxBuffer[static_cast<int>(command.IdxOffset + index + corner)])];
+				}
+				if (corners[0]->uv.y == corners[1]->uv.y && corners[1]->uv.y == corners[2]->uv.y)
+				{
+					continue;
+				}
+				glyphTriangles++;
+				float const left = std::min({corners[0]->pos.x, corners[1]->pos.x, corners[2]->pos.x});
+				std::string const name = window->Name;
+				CAPTURE(name);
+				CHECK(left >= command.ClipRect.x);
+			}
+		}
+	}
+	// The rows' names were drawn: Event Graph, AddScore, the variable and the custom event.
+	CHECK(glyphTriangles > 0);
+}
+
 TEST_CASE("VisualScriptEditor: My Script's + adds a function shown at once and a custom event whose name Details takes")
 {
 	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar, FixturePane::Details});
