@@ -89,8 +89,10 @@ namespace Strada
 			std::string const text =
 				data.DevelopmentNodesEnabled ? ToDocumentText(document) : ToDocumentText(DisableDevelopmentOnlyNodes(document));
 			std::string answer;
-			auto const status = static_cast<ScriptStatus>(data.Host.VisualScriptLoad(
-				graph.GetUUID().GetValue(), name.data(), ToLength(name.size()), text.data(), ToLength(text.size()), &answer, &ReceiveText));
+			// No document refers to other graphs yet: the runtime receives no references.
+			auto const status = static_cast<ScriptStatus>(
+				data.Host.VisualScriptLoad(graph.GetUUID().GetValue(), name.data(), ToLength(name.size()), text.data(),
+			                               ToLength(text.size()), nullptr, 0, &answer, &ReceiveText));
 			if (status != ScriptStatus::Success)
 			{
 				// The runtime logged why; the handle keeps the programs it had.
@@ -279,8 +281,8 @@ namespace Strada
 		}
 		std::string const text = ToDocumentText(document);
 		std::string answer;
-		auto const status =
-			static_cast<ScriptStatus>(data->Host.VisualScriptAnalyze(text.data(), ToLength(text.size()), &answer, &ReceiveText));
+		auto const status = static_cast<ScriptStatus>(
+			data->Host.VisualScriptAnalyze(text.data(), ToLength(text.size()), nullptr, 0, &answer, &ReceiveText));
 		if (status != ScriptStatus::Success)
 		{
 			return Error{"the visual script cannot be analyzed (see the log)"};

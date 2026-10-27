@@ -269,8 +269,8 @@ namespace
 		return VisualScriptEngine::GetProgramGeneration(graph) != generation;
 	}
 
-	// Records each document the engine sends to the runtime while it lives, and passes it on (the runtime compiles it as
-	// ever). Lives within a Testing::ScriptRuntimeScope, one at a time.
+	// Records each document the engine sends to the runtime while it lives, with the references sent beside it, and passes
+	// both on (the runtime compiles the document as ever). Lives within a Testing::ScriptRuntimeScope, one at a time.
 	class SentDocuments
 	{
 	public:
@@ -302,7 +302,7 @@ namespace
 		VisualScriptDocument Get(size_t index) const
 		{
 			REQUIRE(index < s_Sent.size());
-			Result<Json> json = ParseJson(s_Sent[index]);
+			Result<Json> json = ParseJson(s_Sent[index].Document);
 			REQUIRE_MESSAGE(json.IsOk(), json.GetError());
 			std::vector<VisualScriptIssue> issues;
 			Result<VisualScriptDocument> document =
@@ -312,16 +312,34 @@ namespace
 			return document.TakeValue();
 		}
 
-	private:
-		static int32_t Load(uint64_t graph, char const* name, int32_t nameLength, char const* document, int32_t documentLength,
-		                    void* context, ScriptEngineInternal::ReceiveFunction receive)
+		// The references text of a send, as the runtime received it; empty for none.
+		std::string const& GetReferences(size_t index) const
 		{
-			s_Sent.emplace_back(document, static_cast<size_t>(documentLength));
-			return s_Load(graph, name, nameLength, document, documentLength, context, receive);
+			REQUIRE(index < s_Sent.size());
+			return s_Sent[index].References;
+		}
+
+	private:
+		struct Send
+		{
+			std::string Document;
+			std::string References;
+		};
+
+		static std::string ToText(char const* text, int32_t length)
+		{
+			return text != nullptr && length > 0 ? std::string(text, static_cast<size_t>(length)) : std::string();
+		}
+
+		static int32_t Load(uint64_t graph, char const* name, int32_t nameLength, char const* document, int32_t documentLength,
+		                    char const* references, int32_t referencesLength, void* context, ScriptEngineInternal::ReceiveFunction receive)
+		{
+			s_Sent.push_back({ToText(document, documentLength), ToText(references, referencesLength)});
+			return s_Load(graph, name, nameLength, document, documentLength, references, referencesLength, context, receive);
 		}
 
 		static inline decltype(ScriptEngineInternal::HostFunctions::VisualScriptLoad) s_Load = nullptr;
-		static inline std::vector<std::string> s_Sent;
+		static inline std::vector<Send> s_Sent;
 	};
 
 	// receive for the entry points: counts its calls and keeps the last text.
@@ -1057,6 +1075,293 @@ TEST_CASE("VisualScriptLibrary: reads where the flow leaves a disabled node, whi
 	CHECK(refused.GetError() == "Nodes[0].PassThrough: expected a string");
 }
 
+namespace
+{
+	// The texts the scripting runtime writes for slice 3's vocabulary, byte for byte as its writers write them (compact, members
+	// in their order). The runtime's own writer tests pin the same texts, so the two sides agree on each byte.
+	constexpr std::string_view NoteText =
+		R"({"Member":"TestGame.Probe.Swap","Category":"Game/Probe","Message":"TestGame.Probe.Swap: [VisualNode] member has no node form: ref parameters have no pins"})";
+	// "a * b + sni(t)": the unknown function's name is bytes 8 to 11.
+	constexpr std::string_view FormulaDiagnosticText =
+		R"({"Severity":"Error","Code":"InvalidExpression","Function":0,"Node":12,"Setting":"Formula","Span":[8,11],"Message":"unknown function sni: did you mean sin?","Suggestions":["sin","sign","min"]})";
+	// A finding about another graph names it, and suggests IDs from it.
+	constexpr std::string_view RemoteDiagnosticText =
+		R"({"Severity":"Error","Code":"UnknownVariable","Function":0,"Node":7,"Graph":"8146390251172604461","Message":"Scripts/Door.sgraph has no variable 9","Suggestions":["3","4"]})";
+	// Every new member at once, in its place after Variable.
+	constexpr std::string_view FullDiagnosticText =
+		R"({"Severity":"Warning","Code":"UnknownEvent","Function":3,"Node":12,"Variable":4,"Setting":"Name","Span":[0,3],"Graph":"8146390251172604461","Message":"Scripts/Door.sgraph has no event Opn: did you mean Open?","Suggestions":["Open"]})";
+}
+
+TEST_CASE("VisualScriptLibrary: reads slice 3's vocabulary: Expression constraints, ArrayOf, game nodes, notes and new setting kinds")
+{
+	std::string const json = fmt::format(R"json({{
+	"Types": [
+		{{ "ID": "bool", "Title": "Boolean", "Kind": "Bool", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "int", "Title": "Integer", "Kind": "Integer", "Literal": true, "ImplicitTo": ["float"] }},
+		{{ "ID": "double", "Title": "Double", "Kind": "Float", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "float", "Title": "Float", "Kind": "Float", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "string", "Title": "String", "Kind": "String", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "float[]", "Title": "Float Array", "Kind": "Array", "Element": "float", "ImplicitTo": [] }},
+		{{ "ID": "Strada.Vector2", "Title": "Vector2", "Kind": "Vector", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "Strada.Vector3", "Title": "Vector3", "Kind": "Vector", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "Strada.Vector4", "Title": "Vector4", "Kind": "Vector", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "Strada.Quaternion", "Title": "Quaternion", "Kind": "Quaternion", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "Strada.Color", "Title": "Color", "Kind": "Color", "Literal": true, "ImplicitTo": [] }},
+		{{ "ID": "Strada.Entity", "Title": "Entity", "Kind": "Entity", "Literal": true, "ImplicitTo": [] }}
+	],
+	"Nodes": [
+		{{ "Type": "Expression", "Title": "Expression", "Category": "Math", "Keywords": ["formula"], "Kind": "Data", "Pure": true,
+		  "Latent": false, "Pins": [
+			{{ "Name": "a", "Direction": "In", "Type": "*", "Constraint": "Expression" }},
+			{{ "Name": "Result", "Direction": "Out", "Type": "*", "Constraint": "Expression" }} ],
+		  "Settings": [ {{ "Name": "Formula", "Kind": "Expression", "Default": "a", "Required": true }} ] }},
+		{{ "Type": "Array.Make", "Title": "Make Array", "Category": "Utilities/Array", "Keywords": [], "Kind": "Data", "Pure": true,
+		  "Latent": false, "Pins": [
+			{{ "Name": "Element0", "Direction": "In", "Type": "*", "Constraint": "Any", "Group": "T" }},
+			{{ "Name": "Array", "Direction": "Out", "Type": "*", "Constraint": "Array", "ArrayOf": "Element0" }} ],
+		  "Settings": [ {{ "Name": "Count", "Kind": "Int", "Default": 1, "Min": 0, "Max": 64 }} ] }},
+		{{ "Type": "Flow.Timeline", "Title": "Timeline", "Category": "Flow", "Keywords": [], "Kind": "Latent", "Pure": false, "Latent": true,
+		  "Pins": [], "Settings": [ {{ "Name": "Timeline", "Kind": "Timeline" }} ] }},
+		{{ "Type": "Function.Call", "Title": "Call Function", "Category": "Functions", "Keywords": [], "Kind": "Function", "Pure": false,
+		  "Latent": false, "Pins": [],
+		  "Settings": [ {{ "Name": "Function", "Kind": "Function", "Required": true }}, {{ "Name": "Graph", "Kind": "Graph", "Constraint": "Library" }} ] }},
+		{{ "Type": "Call:TestGame.Probe.Scan(float)", "Title": "Scan", "Category": "Game/Probe", "Keywords": [], "Kind": "Call", "Pure": false,
+		  "Latent": false, "Game": true, "Pins": [], "Settings": [] }},
+		{{ "Type": "Call:Strada.Log.Info(string)", "Title": "Info", "Category": "Log", "Keywords": [], "Kind": "Call", "Pure": false,
+		  "Latent": false, "Game": false, "Pins": [], "Settings": [] }}
+	],
+	"Notes": [ {0}, {{ "Member": "TestGame.Probe.Wait", "Category": "", "Message": "" }} ]
+}})json",
+	                                     NoteText);
+	Result<Scope<VisualScriptLibrary>> parsed = VisualScriptLibrary::Parse(json);
+	VisualScriptLibrary const& library = RequireLibrary(parsed);
+
+	VisualScriptNodeTemplate const* expression = library.FindNode("Expression");
+	REQUIRE(expression != nullptr);
+	CHECK(expression->FindPin("a", VisualScriptPinDirection::In)->Constraint == VisualScriptPinConstraint::Expression);
+	CHECK(expression->FindPin("Result", VisualScriptPinDirection::Out)->Constraint == VisualScriptPinConstraint::Expression);
+	REQUIRE(expression->Settings.size() == 1);
+	CHECK(expression->Settings[0].Kind == "Expression");
+	CHECK_FALSE(expression->Game);
+
+	VisualScriptNodeTemplate const* make = library.FindNode("Array.Make");
+	REQUIRE(make != nullptr);
+	CHECK(make->FindPin("Array", VisualScriptPinDirection::Out)->ArrayOf == "Element0");
+	CHECK(make->FindPin("Array", VisualScriptPinDirection::Out)->ElementOf.empty());
+	CHECK(make->FindPin("Element0", VisualScriptPinDirection::In)->ArrayOf.empty());
+
+	VisualScriptNodeTemplate const* timeline = library.FindNode("Flow.Timeline");
+	REQUIRE(timeline != nullptr);
+	REQUIRE(timeline->Settings.size() == 1);
+	CHECK(timeline->Settings[0].Kind == "Timeline");
+	CHECK(timeline->Settings[0].Default.is_null());
+	VisualScriptNodeTemplate const* call = library.FindNode("Function.Call");
+	REQUIRE(call != nullptr);
+	REQUIRE(call->Settings.size() == 2);
+	CHECK(call->Settings[1].Kind == "Graph");
+	CHECK(call->Settings[1].Constraint == "Library");
+
+	// Nodes of the game's members say so; the others are not, whether they say it or not.
+	VisualScriptNodeTemplate const* scan = library.FindNode("Call:TestGame.Probe.Scan(float)");
+	REQUIRE(scan != nullptr);
+	CHECK(scan->Game);
+	REQUIRE(library.FindNode("Call:Strada.Log.Info(string)") != nullptr);
+	CHECK_FALSE(library.FindNode("Call:Strada.Log.Info(string)")->Game);
+
+	// The notes in the runtime's order; the pinned text is the runtime's compact form.
+	REQUIRE(library.GetNotes().size() == 2);
+	CHECK(library.GetNotes()[0] ==
+	      VisualScriptLibraryNote{"TestGame.Probe.Swap", "Game/Probe",
+	                              "TestGame.Probe.Swap: [VisualNode] member has no node form: ref parameters have no pins"});
+	CHECK(library.GetNotes()[1] == VisualScriptLibraryNote{"TestGame.Probe.Wait", "", ""});
+	Result<Json> const note = ParseJson(NoteText);
+	REQUIRE(note.IsOk());
+	CHECK(note.GetValue().dump() == NoteText);
+	// A library without notes has none.
+	Result<Scope<VisualScriptLibrary>> plain = VisualScriptLibrary::Parse(LibraryJson);
+	CHECK(RequireLibrary(plain).GetNotes().empty());
+
+	// The Expression constraint: bool, integer and float types, and the three vectors; nothing else, and no unknown type.
+	for (std::string_view const type : {"bool", "int", "double", "float", "Strada.Vector2", "Strada.Vector3", "Strada.Vector4"})
+	{
+		CAPTURE(type);
+		CHECK(library.Satisfies(type, VisualScriptPinConstraint::Expression));
+	}
+	for (std::string_view const type :
+	     {"string", "float[]", "Strada.Quaternion", "Strada.Color", "Strada.Entity", "Strada.Vector5", "exec", "*", ""})
+	{
+		CAPTURE(type);
+		CHECK_FALSE(library.Satisfies(type, VisualScriptPinConstraint::Expression));
+	}
+	VisualScriptPin const input = *expression->FindPin("a", VisualScriptPinDirection::In);
+	VisualScriptPin output = MakePin("Strada.Vector3", VisualScriptPinDirection::Out);
+	CHECK(library.CanConnect(output, input));
+	output.Type = "string";
+	CHECK_FALSE(library.CanConnect(output, input));
+
+	// What is not of the form is refused, naming the member.
+	struct Case
+	{
+		std::string Json;
+		std::string_view Error;
+	};
+	constexpr std::string_view Node =
+		R"("Type": "Flow.Branch", "Title": "Branch", "Category": "Flow", "Keywords": [], "Kind": "Flow", "Pure": false, "Latent": false)";
+	std::vector<Case> const cases = {
+		{R"({ "Types": [], "Nodes": [], "Notes": {} })", "Notes: expected an array"},
+		{R"({ "Types": [], "Nodes": [], "Notes": [ 3 ] })", "Notes[0]: expected an object"},
+		{R"({ "Types": [], "Nodes": [], "Notes": [ { "Category": "", "Message": "" } ] })", "Notes[0].Member: expected a string"},
+		{R"({ "Types": [], "Nodes": [], "Notes": [ { "Member": "M", "Message": "" } ] })", "Notes[0].Category: expected a string"},
+		{R"({ "Types": [], "Nodes": [], "Notes": [ { "Member": "M", "Category": "", "Message": 1 } ] })",
+	     "Notes[0].Message: expected a string"},
+		{fmt::format(R"({{ "Types": [], "Nodes": [ {{ {}, "Game": 1, "Pins": [], "Settings": [] }} ] }})", Node),
+	     "Nodes[0].Game: expected true or false"},
+		{fmt::format(R"({{ "Types": [], "Nodes": [ {{ {}, "Pins": [ {{ "Name": "A", "Direction": "Out", "Type": "*", "ArrayOf": 3 }} ],
+		    "Settings": [] }} ] }})",
+	                 Node),
+	     "Nodes[0].Pins[0].ArrayOf: expected a string"},
+		{fmt::format(
+			 R"({{ "Types": [], "Nodes": [ {{ {}, "Pins": [ {{ "Name": "A", "Direction": "In", "Type": "*", "Constraint": "Formula" }} ],
+		    "Settings": [] }} ] }})",
+			 Node),
+	     "Nodes[0].Pins[0].Constraint: expected one of None, Any, Numeric, Reference, Array, Expression"},
+	};
+	for (Case const& refused : cases)
+	{
+		CAPTURE(refused.Json);
+		Result<Scope<VisualScriptLibrary>> read = VisualScriptLibrary::Parse(refused.Json);
+		REQUIRE(read.IsError());
+		CHECK(read.GetError() == refused.Error);
+	}
+}
+
+TEST_CASE("VisualScriptLibrary: reads the setting, span and graph of diagnostics, and pin renames of a node of any resolution")
+{
+	std::string const json = fmt::format(R"json({{
+	"Nodes": [
+		{{ "ID": 12, "Function": 0, "Type": "Function.Call", "Resolved": "Exact",
+		  "PinRenames": [ {{ "Direction": "In", "From": "Value", "To": "Amount" }}, {{ "Direction": "Out", "From": "Out", "To": "Result" }} ],
+		  "Title": "Clamp01", "Kind": "Function", "Pure": true, "Latent": false, "Pins": [] }},
+		{{ "ID": 13, "Function": 0, "Type": "Function.Call", "Resolved": "Exact", "Title": "Report", "Kind": "Function", "Pure": false,
+		  "Latent": false, "Pins": [] }},
+		{{ "ID": 14, "Function": 0, "Type": "Sample.Missing", "Resolved": "Unknown", "PinRenames": [],
+		  "Title": "Missing", "Kind": "Unknown", "Pure": false, "Latent": false, "Pins": [] }}
+	],
+	"Diagnostics": [ {}, {}, {}, {{ "Severity": "Error", "Code": "UnknownPin", "Function": 0, "Node": 3, "Message": "no pin" }} ]
+}})json",
+	                                     FormulaDiagnosticText, RemoteDiagnosticText, FullDiagnosticText);
+	Result<VisualScriptAnalysis> parsed = VisualScriptAnalysis::Parse(json);
+	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
+	VisualScriptAnalysis const& analysis = parsed.GetValue();
+
+	// An exact node keeps its type and has renames; one without them has none.
+	VisualScriptAnalyzedNode const* clamp = analysis.FindNode(12);
+	REQUIRE(clamp != nullptr);
+	CHECK(clamp->Resolved == VisualScriptResolution::Exact);
+	CHECK(clamp->CanonicalType.empty());
+	REQUIRE(clamp->PinRenames.size() == 2);
+	CHECK(clamp->PinRenames[0].Direction == VisualScriptPinDirection::In);
+	CHECK(clamp->PinRenames[0].From == "Value");
+	CHECK(clamp->PinRenames[0].To == "Amount");
+	CHECK(clamp->PinRenames[1].Direction == VisualScriptPinDirection::Out);
+	CHECK(clamp->PinRenames[1].To == "Result");
+	REQUIRE(analysis.FindNode(13) != nullptr);
+	CHECK(analysis.FindNode(13)->PinRenames.empty());
+	REQUIRE(analysis.FindNode(14) != nullptr);
+	CHECK(analysis.FindNode(14)->PinRenames.empty());
+
+	REQUIRE(analysis.Diagnostics.size() == 4);
+	VisualScriptDiagnostic const& formula = analysis.Diagnostics[0];
+	CHECK(formula.Code == "InvalidExpression");
+	CHECK(formula.Node == std::optional<uint32_t>(12));
+	CHECK(formula.Setting == "Formula");
+	CHECK(formula.Span == std::optional<std::pair<uint32_t, uint32_t>>(std::pair(8u, 11u)));
+	CHECK_FALSE(formula.Graph.IsValid());
+	CHECK(formula.Message == "unknown function sni: did you mean sin?");
+	CHECK(formula.Suggestions == std::vector<std::string>{"sin", "sign", "min"});
+	VisualScriptDiagnostic const& remote = analysis.Diagnostics[1];
+	CHECK(remote.Code == "UnknownVariable");
+	CHECK(remote.Graph == AssetHandle(UUID(8146390251172604461ull)));
+	CHECK(remote.Setting.empty());
+	CHECK_FALSE(remote.Span.has_value());
+	CHECK_FALSE(remote.Variable.has_value());
+	CHECK(remote.Suggestions == std::vector<std::string>{"3", "4"});
+	VisualScriptDiagnostic const& full = analysis.Diagnostics[2];
+	CHECK(full.Severity == VisualScriptSeverity::Warning);
+	CHECK(full.Function == 3);
+	CHECK(full.Variable == std::optional<uint32_t>(4));
+	CHECK(full.Setting == "Name");
+	CHECK(full.Span == std::optional<std::pair<uint32_t, uint32_t>>(std::pair(0u, 3u)));
+	CHECK(full.Graph == AssetHandle(UUID(8146390251172604461ull)));
+	CHECK(full.Message == "Scripts/Door.sgraph has no event Opn: did you mean Open?");
+	// Without them: no setting, no span, no graph.
+	VisualScriptDiagnostic const& plain = analysis.Diagnostics[3];
+	CHECK(plain.Setting.empty());
+	CHECK_FALSE(plain.Span.has_value());
+	CHECK_FALSE(plain.Graph.IsValid());
+
+	// The pinned texts are the runtime's compact form, member for member.
+	Json const& diagnostics = analysis.Source.at("Diagnostics");
+	CHECK(diagnostics[0].dump() == FormulaDiagnosticText);
+	CHECK(diagnostics[1].dump() == RemoteDiagnosticText);
+	CHECK(diagnostics[2].dump() == FullDiagnosticText);
+	// VisualScriptLoad's answer reads them alike.
+	Result<std::vector<VisualScriptDiagnostic>> loaded = ParseVisualScriptDiagnostics(fmt::format("[{}]", FullDiagnosticText));
+	REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
+	REQUIRE(loaded.GetValue().size() == 1);
+	CHECK(loaded.GetValue()[0].Graph == full.Graph);
+	CHECK(loaded.GetValue()[0].Span == full.Span);
+
+	// What is not of the form is refused, naming the member: a handle is a string, a span two offsets in order.
+	struct Case
+	{
+		std::string_view Json;
+		std::string_view Error;
+	};
+	std::vector<Case> const cases = {
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Graph": 8146390251172604461, "Message": "" } ] })",
+	     "Diagnostics[0].Graph: expected an asset handle: a string holding a decimal integer of 0 to 18446744073709551615"},
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Graph": "Door", "Message": "" } ] })",
+	     "Diagnostics[0].Graph: expected an asset handle: a string holding a decimal integer of 0 to 18446744073709551615"},
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Graph": "-1", "Message": "" } ] })",
+	     "Diagnostics[0].Graph: expected an asset handle: a string holding a decimal integer of 0 to 18446744073709551615"},
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Setting": 3, "Message": "" } ] })",
+	     "Diagnostics[0].Setting: expected a string"},
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Span": [9, 5], "Message": "" } ] })",
+	     "Diagnostics[0].Span: expected [start, end]: integers of 0 to 4294967295, start not after end"},
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Span": [5], "Message": "" } ] })",
+	     "Diagnostics[0].Span: expected [start, end]: integers of 0 to 4294967295, start not after end"},
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Span": [-1, 2], "Message": "" } ] })",
+	     "Diagnostics[0].Span: expected [start, end]: integers of 0 to 4294967295, start not after end"},
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Span": [0, 4294967296], "Message": "" } ] })",
+	     "Diagnostics[0].Span: expected [start, end]: integers of 0 to 4294967295, start not after end"},
+		{R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Span": "5-9", "Message": "" } ] })",
+	     "Diagnostics[0].Span: expected [start, end]: integers of 0 to 4294967295, start not after end"},
+		{R"({ "Nodes": [ { "ID": 1, "Function": 0, "Type": "Self", "Resolved": "Exact", "PinRenames": {}, "Title": "Self", "Kind": "Data",
+		     "Pure": true, "Latent": false, "Pins": [] } ], "Diagnostics": [] })",
+	     "Nodes[0].PinRenames: expected an array"},
+		{R"({ "Nodes": [ { "ID": 1, "Function": 0, "Type": "Self", "Resolved": "Exact", "PinRenames": [ { "Direction": "In", "From": "A" } ],
+		     "Title": "Self", "Kind": "Data", "Pure": true, "Latent": false, "Pins": [] } ], "Diagnostics": [] })",
+	     "Nodes[0].PinRenames[0].To: expected a string"},
+		// Redirected and unique nodes still need their renames.
+		{R"({ "Nodes": [ { "ID": 1, "Function": 0, "Type": "Self", "Resolved": "Unique", "CanonicalType": "Self", "Title": "Self",
+		     "Kind": "Data", "Pure": true, "Latent": false, "Pins": [] } ], "Diagnostics": [] })",
+	     "Nodes[0].PinRenames: expected an array"},
+	};
+	for (Case const& refused : cases)
+	{
+		CAPTURE(refused.Json);
+		Result<VisualScriptAnalysis> read = VisualScriptAnalysis::Parse(refused.Json);
+		REQUIRE(read.IsError());
+		CHECK(read.GetError() == refused.Error);
+	}
+	// "0" is a handle string too: the graph of none.
+	Result<VisualScriptAnalysis> none = VisualScriptAnalysis::Parse(
+		R"({ "Nodes": [], "Diagnostics": [ { "Severity": "Error", "Code": "X", "Function": 0, "Graph": "0", "Message": "" } ] })");
+	REQUIRE_MESSAGE(none.IsOk(), none.GetError());
+	CHECK_FALSE(none.GetValue().Diagnostics[0].Graph.IsValid());
+}
+
 TEST_CASE("VisualScriptEngine: the node library describes the scripting API, and enum lookups read it")
 {
 	// Without the runtime there is no library, and enum variables need the runtime.
@@ -1383,7 +1688,7 @@ TEST_CASE("VisualScriptEngine: the runtime's entry points answer through receive
 
 	// Anything analyzes, nothing at all included.
 	Received empty;
-	CHECK(status(host.VisualScriptAnalyze(nullptr, 0, &empty, &Receive)) == ScriptStatus::Success);
+	CHECK(status(host.VisualScriptAnalyze(nullptr, 0, nullptr, 0, &empty, &Receive)) == ScriptStatus::Success);
 	CHECK(empty.Calls == 1);
 	Result<VisualScriptAnalysis> nothing = VisualScriptAnalysis::Parse(empty.Text);
 	REQUIRE_MESSAGE(nothing.IsOk(), nothing.GetError());
@@ -1392,19 +1697,26 @@ TEST_CASE("VisualScriptEngine: the runtime's entry points answer through receive
 
 	std::string const document = VisualScriptSerializer::SerializeDocument(MakeCountDocument(5)).dump();
 	Received analyzed;
-	CHECK(status(host.VisualScriptAnalyze(document.data(), static_cast<int32_t>(document.size()), &analyzed, &Receive)) ==
+	CHECK(status(host.VisualScriptAnalyze(document.data(), static_cast<int32_t>(document.size()), nullptr, 0, &analyzed, &Receive)) ==
 	      ScriptStatus::Success);
 	CHECK(analyzed.Calls == 1);
 	Result<VisualScriptAnalysis> analysis = VisualScriptAnalysis::Parse(analyzed.Text);
 	REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
 	CHECK(analysis.GetValue().Nodes.size() == 2);
 	CHECK(analysis.GetValue().Diagnostics.empty());
+	// References of any form accompany a document; one whose nodes refer to no other graph analyzes as without them.
+	constexpr std::string_view References = R"({"Self":"0","Graphs":[]})";
+	Received referenced;
+	CHECK(status(host.VisualScriptAnalyze(document.data(), static_cast<int32_t>(document.size()), References.data(),
+	                                      static_cast<int32_t>(References.size()), &referenced, &Receive)) == ScriptStatus::Success);
+	CHECK(referenced.Calls == 1);
+	CHECK(referenced.Text == analyzed.Text);
 
 	constexpr std::string_view Name = "Counter";
 	constexpr uint64_t Graph = 4200;
 	Received loaded;
 	CHECK(status(host.VisualScriptLoad(Graph, Name.data(), static_cast<int32_t>(Name.size()), document.data(),
-	                                   static_cast<int32_t>(document.size()), &loaded, &Receive)) == ScriptStatus::Success);
+	                                   static_cast<int32_t>(document.size()), nullptr, 0, &loaded, &Receive)) == ScriptStatus::Success);
 	CHECK(loaded.Calls == 1);
 	Result<std::vector<VisualScriptDiagnostic>> diagnostics = ParseVisualScriptDiagnostics(loaded.Text);
 	REQUIRE_MESSAGE(diagnostics.IsOk(), diagnostics.GetError());
@@ -1876,6 +2188,9 @@ TEST_CASE("VisualScriptEngine: the working document goes first again only when i
 	REQUIRE(sent.GetCount() == 2);
 	CHECK(sent.Get(0) == MakeCountDocument(1));
 	CHECK(sent.Get(1) == otherBroken);
+	// Neither refers to another graph: no references go with them.
+	CHECK(sent.GetReferences(0).empty());
+	CHECK(sent.GetReferences(1).empty());
 	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 
 	// A document of the working program tells that itself: the program is compiled once.

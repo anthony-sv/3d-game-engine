@@ -27,8 +27,11 @@ namespace Strada
 		constexpr std::array<std::string_view, 3> RoleNames = {"None", "Continuation", "Tick"};
 		static_assert(RoleNames.size() == static_cast<size_t>(VisualScriptPinRole::Tick) + 1);
 
-		constexpr std::array<std::string_view, 5> ConstraintNames = {"None", "Any", "Numeric", "Reference", "Array"};
-		static_assert(ConstraintNames.size() == static_cast<size_t>(VisualScriptPinConstraint::Array) + 1);
+		constexpr std::array<std::string_view, 6> ConstraintNames = {"None", "Any", "Numeric", "Reference", "Array", "Expression"};
+		static_assert(ConstraintNames.size() == static_cast<size_t>(VisualScriptPinConstraint::Expression) + 1);
+
+		// The vector types formulas compute with, beside bool, integer and float types.
+		constexpr std::array<std::string_view, 3> ExpressionVectorTypes = {"Strada.Vector2", "Strada.Vector3", "Strada.Vector4"};
 
 		constexpr std::array<std::string_view, 4> ResolutionNames = {"Exact", "Redirect", "Unique", "Unknown"};
 		static_assert(ResolutionNames.size() == static_cast<size_t>(VisualScriptResolution::Unknown) + 1);
@@ -338,6 +341,7 @@ namespace Strada
 			pin.Constraint = reader.ReadEnum("Constraint", ConstraintNames, Presence::Optional, VisualScriptPinConstraint::None);
 			pin.Group = reader.ReadString("Group", Presence::Optional);
 			pin.ElementOf = reader.ReadString("ElementOf", Presence::Optional);
+			pin.ArrayOf = reader.ReadString("ArrayOf", Presence::Optional);
 			// A Reroute in a chain of exec links is part of the flow.
 			pin.CarriesExec = nodeKind == VisualScriptNodeKind::Reroute && pin.Type == VisualScriptWildcardType;
 			if (Result<void> finished = reader.Finish(); !finished)
@@ -513,6 +517,7 @@ namespace Strada
 			node.Kind = reader.ReadEnum("Kind", NodeKindNames, Presence::Required, VisualScriptNodeKind::Unknown);
 			node.Pure = reader.ReadBool("Pure");
 			node.Latent = reader.ReadBool("Latent");
+			node.Game = reader.ReadBool("Game", Presence::Optional);
 			if (Result<std::vector<VisualScriptPin>> pins = ReadPins(reader, node.Kind); pins)
 			{
 				node.Pins = pins.TakeValue();
@@ -564,22 +569,24 @@ namespace Strada
 			node.Function = reader.ReadUInt32("Function");
 			node.Type = reader.ReadName("Type");
 			node.Resolved = reader.ReadEnum("Resolved", ResolutionNames, Presence::Required, VisualScriptResolution::Unknown);
-			if (node.Resolved == VisualScriptResolution::Redirect || node.Resolved == VisualScriptResolution::Unique)
+			// A node resolved inexactly is stored as another type, and has the renames that go with it; a node of any other
+			// resolution may have renames too (an exact call of a library function whose links name a former parameter name).
+			bool const isInexact = node.Resolved == VisualScriptResolution::Redirect || node.Resolved == VisualScriptResolution::Unique;
+			if (isInexact)
 			{
 				node.CanonicalType = reader.ReadName("CanonicalType");
-				if (Json const* renames = reader.ReadArray("PinRenames", Presence::Required))
+			}
+			if (Json const* renames = reader.ReadArray("PinRenames", isInexact ? Presence::Required : Presence::Optional))
+			{
+				for (size_t index = 0; index < renames->size(); ++index)
 				{
-					for (size_t index = 0; index < renames->size(); ++index)
+					Result<VisualScriptPinRename> rename = ReadPinRename((*renames)[index], GetElementPath(reader, "PinRenames", index));
+					if (!rename)
 					{
-						Result<VisualScriptPinRename> rename =
-							ReadPinRename((*renames)[index], GetElementPath(reader, "PinRenames", index));
-						if (!rename)
-						{
-							reader.Keep(rename.GetError());
-							break;
-						}
-						node.PinRenames.push_back(rename.TakeValue());
+						reader.Keep(rename.GetError());
+						break;
 					}
+					node.PinRenames.push_back(rename.TakeValue());
 				}
 			}
 			node.Title = reader.ReadString("Title");
@@ -613,6 +620,40 @@ namespace Strada
 				return std::nullopt;
 			}
 			return VisualScriptPinReference{static_cast<uint32_t>(json[0].get<uint64_t>()), json[1].get<std::string>()};
+		}
+
+		// The bytes of a setting's string a diagnostic concerns: [start, end].
+		std::optional<std::pair<uint32_t, uint32_t>> ReadSpan(Json const& json)
+		{
+			auto const isOffset = [](Json const& value)
+			{
+				return value.is_number_unsigned() && value.get<uint64_t>() <= std::numeric_limits<uint32_t>::max();
+			};
+			if (!json.is_array() || json.size() != 2 || !isOffset(json[0]) || !isOffset(json[1]))
+			{
+				return std::nullopt;
+			}
+			auto const start = static_cast<uint32_t>(json[0].get<uint64_t>());
+			auto const end = static_cast<uint32_t>(json[1].get<uint64_t>());
+			if (start > end)
+			{
+				return std::nullopt;
+			}
+			return std::pair(start, end);
+		}
+
+		Result<VisualScriptLibraryNote> ReadNote(Json const& json, std::string path)
+		{
+			ObjectReader reader(json, std::move(path));
+			VisualScriptLibraryNote note;
+			note.Member = reader.ReadName("Member");
+			note.Category = reader.ReadString("Category");
+			note.Message = reader.ReadString("Message");
+			if (Result<void> finished = reader.Finish(); !finished)
+			{
+				return Error{finished.GetError()};
+			}
+			return note;
 		}
 
 		Result<VisualScriptDiagnostic> ReadDiagnostic(Json const& json, std::string path)
@@ -650,6 +691,25 @@ namespace Strada
 				}
 			}
 			diagnostic.Variable = reader.ReadOptionalUInt32("Variable");
+			diagnostic.Setting = reader.ReadString("Setting", Presence::Optional);
+			if (Json const* span = reader.Find("Span"))
+			{
+				diagnostic.Span = ReadSpan(*span);
+				if (!diagnostic.Span)
+				{
+					reader.Fail("Span", "expected [start, end]: integers of 0 to 4294967295, start not after end");
+				}
+			}
+			if (Json const* graph = reader.Find("Graph"))
+			{
+				std::optional<UUID> const handle =
+					graph->is_string() ? UUID::FromString(graph->get_ref<std::string const&>()) : std::nullopt;
+				if (!handle)
+				{
+					reader.Fail("Graph", "expected an asset handle: a string holding a decimal integer of 0 to 18446744073709551615");
+				}
+				diagnostic.Graph = AssetHandle(handle.value_or(UUID::Invalid()));
+			}
 			diagnostic.Message = reader.ReadString("Message");
 			diagnostic.Suggestions = reader.ReadStrings("Suggestions", Presence::Optional);
 			if (Result<void> finished = reader.Finish(); !finished)
@@ -776,6 +836,24 @@ namespace Strada
 			}
 			library->m_Nodes.push_back(node.TakeValue());
 		}
+		// The game's members without a node form; absent when there are none.
+		if (auto const notes = document.find("Notes"); notes != document.end())
+		{
+			if (!notes->is_array())
+			{
+				return Error{"Notes: expected an array"};
+			}
+			library->m_Notes.reserve(notes->size());
+			for (size_t index = 0; index < notes->size(); ++index)
+			{
+				Result<VisualScriptLibraryNote> note = ReadNote((*notes)[index], fmt::format("Notes[{}]", index));
+				if (!note)
+				{
+					return Error{note.GetError()};
+				}
+				library->m_Notes.push_back(note.TakeValue());
+			}
+		}
 
 		// The vectors are final from here on: the indices view their strings.
 		std::sort(library->m_Types.begin(), library->m_Types.end(),
@@ -850,6 +928,11 @@ namespace Strada
 				                           info->Kind == VisualScriptTypeKind::Array || info->Kind == VisualScriptTypeKind::Object);
 			case VisualScriptPinConstraint::Array:
 				return info != nullptr && info->Kind == VisualScriptTypeKind::Array;
+			case VisualScriptPinConstraint::Expression:
+				return info != nullptr &&
+				       (info->Kind == VisualScriptTypeKind::Bool || info->Kind == VisualScriptTypeKind::Integer ||
+				        info->Kind == VisualScriptTypeKind::Float ||
+				        std::find(ExpressionVectorTypes.begin(), ExpressionVectorTypes.end(), info->ID) != ExpressionVectorTypes.end());
 		}
 		return false;
 	}

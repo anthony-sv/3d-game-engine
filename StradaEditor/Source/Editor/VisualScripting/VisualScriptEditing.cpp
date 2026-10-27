@@ -52,6 +52,22 @@ namespace Strada
 		constexpr int MinSequenceOutputs = 2;
 		constexpr int MaxSequenceOutputs = 64;
 
+		// A setting whose change renames or removes pins or senders, and the operation that changes it with them.
+		struct SettingOperation
+		{
+			std::string_view Type;
+			std::string_view Setting;
+			std::string_view Operation;
+		};
+
+		constexpr std::array<SettingOperation, 5> SettingOperations = {{
+			{SequenceType, CountSetting, "SetSequenceOutputs"},
+			{SwitchType, CasesSetting, "SetSwitchCases"},
+			{CustomEventType, ParametersSetting, "SetEventParameters"},
+			{SendEventType, ParametersSetting, "SetEventParameters"},
+			{CustomEventType, NameSetting, "RenameCustomEvent"},
+		}};
+
 		// Where a promoted variable's node stands, from the anchor of the pin it serves.
 		constexpr float PromotedGetOffset = -240.0f;
 		constexpr float PromotedSetOffset = 80.0f;
@@ -1655,7 +1671,8 @@ namespace Strada
 			return largest;
 		}
 
-		Result<uint32_t> AddNode(VisualScriptDocument& document, uint32_t function, std::string type, Json settings, glm::vec2 position)
+		Result<uint32_t> AddNode(VisualScriptDocument& document, uint32_t function, std::string type, Json settings,
+		                         std::optional<glm::vec2> position)
 		{
 			Result<VisualScriptGraph*> found = GetGraph(document, function);
 			if (!found)
@@ -1688,7 +1705,7 @@ namespace Strada
 					return MakeValueError(fmt::format("the setting {}", name));
 				}
 			}
-			if (!IsFinite(position))
+			if (position && !IsFinite(*position))
 			{
 				return Error{"a node's position must be finite"};
 			}
@@ -1705,7 +1722,10 @@ namespace Strada
 			VisualScriptNode node;
 			node.ID = id.GetValue();
 			node.Type = std::move(type);
-			node.Position = ClampPosition(position);
+			if (position)
+			{
+				node.Position = ClampPosition(*position);
+			}
 			node.Settings = std::move(settings);
 			graph.Nodes.push_back(std::move(node));
 			return id;
@@ -2137,6 +2157,16 @@ namespace Strada
 			return {};
 		}
 
+		std::string_view FindVisualScriptSettingOperation(VisualScriptNode const& node, std::string_view setting)
+		{
+			auto const row = std::find_if(SettingOperations.begin(), SettingOperations.end(),
+			                              [&node, setting](SettingOperation const& candidate)
+			                              {
+											  return candidate.Type == node.Type && candidate.Setting == setting;
+										  });
+			return row != SettingOperations.end() ? row->Operation : std::string_view();
+		}
+
 		Result<void> SetSetting(VisualScriptDocument& document, uint32_t node, std::string name, Json value)
 		{
 			Result<NodePlace> place = GetNode(document, node);
@@ -2154,14 +2184,9 @@ namespace Strada
 				return MakeError("{}: expected a setting name of 1 to {} bytes without control characters", Quote(name),
 				                 Format::MaxPinNameBytes);
 			}
-			bool const changesPins = (target.Type == SequenceType && name == CountSetting) ||
-			                         (target.Type == SwitchType && name == CasesSetting) ||
-			                         ((target.Type == CustomEventType || target.Type == SendEventType) && name == ParametersSetting) ||
-			                         (target.Type == CustomEventType && name == NameSetting);
-			if (changesPins)
+			if (std::string_view const operation = FindVisualScriptSettingOperation(target, name); !operation.empty())
 			{
-				return MakeError("{} of node {} ({}) changes its pins or its senders: set it with the operation that updates them too",
-				                 name, node, target.Type);
+				return MakeError("{} of node {} ({}) changes its pins or its senders: set it with {}", name, node, target.Type, operation);
 			}
 			if (value.is_null())
 			{

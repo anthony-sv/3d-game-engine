@@ -435,3 +435,126 @@ TEST_CASE("VisualScriptArrange: links that close a cycle and links that skip col
 	CHECK(GetPositions(document.Graph) == GetPositions(expected.Graph));
 	Testing::ExpectStrictRoundTrip(document);
 }
+
+TEST_CASE("VisualScriptArrange: a corner places the arranged block, whatever the corner of the nodes that had a position")
+{
+	VisualScriptDocument document = MakeBranchingDocument();
+	for (VisualScriptNode& node : document.Graph.Nodes)
+	{
+		node.Position = glm::vec2(500.0f + static_cast<float>(node.ID) * 40.0f, 300.0f);
+	}
+	VisualScriptDocument expected = MakeBranchingDocument();
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, DefaultExtents).IsOk());
+
+	// The corner is kept as given, on the grid or not.
+	glm::vec2 const corner(-100.5f, 37.0f);
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, DefaultExtents, corner).IsOk());
+	CHECK(GetCorner(document.Graph) == corner);
+	std::map<uint32_t, glm::vec2> const positions = GetPositions(document.Graph);
+	for (auto const& [id, position] : GetPositions(expected.Graph))
+	{
+		CAPTURE(id);
+		CHECK(positions.at(id) == corner + position);
+	}
+	Testing::ExpectStrictRoundTrip(document);
+}
+
+TEST_CASE("VisualScriptArrange: anchors stand before the arranged block, which starts right of them and orders its rows against theirs")
+{
+	// Anchors 1 (top) and 2 (below it) keep their places; 1 links into 11 and 2 into 10, which both lead to 12; 13 is a
+	// group of its own.
+	VisualScriptDocument document;
+	document.Graph.Nodes = {
+		MakeNode(1, glm::vec2(0.0f, 0.0f)), MakeNode(2, glm::vec2(0.0f, 400.0f)), MakeNode(10), MakeNode(11), MakeNode(12), MakeNode(13)};
+	document.Graph.Links = {MakeLink(1, 11), MakeLink(2, 10), MakeLink(10, 12), MakeLink(11, 12)};
+	std::vector<uint32_t> const arranged = {10, 11, 12, 13};
+	std::vector<uint32_t> const anchors = {2, 1, 2};
+
+	// Without anchors, ID order stands: 10 above 11.
+	VisualScriptDocument alone = document;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(alone, 0, arranged, DefaultExtents).IsOk());
+	CHECK(GetPositions(alone.Graph).at(10).y < GetPositions(alone.Graph).at(11).y);
+
+	VisualScriptDocument const before = document;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, arranged, DefaultExtents, std::nullopt, anchors).IsOk());
+	std::map<uint32_t, glm::vec2> const positions = GetPositions(document.Graph);
+	// The anchors do not move; the block's first column starts at their right edge + 64, its first row at their top.
+	CHECK(positions.at(1) == glm::vec2(0.0f, 0.0f));
+	CHECK(positions.at(2) == glm::vec2(0.0f, 400.0f));
+	// 11, linked from the upper anchor, stands above 10, linked from the lower one.
+	CHECK(positions.at(11) == glm::vec2(320.0f, 0.0f));
+	CHECK(positions.at(10) == glm::vec2(320.0f, 160.0f));
+	CHECK(positions.at(12) == glm::vec2(640.0f, 0.0f));
+	// The next group stands below the first, in the same columns.
+	CHECK(positions.at(13) == glm::vec2(320.0f, 400.0f));
+	CHECK(CountCrossings(document.Graph) == 0);
+	CHECK(document.Graph.Links == before.Graph.Links);
+	Testing::ExpectStrictRoundTrip(document);
+
+	SUBCASE("arranging again changes nothing, and the order of the anchors does not matter")
+	{
+		VisualScriptDocument again = document;
+		std::vector<uint32_t> const reordered = {1, 2};
+		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, arranged, DefaultExtents, std::nullopt, reordered).IsOk());
+		CHECK(again == document);
+	}
+
+	SUBCASE("the block's corner is rounded up to the 16 grid from the anchors' right edge and top, with their sizes")
+	{
+		VisualScriptDocument offGrid = before;
+		offGrid.Graph.Nodes[0].Position = glm::vec2(37.0f, 13.0f);
+		REQUIRE(VisualScriptEditing::ArrangeNodes(offGrid, 0, arranged, DefaultExtents, std::nullopt, anchors).IsOk());
+		// The right edge is 37 + 256 = 293: the block starts at 293 + 64 = 357, on the grid 368; the top 13 gives 16.
+		CHECK(GetPositions(offGrid.Graph).at(11) == glm::vec2(368.0f, 16.0f));
+
+		VisualScriptDocument wide = before;
+		VisualScriptNodeExtents const extents = [](uint32_t node)
+		{
+			return node == 2 ? glm::vec2(500.0f, 100.0f) : glm::vec2(256.0f, 128.0f);
+		};
+		REQUIRE(VisualScriptEditing::ArrangeNodes(wide, 0, arranged, extents, std::nullopt, anchors).IsOk());
+		CHECK(GetPositions(wide.Graph).at(11) == glm::vec2(576.0f, 0.0f));
+	}
+}
+
+TEST_CASE("VisualScriptArrange: anchors must be placed nodes of the graph that are not arranged, and exclude a corner")
+{
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, glm::vec2(0.0f, 0.0f)), MakeNode(2), MakeNode(3), MakeNode(4)};
+	document.Graph.Links = {MakeLink(1, 2), MakeLink(2, 3)};
+	VisualScriptComment comment;
+	comment.ID = 9;
+	document.Graph.Comments.push_back(comment);
+	VisualScriptDocument const before = document;
+	std::vector<uint32_t> const arranged = {2, 3};
+	auto const arrange = [&document, &arranged](std::vector<uint32_t> const& anchors, std::optional<glm::vec2> corner = std::nullopt)
+	{
+		return VisualScriptEditing::ArrangeNodes(document, 0, arranged, DefaultExtents, corner, anchors);
+	};
+
+	CHECK(arrange({1}, glm::vec2(0.0f)).GetError() == "Arrange takes a corner or anchors, not both");
+	CHECK(arrange({99}).GetError() == "the graph has no node 99: an anchor is a node of the graph");
+	CHECK(arrange({9}).GetError() == "the graph has no node 9: an anchor is a node of the graph");
+	CHECK(arrange({1, 3}).GetError() == "node 3 is arranged: an anchor keeps its place");
+	CHECK(arrange({4}).GetError() == "node 4 has no position: an anchor keeps its place");
+	CHECK(arrange({}, glm::vec2(std::numeric_limits<float>::infinity(), 0.0f)).GetError() ==
+	      "the corner of the arranged nodes must be finite");
+	std::vector<uint32_t> const anchor = {1};
+	CHECK(VisualScriptEditing::ArrangeNodes(document, 0, {}, DefaultExtents, std::nullopt, anchor).GetError() ==
+	      "node 1 is arranged: an anchor keeps its place");
+	Result<void> const unmeasured = VisualScriptEditing::ArrangeNodes(
+		document, 0, arranged,
+		[](uint32_t node)
+		{
+			return node == 1 ? glm::vec2(std::nanf(""), 10.0f) : glm::vec2(100.0f);
+		},
+		std::nullopt, anchor);
+	CHECK(unmeasured.GetError() == "the size of node 1 is not a size");
+	CHECK(document == before);
+
+	REQUIRE(arrange({1}).IsOk());
+	CHECK(document.Graph.Nodes[0].Position == glm::vec2(0.0f, 0.0f));
+	CHECK(document.Graph.Nodes[1].Position == glm::vec2(320.0f, 0.0f));
+	CHECK(document.Graph.Nodes[2].Position == glm::vec2(640.0f, 0.0f));
+	CHECK_FALSE(document.Graph.Nodes[3].Position.has_value());
+}

@@ -1,5 +1,6 @@
 #include "VisualScriptTestDocuments.h"
 
+#include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -554,6 +555,45 @@ TEST_CASE("VisualScriptEditing: nodes are added with the next ID, and what a doc
 	CheckRefused(crowded, add(0, "Flow.Branch", Json::object(), glm::vec2(0.0f)), "at most 10000 nodes");
 }
 
+TEST_CASE("VisualScriptEditing: a node added without a position is unplaced, and the commit places it")
+{
+	VisualScriptDocument document;
+	document.Graph.Nodes.push_back(MakeNode(3, "Event.Update", glm::vec2(400.0f, 96.0f)));
+	VisualScriptFunction function = MakeFunction(9, "Apply");
+	function.Graph.Nodes.push_back(MakeNode(12, "Function.Entry", glm::vec2(0.0f)));
+	document.Functions.push_back(function);
+	VisualScriptDocument const stored = document;
+
+	CHECK(RequireOk(VisualScriptEditing::AddNode(document, 0, "Flow.Branch", Json(), std::nullopt)) == 13);
+	CHECK(RequireOk(VisualScriptEditing::AddNode(document, 9, "Flow.Delay", Json(), std::nullopt)) == 14);
+	VisualScriptNode const& branch = GetNode(document.Graph, 13);
+	CHECK(branch.Type == "Flow.Branch");
+	CHECK_FALSE(branch.Position.has_value());
+	CHECK(branch.Settings == Json::object());
+	CHECK_FALSE(GetNode(document.Functions[0].Graph, 14).Position.has_value());
+	CheckDocument(document);
+	// What is refused unplaced is refused alike.
+	CheckRefused(
+		document,
+		[](VisualScriptDocument& edited)
+		{
+			return VisualScriptEditing::AddNode(edited, 77, "Flow.Branch", Json(), std::nullopt);
+		},
+		"the document has no function 77");
+
+	// The commit gives each a place below the placed nodes of its graph, and moves nothing else.
+	Result<VisualScriptCommit> const commit = PrepareVisualScriptCommit(stored, document, nullptr);
+	REQUIRE_MESSAGE(commit.IsOk(), commit.GetError());
+	VisualScriptDocument const& placed = commit.GetValue().Document;
+	std::optional<glm::vec2> const branchPosition = GetNode(placed.Graph, 13).Position;
+	REQUIRE(branchPosition.has_value());
+	CHECK(branchPosition->x == 400.0f);
+	CHECK(branchPosition->y > 96.0f);
+	CHECK(GetNode(placed.Graph, 3).Position == glm::vec2(400.0f, 96.0f));
+	REQUIRE(GetNode(placed.Functions[0].Graph, 14).Position.has_value());
+	CHECK(GetNode(placed.Functions[0].Graph, 12).Position == glm::vec2(0.0f));
+}
+
 TEST_CASE("VisualScriptEditing: links join pins the nodes have, each exec output and data input keeping one")
 {
 	Scope<VisualScriptLibrary> const library = ParseLibrary();
@@ -1043,12 +1083,52 @@ TEST_CASE("VisualScriptEditing: inputs and settings are stored and removed, sett
 			return VisualScriptEditing::SetSetting(edited, node, name, value);
 		};
 	};
-	CheckRefused(document, setSetting(3, "Count", 3), "Count of node 3 (Flow.Sequence) changes its pins");
-	CheckRefused(document, setSetting(4, "Cases", Json::array({1})), "Cases of node 4 (Flow.Switch)");
-	CheckRefused(document, setSetting(5, "Parameters", Json::array()), "Parameters of node 5 (Event.Custom)");
-	CheckRefused(document, setSetting(6, "Parameters", Json::array()), "Parameters of node 6 (Event.Send)");
-	CheckRefused(document, setSetting(5, "Name", "Damaged"), "Name of node 5 (Event.Custom)");
+	CheckRefused(document, setSetting(3, "Count", 3),
+	             "Count of node 3 (Flow.Sequence) changes its pins or its senders: set it with SetSequenceOutputs");
+	CheckRefused(document, setSetting(4, "Cases", Json::array({1})),
+	             "Cases of node 4 (Flow.Switch) changes its pins or its senders: set it with SetSwitchCases");
+	CheckRefused(document, setSetting(5, "Parameters", Json::array()),
+	             "Parameters of node 5 (Event.Custom) changes its pins or its senders: set it with SetEventParameters");
+	CheckRefused(document, setSetting(6, "Parameters", Json::array()),
+	             "Parameters of node 6 (Event.Send) changes its pins or its senders: set it with SetEventParameters");
+	CheckRefused(document, setSetting(5, "Name", "Damaged"),
+	             "Name of node 5 (Event.Custom) changes its pins or its senders: set it with RenameCustomEvent");
+	// Removing such a setting changes the pins too.
+	CheckRefused(document, setSetting(3, "Count", Json()), "set it with SetSequenceOutputs");
 	CheckRefused(document, setSetting(2, "Value", std::numeric_limits<double>::infinity()), "the setting Value must nest");
+}
+
+TEST_CASE("VisualScriptEditing: the settings whose change renames or removes pins or senders name the operation that sets them")
+{
+	struct Row
+	{
+		std::string_view Type;
+		std::string_view Setting;
+		std::string_view Operation;
+	};
+	std::vector<Row> const rows = {
+		{"Flow.Sequence", "Count", "SetSequenceOutputs"},
+		{"Flow.Switch", "Cases", "SetSwitchCases"},
+		{"Event.Custom", "Parameters", "SetEventParameters"},
+		{"Event.Send", "Parameters", "SetEventParameters"},
+		{"Event.Custom", "Name", "RenameCustomEvent"},
+		// Settings that change no pin, and the same names on other nodes.
+		{"Event.Send", "Name", ""},
+		{"Flow.Switch", "Type", ""},
+		{"Flow.Sequence", "Cases", ""},
+		{"Flow.Branch", "Count", ""},
+		{"Literal", "Value", ""},
+		{"Event.Custom", "name", ""},
+		{"event.custom", "Name", ""},
+		{"Call:Strada.Log.Info(string)", "Parameters", ""},
+	};
+	for (Row const& row : rows)
+	{
+		CAPTURE(row.Type);
+		CAPTURE(row.Setting);
+		VisualScriptNode const node = MakeNode(1, std::string(row.Type));
+		CHECK(VisualScriptEditing::FindVisualScriptSettingOperation(node, row.Setting) == row.Operation);
+	}
 }
 
 TEST_CASE("VisualScriptEditing: a Sequence's outputs are counted, inserted and removed with their links")

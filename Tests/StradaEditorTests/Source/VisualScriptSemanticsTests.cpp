@@ -61,7 +61,7 @@ namespace
 			{Json::object({{"Name", "Amount"}, {"Type", "float"}}), Json::object({{"Name", "Other"}, {"Type", "Strada.Entity"}})});
 		VisualScriptDocument document;
 		document.Variables = {MakeVariable(1, "Speed", "float"), MakeVariable(2, "Target", "Strada.Vector3"),
-		                      MakeVariable(3, "Mode", "Strada.ForceMode"), MakeVariable(4, "Others", "Strada.Entity[]")};
+		                      MakeVariable(3, "Mode", "Strada.ForceMode"), MakeVariable(4, "Other", "Strada.Entity")};
 
 		VisualScriptFunction add;
 		add.ID = 10;
@@ -411,10 +411,8 @@ TEST_CASE("VisualScriptEditor: the fixture analysis shapes nodes from their temp
 	CHECK(GetNode(analysis, 24).Title == "Get Count");
 	CHECK(DescribePins(GetNode(analysis, 24)) == std::vector<std::string>{"Out Value: int"});
 	CHECK(DescribePins(GetNode(analysis, 48)) == std::vector<std::string>{"Out Value: Strada.ForceMode"});
-	// Arrays cannot be variables yet: the pin stays a wildcard.
-	CHECK(GetNode(analysis, 49).Title == "Get Others");
-	CHECK(DescribePins(GetNode(analysis, 49)) == std::vector<std::string>{"Out Value: *"});
-	CHECK(GetNode(analysis, 49).Pins[0].Constraint == VisualScriptPinConstraint::Any);
+	CHECK(GetNode(analysis, 49).Title == "Get Other");
+	CHECK(DescribePins(GetNode(analysis, 49)) == std::vector<std::string>{"Out Value: Strada.Entity"});
 
 	// Function signatures: a pure function has no flow pins, and a function that waits makes its calls latent.
 	CHECK(DescribePins(GetNode(analysis, 11)) == std::vector<std::string>{"Out A: float", "Out B: float"});
@@ -508,7 +506,8 @@ TEST_CASE(
 		MakeNode(12, "Variable.Get", {{"Variable", 3}}),
 		MakeNode(13, "Function.Call", {{"Function", 99}}),
 		MakeNode(14, "Flow.Sequence", {{"Count", 100}}),
-		MakeNode(15, "Literal", {{"Type", "Strada.Entity[]"}}),
+		// A type that has no literals (an array of structs).
+		MakeNode(15, "Literal", {{"Type", "Strada.RaycastHit[]"}}),
 		MakeNode(16, "Flow.Switch", {{"Type", "float"}}),
 		MakeNode(17, "Event.Custom", {{"Name", "Hit"}, {"Parameters", Json::array({Json::object({{"Name", "Then"}, {"Type", "float"}})})}}),
 		MakeNode(18, "Function.Entry"),

@@ -145,9 +145,10 @@ namespace Strada
 		// Nodes and links.
 
 		// Adds a node of the type with the settings (an object; null for none) at the position (kept within the format's
-		// coordinates). Returns its ID.
+		// coordinates). Without a position the node is added unplaced: the commit places it (PlaceUnplacedNodes), or an Arrange
+		// does. Returns its ID.
 		[[nodiscard]] Result<uint32_t> AddNode(VisualScriptDocument& document, uint32_t function, std::string type, Json settings,
-		                                       glm::vec2 position);
+		                                       std::optional<glm::vec2> position);
 		// Puts a node of the graph into a link: A → B becomes A → node.inputPin and node.outputPin → B, each connected as
 		// Connect connects (so the node's input and output keep at most the links their kinds allow). The link and the pins
 		// are named as the document stores them.
@@ -191,10 +192,13 @@ namespace Strada
 		// Stores the literal of a node's input (named as the document stores it); null removes it. A field of a struct input
 		// ("Force.X") takes literals only while the struct is split, and a split struct takes none of its own.
 		[[nodiscard]] Result<void> SetInput(VisualScriptDocument& document, uint32_t node, std::string pin, Json literal);
-		// Stores a node's setting; null removes it. The settings that rename or remove pins have operations of their own,
-		// which also update the links, and are refused here: a Sequence's Count (SetSequenceOutputs), a Switch's Cases
-		// (SetSwitchCases), the Parameters of Event.Custom and Event.Send (SetEventParameters) and an Event.Custom's Name
-		// (RenameCustomEvent, which renames its senders too).
+		// The operation that sets a setting whose change renames or removes pins or senders, so that links follow in the same
+		// step: a Sequence's Count (SetSequenceOutputs), a Switch's Cases (SetSwitchCases), the Parameters of Event.Custom and
+		// Event.Send (SetEventParameters) and an Event.Custom's Name (RenameCustomEvent, which renames its senders too). Empty
+		// when SetSetting may set the setting.
+		[[nodiscard]] std::string_view FindVisualScriptSettingOperation(VisualScriptNode const& node, std::string_view setting);
+		// Stores a node's setting; null removes it. The settings FindVisualScriptSettingOperation names an operation for are
+		// refused, naming it.
 		[[nodiscard]] Result<void> SetSetting(VisualScriptDocument& document, uint32_t node, std::string name, Json value);
 		// Gives a Sequence count outputs (2 to 64) and renumbers its links. Without insertAt or removeAt the outputs from
 		// count on go; with insertAt, count minus the current count outputs are inserted at that index (the later links move
