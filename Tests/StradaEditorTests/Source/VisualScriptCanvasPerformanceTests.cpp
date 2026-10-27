@@ -1,0 +1,504 @@
+#include "HeadlessImGui.h"
+#include "TestUtilities.h"
+#include "VisualScriptPanelTestUtilities.h"
+#include "VisualScriptTestUtilities.h"
+
+#include "Editor/VisualScripting/VisualScriptBrushes.h"
+#include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
+#include "Editor/VisualScripting/VisualScriptEditorModel.h"
+#include "Editor/VisualScripting/VisualScriptGeometry.h"
+#include "Editor/VisualScripting/VisualScriptThemeStyle.h"
+#include "Editor/VisualScripting/VisualScriptView.h"
+#include "Editor/VisualScripting/VisualScriptViewSettings.h"
+
+#include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/FileSystem.h"
+
+#include <doctest/doctest.h>
+#include <glm/glm.hpp>
+#include <imgui.h>
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+using namespace Strada;
+
+namespace
+{
+	// The graphs of spec §7.12: a 320 × 180 cu grid with 3 links per node and 50 comments. The three of T5 are corners of one
+	// 100 × 100 grid whose links go to the next column's row and the two below it, so T1's view, and the margin the culling
+	// query adds around it, hold the same nodes, links and comments in each: the 5,000-node graph is its 50 first rows, the
+	// "500-node" graph its first 26 × 26 nodes (676: the fewest whose corner holds all of that).
+	constexpr uint32_t FullColumns = 100;
+	constexpr uint32_t FullRows = 100;
+	constexpr uint32_t LinksPerNode = 3;
+	constexpr uint32_t Comments = 50;
+	constexpr float ColumnWidth = 320.0f;
+	constexpr float RowHeight = 180.0f;
+	constexpr uint32_t SmallSide = 26;
+
+	enum GraphSize : size_t
+	{
+		Small = 0,
+		Medium,
+		Large,
+		GraphCount
+	};
+
+	// The nodes of the first columns × rows of the grid, the links between them that go down (not those that wrap from the
+	// last rows to the first) and the comments around them.
+	VisualScriptDocument TakeCorner(VisualScriptDocument const& full, uint32_t columns, uint32_t rows)
+	{
+		auto const kept = [&](uint32_t id)
+		{
+			uint32_t const column = (id - 1) / FullRows;
+			uint32_t const row = (id - 1) % FullRows;
+			return id >= 1 && id <= FullColumns * FullRows && column < columns && row < rows;
+		};
+		VisualScriptDocument document;
+		for (VisualScriptNode const& node : full.Graph.Nodes)
+		{
+			if (kept(node.ID))
+			{
+				document.Graph.Nodes.push_back(node);
+			}
+		}
+		for (VisualScriptLink const& link : full.Graph.Links)
+		{
+			bool const down = (link.To.Node - 1) % FullRows >= (link.From.Node - 1) % FullRows;
+			if (kept(link.From.Node) && kept(link.To.Node) && down)
+			{
+				document.Graph.Links.push_back(link);
+			}
+		}
+		for (VisualScriptComment const& comment : full.Graph.Comments)
+		{
+			if (comment.Position.x + comment.Size.x <= static_cast<float>(columns) * ColumnWidth &&
+			    comment.Position.y + comment.Size.y <= static_cast<float>(rows) * RowHeight)
+			{
+				document.Graph.Comments.push_back(comment);
+			}
+		}
+		return document;
+	}
+
+	// Draws the live widget of the chip under the mouse as the literal editor's compact form does: a drag per cell.
+	class CellChipHost final : public VisualScriptLiveChipHost
+	{
+	public:
+		void DrawLiveChip(VisualScriptLiveChip const& chip) override
+		{
+			VisualScriptLiveChipScope const scope(chip);
+			ImGui::PushID("LiveChip");
+			for (uint32_t cell = 0; cell < chip.CellCount; cell++)
+			{
+				if (cell > 0)
+				{
+					ImGui::SameLine();
+				}
+				ImGui::PushID(static_cast<int>(cell));
+				ImGui::SetNextItemWidth(chip.CellWidth);
+				ImGui::DragFloat("##Cell", &m_Value, 0.1f, 0.0f, 0.0f, "%g");
+				ImGui::PopID();
+			}
+			ImGui::PopID();
+		}
+
+	private:
+		float m_Value = 0.5f;
+	};
+
+	// A view of spec §7.12: the canvas's size in pixels and the zoom, the canvas point (-100, -100) at its top-left corner.
+	struct Scenario
+	{
+		char const* Name = "";
+		glm::vec2 Canvas{1600.0f, 900.0f};
+		float Zoom = 1.0f;
+		// Vertex budgets per visible node and wire at the scenario's level of detail.
+		uint32_t NodeVertices = 0;
+		uint32_t WireVertices = 0;
+		bool LiveWidget = false;
+
+		glm::vec2 GetCenter() const { return glm::vec2(-100.0f) + Canvas * 0.5f / Zoom; }
+	};
+
+	constexpr Scenario T1{"T1", {1600.0f, 900.0f}, 0.224f, 160, 26, false};
+	constexpr Scenario T2{"T2", {3600.0f, 2000.0f}, 0.70f, 800, 130, true};
+	constexpr Scenario T3{"T3", {1600.0f, 900.0f}, 1.0f, 800, 130, false};
+	constexpr Scenario T4{"T4", {1600.0f, 900.0f}, 0.10f, 8, 8, false};
+
+	// The canvas drawn as a graph window draws it (document, display copy, model sync with the fixture library, renderer),
+	// in a headless ImGui context with the editor's fonts, for the three graphs of T5 in one project.
+	class PerformanceFixture
+	{
+	public:
+		PerformanceFixture()
+			: Full(TakeCorner(Testing::MakeGridGraph(FullColumns, FullRows, LinksPerNode, Comments), FullColumns, FullRows)),
+			  Project(Testing::MakeGraphProject(Temporary, TakeCorner(Full, FullColumns, 50), "Scripts/Medium.sgraph")),
+			  Settings(Temporary.GetPath() / "Views.json")
+		{
+			Gui.UseEditorStyle();
+			Graphs[Medium] = Project.Graph;
+			Graphs[Small] = Import(TakeCorner(Full, SmallSide, SmallSide), "Scripts/Small.sgraph");
+			Graphs[Large] = Import(Full, "Scripts/Large.sgraph");
+			Settings.SetProject(Project.Project->GetFilePath());
+			Settings.SetReduceMotion(true);
+			for (size_t graph = 0; graph < GraphCount; graph++)
+			{
+				Models[graph].emplace(Graphs[graph], Settings);
+			}
+		}
+
+		// Shows a scenario's view of a graph (applied at the next frame; Reduce Motion makes it instant) and lets the canvas
+		// settle: the first frames analyze and lay out.
+		void Show(size_t graph, Scenario const& scenario)
+		{
+			VisualScriptOpenRequest request;
+			request.Graph = Graphs[graph];
+			request.Center = scenario.GetCenter();
+			request.Zoom = scenario.Zoom;
+			Models[graph]->ApplyOpenRequest(request);
+			for (int frame = 0; frame < 4; frame++)
+			{
+				Frame(graph, scenario);
+			}
+		}
+
+		// A frame of a graph's canvas: the seconds from the model's sync to the end of the renderer's draw (ImGui's NewFrame,
+		// Render and the backend left out).
+		double Frame(size_t graph, Scenario const& scenario, bool measurePhases = false)
+		{
+			Time += 1.0 / 60.0;
+			double seconds = 0.0;
+			Gui.Frame(
+				[&]
+				{
+					ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+					ImGui::SetNextWindowSize(ImVec2(scenario.Canvas.x, scenario.Canvas.y));
+					ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+					ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+					ImGui::Begin("Canvas", nullptr,
+				                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+				                     ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+					ImGui::PopStyleVar(2);
+					// The canvas may be larger than the null backend's 1920 × 1080 display: its whole rectangle is the clip.
+					ImDrawList* drawList = ImGui::GetWindowDrawList();
+					drawList->PushClipRect(ImVec2(0.0f, 0.0f), ImVec2(scenario.Canvas.x, scenario.Canvas.y), false);
+					ImGuiStyle const& style = ImGui::GetStyle();
+					VisualScriptCanvasInput input;
+					input.Mouse = Mouse.value_or(glm::vec2(-1000.0f));
+					input.CanvasMin = glm::vec2(0.0f);
+					input.CanvasSize = scenario.Canvas;
+					input.UIScale = style.FontScaleDpi;
+					input.FontSize = ImGui::GetFontSize();
+					input.CurveTessellationTolerance = style.CurveTessellationTol;
+					input.Hovered = Mouse.has_value();
+					input.Focused = true;
+					input.Time = Time;
+					VisualScriptDrawInput.DrawList = drawList;
+					VisualScriptDrawInput.Style = MakeVisualScriptCanvasStyle(style, ImGui::GetFontSize());
+					VisualScriptDrawInput.Library = &Semantics.GetFixtureLibrary();
+					VisualScriptDrawInput.Time = Time;
+					VisualScriptDrawInput.Mouse = input.Mouse;
+					VisualScriptDrawInput.Hovered = input.Hovered;
+					VisualScriptDrawInput.ReduceMotion = true;
+					VisualScriptDrawInput.Brushes = &Brushes;
+					VisualScriptDrawInput.LiveChips = scenario.LiveWidget ? &Host : nullptr;
+					VisualScriptDrawInput.MeasurePhases = measurePhases;
+					Theme = MakeVisualScriptThemeAnchors(style);
+
+					auto const start = std::chrono::steady_clock::now();
+					VisualScriptEditorModel& model = *Models[graph];
+					model.Sync(Semantics, Measure, Theme, false, Time);
+					std::vector<VisualScriptEditorIntent> const intents = model.Update(input);
+					Renderers[graph].Draw(model, VisualScriptDrawInput);
+					seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+					CHECK(intents.empty());
+
+					drawList->PopClipRect();
+					ImGui::End();
+				},
+				1.0f / 60.0f);
+			return seconds;
+		}
+
+		VisualScriptRenderStats const& GetStats(size_t graph) const { return Renderers[graph].GetStats(); }
+
+		// The middle of the value chip of a Delay's Duration that T2 shows: an unlinked one, wholly inside the view.
+		glm::vec2 FindChip(size_t graph) const
+		{
+			VisualScriptEditorModel const& model = *Models[graph];
+			VisualScriptCanvasModel const& canvas = model.GetCanvas();
+			VisualScriptRect const visible = model.GetView().GetVisibleRect();
+			for (VisualScriptNodeVisual const& node : canvas.GetNodes())
+			{
+				std::optional<uint32_t> const index = canvas.FindNode(node.ID);
+				std::optional<uint32_t> const pin =
+					index ? canvas.FindPin(*index, "Duration", VisualScriptPinDirection::In) : std::optional<uint32_t>();
+				if (!pin)
+				{
+					continue;
+				}
+				VisualScriptRect const chip = VisualScriptGeometry::GetChipRect(node, canvas.GetPins()[*pin]);
+				if (!VisualScriptGeometry::IsEmpty(chip) && chip.Min.x > visible.Min.x + 400.0f && chip.Min.y > visible.Min.y + 400.0f &&
+				    chip.Max.x < visible.Max.x - 400.0f && chip.Max.y < visible.Max.y - 400.0f)
+				{
+					return model.GetView().ToScreen(chip.GetCenter());
+				}
+			}
+			FAIL("no Delay with a Duration chip in view");
+			return glm::vec2(0.0f);
+		}
+
+		Testing::HeadlessImGui Gui;
+		Testing::AssetManagerScope Assets;
+		Testing::TemporaryDirectory Temporary;
+		VisualScriptDocument Full;
+		Testing::GraphProject Project;
+		VisualScriptViewSettings Settings;
+		Testing::FixtureVisualScriptSemantics Semantics;
+		VisualScriptTextMeasurer Measure = Testing::FixedWidthMeasurer(0.5f);
+		VisualScriptThemeAnchors Theme;
+		std::array<AssetHandle, GraphCount> Graphs{};
+		std::array<std::optional<VisualScriptEditorModel>, GraphCount> Models;
+		std::array<VisualScriptCanvasRenderer, GraphCount> Renderers;
+		VisualScriptBrushes Brushes;
+		CellChipHost Host;
+		VisualScriptCanvasDrawInput VisualScriptDrawInput;
+		std::optional<glm::vec2> Mouse;
+		double Time = 0.0;
+
+	private:
+		AssetHandle Import(VisualScriptDocument const& document, std::string_view path)
+		{
+			std::filesystem::path const file = Project.Project->GetAssetDirectory() / FileSystem::PathFromUtf8(path);
+			REQUIRE(VisualScriptSerializer::SaveToFile(document, file).IsOk());
+			Result<AssetHandle> imported = AssetManager::ImportFile(file);
+			REQUIRE_MESSAGE(imported.IsOk(), (imported ? std::string() : imported.GetError()));
+			return imported.GetValue();
+		}
+	};
+
+	// The counters every configuration asserts (spec §15.4).
+	void CheckCounters(VisualScriptRenderStats const& stats, Scenario const& scenario)
+	{
+		CAPTURE(scenario.Name);
+		CAPTURE(stats.VisibleNodes);
+		CAPTURE(stats.VisibleWires);
+		CAPTURE(stats.Vertices);
+		CAPTURE(stats.DrawCommands);
+		CHECK(stats.Index.Candidates <= 2 * (stats.VisibleNodes + stats.VisibleWires) + 256);
+		CHECK(stats.Vertices <= scenario.NodeVertices * stats.VisibleNodes + scenario.WireVertices * stats.VisibleWires + 4096);
+		uint32_t const segments = (stats.Vertices + 65535) / 65536;
+		CHECK(stats.DrawCommands <= segments + 2 * stats.LiveWidgets);
+		CHECK(stats.TextSizes <= 6);
+		CHECK(stats.LiveWidgets == (scenario.LiveWidget ? 1u : 0u));
+	}
+
+	double Median(std::vector<double> values)
+	{
+		std::sort(values.begin(), values.end());
+		return values.empty() ? 0.0 : values[values.size() / 2];
+	}
+
+	double Percentile95(std::vector<double> values)
+	{
+		std::sort(values.begin(), values.end());
+		return values.empty() ? 0.0 : values[std::min(values.size() - 1, values.size() * 95 / 100)];
+	}
+
+	// The medians the track measured on its machine (track U's report, step U4), in milliseconds; the wall-clock checks
+	// allow 3 times them (spec §15.7).
+#if defined(ST_DEBUG)
+	constexpr double T1Milliseconds = 9.95;
+	constexpr double T2Milliseconds = 7.89;
+	constexpr double T3Milliseconds = 0.98;
+	constexpr double T4Milliseconds = 22.9;
+	constexpr double CommitFrameMilliseconds = 686.0;
+#else
+	constexpr double T1Milliseconds = 1.03;
+	constexpr double T2Milliseconds = 0.873;
+	constexpr double T3Milliseconds = 0.104;
+	constexpr double T4Milliseconds = 1.425;
+	constexpr double CommitFrameMilliseconds = 37.9;
+#endif
+
+	// Times a scenario's frames: their median and 95th percentile, and the renderer's phases of the last one, printed.
+	double TimeScenario(PerformanceFixture& fixture, size_t graph, Scenario const& scenario)
+	{
+		constexpr int Frames = 60;
+		std::vector<double> times;
+		times.reserve(Frames);
+		for (int frame = 0; frame < Frames; frame++)
+		{
+			times.push_back(fixture.Frame(graph, scenario, true) * 1000.0);
+		}
+		VisualScriptRenderStats const& stats = fixture.GetStats(graph);
+		double const median = Median(times);
+		MESSAGE(std::string(scenario.Name), ": median ", median, " ms, p95 ", Percentile95(times), " ms; cull ", stats.CullMilliseconds,
+		        ", comments ", stats.CommentsMilliseconds, ", wires ", stats.WiresMilliseconds, ", nodes ", stats.NodesMilliseconds,
+		        ", overlay ", stats.OverlayMilliseconds, ", minimap ", stats.MinimapMilliseconds, ", renderer ", stats.TotalMilliseconds,
+		        " ms; ", stats.VisibleNodes, " nodes, ", stats.VisibleWires, " wires, ", stats.Vertices, " vertices");
+		return median;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: the canvas's frames T1 to T4 stay within their counters and vertex budgets")
+{
+	PerformanceFixture fixture;
+	std::array<Scenario, 4> const scenarios = {T1, T2, T3, T4};
+	for (Scenario const& scenario : scenarios)
+	{
+		fixture.Mouse.reset();
+		fixture.Show(Medium, scenario);
+		if (scenario.LiveWidget)
+		{
+			// The mouse over a chip: its live widget.
+			fixture.Mouse = fixture.FindChip(Medium);
+			fixture.Frame(Medium, scenario);
+		}
+		fixture.Frame(Medium, scenario);
+		VisualScriptRenderStats const& stats = fixture.GetStats(Medium);
+		CheckCounters(stats, scenario);
+		if (&scenario == &scenarios[0])
+		{
+			CHECK(stats.VisibleNodes >= 450);
+			CHECK(stats.VisibleNodes <= 550);
+		}
+		if (&scenario == &scenarios[3])
+		{
+			// Far, with more wires in view than FarWireLimit: only exec wires are drawn.
+			CHECK(stats.VisibleWires > VisualScriptCanvasRenderer::FarWireLimit);
+			CHECK(stats.SkippedWires > 0);
+		}
+		if (Testing::ArePerformanceTestsEnabled())
+		{
+			double const median = TimeScenario(fixture, Medium, scenario);
+			std::array<double, 4> const recorded = {T1Milliseconds, T2Milliseconds, T3Milliseconds, T4Milliseconds};
+			CHECK(median <= 3.0 * recorded[static_cast<size_t>(&scenario - scenarios.data())]);
+		}
+	}
+}
+
+TEST_CASE("VisualScriptEditor: T1's view costs the same on graphs of 676, 5,000 and 10,000 nodes, and idle frames reserve nothing "
+          "more")
+{
+	PerformanceFixture fixture;
+	// The minimap shows each graph whole, which differs by design (it is drawn from a grid of cells, whatever the graph's
+	// size): the counters of the view are compared without it.
+	VisualScriptPaneSettings panes = fixture.Settings.GetPanes();
+	panes.ShowMinimap = false;
+	fixture.Settings.SetPanes(panes);
+	std::array<VisualScriptRenderStats, GraphCount> stats{};
+	for (size_t graph = 0; graph < GraphCount; graph++)
+	{
+		fixture.Show(graph, T1);
+		fixture.Frame(graph, T1);
+		stats[graph] = fixture.GetStats(graph);
+		CheckCounters(stats[graph], T1);
+		MESSAGE("T5 graph ", graph, ": ", stats[graph].VisibleNodes, " nodes, ", stats[graph].VisibleWires, " wires, ",
+		        stats[graph].VisibleComments, " comments, ", stats[graph].Vertices, " vertices, ", stats[graph].Index.Candidates,
+		        " candidates");
+	}
+	// The same view holds the same elements, and draws them alike.
+	auto const near = [](uint32_t value, uint32_t reference)
+	{
+		return std::abs(static_cast<double>(value) - static_cast<double>(reference)) <= 0.02 * static_cast<double>(reference);
+	};
+	for (size_t graph = 0; graph < GraphCount; graph++)
+	{
+		CAPTURE(graph);
+		CHECK(stats[graph].VisibleNodes == stats[Medium].VisibleNodes);
+		CHECK(stats[graph].VisibleWires == stats[Medium].VisibleWires);
+		CHECK(stats[graph].VisibleComments == stats[Medium].VisibleComments);
+		CHECK(near(stats[graph].Vertices, stats[Medium].Vertices));
+		CHECK(near(stats[graph].Indices, stats[Medium].Indices));
+		CHECK(near(stats[graph].Index.Candidates, stats[Medium].Index.Candidates));
+		CHECK(stats[graph].DrawCommands == stats[Medium].DrawCommands);
+	}
+
+	// Ten idle frames of the 10,000-node graph, its minimap shown: the renderer, the model and its index reserve nothing more.
+	panes.ShowMinimap = true;
+	fixture.Settings.SetPanes(panes);
+	for (size_t graph = 0; graph < GraphCount; graph++)
+	{
+		fixture.Show(graph, T1);
+		CHECK(fixture.Models[graph]->GetMinimap().Alpha > 0.0f);
+	}
+	size_t const renderer = fixture.Renderers[Large].GetCapacityBytes();
+	size_t const model = fixture.Models[Large]->GetCapacityBytes();
+	size_t const index = fixture.Models[Large]->GetIndex().GetCapacityBytes();
+	for (int frame = 0; frame < 10; frame++)
+	{
+		fixture.Frame(Large, T1);
+	}
+	CHECK(fixture.Renderers[Large].GetCapacityBytes() == renderer);
+	CHECK(fixture.Models[Large]->GetCapacityBytes() == model);
+	CHECK(fixture.Models[Large]->GetIndex().GetCapacityBytes() == index);
+
+	if (Testing::ArePerformanceTestsEnabled())
+	{
+		// Interleaved frame by frame, so the machine's state weighs on the three alike.
+		constexpr int Frames = 90;
+		std::array<std::vector<double>, GraphCount> times;
+		for (int frame = 0; frame < Frames; frame++)
+		{
+			for (size_t graph = 0; graph < GraphCount; graph++)
+			{
+				times[graph].push_back(fixture.Frame(graph, T1) * 1000.0);
+			}
+		}
+		std::array<double, GraphCount> medians{};
+		for (size_t graph = 0; graph < GraphCount; graph++)
+		{
+			medians[graph] = Median(times[graph]);
+		}
+		MESSAGE("T5: medians ", medians[Small], " / ", medians[Medium], " / ", medians[Large], " ms; p95 ", Percentile95(times[Small]),
+		        " / ", Percentile95(times[Medium]), " / ", Percentile95(times[Large]), " ms");
+		CHECK(medians[Large] <= 1.25 * medians[Small]);
+		CHECK(medians[Medium] <= 1.25 * medians[Small]);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: the frame that commits a move in a graph of 2,000 nodes")
+{
+	// Spec §15.7 and ruling R3.3: the commit (pipeline, serializer, write) is the graph window's slowest frame; it is
+	// measured here as the window draws it, ImGui's frame included.
+	Testing::PanelFixture fixture(Testing::MakeGridGraph(40, 50, 2, 20));
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Graph;
+	request.Center = glm::vec2(400.0f, 300.0f);
+	request.Zoom = 1.0f;
+	request.Focus = false;
+	fixture.Panel->Apply(request);
+	fixture.Frames(2);
+	size_t const undo = fixture.GetUndoCount();
+
+	glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), 1, glm::vec2(0.5f, 0.06f));
+	fixture.MoveMouse(from);
+	fixture.SetButton(ImGuiMouseButton_Left, true);
+	for (int step = 1; step <= 4; step++)
+	{
+		fixture.MoveMouse(from + glm::vec2(30.0f, 20.0f) * static_cast<float>(step));
+	}
+	auto const start = std::chrono::steady_clock::now();
+	fixture.SetButton(ImGuiMouseButton_Left, false);
+	double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	if (Testing::ArePerformanceTestsEnabled())
+	{
+		MESSAGE("commit frame of a 2,000-node, 4,000-link graph: ", milliseconds, " ms");
+		CHECK(milliseconds <= 3.0 * CommitFrameMilliseconds);
+	}
+}

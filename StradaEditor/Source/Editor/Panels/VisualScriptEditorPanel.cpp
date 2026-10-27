@@ -16,7 +16,9 @@
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
+#include <glm/gtc/constants.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_stdlib.h>
@@ -32,6 +34,7 @@
 #include <filesystem>
 #include <span>
 #include <utility>
+#include <variant>
 
 namespace Strada
 {
@@ -53,6 +56,51 @@ namespace Strada
 		constexpr float HintBackgroundAlpha = 0.92f;
 		// The focus frame: Selection at 60 %.
 		constexpr float FocusFrameAlpha = 0.6f;
+		// The play state's colours of the viewport's frame (ViewportPanel.cpp's PlayFrameColor and SimulateFrameColor, which
+		// are file-local there); a game that runs the last working version takes the notices' amber.
+		constexpr ImU32 PlayColor = IM_COL32(64, 160, 255, 255);
+		constexpr ImU32 SimulateColor = IM_COL32(120, 200, 120, 255);
+		// The notices' accents: the content browser's notice colours (ContentBrowserPanel.cpp's NoticeWarningColor), an
+		// information blue and the neutral grey of read-only banners.
+		constexpr ImU32 NoticeWarningColor = IM_COL32(232, 164, 56, 255);
+		constexpr ImU32 NoticeInfoColor = IM_COL32(86, 156, 230, 255);
+		constexpr ImU32 NoticeNeutralColor = IM_COL32(140, 146, 156, 255);
+		// How much of its accent a notice's background takes, and while it blinks.
+		constexpr float NoticeTint = 0.16f;
+		constexpr float NoticeBlinkTint = 0.5f;
+		// The shortcut sheet's width and the cards' widths, in font sizes.
+		constexpr float ShortcutSheetWidth = 34.0f;
+		constexpr float CardWidth = 26.0f;
+		// The canvas border kept around elements a [Show] frames, in screen pixels at UI scale 1.
+		constexpr float FrameMargin = 48.0f;
+		namespace Texts = VisualScriptPanelTexts;
+
+		ImU32 MixColor(ImU32 from, ImU32 to, float amount)
+		{
+			ImVec4 const a = ImGui::ColorConvertU32ToFloat4(from);
+			ImVec4 const b = ImGui::ColorConvertU32ToFloat4(to);
+			float const t = std::clamp(amount, 0.0f, 1.0f);
+			return ImGui::ColorConvertFloat4ToU32(
+				ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t));
+		}
+
+		// "1 node", "3 nodes and 1 comment".
+		std::string CountElements(size_t nodes, size_t comments)
+		{
+			auto const count = [](size_t value, std::string_view one, std::string_view many)
+			{
+				return fmt::format("{} {}", value, value == 1 ? one : many);
+			};
+			if (comments == 0)
+			{
+				return count(nodes, "node", "nodes");
+			}
+			if (nodes == 0)
+			{
+				return count(comments, "comment", "comments");
+			}
+			return count(nodes, "node", "nodes") + " and " + count(comments, "comment", "comments");
+		}
 
 		// Glyphs of the toolbar's buttons, drawn as shapes (the editor has no icon font).
 		enum class Glyph : uint8_t
@@ -69,7 +117,8 @@ namespace Strada
 			Saved,
 			NotSaved,
 			ListArrow,
-			Close
+			Close,
+			Bookmark
 		};
 
 		ImU32 WithAlpha(ImU32 color, float alpha)
@@ -188,6 +237,16 @@ namespace Strada
 					                  color, thickness);
 					drawList->AddLine(ImVec2(center.x + h * 0.5f, center.y - h * 0.5f), ImVec2(center.x - h * 0.5f, center.y + h * 0.5f),
 					                  color, thickness);
+					break;
+				}
+				case Glyph::Bookmark:
+				{
+					// A ribbon with a notch at its foot.
+					std::array<ImVec2, 5> const points = {
+						ImVec2(center.x - h * 0.45f, center.y - h * 0.75f), ImVec2(center.x + h * 0.45f, center.y - h * 0.75f),
+						ImVec2(center.x + h * 0.45f, center.y + h * 0.75f), ImVec2(center.x, center.y + h * 0.35f),
+						ImVec2(center.x - h * 0.45f, center.y + h * 0.75f)};
+					drawList->AddPolyline(points.data(), static_cast<int>(points.size()), color, thickness, ImDrawFlags_Closed);
 					break;
 				}
 			}
@@ -463,6 +522,23 @@ namespace Strada
 	{
 		m_PendingOpen = request;
 		m_FocusRequested = m_FocusRequested || request.Focus;
+		if (request.ContextEntity.IsValid())
+		{
+			m_RequestedContext = request.ContextEntity;
+		}
+	}
+
+	std::optional<VisualScriptRect> VisualScriptEditorPanel::GetItemRect(VisualScriptPanelItem item) const
+	{
+		size_t const index = static_cast<size_t>(item);
+		return index < m_ItemRects.size() ? m_ItemRects[index] : std::nullopt;
+	}
+
+	void VisualScriptEditorPanel::RecordItem(VisualScriptPanelItem item)
+	{
+		ImVec2 const min = ImGui::GetItemRectMin();
+		ImVec2 const max = ImGui::GetItemRectMax();
+		m_ItemRects[static_cast<size_t>(item)] = VisualScriptRect{ToVec2(min), ToVec2(max)};
 	}
 
 	void VisualScriptEditorPanel::RequestAction(VisualScriptEditorAction action)
@@ -526,6 +602,41 @@ namespace Strada
 		state.Details = paneState(m_Layout.DetailsState, m_DetailsOverlay);
 		state.ShortcutsOpen = m_ShortcutsOpen;
 		state.HiddenToolbarActions = m_HiddenToolbarActions;
+		state.ContextEntity = m_ContextEntity;
+		state.Live = m_Live;
+		state.Card = m_Card;
+		// Top to bottom: the notices under the toolbar, then the hints over the canvas.
+		std::vector<VisualScriptNotice> notices;
+		for (NoticeKind const notice : m_Notices)
+		{
+			switch (notice)
+			{
+				case NoticeKind::Degraded:
+					notices.push_back(VisualScriptNotice::Degraded);
+					break;
+				case NoticeKind::ReadOnlyMemory:
+					notices.push_back(VisualScriptNotice::ReadOnlyMemory);
+					break;
+				case NoticeKind::ReadOnlyFile:
+					notices.push_back(VisualScriptNotice::ReadOnlyFile);
+					break;
+				case NoticeKind::Repaired:
+					notices.push_back(VisualScriptNotice::Repaired);
+					break;
+				case NoticeKind::Normalization:
+					notices.push_back(VisualScriptNotice::Normalization);
+					break;
+				case NoticeKind::NewFunction:
+					notices.push_back(VisualScriptNotice::NewFunction);
+					break;
+			}
+		}
+		if (m_CanvasHintShown)
+		{
+			notices.push_back(VisualScriptNotice::FirstCanvas);
+		}
+		notices.insert(notices.end(), state.Notices.begin(), state.Notices.end());
+		state.Notices = std::move(notices);
 		return state;
 	}
 
@@ -564,6 +675,8 @@ namespace Strada
 		m_FocusedPart = VisualScriptWindowPart::None;
 		m_CanvasHovered = false;
 		m_HintShown = false;
+		m_CanvasHintShown = false;
+		m_ItemRects.fill(std::nullopt);
 		m_Model.CancelGesture();
 		m_Renderer.StopAnimations();
 		m_Menu = {};
@@ -595,6 +708,7 @@ namespace Strada
 		}
 		m_Visible = true;
 		m_Time = ImGui::GetTime();
+		m_ItemRects.fill(std::nullopt);
 		std::erase_if(m_Toasts,
 		              [this](Toast const& toast)
 		              {
@@ -630,11 +744,19 @@ namespace Strada
 		{
 			m_NameRun.reset();
 		}
+		UpdateWindowState();
 
 		DrawToolbar();
+		DrawNotices();
 		DrawBody();
 		DrawMenus();
+		DrawShortcutSheet();
 		ImGui::End();
+		if (m_CloseRequested)
+		{
+			m_CloseRequested = false;
+			open = false;
+		}
 	}
 
 	void VisualScriptEditorPanel::ClaimKeys()
@@ -735,6 +857,366 @@ namespace Strada
 		}
 	}
 
+	void VisualScriptEditorPanel::UpdateWindowState()
+	{
+		// Ctrl+S saves the scene (the editor's own chord, which graph windows never claim, so it is read here without taking
+		// it): edits save themselves, and the save status flashes to say so.
+		if (m_Focused && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S))
+		{
+			m_SaveFlashStart = m_Time;
+			m_Activity.SaveFlashes++;
+		}
+		// A gesture or key that needs the scripting runtime was refused: the degraded notice blinks once.
+		if (m_Model.GetRefusedCount() > m_SeenRefusals)
+		{
+			m_BlinkStart = m_Time;
+			m_Activity.DegradedBlinks++;
+		}
+		m_SeenRefusals = m_Model.GetRefusedCount();
+		UpdateContextEntity();
+		UpdateLiveState();
+		UpdateNotices();
+		ReportOutsideChange();
+	}
+
+	bool VisualScriptEditorPanel::RunsGraph(UUID entity) const
+	{
+		if (!entity.IsValid())
+		{
+			return false;
+		}
+		Scene& scene = m_Operations.GetContext().GetScene();
+		if (!scene.HasEntity(entity))
+		{
+			return false;
+		}
+		Entity const found = scene.GetEntityByUUID(entity);
+		return found.HasComponent<VisualScriptComponent>() && found.GetComponent<VisualScriptComponent>().Graph == m_Graph;
+	}
+
+	void VisualScriptEditorPanel::SetContextEntity(UUID entity, bool chosen)
+	{
+		m_ContextEntity = entity;
+		m_ContextChosen = chosen;
+		if (chosen)
+		{
+			// Window state, kept per graph in the views file (spec §6.13).
+			m_Settings.SetContextEntity(m_Graph, entity);
+		}
+	}
+
+	void VisualScriptEditorPanel::UpdateContextEntity()
+	{
+		// The entities of the scene shown (the running copy while playing, which has the same IDs) that run this graph.
+		Scene& scene = m_Operations.GetContext().GetScene();
+		uint32_t running = 0;
+		UUID only = UUID::Invalid();
+		for (entt::entity const handle : scene.GetAllEntitiesWith<VisualScriptComponent>())
+		{
+			Entity const entity(handle, &scene);
+			if (entity.GetComponent<VisualScriptComponent>().Graph == m_Graph)
+			{
+				running++;
+				only = entity.GetUUID();
+			}
+		}
+		// The open request's entity, else the one the views file kept for the graph, else the only entity that runs it.
+		if (m_RequestedContext)
+		{
+			SetContextEntity(*m_RequestedContext, true);
+			m_RequestedContext.reset();
+			m_ContextResolved = true;
+		}
+		else if (!m_ContextResolved)
+		{
+			m_ContextResolved = true;
+			VisualScriptGraphViews const* views = m_Settings.FindGraph(m_Graph);
+			if (views != nullptr && RunsGraph(views->ContextEntity))
+			{
+				SetContextEntity(views->ContextEntity, true);
+			}
+		}
+		if (!m_ContextChosen)
+		{
+			m_ContextEntity = running == 1 ? only : UUID::Invalid();
+		}
+		// The combo is shown while it has something to choose: an entity runs the graph, or one is chosen.
+		m_InstanceShown = running > 0 || m_ContextEntity.IsValid();
+	}
+
+	void VisualScriptEditorPanel::UpdateLiveState()
+	{
+		EditorContext const& context = m_Operations.GetContext();
+		switch (context.GetPlayState())
+		{
+			case EditorPlayState::Edit:
+				m_Live = VisualScriptLiveState::None;
+				break;
+			case EditorPlayState::Play:
+			{
+				// With errors, the game keeps running the last version that compiled, when it has one.
+				uint32_t const errors = CountProblems(m_Model.GetAnalysis(), std::nullopt).first;
+				m_Live = errors > 0 && VisualScriptEngine::HasWorkingProgram(m_Graph) ? VisualScriptLiveState::LastWorking
+				                                                                      : VisualScriptLiveState::Live;
+				break;
+			}
+			case EditorPlayState::Simulate:
+				m_Live = VisualScriptLiveState::Simulating;
+				break;
+		}
+		// The context entity's running values, read at most VisualScriptLiveValueInterval apart: My Script shows them.
+		if (m_Live == VisualScriptLiveState::None || m_Live == VisualScriptLiveState::Simulating || !m_ContextEntity.IsValid() ||
+		    !VisualScriptEngine::HasInstance(m_ContextEntity))
+		{
+			m_LiveValues.reset();
+			m_LiveRead = -1.0e30;
+			return;
+		}
+		if (m_Time - m_LiveRead < VisualScriptLiveValueInterval)
+		{
+			return;
+		}
+		m_LiveRead = m_Time;
+		m_Activity.LiveValueReads++;
+		Result<ScriptFieldMap> values = VisualScriptEngine::GetInstanceVariables(m_ContextEntity);
+		if (values)
+		{
+			m_LiveValues = values.TakeValue();
+		}
+		else
+		{
+			m_LiveValues.reset();
+		}
+	}
+
+	void VisualScriptEditorPanel::UpdateNotices()
+	{
+		m_Notices.clear();
+		m_Card = VisualScriptCard::None;
+		VisualScriptDocumentState const state = m_Model.GetDocumentState();
+		if (state == VisualScriptDocumentState::Missing)
+		{
+			m_Card = VisualScriptCard::Missing;
+		}
+		else if (state == VisualScriptDocumentState::Unloadable)
+		{
+			// A failed load is remembered by the asset manager, so asking again costs nothing and logs nothing.
+			Result<Ref<VisualScriptAsset>> const asset = AssetManager::TryGetAsset<VisualScriptAsset>(m_Graph);
+			m_Card = VisualScriptCard::Unloadable;
+			m_LoadError = asset ? std::string() : asset.GetError();
+		}
+		if (state == VisualScriptDocumentState::Missing || state == VisualScriptDocumentState::Unloadable ||
+		    state == VisualScriptDocumentState::Gone)
+		{
+			m_FunctionHint.reset();
+			return;
+		}
+
+		if (m_Library == nullptr)
+		{
+			m_Notices.push_back(NoticeKind::Degraded);
+		}
+		if (state == VisualScriptDocumentState::ReadOnly)
+		{
+			m_Notices.push_back(NoticeKind::ReadOnlyMemory);
+		}
+		else if (state == VisualScriptDocumentState::ReadOnlyFile)
+		{
+			m_Notices.push_back(NoticeKind::ReadOnlyFile);
+		}
+		// A file that was repaired while loading, said once per load: a reload makes a new asset object.
+		if (Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(m_Graph); asset != m_RepairAsset)
+		{
+			m_RepairAsset = asset;
+			m_Repairs = asset != nullptr ? asset->GetLoadRepairCount() : 0;
+			m_RepairNotice = m_Repairs > 0;
+		}
+		if (m_RepairNotice)
+		{
+			m_Notices.push_back(NoticeKind::Repaired);
+		}
+		UpdateNormalizationCount();
+		if (m_Normalizations > 0 && !m_Model.IsReadOnly())
+		{
+			m_Notices.push_back(NoticeKind::Normalization);
+		}
+		// The new function's hint: once per function and window, from when a function holding only its Entry and Return is
+		// shown until it is dismissed or the window shows another sub-graph.
+		uint32_t const function = m_Model.GetFunction();
+		if (m_FunctionHint && *m_FunctionHint != function)
+		{
+			m_FunctionHintsSeen.push_back(*m_FunctionHint);
+			m_FunctionHint.reset();
+		}
+		if (!m_FunctionHint && function != 0 &&
+		    std::find(m_FunctionHintsSeen.begin(), m_FunctionHintsSeen.end(), function) == m_FunctionHintsSeen.end() &&
+		    IsShownFunctionNew())
+		{
+			m_FunctionHint = function;
+		}
+		if (m_FunctionHint)
+		{
+			m_Notices.push_back(NoticeKind::NewFunction);
+		}
+		if (IsShownGraphEmpty())
+		{
+			m_Card = VisualScriptCard::EmptyGraph;
+		}
+	}
+
+	void VisualScriptEditorPanel::UpdateNormalizationCount()
+	{
+		// Counted again only when the document or the analysis changed.
+		Ref<VisualScriptDocument const> const& document = m_Model.GetStoredDocument();
+		VisualScriptAnalysis const* analysis = m_Model.GetAnalysis();
+		uint64_t const analysisKey = analysis != nullptr ? m_Model.GetAnalysisCount() + 1 : 0;
+		if (document == m_NormalizedDocument && analysisKey == m_NormalizedAnalysis)
+		{
+			return;
+		}
+		m_NormalizedDocument = document;
+		m_NormalizedAnalysis = analysisKey;
+		m_Normalizations = 0;
+		if (document == nullptr)
+		{
+			return;
+		}
+		// Nodes the analysis resolved through a redirect or as the only fitting overload, and nodes without a position: the
+		// next commit writes their canonical types and positions (spec §4.2). Node IDs are unique in a document.
+		std::vector<uint32_t> inexact;
+		if (analysis != nullptr)
+		{
+			for (VisualScriptAnalyzedNode const& node : analysis->Nodes)
+			{
+				if (node.Resolved == VisualScriptResolution::Redirect || node.Resolved == VisualScriptResolution::Unique)
+				{
+					inexact.push_back(node.ID);
+				}
+			}
+			std::sort(inexact.begin(), inexact.end());
+		}
+		m_Normalizations = static_cast<uint32_t>(inexact.size());
+		auto const count = [&](VisualScriptGraph const& graph)
+		{
+			for (VisualScriptNode const& node : graph.Nodes)
+			{
+				if (!node.Position && !std::binary_search(inexact.begin(), inexact.end(), node.ID))
+				{
+					m_Normalizations++;
+				}
+			}
+		};
+		count(document->Graph);
+		for (VisualScriptFunction const& function : document->Functions)
+		{
+			count(function.Graph);
+		}
+	}
+
+	void VisualScriptEditorPanel::ReportOutsideChange()
+	{
+		// The elements an outside change made or changed flash where they are; when none of them is in view, a toast says so
+		// and its [Show] frames them (spec §10.7).
+		std::span<uint32_t const> const changed = m_Model.ChangedElements();
+		if (changed.empty() || m_CanvasSize.x <= 0.0f || m_CanvasSize.y <= 0.0f)
+		{
+			return;
+		}
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		VisualScriptRect const visible = m_Model.GetView().GetVisibleRect();
+		size_t nodes = 0;
+		size_t comments = 0;
+		for (uint32_t const element : changed)
+		{
+			std::optional<VisualScriptRect> rect;
+			if (std::optional<uint32_t> const node = canvas.FindNode(element))
+			{
+				rect = VisualScriptGeometry::GetNodeRect(canvas.GetNodes()[*node]);
+				nodes++;
+			}
+			else if (std::optional<uint32_t> const comment = canvas.FindComment(element))
+			{
+				rect = canvas.GetComments()[*comment].Rect;
+				comments++;
+			}
+			if (rect && VisualScriptGeometry::Intersects(*rect, visible))
+			{
+				return;
+			}
+		}
+		if (nodes + comments == 0)
+		{
+			return;
+		}
+		AddToast(fmt::format("{} changed outside the view", CountElements(nodes, comments)));
+		Toast& toast = m_Toasts.back();
+		toast.HasShow = true;
+		toast.ShowElements.assign(changed.begin(), changed.end());
+		toast.ShowFunction = m_Model.GetFunction();
+	}
+
+	void VisualScriptEditorPanel::FrameElements(std::span<uint32_t const> elements)
+	{
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		std::optional<VisualScriptRect> bounds;
+		auto const include = [&bounds](VisualScriptRect const& rect)
+		{
+			bounds = bounds ? VisualScriptRect{glm::min(bounds->Min, rect.Min), glm::max(bounds->Max, rect.Max)} : rect;
+		};
+		for (uint32_t const element : elements)
+		{
+			if (std::optional<uint32_t> const node = canvas.FindNode(element))
+			{
+				include(VisualScriptGeometry::GetNodeRect(canvas.GetNodes()[*node]));
+			}
+			else if (std::optional<uint32_t> const comment = canvas.FindComment(element))
+			{
+				include(canvas.GetComments()[*comment].Rect);
+			}
+		}
+		if (!bounds)
+		{
+			return;
+		}
+		// Centred and, when they do not fit at the current zoom, zoomed out until they do; the selection stays.
+		float const scale = std::max(ImGui::GetStyle().FontScaleDpi, 0.01f);
+		glm::vec2 const room = glm::max(m_CanvasSize - glm::vec2(2.0f * FrameMargin * scale), glm::vec2(1.0f));
+		glm::vec2 const size = glm::max(bounds->GetSize(), glm::vec2(1.0f));
+		float const fit = std::min(room.x / size.x, room.y / size.y) / scale;
+		VisualScriptOpenRequest request;
+		request.Graph = m_Graph;
+		request.Function = m_Model.GetFunction();
+		request.Frame = VisualScriptFrame::Keep;
+		request.Zoom = std::clamp(std::min(fit, m_Model.GetViewState().Zoom), VisualScriptMinZoom, VisualScriptMaxZoom);
+		request.Center = bounds->GetCenter();
+		request.Focus = false;
+		m_Model.ApplyOpenRequest(request);
+	}
+
+	bool VisualScriptEditorPanel::IsShownGraphEmpty() const
+	{
+		if (m_Model.GetFunction() != 0 || m_Model.GetStoredDocument() == nullptr)
+		{
+			return false;
+		}
+		VisualScriptGraph const& graph = m_Model.GetDisplayDocument().Graph;
+		return graph.Nodes.empty() && graph.Comments.empty();
+	}
+
+	bool VisualScriptEditorPanel::IsShownFunctionNew() const
+	{
+		VisualScriptGraph const* graph = FindShownGraph(m_Model.GetDisplayDocument(), m_Model.GetFunction());
+		if (graph == nullptr || !graph->Comments.empty())
+		{
+			return false;
+		}
+		return std::all_of(graph->Nodes.begin(), graph->Nodes.end(),
+		                   [](VisualScriptNode const& node)
+		                   {
+							   return node.Type == "Function.Entry" || node.Type == "Function.Return";
+						   });
+	}
+
 	void VisualScriptEditorPanel::DrawToolbar()
 	{
 		ImGuiStyle const& style = ImGui::GetStyle();
@@ -744,7 +1226,8 @@ namespace Strada
 		ImVec2 const origin = ImGui::GetCursorScreenPos();
 		float const inner = ImGui::GetContentRegionAvail().x - style.WindowPadding.x * 2.0f;
 		float const toolbarHeight = frame + style.WindowPadding.y * 2.0f;
-		ImGui::SetCursorScreenPos(ImVec2(origin.x + style.WindowPadding.x, origin.y + style.WindowPadding.y));
+		float const left = origin.x + style.WindowPadding.x;
+		float const top = origin.y + style.WindowPadding.y;
 
 		VisualScriptDocument const& document = m_Model.GetDisplayDocument();
 		uint32_t const function = m_Model.GetFunction();
@@ -760,46 +1243,142 @@ namespace Strada
 			}
 			return std::string("Event Graph");
 		}();
+		auto const textWidth = [](std::string_view text)
+		{
+			return ImGui::CalcTextSize(text.data(), text.data() + text.size()).x;
+		};
 		auto const textButtonWidth = [&](std::string_view text)
 		{
-			return ImGui::CalcTextSize(text.data(), text.data() + text.size()).x + style.FramePadding.x * 2.0f;
+			return textWidth(text) + style.FramePadding.x * 2.0f;
 		};
 		float const chevron = fontSize * 0.8f;
 		float const breadcrumbFull = textButtonWidth(scriptText) + chevron + textButtonWidth(graphText) + frame;
+		float const minimumText = VisualScriptBreadcrumbMinWidth * fontSize;
+		std::string const instanceText = [&]
+		{
+			if (!m_ContextEntity.IsValid())
+			{
+				return std::string("Instance: None");
+			}
+			Scene& scene = m_Operations.GetContext().GetScene();
+			return scene.HasEntity(m_ContextEntity) ? "Instance: " + scene.GetEntityByUUID(m_ContextEntity).GetName()
+			                                        : std::string("Instance: None");
+		}();
+		float const instanceFull = m_InstanceShown ? textWidth(instanceText) + style.FramePadding.x * 2.0f + frame : 0.0f;
 		VisualScriptEditorState const modelState = m_Model.GetState();
 		std::string const zoomText = fmt::format("{}%", static_cast<int>(std::lround(modelState.View.Zoom * 100.0f)));
 		std::string const saveText = m_SaveState == VisualScriptSaveState::Saved ? "Saved" : "Not saved";
-		float const problemsWidth = frame * 2.0f + ImGui::CalcTextSize("000").x * 2.0f;
-
-		// The parts that never hide: the pane toggles, Back and Forward, the problems pill and the view menu.
-		// The parts that never hide: the left group (the sidebar toggle, Back, Forward) and, in the right group, the problems
-		// pill, the view menu and the Details toggle. Each item but the first has an item spacing before it.
-		float const left = frame * 3.0f + spacing * 3.0f;
-		float const textForms = textButtonWidth(saveText) + textButtonWidth("Arrange") + textButtonWidth("Find");
-		float const glyphForms = frame * 3.0f;
-		float const viewItems = frame * 2.0f + textButtonWidth("200%") + spacing * 3.0f;
-		auto const rightGroup = [&](bool glyphForm, bool viewInMenu)
+		auto const [errors, warnings] = CountProblems(m_Model.GetAnalysis(), std::nullopt);
+		std::string const errorCount = fmt::format("{}", errors);
+		std::string const warningCount = fmt::format("{}", warnings);
+		float const badge = fontSize * 0.72f;
+		float const problemsWidth = style.FramePadding.x * 2.0f + badge * 2.0f + style.ItemInnerSpacing.x * 2.0f + textWidth(errorCount) +
+		                            textWidth(warningCount) + style.ItemSpacing.x;
+		std::string liveText;
+		std::string liveShort;
+		switch (m_Live)
 		{
-			// The problems pill, the save status, Arrange, Find, [Snap, Minimap, Zoom], the view menu, Details.
-			return problemsWidth + (glyphForm ? glyphForms : textForms) + frame * 2.0f + spacing * 5.0f + (viewInMenu ? 0.0f : viewItems);
+			case VisualScriptLiveState::None:
+				break;
+			case VisualScriptLiveState::Live:
+				liveText = Texts::Live;
+				liveShort = Texts::Live;
+				break;
+			case VisualScriptLiveState::LastWorking:
+				liveText = Texts::LastWorking;
+				liveShort = Texts::Live;
+				break;
+			case VisualScriptLiveState::Simulating:
+				liveText = Texts::SimulatingFull;
+				liveShort = Texts::Simulating;
+				break;
+		}
+
+		// The overflow of spec §10.1 rule 1, by stages: 0 everything as text; 1 the text buttons become glyphs (and the pill
+		// keeps its first word, its tooltip the rest); 2 the zoom, Bookmarks, Snap to Grid and the minimap move into the view
+		// menu; then the breadcrumb and the instance combo shrink (the script's name first), each to at least 8 font sizes. The
+		// pane toggles, Back and Forward, the pills, the view menu and "?" never hide.
+		auto const rightWidth = [&](int stage)
+		{
+			float width = problemsWidth + frame * 3.0f;
+			int items = 4;
+			if (!liveText.empty())
+			{
+				width += textButtonWidth(stage >= 1 ? liveShort : liveText);
+				items++;
+			}
+			if (stage >= 1)
+			{
+				width += frame * 3.0f;
+			}
+			else
+			{
+				width += textButtonWidth(saveText) + textButtonWidth("Arrange") + textButtonWidth("Find");
+			}
+			items += 3;
+			if (stage < 2)
+			{
+				width += (stage >= 1 ? frame : textButtonWidth("Bookmarks")) + frame * 2.0f + textButtonWidth("200%");
+				items += 4;
+			}
+			return width + spacing * static_cast<float>(items - 1);
 		};
-		// The overflow order of spec §10.1 rule 1: text buttons become glyphs, then the view items move into the view menu,
-		// then the breadcrumb is ellipsized.
-		bool const glyphs = left + breadcrumbFull + spacing + rightGroup(false, false) > inner;
-		bool const viewInMenu = glyphs && left + breadcrumbFull + spacing + rightGroup(true, false) > inner;
-		float const rightWidth = rightGroup(glyphs, viewInMenu);
-		float const others = left + spacing + rightWidth;
-		float const breadcrumbWidth = std::max(std::min(breadcrumbFull, inner - others), VisualScriptBreadcrumbMinWidth * fontSize);
+		float const leftWidth = frame * 3.0f + spacing * 3.0f;
+		float const middleFull = breadcrumbFull + (m_InstanceShown ? spacing + instanceFull : 0.0f);
+		int stage = 0;
+		while (stage < 2 && leftWidth + middleFull + spacing + rightWidth(stage) > inner)
+		{
+			stage++;
+		}
+		bool const glyphs = stage >= 1;
+		bool const viewInMenu = stage >= 2;
+		float const right = rightWidth(stage);
+		float const middle = std::max(inner - leftWidth - spacing - right - (m_InstanceShown ? spacing : 0.0f), 0.0f);
+		float breadcrumbWidth = breadcrumbFull;
+		float instanceWidth = instanceFull;
+		if (breadcrumbWidth + instanceWidth > middle)
+		{
+			// The breadcrumb shrinks first, then the instance combo, each to its minimum; below that both share what is left.
+			float const instanceMinimum = m_InstanceShown ? std::min(instanceFull, minimumText) : 0.0f;
+			breadcrumbWidth = std::max(middle - instanceWidth, std::min(breadcrumbFull, minimumText));
+			instanceWidth = std::max(middle - breadcrumbWidth, instanceMinimum);
+			if (breadcrumbWidth + instanceWidth > middle)
+			{
+				float const share = middle / std::max(breadcrumbWidth + instanceWidth, 1.0f);
+				breadcrumbWidth *= share;
+				instanceWidth *= share;
+			}
+		}
 		m_HiddenToolbarActions.clear();
 		if (viewInMenu)
 		{
 			m_HiddenToolbarActions = {Action::ToggleSnapToGrid, Action::ToggleMinimap, Action::ZoomReset};
+			// The Bookmarks menu, in the view menu: going to each stored bookmark and storing the next free slot.
+			VisualScriptGraphViews const* views = m_Settings.FindGraph(m_Graph);
+			std::optional<uint8_t> freeSlot;
+			for (uint8_t slot = 1; slot <= VisualScriptViewSettings::MaxBookmarkSlot; slot++)
+			{
+				bool const stored = views != nullptr && views->FindBookmark(slot) != nullptr;
+				if (stored)
+				{
+					m_HiddenToolbarActions.push_back(static_cast<Action>(static_cast<uint8_t>(Action::GoToBookmark1) + slot - 1));
+				}
+				else if (!freeSlot)
+				{
+					freeSlot = slot;
+				}
+			}
+			if (freeSlot)
+			{
+				m_HiddenToolbarActions.push_back(static_cast<Action>(static_cast<uint8_t>(Action::StoreBookmark1) + *freeSlot - 1));
+			}
 		}
 		m_ViewItemsInMenu = viewInMenu;
 
 		VisualScriptPaneSettings panes = m_Settings.GetPanes();
 		ImU32 const textColor = ImGui::GetColorU32(ImGuiCol_Text);
 		ImGui::PushID("##toolbar");
+		ImGui::SetCursorScreenPos(ImVec2(left, top));
 		if (GlyphButton("##sidebar", Glyph::Sidebar, m_Layout.SidebarState != VisualScriptPaneState::Hidden, true, "My Script"))
 		{
 			if (m_Layout.SidebarState == VisualScriptPaneState::AutoHidden)
@@ -812,28 +1391,32 @@ namespace Strada
 				m_Settings.SetPanes(panes);
 			}
 		}
+		RecordItem(VisualScriptPanelItem::SidebarToggle);
 		ImGui::SameLine();
 		if (GlyphButton("##back", Glyph::Back, false, m_Model.CanGoBack(), WithShortcut("Back", Action::Back)))
 		{
 			m_FrameActions.push_back(Action::Back);
 		}
+		RecordItem(VisualScriptPanelItem::Back);
 		ImGui::SameLine();
 		if (GlyphButton("##forward", Glyph::Forward, false, m_Model.CanGoForward(), WithShortcut("Forward", Action::Forward)))
 		{
 			m_FrameActions.push_back(Action::Forward);
 		}
+		RecordItem(VisualScriptPanelItem::Forward);
 		ImGui::SameLine();
 
 		// The breadcrumb: the script (its event graph), the sub-graph shown, and the list of every sub-graph. Shortened from
 		// the script's name first.
 		{
+			ImVec2 const breadcrumbMin = ImGui::GetCursorScreenPos();
 			float const listWidth = frame;
 			float const graphNeeded = textButtonWidth(graphText);
-			float const textRoom = breadcrumbWidth - chevron - listWidth;
-			float const scriptRoom = std::max(textRoom - graphNeeded, VisualScriptBreadcrumbMinWidth * fontSize * 0.25f);
-			std::string const scriptShown = FitText(scriptText, scriptRoom - style.FramePadding.x * 2.0f);
-			float const graphRoom = std::max(textRoom - textButtonWidth(scriptShown), fontSize);
-			std::string const graphShown = FitText(graphText, graphRoom - style.FramePadding.x * 2.0f);
+			float const textRoom = std::max(breadcrumbWidth - chevron - listWidth, 0.0f);
+			float const scriptRoom = std::max(textRoom - graphNeeded, std::min(textRoom * 0.5f, fontSize * 2.0f));
+			std::string const scriptShown = FitText(scriptText, std::max(scriptRoom - style.FramePadding.x * 2.0f, 0.0f));
+			float const graphRoom = std::max(textRoom - textButtonWidth(scriptShown), 0.0f);
+			std::string const graphShown = FitText(graphText, std::max(graphRoom - style.FramePadding.x * 2.0f, 0.0f));
 			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
 			if (ImGui::Button(fmt::format("{}##script", scriptShown).c_str()))
 			{
@@ -854,26 +1437,35 @@ namespace Strada
 			{
 				ImGui::OpenPopup("##subGraphs");
 			}
+			m_ItemRects[static_cast<size_t>(VisualScriptPanelItem::Breadcrumb)] =
+				VisualScriptRect{ToVec2(breadcrumbMin), ToVec2(ImGui::GetItemRectMax())};
 			DrawSubGraphMenu();
+		}
+		if (m_InstanceShown)
+		{
+			ImGui::SameLine();
+			DrawInstanceCombo(instanceWidth);
 		}
 
 		// The right group, laid out from the window's right edge.
 		ImGui::SameLine();
-		float const rightStart = origin.x + style.WindowPadding.x + inner - rightWidth;
-		if (rightStart > ImGui::GetCursorScreenPos().x)
+		float const rightStart = left + inner - right;
+		ImGui::SetCursorScreenPos(ImVec2(std::max(rightStart, ImGui::GetCursorScreenPos().x), top));
+		if (!liveText.empty())
 		{
-			ImGui::SetCursorScreenPos(ImVec2(rightStart, ImGui::GetCursorScreenPos().y));
+			DrawLivePill(textButtonWidth(glyphs ? liveShort : liveText), glyphs ? liveShort : liveText);
+			ImGui::SameLine();
 		}
 
 		// The problems pill: the analysis' errors and warnings in the whole script; a click opens the problems drawer.
 		{
-			auto const [errors, warnings] = CountProblems(m_Model.GetAnalysis(), std::nullopt);
 			ImVec2 const pillMin = ImGui::GetCursorScreenPos();
 			if (ImGui::InvisibleButton("##problems", ImVec2(problemsWidth, frame)))
 			{
 				m_DrawerMode =
 					m_DrawerMode == VisualScriptDrawerMode::Problems ? VisualScriptDrawerMode::Closed : VisualScriptDrawerMode::Problems;
 			}
+			RecordItem(VisualScriptPanelItem::Problems);
 			ImGui::SetItemTooltip("%s", modelState.Analyzed ? fmt::format("Problems: {} errors, {} warnings", errors, warnings).c_str()
 			                                                : "Problems are found with the scripting runtime");
 			ImDrawList* drawList = ImGui::GetWindowDrawList();
@@ -882,44 +1474,51 @@ namespace Strada
 				drawList->AddRectFilled(pillMin, ImVec2(pillMin.x + problemsWidth, pillMin.y + frame),
 				                        ImGui::GetColorU32(ImGuiCol_ButtonHovered), style.FrameRounding);
 			}
-			float const radius = fontSize * 0.36f;
+			float const radius = badge * 0.5f;
 			float x = pillMin.x + style.FramePadding.x + radius;
 			float const y = pillMin.y + frame * 0.5f;
 			ImU32 const errorColor = errors > 0 ? VisualScriptErrorColor : ImGui::GetColorU32(ImGuiCol_TextDisabled);
 			drawList->AddCircleFilled(ImVec2(x, y), radius, errorColor);
 			DrawGlyph(drawList, Glyph::Close, ImVec2(x, y), radius * 1.4f, IM_COL32(255, 255, 255, 255));
-			std::string const errorCount = fmt::format("{}", errors);
 			drawList->AddText(ImVec2(x + radius + style.ItemInnerSpacing.x, y - fontSize * 0.5f), textColor, errorCount.c_str());
-			x += radius + style.ItemInnerSpacing.x + ImGui::CalcTextSize(errorCount.c_str()).x + style.ItemSpacing.x + radius;
+			x += radius + style.ItemInnerSpacing.x + textWidth(errorCount) + style.ItemSpacing.x + radius;
 			ImU32 const warningColor = warnings > 0 ? VisualScriptWarningColor : ImGui::GetColorU32(ImGuiCol_TextDisabled);
 			drawList->AddTriangleFilled(ImVec2(x, y - radius), ImVec2(x + radius, y + radius * 0.8f), ImVec2(x - radius, y + radius * 0.8f),
 			                            warningColor);
-			std::string const warningCount = fmt::format("{}", warnings);
 			drawList->AddText(ImVec2(x + radius + style.ItemInnerSpacing.x, y - fontSize * 0.5f), textColor, warningCount.c_str());
 		}
 		ImGui::SameLine();
 
-		// The save status: edits save themselves, so it only reports a write that failed.
+		// The save status: edits save themselves, so it reports a write that failed; Ctrl+S makes it flash.
 		{
-			ImU32 const color =
-				m_SaveState == VisualScriptSaveState::Saved ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : VisualScriptErrorColor;
-			std::string const tooltip =
-				m_SaveState == VisualScriptSaveState::Saved ? "Edits save themselves" : "The last edit could not be saved: see the console";
+			bool const saved = m_SaveState == VisualScriptSaveState::Saved;
+			double const flash = m_Time - m_SaveFlashStart;
+			bool const flashing = flash >= 0.0 && flash < VisualScriptBlinkSeconds;
+			ImU32 color = saved ? ImGui::GetColorU32(ImGuiCol_TextDisabled) : VisualScriptErrorColor;
+			std::string const tooltip = saved ? "Edits save themselves" : "The last edit could not be saved: see the console";
+			ImVec2 const min = ImGui::GetCursorScreenPos();
+			float const width = glyphs ? frame : textButtonWidth(saveText);
+			ImGui::InvisibleButton("##save", ImVec2(width, frame));
+			RecordItem(VisualScriptPanelItem::SaveStatus);
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			if (flashing)
+			{
+				// A highlight that fades out (held, with Reduce Motion), and the text at full strength meanwhile.
+				float const fade = m_Settings.IsReduceMotion() ? 1.0f : 1.0f - static_cast<float>(flash / VisualScriptBlinkSeconds);
+				drawList->AddRectFilled(min, ImVec2(min.x + width, min.y + frame), WithAlpha(m_Theme.Selection, 0.45f * fade),
+				                        style.FrameRounding);
+				color = saved ? textColor : color;
+			}
 			if (glyphs)
 			{
-				ImVec2 const min = ImGui::GetCursorScreenPos();
-				ImGui::InvisibleButton("##save", ImVec2(frame, frame));
-				DrawGlyph(ImGui::GetWindowDrawList(), m_SaveState == VisualScriptSaveState::Saved ? Glyph::Saved : Glyph::NotSaved,
-				          ImVec2(min.x + frame * 0.5f, min.y + frame * 0.5f), frame * 0.55f, color);
+				DrawGlyph(drawList, saved ? Glyph::Saved : Glyph::NotSaved, ImVec2(min.x + frame * 0.5f, min.y + frame * 0.5f),
+				          frame * 0.55f, color);
 			}
 			else
 			{
-				ImVec2 const min = ImGui::GetCursorScreenPos();
-				ImGui::InvisibleButton("##save", ImVec2(textButtonWidth(saveText), frame));
-				ImGui::GetWindowDrawList()->AddText(ImVec2(min.x + style.FramePadding.x, min.y + style.FramePadding.y), color,
-				                                    saveText.c_str());
+				drawList->AddText(ImVec2(min.x + style.FramePadding.x, min.y + style.FramePadding.y), color, saveText.c_str());
 			}
-			ImGui::SetItemTooltip("%s", tooltip.c_str());
+			ImGui::SetItemTooltip("%s", (glyphs ? saveText + ": " + tooltip : tooltip).c_str());
 		}
 		ImGui::SameLine();
 		std::string const arrangeTooltip = "Arrange the selected nodes (with two or more), else the whole graph";
@@ -940,12 +1539,14 @@ namespace Strada
 			ImGui::EndDisabled();
 			ImGui::SetItemTooltip("%s", arrangeTooltip.c_str());
 		}
+		RecordItem(VisualScriptPanelItem::Arrange);
 		ImGui::SameLine();
 		std::string const findTooltip = WithShortcut("Find in this script", Action::Find);
 		if (glyphs ? GlyphButton("##find", Glyph::Find, m_FindOpen, true, findTooltip) : ImGui::Button("Find"))
 		{
 			m_FrameActions.push_back(Action::Find);
 		}
+		RecordItem(VisualScriptPanelItem::Find);
 		if (!glyphs)
 		{
 			ImGui::SetItemTooltip("%s", findTooltip.c_str());
@@ -953,20 +1554,41 @@ namespace Strada
 		if (!viewInMenu)
 		{
 			ImGui::SameLine();
+			bool const mac = ImGui::GetIO().ConfigMacOSXBehaviors;
+			std::string const bookmarksTooltip = fmt::format("Bookmarks: {}+1..9 stores the view, {}+1..9 goes back to it",
+			                                                 mac ? "Cmd+Option" : "Ctrl+Alt", mac ? "Cmd" : "Ctrl");
+			if (glyphs ? GlyphButton("##bookmarks", Glyph::Bookmark, false, true, bookmarksTooltip) : ImGui::Button("Bookmarks"))
+			{
+				ImGui::OpenPopup("##bookmarksMenu");
+			}
+			RecordItem(VisualScriptPanelItem::Bookmarks);
+			if (!glyphs)
+			{
+				ImGui::SetItemTooltip("%s", bookmarksTooltip.c_str());
+			}
+			if (ImGui::BeginPopup("##bookmarksMenu"))
+			{
+				DrawBookmarksMenu();
+				ImGui::EndPopup();
+			}
+			ImGui::SameLine();
 			if (GlyphButton("##snap", Glyph::Grid, m_Settings.IsSnapToGrid(), true, "Snap to Grid (Alt inverts it while moving)"))
 			{
 				m_FrameActions.push_back(Action::ToggleSnapToGrid);
 			}
+			RecordItem(VisualScriptPanelItem::SnapToGrid);
 			ImGui::SameLine();
 			if (GlyphButton("##minimap", Glyph::Minimap, panes.ShowMinimap, true, WithShortcut("Minimap", Action::ToggleMinimap)))
 			{
 				m_FrameActions.push_back(Action::ToggleMinimap);
 			}
+			RecordItem(VisualScriptPanelItem::Minimap);
 			ImGui::SameLine();
 			if (ImGui::Button(fmt::format("{}##zoom", zoomText).c_str(), ImVec2(textButtonWidth("200%"), 0.0f)))
 			{
 				m_FrameActions.push_back(Action::ZoomReset);
 			}
+			RecordItem(VisualScriptPanelItem::Zoom);
 			ImGui::SetItemTooltip("%s", WithShortcut("Zoom to 100%", Action::ZoomReset).c_str());
 		}
 		ImGui::SameLine();
@@ -974,10 +1596,28 @@ namespace Strada
 		{
 			ImGui::OpenPopup("##viewMenu");
 		}
+		RecordItem(VisualScriptPanelItem::ViewMenu);
 		if (ImGui::BeginPopup("##viewMenu"))
 		{
 			DrawViewMenuItems();
 			ImGui::EndPopup();
+		}
+		ImGui::SameLine();
+		// "?": the shortcut sheet. A press while the sheet is open only closes it (the press outside the sheet closes it first).
+		{
+			if (ImGui::Button("?##shortcuts", ImVec2(frame, frame)))
+			{
+				if (!m_ShortcutsKeepClosed)
+				{
+					m_OpenShortcuts = true;
+				}
+			}
+			if (ImGui::IsItemActivated())
+			{
+				m_ShortcutsKeepClosed = m_ShortcutsOpen;
+			}
+			RecordItem(VisualScriptPanelItem::Shortcuts);
+			ImGui::SetItemTooltip("%s", WithShortcut("Keyboard and mouse shortcuts", Action::ShowShortcuts).c_str());
 		}
 		ImGui::SameLine();
 		if (GlyphButton("##details", Glyph::Details, m_Layout.DetailsState != VisualScriptPaneState::Hidden, true, "Details"))
@@ -992,8 +1632,177 @@ namespace Strada
 				m_Settings.SetPanes(panes);
 			}
 		}
+		RecordItem(VisualScriptPanelItem::DetailsToggle);
 		ImGui::PopID();
 		ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + toolbarHeight));
+	}
+
+	void VisualScriptEditorPanel::DrawInstanceCombo(float width)
+	{
+		// "Instance: <entity>": the entities of the scene shown that run this graph, and None (spec §10.5).
+		Scene& scene = m_Operations.GetContext().GetScene();
+		auto const nameOf = [&scene](UUID entity)
+		{
+			return scene.HasEntity(entity) ? scene.GetEntityByUUID(entity).GetName() : std::string("None");
+		};
+		std::string const full = "Instance: " + (m_ContextEntity.IsValid() ? nameOf(m_ContextEntity) : std::string("None"));
+		ImGuiStyle const& style = ImGui::GetStyle();
+		std::string const shown = FitText(full, std::max(width - ImGui::GetFrameHeight() - style.FramePadding.x * 2.0f, 0.0f));
+		float const comboWidth = std::max(width, ImGui::GetFrameHeight());
+		ImVec2 const min = ImGui::GetCursorScreenPos();
+		// Recorded from the layout: an open combo's popup is the last item once BeginCombo returns.
+		m_ItemRects[static_cast<size_t>(VisualScriptPanelItem::Instance)] =
+			VisualScriptRect{ToVec2(min), glm::vec2(min.x + comboWidth, min.y + ImGui::GetFrameHeight())};
+		ImGui::SetNextItemWidth(comboWidth);
+		if (!ImGui::BeginCombo("##instance", shown.c_str()))
+		{
+			ImGui::SetItemTooltip(
+				"%s", (full + ": entities dropped on the canvas set their values on it, and My Script shows its values while the game runs")
+						  .c_str());
+			return;
+		}
+		if (ImGui::Selectable("None", !m_ContextEntity.IsValid()))
+		{
+			SetContextEntity(UUID::Invalid(), true);
+		}
+		for (entt::entity const handle : scene.GetAllEntitiesWith<VisualScriptComponent>())
+		{
+			Entity const entity(handle, &scene);
+			if (entity.GetComponent<VisualScriptComponent>().Graph != m_Graph)
+			{
+				continue;
+			}
+			UUID const id = entity.GetUUID();
+			if (ImGui::Selectable(fmt::format("{}##{}", entity.GetName(), id.GetValue()).c_str(), id == m_ContextEntity))
+			{
+				SetContextEntity(id, true);
+			}
+		}
+		ImGui::EndCombo();
+	}
+
+	void VisualScriptEditorPanel::DrawLivePill(float width, std::string const& text)
+	{
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const frame = ImGui::GetFrameHeight();
+		ImVec2 const min = ImGui::GetCursorScreenPos();
+		ImGui::InvisibleButton("##live", ImVec2(width, frame));
+		RecordItem(VisualScriptPanelItem::Live);
+		ImU32 const color = m_Live == VisualScriptLiveState::Simulating    ? SimulateColor
+		                    : m_Live == VisualScriptLiveState::LastWorking ? NoticeWarningColor
+		                                                                   : PlayColor;
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		drawList->AddRectFilled(min, ImVec2(min.x + width, min.y + frame), color, frame * 0.5f);
+		drawList->AddText(ImVec2(min.x + style.FramePadding.x, min.y + style.FramePadding.y), IM_COL32(255, 255, 255, 255), text.c_str());
+		std::string tooltip;
+		switch (m_Live)
+		{
+			case VisualScriptLiveState::Live:
+				tooltip = std::string(Texts::LiveTooltip);
+				break;
+			case VisualScriptLiveState::LastWorking:
+			{
+				uint32_t const errors = CountProblems(m_Model.GetAnalysis(), std::nullopt).first;
+				tooltip = fmt::format("{}: this version has {} {}: the game keeps running the last version that worked.",
+				                      Texts::LastWorking, errors, errors == 1 ? "error" : "errors");
+				break;
+			}
+			case VisualScriptLiveState::Simulating:
+				tooltip = Texts::SimulatingTooltip;
+				break;
+			case VisualScriptLiveState::None:
+				break;
+		}
+		ImGui::SetItemTooltip("%s", tooltip.c_str());
+	}
+
+	void VisualScriptEditorPanel::DrawBookmarksMenu()
+	{
+		// The graph's bookmarks with their keys, then Add Bookmark (the next free slot), Rename and Delete (spec §10.3).
+		VisualScriptGraphViews const* views = m_Settings.FindGraph(m_Graph);
+		std::vector<VisualScriptBookmark> const bookmarks = views != nullptr ? views->Bookmarks : std::vector<VisualScriptBookmark>();
+		bool const mac = ImGui::GetIO().ConfigMacOSXBehaviors;
+		auto const slotAction = [](Action first, uint8_t slot)
+		{
+			return static_cast<Action>(static_cast<uint8_t>(first) + slot - 1);
+		};
+		auto const chordText = [mac](Action action)
+		{
+			VisualScriptShortcut const* shortcut = FindVisualScriptShortcut(action);
+			return shortcut != nullptr ? FormatVisualScriptChord(shortcut->Chord, mac) : std::string();
+		};
+		if (bookmarks.empty())
+		{
+			ImGui::TextDisabled("%s", Texts::NoBookmarks.data());
+		}
+		for (VisualScriptBookmark const& bookmark : bookmarks)
+		{
+			std::string const keys = chordText(slotAction(Action::GoToBookmark1, bookmark.Slot));
+			if (ImGui::MenuItem(fmt::format("{}##goTo{}", bookmark.Name, bookmark.Slot).c_str(), keys.c_str()))
+			{
+				m_FrameActions.push_back(slotAction(Action::GoToBookmark1, bookmark.Slot));
+			}
+		}
+		ImGui::Separator();
+		std::optional<uint8_t> freeSlot;
+		for (uint8_t slot = 1; slot <= VisualScriptViewSettings::MaxBookmarkSlot && !freeSlot; slot++)
+		{
+			if (views == nullptr || views->FindBookmark(slot) == nullptr)
+			{
+				freeSlot = slot;
+			}
+		}
+		std::string const addKeys = freeSlot ? chordText(slotAction(Action::StoreBookmark1, *freeSlot)) : std::string();
+		if (ImGui::MenuItem("Add Bookmark", addKeys.c_str(), false, freeSlot.has_value()))
+		{
+			m_FrameActions.push_back(slotAction(Action::StoreBookmark1, *freeSlot));
+		}
+		if (!freeSlot)
+		{
+			ImGui::SetItemTooltip("Every slot holds a bookmark: delete one first");
+		}
+		if (ImGui::BeginMenu("Rename", !bookmarks.empty()))
+		{
+			for (VisualScriptBookmark const& bookmark : bookmarks)
+			{
+				std::string& name = m_BookmarkNames[static_cast<size_t>(bookmark.Slot - 1)];
+				ImGui::PushID(bookmark.Slot);
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextUnformatted(fmt::format("{}", bookmark.Slot).c_str());
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+				bool const done =
+					ImGui::InputText("##name", &name, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+				bool const active = ImGui::IsItemActive();
+				if ((done || ImGui::IsItemDeactivatedAfterEdit()) && name != bookmark.Name)
+				{
+					VisualScriptBookmark renamed = bookmark;
+					renamed.Name = name;
+					m_Settings.SetBookmark(m_Graph, std::move(renamed));
+				}
+				else if (!active)
+				{
+					name = bookmark.Name;
+				}
+				if (done)
+				{
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::PopID();
+			}
+			ImGui::EndMenu();
+		}
+		if (ImGui::BeginMenu("Delete", !bookmarks.empty()))
+		{
+			for (VisualScriptBookmark const& bookmark : bookmarks)
+			{
+				if (ImGui::MenuItem(fmt::format("{}##delete{}", bookmark.Name, bookmark.Slot).c_str()))
+				{
+					m_Settings.RemoveBookmark(m_Graph, bookmark.Slot);
+				}
+			}
+			ImGui::EndMenu();
+		}
 	}
 
 	void VisualScriptEditorPanel::DrawSubGraphMenu()
@@ -1050,6 +1859,11 @@ namespace Strada
 		if (m_ViewItemsInMenu)
 		{
 			ImGui::Separator();
+			if (ImGui::BeginMenu("Bookmarks"))
+			{
+				DrawBookmarksMenu();
+				ImGui::EndMenu();
+			}
 			if (ImGui::MenuItem("Snap to Grid", nullptr, m_Settings.IsSnapToGrid()))
 			{
 				m_FrameActions.push_back(Action::ToggleSnapToGrid);
@@ -1065,6 +1879,409 @@ namespace Strada
 				m_FrameActions.push_back(Action::ZoomReset);
 			}
 		}
+	}
+
+	void VisualScriptEditorPanel::DrawNotices()
+	{
+		if (m_Notices.empty())
+		{
+			return;
+		}
+		ImGuiStyle const& style = ImGui::GetStyle();
+		ImVec2 const origin = ImGui::GetCursorScreenPos();
+		ImGui::SetCursorScreenPos(ImVec2(origin.x + style.WindowPadding.x, origin.y));
+		ImGui::BeginGroup();
+		// The notices' buttons change flags and commit, never the list, which only the next sync makes again.
+		for (NoticeKind const kind : m_Notices)
+		{
+			DrawNotice(kind);
+		}
+		ImGui::EndGroup();
+		ImGui::SetCursorScreenPos(ImVec2(origin.x, ImGui::GetItemRectMax().y + style.ItemSpacing.y));
+	}
+
+	void VisualScriptEditorPanel::DrawNotice(NoticeKind kind)
+	{
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const width = std::max(ImGui::GetContentRegionAvail().x - style.WindowPadding.x, ImGui::GetFontSize());
+		ImU32 accent = NoticeInfoColor;
+		std::string text;
+		char const* badge = "i";
+		switch (kind)
+		{
+			case NoticeKind::Degraded:
+				accent = NoticeWarningColor;
+				text = std::string(Texts::Degraded);
+				badge = "!";
+				break;
+			case NoticeKind::ReadOnlyMemory:
+				accent = NoticeNeutralColor;
+				text = std::string(Texts::ReadOnlyMemory);
+				break;
+			case NoticeKind::ReadOnlyFile:
+			{
+				accent = NoticeNeutralColor;
+				std::filesystem::path const file = AssetManager::GetAbsolutePath(m_Graph);
+				text = fmt::format("{} is read-only on disk: edits cannot be saved.", FileSystem::PathToUtf8(file.filename()));
+				break;
+			}
+			case NoticeKind::Repaired:
+				accent = NoticeWarningColor;
+				badge = "!";
+				text = fmt::format("This file was repaired while loading: {} {} (see the console)", m_Repairs,
+				                   m_Repairs == 1 ? "problem" : "problems");
+				break;
+			case NoticeKind::Normalization:
+				text = m_Normalizations == 1
+				           ? std::string("1 node uses a renamed member or has no position; it is updated with your next edit.")
+				           : fmt::format("{} nodes use renamed members or have no position; they are updated with your next edit.",
+				                         m_Normalizations);
+				break;
+			case NoticeKind::NewFunction:
+				text = std::string(Texts::NewFunction);
+				break;
+		}
+		// The degraded notice blinks once when a gesture that needs the runtime was refused (held, with Reduce Motion).
+		float tint = NoticeTint;
+		double const blink = m_Time - m_BlinkStart;
+		if (kind == NoticeKind::Degraded && blink >= 0.0 && blink < VisualScriptBlinkSeconds)
+		{
+			float const wave =
+				m_Settings.IsReduceMotion() ? 1.0f : std::sin(static_cast<float>(blink / VisualScriptBlinkSeconds) * glm::pi<float>());
+			tint = NoticeTint + (NoticeBlinkTint - NoticeTint) * wave;
+		}
+
+		// The buttons, right to left of the text: [Show Console], [Retry], [Update Nodes], and a dismiss cross.
+		bool const showConsole = kind == NoticeKind::Degraded && static_cast<bool>(m_Services.ShowConsole);
+		bool const retry = kind == NoticeKind::ReadOnlyFile;
+		bool const updateNodes = kind == NoticeKind::Normalization;
+		bool const dismiss = kind == NoticeKind::Repaired || kind == NoticeKind::NewFunction;
+		auto const buttonWidth = [&style](char const* label)
+		{
+			return ImGui::CalcTextSize(label).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
+		};
+		float const buttonsWidth = (showConsole ? buttonWidth("Show Console") : 0.0f) + (retry ? buttonWidth("Retry") : 0.0f) +
+		                           (updateNodes ? buttonWidth("Update Nodes") : 0.0f) +
+		                           (dismiss ? ImGui::GetFrameHeight() + style.ItemSpacing.x : 0.0f);
+
+		ImGui::PushID(static_cast<int>(kind));
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, MixColor(ImGui::GetColorU32(ImGuiCol_WindowBg), accent, tint));
+		ImGui::PushStyleColor(ImGuiCol_Border, WithAlpha(accent, 0.85f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.FrameRounding);
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(style.FramePadding.x, style.FramePadding.y));
+		if (ImGui::BeginChild("##notice", ImVec2(width, 0.0f),
+		                      ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding,
+		                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		{
+			float const top = ImGui::GetCursorPosY();
+			float const right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+			float const frame = ImGui::GetFrameHeight();
+			// A round badge in the accent: "!" for what limits editing, "i" for information.
+			ImVec2 const cursor = ImGui::GetCursorScreenPos();
+			ImVec2 const center(cursor.x + frame * 0.5f, cursor.y + frame * 0.5f);
+			ImDrawList* drawList = ImGui::GetWindowDrawList();
+			drawList->AddCircleFilled(center, frame * 0.32f, accent);
+			float const badgeSize = ImGui::GetFontSize() * 0.75f;
+			ImVec2 const badgeText = ImGui::GetFont()->CalcTextSizeA(badgeSize, FLT_MAX, 0.0f, badge);
+			drawList->AddText(ImGui::GetFont(), badgeSize, ImVec2(center.x - badgeText.x * 0.5f, center.y - badgeText.y * 0.5f),
+			                  IM_COL32(255, 255, 255, 255), badge);
+			ImGui::Dummy(ImVec2(frame, frame));
+			ImGui::SameLine();
+			float const textLeft = ImGui::GetCursorPosX();
+			ImGui::SetCursorPosY(top + (frame - ImGui::GetTextLineHeight()) * 0.5f);
+			ImGui::PushTextWrapPos(std::max(right - buttonsWidth, textLeft + ImGui::GetFontSize() * 4.0f));
+			ImGui::TextUnformatted(text.c_str());
+			ImGui::PopTextWrapPos();
+
+			if (buttonsWidth > 0.0f)
+			{
+				ImGui::SetCursorPos(ImVec2(right - buttonsWidth + style.ItemSpacing.x, top));
+			}
+			if (showConsole)
+			{
+				if (ImGui::Button("Show Console"))
+				{
+					m_Services.ShowConsole();
+				}
+				RecordItem(VisualScriptPanelItem::ShowConsole);
+				ImGui::SameLine();
+			}
+			if (retry)
+			{
+				if (ImGui::Button("Retry"))
+				{
+					// The permission is checked again at the next sync.
+					m_Model.CheckWritable();
+				}
+				RecordItem(VisualScriptPanelItem::Retry);
+				ImGui::SetItemTooltip("Check again whether the file can be written");
+				ImGui::SameLine();
+			}
+			if (updateNodes)
+			{
+				ImGui::BeginDisabled(m_Library == nullptr);
+				if (ImGui::Button("Update Nodes"))
+				{
+					// One step "Update Nodes": the commit writes canonical types and positions (spec §4.2).
+					VisualScriptActionIntent intent;
+					intent.Action = Action::UpdateNode;
+					intent.Selection.assign(m_Model.GetSelection().begin(), m_Model.GetSelection().end());
+					intent.Position = m_Model.GetViewState().Center;
+					ExecuteIntent(intent);
+				}
+				ImGui::EndDisabled();
+				RecordItem(VisualScriptPanelItem::UpdateNodes);
+				ImGui::SetItemTooltip("%s",
+				                      m_Library != nullptr ? "Write them now, as one step" : "Updating nodes needs the scripting runtime");
+				ImGui::SameLine();
+			}
+			if (dismiss)
+			{
+				if (GlyphButton("##dismiss", Glyph::Close, false, true, "Dismiss"))
+				{
+					if (kind == NoticeKind::Repaired)
+					{
+						m_RepairNotice = false;
+					}
+					else if (m_FunctionHint)
+					{
+						m_FunctionHintsSeen.push_back(*m_FunctionHint);
+						m_FunctionHint.reset();
+					}
+				}
+				RecordItem(kind == NoticeKind::Repaired ? VisualScriptPanelItem::DismissRepaired
+				                                        : VisualScriptPanelItem::DismissNewFunction);
+			}
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar(3);
+		ImGui::PopStyleColor(2);
+		ImGui::PopID();
+	}
+
+	void VisualScriptEditorPanel::DrawCard(ImVec2 canvasMin, ImVec2 canvasMax)
+	{
+		if (m_Card == VisualScriptCard::None)
+		{
+			return;
+		}
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const fontSize = ImGui::GetFontSize();
+		ImDrawList* drawList = ImGui::GetWindowDrawList();
+		bool const replacesCanvas = m_Card != VisualScriptCard::EmptyGraph;
+		if (replacesCanvas)
+		{
+			// A missing or refused file has no canvas: the card stands in its place.
+			drawList->AddRectFilled(canvasMin, canvasMax, m_Theme.Canvas);
+		}
+		float const width = std::min(CardWidth * fontSize, std::max(canvasMax.x - canvasMin.x - fontSize * 2.0f, fontSize * 4.0f));
+		// Centred with the height it had at the last draw (it sizes itself to its contents).
+		float const height = m_CardHeight > 0.0f ? m_CardHeight : ImGui::GetFrameHeight() * 4.0f;
+		ImGui::SetCursorScreenPos(
+			ImVec2((canvasMin.x + canvasMax.x - width) * 0.5f, std::max((canvasMin.y + canvasMax.y - height) * 0.5f, canvasMin.y)));
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_PopupBg));
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, style.FrameRounding * 2.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(style.WindowPadding.x * 1.5f, style.WindowPadding.y * 1.5f));
+		if (ImGui::BeginChild("##card", ImVec2(width, 0.0f),
+		                      ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding,
+		                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		{
+			ImGui::PushTextWrapPos(0.0f);
+			bool const editable = !m_Model.IsReadOnly();
+			switch (m_Card)
+			{
+				case VisualScriptCard::Missing:
+				{
+					std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(m_Graph);
+					ImGui::TextUnformatted(fmt::format("The file is missing: {}.", metadata ? metadata->Path : std::string()).c_str());
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+					ImGui::TextUnformatted("The canvas comes back when the file does (File > Refresh, or the content browser).");
+					ImGui::PopStyleColor();
+					break;
+				}
+				case VisualScriptCard::Unloadable:
+					ImGui::TextUnformatted(fmt::format("The file could not be read: {}.", m_LoadError).c_str());
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+					ImGui::TextUnformatted("graph.set can write it again; the window then shows it.");
+					ImGui::PopStyleColor();
+					break;
+				case VisualScriptCard::EmptyGraph:
+				{
+					ImGui::TextUnformatted(Texts::EmptyGraph.data(), Texts::EmptyGraph.data() + Texts::EmptyGraph.size());
+					ImGui::Spacing();
+					// Each button adds its node at the view's centre, one step each.
+					glm::vec2 const center = m_Model.GetViewState().Center;
+					glm::vec2 const position = glm::round((center - glm::vec2(64.0f, 24.0f)) / VisualScriptCanvasMetrics::GridSize) *
+					                           VisualScriptCanvasMetrics::GridSize;
+					ImGui::BeginDisabled(!editable);
+					if (ImGui::Button("Add Create Event"))
+					{
+						ExecuteEdit(VisualScriptAddNodeEdit{"Event.Create", Json::object(), position});
+					}
+					RecordItem(VisualScriptPanelItem::AddCreateEvent);
+					ImGui::SameLine();
+					if (ImGui::Button("Add Update Event"))
+					{
+						ExecuteEdit(VisualScriptAddNodeEdit{"Event.Update", Json::object(), position});
+					}
+					RecordItem(VisualScriptPanelItem::AddUpdateEvent);
+					ImGui::EndDisabled();
+					ImGui::SameLine();
+					ImGui::BeginDisabled(!editable || m_Library == nullptr);
+					if (ImGui::Button(WithShortcut("Add Node...", Action::OpenPalette).c_str()))
+					{
+						VisualScriptPaletteIntent palette;
+						palette.Position = center;
+						m_PaletteRequest = std::move(palette);
+					}
+					ImGui::EndDisabled();
+					RecordItem(VisualScriptPanelItem::AddNode);
+					ImGui::Spacing();
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+					ImGui::TextUnformatted(Texts::EmptyGraphHelp.data(), Texts::EmptyGraphHelp.data() + Texts::EmptyGraphHelp.size());
+					ImGui::PopStyleColor();
+					break;
+				}
+				case VisualScriptCard::None:
+					break;
+			}
+			ImGui::PopTextWrapPos();
+			m_CardHeight = ImGui::GetWindowSize().y;
+			if (replacesCanvas)
+			{
+				ImGui::Spacing();
+				if (ImGui::Button("Close"))
+				{
+					m_CloseRequested = true;
+				}
+				RecordItem(VisualScriptPanelItem::CloseCard);
+			}
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar(2);
+		ImGui::PopStyleColor();
+	}
+
+	void VisualScriptEditorPanel::DrawCanvasHint(ImVec2 canvasMin, ImVec2 canvasMax)
+	{
+		// Once per user, over the first canvas: the gestures that start everything. Left out while a gesture shows its own hint.
+		m_CanvasHintShown = !m_Settings.IsHintSeen(VisualScriptCanvasHint) && m_Card != VisualScriptCard::Missing &&
+		                    m_Card != VisualScriptCard::Unloadable && !m_HintShown;
+		if (!m_CanvasHintShown)
+		{
+			m_RibbonHeight = 0.0f;
+			return;
+		}
+		ImGuiStyle const& style = ImGui::GetStyle();
+		std::string_view const text = m_Settings.GetScrollMode() == VisualScriptScrollMode::Pan ? Texts::CanvasHintPan : Texts::CanvasHint;
+		float const width = canvasMax.x - canvasMin.x;
+		float const height = m_RibbonHeight > 0.0f ? m_RibbonHeight : ImGui::GetFrameHeightWithSpacing() * 2.0f;
+		ImGui::SetCursorScreenPos(ImVec2(canvasMin.x, canvasMax.y - height));
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, WithAlpha(m_Theme.Body, HintBackgroundAlpha));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(style.FramePadding.x * 2.0f, style.FramePadding.y));
+		if (ImGui::BeginChild("##canvasHint", ImVec2(width, 0.0f), ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding,
+		                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		{
+			float const buttonWidth = ImGui::CalcTextSize("Got it").x + style.FramePadding.x * 2.0f;
+			float const right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+			float const top = ImGui::GetCursorPosY();
+			ImGui::PushTextWrapPos(right - buttonWidth - style.ItemSpacing.x);
+			ImGui::SetCursorPosY(top + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f);
+			ImGui::TextUnformatted(text.data(), text.data() + text.size());
+			ImGui::PopTextWrapPos();
+			ImGui::SetCursorPos(ImVec2(right - buttonWidth, top));
+			if (ImGui::Button("Got it"))
+			{
+				m_Settings.SetHintSeen(VisualScriptCanvasHint);
+			}
+			RecordItem(VisualScriptPanelItem::GotIt);
+			m_RibbonHeight = ImGui::GetWindowSize().y;
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar();
+		ImGui::PopStyleColor();
+	}
+
+	void VisualScriptEditorPanel::DrawShortcutSheet()
+	{
+		constexpr char const* SheetId = "Visual Script Shortcuts###VisualScriptShortcuts";
+		ImGuiWindow const* window = ImGui::GetCurrentWindow();
+		if (m_OpenShortcuts)
+		{
+			m_OpenShortcuts = false;
+			ImGui::OpenPopup(SheetId);
+		}
+		// At the UI's normal size, centred on the window, 34 font sizes wide; it scrolls when the window is shorter.
+		float const fontSize = ImGui::GetFontSize();
+		float const width = ShortcutSheetWidth * fontSize;
+		ImGui::SetNextWindowPos(ImVec2(window->Pos.x + window->Size.x * 0.5f, window->Pos.y + window->Size.y * 0.5f), ImGuiCond_Appearing,
+		                        ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.0f), ImVec2(width, std::max(window->Size.y * 0.9f, fontSize * 10.0f)));
+		// BeginPopup adds ImGuiWindowFlags_NoSavedSettings (imgui.cpp:13368): the sheet writes nothing to imgui.ini.
+		m_ShortcutsOpen = ImGui::BeginPopup(SheetId, ImGuiWindowFlags_NoSavedSettings);
+		if (!m_ShortcutsOpen)
+		{
+			return;
+		}
+		ImGui::TextUnformatted(Texts::ShortcutSheet.data(), Texts::ShortcutSheet.data() + Texts::ShortcutSheet.size());
+		ImGui::Separator();
+		bool const mac = ImGui::GetIO().ConfigMacOSXBehaviors;
+		ImFont* const keysFont = m_Services.MonospaceFont;
+		if (ImGui::BeginTable("##shortcuts", 2, ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_SizingStretchProp))
+		{
+			ImGui::TableSetupColumn("Keys", ImGuiTableColumnFlags_WidthStretch, 0.38f);
+			ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 0.62f);
+			auto const row = [&](std::string const& keys, std::string_view label)
+			{
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				if (keysFont != nullptr)
+				{
+					ImGui::PushFont(keysFont, 0.0f);
+				}
+				ImGui::TextUnformatted(keys.c_str());
+				if (keysFont != nullptr)
+				{
+					ImGui::PopFont();
+				}
+				ImGui::TableNextColumn();
+				ImGui::PushTextWrapPos(0.0f);
+				ImGui::TextUnformatted(label.data(), label.data() + label.size());
+				ImGui::PopTextWrapPos();
+			};
+			auto const heading = [](std::string_view name)
+			{
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn();
+				ImGui::Spacing();
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+				ImGui::TextUnformatted(name.data(), name.data() + name.size());
+				ImGui::PopStyleColor();
+				ImGui::TableNextColumn();
+			};
+			std::optional<VisualScriptShortcutGroup> group;
+			for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
+			{
+				if (shortcut.Group != group)
+				{
+					group = shortcut.Group;
+					heading(GetVisualScriptShortcutGroupName(shortcut.Group));
+				}
+				row(FormatVisualScriptChord(shortcut.Chord, mac), shortcut.Label);
+			}
+			heading("Mouse");
+			for (VisualScriptMouseGesture const& gesture : VisualScriptMouseGestures)
+			{
+				row(FormatVisualScriptMouseGesture(gesture, mac), fmt::format("{}: {}", gesture.Target, gesture.Label));
+			}
+			ImGui::EndTable();
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
 	}
 
 	bool VisualScriptEditorPanel::DrawSplitter(char const* id, ImVec2 size, bool vertical, float& delta)
@@ -1123,6 +2340,10 @@ namespace Strada
 		{
 			m_DetailsOverlay = false;
 		}
+		// A press on the canvas can open an overlay (a double-click on a node header shows it in Details): only a press while
+		// it was already open closes it.
+		bool const sidebarWasOpen = m_SidebarOverlay;
+		bool const detailsWasOpen = m_DetailsOverlay;
 
 		bool const drawerOpen = m_DrawerMode != VisualScriptDrawerMode::Closed;
 		float const drawerHeight = drawerOpen ? std::clamp(m_DrawerHeight * fontSize, VisualScriptDrawerMinHeight * fontSize,
@@ -1158,7 +2379,7 @@ namespace Strada
 		// An auto-hidden pane opened over its edge of the canvas, at its usual width, at most most of the canvas. Escape or a
 		// click outside closes it.
 		auto const drawOverlay =
-			[&](char const* id, VisualScriptWindowPart part, float widthInFontSizes, float minimum, bool left, bool& open)
+			[&](char const* id, VisualScriptWindowPart part, float widthInFontSizes, float minimum, bool left, bool wasOpen, bool& open)
 		{
 			if (!open)
 			{
@@ -1173,14 +2394,14 @@ namespace Strada
 			bool const hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 			DrawFocusFrame(part);
 			ImGui::EndChild();
-			if (!hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
+			if (wasOpen && !hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
 			{
 				open = false;
 			}
 		};
-		drawOverlay("##sidebarOverlay", VisualScriptWindowPart::Sidebar, panes.Sidebar, VisualScriptSidebarMinWidth, true,
+		drawOverlay("##sidebarOverlay", VisualScriptWindowPart::Sidebar, panes.Sidebar, VisualScriptSidebarMinWidth, true, sidebarWasOpen,
 		            m_SidebarOverlay);
-		drawOverlay("##detailsOverlay", VisualScriptWindowPart::Details, panes.Details, VisualScriptDetailsMinWidth, false,
+		drawOverlay("##detailsOverlay", VisualScriptWindowPart::Details, panes.Details, VisualScriptDetailsMinWidth, false, detailsWasOpen,
 		            m_DetailsOverlay);
 		if (!drawerOpen)
 		{
@@ -1385,9 +2606,11 @@ namespace Strada
 
 	void VisualScriptEditorPanel::DrawCanvasOverlays(ImVec2 canvasMin, ImVec2 canvasMax)
 	{
+		DrawCard(canvasMin, canvasMax);
 		DrawTextEdit();
 		DrawHeaderTooltip();
 		DrawGestureHint(canvasMin, canvasMax);
+		DrawCanvasHint(canvasMin, canvasMax);
 		DrawToasts(canvasMin, canvasMax);
 	}
 
@@ -1459,16 +2682,16 @@ namespace Strada
 		{
 			case VisualScriptGesture::Wiring:
 			case VisualScriptGesture::Relinking:
-				hint = "Release on empty canvas: add a connected node \xC2\xB7 Esc: cancel";
+				hint = Texts::WireHint;
 				break;
 			case VisualScriptGesture::MovingElements:
-				hint = m_Settings.IsSnapToGrid() ? "Alt: no snapping \xC2\xB7 Esc: cancel" : "Alt: snap to grid \xC2\xB7 Esc: cancel";
+				hint = m_Settings.IsSnapToGrid() ? Texts::MoveSnappedHint : Texts::MoveFreeHint;
 				break;
 			case VisualScriptGesture::Idle:
 			case VisualScriptGesture::Panning:
 				if (gesture.SpaceHeld)
 				{
-					hint = "Drag to pan";
+					hint = Texts::PanHint;
 				}
 				break;
 			case VisualScriptGesture::Marquee:
@@ -1500,7 +2723,8 @@ namespace Strada
 			return;
 		}
 		ImGuiStyle const& style = ImGui::GetStyle();
-		float y = canvasMax.y - style.WindowPadding.y;
+		// Above the first canvas's hint while it shows.
+		float y = canvasMax.y - style.WindowPadding.y - m_RibbonHeight;
 		float const maxWidth = std::max((canvasMax.x - canvasMin.x) * 0.6f, ImGui::GetFontSize() * 8.0f);
 		std::optional<size_t> dismissed;
 		// The newest toast is the lowest; older ones stack above it.
@@ -1544,7 +2768,25 @@ namespace Strada
 				ImGui::SameLine();
 				if (ImGui::SmallButton("Show"))
 				{
-					if (toast.ShowAsset.IsValid())
+					if (!toast.ShowElements.empty())
+					{
+						// Elements an outside change touched beyond the view: framed, in their sub-graph.
+						if (toast.ShowFunction != m_Model.GetFunction())
+						{
+							VisualScriptOpenRequest request;
+							request.Graph = m_Graph;
+							request.Function = toast.ShowFunction;
+							request.Select = toast.ShowElements;
+							request.Frame = VisualScriptFrame::Selection;
+							request.Focus = false;
+							m_Model.ApplyOpenRequest(request);
+						}
+						else
+						{
+							FrameElements(toast.ShowElements);
+						}
+					}
+					else if (toast.ShowAsset.IsValid())
 					{
 						std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(toast.ShowAsset);
 						std::string const stem = metadata ? FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem())
@@ -1783,7 +3025,7 @@ namespace Strada
 				m_DrawerMode = VisualScriptDrawerMode::Find;
 				return true;
 			case Action::ShowShortcuts:
-				m_ShortcutsOpen = !m_ShortcutsOpen;
+				m_OpenShortcuts = !m_ShortcutsOpen;
 				return true;
 			default:
 				return false;
@@ -1827,6 +3069,21 @@ namespace Strada
 					break;
 				default:
 					break;
+			}
+		}
+		if (std::holds_alternative<VisualScriptDropIntent>(intent))
+		{
+			// Entity drops also set the new variable on the context entity, when it runs this graph in the edited scene
+			// (drops are refused while playing): its name and values are read now, not every frame.
+			m_SceneContext.ContextEntity = UUID::Invalid();
+			m_SceneContext.ContextEntityName.clear();
+			m_SceneContext.ContextVariables.clear();
+			if (!m_SceneContext.Playing && RunsGraph(m_ContextEntity))
+			{
+				Entity const entity = m_Operations.GetContext().GetScene().GetEntityByUUID(m_ContextEntity);
+				m_SceneContext.ContextEntity = m_ContextEntity;
+				m_SceneContext.ContextEntityName = entity.GetName();
+				m_SceneContext.ContextVariables = entity.GetComponent<VisualScriptComponent>().Variables;
 			}
 		}
 		Ref<VisualScriptDocument const> const before = m_Model.GetStoredDocument();
@@ -1877,6 +3134,12 @@ namespace Strada
 		if (value.ShowFunction)
 		{
 			m_Model.ShowFunction(*value.ShowFunction);
+		}
+		if (value.NeedsRuntime)
+		{
+			// Refused for want of the scripting runtime: the degraded notice says why.
+			m_BlinkStart = m_Time;
+			m_Activity.DegradedBlinks++;
 		}
 		if (value.OpenPalette)
 		{
@@ -1971,6 +3234,8 @@ namespace Strada
 			return false;
 		}
 		m_SaveState = VisualScriptSaveState::Saved;
+		// The file now holds the canonical text of the document: nothing of the repairs it needed is left in it.
+		m_RepairNotice = false;
 		// The frame that commits draws the committed document: the model adopts it as the window's own change now.
 		m_Model.OnCommitted(document);
 		SyncModel();

@@ -5,6 +5,8 @@
 #include "VisualScriptTestUtilities.h"
 
 #include "Editor/Commands/CommandHistory.h"
+#include "Editor/EditorContext.h"
+#include "Editor/EditorOperations.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptBrushes.h"
@@ -15,14 +17,22 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/FileSystem.h"
+#include "Strada/Scene/Scene.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
 #include <imgui.h>
+#include <imgui_internal.h>
 
+#include <cstdint>
+#include <cstring>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 // Helpers of the tests of the visual script editor's canvas UI: the canvas drawn headless, frame by frame, as its panel draws it.
@@ -214,5 +224,252 @@ namespace Strada::Testing
 		std::optional<VisualScriptDocument> PendingCommit;
 		glm::vec2 CanvasSize;
 		double Time = 0.0;
+	};
+
+	// The edit session prefix every graph window shares ("VSED").
+	inline constexpr uint64_t SessionKey = 0x5653454400000000ull;
+
+	inline ImVec2 ToImVec2(glm::vec2 point)
+	{
+		return ImVec2(point.x, point.y);
+	}
+
+	// A graph window of the project's script "Player", drawn headless at a fixed place frame by frame as the editor draws it:
+	// the window manager's end of widget interactions (spec §4.4 rule 2), then the window. The fixture library stands in for
+	// the scripting runtime unless the test gives other semantics (the engine's, under ScriptRuntimeScope); Reduce Motion
+	// makes views move at once. The first canvas's hint is taken as seen unless canvasHint (it covers the canvas's bottom).
+	struct PanelFixture
+	{
+		explicit PanelFixture(VisualScriptDocument const& document, VisualScriptSemantics* semantics = nullptr, bool canvasHint = false)
+			: UsedSemantics(semantics != nullptr ? semantics : &Semantics)
+		{
+			if (!canvasHint)
+			{
+				Settings.SetHintSeen(VisualScriptCanvasHint);
+			}
+			Services.MonospaceFont = Gui.UseEditorStyle();
+			REQUIRE(Operations.CreateProject(Temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+			File = AssetManager::GetAssetDirectory() / "Scripts" / "Player.sgraph";
+			REQUIRE(FileSystem::CreateDirectories(File.parent_path()).IsOk());
+			REQUIRE(VisualScriptSerializer::SaveToFile(document, File).IsOk());
+			REQUIRE(Operations.RefreshAssets().IsOk());
+			Graph = AssetManager::FindByPath("Scripts/Player.sgraph");
+			REQUIRE(Graph.IsValid());
+			Settings.SetProject(Context.GetProject()->GetFilePath());
+			Settings.SetReduceMotion(true);
+			Panel.emplace(Graph, Operations, *UsedSemantics, Settings, Session, Services);
+			Frames(3);
+		}
+
+		void Draw()
+		{
+			VisualScriptEditorPanel* panels[] = {&*Panel};
+			EndInteractions(panels, Session, Context.GetHistory(), PreviousActive);
+			if (Probe)
+			{
+				Probe();
+			}
+			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+			ImGui::SetNextWindowSize(WindowSize);
+			Panel->OnImGuiRender(Open, std::nullopt);
+		}
+
+		std::function<void()> Drawer()
+		{
+			return [this]
+			{
+				Draw();
+			};
+		}
+
+		void Frames(int count, float seconds = 1.0f / 60.0f)
+		{
+			for (int i = 0; i < count; i++)
+			{
+				Gui.Frame(Drawer(), seconds);
+			}
+		}
+
+		// Presses and releases a key (with modifiers) in a frame that comes seconds after the previous one.
+		void PressAfter(ImGuiKeyChord chord, float seconds)
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			ImGuiKey const key = static_cast<ImGuiKey>(chord & ~ImGuiMod_Mask_);
+			if ((chord & ImGuiMod_Alt) != 0)
+			{
+				io.AddKeyEvent(ImGuiMod_Alt, true);
+			}
+			io.AddKeyEvent(key, true);
+			Gui.Frame(Drawer(), seconds);
+			io.AddKeyEvent(key, false);
+			if ((chord & ImGuiMod_Alt) != 0)
+			{
+				io.AddKeyEvent(ImGuiMod_Alt, false);
+			}
+			Gui.Frame(Drawer(), 1.0f / 60.0f);
+		}
+
+		void Click(glm::vec2 point, ImGuiMouseButton button = ImGuiMouseButton_Left) { Gui.MouseClick(ToImVec2(point), button, Drawer()); }
+
+		void MoveMouse(glm::vec2 point)
+		{
+			ImGui::GetIO().AddMousePosEvent(point.x, point.y);
+			Gui.Frame(Drawer());
+		}
+
+		void SetButton(ImGuiMouseButton button, bool down)
+		{
+			ImGui::GetIO().AddMouseButtonEvent(button, down);
+			Gui.Frame(Drawer());
+		}
+
+		VisualScriptEditorModel const& Model() const { return Panel->GetModel(); }
+
+		std::string ReadFile() const
+		{
+			Result<std::string> text = FileSystem::ReadTextFile(File);
+			REQUIRE(text.IsOk());
+			return text.TakeValue();
+		}
+
+		uint64_t GetVersion() const { return AssetManager::GetAsset<VisualScriptAsset>(Graph)->GetVersion(); }
+		VisualScriptDocument const& GetDocument() const { return AssetManager::GetAsset<VisualScriptAsset>(Graph)->GetDocument(); }
+		size_t GetUndoCount() const { return Context.GetHistory().GetUndoCount(); }
+
+		VisualScriptNode const* FindNode(uint32_t id) const
+		{
+			for (VisualScriptNode const& node : GetDocument().Graph.Nodes)
+			{
+				if (node.ID == id)
+				{
+					return &node;
+				}
+			}
+			return nullptr;
+		}
+
+		bool HasLink(VisualScriptLink const& link) const
+		{
+			std::vector<VisualScriptLink> const& links = GetDocument().Graph.Links;
+			return std::find(links.begin(), links.end(), link) != links.end();
+		}
+
+		// The panel invariant (spec §15.4): three frames of drawing change no undo count, no file byte and no asset version.
+		void CheckDrawingChangesNothing()
+		{
+			size_t const undo = GetUndoCount();
+			std::string const bytes = ReadFile();
+			uint64_t const version = GetVersion();
+			Frames(3);
+			CHECK(GetUndoCount() == undo);
+			CHECK(ReadFile() == bytes);
+			CHECK(GetVersion() == version);
+			CHECK(Open);
+		}
+
+		ImGuiWindow* GetWindow() const { return ImGui::FindWindowByName(VisualScriptEditorPanel::GetWindowName(Graph, "Player").c_str()); }
+
+		ImGuiWindow* GetChild(char const* name) const
+		{
+			ImGuiWindow const* parent = GetWindow();
+			for (ImGuiWindow* window : GImGui->Windows)
+			{
+				if (window->ParentWindow == parent && std::strstr(window->Name, name) != nullptr)
+				{
+					return window;
+				}
+			}
+			FAIL("the graph window has no child ", name);
+			return nullptr;
+		}
+
+		ImGuiID GetSurface() const
+		{
+			ImGuiWindow const* canvas = GetChild("##canvas");
+			return ImHashStr("##surface", 0, canvas->ID);
+		}
+
+		// A point of the canvas with nothing on it: near its bottom-left corner (the minimap is at the bottom-right).
+		glm::vec2 EmptyPoint() const
+		{
+			ImGuiWindow const* canvas = GetChild("##canvas");
+			return glm::vec2(canvas->Pos.x + 30.0f, canvas->Pos.y + canvas->Size.y - 30.0f);
+		}
+
+		// Moves the mouse down a popup's items a frame at a time until the item is hovered; the point found.
+		std::optional<glm::vec2> FindPopupItem(char const* label)
+		{
+			if (GImGui->OpenPopupStack.Size == 0)
+			{
+				return std::nullopt;
+			}
+			ImGuiWindow const* popup = GImGui->OpenPopupStack.back().Window;
+			REQUIRE(popup != nullptr);
+			ImGuiID const item = ImHashStr(label, 0, popup->ID);
+			for (float y = popup->Pos.y + 2.0f; y < popup->Pos.y + popup->Size.y; y += 3.0f)
+			{
+				glm::vec2 const point(popup->Pos.x + popup->Size.x * 0.5f, y);
+				MoveMouse(point);
+				if (GImGui->HoveredId == item)
+				{
+					return point;
+				}
+			}
+			return std::nullopt;
+		}
+
+		// Draws a window of another graph in place of the fixture's.
+		void Reopen(AssetHandle graph)
+		{
+			Panel.reset();
+			Panel.emplace(graph, Operations, *UsedSemantics, Settings, Session, Services);
+			Frames(3);
+		}
+
+		// The UI scale (ImGuiStyle::FontScaleDpi), with the style's sizes scaled as ImGuiLayer::OnAttach scales them for a
+		// monitor's content scale. From scale 1 only.
+		void SetUIScale(float scale)
+		{
+			ImGuiStyle& style = ImGui::GetStyle();
+			REQUIRE(style.FontScaleDpi == 1.0f);
+			style.ScaleAllSizes(scale);
+			style.FontScaleDpi = scale;
+			Frames(2);
+		}
+
+		// Where the last frame drew an item of the window; fails the test when it drew none.
+		VisualScriptRect ItemRect(VisualScriptPanelItem item) const
+		{
+			std::optional<VisualScriptRect> const rect = Panel->GetItemRect(item);
+			REQUIRE_MESSAGE(rect.has_value(), "item ", static_cast<int>(item), " was not drawn");
+			return *rect;
+		}
+
+		// Clicks the middle of an item of the window.
+		void ClickItem(VisualScriptPanelItem item)
+		{
+			VisualScriptRect const rect = ItemRect(item);
+			Click(rect.GetCenter());
+		}
+
+		HeadlessImGui Gui;
+		AssetManagerScope Assets;
+		TemporaryDirectory Temporary;
+		EditorContext Context;
+		EditorOperations Operations{Context};
+		AssetHandle Graph;
+		std::filesystem::path File;
+		VisualScriptViewSettings Settings{Temporary.GetPath() / "Views.json"};
+		FixtureVisualScriptSemantics Semantics;
+		// The semantics the window uses: Semantics, or the test's.
+		VisualScriptSemantics* UsedSemantics = nullptr;
+		VisualScriptEditorServices Services;
+		EditSession Session{SessionKey};
+		std::optional<VisualScriptEditorPanel> Panel;
+		// Drawn before the window every frame (the editor's global shortcuts in the probe tests).
+		std::function<void()> Probe;
+		ImGuiID PreviousActive = 0;
+		bool Open = true;
+		ImVec2 WindowSize{1600.0f, 900.0f};
 	};
 }

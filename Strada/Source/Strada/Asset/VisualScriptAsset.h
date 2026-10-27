@@ -202,10 +202,15 @@ namespace Strada
 		void SetDocument(Ref<VisualScriptDocument const> document);
 		// Incremented by every change; users of the document compare it to notice edits.
 		uint64_t GetVersion() const { return m_Version; }
+		// How many repairs the loader made when it read the asset's file (VisualScriptIssue): 0 for a file that loaded as it
+		// is and for documents made in memory. It describes the load, so later documents set on the asset do not change it.
+		uint32_t GetLoadRepairCount() const { return m_LoadRepairCount; }
+		void SetLoadRepairCount(uint32_t count) { m_LoadRepairCount = count; }
 
 	private:
 		Ref<VisualScriptDocument const> m_Document = CreateRef<VisualScriptDocument const>();
 		uint64_t m_Version = 0;
+		uint32_t m_LoadRepairCount = 0;
 	};
 
 	// What a new visual script starts with.

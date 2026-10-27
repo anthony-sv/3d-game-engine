@@ -393,6 +393,37 @@ TEST_CASE("AssetManager: a refresh does not reload a file whose writing was reco
 	CHECK(refreshed.GetValue().Modified.empty());
 }
 
+TEST_CASE("AssetManager: a visual script remembers how many repairs its file needed when it loaded")
+{
+	AssetManagerScope scope;
+	TestProject project;
+	VisualScriptDocument const document = MakeVisualScriptTemplate(VisualScriptTemplate::Events);
+	REQUIRE(VisualScriptSerializer::SaveToFile(document, project.Assets / "Clean.sgraph").IsOk());
+	// A second node with the first one's ID, and a key the format does not have: two repairs.
+	Json damaged = VisualScriptSerializer::Serialize(document);
+	damaged["VisualScript"]["Graph"]["Nodes"].push_back(damaged["VisualScript"]["Graph"]["Nodes"][0]);
+	damaged["Comment"] = "written by hand";
+	REQUIRE(FileSystem::WriteTextFile(project.Assets / "Damaged.sgraph", DumpJson(damaged)).IsOk());
+	REQUIRE(AssetManager::OpenAssetDirectory(project.Assets).IsOk());
+
+	Ref<VisualScriptAsset> const clean = AssetManager::GetAsset<VisualScriptAsset>(Find("Clean.sgraph"));
+	REQUIRE(clean != nullptr);
+	CHECK(clean->GetLoadRepairCount() == 0);
+
+	std::vector<VisualScriptIssue> issues;
+	REQUIRE(VisualScriptSerializer::LoadFromFile(project.Assets / "Damaged.sgraph",
+	                                             AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn), &issues)
+	            .IsOk());
+	REQUIRE(issues.size() >= 2);
+	Ref<VisualScriptAsset> const repaired = AssetManager::GetAsset<VisualScriptAsset>(Find("Damaged.sgraph"));
+	REQUIRE(repaired != nullptr);
+	CHECK(repaired->GetLoadRepairCount() == issues.size());
+	// It describes the load: a document set later, and documents made in memory, do not change it.
+	repaired->SetDocument(document);
+	CHECK(repaired->GetLoadRepairCount() == issues.size());
+	CHECK(VisualScriptAsset(document).GetLoadRepairCount() == 0);
+}
+
 TEST_CASE("AssetManager: symbolic links in the asset directory are not followed")
 {
 	AssetManagerScope scope;

@@ -2,9 +2,11 @@
 #include "VisualScriptPanelTestUtilities.h"
 #include "VisualScriptTestUtilities.h"
 
+#include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
+#include "Editor/VisualScripting/VisualScriptShortcuts.h"
 
 #include "Strada/Script/VisualScriptLibrary.h"
 
@@ -154,6 +156,23 @@ TEST_CASE("VisualScriptEditor: the editor's UI font has every character the canv
 	{
 		texts.push_back(type.Title);
 		texts.push_back(type.ID);
+	}
+	// The graph window's notices, cards, pills and hints, and the shortcut sheet's rows on both platforms.
+	texts.insert(texts.end(), VisualScriptPanelTexts::All.begin(), VisualScriptPanelTexts::All.end());
+	for (bool const macOS : {false, true})
+	{
+		for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
+		{
+			texts.push_back(FormatVisualScriptChord(shortcut.Chord, macOS));
+			texts.emplace_back(shortcut.Label);
+			texts.emplace_back(GetVisualScriptShortcutGroupName(shortcut.Group));
+		}
+		for (VisualScriptMouseGesture const& gesture : VisualScriptMouseGestures)
+		{
+			texts.push_back(FormatVisualScriptMouseGesture(gesture, macOS));
+			texts.emplace_back(gesture.Target);
+			texts.emplace_back(gesture.Label);
+		}
 	}
 
 	ImFont* const font = ImGui::GetIO().Fonts->Fonts[0];
