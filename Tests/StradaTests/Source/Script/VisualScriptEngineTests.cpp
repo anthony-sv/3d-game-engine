@@ -1923,6 +1923,10 @@ TEST_CASE("VisualScriptEngine: DisableDevelopmentOnlyNodes disables the developm
 
 	// A document without them comes back as it was.
 	CHECK(DisableDevelopmentOnlyNodes(MakeCountDocument(1)) == MakeCountDocument(1));
+
+	// A library stays a library.
+	VisualScriptDocument const library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	CHECK(DisableDevelopmentOnlyNodes(library).Kind == VisualScriptDocumentKind::Library);
 }
 
 TEST_CASE("VisualScriptEngine: graph instances run their events, hold their variables and report failures")

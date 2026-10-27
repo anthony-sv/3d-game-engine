@@ -1,0 +1,1178 @@
+{
+	"Description": "The language of slice 3: formulas, arrays, string nodes, an inferred generic call and a timeline",
+	"Variables": [
+		{
+			"ID": 1,
+			"Name": "Samples",
+			"Type": "float[]",
+			"Value": [
+				0.5,
+				1.5
+			]
+		}
+	],
+	"Functions": [
+		{
+			"ID": 20,
+			"Name": "Describe",
+			"Pure": false,
+			"Inputs": [
+				{
+					"Name": "Text",
+					"Type": "string"
+				}
+			],
+			"Outputs": [
+				{
+					"Name": "Summary",
+					"Type": "string"
+				}
+			],
+			"Locals": [
+				{
+					"ID": 41,
+					"Name": "Points",
+					"Type": "Strada.Vector3[]",
+					"Value": [
+						[
+							0,
+							0,
+							0
+						],
+						[
+							1,
+							0,
+							0
+						]
+					]
+				}
+			],
+			"Graph": {
+				"Nodes": [
+					{
+						"ID": 21,
+						"Type": "Function.Entry",
+						"Position": [
+							0.0,
+							0.0
+						]
+					},
+					{
+						"ID": 22,
+						"Type": "String.Trim"
+					},
+					{
+						"ID": 23,
+						"Type": "String.ToUpper"
+					},
+					{
+						"ID": 24,
+						"Type": "String.ToLower"
+					},
+					{
+						"ID": 25,
+						"Type": "String.Replace",
+						"Inputs": {
+							"Old": "o",
+							"New": "0"
+						}
+					},
+					{
+						"ID": 26,
+						"Type": "String.Split",
+						"Inputs": {
+							"Separator": " ",
+							"RemoveEmpty": true
+						}
+					},
+					{
+						"ID": 27,
+						"Type": "String.Join",
+						"Inputs": {
+							"Separator": "-"
+						}
+					},
+					{
+						"ID": 28,
+						"Type": "String.Substring",
+						"Inputs": {
+							"Start": 0,
+							"Length": 5
+						}
+					},
+					{
+						"ID": 29,
+						"Type": "String.Length"
+					},
+					{
+						"ID": 30,
+						"Type": "String.IsEmpty"
+					},
+					{
+						"ID": 31,
+						"Type": "String.Contains",
+						"Inputs": {
+							"Substring": "w"
+						}
+					},
+					{
+						"ID": 32,
+						"Type": "String.StartsWith",
+						"Inputs": {
+							"Prefix": "he"
+						}
+					},
+					{
+						"ID": 33,
+						"Type": "String.EndsWith",
+						"Inputs": {
+							"Suffix": "d"
+						}
+					},
+					{
+						"ID": 34,
+						"Type": "String.IndexOf",
+						"Inputs": {
+							"Substring": "-",
+							"StartIndex": 0
+						}
+					},
+					{
+						"ID": 35,
+						"Type": "String.ToInt",
+						"Inputs": {
+							"Text": " 42 "
+						}
+					},
+					{
+						"ID": 36,
+						"Type": "String.ToFloat",
+						"Inputs": {
+							"Text": "1.5"
+						}
+					},
+					{
+						"ID": 37,
+						"Type": "Expression",
+						"Settings": {
+							"Formula": "contains && starts && ends && !empty ? float(length + index + whole) + real : -1.0"
+						}
+					},
+					{
+						"ID": 38,
+						"Type": "Call:Strada.Log.Info(string)",
+						"Position": [
+							960.0,
+							0.0
+						]
+					},
+					{
+						"ID": 39,
+						"Type": "Function.Return",
+						"Position": [
+							1280.0,
+							0.0
+						]
+					}
+				],
+				"Links": [
+					{
+						"From": [
+							21,
+							"Text"
+						],
+						"To": [
+							22,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							22,
+							"Result"
+						],
+						"To": [
+							23,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							23,
+							"Result"
+						],
+						"To": [
+							24,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							24,
+							"Result"
+						],
+						"To": [
+							25,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							25,
+							"Result"
+						],
+						"To": [
+							26,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							26,
+							"Parts"
+						],
+						"To": [
+							27,
+							"Parts"
+						]
+					},
+					{
+						"From": [
+							27,
+							"Result"
+						],
+						"To": [
+							28,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							28,
+							"Result"
+						],
+						"To": [
+							29,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							28,
+							"Result"
+						],
+						"To": [
+							30,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							27,
+							"Result"
+						],
+						"To": [
+							31,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							27,
+							"Result"
+						],
+						"To": [
+							32,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							27,
+							"Result"
+						],
+						"To": [
+							33,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							27,
+							"Result"
+						],
+						"To": [
+							34,
+							"Text"
+						]
+					},
+					{
+						"From": [
+							31,
+							"Result"
+						],
+						"To": [
+							37,
+							"contains"
+						]
+					},
+					{
+						"From": [
+							32,
+							"Result"
+						],
+						"To": [
+							37,
+							"starts"
+						]
+					},
+					{
+						"From": [
+							33,
+							"Result"
+						],
+						"To": [
+							37,
+							"ends"
+						]
+					},
+					{
+						"From": [
+							30,
+							"Result"
+						],
+						"To": [
+							37,
+							"empty"
+						]
+					},
+					{
+						"From": [
+							29,
+							"Length"
+						],
+						"To": [
+							37,
+							"length"
+						]
+					},
+					{
+						"From": [
+							34,
+							"Index"
+						],
+						"To": [
+							37,
+							"index"
+						]
+					},
+					{
+						"From": [
+							35,
+							"Value"
+						],
+						"To": [
+							37,
+							"whole"
+						]
+					},
+					{
+						"From": [
+							36,
+							"Value"
+						],
+						"To": [
+							37,
+							"real"
+						]
+					},
+					{
+						"From": [
+							21,
+							"Then"
+						],
+						"To": [
+							38,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							37,
+							"Result"
+						],
+						"To": [
+							38,
+							"Message"
+						]
+					},
+					{
+						"From": [
+							38,
+							"Then"
+						],
+						"To": [
+							39,
+							"Execute"
+						]
+					},
+					{
+						"From": [
+							27,
+							"Result"
+						],
+						"To": [
+							39,
+							"Summary"
+						]
+					}
+				],
+				"Comments": [
+					{
+						"ID": 40,
+						"Text": "Every string node: \" hello world \" becomes \"hell0-w0rld\", and a short-circuit formula sums what they measured",
+						"Position": [
+							-40.0,
+							-80.0
+						],
+						"Size": [
+							1640.0,
+							240.0
+						],
+						"Color": [
+							0.25,
+							0.75,
+							0.5,
+							0.25
+						]
+					}
+				]
+			}
+		}
+	],
+	"Graph": {
+		"Nodes": [
+			{
+				"ID": 100,
+				"Type": "Event.Create",
+				"Position": [
+					0.0,
+					0.0
+				]
+			},
+			{
+				"ID": 101,
+				"Type": "Variable.Get",
+				"Settings": {
+					"Variable": 1
+				}
+			},
+			{
+				"ID": 102,
+				"Type": "Expression",
+				"Settings": {
+					"Formula": "a * b + sin(t)"
+				},
+				"Inputs": {
+					"a": 2.0,
+					"b": 3.0,
+					"t": 0.0
+				}
+			},
+			{
+				"ID": 103,
+				"Type": "Array.Add"
+			},
+			{
+				"ID": 104,
+				"Type": "Variable.Set",
+				"Position": [
+					320.0,
+					0.0
+				],
+				"Settings": {
+					"Variable": 1
+				}
+			},
+			{
+				"ID": 105,
+				"Type": "Array.Make",
+				"Position": [
+					320.0,
+					320.0
+				],
+				"Settings": {
+					"Type": "int",
+					"Count": 3
+				},
+				"Inputs": {
+					"Element0": 3,
+					"Element1": 1,
+					"Element2": 2
+				}
+			},
+			{
+				"ID": 106,
+				"Type": "Array.Make",
+				"Position": [
+					320.0,
+					480.0
+				],
+				"Settings": {
+					"Count": 2
+				},
+				"Inputs": {
+					"Element1": 4.0
+				}
+			},
+			{
+				"ID": 107,
+				"Type": "Array.Append",
+				"Position": [
+					640.0,
+					320.0
+				]
+			},
+			{
+				"ID": 108,
+				"Type": "Array.Insert",
+				"Position": [
+					960.0,
+					320.0
+				],
+				"Inputs": {
+					"Index": 0,
+					"Value": 0.25
+				}
+			},
+			{
+				"ID": 109,
+				"Type": "Array.Set",
+				"Position": [
+					1280.0,
+					320.0
+				],
+				"Inputs": {
+					"Index": 1,
+					"Value": 2.0
+				}
+			},
+			{
+				"ID": 110,
+				"Type": "Array.RemoveAt",
+				"Position": [
+					1600.0,
+					320.0
+				],
+				"Inputs": {
+					"Index": 0
+				}
+			},
+			{
+				"ID": 111,
+				"Type": "Array.Contains",
+				"Position": [
+					1920.0,
+					320.0
+				],
+				"Inputs": {
+					"Value": 2.0
+				}
+			},
+			{
+				"ID": 112,
+				"Type": "Array.IndexOf",
+				"Position": [
+					640.0,
+					480.0
+				],
+				"Inputs": {
+					"Value": 2,
+					"StartIndex": 0
+				}
+			},
+			{
+				"ID": 113,
+				"Type": "Expression",
+				"Position": [
+					960.0,
+					480.0
+				],
+				"Settings": {
+					"Formula": "Index + 1"
+				}
+			},
+			{
+				"ID": 114,
+				"Type": "Make",
+				"Position": [
+					960.0,
+					640.0
+				],
+				"Settings": {
+					"Type": "Strada.Vector3"
+				},
+				"Inputs": {
+					"X": 1.0,
+					"Y": 2.0,
+					"Z": 3.0
+				}
+			},
+			{
+				"ID": 115,
+				"Type": "Expression",
+				"Position": [
+					1280.0,
+					640.0
+				],
+				"Settings": {
+					"Formula": "normalize(v) * length(v) + vec3(v.x, 0, 0)"
+				}
+			},
+			{
+				"ID": 116,
+				"Type": "Call:Strada.Testing.Assert.AreEqual<T>(T,T,string)",
+				"Position": [
+					640.0,
+					0.0
+				],
+				"Inputs": {
+					"Message": "Index Of finds 2 at 2"
+				}
+			},
+			{
+				"ID": 117,
+				"Type": "Expression",
+				"Position": [
+					320.0,
+					160.0
+				],
+				"Settings": {
+					"Formula": "1 + 2"
+				}
+			},
+			{
+				"ID": 118,
+				"Type": "Call:Strada.Testing.Assert.AreEqual<T>(T,T,string)",
+				"Position": [
+					960.0,
+					0.0
+				],
+				"Settings": {
+					"TypeArguments": [
+						"bool"
+					]
+				},
+				"Inputs": {
+					"Expected": true,
+					"Message": "the array holds 2"
+				}
+			},
+			{
+				"ID": 119,
+				"Type": "Function.Call",
+				"Position": [
+					1280.0,
+					0.0
+				],
+				"Settings": {
+					"Function": 20
+				},
+				"Inputs": {
+					"Text": " hello world "
+				}
+			},
+			{
+				"ID": 120,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					1600.0,
+					0.0
+				]
+			},
+			{
+				"ID": 121,
+				"Type": "Flow.Timeline",
+				"Position": [
+					1920.0,
+					0.0
+				],
+				"Settings": {
+					"Timeline": {
+						"Length": 2.0,
+						"Loop": false,
+						"Tracks": [
+							{
+								"Name": "Lift",
+								"Type": "float",
+								"Keys": [
+									{
+										"Time": 0.0,
+										"Value": 0.0
+									},
+									{
+										"Time": 1.0,
+										"Value": 2.5,
+										"Interpolation": "Linear"
+									},
+									{
+										"Time": 2.0,
+										"Value": 0.0,
+										"In": 0.0,
+										"Out": 0.0
+									}
+								]
+							},
+							{
+								"Name": "Drift",
+								"Type": "Strada.Vector2",
+								"Keys": [
+									{
+										"Time": 0.0,
+										"Value": [
+											0,
+											0
+										]
+									},
+									{
+										"Time": 2.0,
+										"Value": [
+											1,
+											0.5
+										],
+										"Interpolation": "Constant"
+									}
+								]
+							},
+							{
+								"Name": "Path",
+								"Type": "Strada.Vector3",
+								"Keys": [
+									{
+										"Time": 0.0,
+										"Value": [
+											0,
+											0,
+											0
+										]
+									},
+									{
+										"Time": 2.0,
+										"Value": [
+											0,
+											1,
+											0
+										]
+									}
+								]
+							},
+							{
+								"Name": "Spin",
+								"Type": "Strada.Vector4",
+								"Keys": [
+									{
+										"Time": 0.0,
+										"Value": [
+											0,
+											0,
+											0,
+											1
+										]
+									},
+									{
+										"Time": 2.0,
+										"Value": [
+											0,
+											1,
+											0,
+											1
+										]
+									}
+								]
+							},
+							{
+								"Name": "Tint",
+								"Type": "Strada.Color",
+								"Keys": [
+									{
+										"Time": 0.0,
+										"Value": [
+											1,
+											1,
+											1,
+											1
+										]
+									},
+									{
+										"Time": 2.0,
+										"Value": [
+											1,
+											0.25,
+											0.25,
+											1
+										]
+									}
+								]
+							},
+							{
+								"Name": "Step",
+								"Type": "exec",
+								"Keys": [
+									{
+										"Time": 0.5
+									},
+									{
+										"Time": 1.5
+									}
+								]
+							}
+						]
+					}
+				}
+			},
+			{
+				"ID": 122,
+				"Type": "Expression",
+				"Position": [
+					1600.0,
+					160.0
+				],
+				"Settings": {
+					"Formula": "speed * 2"
+				},
+				"Inputs": {
+					"speed": 0.5
+				}
+			},
+			{
+				"ID": 123,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					2240.0,
+					0.0
+				],
+				"Inputs": {
+					"Message": "step"
+				}
+			},
+			{
+				"ID": 124,
+				"Type": "Call:Strada.Log.Info(string)",
+				"Position": [
+					2240.0,
+					160.0
+				]
+			}
+		],
+		"Links": [
+			{
+				"From": [
+					100,
+					"Then"
+				],
+				"To": [
+					104,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					101,
+					"Value"
+				],
+				"To": [
+					103,
+					"Array"
+				]
+			},
+			{
+				"From": [
+					102,
+					"Result"
+				],
+				"To": [
+					103,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					103,
+					"Result"
+				],
+				"To": [
+					104,
+					"Value"
+				]
+			},
+			{
+				"From": [
+					102,
+					"Result"
+				],
+				"To": [
+					106,
+					"Element0"
+				]
+			},
+			{
+				"From": [
+					104,
+					"Value"
+				],
+				"To": [
+					107,
+					"A"
+				]
+			},
+			{
+				"From": [
+					106,
+					"Array"
+				],
+				"To": [
+					107,
+					"B"
+				]
+			},
+			{
+				"From": [
+					107,
+					"Result"
+				],
+				"To": [
+					108,
+					"Array"
+				]
+			},
+			{
+				"From": [
+					108,
+					"Result"
+				],
+				"To": [
+					109,
+					"Array"
+				]
+			},
+			{
+				"From": [
+					109,
+					"Result"
+				],
+				"To": [
+					110,
+					"Array"
+				]
+			},
+			{
+				"From": [
+					110,
+					"Result"
+				],
+				"To": [
+					111,
+					"Array"
+				]
+			},
+			{
+				"From": [
+					105,
+					"Array"
+				],
+				"To": [
+					112,
+					"Array"
+				]
+			},
+			{
+				"From": [
+					112,
+					"Index"
+				],
+				"To": [
+					113,
+					"Index"
+				]
+			},
+			{
+				"From": [
+					114,
+					"Value"
+				],
+				"To": [
+					115,
+					"v"
+				]
+			},
+			{
+				"From": [
+					104,
+					"Then"
+				],
+				"To": [
+					116,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					117,
+					"Result"
+				],
+				"To": [
+					116,
+					"Expected"
+				]
+			},
+			{
+				"From": [
+					113,
+					"Result"
+				],
+				"To": [
+					116,
+					"Actual"
+				]
+			},
+			{
+				"From": [
+					116,
+					"Then"
+				],
+				"To": [
+					118,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					111,
+					"Result"
+				],
+				"To": [
+					118,
+					"Actual"
+				]
+			},
+			{
+				"From": [
+					118,
+					"Then"
+				],
+				"To": [
+					119,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					119,
+					"Then"
+				],
+				"To": [
+					120,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					115,
+					"Result"
+				],
+				"To": [
+					120,
+					"Message"
+				]
+			},
+			{
+				"From": [
+					120,
+					"Then"
+				],
+				"To": [
+					121,
+					"PlayFromStart"
+				]
+			},
+			{
+				"From": [
+					122,
+					"Result"
+				],
+				"To": [
+					121,
+					"Rate"
+				]
+			},
+			{
+				"From": [
+					121,
+					"Step"
+				],
+				"To": [
+					123,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					121,
+					"Finished"
+				],
+				"To": [
+					124,
+					"Execute"
+				]
+			},
+			{
+				"From": [
+					121,
+					"Lift"
+				],
+				"To": [
+					124,
+					"Message"
+				]
+			}
+		],
+		"Comments": [
+			{
+				"ID": 130,
+				"Text": "Samples gains 2 * 3 + sin(0); arrays made, joined and edited; Index Of and Contains checked by Are Equal, inferred and with TypeArguments",
+				"Position": [
+					-40.0,
+					-80.0
+				],
+				"Size": [
+					2320.0,
+					720.0
+				],
+				"Color": [
+					0.25,
+					0.5,
+					0.75,
+					0.25
+				]
+			},
+			{
+				"ID": 131,
+				"Text": "A timeline of every track type, played at a rate from a formula",
+				"Position": [
+					1880.0,
+					-80.0
+				],
+				"Size": [
+					680.0,
+					400.0
+				],
+				"Color": [
+					0.75,
+					0.5,
+					0.25,
+					0.25
+				]
+			}
+		]
+	}
+}

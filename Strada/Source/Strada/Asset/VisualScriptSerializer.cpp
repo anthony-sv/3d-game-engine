@@ -26,11 +26,14 @@ namespace Strada
 		// The keys each element may have, in the order the writer writes them.
 		constexpr std::array<std::string_view, 2> FileKeys = {"Strada", "VisualScript"};
 		constexpr std::array<std::string_view, 2> HeaderKeys = {"Version", "Type"};
-		constexpr std::array<std::string_view, 4> ContentKeys = {"Description", "Variables", "Functions", "Graph"};
+		// Version 3 added Kind, written first; a file of version 1 or 2 knows only the others.
+		constexpr std::array<std::string_view, 5> ContentKeys = {"Kind", "Description", "Variables", "Functions", "Graph"};
 		constexpr std::array<std::string_view, 8> VariableKeys = {"ID",     "Name",    "Type",  "Value",
 		                                                          "Public", "Tooltip", "Range", "FormerNames"};
 		constexpr std::array<std::string_view, 7> FunctionKeys = {"ID", "Name", "Pure", "Inputs", "Outputs", "Locals", "Graph"};
-		constexpr std::array<std::string_view, 2> ParameterKeys = {"Name", "Type"};
+		// Version 3 appended FormerNames; a file of version 1 or 2 knows only the others.
+		constexpr std::array<std::string_view, 3> ParameterKeys = {"Name", "Type", "FormerNames"};
+		constexpr size_t Version2ParameterKeyCount = 2;
 		constexpr std::array<std::string_view, 4> LocalKeys = {"ID", "Name", "Type", "Value"};
 		constexpr std::array<std::string_view, 3> GraphKeys = {"Nodes", "Links", "Comments"};
 		// Version 2 appended the last four; a file of version 1 knows only the others.
@@ -70,7 +73,8 @@ namespace Strada
 							   });
 		}
 
-		// The strings of values and their member names: at most MaxTextBytes of UTF-8 (lines allowed).
+		// The strings of values and their member names, and the texts of documents (descriptions, tooltips, the texts of
+		// comments and nodes): at most MaxTextBytes of UTF-8 (lines allowed).
 		bool IsValidLongText(std::string_view text)
 		{
 			return text.size() <= Format::MaxTextBytes && Utf8::IsValid(text);
@@ -222,7 +226,11 @@ namespace Strada
 				{
 					return Error{"the visual script must be a JSON object"};
 				}
-				if (Result<void> keys = CheckKeys(content, ContentKeys, {}); !keys)
+				// A key of version 3 in a file of version 1 or 2 is an unknown key, read as such: no earlier writer wrote one.
+				std::span<std::string_view const> const contentKeys = HasVersion3Keys()
+				                                                          ? std::span<std::string_view const>(ContentKeys)
+				                                                          : std::span<std::string_view const>(ContentKeys).subspan(1);
+				if (Result<void> keys = CheckKeys(content, contentKeys, {}); !keys)
 				{
 					return Error{keys.GetError()};
 				}
@@ -230,6 +238,10 @@ namespace Strada
 				// IDs are claimed in document order (variables; each function with its locals, nodes and comments; the event
 				// graph's nodes and comments): of two elements with one ID, the later one is dropped.
 				VisualScriptDocument document;
+				if (HasVersion3Keys())
+				{
+					document.Kind = ReadKind(content);
+				}
 				document.Description = ReadText(content, "Description", {});
 				if (Result<void> variables = ReadVariables(content, document); !variables)
 				{
@@ -262,6 +274,9 @@ namespace Strada
 
 		private:
 			void Report(std::string path, std::string message) { m_Issues.push_back({std::move(path), std::move(message)}); }
+
+			// The document's Kind and parameters' FormerNames: files of version 3 and the content form.
+			bool HasVersion3Keys() const { return m_Version >= 3; }
 
 			uint32_t Claim(uint32_t id)
 			{
@@ -353,12 +368,33 @@ namespace Strada
 				{
 					return {};
 				}
-				if (found->is_string() && found->get_ref<std::string const&>().size() <= Format::MaxTextBytes)
+				// Parsed JSON always holds UTF-8; documents built in memory may not, and the writer would replace what is not.
+				if (found->is_string() && IsValidLongText(found->get_ref<std::string const&>()))
 				{
 					return found->get<std::string>();
 				}
-				Report(Member(path, key), fmt::format("expected a string of at most {} bytes; replaced by \"\"", Format::MaxTextBytes));
+				Report(Member(path, key),
+				       fmt::format("expected a string of UTF-8 of at most {} bytes; replaced by \"\"", Format::MaxTextBytes));
 				return {};
+			}
+
+			VisualScriptDocumentKind ReadKind(Json const& content)
+			{
+				auto const found = content.find("Kind");
+				if (found == content.end())
+				{
+					return VisualScriptDocumentKind::Script;
+				}
+				if (found->is_string())
+				{
+					if (std::optional<VisualScriptDocumentKind> const kind =
+					        VisualScriptDocumentKindFromString(found->get_ref<std::string const&>()))
+					{
+						return *kind;
+					}
+				}
+				Report("Kind", "expected \"Script\" or \"Library\"; the document is a script");
+				return VisualScriptDocumentKind::Script;
 			}
 
 			bool ReadBool(Json const& object, char const* key, std::string_view path)
@@ -616,14 +652,17 @@ namespace Strada
 					auto const& [names, variablePath] = pendingFormerNames[i];
 					if (names != nullptr)
 					{
-						ReadFormerNames(*names, Member(variablePath, "FormerNames"), takenFormerNames, document.Variables[i].FormerNames);
+						ReadFormerNames(*names, Member(variablePath, "FormerNames"), m_VariableNames, "a variable", takenFormerNames,
+						                document.Variables[i].FormerNames);
 					}
 				}
 				return {};
 			}
 
-			void ReadFormerNames(Json const& list, std::string const& path, std::unordered_set<std::string>& taken,
-			                     std::vector<std::string>& formerNames)
+			// The former names of a variable or a parameter: valid names, none of them a current name in its scope (names, which
+			// owner describes in messages) or a former name taken earlier in it, at most MaxFormerNames.
+			void ReadFormerNames(Json const& list, std::string const& path, std::unordered_set<std::string> const& names,
+			                     std::string_view owner, std::unordered_set<std::string>& taken, std::vector<std::string>& formerNames)
 			{
 				if (!list.is_array())
 				{
@@ -652,9 +691,9 @@ namespace Strada
 						                              Format::MaxNameBytes));
 						continue;
 					}
-					if (m_VariableNames.contains(name))
+					if (names.contains(name))
 					{
-						Report(entryPath, fmt::format("'{}' is the name of a variable; dropped", name));
+						Report(entryPath, fmt::format("'{}' is the name of {}; dropped", name, owner));
 						continue;
 					}
 					if (!taken.insert(name).second)
@@ -745,8 +784,14 @@ namespace Strada
 					return {};
 				}
 
+				std::span<std::string_view const> const parameterKeys =
+					HasVersion3Keys() ? std::span<std::string_view const>(ParameterKeys)
+									  : std::span<std::string_view const>(ParameterKeys).first(Version2ParameterKeyCount);
 				std::string const listPath = Member(functionPath, key);
 				std::unordered_set<std::string> names;
+				// Former names must differ from the names of all parameters of the list, later ones included, so they are read
+				// once every parameter is: the raw list and the parameter's path of each kept parameter.
+				std::vector<std::pair<Json const*, std::string>> pendingFormerNames;
 				for (size_t i = 0; i < list->size(); i++)
 				{
 					Json const& value = (*list)[i];
@@ -756,7 +801,7 @@ namespace Strada
 						Report(path, "expected an object; the parameter is dropped");
 						continue;
 					}
-					if (Result<void> keys = CheckKeys(value, ParameterKeys, path); !keys)
+					if (Result<void> keys = CheckKeys(value, parameterKeys, path); !keys)
 					{
 						return keys;
 					}
@@ -783,6 +828,19 @@ namespace Strada
 					}
 					names.insert(*name);
 					parameters.push_back({std::move(*name), std::move(*type)});
+					auto const formerNames = HasVersion3Keys() ? value.find("FormerNames") : value.end();
+					pendingFormerNames.emplace_back(formerNames == value.end() ? nullptr : &*formerNames, path);
+				}
+
+				std::unordered_set<std::string> takenFormerNames;
+				for (size_t i = 0; i < parameters.size(); i++)
+				{
+					auto const& [formerNames, parameterPath] = pendingFormerNames[i];
+					if (formerNames != nullptr)
+					{
+						ReadFormerNames(*formerNames, Member(parameterPath, "FormerNames"), names, "a parameter of this list",
+						                takenFormerNames, parameters[i].FormerNames);
+					}
 				}
 				return {};
 			}
@@ -1263,6 +1321,10 @@ namespace Strada
 				Json entry = Json::object();
 				entry["Name"] = parameter.Name;
 				entry["Type"] = parameter.Type;
+				if (!parameter.FormerNames.empty())
+				{
+					entry["FormerNames"] = parameter.FormerNames;
+				}
 				json.push_back(std::move(entry));
 			}
 			return json;
@@ -1367,6 +1429,10 @@ namespace Strada
 		}
 
 		Json content = Json::object();
+		if (document.Kind != VisualScriptDocumentKind::Script)
+		{
+			content["Kind"] = std::string(VisualScriptDocumentKindToString(document.Kind));
+		}
 		content["Description"] = document.Description;
 		content["Variables"] = std::move(variables);
 		content["Functions"] = std::move(functions);

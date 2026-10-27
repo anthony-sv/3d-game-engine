@@ -1,0 +1,357 @@
+{
+	"Strada": {
+		"Version": 3,
+		"Type": "VisualScript"
+	},
+	"VisualScript": {
+		"Kind": "Library",
+		"Description": "Functions other graphs call: a pure clamp, a log line and a pause",
+		"Variables": [],
+		"Functions": [
+			{
+				"ID": 1,
+				"Name": "Clamp01",
+				"Pure": true,
+				"Inputs": [
+					{
+						"Name": "Value",
+						"Type": "float",
+						"FormerNames": [
+							"X"
+						]
+					}
+				],
+				"Outputs": [
+					{
+						"Name": "Result",
+						"Type": "float"
+					}
+				],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 10,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 11,
+							"Type": "Call:Strada.Mathf.Clamp(float,float,float)",
+							"Inputs": {
+								"Min": 0.0,
+								"Max": 1.0
+							}
+						},
+						{
+							"ID": 12,
+							"Type": "Function.Return",
+							"Position": [
+								640.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								10,
+								"Value"
+							],
+							"To": [
+								11,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								11,
+								"Result"
+							],
+							"To": [
+								12,
+								"Result"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 13,
+							"Text": "Pure: Value clamped to 0..1; calls that still name the input X keep working",
+							"Position": [
+								-40.0,
+								-80.0
+							],
+							"Size": [
+								960.0,
+								240.0
+							],
+							"Color": [
+								0.25,
+								0.75,
+								0.5,
+								0.25
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 2,
+				"Name": "Report",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Text",
+						"Type": "string"
+					}
+				],
+				"Outputs": [],
+				"Locals": [
+					{
+						"ID": 3,
+						"Name": "Line",
+						"Type": "string",
+						"Value": ""
+					}
+				],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 20,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 21,
+							"Type": "Variable.Set",
+							"Position": [
+								320.0,
+								0.0
+							],
+							"Settings": {
+								"Variable": 3
+							}
+						},
+						{
+							"ID": 22,
+							"Type": "Call:Strada.Log.Info(string)",
+							"Position": [
+								640.0,
+								0.0
+							]
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								20,
+								"Then"
+							],
+							"To": [
+								21,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								20,
+								"Text"
+							],
+							"To": [
+								21,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								21,
+								"Then"
+							],
+							"To": [
+								22,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								21,
+								"Value"
+							],
+							"To": [
+								22,
+								"Message"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 23,
+							"Text": "Impure: logs Text through the local Line",
+							"Position": [
+								-40.0,
+								-80.0
+							],
+							"Size": [
+								960.0,
+								240.0
+							],
+							"Color": [
+								0.25,
+								0.5,
+								0.75,
+								0.25
+							]
+						}
+					]
+				}
+			},
+			{
+				"ID": 4,
+				"Name": "Pause",
+				"Pure": false,
+				"Inputs": [
+					{
+						"Name": "Seconds",
+						"Type": "float"
+					}
+				],
+				"Outputs": [],
+				"Locals": [],
+				"Graph": {
+					"Nodes": [
+						{
+							"ID": 30,
+							"Type": "Function.Entry",
+							"Position": [
+								0.0,
+								0.0
+							]
+						},
+						{
+							"ID": 31,
+							"Type": "Function.Call",
+							"Settings": {
+								"Function": 1
+							}
+						},
+						{
+							"ID": 32,
+							"Type": "Flow.Delay",
+							"Position": [
+								320.0,
+								0.0
+							]
+						},
+						{
+							"ID": 33,
+							"Type": "Function.Call",
+							"Position": [
+								640.0,
+								0.0
+							],
+							"Settings": {
+								"Function": 2
+							},
+							"Inputs": {
+								"Text": "paused"
+							}
+						}
+					],
+					"Links": [
+						{
+							"From": [
+								30,
+								"Then"
+							],
+							"To": [
+								32,
+								"Execute"
+							]
+						},
+						{
+							"From": [
+								30,
+								"Seconds"
+							],
+							"To": [
+								31,
+								"Value"
+							]
+						},
+						{
+							"From": [
+								31,
+								"Result"
+							],
+							"To": [
+								32,
+								"Duration"
+							]
+						},
+						{
+							"From": [
+								32,
+								"Completed"
+							],
+							"To": [
+								33,
+								"Execute"
+							]
+						}
+					],
+					"Comments": [
+						{
+							"ID": 34,
+							"Text": "Latent: waits Clamp01(Seconds), then calls Report",
+							"Position": [
+								-40.0,
+								-80.0
+							],
+							"Size": [
+								1000.0,
+								240.0
+							],
+							"Color": [
+								0.75,
+								0.5,
+								0.25,
+								0.25
+							]
+						}
+					]
+				}
+			}
+		],
+		"Graph": {
+			"Nodes": [],
+			"Links": [],
+			"Comments": [
+				{
+					"ID": 40,
+					"Text": "A function library has no event graph: graphs call its functions",
+					"Position": [
+						0.0,
+						0.0
+					],
+					"Size": [
+						640.0,
+						160.0
+					],
+					"Color": [
+						0.5,
+						0.5,
+						0.5,
+						0.25
+					]
+				}
+			]
+		}
+	}
+}

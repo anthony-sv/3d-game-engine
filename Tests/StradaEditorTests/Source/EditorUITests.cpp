@@ -1037,7 +1037,7 @@ TEST_CASE(
 		{"Scripts/Version1.sgraph", ReadVersion1Example()},
 		// The second node repeats the first one's ID: the loader drops it.
 		{"Scripts/Repaired.sgraph",
-	     "{\"Strada\": {\"Version\": 2, \"Type\": \"VisualScript\"}, \"VisualScript\": {\"Graph\": {\"Nodes\": [{\"ID\": 1, \"Type\": "
+	     "{\"Strada\": {\"Version\": 3, \"Type\": \"VisualScript\"}, \"VisualScript\": {\"Graph\": {\"Nodes\": [{\"ID\": 1, \"Type\": "
 	     "\"Event.Update\", \"Position\": [0, 0]}, {\"ID\": 1, \"Type\": \"Flow.Branch\"}]}}}\n"},
 		{"Scripts/Marked.sgraph", "\xEF\xBB\xBF" + Canonical(MakeGraphDocument())},
 	};
@@ -1052,7 +1052,7 @@ TEST_CASE(
 		Ref<VisualScriptDocument const> const edited = fixture.Edit(graph, Described(*loaded, "Edited"));
 		std::string const canonical = Canonical(*edited);
 		CHECK(fixture.ReadFile(file.Path) == canonical);
-		CHECK(canonical.find("\"Version\": 2,") != std::string::npos);
+		CHECK(canonical.find("\"Version\": 3,") != std::string::npos);
 		REQUIRE(fixture.Operations.Undo().IsOk());
 		CHECK(fixture.ReadFile(file.Path) == file.Bytes);
 		CHECK(asset->GetSharedDocument().get() == loaded.get());
@@ -1066,7 +1066,7 @@ TEST_CASE(
 	}
 
 	// A file that does not load: it is replaced, and undo gives its bytes back, which fail to load again.
-	std::string const damaged = "{ \"Strada\": { \"Version\": 3, \"Type\": \"VisualScript\" }, \"VisualScript\": {} }\n";
+	std::string const damaged = "{ \"Strada\": { \"Version\": 4, \"Type\": \"VisualScript\" }, \"VisualScript\": {} }\n";
 	AssetHandle const graph = fixture.AddFile("Scripts/Damaged.sgraph", damaged);
 	REQUIRE(AssetManager::TryGetAsset<VisualScriptAsset>(graph).IsError());
 	Ref<VisualScriptDocument const> const repaired = fixture.Edit(graph, MakeGraphDocument());

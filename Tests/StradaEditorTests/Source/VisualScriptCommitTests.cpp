@@ -339,6 +339,168 @@ TEST_CASE("VisualScriptCommit: nodes resolved inexactly take their canonical typ
 	CHECK(unanalyzed.GetValue().Document.Functions == stored.Functions);
 }
 
+TEST_CASE("VisualScriptCommit: a library keeps a parameter renamed in place as a former name; a script and a list whose length changed "
+          "record nothing")
+{
+	VisualScriptDocument stored;
+	stored.Kind = VisualScriptDocumentKind::Library;
+	stored.Variables.push_back(MakeVariable(9, "Speed", "float"));
+	VisualScriptFunction clamp;
+	clamp.ID = 1;
+	clamp.Name = "Clamp01";
+	clamp.Pure = true;
+	clamp.Inputs = {{"Value", "float"}, {"Low", "float"}};
+	clamp.Outputs = {{"Result", "float"}};
+	VisualScriptFunction mix;
+	mix.ID = 2;
+	mix.Name = "Mix";
+	mix.Inputs = {{"A", "float"}, {"B", "float"}};
+	stored.Functions = {clamp, mix};
+
+	VisualScriptDocument edited = stored;
+	edited.Variables[0].Name = "Pace";
+	edited.Functions[0].Inputs[0].Name = "Amount";
+	edited.Functions[0].Outputs[0].Name = "Clamped";
+	// A list whose length changed: SetFunctionSignature removed the links of its renamed parameters too.
+	edited.Functions[1].Inputs = {{"First", "float"}, {"B", "float"}, {"C", "float"}};
+	// A function the stored document does not have records nothing.
+	VisualScriptFunction added;
+	added.ID = 3;
+	added.Name = "Added";
+	added.Inputs = {{"P", "int"}};
+	edited.Functions.push_back(added);
+
+	Result<VisualScriptCommit> const commit = PrepareVisualScriptCommit(stored, edited, nullptr);
+	REQUIRE_MESSAGE(commit.IsOk(), commit.GetError());
+	// The variables' renames, then the parameters', all counted as renames.
+	CHECK(commit.GetValue().Warnings ==
+	      std::vector<std::string>{"variable renamed: Speed → Pace (Speed is kept in FormerNames)",
+	                               "parameter renamed: Clamp01's Value → Amount (Value is kept in FormerNames)",
+	                               "parameter renamed: Clamp01's Result → Clamped (Result is kept in FormerNames)"});
+	CHECK(commit.GetValue().RenameCount == 3);
+	VisualScriptDocument const& renamed = commit.GetValue().Document;
+	CHECK(renamed.Functions[0].Inputs == std::vector<VisualScriptParameter>{{"Amount", "float", {"Value"}}, {"Low", "float"}});
+	CHECK(renamed.Functions[0].Outputs == std::vector<VisualScriptParameter>{{"Clamped", "float", {"Result"}}});
+	CHECK(renamed.Functions[1].Inputs == edited.Functions[1].Inputs);
+	CHECK(renamed.Functions[2].Inputs == edited.Functions[2].Inputs);
+	Testing::ExpectStrictRoundTrip(renamed);
+
+	// A script's functions are called from its own graphs only, which the rename relinks: nothing is recorded.
+	VisualScriptDocument storedScript = stored;
+	storedScript.Kind = VisualScriptDocumentKind::Script;
+	VisualScriptDocument editedScript = edited;
+	editedScript.Kind = VisualScriptDocumentKind::Script;
+	Result<VisualScriptCommit> const script = PrepareVisualScriptCommit(storedScript, editedScript, nullptr);
+	REQUIRE(script.IsOk());
+	CHECK(script.GetValue().Warnings == std::vector<std::string>{"variable renamed: Speed → Pace (Speed is kept in FormerNames)"});
+	CHECK(script.GetValue().Document.Functions == editedScript.Functions);
+
+	// Renamed back: the name in use leaves the former names, and the name left behind joins them.
+	VisualScriptDocument back = renamed;
+	back.Functions[0].Inputs[0].Name = "Value";
+	Result<VisualScriptCommit> const restored = PrepareVisualScriptCommit(renamed, back, nullptr);
+	REQUIRE(restored.IsOk());
+	CHECK(restored.GetValue().Warnings ==
+	      std::vector<std::string>{"parameter renamed: Clamp01's Amount → Value (Amount is kept in FormerNames)"});
+	CHECK(restored.GetValue().Document.Functions[0].Inputs[0].FormerNames == std::vector<std::string>{"Amount"});
+	Testing::ExpectStrictRoundTrip(restored.GetValue().Document);
+
+	// Swapped names stay current names: nothing is recorded.
+	VisualScriptDocument swapped = stored;
+	swapped.Functions[0].Inputs = {{"Low", "float"}, {"Value", "float"}};
+	Result<VisualScriptCommit> const swap = PrepareVisualScriptCommit(stored, swapped, nullptr);
+	REQUIRE(swap.IsOk());
+	CHECK(swap.GetValue().Warnings.empty());
+	CHECK(swap.GetValue().Document == swapped);
+
+	// Up to 16, the oldest dropped.
+	VisualScriptDocument full = stored;
+	full.Functions[0].Inputs[0].Name = "Latest";
+	for (int name = 0; name < 16; name++)
+	{
+		full.Functions[0].Inputs[0].FormerNames.push_back("Former" + std::to_string(name));
+	}
+	Result<VisualScriptCommit> const capped = PrepareVisualScriptCommit(stored, full, nullptr);
+	REQUIRE(capped.IsOk());
+	std::vector<std::string> const& formerNames = capped.GetValue().Document.Functions[0].Inputs[0].FormerNames;
+	REQUIRE(formerNames.size() == VisualScriptSerializer::MaxFormerNames);
+	CHECK(formerNames.front() == "Former1");
+	CHECK(formerNames.back() == "Value");
+
+	// A parameter added under a former name of its list (a length change, so no rename) takes it over, in any document.
+	VisualScriptDocument history = storedScript;
+	history.Functions[0].Inputs[0].FormerNames = {"X", "Y"};
+	VisualScriptDocument reused = history;
+	reused.Functions[0].Inputs.push_back({"X", "float"});
+	Result<VisualScriptCommit> const taken = PrepareVisualScriptCommit(history, reused, nullptr);
+	REQUIRE_MESSAGE(taken.IsOk(), taken.GetError());
+	CHECK(taken.GetValue().Warnings.empty());
+	CHECK(taken.GetValue().Document.Functions[0].Inputs[0].FormerNames == std::vector<std::string>{"Y"});
+	Testing::ExpectStrictRoundTrip(taken.GetValue().Document);
+}
+
+TEST_CASE("VisualScriptCommit: a node resolved exactly whose pins the analysis renamed stores their current names, its links, literals "
+          "and split paths following")
+{
+	// A call of a library function whose input X became Value, whose split input Offset became Shift and whose output R
+	// became Result.
+	VisualScriptDocument stored;
+	VisualScriptNode call =
+		MakeNode(20, "Function.Call", Json::object({{"Function", 1}, {"Graph", "5550"}}), Json::object({{"X", 0.5}, {"Offset.Y", 1.0}}));
+	call.Split.Inputs = {"Offset"};
+	stored.Graph.Nodes = {MakeNode(10, "Event.Update"), MakeNode(12, "Self"), call, MakeNode(21, "Call:Strada.Log.Info(string)")};
+	stored.Graph.Links = {MakeLink(10, "Then", 20, "Execute"), MakeLink(12, "Value", 20, "Offset.X"), MakeLink(20, "Then", 21, "Execute"),
+	                      MakeLink(20, "R", 21, "Message")};
+
+	VisualScriptAnalysis analysis;
+	analysis.Nodes.push_back(MakeAnalyzedNode(10, "Event.Update"));
+	analysis.Nodes.push_back(MakeAnalyzedNode(12, "Self"));
+	VisualScriptAnalyzedNode clamp = MakeAnalyzedNode(20, "Function.Call", VisualScriptResolution::Exact, {},
+	                                                  {{VisualScriptPinDirection::In, "X", "Value"},
+	                                                   {VisualScriptPinDirection::In, "Offset", "Shift"},
+	                                                   {VisualScriptPinDirection::Out, "R", "Result"},
+	                                                   {VisualScriptPinDirection::In, "Unused", "Other"}});
+	clamp.Title = "Clamp01";
+	analysis.Nodes.push_back(clamp);
+	analysis.Nodes.push_back(MakeAnalyzedNode(21, "Call:Strada.Log.Info(string)"));
+
+	Result<VisualScriptCommit> const prepared = PrepareVisualScriptCommit(stored, stored, &analysis);
+	REQUIRE_MESSAGE(prepared.IsOk(), prepared.GetError());
+	// One warning per pin the node used under its former name; none are renames of the document's own names.
+	CHECK(prepared.GetValue().Warnings == std::vector<std::string>{"pin renamed: Clamp01 (node 20) X → Value",
+	                                                               "pin renamed: Clamp01 (node 20) Offset → Shift",
+	                                                               "pin renamed: Clamp01 (node 20) R → Result"});
+	CHECK(prepared.GetValue().RenameCount == 0);
+	VisualScriptDocument const& document = prepared.GetValue().Document;
+	VisualScriptNode const& renamed = FindNode(document.Graph, 20);
+	CHECK(renamed.Type == "Function.Call");
+	CHECK(renamed.Settings == call.Settings);
+	CHECK(renamed.Inputs == Json::object({{"Value", 0.5}, {"Shift.Y", 1.0}}));
+	CHECK(renamed.Split.Inputs == std::vector<std::string>{"Shift"});
+	CHECK(document.Graph.Links == std::vector<VisualScriptLink>{MakeLink(10, "Then", 20, "Execute"), MakeLink(12, "Value", 20, "Shift.X"),
+	                                                            MakeLink(20, "Then", 21, "Execute"),
+	                                                            MakeLink(20, "Result", 21, "Message")});
+	Testing::ExpectStrictRoundTrip(document);
+	Testing::ExpectSplitConsistency(document);
+
+	// The commit request notes them, as it notes canonical rewrites.
+	Result<VisualScriptCommitRequest> const request = MakeVisualScriptCommitRequest(stored, stored, &analysis, "Move Node", "Player", 0);
+	REQUIRE(request.IsOk());
+	CHECK(request.GetValue().Notes == prepared.GetValue().Warnings);
+
+	// An analysis of another version of the node, or a node that names its pins as they are now, changes nothing.
+	VisualScriptAnalysis stale = analysis;
+	stale.Nodes[2].Type = "Function.Entry";
+	Result<VisualScriptCommit> const unchanged = PrepareVisualScriptCommit(stored, stored, &stale);
+	REQUIRE(unchanged.IsOk());
+	CHECK(unchanged.GetValue().Warnings.empty());
+	CHECK(unchanged.GetValue().Document.Graph == stored.Graph);
+	Result<VisualScriptCommit> const current = PrepareVisualScriptCommit(document, document, &analysis);
+	REQUIRE(current.IsOk());
+	CHECK(current.GetValue().Warnings.empty());
+	CHECK(current.GetValue().Document.Graph == document.Graph);
+}
+
 TEST_CASE("VisualScriptCommit: unplaced nodes are laid out, and a document that would not load back as written is never committed")
 {
 	// Unplaced nodes are placed as the loader's layout places them; placed ones stay.

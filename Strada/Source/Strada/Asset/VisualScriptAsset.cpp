@@ -17,6 +17,11 @@ namespace Strada
 			{VisualScriptNodeEnabled::DevelopmentOnly, "DevelopmentOnly"},
 		}};
 
+		constexpr std::array<std::pair<VisualScriptDocumentKind, std::string_view>, 2> s_KindNames = {{
+			{VisualScriptDocumentKind::Script, "Script"},
+			{VisualScriptDocumentKind::Library, "Library"},
+		}};
+
 		// Whether two values (of variables, locals, settings and inputs) are alike to the scripting runtime, which reads them
 		// from the document's text: whether they are written alike. Json's operator== compares numbers by value instead: it
 		// takes the integer 1 and the float 1.0 as equal, though the runtime reads the literals of integer types and the IDs
@@ -107,6 +112,7 @@ namespace Strada
 
 		bool HaveSameProgram(VisualScriptFunction const& a, VisualScriptFunction const& b)
 		{
+			// Parameters compare whole, their former names included: a library's callers read them.
 			auto const& [id, name, pure, inputs, outputs, locals, graph] = a;
 			return id == b.ID && name == b.Name && pure == b.Pure && inputs == b.Inputs && outputs == b.Outputs &&
 			       std::ranges::equal(locals, b.Locals,
@@ -142,10 +148,34 @@ namespace Strada
 		return std::nullopt;
 	}
 
+	std::string_view VisualScriptDocumentKindToString(VisualScriptDocumentKind kind)
+	{
+		for (auto const& [value, name] : s_KindNames)
+		{
+			if (value == kind)
+			{
+				return name;
+			}
+		}
+		return {};
+	}
+
+	std::optional<VisualScriptDocumentKind> VisualScriptDocumentKindFromString(std::string_view text)
+	{
+		for (auto const& [value, name] : s_KindNames)
+		{
+			if (text == name)
+			{
+				return value;
+			}
+		}
+		return std::nullopt;
+	}
+
 	bool HaveSameVisualScriptProgram(VisualScriptDocument const& a, VisualScriptDocument const& b)
 	{
 		// The description is for the asset inspector.
-		[[maybe_unused]] auto const& [description, variables, functions, graph] = a;
+		[[maybe_unused]] auto const& [kind, description, variables, functions, graph] = a;
 		auto const sameVariables = [](VisualScriptVariable const& first, VisualScriptVariable const& second)
 		{
 			return HaveSameProgram(first, second);
@@ -154,8 +184,8 @@ namespace Strada
 		{
 			return HaveSameProgram(first, second);
 		};
-		return std::ranges::equal(variables, b.Variables, sameVariables) && std::ranges::equal(functions, b.Functions, sameFunctions) &&
-		       HaveSameProgram(graph, b.Graph);
+		return kind == b.Kind && std::ranges::equal(variables, b.Variables, sameVariables) &&
+		       std::ranges::equal(functions, b.Functions, sameFunctions) && HaveSameProgram(graph, b.Graph);
 	}
 
 	bool HaveSameVisualScriptProgram(VisualScriptNode const& a, VisualScriptNode const& b)
@@ -204,6 +234,9 @@ namespace Strada
 				break;
 			}
 			case VisualScriptTemplate::Empty:
+				break;
+			case VisualScriptTemplate::Library:
+				document.Kind = VisualScriptDocumentKind::Library;
 				break;
 		}
 		return document;

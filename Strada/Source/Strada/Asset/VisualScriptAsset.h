@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Strada
@@ -54,6 +55,20 @@ namespace Strada
 	{
 		std::string Name;
 		std::string Type;
+		// Version 3 of the format added it. Earlier names, the newest last: a call in another graph whose links or literals
+		// name one keeps working. The editor records them only in a library (VisualScriptDocumentKind::Library), whose
+		// functions graphs of other files call; a script may hold them too (a library made a script keeps its history).
+		std::vector<std::string> FormerNames;
+
+		VisualScriptParameter() = default;
+		// So that a parameter is written {"Speed", "float"}, as before it had former names, without an aggregate's missing
+		// initializer (-Wmissing-field-initializers).
+		VisualScriptParameter(std::string name, std::string type, std::vector<std::string> formerNames = {})
+			: Name(std::move(name)),
+			  Type(std::move(type)),
+			  FormerNames(std::move(formerNames))
+		{
+		}
 
 		bool operator==(VisualScriptParameter const& other) const = default;
 	};
@@ -160,8 +175,23 @@ namespace Strada
 		bool operator==(VisualScriptFunction const& other) const = default;
 	};
 
+	// What a document is for. Version 3 of the format added it.
+	enum class VisualScriptDocumentKind : uint8_t
+	{
+		// Runs on entities (VisualScriptComponent): events, variables and functions.
+		Script = 0,
+		// Functions that other graphs call (Function.Call with a Graph setting). Runs on no entity.
+		Library
+	};
+
+	// "Script" or "Library"; empty for a value that is none of the enumerators.
+	[[nodiscard]] std::string_view VisualScriptDocumentKindToString(VisualScriptDocumentKind kind);
+	[[nodiscard]] std::optional<VisualScriptDocumentKind> VisualScriptDocumentKindFromString(std::string_view text);
+
 	struct VisualScriptDocument
 	{
+		// Version 3 of the format added it.
+		VisualScriptDocumentKind Kind = VisualScriptDocumentKind::Script;
 		std::string Description;
 		std::vector<VisualScriptVariable> Variables;
 		std::vector<VisualScriptFunction> Functions;
@@ -173,10 +203,10 @@ namespace Strada
 
 	// Whether two documents give the same program: alike except for what the scripting runtime never reads (the document's
 	// Description; variables' Tooltip and Range; nodes' Position, Comment and Collapsed; the graphs' Comments). Everything
-	// else is compared, order included. Values (of variables and locals, and nodes' Settings and Inputs) are compared as the
-	// runtime reads them, from the document's text: an integer and a float are never alike, since an int literal or an ID
-	// must be an integer (operator== takes 1 and 1.0 as equal), integers are alike by value whether stored signed or
-	// unsigned, and floats bit for bit. Pure; any thread.
+	// else is compared, order included: the document's Kind and parameters' FormerNames too. Values (of variables and locals, and nodes'
+	// Settings and Inputs) are compared as the runtime reads them, from the document's text: an integer and a float are never alike, since
+	// an int literal or an ID must be an integer (operator== takes 1 and 1.0 as equal), integers are alike by value whether stored signed
+	// or unsigned, and floats bit for bit. Pure; any thread.
 	[[nodiscard]] bool HaveSameVisualScriptProgram(VisualScriptDocument const& a, VisualScriptDocument const& b);
 	// The same comparison for one node (its ID, Type, Settings, Inputs, Split and Enabled): with operator==, whether a node is
 	// stored identically, representation included. Pure; any thread.
@@ -219,7 +249,9 @@ namespace Strada
 		// An Event.Create node and an Event.Update node below it.
 		Events = 0,
 		// Nothing.
-		Empty
+		Empty,
+		// A function library (VisualScriptDocumentKind::Library) and nothing else.
+		Library
 	};
 
 	[[nodiscard]] VisualScriptDocument MakeVisualScriptTemplate(VisualScriptTemplate kind);

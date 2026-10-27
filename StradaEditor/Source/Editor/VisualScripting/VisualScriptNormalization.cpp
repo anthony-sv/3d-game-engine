@@ -121,6 +121,98 @@ namespace Strada
 			RenameSplitEntries(node.Split.Outputs, renames, VisualScriptPinDirection::Out);
 		}
 
+		// Whether a pin path is the pin's name or the path of one of its fields.
+		bool IsPathOf(std::string_view path, std::string_view pin)
+		{
+			return path == pin || (path.size() > pin.size() && path.starts_with(pin) && path[pin.size()] == '.');
+		}
+
+		// Whether the node's links, inputs or Split name the pin of the rename (or a field of it).
+		bool UsesPin(VisualScriptGraph const& graph, VisualScriptNode const& node, VisualScriptPinRename const& rename)
+		{
+			bool const input = rename.Direction == VisualScriptPinDirection::In;
+			bool const linked = std::any_of(graph.Links.begin(), graph.Links.end(),
+			                                [&node, &rename, input](VisualScriptLink const& link)
+			                                {
+												VisualScriptPinReference const& end = input ? link.To : link.From;
+												return end.Node == node.ID && IsPathOf(end.Pin, rename.From);
+											});
+			if (linked)
+			{
+				return true;
+			}
+			if (input)
+			{
+				for (auto const& item : node.Inputs.items())
+				{
+					if (IsPathOf(item.key(), rename.From))
+					{
+						return true;
+					}
+				}
+			}
+			std::vector<std::string> const& split = input ? node.Split.Inputs : node.Split.Outputs;
+			return std::any_of(split.begin(), split.end(),
+			                   [&rename](std::string const& path)
+			                   {
+								   return IsPathOf(path, rename.From);
+							   });
+		}
+
+		// Records the renames of one list of a function's parameters (Inputs or Outputs) as former names, by the in-order
+		// rule of SetFunctionSignature: only when the list kept its length, a parameter whose name differs from the stored
+		// one at its index was renamed.
+		void RecordParameterFormerNames(std::string const& function, std::vector<VisualScriptParameter>& parameters,
+		                                std::vector<VisualScriptParameter> const& storedParameters, std::vector<std::string>& warnings)
+		{
+			if (parameters.size() != storedParameters.size())
+			{
+				return;
+			}
+			// A former name is no parameter's current name and no other former name of the list.
+			std::unordered_set<std::string> taken;
+			for (VisualScriptParameter const& parameter : parameters)
+			{
+				taken.insert(parameter.Name);
+				taken.insert(parameter.FormerNames.begin(), parameter.FormerNames.end());
+			}
+			for (size_t index = 0; index < parameters.size(); index++)
+			{
+				VisualScriptParameter& parameter = parameters[index];
+				std::string const& formerName = storedParameters[index].Name;
+				if (formerName == parameter.Name || !taken.insert(formerName).second)
+				{
+					continue;
+				}
+				parameter.FormerNames.push_back(formerName);
+				if (parameter.FormerNames.size() > VisualScriptSerializer::MaxFormerNames)
+				{
+					taken.erase(parameter.FormerNames.front());
+					parameter.FormerNames.erase(parameter.FormerNames.begin());
+				}
+				warnings.push_back(fmt::format("parameter renamed: {}'s {} → {} ({} is kept in FormerNames)", function, formerName,
+				                               parameter.Name, formerName));
+			}
+		}
+
+		// A list's parameters never keep a name one of them has now as a former name, which the loader would drop.
+		void RemoveCurrentNamesFromFormerNames(std::vector<VisualScriptParameter>& parameters)
+		{
+			std::unordered_set<std::string_view> names;
+			for (VisualScriptParameter const& parameter : parameters)
+			{
+				names.insert(parameter.Name);
+			}
+			for (VisualScriptParameter& parameter : parameters)
+			{
+				std::erase_if(parameter.FormerNames,
+				              [&names](std::string const& formerName)
+				              {
+								  return names.contains(formerName);
+							  });
+			}
+		}
+
 		// Of links that are the same, the first stays (the loader drops the others).
 		void DropRepeatedLinks(VisualScriptGraph& graph)
 		{
@@ -169,6 +261,25 @@ namespace Strada
 			}
 			warnings.push_back(fmt::format("variable renamed: {} → {} ({} is kept in FormerNames)", formerName, variable.Name, formerName));
 		}
+
+		std::unordered_map<uint32_t, VisualScriptFunction const*> storedFunctions;
+		for (VisualScriptFunction const& function : stored.Functions)
+		{
+			storedFunctions.emplace(function.ID, &function);
+		}
+		for (VisualScriptFunction& function : document.Functions)
+		{
+			RemoveCurrentNamesFromFormerNames(function.Inputs);
+			RemoveCurrentNamesFromFormerNames(function.Outputs);
+			// Only a library's functions are called from other files, by links and literals that name their parameters.
+			auto const storedFunction = storedFunctions.find(function.ID);
+			if (document.Kind != VisualScriptDocumentKind::Library || storedFunction == storedFunctions.end())
+			{
+				continue;
+			}
+			RecordParameterFormerNames(function.Name, function.Inputs, storedFunction->second->Inputs, warnings);
+			RecordParameterFormerNames(function.Name, function.Outputs, storedFunction->second->Outputs, warnings);
+		}
 		return warnings;
 	}
 
@@ -188,15 +299,44 @@ namespace Strada
 		std::unordered_set<VisualScriptGraph*> renamedPins;
 		for (VisualScriptAnalyzedNode const& analyzed : analysis.Nodes)
 		{
-			bool const inexact =
-				analyzed.Resolved == VisualScriptResolution::Redirect || analyzed.Resolved == VisualScriptResolution::Unique;
 			auto const place = places.find(analyzed.ID);
-			if (!inexact || analyzed.CanonicalType.empty() || place == places.end())
+			if (place == places.end())
 			{
 				continue;
 			}
 			VisualScriptGraph* const graph = place->second.first;
 			VisualScriptNode& node = graph->Nodes[place->second.second];
+			if (analyzed.Resolved == VisualScriptResolution::Exact)
+			{
+				// A node of its own type whose pins are called otherwise now (a library call naming a former parameter name):
+				// it keeps its type and stores the current names.
+				if (node.Type != analyzed.Type)
+				{
+					continue;
+				}
+				std::vector<VisualScriptPinRename> used;
+				for (VisualScriptPinRename const& rename : analyzed.PinRenames)
+				{
+					if (UsesPin(*graph, node, rename))
+					{
+						used.push_back(rename);
+						warnings.push_back(
+							fmt::format("pin renamed: {} (node {}) {} → {}", analyzed.Title, node.ID, rename.From, rename.To));
+					}
+				}
+				if (!used.empty())
+				{
+					RenamePins(*graph, node, used);
+					renamedPins.insert(graph);
+				}
+				continue;
+			}
+			bool const inexact =
+				analyzed.Resolved == VisualScriptResolution::Redirect || analyzed.Resolved == VisualScriptResolution::Unique;
+			if (!inexact || analyzed.CanonicalType.empty())
+			{
+				continue;
+			}
 			// Only what this document stores: an analysis of another version of it changes nothing.
 			if (node.Type != analyzed.Type || node.Type == analyzed.CanonicalType)
 			{

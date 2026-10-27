@@ -26,12 +26,13 @@ namespace Strada
 	};
 
 	// Reads and writes visual scripts. The file form is
-	//   { "Strada": { "Version": 2, "Type": "VisualScript" }, "VisualScript": { <content> } }
+	//   { "Strada": { "Version": 3, "Type": "VisualScript" }, "VisualScript": { <content> } }
 	// and the content form is the "VisualScript" object alone (automation documents, the scripting runtime's input).
 	//
-	// Files of version 1 load too. Version 2 added the node keys Split, Comment, Collapsed and Enabled: in a file of version
-	// 1 they are unknown keys (no writer of version 1 wrote them), and its nodes keep their defaults. The content form has
-	// no version and has every key of the current one. Saving always writes the current version.
+	// Files of versions 1 and 2 load too. Version 2 added the node keys Split, Comment, Collapsed and Enabled; version 3 the
+	// document's Kind and parameters' FormerNames. In a file of an earlier version the keys of later ones are unknown keys
+	// (no earlier writer wrote them), and what they would set keeps its default. The content form has no version and has
+	// every key of the current one. Saving always writes the current version.
 	//
 	// Loading checks structure only: never what node types, pins, settings, inputs or values mean (the scripting runtime
 	// reports those). A document is refused when its header or its content object is unusable, and when it has an unknown
@@ -40,14 +41,14 @@ namespace Strada
 	// context warning "<Path>: <Message>"; what loads always saves and loads again without issues. Callers that must not
 	// accept repaired input (automation) load with UnknownFieldPolicy::Warn and refuse any issue.
 	//
-	// Saving writes the canonical form: keys in a fixed order, optional keys omitted at their defaults, Settings, Inputs and
-	// values as stored. Unplaced nodes stay unplaced.
+	// Saving writes the canonical form: keys in a fixed order (Kind first, when it is not Script), optional keys omitted at
+	// their defaults, Settings, Inputs and values as stored. Unplaced nodes stay unplaced.
 	//
 	// The functions keep no state and may be called from any thread.
 	class VisualScriptSerializer
 	{
 	public:
-		static constexpr int FormatVersion = 2;
+		static constexpr int FormatVersion = 3;
 
 		// IDs are 1 to MaxID, unique across the document.
 		static constexpr uint32_t MaxID = 2147483647;
@@ -60,7 +61,7 @@ namespace Strada
 		static constexpr size_t MaxTypeBytes = 256;
 		static constexpr size_t MaxNodeTypeBytes = 1024;
 		static constexpr size_t MaxPinNameBytes = 128;
-		// Description, tooltips, the texts of comments and nodes, and every string inside a value.
+		// Description, tooltips, the texts of comments and nodes, and every string inside a value: UTF-8, lines allowed.
 		static constexpr size_t MaxTextBytes = 65536;
 		// Values (of variables and locals, and the members of Settings and Inputs) nest at most this deep; a value that is
 		// not an array or object is one level.

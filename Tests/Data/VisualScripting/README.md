@@ -3,19 +3,22 @@
 Shared visual-script documents (`.sgraph`) for the C++ format, the managed VM and the runtime integration, and the node
 library and views file of the visual script editor's tests. They are written in the writer's canonical form: keys in
 canonical order, `DumpJson` layout (tabs, one member per line, a final newline), dyadic float geometry. Each document has
-unique IDs, at least one comment and at least two unplaced nodes (no `Position`). Files are of version 2 of the format,
-except the migration fixture; the content form has no version.
+unique IDs, at least one comment and at least two unplaced nodes (no `Position`). Files are of version 3 of the format,
+except the migration fixtures; the content form has no version.
 
 | File | Form | Covers |
 |------|------|--------|
-| `Example.sgraph` | file (header + content) | The format example: a public variable with tooltip and range, an impure function, a reflected node, an unplaced node, a comment. It is the canonical-form golden, and free of the node keys of version 2 (`Split`, `Comment`, `Collapsed`, `Enabled`). |
-| `Version1/Example.sgraph` | file, version 1 | The bytes `Example.sgraph` had in version 1 of the format: the migration fixture. It loads without issues to the document of `Example.sgraph` and saves to exactly its bytes. |
+| `Example.sgraph` | file (header + content) | The format example: a public variable with tooltip and range, an impure function, a reflected node, an unplaced node, a comment. It is the canonical-form golden, and free of the node keys of version 2 (`Split`, `Comment`, `Collapsed`, `Enabled`) and of the keys of version 3 (`Kind`, parameters' `FormerNames`). |
+| `Version1/Example.sgraph` | file, version 1 | The bytes `Example.sgraph` had in version 1 of the format: a migration fixture. It loads without issues to the document of `Example.sgraph` and saves to exactly its bytes. |
+| `Version2/Example.sgraph` | file, version 2 | The bytes `Example.sgraph` had in version 2 of the format: a migration fixture. It loads without issues to the document of `Example.sgraph` and saves to exactly its bytes, which differ only in the header's digit. |
+| `Library.sgraph` | file, version 3 | A function library (`Kind` `Library`, written first): the pure `Clamp01(float Value) -> float Result`, whose input `Value` keeps its former name `X` (`FormerNames`, written last), the impure `Report(string Text)`, which logs through its local `Line`, and the latent `Pause(float Seconds)`, which calls `Clamp01` and, after a `Flow.Delay`, `Report`. No variables and no event graph nodes, only a comment box there. |
 | `Documents/Editor.json` | content | The node keys of version 2 where the editor shows them: each `Enabled` state on `Log.Info` calls, `Disabled` on a `Flow.Delay`, on `Event.Update` and on a `Function.Entry` (which ignores it, Warning `DisabledIgnored`), `DevelopmentOnly` on a delay and on a key event; `Split.Inputs` on the `Value` of `Set:Strada.TransformComponent.Translation` with field literals (`Value.X`, `Value.Z`) and a linked field (`Value.Y`); `Split.Outputs` `Hit` and `Hit.Point` on the raycast's `Hit`, whose fields `Hit.Point.Y` and `Hit.Distance` are linked; node comments and collapsed nodes. |
 | `Documents/Events.json` | content | Every event node: the nine standard events, key, mouse-button and gamepad-button events (`Gamepad` literal 1), and the custom event `Hit` (a `float` and a `Strada.Entity` parameter) raised by `Event.Send` to Self. |
 | `Documents/Flow.json` | content | Every flow node: Branch, Sequence (Count 3 and the default), Switch on `int`, `string` and `Strada.ForceMode` (Cases omitted), ForLoop and ForEach with `Break` linked, While, DoOnce, DoN, FlipFlop, Gate with all four inputs linked, Delay, RetriggerableDelay, WaitFrames, WaitUntil, Tween and Interval. |
 | `Documents/Data.json` | content | Every data node: Self, a Literal of each kind, Reroute of exec and of data, Select, IsValid, Convert, Make and Break, FormatString, Array.Length and Array.Get, and all sixteen operators, including mixed numeric joins and the operand-literal rule. |
 | `Documents/Functions.json` | content | A pure function, an impure recursive one with a local accumulator that raises an event, a latent one (a Delay, no Return), and an `int` to `float` implicit conversion into a pure call. |
 | `Documents/Variables.json` | content | A public variable of each exposable type (values in the literal encodings, the enum by name, entity and assets `"0"`), tooltips, ranges and a former name, private Matrix4, RaycastHit and component variables, variables without `Value`, and implicit conversions into `Variable.Set`. The public `Behaviour` variable is a `Strada.VisualScript` (`Value` `"0"`), the asset class track C added. |
+| `Documents/Language.json` | content | Every language kind of slice 3: Expressions of int (`Index + 1`), float (`a * b + sin(t)` with unlinked inputs; a short-circuit `&&` with a cast, `float(...)`) and vector type (`v.x`, a lowercase component); the private `float[]` variable `Samples` with a literal and a `Strada.Vector3[]` local; `Array.Make` typed (`int`) and inferred, `Array.Contains`, `IndexOf`, `Set`, `Add`, `RemoveAt`, `Insert` and `Append`; every `String.*` node in the function `Describe`, `ToInt` and `ToFloat` included; `Assert.AreEqual` inferred and with `TypeArguments`; a `Flow.Timeline` with a track of each type (`float`, the three vectors, `Strada.Color` and `exec`) whose `Rate` is linked from a formula. |
 | `Documents/Reflected.json` | content | The reflected nodes of spec section 11.1 (math, logging, transform, rigid body, `GetComponent<T>`, raycast, input, time, entity, testing). Built-in events, branches and an IsValid drive and guard them. |
 | `Documents/Reflected.sources.txt` | text | For each reflected node type, the C# declaration its type string and pins come from, and the enumerators the fixtures use. |
 | `Editor/Library.json` | node library (`{ "Types": [...], "Nodes": [...] }`) | A verbatim subset of the scripting runtime's node library (see below), which the editor's tests read with `VisualScriptLibrary::Parse` where they need a library but no runtime. |
@@ -32,11 +35,17 @@ except the migration fixture; the content form has no version.
   on node 30; the disabled nodes 17 and 19 pass the flow on at `Then` and `Completed`, the disabled event 22 starts
   nothing) and joins the VM's fixture tests and the native runs below. Where the spec leaves a VM detail open, the VM
   decides and the document follows.
+- **Slice 3, track F** (StradaTests, `VisualScriptSerializerTests` and `VisualScriptFuzzTests`): `Version2/Example.sgraph`
+  migrates to `Example.sgraph`; `Library.sgraph` and `Documents/Language.json` join the documents above (strict load, round
+  trip, the writer's layout); `Library.sgraph` alternates with the FeatureTest format sample as the seed of the
+  damaged-files case, each damaged as a file of version 3, 2 and 1. `Library.sgraph` analyzes without Errors once the VM
+  reads libraries (track VX, which corrects it where the VM decides otherwise), and `Documents/Language.json` once it has
+  the language's kinds (track VL, likewise).
 - **Track B** (ScriptCoreTests): every document and the content of `Example.sgraph` analyze with zero Error
   diagnostics. The test project copies this directory to its output as `VisualScripting/`.
 - **Track C** (StradaTests, `VisualScriptEngineTests`): the documents load and run through `VisualScriptEngine`.
   Branches guard every call that could fail, so they run without aborting errors whether or not the entity has children
-  or a rigid body. `Editor.json` runs with them (slice 2), and, wrapped in a version-2 file header, it is the alternate
+  or a rigid body. `Editor.json` runs with them (slice 2), and, wrapped in a file header of the current version, it is the alternate
   seed of `VisualScriptFuzzTests`' damaged-graphs-run case.
 - **Slice 2, the editor** (StradaEditorTests, which find this directory through `STRADA_TEST_DATA_DIR`): the document
   editing and canvas model tests parse `Editor/Library.json`, the canvas model's fixture semantics analyze with its
