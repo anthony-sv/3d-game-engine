@@ -348,3 +348,54 @@ TEST_CASE("VisualScriptEditor: a node comment's bubble is hit as its node where 
 	fixture.Context.SkipMoved = false;
 	CheckHit(fixture.Hit(rect.GetCenter()), VisualScriptHitKind::Background);
 }
+
+TEST_CASE("VisualScriptEditor: at Far and Overview a press on a comment's title plate over a node hits the title, at Detail the node")
+{
+	for (float const zoom : {0.12f, 0.3f})
+	{
+		CAPTURE(zoom);
+		HitFixture fixture;
+		VisualScriptComment comment;
+		comment.ID = 10;
+		comment.Text = "Region";
+		comment.Position = glm::vec2(50.0f);
+		comment.Size = glm::vec2(900.0f, 600.0f);
+		fixture.Document.Graph.Comments = {comment};
+		fixture.Sync();
+		fixture.SetZoom(zoom);
+		REQUIRE((fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Far ||
+		         fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Overview));
+		VisualScriptCommentVisual const visual = fixture.Model.GetComments().front();
+		VisualScriptRect const plate = Geometry::GetCommentLabelRect(visual, fixture.View, visual.Title.Width);
+		REQUIRE(!Geometry::IsEmpty(plate));
+		glm::vec2 const point = fixture.View.ToCanvas(plate.GetCenter());
+
+		// A node whose header lies under the plate's middle.
+		fixture.Document.Graph.Nodes = {MakeNode(1, "Flow.Branch", point - glm::vec2(10.0f))};
+		fixture.Sync();
+		fixture.SetZoom(zoom);
+		VisualScriptNodeVisual const node = fixture.Model.GetNodes()[fixture.NodeIndex(1)];
+		REQUIRE(Geometry::Contains(Geometry::GetHeaderRect(node), point));
+		CheckHit(fixture.Hit(point), VisualScriptHitKind::CommentTitle, 10);
+		// Where the plate reaches the comment's left edge, its resize handle keeps the mouse.
+		VisualScriptHit const edge = fixture.Hit(fixture.View.ToCanvas(glm::vec2(plate.Min.x + 1.0f, plate.GetCenter().y)));
+		CheckHit(edge, VisualScriptHitKind::CommentEdge, 10);
+		CHECK((edge.Edges & Geometry::LeftEdge) != 0);
+		if (zoom == 0.3f)
+		{
+			// Below the plate the node is hit as before.
+			glm::vec2 const below(point.x, Geometry::GetNodeRect(node).Max.y - 4.0f);
+			REQUIRE(!Geometry::Contains(plate, fixture.View.ToScreen(below)));
+			VisualScriptHit const hit = fixture.Hit(below);
+			CHECK(hit.Element == 1);
+			CHECK(hit.Kind != VisualScriptHitKind::CommentTitle);
+		}
+
+		// The same point at Detail: the node wins, the title being drawn under it in the bar there.
+		fixture.SetZoom(1.0f);
+		REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Detail);
+		VisualScriptHit const detail = fixture.Hit(point);
+		CHECK(detail.Element == 1);
+		CHECK(detail.Kind != VisualScriptHitKind::CommentTitle);
+	}
+}

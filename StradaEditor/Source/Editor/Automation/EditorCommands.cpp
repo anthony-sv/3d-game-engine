@@ -691,7 +691,9 @@ namespace Strada
 				Json::object({{"open", state.FindOpen}, {"text", state.FindText}, {"index", state.FindIndex}, {"count", state.FindCount}});
 			described["bookmarks"] = state.Bookmarks;
 			described["minimap"] = state.MinimapVisible;
-			described["panes"] = Json::object({{"sidebar", GetPaneStateName(state.Sidebar)}, {"details", GetPaneStateName(state.Details)}});
+			described["panes"] = Json::object({{"sidebar", GetPaneStateName(state.Sidebar)},
+			                                   {"details", GetPaneStateName(state.Details)},
+			                                   {"stacked", state.PanesStacked}});
 			described["shortcuts"] = state.ShortcutsOpen;
 			return described;
 		}

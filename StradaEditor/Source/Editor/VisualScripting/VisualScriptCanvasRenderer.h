@@ -70,6 +70,8 @@ namespace Strada
 		// Unselected nodes (reroutes included), in draw order (GetVisualScriptNodeDrawKey).
 		Nodes,
 		SelectedNodes,
+		// Comment titles at Far and Overview, on plates above the nodes (spec §11.1).
+		CommentLabels,
 		// The ghost wire, the marquee, the cut line, link pulses, snap glows, the hover pill and pin tooltips.
 		Overlay,
 		Minimap
@@ -80,6 +82,8 @@ namespace Strada
 	{
 		Grid = 0,
 		Comment,
+		// A comment's title on its plate at Far and Overview (its Screen is the plate's rectangle), marked Body and Title.
+		CommentLabel,
 		Wire,
 		Node,
 		Reroute,
@@ -457,7 +461,14 @@ namespace Strada
 		void Cull(Frame& frame);
 		void DrawGrid(Frame& frame);
 		void DrawComments(Frame& frame);
+		// A comment as this frame draws it: where the gesture in progress moves or resizes it.
+		static VisualScriptCommentVisual GetDrawnComment(Frame const& frame, uint32_t index);
 		void DrawComment(Frame& frame, uint32_t index);
+		// The titles of the visible comments at Far and Overview, largest comment first, after the nodes.
+		void DrawCommentLabels(Frame& frame);
+		// Draws a comment's title into its rectangle (VisualScriptGeometry::GetCommentTitleRect), ellipsized to its width; false
+		// when nothing of it was drawn.
+		bool DrawCommentTitle(Frame& frame, VisualScriptCommentVisual const& comment, VisualScriptRect const& title);
 		void DrawWires(Frame& frame, bool highlighted);
 		void DrawWire(Frame& frame, uint32_t link, bool highlighted);
 		void DrawNodes(Frame& frame, bool selected);

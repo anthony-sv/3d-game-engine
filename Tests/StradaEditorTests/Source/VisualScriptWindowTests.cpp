@@ -328,6 +328,142 @@ TEST_CASE("VisualScriptEditor: the panes shown over a narrow canvas list and edi
 	CHECK(fixture.Panel->GetState().Details == VisualScriptPaneState::Overlay);
 }
 
+TEST_CASE("VisualScriptEditor: panes stand beside the canvas, else stack in one column, else auto-hide")
+{
+	VisualScriptPaneSettings const panes;
+	REQUIRE(panes.Sidebar == 16.0f);
+	REQUIRE(panes.Details == 20.0f);
+
+	SUBCASE("1366 px at UI scale 1: too narrow for a column, both auto-hidden")
+	{
+		VisualScriptWindowLayout const layout = ComputeVisualScriptWindowLayout(768.0f, 15.0f, 4.0f, panes);
+		CHECK_FALSE(layout.Stacked);
+		CHECK(layout.SidebarState == VisualScriptPaneState::AutoHidden);
+		CHECK(layout.DetailsState == VisualScriptPaneState::AutoHidden);
+		CHECK(layout.Canvas == doctest::Approx(768.0f));
+	}
+	SUBCASE("1920 px at UI scale 1: stacked in a column as wide as Details")
+	{
+		VisualScriptWindowLayout const layout = ComputeVisualScriptWindowLayout(1086.0f, 15.0f, 4.0f, panes);
+		CHECK(layout.Stacked);
+		CHECK(layout.SidebarState == VisualScriptPaneState::Shown);
+		CHECK(layout.DetailsState == VisualScriptPaneState::Shown);
+		CHECK(layout.Column == doctest::Approx(300.0f));
+		CHECK(layout.Canvas == doctest::Approx(782.0f));
+		CHECK(layout.Sidebar == 0.0f);
+		CHECK(layout.Details == 0.0f);
+	}
+	SUBCASE("1920 px at UI scale 1.25: stacked in the column the canvas's minimum leaves")
+	{
+		VisualScriptWindowLayout const layout = ComputeVisualScriptWindowLayout(1082.0f, 18.75f, 5.0f, panes);
+		CHECK(layout.Stacked);
+		CHECK(layout.Column == doctest::Approx(327.0f));
+		CHECK(layout.Canvas == doctest::Approx(750.0f));
+		CHECK(layout.Canvas >= VisualScriptCanvasMinWidth * 18.75f - 0.01f);
+	}
+	SUBCASE("2560 px at UI scale 1: side by side")
+	{
+		VisualScriptWindowLayout const layout = ComputeVisualScriptWindowLayout(1454.0f, 15.0f, 4.0f, panes);
+		CHECK_FALSE(layout.Stacked);
+		CHECK(layout.Sidebar == doctest::Approx(240.0f));
+		CHECK(layout.Details == doctest::Approx(300.0f));
+		CHECK(layout.Canvas == doctest::Approx(906.0f));
+	}
+	SUBCASE("one pane on: beside the canvas or auto-hidden, never stacked")
+	{
+		VisualScriptPaneSettings details = panes;
+		details.ShowSidebar = false;
+		VisualScriptWindowLayout layout = ComputeVisualScriptWindowLayout(1086.0f, 15.0f, 4.0f, details);
+		CHECK_FALSE(layout.Stacked);
+		CHECK(layout.SidebarState == VisualScriptPaneState::Hidden);
+		CHECK(layout.Details == doctest::Approx(300.0f));
+		layout = ComputeVisualScriptWindowLayout(768.0f, 15.0f, 4.0f, details);
+		CHECK_FALSE(layout.Stacked);
+		CHECK(layout.DetailsState == VisualScriptPaneState::AutoHidden);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a window 1086 pixels wide shows My Script above Details beside a canvas of 40 font sizes, and "
+          "resizing switches the arrangement without changing the user's toggles")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptVariable speed;
+	speed.ID = 100;
+	speed.Name = "Speed";
+	speed.Type = "float";
+	document.Variables.push_back(std::move(speed));
+	PanelFixture fixture(document);
+	VisualScriptPaneSettings const panes = fixture.Settings.GetPanes();
+	auto const check = [&](float width, bool stacked, VisualScriptPaneState state)
+	{
+		CAPTURE(width);
+		fixture.WindowSize = ImVec2(width, 700.0f);
+		fixture.Frames(2);
+		VisualScriptEditorState const editor = fixture.Panel->GetState();
+		CHECK(editor.PanesStacked == stacked);
+		CHECK(editor.Sidebar == state);
+		CHECK(editor.Details == state);
+		CHECK(fixture.Settings.GetPanes() == panes);
+	};
+	check(1600.0f, false, VisualScriptPaneState::Shown);
+	check(1086.0f, true, VisualScriptPaneState::Shown);
+	check(784.0f, false, VisualScriptPaneState::AutoHidden);
+	check(1086.0f, true, VisualScriptPaneState::Shown);
+	check(1600.0f, false, VisualScriptPaneState::Shown);
+	check(1086.0f, true, VisualScriptPaneState::Shown);
+	fixture.CheckDrawingChangesNothing();
+
+	// One column left of the canvas: My Script on top, Details below it, the canvas keeping its 40 font sizes.
+	ImGuiWindow const* sidebar = fixture.GetChild("##sidebar");
+	ImGuiWindow const* details = fixture.GetChild("##details");
+	ImGuiWindow const* canvas = fixture.GetChild("##canvas");
+	CHECK(canvas->Size.x >= VisualScriptCanvasMinWidth * GetFontSize() - 0.5f);
+	CHECK(sidebar->Pos.x == doctest::Approx(details->Pos.x));
+	CHECK(sidebar->Size.x == doctest::Approx(details->Size.x));
+	CHECK(sidebar->Pos.y + sidebar->Size.y < details->Pos.y);
+	CHECK(details->Pos.x + details->Size.x < canvas->Pos.x);
+	CHECK(details->Pos.y + details->Size.y == doctest::Approx(canvas->Pos.y + canvas->Size.y));
+	CHECK(sidebar->Size.y / (details->Pos.y + details->Size.y - sidebar->Pos.y) == doctest::Approx(VisualScriptStackShare).epsilon(0.02));
+
+	// The splitter between them moves the share for this window, and stores nothing.
+	ImVec2 const splitter(sidebar->Pos.x + sidebar->Size.x * 0.5f, (sidebar->Pos.y + sidebar->Size.y + details->Pos.y) * 0.5f);
+	float const top = sidebar->Size.y;
+	fixture.Gui.DragPath(splitter, ImVec2(splitter.x, splitter.y + 60.0f), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetChild("##sidebar")->Size.y == doctest::Approx(top + 60.0f).epsilon(0.02));
+	CHECK(fixture.Settings.GetPanes() == panes);
+	fixture.Gui.DragPath(ImVec2(splitter.x, splitter.y + 60.0f), splitter, fixture.Drawer());
+	fixture.Frames(1);
+
+	// Row keys reach both panes of the column: Delete in My Script deletes its variable (no node uses it, so it does not ask),
+	// Delete in Details deletes the node it shows.
+	size_t const undo = fixture.GetUndoCount();
+	std::optional<std::pair<glm::vec2, glm::vec2>> const row =
+		fixture.Panel->GetSidebar().FindRow({VisualScriptElementKind::Variable, 100});
+	REQUIRE(row.has_value());
+	fixture.Click((row->first + row->second) * 0.5f);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Sidebar);
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.GetDocument().Variables.empty());
+
+	fixture.Click(Testing::CanvasPoint(fixture.Model(), 3, glm::vec2(0.5f, 0.06f)));
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetDetails().GetSubject() == VisualScriptDetailsSubject::Node);
+	details = fixture.GetChild("##details");
+	fixture.Click(glm::vec2(details->Pos.x + details->Size.x * 0.5f, details->Pos.y + details->Size.y - 8.0f));
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Details);
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.FindNode(3) == nullptr);
+	CHECK(fixture.FindNode(2) != nullptr);
+	CHECK(fixture.Panel->GetState().PanesStacked);
+}
+
 TEST_CASE("VisualScriptEditor: without the scripting runtime the degraded notice shows, offers the console and blinks when a "
           "gesture needs the runtime")
 {

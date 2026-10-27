@@ -482,6 +482,9 @@ namespace Strada
 		bool MinimapVisible = false;
 		VisualScriptPaneState Sidebar = VisualScriptPaneState::Shown;
 		VisualScriptPaneState Details = VisualScriptPaneState::Shown;
+		// Both panes are shown in one column beside the canvas, My Script above Details (the window is too narrow for them
+		// side by side).
+		bool PanesStacked = false;
 		// The shortcut sheet.
 		bool ShortcutsOpen = false;
 		// Toolbar actions the overflow rule moved into the view menu.

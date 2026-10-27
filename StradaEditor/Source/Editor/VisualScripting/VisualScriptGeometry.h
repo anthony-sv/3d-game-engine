@@ -80,6 +80,13 @@ namespace Strada
 		// What the spatial index holds for a wire: its control points' box, this much larger on every side (the stroke).
 		inline constexpr float WireBoundsMargin = 3.0f;
 
+		// Comment titles: drawn at least CommentTitleMinGlyphs glyphs wide or not at all; at Far and Overview on a plate of the
+		// comment's bar colour, CommentLabelPaddingLogicalPixels around the title and rounded by CommentLabelRoundingLogicalPixels
+		// (both × UI scale).
+		inline constexpr uint32_t CommentTitleMinGlyphs = 3;
+		inline constexpr float CommentLabelPaddingLogicalPixels = 4.0f;
+		inline constexpr float CommentLabelRoundingLogicalPixels = 4.0f;
+
 		// The bits of VisualScriptHit::Edges: which edges of a comment box a point is on.
 		inline constexpr uint8_t LeftEdge = 1u << 0;
 		inline constexpr uint8_t TopEdge = 1u << 1;
@@ -198,6 +205,17 @@ namespace Strada
 		// The text size of a comment's title on the screen: CommentTitleTextSize × zoom, at least CommentTitleMinLogicalPixels,
 		// times the UI scale, floored to the text ladder.
 		float GetCommentTitlePixels(float pixelsPerUnit, float uiScale);
+		// Where a comment's title is drawn, in screen pixels (spec §11.1 rule 3): GetCommentTitlePixels high, centred in the
+		// title bar, from max(the box's left edge, the canvas's) + an inset of max(HorizontalPadding cu, 4 logical pixels), and
+		// as wide as the title at that size (titleWidthCu is its width at CommentTitleTextSize, VisualScriptTextRef::Width) but no
+		// wider than the box and the canvas leave before the same inset on the right. Empty when the bar is above or below the
+		// canvas or lower than the text, and when less than CommentTitleMinGlyphs of the title's average glyph width fits (the
+		// average of the title's drawn bytes, its ellipsis counted as one; a title that is shorter needs its whole width).
+		VisualScriptRect GetCommentTitleRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view, float titleWidthCu);
+		// The plate a comment's title is drawn on at Far and Overview, above the nodes (spec §11.1 rules 4 and 5): the title's
+		// rectangle grown by CommentLabelPaddingLogicalPixels × UI scale, which keeps it inside the box and the canvas. Empty when
+		// the title is. Screen pixels; the renderer draws it and hit testing tests it, so what is hit is what is drawn.
+		VisualScriptRect GetCommentLabelRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view, float titleWidthCu);
 		// Which edges of the comment a point is within tolerance of (LeftEdge | TopEdge | ...): a corner gives two. 0 when the
 		// point is farther from every edge, or outside the comment's box grown by the tolerance.
 		uint8_t GetCommentEdges(VisualScriptCommentVisual const& comment, glm::vec2 point, float tolerance);

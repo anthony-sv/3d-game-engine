@@ -1392,7 +1392,7 @@ TEST_CASE("GraphCommands: graph.open opens a window that its next draw applies, 
 	CHECK(editor["drawer"] == "Closed");
 	CHECK(editor["find"] == Json::object({{"open", false}, {"text", ""}, {"index", 0}, {"count", 0}}));
 	CHECK(editor["bookmarks"] == Json::array());
-	CHECK(editor["panes"] == Json::object({{"sidebar", "Shown"}, {"details", "Shown"}}));
+	CHECK(editor["panes"] == Json::object({{"sidebar", "Shown"}, {"details", "Shown"}, {"stacked", false}}));
 	CHECK(editor["shortcuts"] == false);
 
 	// A function's graph with a node and its comment selected, the node the primary selection; the problems drawer.
@@ -1840,18 +1840,25 @@ TEST_CASE("GraphCommands: graph.editors reports what a window shows beyond its d
 	panes.ShowDetails = false;
 	fixture.Settings.SetPanes(panes);
 	fixture.Frames(2);
-	CHECK(fixture.Editor(graph)["panes"] == Json::object({{"sidebar", "Shown"}, {"details", "Hidden"}}));
+	CHECK(fixture.Editor(graph)["panes"] == Json::object({{"sidebar", "Shown"}, {"details", "Hidden"}, {"stacked", false}}));
 	panes.ShowDetails = true;
 	fixture.Settings.SetPanes(panes);
 	std::string const name = VisualScriptEditorPanel::GetWindowName(handle, {});
-	fixture.Gui.Frame(
-		[&fixture, &name]
-		{
-			ImGui::SetWindowSize(name.c_str(), ImVec2(400.0f, 600.0f));
-			fixture.Editors.OnImGuiRender();
-		});
-	fixture.Frames(2);
-	CHECK(fixture.Editor(graph)["panes"] == Json::object({{"sidebar", "AutoHidden"}, {"details", "AutoHidden"}}));
+	auto const resize = [&fixture, &name](float width)
+	{
+		fixture.Gui.Frame(
+			[&fixture, &name, width]
+			{
+				ImGui::SetWindowSize(name.c_str(), ImVec2(width, 600.0f));
+				fixture.Editors.OnImGuiRender();
+			});
+		fixture.Frames(2);
+	};
+	// Too narrow for both beside the canvas, wide enough for them stacked in one column.
+	resize(1086.0f);
+	CHECK(fixture.Editor(graph)["panes"] == Json::object({{"sidebar", "Shown"}, {"details", "Shown"}, {"stacked", true}}));
+	resize(400.0f);
+	CHECK(fixture.Editor(graph)["panes"] == Json::object({{"sidebar", "AutoHidden"}, {"details", "AutoHidden"}, {"stacked", false}}));
 
 	// A commit whose file cannot be written: not saved, and a toast says why.
 	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"select", Json::array({12})}}));

@@ -95,7 +95,9 @@ namespace Strada
 		VisualScriptHitScratch* Scratch = nullptr;
 	};
 
-	// What the mouse (screen pixels) is over. The first match wins: the minimap, a pin, a node's badge, a node's header, a
+	// What the mouse (screen pixels) is over. The first match wins: the minimap, at Far and Overview a comment's title plate
+	// (VisualScriptGeometry::GetCommentLabelRect, drawn above the nodes there: CommentTitle, or CommentEdge where it reaches its
+	// comment's resize handles), a pin, a node's badge, a node's header, a
 	// node's body (its comment's bubble included at Compact and Detail, where the bubble is drawn with its text), a reroute's
 	// dot, a wire (within WireHitLogicalPixels of its drawn polyline, the nearest), a comment's edge (within
 	// CommentHandleLogicalPixels), a comment's title bar, the background. Nodes are tried in reverse draw order

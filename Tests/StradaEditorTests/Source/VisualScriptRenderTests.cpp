@@ -165,8 +165,10 @@ TEST_CASE("VisualScriptEditor: each level of detail draws its elements of a node
 		CHECK(!delay.Has(Elements::Header));
 		CHECK(!delay.Has(Elements::Shadow));
 		CHECK(!delay.Has(Elements::PinLabels));
+		// The comment's title is drawn on its plate above the nodes, not in its bar.
 		VisualScriptDrawRecordItem const& comment = fixture.Item(VisualScriptDrawItemKind::Comment, 20);
-		CHECK(comment.Has(Elements::Title));
+		CHECK(!comment.Has(Elements::Title));
+		CHECK(fixture.Item(VisualScriptDrawItemKind::CommentLabel, 20).Has(Elements::Body | Elements::Title));
 	}
 	SUBCASE("Far at 12 %: rectangles")
 	{
@@ -1207,4 +1209,119 @@ TEST_CASE("VisualScriptEditor: the find bar's matches are outlined in amber, and
 	CHECK(preview.GetStats().VisibleNodes == 1);
 	// The canvas's own record and counts are untouched by it.
 	CHECK(fixture.Record.Items.size() == canvasItems);
+}
+
+TEST_CASE("VisualScriptEditor: at Far and Overview comment titles are drawn on plates above every node and inside the canvas, at "
+          "Compact and Detail in their bars")
+{
+	Testing::CanvasRenderFixture fixture(MakeRenderDocument());
+	glm::vec2 const canvasMin = fixture.Model.GetView().GetCanvasMin();
+	glm::vec2 const canvasMax = canvasMin + fixture.Model.GetView().GetCanvasSize();
+	for (float const zoom : {0.12f, 0.3f})
+	{
+		CAPTURE(zoom);
+		fixture.SetView(glm::vec2(480.0f, 60.0f), zoom);
+		std::vector<VisualScriptDrawRecordItem> const labels = ItemsOf(fixture.Record, VisualScriptDrawItemKind::CommentLabel);
+		std::vector<VisualScriptDrawRecordItem> const nodes = ItemsOf(fixture.Record, VisualScriptDrawItemKind::Node);
+		REQUIRE(labels.size() == 1);
+		REQUIRE(!nodes.empty());
+		for (VisualScriptDrawRecordItem const& label : labels)
+		{
+			CHECK(label.Layer == VisualScriptDrawLayer::CommentLabels);
+			CHECK(label.Has(Elements::Body | Elements::Title));
+			for (VisualScriptDrawRecordItem const& node : nodes)
+			{
+				CHECK(label.Order > node.Order);
+			}
+			CHECK(label.Screen.Min.x >= canvasMin.x);
+			CHECK(label.Screen.Min.y >= canvasMin.y);
+			CHECK(label.Screen.Max.x <= canvasMax.x);
+			CHECK(label.Screen.Max.y <= canvasMax.y);
+		}
+		VisualScriptDrawRecordItem const& comment = fixture.Item(VisualScriptDrawItemKind::Comment, 20);
+		CHECK(!comment.Has(Elements::Title));
+		// The plate is the geometry's, which hit testing tests, and it lies inside the comment's box.
+		std::optional<uint32_t> const index = fixture.Model.GetCanvas().FindComment(20);
+		REQUIRE(index.has_value());
+		VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
+		CHECK(labels.front().Screen == VisualScriptGeometry::GetCommentLabelRect(visual, fixture.Model.GetView(), visual.Title.Width));
+		CHECK(labels.front().Color == visual.BarColor);
+		CHECK(labels.front().Screen.Min.x >= comment.Screen.Min.x);
+		CHECK(labels.front().Screen.Max.x <= comment.Screen.Max.x);
+		CHECK(labels.front().Screen.Min.y >= comment.Screen.Min.y);
+	}
+	for (float const zoom : {0.5f, 1.0f})
+	{
+		CAPTURE(zoom);
+		fixture.SetView(glm::vec2(480.0f, 60.0f), zoom);
+		CHECK(fixture.Record.Count(VisualScriptDrawItemKind::CommentLabel) == 0);
+		CHECK(fixture.Item(VisualScriptDrawItemKind::Comment, 20).Has(Elements::Title));
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a comment whose left edge is off the canvas draws its title from the canvas's left edge, ellipsized, "
+          "and a title without room or above the canvas is left out")
+{
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(-1400.0f, 120.0f))};
+	VisualScriptComment wide;
+	wide.ID = 20;
+	wide.Text = "Movement and input handling for the player character";
+	wide.Position = glm::vec2(-2000.0f, 0.0f);
+	wide.Size = glm::vec2(1500.0f, 400.0f);
+	// A narrow region whose title has no room for three of its glyphs at Overview.
+	VisualScriptComment narrow;
+	narrow.ID = 21;
+	narrow.Text = "Spawning";
+	narrow.Position = glm::vec2(-400.0f, 0.0f);
+	narrow.Size = glm::vec2(40.0f, 400.0f);
+	document.Graph.Comments = {wide, narrow};
+	Testing::CanvasRenderFixture fixture(document);
+	VisualScriptView const& view = fixture.Model.GetView();
+	glm::vec2 const canvasMin = view.GetCanvasMin();
+	// At 30 % the canvas's left edge shows x = -1000: the wide comment starts 1000 units left of it and ends at x = 150 pixels.
+	fixture.SetView(glm::vec2(-1000.0f + 800.0f / 0.3f, 200.0f), 0.3f);
+	REQUIRE(view.GetDetailLevel() == VisualScriptDetailLevel::Overview);
+
+	std::optional<uint32_t> const index = fixture.Model.GetCanvas().FindComment(20);
+	REQUIRE(index.has_value());
+	VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
+	VisualScriptDrawRecordItem const& comment = fixture.Item(VisualScriptDrawItemKind::Comment, 20);
+	REQUIRE(comment.Screen.Min.x < canvasMin.x);
+	VisualScriptDrawRecordItem const& label = fixture.Item(VisualScriptDrawItemKind::CommentLabel, 20);
+	CHECK(label.Has(Elements::Title));
+	float const padding = VisualScriptGeometry::CommentLabelPaddingLogicalPixels * view.GetUIScale();
+	float const inset = std::max(VisualScriptCanvasMetrics::HorizontalPadding * view.GetPixelsPerUnit(), 4.0f * view.GetUIScale());
+	CHECK(label.Screen.Min.x == doctest::Approx(canvasMin.x + inset - padding));
+	CHECK(label.Screen.Max.x == doctest::Approx(comment.Screen.Max.x - inset + padding));
+	// Ellipsized: the title at its drawn size is wider than the plate leaves it.
+	float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(view.GetPixelsPerUnit(), view.GetUIScale());
+	float const titleWidth = visual.Title.Width * titlePixels / VisualScriptCanvasMetrics::CommentTitleTextSize;
+	CHECK(label.Screen.GetSize().x - 2.0f * padding < titleWidth);
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::CommentLabel, 21) == nullptr);
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::Comment, 21) != nullptr);
+
+	// At Detail the title stays in the bar, from the canvas's left edge too.
+	fixture.SetView(glm::vec2(-1000.0f + 800.0f, 200.0f), 1.0f);
+	VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(visual, view, visual.Title.Width);
+	REQUIRE(!VisualScriptGeometry::IsEmpty(title));
+	CHECK(title.Min.x == doctest::Approx(canvasMin.x + std::max(VisualScriptCanvasMetrics::HorizontalPadding, 4.0f)));
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Comment, 20).Has(Elements::Title));
+
+	// A comment whose bar is above the canvas draws no title (no vertical stickiness).
+	fixture.SetView(glm::vec2(-1000.0f + 800.0f / 0.3f, 1700.0f), 0.3f);
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Comment, 20).Screen.Min.y < canvasMin.y);
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::CommentLabel, 20) == nullptr);
+}
+
+TEST_CASE("VisualScriptEditor: comment plates are opaque in their bar colour, on which their titles contrast at least 4.5:1")
+{
+	VisualScriptThemeAnchors const theme;
+	for (VisualScriptCommentSwatch const& swatch : VisualScriptCommentSwatches)
+	{
+		CAPTURE(swatch.Name);
+		VisualScriptCommentColors const colors = ComputeVisualScriptCommentColors(swatch.Color, theme);
+		CHECK((colors.Bar >> 24) == 0xFFu);
+		CHECK(GetVisualScriptContrast(colors.BarText, colors.Bar) >= 4.5f);
+	}
 }

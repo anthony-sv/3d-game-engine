@@ -57,20 +57,27 @@ namespace Strada
 	// How a graph window's body is shared between its panes and its canvas, in pixels.
 	struct VisualScriptWindowLayout
 	{
-		// The panes' widths; 0 for a pane that is not beside the canvas (hidden, or auto-hidden).
+		// The panes' widths beside the canvas; 0 for a pane that is not beside it (hidden, auto-hidden, or in the stacked column).
 		float Sidebar = 0.0f;
 		float Details = 0.0f;
 		float Canvas = 0.0f;
+		// Stacked: both panes in one column of width Column on the sidebar's side of the canvas, My Script on top and Details
+		// below a horizontal splitter (both states Shown).
+		bool Stacked = false;
+		float Column = 0.0f;
 		// Shown, Hidden (turned off) or AutoHidden (turned on, but the window is too narrow for it); never Overlay, which is
 		// the window's state on top of AutoHidden.
 		VisualScriptPaneState SidebarState = VisualScriptPaneState::Shown;
 		VisualScriptPaneState DetailsState = VisualScriptPaneState::Shown;
 	};
 
-	// The layout rule of spec §10.1 rule 2: each shown pane takes its width (font sizes), at least its minimum and at most
-	// VisualScriptPaneMaxShare of the window, a splitter of splitter pixels beside it; the canvas keeps at least
-	// VisualScriptCanvasMinWidth font sizes, so in a window too narrow for that Details is auto-hidden first, then the sidebar
-	// (the user's toggles do not change). Pure.
+	// The layout rule (spec §10.1 rule 2 of slice 2, with slice 3's §11.2), from the width alone each frame; the user's toggles
+	// do not change. Each shown pane takes its width (font sizes), at least its minimum and at most VisualScriptPaneMaxShare of
+	// the window, and the canvas keeps at least VisualScriptCanvasMinWidth font sizes:
+	// 1. side by side, each pane with a splitter of splitter pixels beside it, when both fit so;
+	// 2. else, with both panes on, stacked in one column (a splitter between it and the canvas) when the canvas leaves it at
+	//    least VisualScriptDetailsMinWidth font sizes: the column is as wide as the wider pane, at most what the canvas leaves;
+	// 3. else Details is auto-hidden first, then the sidebar. With one pane on, rules 1 and 3 apply to it alone. Pure.
 	[[nodiscard]] VisualScriptWindowLayout ComputeVisualScriptWindowLayout(float width, float fontSize, float splitter,
 	                                                                       VisualScriptPaneSettings const& panes);
 
@@ -188,6 +195,11 @@ namespace Strada
 	inline constexpr float VisualScriptCanvasMinWidth = 40.0f;
 	inline constexpr float VisualScriptDrawerDefaultHeight = 10.0f;
 	inline constexpr float VisualScriptDrawerMinHeight = 4.0f;
+	// The stacked column's share above its splitter (My Script's) when a window opens; dragging the splitter changes it for the
+	// window, and it is not stored. Each pane of the column keeps at least VisualScriptStackedPaneMinHeight font sizes while the
+	// column is high enough for both.
+	inline constexpr float VisualScriptStackShare = 0.45f;
+	inline constexpr float VisualScriptStackedPaneMinHeight = 4.0f;
 	// A pane beside the canvas takes at most this share of the window; an overlay pane at most this share of the canvas.
 	inline constexpr float VisualScriptPaneMaxShare = 0.4f;
 	inline constexpr float VisualScriptOverlayMaxShare = 0.8f;
@@ -700,6 +712,8 @@ namespace Strada
 		VisualScriptSaveState m_SaveState = VisualScriptSaveState::Saved;
 		VisualScriptDrawerMode m_DrawerMode = VisualScriptDrawerMode::Closed;
 		float m_DrawerHeight = VisualScriptDrawerDefaultHeight;
+		// The stacked column's share above its splitter (VisualScriptStackShare).
+		float m_StackShare = VisualScriptStackShare;
 		bool m_ShortcutsOpen = false;
 		// The comment menu's custom colour while it is picked (sRGB), and its comment.
 		std::optional<glm::vec4> m_CustomColor;
