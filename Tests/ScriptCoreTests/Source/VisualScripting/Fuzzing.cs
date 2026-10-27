@@ -46,9 +46,10 @@ internal sealed class FuzzRandom
 }
 
 // Damages visual-script documents the way bad files, hand edits and careless tools do: members and elements go missing,
-// repeat or change kind; nodes change type or repeat by the thousand; links name wrong pins, missing nodes or the node
-// they leave (cycles); numbers become extreme; values nest far too deep; and the text itself is cut short or has a byte
-// changed. Deterministic, so a failure reproduces from its seed and round.
+// repeat or change kind; nodes change type or repeat by the thousand, or are disabled; pins are split, their Split lists
+// damaged; links name wrong pins, missing nodes or the node they leave (cycles); numbers become extreme; values nest far
+// too deep; and the text itself is cut short or has a byte changed. Deterministic, so a failure reproduces from its seed
+// and round.
 internal sealed class DocumentMutator
 {
 	private static readonly string[] s_Extremes =
@@ -64,6 +65,12 @@ internal sealed class DocumentMutator
 	private static readonly int[] s_Depths = [15, 16, 17, 60, 63, 64, 65, 300];
 
 	private static readonly int[] s_Copies = [8, 200, 3000];
+
+	private static readonly string[] s_EnabledStates = ["Disabled", "DevelopmentOnly", "Enabled"];
+
+	// Fields of the structs graphs use (vectors, quaternions, colors, rays, raycast hits, the test library's Pair), and names
+	// no struct has.
+	private static readonly string[] s_Fields = ["X", "Y", "Z", "W", "R", "A", "Origin", "Direction", "Point", "Distance", "First", "Nothing", ""];
 
 	private readonly FuzzRandom m_Random;
 
@@ -86,7 +93,7 @@ internal sealed class DocumentMutator
 	}
 
 	// Applies one or two changes that tend to keep a graph valid but change what it does: links that loop back, links
-	// rewired or gone, nodes repeated under new IDs, extreme inputs.
+	// rewired or gone, nodes repeated under new IDs, nodes disabled or enabled, pins split, extreme inputs.
 	internal JsonNode? Rewire(JsonNode? original, int round)
 	{
 		JsonNode? document = original?.DeepClone();
@@ -95,13 +102,15 @@ internal sealed class DocumentMutator
 			List<Place> places = [];
 			Collect(document, null, null, -1, null, places);
 			Facts facts = new(places);
-			bool changed = Pick(7) switch
+			bool changed = Pick(8) switch
 			{
 				0 => LoopLink(facts),
 				1 => LeadBack(facts),
 				2 => SwapTargets(facts),
 				3 => RemoveLink(facts),
 				4 => RepeatNode(facts, 1 + Pick(3)),
+				5 => SetEnabled(facts, true),
+				6 => SplitPin(facts, true),
 				_ => MakeExtremeInput(places),
 			};
 			if (!changed)
@@ -242,6 +251,18 @@ internal sealed class DocumentMutator
 				break;
 			case 15:
 				return Replace(document, places[Pick(places.Count)], Nest(s_Depths[Pick(s_Depths.Length)]));
+			case 16:
+				if (SetEnabled(facts, false))
+				{
+					return document;
+				}
+				break;
+			case 17:
+				if (SplitPin(facts, false))
+				{
+					return document;
+				}
+				break;
 			default:
 				break;
 		}
@@ -328,6 +349,140 @@ internal sealed class DocumentMutator
 			_ => type,
 		};
 		return true;
+	}
+
+	// A node is disabled, development-only or enabled again. When damaging, its Enabled may also be no state at all, or
+	// about half of the nodes are disabled, so that nodes the other damage broke are disabled too.
+	private bool SetEnabled(Facts facts, bool valid)
+	{
+		if (facts.Nodes.Count == 0)
+		{
+			return false;
+		}
+		if (!valid && Pick(2) == 0)
+		{
+			foreach (JsonObject each in facts.Nodes)
+			{
+				if (Pick(2) == 0)
+				{
+					each["Enabled"] = "Disabled";
+				}
+			}
+			return true;
+		}
+		JsonObject node = facts.Nodes[Pick(facts.Nodes.Count)];
+		node["Enabled"] = valid || Pick(2) == 0 ? s_EnabledStates[Pick(s_EnabledStates.Length)] : MakeValue();
+		return true;
+	}
+
+	// A pin a link or a stored value of a node names is split: the node's Split lists it (and a field of it now and then), and
+	// the links and the value move to fields of it, which the pin's type may or may not have. When damaging, the Split
+	// becomes anything: a value of another kind, lists of another kind, entries that are no paths, repeat, lack their parent
+	// or are far too many.
+	private bool SplitPin(Facts facts, bool valid)
+	{
+		if (facts.Nodes.Count == 0)
+		{
+			return false;
+		}
+		JsonObject node = facts.Nodes[Pick(facts.Nodes.Count)];
+		if (!valid && Pick(2) == 0)
+		{
+			node["Split"] = MakeSplit(facts);
+			return true;
+		}
+		List<(JsonArray Endpoint, bool Input)> ends = node["ID"] is JsonValue id && id.TryGetValue(out long value) ? facts.EndsOf(value) : [];
+		List<(string Pin, bool Input)> pins = [];
+		foreach ((JsonArray endpoint, bool input) in ends)
+		{
+			if (endpoint[1] is JsonValue name && name.TryGetValue(out string? text))
+			{
+				pins.Add((text, input));
+			}
+		}
+		if (node["Inputs"] is JsonObject stored)
+		{
+			foreach (string key in ((IDictionary<string, JsonNode?>)stored).Keys)
+			{
+				pins.Add((key, true));
+			}
+		}
+		if (pins.Count == 0)
+		{
+			return false;
+		}
+		(string pin, bool splitInput) = pins[Pick(pins.Count)];
+		JsonObject split = node["Split"] as JsonObject ?? [];
+		node["Split"] = split;
+		string side = splitInput ? "Inputs" : "Outputs";
+		JsonArray list = split[side] as JsonArray ?? [];
+		split[side] = list;
+		list.Add(pin);
+		string field = $"{pin}.{s_Fields[Pick(s_Fields.Length)]}";
+		if (Pick(3) == 0)
+		{
+			list.Add(field);
+		}
+		foreach ((JsonArray endpoint, bool input) in ends)
+		{
+			if (input == splitInput && endpoint[1] is JsonValue name && name.TryGetValue(out string? text) && text == pin && Pick(4) != 0)
+			{
+				endpoint[1] = $"{(Pick(3) == 0 ? field : pin)}.{s_Fields[Pick(s_Fields.Length)]}";
+			}
+		}
+		if (splitInput && node["Inputs"] is JsonObject inputs && inputs[pin] is { } literal && Pick(2) == 0)
+		{
+			inputs.Remove(pin);
+			inputs[$"{pin}.{s_Fields[Pick(s_Fields.Length)]}"] = literal is JsonArray { Count: > 0 } components ? components[0]?.DeepClone() : literal;
+		}
+		return true;
+	}
+
+	// A damaged Split.
+	private JsonNode? MakeSplit(Facts facts)
+	{
+		if (Pick(4) == 0)
+		{
+			return MakeValue();
+		}
+		JsonObject split = [];
+		foreach (string side in (string[])["Inputs", "Outputs"])
+		{
+			switch (Pick(4))
+			{
+				case 0:
+					break;
+				case 1:
+					split[side] = MakeValue();
+					break;
+				default:
+					JsonArray entries = [];
+					int count = Pick(8) == 0 ? 60 + Pick(10) : 1 + Pick(4);
+					for (int entry = 0; entry < count; entry++)
+					{
+						string pin = facts.Pins.Count > 0 ? facts.Pins[Pick(facts.Pins.Count)] : "Value";
+						entries.Add(Pick(10) switch
+						{
+							0 => MakeValue(),
+							1 => $"{pin}..X",
+							2 => $".{pin}",
+							3 => new string('P', 100 + Pick(60)),
+							4 => $"{pin}\u0001",
+							5 => $"{pin}.{s_Fields[Pick(s_Fields.Length)]}.{s_Fields[Pick(s_Fields.Length)]}",
+							6 => entries.Count > 0 ? entries[Pick(entries.Count)]?.DeepClone() : pin,
+							7 => $"{pin}.{s_Fields[Pick(s_Fields.Length)]}",
+							_ => pin,
+						});
+					}
+					split[side] = entries;
+					break;
+			}
+		}
+		if (Pick(4) == 0)
+		{
+			split["Extra"] = MakeValue();
+		}
+		return split;
 	}
 
 	// A link names a pin of the document that its node may not have, or a misspelt one.
@@ -636,6 +791,15 @@ internal sealed class DocumentMutator
 							if (endpoint.Count > 1 && endpoint[1] is JsonValue pin && pin.TryGetValue(out string? name))
 							{
 								Pins.Add(name);
+								if (endpoint[0] is JsonValue node && node.TryGetValue(out long nodeId))
+								{
+									if (!Ends.TryGetValue(nodeId, out List<(JsonArray, bool)>? ends))
+									{
+										ends = [];
+										Ends[nodeId] = ends;
+									}
+									ends.Add((endpoint, side == "To"));
+								}
 							}
 						}
 					}
@@ -658,6 +822,9 @@ internal sealed class DocumentMutator
 
 		internal List<JsonArray> Endpoints { get; } = [];
 
+		// The link ends of each node ID, with whether they enter the node (an input) or leave it.
+		internal Dictionary<long, List<(JsonArray Endpoint, bool Input)>> Ends { get; } = [];
+
 		internal List<JsonObject> Graphs { get; } = [];
 
 		internal List<string> Pins { get; } = [];
@@ -667,6 +834,8 @@ internal sealed class DocumentMutator
 		internal List<long> Ids { get; } = [];
 
 		internal long LargestId { get; }
+
+		internal List<(JsonArray Endpoint, bool Input)> EndsOf(long node) => Ends.TryGetValue(node, out List<(JsonArray, bool)>? ends) ? ends : [];
 
 		internal static List<long> IdsOf(JsonObject graph)
 		{

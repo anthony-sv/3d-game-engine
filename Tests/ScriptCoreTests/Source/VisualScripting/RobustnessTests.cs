@@ -127,6 +127,9 @@ public sealed class RobustnessTests
 		Assert.True(tally.Aborted > 0, $"no execution aborted: {tally}");
 		Assert.True(tally.OverBudget > 0, $"no endless execution was stopped by the budget: {tally}");
 		Assert.True(tally.Swapped > 0, $"no live edit swapped a running instance: {tally}");
+		Assert.True(tally.Disabled > 0, $"no graph with a disabled node ran: {tally}");
+		Assert.True(tally.Demoted > 0, $"no graph ran with an error located on a disabled node: {tally}");
+		Assert.True(tally.Split > 0, $"no graph with a split pin ran: {tally}");
 	}
 
 	// What the rounds reached.
@@ -144,8 +147,17 @@ public sealed class RobustnessTests
 
 		internal int Swapped { get; set; }
 
+		// Graphs that ran with a disabled node in their event graph, and graphs that ran although a finding of an Error code
+		// was located on a disabled node (a Warning there).
+		internal int Disabled { get; set; }
+
+		internal int Demoted { get; set; }
+
+		// Graphs that ran with a split pin in their event graph.
+		internal int Split { get; set; }
+
 		public override string ToString() => FormattableString.Invariant(
-			$"{InvalidDocuments} refused, {Broken} broken, {Ran} ran, {Aborted} aborted, {OverBudget} over budget, {Swapped} swapped");
+			$"{InvalidDocuments} refused, {Broken} broken, {Ran} ran, {Aborted} aborted, {OverBudget} over budget, {Swapped} swapped, {Disabled} ran with a disabled node, {Demoted} ran with an error on one, {Split} ran with a split pin");
 	}
 
 	// One damaged document through a runtime of its own: every operation of the protocol, with the statuses spec sections
@@ -184,12 +196,32 @@ public sealed class RobustnessTests
 			{
 				Check(created == VisualScriptStatus.Success, $"CreateInstance of a working program answered {created}");
 				m_Tally.Ran++;
+				if (program.EventGraph.Nodes.Any(static node => node.IsDisabled))
+				{
+					m_Tally.Disabled++;
+				}
+				if (HasDemotedError(diagnostics))
+				{
+					m_Tally.Demoted++;
+				}
+				if (program.EventGraph.Nodes.Any(static node => node.IsSplit))
+				{
+					m_Tally.Split++;
+				}
 				RunInstance(program);
 			}
 			Check(m_Runtime.CreateInstance(Hero, Graph + 1, []) == VisualScriptStatus.NotFound, "CreateInstance of a graph never loaded");
 			Check(m_Runtime.Unload(Graph) == VisualScriptStatus.Success, "Unload of a loaded graph");
 			Check(m_Runtime.Unload(Graph) == VisualScriptStatus.NotFound, "Unload of an unloaded graph");
 			Check(m_Runtime.CreateInstance(Hero, Graph, []) == VisualScriptStatus.NotFound, "CreateInstance of an unloaded graph");
+		}
+
+		// Whether a finding of an Error code is a Warning: it is located on a disabled node.
+		private static bool HasDemotedError(string diagnostics)
+		{
+			using JsonDocument array = JsonDocument.Parse(diagnostics);
+			return array.RootElement.EnumerateArray().Any(static diagnostic => diagnostic.GetProperty("Severity").GetString() == "Warning" &&
+				Diagnostic.GetSeverity(Enum.Parse<DiagnosticCode>(diagnostic.GetProperty("Code").GetString()!)) == DiagnosticSeverity.Error);
 		}
 
 		// Analyze answers Success with the analysis of any bytes: one InvalidDocument for what is not a JSON object. Returns
@@ -303,12 +335,13 @@ public sealed class RobustnessTests
 			Assert.Throws<ArgumentException>(() => m_Runtime.GetVariable(Hero, "No Such Variable", typeof(object)));
 		}
 
-		// Every custom event, sent with the type defaults of its parameters and with one argument too many.
+		// Every custom event that is not disabled, sent with the type defaults of its parameters and with one argument too
+		// many.
 		private void SendEvents(GraphProgram program)
 		{
 			foreach (CompiledNode node in program.EventGraph.Nodes)
 			{
-				if (node.Builtin != BuiltinNode.EventCustom)
+				if (node.Op != Opcode.Event || node.Builtin != BuiltinNode.EventCustom)
 				{
 					continue;
 				}
@@ -481,7 +514,7 @@ internal static class FuzzLibrary
 	private static readonly Lazy<IReadOnlyList<(string Name, JsonNode Document)>> s_Fixtures = new(static () =>
 	{
 		List<(string Name, JsonNode Document)> fixtures = [];
-		foreach (string name in (string[])["Events.json", "Flow.json", "Data.json", "Functions.json", "Variables.json", "Reflected.json"])
+		foreach (string name in (string[])["Events.json", "Flow.json", "Data.json", "Functions.json", "Variables.json", "Reflected.json", "Editor.json"])
 		{
 			fixtures.Add((name, JsonNode.Parse(File.ReadAllBytes(Path.Combine(VisualScriptTesting.FixtureDirectory, "Documents", name)))!));
 		}
@@ -513,6 +546,12 @@ public static class FuzzStandIns
 	[ThreadStatic]
 	private static int s_Calls;
 
+	[ThreadStatic]
+	private static List<string>? s_Messages;
+
+	[ThreadStatic]
+	private static Vector3 s_Translation;
+
 	// How often graphs called a stand-in on this thread.
 	internal static int Calls
 	{
@@ -520,9 +559,23 @@ public static class FuzzStandIns
 		set => s_Calls = value;
 	}
 
+	// What graphs log on this thread while a test records it (null: nothing is recorded), and the translation they set last.
+	internal static List<string>? Messages
+	{
+		get => s_Messages;
+		set => s_Messages = value;
+	}
+
+	internal static Vector3 Translation
+	{
+		get => s_Translation;
+		set => s_Translation = value;
+	}
+
 	public static void Info(string message)
 	{
 		s_Calls++;
+		s_Messages?.Add(message);
 	}
 
 	public static void Pass(string name)
@@ -540,7 +593,8 @@ public static class FuzzStandIns
 	public static bool Raycast(Vector3 origin, Vector3 direction, float maxDistance, out RaycastHit hit, uint layerMask = Physics.AllLayers)
 	{
 		s_Calls++;
-		hit = default;
+		// Something 2.5 along the ray, the entity Other.
+		hit = new RaycastHit(new Entity(FuzzLibrary.Other), origin + (direction * 2.5f), Vector3.Up, 2.5f);
 		return maxDistance > 1.0f && layerMask != 0;
 	}
 
@@ -582,5 +636,6 @@ public static class FuzzStandIns
 	public static void SetTranslation(Entity? target, Vector3 value)
 	{
 		s_Calls++;
+		s_Translation = value;
 	}
 }

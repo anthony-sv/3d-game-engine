@@ -231,6 +231,18 @@ internal sealed partial class VisualScriptRuntime
 						}
 						Follow(execution, node, 0);
 						break;
+					case Opcode.PassThrough:
+						Evaluate(execution, node, frame);
+						PassThrough(node, frame);
+						if (node.Exits.Length > 0)
+						{
+							Follow(execution, node, 0);
+						}
+						else
+						{
+							EndChain(execution, node);
+						}
+						break;
 					default:
 						throw new InvalidOperationException($"{node} is pure: the flow never enters it");
 				}
@@ -372,6 +384,19 @@ internal sealed partial class VisualScriptRuntime
 			? node.TextCases.TryGetValue((string)selection.Object!, out exit)
 			: node.NumberCases!.TryGetValue(node.Kind == SlotKind.Int ? selection.Int : unchecked((long)selection.ULong), out exit);
 		return found ? exit : node.Count;
+	}
+
+	// A disabled node: whichever exec input the flow entered, its data outputs take the inputs the compiler chose for them
+	// and the others their type defaults; it neither waits nor keeps state.
+	private static void PassThrough(CompiledNode node, Frame frame)
+	{
+		Slot[] slots = frame.Slots;
+		for (int output = 0; output < node.OutputCount; output++)
+		{
+			int source = node.PassThroughSources[output];
+			int slot = node.OutputBase + output;
+			slots[slot] = source >= 0 ? slots[node.InputBase + source] : frame.Graph.Template[slot];
+		}
 	}
 
 	// A latent node (spec section 5.3, Suspension). Execute (Interval: Start) reaching it while it is pending ends the

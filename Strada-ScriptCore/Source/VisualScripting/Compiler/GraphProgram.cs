@@ -28,6 +28,8 @@ internal enum Opcode : byte
 	FunctionCall,
 	ExecReroute,
 	Member,
+	// A disabled node, whatever its kind: the flow passes on to its exit, its outputs take inputs of their types.
+	PassThrough,
 	// Pure.
 	Self,
 	Literal,
@@ -143,18 +145,42 @@ internal sealed class CompiledNode
 	internal CompiledNode(AnalyzedNode source, int index, Opcode op)
 	{
 		Id = source.ID;
-		Type = source.Definition!.Type;
+		// Only a disabled node can be of a type the library does not have: it keeps its stored type.
+		Type = source.Definition?.Type ?? source.Source.Type;
 		Title = source.Title;
 		Index = index;
 		Op = op;
 		Builtin = source.Builtin;
 		Pure = source.Pure;
+		IsDisabled = source.IsDisabled;
+	}
+
+	// A split pin of a node (spec-slice2 section 3.3): the Make that composes a split input from its field pins, or the Break
+	// that gives a split output's fields. It is a pure node of the graph's Nodes after the document's nodes, evaluated by the
+	// nodes that read it, with the ID, type and title of the node whose pin it splits; graphs never find it by ID.
+	internal CompiledNode(AnalyzedNode owner, int index, Opcode op, VisualType type)
+	{
+		Id = owner.ID;
+		Type = owner.Definition?.Type ?? owner.Source.Type;
+		Title = owner.Title;
+		Index = index;
+		Op = op;
+		Pure = true;
+		IsSplit = true;
+		ToType = type;
 	}
 
 	internal uint Id { get; }
 
+	// The Make or Break of a split pin.
+	internal bool IsSplit { get; }
+
 	// The library node type (canonical): a live edit carries the node's state over when it is unchanged (spec section 5.6).
 	internal string Type { get; }
+
+	// A disabled node (Opcode.PassThrough). A live edit that disables or enables a node removes it and adds a new one: its
+	// state, outputs and the fibers waiting in it or passing through it do not carry over.
+	internal bool IsDisabled { get; }
 
 	internal string Title { get; }
 
@@ -208,6 +234,10 @@ internal sealed class CompiledNode
 
 	// An unconnected Target input that means Self.
 	internal bool TargetIsSelf { get; set; }
+
+	// A disabled node: the staged input each data output takes (an index from InputBase), -1 for an output that takes its
+	// type default.
+	internal int[] PassThroughSources { get; set; } = [];
 
 	// Literal: its value. ForEach: the type default Element reads outside an active iteration. Convert from text: the type
 	// default, the result of text it cannot read. Made once, so evaluating the node never boxes a default.
@@ -284,10 +314,14 @@ internal sealed class CompiledGraph
 		Function = function;
 		foreach (CompiledNode node in nodes)
 		{
-			m_IndexById[node.Id] = node.Index;
+			if (!node.IsSplit)
+			{
+				m_IndexById[node.Id] = node.Index;
+			}
 		}
 	}
 
+	// The document's nodes in order, then the Make and Break nodes of their split pins.
 	internal CompiledNode[] Nodes { get; }
 
 	internal Slot[] Template { get; }
@@ -428,7 +462,8 @@ internal sealed class GraphProgram
 		}
 		foreach (CompiledNode node in eventGraph.Nodes)
 		{
-			if (node.Builtin == BuiltinNode.EventCustom)
+			// A disabled custom event receives nothing.
+			if (node.Op == Opcode.Event && node.Builtin == BuiltinNode.EventCustom)
 			{
 				m_CustomEvents[node.EventName!] = node.Index;
 			}

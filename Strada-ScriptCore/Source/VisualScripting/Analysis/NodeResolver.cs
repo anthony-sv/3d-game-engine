@@ -154,19 +154,39 @@ internal static class NodeResolver
 	{
 		foreach ((PinDirection direction, string pin) in storedPins)
 		{
-			if (!HasPin(candidate, pin, direction))
+			if (!HasPin(candidate, SplitRoot(node, pin, direction), direction))
 			{
 				return false;
 			}
 		}
 		foreach (KeyValuePair<string, JsonElement> input in node.Source.Inputs.Members)
 		{
-			if (!HasPin(candidate, input.Key, PinDirection.In))
+			if (!HasPin(candidate, SplitRoot(node, input.Key, PinDirection.In), PinDirection.In))
 			{
 				return false;
 			}
 		}
 		return true;
+	}
+
+	// The pin a stored name stands for when choosing an overload: a field path of a pin the node splits ("Hit.Point.Y" with
+	// "Hit" in its Split) is the split pin's; member pins are C# names, without '.'.
+	private static string SplitRoot(AnalyzedNode node, string name, PinDirection direction)
+	{
+		int dot = name.IndexOf('.', StringComparison.Ordinal);
+		if (dot <= 0)
+		{
+			return name;
+		}
+		string root = name[..dot];
+		foreach (string entry in node.Source.Split.Of(direction))
+		{
+			if (entry == root)
+			{
+				return root;
+			}
+		}
+		return name;
 	}
 
 	private static bool HasPin(NodeDefinition definition, string name, PinDirection direction)
