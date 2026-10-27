@@ -45,9 +45,11 @@ namespace Strada
 	{
 		// As in a field table's row.
 		Normal = 0,
-		// The visual script canvas' live widget: integers as "%lld", floats as "%g", vectors and quaternions (in Euler degrees)
-		// as one drag per component without axis buttons, and colours, enums, [Flags] enums and assets as a frame only, whose
-		// click asks the caller for a popup (drawn at the window's normal size with DrawValuePopup) instead of opening one.
+		// The visual script canvas' live widget, showing what the chip it replaces shows: integers as "%lld", floats as "%g",
+		// vectors and quaternions (in Euler degrees, "%g") as one drag per component with its axis's stripe at its left edge and
+		// no axis buttons, and colours, enums (the stored name), [Flags] enums (the stored names joined with " | ") and assets
+		// (the asset's display name) as a frame only, whose click asks the caller for a popup (drawn at the window's normal size
+		// with DrawValuePopup) instead of opening one.
 		Compact
 	};
 
@@ -108,6 +110,10 @@ namespace Strada
 		// lost); Normal mode leaves it unchanged.
 		bool DrawInlineValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change,
 		                     FieldInlineMode mode = FieldInlineMode::Normal, bool* popupRequested = nullptr);
+		// The text a compact frame shows for an enum ("LeftShift"), a [Flags] enum ("Read | Write", "None") or an asset (its
+		// display name, "None"): what the visual script canvas' chip it replaces shows. Empty for the other kinds, which show
+		// drags or check boxes. Main thread only (it reads the asset registry).
+		[[nodiscard]] static std::string DescribeCompactText(FieldDescriptor const& field, Json const& value);
 		// The body of the popup a compact widget asked for, between the caller's BeginPopup and EndPopup: the colour picker,
 		// the enum list (with its filter), the [Flags] check list or the asset picker; other values draw their normal widget.
 		// Returns true and fills change (except Path) when the user changed the value. Picking an enumerator or an asset

@@ -34,15 +34,18 @@ namespace Strada
 		static constexpr char const* NewLocalName = "NewLocal";
 		static constexpr char const* NewFunctionName = "NewFunction";
 		static constexpr char const* NewEventName = "NewEvent";
-		// The merge keys of a creation and its first name ("VSNM" + a counter).
-		static constexpr uint64_t NameKeyPrefix = 0x56534E4D00000000ull;
 
 		VisualScriptPaneResult Draw(VisualScriptPaneContext& context);
 		std::optional<VisualScriptCommitRequest> TakePendingEdit() { return m_Commits.TakePendingEdit(); }
+		// Whether a widget value is pending (what the window flushes with TakePendingEdit when no item is active).
+		bool HasPendingEdit() const { return m_Commits.HasPendingEdit(); }
 
 		// A key the window routes to My Script (spec §8.3): Delete (DeleteWithoutRelink alike), Rename and Duplicate act on the
 		// selected row at the next Draw, and OpenNode opens it. Returns whether My Script takes the action: a row is selected
-		// and the action is one of these (the event graph's row takes OpenNode only).
+		// and the action is one of these (the event graph's row takes OpenNode only), and the document could be edited at the
+		// last Draw for the edits. The action is bound to the row selected now and done only by a Draw in this frame or the
+		// next with that row still selected: a hidden My Script takes no keys (the window routes nothing to it), and an action
+		// it could not do is dropped, never done later on another row.
 		bool HandleAction(VisualScriptEditorAction action, VisualScriptPaneShared const& shared);
 
 		// The screen rectangle (min, max) of a row in the last Draw; nothing when it was not drawn (filtered out, its section
@@ -100,14 +103,21 @@ namespace Strada
 		std::vector<RowRect> m_Rows;
 		std::vector<std::pair<VisualScriptElementKind, std::pair<glm::vec2, glm::vec2>>> m_AddButtons;
 		std::vector<std::pair<uint32_t, std::pair<glm::vec2, glm::vec2>>> m_Eyes;
-		// The action routed by the window, done at the next Draw.
-		std::optional<VisualScriptEditorAction> m_Action;
+		// The action routed by the window, the row it was routed for and the frame it came in, done at the next Draw.
+		struct RoutedAction
+		{
+			VisualScriptEditorAction Action = VisualScriptEditorAction::OpenNode;
+			VisualScriptElement Element;
+			int Frame = 0;
+		};
+		std::optional<RoutedAction> m_Action;
+		// Whether the last Draw showed a document that cannot be edited (a read-only file, a memory asset).
+		bool m_ReadOnly = false;
 		// The row being renamed, whether its field takes the keyboard at the next Draw, and the merge key of the step that
 		// created it (0 when it was not just created).
 		std::optional<VisualScriptElement> m_Renaming;
 		bool m_RenameFocus = false;
 		uint64_t m_NameKey = 0;
-		uint64_t m_NameKeyCount = 0;
 		// An element just created, renamed once the commit made it a row.
 		std::optional<VisualScriptElement> m_RenameCreated;
 		// The deletion waiting for its modal's answer.

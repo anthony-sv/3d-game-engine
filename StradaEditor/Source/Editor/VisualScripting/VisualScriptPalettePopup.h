@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -76,6 +77,8 @@ namespace Strada
 		VisualScriptPaletteState const& GetState() const { return m_State; }
 		// The entries the state's matches index; valid until the next Draw.
 		VisualScriptPaletteIndex const& GetIndex() const { return m_Index; }
+		// Canvas units: the space the hover preview reserved for the last entry it previewed (the node's laid-out size).
+		glm::vec2 GetPreviewSize() const;
 		// The entries of the rows the last Draw listed, in their order (what Up, Down and Enter move through), and the
 		// highlighted one, which the details strip describes; nothing while no row is listed.
 		std::vector<uint32_t> GetRowEntries() const;
@@ -114,7 +117,7 @@ namespace Strada
 		// connects and the conversion. Returns true when clicked.
 		bool DrawRow(VisualScriptPaneContext const& context, Row const& row, int index);
 		void DrawDetails(VisualScriptLibrary const& library);
-		void DrawPreviewTooltip(VisualScriptPaneContext const& context, VisualScriptPaletteEntry const& entry) const;
+		void DrawPreviewTooltip(VisualScriptPaneContext const& context, uint32_t entryIndex);
 		bool HasEntries(VisualScriptCategory const& category) const;
 		// Adds the entry's node (or does its action) as one commit request; GoToNode selects and frames instead.
 		void Choose(VisualScriptPaneContext& context, VisualScriptLibrary const& library, uint32_t entry,
@@ -139,13 +142,21 @@ namespace Strada
 		// (ImGui selects all of a field the keyboard is given to, and the next character would replace it).
 		bool m_FocusSearch = false;
 		bool m_PlaceCursor = false;
+		// The frame an intent opened the palette in: the characters typed in that frame are the intent's Query already, and
+		// are not taken again from ImGui's input queue. -1 when the palette was not opened by an intent.
+		int m_IntentFrame = -1;
+		// The hover preview's node size (canvas units) for an entry of the index generation it was laid out for.
+		std::optional<uint32_t> m_PreviewEntry;
+		uint64_t m_PreviewGeneration = 0;
+		glm::vec2 m_PreviewSize{0.0f};
 		// Up and Down this frame; the highlighted row; whether the list scrolls to it.
 		int m_Move = 0;
 		int m_Highlight = 0;
 		bool m_ScrollToHighlight = false;
 
-		// What the index was made from: the library object, the stored document object and the sub-graph shown.
-		Ref<VisualScriptLibrary const> m_Library;
+		// What the index was made from: the library object (not kept alive for it: a library the scripting runtime replaced while
+		// the palette was closed is let go), the stored document object (let go when the palette closes) and the sub-graph shown.
+		std::weak_ptr<VisualScriptLibrary const> m_Library;
 		Ref<VisualScriptDocument const> m_IndexedDocument;
 		uint32_t m_IndexedFunction = 0;
 		uint64_t m_IndexGeneration = 0;

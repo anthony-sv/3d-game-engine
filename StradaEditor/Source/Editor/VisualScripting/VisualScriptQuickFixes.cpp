@@ -1424,11 +1424,11 @@ namespace Strada
 			}
 			bool const output = *diagnostic.Direction == VisualScriptPinDirection::Out;
 			std::vector<std::string> const& split = output ? node->Split.Outputs : node->Split.Inputs;
-			// The path as the document stores it: a redirect may have renamed the pin it starts with.
-			std::string const path = VisualScriptEditing::ToStoredVisualScriptPin(analyzed, *diagnostic.Direction, diagnostic.Pin);
-			if (std::find(split.begin(), split.end(), path) != split.end())
+			// The analysis names the entry exactly as the Split list stores it, also when a redirect renamed the pin it starts
+			// with: mapping it through the renames would pick another entry when one equals a renamed pin's new name.
+			if (std::find(split.begin(), split.end(), diagnostic.Pin) != split.end())
 			{
-				fixes.push_back(MakeFix("Remove Split", VisualScriptFixKind::RemoveSplit, nodeID, path));
+				fixes.push_back(MakeFix("Remove Split", VisualScriptFixKind::RemoveSplit, nodeID, diagnostic.Pin));
 			}
 		}
 		else if (code == "DisabledIgnored")

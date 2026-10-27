@@ -39,29 +39,10 @@ namespace Strada
 			return pin.Type == VisualScriptExecType;
 		}
 
-		glm::vec2 SnapToGrid(glm::vec2 position)
-		{
-			return glm::round(position / VisualScriptCanvasMetrics::GridSize) * VisualScriptCanvasMetrics::GridSize;
-		}
-
 		// The first segment of a slash-separated category path, which header colours take their quieter forms from.
 		std::string_view GetTopCategory(std::string_view category)
 		{
 			return category.substr(0, category.find('/'));
-		}
-
-		VisualScriptGraph* FindGraph(VisualScriptDocument& document, uint32_t function)
-		{
-			if (function == 0)
-			{
-				return &document.Graph;
-			}
-			auto const found = std::find_if(document.Functions.begin(), document.Functions.end(),
-			                                [function](VisualScriptFunction const& candidate)
-			                                {
-												return candidate.ID == function;
-											});
-			return found != document.Functions.end() ? &found->Graph : nullptr;
 		}
 
 		std::optional<VisualScriptLink> FindLinkFrom(VisualScriptGraph const& graph, uint32_t node, std::string_view pin)
@@ -105,11 +86,18 @@ namespace Strada
 			return nullptr;
 		}
 
-		// Where a pin of a node of the type would sit relative to the node's top-left corner, as the canvas lays the node out
-		// without an analysis (its library template's pins, which a new node shows until it is analyzed).
-		glm::vec2 MeasurePinAnchor(VisualScriptDocument const& document, uint32_t function, VisualScriptNode node, std::string const& pin,
-		                           VisualScriptPinDirection direction, VisualScriptLibrary const& library,
-		                           VisualScriptTextMeasurer const& measure)
+		// A node of the type laid out alone as the canvas lays it out without an analysis (its library template's pins, which a
+		// new node shows until it is analyzed): its size, and where a pin of it sits relative to its top-left corner (the
+		// corner when the node has no such pin).
+		struct AloneLayout
+		{
+			glm::vec2 Size{0.0f};
+			glm::vec2 Anchor{0.0f};
+		};
+
+		std::optional<AloneLayout> LayOutAlone(VisualScriptDocument const& document, uint32_t function, VisualScriptNode node,
+		                                       std::string_view pin, VisualScriptPinDirection direction, VisualScriptLibrary const& library,
+		                                       VisualScriptTextMeasurer const& measure)
 		{
 			// The node alone, with what its pins come from: the variables and the functions' signatures.
 			VisualScriptDocument scratch;
@@ -119,10 +107,10 @@ namespace Strada
 			{
 				owner.Graph = {};
 			}
-			VisualScriptGraph* const graph = FindGraph(scratch, function);
+			VisualScriptGraph* const graph = FindVisualScriptGraph(scratch, function);
 			if (graph == nullptr)
 			{
-				return glm::vec2(0.0f);
+				return std::nullopt;
 			}
 			node.Position = glm::vec2(0.0f);
 			uint32_t const id = node.ID;
@@ -139,8 +127,19 @@ namespace Strada
 			VisualScriptCanvasModel canvas;
 			canvas.Sync(source, measure, VisualScriptThemeAnchors{});
 			std::optional<uint32_t> const index = canvas.FindNode(id);
-			std::optional<uint32_t> const found = index ? canvas.FindPin(*index, pin, direction) : std::nullopt;
-			return found ? canvas.GetPins()[*found].Anchor : glm::vec2(0.0f);
+			if (!index)
+			{
+				return std::nullopt;
+			}
+			std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+			AloneLayout layout;
+			layout.Size = nodes[*index].Size;
+			if (std::optional<uint32_t> const found = pin.empty() ? std::nullopt : canvas.FindPin(*index, pin, direction))
+			{
+				std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+				layout.Anchor = pins[*found].Anchor;
+			}
+			return layout;
 		}
 
 		// Text with the bytes of highlights (ascending) in the highlight colour.
@@ -197,6 +196,9 @@ namespace Strada
 		m_Direction = intent.Direction;
 		m_Limit = 50;
 		m_Query = intent.Query;
+		// The intent is made in the frame it is opened in (the window routes it after the canvas's Update), from that frame's
+		// characters.
+		m_IntentFrame = ImGui::GetCurrentContext() != nullptr ? ImGui::GetFrameCount() : -1;
 	}
 
 	void VisualScriptPalettePopup::Open(VisualScriptPaletteRequest const& request)
@@ -211,6 +213,7 @@ namespace Strada
 		m_Limit = std::max<uint32_t>(request.Limit, 1);
 		m_Query = request.Query;
 		m_FromRequest = true;
+		m_IntentFrame = -1;
 	}
 
 	void VisualScriptPalettePopup::Close()
@@ -222,6 +225,8 @@ namespace Strada
 		m_Query.clear();
 		m_From.reset();
 		m_Rows.clear();
+		// The index keeps its entries (the library's are rebuilt only when the library changes); the document is let go.
+		m_IndexedDocument.reset();
 	}
 
 	std::vector<uint32_t> VisualScriptPalettePopup::GetRowEntries() const
@@ -266,7 +271,8 @@ namespace Strada
 	{
 		VisualScriptEditorModel const& model = context.Model;
 		bool changed = false;
-		if (library != m_Library)
+		// The weak pointer keeps the library's storage, so an object at the same address is the same library.
+		if (m_Library.expired() || m_Library.lock() != library)
 		{
 			m_Library = library;
 			m_Index.Rebuild(*library);
@@ -560,6 +566,12 @@ namespace Strada
 		// Characters typed while the field does not have the keyboard (the frames before ImGui gives it) are the palette's.
 		ImGuiID const fieldId = ImGui::GetID(SearchName);
 		ImGuiIO& io = ImGui::GetIO();
+		if (m_IntentFrame == ImGui::GetFrameCount())
+		{
+			// The intent's Query holds this frame's characters (Space + F opens with "f"): they are not typed twice.
+			io.InputQueueCharacters.resize(0);
+			m_IntentFrame = -1;
+		}
 		if (ImGui::GetActiveID() != fieldId && !io.InputQueueCharacters.empty())
 		{
 			for (ImWchar const character : io.InputQueueCharacters)
@@ -823,7 +835,7 @@ namespace Strada
 
 		if (hovered && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | hoverFlags))
 		{
-			DrawPreviewTooltip(context, entry);
+			DrawPreviewTooltip(context, row.Entry);
 		}
 		ImGui::PopID();
 		return clicked;
@@ -873,23 +885,47 @@ namespace Strada
 		}
 	}
 
-	void VisualScriptPalettePopup::DrawPreviewTooltip(VisualScriptPaneContext const& context, VisualScriptPaletteEntry const& entry) const
+	void VisualScriptPalettePopup::DrawPreviewTooltip(VisualScriptPaneContext const& context, uint32_t entryIndex)
 	{
-		bool const reflected =
-			entry.NodeType.starts_with("Call:") || entry.NodeType.starts_with("Get:") || entry.NodeType.starts_with("Set:");
-		if (!context.DrawNodePreview && !reflected)
+		std::span<VisualScriptPaletteEntry const> const entries = m_Index.GetEntries();
+		VisualScriptPaletteEntry const& entry = entries[entryIndex];
+		bool const reflected = IsVisualScriptReflectedType(entry.NodeType);
+		bool const preview = context.DrawNodePreview && !entry.NodeType.empty();
+		if (!preview && !reflected)
 		{
 			return;
 		}
 		ImGui::BeginTooltip();
-		if (context.DrawNodePreview)
+		if (preview)
 		{
-			// The canvas draws the node at 75 % of its size at zoom 1; the space reserved is the node's size at most.
+			// The canvas draws the node at 75 % of its size at zoom 1, in the space its layout takes (laid out once per entry,
+			// as the canvas lays a new node out); without the canvas's measurer, the space of a node of four rows.
+			if (m_PreviewEntry != entryIndex || m_PreviewGeneration != m_IndexGeneration)
+			{
+				m_PreviewEntry = entryIndex;
+				m_PreviewGeneration = m_IndexGeneration;
+				m_PreviewSize =
+					glm::vec2(VisualScriptCanvasMetrics::MaxNodeWidth * 0.5f,
+				              VisualScriptCanvasMetrics::HeaderHeightWithSubtitle + VisualScriptCanvasMetrics::PinRowHeight * 4.0f);
+				Ref<VisualScriptLibrary const> const library = m_Library.lock();
+				if (context.Measure.Measure && library != nullptr)
+				{
+					VisualScriptNode node;
+					node.ID = 1;
+					node.Type = entry.NodeType;
+					node.Settings = entry.Settings.is_object() ? entry.Settings : Json::object();
+					std::optional<AloneLayout> const layout =
+						LayOutAlone(context.Model.GetDisplayDocument(), context.Model.GetFunction(), std::move(node), {},
+					                VisualScriptPinDirection::In, *library, context.Measure);
+					if (layout && layout->Size.x > 0.0f && layout->Size.y > 0.0f)
+					{
+						m_PreviewSize = layout->Size;
+					}
+				}
+			}
 			float const scale = PreviewScale * ImGui::GetStyle().FontScaleDpi;
 			ImVec2 const position = ImGui::GetCursorScreenPos();
-			ImGui::Dummy(
-				ImVec2(VisualScriptCanvasMetrics::MaxNodeWidth * scale * 0.5f,
-			           (VisualScriptCanvasMetrics::HeaderHeightWithSubtitle + VisualScriptCanvasMetrics::PinRowHeight * 4.0f) * scale));
+			ImGui::Dummy(ImVec2(m_PreviewSize.x * scale, m_PreviewSize.y * scale));
 			context.DrawNodePreview(entry, ImGui::GetWindowDrawList(), position, scale);
 		}
 		if (reflected)
@@ -907,6 +943,11 @@ namespace Strada
 		ImGui::EndTooltip();
 	}
 
+	glm::vec2 VisualScriptPalettePopup::GetPreviewSize() const
+	{
+		return m_PreviewSize;
+	}
+
 	void VisualScriptPalettePopup::Choose(VisualScriptPaneContext& context, VisualScriptLibrary const& library, uint32_t entryIndex,
 	                                      VisualScriptPaletteMatch const* match, VisualScriptPaneResult& result)
 	{
@@ -922,6 +963,9 @@ namespace Strada
 		std::string description = entry.Action == VisualScriptPaletteAction::AddNode ? "Add " + entry.Title : entry.Title;
 		std::vector<uint32_t> select;
 		std::string focusSetting;
+		// A comment box's creation and its first title are one step under this key.
+		uint64_t mergeKey = 0;
+		std::optional<VisualScriptCommentTitleRequest> titleRequest;
 
 		auto const fail = [&result, &entry](std::string const& error)
 		{
@@ -946,14 +990,16 @@ namespace Strada
 		}
 		else if (entry.Action == VisualScriptPaletteAction::AddCommentBox)
 		{
-			Result<uint32_t> const added = VisualScriptEditing::AddComment(edited, function, NewCommentText, {}, {}, SnapToGrid(m_Position),
-			                                                               context.Settings.GetCommentColor());
+			Result<uint32_t> const added = VisualScriptEditing::AddComment(
+				edited, function, NewCommentText, {}, {}, SnapVisualScriptToGrid(m_Position), context.Settings.GetCommentColor());
 			if (!added)
 			{
 				fail(added.GetError());
 				return;
 			}
 			select.push_back(added.GetValue());
+			mergeKey = MakeVisualScriptPaneNameMergeKey(context.Shared);
+			titleRequest = VisualScriptCommentTitleRequest{added.GetValue(), mergeKey};
 		}
 		else
 		{
@@ -1004,10 +1050,11 @@ namespace Strada
 				probe.ID = id;
 				probe.Type = type;
 				probe.Settings = settings;
-				position -=
-					MeasurePinAnchor(edited, function, std::move(probe), connectPin, Opposite(m_Direction), library, context.Measure);
+				std::optional<AloneLayout> const layout =
+					LayOutAlone(edited, function, std::move(probe), connectPin, Opposite(m_Direction), library, context.Measure);
+				position -= layout ? layout->Anchor : glm::vec2(0.0f);
 			}
-			Result<uint32_t> const added = VisualScriptEditing::AddNode(edited, function, type, settings, SnapToGrid(position));
+			Result<uint32_t> const added = VisualScriptEditing::AddNode(edited, function, type, settings, SnapVisualScriptToGrid(position));
 			if (!added)
 			{
 				fail(added.GetError());
@@ -1018,7 +1065,7 @@ namespace Strada
 
 			if (!connectPin.empty())
 			{
-				VisualScriptGraph const* const graph = FindGraph(edited, function);
+				VisualScriptGraph const* const graph = FindVisualScriptGraph(edited, function);
 				VisualScriptNodePins const pins = MakeVisualScriptNodePins(model, &library, VisualScriptNewNodePins{node, entry.Pins});
 				VisualScriptAnalysis const* const analysis = model.GetAnalysis();
 				std::string const fromPin = VisualScriptEditing::ToStoredVisualScriptPin(
@@ -1092,16 +1139,20 @@ namespace Strada
 			}
 		}
 
-		Result<VisualScriptCommitRequest> request = MakeVisualScriptCommitRequest(*model.GetStoredDocument(), std::move(edited),
-		                                                                          model.GetAnalysis(), description, context.ScriptName, 0);
+		Result<VisualScriptCommitRequest> request = MakeVisualScriptCommitRequest(
+			*model.GetStoredDocument(), std::move(edited), model.GetAnalysis(), description, context.ScriptName, mergeKey);
 		if (!request)
 		{
 			fail(request.GetError());
 			return;
 		}
+		if (!focusSetting.empty() && !select.empty())
+		{
+			result.FocusSetting = VisualScriptSettingFocus{select.front(), std::move(focusSetting)};
+		}
 		request.GetValue().Select = std::move(select);
 		result.Commit = request.TakeValue();
-		result.FocusSetting = std::move(focusSetting);
+		result.EditCommentTitle = titleRequest;
 		// Remembered as it was added: an action by its key, a node by its type and settings.
 		bool const isAction = entry.RecentKey.starts_with(VisualScriptPaletteActionKeyPrefix);
 		context.Settings.AddRecent(isAction ? VisualScriptRecentNode{entry.RecentKey, Json::object()}

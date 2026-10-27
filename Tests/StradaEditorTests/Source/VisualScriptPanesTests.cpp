@@ -113,8 +113,8 @@ namespace
 
 		VisualScriptPaneContext MakeContext()
 		{
-			return {*Model,  *ActiveSemantics, Settings, Session, Services, Shared, Graph,
-			        "Graph", ContextEntity,    Playing,  Time,    Measure,  {},     ReadLiveVariables};
+			return {*Model,  *ActiveSemantics, Settings, Session, Services, Shared,          Graph,
+			        "Graph", ContextEntity,    Playing,  Time,    Measure,  DrawNodePreview, ReadLiveVariables};
 		}
 
 		// What the window's shell does before any window draws: flush the edits of widgets that are no longer active, then
@@ -157,7 +157,7 @@ namespace
 			{
 				ExecuteCommit(std::move(*result.Commit));
 			}
-			if (!result.FocusSetting.empty())
+			if (result.FocusSetting)
 			{
 				Shared.FocusSetting = result.FocusSetting;
 			}
@@ -368,6 +368,8 @@ namespace
 		bool Playing = false;
 		UUID ContextEntity = UUID::Invalid();
 		std::function<Result<ScriptFieldMap>(UUID)> ReadLiveVariables;
+		// The canvas's node drawing the palette's preview calls; unset draws none.
+		std::function<void(VisualScriptPaletteEntry const&, ImDrawList*, ImVec2, float)> DrawNodePreview;
 		ImGuiID PreviousActive = 0;
 		double Time = 0.0;
 	};
@@ -2146,4 +2148,635 @@ TEST_CASE("VisualScriptEditor: the references of a custom event list its senders
 	                  {
 						  return row.Graph == fixture.Graph;
 					  }));
+}
+
+// --- What the track's review found ---
+
+namespace
+{
+	// MakeScriptDocument with a local Total of AddScore and two inputs of AddScore.
+	VisualScriptDocument MakeLocalDocument()
+	{
+		VisualScriptDocument document = MakeScriptDocument();
+		VisualScriptFunction& function = document.Functions.front();
+		VisualScriptLocal local;
+		local.ID = 20;
+		local.Name = "Total";
+		local.Type = "float";
+		function.Locals.push_back(local);
+		function.Inputs = {{"Points", "int"}, {"Bonus", "int"}};
+		return document;
+	}
+
+	ImVec2 GetRowPoint(std::optional<std::pair<glm::vec2, glm::vec2>> const& rect, float fraction = 0.5f)
+	{
+		REQUIRE(rect);
+		return ImVec2(rect->first.x + (rect->second.x - rect->first.x) * fraction, (rect->first.y + rect->second.y) * 0.5f);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a name field left for a widget drawn before it commits the name typed")
+{
+	SUBCASE("a row of My Script above the row renamed")
+	{
+		PaneFixture fixture(MakeDocument(), {FixturePane::Sidebar});
+		fixture.CheckDrawingChangesNothing();
+		size_t const undo = fixture.GetUndoCount();
+		RenameRow(fixture, {VisualScriptElementKind::Variable, 101}, "Living");
+		fixture.ImGui.Click(fixture.SidebarRow({VisualScriptElementKind::Variable, 100}), fixture.Drawer());
+		fixture.Frames(2);
+		CHECK_FALSE(fixture.Sidebar.GetRenaming());
+		CHECK(fixture.GetUndoCount() == undo + 1);
+		CHECK(FindVariable(fixture.GetDocument(), 101)->Name == "Living");
+	}
+	SUBCASE("My Script, drawn before Details, while Details' name field has the keyboard")
+	{
+		PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar, FixturePane::Details});
+		fixture.CheckDrawingChangesNothing();
+		fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 100};
+		fixture.Frames(2);
+		REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Variable);
+		size_t const undo = fixture.GetUndoCount();
+		fixture.ImGui.Click(fixture.DetailsRow("Name"), fixture.Drawer());
+		fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+		fixture.ImGui.Type("MaxSpeed");
+		fixture.Frames(2);
+		fixture.ImGui.Click(fixture.SidebarRow({VisualScriptElementKind::Function, 0}), fixture.Drawer());
+		fixture.Frames(2);
+		CHECK(fixture.GetUndoCount() == undo + 1);
+		CHECK(FindVariable(fixture.GetDocument(), 100)->Name == "MaxSpeed");
+	}
+	SUBCASE("another name field of Details above it")
+	{
+		PaneFixture fixture(MakeLocalDocument(), {FixturePane::Details});
+		fixture.CheckDrawingChangesNothing();
+		fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Function, 10};
+		fixture.Frames(2);
+		REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Function);
+		size_t const undo = fixture.GetUndoCount();
+		fixture.ImGui.Click(fixture.DetailsRow("Input 2", 0.2f), fixture.Drawer());
+		fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+		fixture.ImGui.Type("Extra");
+		fixture.Frames(2);
+		fixture.ImGui.Click(fixture.DetailsRow("Input 1", 0.2f), fixture.Drawer());
+		fixture.Frames(2);
+		CHECK(fixture.GetUndoCount() == undo + 1);
+		REQUIRE(fixture.GetDocument().Functions.front().Inputs.size() == 2);
+		CHECK(fixture.GetDocument().Functions.front().Inputs[0].Name == "Points");
+		CHECK(fixture.GetDocument().Functions.front().Inputs[1].Name == "Extra");
+		// The field clicked has the keyboard now; leaving it unchanged changes nothing.
+		fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+		fixture.Frames(2);
+		CHECK(fixture.GetUndoCount() == undo + 1);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: after a refused Enter the name field keeps what was typed, and typing goes on after it")
+{
+	PaneFixture fixture(MakeDocument(), {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	VisualScriptElement const speed{VisualScriptElementKind::Variable, 100};
+	RenameRow(fixture, speed, "Alive");
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Sidebar.GetRenaming() == speed);
+	CHECK(fixture.Sidebar.GetRenameError() == "a variable is named Alive already");
+	fixture.Frames(3);
+	fixture.ImGui.Type("2");
+	fixture.Frames(2);
+	CHECK(fixture.Sidebar.GetRenameError().empty());
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Sidebar.GetRenaming());
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(FindVariable(fixture.GetDocument(), 100)->Name == "Alive2");
+}
+
+TEST_CASE("VisualScriptEditor: a setting and an input of the same name are separate fields in Details")
+{
+	// An Event.Send of an event with a parameter called Name: its Name setting and its Name input.
+	VisualScriptDocument document;
+	VisualScriptParameter parameter{"Name", "string"};
+	document.Graph.Nodes = {
+		MakeNode(1, "Event.Custom", glm::vec2(0.0f),
+	             Json::object({{"Name", "Joined"}, {"Parameters", Json::array({{{"Name", "Name"}, {"Type", "string"}}})}})),
+		MakeNode(2, "Event.Send", glm::vec2(320.0f, 0.0f),
+	             Json::object({{"Name", "Joined"}, {"Parameters", Json::array({{{"Name", "Name"}, {"Type", "string"}}})}}))};
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	REQUIRE(fixture.Details.FindRow("Name", 0));
+	REQUIRE(fixture.Details.FindRow("Name", 1));
+	size_t const undo = fixture.GetUndoCount();
+	// The setting.
+	fixture.ImGui.Click(GetRowPoint(fixture.Details.FindRow("Name", 0)), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("Left");
+	fixture.Frames(2);
+	fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+	fixture.Frames(2);
+	VisualScriptNode const* send = FindVisualScriptNode(fixture.GetDocument(), 2);
+	REQUIRE(send != nullptr);
+	CHECK(send->Settings.value("Name", Json()) == "Left");
+	CHECK_FALSE(send->Inputs.contains("Name"));
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	// The input.
+	fixture.ImGui.Click(GetRowPoint(fixture.Details.FindRow("Name", 1), 0.3f), fixture.Drawer());
+	fixture.ImGui.Type("Bob");
+	fixture.Frames(2);
+	fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+	fixture.Frames(2);
+	send = FindVisualScriptNode(fixture.GetDocument(), 2);
+	CHECK(send->Settings.value("Name", Json()) == "Left");
+	CHECK(send->Inputs.value("Name", Json()) == "Bob");
+	CHECK(fixture.GetUndoCount() == undo + 2);
+}
+
+TEST_CASE("VisualScriptEditor: Details offers the Enabled states only where they act")
+{
+	VisualScriptDocument document = MakeScriptDocument();
+	document.Graph.Nodes.push_back(MakeNode(8, "Get:Strada.Time.DeltaTime", glm::vec2(0.0f, 800.0f)));
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	// A node the flow passes through, and an event.
+	fixture.SelectElements({3});
+	CHECK(fixture.Details.FindRow("Enabled"));
+	fixture.SelectElements({5});
+	CHECK(fixture.Details.FindRow("Enabled"));
+	CHECK(GetVisualScriptEnabledOffer(*fixture.Model, &fixture.Semantics.GetFixtureLibrary(), *FindVisualScriptNode(document, 5)) ==
+	      VisualScriptEnabledOffer::Offered);
+	// A pure node shows them disabled.
+	fixture.SelectElements({8});
+	REQUIRE(fixture.Details.FindRow("Enabled"));
+	CHECK(GetVisualScriptEnabledOffer(*fixture.Model, &fixture.Semantics.GetFixtureLibrary(), *FindVisualScriptNode(document, 8)) ==
+	      VisualScriptEnabledOffer::PureNode);
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(fixture.DetailsRow("Enabled"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(fixture.GetUndoCount() == undo);
+	// Several: the states act on the nodes that offer them.
+	fixture.SelectElements({3, 8});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Several);
+	fixture.ImGui.Click(fixture.DetailsRow("Enabled"), fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	fixture.ImGui.Press(ImGuiKey_DownArrow, fixture.Drawer());
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 3)->Enabled == VisualScriptNodeEnabled::Disabled);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 8)->Enabled == VisualScriptNodeEnabled::Enabled);
+	// A function's Entry and Return do not show them.
+	fixture.Model->ShowFunction(10);
+	fixture.Frames(2);
+	fixture.SelectElements({11});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	CHECK_FALSE(fixture.Details.FindRow("Enabled"));
+	fixture.SelectElements({11, 12});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Several);
+	CHECK_FALSE(fixture.Details.FindRow("Enabled"));
+}
+
+TEST_CASE("VisualScriptEditor: a new custom event's name takes the keyboard in Details while another node was selected")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Sidebar, FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({3});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(fixture.SidebarAdd(VisualScriptElementKind::CustomEvent), fixture.Drawer());
+	fixture.Frames(3);
+	REQUIRE(fixture.Model->GetSelection().size() == 1);
+	uint32_t const event = fixture.Model->GetSelection().front();
+	CHECK(event != 3);
+	fixture.ImGui.Type("Landed");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), event)->Settings.value("Name", Json()) == "Landed");
+	CHECK_FALSE(fixture.Shared.FocusSetting);
+}
+
+TEST_CASE("VisualScriptEditor: a comment's position dragged slowly in Details moves it by whole grid steps")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptComment comment;
+	comment.ID = 50;
+	comment.Text = "Area";
+	comment.Position = glm::vec2(96.0f, 400.0f);
+	comment.Size = glm::vec2(320.0f, 160.0f);
+	document.Graph.Comments.push_back(comment);
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({50});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Comment);
+	size_t const undo = fixture.GetUndoCount();
+	// The X cell, 2 pixels a frame for 60 frames: 120 units at 1 unit a pixel.
+	ImVec2 const start = fixture.DetailsRow("Position", 0.25f);
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(start.x, start.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	for (int frame = 1; frame <= 60; frame++)
+	{
+		io.AddMousePosEvent(start.x + 2.0f * static_cast<float>(frame), start.y);
+		fixture.Frames(1);
+	}
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(3);
+	VisualScriptComment const& moved = fixture.GetDocument().Graph.Comments.front();
+	// Dragged about 120 units (less the drag threshold), snapped to 16.
+	CHECK(moved.Position.x >= 96.0f + 96.0f);
+	CHECK(moved.Position.x <= 96.0f + 128.0f);
+	CHECK(std::fmod(moved.Position.x, 16.0f) == 0.0f);
+	CHECK(moved.Position.y == 400.0f);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+}
+
+TEST_CASE("VisualScriptEditor: a comment box added from the palette or Details and its first title are one step")
+{
+	SUBCASE("the palette's Add Comment Box")
+	{
+		PaneFixture fixture(MakeDocument());
+		fixture.CheckDrawingChangesNothing();
+		size_t const undo = fixture.GetUndoCount();
+		fixture.Palette.Open(MakeIntent(glm::vec2(400.0f, 400.0f), "add comment box"));
+		fixture.Frames(2);
+		REQUIRE_FALSE(fixture.GetStateTitles().empty());
+		REQUIRE(fixture.GetStateTitles().front() == "Add Comment Box");
+		fixture.Results.clear();
+		fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+		auto const request = std::find_if(fixture.Results.begin(), fixture.Results.end(),
+		                                  [](VisualScriptPaneResult const& result)
+		                                  {
+											  return result.EditCommentTitle.has_value();
+										  });
+		REQUIRE(request != fixture.Results.end());
+		VisualScriptCommentTitleRequest const title = *request->EditCommentTitle;
+		CHECK(title.MergeKey != 0);
+		CHECK(fixture.GetUndoCount() == undo + 1);
+		// The window's title editor commits the title under the key.
+		VisualScriptDocument titled = fixture.GetDocument();
+		REQUIRE(VisualScriptEditing::SetCommentText(titled, title.Comment, "Movement"));
+		Result<VisualScriptCommitRequest> commit =
+			MakeVisualScriptCommitRequest(*fixture.Model->GetStoredDocument(), std::move(titled), fixture.Model->GetAnalysis(),
+		                                  "Rename Comment", "Graph", title.MergeKey);
+		REQUIRE(commit.IsOk());
+		fixture.ExecuteCommit(commit.TakeValue());
+		CHECK(fixture.GetUndoCount() == undo + 1);
+		REQUIRE(fixture.Operations.Undo().IsOk());
+		CHECK(fixture.GetDocument().Graph.Comments.empty());
+	}
+	SUBCASE("Details' Comment Selection")
+	{
+		PaneFixture fixture(MakeDocument(), {FixturePane::Details});
+		fixture.CheckDrawingChangesNothing();
+		fixture.SelectElements({1, 2});
+		size_t const undo = fixture.GetUndoCount();
+		fixture.Results.clear();
+		fixture.ImGui.Click(fixture.DetailsRow("Comment Selection"), fixture.Drawer());
+		fixture.Frames(1);
+		auto const request = std::find_if(fixture.Results.begin(), fixture.Results.end(),
+		                                  [](VisualScriptPaneResult const& result)
+		                                  {
+											  return result.EditCommentTitle.has_value();
+										  });
+		REQUIRE(request != fixture.Results.end());
+		VisualScriptCommentTitleRequest const title = *request->EditCommentTitle;
+		CHECK(fixture.GetUndoCount() == undo + 1);
+		VisualScriptDocument titled = fixture.GetDocument();
+		REQUIRE(VisualScriptEditing::SetCommentText(titled, title.Comment, "Greeting"));
+		Result<VisualScriptCommitRequest> commit =
+			MakeVisualScriptCommitRequest(*fixture.Model->GetStoredDocument(), std::move(titled), fixture.Model->GetAnalysis(),
+		                                  "Rename Comment", "Graph", title.MergeKey);
+		REQUIRE(commit.IsOk());
+		fixture.ExecuteCommit(commit.TakeValue());
+		CHECK(fixture.GetUndoCount() == undo + 1);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a dragged value held still in Details is committed 0.1 s after the last commit")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(4, "Flow.Delay", glm::vec2(400.0f, 300.0f)));
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({4});
+	ImVec2 const start = fixture.DetailsRow("Duration", 0.3f);
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(start.x, start.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	uint64_t const version = fixture.GetVersion();
+	// Three frames of movement: the first change commits at once, the others wait.
+	for (int frame = 1; frame <= 3; frame++)
+	{
+		io.AddMousePosEvent(start.x + 8.0f * static_cast<float>(frame), start.y);
+		fixture.Frames(1);
+	}
+	CHECK(fixture.GetVersion() == version + 1);
+	CHECK(fixture.Details.HasPendingEdit());
+	// Held still: the value moved to reaches the document 0.1 s after the first commit, while the button is still down.
+	fixture.Frames(6);
+	CHECK(fixture.GetVersion() == version + 2);
+	CHECK_FALSE(fixture.Details.HasPendingEdit());
+	Json const held = FindNode(fixture.GetDocument(), "Flow.Delay")->Inputs.value("Duration", Json());
+	fixture.Frames(20);
+	CHECK(fixture.GetVersion() == version + 2);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(3);
+	CHECK(FindNode(fixture.GetDocument(), "Flow.Delay")->Inputs.value("Duration", Json()) == held);
+}
+
+TEST_CASE("VisualScriptEditor: a function's Details lists each local's name, type and default value")
+{
+	PaneFixture fixture(MakeLocalDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Function, 10};
+	fixture.Frames(2);
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Function);
+	REQUIRE(fixture.Details.FindRow("Local 1"));
+	REQUIRE(fixture.Details.FindRow("Local 1 Default"));
+	size_t const undo = fixture.GetUndoCount();
+	// Its name.
+	fixture.ImGui.Click(fixture.DetailsRow("Local 1", 0.2f), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("Sum");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Rename Total to Sum in Graph");
+	// Its default value.
+	fixture.ImGui.Click(fixture.DetailsRow("Local 1 Default"), fixture.Drawer(), 2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("5");
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	VisualScriptLocal const& local = fixture.GetDocument().Functions.front().Locals.front();
+	CHECK(local.Name == "Sum");
+	CHECK(local.Value == Json(5.0));
+}
+
+TEST_CASE("VisualScriptEditor: My Script does a routed key only on the row it was routed for, and never renames read-only scripts")
+{
+	PaneFixture fixture(MakeDocument(), {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	// Routed for Alive, then another row is selected before My Script draws: nothing is deleted.
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 101};
+	fixture.Frames(1);
+	REQUIRE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Delete, fixture.Shared));
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 100};
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.GetDocument().Variables.size() == 2);
+	// Routed while My Script is hidden: dropped when it shows again.
+	REQUIRE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Delete, fixture.Shared));
+	fixture.Panes.clear();
+	fixture.Frames(3);
+	fixture.Panes = {FixturePane::Sidebar};
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.GetDocument().Variables.size() == 2);
+
+	// A read-only file: F2 is not taken, and a quick fix's rename opens no field.
+	Testing::ReadOnlyFileScope readOnly(fixture.File);
+	fixture.Model->CheckWritable();
+	fixture.Frames(2);
+	REQUIRE(fixture.Model->IsReadOnly());
+	CHECK_FALSE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Rename, fixture.Shared));
+	CHECK_FALSE(fixture.Sidebar.HandleAction(VisualScriptEditorAction::Delete, fixture.Shared));
+	fixture.Shared.Rename = VisualScriptElement{VisualScriptElementKind::Variable, 100};
+	fixture.Frames(2);
+	CHECK_FALSE(fixture.Sidebar.GetRenaming());
+	CHECK_FALSE(fixture.Shared.Rename);
+	readOnly.Restore();
+}
+
+TEST_CASE("VisualScriptEditor: going to a local of another sub-graph selects its row, whatever that sub-graph had selected")
+{
+	SUBCASE("from the find bar")
+	{
+		PaneFixture fixture(MakeLocalDocument(), {FixturePane::FindBar, FixturePane::Details});
+		fixture.CheckDrawingChangesNothing();
+		fixture.Model->ShowFunction(10);
+		fixture.Frames(2);
+		fixture.SelectElements({11});
+		fixture.Model->ShowFunction(0);
+		fixture.Frames(2);
+		fixture.FindBar.Open("Total");
+		fixture.Frames(3);
+		REQUIRE(fixture.FindBar.GetCount() >= 1);
+		fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+		fixture.Frames(2);
+		CHECK(fixture.Model->GetFunction() == 10);
+		CHECK(fixture.Model->GetSelection().empty());
+		CHECK(fixture.Shared.Element == VisualScriptElement{VisualScriptElementKind::Local, 20});
+		CHECK(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Local);
+	}
+	SUBCASE("from the problems drawer")
+	{
+		PaneFixture fixture(MakeLocalDocument(), {FixturePane::Drawer, FixturePane::Details});
+		VisualScriptDiagnostic diagnostic =
+			MakeDiagnostic("UnusedVariable", 10, std::nullopt, "Total is never read", VisualScriptSeverity::Warning);
+		diagnostic.Variable = 20;
+		fixture.Semantics.InjectDiagnostic(diagnostic);
+		fixture.CheckDrawingChangesNothing();
+		fixture.Model->ShowFunction(10);
+		fixture.Frames(2);
+		fixture.SelectElements({11});
+		fixture.Model->ShowFunction(0);
+		fixture.Frames(2);
+		REQUIRE(fixture.DrawerPane.GetProblems().size() == 1);
+		fixture.ImGui.Click(GetCenter(fixture.DrawerPane.FindProblemRow(0)), fixture.Drawer());
+		fixture.Frames(2);
+		CHECK(fixture.Model->GetFunction() == 10);
+		CHECK(fixture.Model->GetSelection().empty());
+		CHECK(fixture.Shared.Element == VisualScriptElement{VisualScriptElementKind::Local, 20});
+		CHECK(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Local);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: the characters of the palette's opening query are not typed twice")
+{
+	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	// Space + F: the canvas makes the intent's query of the frame's characters, which ImGui still queues in that frame.
+	fixture.ImGui.Type("f");
+	fixture.ImGui.Frame(
+		[&fixture]
+		{
+			fixture.Palette.Open(MakeIntent(glm::vec2(0.0f), "f"));
+			fixture.Draw();
+		});
+	fixture.Frames(2);
+	CHECK(fixture.Palette.GetState().Query == "f");
+	fixture.ImGui.Type("or");
+	fixture.Frames(2);
+	CHECK(fixture.Palette.GetState().Query == "for");
+}
+
+TEST_CASE("VisualScriptEditor: the palette's preview reserves the node's laid-out size, and New: entries show their type")
+{
+	CHECK(IsVisualScriptReflectedType("New:Strada.Vector3(float,float,float)"));
+	CHECK(IsVisualScriptReflectedType("Call:Strada.Log.Info(string)"));
+	CHECK_FALSE(IsVisualScriptReflectedType("Flow.Branch"));
+
+	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	int previews = 0;
+	fixture.DrawNodePreview = [&previews](VisualScriptPaletteEntry const&, ImDrawList*, ImVec2, float)
+	{
+		previews++;
+	};
+	fixture.Palette.Open(MakeIntent(glm::vec2(0.0f), "raycast"));
+	fixture.Frames(2);
+	REQUIRE_FALSE(fixture.Palette.GetRowEntries().empty());
+	ImGuiWindow const* const rows = FindChildWindow("##rows");
+	REQUIRE(rows != nullptr);
+	ImVec2 const row(rows->ContentRegionRect.Min.x + 40.0f, rows->ContentRegionRect.Min.y + ImGui::GetTextLineHeight() * 0.5f);
+	ImGui::GetIO().AddMousePosEvent(row.x, row.y);
+	fixture.Frames(40);
+	REQUIRE(previews > 0);
+	// The canvas's layout of the node: taller than the four rows reserved before (a header with its subtitle, five inputs).
+	VisualScriptCanvasModel const& canvas = fixture.Model->GetCanvas();
+	std::optional<uint32_t> const raycast = canvas.FindNode(3);
+	REQUIRE(raycast);
+	std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+	CHECK(fixture.Palette.GetPreviewSize().y >
+	      VisualScriptCanvasMetrics::HeaderHeightWithSubtitle + VisualScriptCanvasMetrics::PinRowHeight * 4.0f);
+	CHECK(fixture.Palette.GetPreviewSize().y == doctest::Approx(nodes[*raycast].Size.y));
+}
+
+TEST_CASE("VisualScriptEditor: a read-only script's variables, locals and functions with problems draw in Details")
+{
+	PaneFixture fixture(MakeLocalDocument(), {FixturePane::Details});
+	VisualScriptDiagnostic variable =
+		MakeDiagnostic("UnusedVariable", 0, std::nullopt, "Alive is never read", VisualScriptSeverity::Warning);
+	variable.Variable = 101;
+	fixture.Semantics.InjectDiagnostic(variable);
+	VisualScriptDiagnostic local = MakeDiagnostic("UnusedVariable", 10, std::nullopt, "Total is never read", VisualScriptSeverity::Warning);
+	local.Variable = 20;
+	fixture.Semantics.InjectDiagnostic(local);
+	fixture.Semantics.InjectDiagnostic(MakeDiagnostic("MissingReturn", 10, std::nullopt, "AddScore does not return"));
+	fixture.CheckDrawingChangesNothing();
+	Testing::ReadOnlyFileScope readOnly(fixture.File);
+	fixture.Model->CheckWritable();
+	fixture.Frames(2);
+	REQUIRE(fixture.Model->IsReadOnly());
+	for (VisualScriptElement const element :
+	     {VisualScriptElement{VisualScriptElementKind::Variable, 101}, VisualScriptElement{VisualScriptElementKind::Local, 20},
+	      VisualScriptElement{VisualScriptElementKind::Function, 10}})
+	{
+		CAPTURE(static_cast<uint32_t>(element.Kind));
+		fixture.Shared.Element = element;
+		fixture.Frames(2);
+		CHECK(fixture.Shared.Element == element);
+		CHECK(GImGui->DisabledStackSize == 0);
+	}
+	// Nothing selected in the function's graph: Details shows the script and the function.
+	fixture.Shared.Element.reset();
+	fixture.Model->ShowFunction(10);
+	fixture.Frames(2);
+	CHECK(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Script);
+	CHECK(GImGui->DisabledStackSize == 0);
+	readOnly.Restore();
+}
+
+TEST_CASE("VisualScriptEditor: find lists a script it cannot read, and All Scripts finds a text in every script")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Drawer});
+	Result<AssetHandle> const other = fixture.Operations.CreateVisualScript("Scripts/Other.sgraph", VisualScriptTemplate::Empty);
+	REQUIRE(other.IsOk());
+	VisualScriptDocument sender;
+	sender.Graph.Nodes = {MakeNode(1, "Event.Update", glm::vec2(0.0f)),
+	                      MakeNode(2, "Event.Send", glm::vec2(240.0f, 0.0f), Json::object({{"Name", "Hit"}}))};
+	sender.Graph.Links = {MakeLink(1, "Then", 2, "Execute")};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(other.GetValue(), sender).IsOk());
+	Result<AssetHandle> const broken = fixture.Operations.CreateVisualScript("Scripts/Broken.sgraph", VisualScriptTemplate::Empty);
+	REQUIRE(broken.IsOk());
+	fixture.CheckDrawingChangesNothing();
+	// The broken script's file is damaged and unloaded: it cannot be read.
+	REQUIRE(FileSystem::WriteTextFile(AssetManager::GetAbsolutePath(broken.GetValue()), "{ not a graph").IsOk());
+	AssetManager::UnloadAsset(broken.GetValue());
+
+	fixture.DrawerPane.ShowFind("Send");
+	fixture.DrawerPane.SetScope(VisualScriptFindScope::AllScripts);
+	fixture.Frames(2);
+	std::span<VisualScriptDrawerFindRow const> const rows = fixture.DrawerPane.GetFindRows();
+	auto const error = std::find_if(rows.begin(), rows.end(),
+	                                [&broken](VisualScriptDrawerFindRow const& row)
+	                                {
+										return row.Graph == broken.GetValue();
+									});
+	REQUIRE(error != rows.end());
+	CHECK(error->Error.starts_with("could not be read: "));
+	auto const found = std::find_if(rows.begin(), rows.end(),
+	                                [&other](VisualScriptDrawerFindRow const& row)
+	                                {
+										return row.Graph == other.GetValue() && row.Error.empty();
+									});
+	REQUIRE(found != rows.end());
+	CHECK(std::any_of(rows.begin(), rows.end(),
+	                  [&fixture](VisualScriptDrawerFindRow const& row)
+	                  {
+						  return row.Graph == fixture.Graph;
+					  }));
+	fixture.Results.clear();
+	fixture.ImGui.Click(GetCenter(fixture.DrawerPane.FindFindRow(static_cast<size_t>(found - rows.begin()))), fixture.Drawer());
+	auto const opened = std::find_if(fixture.Results.rbegin(), fixture.Results.rend(),
+	                                 [](VisualScriptPaneResult const& result)
+	                                 {
+										 return result.Open.has_value();
+									 });
+	REQUIRE(opened != fixture.Results.rend());
+	CHECK(opened->Open->Graph == other.GetValue());
+	CHECK(opened->Open->Select == std::vector<uint32_t>{2});
+	// Problems mode lets the results go.
+	fixture.DrawerPane.ShowProblems();
+	CHECK(fixture.DrawerPane.GetFindRows().empty());
+}
+
+TEST_CASE("VisualScriptEditor: compact enum and asset frames show the text of the chips they replace")
+{
+	PaneFixture fixture(MakeDocument());
+	VisualScriptLibrary const& library = fixture.Semantics.GetFixtureLibrary();
+	// An enum: the stored name, as the canvas's chip shows it.
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(4, "Call:Strada.Input.IsKeyDown(Strada.KeyCode)", glm::vec2(0.0f, 600.0f)));
+	document.Graph.Nodes.back().Inputs = Json::object({{"Key", "LeftShift"}});
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, document).IsOk());
+	fixture.Frames(2);
+	VisualScriptCanvasModel const& canvas = fixture.Model->GetCanvas();
+	std::optional<uint32_t> const node = canvas.FindNode(4);
+	REQUIRE(node);
+	std::optional<uint32_t> const pin = canvas.FindPin(*node, "Key", VisualScriptPinDirection::In);
+	REQUIRE(pin);
+	std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+	std::string const chip(canvas.GetText(pins[*pin].ChipText));
+	std::optional<VisualScriptLiteralField> const key = DescribeVisualScriptLiteral("Strada.KeyCode", "LeftShift", Json(), &library);
+	REQUIRE(key);
+	CHECK(FieldEditor::DescribeCompactText(key->Descriptor, key->Value) == chip);
+	CHECK(chip == "LeftShift");
+	// [Flags]: the stored names joined with " | " (the chips' GetEnumText).
+	FieldDescriptor flags;
+	flags.Kind = FieldKind::Enum;
+	flags.IsFlags = true;
+	std::vector<std::string> const names{"Read", "Write"};
+	flags.EnumValues = {names[0], names[1]};
+	CHECK(FieldEditor::DescribeCompactText(flags, Json::array({"Read", "Write"})) == "Read | Write");
+	CHECK(FieldEditor::DescribeCompactText(flags, Json::array()) == "None");
+	// An asset: its display name, the file's name.
+	FieldDescriptor asset;
+	asset.Kind = FieldKind::Asset;
+	CHECK(FieldEditor::DescribeCompactText(asset, Json(fixture.Graph.ToString())) == "Graph.sgraph");
+	CHECK(FieldEditor::DescribeCompactText(asset, Json()) == "None");
 }

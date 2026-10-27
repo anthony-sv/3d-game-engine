@@ -34,6 +34,9 @@ namespace Strada
 		m_Matches.clear();
 		m_Outlined.clear();
 		m_Found = false;
+		// The document the matches were found in is not kept alive while the bar is closed.
+		m_FoundDocument.reset();
+		m_FoundAnalysis = nullptr;
 	}
 
 	void VisualScriptFindBar::UpdateMatches(VisualScriptPaneContext& context)
@@ -104,15 +107,12 @@ namespace Strada
 		}
 		if (match.Variable != 0)
 		{
-			if (match.Function != 0)
-			{
-				result.ShowFunction = match.Function;
-			}
 			SelectVisualScriptElement(
-				context, {match.Function != 0 ? VisualScriptElementKind::Local : VisualScriptElementKind::Variable, match.Variable});
+				context, {match.Function != 0 ? VisualScriptElementKind::Local : VisualScriptElementKind::Variable, match.Variable},
+				match.Function != 0 ? std::optional<uint32_t>(match.Function) : std::nullopt);
 			return;
 		}
-		SelectVisualScriptElement(context, {VisualScriptElementKind::Function, match.Function});
+		SelectVisualScriptElement(context, {VisualScriptElementKind::Function, match.Function}, match.Function);
 	}
 
 	VisualScriptPaneResult VisualScriptFindBar::Draw(VisualScriptPaneContext& context)

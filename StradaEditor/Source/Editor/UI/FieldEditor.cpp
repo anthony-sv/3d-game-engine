@@ -48,9 +48,12 @@ namespace Strada
 		constexpr float MaxNameShare = 0.6f;
 		constexpr float MaxNameShareBesideAssets = 0.5f;
 		constexpr char const* AngleFormat = "%.1f\xc2\xb0";
-		// Compact widgets show numbers as short as they read.
+		// Compact widgets show numbers as short as they read, Euler degrees too (as the visual script canvas' chips they replace
+		// show them: no degree sign).
 		constexpr char const* CompactFloatFormat = "%g";
-		constexpr char const* CompactAngleFormat = "%g\xc2\xb0";
+		// The axis stripe at the left edge of a compact vector's cells, as a share of the cell's height: the canvas chips' 2
+		// units of 19.
+		constexpr float CompactStripeShare = 2.0f / 19.0f;
 		// Integer widgets stay within the integers JSON consumers represent exactly.
 		constexpr int64_t IntegerWidgetLimit = int64_t(1) << 53;
 
@@ -326,10 +329,11 @@ namespace Strada
 			return changed;
 		}
 
-		// Drag fields without axis buttons, one per component in the item's width (compact widgets); reports which component
-		// changed.
+		// Drag fields without axis buttons, one per component in the item's width, each with its axis's stripe at its left edge
+		// (compact widgets); reports which component changed.
 		bool DrawComponentCells(float* values, int count, float speed, float min, float max, char const* format, int& changedComponent)
 		{
+			ImGuiStyle const& style = ImGui::GetStyle();
 			bool changed = false;
 			float const spacing = ImGui::GetStyle().ItemInnerSpacing.x;
 			float const cellWidth =
@@ -347,6 +351,12 @@ namespace Strada
 					changed = true;
 					changedComponent = i;
 				}
+				ImVec2 const cellMin = ImGui::GetItemRectMin();
+				ImVec2 const cellMax = ImGui::GetItemRectMax();
+				float const stripe = std::max(1.0f, (cellMax.y - cellMin.y) * CompactStripeShare);
+				ImGui::GetWindowDrawList()->AddRectFilled(cellMin, ImVec2(cellMin.x + stripe, cellMax.y),
+				                                          ImGui::GetColorU32(AxisColors[static_cast<size_t>(std::min(i, 3))]),
+				                                          style.FrameRounding, ImDrawFlags_RoundCornersLeft);
 				ImGui::PopID();
 			}
 			return changed;
@@ -460,7 +470,28 @@ namespace Strada
 		// A box framed like a text field showing the referenced asset (long paths shortened), after a small image of it when
 		// `previews` makes one (the place stays while the image is made); returns true when clicked. The tooltip has the whole
 		// path and a larger image.
-		bool DrawAssetReferenceBox(AssetHandle handle, bool mixed, float width, AssetThumbnails* previews)
+		// An asset as the visual script canvas' chips name it: its display name (a memory asset's name), marked when its file
+		// is missing; "None" without one.
+		std::string DescribeCompactAsset(AssetHandle handle)
+		{
+			if (!handle.IsValid())
+			{
+				return "None";
+			}
+			if (!AssetManager::IsInitialized())
+			{
+				return handle.ToString();
+			}
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
+			if (!metadata)
+			{
+				return "Unknown asset " + handle.ToString();
+			}
+			std::string name = metadata->GetDisplayName();
+			return AssetManager::IsMissing(handle) ? name + " (missing)" : name;
+		}
+
+		bool DrawAssetReferenceBox(AssetHandle handle, bool mixed, float width, AssetThumbnails* previews, bool compact = false)
 		{
 			ImGuiStyle const& style = ImGui::GetStyle();
 			bool const clicked = ImGui::InvisibleButton("##reference", ImVec2(std::max(1.0f, width), ImGui::GetFrameHeight()));
@@ -476,8 +507,10 @@ namespace Strada
 			bool const pictured =
 				!mixed && handle.IsValid() && DrawAssetImage(previews, handle, ImVec2(min.x + inset, min.y + inset), imageSize);
 			float const textX = pictured ? min.x + inset + imageSize + style.ItemInnerSpacing.x : min.x + style.FramePadding.x;
-			std::string const text =
-				UI::FitPath(mixed ? std::string("--") : UI::DescribeAssetReference(handle), max.x - style.FramePadding.x - textX);
+			std::string const text = UI::FitPath(mixed     ? std::string("--")
+			                                     : compact ? DescribeCompactAsset(handle)
+			                                               : UI::DescribeAssetReference(handle),
+			                                     max.x - style.FramePadding.x - textX);
 			drawList->PushClipRect(min, max, true);
 			drawList->AddText(ImVec2(textX, min.y + style.FramePadding.y), GetAssetReferenceColor(handle, mixed), text.c_str());
 			drawList->PopClipRect();
@@ -516,7 +549,38 @@ namespace Strada
 												   });
 		}
 
-		// The set flags' names, as a combo or a compact frame shows them.
+		// How wide an enum's list is drawn: its longest name, at least the width of a short field.
+		float GetEnumListWidth(FieldDescriptor const& field)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			float labelWidth = 0.0f;
+			for (std::string_view const name : field.EnumValues)
+			{
+				labelWidth = std::max(labelWidth, ImGui::CalcTextSize(UI::FormatDisplayName(name).c_str()).x);
+			}
+			return std::max(labelWidth + style.FramePadding.x * 2.0f + style.ScrollbarSize,
+			                ImGui::GetFontSize() * MinEnumListWidthInFontSizes);
+		}
+
+		// The set flags' stored names joined with " | ", as a compact frame shows them (the canvas chip's text).
+		std::string DescribeCompactFlags(FieldDescriptor const& field, Json const& value, bool mixed)
+		{
+			if (mixed)
+			{
+				return "--";
+			}
+			std::string text;
+			for (std::string_view const name : field.EnumValues)
+			{
+				if (IsFlagSet(value, name))
+				{
+					text += (text.empty() ? "" : " | ") + std::string(name);
+				}
+			}
+			return text.empty() ? std::string("None") : text;
+		}
+
+		// The set flags' names, as a combo shows them.
 		std::string DescribeFlags(FieldDescriptor const& field, Json const& value, bool mixed)
 		{
 			if (mixed)
@@ -1140,7 +1204,12 @@ namespace Strada
 					field.EnumValues.size() > MaxUnfilteredEnumerators ? ImGuiComboFlags_HeightLargest : ImGuiComboFlags_None;
 				if (ImGui::BeginCombo("##value", preview.c_str(), flags))
 				{
-					changed = DrawEnumList(field, current, 0.0f, change);
+					// A filtered list's rows are in a child window, which does not widen the popup to its longest name as rows
+					// directly in it do: it is given that width, and the combo's at least.
+					float const width = field.EnumValues.size() > MaxUnfilteredEnumerators
+					                        ? std::max(GetEnumListWidth(field), ImGui::GetContentRegionAvail().x)
+					                        : 0.0f;
+					changed = DrawEnumList(field, current, width, change);
 					ImGui::EndCombo();
 				}
 				return changed;
@@ -1190,7 +1259,7 @@ namespace Strada
 		ImGui::PushID("##euler");
 		bool const changed =
 			mode == FieldInlineMode::Compact
-				? DrawComponentCells(&degrees.x, 3, 0.5f, -FLT_MAX, FLT_MAX, CompactAngleFormat, changedComponent)
+				? DrawComponentCells(&degrees.x, 3, 0.5f, -FLT_MAX, FLT_MAX, CompactFloatFormat, changedComponent)
 				: DrawVectorComponents(&degrees.x, 3, 0.5f, -FLT_MAX, FLT_MAX, AngleFormat, defaults.data(), changedComponent);
 		ImGui::PopID();
 		if (!changed)
@@ -1436,7 +1505,7 @@ namespace Strada
 			case FieldKind::Asset:
 			{
 				AssetHandle const handle(ReadID(value));
-				popupRequested = DrawAssetReferenceBox(handle, mixed, ImGui::CalcItemWidth(), m_AssetPreviews) || popupRequested;
+				popupRequested = DrawAssetReferenceBox(handle, mixed, ImGui::CalcItemWidth(), m_AssetPreviews, true) || popupRequested;
 				if (ImGui::BeginDragDropTarget())
 				{
 					std::optional<AssetType> const type = AssetTypeFromString(field.Hints.AssetTypeName);
@@ -1483,10 +1552,7 @@ namespace Strada
 				return DrawQuaternion(value, change, FieldInlineMode::Compact);
 			case FieldKind::Enum:
 			{
-				std::string text = field.IsFlags ? DescribeFlags(field, value, mixed)
-				                   : mixed       ? std::string("--")
-				                                 : UI::FormatDisplayName(value.is_string() ? value.get_ref<std::string const&>() : "");
-				popupRequested = DrawChoiceFrame(text) || popupRequested;
+				popupRequested = DrawChoiceFrame(mixed ? std::string("--") : DescribeCompactText(field, value)) || popupRequested;
 				return false;
 			}
 			case FieldKind::Array:
@@ -1508,6 +1574,21 @@ namespace Strada
 		return DrawValue(field, value, mixed, change);
 	}
 
+	std::string FieldEditor::DescribeCompactText(FieldDescriptor const& field, Json const& value)
+	{
+		if (field.Kind == FieldKind::Enum)
+		{
+			// The stored names, as the canvas chip shows them.
+			return field.IsFlags ? DescribeCompactFlags(field, value, false)
+			                     : std::string(value.is_string() ? value.get_ref<std::string const&>() : "");
+		}
+		if (field.Kind == FieldKind::Asset)
+		{
+			return DescribeCompactAsset(AssetHandle(ReadID(value)));
+		}
+		return {};
+	}
+
 	bool FieldEditor::DrawValuePopup(FieldDescriptor const& field, Json const& value, FieldChange& change)
 	{
 		PruneEulerStates();
@@ -1518,15 +1599,7 @@ namespace Strada
 			{
 				return DrawFlagList(field, value, change);
 			}
-			// The popup fits its rows: the longest name, at least the width of a short field.
-			float labelWidth = 0.0f;
-			for (std::string_view const name : field.EnumValues)
-			{
-				labelWidth = std::max(labelWidth, ImGui::CalcTextSize(UI::FormatDisplayName(name).c_str()).x);
-			}
-			float const width = std::max(labelWidth + style.FramePadding.x * 2.0f + style.ScrollbarSize,
-			                             ImGui::GetFontSize() * MinEnumListWidthInFontSizes);
-			return DrawEnumList(field, value.is_string() ? value.get<std::string>() : std::string(), width, change);
+			return DrawEnumList(field, value.is_string() ? value.get<std::string>() : std::string(), GetEnumListWidth(field), change);
 		}
 		if (IsColor(field))
 		{

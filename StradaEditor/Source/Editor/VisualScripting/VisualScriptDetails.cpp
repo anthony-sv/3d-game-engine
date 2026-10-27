@@ -26,13 +26,12 @@ namespace Strada
 {
 	namespace
 	{
-		// The loader's words for a name that is not one (VisualScriptSerializer::IsValidName).
-		constexpr char const* NameRuleMessage =
-			"expected a name of 1 to 64 bytes without control characters, '.' or a leading or trailing space";
 		// The base names of new locals and parameters, made unique.
 		constexpr char const* NewLocalName = "NewLocal";
 		// How many samples an Easing plot draws.
 		constexpr int EasingSamples = 32;
+		// The Enabled combo's items, in VisualScriptNodeEnabled's order.
+		constexpr std::array<char const*, 3> EnabledLabels = {"Enabled", "Disabled", "Development Only"};
 
 		std::string RemovesLinks(uint32_t removed)
 		{
@@ -48,40 +47,6 @@ namespace Strada
 			return fmt::format("{} {}", count, count == 1 ? singular : plural);
 		}
 
-		std::string DescribeType(VisualScriptLibrary const* library, std::string_view type)
-		{
-			if (library != nullptr)
-			{
-				if (VisualScriptTypeInfo const* const info = library->FindType(type); info != nullptr && !info->Title.empty())
-				{
-					return info->Title;
-				}
-			}
-			return std::string(type);
-		}
-
-		VisualScriptEnumLookup MakeEnumLookup(VisualScriptLibrary const* library)
-		{
-			if (library == nullptr)
-			{
-				return {};
-			}
-			return [library](std::string_view type)
-			{
-				return library->FindEnum(type);
-			};
-		}
-
-		// Whether a variable of the type can be public: components can store it (an exposable type, or an enum).
-		bool CanBePublic(std::string_view type, VisualScriptLibrary const* library)
-		{
-			if (FindVisualScriptExposableType(type))
-			{
-				return true;
-			}
-			return library != nullptr && library->FindEnum(type).has_value();
-		}
-
 		bool IsNumeric(std::string_view type, VisualScriptLibrary const* library)
 		{
 			if (library != nullptr)
@@ -92,11 +57,6 @@ namespace Strada
 				}
 			}
 			return type == "int" || type == "float" || type == "double" || type == "long" || type == "uint" || type == "ulong";
-		}
-
-		glm::vec2 SnapToGrid(glm::vec2 position)
-		{
-			return glm::round(position / VisualScriptCanvasMetrics::GridSize) * VisualScriptCanvasMetrics::GridSize;
 		}
 
 		// A small square in a colour, on the text line.
@@ -193,24 +153,6 @@ namespace Strada
 			return 0;
 		}
 
-		bool ContainsIgnoringCase(std::string_view text, std::string_view part)
-		{
-			if (part.empty())
-			{
-				return true;
-			}
-			auto const lower = [](char c)
-			{
-				return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
-			};
-			auto const found = std::search(text.begin(), text.end(), part.begin(), part.end(),
-			                               [&lower](char a, char b)
-			                               {
-											   return lower(a) == lower(b);
-										   });
-			return found != text.end();
-		}
-
 		std::string_view GetKindGroupName(VisualScriptTypeKind kind)
 		{
 			switch (kind)
@@ -251,38 +193,6 @@ namespace Strada
 					return "Objects";
 			}
 			return "Types";
-		}
-
-		// How many nodes of the document's graphs name a variable or local (Variable.Get and Variable.Set) or call a function.
-		uint32_t CountUses(VisualScriptDocument const& document, std::string_view type, std::string_view setting, uint32_t id)
-		{
-			uint32_t count = 0;
-			auto const countIn = [&](VisualScriptGraph const& graph)
-			{
-				for (VisualScriptNode const& node : graph.Nodes)
-				{
-					if (node.Type != type && !(type == "Variable.Get" && node.Type == "Variable.Set"))
-					{
-						continue;
-					}
-					auto const found = node.Settings.find(setting);
-					if (found != node.Settings.end() && found->is_number_unsigned() && found->get<uint64_t>() == id)
-					{
-						count++;
-					}
-					else if (found != node.Settings.end() && found->is_number_integer() &&
-					         found->get<int64_t>() == static_cast<int64_t>(id))
-					{
-						count++;
-					}
-				}
-			};
-			countIn(document.Graph);
-			for (VisualScriptFunction const& function : document.Functions)
-			{
-				countIn(function.Graph);
-			}
-			return count;
 		}
 
 		VisualScriptFunction const* FindFunction(VisualScriptDocument const& document, uint32_t id)
@@ -410,7 +320,7 @@ namespace Strada
 			case VisualScriptTypeUse::Value:
 				return type.Kind != VisualScriptTypeKind::Array;
 			case VisualScriptTypeUse::PublicVariable:
-				return type.FieldType != ScriptFieldType::None || type.Kind == VisualScriptTypeKind::Enum;
+				return type.Kind == VisualScriptTypeKind::Enum || IsVisualScriptPublicType(type.ID, nullptr);
 			case VisualScriptTypeUse::Setting:
 				break;
 		}
@@ -420,7 +330,7 @@ namespace Strada
 		}
 		if (constraint == "Exposable")
 		{
-			return type.FieldType != ScriptFieldType::None || type.Kind == VisualScriptTypeKind::Enum;
+			return type.Kind == VisualScriptTypeKind::Enum || IsVisualScriptPublicType(type.ID, nullptr);
 		}
 		if (constraint == "Struct")
 		{
@@ -471,26 +381,33 @@ namespace Strada
 		VisualScriptAnalysis const* Analysis = nullptr;
 		// The model edits nothing: edit widgets are disabled, what only shows or goes somewhere is not (ViewScope).
 		bool ReadOnly = false;
+		// How many ViewScopes are open: only the outermost enables (ImGui's disabled stack holds Draw's one level).
+		int ViewDepth = 0;
 	};
 
 	namespace
 	{
 		// Enables what only shows or navigates (copying a type, finding references, going to a node) inside Details' disabled
-		// edit widgets of a read-only document.
+		// edit widgets of a read-only document. Scopes nest (a section that enables its buttons draws the problems, which
+		// enable their navigating fixes): only the outermost ends the disabled state, and gives it back when it closes.
 		class ViewScope
 		{
 		public:
-			explicit ViewScope(bool readOnly)
-				: m_ReadOnly(readOnly)
+			// depth is the frame's count of open scopes.
+			ViewScope(bool readOnly, int& depth)
+				: m_Depth(depth),
+				  m_Enables(readOnly && depth == 0)
 			{
-				if (m_ReadOnly)
+				m_Depth++;
+				if (m_Enables)
 				{
 					ImGui::EndDisabled();
 				}
 			}
 			~ViewScope()
 			{
-				if (m_ReadOnly)
+				m_Depth--;
+				if (m_Enables)
 				{
 					ImGui::BeginDisabled();
 				}
@@ -499,18 +416,21 @@ namespace Strada
 			ViewScope& operator=(ViewScope const&) = delete;
 
 		private:
-			bool m_ReadOnly;
+			int& m_Depth;
+			bool m_Enables;
 		};
 	}
 
-	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptDetails::FindRow(std::string_view label) const
+	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptDetails::FindRow(std::string_view label, size_t occurrence) const
 	{
-		auto const found = std::find_if(m_Rows.begin(), m_Rows.end(),
-		                                [label](auto const& row)
-		                                {
-											return row.first == label;
-										});
-		return found != m_Rows.end() ? std::optional(found->second) : std::nullopt;
+		for (auto const& [rowLabel, rect] : m_Rows)
+		{
+			if (rowLabel == label && occurrence-- == 0)
+			{
+				return rect;
+			}
+		}
+		return std::nullopt;
 	}
 
 	void VisualScriptDetails::BeginRow(std::string_view label)
@@ -558,6 +478,12 @@ namespace Strada
 	template<typename TDraw>
 	void VisualScriptDetails::Track(Frame& frame, std::string_view label, TDraw&& draw)
 	{
+		Track(frame, label, label, std::forward<TDraw>(draw));
+	}
+
+	template<typename TDraw>
+	void VisualScriptDetails::Track(Frame& frame, std::string_view label, std::string_view key, TDraw&& draw)
+	{
 		BeginRow(label);
 		ImGui::BeginGroup();
 		ImGui::PushItemWidth(-FLT_MIN);
@@ -566,7 +492,7 @@ namespace Strada
 		ImGui::EndGroup();
 		bool const active = ImGui::IsItemActive();
 		bool const deactivated = ImGui::IsItemDeactivated();
-		EndRow(label);
+		EndRow(key);
 		if (edit)
 		{
 			m_Commits.Change(frame.Context, std::move(edit->Document), std::move(edit->Action), active, frame.Result);
@@ -715,6 +641,20 @@ namespace Strada
 			DrawScript(frame);
 		}
 		ImGui::EndDisabled();
+		if (m_Subject != VisualScriptDetailsSubject::Comment)
+		{
+			// A comment drag that the selection ended does not go on when a comment is shown again.
+			m_CommentDrag.reset();
+		}
+		if (context.Shared.FocusSetting && ++m_FocusWaits > FocusSettingFrames)
+		{
+			// Its node was never shown (the selection the request made did not come, or something else was selected).
+			context.Shared.FocusSetting.reset();
+		}
+		if (!context.Shared.FocusSetting)
+		{
+			m_FocusWaits = 0;
+		}
 		return result;
 	}
 
@@ -769,10 +709,12 @@ namespace Strada
 		DrawNodeProblems(frame, node);
 		DrawAbout(frame, node);
 		ImGui::PopID();
-		if (!frame.Context.Shared.FocusSetting.empty())
+		std::optional<VisualScriptSettingFocus>& focus = frame.Context.Shared.FocusSetting;
+		if (focus && focus->Node == node.ID)
 		{
 			// Given to its row above when the node has it; either way it is done with.
-			frame.Context.Shared.FocusSetting.clear();
+			focus.reset();
+			m_FocusWaits = 0;
 		}
 	}
 
@@ -806,7 +748,7 @@ namespace Strada
 		}
 		ImGui::TextDisabled("%s", fmt::format("Node {} \xC2\xB7 {}", node.ID, node.Type).c_str());
 		ImGui::SameLine();
-		ViewScope const view(frame.ReadOnly);
+		ViewScope const view(frame.ReadOnly, frame.ViewDepth);
 		if (ImGui::SmallButton("Copy"))
 		{
 			ImGui::SetClipboardText(node.Type.c_str());
@@ -841,27 +783,30 @@ namespace Strada
 				  }
 				  return edit;
 			  });
-		Track(frame, "Enabled",
-		      [&]() -> std::optional<Edit>
-		      {
-				  constexpr std::array<char const*, 3> Labels = {"Enabled", "Disabled", "Development Only"};
-				  int current = static_cast<int>(node.Enabled);
-				  if (!ImGui::Combo("##enabled", &current, Labels.data(), static_cast<int>(Labels.size())))
-				  {
-					  return std::nullopt;
-				  }
-				  auto const enabled = static_cast<VisualScriptNodeEnabled>(current);
-				  std::string action = enabled == VisualScriptNodeEnabled::Enabled    ? "Enable " + title
-			                           : enabled == VisualScriptNodeEnabled::Disabled ? "Disable " + title
-			                                                                          : "Set " + title + " to Development Only";
-				  Edit edit{document, std::move(action)};
-				  uint32_t const id = node.ID;
-				  if (!VisualScriptEditing::SetNodeEnabled(edit.Document, std::span(&id, 1), enabled))
-				  {
-					  return std::nullopt;
-				  }
-				  return edit;
-			  });
+		VisualScriptEnabledOffer const offer = GetVisualScriptEnabledOffer(frame.Context.Model, frame.Library, node);
+		if (offer == VisualScriptEnabledOffer::FunctionEnd)
+		{
+			// A function's Entry and Return always run.
+		}
+		else if (offer != VisualScriptEnabledOffer::Offered)
+		{
+			BeginRow("Enabled");
+			ImGui::BeginDisabled();
+			int current = static_cast<int>(node.Enabled);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			ImGui::Combo("##enabled", &current, EnabledLabels.data(), static_cast<int>(EnabledLabels.size()));
+			ImGui::EndDisabled();
+			EndRow("Enabled");
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::SetTooltip("%s",
+				                  offer == VisualScriptEnabledOffer::PureNode ? VisualScriptPureNodesRefusal : VisualScriptNoFlowRefusal);
+			}
+		}
+		else
+		{
+			DrawEnabled(frame, node, title);
+		}
 		Track(frame, "Collapsed",
 		      [&]() -> std::optional<Edit>
 		      {
@@ -873,6 +818,31 @@ namespace Strada
 				  Edit edit{document, (collapsed ? "Collapse " : "Expand ") + title};
 				  uint32_t const id = node.ID;
 				  if (!VisualScriptEditing::SetNodeCollapsed(edit.Document, std::span(&id, 1), collapsed))
+				  {
+					  return std::nullopt;
+				  }
+				  return edit;
+			  });
+	}
+
+	void VisualScriptDetails::DrawEnabled(Frame& frame, VisualScriptNode const& node, std::string const& title)
+	{
+		VisualScriptDocument const& document = frame.Document;
+		Track(frame, "Enabled",
+		      [&]() -> std::optional<Edit>
+		      {
+				  int current = static_cast<int>(node.Enabled);
+				  if (!ImGui::Combo("##enabled", &current, EnabledLabels.data(), static_cast<int>(EnabledLabels.size())))
+				  {
+					  return std::nullopt;
+				  }
+				  auto const enabled = static_cast<VisualScriptNodeEnabled>(current);
+				  std::string action = enabled == VisualScriptNodeEnabled::Enabled    ? "Enable " + title
+			                           : enabled == VisualScriptNodeEnabled::Disabled ? "Disable " + title
+			                                                                          : "Set " + title + " to Development Only";
+				  Edit edit{document, std::move(action)};
+				  uint32_t const id = node.ID;
+				  if (!VisualScriptEditing::SetNodeEnabled(edit.Document, std::span(&id, 1), enabled))
 				  {
 					  return std::nullopt;
 				  }
@@ -904,12 +874,16 @@ namespace Strada
 			return;
 		}
 		ImGui::SeparatorText("Settings");
+		// The settings' IDs are apart from the inputs': a setting and an input may share a name (an event parameter named
+		// Name on an Event.Send, a function input named Function on its call).
+		ImGui::PushID("settings");
 		for (VisualScriptSetting const& setting : kind->Settings)
 		{
 			ImGui::PushID(setting.Name.c_str());
 			DrawSetting(frame, node, title, setting);
 			ImGui::PopID();
 		}
+		ImGui::PopID();
 	}
 
 	void VisualScriptDetails::DrawSetting(Frame& frame, VisualScriptNode const& node, std::string const& title,
@@ -919,7 +893,8 @@ namespace Strada
 		VisualScriptPaneContext& context = frame.Context;
 		std::string const label = UI::FormatDisplayName(setting.Name);
 		Json const value = GetSettingValue(node, setting);
-		bool const focus = context.Shared.FocusSetting == setting.Name;
+		bool const focus = context.Shared.FocusSetting && context.Shared.FocusSetting->Node == node.ID &&
+		                   context.Shared.FocusSetting->Setting == setting.Name;
 		std::string const action = fmt::format("Set {} on {}", label, title);
 		auto const setSetting = [&](Json newValue) -> std::optional<Edit>
 		{
@@ -974,7 +949,7 @@ namespace Strada
 				{
 					if (!VisualScriptSerializer::IsValidName(name))
 					{
-						return std::string(NameRuleMessage);
+						return GetVisualScriptNameRuleMessage();
 					}
 					if (VisualScriptEditing::IsCustomEventNameTaken(document, name))
 					{
@@ -1103,7 +1078,8 @@ namespace Strada
 			std::vector<std::pair<uint32_t, std::string>> items;
 			for (VisualScriptVariable const& variable : document.Variables)
 			{
-				items.emplace_back(variable.ID, fmt::format("{} \xC2\xB7 {}", variable.Name, DescribeType(frame.Library, variable.Type)));
+				items.emplace_back(variable.ID,
+				                   fmt::format("{} \xC2\xB7 {}", variable.Name, DescribeVisualScriptType(frame.Library, variable.Type)));
 			}
 			if (std::optional<uint32_t> const owner = FindVisualScriptElementGraph(document, node.ID); owner && *owner != 0)
 			{
@@ -1111,8 +1087,8 @@ namespace Strada
 				{
 					for (VisualScriptLocal const& local : function->Locals)
 					{
-						items.emplace_back(local.ID,
-						                   fmt::format("{} \xC2\xB7 {} (local)", local.Name, DescribeType(frame.Library, local.Type)));
+						items.emplace_back(local.ID, fmt::format("{} \xC2\xB7 {} (local)", local.Name,
+						                                         DescribeVisualScriptType(frame.Library, local.Type)));
 					}
 				}
 			}
@@ -1154,7 +1130,7 @@ namespace Strada
 						  std::string text = function.Name + " (";
 						  for (size_t i = 0; i < function.Inputs.size(); i++)
 						  {
-							  text += (i > 0 ? ", " : "") + DescribeType(frame.Library, function.Inputs[i].Type);
+							  text += (i > 0 ? ", " : "") + DescribeVisualScriptType(frame.Library, function.Inputs[i].Type);
 						  }
 						  text += ")";
 						  if (!function.Outputs.empty())
@@ -1162,7 +1138,7 @@ namespace Strada
 							  text += " : ";
 							  for (size_t i = 0; i < function.Outputs.size(); i++)
 							  {
-								  text += (i > 0 ? ", " : "") + DescribeType(frame.Library, function.Outputs[i].Type);
+								  text += (i > 0 ? ", " : "") + DescribeVisualScriptType(frame.Library, function.Outputs[i].Type);
 							  }
 						  }
 						  return text;
@@ -1532,6 +1508,7 @@ namespace Strada
 			return;
 		}
 		ImGui::SeparatorText("Inputs");
+		ImGui::PushID("inputs");
 		VisualScriptAnalyzedNode const* const analyzed = frame.Analysis != nullptr ? frame.Analysis->FindNode(node.ID) : nullptr;
 		VisualScriptGraph const* const graph = FindVisualScriptGraph(frame.Document, model.GetFunction());
 		for (VisualScriptPinVisual const& pin : pins)
@@ -1569,7 +1546,7 @@ namespace Strada
 				                source != nullptr ? GetVisualScriptNodeTitle(frame.Document, frame.Analysis, *source) : "?");
 				ImVec2 const size = UI::CalcArrowTextSize(text);
 				ImVec2 const position = ImGui::GetCursorScreenPos();
-				ViewScope const view(frame.ReadOnly);
+				ViewScope const view(frame.ReadOnly, frame.ViewDepth);
 				if (ImGui::InvisibleButton("##source", ImVec2(std::max(size.x, 1.0f), ImGui::GetFrameHeight())) && source != nullptr)
 				{
 					frame.Result.SelectAndFrame = {source->ID};
@@ -1650,6 +1627,7 @@ namespace Strada
 			}
 			ImGui::PopID();
 		}
+		ImGui::PopID();
 	}
 
 	void VisualScriptDetails::DrawNodeProblems(Frame& frame, VisualScriptNode const& node)
@@ -1662,7 +1640,7 @@ namespace Strada
 		ImGui::SeparatorText("Problems");
 		ImGui::PushID("problems");
 		// The fixes that edit disable themselves in a read-only document; those that navigate stay.
-		ViewScope const view(frame.ReadOnly);
+		ViewScope const view(frame.ReadOnly, frame.ViewDepth);
 		DrawVisualScriptProblems(frame.Context, problems, m_Commits, frame.Result);
 		ImGui::PopID();
 	}
@@ -1671,7 +1649,7 @@ namespace Strada
 	{
 		VisualScriptNodeTemplate const* const kind = frame.Library != nullptr ? frame.Library->FindNode(node.Type) : nullptr;
 		size_t const colon = node.Type.find(':');
-		bool const reflected = colon != std::string::npos;
+		bool const reflected = IsVisualScriptReflectedType(node.Type);
 		if ((kind == nullptr || kind->Description.empty()) && !reflected)
 		{
 			return;
@@ -1781,13 +1759,24 @@ namespace Strada
 		Track(frame, "Position",
 		      [&]() -> std::optional<Edit>
 		      {
-				  glm::vec2 position = comment.Position;
-				  if (!ImGui::DragFloat2("##position", &position.x, 1.0f, 0.0f, 0.0f, "%.0f"))
+				  // The drag accumulates the unsnapped value for as long as it lasts; the comment moves by whole grid steps.
+				  bool const dragging = m_CommentDrag && m_CommentDrag->Comment == comment.ID && !m_CommentDrag->Size;
+				  glm::vec2 position = dragging ? m_CommentDrag->Value : comment.Position;
+				  bool const changed = ImGui::DragFloat2("##position", &position.x, 1.0f, 0.0f, 0.0f, "%.0f");
+				  if (ImGui::IsItemActive())
+				  {
+					  m_CommentDrag = CommentDrag{comment.ID, false, position};
+				  }
+				  else if (dragging)
+				  {
+					  m_CommentDrag.reset();
+				  }
+				  if (!changed)
 				  {
 					  return std::nullopt;
 				  }
 				  Edit edit{document, "Move Comment"};
-				  if (!VisualScriptEditing::SetCommentGeometry(edit.Document, comment.ID, SnapToGrid(position), comment.Size))
+				  if (!VisualScriptEditing::SetCommentGeometry(edit.Document, comment.ID, SnapVisualScriptToGrid(position), comment.Size))
 				  {
 					  return std::nullopt;
 				  }
@@ -1796,14 +1785,24 @@ namespace Strada
 		Track(frame, "Size",
 		      [&]() -> std::optional<Edit>
 		      {
-				  glm::vec2 size = comment.Size;
-				  if (!ImGui::DragFloat2("##size", &size.x, 1.0f, VisualScriptSerializer::MinCommentSize,
-			                             VisualScriptSerializer::MaxCommentSize, "%.0f", ImGuiSliderFlags_AlwaysClamp))
+				  bool const dragging = m_CommentDrag && m_CommentDrag->Comment == comment.ID && m_CommentDrag->Size;
+				  glm::vec2 size = dragging ? m_CommentDrag->Value : comment.Size;
+				  bool const changed = ImGui::DragFloat2("##size", &size.x, 1.0f, VisualScriptSerializer::MinCommentSize,
+			                                             VisualScriptSerializer::MaxCommentSize, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+				  if (ImGui::IsItemActive())
+				  {
+					  m_CommentDrag = CommentDrag{comment.ID, true, size};
+				  }
+				  else if (dragging)
+				  {
+					  m_CommentDrag.reset();
+				  }
+				  if (!changed)
 				  {
 					  return std::nullopt;
 				  }
 				  Edit edit{document, "Resize Comment"};
-				  glm::vec2 const snapped = glm::max(SnapToGrid(size), glm::vec2(VisualScriptSerializer::MinCommentSize));
+				  glm::vec2 const snapped = glm::max(SnapVisualScriptToGrid(size), glm::vec2(VisualScriptSerializer::MinCommentSize));
 				  if (!VisualScriptEditing::SetCommentGeometry(edit.Document, comment.ID, comment.Position, snapped))
 				  {
 					  return std::nullopt;
@@ -1839,40 +1838,78 @@ namespace Strada
 		{
 			std::string const nodeWords = nodes.size() == 1 ? GetVisualScriptNodeTitle(document, frame.Analysis, *selectedNodes.front())
 			                                                : fmt::format("{} Nodes", nodes.size());
-			bool const sameEnabled = std::all_of(selectedNodes.begin(), selectedNodes.end(),
-			                                     [&selectedNodes](VisualScriptNode const* node)
-			                                     {
-													 return node->Enabled == selectedNodes.front()->Enabled;
-												 });
-			Track(frame, "Enabled",
-			      [&]() -> std::optional<Edit>
-			      {
-					  constexpr std::array<char const*, 3> Labels = {"Enabled", "Disabled", "Development Only"};
-					  char const* const preview =
-						  sameEnabled ? Labels[static_cast<size_t>(selectedNodes.front()->Enabled)] : "\xE2\x80\x93";
-					  std::optional<Edit> edit;
-					  if (ImGui::BeginCombo("##enabled", preview))
-					  {
-						  for (size_t i = 0; i < Labels.size(); i++)
+			// The Enabled states act on the nodes that offer them (spec §9.5); the others keep theirs.
+			std::vector<uint32_t> enableable;
+			std::vector<VisualScriptNode const*> enableableNodes;
+			bool anyPure = false;
+			bool allEnds = true;
+			for (VisualScriptNode const* const node : selectedNodes)
+			{
+				VisualScriptEnabledOffer const offer = GetVisualScriptEnabledOffer(model, frame.Library, *node);
+				anyPure = anyPure || offer == VisualScriptEnabledOffer::PureNode;
+				allEnds = allEnds && offer == VisualScriptEnabledOffer::FunctionEnd;
+				if (offer == VisualScriptEnabledOffer::Offered)
+				{
+					enableable.push_back(node->ID);
+					enableableNodes.push_back(node);
+				}
+			}
+			if (enableable.empty() && !allEnds)
+			{
+				BeginRow("Enabled");
+				ImGui::BeginDisabled();
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				if (ImGui::BeginCombo("##enabled", "\xE2\x80\x93"))
+				{
+					ImGui::EndCombo();
+				}
+				ImGui::EndDisabled();
+				EndRow("Enabled");
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
+				{
+					ImGui::SetTooltip("%s", anyPure ? VisualScriptPureNodesRefusal : VisualScriptNoFlowRefusal);
+				}
+			}
+			else if (!enableable.empty())
+			{
+				std::string const enableableWords = enableable.size() == 1
+				                                        ? GetVisualScriptNodeTitle(document, frame.Analysis, *enableableNodes.front())
+				                                        : fmt::format("{} Nodes", enableable.size());
+				bool const sameEnabled = std::all_of(enableableNodes.begin(), enableableNodes.end(),
+				                                     [&enableableNodes](VisualScriptNode const* node)
+				                                     {
+														 return node->Enabled == enableableNodes.front()->Enabled;
+													 });
+				Track(frame, "Enabled",
+				      [&]() -> std::optional<Edit>
+				      {
+						  char const* const preview =
+							  sameEnabled ? EnabledLabels[static_cast<size_t>(enableableNodes.front()->Enabled)] : "\xE2\x80\x93";
+						  std::optional<Edit> edit;
+						  if (ImGui::BeginCombo("##enabled", preview))
 						  {
-							  if (ImGui::Selectable(Labels[i], sameEnabled && static_cast<size_t>(selectedNodes.front()->Enabled) == i))
+							  for (size_t i = 0; i < EnabledLabels.size(); i++)
 							  {
-								  auto const enabled = static_cast<VisualScriptNodeEnabled>(i);
-								  std::string action = enabled == VisualScriptNodeEnabled::Enabled ? "Enable " + nodeWords
-							                           : enabled == VisualScriptNodeEnabled::Disabled
-							                               ? "Disable " + nodeWords
-							                               : "Set " + nodeWords + " to Development Only";
-								  Edit changed{document, std::move(action)};
-								  if (VisualScriptEditing::SetNodeEnabled(changed.Document, nodes, enabled))
+								  if (ImGui::Selectable(EnabledLabels[i],
+							                            sameEnabled && static_cast<size_t>(enableableNodes.front()->Enabled) == i))
 								  {
-									  edit = std::move(changed);
+									  auto const enabled = static_cast<VisualScriptNodeEnabled>(i);
+									  std::string action = enabled == VisualScriptNodeEnabled::Enabled ? "Enable " + enableableWords
+								                           : enabled == VisualScriptNodeEnabled::Disabled
+								                               ? "Disable " + enableableWords
+								                               : "Set " + enableableWords + " to Development Only";
+									  Edit changed{document, std::move(action)};
+									  if (VisualScriptEditing::SetNodeEnabled(changed.Document, enableable, enabled))
+									  {
+										  edit = std::move(changed);
+									  }
 								  }
 							  }
+							  ImGui::EndCombo();
 						  }
-						  ImGui::EndCombo();
-					  }
-					  return edit;
-				  });
+						  return edit;
+					  });
+			}
 			bool const allCollapsed = std::all_of(selectedNodes.begin(), selectedNodes.end(),
 			                                      [](VisualScriptNode const* node)
 			                                      {
@@ -1978,7 +2015,13 @@ namespace Strada
 			                                                               frame.Context.Settings.GetCommentColor());
 			if (added)
 			{
-				m_Commits.Commit(frame.Context, std::move(edited), "Add Comment Box", 0, frame.Result, {added.GetValue()});
+				// The creation and the first title the window's editor takes are one step (spec §9.6 rule 1).
+				uint64_t const key = MakeVisualScriptPaneNameMergeKey(frame.Context.Shared);
+				m_Commits.Commit(frame.Context, std::move(edited), "Add Comment Box", key, frame.Result, {added.GetValue()});
+				if (frame.Result.Commit && frame.Result.Commit->MergeKey == key)
+				{
+					frame.Result.EditCommentTitle = VisualScriptCommentTitleRequest{added.GetValue(), key};
+				}
 			}
 			else
 			{
@@ -1993,7 +2036,7 @@ namespace Strada
 		VisualScriptDocument const& document = frame.Document;
 		VisualScriptPaneContext& context = frame.Context;
 		VisualScriptLibrary const* const library = frame.Library;
-		VisualScriptEnumLookup const enums = MakeEnumLookup(library);
+		VisualScriptEnumLookup const enums = MakeVisualScriptEnumLookup(library);
 		ImGui::PushID(static_cast<int>(variable.ID));
 		ImGui::TextUnformatted("Variable");
 		// A copy of the variable with a change, as SetVariable writes it; nothing when it refuses it.
@@ -2020,7 +2063,7 @@ namespace Strada
 		                 {
 							 if (!VisualScriptSerializer::IsValidName(candidate))
 							 {
-								 return std::string(NameRuleMessage);
+								 return GetVisualScriptNameRuleMessage();
 							 }
 							 VisualScriptDocument copy = document;
 							 VisualScriptVariable renamed = variable;
@@ -2054,14 +2097,14 @@ namespace Strada
 			VisualScriptVariable changed = variable;
 			changed.Type = *type;
 			if (std::optional<Edit> edit =
-			        setVariable(changed, fmt::format("Change {} to {}", variable.Name, DescribeType(library, *type))))
+			        setVariable(changed, fmt::format("Change {} to {}", variable.Name, DescribeVisualScriptType(library, *type))))
 			{
 				context.Settings.SetLastVariableType(*type);
 				m_Commits.Commit(context, std::move(edit->Document), std::move(edit->Action), 0, frame.Result);
 			}
 		}
 
-		bool const exposable = CanBePublic(variable.Type, library);
+		bool const exposable = IsVisualScriptPublicType(variable.Type, library);
 		Track(frame, "Public",
 		      [&]() -> std::optional<Edit>
 		      {
@@ -2164,9 +2207,9 @@ namespace Strada
 				ImGui::PopID();
 			}
 		}
-		uint32_t const uses = CountUses(document, "Variable.Get", "Variable", variable.ID);
+		uint32_t const uses = CountVisualScriptUses(document, VisualScriptElementKind::Variable, variable.ID);
 		ImGui::Spacing();
-		ViewScope const view(frame.ReadOnly);
+		ViewScope const view(frame.ReadOnly, frame.ViewDepth);
 		if (ImGui::SmallButton(fmt::format("Used by {}", CountOf(uses, "node", "nodes")).c_str()))
 		{
 			frame.Result.FindReferences = VisualScriptReference{VisualScriptReference::Kind::Variable, variable.ID, {}};
@@ -2179,39 +2222,19 @@ namespace Strada
 	{
 		VisualScriptDocument const& document = frame.Document;
 		VisualScriptPaneContext& context = frame.Context;
-		VisualScriptEnumLookup const enums = MakeEnumLookup(frame.Library);
 		ImGui::PushID(static_cast<int>(local.ID));
 		ImGui::TextUnformatted(fmt::format("Local of {}", function.Name).c_str());
-		auto const setLocal = [&](VisualScriptLocal const& changed, std::string action) -> std::optional<Edit>
+		auto const setLocal = [&](VisualScriptLocal const& changed, std::string action)
 		{
-			Edit edit{document, std::move(action)};
-			Result<bool> const set = VisualScriptEditing::SetLocal(edit.Document, function.ID, local.ID, changed, enums);
-			if (!set)
-			{
-				return std::nullopt;
-			}
-			if (set.GetValue())
-			{
-				edit.Action += " (clears its value)";
-			}
-			return edit;
+			return MakeLocalEdit(frame, function, local, changed, std::move(action));
 		};
 		BeginRow("Name");
 		ImGui::SetNextItemWidth(-FLT_MIN);
-		VisualScriptNameField::Outcome const name =
-			m_Names.Draw("##name", local.Name,
-		                 [&](std::string_view candidate) -> std::optional<std::string>
-		                 {
-							 if (!VisualScriptSerializer::IsValidName(candidate))
-							 {
-								 return std::string(NameRuleMessage);
-							 }
-							 VisualScriptDocument copy = document;
-							 VisualScriptLocal renamed = local;
-							 renamed.Name = std::string(candidate);
-							 Result<bool> const set = VisualScriptEditing::SetLocal(copy, function.ID, local.ID, renamed, enums);
-							 return set ? std::nullopt : std::optional<std::string>(set.GetError());
-						 });
+		VisualScriptNameField::Outcome const name = m_Names.Draw("##name", local.Name,
+		                                                         [&](std::string_view candidate)
+		                                                         {
+																	 return CheckLocalName(frame, function, local, candidate);
+																 });
 		EndRow("Name");
 		if (name.Committed)
 		{
@@ -2236,7 +2259,7 @@ namespace Strada
 			VisualScriptLocal changed = local;
 			changed.Type = *type;
 			if (std::optional<Edit> edit =
-			        setLocal(changed, fmt::format("Change {} to {}", local.Name, DescribeType(frame.Library, *type))))
+			        setLocal(changed, fmt::format("Change {} to {}", local.Name, DescribeVisualScriptType(frame.Library, *type))))
 			{
 				context.Settings.SetLastVariableType(*type);
 				m_Commits.Commit(context, std::move(edit->Document), std::move(edit->Action), 0, frame.Result);
@@ -2257,9 +2280,9 @@ namespace Strada
 					  return setLocal(changed, fmt::format("Set Default Value of {}", local.Name));
 				  });
 		}
-		uint32_t const uses = CountUses(document, "Variable.Get", "Variable", local.ID);
+		uint32_t const uses = CountVisualScriptUses(document, VisualScriptElementKind::Local, local.ID);
 		ImGui::Spacing();
-		ViewScope const view(frame.ReadOnly);
+		ViewScope const view(frame.ReadOnly, frame.ViewDepth);
 		if (ImGui::SmallButton(fmt::format("Used by {}", CountOf(uses, "node", "nodes")).c_str()))
 		{
 			frame.Result.FindReferences = VisualScriptReference{VisualScriptReference::Kind::Variable, local.ID, {}};
@@ -2282,7 +2305,7 @@ namespace Strada
 		                 {
 							 if (!VisualScriptSerializer::IsValidName(candidate))
 							 {
-								 return std::string(NameRuleMessage);
+								 return GetVisualScriptNameRuleMessage();
 							 }
 							 VisualScriptDocument copy = document;
 							 Result<void> const renamed = VisualScriptEditing::RenameFunction(copy, function.ID, std::string(candidate));
@@ -2348,32 +2371,9 @@ namespace Strada
 			commitSignature(function.Inputs, std::move(changed->first), changed->second);
 		}
 		ImGui::SeparatorText("Locals");
-		VisualScriptEnumLookup const enums = MakeEnumLookup(frame.Library);
-		for (VisualScriptLocal const& local : function.Locals)
+		for (size_t i = 0; i < function.Locals.size(); i++)
 		{
-			ImGui::PushID(static_cast<int>(local.ID));
-			BeginRow(local.Name);
-			ImGui::BeginGroup();
-			std::optional<std::string> const type = DrawTypePicker(frame, local.Name, local.Type, VisualScriptTypeUse::Value);
-			ImGui::EndGroup();
-			EndRow(local.Name);
-			if (type && *type != local.Type)
-			{
-				VisualScriptDocument edited = document;
-				VisualScriptLocal changed = local;
-				changed.Type = *type;
-				Result<bool> const set = VisualScriptEditing::SetLocal(edited, function.ID, local.ID, changed, enums);
-				if (set)
-				{
-					std::string action = fmt::format("Change {} to {}", local.Name, DescribeType(frame.Library, *type));
-					if (set.GetValue())
-					{
-						action += " (clears its value)";
-					}
-					m_Commits.Commit(context, std::move(edited), std::move(action), 0, frame.Result);
-				}
-			}
-			ImGui::PopID();
+			DrawLocalRows(frame, function, function.Locals[i], fmt::format("Local {}", i + 1));
 		}
 		BeginRow("");
 		if (ImGui::SmallButton("+ Add Local"))
@@ -2397,14 +2397,113 @@ namespace Strada
 			}
 		}
 		EndRow("Add Local");
-		uint32_t const calls = CountUses(document, "Function.Call", "Function", function.ID);
+		uint32_t const calls = CountVisualScriptUses(document, VisualScriptElementKind::Function, function.ID);
 		ImGui::Spacing();
-		ViewScope const view(frame.ReadOnly);
+		ViewScope const view(frame.ReadOnly, frame.ViewDepth);
 		if (ImGui::SmallButton(fmt::format("Called by {}", CountOf(calls, "node", "nodes")).c_str()))
 		{
 			frame.Result.FindReferences = VisualScriptReference{VisualScriptReference::Kind::Function, function.ID, {}};
 		}
 		DrawElementProblems(frame, std::nullopt, function.ID);
+		ImGui::PopID();
+	}
+
+	std::optional<VisualScriptDetails::Edit> VisualScriptDetails::MakeLocalEdit(Frame& frame, VisualScriptFunction const& function,
+	                                                                            VisualScriptLocal const& local,
+	                                                                            VisualScriptLocal const& changed, std::string action) const
+	{
+		Edit edit{frame.Document, std::move(action)};
+		Result<bool> const set =
+			VisualScriptEditing::SetLocal(edit.Document, function.ID, local.ID, changed, MakeVisualScriptEnumLookup(frame.Library));
+		if (!set)
+		{
+			return std::nullopt;
+		}
+		if (set.GetValue())
+		{
+			edit.Action += " (clears its value)";
+		}
+		return edit;
+	}
+
+	std::optional<std::string> VisualScriptDetails::CheckLocalName(Frame& frame, VisualScriptFunction const& function,
+	                                                               VisualScriptLocal const& local, std::string_view name) const
+	{
+		if (!VisualScriptSerializer::IsValidName(name))
+		{
+			return GetVisualScriptNameRuleMessage();
+		}
+		VisualScriptDocument copy = frame.Document;
+		VisualScriptLocal renamed = local;
+		renamed.Name = std::string(name);
+		Result<bool> const set =
+			VisualScriptEditing::SetLocal(copy, function.ID, local.ID, renamed, MakeVisualScriptEnumLookup(frame.Library));
+		return set ? std::nullopt : std::optional<std::string>(set.GetError());
+	}
+
+	void VisualScriptDetails::DrawLocalRows(Frame& frame, VisualScriptFunction const& function, VisualScriptLocal const& local,
+	                                        std::string const& label)
+	{
+		VisualScriptPaneContext& context = frame.Context;
+		ImGuiStyle const& style = ImGui::GetStyle();
+		ImGui::PushID(static_cast<int>(local.ID));
+		BeginRow(label);
+		ImGui::BeginGroup();
+		float const available = ImGui::GetContentRegionAvail().x;
+		ImGui::SetNextItemWidth(available * 0.5f);
+		VisualScriptNameField::Outcome const name = m_Names.Draw("##name", local.Name,
+		                                                         [&](std::string_view candidate)
+		                                                         {
+																	 return CheckLocalName(frame, function, local, candidate);
+																 });
+		ImGui::SameLine();
+		ImGui::BeginGroup();
+		std::optional<std::string> const type =
+			DrawTypePicker(frame, label, local.Type, VisualScriptTypeUse::Value, {}, available * 0.5f - style.ItemSpacing.x);
+		ImGui::EndGroup();
+		ImGui::EndGroup();
+		EndRow(label);
+		if (name.Committed)
+		{
+			VisualScriptLocal renamed = local;
+			renamed.Name = *name.Committed;
+			if (std::optional<Edit> edit =
+			        MakeLocalEdit(frame, function, local, renamed, fmt::format("Rename {} to {}", local.Name, *name.Committed)))
+			{
+				m_Commits.Commit(context, std::move(edit->Document), std::move(edit->Action), 0, frame.Result);
+			}
+		}
+		else if (name.Refused)
+		{
+			frame.Result.Notes.push_back(fmt::format("{} keeps its name: {}", local.Name, *name.Refused));
+		}
+		else if (type && *type != local.Type)
+		{
+			VisualScriptLocal changed = local;
+			changed.Type = *type;
+			if (std::optional<Edit> edit =
+			        MakeLocalEdit(frame, function, local, changed,
+			                      fmt::format("Change {} to {}", local.Name, DescribeVisualScriptType(frame.Library, *type))))
+			{
+				context.Settings.SetLastVariableType(*type);
+				m_Commits.Commit(context, std::move(edit->Document), std::move(edit->Action), 0, frame.Result);
+			}
+		}
+		if (VisualScriptLiteralEditor::CanEdit(local.Type, frame.Library))
+		{
+			Track(frame, "Default", label + " Default",
+			      [&]() -> std::optional<Edit>
+			      {
+					  std::optional<Json> literal = DrawLiteral(frame, local.Type, local.Value, Json());
+					  if (!literal)
+					  {
+						  return std::nullopt;
+					  }
+					  VisualScriptLocal changed = local;
+					  changed.Value = std::move(*literal);
+					  return MakeLocalEdit(frame, function, local, changed, fmt::format("Set Default Value of {}", local.Name));
+				  });
+		}
 		ImGui::PopID();
 	}
 
@@ -2431,7 +2530,7 @@ namespace Strada
 			                 {
 								 if (!VisualScriptSerializer::IsValidName(candidate))
 								 {
-									 return std::string(NameRuleMessage);
+									 return GetVisualScriptNameRuleMessage();
 								 }
 								 if (VisualScriptEditing::IsReservedPinName(candidate))
 								 {
@@ -2485,7 +2584,7 @@ namespace Strada
 			{
 				list[i].Type = *type;
 				changed.emplace(std::move(list),
-				                fmt::format("Change {} {} to {}", noun, parameter.Name, DescribeType(frame.Library, *type)));
+				                fmt::format("Change {} {} to {}", noun, parameter.Name, DescribeVisualScriptType(frame.Library, *type)));
 			}
 			else if (up || down)
 			{
@@ -2530,7 +2629,7 @@ namespace Strada
 		ImGui::SeparatorText("Problems");
 		ImGui::PushID("problems");
 		// The fixes that edit disable themselves in a read-only document; those that navigate stay.
-		ViewScope const view(frame.ReadOnly);
+		ViewScope const view(frame.ReadOnly, frame.ViewDepth);
 		DrawVisualScriptProblems(frame.Context, problems, m_Commits, frame.Result);
 		ImGui::PopID();
 	}
@@ -2545,7 +2644,7 @@ namespace Strada
 	                                                               bool focus)
 	{
 		VisualScriptLibrary const* const library = frame.Library;
-		std::string const text = current.empty() ? std::string("Choose a type") : DescribeType(library, current);
+		std::string const text = current.empty() ? std::string("Choose a type") : DescribeVisualScriptType(library, current);
 		ColorSquare(current.empty() ? VisualScriptWildcardColor : GetVisualScriptTypeColor(current, library));
 		ImGui::BeginDisabled(library == nullptr);
 		float const buttonWidth =
@@ -2602,8 +2701,8 @@ namespace Strada
 		};
 		auto const matches = [&](VisualScriptTypeInfo const& type)
 		{
-			return IsVisualScriptTypeOffered(type, use, constraint) &&
-			       (ContainsIgnoringCase(type.Title, m_PickerSearch) || ContainsIgnoringCase(type.ID, m_PickerSearch));
+			return IsVisualScriptTypeOffered(type, use, constraint) && (ContainsVisualScriptTextIgnoringCase(type.Title, m_PickerSearch) ||
+			                                                            ContainsVisualScriptTextIgnoringCase(type.ID, m_PickerSearch));
 		};
 		std::vector<Row> rows;
 		bool recentHeader = false;

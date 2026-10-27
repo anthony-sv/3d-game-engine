@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -50,14 +51,20 @@ namespace Strada
 	public:
 		VisualScriptPaneResult Draw(VisualScriptPaneContext& context);
 		std::optional<VisualScriptCommitRequest> TakePendingEdit() { return m_Commits.TakePendingEdit(); }
+		// Whether a widget value is pending (what the window flushes with TakePendingEdit when no item is active).
+		bool HasPendingEdit() const { return m_Commits.HasPendingEdit(); }
 
 		// The mode Draw shows (never Closed: the window does not draw a closed drawer).
 		VisualScriptDrawerMode GetMode() const { return m_Mode; }
-		void ShowProblems() { m_Mode = VisualScriptDrawerMode::Problems; }
+		// Shows the problems; the find results (and the documents they were found in) are let go.
+		void ShowProblems();
 		// Find with a text; its field takes the keyboard.
 		void ShowFind(std::string text = {});
 		// Find lists the references of an element.
 		void ShowReferences(VisualScriptReference const& reference);
+		// Where a text is found: this script or every script of the project (the scope combo of Find).
+		VisualScriptFindScope GetScope() const { return m_Scope; }
+		void SetScope(VisualScriptFindScope scope) { m_Scope = scope; }
 
 		// The problems listed in the last Draw, in their order.
 		std::span<VisualScriptDiagnostic const> GetProblems() const { return m_Problems; }
@@ -80,12 +87,19 @@ namespace Strada
 		void DrawFind(VisualScriptPaneContext& context, VisualScriptPaneResult& result);
 		void UpdateFindRows(VisualScriptPaneContext& context);
 		// Shows what a diagnostic names, or a find row's match.
+		void SortProblems(VisualScriptEditorModel const& model, VisualScriptAnalysis const& analysis);
 		void GoTo(VisualScriptPaneContext& context, VisualScriptDiagnostic const& diagnostic, VisualScriptPaneResult& result);
 		void GoTo(VisualScriptPaneContext& context, VisualScriptDrawerFindRow const& row, VisualScriptPaneResult& result);
 
 		VisualScriptWidgetCommits m_Commits;
 		VisualScriptDrawerMode m_Mode = VisualScriptDrawerMode::Problems;
+		// The problems in their order, and what they were ordered from: the analysis (the model's count of analyses and its
+		// object) and the stored document, which is not kept alive for it.
 		std::vector<VisualScriptDiagnostic> m_Problems;
+		bool m_ProblemsSorted = false;
+		uint64_t m_SortedAnalysisCount = 0;
+		VisualScriptAnalysis const* m_SortedAnalysis = nullptr;
+		std::weak_ptr<VisualScriptDocument const> m_SortedDocument;
 		std::vector<Rect> m_ProblemRows;
 		std::vector<Rect> m_FixButtons;
 		// Find: the text or the reference, the scope, and whether the field takes the keyboard.

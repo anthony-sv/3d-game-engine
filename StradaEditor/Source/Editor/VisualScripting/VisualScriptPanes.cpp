@@ -4,6 +4,8 @@
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
+#include "Strada/Asset/VisualScriptSerializer.h"
+
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_stdlib.h>
@@ -277,10 +279,188 @@ namespace Strada
 		return request;
 	}
 
-	void SelectVisualScriptElement(VisualScriptPaneContext& context, VisualScriptElement element)
+	void SelectVisualScriptElement(VisualScriptPaneContext& context, VisualScriptElement element, std::optional<uint32_t> show)
 	{
+		if (show)
+		{
+			context.Model.ShowFunction(*show);
+		}
 		context.Shared.Element = element;
 		context.Model.Select({}, VisualScriptSelectMode::Replace);
+	}
+
+	uint64_t MakeVisualScriptPaneNameMergeKey(VisualScriptPaneShared& shared)
+	{
+		// The lower 31 bits count; the counter wraps long before two runs in a row could share a key.
+		shared.NameRuns = (shared.NameRuns + 1) & 0x7FFFFFFFu;
+		return VisualScriptPaneNameMergeKey | shared.NameRuns;
+	}
+
+	std::string GetVisualScriptNameRuleMessage()
+	{
+		return fmt::format("expected a name of 1 to {} bytes without control characters, '.' or a leading or trailing space",
+		                   VisualScriptSerializer::MaxNameBytes);
+	}
+
+	VisualScriptEnumLookup MakeVisualScriptEnumLookup(VisualScriptLibrary const* library)
+	{
+		if (library == nullptr)
+		{
+			return {};
+		}
+		return [library](std::string_view type)
+		{
+			return library->FindEnum(type);
+		};
+	}
+
+	std::string DescribeVisualScriptType(VisualScriptLibrary const* library, std::string_view type)
+	{
+		if (library != nullptr)
+		{
+			if (VisualScriptTypeInfo const* const info = library->FindType(type); info != nullptr && !info->Title.empty())
+			{
+				return info->Title;
+			}
+		}
+		return std::string(type);
+	}
+
+	bool IsVisualScriptPublicType(std::string_view type, VisualScriptLibrary const* library)
+	{
+		return FindVisualScriptExposableType(type).has_value() || (library != nullptr && library->FindEnum(type).has_value());
+	}
+
+	bool ContainsVisualScriptTextIgnoringCase(std::string_view text, std::string_view part)
+	{
+		if (part.empty())
+		{
+			return true;
+		}
+		auto const lower = [](char c)
+		{
+			return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+		};
+		return std::search(text.begin(), text.end(), part.begin(), part.end(),
+		                   [&lower](char a, char b)
+		                   {
+							   return lower(a) == lower(b);
+						   }) != text.end();
+	}
+
+	glm::vec2 SnapVisualScriptToGrid(glm::vec2 position)
+	{
+		return glm::round(position / VisualScriptCanvasMetrics::GridSize) * VisualScriptCanvasMetrics::GridSize;
+	}
+
+	bool IsVisualScriptReflectedType(std::string_view type)
+	{
+		return type.find(':') != std::string_view::npos;
+	}
+
+	namespace
+	{
+		bool NamesID(Json const& settings, std::string_view setting, uint32_t id)
+		{
+			if (!settings.is_object())
+			{
+				return false;
+			}
+			auto const found = settings.find(setting);
+			if (found == settings.end() || !found->is_number_integer())
+			{
+				return false;
+			}
+			return found->is_number_unsigned() ? found->get<uint64_t>() == id : found->get<int64_t>() == static_cast<int64_t>(id);
+		}
+
+		bool HasExecPin(std::span<VisualScriptPin const> pins, VisualScriptPinDirection direction)
+		{
+			return std::any_of(pins.begin(), pins.end(),
+			                   [direction](VisualScriptPin const& pin)
+			                   {
+								   return pin.Type == VisualScriptExecType && pin.Direction == direction;
+							   });
+		}
+	}
+
+	std::vector<uint32_t> FindVisualScriptUses(VisualScriptGraph const& graph, VisualScriptElementKind kind, uint32_t id)
+	{
+		std::vector<uint32_t> nodes;
+		for (VisualScriptNode const& node : graph.Nodes)
+		{
+			bool const uses = kind == VisualScriptElementKind::Function
+			                      ? node.Type == "Function.Call" && NamesID(node.Settings, "Function", id)
+			                      : (node.Type == "Variable.Get" || node.Type == "Variable.Set") && NamesID(node.Settings, "Variable", id);
+			if (uses)
+			{
+				nodes.push_back(node.ID);
+			}
+		}
+		return nodes;
+	}
+
+	uint32_t CountVisualScriptUses(VisualScriptDocument const& document, VisualScriptElementKind kind, uint32_t id)
+	{
+		auto count = static_cast<uint32_t>(FindVisualScriptUses(document.Graph, kind, id).size());
+		for (VisualScriptFunction const& function : document.Functions)
+		{
+			if (kind != VisualScriptElementKind::Function || function.ID != id)
+			{
+				count += static_cast<uint32_t>(FindVisualScriptUses(function.Graph, kind, id).size());
+			}
+		}
+		return count;
+	}
+
+	VisualScriptEnabledOffer GetVisualScriptEnabledOffer(VisualScriptEditorModel const& model, VisualScriptLibrary const* library,
+	                                                     VisualScriptNode const& node)
+	{
+		if (node.Type == "Function.Entry" || node.Type == "Function.Return")
+		{
+			return VisualScriptEnabledOffer::FunctionEnd;
+		}
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		if (std::optional<uint32_t> const index = canvas.FindNode(node.ID))
+		{
+			std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+			VisualScriptNodeVisual const& visual = nodes[*index];
+			if (visual.Kind == VisualScriptNodeKind::Event && node.Type != "Event.Send")
+			{
+				return VisualScriptEnabledOffer::Offered;
+			}
+			if (visual.HasFlag(VisualScriptNodeFlags::Pure))
+			{
+				return VisualScriptEnabledOffer::PureNode;
+			}
+			if (visual.HasFlag(VisualScriptNodeFlags::Inferred))
+			{
+				// A type nothing describes: disabling it ends its chain.
+				return VisualScriptEnabledOffer::Offered;
+			}
+			bool execIn = false;
+			bool execOut = false;
+			for (VisualScriptPinVisual const& pin : canvas.GetPins(visual))
+			{
+				if (pin.Type == VisualScriptExecType && !pin.HasFlag(VisualScriptPinFlags::Orphan))
+				{
+					(pin.Direction == VisualScriptPinDirection::In ? execIn : execOut) = true;
+				}
+			}
+			return execIn && execOut ? VisualScriptEnabledOffer::Offered : VisualScriptEnabledOffer::NoFlow;
+		}
+		VisualScriptNodeTemplate const* const kind = library != nullptr ? library->FindNode(node.Type) : nullptr;
+		if (kind == nullptr || (kind->Kind == VisualScriptNodeKind::Event && node.Type != "Event.Send"))
+		{
+			return VisualScriptEnabledOffer::Offered;
+		}
+		if (kind->Pure)
+		{
+			return VisualScriptEnabledOffer::PureNode;
+		}
+		return HasExecPin(kind->Pins, VisualScriptPinDirection::In) && HasExecPin(kind->Pins, VisualScriptPinDirection::Out)
+		           ? VisualScriptEnabledOffer::Offered
+		           : VisualScriptEnabledOffer::NoFlow;
 	}
 
 	// --- VisualScriptWidgetCommits ---
@@ -289,6 +469,13 @@ namespace Strada
 	{
 		m_Model = &context.Model;
 		DropStalePending(context.Model);
+		if (m_Pending != nullptr && m_HasCommitted && context.Session.GetMergeKey() == m_Key &&
+		    context.Time - m_LastCommit >= CommitInterval)
+		{
+			// The widget is still in use but its value has not changed since: it reaches the document (and a running game) no
+			// later than CommitInterval after the previous commit.
+			CommitPending(context, result);
+		}
 		if (!m_Waiting)
 		{
 			return;
@@ -419,7 +606,7 @@ namespace Strada
 		model.ClearWidgetPreview();
 		Ref<VisualScriptDocument const> const stored = GetStored(model, m_Key);
 		Result<VisualScriptCommitRequest> request =
-			MakeVisualScriptCommitRequest(*stored, std::move(pending), nullptr, m_PendingAction, m_ScriptName, m_Key);
+			MakeVisualScriptCommitRequest(*stored, std::move(pending), model.GetAnalysis(), m_PendingAction, m_ScriptName, m_Key);
 		if (!request)
 		{
 			ST_ERROR("{} failed: {}", m_PendingAction, request.GetError());
@@ -493,14 +680,44 @@ namespace Strada
 	{
 		Outcome outcome;
 		ImGuiID const itemId = ImGui::GetID(id);
-		if (m_Editing == itemId && !m_Refocus && ImGui::GetActiveID() != itemId)
+		int const frame = ImGui::GetFrameCount();
+		ImGuiInputTextFlags const inputFlags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways;
+		if (m_Left == itemId)
 		{
-			// The field lost the keyboard while it was not drawn (its pane was hidden): the name stays.
+			// Another field of this object took the keyboard from this one, in this frame or the last: the name typed here is
+			// settled now, as if this field had been left by a click anywhere else.
+			m_Left = 0;
+			std::string text = std::move(m_LeftText);
+			if (m_LeftFrame + 1 >= frame)
+			{
+				ImGui::InputText(id, &text, inputFlags);
+				outcome.Active = ImGui::IsItemActive();
+				if (text != current)
+				{
+					std::optional<std::string> const error = validate(text);
+					if (error)
+					{
+						outcome.Refused = *error;
+					}
+					else
+					{
+						outcome.Committed = std::move(text);
+					}
+				}
+				return outcome;
+			}
+		}
+		if (m_Editing == itemId && m_DrawnFrame + 1 < frame)
+		{
+			// The field was not drawn in the last frame (its pane was hidden, its row scrolled away): ImGui let its keyboard go
+			// with nobody to say so, and the name stays.
 			m_Editing = 0;
 			m_Error.clear();
+			m_Refocus = false;
 		}
 		if (focus && m_Editing != itemId)
 		{
+			Leave(frame);
 			m_Editing = itemId;
 			m_Text = current;
 			m_Error.clear();
@@ -508,6 +725,10 @@ namespace Strada
 			m_Refocus = true;
 		}
 		bool const editing = m_Editing == itemId;
+		if (editing)
+		{
+			m_DrawnFrame = frame;
+		}
 		if (editing && m_Refocus)
 		{
 			ImGui::SetKeyboardFocusHere();
@@ -515,7 +736,9 @@ namespace Strada
 			m_PlaceCursor = m_CursorAtEnd;
 			m_CursorAtEnd = false;
 		}
-		std::string shown = editing ? std::string() : current;
+		// While the name is edited the field shows the text typed, whichever item has the keyboard now: a field left for a
+		// widget drawn before it in this frame reports that it was left only once it is drawn, with the text typed.
+		std::string shown = current;
 		std::string& buffer = editing ? m_Text : shown;
 		bool const invalid = editing && !m_Error.empty();
 		if (invalid)
@@ -523,8 +746,7 @@ namespace Strada
 			ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(VisualScriptErrorColor));
 			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, std::max(ImGui::GetStyle().FrameBorderSize, 1.0f));
 		}
-		bool const entered = ImGui::InputText(id, &buffer, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways,
-		                                      PlaceNameCursor, &m_PlaceCursor);
+		bool const entered = ImGui::InputText(id, &buffer, inputFlags, PlaceNameCursor, &m_PlaceCursor);
 		if (invalid)
 		{
 			ImGui::PopStyleVar();
@@ -535,8 +757,11 @@ namespace Strada
 		{
 			if (ImGui::IsItemActivated())
 			{
+				Leave(frame);
 				m_Editing = itemId;
-				m_Text = current;
+				m_DrawnFrame = frame;
+				// What a click put in the field in the frame it took the keyboard is kept.
+				m_Text = std::move(shown);
 				m_Error.clear();
 				m_Checked = false;
 			}
@@ -571,7 +796,8 @@ namespace Strada
 		}
 		if (entered && !m_Error.empty())
 		{
-			// Enter is refused: the field keeps the keyboard and the text.
+			// Enter is refused: the field keeps the text and gets the keyboard back, the cursor after the text. Until it has it
+			// again, the field stays the one edited.
 			m_Refocus = true;
 			m_CursorAtEnd = true;
 			return outcome;
@@ -590,5 +816,19 @@ namespace Strada
 			m_Error.clear();
 		}
 		return outcome;
+	}
+
+	void VisualScriptNameField::Leave(int frame)
+	{
+		if (m_Editing == 0)
+		{
+			return;
+		}
+		m_Left = m_Editing;
+		m_LeftText = std::move(m_Text);
+		m_LeftFrame = frame;
+		m_Editing = 0;
+		m_Error.clear();
+		m_Refocus = false;
 	}
 }

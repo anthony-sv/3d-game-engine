@@ -13,6 +13,7 @@
 #include <array>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -138,12 +139,12 @@ namespace Strada
 					result.Open = MakeVisualScriptJump(context.Graph, owner, {fix.Target});
 					if (fix.Kind == VisualScriptFixKind::EditSetting)
 					{
-						result.FocusSetting = fix.Argument;
+						result.FocusSetting = VisualScriptSettingFocus{fix.Target, fix.Argument};
 					}
 					else if (fix.Kind == VisualScriptFixKind::Rename)
 					{
 						// A node is renamed by its setting: a custom event by its Name.
-						result.FocusSetting = "Name";
+						result.FocusSetting = VisualScriptSettingFocus{fix.Target, "Name"};
 					}
 					break;
 				case ElementKind::Variable:
@@ -151,8 +152,7 @@ namespace Strada
 					context.Shared.Rename = VisualScriptElement{VisualScriptElementKind::Variable, fix.Target};
 					break;
 				case ElementKind::Local:
-					result.ShowFunction = owner;
-					SelectVisualScriptElement(context, {VisualScriptElementKind::Local, fix.Target});
+					SelectVisualScriptElement(context, {VisualScriptElementKind::Local, fix.Target}, owner);
 					context.Shared.Rename = VisualScriptElement{VisualScriptElementKind::Local, fix.Target};
 					break;
 				case ElementKind::Function:
@@ -259,22 +259,6 @@ namespace Strada
 	{
 		// The order of a sub-graph in the problems list: the event graph, then the functions in document order, then what the
 		// document does not have.
-		size_t GetGraphOrder(VisualScriptDocument const& document, uint32_t function)
-		{
-			if (function == 0)
-			{
-				return 0;
-			}
-			for (size_t i = 0; i < document.Functions.size(); i++)
-			{
-				if (document.Functions[i].ID == function)
-				{
-					return i + 1;
-				}
-			}
-			return document.Functions.size() + 1;
-		}
-
 		// The node a diagnostic is placed at: its node, else its link's input node.
 		std::optional<uint32_t> GetDiagnosticNode(VisualScriptDiagnostic const& diagnostic)
 		{
@@ -364,6 +348,15 @@ namespace Strada
 		}
 	}
 
+	void VisualScriptDrawer::ShowProblems()
+	{
+		m_Mode = VisualScriptDrawerMode::Problems;
+		m_Found = false;
+		m_FoundDocuments.clear();
+		m_FindRows.clear();
+		m_FindRects.clear();
+	}
+
 	void VisualScriptDrawer::ShowFind(std::string text)
 	{
 		m_Mode = VisualScriptDrawerMode::Find;
@@ -412,7 +405,6 @@ namespace Strada
 		}
 		else
 		{
-			m_Mode = VisualScriptDrawerMode::Problems;
 			DrawProblems(context, result);
 		}
 		return result;
@@ -422,28 +414,15 @@ namespace Strada
 	{
 		VisualScriptEditorModel const& model = context.Model;
 		VisualScriptAnalysis const* const analysis = model.GetAnalysis();
-		m_Problems.clear();
 		if (analysis == nullptr)
 		{
+			m_Problems.clear();
+			m_ProblemsSorted = false;
 			ImGui::TextDisabled("Not analyzed: problems need the scripting runtime, which is not running.");
 			return;
 		}
-		// The rows are found in the document the analysis was made of; a widget's pending value does not move them.
+		SortProblems(model, *analysis);
 		VisualScriptDocument const& document = model.GetDisplayDocument();
-		m_Problems = analysis->Diagnostics;
-		auto const key = [&document](VisualScriptDiagnostic const& diagnostic)
-		{
-			std::optional<uint32_t> const node = GetDiagnosticNode(diagnostic);
-			VisualScriptNode const* const found = node ? FindVisualScriptNode(document, *node) : nullptr;
-			glm::vec2 const position = found != nullptr ? found->Position.value_or(glm::vec2(0.0f)) : glm::vec2(0.0f);
-			return std::tuple(diagnostic.Severity != VisualScriptSeverity::Error, GetGraphOrder(document, diagnostic.Function),
-			                  found == nullptr, position.y, position.x);
-		};
-		std::stable_sort(m_Problems.begin(), m_Problems.end(),
-		                 [&key](VisualScriptDiagnostic const& a, VisualScriptDiagnostic const& b)
-		                 {
-							 return key(a) < key(b);
-						 });
 		if (m_Problems.empty())
 		{
 			ImGui::TextDisabled("No problems");
@@ -510,6 +489,69 @@ namespace Strada
 				}
 				ImGui::PopID();
 			}
+		}
+	}
+
+	void VisualScriptDrawer::SortProblems(VisualScriptEditorModel const& model, VisualScriptAnalysis const& analysis)
+	{
+		Ref<VisualScriptDocument const> const stored = model.GetStoredDocument();
+		bool const sameDocument =
+			!m_SortedDocument.owner_before(stored) && !stored.owner_before(m_SortedDocument) && !m_SortedDocument.expired();
+		if (m_ProblemsSorted && m_SortedAnalysisCount == model.GetAnalysisCount() && m_SortedAnalysis == &analysis && sameDocument)
+		{
+			return;
+		}
+		m_ProblemsSorted = true;
+		m_SortedAnalysisCount = model.GetAnalysisCount();
+		m_SortedAnalysis = &analysis;
+		m_SortedDocument = stored;
+
+		// The rows are placed by the document the analysis was made of; a widget's pending value does not move them. Each
+		// diagnostic's key is made once, from the nodes' positions and the graphs' order looked up once.
+		VisualScriptDocument const& document = model.GetDisplayDocument();
+		std::unordered_map<uint32_t, glm::vec2> positions;
+		auto const place = [&positions](VisualScriptGraph const& graph)
+		{
+			for (VisualScriptNode const& node : graph.Nodes)
+			{
+				positions.try_emplace(node.ID, node.Position.value_or(glm::vec2(0.0f)));
+			}
+		};
+		place(document.Graph);
+		std::unordered_map<uint32_t, size_t> order;
+		for (size_t i = 0; i < document.Functions.size(); i++)
+		{
+			place(document.Functions[i].Graph);
+			order.try_emplace(document.Functions[i].ID, i + 1);
+		}
+		using Key = std::tuple<bool, size_t, bool, float, float>;
+		std::vector<std::pair<Key, size_t>> keys;
+		keys.reserve(analysis.Diagnostics.size());
+		for (size_t i = 0; i < analysis.Diagnostics.size(); i++)
+		{
+			VisualScriptDiagnostic const& diagnostic = analysis.Diagnostics[i];
+			std::optional<uint32_t> const node = GetDiagnosticNode(diagnostic);
+			auto const position = node ? positions.find(*node) : positions.end();
+			bool const placed = position != positions.end();
+			glm::vec2 const at = placed ? position->second : glm::vec2(0.0f);
+			size_t graph = 0;
+			if (diagnostic.Function != 0)
+			{
+				auto const found = order.find(diagnostic.Function);
+				graph = found != order.end() ? found->second : document.Functions.size() + 1;
+			}
+			keys.emplace_back(Key(diagnostic.Severity != VisualScriptSeverity::Error, graph, !placed, at.y, at.x), i);
+		}
+		std::stable_sort(keys.begin(), keys.end(),
+		                 [](auto const& a, auto const& b)
+		                 {
+							 return a.first < b.first;
+						 });
+		m_Problems.clear();
+		m_Problems.reserve(keys.size());
+		for (auto const& [key, index] : keys)
+		{
+			m_Problems.push_back(analysis.Diagnostics[index]);
 		}
 	}
 
@@ -731,18 +773,14 @@ namespace Strada
 		if (diagnostic.Variable)
 		{
 			bool const local = diagnostic.Function != 0;
-			if (local)
-			{
-				result.ShowFunction = diagnostic.Function;
-			}
 			SelectVisualScriptElement(context,
-			                          {local ? VisualScriptElementKind::Local : VisualScriptElementKind::Variable, *diagnostic.Variable});
+			                          {local ? VisualScriptElementKind::Local : VisualScriptElementKind::Variable, *diagnostic.Variable},
+			                          local ? std::optional<uint32_t>(diagnostic.Function) : std::nullopt);
 			return;
 		}
 		if (diagnostic.Function != 0)
 		{
-			result.ShowFunction = diagnostic.Function;
-			SelectVisualScriptElement(context, {VisualScriptElementKind::Function, diagnostic.Function});
+			SelectVisualScriptElement(context, {VisualScriptElementKind::Function, diagnostic.Function}, diagnostic.Function);
 		}
 	}
 
@@ -760,15 +798,11 @@ namespace Strada
 		}
 		if (match.Variable != 0)
 		{
-			if (match.Function != 0)
-			{
-				result.ShowFunction = match.Function;
-			}
 			SelectVisualScriptElement(
-				context, {match.Function != 0 ? VisualScriptElementKind::Local : VisualScriptElementKind::Variable, match.Variable});
+				context, {match.Function != 0 ? VisualScriptElementKind::Local : VisualScriptElementKind::Variable, match.Variable},
+				match.Function != 0 ? std::optional<uint32_t>(match.Function) : std::nullopt);
 			return;
 		}
-		result.ShowFunction = match.Function;
-		SelectVisualScriptElement(context, {VisualScriptElementKind::Function, match.Function});
+		SelectVisualScriptElement(context, {VisualScriptElementKind::Function, match.Function}, match.Function);
 	}
 }

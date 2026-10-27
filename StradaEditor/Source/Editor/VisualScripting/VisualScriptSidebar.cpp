@@ -24,99 +24,8 @@ namespace Strada
 {
 	namespace
 	{
-		// The loader's words for a name that is not one (VisualScriptSerializer::IsValidName).
-		constexpr char const* NameRuleMessage =
-			"expected a name of 1 to 64 bytes without control characters, '.' or a leading or trailing space";
 		constexpr char const* DeleteModalId = "###VisualScriptDelete";
 		constexpr char const* ProblemsPopupId = "##problems";
-
-		VisualScriptEnumLookup MakeEnumLookup(VisualScriptLibrary const* library)
-		{
-			if (library == nullptr)
-			{
-				return {};
-			}
-			return [library](std::string_view type)
-			{
-				return library->FindEnum(type);
-			};
-		}
-
-		std::string DescribeType(VisualScriptLibrary const* library, std::string_view type)
-		{
-			if (library != nullptr)
-			{
-				if (VisualScriptTypeInfo const* const info = library->FindType(type); info != nullptr && !info->Title.empty())
-				{
-					return info->Title;
-				}
-			}
-			return std::string(type);
-		}
-
-		bool CanBePublic(std::string_view type, VisualScriptLibrary const* library)
-		{
-			return FindVisualScriptExposableType(type).has_value() || (library != nullptr && library->FindEnum(type).has_value());
-		}
-
-		bool ContainsIgnoringCase(std::string_view text, std::string_view part)
-		{
-			auto const lower = [](char c)
-			{
-				return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
-			};
-			return std::search(text.begin(), text.end(), part.begin(), part.end(),
-			                   [&lower](char a, char b)
-			                   {
-								   return lower(a) == lower(b);
-							   }) != text.end();
-		}
-
-		bool NamesID(Json const& settings, std::string_view setting, uint32_t id)
-		{
-			if (!settings.is_object())
-			{
-				return false;
-			}
-			auto const found = settings.find(setting);
-			if (found == settings.end() || !found->is_number_integer())
-			{
-				return false;
-			}
-			return found->is_number_unsigned() ? found->get<uint64_t>() == id : found->get<int64_t>() == static_cast<int64_t>(id);
-		}
-
-		// The nodes of a graph that get or set a variable or local, or call a function.
-		std::vector<uint32_t> FindUses(VisualScriptGraph const& graph, VisualScriptElementKind kind, uint32_t id)
-		{
-			std::vector<uint32_t> nodes;
-			for (VisualScriptNode const& node : graph.Nodes)
-			{
-				bool const uses =
-					kind == VisualScriptElementKind::Function
-						? node.Type == "Function.Call" && NamesID(node.Settings, "Function", id)
-						: (node.Type == "Variable.Get" || node.Type == "Variable.Set") && NamesID(node.Settings, "Variable", id);
-				if (uses)
-				{
-					nodes.push_back(node.ID);
-				}
-			}
-			return nodes;
-		}
-
-		// The nodes of every graph of the document that use the element (a function's own graph excluded).
-		uint32_t CountUses(VisualScriptDocument const& document, VisualScriptElementKind kind, uint32_t id)
-		{
-			auto count = static_cast<uint32_t>(FindUses(document.Graph, kind, id).size());
-			for (VisualScriptFunction const& function : document.Functions)
-			{
-				if (kind != VisualScriptElementKind::Function || function.ID != id)
-				{
-					count += static_cast<uint32_t>(FindUses(function.Graph, kind, id).size());
-				}
-			}
-			return count;
-		}
 
 		std::string CountOf(uint32_t count, std::string_view singular, std::string_view plural)
 		{
@@ -168,10 +77,6 @@ namespace Strada
 			                                                                                       : std::string();
 		}
 
-		glm::vec2 SnapToGrid(glm::vec2 position)
-		{
-			return glm::round(position / VisualScriptCanvasMetrics::GridSize) * VisualScriptCanvasMetrics::GridSize;
-		}
 	}
 
 	// What a Draw works with.
@@ -200,14 +105,14 @@ namespace Strada
 			case VisualScriptEditorAction::DeleteWithoutRelink:
 			case VisualScriptEditorAction::Rename:
 			case VisualScriptEditorAction::Duplicate:
-				if (eventGraph)
+				if (eventGraph || m_ReadOnly)
 				{
 					return false;
 				}
-				m_Action = action;
+				m_Action = RoutedAction{action, *shared.Element, ImGui::GetFrameCount()};
 				return true;
 			case VisualScriptEditorAction::OpenNode:
-				m_Action = action;
+				m_Action = RoutedAction{action, *shared.Element, ImGui::GetFrameCount()};
 				return true;
 			default:
 				return false;
@@ -251,7 +156,7 @@ namespace Strada
 
 	bool VisualScriptSidebar::Matches(std::string_view name) const
 	{
-		return m_Search.empty() || ContainsIgnoringCase(name, m_Search);
+		return m_Search.empty() || ContainsVisualScriptTextIgnoringCase(name, m_Search);
 	}
 
 	VisualScriptPaneResult VisualScriptSidebar::Draw(VisualScriptPaneContext& context)
@@ -282,11 +187,16 @@ namespace Strada
 		{
 			context.Shared.Element.reset();
 		}
+		m_ReadOnly = frame.ReadOnly;
 		if (context.Shared.Rename)
 		{
-			m_Renaming = context.Shared.Rename;
-			m_RenameFocus = true;
-			m_NameKey = 0;
+			// A quick fix that renames; nothing is renamed in a document that cannot be edited.
+			if (!frame.ReadOnly)
+			{
+				m_Renaming = context.Shared.Rename;
+				m_RenameFocus = true;
+				m_NameKey = 0;
+			}
 			context.Shared.Rename.reset();
 		}
 		if (m_RenameCreated)
@@ -299,7 +209,12 @@ namespace Strada
 		UpdateLiveValues(frame);
 
 		// Keys: those the window routed, and Enter on the selected row while My Script has the keyboard's focus.
-		std::optional<VisualScriptEditorAction> const action = std::exchange(m_Action, std::nullopt);
+		std::optional<VisualScriptEditorAction> action;
+		if (std::optional<RoutedAction> const routed = std::exchange(m_Action, std::nullopt);
+		    routed && routed->Frame + 1 >= ImGui::GetFrameCount() && context.Shared.Element == routed->Element)
+		{
+			action = routed->Action;
+		}
 		// My Script's own window or its children: not the window it is drawn in (the canvas beside it).
 		bool const enter = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && !ImGui::GetIO().WantTextInput &&
 		                   ImGui::IsKeyPressed(ImGuiKey_Enter, false);
@@ -313,7 +228,7 @@ namespace Strada
 			{
 				Delete(frame, *element, false);
 			}
-			else if (action == VisualScriptEditorAction::Rename)
+			else if (action == VisualScriptEditorAction::Rename && !frame.ReadOnly)
 			{
 				m_Renaming = element;
 				m_RenameFocus = true;
@@ -381,6 +296,12 @@ namespace Strada
 	                                  std::optional<uint32_t>* dropped)
 	{
 		VisualScriptPaneContext& context = frame.Context;
+		if (m_Renaming == element && frame.ReadOnly)
+		{
+			// The document became read-only while the name was typed (the file was made read-only): nothing can be renamed.
+			m_Renaming.reset();
+			m_NameKey = 0;
+		}
 		if (canRename && m_Renaming == element)
 		{
 			Rename(frame, element, name);
@@ -547,7 +468,7 @@ namespace Strada
 		ImVec2 const min = ImGui::GetItemRectMin();
 		ImVec2 const max = ImGui::GetItemRectMax();
 		m_Eyes.emplace_back(variable.ID, std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
-		bool const exposable = CanBePublic(variable.Type, frame.Library);
+		bool const exposable = IsVisualScriptPublicType(variable.Type, frame.Library);
 		// An eye: shown in the text colour when public, faint on hover otherwise (a click makes it public).
 		if (variable.Public || hovered)
 		{
@@ -584,7 +505,7 @@ namespace Strada
 		VisualScriptDocument edited = frame.Document;
 		VisualScriptVariable changed = variable;
 		changed.Public = !variable.Public;
-		Result<bool> const set = VisualScriptEditing::SetVariable(edited, variable.ID, changed, MakeEnumLookup(frame.Library));
+		Result<bool> const set = VisualScriptEditing::SetVariable(edited, variable.ID, changed, MakeVisualScriptEnumLookup(frame.Library));
 		if (!set)
 		{
 			frame.Result.Notes.push_back(fmt::format("Could not change {}: {}", variable.Name, set.GetError()));
@@ -708,7 +629,7 @@ namespace Strada
 				ImGui::SameLine();
 				std::vector<VisualScriptDiagnostic> const problems = GetVisualScriptVariableProblems(frame.Analysis, variable.ID);
 				float const marker = problems.empty() ? 0.0f : ImGui::GetFontSize() * 0.75f;
-				std::string const type = DescribeType(frame.Library, variable.Type);
+				std::string const type = DescribeVisualScriptType(frame.Library, variable.Type);
 				float const typeWidth = ImGui::CalcTextSize(type.c_str()).x;
 				float const typeX = right - marker - typeWidth;
 				ImGui::GetWindowDrawList()->AddText(ImVec2(typeX, start.y + ImGui::GetStyle().FramePadding.y),
@@ -785,7 +706,7 @@ namespace Strada
 				ImGui::SameLine();
 				std::vector<VisualScriptDiagnostic> const problems = GetVisualScriptVariableProblems(frame.Analysis, local.ID);
 				float const marker = problems.empty() ? 0.0f : ImGui::GetFontSize() * 0.75f;
-				std::string const type = DescribeType(frame.Library, local.Type);
+				std::string const type = DescribeVisualScriptType(frame.Library, local.Type);
 				ImGui::GetWindowDrawList()->AddText(
 					ImVec2(right - marker - ImGui::CalcTextSize(type.c_str()).x, start.y + ImGui::GetStyle().FramePadding.y),
 					ImGui::GetColorU32(ImGuiCol_TextDisabled), type.c_str());
@@ -834,7 +755,8 @@ namespace Strada
 						auto const type = parameter.is_object() ? parameter.find("Type") : parameter.end();
 						if (parameter.is_object() && type != parameter.end() && type->is_string())
 						{
-							parameters += (parameters.empty() ? "" : ", ") + DescribeType(frame.Library, type->get<std::string>());
+							parameters +=
+								(parameters.empty() ? "" : ", ") + DescribeVisualScriptType(frame.Library, type->get<std::string>());
 						}
 					}
 				}
@@ -856,13 +778,13 @@ namespace Strada
 	void VisualScriptSidebar::Rename(Frame& frame, VisualScriptElement element, std::string const& name)
 	{
 		VisualScriptDocument const& document = frame.Document;
-		VisualScriptEnumLookup const enums = MakeEnumLookup(frame.Library);
+		VisualScriptEnumLookup const enums = MakeVisualScriptEnumLookup(frame.Library);
 		// The document with the element renamed, as its operation writes it; the operation's error when it refuses.
 		auto const renamed = [&](std::string const& newName, VisualScriptDocument& edited) -> Result<uint32_t>
 		{
 			if (!VisualScriptSerializer::IsValidName(newName))
 			{
-				return Error{std::string(NameRuleMessage)};
+				return Error{GetVisualScriptNameRuleMessage()};
 			}
 			switch (element.Kind)
 			{
@@ -965,7 +887,7 @@ namespace Strada
 		VisualScriptPaneContext& context = frame.Context;
 		VisualScriptEditorModel const& model = context.Model;
 		VisualScriptDocument edited = frame.Document;
-		uint64_t const key = NameKeyPrefix + ++m_NameKeyCount;
+		uint64_t const key = MakeVisualScriptPaneNameMergeKey(context.Shared);
 		switch (kind)
 		{
 			case VisualScriptElementKind::Variable:
@@ -1049,7 +971,7 @@ namespace Strada
 					center = view != nullptr ? view->Center : glm::vec2(0.0f);
 				}
 				Result<uint32_t> const added =
-					VisualScriptEditing::AddNode(edited, 0, "Event.Custom", Json::object({{"Name", name}}), SnapToGrid(center));
+					VisualScriptEditing::AddNode(edited, 0, "Event.Custom", Json::object({{"Name", name}}), SnapVisualScriptToGrid(center));
 				if (!added)
 				{
 					frame.Result.Notes.push_back(fmt::format("Could not add a custom event: {}", added.GetError()));
@@ -1058,7 +980,7 @@ namespace Strada
 				m_Commits.Commit(context, std::move(edited), "Add Custom Event", 0, frame.Result);
 				// The event graph shows it selected, and Details gives its name the keyboard.
 				frame.Result.Open = MakeVisualScriptJump(context.Graph, 0, {added.GetValue()});
-				frame.Result.FocusSetting = "Name";
+				frame.Result.FocusSetting = VisualScriptSettingFocus{added.GetValue(), "Name"};
 				return;
 			}
 		}
@@ -1080,7 +1002,8 @@ namespace Strada
 			{
 				uint32_t const shown = context.Model.GetFunction();
 				VisualScriptGraph const* const graph = FindVisualScriptGraph(frame.Document, shown);
-				std::vector<uint32_t> const uses = graph != nullptr ? FindUses(*graph, element.Kind, element.ID) : std::vector<uint32_t>();
+				std::vector<uint32_t> const uses =
+					graph != nullptr ? FindVisualScriptUses(*graph, element.Kind, element.ID) : std::vector<uint32_t>();
 				if (uses.empty())
 				{
 					frame.Result.Notes.push_back(fmt::format("No node of {} uses it", GetVisualScriptGraphName(frame.Document, shown)));
@@ -1116,7 +1039,7 @@ namespace Strada
 					return;
 				}
 				name = variable->Name;
-				uses = CountUses(document, element.Kind, element.ID);
+				uses = CountVisualScriptUses(document, element.Kind, element.ID);
 				break;
 			}
 			case VisualScriptElementKind::Local:
@@ -1127,7 +1050,7 @@ namespace Strada
 						if (local.ID == element.ID)
 						{
 							name = local.Name;
-							uses = static_cast<uint32_t>(FindUses(function.Graph, element.Kind, element.ID).size());
+							uses = static_cast<uint32_t>(FindVisualScriptUses(function.Graph, element.Kind, element.ID).size());
 						}
 					}
 				}
@@ -1148,7 +1071,7 @@ namespace Strada
 					return;
 				}
 				name = function->Name;
-				uses = CountUses(document, element.Kind, element.ID);
+				uses = CountVisualScriptUses(document, element.Kind, element.ID);
 				break;
 			}
 			case VisualScriptElementKind::CustomEvent:
@@ -1288,8 +1211,8 @@ namespace Strada
 						VisualScriptLocal changed = local;
 						changed.ID = copy.GetValue();
 						changed.Name = name;
-						if (Result<bool> const set =
-						        VisualScriptEditing::SetLocal(edited, function.ID, copy.GetValue(), changed, MakeEnumLookup(frame.Library));
+						if (Result<bool> const set = VisualScriptEditing::SetLocal(edited, function.ID, copy.GetValue(), changed,
+						                                                           MakeVisualScriptEnumLookup(frame.Library));
 						    !set)
 						{
 							frame.Result.Notes.push_back(fmt::format("Could not duplicate: {}", set.GetError()));
@@ -1397,7 +1320,7 @@ namespace Strada
 		{
 			return;
 		}
-		VisualScriptEnumLookup const enums = MakeEnumLookup(frame.Library);
+		VisualScriptEnumLookup const enums = MakeVisualScriptEnumLookup(frame.Library);
 		for (VisualScriptVariable const& variable : frame.Document.Variables)
 		{
 			auto const value = values.GetValue().find(variable.Name);

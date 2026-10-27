@@ -72,16 +72,20 @@ namespace Strada
 		static constexpr float EasingPlotHeight = 16.0f;
 		// The type picker lists at most this many rows before it scrolls.
 		static constexpr int PickerRows = 14;
+		// How many Draws a focus request (VisualScriptPaneShared::FocusSetting) waits for its node to be shown.
+		static constexpr int FocusSettingFrames = 3;
 
 		VisualScriptPaneResult Draw(VisualScriptPaneContext& context);
 		std::optional<VisualScriptCommitRequest> TakePendingEdit() { return m_Commits.TakePendingEdit(); }
+		// Whether a widget value is pending (what the window flushes with TakePendingEdit when no item is active).
+		bool HasPendingEdit() const { return m_Commits.HasPendingEdit(); }
 
 		// What the last Draw showed.
 		VisualScriptDetailsSubject GetSubject() const { return m_Subject; }
 		// The screen rectangle (min, max) of the widget of the row with the label in the last Draw ("Name", "Type", "Count",
-		// "Then1", ...; the first row of that label); nothing when no such row was drawn. Tests and automation find widgets
+		// "Then1", ...; the occurrence-th row of that label, from 0); nothing when no such row was drawn. Tests and automation find widgets
 		// by it.
-		std::optional<std::pair<glm::vec2, glm::vec2>> FindRow(std::string_view label) const;
+		std::optional<std::pair<glm::vec2, glm::vec2>> FindRow(std::string_view label, size_t occurrence = 0) const;
 		// The text a row that shows text drew in the last Draw ("Placeholders", "Default Value", an input's "Self", ...);
 		// nothing when no such row was drawn.
 		std::optional<std::string> GetRowText(std::string_view label) const;
@@ -111,10 +115,14 @@ namespace Strada
 		// Draws a widget in a row and hands its edit to the commits with the widget's state (active, deactivated).
 		template<typename TDraw>
 		void Track(Frame& frame, std::string_view label, TDraw&& draw);
+		// Track for a row shown with the label and found by FindRow under key.
+		template<typename TDraw>
+		void Track(Frame& frame, std::string_view label, std::string_view key, TDraw&& draw);
 
 		void DrawScript(Frame& frame);
 		void DrawNode(Frame& frame, VisualScriptNode const& node);
 		void DrawNodeHeader(Frame& frame, VisualScriptNode const& node, std::string const& title);
+		void DrawEnabled(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawGeneral(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawSettings(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawSetting(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
@@ -129,6 +137,15 @@ namespace Strada
 		void DrawVariable(Frame& frame, VisualScriptVariable const& variable);
 		void DrawLocal(Frame& frame, VisualScriptFunction const& function, VisualScriptLocal const& local);
 		void DrawFunction(Frame& frame, VisualScriptFunction const& function);
+		// A local's rows: its name and type in one row (labelled label), and its default value below ("Default", found as
+		// "<label> Default"), as a function's Locals list them.
+		void DrawLocalRows(Frame& frame, VisualScriptFunction const& function, VisualScriptLocal const& local, std::string const& label);
+		// The local changed (SetLocal) as an edit with the action, " (clears its value)" added when the change clears it.
+		std::optional<Edit> MakeLocalEdit(Frame& frame, VisualScriptFunction const& function, VisualScriptLocal const& local,
+		                                  VisualScriptLocal const& changed, std::string action) const;
+		// Why a local cannot be given a name; nothing when it can.
+		std::optional<std::string> CheckLocalName(Frame& frame, VisualScriptFunction const& function, VisualScriptLocal const& local,
+		                                          std::string_view name) const;
 		// A list of parameters (a function's inputs or outputs, a custom event's or a sender's): rows of name and type, moved
 		// up and down and removed, and an add button. Returns the list changed this frame and the change's description
 		// (without the owner's name).
@@ -147,6 +164,16 @@ namespace Strada
 		VisualScriptLiteralEditor m_Literals;
 		VisualScriptNameField m_Names;
 		VisualScriptDetailsSubject m_Subject = VisualScriptDetailsSubject::Script;
+		// How many Draws the focus request has waited for its node.
+		int m_FocusWaits = 0;
+		// A comment's Position or Size being dragged: the unsnapped value the drag has reached.
+		struct CommentDrag
+		{
+			uint32_t Comment = 0;
+			bool Size = false;
+			glm::vec2 Value{0.0f};
+		};
+		std::optional<CommentDrag> m_CommentDrag;
 		// The rows drawn in the last Draw, by label.
 		std::vector<std::pair<std::string, std::pair<glm::vec2, glm::vec2>>> m_Rows;
 		std::vector<std::pair<std::string, std::string>> m_RowTexts;

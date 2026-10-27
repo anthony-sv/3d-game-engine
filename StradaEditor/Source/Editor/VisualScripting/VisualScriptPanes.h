@@ -15,6 +15,9 @@
 #include "Strada/Core/UUID.h"
 #include "Strada/Script/ScriptField.h"
 #include "Strada/Script/VisualScriptLibrary.h"
+#include "Strada/Script/VisualScriptLiterals.h"
+
+#include <glm/glm.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -55,6 +58,31 @@ namespace Strada
 		bool operator==(VisualScriptElement const& other) const = default;
 	};
 
+	// A setting of a node that Details gives the keyboard to once it shows that node (an Event.Custom's Name, a Convert's To).
+	struct VisualScriptSettingFocus
+	{
+		uint32_t Node = 0;
+		std::string Setting;
+
+		bool operator==(VisualScriptSettingFocus const& other) const = default;
+	};
+
+	// A comment box created with its first title still to type (spec §9.6 rule 1): the window opens its in-place title editor
+	// over the comment with "Comment" selected, and commits the title typed under MergeKey, the key the creation was committed
+	// under, so that the creation and its first title are one step (§4.4).
+	struct VisualScriptCommentTitleRequest
+	{
+		uint32_t Comment = 0;
+		uint64_t MergeKey = 0;
+
+		bool operator==(VisualScriptCommentTitleRequest const& other) const = default;
+	};
+
+	// The merge keys of a pane's creation and its first name or title ("VSNM" + a counter), which merge into one undo step. The
+	// panes count their runs in VisualScriptPaneShared::NameRuns, in the upper half of the counter's range: the window's own
+	// creations (the canvas's Add Comment Box) count theirs from the bottom, so two runs in a row never share a key.
+	inline constexpr uint64_t VisualScriptPaneNameMergeKey = 0x56534E4D80000000ull;
+
 	// What the panes of one window share from frame to frame. The window keeps one and passes it in every context.
 	struct VisualScriptPaneShared
 	{
@@ -62,12 +90,18 @@ namespace Strada
 		// selects a row clears the canvas's selection, and while the canvas selects something the row is not selected (the
 		// panes drop it at their next Draw).
 		std::optional<VisualScriptElement> Element;
-		// A setting of the canvas's primary node that Details gives the keyboard to once it shows the node (the window copies a
-		// result's FocusSetting here, after its commit when it has one). Details clears it once it shows a node.
-		std::string FocusSetting;
+		// A setting Details gives the keyboard to once it shows its node (the window copies a result's FocusSetting here, after
+		// its commit when it has one). Details clears it once it shows that node, or when it has shown other subjects for
+		// FocusSettingFrames Draws (the selection a request makes reaches the model a frame or two later).
+		std::optional<VisualScriptSettingFocus> FocusSetting;
 		// My Script opens this row's name for typing at its next Draw (F2 on a row, a quick fix that renames), and clears it.
 		std::optional<VisualScriptElement> Rename;
+		// The panes' creation-and-name runs so far (MakeVisualScriptPaneNameMergeKey).
+		uint32_t NameRuns = 0;
 	};
+
+	// The merge key of a new run of a creation and its first name or title.
+	[[nodiscard]] uint64_t MakeVisualScriptPaneNameMergeKey(VisualScriptPaneShared& shared);
 
 	// What a pane works with in a frame.
 	struct VisualScriptPaneContext
@@ -98,7 +132,8 @@ namespace Strada
 	};
 
 	// What a pane asks of the window after drawing. The window applies the members in this order: Commit (executed, then the
-	// model synced in the same frame and the request's Select applied), ShowFunction, Open, SelectAndFrame, FindReferences.
+	// model synced in the same frame and the request's Select applied when it is not empty), EditCommentTitle, ShowFunction,
+	// Open, SelectAndFrame, FindReferences; FocusSetting is copied to VisualScriptPaneShared::FocusSetting.
 	struct VisualScriptPaneResult
 	{
 		std::optional<VisualScriptCommitRequest> Commit;
@@ -112,9 +147,11 @@ namespace Strada
 		std::optional<VisualScriptReference> FindReferences;
 		// Toasts.
 		std::vector<std::string> Notes;
-		// A setting of the committed node that needs a value (an Event.Custom's Name, a Convert's To): Details gives it the
-		// keyboard once it shows the node (VisualScriptPaneShared::FocusSetting). Empty when none.
-		std::string FocusSetting;
+		// A setting of a node that needs a value (an Event.Custom's Name, a Convert's To): Details gives it the keyboard once
+		// it shows the node (VisualScriptPaneShared::FocusSetting).
+		std::optional<VisualScriptSettingFocus> FocusSetting;
+		// A comment box whose first title the window's in-place editor takes next, in the creation's step.
+		std::optional<VisualScriptCommentTitleRequest> EditCommentTitle;
 		// A widget interaction is in progress: its edits merge into one step until it ends.
 		bool WidgetActive = false;
 	};
@@ -164,8 +201,53 @@ namespace Strada
 	[[nodiscard]] std::string GetVisualScriptGraphName(VisualScriptDocument const& document, uint32_t function);
 	// What jumps to elements of a sub-graph of a graph: shows that sub-graph, selects them and frames them.
 	[[nodiscard]] VisualScriptOpenRequest MakeVisualScriptJump(AssetHandle graph, uint32_t function, std::vector<uint32_t> select);
-	// Shows a My Script row in Details: selects it and clears the canvas's selection.
-	void SelectVisualScriptElement(VisualScriptPaneContext& context, VisualScriptElement element);
+	// Shows a My Script row in Details: selects it and clears the canvas's selection. With a sub-graph to show (a local's
+	// function, a function's own graph), the model shows it first, so that the selection cleared is that sub-graph's (showing
+	// a sub-graph restores the selection it was left with, which would replace the row).
+	void SelectVisualScriptElement(VisualScriptPaneContext& context, VisualScriptElement element,
+	                               std::optional<uint32_t> show = std::nullopt);
+
+	// What the panes have in common.
+
+	// The loader's words for a name that is not one (VisualScriptSerializer::IsValidName and MaxNameBytes).
+	[[nodiscard]] std::string GetVisualScriptNameRuleMessage();
+	// The library's enum lookup for VisualScriptEditing's operations; empty without a library.
+	[[nodiscard]] VisualScriptEnumLookup MakeVisualScriptEnumLookup(VisualScriptLibrary const* library);
+	// A type as the panes name it: the library's title for it, else its ID.
+	[[nodiscard]] std::string DescribeVisualScriptType(VisualScriptLibrary const* library, std::string_view type);
+	// Whether a variable of the type can be public: components can store it (an exposable type, FindVisualScriptExposableType,
+	// or an enum, which the library knows).
+	[[nodiscard]] bool IsVisualScriptPublicType(std::string_view type, VisualScriptLibrary const* library);
+	// Whether text holds part, ASCII letters compared without case; an empty part is in every text.
+	[[nodiscard]] bool ContainsVisualScriptTextIgnoringCase(std::string_view text, std::string_view part);
+	// The nearest point of the canvas's grid (VisualScriptCanvasMetrics::GridSize).
+	[[nodiscard]] glm::vec2 SnapVisualScriptToGrid(glm::vec2 position);
+	// Whether a node type is a C# member's ("Call:", "Get:", "Set:", "New:" and the member): its type string names the member.
+	[[nodiscard]] bool IsVisualScriptReflectedType(std::string_view type);
+	// The nodes of a graph that get or set a variable or local (Kind Variable or Local), or call a function (Kind Function).
+	[[nodiscard]] std::vector<uint32_t> FindVisualScriptUses(VisualScriptGraph const& graph, VisualScriptElementKind kind, uint32_t id);
+	// How many nodes of the document's graphs use a variable, local or function: what "Used by", "Called by" and the delete
+	// modal count. A function's calls in its own graph are not counted: they go with it.
+	[[nodiscard]] uint32_t CountVisualScriptUses(VisualScriptDocument const& document, VisualScriptElementKind kind, uint32_t id);
+
+	// Whether a node offers the Enabled states (spec §9.5): nodes with an exec input and an exec output, and event nodes other
+	// than Event.Send, do; pure nodes show them disabled; Function.Entry and Function.Return do not show them.
+	enum class VisualScriptEnabledOffer : uint8_t
+	{
+		Offered = 0,
+		// The states show disabled, with VisualScriptPureNodesRefusal.
+		PureNode,
+		// Function.Entry and Function.Return: the states are not shown.
+		FunctionEnd,
+		// A node the flow does not pass through (no exec input or no exec output): disabled, with VisualScriptNoFlowRefusal.
+		NoFlow
+	};
+	inline constexpr char const* VisualScriptPureNodesRefusal = "Pure nodes run only when a node reads them: disable that node";
+	inline constexpr char const* VisualScriptNoFlowRefusal = "Only nodes the flow passes through can be disabled";
+	// From the canvas's layout of the node when the shown sub-graph has it, else from the library's template of its type; a node
+	// of a type neither describes offers them (disabling it ends its chain).
+	[[nodiscard]] VisualScriptEnabledOffer GetVisualScriptEnabledOffer(VisualScriptEditorModel const& model,
+	                                                                   VisualScriptLibrary const* library, VisualScriptNode const& node);
 
 	// How the panes commit what their widgets change (spec §4.4). A widget interaction is one undo step under the edit
 	// session's merge key: the edited document is previewed in the model at once (VisualScriptEditorModel::SetWidgetPreview),
@@ -182,7 +264,9 @@ namespace Strada
 	public:
 		static constexpr double CommitInterval = 0.1;
 
-		// Call first in every Draw: drops a pending value the asset's document has moved past, and commits a waiting edit.
+		// Call first in every Draw: drops a pending value the asset's document has moved past, commits a waiting edit, and
+		// commits the pending value of an interaction still in progress once CommitInterval has passed since its last commit
+		// (a drag held still).
 		void BeginFrame(VisualScriptPaneContext& context, VisualScriptPaneResult& result);
 		// The document the pane shows and edits: the uncommitted widget value while one is pending (and the asset's document
 		// is still the one it was computed from), else the model's display document.
@@ -199,8 +283,8 @@ namespace Strada
 		// selects afterwards (nodes and comments of the shown sub-graph).
 		void Commit(VisualScriptPaneContext& context, VisualScriptDocument edited, std::string action, uint64_t mergeKey,
 		            VisualScriptPaneResult& result, std::vector<uint32_t> select = {});
-		// The pending widget value as a commit request, prepared without an analysis (nodes resolved inexactly stay as they
-		// are until the next commit); the preview is cleared. Nothing when none is pending.
+		// The pending widget value as a commit request, prepared with the model's analysis as every commit is; the preview is
+		// cleared. Nothing when none is pending.
 		std::optional<VisualScriptCommitRequest> TakePendingEdit();
 		bool HasPendingEdit() const { return m_Pending != nullptr; }
 
@@ -240,10 +324,11 @@ namespace Strada
 
 	// A text field for a name (a variable, a local, a function, a parameter, a custom event): checked as it is typed (a red
 	// frame and a tooltip with the reason while the name is not valid) and committed once, on Enter or when the field loses
-	// the keyboard with a valid name that differs from the current one. A field opened for typing selects its name, so typing
-	// replaces it; Enter on an invalid name keeps the field and its text, the cursor after it; leaving it keeps the current
-	// name and says why; Escape keeps the current name. One field is edited at a time: an object serves every name field of a
-	// pane.
+	// the keyboard with a valid name that differs from the current one, whatever takes it (a widget drawn before or after the
+	// field, another pane, another name field of this object). A field opened for typing selects its name, so typing replaces
+	// it; Enter on an invalid name keeps the field and its text, the cursor after it; leaving it keeps the current name and
+	// says why; Escape keeps the current name; a field that is not drawn for a frame (its pane hidden) keeps the current name.
+	// One field is edited at a time: an object serves every name field of a pane.
 	class VisualScriptNameField
 	{
 	public:
@@ -268,8 +353,17 @@ namespace Strada
 		bool IsEditing() const { return m_Editing != 0; }
 
 	private:
+		// Another field of this object takes the keyboard: the one edited until now settles its name at its next Draw.
+		void Leave(int frame);
+
 		uint32_t m_Editing = 0;
 		std::string m_Text;
+		// The frame the field edited was last drawn in.
+		int m_DrawnFrame = 0;
+		// A field left for another field of this object, its text, and the frame it was left in.
+		uint32_t m_Left = 0;
+		std::string m_LeftText;
+		int m_LeftFrame = 0;
 		std::string m_Error;
 		// The text m_Error is about.
 		std::string m_CheckedText;
