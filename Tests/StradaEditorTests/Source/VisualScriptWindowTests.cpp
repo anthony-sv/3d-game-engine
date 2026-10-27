@@ -9,6 +9,8 @@
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
+#include "Editor/VisualScripting/VisualScriptGeometry.h"
+#include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
@@ -472,8 +474,18 @@ TEST_CASE("VisualScriptEditor: an empty event graph shows a card whose buttons a
 	fixture.ClickItem(Item::AddNode);
 	fixture.Frames(1);
 	CHECK(fixture.Panel->GetState().PaletteOpen);
-	REQUIRE(fixture.Panel->GetPaletteRequest().has_value());
-	CHECK(fixture.Panel->GetPaletteRequest()->Position == fixture.Model().GetViewState().Center);
+	// The node chosen there goes to the view's centre.
+	glm::vec2 const center = fixture.Model().GetViewState().Center;
+	ImGui::GetIO().AddInputCharactersUTF8("Branch");
+	fixture.Frames(2);
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	REQUIRE(fixture.GetDocument().Graph.Nodes.size() == 1);
+	VisualScriptNode const& branch = fixture.GetDocument().Graph.Nodes[0];
+	CHECK(branch.Type == "Flow.Branch");
+	REQUIRE(branch.Position.has_value());
+	CHECK(*branch.Position == glm::round(center / 16.0f) * 16.0f);
 }
 
 TEST_CASE("VisualScriptEditor: the first canvas's hint shows once per user, until Got it")
@@ -830,4 +842,159 @@ TEST_CASE("VisualScriptEditor: Ctrl+S in a focused graph window flashes the save
 	fixture.Frames(1);
 	CHECK(saves == 1);
 	CHECK(fixture.Panel->GetActivity().SaveFlashes == flashes + 1);
+}
+
+namespace
+{
+	// A window of the graph window's canvas, by a part of its name.
+	ImGuiWindow const* FindCanvasChild(PanelFixture const& fixture, char const* name)
+	{
+		ImGuiWindow const* canvas = fixture.GetChild("##canvas");
+		for (ImGuiWindow const* window : GImGui->Windows)
+		{
+			if (window->ParentWindow == canvas && window->Active && std::strstr(window->Name, name) != nullptr)
+			{
+				return window;
+			}
+		}
+		return nullptr;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: the find bar sits at the canvas's top-right and fits a narrow canvas")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	for (float const width : {1600.0f, 420.0f})
+	{
+		CAPTURE(width);
+		fixture.WindowSize = ImVec2(width, 600.0f);
+		fixture.Frames(2);
+		fixture.Click(fixture.EmptyPoint());
+		fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_F, fixture.Drawer());
+		fixture.Frames(2);
+		REQUIRE(fixture.Panel->GetState().FindOpen);
+		ImGuiWindow const* canvas = fixture.GetChild("##canvas");
+		ImGuiWindow const* bar = FindCanvasChild(fixture, "##findBar");
+		REQUIRE(bar != nullptr);
+		float const fontSize = GetFontSize();
+		CHECK(bar->Size.x == doctest::Approx(std::min(24.0f * fontSize, canvas->Size.x - 2.0f * fontSize)));
+		CHECK(bar->Pos.x >= canvas->Pos.x);
+		CHECK(bar->Pos.y >= canvas->Pos.y);
+		CHECK(bar->Pos.x + bar->Size.x <= canvas->Pos.x + canvas->Size.x);
+		CHECK(bar->Pos.y + bar->Size.y <= canvas->Pos.y + canvas->Size.y);
+		// The bar has the keyboard; Escape there closes it.
+		CHECK(ImGui::GetIO().WantTextInput);
+		fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+		fixture.Frames(1);
+		CHECK_FALSE(fixture.Panel->GetState().FindOpen);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: Ctrl+F opens the find bar and Ctrl+Shift+F the drawer's find, from the canvas and from My Script")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptVariable speed;
+	speed.ID = 100;
+	speed.Name = "Speed";
+	speed.Type = "float";
+	document.Variables.push_back(speed);
+	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Click(fixture.EmptyPoint());
+	VisualScriptViewState const view = fixture.Model().GetViewState();
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_F, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetState().FindOpen);
+	CHECK(fixture.Model().GetViewState() == view);
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE_FALSE(fixture.Panel->GetState().FindOpen);
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_F, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Find);
+
+	// From My Script.
+	fixture.ClickItem(Item::Problems);
+	fixture.ClickItem(Item::Problems);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Closed);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const row =
+		fixture.Panel->GetSidebar().FindRow({VisualScriptElementKind::Variable, speed.ID});
+	REQUIRE(row.has_value());
+	fixture.Click((row->first + row->second) * 0.5f);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Sidebar);
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_F, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Find);
+	fixture.Click((row->first + row->second) * 0.5f);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetFocusedPart() == VisualScriptWindowPart::Sidebar);
+	REQUIRE_FALSE(ImGui::GetIO().WantTextInput);
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_F, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetState().FindOpen);
+}
+
+TEST_CASE("VisualScriptEditor: a click on a node's problem badge opens its problems, and the toolbar's pill toggles the problems "
+          "drawer")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(7, "Flow.NoSuchNode", glm::vec2(800.0f, 320.0f)));
+	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptEditorState const state = fixture.Panel->GetState();
+	REQUIRE(state.Errors >= 1);
+
+	// The pill opens the drawer on the problems, and closes it.
+	fixture.ClickItem(Item::Problems);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Problems);
+	CHECK(fixture.Panel->GetDrawer().GetProblems().size() == state.Errors + state.Warnings);
+	fixture.ClickItem(Item::Problems);
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Closed);
+
+	// The badge: its node's problems in a popup.
+	VisualScriptCanvasModel const& canvas = fixture.Model().GetCanvas();
+	std::optional<uint32_t> const index = canvas.FindNode(7);
+	REQUIRE(index.has_value());
+	std::optional<glm::vec2> const badge = VisualScriptGeometry::GetErrorBadgeCenter(canvas.GetNodes()[*index]);
+	REQUIRE(badge.has_value());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	fixture.Click(fixture.Model().GetView().ToScreen(*badge));
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	ImGuiWindow const* canvasWindow = fixture.GetChild("##canvas");
+	CHECK(GImGui->OpenPopupStack.back().PopupId == ImHashStr("##problemsPopup", 0, canvasWindow->ID));
+	// A click elsewhere closes it.
+	fixture.Click(fixture.EmptyPoint());
+	fixture.Frames(1);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+}
+
+TEST_CASE("VisualScriptEditor: a chosen context entity that was deleted is no context entity until the deletion is undone")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	CreateRunner(fixture, "Door");
+	UUID const gate = CreateRunner(fixture, "Gate");
+	VisualScriptOpenRequest request;
+	request.Graph = fixture.Graph;
+	request.ContextEntity = gate;
+	fixture.Panel->Apply(request);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetContextEntity() == gate);
+
+	UUID const deleted[] = {gate};
+	REQUIRE(fixture.Operations.DeleteEntities(deleted).IsOk());
+	fixture.Frames(1);
+	CHECK_FALSE(fixture.Panel->GetContextEntity().IsValid());
+	CHECK_FALSE(fixture.Panel->GetState().ContextEntity.IsValid());
+
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	fixture.Frames(1);
+	CHECK(fixture.Panel->GetContextEntity() == gate);
+	CHECK(fixture.Panel->GetState().ContextEntity == gate);
 }

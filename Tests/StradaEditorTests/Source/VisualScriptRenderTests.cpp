@@ -964,3 +964,81 @@ TEST_CASE("VisualScriptEditor: idle frames of the canvas reserve nothing more")
 		CHECK(fixture.Renderer.GetCapacityBytes() == capacity);
 	}
 }
+
+TEST_CASE("VisualScriptEditor: the graph window's live widget, the literal editor's compact form, has the chip's cells at every zoom "
+          "and UI scale, and its popups the window's size")
+{
+	Testing::PanelFixture fixture(MakeChipDocument());
+	fixture.CheckDrawingChangesNothing();
+	struct Target
+	{
+		uint32_t Node;
+		std::string_view Pin;
+	};
+	std::array<Target, 5> const targets = {{{2, "Duration"}, {7, "Force"}, {3, "Condition"}, {7, "Mode"}, {8, "A"}}};
+	auto const show = [&fixture](glm::vec2 center, float zoom)
+	{
+		VisualScriptOpenRequest request;
+		request.Graph = fixture.Graph;
+		request.Center = center;
+		request.Zoom = zoom;
+		request.Focus = false;
+		fixture.Panel->Apply(request);
+		fixture.Frames(2);
+	};
+	for (float const scale : {1.0f, 2.0f})
+	{
+		if (scale != 1.0f)
+		{
+			fixture.SetUIScale(scale);
+		}
+		for (float const zoom : {0.7f, 1.0f, 2.0f})
+		{
+			for (Target const& target : targets)
+			{
+				CAPTURE(scale);
+				CAPTURE(zoom);
+				CAPTURE(target.Node);
+				CAPTURE(target.Pin);
+				glm::vec2 const center = ChipCenter(fixture.Model(), target.Node, target.Pin);
+				show(center, zoom);
+				fixture.MoveMouse(fixture.Model().GetView().ToScreen(center));
+				fixture.Frames(1);
+				std::optional<VisualScriptLiveWidgetFrames> const& live = fixture.Panel->GetLiveWidget();
+				REQUIRE(live.has_value());
+				CHECK(live->Chip.Node == target.Node);
+				// The widget's frame spans the chip's cells, and its last cell is the chip's last.
+				VisualScriptRect const first = live->Chip.GetCell(0);
+				VisualScriptRect const last = live->Chip.GetCell(std::max(live->Chip.CellCount, 1u) - 1u);
+				CHECK(std::abs(live->Frame.Min.x - first.Min.x) <= 0.5f);
+				CHECK(std::abs(live->Frame.Min.y - first.Min.y) <= 0.5f);
+				CHECK(std::abs(live->Frame.Max.x - last.Max.x) <= 0.5f);
+				CHECK(std::abs(live->Frame.Max.y - last.Max.y) <= 0.5f);
+				CHECK(std::abs(live->LastCell.Min.x - last.Min.x) <= 0.5f);
+				CHECK(std::abs(live->LastCell.Max.x - last.Max.x) <= 0.5f);
+				VisualScriptRenderStats const& stats = fixture.Panel->GetRenderer().GetStats();
+				CHECK(stats.LiveWidgets == 1);
+				CHECK(stats.DrawCommands <= (stats.Vertices + 65535u) / 65536u + 2u);
+			}
+		}
+	}
+
+	// An enum chip's list opens at the window's size and padding, however far the canvas is zoomed in.
+	glm::vec2 const mode = ChipCenter(fixture.Model(), 7, "Mode");
+	show(mode, 2.0f);
+	glm::vec2 const point = fixture.Model().GetView().ToScreen(mode);
+	fixture.MoveMouse(point);
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetLiveWidget().has_value());
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	fixture.Click(point);
+	fixture.Frames(2);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	ImGuiWindow const* popup = GImGui->OpenPopupStack.back().Window;
+	REQUIRE(popup != nullptr);
+	ImGuiStyle const& style = ImGui::GetStyle();
+	CHECK(popup->FontRefSize == doctest::Approx(style.FontSizeBase * style.FontScaleMain * style.FontScaleDpi));
+	CHECK(popup->WindowPadding.x == doctest::Approx(style.WindowPadding.x));
+	CHECK(popup->WindowPadding.y == doctest::Approx(style.WindowPadding.y));
+	ImGui::GetStyle().FontScaleDpi = 1.0f;
+}

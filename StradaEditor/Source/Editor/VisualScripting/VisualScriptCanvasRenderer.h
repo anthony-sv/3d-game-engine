@@ -339,6 +339,8 @@ namespace Strada
 		VisualScriptPinReference const* ActiveChip = nullptr;
 		// Draws the live widget; none draws chips only.
 		VisualScriptLiveChipHost* LiveChips = nullptr;
+		// Nodes and comments outlined in amber, by ID in ascending order: the matches of the find bar.
+		std::span<uint32_t const> Outlined;
 		// Shadows, glows and pulse dots; none leaves them out.
 		VisualScriptBrushes* Brushes = nullptr;
 		// Filled with every item drawn when given (tests).
@@ -383,6 +385,12 @@ namespace Strada
 		// ones over GlideSeconds from time; drawing only, the document changed at once. Instant with Reduce Motion (nothing
 		// to do then).
 		void StartGlide(std::span<std::pair<uint32_t, glm::vec2> const> oldPositions, double time);
+		// Draws one node of a visual model alone, as the canvas draws it at the view's level and scale: the palette's hover
+		// preview. Nothing else is drawn (no grid, wires, selection, hover, animations or live widget), and only the input's
+		// draw list, font, style, time, brushes and record are read. Counts into GetStats as Draw does, so a window gives its
+		// previews a renderer of their own.
+		void DrawNodePreview(VisualScriptCanvasModel const& canvas, uint32_t node, VisualScriptView const& view,
+		                     VisualScriptCanvasDrawInput const& input);
 		// Ends every animation (a sub-graph switch, the window hidden).
 		void StopAnimations();
 
@@ -408,6 +416,8 @@ namespace Strada
 			std::optional<double> Flash;
 			// Disabled nodes draw every primitive but their text at VisualScriptDisabledAlpha.
 			float Fade = 1.0f;
+			// A match of the find bar (VisualScriptCanvasDrawInput::Outlined).
+			bool Outlined = false;
 		};
 		struct Pulse
 		{

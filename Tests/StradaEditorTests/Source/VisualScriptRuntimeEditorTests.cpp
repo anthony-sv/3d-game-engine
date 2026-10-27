@@ -12,6 +12,7 @@
 #include "Editor/PlayMode.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
+#include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -367,6 +368,9 @@ TEST_CASE("VisualScriptEditor: while playing, moving a node sends nothing and a 
 	CHECK(second <= 5);
 	REQUIRE(fixture.Window.Panel->GetLiveValues().has_value());
 	CHECK(fixture.Window.Panel->GetLiveValues()->contains("Done"));
+	// My Script shows them beside the public variables, labelled live.
+	CHECK(fixture.Window.Panel->GetSidebar().GetLiveValues().contains("Done"));
+	CHECK(fixture.Window.Panel->GetActivity().LiveValueReads - reads == second);
 
 	// A move: one step, the same program.
 	glm::vec2 const header = Testing::CanvasPoint(fixture.Model(), 12, glm::vec2(0.5f, 0.06f));
@@ -375,15 +379,27 @@ TEST_CASE("VisualScriptEditor: while playing, moving a node sends nothing and a 
 	fixture.Play.Advance(1, Timestep(FrameTime));
 	CHECK(VisualScriptEngine::GetProgramGeneration(fixture.Window.Graph) == generation);
 
-	// The Log's message reset to its default from the pin's menu: a new program, and the waiting Delay survives it.
-	fixture.Window.Click(Testing::CanvasPoint(fixture.Model(), 13, "Message"), ImGuiMouseButton_Right);
+	// The Log's message typed in its chip's live widget: one step, a new program, and the waiting Delay survives it.
+	VisualScriptCanvasModel const& canvas = fixture.Model().GetCanvas();
+	std::optional<uint32_t> const log = canvas.FindNode(13);
+	REQUIRE(log.has_value());
+	std::optional<uint32_t> const messagePin = canvas.FindPin(*log, "Message", VisualScriptPinDirection::In);
+	REQUIRE(messagePin.has_value());
+	glm::vec2 const chip = fixture.Model().GetView().ToScreen(
+		VisualScriptGeometry::GetChipRect(canvas.GetNodes()[*log], canvas.GetPins()[*messagePin]).GetCenter());
+	fixture.Window.MoveMouse(chip);
 	fixture.Window.Frames(1);
-	std::optional<glm::vec2> const reset = fixture.Window.FindPopupItem("Reset to Default");
-	REQUIRE(reset.has_value());
-	fixture.Window.Click(*reset);
+	REQUIRE(fixture.Window.Panel->GetLiveWidget().has_value());
+	fixture.Window.Click(chip);
 	fixture.Window.Frames(1);
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	fixture.Window.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Window.Drawer());
+	ImGui::GetIO().AddInputCharactersUTF8("Bye");
+	fixture.Window.Frames(1);
+	fixture.Window.Gui.Press(ImGuiKey_Enter, fixture.Window.Drawer());
+	fixture.Window.Frames(2);
 	REQUIRE(fixture.Window.GetUndoCount() == undo + 2);
-	CHECK_FALSE(fixture.Window.FindNode(13)->Inputs.contains("Message"));
+	CHECK(fixture.Window.FindNode(13)->Inputs["Message"] == "Bye");
 	fixture.Play.Advance(1, Timestep(FrameTime));
 	CHECK(VisualScriptEngine::GetProgramGeneration(fixture.Window.Graph) > generation);
 	fixture.Play.Advance(30, Timestep(FrameTime));

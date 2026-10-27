@@ -7,6 +7,7 @@
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
+#include "Editor/VisualScripting/VisualScriptPanes.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
@@ -366,8 +367,7 @@ namespace Strada
 					case VisualScriptDropKind::Entities:
 						return DropEntities(intent);
 					case VisualScriptDropKind::Element:
-						// My Script's rows are resolved with the panes, which encode them.
-						return {};
+						return DropElement(intent);
 				}
 				return {};
 			}
@@ -1212,6 +1212,184 @@ namespace Strada
 				return committed;
 			}
 
+			// A row of the script's My Script (spec §9.4 rule 4).
+			Result<void> DropElement(VisualScriptDropIntent const& intent)
+			{
+				std::optional<std::pair<VisualScriptElementKind, uint32_t>> const element = UnpackVisualScriptElement(intent.Payload);
+				if (!element)
+				{
+					m_Result.Notes.emplace_back("The dropped row is not one this editor knows");
+					return {};
+				}
+				if (!CanEdit())
+				{
+					return {};
+				}
+				VisualScriptElementKind const kind = element->first;
+				uint32_t const id = element->second;
+				if (kind == VisualScriptElementKind::Variable || kind == VisualScriptElementKind::Local)
+				{
+					return DropVariable(intent, kind, id);
+				}
+				VisualScriptDocument document = GetDisplay();
+				glm::vec2 const position = SnapToGrid(intent.Position);
+				if (kind == VisualScriptElementKind::Function)
+				{
+					VisualScriptFunction const* function = FindFunction(document, id);
+					if (function == nullptr)
+					{
+						m_Result.Notes.emplace_back("The dropped function is no longer in the script");
+						return {};
+					}
+					std::string const name = function->Name;
+					Result<uint32_t> const call =
+						Editing::AddNode(document, m_Function, "Function.Call", Json::object({{"Function", id}}), position);
+					if (!call)
+					{
+						return Error{call.GetError()};
+					}
+					return Commit(std::move(document), "Add " + name, 0, {call.GetValue()});
+				}
+				// A custom event: a sender of its name, with its parameters.
+				VisualScriptNode const* event = FindNode(document.Graph, id);
+				std::optional<std::string> const name = event != nullptr ? ReadString(event->Settings, "Name") : std::nullopt;
+				if (event == nullptr || event->Type != "Event.Custom" || !name)
+				{
+					m_Result.Notes.emplace_back("The dropped custom event is no longer in the script");
+					return {};
+				}
+				Json settings = Json::object({{"Name", *name}});
+				if (auto const parameters = event->Settings.find("Parameters"); parameters != event->Settings.end())
+				{
+					settings["Parameters"] = *parameters;
+				}
+				Result<uint32_t> const send = Editing::AddNode(document, m_Function, "Event.Send", std::move(settings), position);
+				if (!send)
+				{
+					return Error{send.GetError()};
+				}
+				return Commit(std::move(document), "Add Send " + *name, 0, {send.GetValue()});
+			}
+
+			// A variable or local dropped: a Get linked into the input it was dropped on, a Set fed from the output, or on empty
+			// canvas the node the modifiers name (Ctrl: Get, Alt: Set), else the menu that asks.
+			Result<void> DropVariable(VisualScriptDropIntent const& intent, VisualScriptElementKind kind, uint32_t id)
+			{
+				VisualScriptDocument document = GetDisplay();
+				std::optional<std::string> name;
+				if (kind == VisualScriptElementKind::Variable)
+				{
+					for (VisualScriptVariable const& variable : document.Variables)
+					{
+						if (variable.ID == id)
+						{
+							name = variable.Name;
+						}
+					}
+				}
+				else
+				{
+					// A local belongs to its function: only that function's graph can use it.
+					for (VisualScriptFunction const& function : document.Functions)
+					{
+						for (VisualScriptLocal const& local : function.Locals)
+						{
+							if (local.ID != id)
+							{
+								continue;
+							}
+							if (function.ID != m_Function)
+							{
+								m_Result.Notes.push_back(
+									fmt::format("{} is a local of {}: show its graph to use it", local.Name, function.Name));
+								return {};
+							}
+							name = local.Name;
+						}
+					}
+				}
+				if (!name)
+				{
+					m_Result.Notes.emplace_back("The dropped variable is no longer in the script");
+					return {};
+				}
+				bool get = (intent.Modifiers & VisualScriptDropModifiers::Ctrl) != 0;
+				bool const set = !get && (intent.Modifiers & VisualScriptDropModifiers::Alt) != 0;
+				std::optional<VisualScriptPinReference> target;
+				if (intent.Pin)
+				{
+					VisualScriptPinVisual const* pin = FindPinVisual(intent.Pin->Node, intent.Pin->Pin, intent.Direction);
+					if (pin == nullptr || pin->Type == VisualScriptExecType)
+					{
+						m_Result.Notes.push_back(fmt::format("{} connects to data pins", *name));
+						return {};
+					}
+					// Linking reads the pins' types.
+					if (!NeedsRuntime())
+					{
+						return {};
+					}
+					get = intent.Direction == Direction::In;
+					target = VisualScriptPinReference{intent.Pin->Node, ToStored(intent.Pin->Node, intent.Pin->Pin, intent.Direction)};
+				}
+				else if (!get && !set)
+				{
+					m_Result.DropMenu = VisualScriptElementDropMenu{intent, *name};
+					return {};
+				}
+
+				Result<uint32_t> const added = Editing::AddNode(document, m_Function, get ? "Variable.Get" : "Variable.Set",
+				                                                Json::object({{"Variable", id}}), SnapToGrid(intent.Position));
+				if (!added)
+				{
+					return Error{added.GetError()};
+				}
+				uint32_t const node = added.GetValue();
+				if (target)
+				{
+					VisualScriptNodePins const pins = MakePins(document);
+					VisualScriptLink const link =
+						get ? VisualScriptLink{{node, "Value"}, *target} : VisualScriptLink{*target, {node, "Value"}};
+					if (Result<uint32_t> const connected = Editing::Connect(document, m_Function, link, pins); !connected)
+					{
+						m_Result.Notes.push_back(fmt::format("{} cannot connect: {}", *name, connected.GetError()));
+						return {};
+					}
+					if (!get)
+					{
+						// The Set runs after the node whose value it stores, when that node's flow goes nowhere yet.
+						if (std::optional<std::string> const then = FindFreeExecOutput(target->Node))
+						{
+							VisualScriptLink const flow{{target->Node, *then}, {node, "Execute"}};
+							if (Result<uint32_t> const linked = Editing::Connect(document, m_Function, flow, pins); !linked)
+							{
+								return Error{linked.GetError()};
+							}
+						}
+					}
+				}
+				return Commit(std::move(document), fmt::format("Add {} {}", get ? "Get" : "Set", *name), 0, {node});
+			}
+
+			// The stored name of a node's first exec output that has no link; nothing when every one is linked.
+			std::optional<std::string> FindFreeExecOutput(uint32_t node) const
+			{
+				VisualScriptNodeVisual const* visual = FindVisual(node);
+				if (visual == nullptr)
+				{
+					return std::nullopt;
+				}
+				for (VisualScriptPinVisual const& pin : m_Canvas.GetPins(*visual))
+				{
+					if (pin.Direction == Direction::Out && pin.Type == VisualScriptExecType && !pin.HasFlag(VisualScriptPinFlags::Linked) &&
+					    !pin.HasFlag(VisualScriptPinFlags::Orphan))
+					{
+						return ToStored(node, m_Canvas.GetText(pin.Name), Direction::Out);
+					}
+				}
+				return std::nullopt;
+			}
+
 			// --- Actions ---
 
 			Result<void> Remove(Action action, std::span<uint32_t const> elements)
@@ -2018,56 +2196,32 @@ namespace Strada
 
 			// --- Enabled state ---
 
-			bool IsEnableable(uint32_t node) const
+			// Whether a node offers the Enabled states: the rule Details applies too (spec §9.5).
+			VisualScriptEnabledOffer GetEnabledOffer(uint32_t node) const
 			{
-				VisualScriptNodeVisual const* visual = FindVisual(node);
 				VisualScriptNode const* stored = FindDisplayNode(node);
-				if (visual == nullptr || stored == nullptr || stored->Type == "Function.Entry" || stored->Type == "Function.Return")
-				{
-					return false;
-				}
-				if (visual->Kind == VisualScriptNodeKind::Event && stored->Type != "Event.Send")
-				{
-					return true;
-				}
-				if (visual->HasFlag(VisualScriptNodeFlags::Pure))
-				{
-					return false;
-				}
-				bool execIn = false;
-				bool execOut = false;
-				for (VisualScriptPinVisual const& pin : m_Canvas.GetPins(*visual))
-				{
-					if (pin.Type == VisualScriptExecType && !pin.HasFlag(VisualScriptPinFlags::Orphan))
-					{
-						(pin.Direction == Direction::In ? execIn : execOut) = true;
-					}
-				}
-				return execIn && execOut;
+				return stored != nullptr ? GetVisualScriptEnabledOffer(m_Model, m_Context.Library, *stored)
+				                         : VisualScriptEnabledOffer::FunctionEnd;
 			}
 
-			// Why none of the nodes can be disabled.
+			bool IsEnableable(uint32_t node) const { return GetEnabledOffer(node) == VisualScriptEnabledOffer::Offered; }
+
+			// Why none of the nodes can be disabled: pure nodes first, then nodes the flow does not pass through.
 			std::string GetEnabledStateRefusal(std::span<uint32_t const> nodes) const
 			{
-				bool const pure = std::any_of(nodes.begin(), nodes.end(),
-				                              [this](uint32_t node)
-				                              {
-												  VisualScriptNodeVisual const* visual = FindVisual(node);
-												  return visual != nullptr && visual->HasFlag(VisualScriptNodeFlags::Pure);
-											  });
+				bool pure = false;
+				bool noFlow = false;
+				for (uint32_t const node : nodes)
+				{
+					VisualScriptEnabledOffer const offer = GetEnabledOffer(node);
+					pure = pure || offer == VisualScriptEnabledOffer::PureNode;
+					noFlow = noFlow || offer == VisualScriptEnabledOffer::NoFlow;
+				}
 				if (pure)
 				{
-					return std::string(VisualScriptRefusals::PureNodes);
+					return VisualScriptPureNodesRefusal;
 				}
-				bool const ends =
-					std::all_of(nodes.begin(), nodes.end(),
-				                [this](uint32_t node)
-				                {
-									VisualScriptNode const* stored = FindDisplayNode(node);
-									return stored != nullptr && (stored->Type == "Function.Entry" || stored->Type == "Function.Return");
-								});
-				return ends ? std::string("A function's Entry and Return always run")
-				            : std::string("Only nodes the flow passes through can be disabled");
+				return noFlow ? std::string(VisualScriptNoFlowRefusal) : std::string("A function's Entry and Return always run");
 			}
 
 			VisualScriptEditContext const& m_Context;

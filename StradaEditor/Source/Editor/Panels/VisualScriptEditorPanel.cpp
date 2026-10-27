@@ -3,6 +3,8 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/UI/EditorUI.h"
+#include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
@@ -424,6 +426,43 @@ namespace Strada
 			return text;
 		}
 
+		// A link of the visual model by the document's link (pins by the names the document stores or the canvas shows).
+		std::optional<uint32_t> FindLinkVisual(VisualScriptCanvasModel const& canvas, VisualScriptLink const& link)
+		{
+			std::optional<uint32_t> const from = canvas.FindNode(link.From.Node);
+			if (!from)
+			{
+				return std::nullopt;
+			}
+			std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+			std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+			std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+			for (uint32_t const index : canvas.GetIncidentLinks(*from))
+			{
+				VisualScriptLinkVisual const& visual = links[index];
+				if (visual.FromNode != *from || nodes[visual.ToNode].ID != link.To.Node)
+				{
+					continue;
+				}
+				bool const fromMatches =
+					canvas.GetText(visual.FromName) == link.From.Pin || canvas.GetText(pins[visual.FromPin].Name) == link.From.Pin;
+				bool const toMatches =
+					canvas.GetText(visual.ToName) == link.To.Pin || canvas.GetText(pins[visual.ToPin].Name) == link.To.Pin;
+				if (fromMatches && toMatches)
+				{
+					return index;
+				}
+			}
+			return std::nullopt;
+		}
+
+		// Whether a diagnostic is about a link: the same nodes and pins, as the document stores them.
+		bool IsDiagnosticOfLink(VisualScriptDiagnostic const& diagnostic, VisualScriptLink const& link)
+		{
+			return diagnostic.Link && diagnostic.Link->From.Node == link.From.Node && diagnostic.Link->To.Node == link.To.Node &&
+			       diagnostic.Link->From.Pin == link.From.Pin && diagnostic.Link->To.Pin == link.To.Pin;
+		}
+
 		uint64_t HashBits(uint64_t seed, uint64_t value)
 		{
 			// The 64-bit FNV-1a step over the value's bytes: a stable signature of what the measurer measures with.
@@ -495,6 +534,22 @@ namespace Strada
 
 	VisualScriptEditorPanel::~VisualScriptEditorPanel() = default;
 
+	UUID VisualScriptEditorPanel::GetContextEntity() const
+	{
+		return GetPresentContextEntity();
+	}
+
+	UUID VisualScriptEditorPanel::GetPresentContextEntity() const
+	{
+		// The choice is kept while its entity is gone (deleted, or not in the scene shown), so undoing the deletion brings it
+		// back; meanwhile there is none.
+		if (!m_ContextEntity.IsValid() || !m_Operations.GetContext().GetScene().HasEntity(m_ContextEntity))
+		{
+			return UUID::Invalid();
+		}
+		return m_ContextEntity;
+	}
+
 	std::string VisualScriptEditorPanel::GetWindowName(AssetHandle graph, std::string_view title)
 	{
 		return fmt::format("{}###VisualScript{}", title, graph.GetUUID().GetValue());
@@ -564,7 +619,9 @@ namespace Strada
 
 	bool VisualScriptEditorPanel::HasPendingWidgetEdit() const
 	{
-		return m_TextEdit.has_value() && m_TextEdit->Text != m_TextEdit->Original;
+		return (m_TextEdit.has_value() && m_TextEdit->Text != m_TextEdit->Original) || m_Details.HasPendingEdit() ||
+		       m_Sidebar.HasPendingEdit() || m_Drawer.HasPendingEdit() || m_ProblemCommits.HasPendingEdit() ||
+		       m_LiveCommits.HasPendingEdit();
 	}
 
 	void VisualScriptEditorPanel::FlushWidgetEdit()
@@ -573,6 +630,61 @@ namespace Strada
 		{
 			CommitTextEdit();
 		}
+		// One at a time: each commit syncs the model the next pending value was computed against.
+		auto const flush = [this](std::optional<VisualScriptCommitRequest> pending)
+		{
+			if (pending)
+			{
+				Commit(std::move(*pending), {});
+			}
+		};
+		flush(m_Details.TakePendingEdit());
+		flush(m_Sidebar.TakePendingEdit());
+		flush(m_Drawer.TakePendingEdit());
+		flush(m_ProblemCommits.TakePendingEdit());
+		flush(m_LiveCommits.TakePendingEdit());
+	}
+
+	Result<VisualScriptPaletteState> VisualScriptEditorPanel::OpenPalette(VisualScriptPaletteRequest const& request)
+	{
+		if (m_Semantics.GetLibrary() == nullptr)
+		{
+			return Error{"the node palette needs the scripting runtime"};
+		}
+		if (request.From)
+		{
+			VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+			std::optional<uint32_t> const node = canvas.FindNode(request.From->Node);
+			if (!node)
+			{
+				return MakeError("the shown graph has no node {}", request.From->Node);
+			}
+			if (!canvas.FindPin(*node, request.From->Pin, request.Direction))
+			{
+				return MakeError("node {} has no {} pin {}", request.From->Node,
+				                 request.Direction == VisualScriptPinDirection::In ? "input" : "output", request.From->Pin);
+			}
+		}
+		m_Palette.Open(request);
+		VisualScriptPaletteState state;
+		state.Open = true;
+		state.Query = request.Query;
+		state.From = request.From;
+		return state;
+	}
+
+	void VisualScriptEditorPanel::ClosePalette()
+	{
+		m_Palette.Close();
+	}
+
+	VisualScriptPaletteState VisualScriptEditorPanel::GetPaletteState() const
+	{
+		if (!m_Palette.IsOpen())
+		{
+			return {};
+		}
+		return m_Palette.GetState();
 	}
 
 	VisualScriptEditorState VisualScriptEditorPanel::GetState() const
@@ -580,8 +692,8 @@ namespace Strada
 		VisualScriptEditorState state = m_Model.GetState();
 		state.Focused = m_Focused;
 		state.Visible = m_Visible;
-		state.PaletteOpen = m_PaletteRequest.has_value();
-		state.PaletteQuery = m_PaletteRequest ? m_PaletteRequest->Query : std::string();
+		state.PaletteOpen = m_Palette.IsOpen();
+		state.PaletteQuery = m_Palette.IsOpen() ? m_Palette.GetState().Query : std::string();
 		if (m_HintShown)
 		{
 			state.Notices.push_back(VisualScriptNotice::GestureHint);
@@ -591,9 +703,11 @@ namespace Strada
 			state.Toasts.push_back(toast.Text);
 		}
 		state.Save = m_SaveState;
-		state.Drawer = m_DrawerMode;
-		state.FindOpen = m_FindOpen;
-		state.FindText = m_FindText;
+		state.Drawer = m_DrawerMode == VisualScriptDrawerMode::Closed ? VisualScriptDrawerMode::Closed : m_Drawer.GetMode();
+		state.FindOpen = m_FindBar.IsOpen();
+		state.FindText = m_FindBar.GetText();
+		state.FindIndex = m_FindBar.GetIndex();
+		state.FindCount = m_FindBar.GetCount();
 		auto const paneState = [](VisualScriptPaneState laidOut, bool overlay)
 		{
 			return laidOut == VisualScriptPaneState::AutoHidden && overlay ? VisualScriptPaneState::Overlay : laidOut;
@@ -602,7 +716,7 @@ namespace Strada
 		state.Details = paneState(m_Layout.DetailsState, m_DetailsOverlay);
 		state.ShortcutsOpen = m_ShortcutsOpen;
 		state.HiddenToolbarActions = m_HiddenToolbarActions;
-		state.ContextEntity = m_ContextEntity;
+		state.ContextEntity = GetPresentContextEntity();
 		state.Live = m_Live;
 		state.Card = m_Card;
 		// Top to bottom: the notices under the toolbar, then the hints over the canvas.
@@ -665,7 +779,8 @@ namespace Strada
 
 	void VisualScriptEditorPanel::SyncModel()
 	{
-		m_Model.Sync(m_Semantics, m_Measure, m_Theme, false, m_Time);
+		// While a widget of the panes or the live widget is in use, the analysis keeps its pace (spec §6.3).
+		m_Model.Sync(m_Semantics, m_Measure, m_Theme, m_WidgetActive, m_Time);
 	}
 
 	void VisualScriptEditorPanel::OnHidden()
@@ -680,6 +795,11 @@ namespace Strada
 		m_Model.CancelGesture();
 		m_Renderer.StopAnimations();
 		m_Menu = {};
+		m_ActiveChip.reset();
+		m_LivePopup.reset();
+		m_Problems.reset();
+		m_BadgePress.reset();
+		m_WidgetActive = false;
 	}
 
 	void VisualScriptEditorPanel::OnImGuiRender(bool& open, std::optional<ImGuiID> dockTarget)
@@ -717,6 +837,7 @@ namespace Strada
 
 		m_FrameActions = std::move(m_RequestedActions);
 		m_RequestedActions.clear();
+		m_PanesWidgetActive = false;
 		ClaimKeys();
 
 		m_Library = m_Semantics.GetLibrary();
@@ -731,12 +852,11 @@ namespace Strada
 			m_Model.ApplyOpenRequest(request);
 			if (request.ShowProblems)
 			{
-				m_DrawerMode = VisualScriptDrawerMode::Problems;
+				ShowDrawer(VisualScriptDrawerMode::Problems);
 			}
 			if (!request.Find.empty())
 			{
-				m_FindOpen = true;
-				m_FindText = request.Find;
+				m_FindBar.Open(request.Find);
 			}
 		}
 		// A run of a creation and its name ends when another change replaced the document its last commit wrote.
@@ -752,6 +872,8 @@ namespace Strada
 		DrawMenus();
 		DrawShortcutSheet();
 		ImGui::End();
+		// The analysis of the next frame's Sync keeps its pace while a widget is in use.
+		m_WidgetActive = m_PanesWidgetActive || m_LiveActive;
 		if (m_CloseRequested)
 		{
 			m_CloseRequested = false;
@@ -796,9 +918,9 @@ namespace Strada
 				continue;
 			}
 			ImGuiInputFlags const flags = ImGuiInputFlags_RouteFocused | (shortcut.Repeat ? ImGuiInputFlags_Repeat : ImGuiInputFlags_None);
-			if (ImGui::Shortcut(shortcut.Chord, flags) && canvasKeys)
+			if (ImGui::Shortcut(shortcut.Chord, flags) && m_Focused && !io.WantTextInput)
 			{
-				m_FrameActions.push_back(shortcut.Action);
+				RouteFocusedAction(shortcut.Action);
 			}
 		}
 		if (!canvasKeys)
@@ -843,18 +965,65 @@ namespace Strada
 			m_SidebarOverlay = false;
 			m_DetailsOverlay = false;
 		}
-		else if (m_FindOpen)
+		else if (m_FindBar.IsOpen())
 		{
-			m_FindOpen = false;
-		}
-		else if (m_PaletteRequest)
-		{
-			m_PaletteRequest.reset();
+			m_FindBar.Close();
 		}
 		else
 		{
 			m_FrameActions.push_back(Action::Cancel);
 		}
+	}
+
+	void VisualScriptEditorPanel::RouteFocusedAction(VisualScriptEditorAction action)
+	{
+		// Find opens the bar or the drawer whichever part has the keyboard.
+		if (action == Action::Find || action == Action::FindInProject)
+		{
+			HandlePanelAction(action);
+			return;
+		}
+		bool const rowAction = action == Action::Delete || action == Action::DeleteWithoutRelink || action == Action::Rename ||
+		                       action == Action::Duplicate || action == Action::OpenNode;
+		switch (m_FocusedPart)
+		{
+			case VisualScriptWindowPart::Canvas:
+				m_FrameActions.push_back(action);
+				break;
+			case VisualScriptWindowPart::Sidebar:
+				// My Script's row; the other keys mean nothing there. A key My Script does not take (a read-only document) is
+				// still consumed.
+				if (rowAction)
+				{
+					(void)m_Sidebar.HandleAction(action, m_PaneShared);
+				}
+				break;
+			case VisualScriptWindowPart::Details:
+				// The element Details shows: a My Script row's, else the canvas's selection.
+				if (m_PaneShared.Element)
+				{
+					if (rowAction)
+					{
+						(void)m_Sidebar.HandleAction(action, m_PaneShared);
+					}
+				}
+				else
+				{
+					m_FrameActions.push_back(action);
+				}
+				break;
+			case VisualScriptWindowPart::None:
+				break;
+		}
+	}
+
+	void VisualScriptEditorPanel::ShowDrawer(VisualScriptDrawerMode mode)
+	{
+		if (mode == VisualScriptDrawerMode::Problems)
+		{
+			m_Drawer.ShowProblems();
+		}
+		m_DrawerMode = mode;
 	}
 
 	void VisualScriptEditorPanel::UpdateWindowState()
@@ -965,8 +1134,9 @@ namespace Strada
 				break;
 		}
 		// The context entity's running values, read at most VisualScriptLiveValueInterval apart: My Script shows them.
-		if (m_Live == VisualScriptLiveState::None || m_Live == VisualScriptLiveState::Simulating || !m_ContextEntity.IsValid() ||
-		    !VisualScriptEngine::HasInstance(m_ContextEntity))
+		UUID const entity = GetPresentContextEntity();
+		if (m_Live == VisualScriptLiveState::None || m_Live == VisualScriptLiveState::Simulating || !entity.IsValid() ||
+		    !VisualScriptEngine::HasInstance(entity))
 		{
 			m_LiveValues.reset();
 			m_LiveRead = -1.0e30;
@@ -978,7 +1148,7 @@ namespace Strada
 		}
 		m_LiveRead = m_Time;
 		m_Activity.LiveValueReads++;
-		Result<ScriptFieldMap> values = VisualScriptEngine::GetInstanceVariables(m_ContextEntity);
+		Result<ScriptFieldMap> values = VisualScriptEngine::GetInstanceVariables(entity);
 		if (values)
 		{
 			m_LiveValues = values.TakeValue();
@@ -1462,8 +1632,8 @@ namespace Strada
 			ImVec2 const pillMin = ImGui::GetCursorScreenPos();
 			if (ImGui::InvisibleButton("##problems", ImVec2(problemsWidth, frame)))
 			{
-				m_DrawerMode =
-					m_DrawerMode == VisualScriptDrawerMode::Problems ? VisualScriptDrawerMode::Closed : VisualScriptDrawerMode::Problems;
+				bool const shown = m_DrawerMode != VisualScriptDrawerMode::Closed && m_Drawer.GetMode() == VisualScriptDrawerMode::Problems;
+				ShowDrawer(shown ? VisualScriptDrawerMode::Closed : VisualScriptDrawerMode::Problems);
 			}
 			RecordItem(VisualScriptPanelItem::Problems);
 			ImGui::SetItemTooltip("%s", modelState.Analyzed ? fmt::format("Problems: {} errors, {} warnings", errors, warnings).c_str()
@@ -1542,7 +1712,7 @@ namespace Strada
 		RecordItem(VisualScriptPanelItem::Arrange);
 		ImGui::SameLine();
 		std::string const findTooltip = WithShortcut("Find in this script", Action::Find);
-		if (glyphs ? GlyphButton("##find", Glyph::Find, m_FindOpen, true, findTooltip) : ImGui::Button("Find"))
+		if (glyphs ? GlyphButton("##find", Glyph::Find, m_FindBar.IsOpen(), true, findTooltip) : ImGui::Button("Find"))
 		{
 			m_FrameActions.push_back(Action::Find);
 		}
@@ -2133,7 +2303,7 @@ namespace Strada
 					{
 						VisualScriptPaletteIntent palette;
 						palette.Position = center;
-						m_PaletteRequest = std::move(palette);
+						m_Palette.Open(palette);
 					}
 					ImGui::EndDisabled();
 					RecordItem(VisualScriptPanelItem::AddNode);
@@ -2298,15 +2468,45 @@ namespace Strada
 		return active && delta != 0.0f;
 	}
 
-	void VisualScriptEditorPanel::DrawPane(char const* id, VisualScriptWindowPart part, ImVec2 size)
+	void VisualScriptEditorPanel::DrawPane(char const* id, VisualScriptWindowPart part, ImVec2 size, bool border)
 	{
-		// The panes' contents (My Script, Details) are drawn by their own classes; these are the children they draw in. They
-		// are not resizable by ImGui (the window's splitters size them), so ImGui keeps no settings for them.
-		ImGui::BeginChild(id, ImVec2(std::max(size.x, 1.0f), std::max(size.y, 1.0f)), ImGuiChildFlags_None, ImGuiWindowFlags_None);
+		// The children My Script and Details draw in. They are not resizable by ImGui (the window's splitters size them), so
+		// ImGui keeps no settings for them.
+		ImGui::BeginChild(id, ImVec2(std::max(size.x, 1.0f), std::max(size.y, 1.0f)),
+		                  border ? ImGuiChildFlags_Borders : ImGuiChildFlags_None, ImGuiWindowFlags_None);
 		ImGuiID const window = ImGui::GetCurrentWindow()->ID;
 		(part == VisualScriptWindowPart::Sidebar ? m_SidebarWindow : m_DetailsWindow) = window;
+		DrawPaneContents(part);
 		DrawFocusFrame(part);
 		ImGui::EndChild();
+	}
+
+	void VisualScriptEditorPanel::DrawPaneContents(VisualScriptWindowPart part)
+	{
+		VisualScriptPaneContext context = MakePaneContext();
+		VisualScriptPaneResult result = part == VisualScriptWindowPart::Sidebar ? m_Sidebar.Draw(context) : m_Details.Draw(context);
+		ApplyPaneResult(std::move(result));
+	}
+
+	void VisualScriptEditorPanel::DrawDrawer(ImVec2 size)
+	{
+		// The drawer's contents, and its close button at the right.
+		float const frame = ImGui::GetFrameHeight();
+		float const spacing = ImGui::GetStyle().ItemSpacing.x;
+		ImGui::BeginChild("##drawer", size, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+		ImVec2 const available = ImGui::GetContentRegionAvail();
+		ImGui::BeginChild("##drawerContents", ImVec2(std::max(available.x - frame - spacing, 1.0f), std::max(available.y, 1.0f)),
+		                  ImGuiChildFlags_None, ImGuiWindowFlags_None);
+		VisualScriptPaneContext context = MakePaneContext();
+		VisualScriptPaneResult result = m_Drawer.Draw(context);
+		ImGui::EndChild();
+		ImGui::SameLine(0.0f, spacing);
+		if (GlyphButton("##closeDrawer", Glyph::Close, false, true, "Close"))
+		{
+			ShowDrawer(VisualScriptDrawerMode::Closed);
+		}
+		ImGui::EndChild();
+		ApplyPaneResult(std::move(result));
 	}
 
 	void VisualScriptEditorPanel::DrawFocusFrame(VisualScriptWindowPart part)
@@ -2391,6 +2591,7 @@ namespace Strada
 			ImGui::BeginChild(id, ImVec2(std::max(width, 1.0f), rowHeight), ImGuiChildFlags_Borders, ImGuiWindowFlags_None);
 			ImGuiID const window = ImGui::GetCurrentWindow()->ID;
 			(part == VisualScriptWindowPart::Sidebar ? m_SidebarWindow : m_DetailsWindow) = window;
+			DrawPaneContents(part);
 			bool const hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 			DrawFocusFrame(part);
 			ImGui::EndChild();
@@ -2413,15 +2614,7 @@ namespace Strada
 		{
 			m_DrawerHeight = std::max((drawerHeight - delta) / fontSize, VisualScriptDrawerMinHeight);
 		}
-		ImGui::BeginChild("##drawer", ImVec2(available.x, drawerHeight), ImGuiChildFlags_None, ImGuiWindowFlags_None);
-		ImGuiWindow const* drawer = ImGui::GetCurrentWindow();
-		float const frame = ImGui::GetFrameHeight();
-		ImGui::SetCursorScreenPos(ImVec2(drawer->Pos.x + drawer->Size.x - frame - ImGui::GetStyle().WindowPadding.x, drawer->Pos.y));
-		if (GlyphButton("##closeDrawer", Glyph::Close, false, true, "Close"))
-		{
-			m_DrawerMode = VisualScriptDrawerMode::Closed;
-		}
-		ImGui::EndChild();
+		DrawDrawer(ImVec2(available.x, drawerHeight));
 	}
 
 	void VisualScriptEditorPanel::DrawCanvas(ImVec2 size)
@@ -2484,8 +2677,34 @@ namespace Strada
 		input.Time = m_Time;
 		input.Actions = std::move(m_FrameActions);
 		m_FrameActions.clear();
+		input.WidgetActive = m_ActiveChip.has_value();
 		AcceptDrops(input);
 		UpdateCanvas(input);
+		TrackProblemBadges(input);
+
+		// A value of the live widget held still commits within the interval (spec §4.4).
+		{
+			VisualScriptPaneContext context = MakePaneContext();
+			VisualScriptPaneResult result;
+			m_LiveCommits.BeginFrame(context, result);
+			ApplyPaneResult(std::move(result));
+		}
+		std::span<uint32_t const> const outlined = m_FindBar.GetOutlined();
+		m_Outlined.assign(outlined.begin(), outlined.end());
+		std::sort(m_Outlined.begin(), m_Outlined.end());
+		m_LiveChange.reset();
+		m_LiveActive = false;
+		m_LiveDeactivated = false;
+		m_LiveDrawn = false;
+		// The widget under the mouse keeps its chip live: over it, the canvas's surface (and the model's hover) is not hovered.
+		m_HoveredChip.reset();
+		if (m_LiveWidget && m_LiveChip && m_Model.GetGesture().Kind == VisualScriptGesture::Idle && ImGui::IsWindowHovered() &&
+		    ImGui::IsMouseHoveringRect(ToImVec2(m_LiveWidget->Frame.Min), ToImVec2(m_LiveWidget->Frame.Max), false))
+		{
+			m_HoveredChip = m_LiveChip;
+		}
+		m_LiveWidget.reset();
+		m_LiveChip.reset();
 
 		VisualScriptCanvasDrawInput draw;
 		draw.DrawList = ImGui::GetWindowDrawList();
@@ -2495,14 +2714,415 @@ namespace Strada
 		draw.Mouse = input.Mouse;
 		draw.Hovered = hovered;
 		draw.ReduceMotion = m_Settings.IsReduceMotion();
+		draw.ActiveChip = m_ActiveChip ? &*m_ActiveChip : m_HoveredChip ? &*m_HoveredChip : nullptr;
+		// Values are edited in place with the node library's types; without it they are only shown.
+		draw.LiveChips = m_Library != nullptr ? static_cast<VisualScriptLiveChipHost*>(this) : nullptr;
+		draw.Outlined = m_Outlined;
 		draw.Brushes = &m_Brushes;
 		m_Renderer.Draw(m_Model, draw);
+		if (!m_LiveDrawn)
+		{
+			m_ActiveChip.reset();
+		}
+		CommitLiveChange();
+		DrawLivePopup();
 
 		UpdateCursor();
 		ImVec2 const canvasMax(canvasMin.x + childSize.x, canvasMin.y + childSize.y);
 		DrawCanvasOverlays(canvasMin, canvasMax);
+		DrawFindBar(canvasMin, canvasMax);
+		DrawProblemsPopup();
+		DrawPalette();
 		DrawFocusFrame(VisualScriptWindowPart::Canvas);
 		ImGui::EndChild();
+	}
+
+	void VisualScriptEditorPanel::DrawLiveChip(VisualScriptLiveChip const& chip)
+	{
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+		if (chip.Pin >= pins.size())
+		{
+			return;
+		}
+		VisualScriptPinVisual const& pin = pins[chip.Pin];
+		// What the widget shows: the value not committed yet while one is pending, else the document's.
+		VisualScriptDocument const& document = m_LiveCommits.GetDocument(m_Model);
+		VisualScriptNode const* node = FindShownNode(document, m_Model.GetFunction(), chip.Node);
+		VisualScriptLibrary const* library = m_Library.get();
+		if (node == nullptr || !VisualScriptLiteralEditor::CanEdit(pin.Type, library))
+		{
+			return;
+		}
+		std::string const name(canvas.GetText(pin.Name));
+		std::string_view const shown = canvas.GetText(pin.Label);
+		VisualScriptAnalysis const* analysis = m_Model.GetAnalysis();
+		VisualScriptAnalyzedNode const* analyzed = analysis != nullptr ? analysis->FindNode(chip.Node) : nullptr;
+		std::string const stored = VisualScriptEditing::ToStoredVisualScriptPin(analyzed, VisualScriptPinDirection::In, name);
+		auto const entry = node->Inputs.is_object() ? node->Inputs.find(stored) : node->Inputs.end();
+		Json const literal = node->Inputs.is_object() && entry != node->Inputs.end() ? *entry : Json();
+		std::optional<VisualScriptPin> const libraryPin =
+			FindVisualScriptCanvasPin(m_Model, library, chip.Node, name, VisualScriptPinDirection::In);
+		Json const fallback = libraryPin ? libraryPin->Default : Json();
+
+		std::optional<Json> changed;
+		bool popupRequested = false;
+		bool active = false;
+		bool deactivated = false;
+		{
+			VisualScriptLiveChipScope const scope(chip);
+			ImGui::PushID("##liveChip");
+			ImGui::PushID(static_cast<int>(chip.Node));
+			ImGui::PushID(stored.c_str());
+			ImGui::BeginGroup();
+			// The cells of a vector or quaternion follow one another CellGap apart (the scope's item spacing), each CellWidth
+			// wide, so the widget's frames are the chip's cells. ImGui truncates item widths (CalcItemWidth, imgui.cpp:12485)
+			// and the literal editor divides the width among the cells: rounding the whole up keeps each cell CellWidth wide
+			// (a whole number) after both, where a fractional gap would make every cell a pixel narrower. A single cell is
+			// rounded to the nearest pixel: a colour square is the frame's height, which may be fractional.
+			uint32_t const cells = std::max(chip.CellCount, 1u);
+			float const width = cells > 1
+			                        ? std::ceil(chip.CellWidth * static_cast<float>(cells) + chip.CellGap * static_cast<float>(cells - 1))
+			                        : std::round(chip.CellWidth);
+			ImGui::SetNextItemWidth(width);
+			changed = m_LiveLiteral.Draw(pin.Type, literal, fallback, library, FieldInlineMode::Compact, &popupRequested);
+			VisualScriptRect const last{ToVec2(ImGui::GetItemRectMin()), ToVec2(ImGui::GetItemRectMax())};
+			ImGui::EndGroup();
+			active = ImGui::IsItemActive();
+			deactivated = ImGui::IsItemDeactivated();
+			m_LiveWidget = VisualScriptLiveWidgetFrames{chip, {ToVec2(ImGui::GetItemRectMin()), ToVec2(ImGui::GetItemRectMax())}, last};
+			ImGui::PopID();
+			ImGui::PopID();
+			ImGui::PopID();
+		}
+		m_LiveDrawn = true;
+		VisualScriptPinReference const reference{chip.Node, name};
+		m_LiveChip = reference;
+		if (active)
+		{
+			m_ActiveChip = reference;
+		}
+		else if (m_ActiveChip == reference)
+		{
+			m_ActiveChip.reset();
+		}
+		m_LiveActive = active;
+		m_LiveDeactivated = deactivated;
+		if (changed)
+		{
+			m_LiveChange = LiveChange{chip.Node, stored, shown.empty() ? name : std::string(shown),
+			                          GetVisualScriptNodeTitle(document, analysis, *node), std::move(*changed)};
+		}
+		if (popupRequested)
+		{
+			// Opened after the scope, at the window's normal size.
+			m_LivePopup = LivePopup{reference};
+		}
+	}
+
+	void VisualScriptEditorPanel::CommitLiveChange()
+	{
+		if (!m_LiveChange && !m_LiveDeactivated)
+		{
+			return;
+		}
+		VisualScriptPaneContext context = MakePaneContext();
+		VisualScriptPaneResult result;
+		if (m_LiveChange)
+		{
+			LiveChange const change = std::move(*m_LiveChange);
+			m_LiveChange.reset();
+			VisualScriptDocument edited = m_LiveCommits.GetDocument(m_Model);
+			if (Result<void> const set = VisualScriptEditing::SetInput(edited, change.Node, change.Stored, change.Literal); !set)
+			{
+				AddToast(fmt::format("Could not set {}: {}", change.Label, set.GetError()));
+			}
+			else
+			{
+				m_LiveCommits.Change(context, std::move(edited), fmt::format("Set {} on {}", change.Label, change.Title),
+				                     m_LiveActive && !m_LiveDeactivated, result);
+			}
+		}
+		if (m_LiveDeactivated)
+		{
+			m_LiveCommits.End(context, result);
+		}
+		ApplyPaneResult(std::move(result));
+	}
+
+	void VisualScriptEditorPanel::DrawLivePopup()
+	{
+		if (!m_LivePopup)
+		{
+			return;
+		}
+		char const* const id = "##liveValue";
+		if (m_LivePopup->OpenPending)
+		{
+			ImGui::OpenPopup(id);
+			m_LivePopup->OpenPending = false;
+		}
+		if (!ImGui::BeginPopup(id))
+		{
+			m_LivePopup.reset();
+			return;
+		}
+		// The chip's pin, found again by name: the popup stays open over frames that lay the canvas out again.
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		VisualScriptPinReference const reference = m_LivePopup->Pin;
+		std::optional<uint32_t> const nodeIndex = canvas.FindNode(reference.Node);
+		std::optional<uint32_t> const pinIndex =
+			nodeIndex ? canvas.FindPin(*nodeIndex, reference.Pin, VisualScriptPinDirection::In) : std::nullopt;
+		VisualScriptDocument const& document = m_LiveCommits.GetDocument(m_Model);
+		VisualScriptNode const* node = FindShownNode(document, m_Model.GetFunction(), reference.Node);
+		if (!pinIndex || node == nullptr || m_Model.IsReadOnly())
+		{
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+			m_LivePopup.reset();
+			return;
+		}
+		std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
+		VisualScriptPinVisual const& pin = pins[*pinIndex];
+		std::string_view const shown = canvas.GetText(pin.Label);
+		VisualScriptAnalysis const* analysis = m_Model.GetAnalysis();
+		VisualScriptAnalyzedNode const* analyzed = analysis != nullptr ? analysis->FindNode(reference.Node) : nullptr;
+		std::string const stored = VisualScriptEditing::ToStoredVisualScriptPin(analyzed, VisualScriptPinDirection::In, reference.Pin);
+		auto const entry = node->Inputs.is_object() ? node->Inputs.find(stored) : node->Inputs.end();
+		Json const literal = node->Inputs.is_object() && entry != node->Inputs.end() ? *entry : Json();
+		std::optional<VisualScriptPin> const libraryPin =
+			FindVisualScriptCanvasPin(m_Model, m_Library.get(), reference.Node, reference.Pin, VisualScriptPinDirection::In);
+		Json const fallback = libraryPin ? libraryPin->Default : Json();
+		ImGui::BeginGroup();
+		std::optional<Json> changed = m_LiveLiteral.DrawPopup(pin.Type, literal, fallback, m_Library.get());
+		ImGui::EndGroup();
+		bool const active = ImGui::IsItemActive();
+		ImGui::EndPopup();
+		if (changed)
+		{
+			m_LiveChange = LiveChange{reference.Node, stored, shown.empty() ? reference.Pin : std::string(shown),
+			                          GetVisualScriptNodeTitle(document, analysis, *node), std::move(*changed)};
+			// A pick in a list commits at once; a colour dragged in the picker merges until it is let go.
+			m_LiveActive = active;
+			m_LiveDeactivated = !active;
+			CommitLiveChange();
+		}
+	}
+
+	void VisualScriptEditorPanel::DrawFindBar(ImVec2 canvasMin, ImVec2 canvasMax)
+	{
+		if (!m_FindBar.IsOpen())
+		{
+			return;
+		}
+		// At the canvas's top-right, never wider than the canvas less a margin (spec §10.1 rule 4).
+		ImGuiStyle const& style = ImGui::GetStyle();
+		float const fontSize = ImGui::GetFontSize();
+		float const width = VisualScriptFindBar::GetWidth(canvasMax.x - canvasMin.x, fontSize);
+		if (width <= 0.0f)
+		{
+			return;
+		}
+		ImGuiWindow const* nav = GImGui->NavWindow;
+		ImGui::SetCursorScreenPos(ImVec2(canvasMax.x - width - fontSize * 0.5f, canvasMin.y + fontSize * 0.5f));
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_PopupBg));
+		ImGui::BeginChild("##findBar", ImVec2(width, ImGui::GetFrameHeight() + style.WindowPadding.y * 2.0f),
+		                  ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding,
+		                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		ImGui::PopStyleColor();
+		ImGuiID const bar = ImGui::GetCurrentWindow()->ID;
+		VisualScriptPaneContext context = MakePaneContext();
+		VisualScriptPaneResult result = m_FindBar.Draw(context);
+		ImGui::EndChild();
+		if (!m_FindBar.IsOpen() && nav != nullptr && nav->ID == bar)
+		{
+			// Closing the bar from its own field gives the keyboard back to the canvas.
+			ImGui::SetWindowFocus();
+		}
+		ApplyPaneResult(std::move(result));
+	}
+
+	void VisualScriptEditorPanel::DrawPalette()
+	{
+		// Drawn every frame in the canvas's ID scope, where it opens its popup; it draws nothing while closed.
+		VisualScriptPaneContext context = MakePaneContext();
+		ApplyPaneResult(m_Palette.Draw(context));
+	}
+
+	void VisualScriptEditorPanel::DrawNodePreview(VisualScriptPaletteEntry const& entry, ImDrawList* drawList, ImVec2 position, float scale)
+	{
+		VisualScriptLibrary const* library = m_Library.get();
+		if (library == nullptr || drawList == nullptr || scale <= 0.0f)
+		{
+			return;
+		}
+		// The node alone, with what its pins come from (the variables and the functions' signatures), laid out as the canvas
+		// lays out a node it has no analysis for.
+		VisualScriptDocument const& display = m_Model.GetDisplayDocument();
+		VisualScriptDocument scratch;
+		scratch.Variables = display.Variables;
+		scratch.Functions = display.Functions;
+		for (VisualScriptFunction& function : scratch.Functions)
+		{
+			function.Graph = {};
+		}
+		uint32_t function = m_Model.GetFunction();
+		VisualScriptGraph* graph = FindVisualScriptGraph(scratch, function);
+		if (graph == nullptr)
+		{
+			function = 0;
+			graph = &scratch.Graph;
+		}
+		constexpr uint32_t PreviewNode = 1;
+		VisualScriptNode node;
+		node.ID = PreviewNode;
+		node.Type = entry.NodeType;
+		node.Settings = entry.Settings.is_object() ? entry.Settings : Json::object();
+		node.Position = glm::vec2(0.0f);
+		graph->Nodes.push_back(std::move(node));
+
+		VisualScriptCanvasSource source;
+		source.Display = &scratch;
+		source.Function = function;
+		source.Library = library;
+		source.EnumLookup = [library](std::string_view type)
+		{
+			return library->FindEnum(type);
+		};
+		VisualScriptCanvasModel canvas;
+		canvas.Sync(source, m_Measure, m_Theme);
+		std::optional<uint32_t> const index = canvas.FindNode(PreviewNode);
+		if (!index)
+		{
+			return;
+		}
+		std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+		glm::vec2 const size = nodes[*index].Size;
+		// A view whose canvas is the reserved area: the node's top-left at its top-left, scale pixels per canvas unit.
+		float const uiScale = std::max(ImGui::GetStyle().FontScaleDpi, 0.01f);
+		VisualScriptViewState state;
+		state.Function = function;
+		state.Center = size * 0.5f;
+		state.Zoom = scale / uiScale;
+		VisualScriptView view(state);
+		view.SetCanvas(ToVec2(position), size * scale, uiScale);
+		VisualScriptCanvasDrawInput input;
+		input.DrawList = drawList;
+		input.Style = MakeVisualScriptCanvasStyle(ImGui::GetStyle(), ImGui::GetFontSize());
+		input.Library = library;
+		input.Time = m_Time;
+		input.ReduceMotion = true;
+		input.Brushes = &m_Brushes;
+		m_PreviewRenderer.DrawNodePreview(canvas, *index, view, input);
+	}
+
+	void VisualScriptEditorPanel::TrackProblemBadges(VisualScriptCanvasInput const& input)
+	{
+		VisualScriptCanvasModel const& canvas = m_Model.GetCanvas();
+		VisualScriptView const& view = m_Model.GetView();
+		if (input.Pressed[0])
+		{
+			m_BadgePress.reset();
+			m_BadgePressPoint = input.Mouse;
+			VisualScriptHit const& hover = m_Model.GetHover();
+			if (input.Ctrl || input.Shift || input.Alt || m_Model.GetAnalysis() == nullptr)
+			{
+				return;
+			}
+			if (hover.Kind == VisualScriptHitKind::Badge)
+			{
+				m_BadgePress = ProblemsPopup{hover.Element, std::nullopt};
+			}
+			else if (hover.Kind == VisualScriptHitKind::Link && hover.Link && view.GetDetailLevel() != VisualScriptDetailLevel::Far)
+			{
+				// The badge at half the wire's length, where the renderer draws it.
+				std::optional<uint32_t> const link = FindLinkVisual(canvas, *hover.Link);
+				std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+				if (link && links[*link].HasFlag(VisualScriptLinkFlags::Error))
+				{
+					std::array<glm::vec2, 4> points = VisualScriptGeometry::GetLinkControlPoints(canvas, *link, m_Model.GetNodePreview());
+					for (glm::vec2& point : points)
+					{
+						point = view.ToScreen(point);
+					}
+					VisualScriptGeometry::WireFlattening const flattening =
+						VisualScriptGeometry::GetWireFlattening(view.GetDetailLevel(), input.CurveTessellationTolerance);
+					std::vector<glm::vec2> polyline;
+					VisualScriptGeometry::FlattenWire(points, flattening.Tolerance, flattening.SegmentCap, polyline);
+					float const k = view.GetPixelsPerUnit();
+					float const radius = VisualScriptGeometry::GetBadgeRadius(k, view.GetUIScale()) * k;
+					if (!polyline.empty() && glm::distance(VisualScriptGeometry::GetPolylinePoint(polyline, 0.5f), input.Mouse) <= radius)
+					{
+						m_BadgePress = ProblemsPopup{std::nullopt, *hover.Link};
+					}
+				}
+			}
+			return;
+		}
+		if (input.Released[0] && m_BadgePress)
+		{
+			// A click, not the end of a drag that started on the badge.
+			float const threshold = 4.0f * input.UIScale;
+			if (glm::distance(input.Mouse, m_BadgePressPoint) <= threshold && m_Model.GetGesture().Kind == VisualScriptGesture::Idle)
+			{
+				m_Problems = *m_BadgePress;
+				m_Problems->OpenPending = true;
+			}
+			m_BadgePress.reset();
+		}
+	}
+
+	void VisualScriptEditorPanel::DrawProblemsPopup()
+	{
+		if (!m_Problems)
+		{
+			return;
+		}
+		char const* const id = "##problemsPopup";
+		if (m_Problems->OpenPending)
+		{
+			ImGui::OpenPopup(id);
+			m_Problems->OpenPending = false;
+		}
+		if (!ImGui::BeginPopup(id))
+		{
+			m_Problems.reset();
+			return;
+		}
+		VisualScriptAnalysis const* analysis = m_Model.GetAnalysis();
+		std::vector<VisualScriptDiagnostic> problems;
+		if (m_Problems->Node)
+		{
+			problems = GetVisualScriptNodeProblems(analysis, *m_Problems->Node);
+		}
+		else if (m_Problems->Link && analysis != nullptr)
+		{
+			for (VisualScriptDiagnostic const& diagnostic : analysis->Diagnostics)
+			{
+				if (IsDiagnosticOfLink(diagnostic, *m_Problems->Link))
+				{
+					problems.push_back(diagnostic);
+				}
+			}
+		}
+		VisualScriptPaneContext context = MakePaneContext();
+		VisualScriptPaneResult result;
+		m_ProblemCommits.BeginFrame(context, result);
+		if (problems.empty())
+		{
+			ImGui::TextDisabled("No problems");
+		}
+		else
+		{
+			DrawVisualScriptProblems(context, problems, m_ProblemCommits, result);
+		}
+		// A fix done or a jump made: the popup has served.
+		if (result.Commit || result.Open || !result.SelectAndFrame.empty() || result.ShowFunction)
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+		ApplyPaneResult(std::move(result));
 	}
 
 	void VisualScriptEditorPanel::AcceptDrops(VisualScriptCanvasInput& input)
@@ -2528,6 +3148,32 @@ namespace Strada
 				std::memcpy(&value, dragged->Data, sizeof(value));
 			}
 			refused = !AssetManager::IsValid(AssetHandle(UUID(value)));
+		}
+		else if (dragged->IsDataType(DragDropPayload::VisualScriptElement))
+		{
+			// A row of My Script: this script's only (spec §9.4 rule 4).
+			VisualScriptElementPayload element;
+			bool const valid = dragged->DataSize == static_cast<int>(sizeof(element));
+			if (valid)
+			{
+				std::memcpy(&element, dragged->Data, sizeof(element));
+			}
+			uint64_t const packed = valid ? PackVisualScriptElement(static_cast<VisualScriptElementKind>(element.Kind), element.ID) : 0;
+			bool const ours = valid && element.Graph == m_Graph.GetUUID().GetValue() && UnpackVisualScriptElement(packed).has_value();
+			refused = !ours;
+			ImGuiDragDropFlags const flags =
+				ours ? ImGuiDragDropFlags_None : ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect;
+			if (ImGuiPayload const* payload = ImGui::AcceptDragDropPayload(DragDropPayload::VisualScriptElement, flags))
+			{
+				if (ours)
+				{
+					input.Drop = VisualScriptCanvasDrop{VisualScriptDropKind::Element, packed, {}};
+				}
+				else if (payload->IsDelivery())
+				{
+					AddToast(std::string(VisualScriptRefusals::OtherScriptRow));
+				}
+			}
 		}
 		else if (dragged->IsDataType(DragDropPayload::Entities))
 		{
@@ -2566,11 +3212,6 @@ namespace Strada
 
 	void VisualScriptEditorPanel::UpdateCanvas(VisualScriptCanvasInput& input)
 	{
-		// A press on the canvas closes the palette and the menus it opened, as clicking elsewhere does.
-		if (input.Pressed[0] || input.Pressed[1] || input.Pressed[2])
-		{
-			m_PaletteRequest.reset();
-		}
 		std::vector<VisualScriptEditorIntent> const intents = m_Model.Update(input);
 		for (VisualScriptEditorIntent const& intent : intents)
 		{
@@ -3003,6 +3644,100 @@ namespace Strada
 		return context;
 	}
 
+	VisualScriptPaneContext VisualScriptEditorPanel::MakePaneContext()
+	{
+		// The palette's previews are drawn as the canvas draws nodes; My Script's live values are the ones the window reads
+		// for the context entity, so the running game is asked once per interval.
+		std::function<void(VisualScriptPaletteEntry const&, ImDrawList*, ImVec2, float)> preview =
+			[this](VisualScriptPaletteEntry const& entry, ImDrawList* drawList, ImVec2 position, float scale)
+		{
+			DrawNodePreview(entry, drawList, position, scale);
+		};
+		std::function<Result<ScriptFieldMap>(UUID)> live = [this](UUID entity) -> Result<ScriptFieldMap>
+		{
+			if (!m_LiveValues || entity != GetPresentContextEntity())
+			{
+				return Error{"the context entity has no running instance"};
+			}
+			return *m_LiveValues;
+		};
+		return {m_Model,
+		        m_Semantics,
+		        m_Settings,
+		        m_Session,
+		        m_Services,
+		        m_PaneShared,
+		        m_Graph,
+		        m_ScriptName,
+		        GetPresentContextEntity(),
+		        m_Operations.GetContext().IsPlaying(),
+		        m_Time,
+		        m_Measure,
+		        std::move(preview),
+		        std::move(live)};
+	}
+
+	void VisualScriptEditorPanel::ApplyPaneResult(VisualScriptPaneResult result)
+	{
+		m_PanesWidgetActive = m_PanesWidgetActive || result.WidgetActive;
+		Ref<VisualScriptDocument const> const before = m_Model.GetStoredDocument();
+		bool committed = false;
+		if (result.Commit)
+		{
+			committed = Commit(std::move(*result.Commit), {});
+		}
+		if (result.EditCommentTitle && committed)
+		{
+			// The comment's first title merges into the step that created it (spec §9.6 rule 1).
+			uint32_t const comment = result.EditCommentTitle->Comment;
+			m_NameRun = NameRun{result.EditCommentTitle->MergeKey, before, m_Model.GetStoredDocument()};
+			std::string title = VisualScriptPalettePopup::NewCommentText;
+			if (VisualScriptGraph const* graph = FindShownGraph(m_Model.GetDisplayDocument(), m_Model.GetFunction()))
+			{
+				for (VisualScriptComment const& candidate : graph->Comments)
+				{
+					if (candidate.ID == comment)
+					{
+						title = candidate.Text.substr(0, candidate.Text.find('\n'));
+					}
+				}
+			}
+			OpenTextEdit(VisualScriptTextEditRequest{VisualScriptTextEditKind::CommentTitle, comment, std::move(title)});
+		}
+		if (result.FocusSetting)
+		{
+			m_PaneShared.FocusSetting = result.FocusSetting;
+		}
+		if (result.ShowFunction)
+		{
+			m_Model.ShowFunction(*result.ShowFunction);
+		}
+		if (result.Open)
+		{
+			if (result.Open->Graph == m_Graph)
+			{
+				m_Model.ApplyOpenRequest(*result.Open);
+			}
+			else
+			{
+				m_OtherGraphRequests.push_back(std::move(*result.Open));
+			}
+		}
+		if (!result.SelectAndFrame.empty())
+		{
+			m_Model.ApplyOpenRequest(MakeVisualScriptJump(m_Graph, m_Model.GetFunction(), result.SelectAndFrame));
+		}
+		if (result.FindReferences)
+		{
+			m_Drawer.ShowReferences(*result.FindReferences);
+			ShowDrawer(VisualScriptDrawerMode::Find);
+		}
+		for (std::string& note : result.Notes)
+		{
+			AddToast(std::move(note));
+		}
+	}
+
 	uint64_t VisualScriptEditorPanel::GetNudgeKey()
 	{
 		// A run of presses less than VisualScriptNudgeRunSeconds apart is one step; a later press starts another.
@@ -3019,10 +3754,11 @@ namespace Strada
 		switch (action)
 		{
 			case Action::Find:
-				m_FindOpen = true;
+				m_FindBar.Open();
 				return true;
 			case Action::FindInProject:
-				m_DrawerMode = VisualScriptDrawerMode::Find;
+				m_Drawer.ShowFind();
+				ShowDrawer(VisualScriptDrawerMode::Find);
 				return true;
 			case Action::ShowShortcuts:
 				m_OpenShortcuts = !m_ShortcutsOpen;
@@ -3078,10 +3814,11 @@ namespace Strada
 			m_SceneContext.ContextEntity = UUID::Invalid();
 			m_SceneContext.ContextEntityName.clear();
 			m_SceneContext.ContextVariables.clear();
-			if (!m_SceneContext.Playing && RunsGraph(m_ContextEntity))
+			UUID const context = GetPresentContextEntity();
+			if (!m_SceneContext.Playing && RunsGraph(context))
 			{
-				Entity const entity = m_Operations.GetContext().GetScene().GetEntityByUUID(m_ContextEntity);
-				m_SceneContext.ContextEntity = m_ContextEntity;
+				Entity const entity = m_Operations.GetContext().GetScene().GetEntityByUUID(context);
+				m_SceneContext.ContextEntity = context;
 				m_SceneContext.ContextEntityName = entity.GetName();
 				m_SceneContext.ContextVariables = entity.GetComponent<VisualScriptComponent>().Variables;
 			}
@@ -3143,7 +3880,18 @@ namespace Strada
 		}
 		if (value.OpenPalette)
 		{
-			m_PaletteRequest = std::move(*value.OpenPalette);
+			// Drawn later in this frame, which keeps the characters of the intent's query from being typed twice.
+			m_Palette.Open(*value.OpenPalette);
+		}
+		if (value.DropMenu)
+		{
+			m_Menu = {};
+			m_Menu.Kind = MenuKind::ElementDrop;
+			m_Menu.OpenPending = true;
+			m_Menu.Armed = true;
+			m_Menu.Position = value.DropMenu->Drop.Position;
+			m_Menu.ScreenPosition = m_Model.GetView().ToScreen(value.DropMenu->Drop.Position);
+			m_Menu.Drop = std::move(value.DropMenu);
 		}
 		if (value.ContextMenu)
 		{
@@ -3193,8 +3941,8 @@ namespace Strada
 		}
 		if (value.FindReferences)
 		{
-			m_FindReferences = std::move(value.FindReferences);
-			m_DrawerMode = VisualScriptDrawerMode::Find;
+			m_Drawer.ShowReferences(*value.FindReferences);
+			ShowDrawer(VisualScriptDrawerMode::Find);
 		}
 		if (value.EditText)
 		{
@@ -3202,14 +3950,58 @@ namespace Strada
 		}
 		if (value.Reveal)
 		{
-			m_Reveal = value.Reveal;
-			if (value.Reveal->Kind == VisualScriptRevealKind::Node && m_Layout.DetailsState == VisualScriptPaneState::AutoHidden)
+			VisualScriptReveal const reveal = *value.Reveal;
+			if (reveal.Kind == VisualScriptRevealKind::Node)
 			{
-				m_DetailsOverlay = true;
+				// Details shows the canvas's selection, which the node is.
+				m_PaneShared.Element.reset();
+				if (m_Layout.DetailsState == VisualScriptPaneState::AutoHidden)
+				{
+					m_DetailsOverlay = true;
+				}
 			}
-			else if (value.Reveal->Kind != VisualScriptRevealKind::Node && m_Layout.SidebarState == VisualScriptPaneState::AutoHidden)
+			else
 			{
-				m_SidebarOverlay = true;
+				// A row of My Script, selected (shown in Details), renamed when asked.
+				VisualScriptElement element;
+				std::optional<uint32_t> show;
+				switch (reveal.Kind)
+				{
+					case VisualScriptRevealKind::Variable:
+						element = {VisualScriptElementKind::Variable, reveal.ID};
+						break;
+					case VisualScriptRevealKind::Local:
+						element = {VisualScriptElementKind::Local, reveal.ID};
+						for (VisualScriptFunction const& function : m_Model.GetDisplayDocument().Functions)
+						{
+							for (VisualScriptLocal const& local : function.Locals)
+							{
+								if (local.ID == reveal.ID)
+								{
+									show = function.ID;
+								}
+							}
+						}
+						break;
+					case VisualScriptRevealKind::Function:
+						element = {VisualScriptElementKind::Function, reveal.ID};
+						break;
+					case VisualScriptRevealKind::CustomEvent:
+						element = {VisualScriptElementKind::CustomEvent, reveal.ID};
+						break;
+					case VisualScriptRevealKind::Node:
+						break;
+				}
+				VisualScriptPaneContext context = MakePaneContext();
+				SelectVisualScriptElement(context, element, show);
+				if (reveal.Rename)
+				{
+					m_PaneShared.Rename = element;
+				}
+				if (m_Layout.SidebarState == VisualScriptPaneState::AutoHidden)
+				{
+					m_SidebarOverlay = true;
+				}
 			}
 		}
 		return committed;
@@ -3274,6 +4066,9 @@ namespace Strada
 			case MenuKind::AnchorPins:
 				id = "##anchorMenu";
 				break;
+			case MenuKind::ElementDrop:
+				id = "##elementDropMenu";
+				break;
 			case MenuKind::None:
 				return;
 		}
@@ -3281,7 +4076,9 @@ namespace Strada
 		{
 			// Opened here, in the window's ID scope where it is drawn, never by BeginPopupContextItem: a right drag pans.
 			ImGui::OpenPopup(id);
-			glm::vec2 const at = m_Menu.Kind == MenuKind::AnchorPins ? m_Menu.Anchor.ScreenPosition : m_Menu.Context.ScreenPosition;
+			glm::vec2 const at = m_Menu.Kind == MenuKind::AnchorPins    ? m_Menu.Anchor.ScreenPosition
+			                     : m_Menu.Kind == MenuKind::ElementDrop ? m_Menu.ScreenPosition
+			                                                            : m_Menu.Context.ScreenPosition;
 			ImGui::SetNextWindowPos(ToImVec2(at));
 			m_Menu.OpenPending = false;
 		}
@@ -3311,6 +4108,9 @@ namespace Strada
 				break;
 			case MenuKind::AnchorPins:
 				DrawAnchorMenu();
+				break;
+			case MenuKind::ElementDrop:
+				DrawElementDropMenu();
 				break;
 			case MenuKind::None:
 				break;
@@ -3719,6 +4519,36 @@ namespace Strada
 					m_Model.StartWire(node, pin, direction);
 				};
 			}
+		}
+	}
+
+	void VisualScriptEditorPanel::DrawElementDropMenu()
+	{
+		if (!m_Menu.Drop)
+		{
+			ImGui::CloseCurrentPopup();
+			return;
+		}
+		// The node a dropped variable makes: Ctrl+drop makes a Get, Alt+drop a Set without asking.
+		bool const mac = ImGui::GetIO().ConfigMacOSXBehaviors;
+		std::string const name = m_Menu.Drop->Name;
+		std::optional<uint8_t> modifiers;
+		if (ImGui::MenuItem(fmt::format("Get {}", name).c_str(), mac ? "Cmd+Drop" : "Ctrl+Drop"))
+		{
+			modifiers = VisualScriptDropModifiers::Ctrl;
+		}
+		if (ImGui::MenuItem(fmt::format("Set {}", name).c_str(), mac ? "Option+Drop" : "Alt+Drop", false, !m_Model.IsReadOnly()))
+		{
+			modifiers = VisualScriptDropModifiers::Alt;
+		}
+		if (modifiers && m_Menu.Armed)
+		{
+			VisualScriptDropIntent drop = m_Menu.Drop->Drop;
+			drop.Modifiers = *modifiers;
+			m_MenuPick = [this, drop = std::move(drop)]
+			{
+				ExecuteIntent(drop);
+			};
 		}
 	}
 }

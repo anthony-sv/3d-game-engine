@@ -7,6 +7,7 @@
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptController.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
+#include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -557,7 +558,7 @@ TEST_CASE("VisualScriptEditor: collapsing, disabling and node comments name thei
 	CHECK(fixture.Act(Action::SetDisabled, {3, 6}).Commit->Description == "Disable Info in Player");
 	VisualScriptControllerResult pure = fixture.Act(Action::SetDisabled, {6});
 	CHECK_FALSE(pure.Commit.has_value());
-	CHECK(Contains(pure.Notes, VisualScriptRefusals::PureNodes));
+	CHECK(Contains(pure.Notes, VisualScriptPureNodesRefusal));
 
 	VisualScriptControllerResult opened = fixture.Act(Action::AddNodeComment, {2});
 	CHECK_FALSE(opened.Commit.has_value());
@@ -937,7 +938,7 @@ TEST_CASE("VisualScriptEditor: the node menu lists its items in order, enabled a
 		if (item.Submenu == "Enabled State")
 		{
 			CHECK_FALSE(item.Enabled);
-			CHECK(item.Reason == VisualScriptRefusals::PureNodes);
+			CHECK(item.Reason == VisualScriptPureNodesRefusal);
 		}
 	}
 	// A function's ends do not offer them; its entry finds its callers.
@@ -1122,4 +1123,120 @@ TEST_CASE("VisualScriptEditor: Update Node is offered on an updated node and sto
 		CHECK(fixture.Node(3)->Inputs == Json::object({{"Message", "Hi"}}));
 		CHECK(fixture.History().GetUndoCount() == 1);
 	}
+}
+
+TEST_CASE("VisualScriptEditor: My Script's rows dropped on the canvas make their nodes: Get, Set, a call and a sender")
+{
+	ControllerFixture fixture;
+	size_t const steps = fixture.History().GetUndoCount();
+	auto const drop = [](VisualScriptElementKind kind, uint32_t id, uint8_t modifiers = 0)
+	{
+		VisualScriptDropIntent intent;
+		intent.Kind = VisualScriptDropKind::Element;
+		intent.Payload = PackVisualScriptElement(kind, id);
+		intent.Position = glm::vec2(1203.0f, 1001.0f);
+		intent.Modifiers = modifiers;
+		return intent;
+	};
+
+	// A variable on empty canvas: the window asks which node; Ctrl makes a Get and Alt a Set without asking.
+	VisualScriptControllerResult const asked = fixture.Resolve(drop(VisualScriptElementKind::Variable, 10));
+	CHECK_FALSE(asked.Commit.has_value());
+	REQUIRE(asked.DropMenu.has_value());
+	CHECK(asked.DropMenu->Name == "Speed");
+	VisualScriptControllerResult get = fixture.Resolve(drop(VisualScriptElementKind::Variable, 10, VisualScriptDropModifiers::Ctrl));
+	CHECK(Description(get) == "Add Get Speed in Player");
+	fixture.Execute(get);
+	VisualScriptNode const& made = fixture.Stored().Graph.Nodes.back();
+	CHECK(made.Type == "Variable.Get");
+	CHECK(made.Settings["Variable"] == 10);
+	CHECK(*made.Position == glm::vec2(1200.0f, 1008.0f));
+	VisualScriptControllerResult set = fixture.Resolve(drop(VisualScriptElementKind::Variable, 10, VisualScriptDropModifiers::Alt));
+	CHECK(Description(set) == "Add Set Speed in Player");
+
+	// On a data output: a Set fed from it, and run after its node when that node's flow goes nowhere yet.
+	VisualScriptDropIntent onOutput = drop(VisualScriptElementKind::Variable, 10);
+	onOutput.Pin = VisualScriptPinReference{6, "Result"};
+	onOutput.Direction = VisualScriptPinDirection::Out;
+	VisualScriptControllerResult fed = fixture.Resolve(onOutput);
+	CHECK(Description(fed) == "Add Set Speed in Player");
+	fixture.Execute(fed);
+	uint32_t const setter = fixture.Stored().Graph.Nodes.back().ID;
+	CHECK(fixture.Node(setter)->Type == "Variable.Set");
+	CHECK(fixture.HasLink(MakeLink(6, "Result", setter, "Value")));
+	// On an input: a Get linked into it.
+	VisualScriptDropIntent onInput = drop(VisualScriptElementKind::Variable, 10);
+	onInput.Pin = VisualScriptPinReference{3, "Message"};
+	onInput.Direction = VisualScriptPinDirection::In;
+	VisualScriptControllerResult linked = fixture.Resolve(onInput);
+	CHECK(Description(linked) == "Add Get Speed in Player");
+	fixture.Execute(linked);
+	CHECK(fixture.HasLink(MakeLink(fixture.Stored().Graph.Nodes.back().ID, "Value", 3, "Message")));
+
+	// A function: its call; a custom event: a sender of its name.
+	VisualScriptControllerResult call = fixture.Resolve(drop(VisualScriptElementKind::Function, 20));
+	CHECK(Description(call) == "Add AddScore in Player");
+	fixture.Execute(call);
+	CHECK(fixture.Stored().Graph.Nodes.back().Type == "Function.Call");
+	CHECK(fixture.Stored().Graph.Nodes.back().Settings["Function"] == 20);
+	VisualScriptControllerResult send = fixture.Resolve(drop(VisualScriptElementKind::CustomEvent, 7));
+	CHECK(Description(send) == "Add Send Hit in Player");
+	fixture.Execute(send);
+	CHECK(fixture.Stored().Graph.Nodes.back().Type == "Event.Send");
+	CHECK(fixture.Stored().Graph.Nodes.back().Settings["Name"] == "Hit");
+	CHECK(fixture.History().GetUndoCount() == steps + 5);
+
+	// What is gone, and a local of a function not shown, are refused with a note.
+	VisualScriptControllerResult const gone = fixture.Resolve(drop(VisualScriptElementKind::Variable, 99, VisualScriptDropModifiers::Ctrl));
+	CHECK_FALSE(gone.Commit.has_value());
+	CHECK_FALSE(gone.Notes.empty());
+	VisualScriptControllerResult const unknown = fixture.Resolve(drop(VisualScriptElementKind::CustomEvent, 2));
+	CHECK_FALSE(unknown.Commit.has_value());
+	CHECK_FALSE(unknown.Notes.empty());
+}
+
+TEST_CASE("VisualScriptEditor: the node menu's Enabled State follows the panes' rule: offered, disabled with its reason, or not shown")
+{
+	ControllerFixture fixture;
+	auto const states = [&fixture](uint32_t node)
+	{
+		fixture.Select({node});
+		std::vector<VisualScriptMenuItem> items;
+		for (VisualScriptMenuItem const& item : BuildVisualScriptNodeMenu(fixture.Context()))
+		{
+			if (item.Submenu == "Enabled State")
+			{
+				items.push_back(item);
+			}
+		}
+		return items;
+	};
+	auto const offer = [&fixture](uint32_t node)
+	{
+		VisualScriptNode const* found = FindVisualScriptNode(fixture.Stored(), node);
+		REQUIRE(found != nullptr);
+		return GetVisualScriptEnabledOffer(*fixture.Model, &fixture.Semantics.GetFixtureLibrary(), *found);
+	};
+
+	REQUIRE(offer(2) == VisualScriptEnabledOffer::Offered);
+	std::vector<VisualScriptMenuItem> const delay = states(2);
+	REQUIRE(delay.size() == 3);
+	CHECK(std::all_of(delay.begin(), delay.end(),
+	                  [](VisualScriptMenuItem const& item)
+	                  {
+						  return item.Enabled;
+					  }));
+	REQUIRE(offer(6) == VisualScriptEnabledOffer::PureNode);
+	std::vector<VisualScriptMenuItem> const pure = states(6);
+	REQUIRE(pure.size() == 3);
+	for (VisualScriptMenuItem const& item : pure)
+	{
+		CHECK_FALSE(item.Enabled);
+		CHECK(item.Reason == VisualScriptPureNodesRefusal);
+	}
+
+	fixture.Model->ShowFunction(20);
+	fixture.Frame();
+	REQUIRE(offer(21) == VisualScriptEnabledOffer::FunctionEnd);
+	CHECK(states(21).empty());
 }

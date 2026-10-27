@@ -60,8 +60,8 @@ namespace Strada
 		inline constexpr std::string_view EntitiesWhilePlaying = "References to scene entities are added in edit mode";
 		// Paste of a text that is not a visual script clipboard.
 		inline constexpr std::string_view NoClipboard = "The clipboard holds no visual script nodes";
-		// Disabling a pure node.
-		inline constexpr std::string_view PureNodes = "Pure nodes run only when a node reads them: disable that node";
+		// A My Script row dragged from another script's window.
+		inline constexpr std::string_view OtherScriptRow = "Variables belong to their script: copy the nodes instead";
 	}
 
 	// What an entity drop needs of the edited scene (the running copy is never written: drops are refused while playing).
@@ -147,6 +147,15 @@ namespace Strada
 		bool Rename = false;
 	};
 
+	// A variable or local of My Script dropped on empty canvas without Ctrl or Alt: the window asks which node it makes, with
+	// a menu "Get Speed / Set Speed" at the drop; the item picked resolves the drop again with Ctrl (Get) or Alt (Set).
+	struct VisualScriptElementDropMenu
+	{
+		VisualScriptDropIntent Drop;
+		// The variable's or local's name.
+		std::string Name;
+	};
+
 	// What the window does with an intent or an edit.
 	struct VisualScriptControllerResult
 	{
@@ -174,6 +183,8 @@ namespace Strada
 		std::optional<VisualScriptTextEditRequest> EditText;
 		// A row or node to show.
 		std::optional<VisualScriptReveal> Reveal;
+		// The Get or Set menu of a dropped variable.
+		std::optional<VisualScriptElementDropMenu> DropMenu;
 		// Arrange: where the arranged nodes stood before (node ID, position), for the renderer's glide.
 		std::vector<std::pair<uint32_t, glm::vec2>> GlideFrom;
 		// The edit needs the scripting runtime, which is not running: the degraded notice blinks.
@@ -259,8 +270,12 @@ namespace Strada
 
 	// Resolves an intent of the window's model. Edits are refused (no commit, a note saying why) in read-only states and,
 	// for those that need node details, without the scripting runtime; selection, view and menu intents pass through to the
-	// result. A drop of a My Script row (VisualScriptDropKind::Element) is the panes' and gives nothing here. Fails only when
-	// an edit the model asked for cannot be made (an editor bug, such as a document the commit would not write).
+	// result. A drop of one of the script's own My Script rows (VisualScriptDropKind::Element, PackVisualScriptElement; the
+	// window refuses other scripts' rows at its drop target) makes its node (spec §9.4 rule 4): a variable or local dropped
+	// on an input gets a Get linked into it, on a data output a Set fed from it (and linked after the output's node when that
+	// node's exec output is free), on empty canvas a Get with Ctrl, a Set with Alt, else the DropMenu; a function makes a
+	// Function.Call, a custom event an Event.Send of its name and parameters. Fails only when an edit the model asked for
+	// cannot be made (an editor bug, such as a document the commit would not write).
 	[[nodiscard]] Result<VisualScriptControllerResult> ResolveVisualScriptIntent(VisualScriptEditorIntent const& intent,
 	                                                                             VisualScriptEditContext const& context);
 	// Resolves an edit of the window's menus and fields, as ResolveVisualScriptIntent does.

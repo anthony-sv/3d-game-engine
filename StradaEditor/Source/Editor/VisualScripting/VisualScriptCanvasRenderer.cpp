@@ -397,7 +397,7 @@ namespace Strada
 	struct VisualScriptCanvasRenderer::Frame
 	{
 		Frame(VisualScriptEditorModel const& model, VisualScriptCanvasDrawInput const& input)
-			: Model(model),
+			: Model(&model),
 			  Canvas(model.GetCanvas()),
 			  View(model.GetView()),
 			  Input(input),
@@ -414,6 +414,27 @@ namespace Strada
 			  CommentSelected(model.GetCommentSelection()),
 			  NodeRaise(model.GetNodeRaise())
 		{
+			SetView();
+		}
+
+		// A node drawn alone (the palette's preview): no editor model, so no gesture, selection, hover or live widget.
+		Frame(VisualScriptCanvasModel const& canvas, VisualScriptView const& view, VisualScriptCanvasDrawInput const& input)
+			: Canvas(canvas),
+			  View(view),
+			  Input(input),
+			  Theme(input.Style.Theme),
+			  DrawList(input.DrawList),
+			  Font(input.Font != nullptr ? input.Font : ImGui::GetFont()),
+			  Nodes(canvas.GetNodes()),
+			  Pins(canvas.GetPins()),
+			  Links(canvas.GetLinks()),
+			  Comments(canvas.GetComments())
+		{
+			SetView();
+		}
+
+		void SetView()
+		{
 			Level = View.GetDetailLevel();
 			Zoom = View.GetState().Zoom;
 			UIScale = View.GetUIScale();
@@ -424,7 +445,8 @@ namespace Strada
 			LabelsDrawn = VisualScriptGeometry::ArePinLabelsDrawn(Level, Zoom) && Metrics::IsTextVisible(Metrics::PinLabelTextSize, Zoom);
 		}
 
-		VisualScriptEditorModel const& Model;
+		// Null for a node drawn alone: only Draw's own phases (culling, hover, live widget, pills, minimap) read it.
+		VisualScriptEditorModel const* Model = nullptr;
 		VisualScriptCanvasModel const& Canvas;
 		VisualScriptView const& View;
 		VisualScriptCanvasDrawInput const& Input;
@@ -470,6 +492,7 @@ namespace Strada
 		{
 			return std::binary_search(Gesture.MarqueeElements.begin(), Gesture.MarqueeElements.end(), id);
 		}
+		bool IsOutlined(uint32_t id) const { return std::binary_search(Input.Outlined.begin(), Input.Outlined.end(), id); }
 		VisualScriptBrushes* Brushes() const { return Input.Brushes; }
 	};
 
@@ -574,6 +597,32 @@ namespace Strada
 		m_GlideStart = time;
 	}
 
+	void VisualScriptCanvasRenderer::DrawNodePreview(VisualScriptCanvasModel const& canvas, uint32_t node, VisualScriptView const& view,
+	                                                 VisualScriptCanvasDrawInput const& input)
+	{
+		Frame frame(canvas, view, input);
+		m_Stats = {};
+		m_TextSizeCount = 0;
+		if (input.Record != nullptr)
+		{
+			input.Record->Clear();
+		}
+		if (frame.DrawList == nullptr || node >= frame.Nodes.size())
+		{
+			return;
+		}
+		ImDrawList* const drawList = frame.DrawList;
+		int const vertices = drawList->VtxBuffer.Size;
+		int const indices = drawList->IdxBuffer.Size;
+		int const commands = drawList->CmdBuffer.Size;
+		DrawNode(frame, node, false);
+		m_Stats.VisibleNodes = 1;
+		m_Stats.Vertices = static_cast<uint32_t>(drawList->VtxBuffer.Size - vertices);
+		m_Stats.Indices = static_cast<uint32_t>(drawList->IdxBuffer.Size - indices);
+		m_Stats.DrawCommands = static_cast<uint32_t>(drawList->CmdBuffer.Size - commands);
+		m_Stats.TextSizes = m_TextSizeCount;
+	}
+
 	void VisualScriptCanvasRenderer::StopAnimations()
 	{
 		m_Pulses.clear();
@@ -670,7 +719,7 @@ namespace Strada
 	glm::vec2 VisualScriptCanvasRenderer::GetNodeOffset(Frame const& frame, uint32_t index) const
 	{
 		glm::vec2 offset = frame.Preview.GetOffset(index);
-		if (!m_GlideIndices.empty())
+		if (!m_GlideIndices.empty() && frame.Model != nullptr)
 		{
 			auto const found = std::lower_bound(m_GlideIndices.begin(), m_GlideIndices.end(), std::make_pair(index, 0u));
 			if (found != m_GlideIndices.end() && found->first == index)
@@ -726,7 +775,7 @@ namespace Strada
 		// Badges keep a minimum size and glows reach beyond their nodes: the query looks a little beyond the canvas.
 		float const margin = 24.0f * frame.UIScale / frame.PixelsPerUnit;
 		VisualScriptRect const query = VisualScriptGeometry::Expand(frame.Visible, margin);
-		frame.Model.QueryDrawn(query, VisualScriptSpatialIndex::AllMask, m_Query, &m_Stats.Index);
+		frame.Model->QueryDrawn(query, VisualScriptSpatialIndex::AllMask, m_Query, &m_Stats.Index);
 		m_VisibleNodes.clear();
 		m_VisibleComments.clear();
 		m_VisibleLinks.clear();
@@ -782,7 +831,7 @@ namespace Strada
 		m_Stats.VisibleWires = static_cast<uint32_t>(m_VisibleLinks.size());
 
 		// The hover, in model indices.
-		VisualScriptHit const& hover = frame.Model.GetHover();
+		VisualScriptHit const& hover = frame.Model->GetHover();
 		switch (hover.Kind)
 		{
 			case VisualScriptHitKind::Pin:
@@ -856,7 +905,7 @@ namespace Strada
 		}
 
 		// The live widget: the chip whose widget is in use, else the editable chip under the mouse, at Detail only.
-		if (frame.Level == VisualScriptDetailLevel::Detail && frame.Input.LiveChips != nullptr && !frame.Model.IsReadOnly())
+		if (frame.Level == VisualScriptDetailLevel::Detail && frame.Input.LiveChips != nullptr && !frame.Model->IsReadOnly())
 		{
 			auto const accept = [&](uint32_t nodeIndex, uint32_t pinIndex)
 			{
@@ -1088,6 +1137,13 @@ namespace Strada
 			drawList->AddRect(ToIm(screen.Min), ToIm(screen.Max), frame.Theme.Selection, rounding, 2.0f * outline);
 			item.Elements |= Elements::Outline;
 			item.Color = frame.Theme.Selection;
+		}
+		else if (frame.IsOutlined(comment.ID))
+		{
+			// A match of the find bar.
+			drawList->AddRect(ToIm(screen.Min), ToIm(screen.Max), VisualScriptWarningColor, rounding, 2.0f * outline);
+			item.Elements |= Elements::Outline;
+			item.Color = VisualScriptWarningColor;
 		}
 		else if (frame.IsMarqueed(comment.ID))
 		{
@@ -1482,7 +1538,9 @@ namespace Strada
 		state.Offset = GetNodeOffset(frame, index);
 		state.Selected = selected;
 		state.Hovered = frame.HoveredNode == index || frame.IsMarqueed(node.ID);
-		state.Flash = FindFlash(node.ID);
+		// A node drawn alone flashes with nothing of the canvas.
+		state.Flash = frame.Model != nullptr ? FindFlash(node.ID) : std::nullopt;
+		state.Outlined = frame.IsOutlined(node.ID);
 		state.Fade = node.HasFlag(VisualScriptNodeFlags::Disabled) ? VisualScriptDisabledAlpha : 1.0f;
 		VisualScriptRect const rect = VisualScriptGeometry::GetNodeRect(node, state.Offset);
 		state.Screen = frame.ToScreen(rect);
@@ -1535,6 +1593,12 @@ namespace Strada
 		else if (state.Selected)
 		{
 			color = frame.Theme.Selection;
+			thickness = 2.0f * unit;
+		}
+		else if (state.Outlined)
+		{
+			// A match of the find bar.
+			color = VisualScriptWarningColor;
 			thickness = 2.0f * unit;
 		}
 		else if (state.Hovered)
@@ -1618,7 +1682,7 @@ namespace Strada
 			// A plain rectangle: no rounding, no title, no pins.
 			drawList->AddRectFilled(ToIm(state.Screen.Min), ToIm(state.Screen.Max), box);
 			item.Elements |= Elements::Body;
-			if (state.Selected || state.Hovered || node.ErrorCount > 0 || state.Flash)
+			if (state.Selected || state.Hovered || state.Outlined || node.ErrorCount > 0 || state.Flash)
 			{
 				DrawNodeOutline(frame, node, state, 0.0f, item);
 			}
@@ -2776,7 +2840,7 @@ namespace Strada
 		// A wildcard of the library's template: what it resolved to.
 		if (frame.Input.Library != nullptr && !pin.HasFlag(VisualScriptPinFlags::Orphan))
 		{
-			VisualScriptDocument const& document = frame.Model.GetDisplayDocument();
+			VisualScriptDocument const& document = frame.Model->GetDisplayDocument();
 			VisualScriptGraph const* graph = &document.Graph;
 			if (uint32_t const function = canvas.GetFunction(); function != 0)
 			{
@@ -2846,7 +2910,7 @@ namespace Strada
 				}
 			}
 		}
-		if (VisualScriptAnalysis const* analysis = frame.Model.GetAnalysis())
+		if (VisualScriptAnalysis const* analysis = frame.Model->GetAnalysis())
 		{
 			for (VisualScriptDiagnostic const& diagnostic : analysis->Diagnostics)
 			{
@@ -2884,7 +2948,7 @@ namespace Strada
 		{
 			m_PillText.append(VisualScriptCanvasTexts::Converted);
 		}
-		if (VisualScriptAnalysis const* analysis = frame.Model.GetAnalysis();
+		if (VisualScriptAnalysis const* analysis = frame.Model->GetAnalysis();
 		    analysis != nullptr && visual.HasFlag(VisualScriptLinkFlags::Error))
 		{
 			VisualScriptLink const stored = canvas.GetDocumentLink(link);
@@ -2901,7 +2965,7 @@ namespace Strada
 
 	void VisualScriptCanvasRenderer::DrawPills(Frame& frame)
 	{
-		VisualScriptHit const& hover = frame.Model.GetHover();
+		VisualScriptHit const& hover = frame.Model->GetHover();
 		VisualScriptGestureView const& gesture = frame.Gesture;
 		bool const detailed = frame.Level == VisualScriptDetailLevel::Detail || frame.Level == VisualScriptDetailLevel::Compact;
 		bool const wiring = gesture.GhostWire.has_value();
@@ -2994,7 +3058,7 @@ namespace Strada
 		{
 			// The node's problems, one per line.
 			m_PillText.clear();
-			if (VisualScriptAnalysis const* analysis = frame.Model.GetAnalysis())
+			if (VisualScriptAnalysis const* analysis = frame.Model->GetAnalysis())
 			{
 				for (VisualScriptDiagnostic const& diagnostic : analysis->Diagnostics)
 				{
@@ -3036,7 +3100,7 @@ namespace Strada
 	void VisualScriptCanvasRenderer::RebuildMinimapCells(Frame& frame, VisualScriptMinimapTransform const& transform,
 	                                                     uint64_t selectionHash)
 	{
-		m_MinimapRevision = frame.Model.GetCanvasRevision();
+		m_MinimapRevision = frame.Model->GetCanvasRevision();
 		m_MinimapTransform = transform;
 		m_MinimapSelectionHash = selectionHash;
 		glm::vec2 const size = transform.Rect.GetSize();
@@ -3087,7 +3151,7 @@ namespace Strada
 
 	void VisualScriptCanvasRenderer::DrawMinimap(Frame& frame)
 	{
-		VisualScriptMinimapState const& minimap = frame.Model.GetMinimap();
+		VisualScriptMinimapState const& minimap = frame.Model->GetMinimap();
 		VisualScriptMinimapTransform const& transform = minimap.Transform;
 		if (minimap.Alpha <= 0.0f || transform.Scale <= 0.0f || VisualScriptGeometry::IsEmpty(transform.Rect))
 		{
@@ -3114,11 +3178,11 @@ namespace Strada
 		}
 
 		uint64_t selectionHash = HashSeed;
-		for (uint32_t const element : frame.Model.GetSelection())
+		for (uint32_t const element : frame.Model->GetSelection())
 		{
 			selectionHash = HashValue(element, selectionHash);
 		}
-		if (m_MinimapRevision != frame.Model.GetCanvasRevision() || !(m_MinimapTransform == transform) ||
+		if (m_MinimapRevision != frame.Model->GetCanvasRevision() || !(m_MinimapTransform == transform) ||
 		    m_MinimapSelectionHash != selectionHash)
 		{
 			RebuildMinimapCells(frame, transform, selectionHash);
