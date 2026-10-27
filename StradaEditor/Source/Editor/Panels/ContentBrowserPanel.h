@@ -35,12 +35,12 @@ namespace Strada
 	// tree, breadcrumbs, folders and files as tiles labeled with their file names (textures, materials, meshes, prefabs and
 	// environments show thumbnails, fonts "Aa" in their own glyphs, audio clips their waveforms (SetThumbnails); other files
 	// icons of their type; a slider sizes them), and a search field. Click selects (the inspector shows assets), double-click opens
-	// folders, scenes and scripts (in the desktop's editor for C#); assets drag into the scene view, the hierarchy and asset
-	// fields, scripts and visual scripts onto entities (hierarchy rows, the inspector, the scene view), and assets, folders and
-	// scripts onto folders to move them. Files and folders dropped onto the editor from the OS are imported into the folder
-	// under the cursor, else the displayed one (ProjectImport). Context menus create folders, materials, visual scripts and
-	// scripts, import files, rename (F2), delete (with confirmation) and copy references or paths. File operations are not
-	// part of the undo history. Main thread only.
+	// folders, scenes, visual scripts (in their graph windows) and scripts (in the desktop's editor for C#); assets drag into the scene
+	// view, the hierarchy and asset fields, scripts and visual scripts onto entities (hierarchy rows, the inspector, the scene view), and
+	// assets, folders and scripts onto folders to move them. Files and folders dropped onto the editor from the OS are imported into the
+	// folder under the cursor, else the displayed one (ProjectImport). Context menus create folders, materials, visual scripts and scripts,
+	// import files, rename (F2), delete (with confirmation) and copy references or paths. File operations are not part of the undo history.
+	// Main thread only.
 	class ContentBrowserPanel
 	{
 	public:
@@ -53,6 +53,10 @@ namespace Strada
 		ContentBrowserPanel();
 
 		void SetOpenSceneCallback(OpenSceneCallback callback) { m_OpenScene = std::move(callback); }
+		// Opens a visual script's graph window: a double-click on its tile and its menu's Open. Without it visual scripts are
+		// only selected.
+		using OpenVisualScriptCallback = std::function<void(AssetHandle)>;
+		void SetOpenVisualScriptCallback(OpenVisualScriptCallback callback) { m_OpenVisualScript = std::move(callback); }
 		void SetOpenFileCallback(OpenFileCallback callback) { m_OpenFile = std::move(callback); }
 		// Asks for a new script class in a folder of the scripts (the editor's New Script dialog): the displayed one while the
 		// browser shows the scripts, else their directory itself. Without it the browser offers no "C# Script".
@@ -226,6 +230,7 @@ namespace Strada
 		void Defer(std::function<void()> action) { m_Deferred.push_back(std::move(action)); }
 
 		OpenSceneCallback m_OpenScene;
+		OpenVisualScriptCallback m_OpenVisualScript;
 		OpenFileCallback m_OpenFile;
 		NewScriptCallback m_NewScript;
 		EditorScripts* m_Scripts = nullptr;

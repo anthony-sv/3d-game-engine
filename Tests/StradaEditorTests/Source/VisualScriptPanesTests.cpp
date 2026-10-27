@@ -2294,6 +2294,29 @@ TEST_CASE("VisualScriptEditor: a setting and an input of the same name are separ
 	CHECK(fixture.GetUndoCount() == undo + 2);
 }
 
+TEST_CASE("VisualScriptEditor: Details offers the Enabled states for a node of a type the library does not know")
+{
+	VisualScriptDocument document = MakeScriptDocument();
+	document.Graph.Nodes.push_back(MakeNode(8, "Flow.NoSuchNode", glm::vec2(0.0f, 800.0f)));
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({8});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	REQUIRE(fixture.Details.FindRow("Enabled"));
+	CHECK(GetVisualScriptEnabledOffer(*fixture.Model, &fixture.Semantics.GetFixtureLibrary(), *FindVisualScriptNode(document, 8)) ==
+	      VisualScriptEnabledOffer::Offered);
+	// The states are offered: the row opens its list, whose second entry disables the node in one step.
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(fixture.DetailsRow("Enabled"), fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	fixture.ImGui.Press(ImGuiKey_DownArrow, fixture.Drawer());
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(FindVisualScriptNode(fixture.GetDocument(), 8)->Enabled == VisualScriptNodeEnabled::Disabled);
+}
+
 TEST_CASE("VisualScriptEditor: Details offers the Enabled states only where they act")
 {
 	VisualScriptDocument document = MakeScriptDocument();

@@ -1181,6 +1181,38 @@ TEST_CASE("VisualScriptEditor: the node menu's Enabled State follows the panes' 
 	CHECK(states(21).empty());
 }
 
+TEST_CASE("VisualScriptEditor: a node of a type the library does not know offers the Enabled states, so disabling it ends its "
+          "chain")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(30, "Flow.NoSuchNode", glm::vec2(0.0f, 960.0f)));
+	ControllerFixture fixture(document);
+	VisualScriptCanvasModel const& canvas = fixture.Model->GetCanvas();
+	std::optional<uint32_t> const index = canvas.FindNode(30);
+	REQUIRE(index.has_value());
+	std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+	REQUIRE(nodes[*index].HasFlag(VisualScriptNodeFlags::UnknownType));
+	VisualScriptNode const* node = FindVisualScriptNode(fixture.Stored(), 30);
+	REQUIRE(node != nullptr);
+	CHECK(GetVisualScriptEnabledOffer(*fixture.Model, &fixture.Semantics.GetFixtureLibrary(), *node) == VisualScriptEnabledOffer::Offered);
+
+	fixture.Select({30});
+	std::vector<VisualScriptMenuItem> states;
+	for (VisualScriptMenuItem const& item : BuildVisualScriptNodeMenu(fixture.Context()))
+	{
+		if (item.Submenu == "Enabled State")
+		{
+			states.push_back(item);
+		}
+	}
+	REQUIRE(states.size() == 3);
+	CHECK(std::all_of(states.begin(), states.end(),
+	                  [](VisualScriptMenuItem const& item)
+	                  {
+						  return item.Enabled;
+					  }));
+}
+
 TEST_CASE("VisualScriptEditor: a variable dropped on a data output runs after that node only when its first exec output is free")
 {
 	VisualScriptDocument document = MakeDocument();

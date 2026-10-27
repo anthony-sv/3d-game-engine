@@ -109,8 +109,9 @@ namespace Strada
 		// Makes the entities run a visual script as one undo step, all or nothing: entities without a VisualScript component get
 		// one, the others change graph (keeping the values they give its variables), and those that run the graph already are
 		// left alone (no step at all when every entity does). Fails without changes when an entity does not exist or the
-		// graph is invalid; the asset is not checked (AssetDrops::AddVisualScript does).
-		[[nodiscard]] Result<void> SetVisualScriptGraph(std::span<UUID const> entities, AssetHandle graph);
+		// graph is invalid; the asset is not checked (AssetDrops::AddVisualScript does). The step is described as given, else
+		// "Set Visual Script <name>".
+		[[nodiscard]] Result<void> SetVisualScriptGraph(std::span<UUID const> entities, AssetHandle graph, std::string description = {});
 
 		// Replaces every field of a component with the given value (convenient for inspector widgets editing a copy).
 		template<RegisteredComponent T>

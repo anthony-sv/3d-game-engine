@@ -89,6 +89,7 @@ namespace Strada
 		  m_PlayMode(m_Context, m_Scripts),
 		  m_Export(m_Context, m_Scripts),
 		  m_AutomationServer(m_Commands),
+		  m_VisualScriptViews(FileSystem::GetUserDataDirectory() / "Editor" / "VisualScriptViews.json"),
 		  m_RecentProjects(FileSystem::GetUserDataDirectory() / "Editor" / "RecentProjects.json")
 	{
 	}
@@ -216,6 +217,38 @@ namespace Strada
 					m_ShowConsole = true;
 					m_FocusConsole = true;
 				});
+
+			// The visual script windows, with the views the user left them in (a views file that cannot be read starts empty).
+			for (std::string const& warning : m_VisualScriptViews.Load())
+			{
+				ST_WARN("Visual script views: {}", warning);
+			}
+			m_VisualScripts = CreateScope<VisualScriptEditors>(m_Operations, m_VisualScriptSemantics, m_VisualScriptViews);
+			VisualScriptEditorServices services;
+			services.MonospaceFont = imgui->GetMonospaceFont();
+			services.ShowConsole = [this]
+			{
+				m_ShowConsole = true;
+				m_FocusConsole = true;
+			};
+			m_VisualScripts->SetServices(std::move(services));
+			// Graph windows open as large tabs beside the scene and game views.
+			m_VisualScripts->SetDefaultDockProvider(
+				[]() -> std::optional<ImGuiID>
+				{
+					ImGuiWindow const* view = ImGui::FindWindowByName("Scene View");
+					return view != nullptr && view->DockId != 0 ? std::optional<ImGuiID>(view->DockId) : std::nullopt;
+				});
+			m_ContentBrowserPanel.SetOpenVisualScriptCallback(
+				[this](AssetHandle graph)
+				{
+					OpenVisualScript(graph, UUID::Invalid());
+				});
+			m_InspectorPanel.SetOpenVisualScriptCallback(
+				[this](AssetHandle graph, UUID contextEntity)
+				{
+					OpenVisualScript(graph, contextEntity);
+				});
 		}
 
 		if (Result<void> loaded = m_RecentProjects.Load(); !loaded)
@@ -307,6 +340,11 @@ namespace Strada
 		}
 		m_ProjectSettingsPanel.Flush(m_Operations);
 		m_BuildGameDialog.Flush(m_Operations);
+		if (m_VisualScripts)
+		{
+			m_VisualScripts->Flush();
+			m_VisualScripts->SaveViews();
+		}
 		m_AutomationServer.Stop();
 		if (m_InstanceFileWritten)
 		{
@@ -458,6 +496,11 @@ namespace Strada
 		{
 			ImGui::ShowDemoWindow(&m_ShowImGuiDemo);
 		}
+		// After the fixed panels: the first placement of a graph window docks it beside the scene view drawn above.
+		if (m_VisualScripts)
+		{
+			m_VisualScripts->OnImGuiRender();
+		}
 
 		if (m_FocusDefaultTabsFrames > 0 && --m_FocusDefaultTabsFrames == 0)
 		{
@@ -516,6 +559,11 @@ namespace Strada
 		ImGui::DockBuilderDockWindow("Project Settings", right);
 		ImGui::DockBuilderDockWindow("Content Browser", bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
+		// The graph windows that are open join the scene view.
+		if (m_VisualScripts)
+		{
+			m_VisualScripts->ResetLayout(center);
+		}
 		ImGui::DockBuilderFinish(dockspace);
 		// The windows docked last would be the tabs in front. Windows can be focused once they exist: after the panels are
 		// drawn in this frame, so in the next one.
@@ -585,30 +633,34 @@ namespace Strada
 			std::string const redo = history.CanRedo() ? "Redo " + history.GetRedoDescription() : std::string("Redo");
 			if (ImGui::MenuItem(undo.c_str(), "Ctrl+Z", false, history.CanUndo()))
 			{
-				UI::ReportFailure(m_Operations.Undo(), "Undo");
+				Undo();
 			}
 			if (ImGui::MenuItem(redo.c_str(), "Ctrl+Y", false, history.CanRedo()))
 			{
-				UI::ReportFailure(m_Operations.Redo(), "Redo");
+				Redo();
 			}
 			ImGui::Separator();
-			bool const hasSelection = !m_Context.GetSelection().IsEmpty();
-			if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSelection))
+			// The graph window focused last acts on its own selection (spec §8.4); else the selected entities.
+			if (!m_VisualScripts || !m_VisualScripts->DrawEditMenuItems())
 			{
-				DuplicateSelection();
-			}
-			if (ImGui::MenuItem("Delete", "Delete", false, hasSelection))
-			{
-				DeleteSelection();
-			}
-			ImGui::Separator();
-			if (ImGui::MenuItem("Select All", "Ctrl+A"))
-			{
-				SelectAll();
-			}
-			if (ImGui::MenuItem("Deselect All", nullptr, false, hasSelection))
-			{
-				m_Context.ClearSelection();
+				bool const hasSelection = !m_Context.GetSelection().IsEmpty();
+				if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSelection))
+				{
+					DuplicateSelection();
+				}
+				if (ImGui::MenuItem("Delete", "Delete", false, hasSelection))
+				{
+					DeleteSelection();
+				}
+				ImGui::Separator();
+				if (ImGui::MenuItem("Select All", "Ctrl+A"))
+				{
+					SelectAll();
+				}
+				if (ImGui::MenuItem("Deselect All", nullptr, false, hasSelection))
+				{
+					m_Context.ClearSelection();
+				}
 			}
 			ImGui::EndMenu();
 		}
@@ -667,6 +719,10 @@ namespace Strada
 			ImGui::MenuItem("Content Browser", nullptr, &m_ShowContentBrowser);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Renderer Info", nullptr, &m_ShowRendererInfo);
+			if (m_VisualScripts)
+			{
+				m_VisualScripts->DrawViewMenuItems();
+			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reset Layout"))
 			{
@@ -778,13 +834,13 @@ namespace Strada
 		}
 		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z, route | ImGuiInputFlags_Repeat) && m_Context.GetHistory().CanUndo())
 		{
-			UI::ReportFailure(m_Operations.Undo(), "Undo");
+			Undo();
 		}
 		if ((ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, route | ImGuiInputFlags_Repeat) ||
 		     ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, route | ImGuiInputFlags_Repeat)) &&
 		    m_Context.GetHistory().CanRedo())
 		{
-			UI::ReportFailure(m_Operations.Redo(), "Redo");
+			Redo();
 		}
 		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, route) && !m_Context.GetSelection().IsEmpty())
 		{
@@ -1224,6 +1280,13 @@ namespace Strada
 	{
 		// Scenes and projects change only while editing; the running copy goes.
 		m_PlayMode.Stop();
+		// A project change closes the graph windows (VisualScriptEditors follows the project): their pending edits are
+		// committed while their assets are still registered.
+		if (m_VisualScripts &&
+		    (action == SceneAction::NewProject || action == SceneAction::OpenProject || action == SceneAction::CloseProject))
+		{
+			m_VisualScripts->Flush();
+		}
 		switch (action)
 		{
 			case SceneAction::None:
@@ -1358,6 +1421,41 @@ namespace Strada
 		Result<void> saved = m_Operations.SaveScene(path);
 		UI::ReportFailure(saved, "Saving the scene");
 		return saved.IsOk();
+	}
+
+	void EditorLayer::Undo()
+	{
+		// What the step is, read before it runs: a graph window shows it (spec §10.4).
+		CommandHistory const& history = m_Context.GetHistory();
+		std::string const description = history.GetUndoDescription();
+		AssetHandle const edited = history.GetUndoEditedAsset();
+		Result<void> const undone = m_Operations.Undo();
+		UI::ReportFailure(undone, "Undo");
+		if (undone && m_VisualScripts)
+		{
+			m_VisualScripts->NotifyHistoryStep(true, description, edited);
+		}
+	}
+
+	void EditorLayer::Redo()
+	{
+		CommandHistory const& history = m_Context.GetHistory();
+		std::string const description = history.GetRedoDescription();
+		AssetHandle const edited = history.GetRedoEditedAsset();
+		Result<void> const redone = m_Operations.Redo();
+		UI::ReportFailure(redone, "Redo");
+		if (redone && m_VisualScripts)
+		{
+			m_VisualScripts->NotifyHistoryStep(false, description, edited);
+		}
+	}
+
+	void EditorLayer::OpenVisualScript(AssetHandle graph, UUID contextEntity)
+	{
+		VisualScriptOpenRequest request;
+		request.Graph = graph;
+		request.ContextEntity = contextEntity;
+		UI::ReportFailure(m_VisualScripts->Open(request), "Opening the visual script");
 	}
 
 	void EditorLayer::DuplicateSelection()

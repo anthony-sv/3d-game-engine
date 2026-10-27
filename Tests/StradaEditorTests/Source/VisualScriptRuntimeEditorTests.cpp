@@ -13,6 +13,7 @@
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
+#include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -338,6 +339,52 @@ TEST_CASE("VisualScriptEditor: a node disabled from the canvas runs as a pass-th
 	fixture.Play.Advance(2, Timestep(FrameTime));
 	CHECK(fixture.GetVariable(entity, "Second") == ScriptFieldValue::FromBool(true));
 	CHECK(fixture.GetVariable(entity, "First") == ScriptFieldValue::FromBool(false));
+	fixture.Play.Stop();
+}
+
+TEST_CASE("VisualScriptEditor: a node of a type the runtime does not know can be disabled, which ends its chain and lets the "
+          "graph run")
+{
+	VisualScriptDocument document;
+	document.Variables.push_back(MakeVariable(1, "First", "bool", false));
+	document.Variables.push_back(MakeVariable(2, "Second", "bool", false));
+	document.Graph.Nodes = {
+		MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)),
+		MakeNode(11, "Variable.Set", glm::vec2(320.0f, 0.0f), Json::object({{"Variable", 1}}), Json::object({{"Value", true}})),
+		MakeNode(12, "Flow.NoSuchNode", glm::vec2(640.0f, 0.0f)),
+		MakeNode(13, "Variable.Set", glm::vec2(960.0f, 0.0f), Json::object({{"Variable", 2}}), Json::object({{"Value", true}})),
+	};
+	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(11, "Then", 12, "Execute"), MakeLink(12, "Then", 13, "Execute")};
+	RuntimeFixture fixture(document);
+	fixture.Window.CheckDrawingChangesNothing();
+	UUID const entity = fixture.CreateRunner("Switch");
+	REQUIRE(fixture.Model().GetAnalysis() != nullptr);
+	CHECK(fixture.Model().GetState().Errors > 0);
+
+	// The canvas and Details offer the states for it (spec §21: disabling an unknown node is how its graph keeps running).
+	VisualScriptNode const* unknown = fixture.Window.FindNode(12);
+	REQUIRE(unknown != nullptr);
+	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
+	REQUIRE(library != nullptr);
+	CHECK(GetVisualScriptEnabledOffer(fixture.Model(), library.get(), *unknown) == VisualScriptEnabledOffer::Offered);
+	size_t const undo = fixture.Window.GetUndoCount();
+	fixture.Window.Click(Testing::CanvasPoint(fixture.Model(), 12, glm::vec2(0.5f, 0.06f)));
+	fixture.Window.Gui.Press(ImGuiKey_M, fixture.Window.Drawer());
+	fixture.Window.Frames(2);
+	REQUIRE(fixture.Window.GetUndoCount() == undo + 1);
+	REQUIRE(fixture.Window.FindNode(12)->Enabled == VisualScriptNodeEnabled::Disabled);
+	REQUIRE(fixture.Model().GetAnalysis() != nullptr);
+	for (VisualScriptDiagnostic const& diagnostic : fixture.Model().GetAnalysis()->Diagnostics)
+	{
+		CAPTURE(diagnostic.Message);
+		CHECK(diagnostic.Severity != VisualScriptSeverity::Error);
+	}
+
+	// The graph runs up to the unknown node, whose chain ends there.
+	REQUIRE(fixture.Play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	fixture.Play.Advance(2, Timestep(FrameTime));
+	CHECK(fixture.GetVariable(entity, "First") == ScriptFieldValue::FromBool(true));
+	CHECK(fixture.GetVariable(entity, "Second") == ScriptFieldValue::FromBool(false));
 	fixture.Play.Stop();
 }
 
