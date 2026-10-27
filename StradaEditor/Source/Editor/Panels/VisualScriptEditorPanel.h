@@ -254,7 +254,8 @@ namespace Strada
 		// folders). The window keeps its identity across titles.
 		void SetTitle(std::string title) { m_Title = std::move(title); }
 		// What the panes asked to open in other graphs' windows since the last call (a find result or a reference in another
-		// script): the window manager opens them.
+		// script, a history toast's [Show] for another script's step): the window manager opens them, or brings them to the
+		// front.
 		std::vector<VisualScriptOpenRequest> TakeOtherGraphRequests() { return std::exchange(m_OtherGraphRequests, {}); }
 		// The panes, as the last draw left them (tests and automation find their rows through them).
 		VisualScriptPalettePopup const& GetPalette() const { return m_Palette; }
@@ -292,7 +293,7 @@ namespace Strada
 			// When it disappears; none for a failure, which stays until dismissed.
 			std::optional<double> Expires;
 			bool ShowConsole = false;
-			// [Show]: focuses the scene's view (an invalid handle) or the window of another visual script; with ShowElements,
+			// [Show]: focuses the scene's view (an invalid handle) or opens the window of another visual script; with ShowElements,
 			// frames those nodes and comments of the sub-graph ShowFunction instead.
 			bool HasShow = false;
 			AssetHandle ShowAsset;

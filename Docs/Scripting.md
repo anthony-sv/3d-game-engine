@@ -887,7 +887,7 @@ its tooltip says why when the two cannot connect; a wire shows a gradient where 
 into a `float`). Release a wire on empty canvas and the palette lists only the nodes that connect to it, and links the
 one you choose. Ctrl+drag a linked pin to move its links, Alt+click a pin or a wire to break links, Ctrl+right-drag
 across wires to cut them, and double-click a wire to add a reroute point. Select with a click or by dragging a rectangle
-(Shift adds, Ctrl toggles), move the selection by dragging (it snaps to the grid; hold Alt to place it freely), nudge it
+(Shift adds; Ctrl toggles a clicked node and removes what a rectangle covers), move the selection by dragging (it snaps to the grid; hold Alt to place it freely), nudge it
 with the arrow keys, and tidy it with the toolbar's Arrange or the align keys (Shift+W, A, S, D) and Q, which
 straightens a flow. Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+D copy, cut, paste and duplicate, also between scripts. Delete
 removes the selection and keeps the flow going through what it removed (a node between two others no longer breaks the
@@ -909,11 +909,13 @@ or function that nodes use asks first and removes those nodes too, keeping the f
 use, and a variable remembers its former names, so the values entities stored keep applying.
 
 **Comments.** Press C to put a comment box around the selection (or a new one at the cursor) and type its title; moving
-the box by its title moves what is inside it (hold Alt for the box alone). Right-click a node and choose Comment to add
-a note shown above it; double-click either text to edit it in place. H collapses selected nodes to their header.
+the box by its title moves what is inside it (hold Alt for the box alone). Right-click a node and choose Add Node
+Comment... to add a note shown above it (Edit Node Comment... once it has one); double-click either text to edit it in
+place. H collapses selected nodes to their header.
 
-**Split pins.** Right-click a vector, colour or other struct pin and choose Split to show one pin per field (a
-`Vector3` input becomes `X`, `Y` and `Z`), so you can link or set each field on its own; Recombine puts it back.
+**Split pins.** Right-click a vector, colour or other struct pin and choose Split Struct Pin to show one pin per field
+(a `Vector3` input becomes `X`, `Y` and `Z`), so you can link or set each field on its own; Recombine Struct Pin puts it
+back.
 Outputs split the same way (a raycast's hit point, then its `Y`).
 
 **Disabling nodes.** M disables the selected nodes (or enables them again): a disabled node is dimmed and passes the
@@ -929,12 +931,15 @@ game keeps the last version that worked), so fix errors first; warnings can wait
 lists everything, errors first; click a row to go there.
 
 **Find.** Ctrl+F finds text in the script (titles, values, comments, names): Enter goes to the next match and selects
-it, so Delete or F2 then act on what you found. Ctrl+Shift+F searches every script of the project. Find References on a
+it, and the find field keeps the keyboard; Escape closes the bar and gives the keyboard back to the canvas, where
+Delete, F2, Ctrl+X or Ctrl+D act on what you found. Ctrl+Shift+F searches every script of the project. Find References on a
 variable, Find Callers on a function and Find Senders on a custom event (in their right-click menus in My Script) list
 their uses; senders are found in every script.
 
-**Editing while playing.** Keep the graph window open while the game plays: every edit reaches the running game at
-once (the toolbar's LIVE pill says so), variables keep their values, and waiting nodes keep waiting while they still
+**Editing while playing.** Keep the graph window open while the game plays. Graph windows open as tabs beside the
+Scene View and the Game View, and Play brings the Game View to the front (Stop the Scene View): to watch the game while you edit, drag the
+graph window's tab to the side of the editor (or onto another panel's edge) so both show. Every edit reaches the running
+game at once (the toolbar's LIVE pill says so), variables keep their values, and waiting nodes keep waiting while they still
 exist. When an edit leaves an error, the pill turns amber ("last working version") and the game goes on with the last
 version that worked until you fix it. The toolbar's Instance list picks which entity running the script the window
 shows: My Script then shows its public variables' current values, and dropped entities set its values. Edits made

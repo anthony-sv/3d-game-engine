@@ -1452,8 +1452,10 @@ inspector's primary entity as the context entity; without an asset directory the
   in front makes it act on that graph's selection (Cut, Copy, Paste, Duplicate, Delete, Select All, Deselect All);
   focusing Scene View, Scene Hierarchy or Inspector makes it the scene's again, and a graph window hidden behind another
   tab is never its target. Undo and Redo stay one history. When they run while a graph window is the target, the window
-  says what they did ("Undone: Move 3 Nodes", "Redone: ..."), with Show for a step of the scene or of another graph,
-  which focuses Scene View or that graph's window.
+  says what they did ("Undone: Move 3 Nodes in Player", "Redone: ..."), with Show for a step of the scene or of another
+  graph, which focuses Scene View or opens that graph's window (bringing it to the front when it is open). The Edit
+  menu's items show the graph's shortcuts, which act on the graph only while its window has the keyboard: with another
+  window focused (the console, the content browser), the editor's own Delete, Ctrl+D and Ctrl+A act on the scene.
 - **Toolbar**: the My Script toggle, Back and Forward, the breadcrumb (`Player › Event Graph`; its list arrow shows
   every sub-graph with its problems), the Instance combo (the context entity), the LIVE pill, the problems pill (error
   and warning counts, "No problems", or "Not analyzed" without the runtime; a click toggles the problems drawer), the
@@ -1480,7 +1482,8 @@ inspector's primary entity as the context entity; without an asset directory the
   other moves animate for 0.2 s unless Reduce Motion is on) around a centre within ±1e7 canvas units. Four levels of
   detail follow the zoom alone, each threshold widened by 0.02 against flicker: Far below 0.175 (rectangles in their
   header's hue; select and move), Overview below 0.45 (titles and pin dots; wiring), Compact below 0.65 (full nodes
-  without subtitles, values as text) and Detail (subtitles, value chips and the live widget that edits a value in
+  without subtitles; pin labels and values as text while that text is at least 7 pixels, from a zoom of about 0.54,
+  bare pins below) and Detail (subtitles, value chips and the live widget that edits a value in
   place). Text is drawn at whole pixel sizes only, from a ladder of 33 sizes (6 to 20, then steps of at most 10 % up to
   82), so it is crisp at every zoom and the font atlas bakes few sizes. A uniform grid of 512-unit cells over the nodes,
   comments and wires (`VisualScriptSpatialIndex`; items spanning many cells are tested by every query) makes culling and
@@ -1540,8 +1543,8 @@ inspector's primary entity as the context entity; without an asset directory the
   zero quaternion the identity, make a variable private, delete a node, add a function's Entry or Return, make a
   function impure, update a node to its canonical type, remove an unused split, enable a node the runtime runs anyway;
   Go To, Edit Setting and Rename navigate instead. The **find bar** (Ctrl+F) outlines matches in amber; Enter and
-  Shift+Enter go to the next and previous match, which becomes the selection, so the keys after a find act on what it
-  showed. Find (`FindInVisualScript`, shared with `graph.find`) matches titles, subtitles, types, node comments, pin
+  Shift+Enter go to the next and previous match, which becomes the selection, while the find field keeps the keyboard;
+  Escape closes the bar and gives the keyboard back to the canvas, so the keys after a find act on what it showed. Find (`FindInVisualScript`, shared with `graph.find`) matches titles, subtitles, types, node comments, pin
   labels, literals and text settings, comment boxes and names, one result per element and field, in document order.
 - **Commits and undo**: every edit is a new document made by an L2 operation, prepared by `PrepareVisualScriptCommit`
   (former names, canonical node types, the layout of unplaced nodes, then a strict check that what is written loads
@@ -1557,7 +1560,8 @@ inspector's primary entity as the context entity; without an asset directory the
   ("VSED"), whose step ends when the active widget changes, so a click from one field into another starts a new step;
   canvas gestures commit once on release; arrow-key nudges merge while presses come less than 0.5 s apart ("VSNG");
   a creation and its first name are one step ("VSNM"; the panes count from the upper half of the counter). Steps are
-  named after what they did ("Add Branch", "Delete 3 Nodes", "Fix: Use Value"). The history's rules for asset steps
+  named after what they did and the script they did it in ("Add Branch in Player", "Delete 3 Nodes in Player", "Fix: Use
+  Value in Player"), which the Edit menu's Undo and Redo and the history toasts show. The history's rules for asset steps
   (carried across Stop and scene changes, the memory budget, deleted assets) are in the history bullet above.
 - **Live edit**: graph windows stay editable while playing. Every commit reaches the running game at the scene's next
   update (layout-only edits send nothing); a dragged value reaches it within 0.1 s. A LIVE pill in the play colour says

@@ -1918,7 +1918,7 @@ TEST_CASE("VisualScriptEditor: My Script's rows draw their text inside the pane 
 	ImGuiStyle& style = ImGui::GetStyle();
 	style.WindowPadding = ImVec2(0.0f, 0.0f);
 	style.WindowBorderSize = 0.0f;
-	fixture.Frames(3);
+	fixture.CheckDrawingChangesNothing();
 	ImGuiWindow* const pane = ImGui::FindWindowByName("My Script");
 	REQUIRE(pane != nullptr);
 	// The text's triangles: those whose texture coordinates vary vertically. Filled shapes use the white pixel and textured

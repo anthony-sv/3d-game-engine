@@ -7,6 +7,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <functional>
 #include <set>
 #include <span>
 #include <string>
@@ -36,6 +37,38 @@ namespace
 		}
 		size_t const end = document.find("\n## ", start + heading.size());
 		return document.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
+	}
+
+	// The data rows of the Markdown table whose header row is the given one, each from its first '|' (tables may be indented
+	// in a list item) to its end.
+	std::vector<std::string_view> GetTableRows(std::string_view text, std::string_view header)
+	{
+		std::vector<std::string_view> rows;
+		size_t const found = text.find(header);
+		if (found == std::string_view::npos)
+		{
+			return rows;
+		}
+		// The header row's end, then the separator row's.
+		size_t end = text.find('\n', found);
+		end = end == std::string_view::npos ? end : text.find('\n', end + 1);
+		while (end != std::string_view::npos)
+		{
+			size_t const start = end + 1;
+			end = text.find('\n', start);
+			std::string_view line = text.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
+			if (!line.empty() && line.back() == '\r')
+			{
+				line.remove_suffix(1);
+			}
+			size_t const first = line.find_first_not_of(" \t");
+			if (first == std::string_view::npos || line[first] != '|')
+			{
+				break;
+			}
+			rows.push_back(line.substr(first));
+		}
+		return rows;
 	}
 }
 
@@ -214,15 +247,35 @@ TEST_CASE("VisualScriptEditor: Docs/Architecture.md lists every key and mouse ge
 	REQUIRE_FALSE(section.empty());
 
 	// Each row of the tables is a row of the document's tables, written as the shortcut sheet shows it (Windows and Linux names).
+	std::set<std::string, std::less<>> keys;
 	for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
 	{
 		std::string const row = "| `" + FormatVisualScriptChord(shortcut.Chord, false) + "` | " + std::string(shortcut.Label) + " |";
 		CHECK_MESSAGE(section.find(row) != std::string_view::npos, "missing key row: " << row);
+		keys.insert(row);
 	}
+	std::set<std::string, std::less<>> gestures;
 	for (VisualScriptMouseGesture const& gesture : VisualScriptMouseGestures)
 	{
 		std::string const row = "| `" + FormatVisualScriptMouseGesture(gesture, false) + "` | " + std::string(gesture.Target) + " | " +
 		                        std::string(gesture.Label) + " |";
 		CHECK_MESSAGE(section.find(row) != std::string_view::npos, "missing gesture row: " << row);
+		gestures.insert(row);
+	}
+
+	// And each row of the document's two tables is one of theirs, so a key rebound, a label renamed or a row removed leaves no
+	// stale row behind. A key row starts with its group's cell, empty below the group's first row.
+	std::vector<std::string_view> const keyRows = GetTableRows(section, "| Group | Key | Action |");
+	CHECK(keyRows.size() == VisualScriptShortcuts.size());
+	for (std::string_view const row : keyRows)
+	{
+		size_t const cells = row.find('|', 1);
+		CHECK_MESSAGE((cells != std::string_view::npos && keys.contains(row.substr(cells))), "stale key row: " << std::string(row));
+	}
+	std::vector<std::string_view> const gestureRows = GetTableRows(section, "| Gesture | On | Action |");
+	CHECK(gestureRows.size() == VisualScriptMouseGestures.size());
+	for (std::string_view const row : gestureRows)
+	{
+		CHECK_MESSAGE(gestures.contains(row), "stale gesture row: " << std::string(row));
 	}
 }

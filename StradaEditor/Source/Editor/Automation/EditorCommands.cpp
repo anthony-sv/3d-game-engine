@@ -2061,7 +2061,8 @@ namespace Strada
 					"then zoom around its centre, then center. Applied when the window is next drawn: graph.editors a frame later "
 					"shows the result. Works while playing. A file that is missing or does not load opens on its card (loaded false): "
 					"function, select, frame and find are then ignored, which warnings says. Returns { asset, path, function (the "
-					"sub-graph shown), selection (the IDs selected), loaded, warnings }. Unavailable without the editor's UI "
+					"sub-graph shown), selection (the select given, as applied: empty without one; an empty select keeps the window's "
+					"selection), loaded, warnings }. Unavailable without the editor's UI "
 					"(headless); InvalidOperation while a dialog is open.",
 					SchemaBuilder::Object()
 						.Property("graph", graphParameter, true)
@@ -2217,8 +2218,9 @@ namespace Strada
 					result ? Add("graph.close",
 				                 "Closes the window of a visual script, or every graph window without graph, as its close button does: "
 				                 "edits still in a field are kept first, and the per-user view state is saved. Closing a graph whose "
-				                 "window is not open (or that was deleted, whose window closed with it) is no error. Returns { closed "
-				                 "(the assets whose windows closed, in tab order) }. Unavailable without the editor's UI (headless).",
+				                 "window is not open (or a deleted one named by its handle, whose window closed with it) is no "
+				                 "error. Returns { closed (the assets whose windows closed, in tab order) }. Unavailable without the "
+				                 "editor's UI (headless).",
 				                 SchemaBuilder::Object()
 				                     .Property("graph", SchemaBuilder::String("The visual script whose window closes: a handle or "
 				                                                              "\"asset://<path>.sgraph\" (default: every window)")

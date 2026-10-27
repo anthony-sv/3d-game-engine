@@ -285,6 +285,120 @@ namespace
 			return graphs;
 		}
 
+		// What drawing must leave alone of a graph: its file's bytes (none for a file that is gone) and its asset's version (none
+		// for a graph that is not registered or does not load).
+		struct GraphSnapshot
+		{
+			std::optional<std::string> Bytes;
+			std::optional<uint64_t> Version;
+
+			bool operator==(GraphSnapshot const& other) const = default;
+		};
+
+		std::vector<GraphSnapshot> TakeSnapshots() const
+		{
+			std::vector<GraphSnapshot> snapshots;
+			for (AssetHandle const graph : {Player, Door, EnemyPlayer})
+			{
+				GraphSnapshot snapshot;
+				std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
+				if (metadata && !metadata->Path.empty())
+				{
+					Result<Buffer> const bytes =
+						FileSystem::ReadBinaryFile(AssetManager::GetAssetDirectory() / FileSystem::PathFromUtf8(metadata->Path));
+					if (bytes)
+					{
+						Buffer const& buffer = bytes.GetValue();
+						snapshot.Bytes.emplace(buffer.As<char>(), static_cast<size_t>(buffer.GetSize()));
+					}
+				}
+				if (metadata && !AssetManager::IsMissing(graph) && !AssetManager::HasLoadFailure(graph))
+				{
+					if (Ref<VisualScriptAsset> const script = AssetManager::GetAsset<VisualScriptAsset>(graph))
+					{
+						snapshot.Version = script->GetVersion();
+					}
+				}
+				snapshots.push_back(std::move(snapshot));
+			}
+			return snapshots;
+		}
+
+		// The panel invariant (spec §15.4), the first assertion of every case: three frames of drawing the editor's windows,
+		// the graph windows among them, change no undo count, no file byte and no asset version.
+		void CheckDrawingChangesNothing()
+		{
+			size_t const undo = Context.GetHistory().GetUndoCount();
+			std::vector<GraphSnapshot> const before = TakeSnapshots();
+			Frames(3);
+			CHECK(Context.GetHistory().GetUndoCount() == undo);
+			CHECK(TakeSnapshots() == before);
+		}
+
+		// Selects the node, opens its node comment in place and types the text, which stays in the field (a pending edit).
+		void TypeNodeComment(AssetHandle graph, uint32_t node, char const* text)
+		{
+			// In front and focused first, so the canvas point is where the window shows the node; a second later, so the click
+			// is no double-click with an earlier one there.
+			OpenGraph(graph);
+			Gui.Frame(Drawer(), 1.0f);
+			VisualScriptEditorPanel& panel = GetPanel(graph);
+			REQUIRE(panel.GetState().Focused);
+			Click(Testing::CanvasPoint(panel.GetModel(), node, glm::vec2(0.5f, 0.06f)));
+			Frames(1);
+			REQUIRE(panel.GetState().SelectedNodes == std::vector<uint32_t>{node});
+			REQUIRE(panel.RequestAction(VisualScriptEditorAction::AddNodeComment));
+			Frames(3);
+			REQUIRE(ImGui::GetIO().WantTextInput);
+			Gui.Type(text);
+			Frames(1);
+			REQUIRE(panel.HasPendingWidgetEdit());
+		}
+
+		// The comment of the graph's node as its asset holds it.
+		static std::string GetNodeComment(AssetHandle graph, uint32_t node)
+		{
+			Ref<VisualScriptAsset> const script = AssetManager::GetAsset<VisualScriptAsset>(graph);
+			REQUIRE(script != nullptr);
+			VisualScriptDocument const& document = script->GetDocument();
+			auto const found = std::find_if(document.Graph.Nodes.begin(), document.Graph.Nodes.end(),
+			                                [node](VisualScriptNode const& candidate)
+			                                {
+												return candidate.ID == node;
+											});
+			REQUIRE(found != document.Graph.Nodes.end());
+			return found->Comment;
+		}
+
+		// Moves the mouse along the middle of a graph window's toasts until the toast's button is hovered; the point found.
+		std::optional<glm::vec2> FindToastButton(AssetHandle graph, char const* label)
+		{
+			ImGuiWindow const& canvas = GetChild(graph, "##canvas");
+			std::vector<ImGuiWindow const*> toasts;
+			for (ImGuiWindow const* window : GImGui->Windows)
+			{
+				if (window->ParentWindow == &canvas && window->Active && std::strstr(window->Name, "##toast") != nullptr)
+				{
+					toasts.push_back(window);
+				}
+			}
+			for (ImGuiWindow const* toast : toasts)
+			{
+				ImGuiID const item = ImHashStr(label, 0, toast->ID);
+				float const y = toast->Pos.y + toast->Size.y * 0.5f;
+				for (float x = toast->Pos.x + 2.0f; x < toast->Pos.x + toast->Size.x; x += 3.0f)
+				{
+					ImGui::GetIO().AddMousePosEvent(x, y);
+					Frames(1);
+					if (GImGui->HoveredId == item)
+					{
+						return glm::vec2(x, y);
+					}
+				}
+			}
+			return std::nullopt;
+		}
+
 		// The graphs the views file keeps open for the project.
 		std::vector<AssetHandle> ReadSavedOpenGraphs() const
 		{
@@ -323,6 +437,7 @@ namespace
 TEST_CASE("VisualScriptEditor: graph windows dock beside the scene view, and a new one joins the graph window focused last")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	ImGuiWindow const* sceneView = ImGui::FindWindowByName("Scene View");
 	REQUIRE(sceneView != nullptr);
 	ImGuiID const sceneNode = sceneView->DockId;
@@ -331,6 +446,7 @@ TEST_CASE("VisualScriptEditor: graph windows dock beside the scene view, and a n
 	// The first two graphs open as tabs of the scene view's node.
 	fixture.OpenGraph(fixture.Player);
 	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
 	REQUIRE(FindGraphWindow(fixture.Player) != nullptr);
 	REQUIRE(FindGraphWindow(fixture.Door) != nullptr);
 	CHECK(FindGraphWindow(fixture.Player)->DockId == sceneNode);
@@ -355,8 +471,10 @@ TEST_CASE("VisualScriptEditor: graph windows dock beside the scene view, and a n
 TEST_CASE("VisualScriptEditor: without a node to dock into, a graph window floats in the middle of the main viewport")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	fixture.Editors.SetDefaultDockProvider({});
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	ImGuiWindow const* window = FindGraphWindow(fixture.Player);
 	REQUIRE(window != nullptr);
 	CHECK(window->DockId == 0);
@@ -370,8 +488,10 @@ TEST_CASE("VisualScriptEditor: without a node to dock into, a graph window float
 TEST_CASE("VisualScriptEditor: opening a graph that is open keeps its one window and brings it to the front")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	fixture.OpenGraph(fixture.Player);
 	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
 	REQUIRE(GetFocusedRoot() == FindGraphWindow(fixture.Door));
 	CHECK_FALSE(fixture.GetPanel(fixture.Player).GetState().Visible);
 
@@ -385,6 +505,7 @@ TEST_CASE("VisualScriptEditor: opening a graph that is open keeps its one window
 TEST_CASE("VisualScriptEditor: graph windows, their modals, sheets and popups and their pane sizes leave imgui.ini as it was")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	std::set<std::string> const before = GetSavedEntries();
 	REQUIRE_FALSE(before.empty());
 
@@ -392,6 +513,7 @@ TEST_CASE("VisualScriptEditor: graph windows, their modals, sheets and popups an
 	{
 		CAPTURE(graph.ToString());
 		fixture.OpenGraph(graph);
+		fixture.CheckDrawingChangesNothing();
 		VisualScriptEditorPanel& panel = fixture.GetPanel(graph);
 		REQUIRE(panel.GetState().Visible);
 		size_t const undo = fixture.Context.GetHistory().GetUndoCount();
@@ -442,12 +564,14 @@ TEST_CASE("VisualScriptEditor: graph windows, their modals, sheets and popups an
 TEST_CASE("VisualScriptEditor: a graph deleted while its window is open closes the window, says so, and undo goes on")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	EntityCreateInfo info;
 	info.Name = "Crate";
 	Result<UUID> const crate = fixture.Operations.CreateEntity(info);
 	REQUIRE(crate.IsOk());
 	fixture.OpenGraph(fixture.Player);
 	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
 
 	// Drawn: the window closes in the next frame.
 	uint64_t const firstLog = Log::GetNextEntryIndex();
@@ -471,16 +595,37 @@ TEST_CASE("VisualScriptEditor: a graph deleted while its window is open closes t
 TEST_CASE("VisualScriptEditor: closing a graph window commits its edits and writes the views file, by Close and by its card's Close")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	fixture.OpenGraph(fixture.Player);
 	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
 	REQUIRE_FALSE(FileSystem::Exists(fixture.ViewsFile));
 
+	// A node comment still in its field is committed, as one step, before the window goes (its X and graph.close close it as
+	// Close does).
+	fixture.OpenGraph(fixture.Player);
+	size_t const undo = fixture.Context.GetHistory().GetUndoCount();
+	fixture.TypeNodeComment(fixture.Player, 3, "Typed");
+	CHECK(fixture.GetNodeComment(fixture.Player, 3).empty());
 	CHECK(fixture.Editors.Close(fixture.Player) == std::vector<AssetHandle>{fixture.Player});
+	CHECK(fixture.GetNodeComment(fixture.Player, 3) == "Typed");
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == undo + 1);
 	CHECK(fixture.GetOpenGraphs() == std::vector<AssetHandle>{fixture.Door});
 	REQUIRE(FileSystem::Exists(fixture.ViewsFile));
 	CHECK(fixture.ReadSavedOpenGraphs() == std::vector<AssetHandle>{fixture.Door});
 	// Closing a graph that is not open is no error.
 	CHECK(fixture.Editors.Close(fixture.Player).empty());
+
+	// Flush (the editor's exit, a project action) commits an edit still in a field and keeps the window.
+	fixture.TypeNodeComment(fixture.Door, 3, "Flushed");
+	fixture.Editors.Flush();
+	CHECK(fixture.GetNodeComment(fixture.Door, 3) == "Flushed");
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == undo + 2);
+	CHECK_FALSE(fixture.GetPanel(fixture.Door).HasPendingWidgetEdit());
+	CHECK(fixture.GetOpenGraphs() == std::vector<AssetHandle>{fixture.Door});
+	// The field closes with its edit committed: the next frames add nothing.
+	fixture.Frames(2);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == undo + 2);
 
 	// A missing file shows its card, whose Close closes the window as its X does.
 	std::filesystem::path const door = AssetManager::GetAssetDirectory() / "Scripts" / "Door.sgraph";
@@ -502,8 +647,10 @@ TEST_CASE("VisualScriptEditor: closing a graph window commits its edits and writ
 TEST_CASE("VisualScriptEditor: a project change closes the graph windows and opening the project again restores them in order")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	fixture.OpenGraph(fixture.Door);
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	// A view of Player's to come back to.
 	VisualScriptOpenRequest view;
 	view.Graph = fixture.Player;
@@ -538,9 +685,11 @@ TEST_CASE("VisualScriptEditor: a project change closes the graph windows and ope
 TEST_CASE("VisualScriptEditor: two open graphs with one name show their folders")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	fixture.OpenGraph(fixture.Player);
 	CHECK(std::string_view(FindGraphWindow(fixture.Player)->Name).starts_with("Player###"));
 	fixture.OpenGraph(fixture.EnemyPlayer);
+	fixture.CheckDrawingChangesNothing();
 	CHECK(std::string_view(FindGraphWindow(fixture.Player)->Name).starts_with("Player (Scripts)###"));
 	CHECK(std::string_view(FindGraphWindow(fixture.EnemyPlayer)->Name).starts_with("Player (Enemies)###"));
 
@@ -555,8 +704,10 @@ TEST_CASE("VisualScriptEditor: two open graphs with one name show their folders"
 TEST_CASE("VisualScriptEditor: View > Reset Layout docks the open graph windows into the middle, and only those")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	fixture.OpenGraph(fixture.Player);
 	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
 	REQUIRE(fixture.Editors.Close(fixture.Door).size() == 1);
 	std::string const playerName = VisualScriptEditorPanel::GetWindowName(fixture.Player, "Player");
 	fixture.InFrame(
@@ -578,6 +729,7 @@ TEST_CASE("VisualScriptEditor: View > Reset Layout docks the open graph windows 
 TEST_CASE("VisualScriptEditor: the Edit menu acts on the graph window focused last while it is shown, else on the scene")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	EntityCreateInfo info;
 	info.Name = "Crate";
 	Result<UUID> const crate = fixture.Operations.CreateEntity(info);
@@ -585,6 +737,7 @@ TEST_CASE("VisualScriptEditor: the Edit menu acts on the graph window focused la
 	std::array<UUID, 1> const selection = {crate.GetValue()};
 	REQUIRE(fixture.Operations.Select(selection).IsOk());
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptEditorPanel& panel = fixture.GetPanel(fixture.Player);
 	fixture.Click(Testing::CanvasPoint(panel.GetModel(), 3, glm::vec2(0.5f, 0.06f)));
 	fixture.Frames(1);
@@ -649,10 +802,12 @@ TEST_CASE("VisualScriptEditor: the Edit menu acts on the graph window focused la
 TEST_CASE("VisualScriptEditor: undo and redo say what they did in the graph window that is the Edit menu's target")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	EntityCreateInfo info;
 	info.Name = "Crate";
 	REQUIRE(fixture.Operations.CreateEntity(info).IsOk());
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	fixture.Click(fixture.EmptyPoint(fixture.Player));
 	REQUIRE(fixture.Editors.GetEditTarget() != nullptr);
 
@@ -667,9 +822,56 @@ TEST_CASE("VisualScriptEditor: undo and redo say what they did in the graph wind
 	CHECK(toasts.back() == "Undone: " + description);
 }
 
+TEST_CASE("VisualScriptEditor: a history toast's Show for a step of another script opens that script's window, or brings it to the "
+          "front")
+{
+	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
+	// A step of Door's, whose window is not open.
+	VisualScriptDocument door = MakeDocument();
+	door.Description = "Opens";
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Door, door).IsOk());
+	CommandHistory const& history = fixture.Context.GetHistory();
+	REQUIRE(history.GetUndoEditedAsset() == fixture.Door);
+	std::string const description = history.GetUndoDescription();
+	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Click(fixture.EmptyPoint(fixture.Player));
+	REQUIRE(fixture.Editors.GetEditTarget() == &fixture.GetPanel(fixture.Player));
+
+	// Undone from Player's window: Show opens Door's window, in front.
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	fixture.Editors.NotifyHistoryStep(true, description, fixture.Door);
+	fixture.Frames(2);
+	std::optional<glm::vec2> show = fixture.FindToastButton(fixture.Player, "Show");
+	REQUIRE(show.has_value());
+	fixture.Click(*show);
+	fixture.Frames(2);
+	CHECK(fixture.GetOpenGraphs() == std::vector<AssetHandle>{fixture.Player, fixture.Door});
+	CHECK(GetFocusedRoot() == FindGraphWindow(fixture.Door));
+	CHECK(fixture.GetPanel(fixture.Door).GetState().Visible);
+
+	// Redone from Player's window again, with Door's window behind it: Show brings Door's to the front.
+	fixture.OpenGraph(fixture.Player);
+	REQUIRE_FALSE(fixture.GetPanel(fixture.Door).GetState().Visible);
+	fixture.Click(fixture.EmptyPoint(fixture.Player));
+	REQUIRE(fixture.Editors.GetEditTarget() == &fixture.GetPanel(fixture.Player));
+	REQUIRE(fixture.Operations.Redo().IsOk());
+	fixture.Editors.NotifyHistoryStep(false, description, fixture.Door);
+	fixture.Frames(2);
+	show = fixture.FindToastButton(fixture.Player, "Show");
+	REQUIRE(show.has_value());
+	fixture.Click(*show);
+	fixture.Frames(2);
+	CHECK(fixture.GetOpenGraphs() == std::vector<AssetHandle>{fixture.Player, fixture.Door});
+	CHECK(GetFocusedRoot() == FindGraphWindow(fixture.Door));
+	CHECK(fixture.GetPanel(fixture.Door).GetState().Visible);
+}
+
 TEST_CASE("VisualScriptEditor: a graph window's requests for another script open that script's window")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	// Player handles the custom event Hit, which Door sends.
 	VisualScriptDocument player = MakeDocument();
 	player.Graph.Nodes.push_back(MakeNode(5, "Event.Custom", glm::vec2(0.0f, 480.0f), Json::object({{"Name", "Hit"}})));
@@ -678,6 +880,7 @@ TEST_CASE("VisualScriptEditor: a graph window's requests for another script open
 	door.Graph.Nodes.push_back(MakeNode(6, "Event.Send", glm::vec2(400.0f, 480.0f), Json::object({{"Name", "Hit"}})));
 	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Door, door).IsOk());
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptEditorPanel& panel = fixture.GetPanel(fixture.Player);
 
 	// The node menu's Find References lists the senders in every script; a click on Door's opens Door's window on it.
@@ -708,8 +911,10 @@ TEST_CASE("VisualScriptEditor: a graph window's requests for another script open
 TEST_CASE("VisualScriptEditor: the services given to the window manager reach its windows, also those open already")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	fixture.Semantics.SetAvailable(false);
 	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptEditorPanel& panel = fixture.GetPanel(fixture.Player);
 	fixture.Frames(1);
 	REQUIRE(panel.GetState().Notices.front() == VisualScriptNotice::Degraded);
@@ -733,6 +938,7 @@ TEST_CASE("VisualScriptEditor: the services given to the window manager reach it
 TEST_CASE("VisualScriptEditor: the window manager checks what it opens, and opens a file it cannot read on its card")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptOpenRequest request;
 	request.Graph = AssetHandle(UUID(55555));
 	CHECK_FALSE(fixture.Editors.Open(request).IsOk());
@@ -756,6 +962,7 @@ TEST_CASE("VisualScriptEditor: the window manager checks what it opens, and open
 	CHECK_FALSE(opened.GetValue().Visible);
 	fixture.Frames(2);
 	CHECK(fixture.GetPanel(fixture.Player).GetState().SelectedNodes == std::vector<uint32_t>{2});
+	fixture.CheckDrawingChangesNothing();
 
 	// A file the loader refuses opens on its card; what the request names in it is left out.
 	std::filesystem::path const file = AssetManager::GetAssetDirectory() / "Scripts" / "Door.sgraph";
@@ -773,8 +980,10 @@ TEST_CASE("VisualScriptEditor: the window manager checks what it opens, and open
 TEST_CASE("VisualScriptEditor: the View menu lists the open graphs, closes one when it is unchecked, and closes them all")
 {
 	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
 	fixture.OpenGraph(fixture.Player);
 	fixture.OpenGraph(fixture.Door);
+	fixture.CheckDrawingChangesNothing();
 	bool openMenu = true;
 	fixture.Probe = [&fixture, &openMenu]
 	{

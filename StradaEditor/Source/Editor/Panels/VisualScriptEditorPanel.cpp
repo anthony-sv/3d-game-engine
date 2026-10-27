@@ -3653,11 +3653,11 @@ namespace Strada
 					}
 					else if (toast.ShowAsset.IsValid())
 					{
-						std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(toast.ShowAsset);
-						std::string const stem = metadata ? FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem())
-						                                  : std::string("Visual Script");
-						// The window is found by its ID, which the title does not change.
-						ImGui::SetWindowFocus(GetWindowName(toast.ShowAsset, stem).c_str());
+						// Another script's step: the window manager opens that script's window, or brings it to the front when
+						// it is open (spec §10.4).
+						VisualScriptOpenRequest request;
+						request.Graph = toast.ShowAsset;
+						m_OtherGraphRequests.push_back(std::move(request));
 					}
 					else
 					{

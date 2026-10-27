@@ -523,8 +523,12 @@ internal static class GraphAnalyzer
 		if (conversion == null)
 		{
 			link.IsValid = false;
+			// The advice names Convert only when a Convert node converts between the two types.
+			string advice = TypeResolution.PlanConversion(from.Type, to.Type) != null
+				? "use Convert"
+				: $"the types do not convert, so link a {to.Type.Id} or break the link";
 			context.ReportLink(DiagnosticCode.TypeMismatch, link,
-				$"{from.Node.ID}.{from.Name} ({from.Type.Id}) cannot connect to {to.Node.ID}.{to.Name} ({to.Type.Id}): use Convert");
+				$"{from.Node.ID}.{from.Name} ({from.Type.Id}) cannot connect to {to.Node.ID}.{to.Name} ({to.Type.Id}): {advice}");
 			return;
 		}
 		link.Conversion = conversion;

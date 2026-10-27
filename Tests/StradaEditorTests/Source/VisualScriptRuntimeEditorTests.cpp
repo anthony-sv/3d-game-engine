@@ -538,6 +538,7 @@ TEST_CASE("VisualScriptEditor: the problems drawer's Edit in Details of a settin
 	                        MakeNode(11, "Flow.Sequence", glm::vec2(320.0f, 0.0f), Json::object({{"Count", 99}}))};
 	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute")};
 	RuntimeFixture fixture(document);
+	fixture.Window.CheckDrawingChangesNothing();
 	VisualScriptOpenRequest request;
 	request.Graph = fixture.Window.Graph;
 	request.ShowProblems = true;

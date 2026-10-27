@@ -26,11 +26,15 @@
 #include "Strada/Script/VisualScriptLibrary.h"
 
 #include <doctest/doctest.h>
+#include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
+#include <functional>
 #include <limits>
 #include <optional>
 #include <span>
@@ -1157,9 +1161,10 @@ namespace
 		CommandRegistry Registry;
 		bool DialogOpen = false;
 
-		GraphWindowFixture()
+		// With docking, windows can be docked together, so one hides another behind its tab.
+		explicit GraphWindowFixture(bool docking = false)
 		{
-			Gui.UseEditorStyle();
+			Gui.UseEditorStyle(docking);
 			Settings.SetHintSeen(VisualScriptCanvasHint);
 			Settings.SetReduceMotion(true);
 			EditorCommandEnvironment environment;
@@ -1175,16 +1180,43 @@ namespace
 			REQUIRE(Operations.CreateProject(Directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
 		}
 
+		std::function<void()> Drawer()
+		{
+			return [this]
+			{
+				Editors.OnImGuiRender();
+			};
+		}
+
 		void Frames(int count)
 		{
 			for (int i = 0; i < count; i++)
 			{
-				Gui.Frame(
-					[this]
-					{
-						Editors.OnImGuiRender();
-					});
+				Gui.Frame(Drawer());
 			}
+		}
+
+		static AssetHandle GetHandle(std::string const& graph)
+		{
+			Result<AssetHandle> const handle = AssetManager::ResolveReference(graph);
+			REQUIRE(handle.IsOk());
+			return handle.GetValue();
+		}
+
+		// A point of the graph window's canvas with nothing on it (its lower left corner, below the window document's nodes).
+		static ImVec2 GetEmptyCanvasPoint(std::string const& graph)
+		{
+			ImGuiWindow const* window = ImGui::FindWindowByName(VisualScriptEditorPanel::GetWindowName(GetHandle(graph), {}).c_str());
+			REQUIRE(window != nullptr);
+			for (ImGuiWindow const* child : GImGui->Windows)
+			{
+				if (child->ParentWindow == window && std::strstr(child->Name, "##canvas") != nullptr)
+				{
+					return ImVec2(child->Pos.x + 30.0f, child->Pos.y + child->Size.y - 30.0f);
+				}
+			}
+			FAIL("the graph window has no canvas");
+			return ImVec2();
 		}
 
 		// Runs a command; an asynchronous one gets frames drawn until it answers, at most frames of them.
@@ -1678,6 +1710,209 @@ TEST_CASE("GraphCommands: graph.palette checks its parameters in order, then lis
 	fixture.Frames(1);
 	CHECK(fixture.Editor(graph)["palette"]["open"] == false);
 	CHECK(fixture.GetDocument(graph) == document);
+}
+
+TEST_CASE("GraphCommands: graph.palette answers for a window graph.open opened in the same frame, and refuses windows that show no "
+          "palette")
+{
+	GraphWindowFixture fixture(true);
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	std::string const other = fixture.CreateGraph("Scripts/Other.sgraph", MakeWindowDocument());
+
+	// graph.open, then graph.palette before any draw: the answer comes once the new window and then its palette were drawn.
+	std::optional<CommandResult> opened;
+	fixture.Registry.Execute("graph.open", Json::object({{"graph", graph}}),
+	                         [&opened](CommandResult result)
+	                         {
+								 opened.emplace(std::move(result));
+							 });
+	REQUIRE(opened.has_value());
+	REQUIRE(opened->IsOk());
+	Json const listed = fixture.Ok("graph.palette", Json::object({{"graph", graph}, {"query", "br"}}));
+	CHECK(listed["open"] == true);
+	CHECK(listed["query"] == "br");
+	CHECK_FALSE(listed["entries"].empty());
+
+	// Closed between the request and the draw that ranks the entries.
+	fixture.Frames(1);
+	std::optional<CommandResult> palette;
+	fixture.Registry.Execute("graph.palette", Json::object({{"graph", graph}, {"query", "lo"}}),
+	                         [&palette](CommandResult result)
+	                         {
+								 palette.emplace(std::move(result));
+							 });
+	REQUIRE_FALSE(palette.has_value());
+	fixture.Ok("graph.close", Json::object({{"graph", graph}}));
+	fixture.Frames(1);
+	REQUIRE(palette.has_value());
+	REQUIRE(palette->IsError());
+	CHECK(palette->GetError().Code == AutomationErrorCode::InvalidOperation);
+
+	// Behind another window's tab: still not shown after a draw.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Ok("graph.open", Json::object({{"graph", other}}));
+	fixture.Frames(2);
+	fixture.Gui.Frame(
+		[&fixture, &graph, &other]
+		{
+			ImGuiID const node = ImGui::DockBuilderAddNode(0, ImGuiDockNodeFlags_None);
+			ImGui::DockBuilderSetNodePos(node, ImVec2(100.0f, 100.0f));
+			ImGui::DockBuilderSetNodeSize(node, ImVec2(1400.0f, 800.0f));
+			for (std::string const& docked : {graph, other})
+			{
+				ImGui::DockBuilderDockWindow(VisualScriptEditorPanel::GetWindowName(GraphWindowFixture::GetHandle(docked), {}).c_str(),
+			                                 node);
+			}
+			ImGui::DockBuilderFinish(node);
+			fixture.Editors.OnImGuiRender();
+		});
+	fixture.Ok("graph.open", Json::object({{"graph", other}}));
+	fixture.Frames(2);
+	REQUIRE(fixture.Editor(graph)["visible"] == false);
+	REQUIRE(fixture.Editor(other)["visible"] == true);
+	CommandError const hidden = fixture.Fails("graph.palette", Json::object({{"graph", graph}}));
+	CHECK(hidden.Code == AutomationErrorCode::InvalidOperation);
+	CHECK(hidden.Message.find("is not shown") != std::string::npos);
+	CHECK(fixture.Editor(graph)["palette"]["open"] == false);
+
+	// A file that does not load: its window shows its card, without a canvas.
+	REQUIRE(FileSystem::WriteTextFile(AssetManager::GetAssetDirectory() / "Scripts" / "Other.sgraph", "{ \"Strada\": 1 }").IsOk());
+	fixture.Ok("asset.refresh");
+	fixture.Frames(2);
+	REQUIRE(fixture.Editor(other)["card"] == "Unloadable");
+	CommandError const unloadable = fixture.Fails("graph.palette", Json::object({{"graph", other}}));
+	CHECK(unloadable.Code == AutomationErrorCode::InvalidOperation);
+	CHECK(unloadable.Message.find("does not load") != std::string::npos);
+}
+
+TEST_CASE("GraphCommands: graph.editors reports what a window shows beyond its defaults")
+{
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	AssetHandle const handle = GraphWindowFixture::GetHandle(graph);
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"frame", "All"}}));
+	fixture.Frames(3);
+	Json editor = fixture.Editor(graph);
+	CHECK(editor["minimap"] == false);
+	CHECK(editor["notices"] == Json::array());
+
+	// The minimap shows while part of the graph is out of view.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"zoom", 2.0}, {"center", {0.0, 0.0}}}));
+	fixture.Frames(3);
+	CHECK(fixture.Editor(graph)["minimap"] == true);
+
+	// Without the scripting runtime: the degraded notice, nothing analyzed.
+	fixture.Semantics.SetAvailable(false);
+	fixture.Frames(2);
+	editor = fixture.Editor(graph);
+	CHECK(editor["notices"] == Json::array({"Degraded"}));
+	CHECK(editor["analyzed"] == false);
+	fixture.Semantics.SetAvailable(true);
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["notices"] == Json::array());
+
+	// Playing and simulating.
+	fixture.Context.BeginPlay(Scene::Copy(fixture.Context.GetScene()), EditorPlayState::Play);
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["live"] == "Live");
+	fixture.Context.EndPlay();
+	fixture.Context.BeginPlay(Scene::Copy(fixture.Context.GetScene()), EditorPlayState::Simulate);
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["live"] == "Simulating");
+	fixture.Context.EndPlay();
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["live"] == "None");
+
+	// The shortcut sheet, and a bookmark stored from the canvas.
+	fixture.Gui.MouseClick(GraphWindowFixture::GetEmptyCanvasPoint(graph), ImGuiMouseButton_Left, fixture.Drawer());
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_3, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Editor(graph)["bookmarks"] == Json::array({3}));
+	fixture.Gui.Press(ImGuiKey_F1, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Editor(graph)["shortcuts"] == true);
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.Editor(graph)["shortcuts"] == false);
+
+	// Panes: Details hidden by the user; both auto-hidden in a window too narrow for them beside the canvas.
+	VisualScriptPaneSettings panes = fixture.Settings.GetPanes();
+	panes.ShowDetails = false;
+	fixture.Settings.SetPanes(panes);
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["panes"] == Json::object({{"sidebar", "Shown"}, {"details", "Hidden"}}));
+	panes.ShowDetails = true;
+	fixture.Settings.SetPanes(panes);
+	std::string const name = VisualScriptEditorPanel::GetWindowName(handle, {});
+	fixture.Gui.Frame(
+		[&fixture, &name]
+		{
+			ImGui::SetWindowSize(name.c_str(), ImVec2(400.0f, 600.0f));
+			fixture.Editors.OnImGuiRender();
+		});
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["panes"] == Json::object({{"sidebar", "AutoHidden"}, {"details", "AutoHidden"}}));
+
+	// A commit whose file cannot be written: not saved, and a toast says why.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"select", Json::array({12})}}));
+	fixture.Frames(2);
+	std::filesystem::path const file = AssetManager::GetAssetDirectory() / "Scripts" / "Window.sgraph";
+	{
+		Testing::ReadOnlyFileScope const readOnly(file);
+		VisualScriptEditorPanel* panel = fixture.Editors.FindPanel(handle);
+		REQUIRE(panel != nullptr);
+		REQUIRE(panel->RequestAction(VisualScriptEditorAction::Delete));
+		fixture.Frames(2);
+		editor = fixture.Editor(graph);
+		CHECK(editor["save"] == "NotSaved");
+		REQUIRE(editor["toasts"].size() >= 1);
+		CHECK(editor["toasts"].back().get<std::string>().starts_with("Could not save Window: "));
+		// The window now knows the file is read-only.
+		CHECK(editor["readOnly"] == true);
+		CHECK(Contains(editor["notices"].get<std::vector<std::string>>(), "ReadOnlyFile"));
+	}
+
+	// A file that is gone shows its card.
+	REQUIRE(FileSystem::Remove(file).IsOk());
+	fixture.Ok("asset.refresh");
+	fixture.Frames(2);
+	editor = fixture.Editor(graph);
+	CHECK(editor["card"] == "Missing");
+	CHECK(editor["loaded"] == false);
+}
+
+TEST_CASE("GraphCommands: graph.editors reports the last working version while the game runs it and the graph has errors")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphWindowFixture fixture;
+	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+	PlayMode play{fixture.Context, scripts};
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", MakeCounterDocument());
+	AssetHandle const handle = GraphWindowFixture::GetHandle(graph);
+	fixture.Ok("entity.create",
+	           Json::object({{"name", "Counter"}, {"components", Json::object({{"VisualScript", Json::object({{"Graph", graph}})}})}}));
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(2);
+
+	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	play.Advance(2, Timestep(FrameTime));
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["live"] == "Live");
+
+	// An edit that breaks the graph: the game keeps running the last version that compiled, and the window says so.
+	VisualScriptDocument broken = MakeCounterDocument();
+	broken.Graph.Nodes.push_back(MakeNode(20, "Call:Strada.Nothing.Here()"));
+	broken.Graph.Links.push_back(MakeLink(11, "Then", 20, "Execute"));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(handle, broken).IsOk());
+	play.Advance(1, Timestep(FrameTime));
+	fixture.Frames(2);
+	REQUIRE(VisualScriptEngine::HasWorkingProgram(handle));
+	Json const editor = fixture.Editor(graph);
+	CHECK(editor["errors"].get<uint32_t>() > 0);
+	CHECK(editor["live"] == "LastWorking");
+	play.Stop();
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["live"] == "None");
 }
 
 TEST_CASE("GraphCommands: graph.find finds text in every script or one, and the references of variables, functions and events")
