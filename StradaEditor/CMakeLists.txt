@@ -135,6 +135,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptClipboard.h
     Source/Editor/VisualScripting/VisualScriptCommit.cpp
     Source/Editor/VisualScripting/VisualScriptCommit.h
+    Source/Editor/VisualScripting/VisualScriptController.cpp
+    Source/Editor/VisualScripting/VisualScriptController.h
     Source/Editor/VisualScripting/VisualScriptEditing.cpp
     Source/Editor/VisualScripting/VisualScriptEditing.h
     Source/Editor/VisualScripting/VisualScriptEditorModel.cpp
@@ -156,6 +158,7 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptQuickFixes.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp
     Source/Editor/VisualScripting/VisualScriptSemantics.h
+    Source/Editor/VisualScripting/VisualScriptShortcuts.h
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.cpp
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.h
     Source/Editor/VisualScripting/VisualScriptTheme.cpp
