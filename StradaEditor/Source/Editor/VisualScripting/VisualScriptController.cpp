@@ -1928,8 +1928,21 @@ namespace Strada
 					return {};
 				}
 				bool const split = edit.Action == VisualScriptPinAction::Split;
-				std::string const label = GetPinLabel(edit.Pin.Node, edit.Pin.Pin, edit.Direction);
-				std::string const path = ToStored(edit.Pin.Node, edit.Pin.Pin, edit.Direction);
+				std::string label = GetPinLabel(edit.Pin.Node, edit.Pin.Pin, edit.Direction);
+				std::string path = ToStored(edit.Pin.Node, edit.Pin.Pin, edit.Direction);
+				if (!split)
+				{
+					// Recombine is picked on a field pin ("Force.X"): what recombines is the split pin it is a field of, the
+					// innermost one when splits nest ("Hit.Point" for "Hit.Point.X").
+					std::optional<std::string> entry = FindSplitOf(edit.Pin.Node, path, edit.Direction);
+					if (!entry)
+					{
+						return MakeError("{} of node {} is no field of a split pin", path, edit.Pin.Node);
+					}
+					path = std::move(*entry);
+					label = path;
+					std::replace(label.begin(), label.end(), '.', ' ');
+				}
 				VisualScriptDocument document = GetDisplay();
 				VisualScriptNodePins const pins = MakePins(document);
 				Result<uint32_t> const removed =
@@ -1943,6 +1956,27 @@ namespace Strada
 				                                ? std::string()
 				                                : fmt::format(" (removes {})", CountNoun(removed.GetValue(), "1 link", "links"));
 				return Commit(std::move(document), fmt::format("{} {}{}", split ? "Split" : "Recombine", label, removes));
+			}
+
+			// The entry of a node's Split list a field pin (by its stored path) belongs to: the longest one it lies under.
+			std::optional<std::string> FindSplitOf(uint32_t node, std::string_view field, Direction direction) const
+			{
+				VisualScriptNode const* stored = FindDisplayNode(node);
+				if (stored == nullptr)
+				{
+					return std::nullopt;
+				}
+				std::vector<std::string> const& entries = direction == Direction::In ? stored->Split.Inputs : stored->Split.Outputs;
+				std::optional<std::string> found;
+				for (std::string const& entry : entries)
+				{
+					bool const under = field.size() > entry.size() && field.starts_with(entry) && field[entry.size()] == '.';
+					if (under && (!found || entry.size() > found->size()))
+					{
+						found = entry;
+					}
+				}
+				return found;
 			}
 
 			Result<void> Promote(VisualScriptPinEdit const& edit)

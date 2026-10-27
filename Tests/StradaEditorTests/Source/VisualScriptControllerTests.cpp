@@ -984,3 +984,142 @@ TEST_CASE("VisualScriptEditor: pins named as the canvas shows a renamed member's
 	fixture.Execute(linked);
 	CHECK(fixture.HasLink(MakeLink(5, "Value", 3, "Message")));
 }
+
+TEST_CASE("VisualScriptEditor: a struct pin splits from its menu and recombines from any of its field pins")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(40, "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
+	                                        glm::vec2(1200.0f, 0.0f), Json::object(), Json::object({{"Force", Json::array({1, 2, 3})}})));
+	ControllerFixture fixture(document);
+
+	VisualScriptControllerResult split =
+		fixture.Edit(VisualScriptPinEdit{VisualScriptPinAction::Split, {40, "Force"}, VisualScriptPinDirection::In, false, {}});
+	CHECK(Description(split) == "Split Force in Player");
+	Testing::ExpectSplitConsistency(*split.Commit->Document);
+	fixture.Execute(split);
+	CHECK(fixture.Node(40)->Split.Inputs == std::vector<std::string>{"Force"});
+	CHECK(fixture.Node(40)->Inputs["Force.Y"] == 2);
+	VisualScriptCanvasModel const& canvas = fixture.Model->GetCanvas();
+	REQUIRE(canvas.FindNode(40).has_value());
+	CHECK(canvas.FindPin(*canvas.FindNode(40), "Force.X", VisualScriptPinDirection::In).has_value());
+
+	VisualScriptControllerResult recombined =
+		fixture.Edit(VisualScriptPinEdit{VisualScriptPinAction::Recombine, {40, "Force.Y"}, VisualScriptPinDirection::In, false, {}});
+	CHECK(Description(recombined) == "Recombine Force in Player");
+	Testing::ExpectSplitConsistency(*recombined.Commit->Document);
+	fixture.Execute(recombined);
+	CHECK(fixture.Node(40)->Split.Inputs.empty());
+	CHECK(fixture.Node(40)->Inputs["Force"] == Json::array({1, 2, 3}));
+	CHECK(fixture.History().GetUndoCount() == 2);
+
+	// A pin that is no field of a split pin has nothing to recombine: the window never offers it.
+	CHECK_FALSE(ResolveVisualScriptEdit(
+					VisualScriptPinEdit{VisualScriptPinAction::Recombine, {2, "Duration"}, VisualScriptPinDirection::In, false, {}},
+					fixture.Context())
+	                .IsOk());
+}
+
+TEST_CASE("VisualScriptEditor: an asset dropped on a pin of its type sets the pin's value, and on the canvas adds a literal of it")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(
+		40, "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)", glm::vec2(1200.0f, 0.0f)));
+	ControllerFixture fixture(document);
+	EntityCreateInfo info;
+	info.Name = "Door";
+	Result<UUID> const door = fixture.Operations.CreateEntity(info);
+	REQUIRE(door.IsOk());
+	Result<AssetHandle> const prefab = fixture.Operations.CreatePrefab(door.GetValue(), "Door.sprefab");
+	REQUIRE(prefab.IsOk());
+	Result<AssetHandle> const material = fixture.Operations.CreateMaterial("Materials/Red.smat");
+	REQUIRE(material.IsOk());
+	fixture.Frame();
+	std::string const handle = prefab.GetValue().ToString();
+
+	auto const drop = [&fixture](AssetHandle asset, std::optional<VisualScriptPinReference> pin)
+	{
+		VisualScriptDropIntent intent;
+		intent.Kind = VisualScriptDropKind::Asset;
+		intent.Payload = asset.GetUUID().GetValue();
+		intent.Position = glm::vec2(1203.0f, 405.0f);
+		intent.Pin = std::move(pin);
+		intent.Direction = VisualScriptPinDirection::In;
+		return fixture.Resolve(intent);
+	};
+
+	VisualScriptControllerResult set = drop(prefab.GetValue(), VisualScriptPinReference{40, "Prefab"});
+	CHECK(Description(set) == "Set Prefab on Instantiate in Player");
+	fixture.Execute(set);
+	CHECK(fixture.Node(40)->Inputs["Prefab"] == handle);
+
+	VisualScriptControllerResult literal = drop(prefab.GetValue(), std::nullopt);
+	CHECK(Description(literal) == "Add Prefab in Player");
+	REQUIRE(literal.Commit->Select.size() == 1);
+	fixture.Execute(literal);
+	VisualScriptNode const* added = fixture.Node(literal.Commit->Select.front());
+	REQUIRE(added != nullptr);
+	CHECK(added->Type == "Literal");
+	CHECK(added->Settings == Json::object({{"Type", "Strada.Prefab"}, {"Value", handle}}));
+	CHECK(added->Position == glm::vec2(1200.0f, 400.0f));
+
+	// Refused, with a toast and no step: a pin of another type, an asset type graphs have no values of, an unknown asset.
+	size_t const steps = fixture.History().GetUndoCount();
+	VisualScriptControllerResult wrongPin = drop(prefab.GetValue(), VisualScriptPinReference{2, "Duration"});
+	CHECK_FALSE(wrongPin.Commit.has_value());
+	CHECK(wrongPin.Notes.size() == 1);
+	VisualScriptControllerResult wrongType = drop(material.GetValue(), std::nullopt);
+	CHECK_FALSE(wrongType.Commit.has_value());
+	CHECK(wrongType.Notes.size() == 1);
+	VisualScriptControllerResult unknown = drop(AssetHandle(UUID(0x5EED5EED5EEDull)), std::nullopt);
+	CHECK_FALSE(unknown.Commit.has_value());
+	CHECK(unknown.Notes == std::vector<std::string>{"The dropped asset is not in the project"});
+	CHECK(fixture.History().GetUndoCount() == steps);
+}
+
+TEST_CASE("VisualScriptEditor: Update Node is offered on an updated node and stores every node under its current type in one step")
+{
+	VisualScriptDiagnostic updated;
+	updated.Severity = VisualScriptSeverity::Warning;
+	updated.Code = "NodeUpdated";
+	updated.Node = 3;
+	updated.Message = "node updated";
+
+	SUBCASE("nothing stored under a former type")
+	{
+		ControllerFixture fixture;
+		fixture.Semantics.InjectDiagnostic(updated);
+		fixture.Semantics.ReloadLibrary();
+		fixture.Frame();
+		fixture.Frame();
+		fixture.Select({3});
+		std::vector<VisualScriptMenuItem> const menu = BuildVisualScriptNodeMenu(fixture.Context());
+		REQUIRE_FALSE(menu.empty());
+		CHECK(menu.back().Action == Action::UpdateNode);
+		CHECK(menu.back().Label == "Update Node");
+		CHECK(menu.back().Enabled);
+		CHECK(menu.back().SeparatorBefore);
+		VisualScriptControllerResult result = fixture.Act(Action::UpdateNode, {3});
+		CHECK_FALSE(result.Commit.has_value());
+		CHECK(result.Notes == std::vector<std::string>{"Every node is up to date"});
+	}
+	SUBCASE("a node stored under its member's former name")
+	{
+		VisualScriptDocument document = MakeDocument();
+		document.Graph.Nodes[2].Type = std::string(RenamedMemberSemantics::FormerType);
+		document.Graph.Nodes[2].Inputs = Json::object({{"Text", "Hi"}});
+		ControllerFixture fixture(document);
+		RenamedMemberSemantics renamed(fixture.Semantics);
+		fixture.SemanticsOverride = &renamed;
+		fixture.Semantics.ReloadLibrary();
+		fixture.Frame();
+		fixture.Frame();
+		VisualScriptControllerResult result = fixture.Act(Action::UpdateNode, {3});
+		CHECK(Description(result) == "Update Nodes in Player");
+		CHECK(result.Commit->Notes ==
+		      std::vector<std::string>{"node updated: Call:Strada.Log.Write(string) → Call:Strada.Log.Info(string)"});
+		fixture.Execute(result);
+		CHECK(fixture.Node(3)->Type == RenamedMemberSemantics::Type);
+		CHECK(fixture.Node(3)->Inputs == Json::object({{"Message", "Hi"}}));
+		CHECK(fixture.History().GetUndoCount() == 1);
+	}
+}

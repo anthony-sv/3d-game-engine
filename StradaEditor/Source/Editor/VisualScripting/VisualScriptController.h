@@ -199,6 +199,7 @@ namespace Strada
 		BreakLink,
 		ResetToDefault,
 		Split,
+		// Picked on a field pin of a split pin ("Force.X"): recombines the split pin it belongs to (the innermost one).
 		Recombine,
 		PromoteToVariable,
 		PromoteToFunctionInput
