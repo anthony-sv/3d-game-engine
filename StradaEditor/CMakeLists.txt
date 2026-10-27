@@ -142,6 +142,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptEditorTypes.h
     Source/Editor/VisualScripting/VisualScriptFind.cpp
     Source/Editor/VisualScripting/VisualScriptFind.h
+    Source/Editor/VisualScripting/VisualScriptFindBar.cpp
+    Source/Editor/VisualScripting/VisualScriptFindBar.h
     Source/Editor/VisualScripting/VisualScriptGeometry.cpp
     Source/Editor/VisualScripting/VisualScriptGeometry.h
     Source/Editor/VisualScripting/VisualScriptHitTest.cpp

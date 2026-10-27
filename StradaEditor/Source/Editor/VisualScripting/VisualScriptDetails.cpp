@@ -783,7 +783,8 @@ namespace Strada
 		std::string subtitle;
 		if (std::optional<uint32_t> const index = canvas.FindNode(node.ID))
 		{
-			VisualScriptNodeVisual const& visual = canvas.GetNodes()[*index];
+			std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+			VisualScriptNodeVisual const& visual = nodes[*index];
 			color = visual.HeaderColor;
 			subtitle = std::string(canvas.GetText(visual.Subtitle));
 		}
@@ -1517,7 +1518,8 @@ namespace Strada
 		{
 			return;
 		}
-		VisualScriptNodeVisual const& visual = canvas.GetNodes()[*index];
+		std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+		VisualScriptNodeVisual const& visual = nodes[*index];
 		std::span<VisualScriptPinVisual const> const pins = canvas.GetPins(visual);
 		bool const any = std::any_of(pins.begin(), pins.end(),
 		                             [](VisualScriptPinVisual const& pin)

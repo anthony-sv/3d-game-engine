@@ -9,6 +9,7 @@
 #include "Editor/UI/FieldEditor.h"
 #include "Editor/VisualScripting/VisualScriptDetails.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
+#include "Editor/VisualScripting/VisualScriptFindBar.h"
 #include "Editor/VisualScripting/VisualScriptLiteralEditor.h"
 #include "Editor/VisualScripting/VisualScriptPalettePopup.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
@@ -123,7 +124,8 @@ namespace
 			ImGuiID const active = GImGui->ActiveId;
 			if (active == 0)
 			{
-				for (std::optional<VisualScriptCommitRequest> pending : {Details.TakePendingEdit(), Sidebar.TakePendingEdit()})
+				for (std::optional<VisualScriptCommitRequest> pending :
+				     {Details.TakePendingEdit(), Sidebar.TakePendingEdit(), DrawerPane.TakePendingEdit()})
 				{
 					if (pending)
 					{
@@ -170,6 +172,10 @@ namespace
 			if (!result.SelectAndFrame.empty())
 			{
 				Model->ApplyOpenRequest(MakeVisualScriptJump(Graph, Model->GetFunction(), result.SelectAndFrame));
+			}
+			if (result.FindReferences)
+			{
+				DrawerPane.ShowReferences(*result.FindReferences);
 			}
 			Results.push_back(std::move(result));
 		}
@@ -222,7 +228,18 @@ namespace
 								 });
 						break;
 					case FixturePane::Drawer:
+						DrawPane("Drawer", DrawerPosition, DrawerSize,
+						         [this](VisualScriptPaneContext& context)
+						         {
+									 return DrawerPane.Draw(context);
+								 });
+						break;
 					case FixturePane::FindBar:
+						DrawPane("Find", FindBarPosition, FindBarSize,
+						         [this](VisualScriptPaneContext& context)
+						         {
+									 return FindBar.Draw(context);
+								 });
 						break;
 				}
 			}
@@ -312,6 +329,10 @@ namespace
 		}
 
 		static constexpr ImVec2 SidebarSize{340.0f, 900.0f};
+		static constexpr ImVec2 DrawerPosition{0.0f, 560.0f};
+		static constexpr ImVec2 DrawerSize{1200.0f, 340.0f};
+		static constexpr ImVec2 FindBarPosition{360.0f, 0.0f};
+		static constexpr ImVec2 FindBarSize{600.0f, 60.0f};
 		static constexpr ImVec2 DetailsPosition{760.0f, 0.0f};
 		static constexpr ImVec2 DetailsSize{440.0f, 900.0f};
 
@@ -340,6 +361,8 @@ namespace
 		VisualScriptPalettePopup Palette;
 		VisualScriptDetails Details;
 		VisualScriptSidebar Sidebar;
+		VisualScriptDrawer DrawerPane;
+		VisualScriptFindBar FindBar;
 		std::vector<VisualScriptPaneResult> Results;
 		// The window's play state and context entity, and how it reads live values.
 		bool Playing = false;
@@ -1925,4 +1948,182 @@ TEST_CASE("VisualScriptEditor: while playing, My Script shows the context entity
 	CHECK(reads <= 5);
 	// Public variables only.
 	CHECK(fixture.Sidebar.GetLiveValues() == std::map<std::string, Json>{{"Speed", Json(2.5)}});
+}
+
+// --- The problems drawer and find ---
+
+namespace
+{
+	ImVec2 GetCenter(std::optional<std::pair<glm::vec2, glm::vec2>> const& rect)
+	{
+		REQUIRE(rect);
+		return ImVec2((rect->first.x + rect->second.x) * 0.5f, (rect->first.y + rect->second.y) * 0.5f);
+	}
+
+	VisualScriptDiagnostic MakeDiagnostic(std::string code, uint32_t function, std::optional<uint32_t> node, std::string message,
+	                                      VisualScriptSeverity severity = VisualScriptSeverity::Error)
+	{
+		VisualScriptDiagnostic diagnostic;
+		diagnostic.Severity = severity;
+		diagnostic.Code = std::move(code);
+		diagnostic.Function = function;
+		diagnostic.Node = node;
+		diagnostic.Message = std::move(message);
+		return diagnostic;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a quick fix in the problems drawer is one step")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes[1].Inputs = Json::object({{"Text", "Hello"}});
+	PaneFixture fixture(document, {FixturePane::Drawer});
+	VisualScriptDiagnostic diagnostic = MakeDiagnostic("UnknownPin", 0, 2, "Info has no input Text");
+	diagnostic.Pin = "Text";
+	diagnostic.Direction = VisualScriptPinDirection::In;
+	diagnostic.Suggestions = {"Message"};
+	fixture.Semantics.InjectDiagnostic(diagnostic);
+	fixture.CheckDrawingChangesNothing();
+	REQUIRE(fixture.DrawerPane.GetMode() == VisualScriptDrawerMode::Problems);
+	REQUIRE(fixture.DrawerPane.GetProblems().size() == 1);
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(GetCenter(fixture.DrawerPane.FindFixButton(0)), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Fix: Use Message in Graph");
+	CHECK(FindNode(fixture.GetDocument(), "Call:Strada.Log.Info(string)")->Inputs == Json::object({{"Message", "Hello"}}));
+}
+
+TEST_CASE(
+	"VisualScriptEditor: the problems drawer lists errors first by graph, and a click on one in a function shows it and selects the node")
+{
+	VisualScriptDocument document = MakeScriptDocument();
+	PaneFixture fixture(document, {FixturePane::Drawer});
+	fixture.Semantics.InjectDiagnostic(
+		MakeDiagnostic("UnusedVariable", 0, std::nullopt, "Alive is never read", VisualScriptSeverity::Warning));
+	fixture.Semantics.InjectDiagnostic(MakeDiagnostic("Unreachable", 10, 12, "Return is never reached"));
+	fixture.Semantics.InjectDiagnostic(MakeDiagnostic("TypeMismatch", 0, 3, "Info needs a string"));
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	std::span<VisualScriptDiagnostic const> const problems = fixture.DrawerPane.GetProblems();
+	REQUIRE(problems.size() == 3);
+	// Errors first, the event graph's before the functions', then the warning.
+	CHECK(problems[0].Code == "TypeMismatch");
+	CHECK(problems[1].Code == "Unreachable");
+	CHECK(problems[2].Code == "UnusedVariable");
+	fixture.ImGui.Click(GetCenter(fixture.DrawerPane.FindProblemRow(1)), fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(fixture.Model->GetFunction() == 10);
+	CHECK(std::vector<uint32_t>(fixture.Model->GetSelection().begin(), fixture.Model->GetSelection().end()) == std::vector<uint32_t>{12});
+	// Navigating changes nothing.
+	CHECK(fixture.GetUndoCount() == undo);
+}
+
+TEST_CASE("VisualScriptEditor: Enter in the find bar goes from match to match across sub-graphs and selects each")
+{
+	VisualScriptDocument document = MakeScriptDocument();
+	document.Graph.Nodes[2].Comment = "loud";
+	document.Functions.front().Graph.Nodes[1].Comment = "loud too";
+	PaneFixture fixture(document, {FixturePane::FindBar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	fixture.FindBar.Open("loud");
+	// The field has the keyboard, and takes Enter once its key route is in place.
+	fixture.Frames(3);
+	REQUIRE(GImGui->ActiveId != 0);
+	REQUIRE(fixture.FindBar.GetCount() == 2);
+	CHECK(fixture.FindBar.GetIndex() == 0);
+	CHECK(fixture.FindBar.GetOutlined().size() == 1);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(fixture.FindBar.GetIndex() == 1);
+	CHECK(fixture.Model->GetFunction() == 0);
+	CHECK(std::vector<uint32_t>(fixture.Model->GetSelection().begin(), fixture.Model->GetSelection().end()) == std::vector<uint32_t>{3});
+	// The field keeps the keyboard.
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(fixture.FindBar.GetIndex() == 2);
+	CHECK(fixture.Model->GetFunction() == 10);
+	CHECK(std::vector<uint32_t>(fixture.Model->GetSelection().begin(), fixture.Model->GetSelection().end()) == std::vector<uint32_t>{12});
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(fixture.FindBar.GetIndex() == 1);
+	CHECK(fixture.Model->GetFunction() == 0);
+	CHECK(std::vector<uint32_t>(fixture.Model->GetSelection().begin(), fixture.Model->GetSelection().end()) == std::vector<uint32_t>{3});
+	// Shift+Enter goes back.
+	fixture.ImGui.Chord(ImGuiMod_Shift | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(fixture.FindBar.GetIndex() == 2);
+	CHECK(fixture.Model->GetFunction() == 10);
+	// Only the shown graph's matches without All graphs; Escape closes and keeps the selection.
+	fixture.FindBar.SetAllGraphs(false);
+	fixture.Frames(3);
+	CHECK(fixture.FindBar.GetCount() == 1);
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK_FALSE(fixture.FindBar.IsOpen());
+	CHECK(std::vector<uint32_t>(fixture.Model->GetSelection().begin(), fixture.Model->GetSelection().end()) == std::vector<uint32_t>{12});
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(VisualScriptFindBar::GetWidth(1000.0f, 16.0f) == 24.0f * 16.0f);
+	CHECK(VisualScriptFindBar::GetWidth(200.0f, 16.0f) == 200.0f - 32.0f);
+}
+
+TEST_CASE("VisualScriptEditor: the references of a custom event list its senders in every script of the project")
+{
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Drawer});
+	// Another script sends Hit too.
+	Result<AssetHandle> const other = fixture.Operations.CreateVisualScript("Scripts/Other.sgraph", VisualScriptTemplate::Empty);
+	REQUIRE(other.IsOk());
+	VisualScriptDocument sender;
+	sender.Graph.Nodes = {MakeNode(1, "Event.Update", glm::vec2(0.0f)),
+	                      MakeNode(2, "Event.Send", glm::vec2(240.0f, 0.0f), Json::object({{"Name", "Hit"}}))};
+	sender.Graph.Links = {MakeLink(1, "Then", 2, "Execute")};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(other.GetValue(), sender).IsOk());
+	fixture.CheckDrawingChangesNothing();
+	fixture.DrawerPane.ShowReferences({VisualScriptReference::Kind::CustomEvent, 0, "Hit"});
+	fixture.Frames(2);
+	CHECK(fixture.DrawerPane.GetMode() == VisualScriptDrawerMode::Find);
+	std::span<VisualScriptDrawerFindRow const> const rows = fixture.DrawerPane.GetFindRows();
+	auto const has = [&rows](AssetHandle graph, uint32_t node)
+	{
+		return std::any_of(rows.begin(), rows.end(),
+		                   [graph, node](VisualScriptDrawerFindRow const& row)
+		                   {
+							   return row.Graph == graph && row.Match.Node == node && row.Error.empty();
+						   });
+	};
+	CHECK(has(fixture.Graph, 5));
+	CHECK(has(fixture.Graph, 6));
+	CHECK(has(fixture.Graph, 7));
+	CHECK(has(other.GetValue(), 2));
+	CHECK(rows.size() == 4);
+	// A click on the other script's sender opens it there.
+	auto const found = std::find_if(rows.begin(), rows.end(),
+	                                [&other](VisualScriptDrawerFindRow const& row)
+	                                {
+										return row.Graph == other.GetValue();
+									});
+	REQUIRE(found != rows.end());
+	CHECK(found->Script == "Scripts/Other.sgraph");
+	fixture.ImGui.Click(GetCenter(fixture.DrawerPane.FindFindRow(static_cast<size_t>(found - rows.begin()))), fixture.Drawer());
+	auto const opened = std::find_if(fixture.Results.rbegin(), fixture.Results.rend(),
+	                                 [](VisualScriptPaneResult const& result)
+	                                 {
+										 return result.Open.has_value();
+									 });
+	REQUIRE(opened != fixture.Results.rend());
+	CHECK(opened->Open->Graph == other.GetValue());
+	CHECK(opened->Open->Select == std::vector<uint32_t>{2});
+	CHECK(opened->Open->Frame == VisualScriptFrame::Selection);
+
+	// A text found in every script.
+	fixture.DrawerPane.ShowFind("Send");
+	fixture.Frames(2);
+	CHECK(fixture.DrawerPane.GetFindRows().size() >= 2);
+	std::span<VisualScriptDrawerFindRow const> const scripts = fixture.DrawerPane.GetFindRows();
+	CHECK(std::all_of(scripts.begin(), scripts.end(),
+	                  [&fixture](VisualScriptDrawerFindRow const& row)
+	                  {
+						  return row.Graph == fixture.Graph;
+					  }));
 }
