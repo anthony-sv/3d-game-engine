@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/EditorEditingKeys.h"
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
@@ -14,6 +15,7 @@
 #include <filesystem>
 #include <functional>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -91,6 +93,11 @@ namespace Strada
 		VisualScriptEditorPanel* GetEditTarget();
 		// Where windows dock when no graph window is docked: the editor gives the scene view's dock node.
 		void SetDefaultDockProvider(std::function<std::optional<ImGuiID>()> provider) { m_DefaultDock = std::move(provider); }
+		// An editing key the editor's global routes received (EditorEditingKeys: Cut, Copy, Paste, Duplicate, Delete, Select
+		// All), pressed while no graph window had the keyboard: the edit target takes it as its Edit menu item's action
+		// (RequestAction), returning true even when it has nothing to act on, so the key never reaches the entities. False,
+		// doing nothing, while the scene is the target.
+		bool HandleGlobalEditingKey(VisualScriptEditorAction action);
 		// After an undo or redo, with the step's description and edited asset as they were before it ran: the edit target
 		// shows the history toast (spec §10.4); nothing without one.
 		void NotifyHistoryStep(bool undone, std::string const& description, AssetHandle editedAsset);
@@ -98,9 +105,10 @@ namespace Strada
 		// Draws every window (spec §0.4 step 1). Called by the editor after its fixed panels, before its modal popups.
 		void OnImGuiRender();
 		// The Edit menu's items for the edit target's selection (Cut, Copy, Paste, Duplicate, Delete, Select All, Deselect
-		// All), enabled by it, each asking the window for the action at its next draw. Returns false, drawing nothing, while
-		// the scene is the target. Inside a menu.
-		bool DrawEditMenuItems();
+		// All), enabled by it, each asking the window for the action at its next draw. Each shows its key's text but for the
+		// claimed chords, which the window that has the keyboard keeps for itself (GetEditShortcutText). Returns what it drew,
+		// in order; nothing, drawing nothing, while the scene is the target. Inside a menu.
+		std::optional<std::vector<EditorMenuItemRecord>> DrawEditMenuItems(std::span<ImGuiKeyChord const> claimed);
 		// The View menu's "Visual Scripts" submenu: the open graphs, checked (unchecking closes one), and Close All; disabled
 		// while none is open. Inside a menu.
 		void DrawViewMenuItems();

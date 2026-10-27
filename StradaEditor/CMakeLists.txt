@@ -54,6 +54,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/EditorCamera.h
     Source/Editor/EditorContext.cpp
     Source/Editor/EditorContext.h
+    Source/Editor/EditorEditingKeys.cpp
+    Source/Editor/EditorEditingKeys.h
     Source/Editor/EditorExport.cpp
     Source/Editor/EditorExport.h
     Source/Editor/EditorLayer.cpp

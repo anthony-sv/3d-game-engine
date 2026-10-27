@@ -6,6 +6,8 @@
 #include "Strada/Asset/Asset.h"
 #include "Strada/Core/Result.h"
 
+#include <imgui.h>
+
 #include <array>
 #include <cstdint>
 #include <filesystem>
@@ -110,6 +112,18 @@ namespace Strada
 		// It stays until it is dismissed, the next import, or NoticeSeconds after it was first shown without the mouse over
 		// it.
 		std::string GetNotice() const;
+
+		// The window's name (and the hash of its ID).
+		static constexpr char const* WindowName = "Content Browser";
+		// The keys the browser claims while it has the keyboard (ImGuiInputFlags_RouteFocused, every frame it is drawn, even
+		// with nothing selected), so they never reach the editor's editing keys there: F2 renames the selected file, Delete
+		// and Ctrl+Backspace (Cmd+Backspace on macOS keyboards) delete it after asking. The Edit menu leaves their texts out
+		// while the browser has the keyboard.
+		static constexpr std::array<ImGuiKeyChord, 3> FocusedChords = {
+			ImGuiKey_F2,
+			ImGuiKey_Delete,
+			ImGuiMod_Ctrl | ImGuiKey_Backspace,
+		};
 
 		static constexpr double MinTileScale = 0.6;
 		static constexpr double MaxTileScale = 2.5;
