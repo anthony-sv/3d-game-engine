@@ -64,7 +64,11 @@ internal static class GraphAnalyzer
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			types.Resolve(graph);
-			AttachDeferredLinks(context, graph, null);
+			// Every node that splits late is resolved by now; a link left waiting cannot attach.
+			foreach (DeferredLink link in graph.DeferredLinks)
+			{
+				AttachDeferred(context, graph, link);
+			}
 		}
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
@@ -207,17 +211,14 @@ internal static class GraphAnalyzer
 			{
 				continue;
 			}
-			if (node.Builtin is BuiltinNode.FunctionEntry or BuiltinNode.FunctionReturn)
+			if (!node.CanBeDisabled)
 			{
-				context.ReportNode(DiagnosticCode.DisabledIgnored, node, node.Builtin == BuiltinNode.FunctionEntry
-					? $"{node.Title} cannot be disabled: every call of the function starts there, so it runs"
-					: $"{node.Title} cannot be disabled: the call returns there, so it runs");
-				continue;
-			}
-			if (node.Pure)
-			{
-				context.ReportNode(DiagnosticCode.DisabledIgnored, node,
-					$"{node.Title} is pure: it runs only when a node reads it, so it cannot be disabled and runs (disable the node that reads it)");
+				context.ReportNode(DiagnosticCode.DisabledIgnored, node, node.Builtin switch
+				{
+					BuiltinNode.FunctionEntry => $"{node.Title} cannot be disabled: every call of the function starts there, so it runs",
+					BuiltinNode.FunctionReturn => $"{node.Title} cannot be disabled: the call returns there, so it runs",
+					_ => $"{node.Title} is pure: it runs only when a node reads it, so it cannot be disabled and runs (disable the node that reads it)",
+				});
 				continue;
 			}
 			node.IsDisabled = true;
@@ -308,7 +309,7 @@ internal static class GraphAnalyzer
 			AnalyzedPin? input = FindPin(context, to, PinDirection.In, documentLink.To.Pin, documentLink, out bool inputWaits);
 			if (outputWaits || inputWaits)
 			{
-				graph.DeferredLinks.Add(new DeferredLink(documentLink, from, to, output != null || outputWaits, input != null || inputWaits));
+				graph.Defer(new DeferredLink(documentLink, from, to, output != null || outputWaits, outputWaits, input != null || inputWaits, inputWaits));
 				continue;
 			}
 			if (output != null && input != null)
@@ -342,7 +343,9 @@ internal static class GraphAnalyzer
 		}
 	}
 
-	// A node that splits once it is resolved: splits its pins, then attaches the links that waited for them.
+	// A node that splits once it is resolved: splits its pins, then attaches the links that waited for them. A link from a
+	// field pin into a pin of its own of a node that resolves later attaches here, before that node resolves (type
+	// resolution orders it after this one), so the link types it.
 	private static void SplitResolved(AnalysisContext context, AnalyzedNode node)
 	{
 		if (!node.SplitPending)
@@ -351,33 +354,28 @@ internal static class GraphAnalyzer
 		}
 		PinSplitter.Split(context, node);
 		node.SplitPending = false;
-		AttachDeferredLinks(context, node.Graph, node);
+		foreach (DeferredLink link in node.Graph.GetDeferredLinks(node))
+		{
+			AttachDeferred(context, node.Graph, link);
+		}
 	}
 
-	// Attaches the deferred links of the node (every one when node is null) whose ends are on nodes that split already: an
-	// end that names no pin is an Error UnknownPin.
-	private static void AttachDeferredLinks(AnalysisContext context, AnalyzedGraph graph, AnalyzedNode? node)
+	// Attaches a deferred link once no end waits for its node to split: an end that names no pin is an Error UnknownPin. Each
+	// link is visited once for each end that waits, and once after type resolution.
+	private static void AttachDeferred(AnalysisContext context, AnalyzedGraph graph, DeferredLink link)
 	{
-		List<DeferredLink> links = graph.DeferredLinks;
-		int kept = 0;
-		for (int index = 0; index < links.Count; index++)
+		if (link.Done || link.IsWaiting)
 		{
-			DeferredLink link = links[index];
-			bool touches = node == null || link.From == node || link.To == node;
-			if (!touches || link.From.SplitPending || link.To.SplitPending)
-			{
-				links[kept++] = link;
-				continue;
-			}
-			// An end found to name no pin before was reported then.
-			AnalyzedPin? output = link.FindsOutput ? FindPin(context, link.From, PinDirection.Out, link.Document.From.Pin, link.Document, out _) : null;
-			AnalyzedPin? input = link.FindsInput ? FindPin(context, link.To, PinDirection.In, link.Document.To.Pin, link.Document, out _) : null;
-			if (output != null && input != null)
-			{
-				Attach(context, graph, link.Document, output, input);
-			}
+			return;
 		}
-		links.RemoveRange(kept, links.Count - kept);
+		link.Done = true;
+		// An end found to name no pin before was reported then.
+		AnalyzedPin? output = link.FindsOutput ? FindPin(context, link.From, PinDirection.Out, link.Document.From.Pin, link.Document, out _) : null;
+		AnalyzedPin? input = link.FindsInput ? FindPin(context, link.To, PinDirection.In, link.Document.To.Pin, link.Document, out _) : null;
+		if (output != null && input != null)
+		{
+			Attach(context, graph, link.Document, output, input);
+		}
 	}
 
 	// The pin a link endpoint or an Inputs key names (null when it names none: an Error UnknownPin for a link). Waits is
@@ -479,25 +477,43 @@ internal static class GraphAnalyzer
 		}
 	}
 
-	// A data link between pins whose types are known: the conversion it needs, or an Error TypeMismatch.
+	// A data link: the conversion it needs, or an Error TypeMismatch; a link from a wildcard output nothing typed is an Error
+	// UnresolvedWildcard.
 	private static void CheckConversion(AnalysisContext context, AnalyzedLink link)
 	{
 		AnalyzedPin from = link.From;
 		AnalyzedPin to = link.To;
-		if (!from.Type.HasValues || !to.Type.HasValues)
+		if (!from.Type.HasValues)
 		{
+			// A wildcard output that resolution could not type: no value of a known type crosses the link, so no node may read
+			// it. An output that is no wildcard has no type when what declares it has none (a variable or parameter of an unknown
+			// type, an unknown node, broken settings), and an input of a node whose pins are not complete takes any link: each
+			// is an Error where it is declared, and its links say nothing more. The link stays: the program is broken, and its
+			// input is not unconnected.
+			if (from.Description.Source != WildcardSource.None && to.Node.PinsComplete)
+			{
+				context.ReportLink(DiagnosticCode.UnresolvedWildcard, link,
+					$"the type of {from.Node.ID}.{from.Name} is unknown: {to.Node.ID}.{to.Name} takes no value from it");
+			}
+			return;
+		}
+		// The constraint is checked before the input's own type: an input whose only links come from disabled nodes it refuses
+		// is typed as if unconnected (TypeResolution), and those links are errors here.
+		if (to.Description.Source == WildcardSource.Links && !TypeRules.Satisfies(from.Type, to.Description.Constraint))
+		{
+			link.IsValid = false;
+			context.ReportLink(DiagnosticCode.TypeMismatch, link,
+				$"{to.Node.Title}'s {to.Name} takes {TypeRules.Describe(to.Description.Constraint)}, not {from.Type.Id}");
+			return;
+		}
+		if (!to.Type.HasValues)
+		{
+			// An input nothing typed: one of an unknown node, or a wildcard whose links have no common type (an Error on its node).
 			return;
 		}
 		ConversionKind? conversion;
 		if (to.Description.Source == WildcardSource.Links)
 		{
-			if (!TypeRules.Satisfies(from.Type, to.Description.Constraint))
-			{
-				link.IsValid = false;
-				context.ReportLink(DiagnosticCode.TypeMismatch, link,
-					$"{to.Node.Title}'s {to.Name} takes {TypeRules.Describe(to.Description.Constraint)}, not {from.Type.Id}");
-				return;
-			}
 			conversion = TypeRules.GetJoinConversion(from.Type, to.Type);
 		}
 		else
@@ -533,8 +549,10 @@ internal static class GraphAnalyzer
 			string hint = node.Builtin is { } builtin && BuiltinNodes.IsBinaryWildcardOperator(builtin)
 				? " (or connect the other operand and store a value here)"
 				: string.Empty;
-			context.ReportPin(DiagnosticCode.UnresolvedWildcard, node, pin.Name, PinDirection.In,
-				$"the type of {pin.Name} is unknown until it is connected{hint}");
+			// An input whose links are all errors (from disabled nodes whose outputs it refuses, say) is unconnected.
+			context.ReportPin(DiagnosticCode.UnresolvedWildcard, node, pin.Name, PinDirection.In, pin.Links.Count > 0
+				? $"the type of {pin.Name} is unknown: none of its links gives it a value{hint}"
+				: $"the type of {pin.Name} is unknown until it is connected{hint}");
 		}
 		foreach (KeyValuePair<string, JsonElement> input in node.Source.Inputs.Members)
 		{

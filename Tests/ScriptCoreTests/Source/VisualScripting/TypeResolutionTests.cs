@@ -94,6 +94,31 @@ public sealed class TypeResolutionTests
 			.Select(static diagnostic => diagnostic.Pin));
 	}
 
+	// A link from a wildcard output that nothing typed carries no value of a known type: an Error UnresolvedWildcard on the
+	// link, so no program reads such a value (a string input never takes null). A For Each whose Array is unconnected gives
+	// its Element to a Write. Links from unknown nodes say nothing more: the node is the Error.
+	[Fact]
+	public void ALinkFromAnUnresolvedWildcardOutputIsAnError()
+	{
+		AnalyzedDocument element = VisualScriptTesting.Analyze(RuntimeTesting.Library, VisualScriptTesting.Document(
+			$$"""{ "ID": 1, "Type": "Flow.ForEach" }, { "ID": 2, "Type": "{{RuntimeTesting.Write}}" }""", """{ "From": [1, "Element"], "To": [2, "Text"] }"""));
+		Assert.Equal([(DiagnosticCode.UnresolvedWildcard, (uint?)null, (string?)null), (DiagnosticCode.UnresolvedWildcard, 1u, "Array")],
+			element.Diagnostics.Select(static diagnostic => (diagnostic.Code, diagnostic.Node, diagnostic.Pin)));
+		Assert.All(element.Diagnostics, static diagnostic => Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity));
+		Diagnostic link = element.Diagnostics[0];
+		Assert.Equal(((uint)1, "Element", (uint)2, "Text"), (link.Link!.From.Node, link.Link.From.Pin, link.Link.To.Node, link.Link.To.Pin));
+		Assert.Equal("the type of 1.Element is unknown: 2.Text takes no value from it", link.Message);
+
+		AnalyzedDocument unknown = VisualScriptTesting.Analyze(RuntimeTesting.Library, VisualScriptTesting.Document(
+			$$"""{ "ID": 1, "Type": "Flow.Nothing" }, { "ID": 2, "Type": "{{RuntimeTesting.Write}}" }""", """{ "From": [1, "Value"], "To": [2, "Text"] }"""));
+		Assert.Equal(DiagnosticCode.UnknownNodeType, Assert.Single(unknown.Diagnostics).Code);
+		// Nor do links from outputs typed by a declaration of an unknown type: the declaration is the Error.
+		AnalyzedDocument undeclared = VisualScriptTesting.Analyze(RuntimeTesting.Library, VisualScriptTesting.Document(
+			$$"""{ "ID": 1, "Type": "Variable.Get", "Settings": { "Variable": 9 } }, { "ID": 2, "Type": "{{RuntimeTesting.Write}}" }""",
+			"""{ "From": [1, "Value"], "To": [2, "Text"] }""", """{ "ID": 9, "Name": "Target", "Type": "Strada.Nothing" }"""));
+		Assert.Equal(DiagnosticCode.UnknownType, Assert.Single(undeclared.Diagnostics).Code);
+	}
+
 	[Fact]
 	public void AStoredOperandTakesTheLinkedOperandsType()
 	{

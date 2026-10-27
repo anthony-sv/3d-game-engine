@@ -46,6 +46,7 @@ internal static class PinSplitter
 		string side = direction == PinDirection.In ? "input" : "output";
 		foreach (string entry in node.Source.Split.Of(direction))
 		{
+			// Pins are found by their current names (a redirect may rename them); what is reported names the entry as stored.
 			string path = node.Rename(direction, entry);
 			AnalyzedPin? pin = node.FindShownPin(path, direction);
 			if (pin == null)
@@ -54,27 +55,17 @@ internal static class PinSplitter
 				string message = node.FindSplitPin(path, direction) != null ? $"{path} is split by an earlier entry"
 					: dot > 0 && node.FindSplitPin(path[..dot], direction) == null ? $"{path} is a field of {path[..dot]}, which is not split"
 					: $"{node.Title} has no {side} pin {JsonText.Quote(path)}";
-				Unused(context, node, path, direction, message);
+				Unused(context, node, entry, direction, message);
 				continue;
 			}
 			VisualType type = pin.Type;
 			if (!type.HasValues || type.Fields.Count == 0 || !(direction == PinDirection.In ? type.Makeable : type.Breakable))
 			{
-				Unused(context, node, path, direction, type.IsExec ? $"{path} is an exec pin"
+				Unused(context, node, entry, direction, type.IsExec ? $"{path} is an exec pin"
 					: !type.HasValues ? $"the type of {path} is not resolved"
 					: direction == PinDirection.In ? $"{path} is {type.Id}: inputs split only structs whose public fields are all writable"
 					: $"{path} is {type.Id}: outputs split only structs with public fields or readonly structs with get-only properties");
 				continue;
-			}
-			if (pin.Links.Count > 0)
-			{
-				// A node that splits late found its links before it split: a link that names the split pin itself reaches
-				// no pin (its fields take the links).
-				foreach (AnalyzedLink link in pin.Links)
-				{
-					link.IsValid = false;
-					context.ReportPin(DiagnosticCode.UnknownPin, node, path, direction, UnknownPinMessage(node, path, direction), link.Document);
-				}
 			}
 			object? value = direction == PinDirection.In ? UnconnectedValue(pin) : null;
 			List<(PinDescription, StructMember)> fields = [];
@@ -86,6 +77,26 @@ internal static class PinSplitter
 					: new PinDescription(name, direction, field.Type), field));
 			}
 			pin.Split(fields);
+			if (pin.Links.Count > 0)
+			{
+				// A node that splits late found its links before it split: a link that names the split pin itself reaches no
+				// pin (its fields take the links), as when the pin split before its links were found.
+				string message = UnknownPinMessage(node, path, direction);
+				List<string> candidates = [];
+				foreach (AnalyzedPin candidate in node.GetShownPins())
+				{
+					if (candidate.Direction == direction)
+					{
+						candidates.Add(candidate.Name);
+					}
+				}
+				IReadOnlyList<string> suggestions = context.Suggest(path, candidates);
+				foreach (AnalyzedLink link in pin.Links)
+				{
+					link.IsValid = false;
+					context.ReportPin(DiagnosticCode.UnknownPin, node, path, direction, message, link.Document, suggestions);
+				}
+			}
 		}
 	}
 
@@ -149,9 +160,11 @@ internal static class PinSplitter
 		};
 	}
 
-	private static void Unused(AnalysisContext context, AnalyzedNode node, string path, PinDirection direction, string why)
+	// UnusedSplit names the entry exactly as the node's Split list stores it (its Pin and the message), so the editor finds
+	// the entry to remove; the reason names pins by their current names.
+	private static void Unused(AnalysisContext context, AnalyzedNode node, string entry, PinDirection direction, string why)
 	{
 		string side = direction == PinDirection.In ? "Inputs" : "Outputs";
-		context.ReportPin(DiagnosticCode.UnusedSplit, node, path, direction, $"Split.{side} {JsonText.Quote(path)} is ignored: {why}");
+		context.ReportPin(DiagnosticCode.UnusedSplit, node, entry, direction, $"Split.{side} {JsonText.Quote(entry)} is ignored: {why}");
 	}
 }

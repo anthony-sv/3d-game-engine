@@ -123,4 +123,70 @@ public sealed class ScalingTests
 		Assert.True(fanTime < TimeSpan.FromSeconds(2.0), $"{sources} Reroutes into a chain of {chain} took {fanTime.TotalMilliseconds:F0} ms to analyze");
 		Assert.True(mismatchTime < TimeSpan.FromSeconds(4.0), $"{4 * breaks} links into one input took {mismatchTime.TotalMilliseconds:F0} ms to analyze");
 	}
+
+	// Links that name field pins of a wildcard node wait until it is resolved and split (spec-slice2 section 3.3). Attaching
+	// them keeps every list of links in link order at the cost of one sort, and a node that splits visits only the links that
+	// wait for it. A split Reroute whose 19980 field links come before 19980 other links, and 5000 split Reroutes that resolve
+	// before the one split Select that 19960 field links wait for. Before, each late link was inserted in order behind every
+	// link after it, and each split visited every link still waiting: the documents took seconds to analyze.
+	[Fact]
+	public void LinksToFieldPinsOfLateSplitsAnalyzeInTimeLinearInTheirNumber()
+	{
+		const int makes = 9990;
+		StringBuilder nodes = new();
+		StringBuilder links = new();
+		nodes.Append("""{ "ID": 1, "Type": "Literal", "Settings": { "Type": "Strada.Vector3" } }, """)
+			.Append("""{ "ID": 2, "Type": "Reroute", "Split": { "Outputs": ["Out"] } }, """)
+			.Append("""{ "ID": 3, "Type": "Literal", "Settings": { "Type": "float" } }""");
+		for (int index = 4; index < makes + 4; index++)
+		{
+			nodes.Append(FormattableString.Invariant($$""", { "ID": {{index}}, "Type": "Make", "Settings": { "Type": "Strada.Vector4" } }"""));
+			links.Append(FormattableString.Invariant($$"""{ "From": [2, "Out.X"], "To": [{{index}}, "X"] }, { "From": [2, "Out.Y"], "To": [{{index}}, "Y"] }, """));
+		}
+		for (int index = 4; index < makes + 4; index++)
+		{
+			links.Append(FormattableString.Invariant($$"""{ "From": [3, "Value"], "To": [{{index}}, "Z"] }, { "From": [3, "Value"], "To": [{{index}}, "W"] }, """));
+		}
+		links.Append("""{ "From": [1, "Value"], "To": [2, "In"] }""");
+		AnalyzedDocument early = null!;
+		TimeSpan earlyTime = Time(() => early = VisualScriptTesting.Analyze(VisualScriptTesting.Document(nodes.ToString(), links.ToString())));
+
+		Assert.Empty(early.Diagnostics);
+		Assert.Equal(Enumerable.Range(0, 4 * makes + 1), early.EventGraph.Links.Select(static link => link.Document.Index));
+		Assert.Equal("Out.Y", VisualScriptTesting.Pin(early, makes + 3, "Y", PinDirection.In).Source!.From.Name);
+		Assert.Equal(2 * makes, VisualScriptTesting.Node(early, 2).GetShownPins().Where(static pin => !pin.IsInput).Sum(static pin => pin.Links.Count));
+
+		const int reroutes = 5000;
+		const int targets = 4990;
+		nodes.Clear();
+		links.Clear();
+		for (int index = 1; index <= reroutes; index++)
+		{
+			nodes.Append(FormattableString.Invariant($$"""{ "ID": {{index}}, "Type": "Reroute", "Split": { "Outputs": ["Out"] } }, """));
+		}
+		const int select = reroutes + 1;
+		nodes.Append(FormattableString.Invariant($$"""{ "ID": {{select}}, "Type": "Select", "Inputs": { "Condition": true }, "Split": { "Outputs": ["Result"] } }, """))
+			.Append(FormattableString.Invariant($$"""{ "ID": {{select + 1}}, "Type": "Literal", "Settings": { "Type": "Strada.Vector3" } }"""));
+		for (int index = select + 2; index < select + 2 + targets; index++)
+		{
+			nodes.Append(FormattableString.Invariant($$""", { "ID": {{index}}, "Type": "Make", "Settings": { "Type": "Strada.Vector4" } }"""));
+			foreach ((string field, string input) in new[] { ("X", "X"), ("Y", "Y"), ("Z", "Z"), ("X", "W") })
+			{
+				links.Append(FormattableString.Invariant($$"""{ "From": [{{select}}, "Result.{{field}}"], "To": [{{index}}, "{{input}}"] }, """));
+			}
+		}
+		links.Append(FormattableString.Invariant($$"""{ "From": [{{select + 1}}, "Value"], "To": [{{select}}, "True"] }"""));
+		AnalyzedDocument pending = null!;
+		TimeSpan pendingTime = Time(() => pending = VisualScriptTesting.Analyze(VisualScriptTesting.Document(nodes.ToString(), links.ToString())));
+
+		// Nothing types the Reroutes: their Ins are unresolved, and their entries split nothing.
+		Assert.Equal(reroutes, pending.Diagnostics.Count(static diagnostic => diagnostic.Code == DiagnosticCode.UnusedSplit));
+		Assert.Equal(reroutes, pending.Diagnostics.Count(static diagnostic => diagnostic.Code == DiagnosticCode.UnresolvedWildcard));
+		Assert.Equal(2 * reroutes, pending.Diagnostics.Count);
+		Assert.True(VisualScriptTesting.Pin(pending, select + 1 + targets, "W", PinDirection.In).IsConnected);
+		// About 0.5 s and 0.3 s unoptimized; inserting each late link in order behind the links after it took 5 s, and visiting
+		// every waiting link at each split 2.5 s.
+		Assert.True(earlyTime < TimeSpan.FromSeconds(2.0), $"{2 * makes} late links before {2 * makes} others took {earlyTime.TotalMilliseconds:F0} ms to analyze");
+		Assert.True(pendingTime < TimeSpan.FromSeconds(1.2), $"{reroutes} splits before {4 * targets} late links took {pendingTime.TotalMilliseconds:F0} ms to analyze");
+	}
 }

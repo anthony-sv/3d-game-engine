@@ -151,6 +151,9 @@ internal sealed class AnalyzedGraph
 	private readonly List<AnalyzedNode> m_Nodes = [];
 	private readonly List<AnalyzedLink> m_Links = [];
 	private readonly Dictionary<uint, AnalyzedNode> m_NodesById = [];
+	private readonly List<DeferredLink> m_DeferredLinks = [];
+	private readonly Dictionary<AnalyzedNode, List<DeferredLink>> m_DeferredLinksByNode = [];
+	private bool m_LinksUnordered;
 
 	internal AnalyzedGraph(uint function, AnalyzedFunction? owner)
 	{
@@ -165,7 +168,15 @@ internal sealed class AnalyzedGraph
 
 	internal IReadOnlyList<AnalyzedNode> Nodes => m_Nodes;
 
-	internal IReadOnlyList<AnalyzedLink> Links => m_Links;
+	// In link order, whatever order the links were attached in.
+	internal IReadOnlyList<AnalyzedLink> Links
+	{
+		get
+		{
+			LinkOrder.Restore(m_Links, ref m_LinksUnordered);
+			return m_Links;
+		}
+	}
 
 	internal AnalyzedNode? FindNode(uint id) => m_NodesById.TryGetValue(id, out AnalyzedNode? node) ? node : null;
 
@@ -175,31 +186,93 @@ internal sealed class AnalyzedGraph
 		m_NodesById[node.ID] = node;
 	}
 
-	// Links stay in link order whatever order they are attached in: links that name field pins of split wildcards are attached
-	// once those are resolved and split.
 	internal void Add(AnalyzedLink link)
 	{
-		m_Links.Insert(LinkPosition(m_Links, link), link);
+		LinkOrder.Append(m_Links, link, ref m_LinksUnordered);
 	}
 
-	// Links whose endpoints may name field pins of a node that splits its pins once its wildcards are resolved.
-	internal List<DeferredLink> DeferredLinks { get; } = [];
+	// Links whose endpoints may name field pins of a node that splits its pins once its wildcards are resolved, in link order.
+	internal IReadOnlyList<DeferredLink> DeferredLinks => m_DeferredLinks;
 
-	// Where a link goes in a list kept in link order; at the end unless it was attached late.
-	internal static int LinkPosition(List<AnalyzedLink> links, AnalyzedLink link)
+	internal void Defer(DeferredLink link)
 	{
-		int index = links.Count;
-		while (index > 0 && links[index - 1].Document.Index > link.Document.Index)
+		m_DeferredLinks.Add(link);
+		if (link.OutputWaits)
 		{
-			index--;
+			DeferUnder(link.From, link);
 		}
-		return index;
+		if (link.InputWaits && !(link.OutputWaits && link.To == link.From))
+		{
+			DeferUnder(link.To, link);
+		}
+	}
+
+	// The deferred links with an end that waits for the node to split, in link order.
+	internal IReadOnlyList<DeferredLink> GetDeferredLinks(AnalyzedNode node) =>
+		m_DeferredLinksByNode.TryGetValue(node, out List<DeferredLink>? links) ? links : [];
+
+	private void DeferUnder(AnalyzedNode node, DeferredLink link)
+	{
+		if (!m_DeferredLinksByNode.TryGetValue(node, out List<DeferredLink>? links))
+		{
+			links = [];
+			m_DeferredLinksByNode[node] = links;
+		}
+		links.Add(link);
 	}
 }
 
-// A link analysis attaches once the nodes its ends are on have split their pins. FindsOutput and FindsInput are false for
-// an end already found to name no pin (and reported): the link never attaches, but its other end is still checked.
-internal sealed record DeferredLink(DocumentLink Document, AnalyzedNode From, AnalyzedNode To, bool FindsOutput, bool FindsInput);
+// Lists of links kept in link order. Links that name field pins of split wildcards are attached once those are resolved and
+// split, after links that come later: they are appended, and the list is sorted once when it is next read, so attaching
+// costs constant time and a list read after many late links costs one sort.
+internal static class LinkOrder
+{
+	internal static void Append(List<AnalyzedLink> links, AnalyzedLink link, ref bool unordered)
+	{
+		if (links.Count > 0 && links[^1].Document.Index > link.Document.Index)
+		{
+			unordered = true;
+		}
+		links.Add(link);
+	}
+
+	internal static void Restore(List<AnalyzedLink> links, ref bool unordered)
+	{
+		if (!unordered)
+		{
+			return;
+		}
+		// Link indices are unique in a graph, so any sort is stable.
+		links.Sort(static (a, b) => a.Document.Index.CompareTo(b.Document.Index));
+		unordered = false;
+	}
+}
+
+// A link analysis attaches once every node whose field pin one of its ends may name has split (an end that waits); an end
+// that names a pin of its own never holds it back. FindsOutput and FindsInput are false for an end already found to name no
+// pin (and reported): the link never attaches, but its other end is still checked. Done once it was attached or dropped.
+internal sealed class DeferredLink(DocumentLink document, AnalyzedNode from, AnalyzedNode to, bool findsOutput, bool outputWaits,
+	bool findsInput, bool inputWaits)
+{
+	internal DocumentLink Document { get; } = document;
+
+	internal AnalyzedNode From { get; } = from;
+
+	internal AnalyzedNode To { get; } = to;
+
+	internal bool FindsOutput { get; } = findsOutput;
+
+	internal bool OutputWaits { get; } = outputWaits;
+
+	internal bool FindsInput { get; } = findsInput;
+
+	internal bool InputWaits { get; } = inputWaits;
+
+	internal bool Done { get; set; }
+
+	// Whether an end still waits for its node to split.
+	internal bool IsWaiting => (OutputWaits && From.SplitPending) || (InputWaits && To.SplitPending);
+}
 
 internal sealed class AnalyzedNode
 {
@@ -252,6 +325,10 @@ internal sealed class AnalyzedNode
 	// A node whose Enabled is "Disabled" and that can be disabled (not pure, not Function.Entry or Function.Return): it
 	// compiles as a pass-through, whatever its kind, settings and diagnostics, and its diagnostics are Warnings.
 	internal bool IsDisabled { get; set; }
+
+	// Whether a node whose Enabled is "Disabled" is a pass-through: Function.Entry, Function.Return and pure nodes run. Final
+	// once the node is resolved (a Reroute of the flow is not pure), which type resolution does before the nodes it feeds.
+	internal bool CanBeDisabled => Builtin is not (BuiltinNode.FunctionEntry or BuiltinNode.FunctionReturn) && !Pure;
 
 	// A disabled node: the exec output the flow entering it continues at; null when its chain ends there (it has no exec
 	// output, or no exec input to enter).
@@ -394,6 +471,7 @@ internal sealed class AnalyzedNode
 internal sealed class AnalyzedPin
 {
 	private readonly List<AnalyzedLink> m_Links = [];
+	private bool m_LinksUnordered;
 
 	internal AnalyzedPin(AnalyzedNode node, PinDescription description)
 	{
@@ -434,15 +512,23 @@ internal sealed class AnalyzedPin
 	// The resolved type: the description's type, or what wildcard resolution found (still the wildcard when unresolved).
 	internal VisualType Type { get; set; }
 
-	// Incoming links of inputs, outgoing links of outputs, in link order (including links that are errors).
-	internal IReadOnlyList<AnalyzedLink> Links => m_Links;
+	// Incoming links of inputs, outgoing links of outputs, in link order (including links that are errors), whatever order they
+	// were attached in.
+	internal IReadOnlyList<AnalyzedLink> Links
+	{
+		get
+		{
+			LinkOrder.Restore(m_Links, ref m_LinksUnordered);
+			return m_Links;
+		}
+	}
 
 	// The link an input takes its value from: its first link that is not an error.
 	internal AnalyzedLink? Source
 	{
 		get
 		{
-			foreach (AnalyzedLink link in m_Links)
+			foreach (AnalyzedLink link in Links)
 			{
 				if (link.IsValid)
 				{
@@ -463,10 +549,9 @@ internal sealed class AnalyzedPin
 	// The value of an unconnected input: its literal, else the pin default, else the type default.
 	internal object? Value { get; set; }
 
-	// Links stay in link order (the graph's Links order) whatever order they are attached in.
 	internal void AddLink(AnalyzedLink link)
 	{
-		m_Links.Insert(AnalyzedGraph.LinkPosition(m_Links, link), link);
+		LinkOrder.Append(m_Links, link, ref m_LinksUnordered);
 	}
 
 	// Splits the pin into one field pin per field of its type, in field order.

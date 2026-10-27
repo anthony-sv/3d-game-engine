@@ -375,6 +375,42 @@ public sealed class DisabledNodeTests
 			VisualScriptTesting.Errors(enabled).Select(static diagnostic => diagnostic.Code).Distinct().Order());
 	}
 
+	// A wildcard input of an enabled node takes no type from an output of a disabled node that it refuses (an int into For
+	// Each's Array, Length's Array or Is Valid's Value): the link is a Warning, and the input is unconnected with no type, an
+	// Error on the enabled node. Typed by the refused link, it would run on a value it cannot take. Enabled, the link is the
+	// Error, and the input keeps the type it gives.
+	[Theory]
+	[InlineData("Flow.ForEach", "Array")]
+	[InlineData("Array.Length", "Array")]
+	[InlineData("IsValid", "Value")]
+	public void AWildcardInputTakesNoTypeFromADisabledNodesOutputItRefuses(string type, string input)
+	{
+		DocumentBuilder document = new();
+		uint count = document.Variable("Count", "int");
+		GraphBuilder graph = document.Graph;
+		uint set = graph.Node("Variable.Set", FormattableString.Invariant($"{{ \"Variable\": {count} }}"), """{ "Value": 3 }""", Disabled);
+		uint reader = graph.Node(type);
+		graph.Link(set, "Value", reader, input);
+		graph.Flow(graph.Node("Event.Create"), set);
+		string built = document.Build();
+
+		AnalyzedDocument analyzed = VisualScriptTesting.Analyze(RuntimeTesting.Library, built);
+		Assert.Equal([(DiagnosticCode.TypeMismatch, DiagnosticSeverity.Warning), (DiagnosticCode.UnresolvedWildcard, DiagnosticSeverity.Error)],
+			analyzed.Diagnostics.Select(static diagnostic => (diagnostic.Code, diagnostic.Severity)));
+		Assert.Equal((set, reader), (analyzed.Diagnostics[0].Link!.From.Node, analyzed.Diagnostics[0].Link!.To.Node));
+		Diagnostic unresolved = analyzed.Diagnostics[1];
+		Assert.Equal((reader, input, PinDirection.In), (unresolved.Node!.Value, unresolved.Pin!, unresolved.Direction!.Value));
+		Assert.Equal($"the type of {input} is unknown: none of its links gives it a value", unresolved.Message);
+		AnalyzedPin pin = VisualScriptTesting.Pin(analyzed, reader, input, PinDirection.In);
+		Assert.False(pin.IsConnected);
+		Assert.False(pin.Type.HasValues);
+		Assert.Equal(DiagnosticCode.UnresolvedWildcard, Assert.Single(new TestRuntime().Load(built), static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).Code);
+
+		AnalyzedDocument enabled = VisualScriptTesting.Analyze(RuntimeTesting.Library, Enable(built));
+		Assert.Equal(DiagnosticCode.TypeMismatch, Assert.Single(VisualScriptTesting.Errors(enabled)).Code);
+		Assert.Equal("int", VisualScriptTesting.Pin(enabled, reader, input, PinDirection.In).Type.Id);
+	}
+
 	[Fact]
 	public void DevelopmentOnlyNodesRunAsEnabledNodes()
 	{

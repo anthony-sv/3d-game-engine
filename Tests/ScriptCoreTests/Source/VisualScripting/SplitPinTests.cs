@@ -183,6 +183,68 @@ public sealed class SplitPinTests
 		Assert.Equal(["2.5", "0", "3", "6"], runtime.Records);
 	}
 
+	// A field pin of a node that splits late feeds a pin of its own of another node that splits late: the link attaches when
+	// the first node splits, before the second resolves, so it types the second's wildcard, which splits in turn. A chain of
+	// two split Reroutes, a split Select fed by the fields of a split Reroute, and a For Each's Element fields feeding a
+	// Select whose Split lists its float Result. The nodes that resolve later come first, so node order alone would not do.
+	[Fact]
+	public void FieldPinsOfLateSplitsTypeTheWildcardsOfOtherLateSplits()
+	{
+		DocumentBuilder chain = new();
+		GraphBuilder graph = chain.Graph;
+		uint second = graph.Node("Reroute", split: """{ "Outputs": ["Out"] }""");
+		uint first = graph.Node("Reroute", split: """{ "Outputs": ["Out"] }""");
+		graph.Link(first, "Out.Point", second, "In");
+		graph.Link(graph.Node(HitOf, inputs: """{ "Distance": 2.5 }"""), "Result", first, "In");
+		uint pointY = graph.Write(second, "Out.Y");
+		graph.Flow(graph.Node("Event.Create"), pointY);
+		AnalyzedDocument analyzedChain = Analyze(chain);
+
+		Assert.Empty(analyzedChain.Diagnostics);
+		Assert.Equal(["In In: Strada.Vector3", "Out Out.X: float", "Out Out.Y: float", "Out Out.Z: float"], ShownPins(analyzedChain, second));
+		TestRuntime chainRuntime = TestRuntime.Start(chain);
+		chainRuntime.Invoke(ScriptEvent.Create);
+		Assert.Equal(["1"], chainRuntime.Records);
+
+		DocumentBuilder select = new();
+		graph = select.Graph;
+		uint choose = graph.Node("Select", inputs: """{ "Condition": true }""", split: """{ "Outputs": ["Result"] }""");
+		uint ray = graph.Node("Reroute", split: """{ "Outputs": ["Out"] }""");
+		graph.Link(ray, "Out.Origin", choose, "True");
+		graph.Link(ray, "Out.Direction", choose, "False");
+		graph.Link(graph.Node("Make", """{ "Type": "Strada.Ray" }""", """{ "Origin": [1.0, 2.0, 3.0], "Direction": [0.0, 0.0, 1.0] }"""), "Value", ray, "In");
+		uint originY = graph.Write(choose, "Result.Y");
+		graph.Flow(graph.Node("Event.Create"), originY);
+		AnalyzedDocument analyzedSelect = Analyze(select);
+
+		Assert.Empty(analyzedSelect.Diagnostics);
+		Assert.Equal(["In Condition: bool", "In True: Strada.Vector3", "In False: Strada.Vector3", "Out Result.X: float", "Out Result.Y: float",
+			"Out Result.Z: float"], ShownPins(analyzedSelect, choose));
+		TestRuntime selectRuntime = TestRuntime.Start(select);
+		selectRuntime.Invoke(ScriptEvent.Create);
+		Assert.Equal(["2"], selectRuntime.Records);
+
+		DocumentBuilder each = new();
+		graph = each.Graph;
+		uint pick = graph.Node("Select", inputs: """{ "Condition": true }""", split: """{ "Outputs": ["Result"] }""");
+		uint loop = graph.Node("Flow.ForEach", split: """{ "Outputs": ["Element"] }""");
+		graph.Link(loop, "Element.Y", pick, "True");
+		graph.Link(loop, "Element.Z", pick, "False");
+		graph.Link(graph.Node(Points, inputs: """{ "Count": 3 }"""), "Result", loop, "Array");
+		uint body = graph.Write(pick, "Result");
+		graph.Flow(graph.Node("Event.Create"), loop);
+		graph.Flow(loop, body, "Body");
+		AnalyzedDocument analyzedEach = Analyze(each);
+
+		Assert.Equal([(DiagnosticCode.UnusedSplit, pick, "Result")], Findings(analyzedEach));
+		Assert.EndsWith("Result is float: outputs split only structs with public fields or readonly structs with get-only properties",
+			analyzedEach.Diagnostics[0].Message, StringComparison.Ordinal);
+		Assert.Equal("float", Shown(analyzedEach, pick, "True", PinDirection.In).Type.Id);
+		TestRuntime eachRuntime = TestRuntime.Start(each);
+		eachRuntime.Invoke(ScriptEvent.Create);
+		Assert.Equal(["0", "2", "4"], eachRuntime.Records);
+	}
+
 	// A disabled node passes its split input on as the struct its fields make, and its split output gives the fields of what
 	// it passes.
 	[Fact]
@@ -231,6 +293,7 @@ public sealed class SplitPinTests
 		Assert.Equal(DiagnosticSeverity.Warning, diagnostic.Severity);
 		Assert.Equal(node, diagnostic.Node);
 		Assert.Equal(path, diagnostic.Pin);
+		Assert.Equal(split.Contains("Inputs", StringComparison.Ordinal) ? PinDirection.In : PinDirection.Out, diagnostic.Direction);
 		Assert.EndsWith($"is ignored: {why}", diagnostic.Message, StringComparison.Ordinal);
 		Assert.DoesNotContain(ShownPins(analyzed, node), pin => pin.Contains($" {path}.", StringComparison.Ordinal));
 	}
@@ -265,7 +328,55 @@ public sealed class SplitPinTests
 		lateGraph.Link(reroute, "Out.W", lateGraph.Write("y"), "Text");
 		AnalyzedDocument lateAnalyzed = Analyze(late);
 		Assert.Equal([(DiagnosticCode.UnknownPin, reroute, "Out"), (DiagnosticCode.UnknownPin, reroute, "Out.W")], Findings(lateAnalyzed));
+		Assert.Equal("Reroute has no output pin \"Out\": it is split, so links reach its fields", lateAnalyzed.Diagnostics[0].Message);
+		Assert.Equal(["Out.X", "Out.Y", "Out.Z"], lateAnalyzed.Diagnostics[0].Suggestions);
 	}
+
+	// UnusedSplit's fields in the analysis JSON (ruling R5.4): its Node; Direction In for an entry of Split.Inputs and Out for
+	// one of Split.Outputs; Pin the entry exactly as the node's Split list stores it, also when it names no pin or a redirect
+	// renamed the pin it names, and the message quotes it so. DisabledIgnored has its Node and neither Pin nor Direction.
+	[Fact]
+	public void UnusedSplitNamesTheEntryAsStoredInTheAnalysisJson()
+	{
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint branch = graph.Node("Flow.Branch", split: """{ "Inputs": ["Conditon"], "Outputs": ["True"] }""");
+		uint literal = graph.Node("Literal", """{ "Type": "float", "Value": 1.0 }""", enabled: "Disabled");
+		JsonElement[] written = WrittenDiagnostics(Analyze(document));
+
+		Assert.Equal(["UnusedSplit", "UnusedSplit", "DisabledIgnored"], written.Select(static diagnostic => diagnostic.GetProperty("Code").GetString()));
+		AssertUnusedSplit(written[0], branch, "In", "Conditon", "Split.Inputs \"Conditon\" is ignored: Branch has no input pin \"Conditon\"");
+		AssertUnusedSplit(written[1], branch, "Out", "True", "Split.Outputs \"True\" is ignored: True is an exec pin");
+		Assert.Equal(literal, written[2].GetProperty("Node").GetUInt32());
+		Assert.False(written[2].TryGetProperty("Pin", out _));
+		Assert.False(written[2].TryGetProperty("Direction", out _));
+
+		// Get Translation's Value became the stand-in's Result: the entries name Value as the file stores them, and the reasons
+		// name the pins as the node now has them. "Result" names the split pin through the rename: it splits nothing again.
+		AnalyzedDocument renamed = VisualScriptTesting.Analyze(FuzzLibrary.Library, VisualScriptTesting.Document(
+			"""{ "ID": 1, "Type": "Get:Strada.TransformComponent.Translation", "Split": { "Outputs": ["Value", "Value.X", "Value.Nope", "Result"] } }"""));
+		JsonElement[] unused = [.. WrittenDiagnostics(renamed).Where(static diagnostic => diagnostic.GetProperty("Code").GetString() == "UnusedSplit")];
+		Assert.Equal(3, unused.Length);
+		AssertUnusedSplit(unused[0], 1, "Out", "Value.X",
+			"Split.Outputs \"Value.X\" is ignored: Result.X is float: outputs split only structs with public fields or readonly structs with get-only properties");
+		AssertUnusedSplit(unused[1], 1, "Out", "Value.Nope",
+			$"Split.Outputs \"Value.Nope\" is ignored: {VisualScriptTesting.Node(renamed, 1).Title} has no output pin \"Result.Nope\"");
+		AssertUnusedSplit(unused[2], 1, "Out", "Result", "Split.Outputs \"Result\" is ignored: Result is split by an earlier entry");
+		Assert.Equal(["Out Result.X: float", "Out Result.Y: float", "Out Result.Z: float"],
+			ShownPins(renamed, 1).Where(static pin => pin.StartsWith("Out ", StringComparison.Ordinal)));
+	}
+
+	private static void AssertUnusedSplit(JsonElement diagnostic, uint node, string direction, string pin, string message)
+	{
+		Assert.Equal("Warning", diagnostic.GetProperty("Severity").GetString());
+		Assert.Equal(node, diagnostic.GetProperty("Node").GetUInt32());
+		Assert.Equal(direction, diagnostic.GetProperty("Direction").GetString());
+		Assert.Equal(pin, diagnostic.GetProperty("Pin").GetString());
+		Assert.Equal(message, diagnostic.GetProperty("Message").GetString());
+	}
+
+	private static JsonElement[] WrittenDiagnostics(AnalyzedDocument document) =>
+		[.. VisualScriptTesting.ParseObject(AnalysisWriter.Write(document)).GetProperty("Diagnostics").EnumerateArray()];
 
 	// An exact pin name wins over a split reading: Switch's case "a.b" is the exec output Case:a.b, never a field of Case:a.
 	[Fact]

@@ -183,7 +183,7 @@ internal sealed class TypeResolution
 		AnalyzedPin? first = null;
 		foreach (AnalyzedPin pin in variable)
 		{
-			if (!pin.IsInput || pin.Source is not { } link)
+			if (!pin.IsInput || TypingLink(pin) is not { } link)
 			{
 				continue;
 			}
@@ -217,6 +217,29 @@ internal sealed class TypeResolution
 			return joined;
 		}
 		return reroute && !linked ? ResolveDownstream(node) : VisualType.Wildcard;
+	}
+
+	// The link an input takes its type from: its first link that is not an error, passing over links from disabled nodes whose
+	// outputs its constraint refuses. Those links are errors that a disabled node makes Warnings, so the program may run, and
+	// the input takes no value from them: it is typed as if they were not there (an enabled node's refused link is an Error,
+	// and the input keeps the type it gives). Nodes that feed a wildcard input are resolved before it, so whether they are
+	// disabled is known.
+	private static AnalyzedLink? TypingLink(AnalyzedPin pin)
+	{
+		foreach (AnalyzedLink link in pin.Links)
+		{
+			if (!link.IsValid)
+			{
+				continue;
+			}
+			AnalyzedNode from = link.From.Node;
+			if (from.Source.Disabled && from.CanBeDisabled && link.From.Type.HasValues && !TypeRules.Satisfies(link.From.Type, pin.Description.Constraint))
+			{
+				continue;
+			}
+			return link;
+		}
+		return null;
 	}
 
 	private static string Describe(List<AnalyzedPin> variable)
