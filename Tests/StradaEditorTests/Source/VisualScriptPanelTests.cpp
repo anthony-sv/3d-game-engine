@@ -487,6 +487,15 @@ TEST_CASE("VisualScriptEditor: a right drag pans and opens no menu, and a right 
 	fixture.Frames(1);
 	CHECK(std::vector<uint32_t>(fixture.Model().GetSelection().begin(), fixture.Model().GetSelection().end()) == std::vector<uint32_t>{6});
 	CHECK(GImGui->OpenPopupStack.Size == 1);
+
+	// A click on the canvas outside the menu closes it, and that click is the menu's: it selects and starts nothing.
+	size_t const undo = fixture.GetUndoCount();
+	fixture.Click(fixture.EmptyPoint());
+	fixture.Frames(1);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
+	CHECK(fixture.Model().GetGesture().Kind == VisualScriptGesture::Idle);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(std::vector<uint32_t>(fixture.Model().GetSelection().begin(), fixture.Model().GetSelection().end()) == std::vector<uint32_t>{6});
 }
 
 TEST_CASE("VisualScriptEditor: with three nodes selected, the menu of one acts on the three in one step")
@@ -706,24 +715,34 @@ TEST_CASE("VisualScriptEditor: the wheel zooms one level about the point under t
 TEST_CASE("VisualScriptEditor: an asset dropped on a pin sets its literal and entities dropped on the canvas add their references, one "
           "step each")
 {
-	PanelFixture fixture(MakeDocument());
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(
+		40, "Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)", glm::vec2(400.0f, 600.0f)));
+	PanelFixture fixture(document);
 	fixture.CheckDrawingChangesNothing();
 	EntityCreateInfo info;
 	info.Name = "Door";
 	Result<UUID> const door = fixture.Operations.CreateEntity(info);
 	REQUIRE(door.IsOk());
+	Result<AssetHandle> const prefab = fixture.Operations.CreatePrefab(door.GetValue(), "Door.sprefab");
+	REQUIRE(prefab.IsOk());
 	size_t const undo = fixture.GetUndoCount();
 	size_t const variables = fixture.GetDocument().Variables.size();
 
-	// A source window dragging the entity, as the hierarchy does.
+	// A source window dragging what the hierarchy (entities) or the content browser (an asset) drags.
 	glm::vec2 const source(1500.0f, 860.0f);
-	fixture.Probe = [&door, source]
+	bool dragAsset = true;
+	fixture.Probe = [&]
 	{
 		ImGui::SetNextWindowPos(ImVec2(source.x - 40.0f, source.y - 20.0f));
 		ImGui::SetNextWindowSize(ImVec2(80.0f, 40.0f));
 		ImGui::Begin("Source", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings);
 		ImGui::Button("Door", ImVec2(60.0f, 20.0f));
-		if (ImGui::BeginDragDropSource())
+		if (dragAsset)
+		{
+			UI::AssetDragSource(prefab.GetValue(), "Door.sprefab");
+		}
+		else if (ImGui::BeginDragDropSource())
 		{
 			uint64_t const value = door.GetValue().GetValue();
 			ImGui::SetDragDropPayload(DragDropPayload::Entities, &value, sizeof(value));
@@ -732,9 +751,18 @@ TEST_CASE("VisualScriptEditor: an asset dropped on a pin sets its literal and en
 		ImGui::End();
 	};
 	fixture.Frames(2);
-	fixture.Gui.DragPath(ImVec2(source.x - 10.0f, source.y - 5.0f), ToImVec2(fixture.EmptyPoint() + glm::vec2(400.0f, -300.0f)),
-	                     fixture.Drawer(), ImGuiMouseButton_Left, 8);
+	ImVec2 const grab(source.x - 10.0f, source.y - 5.0f);
+
+	// The prefab onto Instantiate's Prefab input: its literal, one step.
+	fixture.Gui.DragPath(grab, ToImVec2(Testing::CanvasPoint(fixture.Model(), 40, "Prefab")), fixture.Drawer(), ImGuiMouseButton_Left, 8);
 	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.FindNode(40)->Inputs.value("Prefab", Json()) == Json(prefab.GetValue().ToString()));
+
+	// The entity onto the empty canvas: a public Entity variable named after it and its Get, one step.
+	dragAsset = false;
+	fixture.Frames(1);
+	fixture.Gui.DragPath(grab, ToImVec2(fixture.EmptyPoint() + glm::vec2(400.0f, -300.0f)), fixture.Drawer(), ImGuiMouseButton_Left, 8);
+	CHECK(fixture.GetUndoCount() == undo + 2);
 	REQUIRE(fixture.GetDocument().Variables.size() == variables + 1);
 	CHECK(fixture.GetDocument().Variables.back().Type == "Strada.Entity");
 	CHECK(fixture.GetDocument().Variables.back().Name == "Door");
