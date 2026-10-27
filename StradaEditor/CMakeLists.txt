@@ -122,14 +122,22 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Viewport/ViewportOverlays.h
     Source/Editor/VisualScriptEnumLookupSource.cpp
     Source/Editor/VisualScriptEnumLookupSource.h
+    Source/Editor/VisualScripting/VisualScriptArrange.cpp
+    Source/Editor/VisualScripting/VisualScriptArrange.h
     Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
     Source/Editor/VisualScripting/VisualScriptCanvasModel.cpp
     Source/Editor/VisualScripting/VisualScriptCanvasModel.h
+    Source/Editor/VisualScripting/VisualScriptClipboard.cpp
+    Source/Editor/VisualScripting/VisualScriptClipboard.h
     Source/Editor/VisualScripting/VisualScriptCommit.cpp
     Source/Editor/VisualScripting/VisualScriptCommit.h
+    Source/Editor/VisualScripting/VisualScriptEditing.cpp
+    Source/Editor/VisualScripting/VisualScriptEditing.h
     Source/Editor/VisualScripting/VisualScriptEditorModel.cpp
     Source/Editor/VisualScripting/VisualScriptEditorModel.h
     Source/Editor/VisualScripting/VisualScriptEditorTypes.h
+    Source/Editor/VisualScripting/VisualScriptFind.cpp
+    Source/Editor/VisualScripting/VisualScriptFind.h
     Source/Editor/VisualScripting/VisualScriptGeometry.cpp
     Source/Editor/VisualScripting/VisualScriptGeometry.h
     Source/Editor/VisualScripting/VisualScriptHitTest.cpp
@@ -138,6 +146,10 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptNodeTitles.h
     Source/Editor/VisualScripting/VisualScriptNormalization.cpp
     Source/Editor/VisualScripting/VisualScriptNormalization.h
+    Source/Editor/VisualScripting/VisualScriptPalette.cpp
+    Source/Editor/VisualScripting/VisualScriptPalette.h
+    Source/Editor/VisualScripting/VisualScriptQuickFixes.cpp
+    Source/Editor/VisualScripting/VisualScriptQuickFixes.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp
     Source/Editor/VisualScripting/VisualScriptSemantics.h
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.cpp
