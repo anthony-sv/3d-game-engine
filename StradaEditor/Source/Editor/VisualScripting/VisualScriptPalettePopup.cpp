@@ -333,8 +333,9 @@ namespace Strada
 		}
 		bool const contextOn = m_From.has_value() && context.Settings.IsContextPalette();
 		bool const hasQuery = m_Query.find_first_not_of(' ') != std::string::npos;
+		// What the ranking is made of; a context pin that is gone leaves the rows as they are until one of these changes.
 		if (m_RankedGeneration == m_IndexGeneration && m_RankedQuery == m_Query && m_RankedContext == contextOn &&
-		    m_RankedRecents == recents && m_Ranked == (hasQuery || contextOn))
+		    m_RankedRecents == recents)
 		{
 			return;
 		}

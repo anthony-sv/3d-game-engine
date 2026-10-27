@@ -272,6 +272,7 @@ TEST_CASE("VisualScriptEditor: the palette opens with the keyboard in its search
 TEST_CASE("VisualScriptEditor: what is typed before the palette's field has the keyboard is its query, and the cursor follows it")
 {
 	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
 	fixture.Frames(1);
 	// The query the canvas gives (keys typed while Space was down), then a key typed in the frame the palette opens.
 	fixture.Palette.Open(MakeIntent(glm::vec2(0.0f), "br"));
@@ -288,6 +289,7 @@ TEST_CASE(
 	"VisualScriptEditor: Down moves the palette's highlight, which the details strip follows, and Enter adds the first match in one step")
 {
 	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
 	fixture.Palette.Open(MakeIntent(glm::vec2(100.0f, 205.0f), "b"));
 	fixture.Frames(2);
 	std::vector<uint32_t> const rows = fixture.Palette.GetRowEntries();
@@ -321,6 +323,7 @@ TEST_CASE(
 TEST_CASE("VisualScriptEditor: without a query the palette lists recent entries above its categories, all open while nothing is recent")
 {
 	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
 	fixture.Palette.Open(MakeIntent(glm::vec2(0.0f)));
 	fixture.Frames(2);
 	std::vector<uint32_t> const opened = fixture.Palette.GetRowEntries();
@@ -353,6 +356,7 @@ TEST_CASE("VisualScriptEditor: without a query the palette lists recent entries 
 TEST_CASE("VisualScriptEditor: in context mode the palette lists what connects, and offers every node when nothing does")
 {
 	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptLibrary const& library = fixture.Semantics.GetFixtureLibrary();
 	fixture.Palette.Open(MakeContextIntent(glm::vec2(600.0f, 300.0f), 3, "Result", VisualScriptPinDirection::Out));
 	fixture.Frames(2);
@@ -386,9 +390,33 @@ TEST_CASE("VisualScriptEditor: in context mode the palette lists what connects, 
 	CHECK(fixture.Palette.IsOpen());
 }
 
+TEST_CASE("VisualScriptEditor: the palette's keys keep working when the pin it was opened from goes")
+{
+	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	fixture.Palette.Open(MakeContextIntent(glm::vec2(400.0f, 320.0f), 3, "Result", VisualScriptPinDirection::Out));
+	fixture.Frames(2);
+	// The Raycast goes (another window, an undo): without its pin the palette lists every entry, and Down still moves.
+	VisualScriptDocument without = fixture.GetDocument();
+	std::erase_if(without.Graph.Nodes,
+	              [](VisualScriptNode const& node)
+	              {
+					  return node.ID == 3;
+				  });
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, without).IsOk());
+	fixture.Frames(2);
+	std::vector<uint32_t> const rows = fixture.Palette.GetRowEntries();
+	REQUIRE(rows.size() >= 2);
+	CHECK(fixture.Palette.GetHighlightedEntry() == rows[0]);
+	fixture.ImGui.Press(ImGuiKey_DownArrow, fixture.Drawer());
+	CHECK(fixture.Palette.GetHighlightedEntry() == rows[1]);
+	CHECK(fixture.Palette.GetRowEntries() == rows);
+}
+
 TEST_CASE("VisualScriptEditor: a node chosen from an exec output's palette goes into its link, in one step")
 {
 	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
 	fixture.Palette.Open(MakeContextIntent(glm::vec2(240.0f, 40.0f), 1, "Then", VisualScriptPinDirection::Out));
 	fixture.Frames(1);
 	fixture.ImGui.Type("delay");
@@ -413,6 +441,7 @@ TEST_CASE("VisualScriptEditor: a node chosen from an exec output's palette goes 
 TEST_CASE("VisualScriptEditor: a node fed by a value of an impure node whose flow ends there follows it in the flow too")
 {
 	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
 	fixture.Palette.Open(MakeContextIntent(glm::vec2(400.0f, 320.0f), 3, "Result", VisualScriptPinDirection::Out));
 	fixture.Frames(1);
 	fixture.ImGui.Type("set alive");
@@ -431,6 +460,7 @@ TEST_CASE("VisualScriptEditor: a node fed by a value of an impure node whose flo
 TEST_CASE("VisualScriptEditor: an event the graph handles already is offered as a jump to it, and a palette needs the node library")
 {
 	PaneFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
 	fixture.Palette.Open(MakeIntent(glm::vec2(0.0f), "update"));
 	fixture.Frames(2);
 	REQUIRE_FALSE(fixture.GetStateTitles().empty());
@@ -463,6 +493,7 @@ TEST_CASE("VisualScriptEditor: the palette's tooltip names a reflected node's ty
 	for (bool const injected : {true, false})
 	{
 		PaneFixture fixture(MakeDocument());
+		fixture.CheckDrawingChangesNothing();
 		fixture.Services.MonospaceFont = injected ? fixture.Fonts.Monospace : nullptr;
 		fixture.Palette.Open(MakeIntent(glm::vec2(0.0f), "log info"));
 		fixture.Frames(2);
@@ -593,7 +624,14 @@ TEST_CASE("VisualScriptEditor: the literal editor writes a [Flags] pin's value a
 		ImGui::PopID();
 		ImGui::End();
 	};
-	headless.Frame(draw);
+	// The panel invariant's form here: drawing alone returns no literal and opens nothing.
+	for (int frame = 0; frame < 3; frame++)
+	{
+		headless.Frame(draw);
+	}
+	CHECK_FALSE(flags);
+	CHECK_FALSE(mode);
+	CHECK(GImGui->OpenPopupStack.Size == 0);
 	float const frameHeight = ImGui::GetFrameHeight();
 	// Open the flags' combo and tick Water: the first check box is Ground (None sets no flag).
 	headless.Click(ImVec2(flagsFrame.x + 20.0f, flagsFrame.y + frameHeight * 0.5f), draw);
@@ -692,6 +730,18 @@ namespace
 			};
 		}
 
+		// The panel invariant's form for a lone widget: drawing alone changes no value, asks for no popup and opens none.
+		void CheckDrawingChangesNothing()
+		{
+			for (int frame = 0; frame < 3; frame++)
+			{
+				Headless.Frame(Drawer());
+			}
+			CHECK(Changes.empty());
+			CHECK(Requests == 0);
+			CHECK(GImGui->OpenPopupStack.Size == 0);
+		}
+
 		ImVec2 FrameCenter() const { return ImVec2(Origin.x + 60.0f, Origin.y + ImGui::GetFrameHeight() * 0.5f); }
 
 		Testing::HeadlessImGui Headless;
@@ -734,7 +784,7 @@ TEST_CASE("VisualScriptEditor: FieldEditor draws a value outside a table, and a 
 	fixture.Field.TypeMax = 1000.0;
 	fixture.Value = 2.5;
 	fixture.Mode = FieldInlineMode::Normal;
-	fixture.Headless.Frame(fixture.Drawer());
+	fixture.CheckDrawingChangesNothing();
 	CHECK(fixture.Table == nullptr);
 	CHECK(fixture.Changes.empty());
 	fixture.Headless.DragPath(fixture.FrameCenter(), ImVec2(fixture.FrameCenter().x + 60.0f, fixture.FrameCenter().y), fixture.Drawer());
@@ -745,7 +795,7 @@ TEST_CASE("VisualScriptEditor: FieldEditor draws a value outside a table, and a 
 	InlineFixture compact;
 	compact.Field = MakeField(FieldKind::Vec3);
 	compact.Value = Json::array({1.0, 2.0, 3.0});
-	compact.Headless.Frame(compact.Drawer());
+	compact.CheckDrawingChangesNothing();
 	// One drag per component, no axis buttons: the middle third is Y.
 	ImVec2 const y(compact.Origin.x + 120.0f, compact.Origin.y + ImGui::GetFrameHeight() * 0.5f);
 	compact.Headless.DragPath(y, ImVec2(y.x + 40.0f, y.y), compact.Drawer());
@@ -764,7 +814,7 @@ TEST_CASE("VisualScriptEditor: compact enums, colours and assets ask for a popup
 		fixture.Field.EnumValues = {"Force", "Impulse", "Acceleration"};
 		fixture.Value = "Force";
 		fixture.OpenOnRequest = false;
-		fixture.Headless.Frame(fixture.Drawer());
+		fixture.CheckDrawingChangesNothing();
 		fixture.Headless.Click(fixture.FrameCenter(), fixture.Drawer());
 		CHECK(fixture.Requests == 1);
 		CHECK(GImGui->OpenPopupStack.Size == 0);
@@ -789,7 +839,7 @@ TEST_CASE("VisualScriptEditor: compact enums, colours and assets ask for a popup
 		fixture.Field.TypeMax = 1.0;
 		fixture.Value = Json::array({0.5, 0.25, 0.1, 1.0});
 		fixture.OpenOnRequest = false;
-		fixture.Headless.Frame(fixture.Drawer());
+		fixture.CheckDrawingChangesNothing();
 		fixture.Headless.Click(fixture.FrameCenter(), fixture.Drawer());
 		CHECK(fixture.Requests == 1);
 		CHECK(GImGui->OpenPopupStack.Size == 0);
@@ -816,7 +866,7 @@ TEST_CASE("VisualScriptEditor: compact enums, colours and assets ask for a popup
 		fixture.Field.Hints.AssetTypeName = AssetTypeToString(AssetType::VisualScript);
 		fixture.Value = AssetHandle().ToString();
 		fixture.OpenOnRequest = false;
-		fixture.Headless.Frame(fixture.Drawer());
+		fixture.CheckDrawingChangesNothing();
 		fixture.Headless.Click(fixture.FrameCenter(), fixture.Drawer());
 		CHECK(fixture.Requests == 1);
 		CHECK(GImGui->OpenPopupStack.Size == 0);
@@ -846,7 +896,7 @@ TEST_CASE(
 		InlineFixture fixture;
 		fixture.Field = field;
 		fixture.Value = "Space";
-		fixture.Headless.Frame(fixture.Drawer());
+		fixture.CheckDrawingChangesNothing();
 		fixture.Headless.Click(fixture.FrameCenter(), fixture.Drawer());
 		REQUIRE(fixture.Popup != nullptr);
 		fixture.Headless.Type("w");
@@ -879,7 +929,12 @@ TEST_CASE(
 			}
 			ImGui::End();
 		};
-		headless.Frame(draw);
+		for (int frame = 0; frame < 3; frame++)
+		{
+			headless.Frame(draw);
+		}
+		CHECK_FALSE(change);
+		CHECK(GImGui->OpenPopupStack.Size == 0);
 		headless.Click(combo, draw);
 		REQUIRE(GImGui->OpenPopupStack.Size == 1);
 		headless.Type("w");
@@ -916,7 +971,11 @@ TEST_CASE("VisualScriptEditor: the asset picker opens in a popup of its own and 
 		}
 		ImGui::End();
 	};
-	headless.Frame(draw);
+	for (int frame = 0; frame < 3; frame++)
+	{
+		headless.Frame(draw);
+	}
+	CHECK_FALSE(chosen);
 	CHECK(GImGui->OpenPopupStack.Size == 0);
 	open = true;
 	headless.Frame(draw);
