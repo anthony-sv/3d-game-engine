@@ -70,24 +70,15 @@ namespace Strada
 							   });
 		}
 
-		// Types, pin names and member names: 1 to maxBytes of UTF-8 without control characters. Parsed JSON always holds
-		// valid UTF-8; documents built in memory may not, and would not save as they are.
-		bool IsValidText(std::string_view text, size_t maxBytes)
+		// The strings of values and their member names: at most MaxTextBytes of UTF-8 (lines allowed).
+		bool IsValidLongText(std::string_view text)
 		{
-			return !text.empty() && text.size() <= maxBytes && !HasControlCharacters(text) && Utf8::IsValid(text);
+			return text.size() <= Format::MaxTextBytes && Utf8::IsValid(text);
 		}
 
-		// The entries of Split: a pin name ("Hit") or the path of a field pin ("Hit.Point"), names separated by '.' of which
-		// none is empty.
-		bool IsValidPinPath(std::string_view path)
-		{
-			return IsValidText(path, Format::MaxPinNameBytes) && path.front() != '.' && path.back() != '.' &&
-			       path.find("..") == std::string_view::npos;
-		}
-
-		// Whether a value nests at most MaxValueDepth levels deep (depth is the value's own level) and holds no string, member
-		// names included, longer than MaxTextBytes. The depth limit also bounds the recursion.
-		bool IsValidValue(Json const& value, size_t depth)
+		// VisualScriptSerializer::IsValidValue of a value at a depth (the value itself is level 1): the depth limit also bounds
+		// the recursion.
+		bool IsValidValueAt(Json const& value, size_t depth)
 		{
 			if (depth > Format::MaxValueDepth)
 			{
@@ -95,13 +86,17 @@ namespace Strada
 			}
 			if (value.is_string())
 			{
-				return value.get_ref<std::string const&>().size() <= Format::MaxTextBytes;
+				return IsValidLongText(value.get_ref<std::string const&>());
+			}
+			if (value.is_number_float())
+			{
+				return std::isfinite(value.get<double>());
 			}
 			if (value.is_object())
 			{
 				for (auto const& item : value.items())
 				{
-					if (item.key().size() > Format::MaxTextBytes || !IsValidValue(item.value(), depth + 1))
+					if (!IsValidLongText(item.key()) || !IsValidValueAt(item.value(), depth + 1))
 					{
 						return false;
 					}
@@ -113,22 +108,18 @@ namespace Strada
 				return std::all_of(value.begin(), value.end(),
 				                   [depth](Json const& element)
 				                   {
-									   return IsValidValue(element, depth + 1);
+									   return IsValidValueAt(element, depth + 1);
 								   });
 			}
-			return true;
-		}
-
-		bool IsValidValue(Json const& value)
-		{
-			return IsValidValue(value, 1);
+			return value.is_null() || value.is_boolean() || value.is_number();
 		}
 
 		// Why a value fails IsValidValue, followed by what happens to it.
 		std::string DescribeInvalidValue(std::string_view consequence)
 		{
-			return fmt::format("nested deeper than {} levels or holds a string of more than {} bytes; {}", Format::MaxValueDepth,
-			                   Format::MaxTextBytes, consequence);
+			return fmt::format("nested deeper than {} levels, or holds a number that is not finite or a string of more than {} bytes or "
+			                   "not of UTF-8; {}",
+			                   Format::MaxValueDepth, Format::MaxTextBytes, consequence);
 		}
 
 		// IDs are integers from 1 to MaxID, however the JSON stores them (documents built in memory hold signed integers).
@@ -156,7 +147,7 @@ namespace Strada
 			}
 			std::optional<uint32_t> const node = ToID(value[0]);
 			std::string const& pin = value[1].get_ref<std::string const&>();
-			if (!node || !IsValidText(pin, Format::MaxPinNameBytes))
+			if (!node || !Format::IsValidText(pin, Format::MaxPinNameBytes))
 			{
 				return std::nullopt;
 			}
@@ -346,7 +337,7 @@ namespace Strada
 					Report(Member(path, "Type"), fmt::format("missing; the {} is dropped", kind));
 					return std::nullopt;
 				}
-				if (!found->is_string() || !IsValidText(found->get_ref<std::string const&>(), maxBytes))
+				if (!found->is_string() || !Format::IsValidText(found->get_ref<std::string const&>(), maxBytes))
 				{
 					Report(Member(path, "Type"),
 					       fmt::format("expected a type of 1 to {} bytes without control characters; the {} is dropped", maxBytes, kind));
@@ -393,7 +384,7 @@ namespace Strada
 				{
 					return Json();
 				}
-				if (IsValidValue(*found))
+				if (Format::IsValidValue(*found))
 				{
 					return *found;
 				}
@@ -522,7 +513,7 @@ namespace Strada
 					{
 						break;
 					}
-					intact = IsValidText(item.key(), Format::MaxPinNameBytes) && IsValidValue(item.value());
+					intact = Format::IsValidText(item.key(), Format::MaxPinNameBytes) && Format::IsValidValue(item.value());
 				}
 				if (intact)
 				{
@@ -533,7 +524,7 @@ namespace Strada
 				for (auto const& item : found->items())
 				{
 					std::string const& name = item.key();
-					if (!IsValidText(name, Format::MaxPinNameBytes))
+					if (!Format::IsValidText(name, Format::MaxPinNameBytes))
 					{
 						Report(path, fmt::format("the member {} is dropped: member names are 1 to {} bytes without control characters",
 						                         Quote(name), Format::MaxPinNameBytes));
@@ -544,7 +535,7 @@ namespace Strada
 						Report(Member(path, name), fmt::format("more than {} members; dropped", Format::MaxSettingsMembers));
 						continue;
 					}
-					if (!IsValidValue(item.value()))
+					if (!Format::IsValidValue(item.value()))
 					{
 						Report(Member(path, name), DescribeInvalidValue("dropped"));
 						continue;
@@ -910,7 +901,7 @@ namespace Strada
 				{
 					Json const& entry = (*list)[i];
 					std::string const path = Element(listPath, i);
-					if (!entry.is_string() || !IsValidPinPath(entry.get_ref<std::string const&>()))
+					if (!entry.is_string() || !Format::IsValidPinPath(entry.get_ref<std::string const&>()))
 					{
 						Report(path, fmt::format("expected a pin name or the path of a field pin (\"Hit.Point\"): names separated by '.', "
 						                         "1 to {} bytes without control characters; dropped",
@@ -1276,6 +1267,21 @@ namespace Strada
 			}
 			return json;
 		}
+	}
+
+	bool VisualScriptSerializer::IsValidText(std::string_view text, size_t maxBytes)
+	{
+		return !text.empty() && text.size() <= maxBytes && !HasControlCharacters(text) && Utf8::IsValid(text);
+	}
+
+	bool VisualScriptSerializer::IsValidPinPath(std::string_view path)
+	{
+		return IsValidText(path, MaxPinNameBytes) && path.front() != '.' && path.back() != '.' && path.find("..") == std::string_view::npos;
+	}
+
+	bool VisualScriptSerializer::IsValidValue(Json const& value)
+	{
+		return IsValidValueAt(value, 1);
 	}
 
 	bool VisualScriptSerializer::IsValidName(std::string_view name)

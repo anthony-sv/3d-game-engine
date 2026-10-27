@@ -47,6 +47,7 @@ add_executable(StradaEditorTests
     Source/VisualScriptPaletteTests.cpp
     Source/VisualScriptPanelTests.cpp
     Source/VisualScriptPanelTestUtilities.h
+    Source/VisualScriptPanesTests.cpp
     Source/VisualScriptQuickFixTests.cpp
     Source/VisualScriptRenderTests.cpp
     Source/VisualScriptRuntimeEditorTests.cpp

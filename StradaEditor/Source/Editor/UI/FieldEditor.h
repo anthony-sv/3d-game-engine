@@ -40,6 +40,19 @@ namespace Strada
 		Json MakePatch(Json const& values) const;
 	};
 
+	// How FieldEditor::DrawInlineValue draws a value.
+	enum class FieldInlineMode : uint8_t
+	{
+		// As in a field table's row.
+		Normal = 0,
+		// The visual script canvas' live widget, showing what the chip it replaces shows: integers as "%lld", floats as "%g",
+		// vectors and quaternions (in Euler degrees, "%g") as one drag per component with its axis's stripe at its left edge and
+		// no axis buttons, and colours, enums (the stored name), [Flags] enums (the stored names joined with " | ") and assets
+		// (the asset's display name) as a frame only, whose click asks the caller for a popup (drawn at the window's normal size
+		// with DrawValuePopup) instead of opening one.
+		Compact
+	};
+
 	// What an asset reference drawn by FieldEditor::DrawAssetReference offers.
 	struct AssetReferenceOptions
 	{
@@ -89,6 +102,31 @@ namespace Strada
 		// picked or dropped, invalid for None and "x".
 		std::optional<AssetHandle> DrawAssetReference(AssetHandle current, AssetReferenceOptions const& options);
 
+		// Draws the widget of one value without a table row, as wide as the next item (ImGui::SetNextItemWidth or the item
+		// width pushed), in the current ID scope; returns true and fills change (except Path) when the user changed it. mixed
+		// shows the value as differing between edited objects. In Compact mode a click on the frame of a colour, an enum, a
+		// [Flags] enum or an asset sets *popupRequested and opens nothing: the caller opens a popup of its own at the window's
+		// normal size and draws its body with DrawValuePopup. popupRequested must not be null in Compact mode (a click is then
+		// lost); Normal mode leaves it unchanged.
+		bool DrawInlineValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change,
+		                     FieldInlineMode mode = FieldInlineMode::Normal, bool* popupRequested = nullptr);
+		// The text a compact frame shows for an enum ("LeftShift"), a [Flags] enum ("Read | Write", "None") or an asset (its
+		// display name, "None"): what the visual script canvas' chip it replaces shows. Empty for the other kinds, which show
+		// drags or check boxes. Main thread only (it reads the asset registry).
+		[[nodiscard]] static std::string DescribeCompactText(FieldDescriptor const& field, Json const& value);
+		// The body of the popup a compact widget asked for, between the caller's BeginPopup and EndPopup: the colour picker,
+		// the enum list (with its filter), the [Flags] check list or the asset picker; other values draw their normal widget.
+		// Returns true and fills change (except Path) when the user changed the value. Picking an enumerator or an asset
+		// closes the popup.
+		bool DrawValuePopup(FieldDescriptor const& field, Json const& value, FieldChange& change);
+		// The asset picker in a popup of its own (the caller opens popupId with ImGui::OpenPopup in the same ID scope):
+		// a filter with the keyboard, the rows of every asset of the type (None first when allowNone), Up, Down and Enter.
+		// Returns the asset chosen this frame when it differs from current (invalid for None); choosing closes the popup.
+		std::optional<AssetHandle> DrawAssetPickerPopup(char const* popupId, AssetType type, AssetHandle current, bool allowNone);
+
+		// Enums of more than this many enumerators get a filter above their list.
+		static constexpr size_t MaxUnfilteredEnumerators = 12;
+
 	private:
 		// Euler angles last shown for a quaternion widget: kept while the quaternion is unchanged, so dragging one angle
 		// never flips the others to an equivalent set.
@@ -103,7 +141,15 @@ namespace Strada
 		              bool parentMixed, std::vector<std::string_view>& path, std::optional<FieldChange>& change);
 		// Draws the widget of one value; returns true and fills `change` (except Path) when the user changed it.
 		bool DrawValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change);
-		bool DrawQuaternion(Json const& value, FieldChange& change);
+		bool DrawCompactValue(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change, bool& popupRequested);
+		// The enumerators to pick from (in an enum combo's popup or a compact enum's): with more than
+		// MaxUnfilteredEnumerators, a filter that has the keyboard when the list appears and keeps the enumerators whose names
+		// hold its text (ignoring case), exact names first, then those that start with it, each in declaration order; Up and
+		// Down move the highlighted row and Enter takes it. width is the list's width (0: the window's). Returns true and
+		// fills change when one was picked, and closes the popup.
+		bool DrawEnumList(FieldDescriptor const& field, std::string const& current, float width, FieldChange& change);
+		static int OnEnumFilterKey(ImGuiInputTextCallbackData* data);
+		bool DrawQuaternion(Json const& value, FieldChange& change, FieldInlineMode mode);
 		bool DrawArray(FieldDescriptor const& field, Json const& value, FieldChange& change);
 		// An asset field: DrawAssetReference, "x" clearing the reference.
 		bool DrawAsset(FieldDescriptor const& field, Json const& value, bool mixed, FieldChange& change);
@@ -112,7 +158,10 @@ namespace Strada
 		void UpdatePickerAssets(AssetType type);
 		// The open picker's search field and list (None when allowed and nothing is searched, then every asset of the type
 		// matching the search, with their images); returns the asset chosen this frame (invalid for None).
-		std::optional<AssetHandle> DrawAssetPicker(AssetType type, AssetHandle current, bool allowNone);
+		// width is the picker's (0: the window's).
+		std::optional<AssetHandle> DrawAssetPicker(AssetType type, AssetHandle current, bool allowNone, float width = 0.0f);
+		// The width the picker of the type's assets needs: as wide as its longest path within the screen, at least minWidth.
+		float GetPickerWidth(AssetType type, float minWidth);
 		// The picker's search field reports Up and Down here (ImGuiInputTextFlags_CallbackHistory), so they move the row the
 		// keyboard is on instead of leaving the field.
 		static int OnPickerSearchKey(ImGuiInputTextCallbackData* data);
@@ -137,6 +186,16 @@ namespace Strada
 		std::string m_PickerHighlightFilter;
 		int m_PickerMove = 0;
 		bool m_ScrollToPickerHighlight = false;
+		// The open enum list's filter, the row the keyboard is on (Enter takes it) and the rows Up and Down moved it by this
+		// frame.
+		std::string m_EnumFilter;
+		int m_EnumHighlight = 0;
+		int m_EnumMove = 0;
+		// Asks for the keyboard for the enum filter until it has it (as the list opens, and after Enter without a match).
+		bool m_FocusEnumFilter = false;
+		// The enum filter or the asset picker's search field takes the keyboard with text typed before: its cursor goes after
+		// the text.
+		bool m_PlaceFilterCursor = false;
 		std::unordered_map<uint32_t, EulerState> m_EulerStates;
 		int m_LastPruneFrame = -1;
 	};

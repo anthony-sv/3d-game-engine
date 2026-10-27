@@ -2,12 +2,11 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptLayout.h"
+#include "Strada/Core/FileSystem.h"
 
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <limits>
-#include <system_error>
 #include <tuple>
 
 namespace Strada
@@ -113,20 +112,6 @@ namespace Strada
 				*graph = owner;
 			}
 			return &owner->Nodes[index];
-		}
-
-		// A file the editor cannot write: the standard library reports Windows' read-only attribute as no write permission.
-		// What cannot be told is taken as writable; a write that then fails shows as one.
-		bool IsWritable(std::filesystem::path const& path)
-		{
-			std::error_code error;
-			std::filesystem::file_status const status = std::filesystem::status(path, error);
-			if (error)
-			{
-				return true;
-			}
-			using Perms = std::filesystem::perms;
-			return (status.permissions() & (Perms::owner_write | Perms::group_write | Perms::others_write)) != Perms::none;
 		}
 
 		// An asset as value chips name it: its file's name (a memory asset's name), marked when its file is missing.
@@ -658,7 +643,8 @@ namespace Strada
 		}
 		if (m_CheckWritable)
 		{
-			m_Writable = IsWritable(AssetManager::GetAbsolutePath(m_Graph));
+			// What cannot be told is taken as writable; a write that then fails shows as one.
+			m_Writable = !FileSystem::IsReadOnly(AssetManager::GetAbsolutePath(m_Graph));
 			m_CheckWritable = false;
 		}
 		m_State = m_Writable ? VisualScriptDocumentState::Editable : VisualScriptDocumentState::ReadOnlyFile;

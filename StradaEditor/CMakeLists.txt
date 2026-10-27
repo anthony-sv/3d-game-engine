@@ -139,6 +139,10 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptCommit.h
     Source/Editor/VisualScripting/VisualScriptController.cpp
     Source/Editor/VisualScripting/VisualScriptController.h
+    Source/Editor/VisualScripting/VisualScriptDetails.cpp
+    Source/Editor/VisualScripting/VisualScriptDetails.h
+    Source/Editor/VisualScripting/VisualScriptDrawer.cpp
+    Source/Editor/VisualScripting/VisualScriptDrawer.h
     Source/Editor/VisualScripting/VisualScriptEditing.cpp
     Source/Editor/VisualScripting/VisualScriptEditing.h
     Source/Editor/VisualScripting/VisualScriptEditorModel.cpp
@@ -146,21 +150,31 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptEditorTypes.h
     Source/Editor/VisualScripting/VisualScriptFind.cpp
     Source/Editor/VisualScripting/VisualScriptFind.h
+    Source/Editor/VisualScripting/VisualScriptFindBar.cpp
+    Source/Editor/VisualScripting/VisualScriptFindBar.h
     Source/Editor/VisualScripting/VisualScriptGeometry.cpp
     Source/Editor/VisualScripting/VisualScriptGeometry.h
     Source/Editor/VisualScripting/VisualScriptHitTest.cpp
     Source/Editor/VisualScripting/VisualScriptHitTest.h
+    Source/Editor/VisualScripting/VisualScriptLiteralEditor.cpp
+    Source/Editor/VisualScripting/VisualScriptLiteralEditor.h
     Source/Editor/VisualScripting/VisualScriptNodeTitles.cpp
     Source/Editor/VisualScripting/VisualScriptNodeTitles.h
     Source/Editor/VisualScripting/VisualScriptNormalization.cpp
     Source/Editor/VisualScripting/VisualScriptNormalization.h
     Source/Editor/VisualScripting/VisualScriptPalette.cpp
     Source/Editor/VisualScripting/VisualScriptPalette.h
+    Source/Editor/VisualScripting/VisualScriptPalettePopup.cpp
+    Source/Editor/VisualScripting/VisualScriptPalettePopup.h
+    Source/Editor/VisualScripting/VisualScriptPanes.cpp
+    Source/Editor/VisualScripting/VisualScriptPanes.h
     Source/Editor/VisualScripting/VisualScriptQuickFixes.cpp
     Source/Editor/VisualScripting/VisualScriptQuickFixes.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp
     Source/Editor/VisualScripting/VisualScriptSemantics.h
     Source/Editor/VisualScripting/VisualScriptShortcuts.h
+    Source/Editor/VisualScripting/VisualScriptSidebar.cpp
+    Source/Editor/VisualScripting/VisualScriptSidebar.h
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.cpp
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.h
     Source/Editor/VisualScripting/VisualScriptTheme.cpp

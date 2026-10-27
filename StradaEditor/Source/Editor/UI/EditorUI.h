@@ -42,7 +42,21 @@ namespace Strada
 		// A folder of the project's scripts: its path relative to their directory (ScriptProject::GetSourceDirectory) as UTF-8
 		// characters (no terminator).
 		inline constexpr char const* ScriptFolder = "STRADA_SCRIPT_FOLDER";
+		// A row of a graph window's My Script pane (a variable, a local, a function or a custom event): one
+		// VisualScriptElementPayload.
+		inline constexpr char const* VisualScriptElement = "STRADA_VISUAL_SCRIPT_ELEMENT";
 	}
+
+	// The data of a DragDropPayload::VisualScriptElement payload.
+	struct VisualScriptElementPayload
+	{
+		// The visual script's asset handle.
+		uint64_t Graph = 0;
+		// A VisualScriptElementKind (Editor/VisualScripting/VisualScriptPanes.h): variable, local, function or custom event.
+		uint32_t Kind = 0;
+		// The variable's, local's or function's ID; a custom event's Event.Custom node ID.
+		uint32_t ID = 0;
+	};
 
 	namespace UI
 	{

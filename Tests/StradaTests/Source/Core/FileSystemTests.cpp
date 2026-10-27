@@ -248,6 +248,22 @@ TEST_CASE("FileSystem: last write time is available for existing files only")
 	CHECK(FileSystem::GetLastWriteTime(path).has_value());
 }
 
+TEST_CASE("FileSystem: a file is read-only when nobody may write it, and a missing file is not")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const path = directory.GetPath() / "file.txt";
+	// Nothing to read the permissions of: a write would fail as a write, not as read-only.
+	CHECK_FALSE(FileSystem::IsReadOnly(path));
+	CHECK_FALSE(FileSystem::IsReadOnly(directory.GetPath() / "missing" / "file.txt"));
+	REQUIRE(FileSystem::WriteTextFile(path, "x").IsOk());
+	CHECK_FALSE(FileSystem::IsReadOnly(path));
+	{
+		Testing::ReadOnlyFileScope const readOnly(path);
+		CHECK(FileSystem::IsReadOnly(path));
+	}
+	CHECK_FALSE(FileSystem::IsReadOnly(path));
+}
+
 TEST_CASE("FileSystem: portable file names keep safe characters and avoid reserved names")
 {
 	CHECK(FileSystem::MakePortableFileName("Space Game") == "Space Game");
