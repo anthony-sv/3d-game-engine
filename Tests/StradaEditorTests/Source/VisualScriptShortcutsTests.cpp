@@ -1,6 +1,8 @@
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
 
+#include "Strada/Core/FileSystem.h"
+
 #include <doctest/doctest.h>
 #include <imgui.h>
 
@@ -8,6 +10,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -20,6 +23,19 @@ namespace
 	bool IsListed(std::span<ImGuiKeyChord const> chords, ImGuiKeyChord chord)
 	{
 		return std::find(chords.begin(), chords.end(), chord) != chords.end();
+	}
+
+	// The text of a top-level section of a Markdown document, from its "## <number>." heading to the next "## " heading.
+	std::string_view FindSection(std::string_view document, std::string_view number)
+	{
+		std::string const heading = "\n## " + std::string(number) + ". ";
+		size_t const start = document.find(heading);
+		if (start == std::string_view::npos)
+		{
+			return {};
+		}
+		size_t const end = document.find("\n## ", start + heading.size());
+		return document.substr(start, end == std::string_view::npos ? std::string_view::npos : end - start);
 	}
 }
 
@@ -188,4 +204,25 @@ TEST_CASE("VisualScriptEditor: shortcut rows name every key action the canvas ha
 	CHECK(gesture(VisualScriptMouseGestureId::CtrlWheel, true) == "Cmd+Wheel");
 	CHECK(gesture(VisualScriptMouseGestureId::Back, false) == "Mouse Back");
 	CHECK(gesture(VisualScriptMouseGestureId::ChoosePin, false) == "Press");
+}
+
+TEST_CASE("VisualScriptEditor: Docs/Architecture.md lists every key and mouse gesture of the graph windows in section 11")
+{
+	Result<std::string> const document = FileSystem::ReadTextFile(STRADA_ARCHITECTURE_DOC_PATH);
+	REQUIRE(document.IsOk());
+	std::string_view const section = FindSection(document.GetValue(), "11");
+	REQUIRE_FALSE(section.empty());
+
+	// Each row of the tables is a row of the document's tables, written as the shortcut sheet shows it (Windows and Linux names).
+	for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
+	{
+		std::string const row = "| `" + FormatVisualScriptChord(shortcut.Chord, false) + "` | " + std::string(shortcut.Label) + " |";
+		CHECK_MESSAGE(section.find(row) != std::string_view::npos, "missing key row: " << row);
+	}
+	for (VisualScriptMouseGesture const& gesture : VisualScriptMouseGestures)
+	{
+		std::string const row = "| `" + FormatVisualScriptMouseGesture(gesture, false) + "` | " + std::string(gesture.Target) + " | " +
+		                        std::string(gesture.Label) + " |";
+		CHECK_MESSAGE(section.find(row) != std::string_view::npos, "missing gesture row: " << row);
+	}
 }

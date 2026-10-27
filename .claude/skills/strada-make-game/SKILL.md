@@ -135,6 +135,19 @@ describes documents, literals and every diagnostic code.
   (`<graph>: <node> (node <id>) on <entity> (<id>): <message>`).
 - While playing, `graph_set` changes running graphs at their next update (live edit), `entity_get` shows the values the
   public variables hold, and `component_set` sets them in the running graph.
+- Nodes can carry `Comment` (a note), `Collapsed`, `Enabled` (`Disabled` passes the flow and values through without
+  running the node, which also turns its errors into warnings; `DevelopmentOnly` runs in the editor and test runs but
+  not in exported games: debug logging, cheat keys) and `Split` (`{"Inputs": ["Force"]}` gives `Force.X`, `Force.Y`,
+  `Force.Z` pins to link or set one by one).
+- Show graphs to the user and check what they see: `graph_open` with `graph` opens (or focuses) its window in the
+  editor, optionally on a function, with nodes selected and framed (`select`), at a `zoom` or `center`, with the problems
+  drawer or the find bar open. A frame later, `graph_editors` reports every window as the user sees it (the view, the
+  selection, errors and warnings, notices such as the one for a missing scripting runtime, the LIVE pill while playing),
+  and `viewport_screenshot` shows it. `graph_palette` opens the node palette with a `query` (or as if a wire were dragged
+  `from` a pin) and lists what it offers, in rank order: what a user typing that would find. `graph_find` searches every
+  script's nodes, values, comments and names, or lists the references of a variable, function or custom event (custom
+  events across every script), and works without the editor's UI. `graph_close` closes windows. The window tools need
+  the editor's window (Unavailable when headless); `graph_palette` also needs the scripting runtime.
 - `Projects/FeatureTest/Assets/Scripts/*.sgraph` together use every built-in kind of node.
 
 ## 7. Play and test

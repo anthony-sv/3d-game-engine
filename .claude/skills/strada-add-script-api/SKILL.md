@@ -124,6 +124,12 @@ public types of `Strada.ScriptCore` in the namespaces `Strada` and `Strada.Testi
   exactly or by a redirect ("VisualScriptEngine: the projects' scene graphs load strictly, analyze cleanly and resolve
   exactly or by redirect"), and ScriptCoreTests analyze the shared documents of `Tests/Data/VisualScripting` (their
   reflected nodes and where they come from are in `Documents/Reflected.sources.txt`).
+- The visual script editor's tests read a copy of part of the node library,
+  `Tests/Data/VisualScripting/Editor/Library.json` (the members its README lists). A change to a public member it covers
+  (a pin, a default, a description, a type's fields) fails StradaEditorTests' parity test ("the fixture library is the
+  scripting runtime's own library, entry for entry"), which writes the expected file to
+  `VisualScriptFixtures/Library.json` next to the test binary: review it and copy it over the fixture, or regenerate the
+  fixture with the `strada` commands of `Tests/Data/VisualScripting/README.md`.
 
 ## 6. Docs
 

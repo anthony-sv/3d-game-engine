@@ -687,12 +687,13 @@ events of your own), flow control (branches, sequences, loops, delays), variable
 for each member of the scripting API, so graphs reach the engine the way scripts do. Graphs run in the same .NET
 runtime as C# scripts but need no C# project: a game can be made of graphs alone.
 
-The editor has no graph canvas yet. "+" > Visual Script in the content browser creates a graph
-(`New Visual Script.sgraph`, with an `Event.Create` and an `Event.Update` node), dragging it onto entities in the
-hierarchy, the inspector or the scene view runs it there, and selecting it shows what it holds. Its nodes are written
-through the editor's automation commands, which agents call as MCP tools and `strada call` runs from a shell:
-`graph.library` lists the kinds of nodes with their pins, `graph.types` the types, `graph.check` checks a document and
-`graph.set` saves it. [Automation.md](Automation.md) describes the document and the commands. This graph turns its
+"+" > Visual Script in the content browser creates a graph (`New Visual Script.sgraph`, with an `Event.Create` and an
+`Event.Update` node), double-clicking it opens it on a canvas in the editor (see
+[Editing visual scripts](#editing-visual-scripts) below), and dragging it onto entities in the hierarchy, the inspector
+or the scene view runs it there. A graph is stored as a document of nodes and links, which agents also write through
+the editor's automation commands (MCP tools, or `strada call` from a shell): `graph.library` lists the kinds of nodes
+with their pins, `graph.types` the types, `graph.check` checks a document and `graph.set` saves it, and `graph.open`
+shows it in its window. [Automation.md](Automation.md) describes the document and the commands. This graph turns its
 entity like the `Spinner` script at the top of this guide:
 
 ```json
@@ -856,6 +857,88 @@ edit reaches the graph at once, as for script fields. A graph saved while the ga
 running instances at their next update: variables keep their values (a new variable, or one whose type changed, starts
 at its `Value`; one renamed or added and edited before that update takes the edited value), waiting nodes keep waiting
 while they still exist, and a graph saved with an error keeps running its last working version.
+
+### Editing visual scripts
+
+**Opening a script.** Double-click a visual script in the content browser (or use its Open menu item, the Open button
+of the inspector that shows it, or Open Visual Script on a VisualScript component) and it opens in a graph window of
+its own, docked beside the scene view. An entity without a graph gets one from its component's Create Visual Script,
+which writes `Assets/Scripts/<entity name>.sgraph`, runs it on the selected entities and opens it. Each script has one
+window, and the editor reopens the windows a project had open the next time it opens. The window holds the canvas in
+the middle, **My Script** on the left (the script's graphs, variables, locals and custom events), **Details** on the
+right (what is selected) and a toolbar; View > Visual Scripts lists the open windows. Scripts save themselves: every
+edit is written to the file at once, the toolbar says "Saved" (or "Not saved" when a write failed), and Ctrl+Z undoes it
+like any other edit, from any window. A script whose file is read-only can be looked at and copied from, not edited.
+
+**Moving around.** Drag with the right or middle mouse button, or hold Space and drag, to pan. With a wheel mouse the
+wheel zooms to the cursor, Ctrl+wheel pans up and down and Shift+wheel sideways. On a trackpad, open the toolbar's view
+menu (the three dots) and set Scroll to Pan: two fingers then pan, and Ctrl+scroll (Cmd on macOS) zooms; Pan is the
+default on macOS. F frames the selection (everything when nothing is selected) and Home everything. Zoomed far out,
+nodes become simple boxes you can still select and move; zoomed in, every value shows on its node. Back and Forward in
+the toolbar (Ctrl+[ and Ctrl+], or the mouse's side buttons) retrace where you looked, across functions too.
+Ctrl+Alt+1 to 9 stores the view as a bookmark and Ctrl+1 to 9 goes back to it; the toolbar's Bookmarks menu renames
+and deletes them. Bookmarks, views and pane sizes are yours alone: they are kept in the editor's user data, never in the
+script.
+
+**Adding and wiring nodes.** Press Tab, tap Space or right-click the empty canvas to open the palette, type part of a
+node's name ("add force", or the initials "af") and press Enter: the node appears where you opened the palette. Holding
+Space and typing opens it with what you typed. Drag from a pin to another pin to link them; the wire turns red and
+its tooltip says why when the two cannot connect; a wire shows a gradient where a value converts on its way (an `int`
+into a `float`). Release a wire on empty canvas and the palette lists only the nodes that connect to it, and links the
+one you choose. Ctrl+drag a linked pin to move its links, Alt+click a pin or a wire to break links, Ctrl+right-drag
+across wires to cut them, and double-click a wire to add a reroute point. Select with a click or by dragging a rectangle
+(Shift adds, Ctrl toggles), move the selection by dragging (it snaps to the grid; hold Alt to place it freely), nudge it
+with the arrow keys, and tidy it with the toolbar's Arrange or the align keys (Shift+W, A, S, D) and Q, which
+straightens a flow. Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+D copy, cut, paste and duplicate, also between scripts. Delete
+removes the selection and keeps the flow going through what it removed (a node between two others no longer breaks the
+chain); Shift+Delete removes it without that. F1, or `?` in the toolbar, lists every key and mouse gesture.
+
+**Values.** An input that nothing is linked to shows its value on the node; click it to change it (drag a number,
+pick an enum, a colour or an asset), or select the node and change it in Details. Drop an asset from the content browser
+onto an input to use it, or onto the canvas to get the node that uses it; drop an entity from the hierarchy onto the
+canvas to give the graph a public variable for it, set on the entity this window shows (below). Right-click a pin for
+Reset to Default, Promote to Variable and its links.
+
+**Variables, functions and custom events.** The "+" of each section of My Script adds a variable, a function, a local
+(while a function is shown) or a custom event and lets you name it at once. Drag a variable onto the canvas for a Get
+or a Set (hold Ctrl for a Get, Alt for a Set), or onto a pin. Details sets a variable's type, default value, tooltip
+and range and whether it is public (public variables show in the inspector, where each entity sets its own values); a
+function's inputs, outputs, locals and purity; a custom event's parameters. Double-click a function call to open the
+function's graph, and a Send to go to the custom event it raises in this script. Deleting a variable
+or function that nodes use asks first and removes those nodes too, keeping the flow through them. Renaming keeps every
+use, and a variable remembers its former names, so the values entities stored keep applying.
+
+**Comments.** Press C to put a comment box around the selection (or a new one at the cursor) and type its title; moving
+the box by its title moves what is inside it (hold Alt for the box alone). Right-click a node and choose Comment to add
+a note shown above it; double-click either text to edit it in place. H collapses selected nodes to their header.
+
+**Split pins.** Right-click a vector, colour or other struct pin and choose Split to show one pin per field (a
+`Vector3` input becomes `X`, `Y` and `Z`), so you can link or set each field on its own; Recombine puts it back.
+Outputs split the same way (a raycast's hit point, then its `Y`).
+
+**Disabling nodes.** M disables the selected nodes (or enables them again): a disabled node is dimmed and passes the
+flow on to its next node without running, and passes its values through where it can, so you can switch part of a graph
+off without unlinking it. A disabled node's errors become warnings, so disabling a broken node keeps its graph running.
+Details also offers Development Only: such a node runs in the editor and in test runs, and is left out of exported
+games (a log line or a cheat key). Entry and Return nodes and nodes without flow pins cannot be disabled.
+
+**Problems and quick fixes.** Nodes with problems get a badge, and the toolbar counts errors and warnings; click either
+to see the messages, and their fix buttons where a fix is known: use the suggested node or pin, insert a conversion,
+keep the first of two links, add a missing Return, and more. A script with an error does not run (while playing, the
+game keeps the last version that worked), so fix errors first; warnings can wait. The problems drawer under the canvas
+lists everything, errors first; click a row to go there.
+
+**Find.** Ctrl+F finds text in the script (titles, values, comments, names): Enter goes to the next match and selects
+it, so Delete or F2 then act on what you found. Ctrl+Shift+F searches every script of the project. Find References on a
+variable, Find Callers on a function and Find Senders on a custom event (in their right-click menus in My Script) list
+their uses; senders are found in every script.
+
+**Editing while playing.** Keep the graph window open while the game plays: every edit reaches the running game at
+once (the toolbar's LIVE pill says so), variables keep their values, and waiting nodes keep waiting while they still
+exist. When an edit leaves an error, the pill turns amber ("last working version") and the game goes on with the last
+version that worked until you fix it. The toolbar's Instance list picks which entity running the script the window
+shows: My Script then shows its public variables' current values, and dropped entities set its values. Edits made
+while playing stay in the script after Stop, and stay undoable.
 
 ## Testing a game
 

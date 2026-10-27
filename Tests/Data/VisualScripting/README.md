@@ -28,14 +28,16 @@ except the migration fixture; the content form has no version.
   to an equal `VisualScriptDocument`.
 - **Slice 2, track F** (StradaTests, `VisualScriptSerializerTests`): `Version1/Example.sgraph` migrates to `Example.sgraph`;
   `Documents/Editor.json` joins the documents above and keeps every node key of version 2 where the editor shows it.
-  Until the VM reads `Enabled` and `Split` (slice 2, track V), it analyzes `Editor.json` with errors (its split field pins
-  are unknown pins), so `Editor.json` joins the VM's fixture tests and the native runs below only once it does; where
-  the spec leaves a VM detail open, the VM decides and the document follows.
+  The VM reads `Enabled` and `Split` (slice 2, track V): `Editor.json` analyzes with zero Errors (one `DisabledIgnored`
+  on node 30; the disabled nodes 17 and 19 pass the flow on at `Then` and `Completed`, the disabled event 22 starts
+  nothing) and joins the VM's fixture tests and the native runs below. Where the spec leaves a VM detail open, the VM
+  decides and the document follows.
 - **Track B** (ScriptCoreTests): every document and the content of `Example.sgraph` analyze with zero Error
   diagnostics. The test project copies this directory to its output as `VisualScripting/`.
 - **Track C** (StradaTests, `VisualScriptEngineTests`): the documents load and run through `VisualScriptEngine`.
   Branches guard every call that could fail, so they run without aborting errors whether or not the entity has children
-  or a rigid body.
+  or a rigid body. `Editor.json` runs with them (slice 2), and, wrapped in a version-2 file header, it is the alternate
+  seed of `VisualScriptFuzzTests`' damaged-graphs-run case.
 - **Slice 2, the editor** (StradaEditorTests, which find this directory through `STRADA_TEST_DATA_DIR`): the document
   editing and canvas model tests parse `Editor/Library.json`, the canvas model's fixture semantics analyze with its
   templates, and its parity test (under the scripting runtime) compares each entry with the runtime's library and, on a
