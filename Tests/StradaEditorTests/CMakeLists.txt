@@ -32,8 +32,10 @@ add_executable(StradaEditorTests
     Source/ViewportTests.cpp
     Source/VisualScriptArrangeTests.cpp
     Source/VisualScriptCanvasModelTests.cpp
+    Source/VisualScriptCanvasPerformanceTests.cpp
     Source/VisualScriptClipboardTests.cpp
     Source/VisualScriptCommitTests.cpp
+    Source/VisualScriptControllerTests.cpp
     Source/VisualScriptEditingTests.cpp
     Source/VisualScriptEditorFoundationTests.cpp
     Source/VisualScriptEditorModelTests.cpp
@@ -43,15 +45,23 @@ add_executable(StradaEditorTests
     Source/VisualScriptNodeTitlesTests.cpp
     Source/VisualScriptNormalizationTests.cpp
     Source/VisualScriptPaletteTests.cpp
+    Source/VisualScriptPanelTests.cpp
+    Source/VisualScriptPanelTestUtilities.h
     Source/VisualScriptPanesTests.cpp
     Source/VisualScriptQuickFixTests.cpp
+    Source/VisualScriptRenderTests.cpp
+    Source/VisualScriptRuntimeEditorTests.cpp
     Source/VisualScriptSemanticsTests.cpp
+    Source/VisualScriptShortcutsTests.cpp
     Source/VisualScriptSpatialIndexTests.cpp
     Source/VisualScriptTestDocuments.h
     Source/VisualScriptTestUtilities.h
+    Source/VisualScriptTextTests.cpp
+    Source/VisualScriptThemeStyleTests.cpp
     Source/VisualScriptThemeTests.cpp
     Source/VisualScriptViewSettingsTests.cpp
     Source/VisualScriptViewTests.cpp
+    Source/VisualScriptWindowTests.cpp
 )
 
 target_include_directories(StradaEditorTests PRIVATE

@@ -98,6 +98,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/SceneSettingsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
+    Source/Editor/Panels/VisualScriptEditorPanel.cpp
+    Source/Editor/Panels/VisualScriptEditorPanel.h
     Source/Editor/PlayMode.cpp
     Source/Editor/PlayMode.h
     Source/Editor/ProjectImport.cpp
@@ -124,13 +126,19 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScriptEnumLookupSource.h
     Source/Editor/VisualScripting/VisualScriptArrange.cpp
     Source/Editor/VisualScripting/VisualScriptArrange.h
+    Source/Editor/VisualScripting/VisualScriptBrushes.cpp
+    Source/Editor/VisualScripting/VisualScriptBrushes.h
     Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
     Source/Editor/VisualScripting/VisualScriptCanvasModel.cpp
     Source/Editor/VisualScripting/VisualScriptCanvasModel.h
+    Source/Editor/VisualScripting/VisualScriptCanvasRenderer.cpp
+    Source/Editor/VisualScripting/VisualScriptCanvasRenderer.h
     Source/Editor/VisualScripting/VisualScriptClipboard.cpp
     Source/Editor/VisualScripting/VisualScriptClipboard.h
     Source/Editor/VisualScripting/VisualScriptCommit.cpp
     Source/Editor/VisualScripting/VisualScriptCommit.h
+    Source/Editor/VisualScripting/VisualScriptController.cpp
+    Source/Editor/VisualScripting/VisualScriptController.h
     Source/Editor/VisualScripting/VisualScriptDetails.cpp
     Source/Editor/VisualScripting/VisualScriptDetails.h
     Source/Editor/VisualScripting/VisualScriptDrawer.cpp
@@ -164,12 +172,15 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptQuickFixes.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp
     Source/Editor/VisualScripting/VisualScriptSemantics.h
+    Source/Editor/VisualScripting/VisualScriptShortcuts.h
     Source/Editor/VisualScripting/VisualScriptSidebar.cpp
     Source/Editor/VisualScripting/VisualScriptSidebar.h
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.cpp
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.h
     Source/Editor/VisualScripting/VisualScriptTheme.cpp
     Source/Editor/VisualScripting/VisualScriptTheme.h
+    Source/Editor/VisualScripting/VisualScriptThemeStyle.cpp
+    Source/Editor/VisualScripting/VisualScriptThemeStyle.h
     Source/Editor/VisualScripting/VisualScriptView.cpp
     Source/Editor/VisualScripting/VisualScriptView.h
     Source/Editor/VisualScripting/VisualScriptViewSettings.cpp

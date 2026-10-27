@@ -515,7 +515,9 @@ namespace Strada
 			drawList->AddText(ImVec2(textX, min.y + style.FramePadding.y), GetAssetReferenceColor(handle, mixed), text.c_str());
 			drawList->PopClipRect();
 
-			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
+			// A compact box is drawn at the canvas's zoom, where a tooltip would take the zoomed font and spacing (spec §7.8 rule
+			// 3): it shows none.
+			if (!compact && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled))
 			{
 				// The whole path, which the box may shorten, the image (whole textures) and how to change it unless the field is
 				// read-only.
@@ -1529,8 +1531,9 @@ namespace Strada
 				if (IsColor(field))
 				{
 					std::array<float, 4> const display = ToDisplayColor(value);
-					ImGuiColorEditFlags const flags =
-						ImGuiColorEditFlags_NoDragDrop | (size == 4 ? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
+					// No tooltip: it would take the canvas's zoomed font and spacing (spec §7.8 rule 3).
+					ImGuiColorEditFlags const flags = ImGuiColorEditFlags_NoDragDrop | ImGuiColorEditFlags_NoTooltip |
+					                                  (size == 4 ? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha);
 					ImVec4 const color(display[0], display[1], display[2], size == 4 ? display[3] : 1.0f);
 					popupRequested = ImGui::ColorButton("##value", color, flags, ImVec2(ImGui::CalcItemWidth(), ImGui::GetFrameHeight())) ||
 					                 popupRequested;

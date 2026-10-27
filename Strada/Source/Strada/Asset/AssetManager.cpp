@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -367,8 +368,9 @@ namespace Strada
 					// Damaged parts are repaired, and unknown fields only warn so files written by newer engine versions still
 					// load; each repair is logged with the file.
 					std::vector<std::string> warnings;
+					std::vector<VisualScriptIssue> issues;
 					Result<VisualScriptDocument> document = VisualScriptSerializer::LoadFromFile(
-						path, AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn, &warnings));
+						path, AssetManager::CreateDeserializationContext(UnknownFieldPolicy::Warn, &warnings), &issues);
 					for (std::string const& warning : warnings)
 					{
 						ST_CORE_WARN("'{}': {}", metadata.Path, warning);
@@ -377,7 +379,10 @@ namespace Strada
 					{
 						return Error{document.GetError()};
 					}
-					return Ref<Asset>(CreateRef<VisualScriptAsset>(document.TakeValue()));
+					Ref<VisualScriptAsset> asset = CreateRef<VisualScriptAsset>(document.TakeValue());
+					// The graph windows say that the file was repaired (the console has each repair).
+					asset->SetLoadRepairCount(static_cast<uint32_t>(std::min<size_t>(issues.size(), UINT32_MAX)));
+					return Ref<Asset>(asset);
 				}
 				case AssetType::Mesh:
 					return LoadMesh(metadata, path);

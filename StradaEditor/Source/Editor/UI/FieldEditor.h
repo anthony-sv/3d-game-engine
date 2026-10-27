@@ -49,7 +49,8 @@ namespace Strada
 		// vectors and quaternions (in Euler degrees, "%g") as one drag per component with its axis's stripe at its left edge and
 		// no axis buttons, and colours, enums (the stored name), [Flags] enums (the stored names joined with " | ") and assets
 		// (the asset's display name) as a frame only, whose click asks the caller for a popup (drawn at the window's normal size
-		// with DrawValuePopup) instead of opening one.
+		// with DrawValuePopup) instead of opening one. Its widgets show no tooltips, which would take the canvas's zoomed font
+		// and spacing.
 		Compact
 	};
 
