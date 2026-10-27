@@ -94,8 +94,8 @@ namespace Strada
 		std::string_view ScriptName;
 		AssetHandle Graph;
 		// The key of the run the commit belongs to, used only by the commits that merge (VisualScriptNudgeMergeKey and
-		// VisualScriptNameMergeKey runs, and widget values under the shared edit session's key); every other commit is a step
-		// of its own (key 0).
+		// VisualScriptNameMergeKey runs, and widget values and node comments edited in place under the shared edit session's
+		// key); every other commit is a step of its own (key 0).
 		uint64_t MergeKey = 0;
 		// Paste only: the clipboard's text, which the panel reads when pasting.
 		std::string_view ClipboardText;

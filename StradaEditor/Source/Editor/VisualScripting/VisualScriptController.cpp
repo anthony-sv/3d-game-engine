@@ -529,7 +529,8 @@ namespace Strada
 				{
 					return set;
 				}
-				return Commit(std::move(document), action);
+				// The text edited in place is a widget interaction: it commits under the shared edit session's key.
+				return Commit(std::move(document), action, m_Context.MergeKey);
 			}
 
 			Result<void> Resolve(VisualScriptCommentEdit const& edit)

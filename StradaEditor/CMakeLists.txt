@@ -98,6 +98,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/Panels/SceneSettingsPanel.h
     Source/Editor/Panels/ViewportPanel.cpp
     Source/Editor/Panels/ViewportPanel.h
+    Source/Editor/Panels/VisualScriptEditorPanel.cpp
+    Source/Editor/Panels/VisualScriptEditorPanel.h
     Source/Editor/PlayMode.cpp
     Source/Editor/PlayMode.h
     Source/Editor/ProjectImport.cpp

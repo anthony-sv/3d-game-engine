@@ -4,6 +4,9 @@
 #include "TestUtilities.h"
 #include "VisualScriptTestUtilities.h"
 
+#include "Editor/Commands/CommandHistory.h"
+#include "Editor/Panels/VisualScriptEditorPanel.h"
+#include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptBrushes.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
@@ -19,11 +22,34 @@
 
 #include <functional>
 #include <optional>
+#include <span>
 #include <vector>
 
 // Helpers of the tests of the visual script editor's canvas UI: the canvas drawn headless, frame by frame, as its panel draws it.
 namespace Strada::Testing
 {
+	// What the window manager does in every frame before any graph window draws (spec §4.4 rule 2), for tests that draw
+	// graph windows without it: the edits of widgets that are no longer active are flushed (no item is active, an edit is
+	// still pending), then the edit session all windows share ends its step when the active item is not the previous frame's.
+	// previousActive keeps the active item from frame to frame (the window manager's m_LastActiveItem). Inside a frame.
+	inline void EndInteractions(std::span<VisualScriptEditorPanel* const> panels, EditSession& session, CommandHistory& history,
+	                            ImGuiID& previousActive)
+	{
+		ImGuiID const active = ImGui::GetActiveID();
+		if (active == 0)
+		{
+			for (VisualScriptEditorPanel* panel : panels)
+			{
+				if (panel->HasPendingWidgetEdit())
+				{
+					panel->FlushWidgetEdit();
+				}
+			}
+		}
+		session.Update(active != 0 && active == previousActive, history);
+		previousActive = active;
+	}
+
 	// A graph window's canvas drawn in a headless ImGui context: a project with one graph, its editor model synced and updated
 	// with synthetic input, and the renderer drawing into a fixed window that covers the canvas (at the screen's origin,
 	// without padding, so the window's clip rectangle is the canvas). Nodes are measured with the fixed-width measurer and
