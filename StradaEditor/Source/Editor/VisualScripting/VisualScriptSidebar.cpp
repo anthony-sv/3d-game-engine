@@ -300,7 +300,8 @@ namespace Strada
 
 		// Keys: those the window routed, and Enter on the selected row while My Script has the keyboard's focus.
 		std::optional<VisualScriptEditorAction> const action = std::exchange(m_Action, std::nullopt);
-		bool const enter = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
+		// My Script's own window or its children: not the window it is drawn in (the canvas beside it).
+		bool const enter = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && !ImGui::GetIO().WantTextInput &&
 		                   ImGui::IsKeyPressed(ImGuiKey_Enter, false);
 		if (std::optional<VisualScriptElement> const element = context.Shared.Element)
 		{

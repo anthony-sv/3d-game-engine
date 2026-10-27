@@ -187,7 +187,8 @@ namespace Strada
 		{
 			ImGui::SetTooltip("Close (Escape)");
 		}
-		if (close || (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::IsAnyItemActive() &&
+		// Escape closes the bar while its own window has the keyboard; on the canvas beside it, the window decides (§8.3).
+		if (close || (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) && !ImGui::IsAnyItemActive() &&
 		              ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
 		{
 			Close();

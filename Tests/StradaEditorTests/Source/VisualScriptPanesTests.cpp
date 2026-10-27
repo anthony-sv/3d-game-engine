@@ -1492,6 +1492,26 @@ TEST_CASE(
 	VisualScriptNode const* const delay = FindNode(fixture.GetDocument(), "Flow.Delay");
 	REQUIRE(delay != nullptr);
 	CHECK(delay->Inputs.contains("Duration"));
+
+	// A value dragged away and back to the one committed within 0.1 s: the value in between is not committed at the release.
+	size_t const second = fixture.GetUndoCount();
+	io.AddMousePosEvent(start.x, start.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	io.AddMousePosEvent(start.x + 8.0f, start.y);
+	fixture.Frames(1);
+	Json const committed = FindNode(fixture.GetDocument(), "Flow.Delay")->Inputs.value("Duration", Json());
+	uint64_t const committedVersion = fixture.GetVersion();
+	io.AddMousePosEvent(start.x + 12.0f, start.y);
+	fixture.Frames(1);
+	io.AddMousePosEvent(start.x + 8.0f, start.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(3);
+	CHECK(fixture.GetVersion() == committedVersion);
+	CHECK(FindNode(fixture.GetDocument(), "Flow.Delay")->Inputs.value("Duration", Json()) == committed);
+	CHECK(fixture.GetUndoCount() == second + 1);
 }
 
 TEST_CASE("VisualScriptEditor: Details lists the placeholders the scripting runtime makes inputs of in a Format String's multi-line Format")

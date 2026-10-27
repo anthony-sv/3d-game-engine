@@ -332,8 +332,19 @@ namespace Strada
 		m_Model = &model;
 		DropStalePending(model);
 		result.WidgetActive = result.WidgetActive || active;
-		if (model.GetStoredDocument() == nullptr || IsSameVisualScriptDocument(edited, GetDocument(model)))
+		if (model.GetStoredDocument() == nullptr || (m_Pending != nullptr && IsSameVisualScriptDocument(edited, *m_Pending)))
 		{
+			return;
+		}
+		if (IsSameVisualScriptDocument(edited, model.GetDisplayDocument()))
+		{
+			// Back to what is committed: the value pending is not the widget's any more.
+			if (m_Pending != nullptr)
+			{
+				m_Pending.reset();
+				m_PendingBase.reset();
+				model.ClearWidgetPreview();
+			}
 			return;
 		}
 		uint64_t const key = context.Session.GetMergeKey();
