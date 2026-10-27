@@ -131,6 +131,10 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptClipboard.h
     Source/Editor/VisualScripting/VisualScriptCommit.cpp
     Source/Editor/VisualScripting/VisualScriptCommit.h
+    Source/Editor/VisualScripting/VisualScriptDetails.cpp
+    Source/Editor/VisualScripting/VisualScriptDetails.h
+    Source/Editor/VisualScripting/VisualScriptDrawer.cpp
+    Source/Editor/VisualScripting/VisualScriptDrawer.h
     Source/Editor/VisualScripting/VisualScriptEditing.cpp
     Source/Editor/VisualScripting/VisualScriptEditing.h
     Source/Editor/VisualScripting/VisualScriptEditorModel.cpp
