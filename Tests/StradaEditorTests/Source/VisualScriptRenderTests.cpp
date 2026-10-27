@@ -23,6 +23,7 @@
 #include <cmath>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -229,11 +230,12 @@ TEST_CASE("VisualScriptEditor: wires are drawn before nodes, and selected nodes 
 	CHECK(delay.Has(Elements::Outline | Elements::Glow));
 	CHECK(delay.Color == fixture.Theme.Selection);
 	// The wires of the selected node are highlighted, after the others.
+	std::span<VisualScriptLinkVisual const> const links = fixture.Model.GetCanvas().GetLinks();
+	std::span<VisualScriptNodeVisual const> const canvasNodes = fixture.Model.GetCanvas().GetNodes();
 	for (VisualScriptDrawRecordItem const& wire : wires)
 	{
-		VisualScriptLinkVisual const& link = fixture.Model.GetCanvas().GetLinks()[wire.Element];
-		bool const incident =
-			fixture.Model.GetCanvas().GetNodes()[link.FromNode].ID == 2 || fixture.Model.GetCanvas().GetNodes()[link.ToNode].ID == 2;
+		VisualScriptLinkVisual const& link = links[wire.Element];
+		bool const incident = canvasNodes[link.FromNode].ID == 2 || canvasNodes[link.ToNode].ID == 2;
 		CHECK((wire.Layer == VisualScriptDrawLayer::HighlightedWires) == incident);
 	}
 	// The comment and the grid come first.
@@ -280,14 +282,16 @@ namespace
 	VisualScriptDrawRecordItem const* FindWire(Testing::CanvasRenderFixture const& fixture, uint32_t fromNode, uint32_t toNode)
 	{
 		VisualScriptCanvasModel const& canvas = fixture.Model.GetCanvas();
+		std::span<VisualScriptLinkVisual const> const links = canvas.GetLinks();
+		std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
 		for (VisualScriptDrawRecordItem const& item : fixture.Record.Items)
 		{
 			if (item.Kind != VisualScriptDrawItemKind::Wire)
 			{
 				continue;
 			}
-			VisualScriptLinkVisual const& link = canvas.GetLinks()[item.Element];
-			if (canvas.GetNodes()[link.FromNode].ID == fromNode && canvas.GetNodes()[link.ToNode].ID == toNode)
+			VisualScriptLinkVisual const& link = links[item.Element];
+			if (nodes[link.FromNode].ID == fromNode && nodes[link.ToNode].ID == toNode)
 			{
 				return &item;
 			}
@@ -462,7 +466,8 @@ TEST_CASE("VisualScriptEditor: an implicit conversion's wire fades from one type
 
 	VisualScriptDrawRecordItem const* wire = FindWire(fixture, 6, 2);
 	REQUIRE(wire != nullptr);
-	VisualScriptLinkVisual const& link = fixture.Model.GetCanvas().GetLinks()[wire->Element];
+	std::span<VisualScriptLinkVisual const> const links = fixture.Model.GetCanvas().GetLinks();
+	VisualScriptLinkVisual const& link = links[wire->Element];
 	REQUIRE(link.HasFlag(VisualScriptLinkFlags::Converted));
 	REQUIRE(GetRgb(link.FromColor) != GetRgb(link.ToColor));
 	CHECK(wire->Has(Elements::Gradient));
