@@ -142,12 +142,18 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptGeometry.h
     Source/Editor/VisualScripting/VisualScriptHitTest.cpp
     Source/Editor/VisualScripting/VisualScriptHitTest.h
+    Source/Editor/VisualScripting/VisualScriptLiteralEditor.cpp
+    Source/Editor/VisualScripting/VisualScriptLiteralEditor.h
     Source/Editor/VisualScripting/VisualScriptNodeTitles.cpp
     Source/Editor/VisualScripting/VisualScriptNodeTitles.h
     Source/Editor/VisualScripting/VisualScriptNormalization.cpp
     Source/Editor/VisualScripting/VisualScriptNormalization.h
     Source/Editor/VisualScripting/VisualScriptPalette.cpp
     Source/Editor/VisualScripting/VisualScriptPalette.h
+    Source/Editor/VisualScripting/VisualScriptPalettePopup.cpp
+    Source/Editor/VisualScripting/VisualScriptPalettePopup.h
+    Source/Editor/VisualScripting/VisualScriptPanes.cpp
+    Source/Editor/VisualScripting/VisualScriptPanes.h
     Source/Editor/VisualScripting/VisualScriptQuickFixes.cpp
     Source/Editor/VisualScripting/VisualScriptQuickFixes.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp
