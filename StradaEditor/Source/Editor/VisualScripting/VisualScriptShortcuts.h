@@ -170,9 +170,10 @@ namespace Strada
 	// Ctrl+Backspace); its first row names it in menus.
 	inline constexpr std::array<VisualScriptShortcut, 60> const& VisualScriptShortcuts = VisualScriptShortcutsDetail::Shortcuts;
 
-	// The editor's global chords (EditorLayer's), which no canvas key equals: graph windows shadow only the editing chords
-	// they claim while focused (Delete, Ctrl+Backspace, Ctrl+D, Ctrl+A), and Ctrl+S saves the scene everywhere.
-	inline constexpr std::array<ImGuiKeyChord, 15> VisualScriptEditorChords = {
+	// The editor's global chords (EditorLayer's and its editing keys', EditorEditingKeys), which no canvas key equals: graph
+	// windows shadow only the editing chords they claim while focused (Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+D, Delete,
+	// Ctrl+Backspace, Ctrl+A), and Ctrl+S saves the scene everywhere.
+	inline constexpr std::array<ImGuiKeyChord, 18> VisualScriptEditorChords = {
 		ImGuiMod_Ctrl | ImGuiKey_N,
 		ImGuiMod_Ctrl | ImGuiKey_O,
 		ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S,
@@ -184,6 +185,9 @@ namespace Strada
 		ImGuiMod_Ctrl | ImGuiKey_Z,
 		ImGuiMod_Ctrl | ImGuiKey_Y,
 		ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z,
+		ImGuiMod_Ctrl | ImGuiKey_X,
+		ImGuiMod_Ctrl | ImGuiKey_C,
+		ImGuiMod_Ctrl | ImGuiKey_V,
 		ImGuiMod_Ctrl | ImGuiKey_D,
 		ImGuiKey_Delete,
 		ImGuiMod_Ctrl | ImGuiKey_Backspace,

@@ -514,7 +514,7 @@ namespace Strada
 
 		if (m_FocusDefaultTabsFrames > 0 && --m_FocusDefaultTabsFrames == 0)
 		{
-			ImGui::SetWindowFocus("Content Browser");
+			ImGui::SetWindowFocus(ContentBrowserPanel::WindowName);
 			ImGui::SetWindowFocus("Inspector");
 			ImGui::SetWindowFocus("Scene View");
 		}
@@ -567,7 +567,7 @@ namespace Strada
 		ImGui::DockBuilderDockWindow("Inspector", right);
 		ImGui::DockBuilderDockWindow("Scene Settings", right);
 		ImGui::DockBuilderDockWindow("Project Settings", right);
-		ImGui::DockBuilderDockWindow("Content Browser", bottom);
+		ImGui::DockBuilderDockWindow(ContentBrowserPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
 		// The graph windows that are open join the scene view.
 		if (m_VisualScripts)
@@ -706,7 +706,7 @@ namespace Strada
 			ImGui::MenuItem("Inspector", nullptr, &m_ShowInspector);
 			ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
 			ImGui::MenuItem("Project Settings", nullptr, &m_ShowProjectSettings);
-			ImGui::MenuItem("Content Browser", nullptr, &m_ShowContentBrowser);
+			ImGui::MenuItem(ContentBrowserPanel::WindowName, nullptr, &m_ShowContentBrowser);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Renderer Info", nullptr, &m_ShowRendererInfo);
 			if (m_VisualScripts)

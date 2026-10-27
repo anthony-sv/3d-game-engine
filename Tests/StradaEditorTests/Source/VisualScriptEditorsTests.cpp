@@ -1067,6 +1067,96 @@ TEST_CASE("VisualScriptEditor: with the scene as the Edit menu's target the edit
 	CHECK(AssetManager::GetAsset<VisualScriptAsset>(fixture.Player)->GetDocument().Graph.Nodes.size() == nodes);
 }
 
+TEST_CASE("VisualScriptEditor: the keyboard window stays the one before a menu bar's menu, the side bars and no window took the keyboard")
+{
+	Testing::HeadlessImGui gui;
+	ImGuiWindow const* keyboard = nullptr;
+	bool openMenu = false;
+	bool closeMenu = false;
+	bool menuOpen = false;
+	char const* focus = nullptr;
+	bool clearFocus = false;
+	// As EditorLayer draws a frame: the keyboard window first, then the main menu bar with an Edit menu (opened as
+	// editor.entity-menu opens its menu), the toolbar and a window.
+	auto const draw = [&]
+	{
+		keyboard = FindKeyboardWindow(GImGui->NavWindow, keyboard);
+		if (ImGui::BeginMainMenuBar())
+		{
+			if (std::exchange(openMenu, false))
+			{
+				ImGui::OpenPopup("Edit");
+			}
+			menuOpen = ImGui::BeginMenu("Edit");
+			if (menuOpen)
+			{
+				ImGui::MenuItem("Delete", "Delete");
+				if (std::exchange(closeMenu, false))
+				{
+					ImGui::CloseCurrentPopup();
+				}
+				ImGui::EndMenu();
+			}
+			ImGui::EndMainMenuBar();
+		}
+		if (ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(), ImGuiDir_Up, 30.0f,
+		                                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
+		{
+			ImGui::TextUnformatted("Play");
+		}
+		ImGui::End();
+		ImGui::SetNextWindowPos(ImVec2(100.0f, 200.0f), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(300.0f, 200.0f), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Console", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		ImGui::End();
+		if (char const* const name = std::exchange(focus, nullptr))
+		{
+			ImGui::SetWindowFocus(name);
+		}
+		if (std::exchange(clearFocus, false))
+		{
+			ImGui::FocusWindow(nullptr);
+		}
+	};
+	auto const frames = [&gui, &draw](int count)
+	{
+		for (int i = 0; i < count; i++)
+		{
+			gui.Frame(draw);
+		}
+	};
+	frames(2);
+	focus = "Console";
+	frames(2);
+	REQUIRE(GetWindowName(keyboard) == "Console");
+
+	// The menu bar's menu has ImGui's keyboard while it is open and after it closed: the console stays the keyboard window
+	// throughout.
+	openMenu = true;
+	frames(2);
+	REQUIRE(menuOpen);
+	REQUIRE(GImGui->NavWindow != nullptr);
+	CHECK(std::string_view(GImGui->NavWindow->RootWindow->Name) != "Console");
+	CHECK(GetWindowName(keyboard) == "Console");
+	closeMenu = true;
+	frames(2);
+	REQUIRE_FALSE(menuOpen);
+	REQUIRE(GImGui->NavWindow != nullptr);
+	CHECK(std::string_view(GImGui->NavWindow->RootWindow->Name) != "Console");
+	CHECK(GetWindowName(keyboard) == "Console");
+
+	// The toolbar (its buttons take the focus when clicked) and no window at all leave it too.
+	focus = "##Toolbar";
+	frames(2);
+	REQUIRE(GImGui->NavWindow != nullptr);
+	REQUIRE(std::string_view(GImGui->NavWindow->Name) == "##Toolbar");
+	CHECK(GetWindowName(keyboard) == "Console");
+	clearFocus = true;
+	frames(2);
+	REQUIRE(GImGui->NavWindow == nullptr);
+	CHECK(GetWindowName(keyboard) == "Console");
+}
+
 TEST_CASE("VisualScriptEditor: an Edit item's shortcut text is its key's unless the window that has the keyboard claims the key")
 {
 	std::span<ImGuiKeyChord const> const none;

@@ -18,8 +18,6 @@
 #include <unordered_map>
 #include <vector>
 
-struct ImVec2;
-
 namespace Strada
 {
 	class AssetThumbnails;
