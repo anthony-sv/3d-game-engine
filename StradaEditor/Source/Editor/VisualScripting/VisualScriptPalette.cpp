@@ -1288,16 +1288,11 @@ namespace Strada
 		// Without a query, Convert's rows are for what nothing listed takes as it is.
 		if (dragged != nullptr && words.empty() && std::find(exact.begin(), exact.end(), true) != exact.end())
 		{
-			size_t kept = 0;
-			for (size_t matchIndex = 0; matchIndex < matches.size(); matchIndex++)
-			{
-				if (!index.m_Facts[matches[matchIndex].Entry].ConvertTo.empty())
-				{
-					continue;
-				}
-				matches[kept++] = std::move(matches[matchIndex]);
-			}
-			matches.resize(kept);
+			std::erase_if(matches,
+			              [&index](VisualScriptPaletteMatch const& match)
+			              {
+							  return !index.m_Facts[match.Entry].ConvertTo.empty();
+						  });
 		}
 		std::stable_sort(matches.begin(), matches.end(),
 		                 [](VisualScriptPaletteMatch const& a, VisualScriptPaletteMatch const& b)
