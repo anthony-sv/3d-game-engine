@@ -123,8 +123,9 @@ internal static class AnalysisWriter
 		{
 			writer.WriteString("PassThrough", passThrough.Name);
 		}
+		// A split pin is shown as its field pins (spec-slice2 section 3.3).
 		writer.WriteStartArray("Pins");
-		foreach (AnalyzedPin pin in node.Pins)
+		foreach (AnalyzedPin pin in node.GetShownPins())
 		{
 			LibraryWriter.WritePin(writer, pin.Description, pin.Type);
 		}

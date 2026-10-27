@@ -6,16 +6,20 @@ namespace Strada.VisualScripting;
 
 // Resolves the wildcard pins of a graph (spec section 3.5) and types the operators (spec section 4.4) and Convert nodes.
 // Nodes are resolved in data-flow order, so a node's wildcard inputs see the resolved types of the outputs linked into
-// them; nodes on a cycle of wildcards are resolved last with what is known (pure cycles are an error of their own).
+// them; nodes on a cycle of wildcards are resolved last with what is known (pure cycles are an error of their own). Once a
+// node is resolved, Resolved hears of it (its split pins split then, spec-slice2 section 3.3), before any node that reads
+// it: a link that names a field pin of a node not split yet counts as reading it.
 internal sealed class TypeResolution
 {
 	private readonly AnalysisContext m_Context;
 	private readonly IReadOnlyDictionary<AnalyzedNode, VisualType> m_ConvertTargets;
+	private readonly Action<AnalyzedNode> m_Resolved;
 
-	internal TypeResolution(AnalysisContext context, IReadOnlyDictionary<AnalyzedNode, VisualType> convertTargets)
+	internal TypeResolution(AnalysisContext context, IReadOnlyDictionary<AnalyzedNode, VisualType> convertTargets, Action<AnalyzedNode> resolved)
 	{
 		m_Context = context;
 		m_ConvertTargets = convertTargets;
+		m_Resolved = resolved;
 	}
 
 	private NodeLibrary Library => m_Context.Library;
@@ -33,23 +37,35 @@ internal sealed class TypeResolution
 				waiting[node] = 0;
 			}
 		}
+		HashSet<(AnalyzedNode Source, AnalyzedNode Reader)> edges = [];
+		void Depend(AnalyzedNode source, AnalyzedNode reader)
+		{
+			if (!waiting.ContainsKey(source) || !waiting.ContainsKey(reader) || !edges.Add((source, reader)))
+			{
+				return;
+			}
+			if (!dependents.TryGetValue(source, out List<AnalyzedNode>? list))
+			{
+				list = [];
+				dependents[source] = list;
+			}
+			list.Add(reader);
+			waiting[reader]++;
+		}
 		foreach (AnalyzedNode node in nodes)
 		{
-			HashSet<AnalyzedNode> sources = [];
 			foreach (AnalyzedPin pin in node.Pins)
 			{
 				if (pin.IsInput && pin.Description.Source == WildcardSource.Links && pin.Source is { } link &&
-					link.From.Description.Source != WildcardSource.None && waiting.ContainsKey(link.From.Node) && sources.Add(link.From.Node))
+					link.From.Description.Source != WildcardSource.None)
 				{
-					if (!dependents.TryGetValue(link.From.Node, out List<AnalyzedNode>? list))
-					{
-						list = [];
-						dependents[link.From.Node] = list;
-					}
-					list.Add(node);
-					waiting[node]++;
+					Depend(link.From.Node, node);
 				}
 			}
+		}
+		foreach (DeferredLink link in graph.DeferredLinks)
+		{
+			Depend(link.From, link.To);
 		}
 		PriorityQueue<AnalyzedNode, int> ready = new();
 		foreach (AnalyzedNode node in nodes)
@@ -63,6 +79,7 @@ internal sealed class TypeResolution
 		while (ready.TryDequeue(out AnalyzedNode? node, out _))
 		{
 			ResolveNode(node);
+			m_Resolved(node);
 			resolved.Add(node);
 			foreach (AnalyzedNode dependent in dependents.GetValueOrDefault(node) ?? [])
 			{
@@ -77,11 +94,12 @@ internal sealed class TypeResolution
 			if (!resolved.Contains(node))
 			{
 				ResolveNode(node);
+				m_Resolved(node);
 			}
 		}
 	}
 
-	private static bool HasWildcards(AnalyzedNode node)
+	internal static bool HasWildcards(AnalyzedNode node)
 	{
 		foreach (AnalyzedPin pin in node.Pins)
 		{

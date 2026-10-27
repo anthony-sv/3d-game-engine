@@ -155,7 +155,25 @@ internal sealed class CompiledNode
 		IsDisabled = source.IsDisabled;
 	}
 
+	// A split pin of a node (spec-slice2 section 3.3): the Make that composes a split input from its field pins, or the Break
+	// that gives a split output's fields. It is a pure node of the graph's Nodes after the document's nodes, evaluated by the
+	// nodes that read it, with the ID, type and title of the node whose pin it splits; graphs never find it by ID.
+	internal CompiledNode(AnalyzedNode owner, int index, Opcode op, VisualType type)
+	{
+		Id = owner.ID;
+		Type = owner.Definition?.Type ?? owner.Source.Type;
+		Title = owner.Title;
+		Index = index;
+		Op = op;
+		Pure = true;
+		IsSplit = true;
+		ToType = type;
+	}
+
 	internal uint Id { get; }
+
+	// The Make or Break of a split pin.
+	internal bool IsSplit { get; }
 
 	// The library node type (canonical): a live edit carries the node's state over when it is unchanged (spec section 5.6).
 	internal string Type { get; }
@@ -296,10 +314,14 @@ internal sealed class CompiledGraph
 		Function = function;
 		foreach (CompiledNode node in nodes)
 		{
-			m_IndexById[node.Id] = node.Index;
+			if (!node.IsSplit)
+			{
+				m_IndexById[node.Id] = node.Index;
+			}
 		}
 	}
 
+	// The document's nodes in order, then the Make and Break nodes of their split pins.
 	internal CompiledNode[] Nodes { get; }
 
 	internal Slot[] Template { get; }

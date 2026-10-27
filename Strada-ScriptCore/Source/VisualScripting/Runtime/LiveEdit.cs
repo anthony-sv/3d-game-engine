@@ -123,6 +123,11 @@ internal sealed partial class VisualScriptRuntime
 		CompiledGraph source = from.Graph;
 		foreach (CompiledNode node in to.Graph.Nodes)
 		{
+			// The Make and Break nodes of split pins have no state: the node whose pins they split keeps its outputs.
+			if (node.IsSplit)
+			{
+				continue;
+			}
 			int index = source.FindNode(node.Id);
 			if (index < 0 || !IsSameNode(source.Nodes[index], node))
 			{

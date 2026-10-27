@@ -12,7 +12,8 @@ internal enum DiagnosticSeverity
 // The stable diagnostic codes (spec section 6.2), written by their names. ImpureInPureFunction and NotInFunction are the
 // VM's additions: an impure node in a pure function's graph, and Function.Entry or Function.Return in the event graph.
 // DisabledIgnored (a Warning): a node whose Enabled is "Disabled" but which cannot be disabled (Function.Entry,
-// Function.Return and pure nodes), so it runs.
+// Function.Return and pure nodes), so it runs. UnusedSplit (a Warning): an entry of a node's Split that splits nothing (it
+// names no pin of its direction, a pin whose type cannot split, or a field pin of an entry that did not split).
 internal enum DiagnosticCode
 {
 	InvalidDocument,
@@ -56,6 +57,7 @@ internal enum DiagnosticCode
 	ImpureInPureFunction,
 	NotInFunction,
 	DisabledIgnored,
+	UnusedSplit,
 }
 
 // A finding of the analysis. Function is 0 for the event graph and document variables, else the function's ID; the other
@@ -96,7 +98,7 @@ internal sealed class Diagnostic
 	internal static DiagnosticSeverity GetSeverity(DiagnosticCode code) => code switch
 	{
 		DiagnosticCode.NodeUpdated or DiagnosticCode.UnusedInput or DiagnosticCode.ZeroQuaternion or DiagnosticCode.UnknownSetting or
-			DiagnosticCode.DisabledIgnored => DiagnosticSeverity.Warning,
+			DiagnosticCode.DisabledIgnored or DiagnosticCode.UnusedSplit => DiagnosticSeverity.Warning,
 		_ => DiagnosticSeverity.Error,
 	};
 

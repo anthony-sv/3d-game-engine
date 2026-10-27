@@ -41,16 +41,30 @@ internal static class GraphAnalyzer
 			foreach (AnalyzedNode node in graph.Nodes)
 			{
 				shaper.Shape(node);
+				// Pins whose types are final once shaped split before links name their fields; nodes with wildcards split
+				// once they are resolved.
+				if (PinSplitter.HasEntries(node))
+				{
+					if (PinSplitter.SplitsLate(node))
+					{
+						node.SplitPending = true;
+					}
+					else
+					{
+						PinSplitter.Split(context, node);
+					}
+				}
 			}
 		}
 		foreach ((AnalyzedGraph graph, DocumentGraph source) in graphs)
 		{
 			AttachLinks(context, graph, source);
 		}
-		TypeResolution types = new(context, convertTargets);
+		TypeResolution types = new(context, convertTargets, node => SplitResolved(context, node));
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			types.Resolve(graph);
+			AttachDeferredLinks(context, graph, null);
 		}
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
@@ -282,27 +296,24 @@ internal static class GraphAnalyzer
 	}
 
 	// Links become pins' links; endpoints that name no pin of their node are an Error UnknownPin, links into an event an
-	// Error EventInputLinked.
+	// Error EventInputLinked. An endpoint that may name a field pin of a node that splits once it is resolved waits for it
+	// (DeferredLinks).
 	private static void AttachLinks(AnalysisContext context, AnalyzedGraph graph, DocumentGraph source)
 	{
 		foreach (DocumentLink documentLink in source.Links)
 		{
 			AnalyzedNode from = graph.FindNode(documentLink.From.Node)!;
 			AnalyzedNode to = graph.FindNode(documentLink.To.Node)!;
-			AnalyzedPin? output = FindPin(context, from, PinDirection.Out, documentLink.From.Pin, documentLink);
-			AnalyzedPin? input = FindPin(context, to, PinDirection.In, documentLink.To.Pin, documentLink);
-			if (output == null || input == null)
+			AnalyzedPin? output = FindPin(context, from, PinDirection.Out, documentLink.From.Pin, documentLink, out bool outputWaits);
+			AnalyzedPin? input = FindPin(context, to, PinDirection.In, documentLink.To.Pin, documentLink, out bool inputWaits);
+			if (outputWaits || inputWaits)
 			{
+				graph.DeferredLinks.Add(new DeferredLink(documentLink, from, to, output != null || outputWaits, input != null || inputWaits));
 				continue;
 			}
-			AnalyzedLink link = new(documentLink, output, input);
-			output.AddLink(link);
-			input.AddLink(link);
-			graph.Add(link);
-			if (to.Builtin is { } builtin && BuiltinNodes.IsEvent(builtin))
+			if (output != null && input != null)
 			{
-				link.IsValid = false;
-				context.ReportLink(DiagnosticCode.EventInputLinked, link, $"{to.Title} is an event: its inputs take stored values, not links");
+				Attach(context, graph, documentLink, output, input);
 			}
 		}
 		foreach (AnalyzedNode node in graph.Nodes)
@@ -313,15 +324,70 @@ internal static class GraphAnalyzer
 			}
 			foreach (KeyValuePair<string, JsonElement> input in node.Source.Inputs.Members)
 			{
-				FindPin(context, node, PinDirection.In, input.Key, null);
+				FindPin(context, node, PinDirection.In, input.Key, null, out _);
 			}
 		}
 	}
 
-	private static AnalyzedPin? FindPin(AnalysisContext context, AnalyzedNode node, PinDirection direction, string stored, DocumentLink? link)
+	private static void Attach(AnalysisContext context, AnalyzedGraph graph, DocumentLink documentLink, AnalyzedPin output, AnalyzedPin input)
 	{
+		AnalyzedLink link = new(documentLink, output, input);
+		output.AddLink(link);
+		input.AddLink(link);
+		graph.Add(link);
+		if (input.Node.Builtin is { } builtin && BuiltinNodes.IsEvent(builtin))
+		{
+			link.IsValid = false;
+			context.ReportLink(DiagnosticCode.EventInputLinked, link, $"{input.Node.Title} is an event: its inputs take stored values, not links");
+		}
+	}
+
+	// A node that splits once it is resolved: splits its pins, then attaches the links that waited for them.
+	private static void SplitResolved(AnalysisContext context, AnalyzedNode node)
+	{
+		if (!node.SplitPending)
+		{
+			return;
+		}
+		PinSplitter.Split(context, node);
+		node.SplitPending = false;
+		AttachDeferredLinks(context, node.Graph, node);
+	}
+
+	// Attaches the deferred links of the node (every one when node is null) whose ends are on nodes that split already: an
+	// end that names no pin is an Error UnknownPin.
+	private static void AttachDeferredLinks(AnalysisContext context, AnalyzedGraph graph, AnalyzedNode? node)
+	{
+		List<DeferredLink> links = graph.DeferredLinks;
+		int kept = 0;
+		for (int index = 0; index < links.Count; index++)
+		{
+			DeferredLink link = links[index];
+			bool touches = node == null || link.From == node || link.To == node;
+			if (!touches || link.From.SplitPending || link.To.SplitPending)
+			{
+				links[kept++] = link;
+				continue;
+			}
+			// An end found to name no pin before was reported then.
+			AnalyzedPin? output = link.FindsOutput ? FindPin(context, link.From, PinDirection.Out, link.Document.From.Pin, link.Document, out _) : null;
+			AnalyzedPin? input = link.FindsInput ? FindPin(context, link.To, PinDirection.In, link.Document.To.Pin, link.Document, out _) : null;
+			if (output != null && input != null)
+			{
+				Attach(context, graph, link.Document, output, input);
+			}
+		}
+		links.RemoveRange(kept, links.Count - kept);
+	}
+
+	// The pin a link endpoint or an Inputs key names (null when it names none: an Error UnknownPin for a link). Waits is
+	// true, and nothing is reported, when the name may be a field pin of a node that has not split yet.
+	private static AnalyzedPin? FindPin(AnalysisContext context, AnalyzedNode node, PinDirection direction, string stored, DocumentLink? link,
+		out bool waits)
+	{
+		waits = false;
 		string name = node.Rename(direction, stored);
-		AnalyzedPin? pin = node.FindPin(name, direction);
+		AnalyzedPin? pin = node.FindShownPin(name, direction);
 		if (pin != null)
 		{
 			return pin;
@@ -331,23 +397,24 @@ internal static class GraphAnalyzer
 			// Unknown nodes and nodes whose settings are broken get the pins their links and inputs name.
 			return node.AddPin(BuiltinNodes.Wildcard(name, direction, PinConstraint.None, WildcardSource.None));
 		}
+		if (node.SplitPending && PinSplitter.MayNameField(node, name, direction))
+		{
+			waits = true;
+			return null;
+		}
 		if (link == null)
 		{
 			return null;
 		}
 		List<string> candidates = [];
-		foreach (AnalyzedPin candidate in node.Pins)
+		foreach (AnalyzedPin candidate in node.GetShownPins())
 		{
 			if (candidate.Direction == direction)
 			{
 				candidates.Add(candidate.Name);
 			}
 		}
-		string side = direction == PinDirection.In ? "input" : "output";
-		string other = node.FindPin(name, direction == PinDirection.In ? PinDirection.Out : PinDirection.In) != null
-			? $" ({name} is an {(direction == PinDirection.In ? "output" : "input")})"
-			: string.Empty;
-		context.ReportPin(DiagnosticCode.UnknownPin, node, name, direction, $"{node.Title} has no {side} pin {JsonText.Quote(name)}{other}", link,
+		context.ReportPin(DiagnosticCode.UnknownPin, node, name, direction, PinSplitter.UnknownPinMessage(node, name, direction), link,
 			context.Suggest(name, candidates));
 		return null;
 	}
@@ -472,11 +539,24 @@ internal static class GraphAnalyzer
 		foreach (KeyValuePair<string, JsonElement> input in node.Source.Inputs.Members)
 		{
 			string name = node.Rename(PinDirection.In, input.Key);
-			AnalyzedPin? pin = node.FindPin(name, PinDirection.In);
+			AnalyzedPin? pin = node.FindShownPin(name, PinDirection.In);
 			if (pin == null)
 			{
+				// Split is authoritative (spec-slice2 section 3.3): a literal of a split input is not used, and one of a field
+				// of an input that is not split names no pin.
+				if (node.FindSplitPin(name, PinDirection.In) != null)
+				{
+					context.ReportPin(DiagnosticCode.UnusedInput, node, name, PinDirection.In,
+						$"{name} is split: the stored value is not used (its fields take values of their own)");
+					continue;
+				}
+				if (PinSplitter.FindUnsplitParent(node, name, PinDirection.In) != null)
+				{
+					context.ReportPin(DiagnosticCode.UnknownPin, node, name, PinDirection.In, PinSplitter.UnknownPinMessage(node, name, PinDirection.In));
+					continue;
+				}
 				List<string> candidates = [];
-				foreach (AnalyzedPin candidate in node.Pins)
+				foreach (AnalyzedPin candidate in node.GetShownPins())
 				{
 					if (candidate.IsInput && !candidate.Type.IsExec)
 					{
@@ -522,7 +602,8 @@ internal static class GraphAnalyzer
 			pin.HasLiteral = true;
 			pin.Literal = decoded.Value;
 		}
-		foreach (AnalyzedPin pin in node.Pins)
+		// Field pins of split inputs take values like any input; a split input takes the struct its fields make.
+		foreach (AnalyzedPin pin in node.GetShownPins())
 		{
 			if (pin.IsInput && pin.Type.HasValues && !pin.IsConnected)
 			{

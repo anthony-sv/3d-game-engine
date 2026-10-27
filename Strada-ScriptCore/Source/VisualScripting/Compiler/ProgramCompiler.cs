@@ -105,6 +105,11 @@ internal static class ProgramCompiler
 		private readonly Dictionary<AnalyzedNode, int> m_Indexes = [];
 		private readonly Dictionary<AnalyzedVariable, int> m_LocalSlots = [];
 		private readonly List<LocalSlot> m_Locals = [];
+		private readonly List<CompiledNode> m_Nodes = [];
+		// The Make node of each split input, and the Break node that gives each field pin of a split output.
+		private readonly Dictionary<AnalyzedPin, int> m_Makes = [];
+		private readonly Dictionary<AnalyzedPin, int> m_Breaks = [];
+		private readonly List<(CompiledNode Node, AnalyzedPin Pin)> m_Splits = [];
 
 		internal GraphCompiler(Context context, AnalyzedGraph graph, CompiledFunction? function)
 		{
@@ -128,25 +133,112 @@ internal static class ProgramCompiler
 				m_LocalSlots[local] = slot;
 				m_Locals.Add(new LocalSlot(local.ID, local.Type!, slot));
 			}
-			CompiledNode[] nodes = new CompiledNode[m_Graph.Nodes.Count];
-			List<AnalyzedPin>[] inputs = new List<AnalyzedPin>[nodes.Length];
-			for (int index = 0; index < nodes.Length; index++)
+			int count = m_Graph.Nodes.Count;
+			List<AnalyzedPin>[] inputs = new List<AnalyzedPin>[count];
+			for (int index = 0; index < count; index++)
 			{
 				AnalyzedNode source = m_Graph.Nodes[index];
 				CompiledNode node = new(source, index, OpcodeOf(source));
-				nodes[index] = node;
+				m_Nodes.Add(node);
 				inputs[index] = DataInputs(source, node);
 				AllocateOutputs(source, node);
 			}
-			for (int index = 0; index < nodes.Length; index++)
+			foreach (AnalyzedNode source in m_Graph.Nodes)
+			{
+				if (!source.HasSplitPins)
+				{
+					continue;
+				}
+				foreach (AnalyzedPin pin in source.Pins)
+				{
+					if (pin.IsSplit)
+					{
+						AddSplit(source, pin);
+					}
+				}
+			}
+			for (int index = 0; index < count; index++)
 			{
 				AnalyzedNode source = m_Graph.Nodes[index];
-				CompiledNode node = nodes[index];
+				CompiledNode node = m_Nodes[index];
 				CompileExecPins(source, node);
 				CompileInputs(source, node, inputs[index]);
 				CompileKind(source, node);
 			}
-			return new CompiledGraph(nodes, [.. m_Template], m_Function);
+			foreach ((CompiledNode node, AnalyzedPin pin) in m_Splits)
+			{
+				CompileSplit(node, pin);
+			}
+			return new CompiledGraph([.. m_Nodes], [.. m_Template], m_Function);
+		}
+
+		// The Make of a split input: its field pins are its inputs (staged like any input) and its output is the input's
+		// value. The Break of a split output: the output is its input and its outputs are the field pins (which links read
+		// like any output). Nested splits get theirs too. Neither has state, so a live edit that splits or recombines a pin
+		// changes no node of the document.
+		private void AddSplit(AnalyzedNode owner, AnalyzedPin pin)
+		{
+			IReadOnlyList<AnalyzedPin> fields = pin.Fields!;
+			CompiledNode node = new(owner, m_Nodes.Count, pin.IsInput ? Opcode.Make : Opcode.Break, pin.Type);
+			m_Nodes.Add(node);
+			m_Splits.Add((node, pin));
+			if (pin.IsInput)
+			{
+				m_Makes[pin] = node.Index;
+				node.InputBase = m_Template.Count;
+				node.InputCount = fields.Count;
+				foreach (AnalyzedPin field in fields)
+				{
+					Allocate(SlotValues.DefaultOf(field.Type));
+				}
+				// Its output is the staged value of the input it makes, which is no output pin: it reports no value to a debugger.
+				node.OutputBase = Allocate(SlotValues.DefaultOf(pin.Type));
+			}
+			else
+			{
+				node.InputBase = Allocate(SlotValues.DefaultOf(pin.Type));
+				node.InputCount = 1;
+				node.OutputBase = m_Template.Count;
+				List<string> names = [];
+				List<VisualType> types = [];
+				foreach (AnalyzedPin field in fields)
+				{
+					m_Breaks[field] = node.Index;
+					m_OutputSlots[field] = Allocate(SlotValues.DefaultOf(field.Type));
+					names.Add(field.Name);
+					types.Add(field.Type);
+				}
+				node.OutputCount = fields.Count;
+				node.OutputPins = [.. names];
+				node.OutputTypes = [.. types];
+			}
+			foreach (AnalyzedPin field in fields)
+			{
+				if (field.IsSplit)
+				{
+					AddSplit(owner, field);
+				}
+			}
+		}
+
+		private void CompileSplit(CompiledNode node, AnalyzedPin pin)
+		{
+			List<Operand> operands = [];
+			List<int> pureSources = [];
+			if (pin.IsInput)
+			{
+				IReadOnlyList<AnalyzedPin> fields = pin.Fields!;
+				for (int index = 0; index < fields.Count; index++)
+				{
+					CompileInput(fields[index], node.InputBase + index, fields[index].Type, operands, pureSources);
+				}
+			}
+			else
+			{
+				operands.Add(Load(pin, node.InputBase, ConversionOp.None, pureSources));
+			}
+			node.Operands = [.. operands];
+			node.PureSources = [.. pureSources];
 		}
 
 		private int Allocate(Slot initial)
@@ -482,39 +574,70 @@ internal static class ProgramCompiler
 			for (int index = 0; index < inputs.Count; index++)
 			{
 				AnalyzedPin pin = inputs[index];
-				int target = node.InputBase + index;
-				VisualType staging = StagingType(source, node, pin);
-				if (pin.Source is { } link)
-				{
-					AnalyzedPin from = link.From;
-					ConversionOp conversion = ReferenceEquals(staging, pin.Type)
-						? Conversions.Plan(from.Type, pin.Type, link.Conversion ?? ConversionKind.Identity)
-						: Conversions.Plan(from.Type, staging) ?? throw new InvalidOperationException($"{from} does not convert to {staging.Id} for {pin}");
-					OperandSource kind = LoopOutput(from);
-					int sourceIndex = kind == OperandSource.Slot ? m_OutputSlots[from] : m_Indexes[from.Node];
-					operands.Add(new Operand(target, kind, sourceIndex, conversion, from.Type));
-					if (from.Node.Pure && !pureSources.Contains(m_Indexes[from.Node]))
-					{
-						pureSources.Add(m_Indexes[from.Node]);
-					}
-					continue;
-				}
-				if (pin.Description.DefaultsToSelf)
+				if (pin.Description.DefaultsToSelf && pin.Source == null)
 				{
 					node.TargetIsSelf = true;
 					continue;
 				}
-				Slot constant = SlotValues.FromValue(pin.Value, pin.Type);
-				if (!ReferenceEquals(staging, pin.Type))
-				{
-					ConversionOp conversion = Conversions.Plan(pin.Type, staging) ??
-						throw new InvalidOperationException($"{pin} does not convert to {staging.Id}");
-					Conversions.Apply(ref constant, conversion, pin.Type);
-				}
-				m_Template[target] = constant;
+				CompileInput(pin, node.InputBase + index, StagingType(source, node, pin), operands, pureSources);
 			}
 			node.Operands = [.. operands];
 			node.PureSources = [.. pureSources];
+		}
+
+		// An input staged at target as the type staging: the load of its link, the value its split pin's Make makes, or its
+		// constant.
+		private void CompileInput(AnalyzedPin pin, int target, VisualType staging, List<Operand> operands, List<int> pureSources)
+		{
+			if (pin.Source is { } link)
+			{
+				AnalyzedPin from = link.From;
+				ConversionOp conversion = ReferenceEquals(staging, pin.Type)
+					? Conversions.Plan(from.Type, pin.Type, link.Conversion ?? ConversionKind.Identity)
+					: Conversions.Plan(from.Type, staging) ?? throw new InvalidOperationException($"{from} does not convert to {staging.Id} for {pin}");
+				operands.Add(Load(from, target, conversion, pureSources));
+				return;
+			}
+			if (m_Makes.TryGetValue(pin, out int make))
+			{
+				ConversionOp conversion = Conversions.Plan(pin.Type, staging) ?? throw new InvalidOperationException($"{pin} does not convert to {staging.Id}");
+				operands.Add(new Operand(target, OperandSource.Slot, m_Nodes[make].OutputBase, conversion, pin.Type));
+				AddPureSource(pureSources, make);
+				return;
+			}
+			Slot constant = SlotValues.FromValue(pin.Value, pin.Type);
+			if (!ReferenceEquals(staging, pin.Type))
+			{
+				ConversionOp conversion = Conversions.Plan(pin.Type, staging) ?? throw new InvalidOperationException($"{pin} does not convert to {staging.Id}");
+				Conversions.Apply(ref constant, conversion, pin.Type);
+			}
+			m_Template[target] = constant;
+		}
+
+		// The load of an output into a staging slot: a field pin of a split output is an output of its Break, which the plan
+		// evaluates first, like a pure node's output.
+		private Operand Load(AnalyzedPin from, int target, ConversionOp conversion, List<int> pureSources)
+		{
+			if (m_Breaks.TryGetValue(from, out int split))
+			{
+				AddPureSource(pureSources, split);
+				return new Operand(target, OperandSource.Slot, m_OutputSlots[from], conversion, from.Type);
+			}
+			OperandSource kind = LoopOutput(from);
+			int sourceIndex = kind == OperandSource.Slot ? m_OutputSlots[from] : m_Indexes[from.Node];
+			if (from.Node.Pure)
+			{
+				AddPureSource(pureSources, m_Indexes[from.Node]);
+			}
+			return new Operand(target, kind, sourceIndex, conversion, from.Type);
+		}
+
+		private static void AddPureSource(List<int> pureSources, int node)
+		{
+			if (!pureSources.Contains(node))
+			{
+				pureSources.Add(node);
+			}
 		}
 
 		// ForLoop's Index and ForEach's Index and Element are read from the active loop entry, not from slots; a disabled loop

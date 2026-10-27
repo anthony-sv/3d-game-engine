@@ -12,8 +12,9 @@ namespace Strada.VisualScripting;
 // loader would have repaired or refused is an Error InvalidDocument naming its path, with the element skipped (an
 // element with a missing, invalid or duplicate ID, Name or Type; a malformed link or one between graphs; a duplicate
 // link). A node's Enabled that is not "Enabled", "Disabled" or "DevelopmentOnly" is an Error InvalidDocument, and the node
-// stays enabled. Keys the VM does not use (Description, positions, comment boxes, node comments, collapsed states,
-// tooltips, ranges) are not checked.
+// stays enabled; a Split entry the loader would drop (spec-slice2 section 1.2, repair 15) is an Error InvalidDocument, and
+// the entry is skipped. Keys the VM does not use (Description, positions, comment boxes, node comments, collapsed states,
+// tooltips, ranges, members of Split other than Inputs and Outputs) are not checked.
 internal static class DocumentReader
 {
 	internal const int MaxDepth = 64;
@@ -273,7 +274,7 @@ internal static class DocumentReader
 				}
 				nodeIds.Add(id);
 				nodes.Add(new DocumentNode(id, type, ReadMembers(element, nodePath, "Settings"), ReadMembers(element, nodePath, "Inputs"),
-					ReadDisabled(element, nodePath), nodes.Count));
+					ReadSplit(element, nodePath), ReadDisabled(element, nodePath), nodes.Count));
 			}
 			List<DocumentLink> links = [];
 			HashSet<(PinReference, PinReference)> seen = [];
@@ -446,6 +447,89 @@ internal static class DocumentReader
 			}
 			Problem($"{path}.Enabled", "expected \"Enabled\", \"Disabled\" or \"DevelopmentOnly\"");
 			return false;
+		}
+
+		// A node's Split. An entry is kept when it is a split path (1 to MaxPinBytes bytes without control characters, its
+		// '.'-separated segments not empty), its list has fewer than DocumentSplit.MaxEntries entries kept, no kept entry
+		// repeats it, and a nested entry's parent (the path before its last '.') is a kept entry: so a dropped parent drops
+		// its whole subtree, as the loader does.
+		private DocumentSplit ReadSplit(JsonElement node, string nodePath)
+		{
+			if (!node.TryGetProperty("Split", out JsonElement split))
+			{
+				return DocumentSplit.None;
+			}
+			string path = $"{nodePath}.Split";
+			if (split.ValueKind != JsonValueKind.Object)
+			{
+				Problem(path, "expected an object");
+				return DocumentSplit.None;
+			}
+			List<string> inputs = ReadSplitPaths(split, "Inputs", path);
+			List<string> outputs = ReadSplitPaths(split, "Outputs", path);
+			return inputs.Count == 0 && outputs.Count == 0 ? DocumentSplit.None : new DocumentSplit(inputs, outputs);
+		}
+
+		private List<string> ReadSplitPaths(JsonElement split, string key, string splitPath)
+		{
+			List<string> paths = [];
+			if (!split.TryGetProperty(key, out JsonElement list))
+			{
+				return paths;
+			}
+			string path = $"{splitPath}.{key}";
+			if (list.ValueKind != JsonValueKind.Array)
+			{
+				Problem(path, "expected an array");
+				return paths;
+			}
+			HashSet<string> kept = new(StringComparer.Ordinal);
+			int index = 0;
+			foreach (JsonElement element in list.EnumerateArray())
+			{
+				string entryPath = $"{path}[{Format(index++)}]";
+				if (!JsonText.TryGetString(element, out string? entry) || !IsSplitPath(entry))
+				{
+					Problem(entryPath, $"expected a pin path: 1 to {Format(MaxPinBytes)} bytes without control characters, its '.'-separated parts not empty");
+					continue;
+				}
+				if (paths.Count >= DocumentSplit.MaxEntries)
+				{
+					Problem(entryPath, $"a list of split pins has at most {Format(DocumentSplit.MaxEntries)} entries");
+					continue;
+				}
+				if (kept.Contains(entry))
+				{
+					Problem(entryPath, $"{JsonText.Quote(entry)} comes earlier");
+					continue;
+				}
+				int dot = entry.LastIndexOf('.');
+				if (dot >= 0 && !kept.Contains(entry[..dot]))
+				{
+					Problem(entryPath, $"{JsonText.Quote(entry)} is a field of {JsonText.Quote(entry[..dot])}, which is not an earlier entry");
+					continue;
+				}
+				kept.Add(entry);
+				paths.Add(entry);
+			}
+			return paths;
+		}
+
+		private static bool IsSplitPath(string entry)
+		{
+			int bytes = JsonText.ByteCount(entry);
+			if (bytes == 0 || bytes > MaxPinBytes || JsonText.HasControlCharacter(entry))
+			{
+				return false;
+			}
+			foreach (string segment in entry.Split('.'))
+			{
+				if (segment.Length == 0)
+				{
+					return false;
+				}
+			}
+			return true;
 		}
 
 		private bool ReadBool(JsonElement element, string path, string key)

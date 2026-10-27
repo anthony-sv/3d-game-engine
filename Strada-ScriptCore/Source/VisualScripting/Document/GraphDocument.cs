@@ -41,8 +41,21 @@ internal sealed record DocumentGraph(uint Function, IReadOnlyList<DocumentNode> 
 
 // A node. Index is its position in its graph's Nodes ("later" means a higher index). Disabled: its Enabled is "Disabled",
 // which compiles it as a pass-through; "DevelopmentOnly" runs as "Enabled", because the engine rewrites it to "Disabled"
-// in the documents it sends where development nodes do not run (exported games).
-internal sealed record DocumentNode(uint ID, string Type, DocumentMembers Settings, DocumentMembers Inputs, bool Disabled, int Index);
+// in the documents it sends where development nodes do not run (exported games). Split: the pins shown as one pin per
+// field.
+internal sealed record DocumentNode(uint ID, string Type, DocumentMembers Settings, DocumentMembers Inputs, DocumentSplit Split, bool Disabled,
+	int Index);
+
+// The pin paths a node splits, by direction (spec-slice2 section 3.3): a pin name ("Hit"), or a field pin of an entry earlier
+// in the same list ("Hit.Point"). The reader keeps parents first, each path once, at most MaxEntries per list.
+internal sealed record DocumentSplit(IReadOnlyList<string> Inputs, IReadOnlyList<string> Outputs)
+{
+	internal const int MaxEntries = 64;
+
+	internal static DocumentSplit None { get; } = new([], []);
+
+	internal IReadOnlyList<string> Of(PinDirection direction) => direction == PinDirection.In ? Inputs : Outputs;
+}
 
 internal readonly record struct PinReference(uint Node, string Pin);
 

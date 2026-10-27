@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 namespace Strada.VisualScripting;
@@ -173,11 +175,31 @@ internal sealed class AnalyzedGraph
 		m_NodesById[node.ID] = node;
 	}
 
+	// Links stay in link order whatever order they are attached in: links that name field pins of split wildcards are attached
+	// once those are resolved and split.
 	internal void Add(AnalyzedLink link)
 	{
-		m_Links.Add(link);
+		m_Links.Insert(LinkPosition(m_Links, link), link);
+	}
+
+	// Links whose endpoints may name field pins of a node that splits its pins once its wildcards are resolved.
+	internal List<DeferredLink> DeferredLinks { get; } = [];
+
+	// Where a link goes in a list kept in link order; at the end unless it was attached late.
+	internal static int LinkPosition(List<AnalyzedLink> links, AnalyzedLink link)
+	{
+		int index = links.Count;
+		while (index > 0 && links[index - 1].Document.Index > link.Document.Index)
+		{
+			index--;
+		}
+		return index;
 	}
 }
+
+// A link analysis attaches once the nodes its ends are on have split their pins. FindsOutput and FindsInput are false for
+// an end already found to name no pin (and reported): the link never attaches, but its other end is still checked.
+internal sealed record DeferredLink(DocumentLink Document, AnalyzedNode From, AnalyzedNode To, bool FindsOutput, bool FindsInput);
 
 internal sealed class AnalyzedNode
 {
@@ -224,6 +246,9 @@ internal sealed class AnalyzedNode
 	// What the node's settings resolved to; null for unknown nodes and nodes whose settings are invalid.
 	internal NodeBinding? Binding { get; set; }
 
+	// A node with wildcards whose Split lists pins: it splits them once its wildcards are resolved (spec-slice2 section 3.3).
+	internal bool SplitPending { get; set; }
+
 	// A node whose Enabled is "Disabled" and that can be disabled (not pure, not Function.Entry or Function.Return): it
 	// compiles as a pass-through, whatever its kind, settings and diagnostics, and its diagnostics are Warnings.
 	internal bool IsDisabled { get; set; }
@@ -234,6 +259,7 @@ internal sealed class AnalyzedNode
 
 	internal BuiltinNode? Builtin => (Definition as BuiltinNodeDefinition)?.Node;
 
+	// The pin of a name among the node's own pins, split or not: the pins its kind reads and compiles.
 	internal AnalyzedPin? FindPin(string name, PinDirection direction)
 	{
 		foreach (AnalyzedPin pin in m_Pins)
@@ -246,6 +272,91 @@ internal sealed class AnalyzedNode
 		return null;
 	}
 
+	// The pin a link endpoint or Inputs key names (spec-slice2 section 3.3): one of the node's own pins that is not split, else
+	// a field pin "<Pin>.<Field>" of a split pin (nested ones included) that is not split itself. An exact pin name wins over
+	// a split reading, and a split pin is no pin of its own.
+	internal AnalyzedPin? FindShownPin(string name, PinDirection direction)
+	{
+		AnalyzedPin? exact = FindPin(name, direction);
+		if (exact != null)
+		{
+			return exact.IsSplit ? null : exact;
+		}
+		return FindField(m_Pins, name, direction, out AnalyzedPin? field) && !field.IsSplit ? field : null;
+	}
+
+	// The split pin of a path: one of the node's own pins or a field pin. Null when the path names no split pin.
+	internal AnalyzedPin? FindSplitPin(string name, PinDirection direction)
+	{
+		AnalyzedPin? exact = FindPin(name, direction);
+		if (exact != null)
+		{
+			return exact.IsSplit ? exact : null;
+		}
+		return FindField(m_Pins, name, direction, out AnalyzedPin? field) && field.IsSplit ? field : null;
+	}
+
+	// Whether one of the node's pins is split.
+	internal bool HasSplitPins { get; set; }
+
+	// The pins analysis shows (the analysis JSON's Pins): the node's own pins in order, each split pin replaced by its field
+	// pins in field order, nested ones likewise.
+	internal IReadOnlyList<AnalyzedPin> GetShownPins()
+	{
+		if (!HasSplitPins)
+		{
+			return m_Pins;
+		}
+		List<AnalyzedPin> shown = [];
+		AddShown(m_Pins, shown);
+		return shown;
+	}
+
+	private static void AddShown(IReadOnlyList<AnalyzedPin> pins, List<AnalyzedPin> shown)
+	{
+		foreach (AnalyzedPin pin in pins)
+		{
+			if (pin.Fields is { } fields)
+			{
+				AddShown(fields, shown);
+			}
+			else
+			{
+				shown.Add(pin);
+			}
+		}
+	}
+
+	// The field pin of a path among the fields of the split pins of a list, nested ones included.
+	private static bool FindField(IReadOnlyList<AnalyzedPin> pins, string name, PinDirection direction, [NotNullWhen(true)] out AnalyzedPin? field)
+	{
+		foreach (AnalyzedPin pin in pins)
+		{
+			if (pin.Direction != direction || pin.Fields is not { } fields || !IsPathUnder(name, pin.Name))
+			{
+				continue;
+			}
+			foreach (AnalyzedPin candidate in fields)
+			{
+				if (candidate.Name == name)
+				{
+					field = candidate;
+					return true;
+				}
+			}
+			if (FindField(fields, name, direction, out field))
+			{
+				return true;
+			}
+		}
+		field = null;
+		return false;
+	}
+
+	// Whether a pin path continues another with '.' ("Hit.Point" is under "Hit").
+	internal static bool IsPathUnder(string path, string parent) =>
+		path.Length > parent.Length + 1 && path[parent.Length] == '.' && path.StartsWith(parent, StringComparison.Ordinal);
+
 	internal AnalyzedPin AddPin(PinDescription description)
 	{
 		AnalyzedPin pin = new(this, description);
@@ -253,17 +364,28 @@ internal sealed class AnalyzedNode
 		return pin;
 	}
 
-	// The current name of a stored pin name (the renames of a redirect).
+	// The current name of a stored pin name or pin path (the renames of a redirect): the rename of the name itself, else the
+	// rename of the longest pin name the path continues with '.' (Value → Result renames "Value.Y" to "Result.Y"), as the
+	// editor renames split paths with their pins (spec-slice2 section 2.7).
 	internal string Rename(PinDirection direction, string name)
 	{
+		PinRename? best = null;
 		foreach (PinRename rename in PinRenames)
 		{
-			if (rename.Direction == direction && rename.From == name)
+			if (rename.Direction != direction)
+			{
+				continue;
+			}
+			if (rename.From == name)
 			{
 				return rename.To;
 			}
+			if (IsPathUnder(name, rename.From) && (best is not { } longest || rename.From.Length > longest.From.Length))
+			{
+				best = rename;
+			}
 		}
-		return name;
+		return best is { } found ? string.Concat(found.To, name.AsSpan(found.From.Length)) : name;
 	}
 
 	public override string ToString() => $"{Source.Type} (node {ID})";
@@ -280,7 +402,26 @@ internal sealed class AnalyzedPin
 		Type = description.Type;
 	}
 
+	// A field pin of a split pin: its name is the path "<Pin>.<Field>".
+	private AnalyzedPin(AnalyzedPin parent, PinDescription description, StructMember member)
+		: this(parent.Node, description)
+	{
+		Parent = parent;
+		Member = member;
+	}
+
 	internal AnalyzedNode Node { get; }
+
+	// A field pin: the split pin it is a field of, and its field. Null for the node's own pins.
+	internal AnalyzedPin? Parent { get; }
+
+	internal StructMember? Member { get; }
+
+	// A split pin (spec-slice2 section 3.3): its field pins in field order, which links and literals reach instead of it.
+	// Null when the pin is not split.
+	internal IReadOnlyList<AnalyzedPin>? Fields { get; private set; }
+
+	internal bool IsSplit => Fields != null;
 
 	internal PinDescription Description { get; }
 
@@ -322,9 +463,22 @@ internal sealed class AnalyzedPin
 	// The value of an unconnected input: its literal, else the pin default, else the type default.
 	internal object? Value { get; set; }
 
+	// Links stay in link order (the graph's Links order) whatever order they are attached in.
 	internal void AddLink(AnalyzedLink link)
 	{
-		m_Links.Add(link);
+		m_Links.Insert(AnalyzedGraph.LinkPosition(m_Links, link), link);
+	}
+
+	// Splits the pin into one field pin per field of its type, in field order.
+	internal void Split(IReadOnlyList<(PinDescription Description, StructMember Member)> fields)
+	{
+		List<AnalyzedPin> pins = [];
+		foreach ((PinDescription description, StructMember member) in fields)
+		{
+			pins.Add(new AnalyzedPin(this, description, member));
+		}
+		Fields = pins;
+		Node.HasSplitPins = true;
 	}
 
 	public override string ToString() => $"{Node.ID}.{Name} ({Direction})";

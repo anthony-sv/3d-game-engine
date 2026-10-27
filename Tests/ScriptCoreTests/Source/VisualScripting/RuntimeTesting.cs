@@ -218,8 +218,9 @@ internal sealed class GraphBuilder
 		m_Document = document;
 	}
 
-	// settings and inputs are JSON objects; enabled is the node's Enabled ("Disabled", "DevelopmentOnly"), absent when null.
-	internal uint Node(string type, string? settings = null, string? inputs = null, string? enabled = null)
+	// settings, inputs and split are JSON objects; enabled is the node's Enabled ("Disabled", "DevelopmentOnly"), absent when
+	// null.
+	internal uint Node(string type, string? settings = null, string? inputs = null, string? enabled = null, string? split = null)
 	{
 		uint id = m_Document.NextId();
 		StringBuilder text = new(FormattableString.Invariant($"{{ \"ID\": {id}, \"Type\": {RuntimeTesting.Quote(type)}"));
@@ -230,6 +231,10 @@ internal sealed class GraphBuilder
 		if (inputs != null)
 		{
 			text.Append(", \"Inputs\": ").Append(inputs);
+		}
+		if (split != null)
+		{
+			text.Append(", \"Split\": ").Append(split);
 		}
 		if (enabled != null)
 		{
