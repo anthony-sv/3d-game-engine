@@ -36,7 +36,7 @@ namespace Strada
 		// never produces it, and the runtime reports what it then sees.
 		std::string ToDocumentText(VisualScriptDocument const& document)
 		{
-			return VisualScriptSerializer::SerializeDocument(document).dump(-1, ' ', false, Json::error_handler_t::replace);
+			return VisualScriptSerializer::WriteContentText(document);
 		}
 
 		// The name messages give a graph: the path of a file asset, the name of a memory asset.

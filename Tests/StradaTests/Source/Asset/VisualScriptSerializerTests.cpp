@@ -1,4 +1,5 @@
 #include "TestUtilities.h"
+#include "VisualScriptRoundTrip.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -2232,6 +2234,604 @@ TEST_CASE("VisualScript: the format's rules for texts, pin paths and values are 
 	texts.Graph.Nodes[0].Comment = "Line\nbreak";
 	texts.Graph.Comments[0].Text = "Box";
 	CHECK(IsStrictlyValid(VisualScriptSerializer::SerializeDocument(texts)));
+}
+
+TEST_CASE("VisualScript: the predicates of IDs, geometry, long texts and split paths are the loader's rules")
+{
+	using Format = VisualScriptSerializer;
+	float const nan = std::numeric_limits<float>::quiet_NaN();
+	float const infinity = std::numeric_limits<float>::infinity();
+
+	CHECK(Format::IsValidID(1));
+	CHECK(Format::IsValidID(Format::MaxID));
+	CHECK_FALSE(Format::IsValidID(0));
+	CHECK_FALSE(Format::IsValidID(static_cast<uint64_t>(Format::MaxID) + 1));
+	CHECK_FALSE(Format::IsValidID(std::numeric_limits<uint64_t>::max()));
+
+	CHECK(Format::IsValidPosition(glm::vec2(-1.0e7f, 1.0e7f)));
+	CHECK(Format::IsValidPosition(glm::vec2(-0.0f, 0.5f)));
+	CHECK_FALSE(Format::IsValidPosition(glm::vec2(std::nextafter(1.0e7f, 2.0e7f), 0.0f)));
+	CHECK_FALSE(Format::IsValidPosition(glm::vec2(0.0f, nan)));
+	CHECK_FALSE(Format::IsValidPosition(glm::vec2(-infinity, 0.0f)));
+
+	CHECK(Format::IsValidCommentSize(glm::vec2(16.0f, 1.0e6f)));
+	CHECK_FALSE(Format::IsValidCommentSize(glm::vec2(std::nextafter(16.0f, 0.0f), 200.0f)));
+	CHECK_FALSE(Format::IsValidCommentSize(glm::vec2(400.0f, std::nextafter(1.0e6f, 2.0e6f))));
+	CHECK_FALSE(Format::IsValidCommentSize(glm::vec2(nan, 200.0f)));
+
+	CHECK(Format::IsValidColor(glm::vec4(0.0f, 1.0f, 0.5f, -0.0f)));
+	CHECK_FALSE(Format::IsValidColor(glm::vec4(0.0f, std::nextafter(1.0f, 2.0f), 0.5f, 1.0f)));
+	CHECK_FALSE(Format::IsValidColor(glm::vec4(0.0f, 0.0f, nan, 1.0f)));
+	CHECK_FALSE(Format::IsValidColor(glm::vec4(0.0f, 0.0f, 0.0f, -1.0e-30f)));
+
+	CHECK(Format::IsValidRange(glm::vec2(-1.0f, -1.0f)));
+	CHECK(Format::IsValidRange(glm::vec2(-std::numeric_limits<float>::max(), std::numeric_limits<float>::max())));
+	CHECK_FALSE(Format::IsValidRange(glm::vec2(2.0f, 1.0f)));
+	CHECK_FALSE(Format::IsValidRange(glm::vec2(0.0f, infinity)));
+	CHECK_FALSE(Format::IsValidRange(glm::vec2(nan, 1.0f)));
+
+	CHECK(Format::IsValidLongText(""));
+	CHECK(Format::IsValidLongText("Line\nbreak\t\x7F and \xF0\x9F\x98\x80"));
+	CHECK(Format::IsValidLongText(std::string(65536, 't')));
+	CHECK_FALSE(Format::IsValidLongText(std::string(65537, 't')));
+	CHECK_FALSE(Format::IsValidLongText("\xC3\x28"));
+	CHECK_FALSE(Format::IsValidLongText("\xED\xA0\x80"));
+
+	for (std::string_view const path : {"Hit", "Hit.Point", "", ".Hit", "Hit.", "Hit..Point", "A\nB"})
+	{
+		CAPTURE(path);
+		CHECK(Format::IsValidSplitPath(path) == Format::IsValidPinPath(path));
+	}
+}
+
+namespace
+{
+	// A library with every key of the format: what Validate accepts, which the cases below damage one rule at a time.
+	VisualScriptDocument MakeValidatedDocument()
+	{
+		VisualScriptDocument document;
+		document.Kind = VisualScriptDocumentKind::Library;
+		document.Description = "Every key\nof the format";
+		VisualScriptVariable speed;
+		speed.ID = 1;
+		speed.Name = "Speed";
+		speed.Type = "float";
+		speed.Value = 2.5;
+		speed.Public = true;
+		speed.Tooltip = "Meters per second";
+		speed.Range = glm::vec2(0.0f, 10.0f);
+		speed.FormerNames = {"Velocity"};
+		VisualScriptVariable score;
+		score.ID = 2;
+		score.Name = "Score";
+		score.Type = "int";
+		document.Variables = {speed, score};
+
+		VisualScriptFunction function;
+		function.ID = 3;
+		function.Name = "Scale";
+		function.Pure = true;
+		function.Inputs = {VisualScriptParameter("Value", "float", {"Input"}), VisualScriptParameter("Factor", "float")};
+		// A former name may be a name of the other list.
+		function.Outputs = {VisualScriptParameter("Result", "float", {"Value"})};
+		VisualScriptLocal local;
+		local.ID = 4;
+		local.Name = "Temporary";
+		local.Type = "float";
+		local.Value = 1.0;
+		function.Locals = {local};
+		VisualScriptNode entry;
+		entry.ID = 5;
+		entry.Type = "Function.Entry";
+		entry.Position = glm::vec2(0.0f, 0.0f);
+		VisualScriptNode result;
+		result.ID = 6;
+		result.Type = "Function.Return";
+		result.Position = glm::vec2(320.0f, 0.0f);
+		function.Graph.Nodes = {entry, result};
+		function.Graph.Links = {{{5, "Value"}, {6, "Result"}}};
+		document.Functions = {function};
+
+		VisualScriptNode update;
+		update.ID = 7;
+		update.Type = "Event.Update";
+		update.Position = glm::vec2(-1.0e7f, 1.0e7f);
+		VisualScriptNode push;
+		push.ID = 8;
+		push.Type = "Call:Strada.Rigidbody.AddForce(Strada.Vector3,Strada.ForceMode)";
+		push.Settings = Json::object({{"Mode", "Impulse"}});
+		push.Inputs = Json::object({{"Force.X", 1.5}, {"Force.Offset.Y", Json::array({1, "two"})}});
+		push.Split.Inputs = {"Force", "Force.Offset"};
+		push.Split.Outputs = {"Hit"};
+		push.Comment = "Pushes";
+		push.Collapsed = true;
+		push.Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+		VisualScriptNode unplaced;
+		unplaced.ID = 9;
+		unplaced.Type = "Flow.Branch";
+		document.Graph.Nodes = {update, push, unplaced};
+		// Link pins are pin names, which may hold '.'.
+		document.Graph.Links = {{{7, "Then"}, {8, "Execute"}}, {{8, "Then"}, {9, "Execute"}}, {{8, "Hit.Point"}, {9, "Condition"}}};
+		VisualScriptComment comment;
+		comment.ID = 10;
+		comment.Text = "Box";
+		comment.Position = glm::vec2(1.0e7f, -1.0e7f);
+		comment.Size = glm::vec2(16.0f, 1.0e6f);
+		comment.Color = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
+		document.Graph.Comments = {comment};
+		return document;
+	}
+
+	// Validate's verdict, against the loader's on the document as it would be written: nothing for a document that loads
+	// back as written; otherwise the path given, which is the loader's first repair when the loader repairs anything.
+	void CheckValidate(VisualScriptDocument const& document, std::string_view expectedPath)
+	{
+		std::optional<VisualScriptIssue> const issue = VisualScriptSerializer::Validate(document);
+		std::vector<VisualScriptIssue> issues;
+		bool const loadsBack = Testing::LoadsBackAsWritten(document, issues);
+		if (expectedPath.empty())
+		{
+			CHECK_MESSAGE(!issue.has_value(), (issue ? issue->Path + ": " + issue->Message : std::string()));
+			CHECK_MESSAGE(loadsBack, GetPaths(issues));
+			return;
+		}
+		REQUIRE(issue.has_value());
+		CHECK(issue->Path == expectedPath);
+		CHECK_FALSE(issue->Message.empty());
+		CHECK_FALSE(loadsBack);
+		if (!issues.empty())
+		{
+			CHECK(issues.front().Path == expectedPath);
+		}
+	}
+
+	VisualScriptFunction MakeFunction(uint32_t id, std::string name)
+	{
+		VisualScriptFunction function;
+		function.ID = id;
+		function.Name = std::move(name);
+		return function;
+	}
+
+	std::vector<std::string> MakeNames(std::string_view prefix, size_t count)
+	{
+		std::vector<std::string> names;
+		for (size_t index = 0; index < count; index++)
+		{
+			names.push_back(fmt::format("{}{}", prefix, index));
+		}
+		return names;
+	}
+}
+
+TEST_CASE("VisualScript: Validate refuses what the loader would repair with the loader's path, and accepts what loads back as written")
+{
+	std::string const invalidUtf8 = "\xC3\x28";
+	VisualScriptDocument const valid = MakeValidatedDocument();
+	CheckValidate(valid, {});
+	CheckValidate(VisualScriptDocument(), {});
+
+	struct Case
+	{
+		char const* Path;
+		void (*Damage)(VisualScriptDocument& document);
+	};
+	// Each damages one rule of the valid document; an empty path is a change the format allows.
+	Case const cases[] = {
+		{"Kind",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Kind = static_cast<VisualScriptDocumentKind>(7);
+		 }},
+		{"Description",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Description = "\xC3\x28";
+		 }},
+		{"Variables[0].ID",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].ID = 0;
+		 }},
+		{"Variables[1].ID",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[1].ID = 1;
+		 }},
+		{"Variables[0].ID",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].ID = VisualScriptSerializer::MaxID + 1;
+		 }},
+		{"Variables[0].Name",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].Name = "Max.Speed";
+		 }},
+		{"Variables[0].Name",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].Name = " Speed";
+		 }},
+		{"Variables[1].Name",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[1].Name = "Speed";
+		 }},
+		{"Variables[0].Type",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].Type.clear();
+		 }},
+		{"Variables[0].Value",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].Value = std::numeric_limits<double>::infinity();
+		 }},
+		{"Variables[0].Value",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].Value = Json::array({"\xC3\x28"});
+		 }},
+		{"Variables[0].Tooltip",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].Tooltip = "\xF8";
+		 }},
+		{"Variables[0].Range",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].Range = glm::vec2(2.0f, 1.0f);
+		 }},
+		{"Variables[0].Range",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].Range = glm::vec2(0.0f, std::numeric_limits<float>::quiet_NaN());
+		 }},
+		{"Variables[0].FormerNames[0]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].FormerNames = {"Score"};
+		 }},
+		{"Variables[0].FormerNames[1]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].FormerNames = {"Old", "Old"};
+		 }},
+		{"Variables[1].FormerNames[0]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[1].FormerNames = {"Velocity"};
+		 }},
+		{"Variables[0].FormerNames[0]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].FormerNames = {"Bad.Name"};
+		 }},
+		{"Variables[0].FormerNames[16]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].FormerNames = MakeNames("Old", 17);
+		 }},
+		{"",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Variables[0].FormerNames = MakeNames("Old", 16);
+		 }},
+		{"Functions[0].ID",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].ID = 2;
+		 }},
+		{"Functions[0].Name",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Name.clear();
+		 }},
+		{"Functions[1].Name",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions.push_back(MakeFunction(20, "Scale"));
+		 }},
+		{"",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions.push_back(MakeFunction(20, "Speed"));
+		 }},
+		{"Functions[0].Inputs[1].Name",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Inputs[1].Name = "Value";
+		 }},
+		{"Functions[0].Inputs[1].Type",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Inputs[1].Type = "A\nB";
+		 }},
+		{"Functions[0].Inputs[0].FormerNames[0]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Inputs[0].FormerNames = {"Factor"};
+		 }},
+		{"Functions[0].Inputs[1].FormerNames[0]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Inputs[1].FormerNames = {"Input"};
+		 }},
+		{"Functions[0].Inputs[0].FormerNames[16]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Inputs[0].FormerNames = MakeNames("Old", 17);
+		 }},
+		{"",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Outputs[0].FormerNames = {"Input"};
+		 }},
+		{"Functions[0].Locals[0].ID",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Locals[0].ID = 3;
+		 }},
+		{"Functions[0].Locals[0].Name",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Locals[0].Name = "Score";
+		 }},
+		{"Functions[0].Locals[0].Type",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Locals[0].Type = "\xC3\x28";
+		 }},
+		{"Functions[0].Locals[0].Value",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Locals[0].Value = std::numeric_limits<double>::quiet_NaN();
+		 }},
+		{"Functions[0].Graph.Nodes[1].ID",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Functions[0].Graph.Nodes[1].ID = 4;
+		 }},
+		{"Graph.Nodes[0].ID",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[0].ID = 5;
+		 }},
+		{"Graph.Nodes[1].Type",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Type = std::string(1025, 'T');
+		 }},
+		{"Graph.Nodes[0].Position",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[0].Position = glm::vec2(std::nextafter(1.0e7f, 2.0e7f), 0.0f);
+		 }},
+		{"Graph.Nodes[0].Position",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[0].Position = glm::vec2(0.0f, std::numeric_limits<float>::quiet_NaN());
+		 }},
+		{"Graph.Nodes[1].Settings",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Settings = 5;
+		 }},
+		{"Graph.Nodes[1].Settings",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Settings = Json::array({1});
+		 }},
+		// Written as nothing, so read back as {}: no repair, yet not the document.
+		{"Graph.Nodes[1].Settings",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Settings = Json();
+		 }},
+		{"Graph.Nodes[1].Inputs",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Inputs = Json::array();
+		 }},
+		{"Graph.Nodes[1].Settings",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Settings[""] = 1;
+		 }},
+		{"Graph.Nodes[1].Settings",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Settings["\xC3\x28"] = 1;
+		 }},
+		{"Graph.Nodes[1].Inputs.Force.X",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Inputs["Force.X"] = -std::numeric_limits<double>::infinity();
+		 }},
+		{"Graph.Nodes[1].Settings.Member255",
+	     [](VisualScriptDocument& d)
+	     {
+			 for (std::string const& name : MakeNames("Member", 257))
+			 {
+				 d.Graph.Nodes[1].Settings[name] = 1;
+			 }
+		 }},
+		{"Graph.Nodes[1].Split.Inputs[1]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Split.Inputs[1] = "Force";
+		 }},
+		{"Graph.Nodes[1].Split.Inputs[1]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Split.Inputs[1] = "Torque.Offset";
+		 }},
+		{"Graph.Nodes[1].Split.Outputs[0]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Split.Outputs[0] = "Hit..Point";
+		 }},
+		{"Graph.Nodes[1].Split.Outputs[64]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Split.Outputs = MakeNames("Pin", 65);
+		 }},
+		{"Graph.Nodes[1].Comment",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Comment = std::string(65537, 'c');
+		 }},
+		{"Graph.Nodes[1].Enabled",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[1].Enabled = static_cast<VisualScriptNodeEnabled>(9);
+		 }},
+		{"Graph.Links[0].From",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Links[0].From.Node = 99;
+		 }},
+		{"Graph.Links[0].To",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Links[0].To.Node = 6;
+		 }},
+		{"Graph.Links[0].From",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Links[0].From.Node = 0;
+		 }},
+		{"Graph.Links[0].To",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Links[0].To.Pin.clear();
+		 }},
+		{"Graph.Links[0].To",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Links[0].To.Pin = "Exec\nute";
+		 }},
+		{"Graph.Links[3]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Links.push_back(d.Graph.Links[1]);
+		 }},
+		{"Graph.Comments[0].ID",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Comments[0].ID = 9;
+		 }},
+		{"Graph.Comments[0].Text",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Comments[0].Text = "\xED\xA0\x80";
+		 }},
+		{"Graph.Comments[0].Position",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Comments[0].Position.y = std::nextafter(-1.0e7f, -2.0e7f);
+		 }},
+		{"Graph.Comments[0].Size",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Comments[0].Size.x = std::nextafter(16.0f, 0.0f);
+		 }},
+		{"Graph.Comments[0].Color",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Comments[0].Color.g = std::nextafter(1.0f, 2.0f);
+		 }},
+		// What the loader repairs is named first, however late in the document: a repeated link after null Settings.
+		{"Graph.Links[3]",
+	     [](VisualScriptDocument& d)
+	     {
+			 d.Graph.Nodes[0].Settings = Json();
+			 d.Graph.Links.push_back(d.Graph.Links[2]);
+		 }},
+	};
+	for (Case const& entry : cases)
+	{
+		VisualScriptDocument document = valid;
+		entry.Damage(document);
+		CAPTURE(entry.Path);
+		CheckValidate(document, entry.Path);
+	}
+	// The invalid UTF-8 the loader refuses in every text of a document built in memory, names included.
+	VisualScriptDocument named = valid;
+	named.Functions[0].Locals[0].Name = invalidUtf8;
+	CheckValidate(named, "Functions[0].Locals[0].Name");
+
+	// One element beyond each limit of a document and of a graph; at the limit, nothing.
+	auto const addVariables = [](VisualScriptDocument& document, size_t count)
+	{
+		for (uint32_t index = 0; document.Variables.size() < count; index++)
+		{
+			VisualScriptVariable variable;
+			variable.ID = 100 + index;
+			variable.Name = fmt::format("Extra{}", index);
+			variable.Type = "int";
+			document.Variables.push_back(std::move(variable));
+		}
+	};
+	VisualScriptDocument variables = valid;
+	addVariables(variables, VisualScriptSerializer::MaxVariables);
+	CheckValidate(variables, {});
+	addVariables(variables, VisualScriptSerializer::MaxVariables + 1);
+	CheckValidate(variables, "Variables[1024]");
+
+	VisualScriptDocument functions = valid;
+	for (uint32_t index = 0; functions.Functions.size() <= VisualScriptSerializer::MaxFunctions; index++)
+	{
+		functions.Functions.push_back(MakeFunction(100 + index, fmt::format("Extra{}", index)));
+	}
+	CheckValidate(functions, "Functions[1024]");
+
+	VisualScriptDocument parameters = valid;
+	for (std::string const& name : MakeNames("Extra", VisualScriptSerializer::MaxParameters - 1))
+	{
+		parameters.Functions[0].Outputs.emplace_back(name, "int");
+	}
+	CheckValidate(parameters, {});
+	parameters.Functions[0].Outputs.emplace_back("OneMore", "int");
+	CheckValidate(parameters, "Functions[0].Outputs[64]");
+
+	VisualScriptDocument locals = valid;
+	for (uint32_t index = 0; locals.Functions[0].Locals.size() <= VisualScriptSerializer::MaxLocals; index++)
+	{
+		VisualScriptLocal local;
+		local.ID = 100 + index;
+		local.Name = fmt::format("Extra{}", index);
+		local.Type = "int";
+		locals.Functions[0].Locals.push_back(std::move(local));
+	}
+	CheckValidate(locals, "Functions[0].Locals[256]");
+
+	VisualScriptDocument nodes = valid;
+	for (uint32_t index = 0; nodes.Graph.Nodes.size() <= VisualScriptSerializer::MaxNodesPerGraph; index++)
+	{
+		VisualScriptNode node;
+		node.ID = 100 + index;
+		node.Type = "Flow.Branch";
+		nodes.Graph.Nodes.push_back(std::move(node));
+	}
+	CheckValidate(nodes, "Graph.Nodes[10000]");
+
+	VisualScriptDocument links = valid;
+	for (size_t index = 0; links.Graph.Links.size() <= VisualScriptSerializer::MaxLinksPerGraph; index++)
+	{
+		links.Graph.Links.push_back({{8, fmt::format("Out{}", index)}, {9, "In"}});
+	}
+	CheckValidate(links, "Graph.Links[40000]");
+
+	VisualScriptDocument comments = valid;
+	for (uint32_t index = 0; comments.Graph.Comments.size() <= VisualScriptSerializer::MaxCommentsPerGraph; index++)
+	{
+		VisualScriptComment comment;
+		comment.ID = 100 + index;
+		comments.Graph.Comments.push_back(std::move(comment));
+	}
+	CheckValidate(comments, "Graph.Comments[2000]");
 }
 
 TEST_CASE("VisualScript: the writer omits defaults, keeps raw values as stored and widens floats")

@@ -677,6 +677,18 @@ TEST_CASE("VisualScriptCommit: unplaced nodes are laid out, and a document that 
 	VisualScriptDocument notANumber = stored;
 	notANumber.Variables.push_back(MakeVariable(5, "Speed", "float", std::numeric_limits<double>::quiet_NaN()));
 	CHECK(CommitError(stored, notANumber).starts_with(prefix + "Variables[0].Value: "));
+	// Text that is not UTF-8, which only a document built in memory holds and the writer would replace: refused, naming the
+	// loader's repair (repair 18).
+	VisualScriptDocument described = stored;
+	described.Description = "\xC3\x28";
+	CHECK(CommitError(stored, described) == prefix + "Description: expected a string of UTF-8 of at most 65536 bytes");
+	VisualScriptDocument noted = stored;
+	noted.Graph.Nodes[0].Comment = "Truncated \xE2\x82";
+	CHECK(CommitError(stored, noted).starts_with(prefix + "Graph.Nodes[0].Comment: "));
+	// Settings that are null are written as nothing and load back as {}: no repair, yet not the document, so refused too.
+	VisualScriptDocument unset = stored;
+	unset.Graph.Nodes[0].Settings = Json();
+	CHECK(CommitError(stored, unset).starts_with(prefix + "Graph.Nodes[0].Settings: "));
 }
 
 TEST_CASE("VisualScriptCommit: a commit request names its action in its script, and notes the canonical rewrites but not the renames")
@@ -807,8 +819,8 @@ TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, seria
 			CHECK(context.GetHistory().GetUndoCount() == steps + 1);
 			CHECK(asset->GetVersion() == version + 1);
 			CHECK(asset->GetSharedDocument().get() == committed.get());
-			// The document was serialized once: the text the strict check read back is the one written and remembered, moved
-			// along without a copy.
+			// The document's text was written once: the text the pipeline wrote after the strict check is the one written to
+			// the file and remembered, moved along without a copy.
 			std::string const* const remembered = context.FindVisualScriptText(graph, committed.get());
 			REQUIRE(remembered != nullptr);
 			CHECK(reinterpret_cast<std::uintptr_t>(remembered->data()) == text);

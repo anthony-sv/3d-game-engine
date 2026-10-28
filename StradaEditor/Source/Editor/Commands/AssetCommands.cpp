@@ -262,7 +262,7 @@ namespace Strada
 		}
 
 		std::chrono::steady_clock::time_point const serialize = std::chrono::steady_clock::now();
-		std::string text = givenText.empty() ? DumpJson(VisualScriptSerializer::Serialize(*m_After)) : std::move(givenText);
+		std::string text = givenText.empty() ? VisualScriptSerializer::WriteText(*m_After) : std::move(givenText);
 		m_LastTimings.Text = GetMillisecondsSince(serialize);
 		std::chrono::steady_clock::time_point const write = std::chrono::steady_clock::now();
 		if (Result<void> written = FileSystem::WriteTextFile(file.Path, text); !written)
@@ -300,7 +300,7 @@ namespace Strada
 		}
 		std::filesystem::path const& path = found.GetValue().Path;
 		// The kept bytes, or the canonical text of the document the file had.
-		std::string text = m_KeepsBytes ? std::string() : DumpJson(VisualScriptSerializer::Serialize(*m_Before));
+		std::string text = m_KeepsBytes ? std::string() : VisualScriptSerializer::WriteText(*m_Before);
 		Result<void> const written =
 			m_KeepsBytes ? FileSystem::WriteBinaryFile(path, m_BeforeBytes) : FileSystem::WriteTextFile(path, text);
 		if (!written)
@@ -375,8 +375,7 @@ namespace Strada
 		{
 			// The text the editor wrote last for this very document, else the document serialized again.
 			std::string const* const written = context.FindVisualScriptText(m_Graph, m_Before.get());
-			canonical =
-				written != nullptr ? HoldsText(read, *written) : HoldsText(read, DumpJson(VisualScriptSerializer::Serialize(*m_Before)));
+			canonical = written != nullptr ? HoldsText(read, *written) : HoldsText(read, VisualScriptSerializer::WriteText(*m_Before));
 		}
 		m_KeepsBytes = !canonical;
 		if (m_KeepsBytes)

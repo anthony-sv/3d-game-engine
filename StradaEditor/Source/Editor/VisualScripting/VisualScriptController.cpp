@@ -200,7 +200,7 @@ namespace Strada
 				{
 					return moved;
 				}
-				return Commit(std::move(document), "Move " + DescribeElements(counts.first, counts.second));
+				return CommitLayout(std::move(document), "Move " + DescribeElements(counts.first, counts.second));
 			}
 
 			Result<void> Resolve(VisualScriptConnectIntent const& intent)
@@ -296,7 +296,7 @@ namespace Strada
 				{
 					return resized;
 				}
-				return Commit(std::move(document), "Resize Comment");
+				return CommitLayout(std::move(document), "Resize Comment");
 			}
 
 			Result<void> Resolve(VisualScriptInsertRerouteIntent const& intent)
@@ -568,7 +568,7 @@ namespace Strada
 						{
 							return set;
 						}
-						return Commit(std::move(document), "Recolour Comment");
+						return CommitLayout(std::move(document), "Recolour Comment");
 					case VisualScriptCommentAction::FitToContents:
 					{
 						std::vector<uint32_t> contents = GetCommentContents(edit.Comment);
@@ -587,7 +587,7 @@ namespace Strada
 						{
 							return set;
 						}
-						return Commit(std::move(document), "Fit Comment to Contents");
+						return CommitLayout(std::move(document), "Fit Comment to Contents");
 					}
 					case VisualScriptCommentAction::Delete:
 					{
@@ -735,6 +735,21 @@ namespace Strada
 				made.Notes = std::move(notes);
 				m_Result.Commit = std::move(made);
 				return {};
+			}
+
+			// A commit whose intent changes the layout only (a move, Arrange, Align, Distribute, Straighten, a comment box's
+			// geometry or colour, collapsing): marked LayoutOnly when its preparation rewrote nothing either (no canonical
+			// type or pin), so its program is the stored document's and the window adopts it without analyzing or rebuilding
+			// what reads the program.
+			Result<void> CommitLayout(VisualScriptDocument edited, std::string const& action, uint64_t mergeKey = 0)
+			{
+				bool const pending = m_Result.Commit.has_value();
+				Result<void> committed = Commit(std::move(edited), action, mergeKey);
+				if (committed && !pending && m_Result.Commit && m_Result.Commit->Notes.empty())
+				{
+					m_Result.Commit->LayoutOnly = true;
+				}
+				return committed;
 			}
 
 			// --- The shown graph as the canvas knows it ---
@@ -1609,7 +1624,7 @@ namespace Strada
 				{
 					return aligned;
 				}
-				return Commit(std::move(document), fmt::format("Align {} {}", DescribeElements(counts.first, counts.second), edge));
+				return CommitLayout(std::move(document), fmt::format("Align {} {}", DescribeElements(counts.first, counts.second), edge));
 			}
 
 			Result<void> Distribute(std::span<uint32_t const> elements, VisualScriptDistribution distribution)
@@ -1629,7 +1644,7 @@ namespace Strada
 				{
 					return spaced;
 				}
-				return Commit(std::move(document), "Distribute " + DescribeElements(counts.first, counts.second));
+				return CommitLayout(std::move(document), "Distribute " + DescribeElements(counts.first, counts.second));
 			}
 
 			Result<void> Straighten(std::span<uint32_t const> nodes)
@@ -1653,7 +1668,7 @@ namespace Strada
 				{
 					return {};
 				}
-				return Commit(std::move(document), "Straighten " + CountNoun(moved.GetValue(), "Node", "Nodes"));
+				return CommitLayout(std::move(document), "Straighten " + CountNoun(moved.GetValue(), "Node", "Nodes"));
 			}
 
 			Result<void> Arrange(std::span<uint32_t const> selected)
@@ -1687,7 +1702,7 @@ namespace Strada
 				{
 					return arranged;
 				}
-				Result<void> committed = Commit(std::move(document), "Arrange " + CountNoun(count, "Node", "Nodes"));
+				Result<void> committed = CommitLayout(std::move(document), "Arrange " + CountNoun(count, "Node", "Nodes"));
 				if (committed && m_Result.Commit)
 				{
 					m_Result.GlideFrom = std::move(before);
@@ -1713,7 +1728,7 @@ namespace Strada
 				{
 					return set;
 				}
-				return Commit(std::move(document), action);
+				return CommitLayout(std::move(document), action);
 			}
 
 			Result<void> SetEnabledState(Action action, std::span<uint32_t const> selected)
@@ -2043,7 +2058,7 @@ namespace Strada
 				{
 					return moved;
 				}
-				return Commit(std::move(document), "Nudge " + DescribeElements(counts.first, counts.second), m_Context.MergeKey);
+				return CommitLayout(std::move(document), "Nudge " + DescribeElements(counts.first, counts.second), m_Context.MergeKey);
 			}
 
 			// --- Pins ---
