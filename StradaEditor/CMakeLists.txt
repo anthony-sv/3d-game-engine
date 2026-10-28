@@ -128,6 +128,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScriptEnumLookupSource.h
     Source/Editor/VisualScripting/VisualScriptArrange.cpp
     Source/Editor/VisualScripting/VisualScriptArrange.h
+    Source/Editor/VisualScripting/VisualScriptBatch.cpp
+    Source/Editor/VisualScripting/VisualScriptBatch.h
     Source/Editor/VisualScripting/VisualScriptBrushes.cpp
     Source/Editor/VisualScripting/VisualScriptBrushes.h
     Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h

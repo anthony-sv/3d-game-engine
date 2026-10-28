@@ -1014,6 +1014,10 @@ namespace Strada::Testing
 			{
 				return Error{"the scripting runtime is not running"};
 			}
+			if (m_AnalyzeFails)
+			{
+				return Error{"the scripting runtime failed to analyze the visual script"};
+			}
 			Result<VisualScriptAnalysis> analysis = AnalyzeWithFixtureTemplates(*m_Library, document, m_InjectedDiagnostics);
 			if (analysis)
 			{
@@ -1032,6 +1036,8 @@ namespace Strada::Testing
 		// The runtime stops (GetLibrary gives null, Analyze fails) or starts again.
 		void SetAvailable(bool available) { m_Available = available; }
 		bool IsAvailable() const { return m_Available; }
+		// The runtime runs (GetLibrary gives the library) but every analysis fails, as when the runtime throws.
+		void SetAnalyzeFails(bool fails) { m_AnalyzeFails = fails; }
 		// Reads the library again: GetLibrary then gives a new object.
 		void ReloadLibrary()
 		{
@@ -1077,6 +1083,7 @@ namespace Strada::Testing
 		uint64_t m_LibraryCallCount = 0;
 		uint64_t m_AnalyzeCallCount = 0;
 		bool m_Available = true;
+		bool m_AnalyzeFails = false;
 	};
 
 	// The canvas' text measurer (width in canvas units of a text of a size in canvas units) for layout tests: every byte is

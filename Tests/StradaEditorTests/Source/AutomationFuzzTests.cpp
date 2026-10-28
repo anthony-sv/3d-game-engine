@@ -455,6 +455,21 @@ namespace
 					params.erase("revision");
 				}
 			}
+			// graph.palette opens only in an open window: mostly one, mostly without the from and at that the schema draws, which
+			// rarely name a node and a point of the canvas, so the palette's own checks are reached (whatever the order of the
+			// commands drawn before it).
+			if (m_Command == "graph.palette" && !m_State.OpenGraphs.empty() && m_Random.Pick(4) != 0)
+			{
+				params["graph"] = PickFrom(m_State.OpenGraphs);
+				if (m_Random.Pick(4) != 0)
+				{
+					params.erase("from");
+				}
+				if (m_Random.Pick(2) == 0)
+				{
+					params.erase("at");
+				}
+			}
 			if (m_Command == "graph.close" && !params.contains("graph") && !m_State.OpenGraphs.empty() && m_Random.Pick(4) != 0)
 			{
 				params["graph"] = PickFrom(m_State.OpenGraphs);
