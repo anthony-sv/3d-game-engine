@@ -121,7 +121,7 @@ internal sealed class GraphReferences
 		{
 			return Empty;
 		}
-		if (root.ValueKind != JsonValueKind.Object)
+		if (root.ValueKind != JsonValueKind.Object || !JsonText.HasTextNames(root))
 		{
 			return Empty;
 		}
@@ -151,8 +151,8 @@ internal sealed class GraphReferences
 
 	private static ReferencedGraph? ReadEntry(JsonElement element)
 	{
-		if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty("Graph", out JsonElement graphValue) ||
-			!TryReadHandle(graphValue, out ulong graph))
+		if (element.ValueKind != JsonValueKind.Object || !JsonText.HasTextNames(element) ||
+			!element.TryGetProperty("Graph", out JsonElement graphValue) || !TryReadHandle(graphValue, out ulong graph))
 		{
 			return null;
 		}

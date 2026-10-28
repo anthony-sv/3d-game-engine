@@ -73,6 +73,7 @@ internal static class BuiltinNodes
 		BuiltinNode.EventGamepadButtonReleased => "Event.GamepadButtonReleased",
 		BuiltinNode.EventCustom => "Event.Custom",
 		BuiltinNode.EventSend => "Event.Send",
+		BuiltinNode.EventBroadcast => "Event.Broadcast",
 		BuiltinNode.FlowBranch => "Flow.Branch",
 		BuiltinNode.FlowSequence => "Flow.Sequence",
 		BuiltinNode.FlowSwitch => "Flow.Switch",
@@ -100,6 +101,7 @@ internal static class BuiltinNodes
 		BuiltinNode.Reroute => "Reroute",
 		BuiltinNode.Select => "Select",
 		BuiltinNode.IsValid => "IsValid",
+		BuiltinNode.RunsGraph => "RunsGraph",
 		BuiltinNode.Convert => "Convert",
 		BuiltinNode.Make => "Make",
 		BuiltinNode.Break => "Break",
@@ -225,6 +227,18 @@ internal static class BuiltinNodes
 			Keywords = ["send", "message", "raise", "event"],
 			Settings = [.. CustomEventSettings(), GraphSetting(TypeConstraint.Script)],
 		});
+		Add(nodes, new BuiltinNodeDefinition(BuiltinNode.EventBroadcast, TypeOf(BuiltinNode.EventBroadcast), "Broadcast Event", Events,
+			NodeKind.Call, false, false, [ExecIn(), ExecOut(), Out("Count", types.Int)])
+		{
+			Description =
+				"Raises the custom event of that name on every graph that has it (with Graph, on every entity running that graph), in the order the entities started running their graphs, then continues; Count is how many received it.",
+			Keywords = ["broadcast", "message", "raise", "event", "every", "all"],
+			Settings =
+			[
+				.. CustomEventSettings(), GraphSetting(TypeConstraint.Script),
+				new SettingDescription("IncludeSelf", SettingKind.Bool) { Default = true },
+			],
+		});
 	}
 
 	private static void AddFlow(List<BuiltinNodeDefinition> nodes, BuiltinTypes types)
@@ -312,9 +326,10 @@ internal static class BuiltinNodes
 		Add(nodes, new BuiltinNodeDefinition(BuiltinNode.VariableGet, TypeOf(BuiltinNode.VariableGet), "Get Variable", Variables, NodeKind.Variable,
 			true, false, [Wildcard("Value", PinDirection.Out, PinConstraint.Any, WildcardSource.None)])
 		{
-			Description = "Reads a variable of the graph, or a local of the function.",
+			Description =
+				"Reads a variable of the graph, or a local of the function; with Graph, a public variable of the Target entity's graph, which must run that graph.",
 			Keywords = ["get", "read"],
-			Settings = [variable],
+			Settings = [variable, GraphSetting(TypeConstraint.Script)],
 		});
 		Add(nodes, new BuiltinNodeDefinition(BuiltinNode.VariableSet, TypeOf(BuiltinNode.VariableSet), "Set Variable", Variables, NodeKind.Variable,
 			false, false,
@@ -323,9 +338,10 @@ internal static class BuiltinNodes
 				Wildcard("Value", PinDirection.Out, PinConstraint.Any, WildcardSource.None),
 			])
 		{
-			Description = "Writes a variable of the graph or a local of the function, then outputs the value it wrote.",
+			Description =
+				"Writes a variable of the graph or a local of the function, then outputs the value it wrote; with Graph, a public variable of the Target entity's graph, which must run that graph.",
 			Keywords = ["set", "write", "assign"],
-			Settings = [variable],
+			Settings = [variable, GraphSetting(TypeConstraint.Script)],
 		});
 		Add(nodes, new BuiltinNodeDefinition(BuiltinNode.FunctionEntry, TypeOf(BuiltinNode.FunctionEntry), "Function Entry", Functions,
 			NodeKind.Function, false, false, [ExecOut()])
@@ -379,6 +395,10 @@ internal static class BuiltinNodes
 			Utilities, "Whether a reference is set: an entity that exists, a component its entity still has, a valid asset, any other object.",
 			["null", "none", "exists", "valid"],
 			[Wildcard("Value", PinDirection.In, PinConstraint.Reference, WildcardSource.Links), Out("Result", types.Bool)]);
+		DataNode(nodes, BuiltinNode.RunsGraph, "Runs Graph", Utilities,
+			"Whether the Target entity (Self when unconnected) runs the visual script Graph names: the guard of its variables' Get and Set.",
+			["runs", "graph", "script", "is", "has", "check"], [Target(types.Entity), Out("Result", types.Bool)],
+			[new SettingDescription("Graph", SettingKind.Graph) { Required = true, Constraint = TypeConstraint.Script }]);
 		DataNode(nodes, BuiltinNode.Convert, "Convert", Conversions,
 			"Converts a value to the type To: numbers, enums and text, entities to script classes, and the types' own conversions.",
 			["cast", "parse", "to", "change type"],

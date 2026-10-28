@@ -41,6 +41,8 @@ internal enum BuiltinNode
 	EventGamepadButtonReleased,
 	EventCustom,
 	EventSend,
+	// Slice 3's broadcast Send comes right after Send, outside the event range (IsEvent ends at EventCustom).
+	EventBroadcast,
 	FlowBranch,
 	FlowSequence,
 	FlowSwitch,
@@ -69,6 +71,8 @@ internal enum BuiltinNode
 	Reroute,
 	Select,
 	IsValid,
+	// Slice 3's guard of remote variables comes beside IsValid (spec-slice3 section 4.7).
+	RunsGraph,
 	Convert,
 	Make,
 	Break,

@@ -72,6 +72,8 @@ internal enum DiagnosticCode
 	LibraryCycle,
 	LibraryVariable,
 	LibraryEventGraph,
+	PrivateVariable,
+	UnlinkedTarget,
 }
 
 // A finding of the analysis. Function is 0 for the event graph and document variables, else the function's ID; the other

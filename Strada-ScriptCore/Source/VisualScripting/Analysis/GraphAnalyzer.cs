@@ -102,7 +102,7 @@ internal static class GraphAnalyzer
 		{
 			foreach ((AnalyzedGraph graph, _) in graphs)
 			{
-				CheckSendTargets(context, graph);
+				CheckTargets(context, graph);
 			}
 		}
 		foreach ((AnalyzedGraph graph, _) in graphs)
@@ -151,20 +151,35 @@ internal static class GraphAnalyzer
 		}
 	}
 
-	// A typed Send whose Target is unlinked in a script sends to Self, which runs this script, not the one Graph names
-	// (spec-slice3 section 4.3): it never reaches a receiver. In a library an unlinked Target is the calling entity, which may
-	// run any script.
-	private static void CheckSendTargets(AnalysisContext context, AnalyzedGraph graph)
+	// In a script, an unlinked Target is Self, which runs this script (spec-slice3 sections 4.3, 4.5 and 4.7): a typed Send to
+	// another script never reaches a receiver (a Warning), a variable of another script cannot be read or written on it (an
+	// Error), and RunsGraph of another script is always false (a Warning). In a library an unlinked Target is the calling
+	// entity, which may run any script.
+	private static void CheckTargets(AnalysisContext context, AnalyzedGraph graph)
 	{
 		foreach (AnalyzedNode node in graph.Nodes)
 		{
-			if (node.Builtin != BuiltinNode.EventSend || node.Binding is not CustomEventBinding { Target: { IsOtherScript: true } target } ||
-				node.FindPin("Target", PinDirection.In) is not { IsConnected: false })
+			if (node.Binding == null || node.FindPin("Target", PinDirection.In) is not { IsConnected: false })
 			{
 				continue;
 			}
-			context.ReportGraph(DiagnosticCode.TargetIsSelf, node, target.Graph,
-				$"Target: Self runs {context.SelfTarget.Name}, not {target.Name}: link the entity to send to");
+			string self = context.SelfTarget.Name;
+			switch (node.Binding)
+			{
+				case CustomEventBinding { Target: { IsOtherScript: true } target } when node.Builtin == BuiltinNode.EventSend:
+					context.ReportGraph(DiagnosticCode.TargetIsSelf, node, target.Graph,
+						$"Target: Self runs {self}, not {target.Name}: link the entity to send to");
+					break;
+				case RemoteVariableBinding { OwnGraph: false } remote:
+					string access = node.Builtin == BuiltinNode.VariableSet ? "write to" : "read from";
+					context.ReportGraph(DiagnosticCode.UnlinkedTarget, node, remote.Graph,
+						$"Target: Self runs {self}, not {remote.GraphName}: link the entity to {access}");
+					break;
+				case RunsGraphBinding { OwnGraph: false } runs:
+					context.ReportGraph(DiagnosticCode.TargetIsSelf, node, runs.Graph,
+						$"Target: Self runs {self}, so this is always false: link the entity to test");
+					break;
+			}
 		}
 	}
 

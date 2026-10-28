@@ -24,6 +24,23 @@ internal static class CrossGraphTesting
 	internal static string Send(string name, ulong graph, string parameters = "") =>
 		FormattableString.Invariant($$"""{ "Name": {{RuntimeTesting.Quote(name)}}, "Parameters": [{{parameters}}], "Graph": "{{graph}}" }""");
 
+	// The settings of a Broadcast of an event to every graph that has it, or with graph (when not 0) to the entities running it.
+	internal static string Broadcast(string name, ulong graph = 0, string parameters = "", string extra = "")
+	{
+		string target = graph != 0 ? FormattableString.Invariant($", \"Graph\": \"{graph}\"") : string.Empty;
+		return $$"""{ "Name": {{RuntimeTesting.Quote(name)}}, "Parameters": [{{parameters}}]{{target}}{{extra}} }""";
+	}
+
+	// The settings of a Get or Set of the variable of that ID in the graph.
+	internal static string Variable(uint variable, ulong graph) => FormattableString.Invariant($$"""{ "Variable": {{variable}}, "Graph": "{{graph}}" }""");
+
+	// The settings of a RunsGraph of the graph.
+	internal static string Runs(ulong graph) => FormattableString.Invariant($$"""{ "Graph": "{{graph}}" }""");
+
+	// A node of the graph that gives the entity of that ID (None for 0), to link into a Target.
+	internal static uint EntityOf(GraphBuilder graph, ulong entity) =>
+		graph.Node("Call:Strada.ScriptCore.Tests.Probe.EntityOf(ulong)", inputs: FormattableString.Invariant($$"""{ "Id": "{{entity}}" }"""));
+
 	internal static AnalyzedDocument Analyze(string document, string references, LibraryAnalyses? libraries = null, string? name = null) =>
 		GraphAnalyzer.Analyze(RuntimeTesting.Library, Encoding.UTF8.GetBytes(document), GraphReferences.Parse(Encoding.UTF8.GetBytes(references)),
 			libraries ?? new LibraryAnalyses(), name);
@@ -36,6 +53,15 @@ internal static class CrossGraphTesting
 		uint text = door.Graph.Node("FormatString", """{ "Format": "hit {Damage}" }""");
 		door.Graph.Link(hit, "Damage", text, "Damage");
 		door.Graph.Flow(hit, door.Graph.Write(text, "Result"));
+		return door;
+	}
+
+	// A script with the public float Health (10) and the private int Secret (3).
+	internal static DocumentBuilder DoorWithVariables(out uint health, out uint secret)
+	{
+		DocumentBuilder door = new();
+		health = door.Variable("Health", "float", "10", isPublic: true);
+		secret = door.Variable("Secret", "int", "3");
 		return door;
 	}
 }

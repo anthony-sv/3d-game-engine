@@ -31,7 +31,7 @@ namespace
 
 	// Every built-in node kind of the scripting runtime (BuiltinNodes.TypeOf) with the title a node of it without settings
 	// has. Each equals the node library's title, except where LibraryTitle names the library's.
-	constexpr std::array<BuiltInTitle, 90> BuiltInTitles = {{
+	constexpr std::array<BuiltInTitle, 92> BuiltInTitles = {{
 		{"Event.Create", "Create"},
 		{"Event.Update", "Update"},
 		{"Event.FixedUpdate", "Fixed Update"},
@@ -49,6 +49,7 @@ namespace
 		{"Event.GamepadButtonReleased", "Gamepad Button Released"},
 		{"Event.Custom", "Custom Event"},
 		{"Event.Send", "Send Event"},
+		{"Event.Broadcast", "Broadcast", "Broadcast Event"},
 		{"Flow.Branch", "Branch"},
 		{"Flow.Sequence", "Sequence"},
 		{"Flow.Switch", "Switch"},
@@ -76,6 +77,7 @@ namespace
 		{"Reroute", "Reroute"},
 		{"Select", "Select"},
 		{"IsValid", "Is Valid"},
+		{"RunsGraph", "Runs Graph"},
 		{"Convert", "Convert"},
 		{"Make", "Make"},
 		{"Break", "Break"},

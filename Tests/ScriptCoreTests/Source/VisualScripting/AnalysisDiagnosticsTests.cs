@@ -107,6 +107,13 @@ public sealed class AnalysisDiagnosticsTests
 
 	private const string FloatDamage = """{ "Name": "Damage", "Type": "float" }""";
 
+	// A Get of Door's variable 5, and Door's interface with that variable, Health, public or not.
+	private static string RemoteGet() =>
+		VisualScriptTesting.Document($$"""{ "ID": 1, "Type": "Variable.Get", "Settings": { "Variable": 5, "Graph": "{{Door}}" } }""");
+
+	private static string DoorVariables(bool isPublic) =>
+		$$"""{ "Variables": [ { "ID": 5, "Name": "Health", "Type": "float", "Public": {{(isPublic ? "true" : "false")}} } ] }""";
+
 	// The codes about other graphs: each document with the references bundle it is analyzed with.
 	private static readonly Dictionary<DiagnosticCode, (string Document, string References)> s_ReferenceCases = new()
 	{
@@ -122,6 +129,8 @@ public sealed class AnalysisDiagnosticsTests
 		[DiagnosticCode.TargetIsSelf] = (Send(FloatDamage), Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", DoorDocument("")))),
 		[DiagnosticCode.ReferenceError] = (Call(Broken), Bundle(Entry(Broken, "Scripts/Broken.sgraph", "Full",
 			"""{ "Kind": "Library", "Functions": [ { "ID": 1, "Name": "Run", "Pure": false, "Graph": { "Nodes": [ { "ID": 2, "Type": "Function.Entry" }, { "ID": 3, "Type": "Flow.Nothing" } ] } } ] }"""))),
+		[DiagnosticCode.PrivateVariable] = (RemoteGet(), Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", DoorVariables(false)))),
+		[DiagnosticCode.UnlinkedTarget] = (RemoteGet(), Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", DoorVariables(true)))),
 		[DiagnosticCode.LibraryCycle] = (
 			$$"""{ "Kind": "Library", "Functions": [ { "ID": 1, "Name": "Step", "Pure": false, "Graph": { "Nodes": [ { "ID": 2, "Type": "Function.Entry" }, { "ID": 3, "Type": "Function.Call", "Settings": { "Function": 1, "Graph": "{{Physics}}" } } ] } } ] }""",
 			Bundle(Entry(Physics, "Scripts/Physics.sgraph", "Full",

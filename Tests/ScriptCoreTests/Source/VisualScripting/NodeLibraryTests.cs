@@ -572,6 +572,42 @@ public sealed class NodeLibraryTests
 		Assert.Equal(["Forward", "Backward"], direction.Enumerators.Select(static enumerator => enumerator.Name));
 	}
 
+	// The nodes that name other graphs (spec-slice3 sections 4.1, 4.6 and 4.7): the optional Graph setting (a library for
+	// Function.Call, a script for the others), Broadcast beside Send and RunsGraph beside IsValid, outside every range of kinds.
+	[Fact]
+	public void TheNodesThatNameOtherGraphsHaveTheirForms()
+	{
+		Dictionary<string, string> nodes = VisualScriptTesting.ParseObject(LibraryWriter.Write(Library)).GetProperty("Nodes").EnumerateArray()
+			.ToDictionary(static entry => entry.GetProperty("Type").GetString()!, static entry => entry.GetRawText());
+		const string script = """{"Name":"Graph","Kind":"Graph","Constraint":"Script"}""";
+		Assert.Contains($$"""
+			"Settings":[{"Name":"Name","Kind":"String","Required":true},{"Name":"Parameters","Kind":"Parameters","Default":[]},{{script}}]
+			""", nodes["Event.Send"], StringComparison.Ordinal);
+		Assert.Contains("""{"Name":"Graph","Kind":"Graph","Constraint":"Library"}]""", nodes["Function.Call"], StringComparison.Ordinal);
+		Assert.Contains($$"""
+			"Settings":[{"Name":"Variable","Kind":"Variable","Required":true},{{script}}]
+			""", nodes["Variable.Get"], StringComparison.Ordinal);
+		Assert.Contains($$"""
+			"Settings":[{"Name":"Variable","Kind":"Variable","Required":true},{{script}}]
+			""", nodes["Variable.Set"], StringComparison.Ordinal);
+
+		BuiltinNodeDefinition broadcast = Assert.IsType<BuiltinNodeDefinition>(VisualScriptTesting.LibraryNode("Event.Broadcast"));
+		Assert.Equal(("Broadcast Event", "Events", NodeKind.Call, false, false), (broadcast.Title, broadcast.Category, broadcast.Kind, broadcast.Pure, broadcast.Latent));
+		Assert.Equal(BuiltinNode.EventSend + 1, broadcast.Node);
+		Assert.False(BuiltinNodes.IsEvent(BuiltinNode.EventBroadcast));
+		Assert.Contains($$"""
+			"Pins":[{"Name":"Execute","Direction":"In","Type":"exec"},{"Name":"Then","Direction":"Out","Type":"exec"},{"Name":"Count","Direction":"Out","Type":"int"}],"Settings":[{"Name":"Name","Kind":"String","Required":true},{"Name":"Parameters","Kind":"Parameters","Default":[]},{{script}},{"Name":"IncludeSelf","Kind":"Bool","Default":true}]
+			""", nodes["Event.Broadcast"], StringComparison.Ordinal);
+
+		BuiltinNodeDefinition runs = Assert.IsType<BuiltinNodeDefinition>(VisualScriptTesting.LibraryNode("RunsGraph"));
+		Assert.Equal(("Runs Graph", "Utilities", NodeKind.Data, true, false), (runs.Title, runs.Category, runs.Kind, runs.Pure, runs.Latent));
+		Assert.Equal(BuiltinNode.IsValid + 1, runs.Node);
+		Assert.False(BuiltinNodes.IsOperator(BuiltinNode.RunsGraph));
+		Assert.Contains("""
+			"Pins":[{"Name":"Target","Direction":"In","Type":"Strada.Entity","DefaultsToSelf":true},{"Name":"Result","Direction":"Out","Type":"bool"}],"Settings":[{"Name":"Graph","Kind":"Graph","Required":true,"Constraint":"Script"}]
+			""", nodes["RunsGraph"], StringComparison.Ordinal);
+	}
+
 	// Opcode.Intrinsic's kinds are the String and Array kinds in BuiltinNode's order (ProgramCompiler maps one to the other).
 	[Fact]
 	public void IntrinsicKindsFollowTheBuiltinKinds()

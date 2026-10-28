@@ -28,6 +28,10 @@ internal enum Opcode : byte
 	FunctionCall,
 	ExecReroute,
 	Member,
+	// Event.Broadcast (spec-slice3 section 4.6).
+	Broadcast,
+	// Variable.Set with Graph: a variable of another entity's graph (spec-slice3 section 4.5).
+	RemoteSet,
 	// A disabled node, whatever its kind: the flow passes on to its exit, its outputs take inputs of their types.
 	PassThrough,
 	// Pure.
@@ -56,6 +60,10 @@ internal enum Opcode : byte
 	Expression,
 	// A String or Array node (spec-slice3 sections 3.4.5 and 3.5): CompiledNode.Intrinsic says which.
 	Intrinsic,
+	// Variable.Get with Graph (spec-slice3 section 4.5).
+	RemoteGet,
+	// RunsGraph (spec-slice3 section 4.7).
+	RunsGraph,
 }
 
 // The String and Array nodes Opcode.Intrinsic evaluates (Intrinsics.Evaluate).
@@ -344,10 +352,30 @@ internal sealed class CompiledNode
 
 	internal VisualType[] EventParameters { get; set; } = [];
 
-	// A typed Event.Send (spec-slice3 section 4.3): the graph its receivers run (0 for any) and that graph's asset path.
+	// A typed Event.Send or Event.Broadcast (spec-slice3 sections 4.3 and 4.6): the graph its receivers run (0 for any) and
+	// that graph's asset path. Remote variables and RunsGraph: the graph the Target entity must run, its asset path and its
+	// file stem.
 	internal ulong TargetGraph { get; set; }
 
 	internal string? TargetName { get; set; }
+
+	internal string? TargetDisplayName { get; set; }
+
+	// Event.Broadcast: whether the instance that runs it receives the event too.
+	internal bool IncludeSelf { get; set; }
+
+	// Remote variables (spec-slice3 section 4.5): the variable's ID and name in the Target's graph, its type (ToType), whether
+	// a private one may be used (the graph is the program's own), and the receiver program the variable's index was last
+	// found in.
+	internal uint RemoteVariable { get; set; }
+
+	internal string? RemoteVariableName { get; set; }
+
+	internal bool AllowPrivate { get; set; }
+
+	internal GraphProgram? RemoteProgram { get; set; }
+
+	internal int RemoteIndex { get; set; } = -1;
 
 	// Reflected nodes, operator methods and conversion methods: the member, its target and its invoker (built the first
 	// time the node runs).
@@ -628,6 +656,19 @@ internal sealed class GraphProgram
 
 	// A function of the program's document (graph 0) or of a library it calls, by the library's handle.
 	internal CompiledFunction? FindFunction(ulong graph, uint id) => m_Functions.GetValueOrDefault((graph, id));
+
+	// The index of the variable of that ID, -1 when there is none.
+	internal int FindVariableById(uint id)
+	{
+		for (int index = 0; index < Variables.Length; index++)
+		{
+			if (Variables[index].Id == id)
+			{
+				return index;
+			}
+		}
+		return -1;
+	}
 
 	internal int FindVariable(string name)
 	{

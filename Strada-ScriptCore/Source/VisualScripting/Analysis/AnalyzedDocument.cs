@@ -627,6 +627,16 @@ internal abstract record NodeBinding;
 // Variable.Get and Variable.Set.
 internal sealed record VariableBinding(AnalyzedVariable Variable) : NodeBinding;
 
+// Variable.Get and Variable.Set with Graph (spec-slice3 section 4.5): a public variable of another entity's graph, by the ID
+// it has in that graph (Graph, whose asset path is GraphName and file stem GraphDisplayName), with its name and type as the
+// analysis found them. OwnGraph: Graph names the analyzed document itself, whose private variables are allowed too, and
+// whose instance an unlinked Target (Self) runs.
+internal sealed record RemoteVariableBinding(ulong Graph, string GraphName, string GraphDisplayName, uint Variable, string VariableName,
+	VisualType Type, bool OwnGraph) : NodeBinding;
+
+// RunsGraph (spec-slice3 section 4.7): the graph it tests for. OwnGraph: Graph names the analyzed document itself.
+internal sealed record RunsGraphBinding(ulong Graph, bool OwnGraph) : NodeBinding;
+
 // Function.Entry, Function.Return and Function.Call: the function, of the document (Graph 0) or of the function library of
 // that handle (spec-slice3 section 4.4.2).
 internal sealed record FunctionBinding(AnalyzedFunction Function, ulong Graph = 0) : NodeBinding;
@@ -634,11 +644,15 @@ internal sealed record FunctionBinding(AnalyzedFunction Function, ulong Graph = 
 // The input events: the key, mouse button or gamepad button (an enum value).
 internal sealed record InputEventBinding(object Value) : NodeBinding;
 
-// Event.Custom and Event.Send. Target: a typed Send's graph (spec-slice3 section 4.3); null for one without Graph.
-internal sealed record CustomEventBinding(string Name, IReadOnlyList<AnalyzedParameter> Parameters, SendTarget? Target = null) : NodeBinding;
+// Event.Custom, Event.Send and Event.Broadcast. Target: a typed Send's or Broadcast's graph (spec-slice3 sections 4.3 and
+// 4.6); null for one without Graph. IncludeSelf: a Broadcast reaches the instance that runs it too.
+internal sealed record CustomEventBinding(string Name, IReadOnlyList<AnalyzedParameter> Parameters, SendTarget? Target = null) : NodeBinding
+{
+	internal bool IncludeSelf { get; init; } = true;
+}
 
-// The graph a typed Send delivers to: its handle, and its asset path for the runtime's messages. IsOtherScript: it names a
-// script other than the analyzed document, so an unlinked Target (Self) cannot run it.
+// The graph a typed Send or Broadcast delivers to: its handle, and its asset path for the runtime's messages. IsOtherScript:
+// it names a script other than the analyzed document, so an unlinked Target (Self) cannot run it.
 internal sealed record SendTarget(ulong Graph, string Name, bool IsOtherScript);
 
 internal sealed record SequenceBinding(int Count) : NodeBinding;

@@ -97,7 +97,8 @@ internal sealed class NodeShaper
 				break;
 			case BuiltinNode.EventCustom:
 			case BuiltinNode.EventSend:
-				CustomEvent(node, definition.Node == BuiltinNode.EventSend);
+			case BuiltinNode.EventBroadcast:
+				CustomEvent(node, definition.Node);
 				break;
 			case BuiltinNode.FlowSequence:
 				Sequence(node);
@@ -133,6 +134,9 @@ internal sealed class NodeShaper
 				break;
 			case BuiltinNode.Literal:
 				Literal(node);
+				break;
+			case BuiltinNode.RunsGraph:
+				RunsGraph(node, definition);
 				break;
 			case BuiltinNode.Convert:
 				ConvertNode(node);
@@ -189,14 +193,20 @@ internal sealed class NodeShaper
 		node.Binding = new InputEventBinding(decoded.Value!);
 	}
 
-	private void CustomEvent(AnalyzedNode node, bool send)
+	// Event.Custom outputs its parameters; Event.Send and Event.Broadcast take them as inputs, Send to its Target entity's
+	// graph, Broadcast to every graph that has the event (spec-slice3 section 4.6), which it counts.
+	private void CustomEvent(AnalyzedNode node, BuiltinNode kind)
 	{
+		bool raises = kind != BuiltinNode.EventCustom;
 		string? name = ReadName(node, "Name");
 		List<AnalyzedParameter>? parameters = ReadParameters(node);
-		if (send)
+		if (raises)
 		{
 			node.AddPin(BuiltinNodes.ExecIn());
-			node.AddPin(BuiltinNodes.Target(Library.Entity));
+			if (kind == BuiltinNode.EventSend)
+			{
+				node.AddPin(BuiltinNodes.Target(Library.Entity));
+			}
 		}
 		else
 		{
@@ -204,11 +214,18 @@ internal sealed class NodeShaper
 		}
 		foreach (AnalyzedParameter parameter in parameters ?? [])
 		{
-			node.AddPin(DeclaredPin(parameter.Name, send ? PinDirection.In : PinDirection.Out, parameter.Type));
+			node.AddPin(DeclaredPin(parameter.Name, raises ? PinDirection.In : PinDirection.Out, parameter.Type));
 		}
-		if (send)
+		if (raises)
 		{
 			node.AddPin(BuiltinNodes.ExecOut());
+		}
+		bool includeSelf = true;
+		if (kind == BuiltinNode.EventBroadcast)
+		{
+			node.AddPin(BuiltinNodes.Out("Count", Library.BuiltinTypes.Int));
+			node.Subtitle = "to every script";
+			includeSelf = ReadBool(node, "IncludeSelf", true);
 		}
 		if (parameters == null)
 		{
@@ -216,22 +233,27 @@ internal sealed class NodeShaper
 		}
 		if (name != null)
 		{
-			node.Title = send ? "Send " + name : name;
+			node.Title = kind switch
+			{
+				BuiltinNode.EventSend => "Send " + name,
+				BuiltinNode.EventBroadcast => "Broadcast " + name,
+				_ => name,
+			};
 			if (parameters != null)
 			{
-				node.Binding = new CustomEventBinding(name, parameters);
+				node.Binding = new CustomEventBinding(name, parameters) { IncludeSelf = includeSelf };
 			}
 		}
-		if (send)
+		if (raises)
 		{
-			TypedSend(node, name, parameters);
+			TypedSend(node, kind == BuiltinNode.EventBroadcast, name, parameters);
 		}
 	}
 
-	// A Send with Graph (spec-slice3 section 4.3) delivers only to entities running that graph; the analysis checks it against
-	// that graph's custom event of its Name. Every finding is a Warning: whatever is sent, the runtime delivers it by name and
-	// skips a mismatch with a warning.
-	private void TypedSend(AnalyzedNode node, string? name, List<AnalyzedParameter>? parameters)
+	// A Send or Broadcast with Graph (spec-slice3 sections 4.3 and 4.6) delivers only to entities running that graph; the
+	// analysis checks it against that graph's custom event of its Name. Every finding is a Warning: whatever is sent, the
+	// runtime delivers it by name and skips a mismatch (a Send with a warning).
+	private void TypedSend(AnalyzedNode node, bool broadcast, string? name, List<AnalyzedParameter>? parameters)
 	{
 		switch (GraphSettings.Read(node.Source, out ulong graph))
 		{
@@ -242,7 +264,7 @@ internal sealed class NodeShaper
 				return;
 		}
 		GraphTarget target = graph == m_Context.Self ? m_Context.SelfTarget : m_Context.FindGraph(graph);
-		node.Subtitle = "to " + target.DisplayName;
+		node.Subtitle = broadcast ? "to every " + InstanceOf(target) : "to " + target.DisplayName;
 		bool otherScript = !target.IsSelf && target.Document is { Kind: DocumentKind.Script };
 		if (node.Binding is CustomEventBinding binding)
 		{
@@ -254,8 +276,9 @@ internal sealed class NodeShaper
 		}
 		if (target.Document is not { } document)
 		{
+			string action = broadcast ? $"Broadcast {name} against; it broadcasts" : $"Send {name} against; it sends";
 			m_Context.ReportGraph(DiagnosticCode.UncheckedGraph, node, graph,
-				$"Graph: no visual script {GraphSettings.Format(graph)} to check Send {name} against; it sends {name} by name");
+				$"Graph: no visual script {GraphSettings.Format(graph)} to check {action} {name} by name");
 			return;
 		}
 		if (document.Kind == DocumentKind.Library)
@@ -294,10 +317,16 @@ internal sealed class NodeShaper
 		// Error of its own graph, which does not run: nothing is compared.
 		if (parameters != null && ReadEventParameters(receiver) is { } expected && !SameTypes(expected, parameters))
 		{
+			string sender = broadcast ? "Broadcast" : "Send";
 			m_Context.ReportGraph(DiagnosticCode.EventSignatureMismatch, node, graph,
-				$"{target.DisplayName}'s {name} takes ({Describe(expected)}); this Send passes ({Describe(parameters)})");
+				$"{target.DisplayName}'s {name} takes ({Describe(expected)}); this {sender} passes ({Describe(parameters)})");
 		}
 	}
+
+	// How subtitles name the entities running a graph: by its file stem ("Door"), and the analyzed document itself, when its
+	// asset path is unknown, as "instance of this graph".
+	private string InstanceOf(GraphTarget target) =>
+		target.IsSelf && m_Context.SelfName == null ? "instance of this graph" : target.DisplayName;
 
 	// The parameters of another graph's custom event, by their type IDs: null when its Parameters setting is not a list of
 	// { "Name", "Type" } strings.
@@ -624,6 +653,12 @@ internal sealed class NodeShaper
 
 	private void Variable(AnalyzedNode node, bool set)
 	{
+		GraphSettingState state = GraphSettings.Read(node.Source, out ulong graph);
+		if (state != GraphSettingState.Absent)
+		{
+			RemoteVariable(node, set, state == GraphSettingState.Handle ? graph : null);
+			return;
+		}
 		AnalyzedVariable? variable = ReadVariable(node);
 		VisualType? type = variable?.Type;
 		if (set)
@@ -638,6 +673,87 @@ internal sealed class NodeShaper
 			node.Title = (set ? "Set " : "Get ") + variable.Name;
 			node.Binding = new VariableBinding(variable);
 		}
+	}
+
+	// A variable of another entity's graph (spec-slice3 section 4.5): the pins of a local Get or Set with a Target (Self when
+	// unlinked) after Execute; graph is null when the Graph setting is not a handle.
+	private void RemoteVariable(AnalyzedNode node, bool set, ulong? graph)
+	{
+		VisualType? type = null;
+		RemoteVariableBinding? binding = graph is { } handle ? ReadRemoteVariable(node, set, handle, out type) : null;
+		if (graph == null)
+		{
+			m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, GraphSettings.InvalidMessage);
+		}
+		if (set)
+		{
+			node.AddPin(BuiltinNodes.ExecIn());
+		}
+		node.AddPin(BuiltinNodes.Target(Library.Entity));
+		if (set)
+		{
+			node.AddPin(DeclaredPin("Value", PinDirection.In, type));
+			node.AddPin(BuiltinNodes.ExecOut());
+		}
+		node.AddPin(DeclaredPin("Value", PinDirection.Out, type));
+		node.Binding = binding;
+	}
+
+	// The variable a remote Get or Set names, from the graph's document (the analyzed document itself when the graph is its
+	// own); null with the finding when it cannot be read or written from here. type is the variable's type whenever it is
+	// known, so links to the node are checked even when it is private.
+	private RemoteVariableBinding? ReadRemoteVariable(AnalyzedNode node, bool set, ulong graph, out VisualType? type)
+	{
+		type = null;
+		GraphTarget target = graph == m_Context.Self ? m_Context.SelfTarget : m_Context.FindGraph(graph);
+		node.Subtitle = target.IsSelf ? "of another " + InstanceOf(target) : "of " + target.DisplayName;
+		if (target.Document is not { } document)
+		{
+			m_Context.ReportGraph(DiagnosticCode.UnknownGraph, node, graph, $"Graph: {target.Error}");
+			return null;
+		}
+		if (document.Kind == DocumentKind.Library)
+		{
+			m_Context.ReportGraph(DiagnosticCode.UnknownVariable, node, graph, $"{target.Name} is a function library: it has no variables");
+			return null;
+		}
+		if (!ReadId(node, "Variable", "variable", out uint id))
+		{
+			return null;
+		}
+		DocumentVariable? variable = null;
+		List<string> candidates = [];
+		foreach (DocumentVariable candidate in document.Variables)
+		{
+			candidates.Add(AnalysisContext.Format(candidate.ID));
+			if (candidate.ID == id)
+			{
+				variable ??= candidate;
+			}
+		}
+		if (variable == null)
+		{
+			m_Context.ReportGraph(DiagnosticCode.UnknownVariable, node, graph, $"{target.Name} has no variable {AnalysisContext.Format(id)}",
+				m_Context.Suggest(AnalysisContext.Format(id), candidates));
+			return null;
+		}
+		node.Title = (set ? "Set " : "Get ") + variable.Name;
+		// A declaration of the document itself whose type does not resolve is an Error of its own already.
+		type = Library.FindType(variable.Type) is { HasValues: true } resolved ? resolved : null;
+		if (type == null && !target.IsSelf)
+		{
+			m_Context.ReportGraph(DiagnosticCode.ReferenceError, node, graph,
+				$"{target.DisplayName}'s {variable.Name} has the unknown type {variable.Type}: fix {target.Name}");
+		}
+		if (!variable.Public && !target.IsSelf)
+		{
+			m_Context.ReportGraph(DiagnosticCode.PrivateVariable, node, graph,
+				$"{variable.Name} is private to {target.Name}: make it public there to use it from other graphs");
+			return null;
+		}
+		return type != null
+			? new RemoteVariableBinding(graph, target.Name, target.DisplayName, variable.ID, variable.Name, type, target.IsSelf)
+			: null;
 	}
 
 	private AnalyzedVariable? ReadVariable(AnalyzedNode node)
@@ -667,6 +783,36 @@ internal sealed class NodeShaper
 			: $"there is no variable {AnalysisContext.Format(id)}";
 		m_Context.ReportNode(DiagnosticCode.UnknownVariable, node, message, m_Context.Suggest(AnalysisContext.Format(id), candidates));
 		return null;
+	}
+
+	// RunsGraph (spec-slice3 section 4.7): whether the Target entity runs the script Graph names (no entity runs a library).
+	private void RunsGraph(AnalyzedNode node, NodeDefinition definition)
+	{
+		AddTemplatePins(node, definition);
+		switch (GraphSettings.Read(node.Source, out ulong graph))
+		{
+			case GraphSettingState.Absent:
+				m_Context.ReportNode(DiagnosticCode.MissingSetting, node, $"{definition.Title} needs the setting {GraphSettings.Name}: " +
+					"the decimal handle of a visual script, as asset.list gives it");
+				return;
+			case GraphSettingState.Invalid:
+				m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, GraphSettings.InvalidMessage);
+				return;
+		}
+		GraphTarget target = graph == m_Context.Self ? m_Context.SelfTarget : m_Context.FindGraph(graph);
+		node.Title = "Runs " + target.DisplayName;
+		if (target.Document == null)
+		{
+			m_Context.ReportGraph(DiagnosticCode.UnknownGraph, node, graph, $"Graph: {target.Error}");
+			return;
+		}
+		if (target.IsLibrary)
+		{
+			m_Context.ReportGraph(DiagnosticCode.InvalidSetting, node, graph,
+				$"Graph: {target.DisplayName} is a function library: no entity runs it");
+			return;
+		}
+		node.Binding = new RunsGraphBinding(graph, target.IsSelf);
 	}
 
 	private void FunctionEnd(AnalyzedNode node, bool entry)

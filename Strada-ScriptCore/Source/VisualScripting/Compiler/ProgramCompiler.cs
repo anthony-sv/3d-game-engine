@@ -297,6 +297,7 @@ internal static class ProgramCompiler
 			return builtin switch
 			{
 				BuiltinNode.EventSend => Opcode.Send,
+				BuiltinNode.EventBroadcast => Opcode.Broadcast,
 				BuiltinNode.FlowBranch => Opcode.Branch,
 				BuiltinNode.FlowSequence => Opcode.Sequence,
 				BuiltinNode.FlowSwitch => Opcode.Switch,
@@ -307,8 +308,8 @@ internal static class ProgramCompiler
 				BuiltinNode.FlowDoN => Opcode.DoN,
 				BuiltinNode.FlowFlipFlop => Opcode.FlipFlop,
 				BuiltinNode.FlowGate => Opcode.Gate,
-				BuiltinNode.VariableGet => Opcode.VariableGet,
-				BuiltinNode.VariableSet => Opcode.VariableSet,
+				BuiltinNode.VariableGet => node.Binding is RemoteVariableBinding ? Opcode.RemoteGet : Opcode.VariableGet,
+				BuiltinNode.VariableSet => node.Binding is RemoteVariableBinding ? Opcode.RemoteSet : Opcode.VariableSet,
 				BuiltinNode.FunctionEntry => Opcode.FunctionEntry,
 				BuiltinNode.FunctionReturn => Opcode.FunctionReturn,
 				BuiltinNode.FunctionCall => node.Pure ? Opcode.PureCall : Opcode.FunctionCall,
@@ -317,6 +318,7 @@ internal static class ProgramCompiler
 				BuiltinNode.Reroute => node.Pure ? Opcode.Reroute : Opcode.ExecReroute,
 				BuiltinNode.Select => Opcode.Select,
 				BuiltinNode.IsValid => Opcode.IsValid,
+				BuiltinNode.RunsGraph => Opcode.RunsGraph,
 				BuiltinNode.Convert => Opcode.Convert,
 				BuiltinNode.Make => Opcode.Make,
 				BuiltinNode.Break => Opcode.Break,
@@ -392,6 +394,8 @@ internal static class ProgramCompiler
 				Opcode.Arithmetic or Opcode.Compare or Opcode.Equality or Opcode.Concatenate => ["A", "B"],
 				Opcode.OperatorMethod => source.Builtin == BuiltinNode.OperatorNegate ? ["A"] : ["A", "B"],
 				Opcode.VariableSet => ["Value"],
+				Opcode.RemoteGet or Opcode.RunsGraph => ["Target"],
+				Opcode.RemoteSet => ["Target", "Value"],
 				Opcode.Self or Opcode.Literal or Opcode.VariableGet or Opcode.FunctionEntry => [],
 				Opcode.Intrinsic => IntrinsicInputs(source),
 				Opcode.Latent => source.Builtin switch
@@ -583,7 +587,8 @@ internal static class ProgramCompiler
 				Opcode.ForLoop or Opcode.ForEach => ["Execute", "Break"],
 				Opcode.DoOnce or Opcode.DoN => ["Execute", "Reset"],
 				Opcode.Gate => ["Enter", "Open", "Close", "Toggle"],
-				Opcode.Branch or Opcode.Sequence or Opcode.Switch or Opcode.While or Opcode.FlipFlop or Opcode.Send or Opcode.VariableSet => ["Execute"],
+				Opcode.Branch or Opcode.Sequence or Opcode.Switch or Opcode.While or Opcode.FlipFlop or Opcode.Send or Opcode.Broadcast or
+					Opcode.VariableSet or Opcode.RemoteSet => ["Execute"],
 				// Entry 0 starts a latent node, entry 1 stops a Tween or Interval; a Timeline has its six inputs.
 				Opcode.Latent => source.Builtin switch
 				{
@@ -601,7 +606,7 @@ internal static class ProgramCompiler
 				Opcode.DoOnce => ["Completed"],
 				Opcode.DoN or Opcode.Gate => ["Exit"],
 				Opcode.FlipFlop => ["A", "B"],
-				Opcode.Event or Opcode.Send or Opcode.VariableSet or Opcode.FunctionCall => ["Then"],
+				Opcode.Event or Opcode.Send or Opcode.Broadcast or Opcode.VariableSet or Opcode.RemoteSet or Opcode.FunctionCall => ["Then"],
 				// A Timeline's exits follow its event tracks (CompileTimeline finds them by name).
 				Opcode.Latent => source.Builtin switch
 				{
@@ -783,14 +788,30 @@ internal static class ProgramCompiler
 			{
 				case Opcode.Event when source.Builtin == BuiltinNode.EventCustom:
 				case Opcode.Send:
+				case Opcode.Broadcast:
 					CustomEventBinding custom = (CustomEventBinding)source.Binding!;
 					node.EventName = custom.Name;
 					node.EventParameters = TypesOf(custom.Parameters);
+					node.IncludeSelf = custom.IncludeSelf;
 					if (custom.Target is { } target)
 					{
 						node.TargetGraph = target.Graph;
 						node.TargetName = target.Name;
 					}
+					break;
+				case Opcode.RemoteGet:
+				case Opcode.RemoteSet:
+					RemoteVariableBinding remote = (RemoteVariableBinding)source.Binding!;
+					node.TargetGraph = remote.Graph;
+					node.TargetName = remote.GraphName;
+					node.TargetDisplayName = remote.GraphDisplayName;
+					node.RemoteVariable = remote.Variable;
+					node.RemoteVariableName = remote.VariableName;
+					node.ToType = remote.Type;
+					node.AllowPrivate = remote.OwnGraph;
+					break;
+				case Opcode.RunsGraph:
+					node.TargetGraph = ((RunsGraphBinding)source.Binding!).Graph;
 					break;
 				case Opcode.Sequence:
 					node.Count = ((SequenceBinding)source.Binding!).Count;

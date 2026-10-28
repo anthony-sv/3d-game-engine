@@ -44,6 +44,20 @@ internal static class JsonText
 		}
 	}
 
+	// Whether every member name of an object is text, so its members can be looked up by name (a lookup reads every name it
+	// passes, and throws at one that holds an escaped surrogate without its pair).
+	internal static bool HasTextNames(JsonElement element)
+	{
+		foreach (JsonProperty property in element.EnumerateObject())
+		{
+			if (!TryGetName(property, out _))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
 	// Whether every string and member name of the value is text: read as UTF-16, none holds an escaped surrogate without its
 	// pair. The values of a document that passed can be read without exceptions.
 	internal static bool HasValidText(JsonElement root)

@@ -245,9 +245,10 @@ public sealed class RobustnessTests
 		Assert.True(tally.Aborted > 0, $"no execution aborted: {tally}");
 	}
 
-	// References bundles (spec-slice3 section 2.4) are any bytes: a document that calls a library's functions and sends typed
-	// events analyzes, loads and runs with its bundle damaged as any document is (and the libraries in it with it), or rewired,
-	// and with the document rewired. No exception escapes, every status is the protocol's, and every abort is a VM message.
+	// References bundles (spec-slice3 section 2.4) are any bytes: a document that calls a library's functions, sends and
+	// broadcasts typed events, and reads another graph's variable behind RunsGraph analyzes, loads and runs with its bundle
+	// damaged as any document is (and the libraries and interfaces in it with it), or rewired, and with the document rewired.
+	// No exception escapes, every status is the protocol's, and every abort is a VM message.
 	[Fact]
 	public void DamagedBundlesAnswerWhatTheProtocolSpecifiesAndNeverThrow()
 	{
@@ -259,14 +260,28 @@ public sealed class RobustnessTests
 		uint report = graph.Node("Function.Call", CrossGraphTesting.Call(library.Report, CrossGraphTesting.Motion), """{ "Text": "report" }""");
 		uint pause = graph.Node("Function.Call", CrossGraphTesting.Call(library.Pause, CrossGraphTesting.Motion), """{ "Seconds": 0.25 }""");
 		uint send = graph.Node("Event.Send", CrossGraphTesting.Send("Hit", CrossGraphTesting.Door, """{ "Name": "Damage", "Type": "float" }"""));
-		graph.Link(graph.Node("Self"), "Self", send, "Target");
-		graph.Flow(create, graph.Write(twice, "Result"));
+		uint self = graph.Node("Self");
+		graph.Link(self, "Self", send, "Target");
+		uint broadcast = graph.Node("Event.Broadcast", CrossGraphTesting.Broadcast("Hit", CrossGraphTesting.Door, """{ "Name": "Damage", "Type": "float" }"""));
+		DocumentBuilder door = CrossGraphTesting.DoorScript();
+		uint health = door.Variable("Health", "float", "10", isPublic: true);
+		uint runs = graph.Node("RunsGraph", CrossGraphTesting.Runs(CrossGraphTesting.Door));
+		uint get = graph.Node("Variable.Get", CrossGraphTesting.Variable(health, CrossGraphTesting.Door));
+		uint guard = graph.Node("Flow.Branch");
+		graph.Link(self, "Self", runs, "Target");
+		graph.Link(self, "Self", get, "Target");
+		graph.Link(runs, "Result", guard, "Condition");
+		uint written = graph.Write(twice, "Result");
+		graph.Flow(create, written);
+		graph.Flow(written, guard);
+		graph.Flow(guard, graph.Write(get, "Value"), "True");
 		graph.Flow(graph.Node("Event.Update"), report);
 		graph.Flow(report, pause);
 		graph.Flow(pause, send);
+		graph.Flow(send, broadcast);
 		JsonNode original = JsonNode.Parse(document.Build())!;
 		JsonNode bundle = JsonNode.Parse(new BundleBuilder().Full(CrossGraphTesting.Motion, CrossGraphTesting.MotionName, library.Document)
-			.Interface(CrossGraphTesting.Door, CrossGraphTesting.DoorName, CrossGraphTesting.DoorScript()).Build())!;
+			.Interface(CrossGraphTesting.Door, CrossGraphTesting.DoorName, door).Build())!;
 		DocumentMutator mutator = new(0x42554E444C455321u);
 		int rounds = Fuzzing.GetRounds(150);
 		int ran = 0;

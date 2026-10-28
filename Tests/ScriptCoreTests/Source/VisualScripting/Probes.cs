@@ -59,6 +59,10 @@ public static class Probe
 		s_Runtime!.Load(TestRuntime.Graph, TestRuntime.Name, Encoding.UTF8.GetBytes(document));
 	}
 
+	// Creates the entity's instance of a graph while the calling graph runs, as the engine does when a script starts running
+	// a visual script during play; returns the status.
+	public static int Create(ulong entity, ulong graph) => (int)s_Runtime!.CreateInstance(entity, graph, []);
+
 	// Sends a custom event without arguments through the managed API, as a C# script would; returns what SendEvent did.
 	public static bool Send(ulong entity, string name) => s_Runtime!.SendEvent(entity, name, []);
 

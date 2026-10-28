@@ -29,6 +29,9 @@ internal sealed partial class VisualScriptRuntime
 	private readonly Dictionary<ulong, GraphEntry> m_Graphs = [];
 	private readonly Dictionary<ulong, GraphInstance> m_Instances = [];
 	private readonly Stack<Execution> m_ExecutionPool = new();
+	// The receiver lists of Event.Broadcast nodes, one per broadcast running (broadcasts nest).
+	private readonly Stack<List<GraphInstance>> m_ReceiverLists = new();
+	private static readonly Comparison<GraphInstance> s_ByCreation = static (a, b) => a.Serial.CompareTo(b.Serial);
 	// By member and kind: a property's or field's getter and setter share their MemberInfo.
 	private readonly Dictionary<(MemberInfo Member, MemberNodeKind Kind), MemberInvoker> m_Invokers = [];
 	private readonly Dictionary<Type, MemberInvoker> m_Makers = [];
@@ -45,6 +48,8 @@ internal sealed partial class VisualScriptRuntime
 	private int m_StepsRemaining;
 	// The last execution serial.
 	private ulong m_LastSerial;
+	// The last instance serial.
+	private ulong m_LastInstanceSerial;
 
 	// The engine's runtime: documents are analyzed and compiled with the node library of the loaded assemblies.
 	internal VisualScriptRuntime(IVisualScriptEnvironment environment)
@@ -149,7 +154,7 @@ internal sealed partial class VisualScriptRuntime
 			m_Environment.Log(VisualScriptLogLevel.Error, $"{latest.Name} cannot run: {DescribeErrors(latest)}");
 			return VisualScriptStatus.Failure;
 		}
-		GraphInstance instance = new(entity, graph, program);
+		GraphInstance instance = new(entity, graph, program) { Serial = ++m_LastInstanceSerial };
 		ApplyVariables(instance, variables);
 		if (m_Instances.Remove(entity, out GraphInstance? replaced))
 		{

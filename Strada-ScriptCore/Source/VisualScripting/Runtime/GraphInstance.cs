@@ -29,6 +29,10 @@ internal sealed class GraphInstance
 
 	internal ulong Entity { get; }
 
+	// The order instances were created in, from the runtime's counter: Event.Broadcast reaches receivers in this order
+	// (spec-slice3 section 4.6).
+	internal ulong Serial { get; init; }
+
 	// The graph handle whose program the instance runs: a live edit of the handle swaps it (spec section 5.6).
 	internal ulong Graph { get; }
 
