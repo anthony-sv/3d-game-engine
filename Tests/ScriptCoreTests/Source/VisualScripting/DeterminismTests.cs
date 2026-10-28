@@ -39,10 +39,10 @@ public sealed class DeterminismTests
 	public void TheLibraryIsTheSameInEveryCultureAndBuild()
 	{
 		byte[] expected = LibraryWriter.Write(VisualScriptTesting.Library);
-		Assert.Equal(expected, LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([]))));
+		Assert.Equal(expected, LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([], []))));
 		foreach (CultureInfo culture in s_Cultures.Value)
 		{
-			byte[] library = InCulture(culture, static () => LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([]))));
+			byte[] library = InCulture(culture, static () => LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([], []))));
 			Assert.True(expected.AsSpan().SequenceEqual(library), $"the library differs in {Describe(culture)}");
 		}
 	}
@@ -50,7 +50,7 @@ public sealed class DeterminismTests
 	[Fact]
 	public void AnalysesAreTheSameInEveryCultureAndWithEveryBuildOfTheLibrary()
 	{
-		NodeLibrary rebuilt = NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([]));
+		NodeLibrary rebuilt = NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([], []));
 		foreach ((string name, byte[] document) in Documents(Fuzzing.GetRounds(56)))
 		{
 			byte[] expected = AnalysisWriter.Write(GraphAnalyzer.Analyze(VisualScriptTesting.Library, document));

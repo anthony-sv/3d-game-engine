@@ -155,6 +155,9 @@ internal abstract class NodeDefinition
 
 	internal IReadOnlyList<SettingDescription> Settings { get; init; } = [];
 
+	// A node of a member of the game assembly that [VisualNode] marks (spec-slice3 section 3.7).
+	internal bool Game { get; init; }
+
 	internal SettingDescription? FindSetting(string name)
 	{
 		foreach (SettingDescription setting in Settings)
@@ -207,6 +210,9 @@ internal enum TargetKind
 	Component,
 	// A member of any other type: the Target value of the declaring type (a struct by value; null aborts for a class).
 	Value,
+	// An instance member of a script class of the game (spec-slice3 section 3.7.3): the Target entity's script instance,
+	// fetched at call time, which must be of the declaring class; the Target entity is Self when unconnected.
+	Script,
 }
 
 // A parameter of a reflected method or constructor and the pin it maps to: an input, or an output for out parameters.

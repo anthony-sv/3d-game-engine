@@ -67,7 +67,7 @@ public sealed class NodeLibraryTests
 	[Fact]
 	public void BuildingOverTheWholeApiSucceeds()
 	{
-		NodeLibrary library = NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([typeof(ProbePlayer), typeof(ProbeBoss)]));
+		NodeLibrary library = NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([typeof(ProbePlayer), typeof(ProbeBoss)], []));
 		byte[] json = LibraryWriter.Write(library);
 		JsonElement root = VisualScriptTesting.ParseObject(json);
 		Assert.Equal(library.Types.Count, root.GetProperty("Types").GetArrayLength());
@@ -95,8 +95,8 @@ public sealed class NodeLibraryTests
 	[Fact]
 	public void BuildsGiveIdenticalBytesInEveryCulture()
 	{
-		byte[] first = LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([])));
-		byte[] second = LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([])));
+		byte[] first = LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([], [])));
+		byte[] second = LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([], [])));
 		Assert.Equal(first, second);
 		CultureInfo culture = Thread.CurrentThread.CurrentCulture;
 		CultureInfo uiCulture = Thread.CurrentThread.CurrentUICulture;
@@ -104,7 +104,7 @@ public sealed class NodeLibraryTests
 		{
 			Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
 			Thread.CurrentThread.CurrentUICulture = new CultureInfo("de-DE");
-			byte[] german = LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([])));
+			byte[] german = LibraryWriter.Write(NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([], [])));
 			Assert.Equal(first, german);
 		}
 		finally

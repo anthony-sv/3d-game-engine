@@ -8,8 +8,9 @@ using Strada.Interop;
 namespace Strada.VisualScripting;
 
 // The library JSON of VisualScriptDescribeLibrary (spec section 6.1): { "Types": [...], "Nodes": [...] } in the library's
-// order. Keys have a fixed order and optional keys are left out at their defaults, so the same library gives the same
-// bytes; numbers are written culture-invariantly by the JSON writer.
+// order, then "Notes": [...] when the game's [VisualNode] members gave any (spec-slice3 section 3.7.2). Keys have a fixed
+// order and optional keys are left out at their defaults, so the same library gives the same bytes; numbers are written
+// culture-invariantly by the JSON writer.
 internal static class LibraryWriter
 {
 	internal static byte[] Write(NodeLibrary library)
@@ -30,6 +31,15 @@ internal static class LibraryWriter
 				WriteNode(writer, node);
 			}
 			writer.WriteEndArray();
+			if (library.Notes.Count > 0)
+			{
+				writer.WriteStartArray("Notes");
+				foreach (LibraryNote note in library.Notes)
+				{
+					WriteNote(writer, note);
+				}
+				writer.WriteEndArray();
+			}
 			writer.WriteEndObject();
 		}
 		return buffer.WrittenSpan.ToArray();
@@ -130,6 +140,10 @@ internal static class LibraryWriter
 		writer.WriteString("Kind", node.Kind.ToString());
 		writer.WriteBoolean("Pure", node.Pure);
 		writer.WriteBoolean("Latent", node.Latent);
+		if (node.Game)
+		{
+			writer.WriteBoolean("Game", true);
+		}
 		writer.WriteStartArray("Pins");
 		foreach (PinDescription pin in node.Pins)
 		{
@@ -142,6 +156,16 @@ internal static class LibraryWriter
 			WriteSetting(writer, setting);
 		}
 		writer.WriteEndArray();
+		writer.WriteEndObject();
+	}
+
+	// { "Member", "Category", "Message" }.
+	internal static void WriteNote(Utf8JsonWriter writer, LibraryNote note)
+	{
+		writer.WriteStartObject();
+		writer.WriteString("Member", note.Member);
+		writer.WriteString("Category", note.Category);
+		writer.WriteString("Message", note.Message);
 		writer.WriteEndObject();
 	}
 

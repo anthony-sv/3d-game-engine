@@ -760,8 +760,9 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	// Calls a reflected member. Component members fetch the Target entity's component through the environment (Self when
-	// Target is unconnected); null Targets of reference types are aborting errors.
+	// Calls a reflected member. Component members fetch the Target entity's component through the environment, and members
+	// of the game's script classes its script instance (Self when Target is unconnected); null Targets of reference types
+	// are aborting errors.
 	private void InvokeMember(Execution execution, CompiledNode node, Slot[] slots)
 	{
 		switch (node.Target)
@@ -781,6 +782,20 @@ internal sealed partial class VisualScriptRuntime
 				Component component = m_Environment.GetComponent(id, node.DeclaringType!) ??
 					throw new VisualScriptException($"{m_Environment.GetEntityName(id)} has no {Titles.OfType(node.DeclaringType!)}");
 				slots[node.InputBase] = Slot.FromObject(component);
+				break;
+			case TargetKind.Script:
+				// The script instance is looked up by its entity's ID, so Self and any entity value reach the same instance.
+				ulong scripted = node.TargetIsSelf ? execution.Instance.Entity : ((Entity?)slots[node.InputBase].Object)?.ID ?? 0;
+				if (scripted == 0)
+				{
+					throw new VisualScriptException(NoTarget);
+				}
+				Entity? script = m_Environment.GetEntity(scripted);
+				if (!node.DeclaringType!.IsInstanceOfType(script))
+				{
+					throw new VisualScriptException($"{m_Environment.GetEntityName(scripted)} has no {Titles.OfType(node.DeclaringType!)} script");
+				}
+				slots[node.InputBase] = Slot.FromObject(script);
 				break;
 			case TargetKind.Value when !node.DeclaringType!.IsValueType && slots[node.InputBase].Object == null:
 				throw new VisualScriptException(NoTarget);
