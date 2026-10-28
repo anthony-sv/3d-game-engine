@@ -326,7 +326,10 @@ namespace Strada
 		{
 			std::unique_ptr<VisualScriptHeadlessCanvas> Canvas = std::make_unique<VisualScriptHeadlessCanvas>();
 			uint64_t Version = std::numeric_limits<uint64_t>::max();
-			VisualScriptAnalysis const* Analysis = nullptr;
+			// What the canvas points at since its last Sync, held so that none of it goes before the next one even when the
+			// batch has moved on to newer analyses and snapshots.
+			Ref<VisualScriptAnalysis const> Analysis;
+			Ref<VisualScriptDocument const> AnalyzedDocument;
 		};
 
 		// What a label names.
@@ -1305,9 +1308,9 @@ namespace Strada
 			VisualScriptHeadlessCanvas const& GetCanvas(uint32_t function)
 			{
 				BatchCanvas& canvas = m_Canvases[function];
-				if (canvas.Version != m_Version || canvas.Analysis != m_Analysis.get())
+				if (canvas.Version != m_Version || canvas.Analysis != m_Analysis)
 				{
-					VisualScriptDocument const* analyzed = m_AnalyzedDocument.get();
+					Ref<VisualScriptDocument const> analyzed = m_AnalyzedDocument;
 					if (m_Analysis != nullptr && m_Level < PinLevel)
 					{
 						if (m_CanvasDocumentVersion != m_Version || m_CanvasDocument == nullptr)
@@ -1315,11 +1318,12 @@ namespace Strada
 							m_CanvasDocument = CreateRef<VisualScriptDocument const>(m_Working);
 							m_CanvasDocumentVersion = m_Version;
 						}
-						analyzed = m_CanvasDocument.get();
+						analyzed = m_CanvasDocument;
 					}
-					canvas.Canvas->Sync(m_Working, function, m_Analysis.get(), m_Analysis != nullptr ? analyzed : nullptr, m_Library.get());
+					canvas.Analysis = m_Analysis;
+					canvas.AnalyzedDocument = m_Analysis != nullptr ? analyzed : nullptr;
+					canvas.Canvas->Sync(m_Working, function, canvas.Analysis.get(), canvas.AnalyzedDocument.get(), m_Library.get());
 					canvas.Version = m_Version;
-					canvas.Analysis = m_Analysis.get();
 				}
 				return *canvas.Canvas;
 			}
