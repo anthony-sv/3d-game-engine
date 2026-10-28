@@ -43,7 +43,7 @@ public sealed class ExpressionFuzzTests
 			FormulaGenerator generator = new(random, graph);
 			SlotKind kind = generator.PickKind();
 			Term term = generator.Generate(kind, 1 + random.Pick(4));
-			string type = ExpressionChecker.TypeOf(RuntimeTesting.Library, kind).Id;
+			string type = ExpressionChecker.TypeOf(RuntimeTesting.Library, kind)!.Id;
 			uint oracle = document.Variable("Oracle", type);
 			uint result = document.Variable("Formula", type);
 			uint expression = graph.Node("Expression", $$"""{ "Formula": {{RuntimeTesting.Quote(term.Text)}} }""");
@@ -62,6 +62,7 @@ public sealed class ExpressionFuzzTests
 			string context = $"round {round}: {term.Text}";
 			AnalyzedDocument analyzed = GraphAnalyzer.Analyze(RuntimeTesting.Library, Encoding.UTF8.GetBytes(document.Build()));
 			Assert.True(!analyzed.HasErrors, $"{context}\n{VisualScriptTesting.Describe(analyzed.Diagnostics)}");
+			Assert.True(VisualScriptTesting.Pin(analyzed, expression, "Result").Type.Id == type, $"{context}: the formula is not {type}");
 			TestRuntime runtime = TestRuntime.Start(document);
 
 			runtime.Invoke(ScriptEvent.Create);

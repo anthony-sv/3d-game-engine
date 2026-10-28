@@ -60,6 +60,19 @@ public sealed class ExpressionTests
 		{ "clamp(v, 0, 1)", "v:Strada.Vector3=[-1.0, 0.5, 2.0]", "Strada.Vector3", "(0, 0.5, 1)" },
 		{ "ulong(-1) / ulong(2)", "", "ulong", "9223372036854775807" },
 		{ "3000000000 + 1", "", "long", "3000000001" },
+		// Precedence and associativity.
+		{ "2 + 3 * 4", "", "int", "14" },
+		{ "10 - 4 - 3", "", "int", "3" },
+		{ "100 / 10 / 5", "", "int", "2" },
+		{ "17 % 5 * 2", "", "int", "4" },
+		{ "true ? 1 : false ? 2 : 3", "", "int", "1" },
+		{ "false ? 1 : false ? 2 : 3", "", "int", "3" },
+		{ "-v.X", "v:Strada.Vector2=[2.0, 5.0]", "float", "-2" },
+		{ "1 < 2 == true", "", "bool", "True" },
+		{ "!true == false", "", "bool", "True" },
+		{ "true || false && false", "", "bool", "True" },
+		{ "1 + 2 < 4 && 3 != 3 || 2 * 2 >= 4", "", "bool", "True" },
+		{ "- -2", "", "int", "2" },
 	};
 
 	// The Formula setting (its JSON value, absent when null), the inputs as TypedRows give them, and the diagnostic: its code,
@@ -429,6 +442,21 @@ public sealed class ExpressionTests
 		TestRuntime exceeds = Counting(250_000);
 		Assert.Equal(VisualScriptStatus.Failure, exceeds.Invoke(ScriptEvent.Create));
 		Assert.Equal(249_999, exceeds.Variable("Counter"));
+	}
+
+	// A library over part of the API has no Vector4: a formula that gives one is refused, one that only uses one runs.
+	[Fact]
+	public void AFormulaGivingATypeTheLibraryLacksIsRefused()
+	{
+		NodeLibrary library = NodeLibraryBuilder.Build(new NodeLibrarySources { ApiTypes = [typeof(Log)] });
+		Assert.Null(library.FindType(typeof(Vector4)));
+		AnalyzedDocument refused = VisualScriptTesting.Analyze(library, Build(RuntimeTesting.Quote("vec4(1, 2, 3, 4)"), "").Document.Build());
+		Diagnostic diagnostic = VisualScriptTesting.Single(refused, DiagnosticCode.InvalidExpression);
+		Assert.Equal("the formula gives a Vector4, a type this node library does not have", diagnostic.Message);
+		Assert.Equal((0, 16), diagnostic.Span);
+		AnalyzedDocument used = VisualScriptTesting.Analyze(library, Build(RuntimeTesting.Quote("vec4(1, 2, 3, 4).W"), "").Document.Build());
+		VisualScriptTesting.AssertNoErrors(used);
+		Assert.Equal("float", VisualScriptTesting.Pin(used, 1, "Result").Type.Id);
 	}
 
 	[Fact]

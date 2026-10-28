@@ -91,8 +91,9 @@ internal sealed class ExpressionChecker
 		_ => null,
 	};
 
-	// The library type of a formula's kind.
-	internal static VisualType TypeOf(NodeLibrary library, SlotKind kind) => library.FindType(ClrTypeOf(kind))!;
+	// The library type of a formula's kind. Every library has the numeric primitives and bool; it has a vector type only when
+	// its API uses that vector, so null is possible for those.
+	internal static VisualType? TypeOf(NodeLibrary library, SlotKind kind) => library.FindType(ClrTypeOf(kind));
 
 	internal static (TypedExpression? Root, ExpressionError? Error) Check(NodeLibrary library, ParsedFormula formula, IReadOnlyList<SlotKind> inputs)
 	{
@@ -635,7 +636,7 @@ internal sealed class ExpressionChecker
 	// The numeric join of spec section 3.5 rule 3 (TypeRules.Join): null when the two have no common type.
 	private SlotKind? Join(SlotKind a, SlotKind b)
 	{
-		VisualType? join = TypeRules.Join(TypeOf(m_Library, a), TypeOf(m_Library, b));
+		VisualType? join = TypeRules.Join(TypeOf(m_Library, a)!, TypeOf(m_Library, b)!);
 		return join != null ? SlotValues.KindOf(join) : null;
 	}
 

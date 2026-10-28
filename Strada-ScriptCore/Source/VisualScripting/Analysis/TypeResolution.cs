@@ -201,7 +201,7 @@ internal sealed class TypeResolution
 			}
 			if (TypingLink(pin) == null)
 			{
-				pin.Type = ExpressionChecker.TypeOf(Library, SlotKind.Float);
+				pin.Type = ExpressionChecker.TypeOf(Library, SlotKind.Float)!;
 			}
 			else if (!TypeRules.Satisfies(pin.Type, PinConstraint.Expression))
 			{
@@ -222,7 +222,13 @@ internal sealed class TypeResolution
 			m_Context.ReportSetting(error!.Code, node, "Formula", formula.Text, (error.Start, error.End), error.Message, error.Suggestions);
 			return;
 		}
-		VisualType result = ExpressionChecker.TypeOf(Library, root.Type);
+		if (ExpressionChecker.TypeOf(Library, root.Type) is not { } result)
+		{
+			// A library built over part of the API may lack a vector type that a formula makes.
+			m_Context.ReportSetting(DiagnosticCode.InvalidExpression, node, "Formula", formula.Text, (0, formula.Text.Length),
+				$"the formula gives a {ExpressionChecker.Name(root.Type)}, a type this node library does not have");
+			return;
+		}
 		node.FindPin("Result", PinDirection.Out)!.Type = result;
 		node.Binding = new ExpressionBinding(formula.Text, root, inputTypes, result);
 	}
