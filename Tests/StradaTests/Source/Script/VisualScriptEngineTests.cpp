@@ -1081,7 +1081,7 @@ namespace
 	// in their order). The runtime's own writer tests pin the same texts, so the two sides agree on each byte.
 	constexpr std::string_view NoteText =
 		R"({"Member":"TestGame.Probe.Swap","Category":"Game/Probe","Message":"TestGame.Probe.Swap: [VisualNode] member has no node form: ref parameters have no pins"})";
-	// "a * b + sni(t)": the unknown function's name is bytes 8 to 11.
+	// "a * b + sni(t)": the unknown function's name is bytes 8 up to 11 (Span is [start, end), the end exclusive).
 	constexpr std::string_view FormulaDiagnosticText =
 		R"({"Severity":"Error","Code":"InvalidExpression","Function":0,"Node":12,"Setting":"Formula","Span":[8,11],"Message":"unknown function sni: did you mean sin?","Suggestions":["sin","sign","min"]})";
 	// A finding about another graph names it, and suggests IDs from it.

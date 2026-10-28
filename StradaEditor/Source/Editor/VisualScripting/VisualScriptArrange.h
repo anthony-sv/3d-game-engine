@@ -28,9 +28,10 @@ namespace Strada::VisualScriptEditing
 	//  - by default, its top-left corner is that of the nodes that had a position, (0, 0) when none had;
 	//  - with corner, its top-left corner is the corner;
 	//  - with anchors (placed nodes of the graph that are not arranged, which keep their places), the anchors stand as a
-	//    column before the block's first column: the links from them into the block's first column count for the order of
-	//    its nodes (against the anchors' rows: top to bottom, then left to right, then by ID), and the block's first column
-	//    starts at the anchors' right edge plus 64, its first row at the anchors' top, both rounded up to the 16 grid.
+	//    column before each group's first column: the links from them into that column count for the order of its nodes
+	//    (against the anchors' rows: top to bottom, then left to right, then by ID), those into other groups do not, and the
+	//    block's first column starts at the anchors' right edge plus 64, its first row at the anchors' top, both rounded up
+	//    to the 16 grid.
 	// corner and anchors are alternatives.
 	//
 	// A comment box whose contents (the nodes and comments entirely inside it) are all arranged nodes is fitted around them

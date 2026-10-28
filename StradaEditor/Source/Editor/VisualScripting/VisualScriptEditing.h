@@ -307,7 +307,9 @@ namespace Strada
 		// the inputs of its Function.Return nodes, and the inputs and outputs of its Function.Call nodes in every graph, with
 		// their links, literals and split pins. A parameter kept keeps them (reordering changes no link); when a list keeps
 		// its length, the parameters whose names changed are renamed in order, with them; those of every other parameter
-		// that went are removed. Returns how many links it removed.
+		// that went are removed. A parameter given without FormerNames keeps those of the parameter it continues (by name, or
+		// the one it renames), except names its list uses otherwise; the commit then records a renamed library parameter's
+		// old name after them (RecordFormerNames). Returns how many links it removed.
 		[[nodiscard]] Result<uint32_t> SetFunctionSignature(VisualScriptDocument& document, uint32_t function,
 		                                                    std::vector<VisualScriptParameter> inputs,
 		                                                    std::vector<VisualScriptParameter> outputs);

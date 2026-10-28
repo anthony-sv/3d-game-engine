@@ -861,6 +861,52 @@ namespace Strada
 			return changes;
 		}
 
+		// A parameter given without former names keeps those of the parameter it continues (the one of its name, or the one
+		// it renames), the names its list does not use otherwise: calls in other files may still name a library's parameter
+		// by them, and an edit that passes names and types only must not lose them.
+		void KeepFormerNames(std::vector<VisualScriptParameter>& parameters, std::vector<VisualScriptParameter> const& current,
+		                     ParameterChanges const& changes)
+		{
+			std::unordered_set<std::string> taken;
+			for (VisualScriptParameter const& parameter : parameters)
+			{
+				taken.insert(parameter.Name);
+				taken.insert(parameter.FormerNames.begin(), parameter.FormerNames.end());
+			}
+			for (VisualScriptParameter& parameter : parameters)
+			{
+				if (!parameter.FormerNames.empty())
+				{
+					continue;
+				}
+				std::string_view continued = parameter.Name;
+				for (auto const& [from, to] : changes.Renamed)
+				{
+					if (to == parameter.Name)
+					{
+						continued = from;
+						break;
+					}
+				}
+				auto const source = std::find_if(current.begin(), current.end(),
+				                                 [continued](VisualScriptParameter const& candidate)
+				                                 {
+													 return candidate.Name == continued;
+												 });
+				if (source == current.end())
+				{
+					continue;
+				}
+				for (std::string const& name : source->FormerNames)
+				{
+					if (taken.insert(name).second)
+					{
+						parameter.FormerNames.push_back(name);
+					}
+				}
+			}
+		}
+
 		// Renames and removes the pins of parameters on a node in a direction: its links there, and the literals and split
 		// entries of the pins with the paths of their fields. A renamed literal replaces one stored under its new name. Returns
 		// how many links it removed.
@@ -3244,6 +3290,8 @@ namespace Strada
 				}
 				removed += DropRepeatedLinks(graph->Links);
 			}
+			KeepFormerNames(inputs, target.Inputs, inputChanges);
+			KeepFormerNames(outputs, target.Outputs, outputChanges);
 			target.Inputs = std::move(inputs);
 			target.Outputs = std::move(outputs);
 			return removed;

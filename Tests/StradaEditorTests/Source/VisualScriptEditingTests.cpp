@@ -1990,6 +1990,26 @@ TEST_CASE("VisualScriptEditing: a function's signature and purity rewrite its pi
 		CheckDocument(document);
 	}
 
+	SUBCASE("parameters given without former names keep those of the parameters they continue")
+	{
+		document.Functions[0].Inputs = {{"Points", "int", {"Score", "Value"}}, {"Bonus", "int", {"Extra"}}};
+		document.Functions[0].Outputs = {{"Total", "int", {"Sum"}}};
+		// Points renamed Amount, Bonus's type changed: an edit that gives names and types only loses no history.
+		REQUIRE(VisualScriptEditing::SetFunctionSignature(document, 6, {{"Amount", "int"}, {"Bonus", "float"}}, {{"Total", "int"}}).IsOk());
+		CHECK(document.Functions[0].Inputs ==
+		      std::vector<VisualScriptParameter>{{"Amount", "int", {"Score", "Value"}}, {"Bonus", "float", {"Extra"}}});
+		CHECK(document.Functions[0].Outputs == std::vector<VisualScriptParameter>{{"Total", "int", {"Sum"}}});
+		// A parameter given former names has those.
+		REQUIRE(VisualScriptEditing::SetFunctionSignature(document, 6, {{"Amount", "int", {"Old"}}, {"Bonus", "float"}}, {{"Total", "int"}})
+		            .IsOk());
+		CHECK(document.Functions[0].Inputs ==
+		      std::vector<VisualScriptParameter>{{"Amount", "int", {"Old"}}, {"Bonus", "float", {"Extra"}}});
+		// Bonus renamed to its former name Extra: a name of the list is no former name.
+		REQUIRE(VisualScriptEditing::SetFunctionSignature(document, 6, {{"Amount", "int"}, {"Extra", "float"}}, {{"Total", "int"}}).IsOk());
+		CHECK(document.Functions[0].Inputs == std::vector<VisualScriptParameter>{{"Amount", "int", {"Old"}}, {"Extra", "float"}});
+		CheckDocument(document);
+	}
+
 	SUBCASE("signatures that cannot be are refused")
 	{
 		auto const sign = [](uint32_t id, std::vector<VisualScriptParameter> inputs, std::vector<VisualScriptParameter> outputs)

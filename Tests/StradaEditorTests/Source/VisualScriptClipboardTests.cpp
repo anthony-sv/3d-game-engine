@@ -657,6 +657,46 @@ TEST_CASE("VisualScriptClipboard: pasted into another script, what the nodes use
 	}
 }
 
+TEST_CASE("VisualScriptClipboard: parameters' former names stay in their file: a copy drops them, and functions bind by their "
+          "parameters' names and types")
+{
+	VisualScriptDocument scores = ParseDocument(ScoresText);
+	scores.Functions[0].Inputs[0].FormerNames = {"Points"};
+	VisualScriptClipboardContent const content = Copy(scores, 0, {31, 32});
+	VisualScriptFunction const& copied = GetFunction(content.Document, 10u);
+	CHECK(copied.Inputs == std::vector<VisualScriptParameter>{{"Amount", "int"}});
+
+	SUBCASE("a function of the name and signature binds the call, whatever its former names")
+	{
+		VisualScriptDocument other = scores;
+		other.Functions[0].Inputs[0].FormerNames = {"Count"};
+		VisualScriptDocument const before = other;
+		Result<VisualScriptPasteResult> pasted = PasteVisualScriptClipboard(other, Other, 0, content, glm::vec2(0.0f), nullptr);
+		REQUIRE_MESSAGE(pasted.IsOk(), pasted.GetError());
+		CHECK(pasted.GetValue().Notes.empty());
+		CHECK(other.Functions == before.Functions);
+		CHECK(GetSetting(GetNode(other.Graph, pasted.GetValue().Pasted[0]), "Function") == 10);
+		Testing::ExpectStrictRoundTrip(other);
+	}
+	SUBCASE("a function a paste adds has none, from a clipboard text that holds some too")
+	{
+		VisualScriptClipboardContent withHistory = content;
+		for (VisualScriptFunction& function : withHistory.Document.Functions)
+		{
+			for (VisualScriptParameter& parameter : function.Inputs)
+			{
+				parameter.FormerNames = {"Points"};
+			}
+		}
+		VisualScriptDocument document;
+		Result<VisualScriptPasteResult> pasted = PasteVisualScriptClipboard(document, Other, 0, withHistory, glm::vec2(0.0f), nullptr);
+		REQUIRE_MESSAGE(pasted.IsOk(), pasted.GetError());
+		CHECK(GetFunction(document, "Add").Inputs == std::vector<VisualScriptParameter>{{"Amount", "int"}});
+		Testing::ExpectStrictRoundTrip(document);
+		CheckUniqueIDs(document);
+	}
+}
+
 TEST_CASE("VisualScriptClipboard: a copy from a function flattens the locals it uses, and pastes bind them by name")
 {
 	VisualScriptDocument const functions = LoadTestDocument("Functions.json");

@@ -707,6 +707,42 @@ TEST_CASE("GraphCommands: graph.set keeps a library's kind and its parameters' f
 	CHECK(fixture.ReadFile("Scripts/Motion.sgraph") == written);
 }
 
+TEST_CASE("GraphCommands: graph.set and graph.check record a library's renamed parameter on the parameter that took its place")
+{
+	GraphFixture fixture;
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction mix;
+	mix.ID = 1;
+	mix.Name = "Mix";
+	mix.Pure = true;
+	mix.Inputs = {{"A", "float"}, {"B", "float"}};
+	mix.Outputs = {{"Result", "float"}};
+	VisualScriptNode entry;
+	entry.ID = 2;
+	entry.Type = "Function.Entry";
+	entry.Position = glm::vec2(0.0f, 0.0f);
+	VisualScriptNode result;
+	result.ID = 3;
+	result.Type = "Function.Return";
+	result.Position = glm::vec2(320.0f, 0.0f);
+	mix.Graph.Nodes = {entry, result};
+	mix.Graph.Links = {VisualScriptLink{{2, "A"}, {3, "Result"}}};
+	library.Functions = {mix};
+	std::string const graph = fixture.CreateGraph("Scripts/Mixing.sgraph", library);
+
+	// A moved to the end and B renamed C: B is C's former name, not A's.
+	VisualScriptDocument edited = library;
+	edited.Functions[0].Inputs = {{"C", "float"}, {"A", "float"}};
+	Json const content = VisualScriptSerializer::SerializeDocument(edited);
+	Json const expectedWarnings = Json::array({"parameter renamed: Mix's B → C (B is kept in FormerNames)"});
+	Json const checked = fixture.Ok("graph.check", Json::object({{"graph", graph}, {"document", content}}));
+	CHECK(checked["valid"] == true);
+	CHECK(checked["warnings"] == expectedWarnings);
+	Json const set = fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", content}}));
+	CHECK(set["warnings"] == expectedWarnings);
+	CHECK(fixture.GetDocument(graph).Functions[0].Inputs == std::vector<VisualScriptParameter>{{"C", "float", {"B"}}, {"A", "float"}});
+}
+
 TEST_CASE("GraphCommands: without the scripting runtime there is no node library and nothing is analyzed")
 {
 	REQUIRE_FALSE(ScriptEngine::IsInitialized());

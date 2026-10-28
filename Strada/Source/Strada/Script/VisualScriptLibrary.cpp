@@ -622,7 +622,7 @@ namespace Strada
 			return VisualScriptPinReference{static_cast<uint32_t>(json[0].get<uint64_t>()), json[1].get<std::string>()};
 		}
 
-		// The bytes of a setting's string a diagnostic concerns: [start, end].
+		// The bytes of a setting's string a diagnostic concerns: [start, end), the end exclusive.
 		std::optional<std::pair<uint32_t, uint32_t>> ReadSpan(Json const& json)
 		{
 			auto const isOffset = [](Json const& value)

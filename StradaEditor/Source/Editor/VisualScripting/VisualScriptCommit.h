@@ -36,12 +36,12 @@ namespace Strada
 	// What every writer of a visual script does to the document it writes, in order:
 	//  1. RecordFormerNames: a variable the stored document has (by ID) under another name keeps that name in FormerNames,
 	//     so values components store under it keep applying (never a name the document uses already; at most
-	//     VisualScriptSerializer::MaxFormerNames, the oldest dropped); in a library, a parameter renamed in place keeps its
-	//     stored name the same way, so calls in other files keep working;
+	//     VisualScriptSerializer::MaxFormerNames, the oldest dropped); in a library, a parameter renamed by
+	//     SetFunctionSignature's in-order rule keeps its stored name the same way, so calls in other files keep working;
 	//  2. with an analysis, ApplyCanonicalNodeTypes: nodes it resolved inexactly (a redirect, or their member's only
 	//     overload) whose Type is still the analyzed one are stored under their canonical types, their renamed pins' links,
-	//     inputs and split paths following; nodes it resolved exactly keep their Type and have the pins it renamed (a former
-	//     parameter name of a library function) follow the same way;
+	//     inputs and split paths following; nodes it resolved exactly that stored has with the same Type and Settings keep
+	//     their Type and have the pins it renamed (a former parameter name of a library function) follow the same way;
 	//  3. PlaceUnplacedNodes;
 	//  4. the strict check: the file to write (the Json its text is made of) must load again as graph.set reads documents,
 	//     with no repair and unchanged. Otherwise nothing may be written and the commit fails with "the edit would write an

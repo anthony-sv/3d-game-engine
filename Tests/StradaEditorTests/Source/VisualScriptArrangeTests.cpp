@@ -517,6 +517,50 @@ TEST_CASE("VisualScriptArrange: anchors stand before the arranged block, which s
 	}
 }
 
+TEST_CASE("VisualScriptArrange: each group is ordered against the anchors' links into it alone")
+{
+	// Anchors 1 to 4 stand top to bottom. The group 10, 11, 12: 2 links into 11, and 1, 3 and 4 into 10, so 11 above 10
+	// crosses once (1 → 10 under 2 → 11) and 10 above 11 twice. Nodes 13 to 16 are groups of their own, each fed by an
+	// anchor: their links lead into other groups, which must not count when this one is ordered.
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, glm::vec2(0.0f, 0.0f)),
+	                        MakeNode(2, glm::vec2(0.0f, 160.0f)),
+	                        MakeNode(3, glm::vec2(0.0f, 320.0f)),
+	                        MakeNode(4, glm::vec2(0.0f, 480.0f)),
+	                        MakeNode(10),
+	                        MakeNode(11),
+	                        MakeNode(12)};
+	document.Graph.Links = {MakeLink(1, 10), MakeLink(2, 11), MakeLink(3, 10), MakeLink(4, 10), MakeLink(10, 12), MakeLink(11, 12)};
+	std::vector<uint32_t> const anchors = {1, 2, 3, 4};
+
+	std::vector<uint32_t> const first = {10, 11, 12};
+	VisualScriptDocument alone = document;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(alone, 0, first, DefaultExtents, std::nullopt, anchors).IsOk());
+	std::map<uint32_t, glm::vec2> const group = GetPositions(alone.Graph);
+	CHECK(group.at(11).y < group.at(10).y);
+
+	VisualScriptDocument others = document;
+	for (uint32_t id = 13; id <= 16; id++)
+	{
+		others.Graph.Nodes.push_back(MakeNode(id));
+		others.Graph.Links.push_back(MakeLink(id - 12, id));
+	}
+	std::vector<uint32_t> const all = {10, 11, 12, 13, 14, 15, 16};
+	REQUIRE(VisualScriptEditing::ArrangeNodes(others, 0, all, DefaultExtents, std::nullopt, anchors).IsOk());
+	std::map<uint32_t, glm::vec2> const positions = GetPositions(others.Graph);
+	// The first group stands where it stood alone, the others below it.
+	for (uint32_t const id : first)
+	{
+		CAPTURE(id);
+		CHECK(positions.at(id) == group.at(id));
+	}
+	for (uint32_t id = 13; id <= 16; id++)
+	{
+		CAPTURE(id);
+		CHECK(positions.at(id).y > group.at(10).y);
+	}
+}
+
 TEST_CASE("VisualScriptArrange: anchors must be placed nodes of the graph that are not arranged, and exclude a corner")
 {
 	VisualScriptDocument document;

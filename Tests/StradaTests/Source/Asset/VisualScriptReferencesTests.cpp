@@ -26,7 +26,7 @@ namespace
 	}
 }
 
-TEST_CASE("VisualScriptReferences: a node's Graph setting is a string holding a decimal handle other than 0")
+TEST_CASE("VisualScript: a node's Graph setting is a string holding a decimal handle other than 0")
 {
 	struct Case
 	{
@@ -70,7 +70,7 @@ TEST_CASE("VisualScriptReferences: a node's Graph setting is a string holding a 
 	}
 }
 
-TEST_CASE("VisualScriptReferences: a node without a Graph setting refers to its own document")
+TEST_CASE("VisualScript: a node without a Graph setting refers to its own document")
 {
 	VisualScriptNode const call = MakeNode(Json::object({{"Function", 3}}));
 	CHECK_FALSE(ReadVisualScriptGraphSetting(call).has_value());
@@ -95,7 +95,7 @@ TEST_CASE("VisualScriptReferences: a node without a Graph setting refers to its 
 	CHECK(IsLocalVisualScriptReference(lowercase));
 }
 
-TEST_CASE("VisualScriptReferences: a resolver answers the documents of other graphs, and none for the graphs it does not know")
+TEST_CASE("VisualScript: a resolver answers the documents of other graphs, and none for the graphs it does not know")
 {
 	VisualScriptDocument library;
 	library.Kind = VisualScriptDocumentKind::Library;

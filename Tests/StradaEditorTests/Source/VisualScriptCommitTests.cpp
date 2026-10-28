@@ -4,6 +4,7 @@
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/VisualScripting/VisualScriptCommit.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -439,6 +440,87 @@ TEST_CASE("VisualScriptCommit: a library keeps a parameter renamed in place as a
 	Testing::ExpectStrictRoundTrip(taken.GetValue().Document);
 }
 
+TEST_CASE("VisualScriptCommit: a library records renamed parameters by SetFunctionSignature's in-order rule, wherever the kept ones "
+          "moved")
+{
+	auto const makeLibrary = [](std::vector<std::string> const& names)
+	{
+		VisualScriptDocument document;
+		document.Kind = VisualScriptDocumentKind::Library;
+		VisualScriptFunction function;
+		function.ID = 1;
+		function.Name = "F";
+		function.Pure = true;
+		for (std::string const& name : names)
+		{
+			function.Inputs.push_back({name, "float"});
+		}
+		document.Functions.push_back(std::move(function));
+		return document;
+	};
+	struct Case
+	{
+		std::vector<std::string> Stored;
+		std::vector<std::string> Edited;
+		std::vector<VisualScriptParameter> Expected;
+		std::vector<std::string> Warnings;
+	};
+	std::vector<Case> const cases = {
+		// A kept parameter moved and another renamed: the name that went is the one that came's, not the one at its index.
+		{{"A", "B"}, {"C", "A"}, {{"C", "float", {"B"}}, {"A", "float"}}, {"parameter renamed: F's B → C (B is kept in FormerNames)"}},
+		{{"A", "B"}, {"B", "C"}, {{"B", "float"}, {"C", "float", {"A"}}}, {"parameter renamed: F's A → C (A is kept in FormerNames)"}},
+		{{"A", "B", "C"},
+	     {"A", "C", "D"},
+	     {{"A", "float"}, {"C", "float"}, {"D", "float", {"B"}}},
+	     {"parameter renamed: F's B → D (B is kept in FormerNames)"}},
+		{{"A", "B"}, {"B", "A2"}, {{"B", "float"}, {"A2", "float", {"A"}}}, {"parameter renamed: F's A → A2 (A is kept in FormerNames)"}},
+		{{"A", "B", "C"},
+	     {"B", "D", "A"},
+	     {{"B", "float"}, {"D", "float", {"C"}}, {"A", "float"}},
+	     {"parameter renamed: F's C → D (C is kept in FormerNames)"}},
+		// Two renamed: in order, the first that went to the first that came.
+		{{"A", "B"},
+	     {"D", "C"},
+	     {{"D", "float", {"A"}}, {"C", "float", {"B"}}},
+	     {"parameter renamed: F's A → D (A is kept in FormerNames)", "parameter renamed: F's B → C (B is kept in FormerNames)"}},
+	};
+	for (Case const& entry : cases)
+	{
+		std::string names;
+		for (std::string const& name : entry.Stored)
+		{
+			names += name + " ";
+		}
+		names += "→";
+		for (std::string const& name : entry.Edited)
+		{
+			names += " " + name;
+		}
+		CAPTURE(names);
+		Result<VisualScriptCommit> const commit = PrepareVisualScriptCommit(makeLibrary(entry.Stored), makeLibrary(entry.Edited), nullptr);
+		REQUIRE_MESSAGE(commit.IsOk(), commit.GetError());
+		CHECK(commit.GetValue().Warnings == entry.Warnings);
+		CHECK(commit.GetValue().Document.Functions[0].Inputs == entry.Expected);
+		Testing::ExpectStrictRoundTrip(commit.GetValue().Document);
+	}
+
+	// What SetFunctionSignature relinks and what the commit records agree: the call's link to B now ends at C, which keeps
+	// B for the calls of other files.
+	VisualScriptDocument stored = makeLibrary({"A", "B"});
+	stored.Graph.Nodes = {MakeNode(12, "Self"), MakeNode(20, "Function.Call", Json::object({{"Function", 1}}), Json::object({{"A", 0.5}}))};
+	stored.Graph.Links = {MakeLink(12, "Value", 20, "B")};
+	VisualScriptDocument edited = stored;
+	Result<uint32_t> const signature = VisualScriptEditing::SetFunctionSignature(edited, 1, {{"C", "float"}, {"A", "float"}}, {});
+	REQUIRE_MESSAGE(signature.IsOk(), signature.GetError());
+	CHECK(edited.Graph.Links == std::vector<VisualScriptLink>{MakeLink(12, "Value", 20, "C")});
+	CHECK(FindNode(edited.Graph, 20).Inputs == Json::object({{"A", 0.5}}));
+	Result<VisualScriptCommit> const commit = PrepareVisualScriptCommit(stored, edited, nullptr);
+	REQUIRE_MESSAGE(commit.IsOk(), commit.GetError());
+	CHECK(commit.GetValue().Warnings == std::vector<std::string>{"parameter renamed: F's B → C (B is kept in FormerNames)"});
+	CHECK(commit.GetValue().Document.Functions[0].Inputs == std::vector<VisualScriptParameter>{{"C", "float", {"B"}}, {"A", "float"}});
+	Testing::ExpectStrictRoundTrip(commit.GetValue().Document);
+}
+
 TEST_CASE("VisualScriptCommit: a node resolved exactly whose pins the analysis renamed stores their current names, its links, literals "
           "and split paths following")
 {
@@ -499,6 +581,37 @@ TEST_CASE("VisualScriptCommit: a node resolved exactly whose pins the analysis r
 	REQUIRE(current.IsOk());
 	CHECK(current.GetValue().Warnings.empty());
 	CHECK(current.GetValue().Document.Graph == document.Graph);
+
+	// The analysis of the document before an edit describes the nodes the stored document has: an edit that moves the node
+	// keeps it the one analyzed, ...
+	VisualScriptDocument moved = stored;
+	moved.Graph.Nodes[2].Position = glm::vec2(800.0f, 480.0f);
+	Result<VisualScriptCommit> const afterMove = PrepareVisualScriptCommit(stored, moved, &analysis);
+	REQUIRE(afterMove.IsOk());
+	CHECK(afterMove.GetValue().Warnings == prepared.GetValue().Warnings);
+	// ... one that points it at another function (whose input may well be named X) does not, nor does a node the stored
+	// document lacks: their pins keep their names until an analysis of them renames them.
+	for (char const* const setting : {"Function", "Graph"})
+	{
+		CAPTURE(setting);
+		VisualScriptDocument retargeted = stored;
+		retargeted.Graph.Nodes[2].Settings[setting] = std::string_view(setting) == "Function" ? Json(4) : Json("5551");
+		Result<VisualScriptCommit> const elsewhere = PrepareVisualScriptCommit(stored, retargeted, &analysis);
+		REQUIRE(elsewhere.IsOk());
+		CHECK(elsewhere.GetValue().Warnings.empty());
+		CHECK(elsewhere.GetValue().Document.Graph == retargeted.Graph);
+	}
+	VisualScriptDocument without = stored;
+	without.Graph.Nodes.erase(without.Graph.Nodes.begin() + 2);
+	std::erase_if(without.Graph.Links,
+	              [](VisualScriptLink const& link)
+	              {
+					  return link.From.Node == 20 || link.To.Node == 20;
+				  });
+	Result<VisualScriptCommit> const added = PrepareVisualScriptCommit(without, stored, &analysis);
+	REQUIRE(added.IsOk());
+	CHECK(added.GetValue().Warnings.empty());
+	CHECK(added.GetValue().Document.Graph == stored.Graph);
 }
 
 TEST_CASE("VisualScriptCommit: unplaced nodes are laid out, and a document that would not load back as written is never committed")

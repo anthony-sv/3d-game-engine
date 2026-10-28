@@ -478,6 +478,8 @@ namespace Strada
 			size_t const nodeCount = arranged.size() + anchorColumn.size();
 			std::vector<std::vector<size_t>> previous(nodeCount);
 			std::vector<std::vector<size_t>> next(nodeCount);
+			// The links from the anchors, (anchor, node) by group: each group is ordered against its own only.
+			std::vector<std::vector<std::pair<size_t, size_t>>> anchorLinks(componentCount);
 			for (VisualScriptLink const& link : graph.Links)
 			{
 				auto const to = numbers.find(link.To.Node);
@@ -491,7 +493,7 @@ namespace Strada
 					if (arranged[to->second].Layer == 0)
 					{
 						previous[to->second].push_back(anchor->second);
-						next[anchor->second].push_back(to->second);
+						anchorLinks[arranged[to->second].Component].emplace_back(anchor->second, to->second);
 					}
 					continue;
 				}
@@ -527,17 +529,32 @@ namespace Strada
 			// Coordinates relative to the corner: each group below the one before it, its columns left to right. The anchors
 			// stand before each group's first column while its columns are ordered.
 			double top = 0.0;
-			for (Columns& columns : groups)
+			for (size_t group = 0; group < groups.size(); group++)
 			{
+				Columns& columns = groups[group];
 				if (anchorColumn.empty())
 				{
 					OrderColumns(columns, previous, next, nodeCount, false);
 				}
 				else
 				{
+					// The anchors lead into this group's first column only while it is ordered.
+					for (auto const& [anchor, node] : anchorLinks[group])
+					{
+						next[anchor].push_back(node);
+					}
+					for (size_t const anchor : anchorColumn)
+					{
+						std::sort(next[anchor].begin(), next[anchor].end());
+						next[anchor].erase(std::unique(next[anchor].begin(), next[anchor].end()), next[anchor].end());
+					}
 					columns.insert(columns.begin(), anchorColumn);
 					OrderColumns(columns, previous, next, nodeCount, true);
 					columns.erase(columns.begin());
+					for (size_t const anchor : anchorColumn)
+					{
+						next[anchor].clear();
+					}
 				}
 				double left = 0.0;
 				double bottom = top;

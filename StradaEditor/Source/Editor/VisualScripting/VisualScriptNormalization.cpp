@@ -160,15 +160,49 @@ namespace Strada
 		}
 
 		// Records the renames of one list of a function's parameters (Inputs or Outputs) as former names, by the in-order
-		// rule of SetFunctionSignature: only when the list kept its length, a parameter whose name differs from the stored
-		// one at its index was renamed.
+		// rule of SetFunctionSignature (CompareParameters in VisualScriptEditing.cpp, which moves the pins' links the same
+		// way): a parameter kept by name is not renamed, wherever it moved; when the list kept its length, the k-th stored
+		// name that went (in stored order) was renamed to the k-th name that came (in edited order).
 		void RecordParameterFormerNames(std::string const& function, std::vector<VisualScriptParameter>& parameters,
 		                                std::vector<VisualScriptParameter> const& storedParameters, std::vector<std::string>& warnings)
 		{
-			if (parameters.size() != storedParameters.size())
+			std::vector<std::string_view> storedNames;
+			for (VisualScriptParameter const& stored : storedParameters)
+			{
+				if (std::find(storedNames.begin(), storedNames.end(), stored.Name) == storedNames.end())
+				{
+					storedNames.push_back(stored.Name);
+				}
+			}
+			if (storedNames.size() != parameters.size())
 			{
 				return;
 			}
+			auto const isEdited = [&parameters](std::string_view name)
+			{
+				return std::any_of(parameters.begin(), parameters.end(),
+				                   [name](VisualScriptParameter const& parameter)
+				                   {
+									   return parameter.Name == name;
+								   });
+			};
+			std::vector<std::string_view> went;
+			for (std::string_view const name : storedNames)
+			{
+				if (!isEdited(name))
+				{
+					went.push_back(name);
+				}
+			}
+			std::vector<VisualScriptParameter*> came;
+			for (VisualScriptParameter& parameter : parameters)
+			{
+				if (std::find(storedNames.begin(), storedNames.end(), parameter.Name) == storedNames.end())
+				{
+					came.push_back(&parameter);
+				}
+			}
+
 			// A former name is no parameter's current name and no other former name of the list.
 			std::unordered_set<std::string> taken;
 			for (VisualScriptParameter const& parameter : parameters)
@@ -176,11 +210,11 @@ namespace Strada
 				taken.insert(parameter.Name);
 				taken.insert(parameter.FormerNames.begin(), parameter.FormerNames.end());
 			}
-			for (size_t index = 0; index < parameters.size(); index++)
+			for (size_t index = 0; index < std::min(went.size(), came.size()); index++)
 			{
-				VisualScriptParameter& parameter = parameters[index];
-				std::string const& formerName = storedParameters[index].Name;
-				if (formerName == parameter.Name || !taken.insert(formerName).second)
+				VisualScriptParameter& parameter = *came[index];
+				std::string const formerName(went[index]);
+				if (!taken.insert(formerName).second)
 				{
 					continue;
 				}
@@ -283,7 +317,8 @@ namespace Strada
 		return warnings;
 	}
 
-	std::vector<std::string> ApplyCanonicalNodeTypes(VisualScriptDocument& document, VisualScriptAnalysis const& analysis)
+	std::vector<std::string> ApplyCanonicalNodeTypes(VisualScriptDocument& document, VisualScriptAnalysis const& analysis,
+	                                                 VisualScriptDocument const* stored)
 	{
 		// Node IDs are unique in a document.
 		std::unordered_map<uint32_t, std::pair<VisualScriptGraph*, size_t>> places;
@@ -292,6 +327,22 @@ namespace Strada
 			for (size_t index = 0; index < graph->Nodes.size(); index++)
 			{
 				places.emplace(graph->Nodes[index].ID, std::pair<VisualScriptGraph*, size_t>(graph, index));
+			}
+		}
+		// The nodes of the stored document by ID (the first of each), which an exact node must still be.
+		std::unordered_map<uint32_t, VisualScriptNode const*> storedNodes;
+		if (stored != nullptr)
+		{
+			for (VisualScriptFunction const& function : stored->Functions)
+			{
+				for (VisualScriptNode const& node : function.Graph.Nodes)
+				{
+					storedNodes.emplace(node.ID, &node);
+				}
+			}
+			for (VisualScriptNode const& node : stored->Graph.Nodes)
+			{
+				storedNodes.emplace(node.ID, &node);
 			}
 		}
 
@@ -309,10 +360,21 @@ namespace Strada
 			if (analyzed.Resolved == VisualScriptResolution::Exact)
 			{
 				// A node of its own type whose pins are called otherwise now (a library call naming a former parameter name):
-				// it keeps its type and stores the current names.
+				// it keeps its type and stores the current names. Its type does not say which function it calls, its settings
+				// do: only a node the stored document has as it is now is the one analyzed (an open window's analysis is of
+				// the document from before the edit, which may have pointed the node elsewhere).
 				if (node.Type != analyzed.Type)
 				{
 					continue;
+				}
+				if (stored != nullptr)
+				{
+					auto const storedNode = storedNodes.find(node.ID);
+					if (storedNode == storedNodes.end() || storedNode->second->Type != node.Type ||
+					    storedNode->second->Settings != node.Settings)
+					{
+						continue;
+					}
 				}
 				std::vector<VisualScriptPinRename> used;
 				for (VisualScriptPinRename const& rename : analyzed.PinRenames)
