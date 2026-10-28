@@ -461,9 +461,10 @@ namespace Strada
 		return result;
 	}
 
-	void VisualScriptEditorModel::OnCommitted(Ref<VisualScriptDocument const> committed)
+	void VisualScriptEditorModel::OnCommitted(Ref<VisualScriptDocument const> committed, bool layoutOnly)
 	{
 		m_OwnDocument = std::move(committed);
+		m_OwnLayoutOnly = layoutOnly;
 	}
 
 	void VisualScriptEditorModel::SetWidgetPreview(VisualScriptDocument preview)
@@ -681,12 +682,18 @@ namespace Strada
 			return;
 		}
 		bool const own = m_OwnDocument != nullptr && document == m_OwnDocument;
+		bool const layoutOnly = own && m_OwnLayoutOnly && m_Document != nullptr;
 		// The commit the window waited for is this one, or was replaced before it was seen: either way it is done with, so a
 		// later redo of the same step brings the object back as an outside change.
 		m_OwnDocument.reset();
+		m_OwnLayoutOnly = false;
 		if (m_Document != nullptr && own)
 		{
-			RecordCommittedLinks(*m_Document, *document);
+			// A layout-only commit adds no link.
+			if (!layoutOnly)
+			{
+				RecordCommittedLinks(*m_Document, *document);
+			}
 		}
 		else if (m_Document != nullptr && !(*document == *m_Document && HaveSameVisualScriptProgram(*document, *m_Document)))
 		{
@@ -698,6 +705,7 @@ namespace Strada
 			m_Preview.reset();
 			m_OutsideChange = true;
 		}
+		Ref<VisualScriptDocument const> const previous = m_Display;
 		m_Document = std::move(document);
 		if (HasUnplacedNodes(*m_Document))
 		{
@@ -709,6 +717,26 @@ namespace Strada
 		else
 		{
 			m_Display = m_Document;
+		}
+		m_LayoutOnlyFrom.reset();
+		if (layoutOnly)
+		{
+			// The window's own layout-only commit has the program of the document it was made from (the display document), so
+			// what was known of that program is known of this document: its analysis, and the runtime's failure on it. Its
+			// nodes are at the same indices (HaveSameVisualScriptProgram compares them in order).
+			if (m_AnalyzedDocument == previous)
+			{
+				m_AnalyzedDocument = m_Display;
+			}
+			if (m_FailedDocument == previous)
+			{
+				m_FailedDocument = m_Display;
+			}
+			m_LayoutOnlyFrom = previous;
+		}
+		else
+		{
+			m_ProgramRevision++;
 		}
 		result.DocumentChanged = true;
 	}
@@ -821,7 +849,13 @@ namespace Strada
 		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument))
 		{
 			// The program the analysis describes (only positions, comments or collapsing changed), or the very document the
-			// runtime could not analyze.
+			// runtime could not analyze. The analysis describes the drawn document as well as the one it was made from (their
+			// nodes are at the same indices), so it is taken as the drawn one's: a layout-only commit of it then keeps it
+			// without a comparison (AdoptDocument).
+			if (current)
+			{
+				m_AnalyzedDocument = drawn;
+			}
 			m_AnalysisPending = false;
 			return;
 		}
@@ -886,12 +920,24 @@ namespace Strada
 		source.ShowDiagnostics = !m_AnalysisStale;
 		source.AssetNames = DescribeAsset;
 		source.AssetVersion = assetVersion;
-		bool synced = false;
+		std::optional<bool> synced;
 		{
 			PhaseTimer const timer(m_SyncTimings.Canvas);
-			synced = m_Canvas.Sync(source, m_Measure, theme);
+			// An own layout-only commit of the document the canvas shows, when nothing else needs laying out: only what moved
+			// moves. SyncPositions checks what it relies on and declines anything else.
+			if (m_LayoutOnlyFrom != nullptr && m_CanvasDocument == m_LayoutOnlyFrom && m_Preview == nullptr && !m_CanvasStale &&
+			    !result.AnalysisChanged && theme == m_Theme && !assetNamesChanged && m_Function == m_CanvasFunction)
+			{
+				synced = m_Canvas.SyncPositions(*m_CanvasDocument, source, m_Measure, theme);
+			}
+			if (!synced)
+			{
+				synced = m_Canvas.Sync(source, m_Measure, theme);
+			}
 		}
-		if (synced)
+		m_LayoutOnlyFrom.reset();
+		m_CanvasDocument = GetDrawnDocumentRef();
+		if (*synced)
 		{
 			PhaseTimer const timer(m_SyncTimings.Index);
 			m_Index.Build(m_Canvas);

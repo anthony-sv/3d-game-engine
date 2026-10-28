@@ -371,7 +371,9 @@ namespace
 	constexpr double T2Milliseconds = 7.88;
 	constexpr double T3Milliseconds = 0.98;
 	constexpr double T4Milliseconds = 22.9;
-	constexpr double CommitFrameMilliseconds = 686.0;
+	// The commit frames of a move and of a new link, as track S measured them after its follow-ups (spec §5.8).
+	constexpr double CommitFrameMilliseconds = 70.2;
+	constexpr double LinkFrameMilliseconds = 3420.0;
 	// T2 with the live widget of a vector and of an enum chip (track U's report, step U-fix).
 	constexpr double T2VectorMilliseconds = 8.08;
 	constexpr double T2EnumMilliseconds = 8.12;
@@ -382,7 +384,8 @@ namespace
 	constexpr double T2Milliseconds = 0.832;
 	constexpr double T3Milliseconds = 0.104;
 	constexpr double T4Milliseconds = 1.425;
-	constexpr double CommitFrameMilliseconds = 37.9;
+	constexpr double CommitFrameMilliseconds = 13.6;
+	constexpr double LinkFrameMilliseconds = 128.0;
 	constexpr double T2VectorMilliseconds = 0.821;
 	constexpr double T2EnumMilliseconds = 0.829;
 	constexpr std::array<double, 3> WindowFrameMilliseconds = {0.447, 0.445, 0.462};
@@ -648,6 +651,7 @@ TEST_CASE("VisualScriptEditor: the frame that commits a move in a graph of 2,000
 		{
 			size_t const undo = fixture.GetUndoCount();
 			uint64_t const analyses = fixture.Model().GetAnalysisCount();
+			uint64_t const positionSyncs = fixture.Model().GetCanvas().GetPositionSyncCount();
 			glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), 1, glm::vec2(0.5f, 0.06f));
 			fixture.MoveMouse(from);
 			fixture.SetButton(ImGuiMouseButton_Left, true);
@@ -660,8 +664,10 @@ TEST_CASE("VisualScriptEditor: the frame that commits a move in a graph of 2,000
 			double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 			REQUIRE(fixture.GetUndoCount() == undo + 1);
 			frames.push_back(MakeCommitFrame(fixture, milliseconds));
-			// A move leaves the program as it was: nothing is analyzed.
+			// A move leaves the program as it was (a layout-only commit): nothing is analyzed, and the canvas moves the node
+			// instead of syncing.
 			CHECK(fixture.Model().GetAnalysisCount() == analyses);
+			CHECK(fixture.Model().GetCanvas().GetPositionSyncCount() == positionSyncs + 1);
 		}
 		if (performance)
 		{
@@ -724,6 +730,15 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2
 		if (performance)
 		{
 			MESSAGE("commit frame of a new link, ", nodes, " nodes and ", nodes * 2, " links: ", DescribeCommitFrames(frames));
+			if (nodes == 2000)
+			{
+				std::vector<double> milliseconds;
+				for (CommitFrame const& frame : frames)
+				{
+					milliseconds.push_back(frame.Milliseconds);
+				}
+				CHECK(Median(milliseconds) <= 3.0 * LinkFrameMilliseconds);
+			}
 		}
 	}
 }

@@ -859,12 +859,13 @@ TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, seria
 			                                   << MedianPhase(phases, &VisualScriptCommitTimings::SetDocument));
 			if (nodeCount == 2000)
 			{
-				// Three times the median of five runs measured with no build running (an AMD Ryzen 5 7535HS laptop, Windows 11,
-				// MSVC 19.51).
+				// Three times the median track S measured once the commit validated and wrote its text directly (spec §5.8; an
+				// AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51, other builds' tests running): most of what is left is the
+				// file read back and written (ReadBack and Write).
 #if defined(ST_DEBUG)
-				constexpr double MeasuredMilliseconds = 371.0;
+				constexpr double MeasuredMilliseconds = 117.0;
 #else
-				constexpr double MeasuredMilliseconds = 21.9;
+				constexpr double MeasuredMilliseconds = 12.3;
 #endif
 				CHECK(median <= 3.0 * MeasuredMilliseconds);
 			}

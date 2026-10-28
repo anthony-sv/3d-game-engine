@@ -91,12 +91,13 @@ namespace
 
 		Ref<VisualScriptAsset> GetAsset() const { return AssetManager::GetAsset<VisualScriptAsset>(Project.Graph); }
 
-		// A commit as the panel makes it: the asset takes the document object, the model is told, and syncs again in the frame.
-		VisualScriptSyncResult Commit(VisualScriptDocument document)
+		// A commit as the panel makes it: the asset takes the document object, the model is told (with the request's
+		// LayoutOnly), and syncs again in the frame.
+		VisualScriptSyncResult Commit(VisualScriptDocument document, bool layoutOnly = false)
 		{
 			Ref<VisualScriptDocument const> const committed = CreateRef<VisualScriptDocument const>(std::move(document));
 			GetAsset()->SetDocument(committed);
-			Model.OnCommitted(committed);
+			Model.OnCommitted(committed, layoutOnly);
 			return Model.Sync(Semantics, Measure, Theme, false, Time);
 		}
 
@@ -528,6 +529,94 @@ TEST_CASE(
 	CHECK(fixture.Model.GetAnalysisCount() == 7);
 	CHECK(fixture.Model.GetAnalysis() != nullptr);
 	CHECK(fixture.Node(2).ErrorCount == 1);
+}
+
+TEST_CASE("VisualScriptEditor: an own layout-only commit keeps the analysis that described the document before it, and moves only what "
+          "moved")
+{
+	ModelFixture fixture(MakeDocument());
+	fixture.Frame();
+	REQUIRE(fixture.Model.GetAnalysisCount() == 1);
+	uint64_t const revision = fixture.Model.GetProgramRevision();
+	uint64_t const positionSyncs = fixture.Model.GetCanvas().GetPositionSyncCount();
+
+	// A move: the analysis describes the committed document (no analysis, the analysis current, the nodes drawn from it), the
+	// canvas moves the node without laying anything out, and what reads the program keeps what it read.
+	VisualScriptDocument document = fixture.Model.GetDisplayDocument();
+	document.Graph.Nodes[1].Position = glm::vec2(320.0f, 48.0f);
+	VisualScriptSyncResult const moved = fixture.Commit(document, true);
+	CHECK(moved.DocumentChanged);
+	CHECK_FALSE(moved.AnalysisChanged);
+	CHECK(moved.GeometryChanged);
+	CHECK(fixture.Model.GetAnalysisCount() == 1);
+	REQUIRE(fixture.Model.GetAnalysis() != nullptr);
+	CHECK(fixture.Node(2).HasFlag(VisualScriptNodeFlags::Analyzed));
+	CHECK(fixture.Node(2).Position == glm::vec2(320.0f, 48.0f));
+	CHECK(fixture.Model.GetCanvas().GetPositionSyncCount() == positionSyncs + 1);
+	CHECK(fixture.Model.GetCanvas().GetMeasuredNodeCount() == 0);
+	CHECK(fixture.Model.CommittedLinks().empty());
+	CHECK(fixture.Model.GetProgramRevision() == revision);
+	fixture.Frame();
+	CHECK(fixture.Model.GetAnalysisCount() == 1);
+
+	// Collapsing is layout-only too, but lays its node out again: the canvas syncs fully.
+	document.Graph.Nodes[1].Collapsed = true;
+	fixture.Commit(document, true);
+	CHECK(fixture.Model.GetCanvas().GetPositionSyncCount() == positionSyncs + 1);
+	CHECK(fixture.Node(2).HasFlag(VisualScriptNodeFlags::Collapsed));
+	CHECK(fixture.Model.GetAnalysisCount() == 1);
+	CHECK(fixture.Model.GetProgramRevision() == revision);
+
+	// The same move committed as any other commit: compared with the analyzed document instead, with the same outcome, and
+	// read again by what reads the program.
+	document.Graph.Nodes[1].Position = glm::vec2(352.0f, 48.0f);
+	fixture.Commit(document);
+	CHECK(fixture.Model.GetAnalysisCount() == 1);
+	CHECK(fixture.Model.GetProgramRevision() == revision + 1);
+
+	// A program change analyzed in its frame, a second one in the same frame (its analysis put off), then a layout-only
+	// commit before the analysis caught up: the analysis describes neither, so the next frame analyzes.
+	fixture.Frame();
+	document.Graph.Nodes[1].Inputs["Duration"] = 2;
+	fixture.Commit(document);
+	CHECK(fixture.Model.GetAnalysisCount() == 2);
+	document.Graph.Nodes[1].Inputs["Duration"] = 3;
+	fixture.Commit(document);
+	CHECK(fixture.Model.GetAnalysisCount() == 2);
+	document.Graph.Nodes[1].Position = glm::vec2(384.0f, 48.0f);
+	fixture.Commit(document, true);
+	CHECK(fixture.Model.GetAnalysisCount() == 2);
+	CHECK(fixture.Model.GetProgramRevision() == revision + 3);
+	fixture.Frame();
+	CHECK(fixture.Model.GetAnalysisCount() == 3);
+	CHECK(fixture.Node(2).HasFlag(VisualScriptNodeFlags::Analyzed));
+	CHECK(fixture.Node(2).Position == glm::vec2(384.0f, 48.0f));
+
+	// A document the runtime failed to analyze is not analyzed again for a layout-only commit of it, which has its program;
+	// any other commit of it is.
+	LibraryOnlySemantics failing;
+	auto const frame = [&fixture, &failing]()
+	{
+		fixture.Time += 1.0 / 60.0;
+		fixture.Model.Sync(failing, fixture.Measure, fixture.Theme, false, fixture.Time);
+	};
+	frame();
+	uint64_t const failed = fixture.Model.GetAnalysisCount();
+	CHECK(failed == 4);
+	CHECK(fixture.Model.GetAnalysis() == nullptr);
+	document.Graph.Nodes[1].Position = glm::vec2(416.0f, 48.0f);
+	Ref<VisualScriptDocument const> const committed = CreateRef<VisualScriptDocument const>(document);
+	fixture.GetAsset()->SetDocument(committed);
+	fixture.Model.OnCommitted(committed, true);
+	frame();
+	frame();
+	CHECK(fixture.Model.GetAnalysisCount() == failed);
+	document.Graph.Nodes[1].Comment = "Waits";
+	Ref<VisualScriptDocument const> const commented = CreateRef<VisualScriptDocument const>(document);
+	fixture.GetAsset()->SetDocument(commented);
+	fixture.Model.OnCommitted(commented);
+	frame();
+	CHECK(fixture.Model.GetAnalysisCount() == failed + 1);
 }
 
 TEST_CASE("VisualScriptEditor: disabling a node analyzes the graph again, and the canvas draws the bypass that analysis reports")

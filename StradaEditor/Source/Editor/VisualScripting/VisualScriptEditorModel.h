@@ -538,8 +538,10 @@ namespace Strada
 		// Cancel (which ends it) and the mouse's back and forward buttons are ignored.
 		std::vector<VisualScriptEditorIntent> Update(VisualScriptCanvasInput const& input);
 		// The document the panel's commit just wrote (the request's document, the object the asset now holds). Call Sync again
-		// in the same frame: it then adopts it as the window's own change.
-		void OnCommitted(Ref<VisualScriptDocument const> committed);
+		// in the same frame: it then adopts it as the window's own change. layoutOnly is the request's LayoutOnly: the document
+		// has the program of the one the window drew, so the analysis of that one describes it (no analysis runs and the
+		// program is not compared), and the canvas moves what moved instead of syncing (VisualScriptCanvasModel::SyncPositions).
+		void OnCommitted(Ref<VisualScriptDocument const> committed, bool layoutOnly = false);
 		// Ends the gesture in progress without an intent: its preview is dropped (a failed commit, the window hidden).
 		void CancelGesture();
 		// Applies an open request: its sub-graph at once (when it has one), its selection and view at the next Update, once the
@@ -594,6 +596,10 @@ namespace Strada
 		std::span<uint32_t const> ChangedElements() const { return m_ChangedElements; }
 		// How many analyses ran: for tests of the policy.
 		uint64_t GetAnalysisCount() const { return m_AnalysisCount; }
+		// Changes with every document the window adopts except its own layout-only commits (OnCommitted), whose program is the
+		// one before: what reads only the program, names and signatures (the palette's document entries) is up to date while it
+		// stays the same.
+		uint64_t GetProgramRevision() const { return m_ProgramRevision; }
 		// What the Syncs of the last Sync's frame (its time) spent, summed: Adopt, Analysis, Canvas and Index of
 		// VisualScriptCommitTimings (ForceAnalysis adds to them too); the performance tests read them.
 		VisualScriptCommitTimings const& GetSyncTimings() const { return m_SyncTimings; }
@@ -902,6 +908,12 @@ namespace Strada
 		Ref<VisualScriptDocument const> m_Document;
 		Ref<VisualScriptDocument const> m_Display;
 		Ref<VisualScriptDocument const> m_OwnDocument;
+		bool m_OwnLayoutOnly = false;
+		// The display document an own layout-only commit replaced, until the canvas is synced; and the document the canvas was
+		// last synced with.
+		Ref<VisualScriptDocument const> m_LayoutOnlyFrom;
+		Ref<VisualScriptDocument const> m_CanvasDocument;
+		uint64_t m_ProgramRevision = 0;
 		Ref<VisualScriptDocument const> m_Preview;
 		bool m_PreviewChanged = false;
 		// The last Sync adopted an outside change: the gesture in progress is cancelled.
@@ -913,8 +925,9 @@ namespace Strada
 		bool m_CheckWritable = true;
 		bool m_Writable = true;
 
-		// The analysis: the library of the last Sync, the analysis with the document and library it was made from, and a
-		// document the runtime failed on with that library.
+		// The analysis: the library of the last Sync, the analysis with the library it was made from and the document it
+		// describes (the one it was made from, or a later one with its program), and a document the runtime failed on with that
+		// library (or a later one with its program).
 		VisualScriptSemantics* m_Semantics = nullptr;
 		Ref<VisualScriptLibrary const> m_Library;
 		Ref<VisualScriptAnalysis const> m_Analysis;

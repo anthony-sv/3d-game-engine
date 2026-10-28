@@ -77,6 +77,9 @@ namespace Strada
 		VisualScriptPaletteState const& GetState() const { return m_State; }
 		// The entries the state's matches index; valid until the next Draw.
 		VisualScriptPaletteIndex const& GetIndex() const { return m_Index; }
+		// How many times the index was given the window's document: when the palette first draws, and after the program, the
+		// library or the sub-graph shown changed (never after a layout-only commit).
+		uint64_t GetDocumentReadCount() const { return m_DocumentReads; }
 		// Canvas units: the space the hover preview reserved for the last entry it previewed (the node's laid-out size).
 		glm::vec2 GetPreviewSize() const;
 		// The entries of the rows the last Draw listed, in their order (what Up, Down and Enter move through), and the
@@ -155,10 +158,12 @@ namespace Strada
 		bool m_ScrollToHighlight = false;
 
 		// What the index was made from: the library object (not kept alive for it: a library the scripting runtime replaced while
-		// the palette was closed is let go), the stored document object (let go when the palette closes) and the sub-graph shown.
+		// the palette was closed is let go), the model's program revision (a layout-only commit keeps it, so the document is not
+		// read again) and the sub-graph shown; and how many times the document was read.
 		std::weak_ptr<VisualScriptLibrary const> m_Library;
-		Ref<VisualScriptDocument const> m_IndexedDocument;
+		std::optional<uint64_t> m_IndexedRevision;
 		uint32_t m_IndexedFunction = 0;
+		uint64_t m_DocumentReads = 0;
 		uint64_t m_IndexGeneration = 0;
 		VisualScriptPaletteIndex m_Index;
 		// The index's entries by RecentKey, and by category path.

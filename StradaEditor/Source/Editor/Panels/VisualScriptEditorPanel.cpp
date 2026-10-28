@@ -4280,6 +4280,7 @@ namespace Strada
 	{
 		Ref<VisualScriptDocument const> const document = request.Document;
 		std::string const description = request.Description;
+		bool const layoutOnly = request.LayoutOnly;
 		m_LastCommitTimings = request.Timings;
 		Result<void> const result = edits.empty()
 		                                ? m_Operations.EditVisualScript(m_Graph, document, std::move(request.Description), request.MergeKey,
@@ -4299,7 +4300,7 @@ namespace Strada
 		// The file now holds the canonical text of the document: nothing of the repairs it needed is left in it.
 		m_RepairNotice = false;
 		// The frame that commits draws the committed document: the model adopts it as the window's own change now.
-		m_Model.OnCommitted(document);
+		m_Model.OnCommitted(document, layoutOnly);
 		SyncModel();
 		if (!request.Select.empty())
 		{

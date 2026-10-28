@@ -1276,12 +1276,18 @@ namespace Strada
 		// writer omits Settings and Inputs that are empty, null included (json.hpp:2933), and the loader reads them back as {}:
 		// a document whose Settings or Inputs are null or an empty array loads without a repair, yet not as it is. That is
 		// reported only when nothing the loader repairs is found, so a path given when the loader reports repairs is one of
-		// theirs.
+		// theirs. Paths are made only for the issue reported.
 		class DocumentValidator
 		{
 		public:
 			std::optional<VisualScriptIssue> Run(VisualScriptDocument const& document)
 			{
+				size_t elements = document.Variables.size() + document.Graph.Nodes.size() + document.Graph.Comments.size();
+				for (VisualScriptFunction const& function : document.Functions)
+				{
+					elements += 1 + function.Locals.size() + function.Graph.Nodes.size() + function.Graph.Comments.size();
+				}
+				m_IDs.reserve(elements);
 				if (!CheckContent(document))
 				{
 					return std::move(m_Issue);
@@ -1290,6 +1296,16 @@ namespace Strada
 			}
 
 		private:
+			// An element of a list ("Graph.Nodes[3]"), and the paths of its keys, made when an issue names them.
+			struct ElementPath
+			{
+				std::string_view List;
+				size_t Index = 0;
+
+				std::string Get() const { return Element(List, Index); }
+				std::string Get(std::string_view key) const { return Member(Get(), key); }
+			};
+
 			bool Fail(std::string path, std::string message)
 			{
 				m_Issue = VisualScriptIssue{std::move(path), std::move(message)};
@@ -1321,22 +1337,22 @@ namespace Strada
 
 			// An element's ID: in range and not taken by an earlier element of the document. Claimed by the caller once the
 			// element's other keys pass, as the loader claims it.
-			bool CheckNewID(uint32_t id, std::string_view path)
+			bool CheckNewID(uint32_t id, ElementPath const& path)
 			{
 				if (!Format::IsValidID(id))
 				{
-					return Fail(Member(path, "ID"), fmt::format("expected an integer from 1 to {}", Format::MaxID));
+					return Fail(path.Get("ID"), fmt::format("expected an integer from 1 to {}", Format::MaxID));
 				}
 				if (m_IDs.contains(id))
 				{
-					return Fail(Member(path, "ID"), fmt::format("{} is the ID of an earlier element", id));
+					return Fail(path.Get("ID"), fmt::format("{} is the ID of an earlier element", id));
 				}
 				return true;
 			}
 
-			bool CheckValue(Json const& value, std::string_view path)
+			bool CheckValue(Json const& value, ElementPath const& path)
 			{
-				return value.is_null() || Format::IsValidValue(value) || Fail(Member(path, "Value"), DescribeInvalidValue());
+				return value.is_null() || Format::IsValidValue(value) || Fail(path.Get("Value"), DescribeInvalidValue());
 			}
 
 			bool CheckContent(VisualScriptDocument const& document)
@@ -1357,10 +1373,10 @@ namespace Strada
 				for (size_t i = 0; i < variables.size(); i++)
 				{
 					VisualScriptVariable const& variable = variables[i];
-					std::string const path = Element("Variables", i);
+					ElementPath const path{"Variables", i};
 					if (i == Format::MaxVariables)
 					{
-						return Fail(path, fmt::format("more than {} variables", Format::MaxVariables));
+						return Fail(path.Get(), fmt::format("more than {} variables", Format::MaxVariables));
 					}
 					if (!CheckNewID(variable.ID, path))
 					{
@@ -1368,15 +1384,15 @@ namespace Strada
 					}
 					if (!Format::IsValidName(variable.Name))
 					{
-						return FailName(Member(path, "Name"));
+						return FailName(path.Get("Name"));
 					}
 					if (!m_VariableNames.insert(variable.Name).second)
 					{
-						return Fail(Member(path, "Name"), fmt::format("'{}' is the name of an earlier variable", variable.Name));
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of an earlier variable", variable.Name));
 					}
 					if (!Format::IsValidText(variable.Type, Format::MaxTypeBytes))
 					{
-						return FailType(Member(path, "Type"), Format::MaxTypeBytes);
+						return FailType(path.Get("Type"), Format::MaxTypeBytes);
 					}
 					m_IDs.insert(variable.ID);
 					if (!CheckValue(variable.Value, path))
@@ -1385,11 +1401,11 @@ namespace Strada
 					}
 					if (!Format::IsValidLongText(variable.Tooltip))
 					{
-						return FailText(Member(path, "Tooltip"));
+						return FailText(path.Get("Tooltip"));
 					}
 					if (variable.Range && !Format::IsValidRange(*variable.Range))
 					{
-						return Fail(Member(path, "Range"), "expected two finite numbers, the minimum first");
+						return Fail(path.Get("Range"), "expected two finite numbers, the minimum first");
 					}
 				}
 				// Checked once every variable is, as the loader reads them: no former name is the name of a variable, later ones
@@ -1397,8 +1413,7 @@ namespace Strada
 				std::unordered_set<std::string_view> taken;
 				for (size_t i = 0; i < variables.size(); i++)
 				{
-					if (!CheckFormerNames(variables[i].FormerNames, Member(Element("Variables", i), "FormerNames"), m_VariableNames,
-					                      "a variable", taken))
+					if (!CheckFormerNames(variables[i].FormerNames, ElementPath{"Variables", i}, m_VariableNames, "a variable", taken))
 					{
 						return false;
 					}
@@ -1406,29 +1421,33 @@ namespace Strada
 				return true;
 			}
 
-			bool CheckFormerNames(std::vector<std::string> const& formerNames, std::string const& path,
-			                      std::unordered_set<std::string_view> const& names, std::string_view owner,
+			// The FormerNames of the element at owner.
+			bool CheckFormerNames(std::vector<std::string> const& formerNames, ElementPath const& owner,
+			                      std::unordered_set<std::string_view> const& names, std::string_view ownerName,
 			                      std::unordered_set<std::string_view>& taken)
 			{
 				for (size_t i = 0; i < formerNames.size(); i++)
 				{
 					std::string const& name = formerNames[i];
-					std::string const entryPath = Element(path, i);
+					auto const path = [&owner, i]()
+					{
+						return Element(owner.Get("FormerNames"), i);
+					};
 					if (i == Format::MaxFormerNames)
 					{
-						return Fail(entryPath, fmt::format("more than {} former names", Format::MaxFormerNames));
+						return Fail(path(), fmt::format("more than {} former names", Format::MaxFormerNames));
 					}
 					if (!Format::IsValidName(name))
 					{
-						return FailName(entryPath);
+						return FailName(path());
 					}
 					if (names.contains(name))
 					{
-						return Fail(entryPath, fmt::format("'{}' is the name of {}", name, owner));
+						return Fail(path(), fmt::format("'{}' is the name of {}", name, ownerName));
 					}
 					if (!taken.insert(name).second)
 					{
-						return Fail(entryPath, fmt::format("'{}' is already a former name", name));
+						return Fail(path(), fmt::format("'{}' is already a former name", name));
 					}
 				}
 				return true;
@@ -1440,10 +1459,10 @@ namespace Strada
 				for (size_t i = 0; i < functions.size(); i++)
 				{
 					VisualScriptFunction const& function = functions[i];
-					std::string const path = Element("Functions", i);
+					ElementPath const path{"Functions", i};
 					if (i == Format::MaxFunctions)
 					{
-						return Fail(path, fmt::format("more than {} functions", Format::MaxFunctions));
+						return Fail(path.Get(), fmt::format("more than {} functions", Format::MaxFunctions));
 					}
 					if (!CheckNewID(function.ID, path))
 					{
@@ -1451,16 +1470,15 @@ namespace Strada
 					}
 					if (!Format::IsValidName(function.Name))
 					{
-						return FailName(Member(path, "Name"));
+						return FailName(path.Get("Name"));
 					}
 					if (!names.insert(function.Name).second)
 					{
-						return Fail(Member(path, "Name"), fmt::format("'{}' is the name of an earlier function", function.Name));
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of an earlier function", function.Name));
 					}
 					m_IDs.insert(function.ID);
-					if (!CheckParameters(function.Inputs, Member(path, "Inputs")) ||
-					    !CheckParameters(function.Outputs, Member(path, "Outputs")) ||
-					    !CheckLocals(function.Locals, Member(path, "Locals")) || !CheckGraph(function.Graph, Member(path, "Graph")))
+					if (!CheckParameters(function.Inputs, path.Get("Inputs")) || !CheckParameters(function.Outputs, path.Get("Outputs")) ||
+					    !CheckLocals(function.Locals, path.Get("Locals")) || !CheckGraph(function.Graph, path.Get("Graph")))
 					{
 						return false;
 					}
@@ -1474,22 +1492,22 @@ namespace Strada
 				for (size_t i = 0; i < parameters.size(); i++)
 				{
 					VisualScriptParameter const& parameter = parameters[i];
-					std::string const path = Element(listPath, i);
+					ElementPath const path{listPath, i};
 					if (i == Format::MaxParameters)
 					{
-						return Fail(path, fmt::format("more than {} parameters", Format::MaxParameters));
+						return Fail(path.Get(), fmt::format("more than {} parameters", Format::MaxParameters));
 					}
 					if (!Format::IsValidName(parameter.Name))
 					{
-						return FailName(Member(path, "Name"));
+						return FailName(path.Get("Name"));
 					}
 					if (!names.insert(parameter.Name).second)
 					{
-						return Fail(Member(path, "Name"), fmt::format("'{}' is the name of an earlier parameter", parameter.Name));
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of an earlier parameter", parameter.Name));
 					}
 					if (!Format::IsValidText(parameter.Type, Format::MaxTypeBytes))
 					{
-						return FailType(Member(path, "Type"), Format::MaxTypeBytes);
+						return FailType(path.Get("Type"), Format::MaxTypeBytes);
 					}
 				}
 				// Per list, once every parameter of it is checked: no former name is the name of a parameter of the list, later
@@ -1497,8 +1515,7 @@ namespace Strada
 				std::unordered_set<std::string_view> taken;
 				for (size_t i = 0; i < parameters.size(); i++)
 				{
-					if (!CheckFormerNames(parameters[i].FormerNames, Member(Element(listPath, i), "FormerNames"), names,
-					                      "a parameter of this list", taken))
+					if (!CheckFormerNames(parameters[i].FormerNames, ElementPath{listPath, i}, names, "a parameter of this list", taken))
 					{
 						return false;
 					}
@@ -1512,10 +1529,10 @@ namespace Strada
 				for (size_t i = 0; i < locals.size(); i++)
 				{
 					VisualScriptLocal const& local = locals[i];
-					std::string const path = Element(listPath, i);
+					ElementPath const path{listPath, i};
 					if (i == Format::MaxLocals)
 					{
-						return Fail(path, fmt::format("more than {} locals", Format::MaxLocals));
+						return Fail(path.Get(), fmt::format("more than {} locals", Format::MaxLocals));
 					}
 					if (!CheckNewID(local.ID, path))
 					{
@@ -1523,19 +1540,19 @@ namespace Strada
 					}
 					if (!Format::IsValidName(local.Name))
 					{
-						return FailName(Member(path, "Name"));
+						return FailName(path.Get("Name"));
 					}
 					if (!names.insert(local.Name).second)
 					{
-						return Fail(Member(path, "Name"), fmt::format("'{}' is the name of an earlier local", local.Name));
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of an earlier local", local.Name));
 					}
 					if (m_VariableNames.contains(local.Name))
 					{
-						return Fail(Member(path, "Name"), fmt::format("'{}' is the name of a variable", local.Name));
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of a variable", local.Name));
 					}
 					if (!Format::IsValidText(local.Type, Format::MaxTypeBytes))
 					{
-						return FailType(Member(path, "Type"), Format::MaxTypeBytes);
+						return FailType(path.Get("Type"), Format::MaxTypeBytes);
 					}
 					m_IDs.insert(local.ID);
 					if (!CheckValue(local.Value, path))
@@ -1546,78 +1563,78 @@ namespace Strada
 				return true;
 			}
 
-			bool CheckGraph(VisualScriptGraph const& graph, std::string const& path)
+			bool CheckGraph(VisualScriptGraph const& graph, std::string const& graphPath)
 			{
 				m_NodeIDs.clear();
 				m_NodeIDs.reserve(graph.Nodes.size());
-				std::string const nodesPath = Member(path, "Nodes");
+				std::string const nodesPath = Member(graphPath, "Nodes");
 				for (size_t i = 0; i < graph.Nodes.size(); i++)
 				{
-					if (!CheckNode(graph.Nodes[i], Element(nodesPath, i), i))
+					if (!CheckNode(graph.Nodes[i], ElementPath{nodesPath, i}))
 					{
 						return false;
 					}
 				}
-				std::string const linksPath = Member(path, "Links");
+				std::string const linksPath = Member(graphPath, "Links");
 				std::unordered_set<LinkKey, LinkKeyHash> links;
 				links.reserve(graph.Links.size());
 				for (size_t i = 0; i < graph.Links.size(); i++)
 				{
 					VisualScriptLink const& link = graph.Links[i];
-					std::string const linkPath = Element(linksPath, i);
+					ElementPath const path{linksPath, i};
 					if (i == Format::MaxLinksPerGraph)
 					{
-						return Fail(linkPath, fmt::format("more than {} links in a graph", Format::MaxLinksPerGraph));
+						return Fail(path.Get(), fmt::format("more than {} links in a graph", Format::MaxLinksPerGraph));
 					}
-					if (!CheckEndpoint(link.From, Member(linkPath, "From")) || !CheckEndpoint(link.To, Member(linkPath, "To")))
+					if (!CheckEndpoint(link.From, path, "From") || !CheckEndpoint(link.To, path, "To"))
 					{
 						return false;
 					}
 					if (!links.insert({link.From.Node, link.From.Pin, link.To.Node, link.To.Pin}).second)
 					{
-						return Fail(linkPath, "repeats an earlier link");
+						return Fail(path.Get(), "repeats an earlier link");
 					}
 				}
-				std::string const commentsPath = Member(path, "Comments");
+				std::string const commentsPath = Member(graphPath, "Comments");
 				for (size_t i = 0; i < graph.Comments.size(); i++)
 				{
 					VisualScriptComment const& comment = graph.Comments[i];
-					std::string const commentPath = Element(commentsPath, i);
+					ElementPath const path{commentsPath, i};
 					if (i == Format::MaxCommentsPerGraph)
 					{
-						return Fail(commentPath, fmt::format("more than {} comments in a graph", Format::MaxCommentsPerGraph));
+						return Fail(path.Get(), fmt::format("more than {} comments in a graph", Format::MaxCommentsPerGraph));
 					}
-					if (!CheckNewID(comment.ID, commentPath))
+					if (!CheckNewID(comment.ID, path))
 					{
 						return false;
 					}
 					m_IDs.insert(comment.ID);
 					if (!Format::IsValidLongText(comment.Text))
 					{
-						return FailText(Member(commentPath, "Text"));
+						return FailText(path.Get("Text"));
 					}
 					if (!Format::IsValidPosition(comment.Position))
 					{
-						return FailPosition(Member(commentPath, "Position"));
+						return FailPosition(path.Get("Position"));
 					}
 					if (!Format::IsValidCommentSize(comment.Size))
 					{
-						return Fail(Member(commentPath, "Size"),
+						return Fail(path.Get("Size"),
 						            fmt::format("expected two numbers from {} to {}", Format::MinCommentSize, Format::MaxCommentSize));
 					}
 					if (!Format::IsValidColor(comment.Color))
 					{
-						return Fail(Member(commentPath, "Color"), "expected four numbers from 0 to 1");
+						return Fail(path.Get("Color"), "expected four numbers from 0 to 1");
 					}
 				}
 				return true;
 			}
 
-			bool CheckNode(VisualScriptNode const& node, std::string const& path, size_t index)
+			bool CheckNode(VisualScriptNode const& node, ElementPath const& path)
 			{
-				if (index == Format::MaxNodesPerGraph)
+				if (path.Index == Format::MaxNodesPerGraph)
 				{
-					return Fail(path, fmt::format("more than {} nodes in a graph", Format::MaxNodesPerGraph));
+					return Fail(path.Get(), fmt::format("more than {} nodes in a graph", Format::MaxNodesPerGraph));
 				}
 				if (!CheckNewID(node.ID, path))
 				{
@@ -1625,47 +1642,42 @@ namespace Strada
 				}
 				if (!Format::IsValidText(node.Type, Format::MaxNodeTypeBytes))
 				{
-					return FailType(Member(path, "Type"), Format::MaxNodeTypeBytes);
+					return FailType(path.Get("Type"), Format::MaxNodeTypeBytes);
 				}
 				m_IDs.insert(node.ID);
 				m_NodeIDs.insert(node.ID);
 				if (node.Position && !Format::IsValidPosition(*node.Position))
 				{
-					return FailPosition(Member(path, "Position"));
+					return FailPosition(path.Get("Position"));
 				}
-				if (!CheckMembers(node.Settings, Member(path, "Settings")) || !CheckMembers(node.Inputs, Member(path, "Inputs")))
-				{
-					return false;
-				}
-				std::string const splitPath = Member(path, "Split");
-				if (!CheckSplitPins(node.Split.Inputs, Member(splitPath, "Inputs")) ||
-				    !CheckSplitPins(node.Split.Outputs, Member(splitPath, "Outputs")))
+				if (!CheckMembers(node.Settings, path, "Settings") || !CheckMembers(node.Inputs, path, "Inputs") ||
+				    !CheckSplitPins(node.Split.Inputs, path, "Inputs") || !CheckSplitPins(node.Split.Outputs, path, "Outputs"))
 				{
 					return false;
 				}
 				if (!Format::IsValidLongText(node.Comment))
 				{
-					return FailText(Member(path, "Comment"));
+					return FailText(path.Get("Comment"));
 				}
 				if (VisualScriptNodeEnabledToString(node.Enabled).empty())
 				{
-					return Fail(Member(path, "Enabled"), "expected \"Enabled\", \"Disabled\" or \"DevelopmentOnly\"");
+					return Fail(path.Get("Enabled"), "expected \"Enabled\", \"Disabled\" or \"DevelopmentOnly\"");
 				}
 				return true;
 			}
 
-			// A node's Settings or Inputs: an object of at most MaxSettingsMembers members with valid names and values.
-			bool CheckMembers(Json const& members, std::string const& path)
+			// A node's Settings or Inputs (key): an object of at most MaxSettingsMembers members with valid names and values.
+			bool CheckMembers(Json const& members, ElementPath const& node, std::string_view key)
 			{
 				if (!members.is_object())
 				{
 					if (!members.empty())
 					{
-						return Fail(path, "expected an object");
+						return Fail(node.Get(key), "expected an object");
 					}
 					if (!m_Unread)
 					{
-						m_Unread = VisualScriptIssue{path, "expected an object: null and [] are not written, and read back as {}"};
+						m_Unread = VisualScriptIssue{node.Get(key), "expected an object: null and [] are not written, and read back as {}"};
 					}
 					return true;
 				}
@@ -1675,44 +1687,47 @@ namespace Strada
 					std::string const& name = item.key();
 					if (!Format::IsValidText(name, Format::MaxPinNameBytes))
 					{
-						return Fail(path, fmt::format("the member {} has no valid name: member names are 1 to {} bytes without control "
-						                              "characters",
-						                              Quote(name), Format::MaxPinNameBytes));
+						return Fail(node.Get(key), fmt::format("the member {} has no valid name: member names are 1 to {} bytes without "
+						                                       "control characters",
+						                                       Quote(name), Format::MaxPinNameBytes));
 					}
 					if (count == Format::MaxSettingsMembers)
 					{
-						return Fail(Member(path, name), fmt::format("more than {} members", Format::MaxSettingsMembers));
+						return Fail(Member(node.Get(key), name), fmt::format("more than {} members", Format::MaxSettingsMembers));
 					}
 					if (!Format::IsValidValue(item.value()))
 					{
-						return Fail(Member(path, name), DescribeInvalidValue());
+						return Fail(Member(node.Get(key), name), DescribeInvalidValue());
 					}
 					count++;
 				}
 				return true;
 			}
 
-			// A list of Split: pin paths, each once, a field after its parent, at most MaxSplitPins.
-			bool CheckSplitPins(std::vector<std::string> const& paths, std::string const& listPath)
+			// A list of a node's Split (key): pin paths, each once, a field after its parent, at most MaxSplitPins.
+			bool CheckSplitPins(std::vector<std::string> const& paths, ElementPath const& node, std::string_view key)
 			{
 				for (size_t i = 0; i < paths.size(); i++)
 				{
 					std::string const& pin = paths[i];
-					std::string const path = Element(listPath, i);
+					auto const path = [&node, key, i]()
+					{
+						return Element(Member(node.Get("Split"), key), i);
+					};
 					if (!Format::IsValidSplitPath(pin))
 					{
-						return Fail(path, fmt::format("expected a pin name or the path of a field pin (\"Hit.Point\"): names separated by "
-						                              "'.', 1 to {} bytes without control characters",
-						                              Format::MaxPinNameBytes));
+						return Fail(path(), fmt::format("expected a pin name or the path of a field pin (\"Hit.Point\"): names separated "
+						                                "by '.', 1 to {} bytes without control characters",
+						                                Format::MaxPinNameBytes));
 					}
 					if (i == Format::MaxSplitPins)
 					{
-						return Fail(path, fmt::format("more than {} split pins", Format::MaxSplitPins));
+						return Fail(path(), fmt::format("more than {} split pins", Format::MaxSplitPins));
 					}
 					auto const earlier = paths.begin() + static_cast<std::ptrdiff_t>(i);
 					if (std::find(paths.begin(), earlier, pin) != earlier)
 					{
-						return Fail(path, fmt::format("'{}' is already split", pin));
+						return Fail(path(), fmt::format("'{}' is already split", pin));
 					}
 					size_t const field = pin.rfind('.');
 					if (field != std::string::npos)
@@ -1720,26 +1735,26 @@ namespace Strada
 						std::string_view const parent = std::string_view(pin).substr(0, field);
 						if (std::find(paths.begin(), earlier, parent) == earlier)
 						{
-							return Fail(path, fmt::format("'{}' is a field of '{}', which is not split before it", pin, parent));
+							return Fail(path(), fmt::format("'{}' is a field of '{}', which is not split before it", pin, parent));
 						}
 					}
 				}
 				return true;
 			}
 
-			bool CheckEndpoint(VisualScriptPinReference const& end, std::string path)
+			// A link's end (key: From or To).
+			bool CheckEndpoint(VisualScriptPinReference const& end, ElementPath const& link, std::string_view key)
 			{
 				// The loader reads a link's pins as pin names (ToPinReference), not as pin paths.
 				if (!Format::IsValidID(end.Node) || !Format::IsValidText(end.Pin, Format::MaxPinNameBytes))
 				{
-					return Fail(std::move(path),
-					            fmt::format("expected [node ID, pin name] with a pin name of 1 to {} bytes without control "
-					                        "characters",
-					                        Format::MaxPinNameBytes));
+					return Fail(link.Get(key), fmt::format("expected [node ID, pin name] with a pin name of 1 to {} bytes without control "
+					                                       "characters",
+					                                       Format::MaxPinNameBytes));
 				}
 				if (!m_NodeIDs.contains(end.Node))
 				{
-					return Fail(std::move(path), fmt::format("node {} is not in this graph", end.Node));
+					return Fail(link.Get(key), fmt::format("node {} is not in this graph", end.Node));
 				}
 				return true;
 			}

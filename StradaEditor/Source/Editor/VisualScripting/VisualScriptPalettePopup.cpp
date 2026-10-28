@@ -225,8 +225,8 @@ namespace Strada
 		m_Query.clear();
 		m_From.reset();
 		m_Rows.clear();
-		// The index keeps its entries (the library's are rebuilt only when the library changes); the document is let go.
-		m_IndexedDocument.reset();
+		// The index keeps its entries: the library's are rebuilt only when the library changes, the document's when the program
+		// changes.
 	}
 
 	std::vector<uint32_t> VisualScriptPalettePopup::GetRowEntries() const
@@ -276,14 +276,17 @@ namespace Strada
 		{
 			m_Library = library;
 			m_Index.Rebuild(*library);
-			m_IndexedDocument.reset();
+			m_IndexedRevision.reset();
 			changed = true;
 		}
-		if (model.GetStoredDocument() != m_IndexedDocument || model.GetFunction() != m_IndexedFunction || changed)
+		// The document's entries come from names, signatures and events, never from positions: a layout-only commit keeps the
+		// model's program revision, and the document is not read again.
+		if (model.GetProgramRevision() != m_IndexedRevision || model.GetFunction() != m_IndexedFunction || changed)
 		{
-			m_IndexedDocument = model.GetStoredDocument();
+			m_IndexedRevision = model.GetProgramRevision();
 			m_IndexedFunction = model.GetFunction();
 			m_Index.SetDocument(model.GetDisplayDocument(), m_IndexedFunction);
+			m_DocumentReads++;
 			changed = true;
 		}
 		if (!changed)

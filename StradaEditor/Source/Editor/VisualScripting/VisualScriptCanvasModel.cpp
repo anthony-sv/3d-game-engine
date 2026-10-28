@@ -124,6 +124,14 @@ namespace Strada
 		}
 
 		// Of everything a node's drawing takes from its analysis entry.
+		// Of everything a comment box's layout is made from.
+		uint64_t HashComment(VisualScriptComment const& comment)
+		{
+			uint64_t hash = HashText(HashVector(HashVector(Hash::Combine(0, comment.ID), comment.Position), comment.Size), comment.Text);
+			hash = Hash::Combine(Hash::Combine(hash, HashBits(comment.Color.r)), HashBits(comment.Color.g));
+			return Hash::Combine(Hash::Combine(hash, HashBits(comment.Color.b)), HashBits(comment.Color.a));
+		}
+
 		uint64_t HashEntry(uint64_t seed, VisualScriptAnalyzedNode const& entry)
 		{
 			uint64_t hash = HashText(HashText(HashText(seed, entry.Title), entry.Subtitle), entry.PassThrough);
@@ -2276,10 +2284,7 @@ namespace Strada
 			m_Model.m_CommentRecords.reserve(m_Graph->Comments.size());
 			for (VisualScriptComment const& comment : m_Graph->Comments)
 			{
-				uint64_t hash =
-					HashText(HashVector(HashVector(Hash::Combine(0, comment.ID), comment.Position), comment.Size), comment.Text);
-				hash = Hash::Combine(Hash::Combine(hash, HashBits(comment.Color.r)), HashBits(comment.Color.g));
-				hash = Hash::Combine(Hash::Combine(hash, HashBits(comment.Color.b)), HashBits(comment.Color.a));
+				uint64_t const hash = HashComment(comment);
 				std::optional<uint32_t> const previous = FindSorted(m_Model.m_SpareCommentIndices, comment.ID);
 				if (previous && m_Model.m_SpareCommentRecords[*previous].Hash == hash)
 				{
@@ -2321,38 +2326,7 @@ namespace Strada
 				m_Model.m_CommentRecords.push_back({hash, textOffset, static_cast<uint32_t>(m_Model.m_Text.size()) - textOffset, 0, false});
 			}
 
-			// Largest first, so inner comments draw above outer ones; equal areas keep document order.
-			Scratch& scratch = m_Scratch;
-			std::vector<VisualScriptCommentVisual>& comments = m_Model.m_Comments;
-			scratch.CommentOrder.resize(comments.size());
-			for (uint32_t index = 0; index < comments.size(); index++)
-			{
-				scratch.CommentOrder[index] = index;
-			}
-			std::stable_sort(scratch.CommentOrder.begin(), scratch.CommentOrder.end(),
-			                 [&comments](uint32_t a, uint32_t b)
-			                 {
-								 glm::vec2 const sizeA = comments[a].Rect.GetSize();
-								 glm::vec2 const sizeB = comments[b].Rect.GetSize();
-								 return sizeA.x * sizeA.y > sizeB.x * sizeB.y;
-							 });
-			if (!std::is_sorted(scratch.CommentOrder.begin(), scratch.CommentOrder.end()))
-			{
-				scratch.SortedComments.clear();
-				scratch.SortedCommentRecords.clear();
-				for (uint32_t const index : scratch.CommentOrder)
-				{
-					scratch.SortedComments.push_back(comments[index]);
-					scratch.SortedCommentRecords.push_back(m_Model.m_CommentRecords[index]);
-				}
-				std::copy(scratch.SortedComments.begin(), scratch.SortedComments.end(), comments.begin());
-				std::copy(scratch.SortedCommentRecords.begin(), scratch.SortedCommentRecords.end(), m_Model.m_CommentRecords.begin());
-			}
-			for (uint32_t index = 0; index < comments.size(); index++)
-			{
-				indices.emplace_back(comments[index].ID, index);
-			}
-			SortByID(indices);
+			m_Model.OrderComments();
 		}
 
 		VisualScriptCanvasModel& m_Model;
@@ -2438,6 +2412,131 @@ namespace Strada
 			m_SpareText.reserve(m_Text.size());
 		}
 
+		uint64_t const geometry = ComputeGeometryHash();
+		bool const changed = !m_HasSynced || geometry != m_GeometryHash;
+		m_GeometryHash = geometry;
+		m_HasSynced = true;
+		return changed;
+	}
+
+	std::optional<bool> VisualScriptCanvasModel::SyncPositions(VisualScriptDocument const& previous, VisualScriptCanvasSource const& source,
+	                                                           VisualScriptTextMeasurer const& measure,
+	                                                           VisualScriptThemeAnchors const& theme)
+	{
+		bool const namesChanged = m_ShowsAssetNames && source.AssetVersion != m_AssetVersion;
+		if (!m_HasSynced || source.Display == nullptr || source.Function != m_Function || source.Library != m_Library ||
+		    !(theme == m_Theme) || measure.Signature != m_MeasureSignature || namesChanged)
+		{
+			return std::nullopt;
+		}
+		VisualScriptGraph const* before = FindGraph(previous, m_Function);
+		VisualScriptGraph const* after = FindGraph(*source.Display, m_Function);
+		if (before == nullptr || after == nullptr || before->Nodes.size() != after->Nodes.size() || after->Nodes.size() != m_Nodes.size() ||
+		    before->Links.size() != after->Links.size() || before->Comments.size() != after->Comments.size() ||
+		    after->Comments.size() != m_Comments.size())
+		{
+			return std::nullopt;
+		}
+		// What a node's layout reads beyond its program, and each node at its own index (no repeated IDs, so the visual model
+		// has every node of the graph in its order).
+		for (size_t index = 0; index < after->Nodes.size(); index++)
+		{
+			VisualScriptNode const& node = after->Nodes[index];
+			VisualScriptNode const& was = before->Nodes[index];
+			if (node.ID != was.ID || m_Nodes[index].ID != node.ID || node.Collapsed != was.Collapsed || node.Comment != was.Comment)
+			{
+				return std::nullopt;
+			}
+		}
+		// What a comment's layout reads besides its position: its size (which also orders the boxes), text and colour.
+		for (size_t index = 0; index < after->Comments.size(); index++)
+		{
+			VisualScriptComment const& comment = after->Comments[index];
+			VisualScriptComment const& was = before->Comments[index];
+			if (comment.ID != was.ID || comment.Size != was.Size || comment.Text != was.Text || comment.Color != was.Color ||
+			    !FindSorted(m_CommentIndices, comment.ID))
+			{
+				return std::nullopt;
+			}
+		}
+
+		// As Sync keeps a node it laid out before: at its new position, with its bounds moved along.
+		for (size_t index = 0; index < after->Nodes.size(); index++)
+		{
+			VisualScriptNodeVisual& visual = m_Nodes[index];
+			glm::vec2 const position = after->Nodes[index].Position.value_or(glm::vec2(0.0f));
+			if (position != visual.Position)
+			{
+				glm::vec2 const delta = position - visual.Position;
+				visual.Position = position;
+				visual.VisualBounds = VisualScriptGeometry::Translate(visual.VisualBounds, delta);
+			}
+		}
+		// As Sync lays a comment out: its rectangle from its position and size (its texts depend on its size alone), in document
+		// order, then ordered as Sync orders them (a box's area is computed from its rectangle, so it may round otherwise once
+		// moved).
+		Scratch& scratch = *m_Scratch;
+		scratch.SortedComments.clear();
+		scratch.SortedCommentRecords.clear();
+		for (VisualScriptComment const& comment : after->Comments)
+		{
+			uint32_t const index = FindSorted(m_CommentIndices, comment.ID).value_or(0);
+			VisualScriptCommentVisual& visual = scratch.SortedComments.emplace_back(m_Comments[index]);
+			visual.Rect = {comment.Position, comment.Position + glm::max(comment.Size, glm::vec2(0.0f))};
+			LayoutRecord& record = scratch.SortedCommentRecords.emplace_back(m_CommentRecords[index]);
+			record.Hash = HashComment(comment);
+		}
+		std::copy(scratch.SortedComments.begin(), scratch.SortedComments.end(), m_Comments.begin());
+		std::copy(scratch.SortedCommentRecords.begin(), scratch.SortedCommentRecords.end(), m_CommentRecords.begin());
+		OrderComments();
+		m_MeasuredNodeCount = 0;
+		m_AssetVersion = source.AssetVersion;
+		m_PositionSyncCount++;
+		uint64_t const geometry = ComputeGeometryHash();
+		bool const changed = geometry != m_GeometryHash;
+		m_GeometryHash = geometry;
+		return changed;
+	}
+
+	void VisualScriptCanvasModel::OrderComments()
+	{
+		// Largest first, so inner comments draw above outer ones; equal areas keep document order.
+		Scratch& scratch = *m_Scratch;
+		std::vector<VisualScriptCommentVisual>& comments = m_Comments;
+		scratch.CommentOrder.resize(comments.size());
+		for (uint32_t index = 0; index < comments.size(); index++)
+		{
+			scratch.CommentOrder[index] = index;
+		}
+		std::stable_sort(scratch.CommentOrder.begin(), scratch.CommentOrder.end(),
+		                 [&comments](uint32_t a, uint32_t b)
+		                 {
+							 glm::vec2 const sizeA = comments[a].Rect.GetSize();
+							 glm::vec2 const sizeB = comments[b].Rect.GetSize();
+							 return sizeA.x * sizeA.y > sizeB.x * sizeB.y;
+						 });
+		if (!std::is_sorted(scratch.CommentOrder.begin(), scratch.CommentOrder.end()))
+		{
+			scratch.SortedComments.clear();
+			scratch.SortedCommentRecords.clear();
+			for (uint32_t const index : scratch.CommentOrder)
+			{
+				scratch.SortedComments.push_back(comments[index]);
+				scratch.SortedCommentRecords.push_back(m_CommentRecords[index]);
+			}
+			std::copy(scratch.SortedComments.begin(), scratch.SortedComments.end(), comments.begin());
+			std::copy(scratch.SortedCommentRecords.begin(), scratch.SortedCommentRecords.end(), m_CommentRecords.begin());
+		}
+		m_CommentIndices.clear();
+		for (uint32_t index = 0; index < comments.size(); index++)
+		{
+			m_CommentIndices.emplace_back(comments[index].ID, index);
+		}
+		SortByID(m_CommentIndices);
+	}
+
+	uint64_t VisualScriptCanvasModel::ComputeGeometryHash() const
+	{
 		uint64_t geometry = Hash::Combine(Hash::Combine(0, m_Nodes.size()), m_Comments.size());
 		for (size_t index = 0; index < m_Nodes.size(); index++)
 		{
@@ -2454,10 +2553,7 @@ namespace Strada
 		{
 			geometry = HashRect(Hash::Combine(geometry, comment.ID), comment.Rect);
 		}
-		bool const changed = !m_HasSynced || geometry != m_GeometryHash;
-		m_GeometryHash = geometry;
-		m_HasSynced = true;
-		return changed;
+		return geometry;
 	}
 
 	std::span<VisualScriptPinVisual const> VisualScriptCanvasModel::GetPins(VisualScriptNodeVisual const& node) const
