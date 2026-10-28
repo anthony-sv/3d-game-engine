@@ -20,11 +20,14 @@ internal sealed class NodeShaper
 
 	private readonly AnalysisContext m_Context;
 	private readonly Dictionary<AnalyzedNode, VisualType> m_ConvertTargets;
+	private readonly Dictionary<AnalyzedNode, ParsedFormula> m_Formulas;
 
-	internal NodeShaper(AnalysisContext context, Dictionary<AnalyzedNode, VisualType> convertTargets)
+	// convertTargets and formulas receive what Convert and Expression nodes' settings say, which type resolution completes.
+	internal NodeShaper(AnalysisContext context, Dictionary<AnalyzedNode, VisualType> convertTargets, Dictionary<AnalyzedNode, ParsedFormula> formulas)
 	{
 		m_Context = context;
 		m_ConvertTargets = convertTargets;
+		m_Formulas = formulas;
 	}
 
 	private NodeLibrary Library => m_Context.Library;
@@ -135,6 +138,9 @@ internal sealed class NodeShaper
 				break;
 			case BuiltinNode.FormatString:
 				FormatNode(node);
+				break;
+			case BuiltinNode.Expression:
+				ExpressionNode(node);
 				break;
 			case BuiltinNode.OperatorAnd:
 			case BuiltinNode.OperatorOr:
@@ -724,6 +730,50 @@ internal sealed class NodeShaper
 			segments.Add(new FormatSegment(text.ToString(), -1));
 		}
 		return true;
+	}
+
+	// An input per input name of the formula (each its own type variable, typed by its link, a float when unlinked), then
+	// Result, which the formula's type decides (spec-slice3 sections 3.3.1 and 3.3.4). While a formula does not read, the
+	// node has the inputs it names and an untyped Result, and links naming other pins attach as unresolved pins.
+	private void ExpressionNode(AnalyzedNode node)
+	{
+		const string setting = "Formula";
+		if (!node.Source.Settings.TryGet(setting, out JsonElement value))
+		{
+			m_Context.ReportNode(DiagnosticCode.MissingSetting, node, $"{node.Title} needs the setting {setting}: a formula such as a * b + sin(t)");
+			ShapeBrokenExpression(node, []);
+			return;
+		}
+		if (!JsonText.TryGetString(value, out string? formula))
+		{
+			m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, $"{setting}: expected a string, not {JsonText.Excerpt(value)}");
+			ShapeBrokenExpression(node, []);
+			return;
+		}
+		node.Subtitle = ExpressionParser.Subtitle(formula);
+		ParsedFormula parsed = ExpressionParser.Parse(formula, name => m_Context.Suggest(name, ExpressionParser.CalleeNames, transpositions: true));
+		if (parsed.Error is { } error)
+		{
+			m_Context.ReportSetting(error.Code, node, setting, formula, (error.Start, error.End), error.Message, error.Suggestions);
+			ShapeBrokenExpression(node, parsed.Inputs);
+			return;
+		}
+		foreach (string input in parsed.Inputs)
+		{
+			node.AddPin(BuiltinNodes.Wildcard(input, PinDirection.In, PinConstraint.Expression, WildcardSource.Links));
+		}
+		node.AddPin(BuiltinNodes.Wildcard("Result", PinDirection.Out, PinConstraint.Any, WildcardSource.Computed));
+		m_Formulas[node] = parsed;
+	}
+
+	private static void ShapeBrokenExpression(AnalyzedNode node, IReadOnlyList<string> inputs)
+	{
+		foreach (string input in inputs)
+		{
+			node.AddPin(BuiltinNodes.Wildcard(input, PinDirection.In, PinConstraint.Expression, WildcardSource.None));
+		}
+		node.AddPin(BuiltinNodes.Wildcard("Result", PinDirection.Out, PinConstraint.Any, WildcardSource.None));
+		node.PinsComplete = false;
 	}
 
 	private void ShapeMember(AnalyzedNode node, MemberNodeDefinition definition)

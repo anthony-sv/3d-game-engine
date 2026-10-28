@@ -29,7 +29,7 @@ namespace
 
 	// Every built-in node kind of the scripting runtime (BuiltinNodes.TypeOf) with the title a node of it without settings
 	// has. Each equals the node library's title, except Function.Entry's: the library calls it "Function Entry".
-	constexpr std::array<BuiltInTitle, 65> BuiltInTitles = {{
+	constexpr std::array<BuiltInTitle, 66> BuiltInTitles = {{
 		{"Event.Create", "Create"},
 		{"Event.Update", "Update"},
 		{"Event.FixedUpdate", "Fixed Update"},
@@ -79,6 +79,7 @@ namespace
 		{"FormatString", "Format String"},
 		{"Array.Length", "Length"},
 		{"Array.Get", "Get"},
+		{"Expression", "Expression"},
 		{"Operator.Add", "Add"},
 		{"Operator.Subtract", "Subtract"},
 		{"Operator.Multiply", "Multiply"},

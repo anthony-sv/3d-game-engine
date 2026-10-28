@@ -132,6 +132,98 @@ public sealed class RobustnessTests
 		Assert.True(tally.Split > 0, $"no graph with a split pin ran: {tally}");
 	}
 
+	// Formulas through the same operations (spec-slice3 section 3.9): a document of Expression nodes damaged as any document
+	// is, and with its formulas' texts edited.
+	[Fact]
+	public void DamagedFormulasAnswerWhatTheProtocolSpecifiesAndNeverThrow()
+	{
+		JsonNode original = JsonNode.Parse(FormulaDocument)!;
+		DocumentMutator mutator = new(0x464F524D554C4145u);
+		FuzzRandom random = new(0x464F524D554C4146u);
+		Tally tally = new();
+		int rounds = Fuzzing.GetRounds(150);
+		for (int round = 0; round < rounds; round++)
+		{
+			string context = $"round {round} (formulas)";
+			JsonNode? document = (round % 3) switch
+			{
+				0 => DamageFormulas(original, random),
+				1 => mutator.Damage(original, round / 3),
+				_ => mutator.Rewire(original, round / 3),
+			};
+			byte[] text = mutator.Write(document);
+			try
+			{
+				new Round(context, mutator, tally).Run(text);
+			}
+			catch (Exception exception) when (exception is not Xunit.Sdk.IAssertionException)
+			{
+				Assert.Fail($"{context}: an operation threw {exception}\ndocument: {Encoding.UTF8.GetString(text)}");
+			}
+		}
+		TestContext.Current.TestOutputHelper?.WriteLine($"{rounds} rounds: {tally}");
+		Assert.True(tally.Broken > 0, $"no program was broken: {tally}");
+		Assert.True(tally.Ran > 0, $"no damaged graph ran: {tally}");
+		Assert.True(tally.Aborted > 0, $"no execution aborted: {tally}");
+	}
+
+	// Three formulas feeding three variables every Update; the second divides by zero every third Update.
+	private const string FormulaDocument = """
+		{
+			"Variables": [
+				{ "ID": 1, "Name": "Total", "Type": "float", "Value": 0.0 },
+				{ "ID": 2, "Name": "Count", "Type": "int", "Value": 0 },
+				{ "ID": 3, "Name": "Where", "Type": "Strada.Vector3" }
+			],
+			"Functions": [],
+			"Graph": {
+				"Nodes": [
+					{ "ID": 10, "Type": "Event.Update" },
+					{ "ID": 11, "Type": "Flow.Sequence", "Settings": { "Count": 3 } },
+					{ "ID": 12, "Type": "Expression", "Settings": { "Formula": "total + dt * speed" }, "Inputs": { "speed": 2.5 } },
+					{ "ID": 13, "Type": "Variable.Get", "Settings": { "Variable": 1 } },
+					{ "ID": 14, "Type": "Variable.Set", "Settings": { "Variable": 1 } },
+					{ "ID": 15, "Type": "Expression", "Settings": { "Formula": "n % 3 == 2 ? n / (n - n) : n + 1" } },
+					{ "ID": 16, "Type": "Variable.Get", "Settings": { "Variable": 2 } },
+					{ "ID": 17, "Type": "Variable.Set", "Settings": { "Variable": 2 } },
+					{ "ID": 18, "Type": "Expression", "Settings": { "Formula": "normalize(p + vec3(1, n, 0)) * clamp(total, 0, 10) + vec3(p.z, p.y, p.x)" } },
+					{ "ID": 19, "Type": "Variable.Get", "Settings": { "Variable": 3 } },
+					{ "ID": 20, "Type": "Variable.Set", "Settings": { "Variable": 3 } }
+				],
+				"Links": [
+					{ "From": [10, "Then"], "To": [11, "Execute"] },
+					{ "From": [11, "Then0"], "To": [14, "Execute"] },
+					{ "From": [11, "Then1"], "To": [17, "Execute"] },
+					{ "From": [11, "Then2"], "To": [20, "Execute"] },
+					{ "From": [10, "DeltaTime"], "To": [12, "dt"] },
+					{ "From": [13, "Value"], "To": [12, "total"] },
+					{ "From": [12, "Result"], "To": [14, "Value"] },
+					{ "From": [16, "Value"], "To": [15, "n"] },
+					{ "From": [15, "Result"], "To": [17, "Value"] },
+					{ "From": [19, "Value"], "To": [18, "p"] },
+					{ "From": [16, "Value"], "To": [18, "n"] },
+					{ "From": [13, "Value"], "To": [18, "total"] },
+					{ "From": [18, "Result"], "To": [20, "Value"] }
+				],
+				"Comments": []
+			}
+		}
+		""";
+
+	// The document with the texts of its formulas edited as typing edits them.
+	private static JsonNode DamageFormulas(JsonNode original, FuzzRandom random)
+	{
+		JsonNode document = original.DeepClone();
+		foreach (JsonNode? node in document["Graph"]!["Nodes"]!.AsArray())
+		{
+			if (node!["Settings"]?["Formula"] is JsonValue formula && formula.TryGetValue(out string? text) && random.Pick(2) == 0)
+			{
+				node["Settings"]!["Formula"] = FormulaGenerator.Damage(random, text);
+			}
+		}
+		return document;
+	}
+
 	// What the rounds reached.
 	private sealed class Tally
 	{

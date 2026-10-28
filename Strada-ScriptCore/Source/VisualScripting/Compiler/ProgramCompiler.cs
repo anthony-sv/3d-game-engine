@@ -295,6 +295,7 @@ internal static class ProgramCompiler
 				BuiltinNode.FormatString => Opcode.Format,
 				BuiltinNode.ArrayLength => Opcode.ArrayLength,
 				BuiltinNode.ArrayGet => Opcode.ArrayGet,
+				BuiltinNode.Expression => Opcode.Expression,
 				_ => OperatorOpcode(node, builtin),
 			};
 		}
@@ -751,6 +752,9 @@ internal static class ProgramCompiler
 					break;
 				case Opcode.OperatorMethod:
 					node.Member = ((OperatorBinding)source.Binding!).Method;
+					break;
+				case Opcode.Expression:
+					node.Expression = ExpressionCompiler.Compile((ExpressionBinding)source.Binding!, node.InputBase, node.OutputBase, Allocate);
 					break;
 				case Opcode.Member:
 				case Opcode.PureMember:

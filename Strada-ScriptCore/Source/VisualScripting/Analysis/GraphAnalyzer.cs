@@ -35,7 +35,8 @@ internal static class GraphAnalyzer
 		}
 		ComputeLatency(context);
 		Dictionary<AnalyzedNode, VisualType> convertTargets = [];
-		NodeShaper shaper = new(context, convertTargets);
+		Dictionary<AnalyzedNode, ParsedFormula> formulas = [];
+		NodeShaper shaper = new(context, convertTargets, formulas);
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			foreach (AnalyzedNode node in graph.Nodes)
@@ -60,7 +61,7 @@ internal static class GraphAnalyzer
 		{
 			AttachLinks(context, graph, source);
 		}
-		TypeResolution types = new(context, convertTargets, node => SplitResolved(context, node));
+		TypeResolution types = new(context, convertTargets, formulas, node => SplitResolved(context, node));
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			types.Resolve(graph);
@@ -548,6 +549,11 @@ internal static class GraphAnalyzer
 			if (node.Builtin == BuiltinNode.FormatString)
 			{
 				pin.Type = context.Library.String;
+				continue;
+			}
+			// An Expression's input stays untyped only when its links' types are no formula operands: CheckLinks reported them.
+			if (node.Builtin == BuiltinNode.Expression && pin.Links.Count > 0)
+			{
 				continue;
 			}
 			string hint = node.Builtin is { } builtin && BuiltinNodes.IsBinaryWildcardOperator(builtin)

@@ -80,6 +80,18 @@ public sealed class NodeLibraryTests
 		Assert.True(library.Nodes.OfType<MemberNodeDefinition>().Count() > 500);
 	}
 
+	// TypeOf names every kind explicitly: a kind added without its type string throws instead of taking another's.
+	[Fact]
+	public void TypeOfIsExhaustive()
+	{
+		HashSet<string> types = new(StringComparer.Ordinal);
+		foreach (BuiltinNode node in Enum.GetValues<BuiltinNode>())
+		{
+			Assert.True(types.Add(BuiltinNodes.TypeOf(node)), $"{node} shares its type string");
+		}
+		Assert.Throws<ArgumentOutOfRangeException>(static () => BuiltinNodes.TypeOf((BuiltinNode)1000));
+	}
+
 	[Fact]
 	public void BuildsGiveIdenticalBytesInEveryCulture()
 	{

@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text;
 using Strada.Interop;
 using Strada.VisualScripting;
 using Xunit;
@@ -91,6 +92,32 @@ public sealed class AllocationTests
 		Assert.Equal(52 * 79.0f, runtime.Variable("Total"));
 		Assert.Equal(40, runtime.Variable("Picks"));
 		Assert.NotEqual(new Vector3(0.0f, 0.0f, 0.0f), runtime.Variable("Offset"));
+	}
+
+	// A formula of 20 operations (spec-slice3 section 3.3.8): arithmetic, comparisons, short circuits, a conditional, casts,
+	// components, constructors and functions of numbers and vectors, all in slots.
+	[Fact]
+	public void AFormulaEvaluatesWithoutAllocating()
+	{
+		DocumentBuilder document = new();
+		uint total = document.Variable("Total", "float", "0.0");
+		GraphBuilder graph = document.Graph;
+		uint expression = graph.Node("Expression",
+			"""{ "Formula": "length(v * f + vec3(i, 2, 3)) + (i > 0 && f < 2 ? sin(f) : cos(f)) * clamp(f, 0, 1) - dot(v, v) / 3 + float(i % 7) + abs(-f) + v.y" }""",
+			"""{ "f": 0.5 }""");
+		graph.Link(graph.Literal("Strada.Vector3", "[1.0, 2.0, 3.0]"), "Value", expression, "v");
+		graph.Link(graph.Literal("int", "9"), "Value", expression, "i");
+		uint set = graph.Set(total);
+		graph.Link(expression, "Result", set, "Value");
+		graph.Flow(graph.Node("Event.Update"), set);
+		TestRuntime runtime = TestRuntime.Start(document);
+		Assert.True(ProgramCompiler.Compile(GraphAnalyzer.Analyze(RuntimeTesting.Library, Encoding.UTF8.GetBytes(document.Build())), "Count").EventGraph.Nodes
+			.Single(static node => node.Op == Opcode.Expression).Expression!.Code.Length >= 20);
+		runtime.Invoke(ScriptEvent.Update, 0.016f);
+
+		Assert.Equal(0, runtime.FewestBytesPerUpdate());
+		Assert.Empty(runtime.Environment.Logs);
+		Assert.NotEqual(0.0f, runtime.Variable("Total"));
 	}
 
 	// A node logs its Warning once per instance (spec section 5.3): when it runs into the problem again, nothing of the

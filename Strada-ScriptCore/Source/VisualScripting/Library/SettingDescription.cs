@@ -26,6 +26,8 @@ internal enum SettingKind
 	Enum,
 	// One of Choices.
 	Choice,
+	// A formula (spec-slice3 section 3.3): a string the node's pins follow.
+	Expression,
 }
 
 // Which types a Type or TypeList setting accepts.

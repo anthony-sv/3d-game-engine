@@ -20,7 +20,8 @@ internal enum NodeKind
 	Unknown,
 }
 
-// Every built-in node kind of spec sections 4.1 to 4.4.
+// Every built-in node kind of spec sections 4.1 to 4.4 and slice 3's (spec-slice3 section 3.1). Values are never persisted
+// (documents store type strings), so kinds are placed where the range predicates of BuiltinNodes stay true.
 internal enum BuiltinNode
 {
 	EventCreate,
@@ -72,6 +73,8 @@ internal enum BuiltinNode
 	FormatString,
 	ArrayLength,
 	ArrayGet,
+	// Slice 3's pure kinds come before the operators, so IsOperator (>= OperatorAdd) stays a range.
+	Expression,
 	OperatorAdd,
 	OperatorSubtract,
 	OperatorMultiply,

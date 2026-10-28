@@ -52,6 +52,8 @@ internal enum Opcode : byte
 	Concatenate,
 	Boolean,
 	OperatorMethod,
+	// A formula (spec-slice3 section 3.3.8).
+	Expression,
 }
 
 // Where a staged input takes its value from.
@@ -297,6 +299,9 @@ internal sealed class CompiledNode
 	internal Type? DeclaringType { get; set; }
 
 	internal MemberInvoker? Invoker { get; set; }
+
+	// Expression: the formula's program.
+	internal ExpressionProgram? Expression { get; set; }
 
 	public override string ToString() => $"{Title} (node {Id})";
 }

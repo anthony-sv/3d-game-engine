@@ -62,7 +62,8 @@ internal static class Conversions
 		_ => from.IsClrReference || !to.IsClrReference ? ConversionOp.None : ConversionOp.Box,
 	};
 
-	private static ConversionOp Widening(SlotKind from, SlotKind to) => (from, to) switch
+	// The conversion op of a numeric widening between two slot kinds.
+	internal static ConversionOp Widening(SlotKind from, SlotKind to) => (from, to) switch
 	{
 		(SlotKind.Int, SlotKind.Long) => ConversionOp.IntToLong,
 		(SlotKind.Int, SlotKind.Float) => ConversionOp.IntToFloat,
@@ -86,6 +87,29 @@ internal static class Conversions
 		{
 			case ConversionOp.None:
 				break;
+			case ConversionOp.Box:
+				slot = Slot.FromObject(SlotValues.ToValue(slot, from));
+				break;
+			case ConversionOp.ComponentToEntity:
+				slot = Slot.FromObject(((Component?)slot.Object)?.Entity);
+				break;
+			case ConversionOp.AssetToHandle:
+				slot = Slot.FromObject(slot.Object is Asset asset ? asset.Handle : s_InvalidHandle);
+				break;
+			case ConversionOp.ToText:
+				slot = Slot.FromString(ToText(slot, from));
+				break;
+			default:
+				Widen(ref slot, op);
+				break;
+		}
+	}
+
+	// Applies a numeric widening (IntToLong to FloatToDouble) in place.
+	internal static void Widen(ref Slot slot, ConversionOp op)
+	{
+		switch (op)
+		{
 			case ConversionOp.IntToLong:
 				slot = Slot.FromLong(slot.Int);
 				break;
@@ -121,18 +145,6 @@ internal static class Conversions
 				break;
 			case ConversionOp.FloatToDouble:
 				slot = Slot.FromDouble(slot.Float);
-				break;
-			case ConversionOp.Box:
-				slot = Slot.FromObject(SlotValues.ToValue(slot, from));
-				break;
-			case ConversionOp.ComponentToEntity:
-				slot = Slot.FromObject(((Component?)slot.Object)?.Entity);
-				break;
-			case ConversionOp.AssetToHandle:
-				slot = Slot.FromObject(slot.Object is Asset asset ? asset.Handle : s_InvalidHandle);
-				break;
-			case ConversionOp.ToText:
-				slot = Slot.FromString(ToText(slot, from));
 				break;
 		}
 	}

@@ -13,12 +13,15 @@ internal sealed class TypeResolution
 {
 	private readonly AnalysisContext m_Context;
 	private readonly IReadOnlyDictionary<AnalyzedNode, VisualType> m_ConvertTargets;
+	private readonly IReadOnlyDictionary<AnalyzedNode, ParsedFormula> m_Formulas;
 	private readonly Action<AnalyzedNode> m_Resolved;
 
-	internal TypeResolution(AnalysisContext context, IReadOnlyDictionary<AnalyzedNode, VisualType> convertTargets, Action<AnalyzedNode> resolved)
+	internal TypeResolution(AnalysisContext context, IReadOnlyDictionary<AnalyzedNode, VisualType> convertTargets,
+		IReadOnlyDictionary<AnalyzedNode, ParsedFormula> formulas, Action<AnalyzedNode> resolved)
 	{
 		m_Context = context;
 		m_ConvertTargets = convertTargets;
+		m_Formulas = formulas;
 		m_Resolved = resolved;
 	}
 
@@ -171,6 +174,57 @@ internal sealed class TypeResolution
 		{
 			ResolveConvert(node);
 		}
+		else if (builtin == BuiltinNode.Expression)
+		{
+			ResolveExpression(node);
+		}
+	}
+
+	// Types an Expression's inputs and its formula (spec-slice3 section 3.3.4): a linked input takes its link's type when the
+	// Expression constraint accepts it (else it stays untyped, CheckLinks reports the link and the formula is not typed); an
+	// unlinked input is a float, so its stored literal is decoded as one. Then Result takes the formula's type, or the
+	// formula's problem is reported and Result stays untyped.
+	private void ResolveExpression(AnalyzedNode node)
+	{
+		if (!m_Formulas.TryGetValue(node, out ParsedFormula? formula))
+		{
+			return;
+		}
+		List<VisualType> inputTypes = [];
+		List<SlotKind> inputKinds = [];
+		bool typed = true;
+		foreach (AnalyzedPin pin in node.Pins)
+		{
+			if (!pin.IsInput)
+			{
+				continue;
+			}
+			if (TypingLink(pin) == null)
+			{
+				pin.Type = ExpressionChecker.TypeOf(Library, SlotKind.Float);
+			}
+			else if (!TypeRules.Satisfies(pin.Type, PinConstraint.Expression))
+			{
+				pin.Type = VisualType.Wildcard;
+				typed = false;
+				continue;
+			}
+			inputTypes.Add(pin.Type);
+			inputKinds.Add(ExpressionChecker.KindOf(pin.Type)!.Value);
+		}
+		if (!typed)
+		{
+			return;
+		}
+		(TypedExpression? root, ExpressionError? error) = ExpressionChecker.Check(Library, formula, inputKinds);
+		if (root == null)
+		{
+			m_Context.ReportSetting(error!.Code, node, "Formula", formula.Text, (error.Start, error.End), error.Message, error.Suggestions);
+			return;
+		}
+		VisualType result = ExpressionChecker.TypeOf(Library, root.Type);
+		node.FindPin("Result", PinDirection.Out)!.Type = result;
+		node.Binding = new ExpressionBinding(formula.Text, root, inputTypes, result);
 	}
 
 	// The type of a type variable from the outputs linked into its inputs (rules 2 and 3). A Reroute whose In is linked to

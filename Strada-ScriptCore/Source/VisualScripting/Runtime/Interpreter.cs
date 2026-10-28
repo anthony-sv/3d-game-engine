@@ -731,6 +731,9 @@ internal sealed partial class VisualScriptRuntime
 			case Opcode.OperatorMethod:
 				(node.Invoker ??= GetInvoker(node.Member!, MemberNodeKind.Call))(slots, input, output);
 				break;
+			case Opcode.Expression:
+				ExpressionMachine.Run(node.Expression!, slots);
+				break;
 			default:
 				throw new InvalidOperationException($"{node} is impure: a plan never evaluates it");
 		}

@@ -681,5 +681,9 @@ internal enum OperatorMode
 
 internal sealed record OperatorBinding(OperatorMode Mode, VisualType? Operand, MethodInfo? Method) : NodeBinding;
 
+// An Expression node (spec-slice3 section 3.3): its formula, typed for the types of its inputs (in pin order), and the type
+// of its Result.
+internal sealed record ExpressionBinding(string Formula, TypedExpression Syntax, IReadOnlyList<VisualType> InputTypes, VisualType ResultType) : NodeBinding;
+
 // A reflected node: its definition and the member it calls (generic methods closed over their TypeArguments).
 internal sealed record MemberBinding(MemberNodeDefinition Definition, MemberInfo Member, IReadOnlyList<VisualType> TypeArguments) : NodeBinding;

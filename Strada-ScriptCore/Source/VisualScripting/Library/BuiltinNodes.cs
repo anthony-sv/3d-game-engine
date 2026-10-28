@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Strada.VisualScripting;
@@ -28,6 +29,7 @@ internal static class BuiltinNodes
 	internal const string Operators = "Math/Operators";
 	internal const string Utilities = "Utilities";
 	internal const string Arrays = "Utilities/Array";
+	internal const string Mathematics = "Math";
 	internal const string Conversions = "Conversions";
 	internal const string Structs = "Structs";
 
@@ -93,6 +95,7 @@ internal static class BuiltinNodes
 		BuiltinNode.FormatString => "FormatString",
 		BuiltinNode.ArrayLength => "Array.Length",
 		BuiltinNode.ArrayGet => "Array.Get",
+		BuiltinNode.Expression => "Expression",
 		BuiltinNode.OperatorAdd => "Operator.Add",
 		BuiltinNode.OperatorSubtract => "Operator.Subtract",
 		BuiltinNode.OperatorMultiply => "Operator.Multiply",
@@ -108,7 +111,8 @@ internal static class BuiltinNodes
 		BuiltinNode.OperatorAnd => "Operator.And",
 		BuiltinNode.OperatorOr => "Operator.Or",
 		BuiltinNode.OperatorXor => "Operator.Xor",
-		_ => "Operator.Not",
+		BuiltinNode.OperatorNot => "Operator.Not",
+		_ => throw new ArgumentOutOfRangeException(nameof(node), node, "a built-in node kind without a type string"),
 	};
 
 	internal static bool IsEvent(BuiltinNode node) => node <= BuiltinNode.EventCustom;
@@ -135,6 +139,7 @@ internal static class BuiltinNodes
 		AddLatent(nodes, types);
 		AddVariablesAndFunctions(nodes);
 		AddData(nodes, types);
+		AddExpression(nodes);
 		AddOperators(nodes, types);
 		return nodes;
 	}
@@ -351,6 +356,18 @@ internal static class BuiltinNodes
 				Wildcard("Array", PinDirection.In, PinConstraint.Array, WildcardSource.Links), In("Index", types.Int),
 				Wildcard("Element", PinDirection.Out, PinConstraint.Any, WildcardSource.ElementOf, elementOf: "Array"),
 			]);
+	}
+
+	// The formula node (spec-slice3 section 3.3): its inputs are the names its Formula uses, so the template has only Result.
+	private static void AddExpression(List<BuiltinNodeDefinition> nodes)
+	{
+		Add(nodes, new BuiltinNodeDefinition(BuiltinNode.Expression, TypeOf(BuiltinNode.Expression), "Expression", Mathematics, NodeKind.Operator, true,
+			false, [Wildcard("Result", PinDirection.Out, PinConstraint.Any, WildcardSource.Computed)])
+		{
+			Description = "Computes a formula such as a * b + sin(t): each name it uses is an input (a float unless linked), and Result is its value.",
+			Keywords = ["formula", "math", "calculate", "equation", "expr", "="],
+			Settings = [new SettingDescription("Formula", SettingKind.Expression) { Default = string.Empty, Required = true }],
+		});
 	}
 
 	private static void AddOperators(List<BuiltinNodeDefinition> nodes, BuiltinTypes types)

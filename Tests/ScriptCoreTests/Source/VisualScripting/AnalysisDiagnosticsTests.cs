@@ -79,6 +79,7 @@ public sealed class AnalysisDiagnosticsTests
 		[DiagnosticCode.NotInFunction] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Function.Entry" }"""),
 		[DiagnosticCode.DisabledIgnored] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Self", "Enabled": "Disabled" }"""),
 		[DiagnosticCode.UnusedSplit] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Flow.Branch", "Split": { "Inputs": ["Condition"] } }"""),
+		[DiagnosticCode.InvalidExpression] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Expression", "Settings": { "Formula": "a +" } }"""),
 	};
 
 	public static TheoryData<string> Codes => [.. s_Cases.Keys.Select(static code => code.ToString())];
