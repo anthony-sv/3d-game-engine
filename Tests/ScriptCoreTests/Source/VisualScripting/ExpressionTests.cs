@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Threading;
 using Strada.Interop;
 using Strada.VisualScripting;
 using Xunit;
@@ -60,6 +62,9 @@ public sealed class ExpressionTests
 		{ "clamp(v, 0, 1)", "v:Strada.Vector3=[-1.0, 0.5, 2.0]", "Strada.Vector3", "(0, 0.5, 1)" },
 		{ "ulong(-1) / ulong(2)", "", "ulong", "9223372036854775807" },
 		{ "3000000000 + 1", "", "long", "3000000001" },
+		// The largest float, as every float reader of the engine bounds it (R6.3).
+		{ "3.4028235e38", "", "float", "3.4028235E+38" },
+		{ "-3.4028235e38", "", "float", "-3.4028235E+38" },
 		// Precedence and associativity.
 		{ "2 + 3 * 4", "", "int", "14" },
 		{ "10 - 4 - 3", "", "int", "3" },
@@ -76,12 +81,15 @@ public sealed class ExpressionTests
 	};
 
 	// The Formula setting (its JSON value, absent when null), the inputs as TypedRows give them, and the diagnostic: its code,
-	// message and span (UTF-8 bytes; no span when the start is -1).
+	// message and span (UTF-8 bytes; no span when the start is -1). Every diagnostic names the setting Formula.
 	public static TheoryData<string?, string, string, string, int, int> ErrorRows
 	{
 		get
 		{
 			string tooLong = new('1', ExpressionParser.MaxBytes + 1);
+			// A formula over the cap names no inputs, even when it has names (the corpus pins it for the editor's lister).
+			string tooLongWithAName = "q + " + new string('1', ExpressionParser.MaxBytes);
+			string longName = new('x', ExpressionParser.MaxIdentifierBytes + 1);
 			string manyParts = "a" + string.Concat(Enumerable.Repeat("+a", ExpressionParser.MaxParts));
 			string deep = new string('(', ExpressionParser.MaxNesting + 1) + "a" + new string(')', ExpressionParser.MaxNesting + 1);
 			string manyInputs = string.Join(" + ", Enumerable.Range(0, ExpressionParser.MaxInputs + 1).Select(static index => $"a{index}"));
@@ -97,6 +105,11 @@ public sealed class ExpressionTests
 				{ "\"1e40\"", "", "InvalidExpression", "1e40 is too large for a float: write 1e40d for a double", 0, 4 },
 				{ "\"99999999999999999999\"", "", "InvalidExpression", "99999999999999999999 is too large for an integer", 0, 20 },
 				{ "\"1e400d\"", "", "InvalidExpression", "1e400d is too large for a double", 0, 6 },
+				{ "\"3.4028236e38\"", "", "InvalidExpression", "3.4028236e38 is too large for a float: write 3.4028236e38d for a double", 0, 12 },
+				{ "\"1e400\"", "", "InvalidExpression", "1e400 is too large for a float or a double", 0, 5 },
+				// A name over the cap is no input: the corpus pins that a is the only one.
+				{ $"\"a + {longName}\"", "", "InvalidExpression",
+					$"{JsonText.Shorten(longName)} is too long: a name has at most {ExpressionParser.MaxIdentifierBytes} bytes", 4, 4 + longName.Length },
 				{ "\".5\"", "", "InvalidExpression", "write 0.5, not .5", 0, 2 },
 				{ "\"a +\"", "", "InvalidExpression", "expected a value after '+'", 2, 3 },
 				{ "\"* a\"", "", "InvalidExpression", "expected a value, not '*'", 0, 1 },
@@ -129,6 +142,7 @@ public sealed class ExpressionTests
 				{ "\"flag == i\"", "flag:bool=true;i:int=1", "InvalidExpression", "== compares values of one type: bool and int", 0, 9 },
 				{ "\"-u\"", "u:ulong=\"1\"", "InvalidExpression", "ulong values cannot be negated: convert with long(...) or double(...)", 0, 2 },
 				{ $"\"{tooLong}\"", "", "InvalidExpression", $"a formula has at most {ExpressionParser.MaxBytes} bytes", 0, tooLong.Length },
+				{ $"\"{tooLongWithAName}\"", "", "InvalidExpression", $"a formula has at most {ExpressionParser.MaxBytes} bytes", 0, tooLongWithAName.Length },
 				{ $"\"{manyParts}\"", "", "InvalidExpression", $"a formula has at most {ExpressionParser.MaxParts} parts", ExpressionParser.MaxParts - 1,
 					ExpressionParser.MaxParts },
 				{ $"\"{deep}\"", "", "InvalidExpression", $"a formula nests at most {ExpressionParser.MaxNesting} levels deep", ExpressionParser.MaxNesting,
@@ -206,16 +220,10 @@ public sealed class ExpressionTests
 		Assert.Equal(Enum.Parse<DiagnosticCode>(code), diagnostic.Code);
 		Assert.Equal(message, diagnostic.Message);
 		Assert.Equal(expression, diagnostic.Node);
-		if (start < 0)
-		{
-			Assert.Null(diagnostic.Setting);
-			Assert.Null(diagnostic.Span);
-		}
-		else
-		{
-			Assert.Equal("Formula", diagnostic.Setting);
-			Assert.Equal((start, end), diagnostic.Span);
-		}
+		// Every finding names the setting Formula (spec-slice3 section 3.3.9); one about the formula's text, its span too.
+		Assert.Equal("Formula", diagnostic.Setting);
+		(int, int)? span = start < 0 ? null : (start, end);
+		Assert.Equal(span, diagnostic.Span);
 		// A formula that does not read leaves Result untyped; one that does not type-check as well.
 		Assert.False(VisualScriptTesting.Pin(analyzed, expression, "Result").Type.HasValues);
 	}
@@ -297,6 +305,50 @@ public sealed class ExpressionTests
 			File.WriteAllText(written, WriteCorpus(expected));
 			Assert.Fail($"Tests/Data/VisualScripting/Formulas.json is not the corpus the analysis gives: the expected file is {written}, copy it over the fixture.");
 		}
+	}
+
+	// A chain (a + a + ..., a && a || ..., v.X.X ...) is as deep as it is long, and analysis runs on the engine's main
+	// thread, whose stack the editor shares: the longest chains the caps allow analyze, compile and run on a small stack.
+	[Fact]
+	public void TheLongestChainsNeedLittleStack()
+	{
+		// Each formula has 1023 parts: 512 operands and 511 operators.
+		const int terms = ExpressionParser.MaxParts / 2;
+		static string Chain(string operand, string op, int count) => string.Join(op, Enumerable.Repeat(operand, count));
+		(string Formula, string Inputs, string Expected)[] rows =
+		[
+			(Chain("a", " + ", terms), "a:int=1", "512"),
+			(Chain("a", " * ", terms - 1) + " + f", "a:int=1;f:float=0.5", "1.5"),
+			(Chain("v", " + ", terms), "v:Strada.Vector2=[1.0, 2.0]", "(512, 1024)"),
+			(Chain("a", " && ", terms - 1) + " || a", "a:bool=true", "True"),
+			(Chain("t", " == ", terms), "t:bool=true", "True"),
+		];
+		string components = "v" + string.Concat(Enumerable.Repeat(".X", ExpressionParser.MaxParts - 1));
+		ExceptionDispatchInfo? failure = null;
+		Thread thread = new(() =>
+		{
+			try
+			{
+				foreach ((string formula, string inputs, string expected) in rows)
+				{
+					(DocumentBuilder document, uint expression) = Build(RuntimeTesting.Quote(formula), inputs);
+					GraphBuilder graph = document.Graph;
+					graph.Flow(graph.Node("Event.Create"), graph.Write(expression, "Result"));
+					TestRuntime runtime = TestRuntime.Start(document);
+					Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.Create));
+					Assert.Equal([expected], runtime.Records);
+				}
+				Diagnostic diagnostic = VisualScriptTesting.Single(Analyze(RuntimeTesting.Quote(components)), DiagnosticCode.InvalidExpression);
+				Assert.Equal("v is float: it has no components", diagnostic.Message);
+			}
+			catch (Exception exception)
+			{
+				failure = ExceptionDispatchInfo.Capture(exception);
+			}
+		}, 256 * 1024);
+		thread.Start();
+		thread.Join();
+		failure?.Throw();
 	}
 
 	[Fact]

@@ -23,6 +23,8 @@ public static class Probe
 	[ThreadStatic]
 	private static (Color Color, Matrix4 Transform, Quaternion Rotation, ProbeAccess Access)? s_Tinted;
 
+	private static readonly string[] s_Words = ["a", "b"];
+
 	// What graphs recorded on this thread (tests run their graphs on their own thread).
 	internal static List<string> Records => s_Records ??= [];
 
@@ -149,6 +151,11 @@ public static class Probe
 	// text count times.
 	[PureNode]
 	public static string RepeatText(string text, int count) => string.Concat(System.Linq.Enumerable.Repeat(text, count));
+
+	// An array of a derived element type given as object[], as C# members may give one: the same array every time, which
+	// graphs never change.
+	[PureNode]
+	public static object[] Words() => s_Words;
 
 	// Unconstrained generic methods (spec-slice3 section 3.6): T from an array input, an array result from a value input,
 	// T only in the result, and T in and out.

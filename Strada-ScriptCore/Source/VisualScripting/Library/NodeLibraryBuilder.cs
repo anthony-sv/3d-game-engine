@@ -92,7 +92,7 @@ internal static class NodeLibraryBuilder
 			}
 		}
 		List<LibraryNote> notes = [];
-		List<Type> gameTypes = RegisterGameTypes(sources, registry, notes);
+		List<GameType> gameTypes = RegisterGameTypes(sources, registry, notes);
 
 		BuiltinTypes builtinTypes = new(registry.Get(typeof(bool))!, registry.Get(typeof(int))!, registry.Get(typeof(float))!,
 			registry.Get(typeof(string))!, registry.Get(typeof(Entity))!, registry.Get(typeof(KeyCode))!, registry.Get(typeof(MouseButton))!,
@@ -101,9 +101,9 @@ internal static class NodeLibraryBuilder
 		List<MemberNodeDefinition> members = [];
 		MemberNodes.Create(sources.ApiTypes, registry.Get, builtinTypes.Entity, Documentation.Load(sources.DocumentationPath), members);
 		List<GameRename> renames = [];
-		foreach (Type type in gameTypes)
+		foreach (GameType game in gameTypes)
 		{
-			ReadGameType(type, notes, () => GameNodes.Create(type, registry.Get, builtinTypes.Entity, members, notes, renames));
+			ReadGameType(game, notes, () => GameNodes.Create(game.Type, game.Attribute, registry.Get, builtinTypes.Entity, members, notes, renames));
 		}
 		HashSet<string> typeStrings = new(StringComparer.Ordinal);
 		foreach (NodeDefinition node in nodes)
@@ -148,7 +148,7 @@ internal static class NodeLibraryBuilder
 			{
 				continue;
 			}
-			if (type.Kind == TypeKind.Component && clrType.IsDefined(typeof(NativeComponentAttribute), false))
+			if (type.Kind == TypeKind.Component && IsDefined(clrType, typeof(NativeComponentAttribute)))
 			{
 				components.Add(type);
 			}
@@ -165,43 +165,53 @@ internal static class NodeLibraryBuilder
 		return new NodeLibrary(types, nodes, redirects, builtinTypes, new LibraryDomains(components, assets, scripts), GameNodes.Order(notes));
 	}
 
-	// The game types whose members may be nodes (every public type but those named like an API type, by full name), after
-	// registering the types of graphs among them (spec-slice3 section 3.7.4): the types [VisualNode] marks, then the game types
-	// the marked members' signatures use.
-	private static List<Type> RegisterGameTypes(NodeLibrarySources sources, Registry registry, List<LibraryNote> notes)
+	// The game types whose members may be nodes (every public type but those named like an API type, by full name, and those
+	// whose attributes cannot be read), with their [VisualNode]s, after registering the types of graphs among them
+	// (spec-slice3 section 3.7.4): the types [VisualNode] marks, then the game types the marked members' signatures use. A
+	// type's attributes are read here once: a type whose attributes cannot be read (an attribute of a dependency of the game
+	// that is missing or broken) is left out with a note, so nothing reads them later.
+	private static List<GameType> RegisterGameTypes(NodeLibrarySources sources, Registry registry, List<LibraryNote> notes)
 	{
-		List<Type> gameTypes = [];
-		HashSet<Type> games = [];
+		List<GameType> gameTypes = [];
+		Dictionary<Type, VisualNodeAttribute?> attributes = [];
+		HashSet<Type> seen = [];
 		foreach (Type type in sources.GameTypes)
 		{
+			if (!seen.Add(type))
+			{
+				continue;
+			}
+			if (!GameNodes.TryReadAttribute(type, out VisualNodeAttribute? attribute, out string problem))
+			{
+				NoteUnreadable(type, GameNodes.DefaultCategoryOf(type), problem, notes);
+				continue;
+			}
 			if (registry.Find(type) == null && TypeIds.Of(type) is { } id && registry.FindId(id) != null)
 			{
-				notes.Add(new LibraryNote(id, GameNodes.CategoryOf(type),
+				notes.Add(new LibraryNote(id, GameNodes.CategoryOf(type, attribute),
 					$"{id}: the game type has the name of a scripting API type and is not a type of graphs"));
 				continue;
 			}
-			if (games.Add(type))
+			attributes.Add(type, attribute);
+			gameTypes.Add(new GameType(type, attribute));
+		}
+		gameTypes.Sort(static (a, b) => string.CompareOrdinal(a.Type.FullName, b.Type.FullName));
+		foreach (GameType game in gameTypes)
+		{
+			if (game.Attribute != null)
 			{
-				gameTypes.Add(type);
+				RegisterGameType(game.Type, attributes, registry, notes);
 			}
 		}
-		gameTypes.Sort(static (a, b) => string.CompareOrdinal(a.FullName, b.FullName));
-		foreach (Type type in gameTypes)
+		foreach (GameType game in gameTypes)
 		{
-			if (GameNodes.AttributeOf(type) != null)
+			ReadGameType(game, notes, () =>
 			{
-				RegisterGameType(type, registry, notes);
-			}
-		}
-		foreach (Type type in gameTypes)
-		{
-			ReadGameType(type, notes, () =>
-			{
-				foreach (Type used in GameNodes.FindSignatureTypes(type, games.Contains))
+				foreach (Type used in GameNodes.FindSignatureTypes(game.Type, game.Attribute, attributes.ContainsKey))
 				{
 					if (!used.IsByRefLike)
 					{
-						RegisterGameType(used, registry, notes);
+						RegisterGameType(used, attributes, registry, notes);
 					}
 				}
 			});
@@ -211,28 +221,32 @@ internal static class NodeLibraryBuilder
 
 	// Reads the members of a game type: when reflection cannot load what they use (a dependency of the game that is
 	// missing or broken), the type gives the members it gave until then and a note.
-	private static void ReadGameType(Type type, List<LibraryNote> notes, Action read)
+	private static void ReadGameType(GameType game, List<LibraryNote> notes, Action read)
 	{
 		try
 		{
 			read();
 		}
-		catch (Exception exception) when (exception is TypeLoadException or FileNotFoundException or FileLoadException or BadImageFormatException or
-			CustomAttributeFormatException)
+		catch (Exception exception) when (GameNodes.IsReadFailure(exception))
 		{
-			string id = MemberNodes.DisplayName(type);
-			notes.Add(new LibraryNote(id, GameNodes.CategoryOf(type), $"{id}: its members cannot be read: {exception.Message}"));
+			NoteUnreadable(game.Type, GameNodes.CategoryOf(game.Type, game.Attribute), exception.Message, notes);
 		}
+	}
+
+	private static void NoteUnreadable(Type type, string category, string problem, List<LibraryNote> notes)
+	{
+		string id = MemberNodes.DisplayName(type);
+		notes.Add(new LibraryNote(id, category, $"{id}: its members cannot be read: {problem}"));
 	}
 
 	// A game type of graphs: registered with the kind of its values, unless it has none (a static class, a generic type).
 	// A ref struct never is one: graphs cannot hold its values.
-	private static void RegisterGameType(Type type, Registry registry, List<LibraryNote> notes)
+	private static void RegisterGameType(Type type, Dictionary<Type, VisualNodeAttribute?> attributes, Registry registry, List<LibraryNote> notes)
 	{
 		if (type.IsByRefLike)
 		{
 			string id = MemberNodes.DisplayName(type);
-			notes.Add(new LibraryNote(id, GameNodes.CategoryOf(type), $"{id} is a ref struct: graphs cannot hold its values"));
+			notes.Add(new LibraryNote(id, GameNodes.CategoryOf(type, attributes.GetValueOrDefault(type)), $"{id} is a ref struct: graphs cannot hold its values"));
 			return;
 		}
 		if (IsTypeOfValues(type))
@@ -246,6 +260,20 @@ internal static class NodeLibraryBuilder
 	private static bool IsTypeOfValues(Type type) =>
 		!(type.IsAbstract && type.IsSealed) && !type.IsInterface && !type.IsGenericType && !type.IsPointer && !type.IsByRefLike &&
 		!typeof(Delegate).IsAssignableFrom(type) && !typeof(Attribute).IsAssignableFrom(type) && !typeof(Exception).IsAssignableFrom(type);
+
+	// Whether a type of graphs has an attribute. Registered game types had their attributes read already; a type whose
+	// attributes cannot be read has none, as for the game types RegisterGameTypes leaves out.
+	private static bool IsDefined(Type type, Type attribute)
+	{
+		try
+		{
+			return type.IsDefined(attribute, false);
+		}
+		catch (Exception exception) when (GameNodes.IsReadFailure(exception))
+		{
+			return false;
+		}
+	}
 
 	private static TypeKind KindOf(Type type)
 	{
@@ -287,7 +315,7 @@ internal static class NodeLibraryBuilder
 				enumerators.Add(new EnumeratorInfo(field.Name, field.GetValue(null)!));
 			}
 			type.Enumerators = enumerators;
-			type.IsFlags = clrType.IsDefined(typeof(FlagsAttribute), false);
+			type.IsFlags = IsDefined(clrType, typeof(FlagsAttribute));
 		}
 		else if (clrType.IsValueType && !clrType.IsPrimitive)
 		{
@@ -327,7 +355,7 @@ internal static class NodeLibraryBuilder
 			type.Fields = members;
 			return;
 		}
-		if (!clrType.IsDefined(typeof(IsReadOnlyAttribute), false))
+		if (!IsDefined(clrType, typeof(IsReadOnlyAttribute)))
 		{
 			return;
 		}

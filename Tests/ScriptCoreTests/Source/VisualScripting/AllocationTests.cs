@@ -120,10 +120,8 @@ public sealed class AllocationTests
 		Assert.NotEqual(0.0f, runtime.Variable("Total"));
 	}
 
-	// A node logs its Warning once per instance (spec section 5.3): when it runs into the problem again, nothing of the
-	// message is built (no text, no engine call for a name), so it allocates nothing.
-	// A playing timeline with a curve of each width and an event track advances, writes its outputs and fires its ticks
-	// without allocating (spec-slice3 section 3.8.5).
+	// A playing timeline with a float and a Vector3 curve and an event track advances, writes its outputs and fires its
+	// ticks without allocating (spec-slice3 section 3.8.5).
 	[Fact]
 	public void APlayingTimelineAllocatesNothing()
 	{
@@ -162,6 +160,8 @@ public sealed class AllocationTests
 		Assert.Equal(0, runtime.FewestBytesPerUpdate(timeStep: 0.1f));
 	}
 
+	// A node logs its Warning once per instance (spec section 5.3): when it runs into the problem again, nothing of the
+	// message is built (no text, no engine call for a name), so it allocates nothing.
 	[Fact]
 	public void AWarningLoggedAlreadyAllocatesNothing()
 	{

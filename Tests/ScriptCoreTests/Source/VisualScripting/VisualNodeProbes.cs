@@ -10,16 +10,27 @@ namespace TestGame;
 // Members marked one by one.
 public static class Probe
 {
-	private static readonly List<string> s_Calls = [];
+	// Per thread, as the API probe's state: test classes that run graphs calling these members run in parallel.
+	[ThreadStatic]
+	private static List<string>? s_Calls;
+
+	[ThreadStatic]
+	private static int s_Counter;
 
 	// What the members graphs called did, in order.
-	public static IReadOnlyList<string> Calls => s_Calls;
+	public static IReadOnlyList<string> Calls => CallLog;
+
+	private static List<string> CallLog => s_Calls ??= [];
 
 	// Not marked: no node.
 	public static int Unmarked => 0;
 
 	[VisualNode]
-	public static int Counter { get; set; }
+	public static int Counter
+	{
+		get => s_Counter;
+		set => s_Counter = value;
+	}
 
 	[VisualNode]
 	public static float Gravity = 9.5f;
@@ -29,15 +40,15 @@ public static class Probe
 
 	public static void Reset()
 	{
-		s_Calls.Clear();
-		Counter = 0;
+		CallLog.Clear();
+		s_Counter = 0;
 	}
 
 	// An impure call: methods have flow pins unless Pure is set.
 	[VisualNode]
 	public static int Add(int a, int b)
 	{
-		s_Calls.Add($"Add {a} {b}");
+		CallLog.Add($"Add {a} {b}");
 		return a + b;
 	}
 
@@ -52,7 +63,7 @@ public static class Probe
 	[VisualNode(Title = "Deal Damage", Category = "Game/Combat", Description = "Hurts whatever it hits.", Keywords = ["hit", "hurt"])]
 	public static void Strike(Damage damage)
 	{
-		s_Calls.Add($"Strike {damage.Amount} {damage.Element}");
+		CallLog.Add($"Strike {damage.Amount} {damage.Element}");
 	}
 
 	[VisualNode]
@@ -73,7 +84,7 @@ public static class Probe
 	[VisualNode]
 	public static void Twins(int execute, int executeParameter)
 	{
-		s_Calls.Add($"Twins {execute} {executeParameter}");
+		CallLog.Add($"Twins {execute} {executeParameter}");
 	}
 
 	[VisualNode]
@@ -82,7 +93,7 @@ public static class Probe
 	[VisualNode]
 	public static void Open(Window window)
 	{
-		s_Calls.Add($"Open {window.Size}");
+		CallLog.Add($"Open {window.Size}");
 	}
 
 	[VisualNode(Title = "A title of more than one hundred and twenty-eight characters, which is more than the palette shows of any node and so is not taken")]
@@ -103,7 +114,7 @@ public static class Probe
 	[VisualNode(FormerNames = ["Cure", "TestGame.Healer.Mend"])]
 	public static int Heal(int amount)
 	{
-		s_Calls.Add($"Heal {amount}");
+		CallLog.Add($"Heal {amount}");
 		return amount;
 	}
 
@@ -117,7 +128,7 @@ public static class Probe
 	[VisualNode]
 	public static void Record(Element[] elements)
 	{
-		s_Calls.Add($"Record {string.Join(",", elements)}");
+		CallLog.Add($"Record {string.Join(",", elements)}");
 	}
 }
 

@@ -518,20 +518,29 @@ public sealed class TimelineTests
 	}
 
 	// A disabled timeline ends the chain that reaches it (every exec output is a Tick output, an event track named
-	// Completed included); Time takes NewTime, the other outputs their defaults.
+	// Completed included). Its data outputs follow s2 section 3.2 rule 2: Time takes NewTime, the first float input, and
+	// the first float curve the next one, Rate; Playing and Direction take their defaults.
 	[Fact]
 	public void ADisabledTimelinePassesNothing()
 	{
 		DocumentBuilder document = new();
 		GraphBuilder graph = document.Graph;
-		uint timeline = graph.Node("Flow.Timeline", """{ "Timeline": { "Tracks": [{ "Name": "Completed", "Type": "exec", "Keys": [{ "Time": 0 }] }] } }""",
-			"""{ "NewTime": 0.75 }""", "Disabled");
+		uint timeline = graph.Node("Flow.Timeline", """
+			{ "Timeline": { "Tracks": [
+				{ "Name": "Completed", "Type": "exec", "Keys": [{ "Time": 0 }] },
+				{ "Name": "Lift", "Type": "float", "Keys": [{ "Time": 0, "Value": 5 }] },
+				{ "Name": "Drop", "Type": "float", "Keys": [{ "Time": 0, "Value": 6 }] }
+			] } }
+			""", """{ "NewTime": 0.75, "Rate": 3 }""", "Disabled");
 		graph.Flow(graph.Node("Event.Create"), timeline, "Then", "Play");
 		graph.Writes(timeline, "Completed", "completed");
 		graph.Writes(timeline, "Update", "update");
-		uint text = graph.Node("FormatString", """{ "Format": "{Time} {Playing}" }""");
+		uint text = graph.Node("FormatString", """{ "Format": "{Time} {Playing} {Direction} {Lift} {Drop}" }""");
 		graph.Link(timeline, "Time", text, "Time");
 		graph.Link(timeline, "Playing", text, "Playing");
+		graph.Link(timeline, "Direction", text, "Direction");
+		graph.Link(timeline, "Lift", text, "Lift");
+		graph.Link(timeline, "Drop", text, "Drop");
 		graph.Flow(graph.Node("Event.KeyPressed", """{ "Key": "W" }"""), graph.Write(text, "Result"));
 		AnalyzedDocument analyzed = VisualScriptTesting.Analyze(RuntimeTesting.Library, document.Build());
 		Assert.Null(VisualScriptTesting.Node(analyzed, timeline).PassThrough);
@@ -542,7 +551,7 @@ public sealed class TimelineTests
 		Assert.Empty(runtime.Records);
 		runtime.Environment.PressedKeys.Add(KeyCode.W);
 		runtime.Invoke(ScriptEvent.Update, 1.0f);
-		Assert.Equal(["0.75 False"], runtime.Records);
+		Assert.Equal(["0.75 False Forward 3 0"], runtime.Records);
 	}
 
 	// During Event.Destroy the instance is gone: the playing inputs start no run (a Warning, once per node), the others still

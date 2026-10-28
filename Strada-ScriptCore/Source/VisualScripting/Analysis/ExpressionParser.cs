@@ -454,10 +454,15 @@ internal static class ExpressionParser
 				}
 				else
 				{
-					// Read as the double the text denotes, narrowed to float, as every float of the engine is read.
+					// Read as the double the text denotes, narrowed to float, within the bound every float reader of the engine
+					// has (R6.3): float.MaxValue's shortest text, 3.4028235e38, is a float.
 					kind = SlotKind.Float;
 					value = Slot.FromFloat((float)number);
-					if (Math.Abs(number) > float.MaxValue)
+					if (double.IsInfinity(number))
+					{
+						Fail($"{JsonText.Shorten(written)} is too large for a float or a double", start, m_At);
+					}
+					else if (Math.Abs(number) > LiteralCodec.MaxFloat)
 					{
 						Fail($"{JsonText.Shorten(written)} is too large for a float: write {JsonText.Shorten(written)}d for a double", start, m_At);
 					}

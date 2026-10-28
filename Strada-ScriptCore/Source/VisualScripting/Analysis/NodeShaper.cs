@@ -788,13 +788,14 @@ internal sealed class NodeShaper
 		const string setting = "Formula";
 		if (!node.Source.Settings.TryGet(setting, out JsonElement value))
 		{
-			m_Context.ReportNode(DiagnosticCode.MissingSetting, node, $"{node.Title} needs the setting {setting}: a formula such as a * b + sin(t)");
+			m_Context.ReportSetting(DiagnosticCode.MissingSetting, node, setting, string.Empty, null,
+				$"{node.Title} needs the setting {setting}: a formula such as a * b + sin(t)");
 			ShapeBrokenExpression(node, []);
 			return;
 		}
 		if (!JsonText.TryGetString(value, out string? formula))
 		{
-			m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, $"{setting}: expected a string, not {JsonText.Excerpt(value)}");
+			m_Context.ReportSetting(DiagnosticCode.InvalidSetting, node, setting, string.Empty, null, $"{setting}: expected a string, not {JsonText.Excerpt(value)}");
 			ShapeBrokenExpression(node, []);
 			return;
 		}

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.Loader;
 using System.Text.Json;
 using Strada.Interop;
 using Strada.VisualScripting;
@@ -289,5 +291,83 @@ public sealed class VisualNodeTests
 		Assert.Same(typeof(Vector3), library.FindType("Strada.Vector3")!.ClrType);
 		Assert.Contains(new LibraryNote("Strada.Vector3", "Game/Vector3", "Strada.Vector3: the game type has the name of a scripting API type and is not a type of graphs"),
 			library.Notes);
+	}
+
+	// A game type or member carrying an attribute of a dependency the game did not deploy cannot be read: it is a note, and
+	// the library keeps every other node, the API's and the game's (user data never disables visual scripting).
+	[Fact]
+	public void TypesAndMembersWhoseAttributesCannotBeReadAreNotes()
+	{
+		AssemblyLoadContext context = new("UnreadableGame", isCollectible: true);
+		try
+		{
+			Assembly game = context.LoadFromStream(UnreadableGame());
+			NodeLibrary library = NodeLibraryBuilder.Build(GameTesting.Sources([.. game.GetExportedTypes()]));
+
+			const string missing = "Could not load file or assembly 'UndeployedDependency";
+			LibraryNote tagged = Assert.Single(library.Notes, static note => note.Member == "UnreadableGame.Tagged");
+			Assert.Equal("Game/Tagged", tagged.Category);
+			Assert.StartsWith("UnreadableGame.Tagged: its members cannot be read: " + missing, tagged.Message, StringComparison.Ordinal);
+			LibraryNote broken = Assert.Single(library.Notes, static note => note.Member == "UnreadableGame.Mixed.Broken");
+			Assert.Equal("Game/Mixed", broken.Category);
+			Assert.StartsWith("UnreadableGame.Mixed.Broken: the member cannot be read: " + missing, broken.Message, StringComparison.Ordinal);
+			Assert.Null(library.FindType("UnreadableGame.Tagged"));
+			Assert.Null(library.FindNode("Call:UnreadableGame.Tagged.Answer()"));
+			Assert.Null(library.FindNode("Call:UnreadableGame.Mixed.Broken()"));
+			Assert.NotNull(library.FindNode("Call:UnreadableGame.Mixed.Fine()"));
+			Assert.NotNull(library.FindNode("Call:UnreadableGame.Plain.Other()"));
+			Assert.NotNull(library.FindNode("Call:TestGame.Probe.Add(int,int)"));
+			Assert.NotNull(library.FindNode("Call:Strada.Mathf.Abs(float)"));
+			Assert.NotNull(library.FindNode("Array.Make"));
+		}
+		finally
+		{
+			context.Unload();
+		}
+	}
+
+	// The image of a game whose static classes Tagged (with the attribute FancyAttribute of the assembly UndeployedDependency,
+	// which exists only in this process, so no load context finds it) and Mixed and Plain have methods marked [VisualNode];
+	// Mixed.Broken carries FancyAttribute as well.
+	private static MemoryStream UnreadableGame()
+	{
+		AssemblyBuilder dependency = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("UndeployedDependency"), AssemblyBuilderAccess.RunAndCollect);
+		TypeBuilder fancyBuilder = dependency.DefineDynamicModule("UndeployedDependency").DefineType("UndeployedDependency.FancyAttribute",
+			TypeAttributes.Public | TypeAttributes.Sealed, typeof(Attribute));
+		fancyBuilder.DefineDefaultConstructor(MethodAttributes.Public);
+		CustomAttributeBuilder fancy = new(fancyBuilder.CreateType().GetConstructor(Type.EmptyTypes)!, []);
+		CustomAttributeBuilder visualNode = new(typeof(VisualNodeAttribute).GetConstructor(Type.EmptyTypes)!, []);
+
+		PersistedAssemblyBuilder game = new(new AssemblyName("UnreadableGame"), typeof(object).Assembly);
+		ModuleBuilder module = game.DefineDynamicModule("UnreadableGame");
+		TypeBuilder StaticClass(string name) => module.DefineType(name, TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
+		TypeBuilder tagged = StaticClass("UnreadableGame.Tagged");
+		tagged.SetCustomAttribute(fancy);
+		Answer(tagged, "Answer", 42, visualNode);
+		TypeBuilder mixed = StaticClass("UnreadableGame.Mixed");
+		Answer(mixed, "Broken", 1, visualNode, fancy);
+		Answer(mixed, "Fine", 2, visualNode);
+		TypeBuilder plain = StaticClass("UnreadableGame.Plain");
+		Answer(plain, "Other", 7, visualNode);
+		tagged.CreateType();
+		mixed.CreateType();
+		plain.CreateType();
+		MemoryStream image = new();
+		game.Save(image);
+		image.Position = 0;
+		return image;
+	}
+
+	// public static int name() => value, with the attributes given.
+	private static void Answer(TypeBuilder type, string name, int value, params CustomAttributeBuilder[] attributes)
+	{
+		MethodBuilder method = type.DefineMethod(name, MethodAttributes.Public | MethodAttributes.Static, typeof(int), Type.EmptyTypes);
+		foreach (CustomAttributeBuilder attribute in attributes)
+		{
+			method.SetCustomAttribute(attribute);
+		}
+		ILGenerator code = method.GetILGenerator();
+		code.Emit(OpCodes.Ldc_I4, value);
+		code.Emit(OpCodes.Ret);
 	}
 }

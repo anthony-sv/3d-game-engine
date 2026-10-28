@@ -186,6 +186,29 @@ public sealed class ArrayNodeTests
 		Assert.Equal([1, 2, 3], before);
 	}
 
+	// A C# member may give an array of a derived element type (a string[] as an object[]): Set copies it as an array of
+	// the graph's element type, so an element of another type fits, and leaves it as it was.
+	[Fact]
+	public void SetCopiesAnArrayOfADerivedElementTypeAsItsOwn()
+	{
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint words = graph.Node("Call:Strada.ScriptCore.Tests.Probe.Words()");
+		uint set = graph.Node("Array.Set", inputs: """{ "Index": 0 }""");
+		graph.Link(words, "Result", set, "Array");
+		graph.Link(graph.Literal("int", "5"), "Value", set, "Value");
+		uint changed = graph.Write(set, "Result");
+		graph.Flow(graph.Node("Event.Create"), changed);
+		graph.Flow(changed, graph.Write(words, "Result"));
+		TestRuntime runtime = TestRuntime.Start(document);
+
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.Create));
+		Assert.Equal(["[5, b]", "[a, b]"], runtime.Records);
+		Assert.Empty(runtime.Environment.Logs);
+		Assert.Equal(new object[] { "a", "b" }, Probe.Words());
+		Assert.IsType<string[]>(Probe.Words());
+	}
+
 	[Fact]
 	public void AppendJoinsTwoArraysOfOneType()
 	{

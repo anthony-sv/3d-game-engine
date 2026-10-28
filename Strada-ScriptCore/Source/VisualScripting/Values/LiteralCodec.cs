@@ -41,7 +41,7 @@ internal static class LiteralCodec
 	// Spec-slice3 section 3.2.
 	internal const int MaxArrayLiteralElements = 4096;
 	// The largest magnitude of a float literal.
-	private const double MaxFloat = 3.4028235e38;
+	internal const double MaxFloat = 3.4028235e38;
 	// The engine's quaternion decoder: shorter quaternions have no direction, and unit ones within the tolerance stay as they
 	// are (JsonTraits<glm::quat>).
 	private const double MinQuaternionLength = 1e-6;

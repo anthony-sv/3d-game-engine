@@ -192,11 +192,14 @@ internal static class Intrinsics
 		return array;
 	}
 
+	// A copy of the array of the node's element type, as the other changes make: an array C# gives may be of a derived
+	// element type (a string[] as an object[]), which would refuse elements of the graph's type.
 	private static Array Set(CompiledNode node, Array array, int index, in Slot value)
 	{
 		CheckIndex(array, index);
 		CheckMade(array.Length);
-		Array copy = (Array)array.Clone();
+		Array copy = Array.CreateInstance(node.FromType!.ClrType!, array.Length);
+		Array.Copy(array, copy, array.Length);
 		ArrayElements.Write(copy, index, node.FromType!, value);
 		return copy;
 	}

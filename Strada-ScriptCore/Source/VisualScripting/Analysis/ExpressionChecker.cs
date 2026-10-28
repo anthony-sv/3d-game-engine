@@ -195,13 +195,29 @@ internal sealed class ExpressionChecker
 		return new TypedExpression(TypedExpressionKind.Negate, type, syntax.Start, syntax.End) { Operands = [operand] };
 	}
 
+	// A left-associative chain (a + b - c ...) is as deep as it is long, which only MaxParts bounds: it is typed from its
+	// first operand up in a loop. Right operands are of a higher level or nested, so the stack grows only with the nesting
+	// MaxNesting bounds, whatever the formula's length (analysis runs on the engine's main thread).
 	private TypedExpression? Binary(ExpressionSyntax syntax)
 	{
-		TypedExpression? left = Check(syntax.Operands[0]);
-		if (left == null)
+		List<ExpressionSyntax> chain = [];
+		ExpressionSyntax first = syntax;
+		while (first.Kind == ExpressionSyntaxKind.Binary)
 		{
-			return null;
+			chain.Add(first);
+			first = first.Operands[0];
 		}
+		TypedExpression? left = Check(first);
+		for (int index = chain.Count - 1; index >= 0 && left != null; index--)
+		{
+			left = Binary(chain[index], left);
+		}
+		return left;
+	}
+
+	// A binary operator whose left operand is typed.
+	private TypedExpression? Binary(ExpressionSyntax syntax, TypedExpression left)
+	{
 		TypedExpression? right = Check(syntax.Operands[1]);
 		if (right == null)
 		{
@@ -388,14 +404,28 @@ internal sealed class ExpressionChecker
 		};
 	}
 
-	// .X .Y .Z .W, or the same in lowercase.
+	// .X .Y .Z .W, or the same in lowercase. A chain of them (v.X.X ...) is typed from its vector up in a loop, as binary
+	// chains are.
 	private TypedExpression? Component(ExpressionSyntax syntax)
 	{
-		TypedExpression? vector = Check(syntax.Operands[0]);
-		if (vector == null)
+		List<ExpressionSyntax> chain = [];
+		ExpressionSyntax vector = syntax;
+		while (vector.Kind == ExpressionSyntaxKind.Component)
 		{
-			return null;
+			chain.Add(vector);
+			vector = vector.Operands[0];
 		}
+		TypedExpression? value = Check(vector);
+		for (int index = chain.Count - 1; index >= 0 && value != null; index--)
+		{
+			value = Component(chain[index], value);
+		}
+		return value;
+	}
+
+	// A component of a typed value.
+	private TypedExpression? Component(ExpressionSyntax syntax, TypedExpression vector)
+	{
 		if (!IsVector(vector.Type))
 		{
 			ExpressionSyntax operand = syntax.Operands[0];

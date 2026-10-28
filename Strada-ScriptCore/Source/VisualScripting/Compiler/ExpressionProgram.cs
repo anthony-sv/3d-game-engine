@@ -183,11 +183,39 @@ internal sealed class ExpressionCompiler
 			case TypedExpressionKind.Conditional:
 				return Conditional(expression, target);
 		}
+		// The computed first operands below it (a left-associative chain such as a + b + c, as deep as it is long, its
+		// widenings included) are emitted in a loop from the first up, so the stack grows only with the formula's nesting.
+		List<TypedExpression> chain = [expression];
+		while (chain[^1].Operands.Length > 0 && IsComputed(chain[^1].Operands[0]))
+		{
+			chain.Add(chain[^1].Operands[0]);
+		}
+		TypedExpression last = chain[^1];
+		int first = last.Operands.Length > 0 ? Emit(last.Operands[0]) : -1;
+		for (int index = chain.Count - 1; index >= 0; index--)
+		{
+			first = Compute(chain[index], first, index == 0 ? target : -1);
+		}
+		return first;
+	}
+
+	// Whether Emit computes the expression with an instruction over its operands: every kind but inputs, constants, folded
+	// widenings and casts of constants, short circuits and ?:.
+	private static bool IsComputed(TypedExpression expression) => expression.Kind switch
+	{
+		TypedExpressionKind.Input or TypedExpressionKind.Constant or TypedExpressionKind.And or TypedExpressionKind.Or or TypedExpressionKind.Conditional => false,
+		TypedExpressionKind.Widen or TypedExpressionKind.Cast => expression.Operands[0].Kind != TypedExpressionKind.Constant,
+		_ => true,
+	};
+
+	// The instruction of a computed expression whose first operand's value is in first.
+	private int Compute(TypedExpression expression, int first, int target)
+	{
 		TypedExpression[] operands = expression.Operands;
 		Span<int> slots = stackalloc int[4];
 		for (int index = 0; index < operands.Length; index++)
 		{
-			slots[index] = Emit(operands[index]);
+			slots[index] = index == 0 ? first : Emit(operands[index]);
 		}
 		for (int index = 0; index < operands.Length; index++)
 		{
@@ -218,14 +246,24 @@ internal sealed class ExpressionCompiler
 		return result;
 	}
 
-	// a && b: a → r; JumpIfFalse r → end; b → r; end. a || b likewise with JumpIfTrue.
+	// a && b: a → r; JumpIfFalse r → end; b → r; end. a || b likewise with JumpIfTrue. A chain of them (a && b || c ...,
+	// as deep as it is long) computes into the one result in a loop from its first operand up.
 	private int ShortCircuit(TypedExpression expression, int target)
 	{
 		int result = target >= 0 ? target : Temporary();
-		EmitInto(expression.Operands[0], result);
-		int jump = Add(expression.Kind == TypedExpressionKind.And ? ExpressionOp.JumpIfFalse : ExpressionOp.JumpIfTrue, expression, -1, a: result);
-		EmitInto(expression.Operands[1], result);
-		Patch(jump);
+		List<TypedExpression> chain = [expression];
+		while (chain[^1].Operands[0].Kind is TypedExpressionKind.And or TypedExpressionKind.Or)
+		{
+			chain.Add(chain[^1].Operands[0]);
+		}
+		EmitInto(chain[^1].Operands[0], result);
+		for (int index = chain.Count - 1; index >= 0; index--)
+		{
+			TypedExpression link = chain[index];
+			int jump = Add(link.Kind == TypedExpressionKind.And ? ExpressionOp.JumpIfFalse : ExpressionOp.JumpIfTrue, link, -1, a: result);
+			EmitInto(link.Operands[1], result);
+			Patch(jump);
+		}
 		return result;
 	}
 

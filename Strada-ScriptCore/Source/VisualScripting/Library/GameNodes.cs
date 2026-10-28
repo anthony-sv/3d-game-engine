@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 
@@ -7,6 +8,9 @@ namespace Strada.VisualScripting;
 
 // A game member's node and the former names its [VisualNode] gives it, with what its notes need.
 internal sealed record GameRename(MemberNodeDefinition Node, string Member, string Category, IReadOnlyList<string> FormerNames);
+
+// A public type of the game assembly whose attributes could be read, with its [VisualNode].
+internal sealed record GameType(Type Type, VisualNodeAttribute? Attribute);
 
 // Nodes of the game assembly's members that [VisualNode] marks (spec-slice3 section 3.7): which members become nodes, with
 // the titles, categories, descriptions, keywords and purity their attributes give; the notes of marked members that have
@@ -24,71 +28,111 @@ internal static class GameNodes
 	private const BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static |
 		BindingFlags.DeclaredOnly;
 
+	// Reading a member's attributes resolves the type of each of them: it throws when an attribute's assembly cannot be
+	// loaded or read (a dependency of the game that is missing or broken), whichever attribute is asked for.
 	internal static VisualNodeAttribute? AttributeOf(MemberInfo member) => member.GetCustomAttribute<VisualNodeAttribute>(false);
 
-	// Where the palette lists a game type's nodes: its [VisualNode]'s Category when it is valid, else "Game/<type title>".
-	internal static string CategoryOf(Type type) =>
-		AttributeOf(type) is { Category: { Length: > 0 } category } && IsCategory(category) ? category : CategoryRoot + Titles.OfType(type);
+	// Whether reflection failed on what a game type or member uses: a dependency of the game that is missing or broken. The
+	// library is built without what cannot be read, with a note.
+	internal static bool IsReadFailure(Exception exception) =>
+		exception is TypeLoadException or FileNotFoundException or FileLoadException or BadImageFormatException or CustomAttributeFormatException;
+
+	// The [VisualNode] of a game type or member, or false with the reason when its attributes cannot be read.
+	internal static bool TryReadAttribute(MemberInfo member, out VisualNodeAttribute? attribute, out string problem)
+	{
+		try
+		{
+			attribute = AttributeOf(member);
+			problem = string.Empty;
+			return true;
+		}
+		catch (Exception exception) when (IsReadFailure(exception))
+		{
+			attribute = null;
+			problem = exception.Message;
+			return false;
+		}
+	}
+
+	// Where the palette lists a game type's nodes: its [VisualNode]'s Category when it is valid, else the default category.
+	internal static string CategoryOf(Type type, VisualNodeAttribute? attribute) =>
+		attribute is { Category: { Length: > 0 } category } && IsCategory(category) ? category : DefaultCategoryOf(type);
+
+	// "Game/<type title>", which reads no attribute: the category of notes about a type whose attributes cannot be read.
+	internal static string DefaultCategoryOf(Type type) => CategoryRoot + Titles.OfType(type);
 
 	// The types of graphs a game type's marked members need, other than those registered anyway: the declaring types of
 	// instance members and constructors, and the types of parameters, results, properties and fields (an array's element
-	// for arrays). isGameType says which types are the game's.
-	internal static List<Type> FindSignatureTypes(Type type, Func<Type, bool> isGameType)
+	// for arrays). typeAttribute is the type's [VisualNode]; isGameType says which types are the game's. A member that cannot
+	// be read is skipped: Create notes it.
+	internal static List<Type> FindSignatureTypes(Type type, VisualNodeAttribute? typeAttribute, Func<Type, bool> isGameType)
 	{
 		List<Type> found = [];
 		if (type.IsEnum)
 		{
 			return found;
 		}
-		VisualNodeAttribute? typeAttribute = AttributeOf(type);
 		foreach (MemberInfo member in MembersOf(type))
 		{
-			if (!IsMarked(member, typeAttribute))
+			try
 			{
-				continue;
+				AddSignatureTypes(type, member, typeAttribute, isGameType, found);
 			}
-			switch (member)
+			catch (Exception exception) when (IsReadFailure(exception))
 			{
-				case MethodBase method:
-					if (method is ConstructorInfo || !method.IsStatic)
-					{
-						AddGameType(found, type, isGameType);
-					}
-					if (method is MethodInfo info)
-					{
-						AddGameType(found, info.ReturnType, isGameType);
-					}
-					foreach (ParameterInfo parameter in method.GetParameters())
-					{
-						AddGameType(found, parameter.ParameterType, isGameType);
-					}
-					break;
-				case PropertyInfo property:
-					if (!MemberNodes.IsStatic(property))
-					{
-						AddGameType(found, type, isGameType);
-					}
-					AddGameType(found, property.PropertyType, isGameType);
-					break;
-				case FieldInfo field:
-					if (!field.IsStatic)
-					{
-						AddGameType(found, type, isGameType);
-					}
-					AddGameType(found, field.FieldType, isGameType);
-					break;
+				// Create notes the member, whose nodes it cannot make either.
 			}
 		}
 		return found;
 	}
 
+	private static void AddSignatureTypes(Type type, MemberInfo member, VisualNodeAttribute? typeAttribute, Func<Type, bool> isGameType, List<Type> found)
+	{
+		if (!IsMarked(member, typeAttribute))
+		{
+			return;
+		}
+		switch (member)
+		{
+			case MethodBase method:
+				if (method is ConstructorInfo || !method.IsStatic)
+				{
+					AddGameType(found, type, isGameType);
+				}
+				if (method is MethodInfo info)
+				{
+					AddGameType(found, info.ReturnType, isGameType);
+				}
+				foreach (ParameterInfo parameter in method.GetParameters())
+				{
+					AddGameType(found, parameter.ParameterType, isGameType);
+				}
+				break;
+			case PropertyInfo property:
+				if (!MemberNodes.IsStatic(property))
+				{
+					AddGameType(found, type, isGameType);
+				}
+				AddGameType(found, property.PropertyType, isGameType);
+				break;
+			case FieldInfo field:
+				if (!field.IsStatic)
+				{
+					AddGameType(found, type, isGameType);
+				}
+				AddGameType(found, field.FieldType, isGameType);
+				break;
+		}
+	}
+
 	// The nodes of a game type's marked members, the notes of those without one, and the former names of those with one.
-	internal static void Create(Type type, Func<Type, VisualType?> resolve, VisualType entity, List<MemberNodeDefinition> nodes,
-		List<LibraryNote> notes, List<GameRename> renames)
+	// typeAttribute is the type's [VisualNode]. A member whose attributes or signature cannot be read gives no node and a
+	// note, and the type's other members are read as usual.
+	internal static void Create(Type type, VisualNodeAttribute? typeAttribute, Func<Type, VisualType?> resolve, VisualType entity,
+		List<MemberNodeDefinition> nodes, List<LibraryNote> notes, List<GameRename> renames)
 	{
 		string typeId = TypeIds.Of(type) ?? MemberNodes.DisplayName(type);
-		VisualNodeAttribute? typeAttribute = AttributeOf(type);
-		string defaultCategory = CategoryRoot + Titles.OfType(type);
+		string defaultCategory = DefaultCategoryOf(type);
 		if (typeAttribute != null)
 		{
 			defaultCategory = ReadCategory(typeAttribute, typeId, defaultCategory, defaultCategory, notes);
@@ -99,47 +143,62 @@ internal static class GameNodes
 		}
 		foreach (MemberInfo member in MembersOf(type))
 		{
-			if (!IsMarked(member, typeAttribute))
-			{
-				continue;
-			}
-			VisualNodeAttribute? attribute = AttributeOf(member);
 			string name = member is ConstructorInfo ? typeId : typeId + "." + member.Name;
-			string category = attribute != null ? ReadCategory(attribute, name, defaultCategory, defaultCategory, notes) : defaultCategory;
-			GameMember game = new(member, name, category, attribute, notes);
-			if (!IsPublic(member))
-			{
-				game.Note("[VisualNode] members must be public");
-				continue;
-			}
-			if (type.IsInterface || type.IsGenericType)
-			{
-				game.Note(type.IsInterface ? "members of interfaces have no node form" : "members of generic types have no node form");
-				continue;
-			}
-			MemberNodeText text = ReadText(game);
 			int count = nodes.Count;
-			switch (member)
+			try
 			{
-				case MethodInfo method:
-					AddMethod(game, method, text, resolve, entity, nodes);
-					break;
-				case PropertyInfo property:
-					AddProperty(game, property, text, resolve, entity, nodes);
-					break;
-				case FieldInfo field:
-					AddField(game, field, text, resolve, entity, nodes);
-					break;
-				case ConstructorInfo constructor:
-					AddConstructor(game, constructor, text, resolve, entity, nodes);
-					break;
+				CreateMember(type, typeAttribute, member, name, defaultCategory, resolve, entity, nodes, notes, renames);
 			}
-			if (attribute != null && nodes.Count > count && ReadFormerNames(attribute) is { Count: > 0 } formerNames)
+			catch (Exception exception) when (IsReadFailure(exception))
 			{
-				for (int index = count; index < nodes.Count; index++)
-				{
-					renames.Add(new GameRename(nodes[index], name, category, formerNames));
-				}
+				nodes.RemoveRange(count, nodes.Count - count);
+				notes.Add(new LibraryNote(name, defaultCategory, $"{name}: the member cannot be read: {exception.Message}"));
+			}
+		}
+	}
+
+	private static void CreateMember(Type type, VisualNodeAttribute? typeAttribute, MemberInfo member, string name, string defaultCategory,
+		Func<Type, VisualType?> resolve, VisualType entity, List<MemberNodeDefinition> nodes, List<LibraryNote> notes, List<GameRename> renames)
+	{
+		if (!IsMarked(member, typeAttribute))
+		{
+			return;
+		}
+		VisualNodeAttribute? attribute = AttributeOf(member);
+		string category = attribute != null ? ReadCategory(attribute, name, defaultCategory, defaultCategory, notes) : defaultCategory;
+		GameMember game = new(member, name, category, attribute, notes);
+		if (!IsPublic(member))
+		{
+			game.Note("[VisualNode] members must be public");
+			return;
+		}
+		if (type.IsInterface || type.IsGenericType)
+		{
+			game.Note(type.IsInterface ? "members of interfaces have no node form" : "members of generic types have no node form");
+			return;
+		}
+		MemberNodeText text = ReadText(game);
+		int count = nodes.Count;
+		switch (member)
+		{
+			case MethodInfo method:
+				AddMethod(game, method, text, resolve, entity, nodes);
+				break;
+			case PropertyInfo property:
+				AddProperty(game, property, text, resolve, entity, nodes);
+				break;
+			case FieldInfo field:
+				AddField(game, field, text, resolve, entity, nodes);
+				break;
+			case ConstructorInfo constructor:
+				AddConstructor(game, constructor, text, resolve, entity, nodes);
+				break;
+		}
+		if (attribute != null && nodes.Count > count && ReadFormerNames(attribute) is { Count: > 0 } formerNames)
+		{
+			for (int index = count; index < nodes.Count; index++)
+			{
+				renames.Add(new GameRename(nodes[index], name, category, formerNames));
 			}
 		}
 	}
