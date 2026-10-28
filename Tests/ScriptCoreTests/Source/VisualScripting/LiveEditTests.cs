@@ -284,7 +284,7 @@ public sealed class LiveEditTests
 		runtime.LoadWorking(document.Build());
 		Execution fiber = Assert.Single(runtime.Instance().Fibers);
 		Assert.Equal(2, fiber.CallCount);
-		Assert.Same(runtime.Instance().Program.FindFunction(wait.Id)!.Graph, fiber.TopFrame.Graph);
+		Assert.Same(runtime.Instance().Program.FindFunction(0, wait.Id)!.Body, fiber.TopFrame.Graph);
 		runtime.Invoke(ScriptEvent.Update, 0.25f);
 		Assert.Equal(["9", "returned"], runtime.Records);
 	}
@@ -309,5 +309,76 @@ public sealed class LiveEditTests
 		Assert.Equal([Warning(delay, "Delay", "the edit changed the function Wait")], runtime.Environment.Warnings);
 		runtime.Invoke(ScriptEvent.Update, 1.0f);
 		Assert.Empty(runtime.Records);
+	}
+
+	// A graph that calls a library runs the functions the library had when the graph was loaded; a change of the library
+	// loads the graph again (spec-slice3 section 4.4.4), and its instances swap as for any edit: a fiber waiting in the
+	// library's function keeps waiting while the nodes it holds remain, and the variables carry over.
+	private static (TestRuntime Runtime, string Document, uint Count) StartWaitingInTheLibrary()
+	{
+		MotionLibrary library = new();
+		DocumentBuilder document = new();
+		uint count = document.Variable("Count", "int", "1");
+		GraphBuilder graph = document.Graph;
+		uint set = graph.Set(count, "5");
+		uint pause = graph.Node("Function.Call", CrossGraphTesting.Call(library.Pause, CrossGraphTesting.Motion), """{ "Seconds": 0.5 }""");
+		graph.Flow(graph.Node("Event.Create"), set);
+		graph.Flow(set, pause);
+		graph.Writes(pause, "Then", "after");
+		TestRuntime runtime = new();
+		runtime.LoadWorking(document.Build(), references: library.Bundle());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Single(runtime.Instance().Fibers);
+		return (runtime, document.Build(), count);
+	}
+
+	[Fact]
+	public void AFiberWaitingInALibraryFunctionSurvivesAChangeOfTheLibrary()
+	{
+		(TestRuntime runtime, string document, _) = StartWaitingInTheLibrary();
+		GraphProgram before = runtime.Instance().Program;
+		MotionLibrary changed = new();
+		changed.Report.Graph.Write("more");
+
+		runtime.LoadWorking(document, references: changed.Bundle());
+		Assert.NotSame(before, runtime.Instance().Program);
+		Execution fiber = Assert.Single(runtime.Instance().Fibers);
+		Assert.Same(runtime.Instance().Program.FindFunction(CrossGraphTesting.Motion, changed.Pause.Id)!.Body, fiber.TopFrame.Graph);
+		Assert.Equal(5, runtime.Variable("Count"));
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["resumed", "after"], runtime.Records);
+		Assert.Empty(runtime.Environment.Logs);
+	}
+
+	[Fact]
+	public void AFiberWhoseLatentNodeInALibraryIsGoneIsCancelledWithOneLogLine()
+	{
+		(TestRuntime runtime, string document, _) = StartWaitingInTheLibrary();
+		MotionLibrary changed = new("Disabled");
+
+		runtime.LoadWorking(document, references: changed.Bundle());
+		Assert.Empty(runtime.Instance().Fibers);
+		Assert.Equal(5, runtime.Variable("Count"));
+		Assert.Equal([Warning(changed.Delay, "Delay", FormattableString.Invariant($"the edit disabled Delay (node {changed.Delay})"))],
+			runtime.Environment.Warnings);
+		runtime.Invoke(ScriptEvent.Update, 1.0f);
+		Assert.Empty(runtime.Records);
+	}
+
+	[Fact]
+	public void ABrokenLibraryLeavesTheGraphsThatCallItOnTheirWorkingProgram()
+	{
+		(TestRuntime runtime, string document, _) = StartWaitingInTheLibrary();
+		GraphProgram working = runtime.Instance().Program;
+		MotionLibrary broken = new();
+		broken.Pause.Graph.Node("Flow.Nothing");
+
+		Diagnostic error = Assert.Single(runtime.Load(document, references: broken.Bundle()), static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+		Assert.Equal(DiagnosticCode.ReferenceError, error.Code);
+		Assert.Same(working, runtime.Runtime.FindEffectiveProgram(TestRuntime.Graph));
+		Assert.Same(working, runtime.Instance().Program);
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["resumed", "after"], runtime.Records);
 	}
 }

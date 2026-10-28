@@ -173,17 +173,18 @@ internal sealed partial class VisualScriptRuntime
 			if (index > 0)
 			{
 				CompiledFunction function = graph.Function!;
-				CompiledFunction? newFunction = target.FindFunction(function.Id);
+				CompiledFunction? newFunction = target.FindFunction(function.Graph, function.Id);
 				if (newFunction == null || newFunction.Pure || !SameSignature(function, newFunction))
 				{
 					return $"the edit changed the function {function.Name}";
 				}
 				CompiledNode call = caller.Nodes[record.CallNode];
-				if (Find(newCaller, call) is not { } newCall || newCall.Function?.Id != function.Id)
+				if (Find(newCaller, call) is not { } newCall || newCall.Function is not { } callee || callee.Graph != function.Graph ||
+					callee.Id != function.Id)
 				{
 					return Removed(call, newCaller);
 				}
-				newGraph = newFunction.Graph;
+				newGraph = newFunction.Body;
 			}
 			int end = index + 1 < fiber.CallCount ? fiber.Calls[index + 1].FlowBase : fiber.FlowCount;
 			for (int flow = record.FlowBase; flow < end; flow++)
@@ -254,7 +255,7 @@ internal sealed partial class VisualScriptRuntime
 			if (index > 0)
 			{
 				CompiledFunction function = graph.Function!;
-				CompiledFunction newFunction = target.FindFunction(function.Id)!;
+				CompiledFunction newFunction = target.FindFunction(function.Graph, function.Id)!;
 				moved = newFunction.AcquireFrame();
 				CarryNodes(old, moved);
 				CarryLocals(function, old, newFunction, moved);

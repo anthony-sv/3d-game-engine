@@ -50,6 +50,13 @@ internal static class DocumentReader
 				$"the document is not JSON (nested at most {MaxDepth.ToString(CultureInfo.InvariantCulture)} levels deep) at {location}"));
 			return null;
 		}
+		return Read(root, diagnostics);
+	}
+
+	// A document that is a JSON value already (the documents of a references bundle, spec-slice3 section 2.4): null when it
+	// is not an object, or holds a string that is not text.
+	internal static GraphDocument? Read(JsonElement root, List<Diagnostic> diagnostics)
+	{
 		if (root.ValueKind != JsonValueKind.Object)
 		{
 			diagnostics.Add(new Diagnostic(DiagnosticCode.InvalidDocument, 0, "the document is not a JSON object"));
@@ -77,6 +84,7 @@ internal static class DocumentReader
 
 		public GraphDocument ReadDocument(JsonElement root)
 		{
+			DocumentKind kind = ReadKind(root);
 			List<DocumentVariable> variables = ReadVariables(root);
 			HashSet<string> variableNames = new(StringComparer.Ordinal);
 			foreach (DocumentVariable variable in variables)
@@ -86,7 +94,29 @@ internal static class DocumentReader
 			List<DocumentFunction> functions = ReadFunctions(root, variableNames);
 			m_Function = 0;
 			DocumentGraph graph = ReadGraph(root, "Graph", 0);
-			return new GraphDocument(variables, functions, graph);
+			return new GraphDocument(kind, variables, functions, graph);
+		}
+
+		// The document's Kind: a script without one; one that is neither "Script" nor "Library" is a script too (the loader's
+		// repair 16).
+		private DocumentKind ReadKind(JsonElement root)
+		{
+			if (!root.TryGetProperty("Kind", out JsonElement value))
+			{
+				return DocumentKind.Script;
+			}
+			if (JsonText.TryGetString(value, out string? kind))
+			{
+				switch (kind)
+				{
+					case "Script":
+						return DocumentKind.Script;
+					case "Library":
+						return DocumentKind.Library;
+				}
+			}
+			Problem("Kind", "expected \"Script\" or \"Library\"");
+			return DocumentKind.Script;
 		}
 
 		private List<DocumentVariable> ReadVariables(JsonElement root)
@@ -119,22 +149,31 @@ internal static class DocumentReader
 			for (int index = 0; index < variables.Count; index++)
 			{
 				DocumentVariable variable = variables[index];
-				List<string> kept = [];
-				foreach (string formerName in variable.FormerNames)
-				{
-					if (names.Contains(formerName) || !formerNames.Add(formerName))
-					{
-						Problem($"Variables[{Format(index)}].FormerNames", $"{formerName} is the name of a variable or another former name");
-						continue;
-					}
-					kept.Add(formerName);
-				}
+				IReadOnlyList<string> kept = KeepFormerNames(variable.FormerNames, names, formerNames, $"Variables[{Format(index)}].FormerNames",
+					"a variable");
 				if (kept.Count != variable.FormerNames.Count)
 				{
 					variables[index] = variable with { FormerNames = kept };
 				}
 			}
 			return variables;
+		}
+
+		// The former names of an element that are no current name of its scope (names) and no former name taken earlier in it.
+		private List<string> KeepFormerNames(IReadOnlyList<string> formerNames, HashSet<string> names, HashSet<string> taken, string path,
+			string owner)
+		{
+			List<string> kept = [];
+			foreach (string formerName in formerNames)
+			{
+				if (names.Contains(formerName) || !taken.Add(formerName))
+				{
+					Problem(path, $"{formerName} is the name of {owner} or another former name");
+					continue;
+				}
+				kept.Add(formerName);
+			}
+			return kept;
 		}
 
 		private List<string> ReadFormerNames(JsonElement element, string path)
@@ -205,6 +244,7 @@ internal static class DocumentReader
 		private List<DocumentParameter> ReadParameters(JsonElement function, string functionPath, string key)
 		{
 			List<DocumentParameter> parameters = [];
+			List<string> paths = [];
 			HashSet<string> names = new(StringComparer.Ordinal);
 			foreach ((JsonElement element, string path) in Elements(function, key, $"{functionPath}.{key}"))
 			{
@@ -217,7 +257,21 @@ internal static class DocumentReader
 					Problem($"{path}.Name", $"a parameter named {name} comes earlier");
 					continue;
 				}
-				parameters.Add(new DocumentParameter(name, type));
+				parameters.Add(new DocumentParameter(name, type, ReadFormerNames(element, path)));
+				paths.Add(path);
+			}
+			// Former names identify renamed parameters (spec-slice3 section 1.1): each is unique in its list and differs from
+			// every current name of the list.
+			HashSet<string> formerNames = new(StringComparer.Ordinal);
+			for (int index = 0; index < parameters.Count; index++)
+			{
+				DocumentParameter parameter = parameters[index];
+				IReadOnlyList<string> kept = KeepFormerNames(parameter.FormerNames, names, formerNames, $"{paths[index]}.FormerNames",
+					"a parameter of this list");
+				if (kept.Count != parameter.FormerNames.Count)
+				{
+					parameters[index] = parameter with { FormerNames = kept };
+				}
 			}
 			return parameters;
 		}

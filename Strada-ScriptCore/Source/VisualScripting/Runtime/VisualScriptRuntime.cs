@@ -36,6 +36,8 @@ internal sealed partial class VisualScriptRuntime
 	// The graph handles whose instances still run an older program than the handle's effective one: it was running when
 	// the new program loaded (spec section 5.6).
 	private readonly HashSet<ulong> m_PendingSwaps = [];
+	// The analyses of the function libraries the documents call, shared by analyses and loads (spec-slice3 section 4.4.3).
+	private readonly LibraryAnalyses m_LibraryAnalyses = new();
 	private IVisualScriptDebugger? m_Debugger;
 	// Active executions plus the function frames on their call stacks.
 	private int m_Depth;
@@ -66,6 +68,9 @@ internal sealed partial class VisualScriptRuntime
 
 	internal int InstanceCount => m_Instances.Count;
 
+	// The analyses of function libraries kept for the documents that call them.
+	internal LibraryAnalyses LibraryAnalyses => m_LibraryAnalyses;
+
 	// Attaches the debugger that traces executions from now on (spec section 5.5); null detaches it.
 	internal void AttachDebugger(IVisualScriptDebugger? debugger)
 	{
@@ -75,11 +80,14 @@ internal sealed partial class VisualScriptRuntime
 	// Analyzes and compiles a document for a graph handle and returns its diagnostics. A program is stored whatever the
 	// document holds; a broken one keeps the handle's working program running (spec section 5.1), a working one swaps the
 	// program of the handle's instances (spec section 5.6). name is the display name in messages (the asset path).
-	internal IReadOnlyList<Diagnostic> Load(ulong graph, string name, ReadOnlySpan<byte> document)
+	// references is the bundle of the other graphs the document's nodes refer to (spec-slice3 section 2.4; empty for none):
+	// the functions of the libraries it calls are compiled into the program, and the program is its document and the bundle
+	// it was compiled with.
+	internal IReadOnlyList<Diagnostic> Load(ulong graph, string name, ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default)
 	{
-		AnalyzedDocument analyzed = GraphAnalyzer.Analyze(m_Library(), document);
-		GraphProgram program = ProgramCompiler.Compile(analyzed, name);
-		ProgramSource source = new(name, document.ToArray());
+		ProgramSource source = new(name, document.ToArray(), references.ToArray());
+		AnalyzedDocument analyzed = Analyze(source);
+		GraphProgram program = ProgramCompiler.Compile(analyzed, name, analyzed.Linked);
 		bool stale = false;
 		if (m_Graphs.TryGetValue(graph, out GraphEntry? entry))
 		{
@@ -471,7 +479,14 @@ internal sealed partial class VisualScriptRuntime
 		return null;
 	}
 
-	private GraphProgram Compile(ProgramSource source) => ProgramCompiler.Compile(GraphAnalyzer.Analyze(m_Library(), source.Document), source.Name);
+	private GraphProgram Compile(ProgramSource source)
+	{
+		AnalyzedDocument analyzed = Analyze(source);
+		return ProgramCompiler.Compile(analyzed, source.Name, analyzed.Linked);
+	}
+
+	private AnalyzedDocument Analyze(ProgramSource source) =>
+		GraphAnalyzer.Analyze(m_Library(), source.Document, GraphReferences.Parse(source.References), m_LibraryAnalyses, source.Name);
 
 	private void LogRecompiled(GraphProgram program)
 	{
@@ -511,8 +526,9 @@ internal sealed partial class VisualScriptRuntime
 		return invoker;
 	}
 
-	// A document as it was loaded: what a program compiles from again after the game assembly changed.
-	private sealed record ProgramSource(string Name, byte[] Document);
+	// A document as it was loaded, with the references bundle it was loaded with: what a program compiles from again after
+	// the game assembly changed (spec-slice3 section 4.4.4).
+	private sealed record ProgramSource(string Name, byte[] Document, byte[] References);
 
 	// The programs of a graph handle.
 	private sealed class GraphEntry

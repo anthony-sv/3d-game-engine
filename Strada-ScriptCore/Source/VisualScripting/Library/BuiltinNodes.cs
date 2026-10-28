@@ -220,9 +220,10 @@ internal static class BuiltinNodes
 		Add(nodes, new BuiltinNodeDefinition(BuiltinNode.EventSend, TypeOf(BuiltinNode.EventSend), "Send Event", Events, NodeKind.Call, false,
 			false, [ExecIn(), Target(types.Entity), ExecOut()])
 		{
-			Description = "Raises the custom event of that name on the Target entity's graph (Self when unconnected) and continues when it ends or waits.",
+			Description =
+				"Raises the custom event of that name on the Target entity's graph (Self when unconnected) and continues when it ends or waits; with Graph, only an entity running that graph receives it.",
 			Keywords = ["send", "message", "raise", "event"],
-			Settings = CustomEventSettings(),
+			Settings = [.. CustomEventSettings(), GraphSetting(TypeConstraint.Script)],
 		});
 	}
 
@@ -341,9 +342,9 @@ internal static class BuiltinNodes
 		Add(nodes, new BuiltinNodeDefinition(BuiltinNode.FunctionCall, TypeOf(BuiltinNode.FunctionCall), "Call Function", Functions,
 			NodeKind.Function, false, false, [ExecIn(), ExecOut()])
 		{
-			Description = "Calls a function of the graph with its inputs and outputs its results.",
-			Keywords = ["call", "invoke", "run"],
-			Settings = [new SettingDescription("Function", SettingKind.Function) { Required = true }],
+			Description = "Calls a function of the graph, or of the function library Graph names, with its inputs and outputs its results.",
+			Keywords = ["call", "invoke", "run", "library"],
+			Settings = [new SettingDescription("Function", SettingKind.Function) { Required = true }, GraphSetting(TypeConstraint.Library)],
 		});
 	}
 
@@ -527,6 +528,9 @@ internal static class BuiltinNodes
 			[In("A", types.Bool), In("B", types.Bool), Out("Result", types.Bool)]);
 		Operator(nodes, BuiltinNode.OperatorNot, "Not", "Whether A is false.", ["!", "invert", "negate"], [In("A", types.Bool), Out("Result", types.Bool)]);
 	}
+
+	// The optional setting of the nodes that refer to another graph (spec-slice3 section 4.1).
+	private static SettingDescription GraphSetting(TypeConstraint constraint) => new("Graph", SettingKind.Graph) { Constraint = constraint };
 
 	private static SettingDescription[] CustomEventSettings() =>
 	[

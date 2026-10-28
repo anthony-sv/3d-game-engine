@@ -65,6 +65,25 @@ internal sealed class AnalyzedDocument
 	internal Diagnostic? FirstError { get; }
 
 	internal bool HasErrors => ErrorCount > 0;
+
+	// A script, or a function library (spec-slice3 section 4.4).
+	internal DocumentKind Kind { get; init; }
+
+	// Every function library the document's calls reach, directly or through other libraries, by handle: their functions
+	// are compiled into the document's program (spec-slice3 section 4.4.4).
+	internal IReadOnlyDictionary<ulong, LinkedLibrary> Linked { get; init; } = new Dictionary<ulong, LinkedLibrary>();
+
+	internal AnalyzedFunction? FindFunction(uint id)
+	{
+		foreach (AnalyzedFunction function in Functions)
+		{
+			if (function.ID == id)
+			{
+				return function;
+			}
+		}
+		return null;
+	}
 }
 
 // A document variable, or a local of a function. Type is null when the declared type is unknown or not allowed; Value is
@@ -105,8 +124,12 @@ internal sealed class AnalyzedVariable
 }
 
 // An input or output of a function, or a parameter of a custom event. Type is null when the declared type is unknown or
-// not allowed.
-internal sealed record AnalyzedParameter(string Name, string TypeId, VisualType? Type);
+// not allowed. FormerNames: the names a function's parameter had, which calls from other graphs may still use
+// (spec-slice3 section 4.4.2).
+internal sealed record AnalyzedParameter(string Name, string TypeId, VisualType? Type)
+{
+	internal IReadOnlyList<string> FormerNames { get; init; } = [];
+}
 
 internal sealed class AnalyzedFunction
 {
@@ -295,10 +318,15 @@ internal sealed class AnalyzedNode
 
 	internal NodeDefinition? Definition { get; set; }
 
-	// Nodes resolved by redirect or by a unique match: the current type string and the pins it renames.
+	// Nodes resolved by redirect or by a unique match: the current type string.
 	internal string? CanonicalType { get; set; }
 
+	// Nodes resolved by redirect or by a unique match, and calls of library functions that name former parameter names: the
+	// pins they rename.
 	internal IReadOnlyList<PinRename> PinRenames { get; set; } = [];
+
+	// The pin names the document's links store for the node, in link order.
+	internal IReadOnlyList<(PinDirection Direction, string Pin)> StoredPins { get; set; } = [];
 
 	internal string Title { get; set; }
 
@@ -599,14 +627,19 @@ internal abstract record NodeBinding;
 // Variable.Get and Variable.Set.
 internal sealed record VariableBinding(AnalyzedVariable Variable) : NodeBinding;
 
-// Function.Entry, Function.Return and Function.Call.
-internal sealed record FunctionBinding(AnalyzedFunction Function) : NodeBinding;
+// Function.Entry, Function.Return and Function.Call: the function, of the document (Graph 0) or of the function library of
+// that handle (spec-slice3 section 4.4.2).
+internal sealed record FunctionBinding(AnalyzedFunction Function, ulong Graph = 0) : NodeBinding;
 
 // The input events: the key, mouse button or gamepad button (an enum value).
 internal sealed record InputEventBinding(object Value) : NodeBinding;
 
-// Event.Custom and Event.Send.
-internal sealed record CustomEventBinding(string Name, IReadOnlyList<AnalyzedParameter> Parameters) : NodeBinding;
+// Event.Custom and Event.Send. Target: a typed Send's graph (spec-slice3 section 4.3); null for one without Graph.
+internal sealed record CustomEventBinding(string Name, IReadOnlyList<AnalyzedParameter> Parameters, SendTarget? Target = null) : NodeBinding;
+
+// The graph a typed Send delivers to: its handle, and its asset path for the runtime's messages. IsOtherScript: it names a
+// script other than the analyzed document, so an unlinked Target (Self) cannot run it.
+internal sealed record SendTarget(ulong Graph, string Name, bool IsOtherScript);
 
 internal sealed record SequenceBinding(int Count) : NodeBinding;
 

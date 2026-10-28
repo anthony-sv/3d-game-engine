@@ -278,7 +278,7 @@ internal sealed partial class VisualScriptRuntime
 		execution.Entry = link.Entry;
 		if (execution.Debugger is { } debugger)
 		{
-			debugger.OnStep(execution.Instance, node.Id, node.ExitPins[exit]);
+			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, node.ExitPins[exit]);
 		}
 	}
 
@@ -289,7 +289,7 @@ internal sealed partial class VisualScriptRuntime
 		execution.Node = -1;
 		if (execution.Debugger is { } debugger)
 		{
-			debugger.OnStep(execution.Instance, node.Id, null);
+			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, null);
 		}
 	}
 
@@ -528,7 +528,7 @@ internal sealed partial class VisualScriptRuntime
 		execution.Entry = 0;
 		if (execution.Debugger is { } debugger)
 		{
-			debugger.OnStep(execution.Instance, node.Id, null);
+			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, null);
 		}
 	}
 
@@ -541,7 +541,7 @@ internal sealed partial class VisualScriptRuntime
 		}
 		CompiledFunction function = call.Function!;
 		Frame callee = function.AcquireFrame();
-		int parameters = function.Graph.Nodes[function.EntryNode].OutputBase;
+		int parameters = function.Body.Nodes[function.EntryNode].OutputBase;
 		Array.Copy(frame.Slots, call.InputBase, callee.Slots, parameters, call.InputCount);
 		execution.PushCall(callee, call.Index, resumePlan, resumeIndex);
 		m_Depth++;
@@ -787,7 +787,7 @@ internal sealed partial class VisualScriptRuntime
 		for (int index = 0; index < node.OutputCount; index++)
 		{
 			object? value = SlotValues.ToValue(slots[node.OutputBase + index], node.OutputTypes[index]);
-			debugger.OnValue(execution.Instance, node.Id, node.OutputPins[index], value);
+			debugger.OnValue(execution.Instance, node.Owner.Graph, node.Id, node.OutputPins[index], value);
 		}
 	}
 
@@ -836,7 +836,8 @@ internal sealed partial class VisualScriptRuntime
 
 	// Event.Send: the matching Event.Custom of the Target's instance runs as a nested execution with the parameter inputs as
 	// its outputs; it returns when that execution ends or suspends (the suspended part is a fiber of the Target's instance).
-	// Without a receiver a Warning is logged, once per node per instance. An abort in the nested execution aborts this one.
+	// Without a receiver a Warning is logged, once per node per instance; a typed Send (spec-slice3 section 4.3) has no
+	// receiver in an instance of another graph. An abort in the nested execution aborts this one.
 	private ExecutionResult Send(Execution execution, CompiledNode node, Slot[] slots)
 	{
 		Entity? target = node.TargetIsSelf ? m_Environment.GetEntity(execution.Instance.Entity) : (Entity?)slots[node.InputBase].Object;
@@ -848,6 +849,12 @@ internal sealed partial class VisualScriptRuntime
 		if (!m_Instances.TryGetValue(target.ID, out GraphInstance? receiver))
 		{
 			Warn(execution, node, $"{m_Environment.GetEntityName(target.ID)} ({target.ID}) runs no visual script to receive {node.EventName}");
+			return ExecutionResult.Ended;
+		}
+		if (node.TargetGraph != 0 && receiver.Graph != node.TargetGraph)
+		{
+			Warn(execution, node,
+				$"{node.EventName} was not sent: {m_Environment.GetEntityName(target.ID)} ({target.ID}) runs {receiver.Program.Name}, not {node.TargetName}");
 			return ExecutionResult.Ended;
 		}
 		CompiledGraph graph = receiver.Program.EventGraph;
@@ -1035,17 +1042,18 @@ internal sealed partial class VisualScriptRuntime
 
 	private void Warn(Execution execution, CompiledNode node, string message)
 	{
-		if (execution.Instance.ShouldWarn(node.Id))
+		if (execution.Instance.ShouldWarn(node))
 		{
 			m_Environment.Log(VisualScriptLogLevel.Warn, Describe(execution, node, message));
 		}
 	}
 
-	// "<graph name>: <node title> (node <id>) on <entity name> (<entity id>): <message>".
+	// "<graph name>: <node title> (node <id>) on <entity name> (<entity id>): <message>", where the graph is the document the
+	// node belongs to: the program's own, or the library whose function it is part of (spec-slice3 section 4.9).
 	private string Describe(Execution execution, CompiledNode node, string message)
 	{
 		ulong entity = execution.Instance.Entity;
-		return FormattableString.Invariant($"{execution.Program.Name}: {node.Title} (node {node.Id}) on {m_Environment.GetEntityName(entity)} ({entity}): {message}");
+		return FormattableString.Invariant($"{node.Owner.Name}: {node.Title} (node {node.Id}) on {m_Environment.GetEntityName(entity)} ({entity}): {message}");
 	}
 }
 
@@ -1096,7 +1104,7 @@ internal ref struct WarningText
 
 	internal WarningText(int literalLength, int formattedCount, Execution execution, CompiledNode node, out bool isLogged)
 	{
-		isLogged = execution.Instance.ShouldWarn(node.Id);
+		isLogged = execution.Instance.ShouldWarn(node);
 		IsLogged = isLogged;
 		m_Text = isLogged ? new DefaultInterpolatedStringHandler(literalLength, formattedCount, CultureInfo.InvariantCulture) : default;
 	}

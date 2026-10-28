@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 
 namespace Strada.VisualScripting;
@@ -85,6 +86,11 @@ internal static class AnalysisWriter
 				writer.WriteNumberValue(span.End);
 				writer.WriteEndArray();
 			}
+			// A handle, written as a string like every handle of the format (spec section 2.1).
+			if (diagnostic.Graph != 0)
+			{
+				writer.WriteString("Graph", diagnostic.Graph.ToString(CultureInfo.InvariantCulture));
+			}
 			writer.WriteString("Message", diagnostic.Message);
 			if (diagnostic.Suggestions.Count > 0)
 			{
@@ -107,19 +113,17 @@ internal static class AnalysisWriter
 		writer.WriteNumber("Function", node.Graph.Function);
 		writer.WriteString("Type", node.Source.Type);
 		writer.WriteString("Resolved", node.Resolution.ToString());
+		// Nodes resolved by redirect or by a unique match always write their current type and renames; an exact node writes
+		// renames when it has any (a call of a library function whose links name a former parameter name, spec-slice3 section
+		// 4.4.2).
 		if (node.Resolution is NodeResolution.Redirect or NodeResolution.Unique)
 		{
 			writer.WriteString("CanonicalType", node.CanonicalType);
-			writer.WriteStartArray("PinRenames");
-			foreach (PinRename rename in node.PinRenames)
-			{
-				writer.WriteStartObject();
-				writer.WriteString("Direction", rename.Direction.ToString());
-				writer.WriteString("From", rename.From);
-				writer.WriteString("To", rename.To);
-				writer.WriteEndObject();
-			}
-			writer.WriteEndArray();
+			WritePinRenames(writer, node.PinRenames);
+		}
+		else if (node.PinRenames.Count > 0)
+		{
+			WritePinRenames(writer, node.PinRenames);
 		}
 		writer.WriteString("Title", node.Title);
 		if (node.Subtitle.Length > 0)
@@ -142,6 +146,20 @@ internal static class AnalysisWriter
 		}
 		writer.WriteEndArray();
 		writer.WriteEndObject();
+	}
+
+	private static void WritePinRenames(Utf8JsonWriter writer, IReadOnlyList<PinRename> renames)
+	{
+		writer.WriteStartArray("PinRenames");
+		foreach (PinRename rename in renames)
+		{
+			writer.WriteStartObject();
+			writer.WriteString("Direction", rename.Direction.ToString());
+			writer.WriteString("From", rename.From);
+			writer.WriteString("To", rename.To);
+			writer.WriteEndObject();
+		}
+		writer.WriteEndArray();
 	}
 
 	private static void WriteEndpoint(Utf8JsonWriter writer, string name, PinReference endpoint)

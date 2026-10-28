@@ -6,19 +6,34 @@ namespace Strada.VisualScripting;
 
 // Analyzes documents (spec section 6.2): resolves every node against the library, shapes its pins from its settings,
 // resolves wildcard types, decodes literals and checks every rule of spec sections 2 to 4. Any input gives a result: a
-// document that is not a JSON object is a single Error InvalidDocument.
+// document that is not a JSON object is a single Error InvalidDocument. The other graphs the document's nodes refer to come
+// from a references bundle (spec-slice3 section 2.4); the function libraries among them are analyzed as documents of their
+// own, with the same bundle, and kept in the runtime's cache (spec-slice3 section 4.4.3).
 internal static class GraphAnalyzer
 {
-	internal static AnalyzedDocument Analyze(NodeLibrary library, ReadOnlySpan<byte> utf8)
+	// A document without references: every Graph setting names a graph that is absent.
+	internal static AnalyzedDocument Analyze(NodeLibrary library, ReadOnlySpan<byte> utf8) => Analyze(library, utf8, GraphReferences.Empty, new LibraryAnalyses());
+
+	// name is the document's asset path when known (a load), which messages then use for it.
+	internal static AnalyzedDocument Analyze(NodeLibrary library, ReadOnlySpan<byte> utf8, GraphReferences references, LibraryAnalyses libraries,
+		string? name = null)
 	{
 		List<Diagnostic> diagnostics = [];
 		GraphDocument? document = DocumentReader.Read(utf8, diagnostics);
-		return document != null ? Analyze(library, document, diagnostics) : new AnalyzedDocument(library, diagnostics, [], [], new AnalyzedGraph(0, null));
+		if (document == null)
+		{
+			return new AnalyzedDocument(library, diagnostics, [], [], new AnalyzedGraph(0, null));
+		}
+		// Only libraries of the bundle read the analyzed document's text (to cache what they read of it).
+		ReferenceScope scope = new(library, references, libraries, name, document, references.Count > 0 ? utf8.ToArray() : []);
+		return Analyze(new AnalysisContext(library, document, diagnostics, scope, references.Self, name));
 	}
 
-	internal static AnalyzedDocument Analyze(NodeLibrary library, GraphDocument document, List<Diagnostic> diagnostics)
+	internal static AnalyzedDocument Analyze(AnalysisContext context)
 	{
-		AnalysisContext context = new(library, document, diagnostics);
+		GraphDocument document = context.Document;
+		List<Diagnostic> diagnostics = context.Diagnostics;
+		NodeLibrary library = context.Library;
 		DeclareVariables(context);
 		DeclareFunctions(context);
 		AnalyzedGraph eventGraph = new(0, null);
@@ -32,6 +47,10 @@ internal static class GraphAnalyzer
 		foreach ((AnalyzedGraph graph, DocumentGraph source) in graphs)
 		{
 			CreateNodes(context, graph, source);
+		}
+		if (document.Kind == DocumentKind.Library)
+		{
+			CheckLibrary(context, eventGraph);
 		}
 		ComputeLatency(context);
 		Dictionary<AnalyzedNode, VisualType> convertTargets = [];
@@ -79,6 +98,13 @@ internal static class GraphAnalyzer
 		{
 			CheckLinks(context, graph);
 		}
+		if (document.Kind == DocumentKind.Script)
+		{
+			foreach ((AnalyzedGraph graph, _) in graphs)
+			{
+				CheckSendTargets(context, graph);
+			}
+		}
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			foreach (AnalyzedNode node in graph.Nodes)
@@ -88,7 +114,58 @@ internal static class GraphAnalyzer
 		}
 		GraphRules.Check(context, context.Functions, eventGraph);
 		DemoteDisabledNodeDiagnostics(diagnostics, graphs);
-		return new AnalyzedDocument(library, diagnostics, context.Variables, context.Functions, eventGraph);
+		return new AnalyzedDocument(library, diagnostics, context.Variables, context.Functions, eventGraph)
+		{
+			Kind = document.Kind,
+			Linked = Link(context.Links),
+		};
+	}
+
+	// The libraries the document's calls reach: those it calls, and theirs.
+	private static Dictionary<ulong, LinkedLibrary> Link(IReadOnlyDictionary<ulong, LinkedLibrary> links)
+	{
+		Dictionary<ulong, LinkedLibrary> linked = [];
+		foreach (KeyValuePair<ulong, LinkedLibrary> link in links)
+		{
+			linked.TryAdd(link.Key, link.Value);
+			foreach (KeyValuePair<ulong, LinkedLibrary> reached in link.Value.Analysis.Linked)
+			{
+				linked.TryAdd(reached.Key, reached.Value);
+			}
+		}
+		return linked;
+	}
+
+	// A function library (spec-slice3 section 4.4.1) runs on no entity: its functions run for the graphs that call them, so
+	// it has no variables and no event graph (comment boxes there are allowed).
+	private static void CheckLibrary(AnalysisContext context, AnalyzedGraph eventGraph)
+	{
+		foreach (DocumentVariable variable in context.Document.Variables)
+		{
+			context.ReportVariable(DiagnosticCode.LibraryVariable, 0, variable.ID,
+				$"{variable.Name}: a library has no variables: its functions run for the graph that calls them; use a local or an input");
+		}
+		foreach (AnalyzedNode node in eventGraph.Nodes)
+		{
+			context.ReportNode(DiagnosticCode.LibraryEventGraph, node, "a library has no event graph: its functions run when graphs call them");
+		}
+	}
+
+	// A typed Send whose Target is unlinked in a script sends to Self, which runs this script, not the one Graph names
+	// (spec-slice3 section 4.3): it never reaches a receiver. In a library an unlinked Target is the calling entity, which may
+	// run any script.
+	private static void CheckSendTargets(AnalysisContext context, AnalyzedGraph graph)
+	{
+		foreach (AnalyzedNode node in graph.Nodes)
+		{
+			if (node.Builtin != BuiltinNode.EventSend || node.Binding is not CustomEventBinding { Target: { IsOtherScript: true } target } ||
+				node.FindPin("Target", PinDirection.In) is not { IsConnected: false })
+			{
+				continue;
+			}
+			context.ReportGraph(DiagnosticCode.TargetIsSelf, node, target.Graph,
+				$"Target: Self runs {context.SelfTarget.Name}, not {target.Name}: link the entity to send to");
+		}
 	}
 
 	private static void DeclareVariables(AnalysisContext context)
@@ -139,7 +216,7 @@ internal static class GraphAnalyzer
 			}
 			VisualType? type = Declarations.ResolveType(context, parameter.Type, false, (code, message, suggestions) =>
 				context.ReportFunction(code, function.ID, $"{function.Name}: the {what} {parameter.Name}: {message}", suggestions));
-			declared.Add(new AnalyzedParameter(parameter.Name, parameter.Type, type));
+			declared.Add(new AnalyzedParameter(parameter.Name, parameter.Type, type) { FormerNames = parameter.FormerNames });
 		}
 		return declared;
 	}
@@ -156,7 +233,8 @@ internal static class GraphAnalyzer
 		{
 			AnalyzedNode node = new(documentNode, graph);
 			graph.Add(node);
-			NodeResolver.Resolve(context, node, storedPins.GetValueOrDefault(documentNode.ID) ?? []);
+			node.StoredPins = storedPins.GetValueOrDefault(documentNode.ID) ?? [];
+			NodeResolver.Resolve(context, node, node.StoredPins);
 		}
 	}
 
@@ -170,9 +248,10 @@ internal static class GraphAnalyzer
 		pins.Add((direction, pin));
 	}
 
-	// An impure function is latent when its graph holds a latent node or calls a latent function (spec section 4.3). A
-	// disabled node never waits (it passes the flow on), so it makes no function latent; latent nodes and calls of latent
-	// functions are impure, so their Enabled alone says whether they are disabled.
+	// An impure function is latent when its graph holds a latent node or calls a latent function (spec section 4.3), of the
+	// document or of a library (whose latency is final once its own analysis ended: libraries call no cycles,
+	// spec-slice3 section 4.4.3). A disabled node never waits (it passes the flow on), so it makes no function latent; latent
+	// nodes and calls of latent functions are impure, so their Enabled alone says whether they are disabled.
 	private static void ComputeLatency(AnalysisContext context)
 	{
 		bool changed = true;
@@ -188,8 +267,7 @@ internal static class GraphAnalyzer
 				foreach (AnalyzedNode node in function.Graph.Nodes)
 				{
 					bool latent = !node.Source.Disabled && node.Builtin is { } builtin && (BuiltinNodes.IsLatent(builtin) ||
-						(builtin == BuiltinNode.FunctionCall && node.Source.Settings.TryGet("Function", out JsonElement id) &&
-						 id.ValueKind == JsonValueKind.Number && id.TryGetUInt32(out uint callee) && context.FindFunction(callee) is { Latent: true }));
+						(builtin == BuiltinNode.FunctionCall && FindCallee(context, node) is { Latent: true }));
 					if (latent)
 					{
 						function.Latent = true;
@@ -199,6 +277,17 @@ internal static class GraphAnalyzer
 				}
 			}
 		}
+	}
+
+	// The function a Function.Call calls, from its raw settings: a function of the document, or of the library its Graph
+	// names; null when the settings name none.
+	private static AnalyzedFunction? FindCallee(AnalysisContext context, AnalyzedNode node)
+	{
+		if (!node.Source.Settings.TryGet("Function", out JsonElement id) || id.ValueKind != JsonValueKind.Number || !id.TryGetUInt32(out uint callee))
+		{
+			return null;
+		}
+		return context.ResolveCall(node) is { } call ? call.Analysis?.FindFunction(callee) : context.FindFunction(callee);
 	}
 
 	// Nodes whose Enabled is "Disabled" (once types are resolved, which decides whether a Reroute is pure): Function.Entry,

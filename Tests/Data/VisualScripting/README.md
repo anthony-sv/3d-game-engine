@@ -49,6 +49,10 @@ except the migration fixtures; the content form has no version.
   `ProgramTests` and the fuzz fixtures of `RobustnessTests` and `DeterminismTests`, and
   `FixtureAnalysisTests.TheLanguageDocumentRuns` runs it without an aborting error: its timeline logs its `Step` keys and,
   when it finished, `Lift`.
+- **Slice 3, track VX** (ScriptCoreTests, `LibraryTests.TheLibraryFixtureAnalyzesAsALibraryAndItsFunctionsRun`): the
+  content of `Library.sgraph` analyzes as a function library with zero Errors, and a script that calls `Clamp01` by its
+  input's former name `X`, `Report` and the latent `Pause` through a references bundle runs them: `Report` logs the clamped
+  value, and `Pause` reports `paused` once its delay is over.
 - **Track B** (ScriptCoreTests): every document and the content of `Example.sgraph` analyze with zero Error
   diagnostics. The test project copies this directory to its output as `VisualScripting/`.
 - **Track C** (StradaTests, `VisualScriptEngineTests`): the documents load and run through `VisualScriptEngine`.

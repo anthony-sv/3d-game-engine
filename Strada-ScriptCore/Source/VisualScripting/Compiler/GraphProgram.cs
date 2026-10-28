@@ -206,6 +206,9 @@ internal sealed class CompiledNode
 
 	internal uint Id { get; }
 
+	// The graph the node belongs to: the document's event graph or function, or a library's function (set by the graph).
+	internal CompiledGraph Owner { get; set; } = null!;
+
 	// The Make or Break of a split pin.
 	internal bool IsSplit { get; }
 
@@ -341,6 +344,11 @@ internal sealed class CompiledNode
 
 	internal VisualType[] EventParameters { get; set; } = [];
 
+	// A typed Event.Send (spec-slice3 section 4.3): the graph its receivers run (0 for any) and that graph's asset path.
+	internal ulong TargetGraph { get; set; }
+
+	internal string? TargetName { get; set; }
+
 	// Reflected nodes, operator methods and conversion methods: the member, its target and its invoker (built the first
 	// time the node runs).
 	internal MemberInfo? Member { get; set; }
@@ -406,24 +414,35 @@ internal sealed class CompiledTimeline
 }
 
 // The nodes of the event graph or of a function's graph, and the layout of its frame: the template every frame starts
-// from holds the type defaults, the unconnected inputs' values and the initial node states.
+// from holds the type defaults, the unconnected inputs' values and the initial node states. Graph and Name say which
+// document the graph comes from (spec-slice3 section 4.9): the program's own (Graph 0, the program's name), or the function
+// library of that handle, whose functions are compiled into the programs of the graphs that call them.
 internal sealed class CompiledGraph
 {
 	private readonly Dictionary<uint, int> m_IndexById = [];
 
-	internal CompiledGraph(CompiledNode[] nodes, Slot[] template, CompiledFunction? function)
+	internal CompiledGraph(CompiledNode[] nodes, Slot[] template, CompiledFunction? function, ulong graph, string name)
 	{
 		Nodes = nodes;
 		Template = template;
 		Function = function;
+		Graph = graph;
+		Name = name;
 		foreach (CompiledNode node in nodes)
 		{
+			node.Owner = this;
 			if (!node.IsSplit)
 			{
 				m_IndexById[node.Id] = node.Index;
 			}
 		}
 	}
+
+	// The handle of the library the graph comes from; 0 for the program's own document.
+	internal ulong Graph { get; }
+
+	// The asset path of the document the graph comes from, which messages about its nodes name.
+	internal string Name { get; }
 
 	// The document's nodes in order, then the Make and Break nodes of their split pins.
 	internal CompiledNode[] Nodes { get; }
@@ -439,19 +458,23 @@ internal sealed class CompiledGraph
 // A local of a function and the slot it has in the function's frames.
 internal readonly record struct LocalSlot(uint Id, VisualType Type, int Slot);
 
-// A function of the document. Frames of impure calls come from a pool, so calls do not allocate once it holds enough.
+// A function of the document, or of a function library the document calls (Graph, its handle; 0 for the document's own).
+// Frames of impure calls come from a pool, so calls do not allocate once it holds enough.
 internal sealed class CompiledFunction
 {
 	private readonly Stack<Frame> m_Pool = new();
 
-	internal CompiledFunction(AnalyzedFunction source)
+	internal CompiledFunction(AnalyzedFunction source, ulong graph)
 	{
+		Graph = graph;
 		Id = source.ID;
 		Name = source.Name;
 		Pure = source.Pure;
 		InputTypes = TypesOf(source.Inputs);
 		OutputTypes = TypesOf(source.Outputs);
 	}
+
+	internal ulong Graph { get; }
 
 	internal uint Id { get; }
 
@@ -467,7 +490,7 @@ internal sealed class CompiledFunction
 
 	internal LocalSlot[] Locals { get; set; } = [];
 
-	internal CompiledGraph Graph { get; set; } = null!;
+	internal CompiledGraph Body { get; set; } = null!;
 
 	internal int EntryNode { get; set; } = -1;
 
@@ -483,13 +506,13 @@ internal sealed class CompiledFunction
 		{
 			return frame;
 		}
-		return new Frame(Graph);
+		return new Frame(Body);
 	}
 
 	// Resets the frame to the template, so pooled frames hold no values of finished calls.
 	internal void ReleaseFrame(Frame frame)
 	{
-		Array.Copy(Graph.Template, frame.Slots, frame.Slots.Length);
+		Array.Copy(Body.Template, frame.Slots, frame.Slots.Length);
 		m_Pool.Push(frame);
 	}
 
@@ -539,7 +562,7 @@ internal readonly record struct InputEvent(int Node, BuiltinNode Kind, int Value
 internal sealed class GraphProgram
 {
 	private readonly Dictionary<string, int> m_CustomEvents = new(StringComparer.Ordinal);
-	private readonly Dictionary<uint, CompiledFunction> m_FunctionsById = [];
+	private readonly Dictionary<(ulong Graph, uint Id), CompiledFunction> m_Functions = [];
 
 	// A broken program.
 	internal GraphProgram(NodeLibrary library, string name, int errorCount, Diagnostic? firstError)
@@ -548,7 +571,7 @@ internal sealed class GraphProgram
 		Name = name;
 		ErrorCount = errorCount;
 		FirstError = firstError;
-		EventGraph = new CompiledGraph([], [], null);
+		EventGraph = new CompiledGraph([], [], null, 0, name);
 	}
 
 	internal GraphProgram(NodeLibrary library, string name, CompiledVariable[] variables, CompiledFunction[] functions, CompiledGraph eventGraph,
@@ -562,7 +585,7 @@ internal sealed class GraphProgram
 		InputEvents = inputEvents;
 		foreach (CompiledFunction function in functions)
 		{
-			m_FunctionsById[function.Id] = function;
+			m_Functions[(function.Graph, function.Id)] = function;
 		}
 		foreach (CompiledNode node in eventGraph.Nodes)
 		{
@@ -603,7 +626,8 @@ internal sealed class GraphProgram
 	// The Event.Custom node of a name, -1 when there is none.
 	internal int FindCustomEvent(string name) => m_CustomEvents.TryGetValue(name, out int node) ? node : -1;
 
-	internal CompiledFunction? FindFunction(uint id) => m_FunctionsById.GetValueOrDefault(id);
+	// A function of the program's document (graph 0) or of a library it calls, by the library's handle.
+	internal CompiledFunction? FindFunction(ulong graph, uint id) => m_Functions.GetValueOrDefault((graph, id));
 
 	internal int FindVariable(string name)
 	{

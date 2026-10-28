@@ -3,7 +3,9 @@ namespace Strada.VisualScripting;
 // The debug hook (spec section 5.5): an attached debugger chooses the executions it traces by entity (one graph serves
 // many instances), then hears of every instruction they run and of every value their pure nodes compute. Breakpoints,
 // stepping and the editor's debugger build on it (spec section 14). Without a debugger an instruction costs one null
-// check more. Main thread only, like the runtime.
+// check more. Main thread only, like the runtime. Nodes are named by the document they belong to (graph: 0 for the
+// instance's own document, else the handle of the function library whose function the node is part of, spec-slice3
+// section 4.9) and their ID in it.
 internal interface IVisualScriptDebugger
 {
 	// Whether executions of the entity's instance are traced: asked when an execution starts (an event, a Tick, a Send or
@@ -17,8 +19,8 @@ internal interface IVisualScriptDebugger
 	// continuation taken from the flow stack is reported as its Sequence or loop node with the output it continues at, a
 	// resumed fiber as its latent node with the continuation, and a Tick execution starts with its Tween or Interval and
 	// the Tick output.
-	void OnStep(GraphInstance instance, uint node, string? linkTaken);
+	void OnStep(GraphInstance instance, ulong graph, uint node, string? linkTaken);
 
 	// A pure node of a traced execution computed the value of one of its outputs.
-	void OnValue(GraphInstance instance, uint node, string pin, object? value);
+	void OnValue(GraphInstance instance, ulong graph, uint node, string pin, object? value);
 }

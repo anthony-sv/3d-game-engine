@@ -1322,7 +1322,7 @@
 			"Type": "Event.Send",
 			"Title": "Send Event",
 			"Category": "Events",
-			"Description": "Raises the custom event of that name on the Target entity's graph (Self when unconnected) and continues when it ends or waits.",
+			"Description": "Raises the custom event of that name on the Target entity's graph (Self when unconnected) and continues when it ends or waits; with Graph, only an entity running that graph receives it.",
 			"Keywords": [
 				"send",
 				"message",
@@ -1360,6 +1360,11 @@
 					"Name": "Parameters",
 					"Kind": "Parameters",
 					"Default": []
+				},
+				{
+					"Name": "Graph",
+					"Kind": "Graph",
+					"Constraint": "Script"
 				}
 			]
 		},
@@ -1676,11 +1681,12 @@
 			"Type": "Function.Call",
 			"Title": "Call Function",
 			"Category": "Functions",
-			"Description": "Calls a function of the graph with its inputs and outputs its results.",
+			"Description": "Calls a function of the graph, or of the function library Graph names, with its inputs and outputs its results.",
 			"Keywords": [
 				"call",
 				"invoke",
-				"run"
+				"run",
+				"library"
 			],
 			"Kind": "Function",
 			"Pure": false,
@@ -1702,6 +1708,11 @@
 					"Name": "Function",
 					"Kind": "Function",
 					"Required": true
+				},
+				{
+					"Name": "Graph",
+					"Kind": "Graph",
+					"Constraint": "Library"
 				}
 			]
 		},

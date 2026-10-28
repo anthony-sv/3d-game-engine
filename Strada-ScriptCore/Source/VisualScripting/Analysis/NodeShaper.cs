@@ -222,7 +222,134 @@ internal sealed class NodeShaper
 				node.Binding = new CustomEventBinding(name, parameters);
 			}
 		}
+		if (send)
+		{
+			TypedSend(node, name, parameters);
+		}
 	}
+
+	// A Send with Graph (spec-slice3 section 4.3) delivers only to entities running that graph; the analysis checks it against
+	// that graph's custom event of its Name. Every finding is a Warning: whatever is sent, the runtime delivers it by name and
+	// skips a mismatch with a warning.
+	private void TypedSend(AnalyzedNode node, string? name, List<AnalyzedParameter>? parameters)
+	{
+		switch (GraphSettings.Read(node.Source, out ulong graph))
+		{
+			case GraphSettingState.Absent:
+				return;
+			case GraphSettingState.Invalid:
+				m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, GraphSettings.InvalidMessage);
+				return;
+		}
+		GraphTarget target = graph == m_Context.Self ? m_Context.SelfTarget : m_Context.FindGraph(graph);
+		node.Subtitle = "to " + target.DisplayName;
+		bool otherScript = !target.IsSelf && target.Document is { Kind: DocumentKind.Script };
+		if (node.Binding is CustomEventBinding binding)
+		{
+			node.Binding = binding with { Target = new SendTarget(graph, target.Name, otherScript) };
+		}
+		if (name == null)
+		{
+			return;
+		}
+		if (target.Document is not { } document)
+		{
+			m_Context.ReportGraph(DiagnosticCode.UncheckedGraph, node, graph,
+				$"Graph: no visual script {GraphSettings.Format(graph)} to check Send {name} against; it sends {name} by name");
+			return;
+		}
+		if (document.Kind == DocumentKind.Library)
+		{
+			m_Context.ReportGraph(DiagnosticCode.UnknownEvent, node, graph, $"{target.Name} is a function library: it has no events");
+			return;
+		}
+		DocumentNode? receiver = null;
+		List<string> events = [];
+		foreach (DocumentNode candidate in document.Graph.Nodes)
+		{
+			if (candidate.Type != BuiltinNodes.TypeOf(BuiltinNode.EventCustom) || !candidate.Settings.TryGet("Name", out JsonElement value) ||
+				!JsonText.TryGetString(value, out string? eventName))
+			{
+				continue;
+			}
+			events.Add(eventName);
+			// The enabled event of the name receives; a disabled one only when none is enabled.
+			if (eventName == name && (receiver == null || (receiver.Disabled && !candidate.Disabled)))
+			{
+				receiver = candidate;
+			}
+		}
+		if (receiver == null)
+		{
+			m_Context.ReportGraph(DiagnosticCode.UnknownEvent, node, graph, $"{target.Name} has no custom event {name}",
+				m_Context.Suggest(name, events));
+			return;
+		}
+		if (receiver.Disabled)
+		{
+			m_Context.ReportGraph(DiagnosticCode.DisabledTarget, node, graph, $"{target.DisplayName}'s {name} is disabled: it receives nothing");
+			return;
+		}
+		// Parameter names are labels: only the types are compared, in order. An event whose Parameters are not valid is an
+		// Error of its own graph, which does not run: nothing is compared.
+		if (parameters != null && ReadEventParameters(receiver) is { } expected && !SameTypes(expected, parameters))
+		{
+			m_Context.ReportGraph(DiagnosticCode.EventSignatureMismatch, node, graph,
+				$"{target.DisplayName}'s {name} takes ({Describe(expected)}); this Send passes ({Describe(parameters)})");
+		}
+	}
+
+	// The parameters of another graph's custom event, by their type IDs: null when its Parameters setting is not a list of
+	// { "Name", "Type" } strings.
+	private static List<(string Name, string Type)>? ReadEventParameters(DocumentNode node)
+	{
+		List<(string, string)> parameters = [];
+		if (!node.Settings.TryGet("Parameters", out JsonElement list))
+		{
+			return parameters;
+		}
+		if (list.ValueKind != JsonValueKind.Array)
+		{
+			return null;
+		}
+		foreach (JsonElement element in list.EnumerateArray())
+		{
+			if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty("Name", out JsonElement name) ||
+				!JsonText.TryGetString(name, out string? parameterName) || !element.TryGetProperty("Type", out JsonElement type) ||
+				!JsonText.TryGetString(type, out string? typeId))
+			{
+				return null;
+			}
+			parameters.Add((parameterName, typeId));
+		}
+		return parameters;
+	}
+
+	// Types compare as the runtime compares them: the same type of the library, or the same ID.
+	private bool SameTypes(List<(string Name, string Type)> expected, List<AnalyzedParameter> parameters)
+	{
+		if (expected.Count != parameters.Count)
+		{
+			return false;
+		}
+		for (int index = 0; index < expected.Count; index++)
+		{
+			VisualType? type = Library.FindType(expected[index].Type);
+			VisualType? sent = parameters[index].Type;
+			bool same = type != null && sent != null ? ReferenceEquals(type, sent) || type.Id == sent.Id : expected[index].Type == parameters[index].TypeId;
+			if (!same)
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static string Describe(List<(string Name, string Type)> parameters) =>
+		string.Join(", ", parameters.ConvertAll(static parameter => $"{parameter.Type} {parameter.Name}"));
+
+	private static string Describe(List<AnalyzedParameter> parameters) =>
+		string.Join(", ", parameters.ConvertAll(static parameter => $"{parameter.TypeId} {parameter.Name}"));
 
 	// The Parameters setting of custom events: [{ "Name", "Type" }]; null when it is invalid.
 	private List<AnalyzedParameter>? ReadParameters(AnalyzedNode node)
@@ -564,12 +691,23 @@ internal sealed class NodeShaper
 
 	private void FunctionCall(AnalyzedNode node)
 	{
+		if (m_Context.ResolveCall(node) is { } call)
+		{
+			LibraryFunctionCall(node, call);
+			return;
+		}
 		AnalyzedFunction? function = ReadFunction(node);
 		if (function == null)
 		{
 			node.PinsComplete = false;
 			return;
 		}
+		ShapeCall(node, function, 0);
+	}
+
+	// The pins of a call: the callee's signature (spec section 4.3), with Execute and Then when it is impure.
+	private static void ShapeCall(AnalyzedNode node, AnalyzedFunction function, ulong graph)
+	{
 		if (!function.Pure)
 		{
 			node.AddPin(BuiltinNodes.ExecIn());
@@ -589,7 +727,130 @@ internal sealed class NodeShaper
 		node.Title = function.Name;
 		node.Pure = function.Pure;
 		node.Latent = function.Latent;
-		node.Binding = new FunctionBinding(function);
+		node.Binding = new FunctionBinding(function, graph);
+	}
+
+	// A call of a function library's function (spec-slice3 section 4.4.2): pins, purity and latency are the callee's, and
+	// the call is broken while the library is (ReferenceError; the library's own findings stay in its analysis).
+	private void LibraryFunctionCall(AnalyzedNode node, LibraryCall call)
+	{
+		node.PinsComplete = false;
+		if (call.Target is not { } target || call.Status is LibraryCallStatus.InvalidSetting or LibraryCallStatus.Self)
+		{
+			m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, call.Message!);
+			return;
+		}
+		ulong graph = target.Graph;
+		node.Subtitle = target.DisplayName;
+		switch (call.Status)
+		{
+			case LibraryCallStatus.Absent:
+				m_Context.ReportGraph(DiagnosticCode.UnknownGraph, node, graph, call.Message!);
+				return;
+			case LibraryCallStatus.NotALibrary:
+				m_Context.ReportGraph(DiagnosticCode.NotALibrary, node, graph, call.Message!);
+				return;
+			case LibraryCallStatus.Cycle:
+				m_Context.ReportGraph(DiagnosticCode.LibraryCycle, node, graph, call.Message!);
+				return;
+		}
+		AnalyzedDocument library = call.Analysis!;
+		if (!ReadId(node, "Function", "function", out uint id))
+		{
+			return;
+		}
+		AnalyzedFunction? function = library.FindFunction(id);
+		if (function == null)
+		{
+			List<string> candidates = [];
+			foreach (AnalyzedFunction candidate in library.Functions)
+			{
+				candidates.Add(AnalysisContext.Format(candidate.ID));
+			}
+			m_Context.ReportGraph(DiagnosticCode.UnknownFunction, node, graph, $"{target.Name} has no function {AnalysisContext.Format(id)}",
+				m_Context.Suggest(AnalysisContext.Format(id), candidates));
+			return;
+		}
+		node.PinsComplete = true;
+		ShapeCall(node, function, graph);
+		if (library.HasErrors)
+		{
+			Diagnostic first = library.FirstError!;
+			string location = first.Node is { } at ? $" (node {AnalysisContext.Format(at)})"
+				: first.Variable is { } variable ? $" (variable {AnalysisContext.Format(variable)})"
+				: string.Empty;
+			string errors = library.ErrorCount == 1 ? "1 error" : $"{AnalysisContext.Format(library.ErrorCount)} errors";
+			m_Context.ReportGraph(DiagnosticCode.ReferenceError, node, graph, $"{target.Name} has {errors}, first: {first.Message}{location}: fix the library");
+		}
+		RenameFormerParameters(node, function, graph);
+	}
+
+	// Links, Inputs keys and split paths of a call that name a former name of one of the callee's parameters (spec-slice3
+	// section 4.4.2) reach that parameter: the node renames the pin, and the next save stores the new name.
+	private void RenameFormerParameters(AnalyzedNode node, AnalyzedFunction function, ulong graph)
+	{
+		List<PinRename> renames = [];
+		foreach ((PinDirection direction, string pin) in node.StoredPins)
+		{
+			Rename(node, function, graph, direction, pin, renames);
+		}
+		foreach (KeyValuePair<string, JsonElement> input in node.Source.Inputs.Members)
+		{
+			Rename(node, function, graph, PinDirection.In, input.Key, renames);
+		}
+		foreach (PinDirection direction in (ReadOnlySpan<PinDirection>)[PinDirection.In, PinDirection.Out])
+		{
+			foreach (string entry in node.Source.Split.Of(direction))
+			{
+				Rename(node, function, graph, direction, entry, renames);
+			}
+		}
+		if (renames.Count > 0)
+		{
+			node.PinRenames = renames;
+		}
+	}
+
+	private static bool IsFormerName(AnalyzedParameter parameter, string name)
+	{
+		foreach (string formerName in parameter.FormerNames)
+		{
+			if (formerName == name)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void Rename(AnalyzedNode node, AnalyzedFunction function, ulong graph, PinDirection direction, string stored, List<PinRename> renames)
+	{
+		int dot = stored.IndexOf('.', StringComparison.Ordinal);
+		string name = dot >= 0 ? stored[..dot] : stored;
+		IReadOnlyList<AnalyzedParameter> parameters = direction == PinDirection.In ? function.Inputs : function.Outputs;
+		if (Names.IsReserved(name) || renames.Exists(rename => rename.Direction == direction && rename.From == name))
+		{
+			return;
+		}
+		AnalyzedParameter? renamed = null;
+		foreach (AnalyzedParameter parameter in parameters)
+		{
+			if (parameter.Name == name)
+			{
+				return;
+			}
+			if (renamed == null && IsFormerName(parameter, name))
+			{
+				renamed = parameter;
+			}
+		}
+		if (renamed == null)
+		{
+			return;
+		}
+		renames.Add(new PinRename(direction, name, renamed.Name));
+		m_Context.ReportGraph(DiagnosticCode.NodeUpdated, node, graph,
+			$"{function.Name}'s {(direction == PinDirection.In ? "input" : "output")} {name} is now {renamed.Name}: the next save stores the new name");
 	}
 
 	private AnalyzedFunction? ReadFunction(AnalyzedNode node)

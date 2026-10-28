@@ -14,7 +14,8 @@ internal enum DiagnosticSeverity
 // DisabledIgnored (a Warning): a node whose Enabled is "Disabled" but which cannot be disabled (Function.Entry,
 // Function.Return and pure nodes), so it runs. UnusedSplit (a Warning): an entry of a node's Split that splits nothing (it
 // names no pin of its direction, a pin whose type cannot split, or a field pin of an entry that did not split).
-// InvalidExpression (slice 3): a formula of an Expression node that does not lex, parse or type-check.
+// InvalidExpression (slice 3): a formula of an Expression node that does not lex, parse or type-check. The codes after it
+// are slice 3's findings about other graphs (spec-slice3 section 4.8) and about function libraries (section 4.4.1).
 internal enum DiagnosticCode
 {
 	InvalidDocument,
@@ -60,12 +61,24 @@ internal enum DiagnosticCode
 	DisabledIgnored,
 	UnusedSplit,
 	InvalidExpression,
+	UnknownGraph,
+	UncheckedGraph,
+	UnknownEvent,
+	EventSignatureMismatch,
+	DisabledTarget,
+	NotALibrary,
+	TargetIsSelf,
+	ReferenceError,
+	LibraryCycle,
+	LibraryVariable,
+	LibraryEventGraph,
 }
 
 // A finding of the analysis. Function is 0 for the event graph and document variables, else the function's ID; the other
 // locations are optional: a node (with a pin and its direction, or one of its settings and a span of that setting's text),
-// a link, or a variable or local. Its severity is its code's, except on a disabled node, where every finding is a Warning
-// (Demote).
+// a link, or a variable or local. A finding about another graph names that graph (Graph) and is located on its node, never
+// on a variable: a variable ID of another graph names nothing in this one (spec-slice3 section 4.4.2). Its severity is its
+// code's, except on a disabled node, where every finding is a Warning (Demote).
 internal sealed class Diagnostic
 {
 	internal Diagnostic(DiagnosticCode code, uint function, string message)
@@ -98,6 +111,9 @@ internal sealed class Diagnostic
 
 	internal (int Start, int End)? Span { get; init; }
 
+	// The other graph the finding concerns (its handle); 0 for none.
+	internal ulong Graph { get; init; }
+
 	internal string Message { get; }
 
 	// Candidates for unknown names, nearest first; every candidate of an ambiguous node.
@@ -107,7 +123,8 @@ internal sealed class Diagnostic
 	internal static DiagnosticSeverity GetSeverity(DiagnosticCode code) => code switch
 	{
 		DiagnosticCode.NodeUpdated or DiagnosticCode.UnusedInput or DiagnosticCode.ZeroQuaternion or DiagnosticCode.UnknownSetting or
-			DiagnosticCode.DisabledIgnored or DiagnosticCode.UnusedSplit => DiagnosticSeverity.Warning,
+			DiagnosticCode.DisabledIgnored or DiagnosticCode.UnusedSplit or DiagnosticCode.UncheckedGraph or DiagnosticCode.UnknownEvent or
+			DiagnosticCode.EventSignatureMismatch or DiagnosticCode.DisabledTarget or DiagnosticCode.TargetIsSelf => DiagnosticSeverity.Warning,
 		_ => DiagnosticSeverity.Error,
 	};
 

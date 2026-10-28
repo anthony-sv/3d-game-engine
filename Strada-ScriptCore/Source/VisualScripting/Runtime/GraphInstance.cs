@@ -12,7 +12,7 @@ internal sealed class GraphInstance
 	// Each fiber brings its own list node (Execution.FiberNode), so every change costs constant time and one Update's pass
 	// over the fibers costs time linear in their number.
 	private readonly LinkedList<Execution> m_Fibers = new();
-	private HashSet<uint>? m_Warned;
+	private HashSet<(ulong Graph, uint Node)>? m_Warned;
 
 	internal GraphInstance(ulong entity, ulong graph, GraphProgram program)
 	{
@@ -93,8 +93,10 @@ internal sealed class GraphInstance
 		IsAlive = false;
 	}
 
-	// Whether the node may log its once-per-instance warning now (spec section 5.3, non-aborting errors).
-	internal bool ShouldWarn(uint node) => (m_Warned ??= []).Add(node);
+	// Whether the node may log its once-per-instance warning now (spec section 5.3, non-aborting errors). Nodes are told apart
+	// by the document they belong to as well: node IDs of a library's functions collide with the program's own
+	// (spec-slice3 section 4.9).
+	internal bool ShouldWarn(CompiledNode node) => (m_Warned ??= []).Add((node.Owner.Graph, node.Id));
 
 	internal object? ReadVariable(int index) => SlotValues.ToValue(Variables[index], Program.Variables[index].Type);
 

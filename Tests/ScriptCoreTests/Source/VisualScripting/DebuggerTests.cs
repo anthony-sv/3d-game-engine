@@ -10,7 +10,8 @@ namespace Strada.ScriptCore.Tests;
 // and every value of a pure node they compute.
 public sealed class DebuggerTests
 {
-	// "<entity>: <node> <link taken>" per step, "<entity>: <node>.<pin> = <value>" per value.
+	// "<entity>: <node> <link taken>" per step, "<entity>: <node>.<pin> = <value>" per value; a node of a library's function is
+	// "<library handle>/<node>".
 	private sealed class RecordingDebugger : IVisualScriptDebugger
 	{
 		internal HashSet<ulong> Targets { get; } = [];
@@ -27,15 +28,18 @@ public sealed class DebuggerTests
 			return Targets.Contains(entity);
 		}
 
-		public void OnStep(GraphInstance instance, uint node, string? linkTaken)
+		public void OnStep(GraphInstance instance, ulong graph, uint node, string? linkTaken)
 		{
-			Steps.Add(string.Create(CultureInfo.InvariantCulture, $"{instance.Entity}: {node} {linkTaken ?? "-"}"));
+			Steps.Add(string.Create(CultureInfo.InvariantCulture, $"{instance.Entity}: {NodeName(graph, node)} {linkTaken ?? "-"}"));
 		}
 
-		public void OnValue(GraphInstance instance, uint node, string pin, object? value)
+		public void OnValue(GraphInstance instance, ulong graph, uint node, string pin, object? value)
 		{
-			Values.Add(string.Create(CultureInfo.InvariantCulture, $"{instance.Entity}: {node}.{pin} = {value}"));
+			Values.Add(string.Create(CultureInfo.InvariantCulture, $"{instance.Entity}: {NodeName(graph, node)}.{pin} = {value}"));
 		}
+
+		private static string NodeName(ulong graph, uint node) =>
+			graph == 0 ? node.ToString(CultureInfo.InvariantCulture) : string.Create(CultureInfo.InvariantCulture, $"{graph}/{node}");
 	}
 
 	private static string Step(uint node, string? link) => string.Create(CultureInfo.InvariantCulture, $"7: {node} {link ?? "-"}");
@@ -182,5 +186,32 @@ public sealed class DebuggerTests
 		[
 			Step(delay, "Completed"), Step(resumed, "Then"), Step(interval, "Tick"), Step(ticked, "Then"), Step(interval, "Completed"),
 		], debugger.Steps);
+	}
+
+	// A library's node 7 and the caller's node 7 are told apart: steps in a library's function name the library.
+	[Fact]
+	public void StepsInALibrarysFunctionNameTheLibrary()
+	{
+		MotionLibrary library = new();
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint create = graph.Node("Event.Create");
+		uint call = graph.Node("Function.Call", CrossGraphTesting.Call(library.Report, CrossGraphTesting.Motion), """{ "Text": "hello" }""");
+		graph.Flow(create, call);
+		TestRuntime runtime = new();
+		runtime.LoadWorking(document.Build(), references: library.Bundle());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		RecordingDebugger debugger = new();
+		debugger.Targets.Add(TestRuntime.Hero);
+		runtime.Runtime.AttachDebugger(debugger);
+
+		runtime.Invoke(ScriptEvent.Create);
+		uint write = library.Report.Entry + 1;
+		Assert.Equal(
+		[
+			Step(create, "Then"), Step(call, null), string.Create(CultureInfo.InvariantCulture, $"7: {CrossGraphTesting.Motion}/{library.Report.Entry} Then"),
+			string.Create(CultureInfo.InvariantCulture, $"7: {CrossGraphTesting.Motion}/{write} Then"), Step(call, "Then"),
+		], debugger.Steps);
+		Assert.Equal(["hello"], runtime.Records);
 	}
 }
