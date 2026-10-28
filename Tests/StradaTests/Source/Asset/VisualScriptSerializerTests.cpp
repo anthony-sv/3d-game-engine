@@ -169,6 +169,72 @@ namespace
 		return Json::object({{"Nodes", std::move(nodes)}, {"Links", std::move(links)}, {"Comments", std::move(comments)}});
 	}
 
+	// The text writers write what nlohmann writes of the Json writers' documents: the file form as DumpJson writes it, the
+	// content form compact.
+	void CheckTextWriters(VisualScriptDocument const& document)
+	{
+		CHECK(VisualScriptSerializer::WriteText(document) == DumpJson(VisualScriptSerializer::Serialize(document)));
+		CHECK(VisualScriptSerializer::WriteContentText(document) ==
+		      VisualScriptSerializer::SerializeDocument(document).dump(-1, ' ', false, Json::error_handler_t::replace));
+	}
+
+	// A graph of nodeCount nodes with every key the writer writes: positions on and off the grid and unplaced nodes, settings
+	// and inputs of every kind of value, split pins, comments, collapsed and disabled nodes, 1.5 links per node and a comment
+	// box per 100 nodes.
+	VisualScriptGraph MakeWriterGraph(uint32_t firstID, uint32_t nodeCount)
+	{
+		VisualScriptGraph graph;
+		for (uint32_t index = 0; index < nodeCount; index++)
+		{
+			VisualScriptNode node;
+			node.ID = firstID + index;
+			node.Type = index % 3 == 0 ? "Operator.Add" : "Call:Strada.Log.Info(string)";
+			if (index % 17 != 0)
+			{
+				node.Position = glm::vec2(static_cast<float>(index % 50) * 320.0f + static_cast<float>(index % 7) * 0.1f,
+				                          static_cast<float>(index / 50) * -160.5f);
+			}
+			if (index % 4 == 0)
+			{
+				node.Settings = Json::object({{"Function", index}, {"Offset", Json::array({0.25 * index, -1.0e-7, 1.0e16})}});
+			}
+			node.Inputs = Json::object({{"B", 1.5 + index}, {"Message", "Line \"" + std::to_string(index) + "\"\n\tnext \xC3\xA9"}});
+			if (index % 9 == 0)
+			{
+				node.Inputs["Flags"] =
+					Json::array({true, nullptr, std::numeric_limits<int64_t>::min(), std::numeric_limits<uint64_t>::max()});
+				node.Split.Inputs = {"Hit", "Hit.Point"};
+			}
+			if (index % 11 == 0)
+			{
+				node.Split.Outputs = {"Result"};
+				node.Comment = "Adds \xE2\x86\x92 logs";
+				node.Collapsed = true;
+				node.Enabled = index % 22 == 0 ? VisualScriptNodeEnabled::Disabled : VisualScriptNodeEnabled::DevelopmentOnly;
+			}
+			graph.Nodes.push_back(std::move(node));
+		}
+		for (uint32_t index = 0; index + 1 < nodeCount; index++)
+		{
+			graph.Links.push_back({{firstID + index, "Result"}, {firstID + index + 1, "A"}});
+			if (index % 2 == 0 && index + 2 < nodeCount)
+			{
+				graph.Links.push_back({{firstID + index, "Then"}, {firstID + index + 2, "Execute"}});
+			}
+		}
+		for (uint32_t index = 0; index < nodeCount / 100; index++)
+		{
+			VisualScriptComment comment;
+			comment.ID = firstID + nodeCount + index;
+			comment.Text = "Block " + std::to_string(index);
+			comment.Position = glm::vec2(static_cast<float>(index) * 640.0f - 32.5f, -72.0f);
+			comment.Size = glm::vec2(584.0f, 400.25f);
+			comment.Color = glm::vec4(0.1f, 0.2f, 0.3f, 0.45f);
+			graph.Comments.push_back(std::move(comment));
+		}
+		return graph;
+	}
+
 	// Counts every JSON value of a document: objects, arrays and what they hold.
 	size_t CountValues(Json const& value)
 	{
@@ -210,6 +276,7 @@ TEST_CASE("VisualScript: the example file loads without issues and saves byte fo
 	CHECK(GetPaths(issues).empty());
 	CHECK(warnings.empty());
 	CHECK(DumpJson(VisualScriptSerializer::Serialize(document.GetValue())) == text);
+	CHECK(VisualScriptSerializer::WriteText(document.GetValue()) == text);
 
 	VisualScriptDocument const& example = document.GetValue();
 	CHECK(example.Description == "Adds 5 points per frame while Space is held");
@@ -265,6 +332,101 @@ TEST_CASE("VisualScript: the example file loads without issues and saves byte fo
 	REQUIRE_MESSAGE(fromFile.IsOk(), fromFile.GetError());
 	CHECK(fromFile.GetValue() == example);
 	CHECK(VisualScriptSerializer::Serialize(example)["VisualScript"] == VisualScriptSerializer::SerializeDocument(example));
+}
+
+TEST_CASE("VisualScript: the text writers write what the Json writers write, for every fixture, the FeatureTest graphs and 2,000 nodes")
+{
+	// The shared fixture documents (content form) and the fixture files, the old versions' as they load.
+	constexpr std::array<std::string_view, 8> Documents = {"Data.json",      "Editor.json",   "Events.json",    "Flow.json",
+	                                                       "Functions.json", "Language.json", "Reflected.json", "Variables.json"};
+	for (std::string_view const name : Documents)
+	{
+		CAPTURE(name);
+		CheckTextWriters(Load(Parse(ReadText(GetFixturePath("Documents") / FileSystem::PathFromUtf8(name)))).Document);
+	}
+	for (std::string_view const name : {"Example.sgraph", "Library.sgraph", "Version1/Example.sgraph", "Version2/Example.sgraph"})
+	{
+		CAPTURE(name);
+		std::string const text = ReadText(GetFixturePath(name));
+		Result<VisualScriptDocument> const document =
+			VisualScriptSerializer::Deserialize(Parse(text), MakeContext(UnknownFieldPolicy::Warn));
+		REQUIRE_MESSAGE(document.IsOk(), document.GetError());
+		CheckTextWriters(document.GetValue());
+		if (Parse(text)["Strada"]["Version"] == VisualScriptSerializer::FormatVersion)
+		{
+			CHECK(VisualScriptSerializer::WriteText(document.GetValue()) == text);
+		}
+	}
+
+	// The FeatureTest project's graphs (FormatSample, Features, Contacts, Clicks): their files are the text written.
+	std::filesystem::path const scripts = FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets" / "Scripts";
+	size_t graphs = 0;
+	for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(scripts))
+	{
+		if (entry.path().extension() != ".sgraph")
+		{
+			continue;
+		}
+		CAPTURE(FileSystem::PathToUtf8(entry.path()));
+		graphs++;
+		std::string const text = ReadText(entry.path());
+		Result<VisualScriptDocument> const document =
+			VisualScriptSerializer::Deserialize(Parse(text), MakeContext(UnknownFieldPolicy::Warn));
+		REQUIRE_MESSAGE(document.IsOk(), document.GetError());
+		CheckTextWriters(document.GetValue());
+		CHECK(VisualScriptSerializer::WriteText(document.GetValue()) == text);
+	}
+	CHECK(graphs >= 4);
+
+	// A library of 2,000 nodes in its event graph and 200 in a function, with variables, parameters and locals of every
+	// optional key.
+	VisualScriptDocument large;
+	large.Kind = VisualScriptDocumentKind::Library;
+	large.Description = "Generated \"large\" graph\nwith a second line, a tab\t, DEL \x7F and \xF0\x9F\x98\x80";
+	for (uint32_t index = 0; index < 8; index++)
+	{
+		VisualScriptVariable variable;
+		variable.ID = 1 + index;
+		variable.Name = "Variable" + std::to_string(index);
+		variable.Type = index % 2 == 0 ? "float" : "Strada.Vector3";
+		if (index % 3 != 0)
+		{
+			variable.Value = index % 2 == 0 ? Json(0.1 * index) : Json::array({1, -2.5, 3e-5});
+		}
+		variable.Public = index % 2 == 0;
+		variable.Tooltip = index % 4 == 0 ? "Meters per second" : "";
+		if (index % 5 == 0)
+		{
+			variable.Range = glm::vec2(-0.5f, 20.75f);
+		}
+		if (index == 7)
+		{
+			variable.FormerNames = {"Old", "Older"};
+		}
+		large.Variables.push_back(std::move(variable));
+	}
+	VisualScriptFunction function;
+	function.ID = 100;
+	function.Name = "Clamp01";
+	function.Pure = true;
+	function.Inputs = {{"Value", "float", {"X", "Y"}}, {"Low", "float"}};
+	function.Outputs = {{"Result", "float"}};
+	VisualScriptLocal local;
+	local.ID = 101;
+	local.Name = "Scratch";
+	local.Type = "int";
+	local.Value = 7;
+	function.Locals = {local, {102, "Empty", "string", Json()}};
+	function.Graph = MakeWriterGraph(200, 200);
+	large.Functions.push_back(std::move(function));
+	large.Graph = MakeWriterGraph(1000, 2000);
+	REQUIRE(large.Graph.Links.size() == 2998);
+	CheckTextWriters(large);
+	CheckSavesAndLoadsAgain(large);
+	VisualScriptDocument script = large;
+	script.Kind = VisualScriptDocumentKind::Script;
+	CheckTextWriters(script);
+	CheckTextWriters(VisualScriptDocument());
 }
 
 TEST_CASE("VisualScript: a file of version 1 loads without issues and saves as the current version, its content unchanged")

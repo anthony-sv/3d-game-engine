@@ -116,6 +116,13 @@ namespace Strada
 		[[nodiscard]] static Result<VisualScriptDocument> Deserialize(Json const& file, DeserializationContext const& context,
 		                                                              std::vector<VisualScriptIssue>* issues = nullptr);
 
+		// The file form's text: equal, byte for byte, to DumpJson(Serialize(document)) for every document, written without
+		// building the Json.
+		[[nodiscard]] static std::string WriteText(VisualScriptDocument const& document);
+		// The content form, compact: equal to SerializeDocument(document).dump(-1, ' ', false, Json::error_handler_t::replace)
+		// for every document, written without building the Json.
+		[[nodiscard]] static std::string WriteContentText(VisualScriptDocument const& document);
+
 		[[nodiscard]] static Result<void> SaveToFile(VisualScriptDocument const& document, std::filesystem::path const& path);
 		[[nodiscard]] static Result<VisualScriptDocument> LoadFromFile(std::filesystem::path const& path,
 		                                                               DeserializationContext const& context,
