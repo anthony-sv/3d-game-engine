@@ -138,4 +138,45 @@ public sealed class DeterminismTests
 	}
 
 	private static string Describe(CultureInfo culture) => culture.Name.Length > 0 ? culture.Name : "a culture of unusual number symbols";
+
+	// The String nodes map case and read and write numbers as the invariant culture does (spec-slice3 section 3.5), so Turkish
+	// i and I and German decimal commas change nothing.
+	[Fact]
+	public void StringNodesGiveTheInvariantResultsInEveryCulture()
+	{
+		static List<string> Run()
+		{
+			DocumentBuilder document = new();
+			GraphBuilder graph = document.Graph;
+			uint previous = graph.Node("Event.Create");
+			foreach ((string type, string inputs, string output) in new[]
+			{
+				("String.ToUpper", """{ "Text": "title i \u0131 \u00DF" }""", "Result"),
+				("String.ToLower", """{ "Text": "TITLE I \u0130 \u00C4" }""", "Result"),
+				("String.ToFloat", """{ "Text": "1.5" }""", "Value"),
+				("String.ToFloat", """{ "Text": "1,5" }""", "Success"),
+				("String.ToInt", """{ "Text": " -12 " }""", "Value"),
+				("String.Contains", """{ "Text": "TITLE", "Substring": "title" }""", "Result"),
+			})
+			{
+				uint write = graph.Write(graph.Node(type, inputs: inputs), output);
+				graph.Flow(previous, write);
+				previous = write;
+			}
+			uint join = graph.Node("String.Join");
+			graph.Link(graph.Literal("float[]", "[1.5, -0.25]"), "Value", join, "Parts");
+			graph.Flow(previous, graph.Write(join, "Result"));
+			TestRuntime runtime = TestRuntime.Start(document);
+			runtime.Invoke(ScriptEvent.Create);
+			return runtime.Records;
+		}
+		List<string> expected = InCulture(CultureInfo.InvariantCulture, Run);
+		// The invariant mapping leaves the dotless i and the sharp s as they are.
+		Assert.Equal("TITLE I \u0131 \u00DF", expected[0]);
+		Assert.Equal(["1.5", "False", "-12", "False", "1.5, -0.25"], expected[2..]);
+		foreach (CultureInfo culture in s_Cultures.Value)
+		{
+			Assert.Equal(expected, InCulture(culture, Run));
+		}
+	}
 }

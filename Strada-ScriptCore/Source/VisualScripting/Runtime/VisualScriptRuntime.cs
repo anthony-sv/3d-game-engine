@@ -61,6 +61,9 @@ internal sealed partial class VisualScriptRuntime
 	// Whether an execution of this runtime is running (on the host stack, not suspended).
 	internal bool IsExecuting => m_Depth > 0;
 
+	// The invokers of members this runtime built (one per member and kind, generic methods per closed method).
+	internal int InvokerCount => m_Invokers.Count;
+
 	internal int InstanceCount => m_Instances.Count;
 
 	// Attaches the debugger that traces executions from now on (spec section 5.5); null detaches it.
@@ -491,7 +494,7 @@ internal sealed partial class VisualScriptRuntime
 	{
 		if (!m_Invokers.TryGetValue((member, kind), out MemberInvoker? invoker))
 		{
-			invoker = MemberInvokers.ForMember(member, kind);
+			invoker = MemberInvokers.ForMember(member, kind, m_Library());
 			m_Invokers[(member, kind)] = invoker;
 		}
 		return invoker;
@@ -502,7 +505,7 @@ internal sealed partial class VisualScriptRuntime
 		Dictionary<Type, MemberInvoker> cache = make ? m_Makers : m_Breakers;
 		if (!cache.TryGetValue(type.ClrType!, out MemberInvoker? invoker))
 		{
-			invoker = make ? MemberInvokers.ForMake(type) : MemberInvokers.ForBreak(type);
+			invoker = make ? MemberInvokers.ForMake(type, m_Library()) : MemberInvokers.ForBreak(type, m_Library());
 			cache[type.ClrType!] = invoker;
 		}
 		return invoker;

@@ -88,7 +88,7 @@ internal static class NodeLibraryBuilder
 
 		BuiltinTypes builtinTypes = new(registry.Get(typeof(bool))!, registry.Get(typeof(int))!, registry.Get(typeof(float))!,
 			registry.Get(typeof(string))!, registry.Get(typeof(Entity))!, registry.Get(typeof(KeyCode))!, registry.Get(typeof(MouseButton))!,
-			registry.Get(typeof(GamepadButton))!);
+			registry.Get(typeof(GamepadButton))!, registry.Get(typeof(string[]))!);
 		List<NodeDefinition> nodes = [.. BuiltinNodes.Create(builtinTypes)];
 		List<MemberNodeDefinition> members = [];
 		MemberNodes.Create(sources.ApiTypes, registry.Get, builtinTypes.Entity, Documentation.Load(sources.DocumentationPath), members);
@@ -111,6 +111,8 @@ internal static class NodeLibraryBuilder
 			return order != 0 ? order : string.CompareOrdinal(a.Type, b.Type);
 		});
 
+		// Every type with values has an array type, whether or not a member uses it (spec-slice3 section 3.4.1).
+		registry.RegisterArrays();
 		List<VisualType> types = registry.All();
 		foreach (VisualType type in types)
 		{
@@ -177,6 +179,12 @@ internal static class NodeLibraryBuilder
 	private static void DeriveFacts(VisualType type, Registry registry)
 	{
 		Type clrType = type.ClrType!;
+		if (type.Kind == TypeKind.Array)
+		{
+			// Arrays are not exposable (public array variables are a later change), and have literals when their elements do.
+			type.HasLiteral = LiteralCodec.HasLiteralForm(clrType);
+			return;
+		}
 		type.FieldType = type.IsScriptClass ? ScriptFieldType.None : ScriptFieldCodec.GetFieldType(clrType);
 		type.AssetType = type.Kind == TypeKind.Asset && !clrType.IsAbstract ? AssetTypes.GetNativeType(clrType) : NativeAssetType.None;
 		type.HasLiteral = LiteralCodec.HasLiteralForm(clrType);
@@ -298,7 +306,7 @@ internal static class NodeLibraryBuilder
 	}
 
 	// The types of the library being built, by CLR type and ID. Array types are registered when a member signature uses
-	// them.
+	// them, and then for every other type with values.
 	private sealed class Registry
 	{
 		private readonly Dictionary<Type, VisualType> m_ByClr = [];
@@ -343,15 +351,40 @@ internal static class NodeLibraryBuilder
 			{
 				return null;
 			}
-			Register(type, TypeKind.Array);
-			if (m_ByClr.TryGetValue(type, out VisualType? array))
+			return RegisterArray(element);
+		}
+
+		// The array type of every registered type that can have one.
+		public void RegisterArrays()
+		{
+			foreach (VisualType element in All())
 			{
-				array.Element = element;
-				return array;
+				if (element.Kind != TypeKind.Array && !element.ClrType!.IsByRefLike)
+				{
+					RegisterArray(element);
+				}
 			}
-			return null;
 		}
 
 		public List<VisualType> All() => [.. m_ByClr.Values];
+
+		private VisualType? RegisterArray(VisualType element)
+		{
+			if (element.ArrayType != null)
+			{
+				return element.ArrayType;
+			}
+			Type elementType = element.ClrType!;
+			Type arrayType = elementType.MakeArrayType();
+			Register(arrayType, TypeKind.Array);
+			if (!m_ByClr.TryGetValue(arrayType, out VisualType? array) || array.Kind != TypeKind.Array)
+			{
+				return null;
+			}
+			array.Element = element;
+			array.EmptyArray = Array.CreateInstance(elementType, 0);
+			element.ArrayType = array;
+			return array;
+		}
 	}
 }

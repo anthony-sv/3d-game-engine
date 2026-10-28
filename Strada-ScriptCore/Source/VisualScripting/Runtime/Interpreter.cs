@@ -14,7 +14,7 @@ internal sealed partial class VisualScriptRuntime
 	private const string BudgetMessage = "execution exceeded 1,000,000 steps (endless loop?)";
 	private const string DepthMessage = "call depth exceeded 64";
 	private const string NoTarget = "Target is None";
-	private const string NoArray = "Array is None";
+	private const string NoArray = Intrinsics.NoArray;
 
 	// Runs an execution until it ends, suspends or aborts. freshBudget starts the steps of an outermost execution; nested
 	// executions share the steps of the one they run in. Active executions and their function frames count towards the
@@ -734,6 +734,13 @@ internal sealed partial class VisualScriptRuntime
 			case Opcode.Expression:
 				ExpressionMachine.Run(node.Expression!, slots);
 				break;
+			case Opcode.Intrinsic:
+				if (node.Member != null)
+				{
+					node.Invoker ??= GetInvoker(node.Member, MemberNodeKind.Call);
+				}
+				Intrinsics.Evaluate(node, slots);
+				break;
 			default:
 				throw new InvalidOperationException($"{node} is impure: a plan never evaluates it");
 		}
@@ -875,38 +882,21 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	// The equality table (spec section 4.4).
+	// The equality table (spec section 4.4); arrays element by element (spec-slice3 section 3.4.2 rule 3). An equality
+	// operator method of the operands writes its result to the node's output.
 	private bool Equal(CompiledNode node, Slot[] slots)
 	{
-		int input = node.InputBase;
-		ref readonly Slot a = ref slots[input];
-		ref readonly Slot b = ref slots[input + 1];
-		switch (node.Equality)
+		if (node.Member != null)
 		{
-			case EqualityKind.Numeric:
-				return Operators.Equal(node.Kind, a, b);
-			case EqualityKind.Bool:
-				return a.Bool == b.Bool;
-			case EqualityKind.String:
-				return string.Equals((string?)a.Object, (string?)b.Object, StringComparison.Ordinal);
-			case EqualityKind.Enum:
-				return a.ULong == b.ULong;
-			case EqualityKind.Entity:
-				return (Entity?)a.Object == (Entity?)b.Object;
-			case EqualityKind.Asset:
-				return (Asset?)a.Object == (Asset?)b.Object;
-			case EqualityKind.Component:
-				if (a.Object is not Component first || b.Object is not Component second)
-				{
-					return a.Object == null && b.Object == null;
-				}
-				return first.GetType() == second.GetType() && first.Entity?.ID == second.Entity?.ID;
-			case EqualityKind.Method:
-				(node.Invoker ??= GetInvoker(node.Member!, MemberNodeKind.Call))(slots, input, node.OutputBase);
-				return slots[node.OutputBase].Bool;
-			default:
-				return Equals(a.Object, b.Object);
+			node.Invoker ??= GetInvoker(node.Member, MemberNodeKind.Call);
 		}
+		int input = node.InputBase;
+		if (node.Equality == EqualityKind.Array)
+		{
+			return ValueEquality.ArraysEqual(node, slots[input].Object as Array ?? throw new VisualScriptException(NoArray),
+				slots[input + 1].Object as Array ?? throw new VisualScriptException(NoArray), slots);
+		}
+		return ValueEquality.Equal(node.Equality, node.Kind, node.Invoker, slots, input, node.OutputBase);
 	}
 
 	// Convert (spec section 4.4).
@@ -1045,29 +1035,6 @@ internal static class Plans
 			}
 		}
 		return [.. order];
-	}
-}
-
-// Reads elements of arrays into slots.
-internal static class ArrayElements
-{
-	internal static Slot Read(Array array, int index, VisualType element)
-	{
-		Type type = element.ClrType!;
-		switch (SlotValues.KindOf(type))
-		{
-			case SlotKind.Object when !type.IsValueType:
-				object? value = ((object?[])array)[index];
-				return type == typeof(string) ? Slot.FromString((string?)value) : Slot.FromObject(value);
-			case SlotKind.Int when array is int[] ints:
-				return Slot.FromInt(ints[index]);
-			case SlotKind.Float when array is float[] floats:
-				return Slot.FromFloat(floats[index]);
-			case SlotKind.Vector3 when array is Vector3[] vectors:
-				return Slot.FromVector3(vectors[index]);
-			default:
-				return SlotValues.FromValue(array.GetValue(index), element);
-		}
 	}
 }
 

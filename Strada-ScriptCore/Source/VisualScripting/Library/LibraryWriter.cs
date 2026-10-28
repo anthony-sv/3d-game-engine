@@ -181,6 +181,10 @@ internal static class LibraryWriter
 		{
 			writer.WriteString("ElementOf", pin.ElementOf);
 		}
+		if (pin.ArrayOf != null)
+		{
+			writer.WriteString("ArrayOf", pin.ArrayOf);
+		}
 		writer.WriteEndObject();
 	}
 

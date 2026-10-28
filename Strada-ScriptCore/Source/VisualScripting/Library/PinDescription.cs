@@ -26,6 +26,8 @@ internal enum WildcardSource
 	Links,
 	// The element type of the array pin named by ElementOf.
 	ElementOf,
+	// The array type of the elements of the pin named by ArrayOf (spec-slice3 sections 3.4.5 and 3.6).
+	ArrayOf,
 	// Computed by the node from its other pins (an operator's Result).
 	Computed,
 }
@@ -66,6 +68,9 @@ internal sealed class PinDescription
 
 	// The pin's type is the element type of the named array pin.
 	internal string? ElementOf { get; init; }
+
+	// The pin's type is the array type whose elements have the type of the named pin.
+	internal string? ArrayOf { get; init; }
 
 	internal WildcardSource Source { get; init; }
 

@@ -134,6 +134,41 @@ public static class Probe
 	[PureNode]
 	public static RaycastHit HitOf(Entity entity, float distance) => new(entity, Vector3.Up, Vector3.Forward, distance);
 
+	// The integers 0 to count - 1.
+	[PureNode]
+	public static int[] Numbers(int count)
+	{
+		int[] numbers = new int[count];
+		for (int index = 0; index < count; index++)
+		{
+			numbers[index] = index;
+		}
+		return numbers;
+	}
+
+	// text count times.
+	[PureNode]
+	public static string RepeatText(string text, int count) => string.Concat(System.Linq.Enumerable.Repeat(text, count));
+
+	// Unconstrained generic methods (spec-slice3 section 3.6): T from an array input, an array result from a value input,
+	// T only in the result, and T in and out.
+	[PureNode]
+	public static T First<T>(T[] items) => items[0];
+
+	[PureNode]
+	public static T[] Repeat<T>(T value, int count)
+	{
+		T[] values = new T[count];
+		System.Array.Fill(values, value);
+		return values;
+	}
+
+	[PureNode]
+	public static T Default<T>() => default!;
+
+	[PureNode]
+	public static T Echo<T>(T value) => value;
+
 	[PureNode]
 	public static Holder? NoHolder() => null;
 }

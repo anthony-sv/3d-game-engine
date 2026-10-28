@@ -99,7 +99,7 @@ internal static class GraphAnalyzer
 				context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: {message}", suggestions));
 			object? value = type != null
 				? Declarations.DecodeValue(type, variable.Value, (code, message) =>
-					context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: Value: {message}"))
+					context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: {message}"))
 				: null;
 			context.Add(new AnalyzedVariable(variable.ID, variable.Name, variable.Type, type, value, variable.Public, variable.FormerNames, null));
 		}
@@ -118,7 +118,7 @@ internal static class GraphAnalyzer
 					context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: {message}", suggestions));
 				object? value = type != null
 					? Declarations.DecodeValue(type, local.Value, (code, message) =>
-						context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: Value: {message}"))
+						context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: {message}"))
 					: null;
 				function.AddLocal(new AnalyzedVariable(local.ID, local.Name, local.Type, type, value, false, [], function));
 			}
@@ -556,9 +556,12 @@ internal static class GraphAnalyzer
 			{
 				continue;
 			}
-			string hint = node.Builtin is { } builtin && BuiltinNodes.IsBinaryWildcardOperator(builtin)
-				? " (or connect the other operand and store a value here)"
-				: string.Empty;
+			string hint = node.Builtin switch
+			{
+				{ } builtin when BuiltinNodes.IsBinaryWildcardOperator(builtin) => " (or connect the other operand and store a value here)",
+				BuiltinNode.ArrayMake => " (or set Type: the element type)",
+				_ => string.Empty,
+			};
 			// An input whose links are all errors (from disabled nodes whose outputs it refuses, say) is unconnected.
 			context.ReportPin(DiagnosticCode.UnresolvedWildcard, node, pin.Name, PinDirection.In, pin.Links.Count > 0
 				? $"the type of {pin.Name} is unknown: none of its links gives it a value{hint}"
@@ -621,10 +624,10 @@ internal static class GraphAnalyzer
 			switch (decoded.Problem)
 			{
 				case LiteralProblem.InvalidValue:
-					context.ReportPin(DiagnosticCode.InvalidValue, node, name, PinDirection.In, $"{name}: {decoded.Message}");
+					context.ReportPin(DiagnosticCode.InvalidValue, node, name, PinDirection.In, decoded.Describe(name));
 					continue;
 				case LiteralProblem.EntityValue:
-					context.ReportPin(DiagnosticCode.EntityValue, node, name, PinDirection.In, $"{name}: {decoded.Message}");
+					context.ReportPin(DiagnosticCode.EntityValue, node, name, PinDirection.In, decoded.Describe(name));
 					continue;
 			}
 			pin.HasLiteral = true;

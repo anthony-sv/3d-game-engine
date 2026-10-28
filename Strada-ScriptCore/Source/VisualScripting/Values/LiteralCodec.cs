@@ -17,14 +17,19 @@ internal enum LiteralProblem
 	EntityValue,
 }
 
-// A decoded literal: the value (boxed as the type's CLR type; null for no entity or asset), or what is wrong with it.
-internal readonly record struct DecodedLiteral(object? Value, LiteralProblem Problem, string? Message, bool WasZeroQuaternion)
+// A decoded literal: the value (boxed as the type's CLR type; null for no entity or asset), or what is wrong with it. Index
+// is the element of an array literal the problem is in, -1 for the literal as a whole.
+internal readonly record struct DecodedLiteral(object? Value, LiteralProblem Problem, string? Message, bool WasZeroQuaternion, int Index = -1)
 {
 	internal bool IsValid => Problem == LiteralProblem.None;
 
 	internal static DecodedLiteral Of(object? value) => new(value, LiteralProblem.None, null, false);
 
 	internal static DecodedLiteral Invalid(string message) => new(null, LiteralProblem.InvalidValue, message, false);
+
+	// The problem as a message about the value of what ("Speeds: expected ...", "Value[2]: expected ...").
+	internal string Describe(string what) =>
+		Index >= 0 ? $"{what}[{Index.ToString(CultureInfo.InvariantCulture)}]: {Message}" : $"{what}: {Message}";
 }
 
 // Literals in documents (spec section 2.1) and type defaults (spec section 2.2): the single place that decodes and writes
@@ -33,6 +38,8 @@ internal static class LiteralCodec
 {
 	internal const string AssetHandleHint = "asset values in graphs are decimal handles: look the handle up with asset.list";
 	internal const string EntityHint = "graphs are shared assets: expose a public Entity variable and set it on the component";
+	// Spec-slice3 section 3.2.
+	internal const int MaxArrayLiteralElements = 4096;
 	// The largest magnitude of a float literal.
 	private const double MaxFloat = 3.4028235e38;
 	// The engine's quaternion decoder: shorter quaternions have no direction, and unit ones within the tolerance stay as they
@@ -40,9 +47,13 @@ internal static class LiteralCodec
 	private const double MinQuaternionLength = 1e-6;
 	private const double UnitQuaternionTolerance = 1e-5;
 
-	// Whether values of the CLR type have a literal form.
+	// Whether values of the CLR type have a literal form: arrays have one when their elements do (spec-slice3 section 3.4.4).
 	internal static bool HasLiteralForm(Type type)
 	{
+		if (type.IsSZArray)
+		{
+			return type.GetElementType() is { IsArray: false } element && HasLiteralForm(element);
+		}
 		if (type.IsEnum || type == typeof(bool) || type == typeof(int) || type == typeof(uint) || type == typeof(long) || type == typeof(ulong) ||
 			type == typeof(float) || type == typeof(double) || type == typeof(string) || type == typeof(Vector2) || type == typeof(Vector3) ||
 			type == typeof(Vector4) || type == typeof(Quaternion) || type == typeof(Color) || type == typeof(Matrix4) || type == typeof(Entity) ||
@@ -67,6 +78,10 @@ internal static class LiteralCodec
 		if (!type.HasLiteral)
 		{
 			return DecodedLiteral.Invalid($"{type.Id} has no literal form: connect the pin instead");
+		}
+		if (type.Kind == TypeKind.Array)
+		{
+			return DecodeArray(type, json);
 		}
 		if (clrType.IsEnum)
 		{
@@ -133,6 +148,19 @@ internal static class LiteralCodec
 		{
 			case null when clrType == typeof(string):
 				writer.WriteStringValue(string.Empty);
+				break;
+			case null when type.Kind == TypeKind.Array:
+				writer.WriteStartArray();
+				writer.WriteEndArray();
+				break;
+			case Array array when type.Element is { } element:
+				// Element by element, in the canonical forms of the element type.
+				writer.WriteStartArray();
+				for (int index = 0; index < array.Length; index++)
+				{
+					Write(writer, element, array.GetValue(index));
+				}
+				writer.WriteEndArray();
 				break;
 			case null:
 				// No entity, no asset.
@@ -205,10 +233,14 @@ internal static class LiteralCodec
 		}
 	}
 
-	// The type default (spec section 2.2).
+	// The type default (spec section 2.2); an array's is its empty array (spec-slice3 section 3.4.2).
 	internal static object? DefaultOf(VisualType type)
 	{
 		Type? clrType = type.ClrType;
+		if (type.Kind == TypeKind.Array && clrType != null)
+		{
+			return type.EmptyArray ?? Array.CreateInstance(clrType.GetElementType()!, 0);
+		}
 		if (clrType == null || !clrType.IsValueType)
 		{
 			return clrType == typeof(string) ? string.Empty : null;
@@ -285,6 +317,40 @@ internal static class LiteralCodec
 		string form = type.IsFlags ? "an array of enumerator names" : "an enumerator name";
 		string number64 = wide ? "a decimal string" : "an integer";
 		return Expected($"{form} of {type.Id} or {number64}", json);
+	}
+
+	// A JSON array of literals of the element type (spec-slice3 section 3.4.4), at most MaxArrayLiteralElements of them. The
+	// first element that does not decode is the problem, with its index; [] is the type's empty array.
+	private static DecodedLiteral DecodeArray(VisualType type, JsonElement json)
+	{
+		VisualType element = type.Element!;
+		if (json.ValueKind != JsonValueKind.Array)
+		{
+			return Expected($"an array of {element.Id} values", json);
+		}
+		int length = json.GetArrayLength();
+		if (length > MaxArrayLiteralElements)
+		{
+			return DecodedLiteral.Invalid($"an array literal has at most {Format(MaxArrayLiteralElements)} elements");
+		}
+		if (length == 0)
+		{
+			return DecodedLiteral.Of(DefaultOf(type));
+		}
+		Array values = Array.CreateInstance(element.ClrType!, length);
+		bool wasZeroQuaternion = false;
+		int index = 0;
+		foreach (JsonElement item in json.EnumerateArray())
+		{
+			DecodedLiteral decoded = Decode(element, item);
+			if (!decoded.IsValid)
+			{
+				return decoded with { Index = index };
+			}
+			wasZeroQuaternion |= decoded.WasZeroQuaternion;
+			values.SetValue(decoded.Value, index++);
+		}
+		return new DecodedLiteral(values, LiteralProblem.None, null, wasZeroQuaternion);
 	}
 
 	private static DecodedLiteral DecodeEntity(JsonElement json)

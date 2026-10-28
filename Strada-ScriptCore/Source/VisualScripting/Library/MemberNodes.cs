@@ -262,11 +262,12 @@ internal static class MemberNodes
 			return;
 		}
 		TypeConstraint domain = TypeConstraint.None;
-		if ((method.IsGenericMethodDefinition && !TryGetGenericDomain(method, out domain)) || !HasPinParameters(method))
+		bool inference = false;
+		if ((method.IsGenericMethodDefinition && !TryGetGenericForm(method, out domain, out inference)) || !HasPinParameters(method))
 		{
 			return;
 		}
-		Add(MemberNodeKind.Call, method, IsPure(method), resolve, entity, documentation, nodes, domain);
+		Add(MemberNodeKind.Call, method, IsPure(method), resolve, entity, documentation, nodes, domain, inference);
 	}
 
 	private static void AddProperty(PropertyInfo property, Func<Type, VisualType?> resolve, VisualType entity, Documentation documentation,
@@ -302,12 +303,17 @@ internal static class MemberNodes
 	}
 
 	private static void Add(MemberNodeKind kind, MemberInfo member, bool pure, Func<Type, VisualType?> resolve, VisualType entity,
-		Documentation documentation, List<MemberNodeDefinition> nodes, TypeConstraint domain = TypeConstraint.None)
+		Documentation documentation, List<MemberNodeDefinition> nodes, TypeConstraint domain = TypeConstraint.None, bool inference = false)
 	{
 		MemberShape? shape = Shape(kind, member, pure, resolve, entity);
 		if (shape == null)
 		{
 			return;
+		}
+		IReadOnlyList<GenericAnchor?> anchors = [];
+		if (inference)
+		{
+			(shape, anchors) = Infer((MethodInfo)member, shape);
 		}
 		Type declaring = member.DeclaringType!;
 		string declaringId = TypeIds.Of(declaring)!;
@@ -326,6 +332,15 @@ internal static class MemberNodes
 		{
 			settings.Add(new SettingDescription("TypeArguments", SettingKind.TypeList) { Required = true, Constraint = domain });
 		}
+		else if (inference)
+		{
+			// Optional: links decide the types, unless a type parameter appears in no input.
+			settings.Add(new SettingDescription("TypeArguments", SettingKind.TypeList)
+			{
+				Required = Array.Exists([.. anchors], static anchor => anchor == null),
+				Constraint = TypeConstraint.Any,
+			});
+		}
 		nodes.Add(new MemberNodeDefinition(kind, member, TypeString(kind, member, declaringId), title, CategoryOf(declaring), pure, shape.Pins)
 		{
 			Subtitle = isStatic ? Titles.OfType(declaring) : "Target is " + Titles.OfType(declaring),
@@ -333,6 +348,8 @@ internal static class MemberNodes
 			Target = shape.Target,
 			Parameters = shape.Parameters,
 			GenericDomain = domain,
+			GenericInference = inference,
+			GenericAnchors = anchors,
 			LookupKey = lookupKey,
 			Settings = settings,
 		});
@@ -395,16 +412,87 @@ internal static class MemberNodes
 		return TypeIds.Of(type)!;
 	}
 
-	// A library type for a parameter or return type; a generic method parameter is a wildcard the TypeArguments setting
-	// decides.
+	// A library type for a parameter or return type; a generic method parameter, or an array of one, is a wildcard that links
+	// or the TypeArguments setting decide.
 	private static VisualType? ResolveSignatureType(Type type, Func<Type, VisualType?> resolve)
 	{
-		if (type.IsGenericMethodParameter)
+		if (GenericParameterOf(type) != null)
 		{
 			return VisualType.Wildcard;
 		}
 		return type.ContainsGenericParameters ? null : resolve(type);
 	}
+
+	// The generic method parameter a signature type is (T), or is an array of (T[]); null for any other type.
+	private static Type? GenericParameterOf(Type type) =>
+		type.IsGenericMethodParameter ? type : type.IsSZArray && type.GetElementType()!.IsGenericMethodParameter ? type.GetElementType() : null;
+
+	// The pins of an inferred generic method (spec-slice3 section 3.6), for each type parameter T in order: when an input has
+	// type T[], the first is the anchor A, every pin of type T[] joins the group "T[]" and every pin of type T is an element
+	// of A; else, when an input has type T, the first is the anchor E, every pin of type T joins the group "T" and every
+	// output of type T[] is the array of E's type; else no input decides T (its anchor is null) and TypeArguments must.
+	private static (MemberShape Shape, IReadOnlyList<GenericAnchor?> Anchors) Infer(MethodInfo method, MemberShape shape)
+	{
+		Dictionary<(string, PinDirection), Type> signature = [];
+		foreach (MemberParameter parameter in shape.Parameters)
+		{
+			Type type = parameter.Parameter.ParameterType;
+			signature[(parameter.Pin, parameter.Direction)] = type.IsByRef ? type.GetElementType()! : type;
+		}
+		if (method.ReturnType != typeof(void))
+		{
+			signature[("Result", PinDirection.Out)] = method.ReturnType;
+		}
+		Type[] parameters = method.GetGenericArguments();
+		Dictionary<Type, GenericAnchor?> anchors = [];
+		foreach (Type parameter in parameters)
+		{
+			PinDescription? array = null;
+			PinDescription? value = null;
+			foreach (PinDescription pin in shape.Pins)
+			{
+				if (pin.IsInput && signature.TryGetValue((pin.Name, pin.Direction), out Type? type) && GenericParameterOf(type) == parameter)
+				{
+					if (type.IsSZArray)
+					{
+						array ??= pin;
+					}
+					else
+					{
+						value ??= pin;
+					}
+				}
+			}
+			anchors[parameter] = array != null ? new GenericAnchor(array.Name, true) : value != null ? new GenericAnchor(value.Name, false) : null;
+		}
+		List<PinDescription> pins = [];
+		foreach (PinDescription pin in shape.Pins)
+		{
+			if (!signature.TryGetValue((pin.Name, pin.Direction), out Type? type) || GenericParameterOf(type) is not { } parameter)
+			{
+				pins.Add(pin);
+				continue;
+			}
+			pins.Add(InferredPin(pin, parameter.Name, type.IsSZArray, anchors[parameter]));
+		}
+		List<GenericAnchor?> ordered = [];
+		foreach (Type parameter in parameters)
+		{
+			ordered.Add(anchors[parameter]);
+		}
+		return (shape with { Pins = pins }, ordered);
+	}
+
+	// A pin of type T (isArray: T[]) of an inferred generic method, by where T comes from.
+	private static PinDescription InferredPin(PinDescription pin, string parameter, bool isArray, GenericAnchor? anchor) => anchor switch
+	{
+		null => BuiltinNodes.Wildcard(pin.Name, pin.Direction, isArray ? PinConstraint.Array : PinConstraint.Any, WildcardSource.None),
+		{ IsArray: true } when isArray =>
+			BuiltinNodes.Wildcard(pin.Name, pin.Direction, PinConstraint.Array, WildcardSource.Links, parameter + TypeIds.ArraySuffix),
+		{ IsArray: true } => BuiltinNodes.Wildcard(pin.Name, pin.Direction, PinConstraint.Any, WildcardSource.ElementOf, elementOf: anchor.Pin),
+		_ when isArray => BuiltinNodes.ArrayOf(pin.Name, anchor.Pin),
+		_ => BuiltinNodes.Wildcard(pin.Name, pin.Direction, PinConstraint.Any, WildcardSource.Links, parameter),
+	};
 
 	private static PinDescription TypedPin(string name, PinDirection direction, VisualType type) =>
 		type.IsWildcard ? BuiltinNodes.Wildcard(name, direction, PinConstraint.Reference, WildcardSource.None) : new PinDescription(name, direction, type);
@@ -447,6 +535,16 @@ internal static class MemberNodes
 		return true;
 	}
 
+	// A generic method is a node when its type parameters are all unconstrained (they are inferred), or all constrained to the
+	// same one of Component, Asset or Script (its domain); a method mixing the two forms has none.
+	private static bool TryGetGenericForm(MethodInfo method, out TypeConstraint domain, out bool inference)
+	{
+		inference = Array.TrueForAll(method.GetGenericArguments(), static parameter =>
+			parameter.GetGenericParameterConstraints().Length == 0 && parameter.GenericParameterAttributes == GenericParameterAttributes.None);
+		domain = TypeConstraint.None;
+		return inference || TryGetGenericDomain(method, out domain);
+	}
+
 	private static bool TryGetGenericDomain(MethodInfo method, out TypeConstraint domain)
 	{
 		domain = TypeConstraint.None;
@@ -458,7 +556,7 @@ internal static class MemberNodes
 				: constraints[0] == typeof(Asset) ? TypeConstraint.Asset
 				: constraints[0] == typeof(Script) ? TypeConstraint.Script
 				: TypeConstraint.None;
-			// Unconstrained type parameters (Assert.AreEqual<T>) and other constraints have no domain to choose from.
+			// Unconstrained type parameters (inferred instead) and other constraints have no domain to choose from.
 			if (parameterDomain == TypeConstraint.None || (domain != TypeConstraint.None && domain != parameterDomain))
 			{
 				return false;

@@ -29,12 +29,22 @@ internal static class BuiltinNodes
 	internal const string Operators = "Math/Operators";
 	internal const string Utilities = "Utilities";
 	internal const string Arrays = "Utilities/Array";
+	internal const string Strings = "Utilities/String";
 	internal const string Mathematics = "Math";
 	internal const string Conversions = "Conversions";
 	internal const string Structs = "Structs";
 
-	// The group of the type variable Reroute and Select share among their pins.
+	// The group of the type variable Reroute, Select and Make Array share among their pins.
 	internal const string ValueGroup = "T";
+
+	// The group of the array pins of the array nodes that make a new array of their input's type.
+	internal const string ArrayGroup = "A";
+
+	internal const string ArraySubtitle = "Array";
+	internal const string StringSubtitle = "String";
+
+	// Array.Make's Count (spec-slice3 section 3.2).
+	internal const int MaxMakeArrayCount = 64;
 
 	internal static readonly string[] EasingNames =
 	[
@@ -96,6 +106,29 @@ internal static class BuiltinNodes
 		BuiltinNode.ArrayLength => "Array.Length",
 		BuiltinNode.ArrayGet => "Array.Get",
 		BuiltinNode.Expression => "Expression",
+		BuiltinNode.StringLength => "String.Length",
+		BuiltinNode.StringIsEmpty => "String.IsEmpty",
+		BuiltinNode.StringContains => "String.Contains",
+		BuiltinNode.StringStartsWith => "String.StartsWith",
+		BuiltinNode.StringEndsWith => "String.EndsWith",
+		BuiltinNode.StringIndexOf => "String.IndexOf",
+		BuiltinNode.StringSubstring => "String.Substring",
+		BuiltinNode.StringReplace => "String.Replace",
+		BuiltinNode.StringToUpper => "String.ToUpper",
+		BuiltinNode.StringToLower => "String.ToLower",
+		BuiltinNode.StringTrim => "String.Trim",
+		BuiltinNode.StringSplit => "String.Split",
+		BuiltinNode.StringJoin => "String.Join",
+		BuiltinNode.StringToInt => "String.ToInt",
+		BuiltinNode.StringToFloat => "String.ToFloat",
+		BuiltinNode.ArrayContains => "Array.Contains",
+		BuiltinNode.ArrayIndexOf => "Array.IndexOf",
+		BuiltinNode.ArrayMake => "Array.Make",
+		BuiltinNode.ArraySet => "Array.Set",
+		BuiltinNode.ArrayAdd => "Array.Add",
+		BuiltinNode.ArrayRemoveAt => "Array.RemoveAt",
+		BuiltinNode.ArrayInsert => "Array.Insert",
+		BuiltinNode.ArrayAppend => "Array.Append",
 		BuiltinNode.OperatorAdd => "Operator.Add",
 		BuiltinNode.OperatorSubtract => "Operator.Subtract",
 		BuiltinNode.OperatorMultiply => "Operator.Multiply",
@@ -140,6 +173,8 @@ internal static class BuiltinNodes
 		AddVariablesAndFunctions(nodes);
 		AddData(nodes, types);
 		AddExpression(nodes);
+		AddStrings(nodes, types);
+		AddArrays(nodes, types);
 		AddOperators(nodes, types);
 		return nodes;
 	}
@@ -350,12 +385,12 @@ internal static class BuiltinNodes
 			["text", "format", "interpolate", "string", "concatenate"], [Out("Result", types.String)],
 			[new SettingDescription("Format", SettingKind.String) { Default = string.Empty }]);
 		DataNode(nodes, BuiltinNode.ArrayLength, "Length", Arrays, "The number of elements of an array.", ["count", "size", "array"],
-			[Wildcard("Array", PinDirection.In, PinConstraint.Array, WildcardSource.Links), Out("Length", types.Int)]);
+			[Wildcard("Array", PinDirection.In, PinConstraint.Array, WildcardSource.Links), Out("Length", types.Int)], subtitle: ArraySubtitle);
 		DataNode(nodes, BuiltinNode.ArrayGet, "Get", Arrays, "The element of an array at Index (from 0).", ["index", "element", "item", "array"],
 			[
 				Wildcard("Array", PinDirection.In, PinConstraint.Array, WildcardSource.Links), In("Index", types.Int),
 				Wildcard("Element", PinDirection.Out, PinConstraint.Any, WildcardSource.ElementOf, elementOf: "Array"),
-			]);
+			], subtitle: ArraySubtitle);
 	}
 
 	// The formula node (spec-slice3 section 3.3): its inputs are the names its Formula uses, so the template has only Result.
@@ -368,6 +403,88 @@ internal static class BuiltinNodes
 			Keywords = ["formula", "math", "calculate", "equation", "expr", "="],
 			Settings = [new SettingDescription("Formula", SettingKind.Expression) { Default = string.Empty, Required = true }],
 		});
+	}
+
+	// The text nodes (spec-slice3 section 3.5): ordinal comparisons, invariant case mappings, lengths and indices in UTF-16
+	// code units; none of them stops an execution on its own data.
+	private static void AddStrings(List<BuiltinNodeDefinition> nodes, BuiltinTypes types)
+	{
+		StringNode(nodes, BuiltinNode.StringLength, "Length", "The number of UTF-16 code units of Text, as C#'s string.Length counts them.",
+			["count", "size", "characters", "string"], [In("Text", types.String), Out("Length", types.Int)]);
+		StringNode(nodes, BuiltinNode.StringIsEmpty, "Is Empty", "Whether Text has no characters.", ["empty", "blank", "string"],
+			[In("Text", types.String), Out("Result", types.Bool)]);
+		StringNode(nodes, BuiltinNode.StringContains, "Contains", "Whether Substring occurs in Text (ordinal, case-sensitive; an empty Substring always does).",
+			["find", "search", "includes", "string"], [In("Text", types.String), In("Substring", types.String), Out("Result", types.Bool)]);
+		StringNode(nodes, BuiltinNode.StringStartsWith, "Starts With", "Whether Text begins with Prefix (ordinal, case-sensitive).",
+			["prefix", "begins", "string"], [In("Text", types.String), In("Prefix", types.String), Out("Result", types.Bool)]);
+		StringNode(nodes, BuiltinNode.StringEndsWith, "Ends With", "Whether Text ends with Suffix (ordinal, case-sensitive).",
+			["suffix", "ends", "string"], [In("Text", types.String), In("Suffix", types.String), Out("Result", types.Bool)]);
+		StringNode(nodes, BuiltinNode.StringIndexOf, "Index Of",
+			"The first index from StartIndex (clamped to the text) where Substring occurs in Text (ordinal), or -1 when it does not.",
+			["find", "search", "position", "string"],
+			[In("Text", types.String), In("Substring", types.String), In("StartIndex", types.Int, 0), Out("Index", types.Int)]);
+		StringNode(nodes, BuiltinNode.StringSubstring, "Substring",
+			"Length characters of Text from Start (all the rest when Length is negative), clamped to the text.",
+			["slice", "part", "cut", "mid", "string"],
+			[In("Text", types.String), In("Start", types.Int, 0), In("Length", types.Int, -1), Out("Result", types.String)]);
+		StringNode(nodes, BuiltinNode.StringReplace, "Replace", "Text with every occurrence of Old replaced by New, left to right (ordinal).",
+			["substitute", "swap", "string"],
+			[In("Text", types.String), In("Old", types.String), In("New", types.String), Out("Result", types.String)]);
+		StringNode(nodes, BuiltinNode.StringToUpper, "To Upper", "Text in upper case (the invariant culture's mapping).",
+			["uppercase", "capitals", "case", "string"], [In("Text", types.String), Out("Result", types.String)]);
+		StringNode(nodes, BuiltinNode.StringToLower, "To Lower", "Text in lower case (the invariant culture's mapping).",
+			["lowercase", "case", "string"], [In("Text", types.String), Out("Result", types.String)]);
+		StringNode(nodes, BuiltinNode.StringTrim, "Trim", "Text without its leading and trailing white space.", ["strip", "whitespace", "string"],
+			[In("Text", types.String), Out("Result", types.String)]);
+		StringNode(nodes, BuiltinNode.StringSplit, "Split",
+			"The parts of Text between the occurrences of Separator (ordinal); RemoveEmpty leaves out the empty parts.",
+			["separate", "tokens", "parts", "string"],
+			[In("Text", types.String), In("Separator", types.String, ","), In("RemoveEmpty", types.Bool, false), Out("Parts", types.StringArray)]);
+		StringNode(nodes, BuiltinNode.StringJoin, "Join", "The elements of Parts as text, with Separator between them.",
+			["concatenate", "combine", "list", "string"],
+			[
+				Wildcard("Parts", PinDirection.In, PinConstraint.Array, WildcardSource.Links), In("Separator", types.String, ", "),
+				Out("Result", types.String),
+			]);
+		StringNode(nodes, BuiltinNode.StringToInt, "To Int",
+			"Reads Text as an integer (an optional sign and digits, white space around); Success is false, and Value 0, when it is none.",
+			["parse", "number", "integer", "convert", "string"], [In("Text", types.String), Out("Value", types.Int), Out("Success", types.Bool)]);
+		StringNode(nodes, BuiltinNode.StringToFloat, "To Float",
+			"Reads Text as a finite number (a sign, digits, a decimal point, an exponent, white space around); Success is false, and Value 0, when it is none.",
+			["parse", "number", "decimal", "convert", "string"], [In("Text", types.String), Out("Value", types.Float), Out("Success", types.Bool)]);
+	}
+
+	// The array nodes of spec-slice3 section 3.4.5: none changes an array in place; the ones that "change" one make a new one.
+	private static void AddArrays(List<BuiltinNodeDefinition> nodes, BuiltinTypes types)
+	{
+		ArrayNode(nodes, BuiltinNode.ArrayContains, "Contains", "Whether an element of Array equals Value.", ["find", "search", "includes", "array"],
+			[ArrayInput("Array", null), ElementInput(), Out("Result", types.Bool)]);
+		ArrayNode(nodes, BuiltinNode.ArrayIndexOf, "Index Of",
+			"The first index from StartIndex (clamped to the array) whose element equals Value, or -1 when there is none.",
+			["find", "search", "position", "array"], [ArrayInput("Array", null), ElementInput(), In("StartIndex", types.Int, 0), Out("Index", types.Int)]);
+		ArrayNode(nodes, BuiltinNode.ArrayMake, "Make Array", "A new array of the elements in order, of the type Type or of the type their links join to.",
+			["new", "list", "create", "build", "array"],
+			[
+				Wildcard("Element0", PinDirection.In, PinConstraint.Any, WildcardSource.Links, ValueGroup),
+				Wildcard("Element1", PinDirection.In, PinConstraint.Any, WildcardSource.Links, ValueGroup),
+				ArrayOf("Array", "Element0"),
+			],
+			[
+				new SettingDescription("Type", SettingKind.Type) { Constraint = TypeConstraint.Any },
+				new SettingDescription("Count", SettingKind.Int) { Default = 2, Min = 0, Max = MaxMakeArrayCount },
+			]);
+		ArrayNode(nodes, BuiltinNode.ArraySet, "Set Element", "A copy of Array with the element at Index replaced by Value.",
+			["replace", "assign", "write", "array"],
+			[ArrayInput("Array", ArrayGroup), In("Index", types.Int), ElementInput(), ArrayResult()]);
+		ArrayNode(nodes, BuiltinNode.ArrayAdd, "Add Element", "A copy of Array with Value appended.", ["append", "push", "insert", "array"],
+			[ArrayInput("Array", ArrayGroup), ElementInput(), ArrayResult()]);
+		ArrayNode(nodes, BuiltinNode.ArrayRemoveAt, "Remove Element", "A copy of Array without the element at Index.",
+			["delete", "erase", "remove", "array"], [ArrayInput("Array", ArrayGroup), In("Index", types.Int), ArrayResult()]);
+		ArrayNode(nodes, BuiltinNode.ArrayInsert, "Insert Element",
+			"A copy of Array with Value inserted before the element at Index (an Index of the array's length appends).", ["insert", "add", "array"],
+			[ArrayInput("Array", ArrayGroup), In("Index", types.Int), ElementInput(), ArrayResult()]);
+		ArrayNode(nodes, BuiltinNode.ArrayAppend, "Append Arrays", "A new array of A's elements, then B's.", ["concatenate", "join", "combine", "array"],
+			[ArrayInput("A", ArrayGroup), ArrayInput("B", ArrayGroup), ArrayResult()]);
 	}
 
 	private static void AddOperators(List<BuiltinNodeDefinition> nodes, BuiltinTypes types)
@@ -447,15 +564,39 @@ internal static class BuiltinNodes
 	}
 
 	private static void DataNode(List<BuiltinNodeDefinition> nodes, BuiltinNode node, string title, string category, string description,
-		string[] keywords, PinDescription[] pins, SettingDescription[]? settings = null)
+		string[] keywords, PinDescription[] pins, SettingDescription[]? settings = null, string subtitle = "")
 	{
 		Add(nodes, new BuiltinNodeDefinition(node, TypeOf(node), title, category, NodeKind.Data, true, false, pins)
 		{
+			Subtitle = subtitle,
 			Description = description,
 			Keywords = keywords,
 			Settings = settings ?? [],
 		});
 	}
+
+	private static void StringNode(List<BuiltinNodeDefinition> nodes, BuiltinNode node, string title, string description, string[] keywords,
+		PinDescription[] pins)
+	{
+		DataNode(nodes, node, title, Strings, description, keywords, pins, subtitle: StringSubtitle);
+	}
+
+	private static void ArrayNode(List<BuiltinNodeDefinition> nodes, BuiltinNode node, string title, string description, string[] keywords,
+		PinDescription[] pins, SettingDescription[]? settings = null)
+	{
+		DataNode(nodes, node, title, Arrays, description, keywords, pins, settings, ArraySubtitle);
+	}
+
+	// An array input typed by its links: a type variable of its own, or the group the node's array pins share.
+	private static PinDescription ArrayInput(string name, string? group) =>
+		Wildcard(name, PinDirection.In, PinConstraint.Array, WildcardSource.Links, group);
+
+	// The Value of a node's Array input: an element of it.
+	private static PinDescription ElementInput() =>
+		Wildcard("Value", PinDirection.In, PinConstraint.Any, WildcardSource.ElementOf, elementOf: "Array");
+
+	// The array a node makes from its array inputs: of their type.
+	private static PinDescription ArrayResult() => Wildcard("Result", PinDirection.Out, PinConstraint.Array, WildcardSource.Links, ArrayGroup);
 
 	private static void Arithmetic(List<BuiltinNodeDefinition> nodes, BuiltinNode node, string title, string description, string[] keywords)
 	{
@@ -509,8 +650,12 @@ internal static class BuiltinNodes
 	internal static PinDescription Wildcard(string name, PinDirection direction, PinConstraint constraint, WildcardSource source,
 		string? group = null, string? elementOf = null) =>
 		new(name, direction, VisualType.Wildcard) { Constraint = constraint, Source = source, Group = group, ElementOf = elementOf };
+
+	// An output whose type is the array of the type of the input named element.
+	internal static PinDescription ArrayOf(string name, string element) =>
+		new(name, PinDirection.Out, VisualType.Wildcard) { Constraint = PinConstraint.Array, Source = WildcardSource.ArrayOf, ArrayOf = element };
 }
 
 // The library types the built-in kinds use.
 internal sealed record BuiltinTypes(VisualType Bool, VisualType Int, VisualType Float, VisualType String, VisualType Entity,
-	VisualType KeyCode, VisualType MouseButton, VisualType GamepadButton);
+	VisualType KeyCode, VisualType MouseButton, VisualType GamepadButton, VisualType StringArray);

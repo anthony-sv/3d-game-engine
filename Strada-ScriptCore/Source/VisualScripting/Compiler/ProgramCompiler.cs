@@ -296,6 +296,7 @@ internal static class ProgramCompiler
 				BuiltinNode.ArrayLength => Opcode.ArrayLength,
 				BuiltinNode.ArrayGet => Opcode.ArrayGet,
 				BuiltinNode.Expression => Opcode.Expression,
+				>= BuiltinNode.StringLength and <= BuiltinNode.ArrayAppend => Opcode.Intrinsic,
 				_ => OperatorOpcode(node, builtin),
 			};
 		}
@@ -364,6 +365,7 @@ internal static class ProgramCompiler
 				Opcode.OperatorMethod => source.Builtin == BuiltinNode.OperatorNegate ? ["A"] : ["A", "B"],
 				Opcode.VariableSet => ["Value"],
 				Opcode.Self or Opcode.Literal or Opcode.VariableGet or Opcode.FunctionEntry => [],
+				Opcode.Intrinsic => IntrinsicInputs(source),
 				Opcode.Latent => source.Builtin switch
 				{
 					BuiltinNode.FlowWaitFrames => ["Frames"],
@@ -380,6 +382,51 @@ internal static class ProgramCompiler
 				Allocate(SlotValues.DefaultOf(StagingType(source, node, pin)));
 			}
 			return inputs;
+		}
+
+		// The data inputs of a String or Array node, in the order Intrinsics.Evaluate reads them.
+		private static string[] IntrinsicInputs(AnalyzedNode source)
+		{
+			switch (source.Builtin)
+			{
+				case BuiltinNode.StringContains:
+					return ["Text", "Substring"];
+				case BuiltinNode.StringStartsWith:
+					return ["Text", "Prefix"];
+				case BuiltinNode.StringEndsWith:
+					return ["Text", "Suffix"];
+				case BuiltinNode.StringIndexOf:
+					return ["Text", "Substring", "StartIndex"];
+				case BuiltinNode.StringSubstring:
+					return ["Text", "Start", "Length"];
+				case BuiltinNode.StringReplace:
+					return ["Text", "Old", "New"];
+				case BuiltinNode.StringSplit:
+					return ["Text", "Separator", "RemoveEmpty"];
+				case BuiltinNode.StringJoin:
+					return ["Parts", "Separator"];
+				case BuiltinNode.ArrayContains:
+				case BuiltinNode.ArrayAdd:
+					return ["Array", "Value"];
+				case BuiltinNode.ArrayIndexOf:
+					return ["Array", "Value", "StartIndex"];
+				case BuiltinNode.ArrayMake:
+					string[] elements = new string[((MakeArrayBinding)source.Binding!).Count];
+					for (int index = 0; index < elements.Length; index++)
+					{
+						elements[index] = NodeShaper.ElementPin(index);
+					}
+					return elements;
+				case BuiltinNode.ArraySet:
+				case BuiltinNode.ArrayInsert:
+					return ["Array", "Index", "Value"];
+				case BuiltinNode.ArrayRemoveAt:
+					return ["Array", "Index"];
+				case BuiltinNode.ArrayAppend:
+					return ["A", "B"];
+				default:
+					return ["Text"];
+			}
 		}
 
 		// A disabled node's data outputs, in pin order, each take the first data input of the same type that no earlier output
@@ -756,6 +803,9 @@ internal static class ProgramCompiler
 				case Opcode.Expression:
 					node.Expression = ExpressionCompiler.Compile((ExpressionBinding)source.Binding!, node.InputBase, node.OutputBase, Allocate);
 					break;
+				case Opcode.Intrinsic:
+					CompileIntrinsic(source, node);
+					break;
 				case Opcode.Member:
 				case Opcode.PureMember:
 					MemberBinding member = (MemberBinding)source.Binding!;
@@ -766,6 +816,65 @@ internal static class ProgramCompiler
 					break;
 			}
 		}
+
+		// The kind of a String or Array node and the types it needs: the element type of the array it reads (Join, Contains,
+		// IndexOf) or makes, and the type of the array it makes. Contains and IndexOf compare elements as the equality table
+		// does, in scratch slots of their own.
+		private void CompileIntrinsic(AnalyzedNode source, CompiledNode node)
+		{
+			BuiltinNode builtin = source.Builtin!.Value;
+			node.Intrinsic = (IntrinsicKind)(builtin - BuiltinNode.StringLength);
+			switch (builtin)
+			{
+				case BuiltinNode.StringJoin:
+					node.FromType = source.FindPin("Parts", PinDirection.In)!.Type.Element;
+					break;
+				case BuiltinNode.ArrayContains:
+				case BuiltinNode.ArrayIndexOf:
+					CompileElementEquality(node, source.FindPin("Array", PinDirection.In)!.Type.Element!);
+					break;
+				case BuiltinNode.ArrayMake:
+					node.ToType = source.FindPin("Array", PinDirection.Out)!.Type;
+					node.FromType = node.ToType.Element;
+					node.Count = ((MakeArrayBinding)source.Binding!).Count;
+					break;
+				case BuiltinNode.ArraySet:
+				case BuiltinNode.ArrayAdd:
+				case BuiltinNode.ArrayRemoveAt:
+				case BuiltinNode.ArrayInsert:
+				case BuiltinNode.ArrayAppend:
+					node.ToType = source.FindPin("Result", PinDirection.Out)!.Type;
+					node.FromType = node.ToType.Element;
+					break;
+			}
+		}
+
+		// How elements of a type compare, and the scratch slots they are compared in.
+		private void CompileElementEquality(CompiledNode node, VisualType element)
+		{
+			(OperatorMode mode, MethodInfo? method) = TypeResolution.EqualityOf(element);
+			node.FromType = element;
+			node.ElementEquality = EqualityKindOf(mode, element);
+			node.Kind = SlotValues.KindOf(element);
+			node.Member = method;
+			node.ScratchBase = Allocate(default);
+			Allocate(default);
+			Allocate(default);
+		}
+
+		private static EqualityKind EqualityKindOf(OperatorMode mode, VisualType type) => mode switch
+		{
+			OperatorMode.Numeric => EqualityKind.Numeric,
+			OperatorMode.ValueEquality when type.Kind == TypeKind.Enum => EqualityKind.Enum,
+			OperatorMode.ValueEquality when type.ClrType == typeof(string) => EqualityKind.String,
+			OperatorMode.ValueEquality => EqualityKind.Bool,
+			OperatorMode.EntityEquality => EqualityKind.Entity,
+			OperatorMode.AssetEquality => EqualityKind.Asset,
+			OperatorMode.ComponentEquality => EqualityKind.Component,
+			OperatorMode.Method => EqualityKind.Method,
+			OperatorMode.ArrayEquality => EqualityKind.Array,
+			_ => EqualityKind.Object,
+		};
 
 		private static void CompileSwitch(AnalyzedNode source, CompiledNode node)
 		{
@@ -817,23 +926,17 @@ internal static class ProgramCompiler
 			}
 		}
 
-		private static void CompileEquality(AnalyzedNode source, CompiledNode node)
+		private void CompileEquality(AnalyzedNode source, CompiledNode node)
 		{
 			OperatorBinding binding = (OperatorBinding)source.Binding!;
 			node.Invert = source.Builtin == BuiltinNode.OperatorNotEqual;
 			VisualType? join = binding.Operand;
-			node.Equality = binding.Mode switch
+			node.Equality = join != null ? EqualityKindOf(binding.Mode, join) : EqualityKind.Object;
+			if (node.Equality == EqualityKind.Array)
 			{
-				OperatorMode.Numeric => EqualityKind.Numeric,
-				OperatorMode.ValueEquality when join!.Kind == TypeKind.Enum => EqualityKind.Enum,
-				OperatorMode.ValueEquality when join!.ClrType == typeof(string) => EqualityKind.String,
-				OperatorMode.ValueEquality => EqualityKind.Bool,
-				OperatorMode.EntityEquality => EqualityKind.Entity,
-				OperatorMode.AssetEquality => EqualityKind.Asset,
-				OperatorMode.ComponentEquality => EqualityKind.Component,
-				OperatorMode.Method => EqualityKind.Method,
-				_ => EqualityKind.Object,
-			};
+				CompileElementEquality(node, join!.Element!);
+				return;
+			}
 			node.Kind = join != null ? SlotValues.KindOf(join) : SlotKind.Object;
 			node.Member = binding.Method;
 		}

@@ -210,6 +210,150 @@ public sealed class RobustnessTests
 		}
 		""";
 
+	// Array literals, the Array and String nodes and an inferred generic method through the same operations (spec-slice3
+	// section 3.9): the document damaged as any document is, and with its array literals replaced by damaged ones.
+	[Fact]
+	public void DamagedArraysAnswerWhatTheProtocolSpecifiesAndNeverThrow()
+	{
+		JsonNode original = JsonNode.Parse(ArrayDocument)!;
+		DocumentMutator mutator = new(0x4152524159534641u);
+		FuzzRandom random = new(0x4152524159534642u);
+		Tally tally = new();
+		int rounds = Fuzzing.GetRounds(150);
+		for (int round = 0; round < rounds; round++)
+		{
+			string context = $"round {round} (arrays)";
+			JsonNode? document = (round % 3) switch
+			{
+				0 => DamageArrays(original, random),
+				1 => mutator.Damage(original, round / 3),
+				_ => mutator.Rewire(original, round / 3),
+			};
+			byte[] text = mutator.Write(document);
+			try
+			{
+				new Round(context, mutator, tally).Run(text);
+			}
+			catch (Exception exception) when (exception is not Xunit.Sdk.IAssertionException)
+			{
+				Assert.Fail($"{context}: an operation threw {exception}\ndocument: {Encoding.UTF8.GetString(text)}");
+			}
+		}
+		TestContext.Current.TestOutputHelper?.WriteLine($"{rounds} rounds: {tally}");
+		Assert.True(tally.Broken > 0, $"no program was broken: {tally}");
+		Assert.True(tally.Ran > 0, $"no damaged graph ran: {tally}");
+		Assert.True(tally.Aborted > 0, $"no execution aborted: {tally}");
+	}
+
+	// Array variables and literals feeding the Array nodes, a String.Split and Join, and a generic method inferred from links;
+	// Array.Get reads past the end of Numbers last in every Update.
+	private const string ArrayDocument = """
+		{
+			"Variables": [
+				{ "ID": 1, "Name": "Numbers", "Type": "int[]", "Value": [1, 2, 3] },
+				{ "ID": 2, "Name": "Points", "Type": "Strada.Vector3[]", "Value": [[0, 0, 0], [1, 2, 3]] },
+				{ "ID": 3, "Name": "Keys", "Type": "Strada.KeyCode[]", "Value": ["Space", "W"] },
+				{ "ID": 4, "Name": "Count", "Type": "int", "Value": 0 }
+			],
+			"Functions": [],
+			"Graph": {
+				"Nodes": [
+					{ "ID": 10, "Type": "Event.Update" },
+					{ "ID": 11, "Type": "Flow.Sequence", "Settings": { "Count": 4 } },
+					{ "ID": 12, "Type": "Variable.Get", "Settings": { "Variable": 1 } },
+					{ "ID": 13, "Type": "Array.Add", "Inputs": { "Value": 4 } },
+					{ "ID": 14, "Type": "Variable.Set", "Settings": { "Variable": 1 } },
+					{ "ID": 15, "Type": "Array.Make", "Settings": { "Type": "Strada.Vector3", "Count": 2 }, "Inputs": { "Element1": [4, 5, 6] } },
+					{ "ID": 16, "Type": "Array.Append" },
+					{ "ID": 17, "Type": "Variable.Get", "Settings": { "Variable": 2 } },
+					{ "ID": 18, "Type": "Variable.Set", "Settings": { "Variable": 2 } },
+					{ "ID": 19, "Type": "Variable.Get", "Settings": { "Variable": 4 } },
+					{ "ID": 20, "Type": "Expression", "Settings": { "Formula": "n % 2 == 0 ? 99 : 1" } },
+					{ "ID": 21, "Type": "Array.Get" },
+					{ "ID": 22, "Type": "Variable.Set", "Settings": { "Variable": 4 } },
+					{ "ID": 23, "Type": "Literal", "Settings": { "Type": "string[]", "Value": ["a", "b"] } },
+					{ "ID": 24, "Type": "String.Join", "Inputs": { "Separator": "," } },
+					{ "ID": 25, "Type": "String.Split" },
+					{ "ID": 26, "Type": "Array.IndexOf", "Inputs": { "Value": "W" } },
+					{ "ID": 27, "Type": "Variable.Get", "Settings": { "Variable": 3 } },
+					{ "ID": 28, "Type": "Call:Strada.ScriptCore.Tests.FuzzStandIns.Pick<T>(T,T,bool)", "Inputs": { "First": 1, "TakeSecond": true } },
+					{ "ID": 29, "Type": "Variable.Set", "Settings": { "Variable": 4 } }
+				],
+				"Links": [
+					{ "From": [10, "Then"], "To": [11, "Execute"] },
+					{ "From": [11, "Then0"], "To": [14, "Execute"] },
+					{ "From": [11, "Then1"], "To": [18, "Execute"] },
+					{ "From": [11, "Then2"], "To": [29, "Execute"] },
+					{ "From": [11, "Then3"], "To": [22, "Execute"] },
+					{ "From": [12, "Value"], "To": [13, "Array"] },
+					{ "From": [13, "Result"], "To": [14, "Value"] },
+					{ "From": [17, "Value"], "To": [16, "A"] },
+					{ "From": [15, "Array"], "To": [16, "B"] },
+					{ "From": [16, "Result"], "To": [18, "Value"] },
+					{ "From": [19, "Value"], "To": [20, "n"] },
+					{ "From": [12, "Value"], "To": [21, "Array"] },
+					{ "From": [20, "Result"], "To": [21, "Index"] },
+					{ "From": [21, "Element"], "To": [22, "Value"] },
+					{ "From": [23, "Value"], "To": [24, "Parts"] },
+					{ "From": [24, "Result"], "To": [25, "Text"] },
+					{ "From": [27, "Value"], "To": [26, "Array"] },
+					{ "From": [26, "Index"], "To": [28, "Second"] },
+					{ "From": [28, "Result"], "To": [29, "Value"] }
+				],
+				"Comments": []
+			}
+		}
+		""";
+
+	// The document with array literals (variable Values, Literal and input values) replaced by damaged arrays: elements of
+	// other types, nulls, nested arrays, too many elements, or no array at all.
+	private static JsonNode DamageArrays(JsonNode original, FuzzRandom random)
+	{
+		JsonNode document = original.DeepClone();
+		JsonNode Damaged(JsonNode? value)
+		{
+			JsonArray array = value as JsonArray ?? [];
+			JsonNode?[] elements = [.. array.Select(static element => element?.DeepClone())];
+			switch (random.Pick(6))
+			{
+				case 0:
+					return JsonValue.Create("not an array")!;
+				case 1:
+					return new JsonArray([.. elements, null]);
+				case 2:
+					return new JsonArray([.. elements, new JsonArray(1, 2)]);
+				case 3:
+					return new JsonArray([.. elements, JsonValue.Create(random.Pick(2) == 0 ? "Nope" : "1e999")]);
+				case 4:
+					return new JsonArray([.. Enumerable.Range(0, 4096 + random.Pick(3)).Select(static index => (JsonNode?)JsonValue.Create(index))]);
+				default:
+					return new JsonArray();
+			}
+		}
+		foreach (JsonNode? variable in document["Variables"]!.AsArray())
+		{
+			if (variable!["Value"] is JsonArray value && random.Pick(2) == 0)
+			{
+				variable["Value"] = Damaged(value);
+			}
+		}
+		foreach (JsonNode? node in document["Graph"]!["Nodes"]!.AsArray())
+		{
+			if (node!["Settings"]?["Value"] is JsonArray literal && random.Pick(2) == 0)
+			{
+				node["Settings"]!["Value"] = Damaged(literal);
+			}
+			if (node["Inputs"] is JsonObject inputs && random.Pick(3) == 0)
+			{
+				foreach (string key in inputs.Select(static input => input.Key).ToList())
+				{
+					inputs[key] = Damaged(inputs[key]);
+				}
+			}
+		}
+		return document;
+	}
+
 	// The document with the texts of its formulas edited as typing edits them.
 	private static JsonNode DamageFormulas(JsonNode original, FuzzRandom random)
 	{
@@ -637,6 +781,10 @@ public static class FuzzStandIns
 {
 	[ThreadStatic]
 	private static int s_Calls;
+
+	// An unconstrained generic method (spec-slice3 section 3.6), whose type links decide.
+	[PureNode]
+	public static T Pick<T>(T first, T second, bool takeSecond) => takeSecond ? second : first;
 
 	[ThreadStatic]
 	private static List<string>? s_Messages;

@@ -195,8 +195,7 @@ public sealed class LimitTests
 	[Theory]
 	[InlineData("Call:Strada.ScriptCore.Tests.Holder.Increment()", "Target", "Call:Strada.ScriptCore.Tests.Probe.NoHolder()", "Increment", "Target is None")]
 	[InlineData("Call:Strada.Entity.Destroy()", "Target", "Call:Strada.ScriptCore.Tests.Probe.EntityOf(ulong)", "Destroy", "Target is None")]
-	[InlineData("Flow.ForEach", "Array", "Call:Strada.ScriptCore.Tests.Probe.NoEntities()", "For Each", "Array is None")]
-	public void NullTargetsAndArraysAbort(string type, string input, string source, string title, string message)
+	public void NullTargetsAbort(string type, string input, string source, string title, string message)
 	{
 		DocumentBuilder document = new();
 		GraphBuilder graph = document.Graph;
@@ -209,8 +208,9 @@ public sealed class LimitTests
 		Assert.Equal(TestRuntime.On(title, node) + message, runtime.SingleError());
 	}
 
+	// A member that returns no array gives an empty one (spec-slice3 section 3.4.2): arrays are never null in a graph.
 	[Theory]
-	[InlineData("Call:Strada.ScriptCore.Tests.Probe.NoEntities()", null, "Array is None")]
+	[InlineData("Call:Strada.ScriptCore.Tests.Probe.NoEntities()", null, "index 0 is outside the array (length 0)")]
 	[InlineData("Call:Strada.ScriptCore.Tests.Probe.Entities(int)", "5", "index 5 is outside the array (length 3)")]
 	[InlineData("Call:Strada.ScriptCore.Tests.Probe.Entities(int)", "-1", "index -1 is outside the array (length 3)")]
 	public void ArrayGetOutsideItsArrayAborts(string source, string? index, string message)

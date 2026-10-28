@@ -54,6 +54,36 @@ internal enum Opcode : byte
 	OperatorMethod,
 	// A formula (spec-slice3 section 3.3.8).
 	Expression,
+	// A String or Array node (spec-slice3 sections 3.4.5 and 3.5): CompiledNode.Intrinsic says which.
+	Intrinsic,
+}
+
+// The String and Array nodes Opcode.Intrinsic evaluates (Intrinsics.Evaluate).
+internal enum IntrinsicKind : byte
+{
+	StringLength,
+	StringIsEmpty,
+	StringContains,
+	StringStartsWith,
+	StringEndsWith,
+	StringIndexOf,
+	StringSubstring,
+	StringReplace,
+	StringToUpper,
+	StringToLower,
+	StringTrim,
+	StringSplit,
+	StringJoin,
+	StringToInt,
+	StringToFloat,
+	ArrayContains,
+	ArrayIndexOf,
+	ArrayMake,
+	ArraySet,
+	ArrayAdd,
+	ArrayRemoveAt,
+	ArrayInsert,
+	ArrayAppend,
 }
 
 // Where a staged input takes its value from.
@@ -138,6 +168,8 @@ internal enum EqualityKind : byte
 	Component,
 	Method,
 	Object,
+	// Arrays element by element (spec-slice3 section 3.4.2 rule 3), by the elements' equality (CompiledNode.ElementEquality).
+	Array,
 }
 
 // A compiled node: its opcode, where its inputs, outputs and state live in its frame, where its exec outputs lead, and
@@ -246,7 +278,7 @@ internal sealed class CompiledNode
 	internal Slot Constant { get; set; }
 
 	// Sequence: the number of outputs. Switch: the number of cases (Default is the exit after them). Variable nodes: the
-	// variable's index (document variables) or slot (locals).
+	// variable's index (document variables) or slot (locals). Array.Make: the number of elements.
 	internal int Count { get; set; }
 
 	internal bool IsLocal { get; set; }
@@ -258,11 +290,23 @@ internal sealed class CompiledNode
 	// Equality: how values compare. NotEqual inverts the result.
 	internal EqualityKind Equality { get; set; }
 
+	// The equality of array elements: an Equality of arrays, Array.Contains and Array.IndexOf (Kind is the elements' slot kind,
+	// Member their equality operator method, FromType their type).
+	internal EqualityKind ElementEquality { get; set; }
+
+	// The first of the three scratch slots of the nodes that compare array elements: the two values compared, and the
+	// result of an equality operator method.
+	internal int ScratchBase { get; set; } = -1;
+
+	// Opcode.Intrinsic: the String or Array node.
+	internal IntrinsicKind Intrinsic { get; set; }
+
 	internal bool Invert { get; set; }
 
 	internal ValidityKind Validity { get; set; }
 
-	// Types the kind needs: Convert's From and To, Array.Get's element type, the struct of Make and Break.
+	// Types the kind needs: Convert's From and To, Array.Get's element type, the struct of Make and Break, the element type
+	// (From) and array type (To) of the Array nodes and String.Join.
 	internal VisualType? FromType { get; set; }
 
 	internal VisualType? ToType { get; set; }

@@ -622,6 +622,9 @@ internal sealed record TweenBinding(Easing Easing) : NodeBinding;
 
 internal sealed record LiteralBinding(VisualType Type, object? Value) : NodeBinding;
 
+// Array.Make: the number of its elements (their type, and the array's, are its pins').
+internal sealed record MakeArrayBinding(int Count) : NodeBinding;
+
 // Make and Break: the struct type, whose Fields are the pins.
 internal sealed record StructBinding(VisualType Type) : NodeBinding;
 
@@ -677,6 +680,8 @@ internal enum OperatorMode
 	ComponentEquality,
 	// Equals(object), when the type declares no equality operator.
 	ObjectEquality,
+	// Arrays: the same length and equal elements in order, by the elements' equality (spec-slice3 section 3.4.2 rule 3).
+	ArrayEquality,
 }
 
 internal sealed record OperatorBinding(OperatorMode Mode, VisualType? Operand, MethodInfo? Method) : NodeBinding;

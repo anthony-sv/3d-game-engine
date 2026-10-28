@@ -142,6 +142,9 @@ internal sealed class NodeShaper
 			case BuiltinNode.Expression:
 				ExpressionNode(node);
 				break;
+			case BuiltinNode.ArrayMake:
+				MakeArray(node);
+				break;
 			case BuiltinNode.OperatorAnd:
 			case BuiltinNode.OperatorOr:
 			case BuiltinNode.OperatorXor:
@@ -776,6 +779,58 @@ internal sealed class NodeShaper
 		node.PinsComplete = false;
 	}
 
+	// Array.Make (spec-slice3 section 3.4.5): Count elements of the type Type names, or of the type their links join to (then
+	// Array is the array of Element0's type).
+	private void MakeArray(AnalyzedNode node)
+	{
+		int count = 2;
+		if (node.Source.Settings.TryGet("Count", out JsonElement value))
+		{
+			if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int stored) && stored is >= 0 and <= BuiltinNodes.MaxMakeArrayCount)
+			{
+				count = stored;
+			}
+			else
+			{
+				m_Context.ReportNode(DiagnosticCode.InvalidSetting, node,
+					$"Count: expected an integer from 0 to {AnalysisContext.Format(BuiltinNodes.MaxMakeArrayCount)}, not {JsonText.Excerpt(value)}");
+				node.PinsComplete = false;
+			}
+		}
+		if (node.Source.Settings.TryGet("Type", out _))
+		{
+			VisualType? type = ReadType(node, "Type", "Make Array makes arrays of a type with values that is not an array",
+				static candidate => candidate.ArrayType != null);
+			for (int index = 0; index < count; index++)
+			{
+				node.AddPin(DeclaredPin(ElementPin(index), PinDirection.In, type));
+			}
+			node.AddPin(DeclaredPin("Array", PinDirection.Out, type?.ArrayType));
+			if (type == null)
+			{
+				node.PinsComplete = false;
+				return;
+			}
+			node.Title = $"Make {type.Title} Array";
+			node.Binding = new MakeArrayBinding(count);
+			return;
+		}
+		if (count == 0)
+		{
+			m_Context.ReportNode(DiagnosticCode.MissingSetting, node, "Make Array with no elements needs the setting Type: the element type");
+			node.AddPin(DeclaredPin("Array", PinDirection.Out, null));
+			return;
+		}
+		for (int index = 0; index < count; index++)
+		{
+			node.AddPin(BuiltinNodes.Wildcard(ElementPin(index), PinDirection.In, PinConstraint.Any, WildcardSource.Links, BuiltinNodes.ValueGroup));
+		}
+		node.AddPin(BuiltinNodes.ArrayOf("Array", ElementPin(0)));
+		node.Binding = new MakeArrayBinding(count);
+	}
+
+	internal static string ElementPin(int index) => "Element" + AnalysisContext.Format(index);
+
 	private void ShapeMember(AnalyzedNode node, MemberNodeDefinition definition)
 	{
 		if (!definition.IsGeneric)
@@ -784,10 +839,20 @@ internal sealed class NodeShaper
 			node.Binding = new MemberBinding(definition, definition.Member, []);
 			return;
 		}
+		if (definition.GenericInference && !node.Source.Settings.TryGet("TypeArguments", out _))
+		{
+			// Links decide the types (TypeResolution closes the method once they are resolved), unless one decides none.
+			AddTemplatePins(node, definition);
+			if (definition.RequiresTypeArguments)
+			{
+				ReportMissingTypeArguments(node, definition);
+			}
+			return;
+		}
 		List<VisualType>? arguments = ReadTypeArguments(node, definition);
 		if (arguments == null)
 		{
-			AddTemplatePins(node, definition);
+			AddUnresolvedPins(node, definition);
 			return;
 		}
 		Type[] clrTypes = new Type[arguments.Count];
@@ -803,14 +868,14 @@ internal sealed class NodeShaper
 		catch (ArgumentException exception)
 		{
 			m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, $"TypeArguments: {exception.Message}");
-			AddTemplatePins(node, definition);
+			AddUnresolvedPins(node, definition);
 			return;
 		}
 		MemberShape? shape = MemberNodes.Shape(definition.MemberKind, closed, definition.Pure, Library.FindType, Library.Entity);
 		if (shape == null)
 		{
 			m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, "TypeArguments: the member has no node form for these type arguments");
-			AddTemplatePins(node, definition);
+			AddUnresolvedPins(node, definition);
 			return;
 		}
 		foreach (PinDescription pin in shape.Pins)
@@ -820,6 +885,33 @@ internal sealed class NodeShaper
 		node.Binding = new MemberBinding(definition, closed, arguments);
 	}
 
+	// The template pins of a generic method whose TypeArguments are invalid: its pins of generic types are left unresolved
+	// (the setting's diagnostic explains them), so links decide nothing.
+	private static void AddUnresolvedPins(AnalyzedNode node, MemberNodeDefinition definition)
+	{
+		foreach (PinDescription pin in definition.Pins)
+		{
+			node.AddPin(pin.Source == WildcardSource.None ? pin : BuiltinNodes.Wildcard(pin.Name, pin.Direction, pin.Constraint, WildcardSource.None));
+		}
+	}
+
+	// MissingTypeArgument for an inferred generic method a type parameter of which appears in no input.
+	private void ReportMissingTypeArguments(AnalyzedNode node, MemberNodeDefinition definition)
+	{
+		Type[] parameters = definition.Method!.GetGenericArguments();
+		List<string> undecided = [];
+		for (int index = 0; index < parameters.Length; index++)
+		{
+			if (definition.GenericAnchors[index] == null)
+			{
+				undecided.Add(parameters[index].Name);
+			}
+		}
+		int arity = parameters.Length;
+		m_Context.ReportNode(DiagnosticCode.MissingTypeArgument, node,
+			$"{definition.Title} needs TypeArguments: {AnalysisContext.Format(arity)} type ID{(arity == 1 ? "" : "s")}, as no input decides {string.Join(", ", undecided)}");
+	}
+
 	private List<VisualType>? ReadTypeArguments(AnalyzedNode node, MemberNodeDefinition definition)
 	{
 		IReadOnlyList<VisualType> domain = Library.DomainOf(definition.GenericDomain);
@@ -827,14 +919,16 @@ internal sealed class NodeShaper
 		{
 			TypeConstraint.Component => "a component class",
 			TypeConstraint.Asset => "an asset class",
-			_ => "a script class of the game",
+			TypeConstraint.Script => "a script class of the game",
+			_ => "a type with values",
 		};
+		List<string> candidates = definition.GenericInference ? ValueTypeIds() : Ids(domain);
 		int arity = definition.GenericArity;
 		if (!node.Source.Settings.TryGet("TypeArguments", out JsonElement list))
 		{
 			m_Context.ReportNode(DiagnosticCode.MissingTypeArgument, node,
 				$"{definition.Title} needs TypeArguments: {AnalysisContext.Format(arity)} type ID{(arity == 1 ? "" : "s")}, each {domainText}",
-				Ids(domain));
+				candidates);
 			return null;
 		}
 		if (list.ValueKind != JsonValueKind.Array || list.GetArrayLength() != arity)
@@ -854,14 +948,14 @@ internal sealed class NodeShaper
 			VisualType? type = Library.FindType(id);
 			if (type == null)
 			{
-				m_Context.ReportNode(DiagnosticCode.UnknownType, node, $"TypeArguments: unknown type {JsonText.Quote(id)}",
-					m_Context.Suggest(id, Ids(domain)));
+				string problem = Declarations.IsNestedArray(id) ? $"{JsonText.Quote(id)}: {Declarations.NestedArrayMessage}" : $"unknown type {JsonText.Quote(id)}";
+				m_Context.ReportNode(DiagnosticCode.UnknownType, node, $"TypeArguments: {problem}", m_Context.Suggest(id, candidates));
 				return null;
 			}
-			if (!ContainsType(domain, type))
+			if (definition.GenericInference ? !type.HasValues : !ContainsType(domain, type))
 			{
 				m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, $"TypeArguments: {type.Id} is not {domainText}",
-					m_Context.Suggest(id, Ids(domain)));
+					m_Context.Suggest(id, candidates));
 				return null;
 			}
 			arguments.Add(type);
@@ -907,6 +1001,11 @@ internal sealed class NodeShaper
 			return null;
 		}
 		VisualType? type = Library.FindType(id);
+		if (type == null && Declarations.IsNestedArray(id))
+		{
+			m_Context.ReportNode(DiagnosticCode.UnknownType, node, $"{setting}: {JsonText.Quote(id)}: {Declarations.NestedArrayMessage}");
+			return null;
+		}
 		if (type == null)
 		{
 			List<string> candidates = [];
@@ -1008,10 +1107,10 @@ internal sealed class NodeShaper
 		switch (decoded.Problem)
 		{
 			case LiteralProblem.InvalidValue:
-				m_Context.ReportNode(DiagnosticCode.InvalidValue, node, $"{what}: {decoded.Message}");
+				m_Context.ReportNode(DiagnosticCode.InvalidValue, node, decoded.Describe(what));
 				return false;
 			case LiteralProblem.EntityValue:
-				m_Context.ReportNode(DiagnosticCode.EntityValue, node, $"{what}: {decoded.Message}");
+				m_Context.ReportNode(DiagnosticCode.EntityValue, node, decoded.Describe(what));
 				return false;
 			default:
 				return true;
@@ -1028,6 +1127,20 @@ internal sealed class NodeShaper
 			}
 		}
 		return false;
+	}
+
+	// The IDs of the types with values: the type arguments of inferred generic methods.
+	private List<string> ValueTypeIds()
+	{
+		List<string> ids = [];
+		foreach (VisualType type in Library.Types)
+		{
+			if (type.HasValues)
+			{
+				ids.Add(type.Id);
+			}
+		}
+		return ids;
 	}
 
 	private static List<string> Ids(IReadOnlyList<VisualType> types)

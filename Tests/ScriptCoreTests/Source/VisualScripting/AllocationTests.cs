@@ -192,4 +192,51 @@ public sealed class AllocationTests
 		Assert.Equal(0, runtime.FewestBytesPerUpdate());
 		Assert.Empty(runtime.Environment.Logs);
 	}
+
+	// Array.Get, Array.Contains and Array.IndexOf read elements of every slot kind in place (spec-slice3 section 3.4.2 rule 5):
+	// bool, the numbers, the vectors, quaternions, colors, enums (through their integer arrays) and references.
+	[Fact]
+	public void TypedArrayReadsAllocateNothing()
+	{
+		(string Type, string Literal)[] elements =
+		[
+			("bool", "true"), ("int", "1"), ("uint", "1"), ("long", "\"1\""), ("ulong", "\"1\""), ("float", "1.5"), ("double", "1.5"),
+			("Strada.Vector2", "[1, 2]"), ("Strada.Vector3", "[1, 2, 3]"), ("Strada.Vector4", "[1, 2, 3, 4]"), ("Strada.Quaternion", "[0, 0, 0, 1]"),
+			("Strada.Color", "[1, 0.5, 0.25, 1]"), ("Strada.KeyCode", "\"Space\""), ("string", "\"a\""), ("Strada.Entity", "\"0\""),
+		];
+		DocumentBuilder document = new();
+		uint found = document.Variable("Found", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint previous = graph.Node("Event.Update");
+		foreach ((string type, string literal) in elements)
+		{
+			uint array = document.Variable(type.Replace("Strada.", string.Empty, StringComparison.Ordinal) + "s", type + "[]", $"[{literal}, {literal}]");
+			uint element = document.Variable(type.Replace("Strada.", string.Empty, StringComparison.Ordinal), type);
+			uint get = graph.Node("Array.Get", inputs: """{ "Index": 1 }""");
+			graph.Link(graph.Get(array), "Value", get, "Array");
+			uint store = graph.Set(element);
+			graph.Link(get, "Element", store, "Value");
+			uint index = graph.Node("Array.IndexOf", inputs: $$"""{ "Value": {{literal}}, "StartIndex": 1 }""");
+			graph.Link(graph.Get(array), "Value", index, "Array");
+			uint contains = graph.Node("Array.Contains", inputs: $$"""{ "Value": {{literal}} }""");
+			graph.Link(graph.Get(array), "Value", contains, "Array");
+			uint count = graph.Node("Expression", """{ "Formula": "found + index + (contains ? 1 : 0)" }""");
+			graph.Link(graph.Get(found), "Value", count, "found");
+			graph.Link(index, "Index", count, "index");
+			graph.Link(contains, "Result", count, "contains");
+			uint add = graph.Set(found);
+			graph.Link(count, "Result", add, "Value");
+			graph.Flow(previous, store);
+			graph.Flow(store, add);
+			previous = add;
+		}
+		TestRuntime runtime = TestRuntime.Start(document);
+		runtime.Invoke(ScriptEvent.Update, 0.016f);
+		Assert.Equal(2 * elements.Length, runtime.Variable("Found"));
+		Assert.Equal(KeyCode.Space, runtime.Variable("KeyCode"));
+		Assert.Equal(new Vector3(1.0f, 2.0f, 3.0f), runtime.Variable("Vector3"));
+
+		Assert.Equal(0, runtime.FewestBytesPerUpdate());
+		Assert.Empty(runtime.Environment.Logs);
+	}
 }

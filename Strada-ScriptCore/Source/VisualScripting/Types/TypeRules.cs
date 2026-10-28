@@ -97,6 +97,12 @@ internal static class TypeRules
 		{
 			return ConversionKind.Widen;
 		}
+		// Arrays have no covariance (spec-slice3 section 3.4.1): a Player[] is no Entity[], though the CLR lets one be read as
+		// the other.
+		if (to.Kind == TypeKind.Array)
+		{
+			return null;
+		}
 		return from.IsClrReference && to.IsClrReference && to.ClrType!.IsAssignableFrom(from.ClrType) ? ConversionKind.Upcast : null;
 	}
 

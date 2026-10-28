@@ -141,8 +141,7 @@ public sealed class NodeLibraryTests
 		Assert.Null(Library.FindNode("Set:Strada.Component.Entity"));
 		Assert.NotNull(Library.FindNode("Get:Strada.Time.DeltaTime"));
 		Assert.NotNull(Library.FindNode("Get:Strada.Entity.ID"));
-		string[] forbidden = [".get_", ".set_", ".op_", ".Equals(", ".GetHashCode(", ".ToString(", "Assert.AreEqual", "Assert.AreNotEqual",
-			"Assert.Throws", "TestReporter.Run", "Matrix4.Inverse", "Matrix4.Item", "AssertionException", "Attribute", "Strada.Interop",
+		string[] forbidden = [".get_", ".set_", ".op_", ".Equals(", ".GetHashCode(", ".ToString(", "Assert.Throws", "TestReporter.Run", "Matrix4.Inverse", "Matrix4.Item", "AssertionException", "Attribute", "Strada.Interop",
 			"Strada.VisualScripting", "Script.On"];
 		foreach (MemberNodeDefinition member in Members)
 		{
@@ -155,6 +154,9 @@ public sealed class NodeLibraryTests
 		Assert.Null(Library.FindNode("Set:Strada.Mathf.PI"));
 		Assert.NotNull(Library.FindNode("Call:Strada.Testing.TestReporter.Pass(string)"));
 		Assert.NotNull(Library.FindNode("Call:Strada.Testing.Assert.IsNull(System.Object,string)"));
+		// Unconstrained generic methods are nodes whose types links decide (spec-slice3 section 3.6).
+		Assert.NotNull(Library.FindNode("Call:Strada.Testing.Assert.AreEqual<T>(T,T,string)"));
+		Assert.NotNull(Library.FindNode("Call:Strada.Testing.Assert.AreNotEqual<T>(T,T,string)"));
 	}
 
 	[Fact]
@@ -447,8 +449,10 @@ public sealed class NodeLibraryTests
 			types["float"]);
 		Assert.Equal("""{"ID":"Strada.RigidBodyComponent","Title":"Rigid Body","Kind":"Component","Base":"Strada.Component","ImplicitTo":["Strada.Entity","System.Object"]}""",
 			types["Strada.RigidBodyComponent"]);
-		Assert.Equal("""{"ID":"Strada.Entity[]","Title":"Entity Array","Kind":"Array","Element":"Strada.Entity","ImplicitTo":["System.Object"]}""",
+		Assert.Equal("""{"ID":"Strada.Entity[]","Title":"Entity Array","Kind":"Array","Literal":true,"Element":"Strada.Entity","ImplicitTo":["System.Object"]}""",
 			types["Strada.Entity[]"]);
+		Assert.Equal("""{"ID":"Strada.RaycastHit[]","Title":"Raycast Hit Array","Kind":"Array","Element":"Strada.RaycastHit","ImplicitTo":["System.Object"]}""",
+			types["Strada.RaycastHit[]"]);
 		Assert.Equal("""{"ID":"Strada.Material","Title":"Material","Kind":"Asset","FieldType":"Asset","AssetType":"Material","Literal":true,"Base":"Strada.Asset","ImplicitTo":["Strada.Asset","Strada.AssetHandle","System.Object"]}""",
 			types["Strada.Material"]);
 		Assert.StartsWith("""{"ID":"Strada.KeyCode","Title":"Key Code","Kind":"Enum","FieldType":"Int32","Literal":true,"Enumerators":[""", types["Strada.KeyCode"],
@@ -481,5 +485,84 @@ public sealed class NodeLibraryTests
 		Assert.Contains("""{"Name":"TypeArguments","Kind":"TypeList","Required":true,"Constraint":"Component"}""",
 			nodes["Call:Strada.Entity.GetComponent<T>()"], StringComparison.Ordinal);
 		Assert.Contains("""{"Name":"Key","Kind":"Enum","Required":true,"Type":"Strada.KeyCode"}""", nodes["Event.KeyPressed"], StringComparison.Ordinal);
+	}
+
+	// The String and Array nodes (spec-slice3 sections 3.4.5 and 3.5): pure data nodes of Utilities/String and
+	// Utilities/Array, subtitled "String" and "Array" so the palette and the canvas tell Array.Length from String.Length.
+	[Theory]
+	[InlineData("String.Length", "Length", "Text: string | Length: int")]
+	[InlineData("String.IsEmpty", "Is Empty", "Text: string | Result: bool")]
+	[InlineData("String.Contains", "Contains", "Text: string, Substring: string | Result: bool")]
+	[InlineData("String.StartsWith", "Starts With", "Text: string, Prefix: string | Result: bool")]
+	[InlineData("String.EndsWith", "Ends With", "Text: string, Suffix: string | Result: bool")]
+	[InlineData("String.IndexOf", "Index Of", "Text: string, Substring: string, StartIndex: int = 0 | Index: int")]
+	[InlineData("String.Substring", "Substring", "Text: string, Start: int = 0, Length: int = -1 | Result: string")]
+	[InlineData("String.Replace", "Replace", "Text: string, Old: string, New: string | Result: string")]
+	[InlineData("String.ToUpper", "To Upper", "Text: string | Result: string")]
+	[InlineData("String.ToLower", "To Lower", "Text: string | Result: string")]
+	[InlineData("String.Trim", "Trim", "Text: string | Result: string")]
+	[InlineData("String.Split", "Split", "Text: string, Separator: string = \",\", RemoveEmpty: bool = false | Parts: string[]")]
+	[InlineData("String.Join", "Join", "Parts: * Array, Separator: string = \", \" | Result: string")]
+	[InlineData("String.ToInt", "To Int", "Text: string | Value: int, Success: bool")]
+	[InlineData("String.ToFloat", "To Float", "Text: string | Value: float, Success: bool")]
+	[InlineData("Array.Length", "Length", "Array: * Array | Length: int")]
+	[InlineData("Array.Get", "Get", "Array: * Array, Index: int | Element: * Any of Array")]
+	[InlineData("Array.Contains", "Contains", "Array: * Array, Value: * Any of Array | Result: bool")]
+	[InlineData("Array.IndexOf", "Index Of", "Array: * Array, Value: * Any of Array, StartIndex: int = 0 | Index: int")]
+	[InlineData("Array.Make", "Make Array", "Element0: * Any in T, Element1: * Any in T | Array: * Array array of Element0")]
+	[InlineData("Array.Set", "Set Element", "Array: * Array in A, Index: int, Value: * Any of Array | Result: * Array in A")]
+	[InlineData("Array.Add", "Add Element", "Array: * Array in A, Value: * Any of Array | Result: * Array in A")]
+	[InlineData("Array.RemoveAt", "Remove Element", "Array: * Array in A, Index: int | Result: * Array in A")]
+	[InlineData("Array.Insert", "Insert Element", "Array: * Array in A, Index: int, Value: * Any of Array | Result: * Array in A")]
+	[InlineData("Array.Append", "Append Arrays", "A: * Array in A, B: * Array in A | Result: * Array in A")]
+	public void StringAndArrayNodesHaveTheirForm(string type, string title, string pins)
+	{
+		BuiltinNodeDefinition node = Assert.IsType<BuiltinNodeDefinition>(VisualScriptTesting.LibraryNode(type));
+		bool isString = type.StartsWith("String.", StringComparison.Ordinal);
+		Assert.Equal(title, node.Title);
+		Assert.Equal(isString ? "String" : "Array", node.Subtitle);
+		Assert.Equal(isString ? "Utilities/String" : "Utilities/Array", node.Category);
+		Assert.Equal(NodeKind.Data, node.Kind);
+		Assert.True(node.Pure);
+		Assert.NotEmpty(node.Description);
+		Assert.NotEmpty(node.Keywords);
+		string Describe(PinDescription pin)
+		{
+			string text = $"{pin.Name}: {pin.Type.Id}";
+			text += pin.Constraint != PinConstraint.None ? " " + pin.Constraint : string.Empty;
+			text += pin.Group != null ? " in " + pin.Group : string.Empty;
+			text += pin.ElementOf != null ? " of " + pin.ElementOf : string.Empty;
+			text += pin.ArrayOf != null ? " array of " + pin.ArrayOf : string.Empty;
+			return pin.HasDefault ? text + " = " + JsonSerializer.Serialize(pin.Default) : text;
+		}
+		string inputs = string.Join(", ", node.Pins.Where(static pin => pin.IsInput).Select(Describe));
+		string outputs = string.Join(", ", node.Pins.Where(static pin => !pin.IsInput).Select(Describe));
+		Assert.Equal(pins, $"{inputs} | {outputs}");
+	}
+
+	[Fact]
+	public void MakeArrayHasItsSettings()
+	{
+		Dictionary<string, string> nodes = VisualScriptTesting.ParseObject(LibraryWriter.Write(Library)).GetProperty("Nodes").EnumerateArray()
+			.ToDictionary(static node => node.GetProperty("Type").GetString()!, static node => node.GetRawText());
+		Assert.Contains("""
+			"Settings":[{"Name":"Type","Kind":"Type","Constraint":"Any"},{"Name":"Count","Kind":"Int","Default":2,"Min":0,"Max":64}]
+			""", nodes["Array.Make"], StringComparison.Ordinal);
+		Assert.Contains("""{"Name":"Array","Direction":"Out","Type":"*","Constraint":"Array","ArrayOf":"Element0"}""", nodes["Array.Make"],
+			StringComparison.Ordinal);
+		Assert.Contains("""{"Name":"Separator","Direction":"In","Type":"string","Default":","}""", nodes["String.Split"], StringComparison.Ordinal);
+	}
+
+	// Opcode.Intrinsic's kinds are the String and Array kinds in BuiltinNode's order (ProgramCompiler maps one to the other).
+	[Fact]
+	public void IntrinsicKindsFollowTheBuiltinKinds()
+	{
+		IntrinsicKind[] kinds = Enum.GetValues<IntrinsicKind>();
+		Assert.Equal(23, kinds.Length);
+		foreach (IntrinsicKind kind in kinds)
+		{
+			Assert.Equal(kind.ToString(), (BuiltinNode.StringLength + (int)kind).ToString());
+		}
+		Assert.Equal(BuiltinNode.ArrayAppend, BuiltinNode.StringLength + (kinds.Length - 1));
 	}
 }
