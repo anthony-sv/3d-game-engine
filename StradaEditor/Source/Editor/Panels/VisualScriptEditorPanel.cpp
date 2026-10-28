@@ -527,6 +527,19 @@ namespace Strada
 			return width - (sidebar > 0.0f ? sidebar + splitter : 0.0f) - (details > 0.0f ? details + splitter : 0.0f);
 		};
 		float const canvasMinimum = VisualScriptCanvasMinWidth * fontSize;
+		if (sidebar > 0.0f && details > 0.0f && canvasWidth() < canvasMinimum)
+		{
+			// Too narrow side by side: one column for both panes when the canvas leaves it Details' minimum width.
+			float const room = width - splitter - canvasMinimum;
+			float const columnMinimum = VisualScriptDetailsMinWidth * fontSize;
+			if (room >= columnMinimum)
+			{
+				layout.Stacked = true;
+				layout.Column = std::clamp(room, columnMinimum, std::max({sidebar, details, columnMinimum}));
+				layout.Canvas = width - splitter - layout.Column;
+				return layout;
+			}
+		}
 		if (details > 0.0f && canvasWidth() < canvasMinimum)
 		{
 			details = 0.0f;
@@ -768,6 +781,7 @@ namespace Strada
 		};
 		state.Sidebar = paneState(m_Layout.SidebarState, m_SidebarOverlay);
 		state.Details = paneState(m_Layout.DetailsState, m_DetailsOverlay);
+		state.PanesStacked = m_Layout.Stacked;
 		state.ShortcutsOpen = m_ShortcutsOpen;
 		state.HiddenToolbarActions = m_HiddenToolbarActions;
 		state.ContextEntity = GetPresentContextEntity();
@@ -996,7 +1010,7 @@ namespace Strada
 		ImGuiInputFlags const route =
 			popupFocused ? ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverFocused : ImGuiInputFlags_RouteFocused;
 		// Class 1 (spec §8.3): claimed every frame the window is drawn, even with nothing selected, because routes decide the
-		// next frame: a frame without them would let Delete reach the editor's entity shortcuts.
+		// next frame: a frame without them would let Delete reach the editor's editing keys, which act on the Edit menu's target.
 		for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
 		{
 			if (shortcut.Route != VisualScriptKeyRoute::Focused)
@@ -2678,7 +2692,31 @@ namespace Strada
 		float const rowHeight = std::max(available.y - (drawerOpen ? drawerHeight + splitter : 0.0f), 1.0f);
 
 		float delta = 0.0f;
-		if (m_Layout.Sidebar > 0.0f)
+		if (m_Layout.Stacked)
+		{
+			// My Script above Details in one column on the sidebar's side, a horizontal splitter between them at the window's
+			// share. The column follows the panes' stored widths (the wider of them, at most what the canvas leaves), which only
+			// the side-by-side splitters change, so its edge is a plain gap: dragging it would rewrite both widths, which every
+			// graph window reads, and narrowing it would switch the arrangement under the drag.
+			float const paneHeights = std::max(rowHeight - splitter, 2.0f);
+			float const minimum = std::min(VisualScriptStackedPaneMinHeight * fontSize, paneHeights * 0.5f);
+			float const top = std::round(std::clamp(m_StackShare * paneHeights, minimum, paneHeights - minimum));
+			ImVec2 const origin = ImGui::GetCursorScreenPos();
+			ImGui::BeginGroup();
+			DrawPane("##sidebar", VisualScriptWindowPart::Sidebar, ImVec2(m_Layout.Column, top));
+			ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + top));
+			if (DrawSplitter("##stackSplitter", ImVec2(m_Layout.Column, splitter), false, delta))
+			{
+				m_StackShare = std::clamp((top + delta) / paneHeights, 0.0f, 1.0f);
+			}
+			ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + top + splitter));
+			DrawPane("##details", VisualScriptWindowPart::Details, ImVec2(m_Layout.Column, paneHeights - top));
+			ImGui::EndGroup();
+			ImGui::SameLine(0.0f, 0.0f);
+			ImGui::Dummy(ImVec2(splitter, rowHeight));
+			ImGui::SameLine(0.0f, 0.0f);
+		}
+		else if (m_Layout.Sidebar > 0.0f)
 		{
 			DrawPane("##sidebar", VisualScriptWindowPart::Sidebar, ImVec2(m_Layout.Sidebar, rowHeight));
 			ImGui::SameLine(0.0f, 0.0f);
@@ -2736,8 +2774,9 @@ namespace Strada
 		{
 			return;
 		}
-		ImGui::SetCursorScreenPos(
-			ImVec2(m_CanvasMin.x - m_Layout.Sidebar - (m_Layout.Sidebar > 0.0f ? splitter : 0.0f), m_CanvasMin.y + rowHeight));
+		float const leftOfCanvas =
+			m_Layout.Stacked ? m_Layout.Column + splitter : m_Layout.Sidebar + (m_Layout.Sidebar > 0.0f ? splitter : 0.0f);
+		ImGui::SetCursorScreenPos(ImVec2(m_CanvasMin.x - leftOfCanvas, m_CanvasMin.y + rowHeight));
 		if (DrawSplitter("##drawerSplitter", ImVec2(available.x, splitter), false, delta))
 		{
 			m_DrawerHeight = std::max((drawerHeight - delta) / fontSize, VisualScriptDrawerMinHeight);
@@ -3726,8 +3765,10 @@ namespace Strada
 			std::span<VisualScriptCommentVisual const> const comments = canvas.GetComments();
 			VisualScriptCommentVisual const& comment = comments[*index];
 			VisualScriptRect const bar = VisualScriptGeometry::GetCommentBarRect(comment, view.GetPixelsPerUnit(), view.GetUIScale());
-			glm::vec2 const lower = view.ToScreen(bar.Min);
+			// Over the bar, from the canvas's left edge when the bar starts left of it, as the title is drawn
+			// (VisualScriptGeometry::GetCommentTitleRect).
 			glm::vec2 const upper = view.ToScreen(bar.Max);
+			glm::vec2 const lower(std::max(view.ToScreen(bar.Min).x, m_CanvasMin.x), view.ToScreen(bar.Min).y);
 			position = ImVec2(lower.x, (lower.y + upper.y - ImGui::GetFrameHeight()) * 0.5f);
 			width = std::max(upper.x - lower.x, fontSize * 6.0f);
 		}

@@ -348,3 +348,98 @@ TEST_CASE("VisualScriptEditor: a node comment's bubble is hit as its node where 
 	fixture.Context.SkipMoved = false;
 	CheckHit(fixture.Hit(rect.GetCenter()), VisualScriptHitKind::Background);
 }
+
+TEST_CASE("VisualScriptEditor: at Far and Overview a press on a comment's title plate over a node hits the title, at Detail the node")
+{
+	for (float const zoom : {0.12f, 0.3f})
+	{
+		CAPTURE(zoom);
+		HitFixture fixture;
+		VisualScriptComment comment;
+		comment.ID = 10;
+		comment.Text = "Region";
+		comment.Position = glm::vec2(50.0f);
+		comment.Size = glm::vec2(900.0f, 600.0f);
+		fixture.Document.Graph.Comments = {comment};
+		fixture.Sync();
+		fixture.SetZoom(zoom);
+		REQUIRE((fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Far ||
+		         fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Overview));
+		VisualScriptCommentVisual const visual = fixture.Model.GetComments().front();
+		VisualScriptRect const plate = Geometry::GetCommentLabelRect(visual, fixture.View, visual.Title.Width,
+		                                                             Geometry::CountGlyphs(fixture.Model.GetVisibleText(visual.Title)));
+		REQUIRE(!Geometry::IsEmpty(plate));
+		glm::vec2 const point = fixture.View.ToCanvas(plate.GetCenter());
+
+		// A node whose header lies under the plate's middle.
+		fixture.Document.Graph.Nodes = {MakeNode(1, "Flow.Branch", point - glm::vec2(10.0f))};
+		fixture.Sync();
+		fixture.SetZoom(zoom);
+		VisualScriptNodeVisual const node = fixture.Model.GetNodes()[fixture.NodeIndex(1)];
+		REQUIRE(Geometry::Contains(Geometry::GetHeaderRect(node), point));
+		CheckHit(fixture.Hit(point), VisualScriptHitKind::CommentTitle, 10);
+		// Where the plate reaches the comment's left edge, its resize handle keeps the mouse.
+		VisualScriptHit const edge = fixture.Hit(fixture.View.ToCanvas(glm::vec2(plate.Min.x + 1.0f, plate.GetCenter().y)));
+		CheckHit(edge, VisualScriptHitKind::CommentEdge, 10);
+		CHECK((edge.Edges & Geometry::LeftEdge) != 0);
+		if (zoom == 0.3f)
+		{
+			// Below the plate the node is hit as before.
+			glm::vec2 const below(point.x, Geometry::GetNodeRect(node).Max.y - 4.0f);
+			REQUIRE(!Geometry::Contains(plate, fixture.View.ToScreen(below)));
+			VisualScriptHit const hit = fixture.Hit(below);
+			CHECK(hit.Element == 1);
+			CHECK(hit.Kind != VisualScriptHitKind::CommentTitle);
+		}
+
+		// The same point at Detail: the node wins, the title being drawn under it in the bar there.
+		fixture.SetZoom(1.0f);
+		REQUIRE(fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Detail);
+		VisualScriptHit const detail = fixture.Hit(point);
+		CHECK(detail.Element == 1);
+		CHECK(detail.Kind != VisualScriptHitKind::CommentTitle);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: where the title plates of nested comments overlap, the inner comment's plate is hit")
+{
+	for (float const zoom : {0.12f, 0.3f})
+	{
+		CAPTURE(zoom);
+		HitFixture fixture;
+		// Both boxes start at one corner, so their plates lie on each other: the inner one's is drawn last.
+		VisualScriptComment outer;
+		outer.ID = 10;
+		outer.Text = "Outer region";
+		outer.Position = glm::vec2(50.0f);
+		outer.Size = glm::vec2(1400.0f, 800.0f);
+		VisualScriptComment inner;
+		inner.ID = 11;
+		inner.Text = "Inner";
+		inner.Position = glm::vec2(50.0f);
+		inner.Size = glm::vec2(600.0f, 400.0f);
+		fixture.Document.Graph.Comments = {inner, outer};
+		fixture.Sync();
+		fixture.SetZoom(zoom);
+		std::span<VisualScriptCommentVisual const> const comments = fixture.Model.GetComments();
+		REQUIRE(comments.size() == 2);
+		REQUIRE(comments[0].ID == 10);
+		auto const plateOf = [&fixture](VisualScriptCommentVisual const& visual)
+		{
+			return Geometry::GetCommentLabelRect(visual, fixture.View, visual.Title.Width,
+			                                     Geometry::CountGlyphs(fixture.Model.GetVisibleText(visual.Title)));
+		};
+		VisualScriptRect const outerPlate = plateOf(comments[0]);
+		VisualScriptRect const innerPlate = plateOf(comments[1]);
+		REQUIRE(!Geometry::IsEmpty(outerPlate));
+		REQUIRE(!Geometry::IsEmpty(innerPlate));
+		// The middle of the inner plate, which the outer plate covers too.
+		glm::vec2 const both = innerPlate.GetCenter();
+		REQUIRE(Geometry::Contains(outerPlate, both));
+		CheckHit(fixture.Hit(fixture.View.ToCanvas(both)), VisualScriptHitKind::CommentTitle, 11);
+		// The outer plate beyond the inner one is the outer comment's.
+		glm::vec2 const outerOnly(outerPlate.Max.x - 2.0f, outerPlate.GetCenter().y);
+		REQUIRE(!Geometry::Contains(innerPlate, outerOnly));
+		CheckHit(fixture.Hit(fixture.View.ToCanvas(outerOnly)), VisualScriptHitKind::CommentTitle, 10);
+	}
+}

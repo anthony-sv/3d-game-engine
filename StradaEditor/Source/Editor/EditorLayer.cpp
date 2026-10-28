@@ -7,6 +7,7 @@
 #include "Editor/Automation/PlayCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/DefaultScene.h"
+#include "Editor/EditorEditingKeys.h"
 #include "Editor/EntityPresets.h"
 #include "Editor/FileDialogs.h"
 #include "Editor/UI/EditorUI.h"
@@ -325,6 +326,8 @@ namespace Strada
 	{
 		// Scripts get OnDestroy while every system is still up.
 		m_PlayMode.Stop();
+		// A window of the ImGui context, which goes with the ImGui layer.
+		m_KeyboardWindow = nullptr;
 		if (m_GameViewPanel != nullptr)
 		{
 			// The ImGui layer detached first (overlays go first); cursor modes go back to the main window directly, as the
@@ -448,6 +451,8 @@ namespace Strada
 	{
 		UpdateThumbnails();
 		UpdateVisualScriptEnumLookup();
+		// Before the menu bar, whose Edit menu reads it.
+		m_KeyboardWindow = FindKeyboardWindow(GImGui->NavWindow, m_KeyboardWindow);
 		// The menu bar and the toolbar take their space from the main viewport before the dockspace fills the rest.
 		DrawMenuBar();
 		DrawToolbar();
@@ -509,7 +514,7 @@ namespace Strada
 
 		if (m_FocusDefaultTabsFrames > 0 && --m_FocusDefaultTabsFrames == 0)
 		{
-			ImGui::SetWindowFocus("Content Browser");
+			ImGui::SetWindowFocus(ContentBrowserPanel::WindowName);
 			ImGui::SetWindowFocus("Inspector");
 			ImGui::SetWindowFocus("Scene View");
 		}
@@ -562,7 +567,7 @@ namespace Strada
 		ImGui::DockBuilderDockWindow("Inspector", right);
 		ImGui::DockBuilderDockWindow("Scene Settings", right);
 		ImGui::DockBuilderDockWindow("Project Settings", right);
-		ImGui::DockBuilderDockWindow("Content Browser", bottom);
+		ImGui::DockBuilderDockWindow(ContentBrowserPanel::WindowName, bottom);
 		ImGui::DockBuilderDockWindow("Console", bottom);
 		// The graph windows that are open join the scene view.
 		if (m_VisualScripts)
@@ -646,27 +651,7 @@ namespace Strada
 			}
 			ImGui::Separator();
 			// The graph window focused last acts on its own selection (spec §8.4); else the selected entities.
-			if (!m_VisualScripts || !m_VisualScripts->DrawEditMenuItems())
-			{
-				bool const hasSelection = !m_Context.GetSelection().IsEmpty();
-				if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSelection))
-				{
-					DuplicateSelection();
-				}
-				if (ImGui::MenuItem("Delete", "Delete", false, hasSelection))
-				{
-					DeleteSelection();
-				}
-				ImGui::Separator();
-				if (ImGui::MenuItem("Select All", "Ctrl+A"))
-				{
-					SelectAll();
-				}
-				if (ImGui::MenuItem("Deselect All", nullptr, false, hasSelection))
-				{
-					m_Context.ClearSelection();
-				}
-			}
+			DrawEditorEditingMenuItems(m_Operations, m_VisualScripts.get(), FindClaimedEditingChords(m_KeyboardWindow));
 			ImGui::EndMenu();
 		}
 
@@ -721,7 +706,7 @@ namespace Strada
 			ImGui::MenuItem("Inspector", nullptr, &m_ShowInspector);
 			ImGui::MenuItem("Scene Settings", nullptr, &m_ShowSceneSettings);
 			ImGui::MenuItem("Project Settings", nullptr, &m_ShowProjectSettings);
-			ImGui::MenuItem("Content Browser", nullptr, &m_ShowContentBrowser);
+			ImGui::MenuItem(ContentBrowserPanel::WindowName, nullptr, &m_ShowContentBrowser);
 			ImGui::MenuItem("Console", nullptr, &m_ShowConsole);
 			ImGui::MenuItem("Renderer Info", nullptr, &m_ShowRendererInfo);
 			if (m_VisualScripts)
@@ -847,20 +832,9 @@ namespace Strada
 		{
 			Redo();
 		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, route) && !m_Context.GetSelection().IsEmpty())
-		{
-			DuplicateSelection();
-		}
-		// Cmd+Backspace on macOS keyboards, which have no forward-delete key.
-		bool const deletePressed = ImGui::Shortcut(ImGuiKey_Delete, route) || ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Backspace, route);
-		if (deletePressed && !m_Context.GetSelection().IsEmpty())
-		{
-			DeleteSelection();
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_A, route))
-		{
-			SelectAll();
-		}
+		// Cut, Copy, Paste, Duplicate, Delete and Select All: on the Edit menu's target, as its items, but for the chords the
+		// window that has the keyboard claims.
+		HandleEditorEditingKeys(m_Operations, m_VisualScripts.get(), FindClaimedEditingChords(m_KeyboardWindow));
 	}
 
 	void EditorLayer::DrawUnsavedChangesPopup()
@@ -1179,7 +1153,7 @@ namespace Strada
 		float const height = UI::GetToolbarButtonSize().y + padding.y * 2.0f;
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, padding);
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-		bool const open = ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(), ImGuiDir_Up, height, flags);
+		bool const open = ImGui::BeginViewportSideBar(EditorToolbarWindowName, ImGui::GetMainViewport(), ImGuiDir_Up, height, flags);
 		ImGui::PopStyleColor();
 		ImGui::PopStyleVar();
 		if (open)
@@ -1461,34 +1435,6 @@ namespace Strada
 		request.Graph = graph;
 		request.ContextEntity = contextEntity;
 		UI::ReportFailure(m_VisualScripts->Open(request), "Opening the visual script");
-	}
-
-	void EditorLayer::DuplicateSelection()
-	{
-		std::vector<UUID> const selection = m_Context.GetSelection().GetEntities();
-		Result<std::vector<UUID>> copies = m_Operations.DuplicateEntities(selection);
-		UI::ReportFailure(copies, "Duplicating entities");
-		if (copies)
-		{
-			UI::ReportFailure(m_Operations.Select(copies.GetValue()), "Selecting the copies");
-		}
-	}
-
-	void EditorLayer::DeleteSelection()
-	{
-		std::vector<UUID> const selection = m_Context.GetSelection().GetEntities();
-		UI::ReportFailure(m_Operations.DeleteEntities(selection), "Deleting entities");
-	}
-
-	void EditorLayer::SelectAll()
-	{
-		std::vector<UUID> entities;
-		m_Context.GetScene().ForEachEntityInHierarchyOrder(
-			[&entities](Entity entity)
-			{
-				entities.push_back(entity.GetUUID());
-			});
-		UI::ReportFailure(m_Operations.Select(entities), "Selecting all entities");
 	}
 
 	glm::vec3 EditorLayer::GetSpawnPosition() const

@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <cmath>
 #include <iterator>
 #include <optional>
@@ -165,8 +166,10 @@ TEST_CASE("VisualScriptEditor: each level of detail draws its elements of a node
 		CHECK(!delay.Has(Elements::Header));
 		CHECK(!delay.Has(Elements::Shadow));
 		CHECK(!delay.Has(Elements::PinLabels));
+		// The comment's title is drawn on its plate above the nodes, not in its bar.
 		VisualScriptDrawRecordItem const& comment = fixture.Item(VisualScriptDrawItemKind::Comment, 20);
-		CHECK(comment.Has(Elements::Title));
+		CHECK(!comment.Has(Elements::Title));
+		CHECK(fixture.Item(VisualScriptDrawItemKind::CommentLabel, 20).Has(Elements::Body | Elements::Title));
 	}
 	SUBCASE("Far at 12 %: rectangles")
 	{
@@ -1207,4 +1210,261 @@ TEST_CASE("VisualScriptEditor: the find bar's matches are outlined in amber, and
 	CHECK(preview.GetStats().VisibleNodes == 1);
 	// The canvas's own record and counts are untouched by it.
 	CHECK(fixture.Record.Items.size() == canvasItems);
+}
+
+TEST_CASE("VisualScriptEditor: at Far and Overview comment titles are drawn on plates above every node and inside the canvas, at "
+          "Compact and Detail in their bars")
+{
+	Testing::CanvasRenderFixture fixture(MakeRenderDocument());
+	glm::vec2 const canvasMin = fixture.Model.GetView().GetCanvasMin();
+	glm::vec2 const canvasMax = canvasMin + fixture.Model.GetView().GetCanvasSize();
+	for (float const zoom : {0.12f, 0.3f})
+	{
+		CAPTURE(zoom);
+		fixture.SetView(glm::vec2(480.0f, 60.0f), zoom);
+		std::vector<VisualScriptDrawRecordItem> const labels = ItemsOf(fixture.Record, VisualScriptDrawItemKind::CommentLabel);
+		std::vector<VisualScriptDrawRecordItem> const nodes = ItemsOf(fixture.Record, VisualScriptDrawItemKind::Node);
+		REQUIRE(labels.size() == 1);
+		REQUIRE(!nodes.empty());
+		for (VisualScriptDrawRecordItem const& label : labels)
+		{
+			CHECK(label.Layer == VisualScriptDrawLayer::CommentLabels);
+			CHECK(label.Has(Elements::Body | Elements::Title));
+			for (VisualScriptDrawRecordItem const& node : nodes)
+			{
+				CHECK(label.Order > node.Order);
+			}
+			CHECK(label.Screen.Min.x >= canvasMin.x);
+			CHECK(label.Screen.Min.y >= canvasMin.y);
+			CHECK(label.Screen.Max.x <= canvasMax.x);
+			CHECK(label.Screen.Max.y <= canvasMax.y);
+		}
+		VisualScriptDrawRecordItem const& comment = fixture.Item(VisualScriptDrawItemKind::Comment, 20);
+		CHECK(!comment.Has(Elements::Title));
+		// The plate is the geometry's, which hit testing tests, and it lies inside the comment's box.
+		std::optional<uint32_t> const index = fixture.Model.GetCanvas().FindComment(20);
+		REQUIRE(index.has_value());
+		VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
+		uint32_t const glyphs = VisualScriptGeometry::CountGlyphs(fixture.Model.GetCanvas().GetVisibleText(visual.Title));
+		CHECK(labels.front().Screen ==
+		      VisualScriptGeometry::GetCommentLabelRect(visual, fixture.Model.GetView(), visual.Title.Width, glyphs));
+		CHECK(labels.front().Color == visual.BarColor);
+		CHECK(labels.front().Screen.Min.x >= comment.Screen.Min.x);
+		CHECK(labels.front().Screen.Max.x <= comment.Screen.Max.x);
+		CHECK(labels.front().Screen.Min.y >= comment.Screen.Min.y);
+	}
+	for (float const zoom : {0.5f, 1.0f})
+	{
+		CAPTURE(zoom);
+		fixture.SetView(glm::vec2(480.0f, 60.0f), zoom);
+		CHECK(fixture.Record.Count(VisualScriptDrawItemKind::CommentLabel) == 0);
+		CHECK(fixture.Item(VisualScriptDrawItemKind::Comment, 20).Has(Elements::Title));
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a comment whose left edge is off the canvas draws its title from the canvas's left edge, ellipsized, "
+          "and a title without room or above the canvas is left out")
+{
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(-1400.0f, 120.0f))};
+	VisualScriptComment wide;
+	wide.ID = 20;
+	wide.Text = "Movement and input handling for the player character";
+	wide.Position = glm::vec2(-2000.0f, 0.0f);
+	wide.Size = glm::vec2(1500.0f, 400.0f);
+	// A narrow region whose title has no room for three of its glyphs at Overview.
+	VisualScriptComment narrow;
+	narrow.ID = 21;
+	narrow.Text = "Spawning";
+	narrow.Position = glm::vec2(-400.0f, 0.0f);
+	narrow.Size = glm::vec2(40.0f, 400.0f);
+	document.Graph.Comments = {wide, narrow};
+	Testing::CanvasRenderFixture fixture(document);
+	VisualScriptView const& view = fixture.Model.GetView();
+	glm::vec2 const canvasMin = view.GetCanvasMin();
+	// At 30 % the canvas's left edge shows x = -1000: the wide comment starts 1000 units left of it and ends at x = 150 pixels.
+	fixture.SetView(glm::vec2(-1000.0f + 800.0f / 0.3f, 200.0f), 0.3f);
+	REQUIRE(view.GetDetailLevel() == VisualScriptDetailLevel::Overview);
+
+	std::optional<uint32_t> const index = fixture.Model.GetCanvas().FindComment(20);
+	REQUIRE(index.has_value());
+	VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
+	VisualScriptDrawRecordItem const& comment = fixture.Item(VisualScriptDrawItemKind::Comment, 20);
+	REQUIRE(comment.Screen.Min.x < canvasMin.x);
+	VisualScriptDrawRecordItem const& label = fixture.Item(VisualScriptDrawItemKind::CommentLabel, 20);
+	CHECK(label.Has(Elements::Title));
+	float const padding = VisualScriptGeometry::CommentLabelPaddingLogicalPixels * view.GetUIScale();
+	float const inset = std::max(VisualScriptCanvasMetrics::HorizontalPadding * view.GetPixelsPerUnit(), 4.0f * view.GetUIScale());
+	CHECK(label.Screen.Min.x == doctest::Approx(canvasMin.x + inset - padding));
+	CHECK(label.Screen.Max.x == doctest::Approx(comment.Screen.Max.x - inset + padding));
+	// Ellipsized: the title at its drawn size is wider than the plate leaves it.
+	float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(view.GetPixelsPerUnit(), view.GetUIScale());
+	float const titleWidth = visual.Title.Width * titlePixels / VisualScriptCanvasMetrics::CommentTitleTextSize;
+	CHECK(label.Screen.GetSize().x - 2.0f * padding < titleWidth);
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::CommentLabel, 21) == nullptr);
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::Comment, 21) != nullptr);
+
+	// At Detail the title stays in the bar, from the canvas's left edge too.
+	fixture.SetView(glm::vec2(-1000.0f + 800.0f, 200.0f), 1.0f);
+	VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(
+		visual, view, visual.Title.Width, VisualScriptGeometry::CountGlyphs(fixture.Model.GetCanvas().GetVisibleText(visual.Title)));
+	REQUIRE(!VisualScriptGeometry::IsEmpty(title));
+	CHECK(title.Min.x == doctest::Approx(canvasMin.x + std::max(VisualScriptCanvasMetrics::HorizontalPadding, 4.0f)));
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Comment, 20).Has(Elements::Title));
+
+	// A comment whose bar is above the canvas draws no title (no vertical stickiness).
+	fixture.SetView(glm::vec2(-1000.0f + 800.0f / 0.3f, 1700.0f), 0.3f);
+	CHECK(fixture.Item(VisualScriptDrawItemKind::Comment, 20).Screen.Min.y < canvasMin.y);
+	CHECK(fixture.Record.Find(VisualScriptDrawItemKind::CommentLabel, 20) == nullptr);
+}
+
+TEST_CASE("VisualScriptEditor: a comment title is left out with no room for three of its glyphs and an ellipsis, counted in glyphs")
+{
+	CHECK(VisualScriptGeometry::CountGlyphs("") == 0);
+	CHECK(VisualScriptGeometry::CountGlyphs("Weapons") == 7);
+	CHECK(VisualScriptGeometry::CountGlyphs("\xC3\x84pfel") == 5);
+	CHECK(VisualScriptGeometry::CountGlyphs("\xE6\xBC\xA2\xE5\xAD\x97") == 2);
+
+	// The canvas from the screen's origin at 100 %, a box at the canvas's left edge.
+	VisualScriptView view;
+	view.SetCanvas(glm::vec2(0.0f), glm::vec2(1600.0f, 900.0f), 1.0f);
+	view.SetState({0, glm::vec2(800.0f, 450.0f), 1.0f});
+	float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(view.GetPixelsPerUnit(), view.GetUIScale());
+	float const inset = std::max(VisualScriptCanvasMetrics::HorizontalPadding * view.GetPixelsPerUnit(), 4.0f * view.GetUIScale());
+	// A title 180 pixels wide when drawn.
+	VisualScriptCommentVisual comment;
+	comment.Title.Width = 180.0f * VisualScriptCanvasMetrics::CommentTitleTextSize / titlePixels;
+	auto const title = [&](float room, uint16_t bytes, uint16_t visibleBytes, uint32_t glyphs)
+	{
+		comment.Rect = {glm::vec2(0.0f), glm::vec2(room + 2.0f * inset, 300.0f)};
+		comment.Title.Length = bytes;
+		comment.Title.VisibleLength = visibleBytes;
+		return VisualScriptGeometry::GetCommentTitleRect(comment, view, comment.Title.Width, glyphs);
+	};
+
+	// Nine glyphs of two bytes each: an average glyph of 20 pixels, so three and the ellipsis need 80 pixels (counted in bytes,
+	// 30 would have done).
+	CHECK(VisualScriptGeometry::IsEmpty(title(79.0f, 18, 18, 9)));
+	CHECK(VisualScriptGeometry::IsEmpty(title(40.0f, 18, 18, 9)));
+	VisualScriptRect const fits = title(80.0f, 18, 18, 9);
+	REQUIRE(!VisualScriptGeometry::IsEmpty(fits));
+	CHECK(fits.Min.x == doctest::Approx(inset));
+	CHECK(fits.Max.x - fits.Min.x == doctest::Approx(80.0f));
+	// Nine ASCII glyphs alike.
+	CHECK(VisualScriptGeometry::IsEmpty(title(79.0f, 9, 9, 9)));
+	CHECK(!VisualScriptGeometry::IsEmpty(title(80.0f, 9, 9, 9)));
+	// Ellipsized at layout: eight glyphs and the ellipsis.
+	CHECK(VisualScriptGeometry::IsEmpty(title(79.0f, 30, 8, 8)));
+	CHECK(!VisualScriptGeometry::IsEmpty(title(80.0f, 30, 8, 8)));
+	// Three glyphs or four: the whole title or nothing.
+	CHECK(VisualScriptGeometry::IsEmpty(title(179.0f, 3, 3, 3)));
+	CHECK(!VisualScriptGeometry::IsEmpty(title(180.0f, 3, 3, 3)));
+	CHECK(VisualScriptGeometry::IsEmpty(title(179.0f, 4, 4, 4)));
+	CHECK(!VisualScriptGeometry::IsEmpty(title(180.0f, 4, 4, 4)));
+}
+
+TEST_CASE("VisualScriptEditor: a title whose first glyphs are wider than its average shows its ellipsis on its plate, never a blank "
+          "plate")
+{
+	// Laid out a tenth of the text size wide per byte, far narrower than the editor's font draws "Weapons": the geometry leaves
+	// room for three glyphs and an ellipsis at that average, which holds no "W" beside the ellipsis.
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(600.0f, 0.0f))};
+	VisualScriptComment comment;
+	comment.ID = 30;
+	comment.Text = "Weapons and armour";
+	comment.Position = glm::vec2(0.0f);
+	comment.Size = glm::vec2(120.0f, 300.0f);
+	document.Graph.Comments = {comment};
+	Testing::CanvasRenderFixture fixture(document);
+	fixture.Measure = Testing::FixedWidthMeasurer(0.1f);
+	fixture.Frame();
+	std::optional<uint32_t> const index = fixture.Model.GetCanvas().FindComment(30);
+	REQUIRE(index.has_value());
+	VisualScriptCommentVisual const visual = fixture.Model.GetCanvas().GetComments()[*index];
+	REQUIRE(!visual.Title.IsEllipsized());
+	uint32_t const glyphs = VisualScriptGeometry::CountGlyphs(fixture.Model.GetCanvas().GetVisibleText(visual.Title));
+
+	// A zoom at Far or Overview where the title is shortened again from its layout and its room holds the ellipsis but not "W"
+	// beside it, with the font the canvas draws with (measured in a frame).
+	VisualScriptView probe = fixture.Model.GetView();
+	std::optional<float> zoom;
+	fixture.Extra = [&]
+	{
+		ImFont* const font = ImGui::GetFont();
+		for (float candidate = 0.30f; candidate > 0.1f && !zoom; candidate -= 0.005f)
+		{
+			probe.SetState({0, glm::vec2(60.0f, 150.0f), candidate});
+			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(visual, probe, visual.Title.Width, glyphs);
+			float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(probe.GetPixelsPerUnit(), probe.GetUIScale());
+			float const layoutWidth = visual.Title.Width * titlePixels / VisualScriptCanvasMetrics::CommentTitleTextSize;
+			float const ellipsis = font->CalcTextSizeA(titlePixels, FLT_MAX, 0.0f, VisualScriptEllipsis.data(),
+			                                           VisualScriptEllipsis.data() + VisualScriptEllipsis.size())
+			                           .x;
+			float const first = font->CalcTextSizeA(titlePixels, FLT_MAX, 0.0f, "W").x;
+			float const room = title.Max.x - title.Min.x;
+			if (!VisualScriptGeometry::IsEmpty(title) && room < layoutWidth - 1.0f && room >= ellipsis && room < first + ellipsis - 0.5f)
+			{
+				zoom = candidate;
+			}
+		}
+	};
+	fixture.Frame();
+	fixture.Extra = {};
+	REQUIRE(zoom.has_value());
+	fixture.SetView(glm::vec2(60.0f, 150.0f), *zoom);
+	REQUIRE((fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Far ||
+	         fixture.Model.GetView().GetDetailLevel() == VisualScriptDetailLevel::Overview));
+	VisualScriptDrawRecordItem const& label = fixture.Item(VisualScriptDrawItemKind::CommentLabel, 30);
+	CHECK(label.Has(Elements::Body | Elements::Title));
+	// The plate's vertices in the bar's colour, then one glyph's quad in the title's: the ellipsis.
+	ImDrawList const* drawList = fixture.Draw.DrawList;
+	REQUIRE(static_cast<int>(label.VertexEnd) <= drawList->VtxBuffer.Size);
+	uint32_t text = 0;
+	for (uint32_t vertex = label.VertexBegin; vertex < label.VertexEnd; vertex++)
+	{
+		text += drawList->VtxBuffer[static_cast<int>(vertex)].col == visual.BarTextColor ? 1u : 0u;
+	}
+	CHECK(text == 4);
+}
+
+TEST_CASE("VisualScriptEditor: the plates of nested comments are drawn outer first, so an inner title lies above its outer one")
+{
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(200.0f, 200.0f))};
+	VisualScriptComment outer;
+	outer.ID = 20;
+	outer.Text = "Outer region";
+	outer.Position = glm::vec2(0.0f);
+	outer.Size = glm::vec2(1400.0f, 800.0f);
+	VisualScriptComment inner;
+	inner.ID = 21;
+	inner.Text = "Inner";
+	inner.Position = glm::vec2(0.0f);
+	inner.Size = glm::vec2(600.0f, 400.0f);
+	document.Graph.Comments = {inner, outer};
+	Testing::CanvasRenderFixture fixture(document);
+	for (float const zoom : {0.12f, 0.3f})
+	{
+		CAPTURE(zoom);
+		fixture.SetView(glm::vec2(700.0f, 400.0f), zoom);
+		VisualScriptDrawRecordItem const& outerLabel = fixture.Item(VisualScriptDrawItemKind::CommentLabel, 20);
+		VisualScriptDrawRecordItem const& innerLabel = fixture.Item(VisualScriptDrawItemKind::CommentLabel, 21);
+		CHECK(innerLabel.Order > outerLabel.Order);
+		// They overlap: both start at the boxes' common corner.
+		CHECK(innerLabel.Screen.Min.x == doctest::Approx(outerLabel.Screen.Min.x));
+		CHECK(innerLabel.Screen.Min.y < outerLabel.Screen.Max.y);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: comment plates are opaque in their bar colour, on which their titles contrast at least 4.5:1")
+{
+	VisualScriptThemeAnchors const theme;
+	for (VisualScriptCommentSwatch const& swatch : VisualScriptCommentSwatches)
+	{
+		CAPTURE(swatch.Name);
+		VisualScriptCommentColors const colors = ComputeVisualScriptCommentColors(swatch.Color, theme);
+		CHECK((colors.Bar >> 24) == 0xFFu);
+		CHECK(GetVisualScriptContrast(colors.BarText, colors.Bar) >= 4.5f);
+	}
 }

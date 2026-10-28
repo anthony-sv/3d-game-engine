@@ -680,7 +680,7 @@ namespace Strada
 		{
 			ImGui::SetNextWindowFocus();
 		}
-		bool const visible = ImGui::Begin("Content Browser", &open);
+		bool const visible = ImGui::Begin(WindowName, &open);
 
 		EditorContext& context = operations.GetContext();
 		Project const* project = context.GetProject();
@@ -1697,11 +1697,16 @@ namespace Strada
 	void ContentBrowserPanel::HandleShortcuts(EditorContext const& context)
 	{
 		// Registered on the panel (its item area is a child window, part of the same focus route) every frame, even with
-		// nothing selected: while the browser is focused these keys never reach the editor's global shortcuts, which act
-		// on selected entities. Cmd+Backspace on macOS keyboards.
-		bool const renamePressed = ImGui::Shortcut(ImGuiKey_F2, ImGuiInputFlags_RouteFocused);
-		bool const deletePressed = ImGui::Shortcut(ImGuiKey_Delete, ImGuiInputFlags_RouteFocused) ||
-		                           ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Backspace, ImGuiInputFlags_RouteFocused);
+		// nothing selected: while the browser is focused these keys never reach the editor's editing keys, which act on the
+		// Edit menu's target. Every chord is registered, pressed or not: routes decide the next frame.
+		std::array<bool, FocusedChords.size()> pressed{};
+		for (size_t i = 0; i < FocusedChords.size(); i++)
+		{
+			pressed[i] = ImGui::Shortcut(FocusedChords[i], ImGuiInputFlags_RouteFocused);
+		}
+		static_assert(FocusedChords[0] == ImGuiKey_F2 && FocusedChords[1] == ImGuiKey_Delete, "the order HandleShortcuts reads");
+		bool const renamePressed = pressed[0];
+		bool const deletePressed = pressed[1] || pressed[2];
 		Item const* selected = FindSelectedItem(context);
 		if (selected == nullptr || m_Renaming)
 		{

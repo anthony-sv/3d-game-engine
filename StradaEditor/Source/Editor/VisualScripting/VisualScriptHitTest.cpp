@@ -72,6 +72,40 @@ namespace Strada
 			VisualScriptHitScratch& scratch = context.Scratch != nullptr ? *context.Scratch : local;
 			std::vector<uint32_t>& candidates = scratch.Candidates;
 			index.QueryPoint(point, radius, VisualScriptSpatialIndex::AllMask, candidates, context.Stats);
+			std::span<VisualScriptCommentVisual const> const comments = model.GetComments();
+
+			// At Far and Overview comment titles are drawn on plates above the nodes, so they are hit first: the smallest comment's,
+			// as the plates are drawn largest comment first. A plate lies inside its comment's box, which the query found.
+			if (level == VisualScriptDetailLevel::Far || level == VisualScriptDetailLevel::Overview)
+			{
+				std::optional<uint32_t> labelComment;
+				for (uint32_t const item : candidates)
+				{
+					if (VisualScriptSpatialIndex::GetKind(item) != Item::Comment)
+					{
+						continue;
+					}
+					uint32_t const comment = VisualScriptSpatialIndex::GetIndex(item);
+					VisualScriptCommentVisual const& visual = comments[comment];
+					if ((!labelComment || comment > *labelComment) &&
+					    VisualScriptGeometry::Contains(
+							VisualScriptGeometry::GetCommentLabelRect(
+								visual, view, visual.Title.Width, VisualScriptGeometry::CountGlyphs(model.GetVisibleText(visual.Title))),
+							mouse))
+					{
+						labelComment = comment;
+					}
+				}
+				if (labelComment)
+				{
+					// A plate reaches into its comment's resize handles at the top-left corner: there the handles keep the mouse.
+					VisualScriptHit hit;
+					hit.Element = comments[*labelComment].ID;
+					hit.Edges = VisualScriptGeometry::GetCommentEdges(comments[*labelComment], point, commentTolerance);
+					hit.Kind = hit.Edges != 0 ? VisualScriptHitKind::CommentEdge : VisualScriptHitKind::CommentTitle;
+					return hit;
+				}
+			}
 
 			// Nodes near the mouse, top drawn first: the index's, the moved ones (dynamic: at their preview places) and the one
 			// drawn expanded (larger than the bounds the index has).
@@ -273,7 +307,6 @@ namespace Strada
 			}
 
 			// Comments, smallest first (they are drawn largest first): an edge, then the title bar.
-			std::span<VisualScriptCommentVisual const> const comments = model.GetComments();
 			std::optional<uint32_t> edgeComment;
 			uint8_t edges = 0;
 			std::optional<uint32_t> barComment;

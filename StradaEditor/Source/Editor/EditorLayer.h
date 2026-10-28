@@ -35,6 +35,8 @@
 #include <optional>
 #include <string>
 
+struct ImGuiWindow;
+
 namespace Strada
 {
 	struct EditorLayerSpecification
@@ -55,11 +57,11 @@ namespace Strada
 	// Root of the editor: owns the document state (project, scene, undo history, selection), the project's scripts (builds
 	// and hot reload), play mode, game export, the automation command registry and server, and the UI (dockspace, menu bar,
 	// toolbar with the play controls, shortcuts, panels and the visual script windows) when ImGui is available. The Edit
-	// menu acts on the graph window focused last while it is shown, else on the scene; with the UI, the assets are rescanned
-	// whenever the editor gets the focus back, and the windows' input is shared between the editor and the game in the game
-	// view (GameInputRouter, as ImGuiLayer's input filter). Playing brings the game view to the front with the input;
-	// stopping, the scene view. Replacing the scene (new or opened scenes and projects) or closing the editor with unsaved
-	// changes asks to save them first; playing stops first.
+	// menu and the editing keys act on the graph window focused last while it is shown, else on the scene (EditorEditingKeys);
+	// with the UI, the assets are rescanned whenever the editor gets the focus back, and the windows' input is shared between
+	// the editor and the game in the game view (GameInputRouter, as ImGuiLayer's input filter). Playing brings the game view
+	// to the front with the input; stopping, the scene view. Replacing the scene (new or opened scenes and projects) or
+	// closing the editor with unsaved changes asks to save them first; playing stops first.
 	class EditorLayer : public Layer
 	{
 	public:
@@ -156,9 +158,6 @@ namespace Strada
 		// Opens a visual script's window (the content browser, the inspector), with the entity it runs on when given.
 		void OpenVisualScript(AssetHandle graph, UUID contextEntity);
 
-		void DuplicateSelection();
-		void DeleteSelection();
-		void SelectAll();
 		// Where new root entities are placed: the viewport's focal point.
 		glm::vec3 GetSpawnPosition() const;
 
@@ -212,6 +211,10 @@ namespace Strada
 		uint8_t m_FocusDefaultTabsFrames = 0;
 		// Bring the console to the front after the panels are drawn.
 		bool m_FocusConsole = false;
+		// The window that has the keyboard, kept while a menu, a popup or a side bar has it instead (FindKeyboardWindow): the
+		// Edit menu leaves out the texts of the chords it claims. Updated at the start of each frame; ImGui frees no window
+		// before its context is destroyed, so the pointer stays valid across frames.
+		ImGuiWindow const* m_KeyboardWindow = nullptr;
 		// editor.entity-menu's request for the next frame.
 		std::optional<EntityMenuRequest> m_EntityMenuRequest;
 

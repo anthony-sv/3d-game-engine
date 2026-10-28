@@ -4,6 +4,7 @@
 #include "Editor/EditorOperations.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
+#include "Editor/VisualScripting/VisualScriptShortcuts.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -244,6 +245,21 @@ namespace Strada
 		return window->Panel.get();
 	}
 
+	bool VisualScriptEditors::HandleGlobalEditingKey(VisualScriptEditorAction action)
+	{
+		VisualScriptEditorPanel* target = GetEditTarget();
+		if (target == nullptr)
+		{
+			return false;
+		}
+		if (!target->RequestAction(action))
+		{
+			// The edit target is shown, so this is not expected; a window hidden meanwhile takes no actions.
+			ST_WARN("The visual script window was hidden: the key was not acted on");
+		}
+		return true;
+	}
+
 	void VisualScriptEditors::NotifyHistoryStep(bool undone, std::string const& description, AssetHandle editedAsset)
 	{
 		if (VisualScriptEditorPanel* target = GetEditTarget())
@@ -302,12 +318,12 @@ namespace Strada
 		}
 	}
 
-	bool VisualScriptEditors::DrawEditMenuItems()
+	std::optional<std::vector<EditorMenuItemRecord>> VisualScriptEditors::DrawEditMenuItems(std::span<ImGuiKeyChord const> claimed)
 	{
 		VisualScriptEditorPanel* target = GetEditTarget();
 		if (target == nullptr)
 		{
-			return false;
+			return std::nullopt;
 		}
 		VisualScriptEditorState const state = target->GetState();
 		bool const selection = !state.SelectedNodes.empty() || !state.SelectedComments.empty();
@@ -316,32 +332,36 @@ namespace Strada
 		struct Item
 		{
 			char const* Label;
-			char const* Shortcut;
 			VisualScriptEditorAction Action;
 			bool Enabled;
 		};
 		std::array<Item, 7> const items = {{
-			{"Cut", "Ctrl+X", VisualScriptEditorAction::Cut, selection},
-			{"Copy", "Ctrl+C", VisualScriptEditorAction::Copy, selection},
-			{"Paste", "Ctrl+V", VisualScriptEditorAction::Paste, true},
-			{"Duplicate", "Ctrl+D", VisualScriptEditorAction::Duplicate, selection || row},
-			{"Delete", "Delete", VisualScriptEditorAction::Delete, selection || row},
-			{"Select All", "Ctrl+A", VisualScriptEditorAction::SelectAll, true},
-			{"Deselect All", nullptr, VisualScriptEditorAction::DeselectAll, selection},
+			{"Cut", VisualScriptEditorAction::Cut, selection},
+			{"Copy", VisualScriptEditorAction::Copy, selection},
+			{"Paste", VisualScriptEditorAction::Paste, true},
+			{"Duplicate", VisualScriptEditorAction::Duplicate, selection || row},
+			{"Delete", VisualScriptEditorAction::Delete, selection || row},
+			{"Select All", VisualScriptEditorAction::SelectAll, true},
+			{"Deselect All", VisualScriptEditorAction::DeselectAll, selection},
 		}};
+		std::vector<EditorMenuItemRecord> drawn;
 		for (Item const& item : items)
 		{
 			if (item.Action == VisualScriptEditorAction::SelectAll)
 			{
 				ImGui::Separator();
 			}
-			if (ImGui::MenuItem(item.Label, item.Shortcut, false, item.Enabled) && !target->RequestAction(item.Action))
+			// The key the editor routes to the edit target (EditorEditingKeys), the action's first in the windows' table.
+			VisualScriptShortcut const* shortcut = FindVisualScriptShortcut(item.Action);
+			std::string text = shortcut != nullptr ? GetEditShortcutText(shortcut->Chord, claimed) : std::string();
+			if (ImGui::MenuItem(item.Label, text.c_str(), false, item.Enabled) && !target->RequestAction(item.Action))
 			{
 				// The edit target is shown, so this is not expected; a window hidden meanwhile takes no actions.
 				ST_WARN("The visual script window was hidden: {} was not done", item.Label);
 			}
+			drawn.push_back({item.Label, std::move(text), item.Enabled});
 		}
-		return true;
+		return drawn;
 	}
 
 	void VisualScriptEditors::DrawViewMenuItems()
