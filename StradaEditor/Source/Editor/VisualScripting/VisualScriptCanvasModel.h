@@ -359,6 +359,15 @@ namespace Strada
 		// chips show assets' names when the source's AssetVersion changed. Never analyzes and never writes the document.
 		// Returns true when what the spatial index holds changed (node and comment rectangles, wire ends).
 		bool Sync(VisualScriptCanvasSource const& source, VisualScriptTextMeasurer const& measure, VisualScriptThemeAnchors const& theme);
+		// Sync's result for a document whose shown graph differs from the one in previous (the document the last Sync or
+		// SyncPositions was given) only where its nodes and comments are: what a layout-only commit gives (the same program,
+		// HaveSameVisualScriptProgram, and the same analysis). Moves the nodes and comments that moved, their bounds and the
+		// wires that follow them, and lays out nothing: the visual model is the one Sync would give. Checks what the program
+		// does not cover (the nodes' IDs, comments and collapsing; the comments' IDs, texts, sizes and colours), and that the
+		// library, the theme anchors, the measurer and the sub-graph are the last Sync's; nothing when any differs, and the
+		// caller then calls Sync. Otherwise whether what the spatial index holds changed.
+		[[nodiscard]] std::optional<bool> SyncPositions(VisualScriptDocument const& previous, VisualScriptCanvasSource const& source,
+		                                                VisualScriptTextMeasurer const& measure, VisualScriptThemeAnchors const& theme);
 
 		// In the shown graph's order.
 		std::span<VisualScriptNodeVisual const> GetNodes() const { return m_Nodes; }
@@ -401,8 +410,10 @@ namespace Strada
 		// Bytes its vectors and text arena have reserved (capacity, not size), including the spare ones each Sync builds into:
 		// a Sync of an unchanged document does not grow it.
 		size_t GetCapacityBytes() const;
-		// How many nodes the last Sync laid out anew (the others kept their layout).
+		// How many nodes the last Sync laid out anew (the others kept their layout); 0 after SyncPositions.
 		uint32_t GetMeasuredNodeCount() const { return m_MeasuredNodeCount; }
+		// How many times SyncPositions moved elements instead of a Sync.
+		uint64_t GetPositionSyncCount() const { return m_PositionSyncCount; }
 		// Whether some node's chip shows an asset's name: only then does a new AssetVersion change anything, so a caller need
 		// not Sync for one otherwise.
 		bool ShowsAssetNames() const { return m_ShowsAssetNames; }
@@ -426,6 +437,11 @@ namespace Strada
 		// Sync's work (in the source file), and the buffers it reuses from one Sync to the next.
 		class Builder;
 		struct Scratch;
+
+		// Orders the comments (in document order) as they draw, with their records, and indexes them by ID.
+		void OrderComments();
+		// Of the rectangles and pin anchors the spatial index reads (Sync's result).
+		uint64_t ComputeGeometryHash() const;
 
 		std::vector<VisualScriptNodeVisual> m_Nodes;
 		std::vector<NodeRecord> m_NodeRecords;
@@ -452,6 +468,7 @@ namespace Strada
 		uint32_t m_Function = 0;
 		uint64_t m_GeometryHash = 0;
 		uint32_t m_MeasuredNodeCount = 0;
+		uint64_t m_PositionSyncCount = 0;
 		bool m_ShowsAssetNames = false;
 
 		// The previous Sync's results, which the next one copies kept layouts from; their capacity is kept equal to the

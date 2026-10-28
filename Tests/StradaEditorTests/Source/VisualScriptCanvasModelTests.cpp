@@ -1,3 +1,4 @@
+#include "Fuzzing.h"
 #include "VisualScriptTestUtilities.h"
 
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
@@ -16,7 +17,9 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -90,7 +93,15 @@ namespace
 			return *Analysis;
 		}
 
-		bool Sync()
+		bool Sync() { return Model.Sync(MakeSource(), Measure, Theme); }
+
+		// What a layout-only commit of the document previous makes the canvas do (the document is now Document).
+		std::optional<bool> SyncPositions(VisualScriptDocument const& previous)
+		{
+			return Model.SyncPositions(previous, MakeSource(), Measure, Theme);
+		}
+
+		VisualScriptCanvasSource MakeSource()
 		{
 			VisualScriptCanvasSource source;
 			source.Display = &Document;
@@ -112,7 +123,7 @@ namespace
 				return "Asset " + handle.ToString();
 			};
 			source.AssetVersion = AssetVersion;
-			return Model.Sync(source, Measure, Theme);
+			return source;
 		}
 
 		VisualScriptNodeVisual const& Node(uint32_t id) const
@@ -590,6 +601,242 @@ TEST_CASE("VisualScriptEditor: a sync lays out only the nodes that changed, and 
 	canvas.AssetVersion++;
 	canvas.Sync();
 	CHECK(canvas.Model.GetMeasuredNodeCount() == 0);
+}
+
+namespace
+{
+	// Two visual models that should be one: every node's rectangles, texts and pin anchors, every wire's ends and control
+	// points, every comment box, and which nodes each box frames. Exact: both made the same float operations.
+	void CheckSameCanvas(VisualScriptCanvasModel const& moved, VisualScriptCanvasModel const& synced)
+	{
+		REQUIRE(moved.GetNodes().size() == synced.GetNodes().size());
+		for (size_t index = 0; index < moved.GetNodes().size(); index++)
+		{
+			VisualScriptNodeVisual const& a = moved.GetNodes()[index];
+			VisualScriptNodeVisual const& b = synced.GetNodes()[index];
+			CAPTURE(a.ID);
+			CHECK(a.ID == b.ID);
+			CHECK(a.Position == b.Position);
+			CHECK(a.Size == b.Size);
+			CHECK(a.ExpandedSize == b.ExpandedSize);
+			CHECK(a.VisualBounds == b.VisualBounds);
+			CHECK(a.BubbleRect == b.BubbleRect);
+			CHECK(a.Flags == b.Flags);
+			CHECK(moved.GetText(a.Title) == synced.GetText(b.Title));
+			CHECK(moved.GetText(a.Comment) == synced.GetText(b.Comment));
+			std::span<VisualScriptPinVisual const> const pinsA = moved.GetPins(a);
+			std::span<VisualScriptPinVisual const> const pinsB = synced.GetPins(b);
+			REQUIRE(pinsA.size() == pinsB.size());
+			for (size_t pin = 0; pin < pinsA.size(); pin++)
+			{
+				CHECK(moved.GetText(pinsA[pin].Name) == synced.GetText(pinsB[pin].Name));
+				CHECK(Geometry::GetPinAnchor(a, pinsA[pin]) == Geometry::GetPinAnchor(b, pinsB[pin]));
+				CHECK(Geometry::GetPinHitRect(a, pinsA[pin], 0.0f) == Geometry::GetPinHitRect(b, pinsB[pin], 0.0f));
+			}
+		}
+		REQUIRE(moved.GetLinks().size() == synced.GetLinks().size());
+		for (uint32_t link = 0; link < moved.GetLinks().size(); link++)
+		{
+			CHECK(moved.GetDocumentLink(link) == synced.GetDocumentLink(link));
+			CHECK(Geometry::GetLinkControlPoints(moved, link) == Geometry::GetLinkControlPoints(synced, link));
+			CHECK(Geometry::GetLinkBounds(moved, link) == Geometry::GetLinkBounds(synced, link));
+		}
+		REQUIRE(moved.GetComments().size() == synced.GetComments().size());
+		for (size_t index = 0; index < moved.GetComments().size(); index++)
+		{
+			VisualScriptCommentVisual const& a = moved.GetComments()[index];
+			VisualScriptCommentVisual const& b = synced.GetComments()[index];
+			CAPTURE(a.ID);
+			CHECK(a.ID == b.ID);
+			CHECK(a.Rect == b.Rect);
+			CHECK(moved.GetText(a.Title) == synced.GetText(b.Title));
+			CHECK(moved.GetText(a.Body) == synced.GetText(b.Body));
+			CHECK(a.BodyColor == b.BodyColor);
+			// The nodes the box frames whole, as moving a comment carries them.
+			auto const framed = [](VisualScriptCanvasModel const& model, VisualScriptRect const& box)
+			{
+				std::vector<uint32_t> nodes;
+				for (VisualScriptNodeVisual const& node : model.GetNodes())
+				{
+					VisualScriptRect const rect = Geometry::GetNodeRect(node);
+					if (Geometry::Contains(box, rect.Min) && Geometry::Contains(box, rect.Max))
+					{
+						nodes.push_back(node.ID);
+					}
+				}
+				return nodes;
+			};
+			CHECK(framed(moved, a.Rect) == framed(synced, b.Rect));
+		}
+		CHECK(moved.GetBounds() == synced.GetBounds());
+	}
+
+	// What two spatial indices built from the models return over a grid of rectangles of several sizes covering the graph.
+	void CheckSameIndex(VisualScriptCanvasModel const& moved, VisualScriptCanvasModel const& synced)
+	{
+		VisualScriptSpatialIndex movedIndex;
+		VisualScriptSpatialIndex syncedIndex;
+		movedIndex.Build(moved);
+		syncedIndex.Build(synced);
+		std::optional<VisualScriptRect> const bounds = synced.GetBounds();
+		REQUIRE(bounds.has_value());
+		std::vector<uint32_t> movedItems;
+		std::vector<uint32_t> syncedItems;
+		for (float const size : {96.0f, 400.0f, 1500.0f})
+		{
+			for (float x = bounds->Min.x - size; x < bounds->Max.x + size; x += size * 0.75f)
+			{
+				for (float y = bounds->Min.y - size; y < bounds->Max.y + size; y += size * 0.75f)
+				{
+					VisualScriptRect const rect{glm::vec2(x, y), glm::vec2(x + size, y + size)};
+					movedIndex.Query(rect, VisualScriptSpatialIndex::AllMask, movedItems);
+					syncedIndex.Query(rect, VisualScriptSpatialIndex::AllMask, syncedItems);
+					std::sort(movedItems.begin(), movedItems.end());
+					std::sort(syncedItems.begin(), syncedItems.end());
+					CHECK(movedItems == syncedItems);
+				}
+			}
+		}
+	}
+}
+
+TEST_CASE("VisualScriptEditor: after random layout-only commits, moving what moved gives the visual model and index a full sync gives")
+{
+	// One model moves what moved (SyncPositions), the other syncs every document fully; a third lays the last one out anew.
+	VisualScriptDocument document = Testing::MakeGridGraph(8, 6, 2, 6);
+	document.Graph.Nodes[3].Comment = "A note\non two lines";
+	document.Graph.Nodes[10].Collapsed = true;
+	document.Graph.Nodes[11].Position.reset();
+	CanvasFixture moved;
+	CanvasFixture synced;
+	moved.Document = document;
+	synced.Document = document;
+	moved.Analyze();
+	synced.Analyze();
+	REQUIRE(moved.Sync());
+	REQUIRE(synced.Sync());
+	CheckSameCanvas(moved.Model, synced.Model);
+
+	Testing::FuzzRandom random(11500);
+	auto const offset = [&random]()
+	{
+		// Quarters of units, and now and then a fraction no float holds exactly.
+		float const x = static_cast<float>(static_cast<int64_t>(random.Pick(4001)) - 2000) * 0.25f;
+		float const y = random.Pick(8) == 0 ? 0.1f : static_cast<float>(static_cast<int64_t>(random.Pick(4001)) - 2000) * 0.25f;
+		return glm::vec2(x, y);
+	};
+	for (int round = 0; round < 40; round++)
+	{
+		CAPTURE(round);
+		VisualScriptDocument const previous = moved.Document;
+		VisualScriptDocument next = previous;
+		// A random subset of nodes and comments moves; now and then nothing does.
+		for (VisualScriptNode& node : next.Graph.Nodes)
+		{
+			if (random.Pick(4) == 0)
+			{
+				node.Position = node.Position.value_or(glm::vec2(0.0f)) + offset();
+			}
+		}
+		for (VisualScriptComment& comment : next.Graph.Comments)
+		{
+			if (random.Pick(3) == 0)
+			{
+				comment.Position += offset();
+			}
+		}
+		moved.Document = next;
+		synced.Document = next;
+		std::optional<bool> const geometry = moved.SyncPositions(previous);
+		REQUIRE(geometry.has_value());
+		CHECK(*geometry == synced.Sync());
+		CHECK(moved.Model.GetMeasuredNodeCount() == 0);
+		CheckSameCanvas(moved.Model, synced.Model);
+		if (round % 8 == 0)
+		{
+			CheckSameIndex(moved.Model, synced.Model);
+		}
+	}
+	CHECK(moved.Model.GetPositionSyncCount() == 40);
+	CheckSameIndex(moved.Model, synced.Model);
+	// A full Sync after the moves keeps what they gave.
+	CHECK_FALSE(moved.Sync());
+	CHECK(moved.Model.GetMeasuredNodeCount() == 0);
+	CheckSameCanvas(moved.Model, synced.Model);
+
+	// Laid out anew, the last document gives the same model, up to the rounding of positions moved by differences.
+	CanvasFixture fresh;
+	fresh.Document = moved.Document;
+	fresh.Analyze();
+	fresh.Sync();
+	REQUIRE(fresh.Model.GetNodes().size() == moved.Model.GetNodes().size());
+	for (size_t index = 0; index < fresh.Model.GetNodes().size(); index++)
+	{
+		CheckRect(moved.Model.GetNodes()[index].VisualBounds, fresh.Model.GetNodes()[index].VisualBounds);
+	}
+
+	// Anything else lays out, so moving declines and the caller syncs: a resized, recoloured or renamed box, a collapsed
+	// node, a node comment, a node removed, another sub-graph, another library.
+	VisualScriptDocument const base = moved.Document;
+	auto const declines = [&moved, &base](auto&& change)
+	{
+		VisualScriptDocument next = base;
+		change(next);
+		moved.Document = next;
+		bool const declined = !moved.SyncPositions(base).has_value();
+		moved.Document = base;
+		return declined;
+	};
+	CHECK(declines(
+		[](VisualScriptDocument& next)
+		{
+			next.Graph.Comments[0].Size.x += 16.0f;
+		}));
+	CHECK(declines(
+		[](VisualScriptDocument& next)
+		{
+			next.Graph.Comments[0].Color.a = 0.5f;
+		}));
+	CHECK(declines(
+		[](VisualScriptDocument& next)
+		{
+			next.Graph.Comments[0].Text = "Renamed";
+		}));
+	CHECK(declines(
+		[](VisualScriptDocument& next)
+		{
+			next.Graph.Nodes[0].Collapsed = true;
+		}));
+	CHECK(declines(
+		[](VisualScriptDocument& next)
+		{
+			next.Graph.Nodes[0].Comment = "Note";
+		}));
+	CHECK(declines(
+		[](VisualScriptDocument& next)
+		{
+			next.Graph.Nodes.pop_back();
+		}));
+	CHECK(declines(
+		[](VisualScriptDocument& next)
+		{
+			std::swap(next.Graph.Nodes[0], next.Graph.Nodes[1]);
+		}));
+	CHECK(declines(
+		[](VisualScriptDocument& next)
+		{
+			next.Graph.Comments.pop_back();
+		}));
+	CHECK_FALSE(declines(
+		[](VisualScriptDocument& next)
+		{
+			next.Graph.Nodes[0].Position = glm::vec2(-640.0f, 0.0f);
+		}));
+	moved.Function = 7;
+	CHECK(declines([](VisualScriptDocument&) {}));
+	moved.Function = 0;
+	moved.WithLibrary = false;
+	CHECK(declines([](VisualScriptDocument&) {}));
 }
 
 TEST_CASE("VisualScriptEditor: nodes take the analysis' pins while they are what it analyzed, else their template's, else the document's")

@@ -3,6 +3,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Timer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,6 +23,23 @@ namespace Strada
 		constexpr uint8_t Unclassified = 0xFF;
 		// The longest step auto-pan and the minimap's fade take: a stalled frame does not throw the view.
 		constexpr double MaxFrameSeconds = 0.1;
+
+		// Adds the milliseconds from its construction to its destruction to a phase of the Sync timings.
+		class PhaseTimer
+		{
+		public:
+			explicit PhaseTimer(double& milliseconds)
+				: m_Milliseconds(milliseconds)
+			{
+			}
+			~PhaseTimer() { m_Milliseconds += m_Timer.GetElapsedMilliseconds(); }
+			PhaseTimer(PhaseTimer const&) = delete;
+			PhaseTimer& operator=(PhaseTimer const&) = delete;
+
+		private:
+			double& m_Milliseconds;
+			Timer m_Timer;
+		};
 
 		// The document's graphs by position: 0 is the event graph, i + 1 the i-th function's.
 		VisualScriptGraph const* GetGraphAt(VisualScriptDocument const& document, size_t graph)
@@ -395,6 +413,7 @@ namespace Strada
 		{
 			m_ChangedElements.clear();
 			m_CommittedLinks.clear();
+			m_SyncTimings = {};
 			m_LastSyncTime = time;
 		}
 		m_Time = time;
@@ -438,9 +457,10 @@ namespace Strada
 		return result;
 	}
 
-	void VisualScriptEditorModel::OnCommitted(Ref<VisualScriptDocument const> committed)
+	void VisualScriptEditorModel::OnCommitted(Ref<VisualScriptDocument const> committed, bool layoutOnly)
 	{
 		m_OwnDocument = std::move(committed);
+		m_OwnLayoutOnly = layoutOnly;
 	}
 
 	void VisualScriptEditorModel::SetWidgetPreview(VisualScriptDocument preview)
@@ -652,17 +672,24 @@ namespace Strada
 
 	void VisualScriptEditorModel::AdoptDocument(Ref<VisualScriptDocument const> document, VisualScriptSyncResult& result)
 	{
+		PhaseTimer const timer(m_SyncTimings.Adopt);
 		if (document == m_Document)
 		{
 			return;
 		}
 		bool const own = m_OwnDocument != nullptr && document == m_OwnDocument;
+		bool const layoutOnly = own && m_OwnLayoutOnly && m_Document != nullptr;
 		// The commit the window waited for is this one, or was replaced before it was seen: either way it is done with, so a
 		// later redo of the same step brings the object back as an outside change.
 		m_OwnDocument.reset();
+		m_OwnLayoutOnly = false;
 		if (m_Document != nullptr && own)
 		{
-			RecordCommittedLinks(*m_Document, *document);
+			// A layout-only commit adds no link.
+			if (!layoutOnly)
+			{
+				RecordCommittedLinks(*m_Document, *document);
+			}
 		}
 		else if (m_Document != nullptr && !(*document == *m_Document && HaveSameVisualScriptProgram(*document, *m_Document)))
 		{
@@ -674,6 +701,7 @@ namespace Strada
 			m_Preview.reset();
 			m_OutsideChange = true;
 		}
+		Ref<VisualScriptDocument const> const previous = m_Display;
 		m_Document = std::move(document);
 		if (HasUnplacedNodes(*m_Document))
 		{
@@ -685,6 +713,26 @@ namespace Strada
 		else
 		{
 			m_Display = m_Document;
+		}
+		m_LayoutOnlyFrom.reset();
+		if (layoutOnly)
+		{
+			// The window's own layout-only commit has the program of the document it was made from (the display document), so
+			// what was known of that program is known of this document: its analysis, and the runtime's failure on it. Its
+			// nodes are at the same indices (HaveSameVisualScriptProgram compares them in order).
+			if (m_AnalyzedDocument == previous)
+			{
+				m_AnalyzedDocument = m_Display;
+			}
+			if (m_FailedDocument == previous)
+			{
+				m_FailedDocument = m_Display;
+			}
+			m_LayoutOnlyFrom = previous;
+		}
+		else
+		{
+			m_ProgramRevision++;
 		}
 		result.DocumentChanged = true;
 	}
@@ -766,6 +814,7 @@ namespace Strada
 	void VisualScriptEditorModel::RefreshAnalysis(VisualScriptSemantics& semantics, bool widgetActive, double time, bool force,
 	                                              VisualScriptSyncResult& result)
 	{
+		PhaseTimer const timer(m_SyncTimings.Analysis);
 		Ref<VisualScriptLibrary const> library = semantics.GetLibrary();
 		bool const libraryChanged = library != m_Library;
 		if (libraryChanged)
@@ -796,7 +845,13 @@ namespace Strada
 		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument))
 		{
 			// The program the analysis describes (only positions, comments or collapsing changed), or the very document the
-			// runtime could not analyze.
+			// runtime could not analyze. The analysis describes the drawn document as well as the one it was made from (their
+			// nodes are at the same indices), so it is taken as the drawn one's: a layout-only commit of it then keeps it
+			// without a comparison (AdoptDocument).
+			if (current)
+			{
+				m_AnalyzedDocument = drawn;
+			}
 			m_AnalysisPending = false;
 			return;
 		}
@@ -861,8 +916,26 @@ namespace Strada
 		source.ShowDiagnostics = !m_AnalysisStale;
 		source.AssetNames = DescribeAsset;
 		source.AssetVersion = assetVersion;
-		if (m_Canvas.Sync(source, m_Measure, theme))
+		std::optional<bool> synced;
 		{
+			PhaseTimer const timer(m_SyncTimings.Canvas);
+			// An own layout-only commit of the document the canvas shows, when nothing else needs laying out: only what moved
+			// moves. SyncPositions checks what it relies on and declines anything else.
+			if (m_LayoutOnlyFrom != nullptr && m_CanvasDocument == m_LayoutOnlyFrom && m_Preview == nullptr && !m_CanvasStale &&
+			    !result.AnalysisChanged && theme == m_Theme && !assetNamesChanged && m_Function == m_CanvasFunction)
+			{
+				synced = m_Canvas.SyncPositions(*m_CanvasDocument, source, m_Measure, theme);
+			}
+			if (!synced)
+			{
+				synced = m_Canvas.Sync(source, m_Measure, theme);
+			}
+		}
+		m_LayoutOnlyFrom.reset();
+		m_CanvasDocument = GetDrawnDocumentRef();
+		if (*synced)
+		{
+			PhaseTimer const timer(m_SyncTimings.Index);
 			m_Index.Build(m_Canvas);
 			result.GeometryChanged = true;
 		}

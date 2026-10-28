@@ -4,9 +4,10 @@
 
 #include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
-#include "Strada/Serialization/JsonSerialization.h"
+#include "Strada/Core/Timer.h"
 
 #include <iterator>
+#include <optional>
 #include <utility>
 
 namespace Strada
@@ -14,33 +15,28 @@ namespace Strada
 	namespace
 	{
 		// Step 4: what is written must load again as it is, since the loaded asset keeps the document itself and a later load
-		// of the file must give the same program. Returns the text of the file, made from the Json the check read back.
-		Result<std::string> MakeWritableText(VisualScriptDocument const& document)
+		// of the file must give the same program. Validate applies the loader's rules to the document itself, so no Json is
+		// built and read back; the text of the file is then written directly.
+		Result<std::string> MakeWritableText(VisualScriptDocument const& document, VisualScriptCommitTimings& timings)
 		{
-			Json const file = VisualScriptSerializer::Serialize(document);
-			DeserializationContext context;
-			context.UnknownFields = UnknownFieldPolicy::Warn;
-			std::vector<VisualScriptIssue> issues;
-			Result<VisualScriptDocument> const read = VisualScriptSerializer::Deserialize(file, context, &issues);
-			if (!read)
+			Timer phase;
+			std::optional<VisualScriptIssue> const issue = VisualScriptSerializer::Validate(document);
+			timings.Check = phase.GetElapsedMilliseconds();
+			if (issue)
 			{
-				return MakeError("the edit would write an invalid document: {}", read.GetError());
+				return MakeError("the edit would write an invalid document: {}: {}", issue->Path, issue->Message);
 			}
-			if (!issues.empty())
-			{
-				return MakeError("the edit would write an invalid document: {}: {}", issues.front().Path, issues.front().Message);
-			}
-			if (!IsSameVisualScriptDocument(read.GetValue(), document))
-			{
-				return Error{"the edit would write an invalid document: it does not load back as written"};
-			}
-			return DumpJson(file);
+			phase.Reset();
+			std::string written = VisualScriptSerializer::WriteText(document);
+			timings.Text = phase.GetElapsedMilliseconds();
+			return written;
 		}
 	}
 
 	Result<VisualScriptCommit> PrepareVisualScriptCommit(VisualScriptDocument const& stored, VisualScriptDocument edited,
 	                                                     VisualScriptAnalysis const* analysis)
 	{
+		Timer const normalize;
 		VisualScriptCommit commit;
 		commit.Warnings = RecordFormerNames(edited, stored);
 		commit.RenameCount = commit.Warnings.size();
@@ -50,7 +46,8 @@ namespace Strada
 			commit.Warnings.insert(commit.Warnings.end(), std::make_move_iterator(updated.begin()), std::make_move_iterator(updated.end()));
 		}
 		PlaceUnplacedNodes(edited);
-		Result<std::string> text = MakeWritableText(edited);
+		commit.Timings.Normalize = normalize.GetElapsedMilliseconds();
+		Result<std::string> text = MakeWritableText(edited, commit.Timings);
 		if (!text)
 		{
 			return Error{text.GetError()};
@@ -77,6 +74,7 @@ namespace Strada
 		request.MergeKey = mergeKey;
 		request.Notes.assign(std::make_move_iterator(commit.Warnings.begin() + static_cast<std::ptrdiff_t>(commit.RenameCount)),
 		                     std::make_move_iterator(commit.Warnings.end()));
+		request.Timings = commit.Timings;
 		return request;
 	}
 

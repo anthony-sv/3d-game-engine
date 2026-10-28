@@ -141,7 +141,7 @@ namespace
 		{
 			Ref<VisualScriptDocument const> const committed = request.Document;
 			REQUIRE(Operations.EditVisualScript(Graph, committed, request.Description, request.MergeKey, std::move(request.Text)).IsOk());
-			Model->OnCommitted(committed);
+			Model->OnCommitted(committed, request.LayoutOnly);
 			Model->Sync(*ActiveSemantics, Measure, Theme, false, Time);
 			// The panel selects what the commit asks for, when it asks for something.
 			if (!request.Select.empty())
@@ -528,6 +528,84 @@ TEST_CASE("VisualScriptEditor: without a query the palette lists recent entries 
 	CHECK(fixture.Entry(withRecent.front()).Title == "Branch");
 	CHECK_FALSE(lists(withRecent, "Get Speed"));
 	CHECK(fixture.GetStateTitles() == std::vector<std::string>{"Branch"});
+}
+
+TEST_CASE("VisualScriptEditor: the palette reads the window's document again after a program change, not after a layout-only commit")
+{
+	PaneFixture fixture(MakeDocument());
+	auto const listed = [&fixture](std::string_view title)
+	{
+		fixture.Palette.Open(MakeIntent(glm::vec2(0.0f)));
+		fixture.Frames(2);
+		std::vector<uint32_t> const rows = fixture.Palette.GetRowEntries();
+		bool const found = std::any_of(rows.begin(), rows.end(),
+		                               [&fixture, title](uint32_t entry)
+		                               {
+										   return fixture.Entry(entry).Title == title;
+									   });
+		fixture.Palette.Close();
+		fixture.Frames(1);
+		return found;
+	};
+	// A commit as the controller makes it, with its LayoutOnly.
+	auto const commit = [&fixture](VisualScriptDocument document, bool layoutOnly)
+	{
+		Ref<VisualScriptDocument const> const stored = fixture.Model->GetStoredDocument();
+		Result<VisualScriptCommitRequest> request =
+			MakeVisualScriptCommitRequest(*stored, std::move(document), fixture.Model->GetAnalysis(), "Edit", "Graph", 0);
+		REQUIRE(request.IsOk());
+		VisualScriptCommitRequest made = request.TakeValue();
+		made.LayoutOnly = layoutOnly;
+		fixture.ExecuteCommit(std::move(made));
+	};
+	CHECK(listed("Get Speed"));
+	uint64_t const reads = fixture.Palette.GetDocumentReadCount();
+	CHECK(reads == 1);
+
+	// A move: the document's entries come from names, signatures and events, never positions, so it is not read again.
+	VisualScriptDocument moved = fixture.Model->GetDisplayDocument();
+	moved.Graph.Nodes[0].Position = glm::vec2(32.0f, 0.0f);
+	commit(moved, true);
+	CHECK(listed("Get Speed"));
+	CHECK(fixture.Palette.GetDocumentReadCount() == reads);
+
+	// A variable added: read again, and offered.
+	VisualScriptDocument added = fixture.Model->GetDisplayDocument();
+	added.Variables.push_back(MakeVariable(102, "Score", "int"));
+	commit(added, false);
+	CHECK(listed("Get Score"));
+	CHECK(fixture.Palette.GetDocumentReadCount() == reads + 1);
+	// Opened again with nothing changed, it reads nothing.
+	CHECK(listed("Get Score"));
+	CHECK(fixture.Palette.GetDocumentReadCount() == reads + 1);
+}
+
+TEST_CASE("VisualScriptEditor: the context palette opened again from another pin lists what connects to that pin")
+{
+	PaneFixture fixture(MakeDocument());
+	REQUIRE(fixture.Settings.IsContextPalette());
+	auto const listed = [&fixture](uint32_t node, std::string const& pin)
+	{
+		fixture.Palette.Open(MakeContextIntent(glm::vec2(400.0f, 320.0f), node, pin, VisualScriptPinDirection::Out));
+		fixture.Frames(2);
+		REQUIRE(fixture.Palette.GetState().From.has_value());
+		CHECK(*fixture.Palette.GetState().From == VisualScriptPinReference{node, pin});
+		return fixture.GetStateTitles();
+	};
+	std::vector<std::string> const then = listed(1, "Then");
+	fixture.Palette.Close();
+	fixture.Frames(1);
+	uint64_t const reads = fixture.Palette.GetDocumentReadCount();
+
+	// The index is kept while nothing changed, but the ranking follows the pin.
+	std::vector<std::string> const result = listed(3, "Result");
+	CHECK(result != then);
+	fixture.Palette.Close();
+	fixture.Frames(1);
+	CHECK(listed(1, "Then") == then);
+	// Opened again over the open palette, from the other pin.
+	CHECK(listed(3, "Result") == result);
+	CHECK(fixture.Palette.GetDocumentReadCount() == reads);
 }
 
 TEST_CASE("VisualScriptEditor: in context mode the palette lists what connects, and offers every node when nothing does")

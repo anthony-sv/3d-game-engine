@@ -23,6 +23,7 @@
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -172,7 +173,7 @@ namespace
 					: Operations.EditVisualScriptAndComponents(Graph, request.Document, request.Description, result.ComponentEdits,
 			                                                   std::move(request.Text));
 			REQUIRE_MESSAGE(executed.IsOk(), (executed ? std::string() : executed.GetError()));
-			Model->OnCommitted(request.Document);
+			Model->OnCommitted(request.Document, request.LayoutOnly);
 			Frame();
 		}
 
@@ -477,6 +478,157 @@ TEST_CASE("VisualScriptEditor: align, distribute, straighten and arrange name wh
 	VisualScriptControllerResult selection = fixture.Act(Action::Arrange, {5, 6});
 	CHECK(Description(selection) == "Arrange 2 Nodes in Player");
 	CHECK(selection.GlideFrom.size() == 2);
+}
+
+TEST_CASE("VisualScriptEditor: the controller marks its layout intents LayoutOnly, and each one's commit keeps the stored program")
+{
+	ControllerFixture fixture;
+	VisualScriptEditContext nudging = fixture.Context();
+	nudging.MergeKey = VisualScriptNudgeMergeKey + 1;
+
+	// Every intent the controller marks: a move, Nudge, Arrange, Align, Distribute, Straighten, a comment box's geometry or
+	// colour, collapsing. Each request is the prepared document, with the stored document's program.
+	struct LayoutCase
+	{
+		char const* Name;
+		std::function<VisualScriptControllerResult()> Resolve;
+	};
+	std::vector<LayoutCase> const layouts = {
+		{"Move",
+	     [&fixture]()
+	     {
+			 return fixture.Resolve(VisualScriptMoveIntent{{2, 3, 30}, glm::vec2(32.0f, 16.0f), true});
+		 }},
+		// Create's row, which the move left.
+		{"Straighten",
+	     [&fixture]()
+	     {
+			 return fixture.Act(Action::Straighten, {1, 2, 3});
+		 }},
+		{"Nudge",
+	     [&fixture, &nudging]()
+	     {
+			 return fixture.Resolve(VisualScriptActionIntent{Action::NudgeRight, {2}, glm::vec2(0.0f)}, nudging);
+		 }},
+		{"Arrange",
+	     [&fixture]()
+	     {
+			 return fixture.Act(Action::Arrange, {});
+		 }},
+		{"Align",
+	     [&fixture]()
+	     {
+			 return fixture.Act(Action::AlignTop, {5, 6, 3});
+		 }},
+		{"Distribute",
+	     [&fixture]()
+	     {
+			 return fixture.Act(Action::DistributeVertically, {2, 5, 8});
+		 }},
+		{"Resize Comment",
+	     [&fixture]()
+	     {
+			 return fixture.Resolve(VisualScriptResizeCommentIntent{30, {glm::vec2(-48.0f, -80.0f), glm::vec2(800.0f, 240.0f)}});
+		 }},
+		{"Recolour Comment",
+	     [&fixture]()
+	     {
+			 return fixture.Edit(VisualScriptCommentEdit{VisualScriptCommentAction::Recolour, 30, "", glm::vec4(0.1f, 0.2f, 0.3f, 0.4f)});
+		 }},
+		{"Fit Comment",
+	     [&fixture]()
+	     {
+			 return fixture.Edit(VisualScriptCommentEdit{VisualScriptCommentAction::FitToContents, 30, "", glm::vec4(0.0f)});
+		 }},
+		{"Collapse",
+	     [&fixture]()
+	     {
+			 return fixture.Act(Action::ToggleCollapsed, {2, 3});
+		 }},
+	};
+	for (LayoutCase const& layout : layouts)
+	{
+		CAPTURE(layout.Name);
+		Ref<VisualScriptDocument const> const stored = fixture.Model->GetStoredDocument();
+		VisualScriptControllerResult result = layout.Resolve();
+		REQUIRE(result.Commit.has_value());
+		CHECK(result.Commit->LayoutOnly);
+		CHECK(HaveSameVisualScriptProgram(*stored, *result.Commit->Document));
+		CHECK_FALSE(*result.Commit->Document == *stored);
+		fixture.Execute(result);
+	}
+
+	// Every other edit changes the program or may: never marked.
+	std::vector<LayoutCase> const others = {
+		{"Connect",
+	     [&fixture]()
+	     {
+			 return fixture.Resolve(VisualScriptConnectIntent{MakeLink(5, "Value", 6, "B"), false, {}});
+		 }},
+		{"Disconnect",
+	     [&fixture]()
+	     {
+			 return fixture.Resolve(VisualScriptDisconnectIntent{{MakeLink(1, "Then", 2, "Execute")}});
+		 }},
+		{"Disable",
+	     [&fixture]()
+	     {
+			 return fixture.Act(Action::ToggleDisabled, {2});
+		 }},
+		{"Node comment",
+	     [&fixture]()
+	     {
+			 return fixture.Edit(VisualScriptNodeCommentEdit{2, "Waits"});
+		 }},
+		{"Rename Comment",
+	     [&fixture]()
+	     {
+			 return fixture.Edit(VisualScriptCommentEdit{VisualScriptCommentAction::Rename, 30, "Begin", glm::vec4(0.0f)});
+		 }},
+		{"Add Comment Box",
+	     [&fixture]()
+	     {
+			 return fixture.Act(Action::AddCommentBox, {5, 6});
+		 }},
+		{"Delete",
+	     [&fixture]()
+	     {
+			 return fixture.Act(Action::Delete, {6});
+		 }},
+	};
+	for (LayoutCase const& other : others)
+	{
+		CAPTURE(other.Name);
+		VisualScriptControllerResult result = other.Resolve();
+		REQUIRE(result.Commit.has_value());
+		CHECK_FALSE(result.Commit->LayoutOnly);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a layout intent whose commit stores a node under its canonical type is not LayoutOnly")
+{
+	// The analysis has a node stored under its member's former name: preparing any commit stores it under the current one,
+	// which changes the program, so even a move is not layout-only.
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes[2].Type = std::string(Testing::RenamedLogSemantics::FormerType);
+	document.Graph.Nodes[2].Inputs = Json::object({{"Text", "Hi"}});
+	ControllerFixture fixture(document);
+	Testing::RenamedLogSemantics renamed(fixture.Semantics);
+	fixture.SemanticsOverride = &renamed;
+	fixture.Semantics.ReloadLibrary();
+	fixture.Frame();
+	fixture.Frame();
+	Ref<VisualScriptDocument const> const stored = fixture.Model->GetStoredDocument();
+	VisualScriptControllerResult moved = fixture.Resolve(VisualScriptMoveIntent{{1}, glm::vec2(16.0f, 0.0f), true});
+	REQUIRE(moved.Commit.has_value());
+	CHECK(moved.Commit->Notes == std::vector<std::string>{"node updated: Call:Strada.Log.Write(string) → Call:Strada.Log.Info(string)"});
+	CHECK_FALSE(moved.Commit->LayoutOnly);
+	CHECK_FALSE(HaveSameVisualScriptProgram(*stored, *moved.Commit->Document));
+	fixture.Execute(moved);
+	// Once stored under its current type, a move is layout-only again.
+	VisualScriptControllerResult again = fixture.Resolve(VisualScriptMoveIntent{{1}, glm::vec2(16.0f, 0.0f), true});
+	REQUIRE(again.Commit.has_value());
+	CHECK(again.Commit->LayoutOnly);
 }
 
 TEST_CASE("VisualScriptEditor: collapsing, disabling and node comments name their nodes, and an empty node comment commits nothing")

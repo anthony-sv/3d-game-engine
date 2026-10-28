@@ -8,6 +8,7 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Timer.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -235,6 +236,8 @@ namespace Strada
 			return Error{found.GetError()};
 		}
 		GraphFile const& file = found.GetValue();
+		m_LastTimings = {};
+		Timer phase;
 		bool const first = !m_Recorded;
 		if (first)
 		{
@@ -242,20 +245,29 @@ namespace Strada
 			{
 				return recorded;
 			}
-			if (!HasEffect())
+			m_LastTimings.ReadBack = phase.GetElapsedMilliseconds();
+			phase.Reset();
+			bool const effect = HasEffect();
+			m_LastTimings.Compare = phase.GetElapsedMilliseconds();
+			if (!effect)
 			{
 				// The file has this document already: nothing is written, and the history drops the step.
 				return {};
 			}
 		}
 
-		std::string text = givenText.empty() ? DumpJson(VisualScriptSerializer::Serialize(*m_After)) : std::move(givenText);
+		phase.Reset();
+		std::string text = givenText.empty() ? VisualScriptSerializer::WriteText(*m_After) : std::move(givenText);
+		m_LastTimings.Text = phase.GetElapsedMilliseconds();
+		phase.Reset();
 		if (Result<void> written = FileSystem::WriteTextFile(file.Path, text); !written)
 		{
 			// A first execution that failed reads the file again when it runs again.
 			m_Recorded = !first;
 			return written;
 		}
+		m_LastTimings.Write = phase.GetElapsedMilliseconds();
+		phase.Reset();
 		m_Wrote = true;
 		m_AfterTextSize = text.size();
 		if (Ref<VisualScriptAsset> const asset = FindLoadedGraph(m_Graph); asset != nullptr)
@@ -270,6 +282,7 @@ namespace Strada
 			context.ForgetVisualScriptText(m_Graph);
 		}
 		AssetManager::RecordFileWrite(m_Graph);
+		m_LastTimings.SetDocument = phase.GetElapsedMilliseconds();
 		return {};
 	}
 
@@ -282,7 +295,7 @@ namespace Strada
 		}
 		std::filesystem::path const& path = found.GetValue().Path;
 		// The kept bytes, or the canonical text of the document the file had.
-		std::string text = m_KeepsBytes ? std::string() : DumpJson(VisualScriptSerializer::Serialize(*m_Before));
+		std::string text = m_KeepsBytes ? std::string() : VisualScriptSerializer::WriteText(*m_Before);
 		Result<void> const written =
 			m_KeepsBytes ? FileSystem::WriteBinaryFile(path, m_BeforeBytes) : FileSystem::WriteTextFile(path, text);
 		if (!written)
@@ -331,6 +344,7 @@ namespace Strada
 		auto& other = static_cast<SetVisualScriptCommand&>(next);
 		m_After = std::move(other.m_After);
 		m_AfterTextSize = other.m_AfterTextSize;
+		m_LastTimings = other.m_LastTimings;
 	}
 
 	Result<void> SetVisualScriptCommand::RecordBefore(EditorContext const& context, std::filesystem::path const& path,
@@ -356,8 +370,7 @@ namespace Strada
 		{
 			// The text the editor wrote last for this very document, else the document serialized again.
 			std::string const* const written = context.FindVisualScriptText(m_Graph, m_Before.get());
-			canonical =
-				written != nullptr ? HoldsText(read, *written) : HoldsText(read, DumpJson(VisualScriptSerializer::Serialize(*m_Before)));
+			canonical = written != nullptr ? HoldsText(read, *written) : HoldsText(read, VisualScriptSerializer::WriteText(*m_Before));
 		}
 		m_KeepsBytes = !canonical;
 		if (m_KeepsBytes)

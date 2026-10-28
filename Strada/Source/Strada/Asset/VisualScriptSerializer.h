@@ -4,6 +4,8 @@
 #include "Strada/Core/Result.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
+#include <glm/glm.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -102,10 +104,34 @@ namespace Strada
 		// MaxTextBytes of UTF-8. Parsed JSON always has UTF-8 and finite numbers; values built in memory may not (a NaN or an
 		// infinity would be written as null).
 		[[nodiscard]] static bool IsValidValue(Json const& value);
+		// Whether a text has the shape the format requires of descriptions, tooltips, the texts of comments and nodes, and the
+		// strings and member names inside values: at most MaxTextBytes of UTF-8, lines and other control characters allowed.
+		[[nodiscard]] static bool IsValidLongText(std::string_view text);
+		// Whether an ID is in the format's range, 1 to MaxID. The loader also requires IDs to be unique across the document,
+		// which this does not check.
+		[[nodiscard]] static bool IsValidID(uint64_t id);
+		// Whether a node's or a comment's position is finite and within +-MaxCoordinate in both coordinates.
+		[[nodiscard]] static bool IsValidPosition(glm::vec2 position);
+		// Whether a comment's size is within [MinCommentSize, MaxCommentSize] in both coordinates.
+		[[nodiscard]] static bool IsValidCommentSize(glm::vec2 size);
+		// Whether a comment's colour has every component within [0, 1].
+		[[nodiscard]] static bool IsValidColor(glm::vec4 color);
+		// Whether a variable's slider range is two finite floats, the minimum first.
+		[[nodiscard]] static bool IsValidRange(glm::vec2 range);
+		// Whether a text is a path Split may list: the rule of IsValidPinPath, which it forwards to. The loader also requires a
+		// list to hold each path once, a field's parent before it and at most MaxSplitPins paths, which this does not check.
+		[[nodiscard]] static bool IsValidSplitPath(std::string_view path);
 
 		// A float as documents store it: a finite number of magnitude at most MaxFloatMagnitude, as the nearest float.
 		// Nothing for anything else.
 		[[nodiscard]] static std::optional<float> ReadFloat(Json const& value);
+
+		// The first thing that keeps this document from loading back exactly as it is: an issue whose path has the loader's
+		// form ("Graph.Nodes[3].ID") and whose message says what is wrong; nothing when WriteText's text loads back strictly as
+		// this document (with no repair, and equal in every value as HaveSameVisualScriptProgram compares them). It applies the
+		// loader's rules, in the loader's order, to the model and builds no Json: when the loader would repair the document,
+		// the issue is one the loader reports. The commit pipeline's strict check. Any thread.
+		[[nodiscard]] static std::optional<VisualScriptIssue> Validate(VisualScriptDocument const& document);
 
 		static Json SerializeDocument(VisualScriptDocument const& document);
 		// Repairs are appended to issues (when given) and always reported through the context's warnings.
@@ -115,6 +141,13 @@ namespace Strada
 		static Json Serialize(VisualScriptDocument const& document);
 		[[nodiscard]] static Result<VisualScriptDocument> Deserialize(Json const& file, DeserializationContext const& context,
 		                                                              std::vector<VisualScriptIssue>* issues = nullptr);
+
+		// The file form's text: equal, byte for byte, to DumpJson(Serialize(document)) for every document, written without
+		// building the Json.
+		[[nodiscard]] static std::string WriteText(VisualScriptDocument const& document);
+		// The content form, compact: equal to SerializeDocument(document).dump(-1, ' ', false, Json::error_handler_t::replace)
+		// for every document, written without building the Json.
+		[[nodiscard]] static std::string WriteContentText(VisualScriptDocument const& document);
 
 		[[nodiscard]] static Result<void> SaveToFile(VisualScriptDocument const& document, std::filesystem::path const& path);
 		[[nodiscard]] static Result<VisualScriptDocument> LoadFromFile(std::filesystem::path const& path,

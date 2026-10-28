@@ -15,6 +15,7 @@ add_executable(StradaTests
     Source/Asset/VisualScriptFuzzTests.cpp
     Source/Asset/VisualScriptLayoutTests.cpp
     Source/Asset/VisualScriptReferencesTests.cpp
+    Source/Asset/VisualScriptRoundTrip.h
     Source/Asset/VisualScriptSerializerTests.cpp
     Source/Audio/AudioEngineTests.cpp
     Source/Audio/AudioSceneTests.cpp
@@ -96,6 +97,7 @@ add_executable(StradaTests
     Source/Script/VisualScriptLiteralsTests.cpp
     Source/Script/VisualScriptVariablesTests.cpp
     Source/Serialization/JsonSerializationTests.cpp
+    Source/Serialization/JsonTextWriterTests.cpp
     Source/Serialization/StructSerializationTests.cpp
     Source/TestUtilities.h
 )

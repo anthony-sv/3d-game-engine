@@ -16,12 +16,42 @@
 // or any other.
 namespace Strada
 {
+	// What a commit spent, in milliseconds (steady_clock), phase by phase: filled by PrepareVisualScriptCommit (the first
+	// three), SetVisualScriptCommand (the next four) and VisualScriptEditorModel::Sync (the last four); read by the
+	// performance tests. A phase that did not run is 0.
+	struct VisualScriptCommitTimings
+	{
+		// RecordFormerNames, ApplyCanonicalNodeTypes, PlaceUnplacedNodes.
+		double Normalize = 0.0;
+		// The strict check: VisualScriptSerializer::Validate.
+		double Check = 0.0;
+		// The file's text: VisualScriptSerializer::WriteText (SetVisualScriptCommand's own when it was given no text).
+		double Text = 0.0;
+		// RecordBefore: the file's bytes and their comparison with the remembered text.
+		double ReadBack = 0.0;
+		// HasEffect's IsSameVisualScriptDocument.
+		double Compare = 0.0;
+		// FileSystem::WriteTextFile.
+		double Write = 0.0;
+		// The asset, RememberVisualScriptText, RecordFileWrite.
+		double SetDocument = 0.0;
+		// The model's AdoptDocument (RecordCommittedLinks, the display copy).
+		double Adopt = 0.0;
+		// RefreshAnalysis: the check against the analyzed document and, when the program changed, the analysis (the text,
+		// the runtime, the parse).
+		double Analysis = 0.0;
+		// VisualScriptCanvasModel::Sync.
+		double Canvas = 0.0;
+		// VisualScriptSpatialIndex::Build.
+		double Index = 0.0;
+	};
+
 	// A document ready to write, with what preparing it changed besides the edit.
 	struct VisualScriptCommit
 	{
 		VisualScriptDocument Document;
-		// The canonical text of Document's file (DumpJson(VisualScriptSerializer::Serialize(Document))), which the strict check
-		// read back: writers hand it to EditorOperations::EditVisualScript, so a commit serializes its document once.
+		// The canonical text of Document's file (VisualScriptSerializer::WriteText(Document)), written once the strict check
+		// passed: writers hand it to EditorOperations::EditVisualScript, so a commit writes its document's text once.
 		std::string Text;
 		// In this order: "variable renamed: <old> → <new> (<old> is kept in FormerNames)" for each former name of a variable
 		// and "parameter renamed: <function>'s <old> → <new> (<old> is kept in FormerNames)" for each of a library's
@@ -31,6 +61,8 @@ namespace Strada
 		std::vector<std::string> Warnings;
 		// How many of Warnings, from the first, are step 1's renames; the others are step 2's canonical rewrites.
 		size_t RenameCount = 0;
+		// Normalize (steps 1 to 3), Check (step 4) and Text.
+		VisualScriptCommitTimings Timings;
 	};
 
 	// What every writer of a visual script does to the document it writes, in order:
@@ -43,9 +75,9 @@ namespace Strada
 	//     inputs and split paths following; nodes it resolved exactly that stored has with the same Type and Settings keep
 	//     their Type and have the pins it renamed (a former parameter name of a library function) follow the same way;
 	//  3. PlaceUnplacedNodes;
-	//  4. the strict check: the file to write (the Json its text is made of) must load again as graph.set reads documents,
+	//  4. the strict check, VisualScriptSerializer::Validate: the file to write must load again as graph.set reads documents,
 	//     with no repair and unchanged. Otherwise nothing may be written and the commit fails with "the edit would write an
-	//     invalid document: <path>: <message>" (an editor bug, never user input that loaded).
+	//     invalid document: <path>: <message>" (an editor bug, never user input that loaded); then its text, WriteText.
 	// stored is the document from before the undo step the commit belongs to: the document the file has, except for a commit
 	// that merges into the step of earlier ones (the same graph and merge key), which passes the stored document of the
 	// step's first commit. So a variable added and then given its first name in one step (Add Variable) is new to stored when
@@ -70,6 +102,13 @@ namespace Strada
 		std::vector<uint32_t> Select;
 		// Shown in a toast: paste notes, canonical rewrites.
 		std::vector<std::string> Notes;
+		// The edit changed the layout only, and preparing it rewrote nothing: Document has the program of the document it was
+		// made from (HaveSameVisualScriptProgram). Set by the controller for its layout intents (a move, Arrange, Align,
+		// Distribute, Straighten, a comment box's geometry or colour, collapsing), never by the panes; the window then adopts
+		// the commit without analyzing it again, giving the palette the document again or laying out more than moved.
+		bool LayoutOnly = false;
+		// VisualScriptCommit::Timings of the preparation.
+		VisualScriptCommitTimings Timings;
 	};
 
 	// PrepareVisualScriptCommit (stored as it says: the document from before the step, for each commit of a step), then

@@ -2,6 +2,7 @@
 
 #include "Editor/Commands/ComponentCommands.h"
 #include "Editor/Commands/EditorCommand.h"
+#include "Editor/VisualScripting/VisualScriptCommit.h"
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
@@ -79,6 +80,9 @@ namespace Strada
 		AssetHandle GetEditedAsset() const override { return m_Graph; }
 		// The canonical text written for the document, and the file's bytes kept to give back.
 		size_t GetMemoryUse() const override { return m_AfterTextSize + m_BeforeBytes.size(); }
+		// What the last execution spent: ReadBack, Compare, Write and SetDocument (the phases of a commit this step runs), and
+		// Text when it serialized the document itself; the step a later one merged into takes the later one's.
+		VisualScriptCommitTimings const& GetLastTimings() const { return m_LastTimings; }
 
 	private:
 		// Reads what the file holds before the first execution.
@@ -107,6 +111,7 @@ namespace Strada
 		// The kept bytes load as m_Before. They do not when the file changed outside the editor after the asset loaded and
 		// no refresh has seen it yet: undo then writes them back without recording the write, so the next refresh loads them.
 		bool m_BytesLoadAsBefore = true;
+		VisualScriptCommitTimings m_LastTimings;
 	};
 
 	// One step that edits a visual script and the components of entities that run it (an entity dropped into a graph becomes

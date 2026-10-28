@@ -4,6 +4,7 @@
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
+#include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptController.h"
 #include "Editor/VisualScripting/VisualScriptDetails.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
@@ -262,6 +263,9 @@ namespace Strada
 		// What graph.editors reports of the window, as its last draw saw it.
 		VisualScriptEditorState GetState() const;
 		VisualScriptEditorModel const& GetModel() const { return m_Model; }
+		// What preparing the last commit the window executed spent (VisualScriptCommitRequest::Timings: Normalize, Check, Text);
+		// the performance tests read it with the step's and the model's.
+		VisualScriptCommitTimings const& GetLastCommitTimings() const { return m_LastCommitTimings; }
 		AssetHandle GetGraph() const { return m_Graph; }
 		// The title the window shows; empty shows the file's stem (the window manager names two graphs with one stem by their
 		// folders). The window keeps its identity across titles.
@@ -711,6 +715,7 @@ namespace Strada
 		std::optional<TextEdit> m_TextEdit;
 		std::vector<Toast> m_Toasts;
 		VisualScriptSaveState m_SaveState = VisualScriptSaveState::Saved;
+		VisualScriptCommitTimings m_LastCommitTimings;
 		VisualScriptDrawerMode m_DrawerMode = VisualScriptDrawerMode::Closed;
 		float m_DrawerHeight = VisualScriptDrawerDefaultHeight;
 		// The stacked column's share above its splitter (VisualScriptStackShare).

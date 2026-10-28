@@ -94,12 +94,6 @@ namespace Strada
 			                 Quote(name), Format::MaxNameBytes);
 		}
 
-		// Descriptions, tooltips and the texts of comments and nodes: at most MaxTextBytes of UTF-8 (lines allowed).
-		bool IsValidLongText(std::string_view text)
-		{
-			return text.size() <= Format::MaxTextBytes && Utf8::IsValid(text);
-		}
-
 		Error MakeLongTextError(std::string_view what)
 		{
 			return MakeError("{} must be UTF-8 of at most {} bytes", what, Format::MaxTextBytes);
@@ -2559,7 +2553,7 @@ namespace Strada
 
 		Result<void> SetNodeComment(VisualScriptDocument& document, std::span<uint32_t const> nodes, std::string const& comment)
 		{
-			if (!IsValidLongText(comment))
+			if (!Format::IsValidLongText(comment))
 			{
 				return MakeLongTextError("a node comment");
 			}
@@ -2774,7 +2768,7 @@ namespace Strada
 				return Error{found.GetError()};
 			}
 			VisualScriptGraph& graph = *found.GetValue();
-			if (!IsValidLongText(text))
+			if (!Format::IsValidLongText(text))
 			{
 				return MakeLongTextError("a comment's text");
 			}
@@ -2835,7 +2829,7 @@ namespace Strada
 			{
 				return Error{found.GetError()};
 			}
-			if (!IsValidLongText(text))
+			if (!Format::IsValidLongText(text))
 			{
 				return MakeLongTextError("a comment's text");
 			}
@@ -2876,7 +2870,7 @@ namespace Strada
 
 		Result<void> SetDescription(VisualScriptDocument& document, std::string description)
 		{
-			if (!IsValidLongText(description))
+			if (!Format::IsValidLongText(description))
 			{
 				return MakeLongTextError("a description");
 			}
@@ -2946,7 +2940,7 @@ namespace Strada
 			{
 				return MakeValueError("a variable's value");
 			}
-			if (!IsValidLongText(variable.Tooltip))
+			if (!Format::IsValidLongText(variable.Tooltip))
 			{
 				return MakeLongTextError("a tooltip");
 			}

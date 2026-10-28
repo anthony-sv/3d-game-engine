@@ -2,11 +2,14 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Hash.h"
 #include "Strada/Core/Utf8.h"
+#include "Strada/Serialization/JsonTextWriter.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <iterator>
 #include <limits>
 #include <optional>
@@ -73,11 +76,21 @@ namespace Strada
 							   });
 		}
 
-		// The strings of values and their member names, and the texts of documents (descriptions, tooltips, the texts of
-		// comments and nodes): at most MaxTextBytes of UTF-8 (lines allowed).
-		bool IsValidLongText(std::string_view text)
+		// The geometry predicates' rules, per number: the loader applies them to the numbers it reads (doubles, which may lie
+		// between two floats, so that a repair is reported as it always was), the predicates to the model's floats.
+		bool IsCoordinate(double value)
 		{
-			return text.size() <= Format::MaxTextBytes && Utf8::IsValid(text);
+			return value >= -Format::MaxCoordinate && value <= Format::MaxCoordinate;
+		}
+
+		bool IsCommentExtent(double value)
+		{
+			return value >= Format::MinCommentSize && value <= Format::MaxCommentSize;
+		}
+
+		bool IsColorComponent(double value)
+		{
+			return value >= 0.0 && value <= 1.0;
 		}
 
 		// VisualScriptSerializer::IsValidValue of a value at a depth (the value itself is level 1): the depth limit also bounds
@@ -90,7 +103,7 @@ namespace Strada
 			}
 			if (value.is_string())
 			{
-				return IsValidLongText(value.get_ref<std::string const&>());
+				return Format::IsValidLongText(value.get_ref<std::string const&>());
 			}
 			if (value.is_number_float())
 			{
@@ -100,7 +113,7 @@ namespace Strada
 			{
 				for (auto const& item : value.items())
 				{
-					if (!IsValidLongText(item.key()) || !IsValidValueAt(item.value(), depth + 1))
+					if (!Format::IsValidLongText(item.key()) || !IsValidValueAt(item.value(), depth + 1))
 					{
 						return false;
 					}
@@ -118,12 +131,18 @@ namespace Strada
 			return value.is_null() || value.is_boolean() || value.is_number();
 		}
 
+		// Why a value fails IsValidValue.
+		std::string DescribeInvalidValue()
+		{
+			return fmt::format("nested deeper than {} levels, or holds a number that is not finite or a string of more than {} bytes or "
+			                   "not of UTF-8",
+			                   Format::MaxValueDepth, Format::MaxTextBytes);
+		}
+
 		// Why a value fails IsValidValue, followed by what happens to it.
 		std::string DescribeInvalidValue(std::string_view consequence)
 		{
-			return fmt::format("nested deeper than {} levels, or holds a number that is not finite or a string of more than {} bytes or "
-			                   "not of UTF-8; {}",
-			                   Format::MaxValueDepth, Format::MaxTextBytes, consequence);
+			return fmt::format("{}; {}", DescribeInvalidValue(), consequence);
 		}
 
 		// IDs are integers from 1 to MaxID, however the JSON stores them (documents built in memory hold signed integers).
@@ -136,10 +155,11 @@ namespace Strada
 			if (value.is_number_unsigned())
 			{
 				uint64_t const id = value.get<uint64_t>();
-				return id >= 1 && id <= Format::MaxID ? std::optional<uint32_t>(static_cast<uint32_t>(id)) : std::nullopt;
+				return Format::IsValidID(id) ? std::optional<uint32_t>(static_cast<uint32_t>(id)) : std::nullopt;
 			}
+			// A negative ID converts to more than MaxID.
 			int64_t const id = value.get<int64_t>();
-			return id >= 1 && id <= Format::MaxID ? std::optional<uint32_t>(static_cast<uint32_t>(id)) : std::nullopt;
+			return Format::IsValidID(static_cast<uint64_t>(id)) ? std::optional<uint32_t>(static_cast<uint32_t>(id)) : std::nullopt;
 		}
 
 		// [nodeID, "Pin"].
@@ -369,7 +389,7 @@ namespace Strada
 					return {};
 				}
 				// Parsed JSON always holds UTF-8; documents built in memory may not, and the writer would replace what is not.
-				if (found->is_string() && IsValidLongText(found->get_ref<std::string const&>()))
+				if (found->is_string() && Format::IsValidLongText(found->get_ref<std::string const&>()))
 				{
 					return found->get<std::string>();
 				}
@@ -440,7 +460,7 @@ namespace Strada
 				{
 					std::optional<float> const minimum = Format::ReadFloat((*found)[0]);
 					std::optional<float> const maximum = Format::ReadFloat((*found)[1]);
-					if (minimum && maximum && *minimum <= *maximum)
+					if (minimum && maximum && Format::IsValidRange(glm::vec2(*minimum, *maximum)))
 					{
 						return glm::vec2(*minimum, *maximum);
 					}
@@ -451,16 +471,18 @@ namespace Strada
 				return std::nullopt;
 			}
 
-			// Moves coordinates outside [minimum, maximum] to the nearest bound, reporting when any moved.
-			glm::vec2 Clamp(std::array<double, 2> const& values, double minimum, double maximum, std::string_view path)
+			// Moves finite coordinates that break the rule (within [minimum, maximum]) to the nearest bound, reporting when any
+			// moved.
+			glm::vec2 Clamp(std::array<double, 2> const& values, bool (*rule)(double), double minimum, double maximum,
+			                std::string_view path)
 			{
 				glm::vec2 result{};
 				bool clamped = false;
 				for (glm::length_t i = 0; i < 2; i++)
 				{
-					double const value = std::clamp(values[static_cast<size_t>(i)], minimum, maximum);
-					clamped = clamped || value != values[static_cast<size_t>(i)];
-					result[i] = static_cast<float>(value);
+					double const value = values[static_cast<size_t>(i)];
+					clamped = clamped || !rule(value);
+					result[i] = static_cast<float>(std::clamp(value, minimum, maximum));
 				}
 				if (clamped)
 				{
@@ -483,11 +505,11 @@ namespace Strada
 					Report(path, "expected two numbers; the node is unplaced");
 					return std::nullopt;
 				}
-				return Clamp(*values, -Format::MaxCoordinate, Format::MaxCoordinate, path);
+				return Clamp(*values, IsCoordinate, -Format::MaxCoordinate, Format::MaxCoordinate, path);
 			}
 
 			glm::vec2 ReadCommentVector(Json const& comment, char const* key, std::string_view commentPath, glm::vec2 fallback,
-			                            double minimum, double maximum)
+			                            bool (*rule)(double), double minimum, double maximum)
 			{
 				auto const found = comment.find(key);
 				if (found == comment.end())
@@ -501,7 +523,7 @@ namespace Strada
 					Report(path, fmt::format("expected two numbers; replaced by [{}, {}]", fallback.x, fallback.y));
 					return fallback;
 				}
-				return Clamp(*values, minimum, maximum, path);
+				return Clamp(*values, rule, minimum, maximum, path);
 			}
 
 			glm::vec4 ReadCommentColor(Json const& comment, std::string_view commentPath)
@@ -513,11 +535,7 @@ namespace Strada
 					return fallback;
 				}
 				std::optional<std::array<double, 4>> const values = ToNumbers<4>(*found);
-				if (values && std::all_of(values->begin(), values->end(),
-				                          [](double value)
-				                          {
-											  return value >= 0.0 && value <= 1.0;
-										  }))
+				if (values && std::all_of(values->begin(), values->end(), IsColorComponent))
 				{
 					return {static_cast<float>((*values)[0]), static_cast<float>((*values)[1]), static_cast<float>((*values)[2]),
 					        static_cast<float>((*values)[3])};
@@ -959,7 +977,7 @@ namespace Strada
 				{
 					Json const& entry = (*list)[i];
 					std::string const path = Element(listPath, i);
-					if (!entry.is_string() || !Format::IsValidPinPath(entry.get_ref<std::string const&>()))
+					if (!entry.is_string() || !Format::IsValidSplitPath(entry.get_ref<std::string const&>()))
 					{
 						Report(path, fmt::format("expected a pin name or the path of a field pin (\"Hit.Point\"): names separated by '.', "
 						                         "1 to {} bytes without control characters; dropped",
@@ -1215,9 +1233,10 @@ namespace Strada
 					VisualScriptComment comment;
 					comment.ID = Claim(*id);
 					comment.Text = ReadText(value, "Text", path);
-					comment.Position =
-						ReadCommentVector(value, "Position", path, defaults.Position, -Format::MaxCoordinate, Format::MaxCoordinate);
-					comment.Size = ReadCommentVector(value, "Size", path, defaults.Size, Format::MinCommentSize, Format::MaxCommentSize);
+					comment.Position = ReadCommentVector(value, "Position", path, defaults.Position, IsCoordinate, -Format::MaxCoordinate,
+					                                     Format::MaxCoordinate);
+					comment.Size = ReadCommentVector(value, "Size", path, defaults.Size, IsCommentExtent, Format::MinCommentSize,
+					                                 Format::MaxCommentSize);
 					comment.Color = ReadCommentColor(value, path);
 					graph.Comments.push_back(std::move(comment));
 				}
@@ -1229,6 +1248,524 @@ namespace Strada
 			std::vector<VisualScriptIssue> m_Issues;
 			std::unordered_set<uint32_t> m_IDs;
 			std::unordered_set<std::string> m_VariableNames;
+		};
+
+		// A link's ends and pins, as the loader tells links apart.
+		struct LinkKey
+		{
+			uint32_t FromNode = 0;
+			std::string_view FromPin;
+			uint32_t ToNode = 0;
+			std::string_view ToPin;
+
+			bool operator==(LinkKey const& other) const = default;
+		};
+
+		struct LinkKeyHash
+		{
+			size_t operator()(LinkKey const& key) const
+			{
+				uint64_t hash = Hash::Combine(Hash::FNV1a(key.FromPin), key.FromNode);
+				hash = Hash::Combine(Hash::Combine(hash, Hash::FNV1a(key.ToPin)), key.ToNode);
+				return static_cast<size_t>(hash);
+			}
+		};
+
+		// VisualScriptSerializer::Validate: the loader's rules (DocumentReader), applied to the model in the loader's order with
+		// the loader's bookkeeping, so that the first rule a document breaks is the first repair the loader would report. The
+		// writer omits Settings and Inputs that are empty, null included (json.hpp:2933), and the loader reads them back as {}:
+		// a document whose Settings or Inputs are null or an empty array loads without a repair, yet not as it is. That is
+		// reported only when nothing the loader repairs is found, so a path given when the loader reports repairs is one of
+		// theirs. Paths are made only for the issue reported.
+		class DocumentValidator
+		{
+		public:
+			std::optional<VisualScriptIssue> Run(VisualScriptDocument const& document)
+			{
+				size_t elements = document.Variables.size() + document.Graph.Nodes.size() + document.Graph.Comments.size();
+				for (VisualScriptFunction const& function : document.Functions)
+				{
+					elements += 1 + function.Locals.size() + function.Graph.Nodes.size() + function.Graph.Comments.size();
+				}
+				m_IDs.reserve(elements);
+				if (!CheckContent(document))
+				{
+					return std::move(m_Issue);
+				}
+				return std::move(m_Unread);
+			}
+
+		private:
+			// An element of a list ("Graph.Nodes[3]"), and the paths of its keys, made when an issue names them.
+			struct ElementPath
+			{
+				std::string_view List;
+				size_t Index = 0;
+
+				std::string Get() const { return Element(List, Index); }
+				std::string Get(std::string_view key) const { return Member(Get(), key); }
+			};
+
+			bool Fail(std::string path, std::string message)
+			{
+				m_Issue = VisualScriptIssue{std::move(path), std::move(message)};
+				return false;
+			}
+
+			bool FailName(std::string path)
+			{
+				return Fail(std::move(path), fmt::format("expected a name of 1 to {} bytes without control characters, '.' or a leading or "
+				                                         "trailing space",
+				                                         Format::MaxNameBytes));
+			}
+
+			bool FailType(std::string path, size_t maxBytes)
+			{
+				return Fail(std::move(path), fmt::format("expected a type of 1 to {} bytes without control characters", maxBytes));
+			}
+
+			bool FailText(std::string path)
+			{
+				return Fail(std::move(path), fmt::format("expected a string of UTF-8 of at most {} bytes", Format::MaxTextBytes));
+			}
+
+			bool FailPosition(std::string path)
+			{
+				return Fail(std::move(path),
+				            fmt::format("expected two numbers from {} to {}", -Format::MaxCoordinate, Format::MaxCoordinate));
+			}
+
+			// An element's ID: in range and not taken by an earlier element of the document. Claimed by the caller once the
+			// element's other keys pass, as the loader claims it.
+			bool CheckNewID(uint32_t id, ElementPath const& path)
+			{
+				if (!Format::IsValidID(id))
+				{
+					return Fail(path.Get("ID"), fmt::format("expected an integer from 1 to {}", Format::MaxID));
+				}
+				if (m_IDs.contains(id))
+				{
+					return Fail(path.Get("ID"), fmt::format("{} is the ID of an earlier element", id));
+				}
+				return true;
+			}
+
+			bool CheckValue(Json const& value, ElementPath const& path)
+			{
+				return value.is_null() || Format::IsValidValue(value) || Fail(path.Get("Value"), DescribeInvalidValue());
+			}
+
+			bool CheckContent(VisualScriptDocument const& document)
+			{
+				if (VisualScriptDocumentKindToString(document.Kind).empty())
+				{
+					return Fail("Kind", "expected \"Script\" or \"Library\"");
+				}
+				if (!Format::IsValidLongText(document.Description))
+				{
+					return FailText("Description");
+				}
+				return CheckVariables(document.Variables) && CheckFunctions(document.Functions) && CheckGraph(document.Graph, "Graph");
+			}
+
+			bool CheckVariables(std::vector<VisualScriptVariable> const& variables)
+			{
+				for (size_t i = 0; i < variables.size(); i++)
+				{
+					VisualScriptVariable const& variable = variables[i];
+					ElementPath const path{"Variables", i};
+					if (i == Format::MaxVariables)
+					{
+						return Fail(path.Get(), fmt::format("more than {} variables", Format::MaxVariables));
+					}
+					if (!CheckNewID(variable.ID, path))
+					{
+						return false;
+					}
+					if (!Format::IsValidName(variable.Name))
+					{
+						return FailName(path.Get("Name"));
+					}
+					if (!m_VariableNames.insert(variable.Name).second)
+					{
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of an earlier variable", variable.Name));
+					}
+					if (!Format::IsValidText(variable.Type, Format::MaxTypeBytes))
+					{
+						return FailType(path.Get("Type"), Format::MaxTypeBytes);
+					}
+					m_IDs.insert(variable.ID);
+					if (!CheckValue(variable.Value, path))
+					{
+						return false;
+					}
+					if (!Format::IsValidLongText(variable.Tooltip))
+					{
+						return FailText(path.Get("Tooltip"));
+					}
+					if (variable.Range && !Format::IsValidRange(*variable.Range))
+					{
+						return Fail(path.Get("Range"), "expected two finite numbers, the minimum first");
+					}
+				}
+				// Checked once every variable is, as the loader reads them: no former name is the name of a variable, later ones
+				// included, or a former name of an earlier variable.
+				std::unordered_set<std::string_view> taken;
+				for (size_t i = 0; i < variables.size(); i++)
+				{
+					if (!CheckFormerNames(variables[i].FormerNames, ElementPath{"Variables", i}, m_VariableNames, "a variable", taken))
+					{
+						return false;
+					}
+				}
+				return true;
+			}
+
+			// The FormerNames of the element at owner.
+			bool CheckFormerNames(std::vector<std::string> const& formerNames, ElementPath const& owner,
+			                      std::unordered_set<std::string_view> const& names, std::string_view ownerName,
+			                      std::unordered_set<std::string_view>& taken)
+			{
+				for (size_t i = 0; i < formerNames.size(); i++)
+				{
+					std::string const& name = formerNames[i];
+					auto const path = [&owner, i]()
+					{
+						return Element(owner.Get("FormerNames"), i);
+					};
+					if (i == Format::MaxFormerNames)
+					{
+						return Fail(path(), fmt::format("more than {} former names", Format::MaxFormerNames));
+					}
+					if (!Format::IsValidName(name))
+					{
+						return FailName(path());
+					}
+					if (names.contains(name))
+					{
+						return Fail(path(), fmt::format("'{}' is the name of {}", name, ownerName));
+					}
+					if (!taken.insert(name).second)
+					{
+						return Fail(path(), fmt::format("'{}' is already a former name", name));
+					}
+				}
+				return true;
+			}
+
+			bool CheckFunctions(std::vector<VisualScriptFunction> const& functions)
+			{
+				std::unordered_set<std::string_view> names;
+				for (size_t i = 0; i < functions.size(); i++)
+				{
+					VisualScriptFunction const& function = functions[i];
+					ElementPath const path{"Functions", i};
+					if (i == Format::MaxFunctions)
+					{
+						return Fail(path.Get(), fmt::format("more than {} functions", Format::MaxFunctions));
+					}
+					if (!CheckNewID(function.ID, path))
+					{
+						return false;
+					}
+					if (!Format::IsValidName(function.Name))
+					{
+						return FailName(path.Get("Name"));
+					}
+					if (!names.insert(function.Name).second)
+					{
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of an earlier function", function.Name));
+					}
+					m_IDs.insert(function.ID);
+					if (!CheckParameters(function.Inputs, path.Get("Inputs")) || !CheckParameters(function.Outputs, path.Get("Outputs")) ||
+					    !CheckLocals(function.Locals, path.Get("Locals")) || !CheckGraph(function.Graph, path.Get("Graph")))
+					{
+						return false;
+					}
+				}
+				return true;
+			}
+
+			bool CheckParameters(std::vector<VisualScriptParameter> const& parameters, std::string const& listPath)
+			{
+				std::unordered_set<std::string_view> names;
+				for (size_t i = 0; i < parameters.size(); i++)
+				{
+					VisualScriptParameter const& parameter = parameters[i];
+					ElementPath const path{listPath, i};
+					if (i == Format::MaxParameters)
+					{
+						return Fail(path.Get(), fmt::format("more than {} parameters", Format::MaxParameters));
+					}
+					if (!Format::IsValidName(parameter.Name))
+					{
+						return FailName(path.Get("Name"));
+					}
+					if (!names.insert(parameter.Name).second)
+					{
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of an earlier parameter", parameter.Name));
+					}
+					if (!Format::IsValidText(parameter.Type, Format::MaxTypeBytes))
+					{
+						return FailType(path.Get("Type"), Format::MaxTypeBytes);
+					}
+				}
+				// Per list, once every parameter of it is checked: no former name is the name of a parameter of the list, later
+				// ones included, or a former name of an earlier parameter of it.
+				std::unordered_set<std::string_view> taken;
+				for (size_t i = 0; i < parameters.size(); i++)
+				{
+					if (!CheckFormerNames(parameters[i].FormerNames, ElementPath{listPath, i}, names, "a parameter of this list", taken))
+					{
+						return false;
+					}
+				}
+				return true;
+			}
+
+			bool CheckLocals(std::vector<VisualScriptLocal> const& locals, std::string const& listPath)
+			{
+				std::unordered_set<std::string_view> names;
+				for (size_t i = 0; i < locals.size(); i++)
+				{
+					VisualScriptLocal const& local = locals[i];
+					ElementPath const path{listPath, i};
+					if (i == Format::MaxLocals)
+					{
+						return Fail(path.Get(), fmt::format("more than {} locals", Format::MaxLocals));
+					}
+					if (!CheckNewID(local.ID, path))
+					{
+						return false;
+					}
+					if (!Format::IsValidName(local.Name))
+					{
+						return FailName(path.Get("Name"));
+					}
+					if (!names.insert(local.Name).second)
+					{
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of an earlier local", local.Name));
+					}
+					if (m_VariableNames.contains(local.Name))
+					{
+						return Fail(path.Get("Name"), fmt::format("'{}' is the name of a variable", local.Name));
+					}
+					if (!Format::IsValidText(local.Type, Format::MaxTypeBytes))
+					{
+						return FailType(path.Get("Type"), Format::MaxTypeBytes);
+					}
+					m_IDs.insert(local.ID);
+					if (!CheckValue(local.Value, path))
+					{
+						return false;
+					}
+				}
+				return true;
+			}
+
+			bool CheckGraph(VisualScriptGraph const& graph, std::string const& graphPath)
+			{
+				m_NodeIDs.clear();
+				m_NodeIDs.reserve(graph.Nodes.size());
+				std::string const nodesPath = Member(graphPath, "Nodes");
+				for (size_t i = 0; i < graph.Nodes.size(); i++)
+				{
+					if (!CheckNode(graph.Nodes[i], ElementPath{nodesPath, i}))
+					{
+						return false;
+					}
+				}
+				std::string const linksPath = Member(graphPath, "Links");
+				std::unordered_set<LinkKey, LinkKeyHash> links;
+				links.reserve(graph.Links.size());
+				for (size_t i = 0; i < graph.Links.size(); i++)
+				{
+					VisualScriptLink const& link = graph.Links[i];
+					ElementPath const path{linksPath, i};
+					if (i == Format::MaxLinksPerGraph)
+					{
+						return Fail(path.Get(), fmt::format("more than {} links in a graph", Format::MaxLinksPerGraph));
+					}
+					if (!CheckEndpoint(link.From, path, "From") || !CheckEndpoint(link.To, path, "To"))
+					{
+						return false;
+					}
+					if (!links.insert({link.From.Node, link.From.Pin, link.To.Node, link.To.Pin}).second)
+					{
+						return Fail(path.Get(), "repeats an earlier link");
+					}
+				}
+				std::string const commentsPath = Member(graphPath, "Comments");
+				for (size_t i = 0; i < graph.Comments.size(); i++)
+				{
+					VisualScriptComment const& comment = graph.Comments[i];
+					ElementPath const path{commentsPath, i};
+					if (i == Format::MaxCommentsPerGraph)
+					{
+						return Fail(path.Get(), fmt::format("more than {} comments in a graph", Format::MaxCommentsPerGraph));
+					}
+					if (!CheckNewID(comment.ID, path))
+					{
+						return false;
+					}
+					m_IDs.insert(comment.ID);
+					if (!Format::IsValidLongText(comment.Text))
+					{
+						return FailText(path.Get("Text"));
+					}
+					if (!Format::IsValidPosition(comment.Position))
+					{
+						return FailPosition(path.Get("Position"));
+					}
+					if (!Format::IsValidCommentSize(comment.Size))
+					{
+						return Fail(path.Get("Size"),
+						            fmt::format("expected two numbers from {} to {}", Format::MinCommentSize, Format::MaxCommentSize));
+					}
+					if (!Format::IsValidColor(comment.Color))
+					{
+						return Fail(path.Get("Color"), "expected four numbers from 0 to 1");
+					}
+				}
+				return true;
+			}
+
+			bool CheckNode(VisualScriptNode const& node, ElementPath const& path)
+			{
+				if (path.Index == Format::MaxNodesPerGraph)
+				{
+					return Fail(path.Get(), fmt::format("more than {} nodes in a graph", Format::MaxNodesPerGraph));
+				}
+				if (!CheckNewID(node.ID, path))
+				{
+					return false;
+				}
+				if (!Format::IsValidText(node.Type, Format::MaxNodeTypeBytes))
+				{
+					return FailType(path.Get("Type"), Format::MaxNodeTypeBytes);
+				}
+				m_IDs.insert(node.ID);
+				m_NodeIDs.insert(node.ID);
+				if (node.Position && !Format::IsValidPosition(*node.Position))
+				{
+					return FailPosition(path.Get("Position"));
+				}
+				if (!CheckMembers(node.Settings, path, "Settings") || !CheckMembers(node.Inputs, path, "Inputs") ||
+				    !CheckSplitPins(node.Split.Inputs, path, "Inputs") || !CheckSplitPins(node.Split.Outputs, path, "Outputs"))
+				{
+					return false;
+				}
+				if (!Format::IsValidLongText(node.Comment))
+				{
+					return FailText(path.Get("Comment"));
+				}
+				if (VisualScriptNodeEnabledToString(node.Enabled).empty())
+				{
+					return Fail(path.Get("Enabled"), "expected \"Enabled\", \"Disabled\" or \"DevelopmentOnly\"");
+				}
+				return true;
+			}
+
+			// A node's Settings or Inputs (key): an object of at most MaxSettingsMembers members with valid names and values.
+			bool CheckMembers(Json const& members, ElementPath const& node, std::string_view key)
+			{
+				if (!members.is_object())
+				{
+					if (!members.empty())
+					{
+						return Fail(node.Get(key), "expected an object");
+					}
+					if (!m_Unread)
+					{
+						m_Unread = VisualScriptIssue{node.Get(key), "expected an object: null and [] are not written, and read back as {}"};
+					}
+					return true;
+				}
+				size_t count = 0;
+				for (auto const& item : members.items())
+				{
+					std::string const& name = item.key();
+					if (!Format::IsValidText(name, Format::MaxPinNameBytes))
+					{
+						return Fail(node.Get(key), fmt::format("the member {} has no valid name: member names are 1 to {} bytes without "
+						                                       "control characters",
+						                                       Quote(name), Format::MaxPinNameBytes));
+					}
+					if (count == Format::MaxSettingsMembers)
+					{
+						return Fail(Member(node.Get(key), name), fmt::format("more than {} members", Format::MaxSettingsMembers));
+					}
+					if (!Format::IsValidValue(item.value()))
+					{
+						return Fail(Member(node.Get(key), name), DescribeInvalidValue());
+					}
+					count++;
+				}
+				return true;
+			}
+
+			// A list of a node's Split (key): pin paths, each once, a field after its parent, at most MaxSplitPins.
+			bool CheckSplitPins(std::vector<std::string> const& paths, ElementPath const& node, std::string_view key)
+			{
+				for (size_t i = 0; i < paths.size(); i++)
+				{
+					std::string const& pin = paths[i];
+					auto const path = [&node, key, i]()
+					{
+						return Element(Member(node.Get("Split"), key), i);
+					};
+					if (!Format::IsValidSplitPath(pin))
+					{
+						return Fail(path(), fmt::format("expected a pin name or the path of a field pin (\"Hit.Point\"): names separated "
+						                                "by '.', 1 to {} bytes without control characters",
+						                                Format::MaxPinNameBytes));
+					}
+					if (i == Format::MaxSplitPins)
+					{
+						return Fail(path(), fmt::format("more than {} split pins", Format::MaxSplitPins));
+					}
+					auto const earlier = paths.begin() + static_cast<std::ptrdiff_t>(i);
+					if (std::find(paths.begin(), earlier, pin) != earlier)
+					{
+						return Fail(path(), fmt::format("'{}' is already split", pin));
+					}
+					size_t const field = pin.rfind('.');
+					if (field != std::string::npos)
+					{
+						std::string_view const parent = std::string_view(pin).substr(0, field);
+						if (std::find(paths.begin(), earlier, parent) == earlier)
+						{
+							return Fail(path(), fmt::format("'{}' is a field of '{}', which is not split before it", pin, parent));
+						}
+					}
+				}
+				return true;
+			}
+
+			// A link's end (key: From or To).
+			bool CheckEndpoint(VisualScriptPinReference const& end, ElementPath const& link, std::string_view key)
+			{
+				// The loader reads a link's pins as pin names (ToPinReference), not as pin paths.
+				if (!Format::IsValidID(end.Node) || !Format::IsValidText(end.Pin, Format::MaxPinNameBytes))
+				{
+					return Fail(link.Get(key), fmt::format("expected [node ID, pin name] with a pin name of 1 to {} bytes without control "
+					                                       "characters",
+					                                       Format::MaxPinNameBytes));
+				}
+				if (!m_NodeIDs.contains(end.Node))
+				{
+					return Fail(link.Get(key), fmt::format("node {} is not in this graph", end.Node));
+				}
+				return true;
+			}
+
+			std::optional<VisualScriptIssue> m_Issue;
+			// The first Settings or Inputs that are null or an empty array.
+			std::optional<VisualScriptIssue> m_Unread;
+			std::unordered_set<uint32_t> m_IDs;
+			std::unordered_set<std::string_view> m_VariableNames;
+			// The node IDs of the graph being checked.
+			std::unordered_set<uint32_t> m_NodeIDs;
 		};
 
 		Json SerializePin(VisualScriptPinReference const& pin)
@@ -1329,6 +1866,292 @@ namespace Strada
 			}
 			return json;
 		}
+
+		// The text writers mirror SerializeGraph, SerializeParameters and SerializeDocument key for key, with the same
+		// conditions for what they omit: what each writes is what nlohmann writes of the Json those build (proven by tests).
+
+		void WriteVector(JsonTextWriter& writer, glm::vec2 value)
+		{
+			writer.BeginArray();
+			writer.Double(static_cast<double>(value.x));
+			writer.Double(static_cast<double>(value.y));
+			writer.EndArray();
+		}
+
+		void WriteVector(JsonTextWriter& writer, glm::vec4 value)
+		{
+			writer.BeginArray();
+			writer.Double(static_cast<double>(value.x));
+			writer.Double(static_cast<double>(value.y));
+			writer.Double(static_cast<double>(value.z));
+			writer.Double(static_cast<double>(value.w));
+			writer.EndArray();
+		}
+
+		void WriteStrings(JsonTextWriter& writer, std::vector<std::string> const& strings)
+		{
+			writer.BeginArray();
+			for (std::string const& text : strings)
+			{
+				writer.String(text);
+			}
+			writer.EndArray();
+		}
+
+		void WritePin(JsonTextWriter& writer, VisualScriptPinReference const& pin)
+		{
+			writer.BeginArray();
+			writer.Unsigned(pin.Node);
+			writer.String(pin.Pin);
+			writer.EndArray();
+		}
+
+		void WriteGraph(JsonTextWriter& writer, VisualScriptGraph const& graph)
+		{
+			writer.BeginObject();
+			writer.Key("Nodes");
+			writer.BeginArray();
+			for (VisualScriptNode const& node : graph.Nodes)
+			{
+				writer.BeginObject();
+				writer.Key("ID");
+				writer.Unsigned(node.ID);
+				writer.Key("Type");
+				writer.String(node.Type);
+				if (node.Position)
+				{
+					writer.Key("Position");
+					WriteVector(writer, *node.Position);
+				}
+				if (!node.Settings.empty())
+				{
+					writer.Key("Settings");
+					writer.Value(node.Settings);
+				}
+				if (!node.Inputs.empty())
+				{
+					writer.Key("Inputs");
+					writer.Value(node.Inputs);
+				}
+				if (!node.Split.IsEmpty())
+				{
+					writer.Key("Split");
+					writer.BeginObject();
+					if (!node.Split.Inputs.empty())
+					{
+						writer.Key("Inputs");
+						WriteStrings(writer, node.Split.Inputs);
+					}
+					if (!node.Split.Outputs.empty())
+					{
+						writer.Key("Outputs");
+						WriteStrings(writer, node.Split.Outputs);
+					}
+					writer.EndObject();
+				}
+				if (!node.Comment.empty())
+				{
+					writer.Key("Comment");
+					writer.String(node.Comment);
+				}
+				if (node.Collapsed)
+				{
+					writer.Key("Collapsed");
+					writer.Bool(true);
+				}
+				if (node.Enabled != VisualScriptNodeEnabled::Enabled)
+				{
+					writer.Key("Enabled");
+					writer.String(VisualScriptNodeEnabledToString(node.Enabled));
+				}
+				writer.EndObject();
+			}
+			writer.EndArray();
+
+			writer.Key("Links");
+			writer.BeginArray();
+			for (VisualScriptLink const& link : graph.Links)
+			{
+				writer.BeginObject();
+				writer.Key("From");
+				WritePin(writer, link.From);
+				writer.Key("To");
+				WritePin(writer, link.To);
+				writer.EndObject();
+			}
+			writer.EndArray();
+
+			writer.Key("Comments");
+			writer.BeginArray();
+			for (VisualScriptComment const& comment : graph.Comments)
+			{
+				writer.BeginObject();
+				writer.Key("ID");
+				writer.Unsigned(comment.ID);
+				writer.Key("Text");
+				writer.String(comment.Text);
+				writer.Key("Position");
+				WriteVector(writer, comment.Position);
+				writer.Key("Size");
+				WriteVector(writer, comment.Size);
+				writer.Key("Color");
+				WriteVector(writer, comment.Color);
+				writer.EndObject();
+			}
+			writer.EndArray();
+			writer.EndObject();
+		}
+
+		void WriteParameters(JsonTextWriter& writer, std::vector<VisualScriptParameter> const& parameters)
+		{
+			writer.BeginArray();
+			for (VisualScriptParameter const& parameter : parameters)
+			{
+				writer.BeginObject();
+				writer.Key("Name");
+				writer.String(parameter.Name);
+				writer.Key("Type");
+				writer.String(parameter.Type);
+				if (!parameter.FormerNames.empty())
+				{
+					writer.Key("FormerNames");
+					WriteStrings(writer, parameter.FormerNames);
+				}
+				writer.EndObject();
+			}
+			writer.EndArray();
+		}
+
+		void WriteContent(JsonTextWriter& writer, VisualScriptDocument const& document)
+		{
+			writer.BeginObject();
+			if (document.Kind != VisualScriptDocumentKind::Script)
+			{
+				writer.Key("Kind");
+				writer.String(VisualScriptDocumentKindToString(document.Kind));
+			}
+			writer.Key("Description");
+			writer.String(document.Description);
+
+			writer.Key("Variables");
+			writer.BeginArray();
+			for (VisualScriptVariable const& variable : document.Variables)
+			{
+				writer.BeginObject();
+				writer.Key("ID");
+				writer.Unsigned(variable.ID);
+				writer.Key("Name");
+				writer.String(variable.Name);
+				writer.Key("Type");
+				writer.String(variable.Type);
+				if (!variable.Value.is_null())
+				{
+					writer.Key("Value");
+					writer.Value(variable.Value);
+				}
+				if (variable.Public)
+				{
+					writer.Key("Public");
+					writer.Bool(true);
+				}
+				if (!variable.Tooltip.empty())
+				{
+					writer.Key("Tooltip");
+					writer.String(variable.Tooltip);
+				}
+				if (variable.Range)
+				{
+					writer.Key("Range");
+					WriteVector(writer, *variable.Range);
+				}
+				if (!variable.FormerNames.empty())
+				{
+					writer.Key("FormerNames");
+					WriteStrings(writer, variable.FormerNames);
+				}
+				writer.EndObject();
+			}
+			writer.EndArray();
+
+			writer.Key("Functions");
+			writer.BeginArray();
+			for (VisualScriptFunction const& function : document.Functions)
+			{
+				writer.BeginObject();
+				writer.Key("ID");
+				writer.Unsigned(function.ID);
+				writer.Key("Name");
+				writer.String(function.Name);
+				writer.Key("Pure");
+				writer.Bool(function.Pure);
+				writer.Key("Inputs");
+				WriteParameters(writer, function.Inputs);
+				writer.Key("Outputs");
+				WriteParameters(writer, function.Outputs);
+				writer.Key("Locals");
+				writer.BeginArray();
+				for (VisualScriptLocal const& local : function.Locals)
+				{
+					writer.BeginObject();
+					writer.Key("ID");
+					writer.Unsigned(local.ID);
+					writer.Key("Name");
+					writer.String(local.Name);
+					writer.Key("Type");
+					writer.String(local.Type);
+					if (!local.Value.is_null())
+					{
+						writer.Key("Value");
+						writer.Value(local.Value);
+					}
+					writer.EndObject();
+				}
+				writer.EndArray();
+				writer.Key("Graph");
+				WriteGraph(writer, function.Graph);
+				writer.EndObject();
+			}
+			writer.EndArray();
+
+			writer.Key("Graph");
+			WriteGraph(writer, document.Graph);
+			writer.EndObject();
+		}
+
+		// What the text of a document takes, roughly: 64 bytes per element and the strings it holds, so that writing it
+		// rarely grows the text.
+		size_t EstimateTextSize(VisualScriptDocument const& document)
+		{
+			constexpr size_t ElementBytes = 64;
+			auto const estimateGraph = [](VisualScriptGraph const& graph)
+			{
+				size_t bytes = (graph.Nodes.size() + graph.Links.size() + graph.Comments.size()) * ElementBytes;
+				for (VisualScriptNode const& node : graph.Nodes)
+				{
+					bytes += node.Type.size() + node.Comment.size();
+				}
+				for (VisualScriptLink const& link : graph.Links)
+				{
+					bytes += link.From.Pin.size() + link.To.Pin.size();
+				}
+				for (VisualScriptComment const& comment : graph.Comments)
+				{
+					bytes += comment.Text.size();
+				}
+				return bytes;
+			};
+			size_t bytes = ElementBytes + document.Description.size() + estimateGraph(document.Graph);
+			for (VisualScriptVariable const& variable : document.Variables)
+			{
+				bytes += ElementBytes + variable.Name.size() + variable.Type.size() + variable.Tooltip.size();
+			}
+			for (VisualScriptFunction const& function : document.Functions)
+			{
+				bytes += ElementBytes * (1 + function.Inputs.size() + function.Outputs.size() + function.Locals.size()) +
+				         estimateGraph(function.Graph);
+			}
+			return bytes;
+		}
 	}
 
 	bool VisualScriptSerializer::IsValidText(std::string_view text, size_t maxBytes)
@@ -1352,6 +2175,43 @@ namespace Strada
 		return IsValidText(name, MaxNameBytes) && name.front() != ' ' && name.back() != ' ' && name.find('.') == std::string_view::npos;
 	}
 
+	bool VisualScriptSerializer::IsValidLongText(std::string_view text)
+	{
+		return text.size() <= MaxTextBytes && Utf8::IsValid(text);
+	}
+
+	bool VisualScriptSerializer::IsValidID(uint64_t id)
+	{
+		return id >= 1 && id <= MaxID;
+	}
+
+	bool VisualScriptSerializer::IsValidPosition(glm::vec2 position)
+	{
+		return IsCoordinate(static_cast<double>(position.x)) && IsCoordinate(static_cast<double>(position.y));
+	}
+
+	bool VisualScriptSerializer::IsValidCommentSize(glm::vec2 size)
+	{
+		return IsCommentExtent(static_cast<double>(size.x)) && IsCommentExtent(static_cast<double>(size.y));
+	}
+
+	bool VisualScriptSerializer::IsValidColor(glm::vec4 color)
+	{
+		return IsColorComponent(static_cast<double>(color.r)) && IsColorComponent(static_cast<double>(color.g)) &&
+		       IsColorComponent(static_cast<double>(color.b)) && IsColorComponent(static_cast<double>(color.a));
+	}
+
+	bool VisualScriptSerializer::IsValidRange(glm::vec2 range)
+	{
+		// A finite float is within MaxFloatMagnitude.
+		return std::isfinite(range.x) && std::isfinite(range.y) && range.x <= range.y;
+	}
+
+	bool VisualScriptSerializer::IsValidSplitPath(std::string_view path)
+	{
+		return IsValidPinPath(path);
+	}
+
 	std::optional<float> VisualScriptSerializer::ReadFloat(Json const& value)
 	{
 		if (!value.is_number())
@@ -1366,6 +2226,11 @@ namespace Strada
 		// The numbers past float's largest value up to the bound round to it.
 		constexpr double Largest = static_cast<double>(std::numeric_limits<float>::max());
 		return static_cast<float>(std::clamp(number, -Largest, Largest));
+	}
+
+	std::optional<VisualScriptIssue> VisualScriptSerializer::Validate(VisualScriptDocument const& document)
+	{
+		return DocumentValidator().Run(document);
 	}
 
 	Json VisualScriptSerializer::SerializeDocument(VisualScriptDocument const& document)
@@ -1494,9 +2359,43 @@ namespace Strada
 		return document;
 	}
 
+	std::string VisualScriptSerializer::WriteText(VisualScriptDocument const& document)
+	{
+		// DumpJson's layout: one tab per level.
+		JsonTextWriter::Style style;
+		style.Pretty = true;
+		style.IndentChar = '\t';
+		style.IndentStep = 1;
+		JsonTextWriter writer(style, EstimateTextSize(document));
+		writer.BeginObject();
+		// MakeFileHeader's members, in its order.
+		writer.Key("Strada");
+		writer.BeginObject();
+		writer.Key("Version");
+		writer.Integer(FormatVersion);
+		writer.Key("Type");
+		writer.String("VisualScript");
+		writer.EndObject();
+		writer.Key("VisualScript");
+		WriteContent(writer, document);
+		writer.EndObject();
+		std::string text = writer.TakeText();
+		text.push_back('\n');
+		return text;
+	}
+
+	std::string VisualScriptSerializer::WriteContentText(VisualScriptDocument const& document)
+	{
+		JsonTextWriter::Style style;
+		style.Pretty = false;
+		JsonTextWriter writer(style, EstimateTextSize(document));
+		WriteContent(writer, document);
+		return writer.TakeText();
+	}
+
 	Result<void> VisualScriptSerializer::SaveToFile(VisualScriptDocument const& document, std::filesystem::path const& path)
 	{
-		return FileSystem::WriteTextFile(path, DumpJson(Serialize(document)));
+		return FileSystem::WriteTextFile(path, WriteText(document));
 	}
 
 	Result<VisualScriptDocument> VisualScriptSerializer::LoadFromFile(std::filesystem::path const& path,
