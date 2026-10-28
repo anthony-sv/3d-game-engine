@@ -4280,6 +4280,7 @@ namespace Strada
 	{
 		Ref<VisualScriptDocument const> const document = request.Document;
 		std::string const description = request.Description;
+		m_LastCommitTimings = request.Timings;
 		Result<void> const result = edits.empty()
 		                                ? m_Operations.EditVisualScript(m_Graph, document, std::move(request.Description), request.MergeKey,
 		                                                                std::move(request.Text))

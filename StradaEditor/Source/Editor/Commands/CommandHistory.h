@@ -47,6 +47,9 @@ namespace Strada
 		// edits only the scene, and when there is none.
 		AssetHandle GetUndoEditedAsset() const;
 		AssetHandle GetRedoEditedAsset() const;
+		// The step Undo would apply, to inspect what it recorded (the performance tests read a commit's timings); null when
+		// there is none.
+		EditorCommand const* GetUndoCommand() const;
 		size_t GetUndoCount() const { return m_UndoStack.size(); }
 		size_t GetRedoCount() const { return m_RedoStack.size(); }
 

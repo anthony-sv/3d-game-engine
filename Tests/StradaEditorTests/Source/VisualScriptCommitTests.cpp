@@ -1,6 +1,7 @@
 #include "TestUtilities.h"
 #include "VisualScriptTestDocuments.h"
 
+#include "Editor/Commands/AssetCommands.h"
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
 #include "Editor/VisualScripting/VisualScriptCommit.h"
@@ -138,14 +139,14 @@ namespace
 		return commit.GetError();
 	}
 
-	// 2,000 additions in rows of 50, each feeding the next one, and the first 1,001 also the one after it: 3,000 links.
-	VisualScriptDocument MakeLargeDocument()
+	// Additions in rows of 50, each feeding the next one, and the first half also the one after it: 1.5 links per node (2,000
+	// nodes, 3,000 links).
+	VisualScriptDocument MakeLargeDocument(uint32_t nodeCount)
 	{
-		constexpr uint32_t NodeCount = 2000;
-		constexpr size_t LinkCount = 3000;
+		size_t const linkCount = static_cast<size_t>(nodeCount) * 3 / 2;
 		VisualScriptDocument document;
-		document.Graph.Nodes.reserve(NodeCount);
-		for (uint32_t index = 0; index < NodeCount; index++)
+		document.Graph.Nodes.reserve(nodeCount);
+		for (uint32_t index = 0; index < nodeCount; index++)
 		{
 			VisualScriptNode node;
 			node.ID = index + 1;
@@ -155,12 +156,12 @@ namespace
 			document.Graph.Nodes.push_back(std::move(node));
 		}
 		std::vector<VisualScriptLink>& links = document.Graph.Links;
-		links.reserve(LinkCount);
-		for (uint32_t id = 1; id < NodeCount; id++)
+		links.reserve(linkCount);
+		for (uint32_t id = 1; id < nodeCount; id++)
 		{
 			links.push_back(MakeLink(id, "Result", id + 1, "A"));
 		}
-		for (uint32_t id = 1; links.size() < LinkCount; id++)
+		for (uint32_t id = 1; links.size() < linkCount; id++)
 		{
 			links.push_back(MakeLink(id, "Result", id + 2, "B"));
 		}
@@ -172,6 +173,23 @@ namespace
 	{
 		std::optional<std::string> const enabled = Platform::ReadEnvironmentVariable("STRADA_PERFORMANCE_TESTS");
 		return enabled.has_value() && *enabled == "1";
+	}
+
+	double Median(std::vector<double> values)
+	{
+		std::sort(values.begin(), values.end());
+		return values[values.size() / 2];
+	}
+
+	// The median of one phase over commits.
+	double MedianPhase(std::vector<VisualScriptCommitTimings> const& timings, double VisualScriptCommitTimings::* phase)
+	{
+		std::vector<double> values;
+		for (VisualScriptCommitTimings const& commit : timings)
+		{
+			values.push_back(commit.*phase);
+		}
+		return Median(std::move(values));
 	}
 }
 
@@ -728,78 +746,116 @@ TEST_CASE("VisualScriptCommit: documents are the same only when every value is w
 TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, serialized once, written and taken by the asset as one step, "
           "in its time on request")
 {
-	Testing::AssetManagerScope assets;
-	Testing::TemporaryDirectory directory;
-	EditorContext context;
-	EditorOperations operations(context);
-	REQUIRE(operations.CreateProject(directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
-	Result<AssetHandle> const created = operations.CreateVisualScript("Scripts/Large.sgraph", VisualScriptTemplate::Empty);
-	REQUIRE(created.IsOk());
-	AssetHandle const graph = created.GetValue();
-	REQUIRE(operations.SetVisualScriptDocument(graph, MakeLargeDocument()).IsOk());
-	Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
-	REQUIRE(asset != nullptr);
-	REQUIRE(asset->GetDocument().Graph.Nodes.size() == 2000);
-	REQUIRE(asset->GetDocument().Graph.Links.size() == 3000);
-	Testing::ExpectStrictRoundTrip(asset->GetDocument());
-
-	// The analysis a graph window keeps: every node resolved exactly.
-	VisualScriptAnalysis analysis;
-	for (VisualScriptNode const& node : asset->GetDocument().Graph.Nodes)
+	// The graph of 2,000 nodes always; with STRADA_PERFORMANCE_TESTS=1 also one of 200, and the time of each phase (spec
+	// §5.2).
+	bool const performance = ArePerformanceTestsEnabled();
+	std::vector<uint32_t> sizes = {2000};
+	if (performance)
 	{
-		analysis.Nodes.push_back(MakeAnalyzedNode(node.ID, node.Type));
+		sizes.push_back(200);
 	}
-
-	// A node moved per commit, each its own step: the pipeline, the canonical text, the file and the asset.
-	constexpr size_t Commits = 7;
-	std::vector<double> milliseconds;
-	for (size_t commit = 0; commit < Commits; commit++)
+	for (uint32_t const nodeCount : sizes)
 	{
-		Ref<VisualScriptDocument const> const stored = asset->GetSharedDocument();
-		// The copy the canvas edits is not part of the commit.
-		VisualScriptDocument edited = *stored;
-		edited.Graph.Nodes[commit].Position->x += 16.0f;
-		uint64_t const version = asset->GetVersion();
-		size_t const steps = context.GetHistory().GetUndoCount();
+		CAPTURE(nodeCount);
+		size_t const linkCount = static_cast<size_t>(nodeCount) * 3 / 2;
+		Testing::AssetManagerScope assets;
+		Testing::TemporaryDirectory directory;
+		EditorContext context;
+		EditorOperations operations(context);
+		REQUIRE(operations.CreateProject(directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+		Result<AssetHandle> const created = operations.CreateVisualScript("Scripts/Large.sgraph", VisualScriptTemplate::Empty);
+		REQUIRE(created.IsOk());
+		AssetHandle const graph = created.GetValue();
+		REQUIRE(operations.SetVisualScriptDocument(graph, MakeLargeDocument(nodeCount)).IsOk());
+		Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+		REQUIRE(asset != nullptr);
+		REQUIRE(asset->GetDocument().Graph.Nodes.size() == nodeCount);
+		REQUIRE(asset->GetDocument().Graph.Links.size() == linkCount);
+		Testing::ExpectStrictRoundTrip(asset->GetDocument());
 
-		std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
-		Result<VisualScriptCommitRequest> made =
-			MakeVisualScriptCommitRequest(*stored, std::move(edited), &analysis, "Move Node", "Large", 0);
-		REQUIRE_MESSAGE(made.IsOk(), (made ? std::string() : made.GetError()));
-		VisualScriptCommitRequest request = made.TakeValue();
-		Ref<VisualScriptDocument const> const committed = request.Document;
-		auto const text = reinterpret_cast<std::uintptr_t>(request.Text.data());
-		REQUIRE(operations.EditVisualScript(graph, committed, request.Description, request.MergeKey, std::move(request.Text)).IsOk());
-		milliseconds.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+		// The analysis a graph window keeps: every node resolved exactly.
+		VisualScriptAnalysis analysis;
+		for (VisualScriptNode const& node : asset->GetDocument().Graph.Nodes)
+		{
+			analysis.Nodes.push_back(MakeAnalyzedNode(node.ID, node.Type));
+		}
 
-		// Always: one step, one new version, and the asset holds the committed document itself.
-		CHECK(context.GetHistory().GetUndoCount() == steps + 1);
-		CHECK(asset->GetVersion() == version + 1);
-		CHECK(asset->GetSharedDocument().get() == committed.get());
-		// The document was serialized once: the text the strict check read back is the one written and remembered, moved
-		// along without a copy.
-		std::string const* const remembered = context.FindVisualScriptText(graph, committed.get());
-		REQUIRE(remembered != nullptr);
-		CHECK(reinterpret_cast<std::uintptr_t>(remembered->data()) == text);
-	}
-	Result<Buffer> const written = FileSystem::ReadBinaryFile(AssetManager::GetAbsolutePath(graph));
-	REQUIRE(written.IsOk());
-	std::string const text = DumpJson(VisualScriptSerializer::Serialize(asset->GetDocument()));
-	CHECK(std::string(written.GetValue().As<char>(), static_cast<size_t>(written.GetValue().GetSize())) == text);
+		// A node moved per commit, each its own step: the pipeline, the canonical text, the file and the asset.
+		constexpr size_t Commits = 7;
+		std::vector<double> milliseconds;
+		std::vector<VisualScriptCommitTimings> phases;
+		for (size_t commit = 0; commit < Commits; commit++)
+		{
+			Ref<VisualScriptDocument const> const stored = asset->GetSharedDocument();
+			// The copy the canvas edits is not part of the commit.
+			VisualScriptDocument edited = *stored;
+			edited.Graph.Nodes[commit].Position->x += 16.0f;
+			uint64_t const version = asset->GetVersion();
+			size_t const steps = context.GetHistory().GetUndoCount();
 
-	std::sort(milliseconds.begin(), milliseconds.end());
-	double const median = milliseconds[milliseconds.size() / 2];
-	double const percentile95 = milliseconds[static_cast<size_t>(std::ceil(0.95 * static_cast<double>(milliseconds.size()))) - 1];
-	MESSAGE("committing one edit of 2,000 nodes and 3,000 links: median " << median << " ms, p95 " << percentile95 << " ms");
-	if (ArePerformanceTestsEnabled())
-	{
-		// Three times the median of five runs measured with no build running (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC
-		// 19.51).
+			std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
+			Result<VisualScriptCommitRequest> made =
+				MakeVisualScriptCommitRequest(*stored, std::move(edited), &analysis, "Move Node", "Large", 0);
+			REQUIRE_MESSAGE(made.IsOk(), (made ? std::string() : made.GetError()));
+			VisualScriptCommitRequest request = made.TakeValue();
+			Ref<VisualScriptDocument const> const committed = request.Document;
+			auto const text = reinterpret_cast<std::uintptr_t>(request.Text.data());
+			REQUIRE(operations.EditVisualScript(graph, committed, request.Description, request.MergeKey, std::move(request.Text)).IsOk());
+			milliseconds.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+
+			// Always: one step, one new version, and the asset holds the committed document itself.
+			CHECK(context.GetHistory().GetUndoCount() == steps + 1);
+			CHECK(asset->GetVersion() == version + 1);
+			CHECK(asset->GetSharedDocument().get() == committed.get());
+			// The document was serialized once: the text the strict check read back is the one written and remembered, moved
+			// along without a copy.
+			std::string const* const remembered = context.FindVisualScriptText(graph, committed.get());
+			REQUIRE(remembered != nullptr);
+			CHECK(reinterpret_cast<std::uintptr_t>(remembered->data()) == text);
+
+			// The phases: the preparation's, then the step's.
+			auto const* const step = dynamic_cast<SetVisualScriptCommand const*>(context.GetHistory().GetUndoCommand());
+			REQUIRE(step != nullptr);
+			VisualScriptCommitTimings const& executed = step->GetLastTimings();
+			VisualScriptCommitTimings timings = request.Timings;
+			timings.ReadBack = executed.ReadBack;
+			timings.Compare = executed.Compare;
+			timings.Write = executed.Write;
+			timings.SetDocument = executed.SetDocument;
+			phases.push_back(timings);
+		}
+		Result<Buffer> const written = FileSystem::ReadBinaryFile(AssetManager::GetAbsolutePath(graph));
+		REQUIRE(written.IsOk());
+		std::string const text = DumpJson(VisualScriptSerializer::Serialize(asset->GetDocument()));
+		CHECK(std::string(written.GetValue().As<char>(), static_cast<size_t>(written.GetValue().GetSize())) == text);
+
+		std::vector<double> sorted = milliseconds;
+		std::sort(sorted.begin(), sorted.end());
+		double const median = sorted[sorted.size() / 2];
+		double const percentile95 = sorted[static_cast<size_t>(std::ceil(0.95 * static_cast<double>(sorted.size()))) - 1];
+		MESSAGE("committing one edit of " << nodeCount << " nodes and " << linkCount << " links: median " << median << " ms, p95 "
+		                                  << percentile95 << " ms");
+		if (performance)
+		{
+			MESSAGE("phases of the commit of " << nodeCount << " nodes (medians, ms): Normalize "
+			                                   << MedianPhase(phases, &VisualScriptCommitTimings::Normalize) << ", Check "
+			                                   << MedianPhase(phases, &VisualScriptCommitTimings::Check) << ", Text "
+			                                   << MedianPhase(phases, &VisualScriptCommitTimings::Text) << ", ReadBack "
+			                                   << MedianPhase(phases, &VisualScriptCommitTimings::ReadBack) << ", Compare "
+			                                   << MedianPhase(phases, &VisualScriptCommitTimings::Compare) << ", Write "
+			                                   << MedianPhase(phases, &VisualScriptCommitTimings::Write) << ", SetDocument "
+			                                   << MedianPhase(phases, &VisualScriptCommitTimings::SetDocument));
+			if (nodeCount == 2000)
+			{
+				// Three times the median of five runs measured with no build running (an AMD Ryzen 5 7535HS laptop, Windows 11,
+				// MSVC 19.51).
 #if defined(ST_DEBUG)
-		constexpr double MeasuredMilliseconds = 371.0;
+				constexpr double MeasuredMilliseconds = 371.0;
 #else
-		constexpr double MeasuredMilliseconds = 21.9;
+				constexpr double MeasuredMilliseconds = 21.9;
 #endif
-		CHECK(median <= 3.0 * MeasuredMilliseconds);
+				CHECK(median <= 3.0 * MeasuredMilliseconds);
+			}
+		}
 	}
 }

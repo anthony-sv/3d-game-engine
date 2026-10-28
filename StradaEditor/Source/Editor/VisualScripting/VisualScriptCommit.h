@@ -16,6 +16,36 @@
 // or any other.
 namespace Strada
 {
+	// What a commit spent, in milliseconds (steady_clock), phase by phase: filled by PrepareVisualScriptCommit (the first
+	// three), SetVisualScriptCommand (the next four) and VisualScriptEditorModel::Sync (the last four); read by the
+	// performance tests. A phase that did not run is 0.
+	struct VisualScriptCommitTimings
+	{
+		// RecordFormerNames, ApplyCanonicalNodeTypes, PlaceUnplacedNodes.
+		double Normalize = 0.0;
+		// The strict check: Serialize, Deserialize, compare.
+		double Check = 0.0;
+		// The file's text: DumpJson (SetVisualScriptCommand's own serialization when it was given no text).
+		double Text = 0.0;
+		// RecordBefore: the file's bytes and their comparison with the remembered text.
+		double ReadBack = 0.0;
+		// HasEffect's IsSameVisualScriptDocument.
+		double Compare = 0.0;
+		// FileSystem::WriteTextFile.
+		double Write = 0.0;
+		// The asset, RememberVisualScriptText, RecordFileWrite.
+		double SetDocument = 0.0;
+		// The model's AdoptDocument (RecordCommittedLinks, the display copy).
+		double Adopt = 0.0;
+		// RefreshAnalysis: the check against the analyzed document and, when the program changed, the analysis (the text,
+		// the runtime, the parse).
+		double Analysis = 0.0;
+		// VisualScriptCanvasModel::Sync.
+		double Canvas = 0.0;
+		// VisualScriptSpatialIndex::Build.
+		double Index = 0.0;
+	};
+
 	// A document ready to write, with what preparing it changed besides the edit.
 	struct VisualScriptCommit
 	{
@@ -31,6 +61,8 @@ namespace Strada
 		std::vector<std::string> Warnings;
 		// How many of Warnings, from the first, are step 1's renames; the others are step 2's canonical rewrites.
 		size_t RenameCount = 0;
+		// Normalize (steps 1 to 3), Check (step 4) and Text.
+		VisualScriptCommitTimings Timings;
 	};
 
 	// What every writer of a visual script does to the document it writes, in order:
@@ -70,6 +102,8 @@ namespace Strada
 		std::vector<uint32_t> Select;
 		// Shown in a toast: paste notes, canonical rewrites.
 		std::vector<std::string> Notes;
+		// VisualScriptCommit::Timings of the preparation.
+		VisualScriptCommitTimings Timings;
 	};
 
 	// PrepareVisualScriptCommit (stored as it says: the document from before the step, for each commit of a step), then

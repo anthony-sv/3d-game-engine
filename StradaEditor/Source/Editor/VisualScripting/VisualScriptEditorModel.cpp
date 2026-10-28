@@ -5,6 +5,7 @@
 #include "Strada/Core/FileSystem.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <tuple>
@@ -22,6 +23,27 @@ namespace Strada
 		constexpr uint8_t Unclassified = 0xFF;
 		// The longest step auto-pan and the minimap's fade take: a stalled frame does not throw the view.
 		constexpr double MaxFrameSeconds = 0.1;
+
+		// Adds the milliseconds from its construction to its destruction to a phase of the Sync timings.
+		class PhaseTimer
+		{
+		public:
+			explicit PhaseTimer(double& milliseconds)
+				: m_Milliseconds(milliseconds),
+				  m_Start(std::chrono::steady_clock::now())
+			{
+			}
+			~PhaseTimer()
+			{
+				m_Milliseconds += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - m_Start).count();
+			}
+			PhaseTimer(PhaseTimer const&) = delete;
+			PhaseTimer& operator=(PhaseTimer const&) = delete;
+
+		private:
+			double& m_Milliseconds;
+			std::chrono::steady_clock::time_point m_Start;
+		};
 
 		// The document's graphs by position: 0 is the event graph, i + 1 the i-th function's.
 		VisualScriptGraph const* GetGraphAt(VisualScriptDocument const& document, size_t graph)
@@ -395,6 +417,7 @@ namespace Strada
 		{
 			m_ChangedElements.clear();
 			m_CommittedLinks.clear();
+			m_SyncTimings = {};
 			m_LastSyncTime = time;
 		}
 		m_Time = time;
@@ -652,6 +675,7 @@ namespace Strada
 
 	void VisualScriptEditorModel::AdoptDocument(Ref<VisualScriptDocument const> document, VisualScriptSyncResult& result)
 	{
+		PhaseTimer const timer(m_SyncTimings.Adopt);
 		if (document == m_Document)
 		{
 			return;
@@ -766,6 +790,7 @@ namespace Strada
 	void VisualScriptEditorModel::RefreshAnalysis(VisualScriptSemantics& semantics, bool widgetActive, double time, bool force,
 	                                              VisualScriptSyncResult& result)
 	{
+		PhaseTimer const timer(m_SyncTimings.Analysis);
 		Ref<VisualScriptLibrary const> library = semantics.GetLibrary();
 		bool const libraryChanged = library != m_Library;
 		if (libraryChanged)
@@ -861,8 +886,14 @@ namespace Strada
 		source.ShowDiagnostics = !m_AnalysisStale;
 		source.AssetNames = DescribeAsset;
 		source.AssetVersion = assetVersion;
-		if (m_Canvas.Sync(source, m_Measure, theme))
+		bool synced = false;
 		{
+			PhaseTimer const timer(m_SyncTimings.Canvas);
+			synced = m_Canvas.Sync(source, m_Measure, theme);
+		}
+		if (synced)
+		{
+			PhaseTimer const timer(m_SyncTimings.Index);
 			m_Index.Build(m_Canvas);
 			result.GeometryChanged = true;
 		}

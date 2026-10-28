@@ -1,8 +1,10 @@
 #include "HeadlessImGui.h"
+#include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 #include "VisualScriptPanelTestUtilities.h"
 #include "VisualScriptTestUtilities.h"
 
+#include "Editor/Commands/AssetCommands.h"
 #include "Editor/VisualScripting/VisualScriptBrushes.h"
 #include "Editor/VisualScripting/VisualScriptCanvasRenderer.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
@@ -389,6 +391,110 @@ namespace
 	// The chips of T2's live widget: a float, a vector and an enum (the grid's Delay and Add Force).
 	constexpr std::array<std::string_view, 3> ChipPins = {"Duration", "Force", "Mode"};
 
+	// The grids of the commit frames: 2,000 nodes and 4,000 links always; 200 nodes and 400 links as well for the phase table
+	// (spec §5.2) on request.
+	struct CommitGrid
+	{
+		uint32_t Columns = 0;
+		uint32_t Rows = 0;
+		uint32_t Comments = 0;
+	};
+
+	std::vector<CommitGrid> GetCommitGrids()
+	{
+		std::vector<CommitGrid> grids = {{40, 50, 20}};
+		if (Testing::ArePerformanceTestsEnabled())
+		{
+			grids.push_back({10, 20, 2});
+		}
+		return grids;
+	}
+
+	// A commit frame: its milliseconds and its phases, the preparation's (which the window keeps), the step's (the newest of
+	// the history) and those of the model's Syncs in that frame.
+	struct CommitFrame
+	{
+		double Milliseconds = 0.0;
+		VisualScriptCommitTimings Phases;
+	};
+
+	CommitFrame MakeCommitFrame(Testing::PanelFixture const& fixture, double milliseconds)
+	{
+		CommitFrame frame;
+		frame.Milliseconds = milliseconds;
+		frame.Phases = fixture.Panel->GetLastCommitTimings();
+		auto const* const step = dynamic_cast<SetVisualScriptCommand const*>(fixture.Context.GetHistory().GetUndoCommand());
+		REQUIRE(step != nullptr);
+		VisualScriptCommitTimings const& executed = step->GetLastTimings();
+		frame.Phases.ReadBack = executed.ReadBack;
+		frame.Phases.Compare = executed.Compare;
+		frame.Phases.Write = executed.Write;
+		frame.Phases.SetDocument = executed.SetDocument;
+		VisualScriptCommitTimings const& synced = fixture.Model().GetSyncTimings();
+		frame.Phases.Adopt = synced.Adopt;
+		frame.Phases.Analysis = synced.Analysis;
+		frame.Phases.Canvas = synced.Canvas;
+		frame.Phases.Index = synced.Index;
+		return frame;
+	}
+
+	// The medians of the frames and of each phase, and of what no phase covers (ImGui, the panes, the history).
+	std::string DescribeCommitFrames(std::vector<CommitFrame> const& frames)
+	{
+		auto const median = [&frames](auto const& read)
+		{
+			std::vector<double> values;
+			for (CommitFrame const& frame : frames)
+			{
+				values.push_back(read(frame));
+			}
+			return Median(std::move(values));
+		};
+		auto const phase = [&median](double VisualScriptCommitTimings::* member)
+		{
+			return median(
+				[member](CommitFrame const& frame)
+				{
+					return frame.Phases.*member;
+				});
+		};
+		double const other = median(
+			[](CommitFrame const& frame)
+			{
+				VisualScriptCommitTimings const& phases = frame.Phases;
+				return frame.Milliseconds -
+			           (phases.Normalize + phases.Check + phases.Text + phases.ReadBack + phases.Compare + phases.Write +
+			            phases.SetDocument + phases.Adopt + phases.Analysis + phases.Canvas + phases.Index);
+			});
+		return fmt::format("median {:.3f} ms; phases (medians, ms): Normalize {:.3f}, Check {:.3f}, Text {:.3f}, ReadBack {:.3f}, "
+		                   "Compare {:.3f}, Write {:.3f}, SetDocument {:.3f}, Adopt {:.3f}, Analysis {:.3f}, Canvas {:.3f}, Index {:.3f}, "
+		                   "other {:.3f}",
+		                   median(
+							   [](CommitFrame const& frame)
+							   {
+								   return frame.Milliseconds;
+							   }),
+		                   phase(&VisualScriptCommitTimings::Normalize), phase(&VisualScriptCommitTimings::Check),
+		                   phase(&VisualScriptCommitTimings::Text), phase(&VisualScriptCommitTimings::ReadBack),
+		                   phase(&VisualScriptCommitTimings::Compare), phase(&VisualScriptCommitTimings::Write),
+		                   phase(&VisualScriptCommitTimings::SetDocument), phase(&VisualScriptCommitTimings::Adopt),
+		                   phase(&VisualScriptCommitTimings::Analysis), phase(&VisualScriptCommitTimings::Canvas),
+		                   phase(&VisualScriptCommitTimings::Index), other);
+	}
+
+	// Shows the grid's top-left corner at zoom 1, as the commit frames edit it.
+	void ShowGridCorner(Testing::PanelFixture& fixture)
+	{
+		fixture.CheckDrawingChangesNothing();
+		VisualScriptOpenRequest request;
+		request.Graph = fixture.Graph;
+		request.Center = glm::vec2(400.0f, 300.0f);
+		request.Zoom = 1.0f;
+		request.Focus = false;
+		fixture.Panel->Apply(request);
+		fixture.Frames(2);
+	}
+
 	// Times a scenario's frames: their median and 95th percentile, and the renderer's phases of the last one, printed.
 	double TimeScenario(PerformanceFixture& fixture, size_t graph, Scenario const& scenario)
 	{
@@ -529,33 +635,96 @@ TEST_CASE("VisualScriptEditor: T1's view costs the same on graphs of 676, 5,000 
 TEST_CASE("VisualScriptEditor: the frame that commits a move in a graph of 2,000 nodes")
 {
 	// Spec §15.7 and ruling R3.3: the commit (pipeline, serializer, write) is the graph window's slowest frame; it is
-	// measured here as the window draws it, ImGui's frame included.
-	Testing::PanelFixture fixture(Testing::MakeGridGraph(40, 50, 2, 20));
-	fixture.CheckDrawingChangesNothing();
-	VisualScriptOpenRequest request;
-	request.Graph = fixture.Graph;
-	request.Center = glm::vec2(400.0f, 300.0f);
-	request.Zoom = 1.0f;
-	request.Focus = false;
-	fixture.Panel->Apply(request);
-	fixture.Frames(2);
-	size_t const undo = fixture.GetUndoCount();
-
-	glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), 1, glm::vec2(0.5f, 0.06f));
-	fixture.MoveMouse(from);
-	fixture.SetButton(ImGuiMouseButton_Left, true);
-	for (int step = 1; step <= 4; step++)
+	// measured here as the window draws it, ImGui's frame included. On request seven moves of each grid, with their phases.
+	bool const performance = Testing::ArePerformanceTestsEnabled();
+	for (CommitGrid const grid : GetCommitGrids())
 	{
-		fixture.MoveMouse(from + glm::vec2(30.0f, 20.0f) * static_cast<float>(step));
+		uint32_t const nodes = grid.Columns * grid.Rows;
+		CAPTURE(nodes);
+		Testing::PanelFixture fixture(Testing::MakeGridGraph(grid.Columns, grid.Rows, 2, grid.Comments));
+		ShowGridCorner(fixture);
+		std::vector<CommitFrame> frames;
+		for (int commit = 0, commits = performance ? 7 : 1; commit < commits; commit++)
+		{
+			size_t const undo = fixture.GetUndoCount();
+			uint64_t const analyses = fixture.Model().GetAnalysisCount();
+			glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), 1, glm::vec2(0.5f, 0.06f));
+			fixture.MoveMouse(from);
+			fixture.SetButton(ImGuiMouseButton_Left, true);
+			for (int step = 1; step <= 4; step++)
+			{
+				fixture.MoveMouse(from + glm::vec2(30.0f, 20.0f) * static_cast<float>(step));
+			}
+			auto const start = std::chrono::steady_clock::now();
+			fixture.SetButton(ImGuiMouseButton_Left, false);
+			double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+			REQUIRE(fixture.GetUndoCount() == undo + 1);
+			frames.push_back(MakeCommitFrame(fixture, milliseconds));
+			// A move leaves the program as it was: nothing is analyzed.
+			CHECK(fixture.Model().GetAnalysisCount() == analyses);
+		}
+		if (performance)
+		{
+			MESSAGE("commit frame of a move, ", nodes, " nodes and ", nodes * 2, " links: ", DescribeCommitFrames(frames));
+			if (nodes == 2000)
+			{
+				std::vector<double> milliseconds;
+				for (CommitFrame const& frame : frames)
+				{
+					milliseconds.push_back(frame.Milliseconds);
+				}
+				CHECK(Median(milliseconds) <= 3.0 * CommitFrameMilliseconds);
+			}
+		}
 	}
-	auto const start = std::chrono::steady_clock::now();
-	fixture.SetButton(ImGuiMouseButton_Left, false);
-	double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-	REQUIRE(fixture.GetUndoCount() == undo + 1);
-	if (Testing::ArePerformanceTestsEnabled())
+}
+
+TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2,000 nodes analyzes it with the scripting runtime")
+{
+	// Spec §5.2: a program-changing commit also pays the analysis (the document's text, the runtime, the parse of its
+	// answer). A link from an addition's result to a delay's duration, undone between commits.
+	Testing::ScriptRuntimeScope runtime;
+	EngineVisualScriptSemantics engine;
+	bool const performance = Testing::ArePerformanceTestsEnabled();
+	VisualScriptLink const link{{2, "Result"}, {3, "Duration"}};
+	for (CommitGrid const grid : GetCommitGrids())
 	{
-		MESSAGE("commit frame of a 2,000-node, 4,000-link graph: ", milliseconds, " ms");
-		CHECK(milliseconds <= 3.0 * CommitFrameMilliseconds);
+		uint32_t const nodes = grid.Columns * grid.Rows;
+		CAPTURE(nodes);
+		Testing::PanelFixture fixture(Testing::MakeGridGraph(grid.Columns, grid.Rows, 2, grid.Comments), &engine);
+		ShowGridCorner(fixture);
+		REQUIRE(fixture.Model().GetAnalysis() != nullptr);
+		REQUIRE_FALSE(fixture.HasLink(link));
+		std::vector<CommitFrame> frames;
+		for (int commit = 0, commits = performance ? 7 : 1; commit < commits; commit++)
+		{
+			size_t const undo = fixture.GetUndoCount();
+			uint64_t const analyses = fixture.Model().GetAnalysisCount();
+			glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), link.From.Node, link.From.Pin, VisualScriptPinDirection::Out);
+			glm::vec2 const to = Testing::CanvasPoint(fixture.Model(), link.To.Node, link.To.Pin);
+			fixture.MoveMouse(from);
+			fixture.SetButton(ImGuiMouseButton_Left, true);
+			fixture.MoveMouse((from + to) * 0.5f);
+			fixture.MoveMouse(to);
+			auto const start = std::chrono::steady_clock::now();
+			fixture.SetButton(ImGuiMouseButton_Left, false);
+			double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+			REQUIRE(fixture.GetUndoCount() == undo + 1);
+			REQUIRE(fixture.HasLink(link));
+			// The frame that commits analyzes the new program.
+			CHECK(fixture.Model().GetAnalysisCount() == analyses + 1);
+			frames.push_back(MakeCommitFrame(fixture, milliseconds));
+			CHECK(frames.back().Phases.Analysis > 0.0);
+
+			// Undone, which the window analyzes in its next frame, for the next commit.
+			REQUIRE(fixture.Operations.Undo().IsOk());
+			fixture.Frames(2);
+			REQUIRE_FALSE(fixture.HasLink(link));
+		}
+		if (performance)
+		{
+			MESSAGE("commit frame of a new link, ", nodes, " nodes and ", nodes * 2, " links: ", DescribeCommitFrames(frames));
+		}
 	}
 }
 

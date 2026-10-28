@@ -2,6 +2,7 @@
 
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptHitTest.h"
@@ -593,6 +594,9 @@ namespace Strada
 		std::span<uint32_t const> ChangedElements() const { return m_ChangedElements; }
 		// How many analyses ran: for tests of the policy.
 		uint64_t GetAnalysisCount() const { return m_AnalysisCount; }
+		// What the Syncs of the last Sync's frame (its time) spent, summed: Adopt, Analysis, Canvas and Index of
+		// VisualScriptCommitTimings (ForceAnalysis adds to them too); the performance tests read them.
+		VisualScriptCommitTimings const& GetSyncTimings() const { return m_SyncTimings; }
 		// Counts the visual model's Syncs: what is cached by its node, pin and link indices (and their texts) is valid while it
 		// stays the same.
 		uint64_t GetCanvasRevision() const { return m_CanvasRevision; }
@@ -902,8 +906,9 @@ namespace Strada
 		bool m_PreviewChanged = false;
 		// The last Sync adopted an outside change: the gesture in progress is cancelled.
 		bool m_OutsideChange = false;
-		// The time of the frame whose Syncs report m_ChangedElements and m_CommittedLinks.
+		// The time of the frame whose Syncs report m_ChangedElements, m_CommittedLinks and m_SyncTimings.
 		double m_LastSyncTime = -1.0e30;
+		VisualScriptCommitTimings m_SyncTimings;
 		bool m_IsFileAsset = false;
 		bool m_CheckWritable = true;
 		bool m_Writable = true;

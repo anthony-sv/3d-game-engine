@@ -125,6 +125,11 @@ namespace Strada
 		return m_UndoStack.empty() ? AssetHandle() : m_UndoStack.back().Command->GetEditedAsset();
 	}
 
+	EditorCommand const* CommandHistory::GetUndoCommand() const
+	{
+		return m_UndoStack.empty() ? nullptr : m_UndoStack.back().Command.get();
+	}
+
 	AssetHandle CommandHistory::GetRedoEditedAsset() const
 	{
 		return m_RedoStack.empty() ? AssetHandle() : m_RedoStack.back().Command->GetEditedAsset();

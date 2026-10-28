@@ -6,6 +6,7 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
+#include <chrono>
 #include <iterator>
 #include <utility>
 
@@ -13,10 +14,16 @@ namespace Strada
 {
 	namespace
 	{
+		double GetMillisecondsSince(std::chrono::steady_clock::time_point start)
+		{
+			return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+		}
+
 		// Step 4: what is written must load again as it is, since the loaded asset keeps the document itself and a later load
 		// of the file must give the same program. Returns the text of the file, made from the Json the check read back.
-		Result<std::string> MakeWritableText(VisualScriptDocument const& document)
+		Result<std::string> MakeWritableText(VisualScriptDocument const& document, VisualScriptCommitTimings& timings)
 		{
+			std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
 			Json const file = VisualScriptSerializer::Serialize(document);
 			DeserializationContext context;
 			context.UnknownFields = UnknownFieldPolicy::Warn;
@@ -34,13 +41,18 @@ namespace Strada
 			{
 				return Error{"the edit would write an invalid document: it does not load back as written"};
 			}
-			return DumpJson(file);
+			timings.Check = GetMillisecondsSince(start);
+			std::chrono::steady_clock::time_point const text = std::chrono::steady_clock::now();
+			std::string written = DumpJson(file);
+			timings.Text = GetMillisecondsSince(text);
+			return written;
 		}
 	}
 
 	Result<VisualScriptCommit> PrepareVisualScriptCommit(VisualScriptDocument const& stored, VisualScriptDocument edited,
 	                                                     VisualScriptAnalysis const* analysis)
 	{
+		std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
 		VisualScriptCommit commit;
 		commit.Warnings = RecordFormerNames(edited, stored);
 		commit.RenameCount = commit.Warnings.size();
@@ -50,7 +62,8 @@ namespace Strada
 			commit.Warnings.insert(commit.Warnings.end(), std::make_move_iterator(updated.begin()), std::make_move_iterator(updated.end()));
 		}
 		PlaceUnplacedNodes(edited);
-		Result<std::string> text = MakeWritableText(edited);
+		commit.Timings.Normalize = GetMillisecondsSince(start);
+		Result<std::string> text = MakeWritableText(edited, commit.Timings);
 		if (!text)
 		{
 			return Error{text.GetError()};
@@ -77,6 +90,7 @@ namespace Strada
 		request.MergeKey = mergeKey;
 		request.Notes.assign(std::make_move_iterator(commit.Warnings.begin() + static_cast<std::ptrdiff_t>(commit.RenameCount)),
 		                     std::make_move_iterator(commit.Warnings.end()));
+		request.Timings = commit.Timings;
 		return request;
 	}
 
