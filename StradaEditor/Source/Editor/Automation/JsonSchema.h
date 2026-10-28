@@ -51,9 +51,15 @@ namespace Strada
 		static SchemaBuilder Number(std::string_view description = {});
 		static SchemaBuilder Boolean(std::string_view description = {});
 		static SchemaBuilder Array(SchemaBuilder items, std::string_view description = {});
+		// A value of any of several scalar types (string, integer, number, boolean, null), such as a reference that is an ID or
+		// a name: {"type": ["integer", "string"]}. Scalars only, since the keywords of objects and arrays would apply to every
+		// type listed.
+		static SchemaBuilder Types(std::initializer_list<std::string_view> types, std::string_view description = {});
+		// Any JSON value: a schema without "type" (values the handler reads as it reads documents, such as a literal).
+		static SchemaBuilder Any(std::string_view description = {});
 
 		SchemaBuilder& Description(std::string_view description);
-		// Also accepts null.
+		// Also accepts null (Any accepts it already).
 		SchemaBuilder& Nullable();
 		SchemaBuilder& Enum(std::initializer_list<std::string_view> values);
 		// Values known at run time, such as the categories of a menu.
@@ -76,6 +82,7 @@ namespace Strada
 		Json Build() const;
 
 	private:
+		// Without a type (Any) when type is empty.
 		explicit SchemaBuilder(std::string_view type, std::string_view description);
 
 		Json m_Schema;

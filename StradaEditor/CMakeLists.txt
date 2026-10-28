@@ -133,6 +133,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptCanvasMetrics.h
     Source/Editor/VisualScripting/VisualScriptCanvasModel.cpp
     Source/Editor/VisualScripting/VisualScriptCanvasModel.h
+    Source/Editor/VisualScripting/VisualScriptCanvasPins.cpp
+    Source/Editor/VisualScripting/VisualScriptCanvasPins.h
     Source/Editor/VisualScripting/VisualScriptCanvasRenderer.cpp
     Source/Editor/VisualScripting/VisualScriptCanvasRenderer.h
     Source/Editor/VisualScripting/VisualScriptClipboard.cpp
@@ -158,6 +160,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptFindBar.h
     Source/Editor/VisualScripting/VisualScriptGeometry.cpp
     Source/Editor/VisualScripting/VisualScriptGeometry.h
+    Source/Editor/VisualScripting/VisualScriptHeadlessCanvas.cpp
+    Source/Editor/VisualScripting/VisualScriptHeadlessCanvas.h
     Source/Editor/VisualScripting/VisualScriptHitTest.cpp
     Source/Editor/VisualScripting/VisualScriptHitTest.h
     Source/Editor/VisualScripting/VisualScriptLiteralEditor.cpp
@@ -181,6 +185,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptSidebar.h
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.cpp
     Source/Editor/VisualScripting/VisualScriptSpatialIndex.h
+    Source/Editor/VisualScripting/VisualScriptTextEstimate.cpp
+    Source/Editor/VisualScripting/VisualScriptTextEstimate.h
     Source/Editor/VisualScripting/VisualScriptTheme.cpp
     Source/Editor/VisualScripting/VisualScriptTheme.h
     Source/Editor/VisualScripting/VisualScriptThemeStyle.cpp

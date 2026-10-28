@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
+#include "Editor/VisualScripting/VisualScriptCanvasPins.h"
 #include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
@@ -165,18 +166,9 @@ namespace Strada
 	// The kind and ID of a packed row; nothing for a kind this editor does not know.
 	[[nodiscard]] std::optional<std::pair<VisualScriptElementKind, uint32_t>> UnpackVisualScriptElement(uint64_t packed);
 
-	// The pins of a node created in the same edit (a palette node, a dropped variable), which the canvas does not show yet:
-	// the ID and the pins of its palette entry or library template, in their order.
-	struct VisualScriptNewNodePins
-	{
-		uint32_t Node = 0;
-		std::span<VisualScriptPin const> Pins;
-	};
-
-	// The pins of the shown sub-graph's nodes as VisualScriptEditing's operations take them: the canvas's rows of each node
-	// (orphans left out) under the names the document stores (VisualScriptEditing::ToStoredVisualScriptPin), with the
-	// defaults of the analysis' pin, else the library template's; and the new node's rows, in its pins' order at no
-	// particular anchor. Valid until the model's next Sync; the new node's pins must outlive it too.
+	// The pins of the shown sub-graph's nodes as VisualScriptEditing's operations take them: MakeVisualScriptCanvasNodePins
+	// of the model's canvas, analysis and display document. Valid until the model's next Sync; the new node's pins must
+	// outlive it too.
 	[[nodiscard]] VisualScriptNodePins MakeVisualScriptNodePins(VisualScriptEditorModel const& model, VisualScriptLibrary const* library,
 	                                                            std::optional<VisualScriptNewNodePins> newNode = std::nullopt);
 

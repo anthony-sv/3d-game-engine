@@ -432,9 +432,9 @@ namespace
 
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
 
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document);
+			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document, self);
 			if (!analysis.IsOk())
 			{
 				return analysis;
@@ -945,9 +945,9 @@ namespace
 
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
 
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document);
+			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document, self);
 			if (!analysis.IsOk())
 			{
 				return analysis;

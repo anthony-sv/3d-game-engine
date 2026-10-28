@@ -10,9 +10,13 @@
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/ProjectImport.h"
 #include "Editor/Viewport/ViewportOverlays.h"
+#include "Editor/VisualScripting/VisualScriptArrange.h"
+#include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptCommit.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptFind.h"
+#include "Editor/VisualScripting/VisualScriptHeadlessCanvas.h"
 #include "Editor/VisualScripting/VisualScriptNormalization.h"
 #include "Editor/VisualScripting/VisualScriptPalette.h"
 #include "Editor/VisualScripting/VisualScriptPalettePopup.h"
@@ -26,6 +30,7 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Base64.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Hash.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Core/Version.h"
 #include "Strada/Project/Project.h"
@@ -867,6 +872,133 @@ namespace Strada
 				return std::nullopt;
 			}
 			return analysis.TakeValue();
+		}
+
+		// The node library of the scripting runtime; null without the runtime.
+		Ref<VisualScriptLibrary const> FindGraphLibrary()
+		{
+			return ScriptEngine::IsInitialized() ? VisualScriptEngine::GetLibrary() : nullptr;
+		}
+
+		// A revision as the graph commands write it: 16 lowercase hex digits.
+		std::string FormatGraphRevision(uint64_t hash)
+		{
+			return fmt::format("{:016x}", hash);
+		}
+
+		// The revision of a document: of its file's text as written (VisualScriptSerializer::WriteText), so a file of an
+		// older version or one the loader repaired has the revision of its document as it loaded.
+		std::string GetGraphRevision(VisualScriptDocument const& document)
+		{
+			return FormatGraphRevision(Hash::FNV1a(VisualScriptSerializer::WriteText(document)));
+		}
+
+		// The program revision of a document: of what HaveSameVisualScriptProgram compares, so moves, comments, arranging and
+		// collapsing leave it unchanged.
+		std::string GetGraphProgramRevision(VisualScriptDocument const& document)
+		{
+			return FormatGraphRevision(
+				Hash::FNV1a(VisualScriptSerializer::WriteContentText(VisualScriptEditing::StripVisualScriptLayout(document))));
+		}
+
+		bool IsGraphRevision(std::string_view text)
+		{
+			return text.size() == 16 && std::all_of(text.begin(), text.end(),
+			                                        [](char character)
+			                                        {
+														return (character >= '0' && character <= '9') ||
+				                                               (character >= 'a' && character <= 'f');
+													});
+		}
+
+		// An ID parameter whose schema keeps it within 0 to MaxID: an integer, or a number without a fraction (3.0).
+		uint32_t ReadGraphID(Json const& value)
+		{
+			if (value.is_number_integer())
+			{
+				return static_cast<uint32_t>(std::clamp<int64_t>(value.get<int64_t>(), 0, VisualScriptSerializer::MaxID));
+			}
+			return static_cast<uint32_t>(std::clamp(value.get<double>(), 0.0, static_cast<double>(VisualScriptSerializer::MaxID)));
+		}
+
+		// How messages name a sub-graph: "the event graph" or "function 'Push' (7)".
+		std::string DescribeSubGraph(VisualScriptDocument const& document, uint32_t function)
+		{
+			if (function == 0)
+			{
+				return "the event graph";
+			}
+			auto const found = std::find_if(document.Functions.begin(), document.Functions.end(),
+			                                [function](VisualScriptFunction const& candidate)
+			                                {
+												return candidate.ID == function;
+											});
+			return found != document.Functions.end() ? fmt::format("function '{}' ({})", found->Name, function)
+			                                         : fmt::format("function {}", function);
+		}
+
+		// The sub-graph a "function" parameter names: 0 (the event graph, also when absent) or a function's ID, or a function's
+		// name. InvalidParams with data.path "function" for a function the document does not have.
+		CommandValue<uint32_t> ParseSubGraph(Json const& params, VisualScriptDocument const& document)
+		{
+			auto const parameter = params.find("function");
+			if (parameter == params.end())
+			{
+				return uint32_t(0);
+			}
+			if (parameter->is_string())
+			{
+				std::string const& name = parameter->get_ref<std::string const&>();
+				for (VisualScriptFunction const& function : document.Functions)
+				{
+					if (function.Name == name)
+					{
+						return function.ID;
+					}
+				}
+				return MakeParameterError("function", fmt::format("the visual script has no function named '{}'", name));
+			}
+			uint32_t const id = ReadGraphID(*parameter);
+			if (id != 0 && FindVisualScriptGraph(document, id) == nullptr)
+			{
+				return MakeParameterError("function", fmt::format("the visual script has no function {} (0 is the event graph)", id));
+			}
+			return id;
+		}
+
+		// The elements an array parameter names, each a node (or, with comments, a comment box) of the sub-graph, in the order
+		// given without repeats. InvalidParams with data.path "<parameter>[<i>]" for one the sub-graph does not have.
+		CommandValue<std::vector<uint32_t>> ParseSubGraphElements(Json const& list, VisualScriptDocument const& document, uint32_t function,
+		                                                          std::string_view parameter, bool comments)
+		{
+			VisualScriptGraph const* const graph = FindVisualScriptGraph(document, function);
+			std::vector<uint32_t> elements;
+			for (size_t index = 0; index < list.size(); index++)
+			{
+				uint32_t const id = ReadGraphID(list[index]);
+				bool const node = graph != nullptr && std::any_of(graph->Nodes.begin(), graph->Nodes.end(),
+				                                                  [id](VisualScriptNode const& candidate)
+				                                                  {
+																	  return candidate.ID == id;
+																  });
+				bool const comment = comments && graph != nullptr &&
+				                     std::any_of(graph->Comments.begin(), graph->Comments.end(),
+				                                 [id](VisualScriptComment const& candidate)
+				                                 {
+													 return candidate.ID == id;
+												 });
+				if (!node && !comment)
+				{
+					return MakeParameterError(fmt::format("{}[{}]", parameter, index),
+					                          fmt::format("{} is not a {} of {}", id, comments ? "node or comment box" : "node",
+					                                      DescribeSubGraph(document, function)));
+				}
+				if (std::find(elements.begin(), elements.end(), id) == elements.end())
+				{
+					elements.push_back(id);
+				}
+			}
+			return elements;
 		}
 
 		// The analysis in a result: the runtime's nodes and diagnostics.
@@ -1908,6 +2040,75 @@ namespace Strada
 										  return described;
 									  })
 				                : result;
+				SchemaBuilder const subGraphParameter =
+					SchemaBuilder::Types({"integer", "string"}, "The sub-graph: 0 for the event graph (the default), else a function's ID "
+				                                                "or name")
+						.Minimum(0)
+						.Maximum(VisualScriptSerializer::MaxID)
+						.MinLength(1);
+				SchemaBuilder const elementParameter = SchemaBuilder::Integer().Minimum(0).Maximum(VisualScriptSerializer::MaxID);
+				result = result
+				             ? Add("graph.arrange",
+				                   "Lays out nodes of a visual script as the graph window's Arrange button does (links running left to "
+				                   "right in columns, few crossings, groups one below the other) and saves the file as one undo step "
+				                   "\"Arrange N Nodes in <script>\". Takes graph, function (0 for the event graph, the default, else a "
+				                   "function's ID or name), nodes (the IDs to arrange, links between them counting; absent or empty: "
+				                   "every node of the sub-graph), extents (Measured, the default: node sizes as a window draws them, "
+				                   "measured without one; Uniform: 256 x 128 for every node), revision (fails with InvalidOperation, "
+				                   "changing nothing, unless the stored document has this revision) and dryRun (everything but the "
+				                   "write and the undo step). Comment boxes whose contents are all arranged are fitted around them "
+				                   "again. Works headless and without the scripting runtime. Returns { asset, path, changed (false when "
+				                   "the nodes stand arranged already: no step), revision, programRevision (of the document written, or "
+				                   "that a dry run would write), arranged (how many nodes), bounds: { min: [x, y], max: [x, y] } (the "
+				                   "arranged nodes' extent afterwards, null for none: where a comment box framing them goes) }.",
+				                   SchemaBuilder::Object()
+				                       .Property("graph", graphParameter, true)
+				                       .Property("function", subGraphParameter)
+				                       .Property("nodes", SchemaBuilder::Array(elementParameter, "IDs of nodes of the sub-graph to arrange "
+				                                                                                 "(default: every node)")
+				                                              .MaxItems(10000))
+				                       .Property("extents", SchemaBuilder::String("How nodes are sized: Measured (as a window draws them) "
+				                                                                  "or Uniform (256 x 128)")
+				                                                .Enum({"Measured", "Uniform"})
+				                                                .Default("Measured"))
+				                       .Property("revision", SchemaBuilder::String("A revision a graph command returned (16 lowercase "
+				                                                                   "hex digits): the call fails unless the document has it")
+				                                                 .MinLength(16)
+				                                                 .MaxLength(16))
+				                       .Property("dryRun", SchemaBuilder::Boolean("Answer what the call would do, writing nothing "
+				                                                                  "and recording no undo step")
+				                                               .Default(false))
+				                       .Build(),
+				                   false,
+				                   [this](Json const& params) -> CommandResult
+				                   {
+									   return ArrangeGraph(params);
+								   })
+				             : result;
+				result = result
+				             ? Add("graph.copy",
+				                   "Copies nodes and comment boxes of a visual script as the graph window's Copy does: returns { text }, "
+				                   "the editor's clipboard text (the elements with the links between them, the variables they use and "
+				                   "the functions they call), which graph.edit's Paste takes into any graph, binding variables and "
+				                   "functions by name. Takes graph, function (0 for the event graph, the default, else a function's ID "
+				                   "or name) and elements (1 to 10000 IDs of nodes and comment boxes of that sub-graph). Writes nothing "
+				                   "and does not touch the system clipboard; works headless. FileError when the file does not load.",
+				                   SchemaBuilder::Object()
+				                       .Property("graph", graphParameter, true)
+				                       .Property("function", subGraphParameter)
+				                       .Property("elements",
+				                                 SchemaBuilder::Array(elementParameter, "IDs of nodes and comment boxes of "
+				                                                                        "the sub-graph to copy")
+				                                     .MinItems(1)
+				                                     .MaxItems(10000),
+				                                 true)
+				                       .Build(),
+				                   true,
+				                   [this](Json const& params) -> CommandResult
+				                   {
+									   return CopyGraph(params);
+								   })
+				             : result;
 				result =
 					result
 						? Add("graph.library",
@@ -2031,6 +2232,186 @@ namespace Strada
 						   : result;
 				result = result ? RegisterGraphWindows() : result;
 				return result;
+			}
+
+			// graph.arrange: ArrangeNodes as the Arrange button runs it (VisualScriptController's Arrange), its step described
+			// alike and prepared by the same commit pipeline, with node sizes from a headless canvas (Measured) or uniform ones.
+			CommandResult ArrangeGraph(Json const& params)
+			{
+				if (std::optional<CommandError> error = CheckAssets(true))
+				{
+					return *error;
+				}
+				CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+				if (!graph)
+				{
+					return graph.TakeError();
+				}
+				AssetHandle const handle = graph.GetValue();
+				std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
+				if (!metadata || !metadata->IsFileAsset())
+				{
+					return MakeParameterError(
+						"graph", fmt::format("visual script {} has no file of its own and cannot be edited", handle.ToString()));
+				}
+				Result<Ref<VisualScriptAsset>> const asset = LoadGraph(handle);
+				if (!asset)
+				{
+					return MakeCommandError(AutomationErrorCode::FileError,
+					                        "the file of visual script '{}' does not load: {}; graph.set replaces it", metadata->Path,
+					                        asset.GetError());
+				}
+				Ref<VisualScriptDocument const> const stored = asset.GetValue()->GetSharedDocument();
+				if (auto const revision = params.find("revision"); revision != params.end())
+				{
+					std::string const& given = revision->get_ref<std::string const&>();
+					if (!IsGraphRevision(given))
+					{
+						return MakeParameterError("revision",
+						                          "a revision is 16 lowercase hexadecimal digits, as the graph commands return it");
+					}
+					std::string current = GetGraphRevision(*stored);
+					if (given != current)
+					{
+						CommandError error = MakeCommandError(AutomationErrorCode::InvalidOperation,
+						                                      "revision: the visual script changed since revision {}, it has revision {} "
+						                                      "now: read it again before arranging it",
+						                                      given, current);
+						error.Data = Json::object({{"path", "revision"}, {"revision", std::move(current)}});
+						return error;
+					}
+				}
+				CommandValue<uint32_t> const function = ParseSubGraph(params, *stored);
+				if (!function)
+				{
+					return function.GetError();
+				}
+				std::vector<uint32_t> nodes;
+				if (auto const listed = params.find("nodes"); listed != params.end())
+				{
+					CommandValue<std::vector<uint32_t>> parsed =
+						ParseSubGraphElements(*listed, *stored, function.GetValue(), "nodes", false);
+					if (!parsed)
+					{
+						return parsed.TakeError();
+					}
+					nodes = parsed.TakeValue();
+				}
+				VisualScriptGraph const* const subGraph = FindVisualScriptGraph(*stored, function.GetValue());
+				if (subGraph == nullptr)
+				{
+					return MakeParameterError("function", "the visual script has no such sub-graph");
+				}
+				if (nodes.empty())
+				{
+					for (VisualScriptNode const& node : subGraph->Nodes)
+					{
+						nodes.push_back(node.ID);
+					}
+				}
+
+				// The nodes' sizes: what a window would draw, from the analysis with the runtime, else the library's templates,
+				// else the pins the links and literals name. The analysis also gives the commit the nodes' canonical types, as
+				// the window's does.
+				Ref<VisualScriptLibrary const> const library = FindGraphLibrary();
+				std::optional<VisualScriptAnalysis> const analysis = library != nullptr ? AnalyzeGraph(*stored) : std::nullopt;
+				VisualScriptHeadlessCanvas canvas;
+				canvas.Sync(*stored, function.GetValue(), analysis ? &*analysis : nullptr, stored.get(), library.get());
+				VisualScriptNodeExtents const measured = canvas.GetExtents();
+				VisualScriptNodeExtents const extents =
+					GetString(params, "extents", "Measured") == "Uniform"
+						? VisualScriptNodeExtents(&VisualScriptEditing::GetDefaultVisualScriptNodeExtents)
+						: measured;
+
+				VisualScriptDocument arranged = *stored;
+				if (Result<void> const done = VisualScriptEditing::ArrangeNodes(arranged, function.GetValue(), nodes, extents); !done)
+				{
+					// The nodes are the sub-graph's and the sizes are a canvas's: this is the editor's fault.
+					return MakeCommandError(AutomationErrorCode::InternalError, "{}", done.GetError());
+				}
+				std::string const action = nodes.size() == 1 ? std::string("Arrange Node") : fmt::format("Arrange {} Nodes", nodes.size());
+				std::string const scriptName = FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem());
+				Result<VisualScriptCommitRequest> prepared =
+					MakeVisualScriptCommitRequest(*stored, std::move(arranged), analysis ? &*analysis : nullptr, action, scriptName, 0);
+				if (!prepared)
+				{
+					// The arranged document was valid, and preparing it keeps it valid: this is the editor's fault.
+					return MakeCommandError(AutomationErrorCode::InternalError, "{}", prepared.GetError());
+				}
+				VisualScriptCommitRequest request = prepared.TakeValue();
+				bool const changed = !IsSameVisualScriptDocument(*request.Document, *stored);
+				bool const dryRun = GetBool(params, "dryRun", false);
+				Json described = DescribeGraph(handle);
+				described["changed"] = changed;
+				described["revision"] = FormatGraphRevision(Hash::FNV1a(request.Text));
+				described["programRevision"] = GetGraphProgramRevision(*request.Document);
+				described["arranged"] = nodes.size();
+				described["bounds"] = Json();
+				if (VisualScriptGraph const* const result = FindVisualScriptGraph(*request.Document, function.GetValue()))
+				{
+					std::optional<VisualScriptRect> bounds;
+					for (VisualScriptNode const& node : result->Nodes)
+					{
+						if (!node.Position || std::find(nodes.begin(), nodes.end(), node.ID) == nodes.end())
+						{
+							continue;
+						}
+						VisualScriptRect const rect{*node.Position, *node.Position + measured(node.ID)};
+						bounds = bounds ? VisualScriptRect{glm::min(bounds->Min, rect.Min), glm::max(bounds->Max, rect.Max)} : rect;
+					}
+					if (bounds)
+					{
+						described["bounds"] = Json::object(
+							{{"min", Json::array({bounds->Min.x, bounds->Min.y})}, {"max", Json::array({bounds->Max.x, bounds->Max.y})}});
+					}
+				}
+				if (changed && !dryRun)
+				{
+					if (Result<void> const edited = m_Operations.EditVisualScript(handle, request.Document, std::move(request.Description),
+					                                                              0, std::move(request.Text));
+					    !edited)
+					{
+						return Failure(AutomationErrorCode::FileError, edited);
+					}
+				}
+				return described;
+			}
+
+			// graph.copy: the clipboard text of the elements, as the graph window's Copy writes it.
+			CommandResult CopyGraph(Json const& params)
+			{
+				if (std::optional<CommandError> error = CheckAssets(false))
+				{
+					return *error;
+				}
+				CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+				if (!graph)
+				{
+					return graph.TakeError();
+				}
+				AssetHandle const handle = graph.GetValue();
+				Result<Ref<VisualScriptAsset>> const asset = LoadGraph(handle);
+				if (!asset)
+				{
+					std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
+					return MakeCommandError(AutomationErrorCode::FileError, "the file of visual script '{}' does not load: {}",
+					                        metadata && !metadata->Path.empty() ? metadata->Path : handle.ToString(), asset.GetError());
+				}
+				VisualScriptDocument const& document = asset.GetValue()->GetDocument();
+				CommandValue<uint32_t> const function = ParseSubGraph(params, document);
+				if (!function)
+				{
+					return function.GetError();
+				}
+				CommandValue<std::vector<uint32_t>> elements =
+					ParseSubGraphElements(params["elements"], document, function.GetValue(), "elements", true);
+				if (!elements)
+				{
+					return elements.TakeError();
+				}
+				Ref<VisualScriptLibrary const> const library = FindGraphLibrary();
+				return Json::object(
+					{{"text", WriteVisualScriptClipboard(document, function.GetValue(), elements.GetValue(), handle, library.get())}});
 			}
 
 			// The graph windows: Unavailable without the editor's UI, and the asset checks (a project for the commands that

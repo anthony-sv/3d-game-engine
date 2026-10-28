@@ -1006,8 +1006,8 @@ namespace Strada::Testing
 			return m_Available ? m_Library : nullptr;
 		}
 
-		// Fails while the runtime is stopped.
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
+		// Fails while the runtime is stopped. The fixture analyzer reads no other graph, so the graph analyzed does not matter.
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle) override
 		{
 			m_AnalyzeCallCount++;
 			if (!m_Available)

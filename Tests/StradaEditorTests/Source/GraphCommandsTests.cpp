@@ -10,7 +10,11 @@
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/PlayMode.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
+#include "Editor/VisualScripting/VisualScriptArrange.h"
+#include "Editor/VisualScripting/VisualScriptClipboard.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
+#include "Editor/VisualScripting/VisualScriptHeadlessCanvas.h"
 #include "Editor/VisualScripting/VisualScriptPalette.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
@@ -19,6 +23,7 @@
 #include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Hash.h"
 #include "Strada/Core/Log.h"
 #include "Strada/Scene/Scene.h"
 #include "Strada/Script/ScriptEngine.h"
@@ -28,6 +33,7 @@
 #include <doctest/doctest.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <chrono>
@@ -240,14 +246,14 @@ TEST_CASE("GraphCommands: every graph command is registered, documented and read
 	GraphFixture fixture;
 	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
 	REQUIRE(reference.IsOk());
-	for (std::string const name : {"graph.create", "graph.get", "graph.set", "graph.check", "graph.library", "graph.types", "graph.open",
-	                               "graph.close", "graph.editors", "graph.palette", "graph.find"})
+	for (std::string const name : {"graph.create", "graph.get", "graph.set", "graph.check", "graph.arrange", "graph.copy", "graph.library",
+	                               "graph.types", "graph.open", "graph.close", "graph.editors", "graph.palette", "graph.find"})
 	{
 		CAPTURE(name);
 		CommandDefinition const* command = fixture.Registry.Find(name);
 		REQUIRE(command != nullptr);
-		bool const changes =
-			name == "graph.create" || name == "graph.set" || name == "graph.open" || name == "graph.close" || name == "graph.palette";
+		bool const changes = name == "graph.create" || name == "graph.set" || name == "graph.arrange" || name == "graph.open" ||
+		                     name == "graph.close" || name == "graph.palette";
 		CHECK(command->ReadOnly == !changes);
 		// graph.palette answers once the palette was drawn.
 		CHECK(command->IsAsync() == (name == "graph.palette"));
@@ -2097,4 +2103,341 @@ TEST_CASE("GraphCommands: graph.find finds text in every script or one, and the 
 	CHECK(found["skipped"][0]["asset"] == damaged);
 	CHECK(found["skipped"][0]["path"] == "Scripts/Damaged.sgraph");
 	CHECK(fixture.Fails("graph.find", Json::object({{"query", "s"}, {"graph", damaged}})).Code == AutomationErrorCode::FileError);
+}
+
+namespace
+{
+	// graph.*'s revision of a file's text, and program revision of a document.
+	std::string RevisionOf(std::string_view text)
+	{
+		return fmt::format("{:016x}", Hash::FNV1a(text));
+	}
+
+	std::string ProgramRevisionOf(VisualScriptDocument const& document)
+	{
+		return RevisionOf(VisualScriptSerializer::WriteContentText(VisualScriptEditing::StripVisualScriptLayout(document)));
+	}
+
+	// The counter's nodes all at one place in a comment box, and a function with two nodes of its own, also stacked.
+	VisualScriptDocument MakeStackedDocument()
+	{
+		VisualScriptDocument document = MakeCounterDocument();
+		for (VisualScriptNode& node : document.Graph.Nodes)
+		{
+			node.Position = glm::vec2(32.0f, 48.0f);
+		}
+		VisualScriptFunction function;
+		function.ID = 20;
+		function.Name = "Reset";
+		function.Graph.Nodes.push_back(MakeNode(21, "Function.Entry"));
+		function.Graph.Nodes.push_back(MakeNode(22, "Variable.Set", Json::object({{"Variable", 2}}), Json::object({{"Value", 0}})));
+		function.Graph.Nodes[0].Position = glm::vec2(0.0f, 0.0f);
+		function.Graph.Nodes[1].Position = glm::vec2(0.0f, 0.0f);
+		function.Graph.Links.push_back(MakeLink(21, "Then", 22, "Execute"));
+		document.Functions.push_back(std::move(function));
+		VisualScriptComment comment;
+		comment.ID = 30;
+		comment.Text = "Counting";
+		comment.Position = glm::vec2(0.0f, 0.0f);
+		comment.Size = glm::vec2(400.0f, 200.0f);
+		document.Graph.Comments.push_back(std::move(comment));
+		return document;
+	}
+
+	std::optional<glm::vec2> FindPosition(VisualScriptGraph const& graph, uint32_t id)
+	{
+		for (VisualScriptNode const& node : graph.Nodes)
+		{
+			if (node.ID == id)
+			{
+				return node.Position;
+			}
+		}
+		return std::nullopt;
+	}
+}
+
+TEST_CASE("GraphCommands: graph.arrange lays out a sub-graph as the Arrange button does, as one undo step")
+{
+	// Without a project there is nothing to write; copying needs none.
+	{
+		GraphFixture closed(false);
+		CHECK(closed.Fails("graph.arrange", Json::object({{"graph", "123"}})).Code == AutomationErrorCode::InvalidOperation);
+		CHECK(closed.Fails("graph.copy", Json::object({{"graph", "123"}, {"elements", Json::array({1})}})).Code ==
+		      AutomationErrorCode::AssetNotFound);
+	}
+
+	GraphFixture fixture;
+	VisualScriptDocument const stacked = MakeStackedDocument();
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", stacked);
+	std::string const original = fixture.ReadFile("Scripts/Counter.sgraph");
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	// The window's Arrange: ArrangeNodes with node sizes as a window draws them, here without the scripting runtime (the
+	// pins the links and literals name).
+	VisualScriptDocument expected = stacked;
+	VisualScriptHeadlessCanvas canvas;
+	canvas.Sync(stacked, 0, nullptr, nullptr, nullptr);
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
+
+	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
+	CHECK(arranged["asset"] == graph);
+	CHECK(arranged["path"] == "Scripts/Counter.sgraph");
+	CHECK(arranged["changed"] == true);
+	CHECK(arranged["arranged"] == 5);
+	std::string const written = fixture.ReadFile("Scripts/Counter.sgraph");
+	CHECK(written == VisualScriptSerializer::WriteText(expected));
+	CHECK(fixture.GetDocument(graph) == expected);
+	CHECK(arranged["revision"] == RevisionOf(written));
+	// Arranging moves nodes only: the program revision is the stored document's.
+	CHECK(arranged["programRevision"] == ProgramRevisionOf(stacked));
+	// The bounds of the arranged nodes, as a window draws them.
+	glm::vec2 low(std::numeric_limits<float>::max());
+	glm::vec2 high(std::numeric_limits<float>::lowest());
+	for (VisualScriptNode const& node : expected.Graph.Nodes)
+	{
+		REQUIRE(node.Position.has_value());
+		low = glm::min(low, *node.Position);
+		high = glm::max(high, *node.Position + canvas.GetExtents()(node.ID));
+	}
+	CHECK(arranged["bounds"] == Json::object({{"min", Json::array({low.x, low.y})}, {"max", Json::array({high.x, high.y})}}));
+	// The comment box whose contents were all arranged is fitted around them again.
+	CHECK(fixture.GetDocument(graph).Graph.Comments[0].Size != stacked.Graph.Comments[0].Size);
+	// The function's graph is left as it was.
+	CHECK(fixture.GetDocument(graph).Functions == stacked.Functions);
+
+	// One step, described as the button describes it; the scene stays unmodified.
+	Json const status = fixture.Ok("editor.status");
+	CHECK(status["undo"] == "Arrange 5 Nodes in Counter");
+	CHECK(status["scene"]["dirty"] == false);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+
+	// Arranging is idempotent: the second call changes nothing and records no step.
+	Json const again = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
+	CHECK(again["changed"] == false);
+	CHECK(again["revision"] == arranged["revision"]);
+	CHECK(again["bounds"] == arranged["bounds"]);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.ReadFile("Scripts/Counter.sgraph") == written);
+
+	// Undo gives the file its bytes back, redo writes the arranged ones again.
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Arrange 5 Nodes in Counter");
+	CHECK(fixture.ReadFile("Scripts/Counter.sgraph") == original);
+	CHECK(fixture.GetDocument(graph) == stacked);
+	CHECK(fixture.Ok("editor.redo")["redone"] == "Arrange 5 Nodes in Counter");
+	CHECK(fixture.ReadFile("Scripts/Counter.sgraph") == written);
+	fixture.Ok("editor.undo");
+
+	// A function's graph, named by its ID or its name; a single node.
+	Json const function = fixture.Ok("graph.arrange", Json::object({{"graph", graph}, {"function", "Reset"}}));
+	CHECK(function["arranged"] == 2);
+	CHECK(fixture.Ok("editor.status")["undo"] == "Arrange 2 Nodes in Counter");
+	CHECK(fixture.GetDocument(graph).Graph == stacked.Graph);
+	CHECK(FindPosition(fixture.GetDocument(graph).Functions[0].Graph, 22) != FindPosition(stacked.Functions[0].Graph, 22));
+	fixture.Ok("editor.undo");
+	CHECK(fixture.ReadFile("Scripts/Counter.sgraph") == original);
+	// One placed node keeps its place: nothing changes.
+	Json const one = fixture.Ok("graph.arrange", Json::object({{"graph", graph}, {"function", 20}, {"nodes", Json::array({22})}}));
+	CHECK(one["arranged"] == 1);
+	CHECK(one["changed"] == false);
+	CHECK(one["revision"] == RevisionOf(original));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+}
+
+TEST_CASE("GraphCommands: graph.arrange arranges the nodes given with either extents, and refuses what it cannot arrange")
+{
+	GraphFixture fixture;
+	VisualScriptDocument const stacked = MakeStackedDocument();
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", stacked);
+	std::string const original = fixture.ReadFile("Scripts/Counter.sgraph");
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	std::string const revision = RevisionOf(original);
+
+	// Some nodes: the others stay; Uniform sizes every node 256 x 128, as PlaceUnplacedNodes pitches them.
+	std::vector<uint32_t> const some = {12, 13, 14};
+	VisualScriptDocument uniform = stacked;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(uniform, 0, some,
+	                                          [](uint32_t node)
+	                                          {
+												  return VisualScriptEditing::GetDefaultVisualScriptNodeExtents(node);
+											  })
+	            .IsOk());
+	Json const partial =
+		fixture.Ok("graph.arrange", Json::object({{"graph", graph}, {"nodes", Json::array({12, 13, 14, 13})}, {"extents", "Uniform"}}));
+	CHECK(partial["arranged"] == 3);
+	CHECK(fixture.GetDocument(graph) == uniform);
+	CHECK(FindPosition(fixture.GetDocument(graph).Graph, 10) == FindPosition(stacked.Graph, 10));
+	CHECK(fixture.Ok("editor.status")["undo"] == "Arrange 3 Nodes in Counter");
+	fixture.Ok("editor.undo");
+
+	// A dry run answers what the call then does, and writes nothing.
+	Json const dry = fixture.Ok("graph.arrange", Json::object({{"graph", graph}, {"dryRun", true}, {"revision", revision}}));
+	CHECK(dry["changed"] == true);
+	CHECK(fixture.ReadFile("Scripts/Counter.sgraph") == original);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	CHECK(fixture.Context.GetHistory().CanRedo());
+	Json const real = fixture.Ok("graph.arrange", Json::object({{"graph", graph}, {"revision", revision}}));
+	CHECK(real == dry);
+	CHECK(real["revision"] == RevisionOf(fixture.ReadFile("Scripts/Counter.sgraph")));
+
+	// Revisions: the stored document's must be given, as 16 lowercase hex digits.
+	size_t const before = fixture.Context.GetHistory().GetUndoCount();
+	std::string const written = fixture.ReadFile("Scripts/Counter.sgraph");
+	CommandError const stale = fixture.Fails("graph.arrange", Json::object({{"graph", graph}, {"revision", revision}}));
+	CHECK(stale.Code == AutomationErrorCode::InvalidOperation);
+	CHECK(stale.Data == Json::object({{"path", "revision"}, {"revision", real["revision"]}}));
+	for (std::string const malformed : {"ABCDEF0123456789", "0123456789abcdeg"})
+	{
+		CommandError const refused = fixture.Fails("graph.arrange", Json::object({{"graph", graph}, {"revision", malformed}}));
+		CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+		CHECK(refused.Data["path"] == "revision");
+	}
+	CHECK(fixture.Fails("graph.arrange", Json::object({{"graph", graph}, {"revision", "0123"}})).Code ==
+	      AutomationErrorCode::InvalidParams);
+
+	// What names nothing of the sub-graph.
+	auto const failure = [&fixture, &graph](Json params)
+	{
+		params["graph"] = graph;
+		CommandError const error = fixture.Fails("graph.arrange", std::move(params));
+		return std::pair(error.Code, error.Data.value("path", std::string()));
+	};
+	CHECK(failure(Json::object({{"function", 99}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("function")));
+	CHECK(failure(Json::object({{"function", "Nope"}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("function")));
+	CHECK(failure(Json::object({{"function", ""}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("function")));
+	CHECK(failure(Json::object({{"function", -1}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("function")));
+	CHECK(failure(Json::object({{"function", true}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("function")));
+	CHECK(failure(Json::object({{"nodes", Json::array({10, 999})}})) ==
+	      std::pair(AutomationErrorCode::InvalidParams, std::string("nodes[1]")));
+	// A node of another sub-graph, and a comment box, are not nodes of the event graph.
+	CHECK(failure(Json::object({{"nodes", Json::array({22})}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("nodes[0]")));
+	CHECK(failure(Json::object({{"nodes", Json::array({30})}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("nodes[0]")));
+	CHECK(failure(Json::object({{"extents", "Exact"}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("extents")));
+	CHECK(fixture.Fails("graph.arrange", Json::object({{"graph", graph}, {"nodes", Json::array({999})}})).Message ==
+	      "nodes[0]: 999 is not a node of the event graph");
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == before);
+	CHECK(fixture.ReadFile("Scripts/Counter.sgraph") == written);
+
+	// Graphs that are not registered, not visual scripts, without a file of their own, read-only or that do not load.
+	CHECK(fixture.Fails("graph.arrange", Json::object({{"graph", "123"}})).Code == AutomationErrorCode::AssetNotFound);
+	std::string const material =
+		fixture.Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}}))["material"]["id"].get<std::string>();
+	CHECK(fixture.Fails("graph.arrange", Json::object({{"graph", material}})).Data["path"] == "graph");
+	AssetHandle const memory = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(stacked), "Memory");
+	CommandError const withoutFile = fixture.Fails("graph.arrange", Json::object({{"graph", memory.ToString()}}));
+	CHECK(withoutFile.Code == AutomationErrorCode::InvalidParams);
+	CHECK(withoutFile.Data["path"] == "graph");
+	fixture.Ok("editor.undo");
+	{
+		Testing::ReadOnlyFileScope const readOnly(fixture.GetFile("Scripts/Counter.sgraph"));
+		CommandError const refused = fixture.Fails("graph.arrange", Json::object({{"graph", graph}}));
+		CHECK(refused.Code == AutomationErrorCode::FileError);
+		CHECK(refused.Message == "the file of visual script 'Scripts/Counter.sgraph' is read-only");
+	}
+	fixture.WriteFile("Broken.sgraph", "{ \"Strada\": ");
+	REQUIRE(fixture.Ok("asset.refresh")["added"].size() == 1);
+	CommandError const broken = fixture.Fails("graph.arrange", Json::object({{"graph", "asset://Broken.sgraph"}}));
+	CHECK(broken.Code == AutomationErrorCode::FileError);
+	CHECK(broken.Message.starts_with("the file of visual script 'Broken.sgraph' does not load: "));
+	CHECK(broken.Message.ends_with("; graph.set replaces it"));
+
+	// Nodes at the edge of the canvas's range are arranged within it.
+	VisualScriptDocument edge = stacked;
+	for (VisualScriptNode& node : edge.Graph.Nodes)
+	{
+		node.Position = glm::vec2(static_cast<float>(VisualScriptSerializer::MaxCoordinate) - 100.0f, 0.0f);
+	}
+	std::string const far = fixture.CreateGraph("Scripts/Far.sgraph", edge);
+	CHECK(fixture.Ok("graph.arrange", Json::object({{"graph", far}}))["changed"] == true);
+	for (VisualScriptNode const& node : fixture.GetDocument(far).Graph.Nodes)
+	{
+		REQUIRE(node.Position.has_value());
+		CHECK(VisualScriptSerializer::IsValidPosition(*node.Position));
+	}
+}
+
+TEST_CASE("GraphCommands: graph.arrange measures nodes from the runtime's analysis, and an empty sub-graph arranges nothing")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	VisualScriptDocument const stacked = MakeStackedDocument();
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", stacked);
+	VisualScriptDocument const stored = fixture.GetDocument(graph);
+
+	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
+	REQUIRE(library != nullptr);
+	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(stored);
+	REQUIRE(analysis.IsOk());
+	VisualScriptHeadlessCanvas canvas;
+	canvas.Sync(stored, 0, &analysis.GetValue(), &stored, library.get());
+	VisualScriptDocument expected = stored;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
+	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
+	CHECK(arranged["changed"] == true);
+	CHECK(fixture.GetDocument(graph) == expected);
+
+	VisualScriptDocument empty;
+	std::string const blank = fixture.CreateGraph("Scripts/Blank.sgraph", empty);
+	Json const nothing = fixture.Ok("graph.arrange", Json::object({{"graph", blank}}));
+	CHECK(nothing["changed"] == false);
+	CHECK(nothing["arranged"] == 0);
+	CHECK(nothing["bounds"].is_null());
+}
+
+TEST_CASE("GraphCommands: graph.copy writes the clipboard text of elements as the window's Copy does")
+{
+	GraphFixture fixture;
+	VisualScriptDocument const stacked = MakeStackedDocument();
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", stacked);
+	AssetHandle const handle = AssetManager::FindByPath("Scripts/Counter.sgraph");
+	VisualScriptDocument const document = fixture.GetDocument(graph);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	std::vector<uint32_t> const elements = {11, 12, 13, 30};
+	Json const copied = fixture.Ok("graph.copy", Json::object({{"graph", graph}, {"elements", Json::array({11, 12, 13, 30, 12})}}));
+	CHECK(copied == Json::object({{"text", WriteVisualScriptClipboard(document, 0, elements, handle, nullptr)}}));
+	CHECK(MayHoldVisualScriptClipboard(copied["text"].get<std::string>()));
+	// It reads back as the window's Paste reads it.
+	Result<VisualScriptClipboardContent> const read = ReadVisualScriptClipboard(copied["text"].get<std::string>());
+	REQUIRE_MESSAGE(read.IsOk(), (read.IsError() ? read.GetError() : std::string()));
+
+	// A function's elements, named by the function's ID or name.
+	Json const function = fixture.Ok(
+		"graph.copy", Json::object({{"graph", "asset://Scripts/Counter.sgraph"}, {"function", "Reset"}, {"elements", Json::array({22})}}));
+	std::vector<uint32_t> const set = {22};
+	CHECK(function["text"] == WriteVisualScriptClipboard(document, 20, set, handle, nullptr));
+	CHECK(fixture.Ok("graph.copy", Json::object({{"graph", graph}, {"function", 20}, {"elements", Json::array({22})}})) == function);
+
+	// Nothing is written: no step.
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+
+	auto const failure = [&fixture, &graph](Json params)
+	{
+		params["graph"] = graph;
+		CommandError const error = fixture.Fails("graph.copy", std::move(params));
+		return std::pair(error.Code, error.Data.value("path", std::string()));
+	};
+	CHECK(failure(Json::object({{"elements", Json::array()}})) == std::pair(AutomationErrorCode::InvalidParams, std::string("elements")));
+	CHECK(failure(Json::object()) == std::pair(AutomationErrorCode::InvalidParams, std::string("elements")));
+	CHECK(failure(Json::object({{"elements", Json::array({11, 22})}})) ==
+	      std::pair(AutomationErrorCode::InvalidParams, std::string("elements[1]")));
+	CHECK(failure(Json::object({{"function", 20}, {"elements", Json::array({11})}})) ==
+	      std::pair(AutomationErrorCode::InvalidParams, std::string("elements[0]")));
+	CHECK(failure(Json::object({{"function", 7}, {"elements", Json::array({11})}})) ==
+	      std::pair(AutomationErrorCode::InvalidParams, std::string("function")));
+	CHECK(fixture.Fails("graph.copy", Json::object({{"graph", graph}, {"elements", Json::array({11, 22})}})).Message ==
+	      "elements[1]: 22 is not a node or comment box of the event graph");
+	CHECK(fixture.Fails("graph.copy", Json::object({{"graph", "123"}, {"elements", Json::array({1})}})).Code ==
+	      AutomationErrorCode::AssetNotFound);
+	fixture.WriteFile("Broken.sgraph", "{ \"Strada\": ");
+	REQUIRE(fixture.Ok("asset.refresh")["added"].size() == 1);
+	CommandError const broken =
+		fixture.Fails("graph.copy", Json::object({{"graph", "asset://Broken.sgraph"}, {"elements", Json::array({1})}}));
+	CHECK(broken.Code == AutomationErrorCode::FileError);
+	CHECK(broken.Message.starts_with("the file of visual script 'Broken.sgraph' does not load: "));
+
+	// A graph without a file of its own copies too.
+	AssetHandle const memory = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(stacked), "Memory");
+	CHECK(fixture.Ok("graph.copy", Json::object({{"graph", memory.ToString()}, {"elements", Json::array({10})}}))["text"] ==
+	      WriteVisualScriptClipboard(stacked, 0, std::vector<uint32_t>{10}, memory, nullptr));
 }

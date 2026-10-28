@@ -42,6 +42,7 @@ add_executable(StradaEditorTests
     Source/VisualScriptEditorsTests.cpp
     Source/VisualScriptFindTests.cpp
     Source/VisualScriptGeometryTests.cpp
+    Source/VisualScriptHeadlessCanvasTests.cpp
     Source/VisualScriptHitTestTests.cpp
     Source/VisualScriptNodeTitlesTests.cpp
     Source/VisualScriptNormalizationTests.cpp

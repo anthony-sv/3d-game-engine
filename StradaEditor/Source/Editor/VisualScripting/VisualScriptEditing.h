@@ -138,6 +138,12 @@ namespace Strada
 		// take the IDs after it.
 		[[nodiscard]] uint32_t GetLargestVisualScriptID(VisualScriptDocument const& document);
 
+		// The document without what HaveSameVisualScriptProgram ignores, each at its default: the Description, every variable's
+		// Tooltip and Range, every node's Position, Comment and Collapsed (in the event graph and every function's graph), and
+		// every graph's comment boxes. Two documents have the same program exactly when their stripped documents are written
+		// alike (VisualScriptSerializer::WriteContentText), which is what graph.* commands' programRevision hashes.
+		[[nodiscard]] VisualScriptDocument StripVisualScriptLayout(VisualScriptDocument document);
+
 		// What a comment box that frames elements adds around their bounds: on every side, and above for its title.
 		inline constexpr float CommentFrameMargin = 32.0f;
 		inline constexpr float CommentFrameTitleSpace = 40.0f;

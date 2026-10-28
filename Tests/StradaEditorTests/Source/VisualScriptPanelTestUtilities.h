@@ -242,7 +242,7 @@ namespace Strada::Testing
 
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
 
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
 			// The document as the redirect reads it, analyzed; then node 3 reported as stored.
 			VisualScriptDocument read = document;
@@ -267,7 +267,7 @@ namespace Strada::Testing
 					link.To.Pin = "Message";
 				}
 			}
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(read);
+			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(read, self);
 			if (!analysis.IsOk() || !former)
 			{
 				return analysis;

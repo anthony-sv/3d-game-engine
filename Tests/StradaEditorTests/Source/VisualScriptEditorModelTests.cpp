@@ -63,7 +63,7 @@ namespace
 	{
 	public:
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const&) override
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const&, AssetHandle) override
 		{
 			return Error{"not analyzed in this test"};
 		}

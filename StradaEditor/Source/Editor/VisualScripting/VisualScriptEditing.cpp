@@ -1711,6 +1711,32 @@ namespace Strada
 			return largest;
 		}
 
+		VisualScriptDocument StripVisualScriptLayout(VisualScriptDocument document)
+		{
+			auto const stripGraph = [](VisualScriptGraph& graph)
+			{
+				for (VisualScriptNode& node : graph.Nodes)
+				{
+					node.Position.reset();
+					node.Comment.clear();
+					node.Collapsed = false;
+				}
+				graph.Comments.clear();
+			};
+			document.Description.clear();
+			for (VisualScriptVariable& variable : document.Variables)
+			{
+				variable.Tooltip.clear();
+				variable.Range.reset();
+			}
+			for (VisualScriptFunction& function : document.Functions)
+			{
+				stripGraph(function.Graph);
+			}
+			stripGraph(document.Graph);
+			return document;
+		}
+
 		Result<uint32_t> AddNode(VisualScriptDocument& document, uint32_t function, std::string type, Json settings,
 		                         std::optional<glm::vec2> position)
 		{
