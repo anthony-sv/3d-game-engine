@@ -366,7 +366,8 @@ TEST_CASE("VisualScriptEditor: at Far and Overview a press on a comment's title 
 		REQUIRE((fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Far ||
 		         fixture.View.GetDetailLevel() == VisualScriptDetailLevel::Overview));
 		VisualScriptCommentVisual const visual = fixture.Model.GetComments().front();
-		VisualScriptRect const plate = Geometry::GetCommentLabelRect(visual, fixture.View, visual.Title.Width);
+		VisualScriptRect const plate = Geometry::GetCommentLabelRect(visual, fixture.View, visual.Title.Width,
+		                                                             Geometry::CountGlyphs(fixture.Model.GetVisibleText(visual.Title)));
 		REQUIRE(!Geometry::IsEmpty(plate));
 		glm::vec2 const point = fixture.View.ToCanvas(plate.GetCenter());
 
@@ -397,5 +398,48 @@ TEST_CASE("VisualScriptEditor: at Far and Overview a press on a comment's title 
 		VisualScriptHit const detail = fixture.Hit(point);
 		CHECK(detail.Element == 1);
 		CHECK(detail.Kind != VisualScriptHitKind::CommentTitle);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: where the title plates of nested comments overlap, the inner comment's plate is hit")
+{
+	for (float const zoom : {0.12f, 0.3f})
+	{
+		CAPTURE(zoom);
+		HitFixture fixture;
+		// Both boxes start at one corner, so their plates lie on each other: the inner one's is drawn last.
+		VisualScriptComment outer;
+		outer.ID = 10;
+		outer.Text = "Outer region";
+		outer.Position = glm::vec2(50.0f);
+		outer.Size = glm::vec2(1400.0f, 800.0f);
+		VisualScriptComment inner;
+		inner.ID = 11;
+		inner.Text = "Inner";
+		inner.Position = glm::vec2(50.0f);
+		inner.Size = glm::vec2(600.0f, 400.0f);
+		fixture.Document.Graph.Comments = {inner, outer};
+		fixture.Sync();
+		fixture.SetZoom(zoom);
+		std::span<VisualScriptCommentVisual const> const comments = fixture.Model.GetComments();
+		REQUIRE(comments.size() == 2);
+		REQUIRE(comments[0].ID == 10);
+		auto const plateOf = [&fixture](VisualScriptCommentVisual const& visual)
+		{
+			return Geometry::GetCommentLabelRect(visual, fixture.View, visual.Title.Width,
+			                                     Geometry::CountGlyphs(fixture.Model.GetVisibleText(visual.Title)));
+		};
+		VisualScriptRect const outerPlate = plateOf(comments[0]);
+		VisualScriptRect const innerPlate = plateOf(comments[1]);
+		REQUIRE(!Geometry::IsEmpty(outerPlate));
+		REQUIRE(!Geometry::IsEmpty(innerPlate));
+		// The middle of the inner plate, which the outer plate covers too.
+		glm::vec2 const both = innerPlate.GetCenter();
+		REQUIRE(Geometry::Contains(outerPlate, both));
+		CheckHit(fixture.Hit(fixture.View.ToCanvas(both)), VisualScriptHitKind::CommentTitle, 11);
+		// The outer plate beyond the inner one is the outer comment's.
+		glm::vec2 const outerOnly(outerPlate.Max.x - 2.0f, outerPlate.GetCenter().y);
+		REQUIRE(!Geometry::Contains(innerPlate, outerOnly));
+		CheckHit(fixture.Hit(fixture.View.ToCanvas(outerOnly)), VisualScriptHitKind::CommentTitle, 10);
 	}
 }

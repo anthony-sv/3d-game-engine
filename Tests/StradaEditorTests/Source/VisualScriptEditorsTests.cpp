@@ -187,7 +187,7 @@ namespace
 		{
 			KeyboardWindow = FindKeyboardWindow(GImGui->NavWindow, KeyboardWindow);
 			ImGuiID const dockspace = ImGui::DockSpaceOverViewport(ImGui::GetID("Dockspace"), ImGui::GetMainViewport());
-			HandleEditorEditingKeys(Operations, &Editors);
+			HandleEditorEditingKeys(Operations, &Editors, FindClaimedEditingChords(KeyboardWindow));
 			if (std::exchange(ResetLayout, false))
 			{
 				ImGui::DockBuilderRemoveNode(dockspace);
@@ -436,8 +436,9 @@ namespace
 		}
 
 		// Opens a stand-in of the editor's Edit menu (a popup, as a menu bar's menu is) whose editing items are drawn as
-		// EditorLayer draws them, for the chords the keyboard window claims; returns what they drew and closes it again.
-		EditMenuRecord DrawEditMenu()
+		// EditorLayer draws them, for the chords the keyboard window claims; runs whileOpen (frames of its own) while the menu
+		// is open, and returns what the items drew and closes the menu again.
+		EditMenuRecord DrawEditMenu(std::function<void()> const& whileOpen = {})
 		{
 			EditMenuRecord record;
 			bool open = true;
@@ -462,6 +463,11 @@ namespace
 			REQUIRE(GImGui->NavWindow != nullptr);
 			REQUIRE((GImGui->NavWindow->Flags & ImGuiWindowFlags_Popup) != 0);
 			record.KeyboardWindow = GetWindowName(KeyboardWindow);
+			if (whileOpen)
+			{
+				whileOpen();
+				REQUIRE(GImGui->OpenPopupStack.Size == 1);
+			}
 			close = true;
 			Frames(1);
 			Probe = {};
@@ -893,6 +899,9 @@ TEST_CASE("VisualScriptEditor: the editing keys act on the Edit menu's target wh
 	info.Name = "Crate";
 	Result<UUID> const crate = fixture.Operations.CreateEntity(info);
 	REQUIRE(crate.IsOk());
+	// A second entity, which Ctrl+A would select were it to reach the entities.
+	info.Name = "Barrel";
+	REQUIRE(fixture.Operations.CreateEntity(info).IsOk());
 	std::array<UUID, 1> const selection = {crate.GetValue()};
 	fixture.OpenGraph(fixture.Player);
 	fixture.CheckDrawingChangesNothing();
@@ -997,12 +1006,36 @@ TEST_CASE("VisualScriptEditor: the editing keys act on the Edit menu's target wh
 	CHECK(GetWindowName(fixture.KeyboardWindow) == ContentBrowserPanel::WindowName);
 	CHECK(history.GetUndoCount() == undo);
 	CHECK(AssetManager::GetAsset<VisualScriptAsset>(fixture.Player)->GetDocument().Graph.Nodes.size() == nodes);
+	// The modal takes no key, so the browser's own routes score nothing while it is up (imgui.cpp:8031, :10402-10412): Delete
+	// and Ctrl+Backspace, which the browser claims, still run nothing on the graph's selection behind it (the pasted Get).
+	REQUIRE(!panel.GetState().SelectedNodes.empty());
+	for (ImGuiKeyChord const claimed : {ImGuiKeyChord(ImGuiKey_Delete), ImGuiKeyChord(ImGuiMod_Ctrl | ImGuiKey_Backspace)})
+	{
+		chord(claimed);
+		CHECK(confirmation->Active);
+		CHECK(history.GetUndoCount() == undo);
+		CHECK(AssetManager::GetAsset<VisualScriptAsset>(fixture.Player)->GetDocument().Graph.Nodes.size() == nodes);
+		CHECK(fixture.Context.GetScene().GetEntityCount() == entities);
+	}
+	// A chord the browser does not claim acts on the Edit menu's target, as the menu shows it (Ctrl+A, no step).
+	chord(ImGuiMod_Ctrl | ImGuiKey_A);
+	CHECK(panel.GetState().SelectedNodes.size() == nodes);
+	CHECK(history.GetUndoCount() == undo);
 	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
 	fixture.Frames(2);
 	CHECK_FALSE(confirmation->Active);
 	CHECK(AssetManager::IsValid(fixture.Door));
 	REQUIRE(GetWindowName(fixture.KeyboardWindow) == ContentBrowserPanel::WindowName);
-	EditMenuRecord const browserMenu = fixture.DrawEditMenu();
+	// The Edit menu has ImGui's keyboard: Delete shows no key there, and pressing it runs nothing either.
+	EditMenuRecord const browserMenu = fixture.DrawEditMenu(
+		[&]
+		{
+			chord(ImGuiKey_Delete);
+			chord(ImGuiMod_Ctrl | ImGuiKey_Backspace);
+		});
+	CHECK(history.GetUndoCount() == undo);
+	CHECK(AssetManager::GetAsset<VisualScriptAsset>(fixture.Player)->GetDocument().Graph.Nodes.size() == nodes);
+	CHECK(fixture.Context.GetScene().GetEntityCount() == entities);
 	CHECK(browserMenu.KeyboardWindow == ContentBrowserPanel::WindowName);
 	CHECK(EditorsFixture::GetShortcutText(browserMenu, "Delete").empty());
 	CHECK(EditorsFixture::GetShortcutText(browserMenu, "Cut") == "Ctrl+X");
@@ -1021,6 +1054,9 @@ TEST_CASE("VisualScriptEditor: with the scene as the Edit menu's target the edit
 	Result<UUID> const crate = fixture.Operations.CreateEntity(info);
 	REQUIRE(crate.IsOk());
 	std::array<UUID, 1> const selection = {crate.GetValue()};
+	info.Name = "Barrel";
+	Result<UUID> const barrel = fixture.Operations.CreateEntity(info);
+	REQUIRE(barrel.IsOk());
 	fixture.OpenGraph(fixture.Player);
 	fixture.Click(fixture.EmptyPoint(fixture.Player));
 	REQUIRE(fixture.Editors.GetEditTarget() != nullptr);
@@ -1052,9 +1088,12 @@ TEST_CASE("VisualScriptEditor: with the scene as the Edit menu's target the edit
 	fixture.Focus("Scene Hierarchy");
 	size_t const nodes = AssetManager::GetAsset<VisualScriptAsset>(fixture.Player)->GetDocument().Graph.Nodes.size();
 	size_t const entities = fixture.Context.GetScene().GetEntityCount();
+	REQUIRE(entities == 2);
 	REQUIRE(fixture.Operations.Select(selection).IsOk());
 	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
 	CHECK(fixture.Context.GetSelection().GetEntities().size() == entities);
+	CHECK(fixture.Context.GetSelection().Contains(crate.GetValue()));
+	CHECK(fixture.Context.GetSelection().Contains(barrel.GetValue()));
 	REQUIRE(fixture.Operations.Select(selection).IsOk());
 	size_t const undo = history.GetUndoCount();
 	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_D, fixture.Drawer());
@@ -1076,6 +1115,7 @@ TEST_CASE("VisualScriptEditor: the keyboard window stays the one before a menu b
 	bool menuOpen = false;
 	char const* focus = nullptr;
 	bool clearFocus = false;
+	bool drawConsole = true;
 	// As EditorLayer draws a frame: the keyboard window first, then the main menu bar with an Edit menu (opened as
 	// editor.entity-menu opens its menu), the toolbar and a window.
 	auto const draw = [&]
@@ -1099,7 +1139,7 @@ TEST_CASE("VisualScriptEditor: the keyboard window stays the one before a menu b
 			}
 			ImGui::EndMainMenuBar();
 		}
-		if (ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(), ImGuiDir_Up, 30.0f,
+		if (ImGui::BeginViewportSideBar(EditorToolbarWindowName, ImGui::GetMainViewport(), ImGuiDir_Up, 30.0f,
 		                                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings))
 		{
 			ImGui::TextUnformatted("Play");
@@ -1107,8 +1147,11 @@ TEST_CASE("VisualScriptEditor: the keyboard window stays the one before a menu b
 		ImGui::End();
 		ImGui::SetNextWindowPos(ImVec2(100.0f, 200.0f), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(300.0f, 200.0f), ImGuiCond_FirstUseEver);
-		ImGui::Begin("Console", nullptr, ImGuiWindowFlags_NoSavedSettings);
-		ImGui::End();
+		if (drawConsole)
+		{
+			ImGui::Begin("Console", nullptr, ImGuiWindowFlags_NoSavedSettings);
+			ImGui::End();
+		}
 		if (char const* const name = std::exchange(focus, nullptr))
 		{
 			ImGui::SetWindowFocus(name);
@@ -1146,15 +1189,30 @@ TEST_CASE("VisualScriptEditor: the keyboard window stays the one before a menu b
 	CHECK(GetWindowName(keyboard) == "Console");
 
 	// The toolbar (its buttons take the focus when clicked) and no window at all leave it too.
-	focus = "##Toolbar";
+	focus = EditorToolbarWindowName;
 	frames(2);
 	REQUIRE(GImGui->NavWindow != nullptr);
-	REQUIRE(std::string_view(GImGui->NavWindow->Name) == "##Toolbar");
+	REQUIRE(std::string_view(GImGui->NavWindow->Name) == EditorToolbarWindowName);
 	CHECK(GetWindowName(keyboard) == "Console");
 	clearFocus = true;
 	frames(2);
 	REQUIRE(GImGui->NavWindow == nullptr);
 	CHECK(GetWindowName(keyboard) == "Console");
+
+	// A window closed while the menu has ImGui's keyboard has the keyboard no more, nor after the menu closed.
+	focus = "Console";
+	frames(2);
+	REQUIRE(GetWindowName(keyboard) == "Console");
+	openMenu = true;
+	frames(2);
+	REQUIRE(menuOpen);
+	drawConsole = false;
+	frames(2);
+	CHECK(keyboard == nullptr);
+	closeMenu = true;
+	frames(2);
+	REQUIRE_FALSE(menuOpen);
+	CHECK(keyboard == nullptr);
 }
 
 TEST_CASE("VisualScriptEditor: an Edit item's shortcut text is its key's unless the window that has the keyboard claims the key")

@@ -58,8 +58,9 @@ namespace Strada
 	enum class VisualScriptKeyRoute : uint8_t
 	{
 		// Claimed with ImGui::Shortcut(chord, ImGuiInputFlags_RouteFocused) on the graph window every frame it is drawn, so it
-		// wins over the editor's global chord of the same keys (Delete, Ctrl+D, Ctrl+A) while the window is focused; the panel
-		// gives it to the focused part (the canvas, My Script or Details).
+		// wins over the editor's global editing keys of the same chords (Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+D, Delete, Ctrl+A:
+		// EditorEditingKeys) while the window is focused; the panel gives it to the focused part (the canvas, My Script or
+		// Details).
 		Focused = 0,
 		// Matched exactly, modifiers included, with ImGui::IsKeyChordPressed and the canvas's key owner while the canvas has
 		// the keyboard and no text field has; never one of the editor's global chords (VisualScriptEditorChords).

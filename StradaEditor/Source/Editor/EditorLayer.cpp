@@ -832,8 +832,9 @@ namespace Strada
 		{
 			Redo();
 		}
-		// Cut, Copy, Paste, Duplicate, Delete and Select All: on the Edit menu's target, as its items.
-		HandleEditorEditingKeys(m_Operations, m_VisualScripts.get());
+		// Cut, Copy, Paste, Duplicate, Delete and Select All: on the Edit menu's target, as its items, but for the chords the
+		// window that has the keyboard claims.
+		HandleEditorEditingKeys(m_Operations, m_VisualScripts.get(), FindClaimedEditingChords(m_KeyboardWindow));
 	}
 
 	void EditorLayer::DrawUnsavedChangesPopup()
@@ -1152,7 +1153,7 @@ namespace Strada
 		float const height = UI::GetToolbarButtonSize().y + padding.y * 2.0f;
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, padding);
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
-		bool const open = ImGui::BeginViewportSideBar("##Toolbar", ImGui::GetMainViewport(), ImGuiDir_Up, height, flags);
+		bool const open = ImGui::BeginViewportSideBar(EditorToolbarWindowName, ImGui::GetMainViewport(), ImGuiDir_Up, height, flags);
 		ImGui::PopStyleColor();
 		ImGui::PopStyleVar();
 		if (open)

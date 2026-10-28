@@ -575,7 +575,17 @@ namespace Strada::VisualScriptGeometry
 		return {comment.Rect.Min, glm::vec2(comment.Rect.Max.x, comment.Rect.Min.y + std::max(height, 0.0f))};
 	}
 
-	VisualScriptRect GetCommentTitleRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view, float titleWidthCu)
+	uint32_t CountGlyphs(std::string_view text)
+	{
+		return static_cast<uint32_t>(std::count_if(text.begin(), text.end(),
+		                                           [](char byte)
+		                                           {
+													   return (static_cast<unsigned char>(byte) & 0xC0u) != 0x80u;
+												   }));
+	}
+
+	VisualScriptRect GetCommentTitleRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view, float titleWidthCu,
+	                                     uint32_t titleGlyphs)
 	{
 		float const pixelsPerUnit = view.GetPixelsPerUnit();
 		float const uiScale = view.GetUIScale();
@@ -598,8 +608,9 @@ namespace Strada::VisualScriptGeometry
 		float const left = std::max(lower.x, canvasMin.x) + inset;
 		float const available = std::min(upper.x, canvasMax.x) - left - inset;
 		float const width = titleWidthCu * titlePixels / Metrics::CommentTitleTextSize;
-		uint32_t const glyphs = std::max<uint32_t>(comment.Title.VisibleLength + (comment.Title.IsEllipsized() ? 1u : 0u), 1u);
-		float const minimum = std::min(width, static_cast<float>(CommentTitleMinGlyphs) * width / static_cast<float>(glyphs));
+		// CommentTitleMinGlyphs glyphs and the ellipsis after them, at the title's average glyph width.
+		uint32_t const glyphs = std::max<uint32_t>(titleGlyphs + (comment.Title.IsEllipsized() ? 1u : 0u), 1u);
+		float const minimum = std::min(width, static_cast<float>(CommentTitleMinGlyphs + 1u) * width / static_cast<float>(glyphs));
 		if (!(available > 0.0f) || available < minimum)
 		{
 			return {};
@@ -608,9 +619,10 @@ namespace Strada::VisualScriptGeometry
 		return {glm::vec2(left, top), glm::vec2(left + std::min(width, available), top + titlePixels)};
 	}
 
-	VisualScriptRect GetCommentLabelRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view, float titleWidthCu)
+	VisualScriptRect GetCommentLabelRect(VisualScriptCommentVisual const& comment, VisualScriptView const& view, float titleWidthCu,
+	                                     uint32_t titleGlyphs)
 	{
-		VisualScriptRect const title = GetCommentTitleRect(comment, view, titleWidthCu);
+		VisualScriptRect const title = GetCommentTitleRect(comment, view, titleWidthCu, titleGlyphs);
 		if (IsEmpty(title))
 		{
 			return {};

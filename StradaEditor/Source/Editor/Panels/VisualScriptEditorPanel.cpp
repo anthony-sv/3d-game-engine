@@ -1010,7 +1010,7 @@ namespace Strada
 		ImGuiInputFlags const route =
 			popupFocused ? ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_RouteOverFocused : ImGuiInputFlags_RouteFocused;
 		// Class 1 (spec §8.3): claimed every frame the window is drawn, even with nothing selected, because routes decide the
-		// next frame: a frame without them would let Delete reach the editor's entity shortcuts.
+		// next frame: a frame without them would let Delete reach the editor's editing keys, which act on the Edit menu's target.
 		for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
 		{
 			if (shortcut.Route != VisualScriptKeyRoute::Focused)
@@ -2695,7 +2695,9 @@ namespace Strada
 		if (m_Layout.Stacked)
 		{
 			// My Script above Details in one column on the sidebar's side, a horizontal splitter between them at the window's
-			// share. Dragging the column's edge sets both panes' widths: the column is as wide as the wider of them.
+			// share. The column follows the panes' stored widths (the wider of them, at most what the canvas leaves), which only
+			// the side-by-side splitters change, so its edge is a plain gap: dragging it would rewrite both widths, which every
+			// graph window reads, and narrowing it would switch the arrangement under the drag.
 			float const paneHeights = std::max(rowHeight - splitter, 2.0f);
 			float const minimum = std::min(VisualScriptStackedPaneMinHeight * fontSize, paneHeights * 0.5f);
 			float const top = std::round(std::clamp(m_StackShare * paneHeights, minimum, paneHeights - minimum));
@@ -2711,13 +2713,7 @@ namespace Strada
 			DrawPane("##details", VisualScriptWindowPart::Details, ImVec2(m_Layout.Column, paneHeights - top));
 			ImGui::EndGroup();
 			ImGui::SameLine(0.0f, 0.0f);
-			if (DrawSplitter("##columnSplitter", ImVec2(splitter, rowHeight), true, delta))
-			{
-				float const column = (m_Layout.Column + delta) / fontSize;
-				panes.Sidebar = std::max(column, VisualScriptSidebarMinWidth);
-				panes.Details = std::max(column, VisualScriptDetailsMinWidth);
-				m_Settings.SetPanes(panes);
-			}
+			ImGui::Dummy(ImVec2(splitter, rowHeight));
 			ImGui::SameLine(0.0f, 0.0f);
 		}
 		else if (m_Layout.Sidebar > 0.0f)

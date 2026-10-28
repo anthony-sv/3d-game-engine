@@ -1099,9 +1099,11 @@ namespace Strada
 		// on and a title over their headers would hide them; at Far and Overview on its plate above the nodes (DrawCommentLabels).
 		if (frame.Level == VisualScriptDetailLevel::Compact || frame.Level == VisualScriptDetailLevel::Detail)
 		{
-			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(comment, frame.View, comment.Title.Width);
-			if (!VisualScriptGeometry::IsEmpty(title) && DrawCommentTitle(frame, comment, title))
+			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(
+				comment, frame.View, comment.Title.Width, VisualScriptGeometry::CountGlyphs(frame.Canvas.GetVisibleText(comment.Title)));
+			if (!VisualScriptGeometry::IsEmpty(title))
 			{
+				DrawCommentTitle(frame, comment, title);
 				item.Elements |= Elements::Title;
 			}
 		}
@@ -1298,10 +1300,11 @@ namespace Strada
 		return true;
 	}
 
-	bool VisualScriptCanvasRenderer::DrawCommentTitle(Frame& frame, VisualScriptCommentVisual const& comment, VisualScriptRect const& title)
+	void VisualScriptCanvasRenderer::DrawCommentTitle(Frame& frame, VisualScriptCommentVisual const& comment, VisualScriptRect const& title)
 	{
 		// Drawn larger than its layout at low zooms: the layout's ellipsized text when it fits, else the title ellipsized again to
-		// the width it has.
+		// the width it has. The geometry leaves room for its first glyphs at their average width, so wider first glyphs may leave
+		// room for the ellipsis alone: it is drawn then, so a title's plate is never blank.
 		float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(frame.PixelsPerUnit, frame.UIScale);
 		float const available = title.Max.x - title.Min.x;
 		float const layoutWidth = comment.Title.Width * titlePixels / Metrics::CommentTitleTextSize;
@@ -1309,7 +1312,7 @@ namespace Strada
 		{
 			DrawLadderText(frame, titlePixels, title.Min, comment.BarTextColor, frame.Canvas.GetVisibleText(comment.Title),
 			               comment.Title.IsEllipsized());
-			return true;
+			return;
 		}
 		std::string_view const text = frame.Canvas.GetText(comment.Title);
 		float const ellipsisWidth = frame.Font
@@ -1319,12 +1322,7 @@ namespace Strada
 		char const* remaining = nullptr;
 		frame.Font->CalcTextSizeA(titlePixels, available - ellipsisWidth, 0.0f, text.data(), text.data() + text.size(), &remaining);
 		size_t const visible = remaining != nullptr ? static_cast<size_t>(remaining - text.data()) : 0;
-		if (visible == 0)
-		{
-			return false;
-		}
 		DrawLadderText(frame, titlePixels, title.Min, comment.BarTextColor, text.substr(0, visible), true);
-		return true;
 	}
 
 	void VisualScriptCanvasRenderer::DrawCommentLabels(Frame& frame)
@@ -1339,13 +1337,14 @@ namespace Strada
 		for (uint32_t const index : m_VisibleComments)
 		{
 			VisualScriptCommentVisual const comment = GetDrawnComment(frame, index);
-			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(comment, frame.View, comment.Title.Width);
+			uint32_t const glyphs = VisualScriptGeometry::CountGlyphs(frame.Canvas.GetVisibleText(comment.Title));
+			VisualScriptRect const title = VisualScriptGeometry::GetCommentTitleRect(comment, frame.View, comment.Title.Width, glyphs);
 			if (VisualScriptGeometry::IsEmpty(title))
 			{
 				continue;
 			}
 			// The plate hit testing tests, around the title.
-			VisualScriptRect const plate = VisualScriptGeometry::GetCommentLabelRect(comment, frame.View, comment.Title.Width);
+			VisualScriptRect const plate = VisualScriptGeometry::GetCommentLabelRect(comment, frame.View, comment.Title.Width, glyphs);
 			VisualScriptDrawRecordItem item;
 			item.Layer = VisualScriptDrawLayer::CommentLabels;
 			item.Kind = VisualScriptDrawItemKind::CommentLabel;
@@ -1357,11 +1356,8 @@ namespace Strada
 			// The bar's colour is opaque and gives its text at least 4.5:1 (ComputeVisualScriptCommentColors), over any node or
 			// wire beneath.
 			drawList->AddRectFilled(ToIm(plate.Min), ToIm(plate.Max), comment.BarColor, rounding);
-			item.Elements |= Elements::Body;
-			if (DrawCommentTitle(frame, comment, title))
-			{
-				item.Elements |= Elements::Title;
-			}
+			DrawCommentTitle(frame, comment, title);
+			item.Elements |= Elements::Body | Elements::Title;
 			if (frame.Input.Record != nullptr)
 			{
 				item.VertexEnd = static_cast<uint32_t>(drawList->VtxBuffer.Size);

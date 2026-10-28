@@ -393,6 +393,7 @@ TEST_CASE("VisualScriptEditor: a window 1086 pixels wide shows My Script above D
 	speed.Type = "float";
 	document.Variables.push_back(std::move(speed));
 	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
 	VisualScriptPaneSettings const panes = fixture.Settings.GetPanes();
 	auto const check = [&](float width, bool stacked, VisualScriptPaneState state)
 	{
@@ -435,6 +436,24 @@ TEST_CASE("VisualScriptEditor: a window 1086 pixels wide shows My Script above D
 	fixture.Gui.DragPath(ImVec2(splitter.x, splitter.y + 60.0f), splitter, fixture.Drawer());
 	fixture.Frames(1);
 
+	// The column's edge is no splitter: dragging it either way changes neither the column, the arrangement nor the stored
+	// pane widths every graph window reads.
+	sidebar = fixture.GetChild("##sidebar");
+	canvas = fixture.GetChild("##canvas");
+	float const column = sidebar->Size.x;
+	float const canvasOffset = canvas->Pos.x - sidebar->Pos.x;
+	ImVec2 const edge((sidebar->Pos.x + sidebar->Size.x + canvas->Pos.x) * 0.5f, canvas->Pos.y + canvas->Size.y * 0.5f);
+	for (float const distance : {-80.0f, 1.0f, 80.0f})
+	{
+		CAPTURE(distance);
+		fixture.Gui.DragPath(edge, ImVec2(edge.x + distance, edge.y), fixture.Drawer());
+		fixture.Frames(1);
+		CHECK(fixture.Panel->GetState().PanesStacked);
+		CHECK(fixture.GetChild("##sidebar")->Size.x == doctest::Approx(column));
+		CHECK(fixture.GetChild("##canvas")->Pos.x - fixture.GetChild("##sidebar")->Pos.x == doctest::Approx(canvasOffset));
+		CHECK(fixture.Settings.GetPanes() == panes);
+	}
+
 	// Row keys reach both panes of the column: Delete in My Script deletes its variable (no node uses it, so it does not ask),
 	// Delete in Details deletes the node it shows.
 	size_t const undo = fixture.GetUndoCount();
@@ -462,6 +481,62 @@ TEST_CASE("VisualScriptEditor: a window 1086 pixels wide shows My Script above D
 	CHECK(fixture.FindNode(3) == nullptr);
 	CHECK(fixture.FindNode(2) != nullptr);
 	CHECK(fixture.Panel->GetState().PanesStacked);
+}
+
+TEST_CASE("VisualScriptEditor: a comment's title field opens from the canvas's left edge when the comment's box starts left of it")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptComment region;
+	region.ID = 40;
+	region.Text = "Maths";
+	region.Position = glm::vec2(336.0f, 256.0f);
+	region.Size = glm::vec2(480.0f, 288.0f);
+	document.Graph.Comments.push_back(region);
+	PanelFixture fixture(document);
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptView const& view = fixture.Model().GetView();
+	glm::vec2 const canvasMin = view.GetCanvasMin();
+	glm::vec2 const canvasSize = view.GetCanvasSize();
+	auto const findVisual = [&fixture]
+	{
+		VisualScriptCanvasModel const& canvas = fixture.Model().GetCanvas();
+		std::optional<uint32_t> const index = canvas.FindComment(40);
+		REQUIRE(index.has_value());
+		return canvas.GetComments()[*index];
+	};
+	auto const boxLeft = [&]
+	{
+		return view.ToScreen(findVisual().Rect.Min).x;
+	};
+	// Pans the view left with the middle button, from the bottom middle of the canvas (nothing there), until the box starts
+	// 100 pixels left of the canvas.
+	for (int drag = 0; drag < 10 && boxLeft() > canvasMin.x - 100.0f; drag++)
+	{
+		glm::vec2 const from(canvasMin.x + canvasSize.x * 0.5f, canvasMin.y + canvasSize.y - 30.0f);
+		float const distance = std::min(boxLeft() - canvasMin.x + 100.0f, canvasSize.x * 0.4f);
+		fixture.Gui.DragPath(ToImVec2(from), ToImVec2(from - glm::vec2(distance, 0.0f)), fixture.Drawer(), ImGuiMouseButton_Middle);
+		fixture.Frames(1);
+	}
+	REQUIRE(boxLeft() < canvasMin.x - 50.0f);
+	VisualScriptCommentVisual const visual = findVisual();
+	REQUIRE(view.ToScreen(visual.Rect.Max).x > canvasMin.x + 200.0f);
+
+	// A double-click on the title where the canvas shows it opens the field there, from the canvas's left edge.
+	VisualScriptRect const bar = VisualScriptGeometry::GetCommentBarRect(visual, view.GetPixelsPerUnit(), view.GetUIScale());
+	glm::vec2 const title(canvasMin.x + 40.0f, view.ToScreen(bar.GetCenter()).y);
+	fixture.Gui.MouseClick(ToImVec2(title), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(2);
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	// The field has ImGui's keyboard: its rectangle is the navigation's, relative to its window's first cursor position
+	// (imgui.cpp:14347, imgui_internal.h:3602).
+	ImGuiWindow const* window = GImGui->NavWindow;
+	REQUIRE(window != nullptr);
+	REQUIRE(GImGui->NavId == GImGui->ActiveId);
+	ImRect const field = window->NavRectRel[GImGui->NavLayer];
+	CHECK(field.Min.x + window->DC.CursorStartPos.x == doctest::Approx(canvasMin.x).epsilon(0.001));
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK_FALSE(ImGui::GetIO().WantTextInput);
 }
 
 TEST_CASE("VisualScriptEditor: without the scripting runtime the degraded notice shows, offers the console and blinks when a "

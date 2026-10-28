@@ -75,8 +75,9 @@ namespace Strada
 	// do not change. Each shown pane takes its width (font sizes), at least its minimum and at most VisualScriptPaneMaxShare of
 	// the window, and the canvas keeps at least VisualScriptCanvasMinWidth font sizes:
 	// 1. side by side, each pane with a splitter of splitter pixels beside it, when both fit so;
-	// 2. else, with both panes on, stacked in one column (a splitter between it and the canvas) when the canvas leaves it at
-	//    least VisualScriptDetailsMinWidth font sizes: the column is as wide as the wider pane, at most what the canvas leaves;
+	// 2. else, with both panes on, stacked in one column (a gap of splitter pixels between it and the canvas) when the canvas
+	//    leaves it at least VisualScriptDetailsMinWidth font sizes: the column is as wide as the wider pane, at most what the
+	//    canvas leaves;
 	// 3. else Details is auto-hidden first, then the sidebar. With one pane on, rules 1 and 3 apply to it alone. Pure.
 	[[nodiscard]] VisualScriptWindowLayout ComputeVisualScriptWindowLayout(float width, float fontSize, float splitter,
 	                                                                       VisualScriptPaneSettings const& panes);

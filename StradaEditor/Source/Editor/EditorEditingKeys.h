@@ -19,6 +19,10 @@ namespace Strada
 	class EditorOperations;
 	class VisualScriptEditors;
 
+	// The editor's toolbar: a side bar of the main viewport (ImGui::BeginViewportSideBar) that EditorLayer draws under the menu
+	// bar, and that FindKeyboardWindow passes over.
+	inline constexpr char const* EditorToolbarWindowName = "##Toolbar";
+
 	// An item an Edit menu drew: its label, the shortcut text it showed (empty: none) and whether it could be chosen.
 	struct EditorMenuItemRecord
 	{
@@ -37,8 +41,10 @@ namespace Strada
 
 	// The window that has the keyboard for the editing keys' purposes, from ImGui's navigation window and the one this
 	// returned in the previous frame: the navigation window's root, unless that root is a popup or a menu (a menu bar's menu,
-	// a context menu, a modal) or one of the main viewport's side bars ("##MainMenuBar", "##Toolbar"), which keep the window
-	// that had the keyboard before them; previous too while no window has the navigation. Pure.
+	// a context menu, a modal) or one of the main viewport's side bars ("##MainMenuBar", EditorToolbarWindowName), which keep
+	// the window that had the keyboard before them; previous too while no window has the navigation. A kept window must have
+	// been drawn in the last frame: one closed meanwhile has the keyboard no more, and then no window has it. Called after
+	// ImGui::NewFrame. Pure.
 	[[nodiscard]] ImGuiWindow const* FindKeyboardWindow(ImGuiWindow const* navWindow, ImGuiWindow const* previous);
 	// The editing chords the window that has the keyboard (FindKeyboardWindow) claims for itself while it has it: the content
 	// browser's (ContentBrowserPanel::FocusedChords); none for the other windows, whose editing keys reach the Edit menu's
@@ -51,9 +57,11 @@ namespace Strada
 	// Registers the editing keys as global routes (ImGuiInputFlags_RouteGlobal, the lowest score: a focused window's own
 	// routes for the same chords win while it has the keyboard) and runs what was pressed. Delete and Ctrl+Backspace (Delete),
 	// Ctrl+D (Duplicate) and Ctrl+A (Select All) go to the graph window that is the Edit menu's target, and to the entities
-	// only without one; Ctrl+X, Ctrl+C and Ctrl+V only to that graph window. Does nothing while a text field has the keyboard.
-	// Called once per frame inside the ImGui frame; visualScripts is null without the graph windows.
-	void HandleEditorEditingKeys(EditorOperations& operations, VisualScriptEditors* visualScripts);
+	// only without one; Ctrl+X, Ctrl+C and Ctrl+V only to that graph window. A claimed chord (FindClaimedEditingChords of the
+	// keyboard window, whose Edit item shows no shortcut) runs nothing here, also while a popup or a menu has ImGui's keyboard
+	// and the claiming window's own route does not take the key. Does nothing while a text field has the keyboard. Called once
+	// per frame inside the ImGui frame; visualScripts is null without the graph windows.
+	void HandleEditorEditingKeys(EditorOperations& operations, VisualScriptEditors* visualScripts, std::span<ImGuiKeyChord const> claimed);
 	// The Edit menu's editing items: the graph target's (VisualScriptEditors::DrawEditMenuItems), else the scene's
 	// (Duplicate, Delete, Select All, Deselect All), with the shortcut texts GetEditShortcutText gives for the claimed chords.
 	// Returns what it drew, in order. Inside a menu.

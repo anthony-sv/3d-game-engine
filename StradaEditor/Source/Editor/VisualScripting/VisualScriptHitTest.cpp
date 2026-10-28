@@ -88,7 +88,10 @@ namespace Strada
 					uint32_t const comment = VisualScriptSpatialIndex::GetIndex(item);
 					VisualScriptCommentVisual const& visual = comments[comment];
 					if ((!labelComment || comment > *labelComment) &&
-					    VisualScriptGeometry::Contains(VisualScriptGeometry::GetCommentLabelRect(visual, view, visual.Title.Width), mouse))
+					    VisualScriptGeometry::Contains(
+							VisualScriptGeometry::GetCommentLabelRect(
+								visual, view, visual.Title.Width, VisualScriptGeometry::CountGlyphs(model.GetVisibleText(visual.Title))),
+							mouse))
 					{
 						labelComment = comment;
 					}

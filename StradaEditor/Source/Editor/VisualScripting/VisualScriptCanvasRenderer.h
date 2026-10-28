@@ -466,9 +466,9 @@ namespace Strada
 		void DrawComment(Frame& frame, uint32_t index);
 		// The titles of the visible comments at Far and Overview, largest comment first, after the nodes.
 		void DrawCommentLabels(Frame& frame);
-		// Draws a comment's title into its rectangle (VisualScriptGeometry::GetCommentTitleRect), ellipsized to its width; false
-		// when nothing of it was drawn.
-		bool DrawCommentTitle(Frame& frame, VisualScriptCommentVisual const& comment, VisualScriptRect const& title);
+		// Draws a comment's title into its rectangle (VisualScriptGeometry::GetCommentTitleRect), ellipsized to its width: at
+		// least the ellipsis.
+		void DrawCommentTitle(Frame& frame, VisualScriptCommentVisual const& comment, VisualScriptRect const& title);
 		void DrawWires(Frame& frame, bool highlighted);
 		void DrawWire(Frame& frame, uint32_t link, bool highlighted);
 		void DrawNodes(Frame& frame, bool selected);

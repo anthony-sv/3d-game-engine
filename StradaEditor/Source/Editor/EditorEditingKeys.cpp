@@ -31,9 +31,13 @@ namespace Strada
 		constexpr ImGuiKeyChord SelectAllChord = ImGuiMod_Ctrl | ImGuiKey_A;
 
 		// The main viewport's side bars: BeginMainMenuBar's (imgui_widgets.cpp:9351) and the editor's toolbar
-		// (EditorLayer::DrawToolbar), both BeginViewportSideBar windows (imgui_widgets.cpp:9301) named as given.
+		// (EditorToolbarWindowName), both BeginViewportSideBar windows (imgui_widgets.cpp:9301) named as given.
 		constexpr char const* MainMenuBarName = "##MainMenuBar";
-		constexpr char const* ToolbarName = "##Toolbar";
+
+		bool IsClaimed(ImGuiKeyChord chord, std::span<ImGuiKeyChord const> claimed)
+		{
+			return std::find(claimed.begin(), claimed.end(), chord) != claimed.end();
+		}
 
 		// Asks the graph window that is the Edit menu's target; false while the scene is the target.
 		bool ToGraphTarget(VisualScriptEditors* visualScripts, VisualScriptEditorAction action)
@@ -82,16 +86,19 @@ namespace Strada
 
 	ImGuiWindow const* FindKeyboardWindow(ImGuiWindow const* navWindow, ImGuiWindow const* previous)
 	{
+		// NewFrame makes WasActive "drawn in the last frame" (imgui.cpp:5979). ImGui frees no window before its context is
+		// destroyed, so a window kept from an earlier frame can still be read.
+		ImGuiWindow const* const kept = previous != nullptr && previous->WasActive ? previous : nullptr;
 		if (navWindow == nullptr)
 		{
-			return previous;
+			return kept;
 		}
 		// A popup's root is the popup itself, a menu's submenu has its menu as its root (imgui.cpp:7847-7856); modals are
 		// popups too (ImGuiWindowFlags_Popup, _ChildMenu: imgui.h:1247, :1249). A side bar's ID is its name's hash.
 		ImGuiWindow const* root = navWindow->RootWindow != nullptr ? navWindow->RootWindow : navWindow;
 		bool const popup = (root->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_ChildMenu)) != 0;
-		bool const sideBar = root->ID == ImHashStr(MainMenuBarName) || root->ID == ImHashStr(ToolbarName);
-		return popup || sideBar ? previous : root;
+		bool const sideBar = root->ID == ImHashStr(MainMenuBarName) || root->ID == ImHashStr(EditorToolbarWindowName);
+		return popup || sideBar ? kept : root;
 	}
 
 	std::span<ImGuiKeyChord const> FindClaimedEditingChords(ImGuiWindow const* keyboardWindow)
@@ -106,7 +113,7 @@ namespace Strada
 
 	std::string GetEditShortcutText(ImGuiKeyChord chord, std::span<ImGuiKeyChord const> claimed)
 	{
-		if (std::find(claimed.begin(), claimed.end(), chord) != claimed.end())
+		if (IsClaimed(chord, claimed))
 		{
 			return {};
 		}
@@ -114,21 +121,28 @@ namespace Strada
 		return FormatVisualScriptChord(chord, false);
 	}
 
-	void HandleEditorEditingKeys(EditorOperations& operations, VisualScriptEditors* visualScripts)
+	void HandleEditorEditingKeys(EditorOperations& operations, VisualScriptEditors* visualScripts, std::span<ImGuiKeyChord const> claimed)
 	{
 		if (ImGui::GetIO().WantTextInput)
 		{
 			return;
 		}
-		// Every route is registered every frame, pressed or not: routes decide the next frame (imgui.cpp:10460-10540).
-		ImGuiInputFlags const route = ImGuiInputFlags_RouteGlobal;
-		bool const cut = ImGui::Shortcut(CutChord, route);
-		bool const copy = ImGui::Shortcut(CopyChord, route);
-		bool const paste = ImGui::Shortcut(PasteChord, route);
-		bool const duplicate = ImGui::Shortcut(DuplicateChord, route);
-		bool const deleteKey = ImGui::Shortcut(DeleteChord, route);
-		bool const deleteBackspace = ImGui::Shortcut(DeleteBackspaceChord, route);
-		bool const selectAll = ImGui::Shortcut(SelectAllChord, route);
+		// Every route is registered every frame, pressed or not: routes decide the next frame (imgui.cpp:10460-10540). A
+		// claimed chord reaches this route while a popup or a menu has ImGui's keyboard: a popup has no parent on the focus
+		// route (imgui.cpp:8031), so the claiming window's focused route scores nothing then (imgui.cpp:10402-10412). The key
+		// stays the claiming window's (its Edit item shows no shortcut), so it runs nothing here.
+		auto const pressed = [claimed](ImGuiKeyChord chord)
+		{
+			bool const fired = ImGui::Shortcut(chord, ImGuiInputFlags_RouteGlobal);
+			return fired && !IsClaimed(chord, claimed);
+		};
+		bool const cut = pressed(CutChord);
+		bool const copy = pressed(CopyChord);
+		bool const paste = pressed(PasteChord);
+		bool const duplicate = pressed(DuplicateChord);
+		bool const deleteKey = pressed(DeleteChord);
+		bool const deleteBackspace = pressed(DeleteBackspaceChord);
+		bool const selectAll = pressed(SelectAllChord);
 
 		// Cut, Copy and Paste mean nothing to the scene.
 		if (cut)
