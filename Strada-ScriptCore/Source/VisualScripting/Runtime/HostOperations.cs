@@ -31,12 +31,14 @@ internal sealed partial class VisualScriptRuntime
 	internal HostReply DescribeLibrary() => HostReply.Success(LibraryWriter.Write(m_Library()));
 
 	// VisualScriptAnalyze: the analysis JSON of any input (spec section 6.2); a document that is not a JSON object has the
-	// single Error InvalidDocument.
-	internal HostReply AnalyzeDocument(ReadOnlySpan<byte> document) =>
+	// single Error InvalidDocument. references is the bundle of the other graphs the document's nodes refer to (slice 3, spec
+	// section 2.4), empty for none; no node refers to another graph yet, so no bundle is read.
+	internal HostReply AnalyzeDocument(ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default) =>
 		HostReply.Success(AnalysisWriter.Write(GraphAnalyzer.Analyze(m_Library(), document)));
 
 	// VisualScriptLoad: stores a program for the handle whatever the document holds and answers its diagnostics array.
-	internal HostReply LoadDocument(ulong graph, string name, ReadOnlySpan<byte> document) =>
+	// references as for AnalyzeDocument.
+	internal HostReply LoadDocument(ulong graph, string name, ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default) =>
 		HostReply.Success(AnalysisWriter.WriteDiagnostics(Load(graph, name, document)));
 
 	// VisualScriptDescribeInstanceVariables: the stored-map JSON of the instance's public variables (spec section 5.4).

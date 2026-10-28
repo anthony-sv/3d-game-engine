@@ -130,6 +130,7 @@ namespace
 
 	constexpr std::string_view ValidHeader = R"({"Version": 1, "Type": "VisualScript"})";
 	constexpr std::string_view Version2Header = R"({"Version": 2, "Type": "VisualScript"})";
+	constexpr std::string_view Version3Header = R"({"Version": 3, "Type": "VisualScript"})";
 
 	bool Contains(std::string_view text, std::string_view part)
 	{
@@ -266,14 +267,14 @@ TEST_CASE("VisualScript: the example file loads without issues and saves byte fo
 	CHECK(VisualScriptSerializer::Serialize(example)["VisualScript"] == VisualScriptSerializer::SerializeDocument(example));
 }
 
-TEST_CASE("VisualScript: a file of version 1 loads without issues and saves as version 2, its content unchanged")
+TEST_CASE("VisualScript: a file of version 1 loads without issues and saves as the current version, its content unchanged")
 {
 	// Version1/Example.sgraph keeps the bytes Example.sgraph had in version 1 of the format.
 	std::string const old = ReadText(GetFixturePath("Version1/Example.sgraph"));
 	std::string const current = ReadText(GetFixturePath("Example.sgraph"));
 	Json const oldFile = Parse(old);
 	REQUIRE(oldFile["Strada"]["Version"] == 1);
-	CHECK(Parse(current)["Strada"]["Version"] == 2);
+	CHECK(Parse(current)["Strada"]["Version"] == 3);
 
 	std::vector<std::string> warnings;
 	std::vector<VisualScriptIssue> issues;
@@ -292,7 +293,7 @@ TEST_CASE("VisualScript: a file of version 1 loads without issues and saves as v
 	std::string withNewHeader = old;
 	size_t const digit = withNewHeader.find(OldVersion);
 	REQUIRE(digit != std::string::npos);
-	withNewHeader.replace(digit, OldVersion.size(), "\"Version\": 2,");
+	withNewHeader.replace(digit, OldVersion.size(), "\"Version\": 3,");
 	CHECK(withNewHeader == current);
 
 	// Every node of a file of version 1 has the defaults of the keys version 2 added.
@@ -315,10 +316,40 @@ TEST_CASE("VisualScript: a file of version 1 loads without issues and saves as v
 	}
 }
 
+TEST_CASE("VisualScript: a file of version 2 loads without issues and saves as the current version, its content unchanged")
+{
+	// Version2/Example.sgraph keeps the bytes Example.sgraph had in version 2 of the format.
+	std::string const old = ReadText(GetFixturePath("Version2/Example.sgraph"));
+	std::string const current = ReadText(GetFixturePath("Example.sgraph"));
+	Json const oldFile = Parse(old);
+	REQUIRE(oldFile["Strada"]["Version"] == 2);
+
+	std::vector<std::string> warnings;
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> migrated =
+		VisualScriptSerializer::Deserialize(oldFile, MakeContext(UnknownFieldPolicy::Error, &warnings), &issues);
+	REQUIRE_MESSAGE(migrated.IsOk(), migrated.GetError());
+	CHECK(GetPaths(issues).empty());
+	CHECK(warnings.empty());
+	Result<VisualScriptDocument> example = VisualScriptSerializer::Deserialize(Parse(current), MakeContext(UnknownFieldPolicy::Error));
+	REQUIRE_MESSAGE(example.IsOk(), example.GetError());
+	CHECK(migrated.GetValue() == example.GetValue());
+	CHECK(migrated.GetValue().Kind == VisualScriptDocumentKind::Script);
+	CHECK(DumpJson(VisualScriptSerializer::Serialize(migrated.GetValue())) == current);
+
+	// Only the digit of the header differs.
+	constexpr std::string_view OldVersion = "\"Version\": 2,";
+	std::string withNewHeader = old;
+	size_t const digit = withNewHeader.find(OldVersion);
+	REQUIRE(digit != std::string::npos);
+	withNewHeader.replace(digit, OldVersion.size(), "\"Version\": 3,");
+	CHECK(withNewHeader == current);
+}
+
 TEST_CASE("VisualScript: the shared fixture documents load strictly, round trip and keep the writer's layout")
 {
-	constexpr std::array<std::string_view, 7> Documents = {"Data.json",      "Editor.json",    "Events.json",   "Flow.json",
-	                                                       "Functions.json", "Reflected.json", "Variables.json"};
+	constexpr std::array<std::string_view, 8> Documents = {"Data.json",      "Editor.json",   "Events.json",    "Flow.json",
+	                                                       "Functions.json", "Language.json", "Reflected.json", "Variables.json"};
 	for (std::string_view const name : Documents)
 	{
 		CAPTURE(name);
@@ -328,6 +359,31 @@ TEST_CASE("VisualScript: the shared fixture documents load strictly, round trip 
 		CHECK(DumpJson(VisualScriptSerializer::SerializeDocument(loaded.Document)) == text);
 		CHECK_FALSE(loaded.Document.Graph.Comments.empty());
 	}
+
+	// The library fixture is a file of version 3: its Kind is written first, its renamed parameter's former names last.
+	std::string const text = ReadText(GetFixturePath("Library.sgraph"));
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> library = VisualScriptSerializer::Deserialize(Parse(text), MakeContext(UnknownFieldPolicy::Warn), &issues);
+	REQUIRE_MESSAGE(library.IsOk(), library.GetError());
+	CHECK(GetPaths(issues).empty());
+	CHECK(DumpJson(VisualScriptSerializer::Serialize(library.GetValue())) == text);
+	CheckSavesAndLoadsAgain(library.GetValue());
+	VisualScriptDocument const& document = library.GetValue();
+	CHECK(document.Kind == VisualScriptDocumentKind::Library);
+	CHECK(document.Variables.empty());
+	CHECK(document.Graph.Nodes.empty());
+	CHECK_FALSE(document.Graph.Comments.empty());
+	REQUIRE(document.Functions.size() == 3);
+	CHECK(document.Functions[0].Inputs == std::vector<VisualScriptParameter>{{"Value", "float", {"X"}}});
+	size_t unplaced = 0;
+	for (VisualScriptFunction const& function : document.Functions)
+	{
+		for (VisualScriptNode const& node : function.Graph.Nodes)
+		{
+			unplaced += node.Position.has_value() ? 0 : 1;
+		}
+	}
+	CHECK(unplaced >= 2);
 }
 
 TEST_CASE("VisualScript: the FeatureTest format sample is canonical and uses every feature of the format")
@@ -589,15 +645,29 @@ TEST_CASE("VisualScript: the editor fixture document uses every node key of vers
 		}));
 }
 
-TEST_CASE("VisualScript: the FeatureTest scene's graph loads without issues and keeps the writer's layout")
+TEST_CASE("VisualScript: the FeatureTest project's graphs load without issues and are files of the current version in the writer's layout")
 {
-	std::filesystem::path const path = FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets" / "Scripts" / "Features.sgraph";
-	std::string const text = ReadText(path);
-	std::vector<VisualScriptIssue> issues;
-	Result<VisualScriptDocument> loaded = VisualScriptSerializer::Deserialize(Parse(text), MakeContext(UnknownFieldPolicy::Warn), &issues);
-	REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
-	CHECK(GetPaths(issues).empty());
-	CHECK(DumpJson(VisualScriptSerializer::Serialize(loaded.GetValue())) == text);
+	std::filesystem::path const scripts = FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets" / "Scripts";
+	size_t graphs = 0;
+	for (std::filesystem::directory_entry const& entry : std::filesystem::directory_iterator(scripts))
+	{
+		if (entry.path().extension() != ".sgraph")
+		{
+			continue;
+		}
+		CAPTURE(FileSystem::PathToUtf8(entry.path()));
+		graphs++;
+		std::string const text = ReadText(entry.path());
+		Json const file = Parse(text);
+		CHECK(file["Strada"]["Version"] == VisualScriptSerializer::FormatVersion);
+		std::vector<VisualScriptIssue> issues;
+		Result<VisualScriptDocument> loaded = VisualScriptSerializer::Deserialize(file, MakeContext(UnknownFieldPolicy::Warn), &issues);
+		REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
+		CHECK(GetPaths(issues).empty());
+		CHECK(DumpJson(VisualScriptSerializer::Serialize(loaded.GetValue())) == text);
+	}
+	// FormatSample, Features (the scene's), Contacts and Clicks at least.
+	CHECK(graphs >= 4);
 }
 
 TEST_CASE("VisualScript: files that are not visual scripts of this version are refused")
@@ -605,6 +675,7 @@ TEST_CASE("VisualScript: files that are not visual scripts of this version are r
 	Testing::TemporaryDirectory const directory;
 	CHECK(GetFileError(directory, MakeFileText(ValidHeader, "{}")).empty());
 	CHECK(GetFileError(directory, MakeFileText(Version2Header, "{}")).empty());
+	CHECK(GetFileError(directory, MakeFileText(Version3Header, "{}")).empty());
 
 	// What ParseJson refuses: syntax errors, values nested deeper than 256 levels, objects of more than 4096 members.
 	CHECK(Contains(GetFileError(directory, MakeFileText(ValidHeader, "{\"Description\": ")), "invalid JSON"));
@@ -636,7 +707,7 @@ TEST_CASE("VisualScript: files that are not visual scripts of this version are r
 			GetFileError(directory, MakeFileText(fmt::format(R"({{"Version": {}, "Type": "VisualScript"}})", version), "{}")).empty());
 	}
 	CHECK_FALSE(GetFileError(directory, MakeFileText(R"({"Type": "VisualScript"})", "{}")).empty());
-	for (std::string_view const version : {"3", "2147483648", "4294967297", "18446744073709551615"})
+	for (std::string_view const version : {"4", "2147483648", "4294967297", "18446744073709551615"})
 	{
 		CAPTURE(version);
 		CHECK(Contains(GetFileError(directory, MakeFileText(fmt::format(R"({{"Version": {}, "Type": "VisualScript"}})", version), "{}")),
@@ -780,6 +851,202 @@ TEST_CASE("VisualScript: the node keys of version 2 are unknown keys in a file o
 	CHECK(ignored.GetValue() == expected);
 	CHECK(VisualScriptSerializer::Deserialize(version1, MakeContext(UnknownFieldPolicy::Error)).GetError() ==
 	      "Functions[0].Graph.Nodes[0].Collapsed: unknown key");
+}
+
+TEST_CASE("VisualScript: the keys of version 3 are unknown keys in a file of version 1 or 2")
+{
+	constexpr std::string_view Content = R"({
+		"Kind": "Library",
+		"Functions": [
+			{
+				"ID": 1, "Name": "Clamp01", "Pure": true,
+				"Inputs": [{"Name": "Value", "Type": "float", "FormerNames": ["X"]}],
+				"Outputs": [{"Name": "Result", "Type": "float", "FormerNames": ["Clamped", "Out"]}]
+			}
+		]
+	})";
+
+	// A file of version 3 has them, as the content form does.
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> read =
+		VisualScriptSerializer::Deserialize(Parse(MakeFileText(Version3Header, Content)), MakeContext(UnknownFieldPolicy::Error), &issues);
+	REQUIRE_MESSAGE(read.IsOk(), read.GetError());
+	CHECK(GetPaths(issues).empty());
+	CHECK(read.GetValue().Kind == VisualScriptDocumentKind::Library);
+	VisualScriptFunction const& clamp = read.GetValue().Functions.at(0);
+	CHECK(clamp.Inputs == std::vector<VisualScriptParameter>{{"Value", "float", {"X"}}});
+	CHECK(clamp.Outputs == std::vector<VisualScriptParameter>{{"Result", "float", {"Clamped", "Out"}}});
+	CHECK(IsStrictlyValid(Parse(Content)));
+	CHECK(Load(Parse(Content)).Document == read.GetValue());
+
+	// Files of versions 1 and 2 do not: each is an issue under Warn, the document is a script and the parameters have no
+	// former names; they are skipped under Ignore and refuse the file under Error.
+	VisualScriptDocument expected = read.GetValue();
+	expected.Kind = VisualScriptDocumentKind::Script;
+	expected.Functions.at(0).Inputs.at(0).FormerNames.clear();
+	expected.Functions.at(0).Outputs.at(0).FormerNames.clear();
+	for (std::string_view const header : {ValidHeader, Version2Header})
+	{
+		CAPTURE(header);
+		Json const file = Parse(MakeFileText(header, Content));
+		std::vector<std::string> warnings;
+		issues.clear();
+		Result<VisualScriptDocument> warned =
+			VisualScriptSerializer::Deserialize(file, MakeContext(UnknownFieldPolicy::Warn, &warnings), &issues);
+		REQUIRE_MESSAGE(warned.IsOk(), warned.GetError());
+		CHECK(GetPaths(issues) == "Kind, Functions[0].Inputs[0].FormerNames, Functions[0].Outputs[0].FormerNames");
+		CHECK(warnings.size() == issues.size());
+		CHECK(warned.GetValue() == expected);
+		CheckSavesAndLoadsAgain(warned.GetValue());
+
+		warnings.clear();
+		issues.clear();
+		Result<VisualScriptDocument> ignored =
+			VisualScriptSerializer::Deserialize(file, MakeContext(UnknownFieldPolicy::Ignore, &warnings), &issues);
+		REQUIRE(ignored.IsOk());
+		CHECK(issues.empty());
+		CHECK(warnings.empty());
+		CHECK(ignored.GetValue() == expected);
+		CHECK(VisualScriptSerializer::Deserialize(file, MakeContext(UnknownFieldPolicy::Error)).GetError() == "Kind: unknown key");
+		Json withoutKind = file;
+		withoutKind["VisualScript"].erase("Kind");
+		CHECK(VisualScriptSerializer::Deserialize(withoutKind, MakeContext(UnknownFieldPolicy::Error)).GetError() ==
+		      "Functions[0].Inputs[0].FormerNames: unknown key");
+	}
+}
+
+TEST_CASE("VisualScript: a document is a script unless it says it is a library, which the writer writes first")
+{
+	CHECK(VisualScriptDocument().Kind == VisualScriptDocumentKind::Script);
+	CHECK(VisualScriptDocumentKindToString(VisualScriptDocumentKind::Script) == "Script");
+	CHECK(VisualScriptDocumentKindToString(VisualScriptDocumentKind::Library) == "Library");
+	for (VisualScriptDocumentKind const kind : {VisualScriptDocumentKind::Script, VisualScriptDocumentKind::Library})
+	{
+		CHECK(VisualScriptDocumentKindFromString(VisualScriptDocumentKindToString(kind)) == kind);
+	}
+	for (std::string_view const text : {"", "library", "Library ", "Scripts", "Module"})
+	{
+		CAPTURE(text);
+		CHECK_FALSE(VisualScriptDocumentKindFromString(text).has_value());
+	}
+	CHECK(VisualScriptDocumentKindToString(static_cast<VisualScriptDocumentKind>(2)).empty());
+
+	// Repair 16: anything but the two names makes the document a script.
+	for (Json const& kind : {Json(5), Json("library"), Json(""), Json(), Json::array({"Library"}), Json("Module")})
+	{
+		CAPTURE(kind.dump());
+		Json content = Json::object({{"Kind", kind}, {"Description", "Clamps"}});
+		LoadedDocument const loaded = Load(content);
+		REQUIRE(loaded.Issues.size() == 1);
+		CHECK(loaded.Issues[0] == VisualScriptIssue{"Kind", "expected \"Script\" or \"Library\"; the document is a script"});
+		CHECK(loaded.Document.Kind == VisualScriptDocumentKind::Script);
+		CHECK(loaded.Document.Description == "Clamps");
+		CHECK_FALSE(IsStrictlyValid(content));
+	}
+
+	// "Script" written out is the default: no issue, and the writer omits it.
+	Json const script = Parse(R"({"Kind": "Script", "Description": "Moves"})");
+	CHECK(IsStrictlyValid(script));
+	LoadedDocument const loadedScript = Load(script);
+	CHECK(loadedScript.Document.Kind == VisualScriptDocumentKind::Script);
+	CHECK_FALSE(VisualScriptSerializer::SerializeDocument(loadedScript.Document).contains("Kind"));
+
+	// A library starts with its Kind, in the content form and in the file's content object.
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	CHECK(library.Kind == VisualScriptDocumentKind::Library);
+	library.Description = "Clamps";
+	std::string const expected = DumpJson(Parse(R"({
+		"Kind": "Library",
+		"Description": "Clamps",
+		"Variables": [],
+		"Functions": [],
+		"Graph": {"Nodes": [], "Links": [], "Comments": []}
+	})"));
+	Json const content = VisualScriptSerializer::SerializeDocument(library);
+	CHECK(DumpJson(content) == expected);
+	CHECK(content.begin().key() == "Kind");
+	Json const file = VisualScriptSerializer::Serialize(library);
+	CHECK(DumpJson(file["VisualScript"]) == expected);
+	CHECK(IsStrictlyValid(content));
+	CheckSavesAndLoadsAgain(library);
+}
+
+TEST_CASE("VisualScript: parameters' former names are names of no parameter of their list, each once in it, at most 16, written last")
+{
+	LoadedDocument const loaded = Load(Parse(R"({
+		"Functions": [
+			{
+				"ID": 1, "Name": "Mix",
+				"Inputs": [
+					{"Name": "A", "Type": "float", "FormerNames": ["X", 3, "Bad.Name", "B", "X", "A", "Y"]},
+					{"Name": "B", "Type": "float", "FormerNames": ["Y", "Z"]},
+					{"Name": "C", "Type": "float", "FormerNames": "Old"}
+				],
+				"Outputs": [{"Name": "Result", "Type": "float", "FormerNames": ["X", "A", "Result"]}]
+			}
+		]
+	})"));
+	CHECK(GetPaths(loaded.Issues) == "Functions[0].Inputs[0].FormerNames[1], Functions[0].Inputs[0].FormerNames[2], "
+	                                 "Functions[0].Inputs[0].FormerNames[3], Functions[0].Inputs[0].FormerNames[4], "
+	                                 "Functions[0].Inputs[0].FormerNames[5], Functions[0].Inputs[1].FormerNames[0], "
+	                                 "Functions[0].Inputs[2].FormerNames, Functions[0].Outputs[0].FormerNames[2]");
+	auto const message = [&loaded](std::string_view path)
+	{
+		auto const issue = std::find_if(loaded.Issues.begin(), loaded.Issues.end(),
+		                                [path](VisualScriptIssue const& candidate)
+		                                {
+											return candidate.Path == path;
+										});
+		return issue == loaded.Issues.end() ? std::string() : issue->Message;
+	};
+	CHECK(message("Functions[0].Inputs[0].FormerNames[1]") == "expected a string; dropped");
+	CHECK(Contains(message("Functions[0].Inputs[0].FormerNames[2]"), "expected a name of 1 to 64 bytes"));
+	// A later parameter's name counts as much as an earlier one's.
+	CHECK(message("Functions[0].Inputs[0].FormerNames[3]") == "'B' is the name of a parameter of this list; dropped");
+	CHECK(message("Functions[0].Inputs[0].FormerNames[4]") == "'X' is already a former name; dropped");
+	CHECK(message("Functions[0].Inputs[0].FormerNames[5]") == "'A' is the name of a parameter of this list; dropped");
+	CHECK(message("Functions[0].Inputs[1].FormerNames[0]") == "'Y' is already a former name; dropped");
+	CHECK(message("Functions[0].Inputs[2].FormerNames") == "expected an array; replaced by []");
+	CHECK(message("Functions[0].Outputs[0].FormerNames[2]") == "'Result' is the name of a parameter of this list; dropped");
+
+	// Each list is its own: an output may keep an input's name or former name.
+	VisualScriptFunction const& mix = loaded.Document.Functions.at(0);
+	CHECK(mix.Inputs == std::vector<VisualScriptParameter>{{"A", "float", {"X", "Y"}}, {"B", "float", {"Z"}}, {"C", "float", {}}});
+	CHECK(mix.Outputs == std::vector<VisualScriptParameter>{{"Result", "float", {"X", "A"}}});
+
+	// At most 16: the later ones are dropped.
+	Json formerNames = Json::array();
+	for (size_t i = 0; i <= VisualScriptSerializer::MaxFormerNames; i++)
+	{
+		formerNames.push_back(fmt::format("Old{}", i));
+	}
+	Json const many = Json::object(
+		{{"Functions", Json::array({Json::object(
+						   {{"ID", 1},
+	                        {"Name", "F"},
+	                        {"Inputs", Json::array({Json::object({{"Name", "P"}, {"Type", "int"}, {"FormerNames", formerNames}})})}})})}});
+	LoadedDocument const limited = Load(many);
+	CHECK(GetPaths(limited.Issues) == "Functions[0].Inputs[0].FormerNames[16]");
+	CHECK(limited.Issues.at(0).Message == "more than 16 former names; dropped");
+	CHECK(limited.Document.Functions.at(0).Inputs.at(0).FormerNames.size() == VisualScriptSerializer::MaxFormerNames);
+	Json atLimit = many;
+	atLimit["Functions"][0]["Inputs"][0]["FormerNames"].erase(VisualScriptSerializer::MaxFormerNames);
+	CHECK(IsStrictlyValid(atLimit));
+
+	// Written after Type, and only when there are any.
+	VisualScriptDocument document;
+	VisualScriptFunction function;
+	function.ID = 1;
+	function.Name = "Clamp01";
+	function.Inputs = {{"Value", "float", {"X", "Input"}}, {"Low", "float"}};
+	function.Outputs = {{"Result", "float"}};
+	document.Functions = {function};
+	Json const content = VisualScriptSerializer::SerializeDocument(document);
+	CHECK(DumpJson(content["Functions"][0]["Inputs"]) ==
+	      DumpJson(Parse(R"([{"Name": "Value", "Type": "float", "FormerNames": ["X", "Input"]}, {"Name": "Low", "Type": "float"}])")));
+	CHECK(DumpJson(content["Functions"][0]["Outputs"]) == DumpJson(Parse(R"([{"Name": "Result", "Type": "float"}])")));
+	CHECK(IsStrictlyValid(content));
+	CheckSavesAndLoadsAgain(document);
 }
 
 TEST_CASE("VisualScript: node comments, collapsed and enabled states of the wrong kind take their defaults")
@@ -1454,7 +1721,9 @@ TEST_CASE("VisualScript: strict use accepts omitted optional keys and refuses ev
 
 	// Defaults written out, and "Value": null (no value), are no issues either.
 	Json explicitDefaults = minimal;
+	explicitDefaults["Kind"] = "Script";
 	explicitDefaults["Description"] = "";
+	explicitDefaults["Functions"][0]["Inputs"][0]["FormerNames"] = Json::array();
 	explicitDefaults["Variables"][0].update(Parse(R"({"Value": null, "Public": false, "Tooltip": "", "FormerNames": []})"));
 	explicitDefaults["Graph"]["Nodes"][0].update(
 		Parse(R"({"Settings": {}, "Inputs": {}, "Split": {}, "Comment": "", "Collapsed": false, "Enabled": "Enabled"})"));
@@ -1499,6 +1768,16 @@ TEST_CASE("VisualScript: strict use accepts omitted optional keys and refuses ev
 		[](Json& content)
 		{
 			content["Layout"] = "auto";
+		})));
+	CHECK_FALSE(IsStrictlyValid(damaged(
+		[](Json& content)
+		{
+			content["Kind"] = "Module";
+		})));
+	CHECK_FALSE(IsStrictlyValid(damaged(
+		[](Json& content)
+		{
+			content["Functions"][0]["Inputs"][0]["FormerNames"] = Json::array({"P"});
 		})));
 	CHECK_FALSE(IsStrictlyValid(damaged(
 		[](Json& content)
@@ -1753,6 +2032,44 @@ TEST_CASE("VisualScript: the format's rules for texts, pin paths and values are 
 	CHECK(GetPaths(issues) == "Variables[0].Value, Variables[1].Value");
 	CHECK(reloaded.GetValue().Variables[0].Value.is_null());
 	CHECK(reloaded.GetValue().Variables[1].Value.is_null());
+
+	// Texts are UTF-8 too: the description, a variable's tooltip, a node's comment and a comment box's text that are not are
+	// replaced by "", which a parsed file never needs.
+	VisualScriptDocument texts;
+	texts.Description = invalidUtf8;
+	VisualScriptVariable tooltip;
+	tooltip.ID = 1;
+	tooltip.Name = "Tipped";
+	tooltip.Type = "int";
+	tooltip.Tooltip = "Bad " + invalidUtf8;
+	texts.Variables = {tooltip};
+	VisualScriptNode noted;
+	noted.ID = 2;
+	noted.Type = "Flow.Branch";
+	noted.Comment = invalidUtf8;
+	texts.Graph.Nodes = {noted};
+	texts.Graph.Comments = {VisualScriptComment{3, invalidUtf8 + "!", glm::vec2(0.0f), glm::vec2(400.0f, 200.0f), glm::vec4(0.5f)}};
+	issues.clear();
+	Result<VisualScriptDocument> const repaired = VisualScriptSerializer::DeserializeDocument(
+		VisualScriptSerializer::SerializeDocument(texts), MakeContext(UnknownFieldPolicy::Error), &issues);
+	REQUIRE_MESSAGE(repaired.IsOk(), repaired.GetError());
+	CHECK(GetPaths(issues) == "Description, Variables[0].Tooltip, Graph.Nodes[0].Comment, Graph.Comments[0].Text");
+	for (VisualScriptIssue const& issue : issues)
+	{
+		CAPTURE(issue.Path);
+		CHECK(issue.Message == "expected a string of UTF-8 of at most 65536 bytes; replaced by \"\"");
+	}
+	CHECK(repaired.GetValue().Description.empty());
+	CHECK(repaired.GetValue().Variables.at(0).Tooltip.empty());
+	CHECK(repaired.GetValue().Graph.Nodes.at(0).Comment.empty());
+	CHECK(repaired.GetValue().Graph.Comments.at(0).Text.empty());
+	CHECK_FALSE(IsStrictlyValid(VisualScriptSerializer::SerializeDocument(texts)));
+	texts.Description = "\xC3\x9C"
+						"ber";
+	texts.Variables[0].Tooltip = "Tip";
+	texts.Graph.Nodes[0].Comment = "Line\nbreak";
+	texts.Graph.Comments[0].Text = "Box";
+	CHECK(IsStrictlyValid(VisualScriptSerializer::SerializeDocument(texts)));
 }
 
 TEST_CASE("VisualScript: the writer omits defaults, keeps raw values as stored and widens floats")
@@ -1822,9 +2139,9 @@ TEST_CASE("VisualScript: the writer omits defaults, keeps raw values as stored a
 	CHECK(DumpJson(VisualScriptSerializer::SerializeDocument({})) ==
 	      DumpJson(Parse(R"({"Description": "", "Variables": [], "Functions": [], "Graph": {"Nodes": [], "Links": [], "Comments": []}})")));
 	Json const file = VisualScriptSerializer::Serialize(document);
-	CHECK(file["Strada"] == Parse(R"({"Version": 2, "Type": "VisualScript"})"));
+	CHECK(file["Strada"] == Parse(R"({"Version": 3, "Type": "VisualScript"})"));
 	CHECK(file.size() == 2);
-	CHECK(VisualScriptSerializer::FormatVersion == 2);
+	CHECK(VisualScriptSerializer::FormatVersion == 3);
 }
 
 TEST_CASE("VisualScript: unplaced nodes, locals and former names survive saving and loading")
@@ -1887,6 +2204,13 @@ TEST_CASE("VisualScript: templates start new visual scripts")
 
 	CHECK(MakeVisualScriptTemplate(VisualScriptTemplate::Empty) == VisualScriptDocument{});
 	CheckSavesAndLoadsAgain(MakeVisualScriptTemplate(VisualScriptTemplate::Empty));
+
+	// A function library and nothing else.
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	CHECK(library.Kind == VisualScriptDocumentKind::Library);
+	library.Kind = VisualScriptDocumentKind::Script;
+	CHECK(library == VisualScriptDocument{});
+	CheckSavesAndLoadsAgain(MakeVisualScriptTemplate(VisualScriptTemplate::Library));
 }
 
 TEST_CASE("VisualScript: the asset holds a document and counts its changes")
@@ -1956,7 +2280,7 @@ TEST_CASE("VisualScript: the asset manager loads .sgraph files and logs their re
 	REQUIRE(FileSystem::WriteTextFile(assets / "Scripts" / "Damaged.sgraph",
 	                                  MakeFileText(ValidHeader, R"({"Variables": [{"ID": 1, "Name": "Speed"}], "Layout": "auto"})"))
 	            .IsOk());
-	REQUIRE(FileSystem::WriteTextFile(assets / "Scripts" / "Newer.sgraph", MakeFileText(R"({"Version": 3, "Type": "VisualScript"})", "{}"))
+	REQUIRE(FileSystem::WriteTextFile(assets / "Scripts" / "Newer.sgraph", MakeFileText(R"({"Version": 4, "Type": "VisualScript"})", "{}"))
 	            .IsOk());
 	REQUIRE(AssetManager::OpenAssetDirectory(assets).IsOk());
 

@@ -49,21 +49,35 @@ namespace
 
 TEST_CASE("VisualScript: damaged files are refused or load and save again")
 {
-	Json const original = Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph");
+	// The FeatureTest format sample (every key of a script) and the library fixture (Kind, and parameters' former names).
+	Result<std::string> const libraryText =
+		FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Library.sgraph");
+	REQUIRE(libraryText.IsOk());
+	Result<Json> const library = ParseJson(libraryText.GetValue());
+	REQUIRE(library.IsOk());
+	std::array<Json, 2> const seeds = {Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph"), library.GetValue()};
 	std::vector<std::string> warnings;
-	std::vector<VisualScriptIssue> issues;
-	REQUIRE(VisualScriptSerializer::Deserialize(original, Testing::MakeTolerantContext(warnings), &issues).IsOk());
-	REQUIRE(issues.empty());
+	for (Json const& seed : seeds)
+	{
+		std::vector<VisualScriptIssue> issues;
+		REQUIRE(VisualScriptSerializer::Deserialize(seed, Testing::MakeTolerantContext(warnings), &issues).IsOk());
+		REQUIRE(issues.empty());
+	}
 
-	// The seed is damaged as a file of version 2 and, every other round, of version 1, where the node keys of version 2 it
-	// holds are unknown keys.
-	Json version1 = original;
-	version1["Strada"]["Version"] = 1;
-	Json version2 = original;
-	version2["Strada"]["Version"] = 2;
-	issues.clear();
-	REQUIRE(VisualScriptSerializer::Deserialize(version1, Testing::MakeTolerantContext(warnings), &issues).IsOk());
-	CHECK_FALSE(issues.empty());
+	// Each seed is damaged as a file of version 3, 2 and 1 in turn, where the keys of later versions it holds are unknown
+	// keys: the sample's node keys of version 2 in a file of version 1, the library's Kind and former names in both.
+	auto const withVersion = [](Json file, int version)
+	{
+		file["Strada"]["Version"] = version;
+		return file;
+	};
+	for (auto const& [seed, version] : {std::pair<size_t, int>(0, 1), std::pair<size_t, int>(1, 2), std::pair<size_t, int>(1, 1)})
+	{
+		std::vector<VisualScriptIssue> issues;
+		REQUIRE(
+			VisualScriptSerializer::Deserialize(withVersion(seeds[seed], version), Testing::MakeTolerantContext(warnings), &issues).IsOk());
+		CHECK_FALSE(issues.empty());
+	}
 
 	Testing::DocumentMutator mutator(10000);
 	int loaded = 0;
@@ -71,7 +85,8 @@ TEST_CASE("VisualScript: damaged files are refused or load and save again")
 	for (int round = 0, rounds = Testing::GetFuzzRounds(300); round < rounds; round++)
 	{
 		CAPTURE(round);
-		if (LoadDamagedFile(mutator.Damage(round % 2 == 0 ? version2 : version1, round)))
+		int const version = VisualScriptSerializer::FormatVersion - (round / 2) % 3;
+		if (LoadDamagedFile(mutator.Damage(withVersion(seeds[static_cast<size_t>(round % 2)], version), round)))
 		{
 			loaded++;
 		}
@@ -87,7 +102,7 @@ TEST_CASE("VisualScript: damaged files are refused or load and save again")
 TEST_CASE("VisualScript: damaged graphs that load also run")
 {
 	Json const features = Testing::LoadFeatureTestDocument("Assets/Scripts/Features.sgraph");
-	// The editor's fixture document in a file of version 2: disabled, development-only and split nodes.
+	// The editor's fixture document in a file of version 3: disabled, development-only and split nodes.
 	Result<std::string> const text =
 		FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Documents" / "Editor.json");
 	REQUIRE(text.IsOk());
@@ -100,7 +115,7 @@ TEST_CASE("VisualScript: damaged graphs that load also run")
 	REQUIRE_MESSAGE(editor.IsOk(), (editor ? std::string() : editor.GetError()));
 	REQUIRE(issues.empty());
 	Json const seeds[] = {features, VisualScriptSerializer::Serialize(editor.GetValue())};
-	REQUIRE(seeds[1]["Strada"]["Version"] == 2);
+	REQUIRE(seeds[1]["Strada"]["Version"] == 3);
 	Testing::AssetManagerScope assets;
 	Testing::ScriptEngineScope scripting;
 

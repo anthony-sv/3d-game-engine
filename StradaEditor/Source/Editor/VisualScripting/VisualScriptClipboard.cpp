@@ -82,6 +82,25 @@ namespace Strada
 			ReferenceKind Kind = ReferenceKind::Variable;
 		};
 
+		void ClearFormerNames(std::vector<VisualScriptParameter>& parameters)
+		{
+			for (VisualScriptParameter& parameter : parameters)
+			{
+				parameter.FormerNames.clear();
+			}
+		}
+
+		// Whether two parameter lists give a function the same pins: the same names and types in the same order (former
+		// names change no pin).
+		bool HaveSameParameters(std::vector<VisualScriptParameter> const& first, std::vector<VisualScriptParameter> const& second)
+		{
+			return std::equal(first.begin(), first.end(), second.begin(), second.end(),
+			                  [](VisualScriptParameter const& a, VisualScriptParameter const& b)
+			                  {
+								  return a.Name == b.Name && a.Type == b.Type;
+							  });
+		}
+
 		// The settings of a node that name variables or functions: those whose library setting is of that kind, and always
 		// the built-in Variable setting of Variable.Get and Variable.Set and Function setting of Function.Call.
 		std::vector<Reference> GetReferences(VisualScriptNode const& node, VisualScriptLibrary const* library)
@@ -359,7 +378,11 @@ namespace Strada
 			{
 				if (usedFunctions.contains(candidate.ID))
 				{
-					clipboard.Functions.push_back(candidate);
+					// Like variables' former names, parameters' belong to their file: the calls of other files that may still
+					// name them call this one.
+					VisualScriptFunction& copied = clipboard.Functions.emplace_back(candidate);
+					ClearFormerNames(copied.Inputs);
+					ClearFormerNames(copied.Outputs);
 				}
 			}
 
@@ -844,8 +867,8 @@ namespace Strada
 				}
 				auto const isAlike = [function](VisualScriptFunction const& existing)
 				{
-					return existing.Name == function->Name && existing.Pure == function->Pure && existing.Inputs == function->Inputs &&
-					       existing.Outputs == function->Outputs;
+					return existing.Name == function->Name && existing.Pure == function->Pure &&
+					       HaveSameParameters(existing.Inputs, function->Inputs) && HaveSameParameters(existing.Outputs, function->Outputs);
 				};
 				VisualScriptFunction const* const same = m_SameScript ? FindByID(m_Document.Functions, id) : nullptr;
 				if (same != nullptr && isAlike(*same))
@@ -881,6 +904,8 @@ namespace Strada
 				copy.Pure = function->Pure;
 				copy.Inputs = function->Inputs;
 				copy.Outputs = function->Outputs;
+				ClearFormerNames(copy.Inputs);
+				ClearFormerNames(copy.Outputs);
 				m_Notes.push_back(fmt::format("added function {}", copy.Name));
 				m_Document.Functions.push_back(std::move(copy));
 				m_BoundFunctions.emplace(id, added.GetValue());

@@ -224,13 +224,15 @@ internal static unsafe class Host
 		}
 	}
 
-	// Passes the analysis JSON of the document (any bytes) to receive.
+	// Passes the analysis JSON of the document (any bytes) to receive. references is the bundle of the other graphs the
+	// document's nodes refer to (any bytes; a length of 0 means none).
 	[UnmanagedCallersOnly]
-	internal static int VisualScriptAnalyze(byte* document, int documentLength, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	internal static int VisualScriptAnalyze(byte* document, int documentLength, byte* references, int referencesLength, void* context,
+		delegate* unmanaged<void*, byte*, int, void> receive)
 	{
 		try
 		{
-			return Deliver(VisualScripts.AnalyzeDocument(Bytes(document, documentLength)), context, receive);
+			return Deliver(VisualScripts.AnalyzeDocument(Bytes(document, documentLength), Bytes(references, referencesLength)), context, receive);
 		}
 		catch (Exception exception)
 		{
@@ -238,14 +240,16 @@ internal static unsafe class Host
 		}
 	}
 
-	// Stores a program of the document for the graph handle and passes the diagnostics array to receive.
+	// Stores a program of the document for the graph handle and passes the diagnostics array to receive. references is the
+	// bundle of the other graphs the document's nodes refer to (any bytes; a length of 0 means none).
 	[UnmanagedCallersOnly]
-	internal static int VisualScriptLoad(ulong graph, byte* name, int nameLength, byte* document, int documentLength, void* context,
-		delegate* unmanaged<void*, byte*, int, void> receive)
+	internal static int VisualScriptLoad(ulong graph, byte* name, int nameLength, byte* document, int documentLength, byte* references,
+		int referencesLength, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
 	{
 		try
 		{
-			HostReply reply = VisualScripts.LoadDocument(graph, NativeString.FromUtf8(name, nameLength), Bytes(document, documentLength));
+			HostReply reply = VisualScripts.LoadDocument(graph, NativeString.FromUtf8(name, nameLength), Bytes(document, documentLength),
+				Bytes(references, referencesLength));
 			return Deliver(reply, context, receive);
 		}
 		catch (Exception exception)

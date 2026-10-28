@@ -46,7 +46,7 @@ namespace Strada
 		commit.RenameCount = commit.Warnings.size();
 		if (analysis != nullptr)
 		{
-			std::vector<std::string> updated = ApplyCanonicalNodeTypes(edited, *analysis);
+			std::vector<std::string> updated = ApplyCanonicalNodeTypes(edited, *analysis, &stored);
 			commit.Warnings.insert(commit.Warnings.end(), std::make_move_iterator(updated.begin()), std::make_move_iterator(updated.end()));
 		}
 		PlaceUnplacedNodes(edited);

@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <limits>
 #include <optional>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -146,9 +147,10 @@ namespace Strada
 		// neighbours in the column it comes from: down sweeps go left to right, from the nodes linked into a node, up sweeps
 		// right to left, from the nodes it links to. Only links between neighbouring columns count; a node without such a
 		// neighbour keeps its place as its key, and equal keys keep their order. The order with the fewest crossings wins,
-		// the earliest of equals, so the result never crosses more than ID order does.
+		// the earliest of equals, so the result never crosses more than ID order does. With firstColumnFixed the first
+		// column (the anchors) keeps its order and the others are ordered against it.
 		void OrderColumns(Columns& columns, std::vector<std::vector<size_t>> const& previous, std::vector<std::vector<size_t>> const& next,
-		                  size_t nodeCount)
+		                  size_t nodeCount, bool firstColumnFixed)
 		{
 			if (columns.size() < 2)
 			{
@@ -229,7 +231,8 @@ namespace Strada
 				}
 				else
 				{
-					for (size_t layer = columns.size() - 1; layer-- > 0;)
+					size_t const lowest = firstColumnFixed ? 1 : 0;
+					for (size_t layer = columns.size() - 1; layer-- > lowest;)
 					{
 						sortColumn(columns[layer], next);
 						updatePlaces(columns[layer]);
@@ -252,13 +255,30 @@ namespace Strada
 			// Indices into the arranged nodes.
 			std::vector<size_t> Nodes;
 		};
+
+		// A placed node the arranged block stands beside.
+		struct Anchor
+		{
+			uint32_t ID = 0;
+			glm::dvec2 Position{0.0};
+			glm::dvec2 Size{0.0};
+		};
 	}
 
 	namespace VisualScriptEditing
 	{
 		Result<void> ArrangeNodes(VisualScriptDocument& document, uint32_t function, std::span<uint32_t const> nodes,
-		                          VisualScriptNodeExtents const& extents)
+		                          VisualScriptNodeExtents const& extents, std::optional<glm::vec2> corner,
+		                          std::span<uint32_t const> anchors)
 		{
+			if (corner && !anchors.empty())
+			{
+				return Error{"Arrange takes a corner or anchors, not both"};
+			}
+			if (corner && (!std::isfinite(corner->x) || !std::isfinite(corner->y)))
+			{
+				return Error{"the corner of the arranged nodes must be finite"};
+			}
 			Result<VisualScriptGraph*> found = FindGraph(document, function);
 			if (!found)
 			{
@@ -303,6 +323,36 @@ namespace Strada
 			}
 			std::sort(ids.begin(), ids.end());
 			ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+
+			// The anchors in ID order, each once, measured.
+			std::vector<uint32_t> anchorIDs(anchors.begin(), anchors.end());
+			std::sort(anchorIDs.begin(), anchorIDs.end());
+			anchorIDs.erase(std::unique(anchorIDs.begin(), anchorIDs.end()), anchorIDs.end());
+			std::vector<Anchor> anchorNodes;
+			anchorNodes.reserve(anchorIDs.size());
+			for (uint32_t const id : anchorIDs)
+			{
+				auto const index = indices.find(id);
+				if (index == indices.end())
+				{
+					return MakeError("the graph has no node {}: an anchor is a node of the graph", id);
+				}
+				if (std::binary_search(ids.begin(), ids.end(), id))
+				{
+					return MakeError("node {} is arranged: an anchor keeps its place", id);
+				}
+				std::optional<glm::vec2> const& position = graph.Nodes[index->second].Position;
+				if (!position)
+				{
+					return MakeError("node {} has no position: an anchor keeps its place", id);
+				}
+				Result<glm::dvec2> size = MeasureNode(extents, id);
+				if (!size)
+				{
+					return Error{size.GetError()};
+				}
+				anchorNodes.push_back({id, glm::dvec2(*position), size.GetValue()});
+			}
 			if (ids.empty())
 			{
 				return {};
@@ -312,7 +362,7 @@ namespace Strada
 			std::vector<ArrangedNode> arranged;
 			arranged.reserve(ids.size());
 			std::unordered_map<uint32_t, size_t> numbers;
-			std::optional<glm::dvec2> corner;
+			std::optional<glm::dvec2> placedCorner;
 			for (uint32_t const id : ids)
 			{
 				Result<glm::dvec2> size = MeasureNode(extents, id);
@@ -323,7 +373,7 @@ namespace Strada
 				size_t const index = indices.at(id);
 				if (std::optional<glm::vec2> const& position = graph.Nodes[index].Position)
 				{
-					corner = corner ? glm::min(*corner, glm::dvec2(*position)) : glm::dvec2(*position);
+					placedCorner = placedCorner ? glm::min(*placedCorner, glm::dvec2(*position)) : glm::dvec2(*position);
 				}
 				numbers.emplace(id, arranged.size());
 				arranged.push_back({id, index, size.GetValue()});
@@ -412,13 +462,43 @@ namespace Strada
 				}
 				columns[assignment.Layer].push_back(numbers.at(assignment.Node));
 			}
-			std::vector<std::vector<size_t>> previous(arranged.size());
-			std::vector<std::vector<size_t>> next(arranged.size());
+			// The anchors' column, top to bottom (then left to right, then by ID), numbered after the arranged nodes.
+			std::sort(anchorNodes.begin(), anchorNodes.end(),
+			          [](Anchor const& a, Anchor const& b)
+			          {
+						  return std::tie(a.Position.y, a.Position.x, a.ID) < std::tie(b.Position.y, b.Position.x, b.ID);
+					  });
+			std::vector<size_t> anchorColumn;
+			std::unordered_map<uint32_t, size_t> anchorNumbers;
+			for (Anchor const& anchor : anchorNodes)
+			{
+				anchorNumbers.emplace(anchor.ID, arranged.size() + anchorColumn.size());
+				anchorColumn.push_back(arranged.size() + anchorColumn.size());
+			}
+			size_t const nodeCount = arranged.size() + anchorColumn.size();
+			std::vector<std::vector<size_t>> previous(nodeCount);
+			std::vector<std::vector<size_t>> next(nodeCount);
+			// The links from the anchors, (anchor, node) by group: each group is ordered against its own only.
+			std::vector<std::vector<std::pair<size_t, size_t>>> anchorLinks(componentCount);
 			for (VisualScriptLink const& link : graph.Links)
 			{
-				auto const from = numbers.find(link.From.Node);
 				auto const to = numbers.find(link.To.Node);
-				if (from == numbers.end() || to == numbers.end())
+				if (to == numbers.end())
+				{
+					continue;
+				}
+				// A link from an anchor neighbours the block's first column only.
+				if (auto const anchor = anchorNumbers.find(link.From.Node); anchor != anchorNumbers.end())
+				{
+					if (arranged[to->second].Layer == 0)
+					{
+						previous[to->second].push_back(anchor->second);
+						anchorLinks[arranged[to->second].Component].emplace_back(anchor->second, to->second);
+					}
+					continue;
+				}
+				auto const from = numbers.find(link.From.Node);
+				if (from == numbers.end())
 				{
 					continue;
 				}
@@ -446,11 +526,36 @@ namespace Strada
 				list.erase(std::unique(list.begin(), list.end()), list.end());
 			}
 
-			// Coordinates relative to the corner: each group below the one before it, its columns left to right.
+			// Coordinates relative to the corner: each group below the one before it, its columns left to right. The anchors
+			// stand before each group's first column while its columns are ordered.
 			double top = 0.0;
-			for (Columns& columns : groups)
+			for (size_t group = 0; group < groups.size(); group++)
 			{
-				OrderColumns(columns, previous, next, arranged.size());
+				Columns& columns = groups[group];
+				if (anchorColumn.empty())
+				{
+					OrderColumns(columns, previous, next, nodeCount, false);
+				}
+				else
+				{
+					// The anchors lead into this group's first column only while it is ordered.
+					for (auto const& [anchor, node] : anchorLinks[group])
+					{
+						next[anchor].push_back(node);
+					}
+					for (size_t const anchor : anchorColumn)
+					{
+						std::sort(next[anchor].begin(), next[anchor].end());
+						next[anchor].erase(std::unique(next[anchor].begin(), next[anchor].end()), next[anchor].end());
+					}
+					columns.insert(columns.begin(), anchorColumn);
+					OrderColumns(columns, previous, next, nodeCount, true);
+					columns.erase(columns.begin());
+					for (size_t const anchor : anchorColumn)
+					{
+						next[anchor].clear();
+					}
+				}
 				double left = 0.0;
 				double bottom = top;
 				for (std::vector<size_t> const& column : columns)
@@ -469,7 +574,22 @@ namespace Strada
 				top = RoundUpToGrid(bottom + GroupGap);
 			}
 
-			glm::dvec2 const origin = corner.value_or(glm::dvec2(0.0));
+			glm::dvec2 origin = placedCorner.value_or(glm::dvec2(0.0));
+			if (corner)
+			{
+				origin = glm::dvec2(*corner);
+			}
+			else if (!anchorNodes.empty())
+			{
+				double right = std::numeric_limits<double>::lowest();
+				double anchorTop = std::numeric_limits<double>::max();
+				for (Anchor const& anchor : anchorNodes)
+				{
+					right = std::max(right, anchor.Position.x + anchor.Size.x);
+					anchorTop = std::min(anchorTop, anchor.Position.y);
+				}
+				origin = glm::dvec2(RoundUpToGrid(right + ColumnGap), RoundUpToGrid(anchorTop));
+			}
 			for (ArrangedNode const& node : arranged)
 			{
 				glm::dvec2 const position = origin + node.Offset;

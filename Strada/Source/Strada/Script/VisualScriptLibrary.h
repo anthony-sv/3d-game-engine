@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // What the scripting runtime says about visual scripts, read from its JSON: the node library (the types and node kinds
@@ -96,7 +97,10 @@ namespace Strada
 		// Entities, components, assets, classes, arrays and System.Object.
 		Reference,
 		// Array types.
-		Array
+		Array,
+		// What formulas compute with (an Expression node's inputs): bool, integer and float types, and Strada.Vector2,
+		// Strada.Vector3 and Strada.Vector4.
+		Expression
 	};
 
 	struct VisualScriptPin
@@ -117,6 +121,9 @@ namespace Strada
 		std::string Group;
 		// A wildcard whose type is the element type of the array pin of this name; empty when none.
 		std::string ElementOf;
+		// A wildcard whose type is the array type of the pin of this name's type (its type followed by "[]"); empty when
+		// none. Shown, never computed here: analysis resolves the type.
+		std::string ArrayOf;
 		// A wildcard of a Reroute node: it passes the flow as well as values, so it connects to exec pins too.
 		bool CarriesExec = false;
 	};
@@ -125,7 +132,8 @@ namespace Strada
 	struct VisualScriptSetting
 	{
 		std::string Name;
-		// Bool, Int, String, Type, TypeList, Variable, Function, Parameters, Cases, Value, Enum or Choice.
+		// Bool, Int, String, Type, TypeList, Variable, Function, Parameters, Cases, Value, Enum, Choice, Expression (a formula),
+		// Timeline (an object) or Graph (another visual script's handle): a free name, so a runtime may add kinds.
 		std::string Kind;
 		// What a missing setting means; null when the setting has no default.
 		Json Default;
@@ -196,6 +204,8 @@ namespace Strada
 		bool Pure = false;
 		// Latent nodes keep the flow waiting (Delay, ...).
 		bool Latent = false;
+		// A node of a member of the game's scripts ([VisualNode]) rather than of the scripting API or a built-in kind.
+		bool Game = false;
 		std::vector<VisualScriptPin> Pins;
 		std::vector<VisualScriptSetting> Settings;
 		// The node's entry of the runtime's JSON, as automation reports it.
@@ -218,6 +228,19 @@ namespace Strada
 		std::vector<VisualScriptNodeTemplate const*> Nodes;
 	};
 
+	// A member of the game's scripts marked to be a node that has none ([VisualNode] on a member without a node form), and
+	// why.
+	struct VisualScriptLibraryNote
+	{
+		// "TestGame.Probe.Swap".
+		std::string Member;
+		// The category its node would have had ("Game/Probe").
+		std::string Category;
+		std::string Message;
+
+		bool operator==(VisualScriptLibraryNote const& other) const = default;
+	};
+
 	// The node library of the scripting runtime: every type and node kind graphs can use, read from the runtime's JSON. It
 	// never changes once read; what the lookups return points into it and lives as long as it does.
 	class VisualScriptLibrary
@@ -227,8 +250,8 @@ namespace Strada
 		VisualScriptLibrary(VisualScriptLibrary const&) = delete;
 		VisualScriptLibrary& operator=(VisualScriptLibrary const&) = delete;
 
-		// Reads the library JSON: { "Types": [...], "Nodes": [...] }. Fails when it is not of that form (an engine and a
-		// scripting runtime that do not match), naming the first member that is not.
+		// Reads the library JSON: { "Types": [...], "Nodes": [...], "Notes": [...] } ("Notes" may be absent). Fails when it is
+		// not of that form (an engine and a scripting runtime that do not match), naming the first member that is not.
 		[[nodiscard]] static Result<Scope<VisualScriptLibrary>> Parse(std::string_view json);
 
 		// Sorted by ID (ordinal).
@@ -237,6 +260,8 @@ namespace Strada
 		std::span<VisualScriptNodeTemplate const> GetNodes() const { return m_Nodes; }
 		// The root of the category tree; its Path is empty and it holds the nodes without a category.
 		VisualScriptCategory const& GetCategories() const { return m_Categories; }
+		// The game's members marked to be nodes that have none, in the runtime's order (sorted by member).
+		std::span<VisualScriptLibraryNote const> GetNotes() const { return m_Notes; }
 
 		// Null when the library has no such type.
 		VisualScriptTypeInfo const* FindType(std::string_view id) const;
@@ -259,6 +284,7 @@ namespace Strada
 	private:
 		std::vector<VisualScriptTypeInfo> m_Types;
 		std::vector<VisualScriptNodeTemplate> m_Nodes;
+		std::vector<VisualScriptLibraryNote> m_Notes;
 		// Views of the IDs and types the vectors hold, which never move once read.
 		std::unordered_map<std::string_view, size_t> m_TypeIndices;
 		std::unordered_map<std::string_view, size_t> m_NodeIndices;
@@ -295,7 +321,8 @@ namespace Strada
 		// As stored.
 		std::string Type;
 		VisualScriptResolution Resolved = VisualScriptResolution::Exact;
-		// Redirect and Unique: the type the node should be stored as, and the pins that are renamed with it.
+		// Redirect and Unique: the type the node should be stored as. The pins that are renamed with it, for a node of any
+		// resolution (an Exact call of a library function whose links name a former parameter name).
 		std::string CanonicalType;
 		std::vector<VisualScriptPinRename> PinRenames;
 		std::string Title;
@@ -337,6 +364,12 @@ namespace Strada
 		std::optional<VisualScriptLink> Link;
 		// A variable or local.
 		std::optional<uint32_t> Variable;
+		// The setting it concerns ("Formula"); empty when none.
+		std::string Setting;
+		// The bytes of that setting's string it concerns: UTF-8 offsets [start, end), start <= end.
+		std::optional<std::pair<uint32_t, uint32_t>> Span;
+		// The other visual script a finding about a cross-graph reference concerns; invalid when none.
+		AssetHandle Graph;
 		std::string Message;
 		// The known names closest to an unknown one, or the candidates of an ambiguous node.
 		std::vector<std::string> Suggestions;

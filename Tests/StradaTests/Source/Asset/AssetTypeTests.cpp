@@ -382,6 +382,7 @@ TEST_CASE("VisualScriptAsset: documents give the same program unless something t
 
 	// What it reads, order and counts included.
 	Changes compared{document, {}};
+	compared.Add("the document made a library").Kind = VisualScriptDocumentKind::Library;
 	compared.Add("a variable's ID").Variables[1].ID = 20;
 	compared.Add("a variable's name").Variables[0].Name = "Velocity";
 	compared.Add("a variable's type").Variables[1].Type = "double";
@@ -398,6 +399,8 @@ TEST_CASE("VisualScriptAsset: documents give the same program unless something t
 	compared.Add("a function made impure").Functions[0].Pure = false;
 	compared.Add("a function input's name").Functions[0].Inputs[0].Name = "By";
 	compared.Add("a function input's type").Functions[0].Inputs[0].Type = "int";
+	compared.Add("a function input's former name").Functions[0].Inputs[0].FormerNames.push_back("Ratio");
+	compared.Add("a function output's former name").Functions[0].Outputs[0].FormerNames.push_back("Value");
 	compared.Add("a function output added").Functions[0].Outputs.push_back({"Twice", "float"});
 	compared.Add("a local's value").Functions[0].Locals[0].Value = 3.0;
 	compared.Add("a local's name").Functions[0].Locals[0].Name = "Double";

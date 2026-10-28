@@ -20,8 +20,8 @@ public sealed class HostProtocolTests
 	private static readonly (string Name, string[] Parameters)[] s_EntryPoints =
 	[
 		("VisualScriptDescribeLibrary", ["void*", "receive"]),
-		("VisualScriptAnalyze", ["byte*", "int", "void*", "receive"]),
-		("VisualScriptLoad", ["ulong", "byte*", "int", "byte*", "int", "void*", "receive"]),
+		("VisualScriptAnalyze", ["byte*", "int", "byte*", "int", "void*", "receive"]),
+		("VisualScriptLoad", ["ulong", "byte*", "int", "byte*", "int", "byte*", "int", "void*", "receive"]),
 		("VisualScriptUnload", ["ulong"]),
 		("VisualScriptCreateInstance", ["ulong", "ulong", "byte*", "int"]),
 		("VisualScriptDestroyInstance", ["ulong"]),
@@ -211,6 +211,31 @@ public sealed class HostProtocolTests
 		// A document that is not an object keeps the working program for the instances.
 		Assert.Equal(1, Parse(host.LoadDocument(TestRuntime.Graph, TestRuntime.Name, Encoding.UTF8.GetBytes("[]"))).GetArrayLength());
 		Assert.Equal(VisualScriptStatus.Success, host.CreateInstance(8, TestRuntime.Graph, []));
+	}
+
+	// The references bundle accompanies a document whatever its bytes: a document whose nodes refer to no other graph analyzes
+	// and loads as it does without one.
+	[Theory]
+	[InlineData("")]
+	[InlineData("not a bundle")]
+	[InlineData("""{ "Self": "0", "Graphs": [] }""")]
+	[InlineData("""{ "Self": "7", "Graphs": [ { "Graph": "42", "Name": "", "Error": "no visual script 42 in the project" } ] }""")]
+	public void ReferencesLeaveADocumentThatRefersToNoOtherGraphAsItIs(string references)
+	{
+		DocumentBuilder document = new();
+		document.Variable("Speed", "float", "2.0", isPublic: true);
+		document.Graph.Writes(document.Graph.Node("Event.Create"), "Then", "created");
+		byte[] text = Encoding.UTF8.GetBytes(document.Build());
+		byte[] bundle = Encoding.UTF8.GetBytes(references);
+		TestRuntime runtime = new();
+		VisualScriptRuntime host = runtime.Runtime;
+
+		Assert.Equal(host.AnalyzeDocument(text).Text, host.AnalyzeDocument(text, bundle).Text);
+		Assert.Equal(host.LoadDocument(TestRuntime.Graph, TestRuntime.Name, text).Text,
+			host.LoadDocument(TestRuntime.Graph, TestRuntime.Name, text, bundle).Text);
+		Assert.Equal(VisualScriptStatus.Success, host.CreateInstance(TestRuntime.Hero, TestRuntime.Graph, []));
+		Assert.Equal(VisualScriptStatus.Success, host.Invoke(TestRuntime.Hero, ScriptEvent.Create, 0.0f, 0));
+		Assert.Equal(["created"], runtime.Records);
 	}
 
 	[Fact]

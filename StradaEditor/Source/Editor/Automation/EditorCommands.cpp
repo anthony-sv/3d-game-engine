@@ -900,7 +900,11 @@ namespace Strada
 			prepared.Analysis = AnalyzeGraph(document);
 			if (prepared.Analysis)
 			{
-				std::vector<std::string> const updated = ApplyCanonicalNodeTypes(document, *prepared.Analysis);
+				// As graph.set, which prepares against an empty document when none is stored: an exact node's pins are renamed
+				// only on a node the stored document has as it is.
+				VisualScriptDocument const none;
+				std::vector<std::string> const updated =
+					ApplyCanonicalNodeTypes(document, *prepared.Analysis, stored != nullptr ? stored : &none);
 				if (!updated.empty())
 				{
 					prepared.Warnings.insert(prepared.Warnings.end(), updated.begin(), updated.end());

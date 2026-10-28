@@ -598,7 +598,7 @@ TEST_CASE("GraphCommands: graph.set replaces a file that does not load, and undo
 {
 	GraphFixture fixture;
 	std::string const graph = fixture.Ok("graph.create", Json::object({{"path", "Scripts/Damaged.sgraph"}}))["asset"].get<std::string>();
-	std::string const damaged = "{ \"Strada\": { \"Version\": 3, \"Type\": \"VisualScript\" }, \"VisualScript\": {} }\n";
+	std::string const damaged = "{ \"Strada\": { \"Version\": 4, \"Type\": \"VisualScript\" }, \"VisualScript\": {} }\n";
 	fixture.WriteFile("Scripts/Damaged.sgraph", damaged);
 	CHECK(fixture.Fails("graph.get", Json::object({{"graph", graph}})).Code == AutomationErrorCode::FileError);
 
@@ -640,7 +640,7 @@ TEST_CASE("GraphCommands: graph.set keeps the node keys of version 2, which grap
 	CHECK(fixture.Ok("graph.get", Json::object({{"graph", graph}}))["document"] == content);
 	std::string const written = fixture.ReadFile("Scripts/Notes.sgraph");
 	CHECK(written == DumpJson(VisualScriptSerializer::Serialize(document)));
-	CHECK(written.find("\"Version\": 2,") != std::string::npos);
+	CHECK(written.find("\"Version\": 3,") != std::string::npos);
 	CHECK(fixture.Ok("graph.check", Json::object({{"graph", graph}, {"document", content}}))["valid"] == true);
 
 	// Giving the same document again changes nothing; a repair of a version-2 key is refused as any other.
@@ -652,6 +652,95 @@ TEST_CASE("GraphCommands: graph.set keeps the node keys of version 2, which grap
 	CHECK(refused.Data["path"] == "document.Graph.Nodes[3].Enabled");
 	CHECK(fixture.GetDocument(graph) == document);
 	CHECK(fixture.ReadFile("Scripts/Notes.sgraph") == written);
+}
+
+TEST_CASE("GraphCommands: graph.set keeps a library's kind and its parameters' former names, which graph.get returns")
+{
+	// Without the scripting runtime nothing is analyzed: this is the format's round trip of the keys of version 3.
+	GraphFixture fixture;
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 1;
+	clamp.Name = "Clamp01";
+	clamp.Pure = true;
+	clamp.Inputs = {{"Value", "float", {"X"}}};
+	clamp.Outputs = {{"Result", "float"}};
+	VisualScriptNode entry;
+	entry.ID = 2;
+	entry.Type = "Function.Entry";
+	entry.Position = glm::vec2(0.0f, 0.0f);
+	VisualScriptNode result;
+	result.ID = 3;
+	result.Type = "Function.Return";
+	result.Position = glm::vec2(320.0f, 0.0f);
+	clamp.Graph.Nodes = {entry, result};
+	clamp.Graph.Links = {VisualScriptLink{{2, "Value"}, {3, "Result"}}};
+	library.Functions = {clamp};
+	Json const content = VisualScriptSerializer::SerializeDocument(library);
+	REQUIRE(content.begin().key() == "Kind");
+
+	std::string const graph = fixture.CreateGraph("Scripts/Motion.sgraph", library);
+	CHECK(fixture.GetDocument(graph) == library);
+	Json const document = fixture.Ok("graph.get", Json::object({{"graph", graph}}))["document"];
+	CHECK(document == content);
+	CHECK(document["Kind"] == "Library");
+	CHECK(document["Functions"][0]["Inputs"][0]["FormerNames"] == Json::array({"X"}));
+	std::string const written = fixture.ReadFile("Scripts/Motion.sgraph");
+	CHECK(written == DumpJson(VisualScriptSerializer::Serialize(library)));
+	CHECK(written.find("\"Version\": 3,") != std::string::npos);
+
+	// The same document again changes nothing; a repair of a key of version 3 is refused as any other.
+	CHECK(fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", content}}))["changed"] == false);
+	Json unknownKind = content;
+	unknownKind["Kind"] = "Module";
+	Json ownName = content;
+	ownName["Functions"][0]["Inputs"][0]["FormerNames"] = Json::array({"Value"});
+	for (auto const& [damaged, path] : {std::pair<Json, std::string_view>(unknownKind, "document.Kind"),
+	                                    std::pair<Json, std::string_view>(ownName, "document.Functions[0].Inputs[0].FormerNames[0]")})
+	{
+		CAPTURE(path);
+		CommandError const refused = fixture.Fails("graph.set", Json::object({{"graph", graph}, {"document", damaged}}));
+		CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+		CHECK(refused.Data["path"] == std::string(path));
+	}
+	CHECK(fixture.GetDocument(graph) == library);
+	CHECK(fixture.ReadFile("Scripts/Motion.sgraph") == written);
+}
+
+TEST_CASE("GraphCommands: graph.set and graph.check record a library's renamed parameter on the parameter that took its place")
+{
+	GraphFixture fixture;
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction mix;
+	mix.ID = 1;
+	mix.Name = "Mix";
+	mix.Pure = true;
+	mix.Inputs = {{"A", "float"}, {"B", "float"}};
+	mix.Outputs = {{"Result", "float"}};
+	VisualScriptNode entry;
+	entry.ID = 2;
+	entry.Type = "Function.Entry";
+	entry.Position = glm::vec2(0.0f, 0.0f);
+	VisualScriptNode result;
+	result.ID = 3;
+	result.Type = "Function.Return";
+	result.Position = glm::vec2(320.0f, 0.0f);
+	mix.Graph.Nodes = {entry, result};
+	mix.Graph.Links = {VisualScriptLink{{2, "A"}, {3, "Result"}}};
+	library.Functions = {mix};
+	std::string const graph = fixture.CreateGraph("Scripts/Mixing.sgraph", library);
+
+	// A moved to the end and B renamed C: B is C's former name, not A's.
+	VisualScriptDocument edited = library;
+	edited.Functions[0].Inputs = {{"C", "float"}, {"A", "float"}};
+	Json const content = VisualScriptSerializer::SerializeDocument(edited);
+	Json const expectedWarnings = Json::array({"parameter renamed: Mix's B → C (B is kept in FormerNames)"});
+	Json const checked = fixture.Ok("graph.check", Json::object({{"graph", graph}, {"document", content}}));
+	CHECK(checked["valid"] == true);
+	CHECK(checked["warnings"] == expectedWarnings);
+	Json const set = fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", content}}));
+	CHECK(set["warnings"] == expectedWarnings);
+	CHECK(fixture.GetDocument(graph).Functions[0].Inputs == std::vector<VisualScriptParameter>{{"C", "float", {"B"}}, {"A", "float"}});
 }
 
 TEST_CASE("GraphCommands: without the scripting runtime there is no node library and nothing is analyzed")

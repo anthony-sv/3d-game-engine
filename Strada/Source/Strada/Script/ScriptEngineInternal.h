@@ -66,11 +66,13 @@ namespace Strada::ScriptEngineInternal
 		int32_t (*DestroyAllInstances)() = nullptr;
 		int32_t (*Invoke)(uint64_t entity, int32_t scriptEvent, float timeStep, uint64_t other) = nullptr;
 
-		// Visual scripts: documents are the content form of .sgraph files, variables the stored script field JSON.
+		// Visual scripts: documents are the content form of .sgraph files, variables the stored script field JSON. references
+		// is the bundle of the other graphs a document's nodes refer to; a length of 0 means none.
 		int32_t (*VisualScriptDescribeLibrary)(void* context, ReceiveFunction receive) = nullptr;
-		int32_t (*VisualScriptAnalyze)(char const* document, int32_t documentLength, void* context, ReceiveFunction receive) = nullptr;
+		int32_t (*VisualScriptAnalyze)(char const* document, int32_t documentLength, char const* references, int32_t referencesLength,
+		                               void* context, ReceiveFunction receive) = nullptr;
 		int32_t (*VisualScriptLoad)(uint64_t graph, char const* name, int32_t nameLength, char const* document, int32_t documentLength,
-		                            void* context, ReceiveFunction receive) = nullptr;
+		                            char const* references, int32_t referencesLength, void* context, ReceiveFunction receive) = nullptr;
 		int32_t (*VisualScriptUnload)(uint64_t graph) = nullptr;
 		int32_t (*VisualScriptCreateInstance)(uint64_t entity, uint64_t graph, char const* variables, int32_t variablesLength) = nullptr;
 		int32_t (*VisualScriptDestroyInstance)(uint64_t entity) = nullptr;
