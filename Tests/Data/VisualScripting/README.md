@@ -45,6 +45,10 @@ except the migration fixtures; the content form has no version.
 - **Slice 3, track VL** (ScriptCoreTests, `ExpressionTests.InputsFollowTheCorpus`): `Formulas.json` lists the inputs the
   analysis gives each formula; on a mismatch the test writes the expected file to `ExpectedFixtures/Formulas.json` next
   to the test binary, to be copied over this one. The editor's formula lister (track EL) is tested against the same file.
+  `Documents/Language.json` joins the fixture lists of `FixtureAnalysisTests` (zero Errors, every node `Exact`),
+  `ProgramTests` and the fuzz fixtures of `RobustnessTests` and `DeterminismTests`, and
+  `FixtureAnalysisTests.TheLanguageDocumentRuns` runs it without an aborting error: its timeline logs its `Step` keys and,
+  when it finished, `Lift`.
 - **Track B** (ScriptCoreTests): every document and the content of `Example.sgraph` analyze with zero Error
   diagnostics. The test project copies this directory to its output as `VisualScripting/`.
 - **Track C** (StradaTests, `VisualScriptEngineTests`): the documents load and run through `VisualScriptEngine`.

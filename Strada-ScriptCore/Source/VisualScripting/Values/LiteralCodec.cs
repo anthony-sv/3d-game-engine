@@ -584,7 +584,7 @@ internal static class LiteralCodec
 		_ => false,
 	};
 
-	private static bool TryReadFloat(JsonElement json, out float value)
+	internal static bool TryReadFloat(JsonElement json, out float value)
 	{
 		value = 0.0f;
 		if (json.ValueKind != JsonValueKind.Number || !json.TryGetDouble(out double number) || !double.IsFinite(number) ||

@@ -620,6 +620,9 @@ internal sealed record GateBinding(bool StartOpen) : NodeBinding;
 
 internal sealed record TweenBinding(Easing Easing) : NodeBinding;
 
+// Flow.Timeline: its length, loop and tracks (spec-slice3 section 3.8).
+internal sealed record TimelineBinding(TimelineDefinition Timeline) : NodeBinding;
+
 internal sealed record LiteralBinding(VisualType Type, object? Value) : NodeBinding;
 
 // Array.Make: the number of its elements (their type, and the array's, are its pins').

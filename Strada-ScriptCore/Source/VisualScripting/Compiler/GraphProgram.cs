@@ -241,13 +241,22 @@ internal sealed class CompiledNode
 	internal VisualType[] OutputTypes { get; set; } = [];
 
 	// The node's own state (DoOnce and Gate: open; DoN: the counter; FlipFlop: IsA; latent nodes: the fiber waiting in
-	// them while they are pending).
+	// them while they are pending, a Timeline's run while it plays).
 	internal int StateSlot { get; set; } = -1;
+
+	// Flow.Timeline: the slot of its TimelineState (none in the template: each instance makes its own at its first input).
+	internal int TimelineSlot { get; set; } = -1;
 
 	internal Operand[] Operands { get; set; } = [];
 
 	// The pure nodes whose outputs feed the inputs, which the plan evaluates first.
 	internal int[] PureSources { get; set; } = [];
+
+	// Nodes that evaluate their inputs one at a time (Flow.Timeline): the pure nodes each input depends on, and the plans of
+	// each, computed the first time they are needed.
+	internal int[][] InputSources { get; set; } = [];
+
+	internal int[]?[] InputPlans { get; set; } = [];
 
 	// The pure nodes to evaluate before the inputs are loaded, in dependency order; computed the first time it is needed.
 	internal int[]? Plan { get; set; }
@@ -347,7 +356,53 @@ internal sealed class CompiledNode
 	// Expression: the formula's program.
 	internal ExpressionProgram? Expression { get; set; }
 
+	// Flow.Timeline: its curves and event keys, and where it fires and writes.
+	internal CompiledTimeline? Timeline { get; set; }
+
 	public override string ToString() => $"{Title} (node {Id})";
+}
+
+// A Flow.Timeline node compiled (spec-slice3 section 3.8.5): its definition, the exits of Update, Finished and each event
+// track, and the slots of its outputs (Time, Direction and Playing, then each curve track's).
+internal sealed class CompiledTimeline
+{
+	internal CompiledTimeline(TimelineDefinition definition, int updateExit, int finishedExit, int[] eventExits, int outputBase, Slot forward,
+		Slot backward)
+	{
+		Definition = definition;
+		UpdateExit = updateExit;
+		FinishedExit = finishedExit;
+		EventExits = eventExits;
+		TimeSlot = outputBase;
+		DirectionSlot = outputBase + 1;
+		PlayingSlot = outputBase + 2;
+		CurveBase = outputBase + 3;
+		Forward = forward;
+		Backward = backward;
+	}
+
+	internal TimelineDefinition Definition { get; }
+
+	internal int UpdateExit { get; }
+
+	internal int FinishedExit { get; }
+
+	// By event track (TimelineDefinition.Events).
+	internal int[] EventExits { get; }
+
+	internal int TimeSlot { get; }
+
+	internal int DirectionSlot { get; }
+
+	internal int PlayingSlot { get; }
+
+	// The first curve track's output slot; the others follow in track order.
+	internal int CurveBase { get; }
+
+	// Direction's values, made once so writing them never boxes.
+	internal Slot Forward { get; }
+
+	internal Slot Backward { get; }
 }
 
 // The nodes of the event graph or of a function's graph, and the layout of its frame: the template every frame starts

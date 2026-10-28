@@ -553,6 +553,25 @@ public sealed class NodeLibraryTests
 		Assert.Contains("""{"Name":"Separator","Direction":"In","Type":"string","Default":","}""", nodes["String.Split"], StringComparison.Ordinal);
 	}
 
+	// Flow.Timeline (spec-slice3 section 3.8.1): a latent node in Flow whose exec outputs are all Ticks and whose Timeline
+	// setting has no default; it is latent and starts executions of its own, so functions refuse it.
+	[Fact]
+	public void TheTimelineHasItsForm()
+	{
+		BuiltinNodeDefinition node = Assert.IsType<BuiltinNodeDefinition>(VisualScriptTesting.LibraryNode("Flow.Timeline"));
+		Assert.Equal(("Timeline", "", "Flow", NodeKind.Latent, false, true), (node.Title, node.Subtitle, node.Category, node.Kind, node.Pure, node.Latent));
+		Assert.Equal(["timeline", "curve", "animate", "keyframe", "sequence"], node.Keywords);
+		Assert.True(BuiltinNodes.IsLatent(BuiltinNode.FlowTimeline));
+		Assert.True(BuiltinNodes.HasTicks(BuiltinNode.FlowTimeline));
+		Dictionary<string, string> nodes = VisualScriptTesting.ParseObject(LibraryWriter.Write(Library)).GetProperty("Nodes").EnumerateArray()
+			.ToDictionary(static entry => entry.GetProperty("Type").GetString()!, static entry => entry.GetRawText());
+		Assert.Contains("""
+			"Pins":[{"Name":"Play","Direction":"In","Type":"exec"},{"Name":"PlayFromStart","Direction":"In","Type":"exec"},{"Name":"Reverse","Direction":"In","Type":"exec"},{"Name":"ReverseFromEnd","Direction":"In","Type":"exec"},{"Name":"Stop","Direction":"In","Type":"exec"},{"Name":"SetTime","Direction":"In","Type":"exec"},{"Name":"NewTime","Direction":"In","Type":"float","Default":0},{"Name":"Rate","Direction":"In","Type":"float","Default":1},{"Name":"Update","Direction":"Out","Type":"exec","Role":"Tick"},{"Name":"Finished","Direction":"Out","Type":"exec","Role":"Tick"},{"Name":"Time","Direction":"Out","Type":"float"},{"Name":"Direction","Direction":"Out","Type":"Strada.TimelineDirection"},{"Name":"Playing","Direction":"Out","Type":"bool"}],"Settings":[{"Name":"Timeline","Kind":"Timeline"}]
+			""", nodes["Flow.Timeline"], StringComparison.Ordinal);
+		VisualType direction = Library.FindType("Strada.TimelineDirection")!;
+		Assert.Equal(["Forward", "Backward"], direction.Enumerators.Select(static enumerator => enumerator.Name));
+	}
+
 	// Opcode.Intrinsic's kinds are the String and Array kinds in BuiltinNode's order (ProgramCompiler maps one to the other).
 	[Fact]
 	public void IntrinsicKindsFollowTheBuiltinKinds()

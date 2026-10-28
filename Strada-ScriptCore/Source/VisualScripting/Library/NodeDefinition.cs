@@ -57,6 +57,8 @@ internal enum BuiltinNode
 	FlowWaitUntil,
 	FlowTween,
 	FlowInterval,
+	// Slice 3's latent kind comes right after Interval, so IsLatent (Delay to Timeline) stays a range.
+	FlowTimeline,
 	VariableGet,
 	VariableSet,
 	FunctionEntry,

@@ -117,7 +117,8 @@ internal sealed partial class VisualScriptRuntime
 
 	// The state of DoOnce, DoN, FlipFlop and Gate nodes and the stored outputs of impure and event nodes, for nodes whose ID
 	// and type are unchanged; outputs also keep their pin's name and type. Latent nodes become pending again with their
-	// fibers (Move). Everything else starts from the new frame's template.
+	// fibers (Move); a Timeline keeps its state, its time clamped into its new length (spec-slice3 section 3.8.6), and the
+	// next advance writes its outputs with its new curves. Everything else starts from the new frame's template.
 	private static void CarryNodes(Frame from, Frame to)
 	{
 		CompiledGraph source = from.Graph;
@@ -137,6 +138,11 @@ internal sealed partial class VisualScriptRuntime
 			if (node.Op != Opcode.Latent && node.StateSlot >= 0 && old.StateSlot >= 0)
 			{
 				to.Slots[node.StateSlot] = from.Slots[old.StateSlot];
+			}
+			if (node.TimelineSlot >= 0 && old.TimelineSlot >= 0 && from.Slots[old.TimelineSlot].Object is TimelineState state)
+			{
+				state.Time = Math.Clamp(state.Time, 0.0, node.Timeline!.Definition.Length);
+				to.Slots[node.TimelineSlot] = Slot.FromObject(state);
 			}
 			if (node.Pure)
 			{

@@ -371,6 +371,7 @@ internal static class ProgramCompiler
 					BuiltinNode.FlowWaitFrames => ["Frames"],
 					BuiltinNode.FlowWaitUntil => ["Condition"],
 					BuiltinNode.FlowInterval => ["Interval", "Count"],
+					BuiltinNode.FlowTimeline => ["NewTime", "Rate"],
 					_ => ["Duration"],
 				},
 				_ => null,
@@ -501,6 +502,10 @@ internal static class ProgramCompiler
 					break;
 				case Opcode.Latent:
 					node.StateSlot = Allocate(default);
+					if (source.Builtin == BuiltinNode.FlowTimeline)
+					{
+						node.TimelineSlot = Allocate(default);
+					}
 					break;
 			}
 		}
@@ -551,11 +556,12 @@ internal static class ProgramCompiler
 				Opcode.DoOnce or Opcode.DoN => ["Execute", "Reset"],
 				Opcode.Gate => ["Enter", "Open", "Close", "Toggle"],
 				Opcode.Branch or Opcode.Sequence or Opcode.Switch or Opcode.While or Opcode.FlipFlop or Opcode.Send or Opcode.VariableSet => ["Execute"],
-				// Entry 0 starts a latent node, entry 1 stops a Tween or Interval.
+				// Entry 0 starts a latent node, entry 1 stops a Tween or Interval; a Timeline has its six inputs.
 				Opcode.Latent => source.Builtin switch
 				{
 					BuiltinNode.FlowTween => ["Execute", "Stop"],
 					BuiltinNode.FlowInterval => ["Start", "Stop"],
+					BuiltinNode.FlowTimeline => ["Play", "PlayFromStart", "Reverse", "ReverseFromEnd", "Stop", "SetTime"],
 					_ => ["Execute"],
 				},
 				_ => null,
@@ -568,10 +574,12 @@ internal static class ProgramCompiler
 				Opcode.DoN or Opcode.Gate => ["Exit"],
 				Opcode.FlipFlop => ["A", "B"],
 				Opcode.Event or Opcode.Send or Opcode.VariableSet or Opcode.FunctionCall => ["Then"],
+				// A Timeline's exits follow its event tracks (CompileTimeline finds them by name).
 				Opcode.Latent => source.Builtin switch
 				{
 					BuiltinNode.FlowTween => ["Update", "Completed"],
 					BuiltinNode.FlowInterval => ["Tick", "Completed"],
+					BuiltinNode.FlowTimeline => null,
 					_ => ["Completed"],
 				},
 				_ => null,
@@ -614,11 +622,14 @@ internal static class ProgramCompiler
 		}
 
 		// The loads of connected inputs, the constants of unconnected ones (in the template), and the pure nodes feeding
-		// them.
+		// them. A Timeline evaluates its inputs one at a time (NewTime for SetTime only, Rate for the inputs that play), so
+		// it also keeps the pure nodes of each.
 		private void CompileInputs(AnalyzedNode source, CompiledNode node, List<AnalyzedPin> inputs)
 		{
 			List<Operand> operands = [];
 			List<int> pureSources = [];
+			bool perInput = node.Op == Opcode.Latent && source.Builtin == BuiltinNode.FlowTimeline;
+			int[][] inputSources = perInput ? new int[inputs.Count][] : [];
 			for (int index = 0; index < inputs.Count; index++)
 			{
 				AnalyzedPin pin = inputs[index];
@@ -627,10 +638,23 @@ internal static class ProgramCompiler
 					node.TargetIsSelf = true;
 					continue;
 				}
-				CompileInput(pin, node.InputBase + index, StagingType(source, node, pin), operands, pureSources);
+				if (!perInput)
+				{
+					CompileInput(pin, node.InputBase + index, StagingType(source, node, pin), operands, pureSources);
+					continue;
+				}
+				List<int> own = [];
+				CompileInput(pin, node.InputBase + index, StagingType(source, node, pin), operands, own);
+				inputSources[index] = [.. own];
+				foreach (int pure in own)
+				{
+					AddPureSource(pureSources, pure);
+				}
 			}
 			node.Operands = [.. operands];
 			node.PureSources = [.. pureSources];
+			node.InputSources = inputSources;
+			node.InputPlans = new int[]?[inputSources.Length];
 		}
 
 		// An input staged at target as the type staging: the load of its link, the value its split pin's Make makes, or its
@@ -762,6 +786,9 @@ internal static class ProgramCompiler
 				case Opcode.Latent when source.Binding is TweenBinding tween:
 					node.Easing = tween.Easing;
 					break;
+				case Opcode.Latent when source.Binding is TimelineBinding timeline:
+					CompileTimeline(node, timeline.Timeline);
+					break;
 				case Opcode.IsValid:
 					VisualType value = source.FindPin("Value", PinDirection.In)!.Type;
 					node.Validity = value.Kind switch
@@ -815,6 +842,43 @@ internal static class ProgramCompiler
 					node.DeclaringType = member.Member.DeclaringType;
 					break;
 			}
+		}
+
+		// A Timeline's exits by name, its output slots (checked against its pins) and their values before it plays: at time 0,
+		// Forward, not playing.
+		private void CompileTimeline(CompiledNode node, TimelineDefinition timeline)
+		{
+			int[] eventExits = new int[timeline.Events.Length];
+			for (int track = 0; track < eventExits.Length; track++)
+			{
+				eventExits[track] = ExitOf(node, timeline.Events[track].Name);
+			}
+			List<string> outputs = ["Time", "Direction", "Playing"];
+			foreach (TimelineTrack curve in timeline.Curves)
+			{
+				outputs.Add(curve.Name);
+			}
+			if (!SameNames([.. node.OutputPins], [.. outputs]))
+			{
+				throw new InvalidOperationException($"{node} does not have the data outputs of its timeline");
+			}
+			VisualType direction = node.OutputTypes[1];
+			CompiledTimeline compiled = new(timeline, ExitOf(node, "Update"), ExitOf(node, "Finished"), eventExits, node.OutputBase,
+				SlotValues.FromValue(TimelineDirection.Forward, direction), SlotValues.FromValue(TimelineDirection.Backward, direction));
+			node.Timeline = compiled;
+			m_Template[compiled.TimeSlot] = Slot.FromFloat(0.0f);
+			m_Template[compiled.DirectionSlot] = compiled.Forward;
+			m_Template[compiled.PlayingSlot] = Slot.FromBool(false);
+			for (int curve = 0; curve < timeline.Curves.Length; curve++)
+			{
+				m_Template[compiled.CurveBase + curve] = timeline.Curves[curve].Evaluate(0.0);
+			}
+		}
+
+		private static int ExitOf(CompiledNode node, string pin)
+		{
+			int exit = Array.IndexOf(node.ExitPins, pin);
+			return exit >= 0 ? exit : throw new InvalidOperationException($"{node} has no exec output {pin}");
 		}
 
 		// The kind of a String or Array node and the types it needs: the element type of the array it reads (Join, Contains,

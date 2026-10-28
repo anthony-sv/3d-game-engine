@@ -228,8 +228,9 @@ internal static class GraphAnalyzer
 	}
 
 	// Where the flow entering a disabled node continues: its Then output, else Completed, else Default, else its first exec
-	// output that is not a Tick output. Null when no flow enters it (it has no exec input: an event starts no execution) or
-	// it has no such output (an unknown node's pins are typed by nothing, so it has no exec output).
+	// output, none of them a Tick output (a Timeline's event track named Completed is no exit). Null when no flow enters it
+	// (it has no exec input: an event starts no execution) or it has no such output (an unknown node's pins are typed by
+	// nothing, so it has no exec output; every exec output of a Timeline is a Tick output).
 	private static AnalyzedPin? FindPassThrough(AnalyzedNode node)
 	{
 		bool entered = false;
@@ -248,6 +249,10 @@ internal static class GraphAnalyzer
 				entered = true;
 				continue;
 			}
+			if (pin.Description.Role == PinRole.Tick)
+			{
+				continue;
+			}
 			switch (pin.Name)
 			{
 				case "Then":
@@ -260,10 +265,7 @@ internal static class GraphAnalyzer
 					otherwise ??= pin;
 					break;
 			}
-			if (pin.Description.Role != PinRole.Tick)
-			{
-				first ??= pin;
-			}
+			first ??= pin;
 		}
 		return entered ? then ?? completed ?? otherwise ?? first : null;
 	}

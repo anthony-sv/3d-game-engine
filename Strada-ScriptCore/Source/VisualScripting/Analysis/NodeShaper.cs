@@ -17,6 +17,8 @@ internal sealed class NodeShaper
 	// "Case:" plus the value is a pin name of at most 128 bytes.
 	internal const int MaxCaseBytes = 123;
 	internal const string CasePrefix = "Case:";
+	// Flow.Timeline's template pins up to Finished: the event tracks' outputs follow them.
+	private const int TimelineExecPinsEnd = 10;
 
 	private readonly AnalysisContext m_Context;
 	private readonly Dictionary<AnalyzedNode, VisualType> m_ConvertTargets;
@@ -114,6 +116,9 @@ internal sealed class NodeShaper
 			case BuiltinNode.FlowTween:
 				AddTemplatePins(node, definition);
 				Tween(node);
+				break;
+			case BuiltinNode.FlowTimeline:
+				Timeline(node, definition);
 				break;
 			case BuiltinNode.VariableGet:
 			case BuiltinNode.VariableSet:
@@ -448,6 +453,46 @@ internal sealed class NodeShaper
 			}
 		}
 		node.Binding = new TweenBinding(easing);
+	}
+
+	// The template's inputs, Update and Finished, an exec output per event track, Time, Direction and Playing, then a data
+	// output per curve track (spec-slice3 section 3.8.1). A setting with problems keeps the pins of its valid tracks.
+	private void Timeline(AnalyzedNode node, NodeDefinition definition)
+	{
+		TimelineDefinition? timeline = TimelineDefinition.Empty;
+		List<TimelineTrackPin> tracks = [];
+		if (node.Source.Settings.TryGet("Timeline", out JsonElement setting))
+		{
+			timeline = TimelineReader.Read(setting, Library, (code, message) => m_Context.ReportNode(code, node, message), tracks);
+		}
+		for (int index = 0; index < TimelineExecPinsEnd; index++)
+		{
+			node.AddPin(definition.Pins[index]);
+		}
+		foreach (TimelineTrackPin track in tracks)
+		{
+			if (track.Type == null)
+			{
+				node.AddPin(BuiltinNodes.ExecOut(track.Name, PinRole.Tick));
+			}
+		}
+		for (int index = TimelineExecPinsEnd; index < definition.Pins.Count; index++)
+		{
+			node.AddPin(definition.Pins[index]);
+		}
+		foreach (TimelineTrackPin track in tracks)
+		{
+			if (track.Type is { } type)
+			{
+				node.AddPin(new PinDescription(track.Name, PinDirection.Out, type));
+			}
+		}
+		if (timeline == null)
+		{
+			node.PinsComplete = false;
+			return;
+		}
+		node.Binding = new TimelineBinding(timeline);
 	}
 
 	private void Variable(AnalyzedNode node, bool set)

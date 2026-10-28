@@ -245,6 +245,147 @@ public sealed class RobustnessTests
 		Assert.True(tally.Aborted > 0, $"no execution aborted: {tally}");
 	}
 
+	// Timelines through the same operations (spec-slice3 section 3.9): the document damaged as any document is, and with its
+	// Timeline settings replaced by damaged ones.
+	[Fact]
+	public void DamagedTimelinesAnswerWhatTheProtocolSpecifiesAndNeverThrow()
+	{
+		JsonNode original = JsonNode.Parse(TimelineDocument)!;
+		DocumentMutator mutator = new(0x54494D454C494E45u);
+		FuzzRandom random = new(0x54494D454C494E46u);
+		Tally tally = new();
+		int rounds = Fuzzing.GetRounds(150);
+		for (int round = 0; round < rounds; round++)
+		{
+			string context = $"round {round} (timelines)";
+			JsonNode? document = (round % 3) switch
+			{
+				0 => DamageTimelines(original, random),
+				1 => mutator.Damage(original, round / 3),
+				_ => mutator.Rewire(original, round / 3),
+			};
+			byte[] text = mutator.Write(document);
+			try
+			{
+				new Round(context, mutator, tally).Run(text);
+			}
+			catch (Exception exception) when (exception is not Xunit.Sdk.IAssertionException)
+			{
+				Assert.Fail($"{context}: an operation threw {exception}\ndocument: {Encoding.UTF8.GetString(text)}");
+			}
+		}
+		TestContext.Current.TestOutputHelper?.WriteLine($"{rounds} rounds: {tally}");
+		Assert.True(tally.Broken > 0, $"no program was broken: {tally}");
+		Assert.True(tally.Ran > 0, $"no damaged graph ran: {tally}");
+	}
+
+	// Two timelines: one Create plays from its start, its Step track counts and its Finished plays the looping one
+	// backward, whose Update reverses it again from its end; a key press stops both.
+	private const string TimelineDocument = """
+		{
+			"Variables": [{ "ID": 1, "Name": "Steps", "Type": "int", "Value": 0 }, { "ID": 2, "Name": "Lift", "Type": "float", "Value": 0 }],
+			"Functions": [],
+			"Graph": {
+				"Nodes": [
+					{ "ID": 10, "Type": "Event.Create" },
+					{ "ID": 11, "Type": "Flow.Timeline", "Settings": { "Timeline": { "Length": 0.5, "Tracks": [
+						{ "Name": "Lift", "Type": "float", "Keys": [{ "Time": 0, "Value": 0 }, { "Time": 0.25, "Value": 2, "In": 1, "Out": -1 }, { "Time": 0.5, "Value": 0, "Interpolation": "Constant" }] },
+						{ "Name": "Path", "Type": "Strada.Vector3", "Keys": [{ "Time": 0, "Value": [0, 0, 0], "Out": [1, 0, 0] }, { "Time": 0.5, "Value": [1, 2, 3], "Interpolation": "Linear" }] },
+						{ "Name": "Tint", "Type": "Strada.Color", "Keys": [{ "Time": 0.125, "Value": [1, 0, 0, 1] }] },
+						{ "Name": "Step", "Type": "exec", "Keys": [{ "Time": 0 }, { "Time": 0.25 }, { "Time": 0.25 }, { "Time": 0.5 }] }
+					] } } },
+					{ "ID": 12, "Type": "Variable.Get", "Settings": { "Variable": 1 } },
+					{ "ID": 13, "Type": "Expression", "Settings": { "Formula": "steps + 1" } },
+					{ "ID": 14, "Type": "Variable.Set", "Settings": { "Variable": 1 } },
+					{ "ID": 15, "Type": "Flow.Timeline", "Settings": { "Timeline": { "Length": 0.2, "Loop": true, "Tracks": [
+						{ "Name": "Beat", "Type": "exec", "Keys": [{ "Time": 0 }, { "Time": 0.1 }, { "Time": 0.2 }] },
+						{ "Name": "Swing", "Type": "Strada.Vector2", "Keys": [{ "Time": 0, "Value": [0, 1] }, { "Time": 0.1, "Value": [1, 0] }, { "Time": 0.2, "Value": [0, 1] }] }
+					] } }, "Inputs": { "Rate": 3, "NewTime": 0.05 } },
+					{ "ID": 16, "Type": "Variable.Set", "Settings": { "Variable": 2 } },
+					{ "ID": 17, "Type": "Event.KeyPressed", "Settings": { "Key": "Space" } },
+					{ "ID": 18, "Type": "Flow.Sequence" }
+				],
+				"Links": [
+					{ "From": [10, "Then"], "To": [11, "PlayFromStart"] },
+					{ "From": [11, "Step"], "To": [14, "Execute"] },
+					{ "From": [12, "Value"], "To": [13, "steps"] },
+					{ "From": [13, "Result"], "To": [14, "Value"] },
+					{ "From": [11, "Finished"], "To": [15, "Reverse"] },
+					{ "From": [11, "Update"], "To": [16, "Execute"] },
+					{ "From": [11, "Lift"], "To": [16, "Value"] },
+					{ "From": [15, "Beat"], "To": [15, "SetTime"] },
+					{ "From": [15, "Update"], "To": [15, "ReverseFromEnd"] },
+					{ "From": [17, "Then"], "To": [18, "Execute"] },
+					{ "From": [18, "Then0"], "To": [11, "Stop"] },
+					{ "From": [18, "Then1"], "To": [15, "Stop"] }
+				],
+				"Comments": []
+			}
+		}
+		""";
+
+	// The document with its Timeline settings damaged: other values for Length and Loop, tracks of other names and types, keys
+	// out of order or outside the timeline, values and tangents of other shapes, unknown members, too many tracks or keys.
+	private static JsonNode DamageTimelines(JsonNode original, FuzzRandom random)
+	{
+		JsonNode document = original.DeepClone();
+		JsonNode?[] values = [JsonValue.Create(-1), JsonValue.Create(0), JsonValue.Create(1e9), JsonValue.Create("1"), null, new JsonArray(1, 2),
+			JsonValue.Create(true), new JsonObject(), JsonValue.Create(3600), JsonValue.Create(1e-30)];
+		JsonNode? AnyValue() => values[random.Pick(values.Length)]?.DeepClone();
+		foreach (JsonNode? node in document["Graph"]!["Nodes"]!.AsArray())
+		{
+			if (node!["Settings"]?["Timeline"] is not JsonObject timeline || random.Pick(4) == 0)
+			{
+				continue;
+			}
+			JsonArray tracks = timeline["Tracks"]!.AsArray();
+			switch (random.Pick(9))
+			{
+				case 0:
+					timeline[random.Pick(2) == 0 ? "Length" : "Loop"] = AnyValue();
+					break;
+				case 1:
+					tracks[random.Pick(tracks.Count)]!["Name"] = random.Pick(3) switch
+					{
+						0 => JsonValue.Create("Update"),
+						1 => JsonValue.Create(tracks[0]!["Name"]!.GetValue<string>()),
+						_ => AnyValue(),
+					};
+					break;
+				case 2:
+					tracks[random.Pick(tracks.Count)]!["Type"] = random.Pick(2) == 0 ? JsonValue.Create(random.Pick(2) == 0 ? "int" : "exec") : AnyValue();
+					break;
+				case 3:
+					JsonArray keys = tracks[random.Pick(tracks.Count)]!["Keys"]!.AsArray();
+					keys[random.Pick(keys.Count)]![random.Pick(2) == 0 ? "Time" : "Value"] = AnyValue();
+					break;
+				case 4:
+					JsonArray shuffled = tracks[random.Pick(tracks.Count)]!["Keys"]!.AsArray();
+					JsonNode? first = shuffled[0];
+					shuffled.RemoveAt(0);
+					shuffled.Add(first);
+					break;
+				case 5:
+					JsonArray tangents = tracks[random.Pick(tracks.Count)]!["Keys"]!.AsArray();
+					JsonObject key = tangents[random.Pick(tangents.Count)]!.AsObject();
+					key[random.Pick(3) switch { 0 => "In", 1 => "Out", _ => "Interpolation" }] = AnyValue();
+					break;
+				case 6:
+					tracks[random.Pick(tracks.Count)]![random.Pick(2) == 0 ? "Ease" : "Keys"] = AnyValue();
+					break;
+				case 7:
+					timeline["Tracks"] = new JsonArray([.. Enumerable.Range(0, 33).Select(static index =>
+						(JsonNode?)new JsonObject { ["Name"] = FormattableString.Invariant($"T{index}"), ["Type"] = "exec" })]);
+					break;
+				default:
+					tracks[random.Pick(tracks.Count)]!["Keys"] = new JsonArray([.. Enumerable.Range(0, 1024 + random.Pick(2)).Select(static index =>
+						(JsonNode?)new JsonObject { ["Time"] = 0, ["Value"] = index })]);
+					break;
+			}
+		}
+		return document;
+	}
+
 	// Array variables and literals feeding the Array nodes, a String.Split and Join, and a generic method inferred from links;
 	// Array.Get reads past the end of Numbers last in every Update.
 	private const string ArrayDocument = """
@@ -723,8 +864,13 @@ internal static class FuzzLibrary
 
 	private const string StandIns = "Strada.ScriptCore.Tests.FuzzStandIns";
 
+	// The types whose members reach the engine, and Assert, whose members throw when a check fails (a damaged fixture's checks
+	// fail): their stand-ins record what they are given instead.
 	private static readonly Type[] s_EngineTypes =
-		[typeof(Entity), typeof(Input), typeof(Log), typeof(Physics), typeof(Strada.Testing.TestReporter), typeof(TransformComponent)];
+	[
+		typeof(Entity), typeof(Input), typeof(Log), typeof(Physics), typeof(Strada.Testing.Assert), typeof(Strada.Testing.TestReporter),
+		typeof(TransformComponent),
+	];
 
 	private static readonly Lazy<NodeLibrary> s_Library = new(static () => NodeLibraryBuilder.Build(new NodeLibrarySources
 	{
@@ -735,6 +881,7 @@ internal static class FuzzLibrary
 			new NodeRedirect("Call:Strada.Entity.GetComponent<T>()", $"Call:{StandIns}.GetComponent<T>(Strada.Entity)", []),
 			new NodeRedirect("Call:Strada.Input.IsKeyDown(Strada.KeyCode)", $"Call:{StandIns}.IsKeyDown(Strada.KeyCode)", []),
 			new NodeRedirect("Call:Strada.Log.Info(string)", $"Call:{StandIns}.Info(string)", []),
+			new NodeRedirect("Call:Strada.Testing.Assert.AreEqual<T>(T,T,string)", $"Call:{StandIns}.AreEqual<T>(T,T,string)", []),
 			new NodeRedirect("Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
 				$"Call:{StandIns}.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)", []),
 			new NodeRedirect("Call:Strada.Testing.TestReporter.Pass(string)", $"Call:{StandIns}.Pass(string)", []),
@@ -750,7 +897,8 @@ internal static class FuzzLibrary
 	private static readonly Lazy<IReadOnlyList<(string Name, JsonNode Document)>> s_Fixtures = new(static () =>
 	{
 		List<(string Name, JsonNode Document)> fixtures = [];
-		foreach (string name in (string[])["Events.json", "Flow.json", "Data.json", "Functions.json", "Variables.json", "Reflected.json", "Editor.json"])
+		foreach (string name in (string[])["Events.json", "Flow.json", "Data.json", "Functions.json", "Variables.json", "Reflected.json", "Editor.json",
+			"Language.json"])
 		{
 			fixtures.Add((name, JsonNode.Parse(File.ReadAllBytes(Path.Combine(VisualScriptTesting.FixtureDirectory, "Documents", name)))!));
 		}
@@ -761,7 +909,7 @@ internal static class FuzzLibrary
 
 	internal static NodeLibrary Library => s_Library.Value;
 
-	// The documents of spec section 11.1 in content form: the six documents, then the content of Example.sgraph.
+	// The documents of spec section 11.1 and slice 3's Language.json in content form, then the content of Example.sgraph.
 	internal static IReadOnlyList<(string Name, JsonNode Document)> Fixtures => s_Fixtures.Value;
 
 	// Hero runs the graphs; Other, a scripted entity, is what contacts and clicks report. Neither has components, so
@@ -821,6 +969,16 @@ public static class FuzzStandIns
 	public static void Pass(string name)
 	{
 		s_Calls++;
+	}
+
+	// Assert.AreEqual without the exception: a failed check is recorded as "not equal: <message>".
+	public static void AreEqual<T>(T expected, T actual, string message = "")
+	{
+		s_Calls++;
+		if (!EqualityComparer<T>.Default.Equals(expected, actual))
+		{
+			s_Messages?.Add($"not equal: {message}");
+		}
 	}
 
 	[PureNode]

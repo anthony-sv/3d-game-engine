@@ -12,6 +12,60 @@ public sealed class LiveEditTests
 	private static string Warning(uint latent, string latentTitle, string problem) =>
 		FormattableString.Invariant($"{TestRuntime.Name} on Hero ({TestRuntime.Hero}): the execution waiting in {latentTitle} (node {latent}) is cancelled: {problem}");
 
+	// Event.Create plays the timeline (node 2) of the setting from its start; its Update writes its curve Lift.
+	private static string TimelineDocument(string length, string lift, string enabled = "") => VisualScriptTesting.Document(
+		$$"""{ "ID": 1, "Type": "Event.Create" }, { "ID": 2, "Type": "Flow.Timeline", "Settings": { "Timeline": { "Length": {{length}}, "Tracks": [{ "Name": "Lift", "Type": "float", "Keys": [{ "Time": 0, "Value": 0, "Interpolation": "Linear" }, {{lift}}] }] } }{{enabled}} }, { "ID": 3, "Type": "{{RuntimeTesting.Write}}" }""",
+		"""{ "From": [1, "Then"], "To": [2, "PlayFromStart"] }, { "From": [2, "Update"], "To": [3, "Execute"] }, { "From": [2, "Lift"], "To": [3, "Text"] }""");
+
+	// Editing a playing timeline's keys changes its motion at the next update without restarting it (spec-slice3 section
+	// 3.8.6): its time and run carry over, its outputs follow the new curve.
+	[Fact]
+	public void EditingKeysKeepsAPlayingTimelinePlaying()
+	{
+		TestRuntime runtime = TestRuntime.Start(TimelineDocument("2", """{ "Time": 2, "Value": 2 }"""));
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["0.5"], runtime.Records);
+
+		runtime.LoadWorking(TimelineDocument("2", """{ "Time": 2, "Value": 4 }"""));
+		Assert.Single(runtime.Instance().Fibers);
+		Assert.Equal(0.5f, TimelineTests.OutputOf(runtime, 2, "Time"));
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["0.5", "2"], runtime.Records);
+		Assert.Equal(true, TimelineTests.OutputOf(runtime, 2, "Playing"));
+		Assert.Empty(runtime.Environment.Logs);
+	}
+
+	[Fact]
+	public void ShorteningClampsTheTime()
+	{
+		TestRuntime runtime = TestRuntime.Start(TimelineDocument("2", """{ "Time": 2, "Value": 2 }"""));
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Invoke(ScriptEvent.Update, 1.5f);
+
+		runtime.LoadWorking(TimelineDocument("1", """{ "Time": 1, "Value": 3 }"""));
+		runtime.Invoke(ScriptEvent.Update, 0.0f);
+		Assert.Equal(["1.5", "3"], runtime.Records);
+		Assert.Equal(1.0f, TimelineTests.OutputOf(runtime, 2, "Time"));
+		// At its end, so it finished.
+		Assert.Equal(false, TimelineTests.OutputOf(runtime, 2, "Playing"));
+		Assert.Empty(runtime.Instance().Fibers);
+	}
+
+	[Fact]
+	public void DisablingAPlayingTimelineCancelsItsRun()
+	{
+		TestRuntime runtime = TestRuntime.Start(TimelineDocument("2", """{ "Time": 2, "Value": 2 }"""));
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+
+		runtime.LoadWorking(TimelineDocument("2", """{ "Time": 2, "Value": 2 }""", """, "Enabled": "Disabled" """));
+		Assert.Empty(runtime.Instance().Fibers);
+		Assert.Equal(Warning(2, "Timeline", "the edit disabled Timeline (node 2)"), Assert.Single(runtime.Environment.Warnings));
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["0.5"], runtime.Records);
+	}
+
 	[Fact]
 	public void AnUnrelatedEditKeepsAPendingDelayLoopRunning()
 	{

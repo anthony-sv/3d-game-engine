@@ -122,6 +122,46 @@ public sealed class AllocationTests
 
 	// A node logs its Warning once per instance (spec section 5.3): when it runs into the problem again, nothing of the
 	// message is built (no text, no engine call for a name), so it allocates nothing.
+	// A playing timeline with a curve of each width and an event track advances, writes its outputs and fires its ticks
+	// without allocating (spec-slice3 section 3.8.5).
+	[Fact]
+	public void APlayingTimelineAllocatesNothing()
+	{
+		DocumentBuilder document = new();
+		uint lift = document.Variable("Lift", "float", "0.0");
+		uint path = document.Variable("Path", "Strada.Vector3");
+		uint steps = document.Variable("Steps", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint timeline = graph.Node("Flow.Timeline", """
+			{ "Timeline": { "Length": 1, "Loop": true, "Tracks": [
+				{ "Name": "Lift", "Type": "float", "Keys": [{ "Time": 0, "Value": 0 }, { "Time": 0.5, "Value": 2 }, { "Time": 1, "Value": 0 }] },
+				{ "Name": "Path", "Type": "Strada.Vector3", "Keys": [{ "Time": 0, "Value": [0, 0, 0], "Interpolation": "Linear" }, { "Time": 1, "Value": [1, 2, 3] }] },
+				{ "Name": "Step", "Type": "exec", "Keys": [{ "Time": 0.25 }, { "Time": 0.75 }] }
+			] } }
+			""");
+		graph.Flow(graph.Node("Event.Create"), timeline, "Then", "Play");
+		uint setLift = graph.Set(lift);
+		uint setPath = graph.Set(path);
+		graph.Link(timeline, "Lift", setLift, "Value");
+		graph.Link(timeline, "Path", setPath, "Value");
+		graph.Flow(timeline, setLift, "Update");
+		graph.Flow(setLift, setPath);
+		uint add = graph.Node("Operator.Add", inputs: """{ "B": 1 }""");
+		uint setSteps = graph.Set(steps);
+		graph.Link(graph.Get(steps), "Value", add, "A");
+		graph.Link(add, "Result", setSteps, "Value");
+		graph.Flow(timeline, setSteps, "Step");
+		TestRuntime runtime = TestRuntime.Start(document);
+		runtime.Invoke(ScriptEvent.Create);
+		for (int update = 0; update < 10; update++)
+		{
+			runtime.Invoke(ScriptEvent.Update, 0.1f);
+		}
+		Assert.True((int)runtime.Variable("Steps")! >= 2);
+
+		Assert.Equal(0, runtime.FewestBytesPerUpdate(timeStep: 0.1f));
+	}
+
 	[Fact]
 	public void AWarningLoggedAlreadyAllocatesNothing()
 	{

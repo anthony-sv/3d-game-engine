@@ -78,7 +78,7 @@ internal static class NodeLibraryBuilder
 			}
 		}
 		// The types built-in nodes use, whatever the sources hold.
-		foreach (Type type in new[] { typeof(Entity), typeof(KeyCode), typeof(MouseButton), typeof(GamepadButton) })
+		foreach (Type type in new[] { typeof(Entity), typeof(KeyCode), typeof(MouseButton), typeof(GamepadButton), typeof(TimelineDirection) })
 		{
 			registry.Register(type, KindOf(type));
 		}
@@ -96,7 +96,7 @@ internal static class NodeLibraryBuilder
 
 		BuiltinTypes builtinTypes = new(registry.Get(typeof(bool))!, registry.Get(typeof(int))!, registry.Get(typeof(float))!,
 			registry.Get(typeof(string))!, registry.Get(typeof(Entity))!, registry.Get(typeof(KeyCode))!, registry.Get(typeof(MouseButton))!,
-			registry.Get(typeof(GamepadButton))!, registry.Get(typeof(string[]))!);
+			registry.Get(typeof(GamepadButton))!, registry.Get(typeof(string[]))!, registry.Get(typeof(TimelineDirection))!);
 		List<NodeDefinition> nodes = [.. BuiltinNodes.Create(builtinTypes)];
 		List<MemberNodeDefinition> members = [];
 		MemberNodes.Create(sources.ApiTypes, registry.Get, builtinTypes.Entity, Documentation.Load(sources.DocumentationPath), members);

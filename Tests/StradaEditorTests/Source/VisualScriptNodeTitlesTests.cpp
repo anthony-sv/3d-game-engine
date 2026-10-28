@@ -31,7 +31,7 @@ namespace
 
 	// Every built-in node kind of the scripting runtime (BuiltinNodes.TypeOf) with the title a node of it without settings
 	// has. Each equals the node library's title, except where LibraryTitle names the library's.
-	constexpr std::array<BuiltInTitle, 89> BuiltInTitles = {{
+	constexpr std::array<BuiltInTitle, 90> BuiltInTitles = {{
 		{"Event.Create", "Create"},
 		{"Event.Update", "Update"},
 		{"Event.FixedUpdate", "Fixed Update"},
@@ -65,6 +65,7 @@ namespace
 		{"Flow.WaitUntil", "Wait Until"},
 		{"Flow.Tween", "Tween"},
 		{"Flow.Interval", "Interval"},
+		{"Flow.Timeline", "Timeline"},
 		{"Variable.Get", "Get Variable"},
 		{"Variable.Set", "Set Variable"},
 		{"Function.Entry", "Entry", "Function Entry"},

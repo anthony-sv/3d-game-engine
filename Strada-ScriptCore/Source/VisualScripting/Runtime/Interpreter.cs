@@ -407,6 +407,11 @@ internal sealed partial class VisualScriptRuntime
 	// instance that was destroyed owns no fibers: the chain ends there with a Warning. True when the execution suspended.
 	private bool Wait(Execution execution, CompiledNode node, Frame frame, int entry)
 	{
+		if (node.Builtin == BuiltinNode.FlowTimeline)
+		{
+			TimelineInput(execution, node, frame, entry);
+			return false;
+		}
 		Slot[] slots = frame.Slots;
 		switch (entry)
 		{
@@ -626,35 +631,61 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
+	// Evaluates one input of a node that evaluates its inputs one at a time (Flow.Timeline): the pure nodes it depends on,
+	// then its load. Errors from then on are the node's own.
+	private void EvaluateInput(Execution execution, CompiledNode node, Frame frame, int input)
+	{
+		int[] sources = node.InputSources[input];
+		if (sources.Length > 0)
+		{
+			EvaluatePlan(execution, node.InputPlans[input] ??= Plans.Of(frame.Graph, sources), frame);
+			execution.Current = node;
+		}
+		int target = node.InputBase + input;
+		foreach (ref readonly Operand operand in node.Operands.AsSpan())
+		{
+			if (operand.Target == target)
+			{
+				LoadOperand(execution, operand, frame.Slots);
+			}
+		}
+	}
+
 	// Stages the node's connected inputs: each value converted to its input's staging type.
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
 	private static void Load(Execution execution, CompiledNode node, Slot[] slots)
 	{
 		foreach (ref readonly Operand operand in node.Operands.AsSpan())
 		{
-			Slot value;
-			switch (operand.Source)
-			{
-				case OperandSource.Slot:
-					value = slots[operand.Index];
-					break;
-				case OperandSource.LoopIndex:
-					int loop = execution.FindLoop(operand.Index);
-					value = Slot.FromInt(loop >= 0 ? execution.Flow[loop].Index : 0);
-					break;
-				default:
-					// Outside an active iteration Element is its type default, which the ForEach node holds.
-					int each = execution.FindLoop(operand.Index);
-					value = each >= 0 ? ArrayElements.Read(execution.Flow[each].Items!, execution.Flow[each].Index, operand.From)
-						: execution.TopFrame.Graph.Nodes[operand.Index].Constant;
-					break;
-			}
-			if (operand.Conversion != ConversionOp.None)
-			{
-				Conversions.Apply(ref value, operand.Conversion, operand.From);
-			}
-			slots[operand.Target] = value;
+			LoadOperand(execution, operand, slots);
 		}
+	}
+
+	[MethodImpl(MethodImplOptions.AggressiveInlining)]
+	private static void LoadOperand(Execution execution, in Operand operand, Slot[] slots)
+	{
+		Slot value;
+		switch (operand.Source)
+		{
+			case OperandSource.Slot:
+				value = slots[operand.Index];
+				break;
+			case OperandSource.LoopIndex:
+				int loop = execution.FindLoop(operand.Index);
+				value = Slot.FromInt(loop >= 0 ? execution.Flow[loop].Index : 0);
+				break;
+			default:
+				// Outside an active iteration Element is its type default, which the ForEach node holds.
+				int each = execution.FindLoop(operand.Index);
+				value = each >= 0 ? ArrayElements.Read(execution.Flow[each].Items!, execution.Flow[each].Index, operand.From)
+					: execution.TopFrame.Graph.Nodes[operand.Index].Constant;
+				break;
+		}
+		if (operand.Conversion != ConversionOp.None)
+		{
+			Conversions.Apply(ref value, operand.Conversion, operand.From);
+		}
+		slots[operand.Target] = value;
 	}
 
 	[MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1022,12 +1053,15 @@ internal sealed partial class VisualScriptRuntime
 // dependency order.
 internal static class Plans
 {
-	internal static int[] Of(CompiledGraph graph, CompiledNode consumer)
+	internal static int[] Of(CompiledGraph graph, CompiledNode consumer) => Of(graph, consumer.PureSources);
+
+	// The plan of the pure nodes some inputs depend on directly.
+	internal static int[] Of(CompiledGraph graph, int[] pureSources)
 	{
 		List<int> order = [];
 		HashSet<int> visited = [];
 		Stack<(int Node, int Next)> pending = new();
-		foreach (int source in consumer.PureSources)
+		foreach (int source in pureSources)
 		{
 			if (!visited.Add(source))
 			{

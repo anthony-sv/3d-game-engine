@@ -89,6 +89,7 @@ internal static class BuiltinNodes
 		BuiltinNode.FlowWaitUntil => "Flow.WaitUntil",
 		BuiltinNode.FlowTween => "Flow.Tween",
 		BuiltinNode.FlowInterval => "Flow.Interval",
+		BuiltinNode.FlowTimeline => "Flow.Timeline",
 		BuiltinNode.VariableGet => "Variable.Get",
 		BuiltinNode.VariableSet => "Variable.Set",
 		BuiltinNode.FunctionEntry => "Function.Entry",
@@ -153,10 +154,10 @@ internal static class BuiltinNodes
 	internal static bool IsInputEvent(BuiltinNode node) => node is >= BuiltinNode.EventKeyPressed and <= BuiltinNode.EventGamepadButtonReleased;
 
 	// The latent built-in kinds (spec section 4.0); Function.Call is latent when its function is.
-	internal static bool IsLatent(BuiltinNode node) => node is >= BuiltinNode.FlowDelay and <= BuiltinNode.FlowInterval;
+	internal static bool IsLatent(BuiltinNode node) => node is >= BuiltinNode.FlowDelay and <= BuiltinNode.FlowTimeline;
 
 	// The latent kinds whose outputs start executions of their own (Tick roles).
-	internal static bool HasTicks(BuiltinNode node) => node is BuiltinNode.FlowTween or BuiltinNode.FlowInterval;
+	internal static bool HasTicks(BuiltinNode node) => node is BuiltinNode.FlowTween or BuiltinNode.FlowInterval or BuiltinNode.FlowTimeline;
 
 	internal static bool IsOperator(BuiltinNode node) => node >= BuiltinNode.OperatorAdd;
 
@@ -291,6 +292,17 @@ internal static class BuiltinNodes
 				ExecIn("Start"), ExecIn("Stop"), In("Interval", types.Float, 1.0f), In("Count", types.Int, 0), ExecOut("Tick", PinRole.Tick),
 				Out("Index", types.Int), ExecOut("Completed", PinRole.Continuation),
 			]);
+		// Its pins without tracks; each event track adds an exec output after Finished, each curve track a data output after
+		// Playing (spec-slice3 section 3.8.1).
+		Latent(nodes, BuiltinNode.FlowTimeline, "Timeline",
+			"Plays curves over Length seconds: Update fires every frame while it plays with each curve's value at Time, event tracks fire at their keys, Finished at the end; Rate scales its speed.",
+			["timeline", "curve", "animate", "keyframe", "sequence"],
+			[
+				ExecIn("Play"), ExecIn("PlayFromStart"), ExecIn("Reverse"), ExecIn("ReverseFromEnd"), ExecIn("Stop"), ExecIn("SetTime"),
+				In("NewTime", types.Float, 0.0f), In("Rate", types.Float, 1.0f), ExecOut("Update", PinRole.Tick), ExecOut("Finished", PinRole.Tick),
+				Out("Time", types.Float), Out("Direction", types.TimelineDirection), Out("Playing", types.Bool),
+			],
+			[new SettingDescription("Timeline", SettingKind.Timeline)]);
 	}
 
 	private static void AddVariablesAndFunctions(List<BuiltinNodeDefinition> nodes)
@@ -658,4 +670,4 @@ internal static class BuiltinNodes
 
 // The library types the built-in kinds use.
 internal sealed record BuiltinTypes(VisualType Bool, VisualType Int, VisualType Float, VisualType String, VisualType Entity,
-	VisualType KeyCode, VisualType MouseButton, VisualType GamepadButton, VisualType StringArray);
+	VisualType KeyCode, VisualType MouseButton, VisualType GamepadButton, VisualType StringArray, VisualType TimelineDirection);
