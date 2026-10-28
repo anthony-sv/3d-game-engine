@@ -4,8 +4,8 @@
 
 #include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/Timer.h"
 
-#include <chrono>
 #include <iterator>
 #include <optional>
 #include <utility>
@@ -14,26 +14,21 @@ namespace Strada
 {
 	namespace
 	{
-		double GetMillisecondsSince(std::chrono::steady_clock::time_point start)
-		{
-			return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-		}
-
 		// Step 4: what is written must load again as it is, since the loaded asset keeps the document itself and a later load
 		// of the file must give the same program. Validate applies the loader's rules to the document itself, so no Json is
 		// built and read back; the text of the file is then written directly.
 		Result<std::string> MakeWritableText(VisualScriptDocument const& document, VisualScriptCommitTimings& timings)
 		{
-			std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
+			Timer phase;
 			std::optional<VisualScriptIssue> const issue = VisualScriptSerializer::Validate(document);
-			timings.Check = GetMillisecondsSince(start);
+			timings.Check = phase.GetElapsedMilliseconds();
 			if (issue)
 			{
 				return MakeError("the edit would write an invalid document: {}: {}", issue->Path, issue->Message);
 			}
-			std::chrono::steady_clock::time_point const text = std::chrono::steady_clock::now();
+			phase.Reset();
 			std::string written = VisualScriptSerializer::WriteText(document);
-			timings.Text = GetMillisecondsSince(text);
+			timings.Text = phase.GetElapsedMilliseconds();
 			return written;
 		}
 	}
@@ -41,7 +36,7 @@ namespace Strada
 	Result<VisualScriptCommit> PrepareVisualScriptCommit(VisualScriptDocument const& stored, VisualScriptDocument edited,
 	                                                     VisualScriptAnalysis const* analysis)
 	{
-		std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
+		Timer const normalize;
 		VisualScriptCommit commit;
 		commit.Warnings = RecordFormerNames(edited, stored);
 		commit.RenameCount = commit.Warnings.size();
@@ -51,7 +46,7 @@ namespace Strada
 			commit.Warnings.insert(commit.Warnings.end(), std::make_move_iterator(updated.begin()), std::make_move_iterator(updated.end()));
 		}
 		PlaceUnplacedNodes(edited);
-		commit.Timings.Normalize = GetMillisecondsSince(start);
+		commit.Timings.Normalize = normalize.GetElapsedMilliseconds();
 		Result<std::string> text = MakeWritableText(edited, commit.Timings);
 		if (!text)
 		{

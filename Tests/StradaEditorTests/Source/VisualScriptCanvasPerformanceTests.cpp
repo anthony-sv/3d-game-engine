@@ -668,6 +668,22 @@ TEST_CASE("VisualScriptEditor: the frame that commits a move in a graph of 2,000
 			// instead of syncing.
 			CHECK(fixture.Model().GetAnalysisCount() == analyses);
 			CHECK(fixture.Model().GetCanvas().GetPositionSyncCount() == positionSyncs + 1);
+			// Its phases are filled: the window's preparation, the step's file read and write, and the model's moving of the
+			// node and its new index (the adopt and the analysis can take less than the clock's resolution).
+			VisualScriptCommitTimings const& phases = frames.back().Phases;
+			CHECK(phases.Normalize > 0.0);
+			CHECK(phases.Check > 0.0);
+			CHECK(phases.Text > 0.0);
+			CHECK(phases.ReadBack > 0.0);
+			CHECK(phases.Write > 0.0);
+			CHECK(phases.Adopt >= 0.0);
+			CHECK(phases.Analysis >= 0.0);
+			CHECK(phases.Canvas > 0.0);
+			CHECK(phases.Index > 0.0);
+			// The model's start again with the next frame: one with nothing to lay out spends nothing on the canvas.
+			fixture.Frames(1);
+			CHECK(fixture.Model().GetSyncTimings().Canvas == 0.0);
+			CHECK(fixture.Model().GetSyncTimings().Index == 0.0);
 		}
 		if (performance)
 		{
@@ -720,7 +736,12 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2
 			// The frame that commits analyzes the new program.
 			CHECK(fixture.Model().GetAnalysisCount() == analyses + 1);
 			frames.push_back(MakeCommitFrame(fixture, milliseconds));
+			CHECK(frames.back().Phases.Check > 0.0);
+			CHECK(frames.back().Phases.Text > 0.0);
+			CHECK(frames.back().Phases.Adopt > 0.0);
 			CHECK(frames.back().Phases.Analysis > 0.0);
+			CHECK(frames.back().Phases.Canvas > 0.0);
+			CHECK(frames.back().Phases.Index > 0.0);
 
 			// Undone, which the window analyzes in its next frame, for the next commit.
 			REQUIRE(fixture.Operations.Undo().IsOk());

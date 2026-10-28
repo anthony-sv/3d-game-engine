@@ -8,9 +8,9 @@
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Buffer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Timer.h"
 
 #include <algorithm>
-#include <chrono>
 #include <filesystem>
 #include <optional>
 #include <span>
@@ -118,11 +118,6 @@ namespace Strada
 		Ref<VisualScriptAsset> FindLoadedGraph(AssetHandle graph)
 		{
 			return AssetManager::IsLoaded(graph) ? AssetManager::GetAsset<VisualScriptAsset>(graph) : nullptr;
-		}
-
-		double GetMillisecondsSince(std::chrono::steady_clock::time_point start)
-		{
-			return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
 		}
 
 		bool HoldsText(std::span<uint8_t const> bytes, std::string_view text)
@@ -242,18 +237,18 @@ namespace Strada
 		}
 		GraphFile const& file = found.GetValue();
 		m_LastTimings = {};
+		Timer phase;
 		bool const first = !m_Recorded;
 		if (first)
 		{
-			std::chrono::steady_clock::time_point const readBack = std::chrono::steady_clock::now();
 			if (Result<void> recorded = RecordBefore(context, file.Path, file.Name); !recorded)
 			{
 				return recorded;
 			}
-			m_LastTimings.ReadBack = GetMillisecondsSince(readBack);
-			std::chrono::steady_clock::time_point const compare = std::chrono::steady_clock::now();
+			m_LastTimings.ReadBack = phase.GetElapsedMilliseconds();
+			phase.Reset();
 			bool const effect = HasEffect();
-			m_LastTimings.Compare = GetMillisecondsSince(compare);
+			m_LastTimings.Compare = phase.GetElapsedMilliseconds();
 			if (!effect)
 			{
 				// The file has this document already: nothing is written, and the history drops the step.
@@ -261,18 +256,18 @@ namespace Strada
 			}
 		}
 
-		std::chrono::steady_clock::time_point const serialize = std::chrono::steady_clock::now();
+		phase.Reset();
 		std::string text = givenText.empty() ? VisualScriptSerializer::WriteText(*m_After) : std::move(givenText);
-		m_LastTimings.Text = GetMillisecondsSince(serialize);
-		std::chrono::steady_clock::time_point const write = std::chrono::steady_clock::now();
+		m_LastTimings.Text = phase.GetElapsedMilliseconds();
+		phase.Reset();
 		if (Result<void> written = FileSystem::WriteTextFile(file.Path, text); !written)
 		{
 			// A first execution that failed reads the file again when it runs again.
 			m_Recorded = !first;
 			return written;
 		}
-		m_LastTimings.Write = GetMillisecondsSince(write);
-		std::chrono::steady_clock::time_point const setDocument = std::chrono::steady_clock::now();
+		m_LastTimings.Write = phase.GetElapsedMilliseconds();
+		phase.Reset();
 		m_Wrote = true;
 		m_AfterTextSize = text.size();
 		if (Ref<VisualScriptAsset> const asset = FindLoadedGraph(m_Graph); asset != nullptr)
@@ -287,7 +282,7 @@ namespace Strada
 			context.ForgetVisualScriptText(m_Graph);
 		}
 		AssetManager::RecordFileWrite(m_Graph);
-		m_LastTimings.SetDocument = GetMillisecondsSince(setDocument);
+		m_LastTimings.SetDocument = phase.GetElapsedMilliseconds();
 		return {};
 	}
 

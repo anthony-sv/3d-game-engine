@@ -580,6 +580,34 @@ TEST_CASE("VisualScriptEditor: the palette reads the window's document again aft
 	CHECK(fixture.Palette.GetDocumentReadCount() == reads + 1);
 }
 
+TEST_CASE("VisualScriptEditor: the context palette opened again from another pin lists what connects to that pin")
+{
+	PaneFixture fixture(MakeDocument());
+	REQUIRE(fixture.Settings.IsContextPalette());
+	auto const listed = [&fixture](uint32_t node, std::string const& pin)
+	{
+		fixture.Palette.Open(MakeContextIntent(glm::vec2(400.0f, 320.0f), node, pin, VisualScriptPinDirection::Out));
+		fixture.Frames(2);
+		REQUIRE(fixture.Palette.GetState().From.has_value());
+		CHECK(*fixture.Palette.GetState().From == VisualScriptPinReference{node, pin});
+		return fixture.GetStateTitles();
+	};
+	std::vector<std::string> const then = listed(1, "Then");
+	fixture.Palette.Close();
+	fixture.Frames(1);
+	uint64_t const reads = fixture.Palette.GetDocumentReadCount();
+
+	// The index is kept while nothing changed, but the ranking follows the pin.
+	std::vector<std::string> const result = listed(3, "Result");
+	CHECK(result != then);
+	fixture.Palette.Close();
+	fixture.Frames(1);
+	CHECK(listed(1, "Then") == then);
+	// Opened again over the open palette, from the other pin.
+	CHECK(listed(3, "Result") == result);
+	CHECK(fixture.Palette.GetDocumentReadCount() == reads);
+}
+
 TEST_CASE("VisualScriptEditor: in context mode the palette lists what connects, and offers every node when nothing does")
 {
 	PaneFixture fixture(MakeDocument());

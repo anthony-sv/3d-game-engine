@@ -366,8 +366,8 @@ namespace Strada
 		// does not cover (the nodes' IDs, comments and collapsing; the comments' IDs, texts, sizes and colours), and that the
 		// library, the theme anchors, the measurer and the sub-graph are the last Sync's; nothing when any differs, and the
 		// caller then calls Sync. Otherwise whether what the spatial index holds changed.
-		std::optional<bool> SyncPositions(VisualScriptDocument const& previous, VisualScriptCanvasSource const& source,
-		                                  VisualScriptTextMeasurer const& measure, VisualScriptThemeAnchors const& theme);
+		[[nodiscard]] std::optional<bool> SyncPositions(VisualScriptDocument const& previous, VisualScriptCanvasSource const& source,
+		                                                VisualScriptTextMeasurer const& measure, VisualScriptThemeAnchors const& theme);
 
 		// In the shown graph's order.
 		std::span<VisualScriptNodeVisual const> GetNodes() const { return m_Nodes; }

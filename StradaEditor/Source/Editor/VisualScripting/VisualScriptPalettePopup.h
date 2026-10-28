@@ -177,6 +177,8 @@ namespace Strada
 		bool m_RankedContext = false;
 		uint64_t m_RankedGeneration = 0;
 		std::vector<std::string> m_RankedRecents;
+		std::optional<VisualScriptPinReference> m_RankedFrom;
+		VisualScriptPinDirection m_RankedDirection = VisualScriptPinDirection::Out;
 		std::optional<VisualScriptPin> m_ContextPin;
 
 		// The recent entries the index has, the most recent first (at most RecentRows).

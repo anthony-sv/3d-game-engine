@@ -70,7 +70,7 @@ namespace
 	}
 
 	// Doubles written one by one with Double, as the elements of an array, against nlohmann's dump of the same array; on a
-	// difference, the doubles that differ are named by their bits.
+	// difference (reported without the texts, which can be megabytes), the doubles that differ alone are named by their bits.
 	void CheckDoubles(std::span<double const> values)
 	{
 		JsonTextWriter writer(Compact);
@@ -82,7 +82,9 @@ namespace
 			expected.push_back(value);
 		}
 		writer.EndArray();
-		if (writer.TakeText() == expected.dump())
+		bool const same = writer.TakeText() == expected.dump();
+		CHECK_MESSAGE(same, "the array of " << values.size() << " doubles is not written as nlohmann's dump writes it");
+		if (same)
 		{
 			return;
 		}
@@ -125,7 +127,7 @@ namespace
 	}
 }
 
-TEST_CASE("JsonTextWriter: doubles are written as nlohmann's dump writes them")
+TEST_CASE("Serialization: JsonTextWriter writes doubles as nlohmann's dump writes them")
 {
 	double const smallestSubnormal = std::numeric_limits<double>::denorm_min();
 	std::vector<double> special = {0.0,
@@ -210,7 +212,7 @@ TEST_CASE("JsonTextWriter: doubles are written as nlohmann's dump writes them")
 	CheckDoubles(values);
 }
 
-TEST_CASE("JsonTextWriter: integers, booleans and null are written as nlohmann's dump writes them")
+TEST_CASE("Serialization: JsonTextWriter writes integers, booleans and null as nlohmann's dump writes them")
 {
 	for (Json const& value : {Json(0), Json(-1), Json(std::numeric_limits<int64_t>::min()), Json(std::numeric_limits<int64_t>::max()),
 	                          Json(uint64_t{0}), Json(std::numeric_limits<uint64_t>::max()), Json(true), Json(false), Json()})
@@ -230,7 +232,7 @@ TEST_CASE("JsonTextWriter: integers, booleans and null are written as nlohmann's
 	CHECK(writer.TakeText().empty());
 }
 
-TEST_CASE("JsonTextWriter: strings and keys are escaped, and invalid UTF-8 is replaced, as nlohmann's dump does it")
+TEST_CASE("Serialization: JsonTextWriter escapes strings and keys, and replaces invalid UTF-8, as nlohmann's dump does it")
 {
 	std::vector<std::string> strings = {"",     "plain",        "\"quoted\"",       "back\\slash",      "slash/",
 	                                    "\x7F", "\xEF\xBF\xBD", "\xF0\x9F\x98\x80", "\xF4\x8F\xBF\xBF", "caf\xC3\xA9"};
@@ -297,7 +299,7 @@ TEST_CASE("JsonTextWriter: strings and keys are escaped, and invalid UTF-8 is re
 	}
 }
 
-TEST_CASE("JsonTextWriter: containers are laid out as nlohmann's dump lays them out, empty and nested to depth 16")
+TEST_CASE("Serialization: JsonTextWriter lays containers out as nlohmann's dump does, empty and nested to depth 16")
 {
 	CheckValue(Json::object());
 	CheckValue(Json::array());
@@ -326,7 +328,7 @@ TEST_CASE("JsonTextWriter: containers are laid out as nlohmann's dump lays them 
 	CheckValue(Json(Json::value_t::discarded));
 }
 
-TEST_CASE("JsonTextWriter: a document written member by member equals the same document dumped whole")
+TEST_CASE("Serialization: JsonTextWriter writes a document member by member as nlohmann dumps it whole")
 {
 	Json const settings = Json::object({{"Function", 3}, {"Cases", Json::array({"A", "B"})}, {"Offset", Json::array({0.5, -0.0, 1e20})}});
 	Json expected = Json::object();

@@ -342,17 +342,21 @@ namespace Strada
 		}
 		bool const contextOn = m_From.has_value() && context.Settings.IsContextPalette();
 		bool const hasQuery = m_Query.find_first_not_of(' ') != std::string::npos;
-		// What the ranking is made of; a context pin that is gone leaves the rows as they are until one of these changes.
+		// What the ranking is made of, the pin the palette was opened from included (it is opened again from another pin with
+		// the index kept); a context pin that is gone leaves the rows as they are until one of these changes.
+		bool const samePin = m_RankedFrom == m_From && (!m_From || m_RankedDirection == m_Direction);
 		if (m_RankedGeneration == m_IndexGeneration && m_RankedQuery == m_Query && m_RankedContext == contextOn &&
-		    m_RankedRecents == recents)
+		    m_RankedRecents == recents && samePin)
 		{
 			return;
 		}
-		bool const restart = m_RankedQuery != m_Query || m_RankedContext != contextOn;
+		bool const restart = m_RankedQuery != m_Query || m_RankedContext != contextOn || !samePin;
 		m_RankedGeneration = m_IndexGeneration;
 		m_RankedQuery = m_Query;
 		m_RankedContext = contextOn;
 		m_RankedRecents = std::move(recents);
+		m_RankedFrom = m_From;
+		m_RankedDirection = m_Direction;
 		m_ContextPin = m_From ? FindContextPin(context, library) : std::nullopt;
 		std::optional<VisualScriptPaletteContext> rankContext;
 		if (contextOn && m_ContextPin)
@@ -429,6 +433,8 @@ namespace Strada
 			m_PlaceCursor = true;
 			m_Highlight = 0;
 			m_Rows.clear();
+			// The index outlives a closing, the preview's layout does not: each opening lays its node out again.
+			m_PreviewEntry.reset();
 			VisualScriptView const& view = context.Model.GetView();
 			if (m_RequestedAt)
 			{

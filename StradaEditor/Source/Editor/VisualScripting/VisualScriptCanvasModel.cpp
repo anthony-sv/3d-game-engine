@@ -123,7 +123,6 @@ namespace Strada
 			return HashJson(hash, pin.Default);
 		}
 
-		// Of everything a node's drawing takes from its analysis entry.
 		// Of everything a comment box's layout is made from.
 		uint64_t HashComment(VisualScriptComment const& comment)
 		{
@@ -132,6 +131,7 @@ namespace Strada
 			return Hash::Combine(Hash::Combine(hash, HashBits(comment.Color.b)), HashBits(comment.Color.a));
 		}
 
+		// Of everything a node's drawing takes from its analysis entry.
 		uint64_t HashEntry(uint64_t seed, VisualScriptAnalyzedNode const& entry)
 		{
 			uint64_t hash = HashText(HashText(HashText(seed, entry.Title), entry.Subtitle), entry.PassThrough);

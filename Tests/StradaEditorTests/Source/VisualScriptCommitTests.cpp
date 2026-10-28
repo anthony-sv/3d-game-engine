@@ -755,6 +755,65 @@ TEST_CASE("VisualScriptCommit: documents are the same only when every value is w
 	CHECK_FALSE(IsSameVisualScriptDocument(document, described));
 }
 
+TEST_CASE("VisualScriptCommit: a step's timings are its last execution's, and a merged step takes the later one's")
+{
+	Testing::AssetManagerScope assets;
+	Testing::TemporaryDirectory directory;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(directory.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	Result<AssetHandle> const created = operations.CreateVisualScript("Scripts/Large.sgraph", VisualScriptTemplate::Empty);
+	REQUIRE(created.IsOk());
+	AssetHandle const graph = created.GetValue();
+	REQUIRE(operations.SetVisualScriptDocument(graph, MakeLargeDocument(200)).IsOk());
+	Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+	REQUIRE(asset != nullptr);
+	auto const moved = [&asset](float x)
+	{
+		VisualScriptDocument document = asset->GetDocument();
+		document.Graph.Nodes[0].Position->x = x;
+		return CreateRef<VisualScriptDocument const>(std::move(document));
+	};
+	constexpr uint64_t MergeKey = 7;
+
+	// Without a text, the first execution reads the file back, compares, serializes the document and writes it.
+	SetVisualScriptCommand first(graph, moved(512.0f), "Move Node", MergeKey);
+	REQUIRE(first.Execute(context).IsOk());
+	VisualScriptCommitTimings const firstTimings = first.GetLastTimings();
+	CHECK(firstTimings.ReadBack > 0.0);
+	CHECK(firstTimings.Text > 0.0);
+	CHECK(firstTimings.Write > 0.0);
+	CHECK(firstTimings.Normalize == 0.0);
+	CHECK(firstTimings.Check == 0.0);
+	CHECK(firstTimings.Adopt == 0.0);
+
+	// The next move of the same gesture, with the pipeline's text: merged, the step reports what the later execution spent
+	// (its text was given, so it differs from the first's).
+	Ref<VisualScriptDocument const> const later = moved(544.0f);
+	SetVisualScriptCommand second(graph, later, "Move Node", MergeKey, VisualScriptSerializer::WriteText(*later));
+	REQUIRE(second.Execute(context).IsOk());
+	VisualScriptCommitTimings const secondTimings = second.GetLastTimings();
+	CHECK(secondTimings.ReadBack > 0.0);
+	REQUIRE(first.CanMergeWith(second));
+	first.MergeWith(second);
+	VisualScriptCommitTimings const& merged = first.GetLastTimings();
+	CHECK(merged.ReadBack == secondTimings.ReadBack);
+	CHECK(merged.Compare == secondTimings.Compare);
+	CHECK(merged.Text == secondTimings.Text);
+	CHECK(merged.Write == secondTimings.Write);
+	CHECK(merged.SetDocument == secondTimings.SetDocument);
+
+	// Executed again (a redo): nothing is read back or compared, and the document is serialized again.
+	REQUIRE(first.Undo(context).IsOk());
+	REQUIRE(first.Execute(context).IsOk());
+	VisualScriptCommitTimings const& redone = first.GetLastTimings();
+	CHECK(redone.ReadBack == 0.0);
+	CHECK(redone.Compare == 0.0);
+	CHECK(redone.Text > 0.0);
+	CHECK(redone.Write > 0.0);
+	CHECK(asset->GetSharedDocument() == later);
+}
+
 TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, serialized once, written and taken by the asset as one step, "
           "in its time on request")
 {
@@ -835,6 +894,19 @@ TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, seria
 			timings.Write = executed.Write;
 			timings.SetDocument = executed.SetDocument;
 			phases.push_back(timings);
+			// Each fills its own phases: the preparation and the step's writing of 2,000 nodes and the file's read and write
+			// always take time, the comparison and the asset's update can take less than the clock's resolution.
+			CHECK(request.Timings.Normalize > 0.0);
+			CHECK(request.Timings.Check > 0.0);
+			CHECK(request.Timings.Text > 0.0);
+			CHECK(request.Timings.ReadBack == 0.0);
+			CHECK(request.Timings.Write == 0.0);
+			CHECK(executed.ReadBack > 0.0);
+			CHECK(executed.Write > 0.0);
+			CHECK((std::isfinite(executed.Compare) && executed.Compare >= 0.0));
+			CHECK((std::isfinite(executed.SetDocument) && executed.SetDocument >= 0.0));
+			CHECK(executed.Normalize == 0.0);
+			CHECK(executed.Check == 0.0);
 		}
 		Result<Buffer> const written = FileSystem::ReadBinaryFile(AssetManager::GetAbsolutePath(graph));
 		REQUIRE(written.IsOk());
@@ -860,10 +932,10 @@ TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, seria
 			if (nodeCount == 2000)
 			{
 				// Three times the median track S measured once the commit validated and wrote its text directly (spec §5.8; an
-				// AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51, other builds' tests running): most of what is left is the
-				// file read back and written (ReadBack and Write).
+				// AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51; Debug in its quietest runs, Release with other builds'
+				// tests running): in Release most of what is left is the file read back and written (ReadBack and Write).
 #if defined(ST_DEBUG)
-				constexpr double MeasuredMilliseconds = 117.0;
+				constexpr double MeasuredMilliseconds = 52.0;
 #else
 				constexpr double MeasuredMilliseconds = 12.3;
 #endif

@@ -3,9 +3,9 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptLayout.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Timer.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <limits>
 #include <tuple>
@@ -29,20 +29,16 @@ namespace Strada
 		{
 		public:
 			explicit PhaseTimer(double& milliseconds)
-				: m_Milliseconds(milliseconds),
-				  m_Start(std::chrono::steady_clock::now())
+				: m_Milliseconds(milliseconds)
 			{
 			}
-			~PhaseTimer()
-			{
-				m_Milliseconds += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - m_Start).count();
-			}
+			~PhaseTimer() { m_Milliseconds += m_Timer.GetElapsedMilliseconds(); }
 			PhaseTimer(PhaseTimer const&) = delete;
 			PhaseTimer& operator=(PhaseTimer const&) = delete;
 
 		private:
 			double& m_Milliseconds;
-			std::chrono::steady_clock::time_point m_Start;
+			Timer m_Timer;
 		};
 
 		// The document's graphs by position: 0 is the event graph, i + 1 the i-th function's.
