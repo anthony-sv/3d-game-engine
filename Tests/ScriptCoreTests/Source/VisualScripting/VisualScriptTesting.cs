@@ -13,7 +13,7 @@ namespace Strada.ScriptCore.Tests;
 // of documents written inline, and the shared fixtures of Tests/Data/VisualScripting.
 internal static class VisualScriptTesting
 {
-	private static readonly Lazy<NodeLibrary> s_Library = new(() => NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([])));
+	private static readonly Lazy<NodeLibrary> s_Library = new(() => NodeLibraryBuilder.Build(NodeLibrarySources.ForScriptCore([], [])));
 
 	internal static NodeLibrary Library => s_Library.Value;
 

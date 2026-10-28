@@ -20,7 +20,8 @@ internal enum NodeKind
 	Unknown,
 }
 
-// Every built-in node kind of spec sections 4.1 to 4.4.
+// Every built-in node kind of spec sections 4.1 to 4.4 and slice 3's (spec-slice3 section 3.1). Values are never persisted
+// (documents store type strings), so kinds are placed where the range predicates of BuiltinNodes stay true.
 internal enum BuiltinNode
 {
 	EventCreate,
@@ -56,6 +57,8 @@ internal enum BuiltinNode
 	FlowWaitUntil,
 	FlowTween,
 	FlowInterval,
+	// Slice 3's latent kind comes right after Interval, so IsLatent (Delay to Timeline) stays a range.
+	FlowTimeline,
 	VariableGet,
 	VariableSet,
 	FunctionEntry,
@@ -72,6 +75,31 @@ internal enum BuiltinNode
 	FormatString,
 	ArrayLength,
 	ArrayGet,
+	// Slice 3's pure kinds come before the operators, so IsOperator (>= OperatorAdd) stays a range.
+	Expression,
+	StringLength,
+	StringIsEmpty,
+	StringContains,
+	StringStartsWith,
+	StringEndsWith,
+	StringIndexOf,
+	StringSubstring,
+	StringReplace,
+	StringToUpper,
+	StringToLower,
+	StringTrim,
+	StringSplit,
+	StringJoin,
+	StringToInt,
+	StringToFloat,
+	ArrayContains,
+	ArrayIndexOf,
+	ArrayMake,
+	ArraySet,
+	ArrayAdd,
+	ArrayRemoveAt,
+	ArrayInsert,
+	ArrayAppend,
 	OperatorAdd,
 	OperatorSubtract,
 	OperatorMultiply,
@@ -129,6 +157,9 @@ internal abstract class NodeDefinition
 
 	internal IReadOnlyList<SettingDescription> Settings { get; init; } = [];
 
+	// A node of a member of the game assembly that [VisualNode] marks (spec-slice3 section 3.7).
+	internal bool Game { get; init; }
+
 	internal SettingDescription? FindSetting(string name)
 	{
 		foreach (SettingDescription setting in Settings)
@@ -181,10 +212,17 @@ internal enum TargetKind
 	Component,
 	// A member of any other type: the Target value of the declaring type (a struct by value; null aborts for a class).
 	Value,
+	// An instance member of a script class of the game (spec-slice3 section 3.7.3): the Target entity's script instance,
+	// fetched at call time, which must be of the declaring class; the Target entity is Self when unconnected.
+	Script,
 }
 
 // A parameter of a reflected method or constructor and the pin it maps to: an input, or an output for out parameters.
 internal sealed record MemberParameter(ParameterInfo Parameter, string Pin, PinDirection Direction);
+
+// Where an inferred generic method's type parameter comes from (spec-slice3 section 3.6): the element type of the input Pin
+// when IsArray (the first input of type T[]), else the type of the input Pin (the first input of type T).
+internal sealed record GenericAnchor(string Pin, bool IsArray);
 
 // A node made from a public member of the scripting API.
 internal sealed class MemberNodeDefinition : NodeDefinition
@@ -212,7 +250,31 @@ internal sealed class MemberNodeDefinition : NodeDefinition
 	// Generic methods: the domain of their type parameters (Component, Asset or Script); None otherwise.
 	internal TypeConstraint GenericDomain { get; init; }
 
-	internal bool IsGeneric => GenericDomain != TypeConstraint.None;
+	// Generic methods whose type parameters are all unconstrained: their types are inferred from links (spec-slice3 section
+	// 3.6) unless TypeArguments names them.
+	internal bool GenericInference { get; init; }
+
+	// Inferred generic methods: per type parameter, the input it is inferred from; null for one no input decides (it appears
+	// only in results), which makes TypeArguments required.
+	internal IReadOnlyList<GenericAnchor?> GenericAnchors { get; init; } = [];
+
+	internal bool IsGeneric => GenericDomain != TypeConstraint.None || GenericInference;
+
+	// An inferred generic method that links cannot close: a type parameter appears in no input.
+	internal bool RequiresTypeArguments
+	{
+		get
+		{
+			foreach (GenericAnchor? anchor in GenericAnchors)
+			{
+				if (anchor == null)
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+	}
 
 	// The prefix, declaring type and member name ("Call:Strada.Input.IsKeyDown"; "New:Strada.Vector3"): overloads share it,
 	// and stored types resolve by it when no exact match exists (spec section 4.5).

@@ -295,6 +295,8 @@ internal static class ProgramCompiler
 				BuiltinNode.FormatString => Opcode.Format,
 				BuiltinNode.ArrayLength => Opcode.ArrayLength,
 				BuiltinNode.ArrayGet => Opcode.ArrayGet,
+				BuiltinNode.Expression => Opcode.Expression,
+				>= BuiltinNode.StringLength and <= BuiltinNode.ArrayAppend => Opcode.Intrinsic,
 				_ => OperatorOpcode(node, builtin),
 			};
 		}
@@ -363,11 +365,13 @@ internal static class ProgramCompiler
 				Opcode.OperatorMethod => source.Builtin == BuiltinNode.OperatorNegate ? ["A"] : ["A", "B"],
 				Opcode.VariableSet => ["Value"],
 				Opcode.Self or Opcode.Literal or Opcode.VariableGet or Opcode.FunctionEntry => [],
+				Opcode.Intrinsic => IntrinsicInputs(source),
 				Opcode.Latent => source.Builtin switch
 				{
 					BuiltinNode.FlowWaitFrames => ["Frames"],
 					BuiltinNode.FlowWaitUntil => ["Condition"],
 					BuiltinNode.FlowInterval => ["Interval", "Count"],
+					BuiltinNode.FlowTimeline => ["NewTime", "Rate"],
 					_ => ["Duration"],
 				},
 				_ => null,
@@ -379,6 +383,51 @@ internal static class ProgramCompiler
 				Allocate(SlotValues.DefaultOf(StagingType(source, node, pin)));
 			}
 			return inputs;
+		}
+
+		// The data inputs of a String or Array node, in the order Intrinsics.Evaluate reads them.
+		private static string[] IntrinsicInputs(AnalyzedNode source)
+		{
+			switch (source.Builtin)
+			{
+				case BuiltinNode.StringContains:
+					return ["Text", "Substring"];
+				case BuiltinNode.StringStartsWith:
+					return ["Text", "Prefix"];
+				case BuiltinNode.StringEndsWith:
+					return ["Text", "Suffix"];
+				case BuiltinNode.StringIndexOf:
+					return ["Text", "Substring", "StartIndex"];
+				case BuiltinNode.StringSubstring:
+					return ["Text", "Start", "Length"];
+				case BuiltinNode.StringReplace:
+					return ["Text", "Old", "New"];
+				case BuiltinNode.StringSplit:
+					return ["Text", "Separator", "RemoveEmpty"];
+				case BuiltinNode.StringJoin:
+					return ["Parts", "Separator"];
+				case BuiltinNode.ArrayContains:
+				case BuiltinNode.ArrayAdd:
+					return ["Array", "Value"];
+				case BuiltinNode.ArrayIndexOf:
+					return ["Array", "Value", "StartIndex"];
+				case BuiltinNode.ArrayMake:
+					string[] elements = new string[((MakeArrayBinding)source.Binding!).Count];
+					for (int index = 0; index < elements.Length; index++)
+					{
+						elements[index] = NodeShaper.ElementPin(index);
+					}
+					return elements;
+				case BuiltinNode.ArraySet:
+				case BuiltinNode.ArrayInsert:
+					return ["Array", "Index", "Value"];
+				case BuiltinNode.ArrayRemoveAt:
+					return ["Array", "Index"];
+				case BuiltinNode.ArrayAppend:
+					return ["A", "B"];
+				default:
+					return ["Text"];
+			}
 		}
 
 		// A disabled node's data outputs, in pin order, each take the first data input of the same type that no earlier output
@@ -453,6 +502,10 @@ internal static class ProgramCompiler
 					break;
 				case Opcode.Latent:
 					node.StateSlot = Allocate(default);
+					if (source.Builtin == BuiltinNode.FlowTimeline)
+					{
+						node.TimelineSlot = Allocate(default);
+					}
 					break;
 			}
 		}
@@ -503,11 +556,12 @@ internal static class ProgramCompiler
 				Opcode.DoOnce or Opcode.DoN => ["Execute", "Reset"],
 				Opcode.Gate => ["Enter", "Open", "Close", "Toggle"],
 				Opcode.Branch or Opcode.Sequence or Opcode.Switch or Opcode.While or Opcode.FlipFlop or Opcode.Send or Opcode.VariableSet => ["Execute"],
-				// Entry 0 starts a latent node, entry 1 stops a Tween or Interval.
+				// Entry 0 starts a latent node, entry 1 stops a Tween or Interval; a Timeline has its six inputs.
 				Opcode.Latent => source.Builtin switch
 				{
 					BuiltinNode.FlowTween => ["Execute", "Stop"],
 					BuiltinNode.FlowInterval => ["Start", "Stop"],
+					BuiltinNode.FlowTimeline => ["Play", "PlayFromStart", "Reverse", "ReverseFromEnd", "Stop", "SetTime"],
 					_ => ["Execute"],
 				},
 				_ => null,
@@ -520,10 +574,12 @@ internal static class ProgramCompiler
 				Opcode.DoN or Opcode.Gate => ["Exit"],
 				Opcode.FlipFlop => ["A", "B"],
 				Opcode.Event or Opcode.Send or Opcode.VariableSet or Opcode.FunctionCall => ["Then"],
+				// A Timeline's exits follow its event tracks (CompileTimeline finds them by name).
 				Opcode.Latent => source.Builtin switch
 				{
 					BuiltinNode.FlowTween => ["Update", "Completed"],
 					BuiltinNode.FlowInterval => ["Tick", "Completed"],
+					BuiltinNode.FlowTimeline => null,
 					_ => ["Completed"],
 				},
 				_ => null,
@@ -566,11 +622,14 @@ internal static class ProgramCompiler
 		}
 
 		// The loads of connected inputs, the constants of unconnected ones (in the template), and the pure nodes feeding
-		// them.
+		// them. A Timeline evaluates its inputs one at a time (NewTime for SetTime only, Rate for the inputs that play), so
+		// it also keeps the pure nodes of each.
 		private void CompileInputs(AnalyzedNode source, CompiledNode node, List<AnalyzedPin> inputs)
 		{
 			List<Operand> operands = [];
 			List<int> pureSources = [];
+			bool perInput = node.Op == Opcode.Latent && source.Builtin == BuiltinNode.FlowTimeline;
+			int[][] inputSources = perInput ? new int[inputs.Count][] : [];
 			for (int index = 0; index < inputs.Count; index++)
 			{
 				AnalyzedPin pin = inputs[index];
@@ -579,10 +638,23 @@ internal static class ProgramCompiler
 					node.TargetIsSelf = true;
 					continue;
 				}
-				CompileInput(pin, node.InputBase + index, StagingType(source, node, pin), operands, pureSources);
+				if (!perInput)
+				{
+					CompileInput(pin, node.InputBase + index, StagingType(source, node, pin), operands, pureSources);
+					continue;
+				}
+				List<int> own = [];
+				CompileInput(pin, node.InputBase + index, StagingType(source, node, pin), operands, own);
+				inputSources[index] = [.. own];
+				foreach (int pure in own)
+				{
+					AddPureSource(pureSources, pure);
+				}
 			}
 			node.Operands = [.. operands];
 			node.PureSources = [.. pureSources];
+			node.InputSources = inputSources;
+			node.InputPlans = new int[]?[inputSources.Length];
 		}
 
 		// An input staged at target as the type staging: the load of its link, the value its split pin's Make makes, or its
@@ -714,6 +786,9 @@ internal static class ProgramCompiler
 				case Opcode.Latent when source.Binding is TweenBinding tween:
 					node.Easing = tween.Easing;
 					break;
+				case Opcode.Latent when source.Binding is TimelineBinding timeline:
+					CompileTimeline(node, timeline.Timeline);
+					break;
 				case Opcode.IsValid:
 					VisualType value = source.FindPin("Value", PinDirection.In)!.Type;
 					node.Validity = value.Kind switch
@@ -752,6 +827,12 @@ internal static class ProgramCompiler
 				case Opcode.OperatorMethod:
 					node.Member = ((OperatorBinding)source.Binding!).Method;
 					break;
+				case Opcode.Expression:
+					node.Expression = ExpressionCompiler.Compile((ExpressionBinding)source.Binding!, node.InputBase, node.OutputBase, Allocate);
+					break;
+				case Opcode.Intrinsic:
+					CompileIntrinsic(source, node);
+					break;
 				case Opcode.Member:
 				case Opcode.PureMember:
 					MemberBinding member = (MemberBinding)source.Binding!;
@@ -762,6 +843,102 @@ internal static class ProgramCompiler
 					break;
 			}
 		}
+
+		// A Timeline's exits by name, its output slots (checked against its pins) and their values before it plays: at time 0,
+		// Forward, not playing.
+		private void CompileTimeline(CompiledNode node, TimelineDefinition timeline)
+		{
+			int[] eventExits = new int[timeline.Events.Length];
+			for (int track = 0; track < eventExits.Length; track++)
+			{
+				eventExits[track] = ExitOf(node, timeline.Events[track].Name);
+			}
+			List<string> outputs = ["Time", "Direction", "Playing"];
+			foreach (TimelineTrack curve in timeline.Curves)
+			{
+				outputs.Add(curve.Name);
+			}
+			if (!SameNames([.. node.OutputPins], [.. outputs]))
+			{
+				throw new InvalidOperationException($"{node} does not have the data outputs of its timeline");
+			}
+			VisualType direction = node.OutputTypes[1];
+			CompiledTimeline compiled = new(timeline, ExitOf(node, "Update"), ExitOf(node, "Finished"), eventExits, node.OutputBase,
+				SlotValues.FromValue(TimelineDirection.Forward, direction), SlotValues.FromValue(TimelineDirection.Backward, direction));
+			node.Timeline = compiled;
+			m_Template[compiled.TimeSlot] = Slot.FromFloat(0.0f);
+			m_Template[compiled.DirectionSlot] = compiled.Forward;
+			m_Template[compiled.PlayingSlot] = Slot.FromBool(false);
+			for (int curve = 0; curve < timeline.Curves.Length; curve++)
+			{
+				m_Template[compiled.CurveBase + curve] = timeline.Curves[curve].Evaluate(0.0);
+			}
+		}
+
+		private static int ExitOf(CompiledNode node, string pin)
+		{
+			int exit = Array.IndexOf(node.ExitPins, pin);
+			return exit >= 0 ? exit : throw new InvalidOperationException($"{node} has no exec output {pin}");
+		}
+
+		// The kind of a String or Array node and the types it needs: the element type of the array it reads (Join, Contains,
+		// IndexOf) or makes, and the type of the array it makes. Contains and IndexOf compare elements as the equality table
+		// does, in scratch slots of their own.
+		private void CompileIntrinsic(AnalyzedNode source, CompiledNode node)
+		{
+			BuiltinNode builtin = source.Builtin!.Value;
+			node.Intrinsic = (IntrinsicKind)(builtin - BuiltinNode.StringLength);
+			switch (builtin)
+			{
+				case BuiltinNode.StringJoin:
+					node.FromType = source.FindPin("Parts", PinDirection.In)!.Type.Element;
+					break;
+				case BuiltinNode.ArrayContains:
+				case BuiltinNode.ArrayIndexOf:
+					CompileElementEquality(node, source.FindPin("Array", PinDirection.In)!.Type.Element!);
+					break;
+				case BuiltinNode.ArrayMake:
+					node.ToType = source.FindPin("Array", PinDirection.Out)!.Type;
+					node.FromType = node.ToType.Element;
+					node.Count = ((MakeArrayBinding)source.Binding!).Count;
+					break;
+				case BuiltinNode.ArraySet:
+				case BuiltinNode.ArrayAdd:
+				case BuiltinNode.ArrayRemoveAt:
+				case BuiltinNode.ArrayInsert:
+				case BuiltinNode.ArrayAppend:
+					node.ToType = source.FindPin("Result", PinDirection.Out)!.Type;
+					node.FromType = node.ToType.Element;
+					break;
+			}
+		}
+
+		// How elements of a type compare, and the scratch slots they are compared in.
+		private void CompileElementEquality(CompiledNode node, VisualType element)
+		{
+			(OperatorMode mode, MethodInfo? method) = TypeResolution.EqualityOf(element);
+			node.FromType = element;
+			node.ElementEquality = EqualityKindOf(mode, element);
+			node.Kind = SlotValues.KindOf(element);
+			node.Member = method;
+			node.ScratchBase = Allocate(default);
+			Allocate(default);
+			Allocate(default);
+		}
+
+		private static EqualityKind EqualityKindOf(OperatorMode mode, VisualType type) => mode switch
+		{
+			OperatorMode.Numeric => EqualityKind.Numeric,
+			OperatorMode.ValueEquality when type.Kind == TypeKind.Enum => EqualityKind.Enum,
+			OperatorMode.ValueEquality when type.ClrType == typeof(string) => EqualityKind.String,
+			OperatorMode.ValueEquality => EqualityKind.Bool,
+			OperatorMode.EntityEquality => EqualityKind.Entity,
+			OperatorMode.AssetEquality => EqualityKind.Asset,
+			OperatorMode.ComponentEquality => EqualityKind.Component,
+			OperatorMode.Method => EqualityKind.Method,
+			OperatorMode.ArrayEquality => EqualityKind.Array,
+			_ => EqualityKind.Object,
+		};
 
 		private static void CompileSwitch(AnalyzedNode source, CompiledNode node)
 		{
@@ -813,23 +990,17 @@ internal static class ProgramCompiler
 			}
 		}
 
-		private static void CompileEquality(AnalyzedNode source, CompiledNode node)
+		private void CompileEquality(AnalyzedNode source, CompiledNode node)
 		{
 			OperatorBinding binding = (OperatorBinding)source.Binding!;
 			node.Invert = source.Builtin == BuiltinNode.OperatorNotEqual;
 			VisualType? join = binding.Operand;
-			node.Equality = binding.Mode switch
+			node.Equality = join != null ? EqualityKindOf(binding.Mode, join) : EqualityKind.Object;
+			if (node.Equality == EqualityKind.Array)
 			{
-				OperatorMode.Numeric => EqualityKind.Numeric,
-				OperatorMode.ValueEquality when join!.Kind == TypeKind.Enum => EqualityKind.Enum,
-				OperatorMode.ValueEquality when join!.ClrType == typeof(string) => EqualityKind.String,
-				OperatorMode.ValueEquality => EqualityKind.Bool,
-				OperatorMode.EntityEquality => EqualityKind.Entity,
-				OperatorMode.AssetEquality => EqualityKind.Asset,
-				OperatorMode.ComponentEquality => EqualityKind.Component,
-				OperatorMode.Method => EqualityKind.Method,
-				_ => EqualityKind.Object,
-			};
+				CompileElementEquality(node, join!.Element!);
+				return;
+			}
 			node.Kind = join != null ? SlotValues.KindOf(join) : SlotKind.Object;
 			node.Member = binding.Method;
 		}

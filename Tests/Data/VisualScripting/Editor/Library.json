@@ -82,6 +82,7 @@
 			"ID": "Strada.Entity[]",
 			"Title": "Entity Array",
 			"Kind": "Array",
+			"Literal": true,
 			"Element": "Strada.Entity",
 			"ImplicitTo": [
 				"System.Object"
@@ -2241,6 +2242,7 @@
 		{
 			"Type": "Array.Get",
 			"Title": "Get",
+			"Subtitle": "Array",
 			"Category": "Utilities/Array",
 			"Description": "The element of an array at Index (from 0).",
 			"Keywords": [

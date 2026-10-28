@@ -74,6 +74,17 @@ internal static class AnalysisWriter
 			{
 				writer.WriteNumber("Variable", variable);
 			}
+			if (diagnostic.Setting != null)
+			{
+				writer.WriteString("Setting", diagnostic.Setting);
+			}
+			if (diagnostic.Span is { } span)
+			{
+				writer.WriteStartArray("Span");
+				writer.WriteNumberValue(span.Start);
+				writer.WriteNumberValue(span.End);
+				writer.WriteEndArray();
+			}
 			writer.WriteString("Message", diagnostic.Message);
 			if (diagnostic.Suggestions.Count > 0)
 			{

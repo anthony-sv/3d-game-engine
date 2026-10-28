@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text;
 using Strada.Interop;
 using Strada.VisualScripting;
 using Xunit;
@@ -93,6 +94,72 @@ public sealed class AllocationTests
 		Assert.NotEqual(new Vector3(0.0f, 0.0f, 0.0f), runtime.Variable("Offset"));
 	}
 
+	// A formula of 20 operations (spec-slice3 section 3.3.8): arithmetic, comparisons, short circuits, a conditional, casts,
+	// components, constructors and functions of numbers and vectors, all in slots.
+	[Fact]
+	public void AFormulaEvaluatesWithoutAllocating()
+	{
+		DocumentBuilder document = new();
+		uint total = document.Variable("Total", "float", "0.0");
+		GraphBuilder graph = document.Graph;
+		uint expression = graph.Node("Expression",
+			"""{ "Formula": "length(v * f + vec3(i, 2, 3)) + (i > 0 && f < 2 ? sin(f) : cos(f)) * clamp(f, 0, 1) - dot(v, v) / 3 + float(i % 7) + abs(-f) + v.y" }""",
+			"""{ "f": 0.5 }""");
+		graph.Link(graph.Literal("Strada.Vector3", "[1.0, 2.0, 3.0]"), "Value", expression, "v");
+		graph.Link(graph.Literal("int", "9"), "Value", expression, "i");
+		uint set = graph.Set(total);
+		graph.Link(expression, "Result", set, "Value");
+		graph.Flow(graph.Node("Event.Update"), set);
+		TestRuntime runtime = TestRuntime.Start(document);
+		Assert.True(ProgramCompiler.Compile(GraphAnalyzer.Analyze(RuntimeTesting.Library, Encoding.UTF8.GetBytes(document.Build())), "Count").EventGraph.Nodes
+			.Single(static node => node.Op == Opcode.Expression).Expression!.Code.Length >= 20);
+		runtime.Invoke(ScriptEvent.Update, 0.016f);
+
+		Assert.Equal(0, runtime.FewestBytesPerUpdate());
+		Assert.Empty(runtime.Environment.Logs);
+		Assert.NotEqual(0.0f, runtime.Variable("Total"));
+	}
+
+	// A playing timeline with a float and a Vector3 curve and an event track advances, writes its outputs and fires its
+	// ticks without allocating (spec-slice3 section 3.8.5).
+	[Fact]
+	public void APlayingTimelineAllocatesNothing()
+	{
+		DocumentBuilder document = new();
+		uint lift = document.Variable("Lift", "float", "0.0");
+		uint path = document.Variable("Path", "Strada.Vector3");
+		uint steps = document.Variable("Steps", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint timeline = graph.Node("Flow.Timeline", """
+			{ "Timeline": { "Length": 1, "Loop": true, "Tracks": [
+				{ "Name": "Lift", "Type": "float", "Keys": [{ "Time": 0, "Value": 0 }, { "Time": 0.5, "Value": 2 }, { "Time": 1, "Value": 0 }] },
+				{ "Name": "Path", "Type": "Strada.Vector3", "Keys": [{ "Time": 0, "Value": [0, 0, 0], "Interpolation": "Linear" }, { "Time": 1, "Value": [1, 2, 3] }] },
+				{ "Name": "Step", "Type": "exec", "Keys": [{ "Time": 0.25 }, { "Time": 0.75 }] }
+			] } }
+			""");
+		graph.Flow(graph.Node("Event.Create"), timeline, "Then", "Play");
+		uint setLift = graph.Set(lift);
+		uint setPath = graph.Set(path);
+		graph.Link(timeline, "Lift", setLift, "Value");
+		graph.Link(timeline, "Path", setPath, "Value");
+		graph.Flow(timeline, setLift, "Update");
+		graph.Flow(setLift, setPath);
+		uint add = graph.Node("Operator.Add", inputs: """{ "B": 1 }""");
+		uint setSteps = graph.Set(steps);
+		graph.Link(graph.Get(steps), "Value", add, "A");
+		graph.Link(add, "Result", setSteps, "Value");
+		graph.Flow(timeline, setSteps, "Step");
+		TestRuntime runtime = TestRuntime.Start(document);
+		runtime.Invoke(ScriptEvent.Create);
+		for (int update = 0; update < 10; update++)
+		{
+			runtime.Invoke(ScriptEvent.Update, 0.1f);
+		}
+		Assert.True((int)runtime.Variable("Steps")! >= 2);
+
+		Assert.Equal(0, runtime.FewestBytesPerUpdate(timeStep: 0.1f));
+	}
+
 	// A node logs its Warning once per instance (spec section 5.3): when it runs into the problem again, nothing of the
 	// message is built (no text, no engine call for a name), so it allocates nothing.
 	[Fact]
@@ -161,6 +228,53 @@ public sealed class AllocationTests
 		TestRuntime runtime = TestRuntime.Start(document);
 		runtime.Invoke(ScriptEvent.Update, 0.016f);
 		Assert.Equal(new Vector3(0.0f, 0.0f, 0.0f), runtime.Variable("Point"));
+
+		Assert.Equal(0, runtime.FewestBytesPerUpdate());
+		Assert.Empty(runtime.Environment.Logs);
+	}
+
+	// Array.Get, Array.Contains and Array.IndexOf read elements of every slot kind in place (spec-slice3 section 3.4.2 rule 5):
+	// bool, the numbers, the vectors, quaternions, colors, enums (through their integer arrays) and references.
+	[Fact]
+	public void TypedArrayReadsAllocateNothing()
+	{
+		(string Type, string Literal)[] elements =
+		[
+			("bool", "true"), ("int", "1"), ("uint", "1"), ("long", "\"1\""), ("ulong", "\"1\""), ("float", "1.5"), ("double", "1.5"),
+			("Strada.Vector2", "[1, 2]"), ("Strada.Vector3", "[1, 2, 3]"), ("Strada.Vector4", "[1, 2, 3, 4]"), ("Strada.Quaternion", "[0, 0, 0, 1]"),
+			("Strada.Color", "[1, 0.5, 0.25, 1]"), ("Strada.KeyCode", "\"Space\""), ("string", "\"a\""), ("Strada.Entity", "\"0\""),
+		];
+		DocumentBuilder document = new();
+		uint found = document.Variable("Found", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint previous = graph.Node("Event.Update");
+		foreach ((string type, string literal) in elements)
+		{
+			uint array = document.Variable(type.Replace("Strada.", string.Empty, StringComparison.Ordinal) + "s", type + "[]", $"[{literal}, {literal}]");
+			uint element = document.Variable(type.Replace("Strada.", string.Empty, StringComparison.Ordinal), type);
+			uint get = graph.Node("Array.Get", inputs: """{ "Index": 1 }""");
+			graph.Link(graph.Get(array), "Value", get, "Array");
+			uint store = graph.Set(element);
+			graph.Link(get, "Element", store, "Value");
+			uint index = graph.Node("Array.IndexOf", inputs: $$"""{ "Value": {{literal}}, "StartIndex": 1 }""");
+			graph.Link(graph.Get(array), "Value", index, "Array");
+			uint contains = graph.Node("Array.Contains", inputs: $$"""{ "Value": {{literal}} }""");
+			graph.Link(graph.Get(array), "Value", contains, "Array");
+			uint count = graph.Node("Expression", """{ "Formula": "found + index + (contains ? 1 : 0)" }""");
+			graph.Link(graph.Get(found), "Value", count, "found");
+			graph.Link(index, "Index", count, "index");
+			graph.Link(contains, "Result", count, "contains");
+			uint add = graph.Set(found);
+			graph.Link(count, "Result", add, "Value");
+			graph.Flow(previous, store);
+			graph.Flow(store, add);
+			previous = add;
+		}
+		TestRuntime runtime = TestRuntime.Start(document);
+		runtime.Invoke(ScriptEvent.Update, 0.016f);
+		Assert.Equal(2 * elements.Length, runtime.Variable("Found"));
+		Assert.Equal(KeyCode.Space, runtime.Variable("KeyCode"));
+		Assert.Equal(new Vector3(1.0f, 2.0f, 3.0f), runtime.Variable("Vector3"));
 
 		Assert.Equal(0, runtime.FewestBytesPerUpdate());
 		Assert.Empty(runtime.Environment.Logs);

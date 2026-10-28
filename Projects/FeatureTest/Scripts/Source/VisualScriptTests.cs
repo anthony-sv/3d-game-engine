@@ -35,6 +35,13 @@ public sealed class VisualScriptTests : FeatureTestScript
 			// The scene starts the graph at its next update.
 			Assert.IsFalse(m_Holder.HasVariable("Clicks"));
 		});
+		Check("a timeline's Direction is Forward or Backward", () =>
+		{
+			TimelineDirection direction = default;
+			Assert.AreEqual(TimelineDirection.Forward, direction);
+			direction = TimelineDirection.Backward;
+			Assert.AreEqual(1, (int)direction);
+		});
 	}
 
 	protected override bool Step(int frame, float deltaTime)

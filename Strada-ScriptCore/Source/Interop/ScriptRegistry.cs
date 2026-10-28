@@ -44,6 +44,8 @@ internal static class ScriptRegistry
 	private static GameLoadContext? s_LoadContext;
 	private static readonly SortedDictionary<string, ScriptClass> s_Classes = new(StringComparer.Ordinal);
 	private static readonly Dictionary<ulong, Script> s_Instances = [];
+	// The public types of the game assembly (nested public types included), by full name: what [VisualNode] can mark.
+	private static readonly List<Type> s_GameTypes = [];
 
 	internal static void LoadGameAssembly(string path)
 	{
@@ -73,7 +75,12 @@ internal static class ScriptRegistry
 			{
 				RegisterClass(type);
 			}
+			if (type.IsVisible)
+			{
+				s_GameTypes.Add(type);
+			}
 		}
+		s_GameTypes.Sort(static (a, b) => string.CompareOrdinal(a.FullName, b.FullName));
 		// Graphs that did not compile without the game's types may compile now: they compile again when next used, with a
 		// node library that has the new script classes (spec section 5.6).
 		Host.VisualScripts.OnGameAssemblyLoaded();
@@ -87,6 +94,7 @@ internal static class ScriptRegistry
 		EngineLibrary.Drop();
 		s_Instances.Clear();
 		s_Classes.Clear();
+		s_GameTypes.Clear();
 		if (s_LoadContext == null)
 		{
 			return;
@@ -253,6 +261,10 @@ internal static class ScriptRegistry
 		}
 		return classes;
 	}
+
+	// The public types of the loaded game assembly, by full name (ordinal): the game's part of the visual-script node
+	// library ([VisualNode] members and the types they use, spec-slice3 section 3.7.4). Empty while none is loaded.
+	internal static IReadOnlyList<Type> GetGameTypes() => [.. s_GameTypes];
 
 	// Creates the entity's instance with the stored field values ({ "Name": { "Type", "Value" } }), replacing a current
 	// one. Values that no longer fit their field (the script changed) are reported and keep the field's default.

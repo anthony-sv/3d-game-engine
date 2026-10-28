@@ -23,6 +23,8 @@ public static class Probe
 	[ThreadStatic]
 	private static (Color Color, Matrix4 Transform, Quaternion Rotation, ProbeAccess Access)? s_Tinted;
 
+	private static readonly string[] s_Words = ["a", "b"];
+
 	// What graphs recorded on this thread (tests run their graphs on their own thread).
 	internal static List<string> Records => s_Records ??= [];
 
@@ -133,6 +135,46 @@ public static class Probe
 
 	[PureNode]
 	public static RaycastHit HitOf(Entity entity, float distance) => new(entity, Vector3.Up, Vector3.Forward, distance);
+
+	// The integers 0 to count - 1.
+	[PureNode]
+	public static int[] Numbers(int count)
+	{
+		int[] numbers = new int[count];
+		for (int index = 0; index < count; index++)
+		{
+			numbers[index] = index;
+		}
+		return numbers;
+	}
+
+	// text count times.
+	[PureNode]
+	public static string RepeatText(string text, int count) => string.Concat(System.Linq.Enumerable.Repeat(text, count));
+
+	// An array of a derived element type given as object[], as C# members may give one: the same array every time, which
+	// graphs never change.
+	[PureNode]
+	public static object[] Words() => s_Words;
+
+	// Unconstrained generic methods (spec-slice3 section 3.6): T from an array input, an array result from a value input,
+	// T only in the result, and T in and out.
+	[PureNode]
+	public static T First<T>(T[] items) => items[0];
+
+	[PureNode]
+	public static T[] Repeat<T>(T value, int count)
+	{
+		T[] values = new T[count];
+		System.Array.Fill(values, value);
+		return values;
+	}
+
+	[PureNode]
+	public static T Default<T>() => default!;
+
+	[PureNode]
+	public static T Echo<T>(T value) => value;
 
 	[PureNode]
 	public static Holder? NoHolder() => null;

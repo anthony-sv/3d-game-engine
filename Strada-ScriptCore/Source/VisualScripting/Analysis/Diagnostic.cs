@@ -14,6 +14,7 @@ internal enum DiagnosticSeverity
 // DisabledIgnored (a Warning): a node whose Enabled is "Disabled" but which cannot be disabled (Function.Entry,
 // Function.Return and pure nodes), so it runs. UnusedSplit (a Warning): an entry of a node's Split that splits nothing (it
 // names no pin of its direction, a pin whose type cannot split, or a field pin of an entry that did not split).
+// InvalidExpression (slice 3): a formula of an Expression node that does not lex, parse or type-check.
 internal enum DiagnosticCode
 {
 	InvalidDocument,
@@ -58,11 +59,13 @@ internal enum DiagnosticCode
 	NotInFunction,
 	DisabledIgnored,
 	UnusedSplit,
+	InvalidExpression,
 }
 
 // A finding of the analysis. Function is 0 for the event graph and document variables, else the function's ID; the other
-// locations are optional: a node (with a pin and its direction), a link, or a variable or local. Its severity is its code's,
-// except on a disabled node, where every finding is a Warning (Demote).
+// locations are optional: a node (with a pin and its direction, or one of its settings and a span of that setting's text),
+// a link, or a variable or local. Its severity is its code's, except on a disabled node, where every finding is a Warning
+// (Demote).
 internal sealed class Diagnostic
 {
 	internal Diagnostic(DiagnosticCode code, uint function, string message)
@@ -88,6 +91,12 @@ internal sealed class Diagnostic
 	internal DocumentLink? Link { get; init; }
 
 	internal uint? Variable { get; init; }
+
+	// The node's setting the finding is about (spec-slice3 section 3.1), and the part of its string it names: UTF-8 byte
+	// offsets, Start never after End.
+	internal string? Setting { get; init; }
+
+	internal (int Start, int End)? Span { get; init; }
 
 	internal string Message { get; }
 

@@ -21,6 +21,7 @@ except the migration fixtures; the content form has no version.
 | `Documents/Language.json` | content | Every language kind of slice 3: Expressions of int (`Index + 1`), float (`a * b + sin(t)` with unlinked inputs; a short-circuit `&&` with a cast, `float(...)`) and vector type (`v.x`, a lowercase component); the private `float[]` variable `Samples` with a literal and a `Strada.Vector3[]` local; `Array.Make` typed (`int`) and inferred, `Array.Contains`, `IndexOf`, `Set`, `Add`, `RemoveAt`, `Insert` and `Append`; every `String.*` node in the function `Describe`, `ToInt` and `ToFloat` included; `Assert.AreEqual` inferred and with `TypeArguments`; a `Flow.Timeline` with a track of each type (`float`, the three vectors, `Strada.Color` and `exec`) whose `Rate` is linked from a formula. |
 | `Documents/Reflected.json` | content | The reflected nodes of spec section 11.1 (math, logging, transform, rigid body, `GetComponent<T>`, raycast, input, time, entity, testing). Built-in events, branches and an IsValid drive and guard them. |
 | `Documents/Reflected.sources.txt` | text | For each reflected node type, the C# declaration its type string and pins come from, and the enumerators the fixtures use. |
+| `Formulas.json` | formula corpus (`[{ "Formula": ..., "Inputs": [...] }]`, one entry per line) | The input rule of formulas (spec-slice3 section 3.3.1): every formula of ScriptCoreTests' `ExpressionTests` rows and 500 drawn by `ExpressionFuzzTests`' generator from a fixed seed (the last 100 damaged), each with the input pins the VM's analysis gives its Expression node, in order, whether the formula reads or not. The rows include a name over 64 bytes (no input) and a formula over 4096 bytes that names identifiers (no inputs at all). |
 | `Editor/Library.json` | node library (`{ "Types": [...], "Nodes": [...] }`) | A verbatim subset of the scripting runtime's node library (see below), which the editor's tests read with `VisualScriptLibrary::Parse` where they need a library but no runtime. |
 | `Editor/Views.json` | file (`VisualScriptViews`, version 1) | The visual script editor's per-user views file with every member: the panes and toggles, the scroll mode, recent nodes and types, the comment colour, the hints seen, and two projects with open graphs, views of the event graph and of a function, and bookmarks. Its numbers are exact as floats. |
 
@@ -41,6 +42,13 @@ except the migration fixtures; the content form has no version.
   damaged-files case, each damaged as a file of version 3, 2 and 1. `Library.sgraph` analyzes without Errors once the VM
   reads libraries (track VX, which corrects it where the VM decides otherwise), and `Documents/Language.json` once it has
   the language's kinds (track VL, likewise).
+- **Slice 3, track VL** (ScriptCoreTests, `ExpressionTests.InputsFollowTheCorpus`): `Formulas.json` lists the inputs the
+  analysis gives each formula; on a mismatch the test writes the expected file to `ExpectedFixtures/Formulas.json` next
+  to the test binary, to be copied over this one. The editor's formula lister (track EL) is tested against the same file.
+  `Documents/Language.json` joins the fixture lists of `FixtureAnalysisTests` (zero Errors, every node `Exact`),
+  `ProgramTests` and the fuzz fixtures of `RobustnessTests` and `DeterminismTests`, and
+  `FixtureAnalysisTests.TheLanguageDocumentRuns` runs it without an aborting error: its timeline logs its `Step` keys and,
+  when it finished, `Lift`.
 - **Track B** (ScriptCoreTests): every document and the content of `Example.sgraph` analyze with zero Error
   diagnostics. The test project copies this directory to its output as `VisualScripting/`.
 - **Track C** (StradaTests, `VisualScriptEngineTests`): the documents load and run through `VisualScriptEngine`.

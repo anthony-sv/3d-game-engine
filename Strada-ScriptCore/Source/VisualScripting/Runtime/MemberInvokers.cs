@@ -12,14 +12,15 @@ internal delegate void MemberInvoker(Slot[] slots, int inputs, int outputs);
 // Builds the invokers of reflected members, operator and conversion methods, and of Make and Break (spec section 5.1):
 // compiled expression thunks that read and write slots without boxing the values the slots hold in place. They are
 // bindings, not graph code: one per member, built the first time a node needs it and cached by the runtime that built
-// it, so a member of the game assembly is never referenced past the runtime's caches.
+// it, so a member of the game assembly is never referenced past the runtime's caches. An array a member gives is never
+// null in a graph: null becomes the library's empty array of its type (spec-slice3 section 3.4.2).
 internal static class MemberInvokers
 {
 	// Methods, constructors, getters and setters: Target and the parameters in, the out parameters and the result (a
 	// getter's or constructor's value) out.
-	internal static MemberInvoker ForMember(MemberInfo member, MemberNodeKind kind)
+	internal static MemberInvoker ForMember(MemberInfo member, MemberNodeKind kind, NodeLibrary library)
 	{
-		Builder builder = new();
+		Builder builder = new(library);
 		List<Expression> body = [];
 		List<ParameterExpression> locals = [];
 		int input = 0;
@@ -92,9 +93,9 @@ internal static class MemberInvokers
 	}
 
 	// Make (spec section 4.4): a struct from its fields, in declaration order.
-	internal static MemberInvoker ForMake(VisualType type)
+	internal static MemberInvoker ForMake(VisualType type, NodeLibrary library)
 	{
-		Builder builder = new();
+		Builder builder = new(library);
 		List<MemberAssignment> bindings = [];
 		for (int index = 0; index < type.Fields.Count; index++)
 		{
@@ -106,9 +107,9 @@ internal static class MemberInvokers
 	}
 
 	// Break: the fields of a struct, or the get-only properties of a readonly struct, in declaration order.
-	internal static MemberInvoker ForBreak(VisualType type)
+	internal static MemberInvoker ForBreak(VisualType type, NodeLibrary library)
 	{
-		Builder builder = new();
+		Builder builder = new(library);
 		ParameterExpression value = Expression.Variable(type.ClrType!, "value");
 		List<Expression> body = [Expression.Assign(value, builder.Read(0, type.ClrType!))];
 		for (int index = 0; index < type.Fields.Count; index++)
@@ -128,8 +129,9 @@ internal static class MemberInvokers
 	};
 
 	// The reads and writes of slots: each type in the field its kind uses.
-	private sealed class Builder
+	private sealed class Builder(NodeLibrary library)
 	{
+		private readonly NodeLibrary m_Library = library;
 		private readonly ParameterExpression m_Slots = Expression.Parameter(typeof(Slot[]), "slots");
 		private readonly ParameterExpression m_Inputs = Expression.Parameter(typeof(int), "inputs");
 		private readonly ParameterExpression m_Outputs = Expression.Parameter(typeof(int), "outputs");
@@ -159,11 +161,17 @@ internal static class MemberInvokers
 			{
 				SlotKind.Enum => Expression.Call(Factory(nameof(Slot.FromULong)), EnumBits(value)),
 				SlotKind.Object when type == typeof(string) => Expression.Call(Factory(nameof(Slot.FromString)), value),
+				SlotKind.Object when type.IsSZArray => Expression.Call(Factory(nameof(Slot.FromObject)),
+					Expression.Convert(Expression.Coalesce(value, Expression.Constant(EmptyArrayOf(type), type)), typeof(object))),
 				SlotKind.Object => Expression.Call(Factory(nameof(Slot.FromObject)), Expression.Convert(value, typeof(object))),
 				_ => Expression.Call(Factory("From" + kind), value),
 			};
 			return Expression.Assign(slot, wrapped);
 		}
+
+		// The library's empty array of an array type. The members nodes call have library types only; an invoker built for an
+		// array type outside the library still never gives null, with an empty array of its own.
+		private Array EmptyArrayOf(Type type) => m_Library.FindType(type)?.EmptyArray ?? Array.CreateInstance(type.GetElementType()!, 0);
 
 		internal MemberInvoker Compile(IEnumerable<ParameterExpression> locals, IEnumerable<Expression> body)
 		{

@@ -79,10 +79,13 @@ public sealed class LiteralCodecTests
 		Assert.Equal(default(Ray), LiteralCodec.DefaultOf(Type("Strada.Ray")));
 		Assert.Equal(default(RaycastHit), LiteralCodec.DefaultOf(Type("Strada.RaycastHit")));
 		foreach (string id in new[] { "Strada.Entity", "Strada.Script", "Strada.Material", "Strada.Asset", "Strada.Prefab", "Strada.RigidBodyComponent",
-			"Strada.Entity[]", "System.Object" })
+			"System.Object" })
 		{
 			Assert.Null(LiteralCodec.DefaultOf(Type(id)));
 		}
+		// Arrays are never null: their default is the type's one empty array (spec-slice3 section 3.4.2).
+		Assert.Same(Type("Strada.Entity[]").EmptyArray, LiteralCodec.DefaultOf(Type("Strada.Entity[]")));
+		Assert.Empty(Assert.IsType<Entity[]>(LiteralCodec.DefaultOf(Type("Strada.Entity[]"))));
 	}
 
 	[Fact]

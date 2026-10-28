@@ -25,11 +25,13 @@ namespace
 	{
 		std::string_view Type;
 		std::string_view Title;
+		// The node library's title where it has more words than the type's last segment; empty when it is Title.
+		std::string_view LibraryTitle = {};
 	};
 
 	// Every built-in node kind of the scripting runtime (BuiltinNodes.TypeOf) with the title a node of it without settings
-	// has. Each equals the node library's title, except Function.Entry's: the library calls it "Function Entry".
-	constexpr std::array<BuiltInTitle, 65> BuiltInTitles = {{
+	// has. Each equals the node library's title, except where LibraryTitle names the library's.
+	constexpr std::array<BuiltInTitle, 90> BuiltInTitles = {{
 		{"Event.Create", "Create"},
 		{"Event.Update", "Update"},
 		{"Event.FixedUpdate", "Fixed Update"},
@@ -63,9 +65,10 @@ namespace
 		{"Flow.WaitUntil", "Wait Until"},
 		{"Flow.Tween", "Tween"},
 		{"Flow.Interval", "Interval"},
+		{"Flow.Timeline", "Timeline"},
 		{"Variable.Get", "Get Variable"},
 		{"Variable.Set", "Set Variable"},
-		{"Function.Entry", "Entry"},
+		{"Function.Entry", "Entry", "Function Entry"},
 		{"Function.Return", "Return"},
 		{"Function.Call", "Call Function"},
 		{"Self", "Self"},
@@ -79,6 +82,30 @@ namespace
 		{"FormatString", "Format String"},
 		{"Array.Length", "Length"},
 		{"Array.Get", "Get"},
+		{"Expression", "Expression"},
+		{"String.Length", "Length"},
+		{"String.IsEmpty", "Is Empty"},
+		{"String.Contains", "Contains"},
+		{"String.StartsWith", "Starts With"},
+		{"String.EndsWith", "Ends With"},
+		{"String.IndexOf", "Index Of"},
+		{"String.Substring", "Substring"},
+		{"String.Replace", "Replace"},
+		{"String.ToUpper", "To Upper"},
+		{"String.ToLower", "To Lower"},
+		{"String.Trim", "Trim"},
+		{"String.Split", "Split"},
+		{"String.Join", "Join"},
+		{"String.ToInt", "To Int"},
+		{"String.ToFloat", "To Float"},
+		{"Array.Contains", "Contains"},
+		{"Array.IndexOf", "Index Of"},
+		{"Array.Make", "Make", "Make Array"},
+		{"Array.Set", "Set", "Set Element"},
+		{"Array.Add", "Add", "Add Element"},
+		{"Array.RemoveAt", "Remove At", "Remove Element"},
+		{"Array.Insert", "Insert", "Insert Element"},
+		{"Array.Append", "Append", "Append Arrays"},
 		{"Operator.Add", "Add"},
 		{"Operator.Subtract", "Subtract"},
 		{"Operator.Multiply", "Multiply"},
@@ -249,7 +276,7 @@ namespace
 												  });
 				REQUIRE_MESSAGE(builtIn != BuiltInTitles.end(), "a built-in node kind the titles do not list");
 				CHECK(derived == builtIn->Title);
-				CHECK(derived == (node.Type == "Function.Entry" ? std::string("Entry") : node.Title));
+				CHECK(node.Title == (builtIn->LibraryTitle.empty() ? builtIn->Title : builtIn->LibraryTitle));
 				checked[3]++;
 			}
 		}

@@ -35,7 +35,8 @@ internal static class GraphAnalyzer
 		}
 		ComputeLatency(context);
 		Dictionary<AnalyzedNode, VisualType> convertTargets = [];
-		NodeShaper shaper = new(context, convertTargets);
+		Dictionary<AnalyzedNode, ParsedFormula> formulas = [];
+		NodeShaper shaper = new(context, convertTargets, formulas);
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			foreach (AnalyzedNode node in graph.Nodes)
@@ -60,7 +61,7 @@ internal static class GraphAnalyzer
 		{
 			AttachLinks(context, graph, source);
 		}
-		TypeResolution types = new(context, convertTargets, node => SplitResolved(context, node));
+		TypeResolution types = new(context, convertTargets, formulas, node => SplitResolved(context, node));
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			types.Resolve(graph);
@@ -98,7 +99,7 @@ internal static class GraphAnalyzer
 				context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: {message}", suggestions));
 			object? value = type != null
 				? Declarations.DecodeValue(type, variable.Value, (code, message) =>
-					context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: Value: {message}"))
+					context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: {message}"))
 				: null;
 			context.Add(new AnalyzedVariable(variable.ID, variable.Name, variable.Type, type, value, variable.Public, variable.FormerNames, null));
 		}
@@ -117,7 +118,7 @@ internal static class GraphAnalyzer
 					context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: {message}", suggestions));
 				object? value = type != null
 					? Declarations.DecodeValue(type, local.Value, (code, message) =>
-						context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: Value: {message}"))
+						context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: {message}"))
 					: null;
 				function.AddLocal(new AnalyzedVariable(local.ID, local.Name, local.Type, type, value, false, [], function));
 			}
@@ -227,8 +228,9 @@ internal static class GraphAnalyzer
 	}
 
 	// Where the flow entering a disabled node continues: its Then output, else Completed, else Default, else its first exec
-	// output that is not a Tick output. Null when no flow enters it (it has no exec input: an event starts no execution) or
-	// it has no such output (an unknown node's pins are typed by nothing, so it has no exec output).
+	// output, none of them a Tick output (a Timeline's event track named Completed is no exit). Null when no flow enters it
+	// (it has no exec input: an event starts no execution) or it has no such output (an unknown node's pins are typed by
+	// nothing, so it has no exec output; every exec output of a Timeline is a Tick output).
 	private static AnalyzedPin? FindPassThrough(AnalyzedNode node)
 	{
 		bool entered = false;
@@ -247,6 +249,10 @@ internal static class GraphAnalyzer
 				entered = true;
 				continue;
 			}
+			if (pin.Description.Role == PinRole.Tick)
+			{
+				continue;
+			}
 			switch (pin.Name)
 			{
 				case "Then":
@@ -259,10 +265,7 @@ internal static class GraphAnalyzer
 					otherwise ??= pin;
 					break;
 			}
-			if (pin.Description.Role != PinRole.Tick)
-			{
-				first ??= pin;
-			}
+			first ??= pin;
 		}
 		return entered ? then ?? completed ?? otherwise ?? first : null;
 	}
@@ -550,9 +553,17 @@ internal static class GraphAnalyzer
 				pin.Type = context.Library.String;
 				continue;
 			}
-			string hint = node.Builtin is { } builtin && BuiltinNodes.IsBinaryWildcardOperator(builtin)
-				? " (or connect the other operand and store a value here)"
-				: string.Empty;
+			// An Expression's input stays untyped only when its links' types are no formula operands: CheckLinks reported them.
+			if (node.Builtin == BuiltinNode.Expression && pin.Links.Count > 0)
+			{
+				continue;
+			}
+			string hint = node.Builtin switch
+			{
+				{ } builtin when BuiltinNodes.IsBinaryWildcardOperator(builtin) => " (or connect the other operand and store a value here)",
+				BuiltinNode.ArrayMake => " (or set Type: the element type)",
+				_ => string.Empty,
+			};
 			// An input whose links are all errors (from disabled nodes whose outputs it refuses, say) is unconnected.
 			context.ReportPin(DiagnosticCode.UnresolvedWildcard, node, pin.Name, PinDirection.In, pin.Links.Count > 0
 				? $"the type of {pin.Name} is unknown: none of its links gives it a value{hint}"
@@ -615,10 +626,10 @@ internal static class GraphAnalyzer
 			switch (decoded.Problem)
 			{
 				case LiteralProblem.InvalidValue:
-					context.ReportPin(DiagnosticCode.InvalidValue, node, name, PinDirection.In, $"{name}: {decoded.Message}");
+					context.ReportPin(DiagnosticCode.InvalidValue, node, name, PinDirection.In, decoded.Describe(name));
 					continue;
 				case LiteralProblem.EntityValue:
-					context.ReportPin(DiagnosticCode.EntityValue, node, name, PinDirection.In, $"{name}: {decoded.Message}");
+					context.ReportPin(DiagnosticCode.EntityValue, node, name, PinDirection.In, decoded.Describe(name));
 					continue;
 			}
 			pin.HasLiteral = true;

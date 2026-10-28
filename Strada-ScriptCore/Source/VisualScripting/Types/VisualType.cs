@@ -114,6 +114,14 @@ internal sealed class VisualType
 	// Arrays: the element type.
 	internal VisualType? Element { get; set; }
 
+	// The array type whose elements are of this type; null for exec, the wildcard, arrays (no arrays of arrays) and ref
+	// structs (spec-slice3 section 3.4.1).
+	internal VisualType? ArrayType { get; set; }
+
+	// Arrays: the type's one empty array, its default (spec-slice3 section 3.4.2: arrays are never null). Owned by the library,
+	// so it goes with it when a game assembly unloads; nothing ever changes an array a graph holds, so every graph shares it.
+	internal Array? EmptyArray { get; set; }
+
 	// The targets of spec section 3.4 rules 4, 5 and 6: the widened types (narrowest first), the base classes up to
 	// Strada.Entity or Strada.Asset (nearest first) or a component's entity, Strada.AssetHandle, and System.Object last.
 	// Rule 7 (to string) is implied.

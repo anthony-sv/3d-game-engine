@@ -52,6 +52,38 @@ internal enum Opcode : byte
 	Concatenate,
 	Boolean,
 	OperatorMethod,
+	// A formula (spec-slice3 section 3.3.8).
+	Expression,
+	// A String or Array node (spec-slice3 sections 3.4.5 and 3.5): CompiledNode.Intrinsic says which.
+	Intrinsic,
+}
+
+// The String and Array nodes Opcode.Intrinsic evaluates (Intrinsics.Evaluate).
+internal enum IntrinsicKind : byte
+{
+	StringLength,
+	StringIsEmpty,
+	StringContains,
+	StringStartsWith,
+	StringEndsWith,
+	StringIndexOf,
+	StringSubstring,
+	StringReplace,
+	StringToUpper,
+	StringToLower,
+	StringTrim,
+	StringSplit,
+	StringJoin,
+	StringToInt,
+	StringToFloat,
+	ArrayContains,
+	ArrayIndexOf,
+	ArrayMake,
+	ArraySet,
+	ArrayAdd,
+	ArrayRemoveAt,
+	ArrayInsert,
+	ArrayAppend,
 }
 
 // Where a staged input takes its value from.
@@ -136,6 +168,8 @@ internal enum EqualityKind : byte
 	Component,
 	Method,
 	Object,
+	// Arrays element by element (spec-slice3 section 3.4.2 rule 3), by the elements' equality (CompiledNode.ElementEquality).
+	Array,
 }
 
 // A compiled node: its opcode, where its inputs, outputs and state live in its frame, where its exec outputs lead, and
@@ -207,13 +241,22 @@ internal sealed class CompiledNode
 	internal VisualType[] OutputTypes { get; set; } = [];
 
 	// The node's own state (DoOnce and Gate: open; DoN: the counter; FlipFlop: IsA; latent nodes: the fiber waiting in
-	// them while they are pending).
+	// them while they are pending, a Timeline's run while it plays).
 	internal int StateSlot { get; set; } = -1;
+
+	// Flow.Timeline: the slot of its TimelineState (none in the template: each instance makes its own at its first input).
+	internal int TimelineSlot { get; set; } = -1;
 
 	internal Operand[] Operands { get; set; } = [];
 
 	// The pure nodes whose outputs feed the inputs, which the plan evaluates first.
 	internal int[] PureSources { get; set; } = [];
+
+	// Nodes that evaluate their inputs one at a time (Flow.Timeline): the pure nodes each input depends on, and the plans of
+	// each, computed the first time they are needed.
+	internal int[][] InputSources { get; set; } = [];
+
+	internal int[]?[] InputPlans { get; set; } = [];
 
 	// The pure nodes to evaluate before the inputs are loaded, in dependency order; computed the first time it is needed.
 	internal int[]? Plan { get; set; }
@@ -244,7 +287,7 @@ internal sealed class CompiledNode
 	internal Slot Constant { get; set; }
 
 	// Sequence: the number of outputs. Switch: the number of cases (Default is the exit after them). Variable nodes: the
-	// variable's index (document variables) or slot (locals).
+	// variable's index (document variables) or slot (locals). Array.Make: the number of elements.
 	internal int Count { get; set; }
 
 	internal bool IsLocal { get; set; }
@@ -256,11 +299,23 @@ internal sealed class CompiledNode
 	// Equality: how values compare. NotEqual inverts the result.
 	internal EqualityKind Equality { get; set; }
 
+	// The equality of array elements: an Equality of arrays, Array.Contains and Array.IndexOf (Kind is the elements' slot kind,
+	// Member their equality operator method, FromType their type).
+	internal EqualityKind ElementEquality { get; set; }
+
+	// The first of the three scratch slots of the nodes that compare array elements: the two values compared, and the
+	// result of an equality operator method.
+	internal int ScratchBase { get; set; } = -1;
+
+	// Opcode.Intrinsic: the String or Array node.
+	internal IntrinsicKind Intrinsic { get; set; }
+
 	internal bool Invert { get; set; }
 
 	internal ValidityKind Validity { get; set; }
 
-	// Types the kind needs: Convert's From and To, Array.Get's element type, the struct of Make and Break.
+	// Types the kind needs: Convert's From and To, Array.Get's element type, the struct of Make and Break, the element type
+	// (From) and array type (To) of the Array nodes and String.Join.
 	internal VisualType? FromType { get; set; }
 
 	internal VisualType? ToType { get; set; }
@@ -298,7 +353,56 @@ internal sealed class CompiledNode
 
 	internal MemberInvoker? Invoker { get; set; }
 
+	// Expression: the formula's program.
+	internal ExpressionProgram? Expression { get; set; }
+
+	// Flow.Timeline: its curves and event keys, and where it fires and writes.
+	internal CompiledTimeline? Timeline { get; set; }
+
 	public override string ToString() => $"{Title} (node {Id})";
+}
+
+// A Flow.Timeline node compiled (spec-slice3 section 3.8.5): its definition, the exits of Update, Finished and each event
+// track, and the slots of its outputs (Time, Direction and Playing, then each curve track's).
+internal sealed class CompiledTimeline
+{
+	internal CompiledTimeline(TimelineDefinition definition, int updateExit, int finishedExit, int[] eventExits, int outputBase, Slot forward,
+		Slot backward)
+	{
+		Definition = definition;
+		UpdateExit = updateExit;
+		FinishedExit = finishedExit;
+		EventExits = eventExits;
+		TimeSlot = outputBase;
+		DirectionSlot = outputBase + 1;
+		PlayingSlot = outputBase + 2;
+		CurveBase = outputBase + 3;
+		Forward = forward;
+		Backward = backward;
+	}
+
+	internal TimelineDefinition Definition { get; }
+
+	internal int UpdateExit { get; }
+
+	internal int FinishedExit { get; }
+
+	// By event track (TimelineDefinition.Events).
+	internal int[] EventExits { get; }
+
+	internal int TimeSlot { get; }
+
+	internal int DirectionSlot { get; }
+
+	internal int PlayingSlot { get; }
+
+	// The first curve track's output slot; the others follow in track order.
+	internal int CurveBase { get; }
+
+	// Direction's values, made once so writing them never boxes.
+	internal Slot Forward { get; }
+
+	internal Slot Backward { get; }
 }
 
 // The nodes of the event graph or of a function's graph, and the layout of its frame: the template every frame starts

@@ -26,6 +26,10 @@ internal enum SettingKind
 	Enum,
 	// One of Choices.
 	Choice,
+	// A formula (spec-slice3 section 3.3): a string the node's pins follow.
+	Expression,
+	// A timeline's length, loop and tracks (spec-slice3 section 3.8.2): an object the node's pins follow.
+	Timeline,
 }
 
 // Which types a Type or TypeList setting accepts.

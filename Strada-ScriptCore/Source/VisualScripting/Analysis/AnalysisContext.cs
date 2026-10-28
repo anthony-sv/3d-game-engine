@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 namespace Strada.VisualScripting;
 
@@ -79,14 +81,14 @@ internal sealed class AnalysisContext
 	}
 
 	// The nearest candidates for an unknown name (none once the analysis made MaxSuggestionSearches searches).
-	internal IReadOnlyList<string> Suggest(string text, IEnumerable<string> candidates, bool bounded = true)
+	internal IReadOnlyList<string> Suggest(string text, IEnumerable<string> candidates, bool bounded = true, bool transpositions = false)
 	{
 		if (m_SuggestionSearches >= MaxSuggestionSearches)
 		{
 			return [];
 		}
 		m_SuggestionSearches++;
-		return Suggestions.Nearest(text, candidates, bounded);
+		return Suggestions.Nearest(text, candidates, bounded, transpositions);
 	}
 
 	internal void ReportNode(DiagnosticCode code, AnalyzedNode node, string message, IReadOnlyList<string>? suggestions = null)
@@ -106,6 +108,23 @@ internal sealed class AnalysisContext
 			Suggestions = suggestions ?? [],
 		});
 	}
+
+	// A finding about a node's setting: span is the part of the setting's string it names, in UTF-16 indices of text, which
+	// the diagnostic holds as UTF-8 byte offsets.
+	internal void ReportSetting(DiagnosticCode code, AnalyzedNode node, string setting, string text, (int Start, int End)? span, string message,
+		IReadOnlyList<string>? suggestions = null)
+	{
+		Diagnostics.Add(new Diagnostic(code, node.Graph.Function, message)
+		{
+			Node = node.ID,
+			Setting = setting,
+			Span = span is { } range ? (ByteOffset(text, range.Start), ByteOffset(text, range.End)) : null,
+			Suggestions = suggestions ?? [],
+		});
+	}
+
+	// The UTF-8 byte offset of a UTF-16 index of a text.
+	internal static int ByteOffset(string text, int index) => Encoding.UTF8.GetByteCount(text.AsSpan(0, index));
 
 	internal void ReportLink(DiagnosticCode code, AnalyzedLink link, string message)
 	{
