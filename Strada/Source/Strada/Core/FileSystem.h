@@ -39,6 +39,8 @@ namespace Strada
 		[[nodiscard]] static Result<void> Move(std::filesystem::path const& from, std::filesystem::path const& to);
 
 		static std::optional<std::filesystem::file_time_type> GetLastWriteTime(std::filesystem::path const& path);
+		// The size in bytes of a regular file; nothing when it does not exist or cannot be read.
+		static std::optional<uint64_t> GetFileSize(std::filesystem::path const& path);
 		// Whether the file exists and has no write permission for anyone, which is how the standard library reports Windows'
 		// read-only attribute. A path that does not exist, or whose status cannot be read, is not read-only: a write to it
 		// then fails as a write. A file locked by another process, or owned by another user, is not read-only either.

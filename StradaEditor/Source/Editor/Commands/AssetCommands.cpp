@@ -350,6 +350,24 @@ namespace Strada
 	Result<void> SetVisualScriptCommand::RecordBefore(EditorContext const& context, std::filesystem::path const& path,
 	                                                  std::string const& name)
 	{
+		// The file this editor wrote last, unchanged since (the same write time and size): it holds the text the editor
+		// remembers for the asset's document, the canonical text undo writes back, so nothing is read. An outside rewrite of
+		// the same size whose write time was restored goes unseen here, which is accepted: undo then writes the text the
+		// editor wrote, and the next refresh sees nothing to reload either.
+		m_ReadFile = false;
+		// Only a loaded asset has a recorded write, so the asset is not loaded here.
+		Ref<VisualScriptAsset> const recorded = AssetManager::IsFileAsLastRecorded(m_Graph) ? FindLoadedGraph(m_Graph) : nullptr;
+		if (recorded != nullptr && context.FindVisualScriptText(m_Graph, recorded->GetSharedDocument().get()) != nullptr)
+		{
+			m_Before = recorded->GetSharedDocument();
+			m_BeforeBytes.clear();
+			m_KeepsBytes = false;
+			m_BytesLoadAsBefore = true;
+			m_Recorded = true;
+			return {};
+		}
+
+		m_ReadFile = true;
 		Result<Buffer> const bytes = FileSystem::ReadBinaryFile(path);
 		if (!bytes)
 		{

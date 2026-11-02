@@ -31,6 +31,12 @@ namespace Strada
 		constexpr uint32_t SubAssetTexture = 1;
 		constexpr uint32_t SubAssetMaterial = 2;
 
+		struct RecordedFileWrite
+		{
+			std::filesystem::file_time_type WriteTime;
+			uint64_t Size = 0;
+		};
+
 		struct AssetManagerData
 		{
 			std::filesystem::path AssetDirectory;
@@ -43,6 +49,8 @@ namespace Strada
 			std::unordered_set<AssetHandle> MissingFiles;
 			// File write times of loaded file assets, to detect modifications on refresh.
 			std::unordered_map<AssetHandle, std::filesystem::file_time_type> LoadedWriteTimes;
+			// The write time and size of each loaded file asset as RecordFileWrite found them after the editor wrote it.
+			std::unordered_map<AssetHandle, RecordedFileWrite> RecordedWrites;
 			// Sub-assets created by each loaded parent.
 			std::unordered_map<AssetHandle, std::vector<AssetHandle>> SubAssets;
 		};
@@ -496,6 +504,7 @@ namespace Strada
 		data.FailedLoads.clear();
 		data.MissingFiles.clear();
 		data.LoadedWriteTimes.clear();
+		data.RecordedWrites.clear();
 		data.AssetDirectory.clear();
 	}
 
@@ -1220,6 +1229,7 @@ namespace Strada
 		RemoveSubAssets(handle);
 		data.LoadedAssets.erase(handle);
 		data.LoadedWriteTimes.erase(handle);
+		data.RecordedWrites.erase(handle);
 		data.FailedLoads.erase(handle);
 	}
 
@@ -1233,9 +1243,37 @@ namespace Strada
 		}
 		// When the time cannot be read, the time recorded at load stays: the next refresh then finds the file changed and
 		// reloads the asset.
-		if (std::optional<std::filesystem::file_time_type> const writeTime = FileSystem::GetLastWriteTime(GetAbsolutePath(handle)))
+		std::filesystem::path const path = GetAbsolutePath(handle);
+		std::optional<std::filesystem::file_time_type> const writeTime = FileSystem::GetLastWriteTime(path);
+		if (writeTime)
 		{
 			data.LoadedWriteTimes[handle] = *writeTime;
 		}
+		std::optional<uint64_t> const size = FileSystem::GetFileSize(path);
+		if (writeTime && size)
+		{
+			data.RecordedWrites[handle] = RecordedFileWrite{*writeTime, *size};
+		}
+		else
+		{
+			data.RecordedWrites.erase(handle);
+		}
+	}
+
+	bool AssetManager::IsFileAsLastRecorded(AssetHandle handle)
+	{
+		if (s_Data == nullptr)
+		{
+			return false;
+		}
+		auto const recorded = s_Data->RecordedWrites.find(handle);
+		if (recorded == s_Data->RecordedWrites.end())
+		{
+			return false;
+		}
+		std::filesystem::path const path = GetAbsolutePath(handle);
+		std::optional<std::filesystem::file_time_type> const writeTime = FileSystem::GetLastWriteTime(path);
+		std::optional<uint64_t> const size = FileSystem::GetFileSize(path);
+		return writeTime && size && *writeTime == recorded->second.WriteTime && *size == recorded->second.Size;
 	}
 }

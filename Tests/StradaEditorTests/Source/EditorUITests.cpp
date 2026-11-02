@@ -1231,6 +1231,137 @@ TEST_CASE("SetVisualScriptCommand: a file emptied outside the editor is given ba
 	CHECK(history.GetUndoCount() == steps);
 }
 
+namespace
+{
+	// Whether the step just recorded read the file before writing it.
+	bool LastStepReadFile(EditorContext const& context)
+	{
+		auto const* const step = dynamic_cast<SetVisualScriptCommand const*>(context.GetHistory().GetUndoCommand());
+		REQUIRE(step != nullptr);
+		return step->HasReadFile();
+	}
+
+	// Moves the file's write time an hour back and records it as the editor's write, so that any later write has another time
+	// even on file systems with coarse times.
+	void RecordWriteAnHourBack(std::filesystem::path const& file, AssetHandle graph)
+	{
+		std::error_code error;
+		std::filesystem::last_write_time(file, std::filesystem::last_write_time(file, error) - std::chrono::hours(1), error);
+		REQUIRE_FALSE(error);
+		AssetManager::RecordFileWrite(graph);
+	}
+}
+
+TEST_CASE("SetVisualScriptCommand: a commit after the editor's own write reads nothing, and undo still gives that write's text back")
+{
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	Ref<VisualScriptDocument const> const first = fixture.Edit(graph, MakeGraphDocument(), "Add Sequence in Player");
+	std::string const written = fixture.ReadFile("Scripts/Player.sgraph");
+	REQUIRE(written == Canonical(*first));
+	REQUIRE(AssetManager::IsFileAsLastRecorded(graph));
+
+	// The file is the editor's last write, unchanged: the next steps take the remembered text as what the file held.
+	Ref<VisualScriptDocument const> const second = fixture.Edit(graph, Moved(*first, 64.0f), "Move Node in Player");
+	CHECK_FALSE(LastStepReadFile(fixture.Context));
+	Ref<VisualScriptDocument const> const third = fixture.Edit(graph, Described(*second, "Third"), "Describe Player");
+	CHECK_FALSE(LastStepReadFile(fixture.Context));
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*third));
+
+	// Undo writes each step's before text, byte for byte the file as each found it.
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == Canonical(*second));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == written);
+	CHECK(fixture.GetGraph(graph)->GetSharedDocument().get() == first.get());
+	// Nothing outside the editor wrote: the next refresh reloads nothing.
+	CHECK(fixture.Refresh().empty());
+}
+
+TEST_CASE(
+	"SetVisualScriptCommand: a file rewritten outside the editor since its last write is read, and undo gives those bytes back exactly")
+{
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	Ref<VisualScriptDocument const> const shown = fixture.Edit(graph, Described(MakeGraphDocument(), "Shown"));
+	std::filesystem::path const file = fixture.GetFile("Scripts/Player.sgraph");
+	std::string const canonical = fixture.ReadFile("Scripts/Player.sgraph");
+
+	SUBCASE("other bytes of another size")
+	{
+		RecordWriteAnHourBack(file, graph);
+		// The same document with a byte order mark and a trailing line: it loads as what the editor shows, but its bytes differ.
+		std::string const outside = "\xEF\xBB\xBF" + canonical + "\n";
+		REQUIRE(FileSystem::WriteTextFile(file, outside).IsOk());
+		CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
+		fixture.Edit(graph, Described(*shown, "Edited"));
+		CHECK(LastStepReadFile(fixture.Context));
+		REQUIRE(fixture.Operations.Undo().IsOk());
+		CHECK(fixture.ReadFile("Scripts/Player.sgraph") == outside);
+	}
+	SUBCASE("other bytes of the same size, written later")
+	{
+		RecordWriteAnHourBack(file, graph);
+		std::string outside = canonical;
+		size_t const description = outside.find("Shown");
+		REQUIRE(description != std::string::npos);
+		outside.replace(description, 5, "Shawn");
+		REQUIRE(outside.size() == canonical.size());
+		REQUIRE(FileSystem::WriteTextFile(file, outside).IsOk());
+		CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
+		fixture.Edit(graph, Described(*shown, "Edited"));
+		CHECK(LastStepReadFile(fixture.Context));
+		REQUIRE(fixture.Operations.Undo().IsOk());
+		CHECK(fixture.ReadFile("Scripts/Player.sgraph") == outside);
+		// The asset shows what it showed; the next refresh loads what the other program wrote.
+		CHECK(fixture.Refresh() == std::vector<AssetHandle>{graph});
+		CHECK(fixture.GetGraph(graph)->GetDocument().Description == "Shawn");
+	}
+	SUBCASE("a refresh that reloaded the file")
+	{
+		REQUIRE(FileSystem::WriteTextFile(file, canonical + "\n").IsOk());
+		std::error_code error;
+		std::filesystem::last_write_time(file, std::filesystem::last_write_time(file, error) + std::chrono::hours(1), error);
+		REQUIRE_FALSE(error);
+		CHECK(fixture.Refresh() == std::vector<AssetHandle>{graph});
+		// A load records no write of the editor's.
+		Ref<VisualScriptAsset> const reloaded = fixture.GetGraph(graph);
+		CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
+		fixture.Edit(graph, Described(reloaded->GetDocument(), "Edited"));
+		CHECK(LastStepReadFile(fixture.Context));
+		REQUIRE(fixture.Operations.Undo().IsOk());
+		CHECK(fixture.ReadFile("Scripts/Player.sgraph") == canonical + "\n");
+	}
+}
+
+TEST_CASE("SetVisualScriptCommand: an outside rewrite of the same size whose write time is restored is taken for the editor's write "
+          "(accepted)")
+{
+	// The one case the read-back's skip cannot see (ruling S-R5.1 accepts it): the file has the size and the write time of the
+	// editor's last write, so the step takes the remembered text as what the file held, and undo writes that text. A refresh
+	// would not have seen this rewrite either, since it compares write times alone.
+	AssetStepFixture fixture;
+	AssetHandle const graph = fixture.CreateGraph("Scripts/Player.sgraph");
+	Ref<VisualScriptDocument const> const shown = fixture.Edit(graph, Described(MakeGraphDocument(), "Shown"));
+	std::filesystem::path const file = fixture.GetFile("Scripts/Player.sgraph");
+	std::string const canonical = fixture.ReadFile("Scripts/Player.sgraph");
+	std::error_code error;
+	std::filesystem::file_time_type const time = std::filesystem::last_write_time(file, error);
+	REQUIRE_FALSE(error);
+	std::string outside = canonical;
+	outside.replace(outside.find("Shown"), 5, "Shawn");
+	REQUIRE(FileSystem::WriteTextFile(file, outside).IsOk());
+	std::filesystem::last_write_time(file, time, error);
+	REQUIRE_FALSE(error);
+	CHECK(AssetManager::IsFileAsLastRecorded(graph));
+	CHECK(fixture.Refresh().empty());
+
+	fixture.Edit(graph, Described(*shown, "Edited"));
+	CHECK_FALSE(LastStepReadFile(fixture.Context));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(fixture.ReadFile("Scripts/Player.sgraph") == canonical);
+}
+
 TEST_CASE("EditorContext: the text the editor wrote last to a visual script counts only for the document object it is the text of")
 {
 	EditorContext context;

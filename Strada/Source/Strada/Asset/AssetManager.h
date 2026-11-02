@@ -142,8 +142,13 @@ namespace Strada
 		// Drops a loaded file asset (and its sub-assets); it loads again on next use. A remembered failed load is forgotten too.
 		static void UnloadAsset(AssetHandle handle);
 		// Records the asset file's current write time as the one it was loaded with, so a refresh does not reload what the
-		// editor itself just wrote; a change of the file made after it still is. No effect for assets that are not loaded or
-		// have no file of their own.
+		// editor itself just wrote; a change of the file made after it still is. The time and the file's size are also kept
+		// as those of the editor's last write (IsFileAsLastRecorded). No effect for assets that are not loaded or have no file
+		// of their own.
 		static void RecordFileWrite(AssetHandle handle);
+		// Whether the loaded asset's file still has the write time and the size RecordFileWrite recorded: then it holds what
+		// the editor last wrote, unless something rewrote it with the same number of bytes and restored its write time. False
+		// when nothing is recorded (the asset was loaded or reloaded since, or never written) or either cannot be read.
+		[[nodiscard]] static bool IsFileAsLastRecorded(AssetHandle handle);
 	};
 }

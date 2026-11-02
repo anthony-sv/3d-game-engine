@@ -5,6 +5,8 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <cstdint>
+#include <optional>
 #include <string>
 
 using namespace Strada;
@@ -69,6 +71,19 @@ TEST_CASE("FileSystem: binary files round trip, including empty files")
 	Result<Buffer> const empty = FileSystem::ReadBinaryFile(emptyPath);
 	REQUIRE(empty.IsOk());
 	CHECK(empty.GetValue().IsEmpty());
+}
+
+TEST_CASE("FileSystem: the size of a file is its bytes, and nothing for a path that is no file")
+{
+	Testing::TemporaryDirectory directory;
+	std::filesystem::path const path = directory.GetPath() / "data.bin";
+	std::array<uint8_t, 6> const bytes = {0, 255, 1, 128, 0, 7};
+	REQUIRE(FileSystem::WriteBinaryFile(path, bytes).IsOk());
+	CHECK(FileSystem::GetFileSize(path) == std::optional<uint64_t>(6));
+	REQUIRE(FileSystem::WriteBinaryFile(path, {}).IsOk());
+	CHECK(FileSystem::GetFileSize(path) == std::optional<uint64_t>(0));
+	CHECK_FALSE(FileSystem::GetFileSize(directory.GetPath() / "missing.bin").has_value());
+	CHECK_FALSE(FileSystem::GetFileSize(directory.GetPath()).has_value());
 }
 
 TEST_CASE("FileSystem: reading a missing file reports an error")

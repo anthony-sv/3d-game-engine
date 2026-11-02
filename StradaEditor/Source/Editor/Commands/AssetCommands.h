@@ -52,6 +52,9 @@ namespace Strada
 	//
 	// Undo gives the file back byte for byte: a version-1 file stays version 1, a file the loader repaired keeps what it
 	// repairs, a byte order mark stays, an emptied file is empty again, and a file that did not load fails to load again.
+	// The first execution reads the file for that, except when it is this editor's last write of the asset's document with
+	// its write time and size unchanged: the editor remembers that text (one exception: a rewrite of the same size whose
+	// write time was restored is taken for the editor's text).
 	// Redo writes the canonical text of the document again. Every write is recorded (AssetManager::RecordFileWrite), so a
 	// refresh does not reload what the step wrote. Commands of the same graph with the same non-zero merge key merge into one
 	// step; consecutive steps share their documents (a step's document is the object the next one keeps as its document
@@ -83,9 +86,12 @@ namespace Strada
 		// What the last execution spent: ReadBack, Compare, Write and SetDocument (the phases of a commit this step runs), and
 		// Text when it serialized the document itself; the step a later one merged into takes the later one's.
 		VisualScriptCommitTimings const& GetLastTimings() const { return m_LastTimings; }
+		// Whether the first execution read the file to record what it held: not when the file was this editor's last write of
+		// the asset's document, unchanged since (AssetManager::IsFileAsLastRecorded), whose text the editor remembers.
+		bool HasReadFile() const { return m_ReadFile; }
 
 	private:
-		// Reads what the file holds before the first execution.
+		// Records what the file holds before the first execution: read, or the remembered text of the editor's last write.
 		Result<void> RecordBefore(EditorContext const& context, std::filesystem::path const& path, std::string const& name);
 
 		AssetHandle m_Graph;
@@ -108,6 +114,8 @@ namespace Strada
 		bool m_KeepsBytes = false;
 		// An execution wrote the file.
 		bool m_Wrote = false;
+		// The first execution read the file (RecordBefore).
+		bool m_ReadFile = false;
 		// The kept bytes load as m_Before. They do not when the file changed outside the editor after the asset loaded and
 		// no refresh has seen it yet: undo then writes them back without recording the write, so the next refresh loads them.
 		bool m_BytesLoadAsBefore = true;
