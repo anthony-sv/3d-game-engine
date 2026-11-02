@@ -47,6 +47,10 @@ namespace Strada
 		constexpr uint8_t ValueLevel = 1;
 		constexpr uint8_t LinkLevel = 2;
 		constexpr uint8_t PinLevel = 3;
+		// A rename of a variable, local or function changes no pin or type, but it retitles the nodes that show the name (Get
+		// Speed, a call of AddScore), and so their widths: it is recorded as a link change, so that measured layout, which
+		// reads the titles of the analysis, analyzes again rather than sizing those nodes by their former names.
+		constexpr uint8_t TitleLevel = LinkLevel;
 
 		// An operation kind, the fields it takes ('*' marks a required one) and the member that applies it.
 		class BatchExecutor;
@@ -130,11 +134,19 @@ namespace Strada
 			return previous[b.size()];
 		}
 
-		// The three names closest to a name, the closest first (ties by name).
+		// The three names closest to a name, the closest first (ties by name). The distance costs the product of two lengths:
+		// a text far longer than every candidate is close to none of them, so only its start is compared, which keeps the
+		// search bounded by the candidates whatever the text given (a 1 MB name would otherwise hold the editor for hours).
 		Json FindClosestNames(std::string_view name, std::vector<std::string> names)
 		{
 			std::sort(names.begin(), names.end());
 			names.erase(std::unique(names.begin(), names.end()), names.end());
+			size_t longest = 0;
+			for (std::string const& candidate : names)
+			{
+				longest = std::max(longest, candidate.size());
+			}
+			name = name.substr(0, std::min(name.size(), longest + Format::MaxNameBytes));
 			std::vector<std::pair<size_t, std::string>> ranked;
 			ranked.reserve(names.size());
 			for (std::string& candidate : names)
@@ -170,21 +182,39 @@ namespace Strada
 			return Json::object({{"from", DescribeEnd(link.From)}, {"to", DescribeEnd(link.To)}});
 		}
 
-		// The links of a list that another list does not have, described as results describe them.
+		// The links of a list that another list does not have (nor excluded), described as results describe them.
 		Json DescribeLinksGone(std::vector<VisualScriptLink> const& before, std::vector<VisualScriptLink> const& after,
 		                       std::span<VisualScriptLink const> excluded = {})
 		{
 			Json gone = Json::array();
-			for (VisualScriptLink const& link : before)
+			for (VisualScriptLink const& link : FindVisualScriptLinksGone(FindVisualScriptLinksGone(before, after), excluded))
 			{
-				if (std::find(after.begin(), after.end(), link) == after.end() &&
-				    std::find(excluded.begin(), excluded.end(), link) == excluded.end())
-				{
-					gone.push_back(DescribeLink(link));
-				}
+				gone.push_back(DescribeLink(link));
 			}
 			return gone;
 		}
+
+		// Links hashed by their ends, for the sets that compare link lists.
+		struct LinkHash
+		{
+			size_t operator()(VisualScriptLink const* link) const
+			{
+				size_t hash = std::hash<uint32_t>()(link->From.Node);
+				auto const combine = [&hash](size_t value)
+				{
+					hash ^= value + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+				};
+				combine(std::hash<std::string_view>()(link->From.Pin));
+				combine(std::hash<uint32_t>()(link->To.Node));
+				combine(std::hash<std::string_view>()(link->To.Pin));
+				return hash;
+			}
+		};
+
+		struct LinkEqual
+		{
+			bool operator()(VisualScriptLink const* a, VisualScriptLink const* b) const { return *a == *b; }
+		};
 
 		// The graph of a sub-graph (0: the event graph, else a function's ID) of a document or a const one; null when none.
 		template<typename TDocument>
@@ -324,7 +354,7 @@ namespace Strada
 		// A headless canvas of a sub-graph and what it was synced with.
 		struct BatchCanvas
 		{
-			std::unique_ptr<VisualScriptHeadlessCanvas> Canvas = std::make_unique<VisualScriptHeadlessCanvas>();
+			Scope<VisualScriptHeadlessCanvas> Canvas = CreateScope<VisualScriptHeadlessCanvas>();
 			uint64_t Version = std::numeric_limits<uint64_t>::max();
 			// What the canvas points at since its last Sync, held so that none of it goes before the next one even when the
 			// batch has moved on to newer analyses and snapshots.
@@ -430,6 +460,7 @@ namespace Strada
 				VisualScriptBatchError error;
 				error.Failure = failure;
 				error.Operation = m_Index;
+				error.Kind = m_Kind == "?" ? std::string() : std::string(m_Kind);
 				error.Path = fmt::format("operations[{}]{}", m_Index, suffix);
 				error.Message = fmt::format("operations[{}] ({}): {}", m_Index, m_Kind, message);
 				error.Data = std::move(data);
@@ -1297,32 +1328,38 @@ namespace Strada
 					            Json::object({{"operation", m_Index}}), VisualScriptBatchFailure::AnalysisFailed);
 				}
 				m_Analysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
-				m_AnalyzedDocument = CreateRef<VisualScriptDocument const>(m_Working);
+				// The display stands for the document analyzed: canvases match nodes against it by their types, settings,
+				// literal keys and splits (MatchesVisualScriptAnalysis), never by positions, so the copy canvases show serves.
+				m_AnalyzedDocument = GetDisplay();
 				m_Level = LayoutLevel;
 				return true;
 			}
 
+			// The working document as the canvases show it (unplaced nodes placed), copied once per version and shared by the
+			// canvases of every sub-graph.
+			Ref<VisualScriptDocument const> const& GetDisplay()
+			{
+				if (m_DisplayVersion != m_Version || m_Display == nullptr)
+				{
+					m_Display = VisualScriptHeadlessCanvas::MakeDisplay(m_Working);
+					m_DisplayVersion = m_Version;
+					m_Displays++;
+				}
+				return m_Display;
+			}
+
 			// The canvas of a sub-graph, synced with the working document as it is now. Below pin level since the analysis,
 			// the analysis describes every node's pins, so the canvas takes them for the document as it is (a literal added
-			// since would otherwise make a node fall back to its template).
+			// since would otherwise make a node fall back to its template): the display then stands for the document analyzed.
 			VisualScriptHeadlessCanvas const& GetCanvas(uint32_t function)
 			{
 				BatchCanvas& canvas = m_Canvases[function];
 				if (canvas.Version != m_Version || canvas.Analysis != m_Analysis)
 				{
-					Ref<VisualScriptDocument const> analyzed = m_AnalyzedDocument;
-					if (m_Analysis != nullptr && m_Level < PinLevel)
-					{
-						if (m_CanvasDocumentVersion != m_Version || m_CanvasDocument == nullptr)
-						{
-							m_CanvasDocument = CreateRef<VisualScriptDocument const>(m_Working);
-							m_CanvasDocumentVersion = m_Version;
-						}
-						analyzed = m_CanvasDocument;
-					}
+					Ref<VisualScriptDocument const> const& display = GetDisplay();
 					canvas.Analysis = m_Analysis;
-					canvas.AnalyzedDocument = m_Analysis != nullptr ? analyzed : nullptr;
-					canvas.Canvas->Sync(m_Working, function, canvas.Analysis.get(), canvas.AnalyzedDocument.get(), m_Library.get());
+					canvas.AnalyzedDocument = m_Analysis == nullptr ? nullptr : (m_Level < PinLevel ? display : m_AnalyzedDocument);
+					canvas.Canvas->Sync(display, function, canvas.Analysis.get(), canvas.AnalyzedDocument.get(), m_Library.get());
 					canvas.Version = m_Version;
 				}
 				return *canvas.Canvas;
@@ -1332,8 +1369,8 @@ namespace Strada
 			// until the document next changes.
 			VisualScriptNodePins GetDocumentPins()
 			{
-				auto graphs = std::make_shared<std::unordered_map<uint32_t, VisualScriptNodePins>>();
-				auto owners = std::make_shared<std::unordered_map<uint32_t, uint32_t>>();
+				auto graphs = CreateRef<std::unordered_map<uint32_t, VisualScriptNodePins>>();
+				auto owners = CreateRef<std::unordered_map<uint32_t, uint32_t>>();
 				auto const addGraph = [&](VisualScriptGraph const& graph, uint32_t function)
 				{
 					(*graphs)[function] = GetCanvas(function).GetPins();
@@ -1663,14 +1700,19 @@ namespace Strada
 
 			// A node's settings as the document stores them (spec §7.3 rules 3 and 4): a Graph's asset text as its handle, names
 			// of variables, locals and functions as their IDs (looked up in the graph the node names, the working document for
-			// this script), and asset texts of a Value setting of an asset type as handles.
+			// this script), and asset texts of a Value setting of an asset type as handles. A failure is reported at
+			// "<field>.<setting>", or at field itself for SetSetting's one value (single).
 			bool ConvertSettings(std::string_view type, Json& settings, uint32_t function, std::string_view field,
-			                     Json const* existing = nullptr)
+			                     Json const* existing = nullptr, bool single = false)
 			{
 				if (!settings.is_object())
 				{
 					return true;
 				}
+				auto const getPath = [field, single](std::string const& name)
+				{
+					return single ? std::string(field) : fmt::format("{}.{}", field, name);
+				};
 				for (auto& [name, value] : settings.items())
 				{
 					if (GetSettingKind(type, name) == "Graph" && value.is_string() &&
@@ -1680,7 +1722,7 @@ namespace Strada
 						std::optional<AssetHandle> const handle = m_Context.FindAsset(reference);
 						if (!handle)
 						{
-							std::string const path = fmt::format("{}.{}", field, name);
+							std::string const path = getPath(name);
 							return FailField(path, fmt::format("no asset '{}' is registered", reference),
 							                 Json::object({{"path", fmt::format("operations[{}].{}", m_Index, path)}}),
 							                 VisualScriptBatchFailure::AssetNotFound);
@@ -1700,7 +1742,7 @@ namespace Strada
 				for (auto& [name, value] : settings.items())
 				{
 					std::string const kind = GetSettingKind(type, name);
-					std::string const path = fmt::format("{}.{}", field, name);
+					std::string const path = getPath(name);
 					if ((kind == "Variable" || kind == "Function") && value.is_string())
 					{
 						// The edited script itself, named by its Graph, is the working document, as the earlier operations left it.
@@ -2004,6 +2046,30 @@ namespace Strada
 			// Fails with the editing operation's own message.
 			bool FailEdit(std::string const& message) { return Fail({}, message); }
 
+			// Fails when a node of the elements (of one sub-graph) has no position yet: moving, aligning, distributing,
+			// straightening, framing and promoting start from where nodes stand, which for a node added without a position only
+			// Arrange decides (the window shows it where the commit will place it, a place no operation can know before then).
+			bool RequirePlaced(uint32_t function, std::span<uint32_t const> elements, std::string_view field)
+			{
+				VisualScriptGraph const* const graph = FindGraph(m_Working, function);
+				if (graph == nullptr)
+				{
+					return true;
+				}
+				std::unordered_set<uint32_t> const wanted(elements.begin(), elements.end());
+				for (VisualScriptNode const& node : graph->Nodes)
+				{
+					if (!node.Position && wanted.contains(node.ID))
+					{
+						return FailField(field,
+						                 fmt::format("node {} has no position yet: Arrange the nodes added without one (scope Created) "
+						                             "or give it a position before moving, aligning, framing or promoting it",
+						                             node.ID));
+					}
+				}
+				return true;
+			}
+
 			VisualScriptBatchContext const& m_Context;
 			VisualScriptDocument m_Working;
 			Ref<VisualScriptLibrary const> m_Library;
@@ -2016,8 +2082,9 @@ namespace Strada
 			// Counts the changes of the working document; canvases sync again when it moved.
 			uint64_t m_Version = 0;
 			std::map<uint32_t, BatchCanvas> m_Canvases;
-			Ref<VisualScriptDocument const> m_CanvasDocument;
-			uint64_t m_CanvasDocumentVersion = std::numeric_limits<uint64_t>::max();
+			Ref<VisualScriptDocument const> m_Display;
+			uint64_t m_DisplayVersion = std::numeric_limits<uint64_t>::max();
+			uint32_t m_Displays = 0;
 
 			// References.
 			std::unordered_set<uint32_t> m_StartIDs;
@@ -2203,6 +2270,7 @@ namespace Strada
 
 			VisualScriptBatchResult batch;
 			batch.Analyses = m_Analyses;
+			batch.Displays = m_Displays;
 			if (m_Analysis != nullptr && m_Level == LayoutLevel)
 			{
 				batch.Analysis = m_Analysis;
@@ -2468,6 +2536,13 @@ namespace Strada
 			for (auto const& [id, place] : elements)
 			{
 				byGraph[place.Function].push_back(id);
+			}
+			for (auto const& [function, ids] : byGraph)
+			{
+				if (!RequirePlaced(function, ids, "elements"))
+				{
+					return false;
+				}
 			}
 			for (auto const& [function, ids] : byGraph)
 			{
@@ -2873,7 +2948,7 @@ namespace Strada
 				if (!value.is_null())
 				{
 					Json settings = Json::object({{name, std::move(value)}});
-					if (!ConvertSettings(place->Node->Type, settings, place->Function, "value", &place->Node->Settings))
+					if (!ConvertSettings(place->Node->Type, settings, place->Function, "value", &place->Node->Settings, true))
 					{
 						return false;
 					}
@@ -3134,6 +3209,10 @@ namespace Strada
 					                 fmt::format("the elements are not of {}",
 					                             *function == 0 ? std::string("the event graph") : fmt::format("function {}", *function)));
 				}
+				if (!RequirePlaced(*function, elements, "elements"))
+				{
+					return false;
+				}
 			}
 			// Framing measures the elements as a window does; a box placed alone needs no analysis.
 			std::optional<VisualScriptNodeExtents> const extents =
@@ -3345,8 +3424,8 @@ namespace Strada
 			uint8_t level = LayoutLevel;
 			if (name)
 			{
+				level = std::max(level, *name != variable.Name ? TitleLevel : ValueLevel);
 				variable.Name = *name;
-				level = std::max(level, ValueLevel);
 			}
 			if (type)
 			{
@@ -3574,11 +3653,12 @@ namespace Strada
 			uint8_t level = ValueLevel;
 			if (name)
 			{
+				level = std::max(level, *name != local.Name ? TitleLevel : ValueLevel);
 				local.Name = *name;
 			}
 			if (type)
 			{
-				level = *type != local.Type ? LinkLevel : ValueLevel;
+				level = std::max(level, *type != local.Type ? LinkLevel : ValueLevel);
 				local.Type = *type;
 			}
 			if (Json const* const value = Find("value"))
@@ -3712,7 +3792,7 @@ namespace Strada
 			{
 				return FailEdit(renamed.GetError());
 			}
-			RecordChange(ValueLevel);
+			RecordChange(TitleLevel);
 			static_cast<void>(result);
 			return true;
 		}
@@ -3834,7 +3914,7 @@ namespace Strada
 			std::optional<std::string> label;
 			std::optional<ElementPlace> const place = ResolveNodeField("node", node);
 			if (!place || !Read("pin", pin) || !ReadDirectionField("direction", direction) || !Read("name", name) ||
-			    !ReadNewLabel("as", label))
+			    !ReadNewLabel("as", label) || !RequirePlaced(place->Function, std::span<uint32_t const>(&node, 1), "node"))
 			{
 				return false;
 			}
@@ -4028,7 +4108,8 @@ namespace Strada
 			}
 			std::vector<uint32_t> elements;
 			uint32_t function = 0;
-			if (!ResolveElementsOfOneGraph("elements", ElementWanted::Either, elements, function))
+			if (!ResolveElementsOfOneGraph("elements", ElementWanted::Either, elements, function) ||
+			    !RequirePlaced(function, elements, "elements"))
 			{
 				return false;
 			}
@@ -4060,7 +4141,8 @@ namespace Strada
 			}
 			std::vector<uint32_t> elements;
 			uint32_t function = 0;
-			if (!ResolveElementsOfOneGraph("elements", ElementWanted::Either, elements, function))
+			if (!ResolveElementsOfOneGraph("elements", ElementWanted::Either, elements, function) ||
+			    !RequirePlaced(function, elements, "elements"))
 			{
 				return false;
 			}
@@ -4085,7 +4167,7 @@ namespace Strada
 		{
 			std::vector<uint32_t> nodes;
 			uint32_t function = 0;
-			if (!ResolveElementsOfOneGraph("nodes", ElementWanted::Node, nodes, function))
+			if (!ResolveElementsOfOneGraph("nodes", ElementWanted::Node, nodes, function) || !RequirePlaced(function, nodes, "nodes"))
 			{
 				return false;
 			}
@@ -4389,33 +4471,77 @@ namespace Strada
 		return operations;
 	}
 
+	std::vector<VisualScriptLink> FindVisualScriptLinksGone(std::span<VisualScriptLink const> before,
+	                                                        std::span<VisualScriptLink const> after)
+	{
+		std::unordered_set<VisualScriptLink const*, LinkHash, LinkEqual> kept;
+		kept.reserve(after.size());
+		for (VisualScriptLink const& link : after)
+		{
+			kept.insert(&link);
+		}
+		std::vector<VisualScriptLink> gone;
+		for (VisualScriptLink const& link : before)
+		{
+			if (!kept.contains(&link))
+			{
+				gone.push_back(link);
+			}
+		}
+		return gone;
+	}
+
 	std::vector<VisualScriptHint> FindVisualScriptHints(VisualScriptDocument const& document, VisualScriptAnalysis const& analysis,
 	                                                    std::span<uint32_t const> nodes)
 	{
+		// The document and the analysis indexed once, so the hints of every node of a large graph take time linear in it.
+		std::unordered_map<uint32_t, VisualScriptNode const*> found;
+		std::unordered_map<uint32_t, std::vector<std::string_view>> linkedInto;
+		std::unordered_set<uint32_t> read;
+		auto const index = [&](VisualScriptGraph const& graph)
+		{
+			for (VisualScriptNode const& node : graph.Nodes)
+			{
+				found.try_emplace(node.ID, &node);
+			}
+			for (VisualScriptLink const& link : graph.Links)
+			{
+				linkedInto[link.To.Node].push_back(link.To.Pin);
+				read.insert(link.From.Node);
+			}
+		};
+		index(document.Graph);
+		for (VisualScriptFunction const& function : document.Functions)
+		{
+			index(function.Graph);
+		}
+		std::unordered_map<uint32_t, VisualScriptAnalyzedNode const*> analyzedNodes;
+		for (VisualScriptAnalyzedNode const& analyzed : analysis.Nodes)
+		{
+			analyzedNodes.try_emplace(analyzed.ID, &analyzed);
+		}
+
 		std::vector<VisualScriptHint> hints;
-		std::vector<uint32_t> seen;
+		std::unordered_set<uint32_t> seen;
 		for (uint32_t const id : nodes)
 		{
-			if (std::find(seen.begin(), seen.end(), id) != seen.end())
+			if (!seen.insert(id).second)
 			{
 				continue;
 			}
-			seen.push_back(id);
-			std::optional<ElementPlace> const place = FindElement(document, id);
-			VisualScriptAnalyzedNode const* const analyzed = analysis.FindNode(id);
-			if (!place || !place->IsNode || analyzed == nullptr)
+			auto const node = found.find(id);
+			auto const entry = analyzedNodes.find(id);
+			if (node == found.end() || entry == analyzedNodes.end())
 			{
 				continue;
 			}
-			VisualScriptGraph const* const graph = FindGraph(document, place->Function);
-			std::string const title = analyzed->Title.empty() ? place->Node->Type : analyzed->Title;
-			auto const linkedInto = [graph, id](std::string_view pin)
+			VisualScriptNode const& stored = *node->second;
+			VisualScriptAnalyzedNode const* const analyzed = entry->second;
+			std::string const title = analyzed->Title.empty() ? stored.Type : analyzed->Title;
+			auto const into = linkedInto.find(id);
+			auto const isLinkedInto = [&into, &linkedInto](std::string_view pin)
 			{
-				return std::any_of(graph->Links.begin(), graph->Links.end(),
-				                   [id, pin](VisualScriptLink const& link)
-				                   {
-									   return link.To.Node == id && link.To.Pin == pin;
-								   });
+				return into != linkedInto.end() && std::find(into->second.begin(), into->second.end(), pin) != into->second.end();
 			};
 			VisualScriptPin const* firstExecInput = nullptr;
 			bool flows = false;
@@ -4425,34 +4551,29 @@ namespace Strada
 				if (pin.Direction == VisualScriptPinDirection::In && pin.Type == VisualScriptExecType)
 				{
 					firstExecInput = firstExecInput != nullptr ? firstExecInput : &pin;
-					flows = flows || linkedInto(pin.Name);
+					flows = flows || isLinkedInto(pin.Name);
 				}
 				if (pin.Direction == VisualScriptPinDirection::Out && pin.Type != VisualScriptExecType)
 				{
 					hasOutput = true;
 				}
 			}
-			bool const used = std::any_of(graph->Links.begin(), graph->Links.end(),
-			                              [id](VisualScriptLink const& link)
-			                              {
-											  return link.From.Node == id;
-										  });
-			bool const event = analyzed->Kind == VisualScriptNodeKind::Event || place->Node->Type == "Function.Entry";
+			bool const event = analyzed->Kind == VisualScriptNodeKind::Event || stored.Type == "Function.Entry";
 			if (firstExecInput != nullptr && !event && !flows)
 			{
 				hints.push_back(
 					{id, "NeverRuns", fmt::format("{} (node {}) has no flow into {}: it never runs", title, id, firstExecInput->Name)});
 			}
-			if (firstExecInput == nullptr && analyzed->Pure && hasOutput && !used)
+			if (firstExecInput == nullptr && analyzed->Pure && hasOutput && !read.contains(id))
 			{
 				hints.push_back({id, "Unused", fmt::format("{} (node {}) is read by nothing: link one of its outputs", title, id)});
 			}
-			if (place->Node->Type == "Expression")
+			if (stored.Type == "Expression")
 			{
 				for (VisualScriptPin const& pin : analyzed->Pins)
 				{
-					if (pin.Direction != VisualScriptPinDirection::In || pin.Type == VisualScriptExecType || linkedInto(pin.Name) ||
-					    (place->Node->Inputs.is_object() && place->Node->Inputs.contains(pin.Name)))
+					if (pin.Direction != VisualScriptPinDirection::In || pin.Type == VisualScriptExecType || isLinkedInto(pin.Name) ||
+					    (stored.Inputs.is_object() && stored.Inputs.contains(pin.Name)))
 					{
 						continue;
 					}

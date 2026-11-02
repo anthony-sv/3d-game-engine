@@ -7,12 +7,14 @@
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -1031,4 +1033,349 @@ TEST_CASE("VisualScriptBatch: hints name nodes that never run, outputs read by n
 	REQUIRE(unlinked.size() == 2);
 	CHECK(unlinked[0].Kind == "Unused");
 	CHECK(unlinked[1] == VisualScriptHint{6, "UnlinkedInput", "Expression (node 6) reads dt as 0: link it or store a value"});
+}
+
+TEST_CASE("VisualScriptBatch: SetSwitchCases and SetSetting of Cases rename the links of changed cases and remove those of cases gone")
+{
+	BatchFixture fixture;
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(
+		MakeNode(4, "Flow.Switch", glm::vec2(0.0f, 320.0f), Json::object({{"Type", "int"}, {"Cases", Json::array({1, 2, 3})}})));
+	document.Graph.Links.push_back(MakeLink(4, "Case:2", 3, "Execute"));
+	document.Graph.Links.push_back(MakeLink(4, "Case:3", 2, "Execute"));
+	Json const operations = Json::array({
+		// The same length: the case that changed is renamed, and so is its link.
+		Json::object({{"op", "SetSwitchCases"}, {"node", 4}, {"cases", Json::array({1, 5, 3})}}),
+		// Through SetSetting, routed to SetSwitchCases: the links of the cases gone go.
+		Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Cases"}, {"value", Json::array({1})}}),
+		// null removes the setting: a Switch on int then has no cases.
+		Json::object({{"op", "SetSwitchCases"}, {"node", 4}, {"cases", nullptr}}),
+	});
+	VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+	CHECK(result.Results[0] == Json::object({{"removedLinks", 0}}));
+	CHECK(result.Results[1] == Json::object({{"removedLinks", 2}}));
+	CHECK(result.Results[2] == Json::object({{"removedLinks", 0}}));
+	CHECK_FALSE(FindNode(result.Document, 4)->Settings.contains("Cases"));
+
+	VisualScriptBatchResult const renamed = ExpectApplied(document, Json::array({operations[0]}), fixture.Context);
+	CHECK(HasLink(renamed.Document.Graph, MakeLink(4, "Case:5", 3, "Execute")));
+	CHECK(HasLink(renamed.Document.Graph, MakeLink(4, "Case:3", 2, "Execute")));
+	CHECK(FindNode(renamed.Document, 4)->Settings["Cases"] == Json::array({1, 5, 3}));
+	VisualScriptBatchResult const routed = ExpectApplied(document, Json::array({operations[1]}), fixture.Context);
+	CHECK(routed.Results[0] == Json::object({{"removedLinks", 2}}));
+	CHECK(FindNode(routed.Document, 4)->Settings["Cases"] == Json::array({1}));
+	CHECK(routed.Document.Graph.Links.size() == document.Graph.Links.size() - 2);
+}
+
+TEST_CASE("VisualScriptBatch: the executor's own refusals name the operation, its kind and the field")
+{
+	BatchFixture fixture;
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(4, "Flow.Sequence", glm::vec2(0.0f, 320.0f), Json::object({{"Count", 3}})));
+	struct Refusal
+	{
+		Json Operation;
+		std::string Kind;
+		std::string Path;
+		// Empty: a point out of range, whose message names the bound.
+		std::string Message;
+	};
+	std::vector<Refusal> const refusals = {
+		{Json::object({{"op", "SetSequenceOutputs"}, {"node", 4}, {"count", 4}, {"insertAt", 0}, {"removeAt", 1}}), "SetSequenceOutputs",
+	     "operations[0].removeAt", "operations[0] (SetSequenceOutputs): removeAt: SetSequenceOutputs takes insertAt or removeAt, not both"},
+		{Json::object({{"op", "AddFunction"}, {"name", "Jump"}, {"as", "$jump"}, {"returnAs", "$jump"}}), "AddFunction", "operations[0]",
+	     "operations[0] (AddFunction): as, entryAs and returnAs must be different labels"},
+		{Json::object({{"op", "Align"}, {"elements", Json::array({2, 21})}, {"alignment", "Top"}}), "Align", "operations[0].elements[1]",
+	     "operations[0] (Align): elements[1]: 21 is in another graph than 2: the elements must be of one graph"},
+		{Json::object({{"op", "PromoteToFunctionInput"}, {"node", 2}, {"pin", "Message"}}), "PromoteToFunctionInput", "operations[0].node",
+	     "operations[0] (PromoteToFunctionInput): node: node 2 is in the event graph: function inputs are added in a function's graph"},
+		{Json::object({{"op", "Disconnect"}, {"node", 2}, {"from", Json::array({1, "Then"})}}), "Disconnect", "operations[0].node",
+	     "operations[0] (Disconnect): node: Disconnect takes node alone, or from and/or to"},
+		{Json::object({{"op", "Relink"}, {"remove", Json::array()}, {"add", Json::array()}}), "Relink", "operations[0]",
+	     "operations[0] (Relink): Relink takes links to remove or to add"},
+		{Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Count"}, {"value", "four"}}), "SetSetting", "operations[0].value",
+	     "operations[0] (SetSetting): value: the Count of a Sequence is an integer from 2 to 64"},
+		{Json::object({{"op", "AddComment"}, {"text", "Far"}, {"position", Json::array({0, -2.0e7})}}), "AddComment",
+	     "operations[0].position", ""},
+		{Json::object({{"op", "SetPosition"}, {"element", 2}, {"position", Json::array({1.0e7 + 1.0, 0})}}), "SetPosition",
+	     "operations[0].position", ""},
+		{Json::object({{"op", "AddComment"}, {"text", "Bright"}, {"color", Json::array({1.5, 0, 0, 1})}}), "AddComment",
+	     "operations[0].color", "operations[0] (AddComment): color: expected four numbers, linear [r, g, b, a] within 0 to 1"},
+	};
+	for (Refusal const& refusal : refusals)
+	{
+		CAPTURE(refusal.Operation.dump());
+		VisualScriptBatchError const error = ExpectRefused(document, Json::array({refusal.Operation}), fixture.Context);
+		CHECK(error.Failure == VisualScriptBatchFailure::Invalid);
+		CHECK(error.Operation == 0);
+		CHECK(error.Kind == refusal.Kind);
+		CHECK(error.Path == refusal.Path);
+		CHECK(error.Data.is_null());
+		if (refusal.Message.empty())
+		{
+			// Points are finite, within the coordinates documents allow.
+			CHECK(error.Message.starts_with(fmt::format("operations[0] ({}): position: expected finite numbers within +-", refusal.Kind)));
+		}
+		else
+		{
+			CHECK(error.Message == refusal.Message);
+		}
+	}
+	// A refusal of an operation whose kind is unknown names no kind.
+	CHECK(ExpectRefused(document, Json::array({Json::object({{"op", "Conect"}})}), fixture.Context).Kind.empty());
+}
+
+TEST_CASE("VisualScriptBatch: SetSetting reports a name or an asset that does not resolve at its value")
+{
+	BatchFixture fixture;
+	fixture.Context.FindAsset = [](std::string_view) -> std::optional<AssetHandle>
+	{
+		return std::nullopt;
+	};
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(4, "Variable.Get", glm::vec2(0.0f, 320.0f), Json::object({{"Variable", 10}})));
+	VisualScriptBatchError const name =
+		ExpectRefused(document, Json::array({Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Variable"}, {"value", "Sped"}})}),
+	                  fixture.Context);
+	CHECK(name.Path == "operations[0].value");
+	CHECK(name.Message == "operations[0] (SetSetting): value: the visual script has no variable named Sped");
+	CHECK(name.Data["names"][0] == "Speed");
+	VisualScriptBatchError const asset = ExpectRefused(
+		document,
+		Json::array({Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Graph"}, {"value", "asset://Scripts/Missing.sgraph"}})}),
+		fixture.Context);
+	CHECK(asset.Failure == VisualScriptBatchFailure::AssetNotFound);
+	CHECK(asset.Path == "operations[0].value");
+	CHECK(asset.Data["path"] == "operations[0].value");
+	// AddNode's settings name the setting.
+	VisualScriptBatchError const added = ExpectRefused(
+		document,
+		Json::array({Json::object({{"op", "AddNode"}, {"type", "Variable.Get"}, {"settings", Json::object({{"Variable", "Sped"}})}})}),
+		fixture.Context);
+	CHECK(added.Path == "operations[0].settings.Variable");
+}
+
+TEST_CASE("VisualScriptBatch: nodes added without a position are moved, aligned, framed and promoted once Arrange placed them")
+{
+	BatchFixture fixture;
+	VisualScriptDocument const document = MakeDocument();
+	Json const add = Json::object({{"op", "AddNode"}, {"type", std::string(LogType)}, {"as", "$log"}});
+	std::vector<std::pair<Json, std::string>> const refused = {
+		{Json::object({{"op", "Move"}, {"elements", Json::array({"$log"})}, {"offset", Json::array({16, 0})}}), "elements"},
+		{Json::object({{"op", "AddComment"}, {"text", "Log"}, {"elements", Json::array({"$log", 2})}}), "elements"},
+		{Json::object({{"op", "Align"}, {"elements", Json::array({2, "$log"})}, {"alignment", "Top"}}), "elements"},
+		{Json::object({{"op", "Distribute"}, {"elements", Json::array({1, 2, "$log"})}, {"axis", "Vertical"}}), "elements"},
+		{Json::object({{"op", "Straighten"}, {"nodes", Json::array({1, "$log"})}}), "nodes"},
+		{Json::object({{"op", "PromoteToVariable"}, {"node", "$log"}, {"pin", "Message"}, {"direction", "In"}}), "node"},
+	};
+	for (auto const& [operation, field] : refused)
+	{
+		CAPTURE(operation.dump());
+		VisualScriptBatchError const error = ExpectRefused(document, Json::array({add, operation}), fixture.Context);
+		CHECK(error.Path == "operations[1]." + field);
+		CHECK(error.Message.find(" has no position yet: Arrange the nodes added without one (scope Created) or give it a position") !=
+		      std::string::npos);
+	}
+	// After an Arrange, each applies.
+	Json operations = Json::array({add, Json::object({{"op", "Arrange"}, {"scope", "Created"}})});
+	for (auto const& [operation, field] : refused)
+	{
+		operations.push_back(operation);
+	}
+	VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+	CHECK(FindNode(result.Document, GetLabel(result, "$log"))->Position.has_value());
+	// A position given is enough too.
+	Json placed = Json::array({add, refused[0].first});
+	placed[0]["position"] = Json::array({0, 480});
+	VisualScriptBatchResult const moved = ExpectApplied(document, placed, fixture.Context);
+	CHECK(FindNode(moved.Document, GetLabel(moved, "$log"))->Position == glm::vec2(16.0f, 480.0f));
+}
+
+TEST_CASE("VisualScriptBatch: a rename analyzes again before measured layout, which sizes the renamed nodes by their new titles")
+{
+	BatchFixture fixture;
+	VisualScriptDocument document = MakeDocument();
+	// A call of Push, then a Log right of it, linked.
+	document.Graph.Nodes.push_back(MakeNode(4, "Function.Call", glm::vec2(0.0f, 320.0f), Json::object({{"Function", 20}})));
+	document.Graph.Nodes.push_back(MakeNode(5, LogType, glm::vec2(192.0f, 320.0f)));
+	document.Graph.Links.push_back(MakeLink(4, "Then", 5, "Execute"));
+	Json const arrange = Json::object({{"op", "Arrange"}});
+	VisualScriptDocument const arranged = ExpectApplied(document, Json::array({arrange}), fixture.Context).Document;
+	auto const cache = [&fixture](VisualScriptDocument const& stored)
+	{
+		Result<VisualScriptAnalysis> analysis = fixture.Semantics.Analyze(stored, AssetHandle());
+		REQUIRE(analysis.IsOk());
+		fixture.Context.StoredAnalysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
+		fixture.Context.StoredAnalysisDocument = CreateRef<VisualScriptDocument const>(stored);
+	};
+
+	// The stored document's analysis is at hand (graph.edit's cache): no operation before the rename analyzed.
+	cache(arranged);
+	std::string const longName = "ThisIsAVeryLongFunctionNameThatMakesTheCallNodeWide";
+	auto const rename = [&longName](std::string_view op, std::string_view field, Json target)
+	{
+		return Json::object({{"op", std::string(op)}, {std::string(field), std::move(target)}, {"name", longName}});
+	};
+	VisualScriptBatchResult const renamed =
+		ExpectApplied(arranged, Json::array({rename("RenameFunction", "function", 20), arrange}), fixture.Context);
+	CHECK(renamed.Analyses == 1);
+	// Arranging the result again, measured from a fresh analysis, moves nothing: the batch sized the call by its new title.
+	fixture.Context.StoredAnalysis = nullptr;
+	fixture.Context.StoredAnalysisDocument = nullptr;
+	VisualScriptBatchResult const again = ExpectApplied(renamed.Document, Json::array({arrange}), fixture.Context);
+	CHECK(again.Document == renamed.Document);
+	CHECK(FindNode(renamed.Document, 5)->Position->x > FindNode(arranged, 5)->Position->x);
+
+	// A variable's or a local's new name analyzes again before measured layout too; the same name does not.
+	cache(arranged);
+	CHECK(ExpectApplied(arranged, Json::array({rename("SetVariable", "variable", 10), arrange}), fixture.Context).Analyses == 1);
+	Json local = rename("SetLocal", "local", 23);
+	local["function"] = 20;
+	CHECK(ExpectApplied(arranged, Json::array({local, arrange}), fixture.Context).Analyses == 1);
+	Json const same = Json::object({{"op", "SetVariable"}, {"variable", 10}, {"name", "Speed"}});
+	CHECK(ExpectApplied(arranged, Json::array({same, arrange}), fixture.Context).Analyses == 0);
+}
+
+TEST_CASE("VisualScriptBatch: an unknown name of a megabyte is refused with the closest names, compared by its start only")
+{
+	BatchFixture fixture;
+	VisualScriptDocument document = MakeDocument();
+	for (uint32_t index = 0; index < 1000; index++)
+	{
+		VisualScriptVariable variable;
+		variable.ID = 1000 + index;
+		variable.Name = fmt::format("Variable{}", index);
+		variable.Type = "int";
+		document.Variables.push_back(std::move(variable));
+	}
+	// Compared in full against a thousand names, a megabyte would take hours; it is refused at once.
+	std::string const name = "Speed" + std::string(size_t{1} << 20, 'x');
+	std::vector<Json> const operations = {
+		Json::object({{"op", "SetVariable"}, {"variable", name}}),
+		Json::object({{"op", "AddNode"}, {"type", "Variable.Get"}, {"settings", Json::object({{"Variable", name}})}}),
+	};
+	for (Json const& operation : operations)
+	{
+		VisualScriptBatchError const error = ExpectRefused(document, Json::array({operation}), fixture.Context);
+		REQUIRE(error.Data.contains("names"));
+		CHECK(error.Data["names"].size() == 3);
+	}
+}
+
+TEST_CASE("VisualScriptBatch: the links one list lacks are found in time linear in both, at the format's link limit")
+{
+	std::vector<VisualScriptLink> before;
+	for (uint32_t index = 0; index < static_cast<uint32_t>(VisualScriptSerializer::MaxLinksPerGraph); index++)
+	{
+		before.push_back(MakeLink(index + 1, "Result", index + 2, "A"));
+	}
+	std::vector<VisualScriptLink> after(before.begin() + 1, before.end());
+	after.erase(after.begin() + 20000);
+	after.push_back(MakeLink(1, "Result", 3, "B"));
+	std::vector<VisualScriptLink> const gone = FindVisualScriptLinksGone(before, after);
+	REQUIRE(gone.size() == 2);
+	CHECK(gone[0] == before[0]);
+	CHECK(gone[1] == before[20001]);
+	CHECK(FindVisualScriptLinksGone(after, before) == std::vector<VisualScriptLink>{MakeLink(1, "Result", 3, "B")});
+	CHECK(FindVisualScriptLinksGone(before, before).empty());
+	// A link is told apart by each of its four parts.
+	std::vector<VisualScriptLink> const link = {MakeLink(1, "Then", 2, "Execute")};
+	std::vector<VisualScriptLink> const others = {MakeLink(9, "Then", 2, "Execute"), MakeLink(1, "Else", 2, "Execute"),
+	                                              MakeLink(1, "Then", 9, "Execute"), MakeLink(1, "Then", 2, "Other")};
+	CHECK(FindVisualScriptLinksGone(link, others) == link);
+}
+
+namespace
+{
+	// 2,000 additions in rows of 50, each feeding the next one; the variable Speed (5000); 64 functions, each with an entry and
+	// a Get of Speed.
+	VisualScriptDocument MakeChainDocument()
+	{
+		VisualScriptDocument document;
+		for (uint32_t index = 0; index < 2000; index++)
+		{
+			glm::vec2 const position(static_cast<float>(index % 50) * 320.0f, static_cast<float>(index / 50) * 160.0f);
+			document.Graph.Nodes.push_back(MakeNode(index + 1, "Operator.Add", position, Json::object(), Json::object({{"B", 1.5}})));
+			if (index > 0)
+			{
+				document.Graph.Links.push_back(MakeLink(index, "Result", index + 1, "A"));
+			}
+		}
+		VisualScriptVariable speed;
+		speed.ID = 5000;
+		speed.Name = "Speed";
+		speed.Type = "float";
+		document.Variables.push_back(speed);
+		for (uint32_t index = 0; index < 64; index++)
+		{
+			VisualScriptFunction function;
+			function.ID = 6000 + index * 4;
+			function.Name = fmt::format("Function{}", index);
+			function.Graph.Nodes.push_back(MakeNode(function.ID + 1, "Function.Entry", glm::vec2(0.0f)));
+			function.Graph.Nodes.push_back(
+				MakeNode(function.ID + 2, "Variable.Get", glm::vec2(320.0f, 0.0f), Json::object({{"Variable", 5000}})));
+			document.Functions.push_back(std::move(function));
+		}
+		return document;
+	}
+
+	// Connections of the additions' results into the B inputs two further along the chain, from the first addition on.
+	Json MakeChainConnections(uint32_t count)
+	{
+		Json operations = Json::array();
+		for (uint32_t index = 1; index <= count; index++)
+		{
+			operations.push_back(
+				Json::object({{"op", "Connect"}, {"from", Json::array({index, "Result"})}, {"to", Json::array({index + 2, "B"})}}));
+		}
+		return operations;
+	}
+}
+
+TEST_CASE("VisualScriptBatch: canvases share one copy of the document per change, whatever the number of sub-graphs")
+{
+	// Each Connect reads pins after the previous one changed the links, so the batch copies the document once per Connect;
+	// deleting a variable with its nodes reads the pins of every sub-graph from one copy (a copy per sub-graph would make 65).
+	BatchFixture fixture;
+	VisualScriptDocument const document = MakeChainDocument();
+	constexpr uint32_t Connects = 100;
+	Json operations = MakeChainConnections(Connects);
+	operations.push_back(Json::object({{"op", "DeleteVariable"}, {"variable", "Speed"}}));
+	VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+	CHECK(result.Analyses == 1);
+	CHECK(result.Displays == Connects + 1);
+	CHECK(result.Results.back() == Json::object({{"removedNodes", 64}}));
+	CHECK(result.Document.Graph.Links.size() == document.Graph.Links.size() + Connects);
+}
+
+TEST_CASE("VisualScriptBatch: a thousand connections on a graph of 2,000 nodes, in their time on request")
+{
+	// Spec section 7.9: a batch's operations are the editor's linear edits, and each one that reads pins syncs the canvas of its
+	// sub-graph with the document as the operations before it left it. The case above counts the copies always; this one runs
+	// with STRADA_PERFORMANCE_TESTS=1 only (a minute and a half in Debug).
+	if (!ArePerformanceTestsEnabled())
+	{
+		return;
+	}
+	BatchFixture fixture;
+	VisualScriptDocument const document = MakeChainDocument();
+	constexpr uint32_t Connects = 1000;
+	Json const operations = MakeChainConnections(Connects);
+	auto const start = std::chrono::steady_clock::now();
+	std::variant<VisualScriptBatchResult, VisualScriptBatchError> const applied =
+		ApplyVisualScriptBatch(document, operations, fixture.Context);
+	double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+	VisualScriptBatchResult const* const result = std::get_if<VisualScriptBatchResult>(&applied);
+	REQUIRE(result != nullptr);
+	CHECK(result->Analyses == 1);
+	CHECK(result->Displays == Connects);
+	MESSAGE("1,000 connections on 2,000 nodes and 1,999 links: " << milliseconds << " ms, " << milliseconds / Connects
+	                                                             << " ms per connection");
+	// Three times what track G measured (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51, other builds running).
+#if defined(ST_DEBUG)
+	constexpr double MeasuredMilliseconds = 91400.0;
+#else
+	constexpr double MeasuredMilliseconds = 1974.0;
+#endif
+	CHECK(milliseconds <= 3.0 * MeasuredMilliseconds);
 }

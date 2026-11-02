@@ -6,6 +6,7 @@
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Core/Base.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 
 #include <cstdint>
@@ -25,9 +26,17 @@ namespace Strada
 		// Lays out the sub-graph (0: the event graph, else a function's ID; an unknown ID shows nothing). analysis is of
 		// analyzedDocument (a node takes its analysis' pins only while it still matches what was analyzed, as in a window); both
 		// may be null, and library too. analysis, analyzedDocument and library must stay valid until the next Sync; document
-		// is copied.
+		// is copied (MakeDisplay).
 		void Sync(VisualScriptDocument const& document, uint32_t function, VisualScriptAnalysis const* analysis,
 		          VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library);
+		// The same with a display MakeDisplay made, which the canvas keeps instead of a copy: canvases of several sub-graphs of
+		// one document share one display.
+		void Sync(Ref<VisualScriptDocument const> display, uint32_t function, VisualScriptAnalysis const* analysis,
+		          VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library);
+
+		// What a canvas shows of a document: a copy whose unplaced nodes are placed (PlaceUnplacedNodes), as a window shows
+		// them before the first commit places them.
+		[[nodiscard]] static Ref<VisualScriptDocument const> MakeDisplay(VisualScriptDocument const& document);
 
 		// The size of each node as a window draws it (VisualScriptCanvasModel::GetExtents). Valid until the next Sync.
 		[[nodiscard]] VisualScriptNodeExtents GetExtents() const;
@@ -37,10 +46,10 @@ namespace Strada
 
 		// The canvas as the last Sync laid it out, and the document it shows (its unplaced nodes placed).
 		[[nodiscard]] VisualScriptCanvasModel const& GetCanvas() const { return m_Canvas; }
-		[[nodiscard]] VisualScriptDocument const& GetDisplay() const { return m_Display; }
+		[[nodiscard]] VisualScriptDocument const& GetDisplay() const { return *m_Display; }
 
 	private:
-		VisualScriptDocument m_Display;
+		Ref<VisualScriptDocument const> m_Display = CreateRef<VisualScriptDocument const>();
 		VisualScriptCanvasModel m_Canvas;
 		VisualScriptAnalysis const* m_Analysis = nullptr;
 		VisualScriptLibrary const* m_Library = nullptr;

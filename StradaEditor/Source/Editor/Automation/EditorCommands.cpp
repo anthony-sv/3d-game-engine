@@ -1251,13 +1251,12 @@ namespace Strada
 			std::vector<uint32_t> nodes;
 			auto const compare = [&nodes](VisualScriptGraph const& before, VisualScriptGraph const* after)
 			{
-				for (VisualScriptLink const& link : before.Links)
+				std::span<VisualScriptLink const> const kept =
+					after != nullptr ? std::span<VisualScriptLink const>(after->Links) : std::span<VisualScriptLink const>();
+				for (VisualScriptLink const& link : FindVisualScriptLinksGone(before.Links, kept))
 				{
-					if (after == nullptr || std::find(after->Links.begin(), after->Links.end(), link) == after->Links.end())
-					{
-						nodes.push_back(link.From.Node);
-						nodes.push_back(link.To.Node);
-					}
+					nodes.push_back(link.From.Node);
+					nodes.push_back(link.To.Node);
 				}
 			};
 			compare(stored.Graph, &result.Graph);
@@ -2766,7 +2765,7 @@ namespace Strada
 				}
 
 				// Other graphs the operations name (by a Graph setting) are read from their assets, kept for the batch.
-				auto const held = std::make_shared<std::vector<Ref<VisualScriptDocument const>>>();
+				auto const held = CreateRef<std::vector<Ref<VisualScriptDocument const>>>();
 				Ref<VisualScriptLibrary const> const library = m_Semantics.GetLibrary();
 				Ref<VisualScriptAnalysis const> storedAnalysis = FindStoredGraphAnalysis(handle, stored, library);
 				VisualScriptBatchContext context(m_Semantics);
@@ -2805,42 +2804,65 @@ namespace Strada
 				}
 				VisualScriptBatchResult batch = std::get<VisualScriptBatchResult>(std::move(applied));
 
-				// The analysis of the result: the batch's last one when nothing changed the program since, else a new one.
+				// A batch that leaves the document as it found it writes nothing, so nothing is prepared: preparing places the
+				// stored document's unplaced nodes and stores its inexact types canonically, changes the batch did not make (an
+				// empty batch inspects a graph without editing it). Its result is the stored document, whose one analysis serves
+				// as both the result's and the stored one's, and is kept for the next call.
 				uint32_t analyses = batch.Analyses;
 				bool const refuseNewErrors = GetBool(params, "refuseNewErrors", false);
+				bool const analyze = (GetBool(params, "analyze", true) || refuseNewErrors) && library != nullptr;
 				Ref<VisualScriptAnalysis const> analysis;
-				if ((GetBool(params, "analyze", true) || refuseNewErrors) && library != nullptr)
+				std::optional<VisualScriptCommit> commit;
+				if (IsSameVisualScriptDocument(*stored, batch.Document))
 				{
-					if (batch.Analysis != nullptr)
+					if (analyze)
 					{
-						analysis = batch.Analysis;
+						analysis = storedAnalysis != nullptr ? storedAnalysis : batch.Analysis;
+						if (analysis == nullptr)
+						{
+							analyses++;
+							analysis = AnalyzeForEdit(*stored, handle);
+						}
+						storedAnalysis = analysis;
 					}
-					else
+				}
+				else
+				{
+					// The analysis of the result: the batch's last one when nothing changed the program since, else a new one.
+					if (analyze)
+					{
+						if (batch.Analysis != nullptr)
+						{
+							analysis = batch.Analysis;
+						}
+						else
+						{
+							analyses++;
+							analysis = AnalyzeForEdit(batch.Document, handle);
+						}
+					}
+					Result<VisualScriptCommit> prepared =
+						PrepareVisualScriptCommit(*stored, std::move(batch.Document), analysis != nullptr ? analysis.get() : nullptr);
+					if (!prepared)
+					{
+						// The operations kept the document valid, and preparing it keeps it valid: this is the editor's fault.
+						return MakeCommandError(AutomationErrorCode::InternalError, "{}", prepared.GetError());
+					}
+					commit = prepared.TakeValue();
+					// The analysis is of the document as written: again when preparing it changed what the runtime reads.
+					if (analysis != nullptr && !commit->Warnings.empty())
 					{
 						analyses++;
-						analysis = AnalyzeForEdit(batch.Document, handle);
+						analysis = AnalyzeForEdit(commit->Document, handle);
 					}
-				}
-				Result<VisualScriptCommit> prepared =
-					PrepareVisualScriptCommit(*stored, std::move(batch.Document), analysis != nullptr ? analysis.get() : nullptr);
-				if (!prepared)
-				{
-					// The operations kept the document valid, and preparing it keeps it valid: this is the editor's fault.
-					return MakeCommandError(AutomationErrorCode::InternalError, "{}", prepared.GetError());
-				}
-				VisualScriptCommit commit = prepared.TakeValue();
-				// The analysis is of the document as written: again when preparing it changed what the runtime reads.
-				if (analysis != nullptr && !commit.Warnings.empty())
-				{
-					analyses++;
-					analysis = AnalyzeForEdit(commit.Document, handle);
-				}
-				// The stored document's analysis, for New and refuseNewErrors: cached, or made once now and kept for the next call.
-				if (analysis != nullptr && storedAnalysis == nullptr)
-				{
-					analyses++;
-					storedAnalysis = AnalyzeForEdit(*stored, handle);
-					RememberStoredGraphAnalysis(handle, stored, library, storedAnalysis);
+					// The stored document's analysis, for New and refuseNewErrors: cached, or made once now and kept for the next
+					// call.
+					if (analysis != nullptr && storedAnalysis == nullptr)
+					{
+						analyses++;
+						storedAnalysis = AnalyzeForEdit(*stored, handle);
+						RememberStoredGraphAnalysis(handle, stored, library, storedAnalysis);
+					}
 				}
 				if (refuseNewErrors)
 				{
@@ -2850,13 +2872,15 @@ namespace Strada
 					}
 				}
 
-				bool const changed = !IsSameVisualScriptDocument(*stored, commit.Document);
+				// Preparing can give the stored document back (a type the batch wrote inexactly, stored canonically again).
+				bool const changed = commit.has_value() && !IsSameVisualScriptDocument(*stored, commit->Document);
+				VisualScriptDocument const& result = commit.has_value() ? commit->Document : *stored;
 				bool const dryRun = GetBool(params, "dryRun", false);
 				Json described = DescribeGraph(handle);
 				described["changed"] = changed;
 				described["dryRun"] = dryRun;
-				described["revision"] = FormatGraphRevision(Hash::FNV1a(commit.Text));
-				described["programRevision"] = GetGraphProgramRevision(commit.Document);
+				described["revision"] = commit.has_value() ? FormatGraphRevision(Hash::FNV1a(commit->Text)) : GetGraphRevision(*stored);
+				described["programRevision"] = GetGraphProgramRevision(result);
 				described["analyses"] = analyses;
 				Json labels = Json::object();
 				for (auto const& [label, id] : batch.Labels)
@@ -2865,21 +2889,20 @@ namespace Strada
 				}
 				described["labels"] = std::move(labels);
 				described["results"] = std::move(batch.Results);
-				described["warnings"] = commit.Warnings;
+				described["warnings"] = commit.has_value() ? Json(commit->Warnings) : Json::array();
 				described["analyzed"] = analysis != nullptr;
 				Json summary = Json::object();
 				if (analysis != nullptr)
 				{
-					std::vector<uint32_t> const edited = FindEditedGraphNodes(*stored, commit.Document, batch.Created);
+					std::vector<uint32_t> const edited = FindEditedGraphNodes(*stored, result, batch.Created);
 					AddAnalysis(described, *analysis);
-					DescribeEditedDiagnostics(described["diagnostics"], summary, commit.Document, *analysis, storedAnalysis.get(), *library,
-					                          batch);
+					DescribeEditedDiagnostics(described["diagnostics"], summary, result, *analysis, storedAnalysis.get(), *library, batch);
 					described["nodes"] = SelectGraphNodes(described["nodes"], GetString(params, "nodes", "Changed"), edited);
 					std::vector<uint32_t> hinted = edited;
-					std::vector<uint32_t> const unlinked = FindUnlinkedGraphNodes(*stored, commit.Document);
+					std::vector<uint32_t> const unlinked = FindUnlinkedGraphNodes(*stored, result);
 					hinted.insert(hinted.end(), unlinked.begin(), unlinked.end());
 					Json hints = Json::array();
-					for (VisualScriptHint const& hint : FindVisualScriptHints(commit.Document, *analysis, hinted))
+					for (VisualScriptHint const& hint : FindVisualScriptHints(result, *analysis, hinted))
 					{
 						hints.push_back(Json::object({{"node", hint.Node}, {"kind", hint.Kind}, {"message", hint.Message}}));
 					}
@@ -2888,7 +2911,7 @@ namespace Strada
 				described["summary"] = std::move(summary);
 				if (GetBool(params, "document", false))
 				{
-					described["document"] = VisualScriptSerializer::SerializeDocument(commit.Document);
+					described["document"] = VisualScriptSerializer::SerializeDocument(result);
 				}
 				if (!changed)
 				{
@@ -2899,9 +2922,9 @@ namespace Strada
 				{
 					std::string const scriptName = FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem());
 					std::string description = GetString(params, "description", "Edit Visual Script") + " in " + scriptName;
-					Ref<VisualScriptDocument const> const written = CreateRef<VisualScriptDocument const>(std::move(commit.Document));
+					Ref<VisualScriptDocument const> const written = CreateRef<VisualScriptDocument const>(std::move(commit->Document));
 					if (Result<void> const edited =
-					        m_Operations.EditVisualScript(handle, written, std::move(description), 0, std::move(commit.Text));
+					        m_Operations.EditVisualScript(handle, written, std::move(description), 0, std::move(commit->Text));
 					    !edited)
 					{
 						return Failure(AutomationErrorCode::FileError, edited);
@@ -3014,7 +3037,7 @@ namespace Strada
 				}
 			}
 
-			// A batch's failure as the command's error: the failing operation and field in data.
+			// A batch's failure as the command's error: the failing operation, its kind and field in data.
 			static CommandError MakeBatchError(VisualScriptBatchError const& failed)
 			{
 				AutomationErrorCode code = AutomationErrorCode::InvalidParams;
@@ -3038,6 +3061,10 @@ namespace Strada
 				}
 				error.Data["path"] = failed.Path;
 				error.Data["operation"] = failed.Operation;
+				if (!failed.Kind.empty())
+				{
+					error.Data["op"] = failed.Kind;
+				}
 				return error;
 			}
 

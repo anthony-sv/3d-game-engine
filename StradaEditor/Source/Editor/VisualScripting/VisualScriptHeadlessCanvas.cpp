@@ -4,20 +4,35 @@
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
 #include "Strada/Asset/VisualScriptLayout.h"
+#include "Strada/Core/Assert.h"
+
+#include <utility>
 
 namespace Strada
 {
+	Ref<VisualScriptDocument const> VisualScriptHeadlessCanvas::MakeDisplay(VisualScriptDocument const& document)
+	{
+		VisualScriptDocument display = document;
+		PlaceUnplacedNodes(display);
+		return CreateRef<VisualScriptDocument const>(std::move(display));
+	}
+
 	void VisualScriptHeadlessCanvas::Sync(VisualScriptDocument const& document, uint32_t function, VisualScriptAnalysis const* analysis,
 	                                      VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library)
 	{
-		// As a window shows a document: its unplaced nodes where the first commit will place them.
-		m_Display = document;
-		PlaceUnplacedNodes(m_Display);
+		Sync(MakeDisplay(document), function, analysis, analyzedDocument, library);
+	}
+
+	void VisualScriptHeadlessCanvas::Sync(Ref<VisualScriptDocument const> display, uint32_t function, VisualScriptAnalysis const* analysis,
+	                                      VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library)
+	{
+		ST_CORE_ASSERT(display != nullptr, "A headless canvas shows a document");
+		m_Display = std::move(display);
 		m_Analysis = analysis;
 		m_Library = library;
 
 		VisualScriptCanvasSource source;
-		source.Display = &m_Display;
+		source.Display = m_Display.get();
 		source.Function = function;
 		source.Analysis = analysis;
 		source.AnalyzedDocument = analyzedDocument;
@@ -43,6 +58,6 @@ namespace Strada
 
 	VisualScriptNodePins VisualScriptHeadlessCanvas::GetPins(std::optional<VisualScriptNewNodePins> newNode) const
 	{
-		return MakeVisualScriptCanvasNodePins(m_Canvas, m_Analysis, &m_Display, m_Library, newNode);
+		return MakeVisualScriptCanvasNodePins(m_Canvas, m_Analysis, m_Display.get(), m_Library, newNode);
 	}
 }

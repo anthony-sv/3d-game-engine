@@ -298,7 +298,7 @@ namespace
 			else if (kind == "SetEventParameters")
 			{
 				operation["node"] = Node();
-				operation["parameters"] = Json::array({Json::object({{"name", "Amount"}, {"type", Pick(ValueTypes)}})});
+				operation["parameters"] = Json::array({Json::object({{"name", "Amount"}, {"type", Pick(s_ValueTypes)}})});
 			}
 			else if (kind == "RenameCustomEvent")
 			{
@@ -372,7 +372,7 @@ namespace
 			else if (kind == "AddVariable")
 			{
 				operation["name"] = NewName("Fuzz");
-				operation["type"] = Pick(ValueTypes);
+				operation["type"] = Pick(s_ValueTypes);
 				if (m_Random.Pick(2) == 0)
 				{
 					operation["public"] = true;
@@ -395,7 +395,7 @@ namespace
 					}
 					else
 					{
-						operation["type"] = Pick(ValueTypes);
+						operation["type"] = Pick(s_ValueTypes);
 					}
 				}
 				if (kind == "DeleteVariable" && m_Random.Pick(3) == 0)
@@ -423,7 +423,7 @@ namespace
 				if (kind == "AddLocal")
 				{
 					operation["name"] = NewName("Local");
-					operation["type"] = Pick(ValueTypes);
+					operation["type"] = Pick(s_ValueTypes);
 				}
 				else
 				{
@@ -437,7 +437,7 @@ namespace
 			else if (kind == "AddFunction")
 			{
 				operation["name"] = NewName("Fuzzed");
-				operation["inputs"] = Json::array({Json::object({{"name", "In"}, {"type", Pick(ValueTypes)}})});
+				operation["inputs"] = Json::array({Json::object({{"name", "In"}, {"type", Pick(s_ValueTypes)}})});
 				if (m_Random.Pick(2) == 0)
 				{
 					operation["pure"] = true;
@@ -688,7 +688,7 @@ namespace
 			return values[m_Random.Pick(values.size())];
 		}
 
-		static inline std::vector<std::string> const ValueTypes = {"int", "float", "bool", "string", "Strada.Vector3"};
+		static inline std::vector<std::string> const s_ValueTypes = {"int", "float", "bool", "string", "Strada.Vector3"};
 
 		Testing::FuzzRandom& m_Random;
 		VisualScriptDocument const& m_Document;

@@ -2354,9 +2354,9 @@ TEST_CASE("GraphCommands: graph.arrange arranges the nodes given with either ext
 	{
 		node.Position = glm::vec2(static_cast<float>(VisualScriptSerializer::MaxCoordinate) - 100.0f, 0.0f);
 	}
-	std::string const far = fixture.CreateGraph("Scripts/Far.sgraph", edge);
-	CHECK(fixture.Ok("graph.arrange", Json::object({{"graph", far}}))["changed"] == true);
-	for (VisualScriptNode const& node : fixture.GetDocument(far).Graph.Nodes)
+	std::string const edgeGraph = fixture.CreateGraph("Scripts/Far.sgraph", edge);
+	CHECK(fixture.Ok("graph.arrange", Json::object({{"graph", edgeGraph}}))["changed"] == true);
+	for (VisualScriptNode const& node : fixture.GetDocument(edgeGraph).Graph.Nodes)
 	{
 		REQUIRE(node.Position.has_value());
 		CHECK(VisualScriptSerializer::IsValidPosition(*node.Position));
@@ -2534,6 +2534,28 @@ TEST_CASE("GraphCommands: graph.edit applies a batch as one undo step through th
 		fixture.Fails("graph.edit", Json::object({{"graph", graph}, {"operations", Json::array()}, {"programRevision", program}}));
 	CHECK(changedProgram.Data["path"] == "programRevision");
 	CHECK(changedProgram.Data["programRevision"] == ProgramRevisionOf(fixture.GetDocument(graph)));
+
+	// Both given: both must match. A user's move since refuses the revision; a stale program revision is refused with a
+	// current revision; a current pair passes.
+	Json const latest = fixture.Ok("graph.edit", Json::object({{"graph", graph}, {"operations", Json::array()}}));
+	auto const both = [&graph](Json revisionGiven, Json programGiven)
+	{
+		return Json::object({{"graph", graph},
+		                     {"operations", Json::array()},
+		                     {"revision", std::move(revisionGiven)},
+		                     {"programRevision", std::move(programGiven)}});
+	};
+	CHECK(fixture.Ok("graph.edit", both(latest["revision"], latest["programRevision"]))["changed"] == false);
+	fixture.Ok("graph.edit", Json::object({{"graph", graph}, {"operations", move}}));
+	CommandError const movedSince = fixture.Fails("graph.edit", both(latest["revision"], latest["programRevision"]));
+	CHECK(movedSince.Code == AutomationErrorCode::InvalidOperation);
+	CHECK(movedSince.Data["path"] == "revision");
+	Json const afterMove = fixture.Ok("graph.edit", Json::object({{"graph", graph}, {"operations", Json::array()}}));
+	CHECK(afterMove["programRevision"] == latest["programRevision"]);
+	CommandError const staleProgram = fixture.Fails("graph.edit", both(afterMove["revision"], program));
+	CHECK(staleProgram.Code == AutomationErrorCode::InvalidOperation);
+	CHECK(staleProgram.Data["path"] == "programRevision");
+	CHECK(fixture.Ok("graph.edit", both(afterMove["revision"], afterMove["programRevision"]))["changed"] == false);
 }
 
 TEST_CASE("GraphCommands: graph.edit refuses what does not apply, naming the operation, and runs degraded without the runtime")
@@ -2556,6 +2578,7 @@ TEST_CASE("GraphCommands: graph.edit refuses what does not apply, naming the ope
 	CHECK(invalid.Code == AutomationErrorCode::InvalidParams);
 	CHECK(invalid.Data["path"] == "operations[1].elements[0]");
 	CHECK(invalid.Data["operation"] == 1);
+	CHECK(invalid.Data["op"] == "Move");
 	CHECK(invalid.Message.starts_with("operations[1] (Move): "));
 	CHECK(fixture.ReadFile("Scripts/Counter.sgraph") == original);
 	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
@@ -2565,6 +2588,8 @@ TEST_CASE("GraphCommands: graph.edit refuses what does not apply, naming the ope
 	CommandError const connect = fixture.Fails("graph.edit", edit(Json::array({link})));
 	CHECK(connect.Code == AutomationErrorCode::Unavailable);
 	CHECK(connect.Data["operation"] == 0);
+	CHECK(connect.Data["op"] == "Connect");
+	CHECK(connect.Data["path"] == "operations[0]");
 	CHECK(fixture.Fails("graph.edit", Json::object({{"graph", graph}, {"operations", Json::array()}, {"refuseNewErrors", true}})).Code ==
 	      AutomationErrorCode::Unavailable);
 
@@ -3114,12 +3139,7 @@ TEST_CASE("GraphCommands: the documentation's spinner batch makes one undo step 
 	GraphFixture fixture;
 	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
 	REQUIRE(library != nullptr);
-	// Formulas are slice 3's Expression node, which the scripting runtime has once track VL's VM is merged.
-	if (library->FindNode("Expression") == nullptr)
-	{
-		MESSAGE("the node library has no Expression node: the spinner batch needs track VL's VM");
-		return;
-	}
+	REQUIRE(library->FindNode("Expression") != nullptr);
 	Json const batch = LoadSpinnerBatch();
 	REQUIRE(fixture.Ok("graph.create", Json::object({{"path", "Scripts/Spinner.sgraph"}}))["asset"].is_string());
 	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
@@ -3147,4 +3167,108 @@ TEST_CASE("GraphCommands: the documentation's spinner batch makes one undo step 
 	Json const unlinked = fixture.Ok("graph.edit", broken);
 	uint32_t const next = unlinked["labels"]["$next"].get<uint32_t>();
 	CHECK(Contains(ListHints(unlinked), fmt::format("{}:UnlinkedInput", next)));
+
+	// A broken spinner: the setter's type misspelled, and the links into it left out. Its diagnostic is new and names the
+	// node's label, and every fix it offers applies unchanged in a follow-up batch.
+	Json misspelled = batch;
+	Json& misspelledOperations = misspelled["operations"];
+	for (Json& operation : misspelledOperations)
+	{
+		if (operation.value("as", "") == "$turn")
+		{
+			operation["type"] = "Set:Strada.TransformComponent.EulerAngels";
+		}
+	}
+	misspelledOperations.erase(std::remove_if(misspelledOperations.begin(), misspelledOperations.end(),
+	                                          [](Json const& operation)
+	                                          {
+												  return operation["op"] == "Connect" && operation["to"][0] == "$turn";
+											  }),
+	                           misspelledOperations.end());
+	Json const typo = fixture.Ok("graph.edit", misspelled);
+	CHECK(typo["changed"] == true);
+	std::vector<Json> const unknown = FindDiagnostics(typo, "UnknownNodeType");
+	REQUIRE(unknown.size() == 1);
+	CHECK(unknown[0]["New"] == true);
+	CHECK(unknown[0]["Label"] == "$turn");
+	REQUIRE_FALSE(unknown[0]["Fixes"].empty());
+	for (Json const& fix : unknown[0]["Fixes"])
+	{
+		CAPTURE(fix);
+		Json const applied = fixture.Ok(
+			"graph.edit", Json::object({{"graph", batch["graph"]}, {"operations", Json::array({fix["operation"]})}, {"dryRun", true}}));
+		CHECK(applied["changed"] == true);
+		CHECK(FindDiagnostics(applied, "UnknownNodeType").empty());
+	}
+}
+
+TEST_CASE("GraphCommands: an idle graph.edit leaves a file with unplaced nodes and signature-less types as it is, in one analysis")
+{
+	// A file written by hand (graph.set would place the node and store the type canonically): a Branch without a position, and
+	// a call named without its signature, which the runtime resolves inexactly.
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	VisualScriptDocument document;
+	VisualScriptNode update;
+	update.ID = 1;
+	update.Type = "Event.Update";
+	update.Position = glm::vec2(0.0f);
+	VisualScriptNode branch;
+	branch.ID = 3;
+	branch.Type = "Flow.Branch";
+	VisualScriptNode key;
+	key.ID = 4;
+	key.Type = "Call:Strada.Input.IsKeyDown";
+	key.Position = glm::vec2(0.0f, 240.0f);
+	key.Inputs = Json::object({{"Key", "Space"}});
+	document.Graph.Nodes = {update, branch, key};
+	document.Graph.Links.push_back(MakeLink(1, "Then", 3, "Execute"));
+	document.Graph.Links.push_back(MakeLink(4, "Result", 3, "Condition"));
+	fixture.WriteFile("Scripts/Probe.sgraph", VisualScriptSerializer::WriteText(document));
+	fixture.Ok("asset.refresh");
+	std::string const graph = "asset://Scripts/Probe.sgraph";
+	std::string const original = fixture.ReadFile("Scripts/Probe.sgraph");
+	std::string const revision = fixture.Ok("graph.get", Json::object({{"graph", graph}}))["revision"].get<std::string>();
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	auto const edit = [&graph](Json operations, bool dryRun)
+	{
+		return Json::object({{"graph", graph}, {"operations", std::move(operations)}, {"dryRun", dryRun}});
+	};
+	auto const expectUnchanged = [&](Json const& answered)
+	{
+		CHECK(answered["changed"] == false);
+		CHECK(answered["revision"] == revision);
+		CHECK(answered["warnings"] == Json::array());
+		CHECK(answered["analyzed"] == true);
+		CHECK(fixture.ReadFile("Scripts/Probe.sgraph") == original);
+		CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	};
+
+	// The first call analyzes the stored document once, for the result and as the stored one; later calls reuse it.
+	Json const dry = fixture.Ok("graph.edit", edit(Json::array(), true));
+	expectUnchanged(dry);
+	CHECK(dry["analyses"] == 1);
+	Json const empty = fixture.Ok("graph.edit", edit(Json::array(), false));
+	expectUnchanged(empty);
+	CHECK(empty["analyses"] == 0);
+	// The dry run answered what the call answers, but for the analysis the call found cached.
+	Json expected = dry;
+	expected["dryRun"] = false;
+	expected["analyses"] = 0;
+	CHECK(empty == expected);
+	// Operations that undo each other leave the file as it is too.
+	Json const idle = fixture.Ok("graph.edit", edit(Json::array({Json::object({{"op", "SetDescription"}, {"description", "x"}}),
+	                                                             Json::object({{"op", "SetDescription"}, {"description", ""}})}),
+	                                                false));
+	expectUnchanged(idle);
+
+	// A change of the program places the node and stores the type canonically, as every such commit does, and says so.
+	Json const described =
+		fixture.Ok("graph.edit", edit(Json::array({Json::object({{"op", "AddVariable"}, {"name", "Probes"}, {"type", "int"}})}), false));
+	CHECK(described["changed"] == true);
+	CHECK(described["warnings"].size() == 1);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	VisualScriptDocument const written = fixture.GetDocument(graph);
+	CHECK(written.Graph.Nodes[1].Position.has_value());
+	CHECK(written.Graph.Nodes[2].Type == "Call:Strada.Input.IsKeyDown(Strada.KeyCode)");
 }

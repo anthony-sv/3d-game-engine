@@ -81,6 +81,8 @@ namespace Strada
 		VisualScriptBatchFailure Failure = VisualScriptBatchFailure::Invalid;
 		// The index of the failing operation.
 		size_t Operation = 0;
+		// Its kind ("Connect"); empty when the operation names no kind the batch takes.
+		std::string Kind;
 		// Where in the parameters: "operations[3].from[1]".
 		std::string Path;
 		// "operations[3] (Connect): node 12 has no output Then".
@@ -104,6 +106,9 @@ namespace Strada
 		Ref<VisualScriptAnalysis const> Analysis;
 		// How many analyses the batch made.
 		uint32_t Analyses = 0;
+		// How many copies of the working document its canvases took: at most one per change an operation that reads pins or
+		// sizes followed, shared by the canvases of every sub-graph.
+		uint32_t Displays = 0;
 	};
 
 	// The operation kinds a batch takes, in the order graph.edit's schema lists them.
@@ -132,6 +137,11 @@ namespace Strada
 
 		bool operator==(VisualScriptHint const& other) const = default;
 	};
+
+	// The links of before that after lacks, in before's order: in time linear in the two lists, as graphs hold up to
+	// MaxLinksPerGraph links.
+	[[nodiscard]] std::vector<VisualScriptLink> FindVisualScriptLinksGone(std::span<VisualScriptLink const> before,
+	                                                                      std::span<VisualScriptLink const> after);
 
 	// The hints of the given nodes (in their order, each node's hints together), from the document's analysis.
 	[[nodiscard]] std::vector<VisualScriptHint>
