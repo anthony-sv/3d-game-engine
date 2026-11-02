@@ -9,8 +9,9 @@ namespace Strada.ScriptCore.Tests;
 // their variables, node states, stored outputs and fibers as far as they still mean the same.
 public sealed class LiveEditTests
 {
-	private static string Warning(uint latent, string latentTitle, string problem) =>
-		FormattableString.Invariant($"{TestRuntime.Name} on Hero ({TestRuntime.Hero}): the execution waiting in {latentTitle} (node {latent}) is cancelled: {problem}");
+	// library is the asset path of the library whose function holds the latent node, when one does.
+	private static string Warning(uint latent, string latentTitle, string problem, string? library = null) => FormattableString.Invariant(
+		$"{TestRuntime.Name} on Hero ({TestRuntime.Hero}): the execution waiting in {latentTitle} (node {latent}){(library != null ? " of " + library : string.Empty)} is cancelled: {problem}");
 
 	// Event.Create plays the timeline (node 2) of the setting from its start; its Update writes its curve Lift.
 	private static string TimelineDocument(string length, string lift, string enabled = "") => VisualScriptTesting.Document(
@@ -360,7 +361,33 @@ public sealed class LiveEditTests
 		runtime.LoadWorking(document, references: changed.Bundle());
 		Assert.Empty(runtime.Instance().Fibers);
 		Assert.Equal(5, runtime.Variable("Count"));
-		Assert.Equal([Warning(changed.Delay, "Delay", FormattableString.Invariant($"the edit disabled Delay (node {changed.Delay})"))],
+		// The messages name the library: node IDs collide across documents.
+		Assert.Equal(
+			[
+				Warning(changed.Delay, "Delay", FormattableString.Invariant($"the edit disabled Delay (node {changed.Delay}) of {CrossGraphTesting.MotionName}"),
+					CrossGraphTesting.MotionName),
+			],
+			runtime.Environment.Warnings);
+		runtime.Invoke(ScriptEvent.Update, 1.0f);
+		Assert.Empty(runtime.Records);
+	}
+
+	[Fact]
+	public void AFiberWhoseLatentNodeInALibraryWasRemovedIsCancelledWithOneLogLine()
+	{
+		(TestRuntime runtime, string document, _) = StartWaitingInTheLibrary();
+		uint removed = new MotionLibrary().Delay;
+		MotionLibrary changed = new(replaceDelay: true);
+		Assert.NotEqual(removed, changed.Delay);
+
+		runtime.LoadWorking(document, references: changed.Bundle());
+		Assert.Empty(runtime.Instance().Fibers);
+		Assert.Equal(5, runtime.Variable("Count"));
+		Assert.Equal(
+			[
+				Warning(removed, "Delay", FormattableString.Invariant($"the edit removed or changed Delay (node {removed}) of {CrossGraphTesting.MotionName}"),
+					CrossGraphTesting.MotionName),
+			],
 			runtime.Environment.Warnings);
 		runtime.Invoke(ScriptEvent.Update, 1.0f);
 		Assert.Empty(runtime.Records);

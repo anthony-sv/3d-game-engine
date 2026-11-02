@@ -29,8 +29,8 @@ internal sealed partial class VisualScriptRuntime
 	private readonly Dictionary<ulong, GraphEntry> m_Graphs = [];
 	private readonly Dictionary<ulong, GraphInstance> m_Instances = [];
 	private readonly Stack<Execution> m_ExecutionPool = new();
-	// The receiver lists of Event.Broadcast nodes, one per broadcast running (broadcasts nest).
-	private readonly Stack<List<GraphInstance>> m_ReceiverLists = new();
+	// The receivers and arguments of Event.Broadcast nodes, one per broadcast running (broadcasts nest).
+	private readonly Stack<BroadcastScratch> m_BroadcastScratches = new();
 	private static readonly Comparison<GraphInstance> s_ByCreation = static (a, b) => a.Serial.CompareTo(b.Serial);
 	// By member and kind: a property's or field's getter and setter share their MemberInfo.
 	private readonly Dictionary<(MemberInfo Member, MemberNodeKind Kind), MemberInvoker> m_Invokers = [];

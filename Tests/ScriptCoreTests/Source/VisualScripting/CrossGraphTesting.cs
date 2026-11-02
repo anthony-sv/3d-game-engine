@@ -69,10 +69,11 @@ internal static class CrossGraphTesting
 // The function library Scripts/Motion.sgraph of the tests: the pure Twice(int Value) -> int Result, whose input was X before
 // (a former name); the impure Report(string Text), which records Text; the latent Pause(float Seconds), which waits, then
 // records "resumed"; and the impure Ping(), which sends Ping to its Target left unlinked: the entity whose execution called it.
-// delayEnabled is the Enabled of Pause's Delay (absent when null).
+// delayEnabled is the Enabled of Pause's Delay (absent when null); with replaceDelay, Pause's Delay has another ID, as when an
+// edit deleted the Delay and added a new one (its former ID is a Self node then).
 internal sealed class MotionLibrary
 {
-	internal MotionLibrary(string? delayEnabled = null)
+	internal MotionLibrary(string? delayEnabled = null, bool replaceDelay = false)
 	{
 		Document.Kind = "Library";
 		Twice = Document.Function("Twice", pure: true, ["Value:int:X"], ["Result:int"]);
@@ -85,6 +86,10 @@ internal sealed class MotionLibrary
 		Report.Graph.Flow(Report.Entry, Report.Graph.Write(Report.Entry, "Text"));
 
 		Pause = Document.Function("Pause", inputs: ["Seconds:float"]);
+		if (replaceDelay)
+		{
+			Pause.Graph.Node("Self");
+		}
 		Delay = Pause.Graph.Node("Flow.Delay", enabled: delayEnabled);
 		Pause.Graph.Link(Pause.Entry, "Seconds", Delay, "Duration");
 		Pause.Graph.Flow(Pause.Entry, Delay);

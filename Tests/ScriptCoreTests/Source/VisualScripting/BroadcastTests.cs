@@ -192,6 +192,48 @@ public sealed class BroadcastTests
 		Assert.Empty(runtime.Environment.Logs);
 	}
 
+	// A relay: Hero's Ping(N) broadcasts Ping(N - 1) from the same node, itself included, while N > 0. Each nested broadcast
+	// stages its argument in the slots of that node, which the outer broadcast still delivers from: every receiver of a
+	// broadcast must get that broadcast's argument.
+	[Fact]
+	public void EveryReceiverGetsTheArgumentsOfItsBroadcastWhenTheNodeRunsAgainMeanwhile()
+	{
+		const string number = """{ "Name": "N", "Type": "int" }""";
+		DocumentBuilder hero = new();
+		uint ping = hero.Graph.Node("Event.Custom", $$"""{ "Name": "Ping", "Parameters": [{{number}}] }""");
+		uint got = hero.Graph.Node("FormatString", """{ "Format": "7 got {N}" }""");
+		hero.Graph.Link(ping, "N", got, "N");
+		uint write = hero.Graph.Write(got, "Result");
+		hero.Graph.Flow(ping, write);
+		uint branch = hero.Graph.Node("Flow.Branch");
+		uint positive = hero.Graph.Node("Operator.Greater", inputs: """{ "B": 0 }""");
+		hero.Graph.Link(ping, "N", positive, "A");
+		hero.Graph.Link(positive, "Result", branch, "Condition");
+		hero.Graph.Flow(write, branch);
+		uint relay = hero.Graph.Node("Event.Broadcast", CrossGraphTesting.Broadcast("Ping", 0, number));
+		uint less = hero.Graph.Node("Operator.Subtract", inputs: """{ "B": 1 }""");
+		hero.Graph.Link(ping, "N", less, "A");
+		hero.Graph.Link(less, "Result", relay, "N");
+		hero.Graph.Flow(branch, relay, "True");
+		uint start = hero.Graph.Node("Event.Broadcast", CrossGraphTesting.Broadcast("Ping", 0, number), """{ "N": 2 }""");
+		hero.Graph.Flow(hero.Graph.Node("Event.Create"), start);
+		DocumentBuilder listener = new();
+		uint heard = listener.Graph.Node("Event.Custom", $$"""{ "Name": "Ping", "Parameters": [{{number}}] }""");
+		uint text = listener.Graph.Node("FormatString", """{ "Format": "8 got {N}" }""");
+		listener.Graph.Link(heard, "N", text, "N");
+		listener.Graph.Flow(heard, listener.Graph.Write(text, "Result"));
+		TestRuntime runtime = new();
+		runtime.Environment.Add(8, "Door");
+		runtime.LoadWorking(listener.Build(), CrossGraphTesting.Door, name: CrossGraphTesting.DoorName);
+		runtime.LoadWorking(hero.Build());
+		Create(runtime, TestRuntime.Hero, TestRuntime.Graph);
+		Create(runtime, 8, CrossGraphTesting.Door);
+
+		Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(ScriptEvent.Create));
+		Assert.Equal(["7 got 2", "7 got 1", "7 got 0", "8 got 0", "8 got 1", "8 got 2"], runtime.Records);
+		Assert.Empty(runtime.Environment.Logs);
+	}
+
 	[Fact]
 	public void AnAbortInAReceiverAbortsTheBroadcast()
 	{

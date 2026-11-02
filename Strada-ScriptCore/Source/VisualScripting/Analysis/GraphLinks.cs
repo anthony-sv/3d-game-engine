@@ -43,14 +43,12 @@ internal static class GraphSettings
 // with its document, or an absent one (Document null, Error says why).
 internal sealed class GraphTarget
 {
-	internal GraphTarget(ulong graph, bool isSelf, string name, string displayName, string fileName, ReferenceForm form, GraphDocument? document,
-		string? error)
+	internal GraphTarget(ulong graph, bool isSelf, string name, string displayName, ReferenceForm form, GraphDocument? document, string? error)
 	{
 		Graph = graph;
 		IsSelf = isSelf;
 		Name = name;
 		DisplayName = displayName;
-		FileName = fileName;
 		Form = form;
 		Document = document;
 		Error = error;
@@ -65,9 +63,6 @@ internal sealed class GraphTarget
 
 	// The file stem ("Door").
 	internal string DisplayName { get; }
-
-	// The file name ("Door.sgraph").
-	internal string FileName { get; }
 
 	internal ReferenceForm Form { get; }
 
@@ -138,7 +133,8 @@ internal sealed class LibraryAnalyses
 		m_Entries[graph] = entry;
 	}
 
-	internal sealed record Entry(byte[] Text, NodeLibrary Library, IReadOnlyDictionary<ulong, GraphFingerprint> Reads,
+	// Name is the library's asset path, which its own messages name (a cycle through it, a node naming its own graph).
+	internal sealed record Entry(string Name, byte[] Text, NodeLibrary Library, IReadOnlyDictionary<ulong, GraphFingerprint> Reads,
 		IReadOnlyDictionary<ulong, LinkedLibrary> Links, AnalyzedDocument Analysis);
 }
 
@@ -247,18 +243,57 @@ internal sealed class ReferenceScope
 	}
 
 	// The analysis of the library of the bundle, from this analysis' libraries, the cache, or analyzed now with the same
-	// bundle (and the libraries it calls, recursively); null when the library is being analyzed already (calls that lie on
-	// a cycle never get here).
+	// bundle; null when the library is being analyzed already (calls that lie on a cycle never get here). The libraries its
+	// calls reach are analyzed first, callees before callers, so analyses never nest: a chain of libraries as long as the
+	// bundle holds needs no more stack than one library.
 	internal AnalyzedDocument? GetAnalysis(ReferencedGraph graph)
 	{
 		if (m_Analyses.TryGetValue(graph.Graph, out AnalyzedDocument? known))
 		{
 			return known;
 		}
-		if (!m_Analyzing.Add(graph.Graph))
+		if (m_Analyzing.Contains(graph.Graph))
 		{
 			return null;
 		}
+		foreach (ulong library in CalleesFirst(graph.Graph))
+		{
+			Analyze(library == graph.Graph ? graph : Bundle.Find(library)!);
+		}
+		return m_Analyses[graph.Graph];
+	}
+
+	// The library and every library its calls reach that is not analyzed yet, each after the libraries it calls (a
+	// depth-first walk of the calls with its own stack). The calls an analysis reports as cycles (into the root, or within a
+	// component of the calls) need no analysis of their callee, so the walk does not follow them: the libraries it lists are
+	// those the analyses ask for.
+	private List<ulong> CalleesFirst(ulong graph)
+	{
+		Components();
+		List<ulong> order = [];
+		HashSet<ulong> visited = [graph];
+		Stack<(ulong Graph, int Next)> walk = new();
+		walk.Push((graph, 0));
+		while (walk.TryPop(out (ulong Graph, int Next) top))
+		{
+			if (m_Calls!.TryGetValue(top.Graph, out List<ulong>? callees) && top.Next < callees.Count)
+			{
+				walk.Push((top.Graph, top.Next + 1));
+				ulong callee = callees[top.Next];
+				if (callee != Root && !IsCycle(top.Graph, callee) && !m_Analyses.ContainsKey(callee) && visited.Add(callee))
+				{
+					walk.Push((callee, 0));
+				}
+				continue;
+			}
+			order.Add(top.Graph);
+		}
+		return order;
+	}
+
+	private void Analyze(ReferencedGraph graph)
+	{
+		m_Analyzing.Add(graph.Graph);
 		try
 		{
 			AnalyzedDocument analysis;
@@ -272,10 +307,9 @@ internal sealed class ReferenceScope
 				List<Diagnostic> diagnostics = [.. graph.Problems];
 				AnalysisContext context = new(Library, graph.Document!, diagnostics, this, graph.Graph, graph.Name);
 				analysis = GraphAnalyzer.Analyze(context);
-				Cache.Store(graph.Graph, new LibraryAnalyses.Entry(graph.Text, Library, context.Reads, context.Links, analysis));
+				Cache.Store(graph.Graph, new LibraryAnalyses.Entry(graph.Name, graph.Text, Library, context.Reads, context.Links, analysis));
 			}
 			m_Analyses[graph.Graph] = analysis;
-			return analysis;
 		}
 		finally
 		{
@@ -283,9 +317,12 @@ internal sealed class ReferenceScope
 		}
 	}
 
+	// Whether the cached analysis is the one analyzing the library now would give. Every library it linked must be analyzed
+	// in this scope already (CalleesFirst put the callees first) as the very analysis it linked; one that is not lies on a
+	// cycle now, which the cached analysis did not see.
 	private bool IsCurrent(LibraryAnalyses.Entry cached, ReferencedGraph graph)
 	{
-		if (!ReferenceEquals(cached.Library, Library) || !cached.Text.AsSpan().SequenceEqual(graph.Text))
+		if (!ReferenceEquals(cached.Library, Library) || cached.Name != graph.Name || !cached.Text.AsSpan().SequenceEqual(graph.Text))
 		{
 			return false;
 		}
@@ -299,7 +336,7 @@ internal sealed class ReferenceScope
 		foreach (KeyValuePair<ulong, LinkedLibrary> link in cached.Links)
 		{
 			if (Bundle.Find(link.Key) is not { Form: ReferenceForm.Full, IsLibrary: true } callee || callee.Name != link.Value.Name ||
-				!ReferenceEquals(GetAnalysis(callee), link.Value.Analysis))
+				!m_Analyses.TryGetValue(link.Key, out AnalyzedDocument? analysis) || !ReferenceEquals(analysis, link.Value.Analysis))
 			{
 				return false;
 			}

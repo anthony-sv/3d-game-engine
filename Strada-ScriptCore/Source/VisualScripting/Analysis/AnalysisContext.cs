@@ -57,8 +57,7 @@ internal sealed class AnalysisContext
 
 	// The document itself as a Graph setting names it ("this graph" when its asset path is unknown).
 	internal GraphTarget SelfTarget => m_SelfTarget ??= new GraphTarget(Self, true, SelfName ?? ThisGraph,
-		SelfName != null ? ReferencedGraph.Stem(SelfName) : ThisGraph, SelfName != null ? FileNameOf(SelfName) : ThisGraph, ReferenceForm.Full, Document,
-		null);
+		SelfName != null ? ReferencedGraph.Stem(SelfName) : ThisGraph, ReferenceForm.Full, Document, null);
 
 	// The graph a Graph setting names: the document itself, the analyzed document of the outermost analysis (which the bundle
 	// has no entry for), or a graph of the bundle, present or absent. Other graphs are recorded as read.
@@ -72,15 +71,15 @@ internal sealed class AnalysisContext
 		if (graph == Scope.Root)
 		{
 			string name = Scope.RootDisplayName;
-			return new GraphTarget(graph, false, name, ReferencedGraph.Stem(name), FileNameOf(name), ReferenceForm.Full, Scope.RootDocument, null);
+			return new GraphTarget(graph, false, name, ReferencedGraph.Stem(name), ReferenceForm.Full, Scope.RootDocument, null);
 		}
 		if (Scope.Bundle.Find(graph) is not { } entry)
 		{
 			string name = ReferencedGraph.DefaultName(graph);
-			return new GraphTarget(graph, false, name, name, name, ReferenceForm.Interface, null,
+			return new GraphTarget(graph, false, name, name, ReferenceForm.Interface, null,
 				$"no visual script {GraphSettings.Format(graph)} (deleted, or not a visual script)");
 		}
-		return new GraphTarget(graph, false, entry.Name, entry.DisplayName, entry.FileName, entry.Form, entry.Document, entry.Error);
+		return new GraphTarget(graph, false, entry.Name, entry.DisplayName, entry.Form, entry.Document, entry.Error);
 	}
 
 	// What a Function.Call's Graph setting calls (spec-slice3 section 4.4.2): null for a call of the document's own function
@@ -169,19 +168,13 @@ internal sealed class AnalysisContext
 	{
 		if (graph == Self)
 		{
-			return SelfName != null ? FileNameOf(SelfName) : "this library";
+			return SelfName != null ? ReferencedGraph.FileNameOf(SelfName) : "this library";
 		}
 		if (graph == Scope.Root)
 		{
-			return FileNameOf(Scope.RootDisplayName);
+			return ReferencedGraph.FileNameOf(Scope.RootDisplayName);
 		}
 		return Scope.Bundle.Find(graph)?.FileName ?? ReferencedGraph.DefaultName(graph);
-	}
-
-	private static string FileNameOf(string name)
-	{
-		int slash = name.LastIndexOf('/');
-		return slash >= 0 && slash + 1 < name.Length ? name[(slash + 1)..] : name;
 	}
 
 	internal IReadOnlyList<AnalyzedVariable> Variables => m_Variables;

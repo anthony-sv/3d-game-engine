@@ -25,7 +25,7 @@ internal sealed class ReferencedGraph
 		Graph = graph;
 		Name = name.Length > 0 ? name : DefaultName(graph);
 		DisplayName = Stem(Name);
-		FileName = AfterLastSlash(Name);
+		FileName = FileNameOf(Name);
 		Form = form;
 		Document = document;
 		Text = text;
@@ -66,13 +66,14 @@ internal sealed class ReferencedGraph
 	// "Scripts/Motion.sgraph" → "Motion".
 	internal static string Stem(string name)
 	{
-		string file = AfterLastSlash(name);
+		string file = FileNameOf(name);
 		int dot = file.LastIndexOf('.');
 		string stem = dot > 0 ? file[..dot] : file;
 		return stem.Length > 0 ? stem : name;
 	}
 
-	private static string AfterLastSlash(string name)
+	// "Scripts/Motion.sgraph" → "Motion.sgraph".
+	internal static string FileNameOf(string name)
 	{
 		int slash = name.LastIndexOf('/');
 		return slash >= 0 && slash + 1 < name.Length ? name[(slash + 1)..] : name;
@@ -111,16 +112,25 @@ internal sealed class GraphReferences
 		{
 			return Empty;
 		}
-		JsonElement root;
+		JsonDocument json;
 		try
 		{
-			using JsonDocument json = JsonDocument.Parse(utf8.ToArray(), new JsonDocumentOptions { MaxDepth = MaxDepth });
-			root = json.RootElement.Clone();
+			json = JsonDocument.Parse(utf8.ToArray(), new JsonDocumentOptions { MaxDepth = MaxDepth });
 		}
 		catch (JsonException)
 		{
 			return Empty;
 		}
+		// Each entry's document is cloned on its own (ReadEntry), so what is kept of a graph (a cached library analysis holds
+		// its document's elements) holds that graph's bytes only, not the whole bundle's.
+		using (json)
+		{
+			return Read(json.RootElement);
+		}
+	}
+
+	private static GraphReferences Read(JsonElement root)
+	{
 		if (root.ValueKind != JsonValueKind.Object || !JsonText.HasTextNames(root))
 		{
 			return Empty;
@@ -175,9 +185,10 @@ internal sealed class GraphReferences
 		{
 			return null;
 		}
+		JsonElement own = document.Clone();
 		List<Diagnostic> problems = [];
-		GraphDocument? read = DocumentReader.Read(document, problems);
-		return new ReferencedGraph(graph, name, form, read, JsonMarshal.GetRawUtf8Value(document).ToArray(), problems,
+		GraphDocument? read = DocumentReader.Read(own, problems);
+		return new ReferencedGraph(graph, name, form, read, JsonMarshal.GetRawUtf8Value(own).ToArray(), problems,
 			read == null ? "the document sent for it is not a visual script" : null);
 	}
 }

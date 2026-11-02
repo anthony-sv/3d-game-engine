@@ -214,4 +214,35 @@ public sealed class DebuggerTests
 		], debugger.Steps);
 		Assert.Equal(["hello"], runtime.Records);
 	}
+
+	// The values of a library's pure nodes name the library too, beside the caller's own values (graph 0).
+	[Fact]
+	public void ValuesInALibrarysFunctionNameTheLibrary()
+	{
+		MotionLibrary library = new();
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint literal = graph.Literal("int", "3");
+		uint add = graph.Node("Operator.Add", inputs: """{ "B": 4 }""");
+		uint call = graph.Node("Function.Call", CrossGraphTesting.Call(library.Twice, CrossGraphTesting.Motion));
+		graph.Link(literal, "Value", add, "A");
+		graph.Link(add, "Result", call, "Value");
+		graph.Flow(graph.Node("Event.Create"), graph.Write(call, "Result"));
+		TestRuntime runtime = new();
+		runtime.LoadWorking(document.Build(), references: library.Bundle());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		RecordingDebugger debugger = new();
+		debugger.Targets.Add(TestRuntime.Hero);
+		runtime.Runtime.AttachDebugger(debugger);
+
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Equal(["14"], runtime.Records);
+		// Twice's Operator.Multiply follows its entry.
+		uint multiply = library.Twice.Entry + 1;
+		Assert.Equal(
+		[
+			$"7: {literal}.Value = 3", $"7: {add}.Result = 7", string.Create(CultureInfo.InvariantCulture, $"7: {CrossGraphTesting.Motion}/{multiply}.Result = 14"),
+			$"7: {call}.Result = 14",
+		], debugger.Values);
+	}
 }

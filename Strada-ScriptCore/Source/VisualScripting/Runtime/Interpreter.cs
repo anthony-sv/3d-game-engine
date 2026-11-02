@@ -934,10 +934,13 @@ internal sealed partial class VisualScriptRuntime
 	// only with IncludeSelf), ordered by creation. Examining an instance costs a step, so the budget bounds the scan. Each
 	// receiver that is still alive and still has the event (a live edit may swap its program meanwhile) runs it as Send's
 	// receiver does, and Count is how many ran it. An abort in a receiver aborts the broadcast: the receivers after it get
-	// nothing.
+	// nothing. The arguments are copied before the first delivery: a receiver may run this very node again in the same frame
+	// (a relay broadcasting the event on), which stages its own arguments over these.
 	private ExecutionResult Broadcast(Execution execution, CompiledNode node, Slot[] slots)
 	{
-		List<GraphInstance> receivers = m_ReceiverLists.TryPop(out List<GraphInstance>? pooled) ? pooled : [];
+		BroadcastScratch scratch = m_BroadcastScratches.TryPop(out BroadcastScratch? pooled) ? pooled : new BroadcastScratch();
+		List<GraphInstance> receivers = scratch.Receivers;
+		int argumentCount = node.EventParameters.Length;
 		try
 		{
 			foreach (GraphInstance instance in m_Instances.Values)
@@ -951,6 +954,11 @@ internal sealed partial class VisualScriptRuntime
 				}
 			}
 			receivers.Sort(s_ByCreation);
+			if (scratch.Arguments.Length < argumentCount)
+			{
+				scratch.Arguments = new Slot[argumentCount];
+			}
+			Array.Copy(slots, node.InputBase, scratch.Arguments, 0, argumentCount);
 			int count = 0;
 			foreach (GraphInstance receiver in receivers)
 			{
@@ -959,7 +967,7 @@ internal sealed partial class VisualScriptRuntime
 				{
 					continue;
 				}
-				if (Deliver(execution, receiver, custom, slots, node.InputBase) == ExecutionResult.Aborted)
+				if (Deliver(execution, receiver, custom, scratch.Arguments, 0) == ExecutionResult.Aborted)
 				{
 					return ExecutionResult.Aborted;
 				}
@@ -971,8 +979,17 @@ internal sealed partial class VisualScriptRuntime
 		finally
 		{
 			receivers.Clear();
-			m_ReceiverLists.Push(receivers);
+			// Pooled arguments must not keep the objects they held alive.
+			Array.Clear(scratch.Arguments);
+			m_BroadcastScratches.Push(scratch);
 		}
+	}
+
+	// What one running Event.Broadcast node keeps apart from its frame: its receiver snapshot and a copy of its arguments.
+	private sealed class BroadcastScratch
+	{
+		internal List<GraphInstance> Receivers { get; } = [];
+		internal Slot[] Arguments { get; set; } = [];
 	}
 
 	// The Event.Custom node of a program that receives what a Send or Broadcast node raises: of its name and with exactly its

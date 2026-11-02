@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using Strada.Interop;
 using Strada.VisualScripting;
 using Xunit;
@@ -116,6 +118,132 @@ public sealed class LibraryTests
 		Assert.NotNull(program.FindFunction(CrossGraphTesting.Motion, motion.Twice.Id));
 		Assert.NotNull(program.FindFunction(CrossGraphTesting.Physics, countdown.Id));
 		Assert.Equal(CrossGraphTesting.PhysicsName, program.FindFunction(CrossGraphTesting.Physics, countdown.Id)!.Body.Name);
+	}
+
+	// Physics' Wait calls Motion's impure Report, then its latent Pause, and a script calls Wait: the script's call is latent
+	// through two libraries, and the fiber waits three calls deep in Motion's Delay, which an edit of Motion keeps.
+	[Fact]
+	public void LibrariesCallImpureAndLatentFunctionsOfOtherLibraries()
+	{
+		MotionLibrary motion = new();
+		DocumentBuilder physics = new() { Kind = "Library" };
+		FunctionBuilder wait = physics.Function("Wait");
+		uint report = wait.Graph.Node("Function.Call", CrossGraphTesting.Call(motion.Report, CrossGraphTesting.Motion), """{ "Text": "physics report" }""");
+		uint pause = wait.Graph.Node("Function.Call", CrossGraphTesting.Call(motion.Pause, CrossGraphTesting.Motion), """{ "Seconds": 0.5 }""");
+		wait.Graph.Flow(wait.Entry, report);
+		wait.Graph.Flow(report, pause);
+		wait.Graph.Writes(pause, "Then", "physics after");
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint call = graph.Node("Function.Call", CrossGraphTesting.Call(wait, CrossGraphTesting.Physics));
+		graph.Flow(graph.Node("Event.Create"), call);
+		graph.Writes(call, "Then", "script after");
+		string Bundle(MotionLibrary library) => new BundleBuilder().Full(CrossGraphTesting.Motion, CrossGraphTesting.MotionName, library.Document)
+			.Full(CrossGraphTesting.Physics, CrossGraphTesting.PhysicsName, physics).Build();
+
+		Assert.True(VisualScriptTesting.Node(CrossGraphTesting.Analyze(document.Build(), Bundle(motion)), call).Latent);
+		TestRuntime runtime = new();
+		runtime.LoadWorking(document.Build(), references: Bundle(motion));
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Equal(["physics report"], runtime.Records);
+		Execution fiber = Assert.Single(runtime.Instance().Fibers);
+		Assert.Equal(3, fiber.CallCount);
+		Assert.Equal((CrossGraphTesting.Motion, motion.Delay), (fiber.Current!.Owner.Graph, fiber.Current.Id));
+
+		// An edit of the inner library loads the script again; the fiber keeps waiting in the new Pause.
+		MotionLibrary changed = new();
+		changed.Report.Graph.Write("more");
+		runtime.LoadWorking(document.Build(), references: Bundle(changed));
+		fiber = Assert.Single(runtime.Instance().Fibers);
+		Assert.Same(runtime.Instance().Program.FindFunction(CrossGraphTesting.Motion, changed.Pause.Id)!.Body, fiber.TopFrame.Graph);
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["physics report", "resumed", "physics after", "script after"], runtime.Records);
+		Assert.Empty(runtime.Environment.Logs);
+	}
+
+	// Each library's function calls the next library's, 256 deep (the bundle's cap, spec-slice3 section 20 Q2): the libraries
+	// are analyzed callees first, never one inside another, so analyzing and loading the chain, cold and from the cache, needs
+	// little stack. .NET cannot catch a stack overflow: it would end the editor or the player.
+	[Fact]
+	public void TheLongestChainsOfLibrariesNeedLittleStack()
+	{
+		const int length = 256;
+		const ulong first = 6000000000000000000;
+		BundleBuilder bundle = new();
+		uint step = 0;
+		for (int index = 0; index < length; index++)
+		{
+			DocumentBuilder library = new() { Kind = "Library" };
+			FunctionBuilder function = library.Function("Step");
+			step = function.Id;
+			uint next = index + 1 < length
+				? function.Graph.Node("Function.Call", CrossGraphTesting.Call(function.Id, first + (ulong)index + 1))
+				: function.Graph.Write("deepest");
+			function.Graph.Flow(function.Entry, next);
+			bundle.Full(first + (ulong)index, FormattableString.Invariant($"Scripts/Chain{index}.sgraph"), library);
+		}
+		DocumentBuilder document = new();
+		uint call = document.Graph.Node("Function.Call", CrossGraphTesting.Call(step, first));
+		document.Graph.Flow(document.Graph.Node("Event.Create"), call);
+		string text = document.Build();
+		string references = bundle.Build();
+		ExceptionDispatchInfo? failure = null;
+		Thread thread = new(() =>
+		{
+			try
+			{
+				TestRuntime runtime = new();
+				LibraryAnalyses cache = runtime.Runtime.LibraryAnalyses;
+				Assert.Equal(VisualScriptStatus.Success, runtime.Runtime.AnalyzeDocument(Encoding.UTF8.GetBytes(text), Encoding.UTF8.GetBytes(references)).Status);
+				Assert.Equal((0, length), (cache.Hits, cache.Misses));
+				runtime.LoadWorking(text, references: references);
+				Assert.Equal((length, length), (cache.Hits, cache.Misses));
+				GraphProgram program = runtime.Runtime.FindEffectiveProgram(TestRuntime.Graph)!;
+				Assert.NotNull(program.FindFunction(first, step));
+				Assert.NotNull(program.FindFunction(first + length - 1, step));
+			}
+			catch (Exception exception)
+			{
+				failure = ExceptionDispatchInfo.Capture(exception);
+			}
+		}, 256 * 1024);
+		thread.Start();
+		thread.Join();
+		failure?.Throw();
+	}
+
+	// A library's own analysis names it (a cycle through it): renaming its asset, its text unchanged, analyzes it again, so
+	// the messages name the new path whatever the cache holds (spec-slice3 section 4.4.3).
+	[Fact]
+	public void ARenamedLibraryIsAnalyzedAgain()
+	{
+		DocumentBuilder motion = new() { Kind = "Library" };
+		FunctionBuilder motionStep = motion.Function("Step");
+		uint motionCall = motionStep.Graph.Node("Function.Call", CrossGraphTesting.Call(motionStep.Id, CrossGraphTesting.Physics));
+		motionStep.Graph.Flow(motionStep.Entry, motionCall);
+		DocumentBuilder physics = new() { Kind = "Library" };
+		FunctionBuilder physicsStep = physics.Function("Step");
+		physicsStep.Graph.Flow(physicsStep.Entry, physicsStep.Graph.Node("Function.Call", CrossGraphTesting.Call(motionStep.Id, CrossGraphTesting.Motion)));
+		DocumentBuilder document = new();
+		uint call = document.Graph.Node("Function.Call", CrossGraphTesting.Call(motionStep.Id, CrossGraphTesting.Motion));
+		document.Graph.Flow(document.Graph.Node("Event.Create"), call);
+		LibraryAnalyses cache = new();
+		string Error(string name)
+		{
+			string bundle = new BundleBuilder().Full(CrossGraphTesting.Motion, name, motion).Full(CrossGraphTesting.Physics, CrossGraphTesting.PhysicsName, physics).Build();
+			return VisualScriptTesting.Single(CrossGraphTesting.Analyze(document.Build(), bundle, cache), DiagnosticCode.ReferenceError).Message;
+		}
+
+		Assert.StartsWith("Scripts/Motion.sgraph has 2 errors, first: Motion.sgraph calls Physics.sgraph, which calls Motion.sgraph: ",
+			Error(CrossGraphTesting.MotionName), StringComparison.Ordinal);
+		Assert.Equal((0, 1), (cache.Hits, cache.Misses));
+		Assert.Equal(FormattableString.Invariant(
+			$"Scripts/Moved/Mover.sgraph has 2 errors, first: Mover.sgraph calls Physics.sgraph, which calls Mover.sgraph: libraries cannot depend on themselves (node {motionCall}): fix the library"),
+			Error("Scripts/Moved/Mover.sgraph"));
+		Assert.Equal((0, 2), (cache.Hits, cache.Misses));
+		Error("Scripts/Moved/Mover.sgraph");
+		Assert.Equal((1, 2), (cache.Hits, cache.Misses));
 	}
 
 	[Fact]
