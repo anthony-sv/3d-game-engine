@@ -6,6 +6,7 @@
 #include "Strada/Asset/AssetRegistry.h"
 #include "Strada/Asset/MaterialAsset.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
@@ -341,6 +342,113 @@ namespace
 		static inline decltype(ScriptEngineInternal::HostFunctions::VisualScriptLoad) s_Load = nullptr;
 		static inline std::vector<Send> s_Sent;
 	};
+
+	// --- Graphs that refer to graphs ---
+
+	// The function library of the cross-graph tests: the pure Twice(int Value) -> int Result (function 1), Value times
+	// factor.
+	VisualScriptDocument MakeLibraryDocument(int32_t factor = 2)
+	{
+		VisualScriptDocument document;
+		document.Kind = VisualScriptDocumentKind::Library;
+		VisualScriptFunction twice;
+		twice.ID = 1;
+		twice.Name = "Twice";
+		twice.Pure = true;
+		twice.Inputs.emplace_back("Value", "int");
+		twice.Outputs.emplace_back("Result", "int");
+		twice.Graph.Nodes.push_back(MakeNode(10, "Function.Entry"));
+		twice.Graph.Nodes.push_back(MakeNode(11, "Operator.Multiply", Json::object(), Json::object({{"B", factor}})));
+		twice.Graph.Nodes.push_back(MakeNode(12, "Function.Return"));
+		twice.Graph.Links.push_back(MakeLink(10, "Value", 11, "A"));
+		twice.Graph.Links.push_back(MakeLink(11, "Result", 12, "Result"));
+		document.Functions.push_back(std::move(twice));
+		return document;
+	}
+
+	// A script with the public float Health (10) and the custom event Hit, which sets Health to 0.
+	VisualScriptDocument MakeHealthDocument()
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Health", "float", 10.0, true));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Custom", Json::object({{"Name", "Hit"}})));
+		document.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 1}}), Json::object({{"Value", 0.0}})));
+		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		return document;
+	}
+
+	// Sets the public Count (0) to the library's Twice(3) when created. With variables, it also reads the public Health of
+	// that graph on the entity Other (an Interface use); with verified, it then sends Hit to Other, checked against that graph
+	// (a Verification use).
+	VisualScriptDocument MakeCallerDocument(AssetHandle library, AssetHandle variables = {}, AssetHandle verified = {})
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Count", "int", 0, true));
+		document.Variables.push_back(MakeVariable(2, "Other", "Strada.Entity", Json(), false));
+		document.Graph.Nodes.push_back(MakeNode(20, "Event.Create"));
+		document.Graph.Nodes.push_back(MakeNode(21, "Variable.Set", Json::object({{"Variable", 1}})));
+		document.Graph.Nodes.push_back(
+			MakeNode(22, "Function.Call", Json::object({{"Function", 1}, {"Graph", library.ToString()}}), Json::object({{"Value", 3}})));
+		document.Graph.Links.push_back(MakeLink(20, "Then", 21, "Execute"));
+		document.Graph.Links.push_back(MakeLink(22, "Result", 21, "Value"));
+		if (variables.IsValid() || verified.IsValid())
+		{
+			document.Graph.Nodes.push_back(MakeNode(23, "Variable.Get", Json::object({{"Variable", 2}})));
+		}
+		if (variables.IsValid())
+		{
+			document.Graph.Nodes.push_back(MakeNode(24, "Variable.Get", Json::object({{"Variable", 1}, {"Graph", variables.ToString()}})));
+			document.Graph.Links.push_back(MakeLink(23, "Value", 24, "Target"));
+		}
+		if (verified.IsValid())
+		{
+			document.Graph.Nodes.push_back(
+				MakeNode(25, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", verified.ToString()}})));
+			document.Graph.Links.push_back(MakeLink(21, "Then", 25, "Execute"));
+			document.Graph.Links.push_back(MakeLink(23, "Value", 25, "Target"));
+		}
+		return document;
+	}
+
+	// The references a send would carry: {"Self":...,"Graphs":[...]} with the entries given (ascending by handle), each
+	// written {"Graph":"<handle>","Name":<name>,"Form":...,"Document":<content form>} or {...,"Error":<why>}.
+	struct ExpectedReference
+	{
+		AssetHandle Graph;
+		std::string Name;
+		// "Full" or "Interface"; empty for an absent graph.
+		std::string Form;
+		// The content form sent for the graph, or the Error of an absent one.
+		std::string Text;
+	};
+
+	std::string WriteExpectedReferences(AssetHandle self, std::vector<ExpectedReference> entries)
+	{
+		std::sort(entries.begin(), entries.end(),
+		          [](ExpectedReference const& a, ExpectedReference const& b)
+		          {
+					  return a.Graph.GetUUID().GetValue() < b.Graph.GetUUID().GetValue();
+				  });
+		std::string text = fmt::format(R"({{"Self":"{}","Graphs":[)", self.ToString());
+		for (size_t index = 0; index < entries.size(); index++)
+		{
+			ExpectedReference const& entry = entries[index];
+			text += fmt::format(R"({}{{"Graph":"{}","Name":{})", index == 0 ? "" : ",", entry.Graph.ToString(), Json(entry.Name).dump());
+			text += entry.Form.empty() ? fmt::format(R"(,"Error":{}}})", Json(entry.Text).dump())
+			                           : fmt::format(R"(,"Form":"{}","Document":{}}})", entry.Form, entry.Text);
+		}
+		return text + "]}";
+	}
+
+	// The entries of a references text, parsed.
+	Json ReadReferences(std::string const& text)
+	{
+		Result<Json> json = ParseJson(text);
+		REQUIRE_MESSAGE(json.IsOk(), json.GetError());
+		REQUIRE(json.GetValue().is_object());
+		REQUIRE(json.GetValue().contains("Graphs"));
+		return json.GetValue();
+	}
 
 	// receive for the entry points: counts its calls and keeps the last text.
 	struct Received
@@ -2202,6 +2310,487 @@ TEST_CASE("VisualScriptEngine: the working document goes first again only when i
 	CHECK(sent.Get(2) == moved);
 	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
 	CHECK(VisualScriptEngine::GetWorkingDocument(graph) == asset->GetSharedDocument());
+}
+
+TEST_CASE("VisualScriptEngine: a program's references hold the graphs it reaches, libraries with theirs, the others as interfaces")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	AssetHandle const self = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(), "Caller");
+	// Health calls a library of its own, which the caller does not reach: interfaces are leaves.
+	AssetHandle const leaf = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeLibraryDocument()), "Leaf");
+	VisualScriptDocument healthDocument = MakeHealthDocument();
+	healthDocument.Graph.Nodes.push_back(MakeNode(12, "Function.Call", Json::object({{"Function", 1}, {"Graph", leaf.ToString()}})));
+	AssetHandle const health = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(healthDocument), "Health");
+	AssetHandle const target = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeHealthDocument()), "Target");
+	AssetHandle const material = AssetManager::AddMemoryAsset(CreateRef<MaterialAsset>(), "Paint");
+	AssetHandle const unregistered(UUID(42));
+	// The inner library sends Hit to Health (already read as an interface by the caller) and to the caller itself.
+	VisualScriptDocument inner = MakeLibraryDocument(5);
+	inner.Functions[0].Graph.Nodes.push_back(
+		MakeNode(13, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", health.ToString()}})));
+	inner.Functions[0].Graph.Nodes.push_back(
+		MakeNode(14, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", self.ToString()}})));
+	AssetHandle const innerLibrary = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(inner), "Inner");
+	// The outer library calls the inner one, twice, and is called by the caller.
+	VisualScriptDocument outer = MakeLibraryDocument(3);
+	for (uint32_t const node : {13u, 14u})
+	{
+		outer.Functions[0].Graph.Nodes.push_back(MakeNode(
+			node, "Function.Call", Json::object({{"Function", 1}, {"Graph", innerLibrary.ToString()}}), Json::object({{"Value", 1}})));
+	}
+	AssetHandle const outerLibrary = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(outer), "Outer");
+
+	// The caller: the outer library, Health's variables, a Send checked against Target, RunsGraph of a handle no asset has
+	// and a Send to a material.
+	VisualScriptDocument caller = MakeCallerDocument(outerLibrary, health, target);
+	caller.Graph.Nodes.push_back(MakeNode(26, "RunsGraph", Json::object({{"Graph", unregistered.ToString()}})));
+	caller.Graph.Nodes.push_back(
+		MakeNode(27, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", material.ToString()}})));
+	Ref<VisualScriptAsset> const callerAsset = AssetManager::GetAsset<VisualScriptAsset>(self);
+	REQUIRE(callerAsset != nullptr);
+	callerAsset->SetDocument(caller);
+
+	std::vector<ExpectedReference> const expected = {
+		{outerLibrary, "Outer", "Full", VisualScriptSerializer::WriteContentText(outer)},
+		{innerLibrary, "Inner", "Full", VisualScriptSerializer::WriteContentText(inner)},
+		{health, "Health", "Interface", VisualScriptSerializer::WriteContentText(MakeVisualScriptInterface(healthDocument))},
+		{target, "Target", "Interface", VisualScriptSerializer::WriteContentText(MakeVisualScriptInterface(MakeHealthDocument()))},
+		{material, "Paint", "", fmt::format("asset {} is a Material, not a VisualScript", material)},
+		{unregistered, "", "", "no visual script 42 in the project (deleted, or not a visual script)"}};
+	std::string const expectedText = WriteExpectedReferences(self, expected);
+	CHECK(ReadReferences(expectedText)["Graphs"].size() == 6);
+
+	// A send carries them, written exactly so.
+	{
+		SentDocuments sent;
+		REQUIRE(VisualScriptEngine::EnsureLoaded(self).IsOk());
+		REQUIRE(sent.GetCount() == 1);
+		CHECK(sent.GetReferences(0) == expectedText);
+	}
+
+	// So does an analysis, which lists the graphs it read with the documents it used.
+	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(caller, self);
+	REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue().Graphs;
+	REQUIRE(graphs.size() == 6);
+	CHECK(std::is_sorted(graphs.begin(), graphs.end(),
+	                     [](auto const& a, auto const& b)
+	                     {
+							 return a.first.GetUUID().GetValue() < b.first.GetUUID().GetValue();
+						 }));
+	for (auto const& [graph, document] : graphs)
+	{
+		CAPTURE(graph);
+		CHECK(graph != self);
+		if (graph == material || graph == unregistered)
+		{
+			CHECK(document == nullptr);
+			continue;
+		}
+		Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+		REQUIRE(asset != nullptr);
+		CHECK(document == asset->GetSharedDocument());
+	}
+
+	// Without its own handle a document cannot tell itself from the stored graph: the inner library's Send names the caller
+	// as another graph, which the references then hold.
+	Result<VisualScriptAnalysis> const anonymous = VisualScriptEngine::Analyze(caller);
+	REQUIRE(anonymous.IsOk());
+	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& anonymousGraphs = anonymous.GetValue().Graphs;
+	CHECK(anonymousGraphs.size() == 7);
+	CHECK(std::any_of(anonymousGraphs.begin(), anonymousGraphs.end(),
+	                  [&](auto const& entry)
+	                  {
+						  return entry.first == self && entry.second == callerAsset->GetSharedDocument();
+					  }));
+
+	// A document that names no graph sends none.
+	AssetHandle const plain = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeCountDocument(1)), "Plain");
+	SentDocuments sent;
+	REQUIRE(VisualScriptEngine::EnsureLoaded(plain).IsOk());
+	REQUIRE(sent.GetCount() == 1);
+	CHECK(sent.GetReferences(0).empty());
+	Result<VisualScriptAnalysis> const plainAnalysis = VisualScriptEngine::Analyze(MakeCountDocument(1), plain);
+	REQUIRE(plainAnalysis.IsOk());
+	CHECK(plainAnalysis.GetValue().Graphs.empty());
+}
+
+TEST_CASE("VisualScriptEngine: a node naming the analyzed graph reads the document analyzed, which the references never hold")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	VisualScriptDocument stored;
+	stored.Variables.push_back(MakeVariable(2, "Other", "Strada.Entity", Json(), false));
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(stored);
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Enemy");
+
+	// An edit adds the public Fresh and reads it on another entity running this graph: the variable exists only in the
+	// document being edited.
+	VisualScriptDocument edited = stored;
+	edited.Variables.push_back(MakeVariable(3, "Fresh", "int", 4, true));
+	edited.Graph.Nodes.push_back(MakeNode(10, "Variable.Get", Json::object({{"Variable", 2}})));
+	edited.Graph.Nodes.push_back(MakeNode(11, "Variable.Get", Json::object({{"Variable", 3}, {"Graph", graph.ToString()}})));
+	edited.Graph.Links.push_back(MakeLink(10, "Value", 11, "Target"));
+
+	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(edited, graph);
+	REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+	CHECK_MESSAGE(CountVisualScriptErrors(analysis.GetValue().Diagnostics) == 0,
+	              DescribeVisualScriptErrors(analysis.GetValue().Diagnostics));
+	CHECK(analysis.GetValue().Graphs.empty());
+	VisualScriptAnalyzedNode const* const read = analysis.GetValue().FindNode(11);
+	REQUIRE(read != nullptr);
+	VisualScriptPin const* const value = read->FindPin("Value", VisualScriptPinDirection::Out);
+	REQUIRE(value != nullptr);
+	CHECK(value->Type == "int");
+
+	// Read as another graph's, the stored document has no such variable.
+	Result<VisualScriptAnalysis> const stale = VisualScriptEngine::Analyze(edited);
+	REQUIRE(stale.IsOk());
+	CHECK(CountVisualScriptErrors(stale.GetValue().Diagnostics) > 0);
+	REQUIRE(stale.GetValue().Graphs.size() == 1);
+	CHECK(stale.GetValue().Graphs[0].first == graph);
+	CHECK(stale.GetValue().Graphs[0].second == asset->GetSharedDocument());
+
+	// The graph loaded with that document compiles too, its references naming it and holding nothing else.
+	asset->SetDocument(edited);
+	SentDocuments sent;
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(VisualScriptEngine::HasWorkingProgram(graph));
+	REQUIRE(sent.GetCount() == 1);
+	CHECK(sent.GetReferences(0) == fmt::format(R"({{"Self":"{}","Graphs":[]}})", graph.ToString()));
+}
+
+TEST_CASE("VisualScriptEngine: without assets every graph a document refers to is absent")
+{
+	Testing::ScriptRuntimeScope runtime;
+	VisualScriptDocument document;
+	document.Graph.Nodes.push_back(
+		MakeNode(10, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", "42"}})));
+	document.Graph.Nodes.push_back(MakeNode(11, "Function.Call", Json::object({{"Function", 1}, {"Graph", "43"}})));
+	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document, AssetHandle(UUID(41)));
+	REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue().Graphs;
+	REQUIRE(graphs.size() == 2);
+	CHECK(graphs[0] == std::pair<AssetHandle, Ref<VisualScriptDocument const>>{AssetHandle(UUID(42)), nullptr});
+	CHECK(graphs[1] == std::pair<AssetHandle, Ref<VisualScriptDocument const>>{AssetHandle(UUID(43)), nullptr});
+	// The call's library is absent: an Error that names why.
+	bool const named = std::any_of(analysis.GetValue().Diagnostics.begin(), analysis.GetValue().Diagnostics.end(),
+	                               [](VisualScriptDiagnostic const& diagnostic)
+	                               {
+									   return diagnostic.Node == 11 && diagnostic.Message.find("there are no assets") != std::string::npos;
+								   });
+	CHECK_MESSAGE(named, DescribeVisualScriptErrors(analysis.GetValue().Diagnostics));
+}
+
+TEST_CASE("VisualScriptEngine: references hold at most 256 other graphs, and those beyond are sent as absent")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	constexpr size_t Count = VisualScriptEngine::MaxReferencedGraphs + 44;
+	VisualScriptDocument document;
+	for (size_t index = 0; index < Count; index++)
+	{
+		uint32_t const id = static_cast<uint32_t>(10 + index);
+		std::string const handle = std::to_string(5000 + index);
+		document.Graph.Nodes.push_back(
+			MakeNode(id, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", handle}})));
+	}
+	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(document), "Crowd");
+
+	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document, graph);
+	REQUIRE(analysis.IsOk());
+	CHECK(analysis.GetValue().Graphs.size() == Count);
+
+	SentDocuments sent;
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	REQUIRE(sent.GetCount() == 1);
+	Json const references = ReadReferences(sent.GetReferences(0));
+	Json const& entries = references["Graphs"];
+	REQUIRE(entries.size() == Count);
+	for (size_t index = 0; index < Count; index++)
+	{
+		CAPTURE(index);
+		Json const& entry = entries[index];
+		CHECK(entry["Graph"] == std::to_string(5000 + index));
+		CHECK_FALSE(entry.contains("Document"));
+		CHECK(entry["Error"] == (index < VisualScriptEngine::MaxReferencedGraphs
+		                             ? fmt::format("no visual script {} in the project (deleted, or not a visual script)", 5000 + index)
+		                             : std::string("more than 256 visual scripts are referenced")));
+	}
+	// Those beyond are never looked up again, so nothing is sent again for them.
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(sent.GetCount() == 1);
+}
+
+TEST_CASE("VisualScriptEngine: references carry libraries and interfaces without development-only nodes when those do not run")
+{
+	Testing::AssetManagerScope assets;
+	// The library's impure Note (function 3) logs a line in a development-only node, which the caller runs when created.
+	VisualScriptDocument library = MakeLibraryDocument();
+	VisualScriptFunction note;
+	note.ID = 3;
+	note.Name = "Note";
+	note.Graph.Nodes.push_back(MakeNode(30, "Function.Entry"));
+	note.Graph.Nodes.push_back(
+		MakeNode(31, "Call:Strada.Log.Info(string)", Json::object(), Json::object({{"Message", "the library's development note"}})));
+	note.Graph.Nodes.back().Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	note.Graph.Links.push_back(MakeLink(30, "Then", 31, "Execute"));
+	library.Functions.push_back(std::move(note));
+	AssetHandle const libraryGraph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(library), "Library");
+	VisualScriptDocument health = MakeHealthDocument();
+	health.Graph.Nodes[0].Enabled = VisualScriptNodeEnabled::DevelopmentOnly;
+	AssetHandle const healthGraph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(health), "Health");
+	VisualScriptDocument callerDocument = MakeCallerDocument(libraryGraph, healthGraph);
+	callerDocument.Graph.Nodes.push_back(
+		MakeNode(26, "Function.Call", Json::object({{"Function", 3}, {"Graph", libraryGraph.ToString()}})));
+	callerDocument.Graph.Links.push_back(MakeLink(21, "Then", 26, "Execute"));
+	AssetHandle const caller = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(callerDocument), "Caller");
+	auto const findSent = [](Json const& references, AssetHandle graph)
+	{
+		Json const& entries = references["Graphs"];
+		auto const entry = std::find_if(entries.begin(), entries.end(),
+		                                [graph](Json const& candidate)
+		                                {
+											return candidate["Graph"] == graph.ToString();
+										});
+		REQUIRE(entry != entries.end());
+		Result<VisualScriptDocument> document = VisualScriptSerializer::DeserializeDocument((*entry)["Document"], MakeStrictContext());
+		REQUIRE_MESSAGE(document.IsOk(), document.GetError());
+		return document.TakeValue();
+	};
+
+	{
+		Testing::ScriptRuntimeScope runtime;
+		VisualScriptEngine::SetDevelopmentNodesEnabled(false);
+		SentDocuments sent;
+		REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+		REQUIRE(sent.GetCount() == 1);
+		Json const references = ReadReferences(sent.GetReferences(0));
+		CHECK(findSent(references, libraryGraph) == DisableDevelopmentOnlyNodes(library));
+		CHECK(findSent(references, healthGraph) == DisableDevelopmentOnlyNodes(MakeVisualScriptInterface(health)));
+		// The library's function runs without the line.
+		REQUIRE(VisualScriptEngine::CreateInstance(UUID(1001), caller, {}).IsOk());
+		uint64_t const logStart = Log::GetNextEntryIndex();
+		VisualScriptEngine::InvokeOnCreate(UUID(1001));
+		CHECK(ReadVariable(UUID(1001), "Count") == ScriptFieldValue::FromInt32(6));
+		CHECK_FALSE(Testing::WasLogged(logStart, "the library's development note"));
+	}
+
+	// While they run, everything is sent as it is.
+	Testing::ScriptRuntimeScope runtime;
+	SentDocuments sent;
+	REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+	REQUIRE(sent.GetCount() == 1);
+	Json const references = ReadReferences(sent.GetReferences(0));
+	CHECK(findSent(references, libraryGraph) == library);
+	CHECK(findSent(references, healthGraph) == MakeVisualScriptInterface(health));
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1001), caller, {}).IsOk());
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	VisualScriptEngine::InvokeOnCreate(UUID(1001));
+	CHECK(ReadVariable(UUID(1001), "Count") == ScriptFieldValue::FromInt32(6));
+	CHECK(Testing::WasLogged(logStart, "the library's development note"));
+}
+
+TEST_CASE("VisualScriptEngine: a program is sent again when a graph it compiles with changes what it reads, appears, goes or moves")
+{
+	Testing::TemporaryDirectory directory;
+	REQUIRE(VisualScriptSerializer::SaveToFile(MakeLibraryDocument(), directory.GetPath() / "Library.sgraph").IsOk());
+	REQUIRE(VisualScriptSerializer::SaveToFile(MakeHealthDocument(), directory.GetPath() / "Health.sgraph").IsOk());
+	REQUIRE(VisualScriptSerializer::SaveToFile(MakeHealthDocument(), directory.GetPath() / "Target.sgraph").IsOk());
+	Testing::AssetManagerScope assets;
+	REQUIRE(AssetManager::OpenAssetDirectory(directory.GetPath()).IsOk());
+	AssetHandle const library = AssetManager::FindByPath("Library.sgraph");
+	AssetHandle const health = AssetManager::FindByPath("Health.sgraph");
+	AssetHandle const target = AssetManager::FindByPath("Target.sgraph");
+	REQUIRE(library.IsValid());
+	REQUIRE(health.IsValid());
+	REQUIRE(target.IsValid());
+	AssetHandle const caller =
+		AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(MakeCallerDocument(library, health, target)), "Caller");
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+
+	REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+	CHECK(VisualScriptEngine::HasWorkingProgram(caller));
+	auto const resends = [caller]()
+	{
+		uint64_t const generation = VisualScriptEngine::GetProgramGeneration(caller);
+		REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+		return VisualScriptEngine::GetProgramGeneration(caller) != generation;
+	};
+	auto const setDocument = [](AssetHandle graph, VisualScriptDocument document)
+	{
+		Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+		REQUIRE(asset != nullptr);
+		asset->SetDocument(std::move(document));
+	};
+	CHECK_FALSE(resends());
+
+	// The library: its layout and description are not its program; another multiplication is.
+	VisualScriptDocument library2 = MakeLibraryDocument();
+	library2.Functions[0].Graph.Nodes[1].Position = glm::vec2(320.0f, 0.0f);
+	library2.Description = "Doubles";
+	setDocument(library, library2);
+	CHECK_FALSE(resends());
+	setDocument(library, MakeLibraryDocument(3));
+	CHECK(resends());
+	CHECK_FALSE(resends());
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1001), caller, {}).IsOk());
+	VisualScriptEngine::InvokeOnCreate(UUID(1001));
+	CHECK(ReadVariable(UUID(1001), "Count") == ScriptFieldValue::FromInt32(9));
+
+	// The graph whose variables it reads: its events, layout and tooltips are not what it reads; its variables are.
+	VisualScriptDocument health2 = MakeHealthDocument();
+	health2.Graph.Nodes.push_back(MakeNode(12, "Event.Custom", Json::object({{"Name", "Heal"}})));
+	health2.Graph.Nodes[0].Position = glm::vec2(0.0f, 160.0f);
+	health2.Variables[0].Tooltip = "How much is left";
+	setDocument(health, health2);
+	CHECK_FALSE(resends());
+	health2.Variables.push_back(MakeVariable(2, "Armor", "float", 1.0, true));
+	setDocument(health, health2);
+	CHECK(resends());
+	health2.Variables[0].Public = false;
+	setDocument(health, health2);
+	CHECK(resends());
+	CHECK_FALSE(resends());
+
+	// The graph a Send is checked against: nothing of it is compiled.
+	VisualScriptDocument target2 = MakeHealthDocument();
+	target2.Graph.Nodes[0].Settings["Name"] = "Struck";
+	target2.Variables.clear();
+	setDocument(target, target2);
+	CHECK_FALSE(resends());
+
+	// Names are compiled into programs: a graph moved is sent under its new path.
+	SentDocuments sent;
+	REQUIRE(AssetManager::MoveAsset(target, "TargetMoved.sgraph").IsOk());
+	CHECK(resends());
+	REQUIRE(sent.GetCount() == 1);
+	CHECK(sent.GetReferences(0).find(R"("Name":"TargetMoved.sgraph")") != std::string::npos);
+	REQUIRE(AssetManager::MoveAsset(library, "LibraryMoved.sgraph").IsOk());
+	CHECK(resends());
+	CHECK_FALSE(resends());
+
+	// Graphs that go and come back, whatever their use.
+	for (AssetHandle const graph : {target, health, library})
+	{
+		CAPTURE(graph);
+		std::filesystem::path const file = AssetManager::GetAbsolutePath(graph);
+		Result<std::string> const text = FileSystem::ReadTextFile(file);
+		REQUIRE(text.IsOk());
+		REQUIRE(FileSystem::WriteTextFile(file, "{ not JSON").IsOk());
+		CHECK(AssetManager::ReloadAsset(graph).IsError());
+		CHECK(resends());
+		CHECK_FALSE(resends());
+		REQUIRE(FileSystem::WriteTextFile(file, text.GetValue()).IsOk());
+		REQUIRE(AssetManager::ReloadAsset(graph).IsOk());
+		CHECK(resends());
+		CHECK_FALSE(resends());
+	}
+	CHECK(host.Exceptions == 0);
+}
+
+TEST_CASE("VisualScriptEngine: a function library runs on no entity, and refusing one is no script exception")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const asset = CreateRef<VisualScriptAsset>(MakeLibraryDocument());
+	AssetHandle const graph = AssetManager::AddMemoryAsset(asset, "Motion");
+
+	Result<void> const loaded = VisualScriptEngine::EnsureLoaded(graph);
+	REQUIRE(loaded.IsError());
+	CHECK(loaded.GetError() == "Motion is a function library: graphs call its functions; it runs on no entity");
+	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == 0);
+	Result<void> const created = VisualScriptEngine::CreateInstance(UUID(1001), graph, {});
+	REQUIRE(created.IsError());
+	CHECK(created.GetError() == loaded.GetError());
+	CHECK_FALSE(VisualScriptEngine::HasInstance(UUID(1001)));
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(graph));
+	CHECK(host.Exceptions == 0);
+
+	// A script made a library is absent, and runs again once a script.
+	asset->SetDocument(MakeCountDocument(2));
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	uint64_t const script = VisualScriptEngine::GetProgramGeneration(graph);
+	asset->SetDocument(MakeLibraryDocument());
+	CHECK(VisualScriptEngine::EnsureLoaded(graph).IsError());
+	CHECK(VisualScriptEngine::GetProgramGeneration(graph) == script);
+	asset->SetDocument(MakeCountDocument(2));
+	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
+	CHECK(VisualScriptEngine::GetProgramGeneration(graph) != script);
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1002), graph, {}).IsOk());
+	VisualScriptEngine::InvokeOnCreate(UUID(1002));
+	CHECK(ReadVariable(UUID(1002), "Count") == ScriptFieldValue::FromInt32(2));
+	CHECK(host.Exceptions == 0);
+}
+
+TEST_CASE("VisualScriptEngine: a broken library leaves its callers running the version they were compiled with, after a game-assembly "
+          "change too")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const libraryAsset = CreateRef<VisualScriptAsset>(MakeLibraryDocument());
+	AssetHandle const library = AssetManager::AddMemoryAsset(libraryAsset, "Motion");
+	Ref<VisualScriptAsset> const callerAsset = CreateRef<VisualScriptAsset>(MakeCallerDocument(library));
+	AssetHandle const caller = AssetManager::AddMemoryAsset(callerAsset, "Caller");
+
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(library));
+	REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+	CHECK(VisualScriptEngine::HasWorkingProgram(caller));
+	// The caller runs the library: so does the library's program, as far as anyone can tell.
+	CHECK(VisualScriptEngine::HasWorkingProgram(library));
+
+	// Broken: the caller is sent again with it and does not compile; it keeps the version that worked.
+	VisualScriptDocument broken = MakeLibraryDocument();
+	broken.Functions[0].Graph.Nodes.push_back(MakeNode(13, "Sample.NoSuchNode"));
+	libraryAsset->SetDocument(broken);
+	uint64_t logStart = Log::GetNextEntryIndex();
+	uint64_t const before = VisualScriptEngine::GetProgramGeneration(caller);
+	REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+	CHECK(VisualScriptEngine::GetProgramGeneration(caller) != before);
+	CHECK(CountLogged(logStart, "Visual script 'Caller' has ") == 1);
+	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	CHECK(VisualScriptEngine::HasWorkingProgram(caller));
+	CHECK(VisualScriptEngine::HasWorkingProgram(library));
+
+	// After a game-assembly change the working program goes first, with the library it was compiled with, and compiles.
+	SentDocuments sent;
+	REQUIRE(ScriptEngine::LoadGameAssembly(Testing::GetTestScriptsPath()).IsOk());
+	logStart = Log::GetNextEntryIndex();
+	REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+	REQUIRE(sent.GetCount() == 2);
+	CHECK(sent.Get(0) == MakeCallerDocument(library));
+	CHECK(sent.GetReferences(0) ==
+	      WriteExpectedReferences(caller, {{library, "Motion", "Full", VisualScriptSerializer::WriteContentText(MakeLibraryDocument())}}));
+	CHECK(sent.GetReferences(1) ==
+	      WriteExpectedReferences(caller, {{library, "Motion", "Full", VisualScriptSerializer::WriteContentText(broken)}}));
+	CHECK(VisualScriptEngine::HasWorkingProgram(caller));
+	CHECK(Testing::WasLogged(logStart, "; the previous version keeps running"));
+	CHECK(VisualScriptEngine::HasWorkingProgram(library));
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1001), caller, {}).IsOk());
+	VisualScriptEngine::InvokeOnCreate(UUID(1001));
+	CHECK(ReadVariable(UUID(1001), "Count") == ScriptFieldValue::FromInt32(6));
+	// Unchanged since, nothing more is sent.
+	REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+	CHECK(sent.GetCount() == 2);
+
+	// Fixed: the caller compiles with it.
+	libraryAsset->SetDocument(MakeLibraryDocument(4));
+	REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+	REQUIRE(VisualScriptEngine::CreateInstance(UUID(1002), caller, {}).IsOk());
+	VisualScriptEngine::InvokeOnCreate(UUID(1002));
+	CHECK(ReadVariable(UUID(1002), "Count") == ScriptFieldValue::FromInt32(12));
+	CHECK(VisualScriptEngine::HasWorkingProgram(library));
+
+	// Once no working program holds the library, it has none.
+	callerAsset->SetDocument(MakeCountDocument(1));
+	REQUIRE(VisualScriptEngine::EnsureLoaded(caller).IsOk());
+	CHECK(VisualScriptEngine::HasWorkingProgram(caller));
+	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(library));
+	CHECK(host.Exceptions == 0);
 }
 
 TEST_CASE("VisualScriptEngine: DisableDevelopmentOnlyNodes disables the development-only nodes of every graph and nothing else")

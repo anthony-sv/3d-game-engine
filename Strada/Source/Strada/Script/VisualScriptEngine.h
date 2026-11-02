@@ -50,9 +50,15 @@ namespace Strada
 		// The enum type of a type ID in the library, which GetLibrary reads when it has none yet (after that a lookup costs
 		// no call into the runtime); nothing for the other types and without a library.
 		static std::optional<VisualScriptEnumInfo> FindEnum(std::string_view typeId);
-		// The runtime's analysis of a document: its nodes with their resolved pins, and the problems found. Fails only
-		// without the runtime, or when the runtime fails (logged).
-		[[nodiscard]] static Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document);
+		// The runtime's analysis of a document: its nodes with their resolved pins, and the problems found. self is the
+		// document's own graph (none when it has no asset): a node whose Graph setting names it refers to this document, never
+		// to the stored asset. The other graphs the document's nodes refer to are read from the assets as they are now (the
+		// libraries among them with the graphs they refer to), and the analysis lists them with the documents read
+		// (VisualScriptAnalysis::Graphs). Fails only without the runtime, or when the runtime fails (logged).
+		[[nodiscard]] static Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self = {});
+		// How many other graphs the references of one analysis or program hold at most: those beyond are sent as absent,
+		// with the error "more than 256 visual scripts are referenced".
+		static constexpr size_t MaxReferencedGraphs = 256;
 
 		// --- Programs ---
 
@@ -62,8 +68,12 @@ namespace Strada
 		// only updates what is known, so nothing compiles again and running instances are not swapped. A document that does
 		// not compile is sent once, its errors logged once; the program the handle had keeps running. It is sent again after
 		// a game-assembly change, as it may compile now. The runtime names the graph by its path: a graph moved or renamed is
-		// sent again under its new one. Unchanged graphs cost a lookup and a few comparisons, so Scene calls it every update.
-		// Fails, with the reason, when the graph is absent: not a registered VisualScript asset, or its file does not load.
+		// sent again under its new one. A program is its document and the other graphs it was compiled with: it is sent
+		// again when a library it calls has another program, a graph whose variables it reads or writes has another Kind or
+		// Variables, a graph it refers to appears, disappears or is renamed, and never for other changes of those graphs
+		// (their events, their layout). Unchanged graphs cost a lookup and a few comparisons per graph, so Scene calls it
+		// every update. Fails, with the reason, when the graph is absent (not a registered VisualScript asset, or its file
+		// does not load) or is a function library, which runs on no entity: graphs that call it compile its functions.
 		[[nodiscard]] static Result<void> EnsureLoaded(AssetHandle graph);
 		// Changes whenever another program of the graph is sent, the graph comes back after being absent, or the game
 		// assembly changes: an entity whose instance could not be created may get one then. 0 for a graph never loaded.
@@ -75,7 +85,8 @@ namespace Strada
 		// Whether the graph's working program runs, so that a broken document leaves it running: the graph has one
 		// (GetWorkingDocument), compiled for the game assembly the runtime has. Right after a game-assembly change that is
 		// not known until it compiles again (an instance is created, or a document sent). False without a record or without
-		// the runtime.
+		// the runtime. A function library has no program of its own: for one, whether some graph's working program was
+		// compiled with it, so that graph runs the last version of the library that worked.
 		static bool HasWorkingProgram(AssetHandle graph);
 		// Whether DevelopmentOnly nodes run: they do unless this is set to false, as the player does for exported games (the
 		// editor and projects run them). It is set right after ScriptEngine::Init, before any graph is loaded, and

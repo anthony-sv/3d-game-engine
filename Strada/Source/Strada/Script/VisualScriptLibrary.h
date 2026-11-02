@@ -383,6 +383,10 @@ namespace Strada
 		std::vector<VisualScriptDiagnostic> Diagnostics;
 		// The runtime's JSON, { "Nodes": [...], "Diagnostics": [...] }, as automation reports it.
 		Json Source;
+		// The other graphs this analysis read, ascending by handle, each with the shared document it used (null when the graph
+		// was absent): whoever keeps the analysis analyzes again when one of them is replaced by another program or
+		// interface. Filled by VisualScriptEngine::Analyze, not read by Parse.
+		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> Graphs;
 
 		// Node IDs are unique in a document. Null when it has no such node.
 		VisualScriptAnalyzedNode const* FindNode(uint32_t id) const;
