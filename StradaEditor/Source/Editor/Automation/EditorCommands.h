@@ -5,9 +5,11 @@
 
 #include "Strada/Core/Image.h"
 #include "Strada/Core/Result.h"
+#include "Strada/Serialization/JsonSerialization.h"
 
 #include <functional>
 #include <string>
+#include <string_view>
 
 namespace Strada
 {
@@ -16,6 +18,7 @@ namespace Strada
 	struct SceneRendererStatistics;
 	struct SceneViewOverlays;
 	class VisualScriptEditors;
+	class VisualScriptLibrary;
 
 	// What the automation commands need from the running editor besides the document state.
 	struct EditorCommandEnvironment
@@ -62,4 +65,9 @@ namespace Strada
 	// the environment callbacks must outlive every registered command. Documented in Docs/Automation.md.
 	[[nodiscard]] Result<void> RegisterEditorCommands(CommandRegistry& registry, EditorOperations& operations,
 	                                                  EditorCommandEnvironment environment);
+
+	// graph.library's notes: the library's notes (the game's [VisualNode] members without a node) whose category is the given
+	// one or lies below it (any for an empty one) and whose member or message contains the query (any for an empty one), both
+	// ignoring the case of ASCII letters, in library order: [{ member, category, message }].
+	[[nodiscard]] Json ListVisualScriptLibraryNotes(VisualScriptLibrary const& library, std::string_view query, std::string_view category);
 }

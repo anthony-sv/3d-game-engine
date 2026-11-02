@@ -1,3 +1,4 @@
+#include "Fuzzing.h"
 #include "VisualScriptTestDocuments.h"
 
 #include "Editor/VisualScripting/VisualScriptCommit.h"
@@ -6,6 +7,7 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Core/Hash.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
@@ -13,6 +15,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
 #include <limits>
 #include <optional>
 #include <string>
@@ -2393,5 +2396,216 @@ TEST_CASE("VisualScriptEditing: elements align, distribute and straighten to who
 		CheckRefused(flow, straighten({1, 1}), "straightening takes two nodes or more");
 		CheckRefused(flow, straighten({1, 7}), "node 7 has no position yet");
 		CheckRefused(flow, straighten({1, 9}), "the graph has no node 9");
+	}
+}
+
+namespace
+{
+	// graph.*'s programRevision: what HaveSameVisualScriptProgram compares, written and hashed.
+	uint64_t GetProgramHash(VisualScriptDocument const& document)
+	{
+		return Hash::FNV1a(VisualScriptSerializer::WriteContentText(VisualScriptEditing::StripVisualScriptLayout(document)));
+	}
+
+	// A shared fixture: a file of the FeatureTest project, or of the test data (a .sgraph file, or a document in its content
+	// form).
+	VisualScriptDocument LoadStripSeed(std::filesystem::path const& path)
+	{
+		Result<std::string> text = FileSystem::ReadTextFile(path);
+		REQUIRE_MESSAGE(text.IsOk(), text.GetError());
+		Result<Json> json = ParseJson(text.GetValue());
+		REQUIRE(json.IsOk());
+		std::vector<std::string> warnings;
+		DeserializationContext const context = Testing::MakeTolerantContext(warnings);
+		Result<VisualScriptDocument> document = json.GetValue().contains("Strada")
+		                                            ? VisualScriptSerializer::Deserialize(json.GetValue(), context)
+		                                            : VisualScriptSerializer::DeserializeDocument(json.GetValue(), context);
+		REQUIRE_MESSAGE(document.IsOk(), document.GetError());
+		REQUIRE(warnings.empty());
+		return document.TakeValue();
+	}
+
+	// Every graph of the document: the event graph, then the functions' graphs.
+	std::vector<VisualScriptGraph*> GetStripGraphs(VisualScriptDocument& document)
+	{
+		std::vector<VisualScriptGraph*> graphs = {&document.Graph};
+		for (VisualScriptFunction& function : document.Functions)
+		{
+			graphs.push_back(&function.Graph);
+		}
+		return graphs;
+	}
+
+	// A random edit of what the program leaves out: the description, a variable's tooltip or range, a node's position, comment
+	// or collapsing, comment boxes.
+	void EditLayout(VisualScriptDocument& document, Testing::FuzzRandom& random)
+	{
+		std::vector<VisualScriptGraph*> const graphs = GetStripGraphs(document);
+		VisualScriptGraph& graph = *graphs[random.Pick(graphs.size())];
+		switch (random.Pick(6))
+		{
+			case 0:
+				document.Description = document.Description.empty() ? std::string("Moves the player") : std::string();
+				return;
+			case 1:
+				if (!document.Variables.empty())
+				{
+					VisualScriptVariable& variable = document.Variables[random.Pick(document.Variables.size())];
+					variable.Tooltip += "How fast";
+					variable.Range = variable.Range ? std::nullopt : std::optional<glm::vec2>(glm::vec2(0.0f, 10.0f));
+				}
+				return;
+			case 2:
+				if (!graph.Nodes.empty())
+				{
+					VisualScriptNode& node = graph.Nodes[random.Pick(graph.Nodes.size())];
+					if (node.Position && random.Pick(4) != 0)
+					{
+						node.Position = *node.Position + glm::vec2(48.0f, -16.0f);
+					}
+					else
+					{
+						node.Position.reset();
+					}
+				}
+				return;
+			case 3:
+				if (!graph.Nodes.empty())
+				{
+					VisualScriptNode& node = graph.Nodes[random.Pick(graph.Nodes.size())];
+					node.Comment = node.Comment.empty() ? std::string("Turns the wheel") : std::string();
+					node.Collapsed = !node.Collapsed;
+				}
+				return;
+			case 4:
+			{
+				VisualScriptComment comment;
+				comment.ID = VisualScriptEditing::GetLargestVisualScriptID(document) + 1;
+				comment.Text = "Movement";
+				graph.Comments.push_back(std::move(comment));
+				return;
+			}
+			default:
+				if (!graph.Comments.empty())
+				{
+					graph.Comments.erase(graph.Comments.begin() + static_cast<std::ptrdiff_t>(random.Pick(graph.Comments.size())));
+				}
+				return;
+		}
+	}
+
+	// A random edit of the program: a node's literal (an integer becoming the float of the same value included), setting,
+	// enabled state or type, a link, a variable's visibility, the document's kind.
+	void EditProgram(VisualScriptDocument& document, Testing::FuzzRandom& random)
+	{
+		std::vector<VisualScriptGraph*> const graphs = GetStripGraphs(document);
+		VisualScriptGraph& graph = *graphs[random.Pick(graphs.size())];
+		size_t const kind = graph.Nodes.empty() ? 5 : random.Pick(6);
+		switch (kind)
+		{
+			case 0:
+			{
+				VisualScriptNode& node = graph.Nodes[random.Pick(graph.Nodes.size())];
+				bool const integer = node.Inputs.contains("Amount") && node.Inputs["Amount"].is_number_integer();
+				node.Inputs["Amount"] = integer ? Json(2.0) : Json(2);
+				return;
+			}
+			case 1:
+			{
+				VisualScriptNode& node = graph.Nodes[random.Pick(graph.Nodes.size())];
+				node.Settings["Note"] = node.Settings.contains("Note") ? Json(node.Settings["Note"].dump() + "!") : Json("x");
+				return;
+			}
+			case 2:
+			{
+				VisualScriptNode& node = graph.Nodes[random.Pick(graph.Nodes.size())];
+				node.Enabled =
+					node.Enabled == VisualScriptNodeEnabled::Enabled ? VisualScriptNodeEnabled::Disabled : VisualScriptNodeEnabled::Enabled;
+				return;
+			}
+			case 3:
+				if (!graph.Links.empty())
+				{
+					graph.Links.erase(graph.Links.begin() + static_cast<std::ptrdiff_t>(random.Pick(graph.Links.size())));
+				}
+				else
+				{
+					graph.Links.push_back({{graph.Nodes.front().ID, "Then"}, {graph.Nodes.back().ID, "Execute"}});
+				}
+				return;
+			case 4:
+				graph.Nodes[random.Pick(graph.Nodes.size())].Type += "X";
+				return;
+			default:
+				if (!document.Variables.empty() && random.Pick(2) == 0)
+				{
+					VisualScriptVariable& variable = document.Variables[random.Pick(document.Variables.size())];
+					variable.Public = !variable.Public;
+				}
+				else
+				{
+					document.Kind = document.Kind == VisualScriptDocumentKind::Script ? VisualScriptDocumentKind::Library
+					                                                                  : VisualScriptDocumentKind::Script;
+				}
+				return;
+		}
+	}
+}
+
+TEST_CASE("VisualScriptEditing: stripped of their layout, two documents are written alike exactly when they have the same program")
+{
+	std::filesystem::path const data = FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting";
+	std::filesystem::path const sample = FileSystem::PathFromUtf8(STRADA_FEATURE_TEST_DIR) / "Assets" / "Scripts" / "FormatSample.sgraph";
+	for (std::filesystem::path const& seed : {sample, data / "Library.sgraph", data / "Example.sgraph", data / "Documents" / "Editor.json",
+	                                          data / "Documents" / "Language.json", data / "Documents" / "Functions.json"})
+	{
+		CAPTURE(FileSystem::PathToUtf8(seed));
+		VisualScriptDocument const original = LoadStripSeed(seed);
+
+		// Stripping clears exactly what the program leaves out.
+		VisualScriptDocument stripped = VisualScriptEditing::StripVisualScriptLayout(original);
+		CHECK(HaveSameVisualScriptProgram(stripped, original));
+		CHECK(GetProgramHash(stripped) == GetProgramHash(original));
+		CHECK(stripped.Description.empty());
+		for (VisualScriptVariable const& variable : stripped.Variables)
+		{
+			CHECK(variable.Tooltip.empty());
+			CHECK_FALSE(variable.Range.has_value());
+		}
+		for (VisualScriptGraph const* graph : GetStripGraphs(stripped))
+		{
+			CHECK(graph->Comments.empty());
+			for (VisualScriptNode const& node : graph->Nodes)
+			{
+				CHECK_FALSE(node.Position.has_value());
+				CHECK(node.Comment.empty());
+				CHECK_FALSE(node.Collapsed);
+			}
+		}
+
+		Testing::FuzzRandom random(4711);
+		size_t same = 0;
+		size_t different = 0;
+		for (int round = 0, rounds = Testing::GetFuzzRounds(200); round < rounds; round++)
+		{
+			CAPTURE(round);
+			VisualScriptDocument edited = original;
+			for (size_t count = 1 + random.Pick(4); count > 0; count--)
+			{
+				EditLayout(edited, random);
+			}
+			bool const programEdit = random.Pick(2) == 0;
+			if (programEdit)
+			{
+				EditProgram(edited, random);
+			}
+			bool const sameProgram = HaveSameVisualScriptProgram(original, edited);
+			CHECK((GetProgramHash(original) == GetProgramHash(edited)) == sameProgram);
+			// Layout edits alone never change the program.
+			CHECK((programEdit || sameProgram));
+			(sameProgram ? same : different)++;
+		}
+		CHECK(same > 0);
+		CHECK(different > 0);
 	}
 }

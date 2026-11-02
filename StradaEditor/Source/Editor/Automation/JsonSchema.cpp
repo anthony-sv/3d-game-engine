@@ -536,7 +536,10 @@ namespace Strada
 	SchemaBuilder::SchemaBuilder(std::string_view type, std::string_view description)
 		: m_Schema(Json::object())
 	{
-		m_Schema["type"] = std::string(type);
+		if (!type.empty())
+		{
+			m_Schema["type"] = std::string(type);
+		}
 		if (!description.empty())
 		{
 			m_Schema["description"] = std::string(description);
@@ -577,6 +580,23 @@ namespace Strada
 		return builder;
 	}
 
+	SchemaBuilder SchemaBuilder::Types(std::initializer_list<std::string_view> types, std::string_view description)
+	{
+		SchemaBuilder builder({}, description);
+		Json list = Json::array();
+		for (std::string_view const type : types)
+		{
+			list.push_back(std::string(type));
+		}
+		builder.m_Schema["type"] = std::move(list);
+		return builder;
+	}
+
+	SchemaBuilder SchemaBuilder::Any(std::string_view description)
+	{
+		return SchemaBuilder({}, description);
+	}
+
 	SchemaBuilder& SchemaBuilder::Description(std::string_view description)
 	{
 		m_Schema["description"] = std::string(description);
@@ -585,7 +605,13 @@ namespace Strada
 
 	SchemaBuilder& SchemaBuilder::Nullable()
 	{
-		Json& type = m_Schema["type"];
+		auto const found = m_Schema.find("type");
+		if (found == m_Schema.end())
+		{
+			// A schema without a type accepts null already.
+			return *this;
+		}
+		Json& type = *found;
 		if (type.is_string())
 		{
 			if (type.get_ref<std::string const&>() != "null")

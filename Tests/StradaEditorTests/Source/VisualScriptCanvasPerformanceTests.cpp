@@ -384,8 +384,10 @@ namespace
 	constexpr double T2Milliseconds = 0.832;
 	constexpr double T3Milliseconds = 0.104;
 	constexpr double T4Milliseconds = 1.425;
-	constexpr double CommitFrameMilliseconds = 13.6;
-	constexpr double LinkFrameMilliseconds = 128.0;
+	// The commit frames as track G measured them once a commit after the editor's own write no longer read the file back
+	// (ruling S-R5.1; track S measured 13.6 ms and 128 ms before).
+	constexpr double CommitFrameMilliseconds = 7.41;
+	constexpr double LinkFrameMilliseconds = 119.0;
 	constexpr double T2VectorMilliseconds = 0.821;
 	constexpr double T2EnumMilliseconds = 0.829;
 	constexpr std::array<double, 3> WindowFrameMilliseconds = {0.447, 0.445, 0.462};
@@ -668,13 +670,17 @@ TEST_CASE("VisualScriptEditor: the frame that commits a move in a graph of 2,000
 			// instead of syncing.
 			CHECK(fixture.Model().GetAnalysisCount() == analyses);
 			CHECK(fixture.Model().GetCanvas().GetPositionSyncCount() == positionSyncs + 1);
-			// Its phases are filled: the window's preparation, the step's file read and write, and the model's moving of the
-			// node and its new index (the adopt and the analysis can take less than the clock's resolution).
+			// Its phases are filled: the window's preparation, the step's file write, and the model's moving of the node and
+			// its new index (the adopt and the analysis can take less than the clock's resolution). The first commit reads
+			// the file the test wrote; each later one follows the editor's own write and reads nothing (ruling S-R5.1).
 			VisualScriptCommitTimings const& phases = frames.back().Phases;
+			auto const* const step = dynamic_cast<SetVisualScriptCommand const*>(fixture.Context.GetHistory().GetUndoCommand());
+			REQUIRE(step != nullptr);
+			CHECK(step->HasReadFile() == (commit == 0));
 			CHECK(phases.Normalize > 0.0);
 			CHECK(phases.Check > 0.0);
 			CHECK(phases.Text > 0.0);
-			CHECK(phases.ReadBack > 0.0);
+			CHECK((std::isfinite(phases.ReadBack) && phases.ReadBack >= 0.0));
 			CHECK(phases.Write > 0.0);
 			CHECK(phases.Adopt >= 0.0);
 			CHECK(phases.Analysis >= 0.0);

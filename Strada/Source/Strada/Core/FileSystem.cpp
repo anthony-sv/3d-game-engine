@@ -311,6 +311,22 @@ namespace Strada
 		return time;
 	}
 
+	std::optional<uint64_t> FileSystem::GetFileSize(std::filesystem::path const& path)
+	{
+		// file_size of a directory reports an error on some standard libraries and a size on others (MSVC's).
+		std::error_code errorCode;
+		if (!std::filesystem::is_regular_file(path, errorCode) || errorCode)
+		{
+			return std::nullopt;
+		}
+		std::uintmax_t const size = std::filesystem::file_size(path, errorCode);
+		if (errorCode)
+		{
+			return std::nullopt;
+		}
+		return static_cast<uint64_t>(size);
+	}
+
 	bool FileSystem::IsReadOnly(std::filesystem::path const& path)
 	{
 		std::error_code errorCode;

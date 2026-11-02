@@ -1393,6 +1393,7 @@ TEST_CASE("VisualScriptEditor: Remove Output on a Sequence's output in Details r
 	fixture.CheckDrawingChangesNothing();
 	fixture.SelectElements({2});
 	size_t const undo = fixture.GetUndoCount();
+	VisualScriptDocument const before = fixture.GetDocument();
 	fixture.ImGui.Click(fixture.DetailsRow("Then1"), fixture.Drawer());
 	fixture.Frames(2);
 	CHECK(fixture.GetUndoCount() == undo + 1);
@@ -1410,12 +1411,16 @@ TEST_CASE("VisualScriptEditor: Remove Output on a Sequence's output in Details r
 	// The rows follow the count.
 	CHECK(fixture.Details.FindRow("Then1"));
 	CHECK_FALSE(fixture.Details.FindRow("Then2"));
+	// graph.edit's operation for the same edit writes the same document (one implementation).
+	Json const operations = Json::array({Json::object({{"op", "SetSequenceOutputs"}, {"node", 2}, {"count", 2}, {"removeAt", 1}})});
+	CHECK(fixture.GetDocument() == Testing::ApplyBatchAsGraphEdit(before, operations, fixture.Semantics, fixture.Graph));
 }
 
 TEST_CASE("VisualScriptEditor: renaming a function's input in Details renames the links of its calls and of its entry, in one step")
 {
 	PaneFixture fixture(MakeFunctionDocument(), {FixturePane::Details});
 	fixture.CheckDrawingChangesNothing();
+	VisualScriptDocument const before = fixture.GetDocument();
 	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Function, 10};
 	fixture.Frames(2);
 	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Function);
@@ -1438,6 +1443,12 @@ TEST_CASE("VisualScriptEditor: renaming a function's input in Details renames th
 	CHECK(HasLinkIn(GetGraph(document, 0), MakeLink(3, "Value", 2, "Points")));
 	CHECK(GetGraph(document, 10).Links.size() == 2);
 	CHECK(GetGraph(document, 0).Links.size() == 2);
+	// graph.edit's operation for the same edit writes the same document (one implementation).
+	Json const operations = Json::array({Json::object({{"op", "SetFunctionSignature"},
+	                                                   {"function", "AddScore"},
+	                                                   {"inputs", Json::array({Json::object({{"name", "Points"}, {"type", "int"}})})},
+	                                                   {"outputs", Json::array({Json::object({{"name", "Result"}, {"type", "int"}})})}})});
+	CHECK(document == Testing::ApplyBatchAsGraphEdit(before, operations, fixture.Semantics, fixture.Graph));
 }
 
 TEST_CASE("VisualScriptEditor: the type picker of a public variable lists only types components can store")

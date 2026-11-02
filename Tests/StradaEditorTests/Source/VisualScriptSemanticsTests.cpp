@@ -140,7 +140,7 @@ namespace
 	VisualScriptAnalysis AnalyzeWithFixture(VisualScriptDocument const& document)
 	{
 		Testing::FixtureVisualScriptSemantics semantics;
-		Result<VisualScriptAnalysis> analysis = semantics.Analyze(document);
+		Result<VisualScriptAnalysis> analysis = semantics.Analyze(document, AssetHandle{});
 		REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
 		return analysis.TakeValue();
 	}
@@ -288,7 +288,7 @@ TEST_CASE("VisualScriptEditor: the engine's semantics have no library and no ana
 	REQUIRE_FALSE(ScriptEngine::IsInitialized());
 	EngineVisualScriptSemantics semantics;
 	CHECK(semantics.GetLibrary() == nullptr);
-	Result<VisualScriptAnalysis> const analysis = semantics.Analyze(MakeShapesDocument());
+	Result<VisualScriptAnalysis> const analysis = semantics.Analyze(MakeShapesDocument(), AssetHandle{});
 	REQUIRE(analysis.IsError());
 	CHECK(analysis.GetError() == "the scripting runtime is not running");
 }
@@ -300,7 +300,7 @@ TEST_CASE("VisualScriptEditor: the fixture library is the scripting runtime's ow
 	Ref<VisualScriptLibrary const> const library = semantics.GetLibrary();
 	REQUIRE(library != nullptr);
 	CHECK(semantics.GetLibrary() == library);
-	Result<VisualScriptAnalysis> const analysis = semantics.Analyze(MakeShapesDocument());
+	Result<VisualScriptAnalysis> const analysis = semantics.Analyze(MakeShapesDocument(), AssetHandle{});
 	REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
 	CHECK(analysis.GetValue().FindNode(50) != nullptr);
 
@@ -331,7 +331,7 @@ TEST_CASE("VisualScriptEditor: the fixture analysis gives the pins, titles and k
 	Testing::ScriptRuntimeScope runtime;
 	EngineVisualScriptSemantics semantics;
 	VisualScriptDocument const document = MakeShapesDocument();
-	Result<VisualScriptAnalysis> const real = semantics.Analyze(document);
+	Result<VisualScriptAnalysis> const real = semantics.Analyze(document, AssetHandle{});
 	REQUIRE_MESSAGE(real.IsOk(), real.GetError());
 	VisualScriptAnalysis const fixture = AnalyzeWithFixture(document);
 	CHECK(fixture.Diagnostics.empty());
@@ -655,14 +655,14 @@ TEST_CASE("VisualScriptEditor: the fixture semantics count their calls, stop and
 
 	VisualScriptDocument document;
 	document.Graph.Nodes = {MakeNode(1, "Flow.Branch")};
-	REQUIRE(semantics.Analyze(document).IsOk());
+	REQUIRE(semantics.Analyze(document, AssetHandle{}).IsOk());
 	CHECK(semantics.GetAnalyzeCallCount() == 1);
 
 	// Stopped, the semantics have no library and analyze nothing; started again, the library is the same object.
 	semantics.SetAvailable(false);
 	CHECK_FALSE(semantics.IsAvailable());
 	CHECK(semantics.GetLibrary() == nullptr);
-	Result<VisualScriptAnalysis> const stopped = semantics.Analyze(document);
+	Result<VisualScriptAnalysis> const stopped = semantics.Analyze(document, AssetHandle{});
 	REQUIRE(stopped.IsError());
 	CHECK(stopped.GetError() == "the scripting runtime is not running");
 	CHECK(semantics.GetLibraryCallCount() == 3);
@@ -691,7 +691,7 @@ TEST_CASE("VisualScriptEditor: the fixture semantics count their calls, stop and
 	warning.Suggestions = {"Flow.Branch"};
 	semantics.InjectDiagnostic(warning);
 	document.Graph.Nodes.push_back(MakeNode(2, "Flow.Unknown"));
-	Result<VisualScriptAnalysis> const injected = semantics.Analyze(document);
+	Result<VisualScriptAnalysis> const injected = semantics.Analyze(document, AssetHandle{});
 	REQUIRE(injected.IsOk());
 	REQUIRE(GetCodes(injected.GetValue()) == std::vector<std::string>{"UnknownNodeType", "NodeUpdated"});
 	VisualScriptDiagnostic const& read = injected.GetValue().Diagnostics[1];
@@ -704,7 +704,7 @@ TEST_CASE("VisualScriptEditor: the fixture semantics count their calls, stop and
 	CHECK(read.Message == warning.Message);
 	CHECK(read.Suggestions == warning.Suggestions);
 	semantics.ClearInjectedDiagnostics();
-	Result<VisualScriptAnalysis> const cleared = semantics.Analyze(document);
+	Result<VisualScriptAnalysis> const cleared = semantics.Analyze(document, AssetHandle{});
 	REQUIRE(cleared.IsOk());
 	CHECK(GetCodes(cleared.GetValue()) == std::vector<std::string>{"UnknownNodeType"});
 }

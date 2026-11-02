@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/Result.h"
@@ -18,8 +19,11 @@ namespace Strada
 		// The node library; null without the scripting runtime. A library that is read again (after the game assembly
 		// changed) is a new object, so a different pointer means that what was derived from the previous one is stale.
 		virtual Ref<VisualScriptLibrary const> GetLibrary() = 0;
-		// The analysis of a document. Fails without the scripting runtime, or when the runtime fails.
-		[[nodiscard]] virtual Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) = 0;
+		// The analysis of a document. self is the visual script the document is (or will be) the document of: a node that names
+		// its own graph by handle reads the document given rather than the stored one; invalid when the document is no
+		// asset's. No default argument: defaults bind statically, so every caller says which graph it analyzes. Fails without
+		// the scripting runtime, or when the runtime fails.
+		[[nodiscard]] virtual Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) = 0;
 	};
 
 	// The scripting runtime's library and analysis (VisualScriptEngine) while the runtime runs; a null library and an error
@@ -28,6 +32,6 @@ namespace Strada
 	{
 	public:
 		Ref<VisualScriptLibrary const> GetLibrary() override;
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override;
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override;
 	};
 }

@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
@@ -50,6 +51,10 @@ namespace
 	// cover with real projects.
 	constexpr std::array<std::string_view, 5> ExcludedCommands = {"project.create", "project.open", "project.close", "script.create",
 	                                                              "script.build"};
+
+	// The visual script the fixture seeds with the feature-test sample of the format, whose sub-graphs the graph commands'
+	// parameters are drawn from while it exists.
+	constexpr char const* SeedGraphPath = "Scripts/Everything.sgraph";
 
 	// Input is global: the fuzzer presses keys through input.set.
 	class InputScope
@@ -148,8 +153,12 @@ namespace
 		std::vector<std::string> ScenePaths;
 		std::vector<std::string> Folders;
 		Json MaterialFields = Json::object();
-		// The document of the first visual script (graph.get), for graph.set and graph.check.
+		// The document of the seed script while it is there, else of the first visual script that loads (graph.get), for
+		// graph.set and graph.check, and that script's handle.
 		Json GraphDocument = Json::object();
+		std::string Graph;
+		// Whether that script is the seed (SeedGraphPath).
+		bool SeedGraph = false;
 		// What that document holds, for the graph windows' commands and graph.find: its functions' IDs; the IDs of each
 		// sub-graph's nodes and comments (0: the event graph); its node IDs; the pin names its links and literals name; its
 		// variables', locals' and functions' IDs; its custom events' names.
@@ -159,6 +168,17 @@ namespace
 		std::vector<std::string> GraphPins;
 		std::vector<int64_t> GraphReferences;
 		std::vector<std::string> GraphEvents;
+		// Each sub-graph's links ({ from, to } as graph.edit names them) and comment boxes; the variables' IDs and names and the
+		// functions' names; the document's revisions (graph.get); the clipboard text of a few of its event graph's elements
+		// (graph.copy), for graph.edit's batches.
+		std::map<int64_t, std::vector<Json>> GraphLinks;
+		std::map<int64_t, std::vector<int64_t>> GraphComments;
+		std::vector<int64_t> GraphVariables;
+		std::vector<std::string> GraphVariableNames;
+		std::vector<std::string> GraphFunctionNames;
+		std::string GraphRevision;
+		std::string GraphProgramRevision;
+		std::string GraphClipboard;
 		// The visual scripts whose windows are open (graph.editors).
 		std::vector<std::string> OpenGraphs;
 		Json ProjectSettings = Json::object();
@@ -218,7 +238,7 @@ namespace
 			}
 			if (type == "array")
 			{
-				return ArrayValue(schema, property, depth);
+				return ArrayValue(schema, property, siblings, depth);
 			}
 			if (type == "string")
 			{
@@ -294,8 +314,12 @@ namespace
 			return object;
 		}
 
-		Json ArrayValue(Json const& schema, std::string_view property, int depth)
+		Json ArrayValue(Json const& schema, std::string_view property, Json const& siblings, int depth)
 		{
+			if (std::optional<Json> patch = Patch(property, siblings))
+			{
+				return *patch;
+			}
 			uint64_t const minimum = schema.value("minItems", uint64_t(0));
 			uint64_t const maximum = std::min(schema.value("maxItems", uint64_t(4)), minimum + 4);
 			Json const items = schema.value("items", Json::object());
@@ -358,11 +382,17 @@ namespace
 			return std::clamp(candidates[m_Random.Pick(candidates.size())], minimum, maximum);
 		}
 
-		// Parameters of the graph window commands and graph.find that combine as the commands expect most of the time, so
-		// their work is reached in a run's few rounds of each command: graph.find gets one of query and references, graph.open
-		// selects elements of the sub-graph it shows, and graph.close mostly closes one window.
+		// Parameters of the graph commands that combine as the commands expect most of the time, so their work is reached in a
+		// run's few rounds of each command: half of them name the state's script, graph.find gets one of query and references
+		// (each half the time when it had neither), graph.open selects elements of the sub-graph it shows, graph.arrange and
+		// graph.copy name nodes and elements of one sub-graph and mostly no revision, and graph.close mostly closes one window.
 		void AdjustGraphParameters(Json& params)
 		{
+			// Half the time the script whose document the state read, which every graph command can work on.
+			if (params.contains("graph") && !m_State.Graph.empty() && m_Random.Pick(2) == 0)
+			{
+				params["graph"] = m_State.Graph;
+			}
 			if (m_Command == "graph.find" && m_Random.Pick(4) != 0)
 			{
 				if (params.contains("query") && params.contains("references"))
@@ -371,8 +401,16 @@ namespace
 				}
 				else if (!params.contains("query") && !params.contains("references"))
 				{
-					std::vector<std::string> const texts = {"s", "Get", "Speed", "Hit", "e"};
-					params["query"] = PickFrom(texts);
+					std::optional<Json> references = m_Random.Pick(2) == 0 ? Patch("references", params) : std::nullopt;
+					if (references)
+					{
+						params["references"] = std::move(*references);
+					}
+					else
+					{
+						std::vector<std::string> const texts = {"s", "Get", "Speed", "Hit", "e"};
+						params["query"] = PickFrom(texts);
+					}
 				}
 			}
 			if (m_Command == "graph.open" && params.contains("select") && m_Random.Pick(5) != 0)
@@ -389,6 +427,88 @@ namespace
 					}
 				}
 				params["select"] = std::move(select);
+			}
+			// graph.arrange's nodes and graph.copy's elements: mostly of a sub-graph of the script the state knows, which the call
+			// then names (graph.arrange's nodes only).
+			if ((m_Command == "graph.arrange" || m_Command == "graph.copy") && !m_State.Graph.empty() && m_Random.Pick(5) != 0)
+			{
+				std::vector<std::pair<int64_t, std::vector<int64_t>>> subGraphs;
+				for (auto const& [function, elements] : m_State.GraphElements)
+				{
+					std::vector<int64_t> usable;
+					std::copy_if(elements.begin(), elements.end(), std::back_inserter(usable),
+					             [this](int64_t element)
+					             {
+									 return m_Command == "graph.copy" ||
+						                    std::ranges::find(m_State.GraphNodes, element) != m_State.GraphNodes.end();
+								 });
+					if (!usable.empty())
+					{
+						subGraphs.emplace_back(function, std::move(usable));
+					}
+				}
+				char const* const key = m_Command == "graph.arrange" ? "nodes" : "elements";
+				if (!subGraphs.empty())
+				{
+					auto const& [function, elements] = subGraphs[m_Random.Pick(subGraphs.size())];
+					params["graph"] = m_State.Graph;
+					params["function"] = function;
+					// graph.arrange arranges every node of the sub-graph without nodes.
+					if (params.contains(key) || m_Command == "graph.copy")
+					{
+						Json listed = Json::array();
+						for (size_t count = 1 + m_Random.Pick(4); count > 0; count--)
+						{
+							listed.push_back(PickFrom(elements));
+						}
+						params[key] = std::move(listed);
+					}
+				}
+				// A revision from the schema is a guess that names no document: mostly none, so the arranging is reached.
+				if (m_Random.Pick(4) != 0)
+				{
+					params.erase("revision");
+				}
+			}
+			// graph.edit: mostly the state's script, whose sub-graph the batch (Patch("operations")) drew its elements from; mostly
+			// no revision (a guess names no document), and the current program revision half the time.
+			if (m_Command == "graph.edit")
+			{
+				if (!m_State.Graph.empty() && m_Random.Pick(5) != 0)
+				{
+					params["graph"] = m_State.Graph;
+					if (m_BatchFunction != 0 || params.contains("function"))
+					{
+						params["function"] = m_BatchFunction;
+					}
+				}
+				if (m_Random.Pick(4) != 0)
+				{
+					params.erase("revision");
+				}
+				if (!m_State.GraphProgramRevision.empty() && m_Random.Pick(2) == 0)
+				{
+					params["programRevision"] = m_State.GraphProgramRevision;
+				}
+				else if (m_Random.Pick(4) != 0)
+				{
+					params.erase("programRevision");
+				}
+			}
+			// graph.palette opens only in an open window: mostly one, mostly without the from and at that the schema draws, which
+			// rarely name a node and a point of the canvas, so the palette's own checks are reached (whatever the order of the
+			// commands drawn before it).
+			if (m_Command == "graph.palette" && !m_State.OpenGraphs.empty() && m_Random.Pick(4) != 0)
+			{
+				params["graph"] = PickFrom(m_State.OpenGraphs);
+				if (m_Random.Pick(4) != 0)
+				{
+					params.erase("from");
+				}
+				if (m_Random.Pick(2) == 0)
+				{
+					params.erase("at");
+				}
 			}
 			if (m_Command == "graph.close" && !params.contains("graph") && !m_State.OpenGraphs.empty() && m_Random.Pick(4) != 0)
 			{
@@ -480,9 +600,24 @@ namespace
 				}
 				return components;
 			}
-			if (property == "settings")
+			if (property == "settings" && m_Command != "graph.edit")
 			{
 				return Damage(m_Command == "project.settings" ? m_State.ProjectSettings : m_State.SceneSettings);
+			}
+			// graph.edit's batch, drawn from the state's script.
+			if (property == "operations" && m_Command == "graph.edit")
+			{
+				return GraphOperations();
+			}
+			// graph.edit's Paste: the text of the last graph.copy, damaged half the time.
+			if (property == "clipboard")
+			{
+				std::string text = m_State.GraphClipboard;
+				if (!text.empty() && m_Random.Pick(2) == 0)
+				{
+					text.resize(m_Random.Pick(text.size()));
+				}
+				return Json(std::move(text));
 			}
 			// graph.find's references: an element of the document, a member left out now and then.
 			if (property == "references" && m_Random.Pick(4) != 0)
@@ -515,6 +650,184 @@ namespace
 				return document;
 			}
 			return std::nullopt;
+		}
+
+		// A graph.edit batch of 1 to 6 operations on one sub-graph of the state's script (which AdjustGraphParameters names):
+		// the operations that need no scripting runtime (the fixture has none) and those that run degraded without it
+		// (deletions, measured layout), with labels for what they add, and now and then a damaged one (a field the operation
+		// does not take, a label used before it is defined, an ID an earlier operation deleted).
+		Json GraphOperations()
+		{
+			m_BatchFunction = !m_State.GraphFunctions.empty() && m_Random.Pick(4) == 0 ? PickFrom(m_State.GraphFunctions) : 0;
+			std::vector<int64_t> const none;
+			auto const found = m_State.GraphElements.find(m_BatchFunction);
+			std::vector<int64_t> const& elements = found != m_State.GraphElements.end() ? found->second : none;
+			auto const foundComments = m_State.GraphComments.find(m_BatchFunction);
+			std::vector<int64_t> const& comments = foundComments != m_State.GraphComments.end() ? foundComments->second : none;
+			std::vector<int64_t> nodes;
+			std::copy_if(elements.begin(), elements.end(), std::back_inserter(nodes),
+			             [&comments](int64_t element)
+			             {
+							 return std::ranges::find(comments, element) == comments.end();
+						 });
+			auto const links = m_State.GraphLinks.find(m_BatchFunction);
+			std::vector<std::string> labels;
+			std::vector<int64_t> deleted;
+			auto const node = [&]() -> Json
+			{
+				if (!labels.empty() && m_Random.Pick(4) == 0)
+				{
+					return PickFrom(labels);
+				}
+				return nodes.empty() ? Json(999999) : Json(PickFrom(nodes));
+			};
+			auto const element = [&]() -> Json
+			{
+				return !comments.empty() && m_Random.Pick(4) == 0 ? Json(PickFrom(comments)) : node();
+			};
+			auto const label = [&](Json& operation)
+			{
+				if (m_Random.Pick(2) == 0)
+				{
+					labels.push_back("$fuzz" + std::to_string(labels.size()));
+					operation["as"] = labels.back();
+				}
+			};
+			auto const point = [&]
+			{
+				return Json::array({static_cast<double>(m_Random.Pick(4000)) - 2000.0, static_cast<double>(m_Random.Pick(4000)) - 2000.0});
+			};
+			std::vector<std::string> const types = {
+				"Flow.Branch", "Flow.Sequence", "Operator.Add", "Event.Custom", "Call:Strada.Log.Info(string)", "Flow.Delay"};
+			std::vector<std::string> const kinds = {
+				"AddNode",    "Move",        "SetPosition", "SetInput", "SetSetting",     "Disconnect",     "InsertReroute", "AddComment",
+				"SetComment", "AddVariable", "SetVariable", "Delete",   "DeleteVariable", "DeleteFunction", "Arrange",       "Paste"};
+			Json batch = Json::array();
+			for (size_t count = 1 + m_Random.Pick(6); count > 0; count--)
+			{
+				std::string const& kind = PickFrom(kinds);
+				Json operation = Json::object({{"op", kind}});
+				if (kind == "AddNode")
+				{
+					operation["type"] = PickFrom(types);
+					if (m_Random.Pick(2) == 0)
+					{
+						operation["position"] = point();
+					}
+					label(operation);
+				}
+				else if (kind == "Move")
+				{
+					operation["elements"] = Json::array({element(), element()});
+					operation["offset"] = point();
+				}
+				else if (kind == "SetPosition")
+				{
+					operation["element"] = element();
+					operation["position"] = point();
+				}
+				else if (kind == "SetInput")
+				{
+					operation["node"] = node();
+					operation["pin"] = m_State.GraphPins.empty() ? std::string("Value") : PickFrom(m_State.GraphPins);
+					std::array<Json, 4> const values = {Json(1), Json("Fuzz"), Json(true), Json()};
+					operation["value"] = values[m_Random.Pick(values.size())];
+				}
+				else if (kind == "SetSetting")
+				{
+					operation["node"] = node();
+					operation["name"] = m_Random.Pick(2) == 0 ? "Count" : "Name";
+					operation["value"] = operation["name"] == "Count" ? Json(2 + m_Random.Pick(3)) : Json("Fuzzed");
+				}
+				else if (kind == "Disconnect" || kind == "InsertReroute")
+				{
+					Json const link =
+						links != m_State.GraphLinks.end() && !links->second.empty()
+							? PickFrom(links->second)
+							: Json::object({{"from", Json::array({node(), "Then"})}, {"to", Json::array({node(), "Execute"})}});
+					if (kind == "Disconnect")
+					{
+						operation["from"] = link["from"];
+						operation["to"] = link["to"];
+					}
+					else
+					{
+						operation["link"] = link;
+						operation["position"] = point();
+						label(operation);
+					}
+				}
+				else if (kind == "AddComment")
+				{
+					operation["text"] = "Fuzz";
+					if (m_Random.Pick(2) == 0)
+					{
+						operation["elements"] = Json::array({element(), element()});
+					}
+					label(operation);
+				}
+				else if (kind == "SetComment")
+				{
+					operation["comment"] = comments.empty() ? Json(999999) : Json(PickFrom(comments));
+					operation["text"] = "Fuzzed";
+				}
+				else if (kind == "AddVariable")
+				{
+					operation["name"] = "Fuzz" + std::to_string(m_Random.Pick(1000));
+					operation["type"] = m_Random.Pick(2) == 0 ? "int" : "float";
+					operation["value"] = 1;
+				}
+				else if (kind == "SetVariable" || kind == "DeleteVariable")
+				{
+					bool const named = !m_State.GraphVariableNames.empty() && m_Random.Pick(2) == 0;
+					operation["variable"] = named                            ? Json(PickFrom(m_State.GraphVariableNames))
+					                        : m_State.GraphVariables.empty() ? Json("Nope")
+					                                                         : Json(PickFrom(m_State.GraphVariables));
+					if (kind == "SetVariable")
+					{
+						operation["tooltip"] = "Fuzzed";
+					}
+				}
+				else if (kind == "DeleteFunction")
+				{
+					operation["function"] = m_State.GraphFunctionNames.empty() ? Json("Nope") : Json(PickFrom(m_State.GraphFunctionNames));
+				}
+				else if (kind == "Delete")
+				{
+					operation["elements"] = Json::array({element()});
+					if (operation["elements"][0].is_number_integer())
+					{
+						deleted.push_back(operation["elements"][0].get<int64_t>());
+					}
+				}
+				else if (kind == "Arrange")
+				{
+					operation["scope"] = m_Random.Pick(2) == 0 ? "Graph" : "Created";
+					operation["extents"] = m_Random.Pick(2) == 0 ? "Measured" : "Uniform";
+				}
+				else
+				{
+					operation["clipboard"] = *Patch("clipboard", operation);
+				}
+				// Now and then a damaged operation.
+				if (m_Random.Pick(10) == 0)
+				{
+					switch (m_Random.Pick(3))
+					{
+						case 0:
+							operation["nodeId"] = 1;
+							break;
+						case 1:
+							operation["node"] = "$forward";
+							break;
+						default:
+							operation["elements"] = Json::array({deleted.empty() ? int64_t(999999) : deleted.back()});
+							break;
+					}
+				}
+				batch.push_back(std::move(operation));
+			}
+			return batch;
 		}
 
 		// Some of the members of a document, damaged half the time.
@@ -698,6 +1011,8 @@ namespace
 		std::filesystem::path m_Outside;
 		std::vector<std::string> m_ImportFiles;
 		std::string_view m_Command;
+		// The sub-graph the last graph.edit batch drew its elements from.
+		int64_t m_BatchFunction = 0;
 	};
 
 	// A project with something of everything, open in an editor model with the commands the editor layer registers.
@@ -807,7 +1122,7 @@ namespace
 			Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}, {"fields", {{"Roughness", 0.25}}}}));
 			// The VisualScript component was created without a graph: it gets one.
 			REQUIRE_FALSE(visualScript.empty());
-			std::string const graph = Ok("graph.create", Json::object({{"path", "Scripts/Everything.sgraph"}}))["asset"].get<std::string>();
+			std::string const graph = Ok("graph.create", Json::object({{"path", SeedGraphPath}}))["asset"].get<std::string>();
 			// The mutator only damages what the seed holds: the feature-test sample of the format has functions, locals, comments,
 			// a custom event and every node key of version 2.
 			Json const sample = Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph");
@@ -860,6 +1175,19 @@ namespace
 			{
 				static_cast<void>(Run("entity.create", Json::object({{"name", component}, {"components", {{component, Json::object()}}}})));
 			}
+		}
+
+		// Writes the seed script again when the commands deleted, moved or broke it (as Replenish puts entities back), so the
+		// graph commands keep a script with every element to work on.
+		void ReseedGraph()
+		{
+			Json const sample = Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph");
+			std::string const reference = std::string("asset://") + SeedGraphPath;
+			if (Run("graph.get", Json::object({{"graph", reference}, {"analyze", false}})).IsError())
+			{
+				static_cast<void>(Run("graph.create", Json::object({{"path", SeedGraphPath}})));
+			}
+			static_cast<void>(Run("graph.set", Json::object({{"graph", reference}, {"document", sample["VisualScript"]}})));
 		}
 
 		// Opens a visual script's window again when none is open (as Replenish puts entities back), so the palette has a window
@@ -986,10 +1314,15 @@ namespace
 				for (Json const& comment : comments)
 				{
 					elements.push_back(comment.value("ID", int64_t(0)));
+					state.GraphComments[function].push_back(elements.back());
 				}
 				Json const links = graph.value("Links", Json::array());
 				for (Json const& link : links)
 				{
+					if (link.contains("From") && link.contains("To"))
+					{
+						state.GraphLinks[function].push_back(Json::object({{"from", link["From"]}, {"to", link["To"]}}));
+					}
 					for (char const* const end : {"From", "To"})
 					{
 						if (link.contains(end) && link[end].is_array() && link[end].size() == 2 && link[end][1].is_string())
@@ -1004,6 +1337,11 @@ namespace
 			for (Json const& variable : variables)
 			{
 				state.GraphReferences.push_back(variable.value("ID", int64_t(0)));
+				state.GraphVariables.push_back(state.GraphReferences.back());
+				if (variable.contains("Name") && variable["Name"].is_string())
+				{
+					state.GraphVariableNames.push_back(variable["Name"].get<std::string>());
+				}
 			}
 			Json const functions = document.value("Functions", Json::array());
 			for (Json const& function : functions)
@@ -1011,6 +1349,10 @@ namespace
 				int64_t const id = function.value("ID", int64_t(0));
 				state.GraphFunctions.push_back(id);
 				state.GraphReferences.push_back(id);
+				if (function.contains("Name") && function["Name"].is_string())
+				{
+					state.GraphFunctionNames.push_back(function["Name"].get<std::string>());
+				}
 				Json const locals = function.value("Locals", Json::array());
 				for (Json const& local : locals)
 				{
@@ -1051,6 +1393,7 @@ namespace
 				state.ComponentFields[type["Name"].get<std::string>()] = std::move(fields);
 			}
 			std::set<std::string> folders;
+			bool seedRead = false;
 			Json const assets = Ok("asset.list", Json::object({{"builtIn", true}}));
 			for (Json const& asset : assets["assets"])
 			{
@@ -1086,13 +1429,17 @@ namespace
 						state.MaterialFields = material.GetValue()["fields"];
 					}
 				}
-				if (type == "VisualScript" && state.GraphDocument.empty())
+				// The seed script while it is there (the scripts the commands create hold little), else the first that loads.
+				if (type == "VisualScript" && (state.GraphDocument.empty() || (path == SeedGraphPath && !seedRead)))
 				{
 					CommandResult graph = Run("graph.get", Json::object({{"graph", names.front()}, {"analyze", false}}));
 					if (graph.IsOk())
 					{
 						state.GraphDocument = graph.GetValue()["document"];
-						ReadGraph(state);
+						state.GraphRevision = graph.GetValue()["revision"].get<std::string>();
+						state.GraphProgramRevision = graph.GetValue()["programRevision"].get<std::string>();
+						state.Graph = names.front();
+						seedRead = path == SeedGraphPath;
 					}
 				}
 				for (size_t slash = path.find('/'); slash != std::string::npos; slash = path.find('/', slash + 1))
@@ -1101,6 +1448,26 @@ namespace
 				}
 			}
 			state.Folders.assign(folders.begin(), folders.end());
+			if (!state.GraphDocument.empty())
+			{
+				ReadGraph(state);
+				// What graph.edit's Paste takes: the clipboard text of up to three of the event graph's elements.
+				std::vector<int64_t> const& elements = state.GraphElements[0];
+				if (!elements.empty())
+				{
+					Json copied = Json::array();
+					for (size_t index = 0; index < std::min<size_t>(3, elements.size()); index++)
+					{
+						copied.push_back(elements[index]);
+					}
+					CommandResult copy = Run("graph.copy", Json::object({{"graph", state.Graph}, {"elements", std::move(copied)}}));
+					if (copy.IsOk())
+					{
+						state.GraphClipboard = copy.GetValue()["text"].get<std::string>();
+					}
+				}
+			}
+			state.SeedGraph = seedRead;
 			Json const editors = Ok("graph.editors")["editors"];
 			for (Json const& editor : editors)
 			{
@@ -1147,6 +1514,11 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 			if (state.Entities.size() < 3)
 			{
 				fixture.Replenish();
+				state = fixture.ReadState();
+			}
+			if (!state.SeedGraph)
+			{
+				fixture.ReseedGraph();
 				state = fixture.ReadState();
 			}
 			if (state.OpenGraphs.empty())
@@ -1232,8 +1604,8 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	CHECK_MESSAGE(exercised * 4 >= commands.size() * 3, exercised << " of " << commands.size() << " commands succeeded");
 	// The visual script commands reach their work too (graph.library and graph.types need the scripting runtime, which the
 	// fixture does not start).
-	for (char const* const graphCommand :
-	     {"graph.create", "graph.get", "graph.set", "graph.check", "graph.open", "graph.close", "graph.editors"})
+	for (std::string const graphCommand : {"graph.create", "graph.get", "graph.set", "graph.check", "graph.edit", "graph.arrange",
+	                                       "graph.copy", "graph.open", "graph.close", "graph.editors"})
 	{
 		CAPTURE(graphCommand);
 		CHECK(outcomes[graphCommand].first > 0);

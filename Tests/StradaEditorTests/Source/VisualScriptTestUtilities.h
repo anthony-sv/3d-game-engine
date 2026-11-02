@@ -2,8 +2,10 @@
 
 #include "TestUtilities.h"
 
+#include "Editor/VisualScripting/VisualScriptBatch.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptCommit.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
@@ -43,6 +45,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 // What the tests of the visual script editor's canvas, panes and windows share: the fixture node library with an analyzer of
@@ -1006,13 +1009,17 @@ namespace Strada::Testing
 			return m_Available ? m_Library : nullptr;
 		}
 
-		// Fails while the runtime is stopped.
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document) override
+		// Fails while the runtime is stopped. The fixture analyzer reads no other graph, so the graph analyzed does not matter.
+		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle) override
 		{
 			m_AnalyzeCallCount++;
 			if (!m_Available)
 			{
 				return Error{"the scripting runtime is not running"};
+			}
+			if (m_AnalyzeFails)
+			{
+				return Error{"the scripting runtime failed to analyze the visual script"};
 			}
 			Result<VisualScriptAnalysis> analysis = AnalyzeWithFixtureTemplates(*m_Library, document, m_InjectedDiagnostics);
 			if (analysis)
@@ -1032,6 +1039,8 @@ namespace Strada::Testing
 		// The runtime stops (GetLibrary gives null, Analyze fails) or starts again.
 		void SetAvailable(bool available) { m_Available = available; }
 		bool IsAvailable() const { return m_Available; }
+		// The runtime runs (GetLibrary gives the library) but every analysis fails, as when the runtime throws.
+		void SetAnalyzeFails(bool fails) { m_AnalyzeFails = fails; }
 		// Reads the library again: GetLibrary then gives a new object.
 		void ReloadLibrary()
 		{
@@ -1077,6 +1086,7 @@ namespace Strada::Testing
 		uint64_t m_LibraryCallCount = 0;
 		uint64_t m_AnalyzeCallCount = 0;
 		bool m_Available = true;
+		bool m_AnalyzeFails = false;
 	};
 
 	// The canvas' text measurer (width in canvas units of a text of a size in canvas units) for layout tests: every byte is
@@ -1290,5 +1300,33 @@ namespace Strada::Testing
 			comment.Size = glm::vec2(584.0f, 400.0f);
 		}
 		return document;
+	}
+
+	// The document graph.edit writes for operations on the stored document (spec §7.6 steps 4-6): the batch, then the commit
+	// pipeline with the analysis of the result, through the semantics given. The parity tests compare it with what a window
+	// commits for the same gesture.
+	inline VisualScriptDocument ApplyBatchAsGraphEdit(VisualScriptDocument const& stored, Json const& operations,
+	                                                  VisualScriptSemantics& semantics, AssetHandle graph)
+	{
+		VisualScriptBatchContext context(semantics);
+		context.Graph = graph;
+		std::variant<VisualScriptBatchResult, VisualScriptBatchError> applied = ApplyVisualScriptBatch(stored, operations, context);
+		VisualScriptBatchError const* const failed = std::get_if<VisualScriptBatchError>(&applied);
+		REQUIRE_MESSAGE(failed == nullptr, (failed != nullptr ? failed->Message : std::string()));
+		VisualScriptBatchResult batch = std::get<VisualScriptBatchResult>(std::move(applied));
+		std::optional<VisualScriptAnalysis> analysis;
+		if (batch.Analysis != nullptr)
+		{
+			analysis = *batch.Analysis;
+		}
+		else if (semantics.GetLibrary() != nullptr)
+		{
+			Result<VisualScriptAnalysis> made = semantics.Analyze(batch.Document, graph);
+			REQUIRE(made.IsOk());
+			analysis = made.TakeValue();
+		}
+		Result<VisualScriptCommit> prepared = PrepareVisualScriptCommit(stored, std::move(batch.Document), analysis ? &*analysis : nullptr);
+		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
+		return prepared.TakeValue().Document;
 	}
 }

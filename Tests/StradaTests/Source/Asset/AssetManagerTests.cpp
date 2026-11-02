@@ -351,17 +351,21 @@ TEST_CASE("AssetManager: a refresh does not reload a file whose writing was reco
 	PostponeWriteTime(file, std::chrono::seconds(5));
 	asset->SetDocument(edited);
 	uint64_t const version = AssetManager::GetVersion();
+	CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
 	AssetManager::RecordFileWrite(graph);
 	CHECK(AssetManager::GetVersion() == version);
+	// The file is as the editor's last write left it: the same write time and size.
+	CHECK(AssetManager::IsFileAsLastRecorded(graph));
 	Result<AssetRefreshResult> refreshed = AssetManager::Refresh();
 	REQUIRE(refreshed.IsOk());
 	CHECK(refreshed.GetValue().Modified.empty());
 	CHECK(AssetManager::IsLoaded(graph));
 	CHECK(AssetManager::GetAsset<VisualScriptAsset>(graph) == asset);
 
-	// Written outside the editor: reloaded, as a new object holding what the file holds.
+	// Written outside the editor: no longer as the editor left it, and reloaded, as a new object holding what the file holds.
 	REQUIRE(VisualScriptSerializer::SaveToFile(original, file).IsOk());
 	PostponeWriteTime(file, std::chrono::seconds(10));
+	CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
 	refreshed = AssetManager::Refresh();
 	REQUIRE(refreshed.IsOk());
 	CHECK(refreshed.GetValue().Modified == std::vector<AssetHandle>{graph});
@@ -370,6 +374,8 @@ TEST_CASE("AssetManager: a refresh does not reload a file whose writing was reco
 	REQUIRE(reloaded != nullptr);
 	CHECK(reloaded != asset);
 	CHECK(reloaded->GetDocument() == original);
+	// A load records no write of the editor's.
+	CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
 
 	// Nothing is recorded for an asset that is not loaded: a later change of its file is no change of a loaded asset.
 	AssetHandle const wood = Find("Textures/Wood.png");

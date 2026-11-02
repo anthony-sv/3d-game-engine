@@ -84,3 +84,57 @@ TEST_CASE("JsonSchema: violations point at the offending value")
 	CHECK(ViolationPath(Json::object({{"nmae", "a"}})) == "nmae");
 	CHECK(JsonSchema::Validate(Json::array(), MakeSchema()).has_value());
 }
+
+TEST_CASE("JsonSchema: Types accepts a value of any type it lists, and Any accepts every value")
+{
+	// A reference: an ID (at least 0) or a name; and a pair of them, as a link end is.
+	Json const reference = SchemaBuilder::Types({"integer", "string"}, "An ID or a name").Minimum(0).MinLength(1).Build();
+	CHECK(
+		reference ==
+		Json::object({{"type", Json::array({"integer", "string"})}, {"description", "An ID or a name"}, {"minimum", 0}, {"minLength", 1}}));
+	Json const end = SchemaBuilder::Array(SchemaBuilder::Types({"integer", "string"}), "A link end").MinItems(2).MaxItems(2).Build();
+	Json const value = SchemaBuilder::Any("A literal").Build();
+	CHECK(value == Json::object({{"description", "A literal"}}));
+	Json const schema =
+		SchemaBuilder::Object()
+			.Property("reference", SchemaBuilder::Types({"integer", "string"}, "An ID or a name").Minimum(0).MinLength(1))
+			.Property("end", SchemaBuilder::Array(SchemaBuilder::Types({"integer", "string"}), "A link end").MinItems(2).MaxItems(2))
+			.Property("value", SchemaBuilder::Any("A literal"))
+			.Property("optional", SchemaBuilder::Types({"integer", "string"}).Nullable())
+			.Property("anything", SchemaBuilder::Any().Nullable())
+			.Build();
+	REQUIRE(JsonSchema::CheckDefinition(schema).IsOk());
+	CHECK(schema["properties"]["optional"]["type"] == Json::array({"integer", "string", "null"}));
+	// Nullable leaves a schema without a type as it is: it accepts null already.
+	CHECK(schema["properties"]["anything"] == Json::object());
+
+	for (Json const& accepted : {Json(0), Json(12), Json(3.0), Json("Speed"), Json("$speed")})
+	{
+		CAPTURE(accepted);
+		CHECK_FALSE(JsonSchema::Validate(accepted, reference).has_value());
+	}
+	for (Json const& refused : {Json(-1), Json(""), Json(1.5), Json(true), Json(), Json::array(), Json::object()})
+	{
+		CAPTURE(refused);
+		std::optional<SchemaViolation> const violation = JsonSchema::Validate(Json::object({{"reference", refused}}), schema);
+		REQUIRE(violation.has_value());
+		CHECK(violation->Path == "reference");
+	}
+	CHECK(JsonSchema::Validate(Json::object({{"reference", true}}), schema)->Message.find("an integer or a string") != std::string::npos);
+
+	CHECK_FALSE(JsonSchema::Validate(Json::object({{"end", Json::array({12, "Then"})}}), schema).has_value());
+	CHECK_FALSE(JsonSchema::Validate(Json::object({{"end", Json::array({"$branch", "True"})}}), schema).has_value());
+	CHECK(JsonSchema::Validate(Json::object({{"end", Json::array({12})}}), schema)->Path == "end");
+	CHECK(JsonSchema::Validate(Json::object({{"end", Json::array({12, "Then", 3})}}), schema)->Path == "end");
+	CHECK(JsonSchema::Validate(Json::object({{"end", Json::array({12, Json::array()})}}), schema)->Path == "end[1]");
+
+	for (Json const& anything : {Json(), Json(true), Json(-1), Json(2.5), Json("text"), Json::array({1, "a"}),
+	                             Json::object({{"Parameters", Json::array({Json::object({{"Name", "A"}, {"Type", "int"}})})}})})
+	{
+		CAPTURE(anything);
+		CHECK_FALSE(JsonSchema::Validate(Json::object({{"value", anything}, {"anything", anything}}), schema).has_value());
+	}
+	CHECK_FALSE(JsonSchema::Validate(Json::object({{"optional", nullptr}}), schema).has_value());
+	CHECK_FALSE(JsonSchema::Validate(Json::object({{"optional", "Speed"}}), schema).has_value());
+	CHECK(JsonSchema::Validate(Json::object({{"optional", 1.5}}), schema)->Path == "optional");
+}

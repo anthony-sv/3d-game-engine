@@ -14,6 +14,7 @@ add_executable(StradaEditorTests
     Source/ExportCommandsTests.cpp
     Source/GameInputTests.cpp
     Source/GraphCommandsTests.cpp
+    Source/GraphEditFuzzTests.cpp
     Source/HeadlessImGui.h
     Source/HeadlessImGuiTests.cpp
     Source/HierarchyOperationsTests.cpp
@@ -31,6 +32,7 @@ add_executable(StradaEditorTests
     Source/UIEditingTests.cpp
     Source/ViewportTests.cpp
     Source/VisualScriptArrangeTests.cpp
+    Source/VisualScriptBatchTests.cpp
     Source/VisualScriptCanvasModelTests.cpp
     Source/VisualScriptCanvasPerformanceTests.cpp
     Source/VisualScriptClipboardTests.cpp
@@ -42,6 +44,7 @@ add_executable(StradaEditorTests
     Source/VisualScriptEditorsTests.cpp
     Source/VisualScriptFindTests.cpp
     Source/VisualScriptGeometryTests.cpp
+    Source/VisualScriptHeadlessCanvasTests.cpp
     Source/VisualScriptHitTestTests.cpp
     Source/VisualScriptNodeTitlesTests.cpp
     Source/VisualScriptNormalizationTests.cpp

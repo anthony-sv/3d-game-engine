@@ -776,11 +776,14 @@ TEST_CASE("VisualScriptCommit: a step's timings are its last execution's, and a 
 	};
 	constexpr uint64_t MergeKey = 7;
 
-	// Without a text, the first execution reads the file back, compares, serializes the document and writes it.
+	// Without a text, the first execution records what the file holds, compares, serializes the document and writes it. The
+	// file is the editor's last write, unchanged since: what it holds is the remembered text, and nothing is read (ruling
+	// S-R5.1), so recording it can take less than the clock's resolution.
 	SetVisualScriptCommand first(graph, moved(512.0f), "Move Node", MergeKey);
 	REQUIRE(first.Execute(context).IsOk());
 	VisualScriptCommitTimings const firstTimings = first.GetLastTimings();
-	CHECK(firstTimings.ReadBack > 0.0);
+	CHECK_FALSE(first.HasReadFile());
+	CHECK((std::isfinite(firstTimings.ReadBack) && firstTimings.ReadBack >= 0.0));
 	CHECK(firstTimings.Text > 0.0);
 	CHECK(firstTimings.Write > 0.0);
 	CHECK(firstTimings.Normalize == 0.0);
@@ -793,7 +796,8 @@ TEST_CASE("VisualScriptCommit: a step's timings are its last execution's, and a 
 	SetVisualScriptCommand second(graph, later, "Move Node", MergeKey, VisualScriptSerializer::WriteText(*later));
 	REQUIRE(second.Execute(context).IsOk());
 	VisualScriptCommitTimings const secondTimings = second.GetLastTimings();
-	CHECK(secondTimings.ReadBack > 0.0);
+	CHECK_FALSE(second.HasReadFile());
+	CHECK((std::isfinite(secondTimings.ReadBack) && secondTimings.ReadBack >= 0.0));
 	REQUIRE(first.CanMergeWith(second));
 	first.MergeWith(second);
 	VisualScriptCommitTimings const& merged = first.GetLastTimings();
@@ -894,14 +898,16 @@ TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, seria
 			timings.Write = executed.Write;
 			timings.SetDocument = executed.SetDocument;
 			phases.push_back(timings);
-			// Each fills its own phases: the preparation and the step's writing of 2,000 nodes and the file's read and write
-			// always take time, the comparison and the asset's update can take less than the clock's resolution.
+			// Each fills its own phases: the preparation and the step's writing of 2,000 nodes and the file's write always take
+			// time; the comparison, the asset's update and the read-back can take less than the clock's resolution, the last
+			// because each commit follows the editor's own write and reads nothing (ruling S-R5.1).
 			CHECK(request.Timings.Normalize > 0.0);
 			CHECK(request.Timings.Check > 0.0);
 			CHECK(request.Timings.Text > 0.0);
 			CHECK(request.Timings.ReadBack == 0.0);
 			CHECK(request.Timings.Write == 0.0);
-			CHECK(executed.ReadBack > 0.0);
+			CHECK_FALSE(step->HasReadFile());
+			CHECK((std::isfinite(executed.ReadBack) && executed.ReadBack >= 0.0));
 			CHECK(executed.Write > 0.0);
 			CHECK((std::isfinite(executed.Compare) && executed.Compare >= 0.0));
 			CHECK((std::isfinite(executed.SetDocument) && executed.SetDocument >= 0.0));
@@ -932,12 +938,13 @@ TEST_CASE("VisualScriptCommit: one edit of a 2,000-node graph is prepared, seria
 			if (nodeCount == 2000)
 			{
 				// Three times the median track S measured once the commit validated and wrote its text directly (spec §5.8; an
-				// AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51; Debug in its quietest runs, Release with other builds'
-				// tests running): in Release most of what is left is the file read back and written (ReadBack and Write).
+				// AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51; Debug in its quietest runs), and in Release the median
+				// track G measured once a commit after the editor's own write no longer read the file back (ruling S-R5.1;
+				// 12.3 ms before): most of what is left is the text and the file's write (Text and Write).
 #if defined(ST_DEBUG)
 				constexpr double MeasuredMilliseconds = 52.0;
 #else
-				constexpr double MeasuredMilliseconds = 12.3;
+				constexpr double MeasuredMilliseconds = 5.3;
 #endif
 				CHECK(median <= 3.0 * MeasuredMilliseconds);
 			}
