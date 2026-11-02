@@ -24,6 +24,8 @@ namespace Strada
 		// Category paths of the document's entries (VisualScriptPaletteIndex::SetDocument), drawn before the library's
 		// categories unless the library has a category of the same path.
 		constexpr std::array<std::string_view, 3> DocumentCategories = {"Variables", "Functions", "Events"};
+		// The category of the game's [VisualNode] members, which ends with the row about those without a node.
+		constexpr std::string_view GameCategory = "Game";
 		constexpr char const* PopupName = "##VisualScriptPalette";
 		constexpr char const* SearchName = "##search";
 		// The scale of the canvas a hovered row's node is previewed at.
@@ -388,6 +390,7 @@ namespace Strada
 		m_State.Open = true;
 		m_State.Query = m_Query;
 		m_State.From = m_From;
+		m_State.NotesRow = m_Ranked ? std::string() : m_NotesRow;
 		if (m_Ranked)
 		{
 			m_State.Total = static_cast<uint32_t>(m_Matches.size());
@@ -656,6 +659,10 @@ namespace Strada
 	void VisualScriptPalettePopup::DrawTree(VisualScriptPaneContext const& context, VisualScriptLibrary const& library, bool appearing,
 	                                        std::optional<uint32_t>& chosen)
 	{
+		size_t const notes = library.GetNotes().size();
+		m_NotesRow = notes == 0   ? std::string()
+		             : notes == 1 ? std::string("1 [VisualNode] member has no node: see the Console")
+		                          : fmt::format("{} [VisualNode] members have no node: see the Console", notes);
 		bool const recentEmpty = m_RecentEntries.empty();
 		if (!recentEmpty)
 		{
@@ -701,9 +708,24 @@ namespace Strada
 				ImGui::TreePop();
 			}
 		}
+		bool gameShown = false;
 		for (VisualScriptCategory const& category : root.Children)
 		{
+			gameShown = gameShown || (category.Path == GameCategory && HasEntries(category));
 			DrawCategory(context, library, category, appearing, true, chosen);
+		}
+		if (!gameShown && !m_NotesRow.empty())
+		{
+			// Every member failed: the Game category holds the row alone, so no member is missing silently.
+			if (appearing)
+			{
+				ImGui::SetNextItemOpen(recentEmpty);
+			}
+			if (ImGui::TreeNodeEx(std::string(GameCategory).c_str(), ImGuiTreeNodeFlags_SpanAvailWidth))
+			{
+				DrawNotesRow();
+				ImGui::TreePop();
+			}
 		}
 		// Entries without a category (the actions) close the list.
 		DrawEntryRows(context, std::string(), chosen);
@@ -744,7 +766,22 @@ namespace Strada
 			DrawCategory(context, library, child, appearing, false, chosen);
 		}
 		DrawEntryRows(context, category.Path, chosen);
+		if (firstLevel && category.Path == GameCategory)
+		{
+			DrawNotesRow();
+		}
 		ImGui::TreePop();
+	}
+
+	void VisualScriptPalettePopup::DrawNotesRow()
+	{
+		if (m_NotesRow.empty())
+		{
+			return;
+		}
+		ImGui::BeginDisabled();
+		ImGui::Selectable(m_NotesRow.c_str(), false, ImGuiSelectableFlags_None);
+		ImGui::EndDisabled();
 	}
 
 	void VisualScriptPalettePopup::DrawEntryRows(VisualScriptPaneContext const& context, std::string const& category,
@@ -803,7 +840,10 @@ namespace Strada
 		float const titleX = min.x + glyph + style.ItemInnerSpacing.x;
 		std::span<uint16_t const> const highlights =
 			match != nullptr ? std::span<uint16_t const>(match->Highlights) : std::span<uint16_t const>();
-		DrawHighlightedText(drawList, ImVec2(titleX, min.y), entry.Title, highlights, ImGui::GetColorU32(ImGuiCol_Text),
+		// A match may title its row itself ("Expression: a*b"); its highlights are of the entry's title.
+		bool const ownTitle = match != nullptr && !match->Title.empty();
+		DrawHighlightedText(drawList, ImVec2(titleX, min.y), ownTitle ? match->Title : entry.Title,
+		                    ownTitle ? std::span<uint16_t const>() : highlights, ImGui::GetColorU32(ImGuiCol_Text),
 		                    ImGui::GetColorU32(ImGuiCol_CheckMark));
 
 		// Right-aligned: in context mode the pin it connects and the conversion, else the subtitle.
@@ -1013,7 +1053,9 @@ namespace Strada
 		else
 		{
 			std::string type = entry.NodeType;
-			Json settings = entry.Settings.is_object() ? entry.Settings : Json::object();
+			// A match's settings ("=formula" gives the Expression its Formula) go over the entry's.
+			Json settings = match != nullptr ? GetVisualScriptPaletteMatchSettings(entry, *match)
+			                                 : (entry.Settings.is_object() ? entry.Settings : Json::object());
 			if (entry.Action == VisualScriptPaletteAction::AddCustomEvent)
 			{
 				settings["Name"] = VisualScriptEditing::MakeUniqueVisualScriptName(NewEventName,
@@ -1157,7 +1199,7 @@ namespace Strada
 		}
 		if (!focusSetting.empty() && !select.empty())
 		{
-			result.FocusSetting = VisualScriptSettingFocus{select.front(), std::move(focusSetting)};
+			result.FocusSetting = VisualScriptSettingFocus{select.front(), std::move(focusSetting), std::nullopt};
 		}
 		request.GetValue().Select = std::move(select);
 		result.Commit = request.TakeValue();

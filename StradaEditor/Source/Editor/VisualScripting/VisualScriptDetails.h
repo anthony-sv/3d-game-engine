@@ -7,6 +7,7 @@
 #include "Strada/Script/VisualScriptLibrary.h"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -26,7 +27,8 @@ namespace Strada
 	// Where a type picked in Details goes, which decides the types the picker offers.
 	enum class VisualScriptTypeUse : uint8_t
 	{
-		// A private variable, a local, a function's or a custom event's parameter: any type with values except arrays (v2 §3.2).
+		// A private variable, a local, a function's or a custom event's parameter: any type with values, arrays included
+		// (spec-slice3 §3.4.3).
 		Value = 0,
 		// A public variable: a type components can store (v2 §3.3): one with a script field type, or an enum.
 		PublicVariable,
@@ -127,6 +129,21 @@ namespace Strada
 		void DrawSettings(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawSetting(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
 		void DrawSequenceOutputs(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
+		// Make Array's Count: elements added at the end and removed from it with their links (SetArrayElements).
+		void DrawArrayElements(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
+		// An Expression's Formula (spec-slice3 §9.1): a monospace field committed like a name field through SetFormula against the
+		// formula at the interaction's start (and at the widget cadence while its inputs stay those of the start), the inputs
+		// the analysis gives, and a caret block per diagnostic about the formula. focus gives the field the keyboard, selecting
+		// span when given.
+		void DrawFormula(Frame& frame, VisualScriptNode const& node, std::string const& title, bool focus,
+		                 std::optional<std::pair<uint32_t, uint32_t>> span);
+		// An array literal's rows (DrawVisualScriptArrayLiteral) labelled label and found by FindRow under key: element values
+		// commit at the widget cadence under valueAction, adding, removing and moving elements one step each, described for
+		// subject ("Add Element to Speeds"). makeEdit gives the document with a new literal under an action; nothing when it
+		// cannot.
+		void DrawArrayLiteral(Frame& frame, std::string_view label, std::string_view key, std::string_view elementType, Json const& literal,
+		                      std::string const& valueAction, std::string const& subject,
+		                      std::function<std::optional<Edit>(Json, std::string)> const& makeEdit);
 		void DrawCases(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawChoice(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
 		void DrawInputs(Frame& frame, VisualScriptNode const& node, std::string const& title);
@@ -166,6 +183,19 @@ namespace Strada
 		VisualScriptDetailsSubject m_Subject = VisualScriptDetailsSubject::Script;
 		// How many Draws the focus request has waited for its node.
 		int m_FocusWaits = 0;
+		// The Formula field being typed in: its node, the formula and its inputs at the interaction's start, the text typed, the
+		// bytes to select once it has the keyboard, and the frame it was last drawn in.
+		struct FormulaEdit
+		{
+			uint32_t Node = 0;
+			std::string Start;
+			std::vector<std::string> StartInputs;
+			std::string Text;
+			std::optional<std::pair<uint32_t, uint32_t>> Select;
+			bool Focus = false;
+			int DrawnFrame = 0;
+		};
+		std::optional<FormulaEdit> m_Formula;
 		// A comment's Position or Size being dragged: the unsnapped value the drag has reached.
 		struct CommentDrag
 		{

@@ -61,7 +61,8 @@ namespace
 			{Json::object({{"Name", "Amount"}, {"Type", "float"}}), Json::object({{"Name", "Other"}, {"Type", "Strada.Entity"}})});
 		VisualScriptDocument document;
 		document.Variables = {MakeVariable(1, "Speed", "float"), MakeVariable(2, "Target", "Strada.Vector3"),
-		                      MakeVariable(3, "Mode", "Strada.ForceMode"), MakeVariable(4, "Other", "Strada.Entity")};
+		                      MakeVariable(3, "Mode", "Strada.ForceMode"), MakeVariable(4, "Other", "Strada.Entity"),
+		                      MakeVariable(5, "Others", "Strada.Entity[]")};
 
 		VisualScriptFunction add;
 		add.ID = 10;
@@ -113,6 +114,9 @@ namespace
 			MakeNode(55, "Flow.Tween"),
 			MakeNode(56, "Event.KeyPressed", {{"Key", "Space"}}),
 			MakeNode(57, "Self"),
+			// Arrays as variables and literals (spec-slice3 §3.4.3).
+			MakeNode(58, "Variable.Get", {{"Variable", 5}}),
+			MakeNode(59, "Literal", {{"Type", "Strada.Entity[]"}, {"Value", Json::array({"0"})}}),
 		};
 		document.Graph.Links = {
 			MakeLink(30, "Then", 35, "Execute"),  MakeLink(35, "Then0", 37, "Execute"), MakeLink(35, "Then1", 32, "Execute"),
@@ -389,7 +393,7 @@ TEST_CASE("VisualScriptEditor: the fixture analysis shapes nodes from their temp
 	{
 		ids.push_back(node.ID);
 	}
-	REQUIRE(ids.size() == 36);
+	REQUIRE(ids.size() == 38);
 	CHECK(std::vector<uint32_t>(ids.begin(), ids.begin() + 9) == std::vector<uint32_t>{11, 12, 13, 22, 23, 24, 25, 26, 30});
 	CHECK(GetNode(analysis, 11).Function == 10);
 	CHECK(GetNode(analysis, 24).Function == 20);
@@ -413,6 +417,11 @@ TEST_CASE("VisualScriptEditor: the fixture analysis shapes nodes from their temp
 	CHECK(DescribePins(GetNode(analysis, 48)) == std::vector<std::string>{"Out Value: Strada.ForceMode"});
 	CHECK(GetNode(analysis, 49).Title == "Get Other");
 	CHECK(DescribePins(GetNode(analysis, 49)) == std::vector<std::string>{"Out Value: Strada.Entity"});
+	// Arrays are types of variables and literals: typed, and a Literal subtitled by its type.
+	CHECK(GetNode(analysis, 58).Title == "Get Others");
+	CHECK(DescribePins(GetNode(analysis, 58)) == std::vector<std::string>{"Out Value: Strada.Entity[]"});
+	CHECK(DescribePins(GetNode(analysis, 59)) == std::vector<std::string>{"Out Value: Strada.Entity[]"});
+	CHECK(GetNode(analysis, 59).Subtitle == "Entity Array");
 
 	// Function signatures: a pure function has no flow pins, and a function that waits makes its calls latent.
 	CHECK(DescribePins(GetNode(analysis, 11)) == std::vector<std::string>{"Out A: float", "Out B: float"});

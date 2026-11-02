@@ -7,9 +7,11 @@
 #include "Strada/Script/VisualScriptLiterals.h"
 
 #include <imgui.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <cfloat>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -225,6 +227,152 @@ namespace Strada
 			return std::nullopt;
 		}
 		return EncodeVisualScriptLiteralChange(*field, change, library);
+	}
+
+	std::string_view GetVisualScriptArrayElementType(std::string_view type)
+	{
+		constexpr std::string_view Suffix = "[]";
+		if (type.size() <= Suffix.size() || !type.ends_with(Suffix))
+		{
+			return {};
+		}
+		std::string_view const element = type.substr(0, type.size() - Suffix.size());
+		return element.ends_with(Suffix) ? std::string_view() : element;
+	}
+
+	std::optional<Json> MakeVisualScriptDefaultLiteral(std::string_view type, VisualScriptLibrary const* library)
+	{
+		if (type == MatrixType)
+		{
+			return WriteVisualScriptMatrixLiteral(ReadVisualScriptMatrixLiteral(Json(), Json()));
+		}
+		std::optional<VisualScriptExposableType> const exposable = FindVisualScriptExposableType(type);
+		if (exposable && exposable->FieldType == ScriptFieldType::Entity)
+		{
+			return Json("0");
+		}
+		std::optional<ScriptFieldInfo> const info = MakeFieldInfo(type, library);
+		if (!info)
+		{
+			return std::nullopt;
+		}
+		return EncodeVisualScriptLiteral(ScriptFieldValue::CreateDefault(info->Type), type, MakeEnumLookup(library));
+	}
+
+	VisualScriptArrayLiteralOutcome DrawVisualScriptArrayLiteral(VisualScriptLiteralEditor& editor, std::string_view elementType,
+	                                                             Json const& literal, VisualScriptLibrary const* library)
+	{
+		VisualScriptArrayLiteralOutcome outcome;
+		auto const record = [&outcome](std::string part)
+		{
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			outcome.Parts.emplace_back(std::move(part), std::array<float, 4>{min.x, min.y, max.x, max.y});
+		};
+		std::optional<Json> const added = MakeVisualScriptDefaultLiteral(elementType, library);
+		std::optional<VisualScriptExposableType> const exposable = FindVisualScriptExposableType(elementType);
+		// Entities' only literal is none: their elements show it, and are added and removed.
+		bool const entities = exposable && exposable->FieldType == ScriptFieldType::Entity;
+		if (!added || (!VisualScriptLiteralEditor::CanEdit(elementType, library) && !entities))
+		{
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextDisabled("None (starts empty)");
+			return outcome;
+		}
+		Json const elements = literal.is_array() ? literal : Json::array();
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextUnformatted(fmt::format("{} {}", elements.size(), elements.size() == 1 ? "element" : "elements").c_str());
+		ImGui::SameLine();
+		ImGui::BeginDisabled(elements.size() >= MaxVisualScriptArrayLiteralElements);
+		if (ImGui::SmallButton("+ Add Element"))
+		{
+			Json changed = elements;
+			changed.push_back(*added);
+			outcome.Edit = VisualScriptArrayLiteralEdit{VisualScriptArrayLiteralAction::Add, std::move(changed), elements.size()};
+		}
+		record("Add");
+		ImGui::EndDisabled();
+
+		float const handleWidth = ImGui::GetFrameHeight();
+		float const removeWidth = ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+		for (size_t index = 0; index < elements.size(); index++)
+		{
+			ImGui::PushID(static_cast<int>(index));
+			ImGui::Button("=##handle", ImVec2(handleWidth, 0.0f));
+			record(fmt::format("{} Handle", index));
+			if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+			{
+				ImGui::SetDragDropPayload(VisualScriptArrayElementPayload, &index, sizeof(index));
+				ImGui::Text("Element %zu", index);
+				ImGui::EndDragDropSource();
+			}
+			if (ImGui::BeginDragDropTarget())
+			{
+				if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload(VisualScriptArrayElementPayload))
+				{
+					size_t from = 0;
+					if (payload->DataSize == static_cast<int>(sizeof(from)))
+					{
+						std::memcpy(&from, payload->Data, sizeof(from));
+					}
+					if (from < elements.size() && from != index)
+					{
+						Json changed = elements;
+						Json moved = changed[from];
+						changed.erase(from);
+						changed.insert(changed.begin() + static_cast<std::ptrdiff_t>(index), std::move(moved));
+						outcome.Edit = VisualScriptArrayLiteralEdit{VisualScriptArrayLiteralAction::Move, std::move(changed), index};
+					}
+				}
+				ImGui::EndDragDropTarget();
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::SetTooltip("Drag onto another element to move it there");
+			}
+			ImGui::SameLine();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextDisabled("%zu", index);
+			ImGui::SameLine();
+			ImGui::BeginGroup();
+			if (entities)
+			{
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextDisabled("None");
+			}
+			else
+			{
+				ImGui::PushItemWidth(
+					std::max(ImGui::GetContentRegionAvail().x - removeWidth - ImGui::GetStyle().ItemSpacing.x, ImGui::GetFontSize()));
+				std::optional<Json> const element = editor.Draw(elementType, elements[index], Json(), library);
+				ImGui::PopItemWidth();
+				if (element && !outcome.Edit)
+				{
+					Json changed = elements;
+					changed[index] = *element;
+					outcome.Edit = VisualScriptArrayLiteralEdit{VisualScriptArrayLiteralAction::Element, std::move(changed), index};
+				}
+			}
+			ImGui::EndGroup();
+			record(std::to_string(index));
+			outcome.Active = outcome.Active || ImGui::IsItemActive();
+			outcome.Deactivated = outcome.Deactivated || ImGui::IsItemDeactivated();
+			ImGui::SameLine();
+			bool const removed = ImGui::SmallButton("x");
+			record(fmt::format("{} Remove", index));
+			if (removed && !outcome.Edit)
+			{
+				Json changed = elements;
+				changed.erase(index);
+				outcome.Edit = VisualScriptArrayLiteralEdit{VisualScriptArrayLiteralAction::Remove, std::move(changed), index};
+			}
+			if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+			{
+				ImGui::SetTooltip("Remove the element");
+			}
+			ImGui::PopID();
+		}
+		return outcome;
 	}
 
 	std::optional<Json> VisualScriptLiteralEditor::DrawMatrix(Json const& literal, Json const& fallback)

@@ -698,10 +698,13 @@ namespace
 				return Json::array({static_cast<double>(m_Random.Pick(4000)) - 2000.0, static_cast<double>(m_Random.Pick(4000)) - 2000.0});
 			};
 			std::vector<std::string> const types = {
-				"Flow.Branch", "Flow.Sequence", "Operator.Add", "Event.Custom", "Call:Strada.Log.Info(string)", "Flow.Delay"};
+				"Flow.Branch", "Flow.Sequence", "Operator.Add", "Event.Custom", "Call:Strada.Log.Info(string)",
+				"Flow.Delay",  "Expression",    "Array.Make"};
 			std::vector<std::string> const kinds = {
-				"AddNode",    "Move",        "SetPosition", "SetInput", "SetSetting",     "Disconnect",     "InsertReroute", "AddComment",
-				"SetComment", "AddVariable", "SetVariable", "Delete",   "DeleteVariable", "DeleteFunction", "Arrange",       "Paste"};
+				"AddNode",        "Move",           "SetPosition", "SetInput",    "SetSetting",       "Disconnect",
+				"InsertReroute",  "AddComment",     "SetComment",  "AddVariable", "SetVariable",      "Delete",
+				"DeleteVariable", "DeleteFunction", "Arrange",     "Paste",       "SetArrayElements", "SetFormula"};
+			std::vector<std::string> const formulas = {"a * b + sin(t)", "speed * dt", "velocity * dt", "x + (", ""};
 			Json batch = Json::array();
 			for (size_t count = 1 + m_Random.Pick(6); count > 0; count--)
 			{
@@ -710,11 +713,30 @@ namespace
 				if (kind == "AddNode")
 				{
 					operation["type"] = PickFrom(types);
+					if (operation["type"] == "Expression")
+					{
+						operation["settings"] = Json::object({{"Formula", PickFrom(formulas)}});
+					}
 					if (m_Random.Pick(2) == 0)
 					{
 						operation["position"] = point();
 					}
 					label(operation);
+				}
+				else if (kind == "SetArrayElements")
+				{
+					// A node of another type answers InvalidParams, as does a count the node cannot take.
+					operation["node"] = node();
+					operation["count"] = m_Random.Pick(6);
+					if (m_Random.Pick(3) == 0)
+					{
+						operation[m_Random.Pick(2) == 0 ? "insertAt" : "removeAt"] = m_Random.Pick(3);
+					}
+				}
+				else if (kind == "SetFormula")
+				{
+					operation["node"] = node();
+					operation["formula"] = PickFrom(formulas);
 				}
 				else if (kind == "Move")
 				{

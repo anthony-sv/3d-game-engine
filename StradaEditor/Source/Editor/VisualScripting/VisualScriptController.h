@@ -62,8 +62,6 @@ namespace Strada
 		inline constexpr std::string_view NoClipboard = "The clipboard holds no visual script nodes";
 		// A My Script row dragged from another script's window.
 		inline constexpr std::string_view OtherScriptRow = "Variables belong to their script: copy the nodes instead";
-		// Promote to Variable or to Function Input on an array pin (v2 §3.2: arrays as variables come with slice 3).
-		inline constexpr std::string_view PromoteArray = "Variables and function inputs cannot hold arrays";
 	}
 
 	// The note of a file without write permission, which the window's notice shows too: "<file name> is read-only on disk: edits
@@ -120,7 +118,10 @@ namespace Strada
 		// A node's comment (its bubble): Ctrl+Enter or a click elsewhere commits it with a VisualScriptNodeCommentEdit.
 		NodeComment = 0,
 		// A comment box's title (the first line of its text): Enter commits it with a VisualScriptCommentEdit (Rename).
-		CommentTitle
+		CommentTitle,
+		// An Expression's formula, in one line over its subtitle (spec-slice3 §9.2): Enter commits it with a
+		// VisualScriptFormulaEdit; Escape cancels.
+		Formula
 	};
 
 	struct VisualScriptTextEditRequest
@@ -151,6 +152,9 @@ namespace Strada
 		uint32_t ID = 0;
 		// Starts renaming it (F2, a promotion's new variable).
 		bool Rename = false;
+		// A node: the setting Details gives the keyboard to (an Expression's Formula of several lines, which the in-place
+		// editor does not edit); empty for none.
+		std::string Setting = {};
 	};
 
 	// A variable or local of My Script dropped on empty canvas without Ctrl or Alt: the window asks which node it makes, with
@@ -263,6 +267,13 @@ namespace Strada
 		glm::vec4 Color{0.0f};
 	};
 
+	// An Expression's formula typed in its in-place editor: set with SetFormula, so inputs renamed in order keep their links.
+	struct VisualScriptFormulaEdit
+	{
+		uint32_t Node = 0;
+		std::string Formula;
+	};
+
 	// A node the window adds with a button (the empty event graph's Add Create Event): at Position (canvas units).
 	struct VisualScriptAddNodeEdit
 	{
@@ -272,7 +283,7 @@ namespace Strada
 	};
 
 	using VisualScriptCanvasEdit = std::variant<VisualScriptLiteralEdit, VisualScriptPinEdit, VisualScriptNodeCommentEdit,
-	                                            VisualScriptCommentEdit, VisualScriptAddNodeEdit>;
+	                                            VisualScriptCommentEdit, VisualScriptAddNodeEdit, VisualScriptFormulaEdit>;
 
 	// Resolves an intent of the window's model. Edits are refused (no commit, a note saying why) in read-only states and,
 	// for those that need node details, without the scripting runtime; selection, view and menu intents pass through to the

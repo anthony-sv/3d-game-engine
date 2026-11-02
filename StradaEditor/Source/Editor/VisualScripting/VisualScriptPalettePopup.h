@@ -43,6 +43,10 @@ namespace Strada
 		std::vector<VisualScriptPaletteMatch> Entries;
 		// How many rows there are before the limit.
 		uint32_t Total = 0;
+		// The row the category tree's Game category ends with, about the game's [VisualNode] members that have no node ("2
+		// [VisualNode] members have no node: see the Console"), in the last draw of the tree (shown while Game is open);
+		// empty when the library has no such notes or the rows were ranked.
+		std::string NotesRow;
 	};
 
 	// The node palette of a graph window: a popup at the normal UI size with a search field that has the keyboard, the rows of
@@ -116,6 +120,9 @@ namespace Strada
 		void DrawCategory(VisualScriptPaneContext const& context, VisualScriptLibrary const& library, VisualScriptCategory const& category,
 		                  bool appearing, bool firstLevel, std::optional<uint32_t>& chosen);
 		void DrawEntryRows(VisualScriptPaneContext const& context, std::string const& category, std::optional<uint32_t>& chosen);
+		// The disabled row (m_NotesRow) that ends the Game category when the library has notes about [VisualNode] members
+		// without a node.
+		void DrawNotesRow();
 		// One row: the kind's glyph, the title (matched characters highlighted), the subtitle, and in context mode the pin it
 		// connects and the conversion. Returns true when clicked.
 		bool DrawRow(VisualScriptPaneContext const& context, Row const& row, int index);
@@ -186,5 +193,7 @@ namespace Strada
 		// The rows drawn (in the last frame until the list is drawn again), which the keys act on.
 		std::vector<Row> m_Rows;
 		VisualScriptPaletteState m_State;
+		// The notes row of the last draw (VisualScriptPaletteState::NotesRow).
+		std::string m_NotesRow;
 	};
 }

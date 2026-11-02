@@ -573,3 +573,41 @@ TEST_CASE("VisualScriptEditor: the problems drawer's Edit in Details of a settin
 	CHECK(center.y <= count->second.y);
 	CHECK_FALSE(fixture.Window.Panel->GetPaneShared().FocusSetting.has_value());
 }
+
+TEST_CASE("VisualScriptEditor: the runtime's formula diagnostics carry their span to Details' caret block, which lists the typed inputs")
+{
+	// A for loop's Index (an int) linked into b, a unlinked (a float): Inputs list both types. The second formula calls a
+	// function the runtime does not have.
+	VisualScriptDocument document;
+	document.Graph.Nodes = {MakeNode(10, "Event.Create", glm::vec2(0.0f, 0.0f)), MakeNode(11, "Flow.ForLoop", glm::vec2(320.0f, 0.0f)),
+	                        MakeNode(12, "Expression", glm::vec2(640.0f, 0.0f), Json::object({{"Formula", "a * b"}})),
+	                        MakeNode(13, "Expression", glm::vec2(640.0f, 320.0f), Json::object({{"Formula", "a * b + sni(t)"}}))};
+	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(11, "Index", 12, "b")};
+	RuntimeFixture fixture(document);
+	fixture.Window.CheckDrawingChangesNothing();
+
+	// The C++ diagnostic has the setting and the span the runtime reported.
+	VisualScriptAnalysis const* const analysis = fixture.Model().GetAnalysis();
+	REQUIRE(analysis != nullptr);
+	auto const unknown = std::find_if(analysis->Diagnostics.begin(), analysis->Diagnostics.end(),
+	                                  [](VisualScriptDiagnostic const& diagnostic)
+	                                  {
+										  return diagnostic.Code == "InvalidExpression" && diagnostic.Node == std::optional<uint32_t>(13);
+									  });
+	REQUIRE(unknown != analysis->Diagnostics.end());
+	CHECK(unknown->Setting == "Formula");
+	CHECK(unknown->Span == std::optional<std::pair<uint32_t, uint32_t>>(std::pair<uint32_t, uint32_t>(8, 11)));
+	CHECK(unknown->Message == "unknown function sni: did you mean sin?");
+
+	fixture.Window.Click(Testing::CanvasPoint(fixture.Model(), 12, glm::vec2(0.5f, 0.06f)));
+	fixture.Window.Frames(2);
+	VisualScriptDetails const& details = fixture.Window.Panel->GetDetails();
+	REQUIRE(details.GetSubject() == VisualScriptDetailsSubject::Node);
+	CHECK(details.GetRowText("Inputs") == std::optional<std::string>("a \xC2\xB7 float, b \xC2\xB7 int"));
+	CHECK_FALSE(details.GetRowText("Formula Problem 0").has_value());
+
+	fixture.Window.Click(Testing::CanvasPoint(fixture.Model(), 13, glm::vec2(0.5f, 0.06f)));
+	fixture.Window.Frames(2);
+	CHECK(details.GetRowText("Formula Problem 0") ==
+	      std::optional<std::string>("a * b + sni(t)\n        ^^^ unknown function sni: did you mean sin?"));
+}

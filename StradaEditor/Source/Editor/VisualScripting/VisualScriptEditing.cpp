@@ -60,12 +60,14 @@ namespace Strada
 			std::string_view Operation;
 		};
 
-		constexpr std::array<SettingOperation, 5> SettingOperations = {{
+		constexpr std::array<SettingOperation, 7> SettingOperations = {{
 			{SequenceType, CountSetting, "SetSequenceOutputs"},
 			{SwitchType, CasesSetting, "SetSwitchCases"},
 			{CustomEventType, ParametersSetting, "SetEventParameters"},
 			{SendEventType, ParametersSetting, "SetEventParameters"},
 			{CustomEventType, NameSetting, "RenameCustomEvent"},
+			{"Array.Make", CountSetting, "SetArrayElements"},
+			{"Expression", "Formula", "SetFormula"},
 		}};
 
 		// Where a promoted variable's node stands, from the anchor of the pin it serves.
@@ -2221,6 +2223,20 @@ namespace Strada
 			}
 			target.Inputs[std::move(pin)] = std::move(literal);
 			return {};
+		}
+
+		VisualScriptPinChanges CompareVisualScriptPinLists(std::vector<std::string> before, std::vector<std::string> const& after)
+		{
+			ParameterChanges changes = CompareParameters(std::move(before), after);
+			return VisualScriptPinChanges{std::move(changes.Renamed), std::move(changes.Removed)};
+		}
+
+		uint32_t ApplyVisualScriptPinChanges(VisualScriptGraph& graph, VisualScriptNode& node, VisualScriptPinDirection direction,
+		                                     VisualScriptPinChanges const& changes)
+		{
+			ParameterChanges const parameterChanges{changes.Renamed, changes.Removed};
+			uint32_t const removed = ApplyParameterChanges(graph.Links, node, direction, parameterChanges);
+			return removed + DropRepeatedLinks(graph.Links);
 		}
 
 		std::string_view FindVisualScriptSettingOperation(VisualScriptNode const& node, std::string_view setting)

@@ -93,6 +93,17 @@ namespace
 		return parsed.TakeValue();
 	}
 
+	// The editor's fixture library as JSON, for tests that add to it.
+	Json ReadFixtureLibrary()
+	{
+		Result<std::string> text =
+			FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Editor" / "Library.json");
+		REQUIRE_MESSAGE(text.IsOk(), text.GetError());
+		Result<Json> library = ParseJson(text.GetValue());
+		REQUIRE(library.IsOk());
+		return library.TakeValue();
+	}
+
 	VisualScriptDocument ParseDocument(std::string_view text)
 	{
 		Result<Json> json = ParseJson(text);
@@ -233,7 +244,7 @@ namespace
 		return (type == "Variable.Get" && pin.Name == "Value") || (type == "Variable.Set" && pin.Name == "Value") ||
 		       (type == "Literal" && pin.Name == "Value") || (type == "Convert" && pin.Name == "Result") ||
 		       (type == "Make" && pin.Name == "Value") || (type == "Break" && pin.Name == "Value") ||
-		       (type == "Flow.Switch" && in && pin.Name == "Selection");
+		       (type == "Flow.Switch" && in && pin.Name == "Selection") || (type == "Expression" && pin.Name == "Result");
 	}
 
 	bool ArePerformanceTestsEnabled()
@@ -885,4 +896,113 @@ TEST_CASE("VisualScriptPalette: ranking 1500 entries scores each entry once, and
 #endif
 		CHECK(median <= 3.0 * MeasuredMilliseconds);
 	}
+}
+
+TEST_CASE("VisualScriptPalette: = and a formula match the Expression entry alone, with the formula as its setting")
+{
+	// The fixture library with Equal, whose keyword is "==", as the scripting runtime describes it.
+	Json text = ReadFixtureLibrary();
+	Json equal =
+		Json::object({{"Type", "Operator.Equal"},
+	                  {"Title", "Equal"},
+	                  {"Category", "Math/Operators"},
+	                  {"Description", "Whether A equals B."},
+	                  {"Keywords", Json::array({"==", "equals", "same"})},
+	                  {"Kind", "Operator"},
+	                  {"Pure", true},
+	                  {"Latent", false},
+	                  {"Pins", Json::array({Json::object({{"Name", "A"}, {"Direction", "In"}, {"Type", "*"}, {"Constraint", "Any"}}),
+	                                        Json::object({{"Name", "B"}, {"Direction", "In"}, {"Type", "*"}, {"Constraint", "Any"}}),
+	                                        Json::object({{"Name", "Result"}, {"Direction", "Out"}, {"Type", "bool"}})})},
+	                  {"Settings", Json::array()}});
+	text["Nodes"].push_back(std::move(equal));
+	Result<Scope<VisualScriptLibrary>> parsed = VisualScriptLibrary::Parse(text.dump());
+	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
+	Scope<VisualScriptLibrary> const library = parsed.TakeValue();
+	VisualScriptDocument const document = ParseDocument(PlayerText);
+	VisualScriptPaletteIndex const index = MakeIndex(*library, document, 0);
+	std::span<VisualScriptPaletteEntry const> const entries = index.GetEntries();
+
+	std::vector<VisualScriptPaletteMatch> const matches = Rank(index, *library, "  =a*b+sin(t) ");
+	REQUIRE(matches.size() == 1);
+	VisualScriptPaletteEntry const& entry = entries[matches[0].Entry];
+	// The index's real entry, never a synthetic one: matches name entries by index.
+	CHECK(entry.NodeType == "Expression");
+	CHECK(entry.Title == "Expression");
+	CHECK(entry.Settings == Json::object());
+	CHECK(matches[0].Title == "Expression: a*b+sin(t)");
+	CHECK(matches[0].Settings == Json::object({{"Formula", "a*b+sin(t)"}}));
+	CHECK(GetVisualScriptPaletteMatchSettings(entry, matches[0]) == Json::object({{"Formula", "a*b+sin(t)"}}));
+	// A formula that does not read is offered too: the node then shows its error.
+	std::vector<VisualScriptPaletteMatch> const broken = Rank(index, *library, "=a*(");
+	REQUIRE(broken.size() == 1);
+	CHECK(broken[0].Settings == Json::object({{"Formula", "a*("}}));
+
+	// = alone and == rank as other queries: Equal's keyword first, the Expression by its keyword "=" as a plain entry.
+	for (std::string_view const query : {"=", "==", "= "})
+	{
+		CAPTURE(query);
+		std::vector<VisualScriptPaletteMatch> const ranked = Rank(index, *library, query);
+		REQUIRE_FALSE(ranked.empty());
+		CHECK(entries[ranked[0].Entry].NodeType == "Operator.Equal");
+		for (VisualScriptPaletteMatch const& match : ranked)
+		{
+			CHECK(match.Title.empty());
+			CHECK(match.Settings.is_null());
+		}
+	}
+	std::vector<VisualScriptPaletteMatch> const doubled = Rank(index, *library, "==a");
+	CHECK(std::none_of(doubled.begin(), doubled.end(),
+	                   [](VisualScriptPaletteMatch const& match)
+	                   {
+						   return !match.Title.empty();
+					   }));
+
+	// Context mode offers no Expression: only its formula decides its inputs.
+	VisualScriptPaletteContext const context{MakePin("Value", VisualScriptPinDirection::Out, "float")};
+	for (VisualScriptPaletteMatch const& match : Rank(index, *library, "=a*b", {}, &context))
+	{
+		CHECK(entries[match.Entry].NodeType != "Expression");
+	}
+	for (VisualScriptPaletteMatch const& match : Rank(index, *library, "", {}, &context))
+	{
+		CHECK(entries[match.Entry].NodeType != "Expression");
+	}
+}
+
+TEST_CASE("VisualScriptPalette: Make Array has one typed entry per type of a Literal kind whose array the library has")
+{
+	Json library = ReadFixtureLibrary();
+	for (std::string_view const element : {"float", "Strada.Vector3"})
+	{
+		library["Types"].push_back(Json::object({{"ID", std::string(element) + "[]"},
+		                                         {"Title", std::string(element == "float" ? "Float" : "Vector3") + " Array"},
+		                                         {"Kind", "Array"},
+		                                         {"Literal", true},
+		                                         {"Element", element},
+		                                         {"ImplicitTo", Json::array({"System.Object"})}}));
+	}
+	Result<Scope<VisualScriptLibrary>> parsed = VisualScriptLibrary::Parse(library.dump());
+	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
+	VisualScriptPaletteIndex const index = MakeIndex(*parsed.GetValue(), ParseDocument(PlayerText), 0);
+
+	std::optional<size_t> const floats = FindEntry(index, "Make Float Array");
+	REQUIRE(floats.has_value());
+	VisualScriptPaletteEntry const& entry = index.GetEntries()[*floats];
+	CHECK(entry.NodeType == "Array.Make");
+	CHECK(entry.Settings == Json::object({{"Type", "float"}}));
+	std::vector<std::string> pins;
+	for (VisualScriptPin const& pin : entry.Pins)
+	{
+		pins.push_back(pin.Name + ": " + pin.Type);
+	}
+	CHECK(pins == std::vector<std::string>{"Element0: float", "Element1: float", "Array: float[]"});
+	CHECK(FindEntry(index, "Make Vector3 Array").has_value());
+	// Entities have arrays, but are no Literal kind; and the plain Make Array stays.
+	CHECK_FALSE(FindEntry(index, "Make Entity Array").has_value());
+	CHECK(FindEntry(index, "Make Array").has_value());
+	// The palette finds them by their words.
+	std::vector<VisualScriptPaletteMatch> const ranked = Rank(index, *parsed.GetValue(), "make float array");
+	REQUIRE_FALSE(ranked.empty());
+	CHECK(index.GetEntries()[ranked[0].Entry].Title == "Make Float Array");
 }

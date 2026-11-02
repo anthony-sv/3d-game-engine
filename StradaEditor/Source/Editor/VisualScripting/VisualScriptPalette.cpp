@@ -36,7 +36,7 @@ namespace Strada
 			std::string_view Pin;
 			VisualScriptPinDirection Direction;
 		};
-		constexpr std::array<SettingsTypedPin, 7> SettingsTypedPins = {{
+		constexpr std::array<SettingsTypedPin, 8> SettingsTypedPins = {{
 			{"Variable.Get", "Value", VisualScriptPinDirection::Out},
 			{"Variable.Set", "Value", VisualScriptPinDirection::In},
 			{"Variable.Set", "Value", VisualScriptPinDirection::Out},
@@ -44,12 +44,18 @@ namespace Strada
 			{"Convert", "Result", VisualScriptPinDirection::Out},
 			{"Make", "Value", VisualScriptPinDirection::Out},
 			{"Break", "Value", VisualScriptPinDirection::In},
+			// An Expression's type comes from its formula.
+			{"Expression", "Result", VisualScriptPinDirection::Out},
 		}};
 		constexpr std::string_view SwitchType = "Flow.Switch";
 		constexpr std::string_view LiteralType = "Literal";
 		constexpr std::string_view ConvertType = "Convert";
 		constexpr std::string_view MakeType = "Make";
 		constexpr std::string_view BreakType = "Break";
+		constexpr std::string_view ArrayMakeType = "Array.Make";
+		constexpr std::string_view ExpressionType = "Expression";
+		// The score of the one match a "=formula" query has.
+		constexpr int32_t FormulaScore = 10000;
 
 		// The kinds of types a Literal is offered for, one entry each.
 		constexpr std::array<VisualScriptTypeKind, 7> LiteralKinds = {
@@ -587,6 +593,37 @@ namespace Strada
 					       TypeWildcards(node.Pins, type.ID), {type.ID});
 				}
 			}
+			else if (node.Type == ArrayMakeType)
+			{
+				// One per type of the Literal kinds whose array the library has: "Make Float Array".
+				for (VisualScriptTypeInfo const& type : library.GetTypes())
+				{
+					std::string const arrayType = type.ID + "[]";
+					if (std::find(LiteralKinds.begin(), LiteralKinds.end(), type.Kind) == LiteralKinds.end() ||
+					    library.FindType(arrayType) == nullptr)
+					{
+						continue;
+					}
+					std::vector<VisualScriptPin> pins;
+					for (VisualScriptPin const& pin : node.Pins)
+					{
+						if (pin.Direction == VisualScriptPinDirection::Out)
+						{
+							pins.push_back(MakePin(pin.Name, pin.Direction, arrayType));
+						}
+						else if (IsWildcard(pin))
+						{
+							pins.push_back(MakePin(pin.Name, pin.Direction, type.ID));
+						}
+						else
+						{
+							pins.push_back(pin);
+						}
+					}
+					expand(fmt::format("Make {} Array", type.Title), Json::object({{"Type", type.ID}}), std::move(pins),
+					       {type.ID, arrayType});
+				}
+			}
 			else if (node.Type == LiteralType)
 			{
 				for (VisualScriptTypeInfo const& type : library.GetTypes())
@@ -1024,12 +1061,61 @@ namespace Strada
 		}
 	}
 
+	Json GetVisualScriptPaletteMatchSettings(VisualScriptPaletteEntry const& entry, VisualScriptPaletteMatch const& match)
+	{
+		Json settings = entry.Settings.is_object() ? entry.Settings : Json::object();
+		if (match.Settings.is_object())
+		{
+			for (auto const& [name, value] : match.Settings.items())
+			{
+				settings[name] = value;
+			}
+		}
+		return settings;
+	}
+
 	std::vector<VisualScriptPaletteMatch> RankVisualScriptPalette(VisualScriptPaletteIndex const& index, std::string_view query,
 	                                                              std::span<std::string const> recents,
 	                                                              VisualScriptPaletteContext const* context,
 	                                                              VisualScriptLibrary const& library, VisualScriptPaletteRankStats* stats)
 	{
 		VisualScriptPaletteRankStats counted;
+		// "=formula": the Expression entry alone, with the formula as its setting.
+		size_t const first = query.find_first_not_of(" \t\r\n");
+		if (context == nullptr && first != std::string_view::npos && query[first] == '=')
+		{
+			std::string_view formula = query.substr(first + 1);
+			size_t const begin = formula.find_first_not_of(" \t\r\n");
+			formula = begin == std::string_view::npos ? std::string_view() : formula.substr(begin);
+			formula = formula.substr(0, formula.find_last_not_of(" \t\r\n") + 1);
+			if (!formula.empty() && formula.front() != '=')
+			{
+				std::span<VisualScriptPaletteEntry const> const entries = index.GetEntries();
+				std::vector<VisualScriptPaletteMatch> matches;
+				for (size_t entry = 0; entry < entries.size(); entry++)
+				{
+					counted.EntriesScored++;
+					VisualScriptPaletteEntry const& candidate = entries[entry];
+					bool const plain = !candidate.Settings.is_object() || candidate.Settings.empty();
+					if (candidate.NodeType == ExpressionType && !candidate.FromDocument && plain &&
+					    candidate.Action == VisualScriptPaletteAction::AddNode)
+					{
+						VisualScriptPaletteMatch match;
+						match.Entry = static_cast<uint32_t>(entry);
+						match.Score = FormulaScore;
+						match.Title = fmt::format("{}: {}", candidate.Title, formula);
+						match.Settings = Json::object({{"Formula", std::string(formula)}});
+						matches.push_back(std::move(match));
+						break;
+					}
+				}
+				if (stats != nullptr)
+				{
+					*stats = counted;
+				}
+				return matches;
+			}
+		}
 		std::vector<std::string> words;
 		std::string word;
 		for (char const character : query)

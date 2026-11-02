@@ -92,6 +92,10 @@ namespace Strada
 		std::string ConnectPin;
 		// Context mode: the link converts its value implicitly (an int into a float pin, any value into a string pin).
 		bool Converts = false;
+		// What the row shows instead of the entry's title ("Expression: a*b"); empty for the entry's.
+		std::string Title = {};
+		// Settings merged over the entry's when the node is added (an Expression's Formula); null or empty for none.
+		Json Settings = nullptr;
 
 		bool operator==(VisualScriptPaletteMatch const& other) const = default;
 	};
@@ -106,6 +110,9 @@ namespace Strada
 	};
 
 	class VisualScriptPaletteIndex;
+
+	// The settings a match adds a node with: the entry's, with the match's merged over them.
+	[[nodiscard]] Json GetVisualScriptPaletteMatchSettings(VisualScriptPaletteEntry const& entry, VisualScriptPaletteMatch const& match);
 
 	// Ranks the index's entries for a query typed into the palette, best first; entries of equal score keep the index's
 	// order. The query's words (split at spaces, at most 8, ASCII letters compared in any case) must each match the entry; a
@@ -127,6 +134,11 @@ namespace Strada
 	// lists every entry it lets through; without either, nothing is ranked (the palette shows its recent entries and
 	// categories). The node type and keywords are compared without the scripting API's namespace ("Strada."), which every
 	// reflected type holds.
+	//
+	// A query whose first character that is no space is '=', followed by a formula that is not empty and does not start with
+	// '=' ("=a*b+sin(t)"), matches the library's Expression entry alone, titled "Expression: <formula>" with the formula
+	// (trimmed) as its Formula setting, also when the formula does not read; '=' alone and "==" rank as other queries. Context
+	// mode offers no Expression: only its formula decides its inputs.
 	[[nodiscard]] std::vector<VisualScriptPaletteMatch>
 	RankVisualScriptPalette(VisualScriptPaletteIndex const& index, std::string_view query, std::span<std::string const> recents,
 	                        VisualScriptPaletteContext const* context, VisualScriptLibrary const& library,

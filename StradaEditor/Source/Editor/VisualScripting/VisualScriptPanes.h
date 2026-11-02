@@ -64,6 +64,9 @@ namespace Strada
 	{
 		uint32_t Node = 0;
 		std::string Setting;
+		// The bytes of the setting's text the field selects when it takes the keyboard: a formula's part a diagnostic is about
+		// ([start, end) UTF-8 offsets, as VisualScriptDiagnostic::Span); none selects nothing.
+		std::optional<std::pair<uint32_t, uint32_t>> Span = std::nullopt;
 
 		bool operator==(VisualScriptSettingFocus const& other) const = default;
 	};
@@ -234,6 +237,8 @@ namespace Strada
 		// A node the flow does not pass through (no exec input or no exec output): disabled, with VisualScriptNoFlowRefusal.
 		NoFlow
 	};
+	// Why My Script's eye does not make an array variable public (spec-slice3 §3.4.6).
+	inline constexpr char const* VisualScriptArrayPublicRefusal = "Arrays cannot be public: components cannot store them";
 	inline constexpr char const* VisualScriptPureNodesRefusal = "Pure nodes run only when a node reads them: disable that node";
 	inline constexpr char const* VisualScriptNoFlowRefusal = "Only nodes the flow passes through can be disabled";
 	// From the canvas's layout of the node when the shown sub-graph has it, else from the library's template of its type; a node

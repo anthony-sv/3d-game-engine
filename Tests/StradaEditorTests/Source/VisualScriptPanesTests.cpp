@@ -1485,11 +1485,11 @@ TEST_CASE("VisualScriptEditor: the type picker of a public variable lists only t
 	CHECK_FALSE(lists(publicTypes, "Strada.RaycastHit"));
 	CHECK_FALSE(lists(publicTypes, "Strada.Entity[]"));
 	CHECK_FALSE(lists(publicTypes, "exec"));
-	// Alive is private: any type with values but arrays.
+	// Alive is private: any type with values, arrays included (spec-slice3 §3.4.3).
 	std::vector<std::string> const privateTypes = pickerTypes(101);
 	CHECK(lists(privateTypes, "Strada.Matrix4"));
 	CHECK(lists(privateTypes, "Strada.RaycastHit"));
-	CHECK_FALSE(lists(privateTypes, "Strada.Entity[]"));
+	CHECK(lists(privateTypes, "Strada.Entity[]"));
 	CHECK_FALSE(lists(privateTypes, "exec"));
 	CHECK(fixture.GetVersion() == AssetManager::GetAsset<VisualScriptAsset>(fixture.Graph)->GetVersion());
 }
@@ -2938,4 +2938,240 @@ TEST_CASE("VisualScriptEditor: compact enum and asset frames show the text of th
 	asset.Kind = FieldKind::Asset;
 	CHECK(FieldEditor::DescribeCompactText(asset, Json(fixture.Graph.ToString())) == "Graph.sgraph");
 	CHECK(FieldEditor::DescribeCompactText(asset, Json()) == "None");
+}
+
+namespace
+{
+	// An Expression (2) of speed * dt with Speed's Get (1) linked into speed, and dt stored.
+	VisualScriptDocument MakeFormulaDocument(std::string formula = "speed * dt")
+	{
+		VisualScriptDocument document;
+		document.Variables = {MakeVariable(100, "Speed", "float")};
+		VisualScriptNode expression = MakeNode(2, "Expression", glm::vec2(400.0f, 0.0f), Json::object({{"Formula", std::move(formula)}}));
+		expression.Inputs = Json::object({{"dt", 0.5}});
+		document.Graph.Nodes = {MakeNode(1, "Variable.Get", glm::vec2(0.0f), Json::object({{"Variable", 100}})), expression};
+		document.Graph.Links = {{{1, "Value"}, {2, "speed"}}};
+		return document;
+	}
+
+	std::string GetFormula(VisualScriptDocument const& document)
+	{
+		VisualScriptNode const* const node = FindNode(document, "Expression");
+		REQUIRE(node != nullptr);
+		return node->Settings.value("Formula", std::string());
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a formula retyped in Details commits once, as one rename that keeps the link into the input")
+{
+	PaneFixture fixture(MakeFormulaDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	// The field is several lines high.
+	std::optional<std::pair<glm::vec2, glm::vec2>> const row = fixture.Details.FindRow("Formula");
+	REQUIRE(row);
+	CHECK(row->second.y - row->first.y > ImGui::GetFrameHeight() * 2.0f);
+	size_t const undo = fixture.GetUndoCount();
+	uint64_t const version = fixture.GetVersion();
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("velocity * dt");
+	fixture.Frames(12);
+	// While the inputs differ from the start's, nothing reaches the document: no intermediate formula is committed.
+	CHECK(fixture.GetVersion() == version);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Formula on Expression (renames 1 input) in Graph");
+	CHECK(GetFormula(fixture.GetDocument()) == "velocity * dt");
+	CHECK(HasLink(fixture.GetDocument(), {{1, "Value"}, {2, "velocity"}}));
+	CHECK(FindNode(fixture.GetDocument(), "Expression")->Inputs == Json::object({{"dt", 0.5}}));
+	// graph.edit's operation for the same edit writes the same document (one implementation).
+	VisualScriptDocument const after = fixture.GetDocument();
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	Json const operations = Json::array({Json::object({{"op", "SetFormula"}, {"node", 2}, {"formula", "velocity * dt"}})});
+	CHECK(after == Testing::ApplyBatchAsGraphEdit(fixture.GetDocument(), operations, fixture.Semantics, fixture.Graph));
+}
+
+TEST_CASE("VisualScriptEditor: a formula's field commits when it is left, and Escape cancels it")
+{
+	PaneFixture fixture(MakeFormulaDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	size_t const undo = fixture.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+	// Escape: nothing changes.
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("x");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.ReadFile() == bytes);
+	// Left with a click elsewhere: committed, the input that went with its link (the list's length changed).
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("2 * dt");
+	fixture.Frames(2);
+	fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Formula on Expression (removes 1 link) in Graph");
+	CHECK(GetFormula(fixture.GetDocument()) == "2 * dt");
+	CHECK(fixture.GetDocument().Graph.Links.empty());
+}
+
+TEST_CASE("VisualScriptEditor: changing a formula's numbers commits at the widget cadence, in one step")
+{
+	PaneFixture fixture(MakeFormulaDocument("speed * 2"), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	size_t const undo = fixture.GetUndoCount();
+	uint64_t const version = fixture.GetVersion();
+	// The cursor at the end: the 2 becomes a 3, and the inputs stay those of the start.
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_End, fixture.Drawer());
+	fixture.ImGui.Press(ImGuiKey_Backspace, fixture.Drawer());
+	fixture.ImGui.Type("3");
+	fixture.Frames(8);
+	// Committed while the field still has the keyboard, so a running game gets it within 0.1 s.
+	CHECK(fixture.GetVersion() > version);
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 3");
+	fixture.ImGui.Type("0");
+	fixture.Frames(12);
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 30");
+	fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Formula on Expression in Graph");
+	CHECK(HasLink(fixture.GetDocument(), {{1, "Value"}, {2, "speed"}}));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 2");
+}
+
+TEST_CASE("VisualScriptEditor: a formula's problems show under it as caret blocks, and a click selects the part in the field")
+{
+	PaneFixture fixture(MakeFormulaDocument("a * b + sni(t)"), {FixturePane::Details});
+	VisualScriptDiagnostic unknown = MakeDiagnostic("InvalidExpression", 0, 2, "unknown function sni: did you mean sin?");
+	unknown.Setting = "Formula";
+	unknown.Span = std::pair<uint32_t, uint32_t>(8, 11);
+	fixture.Semantics.InjectDiagnostic(unknown);
+	// A span past the formula's end has no line to mark.
+	VisualScriptDiagnostic outside = MakeDiagnostic("InvalidExpression", 0, 2, "expected ')'", VisualScriptSeverity::Warning);
+	outside.Setting = "Formula";
+	outside.Span = std::pair<uint32_t, uint32_t>(15, 15);
+	fixture.Semantics.InjectDiagnostic(outside);
+	fixture.Semantics.InjectDiagnostic(MakeDiagnostic("Unused", 0, 2, "Result is read by nothing", VisualScriptSeverity::Warning));
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	CHECK(fixture.Details.GetRowText("Formula Problem 0") ==
+	      std::optional<std::string>("a * b + sni(t)\n        ^^^ unknown function sni: did you mean sin?"));
+	CHECK_FALSE(fixture.Details.GetRowText("Formula Problem 1").has_value());
+	// Without the formula's inputs in the analysis (the fixture derives none), the inputs are listed untyped.
+	CHECK(fixture.Details.GetRowText("Inputs") == std::optional<std::string>("a, b, t"));
+
+	fixture.ImGui.Click(fixture.DetailsRow("Formula Problem 0"), fixture.Drawer());
+	fixture.Frames(2);
+	ImGuiInputTextState const* const state = ImGui::GetInputTextState(GImGui->ActiveId);
+	REQUIRE(state != nullptr);
+	CHECK(state->GetSelectionStart() == 8);
+	CHECK(state->GetSelectionEnd() == 11);
+	// Typing replaces the part.
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Type("sin");
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(GetFormula(fixture.GetDocument()) == "a * b + sin(t)");
+}
+
+TEST_CASE("VisualScriptEditor: a caret block marks the line of its span with tabs as four columns, and Edit Formula selects the span")
+{
+	PaneFixture fixture(MakeFormulaDocument("a +\n\tb * #"), {FixturePane::Details});
+	VisualScriptDiagnostic character = MakeDiagnostic("InvalidExpression", 0, 2, "unexpected '#'");
+	character.Setting = "Formula";
+	character.Span = std::pair<uint32_t, uint32_t>(9, 10);
+	fixture.Semantics.InjectDiagnostic(character);
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	CHECK(fixture.Details.GetRowText("Formula Problem 0") == std::optional<std::string>("    b * #\n        ^ unexpected '#'"));
+	// What the problems' Edit Formula asks: the field with the keyboard and the span selected.
+	fixture.Shared.FocusSetting = VisualScriptSettingFocus{2, "Formula", std::pair<uint32_t, uint32_t>(9, 10)};
+	fixture.Frames(3);
+	ImGuiInputTextState const* const state = ImGui::GetInputTextState(GImGui->ActiveId);
+	REQUIRE(state != nullptr);
+	CHECK(state->GetSelectionStart() == 9);
+	CHECK(state->GetSelectionEnd() == 10);
+	CHECK_FALSE(fixture.Shared.FocusSetting.has_value());
+}
+
+TEST_CASE("VisualScriptEditor: an array's elements are added, removed and moved in Details, one step each, and edited in one")
+{
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptVariable speeds = MakeVariable(102, "Speeds", "float[]");
+	speeds.Value = Json::array({1.5, 2});
+	document.Variables.push_back(speeds);
+	PaneFixture fixture(document, {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.Shared.Element = VisualScriptElement{VisualScriptElementKind::Variable, 102};
+	fixture.Frames(2);
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Variable);
+	size_t const undo = fixture.GetUndoCount();
+	auto const value = [&fixture]
+	{
+		return FindVariable(fixture.GetDocument(), 102)->Value;
+	};
+
+	// + Add Element appends the element type's default.
+	fixture.ImGui.Click(fixture.DetailsRow("Default Value Add"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Add Element to Speeds in Graph");
+	CHECK(value() == Json::array({1.5, 2, 0}));
+
+	fixture.ImGui.Click(fixture.DetailsRow("Default Value 2 Remove"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Remove Element 2 of Speeds in Graph");
+	CHECK(value() == Json::array({1.5, 2}));
+	CHECK_FALSE(fixture.Details.FindRow("Default Value 2"));
+
+	// A handle dropped on another element's handle moves the element there.
+	fixture.ImGui.Drag(fixture.DetailsRow("Default Value 0 Handle"), fixture.DetailsRow("Default Value 1 Handle"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Move Element of Speeds in Graph");
+	CHECK(value() == Json::array({2, 1.5}));
+
+	// An element's value typed into its widget: one step however many commits.
+	fixture.ImGui.Click(fixture.DetailsRow("Default Value 0"), fixture.Drawer(), 2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("7");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 4);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Default Value of Speeds in Graph");
+	CHECK(value() == Json::array({7, 1.5}));
+}
+
+TEST_CASE("VisualScriptEditor: an array variable cannot be made public from My Script, which says why")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Variables.push_back(MakeVariable(102, "Targets", "Strada.Entity[]"));
+	PaneFixture fixture(document, {FixturePane::Sidebar});
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(GetCenter(fixture.Sidebar.FindEye(102)), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK_FALSE(FindVariable(fixture.GetDocument(), 102)->Public);
+	CHECK(std::any_of(fixture.Results.begin(), fixture.Results.end(),
+	                  [](VisualScriptPaneResult const& result)
+	                  {
+						  return std::find(result.Notes.begin(), result.Notes.end(), VisualScriptArrayPublicRefusal) != result.Notes.end();
+					  }));
+	CHECK(std::string_view(VisualScriptArrayPublicRefusal) == "Arrays cannot be public: components cannot store them");
 }

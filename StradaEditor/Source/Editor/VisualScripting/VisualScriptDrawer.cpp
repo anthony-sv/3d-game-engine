@@ -139,12 +139,15 @@ namespace Strada
 					result.Open = MakeVisualScriptJump(context.Graph, owner, {fix.Target});
 					if (fix.Kind == VisualScriptFixKind::EditSetting)
 					{
-						result.FocusSetting = VisualScriptSettingFocus{fix.Target, fix.Argument};
+						// A fix about a setting's text (a formula's) selects the part the diagnostic is about.
+						std::optional<std::pair<uint32_t, uint32_t>> const span =
+							diagnostic.Setting == fix.Argument ? diagnostic.Span : std::nullopt;
+						result.FocusSetting = VisualScriptSettingFocus{fix.Target, fix.Argument, span};
 					}
 					else if (fix.Kind == VisualScriptFixKind::Rename)
 					{
 						// A node is renamed by its setting: a custom event by its Name.
-						result.FocusSetting = VisualScriptSettingFocus{fix.Target, "Name"};
+						result.FocusSetting = VisualScriptSettingFocus{fix.Target, "Name", std::nullopt};
 					}
 					break;
 				case ElementKind::Variable:

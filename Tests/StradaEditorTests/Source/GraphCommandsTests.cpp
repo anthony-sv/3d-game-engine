@@ -2558,6 +2558,62 @@ TEST_CASE("GraphCommands: graph.edit applies a batch as one undo step through th
 	CHECK(fixture.Ok("graph.edit", both(afterMove["revision"], afterMove["programRevision"]))["changed"] == false);
 }
 
+TEST_CASE("GraphCommands: graph.edit's SetFormula and SetSetting of Formula rename an Expression's inputs with their links")
+{
+	GraphFixture fixture;
+	VisualScriptDocument document;
+	VisualScriptVariable speed;
+	speed.ID = 1;
+	speed.Name = "Speed";
+	speed.Type = "float";
+	document.Variables.push_back(speed);
+	document.Graph.Nodes.push_back(MakeNode(10, "Variable.Get", Json::object({{"Variable", 1}})));
+	document.Graph.Nodes.push_back(MakeNode(11, "Expression", Json::object({{"Formula", "speed * dt"}}), Json::object({{"dt", 0.5}})));
+	for (VisualScriptNode& node : document.Graph.Nodes)
+	{
+		node.Position = glm::vec2(0.0f, 0.0f);
+	}
+	document.Graph.Links.push_back(MakeLink(10, "Value", 11, "speed"));
+	std::string const graph = fixture.CreateGraph("Scripts/Formula.sgraph", document);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	// No pins are needed: the formulas say which inputs the node has, so this runs without the scripting runtime.
+	Json const edited = fixture.Ok(
+		"graph.edit",
+		Json::object({{"graph", graph},
+	                  {"operations", Json::array({Json::object({{"op", "SetFormula"}, {"node", 11}, {"formula", "velocity * dt"}})})},
+	                  {"description", "Rename Speed"}}));
+	CHECK(edited["changed"] == true);
+	CHECK(edited["results"] ==
+	      Json::array({Json::object(
+			  {{"renamedInputs", Json::array({Json::object({{"old", "speed"}, {"new", "velocity"}})})}, {"removedLinks", 0}})}));
+	VisualScriptDocument const renamed = fixture.GetDocument(graph);
+	CHECK(renamed.Graph.Links == std::vector<VisualScriptLink>{MakeLink(10, "Value", 11, "velocity")});
+	CHECK(renamed.Graph.Nodes[1].Settings == Json::object({{"Formula", "velocity * dt"}}));
+	CHECK(renamed.Graph.Nodes[1].Inputs == Json::object({{"dt", 0.5}}));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.Ok("editor.status")["undo"] == "Rename Speed in Formula");
+
+	// SetSetting of Formula goes the same way; one that drops an input removes its link.
+	Json const routed = fixture.Ok(
+		"graph.edit",
+		Json::object(
+			{{"graph", graph},
+	         {"operations", Json::array({Json::object({{"op", "SetSetting"}, {"node", 11}, {"name", "Formula"}, {"value", "dt * 2"}})})}}));
+	CHECK(routed["results"] == Json::array({Json::object({{"renamedInputs", Json::array()}, {"removedLinks", 1}})}));
+	CHECK(fixture.GetDocument(graph).Graph.Links.empty());
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Visual Script in Formula");
+	CHECK(fixture.GetDocument(graph).Graph.Links == renamed.Graph.Links);
+
+	// A node of another type is refused, naming the operation.
+	CommandError const refused = fixture.Fails(
+		"graph.edit", Json::object({{"graph", graph},
+	                                {"operations", Json::array({Json::object({{"op", "SetFormula"}, {"node", 10}, {"formula", "a"}})})}}));
+	CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+	CHECK(refused.Data["op"] == "SetFormula");
+	CHECK(refused.Message.find("node 10 is no Expression") != std::string::npos);
+}
+
 TEST_CASE("GraphCommands: graph.edit refuses what does not apply, naming the operation, and runs degraded without the runtime")
 {
 	GraphFixture fixture;

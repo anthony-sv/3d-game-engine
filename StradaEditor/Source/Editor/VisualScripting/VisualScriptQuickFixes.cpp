@@ -1,6 +1,7 @@
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 
 #include "Editor/VisualScripting/VisualScriptEditing.h"
+#include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptNormalization.h"
 
@@ -29,6 +30,7 @@ namespace Strada
 		constexpr std::string_view EntityType = "Strada.Entity";
 		constexpr std::string_view StringType = "string";
 		constexpr std::string_view TypeArgumentsSetting = "TypeArguments";
+		constexpr char const* FormulaSetting = "Formula";
 		// The settings that name types: Type and To (a type ID), TypeArguments (a list of them) and Parameters (each a Name
 		// and a Type), the setting kinds Type, TypeList and Parameters of the node library.
 		constexpr std::array<std::string_view, 4> TypeSettings = {"Type", "To", "TypeArguments", "Parameters"};
@@ -475,6 +477,29 @@ namespace Strada
 			// A node's own values: a Literal's Value, the only value setting analysis decodes.
 			key = "Value";
 			return place.NodeOf->Settings.is_object() && place.NodeOf->Settings.contains(key) ? ValuePlace::Setting : ValuePlace::None;
+		}
+
+		// The formula of an Expression with the bytes a diagnostic's Span covers replaced by the fix's argument; nothing when the
+		// node stores no formula or the span no longer covers what the fix replaces.
+		std::optional<std::string> ReplaceFormulaSpan(VisualScriptNode const& node, VisualScriptDiagnostic const& diagnostic,
+		                                              VisualScriptQuickFix const& fix)
+		{
+			if (!node.Settings.is_object() || !diagnostic.Span)
+			{
+				return std::nullopt;
+			}
+			auto const stored = node.Settings.find(FormulaSetting);
+			if (stored == node.Settings.end() || !stored->is_string())
+			{
+				return std::nullopt;
+			}
+			std::string const& formula = stored->get_ref<std::string const&>();
+			auto const [start, end] = *diagnostic.Span;
+			if (start > end || end > formula.size() || formula.compare(start, end - start, fix.Replaces) != 0)
+			{
+				return std::nullopt;
+			}
+			return formula.substr(0, start) + fix.Argument + formula.substr(end);
 		}
 
 		VisualScriptQuickFix MakeFix(std::string label, VisualScriptFixKind kind, uint32_t target, std::string argument = {},
@@ -1070,6 +1095,21 @@ namespace Strada
 					return VisualScriptEditing::SetNodeEnabled(document, std::span<uint32_t const>(&node, 1),
 					                                           VisualScriptNodeEnabled::Enabled);
 				}
+				case VisualScriptFixKind::ReplaceInFormula:
+				{
+					if (Result<void> found = requireNode(); !found)
+					{
+						return found;
+					}
+					std::optional<std::string> formula = ReplaceFormulaSpan(*place.NodeOf, diagnostic, fix);
+					if (!formula)
+					{
+						return Error{"the formula no longer holds what the fix replaces"};
+					}
+					Result<VisualScriptEditing::VisualScriptFormulaChange> set =
+						VisualScriptEditing::SetFormula(document, place.NodeOf->ID, std::move(*formula));
+					return set ? Result<void>() : Result<void>(Error{set.GetError()});
+				}
 			}
 			return MakeError("unknown fix kind {}", static_cast<int>(fix.Kind));
 		}
@@ -1244,6 +1284,36 @@ namespace Strada
 				fixes.push_back(MakeFix("Create Public Variable", VisualScriptFixKind::CreatePublicVariable, nodeID, {}, key));
 			}
 		}
+		else if (code == "InvalidExpression" || (code == "ReservedName" && diagnostic.Setting == FormulaSetting))
+		{
+			if (node == nullptr)
+			{
+				return fixes;
+			}
+			// Edit Formula names the setting; the diagnostic's span tells the field what to select.
+			fixes.push_back(MakeFix("Edit Formula", VisualScriptFixKind::EditSetting, nodeID, std::string(FormulaSetting)));
+			if (code != "InvalidExpression" || !diagnostic.Span || !node->Settings.is_object())
+			{
+				return fixes;
+			}
+			auto const formula = node->Settings.find(FormulaSetting);
+			if (formula == node->Settings.end() || !formula->is_string())
+			{
+				return fixes;
+			}
+			std::string const& text = formula->get_ref<std::string const&>();
+			auto const [start, end] = *diagnostic.Span;
+			if (start >= end || end > text.size())
+			{
+				return fixes;
+			}
+			std::string const replaces = text.substr(start, end - start);
+			for (std::string const& suggestion : diagnostic.Suggestions)
+			{
+				fixes.push_back(
+					MakeFix(fmt::format("Use {}", suggestion), VisualScriptFixKind::ReplaceInFormula, nodeID, suggestion, replaces));
+			}
+		}
 		else if (code == "InvalidSetting" || code == "MissingSetting" || code == "InvalidCase" || code == "MissingTypeArgument")
 		{
 			if (node == nullptr)
@@ -1253,6 +1323,7 @@ namespace Strada
 			VisualScriptNodeTemplate const* kind = FindTemplate(library, analysis, *node);
 			std::string const setting = code == "MissingTypeArgument" ? std::string(TypeArgumentsSetting)
 			                            : code == "InvalidCase"       ? std::string("Cases")
+			                            : !diagnostic.Setting.empty() ? diagnostic.Setting
 			                                                          : FindNamedSetting(kind, diagnostic.Message);
 			fixes.push_back(MakeFix("Edit in Details", VisualScriptFixKind::EditSetting, nodeID, setting));
 			if (code == "MissingTypeArgument" &&
@@ -1284,12 +1355,22 @@ namespace Strada
 		else if (code == "UnknownType" || code == "InvalidType")
 		{
 			bool const unknown = code == "UnknownType";
-			auto const rejects = [&](std::string const& type)
+			// Arrays are types of private variables, locals and parameters, but not of public variables, which components set.
+			bool const publicVariable =
+				diagnostic.Variable.has_value() && std::any_of(document.Variables.begin(), document.Variables.end(),
+			                                                   [&diagnostic](VisualScriptVariable const& variable)
+			                                                   {
+																   return variable.ID == *diagnostic.Variable && variable.Public;
+															   });
+			auto const isArray = [&library](std::string const& type)
 			{
 				VisualScriptTypeInfo const* info = library.FindType(type);
-				return unknown ? info == nullptr
-				               : type == VisualScriptExecType || type == VisualScriptWildcardType ||
-				                     (info != nullptr && info->Kind == VisualScriptTypeKind::Array);
+				return info != nullptr && info->Kind == VisualScriptTypeKind::Array;
+			};
+			auto const rejects = [&](std::string const& type)
+			{
+				return unknown ? library.FindType(type) == nullptr
+				               : type == VisualScriptExecType || type == VisualScriptWildcardType || (publicVariable && isArray(type));
 			};
 			std::vector<std::string> rejected;
 			uint32_t target = 0;
@@ -1344,6 +1425,10 @@ namespace Strada
 			}
 			for (std::string const& suggestion : diagnostic.Suggestions)
 			{
+				if (publicVariable && isArray(suggestion))
+				{
+					continue;
+				}
 				fixes.push_back(MakeFix(fmt::format("Use {}", TitleOfType(library, suggestion)), VisualScriptFixKind::UseType, target,
 				                        suggestion, *replaces));
 			}

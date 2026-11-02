@@ -16,6 +16,17 @@ namespace Strada
 {
 	namespace
 	{
+		// The built-in kinds the runtime titles with more words than their type's last segment: the array nodes that make a new
+		// array (spec-slice3 §3.4.5).
+		constexpr std::array<std::pair<std::string_view, std::string_view>, 6> SpelledOutTitles = {{
+			{"Array.Make", "Make Array"},
+			{"Array.Set", "Set Element"},
+			{"Array.Add", "Add Element"},
+			{"Array.RemoveAt", "Remove Element"},
+			{"Array.Insert", "Insert Element"},
+			{"Array.Append", "Append Arrays"},
+		}};
+
 		// The prefixes of the type strings of the scripting API's members.
 		constexpr std::string_view CallPrefix = "Call:";
 		constexpr std::string_view GetPrefix = "Get:";
@@ -267,6 +278,15 @@ namespace Strada
 		{
 			std::optional<std::string_view> const name = ReadEventName(node.Settings);
 			return "Send " + (name ? std::string(*name) : std::string("Event"));
+		}
+		if (auto const spelled = std::find_if(SpelledOutTitles.begin(), SpelledOutTitles.end(),
+		                                      [type](auto const& entry)
+		                                      {
+												  return entry.first == type;
+											  });
+		    spelled != SpelledOutTitles.end())
+		{
+			return std::string(spelled->second);
 		}
 		if (type.starts_with(CallPrefix))
 		{

@@ -1606,3 +1606,148 @@ TEST_CASE("VisualScriptEditor: the node menu's Find References lists a variable'
 	CHECK(GImGui->OpenPopupStack.Size == 0);
 	CHECK(fixture.GetUndoCount() == undo);
 }
+
+namespace
+{
+	// Create (1) and an Expression (2) of speed * dt, a two-line Expression (3), and Speed's Get (4) linked into speed; the
+	// function Count (20) takes Items, an array of entities, which a call (5) is given a literal of.
+	VisualScriptDocument MakeLanguageDocument()
+	{
+		VisualScriptDocument document;
+		VisualScriptVariable speed;
+		speed.ID = 10;
+		speed.Name = "Speed";
+		speed.Type = "float";
+		document.Variables.push_back(speed);
+		VisualScriptFunction count;
+		count.ID = 20;
+		count.Name = "Count";
+		count.Pure = true;
+		count.Inputs = {{"Items", "Strada.Entity[]"}};
+		count.Graph.Nodes = {MakeNode(21, "Function.Entry", glm::vec2(0.0f, 0.0f)),
+		                     MakeNode(22, "Function.Return", glm::vec2(480.0f, 0.0f))};
+		document.Functions.push_back(std::move(count));
+		document.Graph.Nodes = {
+			MakeNode(1, "Event.Create", glm::vec2(0.0f, 0.0f)),
+			MakeNode(2, "Expression", glm::vec2(400.0f, 0.0f), Json::object({{"Formula", "speed * dt"}})),
+			MakeNode(3, "Expression", glm::vec2(400.0f, 320.0f), Json::object({{"Formula", "a +\nb"}})),
+			MakeNode(4, "Variable.Get", glm::vec2(0.0f, 200.0f), Json::object({{"Variable", 10}})),
+			MakeNode(5, "Function.Call", glm::vec2(800.0f, 0.0f), Json::object({{"Function", 20}}),
+		             Json::object({{"Items", Json::array({"0", "0", "0"})}})),
+		};
+		document.Graph.Links = {MakeLink(4, "Value", 2, "speed")};
+		return document;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a double click on an Expression's header edits its formula in place, Enter one step, Escape none")
+{
+	PanelFixture fixture(MakeLanguageDocument());
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	glm::vec2 const header = Testing::CanvasPoint(fixture.Model(), 2, glm::vec2(0.5f, 0.06f));
+	fixture.Gui.MouseClick(ToImVec2(header), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(2);
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	// The formula is selected: typing replaces it.
+	fixture.Gui.Type("x * 2");
+	fixture.Frames(1);
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.FindNode(2)->Settings["Formula"] == "speed * dt");
+
+	// Past ImGui's double-click time, so the next two clicks are a double click of their own.
+	fixture.Frames(30);
+	fixture.Gui.MouseClick(ToImVec2(header), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(2);
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	fixture.Gui.Type("velocity * dt");
+	fixture.Frames(1);
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Formula on Expression (renames 1 input) in Player");
+	CHECK(fixture.FindNode(2)->Settings["Formula"] == "velocity * dt");
+	CHECK(fixture.HasLink(MakeLink(4, "Value", 2, "velocity")));
+}
+
+TEST_CASE("VisualScriptEditor: a double click on an Expression of two lines gives Details' Formula field the keyboard instead")
+{
+	PanelFixture fixture(MakeLanguageDocument());
+	fixture.CheckDrawingChangesNothing();
+	fixture.Gui.MouseClick(ToImVec2(Testing::CanvasPoint(fixture.Model(), 3, glm::vec2(0.5f, 0.06f))), ImGuiMouseButton_Left,
+	                       fixture.Drawer(), 2);
+	fixture.Frames(4);
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	ImGuiInputTextState const* const state = ImGui::GetInputTextState(GImGui->ActiveId);
+	REQUIRE(state != nullptr);
+	CHECK(std::string_view(state->TextA.Data) == "a +\nb");
+	CHECK(fixture.Panel->GetDetails().GetSubject() == VisualScriptDetailsSubject::Node);
+	CHECK(fixture.Panel->GetDetails().FindRow("Formula").has_value());
+}
+
+TEST_CASE("VisualScriptEditor: a query of = and a formula adds an Expression of that formula from the palette, in one step")
+{
+	PanelFixture fixture(MakeLanguageDocument());
+	fixture.CheckDrawingChangesNothing();
+	fixture.Click(fixture.EmptyPoint());
+	size_t const undo = fixture.GetUndoCount();
+	size_t const nodes = fixture.GetDocument().Graph.Nodes.size();
+	fixture.Gui.Press(ImGuiKey_Tab, fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE(fixture.Panel->GetState().PaletteOpen);
+	fixture.Gui.Type("=a*b+sin(t)");
+	fixture.Frames(2);
+	VisualScriptPaletteState const state = fixture.Panel->GetPaletteState();
+	REQUIRE(state.Entries.size() == 1);
+	CHECK(state.Entries[0].Title == "Expression: a*b+sin(t)");
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Add Expression in Player");
+	REQUIRE(fixture.GetDocument().Graph.Nodes.size() == nodes + 1);
+	VisualScriptNode const& added = fixture.GetDocument().Graph.Nodes.back();
+	CHECK(added.Type == "Expression");
+	CHECK(added.Settings == Json::object({{"Formula", "a*b+sin(t)"}}));
+}
+
+TEST_CASE("VisualScriptEditor: an unlinked array input's chip shows its length, and a click on it shows the input in Details")
+{
+	PanelFixture fixture(MakeLanguageDocument());
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptCanvasModel const& canvas = fixture.Model().GetCanvas();
+	std::optional<uint32_t> const node = canvas.FindNode(5);
+	REQUIRE(node.has_value());
+	std::optional<uint32_t> const pin = canvas.FindPin(*node, "Items", VisualScriptPinDirection::In);
+	REQUIRE(pin.has_value());
+	VisualScriptPinVisual const& items = canvas.GetPins()[*pin];
+	CHECK(items.ChipKind == VisualScriptChipKind::Matrix);
+	CHECK(canvas.GetText(items.ChipText) == "[3]");
+	// No live widget: a click on the chip selects the node, which Details shows with the input's row.
+	VisualScriptRect const chip = VisualScriptGeometry::GetChipRect(canvas.GetNodes()[*node], items, glm::vec2(0.0f));
+	glm::vec2 const center = fixture.Model().GetView().ToScreen((chip.Min + chip.Max) * 0.5f);
+	fixture.Click(center);
+	fixture.Frames(2);
+	CHECK(std::vector<uint32_t>(fixture.Model().GetSelection().begin(), fixture.Model().GetSelection().end()) == std::vector<uint32_t>{5});
+	CHECK(fixture.Panel->GetDetails().GetSubject() == VisualScriptDetailsSubject::Node);
+	CHECK(fixture.Panel->GetDetails().FindRow("Items").has_value());
+}
+
+TEST_CASE("VisualScriptEditor: the palette's Game category ends with a row counting the [VisualNode] members without a node")
+{
+	Testing::FixtureVisualScriptSemantics semantics;
+	Result<Json> library = ParseJson(Testing::GetFixtureLibraryText());
+	REQUIRE(library.IsOk());
+	library.GetValue()["Notes"] = Json::array(
+		{Json::object({{"Member", "Game.Probe.Swap"}, {"Category", "Game/Probe"}, {"Message", "Swap: ref parameters are not supported"}}),
+	     Json::object({{"Member", "Game.Probe.Wait"}, {"Category", "Game/Probe"}, {"Message", "Wait: latent members are not nodes"}})});
+	semantics.ReloadLibrary(library.GetValue().dump());
+	PanelFixture fixture(MakeLanguageDocument(), &semantics);
+	fixture.CheckDrawingChangesNothing();
+	fixture.Click(fixture.EmptyPoint());
+	fixture.Gui.Press(ImGuiKey_Tab, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(fixture.Panel->GetState().PaletteOpen);
+	CHECK(fixture.Panel->GetPaletteState().NotesRow == "2 [VisualNode] members have no node: see the Console");
+}

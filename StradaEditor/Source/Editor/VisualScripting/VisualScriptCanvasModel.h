@@ -87,7 +87,7 @@ namespace Strada
 		Choice,
 		// Asset references: the asset's name.
 		Asset,
-		// Strada.Matrix4: the text "Matrix" (Details edits matrices).
+		// Strada.Matrix4 and arrays: the text "Matrix" or the array's length ("[3]"), and no live widget (Details edits them).
 		Matrix,
 		// No frame, the text in TextDisabled: "Self" for an input that means the entity running the graph, "None" for entities
 		// and the types without literals.

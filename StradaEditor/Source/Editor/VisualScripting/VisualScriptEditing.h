@@ -84,6 +84,17 @@ namespace Strada
 		Middles
 	};
 
+	// How the pins of a node named after a list (an event's parameters, a formula's inputs, numbered elements) change with the
+	// list: pins renamed with what hangs on them, and pins whose links, literals and split pins go. Names are pin paths as
+	// the document stores them; a change of a pin applies to its fields' paths too ("Force.X" of "Force").
+	struct VisualScriptPinChanges
+	{
+		// (old, new): every pin is renamed once, by the first entry naming it or a pin it is a field of, so a list may move
+		// names along (Element2 to Element1 and Element3 to Element2).
+		std::vector<std::pair<std::string, std::string>> Renamed;
+		std::vector<std::string> Removed;
+	};
+
 	// The axis VisualScriptEditing::DistributeElements spaces along.
 	enum class VisualScriptDistribution : uint8_t
 	{
@@ -195,12 +206,24 @@ namespace Strada
 
 		// Values and settings.
 
+		// How the pins named after a list change when the list changes, as SetEventParameters and SetFunctionSignature change
+		// them: a name kept keeps its pin; when the list keeps its length (each name counted once), the k-th name that went is
+		// renamed to the k-th that came; the other names that went are removed.
+		[[nodiscard]] VisualScriptPinChanges CompareVisualScriptPinLists(std::vector<std::string> before,
+		                                                                 std::vector<std::string> const& after);
+		// Renames and removes pins of a node of the graph in a direction (links at the node's end, and for inputs the literals,
+		// a renamed literal replacing one stored under its new name, and the node's split paths there), then drops the links
+		// the renames made repeat. Returns how many links it removed. The node must be one of the graph's.
+		uint32_t ApplyVisualScriptPinChanges(VisualScriptGraph& graph, VisualScriptNode& node, VisualScriptPinDirection direction,
+		                                     VisualScriptPinChanges const& changes);
+
 		// Stores the literal of a node's input (named as the document stores it); null removes it. A field of a struct input
 		// ("Force.X") takes literals only while the struct is split, and a split struct takes none of its own.
 		[[nodiscard]] Result<void> SetInput(VisualScriptDocument& document, uint32_t node, std::string pin, Json literal);
 		// The operation that sets a setting whose change renames or removes pins or senders, so that links follow in the same
 		// step: a Sequence's Count (SetSequenceOutputs), a Switch's Cases (SetSwitchCases), the Parameters of Event.Custom and
-		// Event.Send (SetEventParameters) and an Event.Custom's Name (RenameCustomEvent, which renames its senders too). Empty
+		// Event.Send (SetEventParameters), an Event.Custom's Name (RenameCustomEvent, which renames its senders too), an
+		// Array.Make's Count (SetArrayElements) and an Expression's Formula (SetFormula; VisualScriptLanguageEditing.h). Empty
 		// when SetSetting may set the setting.
 		[[nodiscard]] std::string_view FindVisualScriptSettingOperation(VisualScriptNode const& node, std::string_view setting);
 		// Stores a node's setting; null removes it. The settings FindVisualScriptSettingOperation names an operation for are

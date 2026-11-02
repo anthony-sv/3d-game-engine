@@ -3772,6 +3772,22 @@ namespace Strada
 			position = ImVec2(lower.x, (lower.y + upper.y - ImGui::GetFrameHeight()) * 0.5f);
 			width = std::max(upper.x - lower.x, fontSize * 6.0f);
 		}
+		else if (edit.Kind == VisualScriptTextEditKind::Formula)
+		{
+			std::optional<uint32_t> const index = canvas.FindNode(edit.Element);
+			if (!index)
+			{
+				CloseTextEdit();
+				return;
+			}
+			std::span<VisualScriptNodeVisual const> const nodes = canvas.GetNodes();
+			VisualScriptNodeVisual const& node = nodes[*index];
+			// Over the subtitle row, where the formula is shown, as wide as the node (at least wide enough to type in).
+			glm::vec2 const topLeft = view.ToScreen(node.Position + glm::vec2(0.0f, VisualScriptCanvasMetrics::SubtitleTop));
+			glm::vec2 const topRight = view.ToScreen(node.Position + glm::vec2(node.Size.x, 0.0f));
+			position = ImVec2(topLeft.x, topLeft.y);
+			width = std::max(topRight.x - topLeft.x, fontSize * 12.0f);
+		}
 		else
 		{
 			std::optional<uint32_t> const index = canvas.FindNode(edit.Element);
@@ -3800,6 +3816,20 @@ namespace Strada
 		if (edit.Kind == VisualScriptTextEditKind::CommentTitle)
 		{
 			confirmed = ImGui::InputText("##title", &edit.Text, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+		}
+		else if (edit.Kind == VisualScriptTextEditKind::Formula)
+		{
+			if (m_Services.MonospaceFont != nullptr)
+			{
+				ImGui::PushFont(m_Services.MonospaceFont, 0.0f);
+			}
+			// The formula opens selected: typing replaces it, the arrow keys keep it.
+			confirmed = ImGui::InputText("##formula", &edit.Text, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+			if (m_Services.MonospaceFont != nullptr)
+			{
+				ImGui::PopFont();
+			}
+			ImGui::SetItemTooltip("Enter: done \xC2\xB7 Esc: cancel");
 		}
 		else
 		{
@@ -3842,6 +3872,15 @@ namespace Strada
 		}
 		TextEdit const edit = std::move(*m_TextEdit);
 		m_TextEdit.reset();
+		if (edit.Kind == VisualScriptTextEditKind::Formula)
+		{
+			// One step, set with SetFormula against the formula the editor opened with.
+			if (edit.Text != edit.Original)
+			{
+				ExecuteEdit(VisualScriptFormulaEdit{edit.Element, edit.Text});
+			}
+			return;
+		}
 		if (edit.Kind == VisualScriptTextEditKind::NodeComment)
 		{
 			m_NameRun.reset();
@@ -4222,6 +4261,10 @@ namespace Strada
 			{
 				// Details shows the canvas's selection, which the node is.
 				m_PaneShared.Element.reset();
+				if (!reveal.Setting.empty())
+				{
+					m_PaneShared.FocusSetting = VisualScriptSettingFocus{reveal.ID, reveal.Setting, std::nullopt};
+				}
 				if (m_Layout.DetailsState == VisualScriptPaneState::AutoHidden)
 				{
 					m_DetailsOverlay = true;
@@ -4562,28 +4605,18 @@ namespace Strada
 			bool const data = !exec && visual.Type != VisualScriptWildcardType;
 			if (data)
 			{
-				// Variables and function inputs cannot hold arrays (v2 §3.2).
-				bool const array = visual.Shape == VisualScriptPinShape::Array;
-				auto const arrayReason = [array]
-				{
-					if (array && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayShort))
-					{
-						ImGui::SetTooltip("%s", VisualScriptRefusals::PromoteArray.data());
-					}
-				};
+				// An array pin makes a private array variable or a function input of its array type (spec-slice3 §3.4.3).
 				ImGui::Separator();
-				if (ImGui::MenuItem("Promote to Variable", nullptr, false, !readOnly && m_Library != nullptr && !array) && armed)
+				if (ImGui::MenuItem("Promote to Variable", nullptr, false, !readOnly && m_Library != nullptr) && armed)
 				{
 					edit(VisualScriptPinAction::PromoteToVariable);
 				}
-				arrayReason();
 				if (m_Model.GetFunction() != 0 && visual.Direction == VisualScriptPinDirection::In && !linked)
 				{
-					if (ImGui::MenuItem("Promote to Function Input", nullptr, false, !readOnly && m_Library != nullptr && !array) && armed)
+					if (ImGui::MenuItem("Promote to Function Input", nullptr, false, !readOnly && m_Library != nullptr) && armed)
 					{
 						edit(VisualScriptPinAction::PromoteToFunctionInput);
 					}
-					arrayReason();
 				}
 			}
 			if (stored != nullptr && (stored->Type == "Event.Send" || stored->Type == "Event.Custom" || stored->Type == "Function.Call"))

@@ -1426,81 +1426,41 @@ TEST_CASE("VisualScriptEditor: a variable dropped on a data output runs after th
 	CHECK(fixture.HasLink(MakeLink(42, "Update", run, "Execute")));
 }
 
-namespace
-{
-	// The fixture's analysis with the Get of Targets (node 40) resolved to its array type, as the scripting runtime resolves it
-	// (the fixture analyzer resolves no wildcard).
-	class ArrayGetSemantics final : public VisualScriptSemantics
-	{
-	public:
-		explicit ArrayGetSemantics(Testing::FixtureVisualScriptSemantics& fixture)
-			: m_Fixture(fixture)
-		{
-		}
-
-		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
-
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
-		{
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document, self);
-			if (!analysis.IsOk())
-			{
-				return analysis;
-			}
-			Json source = analysis.GetValue().Source;
-			for (Json& node : source["Nodes"])
-			{
-				if (node["ID"] != 40)
-				{
-					continue;
-				}
-				for (Json& pin : node["Pins"])
-				{
-					pin["Type"] = "Strada.Entity[]";
-				}
-			}
-			return VisualScriptAnalysis::Parse(source.dump());
-		}
-
-	private:
-		Testing::FixtureVisualScriptSemantics& m_Fixture;
-	};
-}
-
-TEST_CASE("VisualScriptEditor: an array pin is never promoted to a variable or a function input, and says why")
+TEST_CASE("VisualScriptEditor: an array pin is promoted to a private array variable in one step")
 {
 	VisualScriptDocument document = MakeDocument();
 	VisualScriptVariable targets;
 	targets.ID = 11;
 	targets.Name = "Targets";
 	targets.Type = "Strada.Entity[]";
-	targets.Public = true;
 	document.Variables.push_back(targets);
 	document.Graph.Nodes.push_back(MakeNode(40, "Variable.Get", glm::vec2(0.0f, 960.0f), Json::object({{"Variable", 11}})));
+	document.Graph.Nodes.push_back(MakeNode(41, "Variable.Set", glm::vec2(400.0f, 960.0f), Json::object({{"Variable", 11}})));
 	ControllerFixture fixture(document);
-	ArrayGetSemantics arrays(fixture.Semantics);
-	fixture.SemanticsOverride = &arrays;
-	fixture.Semantics.ReloadLibrary();
-	fixture.Frame();
-	fixture.Frame();
 	VisualScriptCanvasModel const& canvas = fixture.Model->GetCanvas();
 	std::optional<uint32_t> const node = canvas.FindNode(40);
 	REQUIRE(node.has_value());
 	std::optional<uint32_t> const pin = canvas.FindPin(*node, "Value", VisualScriptPinDirection::Out);
 	REQUIRE(pin.has_value());
-	std::span<VisualScriptPinVisual const> const pins = canvas.GetPins();
-	REQUIRE(pins[*pin].Shape == VisualScriptPinShape::Array);
+	REQUIRE(canvas.GetPins()[*pin].Shape == VisualScriptPinShape::Array);
 	size_t const steps = fixture.History().GetUndoCount();
 
+	// The input of the Set: a Get of a new private Strada.Entity[] variable linked into it, as graph.edit's PromoteToVariable
+	// makes it.
 	VisualScriptPinEdit promote;
 	promote.Action = VisualScriptPinAction::PromoteToVariable;
-	promote.Pin = VisualScriptPinReference{40, "Value"};
-	promote.Direction = VisualScriptPinDirection::Out;
-	VisualScriptControllerResult const refused = fixture.Edit(promote);
-	CHECK_FALSE(refused.Commit.has_value());
-	CHECK(refused.Notes == std::vector<std::string>{std::string(VisualScriptRefusals::PromoteArray)});
-	CHECK(fixture.History().GetUndoCount() == steps);
-	CHECK(fixture.Stored().Variables.size() == 2);
+	promote.Pin = VisualScriptPinReference{41, "Value"};
+	promote.Direction = VisualScriptPinDirection::In;
+	VisualScriptControllerResult result = fixture.Edit(promote);
+	REQUIRE(result.Commit.has_value());
+	CHECK(result.Notes.empty());
+	fixture.Execute(result);
+	CHECK(fixture.History().GetUndoCount() == steps + 1);
+	REQUIRE(fixture.Stored().Variables.size() == 3);
+	VisualScriptVariable const& promoted = fixture.Stored().Variables.back();
+	CHECK(promoted.Type == "Strada.Entity[]");
+	CHECK_FALSE(promoted.Public);
+	CHECK(fixture.HasLink(MakeLink(promoted.ID + 1, "Value", 41, "Value")));
 }
 
 TEST_CASE("VisualScriptEditor: what a drop on a pin can change: assets of the input's type, entities on Entity inputs, variables on "
@@ -1530,4 +1490,39 @@ TEST_CASE("VisualScriptEditor: what a drop on a pin can change: assets of the in
 	// Entities only on Entity inputs; an asset that is not in the project nowhere.
 	CHECK_FALSE(CanDropOnVisualScriptPin(VisualScriptDropKind::Entities, 0, message));
 	CHECK_FALSE(CanDropOnVisualScriptPin(VisualScriptDropKind::Asset, 12345, message));
+}
+
+TEST_CASE("VisualScriptEditor: opening an Expression edits its formula in place, or in Details when it has several lines")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(40, "Expression", glm::vec2(0.0f, 960.0f), Json::object({{"Formula", "speed * dt"}})));
+	document.Graph.Nodes.push_back(MakeNode(41, "Expression", glm::vec2(400.0f, 960.0f), Json::object({{"Formula", "a +\nb"}})));
+	document.Graph.Nodes.push_back(MakeNode(42, "Variable.Get", glm::vec2(-400.0f, 960.0f), Json::object({{"Variable", 10}})));
+	document.Graph.Links.push_back(MakeLink(42, "Value", 40, "speed"));
+	ControllerFixture fixture(document);
+
+	VisualScriptControllerResult const opened = fixture.Act(Action::OpenNode, {40});
+	REQUIRE(opened.EditText.has_value());
+	CHECK(opened.EditText->Kind == VisualScriptTextEditKind::Formula);
+	CHECK(opened.EditText->Element == 40);
+	CHECK(opened.EditText->Text == "speed * dt");
+	CHECK_FALSE(opened.Reveal.has_value());
+	// A single-line field cannot show a formula's lines: Details' Formula field takes the keyboard.
+	VisualScriptControllerResult const lines = fixture.Act(Action::OpenNode, {41});
+	CHECK_FALSE(lines.EditText.has_value());
+	REQUIRE(lines.Reveal.has_value());
+	CHECK(lines.Reveal->Kind == VisualScriptRevealKind::Node);
+	CHECK(lines.Reveal->ID == 41);
+	CHECK(lines.Reveal->Setting == "Formula");
+	CHECK(fixture.History().GetUndoCount() == 0);
+
+	// What the in-place editor commits: one step with SetFormula, the renamed input keeping its link.
+	VisualScriptControllerResult committed = fixture.Edit(VisualScriptFormulaEdit{40, "velocity * dt"});
+	REQUIRE(committed.Commit.has_value());
+	CHECK(committed.Commit->Description == "Set Formula on Expression (renames 1 input) in Player");
+	fixture.Execute(committed);
+	CHECK(fixture.History().GetUndoCount() == 1);
+	CHECK(fixture.HasLink(MakeLink(42, "Value", 40, "velocity")));
+	// The formula unchanged commits nothing.
+	CHECK_FALSE(fixture.Edit(VisualScriptFormulaEdit{40, "velocity * dt"}).Commit.has_value());
 }

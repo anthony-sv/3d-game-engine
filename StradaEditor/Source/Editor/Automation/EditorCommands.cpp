@@ -718,11 +718,12 @@ namespace Strada
 					continue;
 				}
 				VisualScriptPaletteEntry const& entry = entries[match.Entry];
-				Json row = Json::object({{"title", entry.Title},
+				// A match may title the row and add settings ("=formula": "Expression: <formula>", its Formula).
+				Json row = Json::object({{"title", match.Title.empty() ? entry.Title : match.Title},
 				                         {"subtitle", entry.Subtitle},
 				                         {"category", entry.Category},
 				                         {"type", entry.NodeType},
-				                         {"settings", entry.Settings}});
+				                         {"settings", GetVisualScriptPaletteMatchSettings(entry, match)}});
 				if (state.From)
 				{
 					row["connects"] = match.ConnectPin;
@@ -982,9 +983,17 @@ namespace Strada
 				.Property("value", SchemaBuilder::Any("SetInput, SetSetting, AddVariable, SetVariable, AddLocal, SetLocal: a value in the "
 			                                          "document's form; null removes or clears"))
 				.Property("name", SchemaBuilder::String("A name (setting, variable, local, function, custom event)"))
-				.Property("count", SchemaBuilder::Integer("SetSequenceOutputs: how many outputs").Minimum(0).Maximum(64))
-				.Property("insertAt", SchemaBuilder::Integer("SetSequenceOutputs: where the new outputs go").Minimum(0).Maximum(64))
-				.Property("removeAt", SchemaBuilder::Integer("SetSequenceOutputs: where outputs are removed").Minimum(0).Maximum(64))
+				.Property(
+					"count",
+					SchemaBuilder::Integer("SetSequenceOutputs, SetArrayElements: how many outputs or elements").Minimum(0).Maximum(64))
+				.Property("insertAt", SchemaBuilder::Integer("SetSequenceOutputs, SetArrayElements: where the new outputs or elements go")
+			                              .Minimum(0)
+			                              .Maximum(64))
+				.Property("removeAt", SchemaBuilder::Integer("SetSequenceOutputs, SetArrayElements: where outputs or elements are removed")
+			                              .Minimum(0)
+			                              .Maximum(64))
+				.Property("formula", SchemaBuilder::String("SetFormula: an Expression's formula, such as a * b + sin(t), of at most "
+			                                               "4096 bytes; inputs renamed in order keep their links and values"))
 				.Property("cases", SchemaBuilder::Any("SetSwitchCases: an array of cases, or null"))
 				.Property("parameters", parameters)
 				.Property("nodes", references("IDs or labels of nodes"))
@@ -2334,78 +2343,79 @@ namespace Strada
 						.MinLength(16)
 						.MaxLength(16);
 				result =
-					result
-						? Add("graph.edit",
-				              "Edits a visual script with an ordered batch of operations, each the graph window's own edit, applied "
-				              "atomically as one undo step \"<description> in <script>\" (nothing is written when one fails; the "
-				              "error names it, data.path the field, e.g. operations[3].from, with the pins, labels or closest names "
-				              "that would have been right). operations (0 to 10000, applied in order; an empty batch changes nothing "
-				              "and answers the analysis): AddNode, Delete, Duplicate, Paste (graph.copy's text), Move, SetPosition, "
-				              "Connect, Disconnect, Relink, Splice, InsertReroute, SetInput, SetSetting, SetSequenceOutputs, "
-				              "SetSwitchCases, SetEventParameters, RenameCustomEvent, SetNodeComment, SetCollapsed, SetEnabled, SplitPin, "
-				              "RecombinePin, AddComment, SetComment, SetDescription, AddVariable, SetVariable, DeleteVariable, "
-				              "ReorderVariables, DuplicateVariable, AddLocal, SetLocal, DeleteLocal, AddFunction, RenameFunction, "
-				              "SetFunctionSignature, SetFunctionPure, DeleteFunction, DuplicateFunction, PromoteToVariable, "
-				              "PromoteToFunctionInput, Arrange (scope Graph, Created: the nodes the batch added without a position, "
-				              "beside the nodes they continue, or Nodes), Align, Distribute, Straighten, Fix (applies a quick fix of a "
-				              "diagnostic). References: integers are IDs of the document as the call found it; \"$label\" names an "
-				              "element an earlier operation created with as (or labels); variables, locals and functions may be named "
-				              "(also in Variable and Function settings); asset values may be \"asset://<path>\"; pins take graph.get's "
-				              "names. Field names are camelCase; values inside settings, literals and value keep the document's "
-				              "PascalCase. Also takes function (the default sub-graph), description, revision and programRevision "
-				              "(fail with InvalidOperation unless the stored document has them; programRevision ignores moves, comments "
-				              "and arranging), dryRun, refuseNewErrors, analyze, nodes (None, Changed or All analysis entries) and "
-				              "document. Operations that need pins need the scripting runtime (Unavailable without it), except Delete "
-				              "and the Delete* operations, which do not bridge flow then, and measured layout. Returns { asset, path, "
-				              "changed, dryRun, revision, programRevision, analyses (how many analyses the call made), labels ({ "
-				              "\"$label\": id }), results (one per operation), warnings (what the commit changed besides the "
-				              "operations), analyzed, summary ({ errors, warnings, newErrors, newWarnings }), diagnostics? (each with "
-				              "Fixes: [{ label, operation }], the quick fixes as ready Fix operations to append to a next batch; New: "
-				              "the stored document did not have it; Label: the batch's label of its node), nodes?, hints? ([{ node, "
-				              "kind, message }]: NeverRuns, Unused or UnlinkedInput, silent mistakes in the nodes the batch created or "
-				              "changed and at the ends of links it removed), document? }.",
-				              SchemaBuilder::Object()
-				                  .Property("graph", graphParameter, true)
-				                  .Property("operations",
-				                            SchemaBuilder::Array(MakeGraphOperationSchema(),
-				                                                 "The operations, applied in order: { \"op\": \"<Kind>\", "
-				                                                 "...fields }")
-				                                .MaxItems(MaxGraphOperations),
-				                            true)
-				                  .Property("function", subGraphParameter)
-				                  .Property("description", SchemaBuilder::String("The undo step's text, before \" in <script>\"")
-				                                               .MinLength(1)
-				                                               .MaxLength(128)
-				                                               .Default("Edit Visual Script"))
-				                  .Property("revision", revisionParameter)
-				                  .Property("programRevision",
-				                            SchemaBuilder::String("A programRevision a graph command returned: the call fails unless "
-				                                                  "the document's program (what moves, comments and arranging leave "
-				                                                  "alone) is unchanged")
-				                                .MinLength(16)
-				                                .MaxLength(16))
-				                  .Property("dryRun", SchemaBuilder::Boolean("Answer what the call would do, writing nothing and "
-				                                                             "recording no undo step")
-				                                          .Default(false))
-				                  .Property("refuseNewErrors", SchemaBuilder::Boolean("Write nothing when the result has an Error "
-				                                                                      "diagnostic the stored document does not have")
-				                                                   .Default(false))
-				                  .Property("analyze", SchemaBuilder::Boolean("Analyze the result (operations that need pins analyze "
-				                                                              "anyway)")
-				                                           .Default(true))
-				                  .Property("nodes", SchemaBuilder::String("Which analysis entries the result lists: None, Changed (the "
-				                                                           "nodes the batch created or changed) or All")
-				                                         .Enum({"None", "Changed", "All"})
-				                                         .Default("Changed"))
-				                  .Property("document",
-				                            SchemaBuilder::Boolean("Include the resulting document (content form)").Default(false))
-				                  .Build(),
-				              false,
-				              [this](Json const& params) -> CommandResult
-				              {
-								  return EditGraph(params);
-							  })
-						: result;
+					result ? Add("graph.edit",
+				                 "Edits a visual script with an ordered batch of operations, each the graph window's own edit, applied "
+				                 "atomically as one undo step \"<description> in <script>\" (nothing is written when one fails; the "
+				                 "error names it, data.path the field, e.g. operations[3].from, with the pins, labels or closest names "
+				                 "that would have been right). operations (0 to 10000, applied in order; an empty batch changes nothing "
+				                 "and answers the analysis): AddNode, Delete, Duplicate, Paste (graph.copy's text), Move, SetPosition, "
+				                 "Connect, Disconnect, Relink, Splice, InsertReroute, SetInput, SetSetting, SetSequenceOutputs, "
+				                 "SetSwitchCases, SetEventParameters, RenameCustomEvent, SetArrayElements (a Make Array's elements), "
+				                 "SetFormula (an Expression's formula; inputs renamed in order keep their links), SetNodeComment, "
+				                 "SetCollapsed, SetEnabled, SplitPin, "
+				                 "RecombinePin, AddComment, SetComment, SetDescription, AddVariable, SetVariable, DeleteVariable, "
+				                 "ReorderVariables, DuplicateVariable, AddLocal, SetLocal, DeleteLocal, AddFunction, RenameFunction, "
+				                 "SetFunctionSignature, SetFunctionPure, DeleteFunction, DuplicateFunction, PromoteToVariable, "
+				                 "PromoteToFunctionInput, Arrange (scope Graph, Created: the nodes the batch added without a position, "
+				                 "beside the nodes they continue, or Nodes), Align, Distribute, Straighten, Fix (applies a quick fix of a "
+				                 "diagnostic). References: integers are IDs of the document as the call found it; \"$label\" names an "
+				                 "element an earlier operation created with as (or labels); variables, locals and functions may be named "
+				                 "(also in Variable and Function settings); asset values may be \"asset://<path>\"; pins take graph.get's "
+				                 "names. Field names are camelCase; values inside settings, literals and value keep the document's "
+				                 "PascalCase. Also takes function (the default sub-graph), description, revision and programRevision "
+				                 "(fail with InvalidOperation unless the stored document has them; programRevision ignores moves, comments "
+				                 "and arranging), dryRun, refuseNewErrors, analyze, nodes (None, Changed or All analysis entries) and "
+				                 "document. Operations that need pins need the scripting runtime (Unavailable without it), except Delete "
+				                 "and the Delete* operations, which do not bridge flow then, and measured layout. Returns { asset, path, "
+				                 "changed, dryRun, revision, programRevision, analyses (how many analyses the call made), labels ({ "
+				                 "\"$label\": id }), results (one per operation), warnings (what the commit changed besides the "
+				                 "operations), analyzed, summary ({ errors, warnings, newErrors, newWarnings }), diagnostics? (each with "
+				                 "Fixes: [{ label, operation }], the quick fixes as ready Fix operations to append to a next batch; New: "
+				                 "the stored document did not have it; Label: the batch's label of its node), nodes?, hints? ([{ node, "
+				                 "kind, message }]: NeverRuns, Unused or UnlinkedInput, silent mistakes in the nodes the batch created or "
+				                 "changed and at the ends of links it removed), document? }.",
+				                 SchemaBuilder::Object()
+				                     .Property("graph", graphParameter, true)
+				                     .Property("operations",
+				                               SchemaBuilder::Array(MakeGraphOperationSchema(),
+				                                                    "The operations, applied in order: { \"op\": \"<Kind>\", "
+				                                                    "...fields }")
+				                                   .MaxItems(MaxGraphOperations),
+				                               true)
+				                     .Property("function", subGraphParameter)
+				                     .Property("description", SchemaBuilder::String("The undo step's text, before \" in <script>\"")
+				                                                  .MinLength(1)
+				                                                  .MaxLength(128)
+				                                                  .Default("Edit Visual Script"))
+				                     .Property("revision", revisionParameter)
+				                     .Property("programRevision",
+				                               SchemaBuilder::String("A programRevision a graph command returned: the call fails unless "
+				                                                     "the document's program (what moves, comments and arranging leave "
+				                                                     "alone) is unchanged")
+				                                   .MinLength(16)
+				                                   .MaxLength(16))
+				                     .Property("dryRun", SchemaBuilder::Boolean("Answer what the call would do, writing nothing and "
+				                                                                "recording no undo step")
+				                                             .Default(false))
+				                     .Property("refuseNewErrors", SchemaBuilder::Boolean("Write nothing when the result has an Error "
+				                                                                         "diagnostic the stored document does not have")
+				                                                      .Default(false))
+				                     .Property("analyze", SchemaBuilder::Boolean("Analyze the result (operations that need pins analyze "
+				                                                                 "anyway)")
+				                                              .Default(true))
+				                     .Property("nodes", SchemaBuilder::String("Which analysis entries the result lists: None, Changed (the "
+				                                                              "nodes the batch created or changed) or All")
+				                                            .Enum({"None", "Changed", "All"})
+				                                            .Default("Changed"))
+				                     .Property("document",
+				                               SchemaBuilder::Boolean("Include the resulting document (content form)").Default(false))
+				                     .Build(),
+				                 false,
+				                 [this](Json const& params) -> CommandResult
+				                 {
+									 return EditGraph(params);
+								 })
+						   : result;
 				result = result
 				             ? Add("graph.arrange",
 				                   "Lays out nodes of a visual script as the graph window's Arrange button does (links running left to "

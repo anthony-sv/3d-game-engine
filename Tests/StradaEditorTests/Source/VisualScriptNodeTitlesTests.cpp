@@ -102,12 +102,12 @@ namespace
 		{"String.ToFloat", "To Float"},
 		{"Array.Contains", "Contains"},
 		{"Array.IndexOf", "Index Of"},
-		{"Array.Make", "Make", "Make Array"},
-		{"Array.Set", "Set", "Set Element"},
-		{"Array.Add", "Add", "Add Element"},
-		{"Array.RemoveAt", "Remove At", "Remove Element"},
-		{"Array.Insert", "Insert", "Insert Element"},
-		{"Array.Append", "Append", "Append Arrays"},
+		{"Array.Make", "Make Array"},
+		{"Array.Set", "Set Element"},
+		{"Array.Add", "Add Element"},
+		{"Array.RemoveAt", "Remove Element"},
+		{"Array.Insert", "Insert Element"},
+		{"Array.Append", "Append Arrays"},
 		{"Operator.Add", "Add"},
 		{"Operator.Subtract", "Subtract"},
 		{"Operator.Multiply", "Multiply"},
@@ -286,8 +286,14 @@ namespace
 	}
 }
 
-TEST_CASE("VisualScriptEditor: nodes of built-in kinds are titled by the words of their type's last segment")
+TEST_CASE("VisualScriptEditor: built-in kinds are titled by their type's last segment, the array makers spelled out")
 {
+	// The array nodes that make new arrays are titled as the library titles them (spec-slice3 §3.4.5), without an analysis
+	// too.
+	CHECK(Title("Array.Make") == "Make Array");
+	CHECK(Title("Array.RemoveAt") == "Remove Element");
+	CHECK(Title("Array.Append") == "Append Arrays");
+	CHECK(Title("Array.Get") == "Get");
 	for (BuiltInTitle const& entry : BuiltInTitles)
 	{
 		CAPTURE(entry.Type);

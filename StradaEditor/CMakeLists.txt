@@ -166,6 +166,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptHeadlessCanvas.h
     Source/Editor/VisualScripting/VisualScriptHitTest.cpp
     Source/Editor/VisualScripting/VisualScriptHitTest.h
+    Source/Editor/VisualScripting/VisualScriptLanguageEditing.cpp
+    Source/Editor/VisualScripting/VisualScriptLanguageEditing.h
     Source/Editor/VisualScripting/VisualScriptLiteralEditor.cpp
     Source/Editor/VisualScripting/VisualScriptLiteralEditor.h
     Source/Editor/VisualScripting/VisualScriptNodeTitles.cpp

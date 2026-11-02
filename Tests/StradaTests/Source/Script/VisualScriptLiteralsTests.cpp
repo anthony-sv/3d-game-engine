@@ -1,6 +1,9 @@
 #include "Fuzzing.h"
+#include "Script/ScriptTestUtilities.h"
 
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLiterals.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
@@ -647,5 +650,267 @@ TEST_CASE("VisualScript: literals that decode encode back to themselves")
 		}
 	}
 	CHECK(decoded > 0);
+	CHECK(refused > 0);
+}
+
+namespace
+{
+	// The lookup above with the engine's Strada.KeyCode, of which the scripting runtime's array texts are pinned.
+	std::optional<VisualScriptEnumInfo> LookUpEnumOrKey(std::string_view typeId)
+	{
+		if (typeId == "Strada.KeyCode")
+		{
+			return VisualScriptEnumInfo{
+				ScriptFieldType::Int32, {{"Space", ScriptFieldValue::FromInt32(32)}, {"W", ScriptFieldValue::FromInt32(87)}}, false};
+		}
+		return LookUpEnum(typeId);
+	}
+
+	// Element types of arrays: those with literals here (the exposable types and enums), and some without (an array's
+	// element, Strada.Matrix4, a struct).
+	constexpr std::array<std::string_view, 16> ArrayElementTypes = {"bool",
+	                                                                "int",
+	                                                                "long",
+	                                                                "float",
+	                                                                "double",
+	                                                                "string",
+	                                                                "Strada.Vector3",
+	                                                                "Strada.Quaternion",
+	                                                                "Strada.Color",
+	                                                                "Strada.Entity",
+	                                                                "Strada.Material",
+	                                                                "Strada.ForceMode",
+	                                                                "Game.Layers",
+	                                                                "Strada.Matrix4",
+	                                                                "Strada.RaycastHit",
+	                                                                "int[]"};
+
+	// An array literal of the element type: of 0 to 6 elements made by the scalar generator, damaged now and then.
+	Json MakeArrayLiteral(LiteralGenerator& generator, Testing::FuzzRandom& random, std::string_view elementType)
+	{
+		Json literal = Json::array();
+		for (size_t count = random.Pick(7); count > 0; count--)
+		{
+			literal.push_back(generator.Make(elementType == "int[]" ? std::string_view("int") : elementType));
+		}
+		return literal;
+	}
+}
+
+TEST_CASE("VisualScript: array literals decode element by element and are written as the scripting runtime writes them")
+{
+	VisualScriptEnumLookup const lookup = LookUpEnumOrKey;
+	struct Row
+	{
+		std::string_view Element;
+		std::string_view Literal;
+		std::string_view Canonical;
+	};
+	// The texts ScriptCoreTests' ArrayValueTests.LiteralsDecodeAndWrite pins for the scripting runtime: both sides write one
+	// text for one value.
+	std::vector<Row> const rows = {
+		{"int", "[1, -2, 3]", "[1,-2,3]"},
+		{"float", "[1.5, 2, 4, -0.0]", "[1.5,2,4,-0.0]"},
+		{"string", R"(["a", "", "b c"])", R"(["a","","b c"])"},
+		{"Strada.Vector3", "[[0, 0, 0], [1, 0, 0.5]]", "[[0,0,0],[1,0,0.5]]"},
+		{"Strada.KeyCode", R"(["Space", "W"])", R"(["Space","W"])"},
+		{"Strada.Entity", R"(["0"])", R"(["0"])"},
+		{"Strada.Material", R"(["0", "123"])", R"(["0","123"])"},
+		{"int", "[]", "[]"},
+	};
+	for (Row const& row : rows)
+	{
+		CAPTURE(row.Element);
+		CAPTURE(row.Literal);
+		Result<Json> const literal = ParseJson(row.Literal);
+		REQUIRE(literal.IsOk());
+		std::optional<std::vector<ScriptFieldValue>> const values = DecodeVisualScriptArrayLiteral(literal.GetValue(), row.Element, lookup);
+		REQUIRE(values.has_value());
+		CHECK(values->size() == literal.GetValue().size());
+		std::optional<Json> const encoded = EncodeVisualScriptArrayLiteral(*values, row.Element, lookup);
+		REQUIRE(encoded.has_value());
+		CHECK(GetText(*encoded) == row.Canonical);
+		// The canonical text decodes to itself.
+		Result<Json> const canonical = ParseJson(row.Canonical);
+		REQUIRE(canonical.IsOk());
+		CHECK(*encoded == canonical.GetValue());
+	}
+	// The values are the elements.
+	std::optional<std::vector<ScriptFieldValue>> const floats = DecodeVisualScriptArrayLiteral(Json::array({1.5, 2, 4}), "float", lookup);
+	REQUIRE(floats.has_value());
+	CHECK(*floats == std::vector<ScriptFieldValue>{ScriptFieldValue::FromFloat(1.5f), ScriptFieldValue::FromFloat(2.0f),
+	                                               ScriptFieldValue::FromFloat(4.0f)});
+	std::optional<std::vector<ScriptFieldValue>> const keys =
+		DecodeVisualScriptArrayLiteral(Json::array({"Space", "W"}), "Strada.KeyCode", lookup);
+	REQUIRE(keys.has_value());
+	CHECK(*keys == std::vector<ScriptFieldValue>{ScriptFieldValue::FromInt32(32), ScriptFieldValue::FromInt32(87)});
+
+	// What no array literal of the type is: an element that is none of the type, an entity other than none, no array, null,
+	// and element types without literals (arrays of arrays among them).
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array({1, 2, "x"}), "float", lookup).has_value());
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array({"0", "5"}), "Strada.Entity", lookup).has_value());
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(5, "int", lookup).has_value());
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json(), "int", lookup).has_value());
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array(), "Strada.RaycastHit", lookup).has_value());
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array(), "int[]", lookup).has_value());
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array(), "Game.Unknown", lookup).has_value());
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array({1}), "Strada.RaycastHit", lookup).has_value());
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array({Json::array({1})}), "int[]", lookup).has_value());
+	CHECK_FALSE(EncodeVisualScriptArrayLiteral(std::vector<ScriptFieldValue>{ScriptFieldValue::FromInt32(1)}, "float", lookup).has_value());
+
+	// At most 4096 elements, on both sides.
+	Json const most(std::vector<int>(MaxVisualScriptArrayLiteralElements, 1));
+	std::optional<std::vector<ScriptFieldValue>> const decoded = DecodeVisualScriptArrayLiteral(most, "int", lookup);
+	REQUIRE(decoded.has_value());
+	CHECK(decoded->size() == MaxVisualScriptArrayLiteralElements);
+	CHECK(EncodeVisualScriptArrayLiteral(*decoded, "int", lookup) == std::optional<Json>(most));
+	Json const tooMany(std::vector<int>(MaxVisualScriptArrayLiteralElements + 1, 1));
+	CHECK_FALSE(DecodeVisualScriptArrayLiteral(tooMany, "int", lookup).has_value());
+	std::vector<ScriptFieldValue> const tooManyValues(MaxVisualScriptArrayLiteralElements + 1, ScriptFieldValue::FromInt32(1));
+	CHECK_FALSE(EncodeVisualScriptArrayLiteral(tooManyValues, "int", lookup).has_value());
+}
+
+TEST_CASE("VisualScript: canonical array literals of every element type decode and encode back to themselves")
+{
+	VisualScriptEnumLookup const lookup = LookUpEnum;
+	LiteralGenerator generator(10701);
+	for (std::string_view const typeId : TypeIds)
+	{
+		CAPTURE(typeId);
+		// Canonical elements of the type, made from generated ones that decode.
+		Json canonical = Json::array();
+		for (int attempt = 0; attempt < 64 && canonical.size() < 4; attempt++)
+		{
+			std::optional<ScriptFieldValue> const value = DecodeVisualScriptLiteral(generator.Make(typeId), typeId, lookup);
+			if (value)
+			{
+				std::optional<Json> const element = EncodeVisualScriptLiteral(*value, typeId, lookup);
+				REQUIRE(element.has_value());
+				canonical.push_back(*element);
+			}
+		}
+		std::optional<std::vector<ScriptFieldValue>> const values = DecodeVisualScriptArrayLiteral(canonical, typeId, lookup);
+		if (canonical.empty())
+		{
+			// A type without such literals has no array literals, not even the empty one.
+			CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array({generator.Make(typeId)}), typeId, lookup).has_value());
+			CHECK_FALSE(DecodeVisualScriptArrayLiteral(Json::array(), typeId, lookup).has_value());
+			continue;
+		}
+		REQUIRE(values.has_value());
+		CHECK(EncodeVisualScriptArrayLiteral(*values, typeId, lookup) == std::optional<Json>(canonical));
+	}
+}
+
+TEST_CASE("VisualScript: array literals that decode encode back to themselves")
+{
+	VisualScriptEnumLookup const lookup = LookUpEnum;
+	LiteralGenerator generator(10701);
+	Testing::FuzzRandom random(10702);
+	Testing::DocumentMutator mutator(10700);
+	int decoded = 0;
+	int refused = 0;
+	int const rounds = Testing::GetFuzzRounds(500);
+	for (int round = 0; round < rounds; round++)
+	{
+		for (std::string_view const elementType : ArrayElementTypes)
+		{
+			Json literal = MakeArrayLiteral(generator, random, elementType);
+			if (round % 2 == 1)
+			{
+				literal = mutator.Damage(literal, round);
+			}
+			std::string const text = GetText(literal);
+			INFO("round ", round, ", ", elementType, "[]: ", text);
+			std::optional<std::vector<ScriptFieldValue>> values;
+			REQUIRE_NOTHROW(values = DecodeVisualScriptArrayLiteral(literal, elementType, lookup));
+			if (!values)
+			{
+				refused++;
+				continue;
+			}
+			decoded++;
+			std::optional<Json> const encoded = EncodeVisualScriptArrayLiteral(*values, elementType, lookup);
+			REQUIRE(encoded.has_value());
+			std::optional<std::vector<ScriptFieldValue>> const again = DecodeVisualScriptArrayLiteral(*encoded, elementType, lookup);
+			REQUIRE(again.has_value());
+			CHECK(*again == *values);
+			std::optional<Json> const reencoded = EncodeVisualScriptArrayLiteral(*again, elementType, lookup);
+			REQUIRE(reencoded.has_value());
+			CHECK(GetText(*reencoded) == GetText(*encoded));
+		}
+	}
+	CHECK(decoded > 0);
+	CHECK(refused > 0);
+}
+
+TEST_CASE("VisualScript: an array literal decodes exactly when the scripting runtime takes it as the value of a variable")
+{
+	Testing::ScriptRuntimeScope runtime;
+	VisualScriptEnumLookup const lookup = VisualScriptEngine::MakeEnumLookup();
+	REQUIRE(lookup);
+	// The engine's element types with literals here, and an enum the runtime knows.
+	constexpr std::array<std::string_view, 12> ElementTypes = {"bool",
+	                                                           "int",
+	                                                           "long",
+	                                                           "float",
+	                                                           "double",
+	                                                           "string",
+	                                                           "Strada.Vector3",
+	                                                           "Strada.Quaternion",
+	                                                           "Strada.Color",
+	                                                           "Strada.Entity",
+	                                                           "Strada.Material",
+	                                                           "Strada.ForceMode"};
+	LiteralGenerator generator(10703);
+	Testing::FuzzRandom random(10704);
+	Testing::DocumentMutator mutator(10705);
+	int accepted = 0;
+	int refused = 0;
+	for (std::string_view const elementType : ElementTypes)
+	{
+		CAPTURE(elementType);
+		// One private variable per literal: valid literals, and damaged ones.
+		VisualScriptDocument document;
+		std::vector<Json> literals;
+		for (uint32_t index = 0; index < 64; index++)
+		{
+			Json literal =
+				MakeArrayLiteral(generator, random, elementType == "Strada.ForceMode" ? std::string_view("Strada.ForceMode") : elementType);
+			if (index % 2 == 1)
+			{
+				literal = mutator.Damage(literal, static_cast<int>(index));
+			}
+			if (literal.is_null())
+			{
+				// A missing value is the empty array, which is no literal to decode.
+				literal = Json::array();
+			}
+			VisualScriptVariable variable;
+			variable.ID = index + 1;
+			variable.Name = "Values" + std::to_string(index);
+			variable.Type = std::string(elementType) + "[]";
+			variable.Value = literal;
+			document.Variables.push_back(std::move(variable));
+			literals.push_back(std::move(literal));
+		}
+		Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document);
+		REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
+		for (uint32_t index = 0; index < literals.size(); index++)
+		{
+			std::string const text = GetText(literals[index]);
+			CAPTURE(text);
+			bool const runtimeTakes = std::none_of(analysis.GetValue().Diagnostics.begin(), analysis.GetValue().Diagnostics.end(),
+			                                       [index](VisualScriptDiagnostic const& diagnostic)
+			                                       {
+													   return diagnostic.Variable == std::optional<uint32_t>(index + 1) &&
+				                                              (diagnostic.Code == "InvalidValue" || diagnostic.Code == "EntityValue");
+												   });
+			bool const decodes = DecodeVisualScriptArrayLiteral(literals[index], elementType, lookup).has_value();
+			CHECK(decodes == runtimeTakes);
+			(decodes ? accepted : refused)++;
+		}
+	}
+	CHECK(accepted > 0);
 	CHECK(refused > 0);
 }

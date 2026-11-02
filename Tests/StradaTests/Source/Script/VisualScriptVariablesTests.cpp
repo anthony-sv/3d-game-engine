@@ -462,7 +462,7 @@ TEST_CASE("VisualScriptVariables: public variables of types components cannot st
 	};
 
 	// Types the engine knows are no enums are not exposable, with or without the runtime.
-	for (std::string_view const type : {"Strada.Matrix4", "System.Object", "Strada.Entity[]", "int[]", "exec", "*"})
+	for (std::string_view const type : {"Strada.Matrix4", "System.Object", "exec", "*"})
 	{
 		CAPTURE(type);
 		for (bool const runtime : {false, true})
@@ -474,6 +474,22 @@ TEST_CASE("VisualScriptVariables: public variables of types components cannot st
 			CHECK(description.ReadOnly[0].Name == "Value");
 			CHECK(description.ReadOnly[0].Type == type);
 			CHECK(description.ReadOnly[0].Reason == "not exposable");
+		}
+	}
+	// Arrays are no enums either, and their reason says why they stay read-only (spec-slice3 §3.4.6): with or without the
+	// runtime, of exposable elements, enums and other types alike.
+	for (std::string_view const type : {"Strada.Entity[]", "int[]", "float[]", "Strada.KeyCode[]", "Strada.RaycastHit[]"})
+	{
+		CAPTURE(type);
+		for (bool const runtime : {false, true})
+		{
+			VisualScriptVariableDescription const description =
+				DescribeOne(std::string(type), nullptr, runtime ? lookup : VisualScriptEnumLookup());
+			CHECK(description.Editable.Fields.empty());
+			REQUIRE(description.ReadOnly.size() == 1);
+			CHECK(description.ReadOnly[0].Name == "Value");
+			CHECK(description.ReadOnly[0].Type == type);
+			CHECK(description.ReadOnly[0].Reason == "arrays cannot be set on components");
 		}
 	}
 	// Other types may be enums until the runtime tells: then structs, classes, components and unknown types are not.
