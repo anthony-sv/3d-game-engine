@@ -414,6 +414,33 @@ TEST_CASE("VisualScriptEditor: delete bridges the flow, and deleting without rel
 	CHECK(entry.Notes.front().find("AddScore") != std::string::npos);
 }
 
+TEST_CASE("VisualScriptEditor: graph.edit's Delete and SplitPin write what the canvas commits for the same gesture")
+{
+	// Delete bridges the flow through the node.
+	{
+		ControllerFixture fixture;
+		VisualScriptDocument const stored = fixture.Stored();
+		VisualScriptControllerResult const bridged = fixture.Act(Action::Delete, {2});
+		REQUIRE(bridged.Commit.has_value());
+		Json const operations = Json::array({Json::object({{"op", "Delete"}, {"elements", Json::array({2})}})});
+		CHECK(*bridged.Commit->Document == Testing::ApplyBatchAsGraphEdit(stored, operations, fixture.Semantics, fixture.Graph));
+	}
+	// A struct input split moves its literal to the field pins.
+	{
+		VisualScriptDocument document = MakeDocument();
+		document.Graph.Nodes.push_back(MakeNode(40, "Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
+		                                        glm::vec2(1200.0f, 0.0f), Json::object(),
+		                                        Json::object({{"Force", Json::array({1, 2, 3})}})));
+		ControllerFixture fixture(document);
+		VisualScriptDocument const stored = fixture.Stored();
+		VisualScriptControllerResult const split =
+			fixture.Edit(VisualScriptPinEdit{VisualScriptPinAction::Split, {40, "Force"}, VisualScriptPinDirection::In, false, {}});
+		REQUIRE(split.Commit.has_value());
+		Json const operations = Json::array({Json::object({{"op", "SplitPin"}, {"node", 40}, {"pin", "Force"}, {"direction", "In"}})});
+		CHECK(*split.Commit->Document == Testing::ApplyBatchAsGraphEdit(stored, operations, fixture.Semantics, fixture.Graph));
+	}
+}
+
 TEST_CASE("VisualScriptEditor: nudges merge into the run's step, and a comment box opens its title in the step that adds it")
 {
 	ControllerFixture fixture;

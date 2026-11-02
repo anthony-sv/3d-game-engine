@@ -1,0 +1,19 @@
+{ "graph": "asset://Scripts/Spinner.sgraph", "description": "Spin at Speed degrees per second", "operations": [
+	{ "op": "AddVariable", "name": "Speed", "type": "float", "value": 90.0, "public": true, "tooltip": "Degrees per second" },
+	{ "op": "AddVariable", "name": "Angle", "type": "float" },
+	{ "op": "AddNode", "type": "Variable.Get", "settings": { "Variable": "Speed" }, "as": "$speed" },
+	{ "op": "AddNode", "type": "Variable.Get", "settings": { "Variable": "Angle" }, "as": "$angle" },
+	{ "op": "AddNode", "type": "Expression", "settings": { "Formula": "(angle + speed * dt) % 360" }, "as": "$next" },
+	{ "op": "AddNode", "type": "Variable.Set", "settings": { "Variable": "Angle" }, "as": "$store" },
+	{ "op": "AddNode", "type": "Expression", "settings": { "Formula": "vec3(0, a, 0)" }, "as": "$euler" },
+	{ "op": "AddNode", "type": "Set:Strada.TransformComponent.EulerAngles", "as": "$turn" },
+	{ "op": "Connect", "from": ["$angle", "Value"], "to": ["$next", "angle"] },
+	{ "op": "Connect", "from": ["$speed", "Value"], "to": ["$next", "speed"] },
+	{ "op": "Connect", "from": [2, "DeltaTime"], "to": ["$next", "dt"] },
+	{ "op": "Connect", "from": ["$next", "Result"], "to": ["$store", "Value"] },
+	{ "op": "Connect", "from": ["$store", "Value"], "to": ["$euler", "a"] },
+	{ "op": "Connect", "from": ["$euler", "Result"], "to": ["$turn", "Value"] },
+	{ "op": "Connect", "from": [2, "Then"], "to": ["$store", "Execute"] },
+	{ "op": "Connect", "from": ["$store", "Then"], "to": ["$turn", "Execute"] },
+	{ "op": "Arrange", "scope": "Graph" }
+] }

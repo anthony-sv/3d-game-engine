@@ -21,6 +21,7 @@ except the migration fixtures; the content form has no version.
 | `Documents/Language.json` | content | Every language kind of slice 3: Expressions of int (`Index + 1`), float (`a * b + sin(t)` with unlinked inputs; a short-circuit `&&` with a cast, `float(...)`) and vector type (`v.x`, a lowercase component); the private `float[]` variable `Samples` with a literal and a `Strada.Vector3[]` local; `Array.Make` typed (`int`) and inferred, `Array.Contains`, `IndexOf`, `Set`, `Add`, `RemoveAt`, `Insert` and `Append`; every `String.*` node in the function `Describe`, `ToInt` and `ToFloat` included; `Assert.AreEqual` inferred and with `TypeArguments`; a `Flow.Timeline` with a track of each type (`float`, the three vectors, `Strada.Color` and `exec`) whose `Rate` is linked from a formula. |
 | `Documents/Reflected.json` | content | The reflected nodes of spec section 11.1 (math, logging, transform, rigid body, `GetComponent<T>`, raycast, input, time, entity, testing). Built-in events, branches and an IsValid drive and guard them. |
 | `Documents/Reflected.sources.txt` | text | For each reflected node type, the C# declaration its type string and pins come from, and the enumerators the fixtures use. |
+| `Agents/Spinner.json` | `graph.edit` parameters | The batch the documentation, the `strada-make-game` skill and the MCP instructions teach agents with: on a graph made from the `Events` template (node 2 is its `Event.Update`), two variables, eight nodes (two `Expression`s and the setter of `TransformComponent.EulerAngles` among them), eight links and an `Arrange` of the whole graph, as one undo step. Kept verbatim: the documentation test holds the docs' copies to it. |
 | `Editor/Library.json` | node library (`{ "Types": [...], "Nodes": [...] }`) | A verbatim subset of the scripting runtime's node library (see below), which the editor's tests read with `VisualScriptLibrary::Parse` where they need a library but no runtime. |
 | `Editor/Views.json` | file (`VisualScriptViews`, version 1) | The visual script editor's per-user views file with every member: the panes and toggles, the scroll mode, recent nodes and types, the comment colour, the hints seen, and two projects with open graphs, views of the event graph and of a function, and bookmarks. Its numbers are exact as floats. |
 
@@ -53,6 +54,10 @@ except the migration fixtures; the content form has no version.
   mismatch, writes the expected file next to the test binary. `Editor/Views.json` seeds the views file's fuzz test.
   `VisualScriptEditorFoundationTests` checks that both keep the coverage and layout described here, and
   `VisualScriptNodeTitlesTests` that the library's members are titled as it titles them.
+
+- **Slice 3, track G** (StradaEditorTests, `GraphCommandsTests` under the scripting runtime): `Agents/Spinner.json` is
+  sent as it is to `graph.edit` on a graph made from the `Events` template; it writes one undo step without an Error, in
+  three analyses.
 
 A fixture that contradicts the spec is corrected by the track that finds it, which records the change under "Spec
 deviations".
