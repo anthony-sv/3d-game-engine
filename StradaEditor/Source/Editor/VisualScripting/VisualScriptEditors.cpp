@@ -271,6 +271,7 @@ namespace Strada
 	void VisualScriptEditors::OnImGuiRender()
 	{
 		Maintain();
+		m_ProjectIndex.Refresh();
 		UpdateFocus();
 		EndInteractions();
 		OpenOtherGraphRequests();

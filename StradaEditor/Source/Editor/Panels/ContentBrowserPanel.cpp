@@ -5,6 +5,7 @@
 #include "Editor/FileDialogs.h"
 #include "Editor/ScriptBrowsing.h"
 #include "Editor/UI/EditorUI.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
@@ -63,6 +64,8 @@ namespace Strada
 		// Frames a new rename field may take to receive keyboard focus before the rename is dropped.
 		constexpr int RenameFocusFrames = 3;
 		constexpr char const* DeletePopup = "Delete###ContentBrowserDelete";
+		// Where the delete popup wraps the note naming the graphs that use a visual script.
+		constexpr float DeleteNoteWidth = 480.0f;
 
 		struct TypeStyle
 		{
@@ -956,8 +959,14 @@ namespace Strada
 		}
 		if (ImGui::MenuItem(prefixNew ? "New Visual Script" : "Visual Script", nullptr, false, m_Root == ContentRoot::Assets))
 		{
-			CreateVisualScript(operations);
+			CreateVisualScript(operations, VisualScriptTemplate::Events);
 		}
+		if (ImGui::MenuItem(prefixNew ? "New Visual Script Library" : "Visual Script Library", nullptr, false,
+		                    m_Root == ContentRoot::Assets))
+		{
+			CreateVisualScript(operations, VisualScriptTemplate::Library);
+		}
+		ImGui::SetItemTooltip("Functions other visual scripts call; it runs on no entity");
 		if (m_NewScript && ImGui::MenuItem(prefixNew ? "New C# Script..." : "C# Script..."))
 		{
 			m_NewScript(m_Root == ContentRoot::Scripts ? m_ScriptFolder : std::string());
@@ -1678,6 +1687,17 @@ namespace Strada
 		ImGui::Text("Delete '%s'?", item.Path.c_str());
 		ImGui::TextDisabled(item.IsFolder() ? "The folder and every file inside are deleted from disk. This cannot be undone."
 		                                    : "The file is deleted from disk. This cannot be undone.");
+		if (!item.IsFolder() && item.Type == AssetType::VisualScript && m_VisualScriptIndex != nullptr)
+		{
+			m_VisualScriptIndex->Refresh();
+			if (std::string const referrers = DescribeVisualScriptReferrers(*m_VisualScriptIndex, item.Asset); !referrers.empty())
+			{
+				// As wide as the lines above: the popup sizes itself to its contents.
+				ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + DeleteNoteWidth);
+				ImGui::TextWrapped("Used by %s: they will show errors.", referrers.c_str());
+				ImGui::PopTextWrapPos();
+			}
+		}
 		ImGui::Spacing();
 		if (ImGui::Button("Delete"))
 		{
@@ -1971,10 +1991,11 @@ namespace Strada
 		BeginRename(item);
 	}
 
-	void ContentBrowserPanel::CreateVisualScript(EditorOperations& operations)
+	void ContentBrowserPanel::CreateVisualScript(EditorOperations& operations, VisualScriptTemplate kind)
 	{
-		std::string const name = AssetBrowsing::MakeUniqueName(m_Folder, "New Visual Script", ".sgraph");
-		Result<AssetHandle> const created = operations.CreateVisualScript(AssetBrowsing::JoinPath(m_Folder, name));
+		std::string const name = AssetBrowsing::MakeUniqueName(
+			m_Folder, kind == VisualScriptTemplate::Library ? "New Visual Script Library" : "New Visual Script", ".sgraph");
+		Result<AssetHandle> const created = operations.CreateVisualScript(AssetBrowsing::JoinPath(m_Folder, name), kind);
 		UI::ReportFailure(created, "Creating the visual script");
 		std::optional<AssetMetadata> const metadata = created ? AssetManager::GetMetadata(created.GetValue()) : std::nullopt;
 		if (!metadata)

@@ -3,6 +3,7 @@
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 
 #include "Strada/Asset/VisualScriptLayout.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Script/VisualScriptLiterals.h"
 #include "Strada/Serialization/JsonSerialization.h"
@@ -40,6 +41,7 @@ namespace Strada
 		constexpr std::string_view EntryType = "Function.Entry";
 		constexpr std::string_view EventPrefix = "Event.";
 		constexpr std::string_view SendEventType = "Event.Send";
+		constexpr std::string_view BroadcastEventType = "Event.Broadcast";
 		constexpr std::string_view CustomEventType = "Event.Custom";
 		constexpr char const* VariableSetting = "Variable";
 		constexpr char const* FunctionSetting = "Function";
@@ -101,11 +103,17 @@ namespace Strada
 							  });
 		}
 
-		// The settings of a node that name variables or functions: those whose library setting is of that kind, and always
-		// the built-in Variable setting of Variable.Get and Variable.Set and Function setting of Function.Call.
+		// The settings of a node that name variables or functions of its document: those whose library setting is of that
+		// kind, and always the built-in Variable setting of Variable.Get and Variable.Set and Function setting of
+		// Function.Call. None for a node with a Graph setting: its settings name elements of another graph, so it is copied
+		// verbatim.
 		std::vector<Reference> GetReferences(VisualScriptNode const& node, VisualScriptLibrary const* library)
 		{
 			std::vector<Reference> references;
+			if (!IsLocalVisualScriptReference(node))
+			{
+				return references;
+			}
 			if (node.Type == GetVariableType || node.Type == SetVariableType)
 			{
 				references.push_back({VariableSetting, ReferenceKind::Variable});
@@ -530,9 +538,15 @@ namespace Strada
 			return Error{std::string(RefusalPrefix) + std::string(reason)};
 		}
 
-		bool IsEvent(std::string_view type)
+		// What paste leaves out of a function's graph as an event: a node of the library's Event kind when the library knows
+		// the type, else every "Event." type but the senders (Event.Send, Event.Broadcast), which run in functions too.
+		bool IsEvent(std::string_view type, VisualScriptLibrary const* library)
 		{
-			return type.starts_with(EventPrefix) && type != SendEventType;
+			if (VisualScriptNodeTemplate const* const known = library != nullptr ? library->FindNode(type) : nullptr)
+			{
+				return known->Kind == VisualScriptNodeKind::Event;
+			}
+			return type.starts_with(EventPrefix) && type != SendEventType && type != BroadcastEventType;
 		}
 
 		// What makes an event node unique in a script: its type, and for input events the key or button, for custom events
@@ -1135,7 +1149,7 @@ namespace Strada
 		std::vector<VisualScriptNode const*> kept;
 		for (VisualScriptNode const& node : source.Nodes)
 		{
-			if (function != 0 && IsEvent(node.Type))
+			if (function != 0 && IsEvent(node.Type, library))
 			{
 				eventsInFunction++;
 				continue;

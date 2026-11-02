@@ -2,9 +2,11 @@
 
 #include "Editor/EditorOperations.h"
 #include "Editor/ScriptBrowsing.h"
+#include "Editor/VisualScripting/VisualScriptCrossGraph.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/MeshSource.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -139,12 +141,22 @@ namespace Strada
 			{
 				return Error{valid.GetError()};
 			}
+			// A function library runs on no entity. A graph that does not load is attached all the same, as before it was
+			// known what it is: its window says why it does not load.
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
+			if (Ref<VisualScriptAsset> const script = AssetManager::GetAsset<VisualScriptAsset>(graph);
+			    script != nullptr && script->GetDocument().Kind == VisualScriptDocumentKind::Library)
+			{
+				std::string const name = metadata && metadata->IsFileAsset()
+				                             ? FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem())
+				                             : (metadata ? metadata->GetDisplayName() : graph.ToString());
+				return Error{VisualScriptEditing::DescribeVisualScriptLibraryOnEntity(name)};
+			}
 
 			if (Result<void> result = operations.SetVisualScriptGraph(entities, graph); !result)
 			{
 				return Error{result.GetError()};
 			}
-			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
 			return metadata ? metadata->GetDisplayName() : graph.ToString();
 		}
 	}

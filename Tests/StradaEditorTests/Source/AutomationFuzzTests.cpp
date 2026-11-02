@@ -55,6 +55,40 @@ namespace
 	// The visual script the fixture seeds with the feature-test sample of the format, whose sub-graphs the graph commands'
 	// parameters are drawn from while it exists.
 	constexpr char const* SeedGraphPath = "Scripts/Everything.sgraph";
+	// The function library the seed script calls (Tests/Data/VisualScripting/Library.sgraph), so graph.interface and the
+	// referrers of graph.set and graph.edit have graphs that refer to one another.
+	constexpr char const* SeedLibraryPath = "Scripts/FuzzLibrary.sgraph";
+
+	// Library.sgraph's document (its content form).
+	Json LoadLibraryContent()
+	{
+		Result<std::string> const text =
+			FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Library.sgraph");
+		REQUIRE_MESSAGE(text.IsOk(), text.GetError());
+		Json const file = Json::parse(text.GetValue(), nullptr, false);
+		REQUIRE(file.is_object());
+		return file["VisualScript"];
+	}
+
+	// The sample of the format with nodes that name other graphs: a typed Send of its custom event Hit to the seed script
+	// itself, a call of the library's Clamp01 and a Get of its own public variable 1 on another entity running it.
+	Json MakeSeedDocument(Json sample, std::string const& seed, std::string const& library)
+	{
+		Json& nodes = sample["Graph"]["Nodes"];
+		nodes.push_back(Json::object({{"ID", 9001},
+		                              {"Type", "Event.Send"},
+		                              {"Position", Json::array({0.0, 2400.0})},
+		                              {"Settings", Json::object({{"Name", "Hit"}, {"Graph", seed}})}}));
+		nodes.push_back(Json::object({{"ID", 9002},
+		                              {"Type", "Function.Call"},
+		                              {"Position", Json::array({320.0, 2400.0})},
+		                              {"Settings", Json::object({{"Function", 1}, {"Graph", library}})}}));
+		nodes.push_back(Json::object({{"ID", 9003},
+		                              {"Type", "Variable.Get"},
+		                              {"Position", Json::array({640.0, 2400.0})},
+		                              {"Settings", Json::object({{"Variable", 1}, {"Graph", seed}})}}));
+		return sample;
+	}
 
 	// Input is global: the fuzzer presses keys through input.set.
 	class InputScope
@@ -385,7 +419,8 @@ namespace
 		// Parameters of the graph commands that combine as the commands expect most of the time, so their work is reached in a
 		// run's few rounds of each command: half of them name the state's script, graph.find gets one of query and references
 		// (each half the time when it had neither), graph.open selects elements of the sub-graph it shows, graph.arrange and
-		// graph.copy name nodes and elements of one sub-graph and mostly no revision, and graph.close mostly closes one window.
+		// graph.copy name nodes and elements of one sub-graph and mostly no revision, graph.set mostly no revision, and
+		// graph.close mostly closes one window.
 		void AdjustGraphParameters(Json& params)
 		{
 			// Half the time the script whose document the state read, which every graph command can work on.
@@ -468,6 +503,22 @@ namespace
 				if (m_Random.Pick(4) != 0)
 				{
 					params.erase("revision");
+				}
+			}
+			// graph.set: mostly no revision and no program revision (a guess names no document), the state's script's own now
+			// and then, so the replacing and its referrers are reached.
+			if (m_Command == "graph.set")
+			{
+				for (char const* const key : {"revision", "programRevision"})
+				{
+					if (m_Random.Pick(4) != 0)
+					{
+						params.erase(key);
+					}
+				}
+				if (params["graph"] == m_State.Graph && !m_State.GraphRevision.empty() && m_Random.Pick(4) == 0)
+				{
+					params["revision"] = m_State.GraphRevision;
 				}
 			}
 			// graph.edit: mostly the state's script, whose sub-graph the batch (Patch("operations")) drew its elements from; mostly
@@ -625,7 +676,12 @@ namespace
 				auto const graphs = m_State.AssetsByType.find("VisualScript");
 				std::array<char const*, 3> const kinds = {"Variable", "Function", "CustomEvent"};
 				Json reference = Json::object({{"kind", kinds[m_Random.Pick(kinds.size())]}});
-				if (graphs != m_State.AssetsByType.end() && m_Random.Pick(8) != 0)
+				// Half the time the state's script, which has the IDs below: the project has a library and other scripts too.
+				if (!m_State.Graph.empty() && m_Random.Pick(2) == 0)
+				{
+					reference["graph"] = m_State.Graph;
+				}
+				else if (graphs != m_State.AssetsByType.end() && m_Random.Pick(8) != 0)
 				{
 					reference["graph"] = PickFrom(graphs->second);
 				}
@@ -1123,10 +1179,13 @@ namespace
 			// The VisualScript component was created without a graph: it gets one.
 			REQUIRE_FALSE(visualScript.empty());
 			std::string const graph = Ok("graph.create", Json::object({{"path", SeedGraphPath}}))["asset"].get<std::string>();
+			std::string const library =
+				Ok("graph.create", Json::object({{"path", SeedLibraryPath}, {"template", "Library"}}))["asset"].get<std::string>();
+			Ok("graph.set", Json::object({{"graph", library}, {"document", LoadLibraryContent()}}));
 			// The mutator only damages what the seed holds: the feature-test sample of the format has functions, locals, comments,
-			// a custom event and every node key of version 2.
+			// a custom event and every node key of version 2; the nodes added name the seed itself and the library.
 			Json const sample = Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph");
-			Ok("graph.set", Json::object({{"graph", graph}, {"document", sample["VisualScript"]}}));
+			Ok("graph.set", Json::object({{"graph", graph}, {"document", MakeSeedDocument(sample["VisualScript"], graph, library)}}));
 			Ok("component.set",
 			   Json::object({{"entity", visualScript}, {"component", "VisualScript"}, {"fields", Json::object({{"Graph", graph}})}}));
 			Ok("prefab.create", Json::object({{"entity", parent}, {"path", "Prefabs/Everything.sprefab"}}));
@@ -1178,16 +1237,27 @@ namespace
 		}
 
 		// Writes the seed script again when the commands deleted, moved or broke it (as Replenish puts entities back), so the
-		// graph commands keep a script with every element to work on.
+		// graph commands keep a script with every element to work on, and the library it calls when that went too.
 		void ReseedGraph()
 		{
+			std::string const libraryReference = std::string("asset://") + SeedLibraryPath;
+			if (Run("graph.get", Json::object({{"graph", libraryReference}, {"analyze", false}})).IsError())
+			{
+				static_cast<void>(Run("graph.create", Json::object({{"path", SeedLibraryPath}, {"template", "Library"}})));
+				static_cast<void>(Run("graph.set", Json::object({{"graph", libraryReference}, {"document", LoadLibraryContent()}})));
+			}
 			Json const sample = Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph");
 			std::string const reference = std::string("asset://") + SeedGraphPath;
 			if (Run("graph.get", Json::object({{"graph", reference}, {"analyze", false}})).IsError())
 			{
 				static_cast<void>(Run("graph.create", Json::object({{"path", SeedGraphPath}})));
 			}
-			static_cast<void>(Run("graph.set", Json::object({{"graph", reference}, {"document", sample["VisualScript"]}})));
+			AssetHandle const seed = AssetManager::FindByPath(SeedGraphPath);
+			AssetHandle const library = AssetManager::FindByPath(SeedLibraryPath);
+			Json const document = seed.IsValid() && library.IsValid()
+			                          ? MakeSeedDocument(sample["VisualScript"], seed.ToString(), library.ToString())
+			                          : sample["VisualScript"];
+			static_cast<void>(Run("graph.set", Json::object({{"graph", reference}, {"document", document}})));
 		}
 
 		// Opens a visual script's window again when none is open (as Replenish puts entities back), so the palette has a window
@@ -1605,7 +1675,7 @@ TEST_CASE("Automation: commands with any parameters answer once, keep the editor
 	// The visual script commands reach their work too (graph.library and graph.types need the scripting runtime, which the
 	// fixture does not start).
 	for (std::string const graphCommand : {"graph.create", "graph.get", "graph.set", "graph.check", "graph.edit", "graph.arrange",
-	                                       "graph.copy", "graph.open", "graph.close", "graph.editors"})
+	                                       "graph.copy", "graph.interface", "graph.open", "graph.close", "graph.editors"})
 	{
 		CAPTURE(graphCommand);
 		CHECK(outcomes[graphCommand].first > 0);

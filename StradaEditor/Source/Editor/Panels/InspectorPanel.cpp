@@ -6,7 +6,9 @@
 #include "Editor/MaterialSlots.h"
 #include "Editor/ScriptFieldInspection.h"
 #include "Editor/Viewport/CanvasOverlay.h"
+#include "Editor/VisualScripting/VisualScriptCrossGraph.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/AudioClipAsset.h"
@@ -233,9 +235,11 @@ namespace Strada
 			return text + UI::GetEllipsis();
 		}
 
-		// What a visual script holds: its description, the number of nodes and links of all its graphs, the events it uses (the
-		// distinct node types starting with "Event."), its variables (type, value, public) and the signatures of its functions.
-		void DrawVisualScriptDetails(AssetHandle asset)
+		// What a visual script holds: whether it is a function library, its description, the number of nodes and links of all
+		// its graphs, the events it uses (the distinct node types starting with "Event." but the senders, Event.Send and
+		// Event.Broadcast), the other graphs whose nodes refer to it (with the index), its variables (type, value, public) and
+		// the signatures of its functions.
+		void DrawVisualScriptDetails(AssetHandle asset, VisualScriptProjectIndex* index)
 		{
 			Ref<VisualScriptAsset> const script = LoadForInspection<VisualScriptAsset>(asset);
 			if (!script)
@@ -243,6 +247,12 @@ namespace Strada
 				return;
 			}
 			VisualScriptDocument const& document = script->GetDocument();
+			if (document.Kind == VisualScriptDocumentKind::Library)
+			{
+				ImGui::TextUnformatted("Function library");
+				ImGui::TextDisabled("Graphs call its functions; it runs on no entity.");
+				ImGui::Spacing();
+			}
 			if (!document.Description.empty())
 			{
 				ImGui::TextWrapped("%s", document.Description.c_str());
@@ -258,7 +268,7 @@ namespace Strada
 				links += graph.Links.size();
 				for (VisualScriptNode const& node : graph.Nodes)
 				{
-					if (node.Type.starts_with("Event."))
+					if (node.Type.starts_with("Event.") && node.Type != "Event.Send" && node.Type != "Event.Broadcast")
 					{
 						events.insert(node.Type);
 					}
@@ -280,6 +290,12 @@ namespace Strada
 				DetailRow("Nodes", fmt::format("{}", nodes));
 				DetailRow("Links", fmt::format("{}", links));
 				DetailRow("Events", events.empty() ? std::string("None") : eventList);
+				if (index != nullptr)
+				{
+					index->Refresh();
+					std::string const referrers = DescribeVisualScriptReferrers(*index, asset);
+					DetailRow("Used by", referrers.empty() ? std::string("None") : referrers);
+				}
 				ImGui::EndTable();
 			}
 
@@ -623,6 +639,19 @@ namespace Strada
 			m_OpenVisualScript(graph, entities.front());
 		}
 		VisualScriptDocument const& document = script->GetDocument();
+		if (document.Kind == VisualScriptDocumentKind::Library)
+		{
+			// Attached anyway (automation accepts it, and a script may have become a library since): the play run reports it
+			// too.
+			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(graph);
+			std::string const name = metadata && metadata->IsFileAsset()
+			                             ? FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem())
+			                             : (metadata ? metadata->GetDisplayName() : graph.ToString());
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+			ImGui::TextWrapped("%s", VisualScriptEditing::DescribeVisualScriptLibraryOnEntity(name).c_str());
+			ImGui::PopStyleColor();
+			return;
+		}
 		// The descriptors and the editor's change refer to the description's strings: it lives until the edit is made.
 		VisualScriptVariableDescription const description = DescribeVisualScriptVariables(document, m_VisualScriptEnumLookup);
 		if (description.Editable.Fields.empty() && description.ReadOnly.empty())
@@ -1141,7 +1170,7 @@ namespace Strada
 				ImGui::TextDisabled("Double-click the scene in the content browser to open it.");
 				break;
 			case AssetType::VisualScript:
-				DrawVisualScriptDetails(asset);
+				DrawVisualScriptDetails(asset, m_VisualScriptIndex);
 				break;
 			case AssetType::Prefab:
 			case AssetType::None:

@@ -5,6 +5,7 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Core/Base.h"
@@ -87,6 +88,9 @@ namespace Strada
 		void AfterNextDraw(std::function<void()> callback);
 		// The graph's window; null when it is not open.
 		VisualScriptEditorPanel* FindPanel(AssetHandle graph);
+		// The project's visual scripts, what each offers other graphs and who refers to whom (spec-slice3 §10.1): refreshed
+		// by every OnImGuiRender before the windows draw; the editor's other panels refresh it before they read it.
+		VisualScriptProjectIndex& GetProjectIndex() { return m_ProjectIndex; }
 		// The window the Edit menu acts on (spec §8.4): the graph window focused last while its tab is in front; null while the
 		// scene is the target, a scene window ("Scene View", "Scene Hierarchy", "Inspector") was focused after it, or its
 		// window is hidden.
@@ -169,5 +173,6 @@ namespace Strada
 		std::vector<AssetHandle> m_FocusOrder;
 		// What AfterNextDraw was given, called at the end of the next OnImGuiRender.
 		std::vector<std::function<void()>> m_AfterDraw;
+		VisualScriptProjectIndex m_ProjectIndex;
 	};
 }

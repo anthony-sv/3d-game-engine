@@ -145,6 +145,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptCommit.h
     Source/Editor/VisualScripting/VisualScriptController.cpp
     Source/Editor/VisualScripting/VisualScriptController.h
+    Source/Editor/VisualScripting/VisualScriptCrossGraph.cpp
+    Source/Editor/VisualScripting/VisualScriptCrossGraph.h
     Source/Editor/VisualScripting/VisualScriptDetails.cpp
     Source/Editor/VisualScripting/VisualScriptDetails.h
     Source/Editor/VisualScripting/VisualScriptDrawer.cpp
@@ -178,6 +180,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptPalettePopup.h
     Source/Editor/VisualScripting/VisualScriptPanes.cpp
     Source/Editor/VisualScripting/VisualScriptPanes.h
+    Source/Editor/VisualScripting/VisualScriptProjectIndex.cpp
+    Source/Editor/VisualScripting/VisualScriptProjectIndex.h
     Source/Editor/VisualScripting/VisualScriptQuickFixes.cpp
     Source/Editor/VisualScripting/VisualScriptQuickFixes.h
     Source/Editor/VisualScripting/VisualScriptSemantics.cpp

@@ -255,6 +255,9 @@ namespace Strada
 				{
 					OpenVisualScript(graph, contextEntity);
 				});
+			// The graph windows' index of the project's visual scripts says which graphs use the one inspected or deleted.
+			m_ContentBrowserPanel.SetVisualScriptIndex(&m_VisualScripts->GetProjectIndex());
+			m_InspectorPanel.SetVisualScriptIndex(&m_VisualScripts->GetProjectIndex());
 		}
 
 		if (Result<void> loaded = m_RecentProjects.Load(); !loaded)

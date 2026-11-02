@@ -13,6 +13,7 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -1036,4 +1037,83 @@ TEST_CASE("VisualScriptClipboard: damaged clipboard texts are refused or paste i
 	}
 	CHECK(pasted > 0);
 	CHECK(refused > 0);
+}
+
+TEST_CASE("VisualScriptClipboard: Duplicate and Paste keep a Broadcast in a function's graph, with and without the library")
+{
+	Scope<VisualScriptLibrary> const library = ParseLibrary();
+	VisualScriptDocument scores = ParseDocument(ScoresText);
+	VisualScriptNode broadcast;
+	broadcast.ID = 40;
+	broadcast.Type = "Event.Broadcast";
+	broadcast.Position = glm::vec2(960.0f, 0.0f);
+	broadcast.Settings = {{"Name", "Scored"}};
+	VisualScriptNode send = broadcast;
+	send.ID = 41;
+	send.Type = "Event.Send";
+	send.Position = glm::vec2(1280.0f, 0.0f);
+	VisualScriptNode custom = broadcast;
+	custom.ID = 42;
+	custom.Type = "Event.Custom";
+	custom.Position = glm::vec2(1600.0f, 0.0f);
+	scores.Functions[0].Graph.Nodes.push_back(broadcast);
+	scores.Functions[0].Graph.Nodes.push_back(send);
+	scores.Functions[0].Graph.Nodes.push_back(custom);
+
+	std::array<VisualScriptLibrary const*, 2> const libraries = {nullptr, library.get()};
+	for (VisualScriptLibrary const* const used : libraries)
+	{
+		CAPTURE(used != nullptr);
+		// The senders run anywhere; a custom event belongs in the event graph.
+		VisualScriptDocument duplicated = scores;
+		std::vector<uint32_t> const senders = {40, 41};
+		Result<VisualScriptPasteResult> const twice = DuplicateVisualScriptElements(duplicated, Scores, 10, senders, used);
+		REQUIRE_MESSAGE(twice.IsOk(), twice.GetError());
+		CHECK(twice.GetValue().Notes.empty());
+		CHECK(twice.GetValue().NodeCount == 2);
+		CHECK(GetNode(GetFunction(duplicated, 10u).Graph, twice.GetValue().Pasted[0]).Type == "Event.Broadcast");
+
+		VisualScriptDocument pasted = scores;
+		VisualScriptClipboardContent const copied = Copy(scores, 10, {40, 41, 42}, Scores, used);
+		Result<VisualScriptPasteResult> const into = PasteVisualScriptClipboard(pasted, Scores, 20, copied, glm::vec2(0.0f), used);
+		REQUIRE_MESSAGE(into.IsOk(), into.GetError());
+		std::vector<std::string> const notes = {"left out 1 event: events belong in the event graph"};
+		CHECK(into.GetValue().Notes == notes);
+		CHECK(into.GetValue().NodeCount == 2);
+		Testing::ExpectStrictRoundTrip(pasted);
+	}
+}
+
+TEST_CASE("VisualScriptClipboard: nodes that name another graph are copied verbatim: their settings bind to nothing of the script")
+{
+	// The script has a variable 1 and a function 10, the IDs the remote nodes name in another graph.
+	VisualScriptDocument const scores = ParseDocument(ScoresText);
+	VisualScriptDocument document = scores;
+	VisualScriptNode get;
+	get.ID = 50;
+	get.Type = "Variable.Get";
+	get.Position = glm::vec2(0.0f, 600.0f);
+	get.Settings = {{"Variable", 1}, {"Graph", Other.ToString()}};
+	VisualScriptNode call = get;
+	call.ID = 51;
+	call.Type = "Function.Call";
+	call.Position = glm::vec2(320.0f, 600.0f);
+	call.Settings = {{"Function", 10}, {"Graph", Other.ToString()}};
+	document.Graph.Nodes.push_back(get);
+	document.Graph.Nodes.push_back(call);
+
+	VisualScriptClipboardContent const copied = Copy(document, 0, {50, 51});
+	CHECK(copied.Document.Variables.empty());
+	CHECK(copied.Document.Functions.empty());
+
+	// Pasted into an empty script, nothing is added for them and they keep naming the other graph's elements.
+	VisualScriptDocument target;
+	Result<VisualScriptPasteResult> const pasted =
+		PasteVisualScriptClipboard(target, AssetHandle(UUID(77ull)), 0, copied, glm::vec2(0.0f), nullptr);
+	REQUIRE_MESSAGE(pasted.IsOk(), pasted.GetError());
+	CHECK(pasted.GetValue().Notes.empty());
+	CHECK(target.Variables.empty());
+	CHECK(target.Functions.empty());
+	CHECK(GetNode(target.Graph, pasted.GetValue().Pasted[0]).Settings == get.Settings);
+	CHECK(GetNode(target.Graph, pasted.GetValue().Pasted[1]).Settings == call.Settings);
 }

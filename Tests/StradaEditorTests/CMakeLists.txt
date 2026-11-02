@@ -38,6 +38,7 @@ add_executable(StradaEditorTests
     Source/VisualScriptClipboardTests.cpp
     Source/VisualScriptCommitTests.cpp
     Source/VisualScriptControllerTests.cpp
+    Source/VisualScriptCrossGraphTests.cpp
     Source/VisualScriptEditingTests.cpp
     Source/VisualScriptEditorFoundationTests.cpp
     Source/VisualScriptEditorModelTests.cpp
@@ -52,6 +53,7 @@ add_executable(StradaEditorTests
     Source/VisualScriptPanelTests.cpp
     Source/VisualScriptPanelTestUtilities.h
     Source/VisualScriptPanesTests.cpp
+    Source/VisualScriptProjectIndexTests.cpp
     Source/VisualScriptQuickFixTests.cpp
     Source/VisualScriptRenderTests.cpp
     Source/VisualScriptRuntimeEditorTests.cpp
