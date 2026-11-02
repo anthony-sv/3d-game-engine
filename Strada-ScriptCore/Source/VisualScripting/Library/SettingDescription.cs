@@ -26,9 +26,16 @@ internal enum SettingKind
 	Enum,
 	// One of Choices.
 	Choice,
+	// A formula (spec-slice3 section 3.3): a string the node's pins follow.
+	Expression,
+	// A timeline's length, loop and tracks (spec-slice3 section 3.8.2): an object the node's pins follow.
+	Timeline,
+	// Another visual script (spec-slice3 section 4.1): the decimal handle of a graph, as a string; its Constraint says whether
+	// a function library (Library) or a script (Script).
+	Graph,
 }
 
-// Which types a Type or TypeList setting accepts.
+// Which types a Type or TypeList setting accepts, and which graphs a Graph setting names.
 internal enum TypeConstraint
 {
 	None,
@@ -47,8 +54,10 @@ internal enum TypeConstraint
 	Component,
 	// The concrete asset classes.
 	Asset,
-	// The game's script classes.
+	// The game's script classes; for a Graph setting, a visual script entities run.
 	Script,
+	// A Graph setting: a function library (spec-slice3 section 4.4).
+	Library,
 }
 
 // A setting of a node kind. Default is null, a bool, an int, a string or an empty list (written as []).

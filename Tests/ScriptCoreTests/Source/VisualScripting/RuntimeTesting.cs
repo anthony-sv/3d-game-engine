@@ -58,12 +58,14 @@ internal sealed class TestRuntime
 
 	internal static TestRuntime Start(DocumentBuilder document, string variables = "") => Start(document.Build(), variables);
 
-	internal IReadOnlyList<Diagnostic> Load(string document, ulong graph = Graph, string name = Name) =>
-		Runtime.Load(graph, name, Encoding.UTF8.GetBytes(document));
+	// references: the bundle of the other graphs the document refers to (spec-slice3 section 2.4); none when empty.
+	internal IReadOnlyList<Diagnostic> Load(string document, ulong graph = Graph, string name = Name, string references = "") =>
+		Runtime.Load(graph, name, Encoding.UTF8.GetBytes(document), Encoding.UTF8.GetBytes(references));
 
-	internal void LoadWorking(string document, ulong graph = Graph)
+	internal void LoadWorking(string document, ulong graph = Graph, string references = "", string name = Name)
 	{
-		IReadOnlyList<Diagnostic> errors = [.. Load(document, graph).Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)];
+		IReadOnlyList<Diagnostic> errors =
+			[.. Load(document, graph, name, references).Where(static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)];
 		Assert.True(errors.Count == 0, $"{errors.Count} errors:\n{VisualScriptTesting.Describe(errors)}");
 	}
 
@@ -111,7 +113,7 @@ internal sealed class TestRuntime
 }
 
 // Builds content-form documents. Variables, functions, locals and nodes take IDs from one counter, in the order they are
-// added.
+// added. Kind is written when set ("Library" for a function library).
 internal sealed class DocumentBuilder
 {
 	private readonly List<string> m_Variables = [];
@@ -125,6 +127,8 @@ internal sealed class DocumentBuilder
 
 	// The event graph.
 	internal GraphBuilder Graph { get; }
+
+	internal string? Kind { get; set; }
 
 	internal uint NextId() => m_NextId++;
 
@@ -148,7 +152,7 @@ internal sealed class DocumentBuilder
 		return id;
 	}
 
-	// parameters: "Name:type" pairs.
+	// parameters: "Name:type" pairs, or "Name:type:Former,Former" with the parameter's former names.
 	internal FunctionBuilder Function(string name, bool pure = false, string[]? inputs = null, string[]? outputs = null)
 	{
 		FunctionBuilder function = new(this, NextId(), name, pure, inputs ?? [], outputs ?? []);
@@ -157,7 +161,7 @@ internal sealed class DocumentBuilder
 	}
 
 	internal string Build() =>
-		$$"""{ "Variables": [{{string.Join(", ", m_Variables)}}], "Functions": [{{string.Join(", ", m_Functions.Select(static function => function.Json()))}}], "Graph": {{Graph.Json()}} }""";
+		$$"""{ {{(Kind != null ? $"\"Kind\": {RuntimeTesting.Quote(Kind)}, " : "")}}"Variables": [{{string.Join(", ", m_Variables)}}], "Functions": [{{string.Join(", ", m_Functions.Select(static function => function.Json()))}}], "Graph": {{Graph.Json()}} }""";
 }
 
 internal sealed class FunctionBuilder
@@ -203,7 +207,8 @@ internal sealed class FunctionBuilder
 	private static string Parameters(string[] parameters) => string.Join(", ", parameters.Select(static parameter =>
 	{
 		string[] parts = parameter.Split(':');
-		return $$"""{ "Name": {{RuntimeTesting.Quote(parts[0])}}, "Type": {{RuntimeTesting.Quote(parts[1])}} }""";
+		string formerNames = parts.Length > 2 ? $", \"FormerNames\": [{string.Join(", ", parts[2].Split(',').Select(RuntimeTesting.Quote))}]" : string.Empty;
+		return $$"""{ "Name": {{RuntimeTesting.Quote(parts[0])}}, "Type": {{RuntimeTesting.Quote(parts[1])}}{{formerNames}} }""";
 	}));
 }
 
@@ -288,4 +293,40 @@ internal sealed class GraphBuilder
 		Node("Variable.Set", FormattableString.Invariant($"{{ \"Variable\": {variable} }}"), value != null ? $$"""{ "Value": {{value}} }""" : null);
 
 	internal string Json() => $$"""{ "Nodes": [{{string.Join(", ", m_Nodes)}}], "Links": [{{string.Join(", ", m_Links)}}], "Comments": [] }""";
+}
+
+// Builds references bundles (spec-slice3 section 2.4): the handle of the document they accompany, and the other graphs, each
+// sent in full (a library), as its interface, or absent with its error.
+internal sealed class BundleBuilder
+{
+	private readonly List<string> m_Graphs = [];
+	private readonly ulong m_Self;
+
+	internal BundleBuilder(ulong self = TestRuntime.Graph)
+	{
+		m_Self = self;
+	}
+
+	internal BundleBuilder Full(ulong graph, string name, string document) => Add(graph, name, "Full", document);
+
+	internal BundleBuilder Full(ulong graph, string name, DocumentBuilder document) => Full(graph, name, document.Build());
+
+	internal BundleBuilder Interface(ulong graph, string name, string document) => Add(graph, name, "Interface", document);
+
+	internal BundleBuilder Interface(ulong graph, string name, DocumentBuilder document) => Interface(graph, name, document.Build());
+
+	internal BundleBuilder Absent(ulong graph, string error)
+	{
+		m_Graphs.Add(FormattableString.Invariant($$"""{ "Graph": "{{graph}}", "Name": "", "Error": {{RuntimeTesting.Quote(error)}} }"""));
+		return this;
+	}
+
+	internal string Build() => FormattableString.Invariant($$"""{ "Self": "{{m_Self}}", "Graphs": [{{string.Join(", ", m_Graphs)}}] }""");
+
+	private BundleBuilder Add(ulong graph, string name, string form, string document)
+	{
+		m_Graphs.Add(FormattableString.Invariant(
+			$$"""{ "Graph": "{{graph}}", "Name": {{RuntimeTesting.Quote(name)}}, "Form": "{{form}}", "Document": {{document}} }"""));
+		return this;
+	}
 }

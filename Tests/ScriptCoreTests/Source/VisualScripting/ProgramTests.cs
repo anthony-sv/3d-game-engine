@@ -21,7 +21,7 @@ public sealed class ProgramTests
 
 	private const string Broken = """{ "Graph": { "Nodes": [{ "ID": 1, "Type": "Flow.Nothing" }] } }""";
 
-	public static TheoryData<string> Fixtures => ["Events.json", "Flow.json", "Data.json", "Functions.json", "Variables.json", "Reflected.json", "Editor.json"];
+	public static TheoryData<string> Fixtures => ["Events.json", "Flow.json", "Data.json", "Functions.json", "Variables.json", "Reflected.json", "Editor.json", "Language.json"];
 
 	[Theory]
 	[MemberData(nameof(Fixtures))]

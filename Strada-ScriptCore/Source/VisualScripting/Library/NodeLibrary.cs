@@ -15,12 +15,13 @@ internal sealed class NodeLibrary
 	private readonly Dictionary<BuiltinNode, BuiltinNodeDefinition> m_Builtins = [];
 
 	internal NodeLibrary(IReadOnlyList<VisualType> types, IReadOnlyList<NodeDefinition> nodes, IReadOnlyList<NodeRedirect> redirects,
-		BuiltinTypes builtinTypes, LibraryDomains domains)
+		BuiltinTypes builtinTypes, LibraryDomains domains, IReadOnlyList<LibraryNote> notes)
 	{
 		Types = types;
 		Nodes = nodes;
 		BuiltinTypes = builtinTypes;
 		Domains = domains;
+		Notes = notes;
 		foreach (VisualType type in types)
 		{
 			m_TypesById[type.Id] = type;
@@ -82,6 +83,10 @@ internal sealed class NodeLibrary
 
 	internal LibraryDomains Domains { get; }
 
+	// The game members [VisualNode] marks that have no node, and why (spec-slice3 section 3.7.2), ordered by member,
+	// category and message (ordinal).
+	internal IReadOnlyList<LibraryNote> Notes { get; }
+
 	internal VisualType Entity { get; }
 
 	internal VisualType Bool { get; }
@@ -117,6 +122,11 @@ internal sealed class NodeLibrary
 	private VisualType Require(Type type) => m_TypesByClr.TryGetValue(type, out VisualType? visualType) ? visualType
 		: throw new InvalidOperationException($"the node library has no type {type.FullName}");
 }
+
+// Why a member of the game that [VisualNode] marks has no node, or what of its attribute is not used (spec-slice3 section
+// 3.7.2): Member is the member's declaring type and name (a type alone for notes about a type), Category where the palette
+// would list it, Message the reason, starting with the member.
+internal sealed record LibraryNote(string Member, string Category, string Message);
 
 // The type arguments generic API methods accept (spec section 4.5), each ordered by ID: the registered component classes,
 // the concrete asset classes and the game's script classes.

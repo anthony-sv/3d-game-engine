@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Text;
 
 namespace Strada.VisualScripting;
 
@@ -35,6 +36,10 @@ internal enum ConversionOp : byte
 internal static class Conversions
 {
 	private const string NoneText = "None";
+	// Arrays held as System.Object values (only those can hold arrays): nested arrays are listed to this depth, and the text
+	// stops at about this length, so an array that holds itself, or many arrays, gives a short text in little time.
+	private const int MaxArrayTextDepth = 16;
+	private const int MaxObjectArrayText = 4096;
 	// The first doubles past the ranges of long and ulong (long.MaxValue and ulong.MaxValue are not doubles).
 	private const double TwoToThe63 = 9223372036854775808.0;
 	private const double TwoToThe64 = 18446744073709551616.0;
@@ -62,7 +67,8 @@ internal static class Conversions
 		_ => from.IsClrReference || !to.IsClrReference ? ConversionOp.None : ConversionOp.Box,
 	};
 
-	private static ConversionOp Widening(SlotKind from, SlotKind to) => (from, to) switch
+	// The conversion op of a numeric widening between two slot kinds.
+	internal static ConversionOp Widening(SlotKind from, SlotKind to) => (from, to) switch
 	{
 		(SlotKind.Int, SlotKind.Long) => ConversionOp.IntToLong,
 		(SlotKind.Int, SlotKind.Float) => ConversionOp.IntToFloat,
@@ -86,6 +92,29 @@ internal static class Conversions
 		{
 			case ConversionOp.None:
 				break;
+			case ConversionOp.Box:
+				slot = Slot.FromObject(SlotValues.ToValue(slot, from));
+				break;
+			case ConversionOp.ComponentToEntity:
+				slot = Slot.FromObject(((Component?)slot.Object)?.Entity);
+				break;
+			case ConversionOp.AssetToHandle:
+				slot = Slot.FromObject(slot.Object is Asset asset ? asset.Handle : s_InvalidHandle);
+				break;
+			case ConversionOp.ToText:
+				slot = Slot.FromString(ToText(slot, from));
+				break;
+			default:
+				Widen(ref slot, op);
+				break;
+		}
+	}
+
+	// Applies a numeric widening (IntToLong to FloatToDouble) in place.
+	internal static void Widen(ref Slot slot, ConversionOp op)
+	{
+		switch (op)
+		{
 			case ConversionOp.IntToLong:
 				slot = Slot.FromLong(slot.Int);
 				break;
@@ -122,22 +151,11 @@ internal static class Conversions
 			case ConversionOp.FloatToDouble:
 				slot = Slot.FromDouble(slot.Float);
 				break;
-			case ConversionOp.Box:
-				slot = Slot.FromObject(SlotValues.ToValue(slot, from));
-				break;
-			case ConversionOp.ComponentToEntity:
-				slot = Slot.FromObject(((Component?)slot.Object)?.Entity);
-				break;
-			case ConversionOp.AssetToHandle:
-				slot = Slot.FromObject(slot.Object is Asset asset ? asset.Handle : s_InvalidHandle);
-				break;
-			case ConversionOp.ToText:
-				slot = Slot.FromString(ToText(slot, from));
-				break;
 		}
 	}
 
-	// Rule 7: the invariant-culture text of a value ("(x, y, z)" for vectors; "None" for no reference).
+	// Rule 7: the invariant-culture text of a value ("(x, y, z)" for vectors; "None" for no reference; "[1, 2, 3]" for arrays,
+	// spec-slice3 section 3.4.2 rule 4).
 	internal static string ToText(in Slot slot, VisualType type) => SlotValues.KindOf(type) switch
 	{
 		SlotKind.Bool => slot.Bool ? bool.TrueString : bool.FalseString,
@@ -153,16 +171,69 @@ internal static class Conversions
 		SlotKind.Quaternion => slot.Quaternion.ToString(),
 		SlotKind.Color => slot.Color.ToString(),
 		SlotKind.Enum => SlotValues.EnumOf(type.ClrType!, slot.ULong).ToString(),
+		_ when type.Element is { } element && slot.Object is Array array => ArrayText(array, element),
 		_ => ToText(slot.Object),
 	};
 
-	internal static string ToText(object? value) => value switch
+	internal static string ToText(object? value)
+	{
+		if (value is not Array array)
+		{
+			return ScalarText(value);
+		}
+		StringBuilder text = new();
+		AppendObjectArray(text, array, 0);
+		return text.ToString();
+	}
+
+	// An array's elements by rule 7, separated by ", ", in brackets ("[]" when empty).
+	private static string ArrayText(Array array, VisualType element)
+	{
+		StringBuilder text = new("[");
+		for (int index = 0; index < array.Length; index++)
+		{
+			text.Append(index > 0 ? ", " : string.Empty).Append(ToText(ArrayElements.Read(array, index, element), element));
+		}
+		return text.Append(']').ToString();
+	}
+
+	private static string ScalarText(object? value) => value switch
 	{
 		null => NoneText,
 		string text => text,
 		IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
 		_ => value.ToString() ?? string.Empty,
 	};
+
+	// An array of a type the library may not have (one held as a System.Object): its elements, nested arrays to
+	// MaxArrayTextDepth, and "..." for the rest once the text is MaxObjectArrayText long.
+	private static void AppendObjectArray(StringBuilder text, Array array, int depth)
+	{
+		text.Append('[');
+		int index = 0;
+		foreach (object? element in array)
+		{
+			if (text.Length >= MaxObjectArrayText)
+			{
+				text.Append(index > 0 ? ", ..." : "...");
+				break;
+			}
+			text.Append(index++ > 0 ? ", " : string.Empty);
+			if (element is not Array nested)
+			{
+				text.Append(ScalarText(element));
+			}
+			else if (depth + 1 < MaxArrayTextDepth)
+			{
+				AppendObjectArray(text, nested, depth + 1);
+			}
+			else
+			{
+				text.Append("[...]");
+			}
+		}
+		text.Append(']');
+	}
 
 	// Convert's numeric casts (spec section 4.4): C# unchecked casts, except that floating-point values truncate toward zero
 	// and saturate when they become integers, NaN giving 0.

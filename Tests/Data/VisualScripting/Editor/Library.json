@@ -82,6 +82,7 @@
 			"ID": "Strada.Entity[]",
 			"Title": "Entity Array",
 			"Kind": "Array",
+			"Literal": true,
 			"Element": "Strada.Entity",
 			"ImplicitTo": [
 				"System.Object"
@@ -754,6 +755,27 @@
 			]
 		},
 		{
+			"ID": "Strada.TimelineDirection",
+			"Title": "Timeline Direction",
+			"Kind": "Enum",
+			"FieldType": "Int32",
+			"Literal": true,
+			"Enumerators": [
+				{
+					"Name": "Forward",
+					"Value": 0
+				},
+				{
+					"Name": "Backward",
+					"Value": 1
+				}
+			],
+			"Flags": false,
+			"ImplicitTo": [
+				"System.Object"
+			]
+		},
+		{
 			"ID": "Strada.TransformComponent",
 			"Title": "Transform",
 			"Kind": "Component",
@@ -1233,6 +1255,62 @@
 			"Settings": []
 		},
 		{
+			"Type": "Event.Broadcast",
+			"Title": "Broadcast Event",
+			"Category": "Events",
+			"Description": "Raises the custom event of that name on every graph that has it (with Graph, on every entity running that graph), in the order the entities started running their graphs, then continues; Count is how many received it.",
+			"Keywords": [
+				"broadcast",
+				"message",
+				"raise",
+				"event",
+				"every",
+				"all"
+			],
+			"Kind": "Call",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				},
+				{
+					"Name": "Count",
+					"Direction": "Out",
+					"Type": "int"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Name",
+					"Kind": "String",
+					"Required": true
+				},
+				{
+					"Name": "Parameters",
+					"Kind": "Parameters",
+					"Default": []
+				},
+				{
+					"Name": "Graph",
+					"Kind": "Graph",
+					"Constraint": "Script"
+				},
+				{
+					"Name": "IncludeSelf",
+					"Kind": "Bool",
+					"Default": true
+				}
+			]
+		},
+		{
 			"Type": "Event.Create",
 			"Title": "Create",
 			"Category": "Events",
@@ -1321,7 +1399,7 @@
 			"Type": "Event.Send",
 			"Title": "Send Event",
 			"Category": "Events",
-			"Description": "Raises the custom event of that name on the Target entity's graph (Self when unconnected) and continues when it ends or waits.",
+			"Description": "Raises the custom event of that name on the Target entity's graph (Self when unconnected) and continues when it ends or waits; with Graph, only an entity running that graph receives it.",
 			"Keywords": [
 				"send",
 				"message",
@@ -1359,6 +1437,11 @@
 					"Name": "Parameters",
 					"Kind": "Parameters",
 					"Default": []
+				},
+				{
+					"Name": "Graph",
+					"Kind": "Graph",
+					"Constraint": "Script"
 				}
 			]
 		},
@@ -1602,6 +1685,99 @@
 			]
 		},
 		{
+			"Type": "Flow.Timeline",
+			"Title": "Timeline",
+			"Category": "Flow",
+			"Description": "Plays curves over Length seconds: Update fires every frame while it plays with each curve's value at Time, event tracks fire at their keys, Finished at the end; Rate scales its speed.",
+			"Keywords": [
+				"timeline",
+				"curve",
+				"animate",
+				"keyframe",
+				"sequence"
+			],
+			"Kind": "Latent",
+			"Pure": false,
+			"Latent": true,
+			"Pins": [
+				{
+					"Name": "Play",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "PlayFromStart",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Reverse",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "ReverseFromEnd",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Stop",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "SetTime",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "NewTime",
+					"Direction": "In",
+					"Type": "float",
+					"Default": 0
+				},
+				{
+					"Name": "Rate",
+					"Direction": "In",
+					"Type": "float",
+					"Default": 1
+				},
+				{
+					"Name": "Update",
+					"Direction": "Out",
+					"Type": "exec",
+					"Role": "Tick"
+				},
+				{
+					"Name": "Finished",
+					"Direction": "Out",
+					"Type": "exec",
+					"Role": "Tick"
+				},
+				{
+					"Name": "Time",
+					"Direction": "Out",
+					"Type": "float"
+				},
+				{
+					"Name": "Direction",
+					"Direction": "Out",
+					"Type": "Strada.TimelineDirection"
+				},
+				{
+					"Name": "Playing",
+					"Direction": "Out",
+					"Type": "bool"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Timeline",
+					"Kind": "Timeline"
+				}
+			]
+		},
+		{
 			"Type": "Flow.Tween",
 			"Title": "Tween",
 			"Category": "Flow",
@@ -1675,11 +1851,12 @@
 			"Type": "Function.Call",
 			"Title": "Call Function",
 			"Category": "Functions",
-			"Description": "Calls a function of the graph with its inputs and outputs its results.",
+			"Description": "Calls a function of the graph, or of the function library Graph names, with its inputs and outputs its results.",
 			"Keywords": [
 				"call",
 				"invoke",
-				"run"
+				"run",
+				"library"
 			],
 			"Kind": "Function",
 			"Pure": false,
@@ -1701,6 +1878,11 @@
 					"Name": "Function",
 					"Kind": "Function",
 					"Required": true
+				},
+				{
+					"Name": "Graph",
+					"Kind": "Graph",
+					"Constraint": "Library"
 				}
 			]
 		},
@@ -1772,6 +1954,39 @@
 				}
 			],
 			"Settings": []
+		},
+		{
+			"Type": "Expression",
+			"Title": "Expression",
+			"Category": "Math",
+			"Description": "Computes a formula such as a * b + sin(t): each name it uses is an input (a float unless linked), and Result is its value.",
+			"Keywords": [
+				"formula",
+				"math",
+				"calculate",
+				"equation",
+				"expr",
+				"="
+			],
+			"Kind": "Operator",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Any"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Formula",
+					"Kind": "Expression",
+					"Default": "",
+					"Required": true
+				}
+			]
 		},
 		{
 			"Type": "Call:Strada.Color.Lerp(Strada.Color,Strada.Color,float)",
@@ -2028,6 +2243,56 @@
 			]
 		},
 		{
+			"Type": "Call:Strada.Testing.Assert.AreEqual<T>(T,T,string)",
+			"Title": "Are Equal",
+			"Subtitle": "Assert",
+			"Category": "Testing",
+			"Description": "Fails unless the values are equal (by EqualityComparer).",
+			"Keywords": [],
+			"Kind": "Call",
+			"Pure": false,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Execute",
+					"Direction": "In",
+					"Type": "exec"
+				},
+				{
+					"Name": "Expected",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				},
+				{
+					"Name": "Actual",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				},
+				{
+					"Name": "Message",
+					"Direction": "In",
+					"Type": "string",
+					"Default": ""
+				},
+				{
+					"Name": "Then",
+					"Direction": "Out",
+					"Type": "exec"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "TypeArguments",
+					"Kind": "TypeList",
+					"Constraint": "Any"
+				}
+			]
+		},
+		{
 			"Type": "Get:Strada.Time.DeltaTime",
 			"Title": "Get Delta Time",
 			"Subtitle": "Time",
@@ -2173,6 +2438,44 @@
 			"Settings": []
 		},
 		{
+			"Type": "RunsGraph",
+			"Title": "Runs Graph",
+			"Category": "Utilities",
+			"Description": "Whether the Target entity (Self when unconnected) runs the visual script Graph names: the guard of its variables' Get and Set.",
+			"Keywords": [
+				"runs",
+				"graph",
+				"script",
+				"is",
+				"has",
+				"check"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Target",
+					"Direction": "In",
+					"Type": "Strada.Entity",
+					"DefaultsToSelf": true
+				},
+				{
+					"Name": "Result",
+					"Direction": "Out",
+					"Type": "bool"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Graph",
+					"Kind": "Graph",
+					"Required": true,
+					"Constraint": "Script"
+				}
+			]
+		},
+		{
 			"Type": "Select",
 			"Title": "Select",
 			"Category": "Utilities",
@@ -2241,6 +2544,7 @@
 		{
 			"Type": "Array.Get",
 			"Title": "Get",
+			"Subtitle": "Array",
 			"Category": "Utilities/Array",
 			"Description": "The element of an array at Index (from 0).",
 			"Keywords": [
@@ -2275,10 +2579,93 @@
 			"Settings": []
 		},
 		{
+			"Type": "Array.Make",
+			"Title": "Make Array",
+			"Subtitle": "Array",
+			"Category": "Utilities/Array",
+			"Description": "A new array of the elements in order, of the type Type or of the type their links join to.",
+			"Keywords": [
+				"new",
+				"list",
+				"create",
+				"build",
+				"array"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Element0",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				},
+				{
+					"Name": "Element1",
+					"Direction": "In",
+					"Type": "*",
+					"Constraint": "Any",
+					"Group": "T"
+				},
+				{
+					"Name": "Array",
+					"Direction": "Out",
+					"Type": "*",
+					"Constraint": "Array",
+					"ArrayOf": "Element0"
+				}
+			],
+			"Settings": [
+				{
+					"Name": "Type",
+					"Kind": "Type",
+					"Constraint": "Any"
+				},
+				{
+					"Name": "Count",
+					"Kind": "Int",
+					"Default": 2,
+					"Min": 0,
+					"Max": 64
+				}
+			]
+		},
+		{
+			"Type": "String.Length",
+			"Title": "Length",
+			"Subtitle": "String",
+			"Category": "Utilities/String",
+			"Description": "The number of UTF-16 code units of Text, as C#'s string.Length counts them.",
+			"Keywords": [
+				"count",
+				"size",
+				"characters",
+				"string"
+			],
+			"Kind": "Data",
+			"Pure": true,
+			"Latent": false,
+			"Pins": [
+				{
+					"Name": "Text",
+					"Direction": "In",
+					"Type": "string"
+				},
+				{
+					"Name": "Length",
+					"Direction": "Out",
+					"Type": "int"
+				}
+			],
+			"Settings": []
+		},
+		{
 			"Type": "Variable.Get",
 			"Title": "Get Variable",
 			"Category": "Variables",
-			"Description": "Reads a variable of the graph, or a local of the function.",
+			"Description": "Reads a variable of the graph, or a local of the function; with Graph, a public variable of the Target entity's graph, which must run that graph.",
 			"Keywords": [
 				"get",
 				"read"
@@ -2299,6 +2686,11 @@
 					"Name": "Variable",
 					"Kind": "Variable",
 					"Required": true
+				},
+				{
+					"Name": "Graph",
+					"Kind": "Graph",
+					"Constraint": "Script"
 				}
 			]
 		},
@@ -2306,7 +2698,7 @@
 			"Type": "Variable.Set",
 			"Title": "Set Variable",
 			"Category": "Variables",
-			"Description": "Writes a variable of the graph or a local of the function, then outputs the value it wrote.",
+			"Description": "Writes a variable of the graph or a local of the function, then outputs the value it wrote; with Graph, a public variable of the Target entity's graph, which must run that graph.",
 			"Keywords": [
 				"set",
 				"write",
@@ -2344,6 +2736,11 @@
 					"Name": "Variable",
 					"Kind": "Variable",
 					"Required": true
+				},
+				{
+					"Name": "Graph",
+					"Kind": "Graph",
+					"Constraint": "Script"
 				}
 			]
 		}

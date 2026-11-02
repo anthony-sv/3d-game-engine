@@ -84,7 +84,7 @@ internal sealed class Execution
 {
 	// The entries of a latent node below its exec inputs (0 and up): a fiber runs the node again to continue at its
 	// continuation, or to check a WaitUntil's condition first; a Tick execution starts at a Tween or Interval and leaves
-	// through its Tick output.
+	// through its Tick output, or at a Timeline and leaves through its TickExit.
 	internal const int ResumeEntry = -1;
 	internal const int RecheckEntry = -2;
 	internal const int TickEntry = -3;
@@ -153,8 +153,11 @@ internal sealed class Execution
 
 	internal ExecutionError? Error { get; set; }
 
-	// Where a fiber continues: the ID of the latent node it waits in and the pin it continues at. Positions that outlive a
-	// program are node IDs and pin names (spec section 5.6).
+	// A tick execution of a Timeline: the exit it leaves the node through (spec-slice3 section 3.8.5); -1 otherwise.
+	internal int TickExit { get; set; } = -1;
+
+	// Where a fiber continues: the ID of the latent node it waits in and the pin it continues at, "" for a Timeline's run,
+	// which never continues. Positions that outlive a program are node IDs and pin names (spec section 5.6).
 	internal (uint Node, string Pin) SuspendedPosition
 	{
 		get
@@ -164,7 +167,7 @@ internal sealed class Execution
 				throw new InvalidOperationException("the execution is not suspended");
 			}
 			CompiledNode node = TopFrame.Graph.Nodes[SuspendedAt];
-			return (node.Id, node.ExitPins[node.ContinuationExit]);
+			return (node.Id, node.ContinuationExit >= 0 ? node.ExitPins[node.ContinuationExit] : string.Empty);
 		}
 	}
 
@@ -254,6 +257,7 @@ internal sealed class Execution
 		WaitCount = 0;
 		WaitIndex = 0;
 		Error = null;
+		TickExit = -1;
 		Debugger = null;
 		Instance = null!;
 		Program = null!;

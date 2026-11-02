@@ -13,12 +13,15 @@ internal sealed class TypeResolution
 {
 	private readonly AnalysisContext m_Context;
 	private readonly IReadOnlyDictionary<AnalyzedNode, VisualType> m_ConvertTargets;
+	private readonly IReadOnlyDictionary<AnalyzedNode, ParsedFormula> m_Formulas;
 	private readonly Action<AnalyzedNode> m_Resolved;
 
-	internal TypeResolution(AnalysisContext context, IReadOnlyDictionary<AnalyzedNode, VisualType> convertTargets, Action<AnalyzedNode> resolved)
+	internal TypeResolution(AnalysisContext context, IReadOnlyDictionary<AnalyzedNode, VisualType> convertTargets,
+		IReadOnlyDictionary<AnalyzedNode, ParsedFormula> formulas, Action<AnalyzedNode> resolved)
 	{
 		m_Context = context;
 		m_ConvertTargets = convertTargets;
+		m_Formulas = formulas;
 		m_Resolved = resolved;
 	}
 
@@ -162,6 +165,15 @@ internal sealed class TypeResolution
 				AnalyzedPin? array = node.FindPin(pin.Description.ElementOf!, PinDirection.In);
 				pin.Type = array?.Type is { Kind: TypeKind.Array, Element: { } element, HasValues: true } ? element : VisualType.Wildcard;
 			}
+			else if (pin.Description.Source == WildcardSource.ArrayOf)
+			{
+				pin.Type = ResolveArrayOf(node, pin);
+			}
+		}
+		if (node.Definition is MemberNodeDefinition { GenericInference: true } generic && node.Binding == null &&
+			!node.Source.Settings.TryGet("TypeArguments", out _))
+		{
+			CloseInferredMethod(node, generic);
 		}
 		if (builtin is { } op && BuiltinNodes.IsOperator(op))
 		{
@@ -171,6 +183,118 @@ internal sealed class TypeResolution
 		{
 			ResolveConvert(node);
 		}
+		else if (builtin == BuiltinNode.Expression)
+		{
+			ResolveExpression(node);
+		}
+	}
+
+	// The array of the type of the input an ArrayOf pin names (spec-slice3 sections 3.4.5 and 3.6). An input that is an
+	// array itself has none: arrays of arrays are not types of graphs, an Error on the node.
+	private VisualType ResolveArrayOf(AnalyzedNode node, AnalyzedPin pin)
+	{
+		AnalyzedPin? element = node.FindPin(pin.Description.ArrayOf!, PinDirection.In);
+		if (element?.Type is not { HasValues: true } type)
+		{
+			return VisualType.Wildcard;
+		}
+		if (type.ArrayType is { } array)
+		{
+			return array;
+		}
+		m_Context.ReportNode(DiagnosticCode.TypeMismatch, node,
+			$"{element.Name} is {type.Id}, so {pin.Name} would be an array of arrays: {Declarations.NestedArrayMessage}");
+		return VisualType.Wildcard;
+	}
+
+	// Closes an inferred generic method (spec-slice3 section 3.6) once its links resolved the inputs each type parameter is
+	// inferred from: the element type of an array anchor, the type of any other. A type parameter left unresolved leaves the
+	// node unbound: its unresolved pins are reported where they are linked or unconnected.
+	private void CloseInferredMethod(AnalyzedNode node, MemberNodeDefinition definition)
+	{
+		if (definition.RequiresTypeArguments)
+		{
+			return;
+		}
+		List<VisualType> arguments = [];
+		Type[] types = new Type[definition.GenericAnchors.Count];
+		for (int index = 0; index < types.Length; index++)
+		{
+			GenericAnchor anchor = definition.GenericAnchors[index]!;
+			VisualType? type = node.FindPin(anchor.Pin, PinDirection.In)?.Type;
+			VisualType? argument = anchor.IsArray ? type is { Kind: TypeKind.Array, HasValues: true } ? type.Element : null
+				: type is { HasValues: true } ? type : null;
+			if (argument == null)
+			{
+				return;
+			}
+			arguments.Add(argument);
+			types[index] = argument.ClrType!;
+		}
+		MethodInfo closed;
+		try
+		{
+			closed = definition.Method!.MakeGenericMethod(types);
+		}
+		catch (ArgumentException exception)
+		{
+			m_Context.ReportNode(DiagnosticCode.InvalidSetting, node, $"TypeArguments: {exception.Message}");
+			return;
+		}
+		node.Binding = new MemberBinding(definition, closed, arguments);
+	}
+
+	// Types an Expression's inputs and its formula (spec-slice3 section 3.3.4): a linked input takes its link's type when the
+	// Expression constraint accepts it (else it stays untyped, CheckLinks reports the link and the formula is not typed); an
+	// unlinked input is a float, so its stored literal is decoded as one. Then Result takes the formula's type, or the
+	// formula's problem is reported and Result stays untyped.
+	private void ResolveExpression(AnalyzedNode node)
+	{
+		if (!m_Formulas.TryGetValue(node, out ParsedFormula? formula))
+		{
+			return;
+		}
+		List<VisualType> inputTypes = [];
+		List<SlotKind> inputKinds = [];
+		bool typed = true;
+		foreach (AnalyzedPin pin in node.Pins)
+		{
+			if (!pin.IsInput)
+			{
+				continue;
+			}
+			if (TypingLink(pin) == null)
+			{
+				pin.Type = ExpressionChecker.TypeOf(Library, SlotKind.Float)!;
+			}
+			else if (!TypeRules.Satisfies(pin.Type, PinConstraint.Expression))
+			{
+				pin.Type = VisualType.Wildcard;
+				typed = false;
+				continue;
+			}
+			inputTypes.Add(pin.Type);
+			inputKinds.Add(ExpressionChecker.KindOf(pin.Type)!.Value);
+		}
+		if (!typed)
+		{
+			return;
+		}
+		(TypedExpression? root, ExpressionError? error) = ExpressionChecker.Check(Library, formula, inputKinds);
+		if (root == null)
+		{
+			m_Context.ReportSetting(error!.Code, node, "Formula", formula.Text, (error.Start, error.End), error.Message, error.Suggestions);
+			return;
+		}
+		if (ExpressionChecker.TypeOf(Library, root.Type) is not { } result)
+		{
+			// A library built over part of the API may lack a vector type that a formula makes.
+			m_Context.ReportSetting(DiagnosticCode.InvalidExpression, node, "Formula", formula.Text, (0, formula.Text.Length),
+				$"the formula gives a {ExpressionChecker.Name(root.Type)}, a type this node library does not have");
+			return;
+		}
+		node.FindPin("Result", PinDirection.Out)!.Type = result;
+		node.Binding = new ExpressionBinding(formula.Text, root, inputTypes, result);
 	}
 
 	// The type of a type variable from the outputs linked into its inputs (rules 2 and 3). A Reroute whose In is linked to
@@ -458,25 +582,43 @@ internal sealed class TypeResolution
 			m_Context.ReportNode(DiagnosticCode.TypeMismatch, node, $"{a.Id} and {b.Id} cannot be compared: they have no common type");
 			return;
 		}
-		OperatorMode mode = join.Kind switch
+		if (join.Kind == TypeKind.Array)
 		{
-			TypeKind.Bool or TypeKind.String => OperatorMode.ValueEquality,
-			TypeKind.Entity => OperatorMode.EntityEquality,
-			TypeKind.Asset => OperatorMode.AssetEquality,
-			TypeKind.Component => OperatorMode.ComponentEquality,
-			_ => OperatorMode.ObjectEquality,
-		};
-		MethodInfo? method = null;
-		if (mode == OperatorMode.ObjectEquality)
-		{
-			// Structs use the equality operator they declare; other classes one declared on them or a base class.
-			method = FindEquality(join);
-			mode = method != null ? OperatorMode.Method : OperatorMode.ObjectEquality;
+			// Element by element (spec-slice3 section 3.4.2 rule 3).
+			node.Binding = new OperatorBinding(OperatorMode.ArrayEquality, join, null);
+			return;
 		}
+		(OperatorMode mode, MethodInfo? method) = EqualityOf(join);
 		node.Binding = new OperatorBinding(mode, join, method);
 	}
 
-	private MethodInfo? FindEquality(VisualType type)
+	// How two values of a type compare (spec section 4.4's table, numbers and enums by value): bools and strings by value,
+	// entities, assets and components by what they refer to, structs by the equality operator they declare, other classes by
+	// one declared on them or a base class, else by Equals. Arrays compare element by element with their elements' equality.
+	internal static (OperatorMode Mode, MethodInfo? Method) EqualityOf(VisualType type)
+	{
+		if (type.IsNumeric)
+		{
+			return (OperatorMode.Numeric, null);
+		}
+		OperatorMode mode = type.Kind switch
+		{
+			TypeKind.Bool or TypeKind.String or TypeKind.Enum => OperatorMode.ValueEquality,
+			TypeKind.Entity => OperatorMode.EntityEquality,
+			TypeKind.Asset => OperatorMode.AssetEquality,
+			TypeKind.Component => OperatorMode.ComponentEquality,
+			TypeKind.Array => OperatorMode.ArrayEquality,
+			_ => OperatorMode.ObjectEquality,
+		};
+		if (mode != OperatorMode.ObjectEquality)
+		{
+			return (mode, null);
+		}
+		MethodInfo? method = FindEquality(type);
+		return method != null ? (OperatorMode.Method, method) : (OperatorMode.ObjectEquality, null);
+	}
+
+	private static MethodInfo? FindEquality(VisualType type)
 	{
 		for (Type? current = type.ClrType; current != null && current != typeof(object) && current != typeof(ValueType); current = current.BaseType)
 		{

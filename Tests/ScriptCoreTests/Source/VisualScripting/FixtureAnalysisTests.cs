@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -11,7 +12,7 @@ namespace Strada.ScriptCore.Tests;
 // content of Example.sgraph, analyzes without an Error diagnostic, and the editor's document does what it says.
 public sealed class FixtureAnalysisTests
 {
-	public static TheoryData<string> Documents => ["Events.json", "Flow.json", "Data.json", "Functions.json", "Variables.json", "Reflected.json", "Editor.json"];
+	public static TheoryData<string> Documents => ["Events.json", "Flow.json", "Data.json", "Functions.json", "Variables.json", "Reflected.json", "Editor.json", "Language.json"];
 
 	[Theory]
 	[MemberData(nameof(Documents))]
@@ -59,6 +60,38 @@ public sealed class FixtureAnalysisTests
 			Assert.Equal(["2.5", "logged: enabled", "logged in development builds only", "done"], FuzzStandIns.Messages);
 			Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(FuzzLibrary.Hero, ScriptEvent.Update, 1.0f, 0));
 			Assert.Equal(4, FuzzStandIns.Messages.Count);
+			Assert.Empty(environment.Logs);
+		}
+		finally
+		{
+			FuzzStandIns.Messages = null;
+		}
+	}
+
+	// Documents/Language.json (spec-slice3 section 15.1) runs without an aborting error, with the fuzz library's stand-ins of
+	// the engine members and of Assert: its Create chain checks formulas, arrays and generic calls with AreEqual and calls the
+	// String nodes' function, then plays the timeline, whose Step track logs at 0.5 and 1.5 seconds and whose Finished logs
+	// Lift at the end (0).
+	[Fact]
+	public void TheLanguageDocumentRuns()
+	{
+		byte[] text = File.ReadAllBytes(Path.Combine(VisualScriptTesting.FixtureDirectory, "Documents", "Language.json"));
+		FuzzStandIns.Messages = [];
+		try
+		{
+			FakeEnvironment environment = FuzzLibrary.CreateEnvironment();
+			VisualScriptRuntime runtime = new(environment, () => FuzzLibrary.Library);
+			VisualScriptTesting.AssertNoErrors(GraphAnalyzer.Analyze(FuzzLibrary.Library, text));
+			runtime.Load(100, "Assets/Language.sgraph", text);
+			Assert.Equal(VisualScriptStatus.Success, runtime.CreateInstance(FuzzLibrary.Hero, 100, []));
+			Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(FuzzLibrary.Hero, ScriptEvent.Create, 0.0f, 0));
+			Assert.DoesNotContain(FuzzStandIns.Messages, static message => message.StartsWith("not equal", StringComparison.Ordinal));
+			int created = FuzzStandIns.Messages.Count;
+			for (int update = 0; update < 3; update++)
+			{
+				Assert.Equal(VisualScriptStatus.Success, runtime.Invoke(FuzzLibrary.Hero, ScriptEvent.Update, 1.0f, 0));
+			}
+			Assert.Equal(["step", "step", "0"], FuzzStandIns.Messages.Skip(created));
 			Assert.Empty(environment.Logs);
 		}
 		finally

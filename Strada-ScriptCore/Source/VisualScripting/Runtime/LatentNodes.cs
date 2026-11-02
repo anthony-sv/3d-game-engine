@@ -5,7 +5,8 @@ using System.Collections.Generic;
 namespace Strada.VisualScripting;
 
 // The pending latent nodes of instances (spec sections 4.2 and 5.3): each Update dispatch ends with one pass over the
-// instance's fibers in the order their nodes became pending, which resumes the due ones and advances Tweens and Intervals.
+// instance's fibers in the order their nodes became pending, which resumes the due ones and advances Tweens, Intervals and
+// playing Timelines (Timelines.cs).
 // A fiber is advanced only by Update dispatches after the one running when it suspended, so it never resumes in the
 // dispatch that created it. The pass costs time linear in the number of fibers: each fiber resumes, waits on, leaves
 // or takes another's place among its instance's fibers in constant time (GraphInstance).
@@ -79,8 +80,12 @@ internal sealed partial class VisualScriptRuntime
 				return Continue(fiber, Execution.RecheckEntry);
 			case BuiltinNode.FlowTween:
 				return AdvanceTween(pending, node, step);
-			default:
+			case BuiltinNode.FlowInterval:
 				return AdvanceInterval(pending, node, step);
+			case BuiltinNode.FlowTimeline:
+				return AdvanceTimeline(pending, node, step);
+			default:
+				throw new InvalidOperationException($"{node} is not latent: no fiber waits in it");
 		}
 	}
 

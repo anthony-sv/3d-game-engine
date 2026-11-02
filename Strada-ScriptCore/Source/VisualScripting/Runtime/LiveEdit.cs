@@ -71,7 +71,7 @@ internal sealed partial class VisualScriptRuntime
 			CompiledNode latent = fiber.TopFrame.Graph.Nodes[fiber.SuspendedAt];
 			string entity = FormattableString.Invariant($"{m_Environment.GetEntityName(instance.Entity)} ({instance.Entity})");
 			m_Environment.Log(VisualScriptLogLevel.Warn,
-				FormattableString.Invariant($"{target.Name} on {entity}: the execution waiting in {latent.Title} (node {latent.Id}) is cancelled: {problem}"));
+				FormattableString.Invariant($"{target.Name} on {entity}: the execution waiting in {Naming(latent)} is cancelled: {problem}"));
 			Release(fiber);
 		}
 		instance.Swap(target, variables, frame);
@@ -117,7 +117,8 @@ internal sealed partial class VisualScriptRuntime
 
 	// The state of DoOnce, DoN, FlipFlop and Gate nodes and the stored outputs of impure and event nodes, for nodes whose ID
 	// and type are unchanged; outputs also keep their pin's name and type. Latent nodes become pending again with their
-	// fibers (Move). Everything else starts from the new frame's template.
+	// fibers (Move); a Timeline keeps its state, its time clamped into its new length (spec-slice3 section 3.8.6), and the
+	// next advance writes its outputs with its new curves. Everything else starts from the new frame's template.
 	private static void CarryNodes(Frame from, Frame to)
 	{
 		CompiledGraph source = from.Graph;
@@ -137,6 +138,11 @@ internal sealed partial class VisualScriptRuntime
 			if (node.Op != Opcode.Latent && node.StateSlot >= 0 && old.StateSlot >= 0)
 			{
 				to.Slots[node.StateSlot] = from.Slots[old.StateSlot];
+			}
+			if (node.TimelineSlot >= 0 && old.TimelineSlot >= 0 && from.Slots[old.TimelineSlot].Object is TimelineState state)
+			{
+				state.Time = Math.Clamp(state.Time, 0.0, node.Timeline!.Definition.Length);
+				to.Slots[node.TimelineSlot] = Slot.FromObject(state);
 			}
 			if (node.Pure)
 			{
@@ -167,17 +173,18 @@ internal sealed partial class VisualScriptRuntime
 			if (index > 0)
 			{
 				CompiledFunction function = graph.Function!;
-				CompiledFunction? newFunction = target.FindFunction(function.Id);
+				CompiledFunction? newFunction = target.FindFunction(function.Graph, function.Id);
 				if (newFunction == null || newFunction.Pure || !SameSignature(function, newFunction))
 				{
 					return $"the edit changed the function {function.Name}";
 				}
 				CompiledNode call = caller.Nodes[record.CallNode];
-				if (Find(newCaller, call) is not { } newCall || newCall.Function?.Id != function.Id)
+				if (Find(newCaller, call) is not { } newCall || newCall.Function is not { } callee || callee.Graph != function.Graph ||
+					callee.Id != function.Id)
 				{
 					return Removed(call, newCaller);
 				}
-				newGraph = newFunction.Graph;
+				newGraph = newFunction.Body;
 			}
 			int end = index + 1 < fiber.CallCount ? fiber.Calls[index + 1].FlowBase : fiber.FlowCount;
 			for (int flow = record.FlowBase; flow < end; flow++)
@@ -212,9 +219,14 @@ internal sealed partial class VisualScriptRuntime
 	{
 		int index = graph.FindNode(node.Id);
 		bool disabled = !node.IsDisabled && index >= 0 && graph.Nodes[index].IsDisabled && graph.Nodes[index].Type == node.Type;
-		return disabled ? FormattableString.Invariant($"the edit disabled {node.Title} (node {node.Id})")
-			: FormattableString.Invariant($"the edit removed or changed {node.Title} (node {node.Id})");
+		return disabled ? $"the edit disabled {Naming(node)}" : $"the edit removed or changed {Naming(node)}";
 	}
+
+	// "Delay (node 12)", and for a node of a library function "Delay (node 12) of Scripts/Motion.sgraph": node IDs collide
+	// across documents (spec-slice3 section 4.9), and the messages name the program's own document already.
+	private static string Naming(CompiledNode node) => node.Owner.Graph != 0
+		? FormattableString.Invariant($"{node.Title} (node {node.Id}) of {node.Owner.Name}")
+		: FormattableString.Invariant($"{node.Title} (node {node.Id})");
 
 	private static bool SameSignature(CompiledFunction a, CompiledFunction b)
 	{
@@ -248,7 +260,7 @@ internal sealed partial class VisualScriptRuntime
 			if (index > 0)
 			{
 				CompiledFunction function = graph.Function!;
-				CompiledFunction newFunction = target.FindFunction(function.Id)!;
+				CompiledFunction newFunction = target.FindFunction(function.Graph, function.Id)!;
 				moved = newFunction.AcquireFrame();
 				CarryNodes(old, moved);
 				CarryLocals(function, old, newFunction, moved);

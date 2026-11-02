@@ -10,6 +10,10 @@ namespace Strada.VisualScripting;
 // The pins of a reflected member and how its parameters map to them.
 internal sealed record MemberShape(IReadOnlyList<PinDescription> Pins, IReadOnlyList<MemberParameter> Parameters, TargetKind Target);
 
+// How a member's node is named and listed: the words its title uses for the member (null for the member's name in words;
+// a constructor's replace "Make <type>"), its category, description and keywords, and whether it is a game member's.
+internal sealed record MemberNodeText(string? Name, string Category, string Description, IReadOnlyList<string> Keywords, bool Game);
+
 // Nodes from the public members of the scripting API (spec section 4.5): which members become nodes, their type strings,
 // pins, purity, titles and categories.
 internal static class MemberNodes
@@ -77,12 +81,20 @@ internal static class MemberNodes
 	// as outputs), Value for setters, Result for methods returning a value and Value for getters and constructors. A
 	// parameter whose pin would take the name of another pin of its direction gets the suffix "Parameter". Null when a type
 	// is not a library type (generic method parameters become wildcards) or two pins of a direction would share a name.
-	internal static MemberShape? Shape(MemberNodeKind kind, MemberInfo member, bool pure, Func<Type, VisualType?> resolve, VisualType entity)
+	internal static MemberShape? Shape(MemberNodeKind kind, MemberInfo member, bool pure, Func<Type, VisualType?> resolve, VisualType entity) =>
+		Shape(kind, member, pure, resolve, entity, out _);
+
+	// problem says why a member has no shape: "<type> is not a type of graphs", "<type> is a ref struct: graphs cannot hold
+	// its values", "two pins would be named <name>".
+	internal static MemberShape? Shape(MemberNodeKind kind, MemberInfo member, bool pure, Func<Type, VisualType?> resolve, VisualType entity,
+		out string? problem)
 	{
+		problem = null;
 		Type declaring = member.DeclaringType!;
 		TargetKind target = kind == MemberNodeKind.New || IsStatic(member) ? TargetKind.None
 			: declaring == typeof(Entity) ? TargetKind.Entity
 			: typeof(Component).IsAssignableFrom(declaring) ? TargetKind.Component
+			: declaring != typeof(Script) && declaring.IsSubclassOf(typeof(Script)) ? TargetKind.Script
 			: TargetKind.Value;
 		List<PinDescription> inputs = [];
 		List<PinDescription> outputs = [];
@@ -91,7 +103,7 @@ internal static class MemberNodes
 			inputs.Add(BuiltinNodes.ExecIn());
 			outputs.Add(BuiltinNodes.ExecOut());
 		}
-		if (target is TargetKind.Entity or TargetKind.Component)
+		if (target is TargetKind.Entity or TargetKind.Component or TargetKind.Script)
 		{
 			inputs.Add(BuiltinNodes.Target(entity));
 		}
@@ -100,6 +112,7 @@ internal static class MemberNodes
 			VisualType? declaringType = resolve(declaring);
 			if (declaringType == null)
 			{
+				problem = NotATypeOfGraphs(declaring);
 				return null;
 			}
 			inputs.Add(new PinDescription("Target", PinDirection.In, declaringType));
@@ -122,9 +135,16 @@ internal static class MemberNodes
 				foreach (ParameterInfo parameter in method.GetParameters())
 				{
 					bool isOut = parameter.ParameterType.IsByRef;
-					VisualType? type = ResolveSignatureType(isOut ? parameter.ParameterType.GetElementType()! : parameter.ParameterType, resolve);
-					if (type == null || string.IsNullOrEmpty(parameter.Name))
+					Type parameterType = isOut ? parameter.ParameterType.GetElementType()! : parameter.ParameterType;
+					VisualType? type = ResolveSignatureType(parameterType, resolve);
+					if (type == null)
 					{
+						problem = NotATypeOfGraphs(parameterType);
+						return null;
+					}
+					if (string.IsNullOrEmpty(parameter.Name))
+					{
+						problem = "a parameter has no name";
 						return null;
 					}
 					PinDirection direction = isOut ? PinDirection.Out : PinDirection.In;
@@ -136,6 +156,7 @@ internal static class MemberNodes
 					List<PinDescription> list = isOut ? parameterOutputs : parameterInputs;
 					if ((isOut ? fixedOutputs : fixedInputs).Contains(name) || list.Exists(pin => pin.Name == name))
 					{
+						problem = $"two pins would be named {name}";
 						return null;
 					}
 					list.Add(ParameterPin(name, direction, type, parameter));
@@ -148,6 +169,7 @@ internal static class MemberNodes
 					VisualType? constructed = resolve(declaring);
 					if (constructed == null)
 					{
+						problem = NotATypeOfGraphs(declaring);
 						return null;
 					}
 					outputs.Add(new PinDescription("Value", PinDirection.Out, constructed));
@@ -157,6 +179,7 @@ internal static class MemberNodes
 					VisualType? result = ResolveSignatureType(returnType, resolve);
 					if (result == null)
 					{
+						problem = NotATypeOfGraphs(returnType);
 						return null;
 					}
 					outputs.Add(TypedPin("Result", PinDirection.Out, result));
@@ -166,6 +189,7 @@ internal static class MemberNodes
 				memberType = resolve(property.PropertyType);
 				if (memberType == null)
 				{
+					problem = NotATypeOfGraphs(property.PropertyType);
 					return null;
 				}
 				(kind == MemberNodeKind.Set ? inputs : outputs).Add(new PinDescription("Value", kind == MemberNodeKind.Set ? PinDirection.In
@@ -175,16 +199,60 @@ internal static class MemberNodes
 				memberType = resolve(field.FieldType);
 				if (memberType == null)
 				{
+					problem = NotATypeOfGraphs(field.FieldType);
 					return null;
 				}
 				(kind == MemberNodeKind.Set ? inputs : outputs).Add(new PinDescription("Value", kind == MemberNodeKind.Set ? PinDirection.In
 					: PinDirection.Out, memberType));
 				break;
 			default:
+				problem = "it has no node form";
 				return null;
 		}
 		inputs.AddRange(outputs);
 		return new MemberShape(inputs, parameters, target);
+	}
+
+	// Why a type a member's signature uses keeps it from being a node.
+	internal static string NotATypeOfGraphs(Type type) => type.IsByRefLike
+		? $"{DisplayName(type)} is a ref struct: graphs cannot hold its values"
+		: $"{DisplayName(type)} is not a type of graphs";
+
+	// A type as messages name it: its type ID when it has one, else its full name, with arrays, pointers and generic types
+	// as C# writes them ("System.Threading.Tasks.Task<int>", "int*").
+	internal static string DisplayName(Type type)
+	{
+		if (type.IsByRef)
+		{
+			return DisplayName(type.GetElementType()!);
+		}
+		if (type.IsArray || type.IsPointer)
+		{
+			string suffix = type.IsPointer ? "*" : type.IsSZArray ? "[]" : "[" + new string(',', type.GetArrayRank() - 1) + "]";
+			return DisplayName(type.GetElementType()!) + suffix;
+		}
+		if (type.IsGenericParameter)
+		{
+			return type.Name;
+		}
+		if (TypeIds.Of(type) is { } id)
+		{
+			return id;
+		}
+		string name = (type.IsGenericType ? type.GetGenericTypeDefinition().FullName : type.FullName) ?? type.Name;
+		int tick = name.IndexOf('`', StringComparison.Ordinal);
+		if (tick < 0 || !type.IsGenericType)
+		{
+			return name;
+		}
+		StringBuilder text = new(name, 0, tick, name.Length + 16);
+		text.Append('<');
+		Type[] arguments = type.GetGenericArguments();
+		for (int index = 0; index < arguments.Length; index++)
+		{
+			text.Append(index > 0 ? ", " : "").Append(DisplayName(arguments[index]));
+		}
+		return text.Append('>').ToString();
 	}
 
 	// Purity (spec section 4.5): getters and struct constructors are pure, setters never; a method is pure when it is a
@@ -262,11 +330,12 @@ internal static class MemberNodes
 			return;
 		}
 		TypeConstraint domain = TypeConstraint.None;
-		if ((method.IsGenericMethodDefinition && !TryGetGenericDomain(method, out domain)) || !HasPinParameters(method))
+		bool inference = false;
+		if ((method.IsGenericMethodDefinition && !TryGetGenericForm(method, out domain, out inference)) || !HasPinParameters(method))
 		{
 			return;
 		}
-		Add(MemberNodeKind.Call, method, IsPure(method), resolve, entity, documentation, nodes, domain);
+		Add(MemberNodeKind.Call, method, IsPure(method), resolve, entity, documentation, nodes, domain, inference);
 	}
 
 	private static void AddProperty(PropertyInfo property, Func<Type, VisualType?> resolve, VisualType entity, Documentation documentation,
@@ -302,21 +371,39 @@ internal static class MemberNodes
 	}
 
 	private static void Add(MemberNodeKind kind, MemberInfo member, bool pure, Func<Type, VisualType?> resolve, VisualType entity,
-		Documentation documentation, List<MemberNodeDefinition> nodes, TypeConstraint domain = TypeConstraint.None)
+		Documentation documentation, List<MemberNodeDefinition> nodes, TypeConstraint domain = TypeConstraint.None, bool inference = false)
 	{
-		MemberShape? shape = Shape(kind, member, pure, resolve, entity);
+		MemberNodeText text = new(null, CategoryOf(member.DeclaringType!), documentation.Of(member), [], false);
+		if (CreateNode(kind, member, pure, resolve, entity, text, out _, domain, inference) is { } node)
+		{
+			nodes.Add(node);
+		}
+	}
+
+	// The node of a member in one of its kinds; null (with the reason in problem) when it has no shape. domain and inference
+	// describe a generic method's form (TryGetGenericForm).
+	internal static MemberNodeDefinition? CreateNode(MemberNodeKind kind, MemberInfo member, bool pure, Func<Type, VisualType?> resolve,
+		VisualType entity, MemberNodeText text, out string? problem, TypeConstraint domain = TypeConstraint.None, bool inference = false)
+	{
+		MemberShape? shape = Shape(kind, member, pure, resolve, entity, out problem);
 		if (shape == null)
 		{
-			return;
+			return null;
+		}
+		IReadOnlyList<GenericAnchor?> anchors = [];
+		if (inference)
+		{
+			(shape, anchors) = Infer((MethodInfo)member, shape);
 		}
 		Type declaring = member.DeclaringType!;
 		string declaringId = TypeIds.Of(declaring)!;
+		string name = text.Name ?? Titles.Words(member.Name);
 		string title = kind switch
 		{
-			MemberNodeKind.Call => Titles.Words(member.Name),
-			MemberNodeKind.Get => "Get " + Titles.Words(member.Name),
-			MemberNodeKind.Set => "Set " + Titles.Words(member.Name),
-			_ => $"Make {Titles.OfType(declaring)} ({JoinInputNames(shape.Pins)})",
+			MemberNodeKind.Call => name,
+			MemberNodeKind.Get => "Get " + name,
+			MemberNodeKind.Set => "Set " + name,
+			_ => $"{text.Name ?? "Make " + Titles.OfType(declaring)} ({JoinInputNames(shape.Pins)})",
 		};
 		bool isStatic = kind == MemberNodeKind.New || IsStatic(member);
 		string lookupKey = kind == MemberNodeKind.New ? MemberNodeDefinition.Prefix(kind) + declaringId
@@ -326,21 +413,34 @@ internal static class MemberNodes
 		{
 			settings.Add(new SettingDescription("TypeArguments", SettingKind.TypeList) { Required = true, Constraint = domain });
 		}
-		nodes.Add(new MemberNodeDefinition(kind, member, TypeString(kind, member, declaringId), title, CategoryOf(declaring), pure, shape.Pins)
+		else if (inference)
+		{
+			// Optional: links decide the types, unless a type parameter appears in no input.
+			settings.Add(new SettingDescription("TypeArguments", SettingKind.TypeList)
+			{
+				Required = Array.Exists([.. anchors], static anchor => anchor == null),
+				Constraint = TypeConstraint.Any,
+			});
+		}
+		return new MemberNodeDefinition(kind, member, TypeString(kind, member, declaringId), title, text.Category, pure, shape.Pins)
 		{
 			Subtitle = isStatic ? Titles.OfType(declaring) : "Target is " + Titles.OfType(declaring),
-			Description = documentation.Of(member),
+			Description = text.Description,
+			Keywords = text.Keywords,
+			Game = text.Game,
 			Target = shape.Target,
 			Parameters = shape.Parameters,
 			GenericDomain = domain,
+			GenericInference = inference,
+			GenericAnchors = anchors,
 			LookupKey = lookupKey,
 			Settings = settings,
-		});
+		};
 	}
 
 	// "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
 	// "Call:Strada.Entity.GetComponent<T>()", "Get:Strada.Time.DeltaTime", "New:Strada.Vector3(float,float,float)".
-	private static string TypeString(MemberNodeKind kind, MemberInfo member, string declaringId)
+	internal static string TypeString(MemberNodeKind kind, MemberInfo member, string declaringId)
 	{
 		StringBuilder text = new(MemberNodeDefinition.Prefix(kind));
 		text.Append(declaringId);
@@ -395,16 +495,87 @@ internal static class MemberNodes
 		return TypeIds.Of(type)!;
 	}
 
-	// A library type for a parameter or return type; a generic method parameter is a wildcard the TypeArguments setting
-	// decides.
+	// A library type for a parameter or return type; a generic method parameter, or an array of one, is a wildcard that links
+	// or the TypeArguments setting decide.
 	private static VisualType? ResolveSignatureType(Type type, Func<Type, VisualType?> resolve)
 	{
-		if (type.IsGenericMethodParameter)
+		if (GenericParameterOf(type) != null)
 		{
 			return VisualType.Wildcard;
 		}
 		return type.ContainsGenericParameters ? null : resolve(type);
 	}
+
+	// The generic method parameter a signature type is (T), or is an array of (T[]); null for any other type.
+	private static Type? GenericParameterOf(Type type) =>
+		type.IsGenericMethodParameter ? type : type.IsSZArray && type.GetElementType()!.IsGenericMethodParameter ? type.GetElementType() : null;
+
+	// The pins of an inferred generic method (spec-slice3 section 3.6), for each type parameter T in order: when an input has
+	// type T[], the first is the anchor A, every pin of type T[] joins the group "T[]" and every pin of type T is an element
+	// of A; else, when an input has type T, the first is the anchor E, every pin of type T joins the group "T" and every
+	// output of type T[] is the array of E's type; else no input decides T (its anchor is null) and TypeArguments must.
+	private static (MemberShape Shape, IReadOnlyList<GenericAnchor?> Anchors) Infer(MethodInfo method, MemberShape shape)
+	{
+		Dictionary<(string, PinDirection), Type> signature = [];
+		foreach (MemberParameter parameter in shape.Parameters)
+		{
+			Type type = parameter.Parameter.ParameterType;
+			signature[(parameter.Pin, parameter.Direction)] = type.IsByRef ? type.GetElementType()! : type;
+		}
+		if (method.ReturnType != typeof(void))
+		{
+			signature[("Result", PinDirection.Out)] = method.ReturnType;
+		}
+		Type[] parameters = method.GetGenericArguments();
+		Dictionary<Type, GenericAnchor?> anchors = [];
+		foreach (Type parameter in parameters)
+		{
+			PinDescription? array = null;
+			PinDescription? value = null;
+			foreach (PinDescription pin in shape.Pins)
+			{
+				if (pin.IsInput && signature.TryGetValue((pin.Name, pin.Direction), out Type? type) && GenericParameterOf(type) == parameter)
+				{
+					if (type.IsSZArray)
+					{
+						array ??= pin;
+					}
+					else
+					{
+						value ??= pin;
+					}
+				}
+			}
+			anchors[parameter] = array != null ? new GenericAnchor(array.Name, true) : value != null ? new GenericAnchor(value.Name, false) : null;
+		}
+		List<PinDescription> pins = [];
+		foreach (PinDescription pin in shape.Pins)
+		{
+			if (!signature.TryGetValue((pin.Name, pin.Direction), out Type? type) || GenericParameterOf(type) is not { } parameter)
+			{
+				pins.Add(pin);
+				continue;
+			}
+			pins.Add(InferredPin(pin, parameter.Name, type.IsSZArray, anchors[parameter]));
+		}
+		List<GenericAnchor?> ordered = [];
+		foreach (Type parameter in parameters)
+		{
+			ordered.Add(anchors[parameter]);
+		}
+		return (shape with { Pins = pins }, ordered);
+	}
+
+	// A pin of type T (isArray: T[]) of an inferred generic method, by where T comes from.
+	private static PinDescription InferredPin(PinDescription pin, string parameter, bool isArray, GenericAnchor? anchor) => anchor switch
+	{
+		null => BuiltinNodes.Wildcard(pin.Name, pin.Direction, isArray ? PinConstraint.Array : PinConstraint.Any, WildcardSource.None),
+		{ IsArray: true } when isArray =>
+			BuiltinNodes.Wildcard(pin.Name, pin.Direction, PinConstraint.Array, WildcardSource.Links, parameter + TypeIds.ArraySuffix),
+		{ IsArray: true } => BuiltinNodes.Wildcard(pin.Name, pin.Direction, PinConstraint.Any, WildcardSource.ElementOf, elementOf: anchor.Pin),
+		_ when isArray => BuiltinNodes.ArrayOf(pin.Name, anchor.Pin),
+		_ => BuiltinNodes.Wildcard(pin.Name, pin.Direction, PinConstraint.Any, WildcardSource.Links, parameter),
+	};
 
 	private static PinDescription TypedPin(string name, PinDirection direction, VisualType type) =>
 		type.IsWildcard ? BuiltinNodes.Wildcard(name, direction, PinConstraint.Reference, WildcardSource.None) : new PinDescription(name, direction, type);
@@ -435,7 +606,7 @@ internal static class MemberNodes
 	}
 
 	// out parameters become outputs; ref, in and params parameters have no pin form.
-	private static bool HasPinParameters(MethodBase method)
+	internal static bool HasPinParameters(MethodBase method)
 	{
 		foreach (ParameterInfo parameter in method.GetParameters())
 		{
@@ -445,6 +616,16 @@ internal static class MemberNodes
 			}
 		}
 		return true;
+	}
+
+	// A generic method is a node when its type parameters are all unconstrained (they are inferred), or all constrained to the
+	// same one of Component, Asset or Script (its domain); a method mixing the two forms has none.
+	internal static bool TryGetGenericForm(MethodInfo method, out TypeConstraint domain, out bool inference)
+	{
+		inference = Array.TrueForAll(method.GetGenericArguments(), static parameter =>
+			parameter.GetGenericParameterConstraints().Length == 0 && parameter.GenericParameterAttributes == GenericParameterAttributes.None);
+		domain = TypeConstraint.None;
+		return inference || TryGetGenericDomain(method, out domain);
 	}
 
 	private static bool TryGetGenericDomain(MethodInfo method, out TypeConstraint domain)
@@ -458,7 +639,7 @@ internal static class MemberNodes
 				: constraints[0] == typeof(Asset) ? TypeConstraint.Asset
 				: constraints[0] == typeof(Script) ? TypeConstraint.Script
 				: TypeConstraint.None;
-			// Unconstrained type parameters (Assert.AreEqual<T>) and other constraints have no domain to choose from.
+			// Unconstrained type parameters (inferred instead) and other constraints have no domain to choose from.
 			if (parameterDomain == TypeConstraint.None || (domain != TypeConstraint.None && domain != parameterDomain))
 			{
 				return false;
@@ -468,11 +649,11 @@ internal static class MemberNodes
 		return domain != TypeConstraint.None;
 	}
 
-	private static bool IsHidden(MemberInfo member) =>
+	internal static bool IsHidden(MemberInfo member) =>
 		member.IsDefined(typeof(ObsoleteAttribute), false) ||
 		member.GetCustomAttribute<EditorBrowsableAttribute>(false) is { State: EditorBrowsableState.Never };
 
-	private static bool IsStatic(MemberInfo member) => member switch
+	internal static bool IsStatic(MemberInfo member) => member switch
 	{
 		MethodBase method => method.IsStatic,
 		PropertyInfo property => (property.GetMethod ?? property.SetMethod)!.IsStatic,
@@ -480,7 +661,7 @@ internal static class MemberNodes
 		_ => true,
 	};
 
-	private static bool IsInitOnly(MethodInfo setter) =>
+	internal static bool IsInitOnly(MethodInfo setter) =>
 		Array.Exists(setter.ReturnParameter.GetRequiredCustomModifiers(), static modifier => modifier == typeof(IsExternalInit));
 
 	private static HashSet<string> Names(List<PinDescription> pins)

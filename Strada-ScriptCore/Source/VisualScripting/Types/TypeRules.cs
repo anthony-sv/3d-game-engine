@@ -11,6 +11,8 @@ internal enum PinConstraint
 	Numeric,
 	Reference,
 	Array,
+	// The operands of formulas (spec-slice3 section 3.3.5): bool, the numeric primitives and Strada.Vector2, Vector3, Vector4.
+	Expression,
 }
 
 // How a link turns the value of its output into a value of its input's type (spec section 3.4).
@@ -95,6 +97,12 @@ internal static class TypeRules
 		{
 			return ConversionKind.Widen;
 		}
+		// Arrays have no covariance (spec-slice3 section 3.4.1): a Player[] is no Entity[], though the CLR lets one be read as
+		// the other.
+		if (to.Kind == TypeKind.Array)
+		{
+			return null;
+		}
 		return from.IsClrReference && to.IsClrReference && to.ClrType!.IsAssignableFrom(from.ClrType) ? ConversionKind.Upcast : null;
 	}
 
@@ -140,6 +148,8 @@ internal static class TypeRules
 		PinConstraint.Numeric => type.IsNumeric,
 		PinConstraint.Reference => type.IsReference,
 		PinConstraint.Array => type.HasValues && type.Kind == TypeKind.Array,
+		PinConstraint.Expression => type.HasValues && (type.Kind is TypeKind.Bool or TypeKind.Integer or TypeKind.Float ||
+			type.ClrType == typeof(Vector2) || type.ClrType == typeof(Vector3) || type.ClrType == typeof(Vector4)),
 		_ => type.HasValues,
 	};
 
@@ -148,6 +158,7 @@ internal static class TypeRules
 		PinConstraint.Numeric => "a number",
 		PinConstraint.Reference => "a reference (an entity, component, asset, object or array)",
 		PinConstraint.Array => "an array",
+		PinConstraint.Expression => "a bool, a number or a vector (Vector2, Vector3, Vector4)",
 		_ => "a value",
 	};
 

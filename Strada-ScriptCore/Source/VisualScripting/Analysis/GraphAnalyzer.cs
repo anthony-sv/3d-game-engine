@@ -6,19 +6,34 @@ namespace Strada.VisualScripting;
 
 // Analyzes documents (spec section 6.2): resolves every node against the library, shapes its pins from its settings,
 // resolves wildcard types, decodes literals and checks every rule of spec sections 2 to 4. Any input gives a result: a
-// document that is not a JSON object is a single Error InvalidDocument.
+// document that is not a JSON object is a single Error InvalidDocument. The other graphs the document's nodes refer to come
+// from a references bundle (spec-slice3 section 2.4); the function libraries among them are analyzed as documents of their
+// own, with the same bundle, and kept in the runtime's cache (spec-slice3 section 4.4.3).
 internal static class GraphAnalyzer
 {
-	internal static AnalyzedDocument Analyze(NodeLibrary library, ReadOnlySpan<byte> utf8)
+	// A document without references: every Graph setting names a graph that is absent.
+	internal static AnalyzedDocument Analyze(NodeLibrary library, ReadOnlySpan<byte> utf8) => Analyze(library, utf8, GraphReferences.Empty, new LibraryAnalyses());
+
+	// name is the document's asset path when known (a load), which messages then use for it.
+	internal static AnalyzedDocument Analyze(NodeLibrary library, ReadOnlySpan<byte> utf8, GraphReferences references, LibraryAnalyses libraries,
+		string? name = null)
 	{
 		List<Diagnostic> diagnostics = [];
 		GraphDocument? document = DocumentReader.Read(utf8, diagnostics);
-		return document != null ? Analyze(library, document, diagnostics) : new AnalyzedDocument(library, diagnostics, [], [], new AnalyzedGraph(0, null));
+		if (document == null)
+		{
+			return new AnalyzedDocument(library, diagnostics, [], [], new AnalyzedGraph(0, null));
+		}
+		// Only libraries of the bundle read the analyzed document's text (to cache what they read of it).
+		ReferenceScope scope = new(library, references, libraries, name, document, references.Count > 0 ? utf8.ToArray() : []);
+		return Analyze(new AnalysisContext(library, document, diagnostics, scope, references.Self, name));
 	}
 
-	internal static AnalyzedDocument Analyze(NodeLibrary library, GraphDocument document, List<Diagnostic> diagnostics)
+	internal static AnalyzedDocument Analyze(AnalysisContext context)
 	{
-		AnalysisContext context = new(library, document, diagnostics);
+		GraphDocument document = context.Document;
+		List<Diagnostic> diagnostics = context.Diagnostics;
+		NodeLibrary library = context.Library;
 		DeclareVariables(context);
 		DeclareFunctions(context);
 		AnalyzedGraph eventGraph = new(0, null);
@@ -33,9 +48,14 @@ internal static class GraphAnalyzer
 		{
 			CreateNodes(context, graph, source);
 		}
+		if (document.Kind == DocumentKind.Library)
+		{
+			CheckLibrary(context, eventGraph);
+		}
 		ComputeLatency(context);
 		Dictionary<AnalyzedNode, VisualType> convertTargets = [];
-		NodeShaper shaper = new(context, convertTargets);
+		Dictionary<AnalyzedNode, ParsedFormula> formulas = [];
+		NodeShaper shaper = new(context, convertTargets, formulas);
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			foreach (AnalyzedNode node in graph.Nodes)
@@ -60,7 +80,7 @@ internal static class GraphAnalyzer
 		{
 			AttachLinks(context, graph, source);
 		}
-		TypeResolution types = new(context, convertTargets, node => SplitResolved(context, node));
+		TypeResolution types = new(context, convertTargets, formulas, node => SplitResolved(context, node));
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			types.Resolve(graph);
@@ -78,6 +98,13 @@ internal static class GraphAnalyzer
 		{
 			CheckLinks(context, graph);
 		}
+		if (document.Kind == DocumentKind.Script)
+		{
+			foreach ((AnalyzedGraph graph, _) in graphs)
+			{
+				CheckTargets(context, graph);
+			}
+		}
 		foreach ((AnalyzedGraph graph, _) in graphs)
 		{
 			foreach (AnalyzedNode node in graph.Nodes)
@@ -87,7 +114,73 @@ internal static class GraphAnalyzer
 		}
 		GraphRules.Check(context, context.Functions, eventGraph);
 		DemoteDisabledNodeDiagnostics(diagnostics, graphs);
-		return new AnalyzedDocument(library, diagnostics, context.Variables, context.Functions, eventGraph);
+		return new AnalyzedDocument(library, diagnostics, context.Variables, context.Functions, eventGraph)
+		{
+			Kind = document.Kind,
+			Linked = Link(context.Links),
+		};
+	}
+
+	// The libraries the document's calls reach: those it calls, and theirs.
+	private static Dictionary<ulong, LinkedLibrary> Link(IReadOnlyDictionary<ulong, LinkedLibrary> links)
+	{
+		Dictionary<ulong, LinkedLibrary> linked = [];
+		foreach (KeyValuePair<ulong, LinkedLibrary> link in links)
+		{
+			linked.TryAdd(link.Key, link.Value);
+			foreach (KeyValuePair<ulong, LinkedLibrary> reached in link.Value.Analysis.Linked)
+			{
+				linked.TryAdd(reached.Key, reached.Value);
+			}
+		}
+		return linked;
+	}
+
+	// A function library (spec-slice3 section 4.4.1) runs on no entity: its functions run for the graphs that call them, so
+	// it has no variables and no event graph (comment boxes there are allowed).
+	private static void CheckLibrary(AnalysisContext context, AnalyzedGraph eventGraph)
+	{
+		foreach (DocumentVariable variable in context.Document.Variables)
+		{
+			context.ReportVariable(DiagnosticCode.LibraryVariable, 0, variable.ID,
+				$"{variable.Name}: a library has no variables: its functions run for the graph that calls them; use a local or an input");
+		}
+		foreach (AnalyzedNode node in eventGraph.Nodes)
+		{
+			context.ReportNode(DiagnosticCode.LibraryEventGraph, node, "a library has no event graph: its functions run when graphs call them");
+		}
+	}
+
+	// In a script, an unlinked Target is Self, which runs this script (spec-slice3 sections 4.3, 4.5 and 4.7): a typed Send to
+	// another script never reaches a receiver (a Warning), a variable of another script cannot be read or written on it (an
+	// Error), and RunsGraph of another script is always false (a Warning). In a library an unlinked Target is the calling
+	// entity, which may run any script.
+	private static void CheckTargets(AnalysisContext context, AnalyzedGraph graph)
+	{
+		foreach (AnalyzedNode node in graph.Nodes)
+		{
+			if (node.Binding == null || node.FindPin("Target", PinDirection.In) is not { IsConnected: false })
+			{
+				continue;
+			}
+			string self = context.SelfTarget.Name;
+			switch (node.Binding)
+			{
+				case CustomEventBinding { Target: { IsOtherScript: true } target } when node.Builtin == BuiltinNode.EventSend:
+					context.ReportGraph(DiagnosticCode.TargetIsSelf, node, target.Graph,
+						$"Target: Self runs {self}, not {target.Name}: link the entity to send to");
+					break;
+				case RemoteVariableBinding { OwnGraph: false } remote:
+					string access = node.Builtin == BuiltinNode.VariableSet ? "write to" : "read from";
+					context.ReportGraph(DiagnosticCode.UnlinkedTarget, node, remote.Graph,
+						$"Target: Self runs {self}, not {remote.GraphName}: link the entity to {access}");
+					break;
+				case RunsGraphBinding { OwnGraph: false } runs:
+					context.ReportGraph(DiagnosticCode.TargetIsSelf, node, runs.Graph,
+						$"Target: Self runs {self}, so this is always false: link the entity to test");
+					break;
+			}
+		}
 	}
 
 	private static void DeclareVariables(AnalysisContext context)
@@ -98,7 +191,7 @@ internal static class GraphAnalyzer
 				context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: {message}", suggestions));
 			object? value = type != null
 				? Declarations.DecodeValue(type, variable.Value, (code, message) =>
-					context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: Value: {message}"))
+					context.ReportVariable(code, 0, variable.ID, $"{variable.Name}: {message}"))
 				: null;
 			context.Add(new AnalyzedVariable(variable.ID, variable.Name, variable.Type, type, value, variable.Public, variable.FormerNames, null));
 		}
@@ -117,7 +210,7 @@ internal static class GraphAnalyzer
 					context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: {message}", suggestions));
 				object? value = type != null
 					? Declarations.DecodeValue(type, local.Value, (code, message) =>
-						context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: Value: {message}"))
+						context.ReportVariable(code, source.ID, local.ID, $"{source.Name}: local {local.Name}: {message}"))
 					: null;
 				function.AddLocal(new AnalyzedVariable(local.ID, local.Name, local.Type, type, value, false, [], function));
 			}
@@ -138,7 +231,7 @@ internal static class GraphAnalyzer
 			}
 			VisualType? type = Declarations.ResolveType(context, parameter.Type, false, (code, message, suggestions) =>
 				context.ReportFunction(code, function.ID, $"{function.Name}: the {what} {parameter.Name}: {message}", suggestions));
-			declared.Add(new AnalyzedParameter(parameter.Name, parameter.Type, type));
+			declared.Add(new AnalyzedParameter(parameter.Name, parameter.Type, type) { FormerNames = parameter.FormerNames });
 		}
 		return declared;
 	}
@@ -155,7 +248,8 @@ internal static class GraphAnalyzer
 		{
 			AnalyzedNode node = new(documentNode, graph);
 			graph.Add(node);
-			NodeResolver.Resolve(context, node, storedPins.GetValueOrDefault(documentNode.ID) ?? []);
+			node.StoredPins = storedPins.GetValueOrDefault(documentNode.ID) ?? [];
+			NodeResolver.Resolve(context, node, node.StoredPins);
 		}
 	}
 
@@ -169,9 +263,10 @@ internal static class GraphAnalyzer
 		pins.Add((direction, pin));
 	}
 
-	// An impure function is latent when its graph holds a latent node or calls a latent function (spec section 4.3). A
-	// disabled node never waits (it passes the flow on), so it makes no function latent; latent nodes and calls of latent
-	// functions are impure, so their Enabled alone says whether they are disabled.
+	// An impure function is latent when its graph holds a latent node or calls a latent function (spec section 4.3), of the
+	// document or of a library (whose latency is final once its own analysis ended: libraries call no cycles,
+	// spec-slice3 section 4.4.3). A disabled node never waits (it passes the flow on), so it makes no function latent; latent
+	// nodes and calls of latent functions are impure, so their Enabled alone says whether they are disabled.
 	private static void ComputeLatency(AnalysisContext context)
 	{
 		bool changed = true;
@@ -187,8 +282,7 @@ internal static class GraphAnalyzer
 				foreach (AnalyzedNode node in function.Graph.Nodes)
 				{
 					bool latent = !node.Source.Disabled && node.Builtin is { } builtin && (BuiltinNodes.IsLatent(builtin) ||
-						(builtin == BuiltinNode.FunctionCall && node.Source.Settings.TryGet("Function", out JsonElement id) &&
-						 id.ValueKind == JsonValueKind.Number && id.TryGetUInt32(out uint callee) && context.FindFunction(callee) is { Latent: true }));
+						(builtin == BuiltinNode.FunctionCall && FindCallee(context, node) is { Latent: true }));
 					if (latent)
 					{
 						function.Latent = true;
@@ -198,6 +292,17 @@ internal static class GraphAnalyzer
 				}
 			}
 		}
+	}
+
+	// The function a Function.Call calls, from its raw settings: a function of the document, or of the library its Graph
+	// names; null when the settings name none.
+	private static AnalyzedFunction? FindCallee(AnalysisContext context, AnalyzedNode node)
+	{
+		if (!node.Source.Settings.TryGet("Function", out JsonElement id) || id.ValueKind != JsonValueKind.Number || !id.TryGetUInt32(out uint callee))
+		{
+			return null;
+		}
+		return context.ResolveCall(node) is { } call ? call.Analysis?.FindFunction(callee) : context.FindFunction(callee);
 	}
 
 	// Nodes whose Enabled is "Disabled" (once types are resolved, which decides whether a Reroute is pure): Function.Entry,
@@ -227,8 +332,9 @@ internal static class GraphAnalyzer
 	}
 
 	// Where the flow entering a disabled node continues: its Then output, else Completed, else Default, else its first exec
-	// output that is not a Tick output. Null when no flow enters it (it has no exec input: an event starts no execution) or
-	// it has no such output (an unknown node's pins are typed by nothing, so it has no exec output).
+	// output, none of them a Tick output (a Timeline's event track named Completed is no exit). Null when no flow enters it
+	// (it has no exec input: an event starts no execution) or it has no such output (an unknown node's pins are typed by
+	// nothing, so it has no exec output; every exec output of a Timeline is a Tick output).
 	private static AnalyzedPin? FindPassThrough(AnalyzedNode node)
 	{
 		bool entered = false;
@@ -247,6 +353,10 @@ internal static class GraphAnalyzer
 				entered = true;
 				continue;
 			}
+			if (pin.Description.Role == PinRole.Tick)
+			{
+				continue;
+			}
 			switch (pin.Name)
 			{
 				case "Then":
@@ -259,10 +369,7 @@ internal static class GraphAnalyzer
 					otherwise ??= pin;
 					break;
 			}
-			if (pin.Description.Role != PinRole.Tick)
-			{
-				first ??= pin;
-			}
+			first ??= pin;
 		}
 		return entered ? then ?? completed ?? otherwise ?? first : null;
 	}
@@ -550,9 +657,17 @@ internal static class GraphAnalyzer
 				pin.Type = context.Library.String;
 				continue;
 			}
-			string hint = node.Builtin is { } builtin && BuiltinNodes.IsBinaryWildcardOperator(builtin)
-				? " (or connect the other operand and store a value here)"
-				: string.Empty;
+			// An Expression's input stays untyped only when its links' types are no formula operands: CheckLinks reported them.
+			if (node.Builtin == BuiltinNode.Expression && pin.Links.Count > 0)
+			{
+				continue;
+			}
+			string hint = node.Builtin switch
+			{
+				{ } builtin when BuiltinNodes.IsBinaryWildcardOperator(builtin) => " (or connect the other operand and store a value here)",
+				BuiltinNode.ArrayMake => " (or set Type: the element type)",
+				_ => string.Empty,
+			};
 			// An input whose links are all errors (from disabled nodes whose outputs it refuses, say) is unconnected.
 			context.ReportPin(DiagnosticCode.UnresolvedWildcard, node, pin.Name, PinDirection.In, pin.Links.Count > 0
 				? $"the type of {pin.Name} is unknown: none of its links gives it a value{hint}"
@@ -615,10 +730,10 @@ internal static class GraphAnalyzer
 			switch (decoded.Problem)
 			{
 				case LiteralProblem.InvalidValue:
-					context.ReportPin(DiagnosticCode.InvalidValue, node, name, PinDirection.In, $"{name}: {decoded.Message}");
+					context.ReportPin(DiagnosticCode.InvalidValue, node, name, PinDirection.In, decoded.Describe(name));
 					continue;
 				case LiteralProblem.EntityValue:
-					context.ReportPin(DiagnosticCode.EntityValue, node, name, PinDirection.In, $"{name}: {decoded.Message}");
+					context.ReportPin(DiagnosticCode.EntityValue, node, name, PinDirection.In, decoded.Describe(name));
 					continue;
 			}
 			pin.HasLiteral = true;

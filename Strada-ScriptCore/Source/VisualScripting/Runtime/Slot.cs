@@ -129,7 +129,8 @@ internal static class SlotValues
 		};
 	}
 
-	// The slot of a value boxed as the type's CLR type (null for no reference).
+	// The slot of a value boxed as the type's CLR type (null for no reference; for an array, its empty array: arrays are never
+	// null in a graph, spec-slice3 section 3.4.2).
 	internal static Slot FromValue(object? value, VisualType type) => KindOf(type) switch
 	{
 		SlotKind.Bool => Slot.FromBool((bool)value!),
@@ -146,6 +147,7 @@ internal static class SlotValues
 		SlotKind.Color => Slot.FromColor((Color)value!),
 		SlotKind.Enum => Slot.FromULong(LiteralCodec.ToBits(value!)),
 		_ when type.ClrType == typeof(string) => Slot.FromString((string?)value),
+		_ when type.Kind == TypeKind.Array => Slot.FromObject(value ?? LiteralCodec.DefaultOf(type)),
 		_ => Slot.FromObject(value),
 	};
 

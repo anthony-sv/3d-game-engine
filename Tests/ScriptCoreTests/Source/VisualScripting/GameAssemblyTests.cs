@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -154,6 +155,49 @@ public sealed class GameAssemblyTests
 		GraphInstance instance = runtime.Runtime.FindInstance(TestRuntime.Hero)!;
 		return (new WeakReference(instance.Program), new WeakReference(instance));
 	}
+
+	// A graph that calls a member of the game and holds an array of a game enum (spec-slice3 section 3.7.5): unloading the
+	// game assembly leaves nothing of it reachable, the array included, and the members' invokers go with the programs.
+	[Fact]
+	public void GameMembersAndArraysOfGameTypesAreDroppedOnUnload()
+	{
+		SwitchingRuntime runtime = new() { Library = GameTesting.Library };
+		TestGame.Probe.Reset();
+		(WeakReference program, WeakReference instance, WeakReference elements) = RunGameMembers(runtime);
+		Assert.Equal(["Record Fire,Earth"], TestGame.Probe.Calls);
+		Assert.Equal(1, runtime.Runtime.InvokerCount);
+
+		runtime.Runtime.OnGameAssemblyUnloading();
+		Assert.Equal(0, runtime.Runtime.InstanceCount);
+		Assert.Equal(0, runtime.Runtime.InvokerCount);
+		Assert.Null(runtime.Runtime.FindEffectiveProgram(TestRuntime.Graph));
+		for (int attempt = 0; attempt < 10 && (program.IsAlive || instance.IsAlive || elements.IsAlive); attempt++)
+		{
+			GC.Collect();
+			GC.WaitForPendingFinalizers();
+		}
+		Assert.False(program.IsAlive);
+		Assert.False(instance.IsAlive);
+		Assert.False(elements.IsAlive);
+	}
+
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static (WeakReference Program, WeakReference Instance, WeakReference Elements) RunGameMembers(SwitchingRuntime runtime)
+	{
+		DocumentBuilder document = new();
+		uint elements = document.Variable("Elements", "TestGame.Element[]", """["Fire", "Earth"]""");
+		GraphBuilder graph = document.Graph;
+		uint record = graph.Node("Call:TestGame.Probe.Record(TestGame.Element[])");
+		graph.Link(graph.Get(elements), "Value", record, "Elements");
+		graph.Flow(graph.Node("Event.Create"), record);
+		runtime.Load(document.Build());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Runtime.Invoke(TestRuntime.Hero, ScriptEvent.Create, 0.0f, 0));
+		GraphInstance instance = runtime.Runtime.FindInstance(TestRuntime.Hero)!;
+		object array = instance.ReadVariable(instance.FindVariable("Elements"))!;
+		Assert.Equal(new[] { TestGame.Element.Fire, TestGame.Element.Earth }, array);
+		return (new WeakReference(instance.Program), new WeakReference(instance), new WeakReference(array));
+	}
 }
 
 // The engine's node library is built once per set of assemblies, on whichever thread asks first.
@@ -174,5 +218,22 @@ public sealed class EngineLibraryTests
 		NodeLibrary second = EngineLibrary.Get();
 		Assert.NotSame(first, second);
 		Assert.Equal(LibraryWriter.Write(first), LibraryWriter.Write(second));
+	}
+
+	// Each build reports the notes of the game's [VisualNode] members once (spec-slice3 section 3.7.2): analyzing with the
+	// library reports nothing again; the next build, after a game assembly reloaded, reports them again.
+	[Fact]
+	public void EachBuildLogsTheNotesOnce()
+	{
+		List<string> warnings = [];
+		NodeLibrary library = EngineLibrary.Build(GameTesting.Sources(), warnings.Add);
+		Assert.NotEmpty(library.Notes);
+		Assert.Equal(library.Notes.Select(static note => note.Message), warnings);
+
+		VisualScriptTesting.Analyze(library, VisualScriptTesting.Document("""{ "ID": 1, "Type": "Call:TestGame.Probe.Swap(int,int)" }"""));
+		Assert.Equal(library.Notes.Count, warnings.Count);
+
+		EngineLibrary.Build(GameTesting.Sources(), warnings.Add);
+		Assert.Equal(2 * library.Notes.Count, warnings.Count);
 	}
 }

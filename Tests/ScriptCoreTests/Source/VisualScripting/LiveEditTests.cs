@@ -9,8 +9,63 @@ namespace Strada.ScriptCore.Tests;
 // their variables, node states, stored outputs and fibers as far as they still mean the same.
 public sealed class LiveEditTests
 {
-	private static string Warning(uint latent, string latentTitle, string problem) =>
-		FormattableString.Invariant($"{TestRuntime.Name} on Hero ({TestRuntime.Hero}): the execution waiting in {latentTitle} (node {latent}) is cancelled: {problem}");
+	// library is the asset path of the library whose function holds the latent node, when one does.
+	private static string Warning(uint latent, string latentTitle, string problem, string? library = null) => FormattableString.Invariant(
+		$"{TestRuntime.Name} on Hero ({TestRuntime.Hero}): the execution waiting in {latentTitle} (node {latent}){(library != null ? " of " + library : string.Empty)} is cancelled: {problem}");
+
+	// Event.Create plays the timeline (node 2) of the setting from its start; its Update writes its curve Lift.
+	private static string TimelineDocument(string length, string lift, string enabled = "") => VisualScriptTesting.Document(
+		$$"""{ "ID": 1, "Type": "Event.Create" }, { "ID": 2, "Type": "Flow.Timeline", "Settings": { "Timeline": { "Length": {{length}}, "Tracks": [{ "Name": "Lift", "Type": "float", "Keys": [{ "Time": 0, "Value": 0, "Interpolation": "Linear" }, {{lift}}] }] } }{{enabled}} }, { "ID": 3, "Type": "{{RuntimeTesting.Write}}" }""",
+		"""{ "From": [1, "Then"], "To": [2, "PlayFromStart"] }, { "From": [2, "Update"], "To": [3, "Execute"] }, { "From": [2, "Lift"], "To": [3, "Text"] }""");
+
+	// Editing a playing timeline's keys changes its motion at the next update without restarting it (spec-slice3 section
+	// 3.8.6): its time and run carry over, its outputs follow the new curve.
+	[Fact]
+	public void EditingKeysKeepsAPlayingTimelinePlaying()
+	{
+		TestRuntime runtime = TestRuntime.Start(TimelineDocument("2", """{ "Time": 2, "Value": 2 }"""));
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["0.5"], runtime.Records);
+
+		runtime.LoadWorking(TimelineDocument("2", """{ "Time": 2, "Value": 4 }"""));
+		Assert.Single(runtime.Instance().Fibers);
+		Assert.Equal(0.5f, TimelineTests.OutputOf(runtime, 2, "Time"));
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["0.5", "2"], runtime.Records);
+		Assert.Equal(true, TimelineTests.OutputOf(runtime, 2, "Playing"));
+		Assert.Empty(runtime.Environment.Logs);
+	}
+
+	[Fact]
+	public void ShorteningClampsTheTime()
+	{
+		TestRuntime runtime = TestRuntime.Start(TimelineDocument("2", """{ "Time": 2, "Value": 2 }"""));
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Invoke(ScriptEvent.Update, 1.5f);
+
+		runtime.LoadWorking(TimelineDocument("1", """{ "Time": 1, "Value": 3 }"""));
+		runtime.Invoke(ScriptEvent.Update, 0.0f);
+		Assert.Equal(["1.5", "3"], runtime.Records);
+		Assert.Equal(1.0f, TimelineTests.OutputOf(runtime, 2, "Time"));
+		// At its end, so it finished.
+		Assert.Equal(false, TimelineTests.OutputOf(runtime, 2, "Playing"));
+		Assert.Empty(runtime.Instance().Fibers);
+	}
+
+	[Fact]
+	public void DisablingAPlayingTimelineCancelsItsRun()
+	{
+		TestRuntime runtime = TestRuntime.Start(TimelineDocument("2", """{ "Time": 2, "Value": 2 }"""));
+		runtime.Invoke(ScriptEvent.Create);
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+
+		runtime.LoadWorking(TimelineDocument("2", """{ "Time": 2, "Value": 2 }""", """, "Enabled": "Disabled" """));
+		Assert.Empty(runtime.Instance().Fibers);
+		Assert.Equal(Warning(2, "Timeline", "the edit disabled Timeline (node 2)"), Assert.Single(runtime.Environment.Warnings));
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["0.5"], runtime.Records);
+	}
 
 	[Fact]
 	public void AnUnrelatedEditKeepsAPendingDelayLoopRunning()
@@ -230,7 +285,7 @@ public sealed class LiveEditTests
 		runtime.LoadWorking(document.Build());
 		Execution fiber = Assert.Single(runtime.Instance().Fibers);
 		Assert.Equal(2, fiber.CallCount);
-		Assert.Same(runtime.Instance().Program.FindFunction(wait.Id)!.Graph, fiber.TopFrame.Graph);
+		Assert.Same(runtime.Instance().Program.FindFunction(0, wait.Id)!.Body, fiber.TopFrame.Graph);
 		runtime.Invoke(ScriptEvent.Update, 0.25f);
 		Assert.Equal(["9", "returned"], runtime.Records);
 	}
@@ -255,5 +310,102 @@ public sealed class LiveEditTests
 		Assert.Equal([Warning(delay, "Delay", "the edit changed the function Wait")], runtime.Environment.Warnings);
 		runtime.Invoke(ScriptEvent.Update, 1.0f);
 		Assert.Empty(runtime.Records);
+	}
+
+	// A graph that calls a library runs the functions the library had when the graph was loaded; a change of the library
+	// loads the graph again (spec-slice3 section 4.4.4), and its instances swap as for any edit: a fiber waiting in the
+	// library's function keeps waiting while the nodes it holds remain, and the variables carry over.
+	private static (TestRuntime Runtime, string Document, uint Count) StartWaitingInTheLibrary()
+	{
+		MotionLibrary library = new();
+		DocumentBuilder document = new();
+		uint count = document.Variable("Count", "int", "1");
+		GraphBuilder graph = document.Graph;
+		uint set = graph.Set(count, "5");
+		uint pause = graph.Node("Function.Call", CrossGraphTesting.Call(library.Pause, CrossGraphTesting.Motion), """{ "Seconds": 0.5 }""");
+		graph.Flow(graph.Node("Event.Create"), set);
+		graph.Flow(set, pause);
+		graph.Writes(pause, "Then", "after");
+		TestRuntime runtime = new();
+		runtime.LoadWorking(document.Build(), references: library.Bundle());
+		Assert.Equal(VisualScriptStatus.Success, runtime.Create());
+		runtime.Invoke(ScriptEvent.Create);
+		Assert.Single(runtime.Instance().Fibers);
+		return (runtime, document.Build(), count);
+	}
+
+	[Fact]
+	public void AFiberWaitingInALibraryFunctionSurvivesAChangeOfTheLibrary()
+	{
+		(TestRuntime runtime, string document, _) = StartWaitingInTheLibrary();
+		GraphProgram before = runtime.Instance().Program;
+		MotionLibrary changed = new();
+		changed.Report.Graph.Write("more");
+
+		runtime.LoadWorking(document, references: changed.Bundle());
+		Assert.NotSame(before, runtime.Instance().Program);
+		Execution fiber = Assert.Single(runtime.Instance().Fibers);
+		Assert.Same(runtime.Instance().Program.FindFunction(CrossGraphTesting.Motion, changed.Pause.Id)!.Body, fiber.TopFrame.Graph);
+		Assert.Equal(5, runtime.Variable("Count"));
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["resumed", "after"], runtime.Records);
+		Assert.Empty(runtime.Environment.Logs);
+	}
+
+	[Fact]
+	public void AFiberWhoseLatentNodeInALibraryIsGoneIsCancelledWithOneLogLine()
+	{
+		(TestRuntime runtime, string document, _) = StartWaitingInTheLibrary();
+		MotionLibrary changed = new("Disabled");
+
+		runtime.LoadWorking(document, references: changed.Bundle());
+		Assert.Empty(runtime.Instance().Fibers);
+		Assert.Equal(5, runtime.Variable("Count"));
+		// The messages name the library: node IDs collide across documents.
+		Assert.Equal(
+			[
+				Warning(changed.Delay, "Delay", FormattableString.Invariant($"the edit disabled Delay (node {changed.Delay}) of {CrossGraphTesting.MotionName}"),
+					CrossGraphTesting.MotionName),
+			],
+			runtime.Environment.Warnings);
+		runtime.Invoke(ScriptEvent.Update, 1.0f);
+		Assert.Empty(runtime.Records);
+	}
+
+	[Fact]
+	public void AFiberWhoseLatentNodeInALibraryWasRemovedIsCancelledWithOneLogLine()
+	{
+		(TestRuntime runtime, string document, _) = StartWaitingInTheLibrary();
+		uint removed = new MotionLibrary().Delay;
+		MotionLibrary changed = new(replaceDelay: true);
+		Assert.NotEqual(removed, changed.Delay);
+
+		runtime.LoadWorking(document, references: changed.Bundle());
+		Assert.Empty(runtime.Instance().Fibers);
+		Assert.Equal(5, runtime.Variable("Count"));
+		Assert.Equal(
+			[
+				Warning(removed, "Delay", FormattableString.Invariant($"the edit removed or changed Delay (node {removed}) of {CrossGraphTesting.MotionName}"),
+					CrossGraphTesting.MotionName),
+			],
+			runtime.Environment.Warnings);
+		runtime.Invoke(ScriptEvent.Update, 1.0f);
+		Assert.Empty(runtime.Records);
+	}
+
+	[Fact]
+	public void ABrokenLibraryLeavesTheGraphsThatCallItOnTheirWorkingProgram()
+	{
+		(TestRuntime runtime, string document, _) = StartWaitingInTheLibrary();
+		GraphProgram working = runtime.Instance().Program;
+		MotionLibrary broken = new();
+		broken.Pause.Graph.Node("Flow.Nothing");
+
+		Diagnostic error = Assert.Single(runtime.Load(document, references: broken.Bundle()), static diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+		Assert.Equal(DiagnosticCode.ReferenceError, error.Code);
+		Assert.Same(working, runtime.Runtime.FindEffectiveProgram(TestRuntime.Graph));
+		Assert.Same(working, runtime.Instance().Program);
+		runtime.Invoke(ScriptEvent.Update, 0.5f);
+		Assert.Equal(["resumed", "after"], runtime.Records);
 	}
 }

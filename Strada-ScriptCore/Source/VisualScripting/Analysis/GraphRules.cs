@@ -155,7 +155,8 @@ internal static class GraphRules
 	}
 
 	// A pure function that calls itself, directly or through other pure functions, could never return (pure calls evaluate
-	// their inputs eagerly): an Error on each such call.
+	// their inputs eagerly): an Error on each such call. Calls of libraries' functions are no part of it: libraries never
+	// call back into a graph that calls them (spec-slice3 section 4.4.3).
 	private static void CheckPureRecursion(AnalysisContext context, IReadOnlyList<AnalyzedFunction> functions)
 	{
 		List<AnalyzedFunction> pure = [];
@@ -172,7 +173,7 @@ internal static class GraphRules
 		{
 			foreach (AnalyzedNode node in function.Graph.Nodes)
 			{
-				if (node.Builtin == BuiltinNode.FunctionCall && node.Binding is FunctionBinding { Function: { Pure: true } callee })
+				if (node.Builtin == BuiltinNode.FunctionCall && node.Binding is FunctionBinding { Graph: 0, Function: { Pure: true } callee })
 				{
 					calls[function].Add(callee);
 				}
@@ -193,7 +194,7 @@ internal static class GraphRules
 			foreach (AnalyzedNode node in function.Graph.Nodes)
 			{
 				// A call within its own component is on a cycle (a call of the function itself is a cycle of one).
-				if (node.Builtin == BuiltinNode.FunctionCall && node.Binding is FunctionBinding { Function: { Pure: true } callee } &&
+				if (node.Builtin == BuiltinNode.FunctionCall && node.Binding is FunctionBinding { Graph: 0, Function: { Pure: true } callee } &&
 					componentOf[callee] == componentOf[function])
 				{
 					context.ReportNode(DiagnosticCode.PureRecursion, node,
@@ -205,7 +206,7 @@ internal static class GraphRules
 	}
 
 	// Tarjan's algorithm without recursion (graphs may hold thousands of nodes); components in discovery order.
-	private static List<List<T>> StronglyConnected<T>(List<T> vertices, Dictionary<T, List<T>> edges)
+	internal static List<List<T>> StronglyConnected<T>(List<T> vertices, Dictionary<T, List<T>> edges)
 		where T : notnull
 	{
 		Dictionary<T, int> order = [];
