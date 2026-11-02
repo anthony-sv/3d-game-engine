@@ -49,6 +49,13 @@ except the migration fixtures; the content form has no version.
   `ProgramTests` and the fuzz fixtures of `RobustnessTests` and `DeterminismTests`, and
   `FixtureAnalysisTests.TheLanguageDocumentRuns` runs it without an aborting error: its timeline logs its `Step` keys and,
   when it finished, `Lift`.
+- **Slice 3, track VX** (ScriptCoreTests, `LibraryTests.TheLibraryFixtureAnalyzesAsALibraryAndItsFunctionsRun`): the
+  content of `Library.sgraph` analyzes as a function library with zero Errors, and a script that calls `Clamp01` by its
+  input's former name `X`, `Report` and the latent `Pause` through a references bundle runs them: `Report` logs the clamped
+  value, and `Pause` reports `paused` once its delay is over. VX's last step adds slice 3's kinds that the editor's
+  headless tests use to `Editor/Library.json` (below): `Expression`, `Flow.Timeline`, `Array.Make`, `String.Length`, the
+  inferred `Assert.AreEqual`, `Event.Broadcast` and `RunsGraph`, and the `Graph` setting of `Variable.Get` and
+  `Variable.Set`.
 - **Track B** (ScriptCoreTests): every document and the content of `Example.sgraph` analyze with zero Error
   diagnostics. The test project copies this directory to its output as `VisualScripting/`.
 - **Track C** (StradaTests, `VisualScriptEngineTests`): the documents load and run through `VisualScriptEngine`.
@@ -67,8 +74,8 @@ deviations".
 
 ## The editor's node library
 
-`Editor/Library.json` holds the runtime's own entries, as `graph.types` and `graph.library` report them, for 41 node
-kinds and 28 types: types in ID order and nodes in library order (by category, then title, then type), each entry
+`Editor/Library.json` holds the runtime's own entries, as `graph.types` and `graph.library` report them, for 48 node
+kinds and 29 types: types in ID order and nodes in library order (by category, then title, then type), each entry
 unchanged. They cover every kind of node a library has (`Unknown` is only the analysis') and every kind of type the
 scripting API has (there is no type of kind `Class` in it): input events with an enum setting; flow with outputs and
 wildcards that depend on settings; latent nodes, one with a tick (`Flow.Tween`); every node whose pins come from its
@@ -76,29 +83,36 @@ settings (variables, functions, custom events, `Flow.Sequence`, `Flow.Switch`, `
 `Make`, `Break` and the generic calls below); the wildcards of `Reroute`, `Select`, `IsValid`, the operators,
 `Flow.ForEach` and `Array.Get`; and the scripting API's calls, getters, a setter, a constructor, the generic
 `GetComponent<T>` and `Load<T>` (whose `TypeArguments` setting types their pins), an out struct whose fields split again
-(`Physics.Raycast`'s `Hit`), and inputs of an enum, an asset and a colour. Every type an entry names (pins, settings,
-fields, elements, bases and implicit conversions) is one of its types.
+(`Physics.Raycast`'s `Hit`), and inputs of an enum, an asset and a colour; and slice 3's language and cross-graph kinds: a
+formula (`Expression`), a timeline, `Array.Make`, a `String` node, an inferred generic method (`Assert.AreEqual<T>`,
+whose `TypeArguments` setting is optional), `Event.Broadcast` and `RunsGraph`, and the `Graph` setting of the nodes that
+name other graphs (`Event.Send`, `Function.Call`, `Variable.Get`, `Variable.Set`). Every type an entry names (pins,
+settings, fields, elements, bases and implicit conversions) is one of its types.
 
 - Nodes: `Call:Strada.Assets.Load<T>(string)`, `Get:Strada.ParticleSystemComponent.SpeedMax`,
   `Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)`,
   `Get:Strada.TransformComponent.Translation`, `Set:Strada.TransformComponent.Translation`, `Convert`,
   `Call:Strada.Log.Info(string)`, `Call:Strada.Entity.GetComponent<T>()`,
-  `Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)`, `Event.Create`,
-  `Event.Custom`, `Event.KeyPressed`, `Event.Send`, `Event.Update`, `Flow.Branch`, `Flow.Delay`, `Flow.ForEach`,
-  `Flow.Sequence`, `Flow.Switch`, `Flow.Tween`, `Function.Call`, `Function.Entry`, `Function.Return`,
-  `Call:Strada.Input.IsKeyDown(Strada.KeyCode)`, `Call:Strada.Color.Lerp(Strada.Color,Strada.Color,float)`,
-  `Operator.Add`, `Operator.Less`, `New:Strada.Vector3(float,float,float)`,
+  `Call:Strada.Entity.Instantiate(Strada.Prefab,Strada.Vector3,Strada.Quaternion,Strada.Entity)`, `Event.Broadcast`,
+  `Event.Create`, `Event.Custom`, `Event.KeyPressed`, `Event.Send`, `Event.Update`, `Flow.Branch`, `Flow.Delay`,
+  `Flow.ForEach`, `Flow.Sequence`, `Flow.Switch`, `Flow.Timeline`, `Flow.Tween`, `Function.Call`, `Function.Entry`,
+  `Function.Return`, `Call:Strada.Input.IsKeyDown(Strada.KeyCode)`, `Expression`,
+  `Call:Strada.Color.Lerp(Strada.Color,Strada.Color,float)`, `Operator.Add`, `Operator.Less`,
+  `New:Strada.Vector3(float,float,float)`,
   `Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)`, `Break`, `Make`,
-  `Get:Strada.Time.DeltaTime`, `FormatString`, `IsValid`, `Literal`, `Reroute`, `Select`, `Self`, `Array.Get`,
-  `Variable.Get`, `Variable.Set`.
+  `Call:Strada.Testing.Assert.AreEqual<T>(T,T,string)`, `Get:Strada.Time.DeltaTime`, `FormatString`, `IsValid`,
+  `Literal`, `Reroute`, `RunsGraph`, `Select`, `Self`, `Array.Get`, `Array.Make`, `String.Length`, `Variable.Get`,
+  `Variable.Set`.
 - Types: `Strada.Asset`, `Strada.AssetHandle`, `Strada.Color`, `Strada.Component`, `Strada.Entity`, `Strada.Entity[]`,
   `Strada.ForceMode`, `Strada.KeyCode`, `Strada.Matrix4`, `Strada.ParticleSystemComponent`, `Strada.Prefab`,
-  `Strada.Quaternion`, `Strada.Ray`, `Strada.RaycastHit`, `Strada.RigidBodyComponent`, `Strada.TransformComponent`,
-  `Strada.Vector3`, `Strada.Vector4`, `System.Object`, `bool`, `double`, `exec`, `float`, `int`, `long`, `string`, `uint`,
-  `ulong`.
+  `Strada.Quaternion`, `Strada.Ray`, `Strada.RaycastHit`, `Strada.RigidBodyComponent`, `Strada.TimelineDirection`,
+  `Strada.TransformComponent`, `Strada.Vector3`, `Strada.Vector4`, `System.Object`, `bool`, `double`, `exec`, `float`,
+  `int`, `long`, `string`, `uint`, `ulong`.
 
 When a change to the scripting API changes one of these entries, copy the file the parity test writes over this one, or
-regenerate it from an editor without a project open (whose library has no game script classes):
+regenerate it from an editor without a project open (whose library has no game script classes). The parity test writes
+the runtime's entries of the node kinds the fixture has: to add a kind, add any valid entry of its `Type` first (a copy of
+`Self`'s with the type changed), then copy the file it writes, which also brings the types the new entries name.
 
 ```sh
 strada launch --headless                                          # prints the editor's process ID

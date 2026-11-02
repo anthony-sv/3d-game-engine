@@ -231,6 +231,22 @@ internal sealed partial class VisualScriptRuntime
 						}
 						Follow(execution, node, 0);
 						break;
+					case Opcode.Broadcast:
+						Evaluate(execution, node, frame);
+						if (Broadcast(execution, node, slots) == ExecutionResult.Aborted)
+						{
+							return ExecutionResult.Aborted;
+						}
+						Follow(execution, node, 0);
+						break;
+					case Opcode.RemoteSet:
+						Evaluate(execution, node, frame);
+						(GraphInstance receiver, int variable) = FindRemoteVariable(execution, node, slots);
+						Slot written = slots[node.InputBase + 1];
+						receiver.Variables[variable] = written;
+						slots[node.OutputBase] = written;
+						Follow(execution, node, 0);
+						break;
 					case Opcode.PassThrough:
 						Evaluate(execution, node, frame);
 						PassThrough(node, frame);
@@ -278,7 +294,7 @@ internal sealed partial class VisualScriptRuntime
 		execution.Entry = link.Entry;
 		if (execution.Debugger is { } debugger)
 		{
-			debugger.OnStep(execution.Instance, node.Id, node.ExitPins[exit]);
+			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, node.ExitPins[exit]);
 		}
 	}
 
@@ -289,7 +305,7 @@ internal sealed partial class VisualScriptRuntime
 		execution.Node = -1;
 		if (execution.Debugger is { } debugger)
 		{
-			debugger.OnStep(execution.Instance, node.Id, null);
+			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, null);
 		}
 	}
 
@@ -528,7 +544,7 @@ internal sealed partial class VisualScriptRuntime
 		execution.Entry = 0;
 		if (execution.Debugger is { } debugger)
 		{
-			debugger.OnStep(execution.Instance, node.Id, null);
+			debugger.OnStep(execution.Instance, node.Owner.Graph, node.Id, null);
 		}
 	}
 
@@ -541,7 +557,7 @@ internal sealed partial class VisualScriptRuntime
 		}
 		CompiledFunction function = call.Function!;
 		Frame callee = function.AcquireFrame();
-		int parameters = function.Graph.Nodes[function.EntryNode].OutputBase;
+		int parameters = function.Body.Nodes[function.EntryNode].OutputBase;
 		Array.Copy(frame.Slots, call.InputBase, callee.Slots, parameters, call.InputCount);
 		execution.PushCall(callee, call.Index, resumePlan, resumeIndex);
 		m_Depth++;
@@ -738,6 +754,15 @@ internal sealed partial class VisualScriptRuntime
 			case Opcode.VariableGet:
 				slots[output] = node.IsLocal ? slots[node.Count] : execution.Instance.Variables[node.Count];
 				break;
+			case Opcode.RemoteGet:
+				(GraphInstance receiver, int variable) = FindRemoteVariable(execution, node, slots);
+				slots[output] = receiver.Variables[variable];
+				break;
+			case Opcode.RunsGraph:
+				ulong tested = TargetOf(execution, node, slots);
+				bool runs = tested != 0 && m_Instances.TryGetValue(tested, out GraphInstance? instance) && instance.Graph == node.TargetGraph;
+				slots[output] = Slot.FromBool(runs);
+				break;
 			case Opcode.PureMember:
 				InvokeMember(execution, node, slots);
 				break;
@@ -787,7 +812,7 @@ internal sealed partial class VisualScriptRuntime
 		for (int index = 0; index < node.OutputCount; index++)
 		{
 			object? value = SlotValues.ToValue(slots[node.OutputBase + index], node.OutputTypes[index]);
-			debugger.OnValue(execution.Instance, node.Id, node.OutputPins[index], value);
+			debugger.OnValue(execution.Instance, node.Owner.Graph, node.Id, node.OutputPins[index], value);
 		}
 	}
 
@@ -836,7 +861,8 @@ internal sealed partial class VisualScriptRuntime
 
 	// Event.Send: the matching Event.Custom of the Target's instance runs as a nested execution with the parameter inputs as
 	// its outputs; it returns when that execution ends or suspends (the suspended part is a fiber of the Target's instance).
-	// Without a receiver a Warning is logged, once per node per instance. An abort in the nested execution aborts this one.
+	// Without a receiver a Warning is logged, once per node per instance; a typed Send (spec-slice3 section 4.3) has no
+	// receiver in an instance of another graph. An abort in the nested execution aborts this one.
 	private ExecutionResult Send(Execution execution, CompiledNode node, Slot[] slots)
 	{
 		Entity? target = node.TargetIsSelf ? m_Environment.GetEntity(execution.Instance.Entity) : (Entity?)slots[node.InputBase].Object;
@@ -850,21 +876,34 @@ internal sealed partial class VisualScriptRuntime
 			Warn(execution, node, $"{m_Environment.GetEntityName(target.ID)} ({target.ID}) runs no visual script to receive {node.EventName}");
 			return ExecutionResult.Ended;
 		}
-		CompiledGraph graph = receiver.Program.EventGraph;
-		int custom = receiver.Program.FindCustomEvent(node.EventName!);
-		if (custom < 0 || !SameTypes(graph.Nodes[custom].EventParameters, node.EventParameters))
+		if (node.TargetGraph != 0 && receiver.Graph != node.TargetGraph)
+		{
+			Warn(execution, node,
+				$"{node.EventName} was not sent: {m_Environment.GetEntityName(target.ID)} ({target.ID}) runs {receiver.Program.Name}, not {node.TargetName}");
+			return ExecutionResult.Ended;
+		}
+		int custom = FindReceiver(receiver.Program, node);
+		if (custom < 0)
 		{
 			Warn(execution, node,
 				$"the graph of {m_Environment.GetEntityName(target.ID)} ({target.ID}) has no custom event {node.EventName}({string.Join(", ", (object[])node.EventParameters)})");
 			return ExecutionResult.Ended;
 		}
+		return Deliver(execution, receiver, custom, slots, node.InputBase + 1);
+	}
+
+	// Runs the custom event node custom of the receiver's event graph as a nested execution of the one running, its outputs
+	// set from the staged inputs from arguments on: Ended when it ends or suspends (the suspended part is a fiber of the
+	// receiver), Aborted (with the nested execution's error) when it aborts.
+	private ExecutionResult Deliver(Execution execution, GraphInstance receiver, int custom, Slot[] slots, int arguments)
+	{
 		if (m_Depth >= MaxDepth)
 		{
 			throw new VisualScriptException(DepthMessage);
 		}
-		CompiledNode eventNode = graph.Nodes[custom];
-		Array.Copy(slots, node.InputBase + 1, receiver.Frame.Slots, eventNode.OutputBase, eventNode.OutputCount);
 		GraphProgram program = receiver.Program;
+		CompiledNode eventNode = program.EventGraph.Nodes[custom];
+		Array.Copy(slots, arguments, receiver.Frame.Slots, eventNode.OutputBase, eventNode.OutputCount);
 		Enter(program);
 		try
 		{
@@ -889,6 +928,142 @@ internal sealed partial class VisualScriptRuntime
 			Leave(program);
 		}
 	}
+
+	// Event.Broadcast (spec-slice3 section 4.6): the receivers are a snapshot of the live instances whose program has the
+	// event with exactly these parameter types (with Graph, only instances running that graph; the broadcasting instance
+	// only with IncludeSelf), ordered by creation. Examining an instance costs a step, so the budget bounds the scan. Each
+	// receiver that is still alive and still has the event (a live edit may swap its program meanwhile) runs it as Send's
+	// receiver does, and Count is how many ran it. An abort in a receiver aborts the broadcast: the receivers after it get
+	// nothing. The arguments are copied before the first delivery: a receiver may run this very node again in the same frame
+	// (a relay broadcasting the event on), which stages its own arguments over these.
+	private ExecutionResult Broadcast(Execution execution, CompiledNode node, Slot[] slots)
+	{
+		BroadcastScratch scratch = m_BroadcastScratches.TryPop(out BroadcastScratch? pooled) ? pooled : new BroadcastScratch();
+		List<GraphInstance> receivers = scratch.Receivers;
+		int argumentCount = node.EventParameters.Length;
+		try
+		{
+			foreach (GraphInstance instance in m_Instances.Values)
+			{
+				Step(execution, node);
+				bool reached = (node.TargetGraph == 0 || instance.Graph == node.TargetGraph) &&
+					(node.IncludeSelf || !ReferenceEquals(instance, execution.Instance));
+				if (reached && FindReceiver(instance.Program, node) >= 0)
+				{
+					receivers.Add(instance);
+				}
+			}
+			receivers.Sort(s_ByCreation);
+			if (scratch.Arguments.Length < argumentCount)
+			{
+				scratch.Arguments = new Slot[argumentCount];
+			}
+			Array.Copy(slots, node.InputBase, scratch.Arguments, 0, argumentCount);
+			int count = 0;
+			foreach (GraphInstance receiver in receivers)
+			{
+				int custom = receiver.IsAlive ? FindReceiver(receiver.Program, node) : -1;
+				if (custom < 0)
+				{
+					continue;
+				}
+				if (Deliver(execution, receiver, custom, scratch.Arguments, 0) == ExecutionResult.Aborted)
+				{
+					return ExecutionResult.Aborted;
+				}
+				count++;
+			}
+			slots[node.OutputBase] = Slot.FromInt(count);
+			return ExecutionResult.Ended;
+		}
+		finally
+		{
+			receivers.Clear();
+			// Pooled arguments must not keep the objects they held alive.
+			Array.Clear(scratch.Arguments);
+			m_BroadcastScratches.Push(scratch);
+		}
+	}
+
+	// What one running Event.Broadcast node keeps apart from its frame: its receiver snapshot and a copy of its arguments.
+	private sealed class BroadcastScratch
+	{
+		internal List<GraphInstance> Receivers { get; } = [];
+		internal Slot[] Arguments { get; set; } = [];
+	}
+
+	// The Event.Custom node of a program that receives what a Send or Broadcast node raises: of its name and with exactly its
+	// parameter types; -1 when there is none.
+	private static int FindReceiver(GraphProgram program, CompiledNode node)
+	{
+		int custom = program.FindCustomEvent(node.EventName!);
+		return custom >= 0 && SameTypes(program.EventGraph.Nodes[custom].EventParameters, node.EventParameters) ? custom : -1;
+	}
+
+	// The entity a node's Target names: Self when it is unconnected, 0 for None.
+	private static ulong TargetOf(Execution execution, CompiledNode node, Slot[] slots) =>
+		node.TargetIsSelf ? execution.Instance.Entity : ((Entity?)slots[node.InputBase].Object)?.ID ?? 0;
+
+	// The instance and the variable index a remote Get or Set reads or writes (spec-slice3 section 4.5): the Target entity
+	// (Self when unconnected) must run the node's graph, and the variable is looked up in the program it runs now. The index
+	// is kept for the last receiver program, so a live edit of the graph makes the node look again once. Every failure
+	// aborts: a read that cannot happen has no value to continue with.
+	private (GraphInstance Receiver, int Variable) FindRemoteVariable(Execution execution, CompiledNode node, Slot[] slots)
+	{
+		ulong entity = TargetOf(execution, node, slots);
+		if (entity == 0)
+		{
+			throw new VisualScriptException(NoTarget);
+		}
+		if (!m_Instances.TryGetValue(entity, out GraphInstance? receiver))
+		{
+			throw new VisualScriptException(DescribeEntity(entity) + " runs no visual script");
+		}
+		if (receiver.Graph != node.TargetGraph)
+		{
+			throw new VisualScriptException($"{DescribeEntity(entity)} runs {receiver.Program.Name}, not {node.TargetName}");
+		}
+		GraphProgram program = receiver.Program;
+		if (!ReferenceEquals(node.RemoteProgram, program))
+		{
+			node.RemoteIndex = FindRemoteIndex(node, program);
+			node.RemoteProgram = program;
+		}
+		return (receiver, node.RemoteIndex);
+	}
+
+	// The variable of a program a remote node names, found as a live edit carries variables: by ID with the node's type, else
+	// by name with that type; a private one only in the program's own graph.
+	private static int FindRemoteIndex(CompiledNode node, GraphProgram program)
+	{
+		VisualType type = node.ToType!;
+		int byId = program.FindVariableById(node.RemoteVariable);
+		int byName = program.FindVariable(node.RemoteVariableName!);
+		int index = byId >= 0 && SameType(program.Variables[byId].Type, type) ? byId
+			: byName >= 0 && SameType(program.Variables[byName].Type, type) ? byName
+			: -1;
+		if (index < 0)
+		{
+			int other = byId >= 0 ? byId : byName;
+			string variable = node.RemoteVariableName!;
+			throw new VisualScriptException(other < 0
+				? $"{node.TargetName} has no variable {variable} any more"
+				: $"{node.TargetDisplayName}'s {variable} is {Article(program.Variables[other].Type.Id)} now, not {Article(type.Id)}");
+		}
+		if (!program.Variables[index].Public && !node.AllowPrivate)
+		{
+			throw new VisualScriptException($"{node.TargetDisplayName}'s {node.RemoteVariableName} is private now");
+		}
+		return index;
+	}
+
+	private static bool SameType(VisualType a, VisualType b) => ReferenceEquals(a, b) || a.Id == b.Id;
+
+	// "<name> (<id>)" of an entity, for messages.
+	private string DescribeEntity(ulong entity) => FormattableString.Invariant($"{m_Environment.GetEntityName(entity)} ({entity})");
+
+	// A type ID with its indefinite article: "a float", "an int".
+	private static string Article(string typeId) => ("aeiouAEIOU".Contains(typeId[0], StringComparison.Ordinal) ? "an " : "a ") + typeId;
 
 	private static bool SameTypes(VisualType[] a, VisualType[] b)
 	{
@@ -1035,17 +1210,18 @@ internal sealed partial class VisualScriptRuntime
 
 	private void Warn(Execution execution, CompiledNode node, string message)
 	{
-		if (execution.Instance.ShouldWarn(node.Id))
+		if (execution.Instance.ShouldWarn(node))
 		{
 			m_Environment.Log(VisualScriptLogLevel.Warn, Describe(execution, node, message));
 		}
 	}
 
-	// "<graph name>: <node title> (node <id>) on <entity name> (<entity id>): <message>".
+	// "<graph name>: <node title> (node <id>) on <entity name> (<entity id>): <message>", where the graph is the document the
+	// node belongs to: the program's own, or the library whose function it is part of (spec-slice3 section 4.9).
 	private string Describe(Execution execution, CompiledNode node, string message)
 	{
 		ulong entity = execution.Instance.Entity;
-		return FormattableString.Invariant($"{execution.Program.Name}: {node.Title} (node {node.Id}) on {m_Environment.GetEntityName(entity)} ({entity}): {message}");
+		return FormattableString.Invariant($"{node.Owner.Name}: {node.Title} (node {node.Id}) on {m_Environment.GetEntityName(entity)} ({entity}): {message}");
 	}
 }
 
@@ -1096,7 +1272,7 @@ internal ref struct WarningText
 
 	internal WarningText(int literalLength, int formattedCount, Execution execution, CompiledNode node, out bool isLogged)
 	{
-		isLogged = execution.Instance.ShouldWarn(node.Id);
+		isLogged = execution.Instance.ShouldWarn(node);
 		IsLogged = isLogged;
 		m_Text = isLogged ? new DefaultInterpolatedStringHandler(literalLength, formattedCount, CultureInfo.InvariantCulture) : default;
 	}

@@ -245,6 +245,93 @@ public sealed class RobustnessTests
 		Assert.True(tally.Aborted > 0, $"no execution aborted: {tally}");
 	}
 
+	// References bundles (spec-slice3 section 2.4) are any bytes: a document that calls a library's functions, sends and
+	// broadcasts typed events, and reads another graph's variable behind RunsGraph analyzes, loads and runs with its bundle
+	// damaged as any document is (and the libraries and interfaces in it with it), or rewired, and with the document rewired.
+	// No exception escapes, every status is the protocol's, and every abort is a VM message.
+	[Fact]
+	public void DamagedBundlesAnswerWhatTheProtocolSpecifiesAndNeverThrow()
+	{
+		MotionLibrary library = new();
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint create = graph.Node("Event.Create");
+		uint twice = graph.Node("Function.Call", CrossGraphTesting.Call(library.Twice, CrossGraphTesting.Motion), """{ "X": 3 }""");
+		uint report = graph.Node("Function.Call", CrossGraphTesting.Call(library.Report, CrossGraphTesting.Motion), """{ "Text": "report" }""");
+		uint pause = graph.Node("Function.Call", CrossGraphTesting.Call(library.Pause, CrossGraphTesting.Motion), """{ "Seconds": 0.25 }""");
+		uint send = graph.Node("Event.Send", CrossGraphTesting.Send("Hit", CrossGraphTesting.Door, """{ "Name": "Damage", "Type": "float" }"""));
+		uint self = graph.Node("Self");
+		graph.Link(self, "Self", send, "Target");
+		uint broadcast = graph.Node("Event.Broadcast", CrossGraphTesting.Broadcast("Hit", CrossGraphTesting.Door, """{ "Name": "Damage", "Type": "float" }"""));
+		DocumentBuilder door = CrossGraphTesting.DoorScript();
+		uint health = door.Variable("Health", "float", "10", isPublic: true);
+		uint runs = graph.Node("RunsGraph", CrossGraphTesting.Runs(CrossGraphTesting.Door));
+		uint get = graph.Node("Variable.Get", CrossGraphTesting.Variable(health, CrossGraphTesting.Door));
+		uint guard = graph.Node("Flow.Branch");
+		graph.Link(self, "Self", runs, "Target");
+		graph.Link(self, "Self", get, "Target");
+		graph.Link(runs, "Result", guard, "Condition");
+		uint written = graph.Write(twice, "Result");
+		graph.Flow(create, written);
+		graph.Flow(written, guard);
+		graph.Flow(guard, graph.Write(get, "Value"), "True");
+		graph.Flow(graph.Node("Event.Update"), report);
+		graph.Flow(report, pause);
+		graph.Flow(pause, send);
+		graph.Flow(send, broadcast);
+		JsonNode original = JsonNode.Parse(document.Build())!;
+		JsonNode bundle = JsonNode.Parse(new BundleBuilder().Full(CrossGraphTesting.Motion, CrossGraphTesting.MotionName, library.Document)
+			.Interface(CrossGraphTesting.Door, CrossGraphTesting.DoorName, door).Build())!;
+		DocumentMutator mutator = new(0x42554E444C455321u);
+		int rounds = Fuzzing.GetRounds(150);
+		int ran = 0;
+		int broken = 0;
+		for (int round = 0; round < rounds; round++)
+		{
+			string context = $"round {round} (bundles)";
+			byte[] references = mutator.Write(round % 3 == 2 ? mutator.Rewire(bundle, round / 3) : mutator.Damage(bundle, round / 3));
+			byte[] text = round % 4 == 3 ? mutator.Write(mutator.Rewire(original, round / 4)) : Encoding.UTF8.GetBytes(original.ToJsonString());
+			try
+			{
+				TestRuntime runtime = new();
+				HostReply analysis = runtime.Runtime.AnalyzeDocument(text, references);
+				Assert.True(analysis.Status == VisualScriptStatus.Success && analysis.Text != null, $"{context}: Analyze answered {analysis.Status}");
+				using (JsonDocument parsed = JsonDocument.Parse(analysis.Text!))
+				{
+					Assert.Equal(JsonValueKind.Array, parsed.RootElement.GetProperty("Diagnostics").ValueKind);
+				}
+				HostReply load = runtime.Runtime.LoadDocument(TestRuntime.Graph, TestRuntime.Name, text, references);
+				Assert.True(load.Status == VisualScriptStatus.Success && load.Text != null, $"{context}: Load answered {load.Status}");
+				GraphProgram? program = runtime.Runtime.FindEffectiveProgram(TestRuntime.Graph);
+				VisualScriptStatus created = runtime.Create();
+				Assert.Equal(program == null ? VisualScriptStatus.Failure : VisualScriptStatus.Success, created);
+				if (program == null)
+				{
+					broken++;
+					continue;
+				}
+				ran++;
+				foreach ((ScriptEvent scriptEvent, float timeStep) in ((ScriptEvent, float)[])[(ScriptEvent.Create, 0.0f), (ScriptEvent.Update, 0.25f),
+					(ScriptEvent.Update, 0.25f)])
+				{
+					int logs = runtime.Environment.Logs.Count;
+					VisualScriptStatus status = runtime.Invoke(scriptEvent, timeStep);
+					List<string> errors = [.. runtime.Environment.Logs.Skip(logs).Where(static log => log.Level == VisualScriptLogLevel.Error)
+						.Select(static log => log.Message)];
+					Assert.True(status == VisualScriptStatus.Failure == errors.Count > 0, $"{context}: Invoke answered {status} with {errors.Count} errors");
+					Assert.All(errors, error => Assert.False(error.Contains("Exception: ", StringComparison.Ordinal), $"{context}: the VM failed: {error}"));
+				}
+			}
+			catch (Exception exception) when (exception is not Xunit.Sdk.IAssertionException)
+			{
+				Assert.Fail($"{context}: an operation threw {exception}\nbundle: {Encoding.UTF8.GetString(references[..Math.Min(references.Length, 4000)])}");
+			}
+		}
+		TestContext.Current.TestOutputHelper?.WriteLine($"{rounds} rounds: {ran} ran, {broken} broken");
+		Assert.True(ran > 0, "no graph ran with a damaged bundle");
+		Assert.True(broken > 0, "no damaged bundle broke a graph");
+	}
+
 	// Timelines through the same operations (spec-slice3 section 3.9): the document damaged as any document is, and with its
 	// Timeline settings replaced by damaged ones.
 	[Fact]

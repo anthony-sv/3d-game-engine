@@ -4,17 +4,28 @@ using System.Text.Json;
 
 namespace Strada.VisualScripting;
 
+// What a document is (spec-slice3 section 1.1): a script, which entities run, or a function library, whose functions other
+// graphs call (spec-slice3 section 4.4).
+internal enum DocumentKind
+{
+	Script,
+	Library,
+}
+
 // A visual script in the content form (spec section 1, the "VisualScript" object without the file header), as the VM
 // reads it: what analysis, compilation and execution need. Raw values (Value, Settings, Inputs) stay JSON; the elements
 // own them (they outlive the parsed text).
 internal sealed class GraphDocument
 {
-	internal GraphDocument(IReadOnlyList<DocumentVariable> variables, IReadOnlyList<DocumentFunction> functions, DocumentGraph graph)
+	internal GraphDocument(DocumentKind kind, IReadOnlyList<DocumentVariable> variables, IReadOnlyList<DocumentFunction> functions, DocumentGraph graph)
 	{
+		Kind = kind;
 		Variables = variables;
 		Functions = functions;
 		Graph = graph;
 	}
+
+	internal DocumentKind Kind { get; }
 
 	internal IReadOnlyList<DocumentVariable> Variables { get; }
 
@@ -30,8 +41,9 @@ internal sealed record DocumentVariable(uint ID, string Name, string Type, JsonE
 // A local of a function: call-frame storage initialized on every call.
 internal sealed record DocumentLocal(uint ID, string Name, string Type, JsonElement? Value);
 
-// An input or output of a function.
-internal sealed record DocumentParameter(string Name, string Type);
+// An input or output of a function. FormerNames: the names it had (spec-slice3 section 1.1), by which links and Inputs of
+// calls from other graphs still reach it (spec-slice3 section 4.4.2).
+internal sealed record DocumentParameter(string Name, string Type, IReadOnlyList<string> FormerNames);
 
 internal sealed record DocumentFunction(uint ID, string Name, bool Pure, IReadOnlyList<DocumentParameter> Inputs,
 	IReadOnlyList<DocumentParameter> Outputs, IReadOnlyList<DocumentLocal> Locals, DocumentGraph Graph);

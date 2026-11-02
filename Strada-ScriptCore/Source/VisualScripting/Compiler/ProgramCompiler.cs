@@ -18,7 +18,14 @@ internal static class ProgramCompiler
 		BuiltinNode.EventCollisionExit, BuiltinNode.EventTriggerEnter, BuiltinNode.EventTriggerExit, BuiltinNode.EventClick,
 	];
 
-	internal static GraphProgram Compile(AnalyzedDocument document, string name)
+	// The document's program, with the functions of every library its calls reach (AnalyzedDocument.Linked).
+	internal static GraphProgram Compile(AnalyzedDocument document, string name) => Compile(document, name, document.Linked);
+
+	// linked: the function libraries the document's calls reach, by handle (spec-slice3 section 4.4.4). Their functions are
+	// compiled into the program beside the document's own, all shells first, so calls between them link directly; compiled
+	// code is the program's own, so live edits and their fibers stay per program. A library with errors is reached only
+	// through disabled calls (an enabled one would be a ReferenceError of the document), which call nothing: it is left out.
+	internal static GraphProgram Compile(AnalyzedDocument document, string name, IReadOnlyDictionary<ulong, LinkedLibrary> linked)
 	{
 		if (document.HasErrors)
 		{
@@ -32,23 +39,39 @@ internal static class ProgramCompiler
 			variables[index] = new CompiledVariable(variable, SlotValues.FromValue(variable.Value, variable.Type!));
 			variableIndexes[variable] = index;
 		}
+		List<(AnalyzedFunction Source, CompiledFunction Function, string Name)> sources = [];
+		foreach (AnalyzedFunction function in document.Functions)
+		{
+			sources.Add((function, new CompiledFunction(function, 0), name));
+		}
+		List<ulong> libraries = [.. linked.Keys];
+		libraries.Sort();
+		foreach (ulong graph in libraries)
+		{
+			LinkedLibrary library = linked[graph];
+			if (library.Analysis.HasErrors)
+			{
+				continue;
+			}
+			foreach (AnalyzedFunction function in library.Analysis.Functions)
+			{
+				sources.Add((function, new CompiledFunction(function, graph), library.Name));
+			}
+		}
 		Dictionary<AnalyzedFunction, CompiledFunction> functions = [];
-		CompiledFunction[] compiledFunctions = new CompiledFunction[document.Functions.Count];
+		CompiledFunction[] compiledFunctions = new CompiledFunction[sources.Count];
 		for (int index = 0; index < compiledFunctions.Length; index++)
 		{
-			AnalyzedFunction function = document.Functions[index];
-			compiledFunctions[index] = new CompiledFunction(function);
-			functions[function] = compiledFunctions[index];
+			compiledFunctions[index] = sources[index].Function;
+			functions[sources[index].Source] = sources[index].Function;
 		}
 		Context context = new(document.Library, variableIndexes, functions);
-		for (int index = 0; index < compiledFunctions.Length; index++)
+		foreach ((AnalyzedFunction source, CompiledFunction function, string graphName) in sources)
 		{
-			AnalyzedFunction source = document.Functions[index];
-			CompiledFunction function = compiledFunctions[index];
-			GraphCompiler compiler = new(context, source.Graph, function);
-			function.Graph = compiler.Compile();
+			GraphCompiler compiler = new(context, source.Graph, function, function.Graph, graphName);
+			function.Body = compiler.Compile();
 			function.Locals = compiler.Locals;
-			foreach (CompiledNode node in function.Graph.Nodes)
+			foreach (CompiledNode node in function.Body.Nodes)
 			{
 				if (node.Builtin == BuiltinNode.FunctionEntry)
 				{
@@ -66,7 +89,7 @@ internal static class ProgramCompiler
 			}
 			function.OutputDefaults = outputs;
 		}
-		CompiledGraph eventGraph = new GraphCompiler(context, document.EventGraph, null).Compile();
+		CompiledGraph eventGraph = new GraphCompiler(context, document.EventGraph, null, 0, name).Compile();
 
 		int[] events = new int[s_ScriptEvents.Length];
 		Array.Fill(events, -1);
@@ -100,6 +123,8 @@ internal static class ProgramCompiler
 		private readonly Context m_Context;
 		private readonly AnalyzedGraph m_Graph;
 		private readonly CompiledFunction? m_Function;
+		private readonly ulong m_Source;
+		private readonly string m_SourceName;
 		private readonly List<Slot> m_Template = [];
 		private readonly Dictionary<AnalyzedPin, int> m_OutputSlots = [];
 		private readonly Dictionary<AnalyzedNode, int> m_Indexes = [];
@@ -111,11 +136,14 @@ internal static class ProgramCompiler
 		private readonly Dictionary<AnalyzedPin, int> m_Breaks = [];
 		private readonly List<(CompiledNode Node, AnalyzedPin Pin)> m_Splits = [];
 
-		internal GraphCompiler(Context context, AnalyzedGraph graph, CompiledFunction? function)
+		// source and sourceName: the document the graph comes from (0 and the program's name for the program's own).
+		internal GraphCompiler(Context context, AnalyzedGraph graph, CompiledFunction? function, ulong source, string sourceName)
 		{
 			m_Context = context;
 			m_Graph = graph;
 			m_Function = function;
+			m_Source = source;
+			m_SourceName = sourceName;
 		}
 
 		// The locals of a function's graph and their slots, in declaration order.
@@ -169,7 +197,7 @@ internal static class ProgramCompiler
 			{
 				CompileSplit(node, pin);
 			}
-			return new CompiledGraph([.. m_Nodes], [.. m_Template], m_Function);
+			return new CompiledGraph([.. m_Nodes], [.. m_Template], m_Function, m_Source, m_SourceName);
 		}
 
 		// The Make of a split input: its field pins are its inputs (staged like any input) and its output is the input's
@@ -269,6 +297,7 @@ internal static class ProgramCompiler
 			return builtin switch
 			{
 				BuiltinNode.EventSend => Opcode.Send,
+				BuiltinNode.EventBroadcast => Opcode.Broadcast,
 				BuiltinNode.FlowBranch => Opcode.Branch,
 				BuiltinNode.FlowSequence => Opcode.Sequence,
 				BuiltinNode.FlowSwitch => Opcode.Switch,
@@ -279,8 +308,8 @@ internal static class ProgramCompiler
 				BuiltinNode.FlowDoN => Opcode.DoN,
 				BuiltinNode.FlowFlipFlop => Opcode.FlipFlop,
 				BuiltinNode.FlowGate => Opcode.Gate,
-				BuiltinNode.VariableGet => Opcode.VariableGet,
-				BuiltinNode.VariableSet => Opcode.VariableSet,
+				BuiltinNode.VariableGet => node.Binding is RemoteVariableBinding ? Opcode.RemoteGet : Opcode.VariableGet,
+				BuiltinNode.VariableSet => node.Binding is RemoteVariableBinding ? Opcode.RemoteSet : Opcode.VariableSet,
 				BuiltinNode.FunctionEntry => Opcode.FunctionEntry,
 				BuiltinNode.FunctionReturn => Opcode.FunctionReturn,
 				BuiltinNode.FunctionCall => node.Pure ? Opcode.PureCall : Opcode.FunctionCall,
@@ -289,6 +318,7 @@ internal static class ProgramCompiler
 				BuiltinNode.Reroute => node.Pure ? Opcode.Reroute : Opcode.ExecReroute,
 				BuiltinNode.Select => Opcode.Select,
 				BuiltinNode.IsValid => Opcode.IsValid,
+				BuiltinNode.RunsGraph => Opcode.RunsGraph,
 				BuiltinNode.Convert => Opcode.Convert,
 				BuiltinNode.Make => Opcode.Make,
 				BuiltinNode.Break => Opcode.Break,
@@ -364,6 +394,8 @@ internal static class ProgramCompiler
 				Opcode.Arithmetic or Opcode.Compare or Opcode.Equality or Opcode.Concatenate => ["A", "B"],
 				Opcode.OperatorMethod => source.Builtin == BuiltinNode.OperatorNegate ? ["A"] : ["A", "B"],
 				Opcode.VariableSet => ["Value"],
+				Opcode.RemoteGet or Opcode.RunsGraph => ["Target"],
+				Opcode.RemoteSet => ["Target", "Value"],
 				Opcode.Self or Opcode.Literal or Opcode.VariableGet or Opcode.FunctionEntry => [],
 				Opcode.Intrinsic => IntrinsicInputs(source),
 				Opcode.Latent => source.Builtin switch
@@ -555,7 +587,8 @@ internal static class ProgramCompiler
 				Opcode.ForLoop or Opcode.ForEach => ["Execute", "Break"],
 				Opcode.DoOnce or Opcode.DoN => ["Execute", "Reset"],
 				Opcode.Gate => ["Enter", "Open", "Close", "Toggle"],
-				Opcode.Branch or Opcode.Sequence or Opcode.Switch or Opcode.While or Opcode.FlipFlop or Opcode.Send or Opcode.VariableSet => ["Execute"],
+				Opcode.Branch or Opcode.Sequence or Opcode.Switch or Opcode.While or Opcode.FlipFlop or Opcode.Send or Opcode.Broadcast or
+					Opcode.VariableSet or Opcode.RemoteSet => ["Execute"],
 				// Entry 0 starts a latent node, entry 1 stops a Tween or Interval; a Timeline has its six inputs.
 				Opcode.Latent => source.Builtin switch
 				{
@@ -573,7 +606,7 @@ internal static class ProgramCompiler
 				Opcode.DoOnce => ["Completed"],
 				Opcode.DoN or Opcode.Gate => ["Exit"],
 				Opcode.FlipFlop => ["A", "B"],
-				Opcode.Event or Opcode.Send or Opcode.VariableSet or Opcode.FunctionCall => ["Then"],
+				Opcode.Event or Opcode.Send or Opcode.Broadcast or Opcode.VariableSet or Opcode.RemoteSet or Opcode.FunctionCall => ["Then"],
 				// A Timeline's exits follow its event tracks (CompileTimeline finds them by name).
 				Opcode.Latent => source.Builtin switch
 				{
@@ -755,9 +788,30 @@ internal static class ProgramCompiler
 			{
 				case Opcode.Event when source.Builtin == BuiltinNode.EventCustom:
 				case Opcode.Send:
+				case Opcode.Broadcast:
 					CustomEventBinding custom = (CustomEventBinding)source.Binding!;
 					node.EventName = custom.Name;
 					node.EventParameters = TypesOf(custom.Parameters);
+					node.IncludeSelf = custom.IncludeSelf;
+					if (custom.Target is { } target)
+					{
+						node.TargetGraph = target.Graph;
+						node.TargetName = target.Name;
+					}
+					break;
+				case Opcode.RemoteGet:
+				case Opcode.RemoteSet:
+					RemoteVariableBinding remote = (RemoteVariableBinding)source.Binding!;
+					node.TargetGraph = remote.Graph;
+					node.TargetName = remote.GraphName;
+					node.TargetDisplayName = remote.GraphDisplayName;
+					node.RemoteVariable = remote.Variable;
+					node.RemoteVariableName = remote.VariableName;
+					node.ToType = remote.Type;
+					node.AllowPrivate = remote.OwnGraph;
+					break;
+				case Opcode.RunsGraph:
+					node.TargetGraph = ((RunsGraphBinding)source.Binding!).Graph;
 					break;
 				case Opcode.Sequence:
 					node.Count = ((SequenceBinding)source.Binding!).Count;

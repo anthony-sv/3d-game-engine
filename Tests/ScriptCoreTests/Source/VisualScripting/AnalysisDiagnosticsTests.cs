@@ -80,30 +80,99 @@ public sealed class AnalysisDiagnosticsTests
 		[DiagnosticCode.DisabledIgnored] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Self", "Enabled": "Disabled" }"""),
 		[DiagnosticCode.UnusedSplit] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Flow.Branch", "Split": { "Inputs": ["Condition"] } }"""),
 		[DiagnosticCode.InvalidExpression] = VisualScriptTesting.Document("""{ "ID": 1, "Type": "Expression", "Settings": { "Formula": "a +" } }"""),
+		[DiagnosticCode.LibraryVariable] = """{ "Kind": "Library", "Variables": [ { "ID": 1, "Name": "Speed", "Type": "float" } ] }""",
+		[DiagnosticCode.LibraryEventGraph] = """{ "Kind": "Library", "Graph": { "Nodes": [ { "ID": 1, "Type": "Event.Update" } ] } }""",
 	};
 
-	public static TheoryData<string> Codes => [.. s_Cases.Keys.Select(static code => code.ToString())];
+	// The handles of the other graphs the cases refer to (spec-slice3 section 4.8): a script with the custom event Hit, a
+	// function library, one whose function is broken, and one that calls back.
+	private const string Door = "8146390251172604461";
+	private const string Motion = "5550000000000000001";
+	private const string Broken = "5550000000000000002";
+	private const string Physics = "5550000000000000003";
+
+	private static string DoorDocument(string hit) =>
+		$$"""{ "Graph": { "Nodes": [ { "ID": 1, "Type": "Event.Custom", "Settings": { "Name": "Hit", "Parameters": [ { "Name": "Damage", "Type": "float" } ] }{{hit}} } ] } }""";
+
+	private static string Bundle(string graphs) => $$"""{ "Self": "{{TestRuntime.Graph}}", "Graphs": [{{graphs}}] }""";
+
+	private static string Entry(string graph, string name, string form, string document) =>
+		$$"""{ "Graph": "{{graph}}", "Name": "{{name}}", "Form": "{{form}}", "Document": {{document}} }""";
+
+	private static string Send(string parameters) =>
+		VisualScriptTesting.Document($$"""{ "ID": 1, "Type": "Event.Send", "Settings": { "Name": "Hit", "Parameters": [{{parameters}}], "Graph": "{{Door}}" } }""");
+
+	private static string Call(string graph) =>
+		VisualScriptTesting.Document($$"""{ "ID": 1, "Type": "Function.Call", "Settings": { "Function": 1, "Graph": "{{graph}}" } }""");
+
+	private const string FloatDamage = """{ "Name": "Damage", "Type": "float" }""";
+
+	// A Get of Door's variable 5, and Door's interface with that variable, Health, public or not.
+	private static string RemoteGet() =>
+		VisualScriptTesting.Document($$"""{ "ID": 1, "Type": "Variable.Get", "Settings": { "Variable": 5, "Graph": "{{Door}}" } }""");
+
+	private static string DoorVariables(bool isPublic) =>
+		$$"""{ "Variables": [ { "ID": 5, "Name": "Health", "Type": "float", "Public": {{(isPublic ? "true" : "false")}} } ] }""";
+
+	// The codes about other graphs: each document with the references bundle it is analyzed with.
+	private static readonly Dictionary<DiagnosticCode, (string Document, string References)> s_ReferenceCases = new()
+	{
+		[DiagnosticCode.UnknownGraph] = (Call("42"), Bundle("")),
+		[DiagnosticCode.UncheckedGraph] = (Send(FloatDamage), Bundle("")),
+		[DiagnosticCode.UnknownEvent] = (Send(FloatDamage),
+			Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", """{ "Graph": { "Nodes": [ { "ID": 1, "Type": "Event.Custom", "Settings": { "Name": "Open" } } ] } }"""))),
+		[DiagnosticCode.EventSignatureMismatch] = (Send("""{ "Name": "Damage", "Type": "int" }"""),
+			Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", DoorDocument("")))),
+		[DiagnosticCode.DisabledTarget] = (Send(FloatDamage),
+			Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", DoorDocument(""", "Enabled": "Disabled" """)))),
+		[DiagnosticCode.NotALibrary] = (Call(Door), Bundle(Entry(Door, "Scripts/Door.sgraph", "Full", DoorDocument("")))),
+		[DiagnosticCode.TargetIsSelf] = (Send(FloatDamage), Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", DoorDocument("")))),
+		[DiagnosticCode.ReferenceError] = (Call(Broken), Bundle(Entry(Broken, "Scripts/Broken.sgraph", "Full",
+			"""{ "Kind": "Library", "Functions": [ { "ID": 1, "Name": "Run", "Pure": false, "Graph": { "Nodes": [ { "ID": 2, "Type": "Function.Entry" }, { "ID": 3, "Type": "Flow.Nothing" } ] } } ] }"""))),
+		[DiagnosticCode.PrivateVariable] = (RemoteGet(), Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", DoorVariables(false)))),
+		[DiagnosticCode.UnlinkedTarget] = (RemoteGet(), Bundle(Entry(Door, "Scripts/Door.sgraph", "Interface", DoorVariables(true)))),
+		[DiagnosticCode.LibraryCycle] = (
+			$$"""{ "Kind": "Library", "Functions": [ { "ID": 1, "Name": "Step", "Pure": false, "Graph": { "Nodes": [ { "ID": 2, "Type": "Function.Entry" }, { "ID": 3, "Type": "Function.Call", "Settings": { "Function": 1, "Graph": "{{Physics}}" } } ] } } ] }""",
+			Bundle(Entry(Physics, "Scripts/Physics.sgraph", "Full",
+				$$"""{ "Kind": "Library", "Functions": [ { "ID": 1, "Name": "Step", "Pure": false, "Graph": { "Nodes": [ { "ID": 2, "Type": "Function.Entry" }, { "ID": 3, "Type": "Function.Call", "Settings": { "Function": 1, "Graph": "{{TestRuntime.Graph}}" } } ] } } ] }"""))),
+	};
+
+	// The Warning codes (spec section 6.2 and spec-slice3 section 4.8).
+	private static bool IsWarning(DiagnosticCode code) => code is DiagnosticCode.NodeUpdated or DiagnosticCode.UnusedInput or DiagnosticCode.ZeroQuaternion or
+		DiagnosticCode.UnknownSetting or DiagnosticCode.DisabledIgnored or DiagnosticCode.UnusedSplit or DiagnosticCode.UncheckedGraph or
+		DiagnosticCode.UnknownEvent or DiagnosticCode.EventSignatureMismatch or DiagnosticCode.DisabledTarget or DiagnosticCode.TargetIsSelf;
+
+	public static TheoryData<string> Codes => [.. s_Cases.Keys.Concat(s_ReferenceCases.Keys).Select(static code => code.ToString())];
 
 	[Theory]
 	[MemberData(nameof(Codes))]
 	public void EachCodeIsReported(string name)
 	{
 		DiagnosticCode code = Enum.Parse<DiagnosticCode>(name);
-		AnalyzedDocument document = VisualScriptTesting.Analyze(s_Cases[code]);
+		AnalyzedDocument document = s_ReferenceCases.TryGetValue(code, out (string Document, string References) referenceCase)
+			? GraphAnalyzer.Analyze(VisualScriptTesting.Library, Encoding.UTF8.GetBytes(referenceCase.Document),
+				GraphReferences.Parse(Encoding.UTF8.GetBytes(referenceCase.References)), new LibraryAnalyses())
+			: VisualScriptTesting.Analyze(s_Cases[code]);
 		Diagnostic diagnostic = document.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Code == code)
 			?? throw new Xunit.Sdk.XunitException($"no {code} in:\n{VisualScriptTesting.Describe(document.Diagnostics)}");
-		bool warning = code is DiagnosticCode.NodeUpdated or DiagnosticCode.UnusedInput or DiagnosticCode.ZeroQuaternion or DiagnosticCode.UnknownSetting or
-			DiagnosticCode.DisabledIgnored or DiagnosticCode.UnusedSplit;
-		Assert.Equal(warning ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error, diagnostic.Severity);
+		Assert.Equal(IsWarning(code) ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error, diagnostic.Severity);
+		Assert.Equal(Diagnostic.GetSeverity(code), diagnostic.Severity);
 		Assert.NotEmpty(diagnostic.Message);
 		// The analysis JSON writes it with its code name.
 		Assert.Contains($"\"Code\":\"{name}\"", Encoding.UTF8.GetString(AnalysisWriter.Write(document)), StringComparison.Ordinal);
+		// A finding about another graph names it, and never a variable (spec-slice3 section 4.4.2); a library's own variable
+		// is its own.
+		if (s_ReferenceCases.ContainsKey(code))
+		{
+			Assert.NotEqual(0UL, diagnostic.Graph);
+			Assert.Null(diagnostic.Variable);
+		}
 	}
 
 	[Fact]
 	public void EveryCodeHasACase()
 	{
-		Assert.Equal(Enum.GetValues<DiagnosticCode>().Order(), s_Cases.Keys.Order());
+		Assert.Equal(Enum.GetValues<DiagnosticCode>().Order(), s_Cases.Keys.Concat(s_ReferenceCases.Keys).Order());
 	}
 
 	[Fact]
