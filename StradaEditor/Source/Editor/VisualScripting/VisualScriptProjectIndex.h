@@ -6,6 +6,8 @@
 #include "Strada/Core/Base.h"
 
 #include <cstdint>
+#include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -32,14 +34,17 @@ namespace Strada
 
 	// The visual scripts of the project, what each offers and who refers to whom, kept from the asset manager's registry and
 	// the assets' shared documents: an unchanged project costs one lookup per script (the registry's version, then each
-	// script's document pointer). The first refresh loads every visual script of the project. Main thread only.
+	// script's document pointer). The first refresh loads every visual script of the project; a file that does not load is
+	// read again only once it changed, so its error is logged once. The graph windows refresh it while one is open, the
+	// panels that read it before they do. Main thread only.
 	class VisualScriptProjectIndex
 	{
 	public:
 		// Follows the asset registry (scripts added, deleted, moved or renamed) and each script's document (a commit, an undo,
 		// a reload, a file that stopped or started loading). Without assets the index is empty.
 		void Refresh();
-		// The scripts by path (memory assets, which have none, by name first).
+		// The scripts by path (memory assets, which have none, by name first). The span, the pointers Find gives and what they
+		// point to stay valid while GetRevision keeps its value: a Refresh by any caller that changes it may invalidate them.
 		std::span<VisualScriptProjectGraph const> GetGraphs() const { return m_Graphs; }
 		// Null when the index has no such script.
 		VisualScriptProjectGraph const* Find(AssetHandle graph) const;
@@ -50,16 +55,30 @@ namespace Strada
 		uint64_t GetRevision() const { return m_Revision; }
 		// The resolver of titles, pins, quick fixes and name lookups: self (a window's own graph) resolves to working, its
 		// displayed document, never to the stored asset (nothing while working is null); every other graph to the document
-		// the index holds. The documents it gives, and the resolver itself, are valid until the index's next Refresh.
-		VisualScriptGraphResolver MakeResolver(AssetHandle self = {}, VisualScriptDocument const* working = nullptr) const;
+		// the index holds. The documents it gives are valid while GetRevision keeps its value, the resolver while the index
+		// lives.
+		[[nodiscard]] VisualScriptGraphResolver MakeResolver(AssetHandle self = {}, VisualScriptDocument const* working = nullptr) const;
 
 	private:
+		// A file's last write time and size, each none when it cannot be read.
+		struct FileStamp
+		{
+			std::optional<std::filesystem::file_time_type> WriteTime;
+			std::optional<uint64_t> Size;
+
+			bool operator==(FileStamp const& other) const = default;
+		};
+
+		static FileStamp ReadFileStamp(AssetHandle graph);
+
 		std::vector<VisualScriptProjectGraph> m_Graphs;
 		std::unordered_map<AssetHandle, size_t> m_Indices;
 		// The asset registry's version the scripts were listed at; none before the first Refresh.
 		uint64_t m_AssetVersion = 0;
 		bool m_Listed = false;
 		uint64_t m_Revision = 0;
+		// The scripts whose file did not load, with the file's stamp when it was read.
+		std::unordered_map<AssetHandle, FileStamp> m_FailedFiles;
 	};
 
 	// "Player.sgraph, Enemy.sgraph (5 nodes)": the other graphs whose nodes refer to the graph (FindReferrers), by file name

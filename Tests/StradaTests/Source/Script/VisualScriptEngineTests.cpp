@@ -11,6 +11,7 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Input.h"
 #include "Strada/Core/Log.h"
+#include "Strada/Core/Platform.h"
 #include "Strada/Scene/Components.h"
 #include "Strada/Scene/Entity.h"
 #include "Strada/Scene/Scene.h"
@@ -23,6 +24,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -2498,9 +2500,13 @@ TEST_CASE("VisualScriptEngine: references hold at most 256 other graphs, and tho
 	}
 	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(document), "Crowd");
 
+	// The analysis lists the graphs it looked up, not those beyond.
 	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document, graph);
 	REQUIRE(analysis.IsOk());
-	CHECK(analysis.GetValue().Graphs.size() == Count);
+	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue().Graphs;
+	REQUIRE(graphs.size() == VisualScriptEngine::MaxReferencedGraphs);
+	CHECK(graphs.front().first == AssetHandle(UUID(5000ull)));
+	CHECK(graphs.back().first == AssetHandle(UUID(5000ull + VisualScriptEngine::MaxReferencedGraphs - 1)));
 
 	SentDocuments sent;
 	REQUIRE(VisualScriptEngine::EnsureLoaded(graph).IsOk());
@@ -2791,6 +2797,101 @@ TEST_CASE("VisualScriptEngine: a broken library leaves its callers running the v
 	CHECK(VisualScriptEngine::HasWorkingProgram(caller));
 	CHECK_FALSE(VisualScriptEngine::HasWorkingProgram(library));
 	CHECK(host.Exceptions == 0);
+}
+
+TEST_CASE("VisualScriptEngine: a library edited while playing sends its 20 dependents of 200 nodes again once each, in the next update, "
+          "in its time on request")
+{
+	// spec-slice3 §15.8 and §20 Q3: the update after a library edit compiles every graph that calls it.
+	constexpr size_t Dependents = 20;
+	constexpr uint32_t Additions = 197;
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const libraryAsset = CreateRef<VisualScriptAsset>(MakeLibraryDocument());
+	AssetHandle const library = AssetManager::AddMemoryAsset(libraryAsset, "Motion");
+
+	// Each dependent sets its public Result to Twice(3) plus one for each of its 197 additions, on every update: 200 nodes.
+	Scene scene("Dependents");
+	std::vector<AssetHandle> graphs;
+	std::vector<UUID> entities;
+	for (size_t index = 0; index < Dependents; index++)
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Result", "int", static_cast<int32_t>(index), true));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+		document.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 1}})));
+		document.Graph.Nodes.push_back(
+			MakeNode(12, "Function.Call", Json::object({{"Function", 1}, {"Graph", library.ToString()}}), Json::object({{"Value", 3}})));
+		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+		uint32_t previous = 12;
+		for (uint32_t addition = 0; addition < Additions; addition++)
+		{
+			uint32_t const id = 100 + addition;
+			document.Graph.Nodes.push_back(MakeNode(id, "Operator.Add", Json::object(), Json::object({{"B", 1}})));
+			document.Graph.Links.push_back(MakeLink(previous, "Result", id, "A"));
+			previous = id;
+		}
+		document.Graph.Links.push_back(MakeLink(previous, "Result", 11, "Value"));
+		REQUIRE(document.Graph.Nodes.size() == 200);
+		AssetHandle const graph =
+			AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(std::move(document)), fmt::format("Dependent {}", index));
+		Entity entity = scene.CreateEntity(fmt::format("Dependent {}", index));
+		entity.AddComponent<VisualScriptComponent>().Graph = graph;
+		graphs.push_back(graph);
+		entities.push_back(entity.GetUUID());
+	}
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	std::vector<uint64_t> generations;
+	for (size_t index = 0; index < Dependents; index++)
+	{
+		CHECK(ReadVariable(entities[index], "Result") == ScriptFieldValue::FromInt32(6 + static_cast<int32_t>(Additions)));
+		generations.push_back(VisualScriptEngine::GetProgramGeneration(graphs[index]));
+	}
+
+	// Edited: the next update sends every dependent once with the library as it is now, and each runs it.
+	SentDocuments sent;
+	VisualScriptDocument const edited = MakeLibraryDocument(5);
+	libraryAsset->SetDocument(edited);
+	std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+	REQUIRE(sent.GetCount() == Dependents);
+	std::set<std::string> received;
+	std::set<std::string> expected;
+	std::string const libraryText = VisualScriptSerializer::WriteContentText(edited);
+	for (size_t index = 0; index < Dependents; index++)
+	{
+		received.insert(sent.GetReferences(index));
+		expected.insert(WriteExpectedReferences(graphs[index], {{library, "Motion", "Full", libraryText}}));
+	}
+	CHECK(received == expected);
+	for (size_t index = 0; index < Dependents; index++)
+	{
+		CAPTURE(index);
+		CHECK(VisualScriptEngine::GetProgramGeneration(graphs[index]) != generations[index]);
+		CHECK(VisualScriptEngine::HasInstance(entities[index]));
+		CHECK(ReadVariable(entities[index], "Result") == ScriptFieldValue::FromInt32(15 + static_cast<int32_t>(Additions)));
+	}
+	// Nothing more is sent after.
+	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
+	CHECK(sent.GetCount() == Dependents);
+	CHECK(host.Exceptions == 0);
+	scene.OnRuntimeStop();
+
+	MESSAGE("the update that sends " << Dependents << " dependents of 200 nodes again after a library edit: " << milliseconds << " ms");
+	std::optional<std::string> const performance = Platform::ReadEnvironmentVariable("STRADA_PERFORMANCE_TESTS");
+	if (performance.has_value() && *performance == "1")
+	{
+		// Three times the figure track X1 measured (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51; median of five runs).
+#if defined(ST_DEBUG)
+		constexpr double MeasuredMilliseconds = 118.0;
+#else
+		constexpr double MeasuredMilliseconds = 85.0;
+#endif
+		CHECK(milliseconds <= 3.0 * MeasuredMilliseconds);
+	}
 }
 
 TEST_CASE("VisualScriptEngine: DisableDevelopmentOnlyNodes disables the development-only nodes of every graph and nothing else")

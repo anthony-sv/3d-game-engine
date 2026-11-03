@@ -13,7 +13,8 @@ struct ImGuiWindow;
 // keeps as its edit target, else the selected entities. Windows that do not change the target (the console, the content
 // browser, the settings panels) leave the keys acting on it, as the menu does; the only keys they keep are the ones the
 // window that has the keyboard claims for itself (the content browser's Delete and F2), whose texts the menu leaves out.
-// Main thread only.
+// While a modal popup is open (ImGui::GetTopMostPopupModal), no key runs anything, Undo and Redo included: the dialog acts on
+// what they would change. Main thread only.
 namespace Strada
 {
 	class EditorOperations;
@@ -59,9 +60,20 @@ namespace Strada
 	// Ctrl+D (Duplicate) and Ctrl+A (Select All) go to the graph window that is the Edit menu's target, and to the entities
 	// only without one; Ctrl+X, Ctrl+C and Ctrl+V only to that graph window. A claimed chord (FindClaimedEditingChords of the
 	// keyboard window, whose Edit item shows no shortcut) runs nothing here, also while a popup or a menu has ImGui's keyboard
-	// and the claiming window's own route does not take the key. Does nothing while a text field has the keyboard. Called once
-	// per frame inside the ImGui frame; visualScripts is null without the graph windows.
+	// and the claiming window's own route does not take the key. Does nothing while a text field has the keyboard, and runs
+	// nothing while a modal popup is open (its routes are registered all the same). Called once per frame inside the ImGui
+	// frame; visualScripts is null without the graph windows.
 	void HandleEditorEditingKeys(EditorOperations& operations, VisualScriptEditors* visualScripts, std::span<ImGuiKeyChord const> claimed);
+	// Undo and Redo of the one history, as the Edit menu's items and the keys run them: while a graph window is the Edit menu's
+	// target, it says what was undone or redone (VisualScriptEditors::NotifyHistoryStep). Nothing to undo or redo does nothing;
+	// a failure is reported (UI::ReportFailure).
+	void UndoEditorStep(EditorOperations& operations, VisualScriptEditors* visualScripts);
+	void RedoEditorStep(EditorOperations& operations, VisualScriptEditors* visualScripts);
+	// Registers Ctrl+Z (Undo), Ctrl+Y and Ctrl+Shift+Z (Redo) as global routes that repeat while held, and runs what was
+	// pressed. Does nothing while a text field has the keyboard (a focused text field undoes its own typing), and runs nothing
+	// while a modal popup is open. Called once per frame inside the ImGui frame; visualScripts is null without the graph
+	// windows.
+	void HandleEditorHistoryKeys(EditorOperations& operations, VisualScriptEditors* visualScripts);
 	// The Edit menu's editing items: the graph target's (VisualScriptEditors::DrawEditMenuItems), else the scene's
 	// (Duplicate, Delete, Select All, Deselect All), with the shortcut texts GetEditShortcutText gives for the claimed chords.
 	// Returns what it drew, in order. Inside a menu.

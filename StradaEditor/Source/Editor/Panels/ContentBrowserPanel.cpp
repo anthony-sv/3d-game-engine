@@ -64,8 +64,6 @@ namespace Strada
 		// Frames a new rename field may take to receive keyboard focus before the rename is dropped.
 		constexpr int RenameFocusFrames = 3;
 		constexpr char const* DeletePopup = "Delete###ContentBrowserDelete";
-		// Where the delete popup wraps the note naming the graphs that use a visual script.
-		constexpr float DeleteNoteWidth = 480.0f;
 
 		struct TypeStyle
 		{
@@ -1684,16 +1682,19 @@ namespace Strada
 			return;
 		}
 		Item const item = *m_PendingDelete;
-		ImGui::Text("Delete '%s'?", item.Path.c_str());
-		ImGui::TextDisabled(item.IsFolder() ? "The folder and every file inside are deleted from disk. This cannot be undone."
-		                                    : "The file is deleted from disk. This cannot be undone.");
+		std::string const question = "Delete '" + item.Path + "'?";
+		char const* const consequence = item.IsFolder() ? "The folder and every file inside are deleted from disk. This cannot be undone."
+		                                                : "The file is deleted from disk. This cannot be undone.";
+		ImGui::TextUnformatted(question.c_str());
+		ImGui::TextDisabled("%s", consequence);
 		if (!item.IsFolder() && item.Type == AssetType::VisualScript && m_VisualScriptIndex != nullptr)
 		{
 			m_VisualScriptIndex->Refresh();
 			if (std::string const referrers = DescribeVisualScriptReferrers(*m_VisualScriptIndex, item.Asset); !referrers.empty())
 			{
-				// As wide as the lines above: the popup sizes itself to its contents.
-				ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + DeleteNoteWidth);
+				// Wrapped as wide as the lines above, whatever the font's scale: the popup sizes itself to its contents.
+				float const width = std::max(ImGui::CalcTextSize(question.c_str()).x, ImGui::CalcTextSize(consequence).x);
+				ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
 				ImGui::TextWrapped("Used by %s: they will show errors.", referrers.c_str());
 				ImGui::PopTextWrapPos();
 			}

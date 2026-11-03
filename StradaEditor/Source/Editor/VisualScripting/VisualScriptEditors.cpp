@@ -271,7 +271,11 @@ namespace Strada
 	void VisualScriptEditors::OnImGuiRender()
 	{
 		Maintain();
-		m_ProjectIndex.Refresh();
+		// The first refresh loads every graph of the project (spec-slice3 §21): not before a graph window opens.
+		if (!m_Windows.empty())
+		{
+			m_ProjectIndex.Refresh();
+		}
 		UpdateFocus();
 		EndInteractions();
 		OpenOtherGraphRequests();

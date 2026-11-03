@@ -865,8 +865,8 @@ namespace Strada
 
 		// The scripting runtime's analysis of a document; none without the runtime, or when the runtime fails (logged). self is
 		// the visual script the document is of (invalid: none): its nodes' Graph settings that name it read the document itself
-		// rather than the stored asset.
-		std::optional<VisualScriptAnalysis> AnalyzeGraph(VisualScriptDocument const& document, AssetHandle self = {})
+		// rather than the stored asset, as the graph window's analysis does. No default: each caller says which graph it is.
+		std::optional<VisualScriptAnalysis> AnalyzeGraph(VisualScriptDocument const& document, AssetHandle self)
 		{
 			if (!ScriptEngine::IsInitialized())
 			{
@@ -1199,8 +1199,15 @@ namespace Strada
 			std::vector<VisualScriptGraphReference> const references = CollectVisualScriptReferences(document);
 			for (auto const& [graph, read] : analysis.Graphs)
 			{
-				Result<Ref<VisualScriptAsset>> const asset = LoadGraph(graph);
-				Ref<VisualScriptDocument const> const current = asset ? asset.GetValue()->GetSharedDocument() : nullptr;
+				// An asset of another type is absent as the engine reads it, and is not loaded to find that out.
+				Ref<VisualScriptDocument const> current;
+				if (AssetManager::GetAssetType(graph) == AssetType::VisualScript)
+				{
+					if (Result<Ref<VisualScriptAsset>> const asset = LoadGraph(graph))
+					{
+						current = asset.GetValue()->GetSharedDocument();
+					}
+				}
 				if (current == read)
 				{
 					continue;
@@ -2330,137 +2337,139 @@ namespace Strada
 									 return described;
 								 })
 						   : result;
-				result =
-					result
-						? Add("graph.set",
-				              "Replaces a visual script's document (the content of its .sgraph file: Description, Variables, "
-				              "Functions, Graph, as graph.get returns it) and saves the file. The document is checked strictly: "
-				              "anything the loader would repair (a duplicate ID, an unknown key, a link to a node that does not "
-				              "exist, ...) fails with InvalidParams, data.path naming the first issue and data.issues listing every "
-				              "one { path, message }; nothing is written then (graph.check reports the same without writing). A "
-				              "variable renamed (same ID) keeps its old name in FormerNames, so values components store for it still "
-				              "apply; with the scripting runtime, nodes resolved through a redirect or by their member's name alone "
-				              "are stored under their exact types; nodes without a Position are laid out. One undo step "
-				              "(editor.undo) that does not mark the scene modified; allowed while playing, where running graphs take "
-				              "the edit at once. revision and programRevision (as graph.get returns them) make the call fail with "
-				              "InvalidOperation, writing nothing, unless the stored document still has them. referrers lists the "
-				              "nodes of other scripts the new document breaks (a library function they call gone or changed, a "
-				              "variable they read gone or private, an event they send gone or retyped, untyped senders of an event "
-				              "name that went); refuseBrokenReferrers writes nothing (InvalidOperation, data.referrers) when any is "
-				              "broken. Returns { asset, path, changed, revision, programRevision (of the document written), "
-				              "analyzed, warnings (what was changed besides the given document), summary ({ brokenReferrers, "
-				              "staleSenders }), referrers ([{ asset, path, nodes: [{ id, type, problem: Removed, Private, Changed "
-				              "or Stale, message }] }]), nodes?, diagnostics? }.",
-				              SchemaBuilder::Object()
-				                  .Property("graph", graphParameter, true)
-				                  .Property("document", documentParameter, true)
-				                  .Property("revision", SchemaBuilder::String("A revision a graph command returned (16 lowercase "
-				                                                              "hex digits): the call fails unless the document has it")
-				                                            .MinLength(16)
-				                                            .MaxLength(16))
-				                  .Property("programRevision",
-				                            SchemaBuilder::String("A programRevision a graph command returned: the call fails "
-				                                                  "unless the document's program (what moves, comments and "
-				                                                  "arranging leave alone) is unchanged")
-				                                .MinLength(16)
-				                                .MaxLength(16))
-				                  .Property("refuseBrokenReferrers",
-				                            SchemaBuilder::Boolean("Write nothing when the document breaks nodes of other scripts "
-				                                                   "(referrers whose problem is Removed, Private or Changed)")
-				                                .Default(false))
-				                  .Build(),
-				              false,
-				              [this](Json const& params) -> CommandResult
-				              {
-								  if (std::optional<CommandError> error = CheckAssets(true))
-								  {
-									  return *error;
-								  }
-								  CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
-								  if (!graph)
-								  {
-									  return graph.TakeError();
-								  }
-								  AssetHandle const handle = graph.GetValue();
-								  if (std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
-					                  !metadata || !metadata->IsFileAsset())
-								  {
-									  CommandError error =
-										  MakeCommandError(AutomationErrorCode::InvalidParams,
-						                                   "graph: visual script {} has no file of its own and cannot be edited", handle);
-									  error.Data = Json::object({{"path", "graph"}});
-									  return error;
-								  }
-								  // The document the file has, when it loads: renamed variables are found against it, and
-					              // giving it again changes nothing.
-								  Result<Ref<VisualScriptAsset>> const stored = AssetManager::TryGetAsset<VisualScriptAsset>(handle);
-								  Ref<VisualScriptDocument const> const storedDocument =
-									  stored ? stored.GetValue()->GetSharedDocument() : nullptr;
-								  if (std::optional<CommandError> error = CheckGraphRevisions(params, storedDocument.get(), "setting"))
-								  {
-									  return std::move(*error);
-								  }
-								  StrictDocument read = ReadStrictDocument(params["document"]);
-								  if (!read.Issues.empty())
-								  {
-									  return MakeIssuesError(read.Issues);
-								  }
+				result = result
+				             ? Add("graph.set",
+				                   "Replaces a visual script's document (the content of its .sgraph file: Description, Variables, "
+				                   "Functions, Graph, as graph.get returns it) and saves the file. The document is checked strictly: "
+				                   "anything the loader would repair (a duplicate ID, an unknown key, a link to a node that does not "
+				                   "exist, ...) fails with InvalidParams, data.path naming the first issue and data.issues listing every "
+				                   "one { path, message }; nothing is written then (graph.check reports the same without writing). A "
+				                   "variable renamed (same ID) keeps its old name in FormerNames, so values components store for it still "
+				                   "apply; with the scripting runtime, nodes resolved through a redirect or by their member's name alone "
+				                   "are stored under their exact types; nodes without a Position are laid out. One undo step "
+				                   "(editor.undo) that does not mark the scene modified; allowed while playing, where running graphs take "
+				                   "the edit at once. revision and programRevision (as graph.get returns them) make the call fail with "
+				                   "InvalidOperation, writing nothing, unless the stored document still has them. referrers lists the "
+				                   "nodes of other scripts the new document breaks (a library function they call gone or changed, a "
+				                   "variable they read gone or private, an event they send gone or retyped, untyped senders of an event "
+				                   "name that went); refuseBrokenReferrers writes nothing (InvalidOperation, data.referrers) when any is "
+				                   "broken. Returns { asset, path, changed, revision, programRevision (of the document written), "
+				                   "analyzed, warnings (what was changed besides the given document), summary ({ brokenReferrers, "
+				                   "staleSenders }), referrers ([{ asset, path, nodes: [{ id, type, problem: Removed, Private, Changed "
+				                   "or Stale, message }] }]), nodes?, diagnostics? }.",
+				                   SchemaBuilder::Object()
+				                       .Property("graph", graphParameter, true)
+				                       .Property("document", documentParameter, true)
+				                       .Property("revision", SchemaBuilder::String("A revision a graph command returned (16 lowercase "
+				                                                                   "hex digits): the call fails unless the document has it")
+				                                                 .MinLength(16)
+				                                                 .MaxLength(16))
+				                       .Property("programRevision",
+				                                 SchemaBuilder::String("A programRevision a graph command returned: the call fails "
+				                                                       "unless the document's program (what moves, comments and "
+				                                                       "arranging leave alone) is unchanged")
+				                                     .MinLength(16)
+				                                     .MaxLength(16))
+				                       .Property("refuseBrokenReferrers",
+				                                 SchemaBuilder::Boolean("Write nothing when the document breaks nodes of other scripts "
+				                                                        "(referrers whose problem is Removed, Private or Changed)")
+				                                     .Default(false))
+				                       .Build(),
+				                   false,
+				                   [this](Json const& params) -> CommandResult
+				                   {
+									   if (std::optional<CommandError> error = CheckAssets(true))
+									   {
+										   return *error;
+									   }
+									   CommandValue<AssetHandle> graph = ParseGraph(params["graph"]);
+									   if (!graph)
+									   {
+										   return graph.TakeError();
+									   }
+									   AssetHandle const handle = graph.GetValue();
+									   if (std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
+					                       !metadata || !metadata->IsFileAsset())
+									   {
+										   CommandError error = MakeCommandError(
+											   AutomationErrorCode::InvalidParams,
+											   "graph: visual script {} has no file of its own and cannot be edited", handle);
+										   error.Data = Json::object({{"path", "graph"}});
+										   return error;
+									   }
+									   // The document the file has, when it loads: renamed variables are found against it, and
+					                   // giving it again changes nothing.
+									   Result<Ref<VisualScriptAsset>> const stored = AssetManager::TryGetAsset<VisualScriptAsset>(handle);
+									   Ref<VisualScriptDocument const> const storedDocument =
+										   stored ? stored.GetValue()->GetSharedDocument() : nullptr;
+									   if (std::optional<CommandError> error = CheckGraphRevisions(params, storedDocument.get(), "setting"))
+									   {
+										   return std::move(*error);
+									   }
+									   StrictDocument read = ReadStrictDocument(params["document"]);
+									   if (!read.Issues.empty())
+									   {
+										   return MakeIssuesError(read.Issues);
+									   }
 
-								  VisualScriptDocument const none;
-								  std::optional<VisualScriptAnalysis> analysis = AnalyzeGraph(*read.Document, handle);
-								  Result<VisualScriptCommit> prepared =
-									  PrepareVisualScriptCommit(storedDocument != nullptr ? *storedDocument : none,
-					                                            std::move(*read.Document), analysis ? &*analysis : nullptr);
-								  if (!prepared)
-								  {
-									  // The document was valid, and preparing it keeps it valid: this is the editor's fault.
-									  return MakeCommandError(AutomationErrorCode::InternalError, "{}", prepared.GetError());
-								  }
-								  VisualScriptCommit commit = prepared.TakeValue();
-								  // The analysis is of the document as written: again when preparing it changed what the
-					              // runtime reads (not when it only placed nodes).
-								  if (analysis && !commit.Warnings.empty())
-								  {
-									  analysis = AnalyzeGraph(commit.Document, handle);
-								  }
-								  // The nodes of other scripts the document breaks: a file that did not load offered nothing.
-								  Json summary = Json::object();
-								  std::vector<VisualScriptEditing::VisualScriptReferrer> const broken =
-									  FindBrokenGraphReferrers(handle, storedDocument != nullptr ? *storedDocument : none, commit.Document);
-								  Json referrers = DescribeGraphReferrers(broken, summary);
-								  if (GetBool(params, "refuseBrokenReferrers", false))
-								  {
-									  if (std::optional<CommandError> refused = RefuseBrokenReferrers(broken, referrers))
-									  {
-										  return std::move(*refused);
-									  }
-								  }
-								  bool const changed =
-									  storedDocument == nullptr || !IsSameVisualScriptDocument(*storedDocument, commit.Document);
-								  std::string revision = FormatGraphRevision(Hash::FNV1a(commit.Text));
-								  std::string programRevision = GetGraphProgramRevision(commit.Document);
-								  if (Result<void> set = m_Operations.SetVisualScriptDocument(handle, std::move(commit.Document), 0,
-					                                                                          std::move(commit.Text));
-					                  !set)
-								  {
-									  return Failure(AutomationErrorCode::FileError, set);
-								  }
+									   VisualScriptDocument const none;
+									   std::optional<VisualScriptAnalysis> analysis = AnalyzeGraph(*read.Document, handle);
+									   Result<VisualScriptCommit> prepared =
+										   PrepareVisualScriptCommit(storedDocument != nullptr ? *storedDocument : none,
+					                                                 std::move(*read.Document), analysis ? &*analysis : nullptr);
+									   if (!prepared)
+									   {
+										   // The document was valid, and preparing it keeps it valid: this is the editor's fault.
+										   return MakeCommandError(AutomationErrorCode::InternalError, "{}", prepared.GetError());
+									   }
+									   VisualScriptCommit commit = prepared.TakeValue();
+									   // The analysis is of the document as written: again when preparing it changed what the
+					                   // runtime reads (not when it only placed nodes).
+									   if (analysis && !commit.Warnings.empty())
+									   {
+										   analysis = AnalyzeGraph(commit.Document, handle);
+									   }
+									   // The nodes of other scripts the document breaks. A file that did not load offered nothing, so
+					                   // the nodes naming it were broken already and none is reported (or refused): replacing it is
+					                   // how a broken file is repaired.
+									   Json summary = Json::object();
+									   std::vector<VisualScriptEditing::VisualScriptReferrer> const broken =
+										   storedDocument != nullptr ? FindBrokenGraphReferrers(handle, *storedDocument, commit.Document)
+																	 : std::vector<VisualScriptEditing::VisualScriptReferrer>();
+									   Json referrers = DescribeGraphReferrers(broken, summary);
+									   if (GetBool(params, "refuseBrokenReferrers", false))
+									   {
+										   if (std::optional<CommandError> refused = RefuseBrokenReferrers(broken, referrers))
+										   {
+											   return std::move(*refused);
+										   }
+									   }
+									   bool const changed =
+										   storedDocument == nullptr || !IsSameVisualScriptDocument(*storedDocument, commit.Document);
+									   std::string revision = FormatGraphRevision(Hash::FNV1a(commit.Text));
+									   std::string programRevision = GetGraphProgramRevision(commit.Document);
+									   if (Result<void> set = m_Operations.SetVisualScriptDocument(handle, std::move(commit.Document), 0,
+					                                                                               std::move(commit.Text));
+					                       !set)
+									   {
+										   return Failure(AutomationErrorCode::FileError, set);
+									   }
 
-								  Json described = DescribeGraph(handle);
-								  described["changed"] = changed;
-								  described["revision"] = std::move(revision);
-								  described["programRevision"] = std::move(programRevision);
-								  described["analyzed"] = analysis.has_value();
-								  described["warnings"] = std::move(commit.Warnings);
-								  described["summary"] = std::move(summary);
-								  described["referrers"] = std::move(referrers);
-								  if (analysis)
-								  {
-									  AddAnalysis(described, *analysis);
-								  }
-								  return described;
-							  })
-						: result;
+									   Json described = DescribeGraph(handle);
+									   described["changed"] = changed;
+									   described["revision"] = std::move(revision);
+									   described["programRevision"] = std::move(programRevision);
+									   described["analyzed"] = analysis.has_value();
+									   described["warnings"] = std::move(commit.Warnings);
+									   described["summary"] = std::move(summary);
+									   described["referrers"] = std::move(referrers);
+									   if (analysis)
+									   {
+										   AddAnalysis(described, *analysis);
+									   }
+									   return described;
+								   })
+				             : result;
 				result =
 					result
 						? Add("graph.check",
@@ -2888,7 +2897,7 @@ namespace Strada
 				// else the pins the links and literals name. The analysis also gives the commit the nodes' canonical types, as
 				// the window's does.
 				Ref<VisualScriptLibrary const> const library = FindGraphLibrary();
-				std::optional<VisualScriptAnalysis> const analysis = library != nullptr ? AnalyzeGraph(*stored) : std::nullopt;
+				std::optional<VisualScriptAnalysis> const analysis = library != nullptr ? AnalyzeGraph(*stored, handle) : std::nullopt;
 				VisualScriptHeadlessCanvas canvas;
 				canvas.Sync(*stored, function.GetValue(), analysis ? &*analysis : nullptr, stored.get(), library.get());
 				VisualScriptNodeExtents const measured = canvas.GetExtents();
@@ -4129,7 +4138,7 @@ namespace Strada
 						continue;
 					}
 					Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
-					std::optional<VisualScriptAnalysis> const analysis = AnalyzeGraph(*document);
+					std::optional<VisualScriptAnalysis> const analysis = AnalyzeGraph(*document, script);
 					analyzed = analyzed && analysis.has_value();
 					std::vector<VisualScriptFindResult> const found = FindInVisualScript(*document, analysis ? &*analysis : nullptr, query);
 					for (VisualScriptFindResult const& match : found)

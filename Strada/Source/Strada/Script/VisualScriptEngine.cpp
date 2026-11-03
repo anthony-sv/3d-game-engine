@@ -591,11 +591,15 @@ namespace Strada
 		{
 			return MakeError("the analysis of the visual script cannot be read: {}", analysis.GetError());
 		}
+		// The graphs beyond the limit were never looked up, so the analysis read nothing of them.
 		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>>& graphs = analysis.GetValue().Graphs;
 		graphs.reserve(references.size());
 		for (SentReference const& reference : references)
 		{
-			graphs.emplace_back(reference.Graph, reference.Document);
+			if (!IsBeyondLimit(reference))
+			{
+				graphs.emplace_back(reference.Graph, reference.Document);
+			}
 		}
 		return analysis;
 	}

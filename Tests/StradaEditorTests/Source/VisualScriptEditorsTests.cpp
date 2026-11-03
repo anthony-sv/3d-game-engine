@@ -12,6 +12,7 @@
 #include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -123,8 +124,8 @@ namespace
 	// The editor's dock space laid out as its default layout is: the scene view and the game view in the middle, the
 	// hierarchy and the inspector on the right; a console and the real content browser float. The graph windows are drawn
 	// after them, as the editor draws them after its fixed panels. Each frame runs what EditorLayer runs around them: the
-	// keyboard window first (FindKeyboardWindow), the editing keys after the dock space (HandleEditorEditingKeys). Three
-	// graphs: Scripts/Player, Scripts/Door and Enemies/Player.
+	// keyboard window first (FindKeyboardWindow), Undo, Redo and the editing keys after the dock space
+	// (HandleEditorHistoryKeys, HandleEditorEditingKeys). Three graphs: Scripts/Player, Scripts/Door and Enemies/Player.
 	struct EditorsFixture
 	{
 		Testing::HeadlessImGui Gui;
@@ -187,6 +188,7 @@ namespace
 		{
 			KeyboardWindow = FindKeyboardWindow(GImGui->NavWindow, KeyboardWindow);
 			ImGuiID const dockspace = ImGui::DockSpaceOverViewport(ImGui::GetID("Dockspace"), ImGui::GetMainViewport());
+			HandleEditorHistoryKeys(Operations, &Editors);
 			HandleEditorEditingKeys(Operations, &Editors, FindClaimedEditingChords(KeyboardWindow));
 			if (std::exchange(ResetLayout, false))
 			{
@@ -558,6 +560,34 @@ TEST_CASE("VisualScriptEditor: graph windows dock beside the scene view, and a n
 	fixture.OpenGraph(fixture.EnemyPlayer);
 	CHECK(FindGraphWindow(fixture.EnemyPlayer)->DockId == fixture.Right);
 	CHECK(FindGraphWindow(fixture.Player)->DockId == sceneNode);
+}
+
+TEST_CASE("VisualScriptEditor: the project index loads the project's graphs once a graph window opens, not before")
+{
+	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
+	// The invariant's snapshots load the graphs: unloaded again, frames drawn without a graph window load none.
+	for (AssetHandle const graph : {fixture.Player, fixture.Door, fixture.EnemyPlayer})
+	{
+		AssetManager::UnloadAsset(graph);
+	}
+	fixture.Frames(3);
+	VisualScriptProjectIndex const& index = fixture.Editors.GetProjectIndex();
+	CHECK(index.GetGraphs().empty());
+	for (AssetHandle const graph : {fixture.Player, fixture.Door, fixture.EnemyPlayer})
+	{
+		CHECK_FALSE(AssetManager::IsLoaded(graph));
+	}
+
+	fixture.OpenGraph(fixture.Door);
+	CHECK(index.GetGraphs().size() == 3);
+	for (AssetHandle const graph : {fixture.Player, fixture.Door, fixture.EnemyPlayer})
+	{
+		CHECK(AssetManager::IsLoaded(graph));
+		VisualScriptProjectGraph const* const found = index.Find(graph);
+		REQUIRE(found != nullptr);
+		CHECK(found->Document == AssetManager::GetAsset<VisualScriptAsset>(graph)->GetSharedDocument());
+	}
 }
 
 TEST_CASE("VisualScriptEditor: without a node to dock into, a graph window floats in the middle of the main viewport")
@@ -1017,9 +1047,11 @@ TEST_CASE("VisualScriptEditor: the editing keys act on the Edit menu's target wh
 		CHECK(AssetManager::GetAsset<VisualScriptAsset>(fixture.Player)->GetDocument().Graph.Nodes.size() == nodes);
 		CHECK(fixture.Context.GetScene().GetEntityCount() == entities);
 	}
-	// A chord the browser does not claim acts on the Edit menu's target, as the menu shows it (Ctrl+A, no step).
+	// Nor does a chord the browser does not claim reach the Edit menu's target while the modal is open (ruling S-R3.1):
+	// Ctrl+A leaves the graph's selection as it was.
+	std::vector<uint32_t> const selectedBehind = panel.GetState().SelectedNodes;
 	chord(ImGuiMod_Ctrl | ImGuiKey_A);
-	CHECK(panel.GetState().SelectedNodes.size() == nodes);
+	CHECK(panel.GetState().SelectedNodes == selectedBehind);
 	CHECK(history.GetUndoCount() == undo);
 	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
 	fixture.Frames(2);
@@ -1043,6 +1075,106 @@ TEST_CASE("VisualScriptEditor: the editing keys act on the Edit menu's target wh
 	CHECK(EditorsFixture::GetShortcutText(browserMenu, "Select All") == "Ctrl+A");
 	fixture.Focus("Console");
 	CHECK(EditorsFixture::GetShortcutText(fixture.DrawEditMenu(), "Delete") == "Delete");
+}
+
+TEST_CASE("VisualScriptEditor: no editing key acts behind a modal, the content browser's delete confirmation or My Script's")
+{
+	EditorsFixture fixture;
+	fixture.CheckDrawingChangesNothing();
+	// A step to undo (Ctrl+Z would remove the crate) and a selected entity besides the graph's selected node.
+	EntityCreateInfo info;
+	info.Name = "Crate";
+	Result<UUID> const crate = fixture.Operations.CreateEntity(info);
+	REQUIRE(crate.IsOk());
+	std::array<UUID, 1> const selection = {crate.GetValue()};
+	fixture.OpenGraph(fixture.Player);
+	fixture.CheckDrawingChangesNothing();
+	VisualScriptEditorPanel& panel = fixture.GetPanel(fixture.Player);
+	CommandHistory const& history = fixture.Context.GetHistory();
+	fixture.Click(Testing::CanvasPoint(panel.GetModel(), 2, glm::vec2(0.5f, 0.06f)));
+	fixture.Frames(1);
+	REQUIRE(panel.GetState().SelectedNodes == std::vector<uint32_t>{2});
+	REQUIRE(fixture.Operations.Select(selection).IsOk());
+
+	// Each key behind the open modal changes nothing: no step is done or undone, the graph keeps its document and its
+	// selection, the scene its entities and their selection, and the modal stays open.
+	auto const pressEach = [&](std::function<bool()> const& isModalOpen)
+	{
+		REQUIRE(history.CanUndo());
+		size_t const undo = history.GetUndoCount();
+		Ref<VisualScriptDocument const> const document = AssetManager::GetAsset<VisualScriptAsset>(fixture.Player)->GetSharedDocument();
+		std::vector<uint32_t> const nodes = panel.GetState().SelectedNodes;
+		size_t const entities = fixture.Context.GetScene().GetEntityCount();
+		std::vector<UUID> const entitySelection = fixture.Context.GetSelection().GetEntities();
+		for (ImGuiKeyChord const keys : {ImGuiKeyChord(ImGuiMod_Ctrl | ImGuiKey_A), ImGuiKeyChord(ImGuiMod_Ctrl | ImGuiKey_X),
+		                                 ImGuiKeyChord(ImGuiMod_Ctrl | ImGuiKey_D), ImGuiKeyChord(ImGuiMod_Ctrl | ImGuiKey_Z),
+		                                 ImGuiKeyChord(ImGuiKey_Delete), ImGuiKeyChord(ImGuiMod_Ctrl | ImGuiKey_Backspace)})
+		{
+			CAPTURE(keys);
+			fixture.Gui.Chord(keys, fixture.Drawer());
+			fixture.Frames(1);
+			CHECK(isModalOpen());
+			CHECK(ImGui::GetTopMostPopupModal() != nullptr);
+			CHECK(history.GetUndoCount() == undo);
+			CHECK(history.CanUndo());
+			CHECK(AssetManager::GetAsset<VisualScriptAsset>(fixture.Player)->GetSharedDocument() == document);
+			CHECK(panel.GetState().SelectedNodes == nodes);
+			CHECK(fixture.Context.GetScene().GetEntityCount() == entities);
+			CHECK(fixture.Context.GetScene().HasEntity(crate.GetValue()));
+			CHECK(fixture.Context.GetSelection().GetEntities() == entitySelection);
+		}
+	};
+
+	// The content browser's delete confirmation of a graph, the Player graph the Edit menu's target behind it.
+	fixture.ContentBrowser.SetFolder("Scripts");
+	fixture.Context.SelectAsset(fixture.Door);
+	fixture.Focus(ContentBrowserPanel::WindowName);
+	REQUIRE(fixture.Editors.GetEditTarget() == &panel);
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(1);
+	ImGuiWindow const* confirmation = ImGui::FindWindowByName("Delete###ContentBrowserDelete");
+	REQUIRE(confirmation != nullptr);
+	REQUIRE(confirmation->Active);
+	pressEach(
+		[confirmation]
+		{
+			return confirmation->Active;
+		});
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE_FALSE(confirmation->Active);
+	CHECK(AssetManager::IsValid(fixture.Door));
+	// Closed, the keys act again: Ctrl+A selects every node of the graph.
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(panel.GetState().SelectedNodes.size() == 4);
+
+	// My Script's delete confirmation of the variable Speed, in the graph window that has the keyboard.
+	std::optional<std::pair<glm::vec2, glm::vec2>> const row = panel.GetSidebar().FindRow({VisualScriptElementKind::Variable, 100});
+	REQUIRE(row.has_value());
+	fixture.Click((row->first + row->second) * 0.5f);
+	fixture.Frames(1);
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(2);
+	REQUIRE(panel.GetSidebar().GetPendingDelete().has_value());
+	REQUIRE(ImGui::GetTopMostPopupModal() != nullptr);
+	REQUIRE(fixture.Editors.GetEditTarget() == &panel);
+	REQUIRE(fixture.Operations.Select(selection).IsOk());
+	pressEach(
+		[&panel]
+		{
+			return panel.GetSidebar().GetPendingDelete().has_value();
+		});
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(ImGui::GetTopMostPopupModal() == nullptr);
+	CHECK_FALSE(panel.GetSidebar().GetPendingDelete().has_value());
+	// Closed, Ctrl+Z undoes again: the crate goes.
+	size_t const undo = history.GetUndoCount();
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_Z, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(history.GetUndoCount() == undo - 1);
+	CHECK_FALSE(fixture.Context.GetScene().HasEntity(crate.GetValue()));
 }
 
 TEST_CASE("VisualScriptEditor: with the scene as the Edit menu's target the editing keys act on the selected entities")

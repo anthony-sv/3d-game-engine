@@ -29,6 +29,10 @@ namespace Strada
 		constexpr ImGuiKeyChord DeleteChord = ImGuiKey_Delete;
 		constexpr ImGuiKeyChord DeleteBackspaceChord = ImGuiMod_Ctrl | ImGuiKey_Backspace;
 		constexpr ImGuiKeyChord SelectAllChord = ImGuiMod_Ctrl | ImGuiKey_A;
+		// Undo and Redo, which repeat while held. Redo has two: Ctrl+Y and Ctrl+Shift+Z.
+		constexpr ImGuiKeyChord UndoChord = ImGuiMod_Ctrl | ImGuiKey_Z;
+		constexpr ImGuiKeyChord RedoChord = ImGuiMod_Ctrl | ImGuiKey_Y;
+		constexpr ImGuiKeyChord RedoShiftChord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z;
 
 		// The main viewport's side bars: BeginMainMenuBar's (imgui_widgets.cpp:9351) and the editor's toolbar
 		// (EditorToolbarWindowName), both BeginViewportSideBar windows (imgui_widgets.cpp:9301) named as given.
@@ -37,6 +41,14 @@ namespace Strada
 		bool IsClaimed(ImGuiKeyChord chord, std::span<ImGuiKeyChord const> claimed)
 		{
 			return std::find(claimed.begin(), claimed.end(), chord) != claimed.end();
+		}
+
+		// While a modal popup is open, what the keys would act on is what the dialog acts on (the asset the content browser
+		// asks to delete, the variable My Script asks to delete), so no editing key runs: ruling S-R3.1. A modal is on the
+		// popup stack with its window once it began (imgui.cpp:13056-13064), so from the frame after it opened.
+		bool IsModalOpen()
+		{
+			return ImGui::GetTopMostPopupModal() != nullptr;
 		}
 
 		// Asks the graph window that is the Edit menu's target; false while the scene is the target.
@@ -143,6 +155,10 @@ namespace Strada
 		bool const deleteKey = pressed(DeleteChord);
 		bool const deleteBackspace = pressed(DeleteBackspaceChord);
 		bool const selectAll = pressed(SelectAllChord);
+		if (IsModalOpen())
+		{
+			return;
+		}
 
 		// Cut, Copy and Paste mean nothing to the scene.
 		if (cut)
@@ -168,6 +184,66 @@ namespace Strada
 		if (selectAll && !ToGraphTarget(visualScripts, VisualScriptEditorAction::SelectAll))
 		{
 			SelectAllEntities(operations);
+		}
+	}
+
+	void UndoEditorStep(EditorOperations& operations, VisualScriptEditors* visualScripts)
+	{
+		// What the step is, read before it runs: a graph window shows it (spec §10.4).
+		CommandHistory const& history = operations.GetContext().GetHistory();
+		if (!history.CanUndo())
+		{
+			return;
+		}
+		std::string const description = history.GetUndoDescription();
+		AssetHandle const edited = history.GetUndoEditedAsset();
+		Result<void> const undone = operations.Undo();
+		UI::ReportFailure(undone, "Undo");
+		if (undone && visualScripts != nullptr)
+		{
+			visualScripts->NotifyHistoryStep(true, description, edited);
+		}
+	}
+
+	void RedoEditorStep(EditorOperations& operations, VisualScriptEditors* visualScripts)
+	{
+		CommandHistory const& history = operations.GetContext().GetHistory();
+		if (!history.CanRedo())
+		{
+			return;
+		}
+		std::string const description = history.GetRedoDescription();
+		AssetHandle const edited = history.GetRedoEditedAsset();
+		Result<void> const redone = operations.Redo();
+		UI::ReportFailure(redone, "Redo");
+		if (redone && visualScripts != nullptr)
+		{
+			visualScripts->NotifyHistoryStep(false, description, edited);
+		}
+	}
+
+	void HandleEditorHistoryKeys(EditorOperations& operations, VisualScriptEditors* visualScripts)
+	{
+		if (ImGui::GetIO().WantTextInput)
+		{
+			return;
+		}
+		// Every route is registered every frame, as the editing keys' are (imgui.cpp:10460-10540).
+		ImGuiInputFlags const route = ImGuiInputFlags_RouteGlobal | ImGuiInputFlags_Repeat;
+		bool const undo = ImGui::Shortcut(UndoChord, route);
+		bool const redo = ImGui::Shortcut(RedoChord, route);
+		bool const redoShift = ImGui::Shortcut(RedoShiftChord, route);
+		if (IsModalOpen())
+		{
+			return;
+		}
+		if (undo)
+		{
+			UndoEditorStep(operations, visualScripts);
+		}
+		if (redo || redoShift)
+		{
+			RedoEditorStep(operations, visualScripts);
 		}
 	}
 

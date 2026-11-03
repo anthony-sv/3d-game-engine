@@ -516,7 +516,7 @@ namespace
 						params.erase(key);
 					}
 				}
-				if (params["graph"] == m_State.Graph && !m_State.GraphRevision.empty() && m_Random.Pick(4) == 0)
+				if (params.contains("graph") && params["graph"] == m_State.Graph && !m_State.GraphRevision.empty() && m_Random.Pick(4) == 0)
 				{
 					params["revision"] = m_State.GraphRevision;
 				}

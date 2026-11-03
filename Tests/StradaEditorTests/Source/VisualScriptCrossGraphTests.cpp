@@ -164,7 +164,7 @@ namespace
 	}
 }
 
-TEST_CASE("VisualScriptCrossGraph: a cross-graph node's pins come from the declarations of the graph it names")
+TEST_CASE("VisualScriptEditor: a cross-graph node's pins come from the declarations of the graph it names")
 {
 	VisualScriptDocument const motion = MakeMotion();
 	VisualScriptDocument const door = MakeDoor();
@@ -207,7 +207,7 @@ TEST_CASE("VisualScriptCrossGraph: a cross-graph node's pins come from the decla
 	CHECK(MakeVisualScriptCrossGraphPins(FindNode(referrer, 45), broken).empty());
 }
 
-TEST_CASE("VisualScriptCrossGraph: retargeting a node keeps the links and literals of the pins it keeps and counts the others")
+TEST_CASE("VisualScriptEditor: retargeting a node keeps the links and literals of the pins it keeps and counts the others")
 {
 	VisualScriptDocument document = MakeReferrer();
 	VisualScriptNode& call = document.Graph.Nodes[1];
@@ -254,7 +254,7 @@ TEST_CASE("VisualScriptCrossGraph: retargeting a node keeps the links and litera
 	CHECK(document == before);
 }
 
-TEST_CASE("VisualScriptCrossGraph: the kind of a document is set alone, and an event's parameters are read from the graph")
+TEST_CASE("VisualScriptEditor: the kind of a document is set alone, and an event's parameters are read from the graph")
 {
 	VisualScriptDocument document = MakeDoor();
 	VisualScriptDocument const before = document;
@@ -281,7 +281,7 @@ TEST_CASE("VisualScriptCrossGraph: the kind of a document is set alone, and an e
 	CHECK(FindVisualScriptEventParameters(twice, "Hit").GetValue() == MakeParameters({{"Amount", "int"}}));
 }
 
-TEST_CASE("VisualScriptCrossGraph: two documents offer the same while kind, interface and function signatures stay")
+TEST_CASE("VisualScriptEditor: two documents offer the same while kind, interface and function signatures stay")
 {
 	VisualScriptDocument const motion = MakeMotion();
 	VisualScriptDocument const door = MakeDoor();
@@ -365,7 +365,7 @@ TEST_CASE("VisualScriptCrossGraph: two documents offer the same while kind, inte
 				  }));
 }
 
-TEST_CASE("VisualScriptCrossGraph: the nodes of other scripts an edit breaks are found, one case per problem")
+TEST_CASE("VisualScriptEditor: the nodes of other scripts an edit breaks are found, one case per problem")
 {
 	VisualScriptDocument const motion = MakeMotion();
 	VisualScriptDocument const door = MakeDoor();
@@ -605,7 +605,7 @@ TEST_CASE("VisualScriptCrossGraph: the nodes of other scripts an edit breaks are
 	}
 }
 
-TEST_CASE("VisualScriptCrossGraph: a remote node's derived title comes from the resolver, never from a local element of its ID")
+TEST_CASE("VisualScriptEditor: a remote node's derived title comes from the resolver, never from a local element of its ID")
 {
 	VisualScriptDocument const door = MakeDoor();
 	VisualScriptDocument const motion = MakeMotion();

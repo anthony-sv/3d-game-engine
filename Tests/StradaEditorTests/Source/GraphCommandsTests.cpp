@@ -3548,3 +3548,69 @@ TEST_CASE("GraphCommands: graph.edit's kept analysis is dropped when a library t
 	CHECK(setSpeed(5) == 2);
 	CHECK(setSpeed(6) == 1);
 }
+
+TEST_CASE("GraphCommands: graph.edit's kept analysis is dropped when another graph's events change, never for a typed sender's material")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	// A material named by a typed Send by mistake: the engine reads it as absent, and nothing loads it to find that out.
+	Result<AssetHandle> const material = fixture.Operations.CreateMaterial("Materials/Paint.smat");
+	REQUIRE(material.IsOk());
+	AssetManager::UnloadAsset(material.GetValue());
+	REQUIRE_FALSE(AssetManager::IsLoaded(material.GetValue()));
+	VisualScriptDocument callerDocument;
+	callerDocument.Variables.push_back(MakeVariable(1, "Speed", "int", 1));
+	callerDocument.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	callerDocument.Graph.Nodes.push_back(MakeNode(11, "Event.Send",
+	                                              Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", door}}),
+	                                              Json::object({{"Damage", 2.0}})));
+	callerDocument.Graph.Nodes.push_back(MakeNode(
+		12, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", material.GetValue().ToString()}})));
+	callerDocument.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	std::string const caller = fixture.CreateGraph("Scripts/Caller.sgraph", callerDocument);
+	auto const setSpeed = [&](int32_t speed)
+	{
+		Json const operations = Json::array({Json::object({{"op", "SetVariable"}, {"variable", "Speed"}, {"value", speed}})});
+		return fixture.Ok("graph.edit", Json::object({{"graph", caller}, {"operations", operations}}))["analyses"].get<uint32_t>();
+	};
+	CHECK(setSpeed(2) == 2);
+	CHECK(setSpeed(3) == 1);
+	CHECK_FALSE(AssetManager::IsLoaded(material.GetValue()));
+
+	// The door's layout changes: what the caller read of it (its interface) is the same, the kept analysis stays.
+	Json const description = Json::array({Json::object({{"op", "SetDescription"}, {"description", "A door"}})});
+	fixture.Ok("graph.edit", Json::object({{"graph", door}, {"operations", description}}));
+	CHECK(setSpeed(4) == 1);
+	// The parameters of its event Hit change: analyzed again, against the door as it is now.
+	VisualScriptDocument changed = MakeDoorDocument();
+	changed.Graph.Nodes[0].Settings["Parameters"] = Json::array({Json::object({{"Name", "Damage"}, {"Type", "int"}})});
+	fixture.Ok("graph.set", Json::object({{"graph", door}, {"document", VisualScriptSerializer::SerializeDocument(changed)}}));
+	CHECK(setSpeed(5) == 2);
+	CHECK(setSpeed(6) == 1);
+	CHECK_FALSE(AssetManager::IsLoaded(material.GetValue()));
+}
+
+TEST_CASE("GraphCommands: graph.set replacing a file that does not load reports no referrers, so refuseBrokenReferrers repairs it")
+{
+	GraphFixture fixture;
+	std::string const broken = fixture.CreateGraph("Scripts/Motion.sgraph", MakeDoorDocument());
+	VisualScriptDocument runner;
+	runner.Graph.Nodes.push_back(MakeNode(1, "RunsGraph", Json::object({{"Graph", broken}})));
+	std::string const caller = fixture.CreateGraph("Scripts/Caller.sgraph", runner);
+	fixture.WriteFile("Scripts/Motion.sgraph", "{ \"Strada\": ");
+	fixture.Ok("asset.refresh");
+	Result<AssetHandle> const handle = AssetManager::ResolveReference(broken);
+	REQUIRE(handle.IsOk());
+	REQUIRE(AssetManager::TryGetAsset<VisualScriptAsset>(handle.GetValue()).IsError());
+
+	// Replaced by a library: the caller's RunsGraph was broken while the file did not load, and the replacement is no change
+	// of what the graph offered (it offered nothing), so nothing is reported and nothing refused.
+	Json const document = VisualScriptSerializer::SerializeDocument(LoadLibraryDocument());
+	Json const set = fixture.Ok("graph.set", Json::object({{"graph", broken}, {"document", document}, {"refuseBrokenReferrers", true}}));
+	CHECK(set["changed"] == true);
+	CHECK(set["referrers"] == Json::array());
+	CHECK(set["summary"] == Json::object({{"brokenReferrers", 0}, {"staleSenders", 0}}));
+	CHECK(fixture.GetDocument(broken).Kind == VisualScriptDocumentKind::Library);
+	CHECK(fixture.GetDocument(caller) == runner);
+}

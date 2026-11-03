@@ -646,11 +646,11 @@ namespace Strada
 			std::string const redo = history.CanRedo() ? "Redo " + history.GetRedoDescription() : std::string("Redo");
 			if (ImGui::MenuItem(undo.c_str(), "Ctrl+Z", false, history.CanUndo()))
 			{
-				Undo();
+				UndoEditorStep(m_Operations, m_VisualScripts.get());
 			}
 			if (ImGui::MenuItem(redo.c_str(), "Ctrl+Y", false, history.CanRedo()))
 			{
-				Redo();
+				RedoEditorStep(m_Operations, m_VisualScripts.get());
 			}
 			ImGui::Separator();
 			// The graph window focused last acts on its own selection (spec §8.4); else the selected entities.
@@ -821,22 +821,10 @@ namespace Strada
 			m_PlayMode.Step();
 		}
 
-		if (ImGui::GetIO().WantTextInput)
-		{
-			return;
-		}
-		if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z, route | ImGuiInputFlags_Repeat) && m_Context.GetHistory().CanUndo())
-		{
-			Undo();
-		}
-		if ((ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, route | ImGuiInputFlags_Repeat) ||
-		     ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, route | ImGuiInputFlags_Repeat)) &&
-		    m_Context.GetHistory().CanRedo())
-		{
-			Redo();
-		}
-		// Cut, Copy, Paste, Duplicate, Delete and Select All: on the Edit menu's target, as its items, but for the chords the
-		// window that has the keyboard claims.
+		// Undo and Redo, then Cut, Copy, Paste, Duplicate, Delete and Select All: on the Edit menu's target, as its items, but
+		// for the chords the window that has the keyboard claims. None runs while a text field has the keyboard or a modal is
+		// open.
+		HandleEditorHistoryKeys(m_Operations, m_VisualScripts.get());
 		HandleEditorEditingKeys(m_Operations, m_VisualScripts.get(), FindClaimedEditingChords(m_KeyboardWindow));
 	}
 
@@ -1403,33 +1391,6 @@ namespace Strada
 		Result<void> saved = m_Operations.SaveScene(path);
 		UI::ReportFailure(saved, "Saving the scene");
 		return saved.IsOk();
-	}
-
-	void EditorLayer::Undo()
-	{
-		// What the step is, read before it runs: a graph window shows it (spec §10.4).
-		CommandHistory const& history = m_Context.GetHistory();
-		std::string const description = history.GetUndoDescription();
-		AssetHandle const edited = history.GetUndoEditedAsset();
-		Result<void> const undone = m_Operations.Undo();
-		UI::ReportFailure(undone, "Undo");
-		if (undone && m_VisualScripts)
-		{
-			m_VisualScripts->NotifyHistoryStep(true, description, edited);
-		}
-	}
-
-	void EditorLayer::Redo()
-	{
-		CommandHistory const& history = m_Context.GetHistory();
-		std::string const description = history.GetRedoDescription();
-		AssetHandle const edited = history.GetRedoEditedAsset();
-		Result<void> const redone = m_Operations.Redo();
-		UI::ReportFailure(redone, "Redo");
-		if (redone && m_VisualScripts)
-		{
-			m_VisualScripts->NotifyHistoryStep(false, description, edited);
-		}
 	}
 
 	void EditorLayer::OpenVisualScript(AssetHandle graph, UUID contextEntity)

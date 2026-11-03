@@ -6,6 +6,8 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <filesystem>
+#include <optional>
 #include <tuple>
 #include <utility>
 
@@ -38,12 +40,15 @@ namespace Strada
 			changed = !m_Graphs.empty();
 			m_Graphs.clear();
 			m_Indices.clear();
+			m_FailedFiles.clear();
 			m_Listed = false;
 			m_Revision += changed ? 1 : 0;
 			return;
 		}
 
-		// The scripts registered, listed again only when the registry changed.
+		// The scripts registered, listed again only when the registry changed (any asset's registration, move or deletion);
+		// the entries are replaced only when other scripts are listed, or in another order, so an unchanged list keeps what
+		// GetGraphs and Find gave.
 		uint64_t const version = AssetManager::GetVersion();
 		if (!m_Listed || version != m_AssetVersion)
 		{
@@ -63,18 +68,6 @@ namespace Strada
 				{
 					graph.DisplayName = metadata.GetDisplayName();
 				}
-				if (VisualScriptProjectGraph const* const known = Find(metadata.Handle))
-				{
-					changed = changed || known->Path != graph.Path || known->DisplayName != graph.DisplayName;
-					graph.Kind = known->Kind;
-					graph.Document = known->Document;
-					graph.LoadError = known->LoadError;
-					graph.References = known->References;
-				}
-				else
-				{
-					changed = true;
-				}
 				graphs.push_back(std::move(graph));
 			}
 			std::sort(graphs.begin(), graphs.end(),
@@ -84,24 +77,79 @@ namespace Strada
 				                 (std::tie(a.Path, a.DisplayName) == std::tie(b.Path, b.DisplayName) &&
 				                  a.Graph.GetUUID().GetValue() < b.Graph.GetUUID().GetValue());
 					  });
-			changed = changed || graphs.size() != m_Graphs.size() ||
-			          !std::equal(graphs.begin(), graphs.end(), m_Graphs.begin(), m_Graphs.end(),
-			                      [](VisualScriptProjectGraph const& a, VisualScriptProjectGraph const& b)
-			                      {
-									  return a.Graph == b.Graph;
-								  });
-			m_Graphs = std::move(graphs);
-			m_Indices.clear();
-			for (size_t index = 0; index < m_Graphs.size(); index++)
+			bool const sameGraphs = std::equal(graphs.begin(), graphs.end(), m_Graphs.begin(), m_Graphs.end(),
+			                                   [](VisualScriptProjectGraph const& a, VisualScriptProjectGraph const& b)
+			                                   {
+												   return a.Graph == b.Graph;
+											   });
+			if (sameGraphs)
 			{
-				m_Indices.emplace(m_Graphs[index].Graph, index);
+				for (size_t index = 0; index < graphs.size(); index++)
+				{
+					VisualScriptProjectGraph& known = m_Graphs[index];
+					if (known.Path != graphs[index].Path || known.DisplayName != graphs[index].DisplayName)
+					{
+						changed = true;
+						known.Path = std::move(graphs[index].Path);
+						known.DisplayName = std::move(graphs[index].DisplayName);
+					}
+				}
+			}
+			else
+			{
+				changed = true;
+				for (VisualScriptProjectGraph& graph : graphs)
+				{
+					if (VisualScriptProjectGraph const* const known = Find(graph.Graph))
+					{
+						graph.Kind = known->Kind;
+						graph.Document = known->Document;
+						graph.LoadError = known->LoadError;
+						graph.References = known->References;
+					}
+				}
+				m_Graphs = std::move(graphs);
+				m_Indices.clear();
+				for (size_t index = 0; index < m_Graphs.size(); index++)
+				{
+					m_Indices.emplace(m_Graphs[index].Graph, index);
+				}
+				std::erase_if(m_FailedFiles,
+				              [this](auto const& failed)
+				              {
+								  return !m_Indices.contains(failed.first);
+							  });
 			}
 		}
 
 		// Each script's document: a new shared document is a new program or layout; a load that failed may fail differently.
 		for (VisualScriptProjectGraph& graph : m_Graphs)
 		{
+			// A file that did not load is read again only once it changed (or it loaded meanwhile, or went missing): an asset
+			// refresh forgets failed loads (AssetManager::Refresh), and loading the file again would log its error again.
+			std::optional<FileStamp> stamp;
+			if (!AssetManager::IsLoaded(graph.Graph) && !AssetManager::IsMissing(graph.Graph))
+			{
+				auto const failed = m_FailedFiles.find(graph.Graph);
+				if (failed != m_FailedFiles.end() && AssetManager::HasLoadFailure(graph.Graph))
+				{
+					continue;
+				}
+				stamp = ReadFileStamp(graph.Graph);
+				if (failed != m_FailedFiles.end() && failed->second == *stamp)
+				{
+					continue;
+				}
+			}
 			auto [document, error] = LoadDocument(graph.Graph);
+			if (document == nullptr && stamp.has_value())
+			{
+				m_FailedFiles.insert_or_assign(graph.Graph, *stamp);
+			}
+			else
+			{
+				m_FailedFiles.erase(graph.Graph);
+			}
 			if (document == graph.Document && error == graph.LoadError)
 			{
 				continue;
@@ -113,6 +161,12 @@ namespace Strada
 			graph.LoadError = std::move(error);
 		}
 		m_Revision += changed ? 1 : 0;
+	}
+
+	VisualScriptProjectIndex::FileStamp VisualScriptProjectIndex::ReadFileStamp(AssetHandle graph)
+	{
+		std::filesystem::path const file = AssetManager::GetAbsolutePath(graph);
+		return {FileSystem::GetLastWriteTime(file), FileSystem::GetFileSize(file)};
 	}
 
 	VisualScriptProjectGraph const* VisualScriptProjectIndex::Find(AssetHandle graph) const
