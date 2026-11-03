@@ -291,6 +291,66 @@ namespace
 		return document;
 	}
 
+	// --- Graphs that refer to graphs ---
+
+	// The function library of the cross-graph tests: the pure Twice(int Value) -> int Result (function 1), Value times
+	// factor, and Pause(float Seconds) (function 2), which waits that long.
+	VisualScriptDocument MakeLibraryDocument(int32_t factor = 2)
+	{
+		VisualScriptDocument document;
+		document.Kind = VisualScriptDocumentKind::Library;
+		VisualScriptFunction twice;
+		twice.ID = 1;
+		twice.Name = "Twice";
+		twice.Pure = true;
+		twice.Inputs.emplace_back("Value", "int");
+		twice.Outputs.emplace_back("Result", "int");
+		twice.Graph.Nodes.push_back(MakeNode(10, "Function.Entry"));
+		twice.Graph.Nodes.push_back(MakeNode(11, "Operator.Multiply", Json::object(), Json::object({{"B", factor}})));
+		twice.Graph.Nodes.push_back(MakeNode(12, "Function.Return"));
+		twice.Graph.Links.push_back(MakeLink(10, "Value", 11, "A"));
+		twice.Graph.Links.push_back(MakeLink(11, "Result", 12, "Result"));
+		document.Functions.push_back(std::move(twice));
+		VisualScriptFunction pause;
+		pause.ID = 2;
+		pause.Name = "Pause";
+		pause.Inputs.emplace_back("Seconds", "float");
+		pause.Graph.Nodes.push_back(MakeNode(20, "Function.Entry"));
+		pause.Graph.Nodes.push_back(MakeNode(21, "Flow.Delay"));
+		pause.Graph.Links.push_back(MakeLink(20, "Then", 21, "Execute"));
+		pause.Graph.Links.push_back(MakeLink(20, "Seconds", 21, "Duration"));
+		document.Functions.push_back(std::move(pause));
+		return document;
+	}
+
+	// The settings of a node that names another graph: settings with its Graph.
+	Json WithGraph(AssetHandle graph, Json settings = Json::object())
+	{
+		settings["Graph"] = graph.ToString();
+		return settings;
+	}
+
+	// Appends ",<Label>" to the name of its Recorder whenever its custom event Hit is raised.
+	VisualScriptDocument MakeHitRecorderDocument()
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Label", "string", ""));
+		document.Variables.push_back(MakeVariable(2, "Recorder", "Strada.Entity"));
+		document.Graph.Nodes.push_back(MakeNode(10, "Event.Custom", Json::object({{"Name", "Hit"}})));
+		document.Graph.Nodes.push_back(MakeNode(11, "Variable.Get", Json::object({{"Variable", 2}})));
+		document.Graph.Nodes.push_back(MakeNode(12, "Variable.Get", Json::object({{"Variable", 1}})));
+		document.Graph.Nodes.push_back(MakeNode(13, "Get:Strada.Entity.Name"));
+		document.Graph.Nodes.push_back(MakeNode(14, "FormatString", Json::object({{"Format", "{Old},{Label}"}})));
+		document.Graph.Nodes.push_back(MakeNode(15, "Set:Strada.Entity.Name"));
+		document.Graph.Links.push_back(MakeLink(11, "Value", 13, "Target"));
+		document.Graph.Links.push_back(MakeLink(13, "Value", 14, "Old"));
+		document.Graph.Links.push_back(MakeLink(12, "Value", 14, "Label"));
+		document.Graph.Links.push_back(MakeLink(10, "Then", 15, "Execute"));
+		document.Graph.Links.push_back(MakeLink(11, "Value", 15, "Target"));
+		document.Graph.Links.push_back(MakeLink(14, "Result", 15, "Value"));
+		return document;
+	}
+
 	AssetHandle AddGraph(VisualScriptDocument document, std::string name)
 	{
 		return AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(std::move(document)), std::move(name));
@@ -1004,5 +1064,166 @@ TEST_CASE("Scene: C# scripts raise visual scripts' custom events and read and wr
 	scene.OnUpdateRuntime(Timestep(FrameTime));
 	CHECK(VisualScriptEngine::HasInstance(holder.GetUUID()));
 	CHECK(ReadVariable(holder.GetUUID(), "Score") == ScriptFieldValue::FromInt32(1));
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: a visual script reads and writes the public variables of another entity's graph")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	VisualScriptDocument door;
+	door.Variables.push_back(MakeVariable(1, "Health", "float", 10.0));
+	AssetHandle const doorGraph = AddGraph(door, "Door");
+	// On every update: Seen = the other entity's Health, then its Health = 25.
+	VisualScriptDocument reader;
+	reader.Variables.push_back(MakeVariable(1, "Other", "Strada.Entity"));
+	reader.Variables.push_back(MakeVariable(2, "Seen", "float", 0.0));
+	reader.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	reader.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 2}})));
+	reader.Graph.Nodes.push_back(MakeNode(12, "Variable.Get", Json::object({{"Variable", 1}})));
+	reader.Graph.Nodes.push_back(MakeNode(13, "Variable.Get", WithGraph(doorGraph, Json::object({{"Variable", 1}}))));
+	reader.Graph.Nodes.push_back(
+		MakeNode(14, "Variable.Set", WithGraph(doorGraph, Json::object({{"Variable", 1}})), Json::object({{"Value", 25.0}})));
+	reader.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	reader.Graph.Links.push_back(MakeLink(12, "Value", 13, "Target"));
+	reader.Graph.Links.push_back(MakeLink(13, "Value", 11, "Value"));
+	reader.Graph.Links.push_back(MakeLink(11, "Then", 14, "Execute"));
+	reader.Graph.Links.push_back(MakeLink(12, "Value", 14, "Target"));
+	AssetHandle const readerGraph = AddGraph(reader, "Reader");
+
+	Scene scene("Remote");
+	Entity const target = AddVisualScript(scene.CreateEntity("Door"), doorGraph);
+	Entity const source =
+		AddVisualScript(scene.CreateEntity("Reader"), readerGraph, {{"Other", ScriptFieldValue::FromEntity(target.GetUUID())}});
+	scene.OnRuntimeStart();
+	REQUIRE(VisualScriptEngine::HasInstance(source.GetUUID()));
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(source.GetUUID(), "Seen") == ScriptFieldValue::FromFloat(10.0f));
+	CHECK(ReadVariable(target.GetUUID(), "Health") == ScriptFieldValue::FromFloat(25.0f));
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(source.GetUUID(), "Seen") == ScriptFieldValue::FromFloat(25.0f));
+	CHECK(host.Exceptions == 0);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: a broadcast reaches every entity whose graph has the event, in the order their instances were created")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	AssetHandle const receiverGraph = AddGraph(MakeHitRecorderDocument(), "Receiver");
+	// Broadcasts Hit on every update.
+	VisualScriptDocument sender;
+	sender.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	sender.Graph.Nodes.push_back(MakeNode(11, "Event.Broadcast", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}})));
+	sender.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	AssetHandle const senderGraph = AddGraph(sender, "Sender");
+
+	Scene scene("Broadcast");
+	Entity recorder = AddRecorder(scene);
+	AddVisualScript(scene.CreateEntity("Sender"), senderGraph);
+	// B's entity comes first, but A's instance is created first.
+	Entity b = scene.CreateEntity("B");
+	Entity a = scene.CreateEntity("A");
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(GetRecords(recorder).empty());
+
+	AddVisualScript(a, receiverGraph,
+	                {{"Label", ScriptFieldValue::FromString("A")}, {"Recorder", ScriptFieldValue::FromEntity(recorder.GetUUID())}});
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	REQUIRE(VisualScriptEngine::HasInstance(a.GetUUID()));
+	AddVisualScript(b, receiverGraph,
+	                {{"Label", ScriptFieldValue::FromString("B")}, {"Recorder", ScriptFieldValue::FromEntity(recorder.GetUUID())}});
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	REQUIRE(VisualScriptEngine::HasInstance(b.GetUUID()));
+	std::vector<std::string> const records = GetRecords(recorder);
+	REQUIRE(records.size() >= 2);
+	CHECK(std::vector<std::string>(records.end() - 2, records.end()) == std::vector<std::string>{"A", "B"});
+	CHECK(std::count(records.begin(), records.end(), "B") == 1);
+	CHECK(host.Exceptions == 0);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: a library edited while running swaps the graphs that call it, and an entity cannot run a library")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const library = CreateRef<VisualScriptAsset>(MakeLibraryDocument());
+	AssetHandle const libraryGraph = AssetManager::AddMemoryAsset(library, "Motion");
+	// Result = Twice(3) on every update.
+	VisualScriptDocument caller;
+	caller.Variables.push_back(MakeVariable(1, "Result", "int", 0));
+	caller.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	caller.Graph.Nodes.push_back(MakeNode(11, "Variable.Set", Json::object({{"Variable", 1}})));
+	caller.Graph.Nodes.push_back(
+		MakeNode(12, "Function.Call", WithGraph(libraryGraph, Json::object({{"Function", 1}})), Json::object({{"Value", 3}})));
+	caller.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	caller.Graph.Links.push_back(MakeLink(12, "Result", 11, "Value"));
+	AssetHandle const callerGraph = AddGraph(caller, "Caller");
+
+	Scene scene("Library");
+	Entity const first = AddVisualScript(scene.CreateEntity("First"), callerGraph);
+	Entity const second = AddVisualScript(scene.CreateEntity("Second"), callerGraph);
+	AddVisualScript(scene.CreateEntity("Library user"), libraryGraph);
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	scene.OnRuntimeStart();
+	CHECK(CountLogged(logStart, "Entity 'Library user' runs no visual script: Motion is a function library: graphs call its functions; it "
+	                            "runs on no entity") == 1);
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(ReadVariable(first.GetUUID(), "Result") == ScriptFieldValue::FromInt32(6));
+
+	uint64_t const generation = VisualScriptEngine::GetProgramGeneration(callerGraph);
+	library->SetDocument(MakeLibraryDocument(5));
+	scene.OnUpdateRuntime(Timestep(FrameTime));
+	CHECK(VisualScriptEngine::GetProgramGeneration(callerGraph) != generation);
+	for (Entity const entity : {first, second})
+	{
+		CHECK(VisualScriptEngine::HasInstance(entity.GetUUID()));
+		CHECK(ReadVariable(entity.GetUUID(), "Result") == ScriptFieldValue::FromInt32(15));
+	}
+	// Reported once, not every update.
+	CHECK(CountLogged(logStart, "Entity 'Library user' runs no visual script") == 1);
+	CHECK(host.Exceptions == 0);
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("Scene: an execution waiting in a library function survives an edit of the library that leaves the function alone")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	RecordingHost host;
+	Ref<VisualScriptAsset> const library = CreateRef<VisualScriptAsset>(MakeLibraryDocument());
+	AssetHandle const libraryGraph = AssetManager::AddMemoryAsset(library, "Motion");
+	// Pause(0.5), then Done, when created.
+	VisualScriptDocument caller;
+	caller.Variables.push_back(MakeVariable(1, "Done", "bool", false));
+	caller.Graph.Nodes.push_back(MakeNode(10, "Event.Create"));
+	caller.Graph.Nodes.push_back(
+		MakeNode(11, "Function.Call", WithGraph(libraryGraph, Json::object({{"Function", 2}})), Json::object({{"Seconds", 0.5}})));
+	caller.Graph.Nodes.push_back(MakeNode(12, "Variable.Set", Json::object({{"Variable", 1}}), Json::object({{"Value", true}})));
+	caller.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	caller.Graph.Links.push_back(MakeLink(11, "Then", 12, "Execute"));
+	AssetHandle const callerGraph = AddGraph(caller, "Waiter");
+
+	Scene scene("Waiting");
+	Entity const waiter = AddVisualScript(scene.CreateEntity("Waiter"), callerGraph);
+	scene.OnRuntimeStart();
+	scene.OnUpdateRuntime(Timestep(0.1f));
+	CHECK(ReadVariable(waiter.GetUUID(), "Done") == ScriptFieldValue::FromBool(false));
+
+	// Another program of the library, its Pause unchanged: the caller is swapped, and its execution keeps waiting in Pause.
+	uint64_t const logStart = Log::GetNextEntryIndex();
+	uint64_t const generation = VisualScriptEngine::GetProgramGeneration(callerGraph);
+	library->SetDocument(MakeLibraryDocument(7));
+	scene.OnUpdateRuntime(Timestep(0.1f));
+	CHECK(VisualScriptEngine::GetProgramGeneration(callerGraph) != generation);
+	CHECK(ReadVariable(waiter.GetUUID(), "Done") == ScriptFieldValue::FromBool(false));
+	scene.OnUpdateRuntime(Timestep(0.4f));
+	CHECK(ReadVariable(waiter.GetUUID(), "Done") == ScriptFieldValue::FromBool(true));
+	CHECK_FALSE(Testing::WasLogged(logStart, "is cancelled"));
+	CHECK(host.Exceptions == 0);
 	scene.OnRuntimeStop();
 }

@@ -19,6 +19,7 @@
 namespace Strada
 {
 	class AssetThumbnails;
+	class VisualScriptProjectIndex;
 
 	// Edits the selected entities: name, the components they all have (fields generated from the component registry, one
 	// undo step per widget interaction; Script components get a class picker and the fields of their script class; Mesh
@@ -49,6 +50,9 @@ namespace Strada
 		// is not opened.
 		using OpenVisualScriptCallback = std::function<void(AssetHandle graph, UUID contextEntity)>;
 		void SetOpenVisualScriptCallback(OpenVisualScriptCallback callback) { m_OpenVisualScript = std::move(callback); }
+		// The project's visual scripts (the graph windows' index), which the asset inspector's "Used by" of a visual script
+		// reads, refreshing it first. Not owned; without it no "Used by" is shown.
+		void SetVisualScriptIndex(VisualScriptProjectIndex* index) { m_VisualScriptIndex = index; }
 
 		void OnImGuiRender(EditorOperations& operations, bool& open);
 		// In the next frame, brings the inspector to the front with its Add Component menu open and the search text typed in
@@ -98,8 +102,9 @@ namespace Strada
 
 		// The values the entities give the public variables of the visual script they all run (one undo step per interaction,
 		// each writing an entity's whole map with the values under the variables' current names), under an Open Visual Script
-		// button; variables that cannot be set here are listed with the reason. Nothing when the entities run different graphs
-		// or theirs does not load; Create Visual Script when none of them runs a graph.
+		// button; variables that cannot be set here are listed with the reason. For a function library, which runs on no
+		// entity, why instead of its variables. Nothing when the entities run different graphs or theirs does not load; Create
+		// Visual Script when none of them runs a graph.
 		void DrawVisualScriptVariables(EditorOperations& operations, std::vector<UUID> const& entities);
 		// Writes Assets/Scripts/<the first entity's name>.sgraph from the Events template (the name made a portable file name
 		// that no file has), makes every entity run it in one undo step ("Create Visual Script"), and opens it with the first
@@ -117,6 +122,7 @@ namespace Strada
 		AssetThumbnails* m_Thumbnails = nullptr;
 		VisualScriptEnumLookup m_VisualScriptEnumLookup;
 		OpenVisualScriptCallback m_OpenVisualScript;
+		VisualScriptProjectIndex* m_VisualScriptIndex = nullptr;
 		EditSession m_EditSession;
 		// Search text of the Add Component menu; while it is empty the menu shows the categories.
 		std::string m_AddComponentFilter;

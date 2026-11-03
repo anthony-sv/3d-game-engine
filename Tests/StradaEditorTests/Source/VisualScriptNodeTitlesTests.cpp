@@ -49,7 +49,7 @@ namespace
 		{"Event.GamepadButtonReleased", "Gamepad Button Released"},
 		{"Event.Custom", "Custom Event"},
 		{"Event.Send", "Send Event"},
-		{"Event.Broadcast", "Broadcast", "Broadcast Event"},
+		{"Event.Broadcast", "Broadcast Event"},
 		{"Flow.Branch", "Branch"},
 		{"Flow.Sequence", "Sequence"},
 		{"Flow.Switch", "Switch"},

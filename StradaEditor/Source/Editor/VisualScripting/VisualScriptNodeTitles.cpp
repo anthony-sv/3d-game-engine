@@ -248,6 +248,40 @@ namespace Strada
 			return function != document.Functions.end() ? &function->Name : nullptr;
 		}
 
+		// The document of the graph a node's Graph setting names, from the resolver; null without one, or when the setting or
+		// the graph does not resolve.
+		VisualScriptDocument const* ResolveGraph(VisualScriptNode const& node, VisualScriptGraphResolver const& resolver)
+		{
+			std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+			return graph && resolver ? resolver(*graph) : nullptr;
+		}
+
+		// The name of the variable of another graph a remote Variable.Get/Set node reads or writes (never a local: a local
+		// lives in its own function only); null when the graph does not resolve or has no such variable.
+		std::string const* FindRemoteVariableName(VisualScriptNode const& node, VisualScriptGraphResolver const& resolver)
+		{
+			VisualScriptDocument const* const target = ResolveGraph(node, resolver);
+			std::optional<uint32_t> const id = ReadId(node.Settings, "Variable");
+			if (target == nullptr || !id)
+			{
+				return nullptr;
+			}
+			auto const variable = std::find_if(target->Variables.begin(), target->Variables.end(),
+			                                   [&](VisualScriptVariable const& candidate)
+			                                   {
+												   return candidate.ID == *id;
+											   });
+			return variable != target->Variables.end() ? &variable->Name : nullptr;
+		}
+
+		// The name of the library function a Function.Call node with a Graph setting calls; null when the graph does not
+		// resolve or has no such function.
+		std::string const* FindRemoteFunctionName(VisualScriptNode const& node, VisualScriptGraphResolver const& resolver)
+		{
+			VisualScriptDocument const* const target = ResolveGraph(node, resolver);
+			return target != nullptr ? FindFunctionName(node, *target) : nullptr;
+		}
+
 		// "<prefix><name in words>", or the type itself when it ends with no name (as the runtime titles such types).
 		std::string FormatMemberTitle(std::string_view prefix, std::string_view type)
 		{
@@ -256,17 +290,20 @@ namespace Strada
 		}
 	}
 
-	std::string DeriveVisualScriptNodeTitle(VisualScriptNode const& node, VisualScriptDocument const& document)
+	std::string DeriveVisualScriptNodeTitle(VisualScriptNode const& node, VisualScriptDocument const& document,
+	                                        VisualScriptGraphResolver const& resolver)
 	{
 		std::string_view const type = node.Type;
 		if (type == "Variable.Get" || type == "Variable.Set")
 		{
-			std::string const* const name = FindVariableName(node, document);
+			std::string const* const name =
+				IsLocalVisualScriptReference(node) ? FindVariableName(node, document) : FindRemoteVariableName(node, resolver);
 			return std::string(type == "Variable.Get" ? "Get " : "Set ") + (name != nullptr ? *name : std::string("Variable"));
 		}
 		if (type == "Function.Call")
 		{
-			std::string const* const name = FindFunctionName(node, document);
+			std::string const* const name =
+				IsLocalVisualScriptReference(node) ? FindFunctionName(node, document) : FindRemoteFunctionName(node, resolver);
 			return name != nullptr ? *name : std::string("Call Function");
 		}
 		if (type == "Event.Custom")
@@ -274,10 +311,10 @@ namespace Strada
 			std::optional<std::string_view> const name = ReadEventName(node.Settings);
 			return name ? std::string(*name) : std::string("Custom Event");
 		}
-		if (type == "Event.Send")
+		if (type == "Event.Send" || type == "Event.Broadcast")
 		{
 			std::optional<std::string_view> const name = ReadEventName(node.Settings);
-			return "Send " + (name ? std::string(*name) : std::string("Event"));
+			return (type == "Event.Send" ? "Send " : "Broadcast ") + (name ? std::string(*name) : std::string("Event"));
 		}
 		if (auto const spelled = std::find_if(SpelledOutTitles.begin(), SpelledOutTitles.end(),
 		                                      [type](auto const& entry)

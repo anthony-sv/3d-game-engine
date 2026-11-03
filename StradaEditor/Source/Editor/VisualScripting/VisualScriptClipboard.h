@@ -68,7 +68,8 @@ namespace Strada
 	// - the variables the nodes use (without their former names), and the functions they call, transitively, with their
 	//   graphs and the variables those use. A setting names a variable or function when its library setting is of that
 	//   kind; without the library, the Variable setting of Variable.Get and Variable.Set and the Function setting of
-	//   Function.Call do;
+	//   Function.Call do. A node with a Graph setting names elements of another graph: it is copied verbatim, and none of
+	//   its settings binds on paste;
 	// - copied from a function's graph, the function's locals the nodes use, each written as a variable of a new ID with a
 	//   name of its own among the text's variables and its functions' locals, and listed with its own name in Locals.
 	[[nodiscard]] std::string WriteVisualScriptClipboard(VisualScriptDocument const& document, uint32_t function,
@@ -100,7 +101,8 @@ namespace Strada
 	//   and signature; else a new function copied from it with its locals and graph, whose own uses are bound the same way;
 	// - a setting that names nothing the content holds stays as it is.
 	// Each variable, local and function added is a note. Left out, with a note: event nodes pasted into a function's graph
-	// (events belong in the event graph), event nodes the event graph has already (one of each standard event, of each
+	// (events belong in the event graph: nodes of the library's Event kind, else every "Event." type but Event.Send and
+	// Event.Broadcast, which run anywhere), event nodes the event graph has already (one of each standard event, of each
 	// input event per key or button, of each custom event per name), and a Function.Entry pasted into a graph that has one;
 	// links of what is left out go too. Fails, changing nothing, when the paste would exceed a limit of the format (naming
 	// it) or `at` is not finite, and for a graph the document does not have.

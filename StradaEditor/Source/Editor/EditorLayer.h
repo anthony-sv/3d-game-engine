@@ -152,9 +152,6 @@ namespace Strada
 		bool SaveScene();
 		bool SaveSceneAs();
 
-		// Undo and Redo of the one history; while a graph window is the Edit menu's target, it says what was undone or redone.
-		void Undo();
-		void Redo();
 		// Opens a visual script's window (the content browser, the inspector), with the entity it runs on when given.
 		void OpenVisualScript(AssetHandle graph, UUID contextEntity);
 
