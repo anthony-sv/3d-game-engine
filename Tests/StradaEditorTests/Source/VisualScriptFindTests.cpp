@@ -227,3 +227,79 @@ TEST_CASE("VisualScriptFind: a query with neither or both of text and references
 	both.References = VisualScriptReference{VisualScriptReference::Kind::Variable, 1, {}};
 	CHECK(FindInVisualScript(document, nullptr, both).empty());
 }
+
+namespace
+{
+	// Door (9001) declares Health (5) and the custom event Hit; Motion (9002) is a library whose function 7 is Clamp01. The
+	// caller (9003) reads Health on another entity, calls Clamp01, and sends Hit typed with Door, typed with itself and
+	// untyped.
+	constexpr std::string_view CallerText = R"json({
+		"Graph": {
+			"Nodes": [
+				{ "ID": 1, "Type": "Variable.Get", "Settings": { "Variable": 5, "Graph": "9001" } },
+				{ "ID": 2, "Type": "Variable.Set", "Settings": { "Variable": 5, "Graph": "9001" } },
+				{ "ID": 3, "Type": "Variable.Get", "Settings": { "Variable": 5 } },
+				{ "ID": 4, "Type": "Function.Call", "Settings": { "Function": 7, "Graph": "9002" } },
+				{ "ID": 5, "Type": "Event.Send", "Settings": { "Name": "Hit", "Graph": "9001" } },
+				{ "ID": 6, "Type": "Event.Broadcast", "Settings": { "Name": "Hit", "Graph": "9003" } },
+				{ "ID": 7, "Type": "Event.Send", "Settings": { "Name": "Hit" } },
+				{ "ID": 8, "Type": "Event.Custom", "Settings": { "Name": "Hit" } },
+				{ "ID": 9, "Type": "Variable.Get", "Settings": { "Variable": 5, "Graph": "malformed" } }
+			]
+		}
+	})json";
+
+	std::vector<uint32_t> FindNodes(VisualScriptDocument const& document, VisualScriptReference reference, AssetHandle self,
+	                                VisualScriptGraphResolver const& resolver = {})
+	{
+		std::vector<uint32_t> nodes;
+		VisualScriptFindQuery query;
+		query.References = std::move(reference);
+		for (VisualScriptFindResult const& result : FindInVisualScript(document, nullptr, query, self, resolver))
+		{
+			nodes.push_back(result.Node);
+		}
+		return nodes;
+	}
+}
+
+TEST_CASE("VisualScriptFind: references follow the graph that declares the element across graphs")
+{
+	VisualScriptDocument const caller = ParseDocument(CallerText);
+	AssetHandle const door(UUID(9001));
+	AssetHandle const motion(UUID(9002));
+	AssetHandle const self(UUID(9003));
+	using Kind = VisualScriptReference::Kind;
+
+	// Door's variable: the remote Get and Set, never the local Get of the caller's own variable 5, nor a malformed Graph.
+	CHECK(FindNodes(caller, {Kind::Variable, 5, {}, door}, self) == std::vector<uint32_t>{1, 2});
+	CHECK(FindNodes(caller, {Kind::Variable, 5, {}, self}, self) == std::vector<uint32_t>{3});
+	CHECK(FindNodes(caller, {Kind::Variable, 5, {}}, self) == std::vector<uint32_t>{3});
+	// The library's callers.
+	CHECK(FindNodes(caller, {Kind::Function, 7, {}, motion}, self) == std::vector<uint32_t>{4});
+	CHECK(FindNodes(caller, {Kind::Function, 7, {}, door}, self).empty());
+	// Door's Hit: the typed Send and the untyped one; the caller's own: its event, the Broadcast typed with it and the untyped
+	// Send; any graph's: all of them.
+	CHECK(FindNodes(caller, {Kind::CustomEvent, 0, "Hit", door}, self) == std::vector<uint32_t>{5, 7});
+	CHECK(FindNodes(caller, {Kind::CustomEvent, 0, "Hit", self}, self) == std::vector<uint32_t>{6, 7, 8});
+	CHECK(FindNodes(caller, {Kind::CustomEvent, 0, "Hit"}, self) == std::vector<uint32_t>{5, 6, 7, 8});
+
+	// Without an analysis, remote nodes are titled from the resolver's documents.
+	VisualScriptDocument doorDocument;
+	VisualScriptVariable health;
+	health.ID = 5;
+	health.Name = "Health";
+	health.Type = "float";
+	health.Public = true;
+	doorDocument.Variables = {health};
+	VisualScriptGraphResolver const resolver = [&](AssetHandle graph) -> VisualScriptDocument const*
+	{
+		return graph == door ? &doorDocument : nullptr;
+	};
+	VisualScriptFindQuery query;
+	query.References = VisualScriptReference{Kind::Variable, 5, {}, door};
+	std::vector<VisualScriptFindResult> const titled = FindInVisualScript(caller, nullptr, query, self, resolver);
+	REQUIRE(titled.size() == 2);
+	CHECK(titled[0].Text == "Get Health");
+	CHECK(titled[1].Text == "Set Health");
+}

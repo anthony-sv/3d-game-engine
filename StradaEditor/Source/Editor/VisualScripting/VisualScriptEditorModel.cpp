@@ -437,8 +437,13 @@ namespace Strada
 		}
 		if (m_OutsideChange)
 		{
-			// The gesture was made on what is no longer there: it ends without an edit.
+			// The gesture was made on what is no longer there: it ends without an edit. Panning and the minimap edit nothing.
 			m_OutsideChange = false;
+			if (m_Gesture != VisualScriptGesture::Idle && m_Gesture != VisualScriptGesture::Panning &&
+			    m_Gesture != VisualScriptGesture::MinimapDrag)
+			{
+				result.InterruptedGesture = m_Gesture;
+			}
 			CancelGesture();
 		}
 		if (m_Function != 0 && FindGraph(GetDrawnDocument(), m_Function) == nullptr)
@@ -559,6 +564,8 @@ namespace Strada
 			std::sort(state.Bookmarks.begin(), state.Bookmarks.end());
 		}
 		state.MinimapVisible = m_Minimap.Alpha > 0.0f;
+		state.CanGoBack = CanGoBack();
+		state.CanGoForward = CanGoForward();
 		return state;
 	}
 
@@ -843,9 +850,10 @@ namespace Strada
 		}
 		Ref<VisualScriptDocument const> const& drawn = GetDrawnDocumentRef();
 		// Made with the library of now: a library seen first in a frame whose analysis was put off still counts as new later.
-		bool const current = m_AnalyzedDocument != nullptr && !m_AnalysisStale && m_AnalyzedLibrary == m_Library &&
+		// Other graphs it read that changed what it read of them make it out of date too (spec-slice3 §10.8).
+		bool const current = m_AnalyzedDocument != nullptr && !m_AnalysisStale && !m_OtherGraphsChanged && m_AnalyzedLibrary == m_Library &&
 		                     (drawn == m_AnalyzedDocument || HaveSameVisualScriptProgram(*drawn, *m_AnalyzedDocument));
-		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument))
+		if (current || (m_FailedLibrary == m_Library && drawn == m_FailedDocument && !m_OtherGraphsChanged))
 		{
 			// The program the analysis describes (only positions, comments or collapsing changed), or the very document the
 			// runtime could not analyze. The analysis describes the drawn document as well as the one it was made from (their
@@ -869,6 +877,7 @@ namespace Strada
 		m_HasAnalyzed = true;
 		m_LastAnalysisTime = time;
 		m_AnalysisPending = false;
+		m_OtherGraphsChanged = false;
 		if (analysis)
 		{
 			m_Analysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
@@ -1002,8 +1011,59 @@ namespace Strada
 
 	void VisualScriptEditorModel::SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, uint64_t revision)
 	{
+		bool const changed =
+			revision != m_ProjectRevision || graphs.data() != m_ProjectGraphs.data() || graphs.size() != m_ProjectGraphs.size();
 		m_ProjectGraphs = graphs;
 		m_ProjectRevision = revision;
+		// The other graphs the analysis read are compared only when the index changed (spec-slice3 §10.8): one lookup and a
+		// pointer comparison per graph, then the equality its use needs, so a neighbour reloaded unchanged costs no analysis.
+		if (changed && !m_OtherGraphsChanged && m_Analysis != nullptr && m_AnalyzedDocument != nullptr && !ReadsCurrentGraphs())
+		{
+			m_OtherGraphsChanged = true;
+			m_AnalysisPending = true;
+		}
+	}
+
+	bool VisualScriptEditorModel::ReadsCurrentGraphs() const
+	{
+		if (m_Analysis->Graphs.empty())
+		{
+			return true;
+		}
+		std::vector<VisualScriptGraphReference> const references = CollectVisualScriptReferences(*m_AnalyzedDocument);
+		for (auto const& [graph, read] : m_Analysis->Graphs)
+		{
+			if (graph == m_Graph)
+			{
+				// The window's own graph is the analyzed document itself.
+				continue;
+			}
+			VisualScriptProjectGraph const* const found = FindProjectGraph(graph);
+			VisualScriptDocument const* const current = found != nullptr ? found->Document.get() : nullptr;
+			if (current == read.get())
+			{
+				continue;
+			}
+			if (current == nullptr || read == nullptr)
+			{
+				return false;
+			}
+			auto const reference = std::find_if(references.begin(), references.end(),
+			                                    [graph](VisualScriptGraphReference const& candidate)
+			                                    {
+													return candidate.Graph == graph;
+												});
+			// A library the document calls, or a graph reached only through one, is read whole; the others for their interface,
+			// events included (a typed send's verification reads them).
+			bool const library = reference == references.end() || reference->Use == VisualScriptReferenceUse::Library;
+			bool const same = library ? HaveSameVisualScriptProgram(*read, *current)
+			                          : HaveSameVisualScriptProgram(MakeVisualScriptInterface(*read), MakeVisualScriptInterface(*current));
+			if (!same)
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	VisualScriptProjectGraph const* VisualScriptEditorModel::FindProjectGraph(AssetHandle graph) const
@@ -1268,9 +1328,36 @@ namespace Strada
 	{
 		PendingOpen pending;
 		pending.Request = request;
+		if (request.Origin && request.Origin->Graph.IsValid() && request.Origin->Graph != m_Graph)
+		{
+			VisualScriptOrigin const& origin = *request.Origin;
+			HistoryEntry entry{VisualScriptViewState{origin.Function, origin.Center, origin.Zoom}, origin.Graph};
+			switch (origin.Step)
+			{
+				case VisualScriptHistoryStep::Jump:
+					PushHistory(std::move(entry));
+					break;
+				case VisualScriptHistoryStep::Back:
+					m_Forward.push_back(std::move(entry));
+					if (m_Forward.size() > MaxHistory)
+					{
+						m_Forward.erase(m_Forward.begin());
+					}
+					break;
+				case VisualScriptHistoryStep::Forward:
+					m_Back.push_back(std::move(entry));
+					if (m_Back.size() > MaxHistory)
+					{
+						m_Back.erase(m_Back.begin());
+					}
+					break;
+			}
+			// The view left is not pushed: Back goes to the window the request came from.
+			pending.Pushed = true;
+		}
 		if (request.Function && *request.Function != m_Function && (m_Display == nullptr || HasFunction(*request.Function)))
 		{
-			if (m_HasShownView)
+			if (m_HasShownView && !pending.Pushed)
 			{
 				PushHistory(m_View.GetTargetState());
 				pending.Pushed = true;
@@ -3683,7 +3770,12 @@ namespace Strada
 
 	void VisualScriptEditorModel::PushHistory(VisualScriptViewState const& view)
 	{
-		m_Back.push_back(view);
+		PushHistory(HistoryEntry{view, {}});
+	}
+
+	void VisualScriptEditorModel::PushHistory(HistoryEntry entry)
+	{
+		m_Back.push_back(std::move(entry));
 		if (m_Back.size() > MaxHistory)
 		{
 			m_Back.erase(m_Back.begin());
@@ -3691,19 +3783,37 @@ namespace Strada
 		m_Forward.clear();
 	}
 
+	void VisualScriptEditorModel::RequestOtherGraph(HistoryEntry const& entry, VisualScriptHistoryStep step)
+	{
+		VisualScriptViewState const current = m_View.GetTargetState();
+		VisualScriptOpenRequest request;
+		request.Graph = entry.Graph;
+		request.Function = entry.View.Function;
+		request.Center = entry.View.Center;
+		request.Zoom = entry.View.Zoom;
+		request.Origin = VisualScriptOrigin{m_Graph, current.Function, current.Center, current.Zoom, step};
+		m_OtherGraphRequests.push_back(std::move(request));
+	}
+
 	void VisualScriptEditorModel::GoBack(double time)
 	{
 		while (!m_Back.empty())
 		{
-			VisualScriptViewState const target = m_Back.back();
+			HistoryEntry const target = m_Back.back();
 			m_Back.pop_back();
-			if (!HasFunction(target.Function))
+			if (target.Graph.IsValid())
+			{
+				// Another graph's window shows that view, and keeps this one for its Forward.
+				RequestOtherGraph(target, VisualScriptHistoryStep::Back);
+				return;
+			}
+			if (!HasFunction(target.View.Function))
 			{
 				// A function deleted since: its views are skipped.
 				continue;
 			}
-			m_Forward.push_back(m_View.GetTargetState());
-			GoTo(target, time);
+			m_Forward.push_back(HistoryEntry{m_View.GetTargetState(), {}});
+			GoTo(target.View, time);
 			return;
 		}
 	}
@@ -3712,14 +3822,19 @@ namespace Strada
 	{
 		while (!m_Forward.empty())
 		{
-			VisualScriptViewState const target = m_Forward.back();
+			HistoryEntry const target = m_Forward.back();
 			m_Forward.pop_back();
-			if (!HasFunction(target.Function))
+			if (target.Graph.IsValid())
+			{
+				RequestOtherGraph(target, VisualScriptHistoryStep::Forward);
+				return;
+			}
+			if (!HasFunction(target.View.Function))
 			{
 				continue;
 			}
-			m_Back.push_back(m_View.GetTargetState());
-			GoTo(target, time);
+			m_Back.push_back(HistoryEntry{m_View.GetTargetState(), {}});
+			GoTo(target.View, time);
 			return;
 		}
 	}

@@ -239,16 +239,39 @@ namespace Strada
 				Duplicate(frame, *element);
 			}
 		}
+		// A library's elements are its functions: variables and custom events show only while it still has some, so that they
+		// can be deleted (spec-slice3 §10.9).
+		bool const isLibrary = frame.Document.Kind == VisualScriptDocumentKind::Library;
+		if (isLibrary)
+		{
+			m_LibraryLine = DescribeVisualScriptLibraryUse(model.GetProjectGraphs(), context.Graph);
+			ImGui::TextDisabled("%s", m_LibraryLine.c_str());
+		}
+		else
+		{
+			m_LibraryLine.clear();
+		}
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		ImGui::InputTextWithHint("##search", "Search", &m_Search);
 
 		DrawGraphs(frame);
-		DrawVariables(frame);
+		if (!isLibrary || !frame.Document.Variables.empty())
+		{
+			DrawVariables(frame);
+		}
 		if (model.GetFunction() != 0)
 		{
 			DrawLocals(frame);
 		}
-		DrawCustomEvents(frame);
+		bool const events = std::any_of(frame.Document.Graph.Nodes.begin(), frame.Document.Graph.Nodes.end(),
+		                                [](VisualScriptNode const& node)
+		                                {
+											return node.Type == "Event.Custom";
+										});
+		if (!isLibrary || events)
+		{
+			DrawCustomEvents(frame);
+		}
 
 		DrawDeleteModal(frame);
 		return result;
@@ -526,20 +549,22 @@ namespace Strada
 	void VisualScriptSidebar::DrawGraphs(Frame& frame)
 	{
 		VisualScriptDocument const& document = frame.Document;
-		if (!BeginSection(frame, "Graphs", VisualScriptElementKind::Function, true))
+		bool const library = document.Kind == VisualScriptDocumentKind::Library;
+		if (!BeginSection(frame, library ? "Functions" : "Graphs", VisualScriptElementKind::Function, true))
 		{
 			return;
 		}
 		ImGui::PushID("graphs");
 		float const right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x - ImGui::GetStyle().FramePadding.x;
-		// The event graph: its problems are those of no function.
-		if (Matches("Event Graph"))
+		// The event graph: its problems are those of no function. A library has none, unless nodes are still there to delete.
+		std::string const eventGraph = library ? "Event Graph (not used in a library)" : "Event Graph";
+		if ((!library || !document.Graph.Nodes.empty()) && Matches(eventGraph))
 		{
 			ImGui::PushID(0);
-			if (DrawRow(frame, {VisualScriptElementKind::Function, 0}, "Event Graph", false))
+			if (DrawRow(frame, {VisualScriptElementKind::Function, 0}, eventGraph, false))
 			{
 				ImGui::AlignTextToFramePadding();
-				ImGui::TextUnformatted("Event Graph");
+				ImGui::TextUnformatted(eventGraph.c_str());
 				ImGui::SameLine();
 				std::vector<VisualScriptDiagnostic> problems;
 				if (frame.Analysis != nullptr)
@@ -589,7 +614,7 @@ namespace Strada
 	void VisualScriptSidebar::DrawVariables(Frame& frame)
 	{
 		VisualScriptDocument const& document = frame.Document;
-		if (!BeginSection(frame, "Variables", VisualScriptElementKind::Variable, true))
+		if (!BeginSection(frame, "Variables", VisualScriptElementKind::Variable, document.Kind != VisualScriptDocumentKind::Library))
 		{
 			return;
 		}
@@ -727,7 +752,7 @@ namespace Strada
 	void VisualScriptSidebar::DrawCustomEvents(Frame& frame)
 	{
 		VisualScriptDocument const& document = frame.Document;
-		if (!BeginSection(frame, "Custom Events", VisualScriptElementKind::CustomEvent, true))
+		if (!BeginSection(frame, "Custom Events", VisualScriptElementKind::CustomEvent, document.Kind != VisualScriptDocumentKind::Library))
 		{
 			return;
 		}
@@ -1091,15 +1116,55 @@ namespace Strada
 				break;
 			}
 		}
-		if (uses > 0 && !confirmed)
+		// What other scripts lose (spec-slice3 §10.6): nodes naming the variable or the library function through their Graph
+		// setting, this script's own nodes that read the variable on other entities included. They are not deleted.
+		VisualScriptOtherUses others;
+		if (element.Kind == VisualScriptElementKind::Variable || element.Kind == VisualScriptElementKind::Function)
+		{
+			others = CountVisualScriptOtherUses(context.Model.GetProjectGraphs(), context.Graph, element.Kind, element.ID);
+		}
+		uint32_t const selfUses =
+			element.Kind == VisualScriptElementKind::Variable ? CountVisualScriptSelfUses(document, context.Graph, element.ID) : 0;
+		if (selfUses > 0)
+		{
+			others.Nodes += selfUses;
+			others.Scripts++;
+		}
+		if ((uses > 0 || others.Nodes > 0) && !confirmed)
 		{
 			// Asks first (the editor's modal shape).
 			m_Delete = element;
 			m_DeleteTitle = fmt::format("Delete {}?", name);
-			m_DeleteMessage =
-				element.Kind == VisualScriptElementKind::Function
-					? fmt::format("{} is called by {}; they are deleted too.", name, CountOf(uses, "node", "nodes"))
-					: fmt::format("{} {} it; they are deleted too.", CountOf(uses, "node", "nodes"), uses == 1 ? "uses" : "use");
+			bool const function = element.Kind == VisualScriptElementKind::Function;
+			if (others.Nodes == 0)
+			{
+				m_DeleteMessage =
+					function ? fmt::format("{} is called by {}; they are deleted too.", name, CountOf(uses, "node", "nodes"))
+							 : fmt::format("{} {} it; they are deleted too.", CountOf(uses, "node", "nodes"), uses == 1 ? "uses" : "use");
+			}
+			else
+			{
+				std::string const here = uses > 0 ? fmt::format("{} here {} it (they are deleted too). ", CountOf(uses, "node", "nodes"),
+				                                                uses == 1 ? "uses" : "use")
+				                                  : std::string();
+				std::string const elsewhere = fmt::format(
+					"{} in {} {} it", CountOf(others.Nodes, "node", "nodes"),
+					CountOf(others.Scripts, selfUses > 0 ? "script" : "other script", selfUses > 0 ? "scripts" : "other scripts"),
+					others.Nodes == 1 ? "uses" : "use");
+				m_DeleteMessage = fmt::format("{}{}: they will show errors until fixed.", here, elsewhere);
+			}
+			if (others.Nodes > 0)
+			{
+				VisualScriptReference reference;
+				reference.ReferenceKind = function ? VisualScriptReference::Kind::Function : VisualScriptReference::Kind::Variable;
+				reference.ID = element.ID;
+				reference.Graph = context.Graph;
+				m_DeleteReferences = std::move(reference);
+			}
+			else
+			{
+				m_DeleteReferences.reset();
+			}
 			m_OpenDelete = true;
 			return;
 		}
@@ -1273,6 +1338,18 @@ namespace Strada
 		}
 	}
 
+	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptSidebar::FindDeleteButton(std::string_view label) const
+	{
+		for (auto const& [name, rect] : m_DeleteButtons)
+		{
+			if (name == label)
+			{
+				return rect;
+			}
+		}
+		return std::nullopt;
+	}
+
 	void VisualScriptSidebar::DrawDeleteModal(Frame& frame)
 	{
 		if (m_OpenDelete)
@@ -1286,15 +1363,32 @@ namespace Strada
 		{
 			// Closed without an answer (the window was hidden): nothing is deleted.
 			m_Delete.reset();
+			m_DeleteButtons.clear();
 			return;
 		}
 		ImGui::TextUnformatted(m_DeleteMessage.c_str());
 		ImGui::Spacing();
+		m_DeleteButtons.clear();
+		auto const button = [this](char const* label)
+		{
+			bool const pressed = ImGui::Button(label);
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			m_DeleteButtons.emplace_back(label, std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
+			return pressed;
+		};
 		bool const confirm =
-			ImGui::Button("Delete") || ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+			button("Delete") || ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+		// Other scripts' nodes are listed in the find drawer instead (nothing is deleted).
+		bool find = false;
+		if (m_DeleteReferences)
+		{
+			ImGui::SameLine();
+			find = button("Find References");
+		}
 		ImGui::SameLine();
-		bool const cancel = ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
-		if (confirm || cancel)
+		bool const cancel = button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+		if (confirm || cancel || find)
 		{
 			ImGui::CloseCurrentPopup();
 			std::optional<VisualScriptElement> const element = std::exchange(m_Delete, std::nullopt);
@@ -1302,6 +1396,11 @@ namespace Strada
 			{
 				Delete(frame, *element, true);
 			}
+			else if (find && m_DeleteReferences)
+			{
+				frame.Result.FindReferences = m_DeleteReferences;
+			}
+			m_DeleteReferences.reset();
 		}
 		ImGui::EndPopup();
 	}

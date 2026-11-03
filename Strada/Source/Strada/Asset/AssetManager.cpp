@@ -51,6 +51,8 @@ namespace Strada
 			std::unordered_map<AssetHandle, std::filesystem::file_time_type> LoadedWriteTimes;
 			// The write time and size of each loaded file asset as RecordFileWrite found them after the editor wrote it.
 			std::unordered_map<AssetHandle, RecordedFileWrite> RecordedWrites;
+			// Loaded file assets that no longer show what their files hold (MarkFileChanged): the next refresh reloads them.
+			std::unordered_set<AssetHandle> ChangedFiles;
 			// Sub-assets created by each loaded parent.
 			std::unordered_map<AssetHandle, std::vector<AssetHandle>> SubAssets;
 		};
@@ -505,6 +507,7 @@ namespace Strada
 		data.MissingFiles.clear();
 		data.LoadedWriteTimes.clear();
 		data.RecordedWrites.clear();
+		data.ChangedFiles.clear();
 		data.AssetDirectory.clear();
 	}
 
@@ -622,6 +625,12 @@ namespace Strada
 				continue;
 			}
 
+			if (data.ChangedFiles.contains(metadata.Handle))
+			{
+				UnloadAsset(metadata.Handle);
+				result.Modified.push_back(metadata.Handle);
+				continue;
+			}
 			auto const writeTime = data.LoadedWriteTimes.find(metadata.Handle);
 			if (writeTime != data.LoadedWriteTimes.end())
 			{
@@ -1230,6 +1239,7 @@ namespace Strada
 		data.LoadedAssets.erase(handle);
 		data.LoadedWriteTimes.erase(handle);
 		data.RecordedWrites.erase(handle);
+		data.ChangedFiles.erase(handle);
 		data.FailedLoads.erase(handle);
 	}
 
@@ -1243,6 +1253,7 @@ namespace Strada
 		}
 		// When the time cannot be read, the time recorded at load stays: the next refresh then finds the file changed and
 		// reloads the asset.
+		data.ChangedFiles.erase(handle);
 		std::filesystem::path const path = GetAbsolutePath(handle);
 		std::optional<std::filesystem::file_time_type> const writeTime = FileSystem::GetLastWriteTime(path);
 		if (writeTime)
@@ -1258,6 +1269,17 @@ namespace Strada
 		{
 			data.RecordedWrites.erase(handle);
 		}
+	}
+
+	void AssetManager::MarkFileChanged(AssetHandle handle)
+	{
+		AssetManagerData& data = GetData();
+		if (!data.Registry.Contains(handle) || !data.LoadedAssets.contains(handle))
+		{
+			return;
+		}
+		data.ChangedFiles.insert(handle);
+		data.RecordedWrites.erase(handle);
 	}
 
 	bool AssetManager::IsFileAsLastRecorded(AssetHandle handle)

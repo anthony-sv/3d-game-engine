@@ -1097,6 +1097,20 @@ namespace Strada
 		                      CountOf(uses.Scripts, "other script", "other scripts"));
 		ImGui::TextDisabled("%s", text.c_str());
 		m_RowTexts.emplace_back(kind == VisualScriptElementKind::Function ? "Called by" : "Used by", text);
+		if (kind == VisualScriptElementKind::Function && uses.Nodes > 0)
+		{
+			// The callers in every script, the drawer's references of the function (spec-slice3 §10.3).
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Find Callers"))
+			{
+				VisualScriptReference reference;
+				reference.ReferenceKind = VisualScriptReference::Kind::Function;
+				reference.ID = id;
+				reference.Graph = frame.Context.Graph;
+				frame.Result.FindReferences = std::move(reference);
+			}
+			EndRow("Find Callers");
+		}
 	}
 
 	void VisualScriptDetails::DrawNode(Frame& frame, VisualScriptNode const& node)

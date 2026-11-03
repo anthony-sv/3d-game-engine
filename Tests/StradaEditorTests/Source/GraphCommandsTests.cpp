@@ -3942,3 +3942,169 @@ TEST_CASE("GraphCommands: with the scripting runtime, each family of cross-graph
 	CHECK(FindVisualScriptNode(fixedDocument, 5)->Settings["Variable"] == 1);
 	CHECK_FALSE(FindVisualScriptNode(fixedDocument, 4)->Settings.contains("Graph"));
 }
+
+TEST_CASE("GraphCommands: graph.find lists references across graphs: remote variables, library callers, typed and untyped senders")
+{
+	GraphFixture fixture;
+	std::string const window = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	std::string const library =
+		fixture.Ok("graph.create", Json::object({{"path", "Scripts/Motion.sgraph"}, {"template", "Library"}}))["asset"].get<std::string>();
+	VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 7;
+	clamp.Name = "Clamp01";
+	clamp.Pure = true;
+	clamp.Graph.Nodes = {MakeNode(8, "Function.Entry"), MakeNode(9, "Function.Return")};
+	clamp.Graph.Nodes[0].Position = glm::vec2(0.0f);
+	clamp.Graph.Nodes[1].Position = glm::vec2(300.0f, 0.0f);
+	motion.Functions = {clamp};
+	fixture.Ok("graph.set", Json::object({{"graph", library}, {"document", VisualScriptSerializer::SerializeDocument(motion)}}));
+	// The caller reads Window's Speed on another entity, calls Clamp01, and sends Hit typed with Window and untyped.
+	VisualScriptDocument caller;
+	caller.Graph.Nodes = {MakePlacedNode(1, "Variable.Get", glm::vec2(0.0f), Json::object({{"Variable", 1}, {"Graph", window}})),
+	                      MakePlacedNode(2, "Function.Call", glm::vec2(0.0f, 200.0f), Json::object({{"Function", 7}, {"Graph", library}})),
+	                      MakePlacedNode(3, "Event.Send", glm::vec2(0.0f, 400.0f), Json::object({{"Name", "Hit"}, {"Graph", window}})),
+	                      MakePlacedNode(4, "Event.Send", glm::vec2(0.0f, 600.0f), Json::object({{"Name", "Hit"}})),
+	                      MakePlacedNode(5, "Event.Send", glm::vec2(0.0f, 800.0f), Json::object({{"Name", "Hit"}, {"Graph", library}}))};
+	std::string const other = fixture.CreateGraph("Scripts/Caller.sgraph", caller);
+	auto const references = [&fixture](Json reference)
+	{
+		Json const found = fixture.Ok("graph.find", Json::object({{"references", std::move(reference)}}));
+		std::vector<std::string> listed;
+		for (Json const& result : found["results"])
+		{
+			listed.push_back(fmt::format("{}:{}", result["path"].get<std::string>(), result["node"].get<uint32_t>()));
+		}
+		return listed;
+	};
+
+	// A variable's references in its own script and in every script naming it.
+	CHECK(references(Json::object({{"kind", "Variable"}, {"graph", window}, {"id", 1}})) ==
+	      std::vector<std::string>{"Scripts/Caller.sgraph:1", "Scripts/Window.sgraph:12"});
+	CHECK(references(Json::object({{"kind", "Function"}, {"graph", library}, {"id", 7}})) ==
+	      std::vector<std::string>{"Scripts/Caller.sgraph:2"});
+	// A custom event of a graph: its event, the senders typed with it and the untyped ones; of no graph, every one.
+	CHECK(references(Json::object({{"kind", "CustomEvent"}, {"name", "Hit"}, {"graph", window}})) ==
+	      std::vector<std::string>{"Scripts/Caller.sgraph:3", "Scripts/Caller.sgraph:4", "Scripts/Window.sgraph:13",
+	                               "Scripts/Window.sgraph:14"});
+	CHECK(references(Json::object({{"kind", "CustomEvent"}, {"name", "Hit"}})) ==
+	      std::vector<std::string>{"Scripts/Caller.sgraph:3", "Scripts/Caller.sgraph:4", "Scripts/Caller.sgraph:5",
+	                               "Scripts/Window.sgraph:13", "Scripts/Window.sgraph:14"});
+	// Remote nodes are titled after the other graph's element.
+	Json const titled =
+		fixture.Ok("graph.find", Json::object({{"references", {{"kind", "Variable"}, {"graph", window}, {"id", 1}}}, {"graph", other}}));
+	REQUIRE(titled["results"].size() == 1);
+	CHECK(titled["results"][0]["text"] == "Get Speed");
+	CHECK(fixture
+	          .Fails("graph.find",
+	                 Json::object({{"references", {{"kind", "CustomEvent"}, {"name", "Hit"}, {"graph", "asset://Missing.sgraph"}}}}))
+	          .Code == AutomationErrorCode::AssetNotFound);
+}
+
+TEST_CASE("GraphCommands: graph.open reveals an element in My Script, and graph.editors says whether Back and Forward can go")
+{
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(3);
+	Json editor = fixture.Editor(graph);
+	CHECK(editor["canGoBack"] == false);
+	CHECK(editor["canGoForward"] == false);
+	VisualScriptEditorPanel* const panel = fixture.Editors.FindPanel(GraphWindowFixture::GetHandle(graph));
+	REQUIRE(panel != nullptr);
+
+	// A variable, a function, a custom event's node, each selected in My Script and shown in Details.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Variable"}, {"id", 2}}}}));
+	fixture.Frames(2);
+	CHECK(panel->GetPaneShared().Element == std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::Variable, 2}));
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Function"}, {"id", 30}}}}));
+	fixture.Frames(2);
+	CHECK(panel->GetPaneShared().Element == std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::Function, 30}));
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "CustomEvent"}, {"id", 13}}}}));
+	fixture.Frames(2);
+	CHECK(panel->GetPaneShared().Element ==
+	      std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::CustomEvent, 13}));
+	// A local, in its function.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Variable"}, {"id", 31}}}}));
+	fixture.Frames(2);
+	CHECK(panel->GetPaneShared().Element == std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::Local, 31}));
+
+	// What the graph does not have.
+	using Failure = std::pair<AutomationErrorCode, std::string>;
+	CHECK(fixture.Failure("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Variable"}, {"id", 30}}}})) ==
+	      Failure{AutomationErrorCode::InvalidParams, "reveal.id"});
+	CHECK(fixture.Failure("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Function"}, {"id", 1}}}})) ==
+	      Failure{AutomationErrorCode::InvalidParams, "reveal.id"});
+	CHECK(fixture.Failure("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "CustomEvent"}, {"id", 14}}}})) ==
+	      Failure{AutomationErrorCode::InvalidParams, "reveal.id"});
+
+	// Showing another sub-graph leaves a view to go back to; Back leaves one to go forward to.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"function", 0}}));
+	fixture.Frames(2);
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"function", 30}}));
+	fixture.Frames(2);
+	editor = fixture.Editor(graph);
+	CHECK(editor["canGoBack"] == true);
+	CHECK(editor["canGoForward"] == false);
+	REQUIRE(panel->RequestAction(VisualScriptEditorAction::Back));
+	fixture.Frames(2);
+	editor = fixture.Editor(graph);
+	CHECK(editor["function"] == 0);
+	CHECK(editor["canGoForward"] == true);
+}
+
+TEST_CASE("GraphCommands: while playing, a library an edit broke shows the last working version that the graphs calling it keep running")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphWindowFixture fixture;
+	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+	PlayMode play{fixture.Context, scripts};
+	// Motion's Step, which Counter calls every frame.
+	std::string const library =
+		fixture.Ok("graph.create", Json::object({{"path", "Scripts/Motion.sgraph"}, {"template", "Library"}}))["asset"].get<std::string>();
+	AssetHandle const handle = GraphWindowFixture::GetHandle(library);
+	VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction step;
+	step.ID = 7;
+	step.Name = "Step";
+	step.Graph.Nodes = {MakePlacedNode(8, "Function.Entry", glm::vec2(0.0f)),
+	                    MakePlacedNode(9, "Function.Return", glm::vec2(400.0f, 0.0f))};
+	step.Graph.Links = {MakeLink(8, "Then", 9, "Execute")};
+	motion.Functions = {step};
+	fixture.Ok("graph.set", Json::object({{"graph", library}, {"document", VisualScriptSerializer::SerializeDocument(motion)}}));
+	VisualScriptDocument counter;
+	counter.Graph.Nodes = {
+		MakePlacedNode(1, "Event.Update", glm::vec2(0.0f)),
+		MakePlacedNode(2, "Function.Call", glm::vec2(300.0f, 0.0f), Json::object({{"Function", 7}, {"Graph", library}}))};
+	counter.Graph.Links = {MakeLink(1, "Then", 2, "Execute")};
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", counter);
+	fixture.Ok("entity.create",
+	           Json::object({{"name", "Counter"}, {"components", Json::object({{"VisualScript", Json::object({{"Graph", graph}})}})}}));
+	fixture.Ok("graph.open", Json::object({{"graph", library}}));
+	fixture.Frames(2);
+
+	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	play.Advance(2, Timestep(FrameTime));
+	fixture.Frames(2);
+	CHECK(fixture.Editor(library)["live"] == "Live");
+
+	// An edit that breaks Step: Counter keeps running the version of it that worked, and Motion's window says so.
+	VisualScriptDocument broken = motion;
+	broken.Functions[0].Graph.Nodes.push_back(MakePlacedNode(10, "Call:Strada.Nothing.Here()", glm::vec2(200.0f, 200.0f)));
+	broken.Functions[0].Graph.Links = {MakeLink(8, "Then", 10, "Execute"), MakeLink(10, "Then", 9, "Execute")};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(handle, broken).IsOk());
+	play.Advance(1, Timestep(FrameTime));
+	fixture.Frames(2);
+	REQUIRE(VisualScriptEngine::HasWorkingProgram(handle));
+	Json const editor = fixture.Editor(library);
+	uint32_t const errors = editor["errors"].get<uint32_t>();
+	CHECK(errors > 0);
+	CHECK(editor["live"] == "LastWorking");
+	VisualScriptEditorPanel* const panel = fixture.Editors.FindPanel(handle);
+	REQUIRE(panel != nullptr);
+	CHECK(panel->GetLiveTooltip() == fmt::format("This version has {} {}: graphs that call it keep running the last version that worked.",
+	                                             errors, errors == 1 ? "error" : "errors"));
+	play.Stop();
+	fixture.Frames(2);
+	CHECK(fixture.Editor(library)["live"] == "None");
+}

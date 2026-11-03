@@ -2,6 +2,7 @@
 
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptCanvasPins.h"
+#include "Editor/VisualScripting/VisualScriptCrossGraph.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
@@ -334,6 +335,453 @@ namespace Strada
 		return count;
 	}
 
+	uint32_t CountVisualScriptSelfUses(VisualScriptDocument const& document, AssetHandle graph, uint32_t variable)
+	{
+		uint32_t found = 0;
+		auto const count = [&](VisualScriptGraph const& nodes)
+		{
+			for (VisualScriptNode const& node : nodes.Nodes)
+			{
+				if ((node.Type == "Variable.Get" || node.Type == "Variable.Set") && NamesID(node.Settings, "Variable", variable) &&
+				    ReadVisualScriptGraphSetting(node) == std::optional<AssetHandle>(graph))
+				{
+					found++;
+				}
+			}
+		};
+		count(document.Graph);
+		for (VisualScriptFunction const& function : document.Functions)
+		{
+			count(function.Graph);
+		}
+		return found;
+	}
+
+	std::string DescribeVisualScriptValueEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending)
+	{
+		// The first variable or local whose fields differ, else the first node whose values differ: its input when one alone
+		// differs, else its title.
+		auto const variable = [](auto const& before, auto const& after) -> std::optional<std::string>
+		{
+			for (auto const& element : after)
+			{
+				auto const old = std::find_if(before.begin(), before.end(),
+				                              [&element](auto const& candidate)
+				                              {
+												  return candidate.ID == element.ID;
+											  });
+				if (old != before.end() && !(*old == element))
+				{
+					return old->Name;
+				}
+			}
+			return std::nullopt;
+		};
+		auto const node = [&base](VisualScriptGraph const& graph) -> std::optional<std::string>
+		{
+			for (VisualScriptNode const& edited : graph.Nodes)
+			{
+				VisualScriptNode const* const old = FindVisualScriptNode(base, edited.ID);
+				if (old == nullptr || (edited.Inputs == old->Inputs && edited.Settings == old->Settings))
+				{
+					continue;
+				}
+				if (edited.Settings == old->Settings && edited.Inputs.is_object() && old->Inputs.is_object())
+				{
+					std::vector<std::string> changed;
+					for (auto const& [key, value] : edited.Inputs.items())
+					{
+						auto const was = old->Inputs.find(key);
+						if (was == old->Inputs.end() || *was != value)
+						{
+							changed.push_back(key);
+						}
+					}
+					if (changed.size() == 1)
+					{
+						return changed.front();
+					}
+				}
+				return DeriveVisualScriptNodeTitle(*old, base);
+			}
+			return std::nullopt;
+		};
+		if (std::optional<std::string> name = variable(base.Variables, pending.Variables))
+		{
+			return *name;
+		}
+		for (VisualScriptFunction const& function : pending.Functions)
+		{
+			for (VisualScriptFunction const& old : base.Functions)
+			{
+				if (old.ID == function.ID)
+				{
+					if (std::optional<std::string> name = variable(old.Locals, function.Locals))
+					{
+						return *name;
+					}
+				}
+			}
+		}
+		if (std::optional<std::string> name = node(pending.Graph))
+		{
+			return *name;
+		}
+		for (VisualScriptFunction const& function : pending.Functions)
+		{
+			if (std::optional<std::string> name = node(function.Graph))
+			{
+				return *name;
+			}
+		}
+		return "a value";
+	}
+
+	std::string DescribeVisualScriptOtherUses(VisualScriptOtherUses uses, std::string_view noun, std::string_view nouns)
+	{
+		return fmt::format("{} {} in {} {}", uses.Nodes, uses.Nodes == 1 ? noun : nouns, uses.Scripts,
+		                   uses.Scripts == 1 ? "other script" : "other scripts");
+	}
+
+	namespace
+	{
+		// The other scripts' documents an edit of a graph reaches, and what they make of it.
+		class OfferChange
+		{
+		public:
+			OfferChange(AssetHandle graph, VisualScriptDocument const& before, VisualScriptDocument const& after,
+			            std::span<VisualScriptProjectGraph const> graphs)
+				: m_Graph(graph),
+				  m_Before(before),
+				  m_After(after),
+				  m_Graphs(graphs)
+			{
+				for (VisualScriptProjectGraph const& script : graphs)
+				{
+					if (script.Graph != graph && script.Document != nullptr)
+					{
+						m_Scripts.emplace_back(script.Graph, script.Document.get());
+					}
+				}
+				m_Referrers = VisualScriptEditing::FindVisualScriptBrokenReferrers(graph, before, after, m_Scripts);
+			}
+
+			std::vector<VisualScriptOfferToast> Describe()
+			{
+				if (m_Before.Kind == VisualScriptDocumentKind::Library && m_After.Kind == VisualScriptDocumentKind::Library)
+				{
+					for (VisualScriptFunction const& function : m_Before.Functions)
+					{
+						DescribeFunction(function);
+					}
+				}
+				if (m_Before.Kind == VisualScriptDocumentKind::Script && m_After.Kind == VisualScriptDocumentKind::Script)
+				{
+					for (VisualScriptVariable const& variable : m_Before.Variables)
+					{
+						DescribeVariable(variable);
+					}
+					DescribeEvents();
+				}
+				return std::move(m_Toasts);
+			}
+
+		private:
+			VisualScriptReference MakeReference(VisualScriptReference::Kind kind, uint32_t id, std::string name = {}) const
+			{
+				VisualScriptReference reference;
+				reference.ReferenceKind = kind;
+				reference.ID = id;
+				reference.Name = std::move(name);
+				reference.Graph = m_Graph;
+				return reference;
+			}
+
+			void Add(std::string text, std::optional<VisualScriptReference> find = std::nullopt, std::string label = {})
+			{
+				m_Toasts.push_back({std::move(text), std::move(find), std::move(label)});
+			}
+
+			VisualScriptNode const* FindReferrerNode(VisualScriptEditing::VisualScriptReferrer const& referrer) const
+			{
+				for (auto const& [handle, document] : m_Scripts)
+				{
+					if (handle == referrer.Graph)
+					{
+						return FindVisualScriptNode(*document, referrer.Node);
+					}
+				}
+				return nullptr;
+			}
+
+			// The referrers of a problem whose node passes the filter, counted by node and script.
+			template<typename TFilter>
+			VisualScriptOtherUses CountReferrers(VisualScriptEditing::VisualScriptReferrerProblem problem, TFilter const& filter) const
+			{
+				VisualScriptOtherUses uses;
+				std::optional<AssetHandle> last;
+				for (VisualScriptEditing::VisualScriptReferrer const& referrer : m_Referrers)
+				{
+					VisualScriptNode const* const node = referrer.Problem == problem ? FindReferrerNode(referrer) : nullptr;
+					if (node == nullptr || !filter(*node))
+					{
+						continue;
+					}
+					uses.Nodes++;
+					// Sorted by graph: a new graph is a new script.
+					if (last != referrer.Graph)
+					{
+						uses.Scripts++;
+						last = referrer.Graph;
+					}
+				}
+				return uses;
+			}
+
+			void DescribeFunction(VisualScriptFunction const& function)
+			{
+				VisualScriptOtherUses const calls =
+					CountVisualScriptOtherUses(m_Graphs, m_Graph, VisualScriptElementKind::Function, function.ID);
+				if (calls.Nodes == 0)
+				{
+					return;
+				}
+				VisualScriptReference const callers = MakeReference(VisualScriptReference::Kind::Function, function.ID);
+				auto const after = std::find_if(m_After.Functions.begin(), m_After.Functions.end(),
+				                                [&function](VisualScriptFunction const& candidate)
+				                                {
+													return candidate.ID == function.ID;
+												});
+				if (after == m_After.Functions.end())
+				{
+					Add(fmt::format("Deleted {}: {} show errors", function.Name, DescribeVisualScriptOtherUses(calls, "call", "calls")),
+					    callers, "Find Callers");
+					return;
+				}
+				auto const callsIt = [&function](VisualScriptNode const& node)
+				{
+					return node.Type == "Function.Call" && NamesID(node.Settings, "Function", function.ID);
+				};
+				VisualScriptOtherUses const changed = CountReferrers(VisualScriptEditing::VisualScriptReferrerProblem::Changed, callsIt);
+				if (after->Pure != function.Pure)
+				{
+					if (changed.Nodes > 0)
+					{
+						Add(fmt::format("Made {} {}: {} lose links", after->Name, after->Pure ? "pure" : "impure",
+						                DescribeVisualScriptOtherUses(changed, "call", "calls")),
+						    callers, "Find Callers");
+					}
+					return;
+				}
+				DescribeParameters(function.Inputs, after->Inputs, calls, changed, callers);
+				DescribeParameters(function.Outputs, after->Outputs, calls, changed, callers);
+			}
+
+			void DescribeParameters(std::vector<VisualScriptParameter> const& before, std::vector<VisualScriptParameter> const& after,
+			                        VisualScriptOtherUses calls, VisualScriptOtherUses changed, VisualScriptReference const& callers)
+			{
+				for (VisualScriptParameter const& parameter : before)
+				{
+					auto const same = std::find_if(after.begin(), after.end(),
+					                               [&parameter](VisualScriptParameter const& candidate)
+					                               {
+													   return candidate.Name == parameter.Name;
+												   });
+					if (same != after.end())
+					{
+						if (same->Type != parameter.Type && changed.Nodes > 0)
+						{
+							Add(fmt::format("Changed {} to {}: {} may not fit", parameter.Name, same->Type,
+							                DescribeVisualScriptOtherUses(changed, "call", "calls")),
+							    callers, "Find Callers");
+						}
+						continue;
+					}
+					auto const renamed = std::find_if(after.begin(), after.end(),
+					                                  [&parameter](VisualScriptParameter const& candidate)
+					                                  {
+														  return std::find(candidate.FormerNames.begin(), candidate.FormerNames.end(),
+						                                                   parameter.Name) != candidate.FormerNames.end();
+													  });
+					if (renamed != after.end())
+					{
+						Add(fmt::format("Renamed {} to {}: {} follow it", parameter.Name, renamed->Name,
+						                DescribeVisualScriptOtherUses(calls, "call", "calls")));
+					}
+					else if (changed.Nodes > 0)
+					{
+						Add(fmt::format("Removed {}: {} lose links", parameter.Name,
+						                DescribeVisualScriptOtherUses(changed, "call", "calls")),
+						    callers, "Find Callers");
+					}
+				}
+			}
+
+			void DescribeVariable(VisualScriptVariable const& variable)
+			{
+				if (!variable.Public)
+				{
+					return;
+				}
+				auto const usesIt = [&variable](VisualScriptNode const& node)
+				{
+					return (node.Type == "Variable.Get" || node.Type == "Variable.Set") && NamesID(node.Settings, "Variable", variable.ID);
+				};
+				auto const after = std::find_if(m_After.Variables.begin(), m_After.Variables.end(),
+				                                [&variable](VisualScriptVariable const& candidate)
+				                                {
+													return candidate.ID == variable.ID;
+												});
+				VisualScriptEditing::VisualScriptReferrerProblem const problem =
+					after == m_After.Variables.end() ? VisualScriptEditing::VisualScriptReferrerProblem::Removed
+					: !after->Public                 ? VisualScriptEditing::VisualScriptReferrerProblem::Private
+													 : VisualScriptEditing::VisualScriptReferrerProblem::Changed;
+				VisualScriptOtherUses const broken = CountReferrers(problem, usesIt);
+				if (broken.Nodes == 0)
+				{
+					return;
+				}
+				std::string const uses = DescribeVisualScriptOtherUses(broken, "node", "nodes");
+				VisualScriptReference const references = MakeReference(VisualScriptReference::Kind::Variable, variable.ID);
+				switch (problem)
+				{
+					case VisualScriptEditing::VisualScriptReferrerProblem::Removed:
+						Add(fmt::format("Deleted {}: {} show errors", variable.Name, uses), references, "Find References");
+						break;
+					case VisualScriptEditing::VisualScriptReferrerProblem::Private:
+						Add(fmt::format("Made {} private: {} show errors", after->Name, uses), references, "Find References");
+						break;
+					case VisualScriptEditing::VisualScriptReferrerProblem::Changed:
+						Add(fmt::format("Changed {} to {}: {} may not fit", after->Name, after->Type, uses), references, "Find References");
+						break;
+					case VisualScriptEditing::VisualScriptReferrerProblem::Stale:
+						break;
+				}
+			}
+
+			static std::optional<std::string> ReadName(VisualScriptNode const& node)
+			{
+				if (!node.Settings.is_object())
+				{
+					return std::nullopt;
+				}
+				auto const name = node.Settings.find("Name");
+				return name != node.Settings.end() && name->is_string() ? std::optional<std::string>(name->get<std::string>())
+				                                                        : std::nullopt;
+			}
+
+			static bool HasEvent(VisualScriptDocument const& document, std::string_view name)
+			{
+				return std::any_of(document.Graph.Nodes.begin(), document.Graph.Nodes.end(),
+				                   [name](VisualScriptNode const& node)
+				                   {
+									   return node.Type == "Event.Custom" && ReadName(node) == std::optional<std::string>(name);
+								   });
+			}
+
+			void DescribeEvents()
+			{
+				std::vector<std::string> told;
+				for (VisualScriptNode const& event : m_Before.Graph.Nodes)
+				{
+					std::optional<std::string> const name = event.Type == "Event.Custom" ? ReadName(event) : std::nullopt;
+					if (!name || HasEvent(m_After, *name) || std::find(told.begin(), told.end(), *name) != told.end())
+					{
+						continue;
+					}
+					told.push_back(*name);
+					VisualScriptOtherUses const stale = CountReferrers(VisualScriptEditing::VisualScriptReferrerProblem::Stale,
+					                                                   [&name](VisualScriptNode const& node)
+					                                                   {
+																		   return ReadName(node) == name;
+																	   });
+					if (stale.Nodes == 0)
+					{
+						continue;
+					}
+					std::string const senders = DescribeVisualScriptOtherUses(stale, "sender", "senders");
+					VisualScriptReference const find = MakeReference(VisualScriptReference::Kind::CustomEvent, 0, *name);
+					VisualScriptNode const* const renamed = FindVisualScriptNode(m_After, event.ID);
+					std::optional<std::string> const newName =
+						renamed != nullptr && renamed->Type == "Event.Custom" ? ReadName(*renamed) : std::nullopt;
+					if (!newName)
+					{
+						Add(fmt::format("Deleted {}: {} still send it", *name, senders), find, "Find Senders");
+						continue;
+					}
+					// This script's senders the rename took along (RenameCustomEvent).
+					uint32_t followed = 0;
+					auto const countFollowed = [&](VisualScriptGraph const& graph)
+					{
+						for (VisualScriptNode const& node : graph.Nodes)
+						{
+							VisualScriptNode const* const old = FindVisualScriptNode(m_Before, node.ID);
+							if ((node.Type == "Event.Send" || node.Type == "Event.Broadcast") && ReadName(node) == newName &&
+							    old != nullptr && old->Type == node.Type && ReadName(*old) == name)
+							{
+								followed++;
+							}
+						}
+					};
+					countFollowed(m_After.Graph);
+					for (VisualScriptFunction const& function : m_After.Functions)
+					{
+						countFollowed(function.Graph);
+					}
+					std::string const along =
+						followed > 0 ? fmt::format(" (and {} {})", followed, followed == 1 ? "sender" : "senders") : std::string();
+					Add(fmt::format("Renamed {} to {}{}. {} still send {}", *name, *newName, along, senders, *name), find, "Find Senders");
+				}
+			}
+
+			AssetHandle m_Graph;
+			VisualScriptDocument const& m_Before;
+			VisualScriptDocument const& m_After;
+			std::span<VisualScriptProjectGraph const> m_Graphs;
+			std::vector<std::pair<AssetHandle, VisualScriptDocument const*>> m_Scripts;
+			std::vector<VisualScriptEditing::VisualScriptReferrer> m_Referrers;
+			std::vector<VisualScriptOfferToast> m_Toasts;
+		};
+	}
+
+	std::vector<VisualScriptOfferToast> DescribeVisualScriptOfferChange(AssetHandle graph, VisualScriptDocument const& before,
+	                                                                    VisualScriptDocument const& after,
+	                                                                    std::span<VisualScriptProjectGraph const> graphs)
+	{
+		if (graphs.empty() || VisualScriptEditing::HaveSameVisualScriptOffer(before, after))
+		{
+			return {};
+		}
+		return OfferChange(graph, before, after, graphs).Describe();
+	}
+
+	std::string DescribeVisualScriptLibraryUse(std::span<VisualScriptProjectGraph const> graphs, AssetHandle graph)
+	{
+		uint32_t nodes = 0;
+		uint32_t scripts = 0;
+		for (VisualScriptProjectGraph const& script : graphs)
+		{
+			if (script.Graph == graph)
+			{
+				continue;
+			}
+			for (VisualScriptGraphReference const& reference : script.References)
+			{
+				if (reference.Graph == graph && reference.Nodes > 0)
+				{
+					nodes += reference.Nodes;
+					scripts++;
+				}
+			}
+		}
+		if (scripts == 0)
+		{
+			return "Function library \xC2\xB7 used by no script yet";
+		}
+		return fmt::format("Function library \xC2\xB7 used by {} {} in {} {}", nodes, nodes == 1 ? "node" : "nodes", scripts,
+		                   scripts == 1 ? "script" : "scripts");
+	}
+
 	VisualScriptOtherUses CountVisualScriptOtherUses(std::span<VisualScriptProjectGraph const> graphs, AssetHandle graph,
 	                                                 VisualScriptElementKind kind, uint32_t id)
 	{
@@ -430,7 +878,10 @@ namespace Strada
 	void VisualScriptWidgetCommits::BeginFrame(VisualScriptPaneContext& context, VisualScriptPaneResult& result)
 	{
 		m_Model = &context.Model;
-		DropStalePending(context.Model);
+		result.Notes.insert(result.Notes.end(), std::make_move_iterator(m_DroppedNotes.begin()),
+		                    std::make_move_iterator(m_DroppedNotes.end()));
+		m_DroppedNotes.clear();
+		DropStalePending(context.Model, result.Notes);
 		if (m_Pending != nullptr && m_HasCommitted && context.Session.GetMergeKey() == m_Key &&
 		    context.Time - m_LastCommit >= CommitInterval)
 		{
@@ -464,14 +915,31 @@ namespace Strada
 		return m_Pending != nullptr && model.GetStoredDocument() == m_PendingBase ? m_Pending : nullptr;
 	}
 
-	void VisualScriptWidgetCommits::DropStalePending(VisualScriptEditorModel& model)
+	void VisualScriptWidgetCommits::DropStalePending(VisualScriptEditorModel& model, std::vector<std::string>& notes)
 	{
-		if (m_Pending != nullptr && model.GetStoredDocument() != m_PendingBase)
+		if (m_Pending == nullptr || model.GetStoredDocument() == m_PendingBase)
 		{
-			// Something else changed the document (the model dropped the preview with it): the value no longer applies.
-			m_Pending.reset();
-			m_PendingBase.reset();
+			return;
 		}
+		// Something else changed the document (the model dropped the preview with it). A value of other elements than the
+		// change touched carries over (spec-slice3 §10.11): the interaction goes on, and its next commit is a new step.
+		Ref<VisualScriptDocument const> const current = model.GetStoredDocument();
+		if (current != nullptr && m_PendingBase != nullptr)
+		{
+			if (std::optional<VisualScriptDocument> rebased =
+			        VisualScriptEditing::RebaseVisualScriptEdit(*m_PendingBase, *m_Pending, *current))
+			{
+				model.SetWidgetPreview(*rebased);
+				m_Pending = CreateRef<VisualScriptDocument const>(std::move(*rebased));
+				m_PendingBase = current;
+				return;
+			}
+		}
+		// The value no longer applies.
+		std::string const what = m_PendingBase != nullptr ? DescribeVisualScriptValueEdit(*m_PendingBase, *m_Pending) : "a value";
+		notes.push_back(fmt::format("Your edit of {} was replaced by a change made elsewhere", what));
+		m_Pending.reset();
+		m_PendingBase.reset();
 	}
 
 	void VisualScriptWidgetCommits::Change(VisualScriptPaneContext& context, VisualScriptDocument edited, std::string action, bool active,
@@ -479,7 +947,7 @@ namespace Strada
 	{
 		VisualScriptEditorModel& model = context.Model;
 		m_Model = &model;
-		DropStalePending(model);
+		DropStalePending(model, result.Notes);
 		result.WidgetActive = result.WidgetActive || active;
 		if (model.GetStoredDocument() == nullptr || (m_Pending != nullptr && IsSameVisualScriptDocument(edited, *m_Pending)))
 		{
@@ -517,7 +985,7 @@ namespace Strada
 	void VisualScriptWidgetCommits::End(VisualScriptPaneContext& context, VisualScriptPaneResult& result)
 	{
 		m_Model = &context.Model;
-		DropStalePending(context.Model);
+		DropStalePending(context.Model, result.Notes);
 		CommitPending(context, result);
 	}
 
@@ -526,7 +994,7 @@ namespace Strada
 	{
 		VisualScriptEditorModel& model = context.Model;
 		m_Model = &model;
-		DropStalePending(model);
+		DropStalePending(model, result.Notes);
 		CommitPending(context, result);
 		if (result.Commit)
 		{
@@ -557,7 +1025,8 @@ namespace Strada
 			return std::nullopt;
 		}
 		VisualScriptEditorModel& model = *m_Model;
-		DropStalePending(model);
+		// A flush has no pane result to tell a dropped value in: the pane's next Draw tells it.
+		DropStalePending(model, m_DroppedNotes);
 		if (m_Pending == nullptr)
 		{
 			return std::nullopt;

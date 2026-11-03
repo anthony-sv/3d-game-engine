@@ -396,5 +396,13 @@ namespace Strada
 		// graph's order). Returns how many nodes moved.
 		[[nodiscard]] Result<uint32_t> StraightenExec(VisualScriptDocument& document, uint32_t function, std::span<uint32_t const> nodes,
 		                                              VisualScriptNodePins const& pins);
+
+		// A value being edited, computed from base, carried over an outside change base -> current (spec-slice3 §10.11): when
+		// pending differs from base only in nodes' Settings and Inputs and in variables and locals (the edits of the panes'
+		// value widgets), and current has each of those elements exactly as base has it, the result is current with pending's
+		// versions of them. Nothing when pending changed anything else (a link, a position, an element added or removed) or
+		// the outside change touched one of its elements (or removed it).
+		[[nodiscard]] std::optional<VisualScriptDocument>
+		RebaseVisualScriptEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending, VisualScriptDocument const& current);
 	}
 }

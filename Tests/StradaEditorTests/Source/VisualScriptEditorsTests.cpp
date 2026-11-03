@@ -1594,3 +1594,152 @@ TEST_CASE("VisualScriptEditor: the View menu lists the open graphs, closes one w
 	CHECK(fixture.GetOpenGraphs().empty());
 	fixture.Probe = {};
 }
+
+TEST_CASE("VisualScriptEditor: opening a node that names another graph opens its window on the element, and Back and Forward cross "
+          "between the two windows")
+{
+	EditorsFixture fixture;
+	// Door has the public variable Health (50); Player reads it on another entity (node 60).
+	VisualScriptDocument door = MakeDocument();
+	VisualScriptVariable health;
+	health.ID = 50;
+	health.Name = "Health";
+	health.Type = "float";
+	health.Public = true;
+	door.Variables.push_back(health);
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Door, door).IsOk());
+	VisualScriptDocument player = MakeDocument();
+	player.Graph.Nodes.push_back(
+		MakeNode(60, "Variable.Get", glm::vec2(400.0f, 640.0f), Json::object({{"Variable", 50}, {"Graph", fixture.Door.ToString()}})));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Player, player).IsOk());
+	fixture.OpenGraph(fixture.Player);
+	fixture.Gui.Frame(fixture.Drawer(), 1.0f);
+	VisualScriptEditorPanel& callerWindow = fixture.GetPanel(fixture.Player);
+	CHECK_FALSE(callerWindow.GetState().CanGoBack);
+	VisualScriptViewState const callerView = callerWindow.GetState().View;
+
+	// A double click on the remote Get's header: Door's window, in front, with Health selected in My Script.
+	glm::vec2 const header = Testing::CanvasPoint(callerWindow.GetModel(), 60, glm::vec2(0.5f, 0.06f));
+	fixture.Gui.MouseClick(ImVec2(header.x, header.y), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(3);
+	CHECK(fixture.GetOpenGraphs() == std::vector<AssetHandle>{fixture.Player, fixture.Door});
+	CHECK(GetFocusedRoot() == FindGraphWindow(fixture.Door));
+	VisualScriptEditorPanel& doorWindow = fixture.GetPanel(fixture.Door);
+	CHECK(doorWindow.GetPaneShared().Element ==
+	      std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::Variable, 50}));
+	CHECK(doorWindow.GetState().CanGoBack);
+	CHECK_FALSE(doorWindow.GetState().CanGoForward);
+
+	// Back in Door's window: Player's window in front again, at the view it had.
+	REQUIRE(doorWindow.RequestAction(VisualScriptEditorAction::Back));
+	fixture.Frames(3);
+	CHECK(GetFocusedRoot() == FindGraphWindow(fixture.Player));
+	CHECK(callerWindow.GetState().View.Center == callerView.Center);
+	CHECK(callerWindow.GetState().View.Zoom == callerView.Zoom);
+	CHECK(callerWindow.GetState().CanGoForward);
+	CHECK_FALSE(doorWindow.GetState().CanGoBack);
+
+	// Forward in Player's window: Door's window again, whose Back returns once more.
+	REQUIRE(callerWindow.RequestAction(VisualScriptEditorAction::Forward));
+	fixture.Frames(3);
+	CHECK(GetFocusedRoot() == FindGraphWindow(fixture.Door));
+	CHECK(doorWindow.GetState().CanGoBack);
+	CHECK_FALSE(callerWindow.GetState().CanGoForward);
+
+	// Back opens the caller's window when it was closed meanwhile.
+	fixture.Editors.Close(fixture.Player);
+	fixture.Frames(2);
+	REQUIRE(doorWindow.RequestAction(VisualScriptEditorAction::Back));
+	fixture.Frames(3);
+	CHECK(fixture.GetOpenGraphs() == std::vector<AssetHandle>{fixture.Door, fixture.Player});
+	CHECK(GetFocusedRoot() == FindGraphWindow(fixture.Player));
+	CHECK(fixture.GetPanel(fixture.Player).GetState().View.Center == callerView.Center);
+}
+
+TEST_CASE("VisualScriptEditor: a window analyzes again when a graph its analysis read changes what it read, and only then")
+{
+	EditorsFixture fixture;
+	// Motion, a library whose function Clamp01 Player calls.
+	Result<AssetHandle> const created = fixture.Operations.CreateVisualScript("Scripts/Motion.sgraph", VisualScriptTemplate::Library);
+	REQUIRE(created.IsOk());
+	AssetHandle const motion = created.GetValue();
+	VisualScriptDocument library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 7;
+	clamp.Name = "Clamp01";
+	clamp.Pure = true;
+	clamp.Graph.Nodes = {MakeNode(8, "Function.Entry", glm::vec2(0.0f)), MakeNode(9, "Function.Return", glm::vec2(400.0f, 0.0f))};
+	library.Functions = {clamp};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(motion, library).IsOk());
+	VisualScriptDocument player = MakeDocument();
+	player.Graph.Nodes.push_back(
+		MakeNode(60, "Function.Call", glm::vec2(400.0f, 640.0f), Json::object({{"Function", 7}, {"Graph", motion.ToString()}})));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Player, player).IsOk());
+	// The analyses read what the engine would: Motion's document as its asset holds it.
+	auto const readMotion = [&fixture, motion]
+	{
+		fixture.Semantics.SetGraphs({{motion, AssetManager::GetAsset<VisualScriptAsset>(motion)->GetSharedDocument()}});
+	};
+	readMotion();
+	fixture.OpenGraph(fixture.Player);
+	fixture.Frames(2);
+	uint64_t const analyzed = fixture.Semantics.GetAnalyzeCallCount();
+
+	// A layout-only commit in Motion, and a reload that gives an equal document: no analysis.
+	VisualScriptDocument moved = AssetManager::GetAsset<VisualScriptAsset>(motion)->GetDocument();
+	moved.Functions[0].Graph.Nodes[1].Position = glm::vec2(640.0f, 80.0f);
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(motion, moved).IsOk());
+	readMotion();
+	fixture.Frames(3);
+	CHECK(fixture.Semantics.GetAnalyzeCallCount() == analyzed);
+	REQUIRE(AssetManager::ReloadAsset(motion).IsOk());
+	readMotion();
+	fixture.Frames(3);
+	CHECK(fixture.Semantics.GetAnalyzeCallCount() == analyzed);
+
+	// A commit that changes Clamp01's signature: Player's window analyzes again within a frame, once.
+	VisualScriptDocument changed = AssetManager::GetAsset<VisualScriptAsset>(motion)->GetDocument();
+	changed.Functions[0].Inputs = {{"Value", "float"}};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(motion, changed).IsOk());
+	readMotion();
+	fixture.Frames(1);
+	CHECK(fixture.Semantics.GetAnalyzeCallCount() == analyzed + 1);
+	fixture.Frames(3);
+	CHECK(fixture.Semantics.GetAnalyzeCallCount() == analyzed + 1);
+}
+
+TEST_CASE("VisualScriptEditor: a function library's window opens on its first function, and an empty one offers to add one")
+{
+	EditorsFixture fixture;
+	Result<AssetHandle> const created = fixture.Operations.CreateVisualScript("Scripts/Motion.sgraph", VisualScriptTemplate::Library);
+	REQUIRE(created.IsOk());
+	AssetHandle const motion = created.GetValue();
+	fixture.Frames(2);
+
+	// Empty: the card over its empty event graph, whose button adds a function in one step and shows it.
+	fixture.OpenGraph(motion);
+	fixture.Frames(2);
+	VisualScriptEditorPanel& window = fixture.GetPanel(motion);
+	REQUIRE(window.GetState().Card == VisualScriptCard::EmptyLibrary);
+	std::optional<VisualScriptRect> const add = window.GetItemRect(VisualScriptPanelItem::AddFunction);
+	REQUIRE(add.has_value());
+	size_t const undo = fixture.Context.GetHistory().GetUndoCount();
+	fixture.Click(add->GetCenter());
+	fixture.Frames(2);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == undo + 1);
+	Ref<VisualScriptDocument const> const added = AssetManager::GetAsset<VisualScriptAsset>(motion)->GetSharedDocument();
+	VisualScriptDocument const& document = *added;
+	REQUIRE(document.Functions.size() == 1);
+	CHECK(window.GetState().Function == document.Functions[0].ID);
+	CHECK(window.GetState().Card == VisualScriptCard::None);
+
+	// Opened again, it shows its first function.
+	fixture.Editors.Close(motion);
+	fixture.Settings.ForgetGraph(motion);
+	fixture.Frames(1);
+	VisualScriptOpenRequest request;
+	request.Graph = motion;
+	Result<VisualScriptEditorState> const opened = fixture.Editors.Open(request);
+	REQUIRE(opened.IsOk());
+	CHECK(opened.GetValue().Function == document.Functions[0].ID);
+}

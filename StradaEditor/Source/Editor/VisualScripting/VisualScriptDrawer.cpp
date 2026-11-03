@@ -149,6 +149,14 @@ namespace Strada
 				request.Select = {fix.Target};
 				request.Frame = VisualScriptFrame::Selection;
 			}
+			else if (fix.Argument == "Variable")
+			{
+				// The variable's row of My Script, which Details then shows.
+				VisualScriptReference reveal;
+				reveal.ReferenceKind = VisualScriptReference::Kind::Variable;
+				reveal.ID = fix.Target;
+				request.Reveal = std::move(reveal);
+			}
 			request.ShowProblems = fix.Argument == "Problems";
 			result.Open = std::move(request);
 			return;
@@ -337,12 +345,12 @@ namespace Strada
 		}
 
 		std::string DescribeMatch(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis,
-		                          VisualScriptFindResult const& match)
+		                          VisualScriptFindResult const& match, VisualScriptGraphResolver const& resolver)
 		{
 			if (match.Node != 0)
 			{
 				VisualScriptNode const* const node = FindVisualScriptNode(document, match.Node);
-				std::string const title = node != nullptr ? GetVisualScriptNodeTitle(document, analysis, *node) : match.Text;
+				std::string const title = node != nullptr ? GetVisualScriptNodeTitle(document, analysis, *node, resolver) : match.Text;
 				return match.Field == VisualScriptFindField::Title || title == match.Text ? title
 				                                                                          : fmt::format("{}: {}", title, match.Text);
 			}
@@ -398,6 +406,8 @@ namespace Strada
 		m_Mode = VisualScriptDrawerMode::Find;
 		m_Text.clear();
 		m_Reference = reference;
+		// Read when found: the window's own graph is the one the reference declares unless it names another.
+		m_ReferenceOwnGraph = !reference.Graph.IsValid();
 	}
 
 	void VisualScriptDrawer::ShowTimeline(uint32_t node, std::optional<uint32_t> track)
@@ -596,16 +606,50 @@ namespace Strada
 	void VisualScriptDrawer::UpdateFindRows(VisualScriptPaneContext& context)
 	{
 		VisualScriptEditorModel const& model = context.Model;
+		// A reference of this window's own element declares it in this graph (spec-slice3 §10.5).
+		std::optional<VisualScriptReference> reference = m_Reference;
+		if (reference && m_ReferenceOwnGraph)
+		{
+			reference->Graph = context.Graph;
+		}
 		bool const everyScript = m_Scope == VisualScriptFindScope::AllScripts ||
-		                         (m_Reference && m_Reference->ReferenceKind == VisualScriptReference::Kind::CustomEvent);
+		                         (reference && reference->ReferenceKind == VisualScriptReference::Kind::CustomEvent);
+		// A variable or a function is referred to by its own graph and the graphs whose nodes name it, as the project index
+		// lists them; a custom event's untyped senders may be anywhere.
+		std::optional<std::vector<AssetHandle>> referrers;
+		if (reference && !everyScript)
+		{
+			referrers.emplace();
+			for (VisualScriptProjectGraph const& graph : model.GetProjectGraphs())
+			{
+				bool const refers = std::any_of(graph.References.begin(), graph.References.end(),
+				                                [&reference](VisualScriptGraphReference const& candidate)
+				                                {
+													return candidate.Graph == reference->Graph;
+												});
+				if (graph.Graph == reference->Graph || refers)
+				{
+					referrers->push_back(graph.Graph);
+				}
+			}
+			if (std::find(referrers->begin(), referrers->end(), reference->Graph) == referrers->end())
+			{
+				referrers->push_back(reference->Graph);
+			}
+		}
 		// What to look in: this script, then the project's other scripts by path.
 		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> documents;
 		std::vector<std::pair<AssetHandle, std::string>> errors;
 		documents.emplace_back(context.Graph, model.GetStoredDocument());
 		std::vector<AssetMetadata> scripts;
-		if (everyScript)
+		bool const otherReferrers = referrers && std::any_of(referrers->begin(), referrers->end(),
+		                                                     [&context](AssetHandle graph)
+		                                                     {
+																 return graph != context.Graph;
+															 });
+		if (everyScript || otherReferrers)
 		{
-			scripts = AssetManager::GetAssets(AssetType::VisualScript);
+			scripts = AssetManager::IsInitialized() ? AssetManager::GetAssets(AssetType::VisualScript) : std::vector<AssetMetadata>();
 			std::sort(scripts.begin(), scripts.end(),
 			          [](AssetMetadata const& a, AssetMetadata const& b)
 			          {
@@ -613,7 +657,8 @@ namespace Strada
 					  });
 			for (AssetMetadata const& script : scripts)
 			{
-				if (script.Handle == context.Graph)
+				if (script.Handle == context.Graph ||
+				    (referrers && std::find(referrers->begin(), referrers->end(), script.Handle) == referrers->end()))
 				{
 					continue;
 				}
@@ -629,20 +674,20 @@ namespace Strada
 				}
 			}
 		}
-		if (m_Found && m_FoundText == m_Text && m_FoundReference == m_Reference && m_FoundScope == m_Scope && m_FoundDocuments == documents)
+		if (m_Found && m_FoundText == m_Text && m_FoundReference == reference && m_FoundScope == m_Scope && m_FoundDocuments == documents)
 		{
 			return;
 		}
 		m_Found = true;
 		m_FoundText = m_Text;
-		m_FoundReference = m_Reference;
+		m_FoundReference = reference;
 		m_FoundScope = m_Scope;
 		m_FoundDocuments = documents;
 		m_FindRows.clear();
 		VisualScriptFindQuery query;
-		if (m_Reference)
+		if (reference)
 		{
-			query.References = m_Reference;
+			query.References = reference;
 		}
 		else
 		{
@@ -664,6 +709,7 @@ namespace Strada
 			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
 			return metadata ? (metadata->Path.empty() ? metadata->Name : metadata->Path) : std::string(context.ScriptName);
 		};
+		VisualScriptGraphResolver const resolver = model.MakeGraphResolver();
 		for (auto const& [handle, document] : documents)
 		{
 			if (document == nullptr)
@@ -671,17 +717,12 @@ namespace Strada
 				continue;
 			}
 			bool const own = handle == context.Graph;
-			// A variable's or a function's references are of this script; a custom event's are found by name everywhere.
-			if (!own && m_Reference && m_Reference->ReferenceKind != VisualScriptReference::Kind::CustomEvent)
-			{
-				continue;
-			}
 			VisualScriptDocument const& searched = own ? model.GetDisplayDocument() : *document;
 			VisualScriptAnalysis const* const analysis = own ? model.GetAnalysis() : nullptr;
 			std::string const script = pathOf(handle);
-			for (VisualScriptFindResult const& match : FindInVisualScript(searched, analysis, query))
+			for (VisualScriptFindResult const& match : FindInVisualScript(searched, analysis, query, handle, resolver))
 			{
-				m_FindRows.push_back({handle, script, match, DescribeMatch(searched, analysis, match), {}});
+				m_FindRows.push_back({handle, script, match, DescribeMatch(searched, analysis, match, resolver), {}});
 			}
 		}
 		for (auto const& [handle, error] : errors)

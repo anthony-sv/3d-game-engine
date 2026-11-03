@@ -285,15 +285,26 @@ TEST_CASE("VisualScriptEditor: uses, removals and signature edits of a variable 
 TEST_CASE("VisualScriptEditor: find, the clipboard and derived titles never take a remote node's IDs for the document's elements")
 {
 	VisualScriptDocument const document = MakeSweepDocument(Self);
-	auto const references = [&document](VisualScriptReference reference)
+	auto const references = [&document](VisualScriptReference reference, AssetHandle self = {})
 	{
-		return GetNodes(FindInVisualScript(document, nullptr, VisualScriptFindQuery{{}, std::move(reference)}));
+		return GetNodes(FindInVisualScript(document, nullptr, VisualScriptFindQuery{{}, std::move(reference)}, self));
 	};
 	CHECK(references({VisualScriptReference::Kind::Variable, 5, {}}) == std::vector<uint32_t>{10});
 	CHECK(references({VisualScriptReference::Kind::Variable, 8, {}}) == std::vector<uint32_t>{73});
 	CHECK(references({VisualScriptReference::Kind::Function, 7, {}}) == std::vector<uint32_t>{13, 75});
-	// The custom event and the untyped Send that may reach it; typed senders name their graph's event.
-	CHECK(references({VisualScriptReference::Kind::CustomEvent, 0, "Hit"}) == std::vector<uint32_t>{2, 15});
+	// The document searched as its own graph: the same, the reference naming that graph or not.
+	CHECK(references({VisualScriptReference::Kind::Variable, 5, {}, Self}, Self) == std::vector<uint32_t>{10});
+	CHECK(references({VisualScriptReference::Kind::Function, 7, {}}, Self) == std::vector<uint32_t>{13, 75});
+	// Door's and Motion's elements of those IDs are the remote nodes'.
+	CHECK(references({VisualScriptReference::Kind::Variable, 5, {}, Door}, Self) == std::vector<uint32_t>{11, 12});
+	CHECK(references({VisualScriptReference::Kind::Variable, 8, {}, Door}, Self) == std::vector<uint32_t>{74});
+	CHECK(references({VisualScriptReference::Kind::Function, 7, {}, Motion}, Self) == std::vector<uint32_t>{14, 76});
+	// This script's custom event: the event, the untyped senders that may reach it and the Send typed with this script.
+	CHECK(references({VisualScriptReference::Kind::CustomEvent, 0, "Hit", Self}, Self) == std::vector<uint32_t>{2, 15, 17, 20});
+	// Door's: the untyped senders and the ones typed with Door.
+	CHECK(references({VisualScriptReference::Kind::CustomEvent, 0, "Hit", Door}, Self) == std::vector<uint32_t>{15, 16, 17, 18});
+	// A custom event of no graph: every event and sender of the name.
+	CHECK(references({VisualScriptReference::Kind::CustomEvent, 0, "Hit"}, Self) == std::vector<uint32_t>{2, 15, 16, 17, 18, 20});
 
 	// Copied remote nodes take no variable or function of the document along.
 	std::vector<uint32_t> const copied = {11, 12, 14, 16, 18, 19};
@@ -538,15 +549,32 @@ TEST_CASE(
 	CHECK(openLabel(19) == "Open Door");
 	CHECK(openLabel(13) == "Open Jump");
 
-	// F2 reveals no local element, and Find References lists no local reference, of a remote node.
+	// F2 reveals no local element of a remote node, and Find References looks for the other graph's element (spec-slice3
+	// §10.5).
 	for (uint32_t const node : {11u, 12u, 14u, 16u})
 	{
 		CAPTURE(node);
 		VisualScriptControllerResult const rename = fixture.Act(Action::Rename, node);
 		CHECK_FALSE(rename.Reveal.has_value());
-		VisualScriptControllerResult const references = fixture.Act(Action::FindReferences, node);
-		CHECK_FALSE(references.FindReferences.has_value());
 	}
+	CHECK(fixture.Act(Action::FindReferences, 11).FindReferences ==
+	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::Variable, 5, {}, Door}));
+	CHECK(fixture.Act(Action::FindReferences, 12).FindReferences ==
+	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::Variable, 5, {}, Door}));
+	CHECK(fixture.Act(Action::FindReferences, 14).FindReferences ==
+	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::Function, 7, {}, Motion}));
+	CHECK(fixture.Act(Action::FindReferences, 16).FindReferences ==
+	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::CustomEvent, 0, "Hit", Door}));
+	// RunsGraph names a graph, no element of it.
+	CHECK_FALSE(fixture.Act(Action::FindReferences, 19).FindReferences.has_value());
 	CHECK(fixture.Act(Action::FindReferences, 10).FindReferences ==
 	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::Variable, 5, {}}));
+	// A remote Get's Open reveals Door's variable in its window, and every Open of another graph names where it came from.
+	VisualScriptControllerResult const revealed = fixture.Act(Action::OpenNode, 11);
+	REQUIRE(revealed.Open.has_value());
+	CHECK(revealed.Open->Reveal ==
+	      std::optional<VisualScriptReference>(VisualScriptReference{VisualScriptReference::Kind::Variable, 5, {}}));
+	VisualScriptViewState const view = fixture.Model->GetView().GetTargetState();
+	CHECK(revealed.Open->Origin == std::optional<VisualScriptOrigin>(VisualScriptOrigin{fixture.Project.Graph, view.Function, view.Center,
+	                                                                                    view.Zoom, VisualScriptHistoryStep::Jump}));
 }

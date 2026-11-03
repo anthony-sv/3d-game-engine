@@ -115,7 +115,17 @@ namespace Strada
 				function = *request.Function;
 				if (function != 0 && FindVisualScriptGraph(*document, function) == nullptr)
 				{
-					return MakeError("the visual script has no function {}", function);
+					// Back and Forward to a view of a function deleted since show the event graph, framed whole.
+					bool const history = request.Origin && request.Origin->Step != VisualScriptHistoryStep::Jump;
+					if (!history)
+					{
+						return MakeError("the visual script has no function {}", function);
+					}
+					function = 0;
+					applied.Function = 0;
+					applied.Center.reset();
+					applied.Zoom.reset();
+					applied.Frame = VisualScriptFrame::All;
 				}
 			}
 			else if (window != nullptr)
@@ -131,6 +141,14 @@ namespace Strada
 			{
 				graph = &document->Graph;
 				function = 0;
+			}
+			// A function library opens on its first function: it has no event graph to show (spec-slice3 §10.9).
+			if (!request.Function && function == 0 && document->Kind == VisualScriptDocumentKind::Library &&
+			    document->Graph.Nodes.empty() && document->Graph.Comments.empty() && !document->Functions.empty())
+			{
+				function = document->Functions.front().ID;
+				graph = &document->Functions.front().Graph;
+				applied.Function = function;
 			}
 			shown = function;
 			for (uint32_t const id : request.Select)
@@ -148,6 +166,7 @@ namespace Strada
 			applied.Select.clear();
 			applied.Frame = VisualScriptFrame::Keep;
 			applied.Find.clear();
+			applied.Reveal.reset();
 		}
 
 		if (window == nullptr)

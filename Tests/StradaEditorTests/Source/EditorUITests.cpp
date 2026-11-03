@@ -1311,8 +1311,16 @@ TEST_CASE(
 		CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
 		fixture.Edit(graph, Described(*shown, "Edited"));
 		CHECK(LastStepReadFile(fixture.Context));
+		std::error_code error;
+		std::filesystem::file_time_type const edited = std::filesystem::last_write_time(file, error);
+		REQUIRE_FALSE(error);
 		REQUIRE(fixture.Operations.Undo().IsOk());
 		CHECK(fixture.ReadFile("Scripts/Player.sgraph") == outside);
+		// The undo's write shares the edit's write time, as when both fall in one tick of the clock: the step marks the file
+		// changed, so the time is not what tells the refresh.
+		std::filesystem::last_write_time(file, edited, error);
+		REQUIRE_FALSE(error);
+		CHECK_FALSE(AssetManager::IsFileAsLastRecorded(graph));
 		// The asset shows what it showed; the next refresh loads what the other program wrote.
 		CHECK(fixture.Refresh() == std::vector<AssetHandle>{graph});
 		CHECK(fixture.GetGraph(graph)->GetDocument().Description == "Shawn");

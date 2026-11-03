@@ -247,8 +247,44 @@ namespace Strada
 
 		bool operator==(VisualScriptOtherUses const& other) const = default;
 	};
+	// A function library's line in My Script (spec-slice3 §10.9): "Function library · used by 5 nodes in 3 scripts", from the
+	// other graphs whose nodes name it; "Function library · used by no script yet" when none does.
+	[[nodiscard]] std::string DescribeVisualScriptLibraryUse(std::span<VisualScriptProjectGraph const> graphs, AssetHandle graph);
 	[[nodiscard]] VisualScriptOtherUses CountVisualScriptOtherUses(std::span<VisualScriptProjectGraph const> graphs, AssetHandle graph,
 	                                                               VisualScriptElementKind kind, uint32_t id);
+	// The nodes of the graph's own document that name a variable of it on other entities (a Get or Set whose Graph is the
+	// graph itself), which a deletion keeps (spec-slice3 §10.6).
+	[[nodiscard]] uint32_t CountVisualScriptSelfUses(VisualScriptDocument const& document, AssetHandle graph, uint32_t variable);
+	// What a value being edited changes, as "Your edit of <it> was replaced" names it: a variable's or local's name, a node's
+	// input (the one input it changed), else the node's title; "a value" when nothing differs.
+	[[nodiscard]] std::string DescribeVisualScriptValueEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending);
+	// "3 nodes in 2 other scripts": a count of nodes (calls, senders) and of the scripts that hold them.
+	[[nodiscard]] std::string DescribeVisualScriptOtherUses(VisualScriptOtherUses uses, std::string_view noun, std::string_view nouns);
+
+	// What a window says after its commit changed what its graph offers the project's other scripts (spec-slice3 §10.6).
+	struct VisualScriptOfferToast
+	{
+		// "Renamed Value to Amount: 5 calls in 3 other scripts follow it".
+		std::string Text;
+		// What the toast's button lists in the find drawer: a function's callers, a custom event's senders or a variable's
+		// references; none for a toast without a button.
+		std::optional<VisualScriptReference> Find;
+		// "Find Callers", "Find Senders" or "Find References".
+		std::string FindLabel;
+
+		bool operator==(VisualScriptOfferToast const& other) const = default;
+	};
+	// The toasts of an edit before -> after of a graph, from the other scripts' documents (the project index's) and
+	// VisualScriptEditing::FindVisualScriptBrokenReferrers: a library function deleted or made pure ("Deleted Clamp01: 5 calls
+	// in 3 other scripts show errors"), its parameters renamed ("Renamed Value to Amount: 5 calls in 3 other scripts follow
+	// it", a rename recorded in FormerNames), removed ("Removed Speed: 2 calls in 1 other script lose links") or retyped
+	// ("Changed Speed to int: 2 calls in 1 other script may not fit"); a public variable deleted, made private or retyped; a
+	// custom event renamed or deleted while untyped senders of its old name remain elsewhere ("Renamed Hit to Damaged (and 2
+	// senders). 3 senders in 2 other scripts still send Hit"). Only what other scripts' nodes use is told; nothing when the
+	// offer is the same (VisualScriptEditing::HaveSameVisualScriptOffer).
+	[[nodiscard]] std::vector<VisualScriptOfferToast> DescribeVisualScriptOfferChange(AssetHandle graph, VisualScriptDocument const& before,
+	                                                                                  VisualScriptDocument const& after,
+	                                                                                  std::span<VisualScriptProjectGraph const> graphs);
 
 	// Whether a node offers the Enabled states (spec §9.5): nodes with an exec input and an exec output, and event nodes other
 	// than Event.Send, do; pure nodes show them disabled; Function.Entry and Function.Return do not show them.
@@ -286,7 +322,8 @@ namespace Strada
 	public:
 		static constexpr double CommitInterval = 0.1;
 
-		// Call first in every Draw: drops a pending value the asset's document has moved past, commits a waiting edit, and
+		// Call first in every Draw: carries a pending value over an outside change of the asset's document, or drops it when
+		// the change touched what it edits (spec-slice3 §10.11), commits a waiting edit, and
 		// commits the pending value of an interaction still in progress once CommitInterval has passed since its last commit
 		// (a drag held still).
 		void BeginFrame(VisualScriptPaneContext& context, VisualScriptPaneResult& result);
@@ -324,7 +361,9 @@ namespace Strada
 		// The stored document a commit under the key passes: the run's while the key and the asset's document are the run's.
 		Ref<VisualScriptDocument const> GetStored(VisualScriptEditorModel const& model, uint64_t key);
 		bool CommitPending(VisualScriptPaneContext& context, VisualScriptPaneResult& result);
-		void DropStalePending(VisualScriptEditorModel& model);
+		// A pending value the asset's document moved past is carried over the change (RebaseVisualScriptEdit), else dropped
+		// with a note saying so.
+		void DropStalePending(VisualScriptEditorModel& model, std::vector<std::string>& notes);
 
 		VisualScriptEditorModel* m_Model = nullptr;
 		std::optional<WaitingEdit> m_Waiting;
@@ -342,6 +381,8 @@ namespace Strada
 		uint64_t m_RunKey = 0;
 		Ref<VisualScriptDocument const> m_RunStored;
 		Ref<VisualScriptDocument const> m_RunWritten;
+		// What a flush dropped (TakePendingEdit), told by the next BeginFrame.
+		std::vector<std::string> m_DroppedNotes;
 	};
 
 	// A text field for a name (a variable, a local, a function, a parameter, a custom event): checked as it is typed (a red

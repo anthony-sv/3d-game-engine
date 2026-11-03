@@ -4012,3 +4012,177 @@ namespace Strada
 		}
 	}
 }
+
+namespace Strada::VisualScriptEditing
+{
+	namespace
+	{
+		// Equal as the runtime reads them: operator== takes 1 and 1.0 as equal, the program comparison does not.
+		bool AreSameNodes(VisualScriptNode const& a, VisualScriptNode const& b)
+		{
+			return a == b && HaveSameVisualScriptProgram(a, b);
+		}
+
+		template<typename TElement>
+		TElement const* FindByID(std::vector<TElement> const& elements, uint32_t id)
+		{
+			auto const found = std::find_if(elements.begin(), elements.end(),
+			                                [id](TElement const& element)
+			                                {
+												return element.ID == id;
+											});
+			return found != elements.end() ? &*found : nullptr;
+		}
+
+		template<typename TElement>
+		TElement* FindByID(std::vector<TElement>& elements, uint32_t id)
+		{
+			auto const found = std::find_if(elements.begin(), elements.end(),
+			                                [id](TElement const& element)
+			                                {
+												return element.ID == id;
+											});
+			return found != elements.end() ? &*found : nullptr;
+		}
+
+		// The value edits of one graph: the nodes whose Settings or Inputs differ, when nothing else of the graph does.
+		std::optional<std::vector<uint32_t>> FindValueEdits(VisualScriptGraph const& base, VisualScriptGraph const& pending)
+		{
+			if (base.Nodes.size() != pending.Nodes.size() || base.Links != pending.Links || base.Comments != pending.Comments)
+			{
+				return std::nullopt;
+			}
+			std::vector<uint32_t> edited;
+			for (size_t i = 0; i < base.Nodes.size(); i++)
+			{
+				VisualScriptNode const& before = base.Nodes[i];
+				VisualScriptNode values = pending.Nodes[i];
+				if (values.ID != before.ID)
+				{
+					return std::nullopt;
+				}
+				if (AreSameNodes(values, before))
+				{
+					continue;
+				}
+				values.Settings = before.Settings;
+				values.Inputs = before.Inputs;
+				if (!AreSameNodes(values, before))
+				{
+					return std::nullopt;
+				}
+				edited.push_back(before.ID);
+			}
+			return edited;
+		}
+
+		// The IDs of the elements (variables, locals) whose fields differ, when the lists hold the same IDs in the same order.
+		template<typename TElement>
+		std::optional<std::vector<uint32_t>> FindFieldEdits(std::vector<TElement> const& base, std::vector<TElement> const& pending)
+		{
+			if (base.size() != pending.size())
+			{
+				return std::nullopt;
+			}
+			std::vector<uint32_t> edited;
+			for (size_t i = 0; i < base.size(); i++)
+			{
+				if (base[i].ID != pending[i].ID)
+				{
+					return std::nullopt;
+				}
+				if (!(base[i] == pending[i]))
+				{
+					edited.push_back(base[i].ID);
+				}
+			}
+			return edited;
+		}
+
+		// Carries a graph's value edits into the graph of current: each edited node must be there as base has it.
+		bool RebaseGraph(VisualScriptGraph const& base, VisualScriptGraph const& pending, VisualScriptGraph& current,
+		                 std::span<uint32_t const> nodes)
+		{
+			for (uint32_t const id : nodes)
+			{
+				VisualScriptNode const* const before = FindByID(base.Nodes, id);
+				VisualScriptNode const* const edited = FindByID(pending.Nodes, id);
+				VisualScriptNode* const now = FindByID(current.Nodes, id);
+				if (before == nullptr || edited == nullptr || now == nullptr || !AreSameNodes(*now, *before))
+				{
+					return false;
+				}
+				now->Settings = edited->Settings;
+				now->Inputs = edited->Inputs;
+			}
+			return true;
+		}
+
+		template<typename TElement>
+		bool RebaseFields(std::vector<TElement> const& base, std::vector<TElement> const& pending, std::vector<TElement>& current,
+		                  std::span<uint32_t const> ids)
+		{
+			for (uint32_t const id : ids)
+			{
+				TElement const* const before = FindByID(base, id);
+				TElement const* const edited = FindByID(pending, id);
+				TElement* const now = FindByID(current, id);
+				if (before == nullptr || edited == nullptr || now == nullptr || !(*now == *before))
+				{
+					return false;
+				}
+				*now = *edited;
+			}
+			return true;
+		}
+	}
+
+	std::optional<VisualScriptDocument> RebaseVisualScriptEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending,
+	                                                           VisualScriptDocument const& current)
+	{
+		if (base.Kind != pending.Kind || base.Description != pending.Description || base.Functions.size() != pending.Functions.size())
+		{
+			return std::nullopt;
+		}
+		std::optional<std::vector<uint32_t>> const variables = FindFieldEdits(base.Variables, pending.Variables);
+		std::optional<std::vector<uint32_t>> const events = FindValueEdits(base.Graph, pending.Graph);
+		if (!variables || !events)
+		{
+			return std::nullopt;
+		}
+		VisualScriptDocument rebased = current;
+		if (!RebaseFields(base.Variables, pending.Variables, rebased.Variables, *variables) ||
+		    !RebaseGraph(base.Graph, pending.Graph, rebased.Graph, *events))
+		{
+			return std::nullopt;
+		}
+		for (size_t i = 0; i < base.Functions.size(); i++)
+		{
+			VisualScriptFunction const& before = base.Functions[i];
+			VisualScriptFunction const& edited = pending.Functions[i];
+			// A function's own declarations are no value of a pane's widget: only its locals and its graph's values are.
+			if (edited.ID != before.ID || edited.Name != before.Name || edited.Pure != before.Pure || edited.Inputs != before.Inputs ||
+			    edited.Outputs != before.Outputs)
+			{
+				return std::nullopt;
+			}
+			std::optional<std::vector<uint32_t>> const locals = FindFieldEdits(before.Locals, edited.Locals);
+			std::optional<std::vector<uint32_t>> const nodes = FindValueEdits(before.Graph, edited.Graph);
+			if (!locals || !nodes)
+			{
+				return std::nullopt;
+			}
+			if (locals->empty() && nodes->empty())
+			{
+				continue;
+			}
+			VisualScriptFunction* const now = FindByID(rebased.Functions, before.ID);
+			if (now == nullptr || !RebaseFields(before.Locals, edited.Locals, now->Locals, *locals) ||
+			    !RebaseGraph(before.Graph, edited.Graph, now->Graph, *nodes))
+			{
+				return std::nullopt;
+			}
+		}
+		return rebased;
+	}
+}

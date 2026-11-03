@@ -1910,13 +1910,6 @@ namespace Strada
 					m_Result.FindReferences = std::move(reference);
 					return {};
 				}
-				VisualScriptNode const* const stored = FindDisplayNode(nodes.front());
-				if (stored != nullptr && !IsLocalVisualScriptReference(*stored))
-				{
-					// Its Variable, Function and Name are another graph's: this graph's elements of those IDs are no references.
-					m_Result.Notes.push_back(fmt::format("{} refers to an element of another graph", GetNodeTitle(nodes.front())));
-					return {};
-				}
 				m_Result.Notes.push_back(fmt::format("{} refers to no variable, function or event", GetNodeTitle(nodes.front())));
 				return {};
 			}
@@ -2006,6 +1999,10 @@ namespace Strada
 					{
 						if (id && variable.ID == *id)
 						{
+							VisualScriptReference reveal;
+							reveal.ReferenceKind = VisualScriptReference::Kind::Variable;
+							reveal.ID = variable.ID;
+							open.Request.Reveal = std::move(reveal);
 							open.Label = fmt::format("Select Variable {} in {}", variable.Name, target->Name);
 							return open;
 						}
@@ -2027,14 +2024,18 @@ namespace Strada
 			}
 
 			// What Find References looks for from a node: its variable or local, the function it calls (a function's entry:
-			// that function's callers), its custom event.
+			// that function's callers), its custom event. A node naming another graph refers to that graph's element (spec-slice3
+			// §10.5): the reference carries the graph, and RunsGraph refers to no element.
 			std::optional<VisualScriptReference> GetReference(uint32_t node) const
 			{
 				VisualScriptNode const* stored = FindDisplayNode(node);
-				// A node naming another graph refers to that graph's elements, which this graph's references are not.
-				if (stored == nullptr || !IsLocalVisualScriptReference(*stored))
+				if (stored == nullptr)
 				{
 					return std::nullopt;
+				}
+				if (!IsLocalVisualScriptReference(*stored))
+				{
+					return GetRemoteReference(*stored);
 				}
 				if (stored->Type == "Variable.Get" || stored->Type == "Variable.Set")
 				{
@@ -2052,12 +2053,49 @@ namespace Strada
 				{
 					return VisualScriptReference{VisualScriptReference::Kind::Function, m_Function, {}};
 				}
-				if (stored->Type == "Event.Custom" || stored->Type == "Event.Send")
+				if (stored->Type == "Event.Custom" || stored->Type == "Event.Send" || stored->Type == "Event.Broadcast")
 				{
 					std::optional<std::string> name = ReadString(stored->Settings, "Name");
 					return name ? std::optional<VisualScriptReference>(
 									  VisualScriptReference{VisualScriptReference::Kind::CustomEvent, 0, std::move(*name)})
 					            : std::nullopt;
+				}
+				return std::nullopt;
+			}
+
+			// The element of the graph a node's Graph setting names: a remote Get or Set's variable, a library call's function, a
+			// typed sender's event. Nothing for RunsGraph or a malformed Graph setting.
+			static std::optional<VisualScriptReference> GetRemoteReference(VisualScriptNode const& node)
+			{
+				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+				if (!graph)
+				{
+					return std::nullopt;
+				}
+				VisualScriptReference reference;
+				reference.Graph = *graph;
+				if (node.Type == "Variable.Get" || node.Type == "Variable.Set" || node.Type == "Function.Call")
+				{
+					bool const variable = node.Type != "Function.Call";
+					std::optional<uint32_t> const id = ReadId(node.Settings, variable ? "Variable" : "Function");
+					if (!id)
+					{
+						return std::nullopt;
+					}
+					reference.ReferenceKind = variable ? VisualScriptReference::Kind::Variable : VisualScriptReference::Kind::Function;
+					reference.ID = *id;
+					return reference;
+				}
+				if (node.Type == "Event.Send" || node.Type == "Event.Broadcast")
+				{
+					std::optional<std::string> name = ReadString(node.Settings, "Name");
+					if (!name)
+					{
+						return std::nullopt;
+					}
+					reference.ReferenceKind = VisualScriptReference::Kind::CustomEvent;
+					reference.Name = std::move(*name);
+					return reference;
 				}
 				return std::nullopt;
 			}
@@ -2168,6 +2206,10 @@ namespace Strada
 				}
 				if (std::optional<RemoteOpen> remote = FindRemoteOpen(*stored))
 				{
+					// Back in the window opened returns to this view (spec-slice3 §10.7).
+					VisualScriptViewState const view = m_Model.GetView().GetTargetState();
+					remote->Request.Origin =
+						VisualScriptOrigin{m_Context.Graph, view.Function, view.Center, view.Zoom, VisualScriptHistoryStep::Jump};
 					m_Result.Open = std::move(remote->Request);
 					return {};
 				}

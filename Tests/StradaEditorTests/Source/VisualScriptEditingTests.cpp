@@ -2761,3 +2761,127 @@ TEST_CASE("VisualScriptEditing: retargeting a node gives it the pins of what it 
 	CHECK(VisualScriptEditing::MakeVisualScriptRetargetPins(document, 0, document.Graph.Nodes[5], resolver).empty());
 	CheckDocument(document);
 }
+
+namespace
+{
+	// Speed (1) and a function (2) with a local Step (3); in the event graph a Delay (10) and a Branch (11), linked.
+	VisualScriptDocument MakeRebaseDocument()
+	{
+		VisualScriptDocument document;
+		VisualScriptVariable speed;
+		speed.ID = 1;
+		speed.Name = "Speed";
+		speed.Type = "float";
+		speed.Value = 1.0;
+		document.Variables = {speed};
+		VisualScriptFunction function;
+		function.ID = 2;
+		function.Name = "Jump";
+		VisualScriptLocal step;
+		step.ID = 3;
+		step.Name = "Step";
+		step.Type = "int";
+		function.Locals = {step};
+		VisualScriptNode entry;
+		entry.ID = 4;
+		entry.Type = "Function.Entry";
+		function.Graph.Nodes = {entry};
+		document.Functions = {function};
+		VisualScriptNode delay;
+		delay.ID = 10;
+		delay.Type = "Flow.Delay";
+		delay.Inputs = Json::object({{"Duration", 1.0}});
+		VisualScriptNode branch;
+		branch.ID = 11;
+		branch.Type = "Flow.Branch";
+		branch.Position = glm::vec2(300.0f, 0.0f);
+		document.Graph.Nodes = {delay, branch};
+		document.Graph.Links = {{{10, "Then"}, {11, "Execute"}}};
+		return document;
+	}
+
+	VisualScriptNode& EditNode(VisualScriptDocument& document, uint32_t id)
+	{
+		auto const found = std::find_if(document.Graph.Nodes.begin(), document.Graph.Nodes.end(),
+		                                [id](VisualScriptNode const& node)
+		                                {
+											return node.ID == id;
+										});
+		REQUIRE(found != document.Graph.Nodes.end());
+		return *found;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a value being edited is rebased over an outside change of other elements, and nothing else is")
+{
+	VisualScriptDocument const base = MakeRebaseDocument();
+
+	// The Delay's Duration is being dragged while an agent moves the Branch and renames Speed's neighbour.
+	VisualScriptDocument pending = base;
+	EditNode(pending, 10).Inputs["Duration"] = 2.5;
+	VisualScriptDocument current = base;
+	EditNode(current, 11).Position = glm::vec2(600.0f, 40.0f);
+	current.Description = "Edited by an agent";
+	std::optional<VisualScriptDocument> rebased = VisualScriptEditing::RebaseVisualScriptEdit(base, pending, current);
+	REQUIRE(rebased.has_value());
+	VisualScriptDocument expected = current;
+	EditNode(expected, 10).Inputs["Duration"] = 2.5;
+	CHECK(*rebased == expected);
+
+	// A variable's and a local's fields, a setting, and a node of a function's graph rebase alike.
+	VisualScriptDocument fields = base;
+	fields.Variables[0].Value = 4.0;
+	fields.Functions[0].Locals[0].Value = 7;
+	fields.Functions[0].Graph.Nodes[0].Comment = "Kept";
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, fields, current).has_value());
+	fields.Functions[0].Graph.Nodes[0].Comment.clear();
+	EditNode(fields, 10).Settings = Json::object({{"Note", "x"}});
+	rebased = VisualScriptEditing::RebaseVisualScriptEdit(base, fields, current);
+	REQUIRE(rebased.has_value());
+	CHECK(rebased->Variables[0].Value == Json(4.0));
+	CHECK(rebased->Functions[0].Locals[0].Value == Json(7));
+	CHECK(EditNode(*rebased, 10).Settings == Json::object({{"Note", "x"}}));
+	CHECK(EditNode(*rebased, 11).Position == glm::vec2(600.0f, 40.0f));
+	// The agent moved the Branch, whose setting is being edited.
+	VisualScriptDocument branchSetting = base;
+	EditNode(branchSetting, 11).Settings = Json::object({{"Note", "x"}});
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, branchSetting, current).has_value());
+
+	// An outside change of the edited node, of its variable, or one that removes it: nothing.
+	VisualScriptDocument overlap = base;
+	EditNode(overlap, 10).Inputs["Duration"] = 9.0;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, pending, overlap).has_value());
+	VisualScriptDocument removed = base;
+	removed.Graph.Nodes.erase(removed.Graph.Nodes.begin());
+	removed.Graph.Links.clear();
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, pending, removed).has_value());
+	VisualScriptDocument renamed = base;
+	renamed.Variables[0].Name = "Pace";
+	VisualScriptDocument variable = base;
+	variable.Variables[0].Value = 3.0;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, variable, renamed).has_value());
+	// The integer 1 is another program than 1.0: an outside change of a value's representation touches it.
+	VisualScriptDocument integer = base;
+	EditNode(integer, 10).Inputs["Duration"] = 1;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, pending, integer).has_value());
+
+	// A pending change of anything but values: nothing, whatever the outside change.
+	VisualScriptDocument linked = pending;
+	linked.Graph.Links.clear();
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, linked, current).has_value());
+	VisualScriptDocument added = pending;
+	added.Variables.push_back(added.Variables[0]);
+	added.Variables.back().ID = 20;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, added, current).has_value());
+	VisualScriptDocument moved = pending;
+	EditNode(moved, 10).Position = glm::vec2(5.0f);
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, moved, current).has_value());
+	VisualScriptDocument kind = pending;
+	kind.Kind = VisualScriptDocumentKind::Library;
+	CHECK_FALSE(VisualScriptEditing::RebaseVisualScriptEdit(base, kind, current).has_value());
+
+	// Nothing pending: the current document.
+	rebased = VisualScriptEditing::RebaseVisualScriptEdit(base, base, current);
+	REQUIRE(rebased.has_value());
+	CHECK(*rebased == current);
+}

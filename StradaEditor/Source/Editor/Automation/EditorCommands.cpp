@@ -575,6 +575,8 @@ namespace Strada
 					return "Unloadable";
 				case VisualScriptCard::EmptyGraph:
 					return "EmptyGraph";
+				case VisualScriptCard::EmptyLibrary:
+					return "EmptyLibrary";
 			}
 			return "None";
 		}
@@ -712,6 +714,8 @@ namespace Strada
 			                                   {"details", GetPaneStateName(state.Details)},
 			                                   {"stacked", state.PanesStacked}});
 			described["shortcuts"] = state.ShortcutsOpen;
+			described["canGoBack"] = state.CanGoBack;
+			described["canGoForward"] = state.CanGoForward;
 			return described;
 		}
 
@@ -3631,10 +3635,12 @@ namespace Strada
 					"the primary selection), frames them or the whole sub-graph (frame), sets the zoom and the view's centre, picks "
 					"the context entity whose live values the window shows while playing, opens the problems drawer, the find bar "
 					"(find, going to the first match, which becomes the selection) or a Timeline node's tracks and curves in the drawer "
-					"(timeline). The view parameters apply in order: the framing, "
+					"(timeline), and selects a variable or local, a function or a custom event (its Event.Custom node) in My Script, "
+					"which Details then shows (reveal). The view parameters apply in order: the framing, "
 					"then zoom around its centre, then center. Applied when the window is next drawn: graph.editors a frame later "
 					"shows the result. Works while playing. A file that is missing or does not load opens on its card (loaded false): "
-					"function, select, frame, find and timeline are then ignored, which warnings says. Returns { asset, path, function (the "
+					"function, select, frame, find, timeline and reveal are then ignored, which warnings says. Returns { asset, path, "
+					"function (the "
 					"sub-graph shown), selection (the select given, as applied: empty without one; an empty select keeps the window's "
 					"selection), loaded, warnings }. Unavailable without the editor's UI "
 					"(headless); InvalidOperation while a dialog is open.",
@@ -3665,6 +3671,17 @@ namespace Strada
 				                                                     "tracks and curves")
 				                                  .Minimum(0)
 				                                  .Maximum(VisualScriptSerializer::MaxID))
+						.Property("reveal",
+				                  SchemaBuilder::Object("A row of My Script to select, which Details then shows")
+				                      .Property("kind",
+				                                SchemaBuilder::String("What the element is").Enum({"Variable", "Function", "CustomEvent"}),
+				                                true)
+				                      .Property("id",
+				                                SchemaBuilder::Integer("The variable's or local's, the function's, or the custom "
+				                                                       "event's Event.Custom node's ID")
+				                                    .Minimum(0)
+				                                    .Maximum(VisualScriptSerializer::MaxID),
+				                                true))
 						.Build(),
 					false,
 					[this](Json const& params) -> CommandResult
@@ -3775,6 +3792,27 @@ namespace Strada
 								}
 								request.Timeline = timeline;
 							}
+							if (params.contains("reveal"))
+							{
+								Json const& reveal = params["reveal"];
+								std::string const kind = reveal["kind"].get<std::string>();
+								VisualScriptReference element;
+								element.ReferenceKind = kind == "Function"      ? VisualScriptReference::Kind::Function
+							                            : kind == "CustomEvent" ? VisualScriptReference::Kind::CustomEvent
+							                                                    : VisualScriptReference::Kind::Variable;
+								element.ID = GetElementId(reveal["id"]);
+								if (!HasRevealedElement(*document, element))
+								{
+									return MakeParameterError("reveal.id",
+								                              fmt::format("the visual script has no {} {}",
+								                                          kind == "Function" ? "function"
+								                                          : kind == "CustomEvent"
+								                                              ? "custom event (an Event.Custom node of its event graph)"
+								                                              : "variable or local",
+								                                          reveal["id"].dump()));
+								}
+								request.Reveal = std::move(element);
+							}
 							request.Select = select;
 							request.Frame = frame == "All"         ? VisualScriptFrame::All
 						                    : frame == "Selection" ? VisualScriptFrame::Selection
@@ -3784,7 +3822,7 @@ namespace Strada
 						else
 						{
 							// The window shows the file's card: nothing of the document can be shown or checked.
-							for (char const* const ignored : {"function", "select", "frame", "find", "timeline"})
+							for (char const* const ignored : {"function", "select", "frame", "find", "timeline", "reveal"})
 							{
 								if (params.contains(ignored))
 								{
@@ -3859,7 +3897,9 @@ namespace Strada
 				              "selection { nodes, comments }, contextEntity, palette { open, query }, notices, card, toasts, live, save, "
 				              "drawer (Closed, Problems, Find or Timeline, with timeline { node } when Timeline), find { open, text, index, "
 				              "count }, bookmarks (the slots stored), minimap (shown), panes { sidebar, "
-				              "details }, shortcuts (the shortcut sheet is open) }. A window opened since the last frame reports its "
+				              "details }, shortcuts (the shortcut sheet is open), canGoBack and canGoForward (Back and Forward have "
+				              "a view to go to, in this window or, after opening a node that names another graph, in that graph's "
+				              "window) }. A window opened since the last frame reports its "
 				              "state before its first draw (not visible, nothing selected). Unavailable without the editor's UI "
 				              "(headless).",
 				              Json(), true,
@@ -3948,8 +3988,10 @@ namespace Strada
 				              "or local, a function or a custom event. Text is looked for in node titles, subtitles, types, comments, pin "
 				              "labels and stored values, comment boxes, and the names of variables, functions and custom events (ASCII "
 				              "letters in any case). References are the Get and Set nodes of a variable or local and the Call nodes of a "
-				              "function (in its own graph), and the Event.Custom and Event.Send nodes of a custom event's name (in every "
-				              "graph). Searches every visual script of the project by path, or one (graph); results come in document "
+				              "function, in its own graph and in every other one whose nodes name it with their Graph setting, and a "
+				              "custom event's Event.Custom with the Event.Send and Event.Broadcast nodes of its name (untyped ones "
+				              "anywhere; typed ones naming references.graph when it is given, else any). Searches every visual script of "
+				              "the project by path, or one (graph); results come in document "
 				              "order: { results: [{ asset, path, function (0 for the event graph), node?, comment?, variable?, field "
 				              "(Title, Subtitle, Type, NodeComment, PinLabel, Value, CommentText, VariableName, FunctionName or "
 				              "EventName), text }], total (before paging), analyzed (titles, subtitles and pin labels are the scripting "
@@ -3964,8 +4006,10 @@ namespace Strada
 											  "kind",
 											  SchemaBuilder::String("What the element is").Enum({"Variable", "Function", "CustomEvent"}),
 											  true)
-										  .Property("graph", SchemaBuilder::String("Variable and Function: the visual script that has the "
-				                                                                   "element (a handle or \"asset://<path>.sgraph\")")
+										  .Property("graph", SchemaBuilder::String("The visual script that has the element (a handle or "
+				                                                                   "\"asset://<path>.sgraph\"): required for Variable and "
+				                                                                   "Function; for CustomEvent it restricts the event and "
+				                                                                   "the typed senders to that graph's")
 				                                                 .MinLength(1))
 										  .Property("id", SchemaBuilder::Integer("Variable and Function: the element's ID")
 				                                              .Minimum(0)
@@ -4097,8 +4141,6 @@ namespace Strada
 				}
 
 				VisualScriptFindQuery query;
-				// Variables and functions are referred to in their own script only.
-				std::optional<AssetHandle> owner;
 				if (hasQuery)
 				{
 					query.Text = params["query"].get<std::string>();
@@ -4116,6 +4158,15 @@ namespace Strada
 						}
 						reference.ReferenceKind = VisualScriptReference::Kind::CustomEvent;
 						reference.Name = references["name"].get<std::string>();
+						if (references.contains("graph"))
+						{
+							CommandValue<AssetHandle> graph = ParseGraph(references["graph"], "references.graph");
+							if (!graph)
+							{
+								return graph.TakeError();
+							}
+							reference.Graph = graph.GetValue();
+						}
 					}
 					else
 					{
@@ -4151,21 +4202,15 @@ namespace Strada
 							                                                       kind == "Function" ? "function" : "variable or local",
 							                                                       references["id"].dump()));
 						}
-						owner = graph.GetValue();
+						reference.Graph = graph.GetValue();
 					}
 					query.References = std::move(reference);
 				}
 
-				// The scripts searched, by path (memory assets, which have none, first).
+				// The scripts searched, by path (memory assets, which have none, first): other scripts name a variable or a
+				// function with their nodes' Graph setting, so every script is searched for references too.
 				std::vector<AssetHandle> scripts;
-				if (owner)
-				{
-					if (!only || *only == *owner)
-					{
-						scripts.push_back(*owner);
-					}
-				}
-				else if (only)
+				if (only)
 				{
 					scripts.push_back(*only);
 				}
@@ -4189,6 +4234,22 @@ namespace Strada
 				size_t total = 0;
 				Json results = Json::array();
 				Json skipped = Json::array();
+				// Nodes naming other graphs are titled from those graphs' documents when no analysis titles them.
+				auto const held = CreateRef<std::vector<Ref<VisualScriptDocument const>>>();
+				VisualScriptGraphResolver const resolver = [held](AssetHandle other) -> VisualScriptDocument const*
+				{
+					if (AssetManager::GetAssetType(other) != AssetType::VisualScript)
+					{
+						return nullptr;
+					}
+					Result<Ref<VisualScriptAsset>> const loaded = LoadGraph(other);
+					if (!loaded)
+					{
+						return nullptr;
+					}
+					held->push_back(loaded.GetValue()->GetSharedDocument());
+					return held->back().get();
+				};
 				for (AssetHandle const script : scripts)
 				{
 					Result<Ref<VisualScriptAsset>> const asset = LoadGraph(script);
@@ -4208,7 +4269,8 @@ namespace Strada
 					Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
 					std::optional<VisualScriptAnalysis> const analysis = AnalyzeGraph(*document, script);
 					analyzed = analyzed && analysis.has_value();
-					std::vector<VisualScriptFindResult> const found = FindInVisualScript(*document, analysis ? &*analysis : nullptr, query);
+					std::vector<VisualScriptFindResult> const found =
+						FindInVisualScript(*document, analysis ? &*analysis : nullptr, query, script, resolver);
 					for (VisualScriptFindResult const& match : found)
 					{
 						if (total >= offset && total - offset < limit)
@@ -4236,6 +4298,21 @@ namespace Strada
 				}
 				return Json::object(
 					{{"results", std::move(results)}, {"total", total}, {"analyzed", analyzed}, {"skipped", std::move(skipped)}});
+			}
+
+			// Whether the document has the element graph.open reveals: a variable or local, a function, or a custom event's
+			// Event.Custom node of the event graph.
+			static bool HasRevealedElement(VisualScriptDocument const& document, VisualScriptReference const& reference)
+			{
+				if (reference.ReferenceKind == VisualScriptReference::Kind::CustomEvent)
+				{
+					return std::any_of(document.Graph.Nodes.begin(), document.Graph.Nodes.end(),
+					                   [&reference](VisualScriptNode const& node)
+					                   {
+										   return node.ID == reference.ID && node.Type == "Event.Custom";
+									   });
+				}
+				return HasReferencedElement(document, reference);
 			}
 
 			// Whether the document has the variable or local, or the function, whose references graph.find lists.

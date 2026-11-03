@@ -115,6 +115,8 @@ namespace Strada
 		// Find: the text or the reference, the scope, and whether the field takes the keyboard.
 		std::string m_Text;
 		std::optional<VisualScriptReference> m_Reference;
+		// The reference named no graph: it is the window's own element.
+		bool m_ReferenceOwnGraph = false;
 		VisualScriptFindScope m_Scope = VisualScriptFindScope::ThisScript;
 		bool m_FocusText = false;
 		// What the rows were found in: the query, and each script's document object (null for one that could not be read).

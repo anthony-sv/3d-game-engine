@@ -19,6 +19,7 @@ namespace Strada
 		constexpr std::string_view CallType = "Function.Call";
 		constexpr std::string_view CustomEventType = "Event.Custom";
 		constexpr std::string_view SendEventType = "Event.Send";
+		constexpr std::string_view BroadcastEventType = "Event.Broadcast";
 		constexpr std::string_view NameSetting = "Name";
 
 		char ToLowerAscii(char character)
@@ -49,6 +50,11 @@ namespace Strada
 		bool IsCustomEvent(VisualScriptNode const& node)
 		{
 			return node.Type == CustomEventType || node.Type == SendEventType;
+		}
+
+		bool IsSender(VisualScriptNode const& node)
+		{
+			return node.Type == SendEventType || node.Type == BroadcastEventType;
 		}
 
 		// The ID a setting of the node stores; nothing when it stores no unsigned integer there.
@@ -88,9 +94,12 @@ namespace Strada
 		class Finder
 		{
 		public:
-			Finder(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis, VisualScriptFindQuery const& query)
+			Finder(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis, VisualScriptFindQuery const& query,
+			       AssetHandle self, VisualScriptGraphResolver const& resolver)
 				: m_Document(document),
-				  m_Query(query)
+				  m_Query(query),
+				  m_Self(self),
+				  m_Resolver(resolver)
 			{
 				for (char const character : query.Text)
 				{
@@ -154,7 +163,8 @@ namespace Strada
 
 			std::string GetTitle(VisualScriptNode const& node, VisualScriptAnalyzedNode const* analyzed) const
 			{
-				return analyzed != nullptr && !analyzed->Title.empty() ? analyzed->Title : DeriveVisualScriptNodeTitle(node, m_Document);
+				return analyzed != nullptr && !analyzed->Title.empty() ? analyzed->Title
+				                                                       : DeriveVisualScriptNodeTitle(node, m_Document, m_Resolver);
 			}
 
 			void FindInGraph(uint32_t function, VisualScriptGraph const& graph)
@@ -185,19 +195,45 @@ namespace Strada
 				}
 			}
 
+			// The graph whose elements a node's settings name: its Graph setting, else the searched document's (invalid when
+			// that has none). A malformed Graph setting names no graph at all.
+			std::optional<AssetHandle> GetNamedGraph(VisualScriptNode const& node) const
+			{
+				if (IsLocalVisualScriptReference(node))
+				{
+					return m_Self;
+				}
+				return ReadVisualScriptGraphSetting(node);
+			}
+
 			bool IsReference(VisualScriptNode const& node) const
 			{
 				VisualScriptReference const& reference = *m_Query.References;
+				AssetHandle const declaring = reference.Graph.IsValid() ? reference.Graph : m_Self;
+				// A node naming another graph refers to that graph's elements, never to this document's of its IDs.
 				switch (reference.ReferenceKind)
 				{
-					// A node naming another graph refers to that graph's elements, never to this document's of its IDs.
 					case VisualScriptReference::Kind::Variable:
-						return (node.Type == GetVariableType || node.Type == SetVariableType) && IsLocalVisualScriptReference(node) &&
-						       ReadID(node, "Variable") == reference.ID;
+						return (node.Type == GetVariableType || node.Type == SetVariableType) &&
+						       GetNamedGraph(node) == std::optional<AssetHandle>(declaring) && ReadID(node, "Variable") == reference.ID;
 					case VisualScriptReference::Kind::Function:
-						return node.Type == CallType && IsLocalVisualScriptReference(node) && ReadID(node, "Function") == reference.ID;
+						return node.Type == CallType && GetNamedGraph(node) == std::optional<AssetHandle>(declaring) &&
+						       ReadID(node, "Function") == reference.ID;
 					case VisualScriptReference::Kind::CustomEvent:
-						return IsCustomEvent(node) && IsLocalVisualScriptReference(node) && ReadString(node, NameSetting) == reference.Name;
+					{
+						if (ReadString(node, NameSetting) != reference.Name)
+						{
+							return false;
+						}
+						if (node.Type == CustomEventType)
+						{
+							// The event itself is in its graph's document only.
+							return !reference.Graph.IsValid() || reference.Graph == m_Self;
+						}
+						// Untyped senders may reach the event of any graph; typed ones reach their graph's.
+						return IsSender(node) && (!reference.Graph.IsValid() || IsLocalVisualScriptReference(node) ||
+						                          ReadVisualScriptGraphSetting(node) == std::optional<AssetHandle>(reference.Graph));
+					}
 				}
 				return false;
 			}
@@ -303,14 +339,17 @@ namespace Strada
 			VisualScriptDocument const& m_Document;
 			std::unordered_map<uint32_t, VisualScriptAnalyzedNode const*> m_AnalyzedNodes;
 			VisualScriptFindQuery const& m_Query;
+			AssetHandle m_Self;
+			VisualScriptGraphResolver const& m_Resolver;
 			std::string m_Needle;
 			std::vector<VisualScriptFindResult> m_Results;
 		};
 	}
 
 	std::vector<VisualScriptFindResult> FindInVisualScript(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis,
-	                                                       VisualScriptFindQuery const& query)
+	                                                       VisualScriptFindQuery const& query, AssetHandle self,
+	                                                       VisualScriptGraphResolver const& resolver)
 	{
-		return Finder(document, analysis, query).Run();
+		return Finder(document, analysis, query, self, resolver).Run();
 	}
 }

@@ -68,7 +68,8 @@ namespace Strada
 
 		VisualScriptFindQuery query;
 		query.Text = m_Text;
-		m_Matches = FindInVisualScript(model.GetDisplayDocument(), analysis, query);
+		// Nodes naming other graphs are titled after what they name, as the canvas titles them.
+		m_Matches = FindInVisualScript(model.GetDisplayDocument(), analysis, query, model.GetGraph(), model.MakeGraphResolver());
 		if (!m_AllGraphs)
 		{
 			std::erase_if(m_Matches,

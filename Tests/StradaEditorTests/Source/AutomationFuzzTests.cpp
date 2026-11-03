@@ -704,6 +704,16 @@ namespace
 				}
 				return reference;
 			}
+			// graph.open's reveal: a variable or local, a function or a custom event's node of the state's script, now and then
+			// an element of another kind or one it does not have.
+			if (property == "reveal" && m_Random.Pick(4) != 0)
+			{
+				std::array<char const*, 3> const kinds = {"Variable", "Function", "CustomEvent"};
+				size_t const kind = m_Random.Pick(kinds.size());
+				std::vector<int64_t> choices = kind == 2 ? m_State.GraphNodes : m_State.GraphReferences;
+				choices.push_back(999999);
+				return Json::object({{"kind", kinds[kind]}, {"id", PickFrom(choices)}});
+			}
 			// A whole visual script document (graph.set, graph.check), damaged half the time.
 			if (property == "document")
 			{

@@ -120,6 +120,11 @@ namespace Strada
 		AddCreateEvent,
 		AddUpdateEvent,
 		AddNode,
+		// A function library's card: [Add Function], or [Open <function>] over its event graph.
+		AddFunction,
+		OpenFunction,
+		// The newest toast's find button ([Find Callers], [Find Senders], [Find References]).
+		ToastFind,
 		Count
 	};
 
@@ -162,6 +167,9 @@ namespace Strada
 		inline constexpr std::string_view NewFunction = "A function starts at Entry. Add inputs and outputs in Details.";
 		inline constexpr std::string_view EmptyGraph = "This script does nothing yet.";
 		inline constexpr std::string_view EmptyGraphHelp = "Right-click or press Tab to add nodes; drag variables from My Script.";
+		// A function library's card (spec-slice3 §10.9): without functions, and over its empty event graph.
+		inline constexpr std::string_view EmptyLibrary = "This library has no functions yet.";
+		inline constexpr std::string_view LibraryEventGraph = "A function library has no event graph: its functions are what graphs call.";
 		inline constexpr std::string_view Live = "LIVE";
 		inline constexpr std::string_view LastWorking = "LIVE \xC2\xB7 last working version";
 		inline constexpr std::string_view Simulating = "SIMULATING";
@@ -186,11 +194,11 @@ namespace Strada
 		inline constexpr std::string_view NoProblems = "No problems";
 		inline constexpr std::string_view NotAnalyzed = "Not analyzed";
 
-		inline constexpr std::array<std::string_view, 23> All = {
-			Degraded,      ReadOnlyMemory, NewFunction,     EmptyGraph,       EmptyGraphHelp,    Live,
-			LastWorking,   Simulating,     SimulatingFull,  LiveTooltip,      SimulatingTooltip, CanvasHint,
-			CanvasHintPan, WireHint,       MoveSnappedHint, MoveFreeHint,     PanHint,           NoBookmarks,
-			ShortcutSheet, NoProblems,     NotAnalyzed,     "Instance: None", "Not saved"};
+		inline constexpr std::array<std::string_view, 25> All = {
+			Degraded,      ReadOnlyMemory, NewFunction,      EmptyGraph,     EmptyGraphHelp, EmptyLibrary,      LibraryEventGraph,
+			Live,          LastWorking,    Simulating,       SimulatingFull, LiveTooltip,    SimulatingTooltip, CanvasHint,
+			CanvasHintPan, WireHint,       MoveSnappedHint,  MoveFreeHint,   PanHint,        NoBookmarks,       ShortcutSheet,
+			NoProblems,    NotAnalyzed,    "Instance: None", "Not saved"};
 	}
 
 	// The pane sizes of spec §10.1, in font sizes.
@@ -277,9 +285,9 @@ namespace Strada
 		// The project's visual scripts (the window manager's index, refreshed before the windows draw), which the window hands
 		// its model at each draw (VisualScriptEditorModel::SetProjectGraphs); null knows no other graph.
 		void SetProjectIndex(VisualScriptProjectIndex const* index) { m_ProjectIndex = index; }
-		// What the panes asked to open in other graphs' windows since the last call (a find result or a reference in another
-		// script, a history toast's [Show] for another script's step): the window manager opens them, or brings them to the
-		// front.
+		// What the window asked to open in other graphs' windows since the last call (a node naming another graph opened, a find
+		// result or a reference in another script, a history toast's [Show] for another script's step, Back and Forward to a
+		// cross-graph entry), each with its origin: the window manager opens them, or brings them to the front.
 		std::vector<VisualScriptOpenRequest> TakeOtherGraphRequests() { return std::exchange(m_OtherGraphRequests, {}); }
 		// The panes, as the last draw left them (tests and automation find their rows through them).
 		VisualScriptPalettePopup const& GetPalette() const { return m_Palette; }
@@ -288,6 +296,9 @@ namespace Strada
 		VisualScriptDrawer const& GetDrawer() const { return m_Drawer; }
 		VisualScriptFindBar const& GetFindBar() const { return m_FindBar; }
 		VisualScriptPaneShared const& GetPaneShared() const { return m_PaneShared; }
+		// What the toolbar's live pill tells when hovered (empty without the pill): while playing, a library with errors says
+		// that the graphs calling it keep its last working version.
+		std::string GetLiveTooltip() const;
 		// What the problems popup of a badge (a node's or a link's) listed in the last draw; empty while none is open.
 		std::span<VisualScriptDiagnostic const> GetPopupProblems() const { return m_PopupProblems; }
 		// The live value widget the last draw drew; none when no chip was live.
@@ -323,6 +334,9 @@ namespace Strada
 			AssetHandle ShowAsset;
 			std::vector<uint32_t> ShowElements;
 			uint32_t ShowFunction = 0;
+			// A button (FindLabel: "Find Callers") listing the references of an element in the find drawer.
+			std::optional<VisualScriptReference> Find;
+			std::string FindLabel;
 		};
 
 		// The notices of spec §10.4, in the order they are drawn under the toolbar.
@@ -489,6 +503,10 @@ namespace Strada
 		void DrawToolbar();
 		void DrawInstanceCombo(float width);
 		void DrawLivePill(float width, std::string const& text);
+		// A function library's card: adds a function in one step and shows it.
+		void AddLibraryFunction();
+		// A toast of what an own commit did to other scripts, with its find button; one of the same text is shown anew instead.
+		void AddOfferToast(VisualScriptOfferToast offer);
 		void DrawBookmarksMenu();
 		void DrawNotices();
 		void DrawNotice(NoticeKind kind);
@@ -559,6 +577,13 @@ namespace Strada
 		void ExecuteEdit(VisualScriptCanvasEdit const& edit, uint64_t mergeKey = 0, VisualScriptDocument const* stored = nullptr);
 		// Applies what the controller asked for; returns whether its commit was made.
 		bool HandleResult(Result<VisualScriptControllerResult> result, std::string_view action);
+		// An open request of this graph applies to the model; one of another graph goes to the window manager, with this
+		// window's view as its origin when it has none.
+		void OpenRequest(VisualScriptOpenRequest request);
+		// Shows a node in Details, or selects a row of My Script (renaming it when asked).
+		void Reveal(VisualScriptReveal const& reveal);
+		// An open request's Reveal: the row of My Script of a variable or local, a function or a custom event.
+		void RevealReference(VisualScriptReference const& reference);
 		bool Commit(VisualScriptCommitRequest request, std::vector<ComponentEdit> edits);
 		uint64_t GetNudgeKey();
 		// The run the commit of a comment's title belongs to; null when it starts no run.

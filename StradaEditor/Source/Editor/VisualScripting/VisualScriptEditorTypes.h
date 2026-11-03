@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 // The editor services hand out ImGui fonts without the header needing ImGui.
@@ -36,6 +37,64 @@ namespace Strada
 		All
 	};
 
+	// A variable, function or custom event whose references find looks for, or that an open request reveals.
+	struct VisualScriptReference
+	{
+		enum class Kind : uint8_t
+		{
+			// A variable or a local.
+			Variable = 0,
+			Function,
+			CustomEvent
+		};
+
+		Kind ReferenceKind = Kind::Variable;
+		// Variable and Function; an open request's custom event: its Event.Custom node.
+		uint32_t ID = 0;
+		// CustomEvent (find).
+		std::string Name;
+		// The graph that declares the element: invalid is the searched document. A custom event of an invalid graph is any
+		// graph's: every event and sender of its name matches.
+		AssetHandle Graph;
+
+		VisualScriptReference() = default;
+		// So that a reference is written {kind, id, name} without an aggregate's missing initializer
+		// (-Wmissing-field-initializers).
+		VisualScriptReference(Kind kind, uint32_t id, std::string name = {}, AssetHandle graph = {})
+			: ReferenceKind(kind),
+			  ID(id),
+			  Name(std::move(name)),
+			  Graph(graph)
+		{
+		}
+
+		bool operator==(VisualScriptReference const& other) const = default;
+	};
+
+	// How an open request for another graph moves through the windows' navigation histories (spec-slice3 §10.7).
+	enum class VisualScriptHistoryStep : uint8_t
+	{
+		// A jump (an Open of a node, a quick fix, a find result): the window opened puts the origin on its Back history.
+		Jump = 0,
+		// Back from a window's cross-graph entry: the window opened puts the origin on its Forward history.
+		Back,
+		// Forward from a cross-graph entry: the window opened puts the origin on its Back history, keeping its Forward one.
+		Forward
+	};
+
+	// The view of the window an open request for another graph came from, which Back in the window opened returns to.
+	struct VisualScriptOrigin
+	{
+		AssetHandle Graph;
+		// 0 is the event graph, else a function's ID.
+		uint32_t Function = 0;
+		glm::vec2 Center{0.0f};
+		float Zoom = 1.0f;
+		VisualScriptHistoryStep Step = VisualScriptHistoryStep::Jump;
+
+		bool operator==(VisualScriptOrigin const& other) const = default;
+	};
+
 	// What opening a graph asks for (the editor's Open entries and graph.open).
 	struct VisualScriptOpenRequest
 	{
@@ -57,6 +116,11 @@ namespace Strada
 		std::string Find;
 		// Opens the drawer in Timeline mode on this Flow.Timeline node of the sub-graph shown.
 		std::optional<uint32_t> Timeline;
+		// A row of My Script to select (shown in Details): a variable or local, a function, or a custom event (its ID the
+		// Event.Custom node); its Graph and Name are not read.
+		std::optional<VisualScriptReference> Reveal;
+		// The window that asked, for a request of another graph (spec-slice3 §10.7).
+		std::optional<VisualScriptOrigin> Origin;
 		bool Focus = true;
 
 		bool operator==(VisualScriptOpenRequest const& other) const = default;
@@ -142,26 +206,6 @@ namespace Strada
 		// The Timeline drawer's Shift+Left and Shift+Right: its selected keys nudged ten time steps.
 		NudgeLeftCoarse,
 		NudgeRightCoarse
-	};
-
-	// A variable, function or custom event whose references find looks for.
-	struct VisualScriptReference
-	{
-		enum class Kind : uint8_t
-		{
-			// A variable or a local.
-			Variable = 0,
-			Function,
-			CustomEvent
-		};
-
-		Kind ReferenceKind = Kind::Variable;
-		// Variable and Function.
-		uint32_t ID = 0;
-		// CustomEvent.
-		std::string Name;
-
-		bool operator==(VisualScriptReference const& other) const = default;
 	};
 
 	// Editor services the graph windows and their panes use, which the editor injects as it injects the console's font and

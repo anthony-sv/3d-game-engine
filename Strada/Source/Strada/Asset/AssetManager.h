@@ -146,6 +146,11 @@ namespace Strada
 		// as those of the editor's last write (IsFileAsLastRecorded). No effect for assets that are not loaded or have no file
 		// of their own.
 		static void RecordFileWrite(AssetHandle handle);
+		// The loaded asset no longer shows what its file holds: the next refresh reloads it whatever the file's write time, and
+		// IsFileAsLastRecorded becomes false. For a write whose time may equal the one recorded before it (file systems keep
+		// coarse times), such as an undo putting back bytes the editor did not write. No effect for assets that are not loaded
+		// or have no file of their own; RecordFileWrite and unloading the asset clear the mark.
+		static void MarkFileChanged(AssetHandle handle);
 		// Whether the loaded asset's file still has the write time and the size RecordFileWrite recorded: then it holds what
 		// the editor last wrote, unless something rewrote it with the same number of bytes and restored its write time. False
 		// when nothing is recorded (the asset was loaded or reloaded since, or never written) or either cannot be read.
