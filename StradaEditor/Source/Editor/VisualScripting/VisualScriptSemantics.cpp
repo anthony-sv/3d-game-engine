@@ -14,12 +14,17 @@ namespace Strada
 		return VisualScriptEngine::GetLibrary();
 	}
 
-	Result<VisualScriptAnalysis> EngineVisualScriptSemantics::Analyze(VisualScriptDocument const& document, AssetHandle self)
+	Result<Ref<VisualScriptAnalysis const>> EngineVisualScriptSemantics::Analyze(VisualScriptDocument const& document, AssetHandle self)
 	{
 		if (!ScriptEngine::IsInitialized())
 		{
 			return Error{"the scripting runtime is not running"};
 		}
 		return VisualScriptEngine::Analyze(document, self);
+	}
+
+	VisualScriptAnalysisTimings EngineVisualScriptSemantics::GetLastAnalysisTimings() const
+	{
+		return ScriptEngine::IsInitialized() ? VisualScriptEngine::GetLastAnalysisTimings() : VisualScriptAnalysisTimings{};
 	}
 }

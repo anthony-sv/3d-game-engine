@@ -894,13 +894,13 @@ TEST_CASE("VisualScript: an array literal decodes exactly when the scripting run
 			document.Variables.push_back(std::move(variable));
 			literals.push_back(std::move(literal));
 		}
-		Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document);
+		Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(document);
 		REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
 		for (uint32_t index = 0; index < literals.size(); index++)
 		{
 			std::string const text = GetText(literals[index]);
 			CAPTURE(text);
-			bool const runtimeTakes = std::none_of(analysis.GetValue().Diagnostics.begin(), analysis.GetValue().Diagnostics.end(),
+			bool const runtimeTakes = std::none_of(analysis.GetValue()->Diagnostics.begin(), analysis.GetValue()->Diagnostics.end(),
 			                                       [index](VisualScriptDiagnostic const& diagnostic)
 			                                       {
 													   return diagnostic.Variable == std::optional<uint32_t>(index + 1) &&

@@ -503,9 +503,9 @@ TEST_CASE("VisualScriptBatch: pins are analyzed again only when earlier operatio
 	CHECK(grouped.Analysis == nullptr);
 
 	// A cached analysis of the stored document serves the first operation that needs pins.
-	Result<VisualScriptAnalysis> stored = fixture.Semantics.Analyze(document, AssetHandle());
+	Result<Ref<VisualScriptAnalysis const>> stored = fixture.Semantics.Analyze(document, AssetHandle());
 	REQUIRE(stored.IsOk());
-	fixture.Context.StoredAnalysis = CreateRef<VisualScriptAnalysis const>(stored.TakeValue());
+	fixture.Context.StoredAnalysis = stored.TakeValue();
 	fixture.Context.StoredAnalysisDocument = CreateRef<VisualScriptDocument const>(document);
 	VisualScriptBatchResult const cached = ExpectApplied(document, Json::array({connect(1, 3)}), fixture.Context);
 	CHECK(cached.Analyses == 0);
@@ -668,27 +668,29 @@ TEST_CASE("VisualScriptBatch: pins named as the analysis shows them are stored u
 	{
 	public:
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
+		[[nodiscard]] Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document, self);
-			if (analysis)
+			Result<Ref<VisualScriptAnalysis const>> shared = m_Fixture.Analyze(document, self);
+			if (!shared)
 			{
-				for (VisualScriptAnalyzedNode& node : analysis.GetValue().Nodes)
+				return shared;
+			}
+			VisualScriptAnalysis analysis = *shared.GetValue();
+			for (VisualScriptAnalyzedNode& node : analysis.Nodes)
+			{
+				if (node.ID != 2)
 				{
-					if (node.ID != 2)
-					{
-						continue;
-					}
-					node.Resolved = VisualScriptResolution::Redirect;
-					node.CanonicalType = node.Type;
-					node.PinRenames.push_back({VisualScriptPinDirection::In, "Message", "Text"});
-					for (VisualScriptPin& pin : node.Pins)
-					{
-						pin.Name = pin.Name == "Message" ? "Text" : pin.Name;
-					}
+					continue;
+				}
+				node.Resolved = VisualScriptResolution::Redirect;
+				node.CanonicalType = node.Type;
+				node.PinRenames.push_back({VisualScriptPinDirection::In, "Message", "Text"});
+				for (VisualScriptPin& pin : node.Pins)
+				{
+					pin.Name = pin.Name == "Message" ? "Text" : pin.Name;
 				}
 			}
-			return analysis;
+			return CreateRef<VisualScriptAnalysis const>(std::move(analysis));
 		}
 
 	private:
@@ -825,10 +827,10 @@ TEST_CASE("VisualScriptBatch: promotions, splits and the quick fixes the analysi
 	unused.Message = "Log has no input Mesage";
 	unused.Suggestions = {"Message"};
 	fixture.Semantics.InjectDiagnostic(unused);
-	Result<VisualScriptAnalysis> analysis = fixture.Semantics.Analyze(misnamed, AssetHandle());
+	Result<Ref<VisualScriptAnalysis const>> analysis = fixture.Semantics.Analyze(misnamed, AssetHandle());
 	REQUIRE(analysis.IsOk());
-	VisualScriptDiagnostic const& injected = analysis.GetValue().Diagnostics.back();
-	Json const fixes = GetVisualScriptFixOperations(misnamed, analysis.GetValue(), injected, fixture.Semantics.GetFixtureLibrary());
+	VisualScriptDiagnostic const& injected = analysis.GetValue()->Diagnostics.back();
+	Json const fixes = GetVisualScriptFixOperations(misnamed, *analysis.GetValue(), injected, fixture.Semantics.GetFixtureLibrary());
 	REQUIRE(fixes.size() == 2);
 	CHECK(fixes[1]["label"] == "Use Message");
 	CHECK(fixes[1]["operation"] == Json::object({{"op", "Fix"},
@@ -852,16 +854,16 @@ TEST_CASE("VisualScriptBatch: promotions, splits and the quick fixes the analysi
 	duplicate.Node = 5u;
 	duplicate.Message = "a second Update";
 	fixture.Semantics.InjectDiagnostic(duplicate);
-	Result<VisualScriptAnalysis> twice = fixture.Semantics.Analyze(misnamed, AssetHandle());
+	Result<Ref<VisualScriptAnalysis const>> twice = fixture.Semantics.Analyze(misnamed, AssetHandle());
 	REQUIRE(twice.IsOk());
 	std::vector<VisualScriptQuickFix> const offered =
-		GetVisualScriptQuickFixes(misnamed, twice.GetValue(), twice.GetValue().Diagnostics.back(), fixture.Semantics.GetFixtureLibrary());
+		GetVisualScriptQuickFixes(misnamed, *twice.GetValue(), twice.GetValue()->Diagnostics.back(), fixture.Semantics.GetFixtureLibrary());
 	REQUIRE(offered.size() == 2);
 	REQUIRE(offered[0].Navigates);
 	// Navigating fixes are not operations.
-	CHECK(
-		GetVisualScriptFixOperations(misnamed, twice.GetValue(), twice.GetValue().Diagnostics.back(), fixture.Semantics.GetFixtureLibrary())
-			.size() == 1);
+	CHECK(GetVisualScriptFixOperations(misnamed, *twice.GetValue(), twice.GetValue()->Diagnostics.back(),
+	                                   fixture.Semantics.GetFixtureLibrary())
+	          .size() == 1);
 	VisualScriptBatchError const navigating = ExpectRefused(
 		misnamed, Json::array({Json::object({{"op", "Fix"}, {"code", "DuplicateEvent"}, {"fix", offered[0].Label}, {"node", 5}})}),
 		fixture.Context);
@@ -995,11 +997,11 @@ TEST_CASE("VisualScriptBatch: hints name nodes that never run, outputs read by n
 	                   {"settings", Json::object({{"Variable", 10}})},
 	                   {"position", Json::array({0, 320})}})});
 	VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
-	Result<VisualScriptAnalysis> analysis = fixture.Semantics.Analyze(result.Document, AssetHandle());
+	Result<Ref<VisualScriptAnalysis const>> analysis = fixture.Semantics.Analyze(result.Document, AssetHandle());
 	REQUIRE(analysis.IsOk());
 	uint32_t const get = result.Results[2]["id"].get<uint32_t>();
 	std::vector<uint32_t> const nodes{2, GetLabel(result, "$log"), get, 1};
-	std::vector<VisualScriptHint> const hints = FindVisualScriptHints(result.Document, analysis.GetValue(), nodes);
+	std::vector<VisualScriptHint> const hints = FindVisualScriptHints(result.Document, *analysis.GetValue(), nodes);
 	REQUIRE(hints.size() == 2);
 	CHECK(hints[0].Node == 2);
 	CHECK(hints[0].Kind == "NeverRuns");
@@ -1374,9 +1376,9 @@ TEST_CASE("VisualScriptBatch: a rename analyzes again before measured layout, wh
 	VisualScriptDocument const arranged = ExpectApplied(document, Json::array({arrange}), fixture.Context).Document;
 	auto const cache = [&fixture](VisualScriptDocument const& stored)
 	{
-		Result<VisualScriptAnalysis> analysis = fixture.Semantics.Analyze(stored, AssetHandle());
+		Result<Ref<VisualScriptAnalysis const>> analysis = fixture.Semantics.Analyze(stored, AssetHandle());
 		REQUIRE(analysis.IsOk());
-		fixture.Context.StoredAnalysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
+		fixture.Context.StoredAnalysis = analysis.TakeValue();
 		fixture.Context.StoredAnalysisDocument = CreateRef<VisualScriptDocument const>(stored);
 	};
 
@@ -1746,14 +1748,14 @@ TEST_CASE("VisualScriptBatch: Fix applies the quick fixes of cross-graph finding
 	                  fixture.Context);
 	CHECK(FindNode(fixed.Document, 40)->Settings == Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", fixture.Damage}}));
 	// The fix operations of the diagnostic, as graph.edit lists them, read the other graph too.
-	Result<VisualScriptAnalysis> const analysis = fixture.Semantics.Analyze(document, BatchSelf);
+	Result<Ref<VisualScriptAnalysis const>> const analysis = fixture.Semantics.Analyze(document, BatchSelf);
 	REQUIRE(analysis.IsOk());
 	VisualScriptQuickFixGraphs const graphs{fixture.Context.FindDocument, fixture.Context.FindGraphName};
-	Json const operations = GetVisualScriptFixOperations(document, analysis.GetValue(), analysis.GetValue().Diagnostics.back(),
+	Json const operations = GetVisualScriptFixOperations(document, *analysis.GetValue(), analysis.GetValue()->Diagnostics.back(),
 	                                                     fixture.Semantics.GetFixtureLibrary(), &graphs);
 	REQUIRE(operations.size() == 1);
 	CHECK(operations[0]["label"] == "Use Hit");
-	CHECK(GetVisualScriptFixOperations(document, analysis.GetValue(), analysis.GetValue().Diagnostics.back(),
+	CHECK(GetVisualScriptFixOperations(document, *analysis.GetValue(), analysis.GetValue()->Diagnostics.back(),
 	                                   fixture.Semantics.GetFixtureLibrary())
 	          .empty());
 	// A fix that opens the other graph changes nothing here.

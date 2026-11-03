@@ -12,6 +12,7 @@
 #include "Strada/Script/ScriptBindings.h"
 #include "Strada/Script/ScriptEngine.h"
 #include "Strada/Script/ScriptField.h"
+#include "Strada/Script/VisualScriptEngine.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 
 #include <cstddef>
@@ -20,6 +21,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace Strada::ScriptEngineInternal
@@ -175,6 +177,13 @@ namespace Strada::ScriptEngineInternal
 		// Whether DevelopmentOnly nodes run (VisualScriptEngine::SetDevelopmentNodesEnabled): when they do not, the runtime
 		// receives every document with them Disabled.
 		bool DevelopmentNodesEnabled = true;
+		// The most recent analyses, least recently made first, at most VisualScriptEngine::MaxKeptAnalyses and one per self
+		// (the graph analyzed; invalid for documents of no asset): VisualScriptEngine::Analyze reads the next analysis of a
+		// graph with its entry. Reuse is by equal bytes alone, so an entry never goes stale.
+		std::vector<std::pair<AssetHandle, Ref<VisualScriptAnalysis const>>> VisualScriptAnalyses;
+		// VisualScriptEngine::GetLastAnalysisTimings and TakeLoadTimings.
+		VisualScriptAnalysisTimings LastAnalysisTimings;
+		VisualScriptLoadTimings LoadTimings;
 	};
 
 	// The engine's state; null while ScriptEngine is not initialized.

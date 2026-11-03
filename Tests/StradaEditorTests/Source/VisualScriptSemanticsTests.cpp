@@ -144,9 +144,9 @@ namespace
 	VisualScriptAnalysis AnalyzeWithFixture(VisualScriptDocument const& document)
 	{
 		Testing::FixtureVisualScriptSemantics semantics;
-		Result<VisualScriptAnalysis> analysis = semantics.Analyze(document, AssetHandle{});
+		Result<Ref<VisualScriptAnalysis const>> analysis = semantics.Analyze(document, AssetHandle{});
 		REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
-		return analysis.TakeValue();
+		return *analysis.GetValue();
 	}
 
 	VisualScriptAnalyzedNode const& GetNode(VisualScriptAnalysis const& analysis, uint32_t id)
@@ -292,7 +292,7 @@ TEST_CASE("VisualScriptEditor: the engine's semantics have no library and no ana
 	REQUIRE_FALSE(ScriptEngine::IsInitialized());
 	EngineVisualScriptSemantics semantics;
 	CHECK(semantics.GetLibrary() == nullptr);
-	Result<VisualScriptAnalysis> const analysis = semantics.Analyze(MakeShapesDocument(), AssetHandle{});
+	Result<Ref<VisualScriptAnalysis const>> const analysis = semantics.Analyze(MakeShapesDocument(), AssetHandle{});
 	REQUIRE(analysis.IsError());
 	CHECK(analysis.GetError() == "the scripting runtime is not running");
 }
@@ -304,9 +304,9 @@ TEST_CASE("VisualScriptEditor: the fixture library is the scripting runtime's ow
 	Ref<VisualScriptLibrary const> const library = semantics.GetLibrary();
 	REQUIRE(library != nullptr);
 	CHECK(semantics.GetLibrary() == library);
-	Result<VisualScriptAnalysis> const analysis = semantics.Analyze(MakeShapesDocument(), AssetHandle{});
+	Result<Ref<VisualScriptAnalysis const>> const analysis = semantics.Analyze(MakeShapesDocument(), AssetHandle{});
 	REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
-	CHECK(analysis.GetValue().FindNode(50) != nullptr);
+	CHECK(analysis.GetValue()->FindNode(50) != nullptr);
 
 	// The fixture is the runtime's entries of its node kinds and types, as the editor's tests read them: when the scripting
 	// API changes one of them, the expected fixture is written next to the test executable, to be copied over the fixture.
@@ -335,15 +335,15 @@ TEST_CASE("VisualScriptEditor: the fixture analysis gives the pins, titles and k
 	Testing::ScriptRuntimeScope runtime;
 	EngineVisualScriptSemantics semantics;
 	VisualScriptDocument const document = MakeShapesDocument();
-	Result<VisualScriptAnalysis> const real = semantics.Analyze(document, AssetHandle{});
+	Result<Ref<VisualScriptAnalysis const>> const real = semantics.Analyze(document, AssetHandle{});
 	REQUIRE_MESSAGE(real.IsOk(), real.GetError());
 	VisualScriptAnalysis const fixture = AnalyzeWithFixture(document);
 	CHECK(fixture.Diagnostics.empty());
 
-	REQUIRE(fixture.Nodes.size() == real.GetValue().Nodes.size());
+	REQUIRE(fixture.Nodes.size() == real.GetValue()->Nodes.size());
 	for (size_t index = 0; index < fixture.Nodes.size(); index++)
 	{
-		VisualScriptAnalyzedNode const& expected = real.GetValue().Nodes[index];
+		VisualScriptAnalyzedNode const& expected = real.GetValue()->Nodes[index];
 		VisualScriptAnalyzedNode const& node = fixture.Nodes[index];
 		CAPTURE(node.ID);
 		CAPTURE(node.Type);
@@ -385,7 +385,7 @@ TEST_CASE("VisualScriptEditor: the fixture analysis shapes nodes from their temp
 {
 	VisualScriptAnalysis const analysis = AnalyzeWithFixture(MakeShapesDocument());
 	CHECK(analysis.Diagnostics.empty());
-	CHECK(analysis.Source.contains("Nodes"));
+	CHECK(Testing::ReadAnalysisJson(analysis).contains("Nodes"));
 
 	// The functions' graphs in document order, then the event graph.
 	std::vector<uint32_t> ids;
@@ -671,7 +671,7 @@ TEST_CASE("VisualScriptEditor: the fixture semantics count their calls, stop and
 	semantics.SetAvailable(false);
 	CHECK_FALSE(semantics.IsAvailable());
 	CHECK(semantics.GetLibrary() == nullptr);
-	Result<VisualScriptAnalysis> const stopped = semantics.Analyze(document, AssetHandle{});
+	Result<Ref<VisualScriptAnalysis const>> const stopped = semantics.Analyze(document, AssetHandle{});
 	REQUIRE(stopped.IsError());
 	CHECK(stopped.GetError() == "the scripting runtime is not running");
 	CHECK(semantics.GetLibraryCallCount() == 3);
@@ -700,10 +700,10 @@ TEST_CASE("VisualScriptEditor: the fixture semantics count their calls, stop and
 	warning.Suggestions = {"Flow.Branch"};
 	semantics.InjectDiagnostic(warning);
 	document.Graph.Nodes.push_back(MakeNode(2, "Flow.Unknown"));
-	Result<VisualScriptAnalysis> const injected = semantics.Analyze(document, AssetHandle{});
+	Result<Ref<VisualScriptAnalysis const>> const injected = semantics.Analyze(document, AssetHandle{});
 	REQUIRE(injected.IsOk());
-	REQUIRE(GetCodes(injected.GetValue()) == std::vector<std::string>{"UnknownNodeType", "NodeUpdated"});
-	VisualScriptDiagnostic const& read = injected.GetValue().Diagnostics[1];
+	REQUIRE(GetCodes(*injected.GetValue()) == std::vector<std::string>{"UnknownNodeType", "NodeUpdated"});
+	VisualScriptDiagnostic const& read = injected.GetValue()->Diagnostics[1];
 	CHECK(read.Severity == warning.Severity);
 	CHECK(read.Node == warning.Node);
 	CHECK(read.Pin == warning.Pin);
@@ -713,9 +713,9 @@ TEST_CASE("VisualScriptEditor: the fixture semantics count their calls, stop and
 	CHECK(read.Message == warning.Message);
 	CHECK(read.Suggestions == warning.Suggestions);
 	semantics.ClearInjectedDiagnostics();
-	Result<VisualScriptAnalysis> const cleared = semantics.Analyze(document, AssetHandle{});
+	Result<Ref<VisualScriptAnalysis const>> const cleared = semantics.Analyze(document, AssetHandle{});
 	REQUIRE(cleared.IsOk());
-	CHECK(GetCodes(cleared.GetValue()) == std::vector<std::string>{"UnknownNodeType"});
+	CHECK(GetCodes(*cleared.GetValue()) == std::vector<std::string>{"UnknownNodeType"});
 }
 
 TEST_CASE("VisualScriptEditor: test projects keep their graph's document as its file, and the fixed-width measurer counts bytes")

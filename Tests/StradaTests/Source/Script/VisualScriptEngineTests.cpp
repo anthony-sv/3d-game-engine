@@ -1,5 +1,6 @@
 #include "Physics/PhysicsTestUtilities.h"
 #include "Script/ScriptTestUtilities.h"
+#include "Script/VisualScriptGridGraph.h"
 #include "Script/VisualScriptTestGraphs.h"
 #include "TestUtilities.h"
 
@@ -1053,10 +1054,10 @@ TEST_CASE("VisualScriptLibrary: reads analyses and diagnostics, and describes th
 		{ "Severity": "Error", "Code": "NotExposable", "Function": 0, "Variable": 4, "Message": "not exposable" }
 	]
 })json";
-	Result<VisualScriptAnalysis> parsed = VisualScriptAnalysis::Parse(AnalysisJson);
+	Result<VisualScriptAnalysis> parsed = VisualScriptAnalysis::Parse(std::string(AnalysisJson));
 	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
 	VisualScriptAnalysis const& analysis = parsed.GetValue();
-	CHECK(analysis.Source.at("Nodes").size() == 4);
+	CHECK(analysis.NodeSpans.size() == 4);
 
 	REQUIRE(analysis.Nodes.size() == 4);
 	VisualScriptAnalyzedNode const* exact = analysis.FindNode(11);
@@ -1149,7 +1150,7 @@ TEST_CASE("VisualScriptLibrary: reads analyses and diagnostics, and describes th
 	for (Case const& refused : cases)
 	{
 		CAPTURE(refused.Json);
-		Result<VisualScriptAnalysis> read = VisualScriptAnalysis::Parse(refused.Json);
+		Result<VisualScriptAnalysis> read = VisualScriptAnalysis::Parse(std::string(refused.Json));
 		REQUIRE(read.IsError());
 		CHECK(read.GetError() == refused.Error);
 	}
@@ -1176,7 +1177,7 @@ TEST_CASE("VisualScriptLibrary: reads where the flow leaves a disabled node, whi
 	],
 	"Diagnostics": []
 })json";
-	Result<VisualScriptAnalysis> parsed = VisualScriptAnalysis::Parse(AnalysisJson);
+	Result<VisualScriptAnalysis> parsed = VisualScriptAnalysis::Parse(std::string(AnalysisJson));
 	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
 	VisualScriptAnalysis const& analysis = parsed.GetValue();
 	REQUIRE(analysis.Nodes.size() == 3);
@@ -1418,10 +1419,15 @@ TEST_CASE("VisualScriptLibrary: reads the setting, span and graph of diagnostics
 	CHECK_FALSE(plain.Graph.IsValid());
 
 	// The pinned texts are the runtime's compact form, member for member.
-	Json const& diagnostics = analysis.Source.at("Diagnostics");
-	CHECK(diagnostics[0].dump() == FormulaDiagnosticText);
-	CHECK(diagnostics[1].dump() == RemoteDiagnosticText);
-	CHECK(diagnostics[2].dump() == FullDiagnosticText);
+	REQUIRE(analysis.DiagnosticSpans.size() == 4);
+	auto const slice = [&analysis](size_t index)
+	{
+		std::pair<uint32_t, uint32_t> const span = analysis.DiagnosticSpans[index];
+		return std::string_view(analysis.Text).substr(span.first, span.second);
+	};
+	CHECK(slice(0) == FormulaDiagnosticText);
+	CHECK(slice(1) == RemoteDiagnosticText);
+	CHECK(slice(2) == FullDiagnosticText);
 	// VisualScriptLoad's answer reads them alike.
 	Result<std::vector<VisualScriptDiagnostic>> loaded = ParseVisualScriptDiagnostics(fmt::format("[{}]", FullDiagnosticText));
 	REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
@@ -1468,7 +1474,7 @@ TEST_CASE("VisualScriptLibrary: reads the setting, span and graph of diagnostics
 	for (Case const& refused : cases)
 	{
 		CAPTURE(refused.Json);
-		Result<VisualScriptAnalysis> read = VisualScriptAnalysis::Parse(refused.Json);
+		Result<VisualScriptAnalysis> read = VisualScriptAnalysis::Parse(std::string(refused.Json));
 		REQUIRE(read.IsError());
 		CHECK(read.GetError() == refused.Error);
 	}
@@ -1668,9 +1674,9 @@ TEST_CASE("VisualScriptEngine: graphs get and set a VisualScript component's gra
 		                                        Json::object({{"Path", "Scripts/Behaviour.sgraph"}})));
 		document.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
 		document.Graph.Links.push_back(MakeLink(12, "Result", 11, "Value"));
-		Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(document);
+		Result<Ref<VisualScriptAnalysis const>> analysis = VisualScriptEngine::Analyze(document);
 		REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
-		return analysis.TakeValue();
+		return *analysis.GetValue();
 	};
 	VisualScriptAnalysis const loaded = analyzeLoad("Strada.VisualScript");
 	for (VisualScriptDiagnostic const& diagnostic : loaded.Diagnostics)
@@ -1733,9 +1739,9 @@ TEST_CASE("VisualScriptEngine: CanConnect allows exactly the links analysis acce
 			VisualScriptLink const link = MakeLink(OutputNode, from.Pin, InputNode, to.Pin);
 			document.Graph.Links.push_back(link);
 
-			Result<VisualScriptAnalysis> analyzed = VisualScriptEngine::Analyze(document);
+			Result<Ref<VisualScriptAnalysis const>> analyzed = VisualScriptEngine::Analyze(document);
 			REQUIRE_MESSAGE(analyzed.IsOk(), analyzed.GetError());
-			VisualScriptAnalysis const& analysis = analyzed.GetValue();
+			VisualScriptAnalysis const& analysis = *analyzed.GetValue();
 			bool const mismatch = std::any_of(analysis.Diagnostics.begin(), analysis.Diagnostics.end(),
 			                                  [&link](VisualScriptDiagnostic const& diagnostic)
 			                                  {
@@ -2379,9 +2385,9 @@ TEST_CASE("VisualScriptEngine: a program's references hold the graphs it reaches
 	}
 
 	// So does an analysis, which lists the graphs it read with the documents it used.
-	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(caller, self);
+	Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(caller, self);
 	REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
-	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue().Graphs;
+	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue()->Graphs;
 	REQUIRE(graphs.size() == 6);
 	CHECK(std::is_sorted(graphs.begin(), graphs.end(),
 	                     [](auto const& a, auto const& b)
@@ -2404,9 +2410,9 @@ TEST_CASE("VisualScriptEngine: a program's references hold the graphs it reaches
 
 	// Without its own handle a document cannot tell itself from the stored graph: the inner library's Send names the caller
 	// as another graph, which the references then hold.
-	Result<VisualScriptAnalysis> const anonymous = VisualScriptEngine::Analyze(caller);
+	Result<Ref<VisualScriptAnalysis const>> const anonymous = VisualScriptEngine::Analyze(caller);
 	REQUIRE(anonymous.IsOk());
-	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& anonymousGraphs = anonymous.GetValue().Graphs;
+	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& anonymousGraphs = anonymous.GetValue()->Graphs;
 	CHECK(anonymousGraphs.size() == 7);
 	CHECK(std::any_of(anonymousGraphs.begin(), anonymousGraphs.end(),
 	                  [&](auto const& entry)
@@ -2420,9 +2426,9 @@ TEST_CASE("VisualScriptEngine: a program's references hold the graphs it reaches
 	REQUIRE(VisualScriptEngine::EnsureLoaded(plain).IsOk());
 	REQUIRE(sent.GetCount() == 1);
 	CHECK(sent.GetReferences(0).empty());
-	Result<VisualScriptAnalysis> const plainAnalysis = VisualScriptEngine::Analyze(MakeCountDocument(1), plain);
+	Result<Ref<VisualScriptAnalysis const>> const plainAnalysis = VisualScriptEngine::Analyze(MakeCountDocument(1), plain);
 	REQUIRE(plainAnalysis.IsOk());
-	CHECK(plainAnalysis.GetValue().Graphs.empty());
+	CHECK(plainAnalysis.GetValue()->Graphs.empty());
 }
 
 TEST_CASE("VisualScriptEngine: a node naming the analyzed graph reads the document analyzed, which the references never hold")
@@ -2442,24 +2448,24 @@ TEST_CASE("VisualScriptEngine: a node naming the analyzed graph reads the docume
 	edited.Graph.Nodes.push_back(MakeNode(11, "Variable.Get", Json::object({{"Variable", 3}, {"Graph", graph.ToString()}})));
 	edited.Graph.Links.push_back(MakeLink(10, "Value", 11, "Target"));
 
-	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(edited, graph);
+	Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(edited, graph);
 	REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
-	CHECK_MESSAGE(CountVisualScriptErrors(analysis.GetValue().Diagnostics) == 0,
-	              DescribeVisualScriptErrors(analysis.GetValue().Diagnostics));
-	CHECK(analysis.GetValue().Graphs.empty());
-	VisualScriptAnalyzedNode const* const read = analysis.GetValue().FindNode(11);
+	CHECK_MESSAGE(CountVisualScriptErrors(analysis.GetValue()->Diagnostics) == 0,
+	              DescribeVisualScriptErrors(analysis.GetValue()->Diagnostics));
+	CHECK(analysis.GetValue()->Graphs.empty());
+	VisualScriptAnalyzedNode const* const read = analysis.GetValue()->FindNode(11);
 	REQUIRE(read != nullptr);
 	VisualScriptPin const* const value = read->FindPin("Value", VisualScriptPinDirection::Out);
 	REQUIRE(value != nullptr);
 	CHECK(value->Type == "int");
 
 	// Read as another graph's, the stored document has no such variable.
-	Result<VisualScriptAnalysis> const stale = VisualScriptEngine::Analyze(edited);
+	Result<Ref<VisualScriptAnalysis const>> const stale = VisualScriptEngine::Analyze(edited);
 	REQUIRE(stale.IsOk());
-	CHECK(CountVisualScriptErrors(stale.GetValue().Diagnostics) > 0);
-	REQUIRE(stale.GetValue().Graphs.size() == 1);
-	CHECK(stale.GetValue().Graphs[0].first == graph);
-	CHECK(stale.GetValue().Graphs[0].second == asset->GetSharedDocument());
+	CHECK(CountVisualScriptErrors(stale.GetValue()->Diagnostics) > 0);
+	REQUIRE(stale.GetValue()->Graphs.size() == 1);
+	CHECK(stale.GetValue()->Graphs[0].first == graph);
+	CHECK(stale.GetValue()->Graphs[0].second == asset->GetSharedDocument());
 
 	// The graph loaded with that document compiles too, its references naming it and holding nothing else.
 	asset->SetDocument(edited);
@@ -2477,19 +2483,19 @@ TEST_CASE("VisualScriptEngine: without assets every graph a document refers to i
 	document.Graph.Nodes.push_back(
 		MakeNode(10, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", "42"}})));
 	document.Graph.Nodes.push_back(MakeNode(11, "Function.Call", Json::object({{"Function", 1}, {"Graph", "43"}})));
-	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document, AssetHandle(UUID(41)));
+	Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(document, AssetHandle(UUID(41)));
 	REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
-	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue().Graphs;
+	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue()->Graphs;
 	REQUIRE(graphs.size() == 2);
 	CHECK(graphs[0] == std::pair<AssetHandle, Ref<VisualScriptDocument const>>{AssetHandle(UUID(42)), nullptr});
 	CHECK(graphs[1] == std::pair<AssetHandle, Ref<VisualScriptDocument const>>{AssetHandle(UUID(43)), nullptr});
 	// The call's library is absent: an Error that names why.
-	bool const named = std::any_of(analysis.GetValue().Diagnostics.begin(), analysis.GetValue().Diagnostics.end(),
+	bool const named = std::any_of(analysis.GetValue()->Diagnostics.begin(), analysis.GetValue()->Diagnostics.end(),
 	                               [](VisualScriptDiagnostic const& diagnostic)
 	                               {
 									   return diagnostic.Node == 11 && diagnostic.Message.find("there are no assets") != std::string::npos;
 								   });
-	CHECK_MESSAGE(named, DescribeVisualScriptErrors(analysis.GetValue().Diagnostics));
+	CHECK_MESSAGE(named, DescribeVisualScriptErrors(analysis.GetValue()->Diagnostics));
 }
 
 TEST_CASE("VisualScriptEngine: references hold at most 256 other graphs, and those beyond are sent as absent")
@@ -2508,9 +2514,9 @@ TEST_CASE("VisualScriptEngine: references hold at most 256 other graphs, and tho
 	AssetHandle const graph = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(document), "Crowd");
 
 	// The analysis lists the graphs it looked up, not those beyond.
-	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document, graph);
+	Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(document, graph);
 	REQUIRE(analysis.IsOk());
-	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue().Graphs;
+	std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> const& graphs = analysis.GetValue()->Graphs;
 	REQUIRE(graphs.size() == VisualScriptEngine::MaxReferencedGraphs);
 	CHECK(graphs.front().first == AssetHandle(UUID(5000ull)));
 	CHECK(graphs.back().first == AssetHandle(UUID(5000ull + VisualScriptEngine::MaxReferencedGraphs - 1)));
@@ -2861,9 +2867,18 @@ TEST_CASE("VisualScriptEngine: a library edited while playing sends its 20 depen
 	SentDocuments sent;
 	VisualScriptDocument const edited = MakeLibraryDocument(5);
 	libraryAsset->SetDocument(edited);
+	static_cast<void>(VisualScriptEngine::TakeLoadTimings());
 	std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
 	scene.OnUpdateRuntime(Timestep(1.0f / 60.0f));
 	double const milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+	// The update's loads, summed (spec-slice4 section 9.0): the texts and the runtime take measurable time (the references and
+	// the diagnostics "[]" can take less than the clock's resolution), and together they are within the update.
+	VisualScriptLoadTimings const loads = VisualScriptEngine::TakeLoadTimings();
+	CHECK(loads.Text > 0.0);
+	CHECK(loads.References >= 0.0);
+	CHECK(loads.Runtime > 0.0);
+	CHECK(loads.Diagnostics >= 0.0);
+	CHECK(loads.Text + loads.References + loads.Runtime + loads.Diagnostics <= milliseconds);
 	REQUIRE(sent.GetCount() == Dependents);
 	std::set<std::string> received;
 	std::set<std::string> expected;
@@ -2887,7 +2902,9 @@ TEST_CASE("VisualScriptEngine: a library edited while playing sends its 20 depen
 	CHECK(host.Exceptions == 0);
 	scene.OnRuntimeStop();
 
-	MESSAGE("the update that sends " << Dependents << " dependents of 200 nodes again after a library edit: " << milliseconds << " ms");
+	MESSAGE("the update that sends " << Dependents << " dependents of 200 nodes again after a library edit: " << milliseconds
+	                                 << " ms; its loads (ms): Text " << loads.Text << ", References " << loads.References << ", Runtime "
+	                                 << loads.Runtime << ", Diagnostics " << loads.Diagnostics);
 	std::optional<std::string> const performance = Platform::ReadEnvironmentVariable("STRADA_PERFORMANCE_TESTS");
 	if (performance.has_value() && *performance == "1")
 	{
@@ -3416,16 +3433,16 @@ TEST_CASE("VisualScriptEngine: the projects' scene graphs and the libraries they
 		{
 			CAPTURE(graph.Path);
 			// Analyzed as the graph itself, which its nodes may name, with the other graphs read from the copy.
-			Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(graph.Document, graph.Handle);
+			Result<Ref<VisualScriptAnalysis const>> analysis = VisualScriptEngine::Analyze(graph.Document, graph.Handle);
 			REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
-			for (VisualScriptDiagnostic const& diagnostic : analysis.GetValue().Diagnostics)
+			for (VisualScriptDiagnostic const& diagnostic : analysis.GetValue()->Diagnostics)
 			{
 				CAPTURE(diagnostic.Code);
 				CAPTURE(diagnostic.Message);
 				CHECK(diagnostic.Severity == VisualScriptSeverity::Warning);
 			}
 			// A node resolved any other way would be an API change without a redirect.
-			for (VisualScriptAnalyzedNode const& node : analysis.GetValue().Nodes)
+			for (VisualScriptAnalyzedNode const& node : analysis.GetValue()->Nodes)
 			{
 				CAPTURE(node.Type);
 				CHECK((node.Resolved == VisualScriptResolution::Exact || node.Resolved == VisualScriptResolution::Redirect));
@@ -3509,4 +3526,455 @@ TEST_CASE("VisualScriptEngine: the feature-test graphs use every built-in node k
 	CHECK_MESSAGE(missing.empty(), described);
 	// The feature-test scripts mark members of each form ([VisualNode] on a class, a struct and members of a script).
 	CHECK(gameNodes > 0);
+}
+
+namespace
+{
+	double MedianOf(std::vector<double> values)
+	{
+		REQUIRE_FALSE(values.empty());
+		std::sort(values.begin(), values.end());
+		return values[values.size() / 2];
+	}
+
+	// The document with its event graph's first node gone (with its links) and a Branch added under a new ID: an edit that
+	// shifts every later node's place in the analysis.
+	VisualScriptDocument EditOneNode(VisualScriptDocument document)
+	{
+		uint32_t next = 1;
+		auto const takeIDs = [&next](VisualScriptGraph const& graph)
+		{
+			for (VisualScriptNode const& node : graph.Nodes)
+			{
+				next = std::max(next, node.ID + 1);
+			}
+			for (VisualScriptComment const& comment : graph.Comments)
+			{
+				next = std::max(next, comment.ID + 1);
+			}
+		};
+		takeIDs(document.Graph);
+		for (VisualScriptFunction const& function : document.Functions)
+		{
+			takeIDs(function.Graph);
+		}
+		if (!document.Graph.Nodes.empty())
+		{
+			uint32_t const removed = document.Graph.Nodes.front().ID;
+			document.Graph.Nodes.erase(document.Graph.Nodes.begin());
+			std::erase_if(document.Graph.Links,
+			              [removed](VisualScriptLink const& link)
+			              {
+							  return link.From.Node == removed || link.To.Node == removed;
+						  });
+		}
+		document.Graph.Nodes.push_back(MakeNode(next, "Flow.Branch"));
+		return document;
+	}
+
+	// Parse(text, previous) against Parse(text), with the reader's counts.
+	VisualScriptAnalysisTimings CheckReadWithPrevious(std::string const& text, VisualScriptAnalysis const* previous)
+	{
+		VisualScriptAnalysisTimings timings;
+		Result<VisualScriptAnalysis> const read = VisualScriptAnalysis::Parse(text, previous, &timings);
+		Result<VisualScriptAnalysis> const alone = VisualScriptAnalysis::Parse(text);
+		Testing::CheckSameAnalysisRead(read, alone);
+		if (read)
+		{
+			CHECK(timings.ReusedNodes + timings.ParsedNodes == read.GetValue().Nodes.size());
+			CHECK(timings.ReusedDiagnostics + timings.ParsedDiagnostics == read.GetValue().Diagnostics.size());
+		}
+		if (previous == nullptr)
+		{
+			CHECK(timings.ReusedNodes == 0);
+			CHECK(timings.ReusedDiagnostics == 0);
+		}
+		return timings;
+	}
+
+	// The texts of an analysis, damaged in each way the reader must refuse as reading it whole does, or read whole.
+	std::vector<std::string> DamageAnalysisText(std::string const& text)
+	{
+		REQUIRE(text.size() > 16);
+		REQUIRE(text.front() == '{');
+		REQUIRE(text.back() == '}');
+		std::vector<std::string> damaged;
+		// Truncations, everywhere.
+		size_t const step = std::max<size_t>(1, text.size() / 97);
+		for (size_t length = 0; length < text.size(); length += step)
+		{
+			damaged.push_back(text.substr(0, length));
+		}
+		damaged.push_back(text.substr(0, text.size() - 1));
+		std::string const body = text.substr(0, text.size() - 1);
+		// A duplicate top-level key and extra members, which reading whole takes or refuses as nlohmann reads them.
+		damaged.push_back(body + R"(,"Nodes":[])");
+		damaged.push_back(body + R"(,"Diagnostics":{})");
+		damaged.push_back(body + R"(,"Extra":[1,2])");
+		damaged.push_back(R"({"Extra":0,)" + text.substr(1));
+		// Keys written with escapes, and a byte order mark before the text and before an element.
+		damaged.push_back(R"({"Nod\u0065s")" + text.substr(text.find(':')));
+		damaged.push_back("\xEF\xBB\xBF" + text);
+		if (size_t const nodes = text.find("\"Nodes\":["); nodes != std::string::npos)
+		{
+			size_t const element = nodes + 9;
+			damaged.push_back(text.substr(0, element) + "\xEF\xBB\xBF" + text.substr(element));
+			// A damaged element: the first node's ID negative, and invalid UTF-8 in its strings.
+			if (size_t const id = text.find("\"ID\":", element); id != std::string::npos)
+			{
+				damaged.push_back(text.substr(0, id + 5) + "-" + text.substr(id + 5));
+			}
+			if (size_t const title = text.find("\"Title\":\"", element); title != std::string::npos)
+			{
+				damaged.push_back(text.substr(0, title + 9) + "\xFF\xFE" + text.substr(title + 9));
+				damaged.push_back(text.substr(0, title + 9) + "\xC3" + text.substr(title + 9));
+			}
+			// A node whose pin's default nests within ParseJson's limit alone, though past it within the text (the text opens 5
+			// brackets around the default's first: the object, Nodes, the node, Pins and the pin), and one within it either way.
+			for (size_t const depth : {MaxJsonDepth - 4, MaxJsonDepth - 5})
+			{
+				damaged.push_back(text.substr(0, element) +
+				                  R"({"ID":1,"Function":0,"Type":"Deep","Resolved":"Unknown","Title":"Deep","Kind":"Unknown","Pure":false,)"
+				                  R"("Latent":false,"Pins":[{"Name":"Value","Direction":"In","Type":"int","Default":)" +
+				                  std::string(depth, '[') + std::string(depth, ']') + "}]}," + text.substr(element));
+			}
+		}
+		// Not of the form.
+		damaged.push_back("[" + text + "]");
+		damaged.push_back(R"({"Nodes":{},"Diagnostics":[]})");
+		damaged.push_back(R"({"Nodes":[],"Diagnostics":7})");
+		damaged.push_back(R"({"Diagnostics":[],"Nodes":[]})");
+		damaged.push_back(R"({"Nodes":[1],"Diagnostics":[]})");
+		damaged.push_back(R"({"Nodes":[],"Diagnostics":[{}]})");
+		return damaged;
+	}
+}
+
+TEST_CASE("VisualScriptLibrary: an analysis read with a previous one equals the analysis read alone and copies the records it has")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	std::vector<Ref<VisualScriptAnalysis const>> analyses;
+	std::vector<Ref<VisualScriptAnalysis const>> edits;
+	for (std::string_view const name : Testing::SharedVisualScriptFixtures)
+	{
+		CAPTURE(name);
+		VisualScriptDocument const document = ReadFixture(name);
+		Result<Ref<VisualScriptAnalysis const>> analysis = VisualScriptEngine::Analyze(document);
+		REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+		Result<Ref<VisualScriptAnalysis const>> edited = VisualScriptEngine::Analyze(EditOneNode(document));
+		REQUIRE_MESSAGE(edited.IsOk(), (edited ? std::string() : edited.GetError()));
+		analyses.push_back(analysis.TakeValue());
+		edits.push_back(edited.TakeValue());
+	}
+	// An analysis built by hand, with nodes and no spans: nothing of it is reused.
+	VisualScriptAnalysis byHand;
+	byHand.Nodes = analyses.front()->Nodes;
+	byHand.Diagnostics = analyses.front()->Diagnostics;
+	byHand.Text = analyses.front()->Text;
+
+	for (size_t index = 0; index < analyses.size(); index++)
+	{
+		CAPTURE(Testing::SharedVisualScriptFixtures[index]);
+		VisualScriptAnalysis const& analysis = *analyses[index];
+		VisualScriptAnalysis const& edited = *edits[index];
+		VisualScriptAnalysis const& unrelated = *analyses[(index + 1) % analyses.size()];
+		REQUIRE(analysis.NodeSpans.size() == analysis.Nodes.size());
+		REQUIRE(analysis.DiagnosticSpans.size() == analysis.Diagnostics.size());
+		REQUIRE(analysis.NodeIndex.size() == analysis.Nodes.size());
+
+		// With the analysis of the same text, every record is copied.
+		VisualScriptAnalysisTimings const same = CheckReadWithPrevious(analysis.Text, &analysis);
+		CHECK(same.ParsedNodes == 0);
+		CHECK(same.ParsedDiagnostics == 0);
+		CHECK(same.ReusedNodes == analysis.Nodes.size());
+
+		// One edit away, either way: the records that kept their bytes are copied, wherever they moved to.
+		VisualScriptAnalysisTimings const forward = CheckReadWithPrevious(edited.Text, &analysis);
+		VisualScriptAnalysisTimings const back = CheckReadWithPrevious(analysis.Text, &edited);
+		if (analysis.Nodes.size() > 3)
+		{
+			CHECK(forward.ReusedNodes > 0);
+			CHECK(back.ReusedNodes > 0);
+		}
+		CHECK(forward.ParsedNodes < edited.Nodes.size());
+
+		// An unrelated analysis, none, and one built by hand.
+		CheckReadWithPrevious(analysis.Text, &unrelated);
+		CheckReadWithPrevious(analysis.Text, nullptr);
+		VisualScriptAnalysisTimings const handBuilt = CheckReadWithPrevious(analysis.Text, &byHand);
+		CHECK(handBuilt.ReusedNodes == 0);
+		CHECK(handBuilt.ReusedDiagnostics == 0);
+
+		// Read as nlohmann writes it, indented: no element keeps its bytes, and the reading is still the same.
+		Result<Json> const json = ParseJson(analysis.Text);
+		REQUIRE(json.IsOk());
+		VisualScriptAnalysisTimings const indented = CheckReadWithPrevious(DumpJson(json.GetValue()), &analysis);
+		if (!analysis.Nodes.empty())
+		{
+			CHECK(indented.ReusedNodes == 0);
+		}
+	}
+}
+
+TEST_CASE("VisualScriptLibrary: a damaged analysis is refused, or read whole, with the very error or reading it gets alone")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	Result<Ref<VisualScriptAnalysis const>> analyzed = VisualScriptEngine::Analyze(ReadFixture("Editor.json"));
+	REQUIRE_MESSAGE(analyzed.IsOk(), (analyzed ? std::string() : analyzed.GetError()));
+	VisualScriptAnalysis const& previous = *analyzed.GetValue();
+	REQUIRE_FALSE(previous.Diagnostics.empty());
+	size_t refused = 0;
+	size_t readWhole = 0;
+	for (std::string const& text : DamageAnalysisText(previous.Text))
+	{
+		CAPTURE(text.substr(0, 120));
+		CheckReadWithPrevious(text, &previous);
+		Result<VisualScriptAnalysis> const read = VisualScriptAnalysis::Parse(text, &previous);
+		if (read.IsError())
+		{
+			refused++;
+		}
+		else if (read.GetValue().NodeSpans.empty() && !read.GetValue().Nodes.empty())
+		{
+			// Of a form the scan does not take (extra members, escaped keys, a byte order mark), read from the whole DOM.
+			readWhole++;
+		}
+	}
+	CHECK(refused > 97);
+	CHECK(readWhole >= 3);
+
+	// ParseJson's nesting limit holds for the whole text: a node whose parts all read alone is refused when the text nests past
+	// it, with and without the previous analysis.
+	auto const deepText = [](size_t depth)
+	{
+		return R"({"Nodes":[{"ID":1,"Function":0,"Type":"Deep","Resolved":"Unknown","Title":"Deep","Kind":"Unknown","Pure":false,)"
+		       R"("Latent":false,"Pins":[{"Name":"Value","Direction":"In","Type":"int","Default":)" +
+		       std::string(depth, '[') + std::string(depth, ']') + R"(}]}],"Diagnostics":[]})";
+	};
+	Result<VisualScriptAnalysis> const within = VisualScriptAnalysis::Parse(deepText(MaxJsonDepth - 5));
+	REQUIRE_MESSAGE(within.IsOk(), (within ? std::string() : within.GetError()));
+	Result<VisualScriptAnalysis> const withinAgain = VisualScriptAnalysis::Parse(deepText(MaxJsonDepth - 5), &within.GetValue());
+	Testing::CheckSameAnalysisRead(withinAgain, within);
+	for (VisualScriptAnalysis const* const candidate : {&within.GetValue(), &previous, static_cast<VisualScriptAnalysis const*>(nullptr)})
+	{
+		Result<VisualScriptAnalysis> const past = VisualScriptAnalysis::Parse(deepText(MaxJsonDepth - 4), candidate);
+		REQUIRE(past.IsError());
+		CHECK(past.GetError() == fmt::format("invalid JSON: values are nested deeper than {} levels", MaxJsonDepth));
+	}
+
+	// The errors name what reading whole names.
+	struct Case
+	{
+		std::string Text;
+		std::string_view Error;
+	};
+	std::vector<Case> const cases = {
+		{R"({"Nodes":{},"Diagnostics":[]})", "Nodes: expected an array"},
+		{R"({"Nodes":[],"Diagnostics":7})", "Diagnostics: expected an array"},
+		{R"({"Nodes":[1],"Diagnostics":[]})", "Nodes[0]: expected an object"},
+		{R"({"Nodes":[],"Diagnostics":[{"Severity":"Fatal","Code":"X","Function":0,"Message":""}]})",
+	     "Diagnostics[0].Severity: expected one of Error, Warning"},
+	};
+	for (Case const& refusal : cases)
+	{
+		CAPTURE(refusal.Text);
+		Result<VisualScriptAnalysis> const read = VisualScriptAnalysis::Parse(refusal.Text, &previous);
+		REQUIRE(read.IsError());
+		CHECK(read.GetError() == refusal.Error);
+	}
+}
+
+TEST_CASE("VisualScript: an analysis built by hand finds its nodes")
+{
+	// Production code and tests fill Nodes directly, without an index: FindNode scans them.
+	VisualScriptAnalysis analysis;
+	for (uint32_t const id : {7u, 3u, 9u, 3u})
+	{
+		VisualScriptAnalyzedNode& node = analysis.Nodes.emplace_back();
+		node.ID = id;
+		node.Title = fmt::format("Node {} at {}", id, analysis.Nodes.size() - 1);
+	}
+	auto const check = [&analysis]()
+	{
+		for (uint32_t const id : {7u, 9u})
+		{
+			VisualScriptAnalyzedNode const* const found = analysis.FindNode(id);
+			REQUIRE(found != nullptr);
+			CHECK(found->ID == id);
+		}
+		// A repeated ID finds its first node, as the scan does.
+		REQUIRE(analysis.FindNode(3) != nullptr);
+		CHECK(analysis.FindNode(3)->Title == "Node 3 at 1");
+		CHECK(analysis.FindNode(1) == nullptr);
+		CHECK(analysis.FindNode(10) == nullptr);
+	};
+	CHECK(analysis.NodeIndex.empty());
+	check();
+
+	// With the index built, the same answers by binary search.
+	analysis.BuildNodeIndex();
+	CHECK(analysis.NodeIndex == std::vector<std::pair<uint32_t, uint32_t>>{{3, 1}, {3, 3}, {7, 0}, {9, 2}});
+	check();
+
+	// A node added after it leaves the index shorter than Nodes: FindNode scans again, and finds the new one.
+	analysis.Nodes.emplace_back().ID = 12;
+	REQUIRE(analysis.FindNode(12) != nullptr);
+	check();
+	analysis.BuildNodeIndex();
+	CHECK(analysis.FindNode(12) == &analysis.Nodes.back());
+}
+
+TEST_CASE("VisualScriptLibrary: a parsed analysis finds its nodes by binary search of an index of every node")
+{
+	Result<VisualScriptAnalysis> const parsed = VisualScriptAnalysis::Parse(
+		R"({"Nodes":[{"ID":40,"Function":0,"Type":"A","Resolved":"Unknown","Title":"first","Kind":"Unknown","Pure":false,"Latent":false,)"
+		R"("Pins":[]},{"ID":2,"Function":1,"Type":"B","Resolved":"Unknown","Title":"second","Kind":"Unknown","Pure":false,"Latent":false,)"
+		R"("Pins":[]},{"ID":40,"Function":0,"Type":"C","Resolved":"Unknown","Title":"repeated","Kind":"Unknown","Pure":false,)"
+		R"("Latent":false,"Pins":[]}],"Diagnostics":[]})");
+	REQUIRE_MESSAGE(parsed.IsOk(), (parsed ? std::string() : parsed.GetError()));
+	VisualScriptAnalysis const& analysis = parsed.GetValue();
+	CHECK(analysis.NodeIndex == std::vector<std::pair<uint32_t, uint32_t>>{{2, 1}, {40, 0}, {40, 2}});
+	REQUIRE(analysis.FindNode(2) != nullptr);
+	CHECK(analysis.FindNode(2)->Title == "second");
+	REQUIRE(analysis.FindNode(40) != nullptr);
+	CHECK(analysis.FindNode(40)->Title == "first");
+	CHECK(analysis.FindNode(0) == nullptr);
+	CHECK(analysis.FindNode(41) == nullptr);
+	CHECK(analysis.NodeSpans.size() == 3);
+}
+
+TEST_CASE("VisualScriptEngine: Analyze reports its phases and reads a graph's analysis with the one it kept of that graph")
+{
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	VisualScriptDocument const document = ReadFixture("Language.json");
+	AssetHandle const graph(UUID(90001));
+	CHECK(VisualScriptEngine::GetLastAnalysisTimings().ParsedNodes == 0);
+	Result<Ref<VisualScriptAnalysis const>> const first = VisualScriptEngine::Analyze(document, graph);
+	REQUIRE_MESSAGE(first.IsOk(), (first ? std::string() : first.GetError()));
+	size_t const nodes = first.GetValue()->Nodes.size();
+	REQUIRE(nodes > 0);
+	VisualScriptAnalysisTimings const read = VisualScriptEngine::GetLastAnalysisTimings();
+	CHECK(read.Text > 0.0);
+	CHECK(read.References >= 0.0);
+	CHECK(read.Runtime > 0.0);
+	CHECK(read.Parse > 0.0);
+	CHECK(read.Read > 0.0);
+	CHECK(read.ParsedNodes == nodes);
+	CHECK(read.ReusedNodes == 0);
+
+	// Analyzed again, the graph's analysis is read with the one kept: every record is copied.
+	Result<Ref<VisualScriptAnalysis const>> const again = VisualScriptEngine::Analyze(document, graph);
+	REQUIRE(again.IsOk());
+	CHECK(again.GetValue() != first.GetValue());
+	CHECK(VisualScriptEngine::GetLastAnalysisTimings().ReusedNodes == nodes);
+	CHECK(VisualScriptEngine::GetLastAnalysisTimings().ParsedNodes == 0);
+	Testing::CheckSameAnalysisRead(VisualScriptAnalysis::Parse(again.GetValue()->Text),
+	                               VisualScriptAnalysis::Parse(first.GetValue()->Text));
+
+	// One analysis is kept per graph, for the MaxKeptAnalyses graphs analyzed last: a ninth graph drops the least recent.
+	for (uint64_t other = 1; other <= VisualScriptEngine::MaxKeptAnalyses; other++)
+	{
+		REQUIRE(VisualScriptEngine::Analyze(document, AssetHandle(UUID(90001 + other))).IsOk());
+		CHECK(VisualScriptEngine::GetLastAnalysisTimings().ReusedNodes == 0);
+	}
+	REQUIRE(VisualScriptEngine::Analyze(document, graph).IsOk());
+	CHECK(VisualScriptEngine::GetLastAnalysisTimings().ReusedNodes == 0);
+	// That dropped the next least recent, and kept the others.
+	REQUIRE(VisualScriptEngine::Analyze(document, AssetHandle(UUID(90002))).IsOk());
+	CHECK(VisualScriptEngine::GetLastAnalysisTimings().ReusedNodes == 0);
+	REQUIRE(VisualScriptEngine::Analyze(document, AssetHandle(UUID(90004))).IsOk());
+	CHECK(VisualScriptEngine::GetLastAnalysisTimings().ReusedNodes == nodes);
+}
+
+TEST_CASE("VisualScript: the grid graph of the performance guards is pinned by Benchmarks/Grid-4x5.json")
+{
+	// spec-slice4 section 9.0: the C++ generator and the scripting runtime's C# port are held to the same file.
+	std::filesystem::path const path = FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Benchmarks" / "Grid-4x5.json";
+	std::string const written = VisualScriptSerializer::WriteContentText(Testing::MakeGridGraph(4, 5, 2, 1));
+	if (Platform::ReadEnvironmentVariable("STRADA_UPDATE_GOLDEN").value_or("") == "1")
+	{
+		REQUIRE(FileSystem::WriteTextFile(path, written).IsOk());
+		MESSAGE("Updated " << FileSystem::PathToUtf8(path));
+		return;
+	}
+	Result<std::string> const pinned = FileSystem::ReadTextFile(path);
+	REQUIRE_MESSAGE(pinned.IsOk(), "Missing fixture (run with STRADA_UPDATE_GOLDEN=1): " << FileSystem::PathToUtf8(path));
+	CHECK(written == pinned.GetValue());
+	// It loads as automation loads documents, to the generator's document.
+	Result<Json> const json = ParseJson(pinned.GetValue());
+	REQUIRE(json.IsOk());
+	std::vector<VisualScriptIssue> issues;
+	Result<VisualScriptDocument> const document =
+		VisualScriptSerializer::DeserializeDocument(json.GetValue(), Testing::MakeStrictContext(), &issues);
+	REQUIRE_MESSAGE(document.IsOk(), (document ? std::string() : document.GetError()));
+	CHECK_MESSAGE(issues.empty(), Testing::DescribeIssues(issues));
+	CHECK(document.GetValue() == Testing::MakeGridGraph(4, 5, 2, 1));
+}
+
+TEST_CASE("VisualScriptEngine: the analysis of a 2,000-node grid after a link change parses none of its nodes again, in its time "
+          "on request")
+{
+	// spec-slice4 section 21: the read of the grid's analysis after a change of a link that changes no node (an exec link
+	// between nodes without wildcard pins) copies every node record.
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	AssetHandle const graph(UUID(91001));
+	VisualScriptDocument const grid = Testing::MakeGridGraph(40, 50, 2, 20);
+	REQUIRE(grid.Graph.Nodes.size() == 2000);
+	Result<Ref<VisualScriptAnalysis const>> const first = VisualScriptEngine::Analyze(grid, graph);
+	REQUIRE_MESSAGE(first.IsOk(), (first ? std::string() : first.GetError()));
+	VisualScriptAnalysis const& analysis = *first.GetValue();
+	REQUIRE(analysis.Nodes.size() == 2000);
+
+	// A link from a Delay's Completed to a Branch's Execute: neither node has a wildcard, and no diagnostic names the link.
+	auto const isWildcardFree = [&analysis](uint32_t node)
+	{
+		VisualScriptAnalyzedNode const* const analyzed = analysis.FindNode(node);
+		REQUIRE(analyzed != nullptr);
+		return analyzed->Type == "Flow.Delay" || analyzed->Type == "Flow.Branch";
+	};
+	auto const link = std::find_if(grid.Graph.Links.begin(), grid.Graph.Links.end(),
+	                               [&analysis, &isWildcardFree](VisualScriptLink const& candidate)
+	                               {
+									   bool const named = std::any_of(analysis.Diagnostics.begin(), analysis.Diagnostics.end(),
+		                                                              [&candidate](VisualScriptDiagnostic const& diagnostic)
+		                                                              {
+																		  return diagnostic.Link == candidate;
+																	  });
+									   return candidate.From.Pin == "Completed" && candidate.To.Pin == "Execute" &&
+		                                      isWildcardFree(candidate.From.Node) && isWildcardFree(candidate.To.Node) && !named;
+								   });
+	REQUIRE(link != grid.Graph.Links.end());
+	VisualScriptDocument unlinked = grid;
+	unlinked.Graph.Links.erase(unlinked.Graph.Links.begin() + (link - grid.Graph.Links.begin()));
+
+	std::vector<double> reads;
+	bool const performance = Platform::ReadEnvironmentVariable("STRADA_PERFORMANCE_TESTS").value_or("") == "1";
+	for (int round = 0, rounds = performance ? 7 : 1; round < rounds; round++)
+	{
+		for (VisualScriptDocument const* const document : std::array<VisualScriptDocument const*, 2>{&unlinked, &grid})
+		{
+			REQUIRE(VisualScriptEngine::Analyze(*document, graph).IsOk());
+			VisualScriptAnalysisTimings const timings = VisualScriptEngine::GetLastAnalysisTimings();
+			CHECK(timings.ParsedNodes == 0);
+			CHECK(timings.ReusedNodes == 2000);
+			CHECK(timings.ParsedDiagnostics == 0);
+			reads.push_back(timings.Parse + timings.Read);
+		}
+	}
+	MESSAGE("the analysis read of a 2,000-node grid after a link change: median " << MedianOf(reads) << " ms (Parse + Read)");
+	if (performance)
+	{
+		// Three times the figure track I measured (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51; median of 14 reads):
+		// reading the whole text took 2148 ms in Debug and 43.6 ms in Release before.
+#if defined(ST_DEBUG)
+		constexpr double MeasuredMilliseconds = 28.0;
+#else
+		constexpr double MeasuredMilliseconds = 3.2;
+#endif
+		CHECK(MedianOf(reads) <= 3.0 * MeasuredMilliseconds);
+	}
 }

@@ -7,6 +7,7 @@
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <doctest/doctest.h>
@@ -44,6 +45,28 @@ namespace Strada::Testing
 			described += (described.empty() ? "" : "; ") + issue.Path + ": " + issue.Message;
 		}
 		return described;
+	}
+
+	// Whether two readings of one analysis text are the same reading (spec-slice4 section 9.1's oracle): both refused with one
+	// error, or both read to equal records, texts, spans and node indices. Parse leaves Graphs empty.
+	inline void CheckSameAnalysisRead(Result<VisualScriptAnalysis> const& read, Result<VisualScriptAnalysis> const& alone)
+	{
+		REQUIRE(read.IsOk() == alone.IsOk());
+		if (!alone)
+		{
+			CHECK(read.GetError() == alone.GetError());
+			return;
+		}
+		VisualScriptAnalysis const& first = read.GetValue();
+		VisualScriptAnalysis const& second = alone.GetValue();
+		CHECK(first.Text == second.Text);
+		CHECK(first.NodeSpans == second.NodeSpans);
+		CHECK(first.DiagnosticSpans == second.DiagnosticSpans);
+		CHECK(first.NodeIndex == second.NodeIndex);
+		CHECK(first.Nodes == second.Nodes);
+		CHECK(first.Diagnostics == second.Diagnostics);
+		CHECK(first.Graphs.empty());
+		CHECK(second.Graphs.empty());
 	}
 
 	// A graph of a project's run set: one its scenes' VisualScript components attach, or a function library such a graph

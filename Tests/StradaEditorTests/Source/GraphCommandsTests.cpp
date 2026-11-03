@@ -2412,10 +2412,10 @@ TEST_CASE("GraphCommands: graph.arrange measures nodes from the runtime's analys
 
 	Ref<VisualScriptLibrary const> const library = VisualScriptEngine::GetLibrary();
 	REQUIRE(library != nullptr);
-	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(stored);
+	Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(stored);
 	REQUIRE(analysis.IsOk());
 	VisualScriptHeadlessCanvas canvas;
-	canvas.Sync(stored, 0, &analysis.GetValue(), &stored, library.get());
+	canvas.Sync(stored, 0, analysis.GetValue().get(), &stored, library.get());
 	VisualScriptDocument expected = stored;
 	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
 	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));

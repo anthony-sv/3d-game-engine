@@ -872,15 +872,18 @@ namespace Strada
 			// keeps drawing meanwhile.
 			return;
 		}
-		Result<VisualScriptAnalysis> analysis = semantics.Analyze(*drawn, m_Graph);
+		Result<Ref<VisualScriptAnalysis const>> analysis = semantics.Analyze(*drawn, m_Graph);
 		m_AnalysisCount++;
 		m_HasAnalyzed = true;
 		m_LastAnalysisTime = time;
 		m_AnalysisPending = false;
 		m_OtherGraphsChanged = false;
+		VisualScriptAnalysisTimings const timings = semantics.GetLastAnalysisTimings();
+		m_SyncTimings.AnalysisRuntime += timings.Runtime;
+		m_SyncTimings.AnalysisParse += timings.Parse + timings.Read;
 		if (analysis)
 		{
-			m_Analysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
+			m_Analysis = analysis.TakeValue();
 			m_AnalyzedDocument = drawn;
 			m_AnalyzedLibrary = m_Library;
 			m_AnalysisStale = false;

@@ -22,6 +22,7 @@ except the migration fixtures; the content form has no version.
 | `Documents/Reflected.json` | content | The reflected nodes of spec section 11.1 (math, logging, transform, rigid body, `GetComponent<T>`, raycast, input, time, entity, testing). Built-in events, branches and an IsValid drive and guard them. |
 | `Documents/Reflected.sources.txt` | text | For each reflected node type, the C# declaration its type string and pins come from, and the enumerators the fixtures use. |
 | `Agents/Spinner.json` | `graph.edit` parameters | The batch the documentation, the `strada-make-game` skill and the MCP instructions teach agents with: on a graph made from the `Events` template (node 2 is its `Event.Update`), two variables, eight nodes (two `Expression`s and the setter of `TransformComponent.EulerAngles` among them), eight links and an `Arrange` of the whole graph, as one undo step. Kept verbatim: the documentation test holds the docs' copies to it. |
+| `Benchmarks/Grid-4x5.json` | content, compact (`VisualScriptSerializer::WriteContentText`, one line) | The grid graph of the performance guards at its smallest: `Testing::MakeGridGraph(4, 5, 2, 1)` (`Tests/StradaTests/Source/Script/VisualScriptGridGraph.h`), 20 nodes of five kinds in turn (Branch, Log Info, Add, Delay, Add Force) with their literals, two links per node to the next column, and one comment box. It pins the C++ generator and its C# port (`GridDocuments.Make`) to one document. |
 | `Formulas.json` | formula corpus (`[{ "Formula": ..., "Inputs": [...] }]`, one entry per line) | The input rule of formulas (spec-slice3 section 3.3.1): every formula of ScriptCoreTests' `ExpressionTests` rows and 500 drawn by `ExpressionFuzzTests`' generator from a fixed seed (the last 100 damaged), each with the input pins the VM's analysis gives its Expression node, in order, whether the formula reads or not. The rows include a name over 64 bytes (no input) and a formula over 4096 bytes that names identifiers (no inputs at all). |
 | `Editor/Library.json` | node library (`{ "Types": [...], "Nodes": [...] }`) | A verbatim subset of the scripting runtime's node library (see below), which the editor's tests read with `VisualScriptLibrary::Parse` where they need a library but no runtime. |
 | `Editor/Views.json` | file (`VisualScriptViews`, version 1) | The visual script editor's per-user views file with every member: the panes and toggles, the scroll mode, recent nodes and types, the comment colour, the hints seen, and two projects with open graphs, views of the event graph and of a function, and bookmarks. Its numbers are exact as floats. |
@@ -73,6 +74,12 @@ except the migration fixtures; the content form has no version.
 - **Slice 3, track G** (StradaEditorTests, `GraphCommandsTests` under the scripting runtime): `Agents/Spinner.json` is
   sent as it is to `graph.edit` on a graph made from the `Events` template; it writes one undo step without an Error, in
   three analyses.
+
+- **Slice 4, track I** (StradaTests, `VisualScriptEngineTests`): `Benchmarks/Grid-4x5.json` equals the text
+  `WriteContentText` writes for `MakeGridGraph(4, 5, 2, 1)` byte for byte, and loads strictly to that document; on a
+  deliberate change of the generator, `STRADA_UPDATE_GOLDEN=1` writes it again. The analyses of the shared documents seed
+  the cases of `VisualScriptAnalysis::Parse` with a previous analysis, and those of `Documents/Editor.json`,
+  `Documents/Language.json` and the FeatureTest format sample seed `VisualScriptFuzzTests`' case of the same reading.
 
 A fixture that contradicts the spec is corrected by the track that finds it, which records the change under "Spec
 deviations".

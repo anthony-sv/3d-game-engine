@@ -875,20 +875,20 @@ namespace Strada
 			return error;
 		}
 
-		// The scripting runtime's analysis of a document; none without the runtime, or when the runtime fails (logged). self is
+		// The scripting runtime's analysis of a document; null without the runtime, or when the runtime fails (logged). self is
 		// the visual script the document is of (invalid: none): its nodes' Graph settings that name it read the document itself
 		// rather than the stored asset, as the graph window's analysis does. No default: each caller says which graph it is.
-		std::optional<VisualScriptAnalysis> AnalyzeGraph(VisualScriptDocument const& document, AssetHandle self)
+		Ref<VisualScriptAnalysis const> AnalyzeGraph(VisualScriptDocument const& document, AssetHandle self)
 		{
 			if (!ScriptEngine::IsInitialized())
 			{
-				return std::nullopt;
+				return nullptr;
 			}
-			Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(document, self);
+			Result<Ref<VisualScriptAnalysis const>> analysis = VisualScriptEngine::Analyze(document, self);
 			if (!analysis)
 			{
 				ST_WARN("The visual script is not analyzed: {}", analysis.GetError());
-				return std::nullopt;
+				return nullptr;
 			}
 			return analysis.TakeValue();
 		}
@@ -1359,14 +1359,22 @@ namespace Strada
 			return elements;
 		}
 
+		// The runtime's JSON of an analysis, { "Nodes": [...], "Diagnostics": [...] }, read from its Text; an empty object for an
+		// analysis built by hand, which has none.
+		Json ReadAnalysisSource(VisualScriptAnalysis const& analysis)
+		{
+			Result<Json> parsed = ParseJson(analysis.Text);
+			return parsed && parsed.GetValue().is_object() ? parsed.TakeValue() : Json::object();
+		}
+
 		// The analysis in a result: the runtime's nodes and diagnostics.
 		void AddAnalysis(Json& result, VisualScriptAnalysis const& analysis)
 		{
-			Json const& source = analysis.Source;
+			Json source = ReadAnalysisSource(analysis);
 			auto const nodes = source.find("Nodes");
 			auto const diagnostics = source.find("Diagnostics");
-			result["nodes"] = nodes != source.end() ? *nodes : Json::array();
-			result["diagnostics"] = diagnostics != source.end() ? *diagnostics : Json::array();
+			result["nodes"] = nodes != source.end() ? std::move(*nodes) : Json::array();
+			result["diagnostics"] = diagnostics != source.end() ? std::move(*diagnostics) : Json::array();
 		}
 
 		// Whether two diagnostics are one finding at one place: the same severity, code and place (graph.edit's New and
@@ -1481,7 +1489,7 @@ namespace Strada
 		struct PreparedDocument
 		{
 			std::vector<std::string> Warnings;
-			std::optional<VisualScriptAnalysis> Analysis;
+			Ref<VisualScriptAnalysis const> Analysis;
 		};
 
 		PreparedDocument PrepareDocument(VisualScriptDocument& document, VisualScriptDocument const* stored, AssetHandle self)
@@ -2358,13 +2366,13 @@ namespace Strada
 									 }
 									 Ref<VisualScriptAsset> const script = asset.TakeValue();
 									 VisualScriptDocument const& document = script->GetDocument();
-									 std::optional<VisualScriptAnalysis> const analysis =
-										 GetBool(params, "analyze", true) ? AnalyzeGraph(document, graph.GetValue()) : std::nullopt;
+									 Ref<VisualScriptAnalysis const> const analysis =
+										 GetBool(params, "analyze", true) ? AnalyzeGraph(document, graph.GetValue()) : nullptr;
 									 Json described = DescribeGraph(graph.GetValue());
 									 described["document"] = VisualScriptSerializer::SerializeDocument(document);
 									 described["revision"] = GetGraphRevision(document);
 									 described["programRevision"] = GetGraphProgramRevision(document);
-									 described["analyzed"] = analysis.has_value();
+									 described["analyzed"] = analysis != nullptr;
 									 if (analysis)
 									 {
 										 AddAnalysis(described, *analysis);
@@ -2448,10 +2456,9 @@ namespace Strada
 									   }
 
 									   VisualScriptDocument const none;
-									   std::optional<VisualScriptAnalysis> analysis = AnalyzeGraph(*read.Document, handle);
-									   Result<VisualScriptCommit> prepared =
-										   PrepareVisualScriptCommit(storedDocument != nullptr ? *storedDocument : none,
-					                                                 std::move(*read.Document), analysis ? &*analysis : nullptr);
+									   Ref<VisualScriptAnalysis const> analysis = AnalyzeGraph(*read.Document, handle);
+									   Result<VisualScriptCommit> prepared = PrepareVisualScriptCommit(
+										   storedDocument != nullptr ? *storedDocument : none, std::move(*read.Document), analysis.get());
 									   if (!prepared)
 									   {
 										   // The document was valid, and preparing it keeps it valid: this is the editor's fault.
@@ -2494,7 +2501,7 @@ namespace Strada
 									   described["changed"] = changed;
 									   described["revision"] = std::move(revision);
 									   described["programRevision"] = std::move(programRevision);
-									   described["analyzed"] = analysis.has_value();
+									   described["analyzed"] = analysis != nullptr;
 									   described["warnings"] = std::move(commit.Warnings);
 									   described["summary"] = std::move(summary);
 									   described["referrers"] = std::move(referrers);
@@ -2556,7 +2563,7 @@ namespace Strada
 								  Json described = Json::object({{"valid", read.Issues.empty()},
 					                                             {"issues", DescribeIssues(read.Issues)},
 					                                             {"warnings", std::move(prepared.Warnings)},
-					                                             {"analyzed", prepared.Analysis.has_value()}});
+					                                             {"analyzed", prepared.Analysis != nullptr}});
 								  if (prepared.Analysis)
 								  {
 									  AddAnalysis(described, *prepared.Analysis);
@@ -2936,9 +2943,9 @@ namespace Strada
 				// else the pins the links and literals name. The analysis also gives the commit the nodes' canonical types, as
 				// the window's does.
 				Ref<VisualScriptLibrary const> const library = FindGraphLibrary();
-				std::optional<VisualScriptAnalysis> const analysis = library != nullptr ? AnalyzeGraph(*stored, handle) : std::nullopt;
+				Ref<VisualScriptAnalysis const> const analysis = library != nullptr ? AnalyzeGraph(*stored, handle) : nullptr;
 				VisualScriptHeadlessCanvas canvas;
-				canvas.Sync(*stored, function.GetValue(), analysis ? &*analysis : nullptr, stored.get(), library.get());
+				canvas.Sync(*stored, function.GetValue(), analysis.get(), stored.get(), library.get());
 				VisualScriptNodeExtents const measured = canvas.GetExtents();
 				VisualScriptNodeExtents const extents =
 					GetString(params, "extents", "Measured") == "Uniform"
@@ -2954,7 +2961,7 @@ namespace Strada
 				std::string const action = nodes.size() == 1 ? std::string("Arrange Node") : fmt::format("Arrange {} Nodes", nodes.size());
 				std::string const scriptName = FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem());
 				Result<VisualScriptCommitRequest> prepared =
-					MakeVisualScriptCommitRequest(*stored, std::move(arranged), analysis ? &*analysis : nullptr, action, scriptName, 0);
+					MakeVisualScriptCommitRequest(*stored, std::move(arranged), analysis.get(), action, scriptName, 0);
 				if (!prepared)
 				{
 					// The arranged document was valid, and preparing it keeps it valid: this is the editor's fault.
@@ -3019,7 +3026,7 @@ namespace Strada
 					                        asset.GetError());
 				}
 				Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
-				std::optional<VisualScriptAnalysis> const analysis = AnalyzeGraph(*document, handle);
+				Ref<VisualScriptAnalysis const> const analysis = AnalyzeGraph(*document, handle);
 
 				Json described = DescribeGraph(handle);
 				described["kind"] = std::string(VisualScriptDocumentKindToString(document->Kind));
@@ -3130,7 +3137,7 @@ namespace Strada
 				}
 				described["usedBy"] = std::move(usedBy);
 				described["skipped"] = std::move(skipped);
-				described["analyzed"] = analysis.has_value();
+				described["analyzed"] = analysis != nullptr;
 				return described;
 			}
 
@@ -3374,13 +3381,13 @@ namespace Strada
 			// The runtime's analysis of a document of the graph; null when the runtime fails (logged).
 			Ref<VisualScriptAnalysis const> AnalyzeForEdit(VisualScriptDocument const& document, AssetHandle graph)
 			{
-				Result<VisualScriptAnalysis> made = m_Semantics.Analyze(document, graph);
+				Result<Ref<VisualScriptAnalysis const>> made = m_Semantics.Analyze(document, graph);
 				if (!made)
 				{
 					ST_WARN("The visual script is not analyzed: {}", made.GetError());
 					return nullptr;
 				}
-				return CreateRef<VisualScriptAnalysis const>(made.TakeValue());
+				return made.TakeValue();
 			}
 
 			// The cached analysis of a graph's stored document: valid while the asset holds the same shared document, the runtime
@@ -3517,7 +3524,7 @@ namespace Strada
 					                        "the scripting runtime did not give");
 				}
 				// The runtime's JSON lists the diagnostics in the order they were read.
-				Json const& source = analysis->Source;
+				Json const source = ReadAnalysisSource(*analysis);
 				auto const sourceDiagnostics = source.find("Diagnostics");
 				Json found = Json::array();
 				std::string first;
@@ -4269,10 +4276,10 @@ namespace Strada
 						continue;
 					}
 					Ref<VisualScriptDocument const> const document = asset.GetValue()->GetSharedDocument();
-					std::optional<VisualScriptAnalysis> const analysis = AnalyzeGraph(*document, script);
-					analyzed = analyzed && analysis.has_value();
+					Ref<VisualScriptAnalysis const> const analysis = AnalyzeGraph(*document, script);
+					analyzed = analyzed && analysis != nullptr;
 					std::vector<VisualScriptFindResult> const found =
-						FindInVisualScript(*document, analysis ? &*analysis : nullptr, query, script, resolver);
+						FindInVisualScript(*document, analysis.get(), query, script, resolver);
 					for (VisualScriptFindResult const& match : found)
 					{
 						if (total >= offset && total - offset < limit)

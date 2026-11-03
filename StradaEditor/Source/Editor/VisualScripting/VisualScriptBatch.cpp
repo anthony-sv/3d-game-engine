@@ -1325,7 +1325,7 @@ namespace Strada
 					return true;
 				}
 				m_Analyses++;
-				Result<VisualScriptAnalysis> analysis = m_Context.Semantics.Analyze(m_Working, m_Context.Graph);
+				Result<Ref<VisualScriptAnalysis const>> analysis = m_Context.Semantics.Analyze(m_Working, m_Context.Graph);
 				if (!analysis)
 				{
 					return Fail({},
@@ -1334,7 +1334,7 @@ namespace Strada
 					                        analysis.GetError()),
 					            Json::object({{"operation", m_Index}}), VisualScriptBatchFailure::AnalysisFailed);
 				}
-				m_Analysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
+				m_Analysis = analysis.TakeValue();
 				// The display stands for the document analyzed: canvases match nodes against it by their types, settings,
 				// literal keys and splits (MatchesVisualScriptAnalysis), never by positions, so the copy canvases show serves.
 				m_AnalyzedDocument = GetDisplay();

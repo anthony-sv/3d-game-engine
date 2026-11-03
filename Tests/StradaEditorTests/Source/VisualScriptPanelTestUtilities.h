@@ -242,7 +242,7 @@ namespace Strada::Testing
 
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
 
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
+		[[nodiscard]] Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
 			// The document as the redirect reads it, analyzed; then node 3 reported as stored.
 			VisualScriptDocument read = document;
@@ -267,12 +267,12 @@ namespace Strada::Testing
 					link.To.Pin = "Message";
 				}
 			}
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(read, self);
+			Result<Ref<VisualScriptAnalysis const>> analysis = m_Fixture.Analyze(read, self);
 			if (!analysis.IsOk() || !former)
 			{
 				return analysis;
 			}
-			Json source = analysis.GetValue().Source;
+			Json source = ReadAnalysisJson(*analysis.GetValue());
 			for (Json& node : source["Nodes"])
 			{
 				if (node["ID"] == 3)
@@ -283,7 +283,7 @@ namespace Strada::Testing
 					node["PinRenames"] = Json::array({Json::object({{"Direction", "In"}, {"From", "Text"}, {"To", "Message"}})});
 				}
 			}
-			return VisualScriptAnalysis::Parse(source.dump());
+			return ShareAnalysis(VisualScriptAnalysis::Parse(source.dump()));
 		}
 
 	private:

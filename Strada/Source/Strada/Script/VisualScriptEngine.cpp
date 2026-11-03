@@ -4,6 +4,7 @@
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
+#include "Strada/Core/Timer.h"
 #include "Strada/Script/ScriptEngineInternal.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
 #include "Strada/Serialization/JsonTextWriter.h"
@@ -374,21 +375,30 @@ namespace Strada
 		                                        VisualScriptDocument const& document, std::vector<SentReference> const& references)
 		{
 			bool const disableDevelopmentNodes = !data.DevelopmentNodesEnabled;
+			VisualScriptLoadTimings& timings = data.LoadTimings;
+			Timer timer;
 			std::string const text =
 				disableDevelopmentNodes ? ToDocumentText(DisableDevelopmentOnlyNodes(document)) : ToDocumentText(document);
+			timings.Text += timer.GetElapsedMilliseconds();
+			timer.Reset();
 			std::string const referencesText =
 				SendsReferences(document, references) ? WriteReferences(data, references, graph, disableDevelopmentNodes) : std::string();
+			timings.References += timer.GetElapsedMilliseconds();
+			timer.Reset();
 			std::string answer;
 			auto const status = static_cast<ScriptStatus>(data.Host.VisualScriptLoad(
 				graph.GetUUID().GetValue(), name.data(), ToLength(name.size()), text.data(), ToLength(text.size()), referencesText.data(),
 				ToLength(referencesText.size()), &answer, &ReceiveText));
+			timings.Runtime += timer.GetElapsedMilliseconds();
 			if (status != ScriptStatus::Success)
 			{
 				// The runtime logged why; the handle keeps the programs it had.
 				ST_CORE_ERROR("Visual script '{}' cannot be loaded (see the log)", name);
 				return std::nullopt;
 			}
+			timer.Reset();
 			Result<std::vector<VisualScriptDiagnostic>> diagnostics = ParseVisualScriptDiagnostics(answer);
+			timings.Diagnostics += timer.GetElapsedMilliseconds();
 			if (!diagnostics)
 			{
 				ST_CORE_ERROR("The diagnostics of visual script '{}' cannot be read: {}", name, diagnostics.GetError());
@@ -567,26 +577,42 @@ namespace Strada
 		return library != nullptr ? library->FindEnum(typeId) : std::nullopt;
 	}
 
-	Result<VisualScriptAnalysis> VisualScriptEngine::Analyze(VisualScriptDocument const& document, AssetHandle self)
+	Result<Ref<VisualScriptAnalysis const>> VisualScriptEngine::Analyze(VisualScriptDocument const& document, AssetHandle self)
 	{
 		ScriptEngineData* const data = GetData();
 		if (data == nullptr)
 		{
 			return Error{NotRunning};
 		}
+		VisualScriptAnalysisTimings& timings = data->LastAnalysisTimings;
+		timings = {};
+		Timer timer;
 		std::string const text = ToDocumentText(document);
+		timings.Text = timer.GetElapsedMilliseconds();
+		timer.Reset();
 		// The editor is a development host: analyses read every document as it is.
 		std::vector<SentReference> const references = CollectReferencedGraphs(document, self);
 		std::string const referencesText =
 			SendsReferences(document, references) ? WriteReferences(*data, references, self, false) : std::string();
+		timings.References = timer.GetElapsedMilliseconds();
+		timer.Reset();
 		std::string answer;
 		auto const status = static_cast<ScriptStatus>(data->Host.VisualScriptAnalyze(
 			text.data(), ToLength(text.size()), referencesText.data(), ToLength(referencesText.size()), &answer, &ReceiveText));
+		timings.Runtime = timer.GetElapsedMilliseconds();
 		if (status != ScriptStatus::Success)
 		{
 			return Error{"the visual script cannot be analyzed (see the log)"};
 		}
-		Result<VisualScriptAnalysis> analysis = VisualScriptAnalysis::Parse(answer);
+		// The graph's last analysis, if the engine kept it, is the previous one its unchanged parts are copied from.
+		std::vector<std::pair<AssetHandle, Ref<VisualScriptAnalysis const>>>& kept = data->VisualScriptAnalyses;
+		auto const previous = std::find_if(kept.begin(), kept.end(),
+		                                   [self](std::pair<AssetHandle, Ref<VisualScriptAnalysis const>> const& entry)
+		                                   {
+											   return entry.first == self;
+										   });
+		Result<VisualScriptAnalysis> analysis =
+			VisualScriptAnalysis::Parse(std::move(answer), previous != kept.end() ? previous->second.get() : nullptr, &timings);
 		if (!analysis)
 		{
 			return MakeError("the analysis of the visual script cannot be read: {}", analysis.GetError());
@@ -601,7 +627,30 @@ namespace Strada
 				graphs.emplace_back(reference.Graph, reference.Document);
 			}
 		}
-		return analysis;
+		Ref<VisualScriptAnalysis const> made = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
+		// The newest last: the entry of self moves there, and the least recently analyzed graph goes past the limit.
+		if (previous != kept.end())
+		{
+			kept.erase(previous);
+		}
+		else if (kept.size() == MaxKeptAnalyses)
+		{
+			kept.erase(kept.begin());
+		}
+		kept.emplace_back(self, made);
+		return made;
+	}
+
+	VisualScriptAnalysisTimings VisualScriptEngine::GetLastAnalysisTimings()
+	{
+		ScriptEngineData const* const data = GetData();
+		return data != nullptr ? data->LastAnalysisTimings : VisualScriptAnalysisTimings{};
+	}
+
+	VisualScriptLoadTimings VisualScriptEngine::TakeLoadTimings()
+	{
+		ScriptEngineData* const data = GetData();
+		return data != nullptr ? std::exchange(data->LoadTimings, VisualScriptLoadTimings{}) : VisualScriptLoadTimings{};
 	}
 
 	Result<void> VisualScriptEngine::EnsureLoaded(AssetHandle graph)

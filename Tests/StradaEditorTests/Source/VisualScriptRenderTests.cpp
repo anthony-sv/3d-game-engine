@@ -517,14 +517,14 @@ namespace
 
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
 
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
+		[[nodiscard]] Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document, self);
+			Result<Ref<VisualScriptAnalysis const>> analysis = m_Fixture.Analyze(document, self);
 			if (!analysis.IsOk())
 			{
 				return analysis;
 			}
-			Json source = analysis.GetValue().Source;
+			Json source = Testing::ReadAnalysisJson(*analysis.GetValue());
 			for (Json& node : source["Nodes"])
 			{
 				if (node["Type"] != "Reroute")
@@ -536,7 +536,7 @@ namespace
 					pin["Type"] = "Strada.Entity";
 				}
 			}
-			return VisualScriptAnalysis::Parse(source.dump());
+			return Testing::ShareAnalysis(VisualScriptAnalysis::Parse(source.dump()));
 		}
 
 	private:
@@ -1030,14 +1030,14 @@ namespace
 
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
 
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
+		[[nodiscard]] Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document, self);
+			Result<Ref<VisualScriptAnalysis const>> analysis = m_Fixture.Analyze(document, self);
 			if (!analysis.IsOk())
 			{
 				return analysis;
 			}
-			Json source = analysis.GetValue().Source;
+			Json source = Testing::ReadAnalysisJson(*analysis.GetValue());
 			for (Json& node : source["Nodes"])
 			{
 				if (node["Type"] != "Operator.Add")
@@ -1049,7 +1049,7 @@ namespace
 					pin["Type"] = "float";
 				}
 			}
-			return VisualScriptAnalysis::Parse(source.dump());
+			return Testing::ShareAnalysis(VisualScriptAnalysis::Parse(source.dump()));
 		}
 
 	private:

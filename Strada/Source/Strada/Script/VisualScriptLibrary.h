@@ -126,6 +126,8 @@ namespace Strada
 		std::string ArrayOf;
 		// A wildcard of a Reroute node: it passes the flow as well as values, so it connects to exec pins too.
 		bool CarriesExec = false;
+
+		bool operator==(VisualScriptPin const& other) const = default;
 	};
 
 	// A setting of a node kind, which documents store in the node's Settings.
@@ -310,6 +312,8 @@ namespace Strada
 		VisualScriptPinDirection Direction = VisualScriptPinDirection::In;
 		std::string From;
 		std::string To;
+
+		bool operator==(VisualScriptPinRename const& other) const = default;
 	};
 
 	// A node of an analyzed document.
@@ -340,6 +344,8 @@ namespace Strada
 
 		// Null when the node has no such pin.
 		VisualScriptPin const* FindPin(std::string_view name, VisualScriptPinDirection direction) const;
+
+		bool operator==(VisualScriptAnalyzedNode const& other) const = default;
 	};
 
 	enum class VisualScriptSeverity : uint8_t
@@ -373,6 +379,25 @@ namespace Strada
 		std::string Message;
 		// The known names closest to an unknown one, or the candidates of an ambiguous node.
 		std::vector<std::string> Suggestions;
+
+		bool operator==(VisualScriptDiagnostic const& other) const = default;
+	};
+
+	// Where an analysis spent its time, in milliseconds, and what its reader reused (spec-slice4 section 9.0). Text, References
+	// and Runtime are VisualScriptEngine::Analyze's: the document's text, the references bundle, and the scripting runtime's
+	// analysis with the copy of its answer. Parse and Read are VisualScriptAnalysis::Parse's: the JSON (the scan and the parse of
+	// the parts it did not reuse, or of the whole text), and the records read from it or copied from the previous analysis.
+	struct VisualScriptAnalysisTimings
+	{
+		double Text = 0.0;
+		double References = 0.0;
+		double Runtime = 0.0;
+		double Parse = 0.0;
+		double Read = 0.0;
+		uint32_t ReusedNodes = 0;
+		uint32_t ParsedNodes = 0;
+		uint32_t ReusedDiagnostics = 0;
+		uint32_t ParsedDiagnostics = 0;
 	};
 
 	// The scripting runtime's analysis of a document.
@@ -381,19 +406,36 @@ namespace Strada
 		// Every node of the document: those of the functions' graphs in document order, then those of the event graph.
 		std::vector<VisualScriptAnalyzedNode> Nodes;
 		std::vector<VisualScriptDiagnostic> Diagnostics;
-		// The runtime's JSON, { "Nodes": [...], "Diagnostics": [...] }, as automation reports it.
-		Json Source;
+		// The runtime's JSON as received, { "Nodes": [...], "Diagnostics": [...] } (automation parses it when it reports it);
+		// empty for an analysis built by hand.
+		std::string Text;
+		// Where each node and diagnostic is in Text, [offset, length), aligned with Nodes and Diagnostics. Empty when Parse read
+		// Text whole (a text of another form that still reads, such as one with members beyond the two) and for an analysis
+		// built by hand: a later Parse then reuses nothing of it.
+		std::vector<std::pair<uint32_t, uint32_t>> NodeSpans;
+		std::vector<std::pair<uint32_t, uint32_t>> DiagnosticSpans;
+		// (ID, index) sorted by ID, then index: FindNode's binary search. Parse builds it; an analysis built by hand may call
+		// BuildNodeIndex after filling Nodes (and again after changing them), or leave it empty.
+		std::vector<std::pair<uint32_t, uint32_t>> NodeIndex;
 		// The other graphs this analysis read, ascending by handle, each with the shared document it used (null when the graph
 		// was absent): whoever keeps the analysis analyzes again when one of them is replaced by another program or
 		// interface. Those beyond VisualScriptEngine::MaxReferencedGraphs, which were never looked up, are not listed. Filled
 		// by VisualScriptEngine::Analyze, not read by Parse.
 		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> Graphs;
 
-		// Node IDs are unique in a document. Null when it has no such node.
+		// Node IDs are unique in a document. Null when it has no such node; the first in Nodes when a damaged analysis repeats
+		// an ID. A binary search of NodeIndex when it is as long as Nodes, else a linear search of Nodes, so analyses built by
+		// hand find their nodes.
 		VisualScriptAnalyzedNode const* FindNode(uint32_t id) const;
+		void BuildNodeIndex();
 
-		// Reads the analysis JSON. Fails when it is not of its form, naming the first member that is not.
-		[[nodiscard]] static Result<VisualScriptAnalysis> Parse(std::string_view json);
+		// Reads the analysis JSON. Fails when it is not of its form, naming the first member that is not. With a previous
+		// analysis, a node or diagnostic whose bytes equal one of previous's is previous's record (copied), and only the others
+		// are parsed; the result equals Parse(text) in every case, errors included. Graphs is left empty. timings, when given,
+		// has the milliseconds of the reading added to Parse and Read and its counts set (the other members are left as they
+		// are). Pure; any thread.
+		[[nodiscard]] static Result<VisualScriptAnalysis> Parse(std::string text, VisualScriptAnalysis const* previous = nullptr,
+		                                                        VisualScriptAnalysisTimings* timings = nullptr);
 	};
 
 	// Reads a diagnostics array: what the runtime answers when it loads a document.

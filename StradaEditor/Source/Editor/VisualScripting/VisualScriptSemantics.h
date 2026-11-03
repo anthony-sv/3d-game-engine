@@ -22,8 +22,11 @@ namespace Strada
 		// The analysis of a document. self is the visual script the document is (or will be) the document of: a node that names
 		// its own graph by handle reads the document given rather than the stored one; invalid when the document is no
 		// asset's. No default argument: defaults bind statically, so every caller says which graph it analyzes. Fails without
-		// the scripting runtime, or when the runtime fails.
-		[[nodiscard]] virtual Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) = 0;
+		// the scripting runtime, or when the runtime fails. The analysis is shared and never changes.
+		[[nodiscard]] virtual Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) = 0;
+		// Where the last Analyze spent its time (VisualScriptEngine::GetLastAnalysisTimings); all zero for semantics that do not
+		// measure.
+		virtual VisualScriptAnalysisTimings GetLastAnalysisTimings() const { return {}; }
 	};
 
 	// The scripting runtime's library and analysis (VisualScriptEngine) while the runtime runs; a null library and an error
@@ -32,6 +35,7 @@ namespace Strada
 	{
 	public:
 		Ref<VisualScriptLibrary const> GetLibrary() override;
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override;
+		[[nodiscard]] Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) override;
+		VisualScriptAnalysisTimings GetLastAnalysisTimings() const override;
 	};
 }

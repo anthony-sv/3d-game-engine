@@ -1,5 +1,6 @@
 #include "Fuzzing.h"
 #include "Script/ScriptTestUtilities.h"
+#include "Script/VisualScriptTestGraphs.h"
 #include "TestUtilities.h"
 #include "VisualScriptRoundTrip.h"
 
@@ -921,6 +922,87 @@ TEST_CASE("VisualScript: damaged graphs that load also run")
 	CHECK(ran[0] > 0);
 	CHECK(ran[1] > 0);
 	CHECK(ran[2] > 0);
+}
+
+TEST_CASE("VisualScript: an analysis read with a previous one equals the analysis read alone")
+{
+	// spec-slice4 sections 9.1 and 20.6: the analyses of the format sample and of the editor's and the language's fixtures,
+	// damaged, read with a previous analysis (the seed's own, another seed's, the last round's, none) are read exactly as alone:
+	// the same records, spans and index, or the same error.
+	auto const readFixture = [](std::string_view name)
+	{
+		Result<std::string> const text = FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" /
+		                                                          "Documents" / FileSystem::PathFromUtf8(name));
+		REQUIRE(text.IsOk());
+		Result<Json> const content = ParseJson(text.GetValue());
+		REQUIRE(content.IsOk());
+		std::vector<std::string> warnings;
+		Result<VisualScriptDocument> document =
+			VisualScriptSerializer::DeserializeDocument(content.GetValue(), Testing::MakeTolerantContext(warnings));
+		REQUIRE_MESSAGE(document.IsOk(), (document ? std::string() : document.GetError()));
+		return document.TakeValue();
+	};
+	std::optional<VisualScriptDocument> sample = LoadDamagedFile(Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph"));
+	REQUIRE(sample.has_value());
+	std::array<VisualScriptDocument, 3> const documents = {std::move(*sample), readFixture("Editor.json"), readFixture("Language.json")};
+	Testing::AssetManagerScope assets;
+	Testing::ScriptRuntimeScope runtime;
+	std::vector<Ref<VisualScriptAnalysis const>> analyses;
+	std::vector<Json> seeds;
+	for (VisualScriptDocument const& document : documents)
+	{
+		Result<Ref<VisualScriptAnalysis const>> analysis = VisualScriptEngine::Analyze(document);
+		REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
+		Result<Json> json = ParseJson(analysis.GetValue()->Text);
+		REQUIRE(json.IsOk());
+		seeds.push_back(json.TakeValue());
+		analyses.push_back(analysis.TakeValue());
+	}
+
+	Testing::DocumentMutator mutator(11000);
+	Testing::FuzzRandom random(11001);
+	std::optional<VisualScriptAnalysis> last;
+	int read = 0;
+	int refused = 0;
+	for (int round = 0, rounds = Testing::GetFuzzRounds(300); round < rounds; round++)
+	{
+		CAPTURE(round);
+		size_t const seed = static_cast<size_t>(round % 3);
+		Json const damaged = mutator.Damage(seeds[seed], round);
+		// Mostly compact, as the runtime writes; sometimes indented; sometimes with a byte damaged as well.
+		std::string text = random.Pick(4) == 0 ? DumpJson(damaged) : damaged.dump(-1, ' ', false, Json::error_handler_t::replace);
+		if (random.Pick(5) == 0 && !text.empty())
+		{
+			static constexpr std::array<char, 8> Bytes = {'{', '}', '[', ']', '"', ',', '\\', '\xFF'};
+			size_t const at = random.Pick(text.size());
+			if (random.Pick(2) == 0)
+			{
+				text.erase(at, 1);
+			}
+			else
+			{
+				text[at] = Bytes[random.Pick(Bytes.size())];
+			}
+		}
+		Result<VisualScriptAnalysis> alone = VisualScriptAnalysis::Parse(text);
+		std::array<VisualScriptAnalysis const*, 4> const previous = {analyses[seed].get(), analyses[(seed + 1) % 3].get(),
+		                                                             last ? &*last : nullptr, nullptr};
+		for (VisualScriptAnalysis const* const candidate : previous)
+		{
+			Testing::CheckSameAnalysisRead(VisualScriptAnalysis::Parse(text, candidate), alone);
+		}
+		if (alone)
+		{
+			read++;
+			last = alone.TakeValue();
+		}
+		else
+		{
+			refused++;
+		}
+	}
+	CHECK(read > 0);
+	CHECK(refused > 0);
 }
 
 TEST_CASE("VisualScript: the text writer writes what the Json writer writes")
