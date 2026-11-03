@@ -18,8 +18,10 @@
 #include <filesystem>
 #include <limits>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace Strada;
@@ -29,6 +31,12 @@ namespace
 	std::filesystem::path GetViewsFixturePath()
 	{
 		return FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Editor" / "Views.json";
+	}
+
+	// The fixture as version 1 wrote it, without version 2's members.
+	std::filesystem::path GetVersion1FixturePath()
+	{
+		return FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Editor" / "Views-v1.json";
 	}
 
 	Json ReadJson(std::filesystem::path const& path)
@@ -86,6 +94,23 @@ namespace
 	{
 		return AssetHandle(UUID(value));
 	}
+
+	VisualScriptBreakpoint MakeBreakpoint(uint32_t node, std::string type, std::string condition = {}, uint32_t hitCount = 0,
+	                                      bool enabled = true)
+	{
+		VisualScriptBreakpoint breakpoint;
+		breakpoint.Node = node;
+		breakpoint.Type = std::move(type);
+		breakpoint.Condition = std::move(condition);
+		breakpoint.HitCount = hitCount;
+		breakpoint.Enabled = enabled;
+		return breakpoint;
+	}
+
+	std::vector<VisualScriptBreakpoint> ToVector(std::span<VisualScriptBreakpoint const> breakpoints)
+	{
+		return std::vector<VisualScriptBreakpoint>(breakpoints.begin(), breakpoints.end());
+	}
 }
 
 TEST_CASE("VisualScriptViews: every member round-trips through the file, and a file without Scroll gets the platform's mode")
@@ -139,6 +164,19 @@ TEST_CASE("VisualScriptViews: every member round-trips through the file, and a f
 	CHECK(views.Projects[1].FindGraph(MakeHandle(6917529027641081857ull)) != nullptr);
 	CHECK(views.Projects[1].FindGraph(MakeHandle(8146390251172604461ull)) == nullptr);
 
+	// Version 2's members: the debugger's options and each graph's breakpoints, by node ID.
+	CHECK(settings.IsBreakOnErrors());
+	CHECK(settings.GetWireValues() == VisualScriptWireValues::Always);
+	CHECK_FALSE(settings.IsShowFlow());
+	CHECK_FALSE(settings.IsOutlineNotRunning());
+	CHECK(settings.GetGamePreview() == VisualScriptGamePreviewSettings{false, VisualScriptPreviewCorner::TopLeft, 0.4375f});
+	CHECK(player.Breakpoints == std::vector<VisualScriptBreakpoint>{
+									MakeBreakpoint(12, "Flow.Branch", "Health < 0"),
+									MakeBreakpoint(40, "Call:Strada.Entity.Destroy()", "State == \"Serve\" && Index == 3", 5, false)});
+	CHECK(blocks.Graphs[1].Breakpoints.empty());
+	CHECK(views.Projects[1].Graphs[0].Breakpoints ==
+	      std::vector<VisualScriptBreakpoint>{MakeBreakpoint(7, "Variable.Set", {}, 1'000'000'000)});
+
 	// What loads saves and loads again, every member written.
 	REQUIRE(settings.Save().IsOk());
 	CHECK(LoadCleanly(file) == views);
@@ -185,6 +223,11 @@ TEST_CASE("VisualScriptViews: without a file the defaults hold, and saving creat
 	CHECK(settings.GetLastVariableType() == "float");
 	CHECK(settings.GetProject().empty());
 	CHECK(settings.GetOpenGraphs().empty());
+	CHECK_FALSE(settings.IsBreakOnErrors());
+	CHECK(settings.GetWireValues() == VisualScriptWireValues::WhileStopped);
+	CHECK(settings.IsShowFlow());
+	CHECK(settings.IsOutlineNotRunning());
+	CHECK(settings.GetGamePreview() == VisualScriptGamePreviewSettings{true, VisualScriptPreviewCorner::BottomRight, 0.3f});
 
 	REQUIRE(settings.Save().IsOk());
 	REQUIRE(FileSystem::Exists(file));
@@ -193,9 +236,13 @@ TEST_CASE("VisualScriptViews: without a file the defaults hold, and saving creat
 	REQUIRE_MESSAGE(version.IsOk(), version.GetError());
 	// The defaults are written, except the scroll mode and the comment colour, which then stay the platform's and the
 	// format's.
+	CHECK(version.GetValue() == 2);
 	CHECK(GetMembers(saved["VisualScriptViews"]) == std::set<std::string>{"Panes", "ContextPalette", "ReduceMotion", "SnapToGrid",
 	                                                                      "MoveCommentContents", "Recents", "RecentTypes",
-	                                                                      "LastVariableType", "HintsSeen", "Projects"});
+	                                                                      "LastVariableType", "HintsSeen", "BreakOnErrors", "WireValues",
+	                                                                      "ShowFlow", "OutlineNotRunning", "GamePreview", "Projects"});
+	CHECK(saved["VisualScriptViews"]["GamePreview"] == Json::object({{"Shown", true}, {"Corner", "BottomRight"}, {"Width", 0.3f}}));
+	CHECK(saved["VisualScriptViews"]["WireValues"] == "WhileStopped");
 	CHECK(LoadCleanly(file) == VisualScriptViews());
 }
 
@@ -261,6 +308,8 @@ TEST_CASE("VisualScriptViews: unknown members are ignored, and invalid entries a
 	content["Projects"][0]["Graphs"][0]["Folded"] = Json::array({1, 2});
 	content["Projects"][0]["Graphs"][0]["Views"][0]["Rotation"] = 0.5;
 	content["Projects"][0]["Graphs"][0]["Bookmarks"][0]["Color"] = "Red";
+	content["Projects"][0]["Graphs"][0]["Breakpoints"][0]["LogMessage"] = "Hit";
+	content["GamePreview"]["Opacity"] = 0.5;
 	WriteJson(file, extended);
 	CHECK(LoadCleanly(file) == expected);
 
@@ -308,6 +357,22 @@ TEST_CASE("VisualScriptViews: unknown members are ignored, and invalid entries a
 	Json const firstOpen = projects[0]["Open"][0];
 	projects[0]["Open"].push_back("0");
 	projects[0]["Open"].push_back(firstOpen);
+	// Version 2's members.
+	views["WireValues"] = "Sometimes";
+	views["ShowFlow"] = "no";
+	views["GamePreview"]["Corner"] = 3;
+	views["GamePreview"]["Width"] = 0.9;
+	Json& breakpoints = graphs[0]["Breakpoints"];
+	breakpoints.push_back(Json::object({{"Node", 0}, {"Type", "Flow.Branch"}}));
+	breakpoints.push_back(Json::object({{"Node", 12}, {"Type", "Flow.Branch"}}));
+	breakpoints.push_back(Json::object({{"Node", 50}}));
+	breakpoints.push_back(Json::object({{"Node", 51}, {"Type", "Flow.Branch"}, {"HitCount", 2'000'000'000}}));
+	breakpoints.push_back(Json::object({{"Node", 52}, {"Type", "Flow.Branch"}, {"Condition", 7}}));
+	breakpoints.push_back(Json::object({{"Node", 53}, {"Type", "Flow.Branch"}, {"Enabled", "yes"}}));
+	breakpoints.push_back(Json::object({{"Node", 54}, {"Type", "Flow.Branch"}, {"Condition", std::string(1025, 'a')}}));
+	// Members left out take a new breakpoint's values, and the list is kept by node ID.
+	breakpoints.push_back(Json::object({{"Node", 5}, {"Type", "Event.Update"}}));
+	graphs[1]["Breakpoints"] = "none";
 	WriteJson(file, damaged);
 
 	VisualScriptViewSettings settings(file);
@@ -344,12 +409,24 @@ TEST_CASE("VisualScriptViews: unknown members are ignored, and invalid entries a
 	      "Projects[0].Graphs[0].Bookmarks[5].Name: not a name of 1 to 64 bytes on one line; \"Bookmark 6\" is used",
 	      "Projects[0].Graphs[0].Bookmarks[6].Name: expected a name; skipped",
 	      "Projects[0].Graphs[2]: expected an object with the Graph's handle as a decimal string; skipped",
-	      "Projects[0].Graphs[3]: repeats an earlier graph; skipped"})
+	      "Projects[0].Graphs[3]: repeats an earlier graph; skipped",
+	      "WireValues: expected \"Off\", \"WhileStopped\" or \"Always\"; \"WhileStopped\" is used",
+	      "ShowFlow: expected true or false; true is used",
+	      "GamePreview.Corner: expected \"TopLeft\", \"TopRight\", \"BottomLeft\" or \"BottomRight\"; \"BottomRight\" is used",
+	      "GamePreview.Width: outside 0.15 to 0.6; clamped",
+	      "Projects[0].Graphs[0].Breakpoints[2].Node: expected a node's ID; skipped",
+	      "Projects[0].Graphs[0].Breakpoints[3]: node 12 has an earlier breakpoint; skipped",
+	      "Projects[0].Graphs[0].Breakpoints[4].Type: expected the node's Type; skipped",
+	      "Projects[0].Graphs[0].Breakpoints[5]: the hit count 2000000000 is above 1000000000, the largest one; skipped",
+	      "Projects[0].Graphs[0].Breakpoints[6].Condition: expected a formula's text; skipped",
+	      "Projects[0].Graphs[0].Breakpoints[7].Enabled: expected true or false; skipped",
+	      "Projects[0].Graphs[0].Breakpoints[8]: the condition has 1025 bytes: a condition has at most 1024; skipped",
+	      "Projects[0].Graphs[1].Breakpoints: expected an array; ignored"})
 	{
 		CAPTURE(expectedWarning);
 		CHECK(AnyContains(warnings, expectedWarning));
 	}
-	CHECK(warnings.size() == 31);
+	CHECK(warnings.size() == 43);
 	// "0" is the usual form of no entity.
 	CHECK_FALSE(AnyContains(warnings, "Graphs[1].ContextEntity"));
 
@@ -376,6 +453,13 @@ TEST_CASE("VisualScriptViews: unknown members are ignored, and invalid entries a
 	CHECK(repaired.Bookmarks[1] == VisualScriptBookmark{5, "Two", MakeView(0, 0.0f, 0.0f, 1.0f)});
 	CHECK(repaired.Bookmarks[2] == VisualScriptBookmark{6, "Bookmark 6", MakeView(0, 0.0f, 0.0f, 1.0f)});
 	CHECK(repaired.Bookmarks[3].Name == "Spawn Waves");
+	CHECK(loaded.WireValues == VisualScriptWireValues::WhileStopped);
+	CHECK(loaded.ShowFlow);
+	CHECK(loaded.GamePreview == VisualScriptGamePreviewSettings{false, VisualScriptPreviewCorner::BottomRight, 0.6f});
+	CHECK(repaired.Breakpoints == std::vector<VisualScriptBreakpoint>{MakeBreakpoint(5, "Event.Update"),
+	                                                                  expected.Projects[0].Graphs[0].Breakpoints[0],
+	                                                                  expected.Projects[0].Graphs[0].Breakpoints[1]});
+	CHECK(loaded.Projects[0].Graphs[1].Breakpoints.empty());
 
 	// What was repaired is written as it loaded: the file then loads without a warning.
 	REQUIRE(settings.Save().IsOk());
@@ -688,19 +772,184 @@ TEST_CASE("VisualScriptViews: a project's entry is found by any spelling of its 
 	}
 }
 
+TEST_CASE("VisualScriptViews: a version-1 file loads with version 2's members at their defaults, loses nothing, and saves as version 2")
+{
+	Testing::TemporaryDirectory temporary;
+	std::filesystem::path const file = temporary.GetPath() / "Editor" / "VisualScriptViews.json";
+	REQUIRE(FileSystem::CreateDirectories(file.parent_path()).IsOk());
+	REQUIRE(FileSystem::Copy(GetVersion1FixturePath(), file, false).IsOk());
+	REQUIRE(ReadJson(file)["Strada"]["Version"] == 1);
+
+	VisualScriptViews const migrated = LoadCleanly(file);
+	CHECK_FALSE(migrated.BreakOnErrors);
+	CHECK(migrated.WireValues == VisualScriptWireValues::WhileStopped);
+	CHECK(migrated.ShowFlow);
+	CHECK(migrated.OutlineNotRunning);
+	CHECK(migrated.GamePreview == VisualScriptGamePreviewSettings());
+	// Everything version 1 kept is there: it is the version-2 fixture without the members version 2 added.
+	VisualScriptViews expected = LoadCleanly(GetViewsFixturePath());
+	expected.BreakOnErrors = false;
+	expected.WireValues = VisualScriptWireValues::WhileStopped;
+	expected.ShowFlow = true;
+	expected.OutlineNotRunning = true;
+	expected.GamePreview = VisualScriptGamePreviewSettings();
+	for (VisualScriptProjectViews& project : expected.Projects)
+	{
+		for (VisualScriptGraphViews& graph : project.Graphs)
+		{
+			graph.Breakpoints.clear();
+		}
+	}
+	CHECK(migrated == expected);
+
+	// The editor writes version 2 at its next save point, and that file loads as it was.
+	VisualScriptViewSettings settings(file);
+	REQUIRE(settings.Load().empty());
+	REQUIRE(settings.Save().IsOk());
+	Json const saved = ReadJson(file);
+	CHECK(saved["Strada"]["Version"] == VisualScriptViewSettings::FormatVersion);
+	CHECK(VisualScriptViewSettings::FormatVersion == 2);
+	CHECK(saved["VisualScriptViews"].contains("GamePreview"));
+	CHECK(saved["VisualScriptViews"]["Projects"][0]["Graphs"][0]["Breakpoints"] == Json::array());
+	CHECK(LoadCleanly(file) == migrated);
+
+	// A version-1 file has none of version 2's members: if one has them anyway, they are not read.
+	Json old = ReadJson(GetVersion1FixturePath());
+	old["VisualScriptViews"]["BreakOnErrors"] = true;
+	old["VisualScriptViews"]["WireValues"] = "Off";
+	old["VisualScriptViews"]["Projects"][0]["Graphs"][0]["Breakpoints"] =
+		Json::array({Json::object({{"Node", 3}, {"Type", "Flow.Branch"}})});
+	WriteJson(file, old);
+	CHECK(LoadCleanly(file) == migrated);
+}
+
+TEST_CASE("VisualScriptViews: the debugger's options are clamped and refused as the file's readers do")
+{
+	Testing::TemporaryDirectory temporary;
+	VisualScriptViewSettings settings(temporary.GetPath() / "VisualScriptViews.json");
+	settings.SetBreakOnErrors(true);
+	CHECK(settings.IsBreakOnErrors());
+	CHECK(settings.SetWireValues(VisualScriptWireValues::Off));
+	CHECK(settings.GetWireValues() == VisualScriptWireValues::Off);
+	CHECK_FALSE(settings.SetWireValues(static_cast<VisualScriptWireValues>(7)));
+	CHECK(settings.GetWireValues() == VisualScriptWireValues::Off);
+	settings.SetShowFlow(false);
+	settings.SetOutlineNotRunning(false);
+	CHECK_FALSE(settings.IsShowFlow());
+	CHECK_FALSE(settings.IsOutlineNotRunning());
+
+	// The preview's width is a part of the canvas width, from 0.15 to 0.6; one that is not finite keeps the current one.
+	CHECK(settings.SetGamePreview({false, VisualScriptPreviewCorner::TopRight, 0.05f}));
+	CHECK(settings.GetGamePreview() == VisualScriptGamePreviewSettings{false, VisualScriptPreviewCorner::TopRight, 0.15f});
+	CHECK(settings.SetGamePreview({true, VisualScriptPreviewCorner::BottomLeft, 2.0f}));
+	CHECK(settings.GetGamePreview() == VisualScriptGamePreviewSettings{true, VisualScriptPreviewCorner::BottomLeft, 0.6f});
+	CHECK(settings.SetGamePreview({true, VisualScriptPreviewCorner::TopLeft, std::numeric_limits<float>::quiet_NaN()}));
+	CHECK(settings.GetGamePreview() == VisualScriptGamePreviewSettings{true, VisualScriptPreviewCorner::TopLeft, 0.6f});
+	CHECK(settings.SetGamePreview({true, VisualScriptPreviewCorner::TopLeft, 0.25f}));
+	CHECK_FALSE(settings.SetGamePreview({false, static_cast<VisualScriptPreviewCorner>(9), 0.5f}));
+	CHECK(settings.GetGamePreview() == VisualScriptGamePreviewSettings{true, VisualScriptPreviewCorner::TopLeft, 0.25f});
+
+	REQUIRE(settings.Save().IsOk());
+	CHECK(LoadCleanly(settings.GetFile()) == settings.GetViews());
+}
+
+TEST_CASE("VisualScriptViews: breakpoints are read and written by project file, whichever project is current")
+{
+	Testing::TemporaryDirectory temporary;
+	std::filesystem::path const file = temporary.GetPath() / "VisualScriptViews.json";
+	VisualScriptViewSettings settings(file);
+	std::filesystem::path const blocks = temporary.GetPath() / "Blocks" / "Blocks.sproj";
+	std::filesystem::path const orbit = temporary.GetPath() / "Orbit" / "Orbit.sproj";
+	AssetHandle const player = MakeHandle(8146390251172604461ull);
+	AssetHandle const door = MakeHandle(1202590842880147981ull);
+	std::vector<VisualScriptBreakpoint> const playerBreakpoints = {MakeBreakpoint(3, "Flow.Branch", "Health < 0"),
+	                                                               MakeBreakpoint(9, "Variable.Set", {}, 2, false)};
+
+	// Without a project, nothing is kept.
+	settings.SetBreakpoints({}, player, playerBreakpoints);
+	CHECK(settings.GetViews().Projects.empty());
+	CHECK(settings.GetBreakpoints({}, player).empty());
+
+	// Blocks is current; Orbit's breakpoints are written by its file and go right after it, Blocks staying current.
+	settings.SetProject(blocks);
+	settings.SetBreakpoints(orbit, door, std::vector<VisualScriptBreakpoint>{MakeBreakpoint(4, "Event.Update")});
+	REQUIRE(settings.GetViews().Projects.size() == 2);
+	CHECK(settings.GetViews().Projects[0].Project == RecentProjects::NormalizePath(blocks));
+	CHECK(settings.GetViews().Projects[1].Project == RecentProjects::NormalizePath(orbit));
+	CHECK(settings.GetProject() == RecentProjects::NormalizePath(blocks));
+	CHECK(settings.FindGraph(door) == nullptr);
+	CHECK(ToVector(settings.GetBreakpoints(orbit, door)) == std::vector<VisualScriptBreakpoint>{MakeBreakpoint(4, "Event.Update")});
+	CHECK(settings.GetBreakpoints(blocks, door).empty());
+
+	// Any spelling of the file names the project. Entries the store refuses are left out, repeated nodes keep the first
+	// one, and the rest are kept by node ID.
+	std::vector<VisualScriptBreakpoint> given = {playerBreakpoints[1], MakeBreakpoint(0, "Flow.Branch"), playerBreakpoints[0],
+	                                             MakeBreakpoint(9, "Flow.Branch"), MakeBreakpoint(5, "")};
+	settings.SetBreakpoints(temporary.GetPath() / "Blocks" / "Sub" / ".." / "Blocks.sproj", player, given);
+	CHECK(ToVector(settings.GetBreakpoints(blocks, player)) == playerBreakpoints);
+	REQUIRE(settings.FindGraph(player) != nullptr);
+	CHECK(settings.FindGraph(player)->Breakpoints == playerBreakpoints);
+	CHECK(settings.GetBreakpointGraphs(blocks) == std::vector<AssetHandle>{player});
+	CHECK(settings.GetBreakpointGraphs(orbit) == std::vector<AssetHandle>{door});
+	CHECK(settings.GetBreakpointGraphs(temporary.GetPath() / "Elsewhere.sproj").empty());
+
+	// Orbit becomes current: Blocks' breakpoints are still written by its file.
+	settings.SetProject(orbit);
+	settings.SetBreakpoints(blocks, door, std::vector<VisualScriptBreakpoint>{MakeBreakpoint(1, "Event.Create")});
+	CHECK(settings.GetProject() == RecentProjects::NormalizePath(orbit));
+	CHECK(settings.GetViews().Projects[0].Project == RecentProjects::NormalizePath(orbit));
+	// The graph written last is its project's most recently used.
+	CHECK(settings.GetBreakpointGraphs(blocks) == std::vector<AssetHandle>{door, player});
+	CHECK(settings.FindGraph(door)->Breakpoints == std::vector<VisualScriptBreakpoint>{MakeBreakpoint(4, "Event.Update")});
+
+	// No breakpoints clear a graph's, and make no entry where there is none.
+	settings.SetBreakpoints(blocks, door, {});
+	CHECK(settings.GetBreakpoints(blocks, door).empty());
+	CHECK(settings.GetBreakpointGraphs(blocks) == std::vector<AssetHandle>{player});
+	settings.SetBreakpoints(temporary.GetPath() / "New" / "New.sproj", door, {});
+	CHECK(settings.GetViews().Projects.size() == 2);
+	settings.SetBreakpoints(blocks, AssetHandle(), playerBreakpoints);
+	CHECK(settings.GetBreakpointGraphs(blocks) == std::vector<AssetHandle>{player});
+
+	// At most 256 per graph.
+	std::vector<VisualScriptBreakpoint> many;
+	for (uint32_t node = 1; node <= 300; node++)
+	{
+		many.push_back(MakeBreakpoint(node, "Variable.Get"));
+	}
+	settings.SetBreakpoints(orbit, player, many);
+	CHECK(settings.GetBreakpoints(orbit, player).size() == VisualScriptBreakpointStore::MaxBreakpointsPerGraph);
+	CHECK(settings.GetBreakpoints(orbit, player).back().Node == 256);
+
+	// A deleted graph is forgotten with its breakpoints, and everything kept saves and loads again.
+	settings.ForgetGraph(player);
+	CHECK(settings.GetBreakpoints(orbit, player).empty());
+	CHECK(ToVector(settings.GetBreakpoints(blocks, player)) == playerBreakpoints);
+	REQUIRE(settings.Save().IsOk());
+	VisualScriptViewSettings reloaded(file);
+	CHECK(reloaded.Load().empty());
+	CHECK(reloaded.GetViews() == settings.GetViews());
+	CHECK(ToVector(reloaded.GetBreakpoints(blocks, player)) == playerBreakpoints);
+}
+
 TEST_CASE("VisualScriptViews: damaged files load or start empty, and what loads saves and loads again")
 {
 	// Damaged documents are always JSON, so the rounds read and write the file's form in memory: Load and Save only add the
-	// reading and writing of the text, which the cases above go through.
+	// reading and writing of the text, which the cases above go through. Alternate rounds damage the version-1 seed, whose
+	// files save as version 2.
 	Json const seed = ReadJson(GetViewsFixturePath());
+	Json const version1 = ReadJson(GetVersion1FixturePath());
+	REQUIRE(seed["Strada"]["Version"] == 2);
+	REQUIRE(version1["Strada"]["Version"] == 1);
 	Testing::DocumentMutator mutator(10300);
-	int loaded = 0;
+	int loaded[2] = {0, 0};
 	int startedEmpty = 0;
 	int const rounds = Testing::GetFuzzRounds(200);
 	for (int round = 0; round < rounds; round++)
 	{
 		CAPTURE(round);
-		Json const damaged = mutator.Damage(seed, round);
+		bool const old = round % 2 == 1;
+		Json const damaged = mutator.Damage(old ? version1 : seed, round);
 		std::vector<std::string> warnings;
 		VisualScriptViews const views = VisualScriptViewSettings::Deserialize(damaged, warnings);
 		if (AnyContains(warnings, "the file is ignored"))
@@ -711,16 +960,18 @@ TEST_CASE("VisualScriptViews: damaged files load or start empty, and what loads 
 		}
 		else
 		{
-			loaded++;
+			loaded[old ? 1 : 0]++;
 		}
 
-		// What loaded saves, and loads again as it was, without a warning.
+		// What loaded saves as version 2, and loads again as it was, without a warning.
 		Result<Json> const saved = ParseJson(DumpJson(VisualScriptViewSettings::Serialize(views)));
 		REQUIRE_MESSAGE(saved.IsOk(), saved.GetError());
+		CHECK(saved.GetValue()["Strada"]["Version"] == 2);
 		std::vector<std::string> again;
 		CHECK(VisualScriptViewSettings::Deserialize(saved.GetValue(), again) == views);
 		CHECK_MESSAGE(again.empty(), (again.empty() ? std::string() : again.front()));
 	}
-	CHECK(loaded > 0);
+	CHECK(loaded[0] > 0);
+	CHECK(loaded[1] > 0);
 	CHECK(startedEmpty > 0);
 }

@@ -234,23 +234,37 @@ TEST_CASE("VisualScriptEditor: the fixture library is the node library's own ent
 	}
 }
 
-TEST_CASE("VisualScriptEditor: the views fixture has every member of the views file, for two projects")
+TEST_CASE("VisualScriptEditor: the views fixture has every member of the views file, for two projects, and the version-1 seed is "
+          "it without version 2's members")
 {
 	std::string const text = ReadEditorFixture("Views.json");
 	Result<Json> const parsed = ParseJson(text);
 	REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
 	Json const& file = parsed.GetValue();
 	CHECK(DumpJson(file) == text);
-	Result<int> const version = ReadFileHeader(file, "VisualScriptViews", 1);
+	Result<int> const version = ReadFileHeader(file, "VisualScriptViews", 2);
 	REQUIRE_MESSAGE(version.IsOk(), version.GetError());
-	CHECK(version.GetValue() == 1);
+	CHECK(version.GetValue() == 2);
 
 	// Members are read once they are known to be there.
 	REQUIRE(file.contains("VisualScriptViews"));
 	Json const& views = file["VisualScriptViews"];
 	REQUIRE(GetMembers(views) == std::set<std::string>{"Panes", "ContextPalette", "ReduceMotion", "Scroll", "SnapToGrid",
 	                                                   "MoveCommentContents", "Recents", "RecentTypes", "CommentColor", "LastVariableType",
-	                                                   "HintsSeen", "Projects"});
+	                                                   "HintsSeen", "BreakOnErrors", "WireValues", "ShowFlow", "OutlineNotRunning",
+	                                                   "GamePreview", "Projects"});
+	// Version 2's members hold values other than their defaults, so that a reader that drops one is seen.
+	CHECK(views["BreakOnErrors"] == true);
+	CHECK(views["WireValues"] == "Always");
+	CHECK(views["ShowFlow"] == false);
+	CHECK(views["OutlineNotRunning"] == false);
+	Json const& preview = views["GamePreview"];
+	REQUIRE(GetMembers(preview) == std::set<std::string>{"Shown", "Corner", "Width"});
+	CHECK(preview["Shown"] == false);
+	CHECK(preview["Corner"] == "TopLeft");
+	CheckNumber(preview["Width"], 0.6);
+	CHECK(preview["Width"].get<double>() >= 0.15);
+	CHECK(preview["Width"].get<double>() != 0.3);
 	Json const& panes = views["Panes"];
 	REQUIRE(GetMembers(panes) == std::set<std::string>{"Sidebar", "Details", "ShowSidebar", "ShowDetails", "ShowMinimap"});
 	// Widths in font sizes, at least the panes' minimums.
@@ -291,6 +305,10 @@ TEST_CASE("VisualScriptEditor: the views fixture has every member of the views f
 	REQUIRE(projects.size() == 2);
 	size_t graphsWithViewsOfFunctions = 0;
 	size_t graphsWithBookmarks = 0;
+	size_t breakpointsWithConditions = 0;
+	size_t breakpointsWithHitCounts = 0;
+	size_t breakpointsDisabled = 0;
+	std::set<std::string> projectsWithBreakpoints;
 	for (Json const& project : projects)
 	{
 		REQUIRE(GetMembers(project) == std::set<std::string>{"Project", "Open", "Graphs"});
@@ -302,7 +320,7 @@ TEST_CASE("VisualScriptEditor: the views fixture has every member of the views f
 		REQUIRE(!project["Graphs"].empty());
 		for (Json const& graph : project["Graphs"])
 		{
-			REQUIRE(GetMembers(graph) == std::set<std::string>{"Graph", "Shown", "ContextEntity", "Views", "Bookmarks"});
+			REQUIRE(GetMembers(graph) == std::set<std::string>{"Graph", "Shown", "ContextEntity", "Views", "Bookmarks", "Breakpoints"});
 			CheckHandle(graph["Graph"]);
 			CheckHandle(graph["ContextEntity"]);
 			CHECK(graph["Shown"].is_number_unsigned());
@@ -337,10 +355,54 @@ TEST_CASE("VisualScriptEditor: the views fixture has every member of the views f
 			                                  ? 1
 			                                  : 0;
 			graphsWithBookmarks += graph["Bookmarks"].size() >= 2 ? 1 : 0;
+			uint32_t previousNode = 0;
+			for (Json const& breakpoint : graph["Breakpoints"])
+			{
+				REQUIRE(GetMembers(breakpoint) == std::set<std::string>{"Node", "Type", "Enabled", "Condition", "HitCount"});
+				// By node ID.
+				REQUIRE(breakpoint["Node"].is_number_unsigned());
+				CHECK(breakpoint["Node"].get<uint32_t>() > previousNode);
+				previousNode = breakpoint["Node"].get<uint32_t>();
+				CHECK(!breakpoint["Type"].get<std::string>().empty());
+				CHECK(breakpoint["Enabled"].is_boolean());
+				CHECK(breakpoint["Condition"].is_string());
+				CHECK(breakpoint["HitCount"].get<uint64_t>() <= 1'000'000'000);
+				breakpointsWithConditions += breakpoint["Condition"] != "" ? 1 : 0;
+				breakpointsWithHitCounts += breakpoint["HitCount"] != 0 ? 1 : 0;
+				breakpointsDisabled += breakpoint["Enabled"] == false ? 1 : 0;
+			}
+			if (!graph["Breakpoints"].empty())
+			{
+				projectsWithBreakpoints.insert(project["Project"].get<std::string>());
+			}
 		}
 	}
 	CHECK(graphsWithViewsOfFunctions > 0);
 	CHECK(graphsWithBookmarks > 0);
+	CHECK(breakpointsWithConditions > 0);
+	CHECK(breakpointsWithHitCounts > 0);
+	CHECK(breakpointsDisabled > 0);
+	CHECK(projectsWithBreakpoints.size() == 2);
+
+	// The version-1 seed is the fixture as version 1 wrote it.
+	std::string const oldText = ReadEditorFixture("Views-v1.json");
+	Result<Json> const oldParsed = ParseJson(oldText);
+	REQUIRE_MESSAGE(oldParsed.IsOk(), oldParsed.GetError());
+	CHECK(DumpJson(oldParsed.GetValue()) == oldText);
+	Json withoutVersion2 = file;
+	withoutVersion2["Strada"]["Version"] = 1;
+	for (char const* const member : {"BreakOnErrors", "WireValues", "ShowFlow", "OutlineNotRunning", "GamePreview"})
+	{
+		withoutVersion2["VisualScriptViews"].erase(member);
+	}
+	for (Json& project : withoutVersion2["VisualScriptViews"]["Projects"])
+	{
+		for (Json& graph : project["Graphs"])
+		{
+			graph.erase("Breakpoints");
+		}
+	}
+	CHECK(oldParsed.GetValue() == withoutVersion2);
 }
 
 TEST_CASE("VisualScriptEditor: split consistency finds fields of pins that are not split, and a switch's cases are pins")

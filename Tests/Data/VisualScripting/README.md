@@ -25,7 +25,8 @@ except the migration fixtures; the content form has no version.
 | `Benchmarks/Grid-4x5.json` | content, compact (`VisualScriptSerializer::WriteContentText`, one line) | The grid graph of the performance guards at its smallest: `Testing::MakeGridGraph(4, 5, 2, 1)` (`Tests/StradaTests/Source/Script/VisualScriptGridGraph.h`), 20 nodes of five kinds in turn (Branch, Log Info, Add, Delay, Add Force) with their literals, two links per node to the next column, and one comment box. It pins the C++ generator and its C# port (`GridDocuments.Make`) to one document. |
 | `Formulas.json` | formula corpus (`[{ "Formula": ..., "Inputs": [...] }]`, one entry per line) | The input rule of formulas (spec-slice3 section 3.3.1): every formula of ScriptCoreTests' `ExpressionTests` rows and 500 drawn by `ExpressionFuzzTests`' generator from a fixed seed (the last 100 damaged), each with the input pins the VM's analysis gives its Expression node, in order, whether the formula reads or not. The rows include a name over 64 bytes (no input) and a formula over 4096 bytes that names identifiers (no inputs at all). |
 | `Editor/Library.json` | node library (`{ "Types": [...], "Nodes": [...] }`) | A verbatim subset of the scripting runtime's node library (see below), which the editor's tests read with `VisualScriptLibrary::Parse` where they need a library but no runtime. |
-| `Editor/Views.json` | file (`VisualScriptViews`, version 1) | The visual script editor's per-user views file with every member: the panes and toggles, the scroll mode, recent nodes and types, the comment colour, the hints seen, and two projects with open graphs, views of the event graph and of a function, and bookmarks. Its numbers are exact as floats. |
+| `Editor/Views.json` | file (`VisualScriptViews`, version 2) | The visual script editor's per-user views file with every member: the panes and toggles, the scroll mode, recent nodes and types, the comment colour, the hints seen, the debugger's and the live game's options (break on errors, wire values, flow, outlines, the game preview, none at its default), and two projects with open graphs, views of the event graph and of a function, bookmarks, and breakpoints (with conditions, hit counts and a disabled one) in both projects. Its numbers are exact as floats. |
+| `Editor/Views-v1.json` | file (`VisualScriptViews`, version 1) | `Editor/Views.json` as version 1 wrote it, without version 2's members: the views file's migration reads it with them at their defaults and writes it as version 2. |
 
 ## How the tracks use them
 
@@ -67,7 +68,8 @@ except the migration fixtures; the content form has no version.
 - **Slice 2, the editor** (StradaEditorTests, which find this directory through `STRADA_TEST_DATA_DIR`): the document
   editing and canvas model tests parse `Editor/Library.json`, the canvas model's fixture semantics analyze with its
   templates, and its parity test (under the scripting runtime) compares each entry with the runtime's library and, on a
-  mismatch, writes the expected file next to the test binary. `Editor/Views.json` seeds the views file's fuzz test.
+  mismatch, writes the expected file next to the test binary. `Editor/Views.json` seeds the views file's fuzz test, and
+  `Editor/Views-v1.json` its alternate rounds (slice 4).
   `VisualScriptEditorFoundationTests` checks that both keep the coverage and layout described here, and
   `VisualScriptNodeTitlesTests` that the library's members are titled as it titles them.
 

@@ -88,6 +88,7 @@ namespace Strada
 		  m_Operations(m_Context),
 		  m_Scripts(m_Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"),
 		  m_PlayMode(m_Context, m_Scripts),
+		  m_DebugSession(m_Context, m_PlayMode),
 		  m_Export(m_Context, m_Scripts),
 		  m_AutomationServer(m_Commands),
 		  m_VisualScriptViews(FileSystem::GetUserDataDirectory() / "Editor" / "VisualScriptViews.json"),
@@ -97,6 +98,8 @@ namespace Strada
 
 	void EditorLayer::OnAttach()
 	{
+		// Told of every start, frame, resume and stop of play mode before any command can play.
+		m_PlayMode.SetObserver(&m_DebugSession);
 		if (AssetManager::IsInitialized())
 		{
 			m_Context.SetAssetReferenceResolver(
@@ -329,6 +332,7 @@ namespace Strada
 	{
 		// Scripts get OnDestroy while every system is still up.
 		m_PlayMode.Stop();
+		m_PlayMode.SetObserver(nullptr);
 		// A window of the ImGui context, which goes with the ImGui layer.
 		m_KeyboardWindow = nullptr;
 		if (m_GameViewPanel != nullptr)
@@ -369,6 +373,9 @@ namespace Strada
 		// What the game gave back last frame is released before anything reads or injects this frame's input.
 		m_GameInput.BeginFrame();
 		WatchParentProcess();
+		// The resumes the UI asked for in the last frame, between frames and before automation (which may run frames and
+		// resumes itself).
+		m_DebugSession.BeginFrame();
 		m_AutomationServer.ProcessRequests();
 		UpdateInstanceFile();
 		m_Scripts.Update();
@@ -381,6 +388,8 @@ namespace Strada
 		// the input changes hands. Headless editors have no game view: automation drives their input.
 		m_PlayMode.SetUIPointerEnabled(m_GameViewPanel == nullptr || m_GameInput.HasInput());
 		m_PlayMode.Update(timestep);
+		// After the frame: breakpoints follow the project and edits, stops made while no frame ran are seen, waits complete.
+		m_DebugSession.EndFrame();
 		// The edited scene previews its particle systems in the views (playing scenes run their own).
 		if (!m_Context.IsPlaying() && Application::Get().GetImGuiLayer() != nullptr)
 		{
