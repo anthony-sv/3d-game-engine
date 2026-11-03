@@ -1284,6 +1284,18 @@ namespace Strada
 	Result<VisualScriptAnalysis> VisualScriptAnalysis::Parse(std::string text, VisualScriptAnalysis const* previous,
 	                                                         VisualScriptAnalysisTimings* timings)
 	{
+		// The counts are this reading's, whatever the caller's timings held.
+		auto const resetCounts = [timings]()
+		{
+			if (timings != nullptr)
+			{
+				timings->ReusedNodes = 0;
+				timings->ParsedNodes = 0;
+				timings->ReusedDiagnostics = 0;
+				timings->ParsedDiagnostics = 0;
+			}
+		};
+		resetCounts();
 		// Only a text of exactly the form the runtime writes is read in parts: one object of the members Nodes and Diagnostics,
 		// both arrays. Anything else is read whole, which gives its reading or its error.
 		std::optional<std::vector<JsonScanMember>> scanned;
@@ -1320,13 +1332,7 @@ namespace Strada
 		{
 			// A part that does not parse or read: reading whole gives the error, with its path, that reading the text alone
 			// gives.
-			if (timings != nullptr)
-			{
-				timings->ReusedNodes = 0;
-				timings->ParsedNodes = 0;
-				timings->ReusedDiagnostics = 0;
-				timings->ParsedDiagnostics = 0;
-			}
+			resetCounts();
 			return ParseWholeAnalysis(std::move(text), timings);
 		}
 		VisualScriptAnalysis analysis = parts.TakeAnalysis();

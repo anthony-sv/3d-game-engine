@@ -693,6 +693,9 @@ TEST_CASE("VisualScriptBatch: pins named as the analysis shows them are stored u
 				{
 					pin.Name = pin.Name == "Message" ? "Text" : pin.Name;
 				}
+				// A changed record is no longer what its bytes read as (VisualScriptAnalysis::NodeSpans).
+				analysis.NodeSpans.clear();
+				analysis.DiagnosticSpans.clear();
 			}
 			return CreateRef<VisualScriptAnalysis const>(std::move(analysis));
 		}

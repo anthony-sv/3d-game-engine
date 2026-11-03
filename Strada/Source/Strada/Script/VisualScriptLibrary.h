@@ -411,7 +411,8 @@ namespace Strada
 		std::string Text;
 		// Where each node and diagnostic is in Text, [offset, length), aligned with Nodes and Diagnostics. Empty when Parse read
 		// Text whole (a text of another form that still reads, such as one with members beyond the two) and for an analysis
-		// built by hand: a later Parse then reuses nothing of it.
+		// built by hand: a later Parse then reuses nothing of it. Whoever changes a record after Parse clears both, since a
+		// span claims that its record is what its bytes read as.
 		std::vector<std::pair<uint32_t, uint32_t>> NodeSpans;
 		std::vector<std::pair<uint32_t, uint32_t>> DiagnosticSpans;
 		// (ID, index) sorted by ID, then index: FindNode's binary search. Parse builds it; an analysis built by hand may call
@@ -431,9 +432,10 @@ namespace Strada
 
 		// Reads the analysis JSON. Fails when it is not of its form, naming the first member that is not. With a previous
 		// analysis, a node or diagnostic whose bytes equal one of previous's is previous's record (copied), and only the others
-		// are parsed; the result equals Parse(text) in every case, errors included. Graphs is left empty. timings, when given,
-		// has the milliseconds of the reading added to Parse and Read and its counts set (the other members are left as they
-		// are). Pure; any thread.
+		// are parsed; the result equals Parse(text) in every case, errors included, provided previous's records are what its
+		// spans read as: an analysis Parse returned, unchanged, or one whose spans were cleared when its records changed.
+		// Graphs is left empty. timings, when given, has the milliseconds of the reading added to Parse and Read and its counts
+		// set to this reading's (the other members are left as they are). Pure; any thread.
 		[[nodiscard]] static Result<VisualScriptAnalysis> Parse(std::string text, VisualScriptAnalysis const* previous = nullptr,
 		                                                        VisualScriptAnalysisTimings* timings = nullptr);
 	};

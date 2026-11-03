@@ -103,6 +103,29 @@ namespace Strada
 			       position.y + size.y <= framePosition.y + frameSize.y;
 		}
 
+		// Whether two ascending lists share an element.
+		bool HaveCommon(std::vector<size_t> const& first, std::vector<size_t> const& second)
+		{
+			size_t i = 0;
+			size_t j = 0;
+			while (i < first.size() && j < second.size())
+			{
+				if (first[i] == second[j])
+				{
+					return true;
+				}
+				if (first[i] < second[j])
+				{
+					i++;
+				}
+				else
+				{
+					j++;
+				}
+			}
+			return false;
+		}
+
 		// The number of pairs of links between two neighbouring columns that cross, the links given as the positions of their
 		// ends in the left and the right column. Counts the inversions of the right ends once the links are sorted by their
 		// ends, by merging: O(n log n), as graphs may hold thousands of links.
@@ -257,23 +280,44 @@ namespace Strada
 			columns = std::move(best);
 		}
 
-		// A comment box to fit around the arranged nodes it holds.
-		struct CommentRefit
+		// A comment box that moves with the arranged nodes: it holds no node that is not arranged. Read before anything moves.
+		struct FittedBox
 		{
 			size_t Comment = 0;
-			// Indices into the arranged nodes.
+			glm::dvec2 Position{0.0};
+			glm::dvec2 Size{0.0};
+			// The arranged nodes inside it (indices into the arranged nodes, ascending).
 			std::vector<size_t> Nodes;
+			// Its frame in the coordinates of its block's items once laid out, then where it ends.
+			glm::dvec2 FramePosition{0.0};
+			glm::dvec2 FrameSize{0.0};
 		};
 
-		// Comment boxes to fit again whose nodes move as one block: one box, or boxes that share nodes. Its item frames every box
-		// as a new comment box framing the box's nodes would.
-		struct Region
+		constexpr size_t NoBlock = std::numeric_limits<size_t>::max();
+
+		// Fitted boxes whose contents move as one: a box, or boxes that overlap without one holding the other and hold a node
+		// or a fitted box in common. Blocks nest as their boxes do: a block inside another is one of its items.
+		struct Block
 		{
-			// Indices into the arranged nodes, in ID order, and into the comment boxes to fit.
+			// Into the fitted boxes, ascending.
+			std::vector<size_t> Boxes;
+			size_t Parent = NoBlock;
+			// The blocks it holds (ascending), the number of blocks it stands in, and the arranged nodes it holds that no block
+			// inside it holds (ascending).
+			std::vector<size_t> Children;
+			size_t Depth = 0;
 			std::vector<size_t> Nodes;
-			std::vector<size_t> Refits;
-			// Where the region's nodes stand in its item, from the item's corner.
+			// Laid out under the smallest ID of the nodes it holds, or, when it holds none, of its comment boxes, after the nodes.
+			bool HoldsNodes = false;
+			uint32_t SmallestID = std::numeric_limits<uint32_t>::max();
+			// The bounds of its boxes' frames in its items' coordinates; where its items stand in its item, and the item's size;
+			// the item's offset in the level it stands in, and its items' corner relative to the arranged block's.
+			glm::dvec2 FrameMinimum{0.0};
+			glm::dvec2 FrameMaximum{0.0};
 			glm::dvec2 Inset{0.0};
+			glm::dvec2 Size{0.0};
+			glm::dvec2 Offset{0.0};
+			glm::dvec2 Shift{0.0};
 		};
 
 		// A placed node the arranged block stands beside.
@@ -554,13 +598,16 @@ namespace Strada
 				arranged.push_back({id, index, size.GetValue()});
 			}
 
-			// The comment boxes whose contents are arranged nodes only, read before anything moves.
-			std::vector<CommentRefit> refits;
+			// The comment boxes that move with the arranged nodes, read before anything moves: those that hold no node that is not
+			// arranged and hold an arranged node, stand in such a box, or are boxes of a graph whose every node is arranged.
+			bool const wholeGraph = arranged.size() == graph.Nodes.size();
+			std::vector<FittedBox> candidates;
 			for (size_t comment = 0; comment < graph.Comments.size(); comment++)
 			{
-				glm::dvec2 const framePosition(graph.Comments[comment].Position);
-				glm::dvec2 const frameSize(graph.Comments[comment].Size);
-				CommentRefit refit{comment, {}};
+				FittedBox box;
+				box.Comment = comment;
+				box.Position = glm::dvec2(graph.Comments[comment].Position);
+				box.Size = glm::dvec2(graph.Comments[comment].Size);
 				bool onlyArranged = true;
 				for (size_t index = 0; index < graph.Nodes.size(); index++)
 				{
@@ -570,7 +617,7 @@ namespace Strada
 						continue;
 					}
 					glm::dvec2 const position(*node.Position);
-					if (!IsInside(position, glm::dvec2(0.0), framePosition, frameSize))
+					if (!IsInside(position, glm::dvec2(0.0), box.Position, box.Size))
 					{
 						continue;
 					}
@@ -591,7 +638,7 @@ namespace Strada
 						}
 						size = measured.GetValue();
 					}
-					if (!IsInside(position, size, framePosition, frameSize))
+					if (!IsInside(position, size, box.Position, box.Size))
 					{
 						continue;
 					}
@@ -600,142 +647,362 @@ namespace Strada
 						onlyArranged = false;
 						break;
 					}
-					refit.Nodes.push_back(number->second);
+					box.Nodes.push_back(number->second);
 				}
-				for (size_t other = 0; onlyArranged && other < graph.Comments.size(); other++)
+				if (onlyArranged)
 				{
-					if (other != comment && IsInside(glm::dvec2(graph.Comments[other].Position), glm::dvec2(graph.Comments[other].Size),
-					                                 framePosition, frameSize))
-					{
-						onlyArranged = false;
-					}
+					std::sort(box.Nodes.begin(), box.Nodes.end());
+					candidates.push_back(std::move(box));
 				}
-				if (onlyArranged && !refit.Nodes.empty())
+			}
+			std::vector<FittedBox> fitted;
+			for (FittedBox const& box : candidates)
+			{
+				bool moves = wholeGraph || !box.Nodes.empty();
+				for (size_t other = 0; !moves && other < candidates.size(); other++)
 				{
-					refits.push_back(std::move(refit));
+					moves = !candidates[other].Nodes.empty() &&
+					        IsInside(box.Position, box.Size, candidates[other].Position, candidates[other].Size);
+				}
+				if (moves)
+				{
+					fitted.push_back(box);
 				}
 			}
 
-			// The regions: the boxes to fit, those that share nodes joined. Each region's nodes are laid out on their own, and the
-			// region stands in the layout as one item framing its boxes.
-			std::vector<size_t> parents(refits.size());
-			for (size_t refit = 0; refit < refits.size(); refit++)
+			// Which fitted box stands in which (a box stands in itself, and two boxes of one size in each other).
+			size_t const boxCount = fitted.size();
+			std::vector<char> inside(boxCount * boxCount, 0);
+			for (size_t box = 0; box < boxCount; box++)
 			{
-				parents[refit] = refit;
-			}
-			auto const findRoot = [&parents](size_t refit)
-			{
-				while (parents[refit] != refit)
+				for (size_t other = 0; other < boxCount; other++)
 				{
-					parents[refit] = parents[parents[refit]];
-					refit = parents[refit];
+					inside[box * boxCount + other] =
+						IsInside(fitted[box].Position, fitted[box].Size, fitted[other].Position, fitted[other].Size) ? 1 : 0;
 				}
-				return refit;
-			};
-			constexpr size_t NoRefit = std::numeric_limits<size_t>::max();
-			std::vector<size_t> holders(arranged.size(), NoRefit);
-			for (size_t refit = 0; refit < refits.size(); refit++)
+			}
+			auto const isInside = [&inside, boxCount](size_t box, size_t other)
 			{
-				for (size_t const number : refits[refit].Nodes)
+				return inside[box * boxCount + other] != 0;
+			};
+			auto const isStrictlyInside = [&isInside](size_t box, size_t other)
+			{
+				return isInside(box, other) && !isInside(other, box);
+			};
+
+			// The blocks. Boxes that overlap without one holding the other and hold a node or a box in common are joined, since
+			// what both hold must stay in both. Then everything a block holds stands in one box of each block it stands in, so
+			// the blocks nest as a forest.
+			std::vector<size_t> parents(boxCount);
+			for (size_t box = 0; box < boxCount; box++)
+			{
+				parents[box] = box;
+			}
+			auto const findRoot = [&parents](size_t box)
+			{
+				while (parents[box] != box)
 				{
-					if (holders[number] == NoRefit)
+					parents[box] = parents[parents[box]];
+					box = parents[box];
+				}
+				return box;
+			};
+			for (size_t first = 0; first < boxCount; first++)
+			{
+				for (size_t second = first + 1; second < boxCount; second++)
+				{
+					// Boxes apart hold nothing in common.
+					glm::dvec2 const firstMaximum = fitted[first].Position + fitted[first].Size;
+					glm::dvec2 const secondMaximum = fitted[second].Position + fitted[second].Size;
+					if (glm::any(glm::greaterThan(fitted[first].Position, secondMaximum)) ||
+					    glm::any(glm::greaterThan(fitted[second].Position, firstMaximum)) || isStrictlyInside(first, second) ||
+					    isStrictlyInside(second, first))
 					{
-						holders[number] = refit;
 						continue;
 					}
-					size_t const first = findRoot(holders[number]);
-					size_t const second = findRoot(refit);
-					parents[std::max(first, second)] = std::min(first, second);
+					bool shared = HaveCommon(fitted[first].Nodes, fitted[second].Nodes);
+					for (size_t other = 0; !shared && other < boxCount; other++)
+					{
+						shared = other != first && other != second && isInside(other, first) && isInside(other, second);
+					}
+					if (shared)
+					{
+						size_t const firstRoot = findRoot(first);
+						size_t const secondRoot = findRoot(second);
+						parents[std::max(firstRoot, secondRoot)] = std::min(firstRoot, secondRoot);
+					}
 				}
 			}
-			std::vector<Region> regions;
-			std::vector<size_t> regionOfRoot(refits.size(), NoRefit);
-			for (size_t refit = 0; refit < refits.size(); refit++)
+			std::vector<Block> blocks;
+			std::vector<size_t> blockOf(boxCount, NoBlock);
 			{
-				size_t const root = findRoot(refit);
-				if (regionOfRoot[root] == NoRefit)
+				std::vector<size_t> blockOfRoot(boxCount, NoBlock);
+				for (size_t box = 0; box < boxCount; box++)
 				{
-					regionOfRoot[root] = regions.size();
-					regions.emplace_back();
+					size_t const root = findRoot(box);
+					if (blockOfRoot[root] == NoBlock)
+					{
+						blockOfRoot[root] = blocks.size();
+						blocks.emplace_back();
+					}
+					blockOf[box] = blockOfRoot[root];
+					blocks[blockOf[box]].Boxes.push_back(box);
 				}
-				Region& region = regions[regionOfRoot[root]];
-				region.Refits.push_back(refit);
-				region.Nodes.insert(region.Nodes.end(), refits[refit].Nodes.begin(), refits[refit].Nodes.end());
 			}
-			constexpr size_t NoRegion = std::numeric_limits<size_t>::max();
-			std::vector<size_t> regionOf(arranged.size(), NoRegion);
-			for (size_t number = 0; number < regions.size(); number++)
+			// A block stands in another when its first box stands strictly in one of the other's. The blocks one stands in form
+			// a chain, so the one that holds it directly is the one with most blocks around it.
+			auto const standsIn = [&blocks, &isStrictlyInside](size_t block, size_t other)
 			{
-				Region& region = regions[number];
-				std::sort(region.Nodes.begin(), region.Nodes.end());
-				region.Nodes.erase(std::unique(region.Nodes.begin(), region.Nodes.end()), region.Nodes.end());
-				for (size_t const node : region.Nodes)
+				size_t const first = blocks[block].Boxes.front();
+				return std::any_of(blocks[other].Boxes.begin(), blocks[other].Boxes.end(),
+				                   [&isStrictlyInside, first](size_t box)
+				                   {
+									   return isStrictlyInside(first, box);
+								   });
+			};
+			std::vector<std::vector<size_t>> around(blocks.size());
+			for (size_t block = 0; block < blocks.size(); block++)
+			{
+				for (size_t other = 0; other < blocks.size(); other++)
 				{
-					regionOf[node] = number;
+					if (other != block && standsIn(block, other))
+					{
+						around[block].push_back(other);
+					}
+				}
+				blocks[block].Depth = around[block].size();
+			}
+			for (size_t block = 0; block < blocks.size(); block++)
+			{
+				for (size_t const other : around[block])
+				{
+					if (blocks[block].Parent == NoBlock || blocks[other].Depth > blocks[blocks[block].Parent].Depth)
+					{
+						blocks[block].Parent = other;
+					}
+				}
+				if (blocks[block].Parent != NoBlock)
+				{
+					blocks[blocks[block].Parent].Children.push_back(block);
+				}
+			}
+			// Each arranged node belongs to the innermost block holding it: the blocks holding it form a chain too.
+			std::vector<size_t> innermost(arranged.size(), NoBlock);
+			for (size_t box = 0; box < boxCount; box++)
+			{
+				size_t const block = blockOf[box];
+				for (size_t const number : fitted[box].Nodes)
+				{
+					if (innermost[number] == NoBlock || blocks[block].Depth > blocks[innermost[number]].Depth)
+					{
+						innermost[number] = block;
+					}
+				}
+			}
+			for (size_t number = 0; number < arranged.size(); number++)
+			{
+				if (innermost[number] != NoBlock)
+				{
+					blocks[innermost[number]].Nodes.push_back(number);
+				}
+			}
+			// Inner blocks first, and the ID each block is laid out under.
+			std::vector<size_t> innerFirst(blocks.size());
+			for (size_t block = 0; block < blocks.size(); block++)
+			{
+				innerFirst[block] = block;
+			}
+			std::stable_sort(innerFirst.begin(), innerFirst.end(),
+			                 [&blocks](size_t first, size_t second)
+			                 {
+								 return blocks[first].Depth > blocks[second].Depth;
+							 });
+			for (size_t const number : innerFirst)
+			{
+				Block& block = blocks[number];
+				for (size_t const node : block.Nodes)
+				{
+					block.HoldsNodes = true;
+					block.SmallestID = std::min(block.SmallestID, arranged[node].ID);
+				}
+				for (size_t const child : block.Children)
+				{
+					if (blocks[child].HoldsNodes)
+					{
+						block.HoldsNodes = true;
+						block.SmallestID = std::min(block.SmallestID, blocks[child].SmallestID);
+					}
+				}
+				if (!block.HoldsNodes)
+				{
+					for (size_t const box : block.Boxes)
+					{
+						block.SmallestID = std::min(block.SmallestID, graph.Comments[fitted[box].Comment].ID);
+					}
+					for (size_t const child : block.Children)
+					{
+						block.SmallestID = std::min(block.SmallestID, blocks[child].SmallestID);
+					}
 				}
 			}
 
-			// The items, in ID order: the nodes in no region, and each region under its smallest node's ID.
-			std::vector<LayoutItem> items;
-			std::vector<size_t> itemOf(arranged.size(), 0);
-			for (size_t number = 0; number < arranged.size(); number++)
+			// Lays out one level, a block's items or (NoBlock) the arranged block's: its nodes and the blocks standing in it, in
+			// ID order, the blocks that hold no node after the nodes. Sets the offsets of the nodes and of the blocks in the
+			// level's coordinates.
+			std::vector<size_t> nodePlaces(arranged.size(), 0);
+			std::vector<size_t> blockPlaces(blocks.size(), 0);
+			auto const layOutLevel = [&](size_t level, std::vector<size_t> const& levelNodes, std::vector<size_t> const& levelBlocks,
+			                             std::vector<Anchor> const& levelAnchors)
 			{
-				size_t const region = regionOf[number];
-				if (region == NoRegion)
+				if (levelBlocks.empty())
 				{
-					itemOf[number] = items.size();
-					items.push_back({arranged[number].ID, arranged[number].Size});
-					continue;
+					std::vector<LayoutItem> items;
+					items.reserve(levelNodes.size());
+					for (size_t const number : levelNodes)
+					{
+						items.push_back({arranged[number].ID, arranged[number].Size});
+					}
+					LayOutItems(graph, items, levelAnchors);
+					for (size_t place = 0; place < levelNodes.size(); place++)
+					{
+						arranged[levelNodes[place]].Offset = items[place].Offset;
+					}
+					return;
 				}
-				if (regions[region].Nodes.front() != number)
+				// The items as the nodes of a graph of their own, numbered in their order and linked as their nodes are (and from
+				// the anchors, numbered after them).
+				using Key = std::tuple<bool, uint32_t, bool, size_t>;
+				std::vector<Key> keys;
+				keys.reserve(levelNodes.size() + levelBlocks.size());
+				for (size_t const number : levelNodes)
 				{
-					continue;
+					keys.emplace_back(false, arranged[number].ID, false, number);
 				}
-				// The region's own layout, and the frames of its boxes around it.
-				std::vector<LayoutItem> inner;
-				inner.reserve(regions[region].Nodes.size());
-				for (size_t const node : regions[region].Nodes)
+				for (size_t const block : levelBlocks)
 				{
-					inner.push_back({arranged[node].ID, arranged[node].Size});
+					keys.emplace_back(!blocks[block].HoldsNodes, blocks[block].SmallestID, true, block);
 				}
-				LayOutItems(graph, inner, {});
-				std::unordered_map<size_t, size_t> innerOf;
-				for (size_t place = 0; place < inner.size(); place++)
+				std::sort(keys.begin(), keys.end());
+				VisualScriptGraph itemGraph;
+				std::vector<LayoutItem> items(keys.size());
+				itemGraph.Nodes.resize(keys.size());
+				for (size_t place = 0; place < keys.size(); place++)
 				{
-					innerOf.emplace(regions[region].Nodes[place], place);
+					bool const isBlock = std::get<2>(keys[place]);
+					size_t const index = std::get<3>(keys[place]);
+					items[place].ID = static_cast<uint32_t>(place + 1);
+					items[place].Size = isBlock ? blocks[index].Size : arranged[index].Size;
+					itemGraph.Nodes[place].ID = items[place].ID;
+					(isBlock ? blockPlaces : nodePlaces)[index] = place;
 				}
-				glm::dvec2 frameMinimum(std::numeric_limits<double>::max());
-				glm::dvec2 frameMaximum(std::numeric_limits<double>::lowest());
-				for (size_t const refit : regions[region].Refits)
+				std::vector<Anchor> anchorItems = levelAnchors;
+				std::unordered_map<uint32_t, uint32_t> anchorItemIDs;
+				for (size_t anchor = 0; anchor < anchorItems.size(); anchor++)
 				{
+					uint32_t const id = static_cast<uint32_t>(keys.size() + anchor + 1);
+					anchorItemIDs.emplace(anchorItems[anchor].ID, id);
+					anchorItems[anchor].ID = id;
+				}
+				// The item of the level an arranged node stands in, if it stands in the level.
+				auto const findItem = [&](size_t number) -> std::optional<uint32_t>
+				{
+					size_t block = innermost[number];
+					if (block == level)
+					{
+						return items[nodePlaces[number]].ID;
+					}
+					while (block != NoBlock && blocks[block].Parent != level)
+					{
+						block = blocks[block].Parent;
+					}
+					if (block == NoBlock)
+					{
+						return std::nullopt;
+					}
+					return items[blockPlaces[block]].ID;
+				};
+				for (VisualScriptLink const& link : graph.Links)
+				{
+					auto const to = numbers.find(link.To.Node);
+					if (to == numbers.end())
+					{
+						continue;
+					}
+					std::optional<uint32_t> const target = findItem(to->second);
+					if (!target)
+					{
+						continue;
+					}
+					std::optional<uint32_t> source;
+					if (auto const from = numbers.find(link.From.Node); from != numbers.end())
+					{
+						source = findItem(from->second);
+					}
+					else if (auto const anchor = anchorItemIDs.find(link.From.Node); anchor != anchorItemIDs.end())
+					{
+						source = anchor->second;
+					}
+					if (source && *source != *target)
+					{
+						itemGraph.Links.push_back({{*source, {}}, {*target, {}}});
+					}
+				}
+				LayOutItems(itemGraph, items, anchorItems);
+				for (size_t place = 0; place < keys.size(); place++)
+				{
+					size_t const index = std::get<3>(keys[place]);
+					(std::get<2>(keys[place]) ? blocks[index].Offset : arranged[index].Offset) = items[place].Offset;
+				}
+			};
+
+			// Each block laid out on its own, inner blocks first, and its boxes framed as new comment boxes framing what they
+			// hold would be: their nodes and the blocks inside them. A box that holds nothing keeps its size.
+			for (size_t const number : innerFirst)
+			{
+				layOutLevel(number, blocks[number].Nodes, blocks[number].Children, {});
+				Block& block = blocks[number];
+				block.FrameMinimum = glm::dvec2(std::numeric_limits<double>::max());
+				block.FrameMaximum = glm::dvec2(std::numeric_limits<double>::lowest());
+				for (size_t const box : block.Boxes)
+				{
+					FittedBox& frame = fitted[box];
 					glm::dvec2 minimum(std::numeric_limits<double>::max());
 					glm::dvec2 maximum(std::numeric_limits<double>::lowest());
-					for (size_t const node : refits[refit].Nodes)
+					bool holds = false;
+					for (size_t const node : frame.Nodes)
 					{
-						LayoutItem const& placed = inner[innerOf.at(node)];
-						minimum = glm::min(minimum, placed.Offset);
-						maximum = glm::max(maximum, placed.Offset + placed.Size);
+						if (innermost[node] == number)
+						{
+							minimum = glm::min(minimum, arranged[node].Offset);
+							maximum = glm::max(maximum, arranged[node].Offset + arranged[node].Size);
+							holds = true;
+						}
 					}
-					auto const [position, size] = FrameBounds(minimum, maximum);
-					frameMinimum = glm::min(frameMinimum, position);
-					frameMaximum = glm::max(frameMaximum, position + size);
+					for (size_t const child : block.Children)
+					{
+						Block const& held = blocks[child];
+						if (isInside(held.Boxes.front(), box))
+						{
+							minimum = glm::min(minimum, held.Offset + held.Inset + held.FrameMinimum);
+							maximum = glm::max(maximum, held.Offset + held.Inset + held.FrameMaximum);
+							holds = true;
+						}
+					}
+					if (holds)
+					{
+						std::tie(frame.FramePosition, frame.FrameSize) = FrameBounds(minimum, maximum);
+					}
+					else
+					{
+						frame.FramePosition = glm::dvec2(0.0);
+						frame.FrameSize = frame.Size;
+					}
+					block.FrameMinimum = glm::min(block.FrameMinimum, frame.FramePosition);
+					block.FrameMaximum = glm::max(block.FrameMaximum, frame.FramePosition + frame.FrameSize);
 				}
-				// The inset keeps the region's nodes on the grid of the items' corners; the frames stand within the item.
-				glm::dvec2 const inset(RoundUpToGrid(-frameMinimum.x), RoundUpToGrid(-frameMinimum.y));
-				regions[region].Inset = inset;
-				for (size_t place = 0; place < inner.size(); place++)
-				{
-					arranged[regions[region].Nodes[place]].Offset = inner[place].Offset;
-				}
-				itemOf[number] = items.size();
-				items.push_back({arranged[number].ID, inset + frameMaximum});
-			}
-			for (size_t number = 0; number < arranged.size(); number++)
-			{
-				if (regionOf[number] != NoRegion)
-				{
-					itemOf[number] = itemOf[regions[regionOf[number]].Nodes.front()];
-				}
+				// The inset keeps the block's nodes on the grid of the items' corners; the frames stand within the item.
+				block.Inset = glm::dvec2(RoundUpToGrid(-block.FrameMinimum.x), RoundUpToGrid(-block.FrameMinimum.y));
+				block.Size = block.Inset + block.FrameMaximum;
 			}
 
 			// The anchors' column, top to bottom (then left to right, then by ID).
@@ -744,57 +1011,41 @@ namespace Strada
 			          {
 						  return std::tie(a.Position.y, a.Position.x, a.ID) < std::tie(b.Position.y, b.Position.x, b.ID);
 					  });
-			if (regions.empty())
+			// The arranged block: the nodes in no box that moves and the outermost blocks. Then every node's offset from its
+			// corner.
+			std::vector<size_t> topNodes;
+			std::vector<size_t> topBlocks;
+			for (size_t number = 0; number < arranged.size(); number++)
 			{
-				LayOutItems(graph, items, anchorNodes);
-				for (size_t number = 0; number < arranged.size(); number++)
+				if (innermost[number] == NoBlock)
 				{
-					arranged[number].Offset = items[number].Offset;
+					topNodes.push_back(number);
 				}
 			}
-			else
+			for (size_t block = 0; block < blocks.size(); block++)
 			{
-				// The items as the nodes of a graph of their own, linked as their nodes are (and from the anchors).
-				VisualScriptGraph itemGraph;
-				itemGraph.Nodes.resize(items.size());
-				for (size_t item = 0; item < items.size(); item++)
+				if (blocks[block].Parent == NoBlock)
 				{
-					itemGraph.Nodes[item].ID = items[item].ID;
+					topBlocks.push_back(block);
 				}
-				for (VisualScriptLink const& link : graph.Links)
+			}
+			layOutLevel(NoBlock, topNodes, topBlocks, anchorNodes);
+			for (auto number = innerFirst.rbegin(); number != innerFirst.rend(); ++number)
+			{
+				Block& block = blocks[*number];
+				glm::dvec2 const outer = block.Parent == NoBlock ? glm::dvec2(0.0) : blocks[block.Parent].Shift;
+				block.Shift = outer + block.Offset + block.Inset;
+			}
+			for (size_t number = 0; number < arranged.size(); number++)
+			{
+				if (innermost[number] != NoBlock)
 				{
-					auto const to = numbers.find(link.To.Node);
-					if (to == numbers.end())
-					{
-						continue;
-					}
-					uint32_t from = link.From.Node;
-					if (auto const source = numbers.find(link.From.Node); source != numbers.end())
-					{
-						from = items[itemOf[source->second]].ID;
-					}
-					else if (!std::binary_search(anchorIDs.begin(), anchorIDs.end(), from))
-					{
-						continue;
-					}
-					uint32_t const target = items[itemOf[to->second]].ID;
-					if (from != target)
-					{
-						itemGraph.Links.push_back({{from, {}}, {target, {}}});
-					}
-				}
-				LayOutItems(itemGraph, items, anchorNodes);
-				for (size_t number = 0; number < arranged.size(); number++)
-				{
-					LayoutItem const& item = items[itemOf[number]];
-					size_t const region = regionOf[number];
-					arranged[number].Offset =
-						region == NoRegion ? item.Offset : item.Offset + regions[region].Inset + arranged[number].Offset;
+					arranged[number].Offset += blocks[innermost[number]].Shift;
 				}
 			}
 
-			// By default and with a corner, the arranged nodes' top-left corner is given (a region's frames reach above and
-			// left of it); with anchors, the block's corner.
+			// By default and with a corner, the arranged nodes' top-left corner is given (the boxes' frames reach above and left
+			// of it); with anchors, the block's corner.
 			glm::dvec2 nodesCorner(std::numeric_limits<double>::max());
 			for (ArrangedNode const& node : arranged)
 			{
@@ -821,20 +1072,51 @@ namespace Strada
 				glm::dvec2 const position = origin + node.Offset;
 				graph.Nodes[node.Index].Position = glm::vec2(ToCoordinate(position.x), ToCoordinate(position.y));
 			}
-			for (CommentRefit const& refit : refits)
+			// The boxes framed again around where their nodes and inner boxes now stand, inner blocks first. A box that holds
+			// nothing moves with its block.
+			for (size_t const number : innerFirst)
 			{
-				glm::dvec2 minimum(std::numeric_limits<double>::max());
-				glm::dvec2 maximum(std::numeric_limits<double>::lowest());
-				for (size_t const number : refit.Nodes)
+				Block const& block = blocks[number];
+				for (size_t const box : block.Boxes)
 				{
-					glm::dvec2 const position(*graph.Nodes[arranged[number].Index].Position);
-					minimum = glm::min(minimum, position);
-					maximum = glm::max(maximum, position + arranged[number].Size);
+					FittedBox& frame = fitted[box];
+					glm::dvec2 minimum(std::numeric_limits<double>::max());
+					glm::dvec2 maximum(std::numeric_limits<double>::lowest());
+					bool holds = false;
+					for (size_t const node : frame.Nodes)
+					{
+						glm::dvec2 const position(*graph.Nodes[arranged[node].Index].Position);
+						minimum = glm::min(minimum, position);
+						maximum = glm::max(maximum, position + arranged[node].Size);
+						holds = true;
+					}
+					for (size_t const child : block.Children)
+					{
+						if (!isInside(blocks[child].Boxes.front(), box))
+						{
+							continue;
+						}
+						for (size_t const held : blocks[child].Boxes)
+						{
+							minimum = glm::min(minimum, fitted[held].FramePosition);
+							maximum = glm::max(maximum, fitted[held].FramePosition + fitted[held].FrameSize);
+							holds = true;
+						}
+					}
+					if (holds)
+					{
+						std::tie(frame.FramePosition, frame.FrameSize) = FrameBounds(minimum, maximum);
+					}
+					else
+					{
+						frame.FramePosition = origin + block.Shift;
+					}
+					VisualScriptComment& comment = graph.Comments[frame.Comment];
+					comment.Position = glm::vec2(ToCoordinate(frame.FramePosition.x), ToCoordinate(frame.FramePosition.y));
+					comment.Size = glm::vec2(frame.FrameSize);
+					frame.FramePosition = glm::dvec2(comment.Position);
+					frame.FrameSize = glm::dvec2(comment.Size);
 				}
-				auto const [position, size] = FrameBounds(minimum, maximum);
-				VisualScriptComment& comment = graph.Comments[refit.Comment];
-				comment.Position = glm::vec2(ToCoordinate(position.x), ToCoordinate(position.y));
-				comment.Size = glm::vec2(size);
 			}
 			return {};
 		}

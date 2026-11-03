@@ -1163,13 +1163,21 @@ namespace Strada::Testing
 					auto const found = m_Graphs.find(reference.Graph);
 					analysis.GetValue().Graphs.emplace_back(reference.Graph, found != m_Graphs.end() ? found->second : nullptr);
 				}
+				bool changed = false;
 				for (VisualScriptAnalyzedNode& node : analysis.GetValue().Nodes)
 				{
 					auto const passThrough = m_InjectedPassThroughs.find(node.ID);
 					if (passThrough != m_InjectedPassThroughs.end() && IsDisabled(document, node.ID))
 					{
 						node.PassThrough = passThrough->second;
+						changed = true;
 					}
+				}
+				// A changed record is no longer what its bytes read as (VisualScriptAnalysis::NodeSpans).
+				if (changed)
+				{
+					analysis.GetValue().NodeSpans.clear();
+					analysis.GetValue().DiagnosticSpans.clear();
 				}
 			}
 			return ShareAnalysis(std::move(analysis));

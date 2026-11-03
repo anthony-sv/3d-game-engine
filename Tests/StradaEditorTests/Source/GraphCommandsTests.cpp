@@ -4159,3 +4159,41 @@ TEST_CASE("GraphCommands: while playing, a library an edit broke shows the last 
 	fixture.Frames(2);
 	CHECK(fixture.Editor(library)["live"] == "None");
 }
+
+TEST_CASE("GraphCommands: without the runtime graph.arrange sizes a node naming another graph by that graph's member")
+{
+	// Spec-slice4 §16.3: graph.arrange's headless canvas resolves the graphs nodes name, as a window does, so a degraded canvas
+	// titles a Get of Door's Health by Health, never by this graph's variable of that ID.
+	GraphFixture fixture;
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	VisualScriptDocument watcher;
+	watcher.Variables.push_back(MakeVariable(1, "AVariableOfThisGraphWithAMuchLongerName", "float", 0.0));
+	watcher.Graph.Nodes.push_back(MakeNode(10, "Variable.Get", Json::object({{"Variable", 1}, {"Graph", door}})));
+	watcher.Graph.Nodes.push_back(MakeNode(11, "Call:Strada.Log.Info(string)"));
+	watcher.Graph.Links.push_back(MakeLink(10, "Value", 11, "Message"));
+	std::string const graph = fixture.CreateGraph("Scripts/Watcher.sgraph", watcher);
+	VisualScriptDocument const stored = fixture.GetDocument(graph);
+	Result<AssetHandle> const doorHandle = AssetManager::ResolveReference(door);
+	REQUIRE(doorHandle.IsOk());
+	VisualScriptDocument const doorDocument = fixture.GetDocument(door);
+
+	// What a window shows of the Get: its target's variable. Without a resolver it would be sized otherwise.
+	VisualScriptGraphResolver const resolve = [&doorHandle, &doorDocument](AssetHandle other) -> VisualScriptDocument const*
+	{
+		return other == doorHandle.GetValue() ? &doorDocument : nullptr;
+	};
+	VisualScriptHeadlessCanvas canvas;
+	canvas.Sync(stored, 0, nullptr, nullptr, nullptr, resolve);
+	VisualScriptCanvasModel const& model = canvas.GetCanvas();
+	REQUIRE(model.FindNode(10));
+	CHECK(model.GetText(model.GetNodes()[*model.FindNode(10)].Title) == "Health");
+	VisualScriptHeadlessCanvas unresolved;
+	unresolved.Sync(stored, 0, nullptr, nullptr, nullptr, {});
+	CHECK(unresolved.GetExtents()(10) != canvas.GetExtents()(10));
+
+	VisualScriptDocument expected = stored;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
+	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
+	CHECK(arranged["changed"] == true);
+	CHECK(fixture.GetDocument(graph) == expected);
+}

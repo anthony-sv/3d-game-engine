@@ -880,7 +880,9 @@ namespace Strada
 		void RecordCommittedLinks(VisualScriptDocument const& before, VisualScriptDocument const& after);
 		// The outside change for the gesture in progress (m_Rebase), while the visual model still shows before.
 		void RecordOutsideChange(VisualScriptDocument const& before, VisualScriptDocument const& after);
-		// Whether the gesture in progress, or the press not yet a drag, holds the element (it names it in an interruption).
+		// Whether the gesture in progress names the element in its interruption: an element it moves, the comment it resizes or
+		// the wire's source. A relink's interruption names none, and a press not yet a drag is rebased in RebaseGesture's Idle
+		// branch, which ends it without one.
 		bool IsGestureElement(uint32_t element) const;
 		// A node or comment box as a toast names it, from the visual model as it is laid out now; empty when it shows neither.
 		std::string DescribeElement(uint32_t element) const;

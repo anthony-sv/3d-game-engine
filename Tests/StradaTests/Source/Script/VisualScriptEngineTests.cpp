@@ -3572,17 +3572,33 @@ namespace
 		return document;
 	}
 
-	// Parse(text, previous) against Parse(text), with the reader's counts.
+	// Parse(text, previous) against Parse(text), with the reader's counts. The timings given already hold a reading's: the
+	// milliseconds are added to, the counts are this reading's.
 	VisualScriptAnalysisTimings CheckReadWithPrevious(std::string const& text, VisualScriptAnalysis const* previous)
 	{
 		VisualScriptAnalysisTimings timings;
+		timings.Runtime = 5.0;
+		timings.Parse = 7.0;
+		timings.Read = 11.0;
+		timings.ReusedNodes = 1000;
+		timings.ParsedNodes = 1000;
+		timings.ReusedDiagnostics = 1000;
+		timings.ParsedDiagnostics = 1000;
 		Result<VisualScriptAnalysis> const read = VisualScriptAnalysis::Parse(text, previous, &timings);
 		Result<VisualScriptAnalysis> const alone = VisualScriptAnalysis::Parse(text);
 		Testing::CheckSameAnalysisRead(read, alone);
+		CHECK(timings.Runtime == 5.0);
+		CHECK(timings.Parse >= 7.0);
+		CHECK(timings.Read >= 11.0);
 		if (read)
 		{
 			CHECK(timings.ReusedNodes + timings.ParsedNodes == read.GetValue().Nodes.size());
 			CHECK(timings.ReusedDiagnostics + timings.ParsedDiagnostics == read.GetValue().Diagnostics.size());
+		}
+		else
+		{
+			CHECK(timings.ReusedNodes == 0);
+			CHECK(timings.ReusedDiagnostics == 0);
 		}
 		if (previous == nullptr)
 		{

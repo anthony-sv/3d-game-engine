@@ -3261,22 +3261,26 @@ TEST_CASE("VisualScriptEditor: Details' Align and Distribute buttons fit or wrap
 	PaneFixture fixture(MakeDocument(), {FixturePane::Details});
 	fixture.Frames(2);
 	fixture.SelectElements({1, 2});
+	fixture.CheckDrawingChangesNothing();
 	constexpr std::array<std::string_view, 8> Buttons = {
 		"Align/Left",           "Align/Right", "Align/Top", "Align/Bottom", "Align/Centres", "Align/Middles", "Distribute/Horizontally",
 		"Distribute/Vertically"};
 	for (float const scale : {1.0f, 1.75f})
 	{
 		CAPTURE(scale);
-		ImGui::GetStyle().FontScaleDpi = scale;
-		float fontSize = 0.0f;
-		fixture.ImGui.Frame(
-			[&fontSize]
+		// Details at its least width, the stacked column's narrowest (VisualScriptWindowLayout's rule 2), drawn without a change.
+		fixture.CheckDrawingChangesNothing(
+			[&fixture, scale]
 			{
-				fontSize = ImGui::GetFontSize();
+				ImGui::GetStyle().FontScaleDpi = scale;
+				float fontSize = 0.0f;
+				fixture.ImGui.Frame(
+					[&fontSize]
+					{
+						fontSize = ImGui::GetFontSize();
+					});
+				fixture.DetailsWindowSize = ImVec2(VisualScriptDetailsMinWidth * fontSize, PaneFixture::DetailsSize.y);
 			});
-		// Details at its least width, the stacked column's narrowest (VisualScriptWindowLayout's rule 2).
-		fixture.DetailsWindowSize = ImVec2(VisualScriptDetailsMinWidth * fontSize, PaneFixture::DetailsSize.y);
-		fixture.Frames(3);
 		ImGuiWindow const* const details = ImGui::FindWindowByName("Details");
 		REQUIRE(details != nullptr);
 		std::optional<std::pair<glm::vec2, glm::vec2>> const align = fixture.Details.FindRow("Align");

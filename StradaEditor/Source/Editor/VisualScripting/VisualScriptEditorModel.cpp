@@ -1078,6 +1078,8 @@ namespace Strada
 				{
 					return MakeInterruption(change, touchedReason(source), source);
 				}
+				// The source's pins come from the analysis or the library a gesture keeps (no analysis runs during one) and from the
+				// untouched node itself, so they hold; should the pin still be gone, the wire must not keep its old index.
 				VisualScriptPin const* info = FindPinInfo(m_Wire.Source);
 				if (!FindCanvasPin(m_Wire.Source) || info == nullptr)
 				{

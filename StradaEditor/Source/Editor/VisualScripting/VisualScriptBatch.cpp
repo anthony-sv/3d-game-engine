@@ -1371,16 +1371,29 @@ namespace Strada
 
 			// The canvas of a sub-graph, synced with the working document as far as the use needs (spec-slice4 §9.3): a Rows
 			// canvas syncs again only when the pins may have changed, a Geometry canvas also when sizes or anchors may have.
-			// Below pin level since the analysis, the analysis describes every node's pins, so the canvas takes them for the
-			// document as it is (a literal added since would otherwise make a node fall back to its template): the display then
-			// stands for the document analyzed.
+			// Each sub-graph has one canvas per use, and Rows reads the Geometry canvas while that one is current, so a canvas
+			// syncs again only after the document changed: what was read from it stays valid until then. Below pin level since
+			// the analysis, the analysis describes every node's pins, so the canvas takes them for the document as it is (a
+			// literal added since would otherwise make a node fall back to its template): the display then stands for the
+			// document analyzed.
 			VisualScriptHeadlessCanvas const& GetCanvas(uint32_t function, CanvasUse use)
 			{
-				BatchCanvas& canvas = m_Canvases[function];
-				bool const geometryCurrent = canvas.GeometryVersion == m_GeometryVersion;
-				bool const current = canvas.Analysis == m_Analysis && canvas.RowVersion == m_RowVersion &&
-				                     (geometryCurrent || (use == CanvasUse::Rows && !canvas.RowsFollowDocument));
-				if (!current)
+				auto const isCurrent = [this](BatchCanvas const& candidate, CanvasUse candidateUse)
+				{
+					bool const geometryCurrent = candidate.GeometryVersion == m_GeometryVersion;
+					return candidate.Analysis == m_Analysis && candidate.RowVersion == m_RowVersion &&
+					       (geometryCurrent || (candidateUse == CanvasUse::Rows && !candidate.RowsFollowDocument));
+				};
+				if (use == CanvasUse::Rows)
+				{
+					auto const geometry = m_Canvases.find({function, CanvasUse::Geometry});
+					if (geometry != m_Canvases.end() && isCurrent(geometry->second, CanvasUse::Geometry))
+					{
+						return *geometry->second.Canvas;
+					}
+				}
+				BatchCanvas& canvas = m_Canvases[{function, use}];
+				if (!isCurrent(canvas, use))
 				{
 					Ref<VisualScriptDocument const> const& display = GetDisplay();
 					canvas.Analysis = m_Analysis;
@@ -1408,8 +1421,9 @@ namespace Strada
 				return *canvas.Canvas;
 			}
 
-			// The pins of a sub-graph's nodes as the operations that need no anchors take them: a Rows canvas's, with every anchor
-			// NaN, so that an operation that reads one fails its tests at once. Valid until the document next changes.
+			// The pins of a sub-graph's nodes as the operations that need no anchors take them: a Rows canvas's (or a current
+			// Geometry canvas's), with every anchor NaN, so that an operation that reads one fails its tests at once. Valid until
+			// the document next changes (GetCanvas).
 			VisualScriptNodePins GetRows(uint32_t function)
 			{
 				VisualScriptNodePins rows = [pins = GetCanvas(function, CanvasUse::Rows).GetPins()](uint32_t node)
@@ -2288,7 +2302,8 @@ namespace Strada
 			uint64_t m_Version = 0;
 			uint64_t m_RowVersion = 0;
 			uint64_t m_GeometryVersion = 0;
-			std::map<uint32_t, BatchCanvas> m_Canvases;
+			// Per sub-graph and use.
+			std::map<std::pair<uint32_t, CanvasUse>, BatchCanvas> m_Canvases;
 			Ref<VisualScriptDocument const> m_Display;
 			uint64_t m_DisplayVersion = std::numeric_limits<uint64_t>::max();
 			uint32_t m_Displays = 0;
