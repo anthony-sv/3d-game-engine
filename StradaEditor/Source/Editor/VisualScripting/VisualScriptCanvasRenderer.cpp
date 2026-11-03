@@ -53,6 +53,8 @@ namespace Strada
 		constexpr float BypassAlpha = 0.60f;
 		constexpr float CommentRounding = 6.0f;
 		constexpr float CommentGripSize = 12.0f;
+		// Screen pixels: above what rounding loses from screen coordinates below 65536 (1/128 of a pixel), far below a glyph.
+		constexpr float CommentTitleFitTolerancePixels = 1.0f / 32.0f;
 
 		// Pins.
 		constexpr float HoveredPinScale = 1.3f;
@@ -1308,7 +1310,9 @@ namespace Strada
 		float const titlePixels = VisualScriptGeometry::GetCommentTitlePixels(frame.PixelsPerUnit, frame.UIScale);
 		float const available = title.Max.x - title.Min.x;
 		float const layoutWidth = comment.Title.Width * titlePixels / Metrics::CommentTitleTextSize;
-		if (layoutWidth <= available)
+		// A title that fits has a rectangle exactly its width, held as two screen coordinates: reading the width back from them
+		// can lose a fraction of a pixel to rounding, which must not ellipsize a title that fits.
+		if (layoutWidth <= available + CommentTitleFitTolerancePixels)
 		{
 			DrawLadderText(frame, titlePixels, title.Min, comment.BarTextColor, frame.Canvas.GetVisibleText(comment.Title),
 			               comment.Title.IsEllipsized());

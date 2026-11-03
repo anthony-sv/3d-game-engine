@@ -1896,11 +1896,15 @@ namespace Strada
 			ImVec2 const breadcrumbMin = ImGui::GetCursorScreenPos();
 			float const listWidth = frame;
 			float const graphNeeded = textButtonWidth(graphText);
+			// Unshortened, both names show whole: the rooms below give each exactly its width, which their sums and differences
+			// can round a fraction of a pixel short of it.
+			bool const whole = breadcrumbWidth >= breadcrumbFull;
 			float const textRoom = std::max(breadcrumbWidth - chevron - listWidth, 0.0f);
 			float const scriptRoom = std::max(textRoom - graphNeeded, std::min(textRoom * 0.5f, fontSize * 2.0f));
-			std::string const scriptShown = FitText(scriptText, std::max(scriptRoom - style.FramePadding.x * 2.0f, 0.0f));
+			std::string const scriptShown =
+				whole ? scriptText : FitText(scriptText, std::max(scriptRoom - style.FramePadding.x * 2.0f, 0.0f));
 			float const graphRoom = std::max(textRoom - textButtonWidth(scriptShown), 0.0f);
-			std::string const graphShown = FitText(graphText, std::max(graphRoom - style.FramePadding.x * 2.0f, 0.0f));
+			std::string const graphShown = whole ? graphText : FitText(graphText, std::max(graphRoom - style.FramePadding.x * 2.0f, 0.0f));
 			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
 			// A function library shows its first function: it has no event graph to show.
 			VisualScriptDocument const& shown = m_Model.GetDisplayDocument();

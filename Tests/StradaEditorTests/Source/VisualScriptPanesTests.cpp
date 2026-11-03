@@ -1034,6 +1034,53 @@ namespace
 	}
 }
 
+TEST_CASE("VisualScriptEditor: a colour too narrow for its channels' numbers shows its swatch alone, as in a row of Details")
+{
+	Testing::FixtureVisualScriptSemantics semantics;
+	VisualScriptLibrary const& library = semantics.GetFixtureLibrary();
+	Testing::HeadlessImGui headless;
+	headless.UseEditorStyle();
+	VisualScriptLiteralEditor editor;
+	Json const orange = Json::array({1.0, 0.45, 0.15, 1.0});
+	for (float const scale : {1.0f, 1.75f})
+	{
+		CAPTURE(scale);
+		ImGui::GetStyle().FontScaleDpi = scale;
+		// 120 pixels at a font size of 15 leave each channel about 20, too few for "255" beside its marker; 400 about 90.
+		for (float const width : {120.0f, 400.0f})
+		{
+			CAPTURE(width);
+			ImVec2 origin;
+			float frameHeight = 0.0f;
+			auto const draw = [&]
+			{
+				ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+				ImGui::SetNextWindowSize(ImVec2(1200.0f, 300.0f));
+				ImGui::Begin("Colour", nullptr, ImGuiWindowFlags_NoSavedSettings);
+				origin = ImGui::GetCursorScreenPos();
+				frameHeight = ImGui::GetFrameHeight();
+				ImGui::PushItemWidth(width * scale);
+				CHECK_FALSE(editor.Draw("Strada.Color", orange, Json(), &library).has_value());
+				ImGui::PopItemWidth();
+				ImGui::End();
+			};
+			headless.Frame(draw);
+			// Beside the place of the swatch drawn alone: a channel's field there, or nothing.
+			ImGui::GetIO().AddMousePosEvent(origin.x + frameHeight * 1.5f, origin.y + frameHeight * 0.5f);
+			headless.Frame(draw);
+			headless.Frame(draw);
+			CHECK((GImGui->HoveredId != 0) == (width == 400.0f));
+			// The swatch is there either way: after the fields, or first when alone.
+			float const swatch = width == 400.0f ? width * scale - frameHeight * 0.5f : frameHeight * 0.5f;
+			ImGui::GetIO().AddMousePosEvent(origin.x + swatch, origin.y + frameHeight * 0.5f);
+			headless.Frame(draw);
+			headless.Frame(draw);
+			CHECK(GImGui->HoveredId != 0);
+		}
+	}
+	ImGui::GetStyle().FontScaleDpi = 1.0f;
+}
+
 TEST_CASE("VisualScriptEditor: FieldEditor draws a value outside a table, and a compact float drags as the canvas shows it")
 {
 	InlineFixture fixture;

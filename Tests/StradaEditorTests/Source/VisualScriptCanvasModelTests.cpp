@@ -226,6 +226,44 @@ TEST_CASE("VisualScriptEditor: the visual model sizes nodes from their measured 
 	CHECK(send.Size.x <= VisualScriptCanvasMetrics::MaxNodeWidth);
 }
 
+TEST_CASE("VisualScriptEditor: a subtitle wider than its node is ellipsized to the node's width, which it does not change")
+{
+	// A formula as an Expression's subtitle, on a Branch (182 wide, as its pins make it) and on a collapsed Branch (120 wide).
+	CanvasFixture canvas;
+	VisualScriptNode collapsed = MakeNode(2, "Flow.Branch", glm::vec2(0.0f, 300.0f));
+	collapsed.Collapsed = true;
+	canvas.Document.Graph.Nodes = {MakeNode(1, "Flow.Branch"), collapsed, MakeNode(3, "Flow.Branch", glm::vec2(0.0f, 600.0f))};
+	canvas.Analyze();
+	std::string const formula = "vec3(cos(radians(Angle)), 0, sin(radians(Angle))) * Radius";
+	for (VisualScriptAnalyzedNode& node : canvas.Analysis->Nodes)
+	{
+		node.Subtitle = node.ID == 3 ? std::string("Target is Self") : formula;
+	}
+	CHECK(canvas.Sync());
+
+	// Six units a byte at the subtitle's size, the ellipsis 18: 24 bytes and the ellipsis fit the 162 inside the padding.
+	VisualScriptNodeVisual const& branch = canvas.Node(1);
+	CHECK(branch.Size.x == doctest::Approx(182.0f));
+	CHECK(branch.Subtitle.Length == formula.size());
+	CHECK(branch.Subtitle.IsEllipsized());
+	CHECK(canvas.Model.GetVisibleText(branch.Subtitle) == formula.substr(0, 24));
+	CHECK(branch.Subtitle.Width == doctest::Approx(162.0f));
+	CHECK(Geometry::GetSubtitleRect(branch, glm::vec2(0.0f)).Max.x <=
+	      branch.Position.x + branch.Size.x - VisualScriptCanvasMetrics::HorizontalPadding + 0.001f);
+
+	// Collapsed, it is the header's width: 100 inside the padding hold 13 bytes and the ellipsis.
+	VisualScriptNodeVisual const& header = canvas.Node(2);
+	CHECK(header.Size.x == doctest::Approx(120.0f));
+	CHECK(canvas.Model.GetVisibleText(header.Subtitle) == formula.substr(0, 13));
+	CHECK(header.Subtitle.Width <= 100.0f);
+
+	// A subtitle that fits stays whole.
+	VisualScriptNodeVisual const& target = canvas.Node(3);
+	CHECK_FALSE(target.Subtitle.IsEllipsized());
+	CHECK(canvas.Text(target.Subtitle) == "Target is Self");
+	CHECK(target.Size.x == doctest::Approx(182.0f));
+}
+
 TEST_CASE("VisualScriptEditor: an exec pin's label is hidden, and not measured, only when it is its node's one Execute or Then")
 {
 	CanvasFixture canvas;
