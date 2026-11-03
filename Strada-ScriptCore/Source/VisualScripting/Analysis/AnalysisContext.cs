@@ -49,6 +49,10 @@ internal sealed class AnalysisContext
 
 	internal string? SelfName { get; }
 
+	// Where the analysis adds the time of each phase (spec-slice4 section 9.0); null when nobody measures it. The libraries the
+	// document calls are analyzed without it, inside the phase that needs them.
+	internal AnalysisTimings? Timings { get; init; }
+
 	// What the analysis read of each other graph (its fingerprint when read), and the libraries its calls link: a cached
 	// analysis of a library is reused only while both are what they were (spec-slice3 section 4.4.3).
 	internal IReadOnlyDictionary<ulong, GraphFingerprint> Reads => m_Reads;

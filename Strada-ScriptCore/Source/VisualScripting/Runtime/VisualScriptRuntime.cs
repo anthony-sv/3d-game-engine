@@ -86,6 +86,9 @@ internal sealed partial class VisualScriptRuntime
 	// The carry plans live edits made (spec-slice4 section 8.3): one per pair of programs a swap carries instances between.
 	internal int CarryPlansMade { get; private set; }
 
+	// Where analyses and loads add the time of their phases (spec-slice4 section 9.0); null when nobody measures them.
+	internal AnalysisTimings? Timings { get; set; }
+
 	// Analyzes and compiles a document for a graph handle and returns its diagnostics. A program is stored whatever the
 	// document holds; a broken one keeps the handle's working program running (spec section 5.1), a working one swaps the
 	// program of the handle's instances (spec section 5.6). Either way the live log gets the load's receipt (spec-slice4
@@ -96,8 +99,10 @@ internal sealed partial class VisualScriptRuntime
 	internal IReadOnlyList<Diagnostic> Load(ulong graph, string name, ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default)
 	{
 		ProgramSource source = new(name, document.ToArray(), references.ToArray());
-		AnalyzedDocument analyzed = Analyze(source);
+		AnalyzedDocument analyzed = Analyze(source, Timings);
+		long start = AnalysisTimings.Now();
 		GraphProgram program = ProgramCompiler.Compile(analyzed, name, analyzed.Linked);
+		start = Timings?.Lap(AnalysisPhase.Compile, start) ?? start;
 		bool stale = false;
 		if (m_Graphs.TryGetValue(graph, out GraphEntry? entry))
 		{
@@ -123,6 +128,7 @@ internal sealed partial class VisualScriptRuntime
 			entry.EffectiveSource = source;
 			m_PendingSwaps.Add(graph);
 			ApplySwaps(graph);
+			Timings?.Lap(AnalysisPhase.Swap, start);
 		}
 		else
 		{
@@ -541,8 +547,8 @@ internal sealed partial class VisualScriptRuntime
 		return ProgramCompiler.Compile(analyzed, source.Name, analyzed.Linked);
 	}
 
-	private AnalyzedDocument Analyze(ProgramSource source) =>
-		GraphAnalyzer.Analyze(m_Library(), source.Document, GraphReferences.Parse(source.References), m_LibraryAnalyses, source.Name);
+	private AnalyzedDocument Analyze(ProgramSource source, AnalysisTimings? timings = null) =>
+		GraphAnalyzer.Analyze(m_Library(), source.Document, GraphReferences.Parse(source.References), m_LibraryAnalyses, source.Name, timings);
 
 	private void LogRecompiled(GraphProgram program)
 	{

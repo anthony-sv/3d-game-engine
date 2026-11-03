@@ -34,8 +34,14 @@ internal sealed partial class VisualScriptRuntime
 	// single Error InvalidDocument. references is the bundle of the other graphs the document's nodes refer to (spec-slice3
 	// section 2.4), empty for none: any bytes, a bundle that is not of its form holding no graph. The libraries it holds are
 	// analyzed once for every document that calls them (spec-slice3 section 4.4.3).
-	internal HostReply AnalyzeDocument(ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default) =>
-		HostReply.Success(AnalysisWriter.Write(GraphAnalyzer.Analyze(m_Library(), document, GraphReferences.Parse(references), m_LibraryAnalyses)));
+	internal HostReply AnalyzeDocument(ReadOnlySpan<byte> document, ReadOnlySpan<byte> references = default)
+	{
+		AnalyzedDocument analyzed = GraphAnalyzer.Analyze(m_Library(), document, GraphReferences.Parse(references), m_LibraryAnalyses, timings: Timings);
+		long start = AnalysisTimings.Now();
+		byte[] text = AnalysisWriter.Write(analyzed);
+		Timings?.Lap(AnalysisPhase.Write, start);
+		return HostReply.Success(text);
+	}
 
 	// VisualScriptLoad: stores a program for the handle whatever the document holds and answers its diagnostics array.
 	// references as for AnalyzeDocument; the program keeps it, so it compiles again with the same bundle.
