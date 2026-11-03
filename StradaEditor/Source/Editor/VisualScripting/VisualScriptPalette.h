@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
+#include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"

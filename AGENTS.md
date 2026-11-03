@@ -30,7 +30,7 @@ before changing anything structural; it is the architectural contract.
 | `Tests/ScriptCoreTests/` | C# unit tests of the scripting API (xUnit v3) |
 | `Tests/StradaToolTests/` | Tests of `strada`: command line, MCP server, sessions with the headless editor (xUnit v3) |
 | `Tests/Data/` | Test data (renderer golden images) |
-| `Projects/FeatureTest/` | Project exercising every component and the entire scripting API |
+| `Projects/FeatureTest/` | Project exercising every component and the entire scripting API, with graphs of every built-in node kind and every `[VisualNode]` member of its scripts |
 | `Projects/Blocks/` | Sample game (falling blocks) made through the agent tools, with a test scene |
 | `Projects/Showcase/` | Every engine feature in exhibit areas of a forest clearing (materials, glass, lights, post-processing, physics, triggers, a yard to walk in, particles, sound) with an opening camera tour, a HUD and day and night, built by `Tools/Author.py` through the agent tools; `Tools/FetchAssets.py` downloads its Poly Haven assets |
 | `cmake/` | Build modules: options, compiler settings, dependencies |
@@ -206,7 +206,11 @@ namespace Strada
 - `Tests/StradaEditorTests/Source/AutomationFuzzTests.cpp` sends every registered automation command parameters built
   from its schema and the editor's state: each must answer once and never with InternalError, the scene must stay
   loadable, undoing and redoing everything must restore it, and nothing outside the project may change. New commands
-  are fuzzed as soon as they are registered; run it with `STRADA_FUZZ_SCALE` after changing one.
+  are fuzzed as soon as they are registered; run it with `STRADA_FUZZ_SCALE` after changing one. Beside it,
+  `GraphEditFuzzTests.cpp` sends `graph.edit` random batches of every operation kind under the scripting runtime: each
+  fails naming an operation and changes nothing, or writes one undo step that loads strictly and undoes byte for byte. A
+  new editing operation of the visual script editor gets its `graph.edit` operation, its entry in both fuzz generators
+  and its row in Docs/Automation.md in the same change; run both with `STRADA_FUZZ_SCALE` after changing one.
 
 Rules for the other suites:
 
@@ -226,6 +230,16 @@ Rules for the other suites:
   the feature-test scripts (read from their compiled metadata), `StradaTests` fails if a registered component is
   missing from its scenes, and `StradaRuntimeTests` runs it through the player (`--test`) and fails on any failed
   check. Edit its scenes with the editor (open `Projects/FeatureTest/FeatureTest.sproj`); CMake builds its scripts.
+  Visual scripts too: every node of the node library must analyze and run in the generated test
+  `Tests/StradaTests/Source/Script/VisualScriptNodeCoverageTests.cpp`. When a new API member or built-in node kind does
+  not run on its defaults, add a recipe there (`Recipe(type)` with `WithInputs`, `WithSettings`, `WithComponents`,
+  `WithTargetsChild`, `WithHeldKeys`, `WithHeldMouseButtons`, `WithHeldGamepadButtons`, `WithFrames`, `WithRanFrom`,
+  `WithAlone`, `WithExpectedError` or `WithExpectedLog`), a `MemberTypeRecipes` entry for what every member
+  of a type needs, or a checked exclusion naming a graph the FeatureTest scenes run (or a shared fixture document) that
+  holds an enabled node of that type linked into flow. A new built-in node kind, or a new `[VisualNode]` member of the
+  FeatureTest scripts, fails StradaTests ("the feature-test graphs use every built-in node kind ...") until
+  `build_features` in `Projects/FeatureTest/Tools/AuthorGraphs.py` uses it: run that tool and update `FeaturesChecks` in
+  `Projects/FeatureTest/Scripts/Source/VisualScriptTests.cs`.
 
 ## Commit process
 

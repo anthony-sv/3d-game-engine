@@ -690,11 +690,12 @@ runtime as C# scripts but need no C# project: a game can be made of graphs alone
 "+" > Visual Script in the content browser creates a graph (`New Visual Script.sgraph`, with an `Event.Create` and an
 `Event.Update` node), double-clicking it opens it on a canvas in the editor (see
 [Editing visual scripts](#editing-visual-scripts) below), and dragging it onto entities in the hierarchy, the inspector
-or the scene view runs it there. A graph is stored as a document of nodes and links, which agents also write through
+or the scene view runs it there. A graph is stored as a document of nodes and links, which agents also edit through
 the editor's automation commands (MCP tools, or `strada call` from a shell): `graph.library` lists the kinds of nodes
-with their pins, `graph.types` the types, `graph.check` checks a document and `graph.set` saves it, and `graph.open`
-shows it in its window. [Automation.md](Automation.md) describes the document and the commands. This graph turns its
-entity like the `Spinner` script at the top of this guide:
+with their pins, `graph.types` the types, `graph.edit` applies operations (add nodes, connect pins, set values,
+arrange) as one undo step, `graph.check` checks a whole document and `graph.set` saves one, and `graph.open` shows a
+graph in its window. [Automation.md](Automation.md) describes the document and the commands. This graph, written
+whole, turns its entity like the `Spinner` script at the top of this guide:
 
 ```json
 {
@@ -731,6 +732,33 @@ flow starts at the event and runs `Set Rotation`. The other nodes are pure: they
 outputs whenever a node that runs needs them, here the turn from the speed and the frame's `DeltaTime`, and the current
 rotation. The `Target` of an entity's or a component's member, left unlinked, is the entity the graph runs on. Nodes
 need no `Position`: `graph.set` places those without one.
+
+An agent builds such a graph with `graph.edit` instead, in a graph `graph.create` made from the Events template (node 2
+is its `Event.Update`): names stand for the variables, `"$labels"` for the nodes it adds, two Expressions do the maths,
+and Arrange lays it out. This batch keeps an angle of its own, because `EulerAngles` reads back one of several sets of
+angles for a rotation, so adding to the angles read would stall:
+
+```json
+{ "graph": "asset://Scripts/Spinner.sgraph", "description": "Spin at Speed degrees per second", "operations": [
+	{ "op": "AddVariable", "name": "Speed", "type": "float", "value": 90.0, "public": true, "tooltip": "Degrees per second" },
+	{ "op": "AddVariable", "name": "Angle", "type": "float" },
+	{ "op": "AddNode", "type": "Variable.Get", "settings": { "Variable": "Speed" }, "as": "$speed" },
+	{ "op": "AddNode", "type": "Variable.Get", "settings": { "Variable": "Angle" }, "as": "$angle" },
+	{ "op": "AddNode", "type": "Expression", "settings": { "Formula": "(angle + speed * dt) % 360" }, "as": "$next" },
+	{ "op": "AddNode", "type": "Variable.Set", "settings": { "Variable": "Angle" }, "as": "$store" },
+	{ "op": "AddNode", "type": "Expression", "settings": { "Formula": "vec3(0, a, 0)" }, "as": "$euler" },
+	{ "op": "AddNode", "type": "Set:Strada.TransformComponent.EulerAngles", "as": "$turn" },
+	{ "op": "Connect", "from": ["$angle", "Value"], "to": ["$next", "angle"] },
+	{ "op": "Connect", "from": ["$speed", "Value"], "to": ["$next", "speed"] },
+	{ "op": "Connect", "from": [2, "DeltaTime"], "to": ["$next", "dt"] },
+	{ "op": "Connect", "from": ["$next", "Result"], "to": ["$store", "Value"] },
+	{ "op": "Connect", "from": ["$store", "Value"], "to": ["$euler", "a"] },
+	{ "op": "Connect", "from": ["$euler", "Result"], "to": ["$turn", "Value"] },
+	{ "op": "Connect", "from": [2, "Then"], "to": ["$store", "Execute"] },
+	{ "op": "Connect", "from": ["$store", "Then"], "to": ["$turn", "Execute"] },
+	{ "op": "Arrange", "scope": "Graph" }
+] }
+```
 
 Public variables show in the inspector below the component's `Graph`, where each entity gives them values of its own
 (the component's `Variables`, saved with the scene like script fields), so one graph serves many entities: this one
@@ -858,6 +886,213 @@ running instances at their next update: variables keep their values (a new varia
 at its `Value`; one renamed or added and edited before that update takes the edited value), waiting nodes keep waiting
 while they still exist, and a graph saved with an error keeps running its last working version.
 
+### Expressions
+
+An `Expression` node computes a formula such as `a * b + sin(t)`, in place of a chain of operator nodes. Every name in the
+formula that is not followed by `(` becomes an input of that name, in the order the names first appear: `distance /
+speed` has the inputs `distance` and `speed`, `exp + 1` the input `exp`, and `v.X` the input `v` only. `true`, `false`,
+`pi` and `tau` are constants. An input you link takes the type of its link (`bool`, `int`, `uint`, `long`, `ulong`,
+`float`, `double`, `Vector2`, `Vector3` or `Vector4`); an input you leave unlinked is a `float`, and you can type its value
+on the node.
+
+- Integers divide as integers (`7 / 2` is 3; `%` keeps the sign of the dividend) and floats as floats (`7 / 2.0` is 3.5).
+  Mixed numbers widen as links do: `int` and `float` give `float`, `int` and `uint` give `long`; `int` and `ulong` have no
+  common type, so convert one with `long(...)` or `double(...)`.
+- Write `1e40d`, or any number ending in `d`, for a `double`; a float literal is at most 3.4028235e38. Vectors add,
+  subtract, multiply and divide component by component, and multiply or divide by a number.
+- Functions: `abs`, `sign`, `min`, `max`, `clamp`, `floor`, `ceil`, `round` (half to even), `trunc`, `frac`, `sqrt`, `exp`,
+  `log`, `log2`, `log10`, `pow`, `atan2`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `radians`, `degrees`, `lerp` (not
+  clamped), `smoothstep`, `step`, `length`, `normalize`, `dot`, `distance`, `cross`, and `vec2`, `vec3` and `vec4`. Casts:
+  `int`, `uint`, `long`, `ulong`, `float` and `double`; a float cast to an integer is truncated and saturated, and NaN gives 0.
+- `.X`, `.Y`, `.Z` and `.W` (or `.x`, ...) read a vector's components. `&&`, `||` and `?:` evaluate only what they need.
+  There is no `^`: use `pow(a, b)`.
+- An integer division or modulo by zero stops the execution with a message naming the part of the formula ("integer
+  division by zero in a / b").
+- Mistakes are reported on the node with the part of the formula they are about; messages about brackets and `?:` give
+  the line and column (columns count characters, a tab is one). A graph keeps running its last working version while you
+  fix a formula.
+- An Expression is pure and costs one step, however long its formula. A formula has at most 4096 bytes, 1024 parts, 64
+  levels of nesting and 32 inputs; a name has at most 64 bytes.
+
+### Text and arrays
+
+The `Utilities/String` nodes (subtitled String) work on text: Length, Is Empty, Contains, Starts With, Ends With, Index
+Of, Substring, Replace, To Upper, To Lower, Trim, Split, Join, To Int and To Float. They compare ordinally (case matters),
+change case the same way in every language, count UTF-16 code units (as C#'s `string.Length` does) and never stop the
+graph: Index Of clamps `StartIndex` and gives -1 when nothing is found (`""` is found at the clamped start); Substring
+clamps `Start` and `Length`, and a negative `Length` takes the rest; Replace with an empty `Old` changes nothing; Split's
+`Separator` is `,` by default, an empty one gives the whole text and Remove Empty drops empty parts; Join writes the
+elements as text (None for no entity) with `Separator`, `, ` by default. To Int reads an optional sign and digits, To
+Float a sign, digits, one decimal point and an exponent, white space around them allowed, the same in every language;
+text that does not read, overflows or is not finite gives 0 with `Success` false.
+
+Every type has an array type (`float[]`, `Strada.Vector3[]`, ...), but there are no arrays of arrays. Arrays can be
+private variables, locals, function inputs and outputs, custom-event parameters, `Literal` values and type arguments.
+Public variables cannot be arrays yet, as components cannot store them: keep the variable private and fill it in the
+graph (Make Array from public variables, or the `Children` of a child entity that holds the points). An array is never
+None: an array left unset, or one C# gives as null, is empty, and Is Valid of an array is always true. Arrays compare
+element by element (NaN equals nothing), read as text like `[1, 2, 3]`, and a `Player[]` is not an `Entity[]`.
+
+The `Utilities/Array` nodes (subtitled Array) never change an array: Set Element, Add Element, Remove Element, Insert
+Element (before `Index`; an `Index` equal to the length appends) and Append Arrays (A's elements, then B's, in one copy)
+give new arrays of the graph's element type, even when C# gave an array of a derived type. Make Array builds one from
+`Count` elements (0 to 64) of its `Type`, or of the type its linked elements share (`int` and `float` give `float[]`);
+without links, set `Type`. Contains and Index Of search an array, Length and Get read it. An array literal is a JSON
+array of at most 4096 element values, and arrays made in graphs hold at most 65,536 elements. C# code that changes an
+array it got from a graph changes it for the graph too: copy it first.
+
+Generic methods whose type parameters have no constraints (`Assert.AreEqual<T>`, `AreNotEqual<T>`) take their type from
+their links: an input of type `T[]` decides `T` as its element type; otherwise the inputs of type `T` join as Select's do
+(`int` and `float` give `float`; `int` and an entity have no common type). An output of type `T[]` is the array of that
+type. Setting `TypeArguments` fixes the types instead, arrays included; a method whose type parameter appears in no input
+needs it.
+
+### Timelines
+
+A `Flow.Timeline` plays curves over `Length` seconds (more than 0, at most 3600) and can `Loop`. Its tracks (at most 32)
+are float, Vector2, Vector3, Vector4 or Color curves, each a data output of its type, or event tracks, each an exec output
+that fires at its keys; each track has at most 1024 keys in time order. Curve keys have a time and a value, an
+interpolation to the next key (Cubic, the default, Linear or Constant) and optional in and out slopes (automatic
+otherwise); keys at one time make a jump. Automation writes the setting as JSON ([Automation.md](Automation.md) shows its
+form); the editor's Timeline drawer edits it (below).
+
+- Inputs: Play and Reverse continue from where it is; PlayFromStart and ReverseFromEnd jump to the start or the end;
+  Stop pauses where it is; SetTime moves to `NewTime` (clamped) without firing anything. `Rate` scales the speed and is
+  read when it starts playing; 0 or less holds it still. Each input ends its chain.
+- While it plays, every update fires the event keys it crossed (in playing order), then `Update`. At the end of a
+  timeline that does not loop, `Playing` becomes false and `Finished` fires, which may play it again. Looping timelines
+  never finish: in a loop the end and the start are one moment, so playing forward a key at 0 fires every cycle and a key
+  at `Length` never (backward the reverse).
+- Outputs: `Time`, `Direction` (`TimelineDirection.Forward` or `Backward`), `Playing` and each curve's value; before it
+  plays they hold the values at time 0.
+- At most 1000 event keys fire in one update; the time beyond is dropped with one Warning.
+- Timelines belong in the event graph. Editing a playing timeline changes its motion at the next frame without
+  restarting it (its time is clamped into a shorter `Length`), so you can tune it live; disabling it stops it, and a
+  disabled timeline passes its data inputs through by type, as every disabled node does: `Time` takes `NewTime`, the
+  first float curve `Rate`, the other outputs their defaults.
+
+### Your own nodes
+
+Mark a public method, property, field or constructor of your game's scripts with `[VisualNode]` and it becomes a node,
+in the palette's Game category (`Game/<type name>`, or the `Category` you give). Mark a class or struct and every public
+member declared on it becomes one; mark an enum and graphs can use it (variables, switches, literals, public variables).
+Types a marked member uses become types of graphs too.
+
+```csharp
+using Strada;
+
+namespace Game;
+
+public static class Combat
+{
+	[VisualNode(Pure = true, Category = "Game/Combat", Description = "The health a hit leaves, never below 0")]
+	public static float Hit(float health, float damage) => health > damage ? health - damage : 0.0f;
+}
+
+public class Door : Script
+{
+	private bool m_Open;
+
+	[VisualNode(Pure = true)]
+	public bool IsOpen() => m_Open;
+
+	// Graphs made when it was called Unlock keep working.
+	[VisualNode(Title = "Open Door", FormerNames = ["Unlock"])]
+	public void Open()
+	{
+		m_Open = true;
+	}
+}
+```
+
+- `Title` (1 to 128 characters) replaces the member's name in words (properties and fields: "Get <Title>" and "Set
+  <Title>"); `Category` is 1 to 8 names of 1 to 64 characters separated by `/`; `Description` has at most 4096
+  characters; each of `Keywords` 1 to 64. On a type, only `Category` applies, to the members that name none.
+- Methods have flow pins unless `Pure = true`, which needs a result or `out` parameters; getters are pure, setters never.
+- An instance member of a script class takes a `Target`, an entity (the graph's own when unlinked), and runs on that
+  entity's script; on an entity whose script is of another class the graph stops with "<entity> has no <class> script".
+  Script classes' constructors have no node.
+- Not supported: `ref`, `in` and `params` parameters, pointers, delegates, ref structs, and members that return `Task`,
+  `ValueTask` or `IEnumerator`. Members run to their end, so a member cannot make a graph wait: start the work in C# and
+  give graphs a property to wait on with Wait Until (`[VisualNode] public bool IsLoaded`).
+- Renaming: `FormerNames = ["Heal"]` (the same type) or `["Game.Hero.Heal"]` (moved to another type; for a constructor,
+  the type's former full name) keeps graphs that use the old name working, and they store the new one at their next
+  save. A former name that is another node's type is ignored, with a note.
+- Every marked member that has no node, every attribute value outside its limits and every type or member whose
+  attributes cannot be read (a dependency of the game that is not deployed) is a note of the node library, logged once
+  when the library is built (the Console) and listed at the end of the palette's Game category ("3 [VisualNode] members
+  have no node: see the Console") and by `graph.library`'s `notes`; the rest of the library builds as usual. A game type
+  with the full name of a scripting API type is not a type of graphs.
+
+### Function libraries
+
+A function library is a visual script whose kind is Library ("+" > Visual Script Library in the content browser,
+`graph.create` with the template `Library`, or Details' Kind with nothing selected). It runs on no entity: it has no
+variables and no event graph, only functions (and comment boxes). Other graphs call its functions with a Call Function
+node whose Graph setting names the library; the call takes the function's inputs, outputs, purity and waiting. `Self`, and
+the unlinked `Target`s inside a library function, mean the entity whose graph called it. A library is the place for
+maths and helpers several graphs share.
+
+- A library function may wait (Delay, Wait Until), send events and call other libraries' functions; Tween, Interval and
+  Timeline belong in event graphs. Libraries cannot call each other in a cycle (`LibraryCycle`). A call of a library
+  that has an error is an error itself (`ReferenceError`), and the graph keeps running its last working version.
+- Renaming a library function's input or output keeps its former name, so graphs that still use the old name keep
+  working, and their next save stores the new one. Removing an input or output, or the function, breaks its callers:
+  the editor tells you which scripts call it (below).
+- Each graph that calls a library runs its own copy of the library's functions. Editing the library reloads every graph
+  that calls it, also while playing: running graphs swap to the new version, and an execution waiting inside a library
+  function keeps waiting while the function still has its nodes. When an edit cancels one, the warning names the
+  library's file ("the execution waiting in Delay (node 12) of Scripts/Motion.sgraph is cancelled: the edit disabled
+  Delay (node 12) of Scripts/Motion.sgraph"). A broken library leaves the graphs that call it running the version that
+  worked, and errors in a library function are logged with the library's path.
+- Dropping a library on an entity is refused ("Motion is a function library: graphs call its functions; it runs on no
+  entity"), and an entity whose VisualScript component names one shows that sentence instead of variables and runs
+  nothing. The asset inspector says when a visual script is a function library and which scripts use it ("Used by
+  Player.sgraph (3 nodes)"), and deleting a graph other scripts use names them ("they will show errors").
+
+### Talking to other graphs
+
+`Event.Send` raises a custom event by name, as above. Its optional Graph setting names the script that should receive
+it: with Graph set, the event reaches only an entity that runs that script (any other is skipped with a warning, once per
+node and entity), and the editor checks the Send against that script's custom event. A missing script, a missing event
+(with suggestions), other parameter types or a disabled event is a warning, never an error: the event is still sent by
+name, so a typed Send is never required. Link its `Target`: a typed Send whose `Target` is left unlinked in a script sends
+to Self, which runs this script, not the one Graph names (`TargetIsSelf`).
+
+`Event.Broadcast` raises a custom event on every graph that has an event of that name with exactly these parameter types:
+a project-wide message such as GameOver. With Graph set, it reaches only entities running that script, checked as a typed
+Send is. The receivers are the instances alive when the node runs, in the order the entities started running their
+graphs; the broadcasting entity is one of them unless IncludeSelf is off. Each receiver runs the event as Send's receiver
+does (it may wait, send or broadcast again) and gets the arguments of the broadcast that reached it, also when a receiver
+broadcasts the same event again from the same node. An entity destroyed by an earlier receiver is skipped, one started
+during the broadcast is not reached, and an error in a receiver stops the broadcast and the graph that broadcast it.
+`Count` is how many received it (none is normal and logs nothing). Every instance it examines costs one step of the
+execution's budget of 1,000,000, and a pure function cannot broadcast.
+
+Get Variable and Set Variable have an optional Graph setting naming another script: with it they take a `Target` entity
+(Self when unlinked) and read or write that entity's variable. The variable must be public there; public is the one
+access rule, and it is also what makes a variable editable on components. A graph naming itself may also use another
+entity's private variables. In a script, an unlinked `Target` with Graph naming another script is an error
+(`UnlinkedTarget`): Self runs this script, so link the entity to read from or write to; in a library function an unlinked
+`Target` is the entity whose graph called it. While the game runs, the read or the write stops the execution with an
+error when the `Target` is None, the entity runs no visual script, it runs another script ("Window (9) runs
+Scripts/Window.sgraph, not Scripts/Door.sgraph"), the variable is gone ("Scripts/Door.sgraph has no variable Health any
+more"), its type changed ("Door's Health is a string now, not a float") or it became private. The node finds the
+variable by its ID, and by its name after a rename that changed the ID, so renaming Health in Door keeps readers working.
+
+`Runs Graph` tells whether its `Target` (Self when unlinked) runs the script Graph names: false for None and for an entity
+that runs no or another visual script. It is the guard for Get and Set of another script's variables. A library is never
+run by an entity, so naming one is an error; in a script, an unlinked `Target` with Graph naming another script makes it
+always false (`TargetIsSelf`): link the entity to test.
+
+A graph is compiled with the other graphs it uses: the libraries it calls (and the libraries those call) are compiled
+into it, and the graphs whose variables it reads or writes are checked by their kind and variables. Renaming or moving a
+graph that others use, or one appearing or disappearing, recompiles the graphs that refer to it; changing another
+graph's layout never does. A graph refers to at most 256 other graphs, its libraries' references included; the others
+are treated as missing ("more than 256 visual scripts are referenced"). When an edit renames or deletes what other
+scripts use, the editor says what happens to them (below), and agents' `graph.edit` and `graph.set` list those nodes in
+`referrers`.
+
 ### Editing visual scripts
 
 **Opening a script.** Double-click a visual script in the content browser (or use its Open menu item, the Open button
@@ -944,6 +1179,92 @@ and the game goes on with the last version that worked until you fix it. The too
 running the script the window shows: My Script then shows its public variables' current values, and dropped entities set
 its values. Edits made while playing stay in the script after Stop, and stay undoable.
 
+**Formulas.** Type a formula in an Expression's Formula field in Details (a monospace field of a few lines), or
+double-click the node's header to type it on the node. Ctrl+Enter, Enter on the node, or leaving the field commits it;
+Escape cancels. Retyping a name renames the input and keeps its link, and the Inputs row under the field lists the
+inputs with their types. While only numbers and operators change, a running game gets the formula as you type.
+Problems show under the field with `^` under the part they are about; a click selects that part, and "Use sin" fixes a
+misspelled function in place. A formula Details cannot take (over 4096 bytes) is refused with "The formula stays:
+<why>"; after Ctrl+Enter the text stays in the field to be fixed. In the palette, type `=` and a formula
+(`=a*b+sin(t)`) to add an Expression of it.
+
+**Arrays.** Details edits an array's elements: a variable's or local's default, a Literal's value and an unlinked array
+input (+ Add Element; drag an element's handle onto another handle of the same array to move it there, while a drop
+onto another array's handle moves nothing; x removes it). Make Array's Count adds and removes element pins, keeping their
+links. On the canvas a chip shows an unlinked array input's length. My Script's eye refuses to make an array public
+("Arrays cannot be public: components cannot store them"), and the inspector lists a public array a graph declares as
+read-only ("arrays cannot be set on components").
+
+**Timelines.** Double-click a Timeline's header, choose Edit Timeline in its menu, or click Edit on a track in Details,
+to open its tracks and curves in the drawer under the canvas. On the left, + Add Track adds a Float, Vector2, Vector3,
+Vector4, Color or Event track; double-click a name to rename it (its links follow); its menu has Rename, Change Type and
+Remove; the eye hides a track, and X Y Z W (R G B A) hide components. On the right, click a key to select it (Shift adds,
+Ctrl toggles), or drag on empty space for a rectangle. Drag keys to move them as a block: times snap to 0.01 s (Alt:
+free), Shift keeps one axis, and a block stops at the next key that is not selected and at the timeline's ends. Drag a
+selected cubic key's handle to set both its slopes, or with Alt only that one. Double-click a curve to add a key with
+the curve's value there, or a lane to add an event. Right-click a key for Interpolation (Cubic, Linear, Constant),
+Tangents (Auto, Flat) and Delete. The wheel zooms time, Ctrl+wheel zooms values, a right or middle drag pans, and F
+frames the selected keys (everything without any). While the drawer has the keyboard, Delete removes keys, Ctrl+A selects
+the visible tracks' keys, and the arrows move the selected keys by 0.01 s (Shift: 0.1 s); presses less than half a
+second apart are one undo step. Esc while dragging keys or a slope cancels the drag (the keys go back where they were and
+no undo step is left), Esc during a rectangle gives back the selection you had, and otherwise Esc gives the keyboard back
+to the canvas. The selection, the eye and the component toggles follow tracks that are renamed, or removed elsewhere
+(Details, undo, an agent), and tracks with very large values (up to the largest floats) frame and draw like any other.
+Details shows the Length (lowering it moves later keys onto the new end in the same step, and dragging it back up
+restores them), Loop, and a row per track with a preview. While playing, a dragged key reaches the running timeline at
+the next commit, within 0.1 s, without restarting it.
+
+**Other graphs.** Nodes that name another graph get it in Details: the Graph picker lists the project's scripts or
+libraries, as the setting takes, with "None (this script)" or "None (any receiver, by name)" first (a graph the project
+no longer has shows "Missing (8146…)"). With a Graph, the Variable list shows that script's public variables (every
+variable when it is this script), the Function list the library's functions, and Send and Broadcast get an Event list
+that sets their Name and Parameters. Each change is one undo step that removes only the links whose pins went ("Set
+Graph on Send Hit (removes 1 link)"); None makes a Send untyped and keeps its parameters. With nothing selected, Details
+shows the script's Kind (Script or Function Library): making a script with variables or event nodes a library, or a
+library other scripts call a script, asks first and says what will show errors ("Make Motion a script? 3 nodes in 2 other
+scripts call its functions: they will show errors until fixed."), and a toast says it again afterwards. A public
+variable shows "Used by N nodes in M other scripts" and a library's function "Called by N nodes in M scripts", with
+[Find Callers]. The palette lists the functions of the project's libraries (under Libraries/<name>), the other scripts'
+typed Send and Broadcast of their events, Get and Set of their public variables and Runs <name> (under
+Scripts/<name>), an untyped Broadcast of this script's events, and "Get/Set X of another <script>"; typing a category
+word finds entries ("health door" finds Get Health). A library's palette offers no variables or custom events of its
+own. Double-clicking a node that names another graph, or its menu's first item, opens that graph's window: "Open Clamp01
+in Motion", "Go to Event Hit in Door", "Select Variable Health in Door" (which selects it there), or "Open Door" when
+that graph lacks what the node names; a node naming a graph the project does not have shows in Details. Back in that
+window returns to the caller's window and view (opening it again if it was closed), and Forward goes there again. F2 and
+Find References on such a node show nothing of this script; Find References lists the other graph's element across every
+script. Renaming a custom event renames this script's untyped Sends and Broadcasts and those typed with this script.
+
+After an edit that changes what the graph offers others, a toast says what happens to their nodes, with a button that
+lists them: "Renamed Value to Amount: 3 calls in 2 other scripts follow it", "Deleted Clamp01: 1 call in 1 other script
+show errors", "Made Speed private: 2 nodes in 1 other script show errors" (Find Callers, Find References or Find
+Senders). Deleting a variable, function or event other scripts use asks first, counting them: "2 nodes here use it
+(they are deleted too). 3 nodes in 2 other scripts use it: they will show errors until fixed.", with [Delete], [Find
+References] and [Cancel]. A library's window opens on its first function, and My Script shows "Function library · used
+by N nodes in M scripts" and its Functions (an event graph, variables or custom events left in it are shown so they can
+be deleted, with no + to add more); an empty library shows "This library has no functions yet." with [Add Function].
+While playing, a broken library's pill reads "LIVE · last working version", and its tooltip says that the graphs that
+call it keep running the last version that worked.
+
+**The window's layout.** My Script and Details stand beside the canvas when both fit with a canvas of 40 font sizes;
+when the window is narrower, they stack in one column on My Script's side (My Script above Details, a splitter between
+them), and in a window narrower still Details and then My Script hide and open over the canvas when needed. At the
+farthest zooms comment titles are drawn above the nodes, on a plate of the comment's colour, so the regions of a large
+graph stay readable; a title starts at the canvas's edge when its box starts beyond it.
+
+**Edits made elsewhere.** An agent's or another window's edit lands in an open window at once, and its changed nodes
+flash. A value you are dragging or typing in Details or My Script survives an edit of other elements; when the edit
+changed the same element, your value is dropped with "Your edit of Duration was replaced by a change made elsewhere". A
+gesture on the canvas that such an edit interrupts ends with "Your move was interrupted by a change made elsewhere".
+
+**The Edit menu's keys.** Cut, Copy, Paste, Duplicate, Delete and Select All, in the Edit menu and as keys (Ctrl+X,
+Ctrl+C, Ctrl+V, Ctrl+D, Delete or Ctrl+Backspace, Ctrl+A), act on the graph window focused last whose tab is in front,
+wherever the keyboard is (the console, for one), and never on the entities then; with the scene as the target they act
+on the entities. A window keeps the keys it claims while it has the keyboard: the content browser's Delete,
+Ctrl+Backspace and F2 act on its selected file, and the Edit menu then shows no shortcut for Delete. While a dialog is
+open (a delete confirmation, the unsaved-changes prompt), no editing key runs, Undo and Redo included, so nothing
+changes what the dialog acts on.
+
 ## Testing a game
 
 `Strada.Testing` turns a scene into a test: run checks with `TestReporter.Run`, using `Assert` inside them, and call
@@ -1010,4 +1331,6 @@ the scripting API they run on, also without C# scripts. Players of games with C#
   play every exhibit, click the HUD's buttons and walk the yard (run `Tools/FetchAssets.py` first for its models and
   sky).
 - `Projects/FeatureTest`: scenes whose scripts use every component and the whole API, and graphs that use every kind of
-  built-in node (`Assets/Scripts/Features.sgraph`, `Contacts.sgraph` and `Clicks.sgraph`), checked as a test run.
+  built-in node and every `[VisualNode]` member of its scripts (`Assets/Scripts/Features.sgraph`, which calls the function
+  library `MathLibrary.sgraph`, sends to and reads the variables of `Contacts.sgraph`, and `Clicks.sgraph`), checked as a
+  test run. The engine's tests also run every node of the node library on its own (`VisualScriptNodeCoverageTests`).

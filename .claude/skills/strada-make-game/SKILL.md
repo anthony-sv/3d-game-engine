@@ -103,52 +103,183 @@ undo history as the UI: work in small, checked steps.
 Visual scripts are graphs of nodes (`.sgraph` assets) that a `VisualScript` component runs on its entity, with or
 without C# scripts; they need no C# project, only the scripting runtime (.NET 10). The "Visual scripts" section of
 [Docs/Scripting.md](../../../Docs/Scripting.md) explains them with examples; the `graph` section of Docs/Automation.md
-describes documents, literals and every diagnostic code.
+describes documents, `graph_edit`'s operations, literals and every diagnostic code.
 
-- `graph_create` with `path` (`Scripts/Spin.sgraph`; `template` `Events` (default) or `Empty`) returns the graph's
-  `asset` handle.
+**Make and edit graphs with `graph_edit`.**
+
+- `graph_create` with `path` (`Scripts/Spin.sgraph`; `template` `Events` (default: an `Event.Create` and an `Event.Update`
+  node), `Empty` or `Library`) returns the graph's `asset` handle.
 - Look up what to use; never guess type strings or pin names. `graph_library` lists node kinds, filtered by `query`
-  ("rotation", "delay"), `category` (`Flow`, `Math`, `Components/Rigid Body`, ...) or `pinType` with `direction` (nodes
-  with an input taking, or an output giving, a type): each kind's `Type` (what a node stores), its pins (name,
-  direction, type, default; `exec` for flow) and its settings. `graph_types` lists the types (`float`, `Strada.Vector3`,
-  `Strada.RigidBodyComponent`, ...); those with a `FieldType` can be public variables.
-- Write the document: `Variables` (`ID`, `Name`, `Type`, `Value`, `Public`), `Functions` if any, and in `Graph` the
-  `Nodes` (`ID`, `Type`, `Settings`, `Inputs` for the values of unlinked inputs) and `Links`
-  (`{"From": [<node>, "<output>"], "To": [<node>, "<input>"]}`). IDs are unique across the document. Leave `Position`
-  out: `graph_set` lays out nodes without one. The `Target` of an entity's or a component's member, left unlinked, is
-  the entity the graph runs on. Graphs hold no entity values: other entities come from public `Strada.Entity` variables
-  (set per component), `Self`, an event's `Other` or lookups (`Call:Strada.Entity.FindByName(string)`).
-- `graph_check` with `document` (and `graph`, to see renamed variables): fix every `issues` entry (structure:
-  `graph_set` refuses them) and every Error in `diagnostics` (meaning: a graph with one does not run), until `valid` is
-  true and only Warnings remain. Then `graph_set` with `graph` and `document`, and read its `warnings` and
-  `diagnostics`. It saves the file as an undo step.
-- Attach it: `component_add` with `component` `VisualScript` and `fields` `{"Graph": "<asset>", "Variables": {"Speed":
-  {"Type": "Float", "Value": 180}}}`: the values of public variables, per entity, in the format of Script `Fields`
-  (an entity is `{"Type": "Entity", "Value": "<id>"}`). A `Variables` patch replaces the whole map.
-- One graph per entity: put further behaviors on child entities with VisualScript components of their own. Graphs call
-  each other's `Event.Custom` nodes with `Event.Send`; C# scripts use `VisualScriptComponent` (`SendEvent`,
-  `HasVariable`, `GetVariable<T>`, `SetVariable<T>`, `Graph`).
+  ("rotation", "delay"), `category` (`Flow`, `Math`, `Components/Rigid Body`, `Game`, ...) or `pinType` with `direction`:
+  each kind's `Type` (what a node stores), its pins (name, direction, type, default; `exec` for flow) and its settings.
+  `graph_types` lists the types (`float`, `Strada.Vector3`, `Strada.RigidBodyComponent`, `float[]`, ...); those with a
+  `FieldType` can be public variables.
+- `graph_edit` with `graph`, `description` (the undo step's text) and `operations` applies a batch as one undo step. Name
+  what you add with `"as": "$label"` and use the labels in later operations; name variables, locals and functions by
+  their names (also in `Variable` and `Function` settings); integers are IDs of the document as the call found it (node 2
+  is the Events template's `Event.Update`). Add the nodes first and connect them after, so the batch analyzes once for
+  the connections. Leave `position` out and finish with `{ "op": "Arrange", "scope": "Graph" }` in a graph you made, or
+  `"scope": "Created"` in a user's graph (it places only the new nodes, beside the ones they continue); place nodes
+  before moving, aligning or framing them.
+- Read the result: `summary` (errors, warnings, new ones), `diagnostics` (each Error must go: a graph with one does not
+  run), each diagnostic's `Fixes` (`[{ label, operation }]`: append a fix's `operation` unchanged to the next batch, or
+  send an empty batch to get the current ones), `hints` (`NeverRuns`: no flow into an impure node; `Unused`: a pure
+  node nobody reads; `UnlinkedInput`: an Expression input read as 0), `results` (`replaced` links a Connect took over)
+  and `warnings`. `refuseNewErrors: true` writes nothing when the result has an Error the stored graph did not have,
+  and `dryRun: true` answers what the call would do.
+- When the user works in the same graph, pass the `programRevision` `graph_get` (or your last edit) returned: the call
+  fails with InvalidOperation, writing nothing, when the program changed since, but not for the user's moves, comments or
+  arranging. Pass `revision` when the exact bytes matter. Then `graph_get` and edit again.
+- `graph_set` stays for generated or wholesale documents (a graph written from scratch by a tool): `Variables` (`ID`,
+  `Name`, `Type`, `Value`, `Public`), `Functions`, and in `Graph` the `Nodes` (`ID`, `Type`, `Settings`, `Inputs` for
+  the values of unlinked inputs) and `Links` (`{"From": [<node>, "<output>"], "To": [<node>, "<input>"]}`), IDs unique
+  across the document, `Position` left out. Check it first with `graph_check` (`document`, and `graph` to find renamed
+  variables against the stored one and to check nodes that name the graph itself) until `valid` is true and only
+  Warnings remain.
+- `graph_arrange` lays out a graph (or `nodes`) as the window's Arrange does, with node sizes as a window draws them;
+  its `bounds` is where a comment box framing them goes. `graph_copy` returns the clipboard text of `elements`, which a
+  `Paste` operation (`clipboard`, `at`, `labels`) takes into any graph, binding variables and functions by name.
+- Attach a script, never a library: `component_add` with `component` `VisualScript` and `fields` `{"Graph": "<asset>",
+  "Variables": {"Speed": {"Type": "Float", "Value": 180}}}`: the values of public variables, per entity, in the format of
+  Script `Fields` (an entity is `{"Type": "Entity", "Value": "<id>"}`). A `Variables` patch replaces the whole map.
+- Show the result: `graph_open` with `graph` opens its window, then `viewport_screenshot` (below).
+
+This batch, the one Docs/Scripting.md and Docs/Automation.md show, turns its entity at `Speed` degrees per second in a
+graph `graph_create` just made from the Events template:
+
+```json
+{ "graph": "asset://Scripts/Spinner.sgraph", "description": "Spin at Speed degrees per second", "operations": [
+	{ "op": "AddVariable", "name": "Speed", "type": "float", "value": 90.0, "public": true, "tooltip": "Degrees per second" },
+	{ "op": "AddVariable", "name": "Angle", "type": "float" },
+	{ "op": "AddNode", "type": "Variable.Get", "settings": { "Variable": "Speed" }, "as": "$speed" },
+	{ "op": "AddNode", "type": "Variable.Get", "settings": { "Variable": "Angle" }, "as": "$angle" },
+	{ "op": "AddNode", "type": "Expression", "settings": { "Formula": "(angle + speed * dt) % 360" }, "as": "$next" },
+	{ "op": "AddNode", "type": "Variable.Set", "settings": { "Variable": "Angle" }, "as": "$store" },
+	{ "op": "AddNode", "type": "Expression", "settings": { "Formula": "vec3(0, a, 0)" }, "as": "$euler" },
+	{ "op": "AddNode", "type": "Set:Strada.TransformComponent.EulerAngles", "as": "$turn" },
+	{ "op": "Connect", "from": ["$angle", "Value"], "to": ["$next", "angle"] },
+	{ "op": "Connect", "from": ["$speed", "Value"], "to": ["$next", "speed"] },
+	{ "op": "Connect", "from": [2, "DeltaTime"], "to": ["$next", "dt"] },
+	{ "op": "Connect", "from": ["$next", "Result"], "to": ["$store", "Value"] },
+	{ "op": "Connect", "from": ["$store", "Value"], "to": ["$euler", "a"] },
+	{ "op": "Connect", "from": ["$euler", "Result"], "to": ["$turn", "Value"] },
+	{ "op": "Connect", "from": [2, "Then"], "to": ["$store", "Execute"] },
+	{ "op": "Connect", "from": ["$store", "Then"], "to": ["$turn", "Execute"] },
+	{ "op": "Arrange", "scope": "Graph" }
+] }
+```
+
+Operations used most (Docs/Automation.md lists all 51 with their fields and results):
+
+| Op | Fields | Does |
+|----|--------|------|
+| `AddNode` | `type`*, `settings`, `literals`, `position`, `as` | adds a node; a typed Send or Broadcast gets its target event's `Parameters` |
+| `Connect` | `from`* `[node, "pin"]`, `to`* | links an output to an input (an exec output and a data input keep one link: `replaced`) |
+| `Disconnect` | `from` and/or `to`, or `node` | removes links |
+| `SetInput` | `node`*, `pin`*, `value` | the value of an unlinked input (null removes it) |
+| `SetSetting` | `node`*, `name`*, `value` | a setting; Count, Cases, Parameters, Name, Formula, Timeline and Graph go to the operations that keep links |
+| `Delete` | `elements`*, `bridge` | deletes nodes and comments, keeping the flow through them |
+| `AddVariable` | `name`*, `type`*, `value`, `public`, `tooltip`, `range`, `as` | a variable |
+| `SetVariable` | `variable`*, `name`, `type`, `value`, `public`, ... | changes a variable (a rename keeps the old name for components) |
+| `AddFunction` | `name`*, `pure`, `inputs`, `outputs`, `as`, `entryAs`, `returnAs` | a function with its Entry and Return |
+| `Arrange` | `scope` (`Graph`, `Created`, `Nodes`), `nodes`, `extents` | lays nodes out |
+| `Fix` | `code`*, `fix`*, and the diagnostic's `node`, `pin`, ... | applies a quick fix: copy it from `Fixes` |
+| `Splice` | `node`*, `link`* `{ from, to }`, `input`, `output` | puts a node into a link (a flow chain) |
+| `Paste` | `clipboard`*, `function`, `at`, `labels` | pastes `graph_copy`'s text |
+| `SetFormula` | `node`*, `formula`* | an Expression's formula; inputs renamed in order keep their links |
+
+Errors and what to do:
+
+| Symptom | What `graph_edit` answers | What to do |
+|---------|---------------------------|------------|
+| a type string from memory (no signature, a typo) | a unique signature-less match is stored canonically (`warnings`: `node updated`); else `UnknownNodeType` or `AmbiguousNode`, whose `Fixes` are "Change to ..." or "Use ..." | the Fix with the label, or `graph_library` |
+| a pin name that is not the node's (`Exec`, `Output`) | InvalidParams `node 12 has no input Exec` with `data.pins` | use a listed name |
+| flow linked into data or data into flow | `TypeMismatch` on the link | flow pins are `Execute` and `Then`; Splice puts a node into a chain |
+| a Connect that took over an existing link | `replaced: [{ from, to }]` (an exec output and a data input keep one link), and a `NeverRuns` hint on the node that lost its flow | meant for chains; Splice inserts |
+| a node added but never run | `hints`: `NeverRuns` | connect flow into its `Execute` |
+| an Expression input left unlinked | `hints`: `UnlinkedInput` (`reads dt as 0`) | link it, or store a value with SetInput |
+| too few Sequence outputs, a missing Switch case | `node 7 has no output Then3` | SetSetting of `Count` (renumbers), SetSwitchCases |
+| a literal of the wrong form | `InvalidValue`, `EntityValue` | Docs/Automation.md's literals; entities come from public `Strada.Entity` variables; `asset://` paths are converted |
+| a formula mistake | `InvalidExpression` with `Setting`, `Span` and a line and column in the message; for a misspelled function a `Fixes` entry "Use sin" | the Fix, or a corrected formula with SetFormula (inputs renamed in order keep their links) |
+| a formula input named like a function (`distance / speed`) | nothing: any name not followed by `(` is an input | – |
+| `DuplicateEvent` after adding an `Event.Update` | the diagnostic, `New: true` | connect to the existing event (node 2 of the Events template) |
+| impure nodes in a pure function | `ImpureInPureFunction`, with the fix "Make <function> Impure" | the Fix |
+| a library function called without `Graph`, or a script's function with one | `UnknownFunction`, `NotALibrary` | `graph_interface`, then Retarget |
+| a typed Send whose `Target` is left unlinked | `TargetIsSelf` (a Warning): Self runs this script, not the target | link the entity to send to |
+| an edit that breaks other scripts (a removed function, a variable made private, a renamed event) | `referrers` with each node's `problem`, `summary.brokenReferrers` and `staleSenders` | one `graph_edit` per listed script, or `refuseBrokenReferrers` to keep the edit out |
+| the user changed the graph meanwhile | InvalidOperation on `programRevision` (the program changed) or `revision` (anything changed) | `graph_get`, then edit again; prefer `programRevision`, which the user's moves leave alone |
+| no .NET runtime | Unavailable for the operations that need pins; deletions and measured arranging run degraded | `graph_set` writes links as given |
+
+**The language.**
+
+- Graphs hold no entity values: other entities come from public `Strada.Entity` variables (set per component), `Self`,
+  an event's `Other` or lookups (`Call:Strada.Entity.FindByName(string)`). The `Target` of an entity's or a component's
+  member, left unlinked, is the entity the graph runs on.
+- Maths: an `Expression` node with the setting `Formula` (`"(angle + speed * dt) % 360"`, `"vec3(0, a, 0)"`) does what a
+  chain of operator nodes does, in one step. Every name not followed by `(` becomes an input pin of that name; unlinked
+  inputs are floats. Docs/Scripting.md lists the functions and rules.
+- Text and arrays: the `Utilities/String` and `Utilities/Array` nodes (`graph_library` with `category`). Arrays (`float[]`,
+  ...) can be private variables, locals and parameters, never public; their literals are JSON arrays; nodes give changed
+  copies, never change an array.
+- Timelines: a `Flow.Timeline` node's `Timeline` setting is JSON: `{ "Length": 2, "Loop": false, "Tracks": [{ "Name":
+  "Lift", "Type": "float", "Keys": [{ "Time": 0, "Value": 0 }, { "Time": 1, "Value": 2.5, "Interpolation": "Linear" }] },
+  { "Name": "Step", "Type": "exec", "Keys": [{ "Time": 0.5 }] }] }` (curve tracks `float`, `Strada.Vector2/3/4`,
+  `Strada.Color`; `exec` event tracks). Set it with the `SetTimeline` operation (`renames` keeps renamed tracks' links);
+  play it from `Event.Create` (`PlayFromStart`) and use its `Update`, `Finished` and track outputs.
+- Your own nodes: mark a public member of the game's C# scripts `[VisualNode]` (`Title`, `Category`, `Description`,
+  `Keywords`, `Pure`, `FormerNames`), `script_build`, then `graph_library` with `category` `Game`: its `nodes` are the
+  members that became nodes and its `notes` say why the others did not (a `ref` parameter, a `Task` result, ...). Then use
+  them with `graph_edit` like any node. Members cannot make a graph wait: give graphs a property to wait on.
+- Several behaviors: one graph per entity, so put further behaviors on child entities with VisualScript components of
+  their own. C# scripts use `VisualScriptComponent` (`SendEvent`, `HasVariable`, `GetVariable<T>`, `SetVariable<T>`,
+  `Graph`).
+
+**Graphs that use other graphs.**
+
+- Function libraries hold shared maths and helpers: `graph_create` with `template` `Library`, then `AddFunction` in it.
+  Other graphs call a function with a `Function.Call` whose settings are `{ "Graph": "<library>", "Function": <id> }`.
+  `Self` inside a library function is the caller's entity. A library has no variables and no event graph, and runs on no
+  entity: never attach one.
+- Call `graph_interface` on a library or a script before writing a `Function.Call`, a `Variable.Get` or `Set`, or a
+  typed `Event.Send` that names it: it gives the IDs and names to store and the events to send. `Graph` settings take
+  `asset://` paths in `graph_edit`.
+- Custom events: `Event.Send` (`Name`, `Parameters`; link its `Target`) runs the `Event.Custom` of that name in the
+  target's graph. With `Graph` it is typed: its `Parameters` are copied from the target's event when left out, and the
+  analysis checks it against that event (Warnings only: a typed Send is never required). `Event.Broadcast` raises an event
+  on every graph that has it (`Count` says how many received it).
+- Variables of another entity's graph: `Variable.Get` and `Set` with `Graph` and a linked `Target` read and write that
+  script's public variables; guard them with `RunsGraph`.
+- Edits of a graph others use: `graph_edit` and `graph_set` return `referrers`, the nodes of other scripts the edit
+  breaks (a function removed, a variable made private, an event renamed or retyped; `Stale` for untyped senders of an
+  event name that went). Follow each with one `graph_edit` of that script (a Fix "Use <name>", `Retarget`, or a
+  `SetSetting` of `Name`), or pass `refuseBrokenReferrers: true` to keep other scripts working. Renaming a library
+  function's parameter keeps callers working; removing one does not. Edit in dependency order: the library first, then
+  its callers.
+
+**Test, play and show.**
+
 - Test graphs like scripts: `TestReporter` nodes (`Call:Strada.Testing.TestReporter.Pass(string)`,
   `Fail(string,string)`, `Finish()`) report checks to `test_run`, or a C# test reads the graphs' variables. `log_read`
   shows graphs that do not load (`Visual script '<path>' has 1 error; first: ...`), entities left without theirs
   (`Entity '<name>' runs no visual script: ...`) and errors while running
   (`<graph>: <node> (node <id>) on <entity> (<id>): <message>`).
-- While playing, `graph_set` changes running graphs at their next update (live edit), `entity_get` shows the values the
-  public variables hold, and `component_set` sets them in the running graph.
-- Nodes can carry `Comment` (a note), `Collapsed`, `Enabled` (`Disabled` passes the flow and values through without
-  running the node, which also turns its errors into warnings; `DevelopmentOnly` runs in the editor and test runs but
-  not in exported games: debug logging, cheat keys) and `Split` (`{"Inputs": ["Force"]}` gives `Force.X`, `Force.Y`,
-  `Force.Z` pins to link or set one by one).
+- While playing, `graph_edit` and `graph_set` change running graphs at their next update (live edit), `entity_get` shows
+  the values the public variables hold, and `component_set` sets them in the running graph.
+- Nodes can carry a comment (`SetNodeComment`), be collapsed, disabled (`SetEnabled` `Disabled`: passes the flow and
+  values through, its errors become warnings) or `DevelopmentOnly` (runs in the editor and test runs, not in exported
+  games: debug logging, cheat keys), and have split struct pins (`SplitPin`: `Force.X`, `Force.Y`, `Force.Z`).
 - Show graphs to the user and check what they see: `graph_open` with `graph` opens (or focuses) its window in the
   editor, optionally on a function, with nodes selected and framed (`select`), at a `zoom` or `center`, with the problems
-  drawer or the find bar open. A frame later, `graph_editors` reports every window as the user sees it (the view, the
-  selection, errors and warnings, notices such as the one for a missing scripting runtime, the LIVE pill while playing),
-  and `viewport_screenshot` shows it. `graph_palette` opens the node palette with a `query` (or as if a wire were dragged
-  `from` a pin) and lists what it offers, in rank order: what a user typing that would find. `graph_find` searches every
-  script's nodes, values, comments and names, or lists the references of a variable, function or custom event (custom
-  events across every script), and works without the editor's UI. `graph_close` closes windows. The window tools need
-  the editor's window (Unavailable when headless); `graph_palette` also needs the scripting runtime.
-- `Projects/FeatureTest/Assets/Scripts/*.sgraph` together use every built-in kind of node.
+  drawer, the find bar or a Timeline's tracks (`timeline`) open, or with a variable, function or event selected
+  (`reveal`). A frame later, `graph_editors` reports every window as the user sees it (the view, the selection, errors and
+  warnings, notices such as the one for a missing scripting runtime, the LIVE pill while playing), and
+  `viewport_screenshot` shows it. `graph_palette` opens the node palette with a `query` (or as if a wire were dragged
+  `from` a pin) and lists what it offers, in rank order. `graph_find` searches every script's nodes, values, comments and
+  names, or lists the references of a variable, function or custom event across every script, and works without the
+  editor's UI. `graph_close` closes windows. The window tools need the editor's window (Unavailable when headless);
+  `graph_palette` also needs the scripting runtime.
+- The graphs FeatureTest's scenes run, and `MathLibrary.sgraph` they call, use every built-in kind of node and every
+  `[VisualNode]` member of its scripts (`FormatSample.sgraph` is a format sample no scene runs): read them for examples.
 
 ## 7. Play and test
 

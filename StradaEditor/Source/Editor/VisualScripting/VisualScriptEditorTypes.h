@@ -1,6 +1,9 @@
 #pragma once
 
 #include "Strada/Asset/AssetHandle.h"
+#include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
+#include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 
@@ -27,6 +30,24 @@ namespace Strada
 		std::function<std::optional<std::string>(uint32_t node, std::string_view pin, VisualScriptPinDirection direction)>;
 	// The size of a node in canvas units (the units of positions in documents) as the canvas measures it.
 	using VisualScriptNodeExtents = std::function<glm::vec2(uint32_t node)>;
+
+	// What one visual script of the project offers other graphs, read from its document without the scripting runtime: an entry of
+	// VisualScriptProjectIndex (L3), which the palette's index (L2a) and the panes read too.
+	struct VisualScriptProjectGraph
+	{
+		AssetHandle Graph;
+		// The asset path ("Scripts/Door.sgraph"); empty for memory assets.
+		std::string Path;
+		// The file stem ("Door"); a memory asset's name.
+		std::string DisplayName;
+		VisualScriptDocumentKind Kind = VisualScriptDocumentKind::Script;
+		// Null when it does not load (its file is missing or broken).
+		Ref<VisualScriptDocument const> Document;
+		// Why it does not load; empty when it does.
+		std::string LoadError;
+		// CollectVisualScriptReferences of the document: the graphs its nodes name.
+		std::vector<VisualScriptGraphReference> References;
+	};
 
 	// What a view frames when a graph opens.
 	enum class VisualScriptFrame : uint8_t

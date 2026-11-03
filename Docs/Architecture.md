@@ -560,7 +560,7 @@ file):
 Variables, locals, functions, nodes and comments share one space of IDs (1 to 2147483647). Files store no pins: a link
 names an output (`From`) and an input (`To`) by node and pin name, within one graph. A node without `Position` is
 unplaced. `Value`, `Settings` and `Inputs` hold raw JSON (nested at most 16 levels) that only the scripting runtime
-interprets. The loader checks shape only: a header other than version 1 or 2 of type `VisualScript`, a content object
+interprets. The loader checks shape only: a header other than version 1, 2 or 3 of type `VisualScript`, a content object
 that is not an object, and an unknown key under `UnknownFieldPolicy::Error` refuse the file; everything else that is
 damaged is repaired (an element with a bad ID, name or type is dropped, and of two with one ID the later in document
 order; values of the wrong kind take their defaults; geometry is clamped) and reported as an issue with its path, such
@@ -568,7 +568,7 @@ as `Graph.Nodes[3].ID`. Files load with unknown keys as warnings and log each is
 (automation input) refuses input with any issue. Names (of variables, locals, functions, parameters and former names)
 are 1 to 64 bytes of UTF-8 without control characters, `.` (reserved for the fields of split pins) or spaces at either
 end. Limits: 10000 nodes, 40000 links and 2000 comments per graph, 1024 variables and functions, 64 parameters per list,
-256 locals per function, 16 former names per variable. A `Range` is two floats, the minimum first; like float literals,
+256 locals per function, 16 former names per variable and per parameter. A `Range` is two floats, the minimum first; like float literals,
 they are finite numbers of at most 3.4028235e38 in magnitude (float's largest value written with the fewest digits).
 Floats are read as the double their text denotes, narrowed to float (`VisualScriptSerializer::ReadFloat`, and the VM
 alike), and the editor and the VM write every float so that it reads back exactly: its shortest text, or its double's
@@ -578,7 +578,7 @@ without issues. `VisualScriptSerializer`'s public `IsValidName`, `IsValidText`, 
 the format's rules, which the editor also applies to documents it builds in memory (where a NaN would be written as
 `null` and text might not be UTF-8).
 
-Version 2, the version every save writes, adds four optional node keys, each omitted at its default:
+Version 2 added four optional node keys, each omitted at its default:
 
 ```json
 { "ID": 11, "Type": "Call:Strada.Physics.Raycast(Strada.Vector3,Strada.Vector3,float,out Strada.RaycastHit,uint)",
@@ -596,6 +596,34 @@ has no version and takes every key. Repairs: a comment that is not such a string
 not a bool becomes false, an unknown state becomes `Enabled`, and a split entry is dropped when it is no pin path (1 to
 128 bytes without control characters, its `.`-separated parts not empty), repeats an entry, is past the 64th or names
 a field of a path not kept before it.
+
+Version 3, the version every save writes, adds two keys: the document's `Kind`, `"Script"` (the default, omitted) or
+`"Library"` (a function library: functions other graphs call, §10.6), written first; and each function parameter's
+`FormerNames`, its earlier names, newest last, at most 16, written last and omitted when empty, which commits record when
+a library's parameter is renamed in place (§11.1), so calls in other scripts that still name the old pin keep working.
+In files of versions 1 and 2 both are unknown keys, under every unknown-key policy: such files load unchanged as
+scripts, and a version-2 file saves differing only in its header digit
+(`Tests/Data/VisualScripting/Version2/Example.sgraph` is that migration's fixture). Engines that read version 2 refuse version-3 files rather than drop a
+library's kind, which is why the version moved. Repairs: a `Kind` that is neither name makes the document a script
+(`expected "Script" or "Library"; the document is a script`); a parameter's former name is dropped when it is not a
+valid name, names a parameter of the same list, repeats a former name of the list or comes after the 16th; and a text
+(the description, a tooltip, a node comment, a comment box's text) that is not UTF-8 becomes `""`.
+
+Visual scripts are written as text directly. `VisualScriptSerializer::WriteText(document)` gives the file form, byte for
+byte `DumpJson(Serialize(document))`, and `WriteContentText(document)` the compact content form,
+`SerializeDocument(document).dump(-1, ' ', false, replace)`; neither builds a Json document. Both use `JsonTextWriter`
+(`Strada/Serialization/JsonTextWriter.h`), the engine's writer of JSON text exactly as nlohmann's `dump` writes it,
+pretty or compact, with `ensure_ascii` off and invalid UTF-8 replaced. `Serialize` and `SerializeDocument` stay for the
+Json form (`graph.get`, `graph.find`, the clipboard, tests). Commits check a document with
+`VisualScriptSerializer::Validate` and then write its text with `WriteText`: no Json is built or read back. `Validate`
+applies the loader's own rules to the model, in the loader's order: the predicates `IsValidName`, `IsValidText`,
+`IsValidPinPath`, `IsValidValue`, `IsValidLongText`, `IsValidID`, `IsValidPosition`, `IsValidCommentSize`, `IsValidColor`,
+`IsValidRange` and `IsValidSplitPath` are the loader's rules, shared by both. It returns the first issue, named by the
+loader's path (`Graph.Nodes[3].ID`); a document built in memory with text that is not UTF-8 is refused, as the writer
+would replace it. Differential tests hold the writers to nlohmann (every fixture, a 2,000-node graph and a fuzz case of
+damaged and in-memory documents) and `Validate` to the old round trip, which the tests keep as their oracle (a fuzz case:
+`Validate` refuses exactly what does not load back as written). So a format change changes the loader, `Validate`,
+`WriteText` and the differential tests together.
 
 ## 8. Physics (Jolt)
 
@@ -904,7 +932,9 @@ and repair, editor, undo, automation) and the scene integration. The graph VM in
 `Strada.VisualScripting`, internal) owns the semantics: the node library, pin resolution and type rules, analysis,
 compilation and execution. C++ never derives pins or types itself; it asks the VM through the ten `VisualScript*` entry
 points of `Strada.Interop.Host` (§10.1: `VisualScriptDescribeLibrary`, `VisualScriptAnalyze`, `VisualScriptLoad`,
-`VisualScriptCreateInstance`, `VisualScriptInvoke`, ...). They are thin adapters that marshal UTF-8 and answer a status:
+`VisualScriptCreateInstance`, `VisualScriptInvoke`, ...; `VisualScriptAnalyze` and `VisualScriptLoad` also take the
+reference bundle of the other graphs a document names, below, a length of 0 meaning none). They are thin adapters that
+marshal UTF-8 and answer a status:
 Success 0, Failure 1 or NotFound 2. On Success, and only then, the JSON answer goes to the `receive` callback, exactly
 once. Without .NET a document still loads, saves and shows in the editor; analysis and running need the runtime.
 
@@ -913,7 +943,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   - methods (`Call:`);
   - property and field getters and setters (`Get:`/`Set:`; setters only for static members and reference types);
   - constructors (`New:`);
-  - generic methods constrained to components, assets or scripts, through a `TypeArguments` setting.
+  - generic methods constrained to components, assets or scripts, through a `TypeArguments` setting, and generic methods
+    whose type parameters are unconstrained, typed by their links (below);
+  - with the game's scripts loaded, their members marked `[VisualNode]` (below).
 
   The methods of `VisualScriptComponent` are not nodes (graphs use `Event.Send` and the variable nodes); its `Graph`
   property is. The library is built by reflection over `Strada.ScriptCore` and the game's script classes the first time
@@ -932,8 +964,9 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   else `Completed`, else `Default`, else its first exec output that is not a Tick output; without one the chain ends
   there (a node of an unknown type has none). Each of its data outputs takes the value of the first data input of the
   same type that no earlier output takes, both in pin order, read when the flow passes (only those inputs, and the pure
-  nodes feeding them, are evaluated); the other outputs take their type's default. An unconnected `Target` is no value
-  and feeds no output. Passing costs one step; the node never waits and keeps no state. A disabled event starts no
+  nodes feeding them, are evaluated); the other outputs take their type's default (a disabled `Flow.Timeline`'s `Time`
+  takes `NewTime` and its first float curve `Rate`, by this rule, with no case of its own). An unconnected `Target` is
+  no value and feeds no output. Passing costs one step; the node never waits and keeps no state. A disabled event starts no
   execution, is no custom-event receiver (`SendEvent` to it returns false with the usual warning) and is no duplicate of
   an enabled event; a disabled latent node makes no function latent. `Function.Entry`, `Function.Return` and pure nodes
   cannot be disabled: they run as usual, with the Warning `DisabledIgnored`. A link from an output of a disabled node
@@ -965,6 +998,68 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   split pin costs one Make or Break step when it is read and allocates nothing for vectors; split pins hold no state.
   The analysis lists the field pins in place of each split pin, each input field pin with the `Default` it takes
   unlinked.
+- **Expressions**: an `Expression` node (Math, pure) computes the formula of its `Formula` setting (a setting of Kind
+  `Expression`). `ExpressionParser` lexes it and parses it by recursive descent, finding the inputs from the tokens even
+  when the formula has errors (an identifier is an input unless `(` follows it, `.` precedes it, it is `true`, `false`,
+  `pi` or `tau`, or it is longer than 64 bytes; the reserved pin names never are; at most the first 32, in order of first
+  appearance), so the node keeps its pins while its formula is broken. `ExpressionChecker` types the tree with explicit
+  widenings by the link rules (an unlinked input is a float; a linked one takes its link's type, which the pin constraint
+  `Expression` holds to bool, the numbers and the vectors), and `ExpressionCompiler` emits typed three-address code over
+  frame slots: one template slot per distinct constant, constant widenings and casts folded, temporaries reused, `&&`,
+  `||` and `?:` as jumps. `ExpressionMachine.Run` runs it in one loop that allocates nothing, so a formula costs one step
+  however long it is (ten operators are one step where their ten nodes are ten, at most 20 instructions and no
+  allocation). Chains of operators are typed and compiled in loops, so only nesting (at most 64 levels) uses the host's
+  stack. Its findings are `InvalidExpression` diagnostics with `Setting` `Formula` and the
+  `Span` of the offending bytes; caps: 4096 bytes, 1024 parts, 32 inputs. A live edit with a broken formula keeps the
+  last working program.
+- **Arrays**: every registered type with values has its array type `T[]` (none of arrays or of ref structs; no
+  covariance), which knows its element type and holds one shared empty array. Arrays are never null: null becomes the
+  type's empty array in defaults, in values entering slots, in member results, on `SetVariable(null)` and in `SendEvent`
+  arguments, so a null array is no aborting error. Equality compares element by element with the element type's equality;
+  element reads and writes have a typed path for every kind a slot holds in place and allocate nothing. Arrays may be
+  private variables, locals, parameters, custom-event parameters, `Literal` types and type arguments; a public one is
+  `NotExposable` until components can store arrays. Literals are JSON arrays of element literals, at most 4096. The
+  `Utilities/Array` (Contains, IndexOf, Make, Set, Add, RemoveAt, Insert, Append, beside Length and Get) and
+  `Utilities/String` nodes (15, ordinal and culture-invariant) run as intrinsics; arrays they make hold at most 65,536
+  elements.
+- **Generic methods**: methods whose type parameters are all unconstrained are nodes; their pins follow the anchor rules
+  (an input of `T[]` decides `T` as its element type, inputs of `T` join as `Select`'s do), and type resolution closes
+  the method once its anchors resolve. Their `TypeArguments` setting is optional (required only when no input decides a
+  parameter); methods constrained to exactly `Component`, `Asset` or `Script` keep their required setting.
+- **Game members** (`[VisualNode]`, `Strada.VisualNodeAttribute`): the library is built with the game assembly's public
+  types (`ScriptRegistry.GetGameTypes`, cleared before the assembly unloads). Marked members (and every public member of a
+  marked class or struct) become nodes with `"Game": true`, titled, categorized and described by the attribute, `Pure`
+  standing for `[PureNode]` and `FormerNames` becoming redirects; marked enums and the game types the members' signatures
+  use become types of graphs. An instance member of a script class takes `Target` as an entity and runs on that entity's
+  script instance. A marked member without a node form, an attribute value outside its limits and a type or member whose
+  attributes cannot be read become the library's `Notes`, logged once per build; each type's attribute is read once,
+  under a guard, so an unreadable one never fails the library.
+- **Timelines** (`Flow.Timeline`, latent, the event graph only): `TimelineReader` checks the `Timeline` setting with
+  paths, keeping the pins of every track whose name and type are valid; `TimelineTrack` evaluates curves in double
+  (Constant, Linear and cubic Hermite with Catmull-Rom auto tangents; keys at one time make a jump). A run is a fiber
+  that is never resumed: each advance writes the outputs, fires the event keys it crossed in the direction of play (at
+  most 1000, with one Warning), then `Update`, and at the end of a timeline that does not loop ends the run and fires
+  `Finished`. Inputs are evaluated one at a time, so `NewTime` is read only by SetTime and `Rate` only by the playing
+  inputs. Live edit carries its state (its time clamped to a new `Length`); a disabled timeline passes data by the general
+  rule above.
+- **Other graphs**: the `Graph` setting (Kind `Graph`, a decimal handle) of `Event.Send` and `Event.Broadcast` (typed
+  sends, verified against the target's `Event.Custom` with Warnings only), `Function.Call` (a function of a **function
+  library**, a document of `Kind` `Library`, which has no variables and no event graph), `Variable.Get` and
+  `Variable.Set` (a public variable of another entity's graph, through `Target`) and `RunsGraph` (the guard) names another
+  visual script. `VisualScriptAnalyze` and `VisualScriptLoad` take, beside the document, the **reference bundle**:
+  `{ "Self": "<handle>", "Graphs": [{ "Graph", "Name", "Document": { "Form": "Full" or "Interface", ... } or "Error" }] }`,
+  every library a document's calls reach sent in full (its own calls' libraries included) and the other referenced
+  graphs as their interfaces (kind, variables, events). The runtime accepts any bytes there (a malformed bundle counts
+  as empty). Each library is analyzed as its own document, callees first, without nesting, and kept in the runtime's
+  cache (keyed by its text, its name, the node library and what it read); cycles are found from the raw settings before
+  any library is analyzed (`LibraryCycle`). A program compiles the functions of every library it links into itself,
+  keyed by (graph, function ID), so each graph that calls a library runs its own copy, and live edit resolves frames by
+  the same pair. Remote Get and Set check the receiver's current program at run time (by ID, then by name, with the
+  node's type) and abort on a mismatch. `Event.Broadcast` snapshots the live instances whose program has the event with
+  exactly these parameter types (with `Graph`, only those running it), in creation order, copies its arguments before the
+  first delivery and costs a step per instance it examines. Messages name the document the node belongs to
+  (`Scripts/Motion.sgraph: Divide (node 7) on Player (123): integer division by zero`), warnings are kept once per (graph,
+  node) and instance, and a fiber a live edit cancels inside a library names the library's file.
 - **Runtime and environment**: `VisualScriptRuntime` owns the programs (by graph handle), the graph instances (by
   entity) with their fibers, the member invokers and the attached debugger. `Host.VisualScripts` is the engine's
   runtime; `Initialize` and `Shutdown` replace it with an empty one. The VM reaches the engine only through
@@ -1007,8 +1102,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 - **Errors**: these are aborting errors:
   - an exception thrown by a member;
   - a component missing from a Target;
-  - a null Target or array;
-  - an index outside its array;
+  - a null Target (arrays are never null);
+  - an index outside its array, or an array a node makes growing past 65,536 elements;
   - integer division or modulo by zero, and division or modulo of the minimum `int` or `long` by -1 (an overflow);
   - running out of budget or depth.
 
@@ -1041,7 +1136,8 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
 - **Debug hook**: `AttachDebugger(IVisualScriptDebugger)` lets a debugger choose which executions to trace, by entity:
   `IsTarget` is asked when an execution starts or a fiber resumes. The debugger then hears of every instruction those
   executions run (`OnStep`: the node and the exec output the flow left through) and of every value their pure nodes
-  compute (`OnValue`). Without a debugger an instruction costs one null check. Breakpoints and stepping (slice 4) will
+  compute (`OnValue`), each with the `graph` the node belongs to (0 for the instance's own document, else a library's
+  handle: node IDs repeat across documents). Without a debugger an instruction costs one null check. Breakpoints and stepping (slice 4) will
   suspend executions with the same fiber machinery.
 - **C# API**: `VisualScriptComponent`'s methods forward to `Host.VisualScripts` with the component's entity. `SendEvent`
   runs the graph's `Event.Custom` of the name at once (nested in, and sharing the budget of, a graph that runs, else
@@ -1093,6 +1189,26 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   its Failure (no working program) is a script exception (`ScriptHost::OnScriptException`), as is a Failure of `Invoke`,
   and an `Invoke` answered NotFound forgets the instance. `Analyze` sends a document for analysis and keeps nothing.
   Programs stay with the runtime until `Shutdown`: `VisualScriptUnload` is resolved but has no caller.
+- **Graphs that use other graphs**: every send and `Analyze(document, self)` pass the reference bundle.
+  `CollectVisualScriptReferences` (`Asset/VisualScriptReferences.h`) lists the graphs a document's six cross-graph kinds
+  name (disabled nodes included), each with its strongest use (`Verification` for typed sends, `Interface` for remote
+  variables and `RunsGraph`, `Library` for calls); the closure is walked breadth-first, libraries expanded and the others
+  leaves, and at most `VisualScriptEngine::MaxReferencedGraphs` (256) graphs are looked up, the others listed as absent
+  ("more than 256 visual scripts are referenced"). No bundle is sent when no node names a graph. Its texts are kept per
+  graph handle and shared document (`ScriptEngineData::VisualScriptReferenceTexts`) and concatenated around them, so an
+  unchanged neighbourhood serializes nothing; while development nodes are off, every bundled document has its
+  `DevelopmentOnly` nodes disabled. A record keeps the references its document and its working program were compiled
+  with and is sent again when a library it links changes its program, a graph it reads changes its kind or variables,
+  or any entry, a typed send's target included, appears, disappears or is renamed (renames are checked when the registry
+  changed): so editing a library recompiles every graph that calls it at the next update while playing (85 ms in Release
+  for 20 dependents of 200 nodes, a visible hitch that a test bounds), a moved or renamed graph recompiles its dependents,
+  whose messages then name the file that exists, and another graph's events or layout never do. A library runs on no
+  entity: `EnsureLoaded` and `CreateInstance` refuse one (`<name> is a function library: graphs call its functions; it
+  runs on no entity`, which the scene logs as the reason an entity runs no visual script), and `HasWorkingProgram` of a
+  library answers whether some graph's working program was compiled with it present. `Analyze` fills
+  `VisualScriptAnalysis::Graphs` with the graphs it read (handle and shared document, null when absent, none past the
+  cap), which tells the editor when an analysis went stale. `MakeVisualScriptInterface` gives the interface form other
+  graphs read, and `HaveSameVisualScriptLinkInterface` compares two.
 - **Development-only nodes**: the player calls `VisualScriptEngine::SetDevelopmentNodesEnabled` (false for an exported
   game) right after `ScriptEngine::Init`, so exported games skip them, while the editor and `StradaRuntime --project`
   run them. While the flag is off, every document the runtime receives (new documents, re-sends after a game-assembly
@@ -1117,8 +1233,12 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   frame): one that asks `FindEnum`, so the library is read only once a variable that may be an enum is shown (reading
   it takes a moment, and every game-assembly change drops it), and an empty one while the runtime is not running or its
   library cannot be read. `VisualScriptAnalysis` reads an analysis: each node's resolution (`CanonicalType` and
-  `PinRenames` for those resolved inexactly, `PassThrough` for a disabled node) and the diagnostics. Nothing in C++
-  derives a severity from a code: the editor reads each diagnostic's `Severity`.
+  `PinRenames` for those resolved inexactly, and for an exact call that names a former parameter name, `PassThrough` for
+  a disabled node) and the diagnostics, with their `Setting`, `Span` (`[start, end)`, UTF-8 byte offsets into that
+  setting's text) and `Graph`, written in that order after `Variable`. The library JSON also carries the pin constraint
+  `Expression`, pins' `ArrayOf`, nodes' `Game`, the setting kinds `Expression`, `Timeline` and `Graph`, and the top-level
+  `Notes` (`VisualScriptLibrary::GetNotes`: the `[VisualNode]` members without a node, and why). Nothing in C++ derives a
+  severity from a code: the editor reads each diagnostic's `Severity`.
 - **Scene** (`Scene/SceneVisualScripting.cpp`): graph instances follow the lifecycle of §10.3.
   - Start: C# scripts run when the game assembly was loaded as the scene started (Script components without it log
     `Scene '<name>' runs without C# scripts: no game assembly is loaded` when the scene runs graphs); graphs need no
@@ -1216,14 +1336,16 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   of enum types are listed read-only with the reason until the scripting runtime describes its enums
   (`InspectorPanel::SetVisualScriptEnumLookup`, given by `EditorLayer` from `VisualScriptEnumLookupSource`: a lookup
   that reads the runtime's node library when first asked about a type, empty without the runtime), and so are those of
-  types components cannot set. C# scripts and visual
+  types components cannot set (arrays among them: "arrays cannot be set on components"). A component whose graph is a
+  function library shows that it runs on no entity instead of variables. C# scripts and visual
   scripts dropped onto the inspector run on the selected entities. Without selected entities the inspector shows the
   asset selected in the content browser (`EditorContext::SelectAsset`; selecting entities replaces it): its type and
   reference, the parameters of materials with a preview (editable for material files; Create Material copies built-in
   and mesh-imported ones), a texture preview, mesh statistics with the mesh's materials, what a visual script holds
   (read-only: its description, the numbers of nodes and links of all its graphs, the events it uses, its variables with
   their types, values and whether they are public, and the signatures of its functions, marked when pure, under an Open
-  button for its graph window, §11.1), and the details of other asset types. VisualScript components get Open Visual
+  button for its graph window, §11.1; a function library says so, and every visual script lists the scripts that use
+  it, "Used by"), and the details of other asset types. VisualScript components get Open Visual
   Script, or Create Visual Script when they run no graph (§11.1). Showing an asset never writes its file. The Transform
   of UI elements, which their `UIRect` places, starts folded and is shown read-only, with a note. Every field table's
   name column starts as wide as its names need, switches and indentation included (30% to 60% of the panel, at most 50%
@@ -1271,12 +1393,15 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   get one running the graph and the others change graph (keeping the values they give its variables), as one undo step,
   none when every entity runs the graph already, and nothing changes when an entity is gone
   (`AssetDrops::AddVisualScript`, `EditorOperations::SetVisualScriptGraph`; a drop on the viewport's empty space says
-  to drop it onto an entity). Context menus (and the toolbar's "+") create folders, materials, visual scripts
-  (`New Visual Script.sgraph`, numbered when taken, from the Events template: an `Event.Create` and an `Event.Update`
-  node; `EditorOperations::CreateVisualScript`, selected and ready to be named) and C# scripts (the New Script dialog,
+  to drop it onto an entity; a function library is refused, `AssetDrops::AddVisualScript` saying it runs on no entity).
+  Context menus (and the toolbar's "+") create folders, materials, visual scripts (`New Visual Script.sgraph`, numbered
+  when taken, from the Events template: an `Event.Create` and an `Event.Update` node; `EditorOperations::CreateVisualScript`,
+  selected and ready to be named), visual script libraries (`New Visual Script Library.sgraph`, from the Library template)
+  and C# scripts (the New Script dialog,
   in the displayed script folder; the browser then shows the script), import files (native multi-select dialog),
-  refresh, rename, delete, copy references or paths and show items in the file manager. File operations are not
-  undoable. Files and folders dropped onto any of the editor's windows from the OS (`WindowFileDropEvent`, forwarded
+  refresh, rename, delete, copy references or paths and show items in the file manager; deleting a visual script other
+  scripts use names them in the confirmation ("Used by Player.sgraph, Enemy.sgraph (5 nodes): they will show errors.").
+  File operations are not undoable. Files and folders dropped onto any of the editor's windows from the OS (`WindowFileDropEvent`, forwarded
   from the platform windows of floating panels too; `asset.drop` does the same for agents) are imported by
   `ProjectImport` into the folder under the cursor, else the displayed ones: assets into the asset folder (taken names
   get a number), models with the files they read at the
@@ -1303,9 +1428,13 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   System, Fire, Smoke, Sparks), Physics (Character Controller), Audio (Audio Source, Audio Listener) and UI (Canvas,
   Panel, Image, Text, Button), which the hierarchy's create button and Create Child share; `EntityPresets::GetMenu`;
   `editor.entity-menu` opens it for agents), View (the panels, Visual Scripts: the open graph windows, Reset Layout),
-  Play (Play/Stop, Simulate, Pause, Step). While a graph window is the editing window focused last, the Edit menu acts
-  on its graph (§11.1). Shortcuts are global unless a text field is being edited or a focused graph window claims
-  them.
+  Play (Play/Stop, Simulate, Pause, Step). While a graph window is the editing window focused last, the Edit menu and
+  its keys act on its graph (§11.1). Shortcuts are global unless a text field is being edited or the focused window
+  claims them (a graph window its editing keys, the content browser Delete, Ctrl+Backspace and F2). The editing keys and
+  the Edit menu's editing items live in `EditorEditingKeys` (`HandleEditorEditingKeys`, `DrawEditorEditingMenuItems`,
+  and Undo and Redo through `HandleEditorHistoryKeys`, `UndoEditorStep` and `RedoEditorStep`), which the editor and the
+  tests both run; while a modal popup is open (a delete confirmation, the unsaved-changes prompt) no editing key runs,
+  Undo and Redo included, so nothing changes what the dialog acts on.
   Opening or creating a scene, and closing the editor, ask to save unsaved changes first; the window title shows the
   scene name and a `*` while it has unsaved changes.
 - Scene View (`ViewportPanel`): the scene (the edited one, or the running copy while playing) through the editor camera
@@ -1346,7 +1475,11 @@ once. Without .NET a document still loads, saves and shows in the editor; analys
   state, so a scene saved before playing stays clean through Stop, undo and redo. Deleting an asset discards its steps
   (`DiscardStepsOf`); a step that also changed the scene forgets the asset and undoes only its scene part. A file that
   vanished outside the editor is missing, not deleted: its steps stay and fail to undo until it comes back. Undo of an
-  asset step gives its file its exact bytes back.
+  asset step gives its file its exact bytes back: a step reads the file before its first execution, except when the
+  file's write time and size are those the editor recorded at its own last write of it and the remembered text is the
+  stored document's (then nothing is read; an outside rewrite of the same size whose write time was restored is the one
+  case this misses, and is accepted). An undo that puts back bytes the editor did not write marks the asset changed
+  (`AssetManager::MarkFileChanged`), so the next refresh loads them even when both writes share a write time.
 - Play mode (`PlayMode`, controls in the toolbar and the Play menu): Play (Ctrl+P; scripts, physics and audio, shown in
   the game view) and Simulate (physics only, seen in the scene view, with gizmos) run a copy of the edited scene
   through a `SceneRunner`; Pause (Ctrl+Shift+P), Step (Ctrl+Alt+P) and Stop. While playing, the panels and automation
@@ -1415,21 +1548,25 @@ it), gives it to every selected entity as one undo step named "Create Visual Scr
 inspector's primary entity as the context entity; without an asset directory the button is disabled with a tooltip.
 
 - **Layers** (all in `StradaEditor/Source/Editor/VisualScripting/` but the panel, which is in `Editor/Panels/`; each
-  includes only layers below it, everything runs on the main thread, and L1 to L3 include no ImGui and are tested with
+  includes only layers below it, everything runs on the main thread, and L1 to L3b include no ImGui and are tested with
   plain doctest cases):
 
   | Layer | What |
   |-------|------|
-  | L1 Engine | The document, format version 2, the layout of unplaced nodes, the literal codec, `HaveSameVisualScriptProgram` |
-  | L2a Document editing | `VisualScriptEditing` (every edit as an operation on a copy of the document), Arrange, the clipboard, the palette's index and ranking, quick fixes, find |
-  | L2b Commit | `VisualScriptNormalization` (graph.set's transforms), `PrepareVisualScriptCommit`, `SetVisualScriptCommand`, `SetVisualScriptAndComponentsCommand`, the history changes |
-  | L3 Canvas model | The semantics seam (`EngineVisualScriptSemantics`, or the fixture semantics of tests), the view, metrics and text ladder, theme tables, the visual model, geometry, the spatial index, hit testing, the editor model (gestures in, intents out), the per-user view settings |
-  | L4 Panes | The palette popup, My Script, Details, the drawer, the find bar, the literal editor (built on `FieldEditor`) |
-  | L5 Canvas UI | The controller (an intent becomes at most one commit request), the renderer, brushes, the panel, the key and gesture tables |
-  | L6 Shell | `VisualScriptEditors` (the window manager), `EditorLayer`'s wiring, the entry points, the `graph.*` UI commands |
+  | L1 Engine | The document, format version 3, the layout of unplaced nodes, the literal codec (array literals included), `HaveSameVisualScriptProgram`, `VisualScriptReferences` (the `Graph` setting, local references, the resolver type, the interface form), the text writer and `Validate` |
+  | L2a Document editing | `VisualScriptEditing` (every edit as an operation on a copy of the document, `SetSetting`'s table of settings other operations own), `VisualScriptLanguageEditing` (arrays, formulas, timelines), `VisualScriptTimeline` (the curve model), `VisualScriptCrossGraph` (retargeting, kinds, the declared pins of cross-graph nodes, broken referrers), Arrange, the clipboard, the palette's index and ranking, quick fixes, find |
+  | L2b Commit | `VisualScriptNormalization` (graph.set's transforms), `PrepareVisualScriptCommit` with its timings, `SetVisualScriptCommand`, `SetVisualScriptAndComponentsCommand`, the history changes, layout-only commits |
+  | L3 Canvas model | The semantics seam (`EngineVisualScriptSemantics`, or the fixture semantics of tests), the view, metrics and text ladder, theme tables, the visual model, geometry, the spatial index, hit testing, the editor model (gestures in, intents out), the per-user view settings, `VisualScriptTextEstimate` (text widths without a font), `VisualScriptProjectIndex`, `VisualScriptCurveView` (the curve editor's view, hit testing and gestures) |
+  | L3b Batch | `VisualScriptBatch` (`graph.edit`'s executor), `VisualScriptHeadlessCanvas` (node sizes, pin rows and anchors without a window), `VisualScriptCanvasPins` (pin rows from a canvas, shared with the panes) |
+  | L4 Panes | The palette popup, My Script, Details (the formula field, the array literal editor, the Timeline section, the Graph pickers), the drawer (with `VisualScriptCurveEditor`, its Timeline mode), the find bar, the literal editor (built on `FieldEditor`) |
+  | L5 Canvas UI | The controller (an intent becomes at most one commit request), the renderer (comment labels among its layers), brushes, the panel, the in-place formula editor, the key and gesture tables |
+  | L6 Shell | `VisualScriptEditors` (the window manager, the project index's owner, opening and Back and Forward across windows), `EditorEditingKeys`, `EditorLayer`'s wiring, the entry points, the `graph.*` UI commands |
 
   The editor model and the document editing are independent of each other: the model emits intents, which are data,
-  and only the controller turns them into edits. Operations take pin names as the document stores them
+  and only the controller turns them into edits. L2a and L3 include nothing of each other, with one exception: the curve
+  model (`VisualScriptTimeline.h`, pure, without state) is shared by both, so the curve view clamps and evaluates with
+  the document editing's own functions; the types both layers read (`VisualScriptProjectGraph` among them) are in
+  `VisualScriptEditorTypes.h`. L3b is the only non-UI code that includes both. Operations take pin names as the document stores them
   (`VisualScriptEditing::ToStoredVisualScriptPin` maps the canvas's names of renamed pins and their fields back).
   Without the scripting runtime a window runs degraded: it shows, arranges, comments, copies and deletes nodes from the
   document alone (titles derived from it, pins inferred from its links), and what needs the node library is refused
@@ -1448,14 +1585,39 @@ inspector's primary entity as the context entity; without an asset directory the
   no ImGui call and run the project and deleted-graph checks first, so automation between frames never reaches a
   deleted graph. A missing file or one that does not load opens on a card that says why; the canvas comes back when a
   refresh finds a loadable file.
+- **Other graphs** (`VisualScriptProjectIndex`, owned by `VisualScriptEditors`): every visual script of the project with
+  its kind, shared document, load error and references, kept at one registry check and one pointer comparison per
+  script. The graph windows refresh it while one is open, and the inspector and the delete confirmation before they read
+  it; a file that does not load is read again only once it changed, so its error is logged once. Each frame the windows
+  hand their model its list (`SetProjectGraphs`, of which the model keeps its own copy, sharing the documents, so nothing
+  it reads dangles between draws); `MakeResolver(self, working)` resolves other graphs for titles, pins, quick fixes and
+  lookups, a window's own graph to its displayed document. The canvas, the controller, Details, the palette and the quick
+  fixes resolve other graphs through the model, and every reader of a node's `Variable`, `Function` or `Name` settings
+  checks `IsLocalVisualScriptReference` first, so a remote node never binds to a local element of the same ID (a sweep
+  test pins the sites). A window analyzes again when the index shows that a graph its analysis read
+  (`VisualScriptAnalysis::Graphs`) changed what was read: the same document, else the whole program for a library and
+  the interface for the others; its canvas is laid out again only when a graph its nodes name resolves to another
+  document, so a commit elsewhere costs no layout. `VisualScriptCrossGraph` holds the pure cross-graph edits
+  (`RetargetNode`, `SetDocumentKind`, the declared pins of cross-graph nodes) and `FindVisualScriptBrokenReferrers`, which
+  `graph.set`, `graph.edit` and the windows' toasts use to tell what an edit breaks in other scripts. Open requests carry
+  a `Reveal` (the element to select there) and an `Origin`; history entries may name another graph, and the window
+  manager carries Back and Forward between windows, opening a closed one at the stored view.
 - **Edit menu and history toasts**: the Edit menu follows the editing window focused last: a graph window whose tab is
   in front makes it act on that graph's selection (Cut, Copy, Paste, Duplicate, Delete, Select All, Deselect All);
   focusing Scene View, Scene Hierarchy or Inspector makes it the scene's again, and a graph window hidden behind another
   tab is never its target. Undo and Redo stay one history. When they run while a graph window is the target, the window
   says what they did ("Undone: Move 3 Nodes in Player", "Redone: ..."), with Show for a step of the scene or of another
-  graph, which focuses Scene View or opens that graph's window (bringing it to the front when it is open). The Edit
-  menu's items show the graph's shortcuts, which act on the graph only while its window has the keyboard: with another
-  window focused (the console, the content browser), the editor's own Delete, Ctrl+D and Ctrl+A act on the scene.
+  graph, which focuses Scene View or opens that graph's window (bringing it to the front when it is open). The editing
+  keys (Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+D, Delete or Ctrl+Backspace, Ctrl+A) follow the same target as the menu: with a
+  graph window as the target they act on its selection wherever the keyboard is, also in the console or the content
+  browser, and never on the entities (`VisualScriptEditors::HandleGlobalEditingKey`); with the scene as the target,
+  Duplicate, Delete and Select All act on the entities. A window keeps the keys it claims while it has the keyboard: the
+  content browser's Delete, Ctrl+Backspace and F2 (`ContentBrowserPanel::FocusedChords`, which
+  `FindClaimedEditingChords` returns) act on the selected file there. An Edit item shows its shortcut exactly when
+  pressing it would run the item (`GetEditShortcutText`), so Delete shows none while the content browser has the
+  keyboard. The window that had the keyboard before a menu, a popup, the menu bar or the toolbar took it is the one that
+  counts, while it is still open (`FindKeyboardWindow`); a claimed key runs nothing while a menu, a popup or the
+  browser's own dialog has the keyboard, nor after a menu-bar menu closed, until a window is clicked.
 - **Toolbar**: the My Script toggle, Back and Forward, the breadcrumb (`Player › Event Graph`; its list arrow shows
   every sub-graph with its problems), the Instance combo (the context entity), the LIVE pill, the problems pill (error
   and warning counts, "No problems", or "Not analyzed" without the runtime; a click toggles the problems drawer), the
@@ -1474,10 +1636,15 @@ inspector's primary entity as the context entity; without an asset directory the
   successful edit), the read-only memory asset, the read-only file (with Retry, which checks the permission again;
   `FileSystem::IsReadOnly` is the one rule: no write permission bit; a file locked by another process shows as a write
   failure), and once per function the new-function hint. Cards replace the canvas for a missing file, a file that could
-  not be read (naming the load error) and an empty event graph (Add Create Event, Add Update Event, Add Node...). A
-  ribbon of first steps shows over the first canvas a user sees, once. Toasts (4 s, kept while hovered) report paste
-  notes, rewrites, history steps, a failed write ("Could not save <script>: <reason>", kept until dismissed) and
-  outside changes out of view ("2 nodes changed outside the view", with Show).
+  not be read (naming the load error), an empty event graph (Add Create Event, Add Update Event, Add Node...) and a
+  function library without functions (`EmptyLibrary`: "This library has no functions yet.", Add Function; a library's
+  leftover event graph shows the card with Open of its first function). A ribbon of first steps shows over the first
+  canvas a user sees, once. Toasts (4 s, kept while hovered) report paste notes, rewrites, history steps, a failed write
+  ("Could not save <script>: <reason>", kept until dismissed), outside changes out of view ("2 nodes changed outside the
+  view", with Show), and after each own commit that changes what the graph offers others, what happens to their nodes
+  (`DescribeVisualScriptOfferChange`: "Renamed Value to Amount: 3 calls in 2 other scripts follow it", "Deleted Clamp01:
+  1 call in 1 other script show errors", with Find Callers, Find References or Find Senders); an interaction that
+  commits at the widget cadence repeats the same toast, which then stays once, shown anew.
 - **Canvas**: views zoom between 16 levels from 0.10 to 2.00 (a wheel notch steps one level, at once; framing and
   other moves animate for 0.2 s unless Reduce Motion is on) around a centre within ±1e7 canvas units. Four levels of
   detail follow the zoom alone, each threshold widened by 0.02 against flicker: Far below 0.175 (rectangles in their
@@ -1497,11 +1664,23 @@ inspector's primary entity as the context entity; without an asset directory the
   `STRADA_PERFORMANCE_TESTS=1`. Pins and wires take their type's colour, wires with an implicit conversion a gradient
   between the two; disabled nodes are dimmed with a bypass line from the exec input to their `PassThrough` exit, and
   disabled and development-only nodes carry a strip that names their state. Links made by any means pulse once, and
-  elements changed from outside (undo, automation, another window) flash.
+  elements changed from outside (undo, automation, another window) flash. At Far and Overview, comment titles are drawn
+  in a layer of their own above the nodes, on a plate of the comment's bar colour, and are hit before nodes (a press
+  drags the comment, a double-click edits the title; the comment's own resize handles still win). At every level a title
+  starts at the canvas's left edge when its box starts left of it, is ellipsized to the room left, and is left out when
+  it has no room for three of its glyphs and an ellipsis or when its bar is outside the canvas; a title whose glyphs are
+  wider than average shows fewer of them, at least the ellipsis, and a plate is never blank.
 - **Palette** (Tab, a Space tap, a right click on the background, a wire released on empty canvas, `graph.palette`): the
-  node library's kinds with their typed expansions ("Get Component: Rigid Body"), the document's variables (and the
-  shown function's locals), functions and custom events, and the actions (a comment box, a reroute, a custom event, a
-  variable). Entries a graph cannot use are left out (events and ticking nodes in functions' graphs, impure nodes in
+  node library's kinds with their typed expansions ("Get Component: Rigid Body", "Make Float Array"), the document's
+  variables (and the shown function's locals), functions and custom events, the project's other graphs (the functions
+  of its libraries under `Libraries/<name>`; the other scripts' typed Send and Broadcast of their events, Get and Set of
+  their public variables and Runs under `Scripts/<name>`; an untyped Broadcast of the script's own events; "Get/Set X of
+  another <script>"), and the actions (a comment box, a reroute, a custom event, a variable; none of variables or custom
+  events in a library). The game's `[VisualNode]` members are the Game category, which ends with a disabled row naming
+  the members without a node ("3 [VisualNode] members have no node: see the Console"). A query of `=` and a formula
+  lists the Expression entry alone, which adds an Expression of that formula; Expression is left out of context mode.
+  The palette reads the project's graphs only when the index changed (`SetProjectGraphs` with its revision), and its
+  index of the document follows the model's program revision, so a layout-only commit rebuilds nothing. Entries a graph cannot use are left out (events and ticking nodes in functions' graphs, impure nodes in
   pure functions', a second `Function.Entry`, `Function.Entry` and `Function.Return` in the event graph), and an event
   the event graph already handles is offered as a jump to it. Without a query it lists the 8 most recent entries, then
   the categories. A query's words (up to 8; ASCII letters in any case) must each match; a word scores the best of the
@@ -1529,28 +1708,62 @@ inspector's primary entity as the context entity; without an asset directory the
   loader's rule, `VisualScriptSerializer::IsValidName`, and uniqueness in their scope) and commit when left by any
   means. Enum lists of more than 12 enumerators have a filter. Promoting an input to a variable or a function input
   keeps the program's value (its literal, else the library default, else the type's); an unlinked input that means the
-  graph's own entity cannot be promoted, and arrays never are ("Variables and function inputs cannot hold arrays").
+  graph's own entity cannot be promoted, and an array promotes to a private array variable (public ones are refused:
+  "Arrays cannot be public: components cannot store them"). Details edits an Expression's formula in a monospace field
+  that commits like a name field, renaming inputs in order (`SetFormula`), and lists its inputs with their types and its
+  problems as caret blocks whose click selects the span (through `CallbackAlways`); a double-click on the node's header
+  edits the formula in place (one line, `VisualScriptTextEditKind::Formula`). Array values (variables' and locals'
+  defaults, a `Literal`, unlinked array inputs) are edited by `DrawVisualScriptArrayLiteral` (elements reordered by their
+  handles, within one list), a Make Array's Count renumbers its element pins (`SetArrayElements`), and a Timeline gets a
+  section (Length, Loop, a row per track with a preview and Edit). Nodes that name other graphs get a Graph picker
+  filtered by the setting's constraint and Variable, Function and Event lists of the target's elements, each change one
+  step through `RetargetNode`; with nothing selected Details shows the document's Kind, asking first when a switch
+  breaks this or other scripts' nodes. A value being dragged or typed in Details or My Script survives an outside change
+  (an agent's `graph.edit`, another window's commit) of other elements: `VisualScriptWidgetCommits` rebases it over the
+  change (`RebaseVisualScriptEdit`, a pure function of the base, the pending value and the current document), and drops
+  it with "Your edit of Duration was replaced by a change made elsewhere" when the change touched the same element; a
+  canvas gesture an outside change ends shows "Your move was interrupted by a change made elsewhere".
   Paste leaves out an input event the event graph already handles (the same key or button, compared by enumerator).
-  When the window is too narrow for both panes and 40 font sizes of canvas, Details and then My Script auto-hide, and
-  open over the canvas when needed. The **drawer** under the
+  Panes stand beside the canvas when both fit with a canvas of 40 font sizes; otherwise, with both on, they stack in one
+  column on My Script's side (My Script above Details at 45 % of the column, a splitter between them, the column as wide
+  as the wider pane but no wider than the canvas leaves, at least 14 font sizes, its edge a gap, not a splitter);
+  otherwise Details auto-hides first, then My Script, and they open over the canvas when needed. Both stay Shown when
+  stacked (`graph.editors` reports `stacked`). The **drawer** under the
   canvas lists problems (errors first, then by sub-graph, then by position; a click goes to the element) with their
   quick fixes, or the results of a find in this script or every script ("could not be read: <error>" for scripts that do
-  not load). Problems also show on the canvas: a badge on nodes (and in the breadcrumb and My Script for functions),
+  not load), or, in its Timeline mode (its own height, 16 font sizes), a `Flow.Timeline`'s tracks beside its curves
+  (`VisualScriptCurveEditor` over the pure `VisualScriptCurveView`, whose view, hit testing and gestures are tested
+  without ImGui). It opens from a double-click on a Timeline's header, the node menu's Edit Timeline, Details' Edit and
+  `graph.open`'s `timeline`, and closes when its node is gone. Every edit is one `SetTimeline` step; drags are computed
+  from the timeline as the interaction found it and merge into one step at the widget cadence; Escape cancels a drag
+  (the setting goes back within the drag's own step, which then disappears) or a marquee (the selection comes back);
+  arrow nudges less than 0.5 s apart are one step ("VSTN" keys, apart from the canvas's); the view keeps its ranges in
+  double and follows renamed and removed tracks. Problems also show on the canvas: a badge on nodes (and in the breadcrumb and My Script for functions),
   ringed pins, dashed error links with a badge; a badge's popup lists the messages with their fixes. Quick fixes
   (`GetVisualScriptQuickFixes`) are one step each, "Fix: <label>": change a node's type to a suggestion, use another pin,
   setting, variable, function or type, remove an input literal or setting, keep an exec output's or input's first link,
   break a link, insert a Convert, reset a value, move an entity literal into a public `Strada.Entity` variable, make a
   zero quaternion the identity, make a variable private, delete a node, add a function's Entry or Return, make a
-  function impure, update a node to its canonical type, remove an unused split, enable a node the runtime runs anyway;
-  Go To, Edit Setting and Rename navigate instead. The **find bar** (Ctrl+F) outlines matches in amber; Enter and
+  function impure, update a node to its canonical type, remove an unused split, enable a node the runtime runs anyway,
+  use a function's name in a formula, retarget a node naming another graph (Send by Name, Use <event>, Update Parameters
+  from <script>, Use <variable or function> of that graph), delete a library's variable or event-graph node, remove a
+  call's Graph naming its own graph; Go To, Edit Setting, Rename, Edit Formula, Choose a Graph and Open <x> in <script>
+  navigate instead (`VisualScriptQuickFixGraphs` gives them the other graphs' documents and names). The **find bar** (Ctrl+F) outlines matches in amber; Enter and
   Shift+Enter go to the next and previous match, which becomes the selection, while the find field keeps the keyboard;
   Escape closes the bar and gives the keyboard back to the canvas, so the keys after a find act on what it showed. Find
   (`FindInVisualScript`, shared with `graph.find`) matches titles, subtitles, types, node comments, pin labels, literals
-  and text settings, comment boxes and names, one result per element and field, in document order.
+  and text settings, comment boxes and names, one result per element and field, in document order. References follow
+  other graphs: a variable's or function's are looked for in its graph and in every graph whose nodes name it, a custom
+  event's in every script, and Find References on a node naming another graph lists that graph's element.
 - **Commits and undo**: every edit is a new document made by an L2 operation, prepared by `PrepareVisualScriptCommit`
-  (former names, canonical node types, the layout of unplaced nodes, then a strict check that what is written loads
-  back unchanged, whose text is the text written) and executed by `EditorOperations::EditVisualScript` through
-  `SetVisualScriptCommand`. Edits write through: every executed step (first execution, merged execution, undo, redo)
+  (former names of variables and of a library's parameters, canonical node types and the pin renames of exact library
+  calls, the layout of unplaced nodes, then `VisualScriptSerializer::Validate` and `WriteText`, §7.3, whose text is the
+  text written; `VisualScriptCommitTimings` names its phases) and executed by `EditorOperations::EditVisualScript`
+  through `SetVisualScriptCommand`. A canvas edit that only moves, arranges, aligns, distributes or straightens nodes,
+  changes a comment box's geometry or colour, or collapses nodes is committed with `VisualScriptCommitRequest::LayoutOnly`
+  when preparing it rewrote nothing: the window then keeps its analysis (none runs and the program is not compared),
+  moves only the nodes and comments that moved (`VisualScriptCanvasModel::SyncPositions`, equivalent to a full sync, to
+  which it falls back when anything else must be laid out), and the palette does not read the document again. Edits write through: every executed step (first execution, merged execution, undo, redo)
   writes the file, then gives the asset the committed document object; there is no unsaved state, no save shortcut and
   no prompt on close. The command keeps the file's bytes when they are not the canonical text (version 1, repaired, a
   byte order mark, unloadable), so undo restores them byte for byte (an emptied file comes back empty); it refuses
@@ -1564,11 +1777,27 @@ inspector's primary entity as the context entity; without an asset directory the
   named after what they did and the script they did it in ("Add Branch in Player", "Delete 3 Nodes in Player", "Fix: Use
   Value in Player"), which the Edit menu's Undo and Redo and the history toasts show. The history's rules for asset steps
   (carried across Stop and scene changes, the memory budget, deleted assets) are in the history bullet above.
+- **Agents' edits** (`graph.edit`, §12): `ApplyVisualScriptBatch` (L3b) copies the stored document and applies the
+  operations in order, each the editor's own pure function, so a batch and the same gestures in a window commit the same
+  document (parity tests compare them); the command then analyzes, prepares and executes one `EditVisualScript` step, as
+  a window's commit does. Pins, node sizes and anchors come from a `VisualScriptHeadlessCanvas` per sub-graph, synced
+  with the working document and with an analysis that runs again only when an operation needs pins that earlier
+  operations may have changed; the command set keeps the stored document's analysis per document and library, dropped
+  when a graph it read changed. Node sizes are measured as a window draws them, without one: `VisualScriptTextEstimate`
+  holds the advances of the 95 printable ASCII glyphs of the UI font in 1/64 of the font size, rounded up, times a
+  margin of 1.04 (every other code point counts one font size), so heights equal a window's and widths are at most about
+  6 % wider; `Uniform` extents (256 x 128) are an option. Arranging with anchors places the nodes a batch added without a
+  position beside the placed nodes they continue: the anchors stand as a fixed column, each arranged group's first
+  column is ordered against the anchors' rows by the links from the anchors into that group, and the block starts 64
+  right of the anchors' right edge, at their top, on the 16 grid. The Arrange button and `graph.arrange` lay out alike
+  (`ArrangeNodes` with the window's or the headless canvas's extents). Each operation that reads pins after a change
+  syncs its sub-graph's canvas again, a layout of the sub-graph (about 2 ms per Connect on 2,000 nodes in Release), which
+  a test bounds.
 - **Live edit**: graph windows stay editable while playing. Every commit reaches the running game at the scene's next
   update (layout-only edits send nothing); a dragged value reaches it within 0.1 s. A LIVE pill in the play colour says
   so; it turns amber, "LIVE · last working version", while the edited version has errors and the game runs the last
-  one that worked (`VisualScriptEngine::HasWorkingProgram`), and reads SIMULATING while simulating (graphs do not run
-  then). The Instance combo picks the context entity among those whose component runs the graph (the open request's,
+  one that worked (`VisualScriptEngine::HasWorkingProgram`; for a library, while a graph that calls it runs the version
+  that worked, its tooltip says so), and reads SIMULATING while simulating (graphs do not run then). The Instance combo picks the context entity among those whose component runs the graph (the open request's,
   else the one kept in the views file, else the only one): entity drops write values to it, and My Script shows its
   live values. A deleted context entity is kept but not used until an undo brings it back. Steps made while playing stay
   undoable after Stop.
@@ -1583,7 +1812,7 @@ inspector's primary entity as the context entity; without an asset directory the
   directory renamed in letter case only keeps its windows and views on file systems that ignore case. It is read at
   start and written when graph windows close, when the project changes and at exit, never per frame; what is not valid
   in it is skipped or clamped, each with a warning.
-- **Keys and mouse**: keys are routed in three classes. Editing keys (Delete, Ctrl+Backspace, Shift+Delete,
+- **Keys and mouse**: keys are routed in four classes. Editing keys (Delete, Ctrl+Backspace, Shift+Delete,
   Ctrl+Shift+Backspace, Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+D, Ctrl+A, Ctrl+F, Ctrl+Shift+F, F2) are claimed with
   `ImGui::Shortcut(chord, ImGuiInputFlags_RouteFocused)` every frame a window is drawn, so they beat the editor's global
   chords while it is focused, and go to the focused part (the canvas; My Script's row; the element Details shows); a
@@ -1593,7 +1822,10 @@ inspector's primary entity as the context entity; without an asset directory the
   chords, modifiers included, while the canvas has the keyboard and no text field does; while Space is held, a typed
   character opens the palette with it as the query. Escape is owned by the canvas: it cancels the gesture, else closes
   an overlay pane or the find bar, else clears the selection. The editor's global chords (Ctrl+S, Ctrl+Z, Ctrl+Y, the
-  play keys, ...) are never canvas keys, and no key is one macOS keeps for itself. "Ctrl" is Cmd and "Alt" Option on
+  play keys, ...) are never canvas keys, and no key is one macOS keeps for itself. The Timeline drawer is the fourth
+  class: while it has the keyboard it owns its keys, Delete and Ctrl+A arriving through the window's claim of the
+  focused chords and the others (the arrows, Shift and the arrows, F, Esc) matched exactly under the drawer's key owner;
+  Esc cancels the drawer's drag, and otherwise gives the keyboard back to the canvas. "Ctrl" is Cmd and "Alt" Option on
   macOS. `VisualScriptShortcuts` and `VisualScriptMouseGestures` (`VisualScriptShortcuts.h`) are the tables the key
   handler, the menus, the shortcut sheet and this document read, and a test checks that every row of them is a row here:
 
@@ -1740,8 +1972,11 @@ inspector's primary entity as the context entity; without an asset directory the
   `asset.*` (list, get, select, import, refresh, browse and drop in the content browser, move, delete, create-folder,
   move-folder, delete-folder),
   `material.*` (create, get, set; edits are undoable without marking the scene modified), `graph.*` (visual scripts:
-  create, get, set and check documents, checked strictly, with the scripting runtime's analysis; edits are undoable
-  without marking the scene modified; library and types list the runtime's node kinds and types; open, close, editors and
+  create, get, set and check documents, checked strictly, with the scripting runtime's analysis; edit applies a batch of
+  the graph window's own edits as one step, with labels, quick fixes as ready operations, hints and the nodes of other
+  scripts an edit breaks; arrange lays a graph out as the window's Arrange does, copy copies elements for edit's Paste,
+  interface tells what a graph offers others; edits are undoable without marking the scene modified, and revisions refuse
+  edits of a graph that changed since; library and types list the runtime's node kinds and types; open, close, editors and
   palette drive the graph windows; find searches scripts), `prefab.*`,
   `script.*` (create from template, build with diagnostics, classes and fields), `play.*` (start, stop, pause, step, advance N frames, state),
   `input.*` (inject keys/mouse during play), `ui.*` (where the screen-space UI's elements and buttons are in the game
@@ -1832,16 +2067,30 @@ data directory, and compile out asserts and script debug lines.
   real runtime (every entry point's statuses and single answer, documents sent once per change, a broken document
   leaving the working program running, graph instances blocking game-assembly loads, `CanConnect` against analysis) and
   scenes running C# scripts and graphs together (lifecycle and event order, prefabs, live variables, live edits,
-  failures as script exceptions, the step budget, C# calling graphs). Every graph a scene of `Projects/` uses must load
-  strictly, analyze without errors and resolve its nodes exactly or by a redirect, so an API change that breaks one
-  needs a redirect entry.
+  failures as script exceptions, the step budget, C# calling graphs, remote variables, broadcasts, libraries edited while
+  running). Every graph a scene of `Projects/` uses, and every library those graphs call, must load strictly, analyze
+  without errors (each with its own handle, against copies of its project's graphs) and resolve its nodes exactly or by a
+  redirect, so an API change that breaks one needs a redirect entry; the graphs FeatureTest's scenes run must use every
+  built-in kind of node and every `[VisualNode]` member of its scripts. `VisualScriptNodeCoverageTests` builds a graph for
+  every node of the library (the API's and FeatureTest's game members), analyzes each (no Error, resolved exactly) and runs
+  them in simulated scenes with physics, manual audio and restored input; a node that does not run on its defaults has a
+  recipe (inputs, settings, components, a child target, held keys or buttons), a recipe for every member of its type, or
+  a checked exclusion naming a graph FeatureTest's scenes run that holds it. The fuzz test of damaged graphs runs, every
+  third round, the shared language document (expressions, arrays, strings, generics, a timeline).
 - `StradaEditorTests`: automation commands executed headlessly on a temporary project. A fuzz test sends every command
   parameters built from its schema and the editor's state (mostly names of what exists, plus values to refuse; damaged
   graph documents to `graph.set` and `graph.check`), while editing and playing: every request answers once without
   InternalError, the scene stays loadable, undoing and redoing everything restores it, and nothing outside the project
   changes. The graph commands are tested with and without the scripting runtime: strict refusals naming every issue,
   renamed variables, layout, undo restoring the file's bytes, the library's filters, and edits of running graphs and
-  their variables while playing. The visual script editor (§11.1) is tested headless: its pure layers with plain cases
+  their variables while playing; `graph.edit` also runs the docs' example batch
+  (`Tests/Data/VisualScripting/Agents/Spinner.json`, which a test holds the docs and the game-making skill to, verbatim). `GraphEditFuzzTests` sends random
+  batches drawn from a document's own nodes, pins, variables and functions, with labels and every operation kind: each
+  either fails naming an operation and changes nothing, or writes one undo step that loads strictly and undoes byte for
+  byte, and a dry run answers what the call then does. With `STRADA_PERFORMANCE_TESTS=1`, the commit tests print the
+  phases of a commit (`VisualScriptCommitTimings`: Normalize, Check, Text, ReadBack, Compare, Write, SetDocument, Adopt,
+  Analysis, Canvas, Index) for 2,000 and 200 nodes, for a move and for a new link, and check wall-clock bounds of three
+  times the measured figures; without it they check that every phase that does work is filled. The visual script editor (§11.1) is tested headless: its pure layers with plain cases
   (the node library and analyses from `Tests/Data/VisualScripting/Editor`, checked against the real runtime's), its
   panes and graph windows drawn through `HeadlessImGui` with real mouse and key input, the window manager and the
   `graph.*` window commands between draws, the canvas's draw counters on graphs of up to 10,000 nodes, and the key and
@@ -1851,8 +2100,9 @@ data directory, and compile out asserts and script debug lines.
   in its menus, and Escape, P, R and Space on its title, game, pause and game-over screens (Space mashed through the
   end of a game leaves the game-over screen up), down to the title's Quit, which ends play mode.
 - `StradaRuntimeTests`: the `StradaRuntime` executable runs games written to temporary directories (exported and project
-  layouts, test runs and their exit codes, games whose only scripts are visual scripts, command-line errors, a windowed
-  run's presented image).
+  layouts, test runs and their exit codes, games whose only scripts are visual scripts, among them one whose graph calls
+  a function library and broadcasts to two entities, development-only nodes the project runs and the exported game
+  skips, command-line errors, a windowed run's presented image).
 - `StradaToolTests` (xUnit): the strada command line, instance files and editor discovery, the MCP server against a
   stand-in editor, Poly Haven downloads against a stand-in server, and MCP sessions with the real editor started
   headless (`STRADA_EDITOR`; ctest sets it), among them an agent's whole workflow: a project, a script it writes and
@@ -1868,12 +2118,16 @@ data directory, and compile out asserts and script debug lines.
 - `Projects/FeatureTest`: scenes that use every component (checked by `StradaTests`) and scripts that call the entire
   scripting API through `Strada.Testing`, one script per area (entities, transforms, components, physics, characters,
   audio, assets, math, input, application and time, the testing API, attributes, script lifecycles, the UI, visual
-  scripts) with a coordinator that loads the second scene, which finishes the run. Its graphs use every built-in kind of
-  node and report their checks through `TestReporter` nodes: `Assets/Scripts/Features.sgraph` on the visual-script test
-  entity (comparisons, logic and `Select` checked to give false as well as true), `Contacts.sgraph` on a falling box and
-  ball beside their C# scripts and `Clicks.sgraph` on the UI canvas; `VisualScriptTests` waits for them, checks what
-  they counted and drives them from C#. `Tools/AuthorGraphs.py` writes the three graphs through `strada mcp`
-  (`graph.check`, then `graph.set`) and runs the tests, so a new built-in kind of node gets its check there. CMake
+  scripts) with a coordinator that loads the second scene, which finishes the run. The graphs its scenes run use every
+  built-in kind of node and every `[VisualNode]` member of its scripts (`GameNodes.cs`, and members of
+  `VisualScriptTests`), and report their checks through `TestReporter` nodes: `Assets/Scripts/Features.sgraph` on the
+  visual-script test entity (comparisons, logic and `Select` checked to give false as well as true; expressions, text,
+  arrays, generics, game members, a timeline; the pure and latent functions of the library `MathLibrary.sgraph`; a typed
+  Send to, and a remote Get and Set guarded by `RunsGraph` of, the box's graph; a broadcast), `Contacts.sgraph` on a
+  falling box and ball beside their C# scripts and `Clicks.sgraph` on the UI canvas; `VisualScriptTests` waits for them,
+  checks what they counted and drives them from C#. `Tools/AuthorGraphs.py` writes the graphs through `strada mcp`
+  (`graph.check`, then `graph.set`, in the order they depend on each other) and runs the tests, so a new built-in kind of
+  node or game member gets its check there (`FormatSample.sgraph` is a format sample no scene runs). CMake
   builds the scripts (`StradaFeatureTestScripts`) and `StradaRuntimeTests` runs a copy of the project through the player
   (`StradaRuntime --project ... --test`; exit code = failures).
 - `Projects/Blocks`: a sample game made the way an agent makes one, through `strada mcp`: `Tools/Author.py` builds the

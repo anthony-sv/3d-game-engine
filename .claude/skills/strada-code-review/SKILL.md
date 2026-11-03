@@ -64,6 +64,25 @@ When C# code exists: `dotnet format --verify-no-changes` on each changed project
 - Fallible operations return `Result<T>`/`bool` and their results are checked; user data never triggers an assert or
   crash; errors carry actionable messages.
 
+**Visual scripting** (checks no build catches)
+- A new editing operation of the visual script editor has its `graph.edit` operation, its entries in the batch
+  generators of `GraphEditFuzzTests` and `AutomationFuzzTests`, and its row in Docs/Automation.md.
+- A new reader of a node's `Variable`, `Function` or `Name` settings calls `IsLocalVisualScriptReference` first.
+- A new built-in node kind has an explicit arm in `BuiltinNodes.TypeOf`, a recipe or a checked exclusion in
+  `VisualScriptNodeCoverageTests.cpp` when its defaults do not run it, a use in the FeatureTest graphs, and a row of
+  `BuiltInTitles` (`VisualScriptNodeTitlesTests.cpp`); a new API member that does not run on its defaults has a recipe.
+- A changed library entry, or a changed type `Tests/Data/VisualScripting/Editor/Library.json` holds, regenerates that
+  fixture from the parity test's expected file in the same change.
+- No L2a file of the visual script editor includes an L3 header (but the shared `VisualScriptTimeline.h`).
+- Portability no Windows build shows: elements are removed with `std::erase_if` or `std::remove_if`, never a
+  hand-written move loop, and nothing is move-assigned to itself (libstdc++ and libc++ empty a self-moved string, MSVC
+  does not); a nested struct with default member initializers held in a `std::optional` member and created with
+  `emplace()` declares its default constructor and defaults it in the .cpp (Clang with libstdc++ refuses it otherwise);
+  headless tests send modifiers through `HeadlessImGui::Chord` or `SetModifiers` and set the scroll mode explicitly
+  (macOS swaps Ctrl and Super and defaults to Pan); no reference is bound to a result reached through a temporary (GCC 13
+  `-Wdangling-reference`); numbers are read as documents are read (ParseJson, then `VisualScriptSerializer::ReadFloat`),
+  never with floating-point `std::from_chars`, which Apple's libc++ lacks at the deployment target.
+
 **Architecture**
 - Module layering from `Docs/Architecture.md` §4 is respected; public headers avoid third-party includes where
   practical; `ComponentRegistry` stays the single source of truth for components.
