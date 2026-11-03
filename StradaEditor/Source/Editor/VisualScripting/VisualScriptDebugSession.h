@@ -102,6 +102,8 @@ namespace Strada
 		void SetTarget(AssetHandle graph, UUID entity);
 		// Invalid: any instance.
 		UUID GetTarget(AssetHandle graph) const;
+		// The graphs with an entity as their target (the others target any instance), in the order they were set.
+		std::vector<VisualScriptDebugTarget> const& GetTargets() const;
 		// Told whenever a graph's target changes, so the graph's window shows that entity (an unchanged call tells nothing).
 		void SetTargetListener(std::function<void(AssetHandle graph, UUID entity)> listener);
 		// The sub-graphs the visible windows show (the window manager, every frame; applied when they change, which costs a
@@ -144,6 +146,8 @@ namespace Strada
 		bool IsAttached() const { return m_Attached; }
 		// The runtime's, as last read.
 		VisualScriptDebugState const& GetState() const { return m_State; }
+		// A stop of the state as last read; null when it has none of the ID.
+		VisualScriptStop const* FindStop(uint64_t stop) const override;
 		// The stop selected while it exists, else the current one.
 		std::optional<uint64_t> GetSelectedStop() const;
 		uint32_t GetSelectedFrame() const { return m_SelectedFrame; }
@@ -175,6 +179,11 @@ namespace Strada
 
 		// Runs the UI's queued resumes.
 		void BeginFrame();
+		// Brings what the session shows up to date between editor frames, as EndFrame does without ending one: follows the
+		// project and edits, and reads the runtime's state when its stop revision changed (an edit, an inspector change or a
+		// resume while paused), pausing the scene at a stop that made. Automation calls it before it reads or acts on the
+		// state: commands run back to back with no editor frame between them.
+		void Refresh();
 		// Follows the project and edits (breakpoints whose node went), polls the stop revision when no frame ran, and
 		// completes waits.
 		void EndFrame();
@@ -257,7 +266,9 @@ namespace Strada
 		// Why control calls are refused now; none while attached.
 		std::optional<std::string> GetControlRefusal() const;
 		bool HasResumableStop() const;
-		VisualScriptStop const* FindStop(uint64_t stop) const;
+		// Takes the trace and reads the state when the stop revision changed since the last read (no frame ran to read it),
+		// holding play at a new stop.
+		void Poll();
 		// The flags that hold only while the scene stays paused.
 		bool IsPauseHeld() const;
 		bool IsStepEnded() const;

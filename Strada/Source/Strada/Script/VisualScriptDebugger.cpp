@@ -1368,12 +1368,7 @@ namespace Strada
 		request["Document"] = document.ToString();
 		request["Node"] = node;
 		request["Condition"] = std::string(condition);
-		Result<VisualScriptConditionCheck> check = SendAndRead(request, &ScriptEngineInternal::ReadVisualScriptConditionCheck);
-		if (check && !check.GetValue().Checked)
-		{
-			return Error{"no running program compiles the graph: the condition is checked when the graph runs"};
-		}
-		return check;
+		return SendAndRead(request, &ScriptEngineInternal::ReadVisualScriptConditionCheck);
 	}
 
 	Result<void> VisualScriptDebugger::StartRecording(VisualScriptRecordingOptions const& options)

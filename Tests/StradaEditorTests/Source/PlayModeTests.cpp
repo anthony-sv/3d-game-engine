@@ -234,6 +234,8 @@ namespace
 		std::optional<std::string> GetFrameStepRefusal() const override { return Refusal; }
 		PlayDebugSummary GetDebugSummary() const override { return Summary; }
 
+		VisualScriptStop const* FindStop(uint64_t) const override { return nullptr; }
+
 		std::vector<Call> Calls;
 		std::optional<std::pair<EditorPlayState, PlayStartOptions>> Started;
 		bool StartedPlaying = true;

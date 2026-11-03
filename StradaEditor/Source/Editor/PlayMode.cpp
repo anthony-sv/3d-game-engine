@@ -187,6 +187,11 @@ namespace Strada
 		return m_Observer != nullptr ? m_Observer->GetDebugSummary() : PlayDebugSummary{};
 	}
 
+	VisualScriptStop const* PlayMode::FindDebugStop(uint64_t stop) const
+	{
+		return m_Observer != nullptr ? m_Observer->FindStop(stop) : nullptr;
+	}
+
 	void PlayMode::FollowScripts()
 	{
 		if (m_Runner == nullptr)

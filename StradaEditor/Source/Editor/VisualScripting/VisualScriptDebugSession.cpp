@@ -308,6 +308,12 @@ namespace Strada
 		}
 	}
 
+	std::vector<VisualScriptDebugTarget> const& VisualScriptDebugSession::GetTargets() const
+	{
+		FollowProject();
+		return m_Targets;
+	}
+
 	UUID VisualScriptDebugSession::GetTarget(AssetHandle graph) const
 	{
 		FollowProject();
@@ -811,6 +817,7 @@ namespace Strada
 		summary.Stops = static_cast<uint32_t>(m_State.Stops.size());
 		summary.Current = m_State.Current;
 		summary.PauseHeld = IsPauseHeld();
+		summary.LastStop = m_LastStopID;
 		return summary;
 	}
 
@@ -828,6 +835,17 @@ namespace Strada
 		}
 	}
 
+	void VisualScriptDebugSession::Refresh()
+	{
+		Follow();
+		FollowGraphs();
+		if (m_Attached)
+		{
+			SyncPause();
+			Poll();
+		}
+	}
+
 	void VisualScriptDebugSession::EndFrame()
 	{
 		Follow();
@@ -835,17 +853,10 @@ namespace Strada
 		if (m_Attached)
 		{
 			SyncPause();
-			// Edits, inspector changes and resumes change what is stopped while no frame runs.
+			// Edits, inspector changes and resumes change what is stopped while no frame runs; a frame's end read it already.
 			if (!m_FrameRan)
 			{
-				std::optional<uint64_t> const stopRevision = TakeTrace();
-				if (!stopRevision || *stopRevision != m_State.StopRevision)
-				{
-					if (RefreshState(StateOrigin::Poll))
-					{
-						HoldPlay();
-					}
-				}
+				Poll();
 			}
 		}
 		m_FrameRan = false;
@@ -1073,6 +1084,18 @@ namespace Strada
 			                   "undebugged");
 		}
 		return std::nullopt;
+	}
+
+	void VisualScriptDebugSession::Poll()
+	{
+		std::optional<uint64_t> const stopRevision = TakeTrace();
+		if (!stopRevision || *stopRevision != m_State.StopRevision)
+		{
+			if (RefreshState(StateOrigin::Poll))
+			{
+				HoldPlay();
+			}
+		}
 	}
 
 	bool VisualScriptDebugSession::HasResumableStop() const

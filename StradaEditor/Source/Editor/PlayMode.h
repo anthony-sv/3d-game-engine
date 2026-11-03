@@ -15,6 +15,8 @@
 
 namespace Strada
 {
+	struct VisualScriptStop;
+
 	// What a play run starts with.
 	struct PlayStartOptions
 	{
@@ -34,6 +36,9 @@ namespace Strada
 		std::optional<uint64_t> Current;
 		// The debugger paused the scene for a stop and has not resumed it (it outlives a stop that ends without a resume).
 		bool PauseHeld = false;
+		// The largest stop ID made since play started (0: none): a larger one after frames ran means one stopped (play.advance's
+		// stopped).
+		uint64_t LastStop = 0;
 	};
 
 	// Is told what play mode does, and may hold it back: the editor's visual-script debug session. Main thread.
@@ -55,6 +60,8 @@ namespace Strada
 		// Why scene frames must not run or be stepped now (an execution is stopped at a breakpoint); none when they may.
 		virtual std::optional<std::string> GetFrameStepRefusal() const = 0;
 		virtual PlayDebugSummary GetDebugSummary() const = 0;
+		// A stop the summary counts, by its ID; null when there is none of the ID.
+		virtual VisualScriptStop const* FindStop(uint64_t stop) const = 0;
 	};
 
 	// The editor's play mode. It runs a copy of the edited scene (Play: scripts, physics and audio; Simulate: physics only)
@@ -110,6 +117,8 @@ namespace Strada
 		std::optional<std::string> GetFrameStepRefusal() const;
 		// The observer's summary; Detached without one.
 		PlayDebugSummary GetDebugSummary() const;
+		// The observer's stop of the ID; null without an observer, or when it has none of the ID.
+		VisualScriptStop const* FindDebugStop(uint64_t stop) const;
 		// Acts on what script code that ran between frames asked for, as the end of a frame does: loads the scene it asked
 		// for (SceneRunner::ApplyRequests) and shows it, and stops playing when it quit.
 		void FollowScripts();

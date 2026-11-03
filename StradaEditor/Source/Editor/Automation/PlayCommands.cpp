@@ -1,5 +1,6 @@
 #include "Editor/Automation/PlayCommands.h"
 
+#include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/JsonSchema.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -341,7 +342,8 @@ namespace Strada
 		                      "Runs frames at once with a fixed time step, paused or not; input set before applies to the first frame. "
 		                      "Pause first for deterministic runs: the editor keeps playing in real time otherwise. Stops early when "
 		                      "the scripts quit (Application.Quit) and after a frame in which an execution stopped at a breakpoint; "
-		                      "refused while one is stopped. Returns framesRun and the play state.",
+		                      "refused while one is stopped. Returns the play state with framesRun, stopped (an execution stopped) and "
+		                      "stop (as graph.debug's stops, or null).",
 		                      SchemaBuilder::Object()
 		                          .Property("frames", SchemaBuilder::Integer("Frames to run").Minimum(1).Maximum(100000), true)
 		                          .Property("timestep", TimestepSchema())
@@ -360,9 +362,16 @@ namespace Strada
 								  auto const timestep = params.find("timestep");
 								  float const seconds =
 									  static_cast<float>(timestep != params.end() ? timestep->get<double>() : DefaultTimestep);
+								  uint64_t const lastStop = playMode.GetDebugSummary().LastStop;
 								  uint32_t const run = playMode.Advance(params.at("frames").get<uint32_t>(), Timestep(seconds));
 								  Json description = DescribePlay(playMode, context);
 								  description["framesRun"] = run;
+								  // A stop made by the frames ended them: the stop is the current one.
+								  PlayDebugSummary const debug = playMode.GetDebugSummary();
+								  VisualScriptStop const* stop =
+									  debug.LastStop > lastStop && debug.Current ? playMode.FindDebugStop(*debug.Current) : nullptr;
+								  description["stopped"] = stop != nullptr;
+								  description["stop"] = stop != nullptr ? DescribeVisualScriptStop(*stop, context.GetScene()) : Json();
 								  return description;
 							  })
 		                : result;

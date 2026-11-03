@@ -14,6 +14,7 @@ add_executable(StradaEditorTests
     Source/ExportCommandsTests.cpp
     Source/GameInputTests.cpp
     Source/GraphCommandsTests.cpp
+    Source/GraphDebugCommandsTests.cpp
     Source/GraphEditFuzzTests.cpp
     Source/HeadlessImGui.h
     Source/HeadlessImGuiTests.cpp

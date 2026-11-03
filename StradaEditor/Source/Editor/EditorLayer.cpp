@@ -4,6 +4,7 @@
 #include "Editor/Automation/AutomationInstance.h"
 #include "Editor/Automation/EditorCommands.h"
 #include "Editor/Automation/ExportCommands.h"
+#include "Editor/Automation/GraphDebugCommands.h"
 #include "Editor/Automation/PlayCommands.h"
 #include "Editor/Automation/ScriptCommands.h"
 #include "Editor/DefaultScene.h"
@@ -172,6 +173,7 @@ namespace Strada
 														   return GetGameViewSize();
 													   })
 		                        : registered;
+		registered = registered ? RegisterGraphDebugCommands(m_Commands, m_DebugSession, m_PlayMode, m_Context) : registered;
 		registered = registered ? RegisterExportCommands(m_Commands, m_Export, m_Context) : registered;
 		ST_ASSERT(registered.IsOk(), "The built-in editor commands must register");
 		(void)registered;

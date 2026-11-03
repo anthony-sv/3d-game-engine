@@ -388,7 +388,8 @@ namespace Strada
 	};
 
 	// A condition checked against a node: no Error when it compiles; Reads names what it reads, Scope every readable name.
-	// Checked: a loaded program compiles the document (VisualScriptDebugger::CheckCondition refuses an unchecked one).
+	// Checked: a loaded program compiles the document; when none does, nothing was checked (the condition is checked when the
+	// graph runs).
 	struct VisualScriptConditionCheck
 	{
 		bool Checked = false;
@@ -657,8 +658,8 @@ namespace Strada
 		// These three work without the debugger (My Script's values, the Instance combo, condition checks).
 		[[nodiscard]] static Result<VisualScriptLiveValues> ReadValues(VisualScriptValueRequest const& request);
 		[[nodiscard]] static Result<VisualScriptInstanceList> DescribeInstances(VisualScriptInstanceQuery const& query);
-		// The check of a condition on a node and the node's scope (an empty condition only lists the scope); an error naming
-		// "checked when the graph runs" when no loaded program compiles the document.
+		// The check of a condition on a node and the node's scope (an empty condition only lists the scope); Checked is false,
+		// with no error and no scope, when no loaded program compiles the document.
 		[[nodiscard]] static Result<VisualScriptConditionCheck> CheckCondition(AssetHandle document, uint32_t node,
 		                                                                       std::string_view condition);
 		// graph.trace's recording: starting replaces one that runs; the frame index the following steps belong to; stopping
