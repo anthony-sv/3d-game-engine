@@ -837,7 +837,7 @@ namespace Strada
 					{
 						return Error{fmt::format("a custom event is named {} already", newName)};
 					}
-					return VisualScriptEditing::RenameCustomEvent(edited, element.ID, newName);
+					return VisualScriptEditing::RenameCustomEvent(edited, element.ID, newName, frame.Context.Graph);
 			}
 			return Error{std::string("nothing to rename")};
 		};

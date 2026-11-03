@@ -1,4 +1,5 @@
 #include "Editor/VisualScripting/VisualScriptPalette.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -1005,4 +1006,184 @@ TEST_CASE("VisualScriptPalette: Make Array has one typed entry per type of a Lit
 	std::vector<VisualScriptPaletteMatch> const ranked = Rank(index, *parsed.GetValue(), "make float array");
 	REQUIRE_FALSE(ranked.empty());
 	CHECK(index.GetEntries()[ranked[0].Entry].Title == "Make Float Array");
+}
+
+namespace
+{
+	// The project's scripts the palette reads (spec-slice3 §10.2): the library Motion (Clamp01, pure; Push, impure), the script
+	// Door (the public Health, the private Secret, the custom event Hit (Damage: float)), and Enemy, the script shown.
+	struct ProjectGraphsFixture
+	{
+		ProjectGraphsFixture()
+		{
+			VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+			VisualScriptFunction clamp;
+			clamp.ID = 1;
+			clamp.Name = "Clamp01";
+			clamp.Pure = true;
+			clamp.Inputs = {{"Value", "float"}};
+			clamp.Outputs = {{"Result", "float"}};
+			VisualScriptFunction push;
+			push.ID = 2;
+			push.Name = "Push";
+			push.Inputs = {{"Force", "float"}};
+			motion.Functions = {clamp, push};
+
+			VisualScriptDocument door;
+			VisualScriptVariable health;
+			health.ID = 5;
+			health.Name = "Health";
+			health.Type = "float";
+			health.Public = true;
+			VisualScriptVariable secret = health;
+			secret.ID = 6;
+			secret.Name = "Secret";
+			secret.Public = false;
+			door.Variables = {health, secret};
+			VisualScriptNode hit;
+			hit.ID = 1;
+			hit.Type = "Event.Custom";
+			hit.Position = glm::vec2(0.0f);
+			hit.Settings = Json::object({{"Name", "Hit"}, {"Parameters", Json::array({{{"Name", "Damage"}, {"Type", "float"}}})}});
+			door.Graph.Nodes = {hit};
+
+			Enemy.Variables = {health};
+			Enemy.Variables[0].Name = "Rage";
+			Enemy.Variables[0].Public = false;
+			VisualScriptNode alarm = hit;
+			alarm.Settings = Json::object({{"Name", "Alarm"}});
+			Enemy.Graph.Nodes = {alarm};
+
+			Graphs = {Make(MotionGraph, "Motion", motion), Make(DoorGraph, "Door", door), Make(EnemyGraph, "Enemy", Enemy)};
+		}
+
+		static VisualScriptProjectGraph Make(AssetHandle graph, std::string name, VisualScriptDocument const& document)
+		{
+			VisualScriptProjectGraph made;
+			made.Graph = graph;
+			made.Path = "Scripts/" + name + ".sgraph";
+			made.DisplayName = std::move(name);
+			made.Kind = document.Kind;
+			made.Document = CreateRef<VisualScriptDocument const>(document);
+			return made;
+		}
+
+		static inline AssetHandle const MotionGraph{UUID(7400001ull)};
+		static inline AssetHandle const DoorGraph{UUID(7400002ull)};
+		static inline AssetHandle const EnemyGraph{UUID(7400003ull)};
+		VisualScriptDocument Enemy;
+		std::vector<VisualScriptProjectGraph> Graphs;
+	};
+}
+
+TEST_CASE("VisualScriptEditor: the palette offers other graphs' functions, events and variables with their graph")
+{
+	Scope<VisualScriptLibrary> const library = ParseLibrary();
+	ProjectGraphsFixture const project;
+	VisualScriptPaletteIndex index = MakeIndex(*library, project.Enemy, 0);
+	index.SetProjectGraphs(project.Graphs, ProjectGraphsFixture::EnemyGraph, 1);
+	std::string const motion = ProjectGraphsFixture::MotionGraph.ToString();
+	std::string const door = ProjectGraphsFixture::DoorGraph.ToString();
+	std::string const enemy = ProjectGraphsFixture::EnemyGraph.ToString();
+
+	// A library's functions, with their graph and signature.
+	VisualScriptPaletteEntry const& clamp = GetEntry(index, "Clamp01");
+	CHECK(clamp.Category == "Libraries/Motion");
+	CHECK(clamp.Subtitle == "Motion \xC2\xB7 (Float Value) returns Float Result");
+	CHECK(clamp.NodeType == "Function.Call");
+	CHECK(clamp.Settings == Json::object({{"Function", 1}, {"Graph", motion}}));
+	CHECK_FALSE(clamp.FromDocument);
+	CHECK(FindPin(clamp, "Execute", VisualScriptPinDirection::In) == nullptr);
+	CHECK(FindPin(GetEntry(index, "Push"), "Execute", VisualScriptPinDirection::In) != nullptr);
+
+	// Another script's events (typed), public variables (with the entity to read) and Runs.
+	Json const damage = Json::array({{{"Name", "Damage"}, {"Type", "float"}}});
+	VisualScriptPaletteEntry const& send = GetEntry(index, "Send Hit");
+	CHECK(send.Category == "Scripts/Door");
+	CHECK(send.Settings == Json::object({{"Graph", door}, {"Name", "Hit"}, {"Parameters", damage}}));
+	CHECK(FindPin(send, "Damage", VisualScriptPinDirection::In) != nullptr);
+	VisualScriptPaletteEntry const& broadcast = GetEntry(index, "Broadcast Hit");
+	CHECK(broadcast.NodeType == "Event.Broadcast");
+	CHECK(broadcast.Settings["Graph"] == door);
+	CHECK(FindPin(broadcast, "Count", VisualScriptPinDirection::Out) != nullptr);
+	VisualScriptPaletteEntry const& get = GetEntry(index, "Get Health");
+	CHECK(get.Category == "Scripts/Door");
+	CHECK(get.Settings == Json::object({{"Variable", 5}, {"Graph", door}}));
+	VisualScriptPin const* target = FindPin(get, "Target", VisualScriptPinDirection::In);
+	REQUIRE(target != nullptr);
+	CHECK(target->DefaultsToSelf);
+	CHECK(FindEntry(index, "Set Health").has_value());
+	CHECK_FALSE(FindEntry(index, "Get Secret").has_value());
+	CHECK(GetEntry(index, "Runs Door").Settings == Json::object({{"Graph", door}}));
+	CHECK_FALSE(FindEntry(index, "Runs Enemy").has_value());
+
+	// This script: an untyped Broadcast of its own event, and its variables read on other entities running it.
+	VisualScriptPaletteEntry const& alarm = GetEntry(index, "Broadcast Alarm");
+	CHECK(alarm.Category == "Events");
+	CHECK(alarm.Settings == Json::object({{"Name", "Alarm"}}));
+	VisualScriptPaletteEntry const& rage = GetEntry(index, "Get Rage of another Enemy");
+	CHECK(rage.Category == "Scripts/Enemy");
+	CHECK(rage.Settings == Json::object({{"Variable", 5}, {"Graph", enemy}}));
+	CHECK(FindEntry(index, "Set Rage of another Enemy").has_value());
+
+	// "health door" finds Get Health by its category's word; no document bonus puts it before the document's own.
+	std::vector<std::string> const health = RankedTitles(index, Rank(index, *library, "health door"));
+	REQUIRE_FALSE(health.empty());
+	CHECK(health.front() == "Get Health");
+}
+
+TEST_CASE("VisualScriptEditor: the palette hides the other graphs' entries a graph cannot use, and recomposes on the index revision only")
+{
+	Scope<VisualScriptLibrary> const library = ParseLibrary();
+	ProjectGraphsFixture const project;
+
+	// A pure function's graph lists pure entries only.
+	VisualScriptDocument pure = project.Enemy;
+	VisualScriptFunction half;
+	half.ID = 30;
+	half.Name = "Half";
+	half.Pure = true;
+	pure.Functions = {half};
+	VisualScriptPaletteIndex pureIndex = MakeIndex(*library, pure, 30);
+	pureIndex.SetProjectGraphs(project.Graphs, ProjectGraphsFixture::EnemyGraph, 1);
+	CHECK(FindEntry(pureIndex, "Clamp01").has_value());
+	CHECK(FindEntry(pureIndex, "Get Health").has_value());
+	CHECK_FALSE(FindEntry(pureIndex, "Push").has_value());
+	CHECK_FALSE(FindEntry(pureIndex, "Send Hit").has_value());
+	CHECK_FALSE(FindEntry(pureIndex, "Set Health").has_value());
+
+	// A library offers no variables or custom events of its own, nor the actions that add them, nor its own functions with
+	// a Graph.
+	VisualScriptDocument motion = *project.Graphs[0].Document;
+	VisualScriptVariable stray;
+	stray.ID = 40;
+	stray.Name = "Stray";
+	stray.Type = "float";
+	motion.Variables = {stray};
+	VisualScriptPaletteIndex libraryIndex = MakeIndex(*library, motion, 0);
+	libraryIndex.SetProjectGraphs(project.Graphs, ProjectGraphsFixture::MotionGraph, 1);
+	CHECK_FALSE(FindEntry(libraryIndex, "Get Stray").has_value());
+	CHECK_FALSE(FindEntry(libraryIndex, "Add Variable").has_value());
+	CHECK_FALSE(FindEntry(libraryIndex, "Add Custom Event").has_value());
+	CHECK(FindEntry(libraryIndex, "Add Comment Box").has_value());
+	// Its own Clamp01 is the document's entry, called without a Graph.
+	CHECK(GetEntry(libraryIndex, "Clamp01").Settings == Json::object({{"Function", 1}}));
+	CHECK(FindEntry(libraryIndex, "Send Hit").has_value());
+
+	// The same revision reads nothing: the entries stay those composed, even when the graphs changed meanwhile.
+	VisualScriptPaletteIndex index = MakeIndex(*library, project.Enemy, 0);
+	index.SetProjectGraphs(project.Graphs, ProjectGraphsFixture::EnemyGraph, 1);
+	size_t const count = index.GetEntries().size();
+	std::vector<VisualScriptProjectGraph> fewer = {project.Graphs[0], project.Graphs[2]};
+	index.SetProjectGraphs(fewer, ProjectGraphsFixture::EnemyGraph, 1);
+	CHECK(index.GetEntries().size() == count);
+	CHECK(FindEntry(index, "Send Hit").has_value());
+	// A new revision reads them again.
+	index.SetProjectGraphs(fewer, ProjectGraphsFixture::EnemyGraph, 2);
+	CHECK_FALSE(FindEntry(index, "Send Hit").has_value());
+	CHECK(FindEntry(index, "Clamp01").has_value());
+	// Without graphs, only the document's entries.
+	index.SetProjectGraphs({}, ProjectGraphsFixture::EnemyGraph, 3);
+	CHECK_FALSE(FindEntry(index, "Clamp01").has_value());
+	CHECK_FALSE(FindEntry(index, "Broadcast Alarm").has_value());
 }

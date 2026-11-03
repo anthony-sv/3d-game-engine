@@ -2,6 +2,7 @@
 
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Serialization/JsonSerialization.h"
 
 #include <algorithm>
@@ -189,12 +190,14 @@ namespace Strada
 				VisualScriptReference const& reference = *m_Query.References;
 				switch (reference.ReferenceKind)
 				{
+					// A node naming another graph refers to that graph's elements, never to this document's of its IDs.
 					case VisualScriptReference::Kind::Variable:
-						return (node.Type == GetVariableType || node.Type == SetVariableType) && ReadID(node, "Variable") == reference.ID;
+						return (node.Type == GetVariableType || node.Type == SetVariableType) && IsLocalVisualScriptReference(node) &&
+						       ReadID(node, "Variable") == reference.ID;
 					case VisualScriptReference::Kind::Function:
-						return node.Type == CallType && ReadID(node, "Function") == reference.ID;
+						return node.Type == CallType && IsLocalVisualScriptReference(node) && ReadID(node, "Function") == reference.ID;
 					case VisualScriptReference::Kind::CustomEvent:
-						return IsCustomEvent(node) && ReadString(node, NameSetting) == reference.Name;
+						return IsCustomEvent(node) && IsLocalVisualScriptReference(node) && ReadString(node, NameSetting) == reference.Name;
 				}
 				return false;
 			}

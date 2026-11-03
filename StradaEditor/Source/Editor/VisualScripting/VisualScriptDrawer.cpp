@@ -124,12 +124,35 @@ namespace Strada
 		return problems;
 	}
 
+	VisualScriptQuickFixGraphs MakeVisualScriptQuickFixGraphs(VisualScriptEditorModel const& model)
+	{
+		return VisualScriptQuickFixGraphs{model.MakeGraphResolver(), [&model](AssetHandle graph)
+		                                  {
+											  return model.GetGraphName(graph);
+										  }};
+	}
+
 	void ApplyVisualScriptQuickFixChoice(VisualScriptPaneContext& context, VisualScriptDiagnostic const& diagnostic,
 	                                     VisualScriptQuickFix const& fix, VisualScriptWidgetCommits& commits,
 	                                     VisualScriptPaneResult& result)
 	{
 		VisualScriptEditorModel& model = context.Model;
 		VisualScriptDocument const& document = commits.GetDocument(model);
+		if (fix.Kind == VisualScriptFixKind::OpenGraph)
+		{
+			// The other graph's window (the window manager opens it): on the event, or with its problems.
+			VisualScriptOpenRequest request;
+			request.Graph = diagnostic.Graph;
+			if (fix.Argument == "Node")
+			{
+				request.Function = 0;
+				request.Select = {fix.Target};
+				request.Frame = VisualScriptFrame::Selection;
+			}
+			request.ShowProblems = fix.Argument == "Problems";
+			result.Open = std::move(request);
+			return;
+		}
 		if (fix.Navigates)
 		{
 			uint32_t owner = 0;
@@ -175,7 +198,8 @@ namespace Strada
 			return;
 		}
 		VisualScriptDocument edited = document;
-		if (Result<void> const applied = ApplyVisualScriptQuickFix(edited, *analysis, diagnostic, fix); !applied)
+		VisualScriptQuickFixGraphs const graphs = MakeVisualScriptQuickFixGraphs(model);
+		if (Result<void> const applied = ApplyVisualScriptQuickFix(edited, *analysis, diagnostic, fix, &graphs); !applied)
 		{
 			result.Notes.push_back(fmt::format("Could not apply {}: {}", fix.Label, applied.GetError()));
 			return;
@@ -193,8 +217,9 @@ namespace Strada
 		{
 			return false;
 		}
+		VisualScriptQuickFixGraphs const graphs = MakeVisualScriptQuickFixGraphs(context.Model);
 		std::vector<VisualScriptQuickFix> const fixes =
-			GetVisualScriptQuickFixes(commits.GetDocument(context.Model), *analysis, diagnostic, *library);
+			GetVisualScriptQuickFixes(commits.GetDocument(context.Model), *analysis, diagnostic, *library, &graphs);
 		bool chosen = false;
 		bool const readOnly = context.Model.IsReadOnly();
 		for (size_t i = 0; i < fixes.size(); i++)

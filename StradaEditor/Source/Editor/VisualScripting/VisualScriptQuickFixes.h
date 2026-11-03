@@ -1,10 +1,13 @@
 #pragma once
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -66,7 +69,20 @@ namespace Strada
 		EnableNode,
 		// Replaces the bytes of an Expression's formula the diagnostic's Span covers (Replaces) with a name (Argument): an
 		// unknown function's suggestion. The formula is set with SetFormula, so its inputs keep their links.
-		ReplaceInFormula
+		ReplaceInFormula,
+		// Gives a node that can refer to another graph the settings of Argument (a JSON object: each member set, a null one
+		// removed) with its pins from what they name (VisualScriptEditing::RetargetVisualScriptNode): "Send by Name" removes
+		// a Send's Graph, "Use Damaged" names another event of the target with its parameters.
+		Retarget,
+		// Sets a Send's or a Broadcast's Parameters to those of Argument (a JSON array of { Name, Type }: the target event's)
+		// with SetEventParameters, so links follow the parameters renamed in order.
+		UpdateParameters,
+		// Navigates: opens the other graph the diagnostic names (VisualScriptDiagnostic::Graph). Argument says what it shows
+		// there: "Node" selects the node Target of its event graph (an event), "Variable" the variable Target, "Problems" opens
+		// its problems drawer; empty opens it as it is.
+		OpenGraph,
+		// Removes the diagnostic's variable with the nodes that read or write it (a library's variable).
+		DeleteVariable
 	};
 
 	struct VisualScriptQuickFix
@@ -86,20 +102,33 @@ namespace Strada
 		bool operator==(VisualScriptQuickFix const& other) const = default;
 	};
 
+	// The other visual scripts the nodes of a document name, for the fixes of cross-graph diagnostics (spec-slice3 §4.8,
+	// §10.4): their documents, the fixed document's own handle resolving to the document fixed (never to its stored asset),
+	// and the names labels give them (a file's stem, "Door"). Either may be empty: a fix needs what it reads.
+	struct VisualScriptQuickFixGraphs
+	{
+		VisualScriptGraphResolver Resolve;
+		std::function<std::string(AssetHandle graph)> GetName;
+	};
+
 	// The fixes of a diagnostic of the document's analysis, in the order the problems list shows them; none for the codes
 	// whose message says what to do (UnresolvedWildcard, NoOperator, NoConversion, PureCycle, PureRecursion,
 	// InvalidDocument) and for diagnostics that name what the document does not hold. Suggestions (at most 3 names, or
 	// every candidate of AmbiguousNode) each give a fix. The library names nodes and types, tells which settings a kind has
 	// and which types convert (Insert Convert is offered for the conversions every value has, to string, and numbers have,
-	// to another numeric type).
+	// to another numeric type). The fixes of a node with a Graph setting read that graph through graphs, never the
+	// document's own elements of the IDs it names: without graphs (or when it gives no document) they are left out, but for
+	// those that need no other document ("Choose a Graph", "Send by Name").
 	[[nodiscard]] std::vector<VisualScriptQuickFix> GetVisualScriptQuickFixes(VisualScriptDocument const& document,
 	                                                                          VisualScriptAnalysis const& analysis,
 	                                                                          VisualScriptDiagnostic const& diagnostic,
-	                                                                          VisualScriptLibrary const& library);
+	                                                                          VisualScriptLibrary const& library,
+	                                                                          VisualScriptQuickFixGraphs const* graphs = nullptr);
 
-	// Applies a fix GetVisualScriptQuickFixes gave for the diagnostic to the document it was given for. Navigating fixes
-	// (GoTo, EditSetting, Rename) change nothing and succeed. Fails, leaving the document unchanged, when what the fix acts on
-	// is gone or the fix would make the document invalid.
+	// Applies a fix GetVisualScriptQuickFixes gave for the diagnostic to the document it was given for, with the same graphs.
+	// Navigating fixes (GoTo, EditSetting, Rename, OpenGraph) change nothing and succeed. Fails, leaving the document
+	// unchanged, when what the fix acts on is gone or the fix would make the document invalid.
 	[[nodiscard]] Result<void> ApplyVisualScriptQuickFix(VisualScriptDocument& document, VisualScriptAnalysis const& analysis,
-	                                                     VisualScriptDiagnostic const& diagnostic, VisualScriptQuickFix const& fix);
+	                                                     VisualScriptDiagnostic const& diagnostic, VisualScriptQuickFix const& fix,
+	                                                     VisualScriptQuickFixGraphs const* graphs = nullptr);
 }

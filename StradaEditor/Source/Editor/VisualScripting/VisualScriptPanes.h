@@ -200,9 +200,10 @@ namespace Strada
 	[[nodiscard]] std::optional<uint32_t> FindVisualScriptElementGraph(VisualScriptDocument const& document, uint32_t element);
 	// The node of an ID in whichever graph holds it; null when none.
 	[[nodiscard]] VisualScriptNode const* FindVisualScriptNode(VisualScriptDocument const& document, uint32_t node);
-	// A node's title as the canvas shows it: the analysis', else the one the document gives it (DeriveVisualScriptNodeTitle).
+	// A node's title as the canvas shows it: the analysis', else the one the document gives it (DeriveVisualScriptNodeTitle,
+	// a node naming another graph from the resolver's document).
 	[[nodiscard]] std::string GetVisualScriptNodeTitle(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis,
-	                                                   VisualScriptNode const& node);
+	                                                   VisualScriptNode const& node, VisualScriptGraphResolver const& resolver = {});
 	// A sub-graph's name: "Event Graph", or the function's name.
 	[[nodiscard]] std::string GetVisualScriptGraphName(VisualScriptDocument const& document, uint32_t function);
 	// What jumps to elements of a sub-graph of a graph: shows that sub-graph, selects them and frames them.
@@ -230,11 +231,24 @@ namespace Strada
 	[[nodiscard]] glm::vec2 SnapVisualScriptToGrid(glm::vec2 position);
 	// Whether a node type is a C# member's ("Call:", "Get:", "Set:", "New:" and the member): its type string names the member.
 	[[nodiscard]] bool IsVisualScriptReflectedType(std::string_view type);
-	// The nodes of a graph that get or set a variable or local (Kind Variable or Local), or call a function (Kind Function).
+	// The nodes of a graph that get or set a variable or local (Kind Variable or Local), or call a function (Kind Function), of
+	// the document's own: a node with a Graph setting names another graph's element of the ID.
 	[[nodiscard]] std::vector<uint32_t> FindVisualScriptUses(VisualScriptGraph const& graph, VisualScriptElementKind kind, uint32_t id);
 	// How many nodes of the document's graphs use a variable, local or function: what "Used by", "Called by" and the delete
 	// modal count. A function's calls in its own graph are not counted: they go with it.
 	[[nodiscard]] uint32_t CountVisualScriptUses(VisualScriptDocument const& document, VisualScriptElementKind kind, uint32_t id);
+
+	// How many nodes of the project's other scripts name an element of a graph through their Graph setting, and in how many
+	// scripts (spec-slice3 §10.3): Get and Set of a variable (Kind Variable), calls of a function (Kind Function).
+	struct VisualScriptOtherUses
+	{
+		uint32_t Nodes = 0;
+		uint32_t Scripts = 0;
+
+		bool operator==(VisualScriptOtherUses const& other) const = default;
+	};
+	[[nodiscard]] VisualScriptOtherUses CountVisualScriptOtherUses(std::span<VisualScriptProjectGraph const> graphs, AssetHandle graph,
+	                                                               VisualScriptElementKind kind, uint32_t id);
 
 	// Whether a node offers the Enabled states (spec §9.5): nodes with an exec input and an exec output, and event nodes other
 	// than Event.Send, do; pure nodes show them disabled; Function.Entry and Function.Return do not show them.

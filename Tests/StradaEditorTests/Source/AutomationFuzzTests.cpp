@@ -685,8 +685,8 @@ namespace
 				auto const graphs = m_State.AssetsByType.find("VisualScript");
 				std::array<char const*, 3> const kinds = {"Variable", "Function", "CustomEvent"};
 				Json reference = Json::object({{"kind", kinds[m_Random.Pick(kinds.size())]}});
-				// Half the time the state's script, which has the IDs below: the project has a library and other scripts too.
-				if (!m_State.Graph.empty() && m_Random.Pick(2) == 0)
+				// Mostly the state's script, which has the IDs below: the project has a library and other scripts too.
+				if (!m_State.Graph.empty() && m_Random.Pick(4) != 0)
 				{
 					reference["graph"] = m_State.Graph;
 				}
@@ -766,9 +766,9 @@ namespace
 				"Flow.Branch", "Flow.Sequence", "Operator.Add", "Event.Custom", "Call:Strada.Log.Info(string)",
 				"Flow.Delay",  "Expression",    "Array.Make",   "Flow.Timeline"};
 			std::vector<std::string> const kinds = {
-				"AddNode",    "Move",       "SetPosition",      "SetInput",    "SetSetting", "Disconnect",     "InsertReroute",
-				"AddComment", "SetComment", "AddVariable",      "SetVariable", "Delete",     "DeleteVariable", "DeleteFunction",
-				"Arrange",    "Paste",      "SetArrayElements", "SetFormula",  "SetTimeline"};
+				"AddNode",    "Move",       "SetPosition",      "SetInput",    "SetSetting",  "Disconnect",     "InsertReroute",
+				"AddComment", "SetComment", "AddVariable",      "SetVariable", "Delete",      "DeleteVariable", "DeleteFunction",
+				"Arrange",    "Paste",      "SetArrayElements", "SetFormula",  "SetTimeline", "Retarget",       "SetKind"};
 			std::vector<std::string> const formulas = {"a * b + sin(t)", "speed * dt", "velocity * dt", "x + (", ""};
 			Json batch = Json::array();
 			for (size_t count = 1 + m_Random.Pick(6); count > 0; count--)
@@ -802,6 +802,19 @@ namespace
 				{
 					operation["node"] = node();
 					operation["formula"] = PickFrom(formulas);
+				}
+				else if (kind == "Retarget")
+				{
+					// The seed's typed Send, library call and remote Get, and nodes that name no graph (InvalidParams): another
+					// graph, the library, this script itself, or none.
+					operation["node"] = node();
+					std::array<Json, 4> const graphs = {Json(), Json(std::string("asset://") + SeedLibraryPath),
+					                                    m_State.Graph.empty() ? Json() : Json(m_State.Graph), Json("8146390251172604461")};
+					operation["settings"] = Json::object({{"Graph", graphs[m_Random.Pick(graphs.size())]}});
+				}
+				else if (kind == "SetKind")
+				{
+					operation["kind"] = m_Random.Pick(2) == 0 ? "Script" : "Library";
 				}
 				else if (kind == "SetTimeline")
 				{

@@ -1550,3 +1550,225 @@ TEST_CASE("VisualScriptBatch: a thousand connections on a graph of 2,000 nodes, 
 #endif
 	CHECK(milliseconds <= 3.0 * MeasuredMilliseconds);
 }
+
+namespace
+{
+	AssetHandle const BatchDoor(UUID(7500001ull));
+	AssetHandle const BatchMotion(UUID(7500002ull));
+	AssetHandle const BatchSelf(UUID(7500003ull));
+
+	// Door: the public Health (5) and Armor (9), and the custom event Hit (Damage: float); Motion: the library function Clamp01
+	// (7, Height: float).
+	struct CrossGraphBatchFixture : BatchFixture
+	{
+		CrossGraphBatchFixture()
+		{
+			VisualScriptVariable health;
+			health.ID = 5;
+			health.Name = "Health";
+			health.Type = "float";
+			health.Public = true;
+			VisualScriptVariable armor = health;
+			armor.ID = 9;
+			armor.Name = "Armor";
+			armor.Type = "int";
+			Door.Variables = {health, armor};
+			VisualScriptNode hit;
+			hit.ID = 1;
+			hit.Type = "Event.Custom";
+			hit.Position = glm::vec2(0.0f);
+			hit.Settings = Json::object({{"Name", "Hit"}, {"Parameters", Damage}});
+			VisualScriptNode open = hit;
+			open.ID = 2;
+			open.Settings = Json::object({{"Name", "Open"}});
+			Door.Graph.Nodes = {hit, open};
+			Motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+			VisualScriptFunction clamp;
+			clamp.ID = 7;
+			clamp.Name = "Clamp01";
+			clamp.Inputs = {{"Height", "float"}};
+			Motion.Functions = {clamp};
+			Context.Graph = BatchSelf;
+			Context.FindDocument = [this](AssetHandle graph) -> VisualScriptDocument const*
+			{
+				return graph == BatchDoor ? &Door : graph == BatchMotion ? &Motion : nullptr;
+			};
+			Context.FindGraphName = [](AssetHandle graph) -> std::string
+			{
+				return graph == BatchDoor ? "Door" : graph == BatchMotion ? "Motion" : std::string();
+			};
+		}
+
+		Json const Damage = Json::array({{{"Name", "Damage"}, {"Type", "float"}}});
+		VisualScriptDocument Door;
+		VisualScriptDocument Motion;
+	};
+}
+
+TEST_CASE("VisualScriptBatch: AddNode of a typed Send or Broadcast without Parameters takes its event's, and refuses an unknown Name")
+{
+	CrossGraphBatchFixture fixture;
+	VisualScriptDocument const document = MakeDocument();
+	std::string const door = BatchDoor.ToString();
+	Json const operations = Json::array(
+		{Json::object(
+			 {{"op", "AddNode"}, {"type", "Event.Send"}, {"settings", Json::object({{"Name", "Hit"}, {"Graph", door}})}, {"as", "$send"}}),
+	     Json::object({{"op", "AddNode"},
+	                   {"type", "Event.Broadcast"},
+	                   {"settings", Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", Json::array()}})},
+	                   {"as", "$broadcast"}})});
+	VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+	VisualScriptNode const* const send = FindNode(result.Document, GetLabel(result, "$send"));
+	REQUIRE(send != nullptr);
+	CHECK(send->Settings == Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", fixture.Damage}}));
+	// Parameters given stay as given (the analysis says when they differ).
+	CHECK(FindNode(result.Document, GetLabel(result, "$broadcast"))->Settings["Parameters"] == Json::array());
+
+	VisualScriptBatchError const unknown = ExpectRefused(
+		document,
+		Json::array(
+			{Json::object({{"op", "AddNode"}, {"type", "Event.Send"}, {"settings", Json::object({{"Name", "Hti"}, {"Graph", door}})}})}),
+		fixture.Context);
+	CHECK(unknown.Path == "operations[0].settings.Name");
+	CHECK(unknown.Data["names"] == Json::array({"Hit", "Open"}));
+	// An untyped Send, and a graph not at hand, take nothing.
+	VisualScriptBatchResult const untyped = ExpectApplied(
+		document,
+		Json::array({Json::object({{"op", "AddNode"}, {"type", "Event.Send"}, {"settings", Json::object({{"Name", "Hti"}})}, {"as", "$a"}}),
+	                 Json::object({{"op", "AddNode"},
+	                               {"type", "Event.Send"},
+	                               {"settings", Json::object({{"Name", "Hti"}, {"Graph", "77"}})},
+	                               {"as", "$b"}})}),
+		fixture.Context);
+	CHECK_FALSE(FindNode(untyped.Document, GetLabel(untyped, "$a"))->Settings.contains("Parameters"));
+	CHECK_FALSE(FindNode(untyped.Document, GetLabel(untyped, "$b"))->Settings.contains("Parameters"));
+}
+
+TEST_CASE("VisualScriptBatch: Retarget and SetSetting's routes give a node what another graph declares, keeping links by pin name")
+{
+	CrossGraphBatchFixture fixture;
+	std::string const door = BatchDoor.ToString();
+	std::string const motion = BatchMotion.ToString();
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptNode get;
+	get.ID = 40;
+	get.Type = "Variable.Get";
+	get.Position = glm::vec2(0.0f, 640.0f);
+	get.Settings = Json::object({{"Variable", 5}, {"Graph", door}});
+	VisualScriptNode call = get;
+	call.ID = 41;
+	call.Type = "Function.Call";
+	call.Settings = Json::object({{"Function", 7}, {"Graph", motion}});
+	VisualScriptNode send = get;
+	send.ID = 42;
+	send.Type = "Event.Send";
+	send.Settings = Json::object({{"Name", "Open"}});
+	document.Graph.Nodes.insert(document.Graph.Nodes.end(), {get, call, send});
+	document.Graph.Links.push_back(MakeLink(40, "Value", 41, "Height"));
+
+	// A variable named in the other graph by its name; the link from Value stays.
+	VisualScriptBatchResult const renamed = ExpectApplied(
+		document, Json::array({Json::object({{"op", "Retarget"}, {"node", 40}, {"settings", Json::object({{"Variable", "Armor"}})}})}),
+		fixture.Context);
+	CHECK(FindNode(renamed.Document, 40)->Settings == Json::object({{"Variable", 9}, {"Graph", door}}));
+	CHECK(renamed.Results[0] == Json::object({{"removedLinks", 0}}));
+	CHECK(HasLink(renamed.Document.Graph, MakeLink(40, "Value", 41, "Height")));
+	VisualScriptBatchError const missing = ExpectRefused(
+		document, Json::array({Json::object({{"op", "Retarget"}, {"node", 40}, {"settings", Json::object({{"Variable", "Armour"}})}})}),
+		fixture.Context);
+	CHECK(missing.Path == "operations[0].settings.Variable");
+	CHECK(missing.Data["names"][0] == "Armor");
+
+	// SetSetting of Graph routes to Retarget: a Send naming a graph not at hand takes no parameters, and the call goes local.
+	VisualScriptBatchResult const routed =
+		ExpectApplied(document,
+	                  Json::array({Json::object({{"op", "SetSetting"}, {"node", 42}, {"name", "Graph"}, {"value", "77"}}),
+	                               Json::object({{"op", "SetSetting"}, {"node", 41}, {"name", "Graph"}, {"value", nullptr}})}),
+	                  fixture.Context);
+	CHECK(FindNode(routed.Document, 42)->Settings == Json::object({{"Name", "Open"}, {"Graph", "77"}}));
+	CHECK(FindNode(routed.Document, 41)->Settings == Json::object({{"Function", 7}}));
+	// The call names the document's function 7, which it lacks: no pins, so the link went.
+	CHECK(routed.Results[1] == Json::object({{"removedLinks", 1}}));
+	VisualScriptBatchResult const typed = ExpectApplied(
+		document, Json::array({Json::object({{"op", "SetSetting"}, {"node", 42}, {"name", "Graph"}, {"value", door}})}), fixture.Context);
+	CHECK(FindNode(typed.Document, 42)->Settings == Json::object({{"Name", "Open"}, {"Graph", door}, {"Parameters", Json::array()}}));
+	// Its Name, once typed, routes too, and takes the new event's parameters only when it has none.
+	VisualScriptBatchResult const named =
+		ExpectApplied(typed.Document, Json::array({Json::object({{"op", "SetSetting"}, {"node", 42}, {"name", "Name"}, {"value", "Hit"}})}),
+	                  fixture.Context);
+	CHECK(FindNode(named.Document, 42)->Settings == Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", Json::array()}}));
+	// A node of no cross-graph kind is refused.
+	VisualScriptBatchError const branch = ExpectRefused(
+		document, Json::array({Json::object({{"op", "Retarget"}, {"node", 2}, {"settings", Json::object({{"Graph", door}})}})}),
+		fixture.Context);
+	CHECK(branch.Message.find("names no other graph") != std::string::npos);
+}
+
+TEST_CASE("VisualScriptBatch: SetKind makes the script a library and back")
+{
+	CrossGraphBatchFixture fixture;
+	VisualScriptDocument const document = MakeDocument();
+	VisualScriptBatchResult const library =
+		ExpectApplied(document, Json::array({Json::object({{"op", "SetKind"}, {"kind", "Library"}})}), fixture.Context);
+	CHECK(library.Document.Kind == VisualScriptDocumentKind::Library);
+	// Nothing else changes: its variables and event graph show as errors until removed.
+	VisualScriptDocument expected = document;
+	expected.Kind = VisualScriptDocumentKind::Library;
+	CHECK(library.Document == expected);
+	CHECK(ExpectApplied(library.Document, Json::array({Json::object({{"op", "SetKind"}, {"kind", "Script"}})}), fixture.Context).Document ==
+	      document);
+	CHECK(ExpectRefused(document, Json::array({Json::object({{"op", "SetKind"}, {"kind", "Module"}})}), fixture.Context).Path ==
+	      "operations[0].kind");
+}
+
+TEST_CASE("VisualScriptBatch: Fix applies the quick fixes of cross-graph findings, reading the other graphs")
+{
+	CrossGraphBatchFixture fixture;
+	std::string const door = BatchDoor.ToString();
+	VisualScriptDocument document = MakeDocument();
+	VisualScriptNode send;
+	send.ID = 40;
+	send.Type = "Event.Send";
+	send.Position = glm::vec2(0.0f, 640.0f);
+	send.Settings = Json::object({{"Name", "Hti"}, {"Graph", door}});
+	document.Graph.Nodes.push_back(send);
+	VisualScriptDiagnostic unknown;
+	unknown.Severity = VisualScriptSeverity::Warning;
+	unknown.Code = "UnknownEvent";
+	unknown.Node = 40;
+	unknown.Graph = BatchDoor;
+	unknown.Message = "Scripts/Door.sgraph has no custom event Hti";
+	unknown.Suggestions = {"Hit"};
+	fixture.Semantics.InjectDiagnostic(unknown);
+
+	VisualScriptBatchResult const fixed =
+		ExpectApplied(document, Json::array({Json::object({{"op", "Fix"}, {"code", "UnknownEvent"}, {"fix", "Use Hit"}, {"node", 40}})}),
+	                  fixture.Context);
+	CHECK(FindNode(fixed.Document, 40)->Settings == Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", fixture.Damage}}));
+	// The fix operations of the diagnostic, as graph.edit lists them, read the other graph too.
+	Result<VisualScriptAnalysis> const analysis = fixture.Semantics.Analyze(document, BatchSelf);
+	REQUIRE(analysis.IsOk());
+	VisualScriptQuickFixGraphs const graphs{fixture.Context.FindDocument, fixture.Context.FindGraphName};
+	Json const operations = GetVisualScriptFixOperations(document, analysis.GetValue(), analysis.GetValue().Diagnostics.back(),
+	                                                     fixture.Semantics.GetFixtureLibrary(), &graphs);
+	REQUIRE(operations.size() == 1);
+	CHECK(operations[0]["label"] == "Use Hit");
+	CHECK(GetVisualScriptFixOperations(document, analysis.GetValue(), analysis.GetValue().Diagnostics.back(),
+	                                   fixture.Semantics.GetFixtureLibrary())
+	          .empty());
+	// A fix that opens the other graph changes nothing here.
+	unknown.Code = "PrivateVariable";
+	VisualScriptNode get = send;
+	get.ID = 41;
+	get.Type = "Variable.Get";
+	get.Settings = Json::object({{"Variable", 5}, {"Graph", door}});
+	document.Graph.Nodes.push_back(get);
+	unknown.Node = 41;
+	fixture.Semantics.ClearInjectedDiagnostics();
+	fixture.Semantics.InjectDiagnostic(unknown);
+	VisualScriptBatchError const navigating = ExpectRefused(
+		document, Json::array({Json::object({{"op", "Fix"}, {"code", "PrivateVariable"}, {"fix", "Open Health in Door"}, {"node", 41}})}),
+		fixture.Context);
+	CAPTURE(navigating.Message);
+	CHECK(navigating.Message.find("a graph.edit of the graph it names") != std::string::npos);
+}

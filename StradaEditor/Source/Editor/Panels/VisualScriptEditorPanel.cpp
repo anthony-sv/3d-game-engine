@@ -890,6 +890,11 @@ namespace Strada
 
 	void VisualScriptEditorPanel::SyncModel()
 	{
+		// The other graphs as the window manager's index holds them this frame (refreshed before the windows draw).
+		if (m_ProjectIndex != nullptr)
+		{
+			m_Model.SetProjectGraphs(m_ProjectIndex->GetGraphs(), m_ProjectIndex->GetRevision());
+		}
 		// While a widget of the panes or the live widget is in use, the analysis keeps its pace (spec §6.3).
 		m_Model.Sync(m_Semantics, m_Measure, m_Theme, m_WidgetActive, m_Time);
 	}

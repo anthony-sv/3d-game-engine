@@ -274,6 +274,9 @@ namespace Strada
 		// The title the window shows; empty shows the file's stem (the window manager names two graphs with one stem by their
 		// folders). The window keeps its identity across titles.
 		void SetTitle(std::string title) { m_Title = std::move(title); }
+		// The project's visual scripts (the window manager's index, refreshed before the windows draw), which the window hands
+		// its model at each draw (VisualScriptEditorModel::SetProjectGraphs); null knows no other graph.
+		void SetProjectIndex(VisualScriptProjectIndex const* index) { m_ProjectIndex = index; }
 		// What the panes asked to open in other graphs' windows since the last call (a find result or a reference in another
 		// script, a history toast's [Show] for another script's step): the window manager opens them, or brings them to the
 		// front.
@@ -578,6 +581,7 @@ namespace Strada
 		EditSession& m_Session;
 		VisualScriptEditorServices const& m_Services;
 		std::string m_Title;
+		VisualScriptProjectIndex const* m_ProjectIndex = nullptr;
 		// The name descriptions end with ("Move 3 Nodes in Player"): the window's title.
 		std::string m_ScriptName;
 		// What entity drops need of the edited scene.

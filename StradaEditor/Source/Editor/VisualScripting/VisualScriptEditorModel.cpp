@@ -2,6 +2,7 @@
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Asset/VisualScriptLayout.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Timer.h"
 
@@ -895,8 +896,9 @@ namespace Strada
 		// shows an asset's name.
 		uint64_t const assetVersion = AssetManager::IsInitialized() ? AssetManager::GetVersion() : 0;
 		bool const assetNamesChanged = assetVersion != m_AssetVersion && m_Canvas.ShowsAssetNames();
+		bool const projectChanged = m_ProjectRevision != m_CanvasProjectRevision;
 		bool const stale = m_CanvasStale || result.DocumentChanged || result.AnalysisChanged || !(theme == m_Theme) || assetNamesChanged ||
-		                   m_Function != m_CanvasFunction;
+		                   m_Function != m_CanvasFunction || projectChanged;
 		if (!stale)
 		{
 			m_AssetVersion = assetVersion;
@@ -918,6 +920,14 @@ namespace Strada
 		source.ShowDiagnostics = !m_AnalysisStale;
 		source.AssetNames = DescribeAsset;
 		source.AssetVersion = assetVersion;
+		// The canvas's own graph is the document it shows (a preview included).
+		VisualScriptDocument const* const drawn = source.Display;
+		source.Resolve = [this, drawn](AssetHandle graph) -> VisualScriptDocument const*
+		{
+			return graph == m_Graph ? drawn : ResolveGraph(graph);
+		};
+		source.GraphsRevision = m_ProjectRevision;
+		m_CanvasProjectRevision = m_ProjectRevision;
 		std::optional<bool> synced;
 		{
 			PhaseTimer const timer(m_SyncTimings.Canvas);
@@ -988,6 +998,46 @@ namespace Strada
 							 return a.first < b.first;
 						 });
 		IndexNodes(*m_AnalyzedDocument, m_AnalyzedNodes);
+	}
+
+	void VisualScriptEditorModel::SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, uint64_t revision)
+	{
+		m_ProjectGraphs = graphs;
+		m_ProjectRevision = revision;
+	}
+
+	VisualScriptProjectGraph const* VisualScriptEditorModel::FindProjectGraph(AssetHandle graph) const
+	{
+		auto const found = std::find_if(m_ProjectGraphs.begin(), m_ProjectGraphs.end(),
+		                                [graph](VisualScriptProjectGraph const& candidate)
+		                                {
+											return candidate.Graph == graph;
+										});
+		return found != m_ProjectGraphs.end() ? &*found : nullptr;
+	}
+
+	VisualScriptDocument const* VisualScriptEditorModel::ResolveGraph(AssetHandle graph) const
+	{
+		if (graph == m_Graph)
+		{
+			return &GetDisplayDocument();
+		}
+		VisualScriptProjectGraph const* const found = FindProjectGraph(graph);
+		return found != nullptr ? found->Document.get() : nullptr;
+	}
+
+	VisualScriptGraphResolver VisualScriptEditorModel::MakeGraphResolver() const
+	{
+		return [this](AssetHandle graph)
+		{
+			return ResolveGraph(graph);
+		};
+	}
+
+	std::string VisualScriptEditorModel::GetGraphName(AssetHandle graph) const
+	{
+		VisualScriptProjectGraph const* const found = FindProjectGraph(graph);
+		return found != nullptr && !found->DisplayName.empty() ? found->DisplayName : graph.ToString();
 	}
 
 	VisualScriptDocument const& VisualScriptEditorModel::GetDrawnDocument() const
@@ -1835,7 +1885,9 @@ namespace Strada
 				{
 					return false;
 				}
-				if (node->Type == "Function.Call")
+				// A node naming another graph opens there: the controller's OpenNode asks the window manager.
+				bool const local = IsLocalVisualScriptReference(*node);
+				if (node->Type == "Function.Call" && local)
 				{
 					std::optional<uint32_t> const function = ReadIdSetting(*node, "Function");
 					if (function && *function != 0 && HasFunction(*function))
@@ -1844,7 +1896,7 @@ namespace Strada
 						return true;
 					}
 				}
-				if (node->Type == "Event.Send" && GoToCustomEvent(*node))
+				if (node->Type == "Event.Send" && local && GoToCustomEvent(*node))
 				{
 					return true;
 				}

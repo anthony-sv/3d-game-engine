@@ -6,6 +6,7 @@
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptHitTest.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptSpatialIndex.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
@@ -614,6 +615,23 @@ namespace Strada
 		size_t GetCapacityBytes() const;
 
 		AssetHandle GetGraph() const { return m_Graph; }
+		// The project's visual scripts (spec-slice3 §10.1), as the window manager's index holds them (GetGraphs and
+		// GetRevision): the nodes that name other graphs take their titles and variable names from them, and the panes their
+		// pickers, palette entries and quick fixes. The span and the documents it holds must stay valid until the next call
+		// (the index keeps them while its revision stays); a new revision lays such nodes out again at the next Sync. Empty: no
+		// other graph is known.
+		void SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, uint64_t revision);
+		std::span<VisualScriptProjectGraph const> GetProjectGraphs() const { return m_ProjectGraphs; }
+		uint64_t GetProjectRevision() const { return m_ProjectRevision; }
+		// The project's script of a handle; null when it has none.
+		VisualScriptProjectGraph const* FindProjectGraph(AssetHandle graph) const;
+		// The document of a graph a node names: this window's own graph is the display document (never the stored asset),
+		// another the project's; null when it does not load or is not known.
+		VisualScriptDocument const* ResolveGraph(AssetHandle graph) const;
+		// ResolveGraph as a resolver, valid while the model lives and the project's graphs stay.
+		[[nodiscard]] VisualScriptGraphResolver MakeGraphResolver() const;
+		// The name another graph is shown by (the project's file stem, "Door"); its handle when the project has no such script.
+		std::string GetGraphName(AssetHandle graph) const;
 		// The sub-graph shown: 0 for the event graph, else a function's ID. A function deleted while shown shows the event graph.
 		uint32_t GetFunction() const { return m_Function; }
 		VisualScriptDocumentState GetDocumentState() const { return m_State; }
@@ -953,6 +971,10 @@ namespace Strada
 		bool m_HasMeasure = false;
 		uint64_t m_AssetVersion = 0;
 		uint32_t m_CanvasFunction = 0;
+		// The project's scripts (SetProjectGraphs), and the revision the visual model was last laid out with.
+		std::span<VisualScriptProjectGraph const> m_ProjectGraphs;
+		uint64_t m_ProjectRevision = 0;
+		uint64_t m_CanvasProjectRevision = 0;
 		// Counts the visual model's layouts, so classes kept by pin index know when they are stale.
 		uint64_t m_CanvasRevision = 0;
 		std::optional<VisualScriptRect> m_ContentBounds;

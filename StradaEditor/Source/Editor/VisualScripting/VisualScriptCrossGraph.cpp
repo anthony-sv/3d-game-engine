@@ -602,6 +602,165 @@ namespace Strada
 			return removed;
 		}
 
+		std::vector<VisualScriptPin> MakeVisualScriptRetargetPins(VisualScriptDocument const& document, uint32_t function,
+		                                                          VisualScriptNode const& node, VisualScriptGraphResolver const& resolver)
+		{
+			std::vector<VisualScriptPin> pins;
+			if (!IsCrossGraphType(node.Type))
+			{
+				return pins;
+			}
+			if (IsSender(node.Type))
+			{
+				std::optional<std::vector<std::pair<std::string, std::string>>> const parameters = ReadParameters(node);
+				if (!parameters)
+				{
+					return pins;
+				}
+				pins.push_back(MakeExecPin("Execute", VisualScriptPinDirection::In));
+				if (node.Type == SendType)
+				{
+					pins.push_back(MakeTargetPin());
+				}
+				for (auto const& [parameter, type] : *parameters)
+				{
+					pins.push_back(MakePin(parameter, VisualScriptPinDirection::In, type));
+				}
+				pins.push_back(MakeExecPin("Then", VisualScriptPinDirection::Out));
+				if (node.Type == BroadcastType)
+				{
+					pins.push_back(MakePin("Count", VisualScriptPinDirection::Out, "int"));
+				}
+				return pins;
+			}
+			if (node.Type == RunsGraphType)
+			{
+				return MakeVisualScriptCrossGraphPins(node, document);
+			}
+			if (!IsLocalVisualScriptReference(node))
+			{
+				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+				VisualScriptDocument const* const target = graph && resolver ? resolver(*graph) : nullptr;
+				return target != nullptr ? MakeVisualScriptCrossGraphPins(node, *target) : pins;
+			}
+			if (node.Type == CallType)
+			{
+				std::optional<uint32_t> const id = ReadId(node.Settings, FunctionSetting);
+				VisualScriptFunction const* const callee = id ? FindById(document.Functions, *id) : nullptr;
+				if (callee == nullptr)
+				{
+					return pins;
+				}
+				if (!callee->Pure)
+				{
+					pins.push_back(MakeExecPin("Execute", VisualScriptPinDirection::In));
+				}
+				for (VisualScriptParameter const& input : callee->Inputs)
+				{
+					pins.push_back(MakePin(input.Name, VisualScriptPinDirection::In, input.Type));
+				}
+				if (!callee->Pure)
+				{
+					pins.push_back(MakeExecPin("Then", VisualScriptPinDirection::Out));
+				}
+				for (VisualScriptParameter const& output : callee->Outputs)
+				{
+					pins.push_back(MakePin(output.Name, VisualScriptPinDirection::Out, output.Type));
+				}
+				return pins;
+			}
+			// A Get or a Set of a local of the function, else of a variable.
+			std::optional<uint32_t> const id = ReadId(node.Settings, VariableSetting);
+			std::string const* type = nullptr;
+			VisualScriptFunction const* const owner = id && function != 0 ? FindById(document.Functions, function) : nullptr;
+			if (VisualScriptLocal const* const local = owner != nullptr ? FindById(owner->Locals, *id) : nullptr)
+			{
+				type = &local->Type;
+			}
+			else if (VisualScriptVariable const* const variable = id ? FindById(document.Variables, *id) : nullptr)
+			{
+				type = &variable->Type;
+			}
+			if (type == nullptr)
+			{
+				return pins;
+			}
+			bool const set = node.Type == SetType;
+			if (set)
+			{
+				pins.push_back(MakeExecPin("Execute", VisualScriptPinDirection::In));
+				pins.push_back(MakePin("Value", VisualScriptPinDirection::In, *type));
+				pins.push_back(MakeExecPin("Then", VisualScriptPinDirection::Out));
+			}
+			pins.push_back(MakePin("Value", VisualScriptPinDirection::Out, *type));
+			return pins;
+		}
+
+		Result<uint32_t> RetargetVisualScriptNode(VisualScriptDocument& document, uint32_t node, Json settings,
+		                                          VisualScriptGraphResolver const& resolver)
+		{
+			if (!settings.is_object())
+			{
+				return Error{"the settings must be an object: each member is set, a null member removed"};
+			}
+			// The node as the settings leave it, and the sub-graph that holds it.
+			VisualScriptNode const* found = nullptr;
+			uint32_t function = 0;
+			auto const find = [&](VisualScriptGraph const& graph, uint32_t owner)
+			{
+				for (VisualScriptNode const& candidate : graph.Nodes)
+				{
+					if (candidate.ID == node && found == nullptr)
+					{
+						found = &candidate;
+						function = owner;
+					}
+				}
+			};
+			find(document.Graph, 0);
+			for (VisualScriptFunction const& owner : document.Functions)
+			{
+				find(owner.Graph, owner.ID);
+			}
+			if (found == nullptr)
+			{
+				return MakeError("the document has no node {}", node);
+			}
+			VisualScriptNode patched = *found;
+			if (!patched.Settings.is_object())
+			{
+				// RetargetNode refuses such a node.
+				return RetargetNode(document, node, std::move(settings), {});
+			}
+			for (auto const& [name, value] : settings.items())
+			{
+				if (value.is_null())
+				{
+					patched.Settings.erase(name);
+				}
+				else
+				{
+					patched.Settings[name] = value;
+				}
+			}
+			if (IsSender(patched.Type) && !IsLocalVisualScriptReference(patched) && !patched.Settings.contains(ParametersSetting))
+			{
+				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(patched);
+				std::string const* const name = ReadString(patched.Settings, NameSetting);
+				VisualScriptDocument const* const target = graph && name != nullptr && resolver ? resolver(*graph) : nullptr;
+				if (target != nullptr)
+				{
+					if (Result<Json> parameters = FindVisualScriptEventParameters(*target, *name))
+					{
+						settings[ParametersSetting] = parameters.GetValue();
+						patched.Settings[ParametersSetting] = std::move(parameters.GetValue());
+					}
+				}
+			}
+			std::vector<VisualScriptPin> const pins = MakeVisualScriptRetargetPins(document, function, patched, resolver);
+			return RetargetNode(document, node, std::move(settings), pins);
+		}
+
 		Result<void> SetDocumentKind(VisualScriptDocument& document, VisualScriptDocumentKind kind)
 		{
 			if (VisualScriptDocumentKindToString(kind).empty())

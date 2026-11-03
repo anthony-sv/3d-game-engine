@@ -1776,6 +1776,9 @@ TEST_CASE("GraphCommands: graph.palette checks its parameters in order, then lis
 	VisualScriptPaletteIndex index;
 	index.Rebuild(library);
 	index.SetDocument(document, 0);
+	// The window's palette also offers what the project's graphs offer this one (its variables on other entities).
+	VisualScriptProjectIndex const& project = fixture.Editors.GetProjectIndex();
+	index.SetProjectGraphs(project.GetGraphs(), AssetManager::ResolveReference(graph).GetValue(), project.GetRevision());
 	std::span<VisualScriptPaletteEntry const> const entries = index.GetEntries();
 	auto const expectTitles = [&entries](Json const& listed, std::vector<VisualScriptPaletteMatch> const& matches, size_t limit)
 	{
@@ -3809,4 +3812,133 @@ TEST_CASE("GraphCommands: graph.set replacing a file that does not load reports 
 	CHECK(set["summary"] == Json::object({{"brokenReferrers", 0}, {"staleSenders", 0}}));
 	CHECK(fixture.GetDocument(broken).Kind == VisualScriptDocumentKind::Library);
 	CHECK(fixture.GetDocument(caller) == runner);
+}
+
+TEST_CASE("GraphCommands: graph.edit's typed senders take their event's parameters, and Retarget and SetKind edit what a graph names")
+{
+	GraphFixture fixture;
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	std::string const script = fixture.CreateGraph("Scripts/Player.sgraph", VisualScriptDocument());
+	Json const damage = Json::array({Json::object({{"Name", "Damage"}, {"Type", "float"}})});
+
+	// A Send named by its graph's path and event: the event's parameters come with it.
+	Json const added = fixture.Ok(
+		"graph.edit",
+		Json::object({{"graph", script},
+	                  {"operations",
+	                   Json::array({Json::object({{"op", "AddNode"},
+	                                              {"type", "Event.Send"},
+	                                              {"settings", Json::object({{"Name", "Hit"}, {"Graph", "asset://Scripts/Door.sgraph"}})},
+	                                              {"position", Json::array({0, 0})},
+	                                              {"as", "$send"}})})}}));
+	uint32_t const send = added["labels"]["$send"].get<uint32_t>();
+	VisualScriptDocument const typed = fixture.GetDocument(script);
+	VisualScriptNode const* node = FindVisualScriptNode(typed, send);
+	REQUIRE(node != nullptr);
+	CHECK(node->Settings == Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", damage}}));
+	// An event the graph does not have is refused, naming its events.
+	CommandError const unknown = fixture.Fails(
+		"graph.edit",
+		Json::object({{"graph", script},
+	                  {"operations", Json::array({Json::object({{"op", "AddNode"},
+	                                                            {"type", "Event.Send"},
+	                                                            {"settings", Json::object({{"Name", "Hti"}, {"Graph", door}})}})})}}));
+	CHECK(unknown.Code == AutomationErrorCode::InvalidParams);
+	CHECK(unknown.Data["path"] == "operations[0].settings.Name");
+	CHECK(unknown.Data["names"] == Json::array({"Hit", "Opened"}));
+
+	// Retarget untypes it in one step, keeping its parameters.
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	Json const untyped = fixture.Ok(
+		"graph.edit",
+		Json::object({{"graph", script},
+	                  {"operations", Json::array({Json::object(
+										 {{"op", "Retarget"}, {"node", send}, {"settings", Json::object({{"Graph", nullptr}})}})})}}));
+	CHECK(untyped["results"][0] == Json::object({{"removedLinks", 0}}));
+	VisualScriptDocument const untypedDocument = fixture.GetDocument(script);
+	CHECK(FindVisualScriptNode(untypedDocument, send)->Settings == Json::object({{"Name", "Hit"}, {"Parameters", damage}}));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+
+	// SetKind makes the script a library.
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", script}, {"operations", Json::array({Json::object({{"op", "SetKind"}, {"kind", "Library"}})})}}));
+	CHECK(fixture.GetDocument(script).Kind == VisualScriptDocumentKind::Library);
+	CommandError const kind = fixture.Fails(
+		"graph.edit",
+		Json::object({{"graph", script}, {"operations", Json::array({Json::object({{"op", "SetKind"}, {"kind", "Module"}})})}}));
+	CHECK(kind.Code == AutomationErrorCode::InvalidParams);
+	CHECK(kind.Data["path"] == "operations[0].kind");
+}
+
+TEST_CASE("GraphCommands: with the scripting runtime, each family of cross-graph findings offers a fix that removes it")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	std::string const script = fixture.CreateGraph("Scripts/Player.sgraph", VisualScriptDocument());
+	// A Send of an event Door lacks, one whose parameters differ, one to a graph that is absent, a Get of a variable Door lacks
+	// and a call naming its own graph.
+	VisualScriptDocument document;
+	document.Graph.Nodes.push_back(MakeNode(1, "Event.Update"));
+	document.Graph.Nodes.push_back(MakeNode(2, "Event.Send", Json::object({{"Name", "Hti"}, {"Graph", door}})));
+	document.Graph.Nodes.push_back(MakeNode(
+		3, "Event.Send",
+		Json::object(
+			{{"Name", "Hit"}, {"Graph", door}, {"Parameters", Json::array({Json::object({{"Name", "Damage"}, {"Type", "int"}})})}})));
+	document.Graph.Nodes.push_back(
+		MakeNode(4, "Event.Send", Json::object({{"Name", "Hit"}, {"Graph", "77"}, {"Parameters", Json::array()}})));
+	document.Graph.Nodes.push_back(MakeNode(5, "Variable.Get", Json::object({{"Variable", 99}, {"Graph", door}})));
+	document.Graph.Nodes.push_back(MakeNode(6, "RunsGraph", Json::object({{"Graph", door}})));
+	VisualScriptFunction helper;
+	helper.ID = 10;
+	helper.Name = "Helper";
+	helper.Pure = true;
+	helper.Graph.Nodes.push_back(MakeNode(11, "Function.Entry"));
+	helper.Graph.Nodes.push_back(MakeNode(12, "Function.Return"));
+	document.Functions.push_back(helper);
+	document.Graph.Nodes.push_back(MakeNode(7, "Function.Call", Json::object({{"Function", 10}, {"Graph", script}})));
+	fixture.Ok("graph.set", Json::object({{"graph", script}, {"document", VisualScriptSerializer::SerializeDocument(document)}}));
+	auto const edit = [&script](Json operations)
+	{
+		return Json::object({{"graph", script}, {"operations", std::move(operations)}});
+	};
+
+	struct Family
+	{
+		std::string_view Code;
+		uint32_t Node = 0;
+		std::string_view Fix;
+	};
+	for (Family const& family : {Family{"UnknownEvent", 2, "Use Hit"}, Family{"EventSignatureMismatch", 3, "Update Parameters from Door"},
+	                             Family{"UncheckedGraph", 4, "Send by Name"}, Family{"UnknownVariable", 5, "Use Health"},
+	                             Family{"InvalidSetting", 7, "Remove Setting"}})
+	{
+		CAPTURE(family.Code);
+		Json const current = fixture.Ok("graph.edit", edit(Json::array()));
+		std::vector<Json> const found = FindDiagnostics(current, family.Code);
+		auto const diagnostic = std::find_if(found.begin(), found.end(),
+		                                     [&family](Json const& candidate)
+		                                     {
+												 return candidate.value("Node", 0u) == family.Node;
+											 });
+		REQUIRE(diagnostic != found.end());
+		Json operation;
+		for (Json const& fix : (*diagnostic)["Fixes"])
+		{
+			operation = fix["label"] == std::string(family.Fix) ? fix["operation"] : operation;
+		}
+		REQUIRE_MESSAGE(operation.is_object(), (*diagnostic).dump());
+		Json const fixed = fixture.Ok("graph.edit", edit(Json::array({operation})));
+		std::vector<Json> const left = FindDiagnostics(fixed, family.Code);
+		CHECK(std::none_of(left.begin(), left.end(),
+		                   [&family](Json const& candidate)
+		                   {
+							   return candidate.value("Node", 0u) == family.Node;
+						   }));
+	}
+	// What the fixes wrote: Door's event and variable, and no graph for the Send by name.
+	VisualScriptDocument const fixedDocument = fixture.GetDocument(script);
+	CHECK(FindVisualScriptNode(fixedDocument, 2)->Settings["Name"] == "Hit");
+	CHECK(FindVisualScriptNode(fixedDocument, 5)->Settings["Variable"] == 1);
+	CHECK_FALSE(FindVisualScriptNode(fixedDocument, 4)->Settings.contains("Graph"));
 }

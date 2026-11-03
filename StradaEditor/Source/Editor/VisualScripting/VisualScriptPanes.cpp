@@ -5,6 +5,7 @@
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 
 #include <imgui.h>
@@ -157,7 +158,7 @@ namespace Strada
 	}
 
 	std::string GetVisualScriptNodeTitle(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis,
-	                                     VisualScriptNode const& node)
+	                                     VisualScriptNode const& node, VisualScriptGraphResolver const& resolver)
 	{
 		if (analysis != nullptr)
 		{
@@ -167,7 +168,7 @@ namespace Strada
 				return analyzed->Title;
 			}
 		}
-		return DeriveVisualScriptNodeTitle(node, document);
+		return DeriveVisualScriptNodeTitle(node, document, resolver);
 	}
 
 	std::string GetVisualScriptGraphName(VisualScriptDocument const& document, uint32_t function)
@@ -307,7 +308,9 @@ namespace Strada
 		std::vector<uint32_t> nodes;
 		for (VisualScriptNode const& node : graph.Nodes)
 		{
-			bool const uses = kind == VisualScriptElementKind::Function
+			// A node naming another graph uses that graph's element of the ID, never this document's.
+			bool const uses = !IsLocalVisualScriptReference(node) ? false
+			                  : kind == VisualScriptElementKind::Function
 			                      ? node.Type == "Function.Call" && NamesID(node.Settings, "Function", id)
 			                      : (node.Type == "Variable.Get" || node.Type == "Variable.Set") && NamesID(node.Settings, "Variable", id);
 			if (uses)
@@ -329,6 +332,46 @@ namespace Strada
 			}
 		}
 		return count;
+	}
+
+	VisualScriptOtherUses CountVisualScriptOtherUses(std::span<VisualScriptProjectGraph const> graphs, AssetHandle graph,
+	                                                 VisualScriptElementKind kind, uint32_t id)
+	{
+		VisualScriptOtherUses uses;
+		bool const function = kind == VisualScriptElementKind::Function;
+		auto const count = [&](VisualScriptGraph const& nodes)
+		{
+			uint32_t found = 0;
+			for (VisualScriptNode const& node : nodes.Nodes)
+			{
+				bool const named =
+					function ? node.Type == "Function.Call" && NamesID(node.Settings, "Function", id)
+							 : (node.Type == "Variable.Get" || node.Type == "Variable.Set") && NamesID(node.Settings, "Variable", id);
+				if (named && ReadVisualScriptGraphSetting(node) == std::optional<AssetHandle>(graph))
+				{
+					found++;
+				}
+			}
+			return found;
+		};
+		for (VisualScriptProjectGraph const& script : graphs)
+		{
+			if (script.Graph == graph || script.Document == nullptr)
+			{
+				continue;
+			}
+			uint32_t nodes = count(script.Document->Graph);
+			for (VisualScriptFunction const& owner : script.Document->Functions)
+			{
+				nodes += count(owner.Graph);
+			}
+			if (nodes > 0)
+			{
+				uses.Nodes += nodes;
+				uses.Scripts++;
+			}
+		}
+		return uses;
 	}
 
 	VisualScriptEnabledOffer GetVisualScriptEnabledOffer(VisualScriptEditorModel const& model, VisualScriptLibrary const* library,

@@ -1,5 +1,6 @@
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Utf8.h"
 
@@ -35,11 +36,13 @@ namespace Strada
 		constexpr std::string_view SwitchType = "Flow.Switch";
 		constexpr std::string_view CustomEventType = "Event.Custom";
 		constexpr std::string_view SendEventType = "Event.Send";
+		constexpr std::string_view BroadcastEventType = "Event.Broadcast";
 		constexpr std::string_view EntryType = "Function.Entry";
 		constexpr std::string_view ReturnType = "Function.Return";
 		constexpr std::string_view CallType = "Function.Call";
 		constexpr std::string_view GetVariableType = "Variable.Get";
 		constexpr std::string_view SetVariableType = "Variable.Set";
+		constexpr std::string_view RunsGraphType = "RunsGraph";
 		constexpr char const* CountSetting = "Count";
 		constexpr char const* CasesSetting = "Cases";
 		constexpr char const* TypeSetting = "Type";
@@ -47,6 +50,7 @@ namespace Strada
 		constexpr char const* NameSetting = "Name";
 		constexpr char const* VariableSetting = "Variable";
 		constexpr char const* FunctionSetting = "Function";
+		constexpr char const* GraphSetting = "Graph";
 		constexpr std::string_view CasePrefix = "Case:";
 		constexpr std::string_view SequenceOutputPrefix = "Then";
 		constexpr int MinSequenceOutputs = 2;
@@ -60,11 +64,12 @@ namespace Strada
 			std::string_view Operation;
 		};
 
-		constexpr std::array<SettingOperation, 8> SettingOperations = {{
+		constexpr std::array<SettingOperation, 9> SettingOperations = {{
 			{SequenceType, CountSetting, "SetSequenceOutputs"},
 			{SwitchType, CasesSetting, "SetSwitchCases"},
 			{CustomEventType, ParametersSetting, "SetEventParameters"},
 			{SendEventType, ParametersSetting, "SetEventParameters"},
+			{BroadcastEventType, ParametersSetting, "SetEventParameters"},
 			{CustomEventType, NameSetting, "RenameCustomEvent"},
 			{"Array.Make", CountSetting, "SetArrayElements"},
 			{"Expression", "Formula", "SetFormula"},
@@ -632,10 +637,25 @@ namespace Strada
 			return replaced;
 		}
 
-		// A Variable.Get or Variable.Set of the variable or local.
+		// A Variable.Get or Variable.Set of the variable or local; a node with a Graph setting reads another graph's variable.
 		bool IsVariableNode(VisualScriptNode const& node, uint32_t id)
 		{
-			return (node.Type == GetVariableType || node.Type == SetVariableType) && NamesID(node.Settings, VariableSetting, id);
+			return (node.Type == GetVariableType || node.Type == SetVariableType) && IsLocalVisualScriptReference(node) &&
+			       NamesID(node.Settings, VariableSetting, id);
+		}
+
+		// A Function.Call of the document's function; a node with a Graph setting calls a library's function.
+		bool IsLocalCall(VisualScriptNode const& node, uint32_t function)
+		{
+			return node.Type == CallType && IsLocalVisualScriptReference(node) && NamesID(node.Settings, FunctionSetting, function);
+		}
+
+		// The node types whose Graph setting refers to another visual script (their Function, Variable and Name settings then
+		// name that graph's elements).
+		bool IsCrossGraphType(std::string_view type)
+		{
+			return type == SendEventType || type == BroadcastEventType || type == CallType || type == GetVariableType ||
+			       type == SetVariableType || type == RunsGraphType;
 		}
 
 		// Removes the nodes a predicate picks from the graphs of the document (every graph, or only the function's: 0 for the
@@ -2242,6 +2262,16 @@ namespace Strada
 
 		std::string_view FindVisualScriptSettingOperation(VisualScriptNode const& node, std::string_view setting)
 		{
+			if (IsCrossGraphType(node.Type))
+			{
+				bool const remote = node.Settings.is_object() && node.Settings.contains(GraphSetting);
+				bool const sender = node.Type == SendEventType || node.Type == BroadcastEventType;
+				if (setting == GraphSetting ||
+				    (remote && (setting == FunctionSetting || setting == VariableSetting || (sender && setting == NameSetting))))
+				{
+					return "RetargetNode";
+				}
+			}
 			auto const row = std::find_if(SettingOperations.begin(), SettingOperations.end(),
 			                              [&node, setting](SettingOperation const& candidate)
 			                              {
@@ -2505,9 +2535,10 @@ namespace Strada
 			}
 			VisualScriptGraph& graph = *place.GetValue().Graph;
 			VisualScriptNode& event = *place.GetValue().Node;
-			if (event.Type != CustomEventType && event.Type != SendEventType)
+			if (event.Type != CustomEventType && event.Type != SendEventType && event.Type != BroadcastEventType)
 			{
-				return MakeError("node {} is no {} or {}: its type is {}", node, CustomEventType, SendEventType, event.Type);
+				return MakeError("node {} is no {}, {} or {}: its type is {}", node, CustomEventType, SendEventType, BroadcastEventType,
+				                 event.Type);
 			}
 			if (Result<void> members = CheckMembers(event); !members)
 			{
@@ -2535,7 +2566,7 @@ namespace Strada
 			return removed;
 		}
 
-		Result<uint32_t> RenameCustomEvent(VisualScriptDocument& document, uint32_t node, std::string const& name)
+		Result<uint32_t> RenameCustomEvent(VisualScriptDocument& document, uint32_t node, std::string const& name, AssetHandle self)
 		{
 			Result<NodePlace> place = GetNode(document, node);
 			if (!place)
@@ -2583,8 +2614,19 @@ namespace Strada
 			{
 				for (VisualScriptNode& sender : graph->Nodes)
 				{
+					if (sender.Type != SendEventType && sender.Type != BroadcastEventType)
+					{
+						continue;
+					}
+					// An untyped sender may reach this script by the name; a typed one names this script's event only when its
+					// Graph is this script.
+					if (!IsLocalVisualScriptReference(sender) &&
+					    (!self.IsValid() || ReadVisualScriptGraphSetting(sender) != std::optional<AssetHandle>(self)))
+					{
+						continue;
+					}
 					std::string const* const sent = FindStringSetting(sender, NameSetting);
-					if (sender.Type == SendEventType && sent != nullptr && *sent == *previous)
+					if (sent != nullptr && *sent == *previous)
 					{
 						sender.Settings[NameSetting] = name;
 						senders++;
@@ -3319,7 +3361,7 @@ namespace Strada
 			{
 				for (VisualScriptNode& node : graph->Nodes)
 				{
-					if (node.Type == CallType && NamesID(node.Settings, FunctionSetting, function))
+					if (IsLocalCall(node, function))
 					{
 						removed += ApplyParameterChanges(graph->Links, node, VisualScriptPinDirection::In, inputChanges);
 						removed += ApplyParameterChanges(graph->Links, node, VisualScriptPinDirection::Out, outputChanges);
@@ -3358,7 +3400,7 @@ namespace Strada
 					std::unordered_set<uint32_t> calls;
 					for (VisualScriptNode const& node : graph->Nodes)
 					{
-						if (node.Type == CallType && NamesID(node.Settings, FunctionSetting, function))
+						if (IsLocalCall(node, function))
 						{
 							calls.insert(node.ID);
 						}
@@ -3396,12 +3438,11 @@ namespace Strada
 			uint32_t removed = 0;
 			if (removeCalls)
 			{
-				Result<uint32_t> const calls =
-					RemoveNodesBridged(edited, std::nullopt, pins,
-				                       [function](VisualScriptNode const& node)
-				                       {
-										   return node.Type == CallType && NamesID(node.Settings, FunctionSetting, function);
-									   });
+				Result<uint32_t> const calls = RemoveNodesBridged(edited, std::nullopt, pins,
+				                                                  [function](VisualScriptNode const& node)
+				                                                  {
+																	  return IsLocalCall(node, function);
+																  });
 				if (!calls)
 				{
 					return calls;
@@ -3452,6 +3493,11 @@ namespace Strada
 			{
 				nodes.emplace(node.ID, next);
 				node.ID = next++;
+				if (!IsLocalVisualScriptReference(node))
+				{
+					// A node of another graph names that graph's elements: copied as it is.
+					continue;
+				}
 				if (node.Type == GetVariableType || node.Type == SetVariableType)
 				{
 					for (auto const& [from, to] : locals)
@@ -3463,7 +3509,7 @@ namespace Strada
 						}
 					}
 				}
-				else if (node.Type == CallType && NamesID(node.Settings, FunctionSetting, function))
+				else if (IsLocalCall(node, function))
 				{
 					node.Settings[FunctionSetting] = copy.ID;
 				}
@@ -3699,7 +3745,7 @@ namespace Strada
 			{
 				for (VisualScriptNode& call : graph->Nodes)
 				{
-					if (call.Type == CallType && NamesID(call.Settings, FunctionSetting, function))
+					if (IsLocalCall(call, function))
 					{
 						if (Result<void> members = CheckMembers(call); !members)
 						{

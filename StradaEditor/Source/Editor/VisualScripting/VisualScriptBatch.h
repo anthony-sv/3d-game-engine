@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 
 #include "Strada/Asset/AssetHandle.h"
@@ -58,6 +59,8 @@ namespace Strada
 		// The document of another visual script; empty: settings with a Graph keep names unresolved (an error). The executor
 		// answers Graph itself with the working document, never this resolver.
 		VisualScriptGraphResolver FindDocument;
+		// The name the labels of quick fixes give another visual script (its file's stem, "Door"); empty: its handle.
+		std::function<std::string(AssetHandle graph)> FindGraphName;
 		// The analysis of the stored document when the caller has one (a cache), and the document it was made from: used only
 		// when that is the stored document.
 		Ref<VisualScriptAnalysis const> StoredAnalysis;
@@ -120,10 +123,11 @@ namespace Strada
 	ApplyVisualScriptBatch(VisualScriptDocument const& stored, Json const& operations, VisualScriptBatchContext const& context);
 
 	// The quick fixes of a diagnostic of the document's analysis that change the document (GetVisualScriptQuickFixes without
-	// the navigating ones), each { "label", "operation" }: the complete Fix operation that applies it, with the diagnostic's
-	// locating fields, which a later batch takes unchanged.
+	// the navigating ones, with the other graphs the document's nodes name), each { "label", "operation" }: the complete Fix
+	// operation that applies it, with the diagnostic's locating fields, which a later batch takes unchanged.
 	[[nodiscard]] Json GetVisualScriptFixOperations(VisualScriptDocument const& document, VisualScriptAnalysis const& analysis,
-	                                                VisualScriptDiagnostic const& diagnostic, VisualScriptLibrary const& library);
+	                                                VisualScriptDiagnostic const& diagnostic, VisualScriptLibrary const& library,
+	                                                VisualScriptQuickFixGraphs const* graphs = nullptr);
 
 	// A silent mistake the analysis does not report, since each is normal while a user builds a graph.
 	struct VisualScriptHint

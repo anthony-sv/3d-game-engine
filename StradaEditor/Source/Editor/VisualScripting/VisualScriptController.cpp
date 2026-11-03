@@ -12,6 +12,7 @@
 #include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/AssetManager.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
 #include "Strada/Script/VisualScriptLiterals.h"
@@ -668,7 +669,7 @@ namespace Strada
 				VisualScriptGraph const* graph = FindVisualScriptGraph(document, m_Function);
 				VisualScriptNode const* node = graph != nullptr ? FindNode(*graph, added.GetValue()) : nullptr;
 				std::string const title = found != nullptr  ? found->Title
-				                          : node != nullptr ? DeriveVisualScriptNodeTitle(*node, document)
+				                          : node != nullptr ? DeriveVisualScriptNodeTitle(*node, document, m_Model.MakeGraphResolver())
 				                                            : edit.Type;
 				return Commit(std::move(document), "Add " + title, 0, {added.GetValue()});
 			}
@@ -853,7 +854,7 @@ namespace Strada
 				}
 				if (VisualScriptNode const* stored = FindDisplayNode(node))
 				{
-					return DeriveVisualScriptNodeTitle(*stored, GetDisplay());
+					return DeriveVisualScriptNodeTitle(*stored, GetDisplay(), m_Model.MakeGraphResolver());
 				}
 				return fmt::format("Node {}", node);
 			}
@@ -1578,11 +1579,11 @@ namespace Strada
 				return {};
 			}
 
-			// The variable, local, function or custom event a node stands for.
+			// The variable, local, function or custom event a node stands for; none for a node naming another graph's.
 			std::optional<VisualScriptReveal> FindElementOf(uint32_t node) const
 			{
 				VisualScriptNode const* stored = FindDisplayNode(node);
-				if (stored == nullptr)
+				if (stored == nullptr || !IsLocalVisualScriptReference(*stored))
 				{
 					return std::nullopt;
 				}
@@ -1909,8 +1910,120 @@ namespace Strada
 					m_Result.FindReferences = std::move(reference);
 					return {};
 				}
+				VisualScriptNode const* const stored = FindDisplayNode(nodes.front());
+				if (stored != nullptr && !IsLocalVisualScriptReference(*stored))
+				{
+					// Its Variable, Function and Name are another graph's: this graph's elements of those IDs are no references.
+					m_Result.Notes.push_back(fmt::format("{} refers to an element of another graph", GetNodeTitle(nodes.front())));
+					return {};
+				}
 				m_Result.Notes.push_back(fmt::format("{} refers to no variable, function or event", GetNodeTitle(nodes.front())));
 				return {};
+			}
+
+			// The graph a node names with its Graph setting, its document and its name; none for a node of this graph's own
+			// elements, or one naming this graph itself (another entity running it, its own event).
+			struct RemoteTarget
+			{
+				AssetHandle Graph;
+				VisualScriptDocument const* Document = nullptr;
+				std::string Name;
+			};
+			std::optional<RemoteTarget> FindRemoteTarget(VisualScriptNode const& node) const
+			{
+				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+				if (!graph || *graph == m_Context.Graph)
+				{
+					return std::nullopt;
+				}
+				return RemoteTarget{*graph, m_Model.ResolveGraph(*graph), m_Model.GetGraphName(*graph)};
+			}
+
+			// What opening a node naming another graph does there (spec-slice3 §10.7): the request for the window manager and the
+			// menu item's label. A typed sender or a Get or Set naming this graph itself opens as a node of its own elements
+			// would. Nothing for a local node, or when what it names is not in the other graph.
+			struct RemoteOpen
+			{
+				VisualScriptOpenRequest Request;
+				std::string Label;
+			};
+			std::optional<RemoteOpen> FindRemoteOpen(VisualScriptNode const& node) const
+			{
+				std::optional<RemoteTarget> const target = FindRemoteTarget(node);
+				if (!target)
+				{
+					return std::nullopt;
+				}
+				RemoteOpen open;
+				open.Request.Graph = target->Graph;
+				if (node.Type == "RunsGraph")
+				{
+					open.Label = "Open " + target->Name;
+					return open;
+				}
+				if (target->Document == nullptr)
+				{
+					return std::nullopt;
+				}
+				VisualScriptDocument const& document = *target->Document;
+				if (node.Type == "Function.Call")
+				{
+					std::optional<uint32_t> const id = ReadId(node.Settings, "Function");
+					VisualScriptFunction const* const function = id ? FindFunction(document, *id) : nullptr;
+					if (function == nullptr)
+					{
+						return std::nullopt;
+					}
+					open.Request.Function = function->ID;
+					open.Request.Frame = VisualScriptFrame::All;
+					open.Label = fmt::format("Open {} in {}", function->Name, target->Name);
+					return open;
+				}
+				if (node.Type == "Event.Send" || node.Type == "Event.Broadcast")
+				{
+					std::optional<std::string> const name = ReadString(node.Settings, "Name");
+					if (!name)
+					{
+						return std::nullopt;
+					}
+					for (VisualScriptNode const& event : document.Graph.Nodes)
+					{
+						if (event.Type == "Event.Custom" && ReadString(event.Settings, "Name") == *name)
+						{
+							open.Request.Function = 0;
+							open.Request.Select = {event.ID};
+							open.Request.Frame = VisualScriptFrame::Selection;
+							open.Label = fmt::format("Go to Event {} in {}", *name, target->Name);
+							return open;
+						}
+					}
+					return std::nullopt;
+				}
+				if (node.Type == "Variable.Get" || node.Type == "Variable.Set")
+				{
+					std::optional<uint32_t> const id = ReadId(node.Settings, "Variable");
+					for (VisualScriptVariable const& variable : document.Variables)
+					{
+						if (id && variable.ID == *id)
+						{
+							open.Label = fmt::format("Select Variable {} in {}", variable.Name, target->Name);
+							return open;
+						}
+					}
+				}
+				return std::nullopt;
+			}
+
+			// The custom event of this graph a sender typed with this graph's own handle, or untyped, names; none otherwise.
+			std::optional<uint32_t> FindSentEvent(VisualScriptNode const& sender) const
+			{
+				std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(sender);
+				if (!IsLocalVisualScriptReference(sender) && (!graph || *graph != m_Context.Graph))
+				{
+					return std::nullopt;
+				}
+				std::optional<std::string> const name = ReadString(sender.Settings, "Name");
+				return name ? FindCustomEvent(*name) : std::nullopt;
 			}
 
 			// What Find References looks for from a node: its variable or local, the function it calls (a function's entry:
@@ -1918,7 +2031,8 @@ namespace Strada
 			std::optional<VisualScriptReference> GetReference(uint32_t node) const
 			{
 				VisualScriptNode const* stored = FindDisplayNode(node);
-				if (stored == nullptr)
+				// A node naming another graph refers to that graph's elements, which this graph's references are not.
+				if (stored == nullptr || !IsLocalVisualScriptReference(*stored))
 				{
 					return std::nullopt;
 				}
@@ -1958,7 +2072,11 @@ namespace Strada
 				{
 					return std::nullopt;
 				}
-				if (stored->Type == "Function.Call")
+				if (std::optional<RemoteOpen> remote = FindRemoteOpen(*stored))
+				{
+					return std::move(remote->Label);
+				}
+				if (stored->Type == "Function.Call" && IsLocalVisualScriptReference(*stored))
 				{
 					std::optional<uint32_t> const id = ReadId(stored->Settings, "Function");
 					VisualScriptFunction const* function = id ? FindFunction(GetDisplay(), *id) : nullptr;
@@ -1972,10 +2090,22 @@ namespace Strada
 				{
 					return std::optional<std::string>("Edit Timeline");
 				}
-				if (stored->Type == "Event.Send")
+				if (stored->Type == "Event.Send" || (stored->Type == "Event.Broadcast" && !IsLocalVisualScriptReference(*stored)))
 				{
 					std::optional<std::string> const name = ReadString(stored->Settings, "Name");
-					return name && FindCustomEvent(*name) ? std::optional<std::string>("Go to Event " + *name) : std::nullopt;
+					return name && FindSentEvent(*stored) ? std::optional<std::string>("Go to Event " + *name) : std::nullopt;
+				}
+				if (!IsLocalVisualScriptReference(*stored) && (stored->Type == "Variable.Get" || stored->Type == "Variable.Set"))
+				{
+					// Another entity running this graph: its own variable.
+					std::optional<uint32_t> const id = ReadId(stored->Settings, "Variable");
+					VisualScriptReveal const element{VisualScriptRevealKind::Variable, id.value_or(0)};
+					bool const found = id && std::any_of(GetDisplay().Variables.begin(), GetDisplay().Variables.end(),
+					                                     [&id](VisualScriptVariable const& variable)
+					                                     {
+															 return variable.ID == *id;
+														 });
+					return found ? std::optional<std::string>("Select Variable " + GetVariableName(element)) : std::nullopt;
 				}
 				if (std::optional<VisualScriptReveal> const element = FindElementOf(node);
 				    element && (element->Kind == VisualScriptRevealKind::Variable || element->Kind == VisualScriptRevealKind::Local))
@@ -2036,7 +2166,12 @@ namespace Strada
 				{
 					return {};
 				}
-				if (stored->Type == "Function.Call")
+				if (std::optional<RemoteOpen> remote = FindRemoteOpen(*stored))
+				{
+					m_Result.Open = std::move(remote->Request);
+					return {};
+				}
+				if (stored->Type == "Function.Call" && IsLocalVisualScriptReference(*stored))
 				{
 					std::optional<uint32_t> const id = ReadId(stored->Settings, "Function");
 					if (id && FindFunction(GetDisplay(), *id) != nullptr)
@@ -2066,10 +2201,9 @@ namespace Strada
 					m_Result.ShowTimeline = node;
 					return {};
 				}
-				if (stored->Type == "Event.Send")
+				if (stored->Type == "Event.Send" || (stored->Type == "Event.Broadcast" && !IsLocalVisualScriptReference(*stored)))
 				{
-					std::optional<std::string> const name = ReadString(stored->Settings, "Name");
-					if (std::optional<uint32_t> const event = name ? FindCustomEvent(*name) : std::nullopt)
+					if (std::optional<uint32_t> const event = FindSentEvent(*stored))
 					{
 						VisualScriptOpenRequest request;
 						request.Graph = m_Context.Graph;
@@ -2085,6 +2219,20 @@ namespace Strada
 				{
 					m_Result.Reveal = element;
 					return {};
+				}
+				if (!IsLocalVisualScriptReference(*stored) && (stored->Type == "Variable.Get" || stored->Type == "Variable.Set"))
+				{
+					// Another entity running this graph: the graph's own variable.
+					std::optional<uint32_t> const id = ReadId(stored->Settings, "Variable");
+					if (id && std::any_of(GetDisplay().Variables.begin(), GetDisplay().Variables.end(),
+					                      [&id](VisualScriptVariable const& variable)
+					                      {
+											  return variable.ID == *id;
+										  }))
+					{
+						m_Result.Reveal = VisualScriptReveal{VisualScriptRevealKind::Variable, *id};
+						return {};
+					}
 				}
 				m_Result.Reveal = VisualScriptReveal{VisualScriptRevealKind::Node, node};
 				return {};

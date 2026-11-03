@@ -158,6 +158,7 @@ namespace Strada
 				false,
 				{}});
 			window = &m_Windows.back();
+			window->Panel->SetProjectIndex(&m_ProjectIndex);
 			RefreshPath(*window);
 		}
 		window->Panel->Apply(applied);

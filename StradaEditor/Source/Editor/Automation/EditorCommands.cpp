@@ -970,8 +970,11 @@ namespace Strada
 			              SchemaBuilder::String("AddNode: the node type; AddVariable, AddLocal, SetVariable, SetLocal: the value type"))
 				.Property("function", reference("The sub-graph or function: 0 for the event graph, else a function's ID, name or label"))
 				.Property("position", point("[x, y] on the canvas; AddNode without one adds the node unplaced"))
-				.Property("settings", SchemaBuilder::Object("AddNode: the node's settings (Variable and Function may name elements, "
-			                                                "Graph may be an asset:// path)")
+				.Property("settings", SchemaBuilder::Object("AddNode: the node's settings; Retarget: the settings that change what a "
+			                                                "node of another graph names (Graph, Function, Variable, Name, Parameters; "
+			                                                "null removes one). Variable and Function may name elements of the graph "
+			                                                "named, Graph may be an asset:// path; a typed Send or Broadcast without "
+			                                                "Parameters takes its event's")
 			                              .AllowAdditionalProperties())
 				.Property("literals", SchemaBuilder::Object("AddNode: input pin -> literal").AllowAdditionalProperties())
 				.Property("collapsed", SchemaBuilder::Boolean("AddNode, SetCollapsed: show only the header"))
@@ -1023,6 +1026,9 @@ namespace Strada
 				.Property("color", SchemaBuilder::Array(unit, "AddComment, SetComment: linear [r, g, b, a]").MinItems(4).MaxItems(4))
 				.Property("comment", reference("SetComment: a comment box"))
 				.Property("description", SchemaBuilder::String("SetDescription: the document's description"))
+				.Property("kind", SchemaBuilder::String("SetKind: a script runs on entities, a function library's functions are "
+			                                            "called by other graphs")
+			                          .Enum({"Script", "Library"}))
 				.Property("variable", reference("A variable's ID, name or label"))
 				.Property("public", SchemaBuilder::Boolean("AddVariable, SetVariable"))
 				.Property("tooltip", SchemaBuilder::String("AddVariable, SetVariable"))
@@ -3190,6 +3196,12 @@ namespace Strada
 					held->push_back(loaded.GetValue()->GetSharedDocument());
 					return held->back().get();
 				};
+				context.FindGraphName = [](AssetHandle other) -> std::string
+				{
+					std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(other);
+					return metadata && !metadata->Path.empty() ? FileSystem::PathToUtf8(FileSystem::PathFromUtf8(metadata->Path).stem())
+					                                           : std::string();
+				};
 				context.StoredAnalysis = storedAnalysis;
 				context.StoredAnalysisDocument = stored;
 				std::variant<VisualScriptBatchResult, VisualScriptBatchError> applied =
@@ -3305,7 +3317,14 @@ namespace Strada
 				{
 					std::vector<uint32_t> const edited = FindEditedGraphNodes(*stored, result, batch.Created);
 					AddAnalysis(described, *analysis);
-					DescribeEditedDiagnostics(described["diagnostics"], summary, result, *analysis, storedAnalysis.get(), *library, batch);
+					// The fixes of cross-graph findings read the other graphs, this script's being the document written.
+					VisualScriptQuickFixGraphs const graphs{[&result, handle, &context](AssetHandle other) -> VisualScriptDocument const*
+					                                        {
+																return other == handle ? &result : context.FindDocument(other);
+															},
+					                                        context.FindGraphName};
+					DescribeEditedDiagnostics(described["diagnostics"], summary, result, *analysis, storedAnalysis.get(), *library, batch,
+					                          graphs);
 					described["nodes"] = SelectGraphNodes(described["nodes"], GetString(params, "nodes", "Changed"), edited);
 					std::vector<uint32_t> hinted = edited;
 					std::vector<uint32_t> const unlinked = FindUnlinkedGraphNodes(*stored, result);
@@ -3400,7 +3419,8 @@ namespace Strada
 			// The summary counts the errors and warnings, and the new ones.
 			static void DescribeEditedDiagnostics(Json& diagnostics, Json& summary, VisualScriptDocument const& document,
 			                                      VisualScriptAnalysis const& analysis, VisualScriptAnalysis const* stored,
-			                                      VisualScriptLibrary const& library, VisualScriptBatchResult const& batch)
+			                                      VisualScriptLibrary const& library, VisualScriptBatchResult const& batch,
+			                                      VisualScriptQuickFixGraphs const& graphs)
 			{
 				uint32_t errors = 0;
 				uint32_t warnings = 0;
@@ -3421,7 +3441,7 @@ namespace Strada
 						continue;
 					}
 					Json& described = diagnostics[index];
-					described["Fixes"] = GetVisualScriptFixOperations(document, analysis, diagnostic, library);
+					described["Fixes"] = GetVisualScriptFixOperations(document, analysis, diagnostic, library, &graphs);
 					if (stored != nullptr)
 					{
 						described["New"] = isNew;
