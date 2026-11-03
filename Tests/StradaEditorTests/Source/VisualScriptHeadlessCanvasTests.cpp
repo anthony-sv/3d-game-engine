@@ -163,7 +163,7 @@ TEST_CASE("VisualScriptEditor: a headless canvas gives the operations the pins a
 		CAPTURE(windowAnalysis);
 		VisualScriptHeadlessCanvas canvas;
 		canvas.Sync(document, 0, windowAnalysis ? fixture.Model.GetAnalysis() : &own.GetValue(),
-		            windowAnalysis ? &fixture.Model.GetDisplayDocument() : &document, &library);
+		            windowAnalysis ? &fixture.Model.GetDisplayDocument() : &document, &library, {});
 		VisualScriptNodePins const headless = canvas.GetPins();
 		VisualScriptNodeExtents const extents = canvas.GetExtents();
 		for (uint32_t const id : GetNodeIDs(document.Graph))
@@ -195,7 +195,7 @@ TEST_CASE("VisualScriptEditor: a headless canvas gives the operations the pins a
 
 	// A function's graph is laid out as its window shows it.
 	VisualScriptHeadlessCanvas function;
-	function.Sync(document, 200, &own.GetValue(), &document, &library);
+	function.Sync(document, 200, &own.GetValue(), &document, &library, {});
 	CHECK(function.GetCanvas().GetFunction() == 200);
 	CHECK(function.GetCanvas().GetNodes().size() == 2);
 	CHECK(function.GetExtents()(202).y > 0.0f);
@@ -206,7 +206,7 @@ TEST_CASE("VisualScriptEditor: without a library a headless canvas measures the 
 {
 	VisualScriptDocument const document = MakePinsDocument();
 	VisualScriptHeadlessCanvas canvas;
-	canvas.Sync(document, 0, nullptr, nullptr, nullptr);
+	canvas.Sync(document, 0, nullptr, nullptr, nullptr, {});
 	VisualScriptNodeExtents const extents = canvas.GetExtents();
 	VisualScriptNodePins const pins = canvas.GetPins();
 	namespace Metrics = VisualScriptCanvasMetrics;
@@ -256,7 +256,7 @@ TEST_CASE("VisualScriptEditor: Measured extents arrange tall nodes apart where U
 	Result<VisualScriptAnalysis> const analysis = AnalyzeWithFixtureTemplates(library, document);
 	REQUIRE(analysis.IsOk());
 	VisualScriptHeadlessCanvas canvas;
-	canvas.Sync(document, 0, &analysis.GetValue(), &document, &library);
+	canvas.Sync(document, 0, &analysis.GetValue(), &document, &library, {});
 	VisualScriptNodeExtents const measured = canvas.GetExtents();
 	CHECK(measured(3).y == doctest::Approx(178.0f));
 
@@ -396,7 +396,7 @@ TEST_CASE("VisualScriptEditor: headless nodes are as tall as a window's and at l
 	REQUIRE(analysis.IsOk());
 
 	VisualScriptHeadlessCanvas headless;
-	headless.Sync(document, 0, &analysis.GetValue(), &document, &library);
+	headless.Sync(document, 0, &analysis.GetValue(), &document, &library, {});
 	VisualScriptNodeExtents const extents = headless.GetExtents();
 
 	for (float const scale : {1.0f, 1.25f, 1.5f, 2.0f})

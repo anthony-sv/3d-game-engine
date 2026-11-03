@@ -2223,7 +2223,7 @@ TEST_CASE("GraphCommands: graph.arrange lays out a sub-graph as the Arrange butt
 	// pins the links and literals name).
 	VisualScriptDocument expected = stacked;
 	VisualScriptHeadlessCanvas canvas;
-	canvas.Sync(stacked, 0, nullptr, nullptr, nullptr);
+	canvas.Sync(stacked, 0, nullptr, nullptr, nullptr, {});
 	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
 
 	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));
@@ -2415,7 +2415,7 @@ TEST_CASE("GraphCommands: graph.arrange measures nodes from the runtime's analys
 	Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(stored);
 	REQUIRE(analysis.IsOk());
 	VisualScriptHeadlessCanvas canvas;
-	canvas.Sync(stored, 0, analysis.GetValue().get(), &stored, library.get());
+	canvas.Sync(stored, 0, analysis.GetValue().get(), &stored, library.get(), {});
 	VisualScriptDocument expected = stored;
 	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, {}, canvas.GetExtents()).IsOk());
 	Json const arranged = fixture.Ok("graph.arrange", Json::object({{"graph", graph}}));

@@ -6,9 +6,14 @@
 #include "Strada/Core/FileSystem.h"
 #include "Strada/Core/Timer.h"
 
+#include <spdlog/fmt/fmt.h>
+
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <limits>
+#include <string>
+#include <string_view>
 #include <tuple>
 
 namespace Strada
@@ -207,6 +212,99 @@ namespace Strada
 			return kind == Kind::Pin || kind == Kind::Badge || kind == Kind::NodeHeader || kind == Kind::Node || kind == Kind::Reroute;
 		}
 
+		// A hit that names a node or a comment box by its Element.
+		bool IsElementHit(VisualScriptHitKind kind)
+		{
+			return IsNodeHit(kind) || kind == Kind::CommentEdge || kind == Kind::CommentTitle;
+		}
+
+		// A gesture an outside change can interrupt: one that ends in an edit, or selects what it went over.
+		bool IsEditingGesture(VisualScriptGesture gesture)
+		{
+			return gesture != VisualScriptGesture::Idle && gesture != VisualScriptGesture::Panning &&
+			       gesture != VisualScriptGesture::MinimapDrag;
+		}
+
+		// What "Your <gesture> was interrupted" calls a canvas gesture.
+		std::string_view DescribeGesture(VisualScriptGesture gesture)
+		{
+			switch (gesture)
+			{
+				case VisualScriptGesture::MovingElements:
+					return "move";
+				case VisualScriptGesture::ResizingComment:
+					return "resize";
+				case VisualScriptGesture::Wiring:
+					return "wire";
+				case VisualScriptGesture::Relinking:
+					return "relink";
+				case VisualScriptGesture::Cutting:
+					return "cut";
+				case VisualScriptGesture::Marquee:
+					return "selection";
+				case VisualScriptGesture::Idle:
+				case VisualScriptGesture::Panning:
+				case VisualScriptGesture::MinimapDrag:
+					break;
+			}
+			return "gesture";
+		}
+
+		// An element's ID and its index in its list.
+		using ElementIndex = std::pair<uint32_t, uint32_t>;
+
+		// The elements of a sub-graph that are new or stored otherwise in after than in before (IsSameElement), in after's order,
+		// and those of before that after lacks, by ID.
+		template<typename TElement>
+		void CollectElementChanges(std::vector<TElement> const* before, std::vector<TElement> const& after, std::vector<uint32_t>& changed,
+		                           std::vector<uint32_t>& removed)
+		{
+			std::vector<ElementIndex> earlier;
+			if (before != nullptr)
+			{
+				earlier.reserve(before->size());
+				for (uint32_t index = 0; index < before->size(); index++)
+				{
+					earlier.emplace_back((*before)[index].ID, index);
+				}
+				std::stable_sort(earlier.begin(), earlier.end(),
+				                 [](ElementIndex const& a, ElementIndex const& b)
+				                 {
+									 return a.first < b.first;
+								 });
+			}
+			std::vector<uint32_t> kept;
+			kept.reserve(after.size());
+			for (TElement const& element : after)
+			{
+				kept.push_back(element.ID);
+				std::optional<uint32_t> const found = FindByID(earlier, element.ID);
+				if (!found || !IsSameElement((*before)[*found], element))
+				{
+					changed.push_back(element.ID);
+				}
+			}
+			std::sort(kept.begin(), kept.end());
+			for (ElementIndex const& entry : earlier)
+			{
+				if (!std::binary_search(kept.begin(), kept.end(), entry.first))
+				{
+					removed.push_back(entry.first);
+				}
+			}
+		}
+
+		std::vector<VisualScriptLink> GetSortedLinks(VisualScriptGraph const* graph)
+		{
+			std::vector<VisualScriptLink> links;
+			if (graph != nullptr)
+			{
+				links = graph->Links;
+				std::sort(links.begin(), links.end(), LinkLess);
+			}
+			return links;
+		}
+
 		// A setting of a node that names a function by ID (Function.Call's Function).
 		std::optional<uint32_t> ReadIdSetting(VisualScriptNode const& node, char const* name)
 		{
@@ -398,6 +496,44 @@ namespace Strada
 		}
 	}
 
+	VisualScriptGestureInterruption::VisualScriptGestureInterruption() = default;
+
+	std::string DescribeVisualScriptGestureInterruption(VisualScriptGestureInterruption const& interruption)
+	{
+		using Reason = VisualScriptGestureInterruption::Reason;
+		std::string const name = !interruption.Name.empty() ? interruption.Name : fmt::format("element {}", interruption.Element);
+		std::string_view const gesture = DescribeGesture(interruption.Gesture);
+		switch (interruption.Why)
+		{
+			case Reason::ElementChanged:
+				return fmt::format("Your {} was interrupted: {} was changed elsewhere", gesture, name);
+			case Reason::ElementRemoved:
+				return fmt::format("Your {} was interrupted: {} was deleted elsewhere", gesture, name);
+			case Reason::LinkChanged:
+				return fmt::format("Your {} was interrupted: a picked link was changed elsewhere", gesture);
+			case Reason::PinGone:
+				return fmt::format("Your {} was interrupted: the pin it starts from on {} was removed elsewhere", gesture, name);
+			case Reason::GraphGone:
+				return fmt::format("Your {} was interrupted: the graph shown was deleted elsewhere", gesture);
+		}
+		return fmt::format("Your {} was interrupted by a change made elsewhere", gesture);
+	}
+
+	bool VisualScriptEditorModel::OutsideChange::IsTouched(uint32_t element) const
+	{
+		return std::binary_search(Changed.begin(), Changed.end(), element) || IsRemoved(element);
+	}
+
+	bool VisualScriptEditorModel::OutsideChange::IsRemoved(uint32_t element) const
+	{
+		return std::binary_search(Removed.begin(), Removed.end(), element);
+	}
+
+	bool VisualScriptEditorModel::OutsideChange::IsLinkRemoved(VisualScriptLink const& link) const
+	{
+		return std::binary_search(LinksRemoved.begin(), LinksRemoved.end(), link, LinkLess);
+	}
+
 	VisualScriptSyncResult VisualScriptEditorModel::Sync(VisualScriptSemantics& semantics, VisualScriptTextMeasurer const& measure,
 	                                                     VisualScriptThemeAnchors const& theme, bool widgetActive, double time)
 	{
@@ -433,18 +569,25 @@ namespace Strada
 		{
 			CancelGesture();
 			m_OutsideChange = false;
+			m_RebasePending = false;
+			m_Rebase = {};
 			return result;
 		}
 		if (m_OutsideChange)
 		{
-			// The gesture was made on what is no longer there: it ends without an edit. Panning and the minimap edit nothing.
+			// A gesture continues over an outside change that touched none of its elements (spec-slice4 §16.1), rebased once the
+			// visual model shows the new document; one on a sub-graph that is gone ends now. Panning and the minimap edit nothing.
 			m_OutsideChange = false;
-			if (m_Gesture != VisualScriptGesture::Idle && m_Gesture != VisualScriptGesture::Panning &&
-			    m_Gesture != VisualScriptGesture::MinimapDrag)
+			if (m_RebasePending && m_Rebase.FunctionGone)
 			{
-				result.InterruptedGesture = m_Gesture;
+				if (IsEditingGesture(m_Gesture))
+				{
+					result.Interruption = MakeInterruption(m_Rebase, VisualScriptGestureInterruption::Reason::GraphGone, 0);
+				}
+				CancelGesture();
+				m_RebasePending = false;
+				m_Rebase = {};
 			}
-			CancelGesture();
 		}
 		if (m_Function != 0 && FindGraph(GetDrawnDocument(), m_Function) == nullptr)
 		{
@@ -462,6 +605,19 @@ namespace Strada
 			RefreshAnalysis(semantics, widgetActive, time, false, result);
 		}
 		SyncCanvas(theme, result);
+		if (m_RebasePending)
+		{
+			m_RebasePending = false;
+			if (m_Gesture != VisualScriptGesture::Idle || m_Press.Active)
+			{
+				if (std::optional<VisualScriptGestureInterruption> interruption = RebaseGesture(m_Rebase))
+				{
+					result.Interruption = std::move(interruption);
+					CancelGesture();
+				}
+			}
+			m_Rebase = {};
+		}
 		return result;
 	}
 
@@ -706,8 +862,9 @@ namespace Strada
 			// (operator== takes 1 and 1.0 as equal, which the runtime reads as different programs: only an identical document
 			// is adopted silently.)
 			// An outside change (undo, redo, automation, another window, a reload): a widget's pending value no longer applies,
-			// and a gesture in progress ends without an edit.
+			// and a gesture in progress is rebased over it once the canvas shows it (Sync).
 			RecordChangedElements(*m_Document, *document);
+			RecordOutsideChange(*m_Document, *document);
 			m_Preview.reset();
 			m_OutsideChange = true;
 		}
@@ -783,6 +940,219 @@ namespace Strada
 		};
 		record(current->Nodes, previous != nullptr ? &previous->Nodes : nullptr);
 		record(current->Comments, previous != nullptr ? &previous->Comments : nullptr);
+	}
+
+	void VisualScriptEditorModel::RecordOutsideChange(VisualScriptDocument const& before, VisualScriptDocument const& after)
+	{
+		// Paid only when something is in progress that the change may concern.
+		m_RebasePending = false;
+		m_Rebase = {};
+		if (!IsEditingGesture(m_Gesture) && !m_Press.Active)
+		{
+			return;
+		}
+		m_RebasePending = true;
+		VisualScriptGraph const* previous = FindGraph(before, m_Function);
+		VisualScriptGraph const* current = FindGraph(after, m_Function);
+		if (current == nullptr)
+		{
+			m_Rebase.FunctionGone = true;
+			return;
+		}
+		CollectElementChanges(previous != nullptr ? &previous->Nodes : nullptr, current->Nodes, m_Rebase.Changed, m_Rebase.Removed);
+		CollectElementChanges(previous != nullptr ? &previous->Comments : nullptr, current->Comments, m_Rebase.Changed, m_Rebase.Removed);
+		std::sort(m_Rebase.Changed.begin(), m_Rebase.Changed.end());
+		std::sort(m_Rebase.Removed.begin(), m_Rebase.Removed.end());
+		std::vector<VisualScriptLink> const earlier = GetSortedLinks(previous);
+		std::vector<VisualScriptLink> const later = GetSortedLinks(current);
+		std::set_difference(earlier.begin(), earlier.end(), later.begin(), later.end(), std::back_inserter(m_Rebase.LinksRemoved),
+		                    LinkLess);
+		// The visual model still shows before: what the window called the removed elements the gesture holds.
+		for (uint32_t const element : m_Rebase.Removed)
+		{
+			if (IsGestureElement(element))
+			{
+				m_Rebase.RemovedNames.emplace_back(element, DescribeElement(element));
+			}
+		}
+	}
+
+	bool VisualScriptEditorModel::IsGestureElement(uint32_t element) const
+	{
+		switch (m_Gesture)
+		{
+			case VisualScriptGesture::MovingElements:
+				return std::find(m_Move.Elements.begin(), m_Move.Elements.end(), element) != m_Move.Elements.end();
+			case VisualScriptGesture::ResizingComment:
+				return m_Resize.Comment == element;
+			case VisualScriptGesture::Wiring:
+				return m_Wire.Source.Node == element;
+			case VisualScriptGesture::Idle:
+			case VisualScriptGesture::Panning:
+			case VisualScriptGesture::Marquee:
+			case VisualScriptGesture::Relinking:
+			case VisualScriptGesture::Cutting:
+			case VisualScriptGesture::MinimapDrag:
+				break;
+		}
+		return false;
+	}
+
+	std::string VisualScriptEditorModel::DescribeElement(uint32_t element) const
+	{
+		if (std::optional<uint32_t> const node = m_Canvas.FindNode(element))
+		{
+			std::string_view const title = m_Canvas.GetText(m_Canvas.GetNodes()[*node].Title);
+			return title.empty() ? fmt::format("node {}", element) : fmt::format("{} (node {})", title, element);
+		}
+		if (std::optional<uint32_t> const comment = m_Canvas.FindComment(element))
+		{
+			std::string_view const title = m_Canvas.GetText(m_Canvas.GetComments()[*comment].Title);
+			return title.empty() ? fmt::format("a comment box (comment {})", element) : fmt::format("{} (comment {})", title, element);
+		}
+		return {};
+	}
+
+	VisualScriptGestureInterruption VisualScriptEditorModel::MakeInterruption(OutsideChange const& change,
+	                                                                          VisualScriptGestureInterruption::Reason why,
+	                                                                          uint32_t element) const
+	{
+		VisualScriptGestureInterruption interruption;
+		interruption.Gesture = m_Gesture;
+		interruption.Why = why;
+		interruption.Element = element;
+		if (element == 0)
+		{
+			return interruption;
+		}
+		auto const removed = std::find_if(change.RemovedNames.begin(), change.RemovedNames.end(),
+		                                  [element](std::pair<uint32_t, std::string> const& entry)
+		                                  {
+											  return entry.first == element;
+										  });
+		interruption.Name = removed != change.RemovedNames.end() ? removed->second : DescribeElement(element);
+		return interruption;
+	}
+
+	std::optional<VisualScriptGestureInterruption> VisualScriptEditorModel::RebaseGesture(OutsideChange const& change)
+	{
+		using Reason = VisualScriptGestureInterruption::Reason;
+		auto const touchedReason = [&change](uint32_t element)
+		{
+			return change.IsRemoved(element) ? Reason::ElementRemoved : Reason::ElementChanged;
+		};
+		switch (m_Gesture)
+		{
+			case VisualScriptGesture::MovingElements:
+			{
+				for (uint32_t const element : m_Move.Elements)
+				{
+					if (change.IsTouched(element))
+					{
+						return MakeInterruption(change, touchedReason(element), element);
+					}
+				}
+				// What moves was found again with the layout (OnCanvasChanged rebuilt m_NodeMoved and the dynamic items); a
+				// splice onto a wire that went is dropped.
+				if (m_Move.SpliceCandidate && change.IsLinkRemoved(*m_Move.SpliceCandidate))
+				{
+					m_Move.SpliceCandidate.reset();
+					m_Move.SpliceTarget.reset();
+				}
+				if (m_Move.SpliceTarget && change.IsLinkRemoved(*m_Move.SpliceTarget))
+				{
+					m_Move.SpliceTarget.reset();
+				}
+				return std::nullopt;
+			}
+			case VisualScriptGesture::ResizingComment:
+				if (change.IsTouched(m_Resize.Comment))
+				{
+					return MakeInterruption(change, touchedReason(m_Resize.Comment), m_Resize.Comment);
+				}
+				return std::nullopt;
+			case VisualScriptGesture::Wiring:
+			{
+				uint32_t const source = m_Wire.Source.Node;
+				if (change.IsTouched(source))
+				{
+					return MakeInterruption(change, touchedReason(source), source);
+				}
+				VisualScriptPin const* info = FindPinInfo(m_Wire.Source);
+				if (!FindCanvasPin(m_Wire.Source) || info == nullptr)
+				{
+					return MakeInterruption(change, Reason::PinGone, source);
+				}
+				// The source's library pin found again; every pin classed again by its new index (the nodes the change
+				// altered take their templates' pins until the gesture ends).
+				m_Wire.SourceInfo = info;
+				m_Wire.Classes.assign(m_Canvas.GetPins().size(), Unclassified);
+				m_Wire.Shown.assign(m_Canvas.GetPins().size(), static_cast<uint8_t>(VisualScriptPinClass::None));
+				m_Wire.CanvasRevision = m_CanvasRevision;
+				m_Wire.Snapped.reset();
+				if (m_Wire.Resting && change.IsTouched(*m_Wire.Resting))
+				{
+					m_Wire.Resting.reset();
+				}
+				if (m_Wire.Expanded && change.IsTouched(*m_Wire.Expanded))
+				{
+					m_Wire.Expanded.reset();
+					RebuildDynamic();
+				}
+				return std::nullopt;
+			}
+			case VisualScriptGesture::Relinking:
+			{
+				bool changed = change.IsTouched(m_Relink.Pin.Node);
+				for (size_t link = 0; link < m_Relink.Links.size() && !changed; link++)
+				{
+					changed = change.IsLinkRemoved(m_Relink.Links[link]) ||
+					          (link < m_Relink.FarEnds.size() && change.IsTouched(m_Relink.FarEnds[link].Node));
+				}
+				if (changed)
+				{
+					return MakeInterruption(change, Reason::LinkChanged, 0);
+				}
+				// The wires follow the new anchors from the next frame on.
+				m_Relink.Snapped.reset();
+				return std::nullopt;
+			}
+			case VisualScriptGesture::Idle:
+			{
+				// A press not yet a drag: on an element the change touched (or a link it removed) it does nothing more; else
+				// what it pressed is found again by ID and name.
+				if (!m_Press.Active)
+				{
+					return std::nullopt;
+				}
+				VisualScriptHit& hit = m_Press.Hit;
+				bool const element = IsElementHit(hit.Kind);
+				if ((element && change.IsTouched(hit.Element)) || (hit.Kind == Kind::Link && hit.Link && change.IsLinkRemoved(*hit.Link)))
+				{
+					m_Press.Kind = PressKind::Inert;
+					return std::nullopt;
+				}
+				if (hit.Kind == Kind::Pin)
+				{
+					std::optional<std::pair<uint32_t, uint32_t>> const pin =
+						m_Press.Pin.empty() ? std::nullopt : FindCanvasPin(PinKey{m_Press.PinNode, m_Press.Pin, m_Press.Direction});
+					if (!pin)
+					{
+						m_Press.Kind = PressKind::Inert;
+						return std::nullopt;
+					}
+					hit.Pin = pin->second;
+				}
+				return std::nullopt;
+			}
+			case VisualScriptGesture::Marquee:
+			case VisualScriptGesture::Cutting:
+				// What the marquee holds and what the cut crosses are found again every frame.
+			case VisualScriptGesture::Panning:
+			case VisualScriptGesture::MinimapDrag:
+				return std::nullopt;
+		}
+		return std::nullopt;
 	}
 
 	void VisualScriptEditorModel::RecordCommittedLinks(VisualScriptDocument const& before, VisualScriptDocument const& after)

@@ -26,13 +26,17 @@ namespace Strada
 		// Lays out the sub-graph (0: the event graph, else a function's ID; an unknown ID shows nothing). analysis is of
 		// analyzedDocument (a node takes its analysis' pins only while it still matches what was analyzed, as in a window); both
 		// may be null, and library too. analysis, analyzedDocument and library must stay valid until the next Sync; document
-		// is copied (MakeDisplay).
+		// is copied (MakeDisplay). resolve gives the documents of the other graphs nodes name (VisualScriptCanvasSource::
+		// Resolve), so that a node no analysis describes is titled from its target as in a window; it is called during Sync
+		// only, and empty resolves none.
 		void Sync(VisualScriptDocument const& document, uint32_t function, VisualScriptAnalysis const* analysis,
-		          VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library);
+		          VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library,
+		          VisualScriptGraphResolver const& resolve);
 		// The same with a display MakeDisplay made, which the canvas keeps instead of a copy: canvases of several sub-graphs of
 		// one document share one display.
 		void Sync(Ref<VisualScriptDocument const> display, uint32_t function, VisualScriptAnalysis const* analysis,
-		          VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library);
+		          VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library,
+		          VisualScriptGraphResolver const& resolve);
 
 		// What a canvas shows of a document: a copy whose unplaced nodes are placed (PlaceUnplacedNodes), as a window shows
 		// them before the first commit places them.

@@ -18,13 +18,15 @@ namespace Strada
 	}
 
 	void VisualScriptHeadlessCanvas::Sync(VisualScriptDocument const& document, uint32_t function, VisualScriptAnalysis const* analysis,
-	                                      VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library)
+	                                      VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library,
+	                                      VisualScriptGraphResolver const& resolve)
 	{
-		Sync(MakeDisplay(document), function, analysis, analyzedDocument, library);
+		Sync(MakeDisplay(document), function, analysis, analyzedDocument, library, resolve);
 	}
 
 	void VisualScriptHeadlessCanvas::Sync(Ref<VisualScriptDocument const> display, uint32_t function, VisualScriptAnalysis const* analysis,
-	                                      VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library)
+	                                      VisualScriptDocument const* analyzedDocument, VisualScriptLibrary const* library,
+	                                      VisualScriptGraphResolver const& resolve)
 	{
 		ST_CORE_ASSERT(display != nullptr, "A headless canvas shows a document");
 		m_Display = std::move(display);
@@ -37,6 +39,7 @@ namespace Strada
 		source.Analysis = analysis;
 		source.AnalyzedDocument = analyzedDocument;
 		source.Library = library;
+		source.Resolve = resolve;
 		if (library != nullptr)
 		{
 			source.EnumLookup = [library](std::string_view typeId)

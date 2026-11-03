@@ -1,7 +1,9 @@
+#include "Fuzzing.h"
 #include "TestUtilities.h"
 #include "VisualScriptTestUtilities.h"
 
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptHitTest.h"
@@ -20,6 +22,7 @@
 #include <doctest/doctest.h>
 
 #include <glm/glm.hpp>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <array>
@@ -214,7 +217,11 @@ namespace
 		{
 			Time += step;
 			Input.Time = Time;
-			Model.Sync(Semantics, Measure, Theme, false, Time);
+			VisualScriptSyncResult const synced = Model.Sync(Semantics, Measure, Theme, false, Time);
+			if (synced.Interruption)
+			{
+				Interruptions.push_back(*synced.Interruption);
+			}
 			Intents intents = Model.Update(Input);
 			Input.Pressed = {};
 			Input.Released = {};
@@ -300,6 +307,9 @@ namespace
 		}
 
 		// The screen point of a canvas point under the current view.
+		// A change made elsewhere (an agent, another window) between frames.
+		void Outside(VisualScriptDocument document) { AssetManager::GetAsset<VisualScriptAsset>(Graph)->SetDocument(std::move(document)); }
+
 		glm::vec2 Screen(glm::vec2 canvasPoint) const { return Model.GetView().ToScreen(canvasPoint); }
 		glm::vec2 Canvas(glm::vec2 screenPoint) const { return Model.GetView().ToCanvas(screenPoint); }
 
@@ -335,6 +345,8 @@ namespace
 		VisualScriptEditorModel Model;
 		VisualScriptCanvasInput Input;
 		double Time = 0.0;
+		// What the Syncs reported of gestures outside changes ended.
+		std::vector<VisualScriptGestureInterruption> Interruptions;
 	};
 
 	// Empty canvas between the rows, outside the comment.
@@ -2450,4 +2462,462 @@ TEST_CASE("VisualScriptEditor: the wheel zooms to the cursor or pans as the scro
 	fixture.Frame();
 	CHECK(model.GetViewState().Center.x > x);
 	fixture.Release();
+}
+
+namespace
+{
+	VisualScriptNode& GetNode(VisualScriptDocument& document, uint32_t id)
+	{
+		auto const found = std::find_if(document.Graph.Nodes.begin(), document.Graph.Nodes.end(),
+		                                [id](VisualScriptNode const& node)
+		                                {
+											return node.ID == id;
+										});
+		REQUIRE(found != document.Graph.Nodes.end());
+		return *found;
+	}
+
+	void RemoveNode(VisualScriptDocument& document, uint32_t id)
+	{
+		std::erase_if(document.Graph.Nodes,
+		              [id](VisualScriptNode const& node)
+		              {
+						  return node.ID == id;
+					  });
+		std::erase_if(document.Graph.Links,
+		              [id](VisualScriptLink const& link)
+		              {
+						  return link.From.Node == id || link.To.Node == id;
+					  });
+	}
+
+	std::string GetTitle(VisualScriptEditorModel const& model, uint32_t node)
+	{
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		std::optional<uint32_t> const index = canvas.FindNode(node);
+		REQUIRE(index.has_value());
+		return std::string(canvas.GetText(canvas.GetNodes()[*index].Title));
+	}
+
+	void CheckInterruption(InteractionFixture const& fixture, VisualScriptGesture gesture, VisualScriptGestureInterruption::Reason why,
+	                       uint32_t element, std::string const& name)
+	{
+		REQUIRE(fixture.Interruptions.size() == 1);
+		VisualScriptGestureInterruption const& interruption = fixture.Interruptions.front();
+		CHECK(interruption.Gesture == gesture);
+		CHECK(interruption.Why == why);
+		CHECK(interruption.Element == element);
+		CHECK(interruption.Name == name);
+		CHECK(fixture.Model.GetGesture().Kind == VisualScriptGesture::Idle);
+	}
+}
+
+TEST_CASE("VisualScriptEditor: an interruption's toast names the gesture, the element and what happened to it")
+{
+	using Reason = VisualScriptGestureInterruption::Reason;
+	VisualScriptGestureInterruption interruption;
+	interruption.Gesture = VisualScriptGesture::MovingElements;
+	interruption.Element = 12;
+	interruption.Name = "Branch (node 12)";
+	CHECK(DescribeVisualScriptGestureInterruption(interruption) == "Your move was interrupted: Branch (node 12) was changed elsewhere");
+	interruption.Why = Reason::ElementRemoved;
+	CHECK(DescribeVisualScriptGestureInterruption(interruption) == "Your move was interrupted: Branch (node 12) was deleted elsewhere");
+	interruption.Gesture = VisualScriptGesture::Wiring;
+	interruption.Why = Reason::PinGone;
+	CHECK(DescribeVisualScriptGestureInterruption(interruption) ==
+	      "Your wire was interrupted: the pin it starts from on Branch (node 12) was removed elsewhere");
+	interruption.Gesture = VisualScriptGesture::Relinking;
+	interruption.Why = Reason::LinkChanged;
+	CHECK(DescribeVisualScriptGestureInterruption(interruption) == "Your relink was interrupted: a picked link was changed elsewhere");
+	interruption.Gesture = VisualScriptGesture::Marquee;
+	interruption.Why = Reason::GraphGone;
+	CHECK(DescribeVisualScriptGestureInterruption(interruption) == "Your selection was interrupted: the graph shown was deleted elsewhere");
+	interruption.Gesture = VisualScriptGesture::ResizingComment;
+	interruption.Why = Reason::ElementChanged;
+	interruption.Name.clear();
+	CHECK(DescribeVisualScriptGestureInterruption(interruption) == "Your resize was interrupted: element 12 was changed elsewhere");
+}
+
+TEST_CASE("VisualScriptEditor: a move continues over outside changes of other elements, and ends when a moved element changes or goes")
+{
+	using Reason = VisualScriptGestureInterruption::Reason;
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel const& model = fixture.Model;
+	glm::vec2 const header = Testing::CanvasPoint(model, 6, glm::vec2(0.5f, 0.15f));
+	glm::vec2 const end = header + glm::vec2(80.0f, 48.0f);
+
+	// Another node moves and the Log's literal changes meanwhile: the move goes on, what moves still drawn moved.
+	fixture.Drag(header, header + glm::vec2(40.0f, 24.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::MovingElements);
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	GetNode(changed, 7).Position = glm::vec2(1200.0f, 900.0f);
+	GetNode(changed, 5).Inputs["Message"] = "Elsewhere";
+	fixture.Outside(changed);
+	fixture.MoveTo(end);
+	CHECK(fixture.Interruptions.empty());
+	CHECK(model.GetGesture().Kind == VisualScriptGesture::MovingElements);
+	CHECK(model.GetNodePreview().IsMoved(*model.GetCanvas().FindNode(6)));
+	CHECK_FALSE(model.GetNodePreview().IsMoved(*model.GetCanvas().FindNode(7)));
+	VisualScriptMoveIntent const move = Single<VisualScriptMoveIntent>(fixture.Release());
+	CHECK(move.Elements == std::vector<uint32_t>{6});
+	CHECK(move.Offset == fixture.SnappedOffset(glm::vec2(400.0f, 320.0f), header, end));
+
+	// The moved node is changed elsewhere: the move ends, named in the interruption, and its release does nothing.
+	std::string const title = GetTitle(model, 6);
+	fixture.Drag(header, header + glm::vec2(40.0f, 24.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::MovingElements);
+	changed = model.GetDisplayDocument();
+	GetNode(changed, 6).Position = glm::vec2(400.0f, 480.0f);
+	fixture.Outside(changed);
+	fixture.MoveTo(end);
+	CheckInterruption(fixture, VisualScriptGesture::MovingElements, Reason::ElementChanged, 6, fmt::format("{} (node 6)", title));
+	CHECK(model.GetNodePreview().Moved.empty());
+	CHECK(fixture.Release().empty());
+
+	// Deleted elsewhere: named as the window showed it.
+	fixture.Interruptions.clear();
+	glm::vec2 const moved = Testing::CanvasPoint(model, 6, glm::vec2(0.5f, 0.15f));
+	fixture.Drag(moved, moved + glm::vec2(40.0f, 24.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::MovingElements);
+	changed = model.GetDisplayDocument();
+	RemoveNode(changed, 6);
+	fixture.Outside(changed);
+	fixture.MoveTo(end);
+	CheckInterruption(fixture, VisualScriptGesture::MovingElements, Reason::ElementRemoved, 6, fmt::format("{} (node 6)", title));
+	CHECK(fixture.Release().empty());
+}
+
+TEST_CASE("VisualScriptEditor: a splice found during a move is dropped when its wire is removed elsewhere, and the move goes on")
+{
+	VisualScriptDocument document = MakeCanvasDocument();
+	document.Graph.Nodes.push_back(MakeNode(8, "Flow.Delay", glm::vec2(400.0f, 600.0f)));
+	InteractionFixture fixture(document);
+	VisualScriptEditorModel const& model = fixture.Model;
+	VisualScriptLink const link = MakeLink(1, "Then", 2, "Execute");
+	glm::vec2 const header = Testing::CanvasPoint(model, 8, glm::vec2(0.5f, 0.15f));
+	glm::vec2 const wire = Testing::WirePoint(model, link);
+	fixture.Drag(header, wire, 0, 4, false);
+	fixture.MoveTo(wire, 0.35);
+	REQUIRE(model.GetGesture().SpliceTarget != nullptr);
+
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	std::erase(changed.Graph.Links, link);
+	fixture.Outside(changed);
+	fixture.MoveTo(wire);
+	CHECK(fixture.Interruptions.empty());
+	CHECK(model.GetGesture().Kind == VisualScriptGesture::MovingElements);
+	CHECK(model.GetGesture().SpliceTarget == nullptr);
+	VisualScriptMoveIntent const move = Single<VisualScriptMoveIntent>(fixture.Release());
+	CHECK(move.Elements == std::vector<uint32_t>{8});
+}
+
+TEST_CASE("VisualScriptEditor: a comment resize continues over outside changes of other elements, and ends when the comment changes")
+{
+	using Reason = VisualScriptGestureInterruption::Reason;
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel const& model = fixture.Model;
+	glm::vec2 const right = Testing::CommentPoint(model, 20, glm::vec2(1.0f, 0.9f));
+	fixture.Drag(right, right + glm::vec2(50.0f, 0.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::ResizingComment);
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	GetNode(changed, 5).Position = glm::vec2(800.0f, 640.0f);
+	fixture.Outside(changed);
+	fixture.MoveTo(right + glm::vec2(100.0f, 0.0f));
+	CHECK(fixture.Interruptions.empty());
+	VisualScriptResizeCommentIntent const resize = Single<VisualScriptResizeCommentIntent>(fixture.Release());
+	CHECK(resize.Comment == 20);
+	CHECK(resize.Rect.Max.x == std::round((672.0f + 100.0f / model.GetView().GetPixelsPerUnit()) / 16.0f) * 16.0f);
+
+	// The comment's text is changed elsewhere.
+	glm::vec2 const edge = Testing::CommentPoint(model, 20, glm::vec2(1.0f, 0.9f));
+	fixture.Drag(edge, edge + glm::vec2(50.0f, 0.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::ResizingComment);
+	changed = model.GetDisplayDocument();
+	changed.Graph.Comments.front().Text = "Begin";
+	fixture.Outside(changed);
+	fixture.MoveTo(edge + glm::vec2(100.0f, 0.0f));
+	CheckInterruption(fixture, VisualScriptGesture::ResizingComment, Reason::ElementChanged, 20, "Begin (comment 20)");
+	CHECK(fixture.Release().empty());
+}
+
+TEST_CASE("VisualScriptEditor: a wire continues over outside changes of other nodes and connects to a node added meanwhile")
+{
+	using Reason = VisualScriptGestureInterruption::Reason;
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel const& model = fixture.Model;
+	glm::vec2 const deltaTime = Testing::CanvasPoint(model, 4, "DeltaTime", VisualScriptPinDirection::Out);
+	fixture.Drag(deltaTime, fixture.Screen(EmptyCanvasPoint), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::Wiring);
+
+	// A Delay added below, and the Log moved: the wire goes on, its source found again.
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	changed.Graph.Nodes.push_back(MakeNode(9, "Flow.Delay", glm::vec2(400.0f, 640.0f)));
+	GetNode(changed, 5).Position = glm::vec2(800.0f, 360.0f);
+	fixture.Outside(changed);
+	fixture.MoveTo(fixture.Screen(EmptyCanvasPoint + glm::vec2(10.0f, 0.0f)));
+	CHECK(fixture.Interruptions.empty());
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::Wiring);
+	REQUIRE(model.GetGesture().WireSource != nullptr);
+	CHECK(*model.GetGesture().WireSource == VisualScriptPinReference{4, "DeltaTime"});
+	glm::vec2 const duration = Testing::CanvasPoint(model, 9, "Duration");
+	fixture.MoveTo(duration);
+	CHECK(Single<VisualScriptConnectIntent>(fixture.Release()).Link == MakeLink(4, "DeltaTime", 9, "Duration"));
+
+	// The source node is changed elsewhere.
+	std::string const title = GetTitle(model, 4);
+	glm::vec2 const source = Testing::CanvasPoint(model, 4, "DeltaTime", VisualScriptPinDirection::Out);
+	fixture.Drag(source, fixture.Screen(EmptyCanvasPoint), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::Wiring);
+	changed = model.GetDisplayDocument();
+	GetNode(changed, 4).Comment = "Every frame";
+	fixture.Outside(changed);
+	fixture.MoveTo(fixture.Screen(EmptyCanvasPoint + glm::vec2(10.0f, 0.0f)));
+	CheckInterruption(fixture, VisualScriptGesture::Wiring, Reason::ElementChanged, 4, fmt::format("{} (node 4)", title));
+	CHECK(fixture.Release().empty());
+}
+
+TEST_CASE("VisualScriptEditor: a relink continues while its picked links and their nodes are untouched, and ends when one is removed")
+{
+	using Reason = VisualScriptGestureInterruption::Reason;
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel const& model = fixture.Model;
+	glm::vec2 const execute = Testing::CanvasPoint(model, 2, "Execute");
+	fixture.Input.Ctrl = true;
+	fixture.Drag(execute, execute + glm::vec2(0.0f, 60.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::Relinking);
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	GetNode(changed, 7).Position = glm::vec2(1200.0f, 800.0f);
+	fixture.Outside(changed);
+	fixture.MoveTo(Testing::CanvasPoint(model, 3, "Execute"));
+	CHECK(fixture.Interruptions.empty());
+	VisualScriptRelinkIntent const relink = Single<VisualScriptRelinkIntent>(fixture.Release());
+	CHECK(relink.Remove == std::vector<VisualScriptLink>{MakeLink(1, "Then", 2, "Execute")});
+	CHECK(relink.Add == std::vector<VisualScriptLink>{MakeLink(1, "Then", 3, "Execute")});
+
+	// The picked link is removed elsewhere.
+	fixture.Drag(execute, execute + glm::vec2(0.0f, 60.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::Relinking);
+	changed = model.GetDisplayDocument();
+	std::erase(changed.Graph.Links, MakeLink(1, "Then", 2, "Execute"));
+	fixture.Outside(changed);
+	fixture.MoveTo(Testing::CanvasPoint(model, 3, "Execute"));
+	CheckInterruption(fixture, VisualScriptGesture::Relinking, Reason::LinkChanged, 0, "");
+	CHECK(fixture.Release().empty());
+	fixture.Input.Ctrl = false;
+}
+
+TEST_CASE("VisualScriptEditor: a marquee and a cut continue over any outside change, finding what they hold anew")
+{
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel const& model = fixture.Model;
+	// A marquee over empty canvas, below the nodes; the Log is moved into it meanwhile, and the marquee takes it.
+	glm::vec2 const from = fixture.Screen({1000.0f, 760.0f});
+	glm::vec2 const to = fixture.Screen({1400.0f, 1060.0f});
+	fixture.Drag(from, to, 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::Marquee);
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	GetNode(changed, 5).Position = glm::vec2(1100.0f, 840.0f);
+	fixture.Outside(changed);
+	fixture.MoveTo(to + glm::vec2(2.0f, 2.0f));
+	CHECK(model.GetGesture().Kind == VisualScriptGesture::Marquee);
+	fixture.Release();
+	CHECK(fixture.Interruptions.empty());
+	CHECK(fixture.Selection() == std::vector<uint32_t>{5});
+
+	// A cut across the first wire; the Branch gets a comment elsewhere meanwhile, and the cut goes on.
+	glm::vec2 const top = fixture.Screen({275.0f, -20.0f});
+	glm::vec2 const bottom = fixture.Screen({275.0f, 110.0f});
+	fixture.Input.Ctrl = true;
+	fixture.Drag(top, bottom, 1, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::Cutting);
+	changed = model.GetDisplayDocument();
+	GetNode(changed, 3).Comment = "Elsewhere";
+	fixture.Outside(changed);
+	fixture.MoveTo(bottom + glm::vec2(0.0f, 2.0f));
+	CHECK(model.GetGesture().Kind == VisualScriptGesture::Cutting);
+	VisualScriptDisconnectIntent const cut = Single<VisualScriptDisconnectIntent>(fixture.Release(1));
+	CHECK(cut.Links == std::vector<VisualScriptLink>{MakeLink(1, "Then", 2, "Execute")});
+	fixture.Input.Ctrl = false;
+	CHECK(fixture.Interruptions.empty());
+}
+
+TEST_CASE("VisualScriptEditor: a press not yet a drag finds its pin again after an outside change, and does nothing when its node changed")
+{
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel const& model = fixture.Model;
+	// Pressed on Update's DeltaTime; Create, before it in the document, is deleted elsewhere (pins move to other indices).
+	glm::vec2 const deltaTime = Testing::CanvasPoint(model, 4, "DeltaTime", VisualScriptPinDirection::Out);
+	fixture.MoveTo(deltaTime);
+	fixture.Press();
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	RemoveNode(changed, 1);
+	changed.Graph.Comments.clear();
+	fixture.Outside(changed);
+	fixture.Frame();
+	fixture.MoveTo(deltaTime + glm::vec2(60.0f, 40.0f));
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::Wiring);
+	REQUIRE(model.GetGesture().WireSource != nullptr);
+	CHECK(*model.GetGesture().WireSource == VisualScriptPinReference{4, "DeltaTime"});
+	fixture.Release();
+
+	// Pressed on the Delay's header; the Delay is changed elsewhere before the drag: the press does nothing, without a toast.
+	glm::vec2 const header = Testing::CanvasPoint(model, 2, glm::vec2(0.5f, 0.15f));
+	fixture.MoveTo(header);
+	fixture.Press();
+	changed = model.GetDisplayDocument();
+	GetNode(changed, 2).Inputs["Duration"] = 3;
+	fixture.Outside(changed);
+	fixture.Frame();
+	CHECK(fixture.MoveTo(header + glm::vec2(60.0f, 40.0f)).empty());
+	CHECK(model.GetGesture().Kind == VisualScriptGesture::Idle);
+	CHECK(fixture.Release().empty());
+	CHECK(fixture.Interruptions.empty());
+}
+
+TEST_CASE("VisualScriptEditor: a gesture in a function deleted elsewhere ends, and the window shows the event graph")
+{
+	using Reason = VisualScriptGestureInterruption::Reason;
+	VisualScriptDocument document = MakeCanvasDocument();
+	VisualScriptFunction function;
+	function.ID = 30;
+	function.Name = "Push";
+	function.Graph.Nodes = {MakeNode(31, "Function.Entry", glm::vec2(0.0f)), MakeNode(32, "Flow.Delay", glm::vec2(400.0f, 0.0f))};
+	document.Functions.push_back(function);
+	InteractionFixture fixture(document);
+	fixture.Model.ShowFunction(30);
+	fixture.Frame();
+	fixture.Frame();
+	VisualScriptEditorModel const& model = fixture.Model;
+	REQUIRE(model.GetFunction() == 30);
+	glm::vec2 const header = Testing::CanvasPoint(model, 32, glm::vec2(0.5f, 0.15f));
+	fixture.Drag(header, header + glm::vec2(60.0f, 30.0f), 0, 4, false);
+	REQUIRE(model.GetGesture().Kind == VisualScriptGesture::MovingElements);
+	VisualScriptDocument changed = model.GetDisplayDocument();
+	changed.Functions.clear();
+	fixture.Outside(changed);
+	fixture.MoveTo(header + glm::vec2(80.0f, 30.0f));
+	CheckInterruption(fixture, VisualScriptGesture::MovingElements, Reason::GraphGone, 0, "");
+	CHECK(model.GetFunction() == 0);
+	CHECK(fixture.Release().empty());
+}
+
+TEST_CASE("VisualScriptEditor: random gestures across random outside changes of other elements end in the intent they give alone")
+{
+	// Spec-slice4 §16.1's property: each gesture runs once as it is and once with an outside change of elements it does not
+	// hold in its middle; both give the same intent, which applies to the document the change left.
+	InteractionFixture fixture(MakeCanvasDocument());
+	VisualScriptEditorModel const& model = fixture.Model;
+	VisualScriptDocument const original = model.GetDisplayDocument();
+	Testing::FuzzRandom random(11280);
+	int const rounds = Testing::GetFuzzRounds(40);
+	size_t intents = 0;
+	for (int round = 0; round < rounds; round++)
+	{
+		CAPTURE(round);
+		fixture.Outside(original);
+		fixture.Frame();
+		fixture.Frame();
+		fixture.Model.Select({});
+		fixture.Frame();
+		// The gesture: a node's move, the comment's resize, or a wire from Update's DeltaTime to the Delay's Duration.
+		size_t const kind = random.Pick(3);
+		std::array<uint32_t, 4> const movable = {2, 3, 6, 7};
+		uint32_t const moved = movable[random.Pick(movable.size())];
+		glm::vec2 from;
+		glm::vec2 to;
+		std::set<uint32_t> held;
+		if (kind == 0)
+		{
+			from = Testing::CanvasPoint(model, moved, glm::vec2(0.5f, 0.15f));
+			to = from + glm::vec2(static_cast<float>(30 + random.Pick(100)), static_cast<float>(30 + random.Pick(100)));
+			held = {moved};
+		}
+		else if (kind == 1)
+		{
+			from = Testing::CommentPoint(model, 20, glm::vec2(1.0f, 0.9f));
+			to = from + glm::vec2(static_cast<float>(random.Pick(120)) + 20.0f, 0.0f);
+			held = {20};
+		}
+		else
+		{
+			from = Testing::CanvasPoint(model, 4, "DeltaTime", VisualScriptPinDirection::Out);
+			to = Testing::CanvasPoint(model, 2, "Duration");
+			held = {4, 2};
+		}
+		CAPTURE(kind);
+		auto const run = [&fixture, &model, from, to](std::optional<VisualScriptDocument> const& change)
+		{
+			fixture.Model.Select({});
+			fixture.Frame();
+			Intents all = fixture.Drag(from, glm::mix(from, to, 0.5f), 0, 4, false);
+			REQUIRE(model.GetGesture().Kind != VisualScriptGesture::Idle);
+			if (change)
+			{
+				fixture.Outside(*change);
+			}
+			Append(all, fixture.MoveTo(to));
+			Append(all, fixture.Release());
+			return all;
+		};
+		Intents const alone = run(std::nullopt);
+		// An outside change of elements the gesture does not hold, away from where it goes: one moved far off, a comment
+		// written on another node, a node added far off, or a node deleted.
+		VisualScriptDocument changed = original;
+		std::vector<uint32_t> others;
+		for (VisualScriptNode const& node : original.Graph.Nodes)
+		{
+			if (!held.contains(node.ID))
+			{
+				others.push_back(node.ID);
+			}
+		}
+		uint32_t const other = others[random.Pick(others.size())];
+		switch (random.Pick(4))
+		{
+			case 0:
+				GetNode(changed, other).Position = glm::vec2(4000.0f, 4000.0f + static_cast<float>(other) * 400.0f);
+				break;
+			case 1:
+				GetNode(changed, other).Comment = "Changed elsewhere";
+				break;
+			case 2:
+				changed.Graph.Nodes.push_back(MakeNode(50, "Flow.Delay", glm::vec2(-4000.0f, 4000.0f)));
+				break;
+			default:
+				RemoveNode(changed, other);
+				break;
+		}
+		fixture.Outside(original);
+		fixture.Frame();
+		Intents const together = run(changed);
+		CHECK(fixture.Interruptions.empty());
+		REQUIRE(alone.size() == together.size());
+		REQUIRE(alone.size() == 1);
+		intents++;
+		if (kind == 0)
+		{
+			VisualScriptMoveIntent const a = Single<VisualScriptMoveIntent>(alone);
+			VisualScriptMoveIntent const b = Single<VisualScriptMoveIntent>(together);
+			CHECK(a.Elements == b.Elements);
+			CHECK(a.Offset == b.Offset);
+			// The move applies to the document the change left, keeping the change.
+			VisualScriptDocument applied = model.GetDisplayDocument();
+			REQUIRE(VisualScriptEditing::MoveElements(applied, 0, b.Elements, b.Offset).IsOk());
+			CHECK(*GetNode(applied, moved).Position == *GetNode(changed, moved).Position + b.Offset);
+		}
+		else if (kind == 1)
+		{
+			VisualScriptResizeCommentIntent const a = Single<VisualScriptResizeCommentIntent>(alone);
+			VisualScriptResizeCommentIntent const b = Single<VisualScriptResizeCommentIntent>(together);
+			CHECK(a.Comment == b.Comment);
+			CHECK(a.Rect.Min == b.Rect.Min);
+			CHECK(a.Rect.Max == b.Rect.Max);
+		}
+		else
+		{
+			CHECK(Single<VisualScriptConnectIntent>(alone).Link == Single<VisualScriptConnectIntent>(together).Link);
+			CHECK(Single<VisualScriptConnectIntent>(together).Link == MakeLink(4, "DeltaTime", 2, "Duration"));
+		}
+	}
+	CHECK(intents == static_cast<size_t>(rounds));
 }

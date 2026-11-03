@@ -478,6 +478,27 @@ namespace Strada
 			return AssetManager::TryGetAsset<VisualScriptAsset>(graph);
 		}
 
+		// The documents of other visual scripts as their assets hold them, each kept alive for as long as the resolver is (a
+		// file reloaded meanwhile leaves the document given unchanged); null for a handle of no visual script that loads.
+		VisualScriptGraphResolver MakeAssetGraphResolver()
+		{
+			auto const held = CreateRef<std::vector<Ref<VisualScriptDocument const>>>();
+			return [held](AssetHandle other) -> VisualScriptDocument const*
+			{
+				if (AssetManager::GetAssetType(other) != AssetType::VisualScript)
+				{
+					return nullptr;
+				}
+				Result<Ref<VisualScriptAsset>> const loaded = LoadGraph(other);
+				if (!loaded)
+				{
+					return nullptr;
+				}
+				held->push_back(loaded.GetValue()->GetSharedDocument());
+				return held->back().get();
+			};
+		}
+
 		bool HasGraphNode(VisualScriptGraph const& graph, uint32_t id)
 		{
 			return std::any_of(graph.Nodes.begin(), graph.Nodes.end(),
@@ -2944,8 +2965,15 @@ namespace Strada
 				// the window's does.
 				Ref<VisualScriptLibrary const> const library = FindGraphLibrary();
 				Ref<VisualScriptAnalysis const> const analysis = library != nullptr ? AnalyzeGraph(*stored, handle) : nullptr;
+				// Nodes naming other graphs that no analysis describes are titled from those graphs, as in a window (spec-slice4
+				// §16.3): the arranged graph is the stored document, the others their assets'.
+				VisualScriptGraphResolver const others = MakeAssetGraphResolver();
+				VisualScriptGraphResolver const resolve = [handle, stored, &others](AssetHandle other) -> VisualScriptDocument const*
+				{
+					return other == handle ? stored.get() : others(other);
+				};
 				VisualScriptHeadlessCanvas canvas;
-				canvas.Sync(*stored, function.GetValue(), analysis.get(), stored.get(), library.get());
+				canvas.Sync(*stored, function.GetValue(), analysis.get(), stored.get(), library.get(), resolve);
 				VisualScriptNodeExtents const measured = canvas.GetExtents();
 				VisualScriptNodeExtents const extents =
 					GetString(params, "extents", "Measured") == "Uniform"
@@ -3180,7 +3208,6 @@ namespace Strada
 				}
 
 				// Other graphs the operations name (by a Graph setting) are read from their assets, kept for the batch.
-				auto const held = CreateRef<std::vector<Ref<VisualScriptDocument const>>>();
 				Ref<VisualScriptLibrary const> const library = m_Semantics.GetLibrary();
 				Ref<VisualScriptAnalysis const> storedAnalysis = FindStoredGraphAnalysis(handle, stored, library);
 				VisualScriptBatchContext context(m_Semantics);
@@ -3195,20 +3222,7 @@ namespace Strada
 					}
 					return found.GetValue();
 				};
-				context.FindDocument = [held](AssetHandle other) -> VisualScriptDocument const*
-				{
-					if (AssetManager::GetAssetType(other) != AssetType::VisualScript)
-					{
-						return nullptr;
-					}
-					Result<Ref<VisualScriptAsset>> const loaded = LoadGraph(other);
-					if (!loaded)
-					{
-						return nullptr;
-					}
-					held->push_back(loaded.GetValue()->GetSharedDocument());
-					return held->back().get();
-				};
+				context.FindDocument = MakeAssetGraphResolver();
 				context.FindGraphName = [](AssetHandle other) -> std::string
 				{
 					std::optional<AssetMetadata> const otherMetadata = AssetManager::GetMetadata(other);
@@ -4244,21 +4258,7 @@ namespace Strada
 				Json results = Json::array();
 				Json skipped = Json::array();
 				// Nodes naming other graphs are titled from those graphs' documents when no analysis titles them.
-				auto const held = CreateRef<std::vector<Ref<VisualScriptDocument const>>>();
-				VisualScriptGraphResolver const resolver = [held](AssetHandle other) -> VisualScriptDocument const*
-				{
-					if (AssetManager::GetAssetType(other) != AssetType::VisualScript)
-					{
-						return nullptr;
-					}
-					Result<Ref<VisualScriptAsset>> const loaded = LoadGraph(other);
-					if (!loaded)
-					{
-						return nullptr;
-					}
-					held->push_back(loaded.GetValue()->GetSharedDocument());
-					return held->back().get();
-				};
+				VisualScriptGraphResolver const resolver = MakeAssetGraphResolver();
 				for (AssetHandle const script : scripts)
 				{
 					Result<Ref<VisualScriptAsset>> const asset = LoadGraph(script);

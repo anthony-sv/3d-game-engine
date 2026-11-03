@@ -66,6 +66,38 @@ namespace Strada
 		MinimapDrag
 	};
 
+	// Why an outside change ended a canvas gesture (spec-slice4 §16.1): a gesture continues across changes that touch none of its
+	// elements, and ends without an edit when one touches them.
+	struct VisualScriptGestureInterruption
+	{
+		enum class Reason : uint8_t
+		{
+			// The element named was changed elsewhere (moved, edited, retyped).
+			ElementChanged = 0,
+			// The element named was deleted elsewhere.
+			ElementRemoved,
+			// A link a relink picked up was removed, or a node at one of its ends changed.
+			LinkChanged,
+			// The pin a wire starts from is no longer on its node.
+			PinGone,
+			// The sub-graph shown was deleted.
+			GraphGone
+		};
+
+		VisualScriptGestureInterruption();
+
+		VisualScriptGesture Gesture = VisualScriptGesture::Idle;
+		Reason Why = Reason::ElementChanged;
+		// The node or comment box named in the toast; 0 when none.
+		uint32_t Element = 0;
+		// That element as the toast names it ("Branch (node 12)", "Movement (comment 4)"): its title as the window shows it
+		// after the change, or for a deleted element as it showed it before; empty when Element is 0.
+		std::string Name;
+	};
+
+	// The toast of an interruption: "Your move was interrupted: Branch (node 12) was changed elsewhere".
+	[[nodiscard]] std::string DescribeVisualScriptGestureInterruption(VisualScriptGestureInterruption const& interruption);
+
 	// What a Sync found.
 	struct VisualScriptSyncResult
 	{
@@ -76,9 +108,9 @@ namespace Strada
 		bool AnalysisChanged = false;
 		// The visual model's geometry changed and the spatial index was rebuilt.
 		bool GeometryChanged = false;
-		// An outside change ended this editing gesture in progress (a move, a resize, a wire, a relink, a cut, a marquee):
-		// the window says so (spec-slice3 §10.11).
-		std::optional<VisualScriptGesture> InterruptedGesture;
+		// An outside change ended the editing gesture in progress, and why: the window says so (spec-slice4 §16.1). Gestures
+		// that the change did not touch continue.
+		std::optional<VisualScriptGestureInterruption> Interruption;
 	};
 
 	// --- Input ---
@@ -512,7 +544,9 @@ namespace Strada
 	//
 	// Documents are told apart by identity. The window's own commits come back as the very object the commit wrote
 	// (OnCommitted); any other new document is an outside change (undo, redo, automation, another window, a reload), which
-	// cancels the gesture in progress, drops a widget preview and records the elements it changed for the renderer to flash.
+	// drops a widget preview, records the elements it changed for the renderer to flash, and rebases the gesture in progress
+	// over it: the gesture continues when the change touched none of its elements, and ends without an edit when it did
+	// (VisualScriptSyncResult::Interruption, spec-slice4 §16.1).
 	// After every change the selection and the raised nodes keep only the elements that still exist.
 	//
 	// Analysis is a synchronous round trip to the scripting runtime, so it runs only when the program changes
@@ -823,11 +857,39 @@ namespace Strada
 			AssetHandle Graph;
 		};
 
+		// What an outside change did to the shown sub-graph, for the gesture in progress (spec-slice4 §16.1): the nodes and
+		// comments added or changed, those removed (both sorted), the links removed (sorted by LinkLess), whether the sub-graph
+		// itself went, and the names the window showed for the removed elements the gesture holds.
+		struct OutsideChange
+		{
+			std::vector<uint32_t> Changed;
+			std::vector<uint32_t> Removed;
+			std::vector<VisualScriptLink> LinksRemoved;
+			bool FunctionGone = false;
+			std::vector<std::pair<uint32_t, std::string>> RemovedNames;
+
+			bool IsTouched(uint32_t element) const;
+			bool IsRemoved(uint32_t element) const;
+			bool IsLinkRemoved(VisualScriptLink const& link) const;
+		};
+
 		// Sync's parts.
 		void LookUpAsset(VisualScriptSyncResult& result);
 		void AdoptDocument(Ref<VisualScriptDocument const> document, VisualScriptSyncResult& result);
 		void RecordChangedElements(VisualScriptDocument const& before, VisualScriptDocument const& after);
 		void RecordCommittedLinks(VisualScriptDocument const& before, VisualScriptDocument const& after);
+		// The outside change for the gesture in progress (m_Rebase), while the visual model still shows before.
+		void RecordOutsideChange(VisualScriptDocument const& before, VisualScriptDocument const& after);
+		// Whether the gesture in progress, or the press not yet a drag, holds the element (it names it in an interruption).
+		bool IsGestureElement(uint32_t element) const;
+		// A node or comment box as a toast names it, from the visual model as it is laid out now; empty when it shows neither.
+		std::string DescribeElement(uint32_t element) const;
+		// After the visual model shows the document of an outside change: the gesture in progress continues on it, its parts
+		// that point into the model found again, or it ends with the returned interruption (the caller cancels it). A press
+		// that has not become a drag yet whose element was touched becomes Inert instead, without an interruption.
+		std::optional<VisualScriptGestureInterruption> RebaseGesture(OutsideChange const& change);
+		VisualScriptGestureInterruption MakeInterruption(OutsideChange const& change, VisualScriptGestureInterruption::Reason why,
+		                                                 uint32_t element) const;
 		void RefreshAnalysis(VisualScriptSemantics& semantics, bool widgetActive, double time, bool force, VisualScriptSyncResult& result);
 		// Whether every other graph the analysis read still holds, in the project's index, the shared document it read or one
 		// equal for the analyzed document's use of it (the whole program of a library, the interface of the others).
@@ -972,8 +1034,11 @@ namespace Strada
 		uint64_t m_ProgramRevision = 0;
 		Ref<VisualScriptDocument const> m_Preview;
 		bool m_PreviewChanged = false;
-		// The last Sync adopted an outside change: the gesture in progress is cancelled.
+		// The last Sync adopted an outside change: the gesture in progress continues over it or ends.
 		bool m_OutsideChange = false;
+		// The outside change a gesture in progress is to be rebased over (RecordOutsideChange), after the visual model shows it.
+		bool m_RebasePending = false;
+		OutsideChange m_Rebase;
 		// The time of the frame whose Syncs report m_ChangedElements, m_CommittedLinks and m_SyncTimings.
 		double m_LastSyncTime = -1.0e30;
 		VisualScriptCommitTimings m_SyncTimings;

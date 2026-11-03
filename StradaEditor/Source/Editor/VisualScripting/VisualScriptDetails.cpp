@@ -1356,6 +1356,15 @@ namespace Strada
 			return;
 		}
 		ImGui::SeparatorText("Settings");
+		ImVec2 const headerMin = ImGui::GetItemRectMin();
+		ImVec2 const headerMax = ImGui::GetItemRectMax();
+		m_Rows.emplace_back("Settings", std::pair(glm::vec2(headerMin.x, headerMin.y), glm::vec2(headerMax.x, headerMax.y)));
+		// A Flow.Timeline's settings are its Timeline: a focus on it shows the section from its header (spec-slice4 §16.4).
+		std::optional<VisualScriptSettingFocus> const& focus = frame.Context.Shared.FocusSetting;
+		if (focus && focus->Node == node.ID && focus->Setting == VisualScriptTimelineSetting && node.Type == VisualScriptTimelineNodeType)
+		{
+			ImGui::SetScrollHereY(0.0f);
+		}
 		// The settings' IDs are apart from the inputs': a setting and an input may share a name (an event parameter named
 		// Name on an Event.Send, a function input named Function on its call).
 		ImGui::PushID("settings");
@@ -1392,7 +1401,7 @@ namespace Strada
 			}
 			return edit;
 		};
-		if (focus && setting.Kind != "String" && setting.Kind != "Type" && setting.Kind != "Expression")
+		if (focus && setting.Kind != "String" && setting.Kind != "Type" && setting.Kind != "Expression" && setting.Kind != "Timeline")
 		{
 			ImGui::SetKeyboardFocusHere(0);
 		}
@@ -1770,7 +1779,7 @@ namespace Strada
 		}
 		else if (setting.Kind == "Timeline" && node.Type == VisualScriptTimelineNodeType)
 		{
-			DrawTimeline(frame, node, title);
+			DrawTimeline(frame, node, title, focus);
 		}
 		else
 		{
@@ -1778,9 +1787,27 @@ namespace Strada
 		}
 	}
 
-	void VisualScriptDetails::DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title)
+	void VisualScriptDetails::DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title, bool focus)
 	{
 		VisualScriptPaneContext& context = frame.Context;
+		// The setting's first finding, under the section's header (its message names the path in the setting).
+		if (frame.Analysis != nullptr)
+		{
+			auto const finding = std::find_if(frame.Analysis->Diagnostics.begin(), frame.Analysis->Diagnostics.end(),
+			                                  [&node](VisualScriptDiagnostic const& diagnostic)
+			                                  {
+												  return diagnostic.Node == node.ID && diagnostic.Setting == VisualScriptTimelineSetting;
+											  });
+			if (finding != frame.Analysis->Diagnostics.end())
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(VisualScriptErrorColor));
+				ImGui::TextWrapped("%s", finding->Message.c_str());
+				ImGui::PopStyleColor();
+				ImVec2 const min = ImGui::GetItemRectMin();
+				ImVec2 const max = ImGui::GetItemRectMax();
+				m_Rows.emplace_back("Timeline Problem", std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
+			}
+		}
 		Result<VisualScriptTimeline> const read = ReadVisualScriptTimeline(node);
 		if (!read)
 		{
@@ -1804,10 +1831,15 @@ namespace Strada
 			m_Rows.emplace_back(std::move(label), std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
 		};
 
-		// Length, from the timeline at the interaction's start: dragged down and back up, every key is where it was.
+		// Length, from the timeline at the interaction's start: dragged down and back up, every key is where it was. A focus on
+		// the setting gives it the keyboard.
 		BeginRow("Length");
 		ImGui::BeginGroup();
 		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (focus)
+		{
+			ImGui::SetKeyboardFocusHere(0);
+		}
 		float length = timeline.Length;
 		bool const changed =
 			ImGui::DragFloat("##length", &length, 0.01f, 0.001f, MaxVisualScriptTimelineLength, "%.3f s", ImGuiSliderFlags_AlwaysClamp);

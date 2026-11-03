@@ -80,17 +80,21 @@ namespace
 	// analysis gives each node, its variables, locals and functions, the quick fixes of its diagnostics and a clipboard text,
 	// with labels for what the batch creates. Every operation kind is drawn; one operation in twelve is damaged (a field the
 	// operation does not take, a label used before it is defined, an ID an earlier operation deleted, an element that does not
-	// exist), so failures name their operations too.
+	// exist), so failures name their operations too. Without labels (spec-slice4 §9.3's oracle) no operation defines or uses
+	// one, every AddNode has a position, Arrange never takes the Created scope and every duplicated or promoted variable or
+	// function is named: each operation then means the same run alone (a default name avoids the former names a commit
+	// records, which a batch records once at its end).
 	class BatchGenerator
 	{
 	public:
 		BatchGenerator(Testing::FuzzRandom& random, VisualScriptDocument const& document, Json const& nodes, Json const& diagnostics,
-		               std::string const& clipboard)
+		               std::string const& clipboard, bool labels = true)
 			: m_Random(random),
 			  m_Document(document),
 			  m_Nodes(nodes),
 			  m_Diagnostics(diagnostics),
-			  m_Clipboard(clipboard)
+			  m_Clipboard(clipboard),
+			  m_UseLabels(labels)
 		{
 			for (VisualScriptNode const& node : document.Graph.Nodes)
 			{
@@ -148,7 +152,7 @@ namespace
 			{
 				std::string const type = Pick(std::vector<std::string>(m_Types.begin(), m_Types.end()));
 				operation["type"] = type;
-				if (m_Random.Pick(2) == 0)
+				if (!m_UseLabels || m_Random.Pick(2) == 0)
 				{
 					operation["position"] = Point();
 				}
@@ -192,7 +196,7 @@ namespace
 			else if (kind == "Duplicate")
 			{
 				operation["elements"] = Elements(1 + m_Random.Pick(3), true);
-				if (m_Random.Pick(2) == 0)
+				if (m_UseLabels && m_Random.Pick(2) == 0)
 				{
 					operation["labels"] = Json::array({NewLabel(m_ElementLabels)});
 				}
@@ -369,7 +373,11 @@ namespace
 				{
 					Label(operation, "as", m_ElementLabels);
 				}
-				if (kind.starts_with("Promote") && m_Random.Pick(2) == 0)
+				if (kind.starts_with("Promote") && !m_UseLabels)
+				{
+					operation["name"] = NewName("Promoted");
+				}
+				else if (kind.starts_with("Promote") && m_Random.Pick(2) == 0)
 				{
 					operation["name"] = "Promoted";
 				}
@@ -437,7 +445,7 @@ namespace
 				{
 					operation["removeNodes"] = false;
 				}
-				if (kind == "DuplicateVariable" && m_Random.Pick(2) == 0)
+				if (kind == "DuplicateVariable" && (!m_UseLabels || m_Random.Pick(2) == 0))
 				{
 					operation["name"] = NewName("Copy");
 				}
@@ -497,10 +505,15 @@ namespace
 				{
 					operation["pure"] = m_Random.Pick(2) == 0;
 				}
+				if (kind == "DuplicateFunction" && !m_UseLabels)
+				{
+					operation["name"] = NewName("Copy");
+				}
 			}
 			else if (kind == "Arrange")
 			{
-				operation["scope"] = Pick(std::vector<std::string>{"Graph", "Created", "Nodes"});
+				operation["scope"] = m_UseLabels ? Pick(std::vector<std::string>{"Graph", "Created", "Nodes"})
+				                                 : Pick(std::vector<std::string>{"Graph", "Nodes"});
 				if (operation["scope"] == "Nodes")
 				{
 					operation["nodes"] = Elements(2 + m_Random.Pick(3), false);
@@ -576,7 +589,7 @@ namespace
 					operation["nodeId"] = 1;
 					break;
 				case 1:
-					operation["node"] = "$later";
+					operation["node"] = m_UseLabels ? Json("$later") : Json(999998);
 					break;
 				case 2:
 					operation["node"] = m_Deleted.empty() ? Json(999999) : Json(Pick(m_Deleted));
@@ -739,10 +752,10 @@ namespace
 			return parsed.TakeValue();
 		}
 
-		// Defines a new label for what the operation creates, half the time.
+		// Defines a new label for what the operation creates, half the time (never without labels).
 		void Label(Json& operation, char const* field, std::vector<std::string>& labels)
 		{
-			if (m_Random.Pick(2) == 0)
+			if (m_UseLabels && m_Random.Pick(2) == 0)
 			{
 				operation[field] = NewLabel(labels);
 			}
@@ -777,6 +790,7 @@ namespace
 		std::vector<std::string> m_FunctionLabels;
 		std::vector<uint32_t> m_Deleted;
 		uint32_t m_NextLabel = 0;
+		bool m_UseLabels = true;
 	};
 }
 
@@ -903,4 +917,108 @@ TEST_CASE("VisualScriptBatch: random batches either fail naming an operation and
 		CAPTURE(kind);
 		CHECK(kinds[std::string(kind)] > 0);
 	}
+}
+
+TEST_CASE("VisualScriptBatch: a batch of operations without labels writes the document the same operations write one batch each")
+{
+	// Spec-slice4 §9.3's oracle: canvases that sync only when their use needs it change nothing an operation writes. A batch
+	// of K operations writes the file the K one-operation batches write, run in order; a batch that fails names an operation
+	// the one-by-one run also fails at.
+	Testing::ScriptRuntimeScope runtime;
+	EditFuzzFixture fixture;
+	std::string const path = "Scripts/Fuzzed.sgraph";
+	std::string const graph = fixture.Ok("graph.create", Json::object({{"path", path}}))["asset"].get<std::string>();
+	Result<std::string> const editor =
+		FileSystem::ReadTextFile(FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Documents" / "Editor.json");
+	REQUIRE(editor.IsOk());
+	Result<Json> editorDocument = ParseJson(editor.GetValue());
+	REQUIRE(editorDocument.IsOk());
+	std::array<Json, 2> const seeds = {Testing::LoadFeatureTestDocument("Assets/Scripts/FormatSample.sgraph")["VisualScript"],
+	                                   editorDocument.TakeValue()};
+
+	Testing::FuzzRandom random(11200);
+	std::map<std::string, size_t> kinds;
+	size_t compared = 0;
+	size_t changed = 0;
+	size_t failures = 0;
+	int const rounds = Testing::GetFuzzRounds(100);
+	for (int round = 0; round < rounds; round++)
+	{
+		CAPTURE(round);
+		// Every round starts from a seed with an empty history.
+		fixture.Context.GetHistory().Clear();
+		fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", seeds[static_cast<size_t>(round) % seeds.size()]}}));
+		Json const state =
+			fixture.Ok("graph.edit", Json::object({{"graph", graph}, {"operations", Json::array()}, {"nodes", "All"}, {"document", true}}));
+		Result<AssetHandle> const handle = AssetManager::ResolveReference(graph);
+		REQUIRE(handle.IsOk());
+		VisualScriptDocument const document = AssetManager::GetAsset<VisualScriptAsset>(handle.GetValue())->GetDocument();
+		std::string clipboard;
+		if (!document.Graph.Nodes.empty())
+		{
+			Json elements = Json::array();
+			for (size_t count = 1 + random.Pick(3); count > 0; count--)
+			{
+				elements.push_back(document.Graph.Nodes[random.Pick(document.Graph.Nodes.size())].ID);
+			}
+			clipboard = fixture.Ok("graph.copy", Json::object({{"graph", graph}, {"elements", std::move(elements)}}))["text"];
+		}
+		BatchGenerator generator(random, document, state["nodes"], state["diagnostics"], clipboard, false);
+		Json params = generator.Generate(kinds);
+		params["graph"] = graph;
+		CAPTURE(params);
+		std::string const before = fixture.ReadFile(path);
+
+		CommandResult whole = fixture.Run("graph.edit", params);
+		std::optional<size_t> failedAt;
+		std::string together = before;
+		if (whole.IsError())
+		{
+			failures++;
+			CommandError const& error = whole.GetError();
+			CHECK_MESSAGE(error.Code != AutomationErrorCode::InternalError, error.Message);
+			if (!error.Data.is_object() || !error.Data.contains("operation"))
+			{
+				continue;
+			}
+			failedAt = error.Data["operation"].get<size_t>();
+		}
+		else
+		{
+			together = fixture.ReadFile(path);
+			if (whole.GetValue()["changed"] == true)
+			{
+				REQUIRE(fixture.Run("editor.undo", Json::object()).IsOk());
+			}
+			REQUIRE(fixture.ReadFile(path) == before);
+		}
+
+		// The same operations, one batch each.
+		Json const& operations = params["operations"];
+		std::optional<size_t> failedAlone;
+		for (size_t index = 0; index < operations.size(); index++)
+		{
+			Json one = params;
+			one["operations"] = Json::array({operations[index]});
+			CommandResult const alone = fixture.Run("graph.edit", one);
+			if (alone.IsError())
+			{
+				failedAlone = index;
+				break;
+			}
+		}
+		if (failedAt)
+		{
+			// The operations before the failing one ran alone too; the failing one fails alone.
+			CHECK(failedAlone == failedAt);
+			continue;
+		}
+		CHECK_MESSAGE(!failedAlone, "operation " << failedAlone.value_or(0) << " failed alone");
+		CHECK(fixture.ReadFile(path) == together);
+		compared++;
+		changed += together != before ? 1 : 0;
+	}
+	CHECK(compared > 0);
+	CHECK(changed > 0);
+	CHECK(failures > 0);
 }

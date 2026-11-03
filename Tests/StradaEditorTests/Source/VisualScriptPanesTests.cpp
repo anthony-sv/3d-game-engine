@@ -200,6 +200,12 @@ namespace
 		{
 			Time += 1.0 / 60.0;
 			EndInteractions();
+			if (IndexProject)
+			{
+				// As the window manager refreshes the index before the windows draw.
+				Index.Refresh();
+				Model->SetProjectGraphs(Index.GetGraphs(), Index.GetRevision());
+			}
 			Model->Sync(*ActiveSemantics, Measure, Theme, false, Time);
 			VisualScriptCanvasInput input;
 			input.CanvasSize = glm::vec2(800.0f, 600.0f);
@@ -377,6 +383,9 @@ namespace
 		std::function<void(VisualScriptPaletteEntry const&, ImDrawList*, ImVec2, float)> DrawNodePreview;
 		ImGuiID PreviousActive = 0;
 		double Time = 0.0;
+		// Each frame gives the model the project's scripts from an index, as the window does.
+		bool IndexProject = false;
+		VisualScriptProjectIndex Index;
 	};
 
 	VisualScriptPaletteIntent MakeIntent(glm::vec2 position, std::string query = {})
@@ -2289,6 +2298,7 @@ TEST_CASE("VisualScriptEditor: the references of a custom event list its senders
 	                      MakeNode(2, "Event.Send", glm::vec2(240.0f, 0.0f), Json::object({{"Name", "Hit"}}))};
 	sender.Graph.Links = {MakeLink(1, "Then", 2, "Execute")};
 	REQUIRE(fixture.Operations.SetVisualScriptDocument(other.GetValue(), sender).IsOk());
+	fixture.IndexProject = true;
 	fixture.CheckDrawingChangesNothing();
 	fixture.DrawerPane.ShowReferences({VisualScriptReference::Kind::CustomEvent, 0, "Hit"});
 	fixture.Frames(2);
@@ -2914,6 +2924,7 @@ TEST_CASE("VisualScriptEditor: find lists a script it cannot read, and All Scrip
 	REQUIRE(fixture.Operations.SetVisualScriptDocument(other.GetValue(), sender).IsOk());
 	Result<AssetHandle> const broken = fixture.Operations.CreateVisualScript("Scripts/Broken.sgraph", VisualScriptTemplate::Empty);
 	REQUIRE(broken.IsOk());
+	fixture.IndexProject = true;
 	fixture.CheckDrawingChangesNothing();
 	// The broken script's file is damaged and unloaded: it cannot be read.
 	REQUIRE(FileSystem::WriteTextFile(AssetManager::GetAbsolutePath(broken.GetValue()), "{ not a graph").IsOk());
@@ -4290,4 +4301,126 @@ TEST_CASE("VisualScriptEditor: a library whose event graph holds only comment bo
 	CHECK(fixture.Sidebar.FindRow({VisualScriptElementKind::Function, 0}));
 	// A script always offers its event graph.
 	CHECK(OffersVisualScriptEventGraph(VisualScriptDocument()));
+}
+
+TEST_CASE("VisualScriptEditor: Find References scans the project's scripts once per change of them, never per idle frame")
+{
+	// Spec-slice4 §16.2: the drawer reads the scripts from the project index the model holds, and scans again only when the
+	// query, this script or the project's scripts changed.
+	PaneFixture fixture(MakeScriptDocument(), {FixturePane::Drawer});
+	Result<AssetHandle> const other = fixture.Operations.CreateVisualScript("Scripts/Other.sgraph", VisualScriptTemplate::Empty);
+	REQUIRE(other.IsOk());
+	VisualScriptDocument sender;
+	sender.Graph.Nodes = {MakeNode(1, "Event.Update", glm::vec2(0.0f)),
+	                      MakeNode(2, "Event.Send", glm::vec2(240.0f, 0.0f), Json::object({{"Name", "Hit"}}))};
+	sender.Graph.Links = {MakeLink(1, "Then", 2, "Execute")};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(other.GetValue(), sender).IsOk());
+	fixture.IndexProject = true;
+	fixture.CheckDrawingChangesNothing();
+	fixture.DrawerPane.ShowReferences({VisualScriptReference::Kind::CustomEvent, 0, "Hit"});
+	fixture.Frames(1);
+	uint64_t const first = fixture.DrawerPane.GetFindScanCount();
+	CHECK(first == 1);
+	std::vector<VisualScriptDrawerFindRow> const found(fixture.DrawerPane.GetFindRows().begin(), fixture.DrawerPane.GetFindRows().end());
+	CHECK(found.size() == 4);
+
+	// Ten idle frames scan nothing, and the rows stand.
+	fixture.Frames(10);
+	CHECK(fixture.DrawerPane.GetFindScanCount() == first);
+	CHECK(fixture.DrawerPane.GetFindRows().size() == found.size());
+
+	// A commit in the other script (a second sender) scans once more, and finds it.
+	sender.Graph.Nodes.push_back(MakeNode(3, "Event.Send", glm::vec2(480.0f, 0.0f), Json::object({{"Name", "Hit"}})));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(other.GetValue(), sender).IsOk());
+	fixture.Frames(5);
+	CHECK(fixture.DrawerPane.GetFindScanCount() == first + 1);
+	std::span<VisualScriptDrawerFindRow const> const rows = fixture.DrawerPane.GetFindRows();
+	CHECK(rows.size() == found.size() + 1);
+	CHECK(std::any_of(rows.begin(), rows.end(),
+	                  [&other](VisualScriptDrawerFindRow const& row)
+	                  {
+						  return row.Graph == other.GetValue() && row.Match.Node == 3 && row.Script == "Scripts/Other.sgraph";
+					  }));
+	// The rows are those the matcher gives each script's document, this script's first.
+	std::vector<VisualScriptFindResult> const own =
+		FindInVisualScript(fixture.Model->GetDisplayDocument(), fixture.Model->GetAnalysis(),
+	                       VisualScriptFindQuery{std::string(), VisualScriptReference{VisualScriptReference::Kind::CustomEvent, 0, "Hit"}},
+	                       fixture.Graph, fixture.Model->MakeGraphResolver());
+	REQUIRE(rows.size() >= own.size());
+	for (size_t index = 0; index < own.size(); index++)
+	{
+		CHECK(rows[index].Graph == fixture.Graph);
+		CHECK(rows[index].Match.Node == own[index].Node);
+	}
+	// Changing the query scans again.
+	fixture.DrawerPane.ShowFind("Send");
+	fixture.Frames(3);
+	CHECK(fixture.DrawerPane.GetFindScanCount() == first + 2);
+}
+
+TEST_CASE("VisualScriptEditor: a focus on a Timeline setting shows Details' Timeline section from its header, its finding under it, "
+          "and gives Length the keyboard")
+{
+	// Spec-slice4 §16.4, with a hand-built finding: the section's header scrolled into view, the setting's first finding drawn
+	// under it, and the Length field active.
+	PaneFixture fixture(MakeTimelineDocument(), {FixturePane::Details});
+	VisualScriptDiagnostic finding;
+	finding.Code = "InvalidSetting";
+	finding.Severity = VisualScriptSeverity::Error;
+	finding.Node = 4;
+	finding.Setting = "Timeline";
+	finding.Message = "Timeline.Tracks[0].Keys[1].Time: expected a time from 0 to the length";
+	fixture.Semantics.InjectDiagnostic(finding);
+	fixture.DetailsWindowSize = ImVec2(PaneFixture::DetailsSize.x, 220.0f);
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({4});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	size_t const undo = fixture.GetUndoCount();
+
+	fixture.Shared.FocusSetting = VisualScriptSettingFocus{4, "Timeline", std::nullopt};
+	fixture.Frames(3);
+	CHECK_FALSE(fixture.Shared.FocusSetting.has_value());
+	ImGuiWindow const* const window = ImGui::FindWindowByName("Details");
+	REQUIRE(window != nullptr);
+	std::optional<std::pair<glm::vec2, glm::vec2>> const header = fixture.Details.FindRow("Settings");
+	std::optional<std::pair<glm::vec2, glm::vec2>> const problem = fixture.Details.FindRow("Timeline Problem");
+	std::optional<std::pair<glm::vec2, glm::vec2>> const length = fixture.Details.FindRow("Length");
+	REQUIRE(header);
+	REQUIRE(problem);
+	REQUIRE(length);
+	CHECK(window->Scroll.y > 0.0f);
+	CHECK(header->first.y >= window->InnerRect.Min.y - 1.0f);
+	CHECK(header->second.y <= window->InnerRect.Max.y);
+	CHECK(problem->first.y >= header->second.y);
+	CHECK(length->first.y >= problem->second.y);
+	// Length has the keyboard: what is typed is its value.
+	REQUIRE(GImGui->ActiveId != 0);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("1.5");
+	fixture.Frames(1);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(ReadTimeline(fixture.GetDocument()).Length == 1.5f);
+
+	// The drawer's Open Timeline shows the node and opens the drawer on its tracks.
+	VisualScriptLibrary const& library = fixture.Semantics.GetFixtureLibrary();
+	VisualScriptAnalysis const* const analysis = fixture.Model->GetAnalysis();
+	REQUIRE(analysis != nullptr);
+	std::vector<VisualScriptQuickFix> const fixes =
+		GetVisualScriptQuickFixes(fixture.Model->GetDisplayDocument(), *analysis, finding, library);
+	auto const open = std::find_if(fixes.begin(), fixes.end(),
+	                               [](VisualScriptQuickFix const& fix)
+	                               {
+									   return fix.Kind == VisualScriptFixKind::OpenTimeline;
+								   });
+	REQUIRE(open != fixes.end());
+	VisualScriptPaneContext context = fixture.MakeContext();
+	VisualScriptWidgetCommits commits;
+	VisualScriptPaneResult result;
+	ApplyVisualScriptQuickFixChoice(context, finding, *open, commits, result);
+	CHECK(result.ShowTimeline == std::optional<VisualScriptTimelineFocus>(VisualScriptTimelineFocus{4, std::nullopt}));
+	REQUIRE(result.Open.has_value());
+	CHECK(result.Open->Select == std::vector<uint32_t>{4});
+	CHECK_FALSE(result.Commit.has_value());
 }
