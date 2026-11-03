@@ -748,13 +748,13 @@ namespace
 		// runtime cannot.
 		VisualScriptAnalyzedNode const* Shape(uint32_t nodeID)
 		{
-			Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(m_Document);
+			Result<Ref<VisualScriptAnalysis const>> analysis = VisualScriptEngine::Analyze(m_Document);
 			if (!analysis)
 			{
 				m_Failure = "the runtime did not analyze it: " + analysis.GetError();
 				return nullptr;
 			}
-			m_Shape = analysis.TakeValue();
+			m_Shape = *analysis.GetValue();
 			VisualScriptAnalyzedNode const* const node = m_Shape.FindNode(nodeID);
 			if (node == nullptr)
 			{
@@ -929,14 +929,14 @@ namespace
 			std::string type = output.Type;
 			if (type == VisualScriptWildcardType)
 			{
-				Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(m_Document);
-				VisualScriptAnalyzedNode const* const node = analysis ? analysis.GetValue().FindNode(nodeID) : nullptr;
+				Result<Ref<VisualScriptAnalysis const>> analysis = VisualScriptEngine::Analyze(m_Document);
+				VisualScriptAnalyzedNode const* const node = analysis ? analysis.GetValue()->FindNode(nodeID) : nullptr;
 				VisualScriptPin const* const resolved =
 					node != nullptr ? node->FindPin(output.Name, VisualScriptPinDirection::Out) : nullptr;
 				if (resolved == nullptr || resolved->Type == VisualScriptWildcardType)
 				{
 					m_Failure = fmt::format("its output {} keeps no type with the generated inputs{}", output.Name,
-					                        analysis ? "; " + DescribeVisualScriptErrors(analysis.GetValue().Diagnostics) : std::string());
+					                        analysis ? "; " + DescribeVisualScriptErrors(analysis.GetValue()->Diagnostics) : std::string());
 					return 0;
 				}
 				type = resolved->Type;
@@ -1466,16 +1466,16 @@ TEST_CASE("VisualScript: every node of the library analyzes and runs in a genera
 		NodeCase nodeCase = builder.Build(node, FindByType<NodeCaseRecipe>(Recipes, node.Type));
 		if (nodeCase.Failure.empty())
 		{
-			Result<VisualScriptAnalysis> analysis = VisualScriptEngine::Analyze(nodeCase.Document);
+			Result<Ref<VisualScriptAnalysis const>> analysis = VisualScriptEngine::Analyze(nodeCase.Document);
 			if (!analysis)
 			{
 				nodeCase.Failure = "the runtime did not analyze it: " + analysis.GetError();
 			}
-			else if (CountVisualScriptErrors(analysis.GetValue().Diagnostics) > 0)
+			else if (CountVisualScriptErrors(analysis.GetValue()->Diagnostics) > 0)
 			{
-				nodeCase.Failure = "its graph has " + DescribeVisualScriptErrors(analysis.GetValue().Diagnostics);
+				nodeCase.Failure = "its graph has " + DescribeVisualScriptErrors(analysis.GetValue()->Diagnostics);
 			}
-			else if (VisualScriptAnalyzedNode const* const analyzed = analysis.GetValue().FindNode(nodeCase.NodeID);
+			else if (VisualScriptAnalyzedNode const* const analyzed = analysis.GetValue()->FindNode(nodeCase.NodeID);
 			         analyzed == nullptr || analyzed->Resolved != VisualScriptResolution::Exact)
 			{
 				nodeCase.Failure = "it does not resolve exactly";

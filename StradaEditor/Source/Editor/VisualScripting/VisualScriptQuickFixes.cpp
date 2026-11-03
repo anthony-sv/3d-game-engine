@@ -5,6 +5,7 @@
 #include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptNormalization.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Serialization/JsonSerialization.h"
@@ -594,7 +595,8 @@ namespace Strada
 			fix.Argument = std::move(argument);
 			fix.Replaces = std::move(replaces);
 			fix.Navigates = kind == VisualScriptFixKind::GoTo || kind == VisualScriptFixKind::EditSetting ||
-			                kind == VisualScriptFixKind::Rename || kind == VisualScriptFixKind::OpenGraph;
+			                kind == VisualScriptFixKind::Rename || kind == VisualScriptFixKind::OpenGraph ||
+			                kind == VisualScriptFixKind::OpenTimeline;
 			return fix;
 		}
 
@@ -698,6 +700,7 @@ namespace Strada
 				case VisualScriptFixKind::EditSetting:
 				case VisualScriptFixKind::Rename:
 				case VisualScriptFixKind::OpenGraph:
+				case VisualScriptFixKind::OpenTimeline:
 					return {};
 				case VisualScriptFixKind::Retarget:
 				{
@@ -1276,6 +1279,19 @@ namespace Strada
 		VisualScriptGraph const* graph = FindGraph(document, diagnostic.Function);
 		bool const linkExists = diagnostic.Link.has_value() && graph != nullptr &&
 		                        std::find(graph->Links.begin(), graph->Links.end(), *diagnostic.Link) != graph->Links.end();
+
+		// A finding about a Flow.Timeline's Timeline setting, of any code (spec-slice4 §16.4): its message names the path in the
+		// setting ("Timeline.Tracks[1].Keys[3].Time: ..."), which Details and the Timeline drawer edit.
+		if (diagnostic.Setting == VisualScriptTimelineSetting)
+		{
+			if (node != nullptr && node->Type == VisualScriptTimelineNodeType)
+			{
+				fixes.push_back(
+					MakeFix("Edit in Details", VisualScriptFixKind::EditSetting, nodeID, std::string(VisualScriptTimelineSetting)));
+				fixes.push_back(MakeFix("Open Timeline", VisualScriptFixKind::OpenTimeline, nodeID));
+			}
+			return fixes;
+		}
 
 		if (code == "UnknownNodeType" || code == "AmbiguousNode")
 		{

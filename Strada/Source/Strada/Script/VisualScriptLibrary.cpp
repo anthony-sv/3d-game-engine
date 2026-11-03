@@ -1,11 +1,16 @@
 #include "stpch.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 
+#include "Strada/Core/Timer.h"
 #include "Strada/Script/ScriptFieldSerialization.h"
+#include "Strada/Serialization/JsonScanner.h"
 
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <optional>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace Strada
@@ -739,6 +744,256 @@ namespace Strada
 			return diagnostics;
 		}
 
+		// Adds the milliseconds since a timer started to a phase of the timings, when there are timings.
+		class AnalysisPhase
+		{
+		public:
+			AnalysisPhase(VisualScriptAnalysisTimings* timings, double VisualScriptAnalysisTimings::* phase)
+				: m_Phase(timings != nullptr ? &(timings->*phase) : nullptr)
+			{
+			}
+			~AnalysisPhase()
+			{
+				if (m_Phase != nullptr)
+				{
+					*m_Phase += m_Timer.GetElapsedMilliseconds();
+				}
+			}
+			AnalysisPhase(AnalysisPhase const&) = delete;
+			AnalysisPhase& operator=(AnalysisPhase const&) = delete;
+
+		private:
+			double* m_Phase;
+			Timer m_Timer;
+		};
+
+		// The analysis read from the whole text's DOM: the reference reading, whose errors every reading of the text gives.
+		Result<VisualScriptAnalysis> ParseWholeAnalysis(std::string text, VisualScriptAnalysisTimings* timings)
+		{
+			Result<Json> parsed = [&text, timings]()
+			{
+				AnalysisPhase const phase(timings, &VisualScriptAnalysisTimings::Parse);
+				return ParseJson(text);
+			}();
+			if (!parsed)
+			{
+				return Error{parsed.GetError()};
+			}
+			AnalysisPhase const phase(timings, &VisualScriptAnalysisTimings::Read);
+			Json const& document = parsed.GetValue();
+			if (!document.is_object())
+			{
+				return Error{"the document: expected an object { \"Nodes\", \"Diagnostics\" }"};
+			}
+			auto const nodes = document.find("Nodes");
+			auto const diagnostics = document.find("Diagnostics");
+			if (nodes == document.end() || !nodes->is_array())
+			{
+				return Error{"Nodes: expected an array"};
+			}
+			if (diagnostics == document.end())
+			{
+				return Error{"Diagnostics: expected an array"};
+			}
+			VisualScriptAnalysis analysis;
+			analysis.Nodes.reserve(nodes->size());
+			for (size_t index = 0; index < nodes->size(); ++index)
+			{
+				Result<VisualScriptAnalyzedNode> node = ReadAnalyzedNode((*nodes)[index], fmt::format("Nodes[{}]", index));
+				if (!node)
+				{
+					return Error{node.GetError()};
+				}
+				analysis.Nodes.push_back(node.TakeValue());
+			}
+			Result<std::vector<VisualScriptDiagnostic>> read = ReadDiagnostics(*diagnostics, "Diagnostics");
+			if (!read)
+			{
+				return Error{read.GetError()};
+			}
+			analysis.Diagnostics = read.TakeValue();
+			analysis.Text = std::move(text);
+			analysis.BuildNodeIndex();
+			if (timings != nullptr)
+			{
+				timings->ParsedNodes = static_cast<uint32_t>(analysis.Nodes.size());
+				timings->ParsedDiagnostics = static_cast<uint32_t>(analysis.Diagnostics.size());
+			}
+			return analysis;
+		}
+
+		// Reads an analysis text's nodes and diagnostics element by element (VisualScriptAnalysis::Parse): an element whose
+		// bytes equal one of the previous analysis' is its record, copied; any other is parsed and read with the path reading
+		// whole gives it. Exact because a record is a function of its element's bytes alone (the runtime writes it
+		// deterministically) and the scan lets through only texts that parse whole when their parts do.
+		class AnalysisParts
+		{
+		public:
+			AnalysisParts(std::string_view text, JsonScanMember const& nodes, JsonScanMember const& diagnostics,
+			              VisualScriptAnalysis const* previous, VisualScriptAnalysisTimings* timings)
+				: m_Text(text),
+				  m_Nodes(nodes),
+				  m_Diagnostics(diagnostics),
+				  m_Previous(IsUsableAsPrevious(previous) ? previous : nullptr),
+				  m_Timings(timings)
+			{
+			}
+
+			// False at the first part that does not parse or read.
+			bool Read()
+			{
+				m_Analysis.Nodes.reserve(m_Nodes.Elements.size());
+				for (size_t index = 0; index < m_Nodes.Elements.size(); ++index)
+				{
+					if (!ReadPart(m_Nodes.Elements[index], index, PartKind::Node))
+					{
+						return false;
+					}
+				}
+				m_Analysis.Diagnostics.reserve(m_Diagnostics.Elements.size());
+				for (size_t index = 0; index < m_Diagnostics.Elements.size(); ++index)
+				{
+					if (!ReadPart(m_Diagnostics.Elements[index], index, PartKind::Diagnostic))
+					{
+						return false;
+					}
+				}
+				m_Analysis.NodeSpans = m_Nodes.Elements;
+				m_Analysis.DiagnosticSpans = m_Diagnostics.Elements;
+				return true;
+			}
+
+			VisualScriptAnalysis TakeAnalysis() { return std::move(m_Analysis); }
+
+		private:
+			enum class PartKind : uint8_t
+			{
+				Node = 0,
+				Diagnostic
+			};
+
+			// The spans of a previous analysis describe its records only when Parse read it in parts: an analysis built by hand,
+			// or one whose text was read whole, has none.
+			static bool IsUsableAsPrevious(VisualScriptAnalysis const* previous)
+			{
+				if (previous == nullptr || previous->NodeSpans.size() != previous->Nodes.size() ||
+				    previous->DiagnosticSpans.size() != previous->Diagnostics.size())
+				{
+					return false;
+				}
+				auto const isInText = [previous](std::pair<uint32_t, uint32_t> span)
+				{
+					return static_cast<size_t>(span.first) + span.second <= previous->Text.size();
+				};
+				return std::all_of(previous->NodeSpans.begin(), previous->NodeSpans.end(), isInText) &&
+				       std::all_of(previous->DiagnosticSpans.begin(), previous->DiagnosticSpans.end(), isInText);
+			}
+
+			static std::string_view Slice(std::string_view text, std::pair<uint32_t, uint32_t> span)
+			{
+				return text.substr(span.first, span.second);
+			}
+
+			// The index of the previous record of these bytes: the one at the same place when its bytes are equal, else any of
+			// them (equal bytes are equal records), found through a map of the previous parts made when first needed.
+			std::optional<size_t> FindPrevious(std::string_view bytes, size_t index, PartKind kind)
+			{
+				std::vector<std::pair<uint32_t, uint32_t>> const& spans =
+					kind == PartKind::Node ? m_Previous->NodeSpans : m_Previous->DiagnosticSpans;
+				if (index < spans.size() && Slice(m_Previous->Text, spans[index]) == bytes)
+				{
+					return index;
+				}
+				std::optional<std::unordered_map<std::string_view, size_t>>& map =
+					kind == PartKind::Node ? m_PreviousNodes : m_PreviousDiagnostics;
+				if (!map)
+				{
+					map.emplace();
+					map->reserve(spans.size());
+					for (size_t candidate = 0; candidate < spans.size(); ++candidate)
+					{
+						map->emplace(Slice(m_Previous->Text, spans[candidate]), candidate);
+					}
+				}
+				auto const found = map->find(bytes);
+				return found != map->end() ? std::optional<size_t>(found->second) : std::nullopt;
+			}
+
+			bool ReadPart(std::pair<uint32_t, uint32_t> span, size_t index, PartKind kind)
+			{
+				std::string_view const bytes = Slice(m_Text, span);
+				if (m_Previous != nullptr)
+				{
+					AnalysisPhase const copying(m_Timings, &VisualScriptAnalysisTimings::Read);
+					if (std::optional<size_t> const found = FindPrevious(bytes, index, kind))
+					{
+						if (kind == PartKind::Node)
+						{
+							m_Analysis.Nodes.push_back(m_Previous->Nodes[*found]);
+						}
+						else
+						{
+							m_Analysis.Diagnostics.push_back(m_Previous->Diagnostics[*found]);
+						}
+						Count(kind, true);
+						return true;
+					}
+				}
+				Result<Json> json = ParsePart(bytes);
+				if (!json)
+				{
+					return false;
+				}
+				AnalysisPhase const reading(m_Timings, &VisualScriptAnalysisTimings::Read);
+				if (kind == PartKind::Node)
+				{
+					Result<VisualScriptAnalyzedNode> node = ReadAnalyzedNode(json.GetValue(), fmt::format("Nodes[{}]", index));
+					if (!node)
+					{
+						return false;
+					}
+					m_Analysis.Nodes.push_back(node.TakeValue());
+				}
+				else
+				{
+					Result<VisualScriptDiagnostic> diagnostic = ReadDiagnostic(json.GetValue(), fmt::format("Diagnostics[{}]", index));
+					if (!diagnostic)
+					{
+						return false;
+					}
+					m_Analysis.Diagnostics.push_back(diagnostic.TakeValue());
+				}
+				Count(kind, false);
+				return true;
+			}
+
+			Result<Json> ParsePart(std::string_view bytes)
+			{
+				AnalysisPhase const parsing(m_Timings, &VisualScriptAnalysisTimings::Parse);
+				return ParseJson(bytes);
+			}
+
+			void Count(PartKind kind, bool reused)
+			{
+				if (m_Timings == nullptr)
+				{
+					return;
+				}
+				uint32_t& count = kind == PartKind::Node ? (reused ? m_Timings->ReusedNodes : m_Timings->ParsedNodes)
+				                                         : (reused ? m_Timings->ReusedDiagnostics : m_Timings->ParsedDiagnostics);
+				count++;
+			}
+
+			std::string_view m_Text;
+			JsonScanMember const& m_Nodes;
+			JsonScanMember const& m_Diagnostics;
+			VisualScriptAnalysis const* m_Previous;
+			VisualScriptAnalysisTimings* m_Timings;
+			std::optional<std::unordered_map<std::string_view, size_t>> m_PreviousNodes;
+			std::optional<std::unordered_map<std::string_view, size_t>> m_PreviousDiagnostics;
+			VisualScriptAnalysis m_Analysis;
+		};
+
 		// Files the node under its category, creating the categories on its path (in name order).
 		void AddToCategories(VisualScriptCategory& root, VisualScriptNodeTemplate const& node)
 		{
@@ -986,54 +1241,104 @@ namespace Strada
 
 	VisualScriptAnalyzedNode const* VisualScriptAnalysis::FindNode(uint32_t id) const
 	{
-		auto const node = std::find_if(Nodes.begin(), Nodes.end(),
-		                               [id](VisualScriptAnalyzedNode const& candidate)
-		                               {
-										   return candidate.ID == id;
-									   });
-		return node != Nodes.end() ? &*node : nullptr;
+		auto const scan = [this, id]() -> VisualScriptAnalyzedNode const*
+		{
+			auto const node = std::find_if(Nodes.begin(), Nodes.end(),
+			                               [id](VisualScriptAnalyzedNode const& candidate)
+			                               {
+											   return candidate.ID == id;
+										   });
+			return node != Nodes.end() ? &*node : nullptr;
+		};
+		if (NodeIndex.size() != Nodes.size())
+		{
+			return scan();
+		}
+		auto const entry = std::lower_bound(NodeIndex.begin(), NodeIndex.end(), id,
+		                                    [](std::pair<uint32_t, uint32_t> const& candidate, uint32_t value)
+		                                    {
+												return candidate.first < value;
+											});
+		if (entry == NodeIndex.end() || entry->first != id)
+		{
+			return nullptr;
+		}
+		bool const isCurrent = entry->second < Nodes.size() && Nodes[entry->second].ID == id;
+		// An index left as it was after Nodes changed is a programmer error; a build without asserts scans instead.
+		ST_CORE_ASSERT(isCurrent, "VisualScriptAnalysis::NodeIndex is stale: BuildNodeIndex after changing Nodes");
+		return isCurrent ? &Nodes[entry->second] : scan();
 	}
 
-	Result<VisualScriptAnalysis> VisualScriptAnalysis::Parse(std::string_view json)
+	void VisualScriptAnalysis::BuildNodeIndex()
 	{
-		Result<Json> parsed = ParseJson(json);
-		if (!parsed)
+		NodeIndex.clear();
+		NodeIndex.reserve(Nodes.size());
+		for (size_t index = 0; index < Nodes.size(); ++index)
 		{
-			return Error{parsed.GetError()};
+			NodeIndex.emplace_back(Nodes[index].ID, static_cast<uint32_t>(index));
 		}
-		VisualScriptAnalysis analysis;
-		analysis.Source = parsed.TakeValue();
-		Json const& document = analysis.Source;
-		if (!document.is_object())
+		// By ID, then index: the first of a repeated ID is the one a linear search finds.
+		std::sort(NodeIndex.begin(), NodeIndex.end());
+	}
+
+	Result<VisualScriptAnalysis> VisualScriptAnalysis::Parse(std::string text, VisualScriptAnalysis const* previous,
+	                                                         VisualScriptAnalysisTimings* timings)
+	{
+		// The counts are this reading's, whatever the caller's timings held.
+		auto const resetCounts = [timings]()
 		{
-			return Error{"the document: expected an object { \"Nodes\", \"Diagnostics\" }"};
-		}
-		auto const nodes = document.find("Nodes");
-		auto const diagnostics = document.find("Diagnostics");
-		if (nodes == document.end() || !nodes->is_array())
-		{
-			return Error{"Nodes: expected an array"};
-		}
-		if (diagnostics == document.end())
-		{
-			return Error{"Diagnostics: expected an array"};
-		}
-		analysis.Nodes.reserve(nodes->size());
-		for (size_t index = 0; index < nodes->size(); ++index)
-		{
-			Result<VisualScriptAnalyzedNode> node = ReadAnalyzedNode((*nodes)[index], fmt::format("Nodes[{}]", index));
-			if (!node)
+			if (timings != nullptr)
 			{
-				return Error{node.GetError()};
+				timings->ReusedNodes = 0;
+				timings->ParsedNodes = 0;
+				timings->ReusedDiagnostics = 0;
+				timings->ParsedDiagnostics = 0;
 			}
-			analysis.Nodes.push_back(node.TakeValue());
-		}
-		Result<std::vector<VisualScriptDiagnostic>> read = ReadDiagnostics(*diagnostics, "Diagnostics");
-		if (!read)
+		};
+		resetCounts();
+		// Only a text of exactly the form the runtime writes is read in parts: one object of the members Nodes and Diagnostics,
+		// both arrays. Anything else is read whole, which gives its reading or its error.
+		std::optional<std::vector<JsonScanMember>> scanned;
 		{
-			return Error{read.GetError()};
+			AnalysisPhase const scanning(timings, &VisualScriptAnalysisTimings::Parse);
+			scanned = ScanJsonTopLevel(text);
 		}
-		analysis.Diagnostics = read.TakeValue();
+		JsonScanMember const* nodes = nullptr;
+		JsonScanMember const* diagnostics = nullptr;
+		if (scanned && scanned->size() == 2)
+		{
+			for (JsonScanMember const& member : *scanned)
+			{
+				if (member.Key == "Nodes")
+				{
+					nodes = &member;
+				}
+				else if (member.Key == "Diagnostics")
+				{
+					diagnostics = &member;
+				}
+			}
+		}
+		auto const isArray = [&text](JsonScanMember const* member)
+		{
+			return member != nullptr && text[member->Value.first] == '[';
+		};
+		if (!isArray(nodes) || !isArray(diagnostics))
+		{
+			return ParseWholeAnalysis(std::move(text), timings);
+		}
+		AnalysisParts parts(text, *nodes, *diagnostics, previous, timings);
+		if (!parts.Read())
+		{
+			// A part that does not parse or read: reading whole gives the error, with its path, that reading the text alone
+			// gives.
+			resetCounts();
+			return ParseWholeAnalysis(std::move(text), timings);
+		}
+		VisualScriptAnalysis analysis = parts.TakeAnalysis();
+		// The spans are offsets into the text, which keeps them as it moves.
+		analysis.Text = std::move(text);
+		analysis.BuildNodeIndex();
 		return analysis;
 	}
 

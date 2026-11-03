@@ -1,9 +1,12 @@
+#include "Fuzzing.h"
 #include "VisualScriptTestDocuments.h"
 #include "VisualScriptTestUtilities.h"
 
+#include "Editor/VisualScripting/VisualScriptArrange.h"
 #include "Editor/VisualScripting/VisualScriptBatch.h"
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
+#include "Editor/VisualScripting/VisualScriptHeadlessCanvas.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptTimeline.h"
 
@@ -13,6 +16,7 @@
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <chrono>
@@ -503,9 +507,9 @@ TEST_CASE("VisualScriptBatch: pins are analyzed again only when earlier operatio
 	CHECK(grouped.Analysis == nullptr);
 
 	// A cached analysis of the stored document serves the first operation that needs pins.
-	Result<VisualScriptAnalysis> stored = fixture.Semantics.Analyze(document, AssetHandle());
+	Result<Ref<VisualScriptAnalysis const>> stored = fixture.Semantics.Analyze(document, AssetHandle());
 	REQUIRE(stored.IsOk());
-	fixture.Context.StoredAnalysis = CreateRef<VisualScriptAnalysis const>(stored.TakeValue());
+	fixture.Context.StoredAnalysis = stored.TakeValue();
 	fixture.Context.StoredAnalysisDocument = CreateRef<VisualScriptDocument const>(document);
 	VisualScriptBatchResult const cached = ExpectApplied(document, Json::array({connect(1, 3)}), fixture.Context);
 	CHECK(cached.Analyses == 0);
@@ -668,27 +672,32 @@ TEST_CASE("VisualScriptBatch: pins named as the analysis shows them are stored u
 	{
 	public:
 		Ref<VisualScriptLibrary const> GetLibrary() override { return m_Fixture.GetLibrary(); }
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
+		[[nodiscard]] Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
-			Result<VisualScriptAnalysis> analysis = m_Fixture.Analyze(document, self);
-			if (analysis)
+			Result<Ref<VisualScriptAnalysis const>> shared = m_Fixture.Analyze(document, self);
+			if (!shared)
 			{
-				for (VisualScriptAnalyzedNode& node : analysis.GetValue().Nodes)
-				{
-					if (node.ID != 2)
-					{
-						continue;
-					}
-					node.Resolved = VisualScriptResolution::Redirect;
-					node.CanonicalType = node.Type;
-					node.PinRenames.push_back({VisualScriptPinDirection::In, "Message", "Text"});
-					for (VisualScriptPin& pin : node.Pins)
-					{
-						pin.Name = pin.Name == "Message" ? "Text" : pin.Name;
-					}
-				}
+				return shared;
 			}
-			return analysis;
+			VisualScriptAnalysis analysis = *shared.GetValue();
+			for (VisualScriptAnalyzedNode& node : analysis.Nodes)
+			{
+				if (node.ID != 2)
+				{
+					continue;
+				}
+				node.Resolved = VisualScriptResolution::Redirect;
+				node.CanonicalType = node.Type;
+				node.PinRenames.push_back({VisualScriptPinDirection::In, "Message", "Text"});
+				for (VisualScriptPin& pin : node.Pins)
+				{
+					pin.Name = pin.Name == "Message" ? "Text" : pin.Name;
+				}
+				// A changed record is no longer what its bytes read as (VisualScriptAnalysis::NodeSpans).
+				analysis.NodeSpans.clear();
+				analysis.DiagnosticSpans.clear();
+			}
+			return CreateRef<VisualScriptAnalysis const>(std::move(analysis));
 		}
 
 	private:
@@ -825,10 +834,10 @@ TEST_CASE("VisualScriptBatch: promotions, splits and the quick fixes the analysi
 	unused.Message = "Log has no input Mesage";
 	unused.Suggestions = {"Message"};
 	fixture.Semantics.InjectDiagnostic(unused);
-	Result<VisualScriptAnalysis> analysis = fixture.Semantics.Analyze(misnamed, AssetHandle());
+	Result<Ref<VisualScriptAnalysis const>> analysis = fixture.Semantics.Analyze(misnamed, AssetHandle());
 	REQUIRE(analysis.IsOk());
-	VisualScriptDiagnostic const& injected = analysis.GetValue().Diagnostics.back();
-	Json const fixes = GetVisualScriptFixOperations(misnamed, analysis.GetValue(), injected, fixture.Semantics.GetFixtureLibrary());
+	VisualScriptDiagnostic const& injected = analysis.GetValue()->Diagnostics.back();
+	Json const fixes = GetVisualScriptFixOperations(misnamed, *analysis.GetValue(), injected, fixture.Semantics.GetFixtureLibrary());
 	REQUIRE(fixes.size() == 2);
 	CHECK(fixes[1]["label"] == "Use Message");
 	CHECK(fixes[1]["operation"] == Json::object({{"op", "Fix"},
@@ -852,16 +861,16 @@ TEST_CASE("VisualScriptBatch: promotions, splits and the quick fixes the analysi
 	duplicate.Node = 5u;
 	duplicate.Message = "a second Update";
 	fixture.Semantics.InjectDiagnostic(duplicate);
-	Result<VisualScriptAnalysis> twice = fixture.Semantics.Analyze(misnamed, AssetHandle());
+	Result<Ref<VisualScriptAnalysis const>> twice = fixture.Semantics.Analyze(misnamed, AssetHandle());
 	REQUIRE(twice.IsOk());
 	std::vector<VisualScriptQuickFix> const offered =
-		GetVisualScriptQuickFixes(misnamed, twice.GetValue(), twice.GetValue().Diagnostics.back(), fixture.Semantics.GetFixtureLibrary());
+		GetVisualScriptQuickFixes(misnamed, *twice.GetValue(), twice.GetValue()->Diagnostics.back(), fixture.Semantics.GetFixtureLibrary());
 	REQUIRE(offered.size() == 2);
 	REQUIRE(offered[0].Navigates);
 	// Navigating fixes are not operations.
-	CHECK(
-		GetVisualScriptFixOperations(misnamed, twice.GetValue(), twice.GetValue().Diagnostics.back(), fixture.Semantics.GetFixtureLibrary())
-			.size() == 1);
+	CHECK(GetVisualScriptFixOperations(misnamed, *twice.GetValue(), twice.GetValue()->Diagnostics.back(),
+	                                   fixture.Semantics.GetFixtureLibrary())
+	          .size() == 1);
 	VisualScriptBatchError const navigating = ExpectRefused(
 		misnamed, Json::array({Json::object({{"op", "Fix"}, {"code", "DuplicateEvent"}, {"fix", offered[0].Label}, {"node", 5}})}),
 		fixture.Context);
@@ -956,7 +965,7 @@ TEST_CASE("VisualScriptBatch: Arrange's Created scope places new nodes beside th
 		// Its right edge 64 left of the Delay, at its top; then down past the Log it would overlap.
 		CHECK(FindNode(result.Document, GetLabel(result, "$time"))->Position == glm::vec2(320.0f, 160.0f));
 	}
-	SUBCASE("An unconnected group goes below everything, and steps down past a comment box")
+	SUBCASE("An unconnected group goes below everything, and steps down until a box framing it would clear a comment box")
 	{
 		Json const operations = Json::array({Json::object({{"op", "AddNode"}, {"type", std::string(LogType)}, {"as", "$alone"}}), arrange});
 		VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
@@ -969,7 +978,8 @@ TEST_CASE("VisualScriptBatch: Arrange's Created scope places new nodes beside th
 		box.Size = glm::vec2(400.0f, 200.0f);
 		boxed.Graph.Comments.push_back(box);
 		VisualScriptBatchResult const stepped = ExpectApplied(boxed, operations, fixture.Context);
-		CHECK(FindNode(stepped.Document, GetLabel(stepped, "$alone"))->Position == glm::vec2(0.0f, 432.0f));
+		// The box ends at 400; a frame reaches 72 above the node, and stays 32 clear of the box: 504, on the 16 grid.
+		CHECK(FindNode(stepped.Document, GetLabel(stepped, "$alone"))->Position == glm::vec2(0.0f, 512.0f));
 	}
 	SUBCASE("Scopes Graph and Nodes")
 	{
@@ -979,6 +989,53 @@ TEST_CASE("VisualScriptBatch: Arrange's Created scope places new nodes beside th
 		CHECK(ExpectApplied(document, nodes, fixture.Context).Results[0] == Json::object({{"arranged", 2}}));
 		Json const mixed = Json::array({Json::object({{"op", "Arrange"}, {"nodes", Json::array({2, 3})}})});
 		CHECK(ExpectRefused(document, mixed, fixture.Context).Path == "operations[0].nodes");
+	}
+}
+
+TEST_CASE(
+	"VisualScriptBatch: Arrange's Created scope keeps new nodes a frame's reach clear of comment boxes, so framing them overlaps none")
+{
+	BatchFixture fixture;
+	// The event graph's chain framed, as a region an earlier batch made.
+	Json const frame = Json::array({Json::object({{"op", "AddComment"}, {"text", "Update"}, {"elements", Json::array({1, 2, 3})}})});
+	VisualScriptDocument const document = ExpectApplied(MakeDocument(), frame, fixture.Context).Document;
+	REQUIRE(document.Graph.Comments.size() == 1);
+	VisualScriptComment const box = document.Graph.Comments[0];
+	Json const region = Json::object({{"op", "AddComment"}, {"text", "Next"}, {"elements", Json::array({"$first", "$second"})}});
+	auto const addRegion = [&region](Json const& link)
+	{
+		return Json::array(
+			{Json::object({{"op", "AddNode"}, {"type", std::string(LogType)}, {"as", "$first"}}),
+		     Json::object({{"op", "AddNode"}, {"type", std::string(LogType)}, {"as", "$second"}}),
+		     Json::object({{"op", "Connect"}, {"from", Json::array({"$first", "Then"})}, {"to", Json::array({"$second", "Execute"})}}),
+		     link, Json::object({{"op", "Arrange"}, {"scope", "Created"}}), region});
+	};
+	// The new box stands below the earlier one, at least the gap between nodes (32) clear of it, and holds no node of it.
+	auto const expectApart = [&box](VisualScriptBatchResult const& result)
+	{
+		REQUIRE(result.Document.Graph.Comments.size() == 2);
+		CHECK(result.Document.Graph.Comments[0] == box);
+		VisualScriptComment const& added = result.Document.Graph.Comments[1];
+		CHECK(added.Position.y >= box.Position.y + box.Size.y + 32.0f);
+		for (uint32_t const id : {1u, 2u, 3u})
+		{
+			CHECK(FindNode(result.Document, id)->Position->y < added.Position.y);
+		}
+	};
+
+	SUBCASE("A group that continues nothing")
+	{
+		Json const operations = addRegion(Json::object({{"op", "SetInput"}, {"node", "$first"}, {"pin", "Message"}, {"value", "a"}}));
+		expectApart(ExpectApplied(document, operations, fixture.Context));
+	}
+	SUBCASE("A group that continues a node in the box (Beacon's peak region, track N+'s report)")
+	{
+		Json const operations = addRegion(
+			Json::object({{"op", "Connect"}, {"from", Json::array({3, "Completed"})}, {"to", Json::array({"$first", "Execute"})}}));
+		VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+		expectApart(result);
+		// Still in the columns after the node it continues.
+		CHECK(FindNode(result.Document, GetLabel(result, "$first"))->Position->x >= FindNode(result.Document, 3)->Position->x);
 	}
 }
 
@@ -995,11 +1052,11 @@ TEST_CASE("VisualScriptBatch: hints name nodes that never run, outputs read by n
 	                   {"settings", Json::object({{"Variable", 10}})},
 	                   {"position", Json::array({0, 320})}})});
 	VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
-	Result<VisualScriptAnalysis> analysis = fixture.Semantics.Analyze(result.Document, AssetHandle());
+	Result<Ref<VisualScriptAnalysis const>> analysis = fixture.Semantics.Analyze(result.Document, AssetHandle());
 	REQUIRE(analysis.IsOk());
 	uint32_t const get = result.Results[2]["id"].get<uint32_t>();
 	std::vector<uint32_t> const nodes{2, GetLabel(result, "$log"), get, 1};
-	std::vector<VisualScriptHint> const hints = FindVisualScriptHints(result.Document, analysis.GetValue(), nodes);
+	std::vector<VisualScriptHint> const hints = FindVisualScriptHints(result.Document, *analysis.GetValue(), nodes);
 	REQUIRE(hints.size() == 2);
 	CHECK(hints[0].Node == 2);
 	CHECK(hints[0].Kind == "NeverRuns");
@@ -1374,9 +1431,9 @@ TEST_CASE("VisualScriptBatch: a rename analyzes again before measured layout, wh
 	VisualScriptDocument const arranged = ExpectApplied(document, Json::array({arrange}), fixture.Context).Document;
 	auto const cache = [&fixture](VisualScriptDocument const& stored)
 	{
-		Result<VisualScriptAnalysis> analysis = fixture.Semantics.Analyze(stored, AssetHandle());
+		Result<Ref<VisualScriptAnalysis const>> analysis = fixture.Semantics.Analyze(stored, AssetHandle());
 		REQUIRE(analysis.IsOk());
-		fixture.Context.StoredAnalysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
+		fixture.Context.StoredAnalysis = analysis.TakeValue();
 		fixture.Context.StoredAnalysisDocument = CreateRef<VisualScriptDocument const>(stored);
 	};
 
@@ -1505,8 +1562,10 @@ namespace
 
 TEST_CASE("VisualScriptBatch: canvases share one copy of the document per change, whatever the number of sub-graphs")
 {
-	// Each Connect reads pins after the previous one changed the links, so the batch copies the document once per Connect;
-	// deleting a variable with its nodes reads the pins of every sub-graph from one copy (a copy per sub-graph would make 65).
+	// Connects read rows, which links do not change: the event graph's canvas lays out once, from the copy the analysis took
+	// (spec-slice4 §9.3). Deleting a variable with its nodes then reads the rows of every sub-graph: the functions' canvases
+	// share one copy of the document as the Connects left it (a copy per sub-graph would make 65), and the event graph's
+	// canvas still serves.
 	BatchFixture fixture;
 	VisualScriptDocument const document = MakeChainDocument();
 	constexpr uint32_t Connects = 100;
@@ -1514,20 +1573,17 @@ TEST_CASE("VisualScriptBatch: canvases share one copy of the document per change
 	operations.push_back(Json::object({{"op", "DeleteVariable"}, {"variable", "Speed"}}));
 	VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
 	CHECK(result.Analyses == 1);
-	CHECK(result.Displays == Connects + 1);
+	CHECK(result.Displays == 2);
+	CHECK(result.CanvasSyncs == 1 + 64);
 	CHECK(result.Results.back() == Json::object({{"removedNodes", 64}}));
 	CHECK(result.Document.Graph.Links.size() == document.Graph.Links.size() + Connects);
 }
 
-TEST_CASE("VisualScriptBatch: a thousand connections on a graph of 2,000 nodes, in their time on request")
+TEST_CASE("VisualScriptBatch: a thousand connections on a graph of 2,000 nodes lay its canvas out once, in their time on request")
 {
-	// Spec section 7.9: a batch's operations are the editor's linear edits, and each one that reads pins syncs the canvas of its
-	// sub-graph with the document as the operations before it left it. The case above counts the copies always; this one runs
-	// with STRADA_PERFORMANCE_TESTS=1 only (a minute and a half in Debug).
-	if (!ArePerformanceTestsEnabled())
-	{
-		return;
-	}
+	// Spec-slice4 §9.3 and §21: a Connect reads the rows of its sub-graph's canvas, which a link changes for no node the analysis
+	// describes, so a thousand of them after one analysis take one copy of the document and one layout. The counts hold
+	// always; the time is asserted with STRADA_PERFORMANCE_TESTS=1.
 	BatchFixture fixture;
 	VisualScriptDocument const document = MakeChainDocument();
 	constexpr uint32_t Connects = 1000;
@@ -1539,16 +1595,252 @@ TEST_CASE("VisualScriptBatch: a thousand connections on a graph of 2,000 nodes, 
 	VisualScriptBatchResult const* const result = std::get_if<VisualScriptBatchResult>(&applied);
 	REQUIRE(result != nullptr);
 	CHECK(result->Analyses == 1);
-	CHECK(result->Displays == Connects);
+	CHECK(result->Displays == 1);
+	CHECK(result->CanvasSyncs <= 2);
+	CHECK(result->Document.Graph.Links.size() == document.Graph.Links.size() + Connects);
+	if (!ArePerformanceTestsEnabled())
+	{
+		return;
+	}
 	MESSAGE("1,000 connections on 2,000 nodes and 1,999 links: " << milliseconds << " ms, " << milliseconds / Connects
 	                                                             << " ms per connection");
-	// Three times what track G measured (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51, other builds running).
+	// Three times what track I measured (an AMD Ryzen 5 7535HS laptop, Windows 11, MSVC 19.51); track G's figures before the
+	// Rows canvases were 1,974 ms (Release) and 91,400 ms (Debug).
 #if defined(ST_DEBUG)
-	constexpr double MeasuredMilliseconds = 91400.0;
+	constexpr double MeasuredMilliseconds = 6288.6;
 #else
-	constexpr double MeasuredMilliseconds = 1974.0;
+	constexpr double MeasuredMilliseconds = 108.7;
 #endif
 	CHECK(milliseconds <= 3.0 * MeasuredMilliseconds);
+}
+
+namespace
+{
+	// A random operation of those that read rows, change rows, change geometry or only move, on the document as the batch
+	// found it (IDs of its event graph's nodes, its links), now and then naming what is not there.
+	Json MakeRowsOperation(Testing::FuzzRandom& random, VisualScriptDocument const& document, VisualScriptLibrary const& library)
+	{
+		std::vector<VisualScriptNode> const& nodes = document.Graph.Nodes;
+		auto const node = [&]() -> Json
+		{
+			return nodes.empty() || random.Pick(12) == 0 ? Json(999999) : Json(nodes[random.Pick(nodes.size())].ID);
+		};
+		// A pin of a node as the library's template of its type names it; a name it may not have now and then.
+		auto const pin = [&](Json const& id, VisualScriptPinDirection direction) -> std::string
+		{
+			std::vector<std::string> names;
+			for (VisualScriptNode const& candidate : nodes)
+			{
+				if (!id.is_number_unsigned() || candidate.ID != id.get<uint32_t>())
+				{
+					continue;
+				}
+				if (VisualScriptNodeTemplate const* const kind = library.FindNode(candidate.Type))
+				{
+					for (VisualScriptPin const& entry : kind->Pins)
+					{
+						if (entry.Direction == direction)
+						{
+							names.push_back(entry.Name);
+						}
+					}
+				}
+			}
+			if (names.empty() || random.Pick(10) == 0)
+			{
+				names = direction == VisualScriptPinDirection::In ? std::vector<std::string>{"Execute", "A", "B", "Message"}
+				                                                  : std::vector<std::string>{"Then", "Result", "Completed"};
+			}
+			return names[random.Pick(names.size())];
+		};
+		auto const link = [&]() -> Json
+		{
+			std::vector<VisualScriptLink> const& links = document.Graph.Links;
+			if (links.empty() || random.Pick(8) == 0)
+			{
+				return Json::object({{"from", Json::array({node(), "Then"})}, {"to", Json::array({node(), "Execute"})}});
+			}
+			VisualScriptLink const& chosen = links[random.Pick(links.size())];
+			return Json::object(
+				{{"from", Json::array({chosen.From.Node, chosen.From.Pin})}, {"to", Json::array({chosen.To.Node, chosen.To.Pin})}});
+		};
+		auto const point = [&]()
+		{
+			return Json::array({static_cast<double>(random.Pick(1600)) - 800.0, static_cast<double>(random.Pick(1600)) - 800.0});
+		};
+		switch (random.Pick(14))
+		{
+			case 0:
+			case 1:
+			case 2:
+			{
+				Json const from = node();
+				Json const to = node();
+				return Json::object({{"op", "Connect"},
+				                     {"from", Json::array({from, pin(from, VisualScriptPinDirection::Out)})},
+				                     {"to", Json::array({to, pin(to, VisualScriptPinDirection::In)})}});
+			}
+			case 3:
+				return Json::object({{"op", "Disconnect"}, {"from", link()["from"]}});
+			case 4:
+			{
+				Json const target = node();
+				return Json::object({{"op", "SetInput"},
+				                     {"node", target},
+				                     {"pin", pin(target, VisualScriptPinDirection::In)},
+				                     {"value", random.Pick(2) == 0 ? Json(1.5) : Json("Rows")}});
+			}
+			case 5:
+				return Json::object({{"op", "Move"}, {"elements", Json::array({node()})}, {"offset", point()}});
+			case 6:
+			{
+				std::array<std::string_view, 5> const types = {LogType, "Operator.Add", "Flow.Branch", "Flow.Brnach", "Flow.Sequence"};
+				return Json::object({{"op", "AddNode"}, {"type", std::string(types[random.Pick(types.size())])}, {"position", point()}});
+			}
+			case 7:
+				return Json::object({{"op", "Delete"}, {"elements", Json::array({node()})}});
+			case 8:
+			{
+				Json const from = node();
+				Json const to = node();
+				return Json::object(
+					{{"op", "Relink"},
+				     {"remove", Json::array({link()})},
+				     {"add", Json::array({Json::object({{"from", Json::array({from, pin(from, VisualScriptPinDirection::Out)})},
+				                                        {"to", Json::array({to, pin(to, VisualScriptPinDirection::In)})}})})}});
+			}
+			case 9:
+				return Json::object({{"op", "Splice"}, {"node", node()}, {"link", link()}});
+			case 10:
+				return Json::object({{"op", "SetCollapsed"}, {"nodes", Json::array({node()})}, {"collapsed", random.Pick(2) == 0}});
+			case 11:
+				return Json::object({{"op", "SetSequenceOutputs"}, {"node", node()}, {"count", 2 + random.Pick(3)}});
+			case 12:
+				return Json::object({{"op", "Arrange"}, {"extents", random.Pick(2) == 0 ? "Measured" : "Uniform"}});
+			default:
+				return Json::object({{"op", "SplitPin"}, {"node", node()}, {"pin", "Position"}, {"direction", "In"}});
+		}
+	}
+
+	// A document whose event graph mixes what the analysis describes with what it cannot (a misspelled type, whose rows come
+	// from its links and literals): MakeDocument's, an addition chain, a Sequence and an unknown node linked into the chain.
+	VisualScriptDocument MakeRowsDocument()
+	{
+		VisualScriptDocument document = MakeDocument();
+		for (uint32_t index = 0; index < 6; index++)
+		{
+			document.Graph.Nodes.push_back(MakeNode(100 + index, "Operator.Add", glm::vec2(static_cast<float>(index) * 320.0f, 400.0f),
+			                                        Json::object(), Json::object({{"B", 1.5}})));
+			if (index > 0)
+			{
+				document.Graph.Links.push_back(MakeLink(99 + index, "Result", 100 + index, "A"));
+			}
+		}
+		document.Graph.Nodes.push_back(MakeNode(120, "Flow.Sequence", glm::vec2(0.0f, 800.0f), Json::object({{"Count", 2}})));
+		document.Graph.Nodes.push_back(
+			MakeNode(121, "Flow.Brnach", glm::vec2(320.0f, 800.0f), Json::object(), Json::object({{"Strength", 2}})));
+		document.Graph.Links.push_back(MakeLink(120, "Then0", 121, "Execute"));
+		document.Graph.Links.push_back(MakeLink(121, "Out", 102, "B"));
+		return document;
+	}
+}
+
+TEST_CASE("VisualScriptBatch: the rows operations read equal a freshly synced canvas's after every operation, anchors aside")
+{
+	// Spec-slice4 §9.3's property: a Rows canvas syncs again only when rows may have changed, so what every operation that
+	// reads rows takes equals what a canvas synced with the working document now gives; every anchor it gives is NaN.
+	BatchFixture fixture;
+	Ref<VisualScriptLibrary const> const library = fixture.Semantics.GetLibrary();
+	size_t inspected = 0;
+	size_t mismatches = 0;
+	std::string first;
+	fixture.Context.InspectRows = [&](VisualScriptBatchRows const& rows)
+	{
+		inspected++;
+		VisualScriptHeadlessCanvas fresh;
+		fresh.Sync(rows.Document, rows.Function, rows.Analysis, rows.AnalyzedDocument != nullptr ? rows.AnalyzedDocument : &rows.Document,
+		           library.get(), {});
+		VisualScriptNodePins const expected = fresh.GetPins();
+		VisualScriptGraph const* graph = &rows.Document.Graph;
+		for (VisualScriptFunction const& function : rows.Document.Functions)
+		{
+			if (function.ID == rows.Function)
+			{
+				graph = &function.Graph;
+			}
+		}
+		for (VisualScriptNode const& node : graph->Nodes)
+		{
+			std::vector<VisualScriptNodePin> taken = rows.Rows(node.ID);
+			std::vector<VisualScriptNodePin> synced = expected(node.ID);
+			bool anchored = false;
+			for (VisualScriptNodePin& row : taken)
+			{
+				anchored = anchored || !std::isnan(row.Anchor.x) || !std::isnan(row.Anchor.y);
+				row.Anchor = glm::vec2(0.0f);
+			}
+			for (VisualScriptNodePin& row : synced)
+			{
+				row.Anchor = glm::vec2(0.0f);
+			}
+			if (anchored || taken != synced)
+			{
+				if (mismatches++ == 0)
+				{
+					first = fmt::format("node {} ({}) in sub-graph {}: {} rows taken, {} synced{}", node.ID, node.Type, rows.Function,
+					                    taken.size(), synced.size(), anchored ? ", with an anchor" : "");
+				}
+			}
+		}
+	};
+	VisualScriptDocument const document = MakeRowsDocument();
+	Testing::FuzzRandom random(11250);
+	size_t applied = 0;
+	int const rounds = Testing::GetFuzzRounds(60);
+	for (int round = 0; round < rounds; round++)
+	{
+		CAPTURE(round);
+		Json operations = Json::array();
+		for (size_t count = 2 + random.Pick(8); count > 0; count--)
+		{
+			operations.push_back(MakeRowsOperation(random, document, *library));
+		}
+		CAPTURE(operations);
+		std::variant<VisualScriptBatchResult, VisualScriptBatchError> const result =
+			ApplyVisualScriptBatch(document, operations, fixture.Context);
+		applied += std::holds_alternative<VisualScriptBatchResult>(result) ? 1 : 0;
+		REQUIRE_MESSAGE(mismatches == 0, first);
+	}
+	CHECK(applied > 0);
+	CHECK(inspected > static_cast<size_t>(rounds) / 2);
+}
+
+TEST_CASE("VisualScriptBatch: operations that read rows see no anchors, while Straighten and Promote to Variable read real ones")
+{
+	BatchFixture fixture;
+	std::vector<bool> anchored;
+	fixture.Context.InspectRows = [&anchored](VisualScriptBatchRows const& rows)
+	{
+		for (VisualScriptNodePin const& row : rows.Rows(1))
+		{
+			anchored.push_back(!std::isnan(row.Anchor.x) && !std::isnan(row.Anchor.y));
+		}
+	};
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes[2].Position = glm::vec2(640.0f, 75.0f);
+	VisualScriptBatchResult const result = ExpectApplied(
+		document,
+		Json::array({Json::object({{"op", "Connect"}, {"from", Json::array({1, "Then"})}, {"to", Json::array({3, "Execute"})}}),
+	                 Json::object({{"op", "Straighten"}, {"nodes", Json::array({1, 3})}})}),
+		fixture.Context);
+	REQUIRE_FALSE(anchored.empty());
+	CHECK(std::none_of(anchored.begin(), anchored.end(),
+	                   [](bool value)
+	                   {
+						   return value;
+					   }));
+	// Straighten lines the flow up by the pins' anchors: the Delay moved level with the Update's Then.
+	CHECK(FindNode(result.Document, 3)->Position->y != 75.0f);
 }
 
 namespace
@@ -1746,14 +2038,14 @@ TEST_CASE("VisualScriptBatch: Fix applies the quick fixes of cross-graph finding
 	                  fixture.Context);
 	CHECK(FindNode(fixed.Document, 40)->Settings == Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", fixture.Damage}}));
 	// The fix operations of the diagnostic, as graph.edit lists them, read the other graph too.
-	Result<VisualScriptAnalysis> const analysis = fixture.Semantics.Analyze(document, BatchSelf);
+	Result<Ref<VisualScriptAnalysis const>> const analysis = fixture.Semantics.Analyze(document, BatchSelf);
 	REQUIRE(analysis.IsOk());
 	VisualScriptQuickFixGraphs const graphs{fixture.Context.FindDocument, fixture.Context.FindGraphName};
-	Json const operations = GetVisualScriptFixOperations(document, analysis.GetValue(), analysis.GetValue().Diagnostics.back(),
+	Json const operations = GetVisualScriptFixOperations(document, *analysis.GetValue(), analysis.GetValue()->Diagnostics.back(),
 	                                                     fixture.Semantics.GetFixtureLibrary(), &graphs);
 	REQUIRE(operations.size() == 1);
 	CHECK(operations[0]["label"] == "Use Hit");
-	CHECK(GetVisualScriptFixOperations(document, analysis.GetValue(), analysis.GetValue().Diagnostics.back(),
+	CHECK(GetVisualScriptFixOperations(document, *analysis.GetValue(), analysis.GetValue()->Diagnostics.back(),
 	                                   fixture.Semantics.GetFixtureLibrary())
 	          .empty());
 	// A fix that opens the other graph changes nothing here.
@@ -1816,4 +2108,41 @@ TEST_CASE("VisualScriptBatch: Duplicate and Paste of an Event.Broadcast in a fun
 			CHECK(found->Settings["Name"] == "Hit");
 		}
 	}
+}
+
+TEST_CASE("VisualScriptBatch: without the runtime a measured Arrange sizes a remote Get by its target's variable")
+{
+	// Spec-slice4 §16.3: the headless canvas resolves other graphs as a window does, so a degraded canvas titles a Get of
+	// Door's Health by Health (its width is that title's), never by the edited document's variable of that ID.
+	CrossGraphBatchFixture fixture;
+	fixture.Semantics.SetAvailable(false);
+	VisualScriptDocument document;
+	VisualScriptVariable own;
+	own.ID = 5;
+	own.Name = "AVariableOfThisGraphWithAMuchLongerName";
+	own.Type = "float";
+	document.Variables.push_back(own);
+	document.Graph.Nodes.push_back(
+		MakeNode(40, "Variable.Get", glm::vec2(0.0f), Json::object({{"Variable", 5}, {"Graph", BatchDoor.ToString()}})));
+	document.Graph.Nodes.push_back(MakeNode(41, LogType, glm::vec2(0.0f, 400.0f)));
+	document.Graph.Links.push_back(MakeLink(40, "Value", 41, "Message"));
+
+	// What a window shows of the Get: its target's variable.
+	VisualScriptGraphResolver const resolve = [&fixture, &document](AssetHandle graph) -> VisualScriptDocument const*
+	{
+		return graph == BatchSelf ? &document : fixture.Context.FindDocument(graph);
+	};
+	VisualScriptHeadlessCanvas canvas;
+	canvas.Sync(document, 0, nullptr, nullptr, nullptr, resolve);
+	VisualScriptCanvasModel const& model = canvas.GetCanvas();
+	REQUIRE(model.FindNode(40));
+	CHECK(model.GetText(model.GetNodes()[*model.FindNode(40)].Title) == "Health");
+
+	VisualScriptBatchResult const result =
+		ExpectApplied(document, Json::array({Json::object({{"op", "Arrange"}, {"extents", "Measured"}})}), fixture.Context);
+	VisualScriptDocument expected = document;
+	std::vector<uint32_t> const ids = {40, 41};
+	REQUIRE(VisualScriptEditing::ArrangeNodes(expected, 0, ids, canvas.GetExtents()).IsOk());
+	CHECK(*FindNode(result.Document, 41)->Position == *FindNode(expected, 41)->Position);
+	CHECK(*FindNode(result.Document, 40)->Position == *FindNode(expected, 40)->Position);
 }

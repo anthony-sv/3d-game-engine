@@ -87,31 +87,6 @@ namespace Strada
 				ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t));
 		}
 
-		// What "Your <gesture> was interrupted" calls a canvas gesture.
-		char const* DescribeInterruptedGesture(VisualScriptGesture gesture)
-		{
-			switch (gesture)
-			{
-				case VisualScriptGesture::MovingElements:
-					return "move";
-				case VisualScriptGesture::ResizingComment:
-					return "resize";
-				case VisualScriptGesture::Wiring:
-					return "wire";
-				case VisualScriptGesture::Relinking:
-					return "relink";
-				case VisualScriptGesture::Cutting:
-					return "cut";
-				case VisualScriptGesture::Marquee:
-					return "selection";
-				case VisualScriptGesture::Idle:
-				case VisualScriptGesture::Panning:
-				case VisualScriptGesture::MinimapDrag:
-					break;
-			}
-			return "gesture";
-		}
-
 		// "1 node", "3 nodes and 1 comment".
 		std::string CountElements(size_t nodes, size_t comments)
 		{
@@ -893,11 +868,10 @@ namespace Strada
 		}
 		// While a widget of the panes or the live widget is in use, the analysis keeps its pace (spec §6.3).
 		VisualScriptSyncResult const synced = m_Model.Sync(m_Semantics, m_Measure, m_Theme, m_WidgetActive, m_Time);
-		if (synced.InterruptedGesture)
+		if (synced.Interruption)
 		{
-			// Canvas gestures do not survive outside changes (spec-slice3 §10.11): the user learns why theirs ended.
-			AddToast(
-				fmt::format("Your {} was interrupted by a change made elsewhere", DescribeInterruptedGesture(*synced.InterruptedGesture)));
+			// A canvas gesture an outside change touched ends (spec-slice4 §16.1): the user learns what ended theirs.
+			AddToast(DescribeVisualScriptGestureInterruption(*synced.Interruption));
 		}
 	}
 

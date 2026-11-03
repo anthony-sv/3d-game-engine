@@ -82,7 +82,9 @@ namespace Strada
 		// its problems drawer; empty opens it as it is.
 		OpenGraph,
 		// Removes the diagnostic's variable with the nodes that read or write it (a library's variable).
-		DeleteVariable
+		DeleteVariable,
+		// Navigates: opens the Timeline drawer on the Flow.Timeline node (Target) whose Timeline setting the diagnostic is about.
+		OpenTimeline
 	};
 
 	struct VisualScriptQuickFix
@@ -94,7 +96,7 @@ namespace Strada
 		std::string Argument;
 		// The node, variable or function the fix acts on or goes to; 0 when none.
 		uint32_t Target = 0;
-		// GoTo, EditSetting and Rename change nothing: the problems list navigates.
+		// GoTo, EditSetting, Rename, OpenGraph and OpenTimeline change nothing: the problems list navigates.
 		bool Navigates = false;
 		// What the fix replaces, as the document stores it: an input's key, a setting's name, a type; empty when nothing.
 		std::string Replaces;
@@ -126,7 +128,7 @@ namespace Strada
 	                                                                          VisualScriptQuickFixGraphs const* graphs = nullptr);
 
 	// Applies a fix GetVisualScriptQuickFixes gave for the diagnostic to the document it was given for, with the same graphs.
-	// Navigating fixes (GoTo, EditSetting, Rename, OpenGraph) change nothing and succeed. Fails, leaving the document
+	// Navigating fixes (GoTo, EditSetting, Rename, OpenGraph, OpenTimeline) change nothing and succeed. Fails, leaving the document
 	// unchanged, when what the fix acts on is gone or the fix would make the document invalid.
 	[[nodiscard]] Result<void> ApplyVisualScriptQuickFix(VisualScriptDocument& document, VisualScriptAnalysis const& analysis,
 	                                                     VisualScriptDiagnostic const& diagnostic, VisualScriptQuickFix const& fix,

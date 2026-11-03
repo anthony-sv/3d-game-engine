@@ -405,13 +405,13 @@ TEST_CASE("VisualScriptEditor: titles without an analysis are the runtime's, for
 
 	// The nodes settings title, as the analysis titles them.
 	VisualScriptDocument const document = MakeNamingDocument();
-	Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document);
+	Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(document);
 	REQUIRE_MESSAGE(analysis.IsOk(), analysis.GetError());
 	for (auto const& [id, title] : GetNamingTitles())
 	{
 		CAPTURE(id);
 		VisualScriptNode const* const node = FindNode(document, id);
-		VisualScriptAnalyzedNode const* const analyzed = analysis.GetValue().FindNode(id);
+		VisualScriptAnalyzedNode const* const analyzed = analysis.GetValue()->FindNode(id);
 		REQUIRE(node != nullptr);
 		REQUIRE(analyzed != nullptr);
 		std::string const derived = DeriveVisualScriptNodeTitle(*node, document);

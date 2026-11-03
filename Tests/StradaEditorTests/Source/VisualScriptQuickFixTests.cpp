@@ -1089,3 +1089,42 @@ TEST_CASE("VisualScriptQuickFix: a remote unknown variable's ID suggestions are 
 	// The script's own variable 5 (Health too) names nothing here: without the other graph, no fix.
 	CHECK(GetVisualScriptQuickFixes(fixture.Script, fixture.Analysis, unknown, *fixture.Library).empty());
 }
+
+TEST_CASE("VisualScriptQuickFix: a finding about a Timeline setting, of any code, is edited in Details or opens the Timeline drawer")
+{
+	// Spec-slice4 §16.4: every TimelineReader finding names the setting Timeline (InvalidSetting, InvalidName and ReservedName).
+	Fixture const fixture;
+	Result<Json> timeline = ParseJson(R"({"Length": 1, "Tracks": [{"Name": "Play", "Type": "float", "Keys": []}]})");
+	REQUIRE(timeline.IsOk());
+	VisualScriptDocument document = fixture.Document;
+	VisualScriptNode node;
+	node.ID = 900;
+	node.Type = "Flow.Timeline";
+	node.Position = glm::vec2(0.0f, 1200.0f);
+	node.Settings = Json::object({{"Timeline", timeline.GetValue()}});
+	document.Graph.Nodes.push_back(node);
+	for (char const* const code : {"InvalidSetting", "InvalidName", "ReservedName"})
+	{
+		CAPTURE(code);
+		VisualScriptDiagnostic diagnostic = MakeDiagnostic(code, 0, 900, "Timeline.Tracks[0].Name: Play is the name of a pin");
+		diagnostic.Setting = "Timeline";
+		std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, fixture.Analysis, diagnostic, *fixture.Library);
+		REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Edit in Details", "Open Timeline"});
+		CHECK(fixes[0].Kind == VisualScriptFixKind::EditSetting);
+		CHECK(fixes[0].Argument == "Timeline");
+		CHECK(fixes[1].Kind == VisualScriptFixKind::OpenTimeline);
+		for (VisualScriptQuickFix const& fix : fixes)
+		{
+			CHECK(fix.Target == 900);
+			CHECK(fix.Navigates);
+			// Navigating changes nothing.
+			VisualScriptDocument unchanged = document;
+			CHECK(ApplyVisualScriptQuickFix(unchanged, fixture.Analysis, diagnostic, fix).IsOk());
+			CHECK(unchanged == document);
+		}
+	}
+	// A Timeline finding on what is not a Flow.Timeline (an analysis behind the document) offers nothing.
+	VisualScriptDiagnostic stale = MakeDiagnostic("InvalidSetting", 0, 114, "Timeline.Length: expected a number");
+	stale.Setting = "Timeline";
+	CHECK(GetVisualScriptQuickFixes(document, fixture.Analysis, stale, *fixture.Library).empty());
+}

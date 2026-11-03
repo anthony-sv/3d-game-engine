@@ -172,8 +172,9 @@ namespace Strada
 		                      std::function<std::optional<Edit>(Json, std::string)> const& makeEdit);
 		// A Flow.Timeline's Timeline (spec-slice3 §9.5): its Length (dragged from the timeline at the interaction's start, keys
 		// after a shorter length moved onto it in the same step), Loop, a row per track (its type, name, key count, a preview of
-		// its curve, "Edit" opening the drawer on it, and remove) and "+ Add Track".
-		void DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title);
+		// its curve, "Edit" opening the drawer on it, and remove) and "+ Add Track"; above them the setting's first finding in the
+		// Error colour. focus: a FocusSetting on the Timeline (spec-slice4 §16.4) gives Length the keyboard.
+		void DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title, bool focus);
 		void DrawCases(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawChoice(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
 		void DrawInputs(Frame& frame, VisualScriptNode const& node, std::string const& title);

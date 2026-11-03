@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Script/VisualScriptGridGraph.h"
 #include "TestUtilities.h"
 
 #include "Editor/VisualScripting/VisualScriptBatch.h"
@@ -1094,6 +1095,24 @@ namespace Strada::Testing
 		return VisualScriptAnalysis::Parse(analysis.dump(-1, ' ', false, Json::error_handler_t::replace));
 	}
 
+	// An analysis a test read or built, shared as the semantics seam returns analyses.
+	[[nodiscard]] inline Result<Ref<VisualScriptAnalysis const>> ShareAnalysis(Result<VisualScriptAnalysis> analysis)
+	{
+		if (!analysis)
+		{
+			return Error{analysis.GetError()};
+		}
+		return CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
+	}
+
+	// The runtime's JSON of an analysis, { "Nodes": [...], "Diagnostics": [...] }, parsed from its Text.
+	inline Json ReadAnalysisJson(VisualScriptAnalysis const& analysis)
+	{
+		Result<Json> parsed = ParseJson(analysis.Text);
+		REQUIRE_MESSAGE(parsed.IsOk(), parsed.GetError());
+		return parsed.TakeValue();
+	}
+
 	// The semantics of the editor's tests: the fixture node library (Editor/Library.json) and its template analyzer, in place
 	// of the scripting runtime. A test can stop and start the "runtime", read the library again (a new object, as after a
 	// game-assembly change) and add diagnostics to every analysis; it sees how often each was asked for.
@@ -1112,7 +1131,7 @@ namespace Strada::Testing
 		// Fails while the runtime is stopped. The nodes naming another graph are shaped from the graphs SetGraphs gave (self,
 		// the graph analyzed, is the document itself), and the analysis lists those it read with their documents (Graphs), as
 		// the engine's does.
-		[[nodiscard]] Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self) override
+		[[nodiscard]] Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self) override
 		{
 			m_AnalyzeCallCount++;
 			if (!m_Available)
@@ -1144,16 +1163,24 @@ namespace Strada::Testing
 					auto const found = m_Graphs.find(reference.Graph);
 					analysis.GetValue().Graphs.emplace_back(reference.Graph, found != m_Graphs.end() ? found->second : nullptr);
 				}
+				bool changed = false;
 				for (VisualScriptAnalyzedNode& node : analysis.GetValue().Nodes)
 				{
 					auto const passThrough = m_InjectedPassThroughs.find(node.ID);
 					if (passThrough != m_InjectedPassThroughs.end() && IsDisabled(document, node.ID))
 					{
 						node.PassThrough = passThrough->second;
+						changed = true;
 					}
 				}
+				// A changed record is no longer what its bytes read as (VisualScriptAnalysis::NodeSpans).
+				if (changed)
+				{
+					analysis.GetValue().NodeSpans.clear();
+					analysis.GetValue().DiagnosticSpans.clear();
+				}
 			}
-			return analysis;
+			return ShareAnalysis(std::move(analysis));
 		}
 
 		// The other graphs analyses read (the engine's from the asset manager): each handle's shared document.
@@ -1342,99 +1369,6 @@ namespace Strada::Testing
 		return glm::vec2(0.0f);
 	}
 
-	// A large graph for the canvas's performance guards: columns × rows nodes of the fixture library on a 320 × 180 grid, each
-	// with linksPerNode links to the nodes of the next column (the last column links back to the one before), and comment
-	// boxes around blocks of 2 × 2 nodes. Five node kinds take turns, with stored literals that make value chips: Branch, Log
-	// Info (a string), Add (a number, so it keeps its full shape), Delay (a float) and Add Force (a vector and an enum).
-	// Every link names pins of the library's templates. Node IDs start at 1, comment IDs follow them.
-	inline VisualScriptDocument MakeGridGraph(uint32_t columns, uint32_t rows, uint32_t linksPerNode, uint32_t comments)
-	{
-		struct Kind
-		{
-			std::string_view Type;
-			std::array<std::string_view, 4> Inputs;
-			size_t InputCount;
-			std::array<std::string_view, 2> Outputs;
-			size_t OutputCount;
-		};
-		static constexpr std::array<Kind, 5> Kinds = {{
-			{"Flow.Branch", {"Execute", "Condition"}, 2, {"True", "False"}, 2},
-			{"Call:Strada.Log.Info(string)", {"Execute", "Message"}, 2, {"Then"}, 1},
-			{"Operator.Add", {"A", "B"}, 2, {"Result"}, 1},
-			{"Flow.Delay", {"Execute", "Duration"}, 2, {"Completed"}, 1},
-			{"Call:Strada.RigidBodyComponent.AddForce(Strada.Vector3,Strada.ForceMode)",
-		     {"Execute", "Target", "Force", "Mode"},
-		     4,
-		     {"Then"},
-		     1},
-		}};
-		auto const getID = [rows](uint32_t column, uint32_t row)
-		{
-			return 1 + column * rows + row;
-		};
-		VisualScriptDocument document;
-		document.Graph.Nodes.reserve(static_cast<size_t>(columns) * rows);
-		for (uint32_t column = 0; column < columns; column++)
-		{
-			for (uint32_t row = 0; row < rows; row++)
-			{
-				uint32_t const id = getID(column, row);
-				Kind const& kind = Kinds[id % Kinds.size()];
-				VisualScriptNode& node = document.Graph.Nodes.emplace_back();
-				node.ID = id;
-				node.Type = std::string(kind.Type);
-				node.Position = glm::vec2(static_cast<float>(column) * 320.0f, static_cast<float>(row) * 180.0f);
-				switch (id % Kinds.size())
-				{
-					case 1:
-						node.Inputs["Message"] = "Hello";
-						break;
-					case 2:
-						node.Inputs["B"] = 1;
-						break;
-					case 3:
-						node.Inputs["Duration"] = 0.5;
-						break;
-					case 4:
-						node.Inputs["Force"] = Json::array({1, 0, 0});
-						break;
-					default:
-						break;
-				}
-			}
-		}
-		document.Graph.Links.reserve(static_cast<size_t>(columns) * rows * linksPerNode);
-		for (uint32_t column = 0; column < columns && columns > 1; column++)
-		{
-			uint32_t const next = column + 1 < columns ? column + 1 : column - 1;
-			for (uint32_t row = 0; row < rows; row++)
-			{
-				uint32_t const id = getID(column, row);
-				Kind const& kind = Kinds[id % Kinds.size()];
-				for (uint32_t link = 0; link < linksPerNode; link++)
-				{
-					uint32_t const target = getID(next, (row + link) % rows);
-					Kind const& targetKind = Kinds[target % Kinds.size()];
-					std::string_view const from = kind.Outputs[link % kind.OutputCount];
-					std::string_view const to = targetKind.Inputs[(link + id) % targetKind.InputCount];
-					document.Graph.Links.push_back({{id, std::string(from)}, {target, std::string(to)}});
-				}
-			}
-		}
-		uint32_t const blocksPerRow = std::max(columns / 2, 1u);
-		for (uint32_t index = 0; index < comments; index++)
-		{
-			VisualScriptComment& comment = document.Graph.Comments.emplace_back();
-			comment.ID = getID(columns, 0) + index;
-			comment.Text = "Block " + std::to_string(index);
-			uint32_t const blockColumn = (index % blocksPerRow) * 2;
-			uint32_t const blockRow = (index / blocksPerRow) * 2;
-			comment.Position = glm::vec2(static_cast<float>(blockColumn) * 320.0f - 32.0f, static_cast<float>(blockRow) * 180.0f - 72.0f);
-			comment.Size = glm::vec2(584.0f, 400.0f);
-		}
-		return document;
-	}
-
 	// The document graph.edit writes for operations on the stored document (spec §7.6 steps 4-6): the batch, then the commit
 	// pipeline with the analysis of the result, through the semantics given. The parity tests compare it with what a window
 	// commits for the same gesture.
@@ -1447,18 +1381,14 @@ namespace Strada::Testing
 		VisualScriptBatchError const* const failed = std::get_if<VisualScriptBatchError>(&applied);
 		REQUIRE_MESSAGE(failed == nullptr, (failed != nullptr ? failed->Message : std::string()));
 		VisualScriptBatchResult batch = std::get<VisualScriptBatchResult>(std::move(applied));
-		std::optional<VisualScriptAnalysis> analysis;
-		if (batch.Analysis != nullptr)
+		Ref<VisualScriptAnalysis const> analysis = batch.Analysis;
+		if (analysis == nullptr && semantics.GetLibrary() != nullptr)
 		{
-			analysis = *batch.Analysis;
-		}
-		else if (semantics.GetLibrary() != nullptr)
-		{
-			Result<VisualScriptAnalysis> made = semantics.Analyze(batch.Document, graph);
+			Result<Ref<VisualScriptAnalysis const>> made = semantics.Analyze(batch.Document, graph);
 			REQUIRE(made.IsOk());
 			analysis = made.TakeValue();
 		}
-		Result<VisualScriptCommit> prepared = PrepareVisualScriptCommit(stored, std::move(batch.Document), analysis ? &*analysis : nullptr);
+		Result<VisualScriptCommit> prepared = PrepareVisualScriptCommit(stored, std::move(batch.Document), analysis.get());
 		REQUIRE_MESSAGE(prepared.IsOk(), (prepared ? std::string() : prepared.GetError()));
 		return prepared.TakeValue().Document;
 	}

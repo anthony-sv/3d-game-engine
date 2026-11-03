@@ -229,6 +229,8 @@ set(STRADA_SCRIPT_SOURCES
 )
 
 set(STRADA_SERIALIZATION_SOURCES
+    Source/Strada/Serialization/JsonScanner.cpp
+    Source/Strada/Serialization/JsonScanner.h
     Source/Strada/Serialization/JsonSerialization.cpp
     Source/Strada/Serialization/JsonSerialization.h
     Source/Strada/Serialization/JsonTextWriter.cpp

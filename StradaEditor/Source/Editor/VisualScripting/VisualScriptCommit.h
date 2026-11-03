@@ -40,6 +40,10 @@ namespace Strada
 		// RefreshAnalysis: the check against the analyzed document and, when the program changed, the analysis (the text,
 		// the runtime, the parse).
 		double Analysis = 0.0;
+		// Parts of Analysis, from the semantics' VisualScriptAnalysisTimings (zero for semantics that do not measure): the
+		// scripting runtime's (Runtime), and the reading of its answer (Parse + Read).
+		double AnalysisRuntime = 0.0;
+		double AnalysisParse = 0.0;
 		// VisualScriptCanvasModel::Sync.
 		double Canvas = 0.0;
 		// VisualScriptSpatialIndex::Build.

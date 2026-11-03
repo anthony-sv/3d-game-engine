@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 
@@ -40,6 +41,21 @@ namespace Strada
 		Uniform
 	};
 
+	// The pins an operation that needs no anchors read from a sub-graph's canvas (every anchor NaN), with what a canvas synced
+	// now would be synced with: for tests that compare them with a fresh canvas's (VisualScriptBatchContext::InspectRows).
+	struct VisualScriptBatchRows
+	{
+		uint32_t Function = 0;
+		VisualScriptNodePins const& Rows;
+		// The working document as the operation finds it.
+		VisualScriptDocument const& Document;
+		// The analysis the batch reads; null without one.
+		VisualScriptAnalysis const* Analysis = nullptr;
+		// The document Analysis was made from; null when Analysis describes every node of Document's pins as they are (no pin
+		// changed since it was made), so that Document stands for it.
+		VisualScriptDocument const* AnalyzedDocument = nullptr;
+	};
+
 	// What a batch needs besides the document. Main thread (Semantics calls into the scripting runtime).
 	struct VisualScriptBatchContext
 	{
@@ -65,6 +81,9 @@ namespace Strada
 		// when that is the stored document.
 		Ref<VisualScriptAnalysis const> StoredAnalysis;
 		Ref<VisualScriptDocument const> StoredAnalysisDocument;
+		// Tests: called with the rows each operation that reads pins without anchors takes, before it applies; empty calls
+		// nothing.
+		std::function<void(VisualScriptBatchRows const& rows)> InspectRows;
 	};
 
 	enum class VisualScriptBatchFailure : uint8_t
@@ -109,9 +128,12 @@ namespace Strada
 		Ref<VisualScriptAnalysis const> Analysis;
 		// How many analyses the batch made.
 		uint32_t Analyses = 0;
-		// How many copies of the working document its canvases took: at most one per change an operation that reads pins or
-		// sizes followed, shared by the canvases of every sub-graph.
+		// How many copies of the working document its analyses and canvases took: at most one per canvas sync, shared by the
+		// canvases of every sub-graph.
 		uint32_t Displays = 0;
+		// How many times its canvases laid out a sub-graph: a canvas lays out again only when the pins (for the operations that
+		// read rows) or the nodes' sizes and anchors (for those that read geometry) may have changed since (spec-slice4 §9.3).
+		uint32_t CanvasSyncs = 0;
 	};
 
 	// The operation kinds a batch takes, in the order graph.edit's schema lists them.

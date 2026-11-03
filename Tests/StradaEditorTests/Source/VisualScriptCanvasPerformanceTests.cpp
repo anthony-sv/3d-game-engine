@@ -18,6 +18,7 @@
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/FileSystem.h"
+#include "Strada/Script/VisualScriptEngine.h"
 
 #include <doctest/doctest.h>
 #include <glm/glm.hpp>
@@ -373,7 +374,9 @@ namespace
 	constexpr double T4Milliseconds = 22.9;
 	// The commit frames of a move and of a new link, as track S measured them after its follow-ups (spec §5.8).
 	constexpr double CommitFrameMilliseconds = 70.2;
-	constexpr double LinkFrameMilliseconds = 3420.0;
+	// The new link's frame once its analysis is read with the graph's last one (track I, spec-slice4 section 9.1; track S
+	// measured 3420 ms before).
+	constexpr double LinkFrameMilliseconds = 366.0;
 	// T2 with the live widget of a vector and of an enum chip (track U's report, step U-fix).
 	constexpr double T2VectorMilliseconds = 8.08;
 	constexpr double T2EnumMilliseconds = 8.12;
@@ -387,7 +390,9 @@ namespace
 	// The commit frames as track G measured them once a commit after the editor's own write no longer read the file back
 	// (ruling S-R5.1; track S measured 13.6 ms and 128 ms before).
 	constexpr double CommitFrameMilliseconds = 7.41;
-	constexpr double LinkFrameMilliseconds = 119.0;
+	// The new link's frame once its analysis is read with the graph's last one (track I, spec-slice4 section 9.1; track G
+	// measured 119 ms before).
+	constexpr double LinkFrameMilliseconds = 65.8;
 	constexpr double T2VectorMilliseconds = 0.821;
 	constexpr double T2EnumMilliseconds = 0.829;
 	constexpr std::array<double, 3> WindowFrameMilliseconds = {0.447, 0.445, 0.462};
@@ -438,6 +443,8 @@ namespace
 		VisualScriptCommitTimings const& synced = fixture.Model().GetSyncTimings();
 		frame.Phases.Adopt = synced.Adopt;
 		frame.Phases.Analysis = synced.Analysis;
+		frame.Phases.AnalysisRuntime = synced.AnalysisRuntime;
+		frame.Phases.AnalysisParse = synced.AnalysisParse;
 		frame.Phases.Canvas = synced.Canvas;
 		frame.Phases.Index = synced.Index;
 		return frame;
@@ -471,20 +478,44 @@ namespace
 			           (phases.Normalize + phases.Check + phases.Text + phases.ReadBack + phases.Compare + phases.Write +
 			            phases.SetDocument + phases.Adopt + phases.Analysis + phases.Canvas + phases.Index);
 			});
-		return fmt::format("median {:.3f} ms; phases (medians, ms): Normalize {:.3f}, Check {:.3f}, Text {:.3f}, ReadBack {:.3f}, "
-		                   "Compare {:.3f}, Write {:.3f}, SetDocument {:.3f}, Adopt {:.3f}, Analysis {:.3f}, Canvas {:.3f}, Index {:.3f}, "
-		                   "other {:.3f}",
-		                   median(
-							   [](CommitFrame const& frame)
-							   {
-								   return frame.Milliseconds;
-							   }),
-		                   phase(&VisualScriptCommitTimings::Normalize), phase(&VisualScriptCommitTimings::Check),
-		                   phase(&VisualScriptCommitTimings::Text), phase(&VisualScriptCommitTimings::ReadBack),
-		                   phase(&VisualScriptCommitTimings::Compare), phase(&VisualScriptCommitTimings::Write),
-		                   phase(&VisualScriptCommitTimings::SetDocument), phase(&VisualScriptCommitTimings::Adopt),
-		                   phase(&VisualScriptCommitTimings::Analysis), phase(&VisualScriptCommitTimings::Canvas),
-		                   phase(&VisualScriptCommitTimings::Index), other);
+		// AnalysisRuntime and AnalysisParse are parts of Analysis, so "other" leaves them out.
+		return fmt::format(
+			"median {:.3f} ms; phases (medians, ms): Normalize {:.3f}, Check {:.3f}, Text {:.3f}, ReadBack {:.3f}, "
+			"Compare {:.3f}, Write {:.3f}, SetDocument {:.3f}, Adopt {:.3f}, Analysis {:.3f} (runtime {:.3f}, parse {:.3f}), "
+			"Canvas {:.3f}, Index {:.3f}, other {:.3f}",
+			median(
+				[](CommitFrame const& frame)
+				{
+					return frame.Milliseconds;
+				}),
+			phase(&VisualScriptCommitTimings::Normalize), phase(&VisualScriptCommitTimings::Check), phase(&VisualScriptCommitTimings::Text),
+			phase(&VisualScriptCommitTimings::ReadBack), phase(&VisualScriptCommitTimings::Compare),
+			phase(&VisualScriptCommitTimings::Write), phase(&VisualScriptCommitTimings::SetDocument),
+			phase(&VisualScriptCommitTimings::Adopt), phase(&VisualScriptCommitTimings::Analysis),
+			phase(&VisualScriptCommitTimings::AnalysisRuntime), phase(&VisualScriptCommitTimings::AnalysisParse),
+			phase(&VisualScriptCommitTimings::Canvas), phase(&VisualScriptCommitTimings::Index), other);
+	}
+
+	// The medians of the engine's analysis phases (VisualScriptEngine::GetLastAnalysisTimings), and the reader's counts of the
+	// last.
+	std::string DescribeAnalysisTimings(std::vector<VisualScriptAnalysisTimings> const& timings)
+	{
+		auto const phase = [&timings](double VisualScriptAnalysisTimings::* member)
+		{
+			std::vector<double> values;
+			for (VisualScriptAnalysisTimings const& measured : timings)
+			{
+				values.push_back(measured.*member);
+			}
+			return Median(std::move(values));
+		};
+		VisualScriptAnalysisTimings const last = timings.empty() ? VisualScriptAnalysisTimings{} : timings.back();
+		return fmt::format("phases (medians, ms): Text {:.3f}, References {:.3f}, Runtime {:.3f}, Parse {:.3f}, Read {:.3f}; nodes "
+		                   "reused {}, parsed {}; diagnostics reused {}, parsed {}",
+		                   phase(&VisualScriptAnalysisTimings::Text), phase(&VisualScriptAnalysisTimings::References),
+		                   phase(&VisualScriptAnalysisTimings::Runtime), phase(&VisualScriptAnalysisTimings::Parse),
+		                   phase(&VisualScriptAnalysisTimings::Read), last.ReusedNodes, last.ParsedNodes, last.ReusedDiagnostics,
+		                   last.ParsedDiagnostics);
 	}
 
 	// Shows the grid's top-left corner at zoom 1, as the commit frames edit it.
@@ -724,6 +755,7 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2
 		REQUIRE(fixture.Model().GetAnalysis() != nullptr);
 		REQUIRE_FALSE(fixture.HasLink(link));
 		std::vector<CommitFrame> frames;
+		std::vector<VisualScriptAnalysisTimings> readTimings;
 		for (int commit = 0, commits = performance ? 7 : 1; commit < commits; commit++)
 		{
 			size_t const undo = fixture.GetUndoCount();
@@ -746,8 +778,18 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2
 			CHECK(frames.back().Phases.Text > 0.0);
 			CHECK(frames.back().Phases.Adopt > 0.0);
 			CHECK(frames.back().Phases.Analysis > 0.0);
+			// The engine's semantics measure the runtime's part and the reading of its answer.
+			CHECK(frames.back().Phases.AnalysisRuntime > 0.0);
+			CHECK(frames.back().Phases.AnalysisParse > 0.0);
+			CHECK(frames.back().Phases.AnalysisRuntime + frames.back().Phases.AnalysisParse <= frames.back().Phases.Analysis);
 			CHECK(frames.back().Phases.Canvas > 0.0);
 			CHECK(frames.back().Phases.Index > 0.0);
+			// The analysis is read with the graph's last one (spec-slice4 section 9.1): only the nodes the link changed are
+			// parsed (the addition, whose wildcards take the duration's type, and the delay).
+			VisualScriptAnalysisTimings const read = VisualScriptEngine::GetLastAnalysisTimings();
+			CHECK(read.ParsedNodes <= 2);
+			CHECK(read.ReusedNodes + read.ParsedNodes == nodes);
+			readTimings.push_back(read);
 
 			// Undone, which the window analyzes in its next frame, for the next commit.
 			REQUIRE(fixture.Operations.Undo().IsOk());
@@ -757,6 +799,7 @@ TEST_CASE("VisualScriptEditor: the frame that commits a new link in a graph of 2
 		if (performance)
 		{
 			MESSAGE("commit frame of a new link, ", nodes, " nodes and ", nodes * 2, " links: ", DescribeCommitFrames(frames));
+			MESSAGE("its analysis, ", nodes, " nodes: ", DescribeAnalysisTimings(readTimings));
 			if (nodes == 2000)
 			{
 				std::vector<double> milliseconds;

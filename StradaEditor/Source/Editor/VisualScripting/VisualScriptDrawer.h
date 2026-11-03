@@ -79,6 +79,9 @@ namespace Strada
 		std::span<VisualScriptDiagnostic const> GetProblems() const { return m_Problems; }
 		// The find rows listed in the last Draw, in their order.
 		std::span<VisualScriptDrawerFindRow const> GetFindRows() const { return m_FindRows; }
+		// How many times Find looked through the scripts: once per change of its query, of this script, or of the project's
+		// scripts, never per frame (spec-slice4 §16.2).
+		uint64_t GetFindScanCount() const { return m_FindScans; }
 		// The screen rectangle (min, max) of a problem's row, of its first fix button, and of a find row, in the last Draw.
 		std::optional<std::pair<glm::vec2, glm::vec2>> FindProblemRow(size_t index) const;
 		std::optional<std::pair<glm::vec2, glm::vec2>> FindFixButton(size_t index) const;
@@ -119,12 +122,19 @@ namespace Strada
 		bool m_ReferenceOwnGraph = false;
 		VisualScriptFindScope m_Scope = VisualScriptFindScope::ThisScript;
 		bool m_FocusText = false;
-		// What the rows were found in: the query, and each script's document object (null for one that could not be read).
+		// What the rows were found in: the query, this script's stored document and analysis (its object and the model's count of
+		// analyses), the project index's revision the model held, and each script's document object (null for one that could
+		// not be read).
 		std::string m_FoundText;
 		std::optional<VisualScriptReference> m_FoundReference;
 		VisualScriptFindScope m_FoundScope = VisualScriptFindScope::ThisScript;
+		Ref<VisualScriptDocument const> m_FoundStored;
+		uint64_t m_FoundProjectRevision = 0;
+		VisualScriptAnalysis const* m_FoundAnalysis = nullptr;
+		uint64_t m_FoundAnalysisCount = 0;
 		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> m_FoundDocuments;
 		bool m_Found = false;
+		uint64_t m_FindScans = 0;
 		std::vector<VisualScriptDrawerFindRow> m_FindRows;
 		std::vector<Rect> m_FindRects;
 	};

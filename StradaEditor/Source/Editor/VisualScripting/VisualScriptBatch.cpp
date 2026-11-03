@@ -353,11 +353,25 @@ namespace Strada
 			return std::nullopt;
 		}
 
+		// What an operation reads from a sub-graph's canvas (spec-slice4 §9.3). Rows: the nodes' pins without their anchors (a
+		// canvas stays valid for them across link, value and layout changes). Geometry: the nodes' sizes and the pins' anchors,
+		// which are relative to their nodes (a canvas stays valid across pure moves).
+		enum class CanvasUse : uint8_t
+		{
+			Rows = 0,
+			Geometry
+		};
+
 		// A headless canvas of a sub-graph and what it was synced with.
 		struct BatchCanvas
 		{
 			Scope<VisualScriptHeadlessCanvas> Canvas = CreateScope<VisualScriptHeadlessCanvas>();
-			uint64_t Version = std::numeric_limits<uint64_t>::max();
+			// The batch's row and geometry versions at the last Sync (BatchExecutor::RecordChange).
+			uint64_t RowVersion = std::numeric_limits<uint64_t>::max();
+			uint64_t GeometryVersion = std::numeric_limits<uint64_t>::max();
+			// The canvas shows a node its analysis does not describe: such a node's rows also come from the names its links and
+			// literals use, so its rows may change with any change but a move.
+			bool RowsFollowDocument = false;
 			// What the canvas points at since its last Sync, held so that none of it goes before the next one even when the
 			// batch has moved on to newer analyses and snapshots.
 			Ref<VisualScriptAnalysis const> Analysis;
@@ -1325,7 +1339,7 @@ namespace Strada
 					return true;
 				}
 				m_Analyses++;
-				Result<VisualScriptAnalysis> analysis = m_Context.Semantics.Analyze(m_Working, m_Context.Graph);
+				Result<Ref<VisualScriptAnalysis const>> analysis = m_Context.Semantics.Analyze(m_Working, m_Context.Graph);
 				if (!analysis)
 				{
 					return Fail({},
@@ -1334,7 +1348,7 @@ namespace Strada
 					                        analysis.GetError()),
 					            Json::object({{"operation", m_Index}}), VisualScriptBatchFailure::AnalysisFailed);
 				}
-				m_Analysis = CreateRef<VisualScriptAnalysis const>(analysis.TakeValue());
+				m_Analysis = analysis.TakeValue();
 				// The display stands for the document analyzed: canvases match nodes against it by their types, settings,
 				// literal keys and splits (MatchesVisualScriptAnalysis), never by positions, so the copy canvases show serves.
 				m_AnalyzedDocument = GetDisplay();
@@ -1343,7 +1357,7 @@ namespace Strada
 			}
 
 			// The working document as the canvases show it (unplaced nodes placed), copied once per version and shared by the
-			// canvases of every sub-graph.
+			// canvases of every sub-graph. It is copied only when an analysis or a canvas sync needs it.
 			Ref<VisualScriptDocument const> const& GetDisplay()
 			{
 				if (m_DisplayVersion != m_Version || m_Display == nullptr)
@@ -1355,21 +1369,78 @@ namespace Strada
 				return m_Display;
 			}
 
-			// The canvas of a sub-graph, synced with the working document as it is now. Below pin level since the analysis,
-			// the analysis describes every node's pins, so the canvas takes them for the document as it is (a literal added
-			// since would otherwise make a node fall back to its template): the display then stands for the document analyzed.
-			VisualScriptHeadlessCanvas const& GetCanvas(uint32_t function)
+			// The canvas of a sub-graph, synced with the working document as far as the use needs (spec-slice4 §9.3): a Rows
+			// canvas syncs again only when the pins may have changed, a Geometry canvas also when sizes or anchors may have.
+			// Each sub-graph has one canvas per use, and Rows reads the Geometry canvas while that one is current, so a canvas
+			// syncs again only after the document changed: what was read from it stays valid until then. Below pin level since
+			// the analysis, the analysis describes every node's pins, so the canvas takes them for the document as it is (a
+			// literal added since would otherwise make a node fall back to its template): the display then stands for the
+			// document analyzed.
+			VisualScriptHeadlessCanvas const& GetCanvas(uint32_t function, CanvasUse use)
 			{
-				BatchCanvas& canvas = m_Canvases[function];
-				if (canvas.Version != m_Version || canvas.Analysis != m_Analysis)
+				auto const isCurrent = [this](BatchCanvas const& candidate, CanvasUse candidateUse)
+				{
+					bool const geometryCurrent = candidate.GeometryVersion == m_GeometryVersion;
+					return candidate.Analysis == m_Analysis && candidate.RowVersion == m_RowVersion &&
+					       (geometryCurrent || (candidateUse == CanvasUse::Rows && !candidate.RowsFollowDocument));
+				};
+				if (use == CanvasUse::Rows)
+				{
+					auto const geometry = m_Canvases.find({function, CanvasUse::Geometry});
+					if (geometry != m_Canvases.end() && isCurrent(geometry->second, CanvasUse::Geometry))
+					{
+						return *geometry->second.Canvas;
+					}
+				}
+				BatchCanvas& canvas = m_Canvases[{function, use}];
+				if (!isCurrent(canvas, use))
 				{
 					Ref<VisualScriptDocument const> const& display = GetDisplay();
 					canvas.Analysis = m_Analysis;
 					canvas.AnalyzedDocument = m_Analysis == nullptr ? nullptr : (m_Level < PinLevel ? display : m_AnalyzedDocument);
-					canvas.Canvas->Sync(display, function, canvas.Analysis.get(), canvas.AnalyzedDocument.get(), m_Library.get());
-					canvas.Version = m_Version;
+					// The shown document resolves to the display (spec-slice3 §2.2's self rule), other graphs through the context.
+					VisualScriptGraphResolver const resolve = [this](AssetHandle graph) -> VisualScriptDocument const*
+					{
+						if (graph == m_Context.Graph)
+						{
+							return m_Display.get();
+						}
+						return m_Context.FindDocument ? m_Context.FindDocument(graph) : nullptr;
+					};
+					canvas.Canvas->Sync(display, function, canvas.Analysis.get(), canvas.AnalyzedDocument.get(), m_Library.get(), resolve);
+					canvas.RowVersion = m_RowVersion;
+					canvas.GeometryVersion = m_GeometryVersion;
+					std::span<VisualScriptNodeVisual const> const nodes = canvas.Canvas->GetCanvas().GetNodes();
+					canvas.RowsFollowDocument = std::any_of(nodes.begin(), nodes.end(),
+					                                        [](VisualScriptNodeVisual const& node)
+					                                        {
+																return !node.HasFlag(VisualScriptNodeFlags::Analyzed);
+															});
+					m_CanvasSyncs++;
 				}
 				return *canvas.Canvas;
+			}
+
+			// The pins of a sub-graph's nodes as the operations that need no anchors take them: a Rows canvas's (or a current
+			// Geometry canvas's), with every anchor NaN, so that an operation that reads one fails its tests at once. Valid until
+			// the document next changes (GetCanvas).
+			VisualScriptNodePins GetRows(uint32_t function)
+			{
+				VisualScriptNodePins rows = [pins = GetCanvas(function, CanvasUse::Rows).GetPins()](uint32_t node)
+				{
+					std::vector<VisualScriptNodePin> found = pins(node);
+					for (VisualScriptNodePin& pin : found)
+					{
+						pin.Anchor = glm::vec2(std::numeric_limits<float>::quiet_NaN());
+					}
+					return found;
+				};
+				if (m_Context.InspectRows)
+				{
+					m_Context.InspectRows(VisualScriptBatchRows{function, rows, m_Working, m_Analysis.get(),
+					                                            m_Level < PinLevel ? nullptr : m_AnalyzedDocument.get()});
+				}
+				return rows;
 			}
 
 			// The pins of the nodes of every graph of the document (operations that remove nodes of several graphs). Valid
@@ -1380,7 +1451,7 @@ namespace Strada
 				auto owners = CreateRef<std::unordered_map<uint32_t, uint32_t>>();
 				auto const addGraph = [&](VisualScriptGraph const& graph, uint32_t function)
 				{
-					(*graphs)[function] = GetCanvas(function).GetPins();
+					(*graphs)[function] = GetRows(function);
 					for (VisualScriptNode const& node : graph.Nodes)
 					{
 						(*owners)[node.ID] = function;
@@ -1430,16 +1501,35 @@ namespace Strada
 				{
 					return std::nullopt;
 				}
-				return GetCanvas(function).GetExtents();
+				return GetCanvas(function, CanvasUse::Geometry).GetExtents();
 			}
 
 			// --- Changes ---
 
-			// After an operation that succeeded: the level it changed, and what it removed when it may remove elements.
+			// After an operation that succeeded: the level it changed. Canvases' rows change with pins, and with anything while
+			// there is no analysis (a degraded canvas infers rows from links and literals); their geometry with anything but pure
+			// moves (spec-slice4 §9.3).
 			void RecordChange(uint8_t level)
 			{
 				m_Level = std::max(m_Level, level);
 				m_Version++;
+				if (level >= PinLevel || m_Analysis == nullptr)
+				{
+					m_RowVersion++;
+				}
+				m_GeometryVersion++;
+			}
+
+			// After an operation that only moved elements: node sizes and pin anchors are relative to their nodes, so canvases
+			// stay valid while an analysis describes the nodes.
+			void RecordMove()
+			{
+				m_Version++;
+				if (m_Analysis == nullptr)
+				{
+					m_RowVersion++;
+					m_GeometryVersion++;
+				}
 			}
 
 			// Marks the IDs the last operation removed as deleted by it.
@@ -2076,17 +2166,22 @@ namespace Strada
 					blocks.push_back(members);
 				}
 
-				// Each block in turn moves down until it overlaps, with the gap between nodes around it, no other node, comment box
-				// or block placed before it.
+				// Each block in turn moves down until it overlaps, with the gap between nodes around it, no other node or block
+				// placed before it, and until the frame a comment box framing it would get (AddComment's) stays that gap clear of
+				// every comment box, so a region framed after this never overlaps an earlier one.
 				std::vector<Rect> obstacles;
 				for (PlacedNode const& node : placed)
 				{
 					obstacles.push_back(node.Bounds);
 				}
+				std::vector<Rect> boxes;
 				for (VisualScriptComment const& comment : graph->Comments)
 				{
-					obstacles.push_back(Rect{comment.Position, comment.Position + comment.Size});
+					boxes.push_back(Rect{comment.Position, comment.Position + comment.Size});
 				}
+				glm::vec2 const frameBefore(Editing::CommentFrameMargin + NodeGap,
+				                            Editing::CommentFrameMargin + Editing::CommentFrameTitleSpace + NodeGap);
+				glm::vec2 const frameAfter(Editing::CommentFrameMargin + NodeGap);
 				for (std::vector<uint32_t> const& block : blocks)
 				{
 					std::optional<Rect> bounds = GetBounds(block, extents);
@@ -2095,16 +2190,24 @@ namespace Strada
 						continue;
 					}
 					float offset = 0.0f;
-					for (size_t guard = 0; guard <= obstacles.size(); guard++)
+					for (size_t guard = 0; guard <= obstacles.size() + boxes.size(); guard++)
 					{
-						Rect const grown{bounds->Min - glm::vec2(NodeGap) + glm::vec2(0.0f, offset),
-						                 bounds->Max + glm::vec2(NodeGap) + glm::vec2(0.0f, offset)};
+						glm::vec2 const down(0.0f, offset);
+						Rect const grown{bounds->Min - glm::vec2(NodeGap) + down, bounds->Max + glm::vec2(NodeGap) + down};
+						Rect const framed{bounds->Min - frameBefore + down, bounds->Max + frameAfter + down};
 						float needed = 0.0f;
 						for (Rect const& obstacle : obstacles)
 						{
 							if (grown.Overlaps(obstacle))
 							{
 								needed = std::max(needed, obstacle.Max.y - grown.Min.y);
+							}
+						}
+						for (Rect const& box : boxes)
+						{
+							if (framed.Overlaps(box))
+							{
+								needed = std::max(needed, box.Max.y - framed.Min.y);
 							}
 						}
 						if (needed <= 0.0f)
@@ -2194,12 +2297,17 @@ namespace Strada
 			Ref<VisualScriptDocument const> m_AnalyzedDocument;
 			uint8_t m_Level = LayoutLevel;
 			uint32_t m_Analyses = 0;
-			// Counts the changes of the working document; canvases sync again when it moved.
+			// Counts the changes of the working document (the display is copied again when it moved), and the changes that may
+			// have changed canvases' rows and their geometry (RecordChange, RecordMove).
 			uint64_t m_Version = 0;
-			std::map<uint32_t, BatchCanvas> m_Canvases;
+			uint64_t m_RowVersion = 0;
+			uint64_t m_GeometryVersion = 0;
+			// Per sub-graph and use.
+			std::map<std::pair<uint32_t, CanvasUse>, BatchCanvas> m_Canvases;
 			Ref<VisualScriptDocument const> m_Display;
 			uint64_t m_DisplayVersion = std::numeric_limits<uint64_t>::max();
 			uint32_t m_Displays = 0;
+			uint32_t m_CanvasSyncs = 0;
 
 			// References.
 			std::unordered_set<uint32_t> m_StartIDs;
@@ -2391,6 +2499,7 @@ namespace Strada
 			VisualScriptBatchResult batch;
 			batch.Analyses = m_Analyses;
 			batch.Displays = m_Displays;
+			batch.CanvasSyncs = m_CanvasSyncs;
 			if (m_Analysis != nullptr && m_Level == LayoutLevel)
 			{
 				batch.Analysis = m_Analysis;
@@ -2525,7 +2634,7 @@ namespace Strada
 			{
 				for (auto const& [function, ids] : byGraph)
 				{
-					pins[function] = GetCanvas(function).GetPins();
+					pins[function] = GetRows(function);
 				}
 			}
 			uint32_t nodes = 0;
@@ -2614,7 +2723,7 @@ namespace Strada
 			if (!at)
 			{
 				// Below the sub-graph's nodes, as Arrange places what a batch adds apart from them.
-				VisualScriptNodeExtents const extents = GetCanvas(*function).GetExtents();
+				VisualScriptNodeExtents const extents = GetCanvas(*function, CanvasUse::Geometry).GetExtents();
 				at = GetCornerBelow(GetPlacedNodes(*function, extents, {}));
 			}
 			uint32_t const largest = Editing::GetLargestVisualScriptID(m_Working);
@@ -2671,7 +2780,7 @@ namespace Strada
 					return FailEdit(moved.GetError());
 				}
 			}
-			RecordChange(LayoutLevel);
+			RecordMove();
 			static_cast<void>(result);
 			return true;
 		}
@@ -2697,7 +2806,7 @@ namespace Strada
 				return FailEdit(set.GetError());
 			}
 			m_Unplaced.erase(id);
-			RecordChange(LayoutLevel);
+			RecordMove();
 			static_cast<void>(result);
 			return true;
 		}
@@ -2724,19 +2833,37 @@ namespace Strada
 			}
 			StoreAgain(*from, VisualScriptPinDirection::Out);
 			StoreAgain(*to, VisualScriptPinDirection::In);
-			VisualScriptNodePins const pins = GetCanvas(from->Function).GetPins();
+			VisualScriptNodePins const pins = GetRows(from->Function);
 			if (!CheckPin(pins, from->End, VisualScriptPinDirection::Out, "from[1]") ||
 			    !CheckPin(pins, to->End, VisualScriptPinDirection::In, "to[1]"))
 			{
 				return false;
 			}
-			std::vector<VisualScriptLink> const before = FindGraph(m_Working, from->Function)->Links;
+			// A new link replaces only links of its output (exec) or its input (data): those are the ones it may remove, so the
+			// links gone are found among them rather than by comparing the whole list (a thousand Connects on a large graph).
 			VisualScriptLink const link{from->End, to->End};
+			std::vector<VisualScriptLink> replaceable;
+			for (VisualScriptLink const& existing : FindGraph(m_Working, from->Function)->Links)
+			{
+				if (existing.From == link.From || existing.To == link.To)
+				{
+					replaceable.push_back(existing);
+				}
+			}
 			if (Result<uint32_t> const connected = Editing::Connect(m_Working, from->Function, link, pins); !connected)
 			{
 				return FailEdit(connected.GetError());
 			}
-			result["replaced"] = DescribeLinksGone(before, FindGraph(m_Working, from->Function)->Links);
+			std::vector<VisualScriptLink> const& after = FindGraph(m_Working, from->Function)->Links;
+			Json replaced = Json::array();
+			for (VisualScriptLink const& candidate : replaceable)
+			{
+				if (std::find(after.begin(), after.end(), candidate) == after.end())
+				{
+					replaced.push_back(DescribeLink(candidate));
+				}
+			}
+			result["replaced"] = std::move(replaced);
 			RecordChange(LinkLevel);
 			return true;
 		}
@@ -2841,7 +2968,7 @@ namespace Strada
 				StoreAgain(link);
 				add.push_back(link.GetLink());
 			}
-			VisualScriptNodePins const pins = GetCanvas(*function).GetPins();
+			VisualScriptNodePins const pins = GetRows(*function);
 			for (size_t index = 0; index < add.size(); index++)
 			{
 				if (!CheckPin(pins, add[index].From, VisualScriptPinDirection::Out, fmt::format("add[{}].from[1]", index)) ||
@@ -2889,7 +3016,7 @@ namespace Strada
 			}
 			StoreAgain(*link);
 			VisualScriptLink const spliced = link->GetLink();
-			VisualScriptNodePins const pins = GetCanvas(place->Function).GetPins();
+			VisualScriptNodePins const pins = GetRows(place->Function);
 			std::string const storedInput = ToStoredPin(node, VisualScriptPinDirection::In, input);
 			std::string storedOutput;
 			if (output)
@@ -3436,7 +3563,7 @@ namespace Strada
 					}
 				}
 			}
-			VisualScriptNodePins const pins = GetCanvas(place->Function).GetPins();
+			VisualScriptNodePins const pins = GetRows(place->Function);
 			Result<uint32_t> const removed = split ? Editing::SplitPin(m_Working, node, direction, path, pins, *m_Library)
 			                                       : Editing::RecombinePin(m_Working, node, direction, path, pins, *m_Library);
 			if (!removed)
@@ -3498,7 +3625,7 @@ namespace Strada
 			}
 			// Framing measures the elements as a window does; a box placed alone needs no analysis.
 			std::optional<VisualScriptNodeExtents> const extents =
-				elements.empty() ? std::optional<VisualScriptNodeExtents>(GetCanvas(*function).GetExtents())
+				elements.empty() ? std::optional<VisualScriptNodeExtents>(GetCanvas(*function, CanvasUse::Geometry).GetExtents())
 								 : GetExtents(*function, VisualScriptExtentsMode::Measured);
 			if (!extents)
 			{
@@ -4030,7 +4157,7 @@ namespace Strada
 				return false;
 			}
 			std::optional<VisualScriptNodePins> const pins =
-				removing && m_Library != nullptr ? std::optional<VisualScriptNodePins>(GetCanvas(*function).GetPins()) : std::nullopt;
+				removing && m_Library != nullptr ? std::optional<VisualScriptNodePins>(GetRows(*function)) : std::nullopt;
 			Result<uint32_t> const removed = Editing::RemoveLocal(m_Working, *function, *id, removing, pins ? &*pins : nullptr);
 			if (!removed)
 			{
@@ -4250,7 +4377,7 @@ namespace Strada
 			{
 				return false;
 			}
-			VisualScriptNodePins const pins = GetCanvas(place->Function).GetPins();
+			VisualScriptNodePins const pins = GetCanvas(place->Function, CanvasUse::Geometry).GetPins();
 			VisualScriptPinReference const reference{node, ToStoredPin(node, direction, pin)};
 			if (!CheckPin(pins, reference, direction, "pin"))
 			{
@@ -4297,7 +4424,7 @@ namespace Strada
 			{
 				return false;
 			}
-			VisualScriptNodePins const pins = GetCanvas(place->Function).GetPins();
+			VisualScriptNodePins const pins = GetRows(place->Function);
 			VisualScriptPinReference const reference{node, ToStoredPin(node, VisualScriptPinDirection::In, pin)};
 			if (!CheckPin(pins, reference, VisualScriptPinDirection::In, "pin"))
 			{
@@ -4404,7 +4531,7 @@ namespace Strada
 			{
 				m_Unplaced.erase(id);
 			}
-			RecordChange(LayoutLevel);
+			RecordMove();
 			result["arranged"] = arranged;
 			return true;
 		}
@@ -4450,7 +4577,7 @@ namespace Strada
 			{
 				return FailEdit(aligned.GetError());
 			}
-			RecordChange(LayoutLevel);
+			RecordMove();
 			static_cast<void>(result);
 			return true;
 		}
@@ -4486,7 +4613,7 @@ namespace Strada
 			{
 				return FailEdit(distributed.GetError());
 			}
-			RecordChange(LayoutLevel);
+			RecordMove();
 			static_cast<void>(result);
 			return true;
 		}
@@ -4503,14 +4630,14 @@ namespace Strada
 			{
 				return false;
 			}
-			VisualScriptNodePins const pins = GetCanvas(function).GetPins();
+			VisualScriptNodePins const pins = GetCanvas(function, CanvasUse::Geometry).GetPins();
 			Result<uint32_t> const moved = Editing::StraightenExec(m_Working, function, nodes, pins);
 			if (!moved)
 			{
 				return FailEdit(moved.GetError());
 			}
 			result["moved"] = moved.GetValue();
-			RecordChange(LayoutLevel);
+			RecordMove();
 			return true;
 		}
 
@@ -4546,6 +4673,8 @@ namespace Strada
 				}
 				case VisualScriptFixKind::GoTo:
 					return "Delete";
+				case VisualScriptFixKind::OpenTimeline:
+					return "SetTimeline";
 				case VisualScriptFixKind::OpenGraph:
 					return "a graph.edit of the graph it names";
 				case VisualScriptFixKind::Retarget:

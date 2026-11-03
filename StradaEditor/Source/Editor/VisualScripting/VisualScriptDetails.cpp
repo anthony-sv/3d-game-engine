@@ -377,6 +377,20 @@ namespace Strada
 			}
 			return fmt::format("{} Elements", elements.size());
 		}
+
+		// Before a row's next small button: beside the one before when it ends by right, else on a line of its own, so a row
+		// of buttons wraps at its column's width instead of clipping its last ones. A small button is its label's width plus
+		// the frame padding on both sides (ImGui::SmallButton and ButtonEx,
+		// imgui_widgets.cpp:834-842 and :796-801).
+		void FlowSmallButton(char const* label, float right)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			float const width = ImGui::CalcTextSize(label, nullptr, true).x + style.FramePadding.x * 2.0f;
+			if (ImGui::GetItemRectMax().x + style.ItemSpacing.x + width <= right)
+			{
+				ImGui::SameLine();
+			}
+		}
 	}
 
 	std::optional<double> EvaluateVisualScriptEasing(std::string_view easing, double t)
@@ -1356,6 +1370,15 @@ namespace Strada
 			return;
 		}
 		ImGui::SeparatorText("Settings");
+		ImVec2 const headerMin = ImGui::GetItemRectMin();
+		ImVec2 const headerMax = ImGui::GetItemRectMax();
+		m_Rows.emplace_back("Settings", std::pair(glm::vec2(headerMin.x, headerMin.y), glm::vec2(headerMax.x, headerMax.y)));
+		// A Flow.Timeline's settings are its Timeline: a focus on it shows the section from its header (spec-slice4 §16.4).
+		std::optional<VisualScriptSettingFocus> const& focus = frame.Context.Shared.FocusSetting;
+		if (focus && focus->Node == node.ID && focus->Setting == VisualScriptTimelineSetting && node.Type == VisualScriptTimelineNodeType)
+		{
+			ImGui::SetScrollHereY(0.0f);
+		}
 		// The settings' IDs are apart from the inputs': a setting and an input may share a name (an event parameter named
 		// Name on an Event.Send, a function input named Function on its call).
 		ImGui::PushID("settings");
@@ -1392,7 +1415,7 @@ namespace Strada
 			}
 			return edit;
 		};
-		if (focus && setting.Kind != "String" && setting.Kind != "Type" && setting.Kind != "Expression")
+		if (focus && setting.Kind != "String" && setting.Kind != "Type" && setting.Kind != "Expression" && setting.Kind != "Timeline")
 		{
 			ImGui::SetKeyboardFocusHere(0);
 		}
@@ -1770,7 +1793,7 @@ namespace Strada
 		}
 		else if (setting.Kind == "Timeline" && node.Type == VisualScriptTimelineNodeType)
 		{
-			DrawTimeline(frame, node, title);
+			DrawTimeline(frame, node, title, focus);
 		}
 		else
 		{
@@ -1778,9 +1801,27 @@ namespace Strada
 		}
 	}
 
-	void VisualScriptDetails::DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title)
+	void VisualScriptDetails::DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title, bool focus)
 	{
 		VisualScriptPaneContext& context = frame.Context;
+		// The setting's first finding, under the section's header (its message names the path in the setting).
+		if (frame.Analysis != nullptr)
+		{
+			auto const finding = std::find_if(frame.Analysis->Diagnostics.begin(), frame.Analysis->Diagnostics.end(),
+			                                  [&node](VisualScriptDiagnostic const& diagnostic)
+			                                  {
+												  return diagnostic.Node == node.ID && diagnostic.Setting == VisualScriptTimelineSetting;
+											  });
+			if (finding != frame.Analysis->Diagnostics.end())
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(VisualScriptErrorColor));
+				ImGui::TextWrapped("%s", finding->Message.c_str());
+				ImGui::PopStyleColor();
+				ImVec2 const min = ImGui::GetItemRectMin();
+				ImVec2 const max = ImGui::GetItemRectMax();
+				m_Rows.emplace_back("Timeline Problem", std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
+			}
+		}
 		Result<VisualScriptTimeline> const read = ReadVisualScriptTimeline(node);
 		if (!read)
 		{
@@ -1804,10 +1845,15 @@ namespace Strada
 			m_Rows.emplace_back(std::move(label), std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
 		};
 
-		// Length, from the timeline at the interaction's start: dragged down and back up, every key is where it was.
+		// Length, from the timeline at the interaction's start: dragged down and back up, every key is where it was. A focus on
+		// the setting gives it the keyboard.
 		BeginRow("Length");
 		ImGui::BeginGroup();
 		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (focus)
+		{
+			ImGui::SetKeyboardFocusHere(0);
+		}
 		float length = timeline.Length;
 		bool const changed =
 			ImGui::DragFloat("##length", &length, 0.01f, 0.001f, MaxVisualScriptTimelineLength, "%.3f s", ImGuiSliderFlags_AlwaysClamp);
@@ -2962,15 +3008,20 @@ namespace Strada
 		                                                {"Bottom", VisualScriptAlignment::Bottom, "Bottom"},
 		                                                {"Centres", VisualScriptAlignment::Centers, "Centres"},
 		                                                {"Middles", VisualScriptAlignment::Middles, "Middles"}}};
+		// The buttons fit or wrap at the column's width: at the stacked column's narrowest, Details' least width, three of
+		// them do not fit on a line beside the label.
 		BeginRow("Align");
+		float const alignRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
 		ImGui::BeginGroup();
 		for (size_t i = 0; i < Aligns.size(); i++)
 		{
-			if (i > 0 && i % 3 != 0)
+			if (i > 0)
 			{
-				ImGui::SameLine();
+				FlowSmallButton(Aligns[i].Label, alignRight);
 			}
-			if (ImGui::SmallButton(Aligns[i].Label))
+			bool const clicked = ImGui::SmallButton(Aligns[i].Label);
+			EndRow(fmt::format("Align/{}", Aligns[i].Label));
+			if (clicked)
 			{
 				VisualScriptDocument edited = document;
 				Result<void> const aligned = VisualScriptEditing::AlignElements(edited, function, elements, Aligns[i].Alignment, extents);
@@ -2987,6 +3038,7 @@ namespace Strada
 		ImGui::EndGroup();
 		EndRow("Align");
 		BeginRow("Distribute");
+		float const distributeRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
 		ImGui::BeginGroup();
 		ImGui::BeginDisabled(elements.size() < 3);
 		std::optional<VisualScriptDistribution> distribution;
@@ -2994,11 +3046,13 @@ namespace Strada
 		{
 			distribution = VisualScriptDistribution::Horizontal;
 		}
-		ImGui::SameLine();
+		EndRow("Distribute/Horizontally");
+		FlowSmallButton("Vertically", distributeRight);
 		if (ImGui::SmallButton("Vertically"))
 		{
 			distribution = VisualScriptDistribution::Vertical;
 		}
+		EndRow("Distribute/Vertically");
 		ImGui::EndDisabled();
 		ImGui::EndGroup();
 		EndRow("Distribute");

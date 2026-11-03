@@ -161,6 +161,19 @@ namespace Strada
 			result.Open = std::move(request);
 			return;
 		}
+		if (fix.Kind == VisualScriptFixKind::OpenTimeline)
+		{
+			// The node shown and selected in its sub-graph, then the drawer on its tracks.
+			uint32_t owner = 0;
+			if (FindElementKind(document, fix.Target, owner) != ElementKind::Node)
+			{
+				result.Notes.push_back(fmt::format("{}: what it goes to is gone", fix.Label));
+				return;
+			}
+			result.Open = MakeVisualScriptJump(context.Graph, owner, {fix.Target});
+			result.ShowTimeline = VisualScriptTimelineFocus{fix.Target, std::nullopt};
+			return;
+		}
 		if (fix.Navigates)
 		{
 			uint32_t owner = 0;
@@ -389,6 +402,7 @@ namespace Strada
 		m_Mode = VisualScriptDrawerMode::Problems;
 		m_Found = false;
 		m_FoundDocuments.clear();
+		m_FoundStored.reset();
 		m_FindRows.clear();
 		m_FindRects.clear();
 	}
@@ -613,6 +627,29 @@ namespace Strada
 		{
 			reference->Graph = context.Graph;
 		}
+		// The rows stand while the query, this script's document and analysis and the project's scripts (the index the model
+		// holds, whose revision moves with any script's document) do: an idle frame costs these comparisons (spec-slice4 §16.2).
+		Ref<VisualScriptDocument const> const& stored = model.GetStoredDocument();
+		VisualScriptAnalysis const* const ownAnalysis = model.GetAnalysis();
+		if (m_Found && m_FoundText == m_Text && m_FoundReference == reference && m_FoundScope == m_Scope && m_FoundStored == stored &&
+		    m_FoundProjectRevision == model.GetProjectRevision() && m_FoundAnalysis == ownAnalysis &&
+		    m_FoundAnalysisCount == model.GetAnalysisCount())
+		{
+			return;
+		}
+		m_FindScans++;
+		m_Found = true;
+		m_FoundText = m_Text;
+		m_FoundReference = reference;
+		m_FoundScope = m_Scope;
+		m_FoundStored = stored;
+		m_FoundProjectRevision = model.GetProjectRevision();
+		m_FoundAnalysis = ownAnalysis;
+		m_FoundAnalysisCount = model.GetAnalysisCount();
+		m_FoundDocuments.clear();
+		m_FindRows.clear();
+
+		std::span<VisualScriptProjectGraph const> const graphs = model.GetProjectGraphs();
 		bool const everyScript = m_Scope == VisualScriptFindScope::AllScripts ||
 		                         (reference && reference->ReferenceKind == VisualScriptReference::Kind::CustomEvent);
 		// A variable or a function is referred to by its own graph and the graphs whose nodes name it, as the project index
@@ -621,7 +658,7 @@ namespace Strada
 		if (reference && !everyScript)
 		{
 			referrers.emplace();
-			for (VisualScriptProjectGraph const& graph : model.GetProjectGraphs())
+			for (VisualScriptProjectGraph const& graph : graphs)
 			{
 				bool const refers = std::any_of(graph.References.begin(), graph.References.end(),
 				                                [&reference](VisualScriptGraphReference const& candidate)
@@ -638,11 +675,9 @@ namespace Strada
 				referrers->push_back(reference->Graph);
 			}
 		}
-		// What to look in: this script, then the project's other scripts by path.
-		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> documents;
+		// What to look in: this script, then the project's other scripts by path, with the documents the index shares.
 		std::vector<std::pair<AssetHandle, std::string>> errors;
-		documents.emplace_back(context.Graph, model.GetStoredDocument());
-		std::vector<AssetMetadata> scripts;
+		m_FoundDocuments.emplace_back(context.Graph, stored);
 		bool const otherReferrers = referrers && std::any_of(referrers->begin(), referrers->end(),
 		                                                     [&context](AssetHandle graph)
 		                                                     {
@@ -650,41 +685,20 @@ namespace Strada
 															 });
 		if (everyScript || otherReferrers)
 		{
-			scripts = AssetManager::IsInitialized() ? AssetManager::GetAssets(AssetType::VisualScript) : std::vector<AssetMetadata>();
-			std::sort(scripts.begin(), scripts.end(),
-			          [](AssetMetadata const& a, AssetMetadata const& b)
-			          {
-						  return a.Path < b.Path;
-					  });
-			for (AssetMetadata const& script : scripts)
+			for (VisualScriptProjectGraph const& graph : graphs)
 			{
-				if (script.Handle == context.Graph ||
-				    (referrers && std::find(referrers->begin(), referrers->end(), script.Handle) == referrers->end()))
+				if (graph.Graph == context.Graph ||
+				    (referrers && std::find(referrers->begin(), referrers->end(), graph.Graph) == referrers->end()))
 				{
 					continue;
 				}
-				Result<Ref<VisualScriptAsset>> const asset = AssetManager::TryGetAsset<VisualScriptAsset>(script.Handle);
-				if (asset)
+				m_FoundDocuments.emplace_back(graph.Graph, graph.Document);
+				if (graph.Document == nullptr)
 				{
-					documents.emplace_back(script.Handle, asset.GetValue()->GetSharedDocument());
-				}
-				else
-				{
-					documents.emplace_back(script.Handle, nullptr);
-					errors.emplace_back(script.Handle, asset.GetError());
+					errors.emplace_back(graph.Graph, graph.LoadError);
 				}
 			}
 		}
-		if (m_Found && m_FoundText == m_Text && m_FoundReference == reference && m_FoundScope == m_Scope && m_FoundDocuments == documents)
-		{
-			return;
-		}
-		m_Found = true;
-		m_FoundText = m_Text;
-		m_FoundReference = reference;
-		m_FoundScope = m_Scope;
-		m_FoundDocuments = documents;
-		m_FindRows.clear();
 		VisualScriptFindQuery query;
 		if (reference)
 		{
@@ -698,20 +712,20 @@ namespace Strada
 		{
 			return;
 		}
-		auto const pathOf = [&scripts, &context](AssetHandle handle)
+		auto const pathOf = [graphs, &context](AssetHandle handle)
 		{
-			for (AssetMetadata const& script : scripts)
+			for (VisualScriptProjectGraph const& graph : graphs)
 			{
-				if (script.Handle == handle)
+				if (graph.Graph == handle)
 				{
-					return script.Path.empty() ? script.Name : script.Path;
+					return graph.Path.empty() ? graph.DisplayName : graph.Path;
 				}
 			}
 			std::optional<AssetMetadata> const metadata = AssetManager::GetMetadata(handle);
 			return metadata ? (metadata->Path.empty() ? metadata->Name : metadata->Path) : std::string(context.ScriptName);
 		};
 		VisualScriptGraphResolver const resolver = model.MakeGraphResolver();
-		for (auto const& [handle, document] : documents)
+		for (auto const& [handle, document] : m_FoundDocuments)
 		{
 			if (document == nullptr)
 			{
@@ -719,7 +733,7 @@ namespace Strada
 			}
 			bool const own = handle == context.Graph;
 			VisualScriptDocument const& searched = own ? model.GetDisplayDocument() : *document;
-			VisualScriptAnalysis const* const analysis = own ? model.GetAnalysis() : nullptr;
+			VisualScriptAnalysis const* const analysis = own ? ownAnalysis : nullptr;
 			std::string const script = pathOf(handle);
 			for (VisualScriptFindResult const& match : FindInVisualScript(searched, analysis, query, handle, resolver))
 			{

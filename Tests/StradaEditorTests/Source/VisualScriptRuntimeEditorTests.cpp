@@ -517,20 +517,20 @@ TEST_CASE("VisualScriptEditor: the runtime's analysis offers Remove Split for an
 	                            Case{"DisabledIgnored", "Enable Node", VisualScriptFixKind::EnableNode}})
 	{
 		CAPTURE(problem.Code);
-		Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document);
+		Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(document);
 		REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
-		VisualScriptDiagnostic const* diagnostic = find(analysis.GetValue(), problem.Code);
+		VisualScriptDiagnostic const* diagnostic = find(*analysis.GetValue(), problem.Code);
 		REQUIRE(diagnostic != nullptr);
 		CHECK(diagnostic->Severity == VisualScriptSeverity::Warning);
-		std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, analysis.GetValue(), *diagnostic, *library);
+		std::vector<VisualScriptQuickFix> const fixes = GetVisualScriptQuickFixes(document, *analysis.GetValue(), *diagnostic, *library);
 		REQUIRE(fixes.size() == 1);
 		CHECK(fixes[0].Label == problem.Label);
 		CHECK(fixes[0].Kind == problem.Kind);
 		VisualScriptDocument fixed = document;
-		REQUIRE(ApplyVisualScriptQuickFix(fixed, analysis.GetValue(), *diagnostic, fixes[0]).IsOk());
-		Result<VisualScriptAnalysis> const after = VisualScriptEngine::Analyze(fixed);
+		REQUIRE(ApplyVisualScriptQuickFix(fixed, *analysis.GetValue(), *diagnostic, fixes[0]).IsOk());
+		Result<Ref<VisualScriptAnalysis const>> const after = VisualScriptEngine::Analyze(fixed);
 		REQUIRE(after.IsOk());
-		CHECK(find(after.GetValue(), problem.Code) == nullptr);
+		CHECK(find(*after.GetValue(), problem.Code) == nullptr);
 	}
 }
 
@@ -660,11 +660,11 @@ TEST_CASE("VisualScriptEditor: the editor's Timeline parser accepts a setting ex
 		CAPTURE(damaged.dump());
 		VisualScriptDocument document;
 		document.Graph.Nodes = {MakeNode(1, "Flow.Timeline", glm::vec2(0.0f), Json::object({{"Timeline", damaged}}))};
-		Result<VisualScriptAnalysis> const analysis = VisualScriptEngine::Analyze(document);
+		Result<Ref<VisualScriptAnalysis const>> const analysis = VisualScriptEngine::Analyze(document);
 		REQUIRE_MESSAGE(analysis.IsOk(), (analysis ? std::string() : analysis.GetError()));
 		// The runtime's problems with the setting: its messages start with the setting's path.
 		std::vector<std::string> problems;
-		for (VisualScriptDiagnostic const& diagnostic : analysis.GetValue().Diagnostics)
+		for (VisualScriptDiagnostic const& diagnostic : analysis.GetValue()->Diagnostics)
 		{
 			if (diagnostic.Node == 1 && diagnostic.Message.starts_with("Timeline"))
 			{

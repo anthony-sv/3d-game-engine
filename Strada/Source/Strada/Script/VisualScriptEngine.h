@@ -30,6 +30,17 @@ namespace Strada
 		Failed
 	};
 
+	// Where loads of programs spent their time, in milliseconds (spec-slice4 section 9.0): the documents' texts, the references
+	// bundles, the scripting runtime's loads (analysis, compilation and the swap of running instances), and the reading of
+	// their diagnostics.
+	struct VisualScriptLoadTimings
+	{
+		double Text = 0.0;
+		double References = 0.0;
+		double Runtime = 0.0;
+		double Diagnostics = 0.0;
+	};
+
 	// The visual scripts of the scripting runtime: its node library, its analysis of documents, the programs it compiles
 	// from graph assets and the graph instances of the running scene, which Scene drives like C# script instances. It works
 	// while ScriptEngine::IsInitialized(), and its state goes with ScriptEngine::Shutdown. Main thread only.
@@ -55,10 +66,18 @@ namespace Strada
 		// to the stored asset. The other graphs the document's nodes refer to are read from the assets as they are now (the
 		// libraries among them with the graphs they refer to), and the analysis lists them with the documents read
 		// (VisualScriptAnalysis::Graphs). Fails only without the runtime, or when the runtime fails (logged).
-		[[nodiscard]] static Result<VisualScriptAnalysis> Analyze(VisualScriptDocument const& document, AssetHandle self = {});
+		// The analysis is shared and never changes: the engine keeps the most recent ones (MaxKeptAnalyses, by self) to read the
+		// next analysis of the same graph with (VisualScriptAnalysis::Parse with a previous analysis), so an edit parses only
+		// the nodes and diagnostics it changed.
+		[[nodiscard]] static Result<Ref<VisualScriptAnalysis const>> Analyze(VisualScriptDocument const& document, AssetHandle self = {});
+		// Where the last Analyze spent its time and what its reader reused; all zero before the first, and for an Analyze that
+		// failed before the phase.
+		static VisualScriptAnalysisTimings GetLastAnalysisTimings();
 		// How many other graphs the references of one analysis or program hold at most: those beyond are sent as absent,
 		// with the error "more than 256 visual scripts are referenced".
 		static constexpr size_t MaxReferencedGraphs = 256;
+		// How many analyses the engine keeps to read later ones with, one per graph: the least recently analyzed is dropped.
+		static constexpr size_t MaxKeptAnalyses = 8;
 
 		// --- Programs ---
 
@@ -88,6 +107,9 @@ namespace Strada
 		// the runtime. A function library has no program of its own: for one, whether some graph's working program was
 		// compiled with it, so that graph runs the last version of the library that worked.
 		static bool HasWorkingProgram(AssetHandle graph);
+		// Where the loads of programs (EnsureLoaded's sends) spent their time since the last call, summed: a caller that takes
+		// them before and after a scene update gets that update's.
+		static VisualScriptLoadTimings TakeLoadTimings();
 		// Whether DevelopmentOnly nodes run: they do unless this is set to false, as the player does for exported games (the
 		// editor and projects run them). It is set right after ScriptEngine::Init, before any graph is loaded, and
 		// ScriptEngine::Shutdown resets it. While false, the runtime receives every document with its DevelopmentOnly nodes

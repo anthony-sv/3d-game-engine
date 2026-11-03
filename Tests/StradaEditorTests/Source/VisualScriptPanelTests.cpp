@@ -24,6 +24,7 @@
 #include <glm/glm.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <cmath>
@@ -583,8 +584,22 @@ TEST_CASE("VisualScriptEditor: an asset dropped on a pin sets its literal and en
 	CHECK(fixture.GetDocument().Variables.size() == variables);
 }
 
-TEST_CASE("VisualScriptEditor: a change made elsewhere during a drag cancels the drag")
+namespace
 {
+	// The title the window draws for a node, as a toast names it.
+	std::string GetDrawnTitle(VisualScriptEditorModel const& model, uint32_t node)
+	{
+		VisualScriptCanvasModel const& canvas = model.GetCanvas();
+		std::optional<uint32_t> const index = canvas.FindNode(node);
+		REQUIRE(index.has_value());
+		return std::string(canvas.GetText(canvas.GetNodes()[*index].Title));
+	}
+}
+
+TEST_CASE("VisualScriptEditor: a change made elsewhere to other nodes during a drag keeps the drag, which commits after it")
+{
+	// Spec-slice4 §16.1: the move continues, and its commit is made on the current document, so the history holds the agent's
+	// step, then the move.
 	PanelFixture fixture(MakeDocument());
 	fixture.CheckDrawingChangesNothing();
 	size_t const undo = fixture.GetUndoCount();
@@ -596,26 +611,65 @@ TEST_CASE("VisualScriptEditor: a change made elsewhere during a drag cancels the
 	fixture.MoveMouse(from + glm::vec2(80.0f, 60.0f));
 	REQUIRE(fixture.Model().GetGesture().Kind == VisualScriptGesture::MovingElements);
 
-	// An edit of another node made between frames (an agent's graph.set).
+	// An edit of another node made between frames (an agent's graph.edit).
 	VisualScriptDocument changed = fixture.GetDocument();
 	changed.Graph.Nodes[2].Position = glm::vec2(800.0f, 160.0f);
+	changed.Graph.Nodes[2].Inputs["Message"] = "Agent";
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, changed).IsOk());
+	REQUIRE(fixture.GetUndoCount() == undo + 1);
+	fixture.MoveMouse(from + glm::vec2(120.0f, 90.0f));
+	CHECK(fixture.Model().GetGesture().Kind == VisualScriptGesture::MovingElements);
+	CHECK(fixture.Model().GetNodePreview().IsMoved(*fixture.Model().GetCanvas().FindNode(2)));
+	CHECK(fixture.Panel->GetState().Toasts.empty());
+	fixture.SetButton(ImGuiMouseButton_Left, false);
+	fixture.Frames(1);
+
+	// Two steps: the agent's, then the move, made on the agent's document.
+	REQUIRE(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Move Node in Player");
+	glm::vec2 const moved = *fixture.FindNode(2)->Position;
+	CHECK(moved != before);
+	CHECK(*fixture.FindNode(3)->Position == glm::vec2(800.0f, 160.0f));
+	CHECK(fixture.FindNode(3)->Inputs["Message"] == "Agent");
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	CHECK(*fixture.FindNode(2)->Position == before);
+	CHECK(fixture.FindNode(3)->Inputs["Message"] == "Agent");
+}
+
+TEST_CASE("VisualScriptEditor: a change made elsewhere to the dragged node ends the drag with a toast naming it, and makes no edit")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	size_t const undo = fixture.GetUndoCount();
+	glm::vec2 const before = *fixture.FindNode(2)->Position;
+	std::string const title = GetDrawnTitle(fixture.Model(), 2);
+	glm::vec2 const from = Testing::CanvasPoint(fixture.Model(), 2, glm::vec2(0.5f, 0.06f));
+	fixture.MoveMouse(from);
+	fixture.SetButton(ImGuiMouseButton_Left, true);
+	fixture.MoveMouse(from + glm::vec2(40.0f, 30.0f));
+	fixture.MoveMouse(from + glm::vec2(80.0f, 60.0f));
+	REQUIRE(fixture.Model().GetGesture().Kind == VisualScriptGesture::MovingElements);
+
+	VisualScriptDocument changed = fixture.GetDocument();
+	changed.Graph.Nodes[1].Inputs["Duration"] = 4.0;
 	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, changed).IsOk());
 	fixture.MoveMouse(from + glm::vec2(120.0f, 90.0f));
 	CHECK(fixture.Model().GetGesture().Kind == VisualScriptGesture::Idle);
-	// The user learns why the move ended (spec-slice3 §10.11).
 	std::vector<std::string> const toasts = fixture.Panel->GetState().Toasts;
-	CHECK(std::count(toasts.begin(), toasts.end(), std::string("Your move was interrupted by a change made elsewhere")) == 1);
+	std::string const expected = fmt::format("Your move was interrupted: {} (node 2) was changed elsewhere", title);
+	CHECK(std::count(toasts.begin(), toasts.end(), expected) == 1);
 	fixture.SetButton(ImGuiMouseButton_Left, false);
 	fixture.Frames(1);
 	CHECK(fixture.GetUndoCount() == undo + 1);
 	CHECK(*fixture.FindNode(2)->Position == before);
-	CHECK(*fixture.FindNode(3)->Position == glm::vec2(800.0f, 160.0f));
+	CHECK(fixture.FindNode(2)->Inputs["Duration"] == 4.0);
 }
 
-TEST_CASE("VisualScriptEditor: a change made elsewhere during a wire ends it with a toast, and makes no edit")
+TEST_CASE("VisualScriptEditor: a change made elsewhere to a wire's node ends the wire with a toast naming it, and makes no edit")
 {
 	PanelFixture fixture(MakeDocument());
 	fixture.CheckDrawingChangesNothing();
+	std::string const title = GetDrawnTitle(fixture.Model(), 3);
 	glm::vec2 const logThen = Testing::CanvasPoint(fixture.Model(), 3, "Then", VisualScriptPinDirection::Out);
 	fixture.MoveMouse(logThen);
 	fixture.SetButton(ImGuiMouseButton_Left, true);
@@ -624,18 +678,51 @@ TEST_CASE("VisualScriptEditor: a change made elsewhere during a wire ends it wit
 	REQUIRE(fixture.Model().GetGesture().Kind == VisualScriptGesture::Wiring);
 
 	VisualScriptDocument changed = fixture.GetDocument();
-	changed.Graph.Nodes[0].Comment = "Starts";
+	changed.Graph.Nodes[2].Comment = "Says hi";
 	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, changed).IsOk());
 	size_t const undo = fixture.GetUndoCount();
 	fixture.MoveMouse(logThen + glm::vec2(160.0f, 100.0f));
 	CHECK(fixture.Model().GetGesture().Kind == VisualScriptGesture::Idle);
 	std::vector<std::string> const toasts = fixture.Panel->GetState().Toasts;
-	CHECK(std::find(toasts.begin(), toasts.end(), std::string("Your wire was interrupted by a change made elsewhere")) != toasts.end());
+	std::string const expected = fmt::format("Your wire was interrupted: {} (node 3) was changed elsewhere", title);
+	CHECK(std::find(toasts.begin(), toasts.end(), expected) != toasts.end());
 	fixture.SetButton(ImGuiMouseButton_Left, false);
 	fixture.Frames(2);
 	CHECK(fixture.GetUndoCount() == undo);
 	CHECK_FALSE(fixture.Panel->GetState().PaletteOpen);
 	CHECK(fixture.GetDocument().Graph.Links == changed.Graph.Links);
+}
+
+TEST_CASE("VisualScriptEditor: a wire dragged across a node added elsewhere connects to that node's pin")
+{
+	PanelFixture fixture(MakeDocument());
+	fixture.CheckDrawingChangesNothing();
+	glm::vec2 const delayCompleted = Testing::CanvasPoint(fixture.Model(), 2, "Completed", VisualScriptPinDirection::Out);
+	fixture.MoveMouse(delayCompleted);
+	fixture.SetButton(ImGuiMouseButton_Left, true);
+	fixture.MoveMouse(delayCompleted + glm::vec2(60.0f, 40.0f));
+	fixture.MoveMouse(delayCompleted + glm::vec2(120.0f, 80.0f));
+	REQUIRE(fixture.Model().GetGesture().Kind == VisualScriptGesture::Wiring);
+
+	// An agent adds a Log below the Delay meanwhile.
+	VisualScriptDocument changed = fixture.GetDocument();
+	changed.Graph.Nodes.push_back(MakeNode(9, "Call:Strada.Log.Info(string)", glm::vec2(800.0f, 400.0f)));
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(fixture.Graph, changed).IsOk());
+	size_t const undo = fixture.GetUndoCount();
+	fixture.MoveMouse(delayCompleted + glm::vec2(140.0f, 90.0f));
+	REQUIRE(fixture.Model().GetGesture().Kind == VisualScriptGesture::Wiring);
+	CHECK(fixture.Panel->GetState().Toasts.empty());
+
+	// Dropped on the new node's Execute: connected, one step after the agent's.
+	glm::vec2 const execute = Testing::CanvasPoint(fixture.Model(), 9, "Execute");
+	fixture.MoveMouse(glm::mix(delayCompleted, execute, 0.5f));
+	fixture.MoveMouse(execute);
+	fixture.SetButton(ImGuiMouseButton_Left, false);
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	VisualScriptLink const link{{2, "Completed"}, {9, "Execute"}};
+	std::vector<VisualScriptLink> const links = fixture.GetDocument().Graph.Links;
+	CHECK(std::find(links.begin(), links.end(), link) != links.end());
 }
 
 TEST_CASE("VisualScriptEditor: without the scripting runtime nodes still move and delete, and wires and the palette are refused")
