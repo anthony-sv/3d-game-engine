@@ -1,5 +1,8 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
+
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Script/VisualScriptLiterals.h"
@@ -160,6 +163,13 @@ namespace Strada
 		// or the shown graph changes; a function the document does not have is shown as the event graph is. Nothing changes
 		// when what the palette reads from the document is unchanged.
 		void SetDocument(VisualScriptDocument const& document, uint32_t function);
+		// Reads what the project's other graphs offer this one, self (spec-slice3 §10.2), after the document's entries: each
+		// library's functions ("Libraries/Motion"), each other script's typed Send and Broadcast of its custom events, Get
+		// and Set of its public variables and Runs ("Scripts/Door"), and, when self is a script, an untyped Broadcast of each
+		// of its own custom events ("Events") and Get and Set of each of its variables on another entity running it ("Scripts/
+		// <self>"). Pins come from the declarations; such entries get no document bonus. Reads nothing while revision (the
+		// index's) and self stay; composes again only when what it read changed.
+		void SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, AssetHandle self, uint64_t revision);
 
 		// Valid, as are the entries' indices, until the next Rebuild or the next SetDocument that changes what the index reads
 		// (either composes the entries again): never keep the span or an index across them.
@@ -256,9 +266,39 @@ namespace Strada
 			std::vector<CustomEvent> CustomEvents;
 			// The event graph's event nodes, which unique events go to; empty while a function's graph is shown.
 			std::vector<EventNode> EventNodes;
+			// A library has no variables or custom events of its own to offer.
+			VisualScriptDocumentKind Kind = VisualScriptDocumentKind::Script;
 
 			bool operator==(DocumentFacts const& other) const = default;
 		};
+
+		// What the palette reads from another graph of the project (or this one, for its entries on other entities).
+		struct GraphFacts
+		{
+			AssetHandle Graph;
+			// The file's stem ("Door").
+			std::string Name;
+			VisualScriptDocumentKind Kind = VisualScriptDocumentKind::Script;
+			bool Self = false;
+			// A library's functions.
+			std::vector<DocumentFacts::FunctionFacts> Functions;
+			// A script's variables: the public ones, every one of this graph's own.
+			struct VariableFacts
+			{
+				uint32_t ID = 0;
+				std::string Name;
+				std::string Type;
+
+				bool operator==(VariableFacts const& other) const = default;
+			};
+			std::vector<VariableFacts> Variables;
+			// A script's custom events.
+			std::vector<DocumentFacts::CustomEvent> CustomEvents;
+
+			bool operator==(GraphFacts const& other) const = default;
+		};
+		static std::vector<DocumentFacts::CustomEvent> ReadCustomEvents(VisualScriptDocument const& document);
+		void AddGraphEntries();
 
 		static SearchKey MakeKey(VisualScriptPaletteEntry const& entry);
 		void Compose();
@@ -291,6 +331,11 @@ namespace Strada
 		std::vector<VisualScriptPin> m_CustomEventPins;
 		// From the document (SetDocument).
 		DocumentFacts m_Document;
+		// From the project's graphs (SetProjectGraphs), with the index's revision and the graph they were read for.
+		std::vector<GraphFacts> m_Graphs;
+		uint64_t m_GraphsRevision = 0;
+		AssetHandle m_GraphsSelf;
+		bool m_HasGraphs = false;
 		// What GetEntries returns, with the keys and facts of each entry at the same index.
 		std::vector<VisualScriptPaletteEntry> m_Entries;
 		std::vector<SearchKey> m_Keys;

@@ -6,6 +6,7 @@
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptHitTest.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptSpatialIndex.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
@@ -49,6 +50,22 @@ namespace Strada
 		Gone
 	};
 
+	enum class VisualScriptGesture : uint8_t
+	{
+		Idle = 0,
+		Panning,
+		Marquee,
+		MovingElements,
+		ResizingComment,
+		// A new wire from a pin.
+		Wiring,
+		// The links of a pin picked up with Ctrl+drag.
+		Relinking,
+		// Ctrl+right drag: the cut line.
+		Cutting,
+		MinimapDrag
+	};
+
 	// What a Sync found.
 	struct VisualScriptSyncResult
 	{
@@ -59,6 +76,9 @@ namespace Strada
 		bool AnalysisChanged = false;
 		// The visual model's geometry changed and the spatial index was rebuilt.
 		bool GeometryChanged = false;
+		// An outside change ended this editing gesture in progress (a move, a resize, a wire, a relink, a cut, a marquee):
+		// the window says so (spec-slice3 §10.11).
+		std::optional<VisualScriptGesture> InterruptedGesture;
 	};
 
 	// --- Input ---
@@ -298,22 +318,6 @@ namespace Strada
 		Remove
 	};
 
-	enum class VisualScriptGesture : uint8_t
-	{
-		Idle = 0,
-		Panning,
-		Marquee,
-		MovingElements,
-		ResizingComment,
-		// A new wire from a pin.
-		Wiring,
-		// The links of a pin picked up with Ctrl+drag.
-		Relinking,
-		// Ctrl+right drag: the cut line.
-		Cutting,
-		MinimapDrag
-	};
-
 	// How a pin is classed against the pin a wire is dragged from (VisualScriptGestureView::PinClasses).
 	enum class VisualScriptPinClass : uint8_t
 	{
@@ -405,7 +409,9 @@ namespace Strada
 		None = 0,
 		Missing,
 		Unloadable,
-		EmptyGraph
+		EmptyGraph,
+		// A function library without functions, or showing its empty event graph.
+		EmptyLibrary
 	};
 
 	enum class VisualScriptLiveState : uint8_t
@@ -494,6 +500,9 @@ namespace Strada
 		bool ShortcutsOpen = false;
 		// Toolbar actions the overflow rule moved into the view menu.
 		std::vector<VisualScriptEditorAction> HiddenToolbarActions;
+		// Whether Back and Forward have somewhere to go, in this window or across graphs.
+		bool CanGoBack = false;
+		bool CanGoForward = false;
 	};
 
 	// The model of one graph window: which document it shows and how (the asset's document, with its unplaced nodes placed in
@@ -550,7 +559,9 @@ namespace Strada
 		void CancelGesture();
 		// Applies an open request: its sub-graph at once (when it has one), its selection and view at the next Update, once the
 		// canvas shows that sub-graph: framing first, then its zoom about the framed centre, then its centre. Animated, except
-		// for the window's first view and with Reduce Motion. The request's other members are the panel's.
+		// for the window's first view and with Reduce Motion. An Origin in another graph becomes a cross-graph entry of the
+		// history in place of the view left: on Back after a jump or a Forward, on Forward after a Back (spec-slice3 §10.7).
+		// The request's other members are the panel's.
 		void ApplyOpenRequest(VisualScriptOpenRequest const& request);
 		// Shows a sub-graph (0 for the event graph, else a function's ID; an ID the document does not have is ignored), keeping
 		// the view and selection of the one left, and pushing its view on the history. The next Sync lays it out.
@@ -614,6 +625,25 @@ namespace Strada
 		size_t GetCapacityBytes() const;
 
 		AssetHandle GetGraph() const { return m_Graph; }
+		// The project's visual scripts (spec-slice3 §10.1), as the window manager's index holds them (GetGraphs and
+		// GetRevision): the nodes that name other graphs take their titles and variable names from them, and the panes their
+		// pickers, palette entries and quick fixes. The model keeps its own copy of the list (sharing the documents), taken when
+		// the revision or a graph's document changed, so nothing it reads dangles when the index lists the scripts again between
+		// draws. A change lays the canvas out again only when a graph the drawn document names now resolves to another document,
+		// and analyzes again when a graph the analysis read changed what it read of it (spec-slice3 §10.8). Empty: no other
+		// graph is known.
+		void SetProjectGraphs(std::span<VisualScriptProjectGraph const> graphs, uint64_t revision);
+		std::span<VisualScriptProjectGraph const> GetProjectGraphs() const { return m_ProjectGraphs; }
+		uint64_t GetProjectRevision() const { return m_ProjectRevision; }
+		// The project's script of a handle; null when it has none.
+		VisualScriptProjectGraph const* FindProjectGraph(AssetHandle graph) const;
+		// The document of a graph a node names: this window's own graph is the display document (never the stored asset),
+		// another the project's; null when it does not load or is not known.
+		VisualScriptDocument const* ResolveGraph(AssetHandle graph) const;
+		// ResolveGraph as a resolver, valid while the model lives and the project's graphs stay.
+		[[nodiscard]] VisualScriptGraphResolver MakeGraphResolver() const;
+		// The name another graph is shown by (the project's file stem, "Door"); its handle when the project has no such script.
+		std::string GetGraphName(AssetHandle graph) const;
 		// The sub-graph shown: 0 for the event graph, else a function's ID. A function deleted while shown shows the event graph.
 		uint32_t GetFunction() const { return m_Function; }
 		VisualScriptDocumentState GetDocumentState() const { return m_State; }
@@ -642,9 +672,12 @@ namespace Strada
 		// The links this window's own commit added to the shown graph, reported for the frame of that commit's Sync (the
 		// renderer pulses them).
 		std::span<VisualScriptLink const> CommittedLinks() const { return m_CommittedLinks; }
-		// Whether Back and Forward have somewhere to go.
+		// Whether Back and Forward have somewhere to go: a view of this window, or of another graph's window.
 		bool CanGoBack() const { return !m_Back.empty(); }
 		bool CanGoForward() const { return !m_Forward.empty(); }
+		// The requests Back and Forward made for other graphs' windows (a cross-graph entry reached), each carrying this
+		// window's view as its origin; the panel hands them to the window manager.
+		std::vector<VisualScriptOpenRequest> TakeOtherGraphRequests() { return std::exchange(m_OtherGraphRequests, {}); }
 		// How many gestures and keys that need the scripting runtime were refused without it (a wire, the palette, a reroute
 		// on a wire): the panel blinks the degraded notice when it grows.
 		uint64_t GetRefusedCount() const { return m_RefusedCount; }
@@ -781,12 +814,28 @@ namespace Strada
 			bool Pushed = false;
 		};
 
+		// A view of the navigation history: this window's, or another graph's window's (a cross-graph entry, spec-slice3
+		// §10.7), which Back and Forward reach through the window manager.
+		struct HistoryEntry
+		{
+			VisualScriptViewState View;
+			// Invalid for this window's own views.
+			AssetHandle Graph;
+		};
+
 		// Sync's parts.
 		void LookUpAsset(VisualScriptSyncResult& result);
 		void AdoptDocument(Ref<VisualScriptDocument const> document, VisualScriptSyncResult& result);
 		void RecordChangedElements(VisualScriptDocument const& before, VisualScriptDocument const& after);
 		void RecordCommittedLinks(VisualScriptDocument const& before, VisualScriptDocument const& after);
 		void RefreshAnalysis(VisualScriptSemantics& semantics, bool widgetActive, double time, bool force, VisualScriptSyncResult& result);
+		// Whether every other graph the analysis read still holds, in the project's index, the shared document it read or one
+		// equal for the analyzed document's use of it (the whole program of a library, the interface of the others).
+		bool ReadsCurrentGraphs() const;
+		// Whether every other graph the last layout resolved still resolves to the same document (m_CanvasGraphs).
+		bool ResolvesCanvasGraphs() const;
+		// What the drawn document's nodes resolve of other graphs now, for the next ResolvesCanvasGraphs.
+		void RecordCanvasGraphs();
 		void SyncCanvas(VisualScriptThemeAnchors const& theme, VisualScriptSyncResult& result);
 		// After the visual model changed: what is kept by ID mapped to its indices again.
 		void OnCanvasChanged();
@@ -883,6 +932,9 @@ namespace Strada
 		void Frame(std::span<uint32_t const> elements, double time);
 		void SwitchFunction(uint32_t function);
 		void PushHistory(VisualScriptViewState const& view);
+		void PushHistory(HistoryEntry entry);
+		// A cross-graph entry's request for the window manager, from this window's view as the origin.
+		void RequestOtherGraph(HistoryEntry const& entry, VisualScriptHistoryStep step);
 		void GoBack(double time);
 		void GoForward(double time);
 		void GoTo(VisualScriptViewState const& view, double time);
@@ -941,6 +993,8 @@ namespace Strada
 		Ref<VisualScriptLibrary const> m_FailedLibrary;
 		// The runtime stopped: the analysis is kept for its pins, without its problems.
 		bool m_AnalysisStale = false;
+		// Another graph the analysis read no longer holds what it read (SetProjectGraphs): the next analysis runs anew.
+		bool m_OtherGraphsChanged = false;
 		bool m_AnalysisPending = true;
 		double m_LastAnalysisTime = -1.0e30;
 		bool m_HasAnalyzed = false;
@@ -953,6 +1007,15 @@ namespace Strada
 		bool m_HasMeasure = false;
 		uint64_t m_AssetVersion = 0;
 		uint32_t m_CanvasFunction = 0;
+		// The project's scripts (SetProjectGraphs), and the revision the visual model last checked.
+		std::vector<VisualScriptProjectGraph> m_ProjectGraphs;
+		uint64_t m_ProjectRevision = 0;
+		uint64_t m_CanvasProjectRevision = 0;
+		// The documents of the other graphs the drawn document's nodes named at the last layout (null: not known or not
+		// loading), held so that a document freed and another made at its address never compare equal; and the revision the
+		// canvas was given for them (VisualScriptCanvasSource::GraphsRevision), raised only when one resolves differently.
+		std::vector<std::pair<AssetHandle, Ref<VisualScriptDocument const>>> m_CanvasGraphs;
+		uint64_t m_CanvasGraphsRevision = 0;
 		// Counts the visual model's layouts, so classes kept by pin index know when they are stale.
 		uint64_t m_CanvasRevision = 0;
 		std::optional<VisualScriptRect> m_ContentBounds;
@@ -976,8 +1039,10 @@ namespace Strada
 		// An Update with a canvas has shown a view: later moves animate.
 		bool m_HasShownView = false;
 		std::optional<PendingOpen> m_PendingOpen;
-		std::vector<VisualScriptViewState> m_Back;
-		std::vector<VisualScriptViewState> m_Forward;
+		std::vector<HistoryEntry> m_Back;
+		std::vector<HistoryEntry> m_Forward;
+		// What Back and Forward from cross-graph entries asked of the window manager, until the panel takes them.
+		std::vector<VisualScriptOpenRequest> m_OtherGraphRequests;
 		std::vector<SubGraphState> m_SubGraphs;
 
 		// The selection (primary first) and the raised nodes (ID, raise counter), and their masks by index.

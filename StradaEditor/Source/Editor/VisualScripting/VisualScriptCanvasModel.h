@@ -6,6 +6,7 @@
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 #include "Strada/Script/VisualScriptLiterals.h"
@@ -302,6 +303,13 @@ namespace Strada
 		// Changes when assets' names may have changed (AssetManager::GetVersion): the nodes whose chips show an asset's name are
 		// laid out again.
 		uint64_t AssetVersion = 0;
+		// The documents of the other graphs nodes name with their Graph setting (spec-slice3 §10.1): the titles and the
+		// variable names of such nodes come from them, never from the shown document's elements of the IDs they name (empty
+		// resolves none). The shown document's own handle resolves to Display.
+		VisualScriptGraphResolver Resolve;
+		// Changes when the documents Resolve gives may have changed (VisualScriptProjectIndex::GetRevision): SyncPositions
+		// declines, so that what such nodes show is read again.
+		uint64_t GraphsRevision = 0;
 	};
 
 	// A literal as a value chip (and a pin's tooltip) shows it.
@@ -464,6 +472,7 @@ namespace Strada
 		VisualScriptThemeAnchors m_Theme;
 		uint64_t m_MeasureSignature = 0;
 		uint64_t m_AssetVersion = 0;
+		uint64_t m_GraphsRevision = 0;
 		bool m_HasSynced = false;
 		uint32_t m_Function = 0;
 		uint64_t m_GeometryHash = 0;

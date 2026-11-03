@@ -2,7 +2,9 @@
 
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Script/VisualScriptLibrary.h"
 
 #include <cstdint>
@@ -63,12 +65,17 @@ namespace Strada
 
 	// Text: every element whose title, subtitle, type, node comment, pin label, literal or text setting, comment text or name
 	// holds the text (ASCII letters in any case), one result per element and field (the first literal or pin label that holds
-	// it). References: the Variable.Get and Variable.Set nodes that name a variable or local; the Function.Call nodes that call
-	// a function; the Event.Custom and Event.Send nodes of a custom event's name, as Title results. Results come in document
+	// it). References, as Title results (spec-slice3 §10.5): the Variable.Get and Variable.Set nodes that name a variable or
+	// local, and the Function.Call nodes that call a function, of the reference's graph (a node's graph is its Graph setting,
+	// else self, the searched document's own handle); a custom event's Event.Custom when the searched document is its graph,
+	// the typed Event.Send and Event.Broadcast nodes of its name naming its graph, and the untyped ones of its name, which may
+	// reach it (a custom event of an invalid graph: every event and sender of its name). Results come in document
 	// order: the event graph (the document's variables, then its nodes, then its comment boxes), then each function in order
 	// (its name, its locals, its nodes, its comment boxes). A query with neither or both, or an empty text, finds nothing.
-	// Without an analysis titles are derived from the document (DeriveVisualScriptNodeTitle), and subtitles and pin labels
-	// are not searched.
-	[[nodiscard]] std::vector<VisualScriptFindResult>
-	FindInVisualScript(VisualScriptDocument const& document, VisualScriptAnalysis const* analysis, VisualScriptFindQuery const& query);
+	// Without an analysis titles are derived from the document (DeriveVisualScriptNodeTitle, nodes naming other graphs from the
+	// resolver's documents), and subtitles and pin labels are not searched.
+	[[nodiscard]] std::vector<VisualScriptFindResult> FindInVisualScript(VisualScriptDocument const& document,
+	                                                                     VisualScriptAnalysis const* analysis,
+	                                                                     VisualScriptFindQuery const& query, AssetHandle self = {},
+	                                                                     VisualScriptGraphResolver const& resolver = {});
 }

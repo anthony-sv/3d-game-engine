@@ -170,6 +170,8 @@ namespace Strada
 		std::weak_ptr<VisualScriptLibrary const> m_Library;
 		std::optional<uint64_t> m_IndexedRevision;
 		uint32_t m_IndexedFunction = 0;
+		// The project index's revision the other graphs' entries were read at.
+		std::optional<uint64_t> m_IndexedProjectRevision;
 		uint64_t m_DocumentReads = 0;
 		uint64_t m_IndexGeneration = 0;
 		VisualScriptPaletteIndex m_Index;

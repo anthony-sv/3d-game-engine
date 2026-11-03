@@ -11,6 +11,7 @@
 #include "Editor/PlayMode.h"
 #include "Editor/VisualScriptEnumLookupSource.h"
 #include "Editor/VisualScripting/VisualScriptArrange.h"
+#include "Editor/VisualScripting/VisualScriptBatch.h"
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
@@ -37,6 +38,7 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -1776,6 +1778,9 @@ TEST_CASE("GraphCommands: graph.palette checks its parameters in order, then lis
 	VisualScriptPaletteIndex index;
 	index.Rebuild(library);
 	index.SetDocument(document, 0);
+	// The window's palette also offers what the project's graphs offer this one (its variables on other entities).
+	VisualScriptProjectIndex const& project = fixture.Editors.GetProjectIndex();
+	index.SetProjectGraphs(project.GetGraphs(), AssetManager::ResolveReference(graph).GetValue(), project.GetRevision());
 	std::span<VisualScriptPaletteEntry const> const entries = index.GetEntries();
 	auto const expectTitles = [&entries](Json const& listed, std::vector<VisualScriptPaletteMatch> const& matches, size_t limit)
 	{
@@ -2481,6 +2486,30 @@ TEST_CASE("GraphCommands: graph.copy writes the clipboard text of elements as th
 	AssetHandle const memory = AssetManager::AddMemoryAsset(CreateRef<VisualScriptAsset>(stacked), "Memory");
 	CHECK(fixture.Ok("graph.copy", Json::object({{"graph", memory.ToString()}, {"elements", Json::array({10})}}))["text"] ==
 	      WriteVisualScriptClipboard(stacked, 0, std::vector<uint32_t>{10}, memory, nullptr));
+}
+
+TEST_CASE("GraphCommands: graph.edit's description names every operation, so an agent can use it from the description alone")
+{
+	GraphFixture fixture;
+	CommandDefinition const* const command = fixture.Registry.Find("graph.edit");
+	REQUIRE(command != nullptr);
+	std::string const& description = command->Description;
+	// Each name as a word of its own: "Delete" is not found in "DeleteVariable".
+	auto const isWordCharacter = [](char character)
+	{
+		return std::isalnum(static_cast<unsigned char>(character)) != 0;
+	};
+	for (std::string_view const operation : GetVisualScriptBatchOperations())
+	{
+		CAPTURE(operation);
+		bool named = false;
+		for (size_t at = description.find(operation); at != std::string::npos && !named; at = description.find(operation, at + 1))
+		{
+			size_t const end = at + operation.size();
+			named = (at == 0 || !isWordCharacter(description[at - 1])) && (end == description.size() || !isWordCharacter(description[end]));
+		}
+		CHECK(named);
+	}
 }
 
 TEST_CASE("GraphCommands: graph.edit applies a batch as one undo step through the commit pipeline")
@@ -3809,4 +3838,324 @@ TEST_CASE("GraphCommands: graph.set replacing a file that does not load reports 
 	CHECK(set["summary"] == Json::object({{"brokenReferrers", 0}, {"staleSenders", 0}}));
 	CHECK(fixture.GetDocument(broken).Kind == VisualScriptDocumentKind::Library);
 	CHECK(fixture.GetDocument(caller) == runner);
+}
+
+TEST_CASE("GraphCommands: graph.edit's typed senders take their event's parameters, and Retarget and SetKind edit what a graph names")
+{
+	GraphFixture fixture;
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	std::string const script = fixture.CreateGraph("Scripts/Player.sgraph", VisualScriptDocument());
+	Json const damage = Json::array({Json::object({{"Name", "Damage"}, {"Type", "float"}})});
+
+	// A Send named by its graph's path and event: the event's parameters come with it.
+	Json const added = fixture.Ok(
+		"graph.edit",
+		Json::object({{"graph", script},
+	                  {"operations",
+	                   Json::array({Json::object({{"op", "AddNode"},
+	                                              {"type", "Event.Send"},
+	                                              {"settings", Json::object({{"Name", "Hit"}, {"Graph", "asset://Scripts/Door.sgraph"}})},
+	                                              {"position", Json::array({0, 0})},
+	                                              {"as", "$send"}})})}}));
+	uint32_t const send = added["labels"]["$send"].get<uint32_t>();
+	VisualScriptDocument const typed = fixture.GetDocument(script);
+	VisualScriptNode const* node = FindVisualScriptNode(typed, send);
+	REQUIRE(node != nullptr);
+	CHECK(node->Settings == Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", damage}}));
+	// An event the graph does not have is refused, naming its events.
+	CommandError const unknown = fixture.Fails(
+		"graph.edit",
+		Json::object({{"graph", script},
+	                  {"operations", Json::array({Json::object({{"op", "AddNode"},
+	                                                            {"type", "Event.Send"},
+	                                                            {"settings", Json::object({{"Name", "Hti"}, {"Graph", door}})}})})}}));
+	CHECK(unknown.Code == AutomationErrorCode::InvalidParams);
+	CHECK(unknown.Data["path"] == "operations[0].settings.Name");
+	CHECK(unknown.Data["names"] == Json::array({"Hit", "Opened"}));
+
+	// Retarget untypes it in one step, keeping its parameters.
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+	Json const untyped = fixture.Ok(
+		"graph.edit",
+		Json::object({{"graph", script},
+	                  {"operations", Json::array({Json::object(
+										 {{"op", "Retarget"}, {"node", send}, {"settings", Json::object({{"Graph", nullptr}})}})})}}));
+	CHECK(untyped["results"][0] == Json::object({{"removedLinks", 0}}));
+	VisualScriptDocument const untypedDocument = fixture.GetDocument(script);
+	CHECK(FindVisualScriptNode(untypedDocument, send)->Settings == Json::object({{"Name", "Hit"}, {"Parameters", damage}}));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+
+	// SetKind makes the script a library.
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", script}, {"operations", Json::array({Json::object({{"op", "SetKind"}, {"kind", "Library"}})})}}));
+	CHECK(fixture.GetDocument(script).Kind == VisualScriptDocumentKind::Library);
+	CommandError const kind = fixture.Fails(
+		"graph.edit",
+		Json::object({{"graph", script}, {"operations", Json::array({Json::object({{"op", "SetKind"}, {"kind", "Module"}})})}}));
+	CHECK(kind.Code == AutomationErrorCode::InvalidParams);
+	CHECK(kind.Data["path"] == "operations[0].kind");
+}
+
+TEST_CASE("GraphCommands: with the scripting runtime, each family of cross-graph findings offers a fix that removes it")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	std::string const script = fixture.CreateGraph("Scripts/Player.sgraph", VisualScriptDocument());
+	// Motion: a library with what a library cannot hold, a variable and an event-graph node, beside its function Clamp01 (7).
+	VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptVariable leftover;
+	leftover.ID = 2;
+	leftover.Name = "Speed";
+	leftover.Type = "float";
+	motion.Variables = {leftover};
+	motion.Graph.Nodes = {MakeNode(1, "Event.Update")};
+	VisualScriptFunction clamp;
+	clamp.ID = 7;
+	clamp.Name = "Clamp01";
+	clamp.Pure = true;
+	clamp.Graph.Nodes = {MakeNode(8, "Function.Entry"), MakeNode(9, "Function.Return")};
+	motion.Functions = {clamp};
+	std::string const library =
+		fixture.Ok("graph.create", Json::object({{"path", "Scripts/Motion.sgraph"}, {"template", "Library"}}))["asset"].get<std::string>();
+	fixture.Ok("graph.set", Json::object({{"graph", library}, {"document", VisualScriptSerializer::SerializeDocument(motion)}}));
+	// A Send of an event Door lacks, one whose parameters differ, one to a graph that is absent, a Get of a variable Door lacks,
+	// a call naming its own graph and a call of a function Motion lacks.
+	VisualScriptDocument document;
+	document.Graph.Nodes.push_back(MakeNode(1, "Event.Update"));
+	document.Graph.Nodes.push_back(MakeNode(2, "Event.Send", Json::object({{"Name", "Hti"}, {"Graph", door}})));
+	document.Graph.Nodes.push_back(MakeNode(
+		3, "Event.Send",
+		Json::object(
+			{{"Name", "Hit"}, {"Graph", door}, {"Parameters", Json::array({Json::object({{"Name", "Damage"}, {"Type", "int"}})})}})));
+	document.Graph.Nodes.push_back(
+		MakeNode(4, "Event.Send", Json::object({{"Name", "Hit"}, {"Graph", "77"}, {"Parameters", Json::array()}})));
+	document.Graph.Nodes.push_back(MakeNode(5, "Variable.Get", Json::object({{"Variable", 99}, {"Graph", door}})));
+	document.Graph.Nodes.push_back(MakeNode(6, "RunsGraph", Json::object({{"Graph", door}})));
+	VisualScriptFunction helper;
+	helper.ID = 10;
+	helper.Name = "Helper";
+	helper.Pure = true;
+	helper.Graph.Nodes.push_back(MakeNode(11, "Function.Entry"));
+	helper.Graph.Nodes.push_back(MakeNode(12, "Function.Return"));
+	document.Functions.push_back(helper);
+	document.Graph.Nodes.push_back(MakeNode(7, "Function.Call", Json::object({{"Function", 10}, {"Graph", script}})));
+	document.Graph.Nodes.push_back(MakeNode(8, "Function.Call", Json::object({{"Function", 70}, {"Graph", library}})));
+	fixture.Ok("graph.set", Json::object({{"graph", script}, {"document", VisualScriptSerializer::SerializeDocument(document)}}));
+	auto const edit = [](std::string const& graph, Json operations)
+	{
+		return Json::object({{"graph", graph}, {"operations", std::move(operations)}});
+	};
+
+	// The library's findings are its own analysis': a variable's has a Variable and no Node.
+	struct Family
+	{
+		std::string_view Code;
+		std::string const& Graph;
+		uint32_t Node = 0;
+		uint32_t Variable = 0;
+		std::string_view Fix;
+	};
+	for (Family const& family :
+	     {Family{"UnknownEvent", script, 2, 0, "Use Hit"}, Family{"EventSignatureMismatch", script, 3, 0, "Update Parameters from Door"},
+	      Family{"UncheckedGraph", script, 4, 0, "Send by Name"}, Family{"UnknownVariable", script, 5, 0, "Use Health"},
+	      Family{"InvalidSetting", script, 7, 0, "Remove Setting"}, Family{"UnknownFunction", script, 8, 0, "Use Clamp01"},
+	      Family{"LibraryVariable", library, 0, 2, "Delete Variable"}, Family{"LibraryEventGraph", library, 1, 0, "Delete This Node"}})
+	{
+		CAPTURE(family.Code);
+		auto const matches = [&family](Json const& candidate)
+		{
+			return candidate.value("Node", 0u) == family.Node && candidate.value("Variable", 0u) == family.Variable;
+		};
+		Json const current = fixture.Ok("graph.edit", edit(family.Graph, Json::array()));
+		std::vector<Json> const found = FindDiagnostics(current, family.Code);
+		auto const diagnostic = std::find_if(found.begin(), found.end(), matches);
+		REQUIRE_MESSAGE(diagnostic != found.end(), current["diagnostics"].dump());
+		Json operation;
+		for (Json const& fix : (*diagnostic)["Fixes"])
+		{
+			operation = fix["label"] == std::string(family.Fix) ? fix["operation"] : operation;
+		}
+		REQUIRE_MESSAGE(operation.is_object(), (*diagnostic).dump());
+		Json const fixed = fixture.Ok("graph.edit", edit(family.Graph, Json::array({operation})));
+		std::vector<Json> const left = FindDiagnostics(fixed, family.Code);
+		CHECK(std::none_of(left.begin(), left.end(), matches));
+	}
+	// What the fixes wrote: Door's event and variable, no graph for the Send by name, Motion's function, and a library holding
+	// its function only.
+	VisualScriptDocument const fixedDocument = fixture.GetDocument(script);
+	CHECK(FindVisualScriptNode(fixedDocument, 2)->Settings["Name"] == "Hit");
+	CHECK(FindVisualScriptNode(fixedDocument, 5)->Settings["Variable"] == 1);
+	CHECK_FALSE(FindVisualScriptNode(fixedDocument, 4)->Settings.contains("Graph"));
+	CHECK(FindVisualScriptNode(fixedDocument, 8)->Settings["Function"] == 7);
+	VisualScriptDocument const fixedLibrary = fixture.GetDocument(library);
+	CHECK(fixedLibrary.Variables.empty());
+	CHECK(fixedLibrary.Graph.Nodes.empty());
+	CHECK(fixedLibrary.Functions.size() == 1);
+}
+
+TEST_CASE("GraphCommands: graph.find lists references across graphs: remote variables, library callers, typed and untyped senders")
+{
+	GraphFixture fixture;
+	std::string const window = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	std::string const library =
+		fixture.Ok("graph.create", Json::object({{"path", "Scripts/Motion.sgraph"}, {"template", "Library"}}))["asset"].get<std::string>();
+	VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction clamp;
+	clamp.ID = 7;
+	clamp.Name = "Clamp01";
+	clamp.Pure = true;
+	clamp.Graph.Nodes = {MakeNode(8, "Function.Entry"), MakeNode(9, "Function.Return")};
+	clamp.Graph.Nodes[0].Position = glm::vec2(0.0f);
+	clamp.Graph.Nodes[1].Position = glm::vec2(300.0f, 0.0f);
+	motion.Functions = {clamp};
+	fixture.Ok("graph.set", Json::object({{"graph", library}, {"document", VisualScriptSerializer::SerializeDocument(motion)}}));
+	// The caller reads Window's Speed on another entity, calls Clamp01, and sends Hit typed with Window and untyped.
+	VisualScriptDocument caller;
+	caller.Graph.Nodes = {MakePlacedNode(1, "Variable.Get", glm::vec2(0.0f), Json::object({{"Variable", 1}, {"Graph", window}})),
+	                      MakePlacedNode(2, "Function.Call", glm::vec2(0.0f, 200.0f), Json::object({{"Function", 7}, {"Graph", library}})),
+	                      MakePlacedNode(3, "Event.Send", glm::vec2(0.0f, 400.0f), Json::object({{"Name", "Hit"}, {"Graph", window}})),
+	                      MakePlacedNode(4, "Event.Send", glm::vec2(0.0f, 600.0f), Json::object({{"Name", "Hit"}})),
+	                      MakePlacedNode(5, "Event.Send", glm::vec2(0.0f, 800.0f), Json::object({{"Name", "Hit"}, {"Graph", library}}))};
+	std::string const other = fixture.CreateGraph("Scripts/Caller.sgraph", caller);
+	auto const references = [&fixture](Json reference)
+	{
+		Json const found = fixture.Ok("graph.find", Json::object({{"references", std::move(reference)}}));
+		std::vector<std::string> listed;
+		for (Json const& result : found["results"])
+		{
+			listed.push_back(fmt::format("{}:{}", result["path"].get<std::string>(), result["node"].get<uint32_t>()));
+		}
+		return listed;
+	};
+
+	// A variable's references in its own script and in every script naming it.
+	CHECK(references(Json::object({{"kind", "Variable"}, {"graph", window}, {"id", 1}})) ==
+	      std::vector<std::string>{"Scripts/Caller.sgraph:1", "Scripts/Window.sgraph:12"});
+	CHECK(references(Json::object({{"kind", "Function"}, {"graph", library}, {"id", 7}})) ==
+	      std::vector<std::string>{"Scripts/Caller.sgraph:2"});
+	// A custom event of a graph: its event, the senders typed with it and the untyped ones; of no graph, every one.
+	CHECK(references(Json::object({{"kind", "CustomEvent"}, {"name", "Hit"}, {"graph", window}})) ==
+	      std::vector<std::string>{"Scripts/Caller.sgraph:3", "Scripts/Caller.sgraph:4", "Scripts/Window.sgraph:13",
+	                               "Scripts/Window.sgraph:14"});
+	CHECK(references(Json::object({{"kind", "CustomEvent"}, {"name", "Hit"}})) ==
+	      std::vector<std::string>{"Scripts/Caller.sgraph:3", "Scripts/Caller.sgraph:4", "Scripts/Caller.sgraph:5",
+	                               "Scripts/Window.sgraph:13", "Scripts/Window.sgraph:14"});
+	// Remote nodes are titled after the other graph's element.
+	Json const titled =
+		fixture.Ok("graph.find", Json::object({{"references", {{"kind", "Variable"}, {"graph", window}, {"id", 1}}}, {"graph", other}}));
+	REQUIRE(titled["results"].size() == 1);
+	CHECK(titled["results"][0]["text"] == "Get Speed");
+	CHECK(fixture
+	          .Fails("graph.find",
+	                 Json::object({{"references", {{"kind", "CustomEvent"}, {"name", "Hit"}, {"graph", "asset://Missing.sgraph"}}}}))
+	          .Code == AutomationErrorCode::AssetNotFound);
+}
+
+TEST_CASE("GraphCommands: graph.open reveals an element in My Script, and graph.editors says whether Back and Forward can go")
+{
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(3);
+	Json editor = fixture.Editor(graph);
+	CHECK(editor["canGoBack"] == false);
+	CHECK(editor["canGoForward"] == false);
+	VisualScriptEditorPanel* const panel = fixture.Editors.FindPanel(GraphWindowFixture::GetHandle(graph));
+	REQUIRE(panel != nullptr);
+
+	// A variable, a function, a custom event's node, each selected in My Script and shown in Details.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Variable"}, {"id", 2}}}}));
+	fixture.Frames(2);
+	CHECK(panel->GetPaneShared().Element == std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::Variable, 2}));
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Function"}, {"id", 30}}}}));
+	fixture.Frames(2);
+	CHECK(panel->GetPaneShared().Element == std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::Function, 30}));
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "CustomEvent"}, {"id", 13}}}}));
+	fixture.Frames(2);
+	CHECK(panel->GetPaneShared().Element ==
+	      std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::CustomEvent, 13}));
+	// A local, in its function.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Variable"}, {"id", 31}}}}));
+	fixture.Frames(2);
+	CHECK(panel->GetPaneShared().Element == std::optional<VisualScriptElement>(VisualScriptElement{VisualScriptElementKind::Local, 31}));
+
+	// What the graph does not have.
+	using Failure = std::pair<AutomationErrorCode, std::string>;
+	CHECK(fixture.Failure("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Variable"}, {"id", 30}}}})) ==
+	      Failure{AutomationErrorCode::InvalidParams, "reveal.id"});
+	CHECK(fixture.Failure("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "Function"}, {"id", 1}}}})) ==
+	      Failure{AutomationErrorCode::InvalidParams, "reveal.id"});
+	CHECK(fixture.Failure("graph.open", Json::object({{"graph", graph}, {"reveal", {{"kind", "CustomEvent"}, {"id", 14}}}})) ==
+	      Failure{AutomationErrorCode::InvalidParams, "reveal.id"});
+
+	// Showing another sub-graph leaves a view to go back to; Back leaves one to go forward to.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"function", 0}}));
+	fixture.Frames(2);
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"function", 30}}));
+	fixture.Frames(2);
+	editor = fixture.Editor(graph);
+	CHECK(editor["canGoBack"] == true);
+	CHECK(editor["canGoForward"] == false);
+	REQUIRE(panel->RequestAction(VisualScriptEditorAction::Back));
+	fixture.Frames(2);
+	editor = fixture.Editor(graph);
+	CHECK(editor["function"] == 0);
+	CHECK(editor["canGoForward"] == true);
+}
+
+TEST_CASE("GraphCommands: while playing, a library an edit broke shows the last working version that the graphs calling it keep running")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphWindowFixture fixture;
+	EditorScripts scripts{fixture.Context, FileSystem::GetExecutableDirectory() / "Strada.ScriptCore.dll"};
+	PlayMode play{fixture.Context, scripts};
+	// Motion's Step, which Counter calls every frame.
+	std::string const library =
+		fixture.Ok("graph.create", Json::object({{"path", "Scripts/Motion.sgraph"}, {"template", "Library"}}))["asset"].get<std::string>();
+	AssetHandle const handle = GraphWindowFixture::GetHandle(library);
+	VisualScriptDocument motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	VisualScriptFunction step;
+	step.ID = 7;
+	step.Name = "Step";
+	step.Graph.Nodes = {MakePlacedNode(8, "Function.Entry", glm::vec2(0.0f)),
+	                    MakePlacedNode(9, "Function.Return", glm::vec2(400.0f, 0.0f))};
+	step.Graph.Links = {MakeLink(8, "Then", 9, "Execute")};
+	motion.Functions = {step};
+	fixture.Ok("graph.set", Json::object({{"graph", library}, {"document", VisualScriptSerializer::SerializeDocument(motion)}}));
+	VisualScriptDocument counter;
+	counter.Graph.Nodes = {
+		MakePlacedNode(1, "Event.Update", glm::vec2(0.0f)),
+		MakePlacedNode(2, "Function.Call", glm::vec2(300.0f, 0.0f), Json::object({{"Function", 7}, {"Graph", library}}))};
+	counter.Graph.Links = {MakeLink(1, "Then", 2, "Execute")};
+	std::string const graph = fixture.CreateGraph("Scripts/Counter.sgraph", counter);
+	fixture.Ok("entity.create",
+	           Json::object({{"name", "Counter"}, {"components", Json::object({{"VisualScript", Json::object({{"Graph", graph}})}})}}));
+	fixture.Ok("graph.open", Json::object({{"graph", library}}));
+	fixture.Frames(2);
+
+	REQUIRE(play.Start(EditorPlayState::Play, 640, 480).IsOk());
+	play.Advance(2, Timestep(FrameTime));
+	fixture.Frames(2);
+	CHECK(fixture.Editor(library)["live"] == "Live");
+
+	// An edit that breaks Step: Counter keeps running the version of it that worked, and Motion's window says so.
+	VisualScriptDocument broken = motion;
+	broken.Functions[0].Graph.Nodes.push_back(MakePlacedNode(10, "Call:Strada.Nothing.Here()", glm::vec2(200.0f, 200.0f)));
+	broken.Functions[0].Graph.Links = {MakeLink(8, "Then", 10, "Execute"), MakeLink(10, "Then", 9, "Execute")};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(handle, broken).IsOk());
+	play.Advance(1, Timestep(FrameTime));
+	fixture.Frames(2);
+	REQUIRE(VisualScriptEngine::HasWorkingProgram(handle));
+	Json const editor = fixture.Editor(library);
+	uint32_t const errors = editor["errors"].get<uint32_t>();
+	CHECK(errors > 0);
+	CHECK(editor["live"] == "LastWorking");
+	VisualScriptEditorPanel* const panel = fixture.Editors.FindPanel(handle);
+	REQUIRE(panel != nullptr);
+	CHECK(panel->GetLiveTooltip() == fmt::format("This version has {} {}: graphs that call it keep running the last version that worked.",
+	                                             errors, errors == 1 ? "error" : "errors"));
+	play.Stop();
+	fixture.Frames(2);
+	CHECK(fixture.Editor(library)["live"] == "None");
 }

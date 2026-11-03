@@ -1,5 +1,6 @@
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
 #include "Strada/Core/Utf8.h"
 
@@ -35,11 +36,13 @@ namespace Strada
 		constexpr std::string_view SwitchType = "Flow.Switch";
 		constexpr std::string_view CustomEventType = "Event.Custom";
 		constexpr std::string_view SendEventType = "Event.Send";
+		constexpr std::string_view BroadcastEventType = "Event.Broadcast";
 		constexpr std::string_view EntryType = "Function.Entry";
 		constexpr std::string_view ReturnType = "Function.Return";
 		constexpr std::string_view CallType = "Function.Call";
 		constexpr std::string_view GetVariableType = "Variable.Get";
 		constexpr std::string_view SetVariableType = "Variable.Set";
+		constexpr std::string_view RunsGraphType = "RunsGraph";
 		constexpr char const* CountSetting = "Count";
 		constexpr char const* CasesSetting = "Cases";
 		constexpr char const* TypeSetting = "Type";
@@ -47,6 +50,7 @@ namespace Strada
 		constexpr char const* NameSetting = "Name";
 		constexpr char const* VariableSetting = "Variable";
 		constexpr char const* FunctionSetting = "Function";
+		constexpr char const* GraphSetting = "Graph";
 		constexpr std::string_view CasePrefix = "Case:";
 		constexpr std::string_view SequenceOutputPrefix = "Then";
 		constexpr int MinSequenceOutputs = 2;
@@ -60,11 +64,12 @@ namespace Strada
 			std::string_view Operation;
 		};
 
-		constexpr std::array<SettingOperation, 8> SettingOperations = {{
+		constexpr std::array<SettingOperation, 9> SettingOperations = {{
 			{SequenceType, CountSetting, "SetSequenceOutputs"},
 			{SwitchType, CasesSetting, "SetSwitchCases"},
 			{CustomEventType, ParametersSetting, "SetEventParameters"},
 			{SendEventType, ParametersSetting, "SetEventParameters"},
+			{BroadcastEventType, ParametersSetting, "SetEventParameters"},
 			{CustomEventType, NameSetting, "RenameCustomEvent"},
 			{"Array.Make", CountSetting, "SetArrayElements"},
 			{"Expression", "Formula", "SetFormula"},
@@ -632,10 +637,25 @@ namespace Strada
 			return replaced;
 		}
 
-		// A Variable.Get or Variable.Set of the variable or local.
+		// A Variable.Get or Variable.Set of the variable or local; a node with a Graph setting reads another graph's variable.
 		bool IsVariableNode(VisualScriptNode const& node, uint32_t id)
 		{
-			return (node.Type == GetVariableType || node.Type == SetVariableType) && NamesID(node.Settings, VariableSetting, id);
+			return (node.Type == GetVariableType || node.Type == SetVariableType) && IsLocalVisualScriptReference(node) &&
+			       NamesID(node.Settings, VariableSetting, id);
+		}
+
+		// A Function.Call of the document's function; a node with a Graph setting calls a library's function.
+		bool IsLocalCall(VisualScriptNode const& node, uint32_t function)
+		{
+			return node.Type == CallType && IsLocalVisualScriptReference(node) && NamesID(node.Settings, FunctionSetting, function);
+		}
+
+		// The node types whose Graph setting refers to another visual script (their Function, Variable and Name settings then
+		// name that graph's elements).
+		bool IsCrossGraphType(std::string_view type)
+		{
+			return type == SendEventType || type == BroadcastEventType || type == CallType || type == GetVariableType ||
+			       type == SetVariableType || type == RunsGraphType;
 		}
 
 		// Removes the nodes a predicate picks from the graphs of the document (every graph, or only the function's: 0 for the
@@ -2242,6 +2262,16 @@ namespace Strada
 
 		std::string_view FindVisualScriptSettingOperation(VisualScriptNode const& node, std::string_view setting)
 		{
+			if (IsCrossGraphType(node.Type))
+			{
+				bool const remote = node.Settings.is_object() && node.Settings.contains(GraphSetting);
+				bool const sender = node.Type == SendEventType || node.Type == BroadcastEventType;
+				if (setting == GraphSetting ||
+				    (remote && (setting == FunctionSetting || setting == VariableSetting || (sender && setting == NameSetting))))
+				{
+					return "RetargetNode";
+				}
+			}
 			auto const row = std::find_if(SettingOperations.begin(), SettingOperations.end(),
 			                              [&node, setting](SettingOperation const& candidate)
 			                              {
@@ -2505,9 +2535,10 @@ namespace Strada
 			}
 			VisualScriptGraph& graph = *place.GetValue().Graph;
 			VisualScriptNode& event = *place.GetValue().Node;
-			if (event.Type != CustomEventType && event.Type != SendEventType)
+			if (event.Type != CustomEventType && event.Type != SendEventType && event.Type != BroadcastEventType)
 			{
-				return MakeError("node {} is no {} or {}: its type is {}", node, CustomEventType, SendEventType, event.Type);
+				return MakeError("node {} is no {}, {} or {}: its type is {}", node, CustomEventType, SendEventType, BroadcastEventType,
+				                 event.Type);
 			}
 			if (Result<void> members = CheckMembers(event); !members)
 			{
@@ -2535,7 +2566,7 @@ namespace Strada
 			return removed;
 		}
 
-		Result<uint32_t> RenameCustomEvent(VisualScriptDocument& document, uint32_t node, std::string const& name)
+		Result<uint32_t> RenameCustomEvent(VisualScriptDocument& document, uint32_t node, std::string const& name, AssetHandle self)
 		{
 			Result<NodePlace> place = GetNode(document, node);
 			if (!place)
@@ -2583,8 +2614,19 @@ namespace Strada
 			{
 				for (VisualScriptNode& sender : graph->Nodes)
 				{
+					if (sender.Type != SendEventType && sender.Type != BroadcastEventType)
+					{
+						continue;
+					}
+					// An untyped sender may reach this script by the name; a typed one names this script's event only when its
+					// Graph is this script.
+					if (!IsLocalVisualScriptReference(sender) &&
+					    (!self.IsValid() || ReadVisualScriptGraphSetting(sender) != std::optional<AssetHandle>(self)))
+					{
+						continue;
+					}
 					std::string const* const sent = FindStringSetting(sender, NameSetting);
-					if (sender.Type == SendEventType && sent != nullptr && *sent == *previous)
+					if (sent != nullptr && *sent == *previous)
 					{
 						sender.Settings[NameSetting] = name;
 						senders++;
@@ -3319,7 +3361,7 @@ namespace Strada
 			{
 				for (VisualScriptNode& node : graph->Nodes)
 				{
-					if (node.Type == CallType && NamesID(node.Settings, FunctionSetting, function))
+					if (IsLocalCall(node, function))
 					{
 						removed += ApplyParameterChanges(graph->Links, node, VisualScriptPinDirection::In, inputChanges);
 						removed += ApplyParameterChanges(graph->Links, node, VisualScriptPinDirection::Out, outputChanges);
@@ -3358,7 +3400,7 @@ namespace Strada
 					std::unordered_set<uint32_t> calls;
 					for (VisualScriptNode const& node : graph->Nodes)
 					{
-						if (node.Type == CallType && NamesID(node.Settings, FunctionSetting, function))
+						if (IsLocalCall(node, function))
 						{
 							calls.insert(node.ID);
 						}
@@ -3396,12 +3438,11 @@ namespace Strada
 			uint32_t removed = 0;
 			if (removeCalls)
 			{
-				Result<uint32_t> const calls =
-					RemoveNodesBridged(edited, std::nullopt, pins,
-				                       [function](VisualScriptNode const& node)
-				                       {
-										   return node.Type == CallType && NamesID(node.Settings, FunctionSetting, function);
-									   });
+				Result<uint32_t> const calls = RemoveNodesBridged(edited, std::nullopt, pins,
+				                                                  [function](VisualScriptNode const& node)
+				                                                  {
+																	  return IsLocalCall(node, function);
+																  });
 				if (!calls)
 				{
 					return calls;
@@ -3452,6 +3493,11 @@ namespace Strada
 			{
 				nodes.emplace(node.ID, next);
 				node.ID = next++;
+				if (!IsLocalVisualScriptReference(node))
+				{
+					// A node of another graph names that graph's elements: copied as it is.
+					continue;
+				}
 				if (node.Type == GetVariableType || node.Type == SetVariableType)
 				{
 					for (auto const& [from, to] : locals)
@@ -3463,7 +3509,7 @@ namespace Strada
 						}
 					}
 				}
-				else if (node.Type == CallType && NamesID(node.Settings, FunctionSetting, function))
+				else if (IsLocalCall(node, function))
 				{
 					node.Settings[FunctionSetting] = copy.ID;
 				}
@@ -3699,7 +3745,7 @@ namespace Strada
 			{
 				for (VisualScriptNode& call : graph->Nodes)
 				{
-					if (call.Type == CallType && NamesID(call.Settings, FunctionSetting, function))
+					if (IsLocalCall(call, function))
 					{
 						if (Result<void> members = CheckMembers(call); !members)
 						{
@@ -3964,5 +4010,179 @@ namespace Strada
 			}
 			return moved;
 		}
+	}
+}
+
+namespace Strada::VisualScriptEditing
+{
+	namespace
+	{
+		// Equal as the runtime reads them: operator== takes 1 and 1.0 as equal, the program comparison does not.
+		bool AreSameNodes(VisualScriptNode const& a, VisualScriptNode const& b)
+		{
+			return a == b && HaveSameVisualScriptProgram(a, b);
+		}
+
+		template<typename TElement>
+		TElement const* FindByID(std::vector<TElement> const& elements, uint32_t id)
+		{
+			auto const found = std::find_if(elements.begin(), elements.end(),
+			                                [id](TElement const& element)
+			                                {
+												return element.ID == id;
+											});
+			return found != elements.end() ? &*found : nullptr;
+		}
+
+		template<typename TElement>
+		TElement* FindByID(std::vector<TElement>& elements, uint32_t id)
+		{
+			auto const found = std::find_if(elements.begin(), elements.end(),
+			                                [id](TElement const& element)
+			                                {
+												return element.ID == id;
+											});
+			return found != elements.end() ? &*found : nullptr;
+		}
+
+		// The value edits of one graph: the nodes whose Settings or Inputs differ, when nothing else of the graph does.
+		std::optional<std::vector<uint32_t>> FindValueEdits(VisualScriptGraph const& base, VisualScriptGraph const& pending)
+		{
+			if (base.Nodes.size() != pending.Nodes.size() || base.Links != pending.Links || base.Comments != pending.Comments)
+			{
+				return std::nullopt;
+			}
+			std::vector<uint32_t> edited;
+			for (size_t i = 0; i < base.Nodes.size(); i++)
+			{
+				VisualScriptNode const& before = base.Nodes[i];
+				VisualScriptNode values = pending.Nodes[i];
+				if (values.ID != before.ID)
+				{
+					return std::nullopt;
+				}
+				if (AreSameNodes(values, before))
+				{
+					continue;
+				}
+				values.Settings = before.Settings;
+				values.Inputs = before.Inputs;
+				if (!AreSameNodes(values, before))
+				{
+					return std::nullopt;
+				}
+				edited.push_back(before.ID);
+			}
+			return edited;
+		}
+
+		// The IDs of the elements (variables, locals) whose fields differ, when the lists hold the same IDs in the same order.
+		template<typename TElement>
+		std::optional<std::vector<uint32_t>> FindFieldEdits(std::vector<TElement> const& base, std::vector<TElement> const& pending)
+		{
+			if (base.size() != pending.size())
+			{
+				return std::nullopt;
+			}
+			std::vector<uint32_t> edited;
+			for (size_t i = 0; i < base.size(); i++)
+			{
+				if (base[i].ID != pending[i].ID)
+				{
+					return std::nullopt;
+				}
+				if (!(base[i] == pending[i]))
+				{
+					edited.push_back(base[i].ID);
+				}
+			}
+			return edited;
+		}
+
+		// Carries a graph's value edits into the graph of current: each edited node must be there as base has it.
+		bool RebaseGraph(VisualScriptGraph const& base, VisualScriptGraph const& pending, VisualScriptGraph& current,
+		                 std::span<uint32_t const> nodes)
+		{
+			for (uint32_t const id : nodes)
+			{
+				VisualScriptNode const* const before = FindByID(base.Nodes, id);
+				VisualScriptNode const* const edited = FindByID(pending.Nodes, id);
+				VisualScriptNode* const now = FindByID(current.Nodes, id);
+				if (before == nullptr || edited == nullptr || now == nullptr || !AreSameNodes(*now, *before))
+				{
+					return false;
+				}
+				now->Settings = edited->Settings;
+				now->Inputs = edited->Inputs;
+			}
+			return true;
+		}
+
+		template<typename TElement>
+		bool RebaseFields(std::vector<TElement> const& base, std::vector<TElement> const& pending, std::vector<TElement>& current,
+		                  std::span<uint32_t const> ids)
+		{
+			for (uint32_t const id : ids)
+			{
+				TElement const* const before = FindByID(base, id);
+				TElement const* const edited = FindByID(pending, id);
+				TElement* const now = FindByID(current, id);
+				if (before == nullptr || edited == nullptr || now == nullptr || !(*now == *before))
+				{
+					return false;
+				}
+				*now = *edited;
+			}
+			return true;
+		}
+	}
+
+	std::optional<VisualScriptDocument> RebaseVisualScriptEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending,
+	                                                           VisualScriptDocument const& current)
+	{
+		if (base.Kind != pending.Kind || base.Description != pending.Description || base.Functions.size() != pending.Functions.size())
+		{
+			return std::nullopt;
+		}
+		std::optional<std::vector<uint32_t>> const variables = FindFieldEdits(base.Variables, pending.Variables);
+		std::optional<std::vector<uint32_t>> const events = FindValueEdits(base.Graph, pending.Graph);
+		if (!variables || !events)
+		{
+			return std::nullopt;
+		}
+		VisualScriptDocument rebased = current;
+		if (!RebaseFields(base.Variables, pending.Variables, rebased.Variables, *variables) ||
+		    !RebaseGraph(base.Graph, pending.Graph, rebased.Graph, *events))
+		{
+			return std::nullopt;
+		}
+		for (size_t i = 0; i < base.Functions.size(); i++)
+		{
+			VisualScriptFunction const& before = base.Functions[i];
+			VisualScriptFunction const& edited = pending.Functions[i];
+			// A function's own declarations are no value of a pane's widget: only its locals and its graph's values are.
+			if (edited.ID != before.ID || edited.Name != before.Name || edited.Pure != before.Pure || edited.Inputs != before.Inputs ||
+			    edited.Outputs != before.Outputs)
+			{
+				return std::nullopt;
+			}
+			std::optional<std::vector<uint32_t>> const locals = FindFieldEdits(before.Locals, edited.Locals);
+			std::optional<std::vector<uint32_t>> const nodes = FindValueEdits(before.Graph, edited.Graph);
+			if (!locals || !nodes)
+			{
+				return std::nullopt;
+			}
+			if (locals->empty() && nodes->empty())
+			{
+				continue;
+			}
+			VisualScriptFunction* const now = FindByID(rebased.Functions, before.ID);
+			if (now == nullptr || !RebaseFields(before.Locals, edited.Locals, now->Locals, *locals) ||
+			    !RebaseGraph(before.Graph, edited.Graph, now->Graph, *nodes))
+			{
+				return std::nullopt;
+			}
+		}
+		return rebased;
 	}
 }

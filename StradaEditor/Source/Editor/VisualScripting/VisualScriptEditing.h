@@ -2,6 +2,7 @@
 
 #include "Editor/VisualScripting/VisualScriptEditorTypes.h"
 
+#include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Result.h"
 #include "Strada/Script/VisualScriptLibrary.h"
@@ -221,10 +222,14 @@ namespace Strada
 		// ("Force.X") takes literals only while the struct is split, and a split struct takes none of its own.
 		[[nodiscard]] Result<void> SetInput(VisualScriptDocument& document, uint32_t node, std::string pin, Json literal);
 		// The operation that sets a setting whose change renames or removes pins or senders, so that links follow in the same
-		// step: a Sequence's Count (SetSequenceOutputs), a Switch's Cases (SetSwitchCases), the Parameters of Event.Custom and
-		// Event.Send (SetEventParameters), an Event.Custom's Name (RenameCustomEvent, which renames its senders too), an
-		// Array.Make's Count (SetArrayElements), an Expression's Formula (SetFormula) and a Flow.Timeline's Timeline
-		// (SetTimeline; both VisualScriptLanguageEditing.h). Empty when SetSetting may set the setting.
+		// step: a Sequence's Count (SetSequenceOutputs), a Switch's Cases (SetSwitchCases), the Parameters of Event.Custom,
+		// Event.Send and Event.Broadcast (SetEventParameters), an Event.Custom's Name (RenameCustomEvent, which renames its
+		// senders too), an Array.Make's Count (SetArrayElements), an Expression's Formula (SetFormula), a Flow.Timeline's
+		// Timeline (SetTimeline; both VisualScriptLanguageEditing.h), and the Graph setting of a node that can refer to another
+		// graph (Event.Send, Event.Broadcast, Function.Call, Variable.Get, Variable.Set, RunsGraph), with the Function,
+		// Variable and (of a Send or Broadcast) Name settings of such a node that has one (RetargetNode,
+		// VisualScriptCrossGraph.h: they name the other graph's elements, whose declarations give the pins). Empty when
+		// SetSetting may set the setting.
 		[[nodiscard]] std::string_view FindVisualScriptSettingOperation(VisualScriptNode const& node, std::string_view setting);
 		// Stores a node's setting; null removes it. The settings FindVisualScriptSettingOperation names an operation for are
 		// refused, naming it.
@@ -242,15 +247,19 @@ namespace Strada
 		// came), so are their links; the links of every other case that went are removed. Without Cases a Switch on int or
 		// string has no cases; one on an enum has every enumerator, whose links stay. Returns how many links it removed.
 		[[nodiscard]] Result<uint32_t> SetSwitchCases(VisualScriptDocument& document, uint32_t node, Json cases);
-		// Sets the Parameters of an Event.Custom (outputs) or an Event.Send (inputs) and updates their links, and a sender's
+		// Sets the Parameters of an Event.Custom (outputs), an Event.Send or an Event.Broadcast (inputs) and updates their
+		// links, and a sender's
 		// literals and split pins: a parameter kept keeps them; when the list keeps its length, the parameters whose names
 		// changed are renamed in order, with them; those of every other parameter that went are removed. Returns how many
 		// links it removed.
 		[[nodiscard]] Result<uint32_t> SetEventParameters(VisualScriptDocument& document, uint32_t node,
 		                                                  std::vector<VisualScriptParameter> parameters);
-		// Renames an Event.Custom node, and every Event.Send of the document that sent the old name. Returns how many senders
-		// it renamed.
-		[[nodiscard]] Result<uint32_t> RenameCustomEvent(VisualScriptDocument& document, uint32_t node, std::string const& name);
+		// Renames an Event.Custom node, and the senders of the document that sent the old name: every untyped Event.Send and
+		// Event.Broadcast (no Graph setting), and the typed ones whose Graph is self, the document's own handle (they name this
+		// script's event explicitly). Senders typed with another graph name that graph's event and stay. Returns how many
+		// senders it renamed.
+		[[nodiscard]] Result<uint32_t> RenameCustomEvent(VisualScriptDocument& document, uint32_t node, std::string const& name,
+		                                                 AssetHandle self = {});
 		// The note shown with each node; empty removes it.
 		[[nodiscard]] Result<void> SetNodeComment(VisualScriptDocument& document, std::span<uint32_t const> nodes,
 		                                          std::string const& comment);
@@ -387,5 +396,13 @@ namespace Strada
 		// graph's order). Returns how many nodes moved.
 		[[nodiscard]] Result<uint32_t> StraightenExec(VisualScriptDocument& document, uint32_t function, std::span<uint32_t const> nodes,
 		                                              VisualScriptNodePins const& pins);
+
+		// A value being edited, computed from base, carried over an outside change base -> current (spec-slice3 §10.11): when
+		// pending differs from base only in nodes' Settings and Inputs and in variables and locals (the edits of the panes'
+		// value widgets), and current has each of those elements exactly as base has it, the result is current with pending's
+		// versions of them. Nothing when pending changed anything else (a link, a position, an element added or removed) or
+		// the outside change touched one of its elements (or removed it).
+		[[nodiscard]] std::optional<VisualScriptDocument>
+		RebaseVisualScriptEdit(VisualScriptDocument const& base, VisualScriptDocument const& pending, VisualScriptDocument const& current);
 	}
 }

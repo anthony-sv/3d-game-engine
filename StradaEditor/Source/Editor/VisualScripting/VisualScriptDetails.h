@@ -86,11 +86,12 @@ namespace Strada
 		// What the last Draw showed.
 		VisualScriptDetailsSubject GetSubject() const { return m_Subject; }
 		// The screen rectangle (min, max) of the widget of the row with the label in the last Draw ("Name", "Type", "Count",
-		// "Then1", ...; the occurrence-th row of that label, from 0); nothing when no such row was drawn. Tests and automation find widgets
-		// by it.
+		// "Then1", ...; the occurrence-th row of that label, from 0); nothing when no such row was drawn. The open list of a Kind,
+		// Graph, Variable, Function or Event combo records its items as "<label>/<item>" ("Graph/Door · Scripts/Door.sgraph").
+		// Tests and automation find widgets by it.
 		std::optional<std::pair<glm::vec2, glm::vec2>> FindRow(std::string_view label, size_t occurrence = 0) const;
-		// The text a row that shows text drew in the last Draw ("Placeholders", "Default Value", an input's "Self", ...);
-		// nothing when no such row was drawn.
+		// The text a row that shows text drew in the last Draw ("Placeholders", "Default Value", an input's "Self", the preview
+		// of a Graph picker, "Missing (8146…)" for a graph the project lacks, ...); nothing when no such row was drawn.
 		std::optional<std::string> GetRowText(std::string_view label) const;
 		// The type IDs the type picker listed in the last Draw, in their order; empty while it is closed.
 		std::span<std::string const> GetPickerTypes() const { return m_PickerTypes; }
@@ -99,6 +100,14 @@ namespace Strada
 
 		// Asset literals show images of the assets.
 		void SetAssetPreviews(AssetThumbnails* previews) { m_Literals.SetAssetPreviews(previews); }
+
+		// The modal that asks before a Kind switch makes errors ("Make Player a function library? ...", spec-slice3 §10.3):
+		// its window's ID, and the question while it is open or about to open.
+		static constexpr char const* KindModalId = "###VisualScriptKind";
+		std::optional<std::string> GetKindQuestion() const
+		{
+			return m_KindSwitch ? std::optional<std::string>(m_KindQuestion) : std::nullopt;
+		}
 
 	private:
 		// An edit a widget made: the document and the step's description.
@@ -123,6 +132,22 @@ namespace Strada
 		void Track(Frame& frame, std::string_view label, std::string_view key, TDraw&& draw);
 
 		void DrawScript(Frame& frame);
+		// The script's Kind (Script or Function Library): a switch that makes errors asks first (DrawKindModal).
+		void DrawKind(Frame& frame);
+		void DrawKindModal(Frame& frame);
+		void SwitchKind(Frame& frame, VisualScriptDocumentKind kind);
+		// The Graph setting of a node that can name another graph: the project's graphs its constraint allows ("Door ·
+		// Scripts/Door.sgraph"), "None" first unless the setting is required; a graph the project lacks shows "Missing".
+		void DrawGraphSetting(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
+		// A typed Send's or Broadcast's choice of the target's custom events: one sets Name and that event's Parameters.
+		void DrawTargetEvents(Frame& frame, VisualScriptNode const& node, std::string const& title);
+		// "Used by 2 nodes in 1 other script" (a public variable) or "Called by 5 nodes in 3 scripts" (a library's function),
+		// from the project's other scripts.
+		void DrawOtherUses(Frame& frame, VisualScriptElementKind kind, uint32_t id);
+		// The edit that gives a node naming another graph new settings, with its pins from what they name (RetargetNode):
+		// "Set <label> on <title>", with the links it removes; none, with a note, when it fails.
+		std::optional<Edit> MakeRetargetEdit(Frame& frame, VisualScriptNode const& node, std::string const& title, std::string_view label,
+		                                     Json settings) const;
 		void DrawNode(Frame& frame, VisualScriptNode const& node);
 		void DrawNodeHeader(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawEnabled(Frame& frame, VisualScriptNode const& node, std::string const& title);
@@ -186,6 +211,10 @@ namespace Strada
 		VisualScriptLiteralEditor m_Literals;
 		VisualScriptNameField m_Names;
 		VisualScriptDetailsSubject m_Subject = VisualScriptDetailsSubject::Script;
+		// The Kind a switch waits to be confirmed for, with the modal's question; the modal opens at the next Draw.
+		std::optional<VisualScriptDocumentKind> m_KindSwitch;
+		std::string m_KindQuestion;
+		bool m_OpenKindModal = false;
 		// How many Draws the focus request has waited for its node.
 		int m_FocusWaits = 0;
 		// The Formula field being typed in: its node, the formula and its inputs at the interaction's start, the text typed, the

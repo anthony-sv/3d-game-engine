@@ -1,5 +1,6 @@
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
 
+#include "Editor/VisualScripting/VisualScriptCrossGraph.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
@@ -212,10 +213,91 @@ namespace Strada
 			return pin != nullptr ? pin->Type : std::string();
 		}
 
-		std::string TitleOfNode(VisualScriptDocument const& document, VisualScriptAnalysis const& analysis, VisualScriptNode const& node)
+		std::string TitleOfNode(VisualScriptDocument const& document, VisualScriptAnalysis const& analysis, VisualScriptNode const& node,
+		                        VisualScriptGraphResolver const& resolver)
 		{
 			VisualScriptAnalyzedNode const* analyzed = analysis.FindNode(node.ID);
-			return analyzed != nullptr && !analyzed->Title.empty() ? analyzed->Title : DeriveVisualScriptNodeTitle(node, document);
+			return analyzed != nullptr && !analyzed->Title.empty() ? analyzed->Title
+			                                                       : DeriveVisualScriptNodeTitle(node, document, resolver);
+		}
+
+		// The document of the graph a node names, from the graphs; null for a node that names none or when none is at hand.
+		VisualScriptDocument const* ResolveTarget(VisualScriptNode const& node, VisualScriptQuickFixGraphs const* graphs)
+		{
+			std::optional<AssetHandle> const graph = ReadVisualScriptGraphSetting(node);
+			return graph && graphs != nullptr && graphs->Resolve ? graphs->Resolve(*graph) : nullptr;
+		}
+
+		// A value as compact JSON text, as fixes carry settings in their Argument.
+		std::string DumpCompact(Json const& value)
+		{
+			return value.dump(-1, ' ', false, Json::error_handler_t::replace);
+		}
+
+		// An ID a node's setting holds (an integer from 1 to the format's largest ID); none otherwise.
+		std::optional<uint32_t> ReadSettingID(VisualScriptNode const& node, char const* key)
+		{
+			auto const found = node.Settings.is_object() ? node.Settings.find(key) : Json::const_iterator();
+			if (!node.Settings.is_object() || found == node.Settings.end() || !found->is_number_integer())
+			{
+				return std::nullopt;
+			}
+			int64_t const value = found->is_number_unsigned()
+			                          ? static_cast<int64_t>(std::min<uint64_t>(found->get<uint64_t>(), Format::MaxID + 1ull))
+			                          : found->get<int64_t>();
+			return value >= 1 && value <= static_cast<int64_t>(Format::MaxID) ? std::optional<uint32_t>(static_cast<uint32_t>(value))
+			                                                                  : std::nullopt;
+		}
+
+		// The name labels give the graph a diagnostic names: its file's stem, else its handle.
+		std::string NameOfGraph(AssetHandle graph, VisualScriptQuickFixGraphs const* graphs)
+		{
+			std::string name = graphs != nullptr && graphs->GetName ? graphs->GetName(graph) : std::string();
+			return !name.empty() ? name : graph.ToString();
+		}
+
+		// The name of a variable or function of another graph's document; empty when it has none of that ID.
+		std::string FindRemoteElementName(VisualScriptDocument const& target, uint32_t id, bool function)
+		{
+			if (function)
+			{
+				auto const found = std::find_if(target.Functions.begin(), target.Functions.end(),
+				                                [id](VisualScriptFunction const& candidate)
+				                                {
+													return candidate.ID == id;
+												});
+				return found != target.Functions.end() ? found->Name : std::string();
+			}
+			auto const found = std::find_if(target.Variables.begin(), target.Variables.end(),
+			                                [id](VisualScriptVariable const& candidate)
+			                                {
+												return candidate.ID == id;
+											});
+			return found != target.Variables.end() ? found->Name : std::string();
+		}
+
+		// The receiving custom event of a name in a document's event graph: the enabled one, else the first; null when none.
+		VisualScriptNode const* FindReceivingEvent(VisualScriptDocument const& target, std::string_view name)
+		{
+			VisualScriptNode const* receiver = nullptr;
+			for (VisualScriptNode const& candidate : target.Graph.Nodes)
+			{
+				if (candidate.Type != "Event.Custom" || !candidate.Settings.is_object())
+				{
+					continue;
+				}
+				auto const found = candidate.Settings.find("Name");
+				if (found == candidate.Settings.end() || !found->is_string() || found->get_ref<std::string const&>() != name)
+				{
+					continue;
+				}
+				if (receiver == nullptr ||
+				    (receiver->Enabled == VisualScriptNodeEnabled::Disabled && candidate.Enabled != VisualScriptNodeEnabled::Disabled))
+				{
+					receiver = &candidate;
+				}
+			}
+			return receiver;
 		}
 
 		std::string TitleOfNodeType(VisualScriptDocument const& document, VisualScriptLibrary const& library, std::string const& type)
@@ -511,8 +593,8 @@ namespace Strada
 			fix.Target = target;
 			fix.Argument = std::move(argument);
 			fix.Replaces = std::move(replaces);
-			fix.Navigates =
-				kind == VisualScriptFixKind::GoTo || kind == VisualScriptFixKind::EditSetting || kind == VisualScriptFixKind::Rename;
+			fix.Navigates = kind == VisualScriptFixKind::GoTo || kind == VisualScriptFixKind::EditSetting ||
+			                kind == VisualScriptFixKind::Rename || kind == VisualScriptFixKind::OpenGraph;
 			return fix;
 		}
 
@@ -598,8 +680,9 @@ namespace Strada
 		}
 
 		Result<void> Apply(VisualScriptDocument& document, VisualScriptAnalysis const& analysis, VisualScriptDiagnostic const& diagnostic,
-		                   VisualScriptQuickFix const& fix)
+		                   VisualScriptQuickFix const& fix, VisualScriptQuickFixGraphs const* graphs)
 		{
+			VisualScriptGraphResolver const resolver = graphs != nullptr ? graphs->Resolve : VisualScriptGraphResolver();
 			NodePlace<VisualScriptDocument> const place = FindNode(document, diagnostic.Node);
 			auto const requireNode = [&]() -> Result<void>
 			{
@@ -614,7 +697,57 @@ namespace Strada
 				case VisualScriptFixKind::GoTo:
 				case VisualScriptFixKind::EditSetting:
 				case VisualScriptFixKind::Rename:
+				case VisualScriptFixKind::OpenGraph:
 					return {};
+				case VisualScriptFixKind::Retarget:
+				{
+					if (Result<void> found = requireNode(); !found)
+					{
+						return found;
+					}
+					Result<Json> settings = ParseJson(fix.Argument);
+					if (!settings || !settings.GetValue().is_object())
+					{
+						return MakeError("the fix's settings are not an object: {}", fix.Argument);
+					}
+					Result<uint32_t> const retargeted =
+						VisualScriptEditing::RetargetVisualScriptNode(document, place.NodeOf->ID, std::move(settings.GetValue()), resolver);
+					return retargeted ? Result<void>() : Result<void>(Error{retargeted.GetError()});
+				}
+				case VisualScriptFixKind::UpdateParameters:
+				{
+					if (Result<void> found = requireNode(); !found)
+					{
+						return found;
+					}
+					Result<Json> const list = ParseJson(fix.Argument);
+					if (!list || !list.GetValue().is_array())
+					{
+						return MakeError("the fix's parameters are not a list: {}", fix.Argument);
+					}
+					std::vector<VisualScriptParameter> parameters;
+					for (Json const& entry : list.GetValue())
+					{
+						auto const name = entry.is_object() ? entry.find("Name") : Json::const_iterator();
+						auto const type = entry.is_object() ? entry.find("Type") : Json::const_iterator();
+						if (!entry.is_object() || name == entry.end() || type == entry.end() || !name->is_string() || !type->is_string())
+						{
+							return MakeError("the fix's parameters are not a list of {{ Name, Type }}: {}", fix.Argument);
+						}
+						parameters.emplace_back(name->get<std::string>(), type->get<std::string>());
+					}
+					Result<uint32_t> const set = VisualScriptEditing::SetEventParameters(document, place.NodeOf->ID, std::move(parameters));
+					return set ? Result<void>() : Result<void>(Error{set.GetError()});
+				}
+				case VisualScriptFixKind::DeleteVariable:
+				{
+					if (!diagnostic.Variable.has_value())
+					{
+						return Error{std::string("the diagnostic names no variable")};
+					}
+					Result<uint32_t> const removed = VisualScriptEditing::RemoveVariable(document, *diagnostic.Variable, true, nullptr);
+					return removed ? Result<void>() : Result<void>(Error{removed.GetError()});
+				}
 				case VisualScriptFixKind::ChangeNodeType:
 				{
 					if (Result<void> found = requireNode(); !found)
@@ -867,6 +1000,18 @@ namespace Strada
 					}
 					bool const function = diagnostic.Code == "UnknownFunction";
 					std::optional<uint32_t> const id = ParseID(fix.Argument);
+					if (!IsLocalVisualScriptReference(*place.NodeOf))
+					{
+						// The element is the other graph's: the node's pins follow it.
+						VisualScriptDocument const* const target = ResolveTarget(*place.NodeOf, graphs);
+						if (!id.has_value() || target == nullptr || FindRemoteElementName(*target, *id, function).empty())
+						{
+							return MakeError("the graph the node names has no {} {}", function ? "function" : "variable", fix.Argument);
+						}
+						Result<uint32_t> const retargeted = VisualScriptEditing::RetargetVisualScriptNode(
+							document, place.NodeOf->ID, Json::object({{function ? "Function" : "Variable", *id}}), resolver);
+						return retargeted ? Result<void>() : Result<void>(Error{retargeted.GetError()});
+					}
 					if (!id.has_value() || FindElementName(document, *id, function).empty())
 					{
 						return MakeError("the document has no {} {}", function ? "function" : "variable", fix.Argument);
@@ -1117,9 +1262,11 @@ namespace Strada
 
 	std::vector<VisualScriptQuickFix> GetVisualScriptQuickFixes(VisualScriptDocument const& document, VisualScriptAnalysis const& analysis,
 	                                                            VisualScriptDiagnostic const& diagnostic,
-	                                                            VisualScriptLibrary const& library)
+	                                                            VisualScriptLibrary const& library,
+	                                                            VisualScriptQuickFixGraphs const* graphs)
 	{
 		std::vector<VisualScriptQuickFix> fixes;
+		VisualScriptGraphResolver const resolver = graphs != nullptr ? graphs->Resolve : VisualScriptGraphResolver();
 		std::string const& code = diagnostic.Code;
 		NodePlace<VisualScriptDocument const> const place = FindNode(document, diagnostic.Node);
 		VisualScriptNode const* node = place.NodeOf;
@@ -1326,6 +1473,12 @@ namespace Strada
 			                            : !diagnostic.Setting.empty() ? diagnostic.Setting
 			                                                          : FindNamedSetting(kind, diagnostic.Message);
 			fixes.push_back(MakeFix("Edit in Details", VisualScriptFixKind::EditSetting, nodeID, setting));
+			// A library call naming its own graph: the graph's own functions are called without the setting.
+			if (code == "InvalidSetting" && setting == "Graph" && node->Type == "Function.Call" && node->Settings.is_object() &&
+			    node->Settings.contains("Graph"))
+			{
+				fixes.push_back(MakeFix("Remove Setting", VisualScriptFixKind::Retarget, nodeID, R"({"Graph":null})", "Graph"));
+			}
 			if (code == "MissingTypeArgument" &&
 			    CountTypeParameters(analyzed != nullptr && !analyzed->CanonicalType.empty() ? analyzed->CanonicalType : node->Type) == 1)
 			{
@@ -1342,14 +1495,125 @@ namespace Strada
 			{
 				return fixes;
 			}
+			// The suggestions of a node naming another graph are that graph's IDs: named from its document, never the local
+			// elements of those IDs.
+			bool const remote = !IsLocalVisualScriptReference(*node);
+			VisualScriptDocument const* const target = remote ? ResolveTarget(*node, graphs) : &document;
 			for (std::string const& suggestion : diagnostic.Suggestions)
 			{
 				std::optional<uint32_t> const id = ParseID(suggestion);
-				std::string const name = id.has_value() ? FindElementName(document, *id, code == "UnknownFunction") : std::string();
+				bool const isFunction = code == "UnknownFunction";
+				std::string const name = !id.has_value() || target == nullptr ? std::string()
+				                         : remote                             ? FindRemoteElementName(*target, *id, isFunction)
+				                                                              : FindElementName(document, *id, isFunction);
 				if (!name.empty())
 				{
 					fixes.push_back(MakeFix(fmt::format("Use {}", name), VisualScriptFixKind::UseElement, nodeID, std::to_string(*id)));
 				}
+			}
+		}
+		else if (code == "UnknownGraph" || code == "NotALibrary")
+		{
+			if (node != nullptr)
+			{
+				fixes.push_back(MakeFix(code == "NotALibrary" ? "Choose a Library" : "Choose a Graph", VisualScriptFixKind::EditSetting,
+				                        nodeID, "Graph"));
+			}
+		}
+		else if (code == "UncheckedGraph")
+		{
+			if (node != nullptr)
+			{
+				fixes.push_back(MakeFix("Choose a Graph", VisualScriptFixKind::EditSetting, nodeID, "Graph"));
+				fixes.push_back(MakeFix("Send by Name", VisualScriptFixKind::Retarget, nodeID, R"({"Graph":null})", "Graph"));
+			}
+		}
+		else if (code == "UnknownEvent")
+		{
+			if (node == nullptr)
+			{
+				return fixes;
+			}
+			// Each suggestion names an event of the target: "Use" it sets the Name and that event's Parameters.
+			if (VisualScriptDocument const* const target = ResolveTarget(*node, graphs))
+			{
+				for (std::string const& suggestion : diagnostic.Suggestions)
+				{
+					if (FindReceivingEvent(*target, suggestion) == nullptr)
+					{
+						continue;
+					}
+					Result<Json> const parameters = VisualScriptEditing::FindVisualScriptEventParameters(*target, suggestion);
+					if (!parameters)
+					{
+						continue;
+					}
+					Json const settings = Json::object({{"Name", suggestion}, {"Parameters", parameters.GetValue()}});
+					fixes.push_back(
+						MakeFix(fmt::format("Use {}", suggestion), VisualScriptFixKind::Retarget, nodeID, DumpCompact(settings), "Name"));
+				}
+			}
+			fixes.push_back(MakeFix("Choose a Graph", VisualScriptFixKind::EditSetting, nodeID, "Graph"));
+		}
+		else if (code == "EventSignatureMismatch")
+		{
+			VisualScriptDocument const* const target = node != nullptr ? ResolveTarget(*node, graphs) : nullptr;
+			std::optional<AssetHandle> const named = node != nullptr ? ReadVisualScriptGraphSetting(*node) : std::nullopt;
+			auto const name = node != nullptr && node->Settings.is_object() ? node->Settings.find("Name") : Json::const_iterator();
+			if (target != nullptr && named && name != node->Settings.end() && name->is_string())
+			{
+				if (Result<Json> const parameters = VisualScriptEditing::FindVisualScriptEventParameters(*target, name->get<std::string>()))
+				{
+					fixes.push_back(MakeFix(fmt::format("Update Parameters from {}", NameOfGraph(*named, graphs)),
+					                        VisualScriptFixKind::UpdateParameters, nodeID, DumpCompact(parameters.GetValue()),
+					                        "Parameters"));
+				}
+			}
+		}
+		else if (code == "DisabledTarget")
+		{
+			VisualScriptDocument const* const target = node != nullptr ? ResolveTarget(*node, graphs) : nullptr;
+			auto const name = node != nullptr && node->Settings.is_object() ? node->Settings.find("Name") : Json::const_iterator();
+			if (target != nullptr && name != node->Settings.end() && name->is_string())
+			{
+				if (VisualScriptNode const* const event = FindReceivingEvent(*target, name->get<std::string>()))
+				{
+					fixes.push_back(MakeFix(fmt::format("Open {} in {}", name->get<std::string>(), NameOfGraph(diagnostic.Graph, graphs)),
+					                        VisualScriptFixKind::OpenGraph, event->ID, "Node"));
+				}
+			}
+		}
+		else if (code == "PrivateVariable")
+		{
+			VisualScriptDocument const* const target = node != nullptr ? ResolveTarget(*node, graphs) : nullptr;
+			std::optional<uint32_t> const id = node != nullptr ? ReadSettingID(*node, "Variable") : std::nullopt;
+			std::string const name = target != nullptr && id ? FindRemoteElementName(*target, *id, false) : std::string();
+			if (!name.empty())
+			{
+				fixes.push_back(MakeFix(fmt::format("Open {} in {}", name, NameOfGraph(diagnostic.Graph, graphs)),
+				                        VisualScriptFixKind::OpenGraph, *id, "Variable"));
+			}
+		}
+		else if (code == "ReferenceError" || code == "LibraryCycle")
+		{
+			if (diagnostic.Graph.IsValid())
+			{
+				fixes.push_back(MakeFix(fmt::format("Open {}", NameOfGraph(diagnostic.Graph, graphs)), VisualScriptFixKind::OpenGraph, 0,
+				                        code == "ReferenceError" ? "Problems" : ""));
+			}
+		}
+		else if (code == "LibraryVariable")
+		{
+			if (diagnostic.Variable.has_value() && !FindElementName(document, *diagnostic.Variable, false).empty())
+			{
+				fixes.push_back(MakeFix("Delete Variable", VisualScriptFixKind::DeleteVariable, *diagnostic.Variable));
+			}
+		}
+		else if (code == "LibraryEventGraph")
+		{
+			if (node != nullptr)
+			{
+				fixes.push_back(MakeFix("Delete This Node", VisualScriptFixKind::DeleteNode, nodeID));
 			}
 		}
 		else if (code == "UnknownType" || code == "InvalidType")
@@ -1464,7 +1728,7 @@ namespace Strada
 			}
 			if (VisualScriptNode const* first = FindFirstEvent(*place.GraphOf, *node))
 			{
-				fixes.push_back(MakeFix(fmt::format("Go to the First {}", TitleOfNode(document, analysis, *first)),
+				fixes.push_back(MakeFix(fmt::format("Go to the First {}", TitleOfNode(document, analysis, *first, resolver)),
 				                        VisualScriptFixKind::GoTo, first->ID));
 			}
 			fixes.push_back(MakeFix("Delete This Node", VisualScriptFixKind::DeleteNode, nodeID));
@@ -1527,10 +1791,11 @@ namespace Strada
 	}
 
 	Result<void> ApplyVisualScriptQuickFix(VisualScriptDocument& document, VisualScriptAnalysis const& analysis,
-	                                       VisualScriptDiagnostic const& diagnostic, VisualScriptQuickFix const& fix)
+	                                       VisualScriptDiagnostic const& diagnostic, VisualScriptQuickFix const& fix,
+	                                       VisualScriptQuickFixGraphs const* graphs)
 	{
 		VisualScriptDocument edited = document;
-		Result<void> applied = Apply(edited, analysis, diagnostic, fix);
+		Result<void> applied = Apply(edited, analysis, diagnostic, fix, graphs);
 		if (applied)
 		{
 			document = std::move(edited);

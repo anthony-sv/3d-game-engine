@@ -884,3 +884,208 @@ TEST_CASE("VisualScriptQuickFix: an invalid type is replaced by an array type fo
 	REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Use Entity"});
 	CHECK(fixes[0].Replaces == "Strada.Entity[]");
 }
+
+namespace
+{
+	AssetHandle const FixDoor(UUID(7200001ull));
+	AssetHandle const FixMotion(UUID(7200002ull));
+
+	VisualScriptNode MakeCrossGraphNode(uint32_t id, std::string type, Json settings)
+	{
+		VisualScriptNode node;
+		node.ID = id;
+		node.Type = std::move(type);
+		node.Position = glm::vec2(static_cast<float>(id) * 16.0f, 0.0f);
+		node.Settings = std::move(settings);
+		return node;
+	}
+
+	// Door (a script: the public Health 5, the private Secret 6, the event Hit (Damage: float), the disabled event Closed),
+	// Motion (a library), and a script whose nodes name them.
+	struct CrossGraphFixture
+	{
+		CrossGraphFixture()
+		{
+			VisualScriptVariable health;
+			health.ID = 5;
+			health.Name = "Health";
+			health.Type = "float";
+			health.Public = true;
+			VisualScriptVariable secret;
+			secret.ID = 6;
+			secret.Name = "Secret";
+			secret.Type = "float";
+			Door.Variables = {health, secret};
+			Json const damage = Json::array({{{"Name", "Damage"}, {"Type", "float"}}});
+			VisualScriptNode closed = MakeCrossGraphNode(2, "Event.Custom", Json::object({{"Name", "Closed"}}));
+			closed.Enabled = VisualScriptNodeEnabled::Disabled;
+			Door.Graph.Nodes = {MakeCrossGraphNode(1, "Event.Custom", Json::object({{"Name", "Hit"}, {"Parameters", damage}})), closed};
+			Motion = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+
+			std::string const door = FixDoor.ToString();
+			std::string const motion = FixMotion.ToString();
+			Script.Variables = {health};
+			Script.Graph.Nodes = {
+				MakeCrossGraphNode(10, "Event.Send", Json::object({{"Name", "Hit"}, {"Graph", door}})),
+				MakeCrossGraphNode(11, "Event.Send", Json::object({{"Name", "Hti"}, {"Graph", door}})),
+				MakeCrossGraphNode(12, "Event.Send", Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", Json::array()}})),
+				MakeCrossGraphNode(13, "Event.Broadcast", Json::object({{"Name", "Closed"}, {"Graph", door}})),
+				MakeCrossGraphNode(14, "Variable.Get", Json::object({{"Variable", 6}, {"Graph", door}})),
+				MakeCrossGraphNode(15, "Function.Call", Json::object({{"Function", 1}, {"Graph", motion}})),
+				MakeCrossGraphNode(16, "Function.Call", Json::object({{"Function", 1}, {"Graph", door}})),
+				MakeCrossGraphNode(17, "Function.Call", Json::object({{"Function", 1}, {"Graph", "77"}})),
+				MakeCrossGraphNode(18, "Event.Custom", Json::object({{"Name", "Mine"}}))};
+		}
+
+		VisualScriptQuickFixGraphs Graphs() const
+		{
+			return VisualScriptQuickFixGraphs{[this](AssetHandle graph) -> VisualScriptDocument const*
+			                                  {
+												  return graph == FixDoor ? &Door : graph == FixMotion ? &Motion : nullptr;
+											  },
+			                                  [](AssetHandle graph) -> std::string
+			                                  {
+												  return graph == FixDoor ? "Door" : graph == FixMotion ? "Motion" : std::string();
+											  }};
+		}
+
+		std::vector<VisualScriptQuickFix> Fixes(VisualScriptDiagnostic const& diagnostic) const
+		{
+			VisualScriptQuickFixGraphs const graphs = Graphs();
+			return GetVisualScriptQuickFixes(Script, Analysis, diagnostic, *Library, &graphs);
+		}
+
+		VisualScriptDocument Apply(VisualScriptDiagnostic const& diagnostic, std::string_view label) const
+		{
+			std::vector<VisualScriptQuickFix> const fixes = Fixes(diagnostic);
+			auto const fix = std::find_if(fixes.begin(), fixes.end(),
+			                              [label](VisualScriptQuickFix const& candidate)
+			                              {
+											  return candidate.Label == label;
+										  });
+			REQUIRE_MESSAGE(fix != fixes.end(), label);
+			VisualScriptQuickFixGraphs const graphs = Graphs();
+			VisualScriptDocument fixed = Script;
+			Result<void> const applied = ApplyVisualScriptQuickFix(fixed, Analysis, diagnostic, *fix, &graphs);
+			REQUIRE_MESSAGE(applied.IsOk(), applied.GetError());
+			Testing::ExpectStrictRoundTrip(fixed);
+			return fixed;
+		}
+
+		Scope<VisualScriptLibrary> Library = ParseLibrary();
+		VisualScriptDocument Door;
+		VisualScriptDocument Motion;
+		VisualScriptDocument Script;
+		VisualScriptAnalysis Analysis;
+	};
+
+	VisualScriptDiagnostic MakeGraphDiagnostic(std::string code, uint32_t node, AssetHandle graph,
+	                                           std::vector<std::string> suggestions = {})
+	{
+		VisualScriptDiagnostic diagnostic = MakeDiagnostic(std::move(code), 0, node, "about another graph", std::move(suggestions));
+		diagnostic.Graph = graph;
+		return diagnostic;
+	}
+
+	VisualScriptNode const& FindScriptNode(VisualScriptDocument const& document, uint32_t id)
+	{
+		VisualScriptNode const* const node = FindNode(document.Graph, id);
+		REQUIRE(node != nullptr);
+		return *node;
+	}
+}
+
+TEST_CASE("VisualScriptQuickFix: the cross-graph findings offer the fixes of their codes, reading the other graph's document")
+{
+	CrossGraphFixture const fixture;
+	std::string const door = FixDoor.ToString();
+	Json const damage = Json::array({{{"Name", "Damage"}, {"Type", "float"}}});
+
+	// A graph that is absent, or a script where a library is wanted: choose another.
+	std::vector<VisualScriptQuickFix> const unknownGraph = fixture.Fixes(MakeGraphDiagnostic("UnknownGraph", 17, AssetHandle(UUID(77ull))));
+	REQUIRE(GetLabels(unknownGraph) == std::vector<std::string>{"Choose a Graph"});
+	CHECK(unknownGraph[0].Kind == VisualScriptFixKind::EditSetting);
+	CHECK(unknownGraph[0].Argument == "Graph");
+	CHECK(unknownGraph[0].Navigates);
+	CHECK(GetLabels(fixture.Fixes(MakeGraphDiagnostic("NotALibrary", 16, FixDoor))) == std::vector<std::string>{"Choose a Library"});
+
+	// An unchecked Send: choose a graph, or send by name (the Graph goes, the parameters stay).
+	VisualScriptDiagnostic const unchecked = MakeGraphDiagnostic("UncheckedGraph", 12, FixDoor);
+	REQUIRE(GetLabels(fixture.Fixes(unchecked)) == std::vector<std::string>{"Choose a Graph", "Send by Name"});
+	CHECK(FindScriptNode(fixture.Apply(unchecked, "Send by Name"), 12).Settings ==
+	      Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}}));
+
+	// An unknown event: use a suggested event of the target, with its parameters.
+	VisualScriptDiagnostic const unknownEvent = MakeGraphDiagnostic("UnknownEvent", 11, FixDoor, {"Hit", "Gone"});
+	REQUIRE(GetLabels(fixture.Fixes(unknownEvent)) == std::vector<std::string>{"Use Hit", "Choose a Graph"});
+	CHECK(FindScriptNode(fixture.Apply(unknownEvent, "Use Hit"), 11).Settings ==
+	      Json::object({{"Name", "Hit"}, {"Graph", door}, {"Parameters", damage}}));
+	// Without the target's document only the navigating fix is offered.
+	CHECK(GetLabels(GetVisualScriptQuickFixes(fixture.Script, fixture.Analysis, unknownEvent, *fixture.Library)) ==
+	      std::vector<std::string>{"Choose a Graph"});
+
+	// Parameters that differ from the event's: take the event's.
+	VisualScriptDiagnostic const mismatch = MakeGraphDiagnostic("EventSignatureMismatch", 12, FixDoor);
+	std::vector<VisualScriptQuickFix> const update = fixture.Fixes(mismatch);
+	REQUIRE(GetLabels(update) == std::vector<std::string>{"Update Parameters from Door"});
+	CHECK(update[0].Kind == VisualScriptFixKind::UpdateParameters);
+	CHECK(FindScriptNode(fixture.Apply(mismatch, "Update Parameters from Door"), 12).Settings["Parameters"] == damage);
+
+	// A disabled target event and a private variable open them in the other graph (they are edited there).
+	std::vector<VisualScriptQuickFix> const disabled = fixture.Fixes(MakeGraphDiagnostic("DisabledTarget", 13, FixDoor));
+	REQUIRE(GetLabels(disabled) == std::vector<std::string>{"Open Closed in Door"});
+	CHECK(disabled[0].Kind == VisualScriptFixKind::OpenGraph);
+	CHECK(disabled[0].Navigates);
+	CHECK(disabled[0].Target == 2);
+	CHECK(disabled[0].Argument == "Node");
+	std::vector<VisualScriptQuickFix> const secret = fixture.Fixes(MakeGraphDiagnostic("PrivateVariable", 14, FixDoor));
+	REQUIRE(GetLabels(secret) == std::vector<std::string>{"Open Secret in Door"});
+	CHECK(secret[0].Target == 6);
+	CHECK(secret[0].Argument == "Variable");
+	// A broken library, and a cycle of libraries: open it.
+	std::vector<VisualScriptQuickFix> const broken = fixture.Fixes(MakeGraphDiagnostic("ReferenceError", 15, FixMotion));
+	REQUIRE(GetLabels(broken) == std::vector<std::string>{"Open Motion"});
+	CHECK(broken[0].Argument == "Problems");
+	CHECK(GetLabels(fixture.Fixes(MakeGraphDiagnostic("LibraryCycle", 15, FixMotion))) == std::vector<std::string>{"Open Motion"});
+	VisualScriptDocument unchanged = fixture.Script;
+	CHECK(ApplyVisualScriptQuickFix(unchanged, fixture.Analysis, MakeGraphDiagnostic("ReferenceError", 15, FixMotion), broken[0]).IsOk());
+	CHECK(unchanged == fixture.Script);
+	// The message says what to link.
+	CHECK(fixture.Fixes(MakeGraphDiagnostic("UnlinkedTarget", 14, FixDoor)).empty());
+	CHECK(fixture.Fixes(MakeGraphDiagnostic("TargetIsSelf", 10, FixDoor)).empty());
+
+	// A library's own variables and event-graph nodes are deleted.
+	VisualScriptDiagnostic variable = MakeDiagnostic("LibraryVariable", 0, std::nullopt, "a library has no variables");
+	variable.Variable = 5;
+	REQUIRE(GetLabels(fixture.Fixes(variable)) == std::vector<std::string>{"Delete Variable"});
+	CHECK(fixture.Apply(variable, "Delete Variable").Variables.empty());
+	VisualScriptDiagnostic const eventGraph = MakeDiagnostic("LibraryEventGraph", 0, 18, "a library has no event graph");
+	REQUIRE(GetLabels(fixture.Fixes(eventGraph)) == std::vector<std::string>{"Delete This Node"});
+	CHECK(FindNode(fixture.Apply(eventGraph, "Delete This Node").Graph, 18) == nullptr);
+
+	// A call naming its own graph: the setting is removed.
+	VisualScriptDiagnostic const self =
+		MakeDiagnostic("InvalidSetting", 0, 16, "Graph: this graph's own functions are called without a Graph setting");
+	REQUIRE(GetLabels(fixture.Fixes(self)) == std::vector<std::string>{"Edit in Details", "Remove Setting"});
+	CHECK(FindScriptNode(fixture.Apply(self, "Remove Setting"), 16).Settings == Json::object({{"Function", 1}}));
+}
+
+TEST_CASE("VisualScriptQuickFix: a remote unknown variable's ID suggestions are named from the other graph's document")
+{
+	CrossGraphFixture fixture;
+	VisualScriptVariable armor;
+	armor.ID = 9;
+	armor.Name = "Armor";
+	armor.Type = "int";
+	armor.Public = true;
+	fixture.Door.Variables.push_back(armor);
+	VisualScriptDiagnostic const unknown = MakeGraphDiagnostic("UnknownVariable", 14, FixDoor, {"5", "9"});
+	std::vector<VisualScriptQuickFix> const fixes = fixture.Fixes(unknown);
+	REQUIRE(GetLabels(fixes) == std::vector<std::string>{"Use Health", "Use Armor"});
+	CHECK(fixes[1].Kind == VisualScriptFixKind::UseElement);
+	CHECK(fixes[1].Argument == "9");
+	CHECK(FindScriptNode(fixture.Apply(unknown, "Use Armor"), 14).Settings ==
+	      Json::object({{"Variable", 9}, {"Graph", FixDoor.ToString()}}));
+	// The script's own variable 5 (Health too) names nothing here: without the other graph, no fix.
+	CHECK(GetVisualScriptQuickFixes(fixture.Script, fixture.Analysis, unknown, *fixture.Library).empty());
+}

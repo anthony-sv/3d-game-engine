@@ -87,6 +87,31 @@ namespace Strada
 				ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t));
 		}
 
+		// What "Your <gesture> was interrupted" calls a canvas gesture.
+		char const* DescribeInterruptedGesture(VisualScriptGesture gesture)
+		{
+			switch (gesture)
+			{
+				case VisualScriptGesture::MovingElements:
+					return "move";
+				case VisualScriptGesture::ResizingComment:
+					return "resize";
+				case VisualScriptGesture::Wiring:
+					return "wire";
+				case VisualScriptGesture::Relinking:
+					return "relink";
+				case VisualScriptGesture::Cutting:
+					return "cut";
+				case VisualScriptGesture::Marquee:
+					return "selection";
+				case VisualScriptGesture::Idle:
+				case VisualScriptGesture::Panning:
+				case VisualScriptGesture::MinimapDrag:
+					break;
+			}
+			return "gesture";
+		}
+
 		// "1 node", "3 nodes and 1 comment".
 		std::string CountElements(size_t nodes, size_t comments)
 		{
@@ -890,8 +915,19 @@ namespace Strada
 
 	void VisualScriptEditorPanel::SyncModel()
 	{
+		// The other graphs as the window manager's index holds them this frame (refreshed before the windows draw).
+		if (m_ProjectIndex != nullptr)
+		{
+			m_Model.SetProjectGraphs(m_ProjectIndex->GetGraphs(), m_ProjectIndex->GetRevision());
+		}
 		// While a widget of the panes or the live widget is in use, the analysis keeps its pace (spec §6.3).
-		m_Model.Sync(m_Semantics, m_Measure, m_Theme, m_WidgetActive, m_Time);
+		VisualScriptSyncResult const synced = m_Model.Sync(m_Semantics, m_Measure, m_Theme, m_WidgetActive, m_Time);
+		if (synced.InterruptedGesture)
+		{
+			// Canvas gestures do not survive outside changes (spec-slice3 §10.11): the user learns why theirs ended.
+			AddToast(
+				fmt::format("Your {} was interrupted by a change made elsewhere", DescribeInterruptedGesture(*synced.InterruptedGesture)));
+		}
 	}
 
 	void VisualScriptEditorPanel::OnHidden()
@@ -983,6 +1019,10 @@ namespace Strada
 			{
 				ShowDrawer(VisualScriptDrawerMode::Problems);
 			}
+			if (request.Reveal)
+			{
+				RevealReference(*request.Reveal);
+			}
 			if (!request.Find.empty())
 			{
 				// The first match becomes the selection at the bar's draw (spec §13.2).
@@ -1028,6 +1068,11 @@ namespace Strada
 		DrawBody();
 		DrawMenus();
 		DrawShortcutSheet();
+		// Back and Forward that reached another graph's view: the window manager opens its window.
+		for (VisualScriptOpenRequest& request : m_Model.TakeOtherGraphRequests())
+		{
+			m_OtherGraphRequests.push_back(std::move(request));
+		}
 		// The links of commits made after the canvas was drawn (a menu pick, the palette, a pane) pulse from the next draw: the
 		// model reports them only until the next frame's first Sync, before that draw.
 		if (std::span<VisualScriptLink const> const committed = m_Model.CommittedLinks(); committed.size() > m_PulsedLinks)
@@ -1492,7 +1537,8 @@ namespace Strada
 		}
 		if (IsShownGraphEmpty())
 		{
-			m_Card = VisualScriptCard::EmptyGraph;
+			m_Card = m_Model.GetDisplayDocument().Kind == VisualScriptDocumentKind::Library ? VisualScriptCard::EmptyLibrary
+			                                                                                : VisualScriptCard::EmptyGraph;
 		}
 	}
 
@@ -1856,11 +1902,15 @@ namespace Strada
 			float const graphRoom = std::max(textRoom - textButtonWidth(scriptShown), 0.0f);
 			std::string const graphShown = FitText(graphText, std::max(graphRoom - style.FramePadding.x * 2.0f, 0.0f));
 			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+			// A function library shows its first function: it has no event graph to show.
+			VisualScriptDocument const& shown = m_Model.GetDisplayDocument();
+			bool const library = !OffersVisualScriptEventGraph(shown) && !shown.Functions.empty();
 			if (ImGui::Button(fmt::format("{}##script", scriptShown).c_str()))
 			{
-				m_Model.ShowFunction(0);
+				m_Model.ShowFunction(library ? shown.Functions.front().ID : 0);
 			}
-			ImGui::SetItemTooltip("%s", fmt::format("{}: show its event graph", scriptText).c_str());
+			ImGui::SetItemTooltip("%s", library ? fmt::format("{}: show its first function", scriptText).c_str()
+			                                    : fmt::format("{}: show its event graph", scriptText).c_str());
 			ImGui::SameLine(0.0f, 0.0f);
 			ImVec2 const chevronMin = ImGui::GetCursorScreenPos();
 			ImGui::Dummy(ImVec2(chevron, frame));
@@ -2131,26 +2181,62 @@ namespace Strada
 		drawList->AddRectFilled(lower, ImVec2(lower.x + width, lower.y + frame), color, frame * 0.5f);
 		drawList->AddText(ImVec2(lower.x + style.FramePadding.x, lower.y + style.FramePadding.y), IM_COL32(255, 255, 255, 255),
 		                  text.c_str());
-		std::string tooltip;
+		ImGui::SetItemTooltip("%s", GetLiveTooltip().c_str());
+	}
+
+	std::string VisualScriptEditorPanel::GetLiveTooltip() const
+	{
 		switch (m_Live)
 		{
 			case VisualScriptLiveState::Live:
-				tooltip = std::string(Texts::LiveTooltip);
-				break;
+				return std::string(Texts::LiveTooltip);
 			case VisualScriptLiveState::LastWorking:
 			{
 				uint32_t const errors = CountProblems(m_Model.GetAnalysis(), std::nullopt).first;
-				tooltip = fmt::format("{}: this version has {} {}: the game keeps running the last version that worked.",
-				                      Texts::LastWorking, errors, errors == 1 ? "error" : "errors");
-				break;
+				std::string const counted = fmt::format("{} {}", errors, errors == 1 ? "error" : "errors");
+				// A library runs in the graphs that call it, which keep the last version of it that worked (spec-slice3 §10.9).
+				Ref<VisualScriptDocument const> const& document = m_Model.GetStoredDocument();
+				if (document != nullptr && document->Kind == VisualScriptDocumentKind::Library)
+				{
+					return fmt::format("This version has {}: graphs that call it keep running the last version that worked.", counted);
+				}
+				return fmt::format("{}: this version has {}: the game keeps running the last version that worked.", Texts::LastWorking,
+				                   counted);
 			}
 			case VisualScriptLiveState::Simulating:
-				tooltip = Texts::SimulatingTooltip;
-				break;
+				return std::string(Texts::SimulatingTooltip);
 			case VisualScriptLiveState::None:
 				break;
 		}
-		ImGui::SetItemTooltip("%s", tooltip.c_str());
+		return {};
+	}
+
+	void VisualScriptEditorPanel::AddLibraryFunction()
+	{
+		VisualScriptDocument edited = m_Model.GetDisplayDocument();
+		std::string const name =
+			VisualScriptEditing::MakeUniqueVisualScriptName(VisualScriptSidebar::NewFunctionName,
+		                                                    [&edited](std::string_view candidate)
+		                                                    {
+																return VisualScriptEditing::IsFunctionNameTaken(edited, candidate);
+															});
+		Result<uint32_t> const added = VisualScriptEditing::AddFunction(edited, name);
+		if (!added)
+		{
+			AddToast(fmt::format("Could not add a function: {}", added.GetError()), true);
+			return;
+		}
+		Result<VisualScriptCommitRequest> request = MakeVisualScriptCommitRequest(*m_Model.GetStoredDocument(), std::move(edited),
+		                                                                          m_Model.GetAnalysis(), "Add Function", m_ScriptName, 0);
+		if (!request)
+		{
+			AddToast(fmt::format("Could not add a function: {}", request.GetError()), true);
+			return;
+		}
+		if (Commit(request.TakeValue(), {}))
+		{
+			m_Model.ShowFunction(added.GetValue());
+		}
 	}
 
 	void VisualScriptEditorPanel::DrawBookmarksMenu()
@@ -2262,7 +2348,11 @@ namespace Strada
 				m_Model.ShowFunction(function);
 			}
 		};
-		item("Event Graph", 0);
+		// A function library lists its functions; its event graph only while nodes or comment boxes are still there to delete.
+		if (OffersVisualScriptEventGraph(document))
+		{
+			item("Event Graph", 0);
+		}
 		for (VisualScriptFunction const& function : document.Functions)
 		{
 			item(function.Name, function.ID);
@@ -2506,7 +2596,7 @@ namespace Strada
 		ImGuiStyle const& style = ImGui::GetStyle();
 		float const fontSize = ImGui::GetFontSize();
 		ImDrawList* drawList = ImGui::GetWindowDrawList();
-		bool const replacesCanvas = m_Card != VisualScriptCard::EmptyGraph;
+		bool const replacesCanvas = m_Card != VisualScriptCard::EmptyGraph && m_Card != VisualScriptCard::EmptyLibrary;
 		if (replacesCanvas)
 		{
 			// A missing or refused file has no canvas: the card stands in its place.
@@ -2578,6 +2668,32 @@ namespace Strada
 					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
 					ImGui::TextUnformatted(Texts::EmptyGraphHelp.data(), Texts::EmptyGraphHelp.data() + Texts::EmptyGraphHelp.size());
 					ImGui::PopStyleColor();
+					break;
+				}
+				case VisualScriptCard::EmptyLibrary:
+				{
+					std::vector<VisualScriptFunction> const& functions = m_Model.GetDisplayDocument().Functions;
+					if (functions.empty())
+					{
+						ImGui::TextUnformatted(Texts::EmptyLibrary.data(), Texts::EmptyLibrary.data() + Texts::EmptyLibrary.size());
+						ImGui::Spacing();
+						ImGui::BeginDisabled(!editable);
+						if (ImGui::Button("Add Function"))
+						{
+							AddLibraryFunction();
+						}
+						RecordItem(VisualScriptPanelItem::AddFunction);
+						ImGui::EndDisabled();
+						break;
+					}
+					ImGui::TextUnformatted(Texts::LibraryEventGraph.data(),
+					                       Texts::LibraryEventGraph.data() + Texts::LibraryEventGraph.size());
+					ImGui::Spacing();
+					if (ImGui::Button(fmt::format("Open {}", functions.front().Name).c_str()))
+					{
+						m_Model.ShowFunction(functions.front().ID);
+					}
+					RecordItem(VisualScriptPanelItem::OpenFunction);
 					break;
 				}
 				case VisualScriptCard::None:
@@ -3111,7 +3227,7 @@ namespace Strada
 		std::optional<VisualScriptPin> const libraryPin =
 			FindVisualScriptCanvasPin(m_Model, library, node, pin, VisualScriptPinDirection::In);
 		data.Fallback = libraryPin ? libraryPin->Default : Json();
-		data.Title = GetVisualScriptNodeTitle(document, analysis, *found);
+		data.Title = GetVisualScriptNodeTitle(document, analysis, *found, m_Model.MakeGraphResolver());
 		return data.Editable ? &data : nullptr;
 	}
 
@@ -3775,6 +3891,7 @@ namespace Strada
 			ImVec2 const textSize = ImGui::CalcTextSize(toast.Text.c_str(), nullptr, false, maxWidth);
 			float const buttons =
 				ImGui::GetFrameHeight() + (toast.HasShow ? ImGui::CalcTextSize("Show").x + style.FramePadding.x * 2.0f : 0.0f) +
+				(toast.Find ? ImGui::CalcTextSize(toast.FindLabel.c_str()).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x : 0.0f) +
 				(hasButtons ? ImGui::CalcTextSize("Show Console").x + style.FramePadding.x * 2.0f : 0.0f) + style.ItemSpacing.x * 3.0f;
 			ImVec2 const size(textWidth + buttons + style.WindowPadding.x * 2.0f,
 			                  std::max(textSize.y, ImGui::GetFrameHeight()) + style.WindowPadding.y * 2.0f);
@@ -3831,13 +3948,27 @@ namespace Strada
 						// it is open (spec §10.4).
 						VisualScriptOpenRequest request;
 						request.Graph = toast.ShowAsset;
-						m_OtherGraphRequests.push_back(std::move(request));
+						OpenRequest(std::move(request));
 					}
 					else
 					{
 						ImGui::SetWindowFocus("Scene View");
 					}
 					dismissed = i;
+				}
+			}
+			if (toast.Find)
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton(toast.FindLabel.c_str()))
+				{
+					m_Drawer.ShowReferences(*toast.Find);
+					ShowDrawer(VisualScriptDrawerMode::Find);
+					dismissed = i;
+				}
+				if (i + 1 == m_Toasts.size())
+				{
+					RecordItem(VisualScriptPanelItem::ToastFind);
 				}
 			}
 			if (hasButtons)
@@ -4155,14 +4286,7 @@ namespace Strada
 		}
 		if (result.Open)
 		{
-			if (result.Open->Graph == m_Graph)
-			{
-				m_Model.ApplyOpenRequest(*result.Open);
-			}
-			else
-			{
-				m_OtherGraphRequests.push_back(std::move(*result.Open));
-			}
+			OpenRequest(std::move(*result.Open));
 		}
 		if (!result.SelectAndFrame.empty())
 		{
@@ -4382,7 +4506,7 @@ namespace Strada
 		}
 		if (value.Open)
 		{
-			m_Model.ApplyOpenRequest(*value.Open);
+			OpenRequest(std::move(*value.Open));
 		}
 		if (value.FindReferences)
 		{
@@ -4399,71 +4523,123 @@ namespace Strada
 		}
 		if (value.Reveal)
 		{
-			VisualScriptReveal const reveal = *value.Reveal;
-			if (reveal.Kind == VisualScriptRevealKind::Node)
-			{
-				// Details shows the canvas's selection, which the node is.
-				m_PaneShared.Element.reset();
-				if (!reveal.Setting.empty())
-				{
-					m_PaneShared.FocusSetting = VisualScriptSettingFocus{reveal.ID, reveal.Setting, std::nullopt};
-				}
-				if (m_Layout.DetailsState == VisualScriptPaneState::AutoHidden)
-				{
-					m_DetailsOverlay = true;
-				}
-			}
-			else
-			{
-				// A row of My Script, selected (shown in Details), renamed when asked.
-				VisualScriptElement element;
-				std::optional<uint32_t> show;
-				switch (reveal.Kind)
-				{
-					case VisualScriptRevealKind::Variable:
-						element = {VisualScriptElementKind::Variable, reveal.ID};
-						break;
-					case VisualScriptRevealKind::Local:
-						element = {VisualScriptElementKind::Local, reveal.ID};
-						for (VisualScriptFunction const& function : m_Model.GetDisplayDocument().Functions)
-						{
-							for (VisualScriptLocal const& local : function.Locals)
-							{
-								if (local.ID == reveal.ID)
-								{
-									show = function.ID;
-								}
-							}
-						}
-						break;
-					case VisualScriptRevealKind::Function:
-						element = {VisualScriptElementKind::Function, reveal.ID};
-						break;
-					case VisualScriptRevealKind::CustomEvent:
-						element = {VisualScriptElementKind::CustomEvent, reveal.ID};
-						break;
-					case VisualScriptRevealKind::Node:
-						break;
-				}
-				VisualScriptPaneContext context = MakePaneContext();
-				SelectVisualScriptElement(context, element, show);
-				if (reveal.Rename && !m_Model.IsReadOnly())
-				{
-					// My Script's rename field: shown over the canvas when My Script is not beside it.
-					m_PaneShared.Rename = element;
-					OpenSidebarOverlay();
-				}
-				else if (m_Layout.SidebarState == VisualScriptPaneState::AutoHidden)
-				{
-					m_SidebarOverlay = true;
-				}
-			}
+			Reveal(*value.Reveal);
 		}
 		return committed;
 	}
 
+	void VisualScriptEditorPanel::OpenRequest(VisualScriptOpenRequest request)
+	{
+		if (request.Graph == m_Graph)
+		{
+			m_Model.ApplyOpenRequest(request);
+			return;
+		}
+		// The window manager opens the other graph's window; Back there returns to this view (spec-slice3 §10.7).
+		if (!request.Origin)
+		{
+			VisualScriptViewState const view = m_Model.GetView().GetTargetState();
+			request.Origin = VisualScriptOrigin{m_Graph, view.Function, view.Center, view.Zoom, VisualScriptHistoryStep::Jump};
+		}
+		m_OtherGraphRequests.push_back(std::move(request));
+	}
+
+	void VisualScriptEditorPanel::Reveal(VisualScriptReveal const& reveal)
+	{
+		if (reveal.Kind == VisualScriptRevealKind::Node)
+		{
+			// Details shows the canvas's selection, which the node is.
+			m_PaneShared.Element.reset();
+			if (!reveal.Setting.empty())
+			{
+				m_PaneShared.FocusSetting = VisualScriptSettingFocus{reveal.ID, reveal.Setting, std::nullopt};
+			}
+			if (m_Layout.DetailsState == VisualScriptPaneState::AutoHidden)
+			{
+				m_DetailsOverlay = true;
+			}
+		}
+		else
+		{
+			// A row of My Script, selected (shown in Details), renamed when asked.
+			VisualScriptElement element;
+			std::optional<uint32_t> show;
+			switch (reveal.Kind)
+			{
+				case VisualScriptRevealKind::Variable:
+					element = {VisualScriptElementKind::Variable, reveal.ID};
+					break;
+				case VisualScriptRevealKind::Local:
+					element = {VisualScriptElementKind::Local, reveal.ID};
+					for (VisualScriptFunction const& function : m_Model.GetDisplayDocument().Functions)
+					{
+						for (VisualScriptLocal const& local : function.Locals)
+						{
+							if (local.ID == reveal.ID)
+							{
+								show = function.ID;
+							}
+						}
+					}
+					break;
+				case VisualScriptRevealKind::Function:
+					element = {VisualScriptElementKind::Function, reveal.ID};
+					break;
+				case VisualScriptRevealKind::CustomEvent:
+					element = {VisualScriptElementKind::CustomEvent, reveal.ID};
+					break;
+				case VisualScriptRevealKind::Node:
+					break;
+			}
+			VisualScriptPaneContext context = MakePaneContext();
+			SelectVisualScriptElement(context, element, show);
+			if (reveal.Rename && !m_Model.IsReadOnly())
+			{
+				// My Script's rename field: shown over the canvas when My Script is not beside it.
+				m_PaneShared.Rename = element;
+				OpenSidebarOverlay();
+			}
+			else if (m_Layout.SidebarState == VisualScriptPaneState::AutoHidden)
+			{
+				m_SidebarOverlay = true;
+			}
+		}
+	}
+
+	void VisualScriptEditorPanel::RevealReference(VisualScriptReference const& reference)
+	{
+		VisualScriptDocument const& document = m_Model.GetDisplayDocument();
+		VisualScriptReveal reveal;
+		reveal.ID = reference.ID;
+		switch (reference.ReferenceKind)
+		{
+			case VisualScriptReference::Kind::Variable:
+			{
+				bool const local = std::any_of(document.Functions.begin(), document.Functions.end(),
+				                               [&reference](VisualScriptFunction const& function)
+				                               {
+												   return std::any_of(function.Locals.begin(), function.Locals.end(),
+					                                                  [&reference](VisualScriptLocal const& candidate)
+					                                                  {
+																		  return candidate.ID == reference.ID;
+																	  });
+											   });
+				reveal.Kind = local ? VisualScriptRevealKind::Local : VisualScriptRevealKind::Variable;
+				break;
+			}
+			case VisualScriptReference::Kind::Function:
+				reveal.Kind = VisualScriptRevealKind::Function;
+				break;
+			case VisualScriptReference::Kind::CustomEvent:
+				reveal.Kind = VisualScriptRevealKind::CustomEvent;
+				break;
+		}
+		Reveal(reveal);
+	}
+
 	bool VisualScriptEditorPanel::Commit(VisualScriptCommitRequest request, std::vector<ComponentEdit> edits)
 	{
+		Ref<VisualScriptDocument const> const before = m_Model.GetStoredDocument();
 		Ref<VisualScriptDocument const> const document = request.Document;
 		std::string const description = request.Description;
 		bool const layoutOnly = request.LayoutOnly;
@@ -4496,7 +4672,33 @@ namespace Strada
 		{
 			AddToast(std::move(note));
 		}
+		// What the edit does to the other scripts that use this graph (spec-slice3 §10.6).
+		if (before != nullptr && !layoutOnly && m_ProjectIndex != nullptr)
+		{
+			for (VisualScriptOfferToast& offer : DescribeVisualScriptOfferChange(m_Graph, *before, *document, m_Model.GetProjectGraphs()))
+			{
+				AddOfferToast(std::move(offer));
+			}
+		}
 		return true;
+	}
+
+	void VisualScriptEditorPanel::AddOfferToast(VisualScriptOfferToast offer)
+	{
+		// An interaction that commits at the cadence tells it once: the same toast stays, shown anew.
+		auto const same = std::find_if(m_Toasts.begin(), m_Toasts.end(),
+		                               [&offer](Toast const& toast)
+		                               {
+										   return toast.Text == offer.Text;
+									   });
+		if (same != m_Toasts.end())
+		{
+			same->Expires = m_Time + ToastSeconds;
+			return;
+		}
+		AddToast(std::move(offer.Text));
+		m_Toasts.back().Find = std::move(offer.Find);
+		m_Toasts.back().FindLabel = std::move(offer.FindLabel);
 	}
 
 	void VisualScriptEditorPanel::DrawMenus()
