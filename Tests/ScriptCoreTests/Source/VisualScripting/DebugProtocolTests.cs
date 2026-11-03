@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -7,8 +8,8 @@ using Xunit;
 
 namespace Strada.ScriptCore.Tests;
 
-// The VisualScriptDebug protocol (spec-slice4 section 7.8): Attach, Detach, Configure, State and Resume with their requests and
-// replies, and the error replies of requests it refuses, which change nothing.
+// The VisualScriptDebug protocol (spec-slice4 section 7.8): Attach, Detach, Configure, State, Resume, Break, RunTo and
+// CheckCondition with their requests and replies, and the error replies of requests it refuses, which change nothing.
 public sealed class DebugProtocolTests
 {
 	private static TestRuntime StoppingRuntime(out uint write)
@@ -59,6 +60,9 @@ public sealed class DebugProtocolTests
 	[InlineData("""{ "Command": "State" }""")]
 	[InlineData("""{ "Command": "Resume", "Action": "Continue" }""")]
 	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [], "Targets": [], "Watches": [], "BreakOnErrors": false }""")]
+	[InlineData("""{ "Command": "Resume", "Action": "StepInto" }""")]
+	[InlineData("""{ "Command": "Break", "Cancel": false }""")]
+	[InlineData("""{ "Command": "RunTo", "Document": "100", "Node": 1 }""")]
 	public void CommandsOfTheDebuggerNeedOneAttached(string request)
 	{
 		TestRuntime runtime = StoppingRuntime(out _);
@@ -96,6 +100,59 @@ public sealed class DebugProtocolTests
 		Assert.Equal(2UL, resumed.GetProperty("StopRevision").GetUInt64());
 	}
 
+	// A step's reply has Continue's form; while it waits, State's Stepping names its stop, its action and where it waits. Break
+	// and RunTo answer {}; CheckCondition answers whether it checked, the error, what the condition reads and the scope.
+	[Fact]
+	public void StepsBreakRunToAndCheckConditionAnswerTheirForms()
+	{
+		DocumentBuilder document = new();
+		GraphBuilder graph = document.Graph;
+		uint delay = graph.Node("Flow.Delay", inputs: """{ "Duration": 1.0 }""");
+		graph.Flow(graph.Node("Event.Update"), delay);
+		graph.Writes(delay, "Completed", "after");
+		TestRuntime runtime = TestRuntime.Start(document);
+		DebugSession session = new(runtime);
+		session.Break(delay);
+		runtime.Invoke(ScriptEvent.Update);
+
+		JsonElement waiting = session.Resume("StepOver");
+		Assert.Equal(["Outcome", "Failed", "Stop", "StopRevision"], waiting.EnumerateObject().Select(static member => member.Name));
+		Assert.Equal("Waiting", waiting.GetProperty("Outcome").GetString());
+		JsonElement stepping = session.State().GetProperty("Stepping");
+		Assert.Equal(["Stop", "Action", "WaitsIn"], stepping.EnumerateObject().Select(static member => member.Name));
+		Assert.Equal(["Document", "Function", "Node", "Title", "Entity"], stepping.GetProperty("WaitsIn").EnumerateObject().Select(static member => member.Name));
+		Assert.Equal("{}", session.Send("""{ "Command": "Break", "Cancel": true }"""));
+		Assert.Equal("{}", session.Send("""{ "Command": "Break", "Cancel": false, "Document": "100" }"""));
+		Assert.Equal("{}", session.Send(FormattableString.Invariant($$"""{ "Command": "RunTo", "Document": "100", "Node": {{delay}} }""")));
+		JsonElement checkedReply = session.CheckCondition(delay, "Duration > 0.5");
+		Assert.Equal(["Checked", "Error", "Reads", "Scope"], checkedReply.EnumerateObject().Select(static member => member.Name));
+		Assert.Equal("unknown name Duration", checkedReply.GetProperty("Error").GetString());
+		JsonElement scoped = session.CheckCondition(delay, "DeltaTime > 0.5");
+		Assert.Equal(JsonValueKind.Null, scoped.GetProperty("Error").ValueKind);
+		Assert.Equal(["Name", "Form", "Type", "Source", "Node"], scoped.GetProperty("Scope")[0].EnumerateObject().Select(static member => member.Name));
+	}
+
+	// A read-only stop does not step: Continue dismisses it.
+	[Fact]
+	public void AStepOfAReadOnlyStopIsRefused()
+	{
+		DocumentBuilder document = new();
+		uint divisor = document.Variable("Divisor", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint divide = graph.Node("Operator.Divide", inputs: """{ "A": 10 }""");
+		graph.Link(graph.Get(divisor), "Value", divide, "B");
+		graph.Flow(graph.Node("Event.Update"), graph.Write(divide, "Result"));
+		TestRuntime runtime = TestRuntime.Start(document);
+		DebugSession session = new(runtime);
+		session.Configure(breakOnErrors: true);
+		runtime.Invoke(ScriptEvent.Update);
+		Assert.Equal("Error", session.SingleStop().GetProperty("Reason").GetString());
+
+		Assert.Equal(("InvalidState", "Stop: stop 1 is read-only (Error): it does not step, and Continue dismisses it"),
+			ErrorOf(session.Send("""{ "Command": "Resume", "Action": "StepInto" }""")));
+		Assert.Equal("Dismissed", session.Continue().GetProperty("Outcome").GetString());
+	}
+
 	// Every refusal names the member at fault and changes nothing.
 	[Theory]
 	[InlineData("""[]""", "the request is not a JSON object")]
@@ -111,14 +168,21 @@ public sealed class DebugProtocolTests
 	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [{ "Document": 100, "Node": 1, "Type": "T", "Enabled": true, "Condition": "", "HitCount": 0 }], "Targets": [], "Watches": [], "BreakOnErrors": false }""", "Breakpoints[0].Document: not a decimal string of an unsigned 64-bit integer")]
 	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [{ "Document": "1x", "Node": 1, "Type": "T", "Enabled": true, "Condition": "", "HitCount": 0 }], "Targets": [], "Watches": [], "BreakOnErrors": false }""", "Breakpoints[0].Document: not a decimal string of an unsigned 64-bit integer")]
 	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [{ "Document": "100", "Node": 1, "Type": "T", "Enabled": true, "HitCount": 0 }], "Targets": [], "Watches": [], "BreakOnErrors": false }""", "Breakpoints[0].Condition: missing")]
-	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [{ "Document": "100", "Node": 1, "Type": "T", "Enabled": true, "Condition": "Index == 3", "HitCount": 0 }], "Targets": [], "Watches": [], "BreakOnErrors": false }""", "Breakpoints[0].Condition: breakpoint conditions are not supported")]
 	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [{ "Document": "100", "Node": 1, "Type": "T", "Enabled": true, "Condition": "", "HitCount": 0 }, { "Document": "100", "Node": 1, "Type": "U", "Enabled": true, "Condition": "", "HitCount": 0 }], "Targets": [], "Watches": [], "BreakOnErrors": false }""", "Breakpoints[1]: a second breakpoint of the node")]
 	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [], "Targets": [{ "Graph": "100", "Entity": "7" }, { "Graph": "100", "Entity": "8" }], "Watches": [], "BreakOnErrors": false }""", "Targets[1]: a second target of the graph")]
 	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [], "Targets": [], "Watches": [{ "Document": "100" }], "BreakOnErrors": false }""", "Watches[0].Function: missing")]
 	[InlineData("""{ "Command": "Configure", "Revision": 1, "Breakpoints": [], "Targets": [], "Watches": [], "BreakOnErrors": 1 }""", "BreakOnErrors: not a boolean")]
 	[InlineData("""{ "Command": "Resume" }""", "Action: missing")]
 	[InlineData("""{ "Command": "Resume", "Action": "Jump" }""", "Action: unknown action \"Jump\"")]
-	[InlineData("""{ "Command": "Resume", "Action": "StepOver" }""", "Action: StepOver is not supported: only Continue")]
+	[InlineData("""{ "Command": "Resume", "Action": "StepOver", "All": true }""", "All: only Continue resumes every stop; a step resumes one")]
+	[InlineData("""{ "Command": "Resume", "Action": "1" }""", "Action: unknown action \"1\"")]
+	[InlineData("""{ "Command": "Break" }""", "Cancel: missing")]
+	[InlineData("""{ "Command": "Break", "Cancel": true, "Document": "100" }""", "Document: a cancel names no graph")]
+	[InlineData("""{ "Command": "Break", "Cancel": false, "Document": "0" }""", "Document: 0 is no graph: leave Document out to break in any graph")]
+	[InlineData("""{ "Command": "Break", "Cancel": false, "Graph": "100" }""", "Graph: unknown member")]
+	[InlineData("""{ "Command": "RunTo", "Document": "100" }""", "Node: missing")]
+	[InlineData("""{ "Command": "RunTo", "Document": 100, "Node": 1 }""", "Document: not a decimal string of an unsigned 64-bit integer")]
+	[InlineData("""{ "Command": "CheckCondition", "Document": "100", "Node": 1 }""", "Condition: missing")]
 	[InlineData("""{ "Command": "Resume", "Action": "Continue", "All": true, "Stop": 1 }""", "Stop: All continues every stop")]
 	[InlineData("""{ "Command": "Resume", "Action": "Continue", "Stop": 0 }""", "Stop: not a stop ID")]
 	[InlineData("""{ "Command": "\uD800" }""", "Command: not valid Unicode text")]

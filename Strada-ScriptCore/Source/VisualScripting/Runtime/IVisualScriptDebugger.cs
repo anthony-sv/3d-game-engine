@@ -28,6 +28,10 @@ internal interface IVisualScriptDebugger
 	// which only VisualScriptDebugger builds: a Break run of a graph without them checks no stop point.
 	DebugMode Attach(Execution execution);
 
+	// Whether every stop point of a Break run asks ShouldStop, whatever the breakpoint tables hold (spec-slice4 section 4.1):
+	// a step or a Break is armed.
+	bool Armed { get; }
+
 	// At a stop point of a Break run whose cheap checks matched (spec-slice4 section 4.1): true stops the execution there.
 	bool ShouldStop(Execution execution);
 
@@ -49,4 +53,15 @@ internal interface IVisualScriptDebugger
 	// A debug fiber left its instance without running further (its instance died, a live edit cancelled it, the debugger
 	// detached).
 	void OnStoppedReleased(Execution execution, string reason);
+
+	// A live edit carried a debug fiber over to the instance's new program (spec-slice4 section 4.8): it continues with it.
+	void OnStoppedMigrated(Execution execution);
+
+	// A traced run suspended in a latent node: the execution is a fiber of its instance now (spec-slice4 section 4.6, a step
+	// that waits).
+	void OnParked(Execution execution);
+
+	// A traced execution returns to the runtime's pool: it ended, aborted, or its fiber or debug fiber was discarded or
+	// released (spec-slice4 section 4.5, the end of a step).
+	void OnReleased(Execution execution);
 }

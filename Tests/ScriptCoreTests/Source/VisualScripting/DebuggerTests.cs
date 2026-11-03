@@ -34,6 +34,8 @@ public sealed class DebuggerTests
 			return Targets.Contains(execution.Instance.Entity) ? DebugMode.Record : DebugMode.None;
 		}
 
+		public bool Armed => false;
+
 		public bool ShouldStop(Execution execution) => throw new InvalidOperationException("a Record run checks no stop point");
 
 		public void OnStep(Execution execution, CompiledNode node, int exit)
@@ -64,6 +66,21 @@ public sealed class DebuggerTests
 		public void OnStoppedReleased(Execution execution, string reason)
 		{
 			throw new InvalidOperationException("nothing stops for a debugger that never stops");
+		}
+
+		public void OnStoppedMigrated(Execution execution)
+		{
+			throw new InvalidOperationException("nothing stops for a debugger that never stops");
+		}
+
+		public void OnParked(Execution execution)
+		{
+			// Steps follow suspended executions; this debugger takes none.
+		}
+
+		public void OnReleased(Execution execution)
+		{
+			// As OnParked.
 		}
 
 		private static string NodeName(CompiledNode node) => node.Owner.Graph == 0 ? node.Id.ToString(CultureInfo.InvariantCulture)

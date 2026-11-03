@@ -74,12 +74,20 @@ internal sealed partial class VisualScriptRuntime
 				FormattableString.Invariant($"{target.Name} on {entity}: the execution waiting in {Naming(latent)} is cancelled: {problem}"));
 			Release(fiber);
 		}
-		// A stopped execution holds the old program's frames and positions: it is cancelled, its stop ended.
-		while (instance.DebugFibers.Count > 0)
+		// Stopped executions migrate as fibers do (spec-slice4 section 4.8), in the order they stopped; a cancelled one ends its
+		// stop, and its chain loses it.
+		int index = 0;
+		while (index < instance.DebugFibers.Count)
 		{
-			Execution stopped = instance.DebugFibers[0];
+			Execution stopped = instance.DebugFibers[index];
+			if (FindMissing(stopped, target) is not { } problem)
+			{
+				Move(stopped, target, frame);
+				m_Debugger?.OnStoppedMigrated(stopped);
+				index++;
+				continue;
+			}
 			string entity = FormattableString.Invariant($"{m_Environment.GetEntityName(instance.Entity)} ({instance.Entity})");
-			const string problem = "the edit replaced the program it ran";
 			m_Environment.Log(VisualScriptLogLevel.Warn,
 				FormattableString.Invariant($"{target.Name} on {entity}: the stopped execution at {Naming(StopNode(stopped))} is cancelled: {problem}"));
 			ReleaseDebugFiber(stopped, problem);
@@ -169,8 +177,9 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	// Why the fiber cannot continue in the new program: a node its latent position, flow stack or call frames hold is gone
-	// or has another type, or a function it is in changed its parameters or locals. Null when it can.
+	// Why the fiber or debug fiber cannot continue in the new program: a node its position (a fiber's latent node, a stopped
+	// execution's stop point), flow stack or call frames hold is gone or has another type, or a function it is in changed its
+	// parameters or locals. Null when it can.
 	private static string? FindMissing(Execution fiber, GraphProgram target)
 	{
 		CompiledGraph caller = null!;
@@ -210,9 +219,44 @@ internal sealed partial class VisualScriptRuntime
 			caller = graph;
 			newCaller = newGraph;
 		}
-		CompiledNode latent = caller.Nodes[fiber.SuspendedAt];
-		return Find(newCaller, latent) == null ? Removed(latent, newCaller) : null;
+		if (fiber.SuspendedAt >= 0)
+		{
+			CompiledNode latent = caller.Nodes[fiber.SuspendedAt];
+			return Find(newCaller, latent) == null ? Removed(latent, newCaller) : null;
+		}
+		// A Continue position is its top flow entry, checked above.
+		return fiber.Node >= 0 ? FindMissingStop(fiber, caller, newCaller) : null;
 	}
+
+	// Why a stopped execution's Enter position has no continuation in the new graph (spec-slice4 sections 4.8 and 7.6): its
+	// node is gone, or no longer has the exec input it is entered through; a sender waiting in its Send or Broadcast also needs
+	// the node to raise the same event in the same way, since its staged arguments were made for the old parameter types and
+	// its receivers were found by the old event and graph.
+	private static string? FindMissingStop(Execution stopped, CompiledGraph graph, CompiledGraph newGraph)
+	{
+		CompiledNode node = graph.Nodes[stopped.Node];
+		if (Find(newGraph, node) is not { } moved || MapEntry(node, moved, stopped.Entry) < 0)
+		{
+			return Removed(node, newGraph);
+		}
+		if (stopped.Delivery is not { } delivery)
+		{
+			return null;
+		}
+		CompiledNode sender = graph.Nodes[delivery.Node];
+		if (Find(newGraph, sender) is not { } newSender)
+		{
+			return Removed(sender, newGraph);
+		}
+		bool same = sender.EventName == newSender.EventName && SameTypes(sender.EventParameters, newSender.EventParameters) &&
+			sender.TargetGraph == newSender.TargetGraph && sender.IncludeSelf == newSender.IncludeSelf;
+		return same ? null : $"the edit changed the event {Naming(sender)} raises";
+	}
+
+	// The exec input of the new node that an old node's entry enters, by its name; -1 when the new node has none of that name.
+	// The entry of a node without exec inputs (an event, a function's Entry) stays.
+	private static int MapEntry(CompiledNode old, CompiledNode moved, int entry) =>
+		entry < old.EntryPins.Length ? Array.IndexOf(moved.EntryPins, old.EntryPins[entry]) : entry;
 
 	// The node of the new graph with the ID and type of an old one, enabled or disabled as it was; null when there is none.
 	private static CompiledNode? Find(CompiledGraph graph, CompiledNode old)
@@ -254,9 +298,10 @@ internal sealed partial class VisualScriptRuntime
 		return true;
 	}
 
-	// Carries a fiber FindMissing accepted over to the new program: its call frames are new frames of the new functions
-	// (node state, stored outputs and locals carried by ID), its positions are the new programs' nodes of the same IDs, and
-	// its latent node is pending with it again.
+	// Carries a fiber or debug fiber FindMissing accepted over to the new program: its call frames are new frames of the new
+	// functions (node state, stored outputs and locals carried by ID), its positions are the new programs' nodes of the same
+	// IDs (a stopped execution's stop node, entry and pending delivery included), and a fiber's latent node is pending with it
+	// again.
 	private static void Move(Execution fiber, GraphProgram target, Frame eventFrame)
 	{
 		CompiledGraph caller = null!;
@@ -287,11 +332,27 @@ internal sealed partial class VisualScriptRuntime
 			caller = graph;
 			newCaller = moved.Graph;
 		}
-		CompiledNode latent = newCaller.Nodes[newCaller.FindNode(caller.Nodes[fiber.SuspendedAt].Id)];
-		fiber.SuspendedAt = latent.Index;
-		fiber.Current = latent;
 		fiber.Program = target;
-		fiber.TopFrame.Slots[latent.StateSlot] = Slot.FromObject(fiber);
+		if (fiber.SuspendedAt >= 0)
+		{
+			CompiledNode latent = newCaller.Nodes[newCaller.FindNode(caller.Nodes[fiber.SuspendedAt].Id)];
+			fiber.SuspendedAt = latent.Index;
+			fiber.Current = latent;
+			fiber.TopFrame.Slots[latent.StateSlot] = Slot.FromObject(fiber);
+			return;
+		}
+		if (fiber.Node >= 0)
+		{
+			CompiledNode old = caller.Nodes[fiber.Node];
+			CompiledNode node = newCaller.Nodes[newCaller.FindNode(old.Id)];
+			fiber.Entry = MapEntry(old, node, fiber.Entry);
+			fiber.Node = node.Index;
+		}
+		if (fiber.Delivery is { } delivery)
+		{
+			delivery.Node = newCaller.FindNode(caller.Nodes[delivery.Node].Id);
+		}
+		fiber.Current = StopNode(fiber);
 	}
 
 	// Locals of a surviving call frame match by ID.

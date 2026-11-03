@@ -110,6 +110,44 @@ internal readonly record struct ExecutionStart(StartKind Kind, CompiledNode? Nod
 // An aborting error, ready to be logged once (spec section 5.3, Errors).
 internal sealed record ExecutionError(string Message);
 
+// What one running Event.Broadcast node keeps apart from its frame: its receiver snapshot and a copy of its arguments. A
+// broadcast whose receiver stopped keeps it until the broadcast ends (spec-slice4 section 4.3).
+internal sealed class BroadcastScratch
+{
+	internal List<GraphInstance> Receivers { get; } = [];
+
+	internal Slot[] Arguments { get; set; } = [];
+}
+
+// What a sender waits for inside its Event.Send or Event.Broadcast while the receiver it runs nested is stopped (spec-slice4
+// section 4.3): the Send or Broadcast node (an index of the sender's top frame's graph), the receiver and its serial (it is
+// the receiver only while both match and it is still a debug fiber), and for a Broadcast its kept scratch, the receiver it
+// delivers to next and how many received the event so far, the stopped one included.
+internal sealed class PendingDelivery
+{
+	internal PendingDelivery(int node, Execution receiver)
+	{
+		Node = node;
+		Receiver = receiver;
+		ReceiverSerial = receiver.Serial;
+	}
+
+	internal int Node { get; set; }
+
+	internal Execution Receiver { get; }
+
+	internal ulong ReceiverSerial { get; }
+
+	internal BroadcastScratch? Scratch { get; set; }
+
+	internal int NextReceiver { get; set; }
+
+	internal int Count { get; set; }
+
+	// Whether the receiver still waits to continue: it was not released (its instance died, an edit cancelled it) meanwhile.
+	internal bool IsWaiting => Receiver.Serial == ReceiverSerial && Receiver.IsDebugFiber;
+}
+
 // One execution (spec section 5.3): its own flow stack and call stack, and the position of the flow. All of it lives on
 // the heap, so an execution can stop at any node and continue later, as a fiber, exactly where it was. Executions are
 // pooled by their runtime: starting one does not allocate once the pool holds enough.
@@ -156,7 +194,8 @@ internal sealed class Execution
 	internal ulong RootSerial { get; set; }
 
 	// Whether the execution may stop at a breakpoint in its current run (spec-slice4 section 4.4): it is outermost on the host
-	// stack. One that cannot stop passes its breakpoints, snapshotted.
+	// stack, or a receiver whose sender can stop (they stop together, as a chain). One that cannot stop passes its
+	// breakpoints, snapshotted.
 	internal bool CanStop { get; set; }
 
 	// A stopped execution: the steps its budget had left and Time.DeltaTime as it read it (spec-slice4 section 4.2), both
@@ -169,6 +208,13 @@ internal sealed class Execution
 	internal bool SkipStop { get; set; }
 
 	internal ExecutionStart Start { get; set; }
+
+	// A sender stopped inside its Send or Broadcast because its receiver stopped (spec-slice4 section 4.3): the run that
+	// continues it finishes the delivery first.
+	internal PendingDelivery? Delivery { get; set; }
+
+	// Whether the execution is one of its instance's debug fibers now (GraphInstance.AddDebugFiber).
+	internal bool IsDebugFiber { get; set; }
 
 	internal GraphInstance Instance { get; set; } = null!;
 
@@ -325,6 +371,8 @@ internal sealed class Execution
 		SavedDeltaTime = 0.0f;
 		SkipStop = false;
 		Start = default;
+		Delivery = null;
+		IsDebugFiber = false;
 		Instance = null!;
 		Program = null!;
 	}

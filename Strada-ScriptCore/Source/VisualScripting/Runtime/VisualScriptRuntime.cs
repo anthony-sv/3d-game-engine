@@ -24,6 +24,9 @@ internal sealed partial class VisualScriptRuntime
 	internal const int MaxSteps = 1_000_000;
 	internal const int MaxDepth = 64;
 
+	// Why the debug fibers of an instance that is destroyed or replaced leave (spec-slice4 sections 4.3 and 4.11).
+	internal const string InstanceDestroyed = "its instance was destroyed";
+
 	private readonly IVisualScriptEnvironment m_Environment;
 	private readonly Func<NodeLibrary> m_Library;
 	private readonly Dictionary<ulong, GraphEntry> m_Graphs = [];
@@ -357,7 +360,8 @@ internal sealed partial class VisualScriptRuntime
 
 	// A suspended execution becomes a fiber of its instance, last in the pending order; one already in its place (a WaitUntil
 	// whose condition is still false, a RetriggerableDelay's latest trigger) stays there. One whose instance died while it
-	// ran dies with it.
+	// ran dies with it. A suspended receiver no longer runs in its sender: it resumes as an outermost execution of its own
+	// (spec-slice4 section 4.6, a latent receiver).
 	private void Park(Execution fiber)
 	{
 		if (!fiber.Instance.IsAlive)
@@ -366,10 +370,13 @@ internal sealed partial class VisualScriptRuntime
 			Release(fiber);
 			return;
 		}
+		fiber.Parent = null;
+		fiber.RootSerial = fiber.Serial;
 		if (!fiber.Instance.HasFiber(fiber))
 		{
 			fiber.Instance.AddFiber(fiber);
 		}
+		fiber.Debugger?.OnParked(fiber);
 	}
 
 	// A new execution of the instance that starts at a node of its event graph (and its exec input), traced as the attached
@@ -391,10 +398,16 @@ internal sealed partial class VisualScriptRuntime
 	}
 
 	// Returns the frames of an execution's function calls to their pools and the execution to the runtime's pool; a fiber
-	// leaves its instance's fibers first.
+	// leaves its instance's fibers first, and a sender stopped inside a Broadcast gives its scratch back. A traced execution
+	// tells its debugger.
 	private void Release(Execution execution)
 	{
 		execution.Instance.RemoveFiber(execution);
+		execution.Debugger?.OnReleased(execution);
+		if (execution.Delivery?.Scratch is { } scratch)
+		{
+			ReleaseScratch(scratch);
+		}
 		bool record = (execution.Mode & DebugMode.Record) != 0;
 		for (int index = execution.CallCount - 1; index > 0; index--)
 		{
@@ -434,7 +447,7 @@ internal sealed partial class VisualScriptRuntime
 	private void Kill(GraphInstance instance)
 	{
 		instance.Kill();
-		ReleaseDebugFibers(instance, "its instance was destroyed");
+		ReleaseDebugFibers(instance, InstanceDestroyed);
 		while (instance.FirstFiber is { Value: { } fiber })
 		{
 			instance.RemoveFiber(fiber);

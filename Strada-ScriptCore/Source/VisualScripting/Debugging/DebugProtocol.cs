@@ -144,7 +144,7 @@ internal static class DebugRequest
 
 // The commands of VisualScriptDebug (spec-slice4 section 7.8): a request is a JSON object { "Command": "<name>", ... }; the
 // reply is a JSON object, an error reply { "Error", "Code" } for anything refused. Handles and entities are decimal strings,
-// node, function and stop IDs integers. Commands: Attach, Detach, Configure, State and Resume (Continue).
+// node, function and stop IDs integers. Commands: Attach, Detach, Configure, State, Resume, Break, RunTo and CheckCondition.
 internal static class DebugProtocol
 {
 	private static readonly JsonDocumentOptions s_Options = new() { MaxDepth = 64 };
@@ -234,6 +234,15 @@ internal static class DebugProtocol
 			case "Resume":
 				Resume(runtime, request, writer);
 				break;
+			case "Break":
+				Break(runtime, request, writer);
+				break;
+			case "RunTo":
+				RunTo(runtime, request, writer);
+				break;
+			case "CheckCondition":
+				CheckCondition(runtime, request, writer);
+				break;
 			default:
 				throw new DebugRequestException(DebugErrorCode.InvalidRequest, $"Command: unknown command {JsonText.Quote(command)}");
 		}
@@ -254,20 +263,20 @@ internal static class DebugProtocol
 	private static void Resume(VisualScriptRuntime runtime, JsonElement request, Utf8JsonWriter writer)
 	{
 		DebugRequest.ExpectMembers(request, string.Empty, "Command", "Stop", "Action", "All");
-		string action = DebugRequest.ReadString(request, "Action", string.Empty);
-		if (action is "StepInto" or "StepOver" or "StepOut")
+		string name = DebugRequest.ReadString(request, "Action", string.Empty);
+		if (!Enum.TryParse(name, ignoreCase: false, out ResumeAction action) || !Enum.IsDefined(action) || name != action.ToString())
 		{
-			throw new DebugRequestException(DebugErrorCode.InvalidRequest, $"Action: {action} is not supported: only Continue");
-		}
-		if (action != "Continue")
-		{
-			throw new DebugRequestException(DebugErrorCode.InvalidRequest, $"Action: unknown action {JsonText.Quote(action)}");
+			throw new DebugRequestException(DebugErrorCode.InvalidRequest, $"Action: unknown action {JsonText.Quote(name)}");
 		}
 		bool all = DebugRequest.Has(request, "All") && DebugRequest.ReadBool(request, "All", string.Empty);
 		bool hasStop = DebugRequest.Has(request, "Stop");
 		if (all && hasStop)
 		{
 			throw new DebugRequestException(DebugErrorCode.InvalidRequest, "Stop: All continues every stop");
+		}
+		if (all && action != ResumeAction.Continue)
+		{
+			throw new DebugRequestException(DebugErrorCode.InvalidRequest, "All: only Continue resumes every stop; a step resumes one");
 		}
 		VisualScriptDebugger debugger = Require(runtime);
 		RefuseWhileExecuting(runtime);
@@ -281,7 +290,12 @@ internal static class DebugProtocol
 			DebugStop stop = hasStop ? debugger.FindStop(DebugRequest.ReadId(request, "Stop", string.Empty)) ??
 					throw new DebugRequestException(DebugErrorCode.NotFound, "Stop: no stop of the ID")
 				: debugger.Current ?? throw new DebugRequestException(DebugErrorCode.NotFound, "no execution is stopped");
-			result = debugger.Continue(stop);
+			if (action != ResumeAction.Continue && !stop.Resumable)
+			{
+				throw new DebugRequestException(DebugErrorCode.InvalidState,
+					FormattableString.Invariant($"Stop: stop {stop.Id} is read-only ({stop.Reason}): it does not step, and Continue dismisses it"));
+			}
+			result = action == ResumeAction.Continue ? debugger.Continue(stop) : debugger.Step(stop, action);
 		}
 		writer.WriteStartObject();
 		writer.WriteString("Outcome", result.Outcome.ToString());
@@ -298,6 +312,140 @@ internal static class DebugProtocol
 		writer.WriteEndObject();
 	}
 
+	// Break (spec-slice4 section 4.5): arms the next stop point of a targeted execution that can stop, of one graph with a
+	// Document, or cancels the armed Break and the step request.
+	private static void Break(VisualScriptRuntime runtime, JsonElement request, Utf8JsonWriter writer)
+	{
+		DebugRequest.ExpectMembers(request, string.Empty, "Command", "Cancel", "Document");
+		bool cancel = DebugRequest.ReadBool(request, "Cancel", string.Empty);
+		bool hasDocument = DebugRequest.Has(request, "Document");
+		ulong document = hasDocument ? DebugRequest.ReadHandle(request, "Document", string.Empty) : 0;
+		if (cancel && hasDocument)
+		{
+			throw new DebugRequestException(DebugErrorCode.InvalidRequest, "Document: a cancel names no graph");
+		}
+		if (hasDocument && document == 0)
+		{
+			throw new DebugRequestException(DebugErrorCode.InvalidRequest, "Document: 0 is no graph: leave Document out to break in any graph");
+		}
+		VisualScriptDebugger debugger = Require(runtime);
+		if (cancel)
+		{
+			debugger.CancelBreak();
+		}
+		else
+		{
+			debugger.ArmBreak(document);
+		}
+		writer.WriteStartObject();
+		writer.WriteEndObject();
+	}
+
+	// RunTo (spec-slice4 section 2.5): arms a one-shot breakpoint on a node of a document; the caller then continues.
+	private static void RunTo(VisualScriptRuntime runtime, JsonElement request, Utf8JsonWriter writer)
+	{
+		DebugRequest.ExpectMembers(request, string.Empty, "Command", "Document", "Node");
+		ulong document = DebugRequest.ReadHandle(request, "Document", string.Empty);
+		uint node = DebugRequest.ReadUInt(request, "Node", string.Empty);
+		VisualScriptDebugger debugger = Require(runtime);
+		if (!debugger.ArmRunTo(document, node))
+		{
+			throw new DebugRequestException(DebugErrorCode.InvalidState,
+				FormattableString.Invariant($"Node: no loaded program has the node {node} of the document {document}"));
+		}
+		writer.WriteStartObject();
+		writer.WriteEndObject();
+	}
+
+	// CheckCondition (spec-slice4 sections 2.3 and 7.8): compiles a condition for a node of a document against the program it
+	// runs in (the graph's working program, for a library node a loaded program compiled with it), and lists the node's scope.
+	// Needs no debugger.
+	private static void CheckCondition(VisualScriptRuntime runtime, JsonElement request, Utf8JsonWriter writer)
+	{
+		DebugRequest.ExpectMembers(request, string.Empty, "Command", "Document", "Node", "Condition");
+		ulong document = DebugRequest.ReadHandle(request, "Document", string.Empty);
+		uint id = DebugRequest.ReadUInt(request, "Node", string.Empty);
+		string condition = DebugRequest.ReadString(request, "Condition", string.Empty);
+		if (JsonText.ByteCount(condition) > CompiledCondition.MaxBytes)
+		{
+			throw new DebugRequestException(DebugErrorCode.InvalidRequest,
+				FormattableString.Invariant($"Condition: a condition has at most {CompiledCondition.MaxBytes} bytes"));
+		}
+		(CompiledGraph Graph, CompiledNode Node, GraphProgram Program)? found = FindNode(runtime, document, id);
+		writer.WriteStartObject();
+		writer.WriteBoolean("Checked", found != null);
+		CompiledCondition? compiled = null;
+		string? error = null;
+		if (found is ({ } graph, { } node, { } program))
+		{
+			if (!BreakpointConditions.IsEntered(node))
+			{
+				error = condition.Length > 0 ? BreakpointConditions.PureCondition : null;
+			}
+			else
+			{
+				compiled = CompiledCondition.Compile(condition, graph, node, program, condition: true);
+				error = compiled.Error;
+			}
+		}
+		WriteNullable(writer, "Error", error);
+		writer.WriteStartArray("Reads");
+		foreach (string read in compiled?.Reads ?? [])
+		{
+			writer.WriteStringValue(read);
+		}
+		writer.WriteEndArray();
+		writer.WriteStartArray("Scope");
+		foreach (ConditionName name in compiled?.Scope.Readable ?? [])
+		{
+			writer.WriteStartObject();
+			writer.WriteString("Name", name.Name);
+			writer.WriteString("Form", name.Form);
+			writer.WriteString("Type", name.Type.Id);
+			writer.WriteString("Source", name.Source.ToString());
+			writer.WriteNumber("Node", name.Node);
+			writer.WriteEndObject();
+		}
+		writer.WriteEndArray();
+		writer.WriteEndObject();
+	}
+
+	// A node of a document in the program a condition on it is checked against: the working program of the script graph of
+	// that handle, else a working or running program compiled with the library of that handle.
+	private static (CompiledGraph Graph, CompiledNode Node, GraphProgram Program)? FindNode(VisualScriptRuntime runtime, ulong document, uint id)
+	{
+		List<(GraphProgram Program, ulong Handle)> programs = [];
+		foreach ((ulong handle, GraphProgram program) in runtime.EffectivePrograms)
+		{
+			// The script graph's own working program is looked in first.
+			programs.Insert(handle == document ? 0 : programs.Count, (program, handle));
+		}
+		foreach (GraphInstance instance in runtime.Instances)
+		{
+			programs.Add((instance.Program, instance.Graph));
+		}
+		foreach ((GraphProgram program, ulong handle) in programs)
+		{
+			if (BreakpointConditions.Find(program, handle, document, id) is ({ } graph, { } node))
+			{
+				return (graph, node, program);
+			}
+		}
+		return null;
+	}
+
+	private static void WriteNullable(Utf8JsonWriter writer, string name, string? value)
+	{
+		if (value != null)
+		{
+			writer.WriteString(name, value);
+		}
+		else
+		{
+			writer.WriteNull(name);
+		}
+	}
+
 	private static void WriteState(Utf8JsonWriter writer, VisualScriptDebugger debugger)
 	{
 		writer.WriteStartObject();
@@ -312,7 +460,7 @@ internal static class DebugProtocol
 			writer.WriteNull("Current");
 		}
 		writer.WriteNumber("Passed", debugger.Passed);
-		writer.WriteNull("Stepping");
+		WriteStepping(writer, debugger.Stepping);
 		writer.WriteStartArray("Stops");
 		foreach (DebugStop stop in debugger.Stops)
 		{
@@ -332,10 +480,39 @@ internal static class DebugProtocol
 			writer.WriteNumber("Reached", breakpoint.Reached);
 			writer.WriteBoolean("Active", inactivity == BreakpointInactivity.None);
 			writer.WriteString("Reason", inactivity == BreakpointInactivity.None ? string.Empty : inactivity.ToString());
-			writer.WriteNull("Error");
+			WriteNullable(writer, "Error", breakpoint.Error);
 			writer.WriteEndObject();
 		}
 		writer.WriteEndArray();
+		writer.WriteEndObject();
+	}
+
+	// The step that runs or waits: the stop it was made from, its action and where its chain waits (null while it does not).
+	private static void WriteStepping(Utf8JsonWriter writer, DebugStepRequest? step)
+	{
+		if (step == null)
+		{
+			writer.WriteNull("Stepping");
+			return;
+		}
+		writer.WriteStartObject("Stepping");
+		writer.WriteNumber("Stop", step.Stop);
+		writer.WriteString("Action", step.Action.ToString());
+		if (step.WaitsIn is { } node)
+		{
+			Execution root = step.Root;
+			writer.WriteStartObject("WaitsIn");
+			WriteHandle(writer, "Document", ProgramTrace.DocumentOf(node.Owner, root.Instance.Graph));
+			writer.WriteNumber("Function", node.Owner.Function?.Id ?? 0);
+			writer.WriteNumber("Node", node.Id);
+			writer.WriteString("Title", node.Title);
+			WriteHandle(writer, "Entity", root.Instance.Entity);
+			writer.WriteEndObject();
+		}
+		else
+		{
+			writer.WriteNull("WaitsIn");
+		}
 		writer.WriteEndObject();
 	}
 

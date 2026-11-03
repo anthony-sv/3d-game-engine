@@ -88,18 +88,23 @@ internal sealed class GraphInstance
 	internal IReadOnlyList<Execution> DebugFibers => m_DebugFibers;
 
 	// Whether the execution is one of the instance's debug fibers now.
-	internal bool HasDebugFiber(Execution execution) => m_DebugFibers.Contains(execution);
+	internal bool HasDebugFiber(Execution execution) => execution.IsDebugFiber && ReferenceEquals(execution.Instance, this);
 
 	// The debugger stopped the execution: it waits as a debug fiber until the debugger continues or releases it.
 	internal void AddDebugFiber(Execution execution)
 	{
 		m_DebugFibers.Add(execution);
+		execution.IsDebugFiber = true;
 	}
 
 	// The debug fiber continues or is released; nothing for an execution that is not one.
 	internal void RemoveDebugFiber(Execution execution)
 	{
-		m_DebugFibers.Remove(execution);
+		if (HasDebugFiber(execution))
+		{
+			m_DebugFibers.Remove(execution);
+			execution.IsDebugFiber = false;
+		}
 	}
 
 	// A live edit: the instance runs the new program from now on, with the variables and frame carried over to it (the

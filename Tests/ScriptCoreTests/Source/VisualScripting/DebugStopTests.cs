@@ -11,7 +11,8 @@ namespace Strada.ScriptCore.Tests;
 
 // Where breakpoints stop and what stopping does (spec-slice4 sections 2.2, 2.4, 2.6, 3, 4.1, 4.2, 4.5, 4.7, 4.10 to 4.12, 5.1
 // and 5.2): every kind of node a breakpoint can be on, the rest of the frame running past a stop, debug fibers, Continue,
-// targets, the cap on stops, the instance's death, Destroy events and errors.
+// targets, the cap on stops, the instance's death, Destroy events and errors. Chains are DebugChainTests', live edits
+// DebugLiveEditTests'.
 public sealed class DebugStopTests
 {
 	private static JsonElement Frame(JsonElement stop, int index = 0) => stop.GetProperty("Frames")[index];
@@ -636,32 +637,6 @@ public sealed class DebugStopTests
 		Assert.Empty(session.Stops());
 	}
 
-	// A receiver an Event.Send runs nested in its sender passes its breakpoints: the sender waits in its Send below it.
-	[Fact]
-	public void AReceiverRunNestedByItsSendPassesWithItsSenderBelow()
-	{
-		DocumentBuilder document = new();
-		GraphBuilder graph = document.Graph;
-		uint send = graph.Node("Event.Send", """{ "Name": "Ping" }""");
-		graph.Flow(graph.Node("Event.Create"), send);
-		uint ping = graph.Node("Event.Custom", """{ "Name": "Ping" }""");
-		uint pinged = graph.Write("pinged");
-		graph.Flow(ping, pinged);
-		TestRuntime runtime = TestRuntime.Start(document);
-		DebugSession session = new(runtime);
-		session.Break(pinged);
-
-		runtime.Invoke(ScriptEvent.Create);
-		Assert.Equal(["pinged"], runtime.Records);
-		JsonElement stop = session.SingleStop();
-		Assert.Equal("Passed", DebugSession.Text(stop, "Reason"));
-		Assert.Equal("it runs nested in the execution that sent it its event", DebugSession.Text(stop, "Message"));
-		Assert.Equal("Delivery", DebugSession.Text(stop.GetProperty("Start"), "Kind"));
-		JsonElement[] frames = [.. stop.GetProperty("Frames").EnumerateArray()];
-		Assert.Equal([pinged, send], frames.Select(static frame => frame.GetProperty("Node").GetUInt32()));
-		Assert.Equal(["Graph", "Delivery"], frames.Select(static frame => DebugSession.Text(frame, "Kind")));
-	}
-
 	// Break on errors (spec-slice4 section 4.10): an aborting error of a targeted execution makes one read-only error stop at the
 	// failing node with its message, a nested one too; without it, none.
 	[Theory]
@@ -776,33 +751,5 @@ public sealed class DebugStopTests
 		Assert.Equal(0UL, stamps[eventGraph.FindNode(second)]);
 		session.Continue();
 		Assert.Equal(serial, runtime.Instance().Frame.Stamps![eventGraph.FindNode(second)]);
-	}
-
-	// A live edit of a stopped execution's graph cancels it with a Warning: the stop ends.
-	[Fact]
-	public void ALiveEditCancelsAStoppedExecution()
-	{
-		DocumentBuilder document = new();
-		GraphBuilder graph = document.Graph;
-		uint update = graph.Node("Event.Update");
-		uint write = graph.Write("update");
-		graph.Flow(update, write);
-		string text = document.Build();
-		TestRuntime runtime = TestRuntime.Start(text);
-		DebugSession session = new(runtime);
-		session.Break(write);
-		runtime.Invoke(ScriptEvent.Update);
-		ulong revision = session.StopRevision;
-
-		CompiledGraph before = runtime.Instance().Program.EventGraph;
-		string title = before.Nodes[before.FindNode(write)].Title;
-		runtime.LoadWorking(text);
-		Assert.Empty(session.Stops());
-		Assert.Empty(runtime.Instance().DebugFibers);
-		Assert.True(session.StopRevision > revision);
-		Assert.Equal(
-			[FormattableString.Invariant($"{TestRuntime.Name} on Hero (7): the stopped execution at {title} (node {write}) is cancelled: the edit replaced the program it ran")],
-			runtime.Environment.Warnings);
-		Assert.Empty(runtime.Records);
 	}
 }

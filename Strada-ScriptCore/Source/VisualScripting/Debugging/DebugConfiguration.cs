@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json;
 
@@ -38,8 +39,8 @@ internal sealed class DebugConfiguration
 	internal bool BreakOnErrors { get; }
 
 	// Reads Configure's members; a member that is missing, unknown or of the wrong type throws a DebugRequestException naming
-	// its path, as does a second breakpoint of one node, a second target of one graph or a condition (this debugger stops
-	// at every hit of a breakpoint, counted by its hit count).
+	// its path, as does a second breakpoint of one node, a second target of one graph or a condition longer than
+	// CompiledCondition.MaxBytes. A condition that does not compile is no refusal: it is the breakpoint's error (State).
 	internal static DebugConfiguration Read(JsonElement request)
 	{
 		DebugRequest.ExpectMembers(request, string.Empty, "Command", "Revision", "Breakpoints", "Targets", "Watches", "BreakOnErrors");
@@ -55,9 +56,10 @@ internal sealed class DebugConfiguration
 			DebugBreakpointSetting breakpoint = new(DebugRequest.ReadHandle(element, "Document", path), DebugRequest.ReadUInt(element, "Node", path),
 				DebugRequest.ReadString(element, "Type", path), DebugRequest.ReadBool(element, "Enabled", path),
 				DebugRequest.ReadString(element, "Condition", path), DebugRequest.ReadUInt(element, "HitCount", path));
-			if (breakpoint.Condition.Length > 0)
+			if (JsonText.ByteCount(breakpoint.Condition) > CompiledCondition.MaxBytes)
 			{
-				throw new DebugRequestException(DebugErrorCode.InvalidRequest, $"{path}.Condition: breakpoint conditions are not supported");
+				throw new DebugRequestException(DebugErrorCode.InvalidRequest,
+					FormattableString.Invariant($"{path}.Condition: a condition has at most {CompiledCondition.MaxBytes} bytes"));
 			}
 			if (!nodes.Add((breakpoint.Document, breakpoint.Node)))
 			{

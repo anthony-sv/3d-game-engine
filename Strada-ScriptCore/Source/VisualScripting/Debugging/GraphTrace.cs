@@ -1,22 +1,54 @@
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace Strada.VisualScripting;
 
-// A breakpoint while the debugger is attached: its setting, its counters (spec-slice4 section 2.4) and the version of the
-// setting they count for. Hits are the stop points where its condition held, Reached every stop point where it was checked
-// in a Break run.
+// A breakpoint while the debugger is attached: its setting, its counters (spec-slice4 section 2.4) and its condition compiled
+// for each graph it is checked in. Hits are the stop points where its condition held, Reached every stop point where it was
+// checked in a Break run of a targeted execution. A Run to Node (section 2.5) is a breakpoint of its own kind, counted
+// nowhere.
 internal sealed class DebugBreakpoint
 {
-	internal DebugBreakpoint(DebugBreakpointSetting setting)
+	// By compiled graph: a condition is compiled against the scope of the program's graph (section 2.3), and goes with it.
+	private readonly ConditionalWeakTable<CompiledGraph, CompiledCondition> m_Conditions = new();
+
+	internal DebugBreakpoint(DebugBreakpointSetting setting, bool isRunTo = false)
 	{
 		Setting = setting;
+		IsRunTo = isRunTo;
 	}
 
 	internal DebugBreakpointSetting Setting { get; set; }
 
+	internal bool IsRunTo { get; }
+
 	internal ulong Hits { get; set; }
 
 	internal ulong Reached { get; set; }
+
+	// Why the breakpoint never stops (its condition does not compile, or it is on a node no flow enters, which takes none);
+	// null when it can.
+	internal string? Error { get; private set; }
+
+	internal bool HasCondition => Setting.Condition.Length > 0;
+
+	// The breakpoint's condition for its node in a compiled graph of the program, compiled the first time it is needed there.
+	internal CompiledCondition ConditionFor(CompiledGraph graph, CompiledNode node, GraphProgram program)
+	{
+		if (!m_Conditions.TryGetValue(graph, out CompiledCondition? condition))
+		{
+			condition = CompiledCondition.Compile(Setting.Condition, graph, node, program, condition: true);
+			m_Conditions.Add(graph, condition);
+			Error = condition.Error;
+		}
+		return condition;
+	}
+
+	// A condition on a node no flow enters is refused: the breakpoint never stops.
+	internal void RefuseCondition()
+	{
+		Error = BreakpointConditions.PureCondition;
+	}
 }
 
 // What the debugger checks in one compiled graph (spec-slice4 sections 4.1 and 7.5), built for its owner's configuration
@@ -89,12 +121,14 @@ internal sealed class ProgramTrace
 
 	internal bool IsCurrent(VisualScriptDebugger owner, int version, ulong handle) => ReferenceEquals(Owner, owner) && Version == version && Handle == handle;
 
-	// breakpoints: the enabled breakpoints by document and node. watches: the watched (document, function) pairs.
+	// breakpoints: the enabled breakpoints by document and node. runTo: the armed Run to Node, or null. watches: the watched
+	// (document, function) pairs.
 	internal static ProgramTrace Build(VisualScriptDebugger owner, int version, GraphProgram program, ulong handle,
-		IReadOnlyDictionary<(ulong Document, uint Node), DebugBreakpoint> breakpoints, IReadOnlySet<(ulong Document, uint Function)> watches)
+		IReadOnlyDictionary<(ulong Document, uint Node), DebugBreakpoint> breakpoints, DebugBreakpoint? runTo,
+		IReadOnlySet<(ulong Document, uint Function)> watches)
 	{
 		ProgramTrace trace = new(owner, version, handle);
-		PureClosures closures = new(handle, breakpoints);
+		PureClosures closures = new(handle, breakpoints, runTo);
 		List<CompiledGraph> graphs = [program.EventGraph];
 		foreach (CompiledFunction function in program.Functions)
 		{
@@ -104,9 +138,9 @@ internal sealed class ProgramTrace
 		{
 			GraphTrace graphTrace = new(owner, version, DocumentOf(graph, handle), graph.Function?.Id ?? 0, graph.Nodes.Length);
 			graphTrace.IsWatched = watches.Contains((graphTrace.Document, graphTrace.Function));
-			if (breakpoints.Count > 0)
+			if (breakpoints.Count > 0 || runTo != null)
 			{
-				FillBreaks(graph, graphTrace, breakpoints, closures);
+				FillBreaks(program, graph, graphTrace, closures);
 			}
 			graph.Debug = graphTrace;
 			trace.HasBreakpoints |= graphTrace.HasBreaks;
@@ -126,22 +160,38 @@ internal sealed class ProgramTrace
 		!node.IsSplit && breakpoints.TryGetValue((DocumentOf(node.Owner, handle), node.Id), out DebugBreakpoint? breakpoint) &&
 		breakpoint.Setting.Type == node.Type ? breakpoint : null;
 
-	private static void FillBreaks(CompiledGraph graph, GraphTrace trace, IReadOnlyDictionary<(ulong Document, uint Node), DebugBreakpoint> breakpoints,
-		PureClosures closures)
+	// Whether the armed Run to Node is on the node: its document, ID and Type.
+	internal static bool IsRunTo(CompiledNode node, ulong handle, DebugBreakpoint? runTo) => runTo != null && !node.IsSplit &&
+		runTo.Setting.Document == DocumentOf(node.Owner, handle) && runTo.Setting.Node == node.Id && runTo.Setting.Type == node.Type;
+
+	// The breakpoints each stop point of the graph checks: an impure node's own (its condition compiled now, so that State
+	// reports one that does not compile before the node is reached), the Run to Node on it, then those of the pure nodes its
+	// instruction evaluates.
+	private static void FillBreaks(GraphProgram program, CompiledGraph graph, GraphTrace trace, PureClosures closures)
 	{
 		List<DebugBreakpoint> found = [];
 		foreach (CompiledNode node in graph.Nodes)
 		{
-			if (node.Pure)
+			// The Entry and Return of a pure function are evaluated through the plans of its callers' calls (PureClosures).
+			if (!BreakpointConditions.IsEntered(node))
 			{
 				continue;
 			}
 			found.Clear();
-			DebugBreakpoint? own = OwnOf(node, closures.Handle, breakpoints);
+			DebugBreakpoint? own = OwnOf(node, closures.Handle, closures.Breakpoints);
 			if (own != null)
 			{
+				if (own.HasCondition)
+				{
+					own.ConditionFor(graph, node, program);
+				}
 				found.Add(own);
 			}
+			if (IsRunTo(node, closures.Handle, closures.RunTo))
+			{
+				found.Add(closures.RunTo!);
+			}
+			int owned = found.Count;
 			closures.AddPlanBreakpoints(graph, node, found);
 			if (found.Count == 0)
 			{
@@ -151,11 +201,11 @@ internal sealed class ProgramTrace
 			trace.EnterBreakpoints[node.Index] = [.. found];
 			trace.OwnBreakpoint[node.Index] = own != null;
 			trace.HasBreaks = true;
-			if (node.Op == Opcode.While && found.Count > (own != null ? 1 : 0))
+			if (node.Op == Opcode.While && found.Count > owned)
 			{
 				// The condition is evaluated again at each Continue(While): its pure breakpoints stop there too.
 				trace.ContinueBreaks[node.Index] = true;
-				trace.ContinueBreakpoints[node.Index] = [.. found.GetRange(own != null ? 1 : 0, found.Count - (own != null ? 1 : 0))];
+				trace.ContinueBreakpoints[node.Index] = [.. found.GetRange(owned, found.Count - owned)];
 			}
 		}
 	}
@@ -165,17 +215,21 @@ internal sealed class ProgramTrace
 	// once per build.
 	private sealed class PureClosures
 	{
-		private readonly IReadOnlyDictionary<(ulong Document, uint Node), DebugBreakpoint> m_Breakpoints;
 		private readonly Dictionary<CompiledFunction, DebugBreakpoint[]> m_Functions = [];
 		private readonly HashSet<CompiledFunction> m_Open = [];
 
-		internal PureClosures(ulong handle, IReadOnlyDictionary<(ulong Document, uint Node), DebugBreakpoint> breakpoints)
+		internal PureClosures(ulong handle, IReadOnlyDictionary<(ulong Document, uint Node), DebugBreakpoint> breakpoints, DebugBreakpoint? runTo)
 		{
 			Handle = handle;
-			m_Breakpoints = breakpoints;
+			Breakpoints = breakpoints;
+			RunTo = runTo;
 		}
 
 		internal ulong Handle { get; }
+
+		internal IReadOnlyDictionary<(ulong Document, uint Node), DebugBreakpoint> Breakpoints { get; }
+
+		internal DebugBreakpoint? RunTo { get; }
 
 		// Adds the breakpoints of the pure nodes the impure node's instruction evaluates to found, each once.
 		internal void AddPlanBreakpoints(CompiledGraph graph, CompiledNode node, List<DebugBreakpoint> found)
@@ -198,7 +252,7 @@ internal sealed class ProgramTrace
 			foreach (int index in plan)
 			{
 				CompiledNode pure = graph.Nodes[index];
-				AddUnique(OwnOf(pure, Handle, m_Breakpoints), found);
+				AddPure(pure, found);
 				if (pure.Op == Opcode.PureCall)
 				{
 					foreach (DebugBreakpoint breakpoint in OfFunction(pure.Function!))
@@ -222,14 +276,35 @@ internal sealed class ProgramTrace
 			}
 			CompiledGraph body = function.Body;
 			List<DebugBreakpoint> found = [];
-			AddUnique(OwnOf(body.Nodes[function.EntryNode], Handle, m_Breakpoints), found);
+			AddPure(body.Nodes[function.EntryNode], found);
 			CompiledNode returned = body.Nodes[function.ReturnNode];
-			AddUnique(OwnOf(returned, Handle, m_Breakpoints), found);
+			AddPure(returned, found);
 			AddPlanBreakpoints(body, returned, found);
 			m_Open.Remove(function);
 			DebugBreakpoint[] closure = [.. found];
 			m_Functions[function] = closure;
 			return closure;
+		}
+
+		// The breakpoint of a node no flow enters, and the Run to Node on it. A condition there is refused: the breakpoint
+		// never stops (spec-slice4 section 2.2).
+		private void AddPure(CompiledNode node, List<DebugBreakpoint> found)
+		{
+			if (OwnOf(node, Handle, Breakpoints) is { } breakpoint)
+			{
+				if (breakpoint.HasCondition)
+				{
+					breakpoint.RefuseCondition();
+				}
+				else
+				{
+					AddUnique(breakpoint, found);
+				}
+			}
+			if (IsRunTo(node, Handle, RunTo))
+			{
+				AddUnique(RunTo, found);
+			}
 		}
 
 		private static void AddUnique(DebugBreakpoint? breakpoint, List<DebugBreakpoint> found)

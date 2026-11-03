@@ -28,15 +28,27 @@ internal enum DebugPlace : byte
 // (Node 0, Name its name) or an output of an event or impure node of its instance's event graph (the node's ID and the pin).
 internal readonly record struct DebugChange(uint Node, string Name);
 
+// A literal input of a stopped execution's node that a live edit changed (spec-slice4 section 4.8): the pin, its type, and its
+// literal before and after the edit.
+internal readonly record struct DebugEdit(string Pin, VisualType Type, Slot Before, Slot After);
+
+// A member of a stopped chain (spec-slice4 section 1): the execution and its serial (a pooled execution is the member only
+// while its serial matches).
+internal readonly record struct DebugChainMember(Execution Execution, ulong Serial)
+{
+	// Whether the member still waits as a debug fiber.
+	internal bool IsWaiting => Execution.Serial == Serial && Execution.IsDebugFiber;
+}
+
 // One frame of a snapshotted execution, as it was (spec-slice4 section 5.1): its graph, copies of its slots and stamps, the
 // call node in the caller's graph (-1 at the bottom) and where its flow-stack segment starts.
 internal sealed record DebugSnapshotFrame(CompiledGraph Graph, Slot[] Slots, ulong[]? Stamps, int CallNode, int FlowBase);
 
-// One execution of a snapshot: its instance's entity and graph handle, its frames (bottom first, as on its call stack), its
-// instance's variables, its flow entries, where it stood (Node is the node it entered, failed at or waits in; for a Continue
-// the Sequence or loop node, with Exit the exit it takes, -1 when its condition decides) and its start. Waiting: it runs the
-// member above it nested, from its Send or Broadcast. NativeAbove: the title of the node through whose native code it runs
-// the member above (null when it is the innermost or runs it nested from the VM).
+// One execution of a snapshot: its instance's entity and graph handle, the program it ran, its frames (bottom first, as on its
+// call stack), its instance's variables, its flow entries, where it stood (Node is the node it entered, failed at or waits in;
+// for a Continue the Sequence or loop node, with Exit the exit it takes, -1 when its condition decides) and its start.
+// Waiting: it runs the member above it nested, from its Send or Broadcast. NativeAbove: the title of the node through whose
+// native code it runs the member above (null when it is the innermost or runs it nested from the VM).
 internal sealed class DebugSnapshotMember
 {
 	internal required ulong Serial { get; init; }
@@ -44,6 +56,8 @@ internal sealed class DebugSnapshotMember
 	internal required ulong Entity { get; init; }
 
 	internal required ulong Graph { get; init; }
+
+	internal required GraphProgram Program { get; init; }
 
 	internal required DebugSnapshotFrame[] Frames { get; init; }
 
@@ -137,6 +151,7 @@ internal sealed class DebugSnapshot
 			Serial = execution.Serial,
 			Entity = execution.Instance.Entity,
 			Graph = execution.Instance.Graph,
+			Program = execution.Program,
 			Frames = frames,
 			Variables = (Slot[])execution.Instance.Variables.Clone(),
 			Flow = execution.Flow.AsSpan(0, execution.FlowCount).ToArray(),
@@ -162,11 +177,10 @@ internal sealed class DebugSnapshot
 
 	// What changed in the live values a stopped execution reads since the snapshot (spec-slice4 section 4.7): its instance's
 	// variables and the outputs of event and impure nodes of the instance's event-graph frame. Values compare by their bits,
-	// objects by reference. At most max are listed; more counts the others.
-	internal static List<DebugChange> Changes(DebugSnapshotMember member, GraphInstance instance, int max, out int more)
+	// objects by reference. Each change is listed once (members of one instance see the same ones), at most max; more counts
+	// the others.
+	internal static void AddChanges(DebugSnapshotMember member, GraphInstance instance, List<DebugChange> changes, int max, ref int more)
 	{
-		List<DebugChange> changes = [];
-		more = 0;
 		CompiledVariable[] variables = instance.Program.Variables;
 		if (variables.Length == member.Variables.Length)
 		{
@@ -182,7 +196,7 @@ internal sealed class DebugSnapshot
 		Slot[] live = instance.Frame.Slots;
 		if (!ReferenceEquals(events.Graph, instance.Frame.Graph))
 		{
-			return changes;
+			return;
 		}
 		foreach (CompiledNode node in events.Graph.Nodes)
 		{
@@ -199,11 +213,14 @@ internal sealed class DebugSnapshot
 				}
 			}
 		}
-		return changes;
 	}
 
 	private static void Add(List<DebugChange> changes, DebugChange change, int max, ref int more)
 	{
+		if (changes.Contains(change))
+		{
+			return;
+		}
 		if (changes.Count < max)
 		{
 			changes.Add(change);
@@ -212,6 +229,54 @@ internal sealed class DebugSnapshot
 		{
 			more++;
 		}
+	}
+
+	// The unlinked (literal) inputs of a frame's node whose literal a live edit changed (spec-slice4 section 4.8): node is the
+	// node as the snapshot saw it and current the compiled graph the execution runs now. Before is the literal of the program
+	// the snapshot was taken in, After the current one; a pin linked in either program, or of another type now, is no edited
+	// literal.
+	internal static List<DebugEdit> EditedInputs(CompiledNode node, CompiledGraph current)
+	{
+		List<DebugEdit> edits = [];
+		int index = current.FindNode(node.Id);
+		if (index < 0 || ReferenceEquals(current, node.Owner))
+		{
+			return edits;
+		}
+		CompiledNode now = current.Nodes[index];
+		for (int input = 0; input < now.InputPins.Length; input++)
+		{
+			int before = Array.IndexOf(node.InputPins, now.InputPins[input]);
+			if (before < 0 || IsLinked(now, input) || IsLinked(node, before) || node.InputTypes[before].Id != now.InputTypes[input].Id)
+			{
+				continue;
+			}
+			Slot old = node.Owner.Template[node.InputBase + before];
+			Slot edited = current.Template[now.InputBase + input];
+			if (!SameSlot(old, edited))
+			{
+				edits.Add(new DebugEdit(now.InputPins[input], now.InputTypes[input], old, edited));
+			}
+		}
+		return edits;
+	}
+
+	// Whether a staged input of a node takes its value from a link (an operand loads it) or means Self.
+	private static bool IsLinked(CompiledNode node, int input)
+	{
+		if (input == 0 && node.TargetIsSelf)
+		{
+			return true;
+		}
+		int slot = node.InputBase + input;
+		foreach (Operand operand in node.Operands)
+		{
+			if (operand.Target == slot)
+			{
+				return true;
+			}
+		}
+		return false;
 	}
 
 	// Equal bits of the value part and the same object.
@@ -225,32 +290,39 @@ internal sealed class DebugSnapshot
 	}
 }
 
-// A stop (spec-slice4 sections 1 and 4.2): resumable (its execution is a debug fiber until it continues or is released),
-// passed (a breakpoint an execution that cannot stop ran past) or an error stop; the last two are read-only.
+// A stop (spec-slice4 sections 1 and 4.2): resumable (its chain's executions are debug fibers until it continues or they are
+// released), passed (a breakpoint an execution that cannot stop ran past) or an error stop; the last two are read-only. A
+// chain that loses a member (section 4.3) changes the stop: its snapshot, chain and message follow what is left.
 internal sealed class DebugStop
 {
 	internal required int Id { get; init; }
 
 	internal required DebugStopReason Reason { get; init; }
 
-	internal required DebugSnapshot Snapshot { get; init; }
+	// The snapshot's members are the chain's, in the chain's order, for a resumable stop.
+	internal required DebugSnapshot Snapshot { get; set; }
 
-	// The stopped execution of a resumable stop, and its serial (an execution is pooled: it is the stop's only while its
-	// Serial matches).
-	internal Execution? Execution { get; init; }
+	// The chain of a resumable stop, from its leaf (where the flow stands) to its root; empty for a read-only stop.
+	internal List<DebugChainMember> Chain { get; set; } = [];
 
-	internal required ulong Serial { get; init; }
+	// The leaf's serial (the stopped execution's, for a read-only stop).
+	internal required ulong Serial { get; set; }
 
-	internal bool Resumable => Execution != null;
+	internal bool Resumable => Chain.Count > 0;
 
-	internal required ulong Entity { get; init; }
+	// The leaf and the root of a resumable stop's chain.
+	internal Execution? Execution => Chain.Count > 0 ? Chain[0].Execution : null;
 
-	internal required ulong Graph { get; init; }
+	internal Execution? Root => Chain.Count > 0 ? Chain[^1].Execution : null;
+
+	internal required ulong Entity { get; set; }
+
+	internal required ulong Graph { get; set; }
 
 	internal required DebugPlace Place { get; init; }
 
-	// The error of an error stop, why a passed stop could not stop; "" otherwise.
-	internal required string Message { get; init; }
+	// The error of an error stop, why a passed stop could not stop, what became of a chain that lost a member; "" otherwise.
+	internal required string Message { get; set; }
 
 	// The breakpoint that stopped it (its document and node); null for other reasons.
 	internal (ulong Document, uint Node)? Breakpoint { get; init; }

@@ -160,7 +160,7 @@ internal static class ProgramCompiler
 			{
 				int slot = Allocate(SlotValues.FromValue(local.Value, local.Type!));
 				m_LocalSlots[local] = slot;
-				m_Locals.Add(new LocalSlot(local.ID, local.Type!, slot));
+				m_Locals.Add(new LocalSlot(local.ID, local.Name, local.Type!, slot));
 			}
 			int count = m_Graph.Nodes.Count;
 			List<AnalyzedPin>[] inputs = new List<AnalyzedPin>[count];

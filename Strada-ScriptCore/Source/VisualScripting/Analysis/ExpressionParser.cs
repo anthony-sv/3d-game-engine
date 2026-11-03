@@ -37,7 +37,24 @@ internal enum ExpressionTokenKind : byte
 	Identifier,
 	Number,
 	Punctuation,
+	// A string literal of a condition (ExpressionParserOptions.Condition): Number holds the index of its text.
+	Text,
 }
+
+// How the parser reads a formula. Condition reads breakpoint conditions (spec-slice4 section 2.3): string literals (with JSON
+// escapes) and None as operands of == and != comparisons with a name, which take the places of bool inputs of the formula
+// (ParsedFormula.Comparisons), so the checker and the compiler see an Expression node's formula.
+[Flags]
+internal enum ExpressionParserOptions : byte
+{
+	None = 0,
+	Condition = 1,
+}
+
+// A comparison only conditions have: the formula's input Name (an index of Inputs) compared with == (or != when NotEqual)
+// to the string Text, or to None when Text is null. The formula reads its result as its input Input, after its own inputs;
+// Start and End are the UTF-16 range of the comparison.
+internal sealed record ExpressionComparison(int Name, bool NotEqual, string? Text, int Input, int Start, int End);
 
 // A token of a formula: its UTF-16 range, and for numbers their value and type (Int, Long, ULong, Float or Double).
 internal readonly record struct ExpressionToken(ExpressionTokenKind Kind, int Start, int End, ExpressionPunctuation Punctuation, SlotKind NumberKind,
@@ -112,14 +129,19 @@ internal sealed record ExpressionError(DiagnosticCode Code, string Message, int 
 // problem. Steps counts what the lexer and the parser did, which is linear in the formula's length.
 internal sealed class ParsedFormula
 {
-	internal ParsedFormula(string text, IReadOnlyList<string> inputs, ExpressionSyntax? root, ExpressionError? error, int steps)
+	internal ParsedFormula(string text, IReadOnlyList<string> inputs, ExpressionSyntax? root, ExpressionError? error, int steps,
+		IReadOnlyList<ExpressionComparison>? comparisons = null)
 	{
 		Text = text;
 		Inputs = inputs;
 		Root = root;
 		Error = error;
 		Steps = steps;
+		Comparisons = comparisons ?? [];
 	}
+
+	// A condition's comparisons, in the order they were read; empty for every other formula.
+	internal IReadOnlyList<ExpressionComparison> Comparisons { get; }
 
 	internal string Text { get; }
 
@@ -198,7 +220,7 @@ internal static class ExpressionParser
 	internal static IReadOnlyList<string> CalleeNames => s_CalleeNames;
 
 	// Reads a formula. suggest gives the names nearest to an unknown function's among CalleeNames.
-	internal static ParsedFormula Parse(string text, Func<string, IReadOnlyList<string>> suggest)
+	internal static ParsedFormula Parse(string text, Func<string, IReadOnlyList<string>> suggest, ExpressionParserOptions options = ExpressionParserOptions.None)
 	{
 		if (JsonText.ByteCount(text) > MaxBytes)
 		{
@@ -206,7 +228,8 @@ internal static class ExpressionParser
 				FormattableString.Invariant($"a formula has at most {MaxBytes} bytes"), 0, text.Length, []);
 			return new ParsedFormula(text, [], null, tooLong, 0);
 		}
-		Lexer lexer = new(text);
+		bool condition = (options & ExpressionParserOptions.Condition) != 0;
+		Lexer lexer = new(text, condition);
 		lexer.Run();
 		List<ExpressionToken> tokens = lexer.Tokens;
 		int steps = lexer.Steps;
@@ -217,14 +240,14 @@ internal static class ExpressionParser
 			error = new ExpressionError(DiagnosticCode.InvalidExpression, "the formula is empty", 0, 0, []);
 		}
 		error ??= lexer.Error;
-		error = FindInputs(text, tokens, inputs, error);
+		error = FindInputs(text, tokens, inputs, error, condition);
 		if (error != null)
 		{
 			return new ParsedFormula(text, inputs, null, error, steps);
 		}
-		Parser parser = new(text, tokens, inputs, suggest);
+		Parser parser = new(text, tokens, inputs, suggest, condition ? lexer.Texts : null);
 		ExpressionSyntax? root = parser.Parse();
-		return new ParsedFormula(text, inputs, root, root == null ? parser.Error : null, steps + parser.Steps);
+		return new ParsedFormula(text, inputs, root, root == null ? parser.Error : null, steps + parser.Steps, parser.Comparisons);
 	}
 
 	// The callee a name calls; null when it calls nothing.
@@ -298,10 +321,14 @@ internal static class ExpressionParser
 
 	private static bool IsConstant(string name) => Array.IndexOf(s_Constants, name) >= 0;
 
+	// The name of no entity in conditions.
+	private const string NoneName = "None";
+
 	// The input rule (spec-slice3 section 3.3.1): an identifier is an input name unless a '(' follows it, a '.' comes before it,
-	// or it is true, false, pi or tau. Names longer than an identifier may be are none (the lexer reported them); the reserved
-	// pin names and Result are refused, and the first 32 distinct names are the inputs.
-	private static ExpressionError? FindInputs(string text, List<ExpressionToken> tokens, List<string> inputs, ExpressionError? error)
+	// or it is true, false, pi or tau (in a condition, also None). Names longer than an identifier may be are none (the lexer
+	// reported them); the reserved pin names and Result are refused (an Expression node's inputs are its pins; a condition's
+	// read the names of a scope, Target and Result included), and the first 32 distinct names are the inputs.
+	private static ExpressionError? FindInputs(string text, List<ExpressionToken> tokens, List<string> inputs, ExpressionError? error, bool condition)
 	{
 		for (int index = 0; index < tokens.Count; index++)
 		{
@@ -316,17 +343,17 @@ internal static class ExpressionParser
 				continue;
 			}
 			string name = text[token.Start..token.End];
-			if (IsConstant(name) || inputs.Contains(name))
+			if (IsConstant(name) || inputs.Contains(name) || (condition && name == NoneName))
 			{
 				continue;
 			}
-			if (Names.IsReserved(name))
+			if (!condition && Names.IsReserved(name))
 			{
 				error ??= new ExpressionError(DiagnosticCode.ReservedName,
 					$"{name} is a reserved pin name ({Names.ReservedList}): name the input otherwise", token.Start, token.End, []);
 				continue;
 			}
-			if (name == "Result")
+			if (!condition && name == "Result")
 			{
 				error ??= new ExpressionError(DiagnosticCode.ReservedName, "Result names the node's output: name the input otherwise", token.Start,
 					token.End, []);
@@ -348,14 +375,19 @@ internal static class ExpressionParser
 	private sealed class Lexer
 	{
 		private readonly string m_Text;
+		private readonly bool m_Condition;
 		private int m_At;
 
-		internal Lexer(string text)
+		internal Lexer(string text, bool condition)
 		{
 			m_Text = text;
+			m_Condition = condition;
 		}
 
 		internal List<ExpressionToken> Tokens { get; } = [];
+
+		// The texts of a condition's string literals, by the index their tokens hold.
+		internal List<string> Texts { get; } = [];
 
 		internal ExpressionError? Error { get; private set; }
 
@@ -378,6 +410,10 @@ internal static class ExpressionParser
 				else if (IsDigit(character))
 				{
 					Number();
+				}
+				else if (m_Condition && character == '"')
+				{
+					Text();
 				}
 				else
 				{
@@ -492,6 +528,79 @@ internal static class ExpressionParser
 			Tokens.Add(new ExpressionToken(ExpressionTokenKind.Number, start, m_At, ExpressionPunctuation.None, kind, value));
 		}
 
+		// A string literal as JSON writes one: in double quotes, with the escapes \" \\ \/ \b \f \n \r \t and \uXXXX, and no
+		// control characters.
+		private void Text()
+		{
+			int start = m_At;
+			m_At++;
+			StringBuilder text = new();
+			while (true)
+			{
+				Steps++;
+				if (m_At >= m_Text.Length)
+				{
+					Fail("the string literal is not closed: end it with \"", start, m_Text.Length);
+					return;
+				}
+				char character = m_Text[m_At];
+				if (character == '"')
+				{
+					m_At++;
+					break;
+				}
+				if (character < ' ')
+				{
+					Fail("a string literal holds no control characters: write \\n, \\t or \\uXXXX", m_At, m_At + 1);
+					m_At++;
+					continue;
+				}
+				if (character != '\\')
+				{
+					text.Append(character);
+					m_At++;
+					continue;
+				}
+				int escape = m_At;
+				char kind = m_At + 1 < m_Text.Length ? m_Text[m_At + 1] : '\0';
+				m_At += 2;
+				switch (kind)
+				{
+					case '"':
+					case '\\':
+					case '/':
+						text.Append(kind);
+						break;
+					case 'b':
+						text.Append('\b');
+						break;
+					case 'f':
+						text.Append('\f');
+						break;
+					case 'n':
+						text.Append('\n');
+						break;
+					case 'r':
+						text.Append('\r');
+						break;
+					case 't':
+						text.Append('\t');
+						break;
+					case 'u' when m_At + 4 <= m_Text.Length &&
+						ushort.TryParse(m_Text.AsSpan(m_At, 4), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out ushort unit):
+						text.Append((char)unit);
+						m_At += 4;
+						break;
+					default:
+						Fail("an escape of a string literal is \\\", \\\\, \\/, \\b, \\f, \\n, \\r, \\t or \\uXXXX", escape, Math.Min(m_At, m_Text.Length));
+						m_At = Math.Min(m_At, m_Text.Length);
+						break;
+				}
+			}
+			Tokens.Add(new ExpressionToken(ExpressionTokenKind.Text, start, m_At, ExpressionPunctuation.None, default, Slot.FromInt(Texts.Count)));
+			Texts.Add(text.ToString());
+		}
+
 		private void SkipDigits()
 		{
 			while (m_At < m_Text.Length && IsDigit(m_Text[m_At]))
@@ -559,21 +668,27 @@ internal static class ExpressionParser
 		private readonly List<ExpressionToken> m_Tokens;
 		private readonly List<string> m_Inputs;
 		private readonly Func<string, IReadOnlyList<string>> m_Suggest;
+		// A condition's string literals (null for other formulas), and the comparisons read so far.
+		private readonly List<string>? m_Texts;
+		private readonly List<ExpressionComparison> m_Comparisons = [];
 		private int m_Index;
 		private int m_Nesting;
 		private int m_Parts;
 
-		internal Parser(string text, List<ExpressionToken> tokens, List<string> inputs, Func<string, IReadOnlyList<string>> suggest)
+		internal Parser(string text, List<ExpressionToken> tokens, List<string> inputs, Func<string, IReadOnlyList<string>> suggest, List<string>? texts)
 		{
 			m_Text = text;
 			m_Tokens = tokens;
 			m_Inputs = inputs;
 			m_Suggest = suggest;
+			m_Texts = texts;
 		}
 
 		internal ExpressionError? Error { get; private set; }
 
 		internal int Steps { get; private set; }
+
+		internal IReadOnlyList<ExpressionComparison> Comparisons => m_Comparisons;
 
 		private ExpressionToken Current => m_Tokens[m_Index];
 
@@ -588,7 +703,37 @@ internal static class ExpressionParser
 			{
 				return Fail($"unexpected '{TextOf(Current)}' after the formula", Current.Start, Current.End);
 			}
+			if (m_Texts != null && FindOperand(root) is { } operand)
+			{
+				// A string literal or None that no comparison took: the checker reads no such values.
+				return Fail(operand.Literal.Object is string
+					? "a string literal is only compared with == or != to a name, as in State == \"Serve\""
+					: "None is only compared with == or != to a name, as in Target != None", operand.Start, operand.End);
+			}
 			return root;
+		}
+
+		// The marker a condition's string literal or None is until a comparison takes it: a literal of the kind Object, which no
+		// formula has.
+		private static bool IsOperand(ExpressionSyntax syntax) => syntax.Kind == ExpressionSyntaxKind.Literal && syntax.LiteralKind == SlotKind.Object;
+
+		// The first marker left in the tree; null when there is none.
+		private static ExpressionSyntax? FindOperand(ExpressionSyntax root)
+		{
+			Stack<ExpressionSyntax> pending = new();
+			pending.Push(root);
+			while (pending.TryPop(out ExpressionSyntax? syntax))
+			{
+				if (IsOperand(syntax))
+				{
+					return syntax;
+				}
+				for (int index = syntax.Operands.Length - 1; index >= 0; index--)
+				{
+					pending.Push(syntax.Operands[index]);
+				}
+			}
+			return null;
 		}
 
 		private ExpressionToken Next()
@@ -639,7 +784,41 @@ internal static class ExpressionParser
 
 		private ExpressionSyntax? And() => Binary(Equality, ExpressionPunctuation.And);
 
-		private ExpressionSyntax? Equality() => Binary(Relation, ExpressionPunctuation.Equal, ExpressionPunctuation.NotEqual);
+		private ExpressionSyntax? Equality() => m_Texts != null ? ConditionEquality() : Binary(Relation, ExpressionPunctuation.Equal, ExpressionPunctuation.NotEqual);
+
+		// A condition's equality level: a name compared with a string literal or None, either way round, becomes the input of
+		// its comparison; other operands compare as in every formula.
+		private ExpressionSyntax? ConditionEquality()
+		{
+			Steps++;
+			ExpressionSyntax? left = Relation();
+			while (left != null && (At(ExpressionPunctuation.Equal) || At(ExpressionPunctuation.NotEqual)))
+			{
+				ExpressionToken op = Next();
+				ExpressionSyntax? right = Relation();
+				if (right == null)
+				{
+					return null;
+				}
+				if (!IsOperand(left) && !IsOperand(right))
+				{
+					left = Make(new ExpressionSyntax(ExpressionSyntaxKind.Binary, left.Start, right.End) { Operator = op.Punctuation, Operands = [left, right] }, op);
+					continue;
+				}
+				(ExpressionSyntax name, ExpressionSyntax operand) = IsOperand(right) ? (left, right) : (right, left);
+				if (IsOperand(name) || name.Kind != ExpressionSyntaxKind.Input || name.Input >= m_Inputs.Count)
+				{
+					return Fail(operand.Literal.Object is string
+						? "a string literal is compared with a name, as in State == \"Serve\""
+						: "None is compared with a name, as in Target != None", left.Start, right.End);
+				}
+				int input = m_Inputs.Count + m_Comparisons.Count;
+				m_Comparisons.Add(new ExpressionComparison(name.Input, op.Punctuation == ExpressionPunctuation.NotEqual, (string?)operand.Literal.Object, input,
+					left.Start, right.End));
+				left = Make(new ExpressionSyntax(ExpressionSyntaxKind.Input, left.Start, right.End) { Input = input }, op);
+			}
+			return left;
+		}
 
 		private ExpressionSyntax? Relation() => Binary(Additive, ExpressionPunctuation.Less, ExpressionPunctuation.LessOrEqual, ExpressionPunctuation.Greater,
 			ExpressionPunctuation.GreaterOrEqual);
@@ -719,6 +898,13 @@ internal static class ExpressionParser
 						token);
 				case ExpressionTokenKind.Identifier:
 					return Name();
+				case ExpressionTokenKind.Text:
+					Next();
+					return Make(new ExpressionSyntax(ExpressionSyntaxKind.Literal, token.Start, token.End)
+					{
+						LiteralKind = SlotKind.Object,
+						Literal = Slot.FromObject(m_Texts![token.Number.Int]),
+					}, token);
 				case ExpressionTokenKind.Punctuation when token.Punctuation == ExpressionPunctuation.OpenParenthesis:
 					Next();
 					ExpressionSyntax? inner = Nested(token, Conditional);
@@ -770,6 +956,8 @@ internal static class ExpressionParser
 						LiteralKind = SlotKind.Float,
 						Literal = Slot.FromFloat(name == "pi" ? MathF.PI : 2.0f * MathF.PI),
 					}, token);
+				case NoneName when m_Texts != null:
+					return Make(new ExpressionSyntax(ExpressionSyntaxKind.Literal, token.Start, token.End) { LiteralKind = SlotKind.Object }, token);
 			}
 			return Make(new ExpressionSyntax(ExpressionSyntaxKind.Input, token.Start, token.End) { Input = m_Inputs.IndexOf(name) }, token);
 		}

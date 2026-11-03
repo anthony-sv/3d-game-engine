@@ -33,8 +33,9 @@ internal sealed partial class VisualScriptRuntime
 			m_StepsRemaining = budget;
 		}
 		execution.IsRunning = true;
-		// Spec-slice4 section 4.4: only an execution with no VM execution below it on the host stack can stop.
-		execution.CanStop = execution.Parent == null && m_Depth == 0;
+		// Spec-slice4 section 4.4: only an execution with no VM execution below it on the host stack can stop, and a receiver
+		// whose sender can: the sender then waits inside its Send.
+		execution.CanStop = execution.Parent is { } parent ? parent.CanStop : m_Depth == 0;
 		m_Running.Add(execution);
 		try
 		{
@@ -74,6 +75,15 @@ internal sealed partial class VisualScriptRuntime
 	{
 		try
 		{
+			// A sender whose receiver stopped continues inside its Send or Broadcast (spec-slice4 section 4.3).
+			if (execution.Delivery != null)
+			{
+				ExecutionResult delivered = FinishDelivery<TMode>(execution);
+				if (delivered != ExecutionResult.Ended)
+				{
+					return delivered;
+				}
+			}
 			while (true)
 			{
 				if (TMode.IsTraced && (execution.Mode & DebugMode.Break) != 0 && IsStopping(execution))
@@ -252,17 +262,21 @@ internal sealed partial class VisualScriptRuntime
 						break;
 					case Opcode.Send:
 						Evaluate<TMode>(execution, node, frame);
-						if (Send(execution, node, slots) == ExecutionResult.Aborted)
+						ExecutionResult sent = Send(execution, node, slots);
+						if (sent != ExecutionResult.Ended)
 						{
-							return ExecutionResult.Aborted;
+							// Aborted, or Stopped: the receiver stopped, and this execution waits inside its Send with its
+							// position unchanged.
+							return sent;
 						}
 						Follow<TMode>(execution, node, 0);
 						break;
 					case Opcode.Broadcast:
 						Evaluate<TMode>(execution, node, frame);
-						if (Broadcast(execution, node, slots) == ExecutionResult.Aborted)
+						ExecutionResult broadcast = Broadcast(execution, node, slots);
+						if (broadcast != ExecutionResult.Ended)
 						{
-							return ExecutionResult.Aborted;
+							return broadcast;
 						}
 						Follow<TMode>(execution, node, 0);
 						break;
@@ -327,12 +341,11 @@ internal sealed partial class VisualScriptRuntime
 			execution.SkipStop = false;
 			return false;
 		}
-		if (execution.TopFrame.Graph.Debug is not { } trace || !ReferenceEquals(trace.Owner, execution.Debugger))
-		{
-			return false;
-		}
-		bool candidate = enter ? trace.Breaks[execution.Node] : trace.ContinueBreaks[execution.Flow[execution.FlowCount - 1].Node];
-		return candidate && execution.Debugger!.ShouldStop(execution);
+		IVisualScriptDebugger debugger = execution.Debugger!;
+		// A step or a Break asks at every stop point; otherwise only the breakpoint tables' matches do.
+		bool candidate = debugger.Armed || (execution.TopFrame.Graph.Debug is { } trace && ReferenceEquals(trace.Owner, debugger) &&
+			(enter ? trace.Breaks[execution.Node] : trace.ContinueBreaks[execution.Flow[execution.FlowCount - 1].Node]));
+		return candidate && debugger.ShouldStop(execution);
 	}
 
 	// The flow leaves the node through an exec output and goes where its link leads (nowhere: the chain ends). Every
@@ -938,7 +951,8 @@ internal sealed partial class VisualScriptRuntime
 	// Event.Send: the matching Event.Custom of the Target's instance runs as a nested execution with the parameter inputs as
 	// its outputs; it returns when that execution ends or suspends (the suspended part is a fiber of the Target's instance).
 	// Without a receiver a Warning is logged, once per node per instance; a typed Send (spec-slice3 section 4.3) has no
-	// receiver in an instance of another graph. An abort in the nested execution aborts this one.
+	// receiver in an instance of another graph. An abort in the nested execution aborts this one; when it stops, this one
+	// stops inside the Send (Stopped).
 	private ExecutionResult Send(Execution execution, CompiledNode node, Slot[] slots)
 	{
 		Entity? target = node.TargetIsSelf ? m_Environment.GetEntity(execution.Instance.Entity) : (Entity?)slots[node.InputBase].Object;
@@ -970,21 +984,30 @@ internal sealed partial class VisualScriptRuntime
 
 	// Runs the custom event node custom of the receiver's event graph as a nested execution of the one running, its outputs
 	// set from the staged inputs from arguments on: Ended when it ends or suspends (the suspended part is a fiber of the
-	// receiver), Aborted (with the nested execution's error) when it aborts. sender is the Send or Broadcast node.
+	// receiver), Aborted (with the nested execution's error) when it aborts, Stopped when it stopped (spec-slice4 section
+	// 4.3: this execution then waits for it, execution.Delivery). sender is the Send or Broadcast node.
 	private ExecutionResult Deliver(Execution execution, CompiledNode sender, GraphInstance receiver, int custom, Slot[] slots, int arguments)
 	{
 		if (m_Depth >= MaxDepth)
 		{
 			throw new VisualScriptException(DepthMessage);
 		}
-		GraphProgram program = receiver.Program;
-		CompiledNode eventNode = program.EventGraph.Nodes[custom];
+		CompiledNode eventNode = receiver.Program.EventGraph.Nodes[custom];
 		Array.Copy(slots, arguments, receiver.Frame.Slots, eventNode.OutputBase, eventNode.OutputCount);
+		ExecutionStart start = new(StartKind.Delivery, eventNode, -1, sender.Id, DocumentOf(execution.Instance, sender));
+		Execution nested = Acquire(receiver, custom, 0, start, execution);
+		return RunReceiver(execution, sender.Index, nested);
+	}
+
+	// Runs a receiver nested in its sender, as a delivery runs it first and as a continued sender finishes it, with the
+	// receiver's program active while it runs. A receiver that stops is a debug fiber, and the sender waits for it at the
+	// Send or Broadcast node sender of its top frame.
+	private ExecutionResult RunReceiver(Execution execution, int sender, Execution nested)
+	{
+		GraphProgram program = nested.Program;
 		Enter(program);
 		try
 		{
-			ExecutionStart start = new(StartKind.Delivery, eventNode, -1, sender.Id, DocumentOf(execution.Instance, sender));
-			Execution nested = Acquire(receiver, custom, 0, start, execution);
 			ExecutionResult result = Execute(nested, false);
 			switch (result)
 			{
@@ -996,6 +1019,13 @@ internal sealed partial class VisualScriptRuntime
 					execution.Error = nested.Error;
 					Release(nested);
 					return ExecutionResult.Aborted;
+				case ExecutionResult.Stopped:
+					nested.Instance.AddDebugFiber(nested);
+					if (execution.Delivery is not { } waiting || !ReferenceEquals(waiting.Receiver, nested))
+					{
+						execution.Delivery = new PendingDelivery(sender, nested);
+					}
+					return ExecutionResult.Stopped;
 				default:
 					Release(nested);
 					return ExecutionResult.Ended;
@@ -1031,43 +1061,107 @@ internal sealed partial class VisualScriptRuntime
 					receivers.Add(instance);
 				}
 			}
-			receivers.Sort(s_ByCreation);
-			if (scratch.Arguments.Length < argumentCount)
+		}
+		catch (VisualScriptException)
+		{
+			ReleaseScratch(scratch);
+			throw;
+		}
+		receivers.Sort(s_ByCreation);
+		if (scratch.Arguments.Length < argumentCount)
+		{
+			scratch.Arguments = new Slot[argumentCount];
+		}
+		Array.Copy(slots, node.InputBase, scratch.Arguments, 0, argumentCount);
+		return DeliverBroadcast(execution, node, slots, scratch, 0, 0);
+	}
+
+	// Delivers a broadcast to its receivers from next on, count of them having received it already. A receiver that stops
+	// stops the broadcast inside its node (spec-slice4 section 4.3): execution.Delivery keeps the scratch, the next receiver
+	// and the count (the stopped receiver included), and the broadcast continues from there. Otherwise the scratch goes back
+	// to its pool, and Count is written when every receiver ran.
+	private ExecutionResult DeliverBroadcast(Execution execution, CompiledNode node, Slot[] slots, BroadcastScratch scratch, int next, int count)
+	{
+		bool kept = false;
+		try
+		{
+			List<GraphInstance> receivers = scratch.Receivers;
+			for (int index = next; index < receivers.Count; index++)
 			{
-				scratch.Arguments = new Slot[argumentCount];
-			}
-			Array.Copy(slots, node.InputBase, scratch.Arguments, 0, argumentCount);
-			int count = 0;
-			foreach (GraphInstance receiver in receivers)
-			{
+				GraphInstance receiver = receivers[index];
 				int custom = receiver.IsAlive ? FindReceiver(receiver.Program, node) : -1;
 				if (custom < 0)
 				{
 					continue;
 				}
-				if (Deliver(execution, node, receiver, custom, scratch.Arguments, 0) == ExecutionResult.Aborted)
+				ExecutionResult result = Deliver(execution, node, receiver, custom, scratch.Arguments, 0);
+				if (result == ExecutionResult.Aborted)
 				{
 					return ExecutionResult.Aborted;
 				}
 				count++;
+				if (result == ExecutionResult.Stopped)
+				{
+					PendingDelivery delivery = execution.Delivery!;
+					delivery.Scratch = scratch;
+					delivery.NextReceiver = index + 1;
+					delivery.Count = count;
+					kept = true;
+					return ExecutionResult.Stopped;
+				}
 			}
 			slots[node.OutputBase] = Slot.FromInt(count);
 			return ExecutionResult.Ended;
 		}
 		finally
 		{
-			receivers.Clear();
-			// Pooled arguments must not keep the objects they held alive.
-			Array.Clear(scratch.Arguments);
-			m_BroadcastScratches.Push(scratch);
+			if (!kept)
+			{
+				ReleaseScratch(scratch);
+			}
 		}
 	}
 
-	// What one running Event.Broadcast node keeps apart from its frame: its receiver snapshot and a copy of its arguments.
-	private sealed class BroadcastScratch
+	// A broadcast's scratch goes back to its pool; pooled arguments must not keep the objects they held alive.
+	private void ReleaseScratch(BroadcastScratch scratch)
 	{
-		internal List<GraphInstance> Receivers { get; } = [];
-		internal Slot[] Arguments { get; set; } = [];
+		scratch.Receivers.Clear();
+		Array.Clear(scratch.Arguments);
+		m_BroadcastScratches.Push(scratch);
+	}
+
+	// A sender continues while it waits inside its Send or Broadcast (spec-slice4 section 4.3): its receiver continues nested
+	// first (it may stop again, and so does the sender then), unless it was released meanwhile, which counts as delivered; a
+	// Broadcast then delivers to its remaining receivers and writes Count; then the flow leaves the node through Then. Ended:
+	// the sender goes on with its next instruction.
+	private ExecutionResult FinishDelivery<TMode>(Execution execution)
+		where TMode : struct, ITraceMode
+	{
+		PendingDelivery delivery = execution.Delivery!;
+		if (delivery.IsWaiting)
+		{
+			Execution receiver = delivery.Receiver;
+			receiver.Instance.RemoveDebugFiber(receiver);
+			Trace(receiver);
+			ExecutionResult result = RunReceiver(execution, delivery.Node, receiver);
+			if (result != ExecutionResult.Ended)
+			{
+				return result;
+			}
+		}
+		Frame frame = execution.TopFrame;
+		CompiledNode node = frame.Graph.Nodes[delivery.Node];
+		execution.Delivery = null;
+		if (delivery.Scratch is { } scratch)
+		{
+			ExecutionResult result = DeliverBroadcast(execution, node, frame.Slots, scratch, delivery.NextReceiver, delivery.Count);
+			if (result != ExecutionResult.Ended)
+			{
+				return result;
+			}
+		}
+		Follow<TMode>(execution, node, 0);
+		return ExecutionResult.Ended;
 	}
 
 	// The Event.Custom node of a program that receives what a Send or Broadcast node raises: of its name and with exactly its

@@ -506,8 +506,9 @@ internal sealed class CompiledGraph
 	internal int FindNode(uint id) => m_IndexById.TryGetValue(id, out int index) ? index : -1;
 }
 
-// A local of a function and the slot it has in the function's frames.
-internal readonly record struct LocalSlot(uint Id, VisualType Type, int Slot);
+// A local of a function, its name (breakpoint conditions read locals by name, spec-slice4 section 2.3) and the slot it has in
+// the function's frames.
+internal readonly record struct LocalSlot(uint Id, string Name, VisualType Type, int Slot);
 
 // A function of the document, or of a function library the document calls (Graph, its handle; 0 for the document's own).
 // Frames of impure calls come from a pool, so calls do not allocate once it holds enough.
