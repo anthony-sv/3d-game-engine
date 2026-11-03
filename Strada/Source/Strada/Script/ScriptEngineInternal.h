@@ -5,6 +5,7 @@
 
 #include "Strada/Asset/AssetHandle.h"
 #include "Strada/Asset/VisualScriptAsset.h"
+#include "Strada/Asset/VisualScriptReferences.h"
 #include "Strada/Core/Base.h"
 #include "Strada/Core/UUID.h"
 #include "Strada/Physics/PhysicsTypes.h"
@@ -82,6 +83,32 @@ namespace Strada::ScriptEngineInternal
 		int32_t (*VisualScriptSetInstanceVariables)(uint64_t entity, char const* variables, int32_t variablesLength) = nullptr;
 	};
 
+	// A graph a sent document refers to, with what was sent for it (the full document of a library, the interface of the
+	// others; null when the graph was absent, then its error), so that the same references can be written again.
+	struct SentReference
+	{
+		AssetHandle Graph;
+		VisualScriptReferenceUse Use = VisualScriptReferenceUse::Verification;
+		// The graph's shared document, whose full form or interface was sent; null when the graph was absent.
+		Ref<VisualScriptDocument const> Document;
+		// The graph's asset path (the name of a memory asset); empty when it is not registered.
+		std::string Name;
+		// Why the graph was absent; empty when Document is set.
+		std::string Error;
+	};
+
+	// The texts of a graph's document as references send it, kept per handle so that analyses and sends of an unchanged
+	// neighbourhood serialize nothing: valid while the graph's shared document is Document (texts are written when first
+	// needed, empty until then).
+	struct VisualScriptReferenceText
+	{
+		Ref<VisualScriptDocument const> Document;
+		// Whether the texts were written with the DevelopmentOnly nodes Disabled (DisableDevelopmentOnlyNodes).
+		bool DevelopmentNodesDisabled = false;
+		std::string Full;
+		std::string Interface;
+	};
+
 	// What the engine knows of the programs the runtime has for a graph handle (VisualScriptEngine::EnsureLoaded).
 	struct VisualScriptProgramRecord
 	{
@@ -97,6 +124,12 @@ namespace Strada::ScriptEngineInternal
 		// program sent that compiled (a broken one sent later leaves it running). Null when the handle has none as far as
 		// the engine has seen: no document compiled, or a creation failed (it no longer compiles for the game assembly).
 		Ref<VisualScriptDocument const> WorkingDocument;
+		// What the last send used beside Document, and what the working program was compiled with beside WorkingDocument: a
+		// program is its document and the references it was compiled with (other graphs' documents and names), ascending by
+		// handle. A reference whose graph keeps its program (a library) or link interface (another script) in a new shared
+		// document takes that document, as Document does.
+		std::vector<SentReference> References;
+		std::vector<SentReference> WorkingReferences;
 		// The game assembly changed since the working document compiled, so it may not compile any more: sending it again
 		// or creating an instance tells.
 		bool IsStale = false;
@@ -132,6 +165,8 @@ namespace Strada::ScriptEngineInternal
 		// Visual scripts: the programs by graph handle, the entities with a graph instance, and the node library (read when
 		// first needed and dropped when the game assembly changes; IsLibraryUnavailable remembers a failure until then).
 		std::unordered_map<AssetHandle, VisualScriptProgramRecord> VisualScriptPrograms;
+		// The texts references send of each graph referred to so far, by handle.
+		std::unordered_map<AssetHandle, VisualScriptReferenceText> VisualScriptReferenceTexts;
 		std::unordered_set<UUID> GraphInstances;
 		Ref<VisualScriptLibrary const> Library;
 		bool IsLibraryUnavailable = false;

@@ -4,6 +4,7 @@
 #include "Editor/ProjectImport.h"
 
 #include "Strada/Asset/Asset.h"
+#include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Core/Result.h"
 
 #include <imgui.h>
@@ -22,6 +23,7 @@ namespace Strada
 {
 	class AssetThumbnails;
 	class EditorScripts;
+	class VisualScriptProjectIndex;
 
 	// The two trees of files the content browser shows: the project's asset directory and the C# sources of its scripts
 	// (ScriptProject::GetSourceDirectory).
@@ -38,9 +40,9 @@ namespace Strada
 	// folders, scenes, visual scripts (in their graph windows) and scripts (in the desktop's editor for C#); assets drag into the scene
 	// view, the hierarchy and asset fields, scripts and visual scripts onto entities (hierarchy rows, the inspector, the scene view), and
 	// assets, folders and scripts onto folders to move them. Files and folders dropped onto the editor from the OS are imported into the
-	// folder under the cursor, else the displayed one (ProjectImport). Context menus create folders, materials, visual scripts and scripts,
-	// import files, rename (F2), delete (with confirmation) and copy references or paths. File operations are not part of the undo history.
-	// Main thread only.
+	// folder under the cursor, else the displayed one (ProjectImport). Context menus create folders, materials, visual scripts, visual
+	// script libraries and scripts, import files, rename (F2), delete (with confirmation) and copy references or paths. File operations are
+	// not part of the undo history. Main thread only.
 	class ContentBrowserPanel
 	{
 	public:
@@ -69,6 +71,9 @@ namespace Strada
 		// the inspector shares and the editor updates once per frame before the panels draw. Not owned; without them tiles
 		// show the icons of their types.
 		void SetThumbnails(AssetThumbnails* thumbnails) { m_Thumbnails = thumbnails; }
+		// The project's visual scripts (the graph windows' index): the delete confirmation of a visual script that other graphs
+		// refer to names them, refreshing it first. Not owned; without it the confirmation names none.
+		void SetVisualScriptIndex(VisualScriptProjectIndex* index) { m_VisualScriptIndex = index; }
 		// Brings the console to the front: the notice about an import that did not go well offers it. Without it the notice
 		// only says what happened.
 		using ShowConsoleCallback = std::function<void()>;
@@ -230,8 +235,9 @@ namespace Strada
 		void Delete(EditorOperations& operations, Item const& item);
 		void CreateFolder(EditorOperations& operations);
 		void CreateMaterial(EditorOperations& operations);
-		// A visual script from the Events template, in the displayed folder.
-		void CreateVisualScript(EditorOperations& operations);
+		// A visual script from the template (Events: "New Visual Script"; Library: "New Visual Script Library"), in the
+		// displayed folder, selected with its name ready to be typed.
+		void CreateVisualScript(EditorOperations& operations, VisualScriptTemplate kind);
 		void ImportFiles(EditorOperations& operations);
 		void ImportDroppedFiles(EditorOperations& operations);
 		// Imports into the given folders and shows what came in: selected, in the root where it went when it all went to
@@ -259,6 +265,7 @@ namespace Strada
 		Listing m_Listing;
 		float m_TileScale = 1.0f;
 		AssetThumbnails* m_Thumbnails = nullptr;
+		VisualScriptProjectIndex* m_VisualScriptIndex = nullptr;
 		// The folder tree's listings (root and folder -> its folders) and when they were made.
 		std::unordered_map<std::string, std::vector<std::string>> m_Subfolders;
 		double m_SubfoldersTime = 0.0;

@@ -258,8 +258,8 @@ TEST_CASE("GraphCommands: every graph command is registered, documented and read
 	Result<std::string> const reference = FileSystem::ReadTextFile(STRADA_AUTOMATION_DOC_PATH);
 	REQUIRE(reference.IsOk());
 	for (std::string const name :
-	     {"graph.create", "graph.get", "graph.set", "graph.check", "graph.edit", "graph.arrange", "graph.copy", "graph.library",
-	      "graph.types", "graph.open", "graph.close", "graph.editors", "graph.palette", "graph.find"})
+	     {"graph.create", "graph.get", "graph.set", "graph.check", "graph.edit", "graph.arrange", "graph.copy", "graph.interface",
+	      "graph.library", "graph.types", "graph.open", "graph.close", "graph.editors", "graph.palette", "graph.find"})
 	{
 		CAPTURE(name);
 		CommandDefinition const* command = fixture.Registry.Find(name);
@@ -394,7 +394,9 @@ TEST_CASE("GraphCommands: graph.set saves the document as one undo step that lea
 	                           {"revision", RevisionOf(written)},
 	                           {"programRevision", ProgramRevisionOf(counter)},
 	                           {"analyzed", false},
-	                           {"warnings", Json::array()}}));
+	                           {"warnings", Json::array()},
+	                           {"summary", Json::object({{"brokenReferrers", 0}, {"staleSenders", 0}})},
+	                           {"referrers", Json::array()}}));
 	CHECK(fixture.ReadFile("Scripts/Counter.sgraph") == written);
 	CHECK(fixture.GetDocument(graph) == counter);
 	Json const status = fixture.Ok("editor.status");
@@ -3271,4 +3273,344 @@ TEST_CASE("GraphCommands: an idle graph.edit leaves a file with unplaced nodes a
 	VisualScriptDocument const written = fixture.GetDocument(graph);
 	CHECK(written.Graph.Nodes[1].Position.has_value());
 	CHECK(written.Graph.Nodes[2].Type == "Call:Strada.Input.IsKeyDown(Strada.KeyCode)");
+}
+
+namespace
+{
+	// Tests/Data/VisualScripting/Library.sgraph's document: Clamp01 (1, pure, Value with the former name X), Report (2) and
+	// Pause (4, latent).
+	VisualScriptDocument LoadLibraryDocument()
+	{
+		DeserializationContext const context;
+		Result<VisualScriptDocument> loaded = VisualScriptSerializer::LoadFromFile(
+			FileSystem::PathFromUtf8(STRADA_TEST_DATA_DIR) / "VisualScripting" / "Library.sgraph", context);
+		REQUIRE_MESSAGE(loaded.IsOk(), loaded.GetError());
+		return loaded.TakeValue();
+	}
+
+	// A script whose event graph calls the library's Clamp01 (2, its input given by the former name X) and Report (3), gets
+	// the public Health (variable 1) of another entity running door (4), sends door's Hit typed (5) and Opened untyped (6),
+	// and has the custom event Opened itself (7).
+	VisualScriptDocument MakeCallerDocument(std::string const& library, std::string const& door)
+	{
+		VisualScriptDocument document;
+		document.Graph.Nodes.push_back(MakeNode(1, "Event.Update"));
+		document.Graph.Nodes.push_back(
+			MakeNode(2, "Function.Call", Json::object({{"Function", 1}, {"Graph", library}}), Json::object({{"X", 2.0}})));
+		document.Graph.Nodes.push_back(MakeNode(3, "Function.Call", Json::object({{"Function", 2}, {"Graph", library}})));
+		document.Graph.Nodes.push_back(MakeNode(4, "Variable.Get", Json::object({{"Variable", 1}, {"Graph", door}})));
+		document.Graph.Nodes.push_back(MakeNode(5, "Event.Send", Json::object({{"Name", "Hit"}, {"Graph", door}})));
+		document.Graph.Nodes.push_back(MakeNode(6, "Event.Send", Json::object({{"Name", "Opened"}})));
+		document.Graph.Nodes.push_back(MakeNode(7, "Event.Custom", Json::object({{"Name", "Opened"}})));
+		document.Graph.Links.push_back(MakeLink(1, "Then", 3, "Execute"));
+		return document;
+	}
+
+	// A door: the public float Health (1), the private Code (2), and the custom events Hit (3, Damage: float) and Opened (4).
+	VisualScriptDocument MakeDoorDocument()
+	{
+		VisualScriptDocument document;
+		document.Variables.push_back(MakeVariable(1, "Health", "float", 10.0));
+		document.Variables.push_back(MakeVariable(2, "Code", "int", 0, false));
+		document.Graph.Nodes.push_back(MakeNode(
+			3, "Event.Custom",
+			Json::object({{"Name", "Hit"}, {"Parameters", Json::array({Json::object({{"Name", "Damage"}, {"Type", "float"}})})}})));
+		document.Graph.Nodes.push_back(MakeNode(4, "Event.Custom", Json::object({{"Name", "Opened"}})));
+		return document;
+	}
+}
+
+TEST_CASE("GraphCommands: graph.create makes function libraries, which graph.get returns")
+{
+	GraphFixture fixture;
+	Json const created = fixture.Ok("graph.create", Json::object({{"path", "Libraries/Motion.sgraph"}, {"template", "Library"}}));
+	CHECK(created["path"] == "Libraries/Motion.sgraph");
+	VisualScriptDocument const library = MakeVisualScriptTemplate(VisualScriptTemplate::Library);
+	CHECK(fixture.ReadFile("Libraries/Motion.sgraph") == VisualScriptSerializer::WriteText(library));
+	Json const read = fixture.Ok("graph.get", Json::object({{"graph", created["asset"]}}));
+	CHECK(read["document"] == VisualScriptSerializer::SerializeDocument(library));
+	CHECK(read["document"]["Kind"] == "Library");
+	CHECK_FALSE(fixture.Context.GetHistory().CanUndo());
+}
+
+TEST_CASE("GraphCommands: graph.interface describes what a graph offers others, what it uses and who uses it")
+{
+	GraphFixture fixture;
+	std::string const library = fixture.CreateGraph("Libraries/Motion.sgraph", LoadLibraryDocument());
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	std::string const caller = fixture.CreateGraph("Scripts/Caller.sgraph", MakeCallerDocument(library, door));
+	fixture.WriteFile("Scripts/Broken.sgraph", "{ \"Strada\": ");
+	fixture.Ok("asset.refresh");
+
+	Json const motion = fixture.Ok("graph.interface", Json::object({{"graph", "asset://Libraries/Motion.sgraph"}}));
+	CHECK(motion["asset"] == library);
+	CHECK(motion["path"] == "Libraries/Motion.sgraph");
+	CHECK(motion["kind"] == "Library");
+	CHECK(motion["variables"] == Json::array());
+	CHECK(motion["events"] == Json::array());
+	REQUIRE(motion["functions"].size() == 3);
+	Json const valueInput = Json::object({{"name", "Value"}, {"type", "float"}, {"formerNames", Json::array({"X"})}});
+	CHECK(motion["functions"][0] == Json::object({{"id", 1},
+	                                              {"name", "Clamp01"},
+	                                              {"pure", true},
+	                                              {"inputs", Json::array({valueInput})},
+	                                              {"outputs", Json::array({Json::object({{"name", "Result"}, {"type", "float"}})})}}));
+	CHECK(motion["functions"][2]["name"] == "Pause");
+	CHECK(motion["functions"][2]["inputs"] == Json::array({Json::object({{"name", "Seconds"}, {"type", "float"}})}));
+	// latent needs the runtime.
+	CHECK_FALSE(motion["functions"][2].contains("latent"));
+	CHECK(motion["analyzed"] == false);
+	// A library calling its own functions uses no other graph; the caller uses it (two nodes); the broken file is skipped.
+	CHECK(motion["uses"] == Json::array());
+	CHECK(motion["usedBy"] == Json::array({Json::object({{"asset", caller}, {"path", "Scripts/Caller.sgraph"}, {"nodes", 2}})}));
+	REQUIRE(motion["skipped"].size() == 1);
+	CHECK(motion["skipped"][0]["path"] == "Scripts/Broken.sgraph");
+	CHECK(motion["skipped"][0]["error"].get<std::string>().find("failed to load 'Scripts/Broken.sgraph'") != std::string::npos);
+
+	Json const doorInterface = fixture.Ok("graph.interface", Json::object({{"graph", door}}));
+	CHECK(doorInterface["kind"] == "Script");
+	CHECK(doorInterface["variables"] == Json::array({Json::object({{"id", 1}, {"name", "Health"}, {"type", "float"}, {"public", true}}),
+	                                                 Json::object({{"id", 2}, {"name", "Code"}, {"type", "int"}, {"public", false}})}));
+	Json const hit = Json::object({{"node", 3},
+	                               {"name", "Hit"},
+	                               {"parameters", Json::array({Json::object({{"name", "Damage"}, {"type", "float"}})})},
+	                               {"enabled", "Enabled"}});
+	Json const opened = Json::object({{"node", 4}, {"name", "Opened"}, {"parameters", Json::array()}, {"enabled", "Enabled"}});
+	CHECK(doorInterface["events"] == Json::array({hit, opened}));
+	CHECK(doorInterface["functions"] == Json::array());
+	CHECK(doorInterface["usedBy"] == Json::array({Json::object({{"asset", caller}, {"path", "Scripts/Caller.sgraph"}, {"nodes", 2}})}));
+
+	// What the caller uses, ascending by handle, each with its strongest use.
+	Json const callerInterface = fixture.Ok("graph.interface", Json::object({{"graph", caller}}));
+	REQUIRE(callerInterface["uses"].size() == 2);
+	for (Json const& use : callerInterface["uses"])
+	{
+		CAPTURE(use);
+		CHECK(use["use"] == (use["asset"] == library ? "Library" : "Interface"));
+		CHECK(use["path"] == (use["asset"] == library ? "Libraries/Motion.sgraph" : "Scripts/Door.sgraph"));
+		CHECK(use["nodes"] == 2);
+	}
+	CHECK(callerInterface["usedBy"] == Json::array());
+	CHECK(callerInterface["events"].size() == 1);
+
+	// Errors: not registered, not a visual script, a file that does not load.
+	CHECK(fixture.Fails("graph.interface", Json::object({{"graph", "123"}})).Code == AutomationErrorCode::AssetNotFound);
+	std::string const material =
+		fixture.Ok("material.create", Json::object({{"path", "Materials/Painted.smat"}}))["material"]["id"].get<std::string>();
+	CommandError const notAGraph = fixture.Fails("graph.interface", Json::object({{"graph", material}}));
+	CHECK(notAGraph.Code == AutomationErrorCode::InvalidParams);
+	CHECK(notAGraph.Data["path"] == "graph");
+	CHECK(fixture.Fails("graph.interface", Json::object({{"graph", "asset://Scripts/Broken.sgraph"}})).Code ==
+	      AutomationErrorCode::FileError);
+}
+
+TEST_CASE("GraphCommands: graph.interface with the scripting runtime says which library functions wait")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	std::string const library = fixture.CreateGraph("Libraries/Motion.sgraph", LoadLibraryDocument());
+	Json const motion = fixture.Ok("graph.interface", Json::object({{"graph", library}}));
+	CHECK(motion["analyzed"] == true);
+	CHECK(motion["functions"][0]["latent"] == false);
+	CHECK(motion["functions"][1]["latent"] == false);
+	CHECK(motion["functions"][2]["latent"] == true);
+}
+
+TEST_CASE("GraphCommands: graph.get, graph.set and graph.check analyze a document that names its own graph against itself")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	std::string const graph = fixture.Ok("graph.create", Json::object({{"path", "Scripts/Door.sgraph"}}))["asset"].get<std::string>();
+	// Health of another entity running this script: the stored document (the Events template) has no such variable.
+	VisualScriptDocument document = MakeDoorDocument();
+	document.Graph.Nodes.push_back(MakeNode(10, "Variable.Get", Json::object({{"Variable", 1}, {"Graph", graph}})));
+	Json const content = VisualScriptSerializer::SerializeDocument(document);
+	auto const remoteGet = [](Json const& result) -> Json
+	{
+		REQUIRE(result["analyzed"] == true);
+		return FindAnalyzedNode(result["nodes"], 10);
+	};
+
+	// graph.check: without graph, the stored document is read (it has no Health); with it, the document itself.
+	Json const unnamed = fixture.Ok("graph.check", Json::object({{"document", content}}));
+	CHECK(remoteGet(unnamed)["Title"] == "Get Variable");
+	Json const named = fixture.Ok("graph.check", Json::object({{"document", content}, {"graph", graph}}));
+	CHECK(remoteGet(named)["Title"] == "Get Health");
+	CHECK(FindDiagnostics(named, "UnknownVariable").empty());
+
+	// graph.set analyzes what it writes against itself; graph.get likewise: an entity running this script.
+	Json const set = fixture.Ok("graph.set", Json::object({{"graph", graph}, {"document", content}}));
+	CHECK(remoteGet(set)["Title"] == "Get Health");
+	Json const read = fixture.Ok("graph.get", Json::object({{"graph", graph}}));
+	CHECK(remoteGet(read)["Title"] == "Get Health");
+	CHECK(remoteGet(read)["Subtitle"].get<std::string>().starts_with("of another"));
+}
+
+TEST_CASE("GraphCommands: graph.edit and graph.set report the nodes of other scripts an edit breaks, and can refuse them")
+{
+	GraphFixture fixture;
+	std::string const library = fixture.CreateGraph("Libraries/Motion.sgraph", LoadLibraryDocument());
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	std::string const caller = fixture.CreateGraph("Scripts/Caller.sgraph", MakeCallerDocument(library, door));
+	std::string const libraryFile = fixture.ReadFile("Libraries/Motion.sgraph");
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	// Deleting a function a script calls: its node is Removed, and refuseBrokenReferrers writes nothing.
+	Json const deleteClamp = Json::array({Json::object({{"op", "DeleteFunction"}, {"function", "Clamp01"}})});
+	CommandError const refused =
+		fixture.Fails("graph.edit", Json::object({{"graph", library}, {"operations", deleteClamp}, {"refuseBrokenReferrers", true}}));
+	CHECK(refused.Code == AutomationErrorCode::InvalidOperation);
+	CHECK(refused.Message.find("Clamp01 (node 2) calls Clamp01, which is gone") != std::string::npos);
+	Json const removedNode = Json::object(
+		{{"id", 2}, {"type", "Function.Call"}, {"problem", "Removed"}, {"message", "Clamp01 (node 2) calls Clamp01, which is gone"}});
+	Json const expected =
+		Json::array({Json::object({{"asset", caller}, {"path", "Scripts/Caller.sgraph"}, {"nodes", Json::array({removedNode})}})});
+	CHECK(refused.Data["referrers"] == expected);
+	CHECK(fixture.ReadFile("Libraries/Motion.sgraph") == libraryFile);
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps);
+	// Without it the edit is made, saying what it broke.
+	Json const deleted = fixture.Ok("graph.edit", Json::object({{"graph", library}, {"operations", deleteClamp}}));
+	CHECK(deleted["changed"] == true);
+	CHECK(deleted["referrers"] == expected);
+	CHECK(deleted["summary"] == Json::object({{"brokenReferrers", 1}, {"staleSenders", 0}}));
+	fixture.Ok("editor.undo");
+
+	// Renaming a custom event: the other script's untyped sender is stale, which refuseBrokenReferrers never refuses.
+	Json const rename = Json::array({Json::object({{"op", "RenameCustomEvent"}, {"node", 4}, {"name", "Shut"}})});
+	Json const renamed = fixture.Ok("graph.edit", Json::object({{"graph", door}, {"operations", rename}, {"dryRun", true}}));
+	REQUIRE(renamed["referrers"].size() == 1);
+	Json const staleNode = Json::object({{"id", 6},
+	                                     {"type", "Event.Send"},
+	                                     {"problem", "Stale"},
+	                                     {"message", "Send Opened (node 6) sends Opened by name, which the edited graph no longer has: "
+	                                                 "it may have reached that graph and now never does"}});
+	CHECK(renamed["referrers"][0]["nodes"] == Json::array({staleNode}));
+	CHECK(renamed["summary"] == Json::object({{"brokenReferrers", 0}, {"staleSenders", 1}}));
+	CHECK(fixture.Ok("graph.edit", Json::object({{"graph", door}, {"operations", rename}, {"refuseBrokenReferrers", true}}))["changed"] ==
+	      true);
+	fixture.Ok("editor.undo");
+
+	// graph.set alike: the door's Health made private.
+	VisualScriptDocument hidden = MakeDoorDocument();
+	hidden.Variables[0].Public = false;
+	Json const content = VisualScriptSerializer::SerializeDocument(hidden);
+	CommandError const setRefused =
+		fixture.Fails("graph.set", Json::object({{"graph", door}, {"document", content}, {"refuseBrokenReferrers", true}}));
+	CHECK(setRefused.Code == AutomationErrorCode::InvalidOperation);
+	REQUIRE(setRefused.Data["referrers"].size() == 1);
+	CHECK(setRefused.Data["referrers"][0]["nodes"][0]["problem"] == "Private");
+	CHECK(fixture.GetDocument(door) == MakeDoorDocument());
+	Json const set = fixture.Ok("graph.set", Json::object({{"graph", door}, {"document", content}}));
+	CHECK(set["summary"] == Json::object({{"brokenReferrers", 1}, {"staleSenders", 0}}));
+	CHECK(set["referrers"][0]["nodes"][0]["message"] == "Get Health (node 4) reads Health, which is private now");
+
+	// An edit that keeps what a graph offers reads no other script: the caller stays unloaded.
+	Result<AssetHandle> const callerHandle = AssetManager::ResolveReference(caller);
+	REQUIRE(callerHandle.IsOk());
+	AssetManager::UnloadAsset(callerHandle.GetValue());
+	REQUIRE_FALSE(AssetManager::IsLoaded(callerHandle.GetValue()));
+	Json const description = Json::array({Json::object({{"op", "SetDescription"}, {"description", "Moves things"}})});
+	Json const described = fixture.Ok("graph.edit", Json::object({{"graph", library}, {"operations", description}}));
+	CHECK(described["changed"] == true);
+	CHECK(described["referrers"] == Json::array());
+	CHECK(described["summary"] == Json::object({{"brokenReferrers", 0}, {"staleSenders", 0}}));
+	Json const kept = fixture.Ok("graph.set", Json::object({{"graph", door}, {"document", content}}));
+	CHECK(kept["referrers"] == Json::array());
+	CHECK_FALSE(AssetManager::IsLoaded(callerHandle.GetValue()));
+}
+
+TEST_CASE("GraphCommands: graph.edit's kept analysis is dropped when a library the graph calls changes its program")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	std::string const library = fixture.CreateGraph("Libraries/Motion.sgraph", LoadLibraryDocument());
+	VisualScriptDocument callerDocument;
+	callerDocument.Variables.push_back(MakeVariable(1, "Speed", "int", 1));
+	callerDocument.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	callerDocument.Graph.Nodes.push_back(MakeNode(11, "Function.Call", Json::object({{"Function", 2}, {"Graph", library}})));
+	callerDocument.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	std::string const caller = fixture.CreateGraph("Scripts/Caller.sgraph", callerDocument);
+	auto const setSpeed = [&](int32_t speed)
+	{
+		Json const operations = Json::array({Json::object({{"op", "SetVariable"}, {"variable", "Speed"}, {"value", speed}})});
+		return fixture.Ok("graph.edit", Json::object({{"graph", caller}, {"operations", operations}}))["analyses"].get<uint32_t>();
+	};
+	CHECK(setSpeed(2) == 2);
+	CHECK(setSpeed(3) == 1);
+	// A change of the library's description: what the caller read of it is the same program, the kept analysis stays.
+	Json const description = Json::array({Json::object({{"op", "SetDescription"}, {"description", "x"}})});
+	fixture.Ok("graph.edit", Json::object({{"graph", library}, {"operations", description}}));
+	CHECK(setSpeed(4) == 1);
+	// A change of its program: analyzed again, so New is against the library as it is now.
+	VisualScriptDocument changed = LoadLibraryDocument();
+	changed.Functions[1].Inputs.push_back({"Level", "int"});
+	fixture.Ok("graph.set", Json::object({{"graph", library}, {"document", VisualScriptSerializer::SerializeDocument(changed)}}));
+	CHECK(setSpeed(5) == 2);
+	CHECK(setSpeed(6) == 1);
+}
+
+TEST_CASE("GraphCommands: graph.edit's kept analysis is dropped when another graph's events change, never for a typed sender's material")
+{
+	Testing::ScriptRuntimeScope runtime;
+	GraphFixture fixture;
+	std::string const door = fixture.CreateGraph("Scripts/Door.sgraph", MakeDoorDocument());
+	// A material named by a typed Send by mistake: the engine reads it as absent, and nothing loads it to find that out.
+	Result<AssetHandle> const material = fixture.Operations.CreateMaterial("Materials/Paint.smat");
+	REQUIRE(material.IsOk());
+	AssetManager::UnloadAsset(material.GetValue());
+	REQUIRE_FALSE(AssetManager::IsLoaded(material.GetValue()));
+	VisualScriptDocument callerDocument;
+	callerDocument.Variables.push_back(MakeVariable(1, "Speed", "int", 1));
+	callerDocument.Graph.Nodes.push_back(MakeNode(10, "Event.Update"));
+	callerDocument.Graph.Nodes.push_back(MakeNode(11, "Event.Send",
+	                                              Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", door}}),
+	                                              Json::object({{"Damage", 2.0}})));
+	callerDocument.Graph.Nodes.push_back(MakeNode(
+		12, "Event.Send", Json::object({{"Name", "Hit"}, {"Parameters", Json::array()}, {"Graph", material.GetValue().ToString()}})));
+	callerDocument.Graph.Links.push_back(MakeLink(10, "Then", 11, "Execute"));
+	std::string const caller = fixture.CreateGraph("Scripts/Caller.sgraph", callerDocument);
+	auto const setSpeed = [&](int32_t speed)
+	{
+		Json const operations = Json::array({Json::object({{"op", "SetVariable"}, {"variable", "Speed"}, {"value", speed}})});
+		return fixture.Ok("graph.edit", Json::object({{"graph", caller}, {"operations", operations}}))["analyses"].get<uint32_t>();
+	};
+	CHECK(setSpeed(2) == 2);
+	CHECK(setSpeed(3) == 1);
+	CHECK_FALSE(AssetManager::IsLoaded(material.GetValue()));
+
+	// The door's layout changes: what the caller read of it (its interface) is the same, the kept analysis stays.
+	Json const description = Json::array({Json::object({{"op", "SetDescription"}, {"description", "A door"}})});
+	fixture.Ok("graph.edit", Json::object({{"graph", door}, {"operations", description}}));
+	CHECK(setSpeed(4) == 1);
+	// The parameters of its event Hit change: analyzed again, against the door as it is now.
+	VisualScriptDocument changed = MakeDoorDocument();
+	changed.Graph.Nodes[0].Settings["Parameters"] = Json::array({Json::object({{"Name", "Damage"}, {"Type", "int"}})});
+	fixture.Ok("graph.set", Json::object({{"graph", door}, {"document", VisualScriptSerializer::SerializeDocument(changed)}}));
+	CHECK(setSpeed(5) == 2);
+	CHECK(setSpeed(6) == 1);
+	CHECK_FALSE(AssetManager::IsLoaded(material.GetValue()));
+}
+
+TEST_CASE("GraphCommands: graph.set replacing a file that does not load reports no referrers, so refuseBrokenReferrers repairs it")
+{
+	GraphFixture fixture;
+	std::string const broken = fixture.CreateGraph("Scripts/Motion.sgraph", MakeDoorDocument());
+	VisualScriptDocument runner;
+	runner.Graph.Nodes.push_back(MakeNode(1, "RunsGraph", Json::object({{"Graph", broken}})));
+	std::string const caller = fixture.CreateGraph("Scripts/Caller.sgraph", runner);
+	fixture.WriteFile("Scripts/Motion.sgraph", "{ \"Strada\": ");
+	fixture.Ok("asset.refresh");
+	Result<AssetHandle> const handle = AssetManager::ResolveReference(broken);
+	REQUIRE(handle.IsOk());
+	REQUIRE(AssetManager::TryGetAsset<VisualScriptAsset>(handle.GetValue()).IsError());
+
+	// Replaced by a library: the caller's RunsGraph was broken while the file did not load, and the replacement is no change
+	// of what the graph offered (it offered nothing), so nothing is reported and nothing refused.
+	Json const document = VisualScriptSerializer::SerializeDocument(LoadLibraryDocument());
+	Json const set = fixture.Ok("graph.set", Json::object({{"graph", broken}, {"document", document}, {"refuseBrokenReferrers", true}}));
+	CHECK(set["changed"] == true);
+	CHECK(set["referrers"] == Json::array());
+	CHECK(set["summary"] == Json::object({{"brokenReferrers", 0}, {"staleSenders", 0}}));
+	CHECK(fixture.GetDocument(broken).Kind == VisualScriptDocumentKind::Library);
+	CHECK(fixture.GetDocument(caller) == runner);
 }

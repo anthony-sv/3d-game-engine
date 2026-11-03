@@ -4,6 +4,7 @@
 #include "Script/ScriptTestUtilities.h"
 #include "TestUtilities.h"
 
+#include "Editor/AssetDrops.h"
 #include "Editor/AssetThumbnails.h"
 #include "Editor/EditorExport.h"
 #include "Editor/EditorOperations.h"
@@ -21,6 +22,7 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 #include "Editor/VisualScripting/VisualScriptEditors.h"
+#include "Editor/VisualScripting/VisualScriptProjectIndex.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
@@ -2384,6 +2386,35 @@ TEST_CASE("UI: tile labels show file names on two lines with their extensions, o
 namespace
 {
 	// The panels of a content browser test: placed side by side on the 1920x1080 display.
+	// The panel invariant (s2 §15): three frames of drawing change no undo count, no byte of the graphs' files and no asset
+	// version (the registry's, nor any graph's).
+	void CheckDrawingChangesNothing(HeadlessImGui& imgui, std::function<void()> const& draw, EditorContext const& context,
+	                                std::vector<AssetHandle> const& graphs)
+	{
+		auto const snapshot = [&graphs]
+		{
+			std::vector<std::pair<std::string, uint64_t>> files;
+			for (AssetHandle const graph : graphs)
+			{
+				Result<std::string> const text = FileSystem::ReadTextFile(AssetManager::GetAbsolutePath(graph));
+				REQUIRE(text.IsOk());
+				Ref<VisualScriptAsset> const asset = AssetManager::GetAsset<VisualScriptAsset>(graph);
+				files.emplace_back(text.GetValue(), asset != nullptr ? asset->GetVersion() : 0);
+			}
+			return files;
+		};
+		size_t const undo = context.GetHistory().GetUndoCount();
+		uint64_t const version = AssetManager::GetVersion();
+		std::vector<std::pair<std::string, uint64_t>> const before = snapshot();
+		for (int frame = 0; frame < 3; frame++)
+		{
+			imgui.Frame(draw);
+		}
+		CHECK(context.GetHistory().GetUndoCount() == undo);
+		CHECK(AssetManager::GetVersion() == version);
+		CHECK(snapshot() == before);
+	}
+
 	struct ContentBrowserFixture
 	{
 		Testing::AssetManagerScope Assets;
@@ -2946,9 +2977,10 @@ TEST_CASE("Panels: the asset inspector shows a visual script's description, node
 	split.Graph.Nodes = {MakeNode(40, "Function.Entry"), MakeNode(41, "Function.Return")};
 	split.Graph.Links = {MakeLink(40, "Value", 41, "Part")};
 	document.Functions = {addScore, split};
-	// Two Update events count once among the events; sending an event is using one.
-	document.Graph.Nodes = {MakeNode(10, "Event.Update"), MakeNode(11, "Flow.Branch"),  MakeNode(12, "Function.Call"),
-	                        MakeNode(13, "Event.Send"),   MakeNode(14, "Event.Update"), MakeNode(15, "Log.Info")};
+	// Two Update events count once among the events; sending or broadcasting an event is using none.
+	document.Graph.Nodes = {MakeNode(10, "Event.Update"),   MakeNode(11, "Flow.Branch"),  MakeNode(12, "Function.Call"),
+	                        MakeNode(13, "Event.Send"),     MakeNode(14, "Event.Update"), MakeNode(15, "Log.Info"),
+	                        MakeNode(16, "Event.Broadcast")};
 	document.Graph.Links = {MakeLink(10, "Then", 11, "Execute"), MakeLink(11, "True", 12, "Execute"), MakeLink(14, "Then", 15, "Execute")};
 	std::filesystem::path const file = context.GetProject()->GetAssetDirectory() / "Scoring.sgraph";
 	REQUIRE(VisualScriptSerializer::SaveToFile(document, file).IsOk());
@@ -2973,10 +3005,14 @@ TEST_CASE("Panels: the asset inspector shows a visual script's description, node
 	CAPTURE(text);
 	CHECK(text.find("Adds 5 points per frame while Space is held") != std::string::npos);
 	// Counted over the event graph and the functions' graphs.
-	CHECK(FindLoggedValue(text, "Nodes") == "13");
+	CHECK(FindLoggedValue(text, "Nodes") == "14");
 	CHECK(FindLoggedValue(text, "Links") == "10");
-	CHECK(FindLoggedValue(text, "Events") == "Event.Send");
-	CHECK(text.find("Event.Update") != std::string::npos);
+	CHECK(FindLoggedValue(text, "Events") == "Event.Update");
+	CHECK(text.find("Event.Send") == std::string::npos);
+	CHECK(text.find("Event.Broadcast") == std::string::npos);
+	// A script; without the graph windows' index the inspector names no graphs that use it.
+	CHECK(text.find("Function library") == std::string::npos);
+	CHECK(text.find("Used by") == std::string::npos);
 	CHECK(text.find("float = 4.0 (public)") != std::string::npos);
 	CHECK(text.find("int = 0") != std::string::npos);
 	CHECK(FindLoggedValue(text, "Greeting") == "string");
@@ -3873,5 +3909,125 @@ TEST_CASE("Panels: the scene view shows an opened scene from its camera, or fram
 	REQUIRE(operations.NewScene("Empty").IsOk());
 	draw();
 	CHECK(nearly(camera.GetFocalPoint(), {0.0f, 0.5f, 0.0f}));
+	CHECK(open);
+}
+
+TEST_CASE("Panels: the content browser makes visual script libraries, and its delete confirmation names the graphs that use one")
+{
+	ContentBrowserFixture fixture;
+	HeadlessImGui& imgui = fixture.Gui;
+	VisualScriptProjectIndex index;
+	fixture.Browser.SetVisualScriptIndex(&index);
+	fixture.Inspector.SetVisualScriptIndex(&index);
+	REQUIRE(fixture.Operations.CreateAssetFolder("Logic").IsOk());
+	fixture.Browser.SetFolder("Logic");
+	std::function<void()> const draw = fixture.GetDraw();
+	CheckDrawingChangesNothing(imgui, draw, fixture.Context, {});
+
+	// "+" > Visual Script Library writes an empty library into the shown folder and selects it, its name ready to be typed.
+	std::vector<ImVec2> const toolbar = FindToolbarItems(imgui, draw);
+	imgui.Click(toolbar[2], draw);
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	ImGuiWindow* menu = GetOpenPopup();
+	std::optional<ImVec2> const item = FindHovered(imgui, draw, GetColumnPoints(menu), menu->GetID("Visual Script Library"));
+	REQUIRE(item.has_value());
+	CHECK_FALSE(GImGui->HoveredIdIsDisabled);
+	imgui.Click(*item, draw);
+	AssetHandle const library = AssetManager::FindByPath("Logic/New Visual Script Library.sgraph");
+	REQUIRE(library.IsValid());
+	CHECK(fixture.Context.GetSelectedAsset() == library);
+	Ref<VisualScriptAsset> const script = AssetManager::GetAsset<VisualScriptAsset>(library);
+	REQUIRE(script != nullptr);
+	CHECK(script->GetDocument() == MakeVisualScriptTemplate(VisualScriptTemplate::Library));
+	imgui.Frame(draw);
+	imgui.Frame(draw);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Frame(draw);
+	CHECK(AssetManager::GetMetadata(library)->Path == "Logic/New Visual Script Library.sgraph");
+
+	// The asset inspector says what it is, and that nothing uses it yet.
+	std::string text = CaptureText(imgui, draw);
+	CAPTURE(text);
+	CHECK(text.find("Function library") != std::string::npos);
+	CHECK(FindLoggedValue(text, "Used by") == "None");
+
+	// Once a script calls it, the inspector and the delete confirmation name that script.
+	Result<AssetHandle> const player = fixture.Operations.CreateVisualScript("Player.sgraph", VisualScriptTemplate::Empty);
+	REQUIRE(player.IsOk());
+	VisualScriptDocument caller;
+	VisualScriptNode call = MakeNode(1, "Function.Call");
+	call.Settings = {{"Function", 1}, {"Graph", library.ToString()}};
+	caller.Graph.Nodes = {call};
+	REQUIRE(fixture.Operations.SetVisualScriptDocument(player.GetValue(), caller).IsOk());
+	// Drawing the inspector's "Used by", which refreshes the index (and so reads every graph), changes nothing.
+	CheckDrawingChangesNothing(imgui, draw, fixture.Context, {library, player.GetValue()});
+	text = CaptureText(imgui, draw);
+	CHECK(text.find("Player.sgraph (1 node)") != std::string::npos);
+
+	imgui.Click(fixture.GetTile(0), draw);
+	REQUIRE(fixture.Context.GetSelectedAsset() == library);
+	imgui.Press(ImGuiKey_Delete, draw);
+	imgui.Frame(draw);
+	ImGuiWindow const* confirmation = ImGui::FindWindowByName("Delete###ContentBrowserDelete");
+	REQUIRE(confirmation != nullptr);
+	REQUIRE(confirmation->Active);
+	CheckDrawingChangesNothing(imgui, draw, fixture.Context, {library, player.GetValue()});
+	text = CaptureText(imgui, draw);
+	CHECK(text.find("Delete 'Logic/New Visual Script Library.sgraph'?") != std::string::npos);
+	CHECK(text.find("Used by Player.sgraph (1 node): they will show errors.") != std::string::npos);
+	// The note wraps as wide as the lines above it, so it never widens the popup.
+	CHECK(confirmation->ContentSize.x <= std::max(ImGui::CalcTextSize("Delete 'Logic/New Visual Script Library.sgraph'?").x,
+	                                              ImGui::CalcTextSize("The file is deleted from disk. This cannot be undone.").x) +
+	                                         1.0f);
+	imgui.Press(ImGuiKey_Escape, draw);
+	imgui.Frame(draw);
+	CHECK(AssetManager::IsValid(library));
+	CHECK(fixture.BrowserOpen);
+}
+
+TEST_CASE("Panels: a function library is no script for entities: drops refuse it and the component inspector says why")
+{
+	Testing::AssetManagerScope const assets;
+	HeadlessImGui imgui;
+	Testing::TemporaryDirectory temporary;
+	EditorContext context;
+	EditorOperations operations(context);
+	REQUIRE(operations.CreateProject(temporary.GetPath() / "Game", "Game", Scene("Main")).IsOk());
+	Result<AssetHandle> const motion = operations.CreateVisualScript("Logic/Motion.sgraph", VisualScriptTemplate::Library);
+	REQUIRE(motion.IsOk());
+	UUID const hero = Create(operations, "Hero", Json::object());
+	size_t const steps = context.GetHistory().GetUndoCount();
+
+	// Dropped onto an entity: refused, nothing changes.
+	std::vector<UUID> const heroes = {hero};
+	Result<std::string> const dropped = AssetDrops::AddVisualScript(operations, heroes, motion.GetValue());
+	REQUIRE(dropped.IsError());
+	CHECK(dropped.GetError() == "Motion is a function library: graphs call its functions; it runs on no entity");
+	CHECK_FALSE(context.GetScene().GetEntityByUUID(hero).HasComponent<VisualScriptComponent>());
+	CHECK(context.GetHistory().GetUndoCount() == steps);
+
+	// Attached anyway (as automation may, or as a script that became a library since): the component inspector says why
+	// it runs nothing instead of listing variables.
+	UUID const runner = Create(operations, "Runner", Json::object({{"VisualScript", {{"Graph", motion.GetValue().ToString()}}}}));
+	std::vector<UUID> const selection = {runner};
+	REQUIRE(operations.Select(selection).IsOk());
+	InspectorPanel inspector;
+	bool open = true;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 1000.0f));
+		inspector.OnImGuiRender(operations, open);
+	};
+	size_t const shown = context.GetHistory().GetUndoCount();
+	Json const scene = SceneSerializer::Serialize(context.GetScene());
+	CheckDrawingChangesNothing(imgui, draw, context, {motion.GetValue()});
+	std::string const text = CaptureText(imgui, draw);
+	CAPTURE(text);
+	CHECK(text.find("Motion is a function library: graphs call its functions; it runs on no entity") != std::string::npos);
+	CHECK(text.find("public variables") == std::string::npos);
+	CHECK(context.GetHistory().GetUndoCount() == shown);
+	CHECK(SceneSerializer::Serialize(context.GetScene()) == scene);
 	CHECK(open);
 }
