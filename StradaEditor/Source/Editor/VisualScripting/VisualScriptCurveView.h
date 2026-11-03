@@ -87,13 +87,16 @@ namespace Strada
 		// A discrete edit, one step of its own.
 		Commit,
 		// Open the menu of the selected keys (Interpolation, Tangents, Delete).
-		OpenKeyMenu
+		OpenKeyMenu,
+		// The drag was cancelled (Escape): what it committed goes back to the timeline at its start (Timeline), in the drag's
+		// step, which then nets to nothing.
+		CancelEdit
 	};
 
 	struct VisualScriptCurveIntent
 	{
 		VisualScriptCurveIntentKind Kind = VisualScriptCurveIntentKind::Commit;
-		// Edit and Commit: the timeline to set.
+		// Edit and Commit: the timeline to set; CancelEdit: the timeline at the drag's start.
 		VisualScriptTimeline Timeline;
 		// Edit and Commit: the step's description, without the script ("Move Key of Lift on Timeline").
 		std::string Action;
@@ -128,11 +131,16 @@ namespace Strada
 		static constexpr float DragThreshold = 0.25f;
 		// A wheel notch zooms by this factor.
 		static constexpr float ZoomStep = 1.2f;
-		// The bounds of the visible spans.
-		static constexpr float MinTimeSpan = 0.001f;
-		static constexpr float MaxTimeSpan = 7200.0f;
-		static constexpr float MinValueSpan = 1e-4f;
-		static constexpr float MaxValueSpan = 1e9f;
+		// The bounds of the visible spans, and how far from 0 their middles may go. Values are floats, so the value span also
+		// stays at least RelativeMinSpan of its middle's magnitude (finer steps than a float has there show nothing), and its
+		// bounds reach past the largest floats (about 3.4e38) so that every value can be framed.
+		static constexpr double MinTimeSpan = 0.001;
+		static constexpr double MaxTimeSpan = 7200.0;
+		static constexpr double MaxTimeMagnitude = 1.0e5;
+		static constexpr double MinValueSpan = 1e-4;
+		static constexpr double MaxValueSpan = 1.0e39;
+		static constexpr double MaxValueMagnitude = 1.0e39;
+		static constexpr double RelativeMinSpan = 1e-6;
 
 		// The view's rectangle in screen pixels and the font size its parts scale with.
 		void SetRect(glm::vec2 min, glm::vec2 max, float fontSize);
@@ -140,15 +148,21 @@ namespace Strada
 		glm::vec2 GetMax() const { return m_Max; }
 		float GetFontSize() const { return m_FontSize; }
 
-		// Takes the timeline shown this frame: keeps the selection's keys that still exist, the eye and component toggles
-		// of the tracks by name, and frames everything the first time.
+		// Takes the timeline shown this frame and frames everything the first time. The selection, the eye and the component
+		// toggles follow the tracks when the track list changed since the previous Sync (an edit, an undo or an agent's):
+		// tracks are followed by name, and a track whose name changed in its place by position (a rename, whose toggles are
+		// renamed with it); the keys of a removed track and keys that no longer exist leave the selection.
 		void Sync(VisualScriptTimeline const& timeline);
+		// Where a track of the timeline the previous Sync took is in the one the last Sync took, followed as Sync follows
+		// it; nothing for a track that was removed.
+		std::optional<uint32_t> FollowTrack(uint32_t track) const;
 
-		// The view transform.
-		glm::vec2 GetTimeRange() const { return {m_TimeStart, m_TimeEnd}; }
-		glm::vec2 GetValueRange() const { return {m_ValueStart, m_ValueEnd}; }
-		void SetTimeRange(float start, float end);
-		void SetValueRange(float start, float end);
+		// The view transform. The ranges are kept in double, always finite and within the bounds above; screen positions
+		// are clamped to a few screen sizes around the view, so values far outside it still draw and hit test as numbers.
+		glm::dvec2 GetTimeRange() const { return {m_TimeStart, m_TimeEnd}; }
+		glm::dvec2 GetValueRange() const { return {m_ValueStart, m_ValueEnd}; }
+		void SetTimeRange(double start, double end);
+		void SetValueRange(double start, double end);
 		float ToScreenX(double time) const;
 		float ToScreenY(double value) const;
 		double ToTime(float x) const;
@@ -170,7 +184,8 @@ namespace Strada
 		void ZoomTime(float factor, float aboutX);
 		void ZoomValues(float factor, float aboutY);
 		void Pan(glm::vec2 pixels);
-		// Frames the selected keys, or every visible key and curve without a selection (and the whole length).
+		// Frames the selected keys (those the timeline has), or every visible key and curve without a selection (and the
+		// whole length).
 		void Frame(VisualScriptTimeline const& timeline);
 
 		VisualScriptCurveHit HitTest(VisualScriptTimeline const& timeline, glm::vec2 point) const;
@@ -208,7 +223,8 @@ namespace Strada
 		// Adds a key to a track at a time (snapped unless free) with the curve's value there, and selects it.
 		std::optional<VisualScriptCurveIntent> AddKey(VisualScriptTimeline const& timeline, uint32_t track, double time, bool free,
 		                                              std::string_view title);
-		// Ends the gesture in progress: a drag's last value commits (EndEdit).
+		// Cancels the gesture in progress (Escape), as the canvas does: a drag of keys or of a tangent goes back to where it
+		// started (CancelEdit), and a marquee gives back the selection it started from.
 		std::vector<VisualScriptCurveIntent> CancelGesture();
 
 		// "Move Key of Lift on Timeline", "Move 3 Keys on Timeline": what an edit of the selected keys is called.
@@ -227,18 +243,22 @@ namespace Strada
 		void UpdateDrag(VisualScriptCurveViewInput const& input, std::string_view title, std::vector<VisualScriptCurveIntent>& intents);
 		void UpdateMarquee(VisualScriptTimeline const& timeline);
 		std::vector<VisualScriptTimelineKeyRef> FindKeysIn(VisualScriptTimeline const& timeline, glm::vec2 min, glm::vec2 max) const;
-		float GetPixelsPerSecond() const;
-		float GetPixelsPerValue() const;
+		double GetPixelsPerSecond() const;
+		double GetPixelsPerValue() const;
 		double Snap(double time) const;
 
 		glm::vec2 m_Min{0.0f};
 		glm::vec2 m_Max{1.0f};
 		float m_FontSize = 13.0f;
-		float m_TimeStart = 0.0f;
-		float m_TimeEnd = 1.0f;
-		float m_ValueStart = -1.0f;
-		float m_ValueEnd = 1.0f;
+		double m_TimeStart = 0.0;
+		double m_TimeEnd = 1.0;
+		double m_ValueStart = -1.0;
+		double m_ValueEnd = 1.0;
 		bool m_Framed = false;
+		// The track names the last Sync took, and where each track of the Sync before it went.
+		bool m_Synced = false;
+		std::vector<std::string> m_TrackNames;
+		std::vector<std::optional<uint32_t>> m_TrackMap;
 		// The visible event tracks, top to bottom (their lanes).
 		std::vector<uint32_t> m_Lanes;
 		std::vector<NamedTrackView> m_TrackViews;

@@ -1756,21 +1756,28 @@ TEST_CASE("VisualScriptEditor: the palette's Game category ends with a row count
 namespace
 {
 	// Create (1) and a Timeline (2) of 2 s: Lift, a float curve with keys at 0, 1 and 2 s, and Step, an event at 1.5 s.
-	VisualScriptDocument MakeTimelineDocument(bool tracks)
+	// A graph with a Timeline (node 2) whose setting is the text given (none for an empty text).
+	VisualScriptDocument MakeTimelineDocument(std::string const& setting)
 	{
 		VisualScriptDocument document;
 		Json settings = Json::object();
-		if (tracks)
+		if (!setting.empty())
 		{
-			Result<Json> timeline = ParseJson(R"({"Length": 2, "Loop": false, "Tracks": [
-				{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 1, "Value": 1}, {"Time": 2, "Value": 0}]},
-				{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1.5}]}]})");
+			Result<Json> timeline = ParseJson(setting);
 			REQUIRE(timeline.IsOk());
 			settings["Timeline"] = timeline.GetValue();
 		}
 		document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(0.0f, 0.0f)),
 		                        MakeNode(2, "Flow.Timeline", glm::vec2(400.0f, 0.0f), settings)};
 		return document;
+	}
+
+	VisualScriptDocument MakeTimelineDocument(bool tracks)
+	{
+		return MakeTimelineDocument(tracks ? std::string(R"({"Length": 2, "Loop": false, "Tracks": [
+				{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 1, "Value": 1}, {"Time": 2, "Value": 0}]},
+				{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1.5}]}]})")
+		                                   : std::string());
 	}
 
 	glm::vec2 GetCenter(std::pair<glm::vec2, glm::vec2> const& rect)
@@ -2057,15 +2064,15 @@ TEST_CASE("VisualScriptEditor: the Timeline drawer's keys, menu, double clicks, 
 
 	// The wheel zooms time, Ctrl+wheel the values, a right drag pans.
 	glm::vec2 const middle = (view.GetMin() + view.GetMax()) * 0.5f;
-	glm::vec2 const times = view.GetTimeRange();
+	glm::dvec2 const times = view.GetTimeRange();
 	fixture.Gui.Wheel(ToImVec2(middle), ImVec2(0.0f, 1.0f), fixture.Drawer());
 	CHECK(view.GetTimeRange().y - view.GetTimeRange().x < times.y - times.x);
-	glm::vec2 const values = view.GetValueRange();
+	glm::dvec2 const values = view.GetValueRange();
 	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Ctrl, true);
 	fixture.Gui.Wheel(ToImVec2(middle), ImVec2(0.0f, 1.0f), fixture.Drawer());
 	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Ctrl, false);
 	CHECK(view.GetValueRange().y - view.GetValueRange().x < values.y - values.x);
-	glm::vec2 const panned = view.GetTimeRange();
+	glm::dvec2 const panned = view.GetTimeRange();
 	fixture.Gui.DragPath(ToImVec2(middle), ToImVec2(middle + glm::vec2(60.0f, 0.0f)), fixture.Drawer(), ImGuiMouseButton_Right);
 	CHECK(view.GetTimeRange().x < panned.x);
 	// F frames the selection.
@@ -2079,4 +2086,114 @@ TEST_CASE("VisualScriptEditor: the Timeline drawer's keys, menu, double clicks, 
 	fixture.Frames(2);
 	CHECK(GImGui->NavWindow == fixture.GetChild("##canvas"));
 	CHECK(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Timeline);
+}
+
+TEST_CASE("VisualScriptEditor: Escape during a key drag in the Timeline drawer puts the key back and leaves no step")
+{
+	PanelFixture fixture(MakeTimelineDocument(true));
+	fixture.CheckDrawingChangesNothing();
+	OpenTimeline(fixture);
+	size_t const undo = fixture.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+	glm::vec2 const key = FindKey(fixture, 0, 1);
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(key.x, key.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	uint64_t const version = fixture.GetVersion();
+	for (int frame = 1; frame <= 3; frame++)
+	{
+		io.AddMousePosEvent(key.x + 10.0f * static_cast<float>(frame), key.y - 10.0f * static_cast<float>(frame));
+		fixture.Frames(1);
+	}
+	// Held still past the cadence: the drag has reached the file.
+	fixture.Frames(8);
+	REQUIRE(fixture.GetVersion() > version);
+	REQUIRE(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time > 1.0f);
+
+	// Escape with the button still down: the key goes back, and the drag's step ends where it started.
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(GetCurveEditor(fixture).GetView().GetGesture() == VisualScriptCurveGesture::Idle);
+	io.AddMousePosEvent(key.x + 60.0f, key.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(3);
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.ReadFile() == bytes);
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time == 1.0f);
+	// The drawer still has the keyboard; the next Escape gives it back to the canvas.
+	CHECK(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Timeline);
+}
+
+TEST_CASE("VisualScriptEditor: arrow keys in the Timeline drawer nudge keys in runs of one step")
+{
+	PanelFixture fixture(MakeTimelineDocument(true));
+	fixture.CheckDrawingChangesNothing();
+	OpenTimeline(fixture);
+	fixture.Click(FindKey(fixture, 0, 1));
+	size_t const undo = fixture.GetUndoCount();
+	CommandHistory const& history = fixture.Context.GetHistory();
+
+	// Three presses 0.2 s apart: one step.
+	for (int press = 0; press < 3; press++)
+	{
+		fixture.PressAfter(ImGuiKey_RightArrow, 0.2f);
+	}
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(history.GetUndoDescription() == "Move Key of Lift on Timeline in Player");
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time == doctest::Approx(1.03f));
+	// 0.6 s later: a step of its own, Shift's included.
+	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Shift, true);
+	fixture.PressAfter(ImGuiKey_LeftArrow, 0.6f);
+	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Shift, false);
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time == doctest::Approx(0.93f));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	fixture.Frames(1);
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time == doctest::Approx(1.03f));
+	REQUIRE(fixture.Operations.Undo().IsOk());
+	fixture.Frames(1);
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time == 1.0f);
+}
+
+TEST_CASE("VisualScriptEditor: the Timeline drawer opens on curves of huge values and draws them as numbers")
+{
+	for (char const* const keys : {R"([{"Time": 0.5, "Value": 1e17}])", R"([{"Time": 0, "Value": 0}, {"Time": 1, "Value": 3e17}])",
+	                               R"([{"Time": 0, "Value": -3e38}, {"Time": 1, "Value": 3e38}])", R"([{"Time": 0.5, "Value": 1e8}])"})
+	{
+		CAPTURE(keys);
+		PanelFixture fixture(MakeTimelineDocument(
+			std::string(R"({"Length": 1, "Loop": false, "Tracks": [{"Name": "Lift", "Type": "float", "Keys": )") + keys + "}]}"));
+		fixture.CheckDrawingChangesNothing();
+		OpenTimeline(fixture);
+		VisualScriptCurveEditor const& editor = GetCurveEditor(fixture);
+		VisualScriptTimeline const timeline = ReadStoredTimeline(fixture);
+		CHECK(editor.GetDrawRecord().Curves == 1);
+		CHECK(editor.GetDrawRecord().CurveKeys == timeline.Tracks[0].Keys.size());
+		glm::dvec2 const values = editor.GetView().GetValueRange();
+		CHECK(values.y > values.x);
+		for (uint32_t key = 0; key < timeline.Tracks[0].Keys.size(); key++)
+		{
+			glm::vec2 const position = FindKey(fixture, 0, key);
+			CHECK(position.y >= editor.GetView().GetCurvesTop());
+			CHECK(position.y <= editor.GetView().GetMax().y);
+		}
+		// F and the wheel at its extremes keep drawing.
+		fixture.Click(FindKey(fixture, 0, 0));
+		fixture.Gui.Press(ImGuiKey_F, fixture.Drawer());
+		glm::vec2 const middle = (editor.GetView().GetMin() + editor.GetView().GetMax()) * 0.5f;
+		Testing::HeadlessImGui::SetModifiers(ImGuiMod_Ctrl, true);
+		for (int notch = 0; notch < 6; notch++)
+		{
+			fixture.Gui.Wheel(ToImVec2(middle), ImVec2(0.0f, -100.0f), fixture.Drawer());
+		}
+		Testing::HeadlessImGui::SetModifiers(ImGuiMod_Ctrl, false);
+		fixture.Frames(1);
+		CHECK(editor.GetDrawRecord().Curves == 1);
+		fixture.CheckDrawingChangesNothing();
+	}
 }

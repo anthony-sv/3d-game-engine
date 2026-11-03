@@ -74,7 +74,7 @@ namespace Strada
 		Owned,
 		// The Timeline drawer's keys, while it has the keyboard and no text field has (spec-slice3 §9.5): matched exactly under
 		// the drawer's key owner, as the canvas's are, except the chords a Focused row claims (Delete, Ctrl+A), which reach the
-		// drawer through the window's claim. Escape ends the drawer's gesture, else gives the keyboard back to the canvas.
+		// drawer through the window's claim. Escape cancels the drawer's gesture, else gives the keyboard back to the canvas.
 		Timeline
 	};
 
@@ -182,7 +182,7 @@ namespace Strada
 			{ImGuiKey_F, Action::FrameSelection, Group::Timeline, Route::Timeline, false,
 		     "Frame the selected keys (everything without any)"},
 			{ImGuiKey_Escape, Action::Cancel, Group::Timeline, Route::Timeline, false,
-		     "End the drag; else give the keyboard back to the canvas"},
+		     "Cancel the drag; else give the keyboard back to the canvas"},
 
 			{ImGuiKey_F1, Action::ShowShortcuts, Group::Help, Route::Canvas, false, "Show these shortcuts"},
 		}};

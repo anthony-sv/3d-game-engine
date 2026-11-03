@@ -130,8 +130,15 @@ namespace Strada
 		std::vector<std::pair<std::string, std::array<float, 4>>> Parts;
 	};
 
-	// The ImGui drag and drop payload of an element's handle: the element's index (a size_t).
+	// The ImGui drag and drop payload of an element's handle (a VisualScriptArrayElementDrag): an array editor accepts only its
+	// own elements, so a handle dropped on another array's moves nothing.
 	inline constexpr char const* VisualScriptArrayElementPayload = "VS_ARRAY_ELEMENT";
+	struct VisualScriptArrayElementDrag
+	{
+		// The array editor's ID (its ID scope's), and the element's index in it.
+		uint32_t List = 0;
+		uint32_t Index = 0;
+	};
 
 	// Draws an array literal (spec-slice3 §9.4) as wide as the content region: a header row "3 elements" with "+ Add Element"
 	// (which appends the element type's default), then one row per element: a drag handle (dropped on another element's handle,

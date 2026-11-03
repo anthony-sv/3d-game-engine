@@ -1634,14 +1634,14 @@ namespace Strada
 			{
 				frame.Result.WidgetActive = true;
 			}
-			auto const setFormula = [&](std::string const& formula) -> std::optional<std::pair<VisualScriptDocument, std::string>>
+			auto const setFormula = [&](std::string const& formula) -> Result<std::pair<VisualScriptDocument, std::string>>
 			{
 				VisualScriptDocument changed = document;
 				Result<VisualScriptEditing::VisualScriptFormulaChange> const change =
 					VisualScriptEditing::SetFormula(changed, node.ID, formula);
 				if (!change)
 				{
-					return std::nullopt;
+					return Error{change.GetError()};
 				}
 				return std::pair(std::move(changed), action + DescribeFormulaChange(change.GetValue()));
 			};
@@ -1650,9 +1650,10 @@ namespace Strada
 				// Escape cancels: what live tuning committed of the interaction goes back to the formula it started with.
 				if (current != m_Formula->Start)
 				{
-					if (std::optional<std::pair<VisualScriptDocument, std::string>> reverted = setFormula(m_Formula->Start))
+					if (Result<std::pair<VisualScriptDocument, std::string>> reverted = setFormula(m_Formula->Start))
 					{
-						m_Commits.Change(context, std::move(reverted->first), std::move(reverted->second), false, frame.Result);
+						m_Commits.Change(context, std::move(reverted.GetValue().first), std::move(reverted.GetValue().second), false,
+						                 frame.Result);
 					}
 				}
 				m_Commits.End(context, frame.Result);
@@ -1662,23 +1663,38 @@ namespace Strada
 			{
 				// Committed once, computed against the formula of the interaction's start: live tuning committed only formulas
 				// with the start's inputs, so the document's current formula has them too and the renames are the same.
+				bool refused = false;
 				if (m_Formula->Text != current)
 				{
-					if (std::optional<std::pair<VisualScriptDocument, std::string>> committed = setFormula(m_Formula->Text))
+					if (Result<std::pair<VisualScriptDocument, std::string>> committed = setFormula(m_Formula->Text))
 					{
-						m_Commits.Change(context, std::move(committed->first), std::move(committed->second), false, frame.Result);
+						m_Commits.Change(context, std::move(committed.GetValue().first), std::move(committed.GetValue().second), false,
+						                 frame.Result);
+					}
+					else
+					{
+						// Said as the in-place editor says it; Ctrl+Enter keeps the text in the field to be fixed.
+						frame.Result.Notes.push_back(fmt::format("The formula stays: {}", committed.GetError()));
+						refused = true;
 					}
 				}
 				m_Commits.End(context, frame.Result);
-				m_Formula.reset();
+				if (refused && entered)
+				{
+					m_Formula->Focus = true;
+				}
+				else
+				{
+					m_Formula.reset();
+				}
 			}
 			else if (edited && active && VisualScriptEditing::ListVisualScriptFormulaInputs(m_Formula->Text) == m_Formula->StartInputs)
 			{
 				// Live tuning: numbers and operators changed, the inputs did not, so the game gets the formula at the widget
 				// cadence, in the interaction's step.
-				if (std::optional<std::pair<VisualScriptDocument, std::string>> tuned = setFormula(m_Formula->Text))
+				if (Result<std::pair<VisualScriptDocument, std::string>> tuned = setFormula(m_Formula->Text))
 				{
-					m_Commits.Change(context, std::move(tuned->first), std::move(tuned->second), true, frame.Result);
+					m_Commits.Change(context, std::move(tuned.GetValue().first), std::move(tuned.GetValue().second), true, frame.Result);
 				}
 			}
 		}

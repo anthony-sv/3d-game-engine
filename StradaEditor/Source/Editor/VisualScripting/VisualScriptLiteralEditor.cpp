@@ -294,6 +294,8 @@ namespace Strada
 		ImGui::EndDisabled();
 
 		float const handleWidth = ImGui::GetFrameHeight();
+		// The list's identity in the payload: the caller's ID scope, which tells this array from any other drawn.
+		ImGuiID const list = ImGui::GetID("##arrayElements");
 		float const removeWidth = ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0f;
 		for (size_t index = 0; index < elements.size(); index++)
 		{
@@ -302,19 +304,26 @@ namespace Strada
 			record(fmt::format("{} Handle", index));
 			if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
 			{
-				ImGui::SetDragDropPayload(VisualScriptArrayElementPayload, &index, sizeof(index));
+				VisualScriptArrayElementDrag const drag{list, static_cast<uint32_t>(index)};
+				ImGui::SetDragDropPayload(VisualScriptArrayElementPayload, &drag, sizeof(drag));
 				ImGui::Text("Element %zu", index);
 				ImGui::EndDragDropSource();
 			}
 			if (ImGui::BeginDragDropTarget())
 			{
-				if (ImGuiPayload const* const payload = ImGui::AcceptDragDropPayload(VisualScriptArrayElementPayload))
+				// Only this list's elements are taken (peeked first, so another list's handle is not even offered the drop).
+				VisualScriptArrayElementDrag drag;
+				bool own = false;
+				if (ImGuiPayload const* const offered = ImGui::GetDragDropPayload(); offered != nullptr &&
+				                                                                     offered->IsDataType(VisualScriptArrayElementPayload) &&
+				                                                                     offered->DataSize == static_cast<int>(sizeof(drag)))
 				{
-					size_t from = 0;
-					if (payload->DataSize == static_cast<int>(sizeof(from)))
-					{
-						std::memcpy(&from, payload->Data, sizeof(from));
-					}
+					std::memcpy(&drag, offered->Data, sizeof(drag));
+					own = drag.List == list;
+				}
+				if (own && ImGui::AcceptDragDropPayload(VisualScriptArrayElementPayload) != nullptr)
+				{
+					size_t const from = drag.Index;
 					if (from < elements.size() && from != index)
 					{
 						Json changed = elements;

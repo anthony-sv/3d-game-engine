@@ -1665,7 +1665,7 @@ inspector's primary entity as the context entity; without an asset directory the
   | | `Shift+Left` | Move the selected keys 0.1 s earlier |
   | | `Shift+Right` | Move the selected keys 0.1 s later |
   | | `F` | Frame the selected keys (everything without any) |
-  | | `Esc` | End the drag; else give the keyboard back to the canvas |
+  | | `Esc` | Cancel the drag; else give the keyboard back to the canvas |
   | Help | `F1` | Show these shortcuts |
 
   | Gesture | On | Action |

@@ -27,6 +27,10 @@
 // Details' Timeline section. Main thread only.
 namespace Strada
 {
+	// The merge key of the drawer's arrow-key nudges, "VSTN" plus the run's counter: a run of presses less than
+	// VisualScriptNudgeRunSeconds apart is one undo step, as the canvas's nudges are (VisualScriptNudgeMergeKey).
+	inline constexpr uint64_t VisualScriptTimelineNudgeMergeKey = 0x5653544E00000000ull;
+
 	// A timeline edit: the document with the node's timeline set, and the step's description (without the script).
 	struct VisualScriptTimelineEdit
 	{
@@ -103,7 +107,8 @@ namespace Strada
 		void QueueAction(VisualScriptEditorAction action) { m_Actions.push_back(action); }
 		// Opens on a node, and on one of its tracks: its row is highlighted and the view frames its keys at the next Draw.
 		void Open(uint32_t node, std::optional<uint32_t> track);
-		// Ends the gesture in progress (Escape): a drag's last value commits at the next Draw.
+		// Cancels the gesture in progress (Escape) at the next Draw: a drag's keys or tangent go back where they were, in the
+		// drag's step, which then nets to nothing; a marquee gives back the selection it started from.
 		void CancelGesture();
 		// Whether a gesture of the curve view is in progress.
 		bool IsGestureActive() const { return m_View.GetGesture() != VisualScriptCurveGesture::Idle; }
@@ -130,7 +135,9 @@ namespace Strada
 		void DrawKeyMenu(Frame& frame);
 		void ApplyActions(Frame& frame);
 		void ApplyIntent(Frame& frame, VisualScriptCurveIntent intent);
-		void Commit(Frame& frame, Result<VisualScriptTimelineEdit> edit);
+		void Commit(Frame& frame, Result<VisualScriptTimelineEdit> edit, uint64_t mergeKey = 0);
+		// The merge key of an arrow-key nudge at a time (VisualScriptPaneContext::Time).
+		uint64_t GetNudgeKey(double time);
 		void AddRect(std::string label);
 
 		VisualScriptCurveView m_View;
@@ -145,6 +152,18 @@ namespace Strada
 		bool m_RenameFocus = false;
 		// The header row's Time drag: the timeline and the selected key at the interaction's start.
 		std::optional<VisualScriptTimeline> m_HeaderStart;
+		// The curve view's drag in progress: the node's Timeline setting before its first edit (none when the node had none)
+		// and the step's description, which Escape commits back.
+		struct DragStart
+		{
+			std::optional<Json> Setting;
+			std::string Action;
+		};
+		std::optional<DragStart> m_DragStart;
+		// The run of arrow-key nudges: its counter, its merge key and when its last press came.
+		uint64_t m_NudgeRuns = 0;
+		uint64_t m_NudgeKey = 0;
+		double m_LastNudge = -1.0e30;
 		bool m_OpenKeyMenu = false;
 		std::vector<VisualScriptEditorAction> m_Actions;
 		VisualScriptCurveDrawRecord m_Record;

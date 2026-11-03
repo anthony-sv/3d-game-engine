@@ -33,7 +33,6 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
-#include <charconv>
 #include <cmath>
 #include <optional>
 #include <span>
@@ -756,11 +755,14 @@ TEST_CASE("VisualScriptEditor: a timeline the runtime plays gives the values the
 	for (size_t start = 0; start < joined.size();)
 	{
 		size_t const end = std::min(joined.find(' ', start), joined.size());
-		float value = 0.0f;
-		auto const [last, error] = std::from_chars(joined.data() + start, joined.data() + end, value);
-		REQUIRE(error == std::errc());
-		REQUIRE(last == joined.data() + end);
-		read.push_back(value);
+		// Read as documents are (VisualScriptLiterals.cpp): std::from_chars for floats is missing from some standard libraries.
+		std::string_view const sample(joined.data() + start, end - start);
+		CAPTURE(sample);
+		Result<Json> const number = ParseJson(sample);
+		REQUIRE(number.IsOk());
+		std::optional<float> const value = VisualScriptSerializer::ReadFloat(number.GetValue());
+		REQUIRE(value.has_value());
+		read.push_back(*value);
 		start = end + 1;
 	}
 	REQUIRE(read.size() == Samples);

@@ -916,6 +916,17 @@ namespace Strada
 			return Error{"the offsets must be finite numbers"};
 		}
 		std::set<VisualScriptTimelineKeyRef> const selected(keys.begin(), keys.end());
+		for (auto const& [track, key] : selected)
+		{
+			VisualScriptTimelineTrack const& owner = timeline.Tracks[track];
+			for (glm::length_t component = 0; component < static_cast<glm::length_t>(owner.Components); component++)
+			{
+				if (!std::isfinite(owner.Keys[key].Value[component] + valueOffset[component]))
+				{
+					return Error{"a key's value is finite: the move takes it past the largest float"};
+				}
+			}
+		}
 		// The time offsets the block may take: no selected key leaves [0, Length] or passes an unselected neighbour.
 		double lowest = -std::numeric_limits<double>::infinity();
 		double highest = std::numeric_limits<double>::infinity();

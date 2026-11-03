@@ -1828,6 +1828,37 @@ TEST_CASE("GraphCommands: graph.palette checks its parameters in order, then lis
 	CHECK(fixture.GetDocument(graph) == document);
 }
 
+TEST_CASE("GraphCommands: graph.palette lists the Expression of a formula typed after =")
+{
+	GraphWindowFixture fixture;
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", MakeWindowDocument());
+	auto const params = [&graph](Json extra)
+	{
+		extra["graph"] = graph;
+		return extra;
+	};
+	fixture.Ok("graph.open", Json::object({{"graph", graph}}));
+	fixture.Frames(2);
+	Json listed;
+	// A query of = and a formula: the Expression entry alone, titled with the formula, its settings setting it (spec-slice3 §9.3).
+	listed = fixture.Ok("graph.palette", params(Json::object({{"query", "=a*b"}})));
+	CHECK(listed["query"] == "=a*b");
+	CHECK(listed["total"] == 1);
+	REQUIRE(listed["entries"].size() == 1);
+	CHECK(listed["entries"][0]["title"] == "Expression: a*b");
+	CHECK(listed["entries"][0]["type"] == "Expression");
+	CHECK(listed["entries"][0]["settings"] == Json::object({{"Formula", "a*b"}}));
+
+	// Each call a frame after the one before opens the palette again with its own query (ImGui keeps a popup reopened in
+	// the frame after its opening, with the search field's text).
+	listed = fixture.Ok("graph.palette", params(Json::object({{"query", "br"}})));
+	CHECK(listed["query"] == "br");
+	CHECK(listed["total"] > 1);
+	listed = fixture.Ok("graph.palette", params(Json::object({{"query", "=x"}})));
+	CHECK(listed["query"] == "=x");
+	CHECK(listed["total"] == 1);
+}
+
 TEST_CASE("GraphCommands: graph.palette answers for a window graph.open opened in the same frame, and refuses windows that show no "
           "palette")
 {

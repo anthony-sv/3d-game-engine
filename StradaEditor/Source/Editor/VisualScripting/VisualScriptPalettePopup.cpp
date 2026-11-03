@@ -447,6 +447,12 @@ namespace Strada
 			{
 				m_ScreenPosition = view.ToScreen(m_Position);
 			}
+			// Opened again while open: closed first, since ImGui keeps a popup reopened in the frame after its opening as it is
+			// (imgui.cpp, OpenPopupEx), whose search field would then keep the text it has and lose the new query.
+			if (ImGui::IsPopupOpen(popupId, ImGuiPopupFlags_None))
+			{
+				ImGui::ClosePopupToLevel(ImGui::GetCurrentContext()->BeginPopupStack.Size, true);
+			}
 			ImGui::OpenPopupEx(popupId, ImGuiPopupFlags_None);
 		}
 		else if (!ImGui::IsPopupOpen(popupId, ImGuiPopupFlags_None))

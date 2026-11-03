@@ -545,6 +545,14 @@ namespace
 				{
 					params.erase("programRevision");
 				}
+				// Now and then a call that is right in every part (one operation that needs no scripting runtime), so the
+				// command's work is reached whatever else the drawn batches and parameters get wrong.
+				if (!m_State.Graph.empty() && m_Random.Pick(6) == 0)
+				{
+					params =
+						Json::object({{"graph", m_State.Graph},
+					                  {"operations", Json::array({Json::object({{"op", "SetDescription"}, {"description", "Fuzzed"}})})}});
+				}
 			}
 			// graph.palette opens only in an open window: mostly one, mostly without the from and at that the schema draws, which
 			// rarely name a node and a point of the canvas, so the palette's own checks are reached (whatever the order of the

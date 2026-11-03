@@ -3,6 +3,7 @@
 
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -366,20 +367,20 @@ TEST_CASE("VisualScriptCurveView: the wheel zooms time around the cursor, Ctrl+w
 	double const valueAt = fixture.View.ToValue(at.y);
 	fixture.Wheel(at, 1.0f);
 	CHECK(fixture.View.ToTime(at.x) == doctest::Approx(timeAt));
-	glm::vec2 const zoomed = fixture.View.GetTimeRange();
+	glm::dvec2 const zoomed = fixture.View.GetTimeRange();
 	CHECK(zoomed.y - zoomed.x == doctest::Approx(2.0f / VisualScriptCurveView::ZoomStep));
-	CHECK(fixture.View.GetValueRange() == glm::vec2(-1.0f, 1.0f));
+	CHECK(fixture.View.GetValueRange() == glm::dvec2(-1.0, 1.0));
 
 	fixture.Wheel(at, -1.0f, true);
 	CHECK(fixture.View.ToValue(at.y) == doctest::Approx(valueAt));
-	glm::vec2 const values = fixture.View.GetValueRange();
+	glm::dvec2 const values = fixture.View.GetValueRange();
 	CHECK(values.y - values.x == doctest::Approx(2.0f * VisualScriptCurveView::ZoomStep));
 	CHECK(fixture.View.GetTimeRange() == zoomed);
 
 	for (int const button : {1, 2})
 	{
 		CAPTURE(button);
-		glm::vec2 const times = fixture.View.GetTimeRange();
+		glm::dvec2 const times = fixture.View.GetTimeRange();
 		double const before = fixture.View.ToTime(500.0f);
 		fixture.Press(glm::vec2(500.0f, 300.0f), button);
 		fixture.Move(glm::vec2(550.0f, 300.0f), button);
@@ -398,23 +399,23 @@ TEST_CASE("VisualScriptCurveView: F frames everything, or the selection")
 	Fixture fixture;
 	fixture.View.SetTimeRange(10.0f, 20.0f);
 	fixture.View.Frame(fixture.Timeline);
-	glm::vec2 const all = fixture.View.GetTimeRange();
+	glm::dvec2 const all = fixture.View.GetTimeRange();
 	CHECK(all.x < 0.0f);
 	CHECK(all.y > 2.0f);
-	glm::vec2 const values = fixture.View.GetValueRange();
+	glm::dvec2 const values = fixture.View.GetValueRange();
 	// B's Y reaches 0.5 and A's -0.5.
 	CHECK(values.x < -0.5f);
 	CHECK(values.y > 0.5f);
 
 	fixture.View.Select({{0, 2}, {0, 3}});
 	fixture.View.Frame(fixture.Timeline);
-	glm::vec2 const selected = fixture.View.GetTimeRange();
+	glm::dvec2 const selected = fixture.View.GetTimeRange();
 	CHECK(selected.x > 0.9f);
 	CHECK(selected.x < 1.0f);
 	CHECK(selected.y > 1.5f);
 	CHECK(selected.y < 1.6f);
 	// The values of the selected keys (-0.5 and 0) are framed around their middle.
-	glm::vec2 const framed = fixture.View.GetValueRange();
+	glm::dvec2 const framed = fixture.View.GetValueRange();
 	CHECK((framed.x + framed.y) * 0.5f == doctest::Approx(-0.25f));
 }
 
@@ -468,7 +469,7 @@ TEST_CASE("VisualScriptCurveView: hidden tracks and components are not hit, fram
 
 	// Framing everything leaves A and B's Y (0.5) out: only B's X (0.25) is framed among the values, around its value.
 	fixture.View.Frame(fixture.Timeline);
-	glm::vec2 const values = fixture.View.GetValueRange();
+	glm::dvec2 const values = fixture.View.GetValueRange();
 	CHECK((values.x + values.y) * 0.5f == doctest::Approx(0.25f));
 	// A marquee over everything selects the visible keys only.
 	fixture.Press(glm::vec2(1.0f, 15.0f));
@@ -484,4 +485,196 @@ TEST_CASE("VisualScriptCurveView: hidden tracks and components are not hit, fram
 	fixture.View.Sync(fixture.Timeline);
 	CHECK_FALSE(fixture.View.IsVisible(fixture.Timeline, 0, 1));
 	CHECK(fixture.View.IsVisible(fixture.Timeline, 0, 0));
+}
+
+TEST_CASE("VisualScriptCurveView: tracks with huge values frame to a finite range in which their keys can be drawn and hit")
+{
+	struct Case
+	{
+		char const* Name;
+		std::vector<std::pair<float, float>> Keys;
+	};
+	for (Case const& tested :
+	     {Case{"one key at 1e8", {{0.5f, 1.0e8f}}}, Case{"one key at 1e16", {{0.5f, 1.0e16f}}}, Case{"one key at 1e17", {{0.5f, 1.0e17f}}},
+	      Case{"keys at 0 and 3e17", {{0.0f, 0.0f}, {1.0f, 3.0e17f}}}, Case{"keys at -3e38 and 3e38", {{0.0f, -3.0e38f}, {1.0f, 3.0e38f}}},
+	      Case{"one key at -3e20", {{0.5f, -3.0e20f}}}})
+	{
+		CAPTURE(tested.Name);
+		VisualScriptTimeline timeline;
+		timeline.Length = 1.0f;
+		timeline.Tracks.push_back(MakeTrack("A", "float", tested.Keys));
+		VisualScriptCurveView view;
+		view.SetRect(glm::vec2(0.0f), glm::vec2(1000.0f, 600.0f), FontSize);
+		// The first Sync frames everything, as the drawer's first frame does.
+		view.Sync(timeline);
+		glm::dvec2 const values = view.GetValueRange();
+		REQUIRE(std::isfinite(values.x));
+		REQUIRE(std::isfinite(values.y));
+		REQUIRE(values.y > values.x);
+		// Wide enough for the floats about its middle to step within it.
+		CHECK(values.y - values.x >= 0.999 * VisualScriptCurveView::RelativeMinSpan * std::abs(values.x * 0.5 + values.y * 0.5));
+		for (uint32_t key = 0; key < tested.Keys.size(); key++)
+		{
+			CAPTURE(key);
+			std::optional<glm::vec2> const position = view.GetKeyPosition(timeline, 0, key, 0);
+			REQUIRE(position.has_value());
+			CHECK(std::isfinite(position->y));
+			CHECK(position->y >= view.GetCurvesTop());
+			CHECK(position->y <= view.GetMax().y);
+			VisualScriptCurveHit const hit = view.HitTest(timeline, *position);
+			CHECK(hit.Kind == VisualScriptCurveHitKind::Key);
+			CHECK(hit.Key == key);
+			CHECK(std::isfinite(hit.Value));
+		}
+		// Zooming in as far as it goes and panning keep the range finite and open; so does zooming out as far as it goes.
+		for (int notch = 0; notch < 400; notch++)
+		{
+			view.ZoomValues(1.0f / VisualScriptCurveView::ZoomStep, 300.0f);
+		}
+		view.Pan(glm::vec2(0.0f, 1.0e6f));
+		glm::dvec2 const zoomed = view.GetValueRange();
+		CHECK(std::isfinite(zoomed.x));
+		CHECK(zoomed.y > zoomed.x);
+		for (int notch = 0; notch < 400; notch++)
+		{
+			view.ZoomValues(VisualScriptCurveView::ZoomStep, 300.0f);
+		}
+		glm::dvec2 const widened = view.GetValueRange();
+		CHECK(std::isfinite(widened.x));
+		CHECK(std::isfinite(widened.y));
+		CHECK(widened.y - widened.x <= VisualScriptCurveView::MaxValueSpan);
+		// A key dragged across the whole view moves by a finite amount, or not at all.
+		view.Frame(timeline);
+		std::optional<glm::vec2> const grabbed = view.GetKeyPosition(timeline, 0, 0, 0);
+		REQUIRE(grabbed.has_value());
+		VisualScriptCurveViewInput press;
+		press.Mouse = *grabbed;
+		press.Hovered = true;
+		press.Pressed[0] = true;
+		press.Down[0] = true;
+		CHECK(view.Update(press, timeline, "Timeline").empty());
+		VisualScriptCurveViewInput drag;
+		drag.Mouse = glm::vec2(grabbed->x, view.GetCurvesTop());
+		drag.Hovered = true;
+		drag.Down[0] = true;
+		for (VisualScriptCurveIntent const& intent : view.Update(drag, timeline, "Timeline"))
+		{
+			if (intent.Kind == VisualScriptCurveIntentKind::Edit)
+			{
+				CHECK(std::isfinite(intent.Timeline.Tracks[0].Keys[0].Value.x));
+			}
+		}
+		CHECK(view.CancelGesture().size() <= 1);
+	}
+}
+
+TEST_CASE("VisualScriptCurveView: Escape cancels a drag back to where it started and a marquee back to the selection before it")
+{
+	Fixture fixture;
+	glm::vec2 const grab = fixture.Key(0, 1);
+	fixture.Press(grab);
+	fixture.Move(grab + glm::vec2(50.0f, -40.0f));
+	REQUIRE(fixture.View.GetGesture() == VisualScriptCurveGesture::MoveKeys);
+	REQUIRE_FALSE(fixture.Intents.empty());
+	std::vector<VisualScriptCurveIntent> cancelled = fixture.View.CancelGesture();
+	REQUIRE(cancelled.size() == 1);
+	CHECK(cancelled[0].Kind == VisualScriptCurveIntentKind::CancelEdit);
+	CHECK(cancelled[0].Timeline == fixture.Timeline);
+	CHECK(fixture.View.GetGesture() == VisualScriptCurveGesture::Idle);
+	// The mouse still held, then let go: nothing more.
+	fixture.Intents.clear();
+	fixture.Move(grab + glm::vec2(80.0f, -40.0f));
+	fixture.Release(grab + glm::vec2(80.0f, -40.0f));
+	CHECK(fixture.Intents.empty());
+	CHECK(fixture.Selection() == Refs{{0, 1}});
+
+	// A tangent handle's drag likewise.
+	std::optional<glm::vec2> const handle = fixture.View.GetTangentHandle(fixture.Timeline, 0, 1, 0, true);
+	REQUIRE(handle.has_value());
+	fixture.Press(*handle);
+	fixture.Move(*handle + glm::vec2(0.0f, -40.0f));
+	REQUIRE(fixture.View.GetGesture() == VisualScriptCurveGesture::Tangent);
+	cancelled = fixture.View.CancelGesture();
+	REQUIRE(cancelled.size() == 1);
+	CHECK(cancelled[0].Kind == VisualScriptCurveIntentKind::CancelEdit);
+	CHECK(cancelled[0].Timeline == fixture.Timeline);
+	fixture.Release(*handle + glm::vec2(0.0f, -40.0f));
+
+	// A marquee that has selected other keys gives back the selection it started from.
+	fixture.View.Select({{0, 3}});
+	glm::vec2 const from(fixture.Key(0, 0).x - 20.0f, 30.0f);
+	glm::vec2 const to(fixture.Key(0, 1).x + 20.0f, 590.0f);
+	fixture.Press(from);
+	fixture.Move(to);
+	REQUIRE(fixture.View.GetGesture() == VisualScriptCurveGesture::Marquee);
+	CHECK(fixture.Selection() == Refs{{0, 0}, {0, 1}, {1, 0}});
+	CHECK(fixture.View.CancelGesture().empty());
+	CHECK(fixture.Selection() == Refs{{0, 3}});
+	CHECK_FALSE(fixture.View.GetMarquee().has_value());
+	fixture.Release(to);
+	CHECK(fixture.Selection() == Refs{{0, 3}});
+
+	// A press that has not moved yet has nothing to take back but the selection it made.
+	fixture.Press(fixture.Key(0, 2));
+	CHECK(fixture.Selection() == Refs{{0, 2}});
+	CHECK(fixture.View.CancelGesture().empty());
+	CHECK(fixture.Selection() == Refs{{0, 3}});
+}
+
+TEST_CASE("VisualScriptCurveView: the selection and the toggles follow tracks that are removed or renamed")
+{
+	Fixture fixture;
+	fixture.View.Select({{1, 0}, {2, 0}});
+	fixture.View.SetComponentVisible("B", 1, false);
+	// A removed: B and E move up a place, and their keys stay selected.
+	fixture.Timeline.Tracks.erase(fixture.Timeline.Tracks.begin());
+	fixture.View.Sync(fixture.Timeline);
+	CHECK(fixture.Selection() == Refs{{0, 0}, {1, 0}});
+	CHECK(fixture.View.FollowTrack(0) == std::nullopt);
+	CHECK(fixture.View.FollowTrack(1) == std::optional<uint32_t>(0));
+	CHECK(fixture.View.FollowTrack(2) == std::optional<uint32_t>(1));
+	// Delete then removes the keys that were selected, not other tracks' keys.
+	std::optional<VisualScriptCurveIntent> const removed = fixture.View.DeleteSelection(fixture.Timeline, "Timeline");
+	REQUIRE(removed.has_value());
+	CHECK(removed->Action == "Delete 2 Keys on Timeline");
+	CHECK(removed->Timeline.Tracks[0].Keys.empty());
+	CHECK(removed->Timeline.Tracks[1].Keys.empty());
+
+	// B renamed in its place: its toggles and its selected key go with it.
+	fixture.View.Select({{0, 0}});
+	fixture.Timeline.Tracks[0].Name = "Bee";
+	fixture.View.Sync(fixture.Timeline);
+	CHECK(fixture.Selection() == Refs{{0, 0}});
+	CHECK(fixture.View.FollowTrack(0) == std::optional<uint32_t>(0));
+	CHECK_FALSE(fixture.View.GetTrackView("Bee").Components[1]);
+	CHECK_FALSE(fixture.View.IsVisible(fixture.Timeline, 0, 1));
+	// Unchanged tracks stay where they are.
+	fixture.View.Sync(fixture.Timeline);
+	CHECK(fixture.View.FollowTrack(1) == std::optional<uint32_t>(1));
+	CHECK(fixture.View.FollowTrack(2) == std::nullopt);
+}
+
+TEST_CASE("VisualScriptCurveView: framing skips selected keys the timeline it is given does not have")
+{
+	Fixture fixture;
+	// A double-click adds a second event at 1.5 s and selects it, as (2, 1) of the timeline the commit will write.
+	std::optional<std::pair<float, float>> const lane = fixture.View.GetLane(2);
+	REQUIRE(lane.has_value());
+	glm::vec2 const onLane(fixture.View.ToScreenX(1.5), (lane->first + lane->second) * 0.5f);
+	fixture.Press(onLane, 0, false, false, false, true);
+	fixture.Release(onLane);
+	REQUIRE(fixture.Selection() == Refs{{2, 1}});
+	// F in the same frame frames the timeline drawn, which has one event: everything is framed.
+	fixture.View.SetTimeRange(10.0, 20.0);
+	fixture.View.Frame(fixture.Timeline);
+	glm::dvec2 const times = fixture.View.GetTimeRange();
+	CHECK(times.x < 0.0);
+	CHECK(times.y > 2.0);
+	// With keys that exist among them, those are framed.
+	fixture.View.Select({{0, 3}, {2, 1}, {7, 0}});
+	fixture.View.Frame(fixture.Timeline);
+	glm::dvec2 const selected = fixture.View.GetTimeRange();
+	CHECK(selected.x < 1.5);
+	CHECK(selected.y > 1.5);
+	CHECK(selected.y - selected.x < 1.0);
 }

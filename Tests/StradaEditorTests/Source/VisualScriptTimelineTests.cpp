@@ -312,6 +312,13 @@ TEST_CASE("VisualScriptTimeline: keys dragged as a block stop at an unselected n
 	CHECK_FALSE(MoveVisualScriptTimelineKeys(refused, missing, 0.5f, glm::vec4(0.0f)).IsOk());
 	CHECK_FALSE(MoveVisualScriptTimelineKeys(refused, selection, std::numeric_limits<float>::infinity(), glm::vec4(0.0f)).IsOk());
 	CHECK(refused == start);
+	// A value moved past the largest float would not be finite.
+	refused.Tracks[0].Keys[2].Value.x = 3.0e38f;
+	VisualScriptTimeline const large = refused;
+	Result<void> const overflow = MoveVisualScriptTimelineKeys(refused, selection, 0.0f, glm::vec4(1.0e38f, 0.0f, 0.0f, 0.0f));
+	REQUIRE_FALSE(overflow.IsOk());
+	CHECK(overflow.GetError() == "a key's value is finite: the move takes it past the largest float");
+	CHECK(refused == large);
 }
 
 TEST_CASE("VisualScriptTimeline: the length set from the interaction's start moves keys onto it and gives them back")

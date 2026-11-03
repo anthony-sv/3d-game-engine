@@ -1192,7 +1192,7 @@ namespace Strada
 				editor.QueueAction(shortcut.Action);
 			}
 		}
-		// Escape ends the drawer's gesture, else gives the keyboard back to the canvas.
+		// Escape cancels the drawer's gesture, else gives the keyboard back to the canvas.
 		ImGui::SetKeyOwner(ImGuiKey_Escape, m_TimelineOwner);
 		if (!ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, m_TimelineOwner))
 		{

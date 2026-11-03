@@ -183,8 +183,9 @@ namespace Strada
 	[[nodiscard]] Result<uint32_t> AddVisualScriptTimelineTrack(VisualScriptTimeline& timeline, std::string name, std::string type);
 	[[nodiscard]] Result<void> RemoveVisualScriptTimelineTrack(VisualScriptTimeline& timeline, uint32_t track);
 	[[nodiscard]] Result<void> RenameVisualScriptTimelineTrack(VisualScriptTimeline& timeline, uint32_t track, std::string name);
-	// Changes a track's type: its keys keep their times; curve keys keep the components both types have (the others 0, white's
-	// for a colour's alpha), their interpolation and the shared tangent components; keys becoming event keys keep only their
-	// times, and event keys becoming curve keys take the type's default value.
+	// Changes a track's type: its keys keep their times; curve keys keep the components both types have (the others take the
+	// new type's default: 0 for floats and vectors, 1 for every component of a colour, white), their interpolation and the
+	// shared tangent components; keys becoming event keys keep only their times, and event keys becoming curve keys take the
+	// type's default value.
 	[[nodiscard]] Result<void> SetVisualScriptTimelineTrackType(VisualScriptTimeline& timeline, uint32_t track, std::string type);
 }

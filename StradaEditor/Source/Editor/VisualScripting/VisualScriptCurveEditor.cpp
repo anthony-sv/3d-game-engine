@@ -1,5 +1,6 @@
 #include "Editor/VisualScripting/VisualScriptCurveEditor.h"
 
+#include "Editor/VisualScripting/VisualScriptController.h"
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptSemantics.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
@@ -46,6 +47,23 @@ namespace Strada
 		std::string DescribeLinks(uint32_t count, std::string_view verb)
 		{
 			return count == 0 ? std::string() : fmt::format(" ({}{} link{})", verb, count, count == 1 ? "" : "s");
+		}
+
+		// The lines of a ruler, the multiples of step within [low, high]: the index of the first (its multiple of step) and how
+		// many, at most limit of them; none for a range or a step that is not finite.
+		std::pair<double, int> GetRulerLines(double low, double high, double step, int limit)
+		{
+			if (!std::isfinite(low) || !std::isfinite(high) || !std::isfinite(step) || !(step > 0.0) || !(high >= low))
+			{
+				return {0.0, 0};
+			}
+			double const first = std::ceil(low / step);
+			double const last = std::floor(high / step);
+			if (!std::isfinite(first) || !std::isfinite(last) || !(last >= first))
+			{
+				return {0.0, 0};
+			}
+			return {first, static_cast<int>(std::min(last - first + 1.0, static_cast<double>(std::max(limit, 0))))};
 		}
 
 		// A step of 1, 2 or 5 times a power of ten that is at least minimum.
@@ -98,6 +116,8 @@ namespace Strada
 		VisualScriptTimeline Timeline;
 		std::string Title;
 		bool ReadOnly = false;
+		// The node in Document.
+		VisualScriptNode const* Stored = nullptr;
 	};
 
 	Result<VisualScriptTimelineEdit> MakeVisualScriptTimelineEdit(VisualScriptDocument const& document, uint32_t node,
@@ -312,6 +332,7 @@ namespace Strada
 			m_Node = node;
 			m_Renaming.reset();
 			m_HeaderStart.reset();
+			m_DragStart.reset();
 			m_Actions.clear();
 		}
 		m_FocusedTrack = track;
@@ -338,7 +359,7 @@ namespace Strada
 		m_Rects.emplace_back(std::move(label), std::pair(ToVec(ImGui::GetItemRectMin()), ToVec(ImGui::GetItemRectMax())));
 	}
 
-	void VisualScriptCurveEditor::Commit(Frame& frame, Result<VisualScriptTimelineEdit> edit)
+	void VisualScriptCurveEditor::Commit(Frame& frame, Result<VisualScriptTimelineEdit> edit, uint64_t mergeKey)
 	{
 		if (!edit)
 		{
@@ -346,7 +367,18 @@ namespace Strada
 			return;
 		}
 		VisualScriptTimelineEdit& made = edit.GetValue();
-		frame.Commits.Commit(frame.Context, std::move(made.Document), std::move(made.Action), 0, frame.Result);
+		frame.Commits.Commit(frame.Context, std::move(made.Document), std::move(made.Action), mergeKey, frame.Result);
+	}
+
+	uint64_t VisualScriptCurveEditor::GetNudgeKey(double time)
+	{
+		// As the canvas's nudges: a run of presses less than VisualScriptNudgeRunSeconds apart is one step.
+		if (m_NudgeKey == 0 || time - m_LastNudge >= VisualScriptNudgeRunSeconds)
+		{
+			m_NudgeKey = VisualScriptTimelineNudgeMergeKey + ++m_NudgeRuns;
+		}
+		m_LastNudge = time;
+		return m_NudgeKey;
 	}
 
 	void VisualScriptCurveEditor::Draw(VisualScriptPaneContext& context, VisualScriptWidgetCommits& commits, VisualScriptPaneResult& result,
@@ -397,15 +429,17 @@ namespace Strada
 		            node,
 		            read.TakeValue(),
 		            GetVisualScriptNodeTitle(document, model.GetAnalysis(), *stored),
-		            model.IsReadOnly()};
+		            model.IsReadOnly(),
+		            stored};
+		// The highlighted track and the one being renamed follow the track list as the view's selection does.
 		m_View.Sync(frame.Timeline);
-		if (m_FocusedTrack && *m_FocusedTrack >= frame.Timeline.Tracks.size())
+		if (m_FocusedTrack)
 		{
-			m_FocusedTrack.reset();
+			m_FocusedTrack = m_View.FollowTrack(*m_FocusedTrack);
 		}
-		if (m_Renaming && *m_Renaming >= frame.Timeline.Tracks.size())
+		if (m_Renaming)
 		{
-			m_Renaming.reset();
+			m_Renaming = m_View.FollowTrack(*m_Renaming);
 		}
 
 		float const fontSize = ImGui::GetFontSize();
@@ -841,13 +875,15 @@ namespace Strada
 			drawList->AddRectFilled(ImVec2(end, min.y), ToImVec(max), outside);
 		}
 
-		// The ruler: seconds across, a tick at least TickSpacing font sizes apart.
+		// The ruler: seconds across, a tick at least TickSpacing font sizes apart (so at most one per that many pixels).
 		float const rulerBottom = m_View.GetLanesTop();
 		drawList->AddRectFilled(origin, ImVec2(max.x, rulerBottom), ImGui::GetColorU32(ImGuiCol_TableHeaderBg));
-		glm::vec2 const times = m_View.GetTimeRange();
-		double const tick = NiceStep(static_cast<double>(times.y - times.x) * TickSpacing * fontSize / static_cast<double>(size.x));
-		for (double at = std::ceil(times.x / tick) * tick; at <= times.y; at += tick)
+		glm::dvec2 const times = m_View.GetTimeRange();
+		double const tick = NiceStep((times.y - times.x) * TickSpacing * fontSize / static_cast<double>(size.x));
+		auto const [firstTick, ticks] = GetRulerLines(times.x, times.y, tick, static_cast<int>(size.x / (TickSpacing * fontSize)) + 2);
+		for (int line = 0; line < ticks; line++)
 		{
+			double const at = (firstTick + line) * tick;
 			float const x = m_View.ToScreenX(at);
 			drawList->AddLine(ImVec2(x, rulerBottom - fontSize * 0.35f), ImVec2(x, rulerBottom), disabled);
 			drawList->AddLine(ImVec2(x, rulerBottom), ImVec2(x, max.y), WithAlpha(grid, 0.5f));
@@ -858,11 +894,14 @@ namespace Strada
 
 		// Values up the side, a line at least ValueLineSpacing font sizes apart.
 		float const curvesTop = m_View.GetCurvesTop();
-		glm::vec2 const values = m_View.GetValueRange();
-		double const step = NiceStep(static_cast<double>(values.y - values.x) * ValueLineSpacing * fontSize /
-		                             std::max(static_cast<double>(max.y - curvesTop), 1.0));
-		for (double at = std::ceil(values.x / step) * step; at <= values.y; at += step)
+		float const curvesHeight = std::max(max.y - curvesTop, 1.0f);
+		glm::dvec2 const values = m_View.GetValueRange();
+		double const step = NiceStep((values.y - values.x) * ValueLineSpacing * fontSize / static_cast<double>(curvesHeight));
+		auto const [firstValue, valueLines] =
+			GetRulerLines(values.x, values.y, step, static_cast<int>(curvesHeight / (ValueLineSpacing * fontSize)) + 2);
+		for (int line = 0; line < valueLines; line++)
 		{
+			double const at = (firstValue + line) * step;
 			float const y = m_View.ToScreenY(at);
 			if (y < curvesTop)
 			{
@@ -1042,7 +1081,14 @@ namespace Strada
 					{
 						int const steps = action == Action::NudgeLeft || action == Action::NudgeLeftCoarse ? -1 : 1;
 						bool const coarse = action == Action::NudgeLeftCoarse || action == Action::NudgeRightCoarse;
-						intent = m_View.Nudge(timeline, coarse ? steps * 10 : steps, frame.Title);
+						// A run of presses and repeats is one step (s2 §4.4's cadence of arrow-key nudges).
+						if (std::optional<VisualScriptCurveIntent> nudged =
+						        m_View.Nudge(timeline, coarse ? steps * 10 : steps, frame.Title))
+						{
+							Commit(frame,
+							       MakeVisualScriptTimelineEdit(frame.Document, frame.Node, nudged->Timeline, std::move(nudged->Action)),
+							       GetNudgeKey(frame.Context.Time));
+						}
 					}
 					break;
 				case Action::FrameSelection:
@@ -1065,6 +1111,13 @@ namespace Strada
 			case VisualScriptCurveIntentKind::Edit:
 				if (!frame.ReadOnly)
 				{
+					if (!m_DragStart && frame.Stored != nullptr)
+					{
+						// The drag's first frame: what Escape puts back (the setting as stored, not its canonical form).
+						auto const setting = frame.Stored->Settings.find(std::string(VisualScriptTimelineSetting));
+						m_DragStart = DragStart{setting != frame.Stored->Settings.end() ? std::optional<Json>(*setting) : std::nullopt,
+						                        intent.Action};
+					}
 					if (Result<VisualScriptTimelineEdit> edit =
 					        MakeVisualScriptTimelineEdit(frame.Document, frame.Node, intent.Timeline, std::move(intent.Action)))
 					{
@@ -1074,6 +1127,34 @@ namespace Strada
 				}
 				break;
 			case VisualScriptCurveIntentKind::EndEdit:
+				m_DragStart.reset();
+				frame.Commits.End(frame.Context, frame.Result);
+				break;
+			case VisualScriptCurveIntentKind::CancelEdit:
+				if (std::optional<DragStart> start = std::exchange(m_DragStart, std::nullopt); start && !frame.ReadOnly)
+				{
+					// The node's setting as the drag found it, committed in the drag's step, which then ends where it started.
+					VisualScriptDocument reverted = frame.Document;
+					VisualScriptGraph* const graph = FindVisualScriptGraph(reverted, frame.Context.Model.GetFunction());
+					auto const node = graph != nullptr ? std::find_if(graph->Nodes.begin(), graph->Nodes.end(),
+					                                                  [&frame](VisualScriptNode const& candidate)
+					                                                  {
+																		  return candidate.ID == frame.Node;
+																	  })
+					                                   : reverted.Graph.Nodes.end();
+					if (graph != nullptr && node != graph->Nodes.end())
+					{
+						if (start->Setting)
+						{
+							node->Settings[std::string(VisualScriptTimelineSetting)] = std::move(*start->Setting);
+						}
+						else
+						{
+							node->Settings.erase(std::string(VisualScriptTimelineSetting));
+						}
+						frame.Commits.Change(frame.Context, std::move(reverted), std::move(start->Action), false, frame.Result);
+					}
+				}
 				frame.Commits.End(frame.Context, frame.Result);
 				break;
 			case VisualScriptCurveIntentKind::Commit:

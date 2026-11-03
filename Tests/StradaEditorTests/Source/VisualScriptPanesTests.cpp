@@ -10,6 +10,7 @@
 #include "Editor/VisualScripting/VisualScriptDetails.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
 #include "Editor/VisualScripting/VisualScriptFindBar.h"
+#include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptLiteralEditor.h"
 #include "Editor/VisualScripting/VisualScriptPalettePopup.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
@@ -3332,4 +3333,116 @@ TEST_CASE("VisualScriptEditor: an array variable cannot be made public from My S
 						  return std::find(result.Notes.begin(), result.Notes.end(), VisualScriptArrayPublicRefusal) != result.Notes.end();
 					  }));
 	CHECK(std::string_view(VisualScriptArrayPublicRefusal) == "Arrays cannot be public: components cannot store them");
+}
+
+TEST_CASE("VisualScriptEditor: a formula Details refuses says why, and Ctrl+Enter keeps it in the field to be fixed")
+{
+	PaneFixture fixture(MakeFormulaDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({2});
+	size_t const undo = fixture.GetUndoCount();
+	std::string const bytes = fixture.ReadFile();
+	auto const noted = [&fixture]
+	{
+		return std::any_of(fixture.Results.begin(), fixture.Results.end(),
+		                   [](VisualScriptPaneResult const& result)
+		                   {
+							   return std::find(result.Notes.begin(), result.Notes.end(),
+			                                    "The formula stays: a formula has at most 4096 bytes") != result.Notes.end();
+						   });
+	};
+	// One name of 4100 bytes: more than a formula may have.
+	std::string const typed(VisualScriptEditing::MaxFormulaBytes + 4, 'x');
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type(typed.c_str());
+	fixture.Frames(2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(3);
+	CHECK(noted());
+	CHECK(fixture.GetUndoCount() == undo);
+	CHECK(fixture.ReadFile() == bytes);
+	// The field has the keyboard again, with what was typed.
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	ImGuiInputTextState const* const state = ImGui::GetInputTextState(GImGui->ActiveId);
+	REQUIRE(state != nullptr);
+	CHECK(state->TextLen == static_cast<int>(typed.size()));
+
+	// Fixed and committed.
+	fixture.Results.clear();
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("speed * 3");
+	fixture.Frames(2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK_FALSE(noted());
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 3");
+
+	// Left with a click elsewhere, a refused formula goes with the note.
+	fixture.ImGui.Click(fixture.DetailsRow("Formula"), fixture.Drawer());
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type(typed.c_str());
+	fixture.Frames(2);
+	fixture.ImGui.Click(GetDetailsVoid(), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(noted());
+	CHECK_FALSE(ImGui::GetIO().WantTextInput);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(GetFormula(fixture.GetDocument()) == "speed * 3");
+}
+
+TEST_CASE("VisualScriptEditor: an array element's handle dropped on another array's handle moves nothing")
+{
+	Testing::HeadlessImGui headless;
+	headless.UseEditorStyle();
+	VisualScriptLiteralEditor first;
+	VisualScriptLiteralEditor second;
+	Json const left = Json::array({1, 2, 3});
+	Json const right = Json::array({10, 20, 30});
+	VisualScriptArrayLiteralOutcome firstOutcome;
+	VisualScriptArrayLiteralOutcome secondOutcome;
+	std::vector<VisualScriptArrayLiteralEdit> edits;
+	auto const draw = [&]
+	{
+		ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(600.0f, 600.0f));
+		ImGui::Begin("Arrays", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		ImGui::PushID("first");
+		firstOutcome = DrawVisualScriptArrayLiteral(first, "float", left, nullptr);
+		ImGui::PopID();
+		ImGui::PushID("second");
+		secondOutcome = DrawVisualScriptArrayLiteral(second, "float", right, nullptr);
+		ImGui::PopID();
+		ImGui::End();
+		for (VisualScriptArrayLiteralOutcome const* outcome : {&firstOutcome, &secondOutcome})
+		{
+			if (outcome->Edit)
+			{
+				edits.push_back(*outcome->Edit);
+			}
+		}
+	};
+	auto const center = [](VisualScriptArrayLiteralOutcome const& outcome, std::string_view part)
+	{
+		auto const found = std::find_if(outcome.Parts.begin(), outcome.Parts.end(),
+		                                [part](auto const& candidate)
+		                                {
+											return candidate.first == part;
+										});
+		REQUIRE(found != outcome.Parts.end());
+		return ImVec2((found->second[0] + found->second[2]) * 0.5f, (found->second[1] + found->second[3]) * 0.5f);
+	};
+	headless.Frame(draw);
+	headless.Frame(draw);
+	REQUIRE(edits.empty());
+
+	// Onto the other array's handle: neither array changes.
+	headless.Drag(center(firstOutcome, "2 Handle"), center(secondOutcome, "0 Handle"), draw);
+	CHECK(edits.empty());
+	// Onto a handle of its own array: the element moves there.
+	headless.Drag(center(firstOutcome, "2 Handle"), center(firstOutcome, "0 Handle"), draw);
+	REQUIRE(edits.size() == 1);
+	CHECK(edits[0].Action == VisualScriptArrayLiteralAction::Move);
+	CHECK(edits[0].Literal == Json::array({3, 1, 2}));
 }

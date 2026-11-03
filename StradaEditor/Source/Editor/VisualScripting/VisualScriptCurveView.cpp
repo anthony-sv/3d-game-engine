@@ -3,9 +3,11 @@
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <limits>
 #include <set>
+#include <tuple>
 
 namespace Strada
 {
@@ -30,17 +32,63 @@ namespace Strada
 			return "Cubic";
 		}
 
+		// How far past the view's rectangle screen positions go: far enough to be off screen, near enough to stay exact floats.
+		constexpr double ScreenReach = 1.0e6;
+
 		// The span [low, high] padded on both sides; a span of one point grows to minimum around it.
-		std::pair<float, float> Pad(double low, double high, double minimum)
+		std::pair<double, double> Pad(double low, double high, double minimum)
 		{
 			double span = high - low;
 			if (!(span > minimum))
 			{
-				double const middle = (low + high) * 0.5;
-				return {static_cast<float>(middle - minimum * 0.5), static_cast<float>(middle + minimum * 0.5)};
+				double const middle = low * 0.5 + high * 0.5;
+				return {middle - minimum * 0.5, middle + minimum * 0.5};
 			}
 			span *= FramePadding;
-			return {static_cast<float>(low - span), static_cast<float>(high + span)};
+			return {low - span, high + span};
+		}
+
+		// A range the view can show: its span at least minimum and RelativeMinSpan of its middle's magnitude (so the range
+		// never collapses to one float, or one double), at most maximum, and its middle within magnitude of 0. The range
+		// stays as given when it is one already; nothing for a range that is not finite.
+		std::optional<std::pair<double, double>> FitRange(double start, double end, double minimum, double maximum, double magnitude)
+		{
+			if (!std::isfinite(start) || !std::isfinite(end))
+			{
+				return std::nullopt;
+			}
+			double const middle = start * 0.5 + end * 0.5;
+			double const fitted = std::clamp(middle, -magnitude, magnitude);
+			double const span = end - start;
+			double const bounded = std::clamp(span, std::max(minimum, std::abs(fitted) * VisualScriptCurveView::RelativeMinSpan), maximum);
+			if (fitted == middle && bounded == span)
+			{
+				return std::pair(start, end);
+			}
+			return std::pair(fitted - bounded * 0.5, fitted + bounded * 0.5);
+		}
+
+		// A screen coordinate: positions far outside the view are clamped to ScreenReach past it (so curves stay drawable
+		// however far they are), and a position that is not a number lies past its far end.
+		float ToScreen(double position, float low, float high)
+		{
+			if (std::isnan(position))
+			{
+				return static_cast<float>(static_cast<double>(high) + ScreenReach);
+			}
+			return static_cast<float>(
+				std::clamp(position, static_cast<double>(low) - ScreenReach, static_cast<double>(high) + ScreenReach));
+		}
+
+		// A double as the nearest float (beyond the float range, the largest float; NaN, 0): converting a double outside the
+		// float range is undefined.
+		float ToFloat(double value)
+		{
+			if (std::isnan(value))
+			{
+				return 0.0f;
+			}
+			return static_cast<float>(std::clamp(value, -static_cast<double>(FLT_MAX), static_cast<double>(FLT_MAX)));
 		}
 	}
 
@@ -53,6 +101,75 @@ namespace Strada
 
 	void VisualScriptCurveView::Sync(VisualScriptTimeline const& timeline)
 	{
+		std::vector<std::string> names;
+		names.reserve(timeline.Tracks.size());
+		for (VisualScriptTimelineTrack const& track : timeline.Tracks)
+		{
+			names.push_back(track.Name);
+		}
+		if (names != m_TrackNames)
+		{
+			// Followed by name first; then a name that changed in its place is a rename.
+			m_TrackMap.assign(m_TrackNames.size(), std::nullopt);
+			std::vector<bool> taken(names.size(), false);
+			for (uint32_t previous = 0; previous < m_TrackNames.size(); previous++)
+			{
+				for (uint32_t track = 0; track < names.size(); track++)
+				{
+					if (!taken[track] && names[track] == m_TrackNames[previous])
+					{
+						m_TrackMap[previous] = track;
+						taken[track] = true;
+						break;
+					}
+				}
+			}
+			for (uint32_t previous = 0; previous < m_TrackNames.size(); previous++)
+			{
+				if (m_TrackMap[previous] || previous >= names.size() || taken[previous])
+				{
+					continue;
+				}
+				m_TrackMap[previous] = previous;
+				taken[previous] = true;
+				// The toggles go with the renamed track; an entry its new name had (of a track removed earlier) goes.
+				std::erase_if(m_TrackViews,
+				              [&names, previous](NamedTrackView const& view)
+				              {
+								  return view.Name == names[previous];
+							  });
+				for (NamedTrackView& view : m_TrackViews)
+				{
+					if (view.Name == m_TrackNames[previous])
+					{
+						view.Name = names[previous];
+					}
+				}
+			}
+			if (m_Synced)
+			{
+				std::vector<VisualScriptTimelineKeyRef> followed;
+				for (auto const& [track, key] : m_Selection)
+				{
+					if (track < m_TrackMap.size() && m_TrackMap[track])
+					{
+						followed.emplace_back(*m_TrackMap[track], key);
+					}
+				}
+				Select(std::move(followed));
+			}
+			m_TrackNames = std::move(names);
+		}
+		else
+		{
+			m_TrackMap.resize(m_TrackNames.size());
+			for (uint32_t track = 0; track < m_TrackNames.size(); track++)
+			{
+				m_TrackMap[track] = track;
+			}
+		}
+		m_Synced = true;
+
 		m_Lanes.clear();
 		for (uint32_t track = 0; track < timeline.Tracks.size(); track++)
 		{
@@ -73,40 +190,47 @@ namespace Strada
 		}
 	}
 
-	void VisualScriptCurveView::SetTimeRange(float start, float end)
+	std::optional<uint32_t> VisualScriptCurveView::FollowTrack(uint32_t track) const
 	{
-		float const span = std::clamp(end - start, MinTimeSpan, MaxTimeSpan);
-		m_TimeStart = start;
-		m_TimeEnd = start + span;
+		return track < m_TrackMap.size() ? m_TrackMap[track] : std::nullopt;
+	}
+
+	void VisualScriptCurveView::SetTimeRange(double start, double end)
+	{
+		if (std::optional<std::pair<double, double>> const range = FitRange(start, end, MinTimeSpan, MaxTimeSpan, MaxTimeMagnitude))
+		{
+			std::tie(m_TimeStart, m_TimeEnd) = *range;
+		}
 		m_Framed = true;
 	}
 
-	void VisualScriptCurveView::SetValueRange(float start, float end)
+	void VisualScriptCurveView::SetValueRange(double start, double end)
 	{
-		float const span = std::clamp(end - start, MinValueSpan, MaxValueSpan);
-		m_ValueStart = start;
-		m_ValueEnd = start + span;
+		if (std::optional<std::pair<double, double>> const range = FitRange(start, end, MinValueSpan, MaxValueSpan, MaxValueMagnitude))
+		{
+			std::tie(m_ValueStart, m_ValueEnd) = *range;
+		}
 		m_Framed = true;
 	}
 
-	float VisualScriptCurveView::GetPixelsPerSecond() const
+	double VisualScriptCurveView::GetPixelsPerSecond() const
 	{
-		return (m_Max.x - m_Min.x) / (m_TimeEnd - m_TimeStart);
+		return static_cast<double>(m_Max.x - m_Min.x) / (m_TimeEnd - m_TimeStart);
 	}
 
-	float VisualScriptCurveView::GetPixelsPerValue() const
+	double VisualScriptCurveView::GetPixelsPerValue() const
 	{
-		return std::max(m_Max.y - GetCurvesTop(), 1.0f) / (m_ValueEnd - m_ValueStart);
+		return static_cast<double>(std::max(m_Max.y - GetCurvesTop(), 1.0f)) / (m_ValueEnd - m_ValueStart);
 	}
 
 	float VisualScriptCurveView::ToScreenX(double time) const
 	{
-		return m_Min.x + static_cast<float>((time - m_TimeStart) * GetPixelsPerSecond());
+		return ToScreen(static_cast<double>(m_Min.x) + (time - m_TimeStart) * GetPixelsPerSecond(), m_Min.x, m_Max.x);
 	}
 
 	float VisualScriptCurveView::ToScreenY(double value) const
 	{
-		return m_Max.y - static_cast<float>((value - m_ValueStart) * GetPixelsPerValue());
+		return ToScreen(static_cast<double>(m_Max.y) - (value - m_ValueStart) * GetPixelsPerValue(), m_Min.y, m_Max.y);
 	}
 
 	double VisualScriptCurveView::ToTime(float x) const
@@ -191,48 +315,62 @@ namespace Strada
 			return std::nullopt;
 		}
 		std::pair<glm::vec4, glm::vec4> const tangents = GetVisualScriptTimelineKeyTangents(owner, key);
-		float const slope = (out ? tangents.second : tangents.first)[static_cast<glm::length_t>(component)];
-		glm::vec2 direction(GetPixelsPerSecond(), -GetPixelsPerValue() * slope);
-		float const length = glm::length(direction);
-		if (!(length > 0.0f) || !std::isfinite(length))
+		double const slope = (out ? tangents.second : tangents.first)[static_cast<glm::length_t>(component)];
+		glm::dvec2 direction(GetPixelsPerSecond(), -GetPixelsPerValue() * slope);
+		double const length = glm::length(direction);
+		if (!(length > 0.0) || !std::isfinite(length))
 		{
-			direction = glm::vec2(1.0f, 0.0f);
+			direction = glm::dvec2(1.0, 0.0);
 		}
 		else
 		{
 			direction /= length;
 		}
-		return *position + direction * (out ? HandleLength : -HandleLength) * m_FontSize;
+		return *position + glm::vec2(direction) * (out ? HandleLength : -HandleLength) * m_FontSize;
 	}
 
 	void VisualScriptCurveView::ZoomTime(float factor, float aboutX)
 	{
 		double const anchor = ToTime(aboutX);
 		double const ratio = static_cast<double>(aboutX - m_Min.x) / static_cast<double>(m_Max.x - m_Min.x);
-		double const span = std::clamp(static_cast<double>(m_TimeEnd - m_TimeStart) * factor, static_cast<double>(MinTimeSpan),
-		                               static_cast<double>(MaxTimeSpan));
-		m_TimeStart = static_cast<float>(anchor - ratio * span);
-		m_TimeEnd = static_cast<float>(anchor - ratio * span + span);
+		double const span =
+			std::clamp((m_TimeEnd - m_TimeStart) * factor, std::max(MinTimeSpan, std::abs(anchor) * RelativeMinSpan), MaxTimeSpan);
+		double const start = anchor - ratio * span;
+		if (std::optional<std::pair<double, double>> const range =
+		        FitRange(start, start + span, MinTimeSpan, MaxTimeSpan, MaxTimeMagnitude))
+		{
+			std::tie(m_TimeStart, m_TimeEnd) = *range;
+		}
 	}
 
 	void VisualScriptCurveView::ZoomValues(float factor, float aboutY)
 	{
 		double const anchor = ToValue(aboutY);
 		double const ratio = static_cast<double>(m_Max.y - aboutY) / static_cast<double>(std::max(m_Max.y - GetCurvesTop(), 1.0f));
-		double const span = std::clamp(static_cast<double>(m_ValueEnd - m_ValueStart) * factor, static_cast<double>(MinValueSpan),
-		                               static_cast<double>(MaxValueSpan));
-		m_ValueStart = static_cast<float>(anchor - ratio * span);
-		m_ValueEnd = static_cast<float>(anchor - ratio * span + span);
+		double const span =
+			std::clamp((m_ValueEnd - m_ValueStart) * factor, std::max(MinValueSpan, std::abs(anchor) * RelativeMinSpan), MaxValueSpan);
+		double const start = anchor - ratio * span;
+		if (std::optional<std::pair<double, double>> const range =
+		        FitRange(start, start + span, MinValueSpan, MaxValueSpan, MaxValueMagnitude))
+		{
+			std::tie(m_ValueStart, m_ValueEnd) = *range;
+		}
 	}
 
 	void VisualScriptCurveView::Pan(glm::vec2 pixels)
 	{
-		float const time = pixels.x / GetPixelsPerSecond();
-		float const value = pixels.y / GetPixelsPerValue();
-		m_TimeStart -= time;
-		m_TimeEnd -= time;
-		m_ValueStart += value;
-		m_ValueEnd += value;
+		double const time = static_cast<double>(pixels.x) / GetPixelsPerSecond();
+		double const value = static_cast<double>(pixels.y) / GetPixelsPerValue();
+		if (std::optional<std::pair<double, double>> const times =
+		        FitRange(m_TimeStart - time, m_TimeEnd - time, MinTimeSpan, MaxTimeSpan, MaxTimeMagnitude))
+		{
+			std::tie(m_TimeStart, m_TimeEnd) = *times;
+		}
+		if (std::optional<std::pair<double, double>> const values =
+		        FitRange(m_ValueStart + value, m_ValueEnd + value, MinValueSpan, MaxValueSpan, MaxValueMagnitude))
+		{
+			std::tie(m_ValueStart, m_ValueEnd) = *values;
+		}
 	}
 
 	void VisualScriptCurveView::Frame(VisualScriptTimeline const& timeline)
@@ -243,13 +381,28 @@ namespace Strada
 		double valueHigh = -std::numeric_limits<double>::infinity();
 		auto const addValue = [&valueLow, &valueHigh](double value)
 		{
-			valueLow = std::min(valueLow, value);
-			valueHigh = std::max(valueHigh, value);
-		};
-		if (!m_Selection.empty())
-		{
-			for (auto const& [track, key] : m_Selection)
+			// A curve that overshoots past the floats evaluates to infinity: what can be framed is framed.
+			if (std::isfinite(value))
 			{
+				valueLow = std::min(valueLow, value);
+				valueHigh = std::max(valueHigh, value);
+			}
+		};
+		// The selection may name keys the timeline given does not have (a key added this frame, before its commit).
+		auto const has = [&timeline](VisualScriptTimelineKeyRef const& key)
+		{
+			return key.first < timeline.Tracks.size() && key.second < timeline.Tracks[key.first].Keys.size();
+		};
+		bool const selected = std::any_of(m_Selection.begin(), m_Selection.end(), has);
+		if (selected)
+		{
+			for (VisualScriptTimelineKeyRef const& selectedKey : m_Selection)
+			{
+				if (!has(selectedKey))
+				{
+					continue;
+				}
+				auto const [track, key] = selectedKey;
 				VisualScriptTimelineTrack const& owner = timeline.Tracks[track];
 				double const time = owner.Keys[key].Time;
 				timeLow = std::min(timeLow, time);
@@ -297,17 +450,17 @@ namespace Strada
 			auto const [valueStart, valueEnd] = Pad(valueLow, valueHigh, 2.0);
 			SetValueRange(valueStart, valueEnd);
 		}
-		else if (m_Selection.empty())
+		else if (!selected)
 		{
-			SetValueRange(-1.0f, 1.0f);
+			SetValueRange(-1.0, 1.0);
 		}
 	}
 
 	VisualScriptCurveHit VisualScriptCurveView::HitTest(VisualScriptTimeline const& timeline, glm::vec2 point) const
 	{
 		VisualScriptCurveHit hit;
-		hit.Time = static_cast<float>(ToTime(point.x));
-		hit.Value = static_cast<float>(ToValue(point.y));
+		hit.Time = ToFloat(ToTime(point.x));
+		hit.Value = ToFloat(ToValue(point.y));
 		if (point.x < m_Min.x || point.y < m_Min.y || point.x > m_Max.x || point.y > m_Max.y)
 		{
 			return hit;
@@ -748,9 +901,9 @@ namespace Strada
 			glm::vec4 offset(0.0f);
 			if (owner.Components > 0 && component < owner.Components)
 			{
-				offset[static_cast<glm::length_t>(component)] = static_cast<float>(valueOffset);
+				offset[static_cast<glm::length_t>(component)] = ToFloat(valueOffset);
 			}
-			if (!MoveVisualScriptTimelineKeys(edited, m_StartSelection, static_cast<float>(timeOffset), offset))
+			if (!MoveVisualScriptTimelineKeys(edited, m_StartSelection, ToFloat(timeOffset), offset))
 			{
 				return;
 			}
@@ -763,7 +916,8 @@ namespace Strada
 			float const keyY = ToScreenY(grabbed.Value[static_cast<glm::length_t>(component)]);
 			// The handle stays on its side of the key.
 			float const dx = out ? std::max(input.Mouse.x - keyX, 1.0f) : std::min(input.Mouse.x - keyX, -1.0f);
-			double const slope = (static_cast<double>(keyY - input.Mouse.y) / GetPixelsPerValue()) / (dx / GetPixelsPerSecond());
+			double const slope =
+				(static_cast<double>(keyY - input.Mouse.y) / GetPixelsPerValue()) / (static_cast<double>(dx) / GetPixelsPerSecond());
 			if (!std::isfinite(slope))
 			{
 				return;
@@ -777,13 +931,13 @@ namespace Strada
 			if (input.Alt)
 			{
 				// Broken: only the dragged side.
-				(out ? outgoing : in)[index] = static_cast<float>(slope);
+				(out ? outgoing : in)[index] = ToFloat(slope);
 				(out ? newOut : newIn) = out ? outgoing : in;
 			}
 			else
 			{
-				in[index] = static_cast<float>(slope);
-				outgoing[index] = static_cast<float>(slope);
+				in[index] = ToFloat(slope);
+				outgoing[index] = ToFloat(slope);
 				newIn = in;
 				newOut = outgoing;
 			}
@@ -990,9 +1144,24 @@ namespace Strada
 	std::vector<VisualScriptCurveIntent> VisualScriptCurveView::CancelGesture()
 	{
 		std::vector<VisualScriptCurveIntent> intents;
-		if ((m_Gesture == VisualScriptCurveGesture::MoveKeys || m_Gesture == VisualScriptCurveGesture::Tangent) && m_LastEdit)
+		switch (m_Gesture)
 		{
-			intents.push_back({VisualScriptCurveIntentKind::EndEdit, {}, {}});
+			case VisualScriptCurveGesture::MoveKeys:
+			case VisualScriptCurveGesture::Tangent:
+				if (m_LastEdit)
+				{
+					intents.push_back({VisualScriptCurveIntentKind::CancelEdit, m_Start, {}});
+				}
+				break;
+			case VisualScriptCurveGesture::Press:
+			case VisualScriptCurveGesture::Marquee:
+				// What the press or the marquee did to the selection is undone.
+				m_Selection = m_StartSelection;
+				break;
+			case VisualScriptCurveGesture::Idle:
+			case VisualScriptCurveGesture::PanPress:
+			case VisualScriptCurveGesture::Pan:
+				break;
 		}
 		m_LastEdit.reset();
 		m_Gesture = VisualScriptCurveGesture::Idle;
