@@ -5,21 +5,42 @@ namespace Strada.VisualScripting;
 
 // Live edit (spec section 5.6): a new working program of a graph handle replaces the program of every instance of the
 // handle, as soon as no dispatch or execution of the old program is running. An instance keeps what still means the same
-// in the new program: its variables by ID (then by name and type), the state and stored outputs of nodes whose ID and type
-// are unchanged, and its fibers, when every position they hold still exists. Positions are carried over by node ID. A node
-// the edit disables counts as removed, and one it enables again as new: neither carries anything over.
+// in the new program, as the carry plan of the two programs says (spec-slice4 section 8.3): its variables by ID (then by name
+// and type), the state and stored outputs of nodes whose ID and type are unchanged, and its fibers, when every position they
+// hold still exists. Positions are carried over by node ID. A node the edit disables counts as removed, and one it enables
+// again as new: neither carries anything over. Every swap gives the live log a receipt of what it did.
 internal sealed partial class VisualScriptRuntime
 {
 	// Swaps the instances of every handle waiting for it whose old program is not running; the others swap when it ends.
-	private void ApplySwaps()
+	// loaded: the handle a Load gave a new working program now, whose receipt this is (Swapped, or Pending while instances
+	// wait); the other handles' swaps were pending, and get a receipt of their own once they are done (Swapped, Deferred).
+	// A receipt names every instance migrated since the handle's last receipt.
+	private void ApplySwaps(ulong? loaded = null)
 	{
 		List<ulong>? swapped = null;
+		List<CarryPlan> plans = [];
 		foreach (ulong graph in m_PendingSwaps)
 		{
-			if (TrySwap(graph))
+			if (!m_Graphs.TryGetValue(graph, out GraphEntry? entry) || entry.Effective is not { } program)
 			{
 				(swapped ??= []).Add(graph);
+				continue;
 			}
+			bool now = graph == loaded;
+			SwapProgress progress = entry.Deferred ?? new SwapProgress();
+			int waiting = TrySwap(graph, program, progress, plans);
+			if (now || waiting == 0)
+			{
+				AddReceipt(graph, entry, program, progress, waiting, !now, plans);
+			}
+			if (waiting > 0)
+			{
+				entry.Deferred = now ? new SwapProgress() : progress;
+				continue;
+			}
+			entry.SwapFrom = null;
+			entry.Deferred = null;
+			(swapped ??= []).Add(graph);
 		}
 		foreach (ulong graph in swapped ?? [])
 		{
@@ -27,14 +48,10 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	// True when no instance of the handle waits any more.
-	private bool TrySwap(ulong graph)
+	// Migrates the instances of the handle whose old program is not running; answers how many still wait for theirs.
+	private int TrySwap(ulong graph, GraphProgram program, SwapProgress progress, List<CarryPlan> plans)
 	{
-		if (!m_Graphs.TryGetValue(graph, out GraphEntry? entry) || entry.Effective is not { } program)
-		{
-			return true;
-		}
-		bool waiting = false;
+		int waiting = 0;
 		foreach (GraphInstance instance in m_Instances.Values)
 		{
 			if (instance.Graph != graph || ReferenceEquals(instance.Program, program))
@@ -43,19 +60,62 @@ internal sealed partial class VisualScriptRuntime
 			}
 			if (instance.Program.Activity > 0)
 			{
-				waiting = true;
+				waiting++;
 				continue;
 			}
-			Migrate(instance, program);
+			progress.Add(Migrate(instance, PlanFor(instance.Program, program, plans)));
 		}
-		return !waiting;
+		return waiting;
 	}
 
-	private void Migrate(GraphInstance instance, GraphProgram target)
+	// The carry plan of two programs, made once for every instance one swap carries between them.
+	private CarryPlan PlanFor(GraphProgram from, GraphProgram to, List<CarryPlan> plans)
 	{
-		Slot[] variables = CarryVariables(instance.Program, instance.Variables, target);
+		foreach (CarryPlan plan in plans)
+		{
+			if (ReferenceEquals(plan.From, from) && ReferenceEquals(plan.To, to))
+			{
+				return plan;
+			}
+		}
+		CarryPlan made = CarryPlan.Make(from, to);
+		plans.Add(made);
+		CarryPlansMade++;
+		return made;
+	}
+
+	// The receipt of a swap: Swapped (Deferred when a pending swap finished), or Pending while instances wait for their old
+	// program. What it carries is reported against the program the instances ran before; a handle that had no working program
+	// adds every variable.
+	private void AddReceipt(ulong graph, GraphEntry entry, GraphProgram program, SwapProgress progress, int waiting, bool deferred,
+		List<CarryPlan> plans)
+	{
+		CarryPlan? plan = entry.SwapFrom is { } from ? PlanFor(from, program, plans) : null;
+		m_Live.AddEdit(new LiveEditReceipt
+		{
+			Graph = graph,
+			Name = program.Name,
+			Outcome = waiting > 0 ? LiveOutcome.Pending : LiveOutcome.Swapped,
+			Deferred = deferred,
+			Instances = progress.Instances,
+			Pending = waiting,
+			Variables = plan?.Variables ?? VariableReport.AllAdded(program),
+			KeptStates = plan?.KeptStates ?? 0,
+			ResetStates = plan?.ResetStates ?? [],
+			InstanceNotes = progress.Notes,
+			MoreInstances = progress.MoreInstances,
+		});
+	}
+
+	// Carries the instance over to the plan's program and answers what happened to its waits, stopped executions and
+	// Timelines.
+	private InstanceNote Migrate(GraphInstance instance, CarryPlan plan)
+	{
+		GraphProgram target = plan.To;
+		InstanceNote note = new(instance.Entity);
+		Slot[] variables = plan.CarryVariables(instance.Variables);
 		Frame frame = new(target.EventGraph);
-		CarryNodes(instance.Frame, frame);
+		plan.Events.Apply(instance.Frame, frame, note.Timelines);
 		// The fibers that survive keep their places in the pending order; releasing a cancelled one takes it out, so the next
 		// fiber is read first.
 		LinkedListNode<Execution>? next = instance.FirstFiber;
@@ -65,13 +125,15 @@ internal sealed partial class VisualScriptRuntime
 			next = next.Next;
 			if (FindMissing(fiber, target) is not { } problem)
 			{
-				Move(fiber, target, frame);
+				Move(fiber, plan, frame);
+				note.WaitsKept++;
 				continue;
 			}
 			CompiledNode latent = fiber.TopFrame.Graph.Nodes[fiber.SuspendedAt];
 			string entity = FormattableString.Invariant($"{m_Environment.GetEntityName(instance.Entity)} ({instance.Entity})");
 			m_Environment.Log(VisualScriptLogLevel.Warn,
 				FormattableString.Invariant($"{target.Name} on {entity}: the execution waiting in {Naming(latent)} is cancelled: {problem}"));
+			note.Cancelled.Add(NodeNote.Of(latent, problem));
 			Release(fiber);
 		}
 		// Stopped executions migrate as fibers do (spec-slice4 section 4.8), in the order they stopped; a cancelled one ends its
@@ -82,108 +144,47 @@ internal sealed partial class VisualScriptRuntime
 			Execution stopped = instance.DebugFibers[index];
 			if (FindMissing(stopped, target) is not { } problem)
 			{
-				Move(stopped, target, frame);
+				Move(stopped, plan, frame);
 				m_Debugger?.OnStoppedMigrated(stopped);
+				note.StopsKept++;
 				index++;
 				continue;
 			}
+			CompiledNode node = StopNode(stopped);
 			string entity = FormattableString.Invariant($"{m_Environment.GetEntityName(instance.Entity)} ({instance.Entity})");
 			m_Environment.Log(VisualScriptLogLevel.Warn,
-				FormattableString.Invariant($"{target.Name} on {entity}: the stopped execution at {Naming(StopNode(stopped))} is cancelled: {problem}"));
+				FormattableString.Invariant($"{target.Name} on {entity}: the stopped execution at {Naming(node)} is cancelled: {problem}"));
+			note.Cancelled.Add(NodeNote.Of(node, problem, stopped: true));
 			ReleaseDebugFiber(stopped, problem);
 		}
 		instance.Swap(target, variables, frame);
+		return note;
 	}
 
-	// Variables match by ID (with the same type), then by name and type, and keep their values; the others start as they do
-	// in a new instance (spec section 5.1): at their Value, else at the type default.
-	private static Slot[] CarryVariables(GraphProgram source, Slot[] values, GraphProgram target)
+	// What a swap did so far: the instances it carried, the notes of the first MaxInstanceNotes with something to note, and how
+	// many more had something.
+	private sealed class SwapProgress
 	{
-		int[] matches = MatchVariables(source, target);
-		CompiledVariable[] variables = target.Variables;
-		Slot[] carried = new Slot[variables.Length];
-		for (int index = 0; index < variables.Length; index++)
-		{
-			carried[index] = matches[index] >= 0 ? values[matches[index]] : variables[index].Initial;
-		}
-		return carried;
-	}
+		internal int Instances { get; private set; }
 
-	// For each variable of the target program, the index of the source program's variable it continues (by ID with the same
-	// type, then by name and type, each source variable continued once), or -1 for a new one. The debugger's Changed compare
-	// (spec-slice4 section 4.7) reads variables across a live edit by the same rule.
-	internal static int[] MatchVariables(GraphProgram source, GraphProgram target)
-	{
-		Dictionary<uint, int> byId = [];
-		Dictionary<string, int> byName = new(StringComparer.Ordinal);
-		for (int index = 0; index < source.Variables.Length; index++)
-		{
-			byId[source.Variables[index].Id] = index;
-			byName[source.Variables[index].Name] = index;
-		}
-		CompiledVariable[] variables = target.Variables;
-		int[] matches = new int[variables.Length];
-		bool[] taken = new bool[source.Variables.Length];
-		for (int index = 0; index < variables.Length; index++)
-		{
-			matches[index] = byId.TryGetValue(variables[index].Id, out int old) && SameType(source.Variables[old], variables[index]) ? old : -1;
-			if (matches[index] >= 0)
-			{
-				taken[matches[index]] = true;
-			}
-		}
-		for (int index = 0; index < variables.Length; index++)
-		{
-			if (matches[index] < 0 && byName.TryGetValue(variables[index].Name, out int old) && !taken[old] &&
-				SameType(source.Variables[old], variables[index]))
-			{
-				matches[index] = old;
-				taken[old] = true;
-			}
-		}
-		return matches;
-	}
+		internal List<InstanceNote> Notes { get; } = [];
 
-	private static bool SameType(CompiledVariable a, CompiledVariable b) => a.Type.Id == b.Type.Id;
+		internal int MoreInstances { get; private set; }
 
-	// The state of DoOnce, DoN, FlipFlop and Gate nodes and the stored outputs of impure and event nodes, for nodes whose ID
-	// and type are unchanged; outputs also keep their pin's name and type. Latent nodes become pending again with their
-	// fibers (Move); a Timeline keeps its state, its time clamped into its new length (spec-slice3 section 3.8.6), and the
-	// next advance writes its outputs with its new curves. Everything else starts from the new frame's template.
-	private static void CarryNodes(Frame from, Frame to)
-	{
-		CompiledGraph source = from.Graph;
-		foreach (CompiledNode node in to.Graph.Nodes)
+		internal void Add(InstanceNote note)
 		{
-			// The Make and Break nodes of split pins have no state: the node whose pins they split keeps its outputs.
-			if (node.IsSplit)
+			Instances++;
+			if (note.IsEmpty)
 			{
-				continue;
+				return;
 			}
-			if (Find(source, node) is not { } old)
+			if (Notes.Count < LiveEditReceipt.MaxInstanceNotes)
 			{
-				continue;
+				Notes.Add(note);
 			}
-			if (node.Op != Opcode.Latent && node.StateSlot >= 0 && old.StateSlot >= 0)
+			else
 			{
-				to.Slots[node.StateSlot] = from.Slots[old.StateSlot];
-			}
-			if (node.TimelineSlot >= 0 && old.TimelineSlot >= 0 && from.Slots[old.TimelineSlot].Object is TimelineState state)
-			{
-				state.Time = Math.Clamp(state.Time, 0.0, node.Timeline!.Definition.Length);
-				to.Slots[node.TimelineSlot] = Slot.FromObject(state);
-			}
-			if (node.Pure)
-			{
-				continue;
-			}
-			for (int output = 0; output < node.OutputCount; output++)
-			{
-				int match = MatchOutput(old, node, output);
-				if (match >= 0)
-				{
-					to.Slots[node.OutputBase + output] = from.Slots[old.OutputBase + match];
-				}
+				MoreInstances++;
 			}
 		}
 	}
@@ -320,8 +321,9 @@ internal sealed partial class VisualScriptRuntime
 	// functions (node state, stored outputs and locals carried by ID), its positions are the new programs' nodes of the same
 	// IDs (a stopped execution's stop node, entry and pending delivery included), and a fiber's latent node is pending with it
 	// again.
-	private static void Move(Execution fiber, GraphProgram target, Frame eventFrame)
+	private static void Move(Execution fiber, CarryPlan plan, Frame eventFrame)
 	{
+		GraphProgram target = plan.To;
 		CompiledGraph caller = null!;
 		CompiledGraph newCaller = null!;
 		for (int index = 0; index < fiber.CallCount; index++)
@@ -335,7 +337,7 @@ internal sealed partial class VisualScriptRuntime
 				CompiledFunction function = graph.Function!;
 				CompiledFunction newFunction = target.FindFunction(function.Graph, function.Id)!;
 				moved = newFunction.AcquireFrame();
-				CarryNodes(old, moved);
+				plan.ForFunction(function, newFunction).Apply(old, moved, null);
 				CarryLocals(function, old, newFunction, moved);
 				function.ReleaseFrame(old);
 				record.CallNode = newCaller.FindNode(caller.Nodes[record.CallNode].Id);

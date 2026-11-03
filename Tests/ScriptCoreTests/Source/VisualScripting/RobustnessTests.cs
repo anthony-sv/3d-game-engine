@@ -857,6 +857,8 @@ public sealed class RobustnessTests
 		// The instance of each entity and the program it ran in the last round.
 		private readonly Dictionary<ulong, (GraphInstance Instance, GraphProgram Program)> m_Running = [];
 		private int m_Rounds;
+		// The last serial of the live log read (spec-slice4 section 8.2).
+		private ulong m_Taken;
 
 		internal LiveRuntime()
 		{
@@ -898,6 +900,29 @@ public sealed class RobustnessTests
 				Invoke(context, entity, ScriptEvent.Update, 0.6f, tally);
 				m_Running[entity] = (instance, instance.Program);
 			}
+			TakeLiveEvents(context);
+		}
+
+		// The live log's events of the round are JSON with serials after the last ones read, each load its receipt.
+		private void TakeLiveEvents(string context)
+		{
+			byte[]? text = m_Runtime.LiveEvents.Write(m_Taken);
+			Assert.True(text != null, $"{context}: the loads gave no receipt");
+			using JsonDocument events = JsonDocument.Parse(text);
+			ulong last = events.RootElement.GetProperty("Last").GetUInt64();
+			ulong previous = m_Taken;
+			foreach (string kind in (string[])["Edits", "Problems"])
+			{
+				foreach (JsonElement element in events.RootElement.GetProperty(kind).EnumerateArray())
+				{
+					ulong serial = element.GetProperty("Serial").GetUInt64();
+					Assert.True(serial > m_Taken && serial <= last, $"{context}: {kind} serial {serial} is not after {m_Taken} and at most {last}");
+				}
+			}
+			Assert.True(events.RootElement.GetProperty("Edits").GetArrayLength() > 0, $"{context}: the loads gave no receipt");
+			Assert.Null(m_Runtime.LiveEvents.Write(last));
+			m_Taken = last;
+			Assert.True(m_Taken > previous);
 		}
 
 		private void Invoke(string context, ulong entity, ScriptEvent scriptEvent, float timeStep, Tally tally)

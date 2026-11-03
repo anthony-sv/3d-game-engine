@@ -45,6 +45,10 @@ internal sealed partial class VisualScriptRuntime
 	// VisualScriptDescribeInstanceVariables: the stored-map JSON of the instance's public variables (spec section 5.4).
 	internal HostReply DescribeVariables(ulong entity) => DescribeInstanceVariables(entity) is { } text ? HostReply.Success(text) : HostReply.NotFound;
 
+	// VisualScriptTakeLiveEvents (spec-slice4 section 8.4): the live log's receipts and runtime problems whose serial is after
+	// `after`, as JSON; NotFound when there are none.
+	internal HostReply TakeLiveEvents(ulong after) => m_Live.Write(after) is { } text ? HostReply.Success(text) : HostReply.NotFound;
+
 	// Before the game assembly unloads nothing may reference its types (spec section 5.6): the instances go (no events run),
 	// every program is reduced to its name, document and references, and the members' invokers and the libraries' analyses
 	// are dropped. Graph instances block
@@ -69,6 +73,8 @@ internal sealed partial class VisualScriptRuntime
 			entry.Latest = null;
 			entry.Effective = null;
 			entry.IsStale = true;
+			entry.SwapFrom = null;
+			entry.Deferred = null;
 		}
 		m_PendingSwaps.Clear();
 		m_LibraryAnalyses.Clear();

@@ -619,7 +619,10 @@ internal sealed class NodeShaper
 		List<TimelineTrackPin> tracks = [];
 		if (node.Source.Settings.TryGet("Timeline", out JsonElement setting))
 		{
-			timeline = TimelineReader.Read(setting, Library, (code, message) => m_Context.ReportNode(code, node, message), tracks);
+			// Every finding is the setting's (spec-slice4 section 16.4): the message names the path within it, and a setting that
+			// is an object has no span.
+			timeline = TimelineReader.Read(setting, Library,
+				(code, message) => m_Context.ReportSetting(code, node, "Timeline", string.Empty, null, message), tracks);
 		}
 		for (int index = 0; index < TimelineExecPinsEnd; index++)
 		{

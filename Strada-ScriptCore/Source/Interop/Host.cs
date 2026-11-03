@@ -385,6 +385,21 @@ internal static unsafe class Host
 		}
 	}
 
+	// What live edits did and what went wrong at run time (spec-slice4 section 8.4): passes the events JSON of the live log's
+	// receipts and runtime problems whose serial is after `after` to receive; NotFound (receive not called) when there are none.
+	[UnmanagedCallersOnly]
+	internal static int VisualScriptTakeLiveEvents(ulong after, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	{
+		try
+		{
+			return Deliver(VisualScripts.TakeLiveEvents(after), context, receive);
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
 	private static void ResetVisualScripts()
 	{
 		VisualScripts = new VisualScriptRuntime(new EngineEnvironment());

@@ -43,7 +43,7 @@ internal sealed partial class VisualScriptRuntime
 			{
 				// A new execution fails at its event node, a resumed one at the latent node it waited in.
 				CompiledNode node = execution.Current ?? execution.TopFrame.Graph.Nodes[execution.Node];
-				execution.Error = new ExecutionError(Describe(execution, node, DepthMessage));
+				execution.Error = Fail(execution, node, DepthMessage);
 				return ExecutionResult.Aborted;
 			}
 			m_Depth += 1 + execution.FunctionDepth;
@@ -313,7 +313,7 @@ internal sealed partial class VisualScriptRuntime
 		{
 			CompiledNode node = execution.Current ?? execution.TopFrame.Graph.Nodes[Math.Max(execution.Node, 0)];
 			string message = exception is VisualScriptException ? exception.Message : $"{exception.GetType().Name}: {exception.Message}";
-			execution.Error = new ExecutionError(Describe(execution, node, message));
+			execution.Error = Fail(execution, node, message);
 			return ExecutionResult.Aborted;
 		}
 	}
@@ -1374,13 +1374,14 @@ internal sealed partial class VisualScriptRuntime
 		return text.ToStringAndClear();
 	}
 
-	// A non-aborting error: logged once per node per instance (spec section 5.3). Its text is built only when it is logged
-	// (WarningText), so a Warning the node logged already costs one set lookup.
+	// A non-aborting error: logged once per node per instance (spec section 5.3), and recorded as a runtime problem of the live
+	// log then (spec-slice4 section 8.2). Its text is built only when it is logged (WarningText), so a Warning the node logged
+	// already costs one set lookup.
 	private void Warn(Execution execution, CompiledNode node, [InterpolatedStringHandlerArgument(nameof(execution), nameof(node))] ref WarningText message)
 	{
 		if (message.IsLogged)
 		{
-			m_Environment.Log(VisualScriptLogLevel.Warn, Describe(execution, node, message.ToStringAndClear()));
+			Warned(execution, node, message.ToStringAndClear());
 		}
 	}
 
@@ -1388,8 +1389,43 @@ internal sealed partial class VisualScriptRuntime
 	{
 		if (execution.Instance.ShouldWarn(node))
 		{
-			m_Environment.Log(VisualScriptLogLevel.Warn, Describe(execution, node, message));
+			Warned(execution, node, message);
 		}
+	}
+
+	private void Warned(Execution execution, CompiledNode node, string message)
+	{
+		m_Environment.Log(VisualScriptLogLevel.Warn, Describe(execution, node, message));
+		GraphInstance instance = execution.Instance;
+		Span<LiveCallFrame> calls = stackalloc LiveCallFrame[ExecutionError.MaxCalls];
+		int count = CallsOf(execution, calls);
+		LiveProblemKey key = new(instance.Graph, DocumentOf(instance, node), node.Id, instance.Entity, LiveSeverity.Warning);
+		m_Live.AddProblem(key, node.Owner.Function?.Id ?? 0, node.Title, message, calls[..count]);
+	}
+
+	// An aborting error at a node: where it happened, its message, the calls that led there and the line logged for it.
+	private ExecutionError Fail(Execution execution, CompiledNode node, string message)
+	{
+		GraphInstance instance = execution.Instance;
+		Span<LiveCallFrame> calls = stackalloc LiveCallFrame[ExecutionError.MaxCalls];
+		int count = CallsOf(execution, calls);
+		return new ExecutionError(instance.Graph, instance.Entity, DocumentOf(instance, node), node.Owner.Function?.Id ?? 0, node.Id, node.Title,
+			message, calls[..count].ToArray(), Describe(execution, node, message));
+	}
+
+	// The Function.Call nodes on the execution's call stack, the innermost last: the innermost calls.Length of them. Answers
+	// how many it wrote.
+	private static int CallsOf(Execution execution, Span<LiveCallFrame> calls)
+	{
+		int first = Math.Max(1, execution.CallCount - calls.Length);
+		int count = 0;
+		for (int index = first; index < execution.CallCount; index++)
+		{
+			CompiledGraph caller = execution.Calls[index - 1].Frame.Graph;
+			CompiledNode call = caller.Nodes[execution.Calls[index].CallNode];
+			calls[count++] = new LiveCallFrame(DocumentOf(execution.Instance, call), caller.Function?.Id ?? 0, call.Id);
+		}
+		return count;
 	}
 
 	// "<graph name>: <node title> (node <id>) on <entity name> (<entity id>): <message>", where the graph is the document the

@@ -31,6 +31,7 @@ public sealed class HostProtocolTests
 		("VisualScriptSetInstanceVariables", ["ulong", "byte*", "int"]),
 		("VisualScriptDebug", ["byte*", "int", "void*", "receive"]),
 		("VisualScriptTakeTrace", ["void*", "receive"]),
+		("VisualScriptTakeLiveEvents", ["ulong", "void*", "receive"]),
 	];
 
 	public static TheoryData<string> EntryPoints => [.. s_EntryPoints.Select(static entryPoint => entryPoint.Name)];
@@ -147,6 +148,30 @@ public sealed class HostProtocolTests
 		(int taken, List<byte[]> blocks) = Deliver(host.TakeTrace());
 		Assert.Equal(Host.Success, taken);
 		Assert.Equal("VSDT"u8.ToArray(), Assert.Single(blocks)[..4]);
+	}
+
+	// VisualScriptTakeLiveEvents (spec-slice4 section 8.4): Success with the events JSON while an event has a serial after the
+	// one given, NotFound, receiving nothing, otherwise.
+	[Fact]
+	public void TheLiveEventsEntryPointAnswersItsStatuses()
+	{
+		TestRuntime runtime = new();
+		VisualScriptRuntime host = runtime.Runtime;
+		(int none, List<byte[]> nothing) = Deliver(host.TakeLiveEvents(0));
+		Assert.Equal(Host.NotFound, none);
+		Assert.Empty(nothing);
+
+		DocumentBuilder document = new();
+		document.Graph.Writes(document.Graph.Node("Event.Create"), "Then", "created");
+		runtime.LoadWorking(document.Build());
+		(int status, List<byte[]> events) = Deliver(host.TakeLiveEvents(0));
+		Assert.Equal(Host.Success, status);
+		using JsonDocument reply = JsonDocument.Parse(Assert.Single(events));
+		ulong last = reply.RootElement.GetProperty("Last").GetUInt64();
+		Assert.Equal(last, Assert.Single(reply.RootElement.GetProperty("Edits").EnumerateArray()).GetProperty("Serial").GetUInt64());
+		(int taken, List<byte[]> again) = Deliver(host.TakeLiveEvents(last));
+		Assert.Equal(Host.NotFound, taken);
+		Assert.Empty(again);
 	}
 
 	[Fact]
