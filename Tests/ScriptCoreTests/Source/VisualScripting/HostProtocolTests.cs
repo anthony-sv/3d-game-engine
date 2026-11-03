@@ -29,6 +29,7 @@ public sealed class HostProtocolTests
 		("VisualScriptInvoke", ["ulong", "int", "float", "ulong"]),
 		("VisualScriptDescribeInstanceVariables", ["ulong", "void*", "receive"]),
 		("VisualScriptSetInstanceVariables", ["ulong", "byte*", "int"]),
+		("VisualScriptDebug", ["byte*", "int", "void*", "receive"]),
 	];
 
 	public static TheoryData<string> EntryPoints => [.. s_EntryPoints.Select(static entryPoint => entryPoint.Name)];

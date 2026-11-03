@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Strada.Interop;
@@ -6,11 +7,12 @@ using Xunit;
 
 namespace Strada.ScriptCore.Tests;
 
-// The debug hook (spec section 5.5): a debugger picks the executions it traces by entity and hears of every instruction
-// and every value of a pure node they compute.
+// The debug hook, version 2 (spec section 5.5, spec-slice4 section 7.4): a debugger decides how each run of an execution is
+// traced (here by its instance's entity), and Record runs report every instruction and every value of a pure node they
+// compute, and their call frames before they return to their pool.
 public sealed class DebuggerTests
 {
-	// "<entity>: <node> <link taken>" per step, "<entity>: <node>.<pin> = <value>" per value; a node of a library's function is
+	// "<entity>: <node> <exit taken>" per step, "<entity>: <node>.<pin> = <value>" per value; a node of a library's function is
 	// "<library handle>/<node>".
 	private sealed class RecordingDebugger : IVisualScriptDebugger
 	{
@@ -22,24 +24,50 @@ public sealed class DebuggerTests
 
 		internal List<string> Values { get; } = [];
 
-		public bool IsTarget(ulong entity)
+		internal List<string> Released { get; } = [];
+
+		internal List<string> Aborted { get; } = [];
+
+		public DebugMode Attach(Execution execution)
 		{
-			Asked.Add(entity);
-			return Targets.Contains(entity);
+			Asked.Add(execution.Instance.Entity);
+			return Targets.Contains(execution.Instance.Entity) ? DebugMode.Record : DebugMode.None;
 		}
 
-		public void OnStep(GraphInstance instance, ulong graph, uint node, string? linkTaken)
+		public bool ShouldStop(Execution execution) => throw new InvalidOperationException("a Record run checks no stop point");
+
+		public void OnStep(Execution execution, CompiledNode node, int exit)
 		{
-			Steps.Add(string.Create(CultureInfo.InvariantCulture, $"{instance.Entity}: {NodeName(graph, node)} {linkTaken ?? "-"}"));
+			string exitPin = exit >= 0 ? node.ExitPins[exit] : "-";
+			Steps.Add(string.Create(CultureInfo.InvariantCulture, $"{execution.Instance.Entity}: {NodeName(node)} {exitPin}"));
 		}
 
-		public void OnValue(GraphInstance instance, ulong graph, uint node, string pin, object? value)
+		public void OnEvaluated(Execution execution, CompiledNode node, Slot[] slots)
 		{
-			Values.Add(string.Create(CultureInfo.InvariantCulture, $"{instance.Entity}: {NodeName(graph, node)}.{pin} = {value}"));
+			for (int output = 0; output < node.OutputCount; output++)
+			{
+				object? value = SlotValues.ToValue(slots[node.OutputBase + output], node.OutputTypes[output]);
+				Values.Add(string.Create(CultureInfo.InvariantCulture, $"{execution.Instance.Entity}: {NodeName(node)}.{node.OutputPins[output]} = {value}"));
+			}
 		}
 
-		private static string NodeName(ulong graph, uint node) =>
-			graph == 0 ? node.ToString(CultureInfo.InvariantCulture) : string.Create(CultureInfo.InvariantCulture, $"{graph}/{node}");
+		public void OnFrameReleasing(Execution execution, Frame frame)
+		{
+			Released.Add(frame.Graph.Function!.Name);
+		}
+
+		public void OnAborted(Execution execution)
+		{
+			Aborted.Add(execution.Error!.Message);
+		}
+
+		public void OnStoppedReleased(Execution execution, string reason)
+		{
+			throw new InvalidOperationException("nothing stops for a debugger that never stops");
+		}
+
+		private static string NodeName(CompiledNode node) => node.Owner.Graph == 0 ? node.Id.ToString(CultureInfo.InvariantCulture)
+			: string.Create(CultureInfo.InvariantCulture, $"{node.Owner.Graph}/{node.Id}");
 	}
 
 	private static string Step(uint node, string? link) => string.Create(CultureInfo.InvariantCulture, $"7: {node} {link ?? "-"}");
@@ -76,6 +104,8 @@ public sealed class DebuggerTests
 			Step(create, "Then"), Step(sequence, "Then0"), Step(call, null), Step(function.Entry, "Then"), Step(greet, "Then"),
 			Step(call, "Then"), Step(sequence, "Then1"), Step(delay, null),
 		], debugger.Steps);
+		// The call's frame returns to its pool at the Return.
+		Assert.Equal(["Greet"], debugger.Released);
 		debugger.Steps.Clear();
 		runtime.Invoke(ScriptEvent.Update, 0.25f);
 		Assert.Equal([Step(delay, "Completed"), Step(after, "Then"), Step(once, null)], debugger.Steps);
@@ -109,6 +139,32 @@ public sealed class DebuggerTests
 		[
 			$"7: {literal}.Value = 3", $"7: {add}.Result = 7", $"7: {multiply}.Result = 14", $"7: {call}.Result = 14",
 		], debugger.Values);
+		// A pure call's frame returns to its pool when its plan is done.
+		Assert.Equal(["Twice"], debugger.Released);
+	}
+
+	// Every aborting error is reported while a debugger is attached, traced or not, its frames intact; a receiver's error
+	// is reported again by the sender it aborts, with the same error object.
+	[Fact]
+	public void AbortsAreReportedWhetherTheExecutionIsTracedOrNot()
+	{
+		DocumentBuilder document = new();
+		uint divisor = document.Variable("Divisor", "int", "0");
+		GraphBuilder graph = document.Graph;
+		uint send = graph.Node("Event.Send", """{ "Name": "Fail" }""");
+		graph.Flow(graph.Node("Event.Create"), send);
+		uint fail = graph.Node("Event.Custom", """{ "Name": "Fail" }""");
+		uint divide = graph.Node("Operator.Divide", inputs: """{ "A": 10 }""");
+		graph.Link(graph.Get(divisor), "Value", divide, "B");
+		graph.Flow(fail, graph.Write(divide, "Result"));
+		TestRuntime runtime = TestRuntime.Start(document);
+		RecordingDebugger debugger = new();
+		runtime.Runtime.AttachDebugger(debugger);
+
+		Assert.Equal(VisualScriptStatus.Failure, runtime.Invoke(ScriptEvent.Create));
+		string error = runtime.SingleError();
+		Assert.Equal([error, error], debugger.Aborted);
+		Assert.Empty(debugger.Steps);
 	}
 
 	[Fact]

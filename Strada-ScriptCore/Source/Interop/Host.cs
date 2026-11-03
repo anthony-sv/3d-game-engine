@@ -355,6 +355,21 @@ internal static unsafe class Host
 		}
 	}
 
+	// The debugger's protocol (spec-slice4 sections 7.7 and 7.8): passes the reply JSON to receive for any request (UTF-8
+	// JSON; refused requests are error replies). Failure only when the runtime itself failed.
+	[UnmanagedCallersOnly]
+	internal static int VisualScriptDebug(byte* request, int requestLength, void* context, delegate* unmanaged<void*, byte*, int, void> receive)
+	{
+		try
+		{
+			return Deliver(VisualScripts.Debug(Bytes(request, requestLength)), context, receive);
+		}
+		catch (Exception exception)
+		{
+			return Report(exception);
+		}
+	}
+
 	private static void ResetVisualScripts()
 	{
 		VisualScripts = new VisualScriptRuntime(new EngineEnvironment());

@@ -43,6 +43,8 @@ internal sealed unsafe class EngineEnvironment : IVisualScriptEnvironment
 		Time.DeltaTime = timeStep;
 	}
 
+	public float GetDeltaTime() => Time.DeltaTime;
+
 	public bool IsKeyPressed(KeyCode key) => Input.IsKeyPressed(key);
 
 	public bool IsKeyReleased(KeyCode key) => Input.IsKeyReleased(key);

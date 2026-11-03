@@ -12,6 +12,9 @@ internal sealed class GraphInstance
 	// Each fiber brings its own list node (Execution.FiberNode), so every change costs constant time and one Update's pass
 	// over the fibers costs time linear in their number.
 	private readonly LinkedList<Execution> m_Fibers = new();
+	// The instance's stopped executions (spec-slice4 section 7.2), in the order they stopped: only the debugger resumes them,
+	// and the pending pass never sees them.
+	private readonly List<Execution> m_DebugFibers = [];
 	private HashSet<(ulong Graph, uint Node)>? m_Warned;
 
 	internal GraphInstance(ulong entity, ulong graph, GraphProgram program)
@@ -80,6 +83,23 @@ internal sealed class GraphInstance
 	{
 		m_Fibers.AddBefore(replaced.FiberNode, latest.FiberNode);
 		m_Fibers.Remove(replaced.FiberNode);
+	}
+
+	internal IReadOnlyList<Execution> DebugFibers => m_DebugFibers;
+
+	// Whether the execution is one of the instance's debug fibers now.
+	internal bool HasDebugFiber(Execution execution) => m_DebugFibers.Contains(execution);
+
+	// The debugger stopped the execution: it waits as a debug fiber until the debugger continues or releases it.
+	internal void AddDebugFiber(Execution execution)
+	{
+		m_DebugFibers.Add(execution);
+	}
+
+	// The debug fiber continues or is released; nothing for an execution that is not one.
+	internal void RemoveDebugFiber(Execution execution)
+	{
+		m_DebugFibers.Remove(execution);
 	}
 
 	// A live edit: the instance runs the new program from now on, with the variables and frame carried over to it (the

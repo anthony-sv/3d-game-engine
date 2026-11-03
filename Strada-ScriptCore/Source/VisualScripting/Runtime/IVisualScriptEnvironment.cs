@@ -35,6 +35,9 @@ internal interface IVisualScriptEnvironment
 	// Sets Time.DeltaTime for the Update dispatch, as C# dispatch does.
 	void SetDeltaTime(float timeStep);
 
+	// Time.DeltaTime as scripts read it now: a stopped execution continues with the value it read (spec-slice4 section 4.12).
+	float GetDeltaTime();
+
 	bool IsKeyPressed(KeyCode key);
 
 	bool IsKeyReleased(KeyCode key);

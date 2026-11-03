@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 
 namespace Strada.VisualScripting;
@@ -215,6 +216,8 @@ internal static class ProgramCompiler
 				m_Makes[pin] = node.Index;
 				node.InputBase = m_Template.Count;
 				node.InputCount = fields.Count;
+				node.InputPins = [.. fields.Select(static field => field.Name)];
+				node.InputTypes = [.. fields.Select(static field => field.Type)];
 				foreach (AnalyzedPin field in fields)
 				{
 					Allocate(SlotValues.DefaultOf(field.Type));
@@ -226,6 +229,8 @@ internal static class ProgramCompiler
 			{
 				node.InputBase = Allocate(SlotValues.DefaultOf(pin.Type));
 				node.InputCount = 1;
+				node.InputPins = [pin.Name];
+				node.InputTypes = [pin.Type];
 				node.OutputBase = m_Template.Count;
 				List<string> names = [];
 				List<VisualType> types = [];
@@ -410,10 +415,16 @@ internal static class ProgramCompiler
 			});
 			node.InputBase = m_Template.Count;
 			node.InputCount = inputs.Count;
-			foreach (AnalyzedPin pin in inputs)
+			string[] names = new string[inputs.Count];
+			VisualType[] types = new VisualType[inputs.Count];
+			for (int index = 0; index < inputs.Count; index++)
 			{
-				Allocate(SlotValues.DefaultOf(StagingType(source, node, pin)));
+				names[index] = inputs[index].Name;
+				types[index] = StagingType(source, node, inputs[index]);
+				Allocate(SlotValues.DefaultOf(types[index]));
 			}
+			node.InputPins = names;
+			node.InputTypes = types;
 			return inputs;
 		}
 
@@ -546,6 +557,15 @@ internal static class ProgramCompiler
 		// its pass-through, or none when its chain ends there; every exec input enters it alike.
 		private void CompileExecPins(AnalyzedNode source, CompiledNode node)
 		{
+			List<string> entries = [];
+			foreach (AnalyzedPin pin in source.Pins)
+			{
+				if (pin.IsInput && pin.Type.IsExec)
+				{
+					entries.Add(pin.Name);
+				}
+			}
+			node.EntryPins = [.. entries];
 			if (node.Op == Opcode.PassThrough)
 			{
 				if (source.PassThrough is { } exit)
@@ -555,7 +575,6 @@ internal static class ProgramCompiler
 				}
 				return;
 			}
-			List<string> entries = [];
 			List<string> exits = [];
 			List<ExecLink> links = [];
 			foreach (AnalyzedPin pin in source.Pins)
@@ -566,7 +585,6 @@ internal static class ProgramCompiler
 				}
 				if (pin.IsInput)
 				{
-					entries.Add(pin.Name);
 					continue;
 				}
 				if (pin.Description.Role == PinRole.Continuation)

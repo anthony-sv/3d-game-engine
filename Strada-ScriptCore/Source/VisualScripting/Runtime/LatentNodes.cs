@@ -156,7 +156,7 @@ internal sealed partial class VisualScriptRuntime
 		{
 			return false;
 		}
-		Execution tick = Acquire(fiber.Instance, node.Index, Execution.TickEntry);
+		Execution tick = Acquire(fiber.Instance, node.Index, Execution.TickEntry, new ExecutionStart(StartKind.Tick, node, node.TickExit, 0, 0));
 		return Finish(tick, Execute(tick, true));
 	}
 }

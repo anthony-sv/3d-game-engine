@@ -76,12 +76,6 @@ internal sealed partial class VisualScriptRuntime
 	// The analyses of function libraries kept for the documents that call them.
 	internal LibraryAnalyses LibraryAnalyses => m_LibraryAnalyses;
 
-	// Attaches the debugger that traces executions from now on (spec section 5.5); null detaches it.
-	internal void AttachDebugger(IVisualScriptDebugger? debugger)
-	{
-		m_Debugger = debugger;
-	}
-
 	// Analyzes and compiles a document for a graph handle and returns its diagnostics. A program is stored whatever the
 	// document holds; a broken one keeps the handle's working program running (spec section 5.1), a working one swaps the
 	// program of the handle's instances (spec section 5.6). name is the display name in messages (the asset path).
@@ -308,7 +302,7 @@ internal sealed partial class VisualScriptRuntime
 		{
 			instance.Frame.Slots[node.OutputBase] = value;
 		}
-		Execution execution = Acquire(instance, eventNode, 0);
+		Execution execution = Acquire(instance, eventNode, 0, new ExecutionStart(StartKind.Event, node, -1, 0, 0));
 		return Finish(execution, Execute(execution, !IsExecuting));
 	}
 
@@ -322,15 +316,24 @@ internal sealed partial class VisualScriptRuntime
 		{
 			fiber.Instance.RemoveFiber(fiber);
 		}
+		CompiledNode latent = fiber.TopFrame.Graph.Nodes[fiber.SuspendedAt];
 		fiber.Node = fiber.SuspendedAt;
 		fiber.Entry = entry;
 		fiber.SuspendedAt = -1;
-		fiber.Debugger = Trace(fiber.Instance);
+		// Spec-slice4 section 5.1: a resumed fiber started at its latent node, after the start of the execution that suspended.
+		ExecutionStart start = fiber.Start;
+		if (start.Kind != StartKind.Resume && start.Node is { } origin)
+		{
+			start = start with { OriginNode = origin.Id, OriginDocument = DocumentOf(fiber.Instance, origin) };
+		}
+		fiber.Start = start with { Kind = StartKind.Resume, Node = latent, Exit = latent.ContinuationExit };
+		Trace(fiber);
 		return Finish(fiber, Execute(fiber, true));
 	}
 
-	// What happens to an execution after it ran: one that ended or aborted is released (an abort logged once); a suspended
-	// one stays with its instance as a fiber. True for an abort.
+	// What happens to an execution after it ran: one that ended or aborted is released (an abort logged once, and reported to
+	// the debugger first, its frames intact); a suspended one stays with its instance as a fiber, a stopped one as a debug
+	// fiber. True for an abort.
 	private bool Finish(Execution execution, ExecutionResult result)
 	{
 		switch (result)
@@ -338,7 +341,11 @@ internal sealed partial class VisualScriptRuntime
 			case ExecutionResult.Suspended:
 				Park(execution);
 				return false;
+			case ExecutionResult.Stopped:
+				execution.Instance.AddDebugFiber(execution);
+				return false;
 			case ExecutionResult.Aborted:
+				m_Debugger?.OnAborted(execution);
 				m_Environment.Log(VisualScriptLogLevel.Error, execution.Error!.Message);
 				Release(execution);
 				return true;
@@ -365,9 +372,9 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	// A new execution of the instance that starts at a node of its event graph (and its exec input), traced when the
-	// debugger targets the instance's entity.
-	private Execution Acquire(GraphInstance instance, int node, int entry)
+	// A new execution of the instance that starts at a node of its event graph (and its exec input), traced as the attached
+	// debugger decides. parent: the execution whose Send or Broadcast runs it nested.
+	private Execution Acquire(GraphInstance instance, int node, int entry, ExecutionStart start, Execution? parent = null)
 	{
 		Execution execution = m_ExecutionPool.TryPop(out Execution? pooled) ? pooled : new Execution();
 		execution.Serial = ++m_LastSerial;
@@ -376,20 +383,26 @@ internal sealed partial class VisualScriptRuntime
 		execution.PushCall(instance.Frame, -1, null, 0);
 		execution.Node = node;
 		execution.Entry = entry;
-		execution.Debugger = Trace(instance);
+		execution.Start = start;
+		execution.Parent = parent;
+		execution.RootSerial = parent?.RootSerial ?? execution.Serial;
+		Trace(execution);
 		return execution;
 	}
-
-	private IVisualScriptDebugger? Trace(GraphInstance instance) => m_Debugger is { } debugger && debugger.IsTarget(instance.Entity) ? debugger : null;
 
 	// Returns the frames of an execution's function calls to their pools and the execution to the runtime's pool; a fiber
 	// leaves its instance's fibers first.
 	private void Release(Execution execution)
 	{
 		execution.Instance.RemoveFiber(execution);
+		bool record = (execution.Mode & DebugMode.Record) != 0;
 		for (int index = execution.CallCount - 1; index > 0; index--)
 		{
 			Frame frame = execution.Calls[index].Frame;
+			if (record)
+			{
+				execution.Debugger!.OnFrameReleasing(execution, frame);
+			}
 			frame.Graph.Function!.ReleaseFrame(frame);
 		}
 		execution.Reset();
@@ -415,11 +428,13 @@ internal sealed partial class VisualScriptRuntime
 		}
 	}
 
-	// An instance that is destroyed or replaced: its fibers die and its latent nodes stop being pending (spec section 5.1).
-	// A fiber that is running (its WaitUntil condition is checked) leaves too, and dies when its run is over (Park, Finish).
+	// An instance that is destroyed or replaced: its fibers and debug fibers die and its latent nodes stop being pending (spec
+	// section 5.1). A fiber that is running (its WaitUntil condition is checked) leaves too, and dies when its run is over
+	// (Park, Finish).
 	private void Kill(GraphInstance instance)
 	{
 		instance.Kill();
+		ReleaseDebugFibers(instance, "its instance was destroyed");
 		while (instance.FirstFiber is { Value: { } fiber })
 		{
 			instance.RemoveFiber(fiber);

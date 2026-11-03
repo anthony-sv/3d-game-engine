@@ -40,11 +40,12 @@ internal sealed partial class VisualScriptRuntime
 	private const int RateInput = 1;
 
 	// An input of the timeline (entries 0 to 5), or a tick leaving it (TickEntry, through the tick execution's exit).
-	private void TimelineInput(Execution execution, CompiledNode node, Frame frame, int entry)
+	private void TimelineInput<TMode>(Execution execution, CompiledNode node, Frame frame, int entry)
+		where TMode : struct, ITraceMode
 	{
 		if (entry == Execution.TickEntry)
 		{
-			Follow(execution, node, execution.TickExit);
+			Follow<TMode>(execution, node, execution.TickExit);
 			return;
 		}
 		CompiledTimeline timeline = node.Timeline!;
@@ -57,7 +58,7 @@ internal sealed partial class VisualScriptRuntime
 		{
 			case PlayInput:
 			case ReverseInput:
-				double rate = ReadRate(execution, node, frame);
+				double rate = ReadRate<TMode>(execution, node, frame);
 				TimelineDirection direction = entry == PlayInput ? TimelineDirection.Forward : TimelineDirection.Backward;
 				changed = state.Direction != direction || !state.Rate.Equals(rate);
 				state.Direction = direction;
@@ -70,7 +71,7 @@ internal sealed partial class VisualScriptRuntime
 				break;
 			case PlayFromStartInput:
 			case ReverseFromEndInput:
-				state.Rate = ReadRate(execution, node, frame);
+				state.Rate = ReadRate<TMode>(execution, node, frame);
 				bool forward = entry == PlayFromStartInput;
 				state.Time = forward ? 0.0 : definition.Length;
 				state.Direction = forward ? TimelineDirection.Forward : TimelineDirection.Backward;
@@ -86,7 +87,7 @@ internal sealed partial class VisualScriptRuntime
 				}
 				break;
 			case SetTimeInput:
-				EvaluateInput(execution, node, frame, NewTimeInput);
+				EvaluateInput<TMode>(execution, node, frame, NewTimeInput);
 				float time = slots[node.InputBase + NewTimeInput].Float;
 				state.Time = float.IsNaN(time) ? 0.0 : Math.Clamp(time, 0.0, definition.Length);
 				state.ClosedStart = false;
@@ -97,13 +98,14 @@ internal sealed partial class VisualScriptRuntime
 			state.Generation++;
 		}
 		WriteTimeline(slots, timeline, state, run != null);
-		EndChain(execution, node);
+		EndChain<TMode>(execution, node);
 	}
 
 	// Rate, read by the inputs that play: a negative or non-finite rate counts as 0 (the timeline holds still).
-	private double ReadRate(Execution execution, CompiledNode node, Frame frame)
+	private double ReadRate<TMode>(Execution execution, CompiledNode node, Frame frame)
+		where TMode : struct, ITraceMode
 	{
-		EvaluateInput(execution, node, frame, RateInput);
+		EvaluateInput<TMode>(execution, node, frame, RateInput);
 		double rate = frame.Slots[node.InputBase + RateInput].Float;
 		return double.IsFinite(rate) && rate > 0.0 ? rate : 0.0;
 	}
@@ -130,7 +132,7 @@ internal sealed partial class VisualScriptRuntime
 			Warn(execution, node, "the graph's instance was destroyed, so nothing can play");
 			return null;
 		}
-		Execution run = Acquire(instance, node.Index, 0);
+		Execution run = Acquire(instance, node.Index, 0, new ExecutionStart(StartKind.Timeline, node, -1, 0, 0));
 		run.Node = -1;
 		run.SuspendedAt = node.Index;
 		run.Current = node;
@@ -220,7 +222,7 @@ internal sealed partial class VisualScriptRuntime
 		{
 			return false;
 		}
-		Execution tick = Acquire(instance, node.Index, Execution.TickEntry);
+		Execution tick = Acquire(instance, node.Index, Execution.TickEntry, new ExecutionStart(StartKind.Timeline, node, exit, 0, 0));
 		tick.TickExit = exit;
 		return Finish(tick, Execute(tick, true));
 	}

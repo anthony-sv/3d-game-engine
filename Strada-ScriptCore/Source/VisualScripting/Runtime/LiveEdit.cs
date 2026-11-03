@@ -74,6 +74,16 @@ internal sealed partial class VisualScriptRuntime
 				FormattableString.Invariant($"{target.Name} on {entity}: the execution waiting in {Naming(latent)} is cancelled: {problem}"));
 			Release(fiber);
 		}
+		// A stopped execution holds the old program's frames and positions: it is cancelled, its stop ended.
+		while (instance.DebugFibers.Count > 0)
+		{
+			Execution stopped = instance.DebugFibers[0];
+			string entity = FormattableString.Invariant($"{m_Environment.GetEntityName(instance.Entity)} ({instance.Entity})");
+			const string problem = "the edit replaced the program it ran";
+			m_Environment.Log(VisualScriptLogLevel.Warn,
+				FormattableString.Invariant($"{target.Name} on {entity}: the stopped execution at {Naming(StopNode(stopped))} is cancelled: {problem}"));
+			ReleaseDebugFiber(stopped, problem);
+		}
 		instance.Swap(target, variables, frame);
 	}
 
