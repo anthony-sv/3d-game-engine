@@ -2,6 +2,7 @@
 
 #include "Editor/VisualScripting/VisualScriptLiteralEditor.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Script/VisualScriptLibrary.h"
@@ -144,6 +145,10 @@ namespace Strada
 		void DrawArrayLiteral(Frame& frame, std::string_view label, std::string_view key, std::string_view elementType, Json const& literal,
 		                      std::string const& valueAction, std::string const& subject,
 		                      std::function<std::optional<Edit>(Json, std::string)> const& makeEdit);
+		// A Flow.Timeline's Timeline (spec-slice3 §9.5): its Length (dragged from the timeline at the interaction's start, keys
+		// after a shorter length moved onto it in the same step), Loop, a row per track (its type, name, key count, a preview of
+		// its curve, "Edit" opening the drawer on it, and remove) and "+ Add Track".
+		void DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawCases(Frame& frame, VisualScriptNode const& node, std::string const& title);
 		void DrawChoice(Frame& frame, VisualScriptNode const& node, std::string const& title, VisualScriptSetting const& setting);
 		void DrawInputs(Frame& frame, VisualScriptNode const& node, std::string const& title);
@@ -196,6 +201,8 @@ namespace Strada
 			int DrawnFrame = 0;
 		};
 		std::optional<FormulaEdit> m_Formula;
+		// The Timeline's Length being dragged: its node and the timeline at the interaction's start.
+		std::optional<std::pair<uint32_t, VisualScriptTimeline>> m_TimelineStart;
 		// A comment's Position or Size being dragged: the unsnapped value the drag has reached.
 		struct CommentDrag
 		{

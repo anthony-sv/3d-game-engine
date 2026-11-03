@@ -3157,6 +3157,164 @@ TEST_CASE("VisualScriptEditor: an array's elements are added, removed and moved 
 	CHECK(value() == Json::array({7, 1.5}));
 }
 
+namespace
+{
+	// A graph with a Timeline (node 4) of 2 s: a float track Lift with keys at 0, 1 and 2 s linked into the log's Message, and
+	// an event track Step with a key at 1.5 s.
+	VisualScriptDocument MakeTimelineDocument()
+	{
+		VisualScriptDocument document = MakeDocument();
+		Result<Json> timeline = ParseJson(R"({"Length": 2, "Loop": false, "Tracks": [
+			{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 1, "Value": 1}, {"Time": 2, "Value": 0}]},
+			{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1.5}]}]})");
+		REQUIRE(timeline.IsOk());
+		document.Graph.Nodes.push_back(
+			MakeNode(4, "Flow.Timeline", glm::vec2(400.0f, 300.0f), Json::object({{"Timeline", timeline.GetValue()}})));
+		document.Graph.Links.push_back({{4, "Lift"}, {2, "Message"}});
+		return document;
+	}
+
+	VisualScriptTimeline ReadTimeline(VisualScriptDocument const& document)
+	{
+		VisualScriptNode const* node = FindNode(document, "Flow.Timeline");
+		REQUIRE(node != nullptr);
+		Result<VisualScriptTimeline> timeline = ReadVisualScriptTimeline(*node);
+		REQUIRE_MESSAGE(timeline.IsOk(), timeline.GetError());
+		return timeline.TakeValue();
+	}
+
+	std::vector<float> GetKeyTimes(VisualScriptTimeline const& timeline, size_t track)
+	{
+		std::vector<float> times;
+		for (VisualScriptTimelineKey const& key : timeline.Tracks[track].Keys)
+		{
+			times.push_back(key.Time);
+		}
+		return times;
+	}
+}
+
+TEST_CASE("VisualScriptEditor: Details edits a Timeline's length, loop and tracks, one step each")
+{
+	PaneFixture fixture(MakeTimelineDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({4});
+	REQUIRE(fixture.Details.GetSubject() == VisualScriptDetailsSubject::Node);
+	REQUIRE(fixture.Details.FindRow("Track 0 Name"));
+	REQUIRE(fixture.Details.FindRow("Track 1 Preview"));
+	CHECK_FALSE(fixture.Details.FindRow("Track 2 Name"));
+	size_t const undo = fixture.GetUndoCount();
+
+	// A length typed below the last keys moves them onto it, in the same step.
+	fixture.ImGui.Click(fixture.DetailsRow("Length"), fixture.Drawer(), 2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("0.5");
+	fixture.Frames(2);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Set Length on Timeline (moves 3 keys) in Graph");
+	VisualScriptTimeline shorter = ReadTimeline(fixture.GetDocument());
+	CHECK(shorter.Length == 0.5f);
+	CHECK(GetKeyTimes(shorter, 0) == std::vector<float>{0.0f, 0.5f, 0.5f});
+	CHECK(GetKeyTimes(shorter, 1) == std::vector<float>{0.5f});
+
+	// Loop.
+	fixture.ImGui.Click(fixture.DetailsRow("Loop", 0.1f), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Loop Timeline in Graph");
+	CHECK(ReadTimeline(fixture.GetDocument()).Loop);
+
+	// A track renamed in its name field keeps its link.
+	fixture.ImGui.Click(fixture.DetailsRow("Track 0 Name"), fixture.Drawer(), 2);
+	fixture.ImGui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.ImGui.Type("Height");
+	fixture.Frames(1);
+	fixture.ImGui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Rename Track Lift to Height on Timeline (and 1 link) in Graph");
+	CHECK(HasLinkIn(GetGraph(fixture.GetDocument(), 0), MakeLink(4, "Height", 2, "Message")));
+
+	// Remove.
+	fixture.ImGui.Click(fixture.DetailsRow("Track 1 Remove"), fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 4);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Remove Track Step from Timeline in Graph");
+	CHECK(ReadTimeline(fixture.GetDocument()).Tracks.size() == 1);
+
+	// + Add Track lists the six kinds; Float is the first.
+	fixture.ImGui.Click(fixture.DetailsRow("Add Track"), fixture.Drawer());
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	ImGuiWindow const* list = GImGui->OpenPopupStack.back().Window;
+	REQUIRE(list != nullptr);
+	fixture.ImGui.Click(ImVec2(list->DC.CursorStartPos.x + 20.0f, list->DC.CursorStartPos.y + ImGui::GetTextLineHeight() * 0.5f),
+	                    fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 5);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Add Track Curve to Timeline in Graph");
+	VisualScriptTimeline const added = ReadTimeline(fixture.GetDocument());
+	REQUIRE(added.Tracks.size() == 2);
+	CHECK(added.Tracks[1].Type == "float");
+
+	// Edit opens the drawer on the track, which the window does.
+	fixture.ImGui.Click(fixture.DetailsRow("Track 1 Edit"), fixture.Drawer());
+	fixture.Frames(1);
+	bool const asked = std::any_of(fixture.Results.begin(), fixture.Results.end(),
+	                               [](VisualScriptPaneResult const& result)
+	                               {
+									   return result.ShowTimeline == VisualScriptTimelineFocus{4, 1};
+								   });
+	CHECK(asked);
+	CHECK(fixture.GetUndoCount() == undo + 5);
+}
+
+TEST_CASE("VisualScriptEditor: a Timeline's length dragged down and back up in Details leaves every key where it was")
+{
+	PaneFixture fixture(MakeTimelineDocument(), {FixturePane::Details});
+	fixture.CheckDrawingChangesNothing();
+	fixture.SelectElements({4});
+	VisualScriptTimeline const original = ReadTimeline(fixture.GetDocument());
+	size_t const undo = fixture.GetUndoCount();
+	ImVec2 const start = fixture.DetailsRow("Length");
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(start.x, start.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	// 0.01 s a pixel, to the left: the length goes below the last keys, which follow it.
+	float x = start.x;
+	for (int step = 1; step <= 15; step++)
+	{
+		x -= 10.0f;
+		io.AddMousePosEvent(x, start.y);
+		fixture.Frames(1);
+	}
+	fixture.Frames(8);
+	VisualScriptTimeline const shorter = ReadTimeline(fixture.GetDocument());
+	REQUIRE(shorter.Length < 1.0f);
+	CHECK(GetKeyTimes(shorter, 0) == std::vector<float>{0.0f, shorter.Length, shorter.Length});
+	CHECK(GetKeyTimes(shorter, 1) == std::vector<float>{shorter.Length});
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	// Back up to 2 s in the same drag (as the window shows it): every frame is computed from the timeline at the drag's start.
+	for (int step = 0; step < 40 && ReadTimeline(fixture.Model->GetDisplayDocument()).Length < original.Length; step++)
+	{
+		x += 10.0f;
+		io.AddMousePosEvent(x, start.y);
+		fixture.Frames(1);
+	}
+	REQUIRE(ReadTimeline(fixture.Model->GetDisplayDocument()).Length == original.Length);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(3);
+	VisualScriptTimeline const restored = ReadTimeline(fixture.GetDocument());
+	CAPTURE(WriteVisualScriptTimeline(restored).dump());
+	CHECK(restored == original);
+	// One step at most: the drag's commits merge.
+	CHECK(fixture.GetUndoCount() <= undo + 1);
+}
+
 TEST_CASE("VisualScriptEditor: an array variable cannot be made public from My Script, which says why")
 {
 	VisualScriptDocument document = MakeDocument();

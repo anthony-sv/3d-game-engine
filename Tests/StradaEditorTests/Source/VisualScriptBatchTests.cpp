@@ -5,6 +5,7 @@
 #include "Editor/VisualScripting/VisualScriptClipboard.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptSerializer.h"
@@ -1136,6 +1137,94 @@ TEST_CASE("VisualScriptBatch: SetArrayElements and SetFormula renumber and renam
 		     "operations[0] (SetSetting): value: the Count of a Make Array is an integer from 0 to 64"},
 			{Json::object({{"op", "SetSetting"}, {"node", 5}, {"name", "Formula"}, {"value", 3}}), "operations[0].value",
 		     "operations[0] (SetSetting): value: the Formula of an Expression is a string"},
+		};
+		for (Refusal const& refusal : refusals)
+		{
+			CAPTURE(refusal.Operation.dump());
+			VisualScriptBatchError const error = ExpectRefused(document, Json::array({refusal.Operation}), fixture.Context);
+			CHECK(error.Failure == VisualScriptBatchFailure::Invalid);
+			CHECK(error.Kind == refusal.Operation["op"].get<std::string>());
+			CHECK(error.Path == refusal.Path);
+			CHECK(error.Message == refusal.Message);
+		}
+	}
+}
+
+TEST_CASE("VisualScriptBatch: SetTimeline sets a Timeline's tracks, renamed tracks keeping their links, also through SetSetting")
+{
+	BatchFixture fixture;
+	VisualScriptDocument document = MakeDocument();
+	Json const timeline = Json::parse(R"({"Length": 2, "Loop": false, "Tracks": [
+		{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 2, "Value": 1}]},
+		{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1}]}]})");
+	document.Graph.Nodes.push_back(MakeNode(4, "Flow.Timeline", glm::vec2(0.0f, 320.0f), Json::object({{"Timeline", timeline}})));
+	document.Graph.Links.push_back(MakeLink(4, "Lift", 2, "Message"));
+	document.Graph.Links.push_back(MakeLink(4, "Step", 3, "Execute"));
+
+	SUBCASE("the operation")
+	{
+		Json renamed = timeline;
+		renamed["Tracks"][0]["Name"] = "Height";
+		renamed["Loop"] = true;
+		Json removed = renamed;
+		removed["Tracks"].erase(1);
+		Json const operations = Json::array({
+			Json::object({{"op", "SetTimeline"},
+		                  {"node", 4},
+		                  {"timeline", renamed},
+		                  {"renames", Json::array({Json::object({{"old", "Lift"}, {"new", "Height"}})})}}),
+			Json::object({{"op", "SetTimeline"}, {"node", 4}, {"timeline", removed}}),
+		});
+		VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+		CHECK(result.Results[0] == Json::object({{"removedLinks", 0}}));
+		CHECK(result.Results[1] == Json::object({{"removedLinks", 1}}));
+		CHECK(HasLink(result.Document.Graph, MakeLink(4, "Height", 2, "Message")));
+		CHECK_FALSE(HasLink(result.Document.Graph, MakeLink(4, "Step", 3, "Execute")));
+		// Written in the canonical form.
+		Json const stored = FindNode(result.Document, 4)->Settings["Timeline"];
+		CHECK(stored == WriteVisualScriptTimeline(ParseVisualScriptTimeline(removed).GetValue()));
+		CHECK(stored["Loop"] == true);
+	}
+
+	SUBCASE("SetSetting routes Timeline to it, renaming no track; null sets the default timeline")
+	{
+		Json retyped = timeline;
+		retyped["Tracks"][0]["Type"] = "Strada.Vector2";
+		retyped["Tracks"][0]["Keys"] = Json::array();
+		VisualScriptBatchResult const routed = ExpectApplied(
+			document, Json::array({Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Timeline"}, {"value", retyped}})}),
+			fixture.Context);
+		CHECK(routed.Results[0] == Json::object({{"removedLinks", 1}}));
+		CHECK(HasLink(routed.Document.Graph, MakeLink(4, "Step", 3, "Execute")));
+		VisualScriptBatchResult const cleared = ExpectApplied(
+			document, Json::array({Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Timeline"}, {"value", nullptr}})}),
+			fixture.Context);
+		CHECK(cleared.Results[0] == Json::object({{"removedLinks", 2}}));
+		CHECK(FindNode(cleared.Document, 4)->Settings["Timeline"] == WriteVisualScriptTimeline(VisualScriptTimeline{}));
+	}
+
+	SUBCASE("what it cannot do is refused, naming the operation and the field")
+	{
+		struct Refusal
+		{
+			Json Operation;
+			std::string Path;
+			std::string Message;
+		};
+		std::vector<Refusal> const refusals = {
+			{Json::object({{"op", "SetTimeline"}, {"node", 3}, {"timeline", timeline}}), "operations[0]",
+		     "operations[0] (SetTimeline): node 3 is no Flow.Timeline: its type is Flow.Delay"},
+			{Json::object({{"op", "SetTimeline"}, {"node", 4}, {"timeline", Json::object({{"Length", 0}})}}), "operations[0].timeline",
+		     "operations[0] (SetTimeline): timeline: Timeline.Length: expected a number greater than 0 and at most 3600"},
+			{Json::object({{"op", "SetTimeline"}, {"node", 4}, {"timeline", timeline}, {"renames", Json::array({"Lift"})}}),
+		     "operations[0].renames[0]", "operations[0] (SetTimeline): renames[0]: expected { \"old\", \"new\" }, both track names"},
+			{Json::object({{"op", "SetTimeline"},
+		                   {"node", 4},
+		                   {"timeline", timeline},
+		                   {"renames", Json::array({Json::object({{"old", "Drift"}, {"new", "Lift"}})})}}),
+		     "operations[0]", "operations[0] (SetTimeline): the timeline of node 4 has no track Drift to rename"},
+			{Json::object({{"op", "SetSetting"}, {"node", 4}, {"name", "Timeline"}, {"value", 3}}), "operations[0].value",
+		     "operations[0] (SetSetting): value: Timeline: expected an object with Length, Loop and Tracks, not 3"},
 		};
 		for (Refusal const& refusal : refusals)
 		{

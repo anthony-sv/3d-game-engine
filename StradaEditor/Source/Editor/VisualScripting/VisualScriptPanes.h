@@ -71,6 +71,15 @@ namespace Strada
 		bool operator==(VisualScriptSettingFocus const& other) const = default;
 	};
 
+	// A Flow.Timeline node whose tracks and curves the drawer shows (spec-slice3 §9.5), on one of its tracks when given.
+	struct VisualScriptTimelineFocus
+	{
+		uint32_t Node = 0;
+		std::optional<uint32_t> Track = std::nullopt;
+
+		bool operator==(VisualScriptTimelineFocus const& other) const = default;
+	};
+
 	// A comment box created with its first title still to type (spec §9.6 rule 1): the window opens its in-place title editor
 	// over the comment with "Comment" selected, and commits the title typed under MergeKey, the key the creation was committed
 	// under, so that the creation and its first title are one step (§4.4).
@@ -137,7 +146,7 @@ namespace Strada
 
 	// What a pane asks of the window after drawing. The window applies the members in this order: Commit (executed, then the
 	// model synced in the same frame and the request's Select applied when it is not empty), EditCommentTitle, ShowFunction,
-	// Open, SelectAndFrame, FindReferences; FocusSetting is copied to VisualScriptPaneShared::FocusSetting.
+	// Open, SelectAndFrame, FindReferences, ShowTimeline; FocusSetting is copied to VisualScriptPaneShared::FocusSetting.
 	struct VisualScriptPaneResult
 	{
 		std::optional<VisualScriptCommitRequest> Commit;
@@ -156,6 +165,8 @@ namespace Strada
 		std::optional<VisualScriptSettingFocus> FocusSetting;
 		// A comment box whose first title the window's in-place editor takes next, in the creation's step.
 		std::optional<VisualScriptCommentTitleRequest> EditCommentTitle;
+		// The drawer opens in Timeline mode on a Flow.Timeline of the shown sub-graph (Details' "Edit" of a track).
+		std::optional<VisualScriptTimelineFocus> ShowTimeline;
 		// A widget interaction is in progress: its edits merge into one step until it ends.
 		bool WidgetActive = false;
 	};

@@ -145,6 +145,10 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptCommit.h
     Source/Editor/VisualScripting/VisualScriptController.cpp
     Source/Editor/VisualScripting/VisualScriptController.h
+    Source/Editor/VisualScripting/VisualScriptCurveEditor.cpp
+    Source/Editor/VisualScripting/VisualScriptCurveEditor.h
+    Source/Editor/VisualScripting/VisualScriptCurveView.cpp
+    Source/Editor/VisualScripting/VisualScriptCurveView.h
     Source/Editor/VisualScripting/VisualScriptDetails.cpp
     Source/Editor/VisualScripting/VisualScriptDetails.h
     Source/Editor/VisualScripting/VisualScriptDrawer.cpp
@@ -195,6 +199,8 @@ set(STRADA_EDITOR_CORE_SOURCES
     Source/Editor/VisualScripting/VisualScriptTheme.h
     Source/Editor/VisualScripting/VisualScriptThemeStyle.cpp
     Source/Editor/VisualScripting/VisualScriptThemeStyle.h
+    Source/Editor/VisualScripting/VisualScriptTimeline.cpp
+    Source/Editor/VisualScripting/VisualScriptTimeline.h
     Source/Editor/VisualScripting/VisualScriptView.cpp
     Source/Editor/VisualScripting/VisualScriptView.h
     Source/Editor/VisualScripting/VisualScriptViewSettings.cpp

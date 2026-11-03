@@ -375,6 +375,12 @@ namespace Strada
 		m_Reference = reference;
 	}
 
+	void VisualScriptDrawer::ShowTimeline(uint32_t node, std::optional<uint32_t> track)
+	{
+		m_Mode = VisualScriptDrawerMode::Timeline;
+		m_Timeline.Open(node, track);
+	}
+
 	std::optional<std::pair<glm::vec2, glm::vec2>> VisualScriptDrawer::FindProblemRow(size_t index) const
 	{
 		return FindRect(m_ProblemRows, index);
@@ -402,7 +408,11 @@ namespace Strada
 			ImGui::TextDisabled("No script is shown.");
 			return result;
 		}
-		if (m_Mode == VisualScriptDrawerMode::Find)
+		if (m_Mode == VisualScriptDrawerMode::Timeline)
+		{
+			m_Timeline.Draw(context, m_Commits, result, m_Timeline.GetNode());
+		}
+		else if (m_Mode == VisualScriptDrawerMode::Find)
 		{
 			DrawFind(context, result);
 		}

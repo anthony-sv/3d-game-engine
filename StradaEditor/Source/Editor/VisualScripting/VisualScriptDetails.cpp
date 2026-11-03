@@ -3,6 +3,7 @@
 #include "Editor/UI/EditorUI.h"
 #include "Editor/VisualScripting/VisualScriptCanvasMetrics.h"
 #include "Editor/VisualScripting/VisualScriptCanvasModel.h"
+#include "Editor/VisualScripting/VisualScriptCurveEditor.h"
 #include "Editor/VisualScripting/VisualScriptDrawer.h"
 #include "Editor/VisualScripting/VisualScriptEditing.h"
 #include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
@@ -1359,10 +1360,173 @@ namespace Strada
 		{
 			DrawChoice(frame, node, title, setting);
 		}
+		else if (setting.Kind == "Timeline" && node.Type == VisualScriptTimelineNodeType)
+		{
+			DrawTimeline(frame, node, title);
+		}
 		else
 		{
 			TextRow(label, value.dump());
 		}
+	}
+
+	void VisualScriptDetails::DrawTimeline(Frame& frame, VisualScriptNode const& node, std::string const& title)
+	{
+		VisualScriptPaneContext& context = frame.Context;
+		Result<VisualScriptTimeline> const read = ReadVisualScriptTimeline(node);
+		if (!read)
+		{
+			TextRow("Timeline", "Cannot be edited here: " + read.GetError());
+			return;
+		}
+		VisualScriptTimeline const& timeline = read.GetValue();
+		auto const commit = [&](Result<VisualScriptTimelineEdit> edit)
+		{
+			if (!edit)
+			{
+				frame.Result.Notes.push_back(edit.GetError());
+				return;
+			}
+			m_Commits.Commit(context, std::move(edit.GetValue().Document), std::move(edit.GetValue().Action), 0, frame.Result);
+		};
+		auto const addRow = [this](std::string label)
+		{
+			ImVec2 const min = ImGui::GetItemRectMin();
+			ImVec2 const max = ImGui::GetItemRectMax();
+			m_Rows.emplace_back(std::move(label), std::pair(glm::vec2(min.x, min.y), glm::vec2(max.x, max.y)));
+		};
+
+		// Length, from the timeline at the interaction's start: dragged down and back up, every key is where it was.
+		BeginRow("Length");
+		ImGui::BeginGroup();
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		float length = timeline.Length;
+		bool const changed =
+			ImGui::DragFloat("##length", &length, 0.01f, 0.001f, MaxVisualScriptTimelineLength, "%.3f s", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::EndGroup();
+		bool const activated = ImGui::IsItemActivated();
+		bool const active = ImGui::IsItemActive();
+		bool const deactivated = ImGui::IsItemDeactivated();
+		EndRow("Length");
+		if (activated)
+		{
+			m_TimelineStart = std::pair(node.ID, timeline);
+		}
+		if (changed)
+		{
+			VisualScriptTimeline const& start = m_TimelineStart && m_TimelineStart->first == node.ID ? m_TimelineStart->second : timeline;
+			Result<VisualScriptTimelineEdit> edit = SetVisualScriptTimelineLengthEdit(frame.Document, node.ID, start, length, title);
+			if (edit)
+			{
+				m_Commits.Change(context, std::move(edit.GetValue().Document), std::move(edit.GetValue().Action), active, frame.Result);
+			}
+		}
+		else if (active)
+		{
+			frame.Result.WidgetActive = true;
+		}
+		if (deactivated)
+		{
+			m_TimelineStart.reset();
+			m_Commits.End(context, frame.Result);
+		}
+
+		BeginRow("Loop");
+		bool loop = timeline.Loop;
+		bool const looped = ImGui::Checkbox("##loop", &loop);
+		EndRow("Loop");
+		if (looped)
+		{
+			commit(SetVisualScriptTimelineLoopEdit(frame.Document, node.ID, timeline, loop, title));
+		}
+
+		// A row per track: its type, its name, its key count, "Edit" and remove; under it a preview of its curve.
+		float const fontSize = ImGui::GetFontSize();
+		ImGuiStyle const& style = ImGui::GetStyle();
+		for (uint32_t index = 0; index < timeline.Tracks.size(); index++)
+		{
+			VisualScriptTimelineTrack const& track = timeline.Tracks[index];
+			ImGui::PushID(static_cast<int>(index));
+			std::string const key = fmt::format("Track {}", index);
+			std::string const typeLabel(GetVisualScriptTimelineTypeLabel(track.Type));
+			ImVec2 const pillSize(ImGui::CalcTextSize(typeLabel.c_str()).x + style.FramePadding.x * 2.0f, ImGui::GetFrameHeight());
+			ImVec2 const pill = ImGui::GetCursorScreenPos();
+			ImGui::Dummy(pillSize);
+			uint32_t const color =
+				GetVisualScriptTypeColor(track.Components == 0 ? std::string(VisualScriptExecType) : track.Type, frame.Library);
+			ImDrawList* const drawList = ImGui::GetWindowDrawList();
+			drawList->AddRectFilled(ImVec2(pill.x, pill.y + style.FramePadding.y * 0.5f),
+			                        ImVec2(pill.x + pillSize.x, pill.y + pillSize.y - style.FramePadding.y * 0.5f), color,
+			                        pillSize.y * 0.5f);
+			drawList->AddText(ImVec2(pill.x + style.FramePadding.x, pill.y + style.FramePadding.y), IM_COL32(16, 18, 22, 255),
+			                  typeLabel.c_str());
+			ImGui::SameLine();
+			std::string const count = fmt::format("{} key{}", track.Keys.size(), track.Keys.size() == 1 ? "" : "s");
+			float const buttons = ImGui::CalcTextSize(count.c_str()).x + ImGui::CalcTextSize("Edit").x + ImGui::CalcTextSize("x").x +
+			                      style.FramePadding.x * 4.0f + style.ItemSpacing.x * 3.0f;
+			ImGui::SetNextItemWidth(std::max(ImGui::GetContentRegionAvail().x - buttons, 4.0f * fontSize));
+			VisualScriptNameField::Outcome const outcome =
+				m_Names.Draw("##trackName", track.Name,
+			                 [&timeline, index](std::string_view name) -> std::optional<std::string>
+			                 {
+								 return CheckVisualScriptTimelineTrackName(timeline, name, index);
+							 });
+			addRow(key + " Name");
+			if (outcome.Committed)
+			{
+				commit(RenameVisualScriptTimelineTrackEdit(frame.Document, node.ID, timeline, index, *outcome.Committed, title));
+			}
+			else if (outcome.Refused)
+			{
+				frame.Result.Notes.push_back(*outcome.Refused);
+			}
+			ImGui::SameLine();
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextDisabled("%s", count.c_str());
+			ImGui::SameLine();
+			{
+				ViewScope const view(frame.ReadOnly, frame.ViewDepth);
+				if (ImGui::SmallButton("Edit"))
+				{
+					frame.Result.ShowTimeline = VisualScriptTimelineFocus{node.ID, index};
+				}
+			}
+			addRow(key + " Edit");
+			ImGui::SameLine();
+			if (ImGui::SmallButton("x"))
+			{
+				commit(RemoveVisualScriptTimelineTrackEdit(frame.Document, node.ID, timeline, index, title));
+			}
+			addRow(key + " Remove");
+			if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("Remove the track and its links");
+			}
+			ImVec2 const preview = ImGui::GetCursorScreenPos();
+			float const width = std::max(ImGui::GetContentRegionAvail().x, 1.0f);
+			float const height = ImGui::GetTextLineHeight() * 2.0f;
+			ImGui::Dummy(ImVec2(width, height));
+			addRow(key + " Preview");
+			DrawVisualScriptTrackPreview(timeline, index, frame.Library, glm::vec2(preview.x, preview.y),
+			                             glm::vec2(preview.x + width, preview.y + height));
+			ImGui::PopID();
+		}
+
+		ImGui::BeginDisabled(timeline.Tracks.size() >= MaxVisualScriptTimelineTracks);
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		if (ImGui::BeginCombo("##addTrack", "+ Add Track", ImGuiComboFlags_NoArrowButton))
+		{
+			for (VisualScriptTimelineTrackKind const& kind : VisualScriptTimelineTrackKinds)
+			{
+				if (ImGui::Selectable(std::string(kind.Label).c_str()))
+				{
+					commit(AddVisualScriptTimelineTrackEdit(frame.Document, node.ID, timeline, kind.Type, title));
+				}
+			}
+			ImGui::EndCombo();
+		}
+		addRow("Add Track");
+		ImGui::EndDisabled();
 	}
 
 	void VisualScriptDetails::DrawArrayElements(Frame& frame, VisualScriptNode const& node, std::string const& title,

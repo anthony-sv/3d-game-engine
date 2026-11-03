@@ -423,6 +423,7 @@ namespace Strada
 			bool RenameCustomEvent(Json& result);
 			bool SetArrayElements(Json& result);
 			bool SetFormula(Json& result);
+			bool SetTimeline(Json& result);
 			bool SetNodeComment(Json& result);
 			bool SetCollapsed(Json& result);
 			bool SetEnabled(Json& result);
@@ -2052,6 +2053,10 @@ namespace Strada
 			// Sets an Expression's formula (SetFormula, and SetSetting's route) and fills the result with what it renamed and
 			// removed.
 			bool ApplyFormula(uint32_t node, std::string formula, Json& result);
+			// Sets a Flow.Timeline's timeline (SetTimeline, and SetSetting's route, which renames no track) and fills the result
+			// with the links it removed.
+			bool ApplyTimeline(uint32_t node, Json const& setting, std::string_view field,
+			                   std::span<Editing::VisualScriptTrackRename const> renames, Json& result);
 
 			// Fails when a node of the elements (of one sub-graph) has no position yet: moving, aligning, distributing,
 			// straightening, framing and promoting start from where nodes stand, which for a node added without a position only
@@ -2110,7 +2115,7 @@ namespace Strada
 			std::optional<VisualScriptBatchError> m_Error;
 		};
 
-		constexpr std::array<BatchOperation, 48> BatchOperations = {{
+		constexpr std::array<BatchOperation, 49> BatchOperations = {{
 			{"AddNode", "type* function position settings literals collapsed enabled as", &BatchExecutor::AddNode},
 			{"Delete", "elements* bridge", &BatchExecutor::Delete},
 			{"Duplicate", "elements* labels", &BatchExecutor::Duplicate},
@@ -2130,6 +2135,7 @@ namespace Strada
 			{"RenameCustomEvent", "node* name*", &BatchExecutor::RenameCustomEvent},
 			{"SetArrayElements", "node* count* insertAt removeAt", &BatchExecutor::SetArrayElements},
 			{"SetFormula", "node* formula*", &BatchExecutor::SetFormula},
+			{"SetTimeline", "node* timeline* renames", &BatchExecutor::SetTimeline},
 			{"SetNodeComment", "nodes* text*", &BatchExecutor::SetNodeComment},
 			{"SetCollapsed", "nodes* collapsed*", &BatchExecutor::SetCollapsed},
 			{"SetEnabled", "nodes* enabled*", &BatchExecutor::SetEnabled},
@@ -2973,6 +2979,15 @@ namespace Strada
 					return false;
 				}
 			}
+			else if (route == "SetTimeline")
+			{
+				// Null gives the timeline a setting holds without one: 1 s, no loop, no tracks.
+				Json const setting = value.is_null() ? WriteVisualScriptTimeline(VisualScriptTimeline{}) : value;
+				if (!ApplyTimeline(id, setting, "value", {}, result))
+				{
+					return false;
+				}
+			}
 			else if (!route.empty())
 			{
 				return FailField("name", fmt::format("{} of node {} ({}) changes its pins or its senders: set it with {}", name, id,
@@ -3122,6 +3137,58 @@ namespace Strada
 				return false;
 			}
 			RecordChange(PinLevel);
+			return true;
+		}
+
+		bool BatchExecutor::SetTimeline(Json& result)
+		{
+			uint32_t node = 0;
+			if (!ResolveNodeField("node", node))
+			{
+				return false;
+			}
+			std::vector<Editing::VisualScriptTrackRename> renames;
+			if (Json const* const list = Find("renames"))
+			{
+				if (!list->is_array())
+				{
+					return FailField("renames", "expected an array of { \"old\", \"new\" } track names");
+				}
+				for (size_t index = 0; index < list->size(); index++)
+				{
+					Json const& entry = (*list)[index];
+					auto const from = entry.is_object() ? entry.find("old") : Json::const_iterator();
+					auto const to = entry.is_object() ? entry.find("new") : Json::const_iterator();
+					if (!entry.is_object() || entry.size() != 2 || from == entry.end() || to == entry.end() || !from->is_string() ||
+					    !to->is_string())
+					{
+						return FailField(fmt::format("renames[{}]", index), "expected { \"old\", \"new\" }, both track names");
+					}
+					renames.push_back({from->get<std::string>(), to->get<std::string>()});
+				}
+			}
+			if (!ApplyTimeline(node, *Find("timeline"), "timeline", renames, result))
+			{
+				return false;
+			}
+			RecordChange(PinLevel);
+			return true;
+		}
+
+		bool BatchExecutor::ApplyTimeline(uint32_t node, Json const& setting, std::string_view field,
+		                                  std::span<Editing::VisualScriptTrackRename const> renames, Json& result)
+		{
+			Result<VisualScriptTimeline> const timeline = ParseVisualScriptTimeline(setting);
+			if (!timeline)
+			{
+				return FailField(field, timeline.GetError());
+			}
+			Result<uint32_t> const removed = Editing::SetTimeline(m_Working, node, timeline.GetValue(), renames);
+			if (!removed)
+			{
+				return FailEdit(removed.GetError());
+			}
+			result["removedLinks"] = removed.GetValue();
 			return true;
 		}
 

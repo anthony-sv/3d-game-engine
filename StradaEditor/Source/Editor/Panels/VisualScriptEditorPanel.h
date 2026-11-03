@@ -52,7 +52,9 @@ namespace Strada
 		None = 0,
 		Canvas,
 		Sidebar,
-		Details
+		Details,
+		// The drawer in Timeline mode (spec-slice3 §9.5), which has keys of its own.
+		Timeline
 	};
 
 	// How a graph window's body is shared between its panes and its canvas, in pixels.
@@ -196,6 +198,8 @@ namespace Strada
 	inline constexpr float VisualScriptDetailsMinWidth = 14.0f;
 	inline constexpr float VisualScriptCanvasMinWidth = 40.0f;
 	inline constexpr float VisualScriptDrawerDefaultHeight = 10.0f;
+	// The drawer in Timeline mode keeps a height of its own (spec-slice3 §9.5).
+	inline constexpr float VisualScriptTimelineDrawerDefaultHeight = 16.0f;
 	inline constexpr float VisualScriptDrawerMinHeight = 4.0f;
 	// The stacked column's share above its splitter (My Script's) when a window opens; dragging the splitter changes it for the
 	// window, and it is not stored. Each pane of the column keeps at least VisualScriptStackedPaneMinHeight font sizes while the
@@ -542,8 +546,12 @@ namespace Strada
 		void RouteRowAction(VisualScriptEditorAction action);
 		// Shows My Script over the canvas when it is not beside it, for the rest of an interaction it has to draw.
 		void OpenSidebarOverlay();
-		// Shows the drawer in a mode (Problems or Find), or closes it.
+		// Shows the drawer in a mode (Problems, Find, or Timeline after VisualScriptDrawer::ShowTimeline), or closes it.
 		void ShowDrawer(VisualScriptDrawerMode mode);
+		// Opens the drawer in Timeline mode on a Flow.Timeline node of the shown sub-graph, and on one of its tracks.
+		void ShowTimeline(uint32_t node, std::optional<uint32_t> track = std::nullopt);
+		// The keys of the Timeline drawer while it has the keyboard (VisualScriptKeyRoute::Timeline).
+		void ClaimTimelineKeys();
 		void ExecuteIntent(VisualScriptEditorIntent const& intent);
 		void ExecuteEdit(VisualScriptCanvasEdit const& edit, uint64_t mergeKey = 0, VisualScriptDocument const* stored = nullptr);
 		// Applies what the controller asked for; returns whether its commit was made.
@@ -648,6 +656,9 @@ namespace Strada
 		ImGuiID m_CanvasWindow = 0;
 		ImGuiID m_SidebarWindow = 0;
 		ImGuiID m_DetailsWindow = 0;
+		// The drawer's window, and the Timeline drawer's key owner.
+		ImGuiID m_DrawerWindow = 0;
+		ImGuiID m_TimelineOwner = 0;
 		bool m_WindowHovered = false;
 		bool m_CanvasHovered = false;
 		bool m_HintShown = false;
@@ -718,6 +729,7 @@ namespace Strada
 		VisualScriptCommitTimings m_LastCommitTimings;
 		VisualScriptDrawerMode m_DrawerMode = VisualScriptDrawerMode::Closed;
 		float m_DrawerHeight = VisualScriptDrawerDefaultHeight;
+		float m_TimelineDrawerHeight = VisualScriptTimelineDrawerDefaultHeight;
 		// The stacked column's share above its splitter (VisualScriptStackShare).
 		float m_StackShare = VisualScriptStackShare;
 		bool m_ShortcutsOpen = false;

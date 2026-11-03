@@ -60,7 +60,7 @@ namespace Strada
 			std::string_view Operation;
 		};
 
-		constexpr std::array<SettingOperation, 7> SettingOperations = {{
+		constexpr std::array<SettingOperation, 8> SettingOperations = {{
 			{SequenceType, CountSetting, "SetSequenceOutputs"},
 			{SwitchType, CasesSetting, "SetSwitchCases"},
 			{CustomEventType, ParametersSetting, "SetEventParameters"},
@@ -68,6 +68,7 @@ namespace Strada
 			{CustomEventType, NameSetting, "RenameCustomEvent"},
 			{"Array.Make", CountSetting, "SetArrayElements"},
 			{"Expression", "Formula", "SetFormula"},
+			{"Flow.Timeline", "Timeline", "SetTimeline"},
 		}};
 
 		// Where a promoted variable's node stands, from the anchor of the pin it serves.

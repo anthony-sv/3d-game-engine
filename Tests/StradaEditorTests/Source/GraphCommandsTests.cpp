@@ -16,6 +16,7 @@
 #include "Editor/VisualScripting/VisualScriptEditors.h"
 #include "Editor/VisualScripting/VisualScriptHeadlessCanvas.h"
 #include "Editor/VisualScripting/VisualScriptPalette.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -2612,6 +2613,114 @@ TEST_CASE("GraphCommands: graph.edit's SetFormula and SetSetting of Formula rena
 	CHECK(refused.Code == AutomationErrorCode::InvalidParams);
 	CHECK(refused.Data["op"] == "SetFormula");
 	CHECK(refused.Message.find("node 10 is no Expression") != std::string::npos);
+}
+
+TEST_CASE("GraphCommands: graph.edit's SetTimeline and SetSetting of Timeline set a Timeline's tracks, renamed tracks keeping their links")
+{
+	GraphFixture fixture;
+	VisualScriptDocument document;
+	Json const timeline = Json::parse(R"({"Length": 2, "Loop": false, "Tracks": [
+		{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 2, "Value": 1}]},
+		{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1}]}]})");
+	document.Graph.Nodes.push_back(MakeNode(10, "Flow.Timeline", Json::object({{"Timeline", timeline}})));
+	document.Graph.Nodes.push_back(MakeNode(11, "Call:Strada.Log.Info(string)"));
+	for (VisualScriptNode& node : document.Graph.Nodes)
+	{
+		node.Position = glm::vec2(0.0f, 0.0f);
+	}
+	document.Graph.Links.push_back(MakeLink(10, "Lift", 11, "Message"));
+	document.Graph.Links.push_back(MakeLink(10, "Step", 11, "Execute"));
+	std::string const graph = fixture.CreateGraph("Scripts/Timeline.sgraph", document);
+	size_t const steps = fixture.Context.GetHistory().GetUndoCount();
+
+	// The setting says which pins the node has, so this runs without the scripting runtime.
+	Json renamed = timeline;
+	renamed["Tracks"][0]["Name"] = "Height";
+	Json const edited = fixture.Ok(
+		"graph.edit",
+		Json::object(
+			{{"graph", graph},
+	         {"operations", Json::array({Json::object({{"op", "SetTimeline"},
+	                                                   {"node", 10},
+	                                                   {"timeline", renamed},
+	                                                   {"renames", Json::array({Json::object({{"old", "Lift"}, {"new", "Height"}})})}})})},
+	         {"description", "Rename Lift"}}));
+	CHECK(edited["changed"] == true);
+	CHECK(edited["results"] == Json::array({Json::object({{"removedLinks", 0}})}));
+	VisualScriptDocument const stored = fixture.GetDocument(graph);
+	CHECK(stored.Graph.Links == std::vector<VisualScriptLink>{MakeLink(10, "Height", 11, "Message"), MakeLink(10, "Step", 11, "Execute")});
+	CHECK(stored.Graph.Nodes[0].Settings["Timeline"] == WriteVisualScriptTimeline(ParseVisualScriptTimeline(renamed).GetValue()));
+	CHECK(fixture.Context.GetHistory().GetUndoCount() == steps + 1);
+	CHECK(fixture.Ok("editor.status")["undo"] == "Rename Lift in Timeline");
+
+	// SetSetting of Timeline goes the same way, renaming nothing: the event track removed takes its link.
+	Json removed = renamed;
+	removed["Tracks"].erase(1);
+	Json const routed = fixture.Ok(
+		"graph.edit",
+		Json::object(
+			{{"graph", graph},
+	         {"operations", Json::array({Json::object({{"op", "SetSetting"}, {"node", 10}, {"name", "Timeline"}, {"value", removed}})})}}));
+	CHECK(routed["results"] == Json::array({Json::object({{"removedLinks", 1}})}));
+	CHECK(fixture.GetDocument(graph).Graph.Links == std::vector<VisualScriptLink>{MakeLink(10, "Height", 11, "Message")});
+	CHECK(fixture.Ok("editor.undo")["undone"] == "Edit Visual Script in Timeline");
+	CHECK(fixture.GetDocument(graph).Graph.Links == stored.Graph.Links);
+
+	// A node of another type, and a damaged timeline, are refused, naming the operation and the field.
+	CommandError const refused = fixture.Fails(
+		"graph.edit",
+		Json::object({{"graph", graph},
+	                  {"operations", Json::array({Json::object({{"op", "SetTimeline"}, {"node", 11}, {"timeline", timeline}})})}}));
+	CHECK(refused.Code == AutomationErrorCode::InvalidParams);
+	CHECK(refused.Data["op"] == "SetTimeline");
+	CHECK(refused.Message.find("node 11 is no Flow.Timeline") != std::string::npos);
+	CommandError const damaged = fixture.Fails(
+		"graph.edit",
+		Json::object({{"graph", graph},
+	                  {"operations",
+	                   Json::array({Json::object({{"op", "SetTimeline"}, {"node", 10}, {"timeline", Json::object({{"Length", -1}})}})})}}));
+	CHECK(damaged.Code == AutomationErrorCode::InvalidParams);
+	CHECK(damaged.Data["path"] == "operations[0].timeline");
+	CHECK(damaged.Message.find("Timeline.Length: expected a number greater than 0 and at most 3600") != std::string::npos);
+}
+
+TEST_CASE("GraphCommands: graph.open's timeline opens the drawer on a Timeline's curves, which graph.editors reports")
+{
+	GraphWindowFixture fixture;
+	VisualScriptDocument document = MakeWindowDocument();
+	VisualScriptNode timeline = MakeNode(50, "Flow.Timeline");
+	timeline.Position = glm::vec2(640.0f, 320.0f);
+	document.Graph.Nodes.push_back(timeline);
+	std::string const graph = fixture.CreateGraph("Scripts/Window.sgraph", document);
+
+	Json const opened = fixture.Ok("graph.open", Json::object({{"graph", graph}, {"timeline", 50}}));
+	CHECK(opened["warnings"] == Json::array());
+	fixture.Frames(3);
+	Json editor = fixture.Editor(graph);
+	CHECK(editor["drawer"] == "Timeline");
+	CHECK(editor["timeline"] == Json::object({{"node", 50}}));
+
+	// Another drawer mode reports no timeline.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"problems", true}}));
+	fixture.Frames(2);
+	editor = fixture.Editor(graph);
+	CHECK(editor["drawer"] == "Problems");
+	CHECK_FALSE(editor.contains("timeline"));
+
+	// A node of another type, or of another sub-graph, is refused.
+	CommandError const other = fixture.Fails("graph.open", Json::object({{"graph", graph}, {"timeline", 11}}));
+	CHECK(other.Code == AutomationErrorCode::InvalidParams);
+	CHECK(other.Data["path"] == "timeline");
+	CHECK(fixture.Fails("graph.open", Json::object({{"graph", graph}, {"function", 30}, {"timeline", 50}})).Data["path"] == "timeline");
+
+	// The drawer closes once its node is gone.
+	fixture.Ok("graph.open", Json::object({{"graph", graph}, {"timeline", 50}}));
+	fixture.Frames(2);
+	REQUIRE(fixture.Editor(graph)["drawer"] == "Timeline");
+	fixture.Ok("graph.edit",
+	           Json::object({{"graph", graph}, {"operations", Json::array({Json::object({{"op", "Delete"}, {"elements", {50}}})})}}));
+	fixture.Frames(2);
+	CHECK(fixture.Editor(graph)["drawer"] == "Closed");
 }
 
 TEST_CASE("GraphCommands: graph.edit refuses what does not apply, naming the operation, and runs degraded without the runtime")

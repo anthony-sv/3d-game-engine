@@ -223,8 +223,8 @@ namespace Strada
 		// The operation that sets a setting whose change renames or removes pins or senders, so that links follow in the same
 		// step: a Sequence's Count (SetSequenceOutputs), a Switch's Cases (SetSwitchCases), the Parameters of Event.Custom and
 		// Event.Send (SetEventParameters), an Event.Custom's Name (RenameCustomEvent, which renames its senders too), an
-		// Array.Make's Count (SetArrayElements) and an Expression's Formula (SetFormula; VisualScriptLanguageEditing.h). Empty
-		// when SetSetting may set the setting.
+		// Array.Make's Count (SetArrayElements), an Expression's Formula (SetFormula) and a Flow.Timeline's Timeline
+		// (SetTimeline; both VisualScriptLanguageEditing.h). Empty when SetSetting may set the setting.
 		[[nodiscard]] std::string_view FindVisualScriptSettingOperation(VisualScriptNode const& node, std::string_view setting);
 		// Stores a node's setting; null removes it. The settings FindVisualScriptSettingOperation names an operation for are
 		// refused, naming it.

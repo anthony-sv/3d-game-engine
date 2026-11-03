@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Editor/VisualScripting/VisualScriptCurveEditor.h"
 #include "Editor/VisualScripting/VisualScriptFind.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
 #include "Editor/VisualScripting/VisualScriptQuickFixes.h"
@@ -39,13 +40,14 @@ namespace Strada
 		std::string Error;
 	};
 
-	// The drawer under a graph window's canvas, in one of two modes. Problems lists the analysis' diagnostics of the whole
+	// The drawer under a graph window's canvas, in one of three modes. Problems lists the analysis' diagnostics of the whole
 	// script: errors first, then by sub-graph (the event graph, then the functions in document order), then by where their
 	// node sits (top, then left); each row has its severity, code, message and place ("AddScore > Set Score") and the buttons
 	// of its quick fixes (one step each). A click on a row shows its sub-graph and selects and frames what it names. Find
 	// lists the matches of a text in this script or in every script of the project, or the references of an element (a
 	// custom event's senders in every script, since events are sent by name), grouped by script, then sub-graph; a click
-	// opens the match (another script's in its own window). Matches follow the documents as they change. Main thread only.
+	// opens the match (another script's in its own window). Matches follow the documents as they change. Timeline edits a
+	// Flow.Timeline of the shown sub-graph (VisualScriptCurveEditor, spec-slice3 §9.5). Main thread only.
 	class VisualScriptDrawer
 	{
 	public:
@@ -62,6 +64,13 @@ namespace Strada
 		void ShowFind(std::string text = {});
 		// Find lists the references of an element.
 		void ShowReferences(VisualScriptReference const& reference);
+		// Shows a Flow.Timeline node's tracks and curves, on one of its tracks when given (its row highlighted, its keys
+		// framed).
+		void ShowTimeline(uint32_t node, std::optional<uint32_t> track = std::nullopt);
+		// The node Timeline mode shows (the last one shown in another mode).
+		uint32_t GetTimelineNode() const { return m_Timeline.GetNode(); }
+		VisualScriptCurveEditor& GetCurveEditor() { return m_Timeline; }
+		VisualScriptCurveEditor const& GetCurveEditor() const { return m_Timeline; }
 		// Where a text is found: this script or every script of the project (the scope combo of Find).
 		VisualScriptFindScope GetScope() const { return m_Scope; }
 		void SetScope(VisualScriptFindScope scope) { m_Scope = scope; }
@@ -93,6 +102,7 @@ namespace Strada
 
 		VisualScriptWidgetCommits m_Commits;
 		VisualScriptDrawerMode m_Mode = VisualScriptDrawerMode::Problems;
+		VisualScriptCurveEditor m_Timeline;
 		// The problems in their order, and what they were ordered from: the analysis (the model's count of analyses and its
 		// object) and the stored document, which is not kept alive for it.
 		std::vector<VisualScriptDiagnostic> m_Problems;

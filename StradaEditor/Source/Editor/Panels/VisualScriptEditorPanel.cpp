@@ -10,6 +10,7 @@
 #include "Editor/VisualScripting/VisualScriptShortcuts.h"
 #include "Editor/VisualScripting/VisualScriptTheme.h"
 #include "Editor/VisualScripting/VisualScriptThemeStyle.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
@@ -471,6 +472,44 @@ namespace Strada
 			       diagnostic.Link->From.Pin == link.From.Pin && diagnostic.Link->To.Pin == link.To.Pin;
 		}
 
+		// Whether a window is the one of the ID or one of its child windows.
+		bool IsInsideWindow(ImGuiWindow const* window, ImGuiID id)
+		{
+			for (ImGuiWindow const* current = window; current != nullptr; current = current->ParentWindow)
+			{
+				if (current->ID == id)
+				{
+					return true;
+				}
+				if ((current->Flags & ImGuiWindowFlags_ChildWindow) == 0)
+				{
+					break;
+				}
+			}
+			return false;
+		}
+
+		// Whether a focused row (VisualScriptKeyRoute::Focused) claims the chord: the Timeline drawer gets those through the
+		// window's claim.
+		bool IsFocusedChord(ImGuiKeyChord chord)
+		{
+			return std::any_of(VisualScriptShortcuts.begin(), VisualScriptShortcuts.end(),
+			                   [chord](VisualScriptShortcut const& shortcut)
+			                   {
+								   return shortcut.Route == VisualScriptKeyRoute::Focused && shortcut.Chord == chord;
+							   });
+		}
+
+		// Whether the Timeline drawer has a key for the action.
+		bool IsTimelineAction(Action action)
+		{
+			return std::any_of(VisualScriptShortcuts.begin(), VisualScriptShortcuts.end(),
+			                   [action](VisualScriptShortcut const& shortcut)
+			                   {
+								   return shortcut.Route == VisualScriptKeyRoute::Timeline && shortcut.Action == action;
+							   });
+		}
+
 		// The keys My Script's row takes (spec §11.3 rule 5): what Details showing a row does with them.
 		bool IsRowAction(Action action)
 		{
@@ -770,6 +809,10 @@ namespace Strada
 		}
 		state.Save = m_SaveState;
 		state.Drawer = m_DrawerMode == VisualScriptDrawerMode::Closed ? VisualScriptDrawerMode::Closed : m_Drawer.GetMode();
+		if (state.Drawer == VisualScriptDrawerMode::Timeline)
+		{
+			state.TimelineNode = m_Drawer.GetTimelineNode();
+		}
 		state.FindOpen = m_FindBar.IsOpen();
 		state.FindText = m_FindBar.GetText();
 		state.FindIndex = m_FindBar.GetIndex();
@@ -945,6 +988,33 @@ namespace Strada
 				// The first match becomes the selection at the bar's draw (spec §13.2).
 				m_FindBar.Open(request.Find, true);
 			}
+			if (request.Timeline)
+			{
+				ShowTimeline(*request.Timeline);
+			}
+		}
+		// The Timeline drawer closes when its node is no longer a Timeline of the sub-graph shown (deleted, undone, another
+		// sub-graph shown).
+		if (m_DrawerMode == VisualScriptDrawerMode::Timeline)
+		{
+			VisualScriptNode const* node = nullptr;
+			if (m_Model.GetStoredDocument() != nullptr)
+			{
+				if (VisualScriptGraph const* graph = FindVisualScriptGraph(m_Model.GetDisplayDocument(), m_Model.GetFunction()))
+				{
+					uint32_t const id = m_Drawer.GetTimelineNode();
+					auto const found = std::find_if(graph->Nodes.begin(), graph->Nodes.end(),
+					                                [id](VisualScriptNode const& candidate)
+					                                {
+														return candidate.ID == id;
+													});
+					node = found != graph->Nodes.end() ? &*found : nullptr;
+				}
+			}
+			if (node == nullptr || node->Type != VisualScriptTimelineNodeType)
+			{
+				ShowDrawer(VisualScriptDrawerMode::Closed);
+			}
 		}
 		// A run of a creation and its name ends when another change replaced the document its last commit wrote.
 		if (m_NameRun && m_Model.GetStoredDocument() != m_NameRun->Written)
@@ -996,9 +1066,15 @@ namespace Strada
 			{
 				m_FocusedPart = VisualScriptWindowPart::Details;
 			}
+			else if (m_DrawerMode == VisualScriptDrawerMode::Timeline && m_Drawer.GetMode() == VisualScriptDrawerMode::Timeline &&
+			         IsInsideWindow(nav, m_DrawerWindow))
+			{
+				m_FocusedPart = VisualScriptWindowPart::Timeline;
+			}
 		}
 		m_WindowHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
 		m_CanvasOwner = ImGui::GetID("##canvasKeys");
+		m_TimelineOwner = ImGui::GetID("##timelineKeys");
 
 		ImGuiIO const& io = ImGui::GetIO();
 		bool const canvasKeys = m_FocusedPart == VisualScriptWindowPart::Canvas && !io.WantTextInput;
@@ -1022,6 +1098,11 @@ namespace Strada
 			{
 				RouteFocusedAction(shortcut.Action);
 			}
+		}
+		if (m_FocusedPart == VisualScriptWindowPart::Timeline && !io.WantTextInput)
+		{
+			ClaimTimelineKeys();
+			return;
 		}
 		// An overlay pane closes on Escape while it has the keyboard too (spec §10.1 rule 2): Escape is owned there as on the
 		// canvas, else ImGui's navigation cancel would only move the keyboard to the window (imgui.cpp:15190-15198).
@@ -1095,12 +1176,53 @@ namespace Strada
 		}
 	}
 
+	void VisualScriptEditorPanel::ClaimTimelineKeys()
+	{
+		// The drawer's keys are matched exactly under its key owner, as the canvas's are; Delete and Ctrl+A come through the
+		// window's claim of the focused chords (RouteFocusedAction).
+		VisualScriptCurveEditor& editor = m_Drawer.GetCurveEditor();
+		for (VisualScriptShortcut const& shortcut : VisualScriptShortcuts)
+		{
+			if (shortcut.Route != VisualScriptKeyRoute::Timeline || shortcut.Action == Action::Cancel || IsFocusedChord(shortcut.Chord))
+			{
+				continue;
+			}
+			if (ImGui::IsKeyChordPressed(shortcut.Chord, shortcut.Repeat ? ImGuiInputFlags_Repeat : ImGuiInputFlags_None, m_TimelineOwner))
+			{
+				editor.QueueAction(shortcut.Action);
+			}
+		}
+		// Escape ends the drawer's gesture, else gives the keyboard back to the canvas.
+		ImGui::SetKeyOwner(ImGuiKey_Escape, m_TimelineOwner);
+		if (!ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, m_TimelineOwner))
+		{
+			return;
+		}
+		if (editor.IsGestureActive())
+		{
+			editor.CancelGesture();
+		}
+		else if (ImGuiWindow* canvas = ImGui::FindWindowByID(m_CanvasWindow); canvas != nullptr)
+		{
+			ImGui::FocusWindow(canvas);
+		}
+	}
+
 	void VisualScriptEditorPanel::RouteFocusedAction(VisualScriptEditorAction action)
 	{
 		// Find opens the bar or the drawer whichever part has the keyboard.
 		if (action == Action::Find || action == Action::FindInProject)
 		{
 			HandlePanelAction(action);
+			return;
+		}
+		// The Timeline drawer owns the keys it has (Delete, Ctrl+A) while it has the keyboard; the others mean nothing there.
+		if (m_FocusedPart == VisualScriptWindowPart::Timeline)
+		{
+			if (IsTimelineAction(action))
+			{
+				m_Drawer.GetCurveEditor().QueueAction(action);
+			}
 			return;
 		}
 		// The row keys act on the row My Script selected, which Details shows, wherever the window's keyboard is (ruling R7.3):
@@ -1113,7 +1235,8 @@ namespace Strada
 		switch (m_FocusedPart)
 		{
 			case VisualScriptWindowPart::Sidebar:
-				// The other keys mean nothing in My Script.
+			case VisualScriptWindowPart::Timeline:
+				// The other keys mean nothing in My Script (the Timeline drawer's are routed above).
 				break;
 			case VisualScriptWindowPart::Details:
 				// The element Details shows: a My Script row's (whose other keys mean nothing), else the canvas's selection.
@@ -1156,6 +1279,12 @@ namespace Strada
 			m_Drawer.ShowProblems();
 		}
 		m_DrawerMode = mode;
+	}
+
+	void VisualScriptEditorPanel::ShowTimeline(uint32_t node, std::optional<uint32_t> track)
+	{
+		m_Drawer.ShowTimeline(node, track);
+		ShowDrawer(VisualScriptDrawerMode::Timeline);
 	}
 
 	void VisualScriptEditorPanel::UpdateWindowState()
@@ -2632,6 +2761,7 @@ namespace Strada
 		float const frame = ImGui::GetFrameHeight();
 		float const spacing = ImGui::GetStyle().ItemSpacing.x;
 		ImGui::BeginChild("##drawer", size, ImGuiChildFlags_None, ImGuiWindowFlags_None);
+		m_DrawerWindow = ImGui::GetCurrentWindow()->ID;
 		ImVec2 const available = ImGui::GetContentRegionAvail();
 		ImGui::BeginChild("##drawerContents", ImVec2(std::max(available.x - frame - spacing, 1.0f), std::max(available.y, 1.0f)),
 		                  ImGuiChildFlags_None, ImGuiWindowFlags_None);
@@ -2686,7 +2816,12 @@ namespace Strada
 		bool const detailsWasOpen = m_DetailsOverlay;
 
 		bool const drawerOpen = m_DrawerMode != VisualScriptDrawerMode::Closed;
-		float const drawerHeight = drawerOpen ? std::clamp(m_DrawerHeight * fontSize, VisualScriptDrawerMinHeight * fontSize,
+		// The Timeline drawer keeps a height of its own.
+		float& storedDrawerHeight =
+			m_DrawerMode == VisualScriptDrawerMode::Timeline && m_Drawer.GetMode() == VisualScriptDrawerMode::Timeline
+				? m_TimelineDrawerHeight
+				: m_DrawerHeight;
+		float const drawerHeight = drawerOpen ? std::clamp(storedDrawerHeight * fontSize, VisualScriptDrawerMinHeight * fontSize,
 		                                                   std::max(available.y * 0.6f, fontSize))
 		                                      : 0.0f;
 		float const rowHeight = std::max(available.y - (drawerOpen ? drawerHeight + splitter : 0.0f), 1.0f);
@@ -2779,7 +2914,7 @@ namespace Strada
 		ImGui::SetCursorScreenPos(ImVec2(m_CanvasMin.x - leftOfCanvas, m_CanvasMin.y + rowHeight));
 		if (DrawSplitter("##drawerSplitter", ImVec2(available.x, splitter), false, delta))
 		{
-			m_DrawerHeight = std::max((drawerHeight - delta) / fontSize, VisualScriptDrawerMinHeight);
+			storedDrawerHeight = std::max((drawerHeight - delta) / fontSize, VisualScriptDrawerMinHeight);
 		}
 		DrawDrawer(ImVec2(available.x, drawerHeight));
 	}
@@ -4038,6 +4173,10 @@ namespace Strada
 			m_Drawer.ShowReferences(*result.FindReferences);
 			ShowDrawer(VisualScriptDrawerMode::Find);
 		}
+		if (result.ShowTimeline)
+		{
+			ShowTimeline(result.ShowTimeline->Node, result.ShowTimeline->Track);
+		}
 		for (std::string& note : result.Notes)
 		{
 			AddToast(std::move(note));
@@ -4253,6 +4392,10 @@ namespace Strada
 		if (value.EditText)
 		{
 			OpenTextEdit(*value.EditText);
+		}
+		if (value.ShowTimeline)
+		{
+			ShowTimeline(*value.ShowTimeline);
 		}
 		if (value.Reveal)
 		{

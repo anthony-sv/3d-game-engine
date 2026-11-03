@@ -25,6 +25,8 @@ namespace Strada
 		View,
 		Navigate,
 		Find,
+		// The drawer's Timeline mode (spec-slice3 §9.5).
+		Timeline,
 		Help
 	};
 
@@ -48,6 +50,8 @@ namespace Strada
 				return "Navigate";
 			case VisualScriptShortcutGroup::Find:
 				return "Find";
+			case VisualScriptShortcutGroup::Timeline:
+				return "Timeline";
 			case VisualScriptShortcutGroup::Help:
 				return "Help";
 		}
@@ -67,7 +71,11 @@ namespace Strada
 		Canvas,
 		// Never dispatched as a chord: Escape is read with the canvas's key ownership, and a Space tap by the canvas model from
 		// its input.
-		Owned
+		Owned,
+		// The Timeline drawer's keys, while it has the keyboard and no text field has (spec-slice3 §9.5): matched exactly under
+		// the drawer's key owner, as the canvas's are, except the chords a Focused row claims (Delete, Ctrl+A), which reach the
+		// drawer through the window's claim. Escape ends the drawer's gesture, else gives the keyboard back to the canvas.
+		Timeline
 	};
 
 	struct VisualScriptShortcut
@@ -92,7 +100,7 @@ namespace Strada
 		inline constexpr ImGuiKeyChord Shift = ImGuiMod_Shift;
 		inline constexpr ImGuiKeyChord Alt = ImGuiMod_Alt;
 
-		inline constexpr std::array<VisualScriptShortcut, 60> Shortcuts = {{
+		inline constexpr std::array<VisualScriptShortcut, 68> Shortcuts = {{
 			{ImGuiKey_Tab, Action::OpenPalette, Group::Create, Route::Canvas, false, "Add a node (the palette)"},
 			{ImGuiKey_Space, Action::OpenPalette, Group::Create, Route::Owned, false,
 		     "Add a node: tap Space, or hold it and type the node's name"},
@@ -163,13 +171,26 @@ namespace Strada
 			{Ctrl | ImGuiKey_F, Action::Find, Group::Find, Route::Focused, false, "Find in this script"},
 			{Ctrl | Shift | ImGuiKey_F, Action::FindInProject, Group::Find, Route::Focused, false, "Find in the project"},
 
+			{ImGuiKey_Delete, Action::Delete, Group::Timeline, Route::Timeline, false, "Remove the selected keys"},
+			{Ctrl | ImGuiKey_A, Action::SelectAll, Group::Timeline, Route::Timeline, false, "Select every key of the visible tracks"},
+			{ImGuiKey_LeftArrow, Action::NudgeLeft, Group::Timeline, Route::Timeline, true, "Move the selected keys 0.01 s earlier"},
+			{ImGuiKey_RightArrow, Action::NudgeRight, Group::Timeline, Route::Timeline, true, "Move the selected keys 0.01 s later"},
+			{Shift | ImGuiKey_LeftArrow, Action::NudgeLeftCoarse, Group::Timeline, Route::Timeline, true,
+		     "Move the selected keys 0.1 s earlier"},
+			{Shift | ImGuiKey_RightArrow, Action::NudgeRightCoarse, Group::Timeline, Route::Timeline, true,
+		     "Move the selected keys 0.1 s later"},
+			{ImGuiKey_F, Action::FrameSelection, Group::Timeline, Route::Timeline, false,
+		     "Frame the selected keys (everything without any)"},
+			{ImGuiKey_Escape, Action::Cancel, Group::Timeline, Route::Timeline, false,
+		     "End the drag; else give the keyboard back to the canvas"},
+
 			{ImGuiKey_F1, Action::ShowShortcuts, Group::Help, Route::Canvas, false, "Show these shortcuts"},
 		}};
 	}
 
 	// Every key of the graph windows, grouped as the shortcut sheet lists them. An action may have several keys (Delete and
 	// Ctrl+Backspace); its first row names it in menus.
-	inline constexpr std::array<VisualScriptShortcut, 60> const& VisualScriptShortcuts = VisualScriptShortcutsDetail::Shortcuts;
+	inline constexpr std::array<VisualScriptShortcut, 68> const& VisualScriptShortcuts = VisualScriptShortcutsDetail::Shortcuts;
 
 	// The editor's global chords (EditorLayer's and its editing keys', EditorEditingKeys), which no canvas key equals: graph
 	// windows shadow only the editing chords they claim while focused (Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+D, Delete,
@@ -238,7 +259,18 @@ namespace Strada
 		HorizontalWheel,
 		Back,
 		Forward,
-		Drop
+		Drop,
+		// The Timeline drawer's curve view (spec-slice3 §9.5).
+		TimelineSelectKey,
+		TimelineMarquee,
+		TimelineMoveKeys,
+		TimelineTangent,
+		TimelineAddKey,
+		TimelineKeyMenu,
+		TimelineZoomTime,
+		TimelineZoomValues,
+		TimelinePanRight,
+		TimelinePanMiddle
 	};
 
 	enum class VisualScriptMouseButton : uint8_t
@@ -287,7 +319,7 @@ namespace Strada
 		using Button = VisualScriptMouseButton;
 		using Motion = VisualScriptMouseMotion;
 
-		inline constexpr std::array<VisualScriptMouseGesture, 27> MouseGestures = {{
+		inline constexpr std::array<VisualScriptMouseGesture, 37> MouseGestures = {{
 			{Id::Select, ImGuiKey_None, false, Button::Left, Motion::Click, "Node", "Select it (Shift adds, Ctrl toggles)"},
 			{Id::ClearSelection, ImGuiKey_None, false, Button::Left, Motion::Click, "Background", "Clear the selection"},
 			{Id::MoveNodes, ImGuiKey_None, false, Button::Left, Motion::Drag, "Node", "Move the selection"},
@@ -322,10 +354,26 @@ namespace Strada
 			{Id::Forward, ImGuiKey_None, false, Button::Forward, Motion::Click, "Window", "Forward"},
 			{Id::Drop, ImGuiKey_None, false, Button::Left, Motion::Drop, "Pin or canvas",
 		     "Set a value or add a node from a dropped asset, entity or My Script row"},
+			{Id::TimelineSelectKey, ImGuiKey_None, false, Button::Left, Motion::Click, "Timeline key",
+		     "Select it (Shift adds, Ctrl toggles)"},
+			{Id::TimelineMarquee, ImGuiKey_None, false, Button::Left, Motion::Drag, "Timeline curves",
+		     "Select the keys within a rectangle (Shift adds, Ctrl removes)"},
+			{Id::TimelineMoveKeys, ImGuiKey_None, false, Button::Left, Motion::Drag, "Timeline key",
+		     "Move the selected keys as a block: times snap to 0.01 s (Alt: free), Shift keeps one axis"},
+			{Id::TimelineTangent, ImGuiKey_None, false, Button::Left, Motion::Drag, "Timeline tangent handle",
+		     "Set the key's two tangents (Alt: this one alone)"},
+			{Id::TimelineAddKey, ImGuiKey_None, false, Button::Left, Motion::DoubleClick, "Timeline curve or event lane",
+		     "Add a key there with the curve's value, or an event"},
+			{Id::TimelineKeyMenu, ImGuiKey_None, false, Button::Right, Motion::Click, "Timeline key", "Interpolation, Tangents and Delete"},
+			{Id::TimelineZoomTime, ImGuiKey_None, false, Button::Wheel, Motion::Scroll, "Timeline curves", "Zoom time around the cursor"},
+			{Id::TimelineZoomValues, ImGuiMod_Ctrl, false, Button::Wheel, Motion::Scroll, "Timeline curves",
+		     "Zoom values around the cursor"},
+			{Id::TimelinePanRight, ImGuiKey_None, false, Button::Right, Motion::Drag, "Timeline curves", "Pan"},
+			{Id::TimelinePanMiddle, ImGuiKey_None, false, Button::Middle, Motion::Drag, "Timeline curves", "Pan"},
 		}};
 	}
 
-	inline constexpr std::array<VisualScriptMouseGesture, 27> const& VisualScriptMouseGestures = VisualScriptShortcutsDetail::MouseGestures;
+	inline constexpr std::array<VisualScriptMouseGesture, 37> const& VisualScriptMouseGestures = VisualScriptShortcutsDetail::MouseGestures;
 
 	// The first key of an action (the one menus show); null when it has none.
 	[[nodiscard]] constexpr VisualScriptShortcut const* FindVisualScriptShortcut(VisualScriptEditorAction action)

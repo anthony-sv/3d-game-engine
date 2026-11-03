@@ -9,6 +9,7 @@
 #include "Editor/VisualScripting/VisualScriptLanguageEditing.h"
 #include "Editor/VisualScripting/VisualScriptNodeTitles.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 
 #include "Strada/Asset/AssetManager.h"
 #include "Strada/Core/FileSystem.h"
@@ -1967,6 +1968,10 @@ namespace Strada
 				{
 					return std::optional<std::string>("Edit Formula");
 				}
+				if (stored->Type == VisualScriptTimelineNodeType)
+				{
+					return std::optional<std::string>("Edit Timeline");
+				}
 				if (stored->Type == "Event.Send")
 				{
 					std::optional<std::string> const name = ReadString(stored->Settings, "Name");
@@ -2053,6 +2058,12 @@ namespace Strada
 					{
 						m_Result.EditText = VisualScriptTextEditRequest{VisualScriptTextEditKind::Formula, node, formula};
 					}
+					return {};
+				}
+				if (stored->Type == VisualScriptTimelineNodeType)
+				{
+					// Its tracks and curves open in the drawer.
+					m_Result.ShowTimeline = node;
 					return {};
 				}
 				if (stored->Type == "Event.Send")

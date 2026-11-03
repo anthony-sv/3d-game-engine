@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <unordered_set>
 
 namespace Strada::VisualScriptEditing
 {
@@ -468,5 +469,90 @@ namespace Strada::VisualScriptEditing
 		change.RenamedInputs = changes.Renamed;
 		expression.Settings[FormulaSetting] = std::move(formula);
 		return change;
+	}
+
+	Result<uint32_t> SetTimeline(VisualScriptDocument& document, uint32_t node, VisualScriptTimeline const& timeline,
+	                             std::span<VisualScriptTrackRename const> renames)
+	{
+		Result<NodePlace> place = GetNodeOfType(document, node, VisualScriptTimelineNodeType);
+		if (!place)
+		{
+			return Error{place.GetError()};
+		}
+		if (Result<void> checked = CheckVisualScriptTimeline(timeline); !checked)
+		{
+			return Error{checked.GetError()};
+		}
+		VisualScriptGraph& graph = *place.GetValue().Graph;
+		VisualScriptNode& owner = *place.GetValue().Node;
+		std::string const setting(VisualScriptTimelineSetting);
+		if (!owner.Settings.contains(setting) && owner.Settings.size() >= Format::MaxSettingsMembers)
+		{
+			return MakeError("a node holds at most {} settings", Format::MaxSettingsMembers);
+		}
+		auto const current = owner.Settings.find(setting);
+		std::vector<std::pair<std::string, std::string>> const before = current != owner.Settings.end()
+		                                                                    ? ListVisualScriptTimelineTrackPins(*current)
+		                                                                    : std::vector<std::pair<std::string, std::string>>();
+		auto const findTrack = [&timeline](std::string_view name) -> VisualScriptTimelineTrack const*
+		{
+			auto const found = std::find_if(timeline.Tracks.begin(), timeline.Tracks.end(),
+			                                [name](VisualScriptTimelineTrack const& track)
+			                                {
+												return track.Name == name;
+											});
+			return found != timeline.Tracks.end() ? &*found : nullptr;
+		};
+		std::unordered_set<std::string> from;
+		std::unordered_set<std::string> to;
+		for (VisualScriptTrackRename const& rename : renames)
+		{
+			bool const known = std::any_of(before.begin(), before.end(),
+			                               [&rename](auto const& pin)
+			                               {
+											   return pin.first == rename.From;
+										   });
+			if (!known)
+			{
+				return MakeError("the timeline of node {} has no track {} to rename", node, rename.From);
+			}
+			if (findTrack(rename.To) == nullptr)
+			{
+				return MakeError("the new timeline has no track {}: a rename names the track's new name", rename.To);
+			}
+			if (!from.insert(rename.From).second)
+			{
+				return MakeError("track {} is renamed twice", rename.From);
+			}
+			if (!to.insert(rename.To).second)
+			{
+				return MakeError("two tracks are renamed to {}", rename.To);
+			}
+		}
+
+		// Each current track pin goes to the track it is renamed to, else the one of its name; its links stay when that
+		// track has its type.
+		VisualScriptPinChanges changes;
+		for (auto const& [name, type] : before)
+		{
+			auto const renamed = std::find_if(renames.begin(), renames.end(),
+			                                  [&name](VisualScriptTrackRename const& rename)
+			                                  {
+												  return rename.From == name;
+											  });
+			std::string const& target = renamed != renames.end() ? renamed->To : name;
+			VisualScriptTimelineTrack const* const track = findTrack(target);
+			if (track == nullptr || track->Type != type || (renamed == renames.end() && to.contains(name)))
+			{
+				changes.Removed.push_back(name);
+			}
+			else if (target != name)
+			{
+				changes.Renamed.emplace_back(name, target);
+			}
+		}
+		uint32_t const removed = ApplyVisualScriptPinChanges(graph, owner, VisualScriptPinDirection::Out, changes);
+		owner.Settings[setting] = WriteVisualScriptTimeline(timeline);
+		return removed;
 	}
 }

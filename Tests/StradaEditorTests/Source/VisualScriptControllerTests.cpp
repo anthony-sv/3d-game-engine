@@ -1526,3 +1526,19 @@ TEST_CASE("VisualScriptEditor: opening an Expression edits its formula in place,
 	// The formula unchanged commits nothing.
 	CHECK_FALSE(fixture.Edit(VisualScriptFormulaEdit{40, "velocity * dt"}).Commit.has_value());
 }
+
+TEST_CASE("VisualScriptEditor: opening a Timeline shows its tracks and curves in the drawer")
+{
+	VisualScriptDocument document = MakeDocument();
+	document.Graph.Nodes.push_back(MakeNode(43, "Flow.Timeline", glm::vec2(0.0f, 960.0f)));
+	ControllerFixture fixture(document);
+
+	VisualScriptControllerResult const opened = fixture.Act(Action::OpenNode, {43});
+	CHECK(opened.ShowTimeline == std::optional<uint32_t>(43));
+	CHECK_FALSE(opened.Reveal.has_value());
+	CHECK_FALSE(opened.EditText.has_value());
+	CHECK(fixture.History().GetUndoCount() == 0);
+	// The node menu's Open item says so.
+	fixture.Select({43});
+	CHECK(BuildVisualScriptNodeMenu(fixture.Context()).front().Label == "Edit Timeline");
+}

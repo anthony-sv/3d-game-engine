@@ -193,6 +193,8 @@ namespace Strada
 		std::optional<VisualScriptTextEditRequest> EditText;
 		// A row or node to show.
 		std::optional<VisualScriptReveal> Reveal;
+		// A Flow.Timeline node whose tracks and curves the drawer shows (Open on a Timeline, spec-slice3 §9.5).
+		std::optional<uint32_t> ShowTimeline;
 		// The Get or Set menu of a dropped variable.
 		std::optional<VisualScriptElementDropMenu> DropMenu;
 		// Arrange: where the arranged nodes stood before (node ID, position), for the renderer's glide.

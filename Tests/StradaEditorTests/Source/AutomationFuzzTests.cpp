@@ -540,8 +540,9 @@ namespace
 					choices = elements->second;
 				}
 			}
-			else if (property == "node")
+			else if (property == "node" || property == "timeline")
 			{
+				// graph.open's timeline: the seed's nodes, of which those of other types answer InvalidParams.
 				choices = m_State.GraphNodes;
 			}
 			else if (property == "id")
@@ -699,11 +700,11 @@ namespace
 			};
 			std::vector<std::string> const types = {
 				"Flow.Branch", "Flow.Sequence", "Operator.Add", "Event.Custom", "Call:Strada.Log.Info(string)",
-				"Flow.Delay",  "Expression",    "Array.Make"};
+				"Flow.Delay",  "Expression",    "Array.Make",   "Flow.Timeline"};
 			std::vector<std::string> const kinds = {
-				"AddNode",        "Move",           "SetPosition", "SetInput",    "SetSetting",       "Disconnect",
-				"InsertReroute",  "AddComment",     "SetComment",  "AddVariable", "SetVariable",      "Delete",
-				"DeleteVariable", "DeleteFunction", "Arrange",     "Paste",       "SetArrayElements", "SetFormula"};
+				"AddNode",    "Move",       "SetPosition",      "SetInput",    "SetSetting", "Disconnect",     "InsertReroute",
+				"AddComment", "SetComment", "AddVariable",      "SetVariable", "Delete",     "DeleteVariable", "DeleteFunction",
+				"Arrange",    "Paste",      "SetArrayElements", "SetFormula",  "SetTimeline"};
 			std::vector<std::string> const formulas = {"a * b + sin(t)", "speed * dt", "velocity * dt", "x + (", ""};
 			Json batch = Json::array();
 			for (size_t count = 1 + m_Random.Pick(6); count > 0; count--)
@@ -737,6 +738,16 @@ namespace
 				{
 					operation["node"] = node();
 					operation["formula"] = PickFrom(formulas);
+				}
+				else if (kind == "SetTimeline")
+				{
+					// A node of another type answers InvalidParams, as does a damaged timeline.
+					std::vector<std::string> const timelines = {
+						R"({"Length": 2, "Tracks": [{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 1}]}]})",
+						R"({"Length": 1, "Loop": true, "Tracks": [{"Name": "Step", "Type": "exec", "Keys": [{"Time": 0.5}]}]})",
+						R"({"Length": 0})"};
+					operation["node"] = node();
+					operation["timeline"] = Json::parse(PickFrom(timelines));
 				}
 				else if (kind == "Move")
 				{

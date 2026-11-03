@@ -329,6 +329,8 @@ namespace Strada
 			case Action::NudgeRightFine:
 			case Action::NudgeUpFine:
 			case Action::NudgeDownFine:
+			case Action::NudgeLeftCoarse:
+			case Action::NudgeRightCoarse:
 				return true;
 			case Action::Copy:
 			case Action::SelectAll:

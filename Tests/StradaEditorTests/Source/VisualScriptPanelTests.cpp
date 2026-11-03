@@ -10,6 +10,7 @@
 #include "Editor/VisualScripting/VisualScriptEditorModel.h"
 #include "Editor/VisualScripting/VisualScriptGeometry.h"
 #include "Editor/VisualScripting/VisualScriptPanes.h"
+#include "Editor/VisualScripting/VisualScriptTimeline.h"
 #include "Editor/VisualScripting/VisualScriptViewSettings.h"
 
 #include "Strada/Asset/AssetManager.h"
@@ -1750,4 +1751,332 @@ TEST_CASE("VisualScriptEditor: the palette's Game category ends with a row count
 	fixture.Frames(2);
 	REQUIRE(fixture.Panel->GetState().PaletteOpen);
 	CHECK(fixture.Panel->GetPaletteState().NotesRow == "2 [VisualNode] members have no node: see the Console");
+}
+
+namespace
+{
+	// Create (1) and a Timeline (2) of 2 s: Lift, a float curve with keys at 0, 1 and 2 s, and Step, an event at 1.5 s.
+	VisualScriptDocument MakeTimelineDocument(bool tracks)
+	{
+		VisualScriptDocument document;
+		Json settings = Json::object();
+		if (tracks)
+		{
+			Result<Json> timeline = ParseJson(R"({"Length": 2, "Loop": false, "Tracks": [
+				{"Name": "Lift", "Type": "float", "Keys": [{"Time": 0, "Value": 0}, {"Time": 1, "Value": 1}, {"Time": 2, "Value": 0}]},
+				{"Name": "Step", "Type": "exec", "Keys": [{"Time": 1.5}]}]})");
+			REQUIRE(timeline.IsOk());
+			settings["Timeline"] = timeline.GetValue();
+		}
+		document.Graph.Nodes = {MakeNode(1, "Event.Create", glm::vec2(0.0f, 0.0f)),
+		                        MakeNode(2, "Flow.Timeline", glm::vec2(400.0f, 0.0f), settings)};
+		return document;
+	}
+
+	glm::vec2 GetCenter(std::pair<glm::vec2, glm::vec2> const& rect)
+	{
+		return (rect.first + rect.second) * 0.5f;
+	}
+
+	// What the Timeline drawer of the fixture's window drew in its last frame.
+	VisualScriptCurveEditor const& GetCurveEditor(PanelFixture const& fixture)
+	{
+		return fixture.Panel->GetDrawer().GetCurveEditor();
+	}
+
+	glm::vec2 FindTimelinePart(PanelFixture const& fixture, std::string_view part)
+	{
+		std::optional<std::pair<glm::vec2, glm::vec2>> const rect = GetCurveEditor(fixture).FindRect(part);
+		REQUIRE_MESSAGE(rect.has_value(), "the Timeline drawer drew no ", std::string(part));
+		return GetCenter(*rect);
+	}
+
+	VisualScriptTimeline ReadStoredTimeline(PanelFixture const& fixture)
+	{
+		VisualScriptNode const* node = fixture.FindNode(2);
+		REQUIRE(node != nullptr);
+		Result<VisualScriptTimeline> timeline = ReadVisualScriptTimeline(*node);
+		REQUIRE_MESSAGE(timeline.IsOk(), timeline.GetError());
+		return timeline.TakeValue();
+	}
+
+	// The screen position of a key's diamond in the drawer's last frame.
+	glm::vec2 FindKey(PanelFixture const& fixture, uint32_t track, uint32_t key)
+	{
+		std::optional<glm::vec2> const position =
+			GetCurveEditor(fixture).GetView().GetKeyPosition(ReadStoredTimeline(fixture), track, key, 0);
+		REQUIRE(position.has_value());
+		return *position;
+	}
+
+	void OpenTimeline(PanelFixture& fixture)
+	{
+		VisualScriptOpenRequest request;
+		request.Graph = fixture.Graph;
+		request.Timeline = 2;
+		fixture.Panel->Apply(request);
+		fixture.Frames(3);
+		REQUIRE(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Timeline);
+	}
+}
+
+TEST_CASE(
+	"VisualScriptEditor: a double click on a Timeline's header opens its tracks and curves in the drawer, which graph.editors reports")
+{
+	PanelFixture fixture(MakeTimelineDocument(false));
+	fixture.CheckDrawingChangesNothing();
+	REQUIRE(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Closed);
+	fixture.Gui.MouseClick(ToImVec2(Testing::CanvasPoint(fixture.Model(), 2, glm::vec2(0.5f, 0.06f))), ImGuiMouseButton_Left,
+	                       fixture.Drawer(), 2);
+	fixture.Frames(2);
+	VisualScriptEditorState const state = fixture.Panel->GetState();
+	CHECK(state.Drawer == VisualScriptDrawerMode::Timeline);
+	CHECK(state.TimelineNode == std::optional<uint32_t>(2));
+	// A timeline without tracks shows "No tracks yet" with the six add buttons.
+	CHECK(GetCurveEditor(fixture).GetDrawRecord().Empty);
+	for (std::string_view const kind : {"Add Float", "Add Vector2", "Add Vector3", "Add Vector4", "Add Color", "Add Event"})
+	{
+		CAPTURE(kind);
+		CHECK(GetCurveEditor(fixture).FindRect(kind).has_value());
+	}
+	fixture.CheckDrawingChangesNothing();
+}
+
+TEST_CASE("VisualScriptEditor: the Timeline drawer adds, renames, retypes and removes tracks and adds keys without Details, one step each")
+{
+	PanelFixture fixture(MakeTimelineDocument(false));
+	fixture.CheckDrawingChangesNothing();
+	OpenTimeline(fixture);
+	size_t const undo = fixture.GetUndoCount();
+	CommandHistory const& history = fixture.Context.GetHistory();
+
+	fixture.Click(FindTimelinePart(fixture, "Add Float"));
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(history.GetUndoDescription() == "Add Track Curve to Timeline in Player");
+	REQUIRE(ReadStoredTimeline(fixture).Tracks.size() == 1);
+	CHECK_FALSE(GetCurveEditor(fixture).GetDrawRecord().Empty);
+	CHECK(GetCurveEditor(fixture).GetDrawRecord().Curves == 1);
+
+	// A double click on the curve adds a key there with the curve's value (0, a track without keys).
+	VisualScriptCurveView const& view = GetCurveEditor(fixture).GetView();
+	glm::vec2 const onCurve(view.ToScreenX(0.5), view.ToScreenY(0.0));
+	fixture.Gui.MouseClick(ToImVec2(onCurve), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(history.GetUndoDescription() == "Add Key to Curve on Timeline in Player");
+	REQUIRE(ReadStoredTimeline(fixture).Tracks[0].Keys.size() == 1);
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[0].Time == doctest::Approx(0.5f));
+
+	// A double click on its name renames it.
+	fixture.Gui.MouseClick(ToImVec2(FindTimelinePart(fixture, "Track 0")), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(2);
+	REQUIRE(GetCurveEditor(fixture).FindRect("Track 0 Name").has_value());
+	REQUIRE(ImGui::GetIO().WantTextInput);
+	fixture.Gui.Type("Lift");
+	fixture.Frames(1);
+	fixture.Gui.Press(ImGuiKey_Enter, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(history.GetUndoDescription() == "Rename Track Curve to Lift on Timeline in Player");
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Name == "Lift");
+
+	// Its menu changes its type and removes it.
+	fixture.Click(FindTimelinePart(fixture, "Track 0"), ImGuiMouseButton_Right);
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	std::optional<glm::vec2> const change = fixture.FindPopupItem("Change Type");
+	REQUIRE(change.has_value());
+	fixture.Frames(2);
+	REQUIRE(GImGui->OpenPopupStack.Size == 2);
+	std::optional<glm::vec2> const vector3 = fixture.FindPopupItem("Vector3");
+	REQUIRE(vector3.has_value());
+	fixture.Click(*vector3);
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 4);
+	CHECK(history.GetUndoDescription() == "Change Lift to Vector3 on Timeline in Player");
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Type == "Strada.Vector3");
+	// Three components drawn, with their toggles.
+	CHECK(GetCurveEditor(fixture).GetDrawRecord().Curves == 3);
+	CHECK(GetCurveEditor(fixture).FindRect("Track 0 Component 2").has_value());
+
+	fixture.Click(FindTimelinePart(fixture, "Track 0"), ImGuiMouseButton_Right);
+	fixture.Frames(1);
+	std::optional<glm::vec2> const remove = fixture.FindPopupItem("Remove");
+	REQUIRE(remove.has_value());
+	fixture.Click(*remove);
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 5);
+	CHECK(history.GetUndoDescription() == "Remove Track Lift from Timeline in Player");
+	CHECK(GetCurveEditor(fixture).GetDrawRecord().Empty);
+}
+
+TEST_CASE("VisualScriptEditor: the Timeline drawer draws curves and events and selects keys by click, Shift, Ctrl and marquee")
+{
+	PanelFixture fixture(MakeTimelineDocument(true));
+	fixture.CheckDrawingChangesNothing();
+	OpenTimeline(fixture);
+	VisualScriptCurveDrawRecord const record = GetCurveEditor(fixture).GetDrawRecord();
+	CHECK(record.Curves == 1);
+	CHECK(record.CurveKeys == 3);
+	CHECK(record.EventKeys == 1);
+	VisualScriptCurveView const& view = GetCurveEditor(fixture).GetView();
+	using Refs = std::vector<VisualScriptTimelineKeyRef>;
+	auto const selection = [&view]
+	{
+		return Refs(view.GetSelection().begin(), view.GetSelection().end());
+	};
+
+	fixture.Click(FindKey(fixture, 0, 1));
+	CHECK(selection() == Refs{{0, 1}});
+	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Shift, true);
+	fixture.Click(FindKey(fixture, 1, 0));
+	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Shift, false);
+	CHECK(selection() == Refs{{0, 1}, {1, 0}});
+	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Ctrl, true);
+	fixture.Click(FindKey(fixture, 0, 1));
+	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Ctrl, false);
+	CHECK(selection() == Refs{{1, 0}});
+	// The selected cubic key shows its tangent handles (past the double-click time, so the click is one of its own).
+	fixture.Frames(30);
+	fixture.Click(FindKey(fixture, 0, 1));
+	CHECK(GetCurveEditor(fixture).GetDrawRecord().TangentHandles == 2);
+
+	// A marquee from empty space over the first two keys of Lift.
+	glm::vec2 const from(view.ToScreenX(-0.1), view.GetCurvesTop() + 2.0f);
+	glm::vec2 const to(view.ToScreenX(1.2), view.GetMax().y - 2.0f);
+	fixture.Gui.DragPath(ToImVec2(from), ToImVec2(to), fixture.Drawer());
+	CHECK(selection() == Refs{{0, 0}, {0, 1}});
+	CHECK(fixture.GetUndoCount() == 0);
+
+	// The eye hides a track: it is not drawn.
+	fixture.Click(FindTimelinePart(fixture, "Track 1 Eye"));
+	fixture.Frames(1);
+	CHECK(GetCurveEditor(fixture).GetDrawRecord().EventKeys == 0);
+	CHECK_FALSE(view.GetTrackView("Step").Visible);
+	fixture.CheckDrawingChangesNothing();
+}
+
+TEST_CASE("VisualScriptEditor: a key dragged in the Timeline drawer is one merged step reaching the document at the widget cadence")
+{
+	PanelFixture fixture(MakeTimelineDocument(true));
+	fixture.CheckDrawingChangesNothing();
+	OpenTimeline(fixture);
+	size_t const undo = fixture.GetUndoCount();
+	glm::vec2 const key = FindKey(fixture, 0, 1);
+	ImGuiIO& io = ImGui::GetIO();
+	io.AddMousePosEvent(key.x, key.y);
+	fixture.Frames(1);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	fixture.Frames(1);
+	uint64_t const version = fixture.GetVersion();
+	for (int frame = 1; frame <= 3; frame++)
+	{
+		io.AddMousePosEvent(key.x + 10.0f * static_cast<float>(frame), key.y);
+		fixture.Frames(1);
+	}
+	// The first change at once, the others at the cadence (held still 0.1 s).
+	CHECK(fixture.GetVersion() == version + 1);
+	fixture.Frames(8);
+	CHECK(fixture.GetVersion() == version + 2);
+	io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	fixture.Frames(3);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Move Key of Lift on Timeline in Player");
+	VisualScriptCurveView const& view = GetCurveEditor(fixture).GetView();
+	// Snapped to 0.01 s.
+	float const moved = ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time;
+	CHECK(moved > 1.0f);
+	CHECK(std::abs(moved * 100.0f - std::round(moved * 100.0f)) < 1e-3f);
+	CHECK(view.GetGesture() == VisualScriptCurveGesture::Idle);
+
+	// A tangent handle of the selected key, dragged: one step more.
+	std::optional<glm::vec2> const handle = view.GetTangentHandle(ReadStoredTimeline(fixture), 0, 1, 0, true);
+	REQUIRE(handle.has_value());
+	fixture.Gui.DragPath(ToImVec2(*handle), ToImVec2(*handle + glm::vec2(0.0f, -40.0f)), fixture.Drawer());
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Edit Tangent of Lift on Timeline in Player");
+	VisualScriptTimelineKey const tangent = ReadStoredTimeline(fixture).Tracks[0].Keys[1];
+	REQUIRE(tangent.Out.has_value());
+	CHECK(tangent.In == tangent.Out);
+}
+
+TEST_CASE("VisualScriptEditor: the Timeline drawer's keys, menu, double clicks, wheel and pan act while it has the keyboard")
+{
+	PanelFixture fixture(MakeTimelineDocument(true));
+	fixture.CheckDrawingChangesNothing();
+	OpenTimeline(fixture);
+	CommandHistory const& history = fixture.Context.GetHistory();
+	size_t const undo = fixture.GetUndoCount();
+	VisualScriptCurveView const& view = GetCurveEditor(fixture).GetView();
+
+	// A double click on the event lane adds an event.
+	std::optional<std::pair<float, float>> const lane = view.GetLane(1);
+	REQUIRE(lane.has_value());
+	fixture.Gui.MouseClick(ImVec2(view.ToScreenX(0.5), (lane->first + lane->second) * 0.5f), ImGuiMouseButton_Left, fixture.Drawer(), 2);
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(history.GetUndoDescription() == "Add Key to Step on Timeline in Player");
+	CHECK(ReadStoredTimeline(fixture).Tracks[1].Keys.size() == 2);
+
+	// A right click on a key opens its menu; Interpolation > Linear sets it.
+	fixture.Click(FindKey(fixture, 0, 1), ImGuiMouseButton_Right);
+	fixture.Frames(1);
+	REQUIRE(GImGui->OpenPopupStack.Size == 1);
+	REQUIRE(fixture.FindPopupItem("Interpolation").has_value());
+	fixture.Frames(2);
+	std::optional<glm::vec2> const linear = fixture.FindPopupItem("Linear");
+	REQUIRE(linear.has_value());
+	fixture.Click(*linear);
+	fixture.Frames(2);
+	CHECK(fixture.GetUndoCount() == undo + 2);
+	CHECK(history.GetUndoDescription() == "Set Key of Lift to Linear on Timeline in Player");
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Interpolation == VisualScriptKeyInterpolation::Linear);
+
+	// The drawer has the keyboard after a click in it: the arrows nudge, Shift ten times as far, Delete removes, Ctrl+A selects all.
+	fixture.Click(FindKey(fixture, 0, 1));
+	fixture.Gui.Press(ImGuiKey_RightArrow, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 3);
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time == doctest::Approx(1.01f));
+	fixture.Gui.Chord(ImGuiMod_Shift | ImGuiKey_LeftArrow, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys[1].Time == doctest::Approx(0.91f));
+	fixture.Gui.Press(ImGuiKey_Delete, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(history.GetUndoDescription() == "Delete Key of Lift on Timeline in Player");
+	CHECK(ReadStoredTimeline(fixture).Tracks[0].Keys.size() == 2);
+	size_t const before = fixture.GetUndoCount();
+	fixture.Gui.Chord(ImGuiMod_Ctrl | ImGuiKey_A, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(view.GetSelection().size() == 4);
+	// Nothing of the canvas was selected or deleted by those keys.
+	CHECK(fixture.Model().GetSelection().empty());
+	CHECK(fixture.FindNode(1) != nullptr);
+	CHECK(fixture.GetUndoCount() == before);
+
+	// The wheel zooms time, Ctrl+wheel the values, a right drag pans.
+	glm::vec2 const middle = (view.GetMin() + view.GetMax()) * 0.5f;
+	glm::vec2 const times = view.GetTimeRange();
+	fixture.Gui.Wheel(ToImVec2(middle), ImVec2(0.0f, 1.0f), fixture.Drawer());
+	CHECK(view.GetTimeRange().y - view.GetTimeRange().x < times.y - times.x);
+	glm::vec2 const values = view.GetValueRange();
+	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Ctrl, true);
+	fixture.Gui.Wheel(ToImVec2(middle), ImVec2(0.0f, 1.0f), fixture.Drawer());
+	Testing::HeadlessImGui::SetModifiers(ImGuiMod_Ctrl, false);
+	CHECK(view.GetValueRange().y - view.GetValueRange().x < values.y - values.x);
+	glm::vec2 const panned = view.GetTimeRange();
+	fixture.Gui.DragPath(ToImVec2(middle), ToImVec2(middle + glm::vec2(60.0f, 0.0f)), fixture.Drawer(), ImGuiMouseButton_Right);
+	CHECK(view.GetTimeRange().x < panned.x);
+	// F frames the selection.
+	fixture.Gui.Press(ImGuiKey_F, fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(view.GetTimeRange().x < 0.0f);
+	CHECK(view.GetTimeRange().y > 1.5f);
+
+	// Escape gives the keyboard back to the canvas.
+	fixture.Gui.Press(ImGuiKey_Escape, fixture.Drawer());
+	fixture.Frames(2);
+	CHECK(GImGui->NavWindow == fixture.GetChild("##canvas"));
+	CHECK(fixture.Panel->GetState().Drawer == VisualScriptDrawerMode::Timeline);
 }
