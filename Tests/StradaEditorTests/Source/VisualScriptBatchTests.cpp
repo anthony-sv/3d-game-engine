@@ -962,7 +962,7 @@ TEST_CASE("VisualScriptBatch: Arrange's Created scope places new nodes beside th
 		// Its right edge 64 left of the Delay, at its top; then down past the Log it would overlap.
 		CHECK(FindNode(result.Document, GetLabel(result, "$time"))->Position == glm::vec2(320.0f, 160.0f));
 	}
-	SUBCASE("An unconnected group goes below everything, and steps down past a comment box")
+	SUBCASE("An unconnected group goes below everything, and steps down until a box framing it would clear a comment box")
 	{
 		Json const operations = Json::array({Json::object({{"op", "AddNode"}, {"type", std::string(LogType)}, {"as", "$alone"}}), arrange});
 		VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
@@ -975,7 +975,8 @@ TEST_CASE("VisualScriptBatch: Arrange's Created scope places new nodes beside th
 		box.Size = glm::vec2(400.0f, 200.0f);
 		boxed.Graph.Comments.push_back(box);
 		VisualScriptBatchResult const stepped = ExpectApplied(boxed, operations, fixture.Context);
-		CHECK(FindNode(stepped.Document, GetLabel(stepped, "$alone"))->Position == glm::vec2(0.0f, 432.0f));
+		// The box ends at 400; a frame reaches 72 above the node, and stays 32 clear of the box: 504, on the 16 grid.
+		CHECK(FindNode(stepped.Document, GetLabel(stepped, "$alone"))->Position == glm::vec2(0.0f, 512.0f));
 	}
 	SUBCASE("Scopes Graph and Nodes")
 	{
@@ -985,6 +986,53 @@ TEST_CASE("VisualScriptBatch: Arrange's Created scope places new nodes beside th
 		CHECK(ExpectApplied(document, nodes, fixture.Context).Results[0] == Json::object({{"arranged", 2}}));
 		Json const mixed = Json::array({Json::object({{"op", "Arrange"}, {"nodes", Json::array({2, 3})}})});
 		CHECK(ExpectRefused(document, mixed, fixture.Context).Path == "operations[0].nodes");
+	}
+}
+
+TEST_CASE(
+	"VisualScriptBatch: Arrange's Created scope keeps new nodes a frame's reach clear of comment boxes, so framing them overlaps none")
+{
+	BatchFixture fixture;
+	// The event graph's chain framed, as a region an earlier batch made.
+	Json const frame = Json::array({Json::object({{"op", "AddComment"}, {"text", "Update"}, {"elements", Json::array({1, 2, 3})}})});
+	VisualScriptDocument const document = ExpectApplied(MakeDocument(), frame, fixture.Context).Document;
+	REQUIRE(document.Graph.Comments.size() == 1);
+	VisualScriptComment const box = document.Graph.Comments[0];
+	Json const region = Json::object({{"op", "AddComment"}, {"text", "Next"}, {"elements", Json::array({"$first", "$second"})}});
+	auto const addRegion = [&region](Json const& link)
+	{
+		return Json::array(
+			{Json::object({{"op", "AddNode"}, {"type", std::string(LogType)}, {"as", "$first"}}),
+		     Json::object({{"op", "AddNode"}, {"type", std::string(LogType)}, {"as", "$second"}}),
+		     Json::object({{"op", "Connect"}, {"from", Json::array({"$first", "Then"})}, {"to", Json::array({"$second", "Execute"})}}),
+		     link, Json::object({{"op", "Arrange"}, {"scope", "Created"}}), region});
+	};
+	// The new box stands below the earlier one, at least the gap between nodes (32) clear of it, and holds no node of it.
+	auto const expectApart = [&box](VisualScriptBatchResult const& result)
+	{
+		REQUIRE(result.Document.Graph.Comments.size() == 2);
+		CHECK(result.Document.Graph.Comments[0] == box);
+		VisualScriptComment const& added = result.Document.Graph.Comments[1];
+		CHECK(added.Position.y >= box.Position.y + box.Size.y + 32.0f);
+		for (uint32_t const id : {1u, 2u, 3u})
+		{
+			CHECK(FindNode(result.Document, id)->Position->y < added.Position.y);
+		}
+	};
+
+	SUBCASE("A group that continues nothing")
+	{
+		Json const operations = addRegion(Json::object({{"op", "SetInput"}, {"node", "$first"}, {"pin", "Message"}, {"value", "a"}}));
+		expectApart(ExpectApplied(document, operations, fixture.Context));
+	}
+	SUBCASE("A group that continues a node in the box (Beacon's peak region, track N+'s report)")
+	{
+		Json const operations = addRegion(
+			Json::object({{"op", "Connect"}, {"from", Json::array({3, "Completed"})}, {"to", Json::array({"$first", "Execute"})}}));
+		VisualScriptBatchResult const result = ExpectApplied(document, operations, fixture.Context);
+		expectApart(result);
+		// Still in the columns after the node it continues.
+		CHECK(FindNode(result.Document, GetLabel(result, "$first"))->Position->x >= FindNode(result.Document, 3)->Position->x);
 	}
 }
 

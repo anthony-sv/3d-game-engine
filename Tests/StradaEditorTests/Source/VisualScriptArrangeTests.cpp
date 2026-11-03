@@ -1,6 +1,8 @@
+#include "Fuzzing.h"
 #include "VisualScriptTestDocuments.h"
 
 #include "Editor/VisualScripting/VisualScriptArrange.h"
+#include "Editor/VisualScripting/VisualScriptEditing.h"
 
 #include "Strada/Asset/VisualScriptAsset.h"
 #include "Strada/Asset/VisualScriptLayout.h"
@@ -13,6 +15,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -601,4 +604,255 @@ TEST_CASE("VisualScriptArrange: anchors must be placed nodes of the graph that a
 	CHECK(document.Graph.Nodes[1].Position == glm::vec2(320.0f, 0.0f));
 	CHECK(document.Graph.Nodes[2].Position == glm::vec2(640.0f, 0.0f));
 	CHECK_FALSE(document.Graph.Nodes[3].Position.has_value());
+}
+
+namespace
+{
+	bool Overlap(glm::vec2 minimum, glm::vec2 maximum, glm::vec2 otherMinimum, glm::vec2 otherMaximum)
+	{
+		return minimum.x < otherMaximum.x && otherMinimum.x < maximum.x && minimum.y < otherMaximum.y && otherMinimum.y < maximum.y;
+	}
+
+	VisualScriptNode* FindArrangedNode(VisualScriptGraph& graph, uint32_t id)
+	{
+		auto const found = std::find_if(graph.Nodes.begin(), graph.Nodes.end(),
+		                                [id](VisualScriptNode const& node)
+		                                {
+											return node.ID == id;
+										});
+		return found != graph.Nodes.end() ? &*found : nullptr;
+	}
+
+	// Each comment box (the graph's i-th) frames exactly the nodes of the i-th region: they stand inside it, and no other
+	// node touches it; no two boxes overlap, and no two placed nodes do.
+	void CheckRegions(VisualScriptGraph const& graph, std::vector<std::vector<uint32_t>> const& regions,
+	                  VisualScriptNodeExtents const& extents)
+	{
+		REQUIRE(graph.Comments.size() == regions.size());
+		for (size_t box = 0; box < regions.size(); box++)
+		{
+			CAPTURE(box);
+			VisualScriptComment const& comment = graph.Comments[box];
+			glm::vec2 const boxMaximum = comment.Position + comment.Size;
+			for (VisualScriptNode const& node : graph.Nodes)
+			{
+				if (!node.Position)
+				{
+					continue;
+				}
+				CAPTURE(node.ID);
+				glm::vec2 const nodeMaximum = *node.Position + extents(node.ID);
+				bool const member = std::find(regions[box].begin(), regions[box].end(), node.ID) != regions[box].end();
+				if (member)
+				{
+					CHECK(node.Position->x >= comment.Position.x);
+					CHECK(node.Position->y >= comment.Position.y);
+					CHECK(nodeMaximum.x <= boxMaximum.x);
+					CHECK(nodeMaximum.y <= boxMaximum.y);
+				}
+				else
+				{
+					CHECK_FALSE(Overlap(*node.Position, nodeMaximum, comment.Position, boxMaximum));
+				}
+			}
+			for (size_t other = box + 1; other < regions.size(); other++)
+			{
+				CAPTURE(other);
+				VisualScriptComment const& second = graph.Comments[other];
+				CHECK_FALSE(Overlap(comment.Position, boxMaximum, second.Position, second.Position + second.Size));
+			}
+		}
+		for (size_t first = 0; first < graph.Nodes.size(); first++)
+		{
+			for (size_t second = first + 1; second < graph.Nodes.size(); second++)
+			{
+				VisualScriptNode const& a = graph.Nodes[first];
+				VisualScriptNode const& b = graph.Nodes[second];
+				if (a.Position && b.Position)
+				{
+					CAPTURE(a.ID);
+					CAPTURE(b.ID);
+					CHECK_FALSE(Overlap(*a.Position, *a.Position + extents(a.ID), *b.Position, *b.Position + extents(b.ID)));
+				}
+			}
+		}
+	}
+
+	// The top-left corner of some placed nodes.
+	glm::vec2 GetNodesCorner(VisualScriptGraph const& graph, std::vector<uint32_t> const& nodes)
+	{
+		glm::vec2 corner(std::numeric_limits<float>::max());
+		for (VisualScriptNode const& node : graph.Nodes)
+		{
+			if (std::find(nodes.begin(), nodes.end(), node.ID) != nodes.end())
+			{
+				REQUIRE(node.Position.has_value());
+				corner = glm::min(corner, *node.Position);
+			}
+		}
+		return corner;
+	}
+
+	// Each region stands as arranging its nodes alone at their top-left corner lays them out (the sample graphs' readability
+	// test, spec-slice4 §18.6).
+	void CheckRegionsArranged(VisualScriptDocument const& document, std::vector<std::vector<uint32_t>> const& regions,
+	                          VisualScriptNodeExtents const& extents)
+	{
+		for (std::vector<uint32_t> const& region : regions)
+		{
+			VisualScriptDocument alone = document;
+			REQUIRE(VisualScriptEditing::ArrangeNodes(alone, 0, region, extents, GetNodesCorner(document.Graph, region)).IsOk());
+			CHECK(alone == document);
+		}
+	}
+}
+
+TEST_CASE("VisualScriptArrange: arranging Beacon moves each comment box's nodes as one block, so its two linked regions stay apart")
+{
+	// Beacon.sgraph of slice 3's demonstration (track N+'s report): the timeline region, and the peak region that its
+	// Peak output continues. Arranging the graph as one flow interleaved the regions and nested their boxes.
+	std::vector<uint32_t> const glow = {1, 6, 7, 8, 9, 10, 11, 12, 13, 27};
+	std::vector<uint32_t> const peak = {15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25};
+	VisualScriptDocument document;
+	for (std::vector<uint32_t> const* region : {&glow, &peak})
+	{
+		for (uint32_t const id : *region)
+		{
+			document.Graph.Nodes.push_back(MakeNode(id));
+		}
+	}
+	std::vector<std::pair<uint32_t, uint32_t>> const links = {{1, 6},   {6, 7},   {7, 8},   {6, 8},   {8, 13},  {9, 10},  {10, 11},
+	                                                          {11, 12}, {12, 13}, {6, 19},  {15, 18}, {16, 17}, {17, 18}, {18, 19},
+	                                                          {19, 21}, {16, 20}, {19, 20}, {20, 21}, {21, 22}, {22, 23}, {23, 25},
+	                                                          {19, 24}, {22, 24}, {24, 25}, {10, 27}, {6, 27},  {27, 7}};
+	for (auto const& [from, to] : links)
+	{
+		document.Graph.Links.push_back(MakeLink(from, to));
+	}
+	// Sizes of the kinds Beacon holds: events and getters narrow, calls wide, the Timeline tall.
+	VisualScriptNodeExtents const extents = [](uint32_t node)
+	{
+		if (node == 6)
+		{
+			return glm::vec2(240.0f, 208.0f);
+		}
+		return glm::vec2(144.0f + static_cast<float>(node % 4) * 32.0f, 64.0f + static_cast<float>(node % 3) * 24.0f);
+	};
+	glm::vec4 const color(0.2f, 0.4f, 0.9f, 0.3f);
+
+	// As the demonstration built it: the first region arranged and framed, then the second placed below its box (by the
+	// frame's reach and the gap between nodes, as Arrange's Created scope keeps it) and framed.
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, glow, extents, glm::vec2(0.0f)).IsOk());
+	REQUIRE(VisualScriptEditing::AddComment(document, 0, "Glow and swell", glow, extents, glm::vec2(0.0f), color).IsOk());
+	VisualScriptComment const& first = document.Graph.Comments[0];
+	float const below =
+		first.Position.y + first.Size.y + 32.0f + VisualScriptEditing::CommentFrameMargin + VisualScriptEditing::CommentFrameTitleSpace;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, peak, extents, glm::vec2(0.0f, std::ceil(below / 16.0f) * 16.0f)).IsOk());
+	REQUIRE(VisualScriptEditing::AddComment(document, 0, "At the peak", peak, extents, glm::vec2(0.0f), color).IsOk());
+	CheckRegions(document.Graph, {glow, peak}, extents);
+	glm::vec2 const corner = GetNodesCorner(document.Graph, glow);
+
+	REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, extents).IsOk());
+	CheckRegions(document.Graph, {glow, peak}, extents);
+	CheckRegionsArranged(document, {glow, peak}, extents);
+	// The nodes' corner stays; the peak region, which the timeline's Peak continues, stands right of the timeline's box.
+	CHECK(GetNodesCorner(document.Graph, glow) == corner);
+	VisualScriptComment const& timeline = document.Graph.Comments[0];
+	CHECK(document.Graph.Comments[1].Position.x >= timeline.Position.x + timeline.Size.x + 64.0f);
+	// Arranging again changes nothing.
+	VisualScriptDocument again = document;
+	REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, extents).IsOk());
+	CHECK(again == document);
+	Testing::ExpectStrictRoundTrip(document);
+}
+
+TEST_CASE("VisualScriptArrange: arranging random framed graphs keeps their boxes apart, each framing the nodes it framed")
+{
+	Testing::FuzzRandom random(11300);
+	int const rounds = Testing::GetFuzzRounds(100);
+	for (int round = 0; round < rounds; round++)
+	{
+		CAPTURE(round);
+		// Nodes with spread IDs, each in one of up to four regions or in none; links between any of them, cycles too.
+		size_t const regionCount = 1 + random.Pick(4);
+		size_t const nodeCount = regionCount + random.Pick(16);
+		std::vector<std::vector<uint32_t>> regions(regionCount);
+		std::vector<uint32_t> loose;
+		std::vector<uint32_t> ids;
+		for (uint32_t id = 1; ids.size() < nodeCount; id += 1 + static_cast<uint32_t>(random.Pick(3)))
+		{
+			ids.push_back(id);
+		}
+		VisualScriptDocument document;
+		for (size_t place = 0; place < ids.size(); place++)
+		{
+			size_t const choice = place < regionCount ? place : random.Pick(regionCount + 1);
+			(choice < regionCount ? regions[choice] : loose).push_back(ids[place]);
+			document.Graph.Nodes.push_back(MakeNode(ids[place]));
+		}
+		// The order of the nodes must not matter.
+		for (size_t place = document.Graph.Nodes.size(); place > 1; place--)
+		{
+			std::swap(document.Graph.Nodes[place - 1], document.Graph.Nodes[random.Pick(place)]);
+		}
+		std::set<std::pair<uint32_t, uint32_t>> linked;
+		for (size_t count = random.Pick(2 * nodeCount); count > 0; count--)
+		{
+			uint32_t const from = ids[random.Pick(ids.size())];
+			uint32_t const to = ids[random.Pick(ids.size())];
+			if (from != to && linked.emplace(from, to).second)
+			{
+				document.Graph.Links.push_back(MakeLink(from, to));
+			}
+		}
+		std::map<uint32_t, glm::vec2> sizes;
+		for (uint32_t const id : ids)
+		{
+			sizes.emplace(id, glm::vec2(96.0f + static_cast<float>(random.Pick(200)), 48.0f + static_cast<float>(random.Pick(160))));
+		}
+		VisualScriptNodeExtents const extents = [sizes](uint32_t node)
+		{
+			return sizes.at(node);
+		};
+
+		// Each region arranged and framed below the boxes before it, some boxes then enlarged, and the loose nodes placed
+		// below everything or left without a position.
+		float top = static_cast<float>(random.Pick(5)) * 100.0f - 200.0f;
+		for (std::vector<uint32_t> const& region : regions)
+		{
+			glm::vec2 const at(static_cast<float>(random.Pick(7)) * 150.0f - 450.0f, top);
+			REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, region, extents, at).IsOk());
+			REQUIRE(VisualScriptEditing::AddComment(document, 0, "Region", region, extents, glm::vec2(0.0f), glm::vec4(0.5f)).IsOk());
+			VisualScriptComment& box = document.Graph.Comments.back();
+			if (random.Pick(3) == 0)
+			{
+				box.Size += glm::vec2(static_cast<float>(random.Pick(120)), static_cast<float>(random.Pick(60)));
+			}
+			top = box.Position.y + box.Size.y + 200.0f;
+		}
+		for (uint32_t const id : loose)
+		{
+			if (random.Pick(2) == 0)
+			{
+				continue;
+			}
+			VisualScriptNode* const node = FindArrangedNode(document.Graph, id);
+			REQUIRE(node != nullptr);
+			node->Position = glm::vec2(static_cast<float>(random.Pick(5)) * 400.0f - 800.0f, top);
+			top += extents(id).y + 64.0f;
+		}
+		CheckRegions(document.Graph, regions, extents);
+
+		REQUIRE(VisualScriptEditing::ArrangeNodes(document, 0, {}, extents).IsOk());
+		for (VisualScriptNode const& node : document.Graph.Nodes)
+		{
+			REQUIRE(node.Position.has_value());
+		}
+		CheckRegions(document.Graph, regions, extents);
+		CheckRegionsArranged(document, regions, extents);
+		VisualScriptDocument again = document;
+		REQUIRE(VisualScriptEditing::ArrangeNodes(again, 0, {}, extents).IsOk());
+		CHECK(again == document);
+		Testing::ExpectStrictRoundTrip(document);
+	}
 }

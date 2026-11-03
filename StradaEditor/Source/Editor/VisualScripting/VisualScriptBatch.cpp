@@ -2152,17 +2152,22 @@ namespace Strada
 					blocks.push_back(members);
 				}
 
-				// Each block in turn moves down until it overlaps, with the gap between nodes around it, no other node, comment box
-				// or block placed before it.
+				// Each block in turn moves down until it overlaps, with the gap between nodes around it, no other node or block
+				// placed before it, and until the frame a comment box framing it would get (AddComment's) stays that gap clear of
+				// every comment box, so a region framed after this never overlaps an earlier one.
 				std::vector<Rect> obstacles;
 				for (PlacedNode const& node : placed)
 				{
 					obstacles.push_back(node.Bounds);
 				}
+				std::vector<Rect> boxes;
 				for (VisualScriptComment const& comment : graph->Comments)
 				{
-					obstacles.push_back(Rect{comment.Position, comment.Position + comment.Size});
+					boxes.push_back(Rect{comment.Position, comment.Position + comment.Size});
 				}
+				glm::vec2 const frameBefore(Editing::CommentFrameMargin + NodeGap,
+				                            Editing::CommentFrameMargin + Editing::CommentFrameTitleSpace + NodeGap);
+				glm::vec2 const frameAfter(Editing::CommentFrameMargin + NodeGap);
 				for (std::vector<uint32_t> const& block : blocks)
 				{
 					std::optional<Rect> bounds = GetBounds(block, extents);
@@ -2171,16 +2176,24 @@ namespace Strada
 						continue;
 					}
 					float offset = 0.0f;
-					for (size_t guard = 0; guard <= obstacles.size(); guard++)
+					for (size_t guard = 0; guard <= obstacles.size() + boxes.size(); guard++)
 					{
-						Rect const grown{bounds->Min - glm::vec2(NodeGap) + glm::vec2(0.0f, offset),
-						                 bounds->Max + glm::vec2(NodeGap) + glm::vec2(0.0f, offset)};
+						glm::vec2 const down(0.0f, offset);
+						Rect const grown{bounds->Min - glm::vec2(NodeGap) + down, bounds->Max + glm::vec2(NodeGap) + down};
+						Rect const framed{bounds->Min - frameBefore + down, bounds->Max + frameAfter + down};
 						float needed = 0.0f;
 						for (Rect const& obstacle : obstacles)
 						{
 							if (grown.Overlaps(obstacle))
 							{
 								needed = std::max(needed, obstacle.Max.y - grown.Min.y);
+							}
+						}
+						for (Rect const& box : boxes)
+						{
+							if (framed.Overlaps(box))
+							{
+								needed = std::max(needed, box.Max.y - framed.Min.y);
 							}
 						}
 						if (needed <= 0.0f)

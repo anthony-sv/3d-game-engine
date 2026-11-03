@@ -5,6 +5,7 @@
 
 #include "Editor/EditorContext.h"
 #include "Editor/EditorOperations.h"
+#include "Editor/Panels/VisualScriptEditorPanel.h"
 #include "Editor/UI/EditorUI.h"
 #include "Editor/UI/FieldEditor.h"
 #include "Editor/VisualScripting/VisualScriptDetails.h"
@@ -3253,6 +3254,63 @@ TEST_CASE("VisualScriptEditor: Details' node header ellipsizes a subtitle too lo
 	REQUIRE(tooltip != nullptr);
 	CHECK(tooltip->Active);
 	CHECK(tooltip->ContentSize.x >= ImGui::CalcTextSize(subtitle.c_str()).x - 1.0f);
+}
+
+TEST_CASE("VisualScriptEditor: Details' Align and Distribute buttons fit or wrap at the stacked column's narrowest width")
+{
+	PaneFixture fixture(MakeDocument(), {FixturePane::Details});
+	fixture.Frames(2);
+	fixture.SelectElements({1, 2});
+	constexpr std::array<std::string_view, 8> Buttons = {
+		"Align/Left",           "Align/Right", "Align/Top", "Align/Bottom", "Align/Centres", "Align/Middles", "Distribute/Horizontally",
+		"Distribute/Vertically"};
+	for (float const scale : {1.0f, 1.75f})
+	{
+		CAPTURE(scale);
+		ImGui::GetStyle().FontScaleDpi = scale;
+		float fontSize = 0.0f;
+		fixture.ImGui.Frame(
+			[&fontSize]
+			{
+				fontSize = ImGui::GetFontSize();
+			});
+		// Details at its least width, the stacked column's narrowest (VisualScriptWindowLayout's rule 2).
+		fixture.DetailsWindowSize = ImVec2(VisualScriptDetailsMinWidth * fontSize, PaneFixture::DetailsSize.y);
+		fixture.Frames(3);
+		ImGuiWindow const* const details = ImGui::FindWindowByName("Details");
+		REQUIRE(details != nullptr);
+		std::optional<std::pair<glm::vec2, glm::vec2>> const align = fixture.Details.FindRow("Align");
+		REQUIRE(align);
+		std::vector<std::pair<glm::vec2, glm::vec2>> rects;
+		for (std::string_view const button : Buttons)
+		{
+			CAPTURE(button);
+			std::optional<std::pair<glm::vec2, glm::vec2>> const rect = fixture.Details.FindRow(button);
+			REQUIRE(rect);
+			// Whole within the value column and the pane, beside no other button. A wrapped line starts at the group's indent
+			// rounded down to the pixel (imgui.cpp:12290).
+			CHECK(rect->first.x >= std::floor(align->first.x));
+			CHECK(rect->second.x <= details->ContentRegionRect.Max.x + 0.5f);
+			std::string_view const label = button.substr(button.find('/') + 1);
+			CHECK(rect->second.x - rect->first.x >= ImGui::CalcTextSize(label.data(), label.data() + label.size()).x);
+			for (std::pair<glm::vec2, glm::vec2> const& other : rects)
+			{
+				CHECK_FALSE((rect->first.x < other.second.x && other.first.x < rect->second.x && rect->first.y < other.second.y &&
+				             other.first.y < rect->second.y));
+			}
+			rects.push_back(*rect);
+		}
+		// At this width the Align buttons wrap onto more lines than one.
+		CHECK(fixture.Details.FindRow("Align/Middles")->first.y > fixture.Details.FindRow("Align/Right")->first.y);
+	}
+
+	// Middles, the last, aligns the selection.
+	size_t const undo = fixture.GetUndoCount();
+	fixture.ImGui.Click(fixture.DetailsRow("Align/Middles"), fixture.Drawer());
+	fixture.Frames(1);
+	CHECK(fixture.GetUndoCount() == undo + 1);
+	CHECK(fixture.Context.GetHistory().GetUndoDescription() == "Align 2 Nodes Middles in Graph");
+	ImGui::GetStyle().FontScaleDpi = 1.0f;
 }
 
 TEST_CASE("VisualScriptEditor: a caret block marks the line of its span with tabs as four columns, and Edit Formula selects the span")

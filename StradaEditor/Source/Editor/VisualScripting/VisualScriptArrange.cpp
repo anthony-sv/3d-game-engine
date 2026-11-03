@@ -38,13 +38,22 @@ namespace Strada
 			// Into the graph's nodes.
 			size_t Index = 0;
 			glm::dvec2 Size{0.0};
-			uint32_t Component = 0;
-			uint32_t Layer = 0;
-			// Where the layout puts it, relative to the corner of the arranged bounds.
+			// Where the layout puts it, relative to the corner of the arranged block.
 			glm::dvec2 Offset{0.0};
 		};
 
-		// The columns of one group of linked nodes: per layer, the group's nodes (indices into the arranged nodes) in their
+		// What the layered layout places: an arranged node, or a region of comment boxes that stands for the nodes it frames.
+		struct LayoutItem
+		{
+			uint32_t ID = 0;
+			glm::dvec2 Size{0.0};
+			uint32_t Component = 0;
+			uint32_t Layer = 0;
+			// Where the layout puts it, relative to the corner of the laid out items.
+			glm::dvec2 Offset{0.0};
+		};
+
+		// The columns of one group of linked items: per layer, the group's items (indices into the laid out items) in their
 		// order from top to bottom.
 		using Columns = std::vector<std::vector<size_t>>;
 
@@ -256,6 +265,17 @@ namespace Strada
 			std::vector<size_t> Nodes;
 		};
 
+		// Comment boxes to fit again whose nodes move as one block: one box, or boxes that share nodes. Its item frames every box
+		// as a new comment box framing the box's nodes would.
+		struct Region
+		{
+			// Indices into the arranged nodes, in ID order, and into the comment boxes to fit.
+			std::vector<size_t> Nodes;
+			std::vector<size_t> Refits;
+			// Where the region's nodes stand in its item, from the item's corner.
+			glm::dvec2 Inset{0.0};
+		};
+
 		// A placed node the arranged block stands beside.
 		struct Anchor
 		{
@@ -263,6 +283,161 @@ namespace Strada
 			glm::dvec2 Position{0.0};
 			glm::dvec2 Size{0.0};
 		};
+
+		// The frame a comment box gets around nodes of the given bounds: CommentFrameMargin on every side and
+		// CommentFrameTitleSpace more above, at least the format's smallest size.
+		std::pair<glm::dvec2, glm::dvec2> FrameBounds(glm::dvec2 minimum, glm::dvec2 maximum)
+		{
+			glm::dvec2 const position =
+				minimum - glm::dvec2(VisualScriptEditing::CommentFrameMargin,
+			                         VisualScriptEditing::CommentFrameMargin + VisualScriptEditing::CommentFrameTitleSpace);
+			glm::dvec2 const size = glm::clamp(maximum + glm::dvec2(VisualScriptEditing::CommentFrameMargin) - position,
+			                                   glm::dvec2(Format::MinCommentSize), glm::dvec2(Format::MaxCommentSize));
+			return {position, size};
+		}
+
+		// The layered layout: sets each item's Offset from the corner of their bounds. The items are nodes of graph with their
+		// IDs, each once, in ID order; only the links of graph between them count, and those from the anchors (sorted top to
+		// bottom, then left to right, then by ID) into a group's first column, for the order of its rows.
+		void LayOutItems(VisualScriptGraph const& graph, std::vector<LayoutItem>& items, std::vector<Anchor> const& anchors)
+		{
+			std::unordered_map<uint32_t, size_t> numbers;
+			std::vector<uint32_t> ids;
+			ids.reserve(items.size());
+			for (size_t number = 0; number < items.size(); number++)
+			{
+				numbers.emplace(items[number].ID, number);
+				ids.push_back(items[number].ID);
+			}
+
+			// Groups, columns and the links between neighbouring columns (each pair of items once).
+			std::vector<VisualScriptLayerAssignment> const assignments = AssignVisualScriptLayers(graph, ids);
+			uint32_t componentCount = 0;
+			for (VisualScriptLayerAssignment const& assignment : assignments)
+			{
+				LayoutItem& item = items[numbers.at(assignment.Node)];
+				item.Component = assignment.Component;
+				item.Layer = assignment.Layer;
+				componentCount = std::max(componentCount, assignment.Component + 1);
+			}
+			std::vector<Columns> groups(componentCount);
+			// The assignments are in ID order, so each column fills in its ID order: the order of Row.
+			for (VisualScriptLayerAssignment const& assignment : assignments)
+			{
+				Columns& columns = groups[assignment.Component];
+				if (columns.size() <= assignment.Layer)
+				{
+					columns.resize(assignment.Layer + 1);
+				}
+				columns[assignment.Layer].push_back(numbers.at(assignment.Node));
+			}
+			// The anchors' column, numbered after the items.
+			std::vector<size_t> anchorColumn;
+			std::unordered_map<uint32_t, size_t> anchorNumbers;
+			for (Anchor const& anchor : anchors)
+			{
+				anchorNumbers.emplace(anchor.ID, items.size() + anchorColumn.size());
+				anchorColumn.push_back(items.size() + anchorColumn.size());
+			}
+			size_t const nodeCount = items.size() + anchorColumn.size();
+			std::vector<std::vector<size_t>> previous(nodeCount);
+			std::vector<std::vector<size_t>> next(nodeCount);
+			// The links from the anchors, (anchor, item) by group: each group is ordered against its own only.
+			std::vector<std::vector<std::pair<size_t, size_t>>> anchorLinks(componentCount);
+			for (VisualScriptLink const& link : graph.Links)
+			{
+				auto const to = numbers.find(link.To.Node);
+				if (to == numbers.end())
+				{
+					continue;
+				}
+				// A link from an anchor neighbours the block's first column only.
+				if (auto const anchor = anchorNumbers.find(link.From.Node); anchor != anchorNumbers.end())
+				{
+					if (items[to->second].Layer == 0)
+					{
+						previous[to->second].push_back(anchor->second);
+						anchorLinks[items[to->second].Component].emplace_back(anchor->second, to->second);
+					}
+					continue;
+				}
+				auto const from = numbers.find(link.From.Node);
+				if (from == numbers.end())
+				{
+					continue;
+				}
+				size_t left = from->second;
+				size_t right = to->second;
+				if (items[left].Layer > items[right].Layer)
+				{
+					std::swap(left, right);
+				}
+				if (items[left].Layer + 1 != items[right].Layer)
+				{
+					continue;
+				}
+				previous[right].push_back(left);
+				next[left].push_back(right);
+			}
+			for (std::vector<size_t>& list : previous)
+			{
+				std::sort(list.begin(), list.end());
+				list.erase(std::unique(list.begin(), list.end()), list.end());
+			}
+			for (std::vector<size_t>& list : next)
+			{
+				std::sort(list.begin(), list.end());
+				list.erase(std::unique(list.begin(), list.end()), list.end());
+			}
+
+			// Coordinates relative to the corner: each group below the one before it, its columns left to right. The anchors
+			// stand before each group's first column while its columns are ordered.
+			double top = 0.0;
+			for (size_t group = 0; group < groups.size(); group++)
+			{
+				Columns& columns = groups[group];
+				if (anchorColumn.empty())
+				{
+					OrderColumns(columns, previous, next, nodeCount, false);
+				}
+				else
+				{
+					// The anchors lead into this group's first column only while it is ordered.
+					for (auto const& [anchor, item] : anchorLinks[group])
+					{
+						next[anchor].push_back(item);
+					}
+					for (size_t const anchor : anchorColumn)
+					{
+						std::sort(next[anchor].begin(), next[anchor].end());
+						next[anchor].erase(std::unique(next[anchor].begin(), next[anchor].end()), next[anchor].end());
+					}
+					columns.insert(columns.begin(), anchorColumn);
+					OrderColumns(columns, previous, next, nodeCount, true);
+					columns.erase(columns.begin());
+					for (size_t const anchor : anchorColumn)
+					{
+						next[anchor].clear();
+					}
+				}
+				double left = 0.0;
+				double bottom = top;
+				for (std::vector<size_t> const& column : columns)
+				{
+					double width = 0.0;
+					double y = top;
+					for (size_t const item : column)
+					{
+						items[item].Offset = glm::dvec2(left, y);
+						width = std::max(width, items[item].Size.x);
+						bottom = std::max(bottom, y + items[item].Size.y);
+						y = RoundUpToGrid(y + items[item].Size.y + RowGap);
+					}
+					left = RoundUpToGrid(left + width + ColumnGap);
+				}
+				top = RoundUpToGrid(bottom + GroupGap);
+			}
+		}
 	}
 
 	namespace VisualScriptEditing
@@ -441,143 +616,194 @@ namespace Strada
 				}
 			}
 
-			// Groups, columns and the links between neighbouring columns (each pair of nodes once).
-			std::vector<VisualScriptLayerAssignment> const assignments = AssignVisualScriptLayers(graph, ids);
-			uint32_t componentCount = 0;
-			for (VisualScriptLayerAssignment const& assignment : assignments)
+			// The regions: the boxes to fit, those that share nodes joined. Each region's nodes are laid out on their own, and the
+			// region stands in the layout as one item framing its boxes.
+			std::vector<size_t> parents(refits.size());
+			for (size_t refit = 0; refit < refits.size(); refit++)
 			{
-				ArrangedNode& node = arranged[numbers.at(assignment.Node)];
-				node.Component = assignment.Component;
-				node.Layer = assignment.Layer;
-				componentCount = std::max(componentCount, assignment.Component + 1);
+				parents[refit] = refit;
 			}
-			std::vector<Columns> groups(componentCount);
-			// The assignments are in ID order, so each column fills in its ID order: the order of Row.
-			for (VisualScriptLayerAssignment const& assignment : assignments)
+			auto const findRoot = [&parents](size_t refit)
 			{
-				Columns& columns = groups[assignment.Component];
-				if (columns.size() <= assignment.Layer)
+				while (parents[refit] != refit)
 				{
-					columns.resize(assignment.Layer + 1);
+					parents[refit] = parents[parents[refit]];
+					refit = parents[refit];
 				}
-				columns[assignment.Layer].push_back(numbers.at(assignment.Node));
+				return refit;
+			};
+			constexpr size_t NoRefit = std::numeric_limits<size_t>::max();
+			std::vector<size_t> holders(arranged.size(), NoRefit);
+			for (size_t refit = 0; refit < refits.size(); refit++)
+			{
+				for (size_t const number : refits[refit].Nodes)
+				{
+					if (holders[number] == NoRefit)
+					{
+						holders[number] = refit;
+						continue;
+					}
+					size_t const first = findRoot(holders[number]);
+					size_t const second = findRoot(refit);
+					parents[std::max(first, second)] = std::min(first, second);
+				}
 			}
-			// The anchors' column, top to bottom (then left to right, then by ID), numbered after the arranged nodes.
+			std::vector<Region> regions;
+			std::vector<size_t> regionOfRoot(refits.size(), NoRefit);
+			for (size_t refit = 0; refit < refits.size(); refit++)
+			{
+				size_t const root = findRoot(refit);
+				if (regionOfRoot[root] == NoRefit)
+				{
+					regionOfRoot[root] = regions.size();
+					regions.emplace_back();
+				}
+				Region& region = regions[regionOfRoot[root]];
+				region.Refits.push_back(refit);
+				region.Nodes.insert(region.Nodes.end(), refits[refit].Nodes.begin(), refits[refit].Nodes.end());
+			}
+			constexpr size_t NoRegion = std::numeric_limits<size_t>::max();
+			std::vector<size_t> regionOf(arranged.size(), NoRegion);
+			for (size_t number = 0; number < regions.size(); number++)
+			{
+				Region& region = regions[number];
+				std::sort(region.Nodes.begin(), region.Nodes.end());
+				region.Nodes.erase(std::unique(region.Nodes.begin(), region.Nodes.end()), region.Nodes.end());
+				for (size_t const node : region.Nodes)
+				{
+					regionOf[node] = number;
+				}
+			}
+
+			// The items, in ID order: the nodes in no region, and each region under its smallest node's ID.
+			std::vector<LayoutItem> items;
+			std::vector<size_t> itemOf(arranged.size(), 0);
+			for (size_t number = 0; number < arranged.size(); number++)
+			{
+				size_t const region = regionOf[number];
+				if (region == NoRegion)
+				{
+					itemOf[number] = items.size();
+					items.push_back({arranged[number].ID, arranged[number].Size});
+					continue;
+				}
+				if (regions[region].Nodes.front() != number)
+				{
+					continue;
+				}
+				// The region's own layout, and the frames of its boxes around it.
+				std::vector<LayoutItem> inner;
+				inner.reserve(regions[region].Nodes.size());
+				for (size_t const node : regions[region].Nodes)
+				{
+					inner.push_back({arranged[node].ID, arranged[node].Size});
+				}
+				LayOutItems(graph, inner, {});
+				std::unordered_map<size_t, size_t> innerOf;
+				for (size_t place = 0; place < inner.size(); place++)
+				{
+					innerOf.emplace(regions[region].Nodes[place], place);
+				}
+				glm::dvec2 frameMinimum(std::numeric_limits<double>::max());
+				glm::dvec2 frameMaximum(std::numeric_limits<double>::lowest());
+				for (size_t const refit : regions[region].Refits)
+				{
+					glm::dvec2 minimum(std::numeric_limits<double>::max());
+					glm::dvec2 maximum(std::numeric_limits<double>::lowest());
+					for (size_t const node : refits[refit].Nodes)
+					{
+						LayoutItem const& placed = inner[innerOf.at(node)];
+						minimum = glm::min(minimum, placed.Offset);
+						maximum = glm::max(maximum, placed.Offset + placed.Size);
+					}
+					auto const [position, size] = FrameBounds(minimum, maximum);
+					frameMinimum = glm::min(frameMinimum, position);
+					frameMaximum = glm::max(frameMaximum, position + size);
+				}
+				// The inset keeps the region's nodes on the grid of the items' corners; the frames stand within the item.
+				glm::dvec2 const inset(RoundUpToGrid(-frameMinimum.x), RoundUpToGrid(-frameMinimum.y));
+				regions[region].Inset = inset;
+				for (size_t place = 0; place < inner.size(); place++)
+				{
+					arranged[regions[region].Nodes[place]].Offset = inner[place].Offset;
+				}
+				itemOf[number] = items.size();
+				items.push_back({arranged[number].ID, inset + frameMaximum});
+			}
+			for (size_t number = 0; number < arranged.size(); number++)
+			{
+				if (regionOf[number] != NoRegion)
+				{
+					itemOf[number] = itemOf[regions[regionOf[number]].Nodes.front()];
+				}
+			}
+
+			// The anchors' column, top to bottom (then left to right, then by ID).
 			std::sort(anchorNodes.begin(), anchorNodes.end(),
 			          [](Anchor const& a, Anchor const& b)
 			          {
 						  return std::tie(a.Position.y, a.Position.x, a.ID) < std::tie(b.Position.y, b.Position.x, b.ID);
 					  });
-			std::vector<size_t> anchorColumn;
-			std::unordered_map<uint32_t, size_t> anchorNumbers;
-			for (Anchor const& anchor : anchorNodes)
+			if (regions.empty())
 			{
-				anchorNumbers.emplace(anchor.ID, arranged.size() + anchorColumn.size());
-				anchorColumn.push_back(arranged.size() + anchorColumn.size());
-			}
-			size_t const nodeCount = arranged.size() + anchorColumn.size();
-			std::vector<std::vector<size_t>> previous(nodeCount);
-			std::vector<std::vector<size_t>> next(nodeCount);
-			// The links from the anchors, (anchor, node) by group: each group is ordered against its own only.
-			std::vector<std::vector<std::pair<size_t, size_t>>> anchorLinks(componentCount);
-			for (VisualScriptLink const& link : graph.Links)
-			{
-				auto const to = numbers.find(link.To.Node);
-				if (to == numbers.end())
+				LayOutItems(graph, items, anchorNodes);
+				for (size_t number = 0; number < arranged.size(); number++)
 				{
-					continue;
+					arranged[number].Offset = items[number].Offset;
 				}
-				// A link from an anchor neighbours the block's first column only.
-				if (auto const anchor = anchorNumbers.find(link.From.Node); anchor != anchorNumbers.end())
+			}
+			else
+			{
+				// The items as the nodes of a graph of their own, linked as their nodes are (and from the anchors).
+				VisualScriptGraph itemGraph;
+				itemGraph.Nodes.resize(items.size());
+				for (size_t item = 0; item < items.size(); item++)
 				{
-					if (arranged[to->second].Layer == 0)
+					itemGraph.Nodes[item].ID = items[item].ID;
+				}
+				for (VisualScriptLink const& link : graph.Links)
+				{
+					auto const to = numbers.find(link.To.Node);
+					if (to == numbers.end())
 					{
-						previous[to->second].push_back(anchor->second);
-						anchorLinks[arranged[to->second].Component].emplace_back(anchor->second, to->second);
+						continue;
 					}
-					continue;
+					uint32_t from = link.From.Node;
+					if (auto const source = numbers.find(link.From.Node); source != numbers.end())
+					{
+						from = items[itemOf[source->second]].ID;
+					}
+					else if (!std::binary_search(anchorIDs.begin(), anchorIDs.end(), from))
+					{
+						continue;
+					}
+					uint32_t const target = items[itemOf[to->second]].ID;
+					if (from != target)
+					{
+						itemGraph.Links.push_back({{from, {}}, {target, {}}});
+					}
 				}
-				auto const from = numbers.find(link.From.Node);
-				if (from == numbers.end())
+				LayOutItems(itemGraph, items, anchorNodes);
+				for (size_t number = 0; number < arranged.size(); number++)
 				{
-					continue;
+					LayoutItem const& item = items[itemOf[number]];
+					size_t const region = regionOf[number];
+					arranged[number].Offset =
+						region == NoRegion ? item.Offset : item.Offset + regions[region].Inset + arranged[number].Offset;
 				}
-				size_t left = from->second;
-				size_t right = to->second;
-				if (arranged[left].Layer > arranged[right].Layer)
-				{
-					std::swap(left, right);
-				}
-				if (arranged[left].Layer + 1 != arranged[right].Layer)
-				{
-					continue;
-				}
-				previous[right].push_back(left);
-				next[left].push_back(right);
-			}
-			for (std::vector<size_t>& list : previous)
-			{
-				std::sort(list.begin(), list.end());
-				list.erase(std::unique(list.begin(), list.end()), list.end());
-			}
-			for (std::vector<size_t>& list : next)
-			{
-				std::sort(list.begin(), list.end());
-				list.erase(std::unique(list.begin(), list.end()), list.end());
 			}
 
-			// Coordinates relative to the corner: each group below the one before it, its columns left to right. The anchors
-			// stand before each group's first column while its columns are ordered.
-			double top = 0.0;
-			for (size_t group = 0; group < groups.size(); group++)
+			// By default and with a corner, the arranged nodes' top-left corner is given (a region's frames reach above and
+			// left of it); with anchors, the block's corner.
+			glm::dvec2 nodesCorner(std::numeric_limits<double>::max());
+			for (ArrangedNode const& node : arranged)
 			{
-				Columns& columns = groups[group];
-				if (anchorColumn.empty())
-				{
-					OrderColumns(columns, previous, next, nodeCount, false);
-				}
-				else
-				{
-					// The anchors lead into this group's first column only while it is ordered.
-					for (auto const& [anchor, node] : anchorLinks[group])
-					{
-						next[anchor].push_back(node);
-					}
-					for (size_t const anchor : anchorColumn)
-					{
-						std::sort(next[anchor].begin(), next[anchor].end());
-						next[anchor].erase(std::unique(next[anchor].begin(), next[anchor].end()), next[anchor].end());
-					}
-					columns.insert(columns.begin(), anchorColumn);
-					OrderColumns(columns, previous, next, nodeCount, true);
-					columns.erase(columns.begin());
-					for (size_t const anchor : anchorColumn)
-					{
-						next[anchor].clear();
-					}
-				}
-				double left = 0.0;
-				double bottom = top;
-				for (std::vector<size_t> const& column : columns)
-				{
-					double width = 0.0;
-					double y = top;
-					for (size_t const node : column)
-					{
-						arranged[node].Offset = glm::dvec2(left, y);
-						width = std::max(width, arranged[node].Size.x);
-						bottom = std::max(bottom, y + arranged[node].Size.y);
-						y = RoundUpToGrid(y + arranged[node].Size.y + RowGap);
-					}
-					left = RoundUpToGrid(left + width + ColumnGap);
-				}
-				top = RoundUpToGrid(bottom + GroupGap);
+				nodesCorner = glm::min(nodesCorner, node.Offset);
 			}
-
-			glm::dvec2 origin = placedCorner.value_or(glm::dvec2(0.0));
+			glm::dvec2 origin = placedCorner.value_or(glm::dvec2(0.0)) - nodesCorner;
 			if (corner)
 			{
-				origin = glm::dvec2(*corner);
+				origin = glm::dvec2(*corner) - nodesCorner;
 			}
 			else if (!anchorNodes.empty())
 			{
@@ -605,12 +831,9 @@ namespace Strada
 					minimum = glm::min(minimum, position);
 					maximum = glm::max(maximum, position + arranged[number].Size);
 				}
-				minimum -= glm::dvec2(CommentFrameMargin, CommentFrameMargin + CommentFrameTitleSpace);
-				maximum += glm::dvec2(CommentFrameMargin);
+				auto const [position, size] = FrameBounds(minimum, maximum);
 				VisualScriptComment& comment = graph.Comments[refit.Comment];
-				comment.Position = glm::vec2(ToCoordinate(minimum.x), ToCoordinate(minimum.y));
-				glm::dvec2 const size =
-					glm::clamp(maximum - minimum, glm::dvec2(Format::MinCommentSize), glm::dvec2(Format::MaxCommentSize));
+				comment.Position = glm::vec2(ToCoordinate(position.x), ToCoordinate(position.y));
 				comment.Size = glm::vec2(size);
 			}
 			return {};

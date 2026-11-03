@@ -377,6 +377,20 @@ namespace Strada
 			}
 			return fmt::format("{} Elements", elements.size());
 		}
+
+		// Before a row's next small button: beside the one before when it ends by right, else on a line of its own, so a row
+		// of buttons wraps at its column's width instead of clipping its last ones. A small button is its label's width plus
+		// the frame padding on both sides (ImGui::SmallButton and ButtonEx,
+		// imgui_widgets.cpp:834-842 and :796-801).
+		void FlowSmallButton(char const* label, float right)
+		{
+			ImGuiStyle const& style = ImGui::GetStyle();
+			float const width = ImGui::CalcTextSize(label, nullptr, true).x + style.FramePadding.x * 2.0f;
+			if (ImGui::GetItemRectMax().x + style.ItemSpacing.x + width <= right)
+			{
+				ImGui::SameLine();
+			}
+		}
 	}
 
 	std::optional<double> EvaluateVisualScriptEasing(std::string_view easing, double t)
@@ -2994,15 +3008,20 @@ namespace Strada
 		                                                {"Bottom", VisualScriptAlignment::Bottom, "Bottom"},
 		                                                {"Centres", VisualScriptAlignment::Centers, "Centres"},
 		                                                {"Middles", VisualScriptAlignment::Middles, "Middles"}}};
+		// The buttons fit or wrap at the column's width: at the stacked column's narrowest, Details' least width, three of
+		// them do not fit on a line beside the label.
 		BeginRow("Align");
+		float const alignRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
 		ImGui::BeginGroup();
 		for (size_t i = 0; i < Aligns.size(); i++)
 		{
-			if (i > 0 && i % 3 != 0)
+			if (i > 0)
 			{
-				ImGui::SameLine();
+				FlowSmallButton(Aligns[i].Label, alignRight);
 			}
-			if (ImGui::SmallButton(Aligns[i].Label))
+			bool const clicked = ImGui::SmallButton(Aligns[i].Label);
+			EndRow(fmt::format("Align/{}", Aligns[i].Label));
+			if (clicked)
 			{
 				VisualScriptDocument edited = document;
 				Result<void> const aligned = VisualScriptEditing::AlignElements(edited, function, elements, Aligns[i].Alignment, extents);
@@ -3019,6 +3038,7 @@ namespace Strada
 		ImGui::EndGroup();
 		EndRow("Align");
 		BeginRow("Distribute");
+		float const distributeRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
 		ImGui::BeginGroup();
 		ImGui::BeginDisabled(elements.size() < 3);
 		std::optional<VisualScriptDistribution> distribution;
@@ -3026,11 +3046,13 @@ namespace Strada
 		{
 			distribution = VisualScriptDistribution::Horizontal;
 		}
-		ImGui::SameLine();
+		EndRow("Distribute/Horizontally");
+		FlowSmallButton("Vertically", distributeRight);
 		if (ImGui::SmallButton("Vertically"))
 		{
 			distribution = VisualScriptDistribution::Vertical;
 		}
+		EndRow("Distribute/Vertically");
 		ImGui::EndDisabled();
 		ImGui::EndGroup();
 		EndRow("Distribute");
